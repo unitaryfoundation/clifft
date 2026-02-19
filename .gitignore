@@ -1,0 +1,69 @@
+circuits
+circuits.zip
+*.DS_Store
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.pyc
+*.pkl
+*.egg
+*.egg-info/
+dist/
+build/
+.eggs/
+*.log
+*.sqlite3
+*.db
+*.env
+.env/
+.venv/
+venv/
+ENV/
+env/
+.ipynb_checkpoints/
+.mypy_cache/
+.pytest_cache/
+.coverage
+.tox/
+.cache/
+*.spec
+
+# Jupyter Notebook
+*.ipynb_checkpoints
+
+# VS Code
+.vscode/
+
+# LaTeX
+*.aux
+*.bbl
+*.blg
+*.brf
+*.fls
+*.fdb_latexmk
+*.log
+*.out
+*.toc
+*.lof
+*.lot
+*.gz
+*.synctex.gz
+*.nav
+*.snm
+*.vrb
+*.xdv
+*.pdfsync
+*.dvi
+*.ps
+#*.pdf
+*.thm
+
+# Mac system files
+.DS_Store
+
+# Others
+*.swp
+*.swo
