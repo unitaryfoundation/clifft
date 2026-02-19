@@ -1,0 +1,74 @@
+[project]
+name = "ucc"
+version = "0.1.0"
+description = "Universal Compiler Collection - AOT compiler and VM for quantum circuits"
+readme = "README.md"
+requires-python = ">=3.12"
+license = "Apache-2.0"
+authors = [
+    { name = "Brad Chase", email = "brad@unitary.foundation" },
+]
+keywords = ["quantum", "compiler", "simulation", "clifford", "stabilizer"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: Apache Software License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: C++",
+    "Topic :: Scientific/Engineering :: Physics",
+]
+dependencies = [
+    "numpy>=1.26",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pre-commit>=3.6",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0",
+    "pre-commit>=3.6",
+    "mypy>=1.8",
+    "ruff>=0.3",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+exclude = [
+    "prototype/",  # Legacy prototype code, not production
+]
+
+[tool.ruff.lint]
+select = [
+    "E",      # pycodestyle errors
+    "W",      # pycodestyle warnings
+    "F",      # pyflakes
+    "I",      # isort
+]
+ignore = []
+
+[tool.ruff.lint.isort]
+known-first-party = ["ucc"]
+
+[tool.mypy]
+python_version = "3.12"
+warn_return_any = true
+warn_unused_configs = true
+warn_unused_ignores = true
+check_untyped_defs = true
+disallow_untyped_defs = false
+disallow_incomplete_defs = true
+no_implicit_optional = true
+strict_equality = true
+exclude = [
+    "^prototype/",  # Legacy prototype code, not production
+]
+
+[[tool.mypy.overrides]]
+module = ["numpy.*", "stim.*", "pytest.*"]
+ignore_missing_imports = true

@@ -35,7 +35,7 @@ Do not churn, arbitrarily reformat, or rewrite the design documents to justify y
 Regardless of the current phase, you must strictly obey these evergreen boundaries:
 
 - **32-Byte Instruction:** The VM `Instruction` union MUST remain exactly 32 bytes to ensure L1 cache alignment. Enforce this with `static_assert(sizeof(Instruction) == 32)`.
-- **Stim is Immutable:** Fetch Stim via CMake `FetchContent` (tag `v1.14.0`). Do **NOT** fork, vendor, or patch Stim's source code. Use it purely as a math library in the Front-End.
+- **Stim is Immutable:** Fetch Stim via CMake `FetchContent`. Do **NOT** fork, vendor, or patch Stim's source code. Use it purely as a math library in the Front-End.
 - **Single Memory Allocation:** The VM's `ShotState` MUST allocate its `std::complex<double>* v` array exactly ONCE based on the `peak_rank`. Do not dynamically resize continuous memory vectors in the VM hot loop.
 - **Deterministic RNG (CRITICAL):** Do not use `<random>`'s `std::uniform_real_distribution` in C++, as it is implementation-defined and breaks cross-platform determinism (e.g., GCC vs Clang vs MSVC). To generate a random float in `[0, 1)`, use custom bit-manipulation of the `std::mt19937_64` output:
 
