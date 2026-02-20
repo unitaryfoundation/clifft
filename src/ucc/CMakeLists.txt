@@ -7,6 +7,7 @@ add_library(ucc_core STATIC
 
 target_include_directories(ucc_core PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/..
+    ${CMAKE_BINARY_DIR}/generated
 )
 
 target_link_libraries(ucc_core PUBLIC

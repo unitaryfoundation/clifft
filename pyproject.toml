@@ -1,3 +1,7 @@
+[build-system]
+requires = ["scikit-build-core>=0.10", "nanobind>=2.0"]
+build-backend = "scikit_build_core.build"
+
 [project]
 name = "ucc"
 version = "0.1.0"
@@ -12,7 +16,6 @@ keywords = ["quantum", "compiler", "simulation", "clifford", "stabilizer"]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Science/Research",
-    "License :: OSI Approved :: Apache Software License",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: C++",
@@ -26,6 +29,8 @@ dependencies = [
 dev = [
     "pytest>=8.0",
     "pre-commit>=3.6",
+    "nanobind>=2.0",
+    "scikit-build-core>=0.10",
 ]
 
 [dependency-groups]
@@ -34,7 +39,19 @@ dev = [
     "pre-commit>=3.6",
     "mypy>=1.8",
     "ruff>=0.3",
+    "nanobind>=2.0",
+    "scikit-build-core>=0.10",
 ]
+
+[tool.scikit-build]
+# Protect the configuration against future changes in scikit-build-core
+minimum-version = "build-system.requires"
+
+# Setuptools-style build caching in a local directory
+build-dir = "build/{wheel_tag}"
+
+# Build stable ABI wheels for CPython 3.12+
+wheel.py-api = "cp312"
 
 [tool.ruff]
 line-length = 100
@@ -70,5 +87,5 @@ exclude = [
 ]
 
 [[tool.mypy.overrides]]
-module = ["numpy.*", "stim.*", "pytest.*"]
+module = ["numpy.*", "stim.*", "pytest.*", "ucc", "ucc._ucc_core"]
 ignore_missing_imports = true

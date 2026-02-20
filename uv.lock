@@ -159,6 +159,15 @@ wheels = [
 ]
 
 [[package]]
+name = "nanobind"
+version = "2.11.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/7c/d6/2d17c0a630fabc05785c0ea57a994bb165b342416bec8e41c96f3fee5add/nanobind-2.11.0.tar.gz", hash = "sha256:6d98d063c61dbbd05a2d903e59be398bfcff9d59c54fbbc9d4488960485d40d0", size = 1001251, upload-time = "2026-01-29T11:24:34.403Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/e8/1c/37ae5b9a0d13defd8e27222e4cbfb82e569dbfd12d16ba8c78cab593e56c/nanobind-2.11.0-py3-none-any.whl", hash = "sha256:8097442c3e55d011a67f016ce1d9567ed9e3cdb3ad6749f13a76dbbc2721f0ee", size = 248913, upload-time = "2026-01-29T11:24:32.651Z" },
+]
+
+[[package]]
 name = "nodeenv"
 version = "1.10.0"
 source = { registry = "https://pypi.org/simple" }
@@ -377,6 +386,19 @@ wheels = [
 ]
 
 [[package]]
+name = "scikit-build-core"
+version = "0.11.6"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "packaging" },
+    { name = "pathspec" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/48/b2/c11aaa746f3dfcdb46499affbc5f9784c991d354a80ca92f96a0f0f5aadf/scikit_build_core-0.11.6.tar.gz", hash = "sha256:5982ccd839735be99cfd3b92a8847c6c196692f476c215da84b79d2ad12f9f1b", size = 286006, upload-time = "2025-08-22T22:11:56.112Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/43/49/ec16b3db6893db788ae35f98506ff5a9c25dca7eb18cc38ada8a4c1dc944/scikit_build_core-0.11.6-py3-none-any.whl", hash = "sha256:ce6d8fe64e6b4c759ea0fb95d2f8a68f60d2df31c2989838633b8ec930736360", size = 185764, upload-time = "2025-08-22T22:11:52.438Z" },
+]
+
+[[package]]
 name = "typing-extensions"
 version = "4.15.0"
 source = { registry = "https://pypi.org/simple" }
@@ -388,39 +410,47 @@ wheels = [
 [[package]]
 name = "ucc"
 version = "0.1.0"
-source = { virtual = "." }
+source = { editable = "." }
 dependencies = [
     { name = "numpy" },
 ]
 
 [package.optional-dependencies]
 dev = [
+    { name = "nanobind" },
     { name = "pre-commit" },
     { name = "pytest" },
+    { name = "scikit-build-core" },
 ]
 
 [package.dev-dependencies]
 dev = [
     { name = "mypy" },
+    { name = "nanobind" },
     { name = "pre-commit" },
     { name = "pytest" },
     { name = "ruff" },
+    { name = "scikit-build-core" },
 ]
 
 [package.metadata]
 requires-dist = [
+    { name = "nanobind", marker = "extra == 'dev'", specifier = ">=2.0" },
     { name = "numpy", specifier = ">=1.26" },
     { name = "pre-commit", marker = "extra == 'dev'", specifier = ">=3.6" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0" },
+    { name = "scikit-build-core", marker = "extra == 'dev'", specifier = ">=0.10" },
 ]
 provides-extras = ["dev"]
 
 [package.metadata.requires-dev]
 dev = [
     { name = "mypy", specifier = ">=1.8" },
+    { name = "nanobind", specifier = ">=2.0" },
     { name = "pre-commit", specifier = ">=3.6" },
     { name = "pytest", specifier = ">=8.0" },
     { name = "ruff", specifier = ">=0.3" },
+    { name = "scikit-build-core", specifier = ">=0.10" },
 ]
 
 [[package]]
