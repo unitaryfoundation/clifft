@@ -32,34 +32,51 @@ We will use a two-step benchmarking strategy to prove both correctness and absol
 
 ---
 
-## 2. Physical Circuit Optimization & Last-Mile Compilation
+## 2. Best-in-Class Noise-Aware T-Count Reduction ("Heisenberg-TOHPE")
 
 ### Overview
 
-Minimizing non-Clifford gate counts (such as the $T$-count) is a primary objective in quantum compilation. Finding the absolute theoretical minimum $T$-count for an arbitrary abstract quantum circuit is an NP-hard problem, typically addressed by offline logical synthesis tools utilizing phase polynomials or ZX-calculus graph rewriting (e.g., PyZX, tket). While mathematically optimal for pure, unitary algorithms, these tools frequently face computational bottlenecks and semantic limitations when applied to the stochastic constraints of physical fault-tolerant quantum computing (FTQC) circuits.
+Minimizing non-Clifford gate counts (such as the T-count) is a primary objective in quantum compilation. The 2025 state-of-the-art parity-table algorithms (such as the TOHPE and FastTODD procedures) achieve mathematically optimal reductions by mapping subcircuits to phase polynomials and solving the Third-Order Symmetric Tensor Rank (3-STR) problem.
 
-UCC approaches this optimization with a different objective. The UCC Middle-End acts as an $\mathcal{O}(1)$ greedy, algebraic cancellation engine. It is not designed to replace offline logical synthesis, but rather to complement it as a noise-aware, "last-mile" physical compiler. Operating natively in the Heisenberg picture, UCC functions as a global peephole optimizer that sees through Clifford obfuscation to identify and eliminate topological redundancies introduced during physical quantum error correction (QEC) routing, while strictly respecting stochastic memory barriers.
+However, these traditional solvers suffer from two fatal structural bottlenecks:
 
-Furthermore, the Heisenberg IR (HIR) provides a flat, algebraically independent representation of the circuit. While the current UCC optimizer implements a fast, single-pass sweep, the HIR serves as a highly structured foundation upon which future researchers could build more exhaustive, globally optimal synthesis algorithms—acting as a highly efficient mathematical alternative to ZX-diagrams. Developing such algorithms, however, remains outside the scope of the immediate UCC MVP.
+1. **The Ancilla & Partitioning Penalty:** To gain global visibility on mixed-Clifford circuits, they force "Hadamard Gadgetization," massively bloating the physical ancilla qubit count. Without gadgets, compilers must rely on bulky graph-partitioning heuristics to chop the circuit into Hadamard-free zones.
+2. **The Extraction / Synthesis Penalty:** Converting an optimized phase polynomial back into a physical, executable unitary circuit requires synthesizing complex CNOT networks. This destroys hardware routing constraints and inflates circuit depth.
 
-- **Program Representation Level:** Level 2 (Optimized Heisenberg IR). The circuit is parsed into the AST, passed through the Front-End to generate the HIR, and then optimized by the Middle-End. It is *not* lowered to VM bytecode.
-- **Minimum Functionality Needed:** Phase 1 (MVP). Requires Front-End HIR emission, and the Middle-End's $\mathcal{O}(1)$ bitwise commutation, fusion, and cancellation passes using symplectic inner products. Must include rigorous barrier awareness (MEASURE and NOISE).
-- **References:** `op-T-mize` dataset (Kottmann, 2025); PyZX (Kissinger & van de Wetering, 2020); TODD Algorithm (Heyfron & Campbell, 2017).
+**UCC natively bypasses both bottlenecks.** Because the Front-End's TableauSimulator mathematically *absorbs* all Clifford gates and rewinds everything to the $t=0$ topological basis, the resulting Heisenberg IR (HIR) is natively a global phase polynomial. By embedding the TOHPE algorithm directly into the UCC Middle-End, we can optimize the HIR and export it directly to Pauli-Based Computation (PBC) hardware routers like tqec—or execute it directly in the VM. **We never have to extract a CNOT unitary circuit**.
 
-#### Demonstration & Evaluation Strategy
+- **Program Representation Level:** Level 2 (Optimized Heisenberg IR).
+- **Minimum Functionality Needed:** Phase 1 (MVP). Requires Front-End HIR emission and the Middle-End applying the TOHPE GF(2) null-space extraction over the pairwise ANDs of the topological masks within commuting cliques.
+- **References:** Vandaele (2025): "Lower T-count with faster algorithms" (arXiv:2407.08695v2); op-T-mize benchmark suite.
 
-We will evaluate the UCC optimizer by characterizing its performance profile across both logical abstraction layers and physical FTQC regimes:
+### The Algorithm: L1-Resident Heisenberg-TOHPE
 
-1. **The Speed vs. Optimality Trade-off (`op-T-mize`):** We will process the standard `op-T-mize` dataset through UCC and compare compilation times and $T$-count reductions against tools like TODD and PyZX. Because UCC relies on exact Pauli matches rather than phase polynomial re-synthesis, it will mathematically leave some multi-axis cancellations unexploited. However, this benchmark will explicitly quantify the value of the trade-off: UCC trades absolute theoretical optimality for execution speeds that are orders of magnitude faster than graph-rewriting methods, establishing its utility as a Just-In-Time (JIT) heuristic.
-2. **Preservation of Physical Error Models:** Purely logical synthesizers are designed for unitary circuits and can inadvertently invalidate physical error models—for instance, by commuting a $T$ gate past an $X$-error channel, thereby conjugating the error into a coherent rotation. We will process a noisy physical circuit (e.g., a magic state distillation factory) to demonstrate that UCC safely cancels redundant non-Clifford gates separated by commuting noise or measurements, but strictly halts at anti-commuting barriers, preserving the physical validity of the simulation.
-3. **Scalability in the Fault-Tolerant Regime:** Heavy topological synthesizers frequently experience exponential slowdowns or memory exhaustion when processing fully unrolled QEC circuits. We will take a logical block that has been provably optimized by PyZX, route it into a physical surface code via Pauli-Based Computation (PBC), and feed the unrolled physical trace into UCC. We will demonstrate UCC sweeping and fusing the boundary redundancies introduced by the routing process in milliseconds, highlighting its viability as a scalable physical compiler.
+Because T-gates generate phase polynomials over $\mathbb{Z}_8$, linear dependencies must be found in the degree-3 Reed-Muller code space. UCC implements the TOHPE algorithm natively using CPU bitwise arithmetic:
 
-#### Metric & Proving Equivalence
+1. **Native Slicing via Symplectic Physics:** The Middle-End sweeps the HIR sequentially, grouping T_GATE and T_DAG_GATE nodes into "cliques" using the $\mathcal{O}(1)$ popcount symplectic inner product. Unlike competitors that use manual partitioning algorithms, UCC naturally halts cliques when a rewound mask anti-commutes (e.g., a T-gate rewound through a Hadamard becomes an X-mask and naturally breaks the clique).
+2. **Noise-Aware Barrier Enforcement:** The sweep halts strictly at any MEASURE or NOISE node (including coherent noise LCU branches) that anti-commutes with the active clique. This mathematically guarantees that the optimization never conjugates physical error models into new bases, making the compiler strictly FTQC-safe.
+3. **Build the Pairwise $L$-Matrix:** For a clique of $m$ T-gates, the spatial stab_masks form a parity table $P$. Following TOHPE, the optimizer constructs the binary matrix $L$ where each row is the bitwise AND of two spatial dimensions: $L_{\alpha\beta} = P_\alpha \wedge P_\beta$.
+4. **3-STR Null-Space Extraction:** The optimizer runs fast GF(2) Gaussian elimination to find a vector $y$ in the right null-space of $L$ ($Ly = 0$). This identifies a linear dependence that preserves the third-order tensor signature.
+5. **Greedy Substitution & Clifford Fold-Back:** Using the extracted $y$ and a deterministically chosen vector $z$, the optimizer substitutes $P' = P \oplus zy^T$. Redundant T_GATE nodes are physically deleted from the HIR, and residual lower-order phases are converted to Clifford S gates, which are flagged to be mathematically absorbed by the Front-End during the final fold-back pass.
 
-- **Metric (Re-synthesis vs. Counting):** Synthesizing optimized Pauli operations back into a standard `.stim` or OpenQASM text file requires solving the Clifford synthesis problem, which adds unnecessary computational overhead for modern FTQC execution workflows. Therefore, our standard metric will simply be the count of non-Clifford operations (`hir.num_gate_ops`) before and after optimization.
-- **Proving Equivalence to Readers:** To mathematically guarantee that the $\mathcal{O}(1)$ optimized HIR is functionally equivalent to the original circuit without reverse-synthesis, we will employ two automated proofs:
-  1. *Statevector Oracle (for circuits $\le 20$ qubits):* We compile the unoptimized input circuit into a dense statevector using our Python prototype, then run the Optimized HIR through the UCC Back-End and execute 1 shot on the VM. We assert that `np.allclose(expanded_vm_state, pure_python_state * global_weight)` holds true.
-  2. *Inverse Annihilation (for large circuits):* We concatenate the Optimized HIR with the *inverse* of the unoptimized original circuit. We run this combined program through the UCC VM. If the optimization is flawlessly correct, the VM must deterministically measure the vacuum state $|00..0\rangle$ with exactly 100% probability.
+### Computational Scaling & The Arbitrary Qubit ($N$) Rescue
+
+Vandaele reduced the classical complexity of TODD to $\mathcal{O}(n^2 m^3)$ for TOHPE. UCC fundamentally alters how this executes in memory, decoupling optimization time from both Clifford depth and physical qubit count.
+
+- **Scaling with Clifford Gates ($G_C$): $\mathcal{O}(1)$**
+  In UCC, the Front-End absorbs all $G_C$ Cliffords dynamically. Cliffords literally do not exist in the HIR, decoupling optimization time from Clifford depth entirely.
+- **Scaling with Qubits ($N$): Bounded by $\mathcal{O}(m^2)$ (The Algebraic Compression)**
+  Naively, the pairwise matrix $L$ has $\binom{N}{2}$ rows, which would cause a catastrophic memory explosion for large $N$. However, because UCC operates in GF(2), the right null-space of $L$ is a mathematical invariant under row-basis projection. Regardless of whether $N = 64$ or $N = 10,000$, the optimizer extracts the linearly independent row-basis of $P$ (which can never exceed $m$, the number of T-gates). The constructed $L_{compressed}$ matrix has at most $\binom{m}{2} + m$ rows.
+- **Scaling with Non-Clifford Gates ($m$): Polynomial $\mathcal{O}(m^3)$**
+  Finding the null-space of the bounded $L_{compressed}$ matrix takes strictly $\mathcal{O}(m^3)$ bitwise operations. Combined with the "Chunked Rewinding" extension that strictly limits lightcone smearing, the entire working matrix is permanently trapped at a microscopic size, fitting completely inside the CPU's L1 cache and executing in microseconds.
+
+### Demonstration & Evaluation Strategy (The Dual-Pronged Benchmark)
+
+We will process standard benchmark datasets (such as the 2025 Vandaele suites) through UCC and demonstrate state-of-the-art performance by validating three core claims for the MVP release:
+
+1. **The Table 2 Benchmark (Generic, Ancilla-Free Circuits):** On generic, Hadamard-rich circuits, UCC natively matches the best-in-class ancilla-free T-counts. We will prove that while traditional compilers must run complex partitioning heuristics to isolate Hadamard-free zones and synthesize CNOT boundaries, UCC's AOT Front-End naturally isolates non-commuting cliques via pure symplectic geometry in **microseconds**.
+2. **The Table 3 Benchmark (Massive Absolute Reductions):** On naturally Hadamard-free arithmetic circuits (e.g., Galois Field Multipliers, $h=0$), the entire circuit forms a massive commuting clique. We will prove that UCC matches the massive absolute T-count reductions of AlphaTensor / FastTODD, with **zero CNOT synthesis penalty** because we route directly to physical PBC instructions.
+3. **FTQC-Safe Noise Preservation:** Purely logical synthesizers destroy physical error models by blindly commuting non-Clifford gates past noise. We will inject a parameterized error model (both stochastic Pauli and coherent over-rotations) into a magic-state distillation factory and mathematically prove via our statevector oracle that UCC uniquely optimizes T-counts while perfectly preserving the syndromic structure and physics of the QEC barriers.
 
 ---
 
