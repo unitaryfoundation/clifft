@@ -133,3 +133,114 @@ CMake exports `compile_commands.json` to the build directory for IDE integration
 # For clangd / VS Code / CLion
 ln -sf build/compile_commands.json .
 ```
+
+## Code Coverage
+
+UCC supports code coverage for both Python and C++ code.
+
+### Prerequisites
+
+For C++ coverage, you need `lcov` and `genhtml`:
+
+```bash
+# Ubuntu/Debian
+sudo apt install lcov
+
+# macOS
+brew install lcov
+```
+
+### Running Coverage
+
+Using `just` (recommended):
+
+```bash
+# Python coverage only
+just py-cov
+
+# C++ coverage only
+just cpp-cov
+
+# Both Python and C++ coverage
+just cov
+```
+
+### Manual Coverage Commands
+
+**Python coverage:**
+
+```bash
+uv run pytest tests/python/ -v --cov=ucc --cov-report=term --cov-report=html:coverage/python
+```
+
+**C++ coverage:**
+
+```bash
+# Build with coverage instrumentation
+cmake -B build-coverage -DCMAKE_BUILD_TYPE=Debug -DUCC_COVERAGE=ON
+cmake --build build-coverage -j
+
+# Run tests (generates .gcda files)
+ctest --test-dir build-coverage --output-on-failure
+
+# Capture and filter coverage data
+lcov --capture --directory build-coverage --output-file build-coverage/lcov.info
+lcov --remove build-coverage/lcov.info '*/build-coverage/_deps/*' '*/tests/*' '/usr/*' \
+     --output-file build-coverage/lcov.info
+
+# Generate HTML report
+genhtml build-coverage/lcov.info --output-directory coverage/cpp
+```
+
+### Coverage Reports
+
+After running coverage, HTML reports are available at:
+
+- **Python:** `coverage/python/index.html`
+- **C++:** `coverage/cpp/index.html`
+
+Open these files in a browser to view detailed line-by-line coverage.
+
+### Notes
+
+- C++ coverage uses a separate build directory (`build-coverage/`) to avoid mixing instrumented and non-instrumented object files.
+- Python coverage only measures Python code in `src/python/ucc/`. The C++ extension (`_ucc_core`) is not measured by Python coverage tools—use C++ coverage for that.
+- Coverage artifacts are gitignored.
+
+
+# `just` Shortcuts (Optional)
+
+For convenience, this repository includes a `justfile` that wraps common development commands.
+
+## Installing `just`
+
+```bash
+# macOS
+brew install just
+
+# Ubuntu/Debian
+sudo apt install just
+
+# Or via cargo
+cargo install just
+
+# Or prebuilt binaries
+curl --proto '=https' --tlsv1.2 -sSf https://just.systems/install.sh | bash -s -- --to /usr/local/bin
+```
+
+## Usage
+
+Run `just --list` to see all available recipes:
+
+```bash
+just --list
+```
+
+Recipes evolve over time, so always check `--list` for the current options. Common patterns:
+
+- `just py` — full Python workflow (venv + install + test)
+- `just build` — build C++ targets
+- `just test` — run C++ tests
+- `just lint` — run pre-commit checks
+
+`just` is optional — all underlying CMake and `uv` commands documented above remain the source of truth.

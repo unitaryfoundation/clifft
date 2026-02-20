@@ -100,6 +100,8 @@ You must use **Test-Driven Development (TDD)**. Prove the underlying math works 
 - **Tier 2: Python Exact State Validation:** For pure unitary circuits, mathematically expand the VM's compact `v[]` array into a dense $2^N$ statevector and assert `np.allclose` against a known truth (like Stim's statevector).
 - **Tier 3: Python Statistical Validation:** For circuits with probabilistic mid-circuit measurements, run thousands of shots in both UCC and Stim and assert the measurement bitstring distributions match within strict statistical bounds.
 
+**Note on Code Coverage:** Code coverage tools (`just py-cov`, `just cpp-cov`) are available but are **not required** during regular development. Use them periodically to identify gaps, but do not run coverage on every commit—it adds significant build time.
+
 
 ## 8. C++ Coding Standards & Safety
 

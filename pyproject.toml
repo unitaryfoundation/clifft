@@ -36,6 +36,7 @@ dev = [
 [dependency-groups]
 dev = [
     "pytest>=8.0",
+    "pytest-cov>=4.1",
     "pre-commit>=3.6",
     "mypy>=1.8",
     "ruff>=0.3",
@@ -89,3 +90,20 @@ exclude = [
 [[tool.mypy.overrides]]
 module = ["numpy.*", "stim.*", "pytest.*", "ucc", "ucc._ucc_core"]
 ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests/python"]
+
+[tool.coverage.run]
+source = ["ucc"]
+omit = ["*/_ucc_core*"]  # C++ extension not measurable by Python coverage
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "if TYPE_CHECKING:",
+    "raise NotImplementedError",
+]
+
+[tool.coverage.html]
+directory = "coverage/python"

@@ -2,8 +2,11 @@
 # This library contains the compiler pipeline and VM runtime.
 
 add_library(ucc_core STATIC
-    stub.cc  # Placeholder until real sources are added
+    circuit/parser.cc
 )
+
+# Enable position-independent code for use in shared libraries (Python bindings).
+set_target_properties(ucc_core PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
 target_include_directories(ucc_core PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/..
@@ -14,4 +17,12 @@ target_link_libraries(ucc_core PUBLIC
     libstim
 )
 
+target_link_libraries(ucc_core PRIVATE fast_float)
+
 target_compile_features(ucc_core PUBLIC cxx_std_20)
+
+# Code coverage instrumentation (only for UCC code, not dependencies)
+if(UCC_COVERAGE)
+    target_compile_options(ucc_core PRIVATE --coverage -fprofile-arcs -ftest-coverage)
+    target_link_options(ucc_core PRIVATE --coverage)
+endif()

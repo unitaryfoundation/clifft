@@ -37,8 +37,22 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
     add_compile_options(-Wall -Wextra -Wpedantic)
 endif()
 
+# Code coverage option (for use with gcov/lcov)
+# Note: Coverage flags are applied per-target in src/ucc/CMakeLists.txt to avoid
+# instrumenting external dependencies (Stim, Catch2) which would slow builds.
+option(UCC_COVERAGE "Enable code coverage instrumentation" OFF)
+if(UCC_COVERAGE)
+    if(NOT CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+        message(WARNING "Code coverage requires GCC or Clang")
+        set(UCC_COVERAGE OFF)
+    else()
+        message(STATUS "Code coverage enabled (UCC targets only)")
+    endif()
+endif()
+
 # Fetch external dependencies
 include(cmake/FetchStim.cmake)
+include(cmake/FetchFastFloat.cmake)
 
 # Build the core library
 add_subdirectory(src/ucc)

@@ -5,13 +5,19 @@ include(CTest)
 include(Catch)
 
 add_executable(ucc_tests
-    test_placeholder.cc
+    test_parser.cc
 )
 
 target_link_libraries(ucc_tests PRIVATE
     ucc_core
     Catch2::Catch2WithMain
 )
+
+# Code coverage instrumentation for test executable
+if(UCC_COVERAGE)
+    target_compile_options(ucc_tests PRIVATE --coverage)
+    target_link_options(ucc_tests PRIVATE --coverage)
+endif()
 
 # Auto-discover Catch2 tests for CTest integration
 catch_discover_tests(ucc_tests)
