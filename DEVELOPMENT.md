@@ -21,7 +21,34 @@ This document covers how to build and develop UCC locally.
 
 ## Building
 
-### Clone and Build
+UCC can be built in two ways:
+1. **As a Python package** (recommended for most users)
+2. **As a standalone C++ library** (for C++ development/testing)
+
+### Python Package Build (Recommended)
+
+This builds the `ucc` Python package with C++ extensions:
+
+```bash
+git clone https://github.com/unitaryfoundation/ucc-next.git
+cd ucc-next
+
+# Create virtual environment and install in editable mode
+uv venv
+uv pip install -e .
+
+# Verify installation
+uv run python -c "import ucc; print(ucc.version())"
+
+# Run Python tests
+uv run pytest tests/python/ -v
+```
+
+The editable install (`-e .`) rebuilds the C++ extension automatically when you run `uv pip install -e .` again after modifying C++ code.
+
+### Standalone C++ Build
+
+For pure C++ development without Python:
 
 ```bash
 git clone https://github.com/unitaryfoundation/ucc-next.git
@@ -33,7 +60,7 @@ cmake -B build
 # Build
 cmake --build build -j4
 
-# Run tests
+# Run C++ tests
 ctest --test-dir build --output-on-failure
 ```
 
@@ -91,10 +118,10 @@ uv run pre-commit run --all-files
 ### Running Tests
 
 ```bash
-# C++ tests (via CTest)
+# C++ tests (via CTest, requires standalone build)
 ctest --test-dir build --output-on-failure
 
-# Python tests (once bindings are implemented)
+# Python tests (requires Python package build)
 uv run pytest tests/python/ -v
 ```
 
