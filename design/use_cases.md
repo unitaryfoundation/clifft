@@ -80,44 +80,187 @@ We will process standard benchmark datasets (such as the 2025 Vandaele suites) t
 
 ---
 
-## 3. Hardware Synthesis & Physical Routing Profiles
+## 3. End-to-End Hardware Execution Integrations
 
 ### Overview
 
-Because UCC fundamentally flattens a quantum circuit into an algebraically independent list of multi-qubit Pauli rotations (the HIR), it breaks away from rigid, 2D nearest-neighbor CNOT grids. Translating this mathematically pure IR back into physical hardware instructions requires radically different strategies depending on the target architecture.
+While UCC acts as an ultra-fast simulator, its Ahead-Of-Time architecture uniquely positions it as a powerful compiler frontend for physical hardware. By mathematically flattening the circuit into an algebraically independent list of multi-qubit Pauli operations (the Optimized HIR), UCC breaks away from rigid DAG-based routing. Because UCC fundamentally flattens a quantum circuit into an algebraically independent list of multi-qubit Pauli rotations, translating this mathematically pure IR back into physical hardware instructions requires architectures that natively support high-weight Pauli parity operations or feature flexible connectivity.
 
 - **Program Representation Level:** Level 2 (Optimized HIR Export).
 - **Minimum Functionality Needed:** Phase 4. Export of the HirModule to JSON or text, capturing explicit Pauli masks, non-Clifford complex weights, and the global\_weight accumulator.
 
-### 3.1 NISQ Synthesis (The Extraction Penalty)
+---
+
+### 3.1 The NISQ Target: Trapped Ions (Quantinuum H2-2)
+
+Trapped ions utilize a Quantum Charge-Coupled Device (QCCD) architecture with all-to-all connectivity via ion shuttling. They do not care about spatial locality. Furthermore, their native entangling gates (such as the Mølmer–Sørensen gate or parameterized $R_{ZZ}$) map naturally to multi-qubit Pauli exponentials ($e^{-i \theta (Z \otimes Z \dots)}$).
+
+- **Hardware Profile:** Quantinuum H2-2 (56 qubits). This fits perfectly within the UCC MVP's $\le 64$ qubit fast-path, allowing us to leverage the absolute fastest compilation speeds.
+
+#### The "Hero" Benchmark: 56-Qubit Heisenberg-Scrambled Phase Polynomials
+
+To demonstrate UCC definitively outperforming standard industry compilers (like pytket or Qiskit), we target a dense, highly entangling 56-qubit algorithm—such as a Trotterized UCCSD chemistry ansatz or a complex Galois Field arithmetic circuit—interleaved with deep Clifford basis transformations.
+
+- **The standard compiler's failure mode:** Standard compilers use DAG traversal and peephole optimization. They get trapped in local minima trying to commute parameterized rotations and $T$-gates through dense Clifford networks. They are forced to synthesize massive CNOT ladders and inject unnecessary routing layers, destroying 2Q-gate depth.
+- **The UCC advantage:** The UCC Front-End mathematically *absorbs 100% of the Clifford routing* in microseconds, revealing the true global phase polynomial. The Middle-End (Heisenberg-TOHPE) globally cancels and fuses redundant Pauli rotations. We then export the Optimized HIR as a minimal list of pure Phase Gadgets. By leveraging the H2-2's all-to-all connectivity, the Quantinuum compiler folds these gadgets directly into native ZZPhase entangling pulses with zero SWAP overhead. A single synthesized final\_tableau block at the end corrects the measurement basis.
+
+#### Implementation Blueprint (pytket $\to$ H2-2)
+
+```python
+from pytket import Circuit
+import stim
+
+def decode_masks(destab_mask: int, stab_mask: int, n: int) -> list[str]:
+    """Convert UCC 64-bit GF(2) masks into Pauli characters per qubit."""
+    paulis = []
+    for i in range(n):
+        x, z = (destab_mask >> i) & 1, (stab_mask >> i) & 1
+        if x and z: paulis.append('Y')
+        elif x: paulis.append('X')
+        elif z: paulis.append('Z')
+        else: paulis.append('I')
+    return paulis
+
+def compile_hir_to_ion_tket(hir_module) -> Circuit:
+    """Compiles UCC Optimized HIR into a pytket circuit tailored for QCCD."""
+    n = hir_module.num_qubits
+    # +1 Ancilla needed ONLY for multi-Pauli parity measurements
+    circ = Circuit(n + 1, hir_module.num_measurements)
+    ancilla = n
+    meas_idx = 0
+
+    for op in hir_module.ops:
+        p_str = decode_masks(op.destab_mask, op.stab_mask, n)
+        involved = [q for q, p in enumerate(p_str) if p != 'I']
+        if not involved: continue
+
+        # 1. Basis change to Z-basis for all involved qubits
+        for q in involved:
+            if p_str[q] == 'X': circ.H(q)
+            elif p_str[q] == 'Y': circ.Sdg(q); circ.H(q)
+
+        if op.type.name in {"T_GATE", "T_DAG_GATE", "GATE"}:
+            # 2. Phase Gadget (Pivot on a data qubit, no ancilla required)
+            # T is a pi/4 rotation. pytket Rz is in half-turns.
+            if op.type.name == "T_GATE": angle = 0.25
+            elif op.type.name == "T_DAG_GATE": angle = -0.25
+            else: angle = op.lcu_weight_angle # Conceptual for arbitrary LCU gates
+
+            pivot = involved[-1]
+
+            # The Quantinuum compiler seamlessly compresses this
+            # CNOT ladder into native ZZPhase entangling pulses.
+            for q in involved[:-1]: circ.CX(q, pivot)
+            circ.Rz(angle, pivot)
+            for q in reversed(involved[:-1]): circ.CX(q, pivot)
+
+        elif op.type.name == "MEASURE":
+            # 3. Measurement Gadget (Requires ancilla to preserve post-measurement state)
+            if len(involved) == 1:
+                circ.Measure(involved[0], meas_idx)
+            else:
+                for q in involved: circ.CX(q, ancilla)
+                circ.Measure(ancilla, meas_idx)
+                circ.Reset(ancilla) # Reset ancilla for reuse
+            meas_idx += 1
+
+        # 4. Undo basis changes to return to the active reference frame
+        for q in reversed(involved):
+            if p_str[q] == 'X': circ.H(q)
+            elif p_str[q] == 'Y': circ.H(q); circ.S(q)
+
+    # 5. CRITICAL: Final Frame Correction
+    # Because UCC absorbed all Cliffords, the physical qubits are effectively
+    # stuck in the t=0 basis. We synthesize the final tableau to map them to the correct output.
+    if getattr(hir_module, 'final_tableau', None) is not None:
+        final_circ = stim.Circuit.generated_by_clifford_tableau(hir_module.final_tableau)
+        # Note: requires a minor utility to convert stim.Circuit -> pytket.Circuit
+        # circ.append(convert_stim_to_tket(final_circ))
+
+    return circ
+```
+
+---
+
+### 3.2 The FTQC Target: Surface Codes (tqec)
+
+Modern superconducting FTQC architectures execute logic via Pauli-Based Computation (PBC) using lattice surgery. A weight-15 logical Pauli string can be measured in the exact same logical time step as a weight-1 string.
+
+A common anti-pattern in FTQC compilation is to translate intermediate representations into ZX-calculus graphs before lowering to lattice surgery. **This is unnecessary with UCC.** Because the Optimized HIR is *already* a mathematically pure list of multi-qubit Pauli correlation operations, it acts as the native AST for lattice surgery routers like tqec.
+
+By programmatically constructing a tqec.BlockGraph directly from the HIR, we eliminate synthesis layers, preserve $\mathcal{O}(1)$ TOHPE optimizations, and directly emit fault-tolerant spacetime blocks.
+
+#### Implementation Blueprint (tqec Lattice Surgery)
+
+```python
+import tqec
+
+def compile_hir_to_tqec(hir_module) -> tqec.BlockGraph:
+    """Maps UCC Optimized HIR directly to tqec lattice surgery spacetime blocks."""
+    graph = tqec.BlockGraph()
+
+    # 1. Track the spacetime coordinates of logical memory patches
+    logical_patches = {
+        i: graph.add_memory_patch(f"q_{i}") for i in range(hir_module.num_qubits)
+    }
+
+    for op in hir_module.ops:
+        p_str = decode_masks(op.destab_mask, op.stab_mask, hir_module.num_qubits)
+        involved = [q for q, p in enumerate(p_str) if p != 'I']
+        if not involved: continue
+
+        # Advance the BlockGraph time boundary to prevent spatial collisions
+        time_slice = graph.add_layer()
+
+        if op.type.name in {"T_GATE", "T_DAG_GATE"}:
+            # 1. Inject a magic state patch at a free spatial location
+            magic_patch = time_slice.add_magic_state_injection(init_state="T")
+
+            # 2. Define the multi-patch parity measurement (Lattice Surgery merge/split)
+            measurement_surface = tqec.CorrelationSurface()
+            for q in involved:
+                measurement_surface.add_connection(logical_patches[q], basis=p_str[q])
+
+            # The magic state is always measured in Z to trigger the T-rotation
+            measurement_surface.add_connection(magic_patch, basis='Z')
+
+            # 3. Add the multi-body parity check to the block graph
+            time_slice.add_correlation_surface(measurement_surface)
+
+        elif op.type.name == "MEASURE":
+            # Pure lattice surgery measurement without magic states
+            measurement_surface = tqec.CorrelationSurface()
+            for q in involved:
+                measurement_surface.add_connection(logical_patches[q], basis=p_str[q])
+            time_slice.add_correlation_surface(measurement_surface)
+
+        elif op.type.name == "DETECTOR":
+            # Expose UCC's deterministically compiled parity checks
+            # directly to tqec's detector annotations for QEC decoding
+            graph.add_detector(op.detector_targets)
+
+    # Note: As with QCCD, a final state injection/correction layer based on
+    # hir_module.final_tableau must be appended to the BlockGraph to ensure
+    # correct logical readouts.
+
+    return graph
+```
+
+---
+
+### 3.3 Future Targets
+
+#### NISQ 2D Superconducting Grids
 
 **Verdict: Poor Target.**
 
-To synthesize the HIR back into a standard CNOT/H/S circuit (`.qasm`) for a near-term superconducting device, a compiler must execute two passes: generating a "Phase Gadget" (a V-shaped ladder of CNOTs) for every HIR operation, and applying a final basis correction using the saved Final Tableau.
+To synthesize the HIR back into a standard CNOT/H/S circuit (`.qasm`) for a near-term superconducting device, a compiler must generate a "Phase Gadget" (a V-shaped ladder of CNOTs) for every HIR operation, plus a final basis correction using the Final Tableau. Because rewinding a $T$-gate through deep Cliffords causes a "Heisenberg Smear" (high-weight Pauli strings), synthesizing it on a rigid 2D grid requires massive CNOT ladders interwoven with dozens of `SWAP` gates, destroying circuit depth and locality. UCC intentionally deletes intermediate routing Cliffords to achieve $\mathcal{O}(1)$ compilation speed, making it inherently hostile to 2D NISQ routing.
 
-Because rewinding a $T$-gate through deep Cliffords causes a "Heisenberg Smear" (high-weight Pauli strings), synthesizing it on a rigid 2D grid requires massive CNOT ladders interwoven with dozens of `SWAP` gates, destroying circuit depth and locality. UCC intentionally deletes intermediate routing Cliffords to achieve $\mathcal{O}(1)$ compilation speed, making it inherently hostile to 2D NISQ routing.
+#### Neutral Atoms (Shuttling & qLDPC)
 
-### 3.2 NISQ Trapped Ions (The QCCD Exception)
-
-**Verdict: Excellent Target.**
-
-Trapped ions use a Quantum Charge-Coupled Device (QCCD) architecture with all-to-all connectivity via ion shuttling. They do not care about spatial locality or Heisenberg smears (a weight-6 Pauli is no harder to route than a weight-2 Pauli). Furthermore, their native entangling gate is the Mølmer–Sørensen (MS) gate—which is mathematically a continuous multi-qubit Pauli exponential ($e^{-i \theta (X \otimes X\dots)}$). UCC's HIR maps almost directly to native trapped-ion laser pulses without the massive extraction penalties of rigid grids.
-
-### 3.3 FTQC Modality: Surface Codes
-
-**Verdict: Native Target.**
-
-Modern superconducting FTQC architectures do not execute physical $T$ and $H$ gates. They perform Pauli-Based Computation (PBC) via lattice surgery. A weight-15 logical Pauli string can be measured in the exact same logical time as a weight-1 string. The Optimized HIR is already the absolute optimal, native machine code for hardware routers like `tqec`.
-
-### 3.4 FTQC Modality: Neutral Atoms (Shuttling & qLDPC)
-
-**Verdict: Excellent Target.**
+**Verdict: Excellent Future Target.**
 
 Neutral atoms use optical tweezers to dynamically shuttle blocks of qubits, making them the premier platform for qLDPC (Quantum Low-Density Parity-Check) codes. qLDPC requires highly non-local, high-weight Pauli parity checks for syndrome extraction. UCC processes a weight-15 parity check exactly as fast as a weight-1 measurement, acting as the perfect logical engine. To preserve shuttling block commands while minimizing the $T$-count (which Eastin-Knill dictates atom arrays still need), the compiler can utilize "Chunked Rewinding" to optimize logic strictly between physical atom movements.
-
-### Demonstration Strategy
-
-Traditional workflows force compilers to output deep circuits of CNOTs and T-gates, which the router must then awkwardly reverse-engineer back into Pauli strings. UCC acts as the ultimate "frontend" for hardware routing. We will demonstrate UCC ingesting a messy algorithmic circuit, cancelling redundant T-gates globally, and exporting a clean, barrier-aware list of algebraically independent Pauli operations directly into a router like tqec.
 
 ---
 
