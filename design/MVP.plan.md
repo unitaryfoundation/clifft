@@ -37,6 +37,7 @@ You are building the Phase 1 Minimum Viable Product (MVP) of the Unitary Compile
 **Goal:** Drive Stim's `TableauSimulator` to absorb Cliffords and emit the Heisenberg IR (HIR).
 *   **Task 3.1 (HIR Structs):** Define `HeisenbergOp` using `uint64_t` for `destab_mask` and `stab_mask`. Define `HirModule`.
 *   **Task 3.2 (Clifford & T Rewinding):** Iterate over the AST. When a Clifford is hit, apply it directly to a `stim::TableauSimulator<64>`. When `T` or `T_DAG` is hit, extract the rewound Pauli Z and X frames from `sim.inv_state.zs[q]` and `sim.inv_state.xs[q]`, and emit a `HeisenbergOp` (with type `T_GATE` or `T_DAG_GATE`).
+    *   *(Debug Optional):* At the end of trace generation, extract and save the forward tableau (`sim.inv_state.inverse()`) to `HirModule::final_tableau` for statevector debugging.
 *   **Task 3.3 (Measurements & AG Pivots):** When an `M`, `MX`, or `MPP` is hit, rewind the observable. If the measurement commutes with the tableau, record it. If it anti-commutes, compute the Aaronson-Gottesman (AG) pivot matrix using `fwd_after.then(inv_before)`, update the tableau, append the matrix to `HirModule::ag_matrices`, and emit `HeisenbergOp::MEASURE`.
 *   **Task 3.4 (Classical Control):** For `CX rec[-k] q` (and the decomposed resets), rewind the target Pauli ($X_q$ or $Z_q$). Emit an `OP_CONDITIONAL_PAULI` operation in the HIR containing the rewound mask and the resolved absolute index of the measurement record.
 *   **DoD:** A test feeding `H 0; T 0` verifies the emitted HIR mask corresponds to the $+X$ axis. A test feeding `H 0; M 0` verifies an AG matrix is generated.
@@ -44,7 +45,7 @@ You are building the Phase 1 Minimum Viable Product (MVP) of the Unitary Compile
 ## Phase 4: Compiler Back-End (Code Generation)
 **Goal:** Lower the HIR into execution-engine bytecode (Skipping the Optimizer for now).
 *   **Task 4.1:** Define the `Instruction` struct (union). **Assert that it is exactly 32 bytes.** Define the `ConstantPool`.
-*   **Task 4.2 (GF2 Tracking):** Iterate through the HIR. Maintain the active GF(2) basis $V$ (up to 64 `uint64_t` vectors). For `T_GATE`, evaluate the spatial shift $\beta$ against $V$. Emit `OP_BRANCH` (if new dimension), `OP_COLLIDE` (if in basis), or `OP_SCALAR_PHASE` (if $\beta=0$). Compute `x_mask` and `commutation_mask`. Track `peak_rank`.
+*   **Task 4.2 (GF2 Tracking):** Iterate through the HIR. Maintain the active GF(2) basis $V$ (up to 64 `uint64_t` vectors). For `T_GATE`, evaluate the spatial shift $\beta$ against $V$. Emit `OP_BRANCH` (if new dimension), `OP_COLLIDE` (if in basis), or `OP_SCALAR_PHASE` (if $\beta=0$). Compute `x_mask` and `commutation_mask`. Track `peak_rank`. Store the final $V$ basis in `ConstantPool::gf2_basis` if debugging/targetting state vector output.
 *   **Task 4.3 (Measurements & Feedback):** Lower `MEASURE` operations into `OP_MEASURE_MERGE`, `OP_MEASURE_FILTER`, or `OP_MEASURE_DETERMINISTIC` by evaluating against $V$. Append `OP_AG_PIVOT` if the Front-End provided an AG matrix index. Lower `OP_CONDITIONAL_PAULI` directly into a bytecode instruction.
 *   **DoD:** A test showing 4 independent $T$ gates emits 4 `OP_BRANCH` opcodes and yields a `peak_rank` of 4.
 
@@ -60,6 +61,12 @@ You are building the Phase 1 Minimum Viable Product (MVP) of the Unitary Compile
 
 ## Phase 6: Validation & Integration Testing
 **Goal:** Prove the system produces mathematically correct physics.
-*   **Task 6.1 (Statevector Micro-Test):** Write a Python utility `extract_statevector` that runs the SVM for 1 shot and mathematically expands the compact $v[]$ array and GF(2) basis into a dense $2^N$ numpy array. Validate a 4-qubit pure unitary circuit (Cliffords + $T$, no measurements) against `stim.TableauSimulator`'s statevector using `np.allclose`.
-*   **Task 6.2 (Statistical Macro-Test):** Load the manually stripped Gidney proxy circuit (S gates only). Run 10,000 shots in `stim` and 10,000 shots in `ucc`. Assert that the probability distributions of the resulting measurement bitstrings match within a strict statistical tolerance (e.g., $< 0.02$ divergence).
-*   **DoD:** Both tests pass reliably via `pytest`.
+*   **Task 6.1 (Statevector Expansion Utility):** Write a Python utility `extract_statevector` that:
+    1. Allocates a dense $2^N$ numpy array.
+    2. For each GF(2) index $\alpha$ (from 0 to $2^{\text{rank}}-1$), compute the physical basis index by XORing the columns of `gf2_basis` selected by the bits of $\alpha$.
+    3. Apply the physical $\pm 1, \pm i$ signs from `destab_signs`/`stab_signs` using the `final_tableau` columns to determine which stabilizer/destabilizer generators contribute.
+    4. Place `v[α] * sign * global_weight` at the computed physical index.
+*   **Task 6.2 (Statevector Micro-Test):** Use the utility from 6.1 to validate a 4-qubit pure unitary circuit (Cliffords + $T$, no measurements) against a known statevector oracle using `np.allclose`.
+*   **Task 6.3 (Statistical Macro-Test):** Load the manually stripped Gidney proxy circuit (S gates only). Run 10,000 shots in `stim` and 10,000 shots in `ucc`. Assert that the probability distributions of the resulting measurement bitstrings match within a strict statistical tolerance (e.g., $< 0.02$ divergence).
+*   **Task 6.4 (Statevector Debugging API):** Add a `debug_mode=False` flag to `ucc.compile()`. When true, retain `final_tableau` and `gf2_basis` on the returned `Program`. Expose `ucc.to_statevector(program, schrodinger_state)` that leverages the math from Task 6.1.
+*   **DoD:** All tests pass reliably via `pytest`.

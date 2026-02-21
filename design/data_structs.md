@@ -103,6 +103,14 @@ struct HirModule {
     // ignores this (deferred normalization), but it is essential for correct
     // amplitude tracking in PBC export.
     std::complex<double> global_weight = {1.0, 0.0};
+
+    // --- Optional Debugging Artifacts ---
+    // If statevector debugging is enabled, the Front-End saves the final
+    // forward tableau here. This represents the geometric reference frame
+    // at t=end, needed to map GF(2) indices back to physical qubit basis.
+    // Using explicit Stim type (not type-erased) since HirModule is already
+    // produced by the Stim-dependent Front-End.
+    std::optional<stim::Tableau<64>> final_tableau;
 };
 ```
 
@@ -251,6 +259,13 @@ look-ahead distance:
    to absorb the newly formed Cliffords into the topological tableau and emit a
    fresh, fully-reduced HIR.
 
+*Note on Statevector Debugging & Tableaus:* If tracking the `final_tableau` for
+end-of-state debugging, the optimizer handles this naturally. If gates cancel
+($T \cdot T^\dagger = I$), they vanish and the tableau is unchanged. If they form a
+Clifford ($T \cdot T = S$), the Fold-Back pass re-runs the Front-End, dynamically
+absorbing the new $S$ gate into the tableau and pushing it to the end of the circuit.
+The Front-End simply emits the updated, correct `final_tableau` after fold-back.
+
 ### 2.4 Fusion Implementation Sketch
 
 ```cpp
@@ -383,6 +398,12 @@ struct ConstantPool {
     std::vector<std::vector<uint32_t>>  detector_targets;
     std::vector<LCUData>                lcu_pool;
     std::vector<NoiseSite>              noise_schedule;  // Sorted by pc
+
+    // --- Optional Debugging Artifacts ---
+    // Populated by the Back-End only if compiled with statevector debugging enabled.
+    // The active spatial shift vectors (GF(2) basis V) tracked by the compiler.
+    // Each entry is a destab_mask representing a basis vector in the superposition.
+    std::vector<uint64_t>               gf2_basis;
 };
 ```
 

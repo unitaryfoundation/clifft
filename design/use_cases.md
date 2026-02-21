@@ -80,16 +80,42 @@ We will process standard benchmark datasets (such as the 2025 Vandaele suites) t
 
 ---
 
-## 3. Physical Hardware Routing (tqec / Surface Codes)
+## 3. Hardware Synthesis & Physical Routing Profiles
 
 ### Overview
 
-Modern fault-tolerant architectures (like surface/color codes compiled via tools like tqec) do not execute physical $T$ and $H$ gates; they route sequences of multi-qubit Pauli measurements via lattice surgery (Pauli-Based Computation).
+Because UCC fundamentally flattens a quantum circuit into an algebraically independent list of multi-qubit Pauli rotations (the HIR), it breaks away from rigid, 2D nearest-neighbor CNOT grids. Translating this mathematically pure IR back into physical hardware instructions requires radically different strategies depending on the target architecture.
 
 - **Program Representation Level:** Level 2 (Optimized HIR Export).
 - **Minimum Functionality Needed:** Phase 4. Export of the HirModule to JSON or text, capturing explicit Pauli masks, non-Clifford complex weights, and the global\_weight accumulator.
 
-#### Demonstration Strategy
+### 3.1 NISQ Synthesis (The Extraction Penalty)
+
+**Verdict: Poor Target.**
+
+To synthesize the HIR back into a standard CNOT/H/S circuit (`.qasm`) for a near-term superconducting device, a compiler must execute two passes: generating a "Phase Gadget" (a V-shaped ladder of CNOTs) for every HIR operation, and applying a final basis correction using the saved Final Tableau.
+
+Because rewinding a $T$-gate through deep Cliffords causes a "Heisenberg Smear" (high-weight Pauli strings), synthesizing it on a rigid 2D grid requires massive CNOT ladders interwoven with dozens of `SWAP` gates, destroying circuit depth and locality. UCC intentionally deletes intermediate routing Cliffords to achieve $\mathcal{O}(1)$ compilation speed, making it inherently hostile to 2D NISQ routing.
+
+### 3.2 NISQ Trapped Ions (The QCCD Exception)
+
+**Verdict: Excellent Target.**
+
+Trapped ions use a Quantum Charge-Coupled Device (QCCD) architecture with all-to-all connectivity via ion shuttling. They do not care about spatial locality or Heisenberg smears (a weight-6 Pauli is no harder to route than a weight-2 Pauli). Furthermore, their native entangling gate is the Mølmer–Sørensen (MS) gate—which is mathematically a continuous multi-qubit Pauli exponential ($e^{-i \theta (X \otimes X\dots)}$). UCC's HIR maps almost directly to native trapped-ion laser pulses without the massive extraction penalties of rigid grids.
+
+### 3.3 FTQC Modality: Surface Codes
+
+**Verdict: Native Target.**
+
+Modern superconducting FTQC architectures do not execute physical $T$ and $H$ gates. They perform Pauli-Based Computation (PBC) via lattice surgery. A weight-15 logical Pauli string can be measured in the exact same logical time as a weight-1 string. The Optimized HIR is already the absolute optimal, native machine code for hardware routers like `tqec`.
+
+### 3.4 FTQC Modality: Neutral Atoms (Shuttling & qLDPC)
+
+**Verdict: Excellent Target.**
+
+Neutral atoms use optical tweezers to dynamically shuttle blocks of qubits, making them the premier platform for qLDPC (Quantum Low-Density Parity-Check) codes. qLDPC requires highly non-local, high-weight Pauli parity checks for syndrome extraction. UCC processes a weight-15 parity check exactly as fast as a weight-1 measurement, acting as the perfect logical engine. To preserve shuttling block commands while minimizing the $T$-count (which Eastin-Knill dictates atom arrays still need), the compiler can utilize "Chunked Rewinding" to optimize logic strictly between physical atom movements.
+
+### Demonstration Strategy
 
 Traditional workflows force compilers to output deep circuits of CNOTs and T-gates, which the router must then awkwardly reverse-engineer back into Pauli strings. UCC acts as the ultimate "frontend" for hardware routing. We will demonstrate UCC ingesting a messy algorithmic circuit, cancelling redundant T-gates globally, and exporting a clean, barrier-aware list of algebraically independent Pauli operations directly into a router like tqec.
 

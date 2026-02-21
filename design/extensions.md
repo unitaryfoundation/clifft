@@ -81,6 +81,13 @@ Instead of rewinding every operation all the way back to $t=0$, the Front-End dr
 
 *(Note: We will also explore **Active Memory Compaction** in the SVM using OP\_INDEX\_CNOT and OP\_MEASURE\_FILTER to actively shrink the dynamically allocated state vector array, preventing unbounded peak\_rank growth in infinite limit-cycle circuits).*
 
+### **4.4 Whole-Program vs. Local Subroutine Optimization**
+
+Chunked Rewinding reveals a powerful duality in UCC's design: **Execution requires a known global state, but Optimization does not.**
+
+* **Whole-Program Optimization (Default):** By default, UCC requires the entire program starting from a $|0\rangle^{\otimes n}$ vacuum. This provides absolute maximum global visibility (e.g., a $T$-gate in subroutine A cancelling a $T^\dagger$ in subroutine D). It is also strictly required if you intend to execute the code, because the SVM Back-End must know the global state rank to compute hardcoded memory indices.
+* **Local Subroutine Optimization:** If a user simply wants to aggressively optimize a reusable subroutine acting on an *arbitrary, unknown input state*, they can compile it as a Local Chunk. The Front-End initializes an Identity Tableau ($X \to X, Z \to Z$) at the subroutine boundary. Operations are rewound only to this local boundary. The Middle-End optimizes this local block based solely on the internal algebraic commutation of the subroutine's Clifford gates. The resulting optimized subroutine can be exported back to a higher-level language's AST (like Qiskit or OpenQASM 3) as a standalone, optimized block.
+
 ## ---
 
 ## **5. Advanced Workflows & Alternative Targets**
