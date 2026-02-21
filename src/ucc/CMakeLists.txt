@@ -3,6 +3,7 @@
 
 add_library(ucc_core STATIC
     circuit/parser.cc
+    frontend/frontend.cc
 )
 
 # Enable position-independent code for use in shared libraries (Python bindings).

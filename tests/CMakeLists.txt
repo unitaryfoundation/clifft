@@ -6,6 +6,9 @@ include(Catch)
 
 add_executable(ucc_tests
     test_parser.cc
+    test_stim_contract.cc
+    test_hir.cc
+    test_frontend.cc
 )
 
 target_link_libraries(ucc_tests PRIVATE

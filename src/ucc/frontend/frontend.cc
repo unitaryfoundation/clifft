@@ -1,0 +1,293 @@
+#include "ucc/frontend/frontend.h"
+
+#include "ucc/util/config.h"
+
+#include "stim.h"
+
+#include <random>
+#include <stdexcept>
+#include <string>
+
+namespace ucc {
+
+namespace {
+
+// Helper to apply a single-qubit Clifford gate to the simulator.
+// We directly prepend to inv_state for O(n) performance instead of going through
+// safe_do_circuit() which has significant overhead (Circuit allocation, string lookup).
+// Since we only need the inverse tableau for Heisenberg rewinding, this is safe.
+void apply_single_qubit_clifford(stim::TableauSimulator<kStimWidth>& sim, GateType gate,
+                                 uint32_t qubit) {
+    switch (gate) {
+        case GateType::H:
+            // H is self-inverse
+            sim.inv_state.prepend_H_XZ(qubit);
+            break;
+        case GateType::S:
+            // S^{-1} = S_DAG, so prepend S_DAG to track inverse
+            sim.inv_state.prepend_SQRT_Z_DAG(qubit);
+            break;
+        case GateType::S_DAG:
+            // S_DAG^{-1} = S, so prepend S to track inverse
+            sim.inv_state.prepend_SQRT_Z(qubit);
+            break;
+        case GateType::X:
+            // X is self-inverse
+            sim.inv_state.prepend_X(qubit);
+            break;
+        case GateType::Y:
+            // Y is self-inverse
+            sim.inv_state.prepend_Y(qubit);
+            break;
+        case GateType::Z:
+            // Z is self-inverse
+            sim.inv_state.prepend_Z(qubit);
+            break;
+        default:
+            throw std::runtime_error("Not a single-qubit Clifford gate");
+    }
+}
+
+// Helper to apply a two-qubit Clifford gate to the simulator.
+// Same optimization as single-qubit: direct prepend to inv_state.
+void apply_two_qubit_clifford(stim::TableauSimulator<kStimWidth>& sim, GateType gate, uint32_t q1,
+                              uint32_t q2) {
+    switch (gate) {
+        case GateType::CX:
+            // CNOT is self-inverse
+            sim.inv_state.prepend_ZCX(q1, q2);
+            break;
+        case GateType::CY:
+            // CY is self-inverse
+            sim.inv_state.prepend_ZCY(q1, q2);
+            break;
+        case GateType::CZ:
+            // CZ is self-inverse
+            sim.inv_state.prepend_ZCZ(q1, q2);
+            break;
+        default:
+            throw std::runtime_error("Not a two-qubit Clifford gate");
+    }
+}
+
+// Extract the rewound Z observable for a qubit as uint64_t masks
+void extract_rewound_z(const stim::TableauSimulator<kStimWidth>& sim, uint32_t qubit,
+                       uint64_t& destab_mask, uint64_t& stab_mask, bool& sign) {
+    const auto& pauli = sim.inv_state.zs[qubit];
+    destab_mask = pauli.xs.u64[0];
+    stab_mask = pauli.zs.u64[0];
+    sign = pauli.sign;
+}
+
+// Extract the rewound X observable for a qubit as uint64_t masks
+void extract_rewound_x(const stim::TableauSimulator<kStimWidth>& sim, uint32_t qubit,
+                       uint64_t& destab_mask, uint64_t& stab_mask, bool& sign) {
+    const auto& pauli = sim.inv_state.xs[qubit];
+    destab_mask = pauli.xs.u64[0];
+    stab_mask = pauli.zs.u64[0];
+    sign = pauli.sign;
+}
+
+}  // namespace
+
+HirModule trace(const Circuit& circuit) {
+    // Check MVP constraint: 64 qubits max
+    if (circuit.num_qubits > kMaxInlineQubits) {
+        throw std::runtime_error("Circuit exceeds 64-qubit MVP limit: " +
+                                 std::to_string(circuit.num_qubits) + " qubits");
+    }
+
+    HirModule hir;
+    hir.num_qubits = circuit.num_qubits;
+    hir.num_measurements = circuit.num_measurements;
+
+    // Initialize tableau simulator with a fixed seed (deterministic for testing)
+    // The RNG is only used for measurement collapse, which we handle separately
+    std::mt19937_64 rng(0);
+    stim::TableauSimulator<kStimWidth> sim(std::move(rng), circuit.num_qubits);
+
+    // Track measurement index for rec[-k] resolution
+    MeasRecordIdx meas_idx{0};
+
+    for (const auto& node : circuit.nodes) {
+        switch (node.gate) {
+            // Single-qubit Clifford gates - absorb into tableau
+            case GateType::H:
+            case GateType::S:
+            case GateType::S_DAG:
+            case GateType::X:
+            case GateType::Y:
+            case GateType::Z: {
+                for (const auto& target : node.targets) {
+                    uint32_t qubit = target.value();
+                    apply_single_qubit_clifford(sim, node.gate, qubit);
+                }
+                break;
+            }
+
+            // Two-qubit Clifford gates - absorb into tableau
+            case GateType::CX:
+            case GateType::CY:
+            case GateType::CZ: {
+                // Check if this is classical feedback (first target is rec)
+                if (!node.targets.empty() && node.targets[0].is_rec()) {
+                    // Classical feedback: CX rec[-k] q or CZ rec[-k] q
+                    // This was generated by reset decomposition
+                    // The parser stored the absolute offset in the rec target
+                    uint32_t rec_abs_idx = node.targets[0].value();
+                    uint32_t target_qubit = node.targets[1].value();
+
+                    // The controlling measurement is the absolute index
+                    ControllingMeasIdx controlling_meas{rec_abs_idx};
+
+                    // Extract the rewound Pauli that will be conditionally applied
+                    // For CX rec[-k] q: apply X_q if measurement was 1
+                    // For CZ rec[-k] q: apply Z_q if measurement was 1
+                    uint64_t destab_mask, stab_mask;
+                    bool sign;
+
+                    if (node.gate == GateType::CX) {
+                        // X on target qubit, rewound through tableau
+                        extract_rewound_x(sim, target_qubit, destab_mask, stab_mask, sign);
+                    } else {
+                        // Z on target qubit, rewound through tableau (CZ)
+                        extract_rewound_z(sim, target_qubit, destab_mask, stab_mask, sign);
+                    }
+
+                    hir.ops.push_back(HeisenbergOp::make_conditional(destab_mask, stab_mask, sign,
+                                                                     controlling_meas));
+                } else {
+                    // Regular two-qubit Clifford gate
+                    for (size_t i = 0; i + 1 < node.targets.size(); i += 2) {
+                        uint32_t q1 = node.targets[i].value();
+                        uint32_t q2 = node.targets[i + 1].value();
+                        apply_two_qubit_clifford(sim, node.gate, q1, q2);
+                    }
+                }
+                break;
+            }
+
+            // T gate - emit HeisenbergOp with rewound Z
+            case GateType::T: {
+                for (const auto& target : node.targets) {
+                    uint32_t qubit = target.value();
+                    uint64_t destab_mask, stab_mask;
+                    bool sign;
+                    extract_rewound_z(sim, qubit, destab_mask, stab_mask, sign);
+                    hir.ops.push_back(
+                        HeisenbergOp::make_tgate(destab_mask, stab_mask, sign, /*dagger=*/false));
+                }
+                break;
+            }
+
+            // T_DAG gate - emit HeisenbergOp with rewound Z and is_dagger=true
+            case GateType::T_DAG: {
+                for (const auto& target : node.targets) {
+                    uint32_t qubit = target.value();
+                    uint64_t destab_mask, stab_mask;
+                    bool sign;
+                    extract_rewound_z(sim, qubit, destab_mask, stab_mask, sign);
+                    hir.ops.push_back(
+                        HeisenbergOp::make_tgate(destab_mask, stab_mask, sign, /*dagger=*/true));
+                }
+                break;
+            }
+
+            // Z-basis measurement
+            case GateType::M: {
+                for (const auto& target : node.targets) {
+                    uint32_t qubit = target.value();
+                    uint64_t destab_mask, stab_mask;
+                    bool sign;
+                    extract_rewound_z(sim, qubit, destab_mask, stab_mask, sign);
+
+                    // TODO(Task 3.3): Implement AG pivot handling and tableau collapse.
+                    // Currently the tableau is NOT updated after measurement, which means
+                    // any operations after a measurement will be rewound against a stale
+                    // tableau. This is acceptable for circuits where measurements are
+                    // terminal or immediately followed by resets (which re-initialize
+                    // the qubit state). Task 3.3 will add proper measurement collapse
+                    // and AG pivot computation for mid-circuit measurement support.
+                    hir.ops.push_back(
+                        HeisenbergOp::make_measure(destab_mask, stab_mask, sign, meas_idx));
+                    ++meas_idx;
+                }
+                break;
+            }
+
+            // X-basis measurement
+            case GateType::MX: {
+                for (const auto& target : node.targets) {
+                    uint32_t qubit = target.value();
+                    uint64_t destab_mask, stab_mask;
+                    bool sign;
+                    extract_rewound_x(sim, qubit, destab_mask, stab_mask, sign);
+
+                    hir.ops.push_back(
+                        HeisenbergOp::make_measure(destab_mask, stab_mask, sign, meas_idx));
+                    ++meas_idx;
+                }
+                break;
+            }
+
+            // Y-basis measurement
+            case GateType::MY: {
+                for (const auto& target : node.targets) {
+                    uint32_t qubit = target.value();
+                    // Use Stim's y_output() which correctly handles Y = iXZ phase
+                    auto pauli = sim.inv_state.y_output(qubit);
+                    uint64_t destab_mask = pauli.xs.u64[0];
+                    uint64_t stab_mask = pauli.zs.u64[0];
+                    bool sign = pauli.sign;
+
+                    hir.ops.push_back(
+                        HeisenbergOp::make_measure(destab_mask, stab_mask, sign, meas_idx));
+                    ++meas_idx;
+                }
+                break;
+            }
+
+            // Multi-Pauli measurement (MPP)
+            case GateType::MPP: {
+                // Build the observable as a PauliString, then rewind through
+                // the inverse tableau in one shot. This correctly handles all
+                // phase accumulation via Stim's scatter_eval().
+                stim::PauliString<kStimWidth> obs(circuit.num_qubits);
+
+                for (const auto& target : node.targets) {
+                    uint32_t q = target.value();
+                    if (target.pauli() == Target::kPauliX) {
+                        obs.xs[q] = true;
+                    } else if (target.pauli() == Target::kPauliY) {
+                        // Y = iXZ, set both bits
+                        obs.xs[q] = true;
+                        obs.zs[q] = true;
+                    } else {
+                        // Z target (default)
+                        obs.zs[q] = true;
+                    }
+                }
+
+                // Rewind the entire Pauli product through the inverse tableau
+                stim::PauliString<kStimWidth> rewound = sim.inv_state(obs);
+
+                hir.ops.push_back(HeisenbergOp::make_measure(rewound.xs.u64[0], rewound.zs.u64[0],
+                                                             rewound.sign, meas_idx));
+                ++meas_idx;
+                break;
+            }
+
+            // TICK is a no-op annotation
+            case GateType::TICK:
+                break;
+
+            default:
+                throw std::runtime_error("Unsupported gate type in Front-End: " +
+                                         std::string(gate_name(node.gate)));
+        }
+    }
+
+    return hir;
+}
+
+}  // namespace ucc

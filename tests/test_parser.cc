@@ -151,17 +151,34 @@ TEST_CASE("Parse multi-target measurements", "[parser]") {
     }
 }
 
-TEST_CASE("Parse MR and MRX", "[parser]") {
+TEST_CASE("Parse MR and MRX (decomposed)", "[parser]") {
+    // MR and MRX are decomposed at parse time:
+    // MR q  -> M q  + CX rec[-1] q
+    // MRX q -> MX q + CZ rec[-1] q
     auto circuit = parse(R"(
         MR 0
         MRX 1
     )");
 
-    REQUIRE(circuit.nodes.size() == 2);
+    // 2 measurements + 2 conditional operations = 4 nodes
+    REQUIRE(circuit.nodes.size() == 4);
     REQUIRE(circuit.num_measurements == 2);
 
-    REQUIRE(circuit.nodes[0].gate == GateType::MR);
-    REQUIRE(circuit.nodes[1].gate == GateType::MRX);
+    // MR 0 -> M 0 + CX rec[-1] 0
+    REQUIRE(circuit.nodes[0].gate == GateType::M);
+    REQUIRE(circuit.nodes[0].targets[0].value() == 0);
+    REQUIRE(circuit.nodes[1].gate == GateType::CX);
+    REQUIRE(circuit.nodes[1].targets[0].is_rec());
+    REQUIRE(circuit.nodes[1].targets[0].value() == 0);  // rec[0] absolute index
+    REQUIRE(circuit.nodes[1].targets[1].value() == 0);  // target qubit
+
+    // MRX 1 -> MX 1 + CZ rec[-1] 1
+    REQUIRE(circuit.nodes[2].gate == GateType::MX);
+    REQUIRE(circuit.nodes[2].targets[0].value() == 1);
+    REQUIRE(circuit.nodes[3].gate == GateType::CZ);
+    REQUIRE(circuit.nodes[3].targets[0].is_rec());
+    REQUIRE(circuit.nodes[3].targets[0].value() == 1);  // rec[1] absolute index
+    REQUIRE(circuit.nodes[3].targets[1].value() == 1);  // target qubit
 }
 
 TEST_CASE("Parse MPP single product", "[parser]") {

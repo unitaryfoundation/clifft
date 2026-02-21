@@ -37,8 +37,8 @@ const std::unordered_map<std::string_view, GateType> kGateNames = {
     {"M", GateType::M},
     {"MX", GateType::MX},
     {"MY", GateType::MY},
-    {"MR", GateType::MR},
-    {"MRX", GateType::MRX},
+    {"MR", GateType::M},    // Maps to M for parse_gate_name(); decomposed in parse_line()
+    {"MRX", GateType::MX},  // Maps to MX for parse_gate_name(); decomposed in parse_line()
     {"MPP", GateType::MPP},
     // Annotations
     {"TICK", GateType::TICK},
@@ -46,8 +46,10 @@ const std::unordered_map<std::string_view, GateType> kGateNames = {
 
 // Reset gates that need decomposition.
 const std::unordered_map<std::string_view, std::pair<GateType, GateType>> kResetDecomposition = {
-    {"R", {GateType::M, GateType::CX}},    // R -> M + CX rec[-1]
-    {"RX", {GateType::MX, GateType::CZ}},  // RX -> MX + CZ rec[-1]
+    {"R", {GateType::M, GateType::CX}},     // R -> M + CX rec[-1]
+    {"RX", {GateType::MX, GateType::CZ}},   // RX -> MX + CZ rec[-1]
+    {"MR", {GateType::M, GateType::CX}},    // MR -> M + CX rec[-1]
+    {"MRX", {GateType::MX, GateType::CZ}},  // MRX -> MX + CZ rec[-1]
 };
 
 // Trim whitespace from both ends.

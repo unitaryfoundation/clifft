@@ -11,7 +11,20 @@ UCC's multi-level pipeline produces two distinct data representations:
 
 This document defines the C++ data structures for both representations, the
 constant pool, the per-shot execution state, and the runtime execution semantics.
-All structures target the initial ≤64-qubit path using inline `uint64_t` masks.
+
+**Stim Type Usage (≤64 qubits):**
+- `stim::bitword<64>` for Pauli masks in HeisenbergOp — zero-overhead wrapper
+  around `uint64_t` with cleaner bitwise API (`.popcount()`, `^=`)
+- `stim::Tableau<64>` for AG pivot matrices — SIMD-aligned with built-in
+  composition via `.then()` and `.inverse()`
+
+**Important:** Do NOT use `stim::simd_bits<W>` for fixed-size masks. That type
+is for *variable-length* bit arrays (like measurement records) and allocates on
+the heap. For fixed 64-bit masks, `bitword<64>` is the correct choice.
+
+**Scaling beyond 64 qubits:** Upgrade `bitword<64>` to `bitword<256>` or
+`bitword<512>` (for AVX/AVX-512). The `simd_bits` type is only needed when
+the bit array size is determined at runtime.
 
 ---
 
@@ -26,74 +39,153 @@ representation of the circuit's non-Clifford and stochastic content.
 ### 1.1 HeisenbergOp
 
 ```cpp
+#include <cassert>
 #include <complex>
 #include <cstdint>
 #include <vector>
+#include "stim.h"
 
 enum class OpType : uint8_t {
-    T_GATE,       // T gate (π/8 phase)
-    T_DAG_GATE,   // T† gate (inverse π/8 phase)
-    GATE,         // Generic non-Clifford gate (CCZ, arbitrary rotations via LCU)
-    MEASURE,      // Destructive state collapse
-    NOISE,        // Stochastic Pauli error channel
-    DETECTOR      // Classical QEC parity check
+    T_GATE,            // T or T† gate (π/8 phase) - is_dagger distinguishes
+    GATE,              // Generic non-Clifford gate (CCZ, arbitrary rotations via LCU)
+    MEASURE,           // Destructive state collapse
+    NOISE,             // Stochastic Pauli error channel
+    DETECTOR,          // Classical QEC parity check
+    CONDITIONAL_PAULI  // Classical feedback: apply Pauli if measurement was 1
 };
 
-// The Abstract Heisenberg IR — no memory routing, no SVM semantics.
+// =============================================================================
+// Strong Typedefs for Index Types (Zero-Overhead Type Safety)
+// =============================================================================
+//
+// Using enum class over integer types creates compile-time distinct types that
+// prevent accidental argument swapping. Compiles to raw integers in registers.
+
+/// Index into the measurement record (absolute position)
+enum class MeasRecordIdx : uint32_t {};
+
+/// Index into HirModule::ag_matrices side-table
+enum class AgMatrixIdx : uint32_t { None = UINT32_MAX };
+
+/// Index of the measurement that controls a CONDITIONAL_PAULI
+enum class ControllingMeasIdx : uint32_t {};
+
+// Pre-increment for MeasRecordIdx (for iteration)
+inline MeasRecordIdx& operator++(MeasRecordIdx& idx) {
+    idx = MeasRecordIdx{static_cast<uint32_t>(idx) + 1};
+    return idx;
+}
+
+// =============================================================================
+// HeisenbergOp - The Abstract Heisenberg IR
+// =============================================================================
+//
+// Layout optimized for 32-byte cache alignment (2 ops per 64-byte L1 cache line):
+// - Largest fields first (8-byte masks)
+// - Union payload (12 bytes)
+// - Small fields at end (type, sign, is_dagger + 1 byte padding)
+//
+// Uses the Named Constructor Idiom: all construction through static factory
+// methods (make_tgate, make_measure, make_conditional) to ensure type-safe
+// initialization of the union payload.
+//
+// Type-specific accessors include debug-time assertions (via <cassert>) that
+// verify the OpType matches before accessing union members. These assertions
+// are stripped in Release builds (-DNDEBUG) for zero runtime overhead.
 struct HeisenbergOp {
-    OpType type;
+    // --- Accessors (common to all OpTypes) ---
+    [[nodiscard]] OpType op_type() const;
+    [[nodiscard]] stim::bitword<64> destab_mask() const;
+    [[nodiscard]] stim::bitword<64> stab_mask() const;
+    [[nodiscard]] bool sign() const;
 
-    // The Rewound Pauli String (the topological geometry at t=0)
-    // Using stim::simd_bits<W> enables scaling to ~400 qubits (AVX-512).
-    // Design note: This puts masks on the heap and introduces minor AOT
-    // allocation overhead, which may slightly impact optimizer cache locality
-    // compared to inline uint64_t structs. However, it trivially enables
-    // scaling to AVX-512 widths for the paper prototype. SVM runtime
-    // performance is unaffected because the SVM bytecode still uses the
-    // 32-bit index template approach (see §7) to preserve 32-byte L1 cache
-    // alignment.
-    stim::simd_bits<W> destab_mask;   // Pauli X-bits
-    stim::simd_bits<W> stab_mask;     // Pauli Z-bits
+    // --- T_GATE accessor ---
+    [[nodiscard]] bool is_dagger() const;
 
-    // Payload (context-dependent based on OpType)
+    // --- MEASURE accessors (debug-asserted) ---
+    [[nodiscard]] AgMatrixIdx ag_matrix_idx() const;      // asserts MEASURE
+    [[nodiscard]] MeasRecordIdx meas_record_idx() const;  // asserts MEASURE
+    [[nodiscard]] uint8_t ag_ref_outcome() const;         // asserts MEASURE
+
+    // --- CONDITIONAL_PAULI accessor (debug-asserted) ---
+    [[nodiscard]] ControllingMeasIdx controlling_meas() const;  // asserts CONDITIONAL_PAULI
+
+    // --- Factory Methods ---
+    static HeisenbergOp make_tgate(stim::bitword<64> destab, stim::bitword<64> stab,
+                                   bool sign, bool dagger = false);
+    static HeisenbergOp make_measure(stim::bitword<64> destab, stim::bitword<64> stab,
+                                     bool sign, MeasRecordIdx meas_idx,
+                                     AgMatrixIdx ag_idx = AgMatrixIdx::None,
+                                     uint8_t ag_ref = 0);
+    static HeisenbergOp make_conditional(stim::bitword<64> destab, stim::bitword<64> stab,
+                                         bool sign, ControllingMeasIdx controlling_meas);
+
+  private:
+    HeisenbergOp(OpType t, stim::bitword<64> destab, stim::bitword<64> stab,
+                 bool s, bool dagger = false);  // Use factory methods
+
+    // --- Data Members ---
+    stim::bitword<64> destab_mask_;  // Pauli X-bits (8 bytes)
+    stim::bitword<64> stab_mask_;    // Pauli Z-bits (8 bytes)
+
+    // Payload (context-dependent based on OpType) - 12 bytes
     union {
-        // T_GATE / T_DAG_GATE: no payload needed (weight is implicit)
-        // The is_dagger flag is encoded in the OpType itself.
+        // T_GATE: no payload needed (weight is implicit: tan(π/8))
+        // The is_dagger_ field determines ±i phase of spawned branch.
 
         // GATE (generic LCU): complex weight for the spawned branch
         // (dominant term already factored out). Stored as bare doubles
-        // to avoid std::complex<double> in a union (non-trivial ctor
-        // is UB-adjacent).
+        // to avoid std::complex<double> in a union (non-trivial ctor).
         struct {
-            double weight_re;   // Real part of relative branch weight
-            double weight_im;   // Imaginary part
-        } gate;
+            double weight_re;
+            double weight_im;
+        } gate_;
 
         // NOISE: per-channel error probability
-        double noise_prob;
+        double noise_prob_;
 
         // MEASURE: AG matrix index + reference outcome + classical target
         struct {
-            uint32_t ag_matrix_idx;     // Index into HirModule::ag_matrices
-            uint8_t  ag_ref_outcome;    // Reference outcome (0 or 1)
-            uint32_t classical_target;  // Measurement record index
-        } measure;
+            uint32_t ag_matrix_idx;
+            uint32_t meas_record_idx;
+            uint8_t  ag_ref_outcome;
+        } measure_;
+
+        // CONDITIONAL_PAULI: classical feedback metadata
+        struct {
+            uint32_t controlling_meas;
+        } conditional_;
 
         // DETECTOR: classical target index
-        uint32_t detector_target;
+        uint32_t detector_target_;
     };
+
+    OpType type_;     // 1 byte
+    bool sign_;       // Phase sign: false = +, true = - (1 byte)
+    bool is_dagger_;  // For T_GATE: true = T†, false = T (1 byte)
+    // 1 byte padding -> Total: 32 bytes
 };
 
-// Pre-computed GF(2) transformation matrices for Aaronson-Gottesman pivots.
-// Stored in HirModule during Front-End tracing, then moved to ConstantPool
-// by the Back-End. Keeping these in a side-table prevents bloating the HIR
-// and slowing down the optimizer.
-struct GF2Matrix;
+static_assert(sizeof(HeisenbergOp) == 32, "HeisenbergOp must be exactly 32 bytes");
+
+// SIMD width for Stim types. Change this constant to scale beyond 64 qubits.
+constexpr size_t kStimWidth = 64;
 
 // The output of the Front-End / input to the Middle-End
+//
+// AG pivot matrices use stim::Tableau<kStimWidth> directly rather than a custom
+// GF2Matrix struct. This provides:
+// - SIMD-aligned storage for efficient operations
+// - Built-in composition via then() and inverse()
+// - Template parameter for easy scaling beyond 64 qubits
+// - Proven correctness from Stim's battle-tested implementation
+//
+// The Tableau represents the GF(2) change-of-basis transformation computed
+// when a measurement anti-commutes with the current stabilizer state.
+// Computed as: fwd_after.then(inv_before)
 struct HirModule {
     std::vector<HeisenbergOp> ops;
-    std::vector<GF2Matrix> ag_matrices;  // Side-table for AG pivot matrices
+    std::vector<stim::Tableau<kStimWidth>> ag_matrices;  // AG pivot transformations
     uint32_t num_qubits;
 
     // Global weight accumulator for HIR export to physical routing tools.
@@ -116,18 +208,47 @@ struct HirModule {
 
 ### 1.2 Design Rationale
 
-**Explicit T-Gate OpTypes:** The HIR uses explicit `T_GATE` and `T_DAG_GATE`
-OpTypes instead of relying on floating-point weight comparison. This eliminates
-the brittle logic of checking if weights exactly equal $\pm i \cdot \tan(\pi/8)$.
-The Back-End uses these explicit enums to safely and deterministically route to
-fast-path opcodes (OP_BRANCH, OP_COLLIDE, OP_SCALAR_PHASE) that hardcode the
-weight. Generic `GATE` operations (CCZ, arbitrary rotations) go through the LCU
-opcodes with constant pool references.
+**Unified T_GATE with is_dagger flag:** The HIR uses a single `T_GATE` OpType
+with a boolean `is_dagger` field instead of separate `T_GATE` and `T_DAG_GATE`
+enums. This design:
+- Mirrors the SVM bytecode `Instruction` struct which also uses `is_dagger`
+- Simplifies the optimizer: T and T† have identical Pauli geometry, differing
+  only in the ±i phase of the spawned branch
+- Reduces enum size and switch statement complexity
+
+The Back-End uses `is_dagger` to determine the sign when emitting fast-path
+opcodes (OP_BRANCH, OP_COLLIDE, OP_SCALAR_PHASE). Generic `GATE` operations
+(CCZ, arbitrary rotations) go through the LCU opcodes with constant pool refs.
 
 Importantly, the **optimizer remains gate-agnostic**: commutation, fusion, and
 cancellation logic depends only on `destab_mask`/`stab_mask`. The optimizer
-never needs to distinguish T from other gates — it treats all gate OpTypes
-identically based on their Pauli masks.
+never needs to distinguish T from T† — they share the exact same Pauli geometry.
+
+**Named Constructor Idiom + Debug Assertions:** HeisenbergOp uses a raw `union`
+with a manual `OpType` tag (like LLVM's `PointerIntPair` and AST nodes). To
+prevent incorrect union member access, we apply two zero-overhead safety patterns:
+
+1. *Private constructor + factory methods:* The constructor is private; all
+   creation goes through `make_tgate()`, `make_measure()`, `make_conditional()`.
+   This ensures the union payload is correctly initialized for the given OpType.
+
+2. *Debug-time assertions in accessors:* Type-specific accessors (e.g.,
+   `ag_matrix_idx()`, `controlling_meas()`) include `assert()` checks that
+   verify the `OpType` matches. In Debug builds, calling `op.ag_matrix_idx()`
+   on a T_GATE operation triggers an assertion failure with a clear message.
+   In Release builds (`-DNDEBUG`), the preprocessor strips these checks entirely
+   for zero runtime overhead.
+
+We explicitly reject `std::variant` for this use case: it injects its own hidden
+tag and alignment padding that would break the `sizeof(HeisenbergOp) == 32`
+invariant, bloating the struct to 40+ bytes and ruining L1 cache alignment.
+
+**Strong Typedefs for Index Arguments:** Factory method parameters that are
+indices (`meas_idx`, `ag_idx`, `controlling_meas`) use `enum class` strong
+typedefs (`MeasRecordIdx`, `AgMatrixIdx`, `ControllingMeasIdx`). This prevents
+accidental argument swapping at compile time — calling `make_measure()` with
+swapped indices is now a hard compiler error. These compile down to raw integers
+with zero runtime overhead.
 
 **Bare doubles, not std::complex:** The `gate` payload uses two bare `double`
 fields instead of `std::complex<double>`. The C++ standard does not guarantee
@@ -155,12 +276,17 @@ commute past an anti-commuting noise channel without conjugating the error into
 a coherent rotation, altering the physics. Gates that *commute* with a noise
 channel's Pauli string may freely pass it (see §2.3).
 
-**simd_bits for 400-Qubit Scaling:** The Pauli masks use `stim::simd_bits<W>`
-to support the ~400-qubit stretch goal for magic state cultivation simulation
-using AVX-512. While this moves masks to the heap and introduces minor AOT
-allocation overhead (potentially impacting optimizer cache locality), it
-trivially enables scaling beyond 64 qubits. The SVM runtime performance remains
-completely unaffected because bytecode uses the 32-bit index template approach.
+**bitword<64> for MVP, bitword<256/512> for Scaling:** The MVP uses
+`stim::bitword<64>` for Pauli masks — a zero-overhead wrapper around `uint64_t`
+with a cleaner bitwise API (`.popcount()`, `^=`). This is optimal for≤64 qubits.
+
+To scale to ~400 qubits for magic state cultivation simulation, upgrade to
+`bitword<256>` (AVX) or `bitword<512>` (AVX-512). These are still fixed-size
+inline types with no heap allocation. Do **not** use `simd_bits<W>` for Pauli
+masks — that type is for variable-length bit arrays and allocates on the heap.
+
+The `kStimWidth` constant in `hir.h` controls this: change it once to scale
+the entire Front-End and HIR automatically.
 
 ---
 
@@ -178,9 +304,21 @@ bool commutes(const HeisenbergOp& A, const HeisenbergOp& B) {
 }
 ```
 
+**Note on Stim types:** The implementation uses `stim::bitword<64>` for
+`destab_mask` and `stab_mask`. This is a zero-overhead wrapper around `uint64_t`
+that provides cleaner bitwise operations:
+
+- Native `.popcount()`, `.andnot()`, `^=` methods aligned with Stim idioms
+- Cleaner commutation checks: `(A.destab & B.stab).popcount()`
+
+**Important distinction:** `bitword<W>` is for fixed-size inline storage (like
+our 64-bit masks). `simd_bits<W>` is for variable-length heap-allocated bit
+arrays. For scaling beyond 64 qubits, upgrade to `bitword<256>` or `bitword<512>`
+(for AVX/AVX-512), NOT `simd_bits`.
+
 ### 2.2 Fusion and Cancellation
 
-If two gate nodes (`T_GATE`, `T_DAG_GATE`, or `GATE`) share the exact same
+If two gate nodes (`T_GATE` or `GATE`) share the exact same
 `destab_mask` and `stab_mask`, they target the exact same topological axis
 and can be algebraically combined.
 
@@ -353,19 +491,25 @@ variable-length, or rarely accessed data is extracted by the Back-End into a
 global constant pool. Bytecode instructions store 32-bit indices into this pool.
 
 ```cpp
-// Pre-computed GF(2) transformation matrices for Aaronson-Gottesman pivots.
-// Each matrix encodes the exact sign-tracker update for a measurement that
-// required Gaussian elimination at compile time.
+// AG pivot matrices use stim::Tableau<kStimWidth> directly.
 //
-// These matrices are computed by the Front-End (which owns the TableauSimulator)
-// and initially stored in HirModule::ag_matrices. The Back-End moves them
-// into ConstantPool::ag_matrices during code generation.
-struct GF2Matrix {
-    uint64_t destab_cols_x[64];
-    uint64_t destab_cols_z[64];
-    uint64_t stab_cols_x[64];
-    uint64_t stab_cols_z[64];
-};
+// Previously this was a custom GF2Matrix struct with fixed uint64_t[64] arrays.
+// Using Stim's Tableau provides several advantages:
+// - SIMD-aligned storage via stim::simd_bit_table<W>
+// - Built-in composition: pivot = fwd_after.then(inv_before)
+// - Built-in inverse computation
+// - Template parameter W enables scaling beyond 64 qubits
+// - Battle-tested implementation from Stim
+//
+// The Tableau stores the symplectic representation of the basis transformation:
+// - xs[q]: What X_q maps to under the transformation
+// - zs[q]: What Z_q maps to under the transformation
+// Each PauliString includes X-bits, Z-bits, and sign.
+//
+// For the ConstantPool (VM runtime), we may extract to a more compact format
+// if profiling shows the Tableau overhead matters. For now, consistency with
+// HirModule is preferred.
+using AGMatrix = stim::Tableau<kStimWidth>;
 
 // Extracted floating-point components for generic LCU decompositions.
 // The Back-End pre-computes these from HeisenbergOp::lcu_weight.
@@ -394,7 +538,7 @@ struct NoiseSite {
 
 // Global read-only payloads for the simulation, allocated once by the Back-End.
 struct ConstantPool {
-    std::vector<GF2Matrix>              ag_matrices;
+    std::vector<AGMatrix>               ag_matrices;  // stim::Tableau<kStimWidth>
     std::vector<std::vector<uint32_t>>  detector_targets;
     std::vector<LCUData>                lcu_pool;
     std::vector<NoiseSite>              noise_schedule;  // Sorted by pc
