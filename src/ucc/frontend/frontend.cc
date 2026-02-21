@@ -12,6 +12,144 @@ namespace ucc {
 
 namespace {
 
+// Measurement outcomes: explicit enum avoids bool ambiguity (is true=0 or true=1?)
+enum class MeasOutcome : uint8_t { Zero = 0, One = 1 };
+
+// Measurement result type for determinism detection
+struct MeasurementInfo {
+    bool is_deterministic;  // true if outcome is fixed by stabilizer state
+    MeasOutcome outcome;    // the outcome value, only meaningful if is_deterministic
+};
+
+// Check if a Z-basis measurement on a qubit is deterministic.
+// Returns the deterministic value (0 or 1) if deterministic, or performs collapse if not.
+//
+// For the inverse tableau stored in sim.inv_state:
+// - inv_state.zs[q] gives the Pauli that conjugates TO Z_q
+// - If this Pauli has no X component (only Z and I terms), the measurement is deterministic
+// - The outcome is determined by inv_state.zs[q].sign
+//
+// Stim's is_deterministic_z() uses: !inv_state.zs[target].xs.not_zero()
+MeasurementInfo check_deterministic_z(const stim::TableauSimulator<kStimWidth>& sim,
+                                      uint32_t qubit) {
+    // A Z-basis measurement is deterministic if Z_q commutes with all stabilizers.
+    // In the inverse tableau representation, this means the X-component is zero.
+    bool is_det = !sim.inv_state.zs[qubit].xs.not_zero();
+    MeasOutcome outcome = sim.inv_state.zs[qubit].sign ? MeasOutcome::One : MeasOutcome::Zero;
+    return {is_det, outcome};
+}
+
+// Check if an X-basis measurement on a qubit is deterministic.
+MeasurementInfo check_deterministic_x(const stim::TableauSimulator<kStimWidth>& sim,
+                                      uint32_t qubit) {
+    // Use Stim's is_deterministic_x: !inv_state.xs[target].xs.not_zero()
+    // X-basis measurement is deterministic if the X row of inv_state has no X components.
+    bool is_det = sim.is_deterministic_x(qubit);
+    MeasOutcome outcome = sim.inv_state.xs[qubit].sign ? MeasOutcome::One : MeasOutcome::Zero;
+    return {is_det, outcome};
+}
+
+// Check if a Y-basis measurement on a qubit is deterministic.
+MeasurementInfo check_deterministic_y(const stim::TableauSimulator<kStimWidth>& sim,
+                                      uint32_t qubit) {
+    // Y = iXZ requires special handling since it anti-commutes with both X-only and Z-only
+    // Paulis. Stim's is_deterministic_y() correctly checks if the y_output has no components
+    // that would anti-commute with existing stabilizers.
+    auto y_obs = sim.inv_state.y_output(qubit);
+    bool is_det = sim.is_deterministic_y(qubit);
+    MeasOutcome outcome = y_obs.sign ? MeasOutcome::One : MeasOutcome::Zero;
+    return {is_det, outcome};
+}
+
+// Check if an MPP observable is deterministic.
+// This requires evaluating whether the Pauli product commutes with all stabilizers.
+MeasurementInfo check_deterministic_mpp(const stim::TableauSimulator<kStimWidth>& sim,
+                                        const stim::PauliString<kStimWidth>& observable) {
+    // peek_observable_expectation is O(n) in the number of qubits: it performs a
+    // single pass through the stabilizer generators checking if the observable
+    // commutes with all of them. Returns 0 if anti-commuting (random outcome),
+    // +1 if deterministic outcome 0, or -1 if deterministic outcome 1.
+    int8_t expectation = sim.peek_observable_expectation(observable);
+    if (expectation == 0) {
+        return {false, MeasOutcome::Zero};  // outcome field unused when not deterministic
+    }
+    return {true, expectation < 0 ? MeasOutcome::One : MeasOutcome::Zero};
+}
+
+// Perform measurement collapse for Z-basis.
+// Updates the simulator state and returns the AG pivot matrix if anti-commuting.
+// If deterministic, returns std::nullopt.
+std::optional<stim::Tableau<kStimWidth>> collapse_z_measurement(
+    stim::TableauSimulator<kStimWidth>& sim, uint32_t qubit, bool& outcome) {
+    auto info = check_deterministic_z(sim, qubit);
+    if (info.is_deterministic) {
+        outcome = (info.outcome == MeasOutcome::One);
+        return std::nullopt;
+    }
+
+    // Anti-commuting: save inverse tableau before collapse for AG pivot computation
+    stim::Tableau<kStimWidth> inv_before = sim.inv_state;
+
+    // Perform the measurement through Stim (this collapses the state)
+    stim::GateTarget targets[] = {stim::GateTarget{qubit}};
+    sim.do_MZ({stim::GateType::M, {}, targets, ""});
+    outcome = sim.measurement_record.storage.back();
+
+    // The AG pivot captures the change-of-basis induced by measurement collapse.
+    // If the SVM later samples a different outcome than our reference, it must
+    // apply this unitary to transform between the two post-measurement states.
+    // Mathematically: pivot = U_after * U_before^{-1} where U maps computational
+    // basis to stabilizer eigenbasis.
+    stim::Tableau<kStimWidth> forward_after = sim.inv_state.inverse();
+    stim::Tableau<kStimWidth> ag_pivot = forward_after.then(inv_before);
+
+    return ag_pivot;
+}
+
+// Perform measurement collapse for X-basis.
+std::optional<stim::Tableau<kStimWidth>> collapse_x_measurement(
+    stim::TableauSimulator<kStimWidth>& sim, uint32_t qubit, bool& outcome) {
+    auto info = check_deterministic_x(sim, qubit);
+    if (info.is_deterministic) {
+        outcome = (info.outcome == MeasOutcome::One);
+        return std::nullopt;
+    }
+
+    stim::Tableau<kStimWidth> inv_before = sim.inv_state;
+
+    stim::GateTarget targets[] = {stim::GateTarget{qubit}};
+    sim.do_MX({stim::GateType::MX, {}, targets, ""});
+    outcome = sim.measurement_record.storage.back();
+
+    // See collapse_z_measurement for explanation of AG pivot computation
+    stim::Tableau<kStimWidth> forward_after = sim.inv_state.inverse();
+    stim::Tableau<kStimWidth> ag_pivot = forward_after.then(inv_before);
+
+    return ag_pivot;
+}
+
+// Perform measurement collapse for Y-basis.
+std::optional<stim::Tableau<kStimWidth>> collapse_y_measurement(
+    stim::TableauSimulator<kStimWidth>& sim, uint32_t qubit, bool& outcome) {
+    auto info = check_deterministic_y(sim, qubit);
+    if (info.is_deterministic) {
+        outcome = (info.outcome == MeasOutcome::One);
+        return std::nullopt;
+    }
+
+    stim::Tableau<kStimWidth> inv_before = sim.inv_state;
+
+    stim::GateTarget targets[] = {stim::GateTarget{qubit}};
+    sim.do_MY({stim::GateType::MY, {}, targets, ""});
+    outcome = sim.measurement_record.storage.back();
+
+    // See collapse_z_measurement for explanation of AG pivot computation
+    stim::Tableau<kStimWidth> forward_after = sim.inv_state.inverse();
+    stim::Tableau<kStimWidth> ag_pivot = forward_after.then(inv_before);
+
+    return ag_pivot;
+}
+
 // Helper to apply a single-qubit Clifford gate to the simulator.
 // We directly prepend to inv_state for O(n) performance instead of going through
 // safe_do_circuit() which has significant overhead (Circuit allocation, string lookup).
@@ -133,29 +271,34 @@ HirModule trace(const Circuit& circuit) {
                 if (!node.targets.empty() && node.targets[0].is_rec()) {
                     // Classical feedback: CX rec[-k] q or CZ rec[-k] q
                     // This was generated by reset decomposition
-                    // The parser stored the absolute offset in the rec target
-                    uint32_t rec_abs_idx = node.targets[0].value();
-                    uint32_t target_qubit = node.targets[1].value();
+                    // Supports broadcasting: CX rec[-1] 0 rec[-2] 1 etc.
+                    for (size_t i = 0; i + 1 < node.targets.size(); i += 2) {
+                        uint32_t rec_abs_idx = node.targets[i].value();
+                        uint32_t target_qubit = node.targets[i + 1].value();
 
-                    // The controlling measurement is the absolute index
-                    ControllingMeasIdx controlling_meas{rec_abs_idx};
+                        // The controlling measurement is the absolute index
+                        ControllingMeasIdx controlling_meas{rec_abs_idx};
 
-                    // Extract the rewound Pauli that will be conditionally applied
-                    // For CX rec[-k] q: apply X_q if measurement was 1
-                    // For CZ rec[-k] q: apply Z_q if measurement was 1
-                    uint64_t destab_mask, stab_mask;
-                    bool sign;
+                        // Extract the rewound Pauli that will be conditionally applied
+                        // For CX rec[-k] q: apply X_q if measurement was 1
+                        // For CZ rec[-k] q: apply Z_q if measurement was 1
+                        uint64_t destab_mask, stab_mask;
+                        bool sign;
 
-                    if (node.gate == GateType::CX) {
-                        // X on target qubit, rewound through tableau
-                        extract_rewound_x(sim, target_qubit, destab_mask, stab_mask, sign);
-                    } else {
-                        // Z on target qubit, rewound through tableau (CZ)
-                        extract_rewound_z(sim, target_qubit, destab_mask, stab_mask, sign);
+                        if (node.gate == GateType::CX) {
+                            // X on target qubit, rewound through tableau
+                            extract_rewound_x(sim, target_qubit, destab_mask, stab_mask, sign);
+                        } else if (node.gate == GateType::CZ) {
+                            // Z on target qubit, rewound through tableau
+                            extract_rewound_z(sim, target_qubit, destab_mask, stab_mask, sign);
+                        } else {
+                            // CY classical feedback not supported in MVP
+                            throw std::runtime_error("CY classical feedback not supported in MVP");
+                        }
+
+                        hir.ops.push_back(HeisenbergOp::make_conditional(destab_mask, stab_mask,
+                                                                         sign, controlling_meas));
                     }
-
-                    hir.ops.push_back(HeisenbergOp::make_conditional(destab_mask, stab_mask, sign,
-                                                                     controlling_meas));
                 } else {
                     // Regular two-qubit Clifford gate
                     for (size_t i = 0; i + 1 < node.targets.size(); i += 2) {
@@ -199,17 +342,26 @@ HirModule trace(const Circuit& circuit) {
                     uint32_t qubit = target.value();
                     uint64_t destab_mask, stab_mask;
                     bool sign;
+
+                    // Extract the rewound observable BEFORE potential collapse
                     extract_rewound_z(sim, qubit, destab_mask, stab_mask, sign);
 
-                    // TODO(Task 3.3): Implement AG pivot handling and tableau collapse.
-                    // Currently the tableau is NOT updated after measurement, which means
-                    // any operations after a measurement will be rewound against a stale
-                    // tableau. This is acceptable for circuits where measurements are
-                    // terminal or immediately followed by resets (which re-initialize
-                    // the qubit state). Task 3.3 will add proper measurement collapse
-                    // and AG pivot computation for mid-circuit measurement support.
-                    hir.ops.push_back(
-                        HeisenbergOp::make_measure(destab_mask, stab_mask, sign, meas_idx));
+                    // Perform collapse and get AG pivot if anti-commuting
+                    bool outcome;
+                    auto ag_pivot = collapse_z_measurement(sim, qubit, outcome);
+
+                    // Always record the reference outcome (critical for deterministic
+                    // measurements!)
+                    uint8_t ag_ref = outcome ? 1 : 0;
+                    AgMatrixIdx ag_idx = AgMatrixIdx::None;
+                    if (ag_pivot.has_value()) {
+                        // Store AG pivot matrix
+                        ag_idx = AgMatrixIdx{static_cast<uint32_t>(hir.ag_matrices.size())};
+                        hir.ag_matrices.push_back(std::move(*ag_pivot));
+                    }
+
+                    hir.ops.push_back(HeisenbergOp::make_measure(destab_mask, stab_mask, sign,
+                                                                 meas_idx, ag_idx, ag_ref));
                     ++meas_idx;
                 }
                 break;
@@ -221,10 +373,25 @@ HirModule trace(const Circuit& circuit) {
                     uint32_t qubit = target.value();
                     uint64_t destab_mask, stab_mask;
                     bool sign;
+
+                    // Extract rewound observable BEFORE collapse
                     extract_rewound_x(sim, qubit, destab_mask, stab_mask, sign);
 
-                    hir.ops.push_back(
-                        HeisenbergOp::make_measure(destab_mask, stab_mask, sign, meas_idx));
+                    // Perform collapse and get AG pivot if anti-commuting
+                    bool outcome;
+                    auto ag_pivot = collapse_x_measurement(sim, qubit, outcome);
+
+                    // Always record the reference outcome (critical for deterministic
+                    // measurements!)
+                    uint8_t ag_ref = outcome ? 1 : 0;
+                    AgMatrixIdx ag_idx = AgMatrixIdx::None;
+                    if (ag_pivot.has_value()) {
+                        ag_idx = AgMatrixIdx{static_cast<uint32_t>(hir.ag_matrices.size())};
+                        hir.ag_matrices.push_back(std::move(*ag_pivot));
+                    }
+
+                    hir.ops.push_back(HeisenbergOp::make_measure(destab_mask, stab_mask, sign,
+                                                                 meas_idx, ag_idx, ag_ref));
                     ++meas_idx;
                 }
                 break;
@@ -234,14 +401,28 @@ HirModule trace(const Circuit& circuit) {
             case GateType::MY: {
                 for (const auto& target : node.targets) {
                     uint32_t qubit = target.value();
+
                     // Use Stim's y_output() which correctly handles Y = iXZ phase
                     auto pauli = sim.inv_state.y_output(qubit);
                     uint64_t destab_mask = pauli.xs.u64[0];
                     uint64_t stab_mask = pauli.zs.u64[0];
                     bool sign = pauli.sign;
 
-                    hir.ops.push_back(
-                        HeisenbergOp::make_measure(destab_mask, stab_mask, sign, meas_idx));
+                    // Perform collapse and get AG pivot if anti-commuting
+                    bool outcome;
+                    auto ag_pivot = collapse_y_measurement(sim, qubit, outcome);
+
+                    // Always record the reference outcome (critical for deterministic
+                    // measurements!)
+                    uint8_t ag_ref = outcome ? 1 : 0;
+                    AgMatrixIdx ag_idx = AgMatrixIdx::None;
+                    if (ag_pivot.has_value()) {
+                        ag_idx = AgMatrixIdx{static_cast<uint32_t>(hir.ag_matrices.size())};
+                        hir.ag_matrices.push_back(std::move(*ag_pivot));
+                    }
+
+                    hir.ops.push_back(HeisenbergOp::make_measure(destab_mask, stab_mask, sign,
+                                                                 meas_idx, ag_idx, ag_ref));
                     ++meas_idx;
                 }
                 break;
@@ -270,9 +451,54 @@ HirModule trace(const Circuit& circuit) {
 
                 // Rewind the entire Pauli product through the inverse tableau
                 stim::PauliString<kStimWidth> rewound = sim.inv_state(obs);
+                uint64_t destab_mask = rewound.xs.u64[0];
+                uint64_t stab_mask = rewound.zs.u64[0];
+                bool sign = rewound.sign;
 
-                hir.ops.push_back(HeisenbergOp::make_measure(rewound.xs.u64[0], rewound.zs.u64[0],
-                                                             rewound.sign, meas_idx));
+                // Check determinism and handle collapse
+                auto info = check_deterministic_mpp(sim, obs);
+
+                AgMatrixIdx ag_idx = AgMatrixIdx::None;
+                bool outcome =
+                    (info.outcome == MeasOutcome::One);  // Default for deterministic case
+
+                if (!info.is_deterministic) {
+                    // Anti-commuting: need to collapse via Stim's MPP
+                    stim::Tableau<kStimWidth> inv_before = sim.inv_state;
+
+                    // Build GateTarget array for MPP using Stim's factory methods
+                    std::vector<stim::GateTarget> targets;
+                    for (const auto& target : node.targets) {
+                        uint32_t q = target.value();
+                        stim::GateTarget gt;
+                        if (target.pauli() == Target::kPauliX) {
+                            gt = stim::GateTarget::x(q);
+                        } else if (target.pauli() == Target::kPauliY) {
+                            gt = stim::GateTarget::y(q);
+                        } else {
+                            gt = stim::GateTarget::z(q);
+                        }
+                        if (!targets.empty()) {
+                            // Add combiner between terms
+                            targets.push_back(stim::GateTarget::combiner());
+                        }
+                        targets.push_back(gt);
+                    }
+
+                    sim.do_MPP({stim::GateType::MPP, {}, targets, ""});
+                    outcome = sim.measurement_record.storage.back();
+
+                    stim::Tableau<kStimWidth> forward_after = sim.inv_state.inverse();
+                    stim::Tableau<kStimWidth> ag_pivot = forward_after.then(inv_before);
+
+                    ag_idx = AgMatrixIdx{static_cast<uint32_t>(hir.ag_matrices.size())};
+                    hir.ag_matrices.push_back(std::move(ag_pivot));
+                }
+
+                // Always record the reference outcome (critical for deterministic measurements!)
+                uint8_t ag_ref = outcome ? 1 : 0;
+                hir.ops.push_back(HeisenbergOp::make_measure(destab_mask, stab_mask, sign, meas_idx,
+                                                             ag_idx, ag_ref));
                 ++meas_idx;
                 break;
             }

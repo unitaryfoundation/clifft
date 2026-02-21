@@ -108,6 +108,7 @@ You must use **Test-Driven Development (TDD)**. Prove the underlying math works 
 - **Namespaces:** Wrap all C++ code in `namespace ucc { ... }`.
 - **Unions:** Be extremely careful with C++ unions (e.g., inside `Instruction` and `HeisenbergOp`). You cannot safely put types with non-trivial constructors (like `std::complex<double>`) inside an anonymous union. Use bare `double weight_re, weight_im;` as specified in the docs.
 - **Memory Management:** Use modern C++ (`std::vector`, `std::unique_ptr`) everywhere *except* the VM's coefficient array (`v[]`), which requires explicit `std::aligned_alloc(64, ...)` for AVX alignment. Remember to `std::free()` it in the destructor.
+- **Comments:** Avoid vacuous comments that just restate what the next line of code does. Comments should explain *why* the code works this way, not *what* it does. If the code is self-explanatory, omit the comment entirely.
 
 
 ## 9. Handling Blockers

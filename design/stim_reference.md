@@ -166,7 +166,7 @@ I=00, X=10, Z=01, Y=11. Multiplying two N-qubit Paulis is bulk SIMD XOR/AND.
 struct TableauHalf<W> {
     size_t num_qubits;
     simd_bit_table<W> xt;   // N×N X-component bits
-    simd_bit_table<W> zt;   // N×N Z-component bits  
+    simd_bit_table<W> zt;   // N×N Z-component bits
     simd_bits<W> signs;     // N sign bits
 };
 struct Tableau<W> {
