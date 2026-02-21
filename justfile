@@ -122,4 +122,10 @@ lint:
 # aidigest creates a flat digest of all files in the repo, excluding build artifacts and other ignored files.
 # This helps to share with Chat LLMs
 aidigest:
-    uvx gitingest . -e build -e cmake -e uv.lock -e .git -e .venv -e __pycache__ -e .pytest_cache -e .jj
+rm -f ai.all.digest.txt
+    rm ai.all.digest.txt
+    uvx gitingest . -e build -e cmake -e uv.lock -e .git -e .venv -e __pycache__ -e .pytest_cache -e .jj -o ai.all.digest.txt
+
+aidesigndigest:
+    rm aidesign.digest.txt
+    uvx gitingest . -i "design/*.md" -i "design/theory/*.tex" -o aidesign.digest.txt

@@ -1,7 +1,8 @@
 circuits
 circuits.zip
 *.DS_Store
-digest.txt
+*digest.txt
+*.patch
 
 # C++ / CMake build artifacts
 build/
