@@ -1,6 +1,7 @@
-"""UCC - Universal Compiler Collection.
+"""UCC - Unitary Compiler Collection.
 
-A multi-level AOT compiler and VM for quantum circuits (Clifford + T and beyond).
+A multi-level AOT compiler and Schrodinger Virtual Machine for quantum circuits
+(Clifford + T and beyond).
 """
 
 from ucc._ucc_core import (

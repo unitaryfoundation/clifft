@@ -1,6 +1,6 @@
-# UCC - Universal Compiler Collection
+# UCC - Unitary Compiler Collection
 
-A multi-level Ahead-of-Time (AOT) compiler and Virtual Machine for quantum circuits.
+A multi-level Ahead-of-Time (AOT) compiler and Schrodinger Virtual Machine (SVM) for quantum circuits.
 
 UCC supports Clifford + T gates and beyond, with a focus on high-performance simulation.
 

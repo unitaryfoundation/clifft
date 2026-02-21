@@ -5,14 +5,14 @@ structure, dependency management, Stim integration strategy, build system, Pytho
 bindings, and implementation phasing.
 
 For the system overview and pipeline design see [`overview.md`](overview.md).
-For C++ data structures and VM execution semantics see
+For C++ data structures and SVM execution semantics see
 [`data_structs.md`](data_structs.md).
 
 ---
 
 ## 1. Overview
 
-**UCC** — the **Universal Compiler Collection** — is a multi-level compiler
+**UCC** — the **Unitary Compiler Collection** — is a multi-level compiler
 infrastructure and execution engine for universal quantum circuits (Clifford + T
 and beyond).
 
@@ -44,13 +44,13 @@ ucc::Circuit (AST)         ← parser reads .stim-superset text
         ▼
    Program (bytecode + ConstantPool)
         │
-   4. VM × N shots             ← lightweight per-shot execution; no Tableau,
+   4. SVM × N shots            ← lightweight per-shot execution; no Tableau,
                                  no Stim simulator, only sign bits + v[] array
 ```
 
 **Key properties:**
 
-- The Front-End absorbs all O(n²) Boolean tableau geometry. The VM sees only
+- The Front-End absorbs all O(n²) Boolean tableau geometry. The SVM sees only
   O(1) bitwise sign-tracking and dense array arithmetic.
 - The Middle-End optimizes at the speed of bitwise arithmetic — no DAG
   traversal, no matrix algebra.
@@ -107,7 +107,7 @@ ucc sample circuit.stim --shots 1M --threads 8
 This separation enables:
 - **Debugging:** Inspect the HIR after optimization to verify fusion/cancellation.
 - **Caching:** Pre-compile expensive circuits once, distribute `.bin` files.
-- **Integration:** Export `.hir` directly to physical routing tools without VM overhead.
+- **Integration:** Export `.hir` directly to physical routing tools without SVM overhead.
 
 ---
 
@@ -122,7 +122,7 @@ ucc/
 ├── design.                       # Design documents (this file lives here)
 │   ├── architecture.md           # ← you are here
 │   ├── overview.md               # System overview, pipeline, performance thesis
-│   └── data_structs.md           # HIR, VM bytecode, constant pool, execution loop
+│   └── data_structs.md           # HIR, SVM bytecode, constant pool, execution loop
 ├── src/
 │   └── ucc/
 │       ├── circuit/              # Circuit AST, parser, gate metadata
@@ -133,15 +133,18 @@ ucc/
 │       │   ├── frontend.h/.cc    #   Main trace loop; drives stim::TableauSimulator
 │       │   └── hir.h   #   HeisenbergOp, HirModule definitions
 │       ├── optimizer/            # Middle-End: HIR optimization passes
-│       │   └── optimizer.h/.cc   #   Commutation, fusion, cancellation, layering
+│       │   ├── pass.h            #   Abstract Pass interface
+│       │   ├── pass_manager.h/.cc #  Configurable pass pipeline runner
+│       │   ├── peephole_pass.h/.cc # O(n) adjacent fusion/cancellation
+│       │   └── tohpe_pass.h/.cc  #   O(m³) Heisenberg-TOHPE global optimization
 │       ├── backend/              # Compiler Back-End: HIR → bytecode lowering
 │       │   ├── backend.h/.cc     #   Code generation loop, GF(2) basis tracking
 │       │   ├── gf2_basis.h/.cc   #   GF(2) shift-vector basis V management
 │       │   └── ssa_map.h/.cc     #   Virtual → physical qubit mapping for REPEAT
-│       ├── vm/                   # Runtime VM (runs per shot)
+│       ├── svm/                  # Schrodinger Virtual Machine (runs per shot)
 │       │   ├── program.h/.cc     #   Bytecode program + ConstantPool constant pool
-│       │   ├── vm.h/.cc          #   Bytecode interpreter / execution engine
-│       │   └── shot_state.h/.cc  #   Per-shot mutable state (signs, v[], meas_record)
+│       │   ├── svm.h/.cc         #   Bytecode interpreter / execution engine
+│       │   └── schrodinger_state.h/.cc # Per-shot mutable state (signs, v[], meas_record)
 │       └── util/
 │           └── config.h          #   Compile-time configuration (W, precision, limits)
 ├── src/python/
@@ -156,7 +159,7 @@ ucc/
 │   ├── test_frontend.cc          # HIR emission for known circuits
 │   ├── test_optimizer.cc         # Commutation, fusion, cancellation correctness
 │   ├── test_backend.cc           # Opcode emission, GF(2) basis, NoiseSchedule
-│   ├── test_vm.cc                # VM opcode execution (unit)
+│   ├── test_svm.cc               # SVM opcode execution (unit)
 │   ├── test_end_to_end.cc        # Full pipeline, compare to known distributions
 │   └── python/
 │       └── test_api.py           # Python binding smoke tests (pytest)
@@ -171,7 +174,7 @@ ucc/
 
 ### Rationale for the four-directory split
 
-The `frontend/`, `optimizer/`, `backend/`, `vm/` directories mirror the
+The `frontend/`, `optimizer/`, `backend/`, `svm/` directories mirror the
 multi-level pipeline:
 
 | Layer | Lifetime | Stim dependency | Hot path? |
@@ -180,11 +183,11 @@ multi-level pipeline:
 | **frontend/** | Trace time (once) | Heavy — TableauSimulator, Tableau, PauliString | No |
 | **optimizer/** | Optimize time (once) | None — pure bitwise arithmetic on HIR | No |
 | **backend/** | Code gen time (once) | Light — GF(2) basis math only | No |
-| **vm/** | Per shot (×millions) | Light — `simd_bits<W>` only (>64 qubits) | **Yes** |
+| **svm/** | Per shot (×millions) | Light — `simd_bits<W>` only (>64 qubits) | **Yes** |
 
 This separation enforces key invariants:
-- The VM never touches `stim::Tableau` or `stim::TableauSimulator`.
-- The optimizer never sees VM memory layout (x_mask, commutation_mask).
+- The SVM never touches `stim::Tableau` or `stim::TableauSimulator`.
+- The optimizer never sees SVM memory layout (x_mask, commutation_mask).
 - The Front-End's Stim dependency is contained to a single directory.
 
 ---
@@ -195,7 +198,7 @@ This separation enforces key invariants:
 
 | Dependency | Version | Mechanism | Role |
 |------------|---------|-----------|------|
-| **Stim** | HEAD (pinned tag) | CMake FetchContent | Tableau math in frontend; `simd_bits`/`simd_bit_table` in VM |
+| **Stim** | HEAD (pinned tag) | CMake FetchContent | Tableau math in frontend; `simd_bits`/`simd_bit_table` in SVM |
 | **Catch2** | v3.x | CMake FetchContent | Unit tests + microbenchmarks |
 | **nanobind** | latest | CMake FetchContent (via scikit-build-core) | Python bindings |
 
@@ -320,15 +323,15 @@ observable into the $t=0$ frame, a multi-Pauli measurement simply becomes a sing
 `HeisenbergOp::MEASURE` with multiple bits set in its Pauli masks. The Middle-End and
 Back-End process a weight-10 parity check exactly as fast as a weight-1 Pauli measurement.
 
-#### VM Runtime (light use, runs per shot)
+#### SVM Runtime (light use, runs per shot)
 
-| Stim type | How the VM uses it |
+| Stim type | How the SVM uses it |
 |-----------|-----|
-| `stim::simd_bits<W>` | Sign tracker storage when qubit count exceeds 64. For ≤64 qubits, the VM uses `uint64_t` and does not touch Stim at all. |
+| `stim::simd_bits<W>` | Sign tracker storage when qubit count exceeds 64. For ≤64 qubits, the SVM uses `uint64_t` and does not touch Stim at all. |
 | `stim::simd_bit_table<W>` | AG pivot matrices in ConstantPool (>64 qubit path). |
 | Measurement formatting | Stim-compatible output formats (.b8, .01, .smp) for interoperability. |
 
-**The VM never uses `stim::Tableau` or `stim::TableauSimulator`.** This is the
+**The SVM never uses `stim::Tableau` or `stim::TableauSimulator`.** This is the
 fundamental invariant that makes per-shot execution lightweight.
 
 ### What we write ourselves
@@ -339,11 +342,11 @@ fundamental invariant that makes per-shot execution lightweight.
 | Front-End trace logic | Heisenberg rewinding, HIR emission, dominant-term factoring |
 | Middle-End optimizer | Commutation, fusion, cancellation — none of this exists in Stim |
 | Back-End code generator | GF(2) basis tracking, bytecode emission, `commutation_mask` computation, NoiseSchedule compilation |
-| VM execution engine | Bytecode interpreter, coefficient array math, measurement sampling |
+| SVM execution engine | Bytecode interpreter, coefficient array math, measurement sampling |
 | REPEAT block streaming | Incremental bytecode emission with SSA qubit mapping |
 | `rec[-k]` resolution | Measurement index tracking during compilation |
 | DETECTOR coordinate propagation | Accumulating coordinate offsets through REPEAT iterations |
-| Noise schedule & gap sampling | Geometric gap sampling is a VM-side optimization orthogonal to Stim |
+| Noise schedule & gap sampling | Geometric gap sampling is an SVM-side optimization orthogonal to Stim |
 
 ### Why not patch Stim
 
@@ -368,8 +371,8 @@ Stim's `MAX_BITWORD_WIDTH` convention.
 | Component | W-dependent types | Notes |
 |-----------|-------------------|-------|
 | Front-End | `Tableau<W>`, `TableauSimulator<W>`, `PauliString<W>` | Full n×n bit-matrix operations |
-| VM (>64q path) | `simd_bits<W>` for sign tracker, `simd_bit_table<W>` for AG matrices | Only sign/generator mask dimensions scale with n |
-| VM (≤64q path) | `uint64_t` | Fast path: no Stim types, no SIMD overhead |
+| SVM (>64q path) | `simd_bits<W>` for sign tracker, `simd_bit_table<W>` for AG matrices | Only sign/generator mask dimensions scale with n |
+| SVM (≤64q path) | `uint64_t` | Fast path: no Stim types, no SIMD overhead |
 
 ### Where W does NOT matter
 
@@ -402,17 +405,17 @@ add_library(ucc_core
     backend/backend.cc
     backend/gf2_basis.cc
     backend/ssa_map.cc
-    vm/program.cc
-    vm/vm.cc
-    vm/shot_state.cc
+    svm/program.cc
+    svm/svm.cc
+    svm/schrodinger_state.cc
 )
 target_link_libraries(ucc_core PUBLIC libstim)
 target_include_directories(ucc_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/..)
 ```
 
 Logically, the code separates into five layers (circuit → frontend → optimizer
-→ backend → vm) as described in §2. If link-time granularity matters later
-(e.g., a VM-only embedding or optimizer-only export), we can split into separate
+→ backend → svm) as described in §2. If link-time granularity matters later
+(e.g., an SVM-only embedding or optimizer-only export), we can split into separate
 targets. For now, one target keeps the build simple.
 
 ### External dependencies
@@ -475,7 +478,7 @@ results, seeds = ucc.sample(program, shots=1000, base_seed=42)
 1. The C++ backend uses the `base_seed` to initialize a master PRNG.
 2. The master PRNG generates a deterministic array of $N$ exact 64-bit sub-seeds
    (one per shot).
-3. Each shot's `ShotState` is initialized with its assigned sub-seed.
+3. Each shot's `SchrodingerState` is initialized with its assigned sub-seed.
 4. The `sample()` function returns both the measurement results and the array
    of $N$ exact seeds used.
 
@@ -500,7 +503,7 @@ import ucc
 # Compile a circuit (runs the full AOT pipeline once)
 program = ucc.compile("H 0\nT 0\nM 0")
 
-# Sample many shots (runs the VM N times)
+# Sample many shots (runs the SVM N times)
 results = ucc.sample(program, shots=10_000)
 # → numpy uint8 array, shape (shots, num_measurements)
 
@@ -645,7 +648,7 @@ computation. Incorrect rank tracking would cause OOM or array overflows.
 Generate random Clifford+T circuit (2-8 qubits, 10-50 gates)
     → Compile to bytecode
     → Execute 1 shot on C++ execution engine
-    → Expand VM's final compact v[] array + GF(2) basis into dense 2^N statevector
+    → Expand SVM's final compact v[] array + GF(2) basis into dense 2^N statevector
     → Assert np.allclose(expanded_vm_state, pure_python_state * global_weight)
 ```
 
@@ -707,7 +710,7 @@ Strictly limited scope to minimize time-to-first-benchmark.
 - HIR emission for T/T† and measurements (`HeisenbergOp` with `T_GATE`, `T_DAG_GATE`, `MEASURE`)
 - **Middle-End Optimizer:** $\mathcal{O}(1)$ commutation, fusion, and cancellation passes
 - Back-End bytecode emission: OP_BRANCH, OP_COLLIDE, OP_SCALAR_PHASE
-- VM interpreter with ShotState (`uint64_t` sign tracker, dense `v[]` array)
+- SVM interpreter with SchrodingerState (`uint64_t` sign tracker, dense `v[]` array)
 - Measurement opcodes: OP_MEASURE_MERGE, OP_MEASURE_FILTER, OP_AG_PIVOT
 - Basic Python bindings with `compile()` and `sample()` APIs
 - One-way HIR text export (`.hir` format) for debugging
@@ -715,7 +718,7 @@ Strictly limited scope to minimize time-to-first-benchmark.
 - Catch2 test suite; fuzz-tested against Python prototype
 
 **Strict Limits:**
-- **≤64 qubits only** (inline `uint64_t` masks, no `simd_bits` in VM)
+- **≤64 qubits only** (inline `uint64_t` masks, no `simd_bits` in SVM)
 - **Single-allocation array sizing** (peak_rank computed at compile time)
 - **No noise, no REPEAT blocks** (dynamic REPEAT simply unrolled by Front-End if memory allows)
 - **No generic LCU** (T/T† fast-path only)
@@ -726,7 +729,7 @@ Strictly limited scope to minimize time-to-first-benchmark.
 
 - **OP_POSTSELECT:** Mid-circuit early abort optimization for magic state cultivation
 - Pauli noise channels (DEPOLARIZE1/2, X_ERROR, Z_ERROR) in HIR
-- NoiseSchedule compilation in Back-End; geometric gap sampling in VM
+- NoiseSchedule compilation in Back-End; geometric gap sampling in SVM
 - REPEAT block streaming in the Front-End (SSA qubit mapping across iterations)
 - Dynamic REPEAT block streaming/limit-cycles to prevent unrolling memory bloat
 - `rec[-k]` measurement index resolution
@@ -765,12 +768,12 @@ Strictly limited scope to minimize time-to-first-benchmark.
 | **Front-End** | The first AOT pass: parses `ucc::Circuit`, absorbs Cliffords via `stim::TableauSimulator`, emits the HIR. Runs once per circuit. |
 | **Middle-End (Optimizer)** | The second AOT pass: optimizes the HIR via O(1) commutation, fusion, and cancellation. Runs once per circuit. |
 | **Compiler Back-End** | The third AOT pass (also called the "Code Generator"): lowers optimized HIR to execution engine bytecode and ConstantPool. Tracks GF(2) basis, computes x_mask/commutation_mask/AG matrices. Runs once per circuit. *Note: "Back-End" here refers to the compiler stage, not a QPU hardware backend.* |
-| **VM** | The bytecode interpreter that executes a `Program` for a single Monte Carlo shot. Runs millions of times. |
-| **HIR (Heisenberg IR)** | Flat list of `HeisenbergOp` structs — abstract Pauli-string operations with explicit weights and no VM memory routing. Output of Front-End, input to Optimizer. Uses explicit `T_GATE` and `T_DAG_GATE` OpTypes for T-gates and a generic `GATE` OpType for other non-Clifford gates. The Back-End uses these enum values to deterministically route to fast-path or LCU opcodes. |
+| **SVM (Schrodinger Virtual Machine)** | The bytecode interpreter that executes a `Program` for a single Monte Carlo shot in the Schrodinger picture (forward time evolution of amplitudes). Runs millions of times. |
+| **HIR (Heisenberg IR)** | Flat list of `HeisenbergOp` structs — abstract Pauli-string operations with explicit weights and no SVM memory routing. Output of Front-End, input to Optimizer. Uses explicit `T_GATE` and `T_DAG_GATE` OpTypes for T-gates and a generic `GATE` OpType for other non-Clifford gates. The Back-End uses these enum values to deterministically route to fast-path or LCU opcodes. |
 | **Program** | Compiled output: a vector of 32-byte `Instruction` structs + a `ConstantPool` constant pool. Immutable, shared across shots. |
-| **ShotState** | Per-shot mutable state: sign tracker (`destab_signs`, `stab_signs`), coefficient array `v[]`, measurement record, PRNG. |
+| **SchrodingerState** | Per-shot mutable state: sign tracker (`destab_signs`, `stab_signs`), coefficient array `v[]`, measurement record, PRNG. |
 | **GF(2) basis V** | The set of linearly independent shift-vectors tracked by the Back-End. Stabilizer rank = dim(V) = log₂(len(v)). |
 | **commutation_mask** | A bitmask encoding commutation structure of a Pauli operator against V, enabling O(1) phase evaluation via `popcount(idx & commutation_mask)`. |
-| **NoiseSchedule** | A sorted table of `NoiseSite` entries in ConstantPool, mapping bytecode PCs to pre-computed noise masks. Each site may contain multiple `NoiseChannel` entries for multi-Pauli noise (e.g., DEPOLARIZE1/2). The VM uses geometric gap sampling over this table. |
+| **NoiseSchedule** | A sorted table of `NoiseSite` entries in ConstantPool, mapping bytecode PCs to pre-computed noise masks. Each site may contain multiple `NoiseChannel` entries for multi-Pauli noise (e.g., DEPOLARIZE1/2). The SVM uses geometric gap sampling over this table. |
 | **W** | SIMD bitword width (64, 128, 256, or 512 bits). Compile-time template parameter inherited from Stim. |
 | **Dominant Term Factoring** | LCU decomposition technique that absorbs the largest-magnitude Pauli term into the tableau, making the identity path free. |

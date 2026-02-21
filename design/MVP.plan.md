@@ -1,7 +1,7 @@
 # UCC MVP Implementation Plan
 
 ## Executive Summary & MVP Constraints
-You are building the Phase 1 Minimum Viable Product (MVP) of the Universal Compiler Collection (UCC).
+You are building the Phase 1 Minimum Viable Product (MVP) of the Unitary Compiler Collection (UCC).
 
 **Strict Constraints for this specific MVP phase (Overrides general guidelines if in conflict):**
 1. **64-Qubit Fast-Path ONLY:** Limit all Pauli masks to strictly $\le 64$ qubits using inline `uint64_t`. Do not implement Stim's `simd_bits` template monomorphization yet.
@@ -28,7 +28,7 @@ You are building the Phase 1 Minimum Viable Product (MVP) of the Universal Compi
 **Goal:** Read a stripped `.stim` file into an abstract syntax tree.
 *   **Task 2.1:** Define `ucc::Circuit`, `ucc::AstNode`, and the `ucc::GateType` enum. Include fields for targets and measurement record indices (`rec[-k]`).
 *   **Task 2.2:** Write a line-by-line parser.
-    *   *Resets Trick:* AOT simulators cannot branch the Clifford frame. Mathematically, a reset is a measurement followed by a conditionally applied Pauli. Decompose `R q` into `M q` followed by `CX rec[-1] q` (apply X if measure was 1). Decompose `RX q` into `MX q` followed by `CZ rec[-1] q`. This requires zero new VM opcodes!
+    *   *Resets Trick:* AOT simulators cannot branch the Clifford frame. Mathematically, a reset is a measurement followed by a conditionally applied Pauli. Decompose `R q` into `M q` followed by `CX rec[-1] q` (apply X if measure was 1). Decompose `RX q` into `MX q` followed by `CZ rec[-1] q`. This requires zero new SVM opcodes!
     *   Parse `MPP` into a list of Pauli targets.
     *   Parse `CX rec[-k] q` as a feedback operation.
 *   **DoD:** A C++ Catch2 test parses a string containing gates, measurements, and a reset, verifying the AST matches the decomposed structure.
@@ -48,10 +48,10 @@ You are building the Phase 1 Minimum Viable Product (MVP) of the Universal Compi
 *   **Task 4.3 (Measurements & Feedback):** Lower `MEASURE` operations into `OP_MEASURE_MERGE`, `OP_MEASURE_FILTER`, or `OP_MEASURE_DETERMINISTIC` by evaluating against $V$. Append `OP_AG_PIVOT` if the Front-End provided an AG matrix index. Lower `OP_CONDITIONAL_PAULI` directly into a bytecode instruction.
 *   **DoD:** A test showing 4 independent $T$ gates emits 4 `OP_BRANCH` opcodes and yields a `peak_rank` of 4.
 
-## Phase 5: Virtual Machine Runtime
+## Phase 5: Schrodinger Virtual Machine Runtime
 **Goal:** Execute the bytecode and track the complex coefficient array.
-*   **Task 5.1:** Define `ShotState` containing a dynamically allocated `std::complex<double>` array of size $2^{\text{peak\_rank}}$, `uint64_t destab_signs`, `uint64_t stab_signs`, and a `std::vector<uint8_t> meas_record`. Include a deterministic PRNG.
-*   **Task 5.2:** Implement the VM switch statement for all opcodes.
+*   **Task 5.1:** Define `SchrodingerState` containing a dynamically allocated `std::complex<double>` array of size $2^{\text{peak\_rank}}$, `uint64_t destab_signs`, `uint64_t stab_signs`, and a `std::vector<uint8_t> meas_record`. Include a deterministic PRNG.
+*   **Task 5.2:** Implement the SVM switch statement for all opcodes.
     *   `OP_BRANCH`, `OP_COLLIDE`, `OP_SCALAR_PHASE`.
     *   `OP_MEASURE_MERGE`, `OP_MEASURE_FILTER`, `OP_MEASURE_DETERMINISTIC`, `OP_AG_PIVOT`.
     *   `OP_CONDITIONAL_PAULI` (if `meas_record[idx] == 1`, XOR the masks into `destab_signs`/`stab_signs`).
@@ -60,6 +60,6 @@ You are building the Phase 1 Minimum Viable Product (MVP) of the Universal Compi
 
 ## Phase 6: Validation & Integration Testing
 **Goal:** Prove the system produces mathematically correct physics.
-*   **Task 6.1 (Statevector Micro-Test):** Write a Python utility `extract_statevector` that runs the VM for 1 shot and mathematically expands the compact $v[]$ array and GF(2) basis into a dense $2^N$ numpy array. Validate a 4-qubit pure unitary circuit (Cliffords + $T$, no measurements) against `stim.TableauSimulator`'s statevector using `np.allclose`.
+*   **Task 6.1 (Statevector Micro-Test):** Write a Python utility `extract_statevector` that runs the SVM for 1 shot and mathematically expands the compact $v[]$ array and GF(2) basis into a dense $2^N$ numpy array. Validate a 4-qubit pure unitary circuit (Cliffords + $T$, no measurements) against `stim.TableauSimulator`'s statevector using `np.allclose`.
 *   **Task 6.2 (Statistical Macro-Test):** Load the manually stripped Gidney proxy circuit (S gates only). Run 10,000 shots in `stim` and 10,000 shots in `ucc`. Assert that the probability distributions of the resulting measurement bitstrings match within a strict statistical tolerance (e.g., $< 0.02$ divergence).
 *   **DoD:** Both tests pass reliably via `pytest`.

@@ -1,7 +1,7 @@
 
 # UCC — Use Cases & Application Workflows
 
-This document outlines the core use cases enabled by the Universal Compiler Collection (UCC) framework. Because UCC fundamentally decouples the $\mathcal{O}(n^2)$ topological tracking of a quantum circuit from its $\mathcal{O}(1)$ probabilistic execution via a multi-level Ahead-Of-Time (AOT) compiler, it exposes multiple layers of program representation. This allows UCC to function simultaneously as an ultra-fast simulator, an algebraic optimizer, and a hardware routing compiler.
+This document outlines the core use cases enabled by the Unitary Compiler Collection (UCC) framework. Because UCC fundamentally decouples the $\mathcal{O}(n^2)$ topological tracking of a quantum circuit from its $\mathcal{O}(1)$ probabilistic execution via a multi-level Ahead-Of-Time (AOT) compiler, it exposes multiple layers of program representation. This allows UCC to function simultaneously as an ultra-fast simulator, an algebraic optimizer, and a hardware routing compiler.
 
 For each use case, we define the integration point within the pipeline, the minimum functionality required for implementation, relevant references, and our strategy for demonstrating state-of-the-art performance.
 
@@ -16,7 +16,7 @@ Generating high-fidelity logical $|T\rangle$ states is a massive bottleneck in f
 - **Program Representation Level:** Level 4 (VM Runtime). This exercises the full AOT pipeline, compiling the circuit down to hardware-aligned bytecode and sampling it over millions of shots.
 - **Minimum Functionality Needed:**
   - *Phase 1 (MVP) Fast-Path:* Because the $d=5$ MSC circuit uses exactly 42 qubits, it fits entirely within the MVP's $\le 64$ qubit inline uint64\_t execution path.
-  - *Phase 2 (Control Flow & Noise):* OP\_POSTSELECT is strictly required. The $d=5$ circuit has a $>99\%$ discard rate under noise. Aborting the VM loop the moment a parity check fails—rather than evaluating the remaining non-Clifford branches—is essential for tracking scale. Geometric gap sampling (NoiseSchedule) is also required to implement the uniform depolarizing models used in the papers.
+  - *Phase 2 (Control Flow & Noise):* OP\_POSTSELECT is strictly required. The $d=5$ circuit has a $>99\%$ discard rate under noise. Aborting the SVM loop the moment a parity check fails—rather than evaluating the remaining non-Clifford branches—is essential for tracking scale. Geometric gap sampling (NoiseSchedule) is also required to implement the uniform depolarizing models used in the papers.
 - **References:**
   - Gidney, Shutty, Jones (2024): "Magic state cultivation: growing T states as cheap as CNOT gates"
   - Li et al. (2025): "SOFT: a high-performance simulator for universal fault-tolerant quantum circuits"
@@ -27,7 +27,7 @@ We will use a two-step benchmarking strategy to prove both correctness and absol
 
 1. **The S-Gate Baseline (vs. Stim / Gidney):** Gidney evaluated $d=5$ cultivation by replacing $T$ gates with $S$ gates to make it simulatable in Stim, and extrapolated the results. We will simulate this exact $S$-gate proxy circuit through both Stim and UCC.
    - *Correctness:* Because $S$-gates are Cliffords, UCC's Front-End will absorb them entirely. If our logical error rates and discard rates perfectly match Stim, it mathematically proves our trace generation, Heisenberg rewinding, and gap-sampled noise models are flawless before introducing $T$-gate complexity.
-   - *Speed Benchmark:* Since the AOT compiler eliminates all tableau math, the VM simply executes fast integer XORs for noise and measurements. This will benchmark our VM's raw execution speed against stim::TableauSimulator's dynamic tracking.
+   - *Speed Benchmark:* Since the AOT compiler eliminates all tableau math, the SVM simply executes fast integer XORs for noise and measurements. This will benchmark our SVM's raw execution speed against stim::TableauSimulator's dynamic tracking.
 2. **The True T-Gate Benchmark (vs. SOFT):** The SOFT simulator recently achieved the first exact simulation of the $d=5$ $T$-gate circuit, but it required 16 NVIDIA H800 GPUs running for 20 days to collect 200 billion shots. We will run the true $T$-gate circuit end-to-end. By leveraging *Dominant Term Factoring* (where the heaviest identity branch requires zero FLOPs and zero memory writes) and OP\_POSTSELECT, we aim to show that UCC running on a conventional CPU cluster can achieve dramatically higher throughput than SOFT's GPU brute-force approach.
 
 ---
@@ -43,7 +43,7 @@ However, these traditional solvers suffer from two fatal structural bottlenecks:
 1. **The Ancilla & Partitioning Penalty:** To gain global visibility on mixed-Clifford circuits, they force "Hadamard Gadgetization," massively bloating the physical ancilla qubit count. Without gadgets, compilers must rely on bulky graph-partitioning heuristics to chop the circuit into Hadamard-free zones.
 2. **The Extraction / Synthesis Penalty:** Converting an optimized phase polynomial back into a physical, executable unitary circuit requires synthesizing complex CNOT networks. This destroys hardware routing constraints and inflates circuit depth.
 
-**UCC natively bypasses both bottlenecks.** Because the Front-End's TableauSimulator mathematically *absorbs* all Clifford gates and rewinds everything to the $t=0$ topological basis, the resulting Heisenberg IR (HIR) is natively a global phase polynomial. By embedding the TOHPE algorithm directly into the UCC Middle-End, we can optimize the HIR and export it directly to Pauli-Based Computation (PBC) hardware routers like tqec—or execute it directly in the VM. **We never have to extract a CNOT unitary circuit**.
+**UCC natively bypasses both bottlenecks.** Because the Front-End's TableauSimulator mathematically *absorbs* all Clifford gates and rewinds everything to the $t=0$ topological basis, the resulting Heisenberg IR (HIR) is natively a global phase polynomial. By embedding the TOHPE algorithm directly into the UCC Middle-End, we can optimize the HIR and export it directly to Pauli-Based Computation (PBC) hardware routers like tqec—or execute it directly in the SVM. **We never have to extract a CNOT unitary circuit**.
 
 - **Program Representation Level:** Level 2 (Optimized Heisenberg IR).
 - **Minimum Functionality Needed:** Phase 1 (MVP). Requires Front-End HIR emission and the Middle-End applying the TOHPE GF(2) null-space extraction over the pairwise ANDs of the topological masks within commuting cliques.
@@ -106,7 +106,7 @@ Error mitigation strategies (like Pauli twirling or Probabilistic Error Cancella
 
 #### Demonstration Strategy
 
-Instead of twirling the circuit text (which exponentially bloats the number of circuits to track), the user compiles the circuit *once*. During code generation, the Back-End compiles the twirled Pauli channels into the NoiseSchedule. The VM then samples these errors via branchless geometric gap sampling. We will demonstrate that executing a heavily twirled circuit in UCC takes effectively the exact same amount of time as simulating the bare circuit, fundamentally solving the simulation bottleneck for error mitigation research.
+Instead of twirling the circuit text (which exponentially bloats the number of circuits to track), the user compiles the circuit *once*. During code generation, the Back-End compiles the twirled Pauli channels into the NoiseSchedule. The SVM then samples these errors via branchless geometric gap sampling. We will demonstrate that executing a heavily twirled circuit in UCC takes effectively the exact same amount of time as simulating the bare circuit, fundamentally solving the simulation bottleneck for error mitigation research.
 
 ---
 

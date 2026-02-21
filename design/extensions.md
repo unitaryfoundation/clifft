@@ -2,7 +2,7 @@
 
 ## **Abstract**
 
-The Universal Compiler Collection (UCC) architecture relies on a strict separation between $\\mathcal{O}(n^2)$ topological tracking (Ahead-Of-Time compilation) and $\\mathcal{O}(1)$ probabilistic execution (the Virtual Machine). While the MVP establishes UCC as an exact, hyper-fast simulator and an algebraic optimizer, the underlying architecture naturally supports a much wider array of use cases.
+The Unitary Compiler Collection (UCC) architecture relies on a strict separation between $\\mathcal{O}(n^2)$ topological tracking (Ahead-Of-Time compilation) and $\\mathcal{O}(1)$ probabilistic execution (the Schrodinger Virtual Machine). While the MVP establishes UCC as an exact, hyper-fast simulator and an algebraic optimizer, the underlying architecture naturally supports a much wider array of use cases.
 
 This document outlines forward-looking extensions, system integrations, and architectural upgrades. It details features that improve the toolchain for developers, advanced simulation capabilities, and explicit open research directions required to handle massive-scale logical compilation, memory constraints, and structured control flow.
 
@@ -14,15 +14,15 @@ This document outlines forward-looking extensions, system integrations, and arch
 
 Simulating stochastic Pauli noise is highly efficient in UCC due to branchless geometric gap sampling. However, **coherent noise** (e.g., a persistent over-rotation $R\_Z(\\epsilon)$ on every gate) fundamentally alters the superposition.
 
-Mathematically, UCC natively models coherent noise using the existing Linear Combination of Unitaries (LCU) framework. An over-rotation is decomposed as $I \+ cZ$. The Front-End uses Dominant Term Factoring to extract the massive $I$ branch (costing zero runtime FLOPs), leaving the VM to execute the tiny error branch via OP\_BRANCH\_LCU.
+Mathematically, UCC natively models coherent noise using the existing Linear Combination of Unitaries (LCU) framework. An over-rotation is decomposed as $I \+ cZ$. The Front-End uses Dominant Term Factoring to extract the massive $I$ branch (costing zero runtime FLOPs), leaving the SVM to execute the tiny error branch via OP\_BRANCH\_LCU.
 
-The problem is the **stabilizer rank explosion**: if coherent noise is applied to every gate in a deep circuit, the VM's coefficient array (v\_size) doubles with every OP\_BRANCH\_LCU instruction. Exact simulation of dense coherent noise is fundamentally intractable and leads to rapid Out-Of-Memory (OOM) errors in the state space.
+The problem is the **stabilizer rank explosion**: if coherent noise is applied to every gate in a deep circuit, the SVM's coefficient array (v\_size) doubles with every OP\_BRANCH\_LCU instruction. Exact simulation of dense coherent noise is fundamentally intractable and leads to rapid Out-Of-Memory (OOM) errors in the state space.
 
 ### **1.2 The Extension: State Vector Truncation**
 
 To support deep circuits with coherent noise, UCC can be extended into a **high-performance approximate simulator** via State Vector Truncation.
 
-During the VM's OP\_BRANCH\_LCU execution, if the newly spawned branch falls below a user-defined numerical threshold (e.g., relative weight $|c| \< 10^{-6}$), the VM dynamically aborts the memory expansion, discards the mathematically negligible branch, and tracks the accumulated dropped weight to provide a rigorous upper-bound on the approximation error.
+During the SVM's OP\_BRANCH\_LCU execution, if the newly spawned branch falls below a user-defined numerical threshold (e.g., relative weight $|c| \< 10^{-6}$), the SVM dynamically aborts the memory expansion, discards the mathematically negligible branch, and tracks the accumulated dropped weight to provide a rigorous upper-bound on the approximation error.
 
 **Impact:** This bounds the state vector growth, transforming exponential memory scaling into a constrained polynomial footprint. It allows UCC to simulate massive circuits with weak coherent noise, acting as a highly competitive, bounds-aware alternative to tensor-network approximate simulators.
 
@@ -44,8 +44,8 @@ This fundamentally breaks UCC's AOT architecture. If a *Clifford* gate is classi
 
 To integrate with highly structured languages, we leave the resolution of dynamic topology as an open research problem, proposing two potential paradigms:
 
-1. **The "AOT-Safe" Subset:** The UCC parser enforces strict topological determinism. Unbounded while loops and classically controlled *Cliffords* throw formal compiler errors. Classically controlled *Paulis*, however, are mathematically safe and compile cleanly to an OP\_CONDITIONAL\_PAULI instruction that conditionally flips tracking signs in the VM without altering the geometric basis.
-2. **JIT (Just-In-Time) Execution Engine:** A radical architectural extension where the VM pauses execution upon hitting a dynamic branch. It hands control back to a Python/C++ front-end to evaluate the classical condition, updates the tableau geometry dynamically, and compiles the next chunk of VM bytecode on the fly.
+1. **The "AOT-Safe" Subset:** The UCC parser enforces strict topological determinism. Unbounded while loops and classically controlled *Cliffords* throw formal compiler errors. Classically controlled *Paulis*, however, are mathematically safe and compile cleanly to an OP\_CONDITIONAL\_PAULI instruction that conditionally flips tracking signs in the SVM without altering the geometric basis.
+2. **JIT (Just-In-Time) Execution Engine:** A radical architectural extension where the SVM pauses execution upon hitting a dynamic branch. It hands control back to a Python/C++ front-end to evaluate the classical condition, updates the tableau geometry dynamically, and compiles the next chunk of SVM bytecode on the fly.
 
 
 ## ---
@@ -77,15 +77,15 @@ Instead of rewinding every operation all the way back to $t=0$, the Front-End dr
 
 * This artificially truncates the lightcone, keeping the Pauli strings strictly local and low-weight.
 * Because they are low-weight, the HIR *can* utilize highly-compressed sparse memory layouts (just a few bytes per op), keeping the optimizer fully resident in the L1 cache.
-* To connect the chunks during execution, the Compiler Back-End will emit an $\\mathcal{O}(1)$ OP\_FRAME\_SHIFT instruction. This allows the VM to mathematically realign its sign trackers between chunks, preventing memory blow-out while maintaining perfect topological determinism.
+* To connect the chunks during execution, the Compiler Back-End will emit an $\\mathcal{O}(1)$ OP\_FRAME\_SHIFT instruction. This allows the SVM to mathematically realign its sign trackers between chunks, preventing memory blow-out while maintaining perfect topological determinism.
 
-*(Note: We will also explore **Active Memory Compaction** in the VM using OP\_INDEX\_CNOT and OP\_MEASURE\_FILTER to actively shrink the dynamically allocated state vector array, preventing unbounded peak\_rank growth in infinite limit-cycle circuits).*
+*(Note: We will also explore **Active Memory Compaction** in the SVM using OP\_INDEX\_CNOT and OP\_MEASURE\_FILTER to actively shrink the dynamically allocated state vector array, preventing unbounded peak\_rank growth in infinite limit-cycle circuits).*
 
 ## ---
 
 ## **5. Advanced Workflows & Alternative Targets**
 
-Because UCC compiles circuits into an optimized, algebraically independent list of Pauli operations (the Optimized HIR), it can export this IR to targets far beyond its own Virtual Machine.
+Because UCC compiles circuits into an optimized, algebraically independent list of Pauli operations (the Optimized HIR), it can export this IR to targets far beyond its own Schrodinger Virtual Machine.
 
 ### 5.1 Zero-Latency VQA Parameter Sweeps
 
@@ -95,9 +95,9 @@ In UCC, the geometric structure of the circuit never changes—only the complex 
 
 ### 5.2 Real-Time QEC Decoder Streaming
 
-Modern quantum error correction (QEC) requires decoding syndrome data in real-time. Currently, the UCC VM writes classical parity checks (OP\_DETECTOR) to a flat meas\_record array, which is analyzed post-simulation.
+Modern quantum error correction (QEC) requires decoding syndrome data in real-time. Currently, the UCC SVM writes classical parity checks (OP\_DETECTOR) to a flat meas\_record array, which is analyzed post-simulation.
 
-UCC can be extended to stream OP\_DETECTOR events directly into a lock-free concurrent queue (e.g., a ring buffer). An asynchronous, highly-optimized C++ QEC decoder (like PyMatching or BPOSD) can run on a parallel CPU thread, consuming detection events and predicting logical frame corrections *while the UCC VM is still executing the quantum simulation*. This mirrors actual physical QPU control-system architectures and enables online decoding workflows.
+UCC can be extended to stream OP\_DETECTOR events directly into a lock-free concurrent queue (e.g., a ring buffer). An asynchronous, highly-optimized C++ QEC decoder (like PyMatching or BPOSD) can run on a parallel CPU thread, consuming detection events and predicting logical frame corrections *while the UCC SVM is still executing the quantum simulation*. This mirrors actual physical QPU control-system architectures and enables online decoding workflows.
 
 ### 5.3 Tensor Network & cuQuantum Pre-Processing
 
@@ -109,4 +109,4 @@ UCC can serve as an aggressive, mathematically exact **pre-processor for Tensor 
 
 Physical fault-tolerant architectures (like surface/color codes) do not execute CNOTs and T-gates; they route sequences of multi-qubit Pauli measurements via lattice surgery (Pauli-Based Computation).
 
-Because the Optimized HIR is exactly this—a flat, barrier-aware list of algebraically independent Pauli operations mapped to physical axes—it is the ideal intermediate representation for hardware control. Rather than lowering the HIR into Virtual Machine bytecode, the Compiler Back-End can be extended to target physical QPU instruction sets. UCC can emit hardware-specific eQASM, OpenQASM 3 hardware-level instructions, or directly map the Heisenberg operations to physical microwave pulse schedules. This transitions UCC from a simulation tool into a true control-plane compiler.
+Because the Optimized HIR is exactly this—a flat, barrier-aware list of algebraically independent Pauli operations mapped to physical axes—it is the ideal intermediate representation for hardware control. Rather than lowering the HIR into SVM bytecode, the Compiler Back-End can be extended to target physical QPU instruction sets. UCC can emit hardware-specific eQASM, OpenQASM 3 hardware-level instructions, or directly map the Heisenberg operations to physical microwave pulse schedules. This transitions UCC from a simulation tool into a true control-plane compiler.

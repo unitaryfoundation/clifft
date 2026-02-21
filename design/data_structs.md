@@ -19,7 +19,7 @@ All structures target the initial ≤64-qubit path using inline `uint64_t` masks
 
 The HIR is the output of the Front-End and the input to the Middle-End Optimizer.
 It is a flat, algebraically independent list of operations defined purely by their
-64-bit Pauli strings. The HIR contains **no VM-specific memory routing** (no
+64-bit Pauli strings. The HIR contains **no SVM-specific memory routing** (no
 `x_mask`, no `commutation_mask`, no array indices) — it is a pure mathematical
 representation of the circuit's non-Clifford and stochastic content.
 
@@ -39,7 +39,7 @@ enum class OpType : uint8_t {
     DETECTOR      // Classical QEC parity check
 };
 
-// The Abstract Heisenberg IR — no memory routing, no VM semantics.
+// The Abstract Heisenberg IR — no memory routing, no SVM semantics.
 struct HeisenbergOp {
     OpType type;
 
@@ -48,8 +48,8 @@ struct HeisenbergOp {
     // Design note: This puts masks on the heap and introduces minor AOT
     // allocation overhead, which may slightly impact optimizer cache locality
     // compared to inline uint64_t structs. However, it trivially enables
-    // scaling to AVX-512 widths for the paper prototype. VM runtime
-    // performance is unaffected because the VM bytecode still uses the
+    // scaling to AVX-512 widths for the paper prototype. SVM runtime
+    // performance is unaffected because the SVM bytecode still uses the
     // 32-bit index template approach (see §7) to preserve 32-byte L1 cache
     // alignment.
     stim::simd_bits<W> destab_mask;   // Pauli X-bits
@@ -99,7 +99,7 @@ struct HirModule {
     // Global weight accumulator for HIR export to physical routing tools.
     // Initialized by the Front-End, which accumulates the dominant terms
     // factored out of each gate (e.g., exp(iπ/8)·cos(π/8) for T-gates).
-    // Updated by the optimizer during fusion (see §2.2). The VM simulator
+    // Updated by the optimizer during fusion (see §2.2). The SVM simulator
     // ignores this (deferred normalization), but it is essential for correct
     // amplitude tracking in PBC export.
     std::complex<double> global_weight = {1.0, 0.0};
@@ -141,7 +141,7 @@ owned by the `HirModule`. Each `HeisenbergOp::MEASURE` stores only a
 `uint32_t ag_matrix_idx` that points into this array. The Back-End later moves
 the entire side-table into the `ConstantPool` constant pool.
 
-**Noise as HIR Citizen:** Noise operations live in the HIR (not just in the VM)
+**Noise as HIR Citizen:** Noise operations live in the HIR (not just in the SVM)
 because the Middle-End optimizer needs them as **barriers** — a gate cannot
 commute past an anti-commuting noise channel without conjugating the error into
 a coherent rotation, altering the physics. Gates that *commute* with a noise
@@ -151,7 +151,7 @@ channel's Pauli string may freely pass it (see §2.3).
 to support the ~400-qubit stretch goal for magic state cultivation simulation
 using AVX-512. While this moves masks to the heap and introduces minor AOT
 allocation overhead (potentially impacting optimizer cache locality), it
-trivially enables scaling beyond 64 qubits. The VM runtime performance remains
+trivially enables scaling beyond 64 qubits. The SVM runtime performance remains
 completely unaffected because bytecode uses the 32-bit index template approach.
 
 ---
@@ -199,7 +199,7 @@ The **new relative weight** is therefore:
 $$c_{\text{fused}} = \frac{c_1 + c_2}{1 + c_1 c_2}$$
 
 The factored-out coefficient $(1 + c_1 c_2)$ becomes a **global scalar**. While
-the VM simulator defers normalization and can ignore this, the compiler tracks
+the SVM simulator defers normalization and can ignore this, the compiler tracks
 it in a `global_weight` accumulator so the HIR can be safely exported to physical
 routing tools (like tqec or PBC).
 
@@ -388,7 +388,7 @@ struct ConstantPool {
 
 ### 3.1 NoiseSchedule Design
 
-The `noise_schedule` is sorted by program counter. At runtime, the VM uses
+The `noise_schedule` is sorted by program counter. At runtime, the SVM uses
 **geometric gap sampling** over this schedule:
 
 1. Using `total_probability` across all remaining sites, sample a geometric
@@ -405,14 +405,14 @@ and step 3 is trivial. For multi-Pauli noise (DEPOLARIZE1 with 3 channels,
 DEPOLARIZE2 with 15), step 3 requires a single weighted random selection
 among the channels.
 
-This keeps noise entirely out of the bytecode hot-loop. The VM's instruction
+This keeps noise entirely out of the bytecode hot-loop. The SVM's instruction
 stream is 100% quantum operations.
 
 ---
 
 ## 4. The 32-Byte Instruction Bytecode
 
-The core VM bytecode is a C-style union restricted to **exactly 32 bytes**.
+The core SVM bytecode is a C-style union restricted to **exactly 32 bytes**.
 This guarantees that exactly two instructions fit perfectly into a single
 64-byte L1 cache line, maximizing hardware prefetching and preventing GPU
 Constant Memory bloat.
@@ -514,11 +514,11 @@ with constant pool references.
 
 ---
 
-## 5. The Execution State (ShotState)
+## 5. The Execution State (SchrodingerState)
 
-The VM isolates the discrete topological tracking (the physical Pauli frame)
+The SVM isolates the discrete topological tracking (the physical Pauli frame)
 from the continuous probabilistic state vector. The complex array `v[]` is
-dynamically allocated **exactly once** upon VM initialization based on the
+dynamically allocated **exactly once** upon SVM initialization based on the
 `peak_rank` emitted by the Back-End.
 
 ```cpp
@@ -533,7 +533,7 @@ constexpr std::complex<double> PHASES[4] = {
     {1.0, 0.0}, {0.0, 1.0}, {-1.0, 0.0}, {0.0, -1.0}
 };
 
-struct alignas(64) ShotState {
+struct alignas(64) SchrodingerState {
     // 1. The Stochastic Sign Tracker (the physical Pauli frame)
     //    For ≤64 qubits, tracked inline as uint64_t.
     uint64_t destab_signs = 0;
@@ -557,7 +557,7 @@ struct alignas(64) ShotState {
     //    Set to true if OP_POSTSELECT discards this shot.
     bool discarded = false;
 
-    ShotState(uint32_t peak_rank, uint64_t seed_) : rng(seed_), seed(seed_) {
+    SchrodingerState(uint32_t peak_rank, uint64_t seed_) : rng(seed_), seed(seed_) {
         size_t capacity = 1ULL << peak_rank;
         v = (std::complex<double>*)
             std::aligned_alloc(64, capacity * sizeof(std::complex<double>));
@@ -565,12 +565,12 @@ struct alignas(64) ShotState {
         v[0] = {1.0, 0.0};  // Vacuum state
     }
 
-    ~ShotState() { std::free(v); }
+    ~SchrodingerState() { std::free(v); }
 };
 
 // 🚨 CRITICAL RNG INVARIANT 🚨
 //
-// The VM MUST NOT use C++ <random>'s std::uniform_real_distribution or any
+// The SVM MUST NOT use C++ <random>'s std::uniform_real_distribution or any
 // standard continuous distributions. These are IMPLEMENTATION-DEFINED and
 // will break cross-platform determinism (e.g., generating different floats
 // on GCC vs. Clang vs. MSVC for the exact same seed).
@@ -605,14 +605,14 @@ performance optimization layered on top.
 
 ---
 
-## 6. Execution Semantics (VM Runtime Loop)
+## 6. Execution Semantics (SVM Runtime Loop)
 
-The VM executes instructions against a `ShotState` in a tight switch loop.
+The SVM executes instructions against a `SchrodingerState` in a tight switch loop.
 Noise is injected via geometric gap sampling over the `NoiseSchedule`, not
 via bytecode instructions.
 
 ```cpp
-void execute(ShotState& state,
+void execute(SchrodingerState& state,
              const std::vector<Instruction>& bytecode,
              const ConstantPool& constant_pool) {
 
@@ -784,7 +784,7 @@ and renormalizes (deferred normalization clears IEEE-754 drift).
 
 Applies a pre-computed GF(2) matrix to the sign tracker. This is the
 $\mathcal{O}(n^2)$ Gaussian elimination that the Front-End pre-computed and
-evicted to the constant pool — the VM just executes a fast matrix-vector multiply.
+evicted to the constant pool — the SVM just executes a fast matrix-vector multiply.
 
 ```cpp
             case Opcode::OP_AG_PIVOT: {
@@ -1065,7 +1065,7 @@ users full visibility into postselection statistics.
 ## 7. Scaling Beyond 64 Qubits
 
 The inline `uint64_t` tracker is capped at 64 qubits. Scaling uses **template
-monomorphization** — the Instruction struct and VM loop are parameterized by
+monomorphization** — the Instruction struct and SVM loop are parameterized by
 `MaskType`.
 
 | Qubit Count | `MaskType` | Mask Storage | Sign Tracker |
@@ -1080,7 +1080,7 @@ semantics: they become indices into a densely packed
 ```cpp
 template <typename MaskType>
 inline int get_parity(const MaskType& destab_mask, const MaskType& stab_mask,
-                      const ShotState<MaskType>& state,
+                      const SchrodingerState<MaskType>& state,
                       const ConstantPool& constant_pool) {
     if constexpr (std::is_same_v<MaskType, uint64_t>) {
         // FAST PATH: single-cycle hardware POPCNT
