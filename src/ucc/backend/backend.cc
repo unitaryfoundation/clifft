@@ -137,11 +137,14 @@ CompiledModule lower(const HirModule& hir) {
                 instr.branch.stab_mask = static_cast<uint64_t>(stab);
 
                 if (beta == stim::bitword<kStimWidth>(0)) {
-                    // Diagonal: no spatial shift, pure phase
+                    // Diagonal: no spatial shift, but Z components can still
+                    // anti-commute with active basis vectors in V.
                     instr.opcode = Opcode::OP_SCALAR_PHASE;
                     instr.branch.x_mask = 0;
                     instr.branch.bit_index = 0;
-                    instr.commutation_mask = 0;  // No basis vectors to commute with
+                    // Must compute commutation even for diagonal ops!
+                    instr.commutation_mask =
+                        compute_commutation_mask(basis.vectors(), destab, stab);
                 } else if (auto x_mask_opt = basis.find_in_span(beta)) {
                     // In span: butterfly operation
                     instr.opcode = Opcode::OP_COLLIDE;
@@ -229,6 +232,25 @@ CompiledModule lower(const HirModule& hir) {
                     pivot_instr.opcode = Opcode::OP_AG_PIVOT;
                     pivot_instr.ag_ref_outcome = ag_ref;
                     pivot_instr.meta.payload_idx = static_cast<uint32_t>(ag_idx);
+                    // For anti-commuting measurements, we need to propagate the
+                    // measurement outcome into the Pauli frame.
+                    pivot_instr.meta.destab_mask = static_cast<uint64_t>(destab);
+                    pivot_instr.meta.stab_mask = static_cast<uint64_t>(stab);
+
+                    // Double-sample fix: if we just emitted MEASURE_MERGE, signal
+                    // the SVM to reuse the outcome (don't sample fresh).
+                    if (beta != stim::bitword<kStimWidth>(0) && basis.find_in_span(beta)) {
+                        pivot_instr.reuse_outcome = true;  // Follows MERGE, reuse outcome
+                    } else {
+                        pivot_instr.reuse_outcome = false;  // Standalone, sample fresh
+                    }
+
+                    // ag_stab_slot: for MVP, use qubit 0 as a simple heuristic.
+                    // Full implementation would extract from AG pivot matrix.
+                    // Store in controlling_meas field of meta union.
+                    pivot_instr.meta.ag_stab_slot =
+                        0;  // MVP placeholder; proper computation requires frontend analysis
+
                     result.bytecode.push_back(pivot_instr);
                 }
                 break;

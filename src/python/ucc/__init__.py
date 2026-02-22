@@ -9,10 +9,13 @@ from ucc._ucc_core import (
     Circuit,
     GateType,
     ParseError,
+    Program,
     Target,
+    compile,
     max_sim_qubits,
     parse,
     parse_file,
+    sample,
     version,
 )
 
@@ -21,10 +24,13 @@ __all__ = [
     "Circuit",
     "GateType",
     "ParseError",
+    "Program",
     "Target",
+    "compile",
     "max_sim_qubits",
     "parse",
     "parse_file",
+    "sample",
     "version",
 ]
 

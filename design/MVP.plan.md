@@ -95,3 +95,16 @@ You are building the Phase 1 Minimum Viable Product (MVP) of the Unitary Compile
 *   **Task 7.3 (Statistical Macro-Test):** Load the manually stripped Gidney proxy circuit (S gates only). Run 10,000 shots in `stim` and 10,000 shots in `ucc`. Assert that the probability distributions of the resulting measurement bitstrings match within a strict statistical tolerance (e.g., $< 0.02$ divergence).
 *   **Task 7.4 (Statevector Debugging API):** Add a `debug_mode=False` flag to `ucc.compile()`. When true, retain `final_tableau` and `gf2_basis` on the returned `Program`. Expose `ucc.to_statevector(program, schrodinger_state)` that leverages the math from Task 7.1.
 *   **DoD:** All tests pass reliably via `pytest`.
+
+---
+
+## Follow-ups (Post-MVP)
+
+Items identified during implementation review for future improvement:
+
+### API Encapsulation
+- **`v()` accessor removal**: The current `SchrodingerState::v()` exposes raw coefficient array for testing convenience. Refactor to encapsulate execution: `sample()` should accept a caller-provided output buffer or return results directly, eliminating public access to internal state.
+- **ndarray protocol for results**: Current Python `sample()` returns `list[list[int]]`. Investigate returning a numpy ndarray with zero-copy semantics (allocate numpy array, pass data pointer to C++). Reference Stim's approach for guidance.
+
+### Robustness
+- **Allocation size limits**: Consider adding configurable limits on `peak_rank` to prevent accidental multi-GB allocations.

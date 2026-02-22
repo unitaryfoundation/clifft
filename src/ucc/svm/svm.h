@@ -1,0 +1,81 @@
+#pragma once
+
+#include "ucc/backend/backend.h"
+
+#include <complex>
+#include <cstdint>
+#include <random>
+#include <vector>
+
+namespace ucc {
+
+// =============================================================================
+// Schrödinger Virtual Machine State
+// =============================================================================
+//
+// Holds the quantum state during execution: a sparse coefficient array indexed
+// by GF(2) coordinates, plus Pauli frame signs for Clifford tracking.
+//
+// Memory layout:
+//   - v_: 64-byte aligned array of 2^rank complex amplitudes
+//   - destab_signs/stab_signs: packed sign bits for Pauli frame
+//   - meas_record: measurement outcomes (0 or 1)
+
+class SchrodingerState {
+  public:
+    // Allocate state for given peak_rank (determines array size 2^rank).
+    // Seed controls the deterministic PRNG for measurement sampling.
+    explicit SchrodingerState(uint32_t peak_rank, uint32_t num_measurements, uint64_t seed = 0);
+
+    ~SchrodingerState();
+
+    // Non-copyable (owns aligned memory)
+    SchrodingerState(const SchrodingerState&) = delete;
+    SchrodingerState& operator=(const SchrodingerState&) = delete;
+
+    // Movable
+    SchrodingerState(SchrodingerState&& other) noexcept;
+    SchrodingerState& operator=(SchrodingerState&& other) noexcept;
+
+    // Reset to |0...0⟩ state for next shot (reuses allocation)
+    void reset(uint64_t seed);
+
+    // Access coefficient array
+    [[nodiscard]] std::complex<double>* v() { return v_; }
+    [[nodiscard]] const std::complex<double>* v() const { return v_; }
+    [[nodiscard]] uint64_t array_size() const { return array_size_; }
+
+    // Generate random double in [0, 1) using deterministic bit manipulation.
+    // CRITICAL: Do NOT use std::uniform_real_distribution — its output is
+    // implementation-defined and varies across compilers (GCC vs Clang vs MSVC).
+    // This bit-manipulation approach ensures identical sequences across platforms
+    // given the same seed, enabling reproducible simulation results.
+    [[nodiscard]] double random_double() { return static_cast<double>(rng_() >> 11) * 0x1.0p-53; }
+
+    // Pauli frame signs (X-part and Z-part)
+    uint64_t destab_signs = 0;
+    uint64_t stab_signs = 0;
+
+    // Measurement record
+    std::vector<uint8_t> meas_record;
+
+  private:
+    std::complex<double>* v_ = nullptr;  // 64-byte aligned
+    uint64_t array_size_ = 0;            // 2^peak_rank
+    uint32_t peak_rank_ = 0;
+    std::mt19937_64 rng_;
+};
+
+// =============================================================================
+// SVM Execution
+// =============================================================================
+
+/// Execute a compiled program for one shot, populating state with results.
+/// Returns the measurement record.
+void execute(const CompiledModule& program, SchrodingerState& state);
+
+/// Run multiple shots and return measurement records as a 2D array.
+/// Result shape: [shots, num_measurements], row-major.
+std::vector<uint8_t> sample(const CompiledModule& program, uint32_t shots, uint64_t seed = 0);
+
+}  // namespace ucc

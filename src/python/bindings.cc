@@ -1,5 +1,8 @@
+#include "ucc/backend/backend.h"
 #include "ucc/circuit/circuit.h"
 #include "ucc/circuit/parser.h"
+#include "ucc/frontend/frontend.h"
+#include "ucc/svm/svm.h"
 #include "ucc/util/config.h"
 #include "ucc/util/version.h"
 
@@ -137,4 +140,68 @@ NB_MODULE(_ucc_core, m) {
           "Raises:\n"
           "    ParseError: If the circuit syntax is invalid\n"
           "    RuntimeError: If the file cannot be read");
+
+    // =========================================================================
+    // Compiled Program and Sampling
+    // =========================================================================
+
+    // CompiledModule wrapper (opaque to Python, just holds the bytecode)
+    nb::class_<ucc::CompiledModule>(m, "Program", "A compiled quantum program")
+        .def_prop_ro(
+            "peak_rank", [](const ucc::CompiledModule& p) { return p.peak_rank; },
+            "Maximum GF(2) dimension (determines memory usage)")
+        .def_prop_ro(
+            "num_measurements", [](const ucc::CompiledModule& p) { return p.num_measurements; },
+            "Number of measurements in the circuit")
+        .def_prop_ro(
+            "num_instructions", [](const ucc::CompiledModule& p) { return p.bytecode.size(); },
+            "Number of bytecode instructions")
+        .def("__repr__", [](const ucc::CompiledModule& p) {
+            return "Program(" + std::to_string(p.bytecode.size()) +
+                   " instructions, peak_rank=" + std::to_string(p.peak_rank) + ", " +
+                   std::to_string(p.num_measurements) + " measurements)";
+        });
+
+    // Compile: stim text -> Program
+    m.def(
+        "compile",
+        [](const std::string& stim_text) {
+            ucc::Circuit circuit = ucc::parse(stim_text);
+            ucc::HirModule hir = ucc::trace(circuit);
+            return ucc::lower(hir);
+        },
+        nb::arg("stim_text"),
+        "Compile a quantum circuit to executable bytecode.\n\n"
+        "Args:\n"
+        "    stim_text: Circuit description in .stim format\n\n"
+        "Returns:\n"
+        "    Program object ready for sampling\n\n"
+        "Raises:\n"
+        "    ParseError: If the circuit syntax is invalid\n"
+        "    RuntimeError: If compilation fails (e.g., >32 T-gate dimensions)");
+
+    // Sample: Program + shots -> list of measurement results
+    m.def(
+        "sample",
+        [](const ucc::CompiledModule& program, uint32_t shots, uint64_t seed) {
+            std::vector<uint8_t> results = ucc::sample(program, shots, seed);
+            // Return as 2D list [shots][num_measurements]
+            size_t num_meas = program.num_measurements;
+            std::vector<std::vector<uint8_t>> output(shots);
+            for (uint32_t shot = 0; shot < shots; ++shot) {
+                output[shot].resize(num_meas);
+                for (size_t m = 0; m < num_meas; ++m) {
+                    output[shot][m] = results[shot * num_meas + m];
+                }
+            }
+            return output;
+        },
+        nb::arg("program"), nb::arg("shots"), nb::arg("seed") = 0,
+        "Run a compiled program and return measurement results.\n\n"
+        "Args:\n"
+        "    program: Compiled Program object\n"
+        "    shots: Number of shots to run\n"
+        "    seed: Random seed for reproducibility (default: 0)\n\n"
+        "Returns:\n"
+        "    List of lists with shape [shots][num_measurements], values are 0 or 1");
 }

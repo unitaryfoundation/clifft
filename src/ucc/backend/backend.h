@@ -49,9 +49,12 @@ enum class Opcode : uint8_t {
 
 struct alignas(32) Instruction {
     // --- Offset 0: Common Header (8 bytes) ---
-    Opcode opcode;              // Offset 0 (1 byte) - discriminant
-    uint8_t base_phase_idx;     // Offset 1 (1 byte) - maps to {1, i, -1, -i}
-    bool is_dagger;             // Offset 2 (1 byte)
+    Opcode opcode;           // Offset 0 (1 byte) - discriminant
+    uint8_t base_phase_idx;  // Offset 1 (1 byte) - maps to {1, i, -1, -i}
+    union {
+        bool is_dagger;      // Offset 2 (1 byte) - T-gate: true for T†
+        bool reuse_outcome;  // Offset 2 (1 byte) - AG_PIVOT: true to reuse MERGE outcome
+    };
     uint8_t ag_ref_outcome;     // Offset 3 (1 byte) - reference outcome for measurements
     uint32_t commutation_mask;  // Offset 4 (4 bytes) - pre-computed sign interference
 
@@ -67,10 +70,13 @@ struct alignas(32) Instruction {
 
         // Variant B: AG Pivot / Conditional
         struct {
-            uint32_t payload_idx;       // Offset 8 - index into ag_matrices
-            uint32_t controlling_meas;  // Offset 12 - for CONDITIONAL
-            uint64_t destab_mask;       // Offset 16 - for CONDITIONAL Pauli
-            uint64_t stab_mask;         // Offset 24 - for CONDITIONAL Pauli
+            uint32_t payload_idx;  // Offset 8 - index into ag_matrices
+            union {
+                uint32_t controlling_meas;  // Offset 12 - CONDITIONAL: index into meas_record
+                uint32_t ag_stab_slot;      // Offset 12 - AG_PIVOT: stabilizer row for pivot
+            };
+            uint64_t destab_mask;  // Offset 16 - for CONDITIONAL Pauli
+            uint64_t stab_mask;    // Offset 24 - for CONDITIONAL Pauli
         } meta;
     };
 };
