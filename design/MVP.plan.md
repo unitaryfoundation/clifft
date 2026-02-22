@@ -91,18 +91,22 @@ You are building the Phase 1 Minimum Viable Product (MVP) of the Unitary Compile
     *   Refactor `ucc.sample` in `bindings.cc` to return a 2D numpy array instead of a nested list.
     *   Use `nanobind::ndarray<nanobind::numpy, uint8_t, nanobind::c_contig>` with shape `(shots, num_measurements)`.
     *   Allocate a flat `std::vector<uint8_t>` for the results and return it such that `nanobind` exposes it to Python as a contiguous numpy array of `dtype=uint8`.
-*   **Task 7.2 (Statevector Expansion C++ Utility):**
+**Task 7.2 (Decoupled Statevector Expansion C++ API):**
     *   In `frontend.cc` at the end of `trace()`, unconditionally populate `hir.final_tableau` with `sim.inv_state.inverse()` (the forward tableau).
-    *   In `backend.cc` and `backend.h`, ensure `num_qubits`, `global_weight`, and `final_tableau` are correctly copied from `HirModule` to `CompiledModule` / `ConstantPool`.
-    *   Implement a C++ function `get_statevector(const SchrodingerState& state)` exposed to Python returning a 1D `numpy.ndarray` of `complex128`. You can follow the outline below, or consult prototype/aot_compiler.py aot_to_statevector approach. Decide which is better. I'm assuming you can do this only from the final state, but if you also need the compiled program, consider changing the approach.
-        1. Allocate a dense $2^N$ complex vector `SV` initialized to 0.
-        2. For each active rank index $\alpha \in 0 \dots 2^{\text{peak\_rank}}-1$:
-           a. Create a fresh `stim::TableauSimulator` initialized to $|0\dots 0\rangle$.
-           b. For each bit $i$ set in $\alpha$, XOR the `gf2_basis[i]` vector into a running spatial shift mask. Apply Pauli $X$ gates for this spatial shift mask.
-           c. Apply the global error frame (`destab_signs` and `stab_signs`) as $X$ and $Z$ gates on the respective qubits.
-           d. Apply the `final_tableau` using `sim.apply_tableau` (you'll need to construct the targets vector).
-           e. Extract the branch's dense vector via `sim.to_state_vector(true)` (little_endian=true) and accumulate: `SV += state.v()[alpha] * branch_sv * global_weight`.
-        3. Normalize the final accumulated `SV` vector and return it via nanobind.
+    *   In `backend.cc` and `backend.h`, ensure `global_weight`, and `final_tableau` are correctly copied from `HirModule` to `CompiledModule` / `ConstantPool`.
+    *   Implement a completely decoupled C++ primitive: `std::vector<std::complex<double>> get_statevector(const SchrodingerState& state, const std::vector<stim::bitword<64>>& gf2_basis, const stim::Tableau<64>& final_tableau, std::complex<double> global_weight)`:
+        1. Allocate a dense $2^N$ complex vector `SV` initialized to 0 (where $N = final\_tableau.num\_qubits$).
+        2. For each active rank index $\alpha \in 0 \dots 2^{\text{state.peak\_rank}}-1$:
+           a. If `abs(state.v()[alpha]) < 1e-15`, `continue`.
+           b. Compute the spatial shift: `x = 0`. For each bit $i$ set in $\alpha$, `x ^= gf2_basis[i]`.
+           c. Compute the destabilizer phase: `phase = (popcount(x & state.destab_signs) % 2 == 1) ? -1.0 : 1.0`.
+           d. Create a fresh `stim::TableauSimulator` initialized to $|0\dots 0\rangle$.
+           e. Compute the base state: `initial_x = x ^ state.stab_signs`. Apply Pauli $X$ gates to the simulator for each bit set in `initial_x`.
+           f. Apply `final_tableau` to the simulator using `sim.apply_tableau` (where targets are `[0, 1, ..., N-1]`).
+           g. Extract the branch's dense vector via `sim.to_state_vector(true)` (little_endian=true) and accumulate: `SV += state.v()[alpha] * phase * branch_sv * global_weight`.
+        3. Normalize the final accumulated `SV` vector and return it.
+    *   Bind `SchrodingerState` in `bindings.cc`. Expose `ucc.execute(program, state)` so users can manually step the simulation; this avoids needing to expose stim types to python as well.
+    *   Expose a convenience wrapper `ucc.get_statevector(program, state)` to Python that unpacks the `Program`'s coordinate system into the decoupled C++ function, returning a 1D `numpy.ndarray` of `complex128`.
 *   **Task 7.3 (Exact Pure-Clifford Validation):** Generate random noise-free pure-Clifford circuits (restricted to `H, S, S_DAG, X, Y, Z, CX, CY, CZ`) *without* measurements. Assert that the statevector extracted from `ucc.get_statevector()` matches `stim.TableauSimulator().state_vector()` exactly, **up to a global phase** (e.g., using fidelity $|\langle \psi_{\text{ucc}} | \psi_{\text{stim}} \rangle|^2 \approx 1.0$).
 *   **Task 7.4 (Exact Clifford+T Validation):** Generate small (2-6 qubit) pure unitary circuits including the `T` and `T_DAG` gates. Import the pure-Python numpy-based statevector oracle from the `prototype/` directory and compare `ucc.get_statevector()` against the oracle's output **up to a global phase**.
 *   **Task 7.5 (Measurement & Sampling Validation):**
@@ -117,7 +121,7 @@ You are building the Phase 1 Minimum Viable Product (MVP) of the Unitary Compile
 Items identified during implementation review for future improvement:
 
 ### API Encapsulation
-- **`v()` accessor removal**: The current `SchrodingerState::v()` exposes raw coefficient array for testing convenience. Refactor to encapsulate execution: `sample()` should accept a caller-provided output buffer or return results directly, eliminating public access to internal state. By doing this after 7.2, the unit tests can also be decoupled from looking at the `v()` data and instead look at the state vector entries.
+- **`v()` accessor removal**: The current `SchrodingerState::v()` exposes raw coefficient array for testing convenience. Refactor to encapsulate execution: `sample()` should accept a caller-provided output buffer or return results directly, eliminating public access to internal state. By doing in phase 7, the unit tests can also be decoupled from looking at the `v()` data and instead look at the state vector entries.
 
 ### Robustness
 - **Allocation size limits**: Consider adding configurable limits on `peak_rank` to prevent accidental multi-GB allocations.
