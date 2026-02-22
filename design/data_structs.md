@@ -601,6 +601,7 @@ enum class Opcode : uint8_t {
 
     // Topology & Classical Logic
     OP_AG_PIVOT,        // Aaronson-Gottesman sign-tracker update
+    OP_CONDITIONAL,     // Classical feedback: apply Pauli if measurement was 1
     OP_INDEX_CNOT,      // Basis relabeling within the GF(2) space
     OP_DETECTOR,        // Classical parity check over measurement record
 
@@ -619,15 +620,16 @@ struct alignas(32) Instruction {
 
     // --- Offset 8: Mutually Exclusive Payload (Exactly 24 Bytes) ---
     union {
-        // Variant A: T-Gate Fast Path (BRANCH / COLLIDE / SCALAR_PHASE)
+        // Variant A: T-Gate / Measurement (BRANCH, COLLIDE, SCALAR_PHASE, MEASURE_*)
         struct {
             uint64_t destab_mask;   // Offset 8  (8 bytes)
             uint64_t stab_mask;     // Offset 16 (8 bytes)
             uint32_t x_mask;        // Offset 24 (4 bytes)
-            // 4 bytes padding
+            uint32_t bit_index;     // Offset 28 (4 bytes) — dimension index for MEASURE_MERGE
         } branch;
 
         // Variant B: Generic LCU (BRANCH_LCU / COLLIDE_LCU / SCALAR_PHASE_LCU)
+        // NOTE: LCU variants are not yet implemented; reserved for Phase 6+.
         struct {
             uint64_t destab_mask;   // Offset 8
             uint64_t stab_mask;     // Offset 16
@@ -635,18 +637,12 @@ struct alignas(32) Instruction {
             uint32_t lcu_pool_idx;  // Offset 28 — index into ConstantPool::lcu_pool
         } lcu;
 
-        // Variant C: Measurement / Array Resizing
+        // Variant C: Meta / Classical / AG Pivot / Conditional
         struct {
-            uint64_t destab_mask;   // Offset 8
-            uint64_t stab_mask;     // Offset 16
-            uint32_t x_mask;        // Offset 24
-            uint32_t bit_index;     // Offset 28 — dimension index for shrinking
-        } meas;
-
-        // Variant D: Meta / Classical / AG Pivot
-        struct {
-            uint32_t payload_idx;   // Offset 8  — index into ag_matrices or detector_targets
-            uint32_t ag_stab_slot;  // Offset 12
+            uint32_t payload_idx;      // Offset 8  — index into ag_matrices or detector_targets
+            uint32_t controlling_meas; // Offset 12 — for OP_CONDITIONAL
+            uint64_t destab_mask;      // Offset 16 — Pauli X-bits for OP_CONDITIONAL
+            uint64_t stab_mask;        // Offset 24 — Pauli Z-bits for OP_CONDITIONAL
         } meta;
     };
 };
@@ -668,6 +664,7 @@ static_assert(sizeof(Instruction) == 32, "Instruction must be exactly 32 bytes")
 | `OP_MEASURE_FILTER` | `MEASURE`, commuting ($\beta \in \text{span}(V)$) | Zeros half | None |
 | `OP_MEASURE_DETERMINISTIC` | `MEASURE`, deterministic ($\beta = 0$, eigenstate) | None | None |
 | `OP_AG_PIVOT` | `MEASURE` (random, requires basis change) | None (signs only) | `ag_matrices[idx]` |
+| `OP_CONDITIONAL` | `CONDITIONAL_PAULI` (classical feedback) | None (signs only) | None |
 | `OP_INDEX_CNOT` | Internal basis mgmt | None | None |
 | `OP_DETECTOR` | `DETECTOR` | None | `detector_targets[idx]` |
 | `OP_POSTSELECT` | `POSTSELECT` / `ASSERT_DETECTOR` | None (early exit) | `detector_targets[idx]` |
