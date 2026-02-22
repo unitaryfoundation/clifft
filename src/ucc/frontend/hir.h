@@ -106,6 +106,11 @@ struct HeisenbergOp {
         return measure_.ag_ref_outcome;
     }
 
+    [[nodiscard]] uint8_t ag_stab_slot() const {
+        assert(type_ == OpType::MEASURE && "ag_stab_slot called on non-MEASURE op");
+        return measure_.ag_stab_slot;
+    }
+
     // --- CONDITIONAL_PAULI accessor (debug-asserted) ---
 
     [[nodiscard]] ControllingMeasIdx controlling_meas() const {
@@ -127,11 +132,12 @@ struct HeisenbergOp {
     // Uses strong typedefs to prevent accidental argument swapping.
     static HeisenbergOp make_measure(stim::bitword<64> destab, stim::bitword<64> stab, bool s,
                                      MeasRecordIdx meas_idx, AgMatrixIdx ag_idx = AgMatrixIdx::None,
-                                     uint8_t ag_ref = 0) {
+                                     uint8_t ag_ref = 0, uint8_t ag_stab_slot = 0) {
         HeisenbergOp op(OpType::MEASURE, destab, stab, s);
         op.measure_.ag_matrix_idx = static_cast<uint32_t>(ag_idx);
         op.measure_.meas_record_idx = static_cast<uint32_t>(meas_idx);
         op.measure_.ag_ref_outcome = ag_ref;
+        op.measure_.ag_stab_slot = ag_stab_slot;
         return op;
     }
 
@@ -149,7 +155,7 @@ struct HeisenbergOp {
                  bool dagger = false)
         : destab_mask_(destab), stab_mask_(stab), type_(t), sign_(s), is_dagger_(dagger) {
         // Zero-initialize the union
-        measure_ = {UINT32_MAX, 0, 0};
+        measure_ = {UINT32_MAX, 0, 0, 0};
     }
 
     // --- Data Members ---
@@ -168,6 +174,7 @@ struct HeisenbergOp {
             uint32_t ag_matrix_idx;    // Index into HirModule::ag_matrices (UINT32_MAX if none)
             uint32_t meas_record_idx;  // Index in measurement record (for rec[-k] resolution)
             uint8_t ag_ref_outcome;    // Reference outcome for AG pivot (0 or 1)
+            uint8_t ag_stab_slot;      // Stabilizer row for AG pivot error injection
         } measure_;
 
         // CONDITIONAL_PAULI: classical feedback metadata

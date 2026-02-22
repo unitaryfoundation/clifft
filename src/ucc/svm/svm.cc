@@ -347,13 +347,11 @@ void op_measure_deterministic(SchrodingerState& state, const Instruction& instr,
 // When reuse_outcome=true, reuse outcome from preceding MERGE.
 // Otherwise, sample fresh 50/50 outcome.
 //
-// MVP simplification: XOR the measured observable into the frame when
-// outcome diverges from reference. This correctly handles Bell states and
-// simple correlations. Full O(n²) matrix multiplication is deferred to a
-// later phase when we properly compute ag_stab_slot in the frontend.
-void op_ag_pivot(SchrodingerState& state, const Instruction& instr,
-                 [[maybe_unused]] const ConstantPool& pool, uint32_t meas_idx,
-                 bool use_prev_outcome) {
+// Transforms the error frame through the AG pivot matrix (mapping old logical
+// coordinates to new logical coordinates), then injects the measurement
+// divergence by XORing the pivot slot into destab_signs.
+void op_ag_pivot(SchrodingerState& state, const Instruction& instr, const ConstantPool& pool,
+                 uint32_t meas_idx, bool use_prev_outcome) {
     uint8_t divergence;
     if (use_prev_outcome) {
         divergence = state.meas_record[meas_idx] ^ instr.ag_ref_outcome;
@@ -363,12 +361,33 @@ void op_ag_pivot(SchrodingerState& state, const Instruction& instr,
         state.meas_record[meas_idx] = divergence ^ instr.ag_ref_outcome;
     }
 
-    // When measurement diverges from reference, propagate the error into the frame.
-    // The destab_mask/stab_mask encode the measured observable.
-    if (divergence == 1) {
-        state.destab_signs ^= instr.meta.destab_mask;
-        state.stab_signs ^= instr.meta.stab_mask;
-    }
+    // Full Matrix Transformation of the Error Frame
+    // The AG matrix maps old error coefficients -> new error coefficients.
+    // We encode the error frame as a PauliString where xs = destab_signs
+    // and zs = stab_signs, then apply the tableau transformation.
+    const auto& mat = pool.ag_matrices[instr.meta.payload_idx];
+
+    stim::PauliString<kStimWidth> err_frame(mat.num_qubits);
+    err_frame.xs.u64[0] = state.destab_signs;
+    err_frame.zs.u64[0] = state.stab_signs;
+
+    // Apply the exact change of basis
+    err_frame = mat(err_frame);
+
+    uint64_t new_destab = err_frame.xs.u64[0];
+    uint64_t new_stab = err_frame.zs.u64[0];
+
+    // Inject Measurement Divergence
+    // When outcome diverges from reference, we apply the new destabilizer D'_p.
+    // The destabilizer anti-commutes with the measured observable (now stabilizer S'_p),
+    // effectively flipping the measurement outcome.
+    // D'_p is an X-type Pauli, so we XOR into destab_signs to preserve any
+    // existing error that was transformed through the AG pivot matrix.
+    uint32_t p = instr.meta.ag_stab_slot;
+    new_destab ^= (static_cast<uint64_t>(divergence) << p);
+
+    state.destab_signs = new_destab;
+    state.stab_signs = new_stab;
 }
 
 // OP_CONDITIONAL: Apply Pauli correction if measurement was 1.

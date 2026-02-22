@@ -173,6 +173,7 @@ CompiledModule lower(const HirModule& hir) {
                 bool sign = op.sign();
                 AgMatrixIdx ag_idx = op.ag_matrix_idx();
                 uint8_t ag_ref = op.ag_ref_outcome();
+                bool emitted_merge = false;
 
                 // For measurements, β is the destab_mask (X-component of rewound observable)
                 stim::bitword<kStimWidth> beta = destab;
@@ -215,6 +216,7 @@ CompiledModule lower(const HirModule& hir) {
                     instr.branch.bit_index = bit_idx;
 
                     result.bytecode.push_back(instr);
+                    emitted_merge = true;
 
                     // Reclaim dimension to mirror VM array compaction.
                     // The VM halves v_size and shifts indices; we must match.
@@ -232,24 +234,14 @@ CompiledModule lower(const HirModule& hir) {
                     pivot_instr.opcode = Opcode::OP_AG_PIVOT;
                     pivot_instr.ag_ref_outcome = ag_ref;
                     pivot_instr.meta.payload_idx = static_cast<uint32_t>(ag_idx);
-                    // For anti-commuting measurements, we need to propagate the
-                    // measurement outcome into the Pauli frame.
-                    pivot_instr.meta.destab_mask = static_cast<uint64_t>(destab);
-                    pivot_instr.meta.stab_mask = static_cast<uint64_t>(stab);
 
-                    // Double-sample fix: if we just emitted MEASURE_MERGE, signal
-                    // the SVM to reuse the outcome (don't sample fresh).
-                    if (beta != stim::bitword<kStimWidth>(0) && basis.find_in_span(beta)) {
-                        pivot_instr.reuse_outcome = true;  // Follows MERGE, reuse outcome
-                    } else {
-                        pivot_instr.reuse_outcome = false;  // Standalone, sample fresh
-                    }
+                    // If we just emitted MEASURE_MERGE, signal the SVM to reuse
+                    // that outcome (don't sample fresh).
+                    pivot_instr.reuse_outcome = emitted_merge;
 
-                    // ag_stab_slot: for MVP, use qubit 0 as a simple heuristic.
-                    // Full implementation would extract from AG pivot matrix.
-                    // Store in controlling_meas field of meta union.
-                    pivot_instr.meta.ag_stab_slot =
-                        0;  // MVP placeholder; proper computation requires frontend analysis
+                    // ag_stab_slot: stabilizer row where measured observable landed.
+                    // Computed in frontend by scanning post-collapse tableau.
+                    pivot_instr.meta.ag_stab_slot = op.ag_stab_slot();
 
                     result.bytecode.push_back(pivot_instr);
                 }

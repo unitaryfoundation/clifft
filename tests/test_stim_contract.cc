@@ -194,3 +194,58 @@ TEST_CASE("Stim contract: Tableau inverse", "[stim][contract]") {
     REQUIRE(should_be_identity.zs[0].zs[0] == true);
     REQUIRE(should_be_identity.zs[0].zs[1] == false);
 }
+
+TEST_CASE("Stim contract: AG Pivot uses textbook D'_p = S_p algorithm", "[stim][contract]") {
+    // Verifies that Stim's internal AG Pivot algorithm mathematically matches
+    // the "textbook" approach: after measurement collapse, the new destabilizer
+    // D'_p at the pivot slot equals the old stabilizer S_p.
+    //
+    // This contract test validates our find_ag_stab_slot() implementation which
+    // relies on ag_pivot.zs[i].xs being non-zero for exactly one i (the pivot).
+    // If this test fails after a Stim upgrade, we need to verify that Stim's
+    // collapse algorithm still guarantees D'_p = S_p, and update our pivot
+    // detection logic in frontend.cc if the algebraic signature changes.
+    std::mt19937_64 rng(42);
+    stim::TableauSimulator<64> sim(std::move(rng), 2);
+
+    // Scramble the frame
+    stim::Circuit circuit;
+    circuit.safe_append_u("H", {0});
+    circuit.safe_append_u("CX", {0, 1});
+    sim.safe_do_circuit(circuit);
+
+    auto inv_before = sim.inv_state;
+    auto fwd_before = inv_before.inverse();
+
+    // Measure Z on qubit 0 (anti-commutes with X0X1, triggers pivot)
+    stim::GateTarget targets[] = {stim::GateTarget{0}};
+    sim.do_MZ({stim::GateType::M, {}, targets, ""});
+
+    auto inv_after = sim.inv_state;
+    auto fwd_after = inv_after.inverse();
+
+    // Compute the matrix mapping Old Physical -> New Physical
+    auto ag_pivot = fwd_before.then(inv_after);
+
+    // Find the pivot stabilizer slot p (where Z0 landed)
+    uint8_t p = 255;
+    for (size_t i = 0; i < 2; ++i) {
+        // Z0 has zs = 1 (bit 0), xs = 0
+        if (fwd_after.zs[i].zs.u64[0] == 1 && fwd_after.zs[i].xs.u64[0] == 0) {
+            p = static_cast<uint8_t>(i);
+            break;
+        }
+    }
+    REQUIRE(p != 255);
+
+    // Textbook AG pivot guarantees the new destabilizer D'_p is EXACTLY the old S_p.
+    // In our mapping matrix (Old -> New), the old S_p is generator Z_p.
+    // So ag_pivot(Z_p) should map exactly to the new D'_p, which is X_p.
+    stim::PauliString<64> old_sp(2);
+    old_sp.zs.u64[0] = (1ULL << p);
+
+    stim::PauliString<64> mapped = ag_pivot(old_sp);
+
+    REQUIRE(mapped.xs.u64[0] == (1ULL << p));
+    REQUIRE(mapped.zs.u64[0] == 0);
+}

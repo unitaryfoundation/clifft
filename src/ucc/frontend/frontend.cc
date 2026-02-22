@@ -76,11 +76,40 @@ MeasurementInfo check_deterministic_mpp(const stim::TableauSimulator<kStimWidth>
     return {true, expectation < 0 ? MeasOutcome::One : MeasOutcome::Zero};
 }
 
+// Result of an anti-commuting measurement collapse.
+// Contains both the AG pivot matrix and the stabilizer slot for error injection.
+struct AgPivotResult {
+    stim::Tableau<kStimWidth> pivot;  // Change-of-basis matrix
+    uint8_t stab_slot;                // Stabilizer row where measured observable landed
+};
+
+// Find the exact stabilizer slot (pivot) where the measurement collapse occurred.
+// Instead of searching the physical tableau (where Stim may have smeared the observable),
+// we use the algebraic signature of the AG pivot itself.
+// The AG pivot maps Old Logical -> New Logical.
+// Any old stabilizer S_i that anti-commuted with the measurement MUST anti-commute
+// with the new stabilizer S'_p (which is Z_p in the new frame).
+// Therefore, its representation in the new frame MUST acquire an X component.
+uint8_t find_ag_stab_slot(const stim::Tableau<kStimWidth>& ag_pivot) {
+    static_assert(kStimWidth == 64, "find_ag_stab_slot assumes 64-bit width");
+
+    for (size_t i = 0; i < ag_pivot.num_qubits; ++i) {
+        // ag_pivot.zs[i] is the representation of the Old Stabilizer S_i in the New Logical frame.
+        // Stim's pivot algorithm guarantees that EXACTLY ONE old stabilizer (the pivot p)
+        // acquires an X component in the new frame.
+        if (ag_pivot.zs[i].xs.u64[0] != 0) {
+            return static_cast<uint8_t>(i);
+        }
+    }
+    throw std::logic_error(
+        "AG Pivot failed: No anti-commuting stabilizer found in transformation matrix.");
+}
+
 // Perform measurement collapse for Z-basis.
-// Updates the simulator state and returns the AG pivot matrix if anti-commuting.
+// Updates the simulator state and returns the AG pivot result if anti-commuting.
 // If deterministic, returns std::nullopt.
-std::optional<stim::Tableau<kStimWidth>> collapse_z_measurement(
-    stim::TableauSimulator<kStimWidth>& sim, uint32_t qubit, bool& outcome) {
+std::optional<AgPivotResult> collapse_z_measurement(stim::TableauSimulator<kStimWidth>& sim,
+                                                    uint32_t qubit, bool& outcome) {
     auto info = check_deterministic_z(sim, qubit);
     if (info.is_deterministic) {
         outcome = (info.outcome == MeasOutcome::One);
@@ -95,20 +124,20 @@ std::optional<stim::Tableau<kStimWidth>> collapse_z_measurement(
     sim.do_MZ({stim::GateType::M, {}, targets, ""});
     outcome = sim.measurement_record.storage.back();
 
-    // The AG pivot captures the change-of-basis induced by measurement collapse.
-    // If the SVM later samples a different outcome than our reference, it must
-    // apply this unitary to transform between the two post-measurement states.
-    // Mathematically: pivot = U_after * U_before^{-1} where U maps computational
-    // basis to stabilizer eigenbasis.
-    stim::Tableau<kStimWidth> forward_after = sim.inv_state.inverse();
-    stim::Tableau<kStimWidth> ag_pivot = forward_after.then(inv_before);
+    // The AG pivot maps OLD error frame coefficients to NEW error frame coefficients.
+    stim::Tableau<kStimWidth> inv_after = sim.inv_state;
+    stim::Tableau<kStimWidth> fwd_before = inv_before.inverse();
+    stim::Tableau<kStimWidth> ag_pivot = fwd_before.then(inv_after);
 
-    return ag_pivot;
+    // Find the pivot slot purely from the algebraic transformation
+    uint8_t stab_slot = find_ag_stab_slot(ag_pivot);
+
+    return AgPivotResult{std::move(ag_pivot), stab_slot};
 }
 
 // Perform measurement collapse for X-basis.
-std::optional<stim::Tableau<kStimWidth>> collapse_x_measurement(
-    stim::TableauSimulator<kStimWidth>& sim, uint32_t qubit, bool& outcome) {
+std::optional<AgPivotResult> collapse_x_measurement(stim::TableauSimulator<kStimWidth>& sim,
+                                                    uint32_t qubit, bool& outcome) {
     auto info = check_deterministic_x(sim, qubit);
     if (info.is_deterministic) {
         outcome = (info.outcome == MeasOutcome::One);
@@ -122,15 +151,19 @@ std::optional<stim::Tableau<kStimWidth>> collapse_x_measurement(
     outcome = sim.measurement_record.storage.back();
 
     // See collapse_z_measurement for explanation of AG pivot computation
-    stim::Tableau<kStimWidth> forward_after = sim.inv_state.inverse();
-    stim::Tableau<kStimWidth> ag_pivot = forward_after.then(inv_before);
+    stim::Tableau<kStimWidth> inv_after = sim.inv_state;
+    stim::Tableau<kStimWidth> fwd_before = inv_before.inverse();
+    stim::Tableau<kStimWidth> ag_pivot = fwd_before.then(inv_after);
 
-    return ag_pivot;
+    // Find the pivot slot purely from the algebraic transformation
+    uint8_t stab_slot = find_ag_stab_slot(ag_pivot);
+
+    return AgPivotResult{std::move(ag_pivot), stab_slot};
 }
 
 // Perform measurement collapse for Y-basis.
-std::optional<stim::Tableau<kStimWidth>> collapse_y_measurement(
-    stim::TableauSimulator<kStimWidth>& sim, uint32_t qubit, bool& outcome) {
+std::optional<AgPivotResult> collapse_y_measurement(stim::TableauSimulator<kStimWidth>& sim,
+                                                    uint32_t qubit, bool& outcome) {
     auto info = check_deterministic_y(sim, qubit);
     if (info.is_deterministic) {
         outcome = (info.outcome == MeasOutcome::One);
@@ -144,10 +177,14 @@ std::optional<stim::Tableau<kStimWidth>> collapse_y_measurement(
     outcome = sim.measurement_record.storage.back();
 
     // See collapse_z_measurement for explanation of AG pivot computation
-    stim::Tableau<kStimWidth> forward_after = sim.inv_state.inverse();
-    stim::Tableau<kStimWidth> ag_pivot = forward_after.then(inv_before);
+    stim::Tableau<kStimWidth> inv_after = sim.inv_state;
+    stim::Tableau<kStimWidth> fwd_before = inv_before.inverse();
+    stim::Tableau<kStimWidth> ag_pivot = fwd_before.then(inv_after);
 
-    return ag_pivot;
+    // Find the pivot slot purely from the algebraic transformation
+    uint8_t stab_slot = find_ag_stab_slot(ag_pivot);
+
+    return AgPivotResult{std::move(ag_pivot), stab_slot};
 }
 
 // Helper to apply a single-qubit Clifford gate to the simulator.
@@ -348,20 +385,22 @@ HirModule trace(const Circuit& circuit) {
 
                     // Perform collapse and get AG pivot if anti-commuting
                     bool outcome;
-                    auto ag_pivot = collapse_z_measurement(sim, qubit, outcome);
+                    auto ag_result = collapse_z_measurement(sim, qubit, outcome);
 
                     // Always record the reference outcome (critical for deterministic
                     // measurements!)
                     uint8_t ag_ref = outcome ? 1 : 0;
                     AgMatrixIdx ag_idx = AgMatrixIdx::None;
-                    if (ag_pivot.has_value()) {
-                        // Store AG pivot matrix
+                    uint8_t ag_stab_slot = 0;
+                    if (ag_result.has_value()) {
+                        // Store AG pivot matrix and slot
                         ag_idx = AgMatrixIdx{static_cast<uint32_t>(hir.ag_matrices.size())};
-                        hir.ag_matrices.push_back(std::move(*ag_pivot));
+                        hir.ag_matrices.push_back(std::move(ag_result->pivot));
+                        ag_stab_slot = ag_result->stab_slot;
                     }
 
-                    hir.ops.push_back(HeisenbergOp::make_measure(destab_mask, stab_mask, sign,
-                                                                 meas_idx, ag_idx, ag_ref));
+                    hir.ops.push_back(HeisenbergOp::make_measure(
+                        destab_mask, stab_mask, sign, meas_idx, ag_idx, ag_ref, ag_stab_slot));
                     ++meas_idx;
                 }
                 break;
@@ -379,19 +418,21 @@ HirModule trace(const Circuit& circuit) {
 
                     // Perform collapse and get AG pivot if anti-commuting
                     bool outcome;
-                    auto ag_pivot = collapse_x_measurement(sim, qubit, outcome);
+                    auto ag_result = collapse_x_measurement(sim, qubit, outcome);
 
                     // Always record the reference outcome (critical for deterministic
                     // measurements!)
                     uint8_t ag_ref = outcome ? 1 : 0;
                     AgMatrixIdx ag_idx = AgMatrixIdx::None;
-                    if (ag_pivot.has_value()) {
+                    uint8_t ag_stab_slot = 0;
+                    if (ag_result.has_value()) {
                         ag_idx = AgMatrixIdx{static_cast<uint32_t>(hir.ag_matrices.size())};
-                        hir.ag_matrices.push_back(std::move(*ag_pivot));
+                        hir.ag_matrices.push_back(std::move(ag_result->pivot));
+                        ag_stab_slot = ag_result->stab_slot;
                     }
 
-                    hir.ops.push_back(HeisenbergOp::make_measure(destab_mask, stab_mask, sign,
-                                                                 meas_idx, ag_idx, ag_ref));
+                    hir.ops.push_back(HeisenbergOp::make_measure(
+                        destab_mask, stab_mask, sign, meas_idx, ag_idx, ag_ref, ag_stab_slot));
                     ++meas_idx;
                 }
                 break;
@@ -410,19 +451,21 @@ HirModule trace(const Circuit& circuit) {
 
                     // Perform collapse and get AG pivot if anti-commuting
                     bool outcome;
-                    auto ag_pivot = collapse_y_measurement(sim, qubit, outcome);
+                    auto ag_result = collapse_y_measurement(sim, qubit, outcome);
 
                     // Always record the reference outcome (critical for deterministic
                     // measurements!)
                     uint8_t ag_ref = outcome ? 1 : 0;
                     AgMatrixIdx ag_idx = AgMatrixIdx::None;
-                    if (ag_pivot.has_value()) {
+                    uint8_t ag_stab_slot = 0;
+                    if (ag_result.has_value()) {
                         ag_idx = AgMatrixIdx{static_cast<uint32_t>(hir.ag_matrices.size())};
-                        hir.ag_matrices.push_back(std::move(*ag_pivot));
+                        hir.ag_matrices.push_back(std::move(ag_result->pivot));
+                        ag_stab_slot = ag_result->stab_slot;
                     }
 
-                    hir.ops.push_back(HeisenbergOp::make_measure(destab_mask, stab_mask, sign,
-                                                                 meas_idx, ag_idx, ag_ref));
+                    hir.ops.push_back(HeisenbergOp::make_measure(
+                        destab_mask, stab_mask, sign, meas_idx, ag_idx, ag_ref, ag_stab_slot));
                     ++meas_idx;
                 }
                 break;
@@ -459,6 +502,7 @@ HirModule trace(const Circuit& circuit) {
                 auto info = check_deterministic_mpp(sim, obs);
 
                 AgMatrixIdx ag_idx = AgMatrixIdx::None;
+                uint8_t ag_stab_slot = 0;
                 bool outcome =
                     (info.outcome == MeasOutcome::One);  // Default for deterministic case
 
@@ -488,8 +532,13 @@ HirModule trace(const Circuit& circuit) {
                     sim.do_MPP({stim::GateType::MPP, {}, targets, ""});
                     outcome = sim.measurement_record.storage.back();
 
-                    stim::Tableau<kStimWidth> forward_after = sim.inv_state.inverse();
-                    stim::Tableau<kStimWidth> ag_pivot = forward_after.then(inv_before);
+                    // See collapse_z_measurement for explanation of AG pivot computation
+                    stim::Tableau<kStimWidth> inv_after = sim.inv_state;
+                    stim::Tableau<kStimWidth> fwd_before = inv_before.inverse();
+                    stim::Tableau<kStimWidth> ag_pivot = fwd_before.then(inv_after);
+
+                    // Find the pivot slot purely from the algebraic transformation
+                    ag_stab_slot = find_ag_stab_slot(ag_pivot);
 
                     ag_idx = AgMatrixIdx{static_cast<uint32_t>(hir.ag_matrices.size())};
                     hir.ag_matrices.push_back(std::move(ag_pivot));
@@ -498,7 +547,7 @@ HirModule trace(const Circuit& circuit) {
                 // Always record the reference outcome (critical for deterministic measurements!)
                 uint8_t ag_ref = outcome ? 1 : 0;
                 hir.ops.push_back(HeisenbergOp::make_measure(destab_mask, stab_mask, sign, meas_idx,
-                                                             ag_idx, ag_ref));
+                                                             ag_idx, ag_ref, ag_stab_slot));
                 ++meas_idx;
                 break;
             }
