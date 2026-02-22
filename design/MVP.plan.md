@@ -59,14 +59,34 @@ You are building the Phase 1 Minimum Viable Product (MVP) of the Unitary Compile
 *   **Task 5.3:** Expose `ucc.compile` and `ucc.sample(program, shots)` via nanobind.
 *   **DoD:** Python can successfully call `ucc.sample()` on a compiled program and receive a numpy array of results.
 
-## Phase 6: Validation & Integration Testing
+## Phase 6: Exact AG_PIVOT Geometry & Physics Closure
+**Goal:** Close the technical debt on Aaronson-Gottesman measurement pivots and scalar phase commutation. The MVP SVM currently uses a simplified XOR to propagate measurement divergences, which breaks entanglement correlations in complex circuits. It must execute the full $\mathcal{O}(n^2)$ matrix-vector multiplication. Additionally, `OP_SCALAR_PHASE` must correctly evaluate commutation masks.
+
+*   **Task 6.1 (Frontend AG Slot Extraction):**
+    *   Update `HeisenbergOp::measure_` and its factory `make_measure` to store a `uint8_t ag_stab_slot`.
+    *   In `frontend.cc` (`collapse_z_measurement`, `collapse_x_measurement`, `collapse_y_measurement`, `MPP`), after computing the AG pivot matrix (`fwd_after.then(inv_before)`), find which stabilizer row in the post-collapse tableau matches the measured observable (ignoring sign).
+    *   *Algorithm:* Iterate $i$ from $0$ to `sim.num_qubits - 1`. Extract $s =$ `forward_after.z_output(i)`. Set `s.sign = false`. If $s$ matches the measured observable (also with `sign = false`), store $i$ as `ag_stab_slot` and emit it in the HIR.
+*   **Task 6.2 (Backend Propagation & SCALAR_PHASE Fix):**
+    *   In `backend.h`, update `Instruction::meta` to explicitly include `uint32_t ag_stab_slot` (can be safely aliased in the union with `controlling_meas`).
+    *   In `backend.cc`, map the HIR's `ag_stab_slot` into the emitted `OP_AG_PIVOT` instruction's meta payload.
+    *   *SCALAR_PHASE Fix:* In `backend.cc`, when $\beta = 0$ (emitting `OP_SCALAR_PHASE`), **do not** hardcode `commutation_mask = 0`. Compute it using `compute_commutation_mask(basis.vectors(), destab, stab)` because diagonal operations can still anti-commute with active superposition dimensions.
+*   **Task 6.3 (SVM SCALAR_PHASE Execution):**
+    *   In `svm.cc`, update `op_scalar_phase`. Precompute `factors[2] = {1.0 + i_tan * base_phase, 1.0 - i_tan * base_phase}`.
+    *   Inside the loop, compute `parity = compute_sign_parity(i, instr.commutation_mask)` and multiply `v[i] *= factors[parity]`.
+*   **Task 6.4 (SVM AG_PIVOT Matrix Math):**
+    *   In `svm.cc` (`op_ag_pivot`), completely remove the MVP simplification that just XORs `destab_mask`/`stab_mask`.
+    *   Implement the full $64 \times 64$ bitwise matrix-vector multiplication. Map the old `state.destab_signs` and `state.stab_signs` into `new_destab` and `new_stab` by evaluating the symplectic inner product against the columns of `mat.xs[i]` and `mat.zs[i]`.
+    *   If the physical outcome diverges from `ag_ref_outcome` (i.e., `divergence == 1`), inject the localized error by flipping the sign of the new stabilizer exactly at the target slot: `new_stab ^= (1ULL << instr.meta.ag_stab_slot);`
+*   **DoD:** All C++ tests pass. Write a new C++ Catch2 test verifying `OP_SCALAR_PHASE` correctly branches phases when `commutation_mask != 0` (e.g. `H 0; T 0; S 0; H 0; T 0`). Write a new C++ test verifying `OP_AG_PIVOT` correctly propagates prior Pauli errors through an asymmetric frame collapse.
+
+## Phase 7: Validation & Integration Testing
 **Goal:** Prove the system produces mathematically correct physics.
-*   **Task 6.1 (Statevector Expansion Utility):** Write a Python utility `extract_statevector` that:
+*   **Task 7.1 (Statevector Expansion Utility):** Write a Python utility `extract_statevector` that:
     1. Allocates a dense $2^N$ numpy array.
     2. For each GF(2) index $\alpha$ (from 0 to $2^{\text{rank}}-1$), compute the physical basis index by XORing the columns of `gf2_basis` selected by the bits of $\alpha$.
     3. Apply the physical $\pm 1, \pm i$ signs from `destab_signs`/`stab_signs` using the `final_tableau` columns to determine which stabilizer/destabilizer generators contribute.
     4. Place `v[α] * sign * global_weight` at the computed physical index.
-*   **Task 6.2 (Statevector Micro-Test):** Use the utility from 6.1 to validate a 4-qubit pure unitary circuit (Cliffords + $T$, no measurements) against a known statevector oracle using `np.allclose`.
-*   **Task 6.3 (Statistical Macro-Test):** Load the manually stripped Gidney proxy circuit (S gates only). Run 10,000 shots in `stim` and 10,000 shots in `ucc`. Assert that the probability distributions of the resulting measurement bitstrings match within a strict statistical tolerance (e.g., $< 0.02$ divergence).
-*   **Task 6.4 (Statevector Debugging API):** Add a `debug_mode=False` flag to `ucc.compile()`. When true, retain `final_tableau` and `gf2_basis` on the returned `Program`. Expose `ucc.to_statevector(program, schrodinger_state)` that leverages the math from Task 6.1.
+*   **Task 7.2 (Statevector Micro-Test):** Use the utility from 7.1 to validate a 4-qubit pure unitary circuit (Cliffords + $T$, no measurements) against a known statevector oracle using `np.allclose`. *(Note: because the VM uses Dominant Term Factoring, the VM's raw state is unnormalized; ensure the utility accounts for this).*
+*   **Task 7.3 (Statistical Macro-Test):** Load the manually stripped Gidney proxy circuit (S gates only). Run 10,000 shots in `stim` and 10,000 shots in `ucc`. Assert that the probability distributions of the resulting measurement bitstrings match within a strict statistical tolerance (e.g., $< 0.02$ divergence).
+*   **Task 7.4 (Statevector Debugging API):** Add a `debug_mode=False` flag to `ucc.compile()`. When true, retain `final_tableau` and `gf2_basis` on the returned `Program`. Expose `ucc.to_statevector(program, schrodinger_state)` that leverages the math from Task 7.1.
 *   **DoD:** All tests pass reliably via `pytest`.
