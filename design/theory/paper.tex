@@ -242,6 +242,23 @@ Any quantum circuit family whose Peak Active Magic Volume is strictly bounded by
 
 If an algorithm's topology induces massive structural shift-vector collisions (as seen in Corollary \ref{cor:ghz}) or features dense mid-circuit measurements that continuously collapse the active space, its true quantumness is strictly bottlenecked. The AMV therefore serves as a deterministic, polynomial-time classical screener. By tracking $k(t)$ over the execution of a proposed algorithm, we can rigorously audit whether the procedure accesses an exponentially large Hilbert space or is simply simulating classical dynamics in disguise.
 
+\subsection{The Coherent Magic Capacity (CMC) Benchmark}
+Currently, the industry benchmarks Quantum Processing Units (QPUs) using Quantum Volume \cite{cross2019} or Linear Cross-Entropy Benchmarking (XEB) \cite{arute2019}. These metrics rely on random unitary circuits heavily dominated by Clifford dynamics. They test entanglement routing but fail to isolate a QPU's ability to sustain coherent non-Clifford contextuality.
+
+We propose a novel hardware benchmark: \textbf{The Coherent Magic Capacity (CMC)}.
+
+In the Pauli spectrum, the AMV $k$ dictates the exact spreading of Pauli expectation values. Theoretical work has shown that this smearing, quantified by the 2-Stabilizer R\'enyi Entropy (SRE) $M_2(\rho) = -\log_2 ( 2^{-n} \sum_{P} \langle P \rangle^4 )$, is a rigorous magic monotone \cite{leone2022}. In our formalism, the theoretical SRE of a pure state scales exactly linearly with the AMV $k$. Furthermore, SRE can be experimentally measured using randomized Classical Shadows \cite{huang2020}.
+
+The CMC protocol is executed as follows:
+\begin{enumerate}
+    \item \textbf{The Oracle:} Using the UCC compiler's Magic Register Allocation, we intentionally engineer a suite of test circuits with precise, theoretically escalating Active Magic Volumes: $k_{\text{ideal}}(t) \in \{5, 10, 15, \dots\}$.
+    \item \textbf{The QPU Run:} The circuits are executed on a physical QPU. By appending a layer of randomized single-qubit Clifford twirls prior to measurement, we statistically extract the empirical SRE to estimate $k_{\text{exp}}(t)$.
+    \item \textbf{Evaluating Leakage:} In a noiseless computer, $k_{\text{exp}} = k_{\text{ideal}}$. On real hardware, decoherence acts as a statistical mixture, strictly destroying magic. As errors accumulate, the hardware's empirical magic ``leaks'' faster than $T$-gates can inject it.
+\end{enumerate}
+
+The QPU's \textit{Peak Magic Capacity} is the maximum $k$ at which the hardware's experimentally measured contextuality statistically matches the UCC compiler's ideal prediction. This provides the first benchmark explicitly testing a QPU's ability to sustain the precise computational resource responsible for quantum advantage.
+
+
 \subsection{Compiler Theory: Magic Register Allocation}
 
 Current state-of-the-art quantum compilers optimize for a single metric: the minimization of the total $T$-count. However, when a quantum circuit is intended for classical simulation, or for execution on a hybrid quantum-classical architecture that relies on tensor-networks for real-time decoding, the total $T$-count is irrelevant. The true computational bottleneck is the Peak AMV, $\max_t k(t)$.
