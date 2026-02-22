@@ -62,10 +62,15 @@ You are building the Phase 1 Minimum Viable Product (MVP) of the Unitary Compile
 ## Phase 6: Exact AG_PIVOT Geometry & Physics Closure
 **Goal:** Close the technical debt on Aaronson-Gottesman measurement pivots and scalar phase commutation. The MVP SVM currently uses a simplified XOR to propagate measurement divergences, which breaks entanglement correlations in complex circuits. It must execute the full $\mathcal{O}(n^2)$ matrix-vector multiplication. Additionally, `OP_SCALAR_PHASE` must correctly evaluate commutation masks.
 
+
 *   **Task 6.1 (Frontend AG Slot Extraction):**
     *   Update `HeisenbergOp::measure_` and its factory `make_measure` to store a `uint8_t ag_stab_slot`.
     *   In `frontend.cc` (`collapse_z_measurement`, `collapse_x_measurement`, `collapse_y_measurement`, `MPP`), after computing the AG pivot matrix (`fwd_after.then(inv_before)`), find which stabilizer row in the post-collapse tableau matches the measured observable (ignoring sign).
     *   *Algorithm:* Iterate $i$ from $0$ to `sim.num_qubits - 1`. Extract $s =$ `forward_after.z_output(i)`. Set `s.sign = false`. If $s$ matches the measured observable (also with `sign = false`), store $i$ as `ag_stab_slot` and emit it in the HIR.
+    *   **Add this exact comment above the loop in `frontend.cc`:**
+        `// TODO(perf): Stim's internal collapse_qubit_z returns the pivot index, but do_MZ discards it.`
+        `// If upstream Stim ever exposes this, or if we bypass do_MZ to call collapse_qubit_z directly,`
+        `// we can drop this O(n) scan and achieve O(1) retrieval.`
 *   **Task 6.2 (Backend Propagation & SCALAR_PHASE Fix):**
     *   In `backend.h`, update `Instruction::meta` to explicitly include `uint32_t ag_stab_slot` (can be safely aliased in the union with `controlling_meas`).
     *   In `backend.cc`, map the HIR's `ag_stab_slot` into the emitted `OP_AG_PIVOT` instruction's meta payload.
