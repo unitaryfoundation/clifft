@@ -4354,4 +4354,383 @@ extern const GateDataMap GATE_DATA;
 
 ---
 
+## 6. Measurement and Observable Results: Storage and Python API
+
+This section details how Stim stores measurement outcomes and observable flip results, and documents the Python API for retrieving them. This is essential for understanding how UCC should format its output to be compatible with Stim-based workflows.
+
+### 6.1 Internal Storage Architecture
+
+#### 6.1.1 MeasureRecordBatch (Frame Simulator)
+
+The `FrameSimulator<W>` uses `MeasureRecordBatch<W>` to store measurement results from batch sampling:
+
+```cpp
+// stim/io/measure_record_batch.h
+template <size_t W>
+struct MeasureRecordBatch {
+    size_t num_shots;        // Number of parallel shots
+    size_t max_lookback;     // How far back rec[-N] can reference
+    size_t unwritten;        // Results recorded but not yet written to disk
+    size_t stored;           // Total results currently in memory
+    size_t written;          // Results written to external world
+    simd_bits<W> shot_mask;  // Mask to clear padding bits
+    simd_bit_table<W> storage;  // Major=measurement, Minor=shot
+};
+```
+
+**Key design points:**
+- Storage is a 2D bit table: `storage[measurement_index][shot_index]`
+- Results can be "looked back" into using `rec[-1]`, `rec[-2]`, etc.
+- Old results beyond `max_lookback` may be discarded for memory efficiency
+- The frame simulator stores *flips* relative to a reference sample, not absolute results
+
+#### 6.1.2 TableauSimulator Measurement Record
+
+The interactive `TableauSimulator<W>` stores measurements in a simple vector:
+
+```cpp
+// Inside TableauSimulator
+std::vector<bool> measurement_record.storage;
+```
+
+This is a linear append-only log of all measurement outcomes (not flips).
+
+#### 6.1.3 Detection and Observable Records
+
+The frame simulator also maintains:
+
+```cpp
+MeasureRecordBatch<W> det_record;   // Detection event record (shots × detectors)
+simd_bit_table<W> obs_record;       // Observable flip record (observables × shots)
+```
+
+- **Detectors** are defined by `DETECTOR` instructions that XOR together past measurement results
+- **Observables** are accumulated via `OBSERVABLE_INCLUDE` instructions
+- Both represent *flips from expected* (parity errors), not absolute values
+
+### 6.2 Python Sampling APIs
+
+#### 6.2.1 Circuit.compile_sampler() — Measurement Sampling
+
+```python
+import stim
+import numpy as np
+
+circuit = stim.Circuit('''
+    H 0
+    CNOT 0 1
+    M 0 1
+''')
+
+# Create a compiled sampler (pre-computes reference sample)
+sampler = circuit.compile_sampler(seed=42)
+
+# Sample measurements
+results = sampler.sample(shots=1000)
+# Returns: np.ndarray, dtype=bool_, shape=(shots, num_measurements)
+# results[shot_index, measurement_index] = True/False
+
+# Bit-packed variant (8x more memory efficient)
+results_packed = sampler.sample(shots=1000, bit_packed=True)
+# Returns: np.ndarray, dtype=uint8, shape=(shots, ceil(num_measurements/8))
+# Bit m in shot s: (results_packed[s, m // 8] >> (m % 8)) & 1
+```
+
+**Important parameters:**
+- `skip_reference_sample=True`: Returns measurement *flips* instead of actual results (faster, useful for error analysis)
+- `reference_sample`: Override the reference sample (must be `np.bool_` or bit-packed `np.uint8`)
+
+#### 6.2.2 Circuit.compile_detector_sampler() — Detection Events
+
+```python
+circuit = stim.Circuit('''
+    H 0
+    CNOT 0 1
+    X_ERROR(0.1) 0
+    M 0 1
+    DETECTOR rec[-1] rec[-2]  # Fires if measurements differ
+    OBSERVABLE_INCLUDE(0) rec[-1]
+''')
+
+detector_sampler = circuit.compile_detector_sampler(seed=42)
+
+# Sample detection events only
+detections = detector_sampler.sample(shots=1000)
+# Returns: np.ndarray, dtype=bool_, shape=(shots, num_detectors)
+
+# Include observable flips appended to detectors
+detections_with_obs = detector_sampler.sample(
+    shots=1000,
+    append_observables=True
+)
+# shape=(shots, num_detectors + num_observables)
+
+# Get detections and observables separately
+dets, obs = detector_sampler.sample(
+    shots=1000,
+    separate_observables=True
+)
+# dets.shape = (shots, num_detectors)
+# obs.shape = (shots, num_observables)
+
+# Bit-packed variants available with bit_packed=True
+```
+
+#### 6.2.3 TableauSimulator — Interactive Measurement
+
+```python
+sim = stim.TableauSimulator(seed=42)
+sim.h(0)
+sim.cnot(0, 1)
+
+# Single qubit measurement (returns bool)
+result = sim.measure(0)  # Returns: bool
+
+# Multiple qubit measurement
+results = sim.measure_many(0, 1, 2)  # Returns: List[bool]
+
+# Access full measurement history
+record = sim.current_measurement_record()  # Returns: List[bool]
+```
+
+#### 6.2.4 Circuit Introspection Methods
+
+```python
+circuit = stim.Circuit('''
+    H 0 1 2
+    M 0 1 2
+    DETECTOR rec[-1]
+    DETECTOR rec[-2] rec[-3]
+    OBSERVABLE_INCLUDE(0) rec[-1]
+    OBSERVABLE_INCLUDE(1) rec[-2]
+''')
+
+print(circuit.num_measurements)    # 3 (total M instructions × targets)
+print(circuit.count_measurements)  # Same as num_measurements
+print(circuit.num_detectors)       # 2
+print(circuit.count_detectors)     # Same as num_detectors
+print(circuit.num_observables)     # 2 (max observable index + 1)
+print(circuit.count_observables)   # Same as num_observables
+
+# Get a noiseless reference sample
+ref = circuit.reference_sample()  # np.ndarray[bool], length=num_measurements
+ref_packed = circuit.reference_sample(bit_packed=True)  # np.ndarray[uint8]
+```
+
+### 6.3 Output Formats for Disk I/O
+
+Stim supports multiple output formats via `sample_write()`:
+
+| Format | Description | Example for `1011` |
+|--------|-------------|--------------------|
+| `"01"` | ASCII newline-separated | `1011\n` |
+| `"b8"` | Binary, 8 bits per byte, little-endian | `0b1101` (1 byte) |
+| `"r8"` | Run-length encoded | varies |
+| `"ptb64"` | Transposed bit-packed (64 shots per block) | varies |
+| `"hits"` | Space-separated indices of 1s | `0 2 3` |
+| `"dets"` | Detection event format | `shot D0 D2 D3` |
+
+```python
+sampler.sample_write(
+    shots=1000,
+    filepath="measurements.bin",
+    format="b8"
+)
+
+detector_sampler.sample_write(
+    shots=1000,
+    filepath="detections.01",
+    format="01",
+    append_observables=True,
+    obs_out_filepath="observables.01",  # Separate observable file
+    obs_out_format="01"
+)
+```
+
+### 6.4 Frame Simulator "Flip from Reference" Semantics (Critical for UCC)
+
+This is the most important conceptual difference between Stim's `FrameSimulator` and UCC's direct statevector simulation.
+
+#### 6.4.1 The Two Simulation Paradigms
+
+**UCC / TableauSimulator (Absolute Results):**
+- Simulates the quantum state directly
+- Measurements return the *actual* outcome (0 or 1)
+- Each shot is independent and produces ground-truth results
+- Computationally expensive for large circuits (Schrödinger simulation)
+
+**Stim FrameSimulator (Relative Flips):**
+- Does NOT simulate quantum state
+- Tracks how *errors propagate* through the circuit
+- Returns whether each measurement is *flipped* relative to a reference
+- Extremely fast: O(n) per gate instead of O(2^n)
+
+#### 6.4.2 What is the Reference Sample?
+
+The **reference sample** is the measurement outcome from a *noiseless* execution of the circuit:
+
+```python
+import stim
+
+circuit = stim.Circuit('''
+    H 0
+    CNOT 0 1
+    X_ERROR(0.1) 0   # 10% chance of X error on qubit 0
+    M 0 1
+''')
+
+# The reference sample: what you'd get with NO errors
+ref = circuit.reference_sample()
+# For this circuit: could be [False, False] or [True, True]
+# (H creates superposition, but reference picks one deterministically)
+```
+
+The reference sample is computed once using `TableauSimulator::reference_sample_circuit()`, which performs a full noiseless stabilizer simulation. This is deterministic for a given circuit.
+
+#### 6.4.3 The XOR Relationship
+
+The frame simulator returns **flips**, not results:
+
+```
+actual_measurement[shot, m] = reference_sample[m] XOR flip[shot, m]
+```
+
+Or equivalently:
+```
+flip[shot, m] = actual_measurement[shot, m] XOR reference_sample[m]
+```
+
+**Example:**
+```python
+circuit = stim.Circuit('''
+    X 0        # Put qubit 0 in |1⟩
+    X_ERROR(0.5) 0  # 50% chance to flip back to |0⟩
+    M 0
+''')
+
+ref = circuit.reference_sample()  # [True] (noiseless: qubit is |1⟩)
+
+sampler = circuit.compile_sampler()
+results = sampler.sample(shots=1000)
+# results contains ACTUAL measurement outcomes: mix of True/False
+
+# Internally, frame simulator computed:
+#   flips = [False, True, False, True, ...]  (which shots had X_ERROR fire)
+#   results = ref XOR flips = [True, False, True, False, ...]
+```
+
+#### 6.4.4 skip_reference_sample Mode
+
+When `skip_reference_sample=True`, the sampler returns raw flips:
+
+```python
+# Returns FLIPS, not actual measurements
+sampler = circuit.compile_sampler(skip_reference_sample=True)
+flips = sampler.sample(shots=1000)
+# flips[shot, m] = True means "this measurement was flipped by errors"
+```
+
+This is useful for:
+- Error analysis (you care about what went wrong, not the actual values)
+- Performance (avoids computing the reference sample)
+- QEC decoding (decoders work with error syndromes, not raw measurements)
+
+#### 6.4.5 Implications for UCC
+
+UCC performs direct Schrödinger simulation, producing **absolute measurement results** like `TableauSimulator`. To interface with Stim-based workflows:
+
+**Option A: UCC outputs absolute results (recommended)**
+```python
+# UCC produces actual measurements
+ucc_results = ucc.sample(circuit, shots=1000)  # shape: (shots, num_measurements)
+
+# These are directly usable, equivalent to:
+stim_results = circuit.compile_sampler().sample(shots=1000)
+np.allclose(ucc_results, stim_results)  # Should be True (statistically)
+```
+
+**Option B: Convert to flips for detector analysis**
+```python
+# If you need flips for a decoder:
+ref = circuit.reference_sample()
+flips = ucc_results ^ ref  # XOR with reference
+
+# Now 'flips' is equivalent to:
+stim_flips = circuit.compile_sampler(skip_reference_sample=True).sample(shots=1000)
+```
+
+**Option C: Compute detection events directly**
+```python
+# Detection events are XOR of specific measurements
+# DETECTOR rec[-1] rec[-2] means: measurement[-1] XOR measurement[-2]
+# This is the SAME whether computed from absolute results or flips!
+
+# From absolute results:
+det_event = ucc_results[:, -1] ^ ucc_results[:, -2]
+
+# From flips:
+det_event = flips[:, -1] ^ flips[:, -2]  # Same answer!
+
+# Because: (a XOR ref[-1]) XOR (b XOR ref[-2])
+#        = a XOR b XOR (ref[-1] XOR ref[-2])
+#        = a XOR b XOR 0  (reference is self-consistent)
+#        = a XOR b
+```
+
+**Key insight:** Detection events and observables are *parity checks*. The reference sample cancels out in XOR operations, so detection events computed from absolute measurements equal those computed from flips.
+
+#### 6.4.6 Why Stim Uses Flips
+
+The flip-based approach enables Stim's extreme performance:
+
+1. **No state tracking:** Instead of a 2^n statevector, track n error bits
+2. **Batch parallelism:** Simulate 1000s of shots simultaneously with SIMD
+3. **Error propagation:** Clifford gates just permute/combine error bits
+4. **Memory efficiency:** O(n × shots) bits instead of O(2^n × shots) amplitudes
+
+For Clifford circuits, this is exact. Stim cannot simulate non-Clifford gates (T, Toffoli, etc.) — that's where UCC fills the gap.
+
+### 6.5 Memory Layout Summary for UCC Compatibility
+
+For UCC to produce compatible output:
+
+1. **Measurement results** should be row-major: `result[shot][measurement]`
+2. **Bit packing** uses little-endian within bytes: measurement `m` is bit `m % 8` of byte `m // 8`
+3. **Detection events** are XOR of referenced measurements (parity checks)
+4. **Observables** accumulate across multiple `OBSERVABLE_INCLUDE` instructions
+5. UCC produces **absolute results** (like `TableauSimulator`), not flips
+
+```cpp
+// Extracting bit m from bit-packed results (little-endian)
+bool get_measurement(const uint8_t* packed, size_t shot, size_t m, size_t num_measurements) {
+    size_t bytes_per_shot = (num_measurements + 7) / 8;
+    const uint8_t* row = packed + shot * bytes_per_shot;
+    return (row[m / 8] >> (m % 8)) & 1;
+}
+
+// Converting UCC absolute results to Stim-style flips
+void to_flips(const uint8_t* absolute, const uint8_t* reference,
+              uint8_t* flips, size_t num_shots, size_t num_measurements) {
+    size_t bytes_per_shot = (num_measurements + 7) / 8;
+    for (size_t shot = 0; shot < num_shots; shot++) {
+        for (size_t b = 0; b < bytes_per_shot; b++) {
+            flips[shot * bytes_per_shot + b] =
+                absolute[shot * bytes_per_shot + b] ^ reference[b];
+        }
+    }
+}
+```
+
+### 6.5 Key C++ Types for Result Handling
+
+| Type | Purpose | Location |
+|------|---------|----------|
+| `simd_bits<W>` | 1D bit vector, SIMD-aligned | `stim/mem/simd_bits.h` |
+| `simd_bit_table<W>` | 2D bit table, major×minor | `stim/mem/simd_bit_table.h` |
+| `MeasureRecordBatch<W>` | Batched measurement storage with lookback | `stim/io/measure_record_batch.h` |
+
+The template parameter `W` is the SIMD width (64, 128, 256, or 512 bits depending on CPU).
+
+---
+
 End of reference.
