@@ -67,7 +67,7 @@ TEST_CASE("SVM: deterministic RNG produces consistent values", "[svm]") {
     }
 }
 
-TEST_CASE("SVM: RNG values in [0, 1)", "[svm]") {
+TEST_CASE("SVM: RNG values in 0 to 1 range", "[svm]") {
     SchrodingerState state(0, 0, 99999);
 
     for (int i = 0; i < 1000; ++i) {

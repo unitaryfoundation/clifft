@@ -14,4 +14,11 @@ FetchContent_Declare(
 set(STIM_BUILD_PYTHON OFF CACHE BOOL "" FORCE)
 set(STIM_BUILD_TESTS OFF CACHE BOOL "" FORCE)
 
-FetchContent_MakeAvailable(stim)
+# Use FetchContent_GetProperties + add_subdirectory(EXCLUDE_FROM_ALL)
+# instead of FetchContent_MakeAvailable so install rules are also excluded.
+# This prevents CMake from trying to install stim executables we don't build.
+FetchContent_GetProperties(stim)
+if(NOT stim_POPULATED)
+    FetchContent_Populate(stim)
+    add_subdirectory(${stim_SOURCE_DIR} ${stim_BINARY_DIR} EXCLUDE_FROM_ALL)
+endif()
