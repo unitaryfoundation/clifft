@@ -57,84 +57,126 @@ In any quantum circuit composed of Clifford unitaries, non-Clifford superpositio
 Because stochastic Pauli noise merely flips scalar $\pm 1$ signs, and non-Clifford gates populate orthogonal branches relative to a shared geometry, the Boolean matrix grid defining the basis never warps randomly. Projective measurements induce Aaronson-Gottesman (AG) row reductions whose Boolean trajectories are deterministically fixed prior to the random outcome \cite{aaronson2004}.
 
 Therefore, the entire sequence of generalized tableaus $\{ \mathcal{T}_t \}$ can be deterministically computed offline by an Ahead-Of-Time (AOT) compiler. The runtime Virtual Machine (VM) need only manage the continuous probability amplitudes $\mathbf{v}_t$ and a classical sign tracker to account for physical noise parity relative to the pre-compiled reference frame. This decoupled framework allows us to rigorously map the evolution of the continuous amplitudes to an affine subspace over a finite field, yielding a novel, strictly tight bound on simulation complexity.
-
 % ==============================================================================
-\section{The Dynamical Shift-Rank Bound}
+\section{Dual-Picture Decoupling and the Static Affine Subspace}
 \label{sec:algebra}
 % ==============================================================================
 
-Let the quantum state at step $t$ be represented as a pure-state superposition over the orthonormal basis induced by the compiler's current stabilizer-destabilizer tableau $\mathcal{T}_t = (\mathcal{S}_t, \mathcal{D}_t)$. Following \cite{yoder2012}, we write:
+\subsection{The Limitation of Forward-Evolving Tableaus}
+
+In the standard generalized stabilizer formalism \cite{yoder2012, li2025soft}, the quantum state at step $t$ is represented as a sparse superposition over a moving orthonormal basis induced by the current, forward-evolving tableau $\mathcal{T}_t = (\mathcal{S}_t, \mathcal{D}_t)$:
 \begin{equation}
-    |\phi_t\rangle = \sum_{\alpha \in \Omega_t} v_\alpha |b_\alpha\rangle \quad \text{where} \quad |b_\alpha\rangle = d^\alpha |\psi_{\mathcal{S}_t}\rangle
+    |\phi_t\rangle = \sum_{\alpha \in \Omega_t} v_\alpha |b_{t,\alpha}\rangle \quad \text{where} \quad |b_{t,\alpha}\rangle = d_{t}^\alpha |\psi_{\mathcal{S}_t}\rangle
 \end{equation}
-Here, $\alpha \in \mathbb{F}_2^n$ is a binary key, $d^\alpha = \prod_{i=1}^n (d_i)^{\alpha_i}$ is a product of destabilizers, and $|\psi_{\mathcal{S}_t}\rangle$ is the pure stabilizer state.
+While mathematically exact, implementing this directly forces classical simulators into a conceptual ``Schr\"odinger trap.'' By coupling the continuous amplitudes $v_\alpha$ to a forward-evolving geometric frame $|b_{t,\alpha}\rangle$, the runtime execution thread is forced to carry the $\mathcal{O}(n^2)$ Boolean matrix tracking along for the ride. Because a physical circuit contains operations that are fundamentally stochastic (e.g., random measurement outcomes and Pauli noise channels), this approach binds heavy geometric matrix updates directly to the probabilistic Monte Carlo hot-loop, creating a severe computational bottleneck.
+
+\subsection{Topological Determinism and Heisenberg Rewinding}
+
+We break this bottleneck by applying the principle of \textbf{Topological Determinism}. Let a quantum circuit be defined as a sequence of operations $\mathcal{C} = (O_0, O_1, \dots, O_{N-1})$, where each operation $O_t$ may be a Clifford unitary, a non-Clifford rotation, a projective Pauli measurement, or a probabilistic Pauli noise channel.
+
+\begin{observation}[Topological Determinism]
+In the absence of classically controlled Clifford gates, the geometric trajectory of the circuit's Boolean reference frame is strictly independent of stochastic noise events, continuous amplitude branches, and random measurement outcomes.
+\end{observation}
+
+While the physical state trajectory is highly probabilistic, its underlying Boolean geometry is entirely predetermined. Pauli noise merely flips scalar $\pm 1$ parity tracking signs without altering the Pauli strings. Non-Clifford rotations spawn orthogonal branches relative to a shared coordinate system. Projective measurements physically collapse the state, but the Aaronson-Gottesman (AG) matrix row-reductions \cite{aaronson2004} required to find the new commuting basis are strictly deterministic functions of the Pauli algebra, independent of the random $\pm 1$ measurement outcome.
+
+Because the topological trajectory is completely decoupled from the stochastic execution, we can separate them architecturally: evaluating the geometry Ahead-Of-Time (AOT) and the probability at runtime. Rather than pushing the tableau forward, an AOT compiler can use the Heisenberg picture to pull the operations backward (conceptually mirroring the reverse-tableau tracking of \texttt{Stim} \cite{gidney2021stim}).
+
+To maintain mathematical rigor across non-unitary operations (measurements and noise), we avoid standard unitary conjugation notation. Instead, let $\Phi_{t \to 0}$ denote the cumulative, deterministic geometric transformation from step $t$ back to $t=0$. This symplectic mapping explicitly tracks the inverse sequence of Clifford conjugations and deterministic AG basis changes, while completely ignoring scalar noise flips and continuous amplitudes. For any physical operation $O_t$ acting along a Pauli axis $P_t$, we rewind the operator to the static $t=0$ reference frame $\mathcal{T}_0 = (\mathcal{S}_0, \mathcal{D}_0)$:
+\begin{equation}
+    P_{t \to 0} = \Phi_{t \to 0}(P_t)
+\end{equation}
+We then decompose this rewound operator against the initial reference frame:
+\begin{equation}
+    P_{t \to 0} \propto \prod_{i=1}^n (d_{0,i})^{\beta_i(P)} (s_{0,i})^{\gamma_i(P)}
+\end{equation}
+where $\beta(P) \in \mathbb{F}_2^n$ is the $t=0$ \textit{spatial shift mask} and $\gamma(P) \in \mathbb{F}_2^n$ is the $t=0$ \textit{phase mask}.
+
+This mathematical rewinding completely absorbs all Clifford operations. The original circuit $\mathcal{C}$ is flattened into a static, geometry-free list of Pauli operations defined strictly by their pre-computed masks. In our architecture, this formulation serves as the formal mathematical definition of the \textbf{Heisenberg Intermediate Representation (HIR)}.
+
+\subsection{Global Commutation and Dual-Mode Compilation}
+
+A profound consequence of flattening the circuit into the $t=0$ basis is the emergence of global commutativity. In a standard forward-evolving simulation, determining whether a Pauli operation $P_{t_1}$ commutes with a later operation $Q_{t_2}$ requires evaluating the entire intervening sequence of Clifford gates. In the HIR, both operators are natively rewound to the exact same static vacuum.
+
+Because the geometric mapping $\Phi_{t \to 0}$ is a symplectic transformation, it strictly preserves the algebraic structure of the Pauli group. The temporal commutation relation of the original operations is exactly equivalent to the static commutation of their rewound masks. This translates deep temporal dependencies into a single $\mathcal{O}(1)$ bitwise symplectic inner product between their respective $(\beta, \gamma)$ masks, evaluated purely in the $t=0$ stabilizer frame.
+
+This algebraic flattening formally motivates the architectural distinction between the HIR and the execution engine, revealing a powerful duality in our framework: \textit{optimization is independent of the state, but execution requires a known state.}
+
+This naturally enables two distinct compilation pathways:
+\begin{itemize}[leftmargin=*]
+    \item \textbf{State-Agnostic Optimization (Hardware Snippets):} By choosing \textit{not} to rely on (or collapse) a specific $t=0$ stabilizer tableau (e.g., initializing the compiler with a generic Identity tableau), we unlock state-independent compilation. A circuit ``snippet'' or logic subroutine can be traced and optimized aggressively. The compiler's Middle-End can fuse, cancel, and commute operations globally across the snippet purely via their $t=0$ masks, completely blind to the eventual input state. This optimized block can then be directly lowered to target physical hardware (e.g., as a Pauli-Based Computation routing template) or seamlessly composited into larger algorithms.
+
+    \item \textbf{State-Aware Compilation (Simulation):} Conversely, when a full algorithm is executed via Monte Carlo simulation (or when executing on a specific on-device state), we trace the circuit from a known initial state (such as $|0\rangle^{\otimes n}$). The compiler actively tracks deterministic measurement collapses and anchors the spatial shift vectors $\beta$, fully resolving the exact boundary conditions required by the runtime Virtual Machine.
+\end{itemize}
+
+\subsection{Execution on the Static Vacuum}
+
+When operating in the State-Aware mode, the geometry is completely flattened and optimized in the HIR, freeing the runtime Virtual Machine (VM) from topological tracking. The VM evaluates the continuous probability amplitudes forward in time (the Schr\"odinger picture), but it does so entirely over the \textit{fixed} $t=0$ state-aware vacuum basis:
+\begin{equation}
+    |\phi_t\rangle = \sum_{\alpha \in \Omega_t} v_\alpha |b_{0,\alpha}\rangle
+\end{equation}
+The runtime needs only to manage the continuous array $\mathbf{v}_t$ and a lightweight classical bit-vector tracking the $\pm 1$ physical phase inversions generated by stochastic noise. A rewound Pauli operator from the HIR acts on this static basis as a spatial shift up to a relative phase:
+\begin{equation}
+    P_{t \to 0} |b_{0,\alpha}\rangle = \xi_\alpha(P) |b_{0,\alpha \oplus \beta(P)}\rangle
+\end{equation}
+where $\xi_\alpha(P) \propto (-1)^{\gamma(P) \cdot \alpha}$. What were previously $\mathcal{O}(n^2)$ matrix updates in a dynamic tableau are now reduced to $\mathcal{O}(1)$ bitwise operations and fast XOR array indexing.
+
+\subsection{The Dynamical Shift-Rank Bound}
+
+Prior literature \cite{li2025soft} bounded the required sparsity of the coefficient vector $|\mathbf{v}_t|$ by the static spatial support of the non-Clifford gates. However, this static bound is blind to the temporal dynamics of the circuit. By framing the execution over the static $t=0$ vacuum, we reveal a strictly tighter, dynamically exact bound.
 
 \begin{definition}[The Active Support]
-Let $\Omega_t \subseteq \mathbb{F}_2^n$ be the support of the coefficient vector, defined as the set of binary keys where the amplitude $v_\alpha \neq 0$.
+Let $\Omega_t \subseteq \mathbb{F}_2^n$ be the support of the coefficient vector over the static $t=0$ basis, defined as the set of binary keys where the amplitude $v_\alpha \neq 0$.
 \end{definition}
-
-\begin{definition}[Rewound Pauli Action]
-For any physical Pauli operator $P$, we may expand it in the current tableau $\mathcal{T}_t$ to extract its destabilizer shift mask $\beta(P) \in \mathbb{F}_2^n$ and stabilizer phase mask $\gamma(P) \in \mathbb{F}_2^n$. Its action on the basis is exactly a spatial shift up to a relative phase:
-\begin{equation}
-    P |b_\alpha\rangle = \xi_\alpha(P) |b_{\alpha \oplus \beta(P)}\rangle
-\end{equation}
-where the phase $\xi_\alpha(P) \propto (-1)^{\gamma(P) \cdot \alpha}$ is determined by the symplectic inner product.
-\end{definition}
-
-Prior literature \cite{li2025soft} bounded the sparsity of the coefficient vector $|\mathbf{v}|$ by the static spatial support of the non-Clifford gates. If a layer of $T$-gates acts on a set of qubits $Q$, the memory is bounded by $2^{|Q| - r_Q}$, where $r_Q$ is the number of local $Z$-stabilizers. However, this static bound is blind to the temporal dynamics of the circuit. It misses overlapping linear dependencies caused by entanglement and the active rank-collapsing power of projective measurements.
-
-By actively tracking the shift masks $\beta(P)$ through time, we establish a strictly tighter, dynamically exact bound.
 
 \begin{theorem}[The Dynamical Shift-Rank Bound]
 \label{thm:shift_rank}
-At any step $t$ of a universal quantum circuit, the state vector support $\Omega_t$ forms an exact affine subspace of $\mathbb{F}_2^n$. That is, $\Omega_t = \alpha_t \oplus V_t$, where $V_t$ is a linear vector space over $\mathbb{F}_2$ and $\alpha_t$ is a translation vector.
+At any step $t$ of a universal quantum circuit, the state vector support $\Omega_t$ forms an exact affine subspace over the static vacuum $\mathbb{F}_2^n$. That is, $\Omega_t = \alpha_t \oplus V_t$, where $V_t$ is a linear vector space over $\mathbb{F}_2$ and $\alpha_t$ is a translation vector.
 
 Consequently, the number of non-zero continuous amplitudes is strictly bounded by:
 \begin{equation}
     |\mathbf{v}_t| \le 2^{\dim(V_t)}
 \end{equation}
-where $\dim(V_t)$ evolves dynamically based purely on the $\mathbb{F}_2$ linear dependence of the rewound Pauli shifts, independent of the continuous amplitudes.
+where $\dim(V_t)$ evolves dynamically based purely on the $\mathbb{F}_2$ linear dependence of the rewound Pauli shift masks $\beta(P)$, independent of the continuous amplitudes.
 \end{theorem}
 
 \begin{proof}
-We proceed by structural induction on the operations of a universal circuit. At $t=0$, the system is initialized in a computational basis state (a pure stabilizer state). The coefficient vector has exactly one entry: $\Omega_0 = \{\vec{0}\}$. This is an affine space with $V_0 = \{\vec{0}\}$ and $\dim(V_0) = 0$. The bound $|\mathbf{v}_0| = 1 \le 2^0$ holds trivially.
+We proceed by structural induction on the operations of the state-aware HIR acting on the static vacuum. At $t=0$, the system is in the vacuum state $|\phi_0\rangle = |b_{0,\vec{0}}\rangle$. The support is $\Omega_0 = \{\vec{0}\}$, an affine space with $V_0 = \{\vec{0}\}$ and $\dim(V_0) = 0$.
 
-Assume the theorem holds at step $t$, with $\Omega_t = \alpha_t \oplus V_t$. We evaluate the operations at step $t+1$:
-
-\textit{Lemma 1 (Clifford Unitaries):} A Clifford gate $C$ updates the geometric reference frame via conjugation $\mathcal{T}_{t+1} = C \mathcal{T}_t C^\dagger$. Because the basis states transform covariantly ($C|b_\alpha\rangle = |b'_\alpha\rangle$), the abstract keys $\alpha \in \Omega_t$ assigned to the amplitudes $v_\alpha$ are mathematically untouched. Thus, $\Omega_{t+1} = \Omega_t$, implying $V_{t+1} = V_t$. The dimension is invariant.
-
-\textit{Lemma 2 (Non-Clifford Rotations):} A non-Clifford rotation decomposes via a Linear Combination of Unitaries (LCU) into $c_1 I + c_2 P$. Applying this branches the superposition:
-\begin{equation}
-    (c_1 I + c_2 P) |\phi_t\rangle = c_1 \sum_{\alpha \in \Omega_t} v_\alpha |b_\alpha\rangle + c_2 \sum_{\alpha \in \Omega_t} v_\alpha \xi_\alpha |b_{\alpha \oplus \beta(P)}\rangle
-\end{equation}
-The new support is the Minkowski sum $\Omega_{t+1} = \Omega_t \cup (\Omega_t \oplus \beta(P))$. The union of an affine space with its translation forms a new affine space. We evaluate its dimension against $V_t$:
-\begin{itemize}
-    \item \textbf{Collision:} If $\beta(P) \in V_t$, the shift vector is already inside the active space. The space simply folds onto itself (an in-place interference butterfly). The affine space remains identical, and $\dim(V_{t+1}) = \dim(V_t)$.
-    \item \textbf{Expansion:} If $\beta(P) \notin V_t$, the underlying vector space gains exactly one basis vector: $V_{t+1} = \text{span}(V_t \cup \{\beta(P)\})$. The dimension strictly increases by 1: $\dim(V_{t+1}) = \dim(V_t) + 1$.
+Assume the theorem holds at step $t$, with $\Omega_t = \alpha_t \oplus V_t$. We evaluate the action of an operation $O_t$:
+\begin{itemize}[leftmargin=*]
+    \item \textbf{Clifford Unitaries:} Completely absorbed by the rewinding map $\Phi_{t \to 0}$. They do not exist in the HIR and incur zero runtime cost. $\Omega_{t+1} = \Omega_t$, so $V_{t+1} = V_t$.
+    \item \textbf{Non-Clifford Rotations:} A generic rotation decomposes via a Linear Combination of Unitaries into $c_1 I + c_2 P_{t \to 0}$. Applying this branches the superposition: $\Omega_{t+1} = \Omega_t \cup (\Omega_t \oplus \beta(P))$. The union of an affine space with its translation forms a new affine space.
+    \begin{itemize}
+        \item \textit{Collision:} If $\beta(P) \in V_t$, the rewound shift vector is already inside the active space. The space folds onto itself (an in-place interference butterfly). $\dim(V_{t+1}) = \dim(V_t)$.
+        \item \textit{Expansion:} If $\beta(P) \notin V_t$, the underlying vector space gains exactly one basis vector. $\dim(V_{t+1}) = \dim(V_t) + 1$.
+    \end{itemize}
+    \item \textbf{Projective Pauli Measurements:} Measuring an observable applies a projector mapping to $I \pm M_{t\to0}$.
+    \begin{itemize}
+        \item \textit{Diagonal Filter ($\beta(M) = \vec{0}$):} The rewound observable acts diagonally. The projector enforces a linear parity constraint $\gamma(M) \cdot \alpha = c \pmod 2$. Intersecting the affine space $V_t$ with this hyperplane yields a new affine space. If it cuts the space, the dimension decreases by 1. Otherwise, it is unchanged.
+        \item \textit{Internal Merge ($\beta(M) \in V_t \setminus \{\vec{0}\}$):} The measurement shifts the basis entirely within the active superposition, merging paired amplitudes. Factoring out the $\beta(M)$ direction yields the quotient space $V_{t+1} = V_t / \langle \beta(M) \rangle$. The dimension strictly decreases by 1.
+        \item \textit{External AG Pivot ($\beta(M) \notin V_t$):} The measurement acts along a dimension entirely orthogonal to the active support. The topological frame update is handled purely by the deterministic AG row reductions captured in $\Phi_{t \to 0}$. Because the collapse occurs along a dimension unused by the active state ($\alpha_{\beta(M)} = 0 \;\forall \alpha \in \Omega_t$), the continuous amplitudes are mathematically isolated from the geometric collapse. The affine dimension is completely unaffected: $\dim(V_{t+1}) = \dim(V_t)$.
+    \end{itemize}
 \end{itemize}
-
-\textit{Lemma 3 (Projective Pauli Measurements):} Measuring an observable $M$ applies the projector $\Pi_{\pm} = \frac{1}{2}(I \pm M)$.
-\begin{itemize}
-    \item \textbf{Diagonal Filter ($\beta(M) = \vec{0}$):} $M$ acts diagonally. The projector enforces a linear parity constraint $\gamma(M) \cdot \alpha = c \pmod 2$. Intersecting the affine space $V_t$ with this hyperplane yields a new affine space. If the hyperplane cuts the space, the dimension strictly decreases by 1. Otherwise (a deterministic outcome), it is unchanged.
-    \item \textbf{Internal Merge ($\beta(M) \in V_t \setminus \{\vec{0}\}$):} $M$ shifts the basis entirely within the active superposition, pairing and merging amplitudes ($v_\alpha$ and $v_{\alpha \oplus \beta(M)}$). Factoring out the $\beta(M)$ direction yields the quotient space $V_{t+1} = V_t / \langle \beta(M) \rangle$. The dimension strictly decreases by 1.
-    \item \textbf{External AG Pivot ($\beta(M) \notin V_t$):} $M$ anti-commutes with generators orthogonal to the active superposition. An Aaronson-Gottesman pivot updates the geometry. Because the collapse occurs along a dimension unused by the active basis states ($\alpha_p = 0 \;\forall \alpha \in \Omega_t$), the continuous amplitudes are mathematically isolated from the collapse. The active basis states safely ride along into the new reference frame. The affine dimension is completely unaffected: $\dim(V_{t+1}) = \dim(V_t)$.
-\end{itemize}
-By induction, $\Omega_t$ is always an affine space, and operations increase $\dim(V_t)$ by at most 1, leave it flat, or strictly decrease it. The bound $|\mathbf{v}_t| \le 2^{\dim(V_t)}$ holds universally.
+By induction, $\Omega_t$ is always an affine space whose dimension is entirely dictated by the algebraic dependence of the HIR masks. The bound $|\mathbf{v}_t| \le 2^{\dim(V_t)}$ holds universally.
 \end{proof}
+
+Because the evolution of $V_t$ relies solely on the static masks $\beta(P)$ generated by the state-aware HIR, the compiler Back-End can deterministically track the active affine space and extract the $\max_t \dim(V_t)$ without ever running a single quantum shot. This allows the runtime VM to statically allocate its dense complex array exactly once, circumventing the tree-based dynamic memory overheads of traditional sparse simulators.
 
 \subsection{The GHZ Corollary: Surpassing Spatial Bounds}
 
-The power of Theorem \ref{thm:shift_rank} is profoundly evident when evaluating highly entangled quantum states.
+The power of framing the state in the rewound static space is profoundly evident when evaluating highly entangled quantum states, where static bounds inherently fail.
 
 \begin{corollary}[The GHZ Collapse]
 \label{cor:ghz}
-Let $|\phi\rangle$ be an $n$-qubit GHZ state, and let $U = \bigotimes_{i=1}^n T_i$ be a layer of $T$-gates applied to all $n$ qubits. The spatial bound predicts $\mathcal{O}(2^n)$ complexity. The Dynamical Shift-Rank Bound proves $|\mathbf{v}| \le 2$, a constant bounded complexity entirely independent of $n$.
+Let $|\phi\rangle$ be an $n$-qubit GHZ state, and let $O_t$ be a sequence of $T$-gates applied to all $n$ qubits. Static spatial bounds predict $\mathcal{O}(2^n)$ complexity. The Dynamical Shift-Rank Bound proves $|\mathbf{v}| \le 2$, a constant bounded complexity entirely independent of $n$.
 \end{corollary}
 
-\textit{Proof:} The spatial bound relies on the spatial footprint $|Q| = n$ and local Z-stabilizers $r_Q = 0$ (since no local $Z$ operator commutes with the global $X^{\otimes n}$ stabilizer of the GHZ state), predicting $|\mathbf{v}| \le 2^n$. However, Theorem \ref{thm:shift_rank} evaluates the \textit{temporal dynamics}. Because the qubits are maximally entangled, the shift vectors for all $n$ qubits are algebraically identical over $\mathbb{F}_2$; i.e., $\beta(Z_1) = \beta(Z_2) = \dots = \beta(Z_n) = \beta$. The first $T$-gate expands the dimension by 1. Every subsequent $T$-gate triggers a \textit{Collision} (Lemma 2), leaving the affine space dimension mathematically unchanged. Thus, $V_t = \text{span}(\beta)$, the rank is exactly 1, and $|\mathbf{v}| \le 2^1 = 2$.
+\textit{Proof:} Static bounds rely on the spatial footprint $|Q| = n$. Because no local $Z$ operator commutes with the global $X^{\otimes n}$ stabilizer of the GHZ state, the number of local $Z$-stabilizers $r_Q = 0$, falsely predicting a maximal $|\mathbf{v}| \le 2^n$ blowup.
 
-By treating generalized stabilizers as an evolving affine space, Theorem \ref{thm:shift_rank} identifies deep temporal linear dependencies and active cooling mechanisms that static spatial bounds inherently fail to capture.
+However, Theorem \ref{thm:shift_rank} evaluates the temporal collision of the \textit{rewound} operators. Because the qubits are maximally entangled by prior Clifford operations, the Heisenberg rewinding map $\Phi_{t \to 0}$ pulls the spatial shift vectors for all $n$ local $Z$ operators into the exact same algebraic vector over $\mathbb{F}_2^n$; i.e., $\beta(Z_1) = \beta(Z_2) = \dots = \beta(Z_n) = \beta$.
 
+The first $T$-gate expands the dimension by 1 ($\beta \notin V_0$). Every subsequent $T$-gate introduces the exact same shift mask ($\beta \in V_1$), triggering an $\mathcal{O}(1)$ \textit{Collision} (Lemma 2). The affine space dimension remains completely flat. Thus, $V_t = \text{span}(\beta)$, the dynamical rank is exactly 1, and $|\mathbf{v}| \le 2^1 = 2$.
 % ==============================================================================
 \section{The Physics of the Affine Space: The Active Magic Volume}
 \label{sec:physics}
