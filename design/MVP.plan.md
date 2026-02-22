@@ -84,17 +84,32 @@ You are building the Phase 1 Minimum Viable Product (MVP) of the Unitary Compile
     *   If the physical outcome diverges from `ag_ref_outcome` (i.e., `divergence == 1`), inject the localized error by flipping the sign of the new stabilizer exactly at the target slot: `new_stab ^= (1ULL << instr.meta.ag_stab_slot);`
 *   **DoD:** All C++ tests pass. Write a new C++ Catch2 test verifying `OP_SCALAR_PHASE` correctly branches phases when `commutation_mask != 0` (e.g. `H 0; T 0; S 0; H 0; T 0`). Write a new C++ test verifying `OP_AG_PIVOT` correctly propagates prior Pauli errors through an asymmetric frame collapse.
 
-## Phase 7: Validation & Integration Testing
-**Goal:** Prove the system produces mathematically correct physics.
-*   **Task 7.1 (Statevector Expansion Utility):** Write a Python utility `extract_statevector` that:
-    1. Allocates a dense $2^N$ numpy array.
-    2. For each GF(2) index $\alpha$ (from 0 to $2^{\text{rank}}-1$), compute the physical basis index by XORing the columns of `gf2_basis` selected by the bits of $\alpha$.
-    3. Apply the physical $\pm 1, \pm i$ signs from `destab_signs`/`stab_signs` using the `final_tableau` columns to determine which stabilizer/destabilizer generators contribute.
-    4. Place `v[α] * sign * global_weight` at the computed physical index.
-*   **Task 7.2 (Statevector Micro-Test):** Use the utility from 7.1 to validate a 4-qubit pure unitary circuit (Cliffords + $T$, no measurements) against a known statevector oracle using `np.allclose`. *(Note: because the VM uses Dominant Term Factoring, the VM's raw state is unnormalized; ensure the utility accounts for this).*
-*   **Task 7.3 (Statistical Macro-Test):** Load the manually stripped Gidney proxy circuit (S gates only). Run 10,000 shots in `stim` and 10,000 shots in `ucc`. Assert that the probability distributions of the resulting measurement bitstrings match within a strict statistical tolerance (e.g., $< 0.02$ divergence).
-*   **Task 7.4 (Statevector Debugging API):** Add a `debug_mode=False` flag to `ucc.compile()`. When true, retain `final_tableau` and `gf2_basis` on the returned `Program`. Expose `ucc.to_statevector(program, schrodinger_state)` that leverages the math from Task 7.1.
-*   **DoD:** All tests pass reliably via `pytest`.
+## Phase 7: API Polish, Validation & Integration Testing
+**Goal:** Prove the system produces mathematically correct physics and provides a Stim-compatible Python interface.
+
+*   **Task 7.1 (Stim-Compatible Sampling API):**
+    *   Refactor `ucc.sample` in `bindings.cc` to return a 2D numpy array instead of a nested list.
+    *   Use `nanobind::ndarray<nanobind::numpy, uint8_t, nanobind::c_contig>` with shape `(shots, num_measurements)`.
+    *   Allocate a flat `std::vector<uint8_t>` for the results and return it such that `nanobind` exposes it to Python as a contiguous numpy array of `dtype=uint8`.
+*   **Task 7.2 (Statevector Expansion C++ Utility):**
+    *   In `frontend.cc` at the end of `trace()`, unconditionally populate `hir.final_tableau` with `sim.inv_state.inverse()` (the forward tableau).
+    *   In `backend.cc` and `backend.h`, ensure `num_qubits`, `global_weight`, and `final_tableau` are correctly copied from `HirModule` to `CompiledModule` / `ConstantPool`.
+    *   Implement a C++ function `get_statevector(const CompiledModule& program)` exposed to Python returning a 1D `numpy.ndarray` of `complex128`:
+        1. Execute `ucc::execute()` for a single shot to populate a `SchrodingerState`.
+        2. Allocate a dense $2^N$ complex vector `SV` initialized to 0.
+        3. For each active rank index $\alpha \in 0 \dots 2^{\text{peak\_rank}}-1$:
+           a. Create a fresh `stim::TableauSimulator` initialized to $|0\dots 0\rangle$.
+           b. For each bit $i$ set in $\alpha$, XOR the `gf2_basis[i]` vector into a running spatial shift mask. Apply Pauli $X$ gates for this spatial shift mask.
+           c. Apply the global error frame (`destab_signs` and `stab_signs`) as $X$ and $Z$ gates on the respective qubits.
+           d. Apply the `final_tableau` using `sim.apply_tableau` (you'll need to construct the targets vector).
+           e. Extract the branch's dense vector via `sim.to_state_vector(true)` (little_endian=true) and accumulate: `SV += state.v()[alpha] * branch_sv * global_weight`.
+        4. Normalize the final accumulated `SV` vector and return it via nanobind.
+*   **Task 7.3 (Exact Pure-Clifford Validation):** Generate random noise-free pure-Clifford circuits (restricted to `H, S, S_DAG, X, Y, Z, CX, CY, CZ`) *without* measurements. Assert that the statevector extracted from `ucc.get_statevector()` matches `stim.TableauSimulator().state_vector()` exactly, **up to a global phase** (e.g., using fidelity $|\langle \psi_{\text{ucc}} | \psi_{\text{stim}} \rangle|^2 \approx 1.0$).
+*   **Task 7.4 (Exact Clifford+T Validation):** Generate small (2-6 qubit) pure unitary circuits including the `T` and `T_DAG` gates. Import the pure-Python numpy-based statevector oracle from the `prototype/` directory and compare `ucc.get_statevector()` against the oracle's output **up to a global phase**.
+*   **Task 7.5 (Measurement & Sampling Validation):**
+    1. *Deterministic Measurements:* Create random Clifford circuits where measurements perfectly commute with the state. Assert UCC's numpy array outputs exactly match Stim's numpy array outputs (all shots identical).
+    2. *Statistical Distribution:* Load a proxy circuit (e.g. S-gate proxy). Run 10,000 shots in `stim` and 10,000 shots in `ucc`. Assert that the marginal probability distributions of the resulting measurement bitstrings match within a strict statistical tolerance (e.g., $< 0.02$ divergence).
+*   **DoD:** Python API natively returns `numpy.ndarray`. Exact statevector tests (pure Clifford and Clifford+T) and statistical sampling tests pass reliably via `pytest`.
 
 ---
 
@@ -104,7 +119,6 @@ Items identified during implementation review for future improvement:
 
 ### API Encapsulation
 - **`v()` accessor removal**: The current `SchrodingerState::v()` exposes raw coefficient array for testing convenience. Refactor to encapsulate execution: `sample()` should accept a caller-provided output buffer or return results directly, eliminating public access to internal state.
-- **ndarray protocol for results**: Current Python `sample()` returns `list[list[int]]`. Investigate returning a numpy ndarray with zero-copy semantics (allocate numpy array, pass data pointer to C++). Reference Stim's approach for guidance.
 
 ### Robustness
 - **Allocation size limits**: Consider adding configurable limits on `peak_rank` to prevent accidental multi-GB allocations.
