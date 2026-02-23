@@ -155,12 +155,20 @@ NB_MODULE(_ucc_core, m) {
             "num_measurements", [](const ucc::CompiledModule& p) { return p.num_measurements; },
             "Number of measurements in the circuit")
         .def_prop_ro(
+            "num_detectors", [](const ucc::CompiledModule& p) { return p.num_detectors; },
+            "Number of detectors in the circuit")
+        .def_prop_ro(
+            "num_observables", [](const ucc::CompiledModule& p) { return p.num_observables; },
+            "Number of observables in the circuit")
+        .def_prop_ro(
             "num_instructions", [](const ucc::CompiledModule& p) { return p.bytecode.size(); },
             "Number of bytecode instructions")
         .def("__repr__", [](const ucc::CompiledModule& p) {
             return "Program(" + std::to_string(p.bytecode.size()) +
                    " instructions, peak_rank=" + std::to_string(p.peak_rank) + ", " +
-                   std::to_string(p.num_measurements) + " measurements)";
+                   std::to_string(p.num_measurements) + " measurements, " +
+                   std::to_string(p.num_detectors) + " detectors, " +
+                   std::to_string(p.num_observables) + " observables)";
         });
 
     // Compile: stim text -> Program
@@ -181,33 +189,37 @@ NB_MODULE(_ucc_core, m) {
         "    ParseError: If the circuit syntax is invalid\n"
         "    RuntimeError: If compilation fails (e.g., >32 T-gate dimensions)");
 
-    // Sample: Program + shots -> numpy array of measurement results
+    // Helper to create a numpy array from a vector with given shape
+    auto make_numpy_array = [](const std::vector<uint8_t>& vec, size_t rows, size_t cols) {
+        auto* data = new uint8_t[vec.size()];
+        std::copy(vec.begin(), vec.end(), data);
+        nb::capsule owner(data, [](void* p) noexcept { delete[] static_cast<uint8_t*>(p); });
+        return nb::ndarray<nb::numpy, uint8_t, nb::c_contig>(data, {rows, cols}, owner);
+    };
+
+    // Sample: Program + shots -> tuple of (measurements, detectors, observables)
     m.def(
         "sample",
-        [](const ucc::CompiledModule& program, uint32_t shots, uint64_t seed) {
-            std::vector<uint8_t> results = ucc::sample(program, shots, seed);
-            size_t num_meas = program.num_measurements;
+        [make_numpy_array](const ucc::CompiledModule& program, uint32_t shots, uint64_t seed) {
+            ucc::SampleResult result = ucc::sample(program, shots, seed);
 
-            // Allocate owned data and move results into it
-            auto* data = new uint8_t[results.size()];
-            std::copy(results.begin(), results.end(), data);
+            auto meas_arr = make_numpy_array(result.measurements, shots, program.num_measurements);
+            auto det_arr = make_numpy_array(result.detectors, shots, program.num_detectors);
+            auto obs_arr = make_numpy_array(result.observables, shots, program.num_observables);
 
-            // Create a capsule that owns the data and will delete it when the
-            // numpy array is garbage collected
-            nb::capsule owner(data, [](void* p) noexcept { delete[] static_cast<uint8_t*>(p); });
-
-            // Return as 2D numpy array with shape (shots, num_measurements)
-            return nb::ndarray<nb::numpy, uint8_t, nb::c_contig>(
-                data, {static_cast<size_t>(shots), num_meas}, owner);
+            return nb::make_tuple(meas_arr, det_arr, obs_arr);
         },
         nb::arg("program"), nb::arg("shots"), nb::arg("seed") = 0,
-        "Run a compiled program and return measurement results.\n\n"
+        "Run a compiled program and return all result records.\n\n"
         "Args:\n"
         "    program: Compiled Program object\n"
         "    shots: Number of shots to run\n"
         "    seed: Random seed for reproducibility (default: 0)\n\n"
         "Returns:\n"
-        "    numpy.ndarray with shape (shots, num_measurements), dtype=uint8");
+        "    Tuple of three numpy arrays:\n"
+        "    - measurements: shape (shots, num_measurements), dtype=uint8\n"
+        "    - detectors: shape (shots, num_detectors), dtype=uint8\n"
+        "    - observables: shape (shots, num_observables), dtype=uint8");
 
     // =========================================================================
     // Statevector API
@@ -215,12 +227,15 @@ NB_MODULE(_ucc_core, m) {
 
     // SchrodingerState wrapper for manual execution
     nb::class_<ucc::SchrodingerState>(m, "State", "Schr\u00f6dinger VM execution state")
-        .def(nb::init<uint32_t, uint32_t, uint64_t>(), nb::arg("peak_rank"),
-             nb::arg("num_measurements"), nb::arg("seed") = 0,
+        .def(nb::init<uint32_t, uint32_t, uint32_t, uint32_t, uint64_t>(), nb::arg("peak_rank"),
+             nb::arg("num_measurements"), nb::arg("num_detectors") = 0,
+             nb::arg("num_observables") = 0, nb::arg("seed") = 0,
              "Create a new execution state.\n\n"
              "Args:\n"
              "    peak_rank: Maximum GF(2) dimension (from Program.peak_rank)\n"
              "    num_measurements: Number of measurements (from Program.num_measurements)\n"
+             "    num_detectors: Number of detectors (from Program.num_detectors)\n"
+             "    num_observables: Number of observables (from Program.num_observables)\n"
              "    seed: Random seed for reproducibility")
         .def("reset", &ucc::SchrodingerState::reset, nb::arg("seed"),
              "Reset state to |0...0\u27e9 for a new shot")
@@ -228,6 +243,14 @@ NB_MODULE(_ucc_core, m) {
             "meas_record",
             [](const ucc::SchrodingerState& s) { return std::vector<uint8_t>(s.meas_record); },
             "Copy of measurement record after execution")
+        .def_prop_ro(
+            "det_record",
+            [](const ucc::SchrodingerState& s) { return std::vector<uint8_t>(s.det_record); },
+            "Copy of detector record after execution")
+        .def_prop_ro(
+            "obs_record",
+            [](const ucc::SchrodingerState& s) { return std::vector<uint8_t>(s.obs_record); },
+            "Copy of observable record after execution")
         .def("__repr__", [](const ucc::SchrodingerState& s) {
             return "State(array_size=" + std::to_string(s.array_size()) + ")";
         });

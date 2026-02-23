@@ -11,10 +11,13 @@ namespace ucc {
 // SchrodingerState Implementation
 // =============================================================================
 
-SchrodingerState::SchrodingerState(uint32_t peak_rank, uint32_t num_measurements, uint64_t seed)
+SchrodingerState::SchrodingerState(uint32_t peak_rank, uint32_t num_measurements,
+                                   uint32_t num_detectors, uint32_t num_observables, uint64_t seed)
     : peak_rank_(peak_rank), rng_(seed) {
-    // Pre-allocate measurement record first (may throw, but no cleanup needed)
+    // Pre-allocate records first (may throw, but no cleanup needed)
     meas_record.resize(num_measurements, 0);
+    det_record.resize(num_detectors, 0);
+    obs_record.resize(num_observables, 0);
 
     // Allocate 2^peak_rank complex numbers, 64-byte aligned for AVX
     array_size_ = 1ULL << peak_rank;
@@ -44,6 +47,8 @@ SchrodingerState::SchrodingerState(SchrodingerState&& other) noexcept
     : destab_signs(other.destab_signs),
       stab_signs(other.stab_signs),
       meas_record(std::move(other.meas_record)),
+      det_record(std::move(other.det_record)),
+      obs_record(std::move(other.obs_record)),
       v_(other.v_),
       array_size_(other.array_size_),
       peak_rank_(other.peak_rank_),
@@ -62,6 +67,8 @@ SchrodingerState& SchrodingerState::operator=(SchrodingerState&& other) noexcept
         destab_signs = other.destab_signs;
         stab_signs = other.stab_signs;
         meas_record = std::move(other.meas_record);
+        det_record = std::move(other.det_record);
+        obs_record = std::move(other.obs_record);
         other.v_ = nullptr;
         other.array_size_ = 0;
     }
@@ -75,6 +82,8 @@ void SchrodingerState::reset(uint64_t seed) {
     destab_signs = 0;
     stab_signs = 0;
     std::fill(meas_record.begin(), meas_record.end(), 0);
+    std::fill(det_record.begin(), det_record.end(), 0);
+    std::fill(obs_record.begin(), obs_record.end(), 0);
     rng_.seed(seed);
 }
 
@@ -438,8 +447,42 @@ void op_conditional(SchrodingerState& state, const Instruction& instr) {
 void execute(const CompiledModule& program, SchrodingerState& state) {
     uint32_t current_rank = 0;  // Start with rank 0 (single amplitude)
     uint32_t meas_idx = 0;
+    uint32_t det_idx = 0;
 
-    for (const auto& instr : program.bytecode) {
+    const auto& schedule = program.constant_pool.noise_schedule;
+    const auto& det_targets = program.constant_pool.detector_targets;
+    const auto& obs_targets = program.constant_pool.observable_targets;
+    size_t next_noise_idx = 0;
+
+    // Loop to <= bytecode.size() to process trailing noise at circuit end.
+    // Noise scheduled at pc == bytecode.size() applies after all instructions.
+    for (uint32_t pc = 0; pc <= program.bytecode.size(); ++pc) {
+        // 1. Process all noise scheduled for this PC (gap sampling)
+        while (next_noise_idx < schedule.size() && pc == schedule[next_noise_idx].pc) {
+            const auto& site = schedule[next_noise_idx];
+            double r = state.random_double();
+            if (r < site.total_probability) {
+                // Single-draw roulette wheel: use same random number for channel selection
+                double cum_p = 0.0;
+                for (const auto& ch : site.channels) {
+                    cum_p += ch.prob;
+                    if (r < cum_p) {
+                        state.destab_signs ^= ch.destab_mask;
+                        state.stab_signs ^= ch.stab_mask;
+                        break;
+                    }
+                }
+            }
+            next_noise_idx++;
+        }
+
+        // 2. Break if we've processed all bytecode
+        if (pc == program.bytecode.size()) {
+            break;
+        }
+
+        // 3. Execute the instruction at this PC
+        const auto& instr = program.bytecode[pc];
         switch (instr.opcode) {
             case Opcode::OP_BRANCH:
                 op_branch(state, instr, current_rank);
@@ -482,28 +525,62 @@ void execute(const CompiledModule& program, SchrodingerState& state) {
                 op_conditional(state, instr);
                 break;
 
+            case Opcode::OP_READOUT_NOISE:
+                // Classical bit-flip on measurement result
+                if (state.random_double() < instr.readout.prob) {
+                    state.meas_record[instr.readout.meas_idx] ^= 1;
+                }
+                break;
+
+            case Opcode::OP_DETECTOR: {
+                // Compute parity of all referenced measurement bits
+                const auto& targets = det_targets[instr.detector.target_idx];
+                uint8_t parity = 0;
+                for (uint32_t idx : targets) {
+                    parity ^= state.meas_record[idx];
+                }
+                state.det_record[det_idx++] = parity;
+                break;
+            }
+
+            case Opcode::OP_OBSERVABLE: {
+                // XOR parity into the observable accumulator
+                const auto& targets = obs_targets[instr.observable.target_idx];
+                uint8_t parity = 0;
+                for (uint32_t idx : targets) {
+                    parity ^= state.meas_record[idx];
+                }
+                state.obs_record[instr.observable.obs_idx] ^= parity;
+                break;
+            }
+
             // Future opcodes - not implemented in MVP
             case Opcode::OP_BRANCH_LCU:
             case Opcode::OP_COLLIDE_LCU:
             case Opcode::OP_SCALAR_PHASE_LCU:
             case Opcode::OP_INDEX_CNOT:
-            case Opcode::OP_DETECTOR:
             case Opcode::OP_POSTSELECT:
                 break;
         }
     }
 }
 
-std::vector<uint8_t> sample(const CompiledModule& program, uint32_t shots, uint64_t seed) {
+SampleResult sample(const CompiledModule& program, uint32_t shots, uint64_t seed) {
+    SampleResult result;
     if (shots == 0) {
-        return {};
+        return result;
     }
 
     uint32_t num_meas = program.num_measurements;
-    std::vector<uint8_t> results(static_cast<size_t>(shots) * num_meas);
+    uint32_t num_det = program.num_detectors;
+    uint32_t num_obs = program.num_observables;
+
+    result.measurements.resize(static_cast<size_t>(shots) * num_meas);
+    result.detectors.resize(static_cast<size_t>(shots) * num_det);
+    result.observables.resize(static_cast<size_t>(shots) * num_obs);
 
     // Create state once, reuse for all shots
-    SchrodingerState state(program.peak_rank, num_meas, seed);
+    SchrodingerState state(program.peak_rank, num_meas, num_det, num_obs, seed);
 
     for (uint32_t shot = 0; shot < shots; ++shot) {
         if (shot > 0) {
@@ -513,12 +590,16 @@ std::vector<uint8_t> sample(const CompiledModule& program, uint32_t shots, uint6
 
         execute(program, state);
 
-        // Copy measurement record to results
+        // Copy all records to results
         std::copy(state.meas_record.begin(), state.meas_record.end(),
-                  results.begin() + static_cast<ptrdiff_t>(shot * num_meas));
+                  result.measurements.begin() + static_cast<ptrdiff_t>(shot * num_meas));
+        std::copy(state.det_record.begin(), state.det_record.end(),
+                  result.detectors.begin() + static_cast<ptrdiff_t>(shot * num_det));
+        std::copy(state.obs_record.begin(), state.obs_record.end(),
+                  result.observables.begin() + static_cast<ptrdiff_t>(shot * num_obs));
     }
 
-    return results;
+    return result;
 }
 
 // Internal structure for sparse reference state

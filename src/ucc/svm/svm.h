@@ -25,7 +25,9 @@ class SchrodingerState {
   public:
     // Allocate state for given peak_rank (determines array size 2^rank).
     // Seed controls the deterministic PRNG for measurement sampling.
-    explicit SchrodingerState(uint32_t peak_rank, uint32_t num_measurements, uint64_t seed = 0);
+    explicit SchrodingerState(uint32_t peak_rank, uint32_t num_measurements,
+                              uint32_t num_detectors = 0, uint32_t num_observables = 0,
+                              uint64_t seed = 0);
 
     ~SchrodingerState();
 
@@ -59,6 +61,12 @@ class SchrodingerState {
     // Measurement record
     std::vector<uint8_t> meas_record;
 
+    // Detector record (one bit per DETECTOR instruction)
+    std::vector<uint8_t> det_record;
+
+    // Observable record (one bit per logical observable index)
+    std::vector<uint8_t> obs_record;
+
   private:
     std::complex<double>* v_ = nullptr;  // 64-byte aligned
     uint64_t array_size_ = 0;            // 2^peak_rank
@@ -71,12 +79,18 @@ class SchrodingerState {
 // =============================================================================
 
 /// Execute a compiled program for one shot, populating state with results.
-/// Returns the measurement record.
 void execute(const CompiledModule& program, SchrodingerState& state);
 
-/// Run multiple shots and return measurement records as a 2D array.
-/// Result shape: [shots, num_measurements], row-major.
-std::vector<uint8_t> sample(const CompiledModule& program, uint32_t shots, uint64_t seed = 0);
+/// Results from sampling a circuit with noise and QEC annotations.
+struct SampleResult {
+    std::vector<uint8_t> measurements;  // Shape: [shots * num_measurements]
+    std::vector<uint8_t> detectors;     // Shape: [shots * num_detectors]
+    std::vector<uint8_t> observables;   // Shape: [shots * num_observables]
+};
+
+/// Run multiple shots and return all records (measurements, detectors, observables).
+/// Each vector is flattened row-major: [shots, record_size].
+SampleResult sample(const CompiledModule& program, uint32_t shots, uint64_t seed = 0);
 
 // =============================================================================
 // Statevector Expansion

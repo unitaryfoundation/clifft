@@ -87,7 +87,9 @@ TEST_CASE("SVM: empty program returns empty results", "[svm]") {
     prog.num_measurements = 0;
 
     auto results = sample(prog, 10, 0);
-    REQUIRE(results.empty());
+    REQUIRE(results.measurements.empty());
+    REQUIRE(results.detectors.empty());
+    REQUIRE(results.observables.empty());
 }
 
 TEST_CASE("SVM: single T gate on |0> gives SCALAR_PHASE", "[svm]") {
@@ -174,7 +176,7 @@ TEST_CASE("SVM: measurement on |0> is deterministic", "[svm]") {
 
     // All shots should give 0
     auto results = sample(prog, 100, 12345);
-    for (auto r : results) {
+    for (auto r : results.measurements) {
         REQUIRE(r == 0);
     }
 }
@@ -189,7 +191,7 @@ TEST_CASE("SVM: measurement on |1> is deterministic", "[svm]") {
 
     // All shots should give 1
     auto results = sample(prog, 100, 12345);
-    for (auto r : results) {
+    for (auto r : results.measurements) {
         REQUIRE(r == 1);
     }
 }
@@ -205,7 +207,7 @@ TEST_CASE("SVM: measurement on |+> gives ~50/50", "[svm]") {
     auto results = sample(prog, 1000, 42);
 
     int zeros = 0, ones = 0;
-    for (auto r : results) {
+    for (auto r : results.measurements) {
         if (r == 0)
             zeros++;
         else
@@ -234,7 +236,7 @@ TEST_CASE("SVM: reset decomposes to M + conditional X", "[svm]") {
     // Final measurement should always be 0 (reset worked)
     auto results = sample(prog, 100, 0);
     for (size_t i = 0; i < 100; ++i) {
-        REQUIRE(results[i * 2 + 1] == 0);  // Second measurement
+        REQUIRE(results.measurements[i * 2 + 1] == 0);  // Second measurement
     }
 }
 
@@ -252,8 +254,8 @@ TEST_CASE("SVM: Bell state measurements are correlated", "[svm]") {
 
     // Bell state: both qubits always match
     for (size_t shot = 0; shot < 500; ++shot) {
-        uint8_t m0 = results[shot * 2];
-        uint8_t m1 = results[shot * 2 + 1];
+        uint8_t m0 = results.measurements[shot * 2];
+        uint8_t m1 = results.measurements[shot * 2 + 1];
         REQUIRE(m0 == m1);
     }
 }
@@ -269,7 +271,7 @@ TEST_CASE("SVM: sample returns correct shape", "[svm]") {
     REQUIRE(prog.num_measurements == 2);
 
     auto results = sample(prog, 50, 0);
-    REQUIRE(results.size() == 100);  // 50 shots * 2 measurements
+    REQUIRE(results.measurements.size() == 100);  // 50 shots * 2 measurements
 }
 
 // =============================================================================
@@ -302,7 +304,7 @@ TEST_CASE("SVM: state has nonzero amplitudes after operations", "[svm]") {
 TEST_CASE("SVM: zero shots returns empty", "[svm]") {
     auto prog = compile("H 0\nM 0");
     auto results = sample(prog, 0, 0);
-    REQUIRE(results.empty());
+    REQUIRE(results.measurements.empty());
 }
 
 TEST_CASE("SVM: peak_rank 0 circuit works", "[svm]") {
@@ -315,8 +317,8 @@ TEST_CASE("SVM: peak_rank 0 circuit works", "[svm]") {
     REQUIRE(prog.peak_rank == 0);
 
     auto results = sample(prog, 10, 0);
-    REQUIRE(results.size() == 10);
-    for (auto r : results) {
+    REQUIRE(results.measurements.size() == 10);
+    for (auto r : results.measurements) {
         REQUIRE(r == 1);
     }
 }
@@ -348,7 +350,7 @@ TEST_CASE("SVM: MEASURE_MERGE uses butterfly interference not filtering", "[svm]
     auto results = sample(prog, 10000, 42);
 
     int zeros = 0, ones = 0;
-    for (auto r : results) {
+    for (auto r : results.measurements) {
         if (r == 0)
             zeros++;
         else
@@ -379,12 +381,12 @@ TEST_CASE("SVM: T-gate respects Pauli frame from measurements", "[svm][review]")
 
     // Just verify it runs without crashing and produces valid results
     auto results = sample(prog, 1000, 123);
-    REQUIRE(results.size() == 2000);  // 1000 shots * 2 measurements
+    REQUIRE(results.measurements.size() == 2000);  // 1000 shots * 2 measurements
 
     // Count that we get some 0s and 1s (not deterministic)
     int zeros = 0;
     for (size_t i = 0; i < 1000; ++i) {
-        if (results[i * 2 + 1] == 0)
+        if (results.measurements[i * 2 + 1] == 0)
             zeros++;
     }
     REQUIRE(zeros > 100);
@@ -407,9 +409,9 @@ TEST_CASE("SVM: GHZ state measurements are correlated", "[svm][review]") {
     auto results = sample(prog, 500, 77);
 
     for (size_t shot = 0; shot < 500; ++shot) {
-        uint8_t m0 = results[shot * 3 + 0];
-        uint8_t m1 = results[shot * 3 + 1];
-        uint8_t m2 = results[shot * 3 + 2];
+        uint8_t m0 = results.measurements[shot * 3 + 0];
+        uint8_t m1 = results.measurements[shot * 3 + 1];
+        uint8_t m2 = results.measurements[shot * 3 + 2];
         REQUIRE(m0 == m1);
         REQUIRE(m1 == m2);
     }
@@ -431,10 +433,10 @@ TEST_CASE("SVM: Multiple T gates with measurements stay normalized", "[svm][revi
 
     // Just verify it runs and produces valid results
     auto results = sample(prog, 100, 456);
-    REQUIRE(results.size() == 200);
+    REQUIRE(results.measurements.size() == 200);
 
     // All results should be 0 or 1
-    for (auto r : results) {
+    for (auto r : results.measurements) {
         REQUIRE((r == 0 || r == 1));
     }
 }
@@ -458,7 +460,7 @@ TEST_CASE("SVM: MEASURE_FILTER with commutation mask", "[svm][review]") {
     auto results = sample(prog, 1000, 789);
 
     int zeros = 0, ones = 0;
-    for (auto r : results) {
+    for (auto r : results.measurements) {
         if (r == 0)
             zeros++;
         else
@@ -524,8 +526,8 @@ TEST_CASE("SVM: AG_PIVOT propagates frame errors correctly", "[svm][phase6]") {
     auto results = sample(prog, 1000, 12345);
     int match_count = 0;
     for (size_t shot = 0; shot < 1000; ++shot) {
-        uint8_t m0 = results[shot * 2];
-        uint8_t m1 = results[shot * 2 + 1];
+        uint8_t m0 = results.measurements[shot * 2];
+        uint8_t m1 = results.measurements[shot * 2 + 1];
         if (m0 == m1) {
             ++match_count;
         }
@@ -560,10 +562,242 @@ TEST_CASE("SVM: SCALAR_PHASE branches phases with commutation", "[svm][phase6]")
     auto results = sample(prog, 1000, 42);
     int ones = 0;
     for (size_t shot = 0; shot < 1000; ++shot) {
-        ones += results[shot];
+        ones += results.measurements[shot];
     }
     // Should see some variation (not deterministic 0 or 1)
     // This tests that SCALAR_PHASE is applying phases correctly
     REQUIRE(ones > 100);  // Not always 0
     REQUIRE(ones < 900);  // Not always 1
+}
+
+// =============================================================================
+// Phase 2.4 Tests: Noise Simulation & QEC
+// =============================================================================
+
+TEST_CASE("SVM: detector computes measurement parity", "[svm][noise]") {
+    // Simple detector on a single measurement
+    auto prog = compile(R"(
+        M 0
+        DETECTOR rec[-1]
+    )");
+
+    REQUIRE(prog.num_measurements == 1);
+    REQUIRE(prog.num_detectors == 1);
+
+    auto results = sample(prog, 10, 0);
+    REQUIRE(results.detectors.size() == 10);
+
+    // Detector value should equal measurement value (single reference)
+    for (size_t i = 0; i < 10; ++i) {
+        REQUIRE(results.detectors[i] == results.measurements[i]);
+    }
+}
+
+TEST_CASE("SVM: detector XORs multiple measurements", "[svm][noise]") {
+    // Detector referencing two measurements
+    // Bell state: M 0 and M 1 always match, so XOR should be 0
+    auto prog = compile(R"(
+        H 0
+        CX 0 1
+        M 0
+        M 1
+        DETECTOR rec[-1] rec[-2]
+    )");
+
+    REQUIRE(prog.num_measurements == 2);
+    REQUIRE(prog.num_detectors == 1);
+
+    auto results = sample(prog, 100, 42);
+
+    // All detectors should be 0 (Bell state has perfect correlation)
+    for (size_t i = 0; i < 100; ++i) {
+        REQUIRE(results.detectors[i] == 0);
+    }
+}
+
+TEST_CASE("SVM: observable accumulates with XOR", "[svm][noise]") {
+    // Multiple OBSERVABLE_INCLUDE to same observable index
+    auto prog = compile(R"(
+        H 0
+        CX 0 1
+        M 0
+        M 1
+        OBSERVABLE_INCLUDE(0) rec[-1]
+        OBSERVABLE_INCLUDE(0) rec[-2]
+    )");
+
+    REQUIRE(prog.num_measurements == 2);
+    REQUIRE(prog.num_observables == 1);
+
+    auto results = sample(prog, 100, 42);
+
+    // XOR of two identical bits is always 0
+    for (size_t i = 0; i < 100; ++i) {
+        REQUIRE(results.observables[i] == 0);
+    }
+}
+
+TEST_CASE("SVM: observable distinguishes logical values", "[svm][noise]") {
+    // Single observable on superposition measurement
+    auto prog = compile(R"(
+        H 0
+        M 0
+        OBSERVABLE_INCLUDE(0) rec[-1]
+    )");
+
+    REQUIRE(prog.num_observables == 1);
+
+    auto results = sample(prog, 1000, 42);
+
+    // Observable should match measurement (single reference)
+    int ones = 0;
+    for (size_t i = 0; i < 1000; ++i) {
+        REQUIRE(results.observables[i] == results.measurements[i]);
+        ones += results.observables[i];
+    }
+
+    // Should have roughly 50/50 distribution
+    REQUIRE(ones > 400);
+    REQUIRE(ones < 600);
+}
+
+TEST_CASE("SVM: readout noise flips measurement bits", "[svm][noise]") {
+    // 100% readout noise should flip all measurements
+    // M(p) decomposes to M + READOUT_NOISE(p)
+    auto prog = compile(R"(
+        M(1.0) 0
+    )");
+
+    REQUIRE(prog.num_measurements == 1);
+
+    auto results = sample(prog, 100, 42);
+
+    // |0⟩ measured, then flipped by 100% readout noise → all 1s
+    for (size_t i = 0; i < 100; ++i) {
+        REQUIRE(results.measurements[i] == 1);
+    }
+}
+
+TEST_CASE("SVM: gap sampling injects Pauli noise", "[svm][noise]") {
+    // X_ERROR(1.0) should always flip the qubit
+    // Circuit: |0⟩ + noise X = |1⟩, then measure
+    auto prog = compile(R"(
+        X_ERROR(1.0) 0
+        M 0
+    )");
+
+    auto results = sample(prog, 100, 42);
+
+    // All measurements should be 1 (X flipped |0⟩ to |1⟩)
+    for (size_t i = 0; i < 100; ++i) {
+        REQUIRE(results.measurements[i] == 1);
+    }
+}
+
+TEST_CASE("SVM: gap sampling with zero probability does nothing", "[svm][noise]") {
+    // X_ERROR(0.0) should never fire
+    auto prog = compile(R"(
+        X_ERROR(0.0) 0
+        M 0
+    )");
+
+    auto results = sample(prog, 100, 42);
+
+    // All measurements should be 0 (no noise)
+    for (size_t i = 0; i < 100; ++i) {
+        REQUIRE(results.measurements[i] == 0);
+    }
+}
+
+TEST_CASE("SVM: depolarize1 noise is probabilistic", "[svm][noise]") {
+    // DEPOLARIZE1(1.0) always fires one of X/Y/Z
+    // X and Y flip the state, Z doesn't affect |0⟩ or |1⟩ measurement
+    // Expected: 2/3 chance of flip, 1/3 no flip
+    auto prog = compile(R"(
+        DEPOLARIZE1(1.0) 0
+        M 0
+    )");
+
+    auto results = sample(prog, 3000, 42);
+
+    int ones = 0;
+    for (size_t i = 0; i < 3000; ++i) {
+        ones += results.measurements[i];
+    }
+
+    // Should be roughly 2/3 (X and Y flip |0⟩ → |1⟩, Z doesn't)
+    double ratio = ones / 3000.0;
+    REQUIRE(ratio > 0.55);  // Allow variance
+    REQUIRE(ratio < 0.75);
+}
+
+TEST_CASE("SVM: trailing noise is applied after all instructions", "[svm][noise]") {
+    // Noise at end of circuit (after measurement) should still be processed
+    // but shouldn't affect the measurement result
+    auto prog = compile(R"(
+        M 0
+        X_ERROR(1.0) 0
+    )");
+
+    auto results = sample(prog, 10, 0);
+
+    // Measurement is before the noise, so should be 0
+    for (size_t i = 0; i < 10; ++i) {
+        REQUIRE(results.measurements[i] == 0);
+    }
+}
+
+TEST_CASE("SVM: multiple noise sites at same pc", "[svm][noise]") {
+    // Two noise instructions before the same gate
+    auto prog = compile(R"(
+        X_ERROR(1.0) 0
+        X_ERROR(1.0) 0
+        M 0
+    )");
+
+    auto results = sample(prog, 100, 42);
+
+    // Two X errors = identity, all measurements should be 0
+    for (size_t i = 0; i < 100; ++i) {
+        REQUIRE(results.measurements[i] == 0);
+    }
+}
+
+TEST_CASE("SVM: Z noise does not affect computational measurement", "[svm][noise]") {
+    // Z_ERROR only affects phase, not computational basis measurement
+    auto prog = compile(R"(
+        Z_ERROR(1.0) 0
+        M 0
+    )");
+
+    auto results = sample(prog, 100, 42);
+
+    // Z|0⟩ = |0⟩, so measurement should still be 0
+    for (size_t i = 0; i < 100; ++i) {
+        REQUIRE(results.measurements[i] == 0);
+    }
+}
+
+TEST_CASE("SVM: sample result contains correct shapes", "[svm][noise]") {
+    auto prog = compile(R"(
+        H 0
+        M 0
+        M 1
+        DETECTOR rec[-1]
+        DETECTOR rec[-2]
+        DETECTOR rec[-1] rec[-2]
+        OBSERVABLE_INCLUDE(0) rec[-1]
+        OBSERVABLE_INCLUDE(1) rec[-2]
+    )");
+
+    REQUIRE(prog.num_measurements == 2);
+    REQUIRE(prog.num_detectors == 3);
+    REQUIRE(prog.num_observables == 2);
+
+    uint32_t shots = 50;
+    auto results = sample(prog, shots, 0);
+
+    REQUIRE(results.measurements.size() == shots * 2);
+    REQUIRE(results.detectors.size() == shots * 3);
+    REQUIRE(results.observables.size() == shots * 2);
 }

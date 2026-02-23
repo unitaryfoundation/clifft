@@ -68,24 +68,24 @@ class TestSample:
     def test_sample_deterministic_zero(self) -> None:
         """Measurement of |0⟩ always gives 0."""
         prog = ucc.compile("M 0")
-        results = ucc.sample(prog, 100, seed=42)
-        for shot in results:
+        meas, det, obs = ucc.sample(prog, 100, seed=42)
+        for shot in meas:
             assert shot[0] == 0
 
     def test_sample_deterministic_one(self) -> None:
         """Measurement of |1⟩ always gives 1."""
         prog = ucc.compile("X 0\nM 0")
-        results = ucc.sample(prog, 100, seed=42)
-        for shot in results:
+        meas, det, obs = ucc.sample(prog, 100, seed=42)
+        for shot in meas:
             assert shot[0] == 1
 
     def test_sample_superposition(self) -> None:
         """|+⟩ state gives roughly 50/50 distribution."""
         prog = ucc.compile("H 0\nM 0")
         shots = 1000
-        results = ucc.sample(prog, shots, seed=42)
-        p0 = float(np.mean(results[:, 0] == 0))
-        p1 = float(np.mean(results[:, 0] == 1))
+        meas, det, obs = ucc.sample(prog, shots, seed=42)
+        p0 = float(np.mean(meas[:, 0] == 0))
+        p1 = float(np.mean(meas[:, 0] == 1))
         tolerance = binomial_tolerance(0.5, shots)
         assert abs(p0 - 0.5) < tolerance, f"p(0)={p0} outside {tolerance:.3f} tolerance"
         assert abs(p1 - 0.5) < tolerance, f"p(1)={p1} outside {tolerance:.3f} tolerance"
@@ -98,32 +98,35 @@ class TestSample:
             M 0
             M 1
         """)
-        results = ucc.sample(prog, 500, seed=99)
-        for shot in results:
+        meas, det, obs = ucc.sample(prog, 500, seed=99)
+        for shot in meas:
             assert shot[0] == shot[1], f"Bell state not correlated: {shot}"
 
     def test_sample_reproducible(self) -> None:
         """Same seed produces same results."""
         prog = ucc.compile("H 0\nM 0")
-        results1 = ucc.sample(prog, 100, seed=12345)
-        results2 = ucc.sample(prog, 100, seed=12345)
-        assert np.array_equal(results1, results2)
+        meas1, _, _ = ucc.sample(prog, 100, seed=12345)
+        meas2, _, _ = ucc.sample(prog, 100, seed=12345)
+        assert np.array_equal(meas1, meas2)
 
     def test_sample_different_seeds(self) -> None:
         """Different seeds produce different results."""
         prog = ucc.compile("H 0\nM 0")
-        results1 = ucc.sample(prog, 100, seed=1)
-        results2 = ucc.sample(prog, 100, seed=2)
+        meas1, _, _ = ucc.sample(prog, 100, seed=1)
+        meas2, _, _ = ucc.sample(prog, 100, seed=2)
         # With 100 random bits, probability of match is 2^-100
-        assert not np.array_equal(results1, results2)
+        assert not np.array_equal(meas1, meas2)
 
     def test_sample_shape(self) -> None:
         """Results have correct shape and type."""
         prog = ucc.compile("H 0\nM 0\nH 1\nM 1")
-        results = ucc.sample(prog, 50, seed=0)
-        assert isinstance(results, np.ndarray)
-        assert results.dtype == np.uint8
-        assert results.shape == (50, 2)
+        meas, det, obs = ucc.sample(prog, 50, seed=0)
+        assert isinstance(meas, np.ndarray)
+        assert meas.dtype == np.uint8
+        assert meas.shape == (50, 2)
+        # No detectors/observables in this circuit
+        assert det.shape == (50, 0)
+        assert obs.shape == (50, 0)
 
     def test_sample_reset_works(self) -> None:
         """Reset correctly resets to |0⟩."""
@@ -132,9 +135,9 @@ class TestSample:
             R 0
             M 0
         """)
-        results = ucc.sample(prog, 100, seed=42)
+        meas, det, obs = ucc.sample(prog, 100, seed=42)
         # Second measurement (after reset) should always be 0
-        for shot in results:
+        for shot in meas:
             assert shot[1] == 0, f"Reset failed: {shot}"
 
 
@@ -345,7 +348,7 @@ class TestSamplingValidation:
         for circuit_str in circuits:
             # UCC sampling
             prog = ucc.compile(circuit_str)
-            ucc_results = ucc.sample(prog, 100, seed=42)
+            ucc_meas, _, _ = ucc.sample(prog, 100, seed=42)
 
             # Stim sampling (seed is in compile_sampler, not sample)
             stim_circuit = stim.Circuit(circuit_str)
@@ -356,12 +359,12 @@ class TestSamplingValidation:
             # (Note: seeds may differ, but deterministic outcomes should be consistent)
             if prog.num_measurements == 1:
                 # Single measurement: check value consistency
-                ucc_vals = set(tuple(r) for r in ucc_results)
+                ucc_vals = set(tuple(r) for r in ucc_meas)
                 stim_vals = set(tuple(r) for r in stim_results)
                 assert ucc_vals == stim_vals, f"Mismatch for: {circuit_str}"
             else:
                 # Multi-measurement: check correlation structure
-                for ucc_shot in ucc_results:
+                for ucc_shot in ucc_meas:
                     if "CX" in circuit_str:  # Bell state
                         assert ucc_shot[0] == ucc_shot[1], "Bell correlation broken"
 
@@ -374,8 +377,8 @@ class TestSamplingValidation:
 
         # UCC sampling
         prog = ucc.compile(circuit_str)
-        ucc_results = ucc.sample(prog, shots, seed=12345)
-        ucc_p0 = np.mean(ucc_results[:, 0] == 0)
+        ucc_meas, _, _ = ucc.sample(prog, shots, seed=12345)
+        ucc_p0 = np.mean(ucc_meas[:, 0] == 0)
 
         # Stim sampling (seed is in compile_sampler, not sample)
         stim_circuit = stim.Circuit(circuit_str)
@@ -400,9 +403,9 @@ class TestSamplingValidation:
 
         # UCC sampling
         prog = ucc.compile(circuit_str)
-        ucc_results = ucc.sample(prog, shots, seed=999)
-        ucc_00 = np.mean((ucc_results[:, 0] == 0) & (ucc_results[:, 1] == 0))
-        ucc_11 = np.mean((ucc_results[:, 0] == 1) & (ucc_results[:, 1] == 1))
+        ucc_meas, _, _ = ucc.sample(prog, shots, seed=999)
+        ucc_00 = np.mean((ucc_meas[:, 0] == 0) & (ucc_meas[:, 1] == 0))
+        ucc_11 = np.mean((ucc_meas[:, 0] == 1) & (ucc_meas[:, 1] == 1))
 
         # Stim sampling (seed is in compile_sampler, not sample)
         stim_circuit = stim.Circuit(circuit_str)
@@ -559,11 +562,162 @@ class TestOracleValidation:
         # This asymmetric probability proves complex interference is working.
         shots = 10000
         expected_p0 = (2 - np.sqrt(2)) / 4  # ≈ 0.1464
-        results = ucc.sample(prog, shots, seed=42)
-        p0 = float(np.mean(results[:, 0] == 0))
+        meas, _, _ = ucc.sample(prog, shots, seed=42)
+        p0 = float(np.mean(meas[:, 0] == 0))
         tolerance = binomial_tolerance(expected_p0, shots)
 
         assert abs(p0 - expected_p0) < tolerance, (
             f"Y-measurement interference failed: p0={p0}, "
             f"expected {expected_p0:.4f} ± {tolerance:.4f}"
         )
+
+
+class TestNoiseAndQEC:
+    """Tests for noise simulation and QEC features."""
+
+    def test_sample_returns_three_arrays(self) -> None:
+        """sample() returns (measurements, detectors, observables) tuple."""
+        prog = ucc.compile("H 0\nM 0")
+        result = ucc.sample(prog, 10, seed=0)
+        assert isinstance(result, tuple)
+        assert len(result) == 3
+        meas, det, obs = result
+        assert meas.shape == (10, 1)
+        assert det.shape == (10, 0)  # No detectors
+        assert obs.shape == (10, 0)  # No observables
+
+    def test_program_detector_observable_counts(self) -> None:
+        """Program reports correct detector and observable counts."""
+        prog = ucc.compile("""
+            H 0
+            M 0
+            DETECTOR rec[-1]
+            OBSERVABLE_INCLUDE(0) rec[-1]
+        """)
+        assert prog.num_measurements == 1
+        assert prog.num_detectors == 1
+        assert prog.num_observables == 1
+
+    def test_detector_computes_parity(self) -> None:
+        """DETECTOR computes XOR of referenced measurements."""
+        # Bell state: M 0 and M 1 always match, so XOR = 0
+        prog = ucc.compile("""
+            H 0
+            CX 0 1
+            M 0
+            M 1
+            DETECTOR rec[-1] rec[-2]
+        """)
+        meas, det, _ = ucc.sample(prog, 100, seed=42)
+        # All detectors should be 0 (perfect correlation)
+        assert np.all(det == 0)
+
+    def test_observable_accumulates_xor(self) -> None:
+        """Multiple OBSERVABLE_INCLUDE to same index XOR together."""
+        # Bell state: two identical measurements XOR to 0
+        prog = ucc.compile("""
+            H 0
+            CX 0 1
+            M 0
+            M 1
+            OBSERVABLE_INCLUDE(0) rec[-1]
+            OBSERVABLE_INCLUDE(0) rec[-2]
+        """)
+        meas, _, obs = ucc.sample(prog, 100, seed=42)
+        # Observable is XOR of two identical bits = 0
+        assert np.all(obs == 0)
+
+    def test_observable_tracks_logical_value(self) -> None:
+        """Observable correctly tracks logical qubit value."""
+        prog = ucc.compile("""
+            H 0
+            M 0
+            OBSERVABLE_INCLUDE(0) rec[-1]
+        """)
+        meas, _, obs = ucc.sample(prog, 100, seed=42)
+        # Observable should equal measurement (single reference)
+        assert np.array_equal(meas[:, 0], obs[:, 0])
+
+    def test_readout_noise_flips_bits(self) -> None:
+        """M(p) readout noise flips measurement results."""
+        # 100% readout noise flips |0⟩ → measured as 1
+        prog = ucc.compile("M(1.0) 0")
+        meas, _, _ = ucc.sample(prog, 100, seed=42)
+        assert np.all(meas == 1)
+
+    def test_readout_noise_probabilistic(self) -> None:
+        """M(0.5) readout noise gives ~50% flip rate."""
+        prog = ucc.compile("M(0.5) 0")
+        meas, _, _ = ucc.sample(prog, 1000, seed=42)
+        flip_rate = float(np.mean(meas))
+        # Should be ~50% (measuring |0⟩ with 50% flip = 50% ones)
+        tolerance = binomial_tolerance(0.5, 1000)
+        assert abs(flip_rate - 0.5) < tolerance
+
+    def test_pauli_noise_x_error(self) -> None:
+        """X_ERROR(1.0) always flips qubit."""
+        prog = ucc.compile("""
+            X_ERROR(1.0) 0
+            M 0
+        """)
+        meas, _, _ = ucc.sample(prog, 100, seed=42)
+        # X flips |0⟩ to |1⟩
+        assert np.all(meas == 1)
+
+    def test_pauli_noise_z_error(self) -> None:
+        """Z_ERROR doesn't affect computational basis measurement."""
+        prog = ucc.compile("""
+            Z_ERROR(1.0) 0
+            M 0
+        """)
+        meas, _, _ = ucc.sample(prog, 100, seed=42)
+        # Z|0⟩ = |0⟩, so still measure 0
+        assert np.all(meas == 0)
+
+    def test_depolarize1_probabilistic(self) -> None:
+        """DEPOLARIZE1 applies X, Y, or Z with equal probability."""
+        prog = ucc.compile("""
+            DEPOLARIZE1(1.0) 0
+            M 0
+        """)
+        meas, _, _ = ucc.sample(prog, 3000, seed=42)
+        # X and Y flip |0⟩→|1⟩, Z doesn't. Expected: 2/3 ones.
+        ones_rate = float(np.mean(meas))
+        expected = 2.0 / 3.0
+        tolerance = binomial_tolerance(expected, 3000)
+        assert abs(ones_rate - expected) < tolerance
+
+    def test_noise_detector_interaction(self) -> None:
+        """Noise causes detector to fire."""
+        # Two measurements with X_ERROR in between
+        # First M gives 0, X_ERROR flips, second M gives 1
+        # Detector XORs them: 0 XOR 1 = 1
+        prog = ucc.compile("""
+            M 0
+            X_ERROR(1.0) 0
+            M 0
+            DETECTOR rec[-1] rec[-2]
+        """)
+        meas, det, _ = ucc.sample(prog, 10, seed=0)
+        # First meas = 0, second meas = 1, detector = 1
+        assert np.all(meas[:, 0] == 0)
+        assert np.all(meas[:, 1] == 1)
+        assert np.all(det[:, 0] == 1)
+
+    def test_sample_shape_with_qec(self) -> None:
+        """sample() returns correct shapes with detectors/observables."""
+        prog = ucc.compile("""
+            H 0
+            M 0
+            M 1
+            DETECTOR rec[-1]
+            DETECTOR rec[-2]
+            DETECTOR rec[-1] rec[-2]
+            OBSERVABLE_INCLUDE(0) rec[-1]
+            OBSERVABLE_INCLUDE(1) rec[-2]
+        """)
+        shots = 50
+        meas, det, obs = ucc.sample(prog, shots, seed=0)
+        assert meas.shape == (shots, 2)
+        assert det.shape == (shots, 3)
+        assert obs.shape == (shots, 2)
