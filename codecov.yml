@@ -1,0 +1,18 @@
+# Codecov configuration
+# https://docs.codecov.com/docs/codecovyml-reference
+
+coverage:
+  status:
+    project:
+      default:
+        # Don't fail CI on coverage changes
+        informational: true
+    patch:
+      default:
+        informational: true
+
+ignore:
+  - "tests/**/*"
+  - "**/test_*.py"
+  - "**/test_*.cc"
+  - "build/**/*"

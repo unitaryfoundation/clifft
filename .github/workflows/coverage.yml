@@ -52,7 +52,8 @@ jobs:
 
           lcov --remove build/cpp-tests.info \
                '*/build/_deps/*' \
-               '*/tests/*' \
+               '*/build/*/tests/*' \
+               '*/ucc-next/tests/*' \
                '/usr/*' \
                --output-file build/cpp-tests.info \
                --ignore-errors unused \
@@ -90,7 +91,8 @@ jobs:
 
           lcov --remove build/cpp-from-python.info \
                '*/_deps/*' \
-               '*/tests/*' \
+               '*/build/*/tests/*' \
+               '*/ucc-next/tests/*' \
                '/usr/*' \
                '*/pybind11/*' \
                --output-file build/cpp-from-python.info \
