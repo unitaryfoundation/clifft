@@ -116,6 +116,14 @@ lint:
   uv run pre-commit run --all-files
 
 # -------------------------
+# Benchmarking
+# -------------------------
+
+# Run performance benchmarks comparing UCC vs Stim
+bench *args="":
+  uv run pytest tools/bench/ --benchmark-sort=name --benchmark-columns=Mean,StdDev,Ops {{args}}
+
+# -------------------------
 # Utility
 # -------------------------
 
