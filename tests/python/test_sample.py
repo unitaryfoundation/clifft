@@ -17,6 +17,24 @@ def assert_statevectors_equal(
         raise AssertionError(f"Fidelity {fidelity:.6f} < {1.0 - rtol}. {msg}")
 
 
+def binomial_tolerance(p: float, n: int, *, sigma: float = 5.0) -> float:
+    """Compute tolerance for binomial proportion estimate.
+
+    Returns sigma standard deviations of the binomial standard error.
+    Default 5σ gives <1 in 3.5 million false positive rate per assertion.
+
+    Args:
+        p: Expected probability (0 < p < 1)
+        n: Number of samples (shots)
+        sigma: Number of standard deviations for the bound
+
+    Returns:
+        Tolerance value such that |observed - p| < tolerance with high probability
+    """
+    std_err = float(np.sqrt((p * (1 - p)) / n))
+    return sigma * std_err
+
+
 class TestCompile:
     """Tests for ucc.compile()."""
 
@@ -64,12 +82,13 @@ class TestSample:
     def test_sample_superposition(self) -> None:
         """|+⟩ state gives roughly 50/50 distribution."""
         prog = ucc.compile("H 0\nM 0")
-        results = ucc.sample(prog, 1000, seed=42)
-        zeros = sum(1 for r in results if r[0] == 0)
-        ones = sum(1 for r in results if r[0] == 1)
-        # Allow 10% tolerance
-        assert 400 < zeros < 600
-        assert 400 < ones < 600
+        shots = 1000
+        results = ucc.sample(prog, shots, seed=42)
+        p0 = float(np.mean(results[:, 0] == 0))
+        p1 = float(np.mean(results[:, 0] == 1))
+        tolerance = binomial_tolerance(0.5, shots)
+        assert abs(p0 - 0.5) < tolerance, f"p(0)={p0} outside {tolerance:.3f} tolerance"
+        assert abs(p1 - 0.5) < tolerance, f"p(1)={p1} outside {tolerance:.3f} tolerance"
 
     def test_sample_bell_state_correlated(self) -> None:
         """Bell state measurements are always correlated."""
@@ -365,9 +384,12 @@ class TestSamplingValidation:
         stim_p0 = np.mean(stim_results[:, 0] == 0)
 
         # Both should be close to 0.5, and close to each other
-        assert abs(ucc_p0 - 0.5) < 0.02, f"UCC p0={ucc_p0} too far from 0.5"
-        assert abs(stim_p0 - 0.5) < 0.02, f"Stim p0={stim_p0} too far from 0.5"
-        assert abs(ucc_p0 - stim_p0) < 0.03, f"UCC vs Stim: {ucc_p0} vs {stim_p0}"
+        tolerance = binomial_tolerance(0.5, shots)
+        assert abs(ucc_p0 - 0.5) < tolerance, f"UCC p0={ucc_p0} outside {tolerance:.4f} tol"
+        assert abs(stim_p0 - 0.5) < tolerance, f"Stim p0={stim_p0} outside {tolerance:.4f} tol"
+        # For comparing two independent estimates, variance adds: 2*std_err
+        cross_tolerance = 2 * tolerance
+        assert abs(ucc_p0 - stim_p0) < cross_tolerance, f"UCC vs Stim: {ucc_p0} vs {stim_p0}"
 
     def test_statistical_distribution_bell(self) -> None:
         """Bell state sampling matches Stim statistically."""
@@ -390,10 +412,11 @@ class TestSamplingValidation:
         stim_11 = np.mean((stim_results[:, 0] == 1) & (stim_results[:, 1] == 1))
 
         # Bell state: 50% |00⟩, 50% |11⟩
-        assert abs(ucc_00 - 0.5) < 0.02, f"UCC |00⟩={ucc_00}"
-        assert abs(ucc_11 - 0.5) < 0.02, f"UCC |11⟩={ucc_11}"
-        assert abs(stim_00 - 0.5) < 0.02, f"Stim |00⟩={stim_00}"
-        assert abs(stim_11 - 0.5) < 0.02, f"Stim |11⟩={stim_11}"
+        tolerance = binomial_tolerance(0.5, shots)
+        assert abs(ucc_00 - 0.5) < tolerance, f"UCC |00⟩={ucc_00} outside {tolerance:.4f} tol"
+        assert abs(ucc_11 - 0.5) < tolerance, f"UCC |11⟩={ucc_11} outside {tolerance:.4f} tol"
+        assert abs(stim_00 - 0.5) < tolerance, f"Stim |00⟩={stim_00} outside {tolerance:.4f} tol"
+        assert abs(stim_11 - 0.5) < tolerance, f"Stim |11⟩={stim_11} outside {tolerance:.4f} tol"
 
 
 class TestOracleValidation:
@@ -526,17 +549,21 @@ class TestOracleValidation:
     def test_sample_measure_merge_y_observable(self) -> None:
         """Test OP_MEASURE_MERGE correctly computes interference with Y-phases."""
         # H 0; T 0 rotates the state to (|0⟩ + e^{iπ/4}|1⟩)/√2
-        # S 0 shifts the X-axis to the Y-axis.
+        # S 0 adds another phase: (|0⟩ + e^{iπ/4} * e^{iπ/2}|1⟩)/√2 = (|0⟩ + e^{i3π/4}|1⟩)/√2
         # MX 0 forces an OP_MEASURE_MERGE where the rewound observable is Y.
         circuit = "H 0\nT 0\nS 0\nMX 0"
         prog = ucc.compile(circuit)
 
-        # Analytically: after H T S, state is proportional to:
-        #   |0⟩ + e^{iπ/4} * (i)|1⟩ = |0⟩ + e^{i 3π/4}|1⟩
-        # MX measures ⟨+|ψ⟩ = 1/√2 (1 + e^{i 3π/4}) = (1 - 1/√2)/√2 + ...
-        # P(0) = |1 + e^{i 3π/4}|^2 / 2 = (1 - √2/2) ≈ 0.146
-        # This is strictly asymmetric, proving complex interference is working.
-        results = ucc.sample(prog, 10000, seed=42)
+        # P(+) = |⟨+|ψ⟩|^2 = |1 + e^{i3π/4}|^2 / 4
+        #      = (2 - √2) / 4 ≈ 0.1464
+        # This asymmetric probability proves complex interference is working.
+        shots = 10000
+        expected_p0 = (2 - np.sqrt(2)) / 4  # ≈ 0.1464
+        results = ucc.sample(prog, shots, seed=42)
         p0 = float(np.mean(results[:, 0] == 0))
+        tolerance = binomial_tolerance(expected_p0, shots)
 
-        assert 0.12 < p0 < 0.17, f"Y-measurement interference failed, got p0={p0}"
+        assert abs(p0 - expected_p0) < tolerance, (
+            f"Y-measurement interference failed: p0={p0}, "
+            f"expected {expected_p0:.4f} ± {tolerance:.4f}"
+        )
