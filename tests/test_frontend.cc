@@ -7,6 +7,7 @@
 #include "ucc/circuit/parser.h"
 #include "ucc/frontend/frontend.h"
 
+#include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
 #include <stdexcept>
 
@@ -699,4 +700,432 @@ TEST_CASE("Frontend: CY classical feedback throws", "[frontend][regression]") {
     circuit.nodes.push_back(cy_node);
 
     REQUIRE_THROWS_AS(trace(circuit), std::runtime_error);
+}
+
+// =============================================================================
+// Phase 2.2: Noise and QEC Emission Tests
+// =============================================================================
+
+TEST_CASE("Frontend: DEPOLARIZE1 produces 3 rewound channels", "[frontend][noise]") {
+    // DEPOLARIZE1(p) on a single qubit should produce 3 NoiseChannels (X, Y, Z)
+    // each with probability p/3.
+    Circuit circuit;
+    circuit.num_qubits = 1;
+
+    AstNode dep1;
+    dep1.gate = GateType::DEPOLARIZE1;
+    dep1.arg = 0.03;  // Total error probability
+    dep1.targets.push_back(Target::qubit(0));
+    circuit.nodes.push_back(dep1);
+
+    auto hir = trace(circuit);
+
+    REQUIRE(hir.num_ops() == 1);
+    REQUIRE(hir.ops[0].op_type() == OpType::NOISE);
+
+    auto site_idx = hir.ops[0].noise_site_idx();
+    REQUIRE(static_cast<uint32_t>(site_idx) == 0);
+    REQUIRE(hir.noise_sites.size() == 1);
+
+    const auto& site = hir.noise_sites[0];
+    REQUIRE(site.channels.size() == 3);
+
+    // Each channel should have probability p/3 = 0.01
+    for (const auto& ch : site.channels) {
+        REQUIRE(ch.prob == Catch::Approx(0.01));
+    }
+}
+
+TEST_CASE("Frontend: X_ERROR produces single channel", "[frontend][noise]") {
+    Circuit circuit;
+    circuit.num_qubits = 1;
+
+    AstNode x_err;
+    x_err.gate = GateType::X_ERROR;
+    x_err.arg = 0.001;
+    x_err.targets.push_back(Target::qubit(0));
+    circuit.nodes.push_back(x_err);
+
+    auto hir = trace(circuit);
+
+    REQUIRE(hir.num_ops() == 1);
+    REQUIRE(hir.ops[0].op_type() == OpType::NOISE);
+
+    const auto& site = hir.noise_sites[0];
+    REQUIRE(site.channels.size() == 1);
+    REQUIRE(site.channels[0].prob == Catch::Approx(0.001));
+
+    // X on qubit 0 at t=0 (identity tableau): destab=1, stab=0
+    REQUIRE(site.channels[0].destab_mask == 1);
+    REQUIRE(site.channels[0].stab_mask == 0);
+}
+
+TEST_CASE("Frontend: Z_ERROR produces single channel", "[frontend][noise]") {
+    Circuit circuit;
+    circuit.num_qubits = 1;
+
+    AstNode z_err;
+    z_err.gate = GateType::Z_ERROR;
+    z_err.arg = 0.002;
+    z_err.targets.push_back(Target::qubit(0));
+    circuit.nodes.push_back(z_err);
+
+    auto hir = trace(circuit);
+
+    REQUIRE(hir.num_ops() == 1);
+    const auto& site = hir.noise_sites[0];
+    REQUIRE(site.channels.size() == 1);
+    REQUIRE(site.channels[0].prob == Catch::Approx(0.002));
+
+    // Z on qubit 0 at t=0: destab=0, stab=1
+    REQUIRE(site.channels[0].destab_mask == 0);
+    REQUIRE(site.channels[0].stab_mask == 1);
+}
+
+TEST_CASE("Frontend: Y_ERROR produces single channel", "[frontend][noise]") {
+    Circuit circuit;
+    circuit.num_qubits = 1;
+
+    AstNode y_err;
+    y_err.gate = GateType::Y_ERROR;
+    y_err.arg = 0.003;
+    y_err.targets.push_back(Target::qubit(0));
+    circuit.nodes.push_back(y_err);
+
+    auto hir = trace(circuit);
+
+    REQUIRE(hir.num_ops() == 1);
+    const auto& site = hir.noise_sites[0];
+    REQUIRE(site.channels.size() == 1);
+    REQUIRE(site.channels[0].prob == Catch::Approx(0.003));
+
+    // Y = iXZ on qubit 0 at t=0: destab=1, stab=1
+    REQUIRE(site.channels[0].destab_mask == 1);
+    REQUIRE(site.channels[0].stab_mask == 1);
+}
+
+TEST_CASE("Frontend: DEPOLARIZE2 produces 15 channels", "[frontend][noise]") {
+    // DEPOLARIZE2(p) on qubits 0,1 should produce 15 channels (all non-II Paulis)
+    Circuit circuit;
+    circuit.num_qubits = 2;
+
+    AstNode dep2;
+    dep2.gate = GateType::DEPOLARIZE2;
+    dep2.arg = 0.15;  // Total error probability
+    dep2.targets.push_back(Target::qubit(0));
+    dep2.targets.push_back(Target::qubit(1));
+    circuit.nodes.push_back(dep2);
+
+    auto hir = trace(circuit);
+
+    REQUIRE(hir.num_ops() == 1);
+    REQUIRE(hir.ops[0].op_type() == OpType::NOISE);
+
+    const auto& site = hir.noise_sites[0];
+    REQUIRE(site.channels.size() == 15);
+
+    // Each channel should have probability p/15 = 0.01
+    for (const auto& ch : site.channels) {
+        REQUIRE(ch.prob == Catch::Approx(0.01));
+    }
+}
+
+TEST_CASE("Frontend: noise rewinding through H gate", "[frontend][noise]") {
+    // H 0, X_ERROR 0
+    // X after H becomes Z (at t=0, the error manifests as Z)
+    Circuit circuit;
+    circuit.num_qubits = 1;
+
+    AstNode h;
+    h.gate = GateType::H;
+    h.targets.push_back(Target::qubit(0));
+    circuit.nodes.push_back(h);
+
+    AstNode x_err;
+    x_err.gate = GateType::X_ERROR;
+    x_err.arg = 0.01;
+    x_err.targets.push_back(Target::qubit(0));
+    circuit.nodes.push_back(x_err);
+
+    auto hir = trace(circuit);
+
+    REQUIRE(hir.num_ops() == 1);
+    const auto& site = hir.noise_sites[0];
+    REQUIRE(site.channels.size() == 1);
+
+    // X after H = Z at t=0: destab=0, stab=1
+    REQUIRE(site.channels[0].destab_mask == 0);
+    REQUIRE(site.channels[0].stab_mask == 1);
+}
+
+TEST_CASE("Frontend: READOUT_NOISE emission", "[frontend][noise]") {
+    // Manually construct a circuit with READOUT_NOISE
+    // (normally parser decomposes M(p) into M + READOUT_NOISE)
+    Circuit circuit;
+    circuit.num_qubits = 1;
+    circuit.num_measurements = 1;
+
+    // First, a measurement
+    AstNode m;
+    m.gate = GateType::M;
+    m.targets.push_back(Target::qubit(0));
+    circuit.nodes.push_back(m);
+
+    // Then readout noise on that measurement
+    AstNode rn;
+    rn.gate = GateType::READOUT_NOISE;
+    rn.arg = 0.005;
+    rn.targets.push_back(Target::rec(0));  // Absolute index 0
+    circuit.nodes.push_back(rn);
+
+    auto hir = trace(circuit);
+
+    REQUIRE(hir.num_ops() == 2);
+    REQUIRE(hir.ops[0].op_type() == OpType::MEASURE);
+    REQUIRE(hir.ops[1].op_type() == OpType::READOUT_NOISE);
+
+    // Verify the readout noise index points to correct entry
+    REQUIRE(static_cast<uint32_t>(hir.ops[1].readout_noise_idx()) == 0);
+    REQUIRE(hir.readout_noise.size() == 1);
+    REQUIRE(hir.readout_noise[0].meas_idx == 0);
+    REQUIRE(hir.readout_noise[0].prob == Catch::Approx(0.005));
+}
+
+TEST_CASE("Frontend: DETECTOR emission", "[frontend][qec]") {
+    // M 0, M 1, DETECTOR rec[-1] rec[-2]
+    Circuit circuit;
+    circuit.num_qubits = 2;
+    circuit.num_measurements = 2;
+    circuit.num_detectors = 1;
+
+    AstNode m0, m1;
+    m0.gate = GateType::M;
+    m0.targets.push_back(Target::qubit(0));
+    m1.gate = GateType::M;
+    m1.targets.push_back(Target::qubit(1));
+    circuit.nodes.push_back(m0);
+    circuit.nodes.push_back(m1);
+
+    AstNode det;
+    det.gate = GateType::DETECTOR;
+    det.targets.push_back(Target::rec(1));  // rec[-1] -> absolute 1
+    det.targets.push_back(Target::rec(0));  // rec[-2] -> absolute 0
+    circuit.nodes.push_back(det);
+
+    auto hir = trace(circuit);
+
+    REQUIRE(hir.num_ops() == 3);
+    REQUIRE(hir.ops[2].op_type() == OpType::DETECTOR);
+
+    // Verify the detector index points to correct target list
+    REQUIRE(static_cast<uint32_t>(hir.ops[2].detector_idx()) == 0);
+    REQUIRE(hir.detector_targets.size() == 1);
+    REQUIRE(hir.detector_targets[0].size() == 2);
+    REQUIRE(hir.detector_targets[0][0] == 1);  // rec[-1]
+    REQUIRE(hir.detector_targets[0][1] == 0);  // rec[-2]
+    REQUIRE(hir.num_detectors == 1);
+}
+
+TEST_CASE("Frontend: OBSERVABLE_INCLUDE emission", "[frontend][qec]") {
+    // M 0, OBSERVABLE_INCLUDE(0) rec[-1]
+    Circuit circuit;
+    circuit.num_qubits = 1;
+    circuit.num_measurements = 1;
+    circuit.num_observables = 1;
+
+    AstNode m;
+    m.gate = GateType::M;
+    m.targets.push_back(Target::qubit(0));
+    circuit.nodes.push_back(m);
+
+    AstNode obs;
+    obs.gate = GateType::OBSERVABLE_INCLUDE;
+    obs.arg = 0;                            // Observable index
+    obs.targets.push_back(Target::rec(0));  // rec[-1] -> absolute 0
+    circuit.nodes.push_back(obs);
+
+    auto hir = trace(circuit);
+
+    REQUIRE(hir.num_ops() == 2);
+    REQUIRE(hir.ops[1].op_type() == OpType::OBSERVABLE);
+
+    auto obs_idx = hir.ops[1].observable_idx();
+    REQUIRE(static_cast<uint32_t>(obs_idx) == 0);
+
+    REQUIRE(hir.observable_targets.size() == 1);
+    REQUIRE(hir.observable_targets[0].size() == 1);
+    REQUIRE(hir.observable_targets[0][0] == 0);
+    REQUIRE(hir.num_observables == 1);
+}
+
+TEST_CASE("Frontend: multiple OBSERVABLE_INCLUDE accumulate", "[frontend][qec]") {
+    // M 0 1, OBSERVABLE_INCLUDE(0) rec[-2], OBSERVABLE_INCLUDE(0) rec[-1]
+    Circuit circuit;
+    circuit.num_qubits = 2;
+    circuit.num_measurements = 2;
+    circuit.num_observables = 1;
+
+    AstNode m;
+    m.gate = GateType::M;
+    m.targets.push_back(Target::qubit(0));
+    m.targets.push_back(Target::qubit(1));
+    circuit.nodes.push_back(m);
+
+    AstNode obs1;
+    obs1.gate = GateType::OBSERVABLE_INCLUDE;
+    obs1.arg = 0;
+    obs1.targets.push_back(Target::rec(0));  // rec[-2] -> absolute 0
+    circuit.nodes.push_back(obs1);
+
+    AstNode obs2;
+    obs2.gate = GateType::OBSERVABLE_INCLUDE;
+    obs2.arg = 0;
+    obs2.targets.push_back(Target::rec(1));  // rec[-1] -> absolute 1
+    circuit.nodes.push_back(obs2);
+
+    auto hir = trace(circuit);
+
+    REQUIRE(hir.num_ops() == 4);  // 2 measurements + 2 observable includes
+    REQUIRE(hir.ops[2].op_type() == OpType::OBSERVABLE);
+    REQUIRE(hir.ops[3].op_type() == OpType::OBSERVABLE);
+
+    // Both should reference observable 0
+    REQUIRE(static_cast<uint32_t>(hir.ops[2].observable_idx()) == 0);
+    REQUIRE(static_cast<uint32_t>(hir.ops[3].observable_idx()) == 0);
+
+    // Each has its own target list
+    REQUIRE(hir.observable_targets.size() == 2);
+    REQUIRE(hir.observable_targets[0][0] == 0);
+    REQUIRE(hir.observable_targets[1][0] == 1);
+}
+
+TEST_CASE("Frontend: noise broadcasting", "[frontend][noise]") {
+    // X_ERROR(0.01) 0 1 2 should produce 3 separate noise sites
+    Circuit circuit;
+    circuit.num_qubits = 3;
+
+    AstNode x_err;
+    x_err.gate = GateType::X_ERROR;
+    x_err.arg = 0.01;
+    x_err.targets.push_back(Target::qubit(0));
+    x_err.targets.push_back(Target::qubit(1));
+    x_err.targets.push_back(Target::qubit(2));
+    circuit.nodes.push_back(x_err);
+
+    auto hir = trace(circuit);
+
+    REQUIRE(hir.num_ops() == 3);
+    REQUIRE(hir.noise_sites.size() == 3);
+
+    // Each site should have X error on its respective qubit
+    // Qubit 0: destab=1, Qubit 1: destab=2, Qubit 2: destab=4
+    REQUIRE(hir.noise_sites[0].channels[0].destab_mask == 1);
+    REQUIRE(hir.noise_sites[1].channels[0].destab_mask == 2);
+    REQUIRE(hir.noise_sites[2].channels[0].destab_mask == 4);
+}
+
+TEST_CASE("Frontend: DEPOLARIZE2 broadcasting", "[frontend][noise]") {
+    // DEPOLARIZE2(0.15) 0 1 2 3 should produce 2 separate noise sites
+    Circuit circuit;
+    circuit.num_qubits = 4;
+
+    AstNode dep2;
+    dep2.gate = GateType::DEPOLARIZE2;
+    dep2.arg = 0.15;
+    dep2.targets.push_back(Target::qubit(0));
+    dep2.targets.push_back(Target::qubit(1));
+    dep2.targets.push_back(Target::qubit(2));
+    dep2.targets.push_back(Target::qubit(3));
+    circuit.nodes.push_back(dep2);
+
+    auto hir = trace(circuit);
+
+    REQUIRE(hir.num_ops() == 2);
+    REQUIRE(hir.noise_sites.size() == 2);
+
+    // Each site should have 15 channels
+    REQUIRE(hir.noise_sites[0].channels.size() == 15);
+    REQUIRE(hir.noise_sites[1].channels.size() == 15);
+}
+
+TEST_CASE("Frontend: DoD - DEPOLARIZE1 after Clifford produces 3 rewound masks",
+          "[frontend][noise][dod]") {
+    // This test matches the Phase 2.2 Definition of Done:
+    // "A pure Clifford circuit with DEPOLARIZE1 0 produces an HIR NOISE node
+    //  pointing to a NoiseSite of exactly 3 rewound Pauli masks."
+    auto circuit = parse("H 0\nCX 0 1\nDEPOLARIZE1(0.01) 0");
+
+    auto hir = trace(circuit);
+
+    // Should have exactly one NOISE op
+    size_t noise_count = 0;
+    for (const auto& op : hir.ops) {
+        if (op.op_type() == OpType::NOISE) {
+            noise_count++;
+            auto idx = op.noise_site_idx();
+            const auto& site = hir.noise_sites[static_cast<uint32_t>(idx)];
+            // Exactly 3 Pauli masks (X, Y, Z)
+            REQUIRE(site.channels.size() == 3);
+        }
+    }
+    REQUIRE(noise_count == 1);
+}
+
+TEST_CASE("Frontend: full QEC circuit with noise and detectors",
+          "[frontend][noise][qec][integration]") {
+    // A simple QEC-like circuit with noise and detectors
+    const char* circuit_text = R"(
+        R 0 1
+        H 0
+        CX 0 1
+        DEPOLARIZE2(0.001) 0 1
+        M 0 1
+        DETECTOR rec[-1] rec[-2]
+        OBSERVABLE_INCLUDE(0) rec[-1]
+    )";
+
+    auto circuit = parse(circuit_text);
+    auto hir = trace(circuit);
+
+    // Count operation types
+    size_t noise_ops = 0, measure_ops = 0, detector_ops = 0, observable_ops = 0;
+    size_t conditional_ops = 0;  // From reset decomposition
+
+    for (const auto& op : hir.ops) {
+        switch (op.op_type()) {
+            case OpType::NOISE:
+                noise_ops++;
+                break;
+            case OpType::MEASURE:
+                measure_ops++;
+                break;
+            case OpType::DETECTOR:
+                detector_ops++;
+                break;
+            case OpType::OBSERVABLE:
+                observable_ops++;
+                break;
+            case OpType::CONDITIONAL_PAULI:
+                conditional_ops++;
+                break;
+            default:
+                break;
+        }
+    }
+
+    // R 0, R 1 each decompose to M + CONDITIONAL, so 4 measurements total
+    // (2 from R, 2 from M 0 1)
+    REQUIRE(measure_ops == 4);
+    // 2 conditional Paulis from reset decomposition
+    REQUIRE(conditional_ops == 2);
+    // 1 DEPOLARIZE2 -> 1 noise site with 15 channels
+    REQUIRE(noise_ops == 1);
+    REQUIRE(hir.noise_sites[0].channels.size() == 15);
+    // 1 DETECTOR
+    REQUIRE(detector_ops == 1);
+    // 1 OBSERVABLE_INCLUDE
+    REQUIRE(observable_ops == 1);
+
+    REQUIRE(hir.num_detectors == 1);
+    REQUIRE(hir.num_observables == 1);
 }

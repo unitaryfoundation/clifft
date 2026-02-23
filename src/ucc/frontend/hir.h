@@ -12,9 +12,8 @@
 // - Uses stim::Tableau<W> for AG pivot matrices (SIMD-aligned, templated for future expansion)
 // - MVP uses W=64 (64 qubits); changing W scales to more qubits automatically
 // - 32-byte HeisenbergOp for optimal cache alignment (2 ops per 64-byte L1 cache line)
-// - No noise operations (deferred to Phase 2)
 // - No generic LCU gates (only T fast-path)
-// - AG matrices stored in side-table to avoid bloating HIR
+// - AG matrices and noise sites stored in side-tables to avoid bloating HIR
 
 #include "stim.h"
 
@@ -49,17 +48,62 @@ enum class AgMatrixIdx : uint32_t { None = UINT32_MAX };
 /// Index of the measurement that controls a CONDITIONAL_PAULI
 enum class ControllingMeasIdx : uint32_t {};
 
+/// Index into HirModule::noise_sites side-table
+enum class NoiseSiteIdx : uint32_t {};
+
+/// Index into HirModule::detector_targets side-table
+enum class DetectorIdx : uint32_t {};
+
+/// Index into HirModule::observable_targets side-table
+enum class ObservableIdx : uint32_t {};
+
 // SIMD width for Stim types. Change this to scale beyond 64 qubits.
 // Note: For >64 qubits, upgrade bitword<64> to bitword<256> or bitword<512>
 // (for AVX/AVX-512). Do NOT use simd_bits<W> for fixed-size masks - that's
 // for variable-length bit arrays and would add heap allocation overhead.
 constexpr size_t kStimWidth = 64;
 
+// =============================================================================
+// Noise Channel Structures
+// =============================================================================
+//
+// Quantum noise is represented as a set of mutually exclusive Pauli channels.
+// Each channel has a rewound Pauli mask (at t=0) and a probability.
+// The Back-End will extract these into a noise schedule for gap sampling.
+
+/// A single Pauli error channel with its rewound masks and probability.
+struct NoiseChannel {
+    uint64_t destab_mask;  // X-bits of the rewound Pauli
+    uint64_t stab_mask;    // Z-bits of the rewound Pauli
+    double prob;           // Probability of this channel firing
+};
+
+/// A noise site: a collection of mutually exclusive Pauli channels.
+/// For X_ERROR(p): single channel with prob p.
+/// For DEPOLARIZE1(p): 3 channels (X, Y, Z) each with prob p/3.
+/// For DEPOLARIZE2(p): 15 channels (all non-II two-qubit Paulis) each with prob p/15.
+struct NoiseSite {
+    std::vector<NoiseChannel> channels;
+};
+
+/// Readout noise entry: classical bit-flip on a measurement result.
+struct ReadoutNoiseEntry {
+    uint32_t meas_idx;  // Absolute measurement index to potentially flip
+    double prob;        // Flip probability
+};
+
+/// Index into HirModule::readout_noise side-table
+enum class ReadoutNoiseIdx : uint32_t {};
+
 // Operation types in the HIR
 enum class OpType : uint8_t {
-    T_GATE,            // T or T† gate (π/8 phase) - is_dagger distinguishes
-    MEASURE,           // Destructive measurement (Z, X, or multi-Pauli)
-    CONDITIONAL_PAULI  // Classical feedback: apply Pauli if measurement was 1
+    T_GATE,             // T or T† gate (π/8 phase) - is_dagger distinguishes
+    MEASURE,            // Destructive measurement (Z, X, or multi-Pauli)
+    CONDITIONAL_PAULI,  // Classical feedback: apply Pauli if measurement was 1
+    NOISE,              // Stochastic Pauli channel (references NoiseSite side-table)
+    READOUT_NOISE,      // Classical bit-flip on measurement result
+    DETECTOR,           // Parity check over measurement records
+    OBSERVABLE          // Logical observable accumulator
 };
 
 // A single operation in the Heisenberg IR.
@@ -119,6 +163,41 @@ struct HeisenbergOp {
         return static_cast<ControllingMeasIdx>(conditional_.controlling_meas);
     }
 
+    // --- NOISE accessor (debug-asserted) ---
+
+    [[nodiscard]] NoiseSiteIdx noise_site_idx() const {
+        assert(type_ == OpType::NOISE && "noise_site_idx called on non-NOISE op");
+        return static_cast<NoiseSiteIdx>(noise_.site_idx);
+    }
+
+    // --- READOUT_NOISE accessor (debug-asserted) ---
+
+    [[nodiscard]] ReadoutNoiseIdx readout_noise_idx() const {
+        assert(type_ == OpType::READOUT_NOISE &&
+               "readout_noise_idx called on non-READOUT_NOISE op");
+        return static_cast<ReadoutNoiseIdx>(readout_.entry_idx);
+    }
+
+    // --- DETECTOR accessor (debug-asserted) ---
+
+    [[nodiscard]] DetectorIdx detector_idx() const {
+        assert(type_ == OpType::DETECTOR && "detector_idx called on non-DETECTOR op");
+        return static_cast<DetectorIdx>(detector_.target_list_idx);
+    }
+
+    // --- OBSERVABLE accessors (debug-asserted) ---
+
+    [[nodiscard]] ObservableIdx observable_idx() const {
+        assert(type_ == OpType::OBSERVABLE && "observable_idx called on non-OBSERVABLE op");
+        return static_cast<ObservableIdx>(observable_.obs_idx);
+    }
+
+    [[nodiscard]] uint32_t observable_target_list_idx() const {
+        assert(type_ == OpType::OBSERVABLE &&
+               "observable_target_list_idx called on non-OBSERVABLE op");
+        return observable_.target_list_idx;
+    }
+
     // --- Factory Methods ---
 
     // Factory for T/T† gates
@@ -146,6 +225,35 @@ struct HeisenbergOp {
                                          ControllingMeasIdx controlling_meas) {
         HeisenbergOp op(OpType::CONDITIONAL_PAULI, destab, stab, s);
         op.conditional_.controlling_meas = static_cast<uint32_t>(controlling_meas);
+        return op;
+    }
+
+    // Factory for NOISE (quantum Pauli channel)
+    static HeisenbergOp make_noise(NoiseSiteIdx site_idx) {
+        HeisenbergOp op(OpType::NOISE, 0, 0, false);
+        op.noise_.site_idx = static_cast<uint32_t>(site_idx);
+        return op;
+    }
+
+    // Factory for READOUT_NOISE (classical bit-flip)
+    static HeisenbergOp make_readout_noise(ReadoutNoiseIdx entry_idx) {
+        HeisenbergOp op(OpType::READOUT_NOISE, 0, 0, false);
+        op.readout_.entry_idx = static_cast<uint32_t>(entry_idx);
+        return op;
+    }
+
+    // Factory for DETECTOR
+    static HeisenbergOp make_detector(DetectorIdx target_list_idx) {
+        HeisenbergOp op(OpType::DETECTOR, 0, 0, false);
+        op.detector_.target_list_idx = static_cast<uint32_t>(target_list_idx);
+        return op;
+    }
+
+    // Factory for OBSERVABLE
+    static HeisenbergOp make_observable(ObservableIdx obs_idx, uint32_t target_list_idx) {
+        HeisenbergOp op(OpType::OBSERVABLE, 0, 0, false);
+        op.observable_.obs_idx = static_cast<uint32_t>(obs_idx);
+        op.observable_.target_list_idx = target_list_idx;
         return op;
     }
 
@@ -181,6 +289,27 @@ struct HeisenbergOp {
         struct {
             uint32_t controlling_meas;  // Absolute index of controlling measurement
         } conditional_;
+
+        // NOISE: index into noise_sites side-table
+        struct {
+            uint32_t site_idx;
+        } noise_;
+
+        // READOUT_NOISE: index into readout_noise side-table
+        struct {
+            uint32_t entry_idx;
+        } readout_;
+
+        // DETECTOR: index into detector_targets side-table
+        struct {
+            uint32_t target_list_idx;
+        } detector_;
+
+        // OBSERVABLE: observable index and target list index
+        struct {
+            uint32_t obs_idx;          // Which logical observable (0, 1, 2, ...)
+            uint32_t target_list_idx;  // Index into observable_targets side-table
+        } observable_;
     };
 
     OpType type_;     // 1 byte
@@ -212,9 +341,23 @@ struct HirModule {
     // Uses Stim's Tableau type directly - AG pivots ARE Clifford transformations.
     std::vector<stim::Tableau<kStimWidth>> ag_matrices;
 
+    // Side-table for noise sites (indexed by HeisenbergOp::noise_.site_idx)
+    // Each NoiseSite contains the rewound Pauli channels for a quantum noise operation.
+    std::vector<NoiseSite> noise_sites;
+
+    // Side-table for readout noise entries (indexed by HeisenbergOp::readout_.entry_idx)
+    std::vector<ReadoutNoiseEntry> readout_noise;
+
+    // Side-tables for detector and observable measurement targets.
+    // Each entry is a list of absolute measurement indices to XOR together.
+    std::vector<std::vector<uint32_t>> detector_targets;
+    std::vector<std::vector<uint32_t>> observable_targets;
+
     // Circuit metadata
     uint32_t num_qubits = 0;
     uint32_t num_measurements = 0;
+    uint32_t num_detectors = 0;
+    uint32_t num_observables = 0;
 
     // Global weight accumulator.
     // The Front-End accumulates the dominant terms factored out of each gate.

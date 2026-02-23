@@ -521,10 +521,19 @@ class Parser {
                 throw ParseError("Empty Pauli product in MPP", line_num);
             }
 
+            // Decompose noisy MPP: MPP(p) -> MPP + READOUT_NOISE
+            bool is_noisy_meas = arg > 0.0;
+            double meas_arg = is_noisy_meas ? 0.0 : arg;
+
             // Emit one AstNode per product.
-            AstNode node{GateType::MPP, std::move(pauli_targets), arg};
+            AstNode node{GateType::MPP, std::move(pauli_targets), meas_arg};
             circuit.num_measurements++;
             circuit.nodes.push_back(std::move(node));
+
+            if (is_noisy_meas) {
+                uint32_t meas_idx = circuit.num_measurements - 1;
+                circuit.nodes.push_back({GateType::READOUT_NOISE, {Target::rec(meas_idx)}, arg});
+            }
         }
 
         if (product_count == 0) {

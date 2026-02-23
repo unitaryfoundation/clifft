@@ -226,6 +226,48 @@ TEST_CASE("Parse MPP multiple products", "[parser]") {
     REQUIRE(circuit.nodes[2].targets[0].pauli() == Target::kPauliY);
 }
 
+TEST_CASE("Parse noisy MPP decomposes to MPP plus READOUT_NOISE", "[parser][noise]") {
+    // MPP(p) X0*Z1 should decompose to MPP + READOUT_NOISE
+    auto circuit = parse("MPP(0.001) X0*Z1");
+
+    REQUIRE(circuit.nodes.size() == 2);
+    REQUIRE(circuit.num_measurements == 1);
+
+    // First node: clean MPP with arg=0
+    REQUIRE(circuit.nodes[0].gate == GateType::MPP);
+    REQUIRE(circuit.nodes[0].arg == 0.0);
+    REQUIRE(circuit.nodes[0].targets.size() == 2);
+
+    // Second node: READOUT_NOISE with original probability
+    REQUIRE(circuit.nodes[1].gate == GateType::READOUT_NOISE);
+    REQUIRE(circuit.nodes[1].arg == 0.001);
+    REQUIRE(circuit.nodes[1].targets.size() == 1);
+    REQUIRE(circuit.nodes[1].targets[0].is_rec());
+    REQUIRE(circuit.nodes[1].targets[0].value() == 0);  // First measurement
+}
+
+TEST_CASE("Parse noisy MPP multiple products each get READOUT_NOISE", "[parser][noise]") {
+    // MPP(0.002) X0*X1 Z2*Z3 should produce 4 nodes: MPP, READOUT_NOISE, MPP, READOUT_NOISE
+    auto circuit = parse("MPP(0.002) X0*X1 Z2*Z3");
+
+    REQUIRE(circuit.nodes.size() == 4);
+    REQUIRE(circuit.num_measurements == 2);
+
+    // First product: MPP + READOUT_NOISE
+    REQUIRE(circuit.nodes[0].gate == GateType::MPP);
+    REQUIRE(circuit.nodes[0].arg == 0.0);
+    REQUIRE(circuit.nodes[1].gate == GateType::READOUT_NOISE);
+    REQUIRE(circuit.nodes[1].arg == 0.002);
+    REQUIRE(circuit.nodes[1].targets[0].value() == 0);  // meas index 0
+
+    // Second product: MPP + READOUT_NOISE
+    REQUIRE(circuit.nodes[2].gate == GateType::MPP);
+    REQUIRE(circuit.nodes[2].arg == 0.0);
+    REQUIRE(circuit.nodes[3].gate == GateType::READOUT_NOISE);
+    REQUIRE(circuit.nodes[3].arg == 0.002);
+    REQUIRE(circuit.nodes[3].targets[0].value() == 1);  // meas index 1
+}
+
 TEST_CASE("Parse reset decomposition R", "[parser]") {
     auto circuit = parse("R 0");
 

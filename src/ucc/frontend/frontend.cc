@@ -263,6 +263,93 @@ void extract_rewound_x(const stim::TableauSimulator<kStimWidth>& sim, uint32_t q
     sign = pauli.sign;
 }
 
+// Rewind a single-qubit Pauli (X, Y, or Z) through the tableau.
+// pauli_type: 1=X, 2=Y, 3=Z
+NoiseChannel rewind_single_pauli(const stim::TableauSimulator<kStimWidth>& sim, uint32_t qubit,
+                                 int pauli_type, double prob) {
+    stim::PauliString<kStimWidth> pauli(sim.inv_state.num_qubits);
+    switch (pauli_type) {
+        case 1:  // X
+            pauli.xs[qubit] = true;
+            break;
+        case 2:  // Y = iXZ
+            pauli.xs[qubit] = true;
+            pauli.zs[qubit] = true;
+            break;
+        case 3:  // Z
+            pauli.zs[qubit] = true;
+            break;
+    }
+    stim::PauliString<kStimWidth> rewound = sim.inv_state(pauli);
+    return NoiseChannel{rewound.xs.u64[0], rewound.zs.u64[0], prob};
+}
+
+// Rewind a two-qubit Pauli through the tableau.
+// pauli1, pauli2: 0=I, 1=X, 2=Y, 3=Z
+NoiseChannel rewind_two_qubit_pauli(const stim::TableauSimulator<kStimWidth>& sim, uint32_t q1,
+                                    uint32_t q2, int pauli1, int pauli2, double prob) {
+    stim::PauliString<kStimWidth> pauli(sim.inv_state.num_qubits);
+
+    // Set Pauli on q1
+    if (pauli1 == 1 || pauli1 == 2)
+        pauli.xs[q1] = true;  // X or Y
+    if (pauli1 == 2 || pauli1 == 3)
+        pauli.zs[q1] = true;  // Y or Z
+
+    // Set Pauli on q2
+    if (pauli2 == 1 || pauli2 == 2)
+        pauli.xs[q2] = true;  // X or Y
+    if (pauli2 == 2 || pauli2 == 3)
+        pauli.zs[q2] = true;  // Y or Z
+
+    stim::PauliString<kStimWidth> rewound = sim.inv_state(pauli);
+    return NoiseChannel{rewound.xs.u64[0], rewound.zs.u64[0], prob};
+}
+
+// Create a NoiseSite for a single-qubit noise channel.
+NoiseSite make_single_qubit_noise_site(const stim::TableauSimulator<kStimWidth>& sim, GateType gate,
+                                       uint32_t qubit, double prob) {
+    NoiseSite site;
+    switch (gate) {
+        case GateType::X_ERROR:
+            site.channels.push_back(rewind_single_pauli(sim, qubit, 1, prob));
+            break;
+        case GateType::Y_ERROR:
+            site.channels.push_back(rewind_single_pauli(sim, qubit, 2, prob));
+            break;
+        case GateType::Z_ERROR:
+            site.channels.push_back(rewind_single_pauli(sim, qubit, 3, prob));
+            break;
+        case GateType::DEPOLARIZE1:
+            // DEP1(p) = X, Y, Z each with probability p/3
+            site.channels.push_back(rewind_single_pauli(sim, qubit, 1, prob / 3.0));
+            site.channels.push_back(rewind_single_pauli(sim, qubit, 2, prob / 3.0));
+            site.channels.push_back(rewind_single_pauli(sim, qubit, 3, prob / 3.0));
+            break;
+        default:
+            throw std::runtime_error("Not a single-qubit noise gate");
+    }
+    return site;
+}
+
+// Create a NoiseSite for DEPOLARIZE2 on a qubit pair.
+// 15 channels: all non-II two-qubit Paulis, each with prob p/15.
+NoiseSite make_depolarize2_noise_site(const stim::TableauSimulator<kStimWidth>& sim, uint32_t q1,
+                                      uint32_t q2, double prob) {
+    NoiseSite site;
+    double channel_prob = prob / 15.0;
+
+    // Enumerate all (p1, p2) where p1,p2 in {0,1,2,3} (I,X,Y,Z) excluding (0,0)
+    for (int p1 = 0; p1 <= 3; ++p1) {
+        for (int p2 = 0; p2 <= 3; ++p2) {
+            if (p1 == 0 && p2 == 0)
+                continue;  // Skip II
+            site.channels.push_back(rewind_two_qubit_pauli(sim, q1, q2, p1, p2, channel_prob));
+        }
+    }
+    return site;
+}
+
 }  // namespace
 
 HirModule trace(const Circuit& circuit) {
@@ -275,6 +362,8 @@ HirModule trace(const Circuit& circuit) {
     HirModule hir;
     hir.num_qubits = circuit.num_qubits;
     hir.num_measurements = circuit.num_measurements;
+    hir.num_detectors = circuit.num_detectors;
+    hir.num_observables = circuit.num_observables;
 
     // Initialize tableau simulator with a fixed seed (deterministic for testing)
     // The RNG is only used for measurement collapse, which we handle separately
@@ -564,6 +653,75 @@ HirModule trace(const Circuit& circuit) {
             // TICK is a no-op annotation
             case GateType::TICK:
                 break;
+
+            // Single-qubit noise gates
+            case GateType::X_ERROR:
+            case GateType::Y_ERROR:
+            case GateType::Z_ERROR:
+            case GateType::DEPOLARIZE1: {
+                double prob = node.arg;
+                for (const auto& target : node.targets) {
+                    uint32_t qubit = target.value();
+                    NoiseSite site = make_single_qubit_noise_site(sim, node.gate, qubit, prob);
+                    NoiseSiteIdx idx{static_cast<uint32_t>(hir.noise_sites.size())};
+                    hir.noise_sites.push_back(std::move(site));
+                    hir.ops.push_back(HeisenbergOp::make_noise(idx));
+                }
+                break;
+            }
+
+            // Two-qubit depolarizing noise
+            case GateType::DEPOLARIZE2: {
+                double prob = node.arg;
+                for (size_t i = 0; i + 1 < node.targets.size(); i += 2) {
+                    uint32_t q1 = node.targets[i].value();
+                    uint32_t q2 = node.targets[i + 1].value();
+                    NoiseSite site = make_depolarize2_noise_site(sim, q1, q2, prob);
+                    NoiseSiteIdx idx{static_cast<uint32_t>(hir.noise_sites.size())};
+                    hir.noise_sites.push_back(std::move(site));
+                    hir.ops.push_back(HeisenbergOp::make_noise(idx));
+                }
+                break;
+            }
+
+            // Readout noise (classical bit-flip on measurement result)
+            case GateType::READOUT_NOISE: {
+                // Parser stores absolute measurement index in target, probability in arg
+                for (const auto& target : node.targets) {
+                    uint32_t abs_meas_idx = target.value();
+                    double prob = node.arg;
+                    ReadoutNoiseIdx idx{static_cast<uint32_t>(hir.readout_noise.size())};
+                    hir.readout_noise.push_back({abs_meas_idx, prob});
+                    hir.ops.push_back(HeisenbergOp::make_readout_noise(idx));
+                }
+                break;
+            }
+
+            // Detector: parity check over measurement records
+            case GateType::DETECTOR: {
+                std::vector<uint32_t> targets;
+                for (const auto& target : node.targets) {
+                    targets.push_back(target.value());  // Already absolute indices
+                }
+                DetectorIdx idx{static_cast<uint32_t>(hir.detector_targets.size())};
+                hir.detector_targets.push_back(std::move(targets));
+                hir.ops.push_back(HeisenbergOp::make_detector(idx));
+                break;
+            }
+
+            // Observable: logical observable accumulator
+            case GateType::OBSERVABLE_INCLUDE: {
+                std::vector<uint32_t> targets;
+                for (const auto& target : node.targets) {
+                    targets.push_back(target.value());  // Already absolute indices
+                }
+                uint32_t obs_idx = static_cast<uint32_t>(node.arg);
+                uint32_t target_list_idx = static_cast<uint32_t>(hir.observable_targets.size());
+                hir.observable_targets.push_back(std::move(targets));
+                hir.ops.push_back(
+                    HeisenbergOp::make_observable(ObservableIdx{obs_idx}, target_list_idx));
+                break;
+            }
 
             default:
                 throw std::runtime_error("Unsupported gate type in Front-End: " +
