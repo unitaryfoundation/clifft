@@ -1,0 +1,118 @@
+name: Coverage
+
+on:
+  workflow_dispatch:  # Manual trigger
+  push:
+    branches: [main]  # Run on main merges
+
+permissions:
+  contents: read
+
+concurrency:
+  group: coverage-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  coverage:
+    runs-on: ubuntu-24.04
+    env:
+      CMAKE_BUILD_TYPE: Debug
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ninja-build lcov
+
+      - name: Setup uv and Python
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          python-version: "3.12"
+
+      # ---------- C++ Unit Test Coverage ----------
+      - name: Configure C++ build with coverage
+        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug -DUCC_COVERAGE=ON
+
+      - name: Build C++
+        run: cmake --build build --parallel
+
+      - name: Run C++ tests
+        run: ctest --test-dir build --output-on-failure
+
+      - name: Capture C++ test coverage
+        run: |
+          lcov --capture \
+               --directory build \
+               --output-file build/cpp-tests.info \
+               --ignore-errors mismatch \
+               --rc branch_coverage=1
+
+          lcov --remove build/cpp-tests.info \
+               '*/build/_deps/*' \
+               '*/tests/*' \
+               '/usr/*' \
+               --output-file build/cpp-tests.info \
+               --ignore-errors unused \
+               --rc branch_coverage=1
+
+      # ---------- Python Test Coverage (C++ and Python) ----------
+      # Build extension with coverage instrumentation
+      - name: Install Python package with coverage
+        run: uv pip install -e ".[dev]"
+        env:
+          CMAKE_ARGS: "-DUCC_COVERAGE=ON"
+          SKBUILD_BUILD_TYPE: Debug
+
+      # Reset counters before Python tests
+      - name: Reset coverage counters
+        run: lcov --zerocounters --directory .
+
+      - name: Run Python tests
+        run: |
+          uv run pytest tests/python/ -v \
+            --cov=ucc \
+            --cov-report=xml:build/python-coverage.xml
+
+      - name: Capture C++ coverage from Python tests
+        run: |
+          # Find where scikit-build put the build
+          BUILD_DIR=$(find build -name '*.gcda' -printf '%h\n' 2>/dev/null | head -1 || echo "build")
+          echo "Found .gcda files in: $BUILD_DIR"
+
+          lcov --capture \
+               --directory . \
+               --output-file build/cpp-from-python.info \
+               --ignore-errors mismatch \
+               --rc branch_coverage=1
+
+          lcov --remove build/cpp-from-python.info \
+               '*/_deps/*' \
+               '*/tests/*' \
+               '/usr/*' \
+               '*/pybind11/*' \
+               --output-file build/cpp-from-python.info \
+               --ignore-errors unused \
+               --rc branch_coverage=1
+
+      # ---------- Merge and Upload ----------
+      - name: Merge C++ coverage reports
+        run: |
+          lcov --add-tracefile build/cpp-tests.info \
+               --add-tracefile build/cpp-from-python.info \
+               --output-file build/cpp-combined.info \
+               --rc branch_coverage=1
+
+          echo "=== Combined C++ Coverage ==="
+          lcov --list build/cpp-combined.info
+
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v5
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          files: build/cpp-combined.info,build/python-coverage.xml
+          flags: cpp,python
+          fail_ci_if_error: false
+          verbose: true

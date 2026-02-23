@@ -24,6 +24,11 @@ nanobind_add_module(
 # Link against our core library
 target_link_libraries(_ucc_core PRIVATE ucc_core)
 
+# Code coverage: propagate gcov linkage to the shared module
+if(UCC_COVERAGE)
+    target_link_options(_ucc_core PRIVATE --coverage)
+endif()
+
 # Install the extension module into the ucc package directory
 # LIBRARY for .so (Linux/macOS), RUNTIME for .pyd (Windows)
 install(TARGETS _ucc_core

@@ -1,5 +1,8 @@
 # UCC - Unitary Compiler Collection
 
+[![CI](https://github.com/unitaryfoundation/ucc-next/actions/workflows/ci.yml/badge.svg)](https://github.com/unitaryfoundation/ucc-next/actions/workflows/ci.yml)
+[![codecov](https://codecov.io/gh/unitaryfoundation/ucc-next/graph/badge.svg)](https://codecov.io/gh/unitaryfoundation/ucc-next)
+
 A multi-level Ahead-of-Time (AOT) compiler and Schrodinger Virtual Machine (SVM) for quantum circuits.
 
 UCC supports Clifford + T gates and beyond, with a focus on high-performance simulation.
