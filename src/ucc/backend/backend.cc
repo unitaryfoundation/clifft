@@ -129,6 +129,8 @@ uint32_t compute_commutation_mask(const std::vector<stim::bitword<kStimWidth>>& 
 CompiledModule lower(const HirModule& hir) {
     CompiledModule result;
     result.num_measurements = hir.num_measurements;
+    result.num_detectors = hir.num_detectors;
+    result.num_observables = hir.num_observables;
 
     GF2Basis basis;
     uint32_t peak_rank = 0;
@@ -286,8 +288,77 @@ CompiledModule lower(const HirModule& hir) {
                 break;
             }
 
-            default:
-                throw std::runtime_error("Unsupported OpType in Back-End");
+            case OpType::NOISE: {
+                // Quantum noise: DO NOT emit bytecode.
+                // Copy to noise_schedule with pc = current bytecode size.
+                NoiseSiteIdx site_idx = op.noise_site_idx();
+                const NoiseSite& hir_site = hir.noise_sites[static_cast<uint32_t>(site_idx)];
+
+                NoiseScheduleEntry entry;
+                entry.pc = static_cast<uint32_t>(result.bytecode.size());
+                entry.channels = hir_site.channels;
+
+                // Compute total_probability as sum of all channel probabilities
+                entry.total_probability = 0.0;
+                for (const auto& ch : entry.channels) {
+                    entry.total_probability += ch.prob;
+                }
+
+                result.constant_pool.noise_schedule.push_back(std::move(entry));
+                break;
+            }
+
+            case OpType::READOUT_NOISE: {
+                // Classical bit-flip: emit OP_READOUT_NOISE with inline payload.
+                ReadoutNoiseIdx entry_idx = op.readout_noise_idx();
+                const ReadoutNoiseEntry& hir_entry =
+                    hir.readout_noise[static_cast<uint32_t>(entry_idx)];
+
+                Instruction instr{};
+                instr.opcode = Opcode::OP_READOUT_NOISE;
+                instr.readout.prob = hir_entry.prob;
+                instr.readout.meas_idx = hir_entry.meas_idx;
+
+                result.bytecode.push_back(instr);
+                break;
+            }
+
+            case OpType::DETECTOR: {
+                // Copy target list to ConstantPool, emit OP_DETECTOR.
+                DetectorIdx det_idx = op.detector_idx();
+                const std::vector<uint32_t>& targets =
+                    hir.detector_targets[static_cast<uint32_t>(det_idx)];
+
+                uint32_t target_idx =
+                    static_cast<uint32_t>(result.constant_pool.detector_targets.size());
+                result.constant_pool.detector_targets.push_back(targets);
+
+                Instruction instr{};
+                instr.opcode = Opcode::OP_DETECTOR;
+                instr.detector.target_idx = target_idx;
+
+                result.bytecode.push_back(instr);
+                break;
+            }
+
+            case OpType::OBSERVABLE: {
+                // Copy target list to ConstantPool, emit OP_OBSERVABLE.
+                ObservableIdx obs_idx = op.observable_idx();
+                uint32_t target_list_idx = op.observable_target_list_idx();
+                const std::vector<uint32_t>& targets = hir.observable_targets[target_list_idx];
+
+                uint32_t cp_target_idx =
+                    static_cast<uint32_t>(result.constant_pool.observable_targets.size());
+                result.constant_pool.observable_targets.push_back(targets);
+
+                Instruction instr{};
+                instr.opcode = Opcode::OP_OBSERVABLE;
+                instr.observable.target_idx = cp_target_idx;
+                instr.observable.obs_idx = static_cast<uint32_t>(obs_idx);
+
+                result.bytecode.push_back(instr);
+                break;
+            }
         }
     }
 

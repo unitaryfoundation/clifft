@@ -2,6 +2,8 @@
 #include "ucc/circuit/parser.h"
 #include "ucc/frontend/frontend.h"
 
+#include <algorithm>
+#include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
 
 using namespace ucc;
@@ -688,4 +690,321 @@ TEST_CASE("Backend: exceeds 32 GF(2) rank limit", "[backend]") {
     )";
 
     REQUIRE_THROWS_AS(compile(stim_text), std::runtime_error);
+}
+
+// =============================================================================
+// Phase 2.3: Noise Scheduling & Constant Pool
+// =============================================================================
+
+TEST_CASE("Backend: DEPOLARIZE1 creates noise_schedule entry with 3 channels", "[backend][noise]") {
+    auto result = compile(R"(
+        H 0
+        DEPOLARIZE1(0.03) 0
+        M 0
+    )");
+
+    // DEPOLARIZE1(p) emits NOISE op which goes to noise_schedule, not bytecode
+    REQUIRE(result.constant_pool.noise_schedule.size() == 1);
+
+    const auto& entry = result.constant_pool.noise_schedule[0];
+    REQUIRE(entry.channels.size() == 3);  // X, Y, Z channels
+
+    // Total probability = p (not 3*p/3, just p because one of X/Y/Z fires)
+    REQUIRE(entry.total_probability == Catch::Approx(0.03));
+
+    // Each channel has prob = p/3
+    for (const auto& ch : entry.channels) {
+        REQUIRE(ch.prob == Catch::Approx(0.01));
+    }
+}
+
+TEST_CASE("Backend: DEPOLARIZE2 creates noise_schedule entry with 15 channels",
+          "[backend][noise]") {
+    auto result = compile(R"(
+        H 0
+        H 1
+        CX 0 1
+        DEPOLARIZE2(0.15) 0 1
+        M 0 1
+    )");
+
+    REQUIRE(result.constant_pool.noise_schedule.size() == 1);
+
+    const auto& entry = result.constant_pool.noise_schedule[0];
+    REQUIRE(entry.channels.size() == 15);  // All non-II two-qubit Paulis
+
+    // Total probability = p
+    REQUIRE(entry.total_probability == Catch::Approx(0.15));
+
+    // Each channel has prob = p/15
+    for (const auto& ch : entry.channels) {
+        REQUIRE(ch.prob == Catch::Approx(0.01));
+    }
+}
+
+TEST_CASE("Backend: noise_schedule pc points to next instruction", "[backend][noise]") {
+    // The noise pc should be the index of the next quantum instruction after the noise.
+    auto result = compile(R"(
+        H 0
+        T 0
+        DEPOLARIZE1(0.01) 0
+        T 0
+        M 0
+    )");
+
+    // Bytecode: T (BRANCH idx=0), T (COLLIDE idx=1), ...
+    // Noise pc should point to instruction after first T (i.e., the second T)
+    REQUIRE(result.constant_pool.noise_schedule.size() == 1);
+    REQUIRE(result.constant_pool.noise_schedule[0].pc == 1);  // Points to second T
+}
+
+TEST_CASE("Backend: quantum noise does NOT emit bytecode", "[backend][noise]") {
+    auto result = compile(R"(
+        X_ERROR(0.01) 0
+        Y_ERROR(0.02) 1
+        Z_ERROR(0.03) 2
+        DEPOLARIZE1(0.04) 0
+        DEPOLARIZE2(0.05) 0 1
+    )");
+
+    // No quantum instructions emitted - bytecode should be empty
+    REQUIRE(result.bytecode.empty());
+
+    // But noise_schedule should have 5 entries
+    REQUIRE(result.constant_pool.noise_schedule.size() == 5);
+}
+
+TEST_CASE("Backend: OP_READOUT_NOISE emitted with inline payload", "[backend][noise]") {
+    auto result = compile(R"(
+        H 0
+        M(0.01) 0
+    )");
+
+    // Find the OP_READOUT_NOISE instruction
+    const Instruction* readout = nullptr;
+    for (const auto& instr : result.bytecode) {
+        if (instr.opcode == Opcode::OP_READOUT_NOISE) {
+            readout = &instr;
+            break;
+        }
+    }
+    REQUIRE(readout != nullptr);
+
+    // Verify inline payload
+    REQUIRE(readout->readout.prob == Catch::Approx(0.01));
+    REQUIRE(readout->readout.meas_idx == 0);
+}
+
+TEST_CASE("Backend: multiple OP_READOUT_NOISE for multi-target noisy measurement",
+          "[backend][noise]") {
+    auto result = compile(R"(
+        H 0
+        H 1
+        H 2
+        M(0.02) 0 1 2
+    )");
+
+    // Count OP_READOUT_NOISE instructions
+    int readout_count = 0;
+    std::vector<uint32_t> meas_indices;
+    for (const auto& instr : result.bytecode) {
+        if (instr.opcode == Opcode::OP_READOUT_NOISE) {
+            readout_count++;
+            REQUIRE(instr.readout.prob == Catch::Approx(0.02));
+            meas_indices.push_back(instr.readout.meas_idx);
+        }
+    }
+    REQUIRE(readout_count == 3);
+
+    // Measurement indices should be 0, 1, 2
+    std::sort(meas_indices.begin(), meas_indices.end());
+    REQUIRE(meas_indices == std::vector<uint32_t>{0, 1, 2});
+}
+
+TEST_CASE("Backend: OP_DETECTOR emitted with target list", "[backend][noise]") {
+    auto result = compile(R"(
+        H 0
+        M 0
+        DETECTOR rec[-1]
+    )");
+
+    // Find OP_DETECTOR
+    const Instruction* detector = nullptr;
+    for (const auto& instr : result.bytecode) {
+        if (instr.opcode == Opcode::OP_DETECTOR) {
+            detector = &instr;
+            break;
+        }
+    }
+    REQUIRE(detector != nullptr);
+
+    // Verify target list in constant pool
+    uint32_t target_idx = detector->detector.target_idx;
+    REQUIRE(target_idx < result.constant_pool.detector_targets.size());
+
+    const auto& targets = result.constant_pool.detector_targets[target_idx];
+    REQUIRE(targets.size() == 1);
+    REQUIRE(targets[0] == 0);  // rec[-1] resolved to absolute index 0
+}
+
+TEST_CASE("Backend: OP_DETECTOR with multiple targets", "[backend][noise]") {
+    auto result = compile(R"(
+        H 0
+        H 1
+        M 0 1
+        DETECTOR rec[-1] rec[-2]
+    )");
+
+    // Find OP_DETECTOR
+    const Instruction* detector = nullptr;
+    for (const auto& instr : result.bytecode) {
+        if (instr.opcode == Opcode::OP_DETECTOR) {
+            detector = &instr;
+            break;
+        }
+    }
+    REQUIRE(detector != nullptr);
+
+    uint32_t target_idx = detector->detector.target_idx;
+    const auto& targets = result.constant_pool.detector_targets[target_idx];
+    REQUIRE(targets.size() == 2);
+
+    // rec[-1] = 1, rec[-2] = 0 (absolute indices)
+    std::vector<uint32_t> sorted_targets = targets;
+    std::sort(sorted_targets.begin(), sorted_targets.end());
+    REQUIRE(sorted_targets == std::vector<uint32_t>{0, 1});
+}
+
+TEST_CASE("Backend: OP_OBSERVABLE emitted with obs_idx", "[backend][noise]") {
+    auto result = compile(R"(
+        H 0
+        M 0
+        OBSERVABLE_INCLUDE(0) rec[-1]
+    )");
+
+    // Find OP_OBSERVABLE
+    const Instruction* observable = nullptr;
+    for (const auto& instr : result.bytecode) {
+        if (instr.opcode == Opcode::OP_OBSERVABLE) {
+            observable = &instr;
+            break;
+        }
+    }
+    REQUIRE(observable != nullptr);
+
+    // Verify observable index
+    REQUIRE(observable->observable.obs_idx == 0);
+
+    // Verify target list in constant pool
+    uint32_t target_idx = observable->observable.target_idx;
+    REQUIRE(target_idx < result.constant_pool.observable_targets.size());
+
+    const auto& targets = result.constant_pool.observable_targets[target_idx];
+    REQUIRE(targets.size() == 1);
+    REQUIRE(targets[0] == 0);
+}
+
+TEST_CASE("Backend: multiple observables with different indices", "[backend][noise]") {
+    auto result = compile(R"(
+        H 0
+        H 1
+        M 0 1
+        OBSERVABLE_INCLUDE(0) rec[-2]
+        OBSERVABLE_INCLUDE(2) rec[-1]
+    )");
+
+    // Collect OP_OBSERVABLE instructions
+    std::vector<const Instruction*> observables;
+    for (const auto& instr : result.bytecode) {
+        if (instr.opcode == Opcode::OP_OBSERVABLE) {
+            observables.push_back(&instr);
+        }
+    }
+    REQUIRE(observables.size() == 2);
+
+    // Find obs_idx 0 and 2
+    bool found_0 = false, found_2 = false;
+    for (const auto* obs : observables) {
+        if (obs->observable.obs_idx == 0)
+            found_0 = true;
+        if (obs->observable.obs_idx == 2)
+            found_2 = true;
+    }
+    REQUIRE(found_0);
+    REQUIRE(found_2);
+}
+
+TEST_CASE("Backend: num_detectors and num_observables propagate", "[backend][noise]") {
+    auto result = compile(R"(
+        H 0
+        H 1
+        M 0 1
+        DETECTOR rec[-1]
+        DETECTOR rec[-2]
+        DETECTOR rec[-1] rec[-2]
+        OBSERVABLE_INCLUDE(0) rec[-1]
+        OBSERVABLE_INCLUDE(1) rec[-2]
+    )");
+
+    REQUIRE(result.num_detectors == 3);
+    REQUIRE(result.num_observables == 2);
+}
+
+TEST_CASE("Backend: MPP with noise emits READOUT_NOISE", "[backend][noise]") {
+    auto result = compile(R"(
+        H 0
+        H 1
+        MPP(0.005) X0*Z1
+    )");
+
+    // MPP(p) should decompose to MPP + READOUT_NOISE
+    const Instruction* readout = nullptr;
+    for (const auto& instr : result.bytecode) {
+        if (instr.opcode == Opcode::OP_READOUT_NOISE) {
+            readout = &instr;
+            break;
+        }
+    }
+    REQUIRE(readout != nullptr);
+    REQUIRE(readout->readout.prob == Catch::Approx(0.005));
+}
+
+TEST_CASE("Backend: noise_schedule ordering matches HIR order", "[backend][noise]") {
+    auto result = compile(R"(
+        X_ERROR(0.01) 0
+        H 0
+        DEPOLARIZE1(0.02) 0
+        T 0
+        Y_ERROR(0.03) 0
+        M 0
+    )");
+
+    REQUIRE(result.constant_pool.noise_schedule.size() == 3);
+
+    // Noise entries should be in order with increasing pc
+    REQUIRE(result.constant_pool.noise_schedule[0].pc == 0);  // Before T (BRANCH)
+    REQUIRE(result.constant_pool.noise_schedule[1].pc == 0);  // Also before T
+    REQUIRE(result.constant_pool.noise_schedule[2].pc == 1);  // Before MEASURE
+
+    // Verify probabilities match order of noise gates
+    REQUIRE(result.constant_pool.noise_schedule[0].total_probability == Catch::Approx(0.01));
+    REQUIRE(result.constant_pool.noise_schedule[1].total_probability == Catch::Approx(0.02));
+    REQUIRE(result.constant_pool.noise_schedule[2].total_probability == Catch::Approx(0.03));
+}
+
+TEST_CASE("Backend: noise at circuit end has pc equal to bytecode size", "[backend][noise]") {
+    // Noise after the last quantum instruction should have pc = bytecode.size()
+    auto result = compile(R"(
+        H 0
+        T 0
+        M 0
+        DEPOLARIZE1(0.01) 0
+    )");
+
+    // The DEPOLARIZE1 comes after M, so its pc should point past all bytecode
+    REQUIRE(result.constant_pool.noise_schedule.size() == 1);
+
+    // Count non-noise bytecode instructions
+    size_t expected_bc_size = result.bytecode.size();
+    REQUIRE(result.constant_pool.noise_schedule[0].pc == expected_bc_size);
 }

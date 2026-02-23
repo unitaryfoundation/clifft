@@ -35,7 +35,11 @@ enum class Opcode : uint8_t {
     OP_AG_PIVOT,     // Aaronson-Gottesman sign-tracker update
     OP_CONDITIONAL,  // Apply Pauli if measurement was 1
     OP_INDEX_CNOT,   // Basis relabeling within GF(2) space (future)
-    OP_DETECTOR,     // Classical parity check (future)
+
+    // Noise & QEC
+    OP_READOUT_NOISE,  // Classical bit-flip on measurement result
+    OP_DETECTOR,       // Parity check over measurement records
+    OP_OBSERVABLE,     // Logical observable accumulator
 
     // Control Flow
     OP_POSTSELECT  // Mid-circuit early abort (future)
@@ -79,6 +83,31 @@ struct alignas(32) Instruction {
             uint64_t destab_mask;  // Offset 16 - for CONDITIONAL Pauli
             uint64_t stab_mask;    // Offset 24 - for CONDITIONAL Pauli
         } meta;
+
+        // Variant C: Readout Noise (OP_READOUT_NOISE)
+        // Inline storage avoids pointer chase in hot loop.
+        struct {
+            double prob;        // Offset 8 (8 bytes) - bit-flip probability
+            uint32_t meas_idx;  // Offset 16 (4 bytes) - measurement to flip
+            uint32_t _pad0;     // Offset 20 (4 bytes) - padding
+            uint64_t _pad1;     // Offset 24 (8 bytes) - padding
+        } readout;
+
+        // Variant D: Detector (OP_DETECTOR)
+        struct {
+            uint32_t target_idx;  // Offset 8 - index into ConstantPool::detector_targets
+            uint32_t _pad0;       // Offset 12 - padding
+            uint64_t _pad1;       // Offset 16 - padding
+            uint64_t _pad2;       // Offset 24 - padding
+        } detector;
+
+        // Variant E: Observable (OP_OBSERVABLE)
+        struct {
+            uint32_t target_idx;  // Offset 8 - index into ConstantPool::observable_targets
+            uint32_t obs_idx;     // Offset 12 - which logical observable (0, 1, 2, ...)
+            uint64_t _pad1;       // Offset 16 - padding
+            uint64_t _pad2;       // Offset 24 - padding
+        } observable;
     };
 };
 
@@ -130,6 +159,20 @@ class GF2Basis {
 };
 
 // =============================================================================
+// Noise Schedule Entry (Backend)
+// =============================================================================
+//
+// A compiled noise site for the VM's gap sampling algorithm.
+// Different from HIR's NoiseSite: adds pc (bytecode position) and precomputed
+// total_probability for efficient runtime sampling.
+
+struct NoiseScheduleEntry {
+    uint32_t pc;                         // Bytecode index where this noise applies
+    double total_probability;            // Sum of all channel probabilities
+    std::vector<NoiseChannel> channels;  // Mutually exclusive Pauli channels
+};
+
+// =============================================================================
 // Constant Pool
 // =============================================================================
 //
@@ -158,6 +201,16 @@ struct ConstantPool {
 
     // Global weight factor accumulated during compilation
     std::complex<double> global_weight = {1.0, 0.0};
+
+    // Noise schedule for gap sampling (quantum Pauli noise).
+    // Each entry maps to a bytecode pc where the noise applies.
+    // The VM processes these before executing the instruction at that pc.
+    std::vector<NoiseScheduleEntry> noise_schedule;
+
+    // Target lists for detector and observable parity checks.
+    // Each entry is a list of absolute measurement indices to XOR.
+    std::vector<std::vector<uint32_t>> detector_targets;
+    std::vector<std::vector<uint32_t>> observable_targets;
 };
 
 // =============================================================================
@@ -172,6 +225,8 @@ struct CompiledModule {
     ConstantPool constant_pool;
     uint32_t peak_rank;         // Maximum GF(2) dimension reached (determines array size)
     uint32_t num_measurements;  // Total measurements (for result record sizing)
+    uint32_t num_detectors;     // Total detectors (for detector record sizing)
+    uint32_t num_observables;   // Total observables (for observable record sizing)
 };
 
 // =============================================================================
