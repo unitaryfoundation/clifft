@@ -47,6 +47,12 @@ struct Circuit {
     // Number of measurements in the circuit.
     // Used for resolving rec[-k] references during parsing.
     uint32_t num_measurements = 0;
+
+    // Number of DETECTOR declarations.
+    uint32_t num_detectors = 0;
+
+    // Number of observables (max observable index + 1).
+    uint32_t num_observables = 0;
 };
 
 }  // namespace ucc

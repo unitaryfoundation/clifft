@@ -41,6 +41,20 @@ enum class GateType : uint16_t {
     MRX,  // Measure + reset (X-basis)
     MPP,  // Multi-Pauli measurement
 
+    // Noise channels
+    X_ERROR,      // Single-qubit X error
+    Y_ERROR,      // Single-qubit Y error
+    Z_ERROR,      // Single-qubit Z error
+    DEPOLARIZE1,  // Single-qubit depolarizing channel
+    DEPOLARIZE2,  // Two-qubit depolarizing channel
+
+    // Synthetic gates (emitted by parser, not in input syntax)
+    READOUT_NOISE,  // Classical bit-flip on measurement result
+
+    // QEC annotations
+    DETECTOR,            // Detector declaration
+    OBSERVABLE_INCLUDE,  // Observable accumulator
+
     // Annotations
     TICK,  // Timing layer marker (no-op)
 
@@ -62,10 +76,13 @@ inline constexpr GateArity gate_arity(GateType g) {
         case GateType::CX:
         case GateType::CY:
         case GateType::CZ:
+        case GateType::DEPOLARIZE2:
             return GateArity::PAIR;
         case GateType::MPP:
             return GateArity::MULTI;
         case GateType::TICK:
+        case GateType::DETECTOR:
+        case GateType::OBSERVABLE_INCLUDE:
             return GateArity::ANNOTATION;
         default:
             return GateArity::SINGLE;
@@ -99,6 +116,21 @@ inline constexpr bool is_measurement(GateType g) {
         case GateType::MR:
         case GateType::MRX:
         case GateType::MPP:
+            return true;
+        default:
+            return false;
+    }
+}
+
+// Check if a gate is a noise channel.
+inline constexpr bool is_noise_gate(GateType g) {
+    switch (g) {
+        case GateType::X_ERROR:
+        case GateType::Y_ERROR:
+        case GateType::Z_ERROR:
+        case GateType::DEPOLARIZE1:
+        case GateType::DEPOLARIZE2:
+        case GateType::READOUT_NOISE:
             return true;
         default:
             return false;
@@ -142,6 +174,22 @@ inline constexpr std::string_view gate_name(GateType g) {
             return "MRX";
         case GateType::MPP:
             return "MPP";
+        case GateType::X_ERROR:
+            return "X_ERROR";
+        case GateType::Y_ERROR:
+            return "Y_ERROR";
+        case GateType::Z_ERROR:
+            return "Z_ERROR";
+        case GateType::DEPOLARIZE1:
+            return "DEPOLARIZE1";
+        case GateType::DEPOLARIZE2:
+            return "DEPOLARIZE2";
+        case GateType::READOUT_NOISE:
+            return "READOUT_NOISE";
+        case GateType::DETECTOR:
+            return "DETECTOR";
+        case GateType::OBSERVABLE_INCLUDE:
+            return "OBSERVABLE_INCLUDE";
         case GateType::TICK:
             return "TICK";
         case GateType::UNKNOWN:

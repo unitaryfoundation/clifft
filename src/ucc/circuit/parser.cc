@@ -11,6 +11,7 @@
 #include <string>
 #include <string_view>
 #include <unordered_map>
+#include <unordered_set>
 
 namespace ucc {
 
@@ -40,6 +41,15 @@ const std::unordered_map<std::string_view, GateType> kGateNames = {
     {"MR", GateType::M},    // Maps to M for parse_gate_name(); decomposed in parse_line()
     {"MRX", GateType::MX},  // Maps to MX for parse_gate_name(); decomposed in parse_line()
     {"MPP", GateType::MPP},
+    // Noise channels
+    {"X_ERROR", GateType::X_ERROR},
+    {"Y_ERROR", GateType::Y_ERROR},
+    {"Z_ERROR", GateType::Z_ERROR},
+    {"DEPOLARIZE1", GateType::DEPOLARIZE1},
+    {"DEPOLARIZE2", GateType::DEPOLARIZE2},
+    // QEC annotations
+    {"DETECTOR", GateType::DETECTOR},
+    {"OBSERVABLE_INCLUDE", GateType::OBSERVABLE_INCLUDE},
     // Annotations
     {"TICK", GateType::TICK},
 };
@@ -50,6 +60,12 @@ const std::unordered_map<std::string_view, std::pair<GateType, GateType>> kReset
     {"RX", {GateType::MX, GateType::CZ}},   // RX -> MX + CZ rec[-1]
     {"MR", {GateType::M, GateType::CX}},    // MR -> M + CX rec[-1]
     {"MRX", {GateType::MX, GateType::CZ}},  // MRX -> MX + CZ rec[-1]
+};
+
+// Coordinate annotations to silently discard (no AST nodes emitted).
+const std::unordered_set<std::string_view> kDiscardedAnnotations = {
+    "QUBIT_COORDS",
+    "SHIFT_COORDS",
 };
 
 // Trim whitespace from both ends.
@@ -181,25 +197,37 @@ class Parser {
         std::string_view gate_name = line.substr(0, name_end);
         std::string_view rest = trim(line.substr(name_end));
 
-        // Skip optional parenthesized arguments (noise probabilities, etc.).
-        // We don't use them in MVP but need to parse past them.
+        // Parse optional parenthesized arguments (comma-separated floats).
+        // For noise gates, observable index, etc.: extract first float into arg.
+        // For coordinate annotations: consume and discard all floats.
         double arg = 0.0;
         if (!rest.empty() && rest[0] == '(') {
             auto close_paren = rest.find(')');
             if (close_paren == std::string_view::npos) {
                 throw ParseError("Unclosed parenthesis", line_num);
             }
-            // Parse argument if present.
-            std::string_view arg_str = trim(rest.substr(1, close_paren - 1));
-            if (!arg_str.empty()) {
-                auto result =
-                    fast_float::from_chars(arg_str.data(), arg_str.data() + arg_str.size(), arg);
-
-                if (result.ec != std::errc{} || result.ptr != arg_str.data() + arg_str.size()) {
-                    throw ParseError("Invalid gate argument: " + std::string(arg_str), line_num);
+            std::string_view args_str = trim(rest.substr(1, close_paren - 1));
+            if (!args_str.empty()) {
+                // Parse first comma-separated float (remaining floats are discarded).
+                auto comma_pos = args_str.find(',');
+                std::string_view first_arg = trim(
+                    comma_pos == std::string_view::npos ? args_str : args_str.substr(0, comma_pos));
+                if (!first_arg.empty()) {
+                    auto result = fast_float::from_chars(first_arg.data(),
+                                                         first_arg.data() + first_arg.size(), arg);
+                    if (result.ec != std::errc{} ||
+                        result.ptr != first_arg.data() + first_arg.size()) {
+                        throw ParseError("Invalid gate argument: " + std::string(first_arg),
+                                         line_num);
+                    }
                 }
             }
             rest = trim(rest.substr(close_paren + 1));
+        }
+
+        // Silently discard coordinate annotations (no AST nodes emitted).
+        if (kDiscardedAnnotations.contains(gate_name)) {
+            return;
         }
 
         // Check for reset decomposition.
@@ -222,6 +250,12 @@ class Parser {
         switch (gate) {
             case GateType::MPP:
                 parse_mpp(rest, line_num, circuit, arg);
+                break;
+            case GateType::DETECTOR:
+                parse_detector(rest, line_num, circuit);
+                break;
+            case GateType::OBSERVABLE_INCLUDE:
+                parse_observable_include(rest, line_num, circuit, arg);
                 break;
             case GateType::TICK:
                 if (!rest.empty()) {
@@ -277,9 +311,21 @@ class Parser {
             case GateArity::SINGLE:
                 // One AstNode per target.
                 for (Target t : targets) {
-                    AstNode node{gate, {t}, arg};
+                    // For noisy measurements M(p), MX(p), MY(p): decompose into
+                    // clean measurement followed by READOUT_NOISE.
+                    bool is_noisy_meas = is_measurement(gate) && arg > 0.0;
+                    double meas_arg = is_noisy_meas ? 0.0 : arg;
+
+                    AstNode node{gate, {t}, meas_arg};
                     update_circuit_stats(node, circuit);
                     circuit.nodes.push_back(std::move(node));
+
+                    if (is_noisy_meas) {
+                        // Emit READOUT_NOISE targeting the just-created measurement.
+                        uint32_t meas_idx = circuit.num_measurements - 1;
+                        circuit.nodes.push_back(
+                            {GateType::READOUT_NOISE, {Target::rec(meas_idx)}, arg});
+                    }
                 }
                 break;
 
@@ -484,6 +530,74 @@ class Parser {
         if (product_count == 0) {
             throw ParseError("MPP requires at least one Pauli product", line_num);
         }
+    }
+
+    // Parse DETECTOR with rec[-k] targets.
+    void parse_detector(std::string_view targets_str, int line_num, Circuit& circuit) {
+        std::vector<Target> targets;
+        std::string_view remaining = targets_str;
+
+        while (true) {
+            std::string_view token = next_token(remaining);
+            if (token.empty())
+                break;
+
+            if (targets.size() >= kMaxTargetsPerInstruction) {
+                throw ParseError("Too many DETECTOR targets (limit: " +
+                                     std::to_string(kMaxTargetsPerInstruction) + ")",
+                                 line_num);
+            }
+
+            // DETECTOR only accepts rec[-k] targets.
+            if (!token.starts_with("rec[")) {
+                throw ParseError("DETECTOR targets must be rec[-k] references", line_num);
+            }
+
+            Target target = parse_target(token, line_num, circuit);
+            targets.push_back(target);
+        }
+
+        circuit.nodes.push_back({GateType::DETECTOR, std::move(targets), 0.0});
+        circuit.num_detectors++;
+    }
+
+    // Parse OBSERVABLE_INCLUDE with observable index and rec[-k] targets.
+    void parse_observable_include(std::string_view targets_str, int line_num, Circuit& circuit,
+                                  double arg) {
+        std::vector<Target> targets;
+        std::string_view remaining = targets_str;
+
+        while (true) {
+            std::string_view token = next_token(remaining);
+            if (token.empty())
+                break;
+
+            if (targets.size() >= kMaxTargetsPerInstruction) {
+                throw ParseError("Too many OBSERVABLE_INCLUDE targets (limit: " +
+                                     std::to_string(kMaxTargetsPerInstruction) + ")",
+                                 line_num);
+            }
+
+            // OBSERVABLE_INCLUDE only accepts rec[-k] targets.
+            if (!token.starts_with("rec[")) {
+                throw ParseError("OBSERVABLE_INCLUDE targets must be rec[-k] references", line_num);
+            }
+
+            Target target = parse_target(token, line_num, circuit);
+            targets.push_back(target);
+        }
+
+        // Observable index is stored in arg. Validate it's a non-negative integer.
+        if (arg < 0.0) {
+            throw ParseError("OBSERVABLE_INCLUDE index must be non-negative", line_num);
+        }
+        auto obs_idx = static_cast<uint32_t>(arg);
+        if (static_cast<double>(obs_idx) != arg) {
+            throw ParseError("OBSERVABLE_INCLUDE index must be an integer", line_num);
+        }
+        circuit.num_observables = std::max(circuit.num_observables, obs_idx + 1);
+
+        circuit.nodes.push_back({GateType::OBSERVABLE_INCLUDE, std::move(targets), arg});
     }
 
     // Parse reset and decompose into measurement + conditional feedback.

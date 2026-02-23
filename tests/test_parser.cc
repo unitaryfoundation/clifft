@@ -12,6 +12,7 @@
 #include "ucc/circuit/parser.h"
 #include "ucc/circuit/target.h"
 
+#include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
 
 using namespace ucc;
@@ -468,4 +469,332 @@ TEST_CASE("Realistic circuit: surface code syndrome extraction", "[parser]") {
     REQUIRE(circuit.num_qubits == 3);
     // 3 from resets + 1 final measurement = 4
     REQUIRE(circuit.num_measurements == 4);
+}
+
+// =============================================================================
+// Phase 2.1: Noise and QEC gate parsing tests
+// =============================================================================
+
+TEST_CASE("Parse noise gates: X_ERROR Y_ERROR Z_ERROR", "[parser][noise]") {
+    auto circuit = parse(R"(
+        X_ERROR(0.001) 0 1 2
+        Y_ERROR(0.002) 3
+        Z_ERROR(0.003) 4 5
+    )");
+
+    REQUIRE(circuit.nodes.size() == 6);
+    REQUIRE(circuit.num_qubits == 6);
+
+    REQUIRE(circuit.nodes[0].gate == GateType::X_ERROR);
+    REQUIRE(circuit.nodes[0].arg == Catch::Approx(0.001));
+    REQUIRE(circuit.nodes[0].targets[0].value() == 0);
+
+    REQUIRE(circuit.nodes[3].gate == GateType::Y_ERROR);
+    REQUIRE(circuit.nodes[3].arg == Catch::Approx(0.002));
+
+    REQUIRE(circuit.nodes[4].gate == GateType::Z_ERROR);
+    REQUIRE(circuit.nodes[4].arg == Catch::Approx(0.003));
+}
+
+TEST_CASE("Parse noise gates: DEPOLARIZE1 DEPOLARIZE2", "[parser][noise]") {
+    auto circuit = parse(R"(
+        DEPOLARIZE1(0.01) 0 1
+        DEPOLARIZE2(0.02) 2 3 4 5
+    )");
+
+    // DEPOLARIZE1 is single-qubit arity: 2 nodes
+    // DEPOLARIZE2 is pair arity: 2 nodes (pairs 2-3, 4-5)
+    REQUIRE(circuit.nodes.size() == 4);
+    REQUIRE(circuit.num_qubits == 6);
+
+    REQUIRE(circuit.nodes[0].gate == GateType::DEPOLARIZE1);
+    REQUIRE(circuit.nodes[0].arg == Catch::Approx(0.01));
+
+    REQUIRE(circuit.nodes[2].gate == GateType::DEPOLARIZE2);
+    REQUIRE(circuit.nodes[2].arg == Catch::Approx(0.02));
+    REQUIRE(circuit.nodes[2].targets.size() == 2);
+    REQUIRE(circuit.nodes[2].targets[0].value() == 2);
+    REQUIRE(circuit.nodes[2].targets[1].value() == 3);
+}
+
+TEST_CASE("Parse noisy measurement: M with readout noise decomposes", "[parser][noise]") {
+    auto circuit = parse("M(0.001) 0");
+
+    // Should decompose into M + READOUT_NOISE
+    REQUIRE(circuit.nodes.size() == 2);
+    REQUIRE(circuit.num_measurements == 1);
+
+    REQUIRE(circuit.nodes[0].gate == GateType::M);
+    REQUIRE(circuit.nodes[0].arg == 0.0);  // Clean measurement
+    REQUIRE(circuit.nodes[0].targets[0].value() == 0);
+
+    REQUIRE(circuit.nodes[1].gate == GateType::READOUT_NOISE);
+    REQUIRE(circuit.nodes[1].arg == Catch::Approx(0.001));
+    REQUIRE(circuit.nodes[1].targets[0].is_rec());
+    REQUIRE(circuit.nodes[1].targets[0].value() == 0);  // rec[0]
+}
+
+TEST_CASE("Parse multi-target noisy measurement interleaves", "[parser][noise]") {
+    auto circuit = parse("M(0.002) 0 1 2");
+
+    // M 0, READOUT_NOISE rec[0], M 1, READOUT_NOISE rec[1], M 2, READOUT_NOISE rec[2]
+    REQUIRE(circuit.nodes.size() == 6);
+    REQUIRE(circuit.num_measurements == 3);
+
+    // Check interleaving pattern
+    REQUIRE(circuit.nodes[0].gate == GateType::M);
+    REQUIRE(circuit.nodes[0].targets[0].value() == 0);
+
+    REQUIRE(circuit.nodes[1].gate == GateType::READOUT_NOISE);
+    REQUIRE(circuit.nodes[1].targets[0].value() == 0);  // rec[0]
+
+    REQUIRE(circuit.nodes[2].gate == GateType::M);
+    REQUIRE(circuit.nodes[2].targets[0].value() == 1);
+
+    REQUIRE(circuit.nodes[3].gate == GateType::READOUT_NOISE);
+    REQUIRE(circuit.nodes[3].targets[0].value() == 1);  // rec[1]
+
+    REQUIRE(circuit.nodes[4].gate == GateType::M);
+    REQUIRE(circuit.nodes[4].targets[0].value() == 2);
+
+    REQUIRE(circuit.nodes[5].gate == GateType::READOUT_NOISE);
+    REQUIRE(circuit.nodes[5].targets[0].value() == 2);  // rec[2]
+}
+
+TEST_CASE("Parse MX MY with readout noise", "[parser][noise]") {
+    auto circuit = parse(R"(
+        MX(0.003) 0
+        MY(0.004) 1
+    )");
+
+    REQUIRE(circuit.nodes.size() == 4);
+    REQUIRE(circuit.num_measurements == 2);
+
+    REQUIRE(circuit.nodes[0].gate == GateType::MX);
+    REQUIRE(circuit.nodes[1].gate == GateType::READOUT_NOISE);
+    REQUIRE(circuit.nodes[1].arg == Catch::Approx(0.003));
+
+    REQUIRE(circuit.nodes[2].gate == GateType::MY);
+    REQUIRE(circuit.nodes[3].gate == GateType::READOUT_NOISE);
+    REQUIRE(circuit.nodes[3].arg == Catch::Approx(0.004));
+}
+
+TEST_CASE("Parse M without noise: no READOUT_NOISE emitted", "[parser][noise]") {
+    auto circuit = parse("M 0 1");
+
+    REQUIRE(circuit.nodes.size() == 2);
+    REQUIRE(circuit.nodes[0].gate == GateType::M);
+    REQUIRE(circuit.nodes[1].gate == GateType::M);
+}
+
+TEST_CASE("Parse QUBIT_COORDS silently discarded", "[parser][qec]") {
+    auto circuit = parse(R"(
+        QUBIT_COORDS(0, 0) 0
+        QUBIT_COORDS(1.5, 2.25) 1
+        H 0
+    )");
+
+    // Only the H gate should be in the AST
+    REQUIRE(circuit.nodes.size() == 1);
+    REQUIRE(circuit.nodes[0].gate == GateType::H);
+    REQUIRE(circuit.num_qubits == 1);
+}
+
+TEST_CASE("Parse SHIFT_COORDS silently discarded", "[parser][qec]") {
+    auto circuit = parse(R"(
+        H 0
+        SHIFT_COORDS(0, 0, 1)
+        H 1
+    )");
+
+    REQUIRE(circuit.nodes.size() == 2);
+    REQUIRE(circuit.nodes[0].gate == GateType::H);
+    REQUIRE(circuit.nodes[1].gate == GateType::H);
+}
+
+TEST_CASE("Parse DETECTOR with rec targets", "[parser][qec]") {
+    auto circuit = parse(R"(
+        M 0 1
+        DETECTOR rec[-1] rec[-2]
+    )");
+
+    REQUIRE(circuit.nodes.size() == 3);  // M, M, DETECTOR
+    REQUIRE(circuit.num_detectors == 1);
+
+    auto& det = circuit.nodes[2];
+    REQUIRE(det.gate == GateType::DETECTOR);
+    REQUIRE(det.targets.size() == 2);
+    REQUIRE(det.targets[0].is_rec());
+    REQUIRE(det.targets[0].value() == 1);  // rec[-1] -> absolute index 1
+    REQUIRE(det.targets[1].is_rec());
+    REQUIRE(det.targets[1].value() == 0);  // rec[-2] -> absolute index 0
+}
+
+TEST_CASE("Parse DETECTOR with coordinates discarded", "[parser][qec]") {
+    auto circuit = parse(R"(
+        M 0
+        DETECTOR(1.25, 0.25, 0) rec[-1]
+    )");
+
+    REQUIRE(circuit.nodes.size() == 2);
+    REQUIRE(circuit.num_detectors == 1);
+
+    auto& det = circuit.nodes[1];
+    REQUIRE(det.gate == GateType::DETECTOR);
+    REQUIRE(det.targets.size() == 1);
+    REQUIRE(det.targets[0].value() == 0);
+}
+
+TEST_CASE("Parse OBSERVABLE_INCLUDE", "[parser][qec]") {
+    auto circuit = parse(R"(
+        M 0 1 2
+        OBSERVABLE_INCLUDE(0) rec[-3] rec[-1]
+        OBSERVABLE_INCLUDE(2) rec[-2]
+    )");
+
+    REQUIRE(circuit.nodes.size() == 5);     // M, M, M, OBS_INC, OBS_INC
+    REQUIRE(circuit.num_observables == 3);  // max index 2 + 1
+
+    auto& obs0 = circuit.nodes[3];
+    REQUIRE(obs0.gate == GateType::OBSERVABLE_INCLUDE);
+    REQUIRE(obs0.arg == 0.0);  // Observable index 0
+    REQUIRE(obs0.targets.size() == 2);
+    REQUIRE(obs0.targets[0].value() == 0);  // rec[-3] -> 0
+    REQUIRE(obs0.targets[1].value() == 2);  // rec[-1] -> 2
+
+    auto& obs2 = circuit.nodes[4];
+    REQUIRE(obs2.arg == 2.0);  // Observable index 2
+    REQUIRE(obs2.targets.size() == 1);
+    REQUIRE(obs2.targets[0].value() == 1);  // rec[-2] -> 1
+}
+
+TEST_CASE("Error: R with noise argument", "[parser][noise]") {
+    REQUIRE_THROWS_AS(parse("R(0.001) 0"), ParseError);
+}
+
+TEST_CASE("Error: RX with noise argument", "[parser][noise]") {
+    REQUIRE_THROWS_AS(parse("RX(0.001) 0"), ParseError);
+}
+
+TEST_CASE("Error: DETECTOR with qubit target", "[parser][qec]") {
+    REQUIRE_THROWS_AS(parse("M 0\nDETECTOR 0"), ParseError);
+}
+
+TEST_CASE("Error: OBSERVABLE_INCLUDE with qubit target", "[parser][qec]") {
+    REQUIRE_THROWS_AS(parse("M 0\nOBSERVABLE_INCLUDE(0) 0"), ParseError);
+}
+
+TEST_CASE("Error: OBSERVABLE_INCLUDE with negative index", "[parser][qec]") {
+    REQUIRE_THROWS_AS(parse("M 0\nOBSERVABLE_INCLUDE(-1) rec[-1]"), ParseError);
+}
+
+TEST_CASE("Error: OBSERVABLE_INCLUDE with non-integer index", "[parser][qec]") {
+    REQUIRE_THROWS_AS(parse("M 0\nOBSERVABLE_INCLUDE(1.5) rec[-1]"), ParseError);
+}
+
+TEST_CASE("Parse representative QEC circuit", "[parser][qec][integration]") {
+    // Minimal circuit exercising all Phase 2.1 parsing features:
+    // - Coordinate annotations (discarded)
+    // - Noise channels (X_ERROR, Y_ERROR, Z_ERROR, DEPOLARIZE1, DEPOLARIZE2)
+    // - Noisy measurements decomposed to READOUT_NOISE
+    // - DETECTOR with coordinates and rec targets
+    // - OBSERVABLE_INCLUDE with observable index
+    // - Classical feedback
+    constexpr const char* kQecCircuit = R"(
+        # Coordinate annotations (silently discarded)
+        QUBIT_COORDS(0, 0) 0
+        QUBIT_COORDS(1, 0) 1
+        QUBIT_COORDS(2, 0) 2
+        QUBIT_COORDS(0, 1) 3
+
+        # Data qubit initialization with noise
+        RX 0 1
+        R 2 3
+        X_ERROR(0.001) 2 3
+        Z_ERROR(0.001) 0 1
+        DEPOLARIZE1(0.001) 0 1 2 3
+        TICK
+
+        # Entangling layer with two-qubit noise
+        CX 0 2 1 3
+        DEPOLARIZE2(0.001) 0 2 1 3
+        TICK
+
+        # Syndrome extraction with noisy measurement
+        M(0.001) 2 3
+        CX rec[-2] 0 rec[-1] 1
+        DETECTOR(0, 1, 0) rec[-2]
+        DETECTOR(1, 1, 0) rec[-1]
+        SHIFT_COORDS(0, 0, 1)
+        TICK
+
+        # Second round
+        R 2 3
+        Y_ERROR(0.001) 2 3
+        CX 0 2 1 3
+        DEPOLARIZE2(0.001) 0 2 1 3
+        MX(0.001) 0 1
+        M(0.001) 2 3
+
+        # Final detectors and observable
+        DETECTOR(0, 1, 1) rec[-4] rec[-2]
+        DETECTOR(1, 1, 1) rec[-3] rec[-1]
+        OBSERVABLE_INCLUDE(0) rec[-4] rec[-3]
+    )";
+
+    auto circuit = parse(kQecCircuit);
+
+    // Verify basic circuit properties
+    REQUIRE(circuit.num_qubits == 4);
+    REQUIRE(circuit.num_detectors == 4);
+    REQUIRE(circuit.num_observables == 1);
+
+    // Count gate types
+    size_t noise_count = 0;
+    size_t detector_count = 0;
+    size_t observable_count = 0;
+    size_t readout_noise_count = 0;
+    size_t tick_count = 0;
+
+    for (const auto& node : circuit.nodes) {
+        switch (node.gate) {
+            case GateType::X_ERROR:
+            case GateType::Y_ERROR:
+            case GateType::Z_ERROR:
+            case GateType::DEPOLARIZE1:
+            case GateType::DEPOLARIZE2:
+                noise_count++;
+                break;
+            case GateType::DETECTOR:
+                detector_count++;
+                break;
+            case GateType::OBSERVABLE_INCLUDE:
+                observable_count++;
+                break;
+            case GateType::READOUT_NOISE:
+                readout_noise_count++;
+                break;
+            case GateType::TICK:
+                tick_count++;
+                break;
+            default:
+                break;
+        }
+    }
+
+    // Verify noise gates parsed:
+    // X_ERROR(2,3)=2 + Z_ERROR(0,1)=2 + DEP1(0,1,2,3)=4 + DEP2(0-2,1-3)=2
+    // + Y_ERROR(2,3)=2 + DEP2(0-2,1-3)=2 = 14
+    REQUIRE(noise_count == 14);
+    REQUIRE(detector_count == 4);
+    REQUIRE(observable_count == 1);
+    // 6 noisy measurements: M(0.001) 2 3, MX(0.001) 0 1, M(0.001) 2 3
+    REQUIRE(readout_noise_count == 6);
+    REQUIRE(tick_count == 3);
+
+    // Verify QUBIT_COORDS and SHIFT_COORDS were discarded (no nodes for them)
+    for (const auto& node : circuit.nodes) {
+        // These gate types don't exist - coords are fully discarded
+        REQUIRE(node.gate != GateType::UNKNOWN);
+    }
 }
