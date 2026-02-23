@@ -650,6 +650,179 @@ HirModule trace(const Circuit& circuit) {
                 break;
             }
 
+            // Z-basis reset (hidden measurement + conditional correction)
+            case GateType::R: {
+                for (const auto& target : node.targets) {
+                    uint32_t qubit = target.value();
+                    uint64_t destab_mask, stab_mask;
+                    bool sign;
+
+                    // 1. Extract the rewound Z observable (what we measure) BEFORE collapse
+                    extract_rewound_z(sim, qubit, destab_mask, stab_mask, sign);
+
+                    // 2. Perform collapse and get AG pivot if anti-commuting
+                    bool outcome;
+                    auto ag_result = collapse_z_measurement(sim, qubit, outcome);
+
+                    // 3. Emit hidden MEASURE
+                    uint8_t ag_ref = outcome ? 1 : 0;
+                    AgMatrixIdx ag_idx = AgMatrixIdx::None;
+                    uint8_t ag_stab_slot = 0;
+                    if (ag_result.has_value()) {
+                        ag_idx = AgMatrixIdx{static_cast<uint32_t>(hir.ag_matrices.size())};
+                        hir.ag_matrices.push_back(std::move(ag_result->pivot));
+                        ag_stab_slot = ag_result->stab_slot;
+                    }
+
+                    // Note: meas_idx is passed but won't be used since hidden=true
+                    auto meas_op = HeisenbergOp::make_measure(
+                        destab_mask, stab_mask, sign, meas_idx, ag_idx, ag_ref, ag_stab_slot);
+                    meas_op.set_hidden(true);
+                    hir.ops.push_back(meas_op);
+
+                    // 4. Extract the rewound X (correction) AFTER collapse from post-collapse
+                    // tableau
+                    uint64_t corr_destab, corr_stab;
+                    bool corr_sign;
+                    extract_rewound_x(sim, qubit, corr_destab, corr_stab, corr_sign);
+
+                    // 5. Emit CONDITIONAL_PAULI with use_last_outcome=true
+                    auto cond_op = HeisenbergOp::make_conditional(corr_destab, corr_stab, corr_sign,
+                                                                  ControllingMeasIdx{0});
+                    cond_op.set_use_last_outcome(true);
+                    hir.ops.push_back(cond_op);
+                }
+                break;
+            }
+
+            // X-basis reset (hidden measurement + conditional correction)
+            case GateType::RX: {
+                for (const auto& target : node.targets) {
+                    uint32_t qubit = target.value();
+                    uint64_t destab_mask, stab_mask;
+                    bool sign;
+
+                    // 1. Extract the rewound X observable (what we measure) BEFORE collapse
+                    extract_rewound_x(sim, qubit, destab_mask, stab_mask, sign);
+
+                    // 2. Perform collapse and get AG pivot if anti-commuting
+                    bool outcome;
+                    auto ag_result = collapse_x_measurement(sim, qubit, outcome);
+
+                    // 3. Emit hidden MEASURE
+                    uint8_t ag_ref = outcome ? 1 : 0;
+                    AgMatrixIdx ag_idx = AgMatrixIdx::None;
+                    uint8_t ag_stab_slot = 0;
+                    if (ag_result.has_value()) {
+                        ag_idx = AgMatrixIdx{static_cast<uint32_t>(hir.ag_matrices.size())};
+                        hir.ag_matrices.push_back(std::move(ag_result->pivot));
+                        ag_stab_slot = ag_result->stab_slot;
+                    }
+
+                    auto meas_op = HeisenbergOp::make_measure(
+                        destab_mask, stab_mask, sign, meas_idx, ag_idx, ag_ref, ag_stab_slot);
+                    meas_op.set_hidden(true);
+                    hir.ops.push_back(meas_op);
+
+                    // 4. Extract the rewound Z (correction) AFTER collapse from post-collapse
+                    // tableau
+                    uint64_t corr_destab, corr_stab;
+                    bool corr_sign;
+                    extract_rewound_z(sim, qubit, corr_destab, corr_stab, corr_sign);
+
+                    // 5. Emit CONDITIONAL_PAULI with use_last_outcome=true
+                    auto cond_op = HeisenbergOp::make_conditional(corr_destab, corr_stab, corr_sign,
+                                                                  ControllingMeasIdx{0});
+                    cond_op.set_use_last_outcome(true);
+                    hir.ops.push_back(cond_op);
+                }
+                break;
+            }
+
+            // Measure-reset Z-basis (visible measurement + conditional correction)
+            case GateType::MR: {
+                for (const auto& target : node.targets) {
+                    uint32_t qubit = target.value();
+                    uint64_t destab_mask, stab_mask;
+                    bool sign;
+
+                    // 1. Extract the rewound Z observable BEFORE collapse
+                    extract_rewound_z(sim, qubit, destab_mask, stab_mask, sign);
+
+                    // 2. Perform collapse and get AG pivot if anti-commuting
+                    bool outcome;
+                    auto ag_result = collapse_z_measurement(sim, qubit, outcome);
+
+                    // 3. Emit visible MEASURE
+                    uint8_t ag_ref = outcome ? 1 : 0;
+                    AgMatrixIdx ag_idx = AgMatrixIdx::None;
+                    uint8_t ag_stab_slot = 0;
+                    if (ag_result.has_value()) {
+                        ag_idx = AgMatrixIdx{static_cast<uint32_t>(hir.ag_matrices.size())};
+                        hir.ag_matrices.push_back(std::move(ag_result->pivot));
+                        ag_stab_slot = ag_result->stab_slot;
+                    }
+
+                    hir.ops.push_back(HeisenbergOp::make_measure(
+                        destab_mask, stab_mask, sign, meas_idx, ag_idx, ag_ref, ag_stab_slot));
+                    ++meas_idx;
+
+                    // 4. Extract the rewound X (correction) AFTER collapse
+                    uint64_t corr_destab, corr_stab;
+                    bool corr_sign;
+                    extract_rewound_x(sim, qubit, corr_destab, corr_stab, corr_sign);
+
+                    // 5. Emit CONDITIONAL_PAULI with use_last_outcome=true
+                    auto cond_op = HeisenbergOp::make_conditional(corr_destab, corr_stab, corr_sign,
+                                                                  ControllingMeasIdx{0});
+                    cond_op.set_use_last_outcome(true);
+                    hir.ops.push_back(cond_op);
+                }
+                break;
+            }
+
+            // Measure-reset X-basis (visible measurement + conditional correction)
+            case GateType::MRX: {
+                for (const auto& target : node.targets) {
+                    uint32_t qubit = target.value();
+                    uint64_t destab_mask, stab_mask;
+                    bool sign;
+
+                    // 1. Extract the rewound X observable BEFORE collapse
+                    extract_rewound_x(sim, qubit, destab_mask, stab_mask, sign);
+
+                    // 2. Perform collapse and get AG pivot if anti-commuting
+                    bool outcome;
+                    auto ag_result = collapse_x_measurement(sim, qubit, outcome);
+
+                    // 3. Emit visible MEASURE
+                    uint8_t ag_ref = outcome ? 1 : 0;
+                    AgMatrixIdx ag_idx = AgMatrixIdx::None;
+                    uint8_t ag_stab_slot = 0;
+                    if (ag_result.has_value()) {
+                        ag_idx = AgMatrixIdx{static_cast<uint32_t>(hir.ag_matrices.size())};
+                        hir.ag_matrices.push_back(std::move(ag_result->pivot));
+                        ag_stab_slot = ag_result->stab_slot;
+                    }
+
+                    hir.ops.push_back(HeisenbergOp::make_measure(
+                        destab_mask, stab_mask, sign, meas_idx, ag_idx, ag_ref, ag_stab_slot));
+                    ++meas_idx;
+
+                    // 4. Extract the rewound Z (correction) AFTER collapse
+                    uint64_t corr_destab, corr_stab;
+                    bool corr_sign;
+                    extract_rewound_z(sim, qubit, corr_destab, corr_stab, corr_sign);
+
+                    // 5. Emit CONDITIONAL_PAULI with use_last_outcome=true
+                    auto cond_op = HeisenbergOp::make_conditional(corr_destab, corr_stab, corr_sign,
+                                                                  ControllingMeasIdx{0});
+                    cond_op.set_use_last_outcome(true);
+                    hir.ops.push_back(cond_op);
+                }
+                break;
+            }
+
             // TICK is a no-op annotation
             case GateType::TICK:
                 break;

@@ -199,8 +199,8 @@ TEST_CASE("Backend: T_DAG sets is_dagger flag", "[backend]") {
     )");
 
     REQUIRE(result.bytecode.size() == 2);
-    REQUIRE(result.bytecode[0].is_dagger == true);
-    REQUIRE(result.bytecode[1].is_dagger == false);
+    REQUIRE((result.bytecode[0].flags & Instruction::FLAG_IS_DAGGER) != 0);
+    REQUIRE((result.bytecode[1].flags & Instruction::FLAG_IS_DAGGER) == 0);
 }
 
 TEST_CASE("Backend: CX spreads T to create linear dependency", "[backend]") {
@@ -367,40 +367,55 @@ TEST_CASE("Backend: multiple measurements track correctly", "[backend]") {
 // Task 4.3: Classical Conditionals
 // =============================================================================
 
-TEST_CASE("Backend: reset emits conditional", "[backend]") {
-    // R = M + CX, which becomes MEASURE + CONDITIONAL
+TEST_CASE("Backend: reset emits hidden measurement and conditional", "[backend]") {
+    // R decomposes into hidden MEASURE + CONDITIONAL with FLAG_USE_LAST_OUTCOME
+    // Use T to ensure there's a GF(2) basis so we get a MEASURE_MERGE opcode
     auto result = compile(R"(
         H 0
+        T 0
         R 0
     )");
 
-    // Should have: MEASURE_*, possibly AG_PIVOT, then CONDITIONAL
+    // Should have hidden measurement or hidden AG_PIVOT, and conditional
+    bool found_hidden_meas = false;
+    bool found_conditional = false;
+    for (const auto& instr : result.bytecode) {
+        // Check for hidden MEASURE_* or hidden AG_PIVOT (when β ∉ span(V))
+        if (((instr.opcode == Opcode::OP_MEASURE_MERGE ||
+              instr.opcode == Opcode::OP_MEASURE_FILTER ||
+              instr.opcode == Opcode::OP_MEASURE_DETERMINISTIC ||
+              instr.opcode == Opcode::OP_AG_PIVOT)) &&
+            (instr.flags & Instruction::FLAG_HIDDEN)) {
+            found_hidden_meas = true;
+        }
+        if (instr.opcode == Opcode::OP_CONDITIONAL &&
+            (instr.flags & Instruction::FLAG_USE_LAST_OUTCOME)) {
+            found_conditional = true;
+        }
+    }
+    REQUIRE(found_hidden_meas);
+    REQUIRE(found_conditional);
+
+    // R has no visible measurement
+    REQUIRE(result.num_measurements == 0);
+}
+
+TEST_CASE("Backend: conditional Pauli has correct masks", "[backend]") {
+    // Test using explicit classical feedback to get OP_CONDITIONAL
+    auto result = compile(R"(
+        M 0
+        CX rec[-1] 1
+    )");
+
     bool found_conditional = false;
     for (const auto& instr : result.bytecode) {
         if (instr.opcode == Opcode::OP_CONDITIONAL) {
             found_conditional = true;
-            // Check that controlling_meas is set (index 0 for first measurement)
-            REQUIRE(instr.meta.controlling_meas == 0);
-        }
-    }
-    REQUIRE(found_conditional);
-}
-
-TEST_CASE("Backend: conditional Pauli has correct masks", "[backend]") {
-    auto result = compile(R"(
-        H 0
-        R 0
-    )");
-
-    for (const auto& instr : result.bytecode) {
-        if (instr.opcode == Opcode::OP_CONDITIONAL) {
-            // The conditional should have non-zero masks (applying X on reset)
-            // After H, the reset's CX applies X0 (rewound through H -> Z0)
-            // Actually depends on the Heisenberg picture state.
-            // Just verify masks are populated.
+            // The conditional should have non-zero masks
             REQUIRE((instr.meta.destab_mask != 0 || instr.meta.stab_mask != 0));
         }
     }
+    REQUIRE(found_conditional);
 }
 
 // =============================================================================

@@ -223,22 +223,22 @@ TEST_CASE("SVM: measurement on |+> gives ~50/50", "[svm]") {
     REQUIRE(ones < 600);
 }
 
-TEST_CASE("SVM: reset decomposes to M + conditional X", "[svm]") {
-    // R 0 is decomposed to M 0; CX rec[-1] 0
-    // On |1>, this should measure 1 and flip back to |0>
+TEST_CASE("SVM: reset puts qubit in zero state", "[svm]") {
+    // R 0 is a first-class reset operation
+    // On |1>, this should reset to |0>
     auto prog = compile(R"(
         X 0
         R 0
         M 0
     )");
 
-    // Should have: MEASURE (deterministic 1) + CONDITIONAL + MEASURE (deterministic 0)
-    REQUIRE(prog.num_measurements == 2);
+    // R has no visible measurement, only M produces one
+    REQUIRE(prog.num_measurements == 1);
 
     // Final measurement should always be 0 (reset worked)
     auto results = sample(prog, 100, 0);
     for (size_t i = 0; i < 100; ++i) {
-        REQUIRE(results.measurements[i * 2 + 1] == 0);  // Second measurement
+        REQUIRE(results.measurements[i] == 0);
     }
 }
 

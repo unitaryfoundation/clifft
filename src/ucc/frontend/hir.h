@@ -97,7 +97,7 @@ enum class ReadoutNoiseIdx : uint32_t {};
 
 // Operation types in the HIR
 enum class OpType : uint8_t {
-    T_GATE,             // T or T† gate (π/8 phase) - is_dagger distinguishes
+    T_GATE,             // T or T† gate (π/8 phase) - FLAG_IS_DAGGER distinguishes
     MEASURE,            // Destructive measurement (Z, X, or multi-Pauli)
     CONDITIONAL_PAULI,  // Classical feedback: apply Pauli if measurement was 1
     NOISE,              // Stochastic Pauli channel (references NoiseSite side-table)
@@ -124,16 +124,44 @@ enum class OpType : uint8_t {
 // All construction goes through static factory methods (make_tgate, make_measure,
 // make_conditional) to ensure type-safe initialization of the union payload.
 struct HeisenbergOp {
+    // Flag constants (matching Instruction flags)
+    static constexpr uint8_t FLAG_IS_DAGGER = 1 << 0;
+    static constexpr uint8_t FLAG_HIDDEN = 1 << 2;
+    static constexpr uint8_t FLAG_USE_LAST_OUTCOME = 1 << 3;
+
     // --- Accessors (common to all OpTypes) ---
 
     [[nodiscard]] OpType op_type() const { return type_; }
     [[nodiscard]] stim::bitword<64> destab_mask() const { return destab_mask_; }
     [[nodiscard]] stim::bitword<64> stab_mask() const { return stab_mask_; }
     [[nodiscard]] bool sign() const { return sign_; }
+    [[nodiscard]] uint8_t flags() const { return flags_; }
 
-    // --- T_GATE accessor ---
+    // --- Flag accessors and setters ---
 
-    [[nodiscard]] bool is_dagger() const { return is_dagger_; }
+    [[nodiscard]] bool is_dagger() const { return (flags_ & FLAG_IS_DAGGER) != 0; }
+    void set_dagger(bool v) {
+        if (v)
+            flags_ |= FLAG_IS_DAGGER;
+        else
+            flags_ &= ~FLAG_IS_DAGGER;
+    }
+
+    [[nodiscard]] bool is_hidden() const { return (flags_ & FLAG_HIDDEN) != 0; }
+    void set_hidden(bool v) {
+        if (v)
+            flags_ |= FLAG_HIDDEN;
+        else
+            flags_ &= ~FLAG_HIDDEN;
+    }
+
+    [[nodiscard]] bool use_last_outcome() const { return (flags_ & FLAG_USE_LAST_OUTCOME) != 0; }
+    void set_use_last_outcome(bool v) {
+        if (v)
+            flags_ |= FLAG_USE_LAST_OUTCOME;
+        else
+            flags_ &= ~FLAG_USE_LAST_OUTCOME;
+    }
 
     // --- MEASURE accessors (debug-asserted) ---
 
@@ -203,7 +231,8 @@ struct HeisenbergOp {
     // Factory for T/T† gates
     static HeisenbergOp make_tgate(stim::bitword<64> destab, stim::bitword<64> stab, bool s,
                                    bool dagger = false) {
-        HeisenbergOp op(OpType::T_GATE, destab, stab, s, dagger);
+        HeisenbergOp op(OpType::T_GATE, destab, stab, s);
+        op.set_dagger(dagger);
         return op;
     }
 
@@ -259,9 +288,8 @@ struct HeisenbergOp {
 
   private:
     // Private constructor - use factory methods
-    HeisenbergOp(OpType t, stim::bitword<64> destab, stim::bitword<64> stab, bool s,
-                 bool dagger = false)
-        : destab_mask_(destab), stab_mask_(stab), type_(t), sign_(s), is_dagger_(dagger) {
+    HeisenbergOp(OpType t, stim::bitword<64> destab, stim::bitword<64> stab, bool s)
+        : destab_mask_(destab), stab_mask_(stab), type_(t), sign_(s), flags_(0) {
         // Zero-initialize the union
         measure_ = {UINT32_MAX, 0, 0, 0};
     }
@@ -312,9 +340,9 @@ struct HeisenbergOp {
         } observable_;
     };
 
-    OpType type_;     // 1 byte
-    bool sign_;       // Phase sign: false = +, true = -  (1 byte)
-    bool is_dagger_;  // For T_GATE: true = T†, false = T (1 byte)
+    OpType type_;    // 1 byte
+    bool sign_;      // Phase sign: false = +, true = -  (1 byte)
+    uint8_t flags_;  // Bitfield flags (1 byte)
     // 1 byte padding -> Total: 32 bytes
 };
 
@@ -322,6 +350,10 @@ struct HeisenbergOp {
 static_assert(sizeof(HeisenbergOp) == 32, "HeisenbergOp must be exactly 32 bytes");
 
 // The complete HIR module - output of the Front-End.
+//
+// =============================================================================
+// HIR Module
+// =============================================================================
 //
 // AG pivot matrices use stim::Tableau<kStimWidth> directly. This provides:
 // - SIMD-aligned storage for efficient operations
@@ -355,7 +387,7 @@ struct HirModule {
 
     // Circuit metadata
     uint32_t num_qubits = 0;
-    uint32_t num_measurements = 0;
+    uint32_t num_measurements = 0;  // Visible measurements only (M, MX, MY, MPP, MR, MRX)
     uint32_t num_detectors = 0;
     uint32_t num_observables = 0;
 

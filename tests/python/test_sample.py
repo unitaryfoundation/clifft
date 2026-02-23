@@ -136,9 +136,31 @@ class TestSample:
             M 0
         """)
         meas, det, obs = ucc.sample(prog, 100, seed=42)
-        # Second measurement (after reset) should always be 0
+        # Only one visible measurement (from M 0, after reset)
+        # R's internal measurement is hidden, matching Stim behavior
+        assert meas.shape == (100, 1), f"Expected 1 visible measurement, got {meas.shape}"
+        # Measurement after reset should always be 0
         for shot in meas:
-            assert shot[1] == 0, f"Reset failed: {shot}"
+            assert shot[0] == 0, f"Reset failed: {shot}"
+
+    def test_sample_mr_visible(self) -> None:
+        """MR (measure-and-reset) produces visible measurement unlike R."""
+        # R produces 0 visible measurements, MR produces 1
+        prog_r = ucc.compile("R 0")
+        prog_mr = ucc.compile("MR 0")
+
+        assert prog_r.num_measurements == 0, "R should have 0 visible measurements"
+        assert prog_mr.num_measurements == 1, "MR should have 1 visible measurement"
+
+        # MR on |0⟩ should always measure 0
+        meas, _, _ = ucc.sample(prog_mr, 100, seed=42)
+        assert meas.shape == (100, 1)
+        assert np.all(meas == 0), "MR on |0⟩ should always measure 0"
+
+        # MR after X should measure 1
+        prog = ucc.compile("X 0\nMR 0")
+        meas, _, _ = ucc.sample(prog, 100, seed=42)
+        assert np.all(meas == 1), "MR after X should measure 1"
 
 
 class TestStatevector:

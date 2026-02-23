@@ -153,7 +153,7 @@ NB_MODULE(_ucc_core, m) {
             "Maximum GF(2) dimension (determines memory usage)")
         .def_prop_ro(
             "num_measurements", [](const ucc::CompiledModule& p) { return p.num_measurements; },
-            "Number of measurements in the circuit")
+            "Number of visible measurements in the circuit")
         .def_prop_ro(
             "num_detectors", [](const ucc::CompiledModule& p) { return p.num_detectors; },
             "Number of detectors in the circuit")

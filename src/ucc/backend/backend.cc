@@ -150,7 +150,7 @@ CompiledModule lower(const HirModule& hir) {
                 stim::bitword<kStimWidth> beta = destab;
 
                 Instruction instr{};
-                instr.is_dagger = is_dagger;
+                instr.flags = is_dagger ? Instruction::FLAG_IS_DAGGER : 0;
                 // base_phase_idx encodes sign and Y-count: i^y_count * (-1)^sign
                 instr.base_phase_idx = compute_base_phase_idx(destab, stab, sign);
                 instr.branch.destab_mask = static_cast<uint64_t>(destab);
@@ -193,12 +193,14 @@ CompiledModule lower(const HirModule& hir) {
                 bool sign = op.sign();
                 AgMatrixIdx ag_idx = op.ag_matrix_idx();
                 uint8_t ag_ref = op.ag_ref_outcome();
+                bool is_hidden = op.is_hidden();
                 bool emitted_merge = false;
 
                 // For measurements, β is the destab_mask (X-component of rewound observable)
                 stim::bitword<kStimWidth> beta = destab;
 
                 Instruction instr{};
+                instr.flags = is_hidden ? Instruction::FLAG_HIDDEN : 0;
                 // base_phase_idx encodes sign and Y-count: i^y_count * (-1)^sign
                 instr.base_phase_idx = compute_base_phase_idx(destab, stab, sign);
                 instr.ag_ref_outcome = ag_ref;
@@ -258,7 +260,13 @@ CompiledModule lower(const HirModule& hir) {
 
                     // If we just emitted MEASURE_MERGE, signal the SVM to reuse
                     // that outcome (don't sample fresh).
-                    pivot_instr.reuse_outcome = emitted_merge;
+                    if (emitted_merge) {
+                        pivot_instr.flags |= Instruction::FLAG_REUSE_OUTCOME;
+                    }
+                    // Pass hidden flag to AG_PIVOT too
+                    if (is_hidden) {
+                        pivot_instr.flags |= Instruction::FLAG_HIDDEN;
+                    }
 
                     // ag_stab_slot: stabilizer row where measured observable landed.
                     // Computed in frontend by scanning post-collapse tableau.
@@ -280,9 +288,11 @@ CompiledModule lower(const HirModule& hir) {
                 stim::bitword<kStimWidth> stab = op.stab_mask();
                 bool sign = op.sign();
                 ControllingMeasIdx ctrl = op.controlling_meas();
+                bool use_last_outcome = op.use_last_outcome();
 
                 Instruction instr{};
                 instr.opcode = Opcode::OP_CONDITIONAL;
+                instr.flags = use_last_outcome ? Instruction::FLAG_USE_LAST_OUTCOME : 0;
                 // base_phase_idx encodes sign and Y-count: i^y_count * (-1)^sign
                 instr.base_phase_idx = compute_base_phase_idx(destab, stab, sign);
                 instr.meta.controlling_meas = static_cast<uint32_t>(ctrl);

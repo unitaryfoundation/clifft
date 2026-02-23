@@ -152,34 +152,27 @@ TEST_CASE("Parse multi-target measurements", "[parser]") {
     }
 }
 
-TEST_CASE("Parse MR and MRX (decomposed)", "[parser]") {
-    // MR and MRX are decomposed at parse time:
-    // MR q  -> M q  + CX rec[-1] q
-    // MRX q -> MX q + CZ rec[-1] q
+TEST_CASE("Parse MR and MRX as first-class gates", "[parser]") {
+    // MR and MRX are kept as first-class gates (not decomposed)
     auto circuit = parse(R"(
         MR 0
         MRX 1
     )");
 
-    // 2 measurements + 2 conditional operations = 4 nodes
-    REQUIRE(circuit.nodes.size() == 4);
+    // 2 measure-reset gates = 2 nodes
+    REQUIRE(circuit.nodes.size() == 2);
+    // MR and MRX produce visible measurements
     REQUIRE(circuit.num_measurements == 2);
 
-    // MR 0 -> M 0 + CX rec[-1] 0
-    REQUIRE(circuit.nodes[0].gate == GateType::M);
+    // MR 0
+    REQUIRE(circuit.nodes[0].gate == GateType::MR);
+    REQUIRE(circuit.nodes[0].targets.size() == 1);
     REQUIRE(circuit.nodes[0].targets[0].value() == 0);
-    REQUIRE(circuit.nodes[1].gate == GateType::CX);
-    REQUIRE(circuit.nodes[1].targets[0].is_rec());
-    REQUIRE(circuit.nodes[1].targets[0].value() == 0);  // rec[0] absolute index
-    REQUIRE(circuit.nodes[1].targets[1].value() == 0);  // target qubit
 
-    // MRX 1 -> MX 1 + CZ rec[-1] 1
-    REQUIRE(circuit.nodes[2].gate == GateType::MX);
-    REQUIRE(circuit.nodes[2].targets[0].value() == 1);
-    REQUIRE(circuit.nodes[3].gate == GateType::CZ);
-    REQUIRE(circuit.nodes[3].targets[0].is_rec());
-    REQUIRE(circuit.nodes[3].targets[0].value() == 1);  // rec[1] absolute index
-    REQUIRE(circuit.nodes[3].targets[1].value() == 1);  // target qubit
+    // MRX 1
+    REQUIRE(circuit.nodes[1].gate == GateType::MRX);
+    REQUIRE(circuit.nodes[1].targets.size() == 1);
+    REQUIRE(circuit.nodes[1].targets[0].value() == 1);
 }
 
 TEST_CASE("Parse MPP single product", "[parser]") {
@@ -268,59 +261,43 @@ TEST_CASE("Parse noisy MPP multiple products each get READOUT_NOISE", "[parser][
     REQUIRE(circuit.nodes[3].targets[0].value() == 1);  // meas index 1
 }
 
-TEST_CASE("Parse reset decomposition R", "[parser]") {
+TEST_CASE("Parse reset R as first-class gate", "[parser]") {
     auto circuit = parse("R 0");
 
-    // R 0 -> M 0; CX rec[-1] 0
-    REQUIRE(circuit.nodes.size() == 2);
-    REQUIRE(circuit.num_measurements == 1);
+    // R is kept as a first-class gate, not decomposed
+    REQUIRE(circuit.nodes.size() == 1);
+    REQUIRE(circuit.num_measurements == 0);  // R has no visible measurement
 
-    // First: M 0
-    REQUIRE(circuit.nodes[0].gate == GateType::M);
+    REQUIRE(circuit.nodes[0].gate == GateType::R);
     REQUIRE(circuit.nodes[0].targets.size() == 1);
     REQUIRE(circuit.nodes[0].targets[0].value() == 0);
     REQUIRE(!circuit.nodes[0].targets[0].is_rec());
-
-    // Second: CX rec[0] 0 (rec[-1] resolved to absolute index 0)
-    REQUIRE(circuit.nodes[1].gate == GateType::CX);
-    REQUIRE(circuit.nodes[1].targets.size() == 2);
-    REQUIRE(circuit.nodes[1].targets[0].is_rec());
-    REQUIRE(circuit.nodes[1].targets[0].value() == 0);
-    REQUIRE(!circuit.nodes[1].targets[1].is_rec());
-    REQUIRE(circuit.nodes[1].targets[1].value() == 0);
 }
 
-TEST_CASE("Parse reset decomposition RX", "[parser]") {
+TEST_CASE("Parse reset RX as first-class gate", "[parser]") {
     auto circuit = parse("RX 0");
 
-    // RX 0 -> MX 0; CZ rec[-1] 0
-    REQUIRE(circuit.nodes.size() == 2);
-    REQUIRE(circuit.num_measurements == 1);
+    // RX is kept as a first-class gate, not decomposed
+    REQUIRE(circuit.nodes.size() == 1);
+    REQUIRE(circuit.num_measurements == 0);  // RX has no visible measurement
 
-    REQUIRE(circuit.nodes[0].gate == GateType::MX);
-    REQUIRE(circuit.nodes[1].gate == GateType::CZ);
-    REQUIRE(circuit.nodes[1].targets[0].is_rec());
+    REQUIRE(circuit.nodes[0].gate == GateType::RX);
 }
 
 TEST_CASE("Parse multiple resets", "[parser]") {
     auto circuit = parse("R 0 1 2");
 
-    // 3 resets -> 6 nodes (M + CX for each)
-    REQUIRE(circuit.nodes.size() == 6);
-    REQUIRE(circuit.num_measurements == 3);
+    // 3 resets -> 3 nodes (one per qubit)
+    REQUIRE(circuit.nodes.size() == 3);
+    REQUIRE(circuit.num_measurements == 0);  // No visible measurements from R
 
-    // Check structure: M, CX, M, CX, M, CX
-    REQUIRE(circuit.nodes[0].gate == GateType::M);
-    REQUIRE(circuit.nodes[1].gate == GateType::CX);
-    REQUIRE(circuit.nodes[2].gate == GateType::M);
-    REQUIRE(circuit.nodes[3].gate == GateType::CX);
-    REQUIRE(circuit.nodes[4].gate == GateType::M);
-    REQUIRE(circuit.nodes[5].gate == GateType::CX);
-
-    // Verify rec references point to the immediately preceding measurement.
-    REQUIRE(circuit.nodes[1].targets[0].value() == 0);  // rec[-1] -> 0
-    REQUIRE(circuit.nodes[3].targets[0].value() == 1);  // rec[-1] -> 1
-    REQUIRE(circuit.nodes[5].targets[0].value() == 2);  // rec[-1] -> 2
+    // All should be R gates
+    REQUIRE(circuit.nodes[0].gate == GateType::R);
+    REQUIRE(circuit.nodes[0].targets[0].value() == 0);
+    REQUIRE(circuit.nodes[1].gate == GateType::R);
+    REQUIRE(circuit.nodes[1].targets[0].value() == 1);
+    REQUIRE(circuit.nodes[2].gate == GateType::R);
+    REQUIRE(circuit.nodes[2].targets[0].value() == 2);
 }
 
 TEST_CASE("Parse classical feedback CX rec[-k] q", "[parser]") {
@@ -506,11 +483,11 @@ TEST_CASE("Realistic circuit: surface code syndrome extraction", "[parser]") {
         M 1
     )");
 
-    // 3 resets (6 nodes) + H + CX + CX + H + M = 11 nodes
-    REQUIRE(circuit.nodes.size() == 11);
+    // 3 resets + H + CX + CX + H + M = 8 nodes
+    REQUIRE(circuit.nodes.size() == 8);
     REQUIRE(circuit.num_qubits == 3);
-    // 3 from resets + 1 final measurement = 4
-    REQUIRE(circuit.num_measurements == 4);
+    // Resets have no visible measurement, only M 1 counts
+    REQUIRE(circuit.num_measurements == 1);
 }
 
 // =============================================================================

@@ -7,7 +7,7 @@
 //
 // Key design decisions:
 // - Targets use the 32-bit encoding from target.h (qubit, rec, or Pauli-tagged)
-// - Resets (R, RX) are decomposed by the parser into M + CX/CZ rec[-1]
+// - Resets (R, RX, MR, MRX) are kept as first-class operations (not decomposed)
 // - MPP with multiple products is unrolled into separate AstNodes
 // - REPEAT blocks are not supported in MVP (parser will error)
 
@@ -44,8 +44,8 @@ struct Circuit {
     // Number of qubits (max qubit index + 1).
     uint32_t num_qubits = 0;
 
-    // Number of measurements in the circuit.
-    // Used for resolving rec[-k] references during parsing.
+    // Number of visible measurements (M, MX, MY, MPP, MR, MRX).
+    // R and RX are resets without visible measurements.
     uint32_t num_measurements = 0;
 
     // Number of DETECTOR declarations.

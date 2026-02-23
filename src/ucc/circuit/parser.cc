@@ -38,9 +38,12 @@ const std::unordered_map<std::string_view, GateType> kGateNames = {
     {"M", GateType::M},
     {"MX", GateType::MX},
     {"MY", GateType::MY},
-    {"MR", GateType::M},    // Maps to M for parse_gate_name(); decomposed in parse_line()
-    {"MRX", GateType::MX},  // Maps to MX for parse_gate_name(); decomposed in parse_line()
+    {"MR", GateType::MR},
+    {"MRX", GateType::MRX},
     {"MPP", GateType::MPP},
+    // Resets
+    {"R", GateType::R},
+    {"RX", GateType::RX},
     // Noise channels
     {"X_ERROR", GateType::X_ERROR},
     {"Y_ERROR", GateType::Y_ERROR},
@@ -52,14 +55,6 @@ const std::unordered_map<std::string_view, GateType> kGateNames = {
     {"OBSERVABLE_INCLUDE", GateType::OBSERVABLE_INCLUDE},
     // Annotations
     {"TICK", GateType::TICK},
-};
-
-// Reset gates that need decomposition.
-const std::unordered_map<std::string_view, std::pair<GateType, GateType>> kResetDecomposition = {
-    {"R", {GateType::M, GateType::CX}},     // R -> M + CX rec[-1]
-    {"RX", {GateType::MX, GateType::CZ}},   // RX -> MX + CZ rec[-1]
-    {"MR", {GateType::M, GateType::CX}},    // MR -> M + CX rec[-1]
-    {"MRX", {GateType::MX, GateType::CZ}},  // MRX -> MX + CZ rec[-1]
 };
 
 // Coordinate annotations to silently discard (no AST nodes emitted).
@@ -230,14 +225,6 @@ class Parser {
             return;
         }
 
-        // Check for reset decomposition.
-        auto reset_it = kResetDecomposition.find(gate_name);
-        if (reset_it != kResetDecomposition.end()) {
-            parse_reset(rest, line_num, circuit, reset_it->second.first, reset_it->second.second,
-                        arg);
-            return;
-        }
-
         // Look up gate type.
         auto gate_it = kGateNames.find(gate_name);
         if (gate_it == kGateNames.end()) {
@@ -272,6 +259,11 @@ class Parser {
     // Parse a standard gate with qubit targets (possibly with rec references).
     void parse_standard_gate(GateType gate, std::string_view targets_str, int line_num,
                              Circuit& circuit, double arg) {
+        // Resets (R, RX) don't accept noise arguments.
+        if (is_reset(gate) && arg != 0.0) {
+            throw ParseError("Reset gates do not accept arguments", line_num);
+        }
+
         std::vector<Target> targets;
         GateArity arity = gate_arity(gate);
 
@@ -396,24 +388,25 @@ class Parser {
                 throw ParseError("Invalid rec offset: " + std::string(offset_str), line_num);
             }
 
-            // rec[-k] means k measurements back from current count.
-            // We resolve to absolute index.
+            // rec[-k] means k measurements back from current visible count.
             if (offset >= 0) {
                 throw ParseError("rec offset must be negative", line_num);
             }
 
-            int abs_index = static_cast<int>(circuit.num_measurements) + offset;
-            if (abs_index < 0) {
+            // Calculate measurement index
+            int meas_count = static_cast<int>(circuit.num_measurements);
+            int meas_index = meas_count + offset;
+            if (meas_index < 0) {
                 throw ParseError("rec reference out of bounds: rec[" + std::to_string(offset) + "]",
                                  line_num);
             }
 
-            // Validate that the resolved index fits in 28-bit value mask.
-            if (static_cast<uint32_t>(abs_index) >= (1u << 28)) {
+            // Validate that the index fits in 28-bit value mask.
+            if (static_cast<uint32_t>(meas_index) >= (1u << 28)) {
                 throw ParseError("Measurement index too large (must be < 2^28)", line_num);
             }
 
-            Target result = Target::rec(static_cast<uint32_t>(abs_index));
+            Target result = Target::rec(static_cast<uint32_t>(meas_index));
             return inverted ? result.inverted() : result;
         }
 
@@ -526,6 +519,7 @@ class Parser {
             double meas_arg = is_noisy_meas ? 0.0 : arg;
 
             // Emit one AstNode per product.
+            // MPP is a visible measurement.
             AstNode node{GateType::MPP, std::move(pauli_targets), meas_arg};
             circuit.num_measurements++;
             circuit.nodes.push_back(std::move(node));
@@ -609,57 +603,6 @@ class Parser {
         circuit.nodes.push_back({GateType::OBSERVABLE_INCLUDE, std::move(targets), arg});
     }
 
-    // Parse reset and decompose into measurement + conditional feedback.
-    void parse_reset(std::string_view targets_str, int line_num, Circuit& circuit,
-                     GateType meas_gate, GateType feedback_gate, double arg) {
-        // Reset doesn't use arguments; reject if provided.
-        if (arg != 0.0) {
-            throw ParseError("Reset gates do not accept arguments", line_num);
-        }
-
-        // Parse qubit targets.
-        std::string_view remaining = targets_str;
-        uint32_t target_count = 0;
-
-        while (true) {
-            std::string_view token = next_token(remaining);
-            if (token.empty())
-                break;
-
-            if (target_count >= kMaxTargetsPerInstruction) {
-                throw ParseError("Too many reset targets (limit: " +
-                                     std::to_string(kMaxTargetsPerInstruction) + ")",
-                                 line_num);
-            }
-            target_count++;
-
-            uint32_t qubit;
-            if (!parse_uint(token, qubit)) {
-                throw ParseError("Invalid reset target: " + std::string(token), line_num);
-            }
-
-            // Validate qubit index fits in 28-bit encoding.
-            if (qubit >= (1u << 28)) {
-                throw ParseError("Qubit index too large (must be < 2^28)", line_num);
-            }
-
-            // Update max qubit.
-            circuit.num_qubits = std::max(circuit.num_qubits, qubit + 1);
-
-            // Emit measurement.
-            circuit.nodes.push_back({meas_gate, {Target::qubit(qubit)}, 0.0});
-            circuit.num_measurements++;
-
-            // Emit conditional feedback: CX/CZ rec[-1] qubit.
-            Target rec_target = Target::rec(circuit.num_measurements - 1);
-            circuit.nodes.push_back({feedback_gate, {rec_target, Target::qubit(qubit)}, 0.0});
-        }
-
-        if (target_count == 0) {
-            throw ParseError("Reset requires at least one qubit target", line_num);
-        }
-    }
-
     // Update circuit statistics after adding a node.
     void update_circuit_stats(const AstNode& node, Circuit& circuit) {
         // Update qubit count.
@@ -670,7 +613,9 @@ class Parser {
             }
         }
 
-        // Update measurement count.
+        // Update measurement count for visible measurements.
+        // is_measurement includes M, MX, MY, MR, MRX, MPP.
+        // R and RX are resets without visible measurements (is_reset returns true).
         if (is_measurement(node.gate)) {
             circuit.num_measurements++;
         }

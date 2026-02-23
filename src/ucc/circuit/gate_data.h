@@ -37,9 +37,13 @@ enum class GateType : uint16_t {
     M,    // Z-basis measurement
     MX,   // X-basis measurement
     MY,   // Y-basis measurement
-    MR,   // Measure + reset (Z-basis)
-    MRX,  // Measure + reset (X-basis)
+    MR,   // Measure + reset (Z-basis) - result visible
+    MRX,  // Measure + reset (X-basis) - result visible
     MPP,  // Multi-Pauli measurement
+
+    // Resets (no visible measurement)
+    R,   // Reset to |0⟩ (Z-basis)
+    RX,  // Reset to |+⟩ (X-basis)
 
     // Noise channels
     X_ERROR,      // Single-qubit X error
@@ -107,7 +111,7 @@ inline constexpr bool is_clifford(GateType g) {
     }
 }
 
-// Check if a gate is a measurement.
+// Check if a gate is a measurement (produces visible outcome).
 inline constexpr bool is_measurement(GateType g) {
     switch (g) {
         case GateType::M:
@@ -116,6 +120,28 @@ inline constexpr bool is_measurement(GateType g) {
         case GateType::MR:
         case GateType::MRX:
         case GateType::MPP:
+            return true;
+        default:
+            return false;
+    }
+}
+
+// Check if a gate is a reset (no visible outcome, but collapses state).
+inline constexpr bool is_reset(GateType g) {
+    switch (g) {
+        case GateType::R:
+        case GateType::RX:
+            return true;
+        default:
+            return false;
+    }
+}
+
+// Check if a gate is a measure-reset (produces visible outcome AND resets).
+inline constexpr bool is_measure_reset(GateType g) {
+    switch (g) {
+        case GateType::MR:
+        case GateType::MRX:
             return true;
         default:
             return false;
@@ -174,6 +200,10 @@ inline constexpr std::string_view gate_name(GateType g) {
             return "MRX";
         case GateType::MPP:
             return "MPP";
+        case GateType::R:
+            return "R";
+        case GateType::RX:
+            return "RX";
         case GateType::X_ERROR:
             return "X_ERROR";
         case GateType::Y_ERROR:

@@ -148,8 +148,9 @@ void op_branch(SchrodingerState& state, const Instruction& instr, uint32_t& curr
 
     std::complex<double> base_phase = resolve_sign(state, instr);
     // T = I - i*tan(π/8)*Z, T† = I + i*tan(π/8)*Z
+    bool is_dagger = (instr.flags & Instruction::FLAG_IS_DAGGER) != 0;
     std::complex<double> rel_weight =
-        instr.is_dagger ? std::complex<double>(0.0, kTanPi8) : std::complex<double>(0.0, -kTanPi8);
+        is_dagger ? std::complex<double>(0.0, kTanPi8) : std::complex<double>(0.0, -kTanPi8);
 
     // Precompute the two possible phase factors (branchless array lookup)
     std::complex<double> factors[2] = {rel_weight * base_phase, -rel_weight * base_phase};
@@ -175,8 +176,9 @@ void op_collide(SchrodingerState& state, const Instruction& instr, uint32_t curr
 
     std::complex<double> base_phase = resolve_sign(state, instr);
     // T = I - i*tan(π/8)*Z, T† = I + i*tan(π/8)*Z
+    bool is_dagger = (instr.flags & Instruction::FLAG_IS_DAGGER) != 0;
     std::complex<double> rel_weight =
-        instr.is_dagger ? std::complex<double>(0.0, kTanPi8) : std::complex<double>(0.0, -kTanPi8);
+        is_dagger ? std::complex<double>(0.0, kTanPi8) : std::complex<double>(0.0, -kTanPi8);
 
     std::complex<double> factors[2] = {rel_weight * base_phase, -rel_weight * base_phase};
 
@@ -212,11 +214,16 @@ void op_collide(SchrodingerState& state, const Instruction& instr, uint32_t curr
 // Even though β=0 means no new dimension, the Z components can still
 // anti-commute with active basis vectors. Different amplitudes may receive
 // different phases based on commutation_mask.
+// Helper to check is_dagger flag
+inline bool instr_is_dagger(const Instruction& instr) {
+    return (instr.flags & Instruction::FLAG_IS_DAGGER) != 0;
+}
+
 void op_scalar_phase(SchrodingerState& state, const Instruction& instr, uint32_t current_rank) {
     std::complex<double> base_phase = resolve_sign(state, instr);
     // T = I - i*tan(π/8)*Z, T† = I + i*tan(π/8)*Z
-    std::complex<double> i_tan =
-        instr.is_dagger ? std::complex<double>(0.0, kTanPi8) : std::complex<double>(0.0, -kTanPi8);
+    std::complex<double> i_tan = instr_is_dagger(instr) ? std::complex<double>(0.0, kTanPi8)
+                                                        : std::complex<double>(0.0, -kTanPi8);
 
     // Phase depends on whether each basis index anti-commutes with observable
     std::complex<double> factors[2] = {1.0 + i_tan * base_phase, 1.0 - i_tan * base_phase};
@@ -233,8 +240,9 @@ void op_scalar_phase(SchrodingerState& state, const Instruction& instr, uint32_t
 // Uses projective butterfly: (I ± M)/2 requires interference v[α] ± phase*v[α ⊕ β].
 // The phase includes base_phase (Y-count and sign) and commutation parity.
 // Block-based iteration with single-pass butterfly+compaction.
-void op_measure_merge(SchrodingerState& state, const Instruction& instr, uint32_t& current_rank,
-                      uint32_t meas_idx) {
+// Returns the sampled outcome.
+uint8_t op_measure_merge(SchrodingerState& state, const Instruction& instr,
+                         uint32_t& current_rank) {
     // Defensive assertions to catch backend logic errors
     assert(current_rank >= 1 && "MEASURE_MERGE requires at least one dimension");
     assert(instr.branch.x_mask != 0 && "MEASURE_MERGE requires nonzero x_mask");
@@ -273,17 +281,11 @@ void op_measure_merge(SchrodingerState& state, const Instruction& instr, uint32_
 
     double total = prob_0 + prob_1;
     if (total < 1e-30) {
-        state.meas_record[meas_idx] = 0;
-        return;
+        return 0;
     }
 
     double r = state.random_double();
     uint8_t internal_outcome = (r < prob_0 / total) ? 0 : 1;
-
-    // Because base_phase includes the exact frame parity and operator sign,
-    // internal_outcome IS the physical outcome (no additional XOR needed).
-    // Do NOT XOR with ag_ref_outcome here - that's for AG_PIVOT divergence calculation.
-    state.meas_record[meas_idx] = internal_outcome;
 
     double norm = 1.0 / std::sqrt(internal_outcome ? prob_1 : prob_0);
 
@@ -316,12 +318,14 @@ void op_measure_merge(SchrodingerState& state, const Instruction& instr, uint32_
         }
     }
     current_rank--;
+    return internal_outcome;
 }
 
 // OP_MEASURE_FILTER: Commuting measurement with β=0 but nonzero commutation.
 // Observable commutes with tableau but has sign dependence on GF(2) index.
-void op_measure_filter(SchrodingerState& state, const Instruction& instr, uint32_t current_rank,
-                       uint32_t meas_idx) {
+// Returns the sampled outcome.
+uint8_t op_measure_filter(SchrodingerState& state, const Instruction& instr,
+                          uint32_t current_rank) {
     uint64_t size = 1ULL << current_rank;  // 64-bit to avoid UB
     auto* v = state.v();
     double prob_0 = 0.0, prob_1 = 0.0;
@@ -337,21 +341,19 @@ void op_measure_filter(SchrodingerState& state, const Instruction& instr, uint32
 
     double total = prob_0 + prob_1;
     if (total < 1e-30) {
-        state.meas_record[meas_idx] = 0;
-        return;
+        return 0;
     }
 
     // Sample internal outcome
     double r = state.random_double();
     uint8_t internal_outcome = (r < prob_0 / total) ? 0 : 1;
 
-    // Apply Pauli frame parity
+    // Apply Pauli frame parity to get the physical outcome
     uint64_t anti_comm = (state.destab_signs & instr.branch.stab_mask) ^
                          (state.stab_signs & instr.branch.destab_mask);
     int frame_parity = std::popcount(anti_comm) & 1;
 
-    state.meas_record[meas_idx] =
-        internal_outcome ^ static_cast<uint8_t>(frame_parity) ^ instr.ag_ref_outcome;
+    uint8_t outcome = internal_outcome ^ static_cast<uint8_t>(frame_parity) ^ instr.ag_ref_outcome;
 
     // Zero out amplitudes with wrong parity and renormalize
     // Use branchless multiplier: parity XOR outcome == 0 means keep, == 1 means zero
@@ -361,12 +363,13 @@ void op_measure_filter(SchrodingerState& state, const Instruction& instr, uint32
         int parity = compute_sign_parity(static_cast<uint32_t>(alpha), instr.commutation_mask);
         v[alpha] *= multipliers[parity ^ internal_outcome];  // Branchless
     }
+    return outcome;
 }
 
 // OP_MEASURE_DETERMINISTIC: Fully deterministic measurement (β=0, comm=0).
 // Outcome determined purely by Pauli frame signs.
-void op_measure_deterministic(SchrodingerState& state, const Instruction& instr,
-                              uint32_t meas_idx) {
+// Returns the computed outcome.
+uint8_t op_measure_deterministic(SchrodingerState& state, const Instruction& instr) {
     // The measurement observable is P = X^destab_mask * Z^stab_mask.
     // The Pauli frame has accumulated X^destab_signs * Z^stab_signs.
     // Anti-commutation: X anti-commutes with Z, so frame X bits that overlap
@@ -377,19 +380,19 @@ void op_measure_deterministic(SchrodingerState& state, const Instruction& instr,
                          (state.stab_signs & instr.branch.destab_mask);
     int parity = std::popcount(anti_comm) & 1;
 
-    uint8_t outcome = static_cast<uint8_t>(parity) ^ instr.ag_ref_outcome;
-    state.meas_record[meas_idx] = outcome;
+    return static_cast<uint8_t>(parity) ^ instr.ag_ref_outcome;
 }
 
 // OP_AG_PIVOT: Aaronson-Gottesman pivot for anti-commuting measurements.
-// When reuse_outcome=true, reuse outcome from preceding MERGE.
-// Otherwise, sample fresh 50/50 outcome.
+// Uses last_outcome when FLAG_REUSE_OUTCOME is set (follows MEASURE_MERGE).
+// Otherwise samples fresh 50/50 outcome.
+// Returns the outcome for use by subsequent operations.
 //
 // Transforms the error frame through the AG pivot matrix (mapping old logical
 // coordinates to new logical coordinates), then injects the measurement
 // divergence by XORing the pivot slot into destab_signs.
-void op_ag_pivot(SchrodingerState& state, const Instruction& instr, const ConstantPool& pool,
-                 uint32_t meas_idx, bool use_prev_outcome) {
+uint8_t op_ag_pivot(SchrodingerState& state, const Instruction& instr, const ConstantPool& pool,
+                    uint8_t last_outcome) {
     // Compute error anti-commutation for both branches.
     // The error frame anti-commutes with the measured observable if:
     //   (error_X & obs_Z) XOR (error_Z & obs_X) has odd popcount
@@ -399,27 +402,29 @@ void op_ag_pivot(SchrodingerState& state, const Instruction& instr, const Consta
     int error_parity = std::popcount(anti_comm) & 1;
 
     uint8_t divergence;
-    if (use_prev_outcome) {
-        // Extract clean divergence from the recorded outcome.
+    uint8_t outcome;
+    bool reuse_outcome = (instr.flags & Instruction::FLAG_REUSE_OUTCOME) != 0;
+
+    if (reuse_outcome) {
+        // Extract clean divergence from the provided outcome.
         //
         // When MEASURE_MERGE precedes AG_PIVOT, the interference-based
         // measurement naturally incorporates error_parity via the phase
-        // accumulation in resolve_sign(). The recorded outcome 'm' satisfies:
+        // accumulation in resolve_sign(). The outcome 'm' satisfies:
         //   m = d ^ error_parity ^ r   (where d=divergence, r=reference)
         //
         // We need the clean divergence 'd' to correctly update the error
         // frame, so we solve for it:
         //   d = m ^ error_parity ^ r
-        divergence =
-            state.meas_record[meas_idx] ^ static_cast<uint8_t>(error_parity) ^ instr.ag_ref_outcome;
+        divergence = last_outcome ^ static_cast<uint8_t>(error_parity) ^ instr.ag_ref_outcome;
+        outcome = last_outcome;
     } else {
         // Standalone AG_PIVOT: sample random 50/50.
         // The outcome is: (random divergence) XOR (error parity) XOR (reference)
         // This correctly accounts for errors flipping the measurement outcome.
         double r = state.random_double();
         divergence = (r < 0.5) ? 0 : 1;
-        state.meas_record[meas_idx] =
-            divergence ^ static_cast<uint8_t>(error_parity) ^ instr.ag_ref_outcome;
+        outcome = divergence ^ static_cast<uint8_t>(error_parity) ^ instr.ag_ref_outcome;
     }
 
     // Full Matrix Transformation of the Error Frame
@@ -449,12 +454,21 @@ void op_ag_pivot(SchrodingerState& state, const Instruction& instr, const Consta
 
     state.destab_signs = new_destab;
     state.stab_signs = new_stab;
+
+    return outcome;
 }
 
-// OP_CONDITIONAL: Apply Pauli correction if measurement was 1.
-void op_conditional(SchrodingerState& state, const Instruction& instr) {
-    uint32_t meas_idx = instr.meta.controlling_meas;
-    if (state.meas_record[meas_idx] == 1) {
+// OP_CONDITIONAL: Apply Pauli correction based on measurement outcome.
+// Uses last_outcome when FLAG_USE_LAST_OUTCOME is set (for reset decomposition).
+void op_conditional(SchrodingerState& state, const Instruction& instr, uint8_t last_outcome) {
+    uint8_t ctrl_val;
+    if ((instr.flags & Instruction::FLAG_USE_LAST_OUTCOME) != 0) {
+        ctrl_val = last_outcome;
+    } else {
+        ctrl_val = state.meas_record[instr.meta.controlling_meas];
+    }
+
+    if (ctrl_val == 1) {
         // XOR the Pauli into the frame
         state.destab_signs ^= instr.meta.destab_mask;
         state.stab_signs ^= instr.meta.stab_mask;
@@ -471,6 +485,7 @@ void execute(const CompiledModule& program, SchrodingerState& state) {
     uint32_t current_rank = 0;  // Start with rank 0 (single amplitude)
     uint32_t meas_idx = 0;
     uint32_t det_idx = 0;
+    uint8_t last_outcome = 0;  // Tracks outcome for hidden measurements / reset
 
     const auto& schedule = program.constant_pool.noise_schedule;
     const auto& det_targets = program.constant_pool.detector_targets;
@@ -519,33 +534,47 @@ void execute(const CompiledModule& program, SchrodingerState& state) {
                 op_scalar_phase(state, instr, current_rank);
                 break;
 
-            case Opcode::OP_MEASURE_MERGE:
-                op_measure_merge(state, instr, current_rank, meas_idx++);
-                break;
-
-            case Opcode::OP_MEASURE_FILTER:
-                op_measure_filter(state, instr, current_rank, meas_idx++);
-                break;
-
-            case Opcode::OP_MEASURE_DETERMINISTIC:
-                op_measure_deterministic(state, instr, meas_idx++);
-                break;
-
-            case Opcode::OP_AG_PIVOT:
-                // Double-sample fix: reuse_outcome=true means reuse previous outcome
-                if (instr.reuse_outcome) {
-                    // Follows a MERGE: do not increment meas_idx, use previous outcome.
-                    // Backend should never emit reuse_outcome=true before any measurement.
-                    assert(meas_idx > 0 && "OP_AG_PIVOT reuse_outcome requires prior measurement");
-                    op_ag_pivot(state, instr, program.constant_pool, meas_idx - 1, true);
-                } else {
-                    // Standalone AG_PIVOT: sample fresh and increment
-                    op_ag_pivot(state, instr, program.constant_pool, meas_idx++, false);
+            case Opcode::OP_MEASURE_MERGE: {
+                last_outcome = op_measure_merge(state, instr, current_rank);
+                bool is_hidden = (instr.flags & Instruction::FLAG_HIDDEN) != 0;
+                if (!is_hidden) {
+                    state.meas_record[meas_idx++] = last_outcome;
                 }
                 break;
+            }
+
+            case Opcode::OP_MEASURE_FILTER: {
+                last_outcome = op_measure_filter(state, instr, current_rank);
+                bool is_hidden = (instr.flags & Instruction::FLAG_HIDDEN) != 0;
+                if (!is_hidden) {
+                    state.meas_record[meas_idx++] = last_outcome;
+                }
+                break;
+            }
+
+            case Opcode::OP_MEASURE_DETERMINISTIC: {
+                last_outcome = op_measure_deterministic(state, instr);
+                bool is_hidden = (instr.flags & Instruction::FLAG_HIDDEN) != 0;
+                if (!is_hidden) {
+                    state.meas_record[meas_idx++] = last_outcome;
+                }
+                break;
+            }
+
+            case Opcode::OP_AG_PIVOT: {
+                // Use last_outcome when FLAG_REUSE_OUTCOME is set (follows MEASURE_MERGE)
+                last_outcome = op_ag_pivot(state, instr, program.constant_pool, last_outcome);
+                bool is_hidden = (instr.flags & Instruction::FLAG_HIDDEN) != 0;
+                bool reuse_outcome = (instr.flags & Instruction::FLAG_REUSE_OUTCOME) != 0;
+                // Only write to meas_record if not hidden and not reusing (standalone pivot)
+                if (!is_hidden && !reuse_outcome) {
+                    state.meas_record[meas_idx++] = last_outcome;
+                }
+                break;
+            }
 
             case Opcode::OP_CONDITIONAL:
-                op_conditional(state, instr);
+                op_conditional(state, instr, last_outcome);
                 break;
 
             case Opcode::OP_READOUT_NOISE:

@@ -71,6 +71,10 @@ select = [
 ]
 ignore = []
 
+[tool.ruff.lint.per-file-ignores]
+# Allow long lines in test file with embedded circuit (Stim format requires it)
+"tests/python/test_statistical_equivalence.py" = ["E501"]
+
 [tool.ruff.lint.isort]
 known-first-party = ["ucc"]
 

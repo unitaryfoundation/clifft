@@ -174,53 +174,53 @@ TEST_CASE("Frontend: X-basis measurement", "[frontend]") {
     REQUIRE(hir.ops[0].stab_mask() == Z(0));  // Z on qubit 0
 }
 
-TEST_CASE("Frontend: reset decomposition (R = M + CX rec[-1])", "[frontend]") {
+TEST_CASE("Frontend: reset R as first-class operation", "[frontend]") {
     auto circuit = parse(R"(
         H 0
         R 0
     )");
     auto hir = trace(circuit);
 
-    // R is decomposed by parser into M + CX rec[-1] q
-    // Should produce: MEASURE + CONDITIONAL_PAULI
+    // R decomposes into hidden MEASURE + CONDITIONAL with use_last_outcome flag
     REQUIRE(hir.num_ops() == 2);
-
-    // First op: measurement
     REQUIRE(hir.ops[0].op_type() == OpType::MEASURE);
-    REQUIRE(hir.ops[0].meas_record_idx() == MeasRecordIdx{0});
-
-    // Second op: conditional X (from CX rec[-1] 0)
+    REQUIRE(hir.ops[0].is_hidden());  // Hidden measurement for reset
     REQUIRE(hir.ops[1].op_type() == OpType::CONDITIONAL_PAULI);
-    REQUIRE(hir.ops[1].controlling_meas() == ControllingMeasIdx{0});
-    // The conditional X is rewound through the tableau
+    REQUIRE(hir.ops[1].use_last_outcome());  // Uses outcome of preceding hidden measurement
+    REQUIRE(hir.num_measurements == 0);      // R has no visible measurement
 }
 
-TEST_CASE("Frontend: MR decomposition (MR = M + CX rec[-1])", "[frontend]") {
+TEST_CASE("Frontend: MR as first-class operation", "[frontend]") {
     auto circuit = parse(R"(
         H 0
         MR 0
     )");
     auto hir = trace(circuit);
 
-    // MR is decomposed by parser into M + CX rec[-1] q (same as R)
+    // MR produces a visible MEASURE followed by CONDITIONAL with use_last_outcome
     REQUIRE(hir.num_ops() == 2);
     REQUIRE(hir.ops[0].op_type() == OpType::MEASURE);
+    REQUIRE(hir.ops[0].meas_record_idx() == MeasRecordIdx{0});
+    REQUIRE(!hir.ops[0].is_hidden());  // MR has visible measurement
     REQUIRE(hir.ops[1].op_type() == OpType::CONDITIONAL_PAULI);
-    REQUIRE(hir.ops[1].controlling_meas() == ControllingMeasIdx{0});
+    REQUIRE(hir.ops[1].use_last_outcome());
+    REQUIRE(hir.num_measurements == 1);
 }
 
-TEST_CASE("Frontend: MRX decomposition (MRX = MX + CZ rec[-1])", "[frontend]") {
+TEST_CASE("Frontend: MRX as first-class operation", "[frontend]") {
     auto circuit = parse(R"(
         H 0
         MRX 0
     )");
     auto hir = trace(circuit);
 
-    // MRX is decomposed by parser into MX + CZ rec[-1] q
+    // MRX produces a visible MEASURE followed by CONDITIONAL with use_last_outcome
     REQUIRE(hir.num_ops() == 2);
     REQUIRE(hir.ops[0].op_type() == OpType::MEASURE);
+    REQUIRE(!hir.ops[0].is_hidden());  // MRX has visible measurement
     REQUIRE(hir.ops[1].op_type() == OpType::CONDITIONAL_PAULI);
-    REQUIRE(hir.ops[1].controlling_meas() == ControllingMeasIdx{0});
+    REQUIRE(hir.ops[1].use_last_outcome());
+    REQUIRE(hir.num_measurements == 1);
 }
 
 TEST_CASE("Frontend: measurement record indexing", "[frontend]") {
@@ -449,12 +449,13 @@ TEST_CASE("Frontend: reset after measurement - T gate sees updated tableau", "[f
     )");
     auto hir = trace(circuit);
 
-    // R is decomposed to M + CX rec[-1]
-    // So we have: MEASURE, CONDITIONAL_PAULI, T_GATE
+    // R decomposes into hidden MEASURE + CONDITIONAL, then T_GATE
     REQUIRE(hir.num_ops() == 3);
 
     REQUIRE(hir.ops[0].op_type() == OpType::MEASURE);
+    REQUIRE(hir.ops[0].is_hidden());
     REQUIRE(hir.ops[1].op_type() == OpType::CONDITIONAL_PAULI);
+    REQUIRE(hir.ops[1].use_last_outcome());
     REQUIRE(hir.ops[2].op_type() == OpType::T_GATE);
 
     // After reset, the T gate sees Z_q (qubit is in |0> state)
@@ -580,16 +581,14 @@ TEST_CASE("Frontend: multiple resets in sequence", "[frontend][classical]") {
     )");
     auto hir = trace(circuit);
 
-    // R 0 -> M 0 + CX rec[-1] 0
-    // R 1 -> M 1 + CX rec[-1] 1
-    // T 0 + T 1
+    // Each R decomposes into MEASURE + CONDITIONAL, then T 0, T 1
+    // R 0 -> MEASURE(hidden) + CONDITIONAL, R 1 -> MEASURE(hidden) + CONDITIONAL
     REQUIRE(hir.num_ops() == 6);
 
-    // M 0, CX rec[-1] 0, M 1, CX rec[-1] 1, T 0, T 1
-    REQUIRE(hir.ops[0].op_type() == OpType::MEASURE);            // M 0
-    REQUIRE(hir.ops[1].op_type() == OpType::CONDITIONAL_PAULI);  // CX rec[-1] 0
-    REQUIRE(hir.ops[2].op_type() == OpType::MEASURE);            // M 1
-    REQUIRE(hir.ops[3].op_type() == OpType::CONDITIONAL_PAULI);  // CX rec[-1] 1
+    REQUIRE(hir.ops[0].op_type() == OpType::MEASURE);            // R 0 measure
+    REQUIRE(hir.ops[1].op_type() == OpType::CONDITIONAL_PAULI);  // R 0 correction
+    REQUIRE(hir.ops[2].op_type() == OpType::MEASURE);            // R 1 measure
+    REQUIRE(hir.ops[3].op_type() == OpType::CONDITIONAL_PAULI);  // R 1 correction
     REQUIRE(hir.ops[4].op_type() == OpType::T_GATE);             // T 0
     REQUIRE(hir.ops[5].op_type() == OpType::T_GATE);             // T 1
 
@@ -1088,8 +1087,9 @@ TEST_CASE("Frontend: full QEC circuit with noise and detectors",
     auto hir = trace(circuit);
 
     // Count operation types
-    size_t noise_ops = 0, measure_ops = 0, detector_ops = 0, observable_ops = 0;
-    size_t conditional_ops = 0;  // From reset decomposition
+    size_t noise_ops = 0, visible_measure_ops = 0, hidden_measure_ops = 0;
+    size_t detector_ops = 0, observable_ops = 0;
+    size_t reset_ops = 0;
 
     for (const auto& op : hir.ops) {
         switch (op.op_type()) {
@@ -1097,7 +1097,14 @@ TEST_CASE("Frontend: full QEC circuit with noise and detectors",
                 noise_ops++;
                 break;
             case OpType::MEASURE:
-                measure_ops++;
+                if (op.is_hidden()) {
+                    hidden_measure_ops++;
+                } else {
+                    visible_measure_ops++;
+                }
+                break;
+            case OpType::CONDITIONAL_PAULI:
+                reset_ops++;  // Count conditionals as "reset ops" for this test
                 break;
             case OpType::DETECTOR:
                 detector_ops++;
@@ -1105,19 +1112,17 @@ TEST_CASE("Frontend: full QEC circuit with noise and detectors",
             case OpType::OBSERVABLE:
                 observable_ops++;
                 break;
-            case OpType::CONDITIONAL_PAULI:
-                conditional_ops++;
-                break;
             default:
                 break;
         }
     }
 
-    // R 0, R 1 each decompose to M + CONDITIONAL, so 4 measurements total
-    // (2 from R, 2 from M 0 1)
-    REQUIRE(measure_ops == 4);
-    // 2 conditional Paulis from reset decomposition
-    REQUIRE(conditional_ops == 2);
+    // R 0, R 1 produce 2 hidden measurements
+    // M 0 1 produces 2 visible measurements
+    REQUIRE(visible_measure_ops == 2);
+    REQUIRE(hidden_measure_ops == 2);
+    // 2 resets from R 0 1 (conditional corrections)
+    REQUIRE(reset_ops == 2);
     // 1 DEPOLARIZE2 -> 1 noise site with 15 channels
     REQUIRE(noise_ops == 1);
     REQUIRE(hir.noise_sites[0].channels.size() == 15);

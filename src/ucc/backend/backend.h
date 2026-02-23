@@ -54,14 +54,18 @@ enum class Opcode : uint8_t {
 
 struct alignas(32) Instruction {
     // --- Offset 0: Common Header (8 bytes) ---
-    Opcode opcode;           // Offset 0 (1 byte) - discriminant
-    uint8_t base_phase_idx;  // Offset 1 (1 byte) - maps to {1, i, -1, -i}
-    union {
-        bool is_dagger;      // Offset 2 (1 byte) - T-gate: true for T†
-        bool reuse_outcome;  // Offset 2 (1 byte) - AG_PIVOT: true to reuse MERGE outcome
-    };
+    Opcode opcode;              // Offset 0 (1 byte) - discriminant
+    uint8_t base_phase_idx;     // Offset 1 (1 byte) - maps to {1, i, -1, -i}
+    uint8_t flags;              // Offset 2 (1 byte) - bitfield flags
     uint8_t ag_ref_outcome;     // Offset 3 (1 byte) - reference outcome for measurements
     uint32_t commutation_mask;  // Offset 4 (4 bytes) - pre-computed sign interference
+
+    // Flag constants
+    static constexpr uint8_t FLAG_IS_DAGGER = 1 << 0;      // T-gate: true for T†
+    static constexpr uint8_t FLAG_REUSE_OUTCOME = 1 << 1;  // AG_PIVOT: reuse preceding outcome
+    static constexpr uint8_t FLAG_HIDDEN = 1 << 2;  // Measurement: don't record to meas_record
+    static constexpr uint8_t FLAG_USE_LAST_OUTCOME =
+        1 << 3;  // CONDITIONAL: use last_outcome instead of meas_record
 
     // --- Offset 8: Payload (24 bytes) ---
     union {
@@ -224,7 +228,7 @@ struct CompiledModule {
     std::vector<Instruction> bytecode;
     ConstantPool constant_pool;
     uint32_t peak_rank;         // Maximum GF(2) dimension reached (determines array size)
-    uint32_t num_measurements;  // Total measurements (for result record sizing)
+    uint32_t num_measurements;  // Total visible measurements (for result record sizing)
     uint32_t num_detectors;     // Total detectors (for detector record sizing)
     uint32_t num_observables;   // Total observables (for observable record sizing)
 };
