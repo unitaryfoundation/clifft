@@ -393,3 +393,205 @@ class TestSimpleCircuitEquivalence:
         # Clean Bell state: detector should always be 0
         assert np.all(ucc_det == 0), "UCC: Clean Bell detector should be 0"
         assert np.all(stim_det == 0), "Stim: Clean Bell detector should be 0"
+
+
+class TestTopologicalQECCodes:
+    """Statistical equivalence tests using Stim's generated QEC circuits.
+
+    Tests different lattice connectivities using stim.Circuit.generated().
+    Color code is skipped because it uses unsupported gates (C_XYZ).
+    """
+
+    @pytest.mark.parametrize(
+        "code_task",
+        [
+            "repetition_code:memory",
+            "surface_code:rotated_memory_x",
+            # "color_code:memory_xyz" - uses unsupported C_XYZ gate
+        ],
+    )
+    def test_qec_code_statistical_equivalence(self, code_task: str) -> None:
+        """Generated QEC circuit matches Stim within statistical bounds.
+
+        Uses distance=3, rounds=2, and after_clifford_depolarization=0.01.
+        Runs 10,000 shots and verifies detector and observable marginals.
+        """
+        shots = 10_000
+        seed = 42
+
+        # Generate circuit from Stim
+        stim_circuit = stim.Circuit.generated(
+            code_task,
+            distance=3,
+            rounds=2,
+            after_clifford_depolarization=0.01,
+        )
+        circuit_str = str(stim_circuit)
+
+        # Compile both
+        ucc_prog = ucc.compile(circuit_str)
+        stim_sampler = stim_circuit.compile_detector_sampler(seed=seed)
+
+        # Verify metadata matches
+        assert ucc_prog.num_detectors == stim_circuit.num_detectors
+        assert ucc_prog.num_observables == stim_circuit.num_observables
+
+        # Sample from both
+        _, ucc_det, ucc_obs = ucc.sample(ucc_prog, shots, seed=seed)
+        stim_det, stim_obs = stim_sampler.sample(shots, separate_observables=True)
+
+        # Check detector marginals
+        ucc_det_probs = ucc_det.astype(float).mean(axis=0)
+        stim_det_probs = stim_det.astype(float).mean(axis=0)
+
+        for i in range(len(ucc_det_probs)):
+            p_est = (ucc_det_probs[i] + stim_det_probs[i]) / 2
+            tol = binomial_tolerance(p_est, shots, sigma=5.0)
+            diff = abs(ucc_det_probs[i] - stim_det_probs[i])
+            assert diff < tol, (
+                f"{code_task} detector {i} mismatch: "
+                f"UCC={ucc_det_probs[i]:.5f} Stim={stim_det_probs[i]:.5f} "
+                f"diff={diff:.6f} > tol={tol:.6f}"
+            )
+
+        # Check observable marginals
+        ucc_obs_probs = ucc_obs.astype(float).mean(axis=0)
+        stim_obs_probs = stim_obs.astype(float).mean(axis=0)
+
+        for i in range(len(ucc_obs_probs)):
+            p_est = (ucc_obs_probs[i] + stim_obs_probs[i]) / 2
+            tol = binomial_tolerance(p_est, shots, sigma=5.0)
+            diff = abs(ucc_obs_probs[i] - stim_obs_probs[i])
+            assert diff < tol, (
+                f"{code_task} observable {i} mismatch: "
+                f"UCC={ucc_obs_probs[i]:.5f} Stim={stim_obs_probs[i]:.5f} "
+                f"diff={diff:.6f} > tol={tol:.6f}"
+            )
+
+
+def _generate_random_noisy_circuit(num_qubits: int, depth_per_qubit: int, seed: int) -> str:
+    """Generate a random noisy circuit without detectors.
+
+    Emits random H, S, CX, R, RX, M gates with X_ERROR, DEPOLARIZE1, DEPOLARIZE2
+    noise at p=0.05. Does not emit DETECTORs so Stim won't reject it.
+
+    Args:
+        num_qubits: Number of qubits in the circuit
+        depth_per_qubit: Approximate number of gates per qubit
+        seed: Random seed for reproducibility
+
+    Returns:
+        Circuit string compatible with both UCC and Stim
+    """
+    rng = np.random.default_rng(seed)
+    lines: list[str] = []
+    total_gates = num_qubits * depth_per_qubit
+    noise_prob = 0.05
+
+    # Gate types: single-qubit, two-qubit, reset, measurement
+    single_gates = ["H", "S"]
+    two_qubit_gates = ["CX"]
+    reset_gates = ["R", "RX"]
+
+    for _ in range(total_gates):
+        gate_type = rng.choice(["single", "two", "reset", "measure"], p=[0.35, 0.25, 0.15, 0.25])
+
+        if gate_type == "single":
+            gate = rng.choice(single_gates)
+            q = rng.integers(0, num_qubits)
+            lines.append(f"{gate} {q}")
+            # Add single-qubit noise
+            if rng.random() < 0.5:
+                noise = rng.choice(["X_ERROR", "DEPOLARIZE1"])
+                lines.append(f"{noise}({noise_prob}) {q}")
+
+        elif gate_type == "two" and num_qubits >= 2:
+            gate = rng.choice(two_qubit_gates)
+            q1, q2 = rng.choice(num_qubits, size=2, replace=False)
+            lines.append(f"{gate} {q1} {q2}")
+            # Add two-qubit noise
+            if rng.random() < 0.5:
+                lines.append(f"DEPOLARIZE2({noise_prob}) {q1} {q2}")
+
+        elif gate_type == "reset":
+            gate = rng.choice(reset_gates)
+            q = rng.integers(0, num_qubits)
+            lines.append(f"{gate} {q}")
+
+        elif gate_type == "measure":
+            q = rng.integers(0, num_qubits)
+            lines.append(f"M {q}")
+
+    return "\n".join(lines)
+
+
+class TestUnstructuredNoiseFuzzing:
+    """Statistical equivalence tests on random noisy circuits.
+
+    Tests chaotic topologies with random gates and noise to validate
+    that UCC correctly tracks both local basis states and non-local
+    entanglement correlations.
+    """
+
+    @pytest.mark.parametrize("num_qubits", [2, 4, 6])
+    @pytest.mark.parametrize("seed", [42, 123, 456, 789, 1337])
+    def test_random_noisy_circuit(self, num_qubits: int, seed: int) -> None:
+        """Random noisy circuit marginals match Stim.
+
+        Compares both 1-body marginals (per-measurement probabilities)
+        and adjacent 2-body parities (XOR of consecutive measurements)
+        to validate joint correlations.
+        """
+        shots = 10_000
+        depth_per_qubit = 12
+
+        circuit_str = _generate_random_noisy_circuit(num_qubits, depth_per_qubit, seed)
+
+        # Compile both
+        try:
+            ucc_prog = ucc.compile(circuit_str)
+        except Exception as e:
+            pytest.fail(f"UCC compilation failed: {e}\nCircuit:\n{circuit_str}")
+
+        stim_circuit = stim.Circuit(circuit_str)
+        stim_sampler = stim_circuit.compile_sampler(seed=seed)
+
+        # Sample from both
+        ucc_meas, _, _ = ucc.sample(ucc_prog, shots, seed=seed)
+        stim_meas = stim_sampler.sample(shots)
+
+        # Skip if no measurements were generated
+        if ucc_meas.shape[1] == 0:
+            pytest.skip("No measurements in generated circuit")
+
+        # 1-body marginals: P(measurement_i = 1)
+        ucc_p1 = ucc_meas.astype(float).mean(axis=0)
+        stim_p1 = stim_meas.astype(float).mean(axis=0)
+
+        for i in range(len(ucc_p1)):
+            p_est = (ucc_p1[i] + stim_p1[i]) / 2
+            tol = binomial_tolerance(p_est, shots, sigma=5.0)
+            diff = abs(ucc_p1[i] - stim_p1[i])
+            assert diff < tol, (
+                f"1-body marginal {i} mismatch (qubits={num_qubits}, seed={seed}): "
+                f"UCC={ucc_p1[i]:.5f} Stim={stim_p1[i]:.5f} "
+                f"diff={diff:.6f} > tol={tol:.6f}"
+            )
+
+        # Adjacent 2-body parities: P(meas[i] XOR meas[i+1] = 1)
+        if ucc_meas.shape[1] >= 2:
+            ucc_parity = ucc_meas[:, :-1] ^ ucc_meas[:, 1:]
+            stim_parity = stim_meas[:, :-1] ^ stim_meas[:, 1:]
+
+            ucc_p2 = ucc_parity.astype(float).mean(axis=0)
+            stim_p2 = stim_parity.astype(float).mean(axis=0)
+
+            for i in range(len(ucc_p2)):
+                p_est = (ucc_p2[i] + stim_p2[i]) / 2
+                tol = binomial_tolerance(p_est, shots, sigma=5.0)
+                diff = abs(ucc_p2[i] - stim_p2[i])
+                assert diff < tol, (
+                    f"2-body parity {i},{i + 1} mismatch (qubits={num_qubits}, seed={seed}): "
+                    f"UCC={ucc_p2[i]:.5f} Stim={stim_p2[i]:.5f} "
+                    f"diff={diff:.6f} > tol={tol:.6f}"
+                )
