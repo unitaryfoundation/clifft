@@ -7,6 +7,7 @@
 #include "ucc/util/version.h"
 
 #include <nanobind/nanobind.h>
+#include <nanobind/ndarray.h>
 #include <nanobind/stl/string.h>
 #include <nanobind/stl/string_view.h>
 #include <nanobind/stl/vector.h>
@@ -180,21 +181,24 @@ NB_MODULE(_ucc_core, m) {
         "    ParseError: If the circuit syntax is invalid\n"
         "    RuntimeError: If compilation fails (e.g., >32 T-gate dimensions)");
 
-    // Sample: Program + shots -> list of measurement results
+    // Sample: Program + shots -> numpy array of measurement results
     m.def(
         "sample",
         [](const ucc::CompiledModule& program, uint32_t shots, uint64_t seed) {
             std::vector<uint8_t> results = ucc::sample(program, shots, seed);
-            // Return as 2D list [shots][num_measurements]
             size_t num_meas = program.num_measurements;
-            std::vector<std::vector<uint8_t>> output(shots);
-            for (uint32_t shot = 0; shot < shots; ++shot) {
-                output[shot].resize(num_meas);
-                for (size_t m = 0; m < num_meas; ++m) {
-                    output[shot][m] = results[shot * num_meas + m];
-                }
-            }
-            return output;
+
+            // Allocate owned data and move results into it
+            auto* data = new uint8_t[results.size()];
+            std::copy(results.begin(), results.end(), data);
+
+            // Create a capsule that owns the data and will delete it when the
+            // numpy array is garbage collected
+            nb::capsule owner(data, [](void* p) noexcept { delete[] static_cast<uint8_t*>(p); });
+
+            // Return as 2D numpy array with shape (shots, num_measurements)
+            return nb::ndarray<nb::numpy, uint8_t, nb::c_contig>(
+                data, {static_cast<size_t>(shots), num_meas}, owner);
         },
         nb::arg("program"), nb::arg("shots"), nb::arg("seed") = 0,
         "Run a compiled program and return measurement results.\n\n"
@@ -203,5 +207,74 @@ NB_MODULE(_ucc_core, m) {
         "    shots: Number of shots to run\n"
         "    seed: Random seed for reproducibility (default: 0)\n\n"
         "Returns:\n"
-        "    List of lists with shape [shots][num_measurements], values are 0 or 1");
+        "    numpy.ndarray with shape (shots, num_measurements), dtype=uint8");
+
+    // =========================================================================
+    // Statevector API
+    // =========================================================================
+
+    // SchrodingerState wrapper for manual execution
+    nb::class_<ucc::SchrodingerState>(m, "State", "Schr\u00f6dinger VM execution state")
+        .def(nb::init<uint32_t, uint32_t, uint64_t>(), nb::arg("peak_rank"),
+             nb::arg("num_measurements"), nb::arg("seed") = 0,
+             "Create a new execution state.\n\n"
+             "Args:\n"
+             "    peak_rank: Maximum GF(2) dimension (from Program.peak_rank)\n"
+             "    num_measurements: Number of measurements (from Program.num_measurements)\n"
+             "    seed: Random seed for reproducibility")
+        .def("reset", &ucc::SchrodingerState::reset, nb::arg("seed"),
+             "Reset state to |0...0\u27e9 for a new shot")
+        .def_prop_ro(
+            "meas_record",
+            [](const ucc::SchrodingerState& s) { return std::vector<uint8_t>(s.meas_record); },
+            "Copy of measurement record after execution")
+        .def("__repr__", [](const ucc::SchrodingerState& s) {
+            return "State(array_size=" + std::to_string(s.array_size()) + ")";
+        });
+
+    // Execute: Program + State -> mutates state
+    m.def(
+        "execute",
+        [](const ucc::CompiledModule& program, ucc::SchrodingerState& state) {
+            ucc::execute(program, state);
+        },
+        nb::arg("program"), nb::arg("state"),
+        "Execute a compiled program, updating the state in-place.\n\n"
+        "Args:\n"
+        "    program: Compiled Program object\n"
+        "    state: State object to execute into\n\n"
+        "After execution, state.meas_record contains the measurement outcomes.");
+
+    // Get statevector: Program + State -> numpy array
+    m.def(
+        "get_statevector",
+        [](const ucc::CompiledModule& program, const ucc::SchrodingerState& state) {
+            if (!program.constant_pool.final_tableau.has_value()) {
+                throw std::runtime_error(
+                    "Program has no final_tableau - cannot expand statevector");
+            }
+
+            auto sv = ucc::get_statevector(state, program.constant_pool.gf2_basis,
+                                           program.constant_pool.final_tableau.value(),
+                                           program.constant_pool.global_weight);
+
+            // Allocate owned data
+            size_t n = sv.size();
+            auto* data = new std::complex<double>[n];
+            std::copy(sv.begin(), sv.end(), data);
+
+            nb::capsule owner(
+                data, [](void* p) noexcept { delete[] static_cast<std::complex<double>*>(p); });
+
+            return nb::ndarray<nb::numpy, std::complex<double>, nb::c_contig>(data, {n}, owner);
+        },
+        nb::arg("program"), nb::arg("state"),
+        "Expand the SVM state into a dense statevector.\n\n"
+        "Args:\n"
+        "    program: Compiled Program object\n"
+        "    state: State object after execution\n\n"
+        "Returns:\n"
+        "    numpy.ndarray of complex128 with shape (2^num_qubits,)\n\n"
+        "Note: For circuits with measurements, the statevector represents\n"
+        "the post-measurement state for one particular shot.");
 }

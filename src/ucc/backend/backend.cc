@@ -5,6 +5,24 @@
 
 namespace ucc {
 
+namespace {
+
+// Compute base_phase_idx incorporating Y-count from Pauli observable.
+// The observable P = ±(i^y_count) X^destab Z^stab has phases:
+//   sign=false, y_count=0 -> +1 -> idx 0
+//   sign=false, y_count=1 -> +i -> idx 1
+//   sign=false, y_count=2 -> -1 -> idx 2
+//   sign=false, y_count=3 -> -i -> idx 3
+//   sign=true adds 2 (multiply by -1)
+inline uint8_t compute_base_phase_idx(stim::bitword<kStimWidth> destab,
+                                      stim::bitword<kStimWidth> stab, bool sign) {
+    // Y = iXZ, so Y-count is popcount(destab & stab)
+    uint32_t y_count = (destab & stab).popcount();
+    return static_cast<uint8_t>(((sign ? 2 : 0) + y_count) & 3);
+}
+
+}  // namespace
+
 // =============================================================================
 // GF(2) Basis Implementation
 // =============================================================================
@@ -29,15 +47,15 @@ std::optional<uint32_t> GF2Basis::find_in_span(stim::bitword<kStimWidth> beta) c
     return x_mask;
 }
 
-uint32_t GF2Basis::add(stim::bitword<kStimWidth> beta) {
+uint32_t GF2Basis::add(stim::bitword<kStimWidth> destab) {
     if (basis_.size() >= kMaxRank) {
         throw std::runtime_error(
             "GF(2) rank limit exceeded: circuit requires >32 dimensions. "
             "This would need >68 GB RAM per shot.");
     }
     uint32_t idx = static_cast<uint32_t>(basis_.size());
-    basis_.push_back(beta);
-    add_to_echelon(beta, 1u << idx);
+    basis_.push_back(destab);
+    add_to_echelon(destab, 1u << idx);
     return idx;
 }
 
@@ -131,8 +149,8 @@ CompiledModule lower(const HirModule& hir) {
 
                 Instruction instr{};
                 instr.is_dagger = is_dagger;
-                // base_phase_idx encodes the sign: 0 = +1, 2 = -1
-                instr.base_phase_idx = sign ? 2 : 0;
+                // base_phase_idx encodes sign and Y-count: i^y_count * (-1)^sign
+                instr.base_phase_idx = compute_base_phase_idx(destab, stab, sign);
                 instr.branch.destab_mask = static_cast<uint64_t>(destab);
                 instr.branch.stab_mask = static_cast<uint64_t>(stab);
 
@@ -154,7 +172,7 @@ CompiledModule lower(const HirModule& hir) {
                         compute_commutation_mask(basis.vectors(), destab, stab);
                 } else {
                     // New dimension: branch
-                    uint32_t new_idx = basis.add(beta);
+                    uint32_t new_idx = basis.add(destab);
                     instr.opcode = Opcode::OP_BRANCH;
                     instr.branch.x_mask = 1u << new_idx;  // Just this new vector
                     instr.branch.bit_index = new_idx;
@@ -179,7 +197,8 @@ CompiledModule lower(const HirModule& hir) {
                 stim::bitword<kStimWidth> beta = destab;
 
                 Instruction instr{};
-                instr.base_phase_idx = sign ? 2 : 0;
+                // base_phase_idx encodes sign and Y-count: i^y_count * (-1)^sign
+                instr.base_phase_idx = compute_base_phase_idx(destab, stab, sign);
                 instr.ag_ref_outcome = ag_ref;
                 instr.branch.destab_mask = static_cast<uint64_t>(destab);
                 instr.branch.stab_mask = static_cast<uint64_t>(stab);
@@ -256,7 +275,8 @@ CompiledModule lower(const HirModule& hir) {
 
                 Instruction instr{};
                 instr.opcode = Opcode::OP_CONDITIONAL;
-                instr.base_phase_idx = sign ? 2 : 0;
+                // base_phase_idx encodes sign and Y-count: i^y_count * (-1)^sign
+                instr.base_phase_idx = compute_base_phase_idx(destab, stab, sign);
                 instr.meta.controlling_meas = static_cast<uint32_t>(ctrl);
                 instr.meta.destab_mask = static_cast<uint64_t>(destab);
                 instr.meta.stab_mask = static_cast<uint64_t>(stab);
@@ -271,9 +291,13 @@ CompiledModule lower(const HirModule& hir) {
         }
     }
 
-    // Store final GF(2) basis for debugging
+    // Store final GF(2) basis for statevector expansion
     result.constant_pool.gf2_basis = basis.vectors();
     result.peak_rank = peak_rank;
+
+    // Copy forward tableau and global weight for statevector expansion
+    result.constant_pool.final_tableau = hir.final_tableau;
+    result.constant_pool.global_weight = hir.global_weight;
 
     return result;
 }

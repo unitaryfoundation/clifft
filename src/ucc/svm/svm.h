@@ -78,4 +78,24 @@ void execute(const CompiledModule& program, SchrodingerState& state);
 /// Result shape: [shots, num_measurements], row-major.
 std::vector<uint8_t> sample(const CompiledModule& program, uint32_t shots, uint64_t seed = 0);
 
+// =============================================================================
+// Statevector Expansion
+// =============================================================================
+
+/// Expand the SVM's sparse representation into a dense 2^N statevector.
+/// This applies the final Clifford tableau to convert from the Heisenberg
+/// picture back to the Schrödinger picture.
+///
+/// Parameters:
+///   state: The SVM state after execution (contains v[], destab_signs, stab_signs)
+///   gf2_basis: The GF(2) basis vectors from compilation
+///   final_tableau: The forward Clifford frame at circuit end
+///   global_weight: Accumulated global phase factor
+///
+/// Returns:
+///   Dense statevector of size 2^N where N = final_tableau.num_qubits
+std::vector<std::complex<double>> get_statevector(
+    const SchrodingerState& state, const std::vector<stim::bitword<kStimWidth>>& gf2_basis,
+    const stim::Tableau<kStimWidth>& final_tableau, std::complex<double> global_weight);
+
 }  // namespace ucc

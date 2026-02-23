@@ -4,6 +4,7 @@
 
 #include "stim.h"
 
+#include <complex>
 #include <cstdint>
 #include <optional>
 #include <vector>
@@ -106,10 +107,10 @@ class GF2Basis {
     // If not, returns std::nullopt.
     std::optional<uint32_t> find_in_span(stim::bitword<kStimWidth> beta) const;
 
-    // Add a new vector to the basis (must not already be in span).
+    // Add a new vector to the basis.
     // Returns the index of the new basis vector.
     // Throws if rank would exceed kMaxRank.
-    uint32_t add(stim::bitword<kStimWidth> beta);
+    uint32_t add(stim::bitword<kStimWidth> destab);
 
     // Remove a dimension after MEASURE_MERGE collapses it.
     // Mirrors the VM's array compaction: all indices above bit_index shift down.
@@ -120,9 +121,9 @@ class GF2Basis {
     [[nodiscard]] const std::vector<stim::bitword<kStimWidth>>& vectors() const;
 
   private:
-    std::vector<stim::bitword<kStimWidth>> basis_;
-    uint64_t echelon_basis_[kStimWidth] = {0};   // Row-echelon indexed by leading bit
-    uint32_t echelon_x_mask_[kStimWidth] = {0};  // Corresponding x_mask for each row
+    std::vector<stim::bitword<kStimWidth>> basis_;  // X-parts (destab)
+    uint64_t echelon_basis_[kStimWidth] = {0};      // Row-echelon indexed by leading bit
+    uint32_t echelon_x_mask_[kStimWidth] = {0};     // Corresponding x_mask for each row
 
     void add_to_echelon(stim::bitword<kStimWidth> beta, uint32_t initial_x_mask);
     void rebuild_echelon();
@@ -145,8 +146,18 @@ struct ConstantPool {
     // AG pivot matrices for measurement collapse (indexed by OP_AG_PIVOT)
     std::vector<AGMatrix> ag_matrices;
 
-    // GF(2) basis at end of compilation (for debugging/statevector output)
+    // GF(2) basis for statevector expansion:
+    // Each T-gate's rewound Z observable has X-part (destab), Z-part (stab), and sign.
+    // gf2_basis[i] = X-part (destab) of basis vector i
+    // NOTE: Z-parts and signs are encoded in VM coefficients via base_phase_idx,
+    // so only X-parts are needed for statevector expansion.
     std::vector<stim::bitword<64>> gf2_basis;
+
+    // Forward Clifford tableau at circuit end (for statevector expansion)
+    std::optional<stim::Tableau<kStimWidth>> final_tableau;
+
+    // Global weight factor accumulated during compilation
+    std::complex<double> global_weight = {1.0, 0.0};
 };
 
 // =============================================================================

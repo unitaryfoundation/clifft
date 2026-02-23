@@ -356,6 +356,10 @@ HirModule trace(const Circuit& circuit) {
                     extract_rewound_z(sim, qubit, destab_mask, stab_mask, sign);
                     hir.ops.push_back(
                         HeisenbergOp::make_tgate(destab_mask, stab_mask, sign, /*dagger=*/false));
+                    // Accumulate global weight: e^{iπ/8} cos(π/8)
+                    static constexpr double kCosPi8 = 0.9238795325112867561;
+                    static constexpr double kSinPi8 = 0.3826834323650897717;
+                    hir.global_weight *= std::complex<double>(kCosPi8 * kCosPi8, kSinPi8 * kCosPi8);
                 }
                 break;
             }
@@ -369,6 +373,11 @@ HirModule trace(const Circuit& circuit) {
                     extract_rewound_z(sim, qubit, destab_mask, stab_mask, sign);
                     hir.ops.push_back(
                         HeisenbergOp::make_tgate(destab_mask, stab_mask, sign, /*dagger=*/true));
+                    // Accumulate global weight: e^{-iπ/8} cos(π/8)
+                    static constexpr double kCosPi8 = 0.9238795325112867561;
+                    static constexpr double kSinPi8 = 0.3826834323650897717;
+                    hir.global_weight *=
+                        std::complex<double>(kCosPi8 * kCosPi8, -kSinPi8 * kCosPi8);
                 }
                 break;
             }
@@ -561,6 +570,9 @@ HirModule trace(const Circuit& circuit) {
                                          std::string(gate_name(node.gate)));
         }
     }
+
+    // Store forward tableau for statevector expansion
+    hir.final_tableau = sim.inv_state.inverse();
 
     return hir;
 }

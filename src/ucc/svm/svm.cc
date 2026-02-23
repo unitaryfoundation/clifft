@@ -138,8 +138,9 @@ void op_branch(SchrodingerState& state, const Instruction& instr, uint32_t& curr
     uint64_t old_size = 1ULL << new_bit;  // Size before expansion
 
     std::complex<double> base_phase = resolve_sign(state, instr);
+    // T = I - i*tan(π/8)*Z, T† = I + i*tan(π/8)*Z
     std::complex<double> rel_weight =
-        instr.is_dagger ? std::complex<double>(0.0, -kTanPi8) : std::complex<double>(0.0, kTanPi8);
+        instr.is_dagger ? std::complex<double>(0.0, kTanPi8) : std::complex<double>(0.0, -kTanPi8);
 
     // Precompute the two possible phase factors (branchless array lookup)
     std::complex<double> factors[2] = {rel_weight * base_phase, -rel_weight * base_phase};
@@ -147,11 +148,13 @@ void op_branch(SchrodingerState& state, const Instruction& instr, uint32_t& curr
     auto* v = state.v();
     for (uint64_t alpha = 0; alpha < old_size; ++alpha) {
         uint64_t new_idx = alpha + old_size;  // Equivalent to alpha | (1 << new_bit)
-        int branch_parity =
-            compute_sign_parity(static_cast<uint32_t>(new_idx), instr.commutation_mask);
+        // Use parity of source index (alpha): commutation_mask encodes
+        // anticommutation with existing basis vectors, not the new dimension
+        int source_parity =
+            compute_sign_parity(static_cast<uint32_t>(alpha), instr.commutation_mask);
 
         // Zero FLOPs on identity branch - just write spawned branch
-        v[new_idx] = v[alpha] * factors[branch_parity];
+        v[new_idx] = v[alpha] * factors[source_parity];
     }
 }
 
@@ -162,8 +165,9 @@ void op_collide(SchrodingerState& state, const Instruction& instr, uint32_t curr
     assert(instr.branch.x_mask != 0 && "OP_COLLIDE requires nonzero x_mask");
 
     std::complex<double> base_phase = resolve_sign(state, instr);
+    // T = I - i*tan(π/8)*Z, T† = I + i*tan(π/8)*Z
     std::complex<double> rel_weight =
-        instr.is_dagger ? std::complex<double>(0.0, -kTanPi8) : std::complex<double>(0.0, kTanPi8);
+        instr.is_dagger ? std::complex<double>(0.0, kTanPi8) : std::complex<double>(0.0, -kTanPi8);
 
     std::complex<double> factors[2] = {rel_weight * base_phase, -rel_weight * base_phase};
 
@@ -201,8 +205,9 @@ void op_collide(SchrodingerState& state, const Instruction& instr, uint32_t curr
 // different phases based on commutation_mask.
 void op_scalar_phase(SchrodingerState& state, const Instruction& instr, uint32_t current_rank) {
     std::complex<double> base_phase = resolve_sign(state, instr);
+    // T = I - i*tan(π/8)*Z, T† = I + i*tan(π/8)*Z
     std::complex<double> i_tan =
-        instr.is_dagger ? std::complex<double>(0.0, -kTanPi8) : std::complex<double>(0.0, kTanPi8);
+        instr.is_dagger ? std::complex<double>(0.0, kTanPi8) : std::complex<double>(0.0, -kTanPi8);
 
     // Phase depends on whether each basis index anti-commutes with observable
     std::complex<double> factors[2] = {1.0 + i_tan * base_phase, 1.0 - i_tan * base_phase};
@@ -216,7 +221,8 @@ void op_scalar_phase(SchrodingerState& state, const Instruction& instr, uint32_t
 }
 
 // OP_MEASURE_MERGE: Anti-commuting measurement, samples and shrinks array.
-// Uses projective butterfly: (I ± M)/2 requires interference v[α] ± v[α ⊕ β].
+// Uses projective butterfly: (I ± M)/2 requires interference v[α] ± phase*v[α ⊕ β].
+// The phase includes base_phase (Y-count and sign) and commutation parity.
 // Block-based iteration with single-pass butterfly+compaction.
 void op_measure_merge(SchrodingerState& state, const Instruction& instr, uint32_t& current_rank,
                       uint32_t meas_idx) {
@@ -232,7 +238,13 @@ void op_measure_merge(SchrodingerState& state, const Instruction& instr, uint32_
     uint64_t num_blocks = new_size / block_size;
     auto* v = state.v();
 
-    // Pass 1: Gather L2 norms branchlessly
+    // Resolve the exact complex phase of the observable (includes Y-count)
+    std::complex<double> base_phase = resolve_sign(state, instr);
+
+    // Precompute phase factors for branchless inner loop (AVX-friendly)
+    std::complex<double> phase_factors[2] = {base_phase, -base_phase};
+
+    // Pass 1: Gather L2 norms with correct phase-aware interference
     double prob_0 = 0.0, prob_1 = 0.0;
 
     for (uint64_t b = 0; b < num_blocks; ++b) {
@@ -240,8 +252,13 @@ void op_measure_merge(SchrodingerState& state, const Instruction& instr, uint32_
         for (uint64_t i = 0; i < block_size; ++i) {
             uint64_t alpha = src_start + i;
             uint64_t beta = alpha ^ x_mask;
-            prob_0 += std::norm(v[alpha] + v[beta]);
-            prob_1 += std::norm(v[alpha] - v[beta]);
+
+            // Commutation parity for beta index - branchless lookup
+            int parity_b = compute_sign_parity(static_cast<uint32_t>(beta), instr.commutation_mask);
+            std::complex<double> term = v[beta] * phase_factors[parity_b];
+
+            prob_0 += std::norm(v[alpha] + term);
+            prob_1 += std::norm(v[alpha] - term);
         }
     }
 
@@ -254,27 +271,39 @@ void op_measure_merge(SchrodingerState& state, const Instruction& instr, uint32_
     double r = state.random_double();
     uint8_t internal_outcome = (r < prob_0 / total) ? 0 : 1;
 
-    uint64_t anti_comm = (state.destab_signs & instr.branch.stab_mask) ^
-                         (state.stab_signs & instr.branch.destab_mask);
-    int frame_parity = std::popcount(anti_comm) & 1;
-    state.meas_record[meas_idx] =
-        internal_outcome ^ static_cast<uint8_t>(frame_parity) ^ instr.ag_ref_outcome;
+    // Because base_phase includes the exact frame parity and operator sign,
+    // internal_outcome IS the physical outcome (no additional XOR needed).
+    // Do NOT XOR with ag_ref_outcome here - that's for AG_PIVOT divergence calculation.
+    state.meas_record[meas_idx] = internal_outcome;
 
     double norm = 1.0 / std::sqrt(internal_outcome ? prob_1 : prob_0);
 
-    // Pass 2: Single-pass butterfly and compaction.
+    // Pass 2: Single-pass butterfly and compaction with correct phase.
     // Memory safety: dst_start ≤ src_start, so we never overwrite before reading.
-    for (uint64_t b = 0; b < num_blocks; ++b) {
-        uint64_t dst_start = b * block_size;
-        uint64_t src_start = b * (block_size * 2);
-
-        for (uint64_t i = 0; i < block_size; ++i) {
-            uint64_t alpha = src_start + i;
-            uint64_t beta = alpha ^ x_mask;
-
-            std::complex<double> merged =
-                internal_outcome ? (v[alpha] - v[beta]) : (v[alpha] + v[beta]);
-            v[dst_start + i] = merged * norm;
+    // Hoist outcome branch outside loop entirely for CPU branch predictor.
+    if (internal_outcome == 0) {
+        for (uint64_t b = 0; b < num_blocks; ++b) {
+            uint64_t dst_start = b * block_size;
+            uint64_t src_start = b * (block_size * 2);
+            for (uint64_t i = 0; i < block_size; ++i) {
+                uint64_t alpha = src_start + i;
+                uint64_t beta = alpha ^ x_mask;
+                int parity_b =
+                    compute_sign_parity(static_cast<uint32_t>(beta), instr.commutation_mask);
+                v[dst_start + i] = (v[alpha] + v[beta] * phase_factors[parity_b]) * norm;
+            }
+        }
+    } else {
+        for (uint64_t b = 0; b < num_blocks; ++b) {
+            uint64_t dst_start = b * block_size;
+            uint64_t src_start = b * (block_size * 2);
+            for (uint64_t i = 0; i < block_size; ++i) {
+                uint64_t alpha = src_start + i;
+                uint64_t beta = alpha ^ x_mask;
+                int parity_b =
+                    compute_sign_parity(static_cast<uint32_t>(beta), instr.commutation_mask);
+                v[dst_start + i] = (v[alpha] - v[beta] * phase_factors[parity_b]) * norm;
+            }
         }
     }
     current_rank--;
@@ -490,6 +519,150 @@ std::vector<uint8_t> sample(const CompiledModule& program, uint32_t shots, uint6
     }
 
     return results;
+}
+
+// Internal structure for sparse reference state
+struct NonZeroAmp {
+    uint64_t k;
+    std::complex<double> amp;
+};
+
+std::vector<std::complex<double>> get_statevector(
+    const SchrodingerState& state, const std::vector<stim::bitword<kStimWidth>>& gf2_basis,
+    const stim::Tableau<kStimWidth>& final_tableau, std::complex<double> global_weight) {
+    uint32_t num_qubits = static_cast<uint32_t>(final_tableau.num_qubits);
+
+    // OOM safety guard: dense statevector for >20 qubits would exceed reasonable memory
+    if (num_qubits > 20) {
+        throw std::invalid_argument(
+            "Statevector too large (exceeds 20 qubits). Use sampling instead.");
+    }
+
+    uint64_t dim = 1ULL << num_qubits;
+
+    // Phase-safe statevector expansion algorithm:
+    // Stim's state_vector_from_stabilizers assigns an arbitrary global phase
+    // per branch. To preserve exact relative phases between superposition branches,
+    // we compute the reference state U|0⟩ ONCE and then apply Pauli operators
+    // to map each branch's initial X-string through the final tableau.
+
+    // 1. Compute reference statevector U|0⟩ exactly once to lock the global phase frame
+    std::vector<stim::PauliString<kStimWidth>> base_stabs;
+    std::vector<stim::PauliStringRef<kStimWidth>> stab_refs;
+    base_stabs.reserve(num_qubits);
+    for (uint32_t q = 0; q < num_qubits; ++q) {
+        base_stabs.emplace_back(final_tableau.zs[q]);
+        stab_refs.push_back(base_stabs.back().ref());
+    }
+
+    auto ref_sv_f =
+        stim::VectorSimulator::state_vector_from_stabilizers<kStimWidth>(stab_refs, 1.0f);
+
+    // OPTIMIZATION: Extract only non-zero amplitudes from reference state.
+    // Stabilizer states are maximally sparse (exactly 2^M non-zeros of equal magnitude).
+    // This accelerates the inner loop from O(2^rank * 2^N) to O(2^rank * 2^M).
+    std::vector<NonZeroAmp> sparse_ref;
+    sparse_ref.reserve(dim);  // Upper bound; actual count is much smaller
+    for (uint64_t i = 0; i < dim; ++i) {
+        std::complex<double> val(ref_sv_f[i].real(), ref_sv_f[i].imag());
+        // Use std::norm to avoid expensive sqrt in abs
+        if (std::norm(val) >= 1e-30) {
+            sparse_ref.push_back({i, val});
+        }
+    }
+
+    std::vector<std::complex<double>> sv(dim, {0.0, 0.0});
+    uint32_t rank = static_cast<uint32_t>(gf2_basis.size());
+    // Use active rank, not peak_rank - measurements compact the array
+    uint64_t active_size = 1ULL << rank;
+
+    stim::PauliString<kStimWidth> P(num_qubits);
+
+    // 2. Accumulate each branch by applying P_alpha to the reference state
+    // For each branch alpha, the state is U|x_initial⟩ = U X^x U† U|0⟩ = P' |ref⟩
+    // where P' = final_tableau(X^x) is the Pauli propagated through the circuit
+    for (uint64_t alpha = 0; alpha < active_size; ++alpha) {
+        std::complex<double> coeff = state.v()[alpha];
+        // Use std::norm to avoid expensive sqrt
+        if (std::norm(coeff) < 1e-30) {
+            continue;
+        }
+
+        // Compute the X-part (spatial shift) from GF(2) basis
+        uint64_t x = 0;
+        for (uint32_t i = 0; i < rank; ++i) {
+            if ((alpha >> i) & 1) {
+                x ^= static_cast<uint64_t>(gf2_basis[i]);
+            }
+        }
+
+        // Apply Pauli frame: E = X^{destab_signs} Z^{stab_signs}
+        // The branch state X^x |0⟩ becomes E X^x |0⟩ = X^{x XOR destab_signs} Z^{stab_signs} |0⟩
+        // The Z^{stab_signs} anti-commutes with X^x, giving (-1)^{popcount(x & stab_signs)}
+        //
+        // NOTE: The observable's sign is already incorporated in v[alpha] via base_phase_idx
+        // in the VM opcodes. We do NOT apply gf2_signs here to avoid double-counting.
+        uint64_t initial_x = x ^ state.destab_signs;
+        int frame_parity = std::popcount(x & state.stab_signs) % 2;
+        double frame_phase = (frame_parity == 0) ? 1.0 : -1.0;
+
+        // Reuse preallocated Pauli string P = X^{initial_x}
+        P.xs.u64[0] = initial_x;
+        P.zs.u64[0] = 0;
+        P.sign = false;
+
+        // Map P through the final tableau to get P' = U P U†
+        stim::PauliString<kStimWidth> P_prime = final_tableau(P);
+
+        uint64_t px = P_prime.xs.u64[0];
+        uint64_t pz = P_prime.zs.u64[0];
+
+        // Y = iXZ in Stim's convention, so Y operators contribute i per Y
+        int y_count = std::popcount(px & pz);
+        std::complex<double> i_fac = {1.0, 0.0};
+        switch (y_count & 3) {
+            case 1:
+                i_fac = {0.0, 1.0};
+                break;
+            case 2:
+                i_fac = {-1.0, 0.0};
+                break;
+            case 3:
+                i_fac = {0.0, -1.0};
+                break;
+        }
+
+        // Fold all global scalars and signs into a single constant
+        std::complex<double> p_scale = coeff * frame_phase * global_weight * i_fac;
+        if (P_prime.sign) {
+            p_scale = -p_scale;
+        }
+
+        // Precompute both scale factors for branchless inner loop
+        std::complex<double> scales[2] = {p_scale, -p_scale};
+
+        // Apply P' to the SPARSE reference state and accumulate
+        // P'|k⟩ = (±1)|k XOR px⟩ where the sign depends on k·pz parity
+        for (const auto& item : sparse_ref) {
+            uint64_t k_out = item.k ^ px;
+            int parity = std::popcount(item.k & pz) & 1;
+            sv[k_out] += item.amp * scales[parity];  // Branchless
+        }
+    }
+
+    // 3. Normalize
+    double norm_sq = 0.0;
+    for (const auto& amp : sv) {
+        norm_sq += std::norm(amp);
+    }
+    if (norm_sq > 1e-15) {
+        double norm = std::sqrt(norm_sq);
+        for (auto& amp : sv) {
+            amp /= norm;
+        }
+    }
+
+    return sv;
 }
 
 }  // namespace ucc

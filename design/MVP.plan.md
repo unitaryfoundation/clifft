@@ -116,12 +116,39 @@ You are building the Phase 1 Minimum Viable Product (MVP) of the Unitary Compile
 
 ---
 
-## Follow-ups (Post-MVP)
+## MVP Status: ✅ COMPLETE
 
-Items identified during implementation review for future improvement:
+**Completed:** 2025-02-23
+**Final PR:** #24 (feat/phase7-api-polish)
+**Test Counts:** 153 C++ tests (Catch2), 49 Python tests (pytest)
+
+All phases (1-7) have been implemented and validated. The UCC compiler correctly:
+- Parses Stim circuits with Clifford+T gates, measurements, resets, and classical feedback
+- Compiles to efficient bytecode using the Heisenberg picture and GF(2) basis tracking
+- Executes via the Schrödinger Virtual Machine with T-gate LCU decomposition
+- Produces statevectors matching Stim (pure Clifford) and a standalone numpy oracle (Clifford+T)
+- Samples measurement distributions matching Stim within statistical tolerance
+
+---
+
+## Open Items (Post-MVP)
+
+Items identified during implementation for future improvement:
 
 ### API Encapsulation
-- **`v()` accessor removal**: The current `SchrodingerState::v()` exposes raw coefficient array for testing convenience. Refactor to encapsulate execution: `sample()` should accept a caller-provided output buffer or return results directly, eliminating public access to internal state. By doing in phase 7, the unit tests can also be decoupled from looking at the `v()` data and instead look at the state vector entries.
+- **`v()` accessor removal**: The current `SchrodingerState::v()` exposes raw coefficient array for testing convenience. Refactor to encapsulate execution: `sample()` should accept a caller-provided output buffer or return results directly, eliminating public access to internal state.
 
 ### Robustness
 - **Allocation size limits**: Consider adding configurable limits on `peak_rank` to prevent accidental multi-GB allocations.
+
+### Performance
+- **AG_PIVOT O(n) scan**: The frontend scans stabilizer rows to find the pivot slot. Stim's internal `collapse_qubit_z` returns this index but `do_MZ` discards it. Consider bypassing `do_MZ` or requesting upstream Stim expose this.
+- **Statevector expansion**: Currently uses Stim's `VectorSimulator::state_vector_from_stabilizers` which has O(2^N) overhead per reference computation. For repeated calls, caching the reference state could help.
+
+### Testing
+- **Measurement interference fuzz test**: The current fuzz test (`test_oracle_random_clifford_t_fuzz`) generates circuits without measurements. Extend to include mid-circuit measurements with statistical validation.
+- **Multi-qubit MPP coverage**: Add explicit tests for multi-qubit Pauli product measurements (currently only single-qubit M/MX are heavily tested).
+
+### Documentation
+- **User guide**: Write end-user documentation for the Python API (`ucc.compile`, `ucc.sample`, `ucc.get_statevector`).
+- **Architecture diagram**: Create visual diagrams of the compiler pipeline (AST → HIR → Bytecode → SVM).

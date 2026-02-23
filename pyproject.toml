@@ -42,6 +42,7 @@ dev = [
     "ruff>=0.3",
     "nanobind>=2.0",
     "scikit-build-core>=0.10",
+    "stim>=1.10",
 ]
 
 [tool.scikit-build]
