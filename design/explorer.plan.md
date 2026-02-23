@@ -80,6 +80,29 @@ This plan relies on the core AOT architecture. Do not begin this plan until the 
 *   **Task 5.4 (Safety Guard):** If the JSON contains an `"error"` (rank exceeded), display it prominently in red, instructing the user to use the native C++ CLI for massive simulations.
 *   **DoD:** A user can type a sequence of $T$ gates and watch the chart climb in a step-function format. Hovering over a jump in the graph highlights the exact $T$ gate in the source code that caused the expansion.
 
+## **Part 6: Deep Linking & URL State**
+
+**Goal:** Allow users to share specific circuit configurations via URL without requiring a backend database, while protecting against browser limits.
+
+* **Task 6.1 (Dependencies):** Run bun add lz-string @types/lz-string to add URI-safe compression.
+* **Task 6.2 (URL Hydration):** In App.tsx, add an initialization useEffect that checks for a ?code= query parameter. If present, decompress it using LZString.decompressFromEncodedURIComponent and set it as the initial state of the Monaco editor.
+* **Task 6.3 (State Sync & Share Button):** Add a "Share Link" button above the editor. When clicked, compress the current editor text using LZString.compressToEncodedURIComponent, append it to the current URL as ?code=, and copy the resulting URL to the user's clipboard. Provide a temporary "Copied\!" visual feedback.
+* **Task 6.4 (Abuse Limits):** Add a character count threshold to the Monaco editor state. If code.length \> 5000, visually disable the "Share Link" button and display a tooltip stating "Circuit too large for URL sharing (5,000 char limit)."
+* **Definition of Done (DoD):** A user can write a circuit, click "Share Link", open an incognito window, paste the URL, and see the exact circuit loaded instantly. Circuits over 5,000 characters gracefully disable the sharing feature without crashing.
+
+## **Part 7: Dual-Mode UI & Type-Safe Pathways**
+
+**Goal:** Expose the State-Aware vs. State-Agnostic compilation duality in the UI, physically enforcing the new type-safe execution constraints.
+
+* **Task 7.1 (Wasm API Updates):** Update the Emscripten binding compile\_to\_json(string source) to compile\_to\_json(string source, bool is\_state\_aware).
+  * If true, call trace\_state\_aware and proceed to lower to bytecode.
+  * If false, call trace\_state\_agnostic. Catch any attempt to call lower() on the agnostic HIR to prove the C++ type safety, and instead serialize the HIR directly to JSON using the .export\_json() methodology.
+* **Task 7.2 (UI Mode Toggle):** Add a prominent toggle switch above the editor: **"Mode: Simulation (State-Aware)"** vs. **"Mode: Hardware Export (State-Agnostic)"**. Wire this toggle to the React state and pass it into the compile\_to\_json hook.
+* **Task 7.3 (UI Constraint Enforcement):** When the toggle is set to **Hardware Export (State-Agnostic)**:
+  * **Lock Simulation:** The "Simulate 10k Shots" button MUST be completely disabled and greyed out, with a tooltip explaining "Simulation requires a known input state."
+  * **Hide Tableau:** The Tableau Frame Inspector pane should display a placeholder stating: "Tableau tracking disabled in State-Agnostic mode. Unitary frame undisturbed."
+  * **Swap Output Pane:** Change the "Bytecode" output pane title to "QPU Hardware Template (JSON)" and display the raw JSON export instead of 32-byte opcodes.
+* **Definition of Done (DoD):** Switching the toggle to State-Agnostic immediately disables the Simulation button and replaces the Bytecode view with a JSON template. The Tableau pane correctly shows no AG pivots. Switching back restores all simulation features seamlessly.
 ---
 
 ## Appendix: Demonstration Use Cases to Verify
@@ -133,3 +156,21 @@ H 0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21
 T 0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21
 ```
 *Verification:* The Rank Timeline graph bursts through the red $Y=20$ reference line, peaking at 22\. Pressing the "Simulate" button immediately shows an error message: "Rank too high for browser memory. Limit is 20" without crashing the browser tab.
+
+
+### **Use Case 5: The Dual-Mode Execution Constraint**
+
+Paste the following code into the Editor:
+
+
+```stim
+CX 0 1
+T 1
+M 1
+CX rec\[-1\] 0
+```
+
+*Verification:*
+
+1. While in **Simulation Mode**, the circuit compiles to bytecode, the Tableau Inspector shows AG pivot matrices for the measurement, and clicking "Simulate" succeeds.
+2. Toggle to **Hardware Export Mode**. The Simulation button instantly locks. The Bytecode pane swaps to a JSON template. The Tableau pane empties. This visually proves to the user that compiling for an arbitrary QPU subroutine does not allow static state tracking or execution.
