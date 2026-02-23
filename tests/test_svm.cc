@@ -85,6 +85,8 @@ TEST_CASE("SVM: empty program returns empty results", "[svm]") {
     CompiledModule prog;
     prog.peak_rank = 0;
     prog.num_measurements = 0;
+    prog.num_detectors = 0;
+    prog.num_observables = 0;
 
     auto results = sample(prog, 10, 0);
     REQUIRE(results.measurements.empty());

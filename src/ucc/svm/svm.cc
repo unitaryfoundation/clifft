@@ -390,13 +390,36 @@ void op_measure_deterministic(SchrodingerState& state, const Instruction& instr,
 // divergence by XORing the pivot slot into destab_signs.
 void op_ag_pivot(SchrodingerState& state, const Instruction& instr, const ConstantPool& pool,
                  uint32_t meas_idx, bool use_prev_outcome) {
+    // Compute error anti-commutation for both branches.
+    // The error frame anti-commutes with the measured observable if:
+    //   (error_X & obs_Z) XOR (error_Z & obs_X) has odd popcount
+    // This affects how we interpret/record the measurement outcome.
+    uint64_t anti_comm =
+        (state.destab_signs & instr.meta.stab_mask) ^ (state.stab_signs & instr.meta.destab_mask);
+    int error_parity = std::popcount(anti_comm) & 1;
+
     uint8_t divergence;
     if (use_prev_outcome) {
-        divergence = state.meas_record[meas_idx] ^ instr.ag_ref_outcome;
+        // Extract clean divergence from the recorded outcome.
+        //
+        // When MEASURE_MERGE precedes AG_PIVOT, the interference-based
+        // measurement naturally incorporates error_parity via the phase
+        // accumulation in resolve_sign(). The recorded outcome 'm' satisfies:
+        //   m = d ^ error_parity ^ r   (where d=divergence, r=reference)
+        //
+        // We need the clean divergence 'd' to correctly update the error
+        // frame, so we solve for it:
+        //   d = m ^ error_parity ^ r
+        divergence =
+            state.meas_record[meas_idx] ^ static_cast<uint8_t>(error_parity) ^ instr.ag_ref_outcome;
     } else {
+        // Standalone AG_PIVOT: sample random 50/50.
+        // The outcome is: (random divergence) XOR (error parity) XOR (reference)
+        // This correctly accounts for errors flipping the measurement outcome.
         double r = state.random_double();
         divergence = (r < 0.5) ? 0 : 1;
-        state.meas_record[meas_idx] = divergence ^ instr.ag_ref_outcome;
+        state.meas_record[meas_idx] =
+            divergence ^ static_cast<uint8_t>(error_parity) ^ instr.ag_ref_outcome;
     }
 
     // Full Matrix Transformation of the Error Frame
@@ -591,12 +614,16 @@ SampleResult sample(const CompiledModule& program, uint32_t shots, uint64_t seed
         execute(program, state);
 
         // Copy all records to results
+        // Cast to size_t before multiplication to avoid uint32_t overflow
         std::copy(state.meas_record.begin(), state.meas_record.end(),
-                  result.measurements.begin() + static_cast<ptrdiff_t>(shot * num_meas));
-        std::copy(state.det_record.begin(), state.det_record.end(),
-                  result.detectors.begin() + static_cast<ptrdiff_t>(shot * num_det));
+                  result.measurements.begin() +
+                      static_cast<ptrdiff_t>(static_cast<size_t>(shot) * num_meas));
+        std::copy(
+            state.det_record.begin(), state.det_record.end(),
+            result.detectors.begin() + static_cast<ptrdiff_t>(static_cast<size_t>(shot) * num_det));
         std::copy(state.obs_record.begin(), state.obs_record.end(),
-                  result.observables.begin() + static_cast<ptrdiff_t>(shot * num_obs));
+                  result.observables.begin() +
+                      static_cast<ptrdiff_t>(static_cast<size_t>(shot) * num_obs));
     }
 
     return result;

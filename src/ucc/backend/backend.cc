@@ -264,6 +264,12 @@ CompiledModule lower(const HirModule& hir) {
                     // Computed in frontend by scanning post-collapse tableau.
                     pivot_instr.meta.ag_stab_slot = op.ag_stab_slot();
 
+                    // Store observable masks for standalone AG_PIVOT error commutation.
+                    // When not reusing (standalone pivot), the SVM needs these to
+                    // compute error anti-commutation and flip the outcome accordingly.
+                    pivot_instr.meta.destab_mask = static_cast<uint64_t>(destab);
+                    pivot_instr.meta.stab_mask = static_cast<uint64_t>(stab);
+
                     result.bytecode.push_back(pivot_instr);
                 }
                 break;
