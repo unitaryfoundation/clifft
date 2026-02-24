@@ -38,13 +38,14 @@ TEST_CASE("SVM: SchrodingerState initializes to |0...0>", "[svm]") {
 }
 
 TEST_CASE("SVM: SchrodingerState reset restores initial state", "[svm]") {
-    SchrodingerState state(2, 1);
+    SchrodingerState state(2, 1, 0, 1);
 
     // Modify state
     state.v()[0] = {0.5, 0.5};
     state.destab_signs = 0xFF;
     state.stab_signs = 0xAA;
     state.meas_record[0] = 1;
+    state.obs_record[0] = 1;
 
     // Reset
     state.reset(42);
@@ -54,7 +55,9 @@ TEST_CASE("SVM: SchrodingerState reset restores initial state", "[svm]") {
     REQUIRE(std::abs(state.v()[0] - std::complex<double>(1.0, 0.0)) < 1e-10);
     REQUIRE(state.destab_signs == 0);
     REQUIRE(state.stab_signs == 0);
-    REQUIRE(state.meas_record[0] == 0);
+    // meas_record and det_record are NOT zeroed (sequentially overwritten by execute).
+    // obs_record IS zeroed because it uses XOR accumulation.
+    REQUIRE(state.obs_record[0] == 0);
 }
 
 TEST_CASE("SVM: deterministic RNG produces consistent values", "[svm]") {

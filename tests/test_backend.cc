@@ -5,6 +5,9 @@
 #include <algorithm>
 #include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
+#include <cmath>
+#include <random>
+#include <utility>
 
 using namespace ucc;
 
@@ -1022,4 +1025,176 @@ TEST_CASE("Backend: noise at circuit end has pc equal to bytecode size", "[backe
     // Count non-noise bytecode instructions
     size_t expected_bc_size = result.bytecode.size();
     REQUIRE(result.constant_pool.noise_schedule[0].pc == expected_bc_size);
+}
+
+// =============================================================================
+// AGMatrix: Sparse GF(2) Transform
+// =============================================================================
+
+TEST_CASE("AGMatrix: sparse application matches Stim Tableau for entangled circuit",
+          "[backend][ag]") {
+    // Build a scrambling transformation (highly entangled)
+    std::mt19937_64 rng(0);
+    stim::TableauSimulator<kStimWidth> sim(std::move(rng), 4);
+    stim::Circuit circuit;
+    circuit.safe_append_u("H", {0, 1, 2, 3});
+    circuit.safe_append_u("CX", {0, 1, 1, 2, 2, 3});
+    circuit.safe_append_u("S", {0, 2});
+    sim.safe_do_circuit(circuit);
+
+    // Extract our fast AGMatrix from the simulator's inverse tableau
+    AGMatrix mat(sim.inv_state);
+
+    // Test various error frames: clean, sparse, dense
+    std::vector<std::pair<uint64_t, uint64_t>> test_frames = {
+        {0, 0},            // Clean state
+        {1ULL << 2, 0},    // Single X error on qubit 2
+        {0, 1ULL << 1},    // Single Z error on qubit 1
+        {0b0101, 0b1010},  // Mixed X and Z errors
+    };
+
+    for (auto [test_x, test_z] : test_frames) {
+        // Ground truth: Stim's PauliString-based evaluation
+        stim::PauliString<kStimWidth> ps(4);
+        ps.xs.u64[0] = test_x;
+        ps.zs.u64[0] = test_z;
+        stim::PauliString<kStimWidth> expected = sim.inv_state(ps);
+
+        // Our sparse matrix evaluation
+        uint64_t ucc_x = test_x;
+        uint64_t ucc_z = test_z;
+        mat.apply(ucc_x, ucc_z);
+
+        REQUIRE(ucc_x == expected.xs.u64[0]);
+        REQUIRE(ucc_z == expected.zs.u64[0]);
+    }
+}
+
+TEST_CASE("AGMatrix: identity tableau is passthrough", "[backend][ag]") {
+    // Identity tableau should not change the error frame
+    stim::Tableau<kStimWidth> identity(4);
+    AGMatrix mat(identity);
+
+    uint64_t x = 0b1010;
+    uint64_t z = 0b0101;
+    mat.apply(x, z);
+
+    REQUIRE(x == 0b1010);
+    REQUIRE(z == 0b0101);
+}
+
+TEST_CASE("AGMatrix: zero error frame stays zero", "[backend][ag]") {
+    std::mt19937_64 rng(42);
+    stim::TableauSimulator<kStimWidth> sim(std::move(rng), 3);
+    stim::Circuit circuit;
+    circuit.safe_append_u("H", {0, 1, 2});
+    circuit.safe_append_u("CX", {0, 1, 1, 2});
+    sim.safe_do_circuit(circuit);
+
+    AGMatrix mat(sim.inv_state);
+
+    uint64_t x = 0;
+    uint64_t z = 0;
+    mat.apply(x, z);
+
+    REQUIRE(x == 0);
+    REQUIRE(z == 0);
+}
+
+TEST_CASE("AGMatrix: all single-qubit errors for 6-qubit circuit", "[backend][ag]") {
+    // Exhaustively test every single-qubit X and Z error
+    std::mt19937_64 rng(123);
+    stim::TableauSimulator<kStimWidth> sim(std::move(rng), 6);
+    stim::Circuit circuit;
+    circuit.safe_append_u("H", {0, 2, 4});
+    circuit.safe_append_u("CX", {0, 1, 2, 3, 4, 5});
+    circuit.safe_append_u("S", {1, 3, 5});
+    circuit.safe_append_u("H", {1, 3, 5});
+    sim.safe_do_circuit(circuit);
+
+    AGMatrix mat(sim.inv_state);
+
+    for (int q = 0; q < 6; ++q) {
+        // Test X error on qubit q
+        {
+            stim::PauliString<kStimWidth> ps(6);
+            ps.xs.u64[0] = 1ULL << q;
+            ps.zs.u64[0] = 0;
+            auto expected = sim.inv_state(ps);
+
+            uint64_t ux = 1ULL << q;
+            uint64_t uz = 0;
+            mat.apply(ux, uz);
+            REQUIRE(ux == expected.xs.u64[0]);
+            REQUIRE(uz == expected.zs.u64[0]);
+        }
+        // Test Z error on qubit q
+        {
+            stim::PauliString<kStimWidth> ps(6);
+            ps.xs.u64[0] = 0;
+            ps.zs.u64[0] = 1ULL << q;
+            auto expected = sim.inv_state(ps);
+
+            uint64_t ux = 0;
+            uint64_t uz = 1ULL << q;
+            mat.apply(ux, uz);
+            REQUIRE(ux == expected.xs.u64[0]);
+            REQUIRE(uz == expected.zs.u64[0]);
+        }
+    }
+}
+
+TEST_CASE("Backend: cumulative_hazards computed alongside noise_schedule", "[backend][noise]") {
+    auto result = compile(R"(
+        X_ERROR(0.01) 0
+        H 0
+        DEPOLARIZE1(0.02) 0
+        T 0
+        Y_ERROR(0.03) 0
+        M 0
+    )");
+
+    const auto& hazards = result.constant_pool.cumulative_hazards;
+    const auto& schedule = result.constant_pool.noise_schedule;
+
+    REQUIRE(hazards.size() == schedule.size());
+    REQUIRE(hazards.size() == 3);
+
+    // h_i = -ln(1 - p_i), H_k = sum h_0..h_k
+    double h0 = -std::log(1.0 - 0.01);
+    double h1 = -std::log(1.0 - 0.02);
+    double h2 = -std::log(1.0 - 0.03);
+
+    REQUIRE(hazards[0] == Catch::Approx(h0));
+    REQUIRE(hazards[1] == Catch::Approx(h0 + h1));
+    REQUIRE(hazards[2] == Catch::Approx(h0 + h1 + h2));
+
+    // Strictly monotonically increasing
+    REQUIRE(hazards[0] > 0.0);
+    REQUIRE(hazards[1] > hazards[0]);
+    REQUIRE(hazards[2] > hazards[1]);
+}
+
+TEST_CASE("Backend: cumulative_hazards empty when no noise", "[backend][noise]") {
+    auto result = compile(R"(
+        H 0
+        T 0
+        M 0
+    )");
+
+    REQUIRE(result.constant_pool.cumulative_hazards.empty());
+    REQUIRE(result.constant_pool.noise_schedule.empty());
+}
+
+TEST_CASE("Backend: cumulative_hazards clamps probability near 1.0", "[backend][noise]") {
+    // X_ERROR(1.0) would make p=1, log(0)=-inf. Must clamp.
+    auto result = compile(R"(
+        X_ERROR(1.0) 0
+        M 0
+    )");
+
+    REQUIRE(result.constant_pool.cumulative_hazards.size() == 1);
+    // Must be finite (clamped, not -inf)
+    REQUIRE(std::isfinite(result.constant_pool.cumulative_hazards[0]));
+    REQUIRE(result.constant_pool.cumulative_hazards[0] > 0.0);
 }

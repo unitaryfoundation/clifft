@@ -354,7 +354,7 @@ class TestUnstructuredNoiseFuzzing:
         and adjacent 2-body parities (XOR of consecutive measurements)
         to validate joint correlations.
         """
-        shots = 10_000
+        shots = 50_000
         depth_per_qubit = 12
 
         circuit_str = _generate_random_noisy_circuit(num_qubits, depth_per_qubit, seed)

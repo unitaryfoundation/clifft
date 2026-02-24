@@ -4,6 +4,7 @@
 
 #include "stim.h"
 
+#include <bit>
 #include <complex>
 #include <cstdint>
 #include <optional>
@@ -187,7 +188,61 @@ struct NoiseScheduleEntry {
 // This matches kStimWidth and is sufficient for near-term hardware. Scaling
 // beyond 64 qubits would require indirect mask references or larger instructions.
 
-using AGMatrix = stim::Tableau<kStimWidth>;
+// =============================================================================
+// AG Matrix (Sparse GF(2) Transform)
+// =============================================================================
+//
+// Extracts the Boolean change-of-basis matrix from a Stim Tableau.
+// Evaluates measurement pivots using sparse column extraction, completely
+// avoiding the allocations and phase-tracking of stim::PauliString.
+//
+// The sign bit of the Pauli product is intentionally discarded: the error
+// frame is a projective Pauli (global phase is unobservable), so only the
+// X/Z components matter for error propagation.
+
+class AGMatrix {
+  public:
+    AGMatrix() = default;
+
+    /// Construct the interleaved boolean columns from a Stim Tableau.
+    explicit AGMatrix(const stim::Tableau<kStimWidth>& tab);
+
+    /// Apply the matrix to the SVM's sign trackers (modifies in-place).
+    /// Inlined into op_ag_pivot to eliminate 5M cross-TU calls per shot batch.
+    inline void apply(uint64_t& destab_signs, uint64_t& stab_signs) const {
+        uint64_t new_destab = 0;
+        uint64_t new_stab = 0;
+
+        uint64_t d_signs = destab_signs;
+        while (d_signs) {
+            int i = std::countr_zero(d_signs);
+            d_signs &= d_signs - 1;
+            new_destab ^= destab_cols_[i].x;
+            new_stab ^= destab_cols_[i].z;
+        }
+
+        uint64_t s_signs = stab_signs;
+        while (s_signs) {
+            int i = std::countr_zero(s_signs);
+            s_signs &= s_signs - 1;
+            new_destab ^= stab_cols_[i].x;
+            new_stab ^= stab_cols_[i].z;
+        }
+
+        destab_signs = new_destab;
+        stab_signs = new_stab;
+    }
+
+  private:
+    // X and Z columns interleaved for L1 cache locality: both fetched
+    // from the same 16-byte-aligned slot, enabling 128-bit XOR (vpxor).
+    struct alignas(16) ColPair {
+        uint64_t x;
+        uint64_t z;
+    };
+    ColPair destab_cols_[64] = {};
+    ColPair stab_cols_[64] = {};
+};
 
 struct ConstantPool {
     // AG pivot matrices for measurement collapse (indexed by OP_AG_PIVOT)
@@ -210,6 +265,11 @@ struct ConstantPool {
     // Each entry maps to a bytecode pc where the noise applies.
     // The VM processes these before executing the instruction at that pc.
     std::vector<NoiseScheduleEntry> noise_schedule;
+
+    // Cumulative log-survival hazards for O(log N) geometric gap sampling.
+    // H[k] = sum_{i=0}^{k} -ln(1 - p_i), strictly monotonically increasing.
+    // The SVM binary-searches this array to jump directly to the next error.
+    std::vector<double> cumulative_hazards;
 
     // Target lists for detector and observable parity checks.
     // Each entry is a list of absolute measurement indices to XOR.

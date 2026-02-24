@@ -1,7 +1,9 @@
 #include "ucc/svm/svm.h"
 
+#include <algorithm>
 #include <bit>
 #include <cassert>
+#include <cmath>
 #include <cstdlib>
 #include <stdexcept>
 
@@ -90,9 +92,14 @@ void SchrodingerState::reset(uint64_t seed) {
     v_[0] = {1.0, 0.0};
     destab_signs = 0;
     stab_signs = 0;
-    std::fill(meas_record.begin(), meas_record.end(), 0);
-    std::fill(det_record.begin(), det_record.end(), 0);
-    std::fill(obs_record.begin(), obs_record.end(), 0);
+
+    // meas_record and det_record are sequentially overwritten each shot
+    // (via meas_idx++ and det_idx++), so zeroing wastes memory bandwidth.
+    // obs_record uses XOR accumulation (^=) and must be cleared.
+    if (!obs_record.empty()) {
+        std::fill(obs_record.begin(), obs_record.end(), 0);
+    }
+
     rng_.seed(seed);
 }
 
@@ -485,33 +492,16 @@ uint8_t op_ag_pivot(SchrodingerState& state, const Instruction& instr, const Con
         outcome = divergence ^ static_cast<uint8_t>(error_parity) ^ instr.ag_ref_outcome;
     }
 
-    // Full Matrix Transformation of the Error Frame
-    // The AG matrix maps old error coefficients -> new error coefficients.
-    // We encode the error frame as a PauliString where xs = destab_signs
-    // and zs = stab_signs, then apply the tableau transformation.
+    // Sparse GF(2) Matrix Transformation of the Error Frame
+    // Uses pre-extracted boolean columns, avoiding Stim PauliString allocations.
     const auto& mat = pool.ag_matrices[instr.meta.payload_idx];
-
-    stim::PauliString<kStimWidth> err_frame(mat.num_qubits);
-    err_frame.xs.u64[0] = state.destab_signs;
-    err_frame.zs.u64[0] = state.stab_signs;
-
-    // Apply the exact change of basis
-    err_frame = mat(err_frame);
-
-    uint64_t new_destab = err_frame.xs.u64[0];
-    uint64_t new_stab = err_frame.zs.u64[0];
+    mat.apply(state.destab_signs, state.stab_signs);
 
     // Inject Measurement Divergence
-    // When outcome diverges from reference, we apply the new destabilizer D'_p.
-    // The destabilizer anti-commutes with the measured observable (now stabilizer S'_p),
-    // effectively flipping the measurement outcome.
     // D'_p is an X-type Pauli, so we XOR into destab_signs to preserve any
     // existing error that was transformed through the AG pivot matrix.
     uint32_t p = instr.meta.ag_stab_slot;
-    new_destab ^= (static_cast<uint64_t>(divergence) << p);
-
-    state.destab_signs = new_destab;
-    state.stab_signs = new_stab;
+    state.destab_signs ^= (static_cast<uint64_t>(divergence) << p);
 
     return outcome;
 }
@@ -546,30 +536,62 @@ void execute(const CompiledModule& program, SchrodingerState& state) {
     uint8_t last_outcome = 0;  // Tracks outcome for hidden measurements / reset
 
     const auto& schedule = program.constant_pool.noise_schedule;
+    const auto& hazards = program.constant_pool.cumulative_hazards;
     const auto& det_targets = program.constant_pool.detector_targets;
     const auto& obs_targets = program.constant_pool.observable_targets;
-    size_t next_noise_idx = 0;
+
+    // Geometric gap sampling: jump directly to the next noise site that fires.
+    // Instead of drawing one RNG per noise site (O(N)), we draw one Exponential
+    // variate and binary-search the cumulative hazard array to find where it
+    // lands (O(log N) per error, O(E log N) total where E = expected errors).
+    size_t next_noise_idx = schedule.size();  // default: no errors
+    double current_hazard = 0.0;
+
+    auto sample_next_error = [&]() {
+        if (next_noise_idx >= schedule.size())
+            return;
+        // Draw Exp(1): -ln(U) where U ~ Uniform(0,1].
+        // 1.0 - random_double() maps [0,1) to (0,1], avoiding log(0).
+        double u = 1.0 - state.random_double();
+        double target_hazard = current_hazard - std::log(u);
+
+        auto it = std::upper_bound(hazards.begin() + static_cast<ptrdiff_t>(next_noise_idx),
+                                   hazards.end(), target_hazard);
+
+        if (it == hazards.end()) {
+            next_noise_idx = schedule.size();
+        } else {
+            next_noise_idx = static_cast<size_t>(std::distance(hazards.begin(), it));
+        }
+    };
+
+    if (!schedule.empty()) {
+        next_noise_idx = 0;
+        sample_next_error();
+    }
 
     // Loop to <= bytecode.size() to process trailing noise at circuit end.
     // Noise scheduled at pc == bytecode.size() applies after all instructions.
     for (uint32_t pc = 0; pc <= program.bytecode.size(); ++pc) {
-        // 1. Process all noise scheduled for this PC (gap sampling)
+        // 1. Process noise only at sites where geometric sampling landed
         while (next_noise_idx < schedule.size() && pc == schedule[next_noise_idx].pc) {
             const auto& site = schedule[next_noise_idx];
-            double r = state.random_double();
-            if (r < site.total_probability) {
-                // Single-draw roulette wheel: use same random number for channel selection
-                double cum_p = 0.0;
-                for (const auto& ch : site.channels) {
-                    cum_p += ch.prob;
-                    if (r < cum_p) {
-                        state.destab_signs ^= ch.destab_mask;
-                        state.stab_signs ^= ch.stab_mask;
-                        break;
-                    }
+
+            // An error fires here. Pick which Pauli channel.
+            double r = state.random_double() * site.total_probability;
+            double cum_p = 0.0;
+            for (size_t i = 0; i < site.channels.size(); ++i) {
+                cum_p += site.channels[i].prob;
+                if (r < cum_p || i == site.channels.size() - 1) {
+                    state.destab_signs ^= site.channels[i].destab_mask;
+                    state.stab_signs ^= site.channels[i].stab_mask;
+                    break;
                 }
             }
+
+            current_hazard = hazards[next_noise_idx];
             next_noise_idx++;
+            sample_next_error();
         }
 
         // 2. Break if we've processed all bytecode

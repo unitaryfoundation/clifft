@@ -1,9 +1,31 @@
 #include "ucc/backend/backend.h"
 
 #include <bit>
+#include <cmath>
 #include <stdexcept>
 
 namespace ucc {
+
+// =============================================================================
+// AGMatrix Implementation
+// =============================================================================
+
+AGMatrix::AGMatrix(const stim::Tableau<kStimWidth>& tab) {
+    size_t n = tab.num_qubits;
+    for (size_t i = 0; i < 64; ++i) {
+        if (i < n) {
+            destab_cols_[i].x = tab.xs[i].xs.u64[0];
+            destab_cols_[i].z = tab.xs[i].zs.u64[0];
+            stab_cols_[i].x = tab.zs[i].xs.u64[0];
+            stab_cols_[i].z = tab.zs[i].zs.u64[0];
+        } else {
+            destab_cols_[i].x = (1ULL << i);
+            destab_cols_[i].z = 0;
+            stab_cols_[i].x = 0;
+            stab_cols_[i].z = (1ULL << i);
+        }
+    }
+}
 
 namespace {
 
@@ -135,8 +157,13 @@ CompiledModule lower(const HirModule& hir) {
     GF2Basis basis;
     uint32_t peak_rank = 0;
 
-    // Copy AG matrices from HIR to ConstantPool
-    result.constant_pool.ag_matrices = hir.ag_matrices;
+    // Convert AG matrices from HIR Stim Tableaux to flat AGMatrix format
+    result.constant_pool.ag_matrices.reserve(hir.ag_matrices.size());
+    for (const auto& tab : hir.ag_matrices) {
+        result.constant_pool.ag_matrices.emplace_back(tab);
+    }
+
+    double cumulative_hazard = 0.0;
 
     for (const auto& op : hir.ops) {
         switch (op.op_type()) {
@@ -305,8 +332,6 @@ CompiledModule lower(const HirModule& hir) {
             }
 
             case OpType::NOISE: {
-                // Quantum noise: DO NOT emit bytecode.
-                // Copy to noise_schedule with pc = current bytecode size.
                 NoiseSiteIdx site_idx = op.noise_site_idx();
                 const NoiseSite& hir_site = hir.noise_sites[static_cast<uint32_t>(site_idx)];
 
@@ -314,13 +339,20 @@ CompiledModule lower(const HirModule& hir) {
                 entry.pc = static_cast<uint32_t>(result.bytecode.size());
                 entry.channels = hir_site.channels;
 
-                // Compute total_probability as sum of all channel probabilities
                 entry.total_probability = 0.0;
                 for (const auto& ch : entry.channels) {
                     entry.total_probability += ch.prob;
                 }
 
+                // Accumulate log-survival hazard for geometric gap sampling.
+                // h_i = -ln(1 - p_i); clamp p to prevent log(0) = -inf.
+                double p = entry.total_probability;
+                if (p > 1.0 - 1e-15)
+                    p = 1.0 - 1e-15;
+                cumulative_hazard += -std::log(1.0 - p);
+
                 result.constant_pool.noise_schedule.push_back(std::move(entry));
+                result.constant_pool.cumulative_hazards.push_back(cumulative_hazard);
                 break;
             }
 
