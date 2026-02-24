@@ -5,6 +5,15 @@
 #include <cstdlib>
 #include <stdexcept>
 
+// Cross-platform restrict qualifier to unblock SIMD auto-vectorization
+#if defined(__GNUC__) || defined(__clang__)
+#define UCC_RESTRICT __restrict__
+#elif defined(_MSC_VER)
+#define UCC_RESTRICT __restrict
+#else
+#define UCC_RESTRICT
+#endif
+
 namespace ucc {
 
 // =============================================================================
@@ -144,27 +153,31 @@ inline std::complex<double> resolve_sign(const SchrodingerState& state, const In
 // The spawned branch gets weight i*tan(π/8)*Z for T, or -i*tan(π/8)*Z for T†.
 void op_branch(SchrodingerState& state, const Instruction& instr, uint32_t& current_rank) {
     uint32_t new_bit = current_rank++;
-    uint64_t old_size = 1ULL << new_bit;  // Size before expansion
+    uint64_t old_size = 1ULL << new_bit;
 
     std::complex<double> base_phase = resolve_sign(state, instr);
-    // T = I - i*tan(π/8)*Z, T† = I + i*tan(π/8)*Z
     bool is_dagger = (instr.flags & Instruction::FLAG_IS_DAGGER) != 0;
     std::complex<double> rel_weight =
         is_dagger ? std::complex<double>(0.0, kTanPi8) : std::complex<double>(0.0, -kTanPi8);
 
-    // Precompute the two possible phase factors (branchless array lookup)
-    std::complex<double> factors[2] = {rel_weight * base_phase, -rel_weight * base_phase};
+    std::complex<double> f0 = rel_weight * base_phase;
+    std::complex<double> f1 = -f0;
 
-    auto* v = state.v();
-    for (uint64_t alpha = 0; alpha < old_size; ++alpha) {
-        uint64_t new_idx = alpha + old_size;  // Equivalent to alpha | (1 << new_bit)
-        // Use parity of source index (alpha): commutation_mask encodes
-        // anticommutation with existing basis vectors, not the new dimension
-        int source_parity =
-            compute_sign_parity(static_cast<uint32_t>(alpha), instr.commutation_mask);
+    // Strict pointer aliasing: src (lower half) and dst (upper half) are disjoint
+    const std::complex<double>* UCC_RESTRICT src = state.v();
+    std::complex<double>* UCC_RESTRICT dst = state.v() + old_size;
+    uint32_t c_mask = instr.commutation_mask;
 
-        // Zero FLOPs on identity branch - just write spawned branch
-        v[new_idx] = v[alpha] * factors[source_parity];
+    if (c_mask == 0) {
+        // Fast path: all parities are zero, pure scalar multiply vectorizes to vmulpd
+        for (uint64_t i = 0; i < old_size; ++i) {
+            dst[i] = src[i] * f0;
+        }
+    } else {
+        for (uint64_t i = 0; i < old_size; ++i) {
+            int source_parity = compute_sign_parity(static_cast<uint32_t>(i), c_mask);
+            dst[i] = src[i] * (source_parity ? f1 : f0);  // Compiles to vblendvpd
+        }
     }
 }
 
@@ -175,12 +188,12 @@ void op_collide(SchrodingerState& state, const Instruction& instr, uint32_t curr
     assert(instr.branch.x_mask != 0 && "OP_COLLIDE requires nonzero x_mask");
 
     std::complex<double> base_phase = resolve_sign(state, instr);
-    // T = I - i*tan(π/8)*Z, T† = I + i*tan(π/8)*Z
     bool is_dagger = (instr.flags & Instruction::FLAG_IS_DAGGER) != 0;
     std::complex<double> rel_weight =
         is_dagger ? std::complex<double>(0.0, kTanPi8) : std::complex<double>(0.0, -kTanPi8);
 
-    std::complex<double> factors[2] = {rel_weight * base_phase, -rel_weight * base_phase};
+    std::complex<double> f0 = rel_weight * base_phase;
+    std::complex<double> f1 = -f0;
 
     uint32_t x_mask = instr.branch.x_mask;
     uint32_t pivot_bit = std::countr_zero(x_mask);
@@ -188,24 +201,47 @@ void op_collide(SchrodingerState& state, const Instruction& instr, uint32_t curr
     uint64_t block_size = 1ULL << pivot_bit;
     uint64_t size = 1ULL << current_rank;
     uint64_t num_blocks = (size >> 1) / block_size;
-    auto* v = state.v();
+    std::complex<double>* v = state.v();
+    uint32_t c_mask = instr.commutation_mask;
 
-    for (uint64_t b = 0; b < num_blocks; ++b) {
-        uint64_t src_start = b * (block_size * 2);
-        for (uint64_t i = 0; i < block_size; ++i) {
-            uint64_t alpha = src_start + i;
-            uint64_t beta = alpha ^ x_mask;
+    if (c_mask == 0) {
+        for (uint64_t b = 0; b < num_blocks; ++b) {
+            uint64_t src_start = b * (block_size * 2);
+            uint64_t beta_start = src_start ^ x_mask;
 
-            int parity_a =
-                compute_sign_parity(static_cast<uint32_t>(alpha), instr.commutation_mask);
-            int parity_b = compute_sign_parity(static_cast<uint32_t>(beta), instr.commutation_mask);
+            // Disjoint pointers enable SIMD auto-vectorization
+            std::complex<double>* UCC_RESTRICT pA = v + src_start;
+            std::complex<double>* UCC_RESTRICT pB = v + beta_start;
 
-            std::complex<double> va = v[alpha];
-            std::complex<double> vb = v[beta];
+            for (uint64_t i = 0; i < block_size; ++i) {
+                std::complex<double> va = pA[i];
+                std::complex<double> vb = pB[i];
+                pA[i] = va + vb * f0;
+                pB[i] = vb + va * f0;
+            }
+        }
+    } else {
+        // Algebraic parity reduction: parity(beta) = parity(alpha) ^ parity(x_mask)
+        int x_mask_parity = compute_sign_parity(x_mask, c_mask);
 
-            // Dominant term factoring: self + w*Z*partner
-            v[alpha] = va + vb * factors[parity_b];
-            v[beta] = vb + va * factors[parity_a];
+        for (uint64_t b = 0; b < num_blocks; ++b) {
+            uint64_t src_start = b * (block_size * 2);
+            uint64_t beta_start = src_start ^ x_mask;
+
+            std::complex<double>* UCC_RESTRICT pA = v + src_start;
+            std::complex<double>* UCC_RESTRICT pB = v + beta_start;
+
+            for (uint64_t i = 0; i < block_size; ++i) {
+                uint64_t alpha = src_start + i;
+                int parity_a = compute_sign_parity(static_cast<uint32_t>(alpha), c_mask);
+                int parity_b = parity_a ^ x_mask_parity;  // Saves one popcount per iteration
+
+                std::complex<double> va = pA[i];
+                std::complex<double> vb = pB[i];
+
+                pA[i] = va + vb * (parity_b ? f1 : f0);
+                pB[i] = vb + va * (parity_a ? f1 : f0);
+            }
         }
     }
 }
@@ -221,18 +257,26 @@ inline bool instr_is_dagger(const Instruction& instr) {
 
 void op_scalar_phase(SchrodingerState& state, const Instruction& instr, uint32_t current_rank) {
     std::complex<double> base_phase = resolve_sign(state, instr);
-    // T = I - i*tan(π/8)*Z, T† = I + i*tan(π/8)*Z
     std::complex<double> i_tan = instr_is_dagger(instr) ? std::complex<double>(0.0, kTanPi8)
                                                         : std::complex<double>(0.0, -kTanPi8);
 
-    // Phase depends on whether each basis index anti-commutes with observable
-    std::complex<double> factors[2] = {1.0 + i_tan * base_phase, 1.0 - i_tan * base_phase};
+    std::complex<double> f0 = 1.0 + i_tan * base_phase;
+    std::complex<double> f1 = 1.0 - i_tan * base_phase;
 
     uint64_t size = 1ULL << current_rank;
     auto* v = state.v();
-    for (uint64_t i = 0; i < size; ++i) {
-        int parity = compute_sign_parity(static_cast<uint32_t>(i), instr.commutation_mask);
-        v[i] *= factors[parity];  // Branchless phase application
+    uint32_t c_mask = instr.commutation_mask;
+
+    if (c_mask == 0) {
+        // Fast path: uniform phase, pure scalar multiply vectorizes cleanly
+        for (uint64_t i = 0; i < size; ++i) {
+            v[i] *= f0;
+        }
+    } else {
+        for (uint64_t i = 0; i < size; ++i) {
+            int parity = compute_sign_parity(static_cast<uint32_t>(i), c_mask);
+            v[i] *= (parity ? f1 : f0);
+        }
     }
 }
 
@@ -243,7 +287,6 @@ void op_scalar_phase(SchrodingerState& state, const Instruction& instr, uint32_t
 // Returns the sampled outcome.
 uint8_t op_measure_merge(SchrodingerState& state, const Instruction& instr,
                          uint32_t& current_rank) {
-    // Defensive assertions to catch backend logic errors
     assert(current_rank >= 1 && "MEASURE_MERGE requires at least one dimension");
     assert(instr.branch.x_mask != 0 && "MEASURE_MERGE requires nonzero x_mask");
 
@@ -253,29 +296,45 @@ uint8_t op_measure_merge(SchrodingerState& state, const Instruction& instr,
     uint64_t block_size = 1ULL << bit_index;
     uint64_t new_size = 1ULL << (current_rank - 1);
     uint64_t num_blocks = new_size / block_size;
-    auto* v = state.v();
+    std::complex<double>* v = state.v();
 
-    // Resolve the exact complex phase of the observable (includes Y-count)
     std::complex<double> base_phase = resolve_sign(state, instr);
-
-    // Precompute phase factors for branchless inner loop (AVX-friendly)
-    std::complex<double> phase_factors[2] = {base_phase, -base_phase};
-
-    // Pass 1: Gather L2 norms with correct phase-aware interference
+    std::complex<double> pf0 = base_phase;
+    std::complex<double> pf1 = -base_phase;
+    uint32_t c_mask = instr.commutation_mask;
     double prob_0 = 0.0, prob_1 = 0.0;
 
-    for (uint64_t b = 0; b < num_blocks; ++b) {
-        uint64_t src_start = b * (block_size * 2);
-        for (uint64_t i = 0; i < block_size; ++i) {
-            uint64_t alpha = src_start + i;
-            uint64_t beta = alpha ^ x_mask;
+    // Pass 1: Gather L2 norms with phase-aware interference
+    if (c_mask == 0) {
+        for (uint64_t b = 0; b < num_blocks; ++b) {
+            uint64_t src_start = b * (block_size * 2);
+            uint64_t target_start = src_start ^ x_mask;
 
-            // Commutation parity for beta index - branchless lookup
-            int parity_b = compute_sign_parity(static_cast<uint32_t>(beta), instr.commutation_mask);
-            std::complex<double> term = v[beta] * phase_factors[parity_b];
+            const std::complex<double>* UCC_RESTRICT pA = v + src_start;
+            const std::complex<double>* UCC_RESTRICT pB = v + target_start;
 
-            prob_0 += std::norm(v[alpha] + term);
-            prob_1 += std::norm(v[alpha] - term);
+            for (uint64_t i = 0; i < block_size; ++i) {
+                std::complex<double> term = pB[i] * pf0;
+                prob_0 += std::norm(pA[i] + term);
+                prob_1 += std::norm(pA[i] - term);
+            }
+        }
+    } else {
+        int x_mask_parity = compute_sign_parity(x_mask, c_mask);
+        for (uint64_t b = 0; b < num_blocks; ++b) {
+            uint64_t src_start = b * (block_size * 2);
+            uint64_t target_start = src_start ^ x_mask;
+
+            const std::complex<double>* UCC_RESTRICT pA = v + src_start;
+            const std::complex<double>* UCC_RESTRICT pB = v + target_start;
+
+            for (uint64_t i = 0; i < block_size; ++i) {
+                uint64_t beta = target_start + i;
+                int parity_b = compute_sign_parity(static_cast<uint32_t>(beta), c_mask);
+                std::complex<double> term = pB[i] * (parity_b ? pf1 : pf0);
+                prob_0 += std::norm(pA[i] + term);
+                prob_1 += std::norm(pA[i] - term);
+            }
         }
     }
 
@@ -286,37 +345,38 @@ uint8_t op_measure_merge(SchrodingerState& state, const Instruction& instr,
 
     double r = state.random_double();
     uint8_t internal_outcome = (r < prob_0 / total) ? 0 : 1;
-
     double norm = 1.0 / std::sqrt(internal_outcome ? prob_1 : prob_0);
 
-    // Pass 2: Single-pass butterfly and compaction with correct phase.
-    // Memory safety: dst_start ≤ src_start, so we never overwrite before reading.
-    // Hoist outcome branch outside loop entirely for CPU branch predictor.
-    if (internal_outcome == 0) {
+    // Pass 2: Butterfly and compaction.
+    // Unify outcome==0 and outcome==1 by folding the sign into the weight.
+    std::complex<double> w0 = (internal_outcome == 0) ? pf0 * norm : -pf0 * norm;
+    std::complex<double> w1 = -w0;
+
+    if (c_mask == 0) {
         for (uint64_t b = 0; b < num_blocks; ++b) {
             uint64_t dst_start = b * block_size;
             uint64_t src_start = b * (block_size * 2);
+            uint64_t target_start = src_start ^ x_mask;
+
             for (uint64_t i = 0; i < block_size; ++i) {
-                uint64_t alpha = src_start + i;
-                uint64_t beta = alpha ^ x_mask;
-                int parity_b =
-                    compute_sign_parity(static_cast<uint32_t>(beta), instr.commutation_mask);
-                v[dst_start + i] = (v[alpha] + v[beta] * phase_factors[parity_b]) * norm;
+                v[dst_start + i] = v[src_start + i] * norm + v[target_start + i] * w0;
             }
         }
     } else {
         for (uint64_t b = 0; b < num_blocks; ++b) {
             uint64_t dst_start = b * block_size;
             uint64_t src_start = b * (block_size * 2);
+            uint64_t target_start = src_start ^ x_mask;
+
             for (uint64_t i = 0; i < block_size; ++i) {
-                uint64_t alpha = src_start + i;
-                uint64_t beta = alpha ^ x_mask;
-                int parity_b =
-                    compute_sign_parity(static_cast<uint32_t>(beta), instr.commutation_mask);
-                v[dst_start + i] = (v[alpha] - v[beta] * phase_factors[parity_b]) * norm;
+                uint64_t beta = target_start + i;
+                int parity_b = compute_sign_parity(static_cast<uint32_t>(beta), c_mask);
+                v[dst_start + i] =
+                    v[src_start + i] * norm + v[target_start + i] * (parity_b ? w1 : w0);
             }
         }
     }
+
     current_rank--;
     return internal_outcome;
 }
@@ -326,13 +386,14 @@ uint8_t op_measure_merge(SchrodingerState& state, const Instruction& instr,
 // Returns the sampled outcome.
 uint8_t op_measure_filter(SchrodingerState& state, const Instruction& instr,
                           uint32_t current_rank) {
-    uint64_t size = 1ULL << current_rank;  // 64-bit to avoid UB
+    uint64_t size = 1ULL << current_rank;
     auto* v = state.v();
+    uint32_t c_mask = instr.commutation_mask;
     double prob_0 = 0.0, prob_1 = 0.0;
 
     for (uint64_t alpha = 0; alpha < size; ++alpha) {
         double norm_sq = std::norm(v[alpha]);
-        if (compute_sign_parity(static_cast<uint32_t>(alpha), instr.commutation_mask)) {
+        if (compute_sign_parity(static_cast<uint32_t>(alpha), c_mask)) {
             prob_1 += norm_sq;
         } else {
             prob_0 += norm_sq;
@@ -344,24 +405,21 @@ uint8_t op_measure_filter(SchrodingerState& state, const Instruction& instr,
         return 0;
     }
 
-    // Sample internal outcome
     double r = state.random_double();
     uint8_t internal_outcome = (r < prob_0 / total) ? 0 : 1;
 
-    // Apply Pauli frame parity to get the physical outcome
     uint64_t anti_comm = (state.destab_signs & instr.branch.stab_mask) ^
                          (state.stab_signs & instr.branch.destab_mask);
     int frame_parity = std::popcount(anti_comm) & 1;
 
     uint8_t outcome = internal_outcome ^ static_cast<uint8_t>(frame_parity) ^ instr.ag_ref_outcome;
 
-    // Zero out amplitudes with wrong parity and renormalize
-    // Use branchless multiplier: parity XOR outcome == 0 means keep, == 1 means zero
     double norm_factor = 1.0 / std::sqrt(internal_outcome ? prob_1 : prob_0);
-    double multipliers[2] = {norm_factor, 0.0};
+
+    // Branchless conditional multiplier: keep matching-parity amplitudes, zero others
     for (uint64_t alpha = 0; alpha < size; ++alpha) {
-        int parity = compute_sign_parity(static_cast<uint32_t>(alpha), instr.commutation_mask);
-        v[alpha] *= multipliers[parity ^ internal_outcome];  // Branchless
+        int parity = compute_sign_parity(static_cast<uint32_t>(alpha), c_mask);
+        v[alpha] *= (parity == internal_outcome) ? norm_factor : 0.0;
     }
     return outcome;
 }

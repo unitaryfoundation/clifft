@@ -86,4 +86,12 @@ else()
     include(cmake/FetchCatch2.cmake)
     enable_testing()
     add_subdirectory(tests)
+
+    # Profiling tool (only for standalone C++ builds)
+    add_executable(profile_svm tools/profile/profile_svm.cpp)
+    target_link_libraries(profile_svm PRIVATE ucc_core)
+    target_include_directories(profile_svm PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/src
+        ${CMAKE_CURRENT_BINARY_DIR}/generated
+    )
 endif()
