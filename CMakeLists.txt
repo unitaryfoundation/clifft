@@ -37,6 +37,27 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
     add_compile_options(-Wall -Wextra -Wpedantic)
 endif()
 
+# Performance optimizations for Release builds
+# Use native CPU features (AVX2, AVX-512 on x86; NEON on ARM) when available.
+#
+# TODO(PyPI): When building wheels for PyPI distribution, replace -march=native
+# with a baseline like -march=x86-64-v3 (AVX2, ~2015 CPUs) to ensure compatibility.
+# For now, -march=native is fine since users build from source on their own machine.
+if(CMAKE_BUILD_TYPE STREQUAL "Release" OR CMAKE_BUILD_TYPE STREQUAL "RelWithDebInfo")
+    if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+        # Detect architecture for correct native tuning flags
+        if(CMAKE_SYSTEM_PROCESSOR MATCHES "arm|aarch64|ARM64")
+            # Apple Silicon and other ARM: use -mcpu=native
+            add_compile_options(-mcpu=native -ffast-math)
+            message(STATUS "Enabled ARM native CPU optimizations: -mcpu=native -ffast-math")
+        else()
+            # x86/x86_64: use -march=native -mtune=native
+            add_compile_options(-march=native -mtune=native -ffast-math)
+            message(STATUS "Enabled x86 native CPU optimizations: -march=native -mtune=native -ffast-math")
+        endif()
+    endif()
+endif()
+
 # Code coverage option (for use with gcov/lcov)
 # Note: Coverage flags are applied per-target in src/ucc/CMakeLists.txt to avoid
 # instrumenting external dependencies (Stim, Catch2) which would slow builds.
