@@ -90,8 +90,12 @@ You can look at the SOFT codebase https://github.com/haoliri0/SOFT/ as necessary
 *   **Task 6.3 (Thread Pool Implementation):** In `svm.cc:sample()`:
     *   Pre-allocate the `SampleResult` vectors to full size. Initialize `passed` to all 1s (true).
     *   Launch $T$ `std::thread` workers, giving each thread an equal chunk of the total shots.
-    *   Inside the thread lambda, allocate a *thread-local* `SchrodingerState`. Loop over the assigned global shot indices $i$. Call `state.reset(seed + i)`. Execute the program. Write results directly to the pre-allocated offsets in the `SampleResult` vectors (completely lock-free, no mutexes needed). Write `!state.discarded` to the `passed` array.
+    *   **Architecture Note (No Thread Pinning):** Do NOT use OS-specific thread affinity (like `pthread_setaffinity_np`). Standard `<thread>` relies on the OS scheduler, preserving cross-platform compatibility. If hardware-specific pinning is required for a benchmark run, it should be handled externally via standard tools like `taskset`.
+    *   Inside the thread lambda, allocate a *thread-local* `SchrodingerState`.
+    *   Loop over the assigned global shot indices $i$.
+    *   **Architecture Note (PRNG Seeding):** Call `state.reset(seed + i)`. Do NOT use xoshiro256++ `jump()` functions. We seed *per shot* via SplitMix64 to guarantee deterministic replayability regardless of which thread executed the shot. Because we use SplitMix64 to avalanche the 64-bit shot index into a 256-bit starting state, the probability of two short shot streams overlapping in a $2^{256}$ period space is mathematically negligible.
+    *   Execute the program. Write results directly to the pre-allocated offsets in the `SampleResult` vectors (completely lock-free, no mutexes needed). Write `!state.discarded` to the `passed` array.
     *   Join all threads.
     *   Verify that `threads=1` has no meaningful performance regression compared to the current non-threaded code path.
-*   **Task 6.4 (Benchmark):** In `tools/bench/`, update the benchmark script to accept thread count as an argument and measure scaling behavior.
+*   **Task 6.4 (Benchmark):** In `tools/bench/run_soft_benchmarks.py`, update the benchmark script to accept thread count as an argument and measure scaling behavior.
 *   **Definition of Done (DoD):** Running `ucc.sample(..., threads=4)` utilizes multiple CPU cores and produces bit-identical results to `threads=1` for the same seed, completing significantly faster.
