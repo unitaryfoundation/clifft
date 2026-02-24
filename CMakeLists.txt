@@ -87,11 +87,14 @@ else()
     enable_testing()
     add_subdirectory(tests)
 
-    # Profiling tool (only for standalone C++ builds)
-    add_executable(profile_svm tools/profile/profile_svm.cpp)
-    target_link_libraries(profile_svm PRIVATE ucc_core)
-    target_include_directories(profile_svm PRIVATE
-        ${CMAKE_CURRENT_SOURCE_DIR}/src
-        ${CMAKE_CURRENT_BINARY_DIR}/generated
-    )
+    # Profiling tool (opt-in, not part of default or coverage builds)
+    option(UCC_BUILD_PROFILER "Build the SVM profiling harness" OFF)
+    if(UCC_BUILD_PROFILER)
+        add_executable(profile_svm tools/profile/profile_svm.cpp)
+        target_link_libraries(profile_svm PRIVATE ucc_core)
+        target_include_directories(profile_svm PRIVATE
+            ${CMAKE_CURRENT_SOURCE_DIR}/src
+            ${CMAKE_CURRENT_BINARY_DIR}/generated
+        )
+    endif()
 endif()

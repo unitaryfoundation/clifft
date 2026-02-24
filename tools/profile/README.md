@@ -6,12 +6,19 @@ many shots so the hot loops accumulate enough samples for meaningful analysis.
 
 ## Build
 
-Use `RelWithDebInfo` so the binary has debug symbols but runs at full
+The profiler is opt-in (not part of default or coverage builds). Use
+`-DUCC_BUILD_PROFILER=ON` and `RelWithDebInfo` for debug symbols at full
 optimization (`-O2 -g`):
 
 ```bash
-cmake -B build -DCMAKE_BUILD_TYPE=RelWithDebInfo
+cmake -B build -DCMAKE_BUILD_TYPE=RelWithDebInfo -DUCC_BUILD_PROFILER=ON
 cmake --build build -j$(nproc)
+```
+
+Or use the just recipe:
+
+```bash
+just profile-build
 ```
 
 ## Quick start

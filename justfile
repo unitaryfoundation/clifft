@@ -116,6 +116,21 @@ lint:
   uv run pre-commit run --all-files
 
 # -------------------------
+# Profiling
+# -------------------------
+
+profile_build_dir := "build-profile"
+
+# Build the SVM profiling harness (RelWithDebInfo for perf-friendly symbols)
+profile-build:
+  cmake -B {{profile_build_dir}} -DCMAKE_BUILD_TYPE=RelWithDebInfo -DUCC_BUILD_PROFILER=ON
+  cmake --build {{profile_build_dir}} --target profile_svm -j$(nproc)
+
+# Run the profiler with default settings (50-qubit Clifford, 100k shots)
+profile *args="":
+  {{profile_build_dir}}/profile_svm {{args}}
+
+# -------------------------
 # Benchmarking
 # -------------------------
 
