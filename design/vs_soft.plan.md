@@ -5,8 +5,10 @@ You are implementing the validation and benchmarking suite to compare UCC agains
 
 To ensure unimpeachable correctness, we will also implement an independent validation layer using `qiskit-aer` to verify our exact physics engine before targeting the massive $d=5$ MSC circuits.
 
+You can look at the SOFT codebase https://github.com/haoliri0/SOFT/ as necessary to understand the best way to do comparisons. The circuits we want to test are in magic_state_cultivation/circuits/ folder in that repository.
+
 **Strict Constraints for this specific plan (Overrides general guidelines if in conflict):**
-1. **No External Multithreading Dependencies:** Do not introduce OpenMP, Intel TBB, or other heavy threading libraries to the C++ core. Use standard `<thread>` and `<future>` for parallelizing the Monte Carlo shots.
+1. **No External Multithreading Dependencies:** Do not introduce OpenMP, Intel TBB, or other heavy threading libraries to the C++ core. Use standard `<thread>` and `<future>` for parallelizing the Monte Carlo shots. Consier pinning threads for best performance. Have the user be explicit on the number of threads they want to use.
 2. **Deterministic Concurrency:** The RNG seed for shot $i$ must strictly be `base_seed + i`, regardless of which thread executes it. Results must be bit-identical whether running on 1 core or 32 cores.
 3. **The 32-Byte Invariant:** The `Instruction` struct is exactly 32 bytes. Do not alter its size when implementing `OP_POSTSELECT`. Reuse existing union payload structures (e.g., the `detector` or `meta` variant).
 4. **Zero Qiskit C++ Dependencies:** Qiskit-Aer is a validation oracle only. It must be used exclusively in the Python `tests/python/` suite. The C++ core must remain completely ignorant of Qiskit.
@@ -30,7 +32,30 @@ To ensure unimpeachable correctness, we will also implement an independent valid
 *   **Task 2.5 (Python API Update):** Update nanobind bindings so `ucc.compile` accepts `abort_on_detector`. Update `sample()` to return a 4-tuple `(measurements, detectors, observables, passed)`. Fix existing Python tests to unpack 4 values instead of 3.
 *   **DoD:** A Python test proves that compiling with `abort_on_detector=True` and running a circuit with a deterministic error that triggers a detector yields `passed=0` for those shots, and drastically reduces execution time by returning early.
 
-## Phase 3: Multi-Core Saturation (Thread Pool)
+## Phase 3: Composable Rank Profiling
+**Goal:** Expose the dynamic rank history to visually and empirically prove the "Dynamical Shift-Rank Bound" theorem without bloating the `CompiledModule` in memory.
+*   **Task 3.1 (C++ Scanner):** In `backend.h/.cc`, add a standalone function `std::vector<uint32_t> get_rank_history(const CompiledModule& prog)`. It iterates over `prog.bytecode`, keeping a running counter. Increment on `OP_BRANCH`, decrement on `OP_MEASURE_MERGE`. Record the rank at each step.
+*   **Task 3.2 (Python Binding):** Expose `ucc.get_rank_history(program)` as a standalone function returning a numpy array in `bindings.cc`.
+*   **Task 3.3 (Plotting Script):** Create `tools/bench/plot_rank.py` which loads `magic_state_cultivation/circuits/circuit_d5_p0.001.stim` from the `haoliri0-soft` codebase, compiles it, calls `ucc.get_rank_history()`, and uses matplotlib to plot the rank history step function.
+*   **DoD:** The `plot_rank.py` script automatically verifies the $d=5$ MSC circuit yields a `peak_rank` of exactly 10, and generates a plot showing the "breathing" state. The `CompiledModule` remains lean and zero-overhead.
+
+## Phase 4: The Benchmarking Harness
+**Goal:** Create the script that runs the head-to-head comparison against the data from the SOFT paper.
+*   **Task 4.1 (Data Setup):** Pull the SOFT $d=3$ and $d=5$ `.stim` circuits (with `p=0.001` and `p=0.0005`) into the `tools/bench/circuits/` folder.
+*   **Task 4.2 (The Benchmark Script):** Create `tools/bench/run_soft_benchmarks.py`. It should:
+    1. Load the `.stim` file.
+    2. Compile it using `ucc.compile(..., abort_on_detector=True)`.
+    3. Start a high-resolution timer.
+    4. Call `ucc.sample(..., shots=100_000, threads=os.cpu_count())`.
+    5. Stop the timer.
+*   **Task 4.3 (Metrics Calculation):** Calculate and print exactly the metrics from Table III and V of the SOFT paper:
+    *   Discard Rate: `1.0 - np.mean(passed)`
+    *   Logical Error Rate: Mean of the final observable bit for shots where `passed == True`.
+    *   Throughput: Total shots / Total time (Shots/sec).
+*   **DoD:** The script runs successfully on the $d=5$ MSC circuit. The console output proves that UCC perfectly matches the discard rates reported in the SOFT paper, and generates the CPU throughput numbers needed for the paper's comparison table.
+
+
+## Phase 5: Multi-Core Saturation (Thread Pool)
 **Goal:** Parallelize the SVM `shots` loop natively in C++ to leverage 16-32 core CPUs.
 *   **Task 3.1 (API Update):** Update `sample(program, shots, seed, threads)` in `svm.h/.cc` and `bindings.cc` to accept `uint32_t threads = 0` (default to `std::thread::hardware_concurrency()`).
 *   **Task 3.2 (GIL Release):** In `bindings.cc`, wrap the `ucc::sample` call in `nanobind::gil_scoped_release` so Python does not block the C++ threads.
@@ -39,26 +64,8 @@ To ensure unimpeachable correctness, we will also implement an independent valid
     *   Launch $T$ `std::thread` workers, giving each thread an equal chunk of the total shots.
     *   Inside the thread lambda, allocate a *thread-local* `SchrodingerState`. Loop over the assigned global shot indices $i$. Call `state.reset(seed + i)`. Execute the program. Write results directly to the pre-allocated offsets in the `SampleResult` vectors (completely lock-free, no mutexes needed). Write `!state.discarded` to the `passed` array.
     *   Join all threads.
+    *  Be sure to test with even 1 thread that there isn't much performance impact compared to the non-threaded cde.
+*   *Task 3.4 (Benchmark):** In `tools/bench`
+    * Create a new benchmark that varies the number of threads and sees if we get linear vs non-linear speedup
 *   **DoD:** Running `ucc.sample(..., threads=4)` utilizes multiple CPU cores and produces bit-identical results to `threads=1` for the same seed, completing significantly faster.
-
-## Phase 4: Composable Rank Profiling
-**Goal:** Expose the dynamic rank history to visually and empirically prove the "Dynamical Shift-Rank Bound" theorem without bloating the `CompiledModule` in memory.
-*   **Task 4.1 (C++ Scanner):** In `backend.h/.cc`, add a standalone function `std::vector<uint32_t> get_rank_history(const CompiledModule& prog)`. It iterates over `prog.bytecode`, keeping a running counter. Increment on `OP_BRANCH`, decrement on `OP_MEASURE_MERGE`. Record the rank at each step.
-*   **Task 4.2 (Python Binding):** Expose `ucc.get_rank_history(program)` as a standalone function returning a numpy array in `bindings.cc`.
-*   **Task 4.3 (Plotting Script):** Create `tools/bench/plot_rank.py` which loads `magic_state_cultivation/circuits/circuit_d5_p0.001.stim` from the `haoliri0-soft` codebase, compiles it, calls `ucc.get_rank_history()`, and uses matplotlib to plot the rank history step function.
-*   **DoD:** The `plot_rank.py` script automatically verifies the $d=5$ MSC circuit yields a `peak_rank` of exactly 10, and generates a plot showing the "breathing" state. The `CompiledModule` remains lean and zero-overhead.
-
-## Phase 5: The Benchmarking Harness
-**Goal:** Create the script that runs the head-to-head comparison against the data from the SOFT paper.
-*   **Task 5.1 (Data Setup):** Pull the SOFT $d=3$ and $d=5$ `.stim` circuits (with `p=0.001` and `p=0.0005`) into the `tools/bench/circuits/` folder.
-*   **Task 5.2 (The Benchmark Script):** Create `tools/bench/run_soft_benchmarks.py`. It should:
-    1. Load the `.stim` file.
-    2. Compile it using `ucc.compile(..., abort_on_detector=True)`.
-    3. Start a high-resolution timer.
-    4. Call `ucc.sample(..., shots=100_000, threads=os.cpu_count())`.
-    5. Stop the timer.
-*   **Task 5.3 (Metrics Calculation):** Calculate and print exactly the metrics from Table III and V of the SOFT paper:
-    *   Discard Rate: `1.0 - np.mean(passed)`
-    *   Logical Error Rate: Mean of the final observable bit for shots where `passed == True`.
-    *   Throughput: Total shots / Total time (Shots/sec).
-*   **DoD:** The script runs successfully on the $d=5$ MSC circuit. The console output proves that UCC perfectly matches the discard rates reported in the SOFT paper, and generates the CPU throughput numbers needed for the paper's comparison table.
+* NOTE - * Be careful about running this on your VM, which only has 2 cores! I can test on other machines as needed
