@@ -67,17 +67,17 @@ TEST_CASE("HeisenbergOp::make_tgate", "[hir]") {
         REQUIRE(op.destab_mask() == 0);    // No X
         REQUIRE(op.stab_mask() == Z(0));   // Z on qubit 0
         REQUIRE(op.sign() == false);       // Positive phase
-        REQUIRE(op.is_dagger() == false);  // T, not T†
+        REQUIRE(op.is_dagger() == false);  // T, not T_dag
     }
 
-    SECTION("T† gate with X on qubit 1, negative sign") {
+    SECTION("T_dag gate with X on qubit 1, negative sign") {
         auto op = HeisenbergOp::make_tgate(X(1), 0, /*sign=*/true, /*dagger=*/true);
 
         REQUIRE(op.op_type() == OpType::T_GATE);
         REQUIRE(op.destab_mask() == X(1));  // X on qubit 1
         REQUIRE(op.stab_mask() == 0);       // No Z
         REQUIRE(op.sign() == true);         // Negative phase
-        REQUIRE(op.is_dagger() == true);    // T†
+        REQUIRE(op.is_dagger() == true);    // T_dag
     }
 
     SECTION("T gate with Y on qubit 2 (both X and Z bits set)") {
@@ -217,9 +217,9 @@ TEST_CASE("HirModule construction and accessors", "[hir]") {
     REQUIRE(hir.num_t_gates() == 0);
     REQUIRE(hir.global_weight == std::complex<double>(1.0, 0.0));
 
-    // Add some operations: 2 T gates, 1 T† gate, 1 measurement
+    // Add some operations: 2 T gates, 1 T_dag gate, 1 measurement
     hir.ops.push_back(HeisenbergOp::make_tgate(X(0), 0, false));        // T
-    hir.ops.push_back(HeisenbergOp::make_tgate(X(1), 0, false, true));  // T†
+    hir.ops.push_back(HeisenbergOp::make_tgate(X(1), 0, false, true));  // T_dag
     hir.ops.push_back(HeisenbergOp::make_measure(X(0), Z(0), false, MeasRecordIdx{0}));
     hir.ops.push_back(HeisenbergOp::make_tgate(X(2), 0, false));  // T
 

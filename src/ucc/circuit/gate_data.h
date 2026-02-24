@@ -42,8 +42,8 @@ enum class GateType : uint16_t {
     MPP,  // Multi-Pauli measurement
 
     // Resets (no visible measurement)
-    R,   // Reset to |0⟩ (Z-basis)
-    RX,  // Reset to |+⟩ (X-basis)
+    R,   // Reset to |0> (Z-basis)
+    RX,  // Reset to |+> (X-basis)
 
     // Noise channels
     X_ERROR,      // Single-qubit X error

@@ -102,7 +102,7 @@ You must use **Test-Driven Development (TDD)**. Prove the underlying math works 
 
 **Test Naming (Catch2):** Avoid special characters in `TEST_CASE` names. Square brackets `[`, `]`, parentheses `(`, `)`, and commas `,` cause issues with CTest's test discovery and regex-based filtering. Use plain alphanumeric characters, spaces, colons, and hyphens. Bad: `"SVM: values in [0, 1)"`. Good: `"SVM: values in 0 to 1 range"`.
 
-**Note on Code Coverage:** Code coverage tools (`just py-cov`, `just cpp-cov`) are available but are **not required** during regular development. Use them periodically to identify gaps, but do not run coverage on every commit—it adds significant build time.
+**Note on Code Coverage:** Code coverage tools (`just py-cov`, `just cpp-cov`) are available but are **not required** during regular development. Use them periodically to identify gaps, but do not run coverage on every commit -- it adds significant build time.
 
 
 ## 8. C++ Coding Standards & Safety
@@ -111,6 +111,7 @@ You must use **Test-Driven Development (TDD)**. Prove the underlying math works 
 - **Unions:** Be extremely careful with C++ unions (e.g., inside `Instruction` and `HeisenbergOp`). You cannot safely put types with non-trivial constructors (like `std::complex<double>`) inside an anonymous union. Use bare `double weight_re, weight_im;` as specified in the docs.
 - **Memory Management:** Use modern C++ (`std::vector`, `std::unique_ptr`) everywhere *except* the VM's coefficient array (`v[]`), which requires explicit `std::aligned_alloc(64, ...)` for AVX alignment. Remember to `std::free()` it in the destructor.
 - **Comments:** Avoid vacuous comments that just restate what the next line of code does. Comments should explain *why* the code works this way, not *what* it does. If the code is self-explanatory, omit the comment entirely.
+- **ASCII-Only Source:** All source files (C++, Python, comments, docstrings, string literals) must contain only printable ASCII characters (0x20-0x7E plus newline/tab). No Unicode math symbols, Greek letters, or special punctuation. Use ASCII equivalents in comments and strings: `pi` not the Greek letter, `T_dag` not the dagger symbol, `|0>` not Unicode angle brackets, `beta` not the Greek letter, `sqrt(2)` not the radical sign, `->` not the arrow, `Schrodinger` not the umlaut form, etc.
 - **No Plan References in Code:** Do not include task numbers, phase references, or implementation plan details in code comments, docstrings, or test names (e.g., "Task 7.3" or "Phase 2"). These are transient planning artifacts. Code should be self-documenting and stand alone without knowledge of the planning documents.
 
 

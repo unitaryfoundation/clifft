@@ -17,10 +17,10 @@ namespace ucc {
 // =============================================================================
 
 enum class Opcode : uint8_t {
-    // T-Gate Fast Paths (hardcoded tan(π/8) weight)
-    OP_BRANCH,        // New dimension: array doubles, β ∉ span(V)
-    OP_COLLIDE,       // Existing dimension: in-place butterfly, β ∈ span(V)
-    OP_SCALAR_PHASE,  // β=0: diagonal phase application (no array change)
+    // T-Gate Fast Paths (hardcoded tan(pi/8) weight)
+    OP_BRANCH,        // New dimension: array doubles, beta not in span(V)
+    OP_COLLIDE,       // Existing dimension: in-place butterfly, beta in span(V)
+    OP_SCALAR_PHASE,  // beta=0: diagonal phase application (no array change)
 
     // Generic LCU (arbitrary non-Clifford via constant pool) - future
     OP_BRANCH_LCU,
@@ -29,8 +29,8 @@ enum class Opcode : uint8_t {
 
     // Measurement & State Collapse
     OP_MEASURE_MERGE,          // Anti-commuting: sample + shrink array
-    OP_MEASURE_FILTER,         // Commuting (β ∈ span(V)): sample + zero half
-    OP_MEASURE_DETERMINISTIC,  // Deterministic (β=0): sign-track only
+    OP_MEASURE_FILTER,         // Commuting (beta in span(V)): sample + zero half
+    OP_MEASURE_DETERMINISTIC,  // Deterministic (beta=0): sign-track only
 
     // Topology & Classical Logic
     OP_AG_PIVOT,     // Aaronson-Gottesman sign-tracker update
@@ -62,7 +62,7 @@ struct alignas(32) Instruction {
     uint32_t commutation_mask;  // Offset 4 (4 bytes) - pre-computed sign interference
 
     // Flag constants
-    static constexpr uint8_t FLAG_IS_DAGGER = 1 << 0;      // T-gate: true for T†
+    static constexpr uint8_t FLAG_IS_DAGGER = 1 << 0;      // T-gate: true for T_dag
     static constexpr uint8_t FLAG_REUSE_OUTCOME = 1 << 1;  // AG_PIVOT: reuse preceding outcome
     static constexpr uint8_t FLAG_HIDDEN = 1 << 2;  // Measurement: don't record to meas_record
     static constexpr uint8_t FLAG_USE_LAST_OUTCOME =
@@ -123,7 +123,7 @@ static_assert(sizeof(Instruction) == 32, "Instruction must be exactly 32 bytes")
 // =============================================================================
 //
 // Tracks the evolving GF(2) vector space during lowering. Each non-Clifford
-// gate (T, T†) may add a new dimension. Measurements may remove dimensions.
+// gate (T, T_dag) may add a new dimension. Measurements may remove dimensions.
 //
 // Maintains row-echelon form in auxiliary arrays indexed by leading bit,
 // enabling O(log n) lookup for span membership rather than O(n) linear search.
@@ -136,8 +136,8 @@ class GF2Basis {
   public:
     static constexpr uint32_t kMaxRank = 32;
 
-    // Check if β is in the span of current basis.
-    // If so, returns the x_mask (which basis vectors XOR to produce β).
+    // Check if beta is in the span of current basis.
+    // If so, returns the x_mask (which basis vectors XOR to produce beta).
     // If not, returns std::nullopt.
     std::optional<uint32_t> find_in_span(stim::bitword<kStimWidth> beta) const;
 

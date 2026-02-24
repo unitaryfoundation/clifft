@@ -106,7 +106,7 @@ TEST_CASE("SVM: single T gate on |0> gives SCALAR_PHASE", "[svm]") {
     REQUIRE(prog.peak_rank == 0);
 
     // Execute - with dominant term factoring, state is unnormalized.
-    // The amplitude is (1 + i*tan(π/8)) which has |z|^2 = 1 + tan^2(π/8) ≈ 1.17
+    // The amplitude is (1 + i*tan(pi/8)) which has |z|^2 = 1 + tan^2(pi/8) ~ 1.17
     SchrodingerState state(prog.peak_rank, prog.num_measurements, 0);
     execute(prog, state);
 
@@ -168,7 +168,7 @@ TEST_CASE("SVM: T T_DAG cancels", "[svm]") {
     execute(prog, state);
 
     // T T_DAG = I in the computational basis, but with dominant term factoring
-    // we get: v[0] = 1 + tan^2(π/8), v[1] should cancel to 0.
+    // we get: v[0] = 1 + tan^2(pi/8), v[1] should cancel to 0.
     // The key test: v[1] is effectively zero (the Z component cancels).
     REQUIRE(std::abs(state.v()[1]) < 1e-10);
     REQUIRE(std::abs(state.v()[0]) > 0.5);  // Identity branch is large
@@ -333,7 +333,7 @@ TEST_CASE("SVM: peak_rank 0 circuit works", "[svm]") {
 // =============================================================================
 
 TEST_CASE("SVM: MEASURE_MERGE uses butterfly interference not filtering", "[svm][review]") {
-    // This tests that MEASURE_MERGE correctly interferes amplitudes (v[α] ± v[α⊕β])
+    // This tests that MEASURE_MERGE correctly interferes amplitudes (v[alpha] +/- v[alphaXORbeta])
     // rather than just zeroing half the array.
     //
     // Circuit: H 0; T 0; H 0; M 0
@@ -350,8 +350,8 @@ TEST_CASE("SVM: MEASURE_MERGE uses butterfly interference not filtering", "[svm]
     REQUIRE(prog.num_measurements == 1);
 
     // Run many shots and verify distribution matches expected physics
-    // H T H rotates |0⟩ by π/8 around Y axis, giving:
-    // cos(π/8)|0⟩ + sin(π/8)|1⟩ with some phase
+    // H T H rotates |0> by pi/8 around Y axis, giving:
+    // cos(pi/8)|0> + sin(pi/8)|1> with some phase
     auto results = sample(prog, 10000, 42);
 
     int zeros = 0, ones = 0;
@@ -362,7 +362,7 @@ TEST_CASE("SVM: MEASURE_MERGE uses butterfly interference not filtering", "[svm]
             ones++;
     }
 
-    // cos²(π/8) ≈ 0.854, sin²(π/8) ≈ 0.146
+    // cos^2(pi/8) ~ 0.854, sin^2(pi/8) ~ 0.146
     // Allow 5% tolerance
     double p0 = static_cast<double>(zeros) / 10000.0;
     REQUIRE(p0 > 0.80);
@@ -447,7 +447,7 @@ TEST_CASE("SVM: Multiple T gates with measurements stay normalized", "[svm][revi
 }
 
 TEST_CASE("SVM: MEASURE_FILTER with commutation mask", "[svm][review]") {
-    // Test MEASURE_FILTER path: β=0 but commutation_mask ≠ 0
+    // Test MEASURE_FILTER path: beta=0 but commutation_mask != 0
     // This happens when measuring in a basis that commutes with tableau
     // but has sign dependence on GF(2) index
     //
@@ -459,7 +459,7 @@ TEST_CASE("SVM: MEASURE_FILTER with commutation mask", "[svm][review]") {
         M 0
     )");
 
-    // T T = S, which rotates by π/4
+    // T T = S, which rotates by pi/4
     // After H S, measuring Z gives a distribution
 
     auto results = sample(prog, 1000, 789);
@@ -478,9 +478,9 @@ TEST_CASE("SVM: MEASURE_FILTER with commutation mask", "[svm][review]") {
 }
 
 TEST_CASE("SVM: SCALAR_PHASE respects commutation mask", "[svm][review]") {
-    // H 0; T 0 expands basis along X₀.
-    // H 0 maps X₀ → Z₀.
-    // Second T 0 has β=0 (rewound Pauli is Z₀), but Z₀ anti-commutes with X₀.
+    // H 0; T 0 expands basis along X_0.
+    // H 0 maps X_0 -> Z_0.
+    // Second T 0 has beta=0 (rewound Pauli is Z_0), but Z_0 anti-commutes with X_0.
     // This tests that SCALAR_PHASE applies different phases to different amplitudes.
     auto prog = compile(R"(
         H 0
@@ -543,14 +543,14 @@ TEST_CASE("SVM: AG_PIVOT propagates frame errors correctly", "[svm][phase6]") {
 
 // Phase 6 DoD: Test SCALAR_PHASE with commutation_mask != 0
 // Circuit: H 0; T 0; S 0; H 0; T 0
-// The second T gate has β=0 but non-zero commutation (should use SCALAR_PHASE)
+// The second T gate has beta=0 but non-zero commutation (should use SCALAR_PHASE)
 TEST_CASE("SVM: SCALAR_PHASE branches phases with commutation", "[svm][phase6]") {
-    // H 0 -> |+⟩
+    // H 0 -> |+>
     // T 0 -> creates GF(2) dimension (BRANCH)
     // S 0 -> Clifford (absorbed into frame)
     // H 0 -> Clifford (absorbed into frame)
     // T 0 -> This one should emit SCALAR_PHASE with commutation_mask != 0
-    //        because the observable has changed but β may be 0
+    //        because the observable has changed but beta may be 0
     auto prog = compile(R"(
         H 0
         T 0
@@ -677,7 +677,7 @@ TEST_CASE("SVM: readout noise flips measurement bits", "[svm][noise]") {
 
     auto results = sample(prog, 100, 42);
 
-    // |0⟩ measured, then flipped by 100% readout noise → all 1s
+    // |0> measured, then flipped by 100% readout noise -> all 1s
     for (size_t i = 0; i < 100; ++i) {
         REQUIRE(results.measurements[i] == 1);
     }
@@ -685,7 +685,7 @@ TEST_CASE("SVM: readout noise flips measurement bits", "[svm][noise]") {
 
 TEST_CASE("SVM: gap sampling injects Pauli noise", "[svm][noise]") {
     // X_ERROR(1.0) should always flip the qubit
-    // Circuit: |0⟩ + noise X = |1⟩, then measure
+    // Circuit: |0> + noise X = |1>, then measure
     auto prog = compile(R"(
         X_ERROR(1.0) 0
         M 0
@@ -693,7 +693,7 @@ TEST_CASE("SVM: gap sampling injects Pauli noise", "[svm][noise]") {
 
     auto results = sample(prog, 100, 42);
 
-    // All measurements should be 1 (X flipped |0⟩ to |1⟩)
+    // All measurements should be 1 (X flipped |0> to |1>)
     for (size_t i = 0; i < 100; ++i) {
         REQUIRE(results.measurements[i] == 1);
     }
@@ -716,7 +716,7 @@ TEST_CASE("SVM: gap sampling with zero probability does nothing", "[svm][noise]"
 
 TEST_CASE("SVM: depolarize1 noise is probabilistic", "[svm][noise]") {
     // DEPOLARIZE1(1.0) always fires one of X/Y/Z
-    // X and Y flip the state, Z doesn't affect |0⟩ or |1⟩ measurement
+    // X and Y flip the state, Z doesn't affect |0> or |1> measurement
     // Expected: 2/3 chance of flip, 1/3 no flip
     auto prog = compile(R"(
         DEPOLARIZE1(1.0) 0
@@ -730,7 +730,7 @@ TEST_CASE("SVM: depolarize1 noise is probabilistic", "[svm][noise]") {
         ones += results.measurements[i];
     }
 
-    // Should be roughly 2/3 (X and Y flip |0⟩ → |1⟩, Z doesn't)
+    // Should be roughly 2/3 (X and Y flip |0> -> |1>, Z doesn't)
     double ratio = ones / 3000.0;
     REQUIRE(ratio > 0.55);  // Allow variance
     REQUIRE(ratio < 0.75);
@@ -777,7 +777,7 @@ TEST_CASE("SVM: Z noise does not affect computational measurement", "[svm][noise
 
     auto results = sample(prog, 100, 42);
 
-    // Z|0⟩ = |0⟩, so measurement should still be 0
+    // Z|0> = |0>, so measurement should still be 0
     for (size_t i = 0; i < 100; ++i) {
         REQUIRE(results.measurements[i] == 0);
     }

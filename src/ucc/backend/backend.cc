@@ -30,7 +30,7 @@ AGMatrix::AGMatrix(const stim::Tableau<kStimWidth>& tab) {
 namespace {
 
 // Compute base_phase_idx incorporating Y-count from Pauli observable.
-// The observable P = ±(i^y_count) X^destab Z^stab has phases:
+// The observable P = +/-(i^y_count) X^destab Z^stab has phases:
 //   sign=false, y_count=0 -> +1 -> idx 0
 //   sign=false, y_count=1 -> +i -> idx 1
 //   sign=false, y_count=2 -> -1 -> idx 2
@@ -173,7 +173,7 @@ CompiledModule lower(const HirModule& hir) {
                 bool sign = op.sign();
                 bool is_dagger = op.is_dagger();
 
-                // The spatial shift β is the X-component (destab_mask)
+                // The spatial shift beta is the X-component (destab_mask)
                 stim::bitword<kStimWidth> beta = destab;
 
                 Instruction instr{};
@@ -223,7 +223,7 @@ CompiledModule lower(const HirModule& hir) {
                 bool is_hidden = op.is_hidden();
                 bool emitted_merge = false;
 
-                // For measurements, β is the destab_mask (X-component of rewound observable)
+                // For measurements, beta is the destab_mask (X-component of rewound observable)
                 stim::bitword<kStimWidth> beta = destab;
 
                 Instruction instr{};
@@ -238,13 +238,13 @@ CompiledModule lower(const HirModule& hir) {
                 instr.commutation_mask = compute_commutation_mask(basis.vectors(), destab, stab);
 
                 // Measurement opcode routing (from Python prototype aot_compiler.py:427):
-                //   β ≠ 0 and β ∈ span(V) → MERGE (array halves, reclaim dimension)
-                //   β ≠ 0 and β ∉ span(V) → AG_PIVOT only (no dimension change)
-                //   β = 0 and comm_mask ≠ 0 → FILTER (zero half array)
-                //   β = 0 and comm_mask = 0 → DETERMINISTIC
+                //   beta != 0 and beta in span(V) -> MERGE (array halves, reclaim dimension)
+                //   beta != 0 and beta not in span(V) -> AG_PIVOT only (no dimension change)
+                //   beta = 0 and comm_mask != 0 -> FILTER (zero half array)
+                //   beta = 0 and comm_mask = 0 -> DETERMINISTIC
 
                 if (beta == stim::bitword<kStimWidth>(0)) {
-                    // β = 0: measurement is diagonal in GF(2) space
+                    // beta = 0: measurement is diagonal in GF(2) space
                     if (instr.commutation_mask == 0) {
                         // Fully deterministic: no basis vectors to interfere
                         instr.opcode = Opcode::OP_MEASURE_DETERMINISTIC;
@@ -259,7 +259,7 @@ CompiledModule lower(const HirModule& hir) {
                     }
                     result.bytecode.push_back(instr);
                 } else if (auto x_mask_opt = basis.find_in_span(beta)) {
-                    // β ∈ span(V): MERGE - collapse an existing dimension
+                    // beta in span(V): MERGE - collapse an existing dimension
                     instr.opcode = Opcode::OP_MEASURE_MERGE;
                     instr.branch.x_mask = *x_mask_opt;
                     uint32_t bit_idx = 31 - std::countl_zero(*x_mask_opt);
@@ -272,7 +272,7 @@ CompiledModule lower(const HirModule& hir) {
                     // The VM halves v_size and shifts indices; we must match.
                     basis.remove(bit_idx);
                 } else {
-                    // β ∉ span(V): measurement introduces new randomness but
+                    // beta not in span(V): measurement introduces new randomness but
                     // does NOT add a dimension to the GF(2) basis. The AG_PIVOT
                     // (emitted below) handles the basis change. No MEASURE_*
                     // instruction is emitted here - just the AG_PIVOT.

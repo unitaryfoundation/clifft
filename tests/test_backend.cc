@@ -296,9 +296,9 @@ TEST_CASE("Backend: deterministic M emits OP_MEASURE_DETERMINISTIC", "[backend]"
 }
 
 TEST_CASE("Backend: M after H emits only OP_AG_PIVOT", "[backend]") {
-    // H puts qubit in superposition, M has β ∉ span(V) (empty basis).
-    // Per corrected physics: β ≠ 0 and β ∉ span(V) → only AG_PIVOT, no MEASURE_* opcode.
-    // The Front-End handles the tableau collapse; Back-End just emits the pivot.
+    // H puts qubit in superposition, M has beta not in span(V) (empty basis).
+    // Per corrected physics: beta != 0 and beta not in span(V) -> only AG_PIVOT, no MEASURE_*
+    // opcode. The Front-End handles the tableau collapse; Back-End just emits the pivot.
     auto result = compile(R"(
         H 0
         M 0
@@ -311,8 +311,8 @@ TEST_CASE("Backend: M after H emits only OP_AG_PIVOT", "[backend]") {
 }
 
 TEST_CASE("Backend: M after T emits MEASURE_MERGE", "[backend]") {
-    // H T M: T creates a dimension (β = X0), M has same β = X0.
-    // Per corrected physics: β ≠ 0 and β ∈ span(V) → MERGE (array halves).
+    // H T M: T creates a dimension (beta = X0), M has same beta = X0.
+    // Per corrected physics: beta != 0 and beta in span(V) -> MERGE (array halves).
     auto result = compile(R"(
         H 0
         T 0
@@ -345,7 +345,7 @@ TEST_CASE("Backend: ag_ref_outcome propagates to instruction", "[backend]") {
 }
 
 TEST_CASE("Backend: multiple measurements track correctly", "[backend]") {
-    // Both H M have β ∉ span(V) (empty basis), so only AG_PIVOTs are emitted
+    // Both H M have beta not in span(V) (empty basis), so only AG_PIVOTs are emitted
     auto result = compile(R"(
         H 0
         H 1
@@ -355,7 +355,7 @@ TEST_CASE("Backend: multiple measurements track correctly", "[backend]") {
 
     REQUIRE(result.num_measurements == 2);
 
-    // With corrected physics: both measurements have β ∉ span(V)
+    // With corrected physics: both measurements have beta not in span(V)
     // so only AG_PIVOTs are emitted, no MEASURE_* opcodes
     int ag_pivot_count = 0;
     for (const auto& instr : result.bytecode) {
@@ -383,7 +383,7 @@ TEST_CASE("Backend: reset emits hidden measurement and conditional", "[backend]"
     bool found_hidden_meas = false;
     bool found_conditional = false;
     for (const auto& instr : result.bytecode) {
-        // Check for hidden MEASURE_* or hidden AG_PIVOT (when β ∉ span(V))
+        // Check for hidden MEASURE_* or hidden AG_PIVOT (when beta not in span(V))
         if (((instr.opcode == Opcode::OP_MEASURE_MERGE ||
               instr.opcode == Opcode::OP_MEASURE_FILTER ||
               instr.opcode == Opcode::OP_MEASURE_DETERMINISTIC ||
@@ -482,10 +482,10 @@ TEST_CASE("Backend: commutation_mask non-zero with Y-basis", "[backend]") {
 TEST_CASE("Backend: MEASURE_FILTER on Z-basis measurement", "[backend]") {
     // H T creates dimension (X0). Then H H = I, so destab returns to 0.
     // But if we have T first, then measure in Z-basis with commutation.
-    // This is tricky - we need β = 0 but comm_mask ≠ 0.
+    // This is tricky - we need beta = 0 but comm_mask != 0.
     //
-    // Actually, β = 0 means destab_mask = 0 (pure Z measurement on Z-eigenstate).
-    // For comm_mask ≠ 0, we need the basis to have vectors that anti-commute
+    // Actually, beta = 0 means destab_mask = 0 (pure Z measurement on Z-eigenstate).
+    // For comm_mask != 0, we need the basis to have vectors that anti-commute
     // with the Z measurement's stab_mask.
     //
     // Consider: H T on q0 (adds X0 to basis), then H on q0 (back to Z-basis),
@@ -499,7 +499,7 @@ TEST_CASE("Backend: MEASURE_FILTER on Z-basis measurement", "[backend]") {
         M 0
     )");
 
-    // T creates dimension (BRANCH), then M has β=0 but comm_mask=1 -> FILTER
+    // T creates dimension (BRANCH), then M has beta=0 but comm_mask=1 -> FILTER
     const Instruction* meas = nullptr;
     for (const auto& instr : result.bytecode) {
         if (instr.opcode == Opcode::OP_MEASURE_FILTER) {

@@ -5,9 +5,9 @@
 // rather than causing mysterious failures in the Front-End.
 //
 // Key assumptions documented here:
-// 1. TableauSimulator.inv_state tracks the INVERSE tableau (U†)
-// 2. inv_state.zs[q] gives Heisenberg-rewound Z: U† Z_q U
-// 3. inv_state.xs[q] gives Heisenberg-rewound X: U† X_q U
+// 1. TableauSimulator.inv_state tracks the INVERSE tableau (U_dag)
+// 2. inv_state.zs[q] gives Heisenberg-rewound Z: U_dag Z_q U
+// 3. inv_state.xs[q] gives Heisenberg-rewound X: U_dag X_q U
 // 4. PauliString masks can be extracted via .xs.u64[0] and .zs.u64[0]
 // 5. Tableau.then() composes tableaux correctly
 // 6. Tableau.inverse() computes the inverse correctly
@@ -20,8 +20,8 @@
 
 TEST_CASE("Stim contract: TableauSimulator Heisenberg rewinding", "[stim][contract]") {
     // TableauSimulator.inv_state tracks the inverse tableau
-    // inv_state.zs[q] gives the Heisenberg-rewound Z observable: U† Z_q U
-    // inv_state.xs[q] gives the Heisenberg-rewound X observable: U† X_q U
+    // inv_state.zs[q] gives the Heisenberg-rewound Z observable: U_dag Z_q U
+    // inv_state.xs[q] gives the Heisenberg-rewound X observable: U_dag X_q U
 
     SECTION("Initial state: Z rewound is Z") {
         std::mt19937_64 rng(42);
@@ -44,7 +44,7 @@ TEST_CASE("Stim contract: TableauSimulator Heisenberg rewinding", "[stim][contra
         circuit.safe_append_u("H", {0});
         sim.safe_do_circuit(circuit);
 
-        // H† Z H = X (H is self-inverse)
+        // H_dag Z H = X (H is self-inverse)
         auto z0 = sim.inv_state.zs[0];
         REQUIRE(z0.xs[0] == true);   // X component
         REQUIRE(z0.zs[0] == false);  // No Z component
@@ -59,7 +59,7 @@ TEST_CASE("Stim contract: TableauSimulator Heisenberg rewinding", "[stim][contra
         circuit.safe_append_u("S", {0});
         sim.safe_do_circuit(circuit);
 
-        // (SH)† Z (SH) = H† S† Z S H = H† Z H = X
+        // (SH)_dag Z (SH) = H_dag S_dag Z S H = H_dag Z H = X
         // (Because S commutes with Z)
         auto z0 = sim.inv_state.zs[0];
         REQUIRE(z0.xs[0] == true);   // X component
@@ -75,8 +75,8 @@ TEST_CASE("Stim contract: TableauSimulator Heisenberg rewinding", "[stim][contra
         circuit.safe_append_u("S", {0});
         sim.safe_do_circuit(circuit);
 
-        // U = S @ H, so U† X U = H† S† X S H = +Y
-        // (Verified numerically: S† X S = Y, then H† Y H = Y)
+        // U = S @ H, so U_dag X U = H_dag S_dag X S H = +Y
+        // (Verified numerically: S_dag X S = Y, then H_dag Y H = Y)
         auto x0 = sim.inv_state.xs[0];
         // Y has xs=true, zs=true, positive sign
         REQUIRE(x0.xs[0] == true);
@@ -92,7 +92,7 @@ TEST_CASE("Stim contract: TableauSimulator Heisenberg rewinding", "[stim][contra
         circuit.safe_append_u("CX", {0, 1});  // Control=0, Target=1
         sim.safe_do_circuit(circuit);
 
-        // CX† Z_target CX = Z_control * Z_target
+        // CX_dag Z_target CX = Z_control * Z_target
         auto z1 = sim.inv_state.zs[1];
         REQUIRE(z1.zs[0] == true);  // Z on qubit 0 (propagated from target)
         REQUIRE(z1.zs[1] == true);  // Z on qubit 1
@@ -109,7 +109,7 @@ TEST_CASE("Stim contract: TableauSimulator Heisenberg rewinding", "[stim][contra
 
         // Circuit: H 0, CX 0 1
         // This creates the Bell state |00> + |11>
-        // Z1 rewound: (CX H)† Z1 (CX H) = H† CX† Z1 CX H = H† (Z0 Z1) H = X0 Z1
+        // Z1 rewound: (CX H)_dag Z1 (CX H) = H_dag CX_dag Z1 CX H = H_dag (Z0 Z1) H = X0 Z1
         auto z1 = sim.inv_state.zs[1];
         REQUIRE(z1.xs[0] == true);  // X on qubit 0
         REQUIRE(z1.zs[1] == true);  // Z on qubit 1
@@ -154,11 +154,11 @@ TEST_CASE("Stim contract: Tableau composition", "[stim][contract]") {
     REQUIRE(composed.num_qubits == 2);
 
     // t1.then(t2) represents U = S @ H (in matrix notation)
-    // The tableau stores the forward transformation: U P U†
-    // So composed.zs[0] = (SH) Z (SH)† = H† S† Z S H = H† Z H = X... wait
-    // Actually for forward tableau: (SH) Z (SH)†
-    // Let me verify: H Z H† = X, then S X S† = Y
-    // So (SH) Z (SH)† = S (H Z H†) S† = S X S† = Y
+    // The tableau stores the forward transformation: U P U_dag
+    // So composed.zs[0] = (SH) Z (SH)_dag = H_dag S_dag Z S H = H_dag Z H = X... wait
+    // Actually for forward tableau: (SH) Z (SH)_dag
+    // Let me verify: H Z H_dag = X, then S X S_dag = Y
+    // So (SH) Z (SH)_dag = S (H Z H_dag) S_dag = S X S_dag = Y
     auto z0 = composed.zs[0];
     REQUIRE(z0.xs[0] == true);  // Y has X component
     REQUIRE(z0.zs[0] == true);  // Y has Z component

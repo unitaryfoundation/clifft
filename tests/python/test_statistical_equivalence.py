@@ -14,6 +14,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 import stim
+from conftest import binomial_tolerance
 
 import ucc
 
@@ -24,26 +25,6 @@ _TARGET_QEC_PATH = Path(__file__).parent.parent.parent / "tools" / "bench" / "ta
 def _load_target_qec_circuit() -> str:
     """Load the CSS d=3 cultivation circuit from the shared file."""
     return _TARGET_QEC_PATH.read_text()
-
-
-def binomial_tolerance(p: float, n: int, *, sigma: float = 5.0) -> float:
-    """Compute tolerance for binomial proportion estimate.
-
-    Returns sigma standard deviations of the binomial standard error.
-    Default 5σ gives <1 in 3.5 million false positive rate per assertion.
-
-    Args:
-        p: Expected probability (0 < p < 1)
-        n: Number of samples (shots)
-        sigma: Number of standard deviations for the bound
-
-    Returns:
-        Tolerance value such that |observed - p| < tolerance with high probability
-    """
-    # Clamp p to avoid zero variance for p=0 or p=1
-    p_clamped = max(min(p, 0.99), 0.01)
-    std_err = float(np.sqrt((p_clamped * (1 - p_clamped)) / n))
-    return sigma * std_err
 
 
 class TestTargetQECCircuit:
@@ -177,7 +158,7 @@ class TestSimpleCircuitEquivalence:
         stim_det, _ = stim_sampler.sample(shots, separate_observables=True)
 
         # Detector fires when readout noise causes disagreement
-        # Expected rate: 2 * 0.05 * 0.95 ≈ 0.095 (one or the other flips)
+        # Expected rate: 2 * 0.05 * 0.95 ~ 0.095 (one or the other flips)
         ucc_rate = float(ucc_det.astype(float).mean())
         stim_rate = float(stim_det.astype(float).mean())
 

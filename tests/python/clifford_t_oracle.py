@@ -1,7 +1,7 @@
 """Standalone numpy-based Clifford+T statevector oracle for testing.
 
 This is a simple dense-matrix simulator used to validate UCC's output.
-It uses explicit 2^n × 2^n matrices, so it's limited to small circuits.
+It uses explicit 2^n x 2^n matrices, so it's limited to small circuits.
 """
 
 import numpy as np
@@ -15,7 +15,7 @@ class CliffordTOracle:
             raise ValueError("Oracle limited to 10 qubits (dense matrix)")
         self.n = num_qubits
         self.dim = 1 << num_qubits
-        # Start in |0...0⟩
+        # Start in |0...0>
         self.sv = np.zeros(self.dim, dtype=complex)
         self.sv[0] = 1.0
 
@@ -32,7 +32,7 @@ class CliffordTOracle:
 
     def _single_qubit_gate(self, gate: np.ndarray, qubit: int) -> None:
         """Apply a single-qubit gate via tensor product expansion."""
-        # Build full 2^n × 2^n matrix.
+        # Build full 2^n x 2^n matrix.
         # For little-endian indexing (qubit 0 = LSB), the tensor product order
         # is reversed: qubit n-1 is leftmost, qubit 0 is rightmost.
         full = np.array([[1.0]], dtype=complex)
@@ -46,7 +46,7 @@ class CliffordTOracle:
     def _two_qubit_gate(self, gate: np.ndarray, q1: int, q2: int) -> None:
         """Apply a two-qubit gate (4x4 matrix on qubits q1, q2).
 
-        The gate matrix is defined in the standard basis |b1, b2⟩ where b1 is
+        The gate matrix is defined in the standard basis |b1, b2> where b1 is
         the qubit q1 value and b2 is the qubit q2 value. Matrix indices use
         row/col = 2*b1 + b2.
         """

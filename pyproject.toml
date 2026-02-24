@@ -44,6 +44,8 @@ dev = [
     "nanobind>=2.0",
     "scikit-build-core>=0.10",
     "stim>=1.10",
+    "qiskit>=1.0",
+    "qiskit-aer>=0.14",
 ]
 
 [tool.scikit-build]
@@ -90,7 +92,7 @@ exclude = [
 ]
 
 [[tool.mypy.overrides]]
-module = ["numpy.*", "stim.*", "pytest.*", "ucc", "ucc._ucc_core"]
+module = ["numpy.*", "stim.*", "pytest.*", "ucc", "ucc._ucc_core", "qiskit.*", "qiskit_aer.*"]
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]

@@ -25,7 +25,7 @@ namespace ucc {
 // License: Public domain (CC0)
 //
 // Period: 2^256-1. State: 32 bytes (vs MT19937's 2504 bytes), making per-shot
-// reseeding ~100× cheaper. Uses pure bitwise math to guarantee identical
+// reseeding ~100x cheaper. Uses pure bitwise math to guarantee identical
 // sequences across GCC/Clang/MSVC.
 
 class Xoshiro256PlusPlus {
@@ -70,7 +70,7 @@ class Xoshiro256PlusPlus {
 };
 
 // =============================================================================
-// Schrödinger Virtual Machine State
+// Schrodinger Virtual Machine State
 // =============================================================================
 //
 // Holds the quantum state during execution: a sparse coefficient array indexed
@@ -99,7 +99,7 @@ class SchrodingerState {
     SchrodingerState(SchrodingerState&& other) noexcept;
     SchrodingerState& operator=(SchrodingerState&& other) noexcept;
 
-    // Reset to |0...0⟩ state for next shot (reuses allocation)
+    // Reset to |0...0> state for next shot (reuses allocation)
     void reset(uint64_t seed);
 
     // Access coefficient array
@@ -108,7 +108,7 @@ class SchrodingerState {
     [[nodiscard]] uint64_t array_size() const { return array_size_; }
 
     // Generate random double in [0, 1) using deterministic bit manipulation.
-    // CRITICAL: Do NOT use std::uniform_real_distribution — its output is
+    // CRITICAL: Do NOT use std::uniform_real_distribution  --  its output is
     // implementation-defined and varies across compilers (GCC vs Clang vs MSVC).
     // This bit-manipulation approach ensures identical sequences across platforms
     // given the same seed, enabling reproducible simulation results.
@@ -158,7 +158,7 @@ SampleResult sample(const CompiledModule& program, uint32_t shots, uint64_t seed
 
 /// Expand the SVM's sparse representation into a dense 2^N statevector.
 /// This applies the final Clifford tableau to convert from the Heisenberg
-/// picture back to the Schrödinger picture.
+/// picture back to the Schrodinger picture.
 ///
 /// Parameters:
 ///   state: The SVM state after execution (contains v[], destab_signs, stab_signs)

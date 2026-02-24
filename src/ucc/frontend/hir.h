@@ -97,7 +97,7 @@ enum class ReadoutNoiseIdx : uint32_t {};
 
 // Operation types in the HIR
 enum class OpType : uint8_t {
-    T_GATE,             // T or T† gate (π/8 phase) - FLAG_IS_DAGGER distinguishes
+    T_GATE,             // T or T_dag gate (pi/8 phase) - FLAG_IS_DAGGER distinguishes
     MEASURE,            // Destructive measurement (Z, X, or multi-Pauli)
     CONDITIONAL_PAULI,  // Classical feedback: apply Pauli if measurement was 1
     NOISE,              // Stochastic Pauli channel (references NoiseSite side-table)
@@ -228,7 +228,7 @@ struct HeisenbergOp {
 
     // --- Factory Methods ---
 
-    // Factory for T/T† gates
+    // Factory for T/T_dag gates
     static HeisenbergOp make_tgate(stim::bitword<64> destab, stim::bitword<64> stab, bool s,
                                    bool dagger = false) {
         HeisenbergOp op(OpType::T_GATE, destab, stab, s);
@@ -302,8 +302,8 @@ struct HeisenbergOp {
 
     // Payload (interpretation depends on OpType) - 12 bytes
     union {
-        // T_GATE: no payload needed (weight is implicit: tan(π/8))
-        // is_dagger_ determines ±i phase of spawned branch
+        // T_GATE: no payload needed (weight is implicit: tan(pi/8))
+        // is_dagger_ determines +/-i phase of spawned branch
 
         // MEASURE: measurement metadata
         struct {
@@ -393,7 +393,7 @@ struct HirModule {
 
     // Global weight accumulator.
     // The Front-End accumulates the dominant terms factored out of each gate.
-    // For T gates: exp(iπ/8) * cos(π/8)
+    // For T gates: exp(ipi/8) * cos(pi/8)
     // The VM ignores this (deferred normalization), but it's needed for
     // correct amplitude tracking if exporting to physical routing tools.
     std::complex<double> global_weight = {1.0, 0.0};

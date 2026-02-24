@@ -100,7 +100,7 @@ TEST_CASE("Frontend: T_DAG gate", "[frontend]") {
 
     REQUIRE(hir.num_ops() == 1);
     REQUIRE(hir.ops[0].op_type() == OpType::T_GATE);
-    REQUIRE(hir.ops[0].is_dagger() == true);    // T†, not T
+    REQUIRE(hir.ops[0].is_dagger() == true);    // T_dag, not T
     REQUIRE(hir.ops[0].destab_mask() == X(0));  // X on qubit 0
 }
 
@@ -137,7 +137,7 @@ TEST_CASE("Frontend: CX entangles qubits - T sees multi-qubit Pauli", "[frontend
     REQUIRE(hir.ops[0].op_type() == OpType::T_GATE);
 
     // After H 0; CX 0 1:
-    // Z1 rewound = (CX H)† Z1 (CX H) = H† CX† Z1 CX H = H† (Z0 Z1) H = X0 Z1
+    // Z1 rewound = (CX H)_dag Z1 (CX H) = H_dag CX_dag Z1 CX H = H_dag (Z0 Z1) H = X0 Z1
     REQUIRE(hir.ops[0].destab_mask() == X(0));  // X on qubit 0
     REQUIRE(hir.ops[0].stab_mask() == Z(1));    // Z on qubit 1
 }
@@ -248,7 +248,7 @@ TEST_CASE("Frontend: MPP single Pauli product", "[frontend]") {
     REQUIRE(hir.num_ops() == 1);
     REQUIRE(hir.ops[0].op_type() == OpType::MEASURE);
 
-    // MPP X0*X1 measures the X0⊗X1 observable
+    // MPP X0*X1 measures the X0tensorX1 observable
     // After H on both qubits, X is conjugated to Z
     // So rewound X0*X1 = Z0*Z1
     REQUIRE(hir.ops[0].destab_mask() == 0);            // No X
@@ -290,7 +290,7 @@ TEST_CASE("Frontend: T count tracking", "[frontend]") {
     )");
     auto hir = trace(circuit);
 
-    // 3 T/T† gates + 1 measurement
+    // 3 T/T_dag gates + 1 measurement
     REQUIRE(hir.num_ops() == 4);
     REQUIRE(hir.num_t_gates() == 3);
 }

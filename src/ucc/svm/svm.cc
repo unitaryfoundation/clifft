@@ -41,7 +41,7 @@ SchrodingerState::SchrodingerState(uint32_t peak_rank, uint32_t num_measurements
         throw std::bad_alloc();
     }
 
-    // Initialize to |0...0⟩: coefficient 1 at index 0
+    // Initialize to |0...0>: coefficient 1 at index 0
     // Note: If this loop could throw (it can't for POD), we'd leak v_.
     // For complex<double>, value initialization is noexcept.
     for (uint64_t i = 0; i < array_size_; ++i) {
@@ -107,19 +107,19 @@ void SchrodingerState::reset(uint64_t seed) {
 // T-Gate Math Constants
 // =============================================================================
 //
-// T = diag(1, e^{iπ/4}) acts on computational basis.
+// T = diag(1, e^{ipi/4}) acts on computational basis.
 // In Heisenberg picture with GF(2) indexing, we apply butterflies:
 //
 // For BRANCH/COLLIDE, the transformation mixes pairs of amplitudes:
-//   |0⟩ → |0⟩
-//   |1⟩ → e^{iπ/4}|1⟩ = (1/√2)(1 + i)|1⟩... but we use tan(π/8) form
+//   |0> -> |0>
+//   |1> -> e^{ipi/4}|1> = (1/sqrt(2))(1 + i)|1>... but we use tan(pi/8) form
 //
-// The LCU decomposition: T = cos(π/8) I + i sin(π/8) Z
-// Weight w = tan(π/8) ≈ 0.4142...
+// The LCU decomposition: T = cos(pi/8) I + i sin(pi/8) Z
+// Weight w = tan(pi/8) ~ 0.4142...
 
-static constexpr double kTanPi8 = 0.4142135623730950488;  // tan(π/8)
-static constexpr double kCosPi8 = 0.9238795325112867561;  // cos(π/8)
-static constexpr double kSinPi8 = 0.3826834323650897717;  // sin(π/8)
+static constexpr double kTanPi8 = 0.4142135623730950488;  // tan(pi/8)
+static constexpr double kCosPi8 = 0.9238795325112867561;  // cos(pi/8)
+static constexpr double kSinPi8 = 0.3826834323650897717;  // sin(pi/8)
 
 // Phase factors for base_phase_idx: {1, i, -1, -i}
 static const std::complex<double> kPhases[4] = {
@@ -155,9 +155,9 @@ inline std::complex<double> resolve_sign(const SchrodingerState& state, const In
 }
 
 // OP_BRANCH: New dimension, array conceptually doubles.
-// Uses dominant term factoring: states are unnormalized, with the cos^k(π/8)
+// Uses dominant term factoring: states are unnormalized, with the cos^k(pi/8)
 // factor implicit. This saves FLOPs since v[alpha] is untouched (0 writes).
-// The spawned branch gets weight i*tan(π/8)*Z for T, or -i*tan(π/8)*Z for T†.
+// The spawned branch gets weight i*tan(pi/8)*Z for T, or -i*tan(pi/8)*Z for T_dag.
 void op_branch(SchrodingerState& state, const Instruction& instr, uint32_t& current_rank) {
     uint32_t new_bit = current_rank++;
     uint64_t old_size = 1ULL << new_bit;
@@ -189,7 +189,7 @@ void op_branch(SchrodingerState& state, const Instruction& instr, uint32_t& curr
 }
 
 // OP_COLLIDE: In-place butterfly on existing dimension.
-// Uses dominant term factoring: v' = v + i*tan(π/8)*Z*partner.
+// Uses dominant term factoring: v' = v + i*tan(pi/8)*Z*partner.
 // Block-based iteration for cache-friendly access.
 void op_collide(SchrodingerState& state, const Instruction& instr, uint32_t current_rank) {
     assert(instr.branch.x_mask != 0 && "OP_COLLIDE requires nonzero x_mask");
@@ -253,8 +253,8 @@ void op_collide(SchrodingerState& state, const Instruction& instr, uint32_t curr
     }
 }
 
-// OP_SCALAR_PHASE: Diagonal phase when β=0.
-// Even though β=0 means no new dimension, the Z components can still
+// OP_SCALAR_PHASE: Diagonal phase when beta=0.
+// Even though beta=0 means no new dimension, the Z components can still
 // anti-commute with active basis vectors. Different amplitudes may receive
 // different phases based on commutation_mask.
 // Helper to check is_dagger flag
@@ -288,10 +288,9 @@ void op_scalar_phase(SchrodingerState& state, const Instruction& instr, uint32_t
 }
 
 // OP_MEASURE_MERGE: Anti-commuting measurement, samples and shrinks array.
-// Uses projective butterfly: (I ± M)/2 requires interference v[α] ± phase*v[α ⊕ β].
-// The phase includes base_phase (Y-count and sign) and commutation parity.
-// Block-based iteration with single-pass butterfly+compaction.
-// Returns the sampled outcome.
+// Uses projective butterfly: (I +/- M)/2 requires interference v[alpha] +/- phase*v[alpha XOR
+// beta]. The phase includes base_phase (Y-count and sign) and commutation parity. Block-based
+// iteration with single-pass butterfly+compaction. Returns the sampled outcome.
 uint8_t op_measure_merge(SchrodingerState& state, const Instruction& instr,
                          uint32_t& current_rank) {
     assert(current_rank >= 1 && "MEASURE_MERGE requires at least one dimension");
@@ -388,7 +387,7 @@ uint8_t op_measure_merge(SchrodingerState& state, const Instruction& instr,
     return internal_outcome;
 }
 
-// OP_MEASURE_FILTER: Commuting measurement with β=0 but nonzero commutation.
+// OP_MEASURE_FILTER: Commuting measurement with beta=0 but nonzero commutation.
 // Observable commutes with tableau but has sign dependence on GF(2) index.
 // Returns the sampled outcome.
 uint8_t op_measure_filter(SchrodingerState& state, const Instruction& instr,
@@ -431,7 +430,7 @@ uint8_t op_measure_filter(SchrodingerState& state, const Instruction& instr,
     return outcome;
 }
 
-// OP_MEASURE_DETERMINISTIC: Fully deterministic measurement (β=0, comm=0).
+// OP_MEASURE_DETERMINISTIC: Fully deterministic measurement (beta=0, comm=0).
 // Outcome determined purely by Pauli frame signs.
 // Returns the computed outcome.
 uint8_t op_measure_deterministic(SchrodingerState& state, const Instruction& instr) {
@@ -760,10 +759,10 @@ std::vector<std::complex<double>> get_statevector(
     // Phase-safe statevector expansion algorithm:
     // Stim's state_vector_from_stabilizers assigns an arbitrary global phase
     // per branch. To preserve exact relative phases between superposition branches,
-    // we compute the reference state U|0⟩ ONCE and then apply Pauli operators
+    // we compute the reference state U|0> ONCE and then apply Pauli operators
     // to map each branch's initial X-string through the final tableau.
 
-    // 1. Compute reference statevector U|0⟩ exactly once to lock the global phase frame
+    // 1. Compute reference statevector U|0> exactly once to lock the global phase frame
     std::vector<stim::PauliString<kStimWidth>> base_stabs;
     std::vector<stim::PauliStringRef<kStimWidth>> stab_refs;
     base_stabs.reserve(num_qubits);
@@ -796,7 +795,7 @@ std::vector<std::complex<double>> get_statevector(
     stim::PauliString<kStimWidth> P(num_qubits);
 
     // 2. Accumulate each branch by applying P_alpha to the reference state
-    // For each branch alpha, the state is U|x_initial⟩ = U X^x U† U|0⟩ = P' |ref⟩
+    // For each branch alpha, the state is U|x_initial> = U X^x U_dag U|0> = P' |ref>
     // where P' = final_tableau(X^x) is the Pauli propagated through the circuit
     for (uint64_t alpha = 0; alpha < active_size; ++alpha) {
         std::complex<double> coeff = state.v()[alpha];
@@ -814,7 +813,7 @@ std::vector<std::complex<double>> get_statevector(
         }
 
         // Apply Pauli frame: E = X^{destab_signs} Z^{stab_signs}
-        // The branch state X^x |0⟩ becomes E X^x |0⟩ = X^{x XOR destab_signs} Z^{stab_signs} |0⟩
+        // The branch state X^x |0> becomes E X^x |0> = X^{x XOR destab_signs} Z^{stab_signs} |0>
         // The Z^{stab_signs} anti-commutes with X^x, giving (-1)^{popcount(x & stab_signs)}
         //
         // NOTE: The observable's sign is already incorporated in v[alpha] via base_phase_idx
@@ -828,7 +827,7 @@ std::vector<std::complex<double>> get_statevector(
         P.zs.u64[0] = 0;
         P.sign = false;
 
-        // Map P through the final tableau to get P' = U P U†
+        // Map P through the final tableau to get P' = U P U_dag
         stim::PauliString<kStimWidth> P_prime = final_tableau(P);
 
         uint64_t px = P_prime.xs.u64[0];
@@ -859,7 +858,7 @@ std::vector<std::complex<double>> get_statevector(
         std::complex<double> scales[2] = {p_scale, -p_scale};
 
         // Apply P' to the SPARSE reference state and accumulate
-        // P'|k⟩ = (±1)|k XOR px⟩ where the sign depends on k·pz parity
+        // P'|k> = (+/-1)|k XOR px> where the sign depends on k*pz parity
         for (const auto& item : sparse_ref) {
             uint64_t k_out = item.k ^ px;
             int parity = std::popcount(item.k & pz) & 1;
