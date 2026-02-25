@@ -1,5 +1,7 @@
 # **UCC Implementation Plan: Phase 2 (Stochastic Noise & QEC)**
 
+**THIS PLAN IS COMPLETE AND RETAINED FOR HISTORICAL PURPOSES**
+
 ## **Executive Summary & Constraints**
 
 This phase upgrades the UCC architecture from a noiseless pure-state simulator into a fault-tolerant stochastic execution engine capable of acting as a drop-in replacement for stim.compile\_detector\_sampler() (it won't be exact drop-in, but basically the same interface in spirit for extracting detector and/or observable samples).

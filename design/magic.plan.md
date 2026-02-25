@@ -19,19 +19,6 @@ Simulating $10^{12}$ shots generates terabytes of raw array data. To survive thi
 3. **The 32-Byte Invariant:** The Instruction struct MUST remain exactly 32 bytes at all times.
 4. **Inline Noise for Qiskit Oracle:** Do not use Qiskit's global NoiseModel for validation. Construct explicit QuantumError objects and apply them inline sequentially.
 
-## ---
-
-**Phase 1: Analytical Noise Validation (Qiskit Density Matrix)**
-
-**Goal:** Prove that UCC's Monte Carlo gap-sampling execution perfectly converges to Qiskit's exact analytical probability distribution across all possible correlation orders.
-
-* **Task 1.1 (Explicit Pauli Noise Construction):** In tests/python/utils_qiskit.py, update stim_to_qiskit to support noise gates. Import pauli_error and depolarizing_error from qiskit_aer.noise. When encountering X/Y/Z_ERROR(p), DEPOLARIZE1(p), or DEPOLARIZE2(p), construct the exact Qiskit QuantumError and append it to the circuit via circ.append(error.to_instruction(), [qubits]).
-* **Task 1.2 (Readout Noise Substitution):** When encountering M(p) or READOUT_NOISE(p), insert an X_ERROR(p) immediately before the Qiskit measure instruction.
-* **Task 1.3 (The Density Matrix Runner):** In tests/python/utils_qiskit.py, write get_exact_probabilities(stim_text: str) -> dict[str, float]. At the end of the translated circuit, append circ.save_probabilities_dict() and execute using AerSimulator(method="density_matrix"). Remap Qiskit's little-endian bitstring keys to match UCC's chronological measurement output ordering.
-* **Task 1.4 (TVD Validation Tests):** Create tests/python/test_density_matrix_oracle.py. Fuzz random 4-qubit and 5-qubit circuits containing dense Clifford+T logic interleaved with noise and terminal measurements. Assert the Total Variation Distance (TVD) between $P_{exact}(x)$ and UCC's $P_{ucc}(x)$ ($N=100,000$ shots) is $< 0.03$.
-
-## ---
-
 **Phase 2: Sinter-Native Fast-Fail Compilation (OP_POSTSELECT)**
 
 **Goal:** Allow the C++ compiler to ingest Sinter's postselection_mask and natively lower targeted parity checks into early-abort instructions *without* hacking the .stim syntax.
