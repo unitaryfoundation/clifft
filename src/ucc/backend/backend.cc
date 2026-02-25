@@ -49,13 +49,13 @@ inline uint8_t compute_base_phase_idx(stim::bitword<kStimWidth> destab,
 // GF(2) Basis Implementation
 // =============================================================================
 
-std::optional<uint32_t> GF2Basis::find_in_span(stim::bitword<kStimWidth> beta) const {
-    if (beta == stim::bitword<kStimWidth>(0)) {
+std::optional<uint32_t> GF2Basis::find_in_span(uint64_t beta) const {
+    if (beta == 0) {
         return 0;  // Zero vector is trivially in span (empty combination)
     }
 
     uint32_t x_mask = 0;
-    uint64_t remaining = static_cast<uint64_t>(beta);
+    uint64_t remaining = beta;
 
     while (remaining != 0) {
         int lead_bit = 63 - std::countl_zero(remaining);
@@ -69,7 +69,7 @@ std::optional<uint32_t> GF2Basis::find_in_span(stim::bitword<kStimWidth> beta) c
     return x_mask;
 }
 
-uint32_t GF2Basis::add(stim::bitword<kStimWidth> destab) {
+uint32_t GF2Basis::add(uint64_t destab) {
     if (basis_.size() >= kMaxRank) {
         throw std::runtime_error(
             "GF(2) rank limit exceeded: circuit requires >32 dimensions. "
@@ -92,12 +92,33 @@ uint32_t GF2Basis::rank() const {
     return static_cast<uint32_t>(basis_.size());
 }
 
-const std::vector<stim::bitword<kStimWidth>>& GF2Basis::vectors() const {
+const std::vector<uint64_t>& GF2Basis::vectors() const {
     return basis_;
 }
 
-void GF2Basis::add_to_echelon(stim::bitword<kStimWidth> beta, uint32_t initial_x_mask) {
-    uint64_t remaining = static_cast<uint64_t>(beta);
+void GF2Basis::transform(const AGMatrix& ag, uint8_t ag_stab_slot) {
+    for (auto& vec : basis_) {
+        uint64_t destab = vec;  // Pure spatial shift (X-component only)
+        uint64_t stab = 0;      // No Z-component: it was absorbed into v[]
+
+        // Map the pure X spatial shift through the AG pivot
+        ag.apply(destab, stab);
+
+        // Measurement projection fix: if the branch's spatial shift
+        // anti-commuted with the measured observable, the pivot maps it
+        // to a Pauli with X_p set. But the measurement projects all
+        // branches into the same eigenspace, so the branch must be
+        // multiplied by the pivot stabilizer (which is X_p in the new
+        // frame) to remain in that eigenspace. This cancels the X_p bit.
+        destab &= ~(1ULL << ag_stab_slot);
+
+        vec = destab;
+    }
+    rebuild_echelon();
+}
+
+void GF2Basis::add_to_echelon(uint64_t beta, uint32_t initial_x_mask) {
+    uint64_t remaining = beta;
     uint32_t x_mask = initial_x_mask;
 
     while (remaining != 0) {
@@ -127,18 +148,13 @@ namespace {
 // =============================================================================
 // Helper Functions
 // Compute commutation_mask: which basis vectors anti-commute with this Pauli.
-// Two Paulis anti-commute when (X1 & Z2) ^ (Z1 & X2) has odd popcount.
-// For basis vector i with X-bits only (destab), anti-commutes with stab_mask
-// of the instruction when their AND has odd popcount.
-uint32_t compute_commutation_mask(const std::vector<stim::bitword<kStimWidth>>& basis,
-                                  [[maybe_unused]] stim::bitword<kStimWidth> destab_mask,
-                                  stim::bitword<kStimWidth> stab_mask) {
+// The spatial shift of each branch is purely an X operator (Z was absorbed
+// into v[] at branch time). It anti-commutes with the new operator's Z part.
+uint32_t compute_commutation_mask(const std::vector<uint64_t>& basis,
+                                  [[maybe_unused]] uint64_t destab_mask, uint64_t stab_mask) {
     uint32_t mask = 0;
     for (size_t i = 0; i < basis.size(); ++i) {
-        // Basis vectors are pure X (destab only, no Z component).
-        // Anti-commutation: (basis[i] & stab_mask) XOR (0 & destab_mask)
-        // = (basis[i] & stab_mask) has odd popcount
-        uint64_t overlap = static_cast<uint64_t>(basis[i]) & static_cast<uint64_t>(stab_mask);
+        uint64_t overlap = basis[i] & stab_mask;
         if (std::popcount(overlap) & 1) {
             mask |= (1u << i);
         }
@@ -156,6 +172,7 @@ CompiledModule lower(const HirModule& hir) {
 
     GF2Basis basis;
     uint32_t peak_rank = 0;
+    uint64_t projected_mask = 0;
 
     // Convert AG matrices from HIR Stim Tableaux to flat AGMatrix format
     result.constant_pool.ag_matrices.reserve(hir.ag_matrices.size());
@@ -173,40 +190,47 @@ CompiledModule lower(const HirModule& hir) {
                 bool sign = op.sign();
                 bool is_dagger = op.is_dagger();
 
-                // The spatial shift beta is the X-component (destab_mask)
-                stim::bitword<kStimWidth> beta = destab;
+                uint64_t destab_u64 = static_cast<uint64_t>(destab);
+                uint64_t stab_u64 = static_cast<uint64_t>(stab);
+
+                uint64_t beta = destab_u64;
+                uint64_t stripped_beta = beta & ~projected_mask;
+
+                // If stripping removes all bits, but beta was non-zero, the
+                // bits were legitimately re-prepared or entangled.
+                // Otherwise, use stripped_beta to ignore phantom stabilizer bits.
+                uint64_t search_beta = (stripped_beta == 0 && beta != 0) ? beta : stripped_beta;
 
                 Instruction instr{};
                 instr.flags = is_dagger ? Instruction::FLAG_IS_DAGGER : 0;
-                // base_phase_idx encodes sign and Y-count: i^y_count * (-1)^sign
                 instr.base_phase_idx = compute_base_phase_idx(destab, stab, sign);
-                instr.branch.destab_mask = static_cast<uint64_t>(destab);
-                instr.branch.stab_mask = static_cast<uint64_t>(stab);
+                instr.branch.destab_mask = destab_u64;
+                instr.branch.stab_mask = stab_u64;
 
-                if (beta == stim::bitword<kStimWidth>(0)) {
+                if (search_beta == 0) {
                     // Diagonal: no spatial shift, but Z components can still
                     // anti-commute with active basis vectors in V.
                     instr.opcode = Opcode::OP_SCALAR_PHASE;
                     instr.branch.x_mask = 0;
                     instr.branch.bit_index = 0;
-                    // Must compute commutation even for diagonal ops!
                     instr.commutation_mask =
-                        compute_commutation_mask(basis.vectors(), destab, stab);
-                } else if (auto x_mask_opt = basis.find_in_span(beta)) {
+                        compute_commutation_mask(basis.vectors(), destab_u64, stab_u64);
+                } else if (auto x_mask_opt = basis.find_in_span(search_beta)) {
                     // In span: butterfly operation
                     instr.opcode = Opcode::OP_COLLIDE;
                     instr.branch.x_mask = *x_mask_opt;
                     instr.branch.bit_index = 0;  // Not used for COLLIDE
                     instr.commutation_mask =
-                        compute_commutation_mask(basis.vectors(), destab, stab);
+                        compute_commutation_mask(basis.vectors(), destab_u64, stab_u64);
                 } else {
-                    // New dimension: branch
-                    uint32_t new_idx = basis.add(destab);
+                    // New dimension: clear reactivated bits from mask
+                    projected_mask &= ~search_beta;
+                    uint32_t new_idx = basis.add(search_beta);
                     instr.opcode = Opcode::OP_BRANCH;
-                    instr.branch.x_mask = 1u << new_idx;  // Just this new vector
+                    instr.branch.x_mask = 1u << new_idx;
                     instr.branch.bit_index = new_idx;
                     instr.commutation_mask =
-                        compute_commutation_mask(basis.vectors(), destab, stab);
+                        compute_commutation_mask(basis.vectors(), destab_u64, stab_u64);
                     peak_rank = std::max(peak_rank, basis.rank());
                 }
 
@@ -223,19 +247,23 @@ CompiledModule lower(const HirModule& hir) {
                 bool is_hidden = op.is_hidden();
                 bool emitted_merge = false;
 
-                // For measurements, beta is the destab_mask (X-component of rewound observable)
-                stim::bitword<kStimWidth> beta = destab;
+                uint64_t destab_u64 = static_cast<uint64_t>(destab);
+                uint64_t stab_u64 = static_cast<uint64_t>(stab);
+
+                uint64_t beta = destab_u64;
+                uint64_t stripped_beta = beta & ~projected_mask;
+                uint64_t search_beta = (stripped_beta == 0 && beta != 0) ? beta : stripped_beta;
 
                 Instruction instr{};
                 instr.flags = is_hidden ? Instruction::FLAG_HIDDEN : 0;
-                // base_phase_idx encodes sign and Y-count: i^y_count * (-1)^sign
                 instr.base_phase_idx = compute_base_phase_idx(destab, stab, sign);
                 instr.ag_ref_outcome = ag_ref;
-                instr.branch.destab_mask = static_cast<uint64_t>(destab);
-                instr.branch.stab_mask = static_cast<uint64_t>(stab);
+                instr.branch.destab_mask = destab_u64;
+                instr.branch.stab_mask = stab_u64;
 
                 // Compute commutation_mask for all paths (needed for FILTER)
-                instr.commutation_mask = compute_commutation_mask(basis.vectors(), destab, stab);
+                instr.commutation_mask =
+                    compute_commutation_mask(basis.vectors(), destab_u64, stab_u64);
 
                 // Measurement opcode routing (from Python prototype aot_compiler.py:427):
                 //   beta != 0 and beta in span(V) -> MERGE (array halves, reclaim dimension)
@@ -243,7 +271,7 @@ CompiledModule lower(const HirModule& hir) {
                 //   beta = 0 and comm_mask != 0 -> FILTER (zero half array)
                 //   beta = 0 and comm_mask = 0 -> DETERMINISTIC
 
-                if (beta == stim::bitword<kStimWidth>(0)) {
+                if (search_beta == 0) {
                     // beta = 0: measurement is diagonal in GF(2) space
                     if (instr.commutation_mask == 0) {
                         // Fully deterministic: no basis vectors to interfere
@@ -258,7 +286,7 @@ CompiledModule lower(const HirModule& hir) {
                         instr.branch.bit_index = 31 - std::countl_zero(instr.commutation_mask);
                     }
                     result.bytecode.push_back(instr);
-                } else if (auto x_mask_opt = basis.find_in_span(beta)) {
+                } else if (auto x_mask_opt = basis.find_in_span(search_beta)) {
                     // beta in span(V): MERGE - collapse an existing dimension
                     instr.opcode = Opcode::OP_MEASURE_MERGE;
                     instr.branch.x_mask = *x_mask_opt;
@@ -272,6 +300,7 @@ CompiledModule lower(const HirModule& hir) {
                     // The VM halves v_size and shifts indices; we must match.
                     basis.remove(bit_idx);
                 } else {
+                    projected_mask &= ~search_beta;
                     // beta not in span(V): measurement introduces new randomness but
                     // does NOT add a dimension to the GF(2) basis. The AG_PIVOT
                     // (emitted below) handles the basis change. No MEASURE_*
@@ -299,6 +328,10 @@ CompiledModule lower(const HirModule& hir) {
                     // Computed in frontend by scanning post-collapse tableau.
                     pivot_instr.meta.ag_stab_slot = op.ag_stab_slot();
 
+                    // Track projected-out dimensions so subsequent beta lookups
+                    // ignore spatial shifts along collapsed measurement axes.
+                    projected_mask |= (1ULL << op.ag_stab_slot());
+
                     // Store observable masks for standalone AG_PIVOT error commutation.
                     // When not reusing (standalone pivot), the SVM needs these to
                     // compute error anti-commutation and flip the outcome accordingly.
@@ -306,6 +339,14 @@ CompiledModule lower(const HirModule& hir) {
                     pivot_instr.meta.stab_mask = static_cast<uint64_t>(stab);
 
                     result.bytecode.push_back(pivot_instr);
+
+                    // Map active GF(2) basis vectors through the AG pivot matrix.
+                    // The pivot changes the t=0 reference frame; all subsequent
+                    // T-gate masks from the Front-End are in the NEW frame, so
+                    // existing basis vectors must be transformed to match.
+                    const auto& ag_mat =
+                        result.constant_pool.ag_matrices[static_cast<uint32_t>(ag_idx)];
+                    basis.transform(ag_mat, op.ag_stab_slot());
                 }
                 break;
             }
@@ -317,15 +358,18 @@ CompiledModule lower(const HirModule& hir) {
                 ControllingMeasIdx ctrl = op.controlling_meas();
                 bool use_last_outcome = op.use_last_outcome();
 
+                uint64_t destab_u64 = static_cast<uint64_t>(destab);
+                uint64_t stab_u64 = static_cast<uint64_t>(stab);
+
                 Instruction instr{};
                 instr.opcode = Opcode::OP_CONDITIONAL;
                 instr.flags = use_last_outcome ? Instruction::FLAG_USE_LAST_OUTCOME : 0;
-                // base_phase_idx encodes sign and Y-count: i^y_count * (-1)^sign
                 instr.base_phase_idx = compute_base_phase_idx(destab, stab, sign);
                 instr.meta.controlling_meas = static_cast<uint32_t>(ctrl);
-                instr.meta.destab_mask = static_cast<uint64_t>(destab);
-                instr.meta.stab_mask = static_cast<uint64_t>(stab);
-                instr.commutation_mask = compute_commutation_mask(basis.vectors(), destab, stab);
+                instr.meta.destab_mask = destab_u64;
+                instr.meta.stab_mask = stab_u64;
+                instr.commutation_mask =
+                    compute_commutation_mask(basis.vectors(), destab_u64, stab_u64);
 
                 result.bytecode.push_back(instr);
                 break;
@@ -411,7 +455,11 @@ CompiledModule lower(const HirModule& hir) {
     }
 
     // Store final GF(2) basis for statevector expansion
-    result.constant_pool.gf2_basis = basis.vectors();
+    const auto& vecs = basis.vectors();
+    result.constant_pool.gf2_basis.reserve(vecs.size());
+    for (const auto& vec : vecs) {
+        result.constant_pool.gf2_basis.push_back(stim::bitword<64>(vec));
+    }
     result.peak_rank = peak_rank;
 
     // Copy forward tableau and global weight for statevector expansion

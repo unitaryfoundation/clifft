@@ -87,6 +87,14 @@ else()
     enable_testing()
     add_subdirectory(tests)
 
+    # CLI trace tool (always built in standalone mode)
+    add_executable(ucctrace tools/ucctrace/ucctrace.cpp)
+    target_link_libraries(ucctrace PRIVATE ucc_core)
+    target_include_directories(ucctrace PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/src
+        ${CMAKE_CURRENT_BINARY_DIR}/generated
+    )
+
     # Profiling tool (opt-in, not part of default or coverage builds)
     option(UCC_BUILD_PROFILER "Build the SVM profiling harness" OFF)
     if(UCC_BUILD_PROFILER)

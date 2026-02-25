@@ -27,82 +27,82 @@ static CompiledModule compile(const std::string& stim_text) {
 
 TEST_CASE("GF2Basis: zero vector is always in span", "[backend][gf2]") {
     GF2Basis basis;
-    auto result = basis.find_in_span(stim::bitword<kStimWidth>(0));
+    auto result = basis.find_in_span(static_cast<uint64_t>(0));
     REQUIRE(result.has_value());
     REQUIRE(*result == 0);  // Empty combination produces zero
 }
 
 TEST_CASE("GF2Basis: single vector span membership", "[backend][gf2]") {
     GF2Basis basis;
-    basis.add(stim::bitword<kStimWidth>(0b1010));
+    basis.add(static_cast<uint64_t>(0b1010));
 
     // Same vector should be in span with x_mask = 1
-    auto result = basis.find_in_span(stim::bitword<kStimWidth>(0b1010));
+    auto result = basis.find_in_span(static_cast<uint64_t>(0b1010));
     REQUIRE(result.has_value());
     REQUIRE(*result == 1);
 
     // Different vector not in span
-    auto not_found = basis.find_in_span(stim::bitword<kStimWidth>(0b0101));
+    auto not_found = basis.find_in_span(static_cast<uint64_t>(0b0101));
     REQUIRE_FALSE(not_found.has_value());
 }
 
 TEST_CASE("GF2Basis: XOR combinations", "[backend][gf2]") {
     GF2Basis basis;
-    basis.add(stim::bitword<kStimWidth>(0b0011));  // idx 0
-    basis.add(stim::bitword<kStimWidth>(0b0101));  // idx 1
+    basis.add(static_cast<uint64_t>(0b0011));  // idx 0
+    basis.add(static_cast<uint64_t>(0b0101));  // idx 1
 
     // 0b0110 = 0b0011 XOR 0b0101
-    auto result = basis.find_in_span(stim::bitword<kStimWidth>(0b0110));
+    auto result = basis.find_in_span(static_cast<uint64_t>(0b0110));
     REQUIRE(result.has_value());
     REQUIRE(*result == 0b11);  // Both vectors needed
 }
 
 TEST_CASE("GF2Basis: add returns correct index", "[backend][gf2]") {
     GF2Basis basis;
-    REQUIRE(basis.add(stim::bitword<kStimWidth>(0b001)) == 0);
-    REQUIRE(basis.add(stim::bitword<kStimWidth>(0b010)) == 1);
-    REQUIRE(basis.add(stim::bitword<kStimWidth>(0b100)) == 2);
+    REQUIRE(basis.add(static_cast<uint64_t>(0b001)) == 0);
+    REQUIRE(basis.add(static_cast<uint64_t>(0b010)) == 1);
+    REQUIRE(basis.add(static_cast<uint64_t>(0b100)) == 2);
     REQUIRE(basis.rank() == 3);
 }
 
 TEST_CASE("GF2Basis: remove shifts indices", "[backend][gf2]") {
     GF2Basis basis;
-    basis.add(stim::bitword<kStimWidth>(0b001));  // idx 0
-    basis.add(stim::bitword<kStimWidth>(0b010));  // idx 1
-    basis.add(stim::bitword<kStimWidth>(0b100));  // idx 2
+    basis.add(static_cast<uint64_t>(0b001));  // idx 0
+    basis.add(static_cast<uint64_t>(0b010));  // idx 1
+    basis.add(static_cast<uint64_t>(0b100));  // idx 2
 
     basis.remove(1);  // Remove middle vector
     REQUIRE(basis.rank() == 2);
 
     // 0b100 should now be at index 1 (was index 2)
-    auto result = basis.find_in_span(stim::bitword<kStimWidth>(0b100));
+    auto result = basis.find_in_span(static_cast<uint64_t>(0b100));
     REQUIRE(result.has_value());
     REQUIRE(*result == 0b10);  // Now index 1, so x_mask = 2
 }
 
 TEST_CASE("GF2Basis: echelon form with dependent vectors", "[backend][gf2]") {
     GF2Basis basis;
-    basis.add(stim::bitword<kStimWidth>(0b1100));  // idx 0, lead bit 3
-    basis.add(stim::bitword<kStimWidth>(0b1010));  // idx 1, lead bit 3 (same!)
+    basis.add(static_cast<uint64_t>(0b1100));  // idx 0, lead bit 3
+    basis.add(static_cast<uint64_t>(0b1010));  // idx 1, lead bit 3 (same!)
 
     // After echelon reduction, 0b1010 is stored as 0b1010 XOR 0b1100 = 0b0110
     // So 0b0110 is in span via index 1 alone
-    auto result = basis.find_in_span(stim::bitword<kStimWidth>(0b0110));
+    auto result = basis.find_in_span(static_cast<uint64_t>(0b0110));
     REQUIRE(result.has_value());
     REQUIRE(*result == 0b11);  // Need both: 0b1100 XOR 0b1010 = 0b0110
 }
 
 TEST_CASE("GF2Basis: remove then add reuses slot", "[backend][gf2]") {
     GF2Basis basis;
-    basis.add(stim::bitword<kStimWidth>(0b01));
-    basis.add(stim::bitword<kStimWidth>(0b10));
+    basis.add(static_cast<uint64_t>(0b01));
+    basis.add(static_cast<uint64_t>(0b10));
     REQUIRE(basis.rank() == 2);
 
     basis.remove(0);  // Remove first
     REQUIRE(basis.rank() == 1);
 
     // Add new vector - should get index 1 (next available)
-    uint32_t new_idx = basis.add(stim::bitword<kStimWidth>(0b11));
+    uint32_t new_idx = basis.add(static_cast<uint64_t>(0b11));
     REQUIRE(new_idx == 1);
     REQUIRE(basis.rank() == 2);
 }

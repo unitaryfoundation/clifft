@@ -5,6 +5,7 @@
 #include <cassert>
 #include <cmath>
 #include <cstdlib>
+#include <sstream>
 #include <stdexcept>
 
 // Cross-platform restrict qualifier to unblock SIMD auto-vectorization
@@ -528,7 +529,9 @@ void op_conditional(SchrodingerState& state, const Instruction& instr, uint8_t l
 // SVM Execution Entry Points
 // =============================================================================
 
-void execute(const CompiledModule& program, SchrodingerState& state) {
+// Internal execute implementation. When trace is non-null, captures state snapshots.
+static void execute_impl(const CompiledModule& program, SchrodingerState& state,
+                         std::vector<TraceEntry>* trace) {
     uint32_t current_rank = 0;  // Start with rank 0 (single amplitude)
     uint32_t meas_idx = 0;
     uint32_t det_idx = 0;
@@ -600,9 +603,14 @@ void execute(const CompiledModule& program, SchrodingerState& state) {
 
         // 3. Execute the instruction at this PC
         const auto& instr = program.bytecode[pc];
+        std::string detail;  // Only populated when trace != nullptr
+
         switch (instr.opcode) {
             case Opcode::OP_BRANCH:
                 op_branch(state, instr, current_rank);
+                if (trace) {
+                    detail = "rank=" + std::to_string(current_rank);
+                }
                 break;
 
             case Opcode::OP_COLLIDE:
@@ -619,6 +627,13 @@ void execute(const CompiledModule& program, SchrodingerState& state) {
                 if (!is_hidden) {
                     state.meas_record[meas_idx++] = last_outcome;
                 }
+                if (trace) {
+                    std::ostringstream ss;
+                    ss << "outcome=" << (int)last_outcome << " rank=" << current_rank;
+                    if (is_hidden)
+                        ss << " [hidden]";
+                    detail = ss.str();
+                }
                 break;
             }
 
@@ -627,6 +642,13 @@ void execute(const CompiledModule& program, SchrodingerState& state) {
                 bool is_hidden = (instr.flags & Instruction::FLAG_HIDDEN) != 0;
                 if (!is_hidden) {
                     state.meas_record[meas_idx++] = last_outcome;
+                }
+                if (trace) {
+                    std::ostringstream ss;
+                    ss << "outcome=" << (int)last_outcome;
+                    if (is_hidden)
+                        ss << " [hidden]";
+                    detail = ss.str();
                 }
                 break;
             }
@@ -637,51 +659,79 @@ void execute(const CompiledModule& program, SchrodingerState& state) {
                 if (!is_hidden) {
                     state.meas_record[meas_idx++] = last_outcome;
                 }
-                break;
-            }
-
-            case Opcode::OP_AG_PIVOT: {
-                // Use last_outcome when FLAG_REUSE_OUTCOME is set (follows MEASURE_MERGE)
-                last_outcome = op_ag_pivot(state, instr, program.constant_pool, last_outcome);
-                bool is_hidden = (instr.flags & Instruction::FLAG_HIDDEN) != 0;
-                bool reuse_outcome = (instr.flags & Instruction::FLAG_REUSE_OUTCOME) != 0;
-                // Only write to meas_record if not hidden and not reusing (standalone pivot)
-                if (!is_hidden && !reuse_outcome) {
-                    state.meas_record[meas_idx++] = last_outcome;
+                if (trace) {
+                    std::ostringstream ss;
+                    ss << "outcome=" << (int)last_outcome << " [det]";
+                    if (is_hidden)
+                        ss << " [hidden]";
+                    detail = ss.str();
                 }
                 break;
             }
 
-            case Opcode::OP_CONDITIONAL:
-                op_conditional(state, instr, last_outcome);
+            case Opcode::OP_AG_PIVOT: {
+                last_outcome = op_ag_pivot(state, instr, program.constant_pool, last_outcome);
+                bool is_hidden = (instr.flags & Instruction::FLAG_HIDDEN) != 0;
+                bool reuse_outcome = (instr.flags & Instruction::FLAG_REUSE_OUTCOME) != 0;
+                if (!is_hidden && !reuse_outcome) {
+                    state.meas_record[meas_idx++] = last_outcome;
+                }
+                if (trace) {
+                    std::ostringstream ss;
+                    ss << "outcome=" << (int)last_outcome;
+                    if (is_hidden)
+                        ss << " [hidden]";
+                    if (reuse_outcome)
+                        ss << " [reuse]";
+                    detail = ss.str();
+                }
                 break;
+            }
+
+            case Opcode::OP_CONDITIONAL: {
+                bool use_last = (instr.flags & Instruction::FLAG_USE_LAST_OUTCOME) != 0;
+                uint8_t ctrl_val_before =
+                    use_last ? last_outcome : state.meas_record[instr.meta.controlling_meas];
+                op_conditional(state, instr, last_outcome);
+                if (trace) {
+                    std::ostringstream ss;
+                    ss << "ctrl=" << (int)ctrl_val_before
+                       << (ctrl_val_before ? " [applied]" : " [skipped]");
+                    detail = ss.str();
+                }
+                break;
+            }
 
             case Opcode::OP_READOUT_NOISE:
-                // Classical bit-flip on measurement result
                 if (state.random_double() < instr.readout.prob) {
                     state.meas_record[instr.readout.meas_idx] ^= 1;
                 }
                 break;
 
             case Opcode::OP_DETECTOR: {
-                // Compute parity of all referenced measurement bits
                 const auto& targets = det_targets[instr.detector.target_idx];
                 uint8_t parity = 0;
                 for (uint32_t idx : targets) {
                     parity ^= state.meas_record[idx];
                 }
                 state.det_record[det_idx++] = parity;
+                if (trace) {
+                    detail = "parity=" + std::to_string(parity);
+                }
                 break;
             }
 
             case Opcode::OP_OBSERVABLE: {
-                // XOR parity into the observable accumulator
                 const auto& targets = obs_targets[instr.observable.target_idx];
                 uint8_t parity = 0;
                 for (uint32_t idx : targets) {
                     parity ^= state.meas_record[idx];
                 }
                 state.obs_record[instr.observable.obs_idx] ^= parity;
+                if (trace) {
+                    detail = "obs[" + std::to_string(instr.observable.obs_idx) +
+                             "]=" + std::to_string(parity);
+                }
                 break;
             }
 
@@ -693,7 +743,30 @@ void execute(const CompiledModule& program, SchrodingerState& state) {
             case Opcode::OP_POSTSELECT:
                 break;
         }
+
+        // Capture trace entry if tracing is enabled
+        if (trace) {
+            TraceEntry entry;
+            entry.pc = pc;
+            entry.opcode = instr.opcode;
+            entry.rank_after = current_rank;
+            entry.destab_signs = state.destab_signs;
+            entry.stab_signs = state.stab_signs;
+            uint64_t size = 1ULL << current_rank;
+            entry.v.assign(state.v(), state.v() + size);
+            entry.detail = std::move(detail);
+            trace->push_back(std::move(entry));
+        }
     }
+}
+
+void execute(const CompiledModule& program, SchrodingerState& state) {
+    execute_impl(program, state, nullptr);
+}
+
+void execute_traced(const CompiledModule& program, SchrodingerState& state,
+                    std::vector<TraceEntry>& trace) {
+    execute_impl(program, state, &trace);
 }
 
 SampleResult sample(const CompiledModule& program, uint32_t shots, uint64_t seed) {

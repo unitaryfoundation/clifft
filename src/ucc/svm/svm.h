@@ -5,6 +5,7 @@
 #include <bit>
 #include <complex>
 #include <cstdint>
+#include <string>
 #include <vector>
 
 namespace ucc {
@@ -140,6 +141,26 @@ class SchrodingerState {
 
 /// Execute a compiled program for one shot, populating state with results.
 void execute(const CompiledModule& program, SchrodingerState& state);
+
+// =============================================================================
+// Execution Tracing
+// =============================================================================
+
+/// Snapshot of SVM state captured after each instruction during traced execution.
+struct TraceEntry {
+    uint32_t pc;                          // Program counter of the instruction
+    Opcode opcode;                        // The opcode that was executed
+    uint32_t rank_after;                  // Current rank after this instruction
+    uint64_t destab_signs;                // Pauli frame X-signs after
+    uint64_t stab_signs;                  // Pauli frame Z-signs after
+    std::vector<std::complex<double>> v;  // Copy of v[0..2^rank) after
+    std::string detail;                   // Human-readable detail (outcome, etc.)
+};
+
+/// Execute with tracing: runs the real execute() logic but captures a TraceEntry
+/// after each instruction. The trace vector is populated in instruction order.
+void execute_traced(const CompiledModule& program, SchrodingerState& state,
+                    std::vector<TraceEntry>& trace);
 
 /// Results from sampling a circuit with noise and QEC annotations.
 struct SampleResult {

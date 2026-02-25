@@ -118,6 +118,9 @@ struct alignas(32) Instruction {
 
 static_assert(sizeof(Instruction) == 32, "Instruction must be exactly 32 bytes");
 
+// Forward declaration for GF2Basis::transform
+class AGMatrix;
+
 // =============================================================================
 // GF(2) Basis Tracker
 // =============================================================================
@@ -125,8 +128,11 @@ static_assert(sizeof(Instruction) == 32, "Instruction must be exactly 32 bytes")
 // Tracks the evolving GF(2) vector space during lowering. Each non-Clifford
 // gate (T, T_dag) may add a new dimension. Measurements may remove dimensions.
 //
-// Maintains row-echelon form in auxiliary arrays indexed by leading bit,
-// enabling O(log n) lookup for span membership rather than O(n) linear search.
+// Each basis vector stores only its X-component (destab / spatial shift).
+// The Z-component of a non-Clifford gate is absorbed as a scalar phase into
+// the v[] amplitude at branch time and must not be tracked here.
+//
+// Maintains row-echelon form indexed by leading bit for O(log n) span lookup.
 //
 // CRITICAL: x_mask is uint32_t, limiting rank to 32. This is intentional:
 // rank 32 requires 2^32 amplitudes * 16 bytes = 68.7 GB RAM. Rank 33 would
@@ -139,12 +145,12 @@ class GF2Basis {
     // Check if beta is in the span of current basis.
     // If so, returns the x_mask (which basis vectors XOR to produce beta).
     // If not, returns std::nullopt.
-    std::optional<uint32_t> find_in_span(stim::bitword<kStimWidth> beta) const;
+    std::optional<uint32_t> find_in_span(uint64_t beta) const;
 
     // Add a new vector to the basis.
     // Returns the index of the new basis vector.
     // Throws if rank would exceed kMaxRank.
-    uint32_t add(stim::bitword<kStimWidth> destab);
+    uint32_t add(uint64_t destab);
 
     // Remove a dimension after MEASURE_MERGE collapses it.
     // Mirrors the VM's array compaction: all indices above bit_index shift down.
@@ -152,14 +158,18 @@ class GF2Basis {
 
     [[nodiscard]] uint32_t rank() const;
 
-    [[nodiscard]] const std::vector<stim::bitword<kStimWidth>>& vectors() const;
+    [[nodiscard]] const std::vector<uint64_t>& vectors() const;
+
+    // Apply AG_PIVOT matrix to transform all basis vectors to the new t=0 frame.
+    // Must be called whenever a measurement triggers an AG pivot.
+    void transform(const AGMatrix& ag, uint8_t ag_stab_slot);
 
   private:
-    std::vector<stim::bitword<kStimWidth>> basis_;  // X-parts (destab)
-    uint64_t echelon_basis_[kStimWidth] = {0};      // Row-echelon indexed by leading bit
-    uint32_t echelon_x_mask_[kStimWidth] = {0};     // Corresponding x_mask for each row
+    std::vector<uint64_t> basis_;
+    uint64_t echelon_basis_[kStimWidth] = {0};   // Row-echelon on X-parts
+    uint32_t echelon_x_mask_[kStimWidth] = {0};  // Corresponding x_mask for each row
 
-    void add_to_echelon(stim::bitword<kStimWidth> beta, uint32_t initial_x_mask);
+    void add_to_echelon(uint64_t beta, uint32_t initial_x_mask);
     void rebuild_echelon();
 };
 

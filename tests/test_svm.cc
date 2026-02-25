@@ -806,3 +806,45 @@ TEST_CASE("SVM: sample result contains correct shapes", "[svm][noise]") {
     REQUIRE(results.detectors.size() == shots * 3);
     REQUIRE(results.observables.size() == shots * 2);
 }
+
+TEST_CASE("SVM: teleportation identity with T-gates - Q2 always measures 0", "[svm]") {
+    // Minimal reproducer: prepare H T |0> on Q0, teleport to Q2 via Bell pair,
+    // apply the inverse (T_DAG H) on Q2. The final measurement must always be 0.
+    //
+    // H creates a superposition so T's phase becomes an off-diagonal
+    // non-Clifford observable that the frontend cannot absorb. This creates
+    // a GF(2) dimension (peak_rank > 0) that must be tracked correctly
+    // through the AG_PIVOT frame change during teleportation. The original
+    // bug was that phantom stabilizer bits caused the span lookup to miss
+    // and emit OP_BRANCH instead of OP_COLLIDE, so the T_DAG
+    // uncomputation failed for certain measurement outcomes.
+    auto prog = compile(R"(
+        H 0
+        T 0
+        H 1
+        CX 1 2
+        CX 0 1
+        H 0
+        M 0 1
+        CX rec[-1] 2
+        CZ rec[-2] 2
+        T_DAG 2
+        H 2
+        M 2
+    )");
+
+    REQUIRE(prog.num_measurements == 3);
+
+    constexpr uint32_t shots = 10000;
+    auto results = sample(prog, shots, 42);
+
+    int q2_ones = 0;
+    for (uint32_t s = 0; s < shots; ++s) {
+        uint8_t q2 = results.measurements[s * 3 + 2];
+        if (q2 == 1)
+            q2_ones++;
+    }
+
+    INFO("Q2 measured 1 in " << q2_ones << "/" << shots << " shots");
+    REQUIRE(q2_ones == 0);
+}
