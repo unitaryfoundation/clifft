@@ -1,5 +1,6 @@
 # UCC MVP Implementation Plan
 **THIS PLAN IS COMPLETE AND RETAINED FOR HISTORICAL PURPOSES**
+
 ## Executive Summary & MVP Constraints
 You are building the Phase 1 Minimum Viable Product (MVP) of the Unitary Compiler Collection (UCC).
 
