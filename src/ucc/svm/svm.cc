@@ -693,17 +693,82 @@ SampleResult sample(const CompiledModule& program, uint32_t shots, uint64_t seed
 // =============================================================================
 // Statevector Expansion
 // =============================================================================
+//
+// Expands the factored state |psi> = gamma * U_C * P * (|phi>_A (x) |0>_D)
+// into a dense 2^n statevector. Used as a validation oracle for small circuits.
+//
+// The active statevector |phi>_A lives on virtual axes 0..k-1 (contiguous
+// lowest bits). Dormant qubits occupy axes k..n-1 and are strictly |0>.
+// The Clifford frame U_C (final_tableau) rotates from the virtual basis
+// to the physical laboratory basis.
 
-std::vector<std::complex<double>> get_statevector(const SchrodingerState& state,
-                                                  const ConstantPool& pool) {
-    // TODO: Implement factored state expansion (Phase 2)
-    // 1. Expand 2^k elements of |phi>_A into dense 2^n array
-    // 2. Apply Pauli frame P (using p_x, p_z)
-    // 3. Apply U_C (final_tableau) via Stim VectorSimulator
-    // 4. Multiply by gamma
-    (void)state;
-    (void)pool;
-    return {};
+std::vector<std::complex<double>> get_statevector(const CompiledModule& program,
+                                                  const SchrodingerState& state) {
+    uint32_t n = program.num_qubits;
+    if (n > 10) {
+        throw std::runtime_error(
+            "Statevector expansion limited to 10 qubits (dense U_C matrix is 4^n)");
+    }
+    uint64_t dim = 1ULL << n;
+
+    // Step 1: Embed |phi>_A into dense 2^n virtual-basis state.
+    // Active axes are strictly 0..k-1, so the 2^k active amplitudes align
+    // perfectly with the first 2^k entries of the dense array.
+    assert(state.active_k <= n && "More active qubits than physical qubits");
+    uint64_t active_size = state.v_size();
+    assert(active_size <= dim && "Active array exceeds statevector dimension");
+    std::vector<std::complex<double>> dense(dim, {0.0, 0.0});
+    for (uint64_t i = 0; i < active_size; ++i) {
+        dense[i] = state.v()[i];
+    }
+
+    // Step 2: Apply Pauli frame P = X^{p_x} Z^{p_z}.
+    // P|i> = (-1)^popcount(i & p_z) * |i XOR p_x>
+    // Extract p_x and p_z as uint64_t masks (portable: reconstruct from bits).
+    uint64_t px_mask = 0;
+    uint64_t pz_mask = 0;
+    for (uint32_t q = 0; q < n; ++q) {
+        if (bit_get(state.p_x, q)) {
+            px_mask |= (uint64_t{1} << q);
+        }
+        if (bit_get(state.p_z, q)) {
+            pz_mask |= (uint64_t{1} << q);
+        }
+    }
+
+    std::vector<std::complex<double>> framed(dim, {0.0, 0.0});
+    for (uint64_t i = 0; i < dim; ++i) {
+        uint64_t target = i ^ px_mask;
+        double sign = (std::popcount(i & pz_mask) % 2 == 1) ? -1.0 : 1.0;
+        framed[target] += dense[i] * sign;
+    }
+
+    // Step 3: Apply U_C (final_tableau) via dense matrix multiplication.
+    // to_flat_unitary_matrix(true) returns row-major complex<float> in
+    // little-endian qubit order. If no tableau, treat as identity.
+    std::vector<std::complex<double>> physical(dim, {0.0, 0.0});
+    if (program.constant_pool.final_tableau.has_value()) {
+        auto flat_uc = program.constant_pool.final_tableau->to_flat_unitary_matrix(true);
+        // flat_uc is dim x dim row-major: flat_uc[row * dim + col]
+        for (uint64_t row = 0; row < dim; ++row) {
+            std::complex<double> sum{0.0, 0.0};
+            for (uint64_t col = 0; col < dim; ++col) {
+                auto u = flat_uc[row * dim + col];
+                sum += std::complex<double>(u.real(), u.imag()) * framed[col];
+            }
+            physical[row] = sum;
+        }
+    } else {
+        physical = framed;
+    }
+
+    // Step 4: Scale by gamma * global_weight.
+    std::complex<double> scale = state.gamma * program.constant_pool.global_weight;
+    for (uint64_t i = 0; i < dim; ++i) {
+        physical[i] *= scale;
+    }
+
+    return physical;
 }
 
 }  // namespace ucc

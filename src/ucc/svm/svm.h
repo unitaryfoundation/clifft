@@ -159,8 +159,9 @@ SampleResult sample(const CompiledModule& program, uint32_t shots, uint64_t seed
 // =============================================================================
 
 /// Expand the factored state |psi> = gamma * U_C * P * (|phi>_A (x) |0>_D)
-/// into a dense 2^N statevector.
-std::vector<std::complex<double>> get_statevector(const SchrodingerState& state,
-                                                  const ConstantPool& pool);
+/// into a dense 2^n statevector for validation.
+/// Capped at n <= 10 qubits (8 MB unitary matrix) to prevent OOM.
+std::vector<std::complex<double>> get_statevector(const CompiledModule& program,
+                                                  const SchrodingerState& state);
 
 }  // namespace ucc

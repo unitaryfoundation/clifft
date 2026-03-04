@@ -10,6 +10,7 @@ add_executable(ucc_tests
     test_hir.cc
     test_frontend.cc
     test_svm_risc.cc
+    test_statevector.cc
 )
 
 target_link_libraries(ucc_tests PRIVATE

@@ -124,6 +124,7 @@ struct ConstantPool {
 struct CompiledModule {
     std::vector<Instruction> bytecode;
     ConstantPool constant_pool;
+    uint32_t num_qubits = 0;        // Total physical qubits n
     uint32_t peak_rank = 0;         // Maximum active dimension k reached
     uint32_t num_measurements = 0;  // Total visible measurements
     uint32_t num_detectors = 0;     // Total detectors

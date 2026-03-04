@@ -199,7 +199,7 @@ NB_MODULE(_ucc_core, m) {
     m.def(
         "get_statevector",
         [](const ucc::CompiledModule& program, const ucc::SchrodingerState& state) {
-            auto sv = ucc::get_statevector(state, program.constant_pool);
+            auto sv = ucc::get_statevector(program, state);
 
             size_t n = sv.size();
             auto* data = new std::complex<double>[n];
