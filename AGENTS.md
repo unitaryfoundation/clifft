@@ -14,10 +14,10 @@ Your primary mission is to execute the active implementation plan (e.g., `MVP.PL
 
 Before writing code, you **must** understand the system architecture. The following documents are the absolute source of truth:
 
-0. `design/overview.md`: Gives an overview of the overall program and strategy.
-1. `design/architecture.md`: System overview, directory structure, pipeline, and Stim C++ integration.
-2. `design/data_structs.md`: C++ memory layouts, the Heisenberg IR (HIR), the 32-byte `Instruction` bytecode, and execution semantics.
-3. **The Active Phase Plan** (e.g., `design/MVP.PLAN.md`): Contains the exact step-by-step tasks, Definitions of Done (DoD), and strict constraints for the current milestone. Always defer to this document for scope limits.
+0. `design/overview.md`: The Factored State Representation ($|\psi\rangle = \gamma U_C P (|\phi\rangle_A \otimes |0\rangle_D)$), Virtual Coordinate Compression, and the pipeline strategy.
+1. `design/architecture.md`: Directory structure, the localized RISC pipeline, and the dual-ended Stim C++ integration contract (Front-End prepends, Back-End appends).
+2. `design/data_structs.md`: C++ memory layouts, the Heisenberg IR (HIR), the localized RISC `Instruction` bytecode (using `uint16_t` axes), and the updated `SchrodingerState`.
+3. **The Active Phase Plan** (e.g., `refactor.plan.md`): Contains the exact step-by-step tasks, Definitions of Done (DoD), and strict constraints for the current milestone. The user will tell you which plan is active currently. Always defer to this document for scope limits.
 
 
 ## 3. Design Document Protocol (Avoid Churn, Fix Flaws)
@@ -27,7 +27,7 @@ Do not churn, arbitrarily reformat, or rewrite the design documents to justify y
 1. **STOP.** Do not silently implement a workaround that deviates from the design.
 2. Explain the exact discrepancy to the human and propose a fix.
 3. Wait for the human to confirm.
-4. Once authorized, update the relevant `design_v2/*.md` file and include that update as an isolated, dedicated commit in your feature branch (e.g., `docs(design): correct GF2 matrix sizing`).
+4. Once authorized, update the relevant `design_v2/*.md` file and include that update as an isolated, dedicated commit in your feature branch (e.g., `docs(design): correct virtual array compaction logic`).
 
 
 ## 4. Permanent Architectural Invariants (DO NOT VIOLATE)
@@ -42,7 +42,8 @@ Regardless of the current phase, you must strictly obey these evergreen boundari
 	```cpp
 	(rng() >> 11) * 0x1.0p-53
 	```
-
+- **No Global Topology in the VM (RISC Invariant):** The VM must NEVER evaluate global basis spans, `x_mask` structures, GF(2) echelon forms, or `commutation_mask` arrays. All global topology and multi-qubit Pauli interference must be geometrically compressed into localized 1-qubit and 2-qubit virtual axis operations Ahead-Of-Time (AOT) by the Back-End.
+- **Contiguous Array Compaction:** To halve the complex array size upon measuring an active qubit, the VM must never use strided or fragmented memory indexing. The compiler must explicitly emit virtual `SWAP` instructions to route the target axis to the highest active dimension ($k-1$) immediately before measurement.
 
 ## 5. Git & Branching Workflow
 
@@ -96,9 +97,9 @@ ctest --test-dir build --output-on-failure
 You must use **Test-Driven Development (TDD)**. Prove the underlying math works before moving on.
 
 - **No Text Roundtripping:** Do not test the compiler by formatting the HIR back into .stim text. The Front-End destructively absorbs Clifford gates, so the decompiled text will never syntactically match the input.
-- **Tier 1: C++ Micro-Tests (Catch2):** Isolate components. Test AST parsing, Front-End mask generation, and Back-End opcode emission independently.
-- **Tier 2: Python Exact State Validation:** For pure unitary circuits, mathematically expand the VM's compact `v[]` array into a dense $2^N$ statevector and assert `np.allclose` against a known truth (like Stim's statevector).
-- **Tier 3: Python Statistical Validation:** For circuits with probabilistic mid-circuit measurements, run thousands of shots in both UCC and Stim and assert the measurement bitstring distributions match within strict statistical bounds.
+- **Tier 1: C++ Micro-Tests (Catch2):** Isolate components. Because we do not use a Python prototype, you must prove the math natively in C++ first. Test the raw RISC array/frame math by manually executing handcrafted opcodes on a dummy `SchrodingerState`. Test the Back-End compressor by feeding it random `stim::PauliString` masks and verifying the virtual reductions.
+- **Tier 2: C++ Statevector Bridge:** Validate that the core factored state equation ($|\psi\rangle = \gamma U_C P (|\phi\rangle_A \otimes |0\rangle_D)$) correctly expands back into a dense $2^n$ statevector natively in C++ using pure matrix multiplication for verification.
+- **Tier 3: Python Integration Validation:** For pure unitary circuits, assert exact statevector equivalence against Qiskit-Aer. For stochastic circuits, assert the measurement bitstring distributions match Stim within strict statistical bounds.
 
 **Test Naming (Catch2):** Avoid special characters in `TEST_CASE` names. Square brackets `[`, `]`, parentheses `(`, `)`, and commas `,` cause issues with CTest's test discovery and regex-based filtering. Use plain alphanumeric characters, spaces, colons, and hyphens. Bad: `"SVM: values in [0, 1)"`. Good: `"SVM: values in 0 to 1 range"`.
 
@@ -123,3 +124,13 @@ If you encounter a C++ linker error, a CMake FetchContent issue, or a math bug t
 2. Roll back to the last working commit on your feature branch.
 3. Print a clear summary of the exact error, what you tried, and state your hypothesis.
 4. Ask the human user for architectural guidance.
+
+## 10. Banned Concepts (Legacy Architecture)
+
+UCC recently underwent a massive theoretical refactor to the Factored State Architecture. You must completely ignore any legacy code or concepts you might infer from old test files or previous git history.
+Specifically, **DO NOT** implement, use, or reference:
+- `GF2Basis`, `AGMatrix`, `x_mask`, or `commutation_mask`.
+- "Phantom bits" or Aaronson-Gottesman pivots inside the VM. (AG pivots are now handled entirely AOT by the virtual frame compressor).
+- $\mathcal{O}(n^2)$ matrix-vector math inside the Virtual Machine.
+- The `prototype/` directory (it has been deleted).
+- The `design.old/` directory will be deleted soon and has context on the old design. Only look in this directory if you have to.
