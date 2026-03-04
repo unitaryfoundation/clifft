@@ -132,5 +132,3 @@ Specifically, **DO NOT** implement, use, or reference:
 - `GF2Basis`, `AGMatrix`, `x_mask`, or `commutation_mask`.
 - "Phantom bits" or Aaronson-Gottesman pivots inside the VM. (AG pivots are now handled entirely AOT by the virtual frame compressor).
 - $\mathcal{O}(n^2)$ matrix-vector math inside the Virtual Machine.
-- The `prototype/` directory (it has been deleted).
-- The `design.old/` directory will be deleted soon and has context on the old design. Only look in this directory if you have to.

@@ -146,8 +146,8 @@ bench *args="":
 # This helps to share with Chat LLMs
 aidigest:
     rm -f ai.all.digest.txt
-    uvx gitingest . -e build -e cmake -e uv.lock -e .git -e .venv -e __pycache__ -e .pytest_cache -e .jj -o ai.all.digest.txt
+    uvx gitingest . -e build -e cmake -e uv.lock -e .git -e .venv -e __pycache__ -e .pytest_cache -e .jj -e design.old -o ai.all.digest.txt
 
 aidesigndigest:
     rm -f aidesign.digest.txt
-    uvx gitingest . -i "design/*.md" -i "design/theory/*.tex" -o aidesign.digest.txt
+    uvx gitingest . -i "design/*.md" -o aidesign.digest.txt
