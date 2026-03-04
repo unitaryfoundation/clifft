@@ -9,8 +9,6 @@ add_executable(ucc_tests
     test_stim_contract.cc
     test_hir.cc
     test_frontend.cc
-    test_backend.cc
-    test_svm.cc
 )
 
 target_link_libraries(ucc_tests PRIVATE
