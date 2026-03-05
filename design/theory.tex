@@ -169,6 +169,28 @@ We evaluate this localized rotation against the virtual statevector in one of th
 
 While the derivation above focuses on the $T$ gate, this geometric compression extends to arbitrary non-Clifford operations. Any single-qubit rotation $\exp(-i \theta G)$ compresses to a local rotation using the same unitary distribution.
 
+\subsection{Conditional Pauli Operations (Noise + Feed-Forward)}
+\label{sec:conditional_paulis}
+
+We can consider both feed-forward and noise as conditional Pauli operations that depend on a classically boolean variable $c \in \{0, 1\}$. For example, a classically controlled $X$ gate applies $X$ if $c=1$ and the identity if $c=0$. A stochastic Pauli error applies a Pauli operator with some probability, which can be represented as a conditional operation where $c$ is a random bit sampled according to the error probability.
+\begin{equation}
+    |\psi^{(t+1)}\rangle = (E_{\text{lab}})^c |\psi^{(t)}\rangle = (E_{\text{lab}})^c \left[ \gamma^{(t)} U_C^{(t)} P^{(t)} \Big( |\phi^{(t)}\rangle_A \otimes |0\rangle_D \Big) \right]
+\end{equation}
+
+By inserting the identity $U_C^{(t)} (U_C^{(t)})^\dagger = I$, the physical operator is conjugated by the deterministic offline Clifford frame. This maps the operation to a multi-qubit virtual Pauli string $\tilde{E} = (U_C^{(t)})^\dagger E_{\text{lab}} U_C^{(t)}$, shifting the conditional operator into the virtual basis:
+\begin{equation}
+    |\psi^{(t+1)}\rangle = \gamma^{(t)} U_C^{(t)} (\tilde{E})^c P^{(t)} \Big( |\phi^{(t)}\rangle_A \otimes |0\rangle_D \Big)
+\end{equation}
+
+Unlike continuous non-Clifford rotations and projective measurements, which interact with the active statevector and therefore require the geometric compression defined in Section~\ref{sec:virtual_ops}, a conditional Pauli is a discrete operator. It does not require localization to a single virtual qubit. Instead, if the classical condition evaluates to true ($c=1$), the multi-qubit virtual string $\tilde{E}$ is algebraically absorbed directly into the dynamic Pauli frame.
+
+Because the $n$-qubit Pauli group $\mathcal{P}_n$ is closed under multiplication, the product $\tilde{E} P^{(t)}$ analytically resolves to a new Pauli frame $P^{(t+1)}$ alongside an algebraic multiplication phase $\alpha \in \{\pm 1, \pm i\}$. The update to the factored state resolves to:
+\begin{equation}
+    |\psi^{(t+1)}\rangle = \Big( \gamma^{(t)} \cdot \alpha \Big) U_C^{(t)} P^{(t+1)} \Big( |\phi^{(t)}\rangle_A \otimes |0\rangle_D \Big)
+\end{equation}
+If the condition evaluates to false ($c=0$), the operators act as the identity ($P^{(t+1)} = P^{(t)}$ and $\alpha = 1$).
+
+
 \section{Projective Measurements and State Collapse}
 \label{sec:measurements}
 
