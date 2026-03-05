@@ -134,12 +134,20 @@ NB_MODULE(_ucc_core, m) {
     // Compile: stim text -> Program
     m.def(
         "compile",
-        [](const std::string& stim_text) {
+        [](const std::string& stim_text, bool skip_optimizer) {
             ucc::Circuit circuit = ucc::parse(stim_text);
             ucc::HirModule hir = ucc::trace(circuit);
+            // When a middle-end optimizer is added, it runs here unless
+            // skip_optimizer is true. Currently a no-op placeholder.
+            (void)skip_optimizer;
             return ucc::lower(hir);
         },
-        nb::arg("stim_text"), "Compile a quantum circuit to executable bytecode.");
+        nb::arg("stim_text"), nb::arg("skip_optimizer") = false,
+        "Compile a quantum circuit to executable bytecode.\n\n"
+        "Args:\n"
+        "    stim_text: Circuit in .stim text format.\n"
+        "    skip_optimizer: If True, bypass the middle-end optimizer "
+        "(future-proofing).\n");
 
     // Helper to create a numpy array from a vector with given shape
     auto make_numpy_array = [](const std::vector<uint8_t>& vec, size_t rows, size_t cols) {
