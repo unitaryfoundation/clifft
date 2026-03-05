@@ -8,6 +8,7 @@ This phase upgrades UCC to natively support arbitrary continuous non-Clifford ro
 1. **Inline Math Payloads:** Do NOT extract floats into a Constant Pool. Store `double weight_re; double weight_im;` directly in the `Instruction` union.
 2. **Dominant Term Factoring:** The Front-End MUST strictly factor out the Identity term offline to save runtime FLOPs. $e^{-i\theta P} = \cos(\theta) [I - i\tan(\theta) P]$. The global scalar $\cos(\theta)$ is accumulated offline.
 3. **RISC Localization:** Multi-qubit LCUs must be compressed AOT by the Back-End. The VM only executes LCU phases on single, isolated array dimensions.
+4. **Reproducible** When it comes to actually sample circuits (so not the changes to UCC itselef), write scripts to do them in `paper/coherent_noise` directory. The scripts should also generate any plots we would plan to use in a paper.
 
 ---
 

@@ -10,7 +10,7 @@ Because the new Factored State / RISC architecture uses `uint16_t` for virtual a
 1. **The 32-Byte Invariant:** The `Instruction` struct MUST remain exactly 32 bytes at all times.
 2. **Single-Threaded C++ Core:** Do NOT implement C++ multithreading (e.g., `<thread>`). Multi-core saturation is handled entirely by Sinter's Python worker processes.
 3. **Survivor Sampling Only:** To prevent OOMs during 10-million shot batches, C++ must only allocate and push array data to Python for shots that survived post-selection.
-
+4. **Reproducible** When it comes to actually sampling the circuits (so not the changes to UCC itselef), write scripts to do them in `paper/magic` directory. The scripts should also generate any plots we would plan to use in a paper.
 ---
 
 ## Phase 1: 512-Qubit Template Monomorphization (AVX-512)
@@ -43,7 +43,7 @@ Because the new Factored State / RISC architecture uses `uint16_t` for virtual a
 
 **Goal:** Prove UCC's CPU execution speed and exact numerical equivalence against the Li et al. SOFT simulator's 16-GPU cluster baseline using their exact 42-qubit circuits.
 
-*   **Task 4.1 (The Sinter Adapter):** Create `tools/bench/ucc_soft_sampler.py` and implement `UccSoftSampler` inheriting from `sinter.Sampler`.
+*   **Task 4.1 (The Sinter Adapter):** Create `paper/magic/ucc_soft_sampler.py` and implement `UccSoftSampler` inheriting from `sinter.Sampler`.
     *   Override `compiled_sampler_for_task(self, task)`. Extract `task.postselection_mask`, pass it directly to `ucc.compile(..., postselection_mask=mask)`, and return a custom compiled sampler.
     *   Override `sample(self, max_shots)`. Generate a random 64-bit batch seed (`import secrets; secrets.randbits(64)`) to ensure cross-worker determinism. Call `stats = ucc.sample_survivors(..., keep_surviving_records=False)`.
     *   Return a `sinter.AnonTaskStats` object populating `shots`, `errors` (using `stats.observable_ones[0]`), and `discards` to satisfy Sinter's pipeline contract.
@@ -55,7 +55,7 @@ Because the new Factored State / RISC architecture uses `uint16_t` for virtual a
 
 **Goal:** Convert the generated 463-qubit S-gate proxy circuit into a true T-gate circuit, apply errata topological fixes, and trick the PyMatching decoder into evaluating it via Sinter.
 
-*   **Task 5.1 (Circuit Upgrades):** The default pipeline analysis generates `end2end-inplace-distillation` circuits using Clifford `S` gates as a scalable proxy. Write `tools/bench/stitch_escape.py` to apply the required physical fixes to create the true non-Clifford circuit:
+*   **Task 5.1 (Circuit Upgrades):** The default pipeline analysis generates `end2end-inplace-distillation` circuits using Clifford `S` gates as a scalable proxy. Write `paper/magic/stitch_escape.py` to apply the required physical fixes to create the true non-Clifford circuit:
     1.  **Gate Swap:** Replace all $S$ and $S^\dagger$ gates with $T$ and $T^\dagger$ gates.
     2.  **Measurement Fix:** The color code does not have a transversal $X+Y$ measurement. Fix the final logical check by explicitly wrapping the `MPP Y...` observable measurement with $T$ and $T^\dagger$ gates on the data qubits to correctly rotate the basis into $H_{XY}$.
     3.  **Transversality Errata Fix:** To initialize all stabilizers to the $+1$ eigenvalue, the logical $H_{XY}^L$ must be made transversal by using $H_{NXY}$ on specific data qubits. Swap $T^\dagger$ for $T$ (and vice versa) on these highlighted data qubits during the logical check.

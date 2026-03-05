@@ -10,7 +10,7 @@ This plan implements Vandaele's (2025) algorithms. We prioritize **TOHPE** (Thir
 1. **State-Agnosticism:** The optimizer must manipulate the HIR purely using mathematical masks (destab_mask, stab_mask). It must never require knowledge of an initial state or the Virtual Machine's Active/Dormant sets.
 2. **Virtual Diagonalization Bridge:** Vandaele's binary parity tables strictly require Z-basis operators. The optimizer must dynamically compute local Clifford transformations to temporarily diagonalize arbitrary commuting Pauli cliques into pure Z-strings before executing the linear algebra reductions.
 3. **Clifford Remainders:** T-count reduction alters the phase polynomial at the 3rd order, leaving residual degree-1 and degree-2 phase polynomials (S and CZ equivalents). The optimizer must emit these back into the HIR as explicit nodes. The Back-End will naturally absorb these into the V_cum tracker at zero runtime cost.
-
+4. **Reproducible** When it comes to actually optimize the circuits (so not the changes to UCC itselef), write scripts to do them in `paper/optimize` directory. The scripts should also generate any plots we would plan to use in a paper.
 ---
 
 ## Phase 1: HIR Expansion & Peephole Fusion
@@ -58,7 +58,7 @@ This plan implements Vandaele's (2025) algorithms. We prioritize **TOHPE** (Thir
 
 **Goal:** Quantify UCC's optimization superiority in the Python layer against industry standards.
 
-*   **Task 5.1 (Benchmark Harness):** Create `tools/bench/test_bench_optimize.py`. Download the standard `op-T-mize` QASM circuits (Adder8, csla_mux3, barenco_tof_10, gf2^4_mult, etc.).
+*   **Task 5.1 (Benchmark Harness):** Create `paper/optimize/test_bench_optimize.py`. Download the standard `op-T-mize` QASM circuits (Adder8, csla_mux3, barenco_tof_10, gf2^4_mult, etc.).
 *   **Task 5.2 (Execution & Metrics):** Route the circuits through UCC, `pyzx.full_reduce()`, and `pytket.passes.FullPeepholeOptimise`.
 *   **Task 5.3 (Reporting):** For each framework, report:
     1. Final T-Count.
