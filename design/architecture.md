@@ -40,7 +40,7 @@ We test the mathematical transformations layer-by-layer exclusively in C++ using
 2. **Front-End Tests (`test_frontend.cc`):** Validates that Heisenberg rewinding exactly matches Stim's mathematical definition of $U_{phys}^\dagger P U_{phys}$.
 3. **Virtual Compression Tests (`test_backend.cc`):** Feeds random, heavy `stim::PauliString` masks into the Back-End's compressor. Asserts that the resulting $V_{cum}$ successfully compresses the operator to a single virtual qubit.
 4. **RISC Math Tests (`test_svm_risc.cc`):** Bypasses the compiler entirely. Manually constructs `Instruction` opcodes and a dummy `SchrodingerState`. Executes them to assert the pure array math and Pauli frame XORs perfectly match theoretical density matrix operations.
-5. **Statevector Oracle (`test_svm.cc`):** Expands the VM's factored state representation ($|\psi\rangle = \gamma U_C P |\phi\rangle_A$) into a dense $2^n$ statevector, and verifies it against pure unitary matrix multiplication.
+5. **Statevector Oracle (`test_statevector.cc`):** Expands the VM's factored state representation ($|\psi\rangle = \gamma U_C P |\phi\rangle_A$) into a dense $2^n$ statevector, and verifies it against pure unitary matrix multiplication.
 
 ## 4. Python Bindings
 UCC uses `nanobind` to expose the C++ core to Python. The Python layer provides `ucc.compile()` and `ucc.sample()`, which serve as the primary interface for statistical integration tests (e.g., comparing UCC measurement distributions against Qiskit-Aer or Stim).

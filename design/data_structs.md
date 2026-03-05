@@ -17,14 +17,14 @@ struct HeisenbergOp {
     stim::bitword<kStimWidth> stab_mask_;   // 8 bytes: Z-bits at t=0
 
     // Payload union (up to 12 bytes allowed to maintain 32-byte total size)
+    // Payload union (exactly 12 bytes to maintain 32-byte total size)
     union {
-        // T_GATE: Empty.
-        // MEASURE: Classical output target.
-        struct { uint32_t meas_record_idx; uint8_t ref_outcome; } measure_;
-        // NOISE: Reference to ConstantPool schedule
+        struct { uint32_t meas_record_idx; } measure_;
+        struct { uint32_t controlling_meas; } conditional_;
         struct { uint32_t site_idx; } noise_;
-        // DETECTOR
-        uint32_t detector_target_;
+        struct { uint32_t entry_idx; } readout_;
+        struct { uint32_t target_list_idx; } detector_;
+        struct { uint32_t obs_idx; uint32_t target_list_idx; } observable_;
     };
 
     OpType type_;
@@ -55,9 +55,14 @@ struct alignas(64) SchrodingerState {
     uint64_t v_size = 1;               // Current active size (2^k)
     uint32_t active_k = 0;             // Current active dimension k
 
-    // Classical Memory
+    // Classical Memory & QEC Tracking
     std::vector<uint8_t> meas_record;
-    Xoshiro256PlusPlus rng;
+    std::vector<uint8_t> det_record;
+    std::vector<uint8_t> obs_record;
+
+    // Deterministic PRNG
+    Xoshiro256PlusPlus rng_;
+};
 };
 ```
 ## The 32-Byte RISC Instruction Bytecode
@@ -65,61 +70,52 @@ Because the Back-End compresses all multi-qubit global topology into localized v
 
 ```c++
 enum class Opcode : uint8_t {
-    // Frame Opcodes (Zero-cost dormant updates. Update p_x, p_z only)
-    OP_FRAME_CNOT,
-    OP_FRAME_CZ,
-    OP_FRAME_H,
-    OP_FRAME_S,
-    OP_FRAME_SWAP,
+    // Frame Opcodes (Zero-cost dormant updates)
+    OP_FRAME_CNOT, OP_FRAME_CZ, OP_FRAME_H, OP_FRAME_S, OP_FRAME_SWAP,
 
-    // Array Opcodes (Update p_x, p_z AND loop over v[] to swap/mix)
-    OP_ARRAY_CNOT,
-    OP_ARRAY_CZ,
-    OP_ARRAY_SWAP,
+    // Array Opcodes (Update p_x, p_z AND loop over v[])
+    OP_ARRAY_CNOT, OP_ARRAY_CZ, OP_ARRAY_SWAP, OP_ARRAY_H, OP_ARRAY_S,
 
     // Local Math & Expansion
-    OP_EXPAND,       // Virtual H_v on dormant: k -> k+1, gamma /= sqrt(2)
-    OP_PHASE_T,      // Active diagonal T: applies tan(pi/8) phase logic
-    OP_PHASE_T_DAG,
+    OP_EXPAND, OP_PHASE_T, OP_PHASE_T_DAG,
 
     // Measurement
-    OP_MEAS_DORMANT_STATIC,    // Deterministic outcome from p_x
-    OP_MEAS_DORMANT_RANDOM,    // Random pivot, extracts algebraic phase to gamma, resets P
-    OP_MEAS_ACTIVE_DIAGONAL,   // Z-basis filter, halves array (k -> k-1)
-    OP_MEAS_ACTIVE_INTERFERE,  // X-basis fold, halves array (k -> k-1), gamma /= sqrt(2*P_m)
+    OP_MEAS_DORMANT_STATIC, OP_MEAS_DORMANT_RANDOM,
+    OP_MEAS_ACTIVE_DIAGONAL, OP_MEAS_ACTIVE_INTERFERE,
 
-    // Classical / Errors
-    OP_APPLY_PAULI,  // XORs a full N-bit mask from ConstantPool into P
-    OP_DETECTOR
+    // Classical / Errors / QEC
+    OP_APPLY_PAULI, OP_NOISE, OP_READOUT_NOISE, OP_DETECTOR, OP_OBSERVABLE
 };
 
 struct alignas(32) Instruction {
-    Opcode opcode;            // Offset 0
-    uint8_t base_phase_idx;   // Offset 1
-    uint8_t flags;            // Offset 2
-    uint8_t _pad;             // Offset 3
-    uint16_t axis_1;          // Offset 4 (Virtual axis target/control)
-    uint16_t axis_2;          // Offset 6 (Virtual axis target 2)
+    Opcode opcode;           // Offset 0
+    uint8_t base_phase_idx;  // Offset 1
+    uint8_t flags;           // Offset 2
+    uint8_t _pad;            // Offset 3
+    uint16_t axis_1;         // Offset 4
+    uint16_t axis_2;         // Offset 6
 
-    // 24 bytes remaining for payload
+    // 24 bytes remaining for payload (Offsets 8..31)
     union {
-        // Variant A: Local Math Payloads
         struct {
-            double weight_re; // Offset 8
-            double weight_im; // Offset 16
+            double weight_re;   // Offset 8
+            double weight_im;   // Offset 16
+            uint8_t _pad_a[8];  // Explicit padding to 24 bytes
         } math;
 
-        // Variant B: Classical targets (Measurements)
         struct {
-            uint32_t classical_idx; // Offset 8
-            uint32_t expected_val;  // Offset 12
+            uint32_t classical_idx;  // Offset 8
+            uint32_t expected_val;   // Offset 12
+            uint8_t _pad_b[16];      // Explicit padding to 24 bytes
         } classical;
 
-        // Variant C: Full Pauli injection (Errors/Conditionals)
         struct {
-            uint32_t cp_mask_idx;   // Offset 8 (Index into ConstantPool for full n-bit mask)
-            uint32_t condition_idx; // Offset 12
+            uint32_t cp_mask_idx;    // Offset 8
+            uint32_t condition_idx;  // Offset 12
+            uint8_t _pad_c[16];      // Explicit padding to 24 bytes
         } pauli;
+
+        uint8_t raw[24];
     };
 };
 static_assert(sizeof(Instruction) == 32, "Must be exactly 32 bytes");
