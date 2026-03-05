@@ -69,3 +69,6 @@ The **UCC Compiler Explorer** is a WebAssembly-powered, client-side React applic
 
 * **Task 7.1:** If enabled, the Back-End records stringified snapshots of the $V_{cum}$ Pauli tracker.
 * **Task 7.2:** When a user hovers over a heavy multi-qubit operator in the HIR, the inspector pane visually displays how the Back-End emitted `OP_FRAME_CNOT` gates to dynamically fold that global operator into a single virtual axis.
+
+> **STATUS: DEFERRED (POST-PAPER 1)**
+> This plan is explicitly excluded from the debut UCC paper to maintain narrative focus and bound engineering time. The core narrative of Paper 1 relies on the fact that FTQC measurements naturally cool the active dimension ($k_{\max}$). Coherent noise introduces continuous rank explosion that contradicts this clean narrative. This will form the basis of a dedicated follow-up paper.

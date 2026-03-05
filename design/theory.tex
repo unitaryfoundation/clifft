@@ -5,6 +5,8 @@
 \usepackage{geometry}
 \usepackage{hyperref}
 \usepackage{enumitem}
+\usepackage{tikz}
+\usetikzlibrary{shapes.geometric, arrows.meta, positioning, fit, backgrounds, calc}
 
 \geometry{letterpaper, margin=1in}
 
@@ -328,6 +330,106 @@ The SOFT simulator \cite{li2025soft} utilizes the generalized stabilizer formali
 \section{Conclusion}
 
 We have introduced a classical simulation architecture that explicitly factors universal quantum circuits into a deterministic coordinate frame and a localized, probabilistic statevector. By proving that basis tracking is mathematically independent of statevector amplitudes, we shift the $\mathcal{O}(n^2)$ overhead of stabilizer simulation to an offline compiler. The resulting runtime executes exactly the required non-Clifford interference over a dense virtual array. This methodology bridges the gap between statevector and stabilizer simulations, providing a high-performance, exact simulation pathway tailored for the deep, algorithmically dense operations required by fault-tolerant quantum computation.
+
+\appendix
+\section{Software Architecture: Shattering the Exponential Walls}
+\label{sec:architecture_walls}
+
+Every exact classical simulator of quantum circuits eventually collides with an exponential computational boundary. The complexity of simulating a generic universal quantum circuit is governed by three primary variables: the total number of physical qubits ($N$), the total non-Clifford gate count ($t$), and the peak simultaneous non-Clifford entanglement, or active rank ($k_{\max}$).
+
+Standard Schrödinger statevector simulators scale as $\mathcal{O}(2^N)$, imposing a hard memory limit regardless of circuit structure. ZX-calculus and Stabilizer-Rank methods bypass this spatial limit but scale as $\mathcal{O}(2^{\alpha t})$, hitting a timeout wall on deep, algorithmically dense non-Clifford logic.
+
+The Unitary Compiler Collection (UCC) is architected as a multi-level Ahead-Of-Time (AOT) compiler toolchain specifically for the Fault-Tolerant Quantum Computing (FTQC) era. By physically decoupling the deterministic topological coordinate frame from the probabilistic active statevector, UCC's pipeline systematically isolates and neutralizes the $N$ and $t$ walls prior to runtime. This leaves execution bounded strictly by $\mathcal{O}(2^{k_{\max}})$. Because FTQC algorithms continuously ``cool'' entanglement via frequent syndrome measurements, this $k_{\max}$ boundary remains mathematically stable, allowing the runtime Virtual Machine to execute at trillion-shot scales.
+
+% ==========================================
+% TIKZ DIAGRAM: THE THREE WALLS PIPELINE
+% ==========================================
+\begin{figure*}[htbp]
+    \centering
+    \resizebox{\textwidth}{!}{
+    \begin{tikzpicture}[
+        >=Stealth,
+        font=\sffamily,
+        node distance=1.2cm and 2.2cm,
+        % Define Styles
+        stagebox/.style={rectangle, draw=blue!70!black, fill=blue!5, thick, minimum width=4.6cm, minimum height=1.6cm, align=center, rounded corners=1ex},
+        mechbox/.style={rectangle, draw=teal!70!black, fill=teal!2, dashed, thick, minimum width=4.6cm, minimum height=2cm, align=center, font=\footnotesize},
+        wallbox/.style={rectangle, draw=red!70!black, fill=red!5, thick, minimum width=4.6cm, minimum height=1.8cm, align=center, rounded corners=1ex},
+        data/.style={rectangle, fill=gray!10, draw=gray!50, thick, rounded corners=1ex, font=\footnotesize\bfseries, align=center, inner sep=6pt},
+        arrow/.style={->, thick, draw=black!70}
+    ]
+
+    % --- STAGE BOXES (Row 2 - The Core Pipeline) ---
+    \node[stagebox] (fe) {\textbf{1. Front-End Compiler}\\[1mm] \footnotesize Physical Rewinding \& \\ \footnotesize Clifford Absorption};
+
+    \node[stagebox, right=of fe] (me) {\textbf{2. Middle-End Optimizer}\\[1mm] \footnotesize State-Agnostic Fusion \& \\ \footnotesize Stochastic Barriers};
+
+    \node[stagebox, right=of me] (vm) {\textbf{3. Back-End \& VM}\\[1mm] \footnotesize Virtual Compression \& \\ \footnotesize Localized Execution};
+
+    % --- DATA FLOW (Arrows between stages) ---
+    \draw[arrow] (fe) -- node[above, font=\footnotesize\bfseries] {Heisenberg} node[below, font=\footnotesize] {IR (HIR)} (me);
+    \draw[arrow] (me) -- node[above, font=\footnotesize\bfseries] {Optimized} node[below, font=\footnotesize] {HIR} (vm);
+
+    % Inputs and Outputs
+    \node[data, left=1cm of fe] (input) {Physical Circuit\\ \normalfont\scriptsize (Clifford + $T$ + Noise)};
+    \draw[arrow] (input) -- (fe);
+
+    \node[data, right=1cm of vm] (output) {Sampled\\Bitstrings\\ \normalfont\scriptsize (Trillion-Shot)};
+    \draw[arrow] (vm) -- (output);
+
+    % --- MECHANISMS (Row 1 - Above Stages) ---
+    \node[mechbox, above=0.8cm of fe] (mech1) {\textbf{Topological Abstraction}\\[1mm] Evaluates $\mathcal{O}(N^2)$ physical \\ coordinate mapping ($U_C$) \\ completely offline.};
+
+    \node[mechbox, above=0.8cm of me] (mech2) {\textbf{FT-Safe Reduction}\\[1mm] Fuses $T \cdot T \to S$ natively \\ via $\mathcal{O}(1)$ symplectic checks \\ without violating noise.};
+
+    \node[mechbox, above=0.8cm of vm] (mech3) {\textbf{Entanglement Cooling}\\[1mm] Array compaction ($k \to k-1$) \\ actively reclaims memory. \\ \texttt{OP\_POSTSELECT} fast-fails.};
+
+    \draw[<->, thick, draw=teal!70!black, dotted] (fe) -- (mech1);
+    \draw[<->, thick, draw=teal!70!black, dotted] (me) -- (mech2);
+    \draw[<->, thick, draw=teal!70!black, dotted] (vm) -- (mech3);
+
+    % --- WALLS DEFEATED (Row 3 - Below Stages) ---
+    \node[wallbox, below=0.8cm of fe] (wallN) {\textbf{Defeats the $\boldsymbol{N}$ Wall}\\ \normalfont\scriptsize $\mathcal{O}(2^N)$ Statevector Limit\\[1mm] \textit{Memory footprint is decoupled} \\ \textit{from total physical qubits.}};
+
+    \node[wallbox, below=0.8cm of me] (wallT) {\textbf{Mitigates the $\boldsymbol{t}$ Wall}\\ \normalfont\scriptsize $\mathcal{O}(2^{\alpha t})$ Stabilizer-Rank Limit\\[1mm] \textit{Shrinks logical T-count to} \\ \textit{prevent exponential branching.}};
+
+    \node[wallbox, below=0.8cm of vm] (wallK) {\textbf{Manages the $\boldsymbol{k_{\max}}$ Wall}\\ \normalfont\scriptsize $\mathcal{O}(2^{k_{\max}})$ Factored State Limit\\[1mm] \textit{QEC syndrome measurements} \\ \textit{strictly bound physical RAM.}};
+
+    \draw[<->, thick, draw=red!70!black, dashed] (fe) -- (wallN);
+    \draw[<->, thick, draw=red!70!black, dashed] (me) -- (wallT);
+    \draw[<->, thick, draw=red!70!black, dashed] (vm) -- (wallK);
+
+    % --- BACKGROUND HIGHLIGHTS (Subtle column grouping) ---
+    \begin{scope}[on background layer]
+        \node[fill=blue!4, rounded corners=2ex, fit=(mech1)(wallN), inner sep=12pt] {};
+        \node[fill=green!4, rounded corners=2ex, fit=(mech2)(wallT), inner sep=12pt] {};
+        \node[fill=orange!4, rounded corners=2ex, fit=(mech3)(wallK), inner sep=12pt] {};
+    \end{scope}
+
+    \end{tikzpicture}
+    }
+    \caption{\textbf{The UCC Compilation Architecture.} By factoring the state into a deterministic topological frame and a probabilistic active array, the compiler pipeline systematically targets the three dominant exponential scaling walls of exact quantum simulation ($N$, $t$, and $k$).}
+    \label{fig:three_walls_pipeline}
+\end{figure*}
+% ==========================================
+
+The pipeline functions via three distinct operational layers (Figure~\ref{fig:three_walls_pipeline}):
+
+\subsection{Stage 1: Bypassing the $N$ Wall (State-Agnostic Ingestion)}
+Traditional statevector simulators allocate memory as a direct function of $N$, crashing on highly sparse topologies like surface codes at merely $N \approx 40$ physical qubits. The UCC Front-End bypasses this spatial limit by shifting topological tracking entirely offline. By mathematically absorbing all deterministic physical Clifford routing into a classical tableau, empty computational space is never instantiated in memory. Non-Clifford operations and measurements are rewound to the $t=0$ vacuum, producing the Heisenberg Intermediate Representation (HIR)---a purely state-agnostic phase polynomial. Because physical topology is stripped away prior to execution, the Virtual Machine's memory footprint is completely decoupled from the lattice size.
+
+\subsection{Stage 2: Mitigating the $t$ Wall (FT-Safe Optimization)}
+Stabilizer-rank algorithms branch exponentially on non-Clifford gates, frequently timing out on algorithmically dense logical operations. The UCC Middle-End mitigates this by functioning as a true AOT compiler to physically shrink the runtime footprint. It sweeps the HIR, utilizing $\mathcal{O}(1)$ symplectic inner products to group operations and statically fuse redundant gates (e.g., $T \cdot T \to S$) prior to execution.
+
+Crucially, the optimizer is strictly \textit{Correct-by-Construction}. Traditional logical optimizers (such as ZX-calculus rewrites) often destroy physical error models by blindly commuting non-Clifford gates past stochastic channels. The UCC optimizer treats \texttt{MEASURE} and \texttt{NOISE} nodes as rigid algebraic barriers, mathematically guaranteeing that hardware noise models are never accidentally conjugated into unphysical bases during $T$-count reduction.
+
+\subsection{Stage 3: Managing the $k_{\max}$ Wall (Entanglement Cooling)}
+UCC's execution speed is ultimately bounded by $\mathcal{O}(2^{k_{\max}})$, tracking only the active non-Clifford superposition. For arbitrary random circuits, this dimension grows uncontrollably. However, FTQC algorithms do not allow entanglement to grow unbounded; they actively ``cool'' the state's non-Clifford entropy via continuous syndrome extraction.
+
+The Compiler Back-End and Virtual Machine are natively engineered to exploit this physics. Whenever an active virtual qubit is measured, the Back-End emits specific routing instructions that trigger a division-free \textit{contiguous array compaction}, physically halving the memory size ($k \to k-1$) and averting the fragmented pointer-chasing characteristic of sparse stabilizer methods. Furthermore, to survive trillion-shot evaluations of noisy magic state cultivation, the compiler emits fast-fail \texttt{OP\_POSTSELECT} instructions, allowing the VM to instantly abort doomed logical trajectories the moment a parity check fails, saving deep non-Clifford floating-point operations.
+
+\subsection{Discussion: Continuous Universality}
+While this work focuses on optimizing discrete FTQC logic to demonstrate flat memory scaling under syndrome cooling, the underlying Factored State architecture is natively continuous. Unlike Stabilizer Rank or graph-theoretic methods---which are fundamentally restricted to discrete algebraic decompositions---UCC's 32-byte RISC payload accommodates inline continuous complex weights. Future work will leverage the AOT compiler's Dominant Term Factoring to boundedly simulate coherent, continuous circuit-level crosstalk without abandoning the rigorous exactness of the Factored State framework.
 
 \begin{thebibliography}{9}
 

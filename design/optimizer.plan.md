@@ -6,6 +6,8 @@ In the Factored State architecture, the Front-End mathematically rewinds all non
 
 This plan implements Vandaele's (2025) algorithms. We prioritize **TOHPE** (Third Order Homogeneous Polynomials Elimination, O(n^2 m^3)) as the core pass, followed by **FastTODD** (O(n^4 m^3)) as a deeper extension.
 
+"PAPER 1 SCOPE: To establish the 'compiler' narrative without delaying publication, only Phase 1 (Peephole Fusion) will be implemented for the initial release. The $\mathcal{O}(n^4)$ FastTODD algorithms will be explicitly cited as future work."
+
 **Strict Constraints:**
 1. **State-Agnosticism:** The optimizer must manipulate the HIR purely using mathematical masks (destab_mask, stab_mask). It must never require knowledge of an initial state or the Virtual Machine's Active/Dormant sets.
 2. **Virtual Diagonalization Bridge:** Vandaele's binary parity tables strictly require Z-basis operators. The optimizer must dynamically compute local Clifford transformations to temporarily diagonalize arbitrary commuting Pauli cliques into pure Z-strings before executing the linear algebra reductions.
@@ -27,6 +29,8 @@ This plan implements Vandaele's (2025) algorithms. We prioritize **TOHPE** (Thir
 
 ## Phase 2: Virtual Diagonalization & The Parity Table Bridge
 
+[DEFERRED TO PAPER 2]
+
 **Goal:** Translate a clique of arbitrary commuting HIR Paulis into Vandaele's binary Z-basis Parity Table P, and translate back.
 
 *   **Task 2.1 (Clique Extraction):** Implement the first phase of `TohpePass`. Sweep the HIR to collect maximal cliques of mutually commuting `T_GATE`s bounded by stochastic barriers. Let the clique size be m.
@@ -36,6 +40,8 @@ This plan implements Vandaele's (2025) algorithms. We prioritize **TOHPE** (Thir
 *   **DoD:** A test extracts a commuting clique of Y_0 Z_1 and X_0 X_1, perfectly diagonalizes them to Z_0 and Z_1, builds table P, and translates identical columns back to the original physical masks.
 
 ## Phase 3: The TOHPE Pass (Algorithm 2)
+
+[DEFERRED TO PAPER 2]
 
 **Goal:** Implement the O(n^2 m^3) Third Order Homogeneous Polynomials Elimination algorithm.
 
@@ -50,12 +56,12 @@ This plan implements Vandaele's (2025) algorithms. We prioritize **TOHPE** (Thir
 
 **Goal:** Establish multi-tiered mathematical guarantees that the optimizer does not corrupt quantum probability.
 
-*   **Task 4.1 (Tier 1: Signature Tensor Invariant):** Write a C++ Catch2 test `test_opt_tensor.cc`. Given a clique P and its optimized replacement P', calculate A_{alpha, beta, gamma} = |P_alpha AND P_beta AND P_gamma| mod 2. Assert that A == A' for all triplets. This mathematically proves 3rd-order equivalence natively in C++.
+*   **Task 4.1 (Tier 1: Signature Tensor Invariant):**  **DEFER** Write a C++ Catch2 test `test_opt_tensor.cc`. Given a clique P and its optimized replacement P', calculate A_{alpha, beta, gamma} = |P_alpha AND P_beta AND P_gamma| mod 2. Assert that A == A' for all triplets. This mathematically proves 3rd-order equivalence natively in C++.
 *   **Task 4.2 (Tier 2: Exact Statevector Fuzzing):** Write a Python test that generates random 8-qubit Clifford+T circuits. Compile and execute them with the optimizer OFF and ON. Assert that `ucc.get_statevector()` yields identical arrays (fidelity > 0.9999).
 *   **Task 4.3 (Tier 3: The Identity Uncompute Test):** For massive circuits where statevectors OOM (e.g., a 50-qubit Adder). Generate the optimized HIR. Programmatically append the exact syntactic inverse (U_dag) of the *unoptimized* circuit to the HIR. Simulate 100,000 shots. Assert every single shot deterministically measures 0 across all qubits, proving U_opt * U_dag = I.
 
 ## Phase 5: The op-T-mize Benchmark Suite
-
+[DEFERRED TO PAPER 2]
 **Goal:** Quantify UCC's optimization superiority in the Python layer against industry standards.
 
 *   **Task 5.1 (Benchmark Harness):** Create `paper/optimize/test_bench_optimize.py`. Download the standard `op-T-mize` QASM circuits (Adder8, csla_mux3, barenco_tof_10, gf2^4_mult, etc.).
@@ -66,7 +72,7 @@ This plan implements Vandaele's (2025) algorithms. We prioritize **TOHPE** (Thir
     3. **Peak Active Rank (k_max):** Highlight how UCC's logical T-count reduction directly shrinks the Virtual Machine's physical RAM footprint, a metric completely unique to the Factored State architecture.
 
 ## Phase 6: The FastTODD Upgrade (Algorithm 3) [Optional]
-
+[DEFERRED TO PAPER 2]
 **Goal:** Extend TOHPE with the deeper O(n^4 m^3) search space.
 
 *   **Task 6.1 (Sub-solver Matrices):** Implement the `FastToddPass`. It first calls TOHPE until no reductions remain. It then constructs the matrices X^(z) and v^(z) to search for linear dependencies in the expanded space.
@@ -81,8 +87,8 @@ This plan implements Vandaele's (2025) algorithms. We prioritize **TOHPE** (Thir
 * **Task 7.1 (S-Dagger VM Upgrade):** Resolve "Open Item 5" from the refactor plan.
   * In backend.h, add OP_FRAME_S_DAG and OP_ARRAY_S_DAG to the Opcode enum.
   * In svm.cc, implement exec_frame_s_dag (If p_x[v] == 1, multiply gamma by $-i$, then toggle p_z[v]) and exec_array_s_dag (apply $-i$ to the $|1\rangle_v$ branch, and update the frame identically).
-* **Task 7.2 (Parser Generalization):** In src/ucc/circuit/parser.cc, refactor the Pauli-product tokenization logic out of parse_mpp into a reusable parse_pauli_product helper. Add GateType::SPP and GateType::SPP_DAG to gate_data.h and route them to this parsing logic, emitting a single AST node containing the combined Pauli targets.
-* **Task 7.3 (Front-End Rewinding):** In src/ucc/frontend/frontend.cc, evaluate SPP and SPP_DAG similarly to MPP. Construct the physical stim::PauliString, rewind it through sim.inv_state, and extract the $t=0$ masks. Emit a CLIFFORD_PHASE node to the HIR (reusing the node type added in Phase 1). Use a flag to denote if the input was SPP_DAG.
+* **Task 7.2 (Parser Generalization):** [DEFERRED TO PAPER 2] In src/ucc/circuit/parser.cc, refactor the Pauli-product tokenization logic out of parse_mpp into a reusable parse_pauli_product helper. Add GateType::SPP and GateType::SPP_DAG to gate_data.h and route them to this parsing logic, emitting a single AST node containing the combined Pauli targets.
+* **Task 7.3 (Front-End Rewinding):** [DEFERRED TO PAPER 2] In src/ucc/frontend/frontend.cc, evaluate SPP and SPP_DAG similarly to MPP. Construct the physical stim::PauliString, rewind it through sim.inv_state, and extract the $t=0$ masks. Emit a CLIFFORD_PHASE node to the HIR (reusing the node type added in Phase 1). Use a flag to denote if the input was SPP_DAG.
 * **Task 7.4 (Back-End Lowering):** In backend.cc lower(), add the handler for CLIFFORD_PHASE nodes (which now arrive from both the Optimizer and the Front-End):
   1. Map the $t=0$ mask to the current virtual frame ($P_v = V_{cum} P_{t=0} V_{cum}^\dagger$).
   2. Run compress_pauli(P_v) to isolate it to a single virtual axis $v$, yielding a basis and a sign.
