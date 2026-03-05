@@ -596,3 +596,251 @@ TEST_CASE("Backend: Gap sampling hazard array accumulation") {
     CHECK_THAT(prog.constant_pool.noise_hazards[1], Catch::Matchers::WithinAbs(h2, 1e-5));
     CHECK_THAT(prog.constant_pool.noise_hazards[2], Catch::Matchers::WithinAbs(h3, 1e-5));
 }
+
+// =============================================================================
+// Phase 2 Hardening: Scaled Compressor Fuzzing
+// =============================================================================
+
+// Simple LCG for deterministic test-local RNG.
+static uint64_t fuzz_lcg(uint64_t& seed) {
+    seed = seed * 6364136223846793005ULL + 1442695040888963407ULL;
+    return seed;
+}
+
+TEST_CASE("Compress fuzz: 30-qubit heavy Paulis 500 trials") {
+    uint64_t seed = 0xA5A5A5A5;
+    const uint32_t n = 30;
+
+    for (int trial = 0; trial < 500; ++trial) {
+        CompilerContext ctx(n);
+
+        uint32_t k = static_cast<uint32_t>(fuzz_lcg(seed) % (n + 1));
+        for (uint32_t i = 0; i < k; ++i) {
+            ctx.reg_manager.activate();
+        }
+
+        uint64_t qubit_mask = (1ULL << n) - 1;
+        uint64_t x_bits = fuzz_lcg(seed) & qubit_mask;
+        uint64_t z_bits = fuzz_lcg(seed) & qubit_mask;
+        if ((x_bits | z_bits) == 0) {
+            x_bits = 1;
+        }
+
+        auto pauli = make_pauli(n, x_bits, z_bits);
+        auto result = compress_pauli(ctx, pauli);
+        verify_compression(ctx, pauli, result);
+    }
+}
+
+TEST_CASE("Compress fuzz: 64-qubit max-width Paulis") {
+    uint64_t seed = 0xFEEDFACE;
+    const uint32_t n = 64;
+
+    for (int trial = 0; trial < 200; ++trial) {
+        CompilerContext ctx(n);
+
+        uint32_t k = static_cast<uint32_t>(fuzz_lcg(seed) % (n + 1));
+        for (uint32_t i = 0; i < k; ++i) {
+            ctx.reg_manager.activate();
+        }
+
+        // Full 64-bit masks, no masking needed
+        uint64_t x_bits = fuzz_lcg(seed);
+        uint64_t z_bits = fuzz_lcg(seed);
+        if ((x_bits | z_bits) == 0) {
+            x_bits = 1;
+        }
+
+        auto pauli = make_pauli(n, x_bits, z_bits);
+        auto result = compress_pauli(ctx, pauli);
+        verify_compression(ctx, pauli, result);
+    }
+}
+
+// =============================================================================
+// Phase 2 Hardening: Adversarial Patterns
+// =============================================================================
+
+TEST_CASE("Compress adversarial: all-Y strings") {
+    // Every qubit is Y = XZ. Maximizes S-gate emissions.
+    for (uint32_t n = 2; n <= 30; n += 4) {
+        CompilerContext ctx(n);
+        uint64_t mask = (n < 64) ? ((1ULL << n) - 1) : ~0ULL;
+        auto pauli = make_pauli(n, mask, mask);  // Y on every qubit
+        auto result = compress_pauli(ctx, pauli);
+
+        REQUIRE(result.basis == CompressedBasis::X_BASIS);
+        verify_compression(ctx, pauli, result);
+    }
+}
+
+TEST_CASE("Compress adversarial: all-Y with varied active partitions") {
+    const uint32_t n = 20;
+    uint64_t mask = (1ULL << n) - 1;
+
+    for (uint32_t k = 0; k <= n; k += 3) {
+        CompilerContext ctx(n);
+        for (uint32_t i = 0; i < k; ++i) {
+            ctx.reg_manager.activate();
+        }
+        auto pauli = make_pauli(n, mask, mask);
+        auto result = compress_pauli(ctx, pauli);
+
+        REQUIRE(result.basis == CompressedBasis::X_BASIS);
+        verify_compression(ctx, pauli, result);
+    }
+}
+
+TEST_CASE("Compress adversarial: checkerboard X-Z pattern") {
+    // Even qubits get X, odd qubits get Z. Stresses CZ residue cleanup.
+    for (uint32_t n = 4; n <= 30; n += 4) {
+        CompilerContext ctx(n);
+        uint64_t x_bits = 0;
+        uint64_t z_bits = 0;
+        for (uint32_t q = 0; q < n; ++q) {
+            if (q % 2 == 0)
+                x_bits |= (1ULL << q);
+            else
+                z_bits |= (1ULL << q);
+        }
+        auto pauli = make_pauli(n, x_bits, z_bits);
+        auto result = compress_pauli(ctx, pauli);
+        verify_compression(ctx, pauli, result);
+    }
+}
+
+TEST_CASE("Compress adversarial: single X rest Z") {
+    // One X bit on q0, Z on all others. Stresses Z-cleanup after X pivot.
+    for (uint32_t n = 2; n <= 30; n += 4) {
+        CompilerContext ctx(n);
+        uint64_t z_mask = ((n < 64) ? ((1ULL << n) - 1) : ~0ULL) & ~1ULL;
+        auto pauli = make_pauli(n, X(0), z_mask);
+        auto result = compress_pauli(ctx, pauli);
+
+        REQUIRE(result.pivot == 0);
+        REQUIRE(result.basis == CompressedBasis::X_BASIS);
+        verify_compression(ctx, pauli, result);
+    }
+}
+
+TEST_CASE("Compress adversarial: single X rest Z with active pivot") {
+    // Same pattern but with the X qubit active and some Z qubits dormant.
+    const uint32_t n = 20;
+    CompilerContext ctx(n);
+    ctx.reg_manager.activate();  // axis 0 active
+
+    uint64_t z_mask = ((1ULL << n) - 1) & ~1ULL;  // Z on qubits 1..19
+    auto pauli = make_pauli(n, X(0), z_mask);
+    auto result = compress_pauli(ctx, pauli);
+
+    // Pivot should still be 0 (the X qubit) since it's the only X bit
+    REQUIRE(result.pivot == 0);
+    REQUIRE(result.basis == CompressedBasis::X_BASIS);
+    verify_compression(ctx, pauli, result);
+}
+
+TEST_CASE("Compress adversarial: dense XZ overlap") {
+    // High Hamming weight on both X and Z masks (many Y qubits mixed with
+    // pure X and pure Z). Maximizes total gate count.
+    uint64_t seed = 0xBAADF00D;
+    const uint32_t n = 30;
+
+    for (int trial = 0; trial < 100; ++trial) {
+        CompilerContext ctx(n);
+        uint32_t k = static_cast<uint32_t>(fuzz_lcg(seed) % (n + 1));
+        for (uint32_t i = 0; i < k; ++i) {
+            ctx.reg_manager.activate();
+        }
+
+        // Generate masks with high density (~75% bits set)
+        uint64_t qubit_mask = (1ULL << n) - 1;
+        uint64_t x_bits = (fuzz_lcg(seed) | fuzz_lcg(seed)) & qubit_mask;
+        uint64_t z_bits = (fuzz_lcg(seed) | fuzz_lcg(seed)) & qubit_mask;
+        if ((x_bits | z_bits) == 0) {
+            x_bits = 1;
+        }
+
+        auto pauli = make_pauli(n, x_bits, z_bits);
+        auto result = compress_pauli(ctx, pauli);
+        verify_compression(ctx, pauli, result);
+    }
+}
+
+// =============================================================================
+// Phase 2 Hardening: Sequential Compression Stress
+// =============================================================================
+
+TEST_CASE("Compress sequential: 20 compressions on 20 qubits") {
+    uint64_t seed = 0x1337C0DE;
+    const uint32_t n = 20;
+    CompilerContext ctx(n);
+
+    // Activate half the qubits for a realistic mixed partition
+    for (uint32_t i = 0; i < 10; ++i) {
+        ctx.reg_manager.activate();
+    }
+
+    for (int step = 0; step < 20; ++step) {
+        stim::Tableau<kStimWidth> snap = ctx.v_cum;
+
+        uint64_t qubit_mask = (1ULL << n) - 1;
+        uint64_t x_bits = fuzz_lcg(seed) & qubit_mask;
+        uint64_t z_bits = fuzz_lcg(seed) & qubit_mask;
+        if ((x_bits | z_bits) == 0) {
+            x_bits = 1;
+        }
+
+        auto pauli = make_pauli(n, x_bits, z_bits, (fuzz_lcg(seed) & 1) != 0);
+        auto result = compress_pauli(ctx, pauli);
+        verify_sequential_compression(snap, ctx.v_cum, pauli, result);
+    }
+}
+
+TEST_CASE("Compress sequential: 30 compressions on 30 qubits all-active") {
+    uint64_t seed = 0xABCDEF01;
+    const uint32_t n = 30;
+    CompilerContext ctx(n);
+
+    for (uint32_t i = 0; i < n; ++i) {
+        ctx.reg_manager.activate();
+    }
+
+    for (int step = 0; step < 30; ++step) {
+        stim::Tableau<kStimWidth> snap = ctx.v_cum;
+
+        uint64_t qubit_mask = (1ULL << n) - 1;
+        uint64_t x_bits = fuzz_lcg(seed) & qubit_mask;
+        uint64_t z_bits = fuzz_lcg(seed) & qubit_mask;
+        if ((x_bits | z_bits) == 0) {
+            z_bits = 1;
+        }
+
+        auto pauli = make_pauli(n, x_bits, z_bits, (fuzz_lcg(seed) & 1) != 0);
+        auto result = compress_pauli(ctx, pauli);
+        verify_sequential_compression(snap, ctx.v_cum, pauli, result);
+    }
+}
+
+TEST_CASE("Compress sequential: 30 compressions on 30 qubits all-dormant") {
+    uint64_t seed = 0x99887766;
+    const uint32_t n = 30;
+    CompilerContext ctx(n);  // k=0, all dormant
+
+    for (int step = 0; step < 30; ++step) {
+        stim::Tableau<kStimWidth> snap = ctx.v_cum;
+
+        uint64_t qubit_mask = (1ULL << n) - 1;
+        uint64_t x_bits = fuzz_lcg(seed) & qubit_mask;
+        uint64_t z_bits = fuzz_lcg(seed) & qubit_mask;
+        if ((x_bits | z_bits) == 0) {
+            x_bits = 1;
+        }
+
+        auto pauli = make_pauli(n, x_bits, z_bits, (fuzz_lcg(seed) & 1) != 0);
+        auto result = compress_pauli(ctx, pauli);
+        verify_sequential_compression(snap, ctx.v_cum, pauli, result);
+
+        // All-dormant should only emit frame opcodes
+        REQUIRE(all_frame_opcodes(ctx.bytecode));
+    }
+}
