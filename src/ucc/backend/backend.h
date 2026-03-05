@@ -25,14 +25,16 @@ enum class Opcode : uint8_t {
     OP_FRAME_CZ,
     OP_FRAME_H,
     OP_FRAME_S,
+    OP_FRAME_S_DAG,
     OP_FRAME_SWAP,
 
     // Array Opcodes (Update p_x, p_z AND loop over v[] to swap/mix)
     OP_ARRAY_CNOT,
     OP_ARRAY_CZ,
     OP_ARRAY_SWAP,
-    OP_ARRAY_H,  // Hadamard on active axis (butterfly + frame swap)
-    OP_ARRAY_S,  // Phase S on active axis (diag(1, i) + frame update)
+    OP_ARRAY_H,      // Hadamard on active axis (butterfly + frame swap)
+    OP_ARRAY_S,      // Phase S on active axis (diag(1, i) + frame update)
+    OP_ARRAY_S_DAG,  // Phase S-dagger on active axis (diag(1, -i) + frame update)
 
     // Local Math & Expansion
     OP_EXPAND,       // Virtual H_v on dormant: k -> k+1, gamma /= sqrt(2)

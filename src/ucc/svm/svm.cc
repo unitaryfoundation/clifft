@@ -299,6 +299,17 @@ static inline void exec_array_h(SchrodingerState& state, uint16_t v) {
     exec_frame_h(state, v);
 }
 
+// S_dag gate on virtual axis v: conjugates X -> -Y in the Pauli frame.
+// S_dag*X*S = -Y = -iXZ, so when p_x[v] is set: gamma *= -i, p_z[v] ^= 1.
+// Z commutes with S_dag, so no change when only p_z is set.
+static inline void exec_frame_s_dag(SchrodingerState& state, uint16_t v) {
+    bool px = bit_get(state.p_x, v);
+    if (px) {
+        state.gamma *= kMinusI;
+    }
+    bit_xor(state.p_z, v, px);
+}
+
 // ARRAY_S on active axis v: applies diag(1, i) to the amplitude array,
 // then updates the Pauli frame identically to FRAME_S.
 static inline void exec_array_s(SchrodingerState& state, uint16_t v) {
@@ -312,6 +323,21 @@ static inline void exec_array_s(SchrodingerState& state, uint16_t v) {
         arr[idx] *= kI;
     }
     exec_frame_s(state, v);
+}
+
+// ARRAY_S_DAG on active axis v: applies diag(1, -i) to the amplitude array,
+// then updates the Pauli frame identically to FRAME_S_DAG.
+static inline void exec_array_s_dag(SchrodingerState& state, uint16_t v) {
+    assert(v < state.active_k && v < 64 && "ARRAY_S_DAG: axis out of range");
+    uint64_t iters = 1ULL << (state.active_k - 1);
+    uint64_t v_bit = 1ULL << v;
+    auto* arr = state.v();
+
+    for (uint64_t i = 0; i < iters; ++i) {
+        uint64_t idx = insert_zero_bit(i, v) | v_bit;
+        arr[idx] *= kMinusI;
+    }
+    exec_frame_s_dag(state, v);
 }
 
 // =============================================================================
@@ -730,6 +756,7 @@ void execute(const CompiledModule& program, SchrodingerState& state) {
         [static_cast<uint8_t>(Opcode::OP_FRAME_CZ)] = &&L_OP_FRAME_CZ,
         [static_cast<uint8_t>(Opcode::OP_FRAME_H)] = &&L_OP_FRAME_H,
         [static_cast<uint8_t>(Opcode::OP_FRAME_S)] = &&L_OP_FRAME_S,
+        [static_cast<uint8_t>(Opcode::OP_FRAME_S_DAG)] = &&L_OP_FRAME_S_DAG,
         [static_cast<uint8_t>(Opcode::OP_FRAME_SWAP)] = &&L_OP_FRAME_SWAP,
 
         [static_cast<uint8_t>(Opcode::OP_ARRAY_CNOT)] = &&L_OP_ARRAY_CNOT,
@@ -737,6 +764,7 @@ void execute(const CompiledModule& program, SchrodingerState& state) {
         [static_cast<uint8_t>(Opcode::OP_ARRAY_SWAP)] = &&L_OP_ARRAY_SWAP,
         [static_cast<uint8_t>(Opcode::OP_ARRAY_H)] = &&L_OP_ARRAY_H,
         [static_cast<uint8_t>(Opcode::OP_ARRAY_S)] = &&L_OP_ARRAY_S,
+        [static_cast<uint8_t>(Opcode::OP_ARRAY_S_DAG)] = &&L_OP_ARRAY_S_DAG,
 
         [static_cast<uint8_t>(Opcode::OP_EXPAND)] = &&L_OP_EXPAND,
         [static_cast<uint8_t>(Opcode::OP_PHASE_T)] = &&L_OP_PHASE_T,
@@ -802,6 +830,10 @@ L_OP_FRAME_S:
     exec_frame_s(state, pc->axis_1);
     DISPATCH();
 
+L_OP_FRAME_S_DAG:
+    exec_frame_s_dag(state, pc->axis_1);
+    DISPATCH();
+
 L_OP_FRAME_SWAP:
     exec_frame_swap(state, pc->axis_1, pc->axis_2);
     DISPATCH();
@@ -824,6 +856,10 @@ L_OP_ARRAY_H:
 
 L_OP_ARRAY_S:
     exec_array_s(state, pc->axis_1);
+    DISPATCH();
+
+L_OP_ARRAY_S_DAG:
+    exec_array_s_dag(state, pc->axis_1);
     DISPATCH();
 
 L_OP_EXPAND:
@@ -912,6 +948,9 @@ L_OP_OBSERVABLE:
             case Opcode::OP_FRAME_S:
                 exec_frame_s(state, instr.axis_1);
                 break;
+            case Opcode::OP_FRAME_S_DAG:
+                exec_frame_s_dag(state, instr.axis_1);
+                break;
             case Opcode::OP_FRAME_SWAP:
                 exec_frame_swap(state, instr.axis_1, instr.axis_2);
                 break;
@@ -929,6 +968,9 @@ L_OP_OBSERVABLE:
                 break;
             case Opcode::OP_ARRAY_S:
                 exec_array_s(state, instr.axis_1);
+                break;
+            case Opcode::OP_ARRAY_S_DAG:
+                exec_array_s_dag(state, instr.axis_1);
                 break;
             case Opcode::OP_EXPAND:
                 exec_expand(state, instr.axis_1);

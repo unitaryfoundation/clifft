@@ -49,6 +49,13 @@ Instruction make_frame_s(uint16_t v) {
     return i;
 }
 
+Instruction make_frame_s_dag(uint16_t v) {
+    Instruction i{};
+    i.opcode = Opcode::OP_FRAME_S_DAG;
+    i.axis_1 = v;
+    return i;
+}
+
 Instruction make_frame_swap(uint16_t a, uint16_t b) {
     Instruction i{};
     i.opcode = Opcode::OP_FRAME_SWAP;
@@ -91,6 +98,13 @@ Instruction make_array_h(uint16_t axis) {
 Instruction make_array_s(uint16_t axis) {
     Instruction i{};
     i.opcode = Opcode::OP_ARRAY_S;
+    i.axis_1 = axis;
+    return i;
+}
+
+Instruction make_array_s_dag(uint16_t axis) {
+    Instruction i{};
+    i.opcode = Opcode::OP_ARRAY_S_DAG;
     i.axis_1 = axis;
     return i;
 }

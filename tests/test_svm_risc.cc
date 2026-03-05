@@ -16,12 +16,15 @@ using Catch::Matchers::WithinRel;
 using ucc::test::check_complex;
 using ucc::test::make_array_cnot;
 using ucc::test::make_array_cz;
+using ucc::test::make_array_s;
+using ucc::test::make_array_s_dag;
 using ucc::test::make_array_swap;
 using ucc::test::make_expand;
 using ucc::test::make_frame_cnot;
 using ucc::test::make_frame_cz;
 using ucc::test::make_frame_h;
 using ucc::test::make_frame_s;
+using ucc::test::make_frame_s_dag;
 using ucc::test::make_frame_swap;
 using ucc::test::make_meas_active_diagonal;
 using ucc::test::make_meas_active_interfere;
@@ -176,6 +179,36 @@ TEST_CASE("RISC Frame: S on no X error - no phase change") {
     check_complex(state.gamma, {1.0, 0.0});
 }
 
+TEST_CASE("RISC Frame: S_DAG on X error multiplies gamma by -i") {
+    SchrodingerState state(2, 0);
+
+    state.p_x = X(0);
+    state.p_z = NONE;
+
+    auto prog = make_program({make_frame_s_dag(0)}, 2);
+    execute(prog, state);
+
+    // S_dag: p_x[0]=1 -> gamma *= -i, p_z[0] ^= p_x[0] = 1
+    CHECK(state.p_x == X(0));
+    CHECK(state.p_z == Z(0));
+    check_complex(state.gamma, {0.0, -1.0});
+}
+
+TEST_CASE("RISC Frame: S_DAG on no X error - no phase change") {
+    SchrodingerState state(2, 0);
+
+    state.p_x = NONE;
+    state.p_z = Z(0);
+
+    auto prog = make_program({make_frame_s_dag(0)}, 2);
+    execute(prog, state);
+
+    // S_dag: p_x[0]=0 -> no phase, p_z[0] ^= 0 = unchanged
+    CHECK(state.p_x == NONE);
+    CHECK(state.p_z == Z(0));
+    check_complex(state.gamma, {1.0, 0.0});
+}
+
 TEST_CASE("RISC Frame: SWAP exchanges bits") {
     SchrodingerState state(3, 0);
 
@@ -309,6 +342,39 @@ TEST_CASE("RISC Array: SWAP exchanges axes") {
     check_complex(state.v()[1], {0.0, 0.0});
     check_complex(state.v()[2], {1.0, 0.0});  // |10>
     check_complex(state.v()[3], {0.0, 0.0});
+}
+
+TEST_CASE("RISC Array: S_DAG applies -i to 1-component") {
+    SchrodingerState state(2, 0);
+    state.active_k = 1;
+    state.v()[0] = {1.0, 0.0};  // |0>
+    state.v()[1] = {1.0, 0.0};  // |1>
+
+    auto prog = make_program({make_array_s_dag(0)}, 2);
+    execute(prog, state);
+
+    // diag(1, -i): |0> unchanged, |1> *= -i
+    check_complex(state.v()[0], {1.0, 0.0});
+    check_complex(state.v()[1], {0.0, -1.0});
+}
+
+TEST_CASE("RISC Array: S then S_DAG cancels") {
+    SchrodingerState state(2, 0);
+    state.active_k = 2;
+    state.v()[0] = {0.5, 0.0};
+    state.v()[1] = {0.0, 0.5};
+    state.v()[2] = {-0.5, 0.0};
+    state.v()[3] = {0.0, -0.5};
+
+    auto prog = make_program({make_array_s(0), make_array_s_dag(0)}, 2);
+    execute(prog, state);
+
+    // S then S_dag = identity on array and frame
+    check_complex(state.v()[0], {0.5, 0.0});
+    check_complex(state.v()[1], {0.0, 0.5});
+    check_complex(state.v()[2], {-0.5, 0.0});
+    check_complex(state.v()[3], {0.0, -0.5});
+    check_complex(state.gamma, {1.0, 0.0});
 }
 
 // =============================================================================

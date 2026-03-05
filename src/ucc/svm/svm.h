@@ -139,6 +139,13 @@ class SchrodingerState {
     // Advance next_noise_idx by sampling an exponential gap.
     // Uses the cumulative hazard table to skip silent noise sites in O(1).
     void draw_next_noise(const std::vector<double>& hazards) {
+        // Gap exhaustion fast-path: when the sampled exponential gap
+        // exceeds the total accumulated hazard, std::upper_bound returns
+        // end(), making next_noise_idx == size() (out-of-bounds). This is
+        // mathematically correct: a gap larger than the remaining circuit
+        // hazard means no further noise events fire in this shot, so the
+        // VM skips all subsequent OP_NOISE sites in O(1) via the
+        // site_idx != next_noise_idx guard in exec_noise().
         if (hazards.empty() || next_noise_idx >= hazards.size()) {
             next_noise_idx = static_cast<uint32_t>(-1);
             return;
