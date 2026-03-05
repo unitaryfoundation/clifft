@@ -179,7 +179,6 @@ class Parser {
             throw ParseError("Unexpected closing brace '}'", line_num);
         }
 
-        // Extract gate name.
         size_t name_end = 0;
         while (name_end < line.size() && is_gate_char(line[name_end])) {
             name_end++;

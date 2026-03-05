@@ -4,6 +4,8 @@
 #include <cassert>
 #include <cmath>
 #include <cstdlib>
+#include <cstring>
+#include <numbers>
 #include <stdexcept>
 
 namespace ucc {
@@ -65,9 +67,7 @@ inline uint64_t insert_two_zero_bits(uint64_t val, uint16_t bit1, uint16_t bit2)
     return val;
 }
 
-// Phase constants
-// Use explicit constant instead of non-standard M_SQRT1_2 (POSIX, not in C++ standard).
-constexpr double kInvSqrt2 = 0.70710678118654752440;
+constexpr double kInvSqrt2 = std::numbers::sqrt2 / 2.0;
 constexpr std::complex<double> kI{0.0, 1.0};
 constexpr std::complex<double> kMinusI{0.0, -1.0};
 constexpr std::complex<double> kExpIPiOver4{kInvSqrt2, kInvSqrt2};        // e^{i*pi/4}
@@ -95,10 +95,7 @@ SchrodingerState::SchrodingerState(uint32_t peak_rank, uint32_t num_measurements
         throw std::bad_alloc();
     }
 
-    // Initialize to |0...0>: coefficient 1 at index 0
-    for (uint64_t i = 0; i < array_size_; ++i) {
-        v_[i] = {0.0, 0.0};
-    }
+    std::memset(v_, 0, array_size_ * sizeof(std::complex<double>));
     v_[0] = {1.0, 0.0};
 }
 
@@ -143,12 +140,8 @@ SchrodingerState& SchrodingerState::operator=(SchrodingerState&& other) noexcept
 }
 
 void SchrodingerState::reset(uint64_t seed) {
-    // Only zero the previously-active portion of the buffer, not the full
-    // 2^peak_rank allocation — avoids O(2^peak_rank) work when active_k is small.
     uint64_t active_size = (active_k > 0) ? (uint64_t{1} << active_k) : 1;
-    for (uint64_t i = 0; i < active_size; ++i) {
-        v_[i] = {0.0, 0.0};
-    }
+    std::memset(v_, 0, active_size * sizeof(std::complex<double>));
     v_[0] = {1.0, 0.0};
     p_x = 0;
     p_z = 0;
@@ -290,18 +283,17 @@ static inline void exec_array_swap(SchrodingerState& state, uint16_t a, uint16_t
 //   v'[j] = (v[i] - v[j]) / sqrt(2)
 static inline void exec_array_h(SchrodingerState& state, uint16_t v) {
     assert(v < state.active_k && v < 64 && "ARRAY_H: axis out of range");
-    uint64_t size = 1ULL << state.active_k;
+    uint64_t iters = 1ULL << (state.active_k - 1);
     uint64_t v_bit = 1ULL << v;
     auto* arr = state.v();
 
-    for (uint64_t i = 0; i < size; ++i) {
-        if (!(i & v_bit)) {
-            uint64_t j = i | v_bit;
-            auto a = arr[i];
-            auto b = arr[j];
-            arr[i] = (a + b) * kInvSqrt2;
-            arr[j] = (a - b) * kInvSqrt2;
-        }
+    for (uint64_t i = 0; i < iters; ++i) {
+        uint64_t idx0 = insert_zero_bit(i, v);
+        uint64_t idx1 = idx0 | v_bit;
+        auto a = arr[idx0];
+        auto b = arr[idx1];
+        arr[idx0] = (a + b) * kInvSqrt2;
+        arr[idx1] = (a - b) * kInvSqrt2;
     }
 
     exec_frame_h(state, v);
@@ -311,14 +303,13 @@ static inline void exec_array_h(SchrodingerState& state, uint16_t v) {
 // then updates the Pauli frame identically to FRAME_S.
 static inline void exec_array_s(SchrodingerState& state, uint16_t v) {
     assert(v < state.active_k && v < 64 && "ARRAY_S: axis out of range");
-    uint64_t size = 1ULL << state.active_k;
+    uint64_t iters = 1ULL << (state.active_k - 1);
     uint64_t v_bit = 1ULL << v;
     auto* arr = state.v();
 
-    for (uint64_t i = 0; i < size; ++i) {
-        if (i & v_bit) {
-            arr[i] *= kI;
-        }
+    for (uint64_t i = 0; i < iters; ++i) {
+        uint64_t idx = insert_zero_bit(i, v) | v_bit;
+        arr[idx] *= kI;
     }
     exec_frame_s(state, v);
 }
@@ -354,32 +345,26 @@ static inline void exec_phase_t(SchrodingerState& state, uint16_t v) {
     assert(v < 64 && "PHASE_T: axis out of range");
     bool px = bit_get(state.p_x, v);
 
-    // Dormant axis: v_bit is beyond 2^k so no array element has it set.
-    // The only possible effect is the gamma phase when px anti-commutes.
     if (v >= state.active_k) {
         if (px)
             state.gamma *= kExpIPiOver4;
         return;
     }
 
-    uint64_t size = 1ULL << state.active_k;
+    uint64_t iters = 1ULL << (state.active_k - 1);
     uint64_t v_bit = 1ULL << v;
     auto* arr = state.v();
 
     if (px) {
-        // Anti-commutes: apply T_dag to array, multiply gamma by e^{i*pi/4}
-        for (uint64_t i = 0; i < size; ++i) {
-            if (i & v_bit) {
-                arr[i] *= kExpMinusIPiOver4;
-            }
+        for (uint64_t i = 0; i < iters; ++i) {
+            uint64_t idx = insert_zero_bit(i, v) | v_bit;
+            arr[idx] *= kExpMinusIPiOver4;
         }
         state.gamma *= kExpIPiOver4;
     } else {
-        // Commutes: apply T to array
-        for (uint64_t i = 0; i < size; ++i) {
-            if (i & v_bit) {
-                arr[i] *= kExpIPiOver4;
-            }
+        for (uint64_t i = 0; i < iters; ++i) {
+            uint64_t idx = insert_zero_bit(i, v) | v_bit;
+            arr[idx] *= kExpIPiOver4;
         }
     }
 }
@@ -391,31 +376,26 @@ static inline void exec_phase_t_dag(SchrodingerState& state, uint16_t v) {
     assert(v < 64 && "PHASE_T_DAG: axis out of range");
     bool px = bit_get(state.p_x, v);
 
-    // Dormant axis: same O(1) shortcut as exec_phase_t.
     if (v >= state.active_k) {
         if (px)
             state.gamma *= kExpMinusIPiOver4;
         return;
     }
 
-    uint64_t size = 1ULL << state.active_k;
+    uint64_t iters = 1ULL << (state.active_k - 1);
     uint64_t v_bit = 1ULL << v;
     auto* arr = state.v();
 
     if (px) {
-        // Anti-commutes: apply T to array, multiply gamma by e^{-i*pi/4}
-        for (uint64_t i = 0; i < size; ++i) {
-            if (i & v_bit) {
-                arr[i] *= kExpIPiOver4;
-            }
+        for (uint64_t i = 0; i < iters; ++i) {
+            uint64_t idx = insert_zero_bit(i, v) | v_bit;
+            arr[idx] *= kExpIPiOver4;
         }
         state.gamma *= kExpMinusIPiOver4;
     } else {
-        // Commutes: apply T_dag to array
-        for (uint64_t i = 0; i < size; ++i) {
-            if (i & v_bit) {
-                arr[i] *= kExpMinusIPiOver4;
-            }
+        for (uint64_t i = 0; i < iters; ++i) {
+            uint64_t idx = insert_zero_bit(i, v) | v_bit;
+            arr[idx] *= kExpMinusIPiOver4;
         }
     }
 }
@@ -518,10 +498,7 @@ static inline void exec_meas_active_diagonal(SchrodingerState& state, uint16_t v
         }
     }
 
-    // Zero out upper half (for safety)
-    for (uint64_t i = half; i < 2 * half; ++i) {
-        arr[i] = {0.0, 0.0};
-    }
+    std::memset(arr + half, 0, half * sizeof(std::complex<double>));
 
     state.active_k--;
 
@@ -581,10 +558,13 @@ static inline void exec_meas_active_interfere(SchrodingerState& state, uint16_t 
     // b_x=0 -> add, b_x=1 -> subtract
     // The 1/sqrt(2) factor keeps the fold unitary, preventing exponential
     // magnitude growth from repeated EXPAND + INTERFERE sequences.
-    for (uint64_t i = 0; i < half; ++i) {
-        if (b_x == 0) {
+    // Branch hoisted outside the loop so the compiler can auto-vectorize.
+    if (b_x == 0) {
+        for (uint64_t i = 0; i < half; ++i) {
             arr[i] = (arr[i] + arr[i + half]) * kInvSqrt2;
-        } else {
+        }
+    } else {
+        for (uint64_t i = 0; i < half; ++i) {
             arr[i] = (arr[i] - arr[i + half]) * kInvSqrt2;
         }
     }
@@ -601,10 +581,7 @@ static inline void exec_meas_active_interfere(SchrodingerState& state, uint16_t 
         state.gamma = -state.gamma;
     }
 
-    // Zero out upper half
-    for (uint64_t i = half; i < 2 * half; ++i) {
-        arr[i] = {0.0, 0.0};
-    }
+    std::memset(arr + half, 0, half * sizeof(std::complex<double>));
 
     state.active_k--;
 
@@ -794,6 +771,13 @@ void execute(const CompiledModule& program, SchrodingerState& state) {
 
 #define DISPATCH()                                              \
     do {                                                        \
+        if (++pc == end)                                        \
+            return;                                             \
+        goto* dispatch_table[static_cast<uint8_t>(pc->opcode)]; \
+    } while (0)
+
+#define DISPATCH_RENORM()                                       \
+    do {                                                        \
         RENORM_CHECK();                                         \
         if (++pc == end)                                        \
             return;                                             \
@@ -844,7 +828,7 @@ L_OP_ARRAY_S:
 
 L_OP_EXPAND:
     exec_expand(state, pc->axis_1);
-    DISPATCH();
+    DISPATCH_RENORM();
 
 L_OP_PHASE_T:
     exec_phase_t(state, pc->axis_1);
@@ -872,12 +856,12 @@ L_OP_MEAS_DORMANT_RANDOM:
 L_OP_MEAS_ACTIVE_DIAGONAL:
     exec_meas_active_diagonal(state, pc->axis_1, pc->classical.classical_idx,
                               (pc->flags & Instruction::FLAG_SIGN) != 0);
-    DISPATCH();
+    DISPATCH_RENORM();
 
 L_OP_MEAS_ACTIVE_INTERFERE:
     exec_meas_active_interfere(state, pc->axis_1, pc->classical.classical_idx,
                                (pc->flags & Instruction::FLAG_SIGN) != 0);
-    DISPATCH();
+    DISPATCH_RENORM();
 
 L_OP_APPLY_PAULI:
     exec_apply_pauli(state, program.constant_pool, pc->pauli.cp_mask_idx, pc->pauli.condition_idx);
@@ -902,6 +886,18 @@ L_OP_OBSERVABLE:
 #undef DISPATCH
 #else
     // Fallback standard C++ switch loop for MSVC and non-GNU compilers
+    auto renorm_check = [&state]() {
+        double g_norm = std::norm(state.gamma);
+        if (g_norm > 1e200 || (g_norm < 1e-200 && g_norm > 0.0)) {
+            double g_mag = std::sqrt(g_norm);
+            uint64_t sz = state.v_size();
+            for (uint64_t ri = 0; ri < sz; ++ri) {
+                state.v()[ri] *= g_mag;
+            }
+            state.gamma /= g_mag;
+        }
+    };
+
     for (const auto& instr : program.bytecode) {
         switch (instr.opcode) {
             case Opcode::OP_FRAME_CNOT:
@@ -936,6 +932,7 @@ L_OP_OBSERVABLE:
                 break;
             case Opcode::OP_EXPAND:
                 exec_expand(state, instr.axis_1);
+                renorm_check();
                 break;
             case Opcode::OP_PHASE_T:
                 exec_phase_t(state, instr.axis_1);
@@ -959,10 +956,12 @@ L_OP_OBSERVABLE:
             case Opcode::OP_MEAS_ACTIVE_DIAGONAL:
                 exec_meas_active_diagonal(state, instr.axis_1, instr.classical.classical_idx,
                                           (instr.flags & Instruction::FLAG_SIGN) != 0);
+                renorm_check();
                 break;
             case Opcode::OP_MEAS_ACTIVE_INTERFERE:
                 exec_meas_active_interfere(state, instr.axis_1, instr.classical.classical_idx,
                                            (instr.flags & Instruction::FLAG_SIGN) != 0);
+                renorm_check();
                 break;
             case Opcode::OP_APPLY_PAULI:
                 exec_apply_pauli(state, program.constant_pool, instr.pauli.cp_mask_idx,
@@ -982,18 +981,6 @@ L_OP_OBSERVABLE:
                 exec_observable(state, program.constant_pool, instr.pauli.cp_mask_idx,
                                 instr.pauli.condition_idx);
                 break;
-        }
-
-        // Amortized renormalization to prevent IEEE-754 overflow/underflow.
-        // std::norm returns squared magnitude, avoiding sqrt in the hot loop.
-        double g_norm = std::norm(state.gamma);
-        if (g_norm > 1e200 || (g_norm < 1e-200 && g_norm > 0.0)) {
-            double g_mag = std::sqrt(g_norm);
-            uint64_t sz = state.v_size();
-            for (uint64_t ri = 0; ri < sz; ++ri) {
-                state.v()[ri] *= g_mag;
-            }
-            state.gamma /= g_mag;
         }
     }
 #endif

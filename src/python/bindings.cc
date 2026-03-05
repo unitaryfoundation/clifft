@@ -149,12 +149,14 @@ NB_MODULE(_ucc_core, m) {
         "    skip_optimizer: If True, bypass the middle-end optimizer "
         "(future-proofing).\n");
 
-    // Helper to create a numpy array from a vector with given shape
-    auto make_numpy_array = [](const std::vector<uint8_t>& vec, size_t rows, size_t cols) {
-        auto* data = new uint8_t[vec.size()];
-        std::copy(vec.begin(), vec.end(), data);
-        nb::capsule owner(data, [](void* p) noexcept { delete[] static_cast<uint8_t*>(p); });
-        return nb::ndarray<nb::numpy, uint8_t, nb::c_contig>(data, {rows, cols}, owner);
+    // Zero-copy transfer: move the vector onto the heap and let the capsule own it.
+    // Avoids O(N) memcpy for large shot batches.
+    auto make_numpy_array = [](std::vector<uint8_t> vec, size_t rows, size_t cols) {
+        auto* owner_vec = new std::vector<uint8_t>(std::move(vec));
+        nb::capsule owner(owner_vec,
+                          [](void* p) noexcept { delete static_cast<std::vector<uint8_t>*>(p); });
+        return nb::ndarray<nb::numpy, uint8_t, nb::c_contig>(owner_vec->data(), {rows, cols},
+                                                             owner);
     };
 
     // Sample: Program + shots -> tuple of (measurements, detectors, observables)
@@ -163,9 +165,12 @@ NB_MODULE(_ucc_core, m) {
         [make_numpy_array](const ucc::CompiledModule& program, uint32_t shots, uint64_t seed) {
             ucc::SampleResult result = ucc::sample(program, shots, seed);
 
-            auto meas_arr = make_numpy_array(result.measurements, shots, program.num_measurements);
-            auto det_arr = make_numpy_array(result.detectors, shots, program.num_detectors);
-            auto obs_arr = make_numpy_array(result.observables, shots, program.num_observables);
+            auto meas_arr =
+                make_numpy_array(std::move(result.measurements), shots, program.num_measurements);
+            auto det_arr =
+                make_numpy_array(std::move(result.detectors), shots, program.num_detectors);
+            auto obs_arr =
+                make_numpy_array(std::move(result.observables), shots, program.num_observables);
 
             return nb::make_tuple(meas_arr, det_arr, obs_arr);
         },

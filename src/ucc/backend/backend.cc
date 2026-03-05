@@ -3,6 +3,7 @@
 #include "ucc/backend/compiler_context.h"
 
 #include <algorithm>
+#include <bit>
 #include <cassert>
 #include <cmath>
 
@@ -212,23 +213,19 @@ void emit_s(CompilerContext& ctx, stim::TableauTransposedRaii<kStimWidth>& trans
     }
 }
 
-// Emit a logical SWAP: update V_cum tracking frame + emit the appropriate
-// bytecode (ARRAY_SWAP if both active, FRAME_SWAP if either dormant;
-// ARRAY_SWAP also performs the frame swap internally).
-void emit_swap(CompilerContext& ctx, uint16_t a, uint16_t b) {
+// Emit a logical SWAP using a caller-provided transposed tableau scope,
+// avoiding a redundant O(n^2) transpose when the caller already holds one.
+void emit_swap(CompilerContext& ctx, stim::TableauTransposedRaii<kStimWidth>& trans_cum, uint16_t a,
+               uint16_t b) {
     if (a == b)
         return;
 
     uint32_t k = ctx.reg_manager.active_k();
     assert((a < k) == (b < k) && "Cannot swap between active and dormant partitions");
 
-    // Update V_cum with SWAP via 3 CNOTs
-    {
-        stim::TableauTransposedRaii<kStimWidth> trans(ctx.v_cum);
-        trans.append_ZCX(a, b);
-        trans.append_ZCX(b, a);
-        trans.append_ZCX(a, b);
-    }
+    trans_cum.append_ZCX(a, b);
+    trans_cum.append_ZCX(b, a);
+    trans_cum.append_ZCX(a, b);
 
     if (a < k && b < k) {
         ctx.bytecode.push_back(make_array_swap(a, b));
@@ -268,10 +265,8 @@ CompressionResult compress_pauli(CompilerContext& ctx, const stim::PauliString<k
 
     assert((x_bits | z_bits) != 0 && "Cannot compress identity Pauli");
 
-    // Local tableau tracks ONLY this compression's gates.
-    // Used at the end to derive the sign without interference from
-    // previously accumulated gates in ctx.v_cum.
-    stim::Tableau<kStimWidth> v_local(n);
+    // Reset reusable scratch tableau to identity for this compression.
+    ctx.v_local = ctx.v_local_identity;
 
     uint16_t pivot;
     CompressedBasis basis;
@@ -281,7 +276,7 @@ CompressionResult compress_pauli(CompilerContext& ctx, const stim::PauliString<k
     // complexity at O(n^2) rather than O(n^3).
     {
         stim::TableauTransposedRaii<kStimWidth> trans_cum(ctx.v_cum);
-        stim::TableauTransposedRaii<kStimWidth> trans_local(v_local);
+        stim::TableauTransposedRaii<kStimWidth> trans_local(ctx.v_local);
 
         uint32_t k = ctx.reg_manager.active_k();
         uint64_t active_mask = (k == 0) ? 0ULL : ((1ULL << k) - 1);
@@ -294,16 +289,16 @@ CompressionResult compress_pauli(CompilerContext& ctx, const stim::PauliString<k
             // Pick pivot from X-support, preferring dormant axes (>= k).
             uint64_t x_dormant = x_bits & ~active_mask;
             if (x_dormant != 0) {
-                pivot = static_cast<uint16_t>(__builtin_ctzll(x_dormant));
+                pivot = static_cast<uint16_t>(std::countr_zero(x_dormant));
             } else {
-                pivot = static_cast<uint16_t>(__builtin_ctzll(x_bits));
+                pivot = static_cast<uint16_t>(std::countr_zero(x_bits));
             }
 
             // X-compression: CNOT(pivot -> q) annihilates X_q.
             // Z propagation: Z_t -> Z_c Z_t, so z_pivot ^= z_q.
             uint64_t to_clear_x = x_bits & ~(1ULL << pivot);
             while (to_clear_x != 0) {
-                uint16_t q = static_cast<uint16_t>(__builtin_ctzll(to_clear_x));
+                uint16_t q = static_cast<uint16_t>(std::countr_zero(to_clear_x));
                 emit_cnot(ctx, trans_cum, trans_local, pivot, q);
                 if (z_bits & (1ULL << q)) {
                     z_bits ^= (1ULL << pivot);
@@ -314,7 +309,7 @@ CompressionResult compress_pauli(CompilerContext& ctx, const stim::PauliString<k
             // Z-compression: CZ(pivot, q) clears residual Z_q.
             uint64_t to_clear_z = z_bits & ~(1ULL << pivot);
             while (to_clear_z != 0) {
-                uint16_t q = static_cast<uint16_t>(__builtin_ctzll(to_clear_z));
+                uint16_t q = static_cast<uint16_t>(std::countr_zero(to_clear_z));
                 emit_cz(ctx, trans_cum, trans_local, pivot, q);
                 to_clear_z &= to_clear_z - 1;
             }
@@ -334,15 +329,15 @@ CompressionResult compress_pauli(CompilerContext& ctx, const stim::PauliString<k
             // Pick pivot from Z-support, preferring active axes (< k).
             uint64_t z_active = z_bits & active_mask;
             if (z_active != 0) {
-                pivot = static_cast<uint16_t>(__builtin_ctzll(z_active));
+                pivot = static_cast<uint16_t>(std::countr_zero(z_active));
             } else {
-                pivot = static_cast<uint16_t>(__builtin_ctzll(z_bits));
+                pivot = static_cast<uint16_t>(std::countr_zero(z_bits));
             }
 
             // Z-compression: CNOT(q -> pivot) folds Z_q onto pivot.
             uint64_t to_clear_z = z_bits & ~(1ULL << pivot);
             while (to_clear_z != 0) {
-                uint16_t q = static_cast<uint16_t>(__builtin_ctzll(to_clear_z));
+                uint16_t q = static_cast<uint16_t>(std::countr_zero(to_clear_z));
                 emit_cnot(ctx, trans_cum, trans_local, q, pivot);
                 to_clear_z &= to_clear_z - 1;
             }
@@ -351,8 +346,7 @@ CompressionResult compress_pauli(CompilerContext& ctx, const stim::PauliString<k
         }
     }  // RAII destructors un-transpose both tableaux here.
 
-    // v_local is now in standard layout; evaluate to get the sign.
-    stim::PauliString<kStimWidth> compressed = v_local(pauli);
+    stim::PauliString<kStimWidth> compressed = ctx.v_local(pauli);
     bool sign = compressed.sign;
 
     return {pivot, basis, sign};
@@ -407,19 +401,19 @@ CompiledModule lower(const HirModule& hir) {
                 } else if (is_dormant) {
                     // Dormant X_v: route to next active axis
                     uint16_t next_axis = static_cast<uint16_t>(ctx.reg_manager.active_k());
-                    if (result.pivot != next_axis) {
-                        emit_swap(ctx, result.pivot, next_axis);
-                        result.pivot = next_axis;
+
+                    {
+                        stim::TableauTransposedRaii<kStimWidth> trans_cum(ctx.v_cum);
+                        if (result.pivot != next_axis) {
+                            emit_swap(ctx, trans_cum, result.pivot, next_axis);
+                            result.pivot = next_axis;
+                        }
+
+                        trans_cum.append_H_XZ(result.pivot);
                     }
 
-                    // Map X_v to Z_v in V_cum and conjugate the Pauli frame
-                    {
-                        stim::TableauTransposedRaii<kStimWidth> trans(ctx.v_cum);
-                        trans.append_H_XZ(result.pivot);
-                    }
                     ctx.bytecode.push_back(make_frame_h(result.pivot));
 
-                    // Expand the dormant qubit (creating |+> natively)
                     ctx.bytecode.push_back(make_expand(result.pivot));
                     ctx.reg_manager.activate();
                 } else if (result.basis == CompressedBasis::X_BASIS) {
@@ -490,23 +484,27 @@ CompiledModule lower(const HirModule& hir) {
                 } else {
                     // Active pivot: compact to k-1 before measurement
                     uint16_t top = static_cast<uint16_t>(ctx.reg_manager.active_k() - 1);
-                    if (result.pivot != top) {
-                        emit_swap(ctx, result.pivot, top);
-                        result.pivot = top;
-                    }
 
-                    if (result.basis == CompressedBasis::Z_BASIS) {
-                        ctx.bytecode.push_back(make_meas(Opcode::OP_MEAS_ACTIVE_DIAGONAL,
-                                                         result.pivot, classical_idx, result.sign));
-                    } else {
-                        ctx.bytecode.push_back(make_meas(Opcode::OP_MEAS_ACTIVE_INTERFERE,
-                                                         result.pivot, classical_idx, result.sign));
-                    }
+                    {
+                        stim::TableauTransposedRaii<kStimWidth> trans_cum(ctx.v_cum);
+                        if (result.pivot != top) {
+                            emit_swap(ctx, trans_cum, result.pivot, top);
+                            result.pivot = top;
+                        }
 
-                    // X_BASIS post-measurement: append virtual H to align coordinate system
-                    if (result.basis == CompressedBasis::X_BASIS) {
-                        stim::TableauTransposedRaii<kStimWidth> trans(ctx.v_cum);
-                        trans.append_H_XZ(result.pivot);
+                        if (result.basis == CompressedBasis::Z_BASIS) {
+                            ctx.bytecode.push_back(make_meas(Opcode::OP_MEAS_ACTIVE_DIAGONAL,
+                                                             result.pivot, classical_idx,
+                                                             result.sign));
+                        } else {
+                            ctx.bytecode.push_back(make_meas(Opcode::OP_MEAS_ACTIVE_INTERFERE,
+                                                             result.pivot, classical_idx,
+                                                             result.sign));
+                        }
+
+                        if (result.basis == CompressedBasis::X_BASIS) {
+                            trans_cum.append_H_XZ(result.pivot);
+                        }
                     }
 
                     ctx.reg_manager.deactivate();

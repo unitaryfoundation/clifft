@@ -67,12 +67,12 @@ struct alignas(32) Instruction {
     static constexpr uint8_t FLAG_HIDDEN = 1 << 1;    // Hidden measurement (not in visible record)
     static constexpr uint8_t FLAG_IDENTITY = 1 << 2;  // Identity measurement (no frame interaction)
 
-    Opcode opcode;           // Offset 0
-    uint8_t base_phase_idx;  // Offset 1
-    uint8_t flags;           // Offset 2
-    uint8_t _pad;            // Offset 3
-    uint16_t axis_1;         // Offset 4 (Virtual axis target/control)
-    uint16_t axis_2;         // Offset 6 (Virtual axis target 2)
+    Opcode opcode;      // Offset 0
+    uint8_t _reserved;  // Offset 1 (padding for 32-byte alignment)
+    uint8_t flags;      // Offset 2
+    uint8_t _pad;       // Offset 3
+    uint16_t axis_1;    // Offset 4 (Virtual axis target/control)
+    uint16_t axis_2;    // Offset 6 (Virtual axis target 2)
 
     // 24 bytes remaining for payload (offsets 8..31)
     union {

@@ -82,7 +82,15 @@ struct CompilerContext {
     ConstantPool constant_pool;
     double noise_hazards_accum = 0.0;
 
-    explicit CompilerContext(uint32_t num_qubits) : v_cum(num_qubits), reg_manager(num_qubits) {}
+    // Reusable scratch tableau for compress_pauli, avoiding per-call heap allocation.
+    stim::Tableau<kStimWidth> v_local;
+    stim::Tableau<kStimWidth> v_local_identity;
+
+    explicit CompilerContext(uint32_t num_qubits)
+        : v_cum(num_qubits),
+          reg_manager(num_qubits),
+          v_local(num_qubits),
+          v_local_identity(num_qubits) {}
 };
 
 // =============================================================================

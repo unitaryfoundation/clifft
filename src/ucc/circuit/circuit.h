@@ -41,7 +41,6 @@ struct Circuit {
     // Flat list of operations in execution order.
     std::vector<AstNode> nodes;
 
-    // Number of qubits (max qubit index + 1).
     uint32_t num_qubits = 0;
 
     // Number of visible measurements (M, MX, MY, MPP, MR, MRX).
