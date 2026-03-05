@@ -2,7 +2,9 @@
 
 #include "ucc/backend/compiler_context.h"
 
+#include <algorithm>
 #include <cassert>
+#include <cmath>
 
 namespace ucc {
 
@@ -370,8 +372,7 @@ CompiledModule lower(const HirModule& hir) {
     const uint32_t n = hir.num_qubits;
     CompilerContext ctx(n);
 
-    // Track measurement and detector indices for bytecode emission
-    uint32_t meas_emit_idx = 0;
+    // Track detector/observable emission indices
     uint32_t det_emit_idx = 0;
     uint32_t obs_emit_idx = 0;
 
@@ -442,12 +443,14 @@ CompiledModule lower(const HirModule& hir) {
             }
 
             case OpType::MEASURE: {
-                // Determine classical output index
+                // Determine classical output index: visible measurements
+                // use the front-end's pre-computed record index; hidden
+                // measurements get indices in the separate hidden range.
                 uint32_t classical_idx;
                 if (op.is_hidden()) {
                     classical_idx = hidden_meas_emit_idx++;
                 } else {
-                    classical_idx = meas_emit_idx++;
+                    classical_idx = static_cast<uint32_t>(op.meas_record_idx());
                 }
 
                 // Map the t=0 Pauli to virtual frame, then compress
@@ -548,9 +551,19 @@ CompiledModule lower(const HirModule& hir) {
                     mapped_site.channels.push_back({mapped.xs.u64[0], mapped.zs.u64[0], ch.prob});
                 }
 
+                // Compute total channel probability for gap sampling
+                double prob_sum = 0.0;
+                for (const auto& ch : mapped_site.channels) {
+                    prob_sum += ch.prob;
+                }
+
                 uint32_t cp_idx = static_cast<uint32_t>(ctx.constant_pool.noise_sites.size());
                 ctx.constant_pool.noise_sites.push_back(std::move(mapped_site));
                 ctx.bytecode.push_back(make_noise(cp_idx));
+
+                // Accumulate hazard for exponential gap sampling
+                ctx.noise_hazards_accum += -std::log(1.0 - std::min(prob_sum, 0.9999));
+                ctx.constant_pool.noise_hazards.push_back(ctx.noise_hazards_accum);
                 break;
             }
 

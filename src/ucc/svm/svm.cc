@@ -45,6 +45,22 @@ inline void bit_swap(Bitword& w1, uint16_t i1, Bitword& w2, uint16_t i2) {
     bit_set(w2, i2, tmp);
 }
 
+// Bit-weaving helpers for branchless 2-qubit iteration.
+// insert_zero_bit(val, pos) stretches val by inserting a 0 at bit position pos,
+// shifting all higher bits up. This lets us enumerate subspaces without branches.
+inline uint64_t insert_zero_bit(uint64_t val, uint16_t pos) {
+    uint64_t mask = (1ULL << pos) - 1;
+    return (val & mask) | ((val & ~mask) << 1);
+}
+
+inline uint64_t insert_two_zero_bits(uint64_t val, uint16_t bit1, uint16_t bit2) {
+    uint16_t min_bit = std::min(bit1, bit2);
+    uint16_t max_bit = std::max(bit1, bit2);
+    val = insert_zero_bit(val, min_bit);
+    val = insert_zero_bit(val, max_bit);
+    return val;
+}
+
 // Phase constants
 // Use explicit constant instead of non-standard M_SQRT1_2 (POSIX, not in C++ standard).
 constexpr double kInvSqrt2 = 0.70710678118654752440;
@@ -135,8 +151,9 @@ void SchrodingerState::reset(uint64_t seed) {
     gamma = {1.0, 0.0};
     active_k = 0;
 
-    std::fill(meas_record.begin(), meas_record.end(), 0);
-    std::fill(det_record.begin(), det_record.end(), 0);
+    // meas_record and det_record are deterministically overwritten by their
+    // respective opcodes (indexed writes, not accumulation), so zeroing is
+    // unnecessary. obs_record uses ^= accumulation and must be cleared.
     std::fill(obs_record.begin(), obs_record.end(), 0);
 
     rng_.seed(seed);
@@ -205,69 +222,60 @@ static inline void exec_frame_swap(SchrodingerState& state, uint16_t a, uint16_t
 // =============================================================================
 
 // CNOT on active axes (c=control, t=target): permutes the amplitude array
-// by swapping v[i] <-> v[j] for each pair where bit c=1 and bits c,t differ,
-// then updates the Pauli frame identically to FRAME_CNOT.
+// using branchless bit-weaving to iterate only over the 2^{k-2} relevant pairs.
 static void exec_array_cnot(SchrodingerState& state, uint16_t c, uint16_t t) {
     assert(c < state.active_k && c < 64 && "ARRAY_CNOT: control axis out of range");
     assert(t < state.active_k && t < 64 && "ARRAY_CNOT: target axis out of range");
-    uint64_t size = 1ULL << state.active_k;
+
+    uint64_t iters = 1ULL << (state.active_k - 2);
     uint64_t c_bit = 1ULL << c;
     uint64_t t_bit = 1ULL << t;
     auto* v = state.v();
 
-    for (uint64_t i = 0; i < size; ++i) {
-        // Only process indices where control bit is 1 and target bit is 0
-        if ((i & c_bit) && !(i & t_bit)) {
-            uint64_t j = i | t_bit;  // Same index but with target bit set
-            std::swap(v[i], v[j]);
-        }
+    for (uint64_t i = 0; i < iters; ++i) {
+        uint64_t base0 = insert_two_zero_bits(i, c, t) | c_bit;
+        uint64_t base1 = base0 | t_bit;
+        std::swap(v[base0], v[base1]);
     }
 
-    // Frame update (same as OP_FRAME_CNOT)
     exec_frame_cnot(state, c, t);
 }
 
 // CZ on active axes (c, t): applies diag(1,1,1,-1) in the computational basis.
-// Negates v[i] for every index where both bit c and bit t are 1,
-// then updates the Pauli frame identically to FRAME_CZ.
+// Uses branchless bit-weaving to iterate only over the 2^{k-2} indices
+// where both bit c and bit t are set.
 static void exec_array_cz(SchrodingerState& state, uint16_t c, uint16_t t) {
     assert(c < state.active_k && c < 64 && "ARRAY_CZ: control axis out of range");
     assert(t < state.active_k && t < 64 && "ARRAY_CZ: target axis out of range");
-    uint64_t size = 1ULL << state.active_k;
-    uint64_t c_bit = 1ULL << c;
-    uint64_t t_bit = 1ULL << t;
+
+    uint64_t iters = 1ULL << (state.active_k - 2);
+    uint64_t mask = (1ULL << c) | (1ULL << t);
     auto* v = state.v();
 
-    for (uint64_t i = 0; i < size; ++i) {
-        if ((i & c_bit) && (i & t_bit)) {
-            v[i] = -v[i];
-        }
+    for (uint64_t i = 0; i < iters; ++i) {
+        uint64_t idx = insert_two_zero_bits(i, c, t) | mask;
+        v[idx] = -v[idx];
     }
 
-    // Frame update (same as OP_FRAME_CZ)
     exec_frame_cz(state, c, t);
 }
 
-// SWAP on active axes (a, b): permutes the amplitude array by exchanging
-// v[i] <-> v[j] for all index pairs that differ only in bits a and b,
-// then updates the Pauli frame identically to FRAME_SWAP.
+// SWAP on active axes (a, b): permutes the amplitude array using branchless
+// bit-weaving to iterate only over the 2^{k-2} pairs that need swapping.
 static void exec_array_swap(SchrodingerState& state, uint16_t a, uint16_t b) {
     assert(a < state.active_k && a < 64 && "ARRAY_SWAP: axis a out of range");
     assert(b < state.active_k && b < 64 && "ARRAY_SWAP: axis b out of range");
-    uint64_t size = 1ULL << state.active_k;
+
+    uint64_t iters = 1ULL << (state.active_k - 2);
     uint64_t a_bit = 1ULL << a;
     uint64_t b_bit = 1ULL << b;
     auto* v = state.v();
 
-    for (uint64_t i = 0; i < size; ++i) {
-        // Only process where bit a=0, bit b=1 (to avoid double-swapping)
-        if (!(i & a_bit) && (i & b_bit)) {
-            uint64_t j = (i & ~b_bit) | a_bit;  // Flip a on, b off
-            std::swap(v[i], v[j]);
-        }
+    for (uint64_t i = 0; i < iters; ++i) {
+        uint64_t base = insert_two_zero_bits(i, a, b);
+        std::swap(v[base | a_bit], v[base | b_bit]);
     }
 
-    // Frame update (same as OP_FRAME_SWAP)
     exec_frame_swap(state, a, b);
 }
 
@@ -643,26 +651,37 @@ static void exec_apply_pauli(SchrodingerState& state, const ConstantPool& pool,
     apply_pauli_to_frame(state, pool.pauli_masks[cp_mask_idx]);
 }
 
-// NOISE: stochastic Pauli channel. Roll RNG, walk cumulative probability,
-// and if a channel fires, apply its Pauli to the frame.
+// NOISE: stochastic Pauli channel with gap-based skip optimization.
+// If this site's index doesn't match the next expected noise event, it's
+// guaranteed silent (identity) by the exponential gap sampling and we skip
+// the RNG roll entirely.
 static void exec_noise(SchrodingerState& state, const ConstantPool& pool, uint32_t site_idx) {
     assert(site_idx < pool.noise_sites.size());
-    const auto& site = pool.noise_sites[site_idx];
 
-    double rand = state.random_double();
+    if (site_idx != state.next_noise_idx)
+        return;
+
+    const auto& site = pool.noise_sites[site_idx];
+    double prob_sum = 0.0;
+    for (const auto& ch : site.channels) {
+        prob_sum += ch.prob;
+    }
+
+    double rand = state.random_double() * prob_sum;
     double cumulative = 0.0;
     for (const auto& ch : site.channels) {
         cumulative += ch.prob;
         if (rand < cumulative) {
-            // This channel fires: apply its Pauli
             stim::PauliString<kStimWidth> ps(kStimWidth);
             ps.xs.u64[0] = ch.destab_mask;
             ps.zs.u64[0] = ch.stab_mask;
             apply_pauli_to_frame(state, ps);
-            return;
+            break;
         }
     }
-    // No channel fired (identity)
+
+    state.next_noise_idx++;
+    state.draw_next_noise(pool.noise_hazards);
 }
 
 // READOUT_NOISE: classical bit-flip on a measurement result.
@@ -830,6 +849,9 @@ SampleResult sample(const CompiledModule& program, uint32_t shots, uint64_t seed
         if (shot > 0) {
             state.reset(seed + shot);
         }
+
+        state.next_noise_idx = 0;
+        state.draw_next_noise(program.constant_pool.noise_hazards);
 
         execute(program, state);
 

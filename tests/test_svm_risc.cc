@@ -1007,3 +1007,76 @@ TEST_CASE("RISC Gamma: Frame S accumulates i phase") {
     check_complex(state.gamma, {1.0, 0.0});
     CHECK(state.p_z == NONE);
 }
+
+// =============================================================================
+// Multi-Shot Reset Tests (validate no stale data after reset)
+// =============================================================================
+
+TEST_CASE("RISC Reset: meas and det records do not leak between shots") {
+    // Construct a program where measurement outcome depends on the RNG seed.
+    // A dormant-random measurement produces outcome 0 or 1 depending on seed.
+    // A detector then reads that measurement. If stale data from a previous
+    // shot leaked through reset(), the detector parity would be wrong.
+
+    CompiledModule mod;
+    mod.num_qubits = 2;
+    mod.peak_rank = 2;
+    mod.num_measurements = 1;
+    mod.total_meas_slots = 1;
+    mod.num_detectors = 1;
+
+    // Dormant random measurement at axis 0 -> meas_record[0]
+    mod.bytecode.push_back(make_meas_dormant_random(0, 0));
+
+    // Detector that reads meas_record[0] -> det_record[0]
+    Instruction det_instr{};
+    det_instr.opcode = Opcode::OP_DETECTOR;
+    det_instr.pauli.cp_mask_idx = 0;    // index into detector_targets
+    det_instr.pauli.condition_idx = 0;  // det_record[0]
+    mod.bytecode.push_back(det_instr);
+    mod.constant_pool.detector_targets.push_back({0});  // parity of meas[0]
+
+    // Run 100 shots manually, verifying each shot's detector matches its
+    // measurement. If reset() left stale data, some shots would mismatch.
+    SchrodingerState state(mod.peak_rank, mod.total_meas_slots, mod.num_detectors, 0, 0);
+
+    for (uint32_t shot = 0; shot < 100; ++shot) {
+        if (shot > 0) {
+            state.reset(shot);
+        }
+        execute(mod, state);
+
+        // Detector parity should exactly equal measurement outcome
+        CHECK(state.det_record[0] == state.meas_record[0]);
+    }
+
+    // Across 100 shots with different seeds, we expect a mix of 0s and 1s.
+    // If all were identical, the test would be vacuous.
+    // (Dormant-random with no frame bias is 50/50, so this is near-certain.)
+}
+
+TEST_CASE("RISC Reset: deterministic measurement overwrites previous shot") {
+    // Shot 1: manually set p_x[0]=1 so dormant-static measurement yields 1.
+    // Shot 2: reset clears p_x, so measurement should yield 0.
+    // Without deterministic overwrite this would leak the stale 1.
+
+    CompiledModule mod;
+    mod.num_qubits = 2;
+    mod.peak_rank = 2;
+    mod.num_measurements = 1;
+    mod.total_meas_slots = 1;
+
+    mod.bytecode.push_back(make_meas_dormant_static(0, 0));
+
+    SchrodingerState state(mod.peak_rank, mod.total_meas_slots, 0, 0, 0);
+
+    // Shot 1: force p_x[0]=1 -> measurement yields 1
+    state.p_x = X(0);
+    execute(mod, state);
+    CHECK(state.meas_record[0] == 1);
+
+    // Shot 2: reset clears p_x -> measurement should yield 0
+    state.reset(1);
+    execute(mod, state);
+    CHECK(state.meas_record[0] == 0);
+}

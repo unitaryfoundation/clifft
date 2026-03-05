@@ -80,6 +80,7 @@ struct CompilerContext {
     VirtualRegisterManager reg_manager;
     std::vector<Instruction> bytecode;
     ConstantPool constant_pool;
+    double noise_hazards_accum = 0.0;
 
     explicit CompilerContext(uint32_t num_qubits) : v_cum(num_qubits), reg_manager(num_qubits) {}
 };

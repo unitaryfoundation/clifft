@@ -138,6 +138,46 @@ class TestSample:
         meas, _, _ = ucc.sample(prog, 100, seed=42)
         assert np.all(meas == 1), "MR after X should measure 1"
 
+    def test_gap_sampling_sparse_errors(self) -> None:
+        """Verify geometric gap sampling correctly models independent errors."""
+        # 50 qubits (within 64-qubit MVP limit), each has a 2% chance
+        # of flipping. With linear sampling this is 50 RNG rolls.
+        # With gap sampling, it's ~1 roll per shot.
+        n_qubits = 50
+        p = 0.02
+        shots = 10000
+
+        # Build circuit
+        lines: list[str] = []
+        for i in range(n_qubits):
+            lines.append(f"X_ERROR({p}) {i}")
+        for i in range(n_qubits):
+            lines.append(f"M {i}")
+
+        prog = ucc.compile("\n".join(lines))
+        meas, _, _ = ucc.sample(prog, shots, seed=42)
+
+        # 1. Overall error rate should be exactly p
+        overall_rate = float(np.mean(meas))
+        tolerance = binomial_tolerance(p, n_qubits * shots, sigma=5.0)
+        assert abs(overall_rate - p) < tolerance, f"Overall rate {overall_rate} off"
+
+        # 2. Per-qubit error rate should be uniformly p across the array.
+        # This catches bugs where the jump math favors early or late indices.
+        per_qubit_rates = np.mean(meas, axis=0)
+        q_tol = binomial_tolerance(p, shots, sigma=5.0)
+        for i, rate in enumerate(per_qubit_rates):
+            assert abs(rate - p) < q_tol, f"Qubit {i} rate {rate} outside tolerance"
+
+        # 3. Check for lack of artificial correlation (adjacent suppression).
+        # The probability of (i and i+1) both being 1 should equal p^2.
+        adjacent_both_1 = float(np.mean((meas[:, :-1] == 1) & (meas[:, 1:] == 1)))
+        expected_adj = p * p
+        adj_tol = binomial_tolerance(expected_adj, (n_qubits - 1) * shots, sigma=5.0)
+        assert (
+            abs(adjacent_both_1 - expected_adj) < adj_tol
+        ), f"Adjacency correlation off: {adjacent_both_1}"
+
 
 class TestStatevector:
     """Tests for ucc.get_statevector()."""

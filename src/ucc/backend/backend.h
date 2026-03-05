@@ -132,6 +132,11 @@ struct ConstantPool {
 
     // Target lists for observable parity checks
     std::vector<std::vector<uint32_t>> observable_targets;
+
+    // Cumulative hazard table for gap-based noise sampling.
+    // Entry i = sum of -log(1 - prob_sum_j) for noise sites j=0..i.
+    // Allows O(1) skip of silent noise sites via exponential gap sampling.
+    std::vector<double> noise_hazards;
 };
 
 // =============================================================================

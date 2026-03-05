@@ -3,6 +3,8 @@
 #include "test_helpers.h"
 
 #include <catch2/catch_test_macros.hpp>
+#include <catch2/matchers/catch_matchers_floating_point.hpp>
+#include <cmath>
 #include <cstdint>
 
 using namespace ucc;
@@ -556,4 +558,41 @@ TEST_CASE("VirtualRegisterManager: peak tracking") {
     mgr.deactivate();
     REQUIRE(mgr.peak_k() == 2);  // Peak doesn't decrease
     REQUIRE(mgr.active_k() == 1);
+}
+
+// =============================================================================
+// Gap Sampling Hazard Array Tests
+// =============================================================================
+
+TEST_CASE("Backend: Gap sampling hazard array accumulation") {
+    CompilerContext ctx(3);
+
+    NoiseSite site1;
+    site1.channels.push_back({1, 0, 0.5});
+    NoiseSite site2;
+    site2.channels.push_back({2, 0, 0.75});
+    NoiseSite site3;
+    site3.channels.push_back({4, 0, 1.0});  // clamped to 0.9999
+
+    HirModule hir;
+    hir.num_qubits = 3;
+    hir.noise_sites.push_back(std::move(site1));
+    hir.noise_sites.push_back(std::move(site2));
+    hir.noise_sites.push_back(std::move(site3));
+
+    hir.ops.push_back(HeisenbergOp::make_noise(NoiseSiteIdx{0}));
+    hir.ops.push_back(HeisenbergOp::make_noise(NoiseSiteIdx{1}));
+    hir.ops.push_back(HeisenbergOp::make_noise(NoiseSiteIdx{2}));
+
+    CompiledModule prog = lower(hir);
+
+    REQUIRE(prog.constant_pool.noise_hazards.size() == 3);
+
+    double h1 = -std::log(1.0 - 0.5);
+    double h2 = h1 - std::log(1.0 - 0.75);
+    double h3 = h2 - std::log(1.0 - 0.9999);
+
+    CHECK_THAT(prog.constant_pool.noise_hazards[0], Catch::Matchers::WithinAbs(h1, 1e-5));
+    CHECK_THAT(prog.constant_pool.noise_hazards[1], Catch::Matchers::WithinAbs(h2, 1e-5));
+    CHECK_THAT(prog.constant_pool.noise_hazards[2], Catch::Matchers::WithinAbs(h3, 1e-5));
 }

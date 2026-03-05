@@ -4,7 +4,9 @@
 
 #include "stim.h"
 
+#include <algorithm>
 #include <bit>
+#include <cmath>
 #include <complex>
 #include <cstdint>
 #include <string>
@@ -129,6 +131,24 @@ class SchrodingerState {
     std::vector<uint8_t> meas_record;
     std::vector<uint8_t> det_record;
     std::vector<uint8_t> obs_record;
+
+    // Gap-based noise sampling: index of next noise site that might fire.
+    // Sites with index < next_noise_idx are guaranteed silent (identity).
+    uint32_t next_noise_idx = 0;
+
+    // Advance next_noise_idx by sampling an exponential gap.
+    // Uses the cumulative hazard table to skip silent noise sites in O(1).
+    void draw_next_noise(const std::vector<double>& hazards) {
+        if (hazards.empty() || next_noise_idx >= hazards.size()) {
+            next_noise_idx = static_cast<uint32_t>(-1);
+            return;
+        }
+        double current_hazard = (next_noise_idx == 0) ? 0.0 : hazards[next_noise_idx - 1];
+        double gap = -std::log(1.0 - random_double());
+        double target_hazard = current_hazard + gap;
+        auto it = std::upper_bound(hazards.begin(), hazards.end(), target_hazard);
+        next_noise_idx = static_cast<uint32_t>(std::distance(hazards.begin(), it));
+    }
 
   private:
     std::complex<double>* v_ = nullptr;  // 64-byte aligned
