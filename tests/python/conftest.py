@@ -35,6 +35,24 @@ def binomial_tolerance(p: float, n: int, *, sigma: float = 5.0) -> float:
     return sigma * std_err
 
 
+def cross_binomial_tolerance(p: float, n: int, *, sigma: float = 5.0) -> float:
+    """Tolerance for comparing proportions from two independent samplers.
+
+    When comparing p_hat_a - p_hat_b where both are independent binomial
+    proportions with the same underlying p and sample size n, the
+    standard error of the difference is sqrt(2) * StdErr(single).
+
+    Args:
+        p: Pooled probability estimate
+        n: Number of samples per sampler
+        sigma: Number of standard deviations for the bound
+
+    Returns:
+        Tolerance for |p_hat_a - p_hat_b| < tolerance
+    """
+    return float(np.sqrt(2.0)) * binomial_tolerance(p, n, sigma=sigma)
+
+
 def random_clifford_t_circuit(num_qubits: int, depth: int, seed: int) -> str:
     """Generate a random universal Clifford+T circuit (noiseless, no measurements)."""
     rng = np.random.default_rng(seed)

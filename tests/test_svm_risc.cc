@@ -1,6 +1,9 @@
 #include "ucc/backend/backend.h"
 #include "ucc/svm/svm.h"
 
+#include "test_helpers.h"
+#include "test_instruction_factory.h"
+
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/matchers/catch_matchers_floating_point.hpp>
 #include <cmath>
@@ -10,6 +13,24 @@
 using namespace ucc;
 using Catch::Matchers::WithinAbs;
 using Catch::Matchers::WithinRel;
+using ucc::test::check_complex;
+using ucc::test::make_array_cnot;
+using ucc::test::make_array_cz;
+using ucc::test::make_array_swap;
+using ucc::test::make_expand;
+using ucc::test::make_frame_cnot;
+using ucc::test::make_frame_cz;
+using ucc::test::make_frame_h;
+using ucc::test::make_frame_s;
+using ucc::test::make_frame_swap;
+using ucc::test::make_meas_active_diagonal;
+using ucc::test::make_meas_active_interfere;
+using ucc::test::make_meas_dormant_random;
+using ucc::test::make_meas_dormant_static;
+using ucc::test::make_phase_t;
+using ucc::test::make_phase_t_dag;
+using ucc::test::make_program;
+using ucc::test::test_lcg;
 
 // Portable 1/sqrt(2) constant (avoids non-standard M_SQRT1_2).
 constexpr double kInvSqrt2 = 0.70710678118654752440;
@@ -18,10 +39,9 @@ constexpr double kInvSqrt2 = 0.70710678118654752440;
 // Helpers
 // =============================================================================
 
-// Semantic helpers for constructing Pauli frame bitmasks.
-// X(q) produces a bitword with bit q set, for use with p_x.
-// Z(q) produces the same, for use with p_z.
-// Combine with | : e.g. state.p_x = X(0) | X(2)
+// Semantic helpers for constructing Pauli frame bitmasks as bitwords.
+// These differ from the uint64_t helpers in test_helpers.h because
+// SchrodingerState::p_x / p_z use stim::bitword<kStimWidth>.
 static stim::bitword<kStimWidth> X(uint16_t q) {
     return stim::bitword<kStimWidth>(uint64_t{1} << q);
 }
@@ -30,142 +50,7 @@ static stim::bitword<kStimWidth> Z(uint16_t q) {
 }
 static const stim::bitword<kStimWidth> NONE{uint64_t{0}};
 
-static Instruction make_frame_cnot(uint16_t c, uint16_t t) {
-    Instruction i{};
-    i.opcode = Opcode::OP_FRAME_CNOT;
-    i.axis_1 = c;
-    i.axis_2 = t;
-    return i;
-}
-
-static Instruction make_frame_cz(uint16_t c, uint16_t t) {
-    Instruction i{};
-    i.opcode = Opcode::OP_FRAME_CZ;
-    i.axis_1 = c;
-    i.axis_2 = t;
-    return i;
-}
-
-static Instruction make_frame_h(uint16_t v) {
-    Instruction i{};
-    i.opcode = Opcode::OP_FRAME_H;
-    i.axis_1 = v;
-    return i;
-}
-
-static Instruction make_frame_s(uint16_t v) {
-    Instruction i{};
-    i.opcode = Opcode::OP_FRAME_S;
-    i.axis_1 = v;
-    return i;
-}
-
-static Instruction make_frame_swap(uint16_t a, uint16_t b) {
-    Instruction i{};
-    i.opcode = Opcode::OP_FRAME_SWAP;
-    i.axis_1 = a;
-    i.axis_2 = b;
-    return i;
-}
-
-static Instruction make_array_cnot(uint16_t c, uint16_t t) {
-    Instruction i{};
-    i.opcode = Opcode::OP_ARRAY_CNOT;
-    i.axis_1 = c;
-    i.axis_2 = t;
-    return i;
-}
-
-static Instruction make_array_cz(uint16_t c, uint16_t t) {
-    Instruction i{};
-    i.opcode = Opcode::OP_ARRAY_CZ;
-    i.axis_1 = c;
-    i.axis_2 = t;
-    return i;
-}
-
-static Instruction make_array_swap(uint16_t a, uint16_t b) {
-    Instruction i{};
-    i.opcode = Opcode::OP_ARRAY_SWAP;
-    i.axis_1 = a;
-    i.axis_2 = b;
-    return i;
-}
-
-static Instruction make_expand(uint16_t v) {
-    Instruction i{};
-    i.opcode = Opcode::OP_EXPAND;
-    i.axis_1 = v;
-    return i;
-}
-
-static Instruction make_phase_t(uint16_t v) {
-    Instruction i{};
-    i.opcode = Opcode::OP_PHASE_T;
-    i.axis_1 = v;
-    return i;
-}
-
-static Instruction make_phase_t_dag(uint16_t v) {
-    Instruction i{};
-    i.opcode = Opcode::OP_PHASE_T_DAG;
-    i.axis_1 = v;
-    return i;
-}
-
-static Instruction make_meas_dormant_static(uint16_t v, uint32_t classical_idx) {
-    Instruction i{};
-    i.opcode = Opcode::OP_MEAS_DORMANT_STATIC;
-    i.axis_1 = v;
-    i.classical.classical_idx = classical_idx;
-    return i;
-}
-
-static Instruction make_meas_dormant_random(uint16_t v, uint32_t classical_idx) {
-    Instruction i{};
-    i.opcode = Opcode::OP_MEAS_DORMANT_RANDOM;
-    i.axis_1 = v;
-    i.classical.classical_idx = classical_idx;
-    return i;
-}
-
-static Instruction make_meas_active_diagonal(uint16_t v, uint32_t classical_idx) {
-    Instruction i{};
-    i.opcode = Opcode::OP_MEAS_ACTIVE_DIAGONAL;
-    i.axis_1 = v;
-    i.classical.classical_idx = classical_idx;
-    return i;
-}
-
-static Instruction make_meas_active_interfere(uint16_t v, uint32_t classical_idx) {
-    Instruction i{};
-    i.opcode = Opcode::OP_MEAS_ACTIVE_INTERFERE;
-    i.axis_1 = v;
-    i.classical.classical_idx = classical_idx;
-    return i;
-}
-
-// Build a minimal CompiledModule from bytecode
-static CompiledModule make_program(std::vector<Instruction> bytecode, uint32_t peak_rank,
-                                   uint32_t num_meas = 0, uint32_t num_det = 0,
-                                   uint32_t num_obs = 0) {
-    CompiledModule mod;
-    mod.bytecode = std::move(bytecode);
-    mod.peak_rank = peak_rank;
-    mod.num_measurements = num_meas;
-    mod.num_detectors = num_det;
-    mod.num_observables = num_obs;
-    return mod;
-}
-
 constexpr double kTol = 1e-12;
-
-// Check if two complex numbers are close
-static void check_complex(std::complex<double> actual, std::complex<double> expected,
-                          double tol = kTol) {
-    CHECK_THAT(actual.real(), WithinAbs(expected.real(), tol));
-    CHECK_THAT(actual.imag(), WithinAbs(expected.imag(), tol));
-}
 
 // =============================================================================
 // Frame Opcode Tests
@@ -1085,12 +970,6 @@ TEST_CASE("RISC Reset: deterministic measurement overwrites previous shot") {
 // Phase 3 Hardening: Array Compaction Fuzzers
 // =============================================================================
 
-// Simple LCG for deterministic test-local RNG.
-static uint64_t test_lcg(uint64_t& seed) {
-    seed = seed * 6364136223846793005ULL + 1442695040888963407ULL;
-    return seed;
-}
-
 // Generate a random complex number with magnitude in [0, 1].
 static std::complex<double> random_complex(uint64_t& seed) {
     double re = static_cast<double>(test_lcg(seed) >> 11) * 0x1.0p-53 * 2.0 - 1.0;
@@ -1132,6 +1011,20 @@ TEST_CASE("Compaction fuzz: active diagonal preserves norm - k=4") {
 
         CHECK_THAT(physical_norm(state), WithinAbs(1.0, 1e-10));
 
+        // Calculate theoretical branch probabilities before measurement
+        double prob_b0 = 0.0;
+        double prob_b1 = 0.0;
+        uint64_t half = 1ULL << 3;  // k-1 = 3
+        for (uint64_t i = 0; i < half; ++i) {
+            prob_b0 += std::norm(state.v()[i]);
+            prob_b1 += std::norm(state.v()[i + half]);
+        }
+        double total_prob = prob_b0 + prob_b1;
+        double gamma_mag_before = std::abs(state.gamma);
+
+        // Save frame bit before execute (measurement overwrites p_x)
+        bool px_v_before = (state.p_x.val >> 3) & 1;
+
         // Measure top axis (k-1 = 3) in Z-basis
         auto prog = make_program({make_meas_active_diagonal(3, 0)}, 4, 1);
         execute(prog, state);
@@ -1139,6 +1032,14 @@ TEST_CASE("Compaction fuzz: active diagonal preserves norm - k=4") {
         CHECK(state.active_k == 3);
         CHECK(state.meas_record[0] <= 1);
         CHECK_THAT(physical_norm(state), WithinAbs(1.0, 1e-9));
+
+        // Verify the VM scaled gamma by the exact theoretical probability
+        uint8_t m_phys = state.meas_record[0];
+        uint8_t b_chosen = m_phys ^ static_cast<uint8_t>(px_v_before);
+        double p_chosen = (b_chosen == 0) ? prob_b0 : prob_b1;
+        double expected_gamma_scale = std::sqrt(total_prob / p_chosen);
+        double actual_gamma_scale = std::abs(state.gamma) / gamma_mag_before;
+        CHECK_THAT(actual_gamma_scale, WithinRel(expected_gamma_scale, 1e-9));
     }
 }
 
@@ -1163,12 +1064,36 @@ TEST_CASE("Compaction fuzz: active interfere preserves norm - k=4") {
 
         CHECK_THAT(physical_norm(state), WithinAbs(1.0, 1e-10));
 
+        // Calculate theoretical X-basis branch probabilities before measurement
+        double prob_plus = 0.0;
+        double prob_minus = 0.0;
+        uint64_t half = 1ULL << 3;  // k-1 = 3
+        for (uint64_t i = 0; i < half; ++i) {
+            auto sum = state.v()[i] + state.v()[i + half];
+            auto diff = state.v()[i] - state.v()[i + half];
+            prob_plus += std::norm(sum);
+            prob_minus += std::norm(diff);
+        }
+        double total_prob = prob_plus + prob_minus;
+        double gamma_mag_before = std::abs(state.gamma);
+
+        // Save frame bit before execute (measurement overwrites p_z)
+        bool pz_v_before = (state.p_z.val >> 3) & 1;
+
         auto prog = make_program({make_meas_active_interfere(3, 0)}, 4, 1);
         execute(prog, state);
 
         CHECK(state.active_k == 3);
         CHECK(state.meas_record[0] <= 1);
         CHECK_THAT(physical_norm(state), WithinAbs(1.0, 1e-9));
+
+        // Verify the VM scaled gamma by the exact theoretical probability
+        uint8_t m_phys = state.meas_record[0];
+        uint8_t bx_chosen = m_phys ^ static_cast<uint8_t>(pz_v_before);
+        double p_chosen = (bx_chosen == 0) ? prob_plus : prob_minus;
+        double expected_gamma_scale = std::sqrt(total_prob / p_chosen);
+        double actual_gamma_scale = std::abs(state.gamma) / gamma_mag_before;
+        CHECK_THAT(actual_gamma_scale, WithinRel(expected_gamma_scale, 1e-9));
     }
 }
 
@@ -1230,11 +1155,33 @@ TEST_CASE("Compaction fuzz: diagonal with pre-existing Pauli frame") {
         state.p_x = stim::bitword<kStimWidth>(px);
         state.p_z = stim::bitword<kStimWidth>(pz);
 
+        // Calculate theoretical branch probabilities before measurement
+        double prob_b0 = 0.0;
+        double prob_b1 = 0.0;
+        uint64_t half = 1ULL << 3;
+        for (uint64_t i = 0; i < half; ++i) {
+            prob_b0 += std::norm(state.v()[i]);
+            prob_b1 += std::norm(state.v()[i + half]);
+        }
+        double total_prob = prob_b0 + prob_b1;
+        double gamma_mag_before = std::abs(state.gamma);
+
+        // Save frame bit before execute (measurement overwrites p_x)
+        bool px_v_before = (state.p_x.val >> 3) & 1;
+
         auto prog = make_program({make_meas_active_diagonal(3, 0)}, 4, 1);
         execute(prog, state);
 
         CHECK(state.active_k == 3);
         CHECK_THAT(physical_norm(state), WithinAbs(1.0, 1e-9));
+
+        // Verify exact probability scaling
+        uint8_t m_phys = state.meas_record[0];
+        uint8_t b_chosen = m_phys ^ static_cast<uint8_t>(px_v_before);
+        double p_chosen = (b_chosen == 0) ? prob_b0 : prob_b1;
+        double expected_gamma_scale = std::sqrt(total_prob / p_chosen);
+        double actual_gamma_scale = std::abs(state.gamma) / gamma_mag_before;
+        CHECK_THAT(actual_gamma_scale, WithinRel(expected_gamma_scale, 1e-9));
     }
 }
 
@@ -1261,11 +1208,35 @@ TEST_CASE("Compaction fuzz: interfere with pre-existing Pauli frame") {
         state.p_x = stim::bitword<kStimWidth>(px);
         state.p_z = stim::bitword<kStimWidth>(pz);
 
+        // Calculate theoretical X-basis branch probabilities before measurement
+        double prob_plus = 0.0;
+        double prob_minus = 0.0;
+        uint64_t half = 1ULL << 3;
+        for (uint64_t i = 0; i < half; ++i) {
+            auto sum = state.v()[i] + state.v()[i + half];
+            auto diff = state.v()[i] - state.v()[i + half];
+            prob_plus += std::norm(sum);
+            prob_minus += std::norm(diff);
+        }
+        double total_prob = prob_plus + prob_minus;
+        double gamma_mag_before = std::abs(state.gamma);
+
+        // Save frame bit before execute (measurement overwrites p_z)
+        bool pz_v_before = (state.p_z.val >> 3) & 1;
+
         auto prog = make_program({make_meas_active_interfere(3, 0)}, 4, 1);
         execute(prog, state);
 
         CHECK(state.active_k == 3);
         CHECK_THAT(physical_norm(state), WithinAbs(1.0, 1e-9));
+
+        // Verify exact probability scaling
+        uint8_t m_phys = state.meas_record[0];
+        uint8_t bx_chosen = m_phys ^ static_cast<uint8_t>(pz_v_before);
+        double p_chosen = (bx_chosen == 0) ? prob_plus : prob_minus;
+        double expected_gamma_scale = std::sqrt(total_prob / p_chosen);
+        double actual_gamma_scale = std::abs(state.gamma) / gamma_mag_before;
+        CHECK_THAT(actual_gamma_scale, WithinRel(expected_gamma_scale, 1e-9));
     }
 }
 

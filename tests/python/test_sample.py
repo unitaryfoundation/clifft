@@ -44,14 +44,14 @@ class TestSample:
     def test_sample_deterministic_zero(self) -> None:
         """Measurement of |0> always gives 0."""
         prog = ucc.compile("M 0")
-        meas, det, obs = ucc.sample(prog, 100, seed=42)
+        meas, _, _ = ucc.sample(prog, 100, seed=42)
         for shot in meas:
             assert shot[0] == 0
 
     def test_sample_deterministic_one(self) -> None:
         """Measurement of |1> always gives 1."""
         prog = ucc.compile("X 0\nM 0")
-        meas, det, obs = ucc.sample(prog, 100, seed=42)
+        meas, _, _ = ucc.sample(prog, 100, seed=42)
         for shot in meas:
             assert shot[0] == 1
 
@@ -59,7 +59,7 @@ class TestSample:
         """|+> state gives roughly 50/50 distribution."""
         prog = ucc.compile("H 0\nM 0")
         shots = 1000
-        meas, det, obs = ucc.sample(prog, shots, seed=42)
+        meas, _, _ = ucc.sample(prog, shots, seed=42)
         p0 = float(np.mean(meas[:, 0] == 0))
         p1 = float(np.mean(meas[:, 0] == 1))
         tolerance = binomial_tolerance(0.5, shots)
@@ -74,7 +74,7 @@ class TestSample:
             M 0
             M 1
         """)
-        meas, det, obs = ucc.sample(prog, 500, seed=99)
+        meas, _, _ = ucc.sample(prog, 500, seed=99)
         for shot in meas:
             assert shot[0] == shot[1], f"Bell state not correlated: {shot}"
 
@@ -111,7 +111,7 @@ class TestSample:
             R 0
             M 0
         """)
-        meas, det, obs = ucc.sample(prog, 100, seed=42)
+        meas, _, _ = ucc.sample(prog, 100, seed=42)
         # Only one visible measurement (from M 0, after reset)
         # R's internal measurement is hidden, matching Stim behavior
         assert meas.shape == (100, 1), f"Expected 1 visible measurement, got {meas.shape}"

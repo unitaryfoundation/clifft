@@ -12,6 +12,7 @@
 
 using namespace ucc;
 using namespace ucc::internal;
+using ucc::test::test_lcg;
 using ucc::test::X;
 using ucc::test::Y;
 using ucc::test::Z;
@@ -28,6 +29,52 @@ static stim::PauliString<kStimWidth> make_pauli(uint32_t n, uint64_t x_bits, uin
     p.zs.u64[0] = z_bits;
     p.sign = sign;
     return p;
+}
+
+// Build a Stim Tableau from a sequence of RISC bytecode instructions.
+// Only handles frame/array gate opcodes (CNOT, CZ, H, S, SWAP).
+// This reconstructs the virtual-coordinate transformation from the raw
+// bytecode, independently of v_cum, to verify the compiler's emission.
+static stim::Tableau<kStimWidth> bytecode_to_tableau(const std::vector<Instruction>& bytecode,
+                                                     uint32_t num_qubits) {
+    stim::Tableau<kStimWidth> tab(num_qubits);
+    {
+        // Use transposed append to mirror how the compiler builds v_local.
+        // This ensures sign tracking matches the compiler exactly.
+        stim::TableauTransposedRaii<kStimWidth> trans(tab);
+        for (const auto& instr : bytecode) {
+            uint16_t a = instr.axis_1;
+            uint16_t b = instr.axis_2;
+            switch (instr.opcode) {
+                case Opcode::OP_FRAME_CNOT:
+                case Opcode::OP_ARRAY_CNOT:
+                    trans.append_ZCX(a, b);
+                    break;
+                case Opcode::OP_FRAME_CZ:
+                case Opcode::OP_ARRAY_CZ:
+                    trans.append_ZCZ(a, b);
+                    break;
+                case Opcode::OP_FRAME_H:
+                case Opcode::OP_ARRAY_H:
+                    trans.append_H_XZ(a);
+                    break;
+                case Opcode::OP_FRAME_S:
+                case Opcode::OP_ARRAY_S:
+                    trans.append_S(a);
+                    break;
+                case Opcode::OP_FRAME_SWAP:
+                case Opcode::OP_ARRAY_SWAP:
+                    // Match the 3-CNOT decomposition emitted by the compiler
+                    trans.append_ZCX(a, b);
+                    trans.append_ZCX(b, a);
+                    trans.append_ZCX(a, b);
+                    break;
+                default:
+                    break;
+            }
+        }
+    }  // trans goes out of scope and un-transposes
+    return tab;
 }
 
 // Verify that V_cum P V_cum^dag is a single-qubit Pauli on the expected pivot.
@@ -63,6 +110,37 @@ static stim::PauliString<kStimWidth> verify_compression(const CompilerContext& c
     return compressed;
 }
 
+// Verify that the emitted bytecode independently transforms the input Pauli
+// to a weight-1 Pauli on the declared pivot. This catches bugs where v_cum
+// is updated correctly but the bytecode emission is wrong (e.g., swapped
+// control/target on a CNOT).
+static void verify_bytecode_compression(const CompilerContext& ctx,
+                                        const stim::PauliString<kStimWidth>& input,
+                                        const CompressionResult& result) {
+    stim::Tableau<kStimWidth> tab =
+        bytecode_to_tableau(ctx.bytecode, static_cast<uint32_t>(input.num_qubits));
+    stim::PauliString<kStimWidth> compressed = tab(input);
+    uint64_t cx = compressed.xs.u64[0];
+    uint64_t cz = compressed.zs.u64[0];
+
+    uint64_t support = cx | cz;
+    REQUIRE(support != 0);
+    REQUIRE((support & (support - 1)) == 0);
+
+    uint16_t actual_pivot = static_cast<uint16_t>(__builtin_ctzll(support));
+    REQUIRE(actual_pivot == result.pivot);
+
+    if (result.basis == CompressedBasis::X_BASIS) {
+        REQUIRE((cx & (1ULL << result.pivot)) != 0);
+        REQUIRE((cz & (1ULL << result.pivot)) == 0);
+    } else {
+        REQUIRE((cx & (1ULL << result.pivot)) == 0);
+        REQUIRE((cz & (1ULL << result.pivot)) != 0);
+    }
+
+    REQUIRE(compressed.sign == result.sign);
+}
+
 // Count opcodes of a given type in the bytecode.
 static uint32_t count_opcodes(const std::vector<Instruction>& bytecode, Opcode op) {
     uint32_t count = 0;
@@ -77,7 +155,8 @@ static uint32_t count_opcodes(const std::vector<Instruction>& bytecode, Opcode o
 static bool all_frame_opcodes(const std::vector<Instruction>& bytecode) {
     for (const auto& instr : bytecode) {
         if (instr.opcode == Opcode::OP_ARRAY_CNOT || instr.opcode == Opcode::OP_ARRAY_CZ ||
-            instr.opcode == Opcode::OP_ARRAY_SWAP) {
+            instr.opcode == Opcode::OP_ARRAY_SWAP || instr.opcode == Opcode::OP_ARRAY_H ||
+            instr.opcode == Opcode::OP_ARRAY_S) {
             return false;
         }
     }
@@ -98,6 +177,7 @@ TEST_CASE("Compress: single-qubit Z needs no gates") {
     REQUIRE(result.sign == false);
     REQUIRE(ctx.bytecode.empty());
     verify_compression(ctx, pauli, result);
+    verify_bytecode_compression(ctx, pauli, result);
 }
 
 TEST_CASE("Compress: single-qubit X needs no gates") {
@@ -110,6 +190,7 @@ TEST_CASE("Compress: single-qubit X needs no gates") {
     REQUIRE(result.sign == false);
     REQUIRE(ctx.bytecode.empty());
     verify_compression(ctx, pauli, result);
+    verify_bytecode_compression(ctx, pauli, result);
 }
 
 TEST_CASE("Compress: single-qubit Y emits S gate") {
@@ -123,6 +204,7 @@ TEST_CASE("Compress: single-qubit Y emits S gate") {
     REQUIRE(result.sign == true);
     REQUIRE(count_opcodes(ctx.bytecode, Opcode::OP_FRAME_S) == 1);
     verify_compression(ctx, pauli, result);
+    verify_bytecode_compression(ctx, pauli, result);
 }
 
 // =============================================================================
@@ -138,6 +220,7 @@ TEST_CASE("Compress: two-qubit ZZ string") {
     // One CNOT needed to fold the second Z onto the pivot
     REQUIRE(ctx.bytecode.size() == 1);
     verify_compression(ctx, pauli, result);
+    verify_bytecode_compression(ctx, pauli, result);
 }
 
 TEST_CASE("Compress: three-qubit ZZZ string") {
@@ -149,6 +232,7 @@ TEST_CASE("Compress: three-qubit ZZZ string") {
     // Two CNOTs needed
     REQUIRE(ctx.bytecode.size() == 2);
     verify_compression(ctx, pauli, result);
+    verify_bytecode_compression(ctx, pauli, result);
 }
 
 // =============================================================================
@@ -163,6 +247,7 @@ TEST_CASE("Compress: two-qubit XX string") {
     REQUIRE(result.basis == CompressedBasis::X_BASIS);
     REQUIRE(ctx.bytecode.size() == 1);
     verify_compression(ctx, pauli, result);
+    verify_bytecode_compression(ctx, pauli, result);
 }
 
 TEST_CASE("Compress: XX with Z residue needs CNOT plus CZ") {
@@ -172,6 +257,7 @@ TEST_CASE("Compress: XX with Z residue needs CNOT plus CZ") {
 
     REQUIRE(result.basis == CompressedBasis::X_BASIS);
     verify_compression(ctx, pauli, result);
+    verify_bytecode_compression(ctx, pauli, result);
 }
 
 TEST_CASE("Compress: XZ mixed two-qubit") {
@@ -183,6 +269,7 @@ TEST_CASE("Compress: XZ mixed two-qubit") {
     REQUIRE(result.basis == CompressedBasis::X_BASIS);
     REQUIRE(ctx.bytecode.size() == 1);
     verify_compression(ctx, pauli, result);
+    verify_bytecode_compression(ctx, pauli, result);
 }
 
 // =============================================================================
@@ -196,6 +283,7 @@ TEST_CASE("Compress: negative Z preserves sign") {
 
     REQUIRE(result.sign == true);
     verify_compression(ctx, pauli, result);
+    verify_bytecode_compression(ctx, pauli, result);
 }
 
 TEST_CASE("Compress: negative X preserves sign") {
@@ -205,6 +293,7 @@ TEST_CASE("Compress: negative X preserves sign") {
 
     REQUIRE(result.sign == true);
     verify_compression(ctx, pauli, result);
+    verify_bytecode_compression(ctx, pauli, result);
 }
 
 TEST_CASE("Compress: negative Y gives positive X after S") {
@@ -216,6 +305,7 @@ TEST_CASE("Compress: negative Y gives positive X after S") {
     // -Y -> S -> -(-X) = +X, so sign should be false
     REQUIRE(result.sign == false);
     verify_compression(ctx, pauli, result);
+    verify_bytecode_compression(ctx, pauli, result);
 }
 
 // =============================================================================
@@ -235,6 +325,7 @@ TEST_CASE("Compress: X-compression prefers dormant pivot") {
     REQUIRE(result.basis == CompressedBasis::X_BASIS);
     REQUIRE(all_frame_opcodes(ctx.bytecode));
     verify_compression(ctx, pauli, result);
+    verify_bytecode_compression(ctx, pauli, result);
 }
 
 TEST_CASE("Compress: Z-compression prefers active pivot") {
@@ -251,6 +342,7 @@ TEST_CASE("Compress: Z-compression prefers active pivot") {
     REQUIRE(result.basis == CompressedBasis::Z_BASIS);
     REQUIRE(all_frame_opcodes(ctx.bytecode));
     verify_compression(ctx, pauli, result);
+    verify_bytecode_compression(ctx, pauli, result);
 }
 
 // =============================================================================
@@ -269,6 +361,7 @@ TEST_CASE("Compress: all-active X-support emits array opcodes") {
     REQUIRE(result.basis == CompressedBasis::X_BASIS);
     REQUIRE(count_opcodes(ctx.bytecode, Opcode::OP_ARRAY_CNOT) == 1);
     verify_compression(ctx, pauli, result);
+    verify_bytecode_compression(ctx, pauli, result);
 }
 
 TEST_CASE("Compress: all-active CZ emits array CZ") {
@@ -282,6 +375,7 @@ TEST_CASE("Compress: all-active CZ emits array CZ") {
     REQUIRE(result.pivot == 0);
     REQUIRE(count_opcodes(ctx.bytecode, Opcode::OP_ARRAY_CZ) == 1);
     verify_compression(ctx, pauli, result);
+    verify_bytecode_compression(ctx, pauli, result);
 }
 
 // =============================================================================
@@ -290,24 +384,20 @@ TEST_CASE("Compress: all-active CZ emits array CZ") {
 
 TEST_CASE("Compress: random heavy Paulis compress to weight-1") {
     uint64_t seed = 0xDEADBEEF;
-    auto next_rand = [&seed]() -> uint64_t {
-        seed = seed * 6364136223846793005ULL + 1442695040888963407ULL;
-        return seed;
-    };
 
     for (int trial = 0; trial < 100; ++trial) {
         const uint32_t n = 20;
         CompilerContext ctx(n);
 
         // Activate a random contiguous prefix 0..k-1.
-        uint32_t k = static_cast<uint32_t>(next_rand() % (n + 1));
+        uint32_t k = static_cast<uint32_t>(test_lcg(seed) % (n + 1));
         for (uint32_t i = 0; i < k; ++i) {
             ctx.reg_manager.activate();
         }
 
         uint64_t qubit_mask = (1ULL << n) - 1;
-        uint64_t x_bits = next_rand() & qubit_mask;
-        uint64_t z_bits = next_rand() & qubit_mask;
+        uint64_t x_bits = test_lcg(seed) & qubit_mask;
+        uint64_t z_bits = test_lcg(seed) & qubit_mask;
         if ((x_bits | z_bits) == 0) {
             x_bits = 1;
         }
@@ -315,29 +405,26 @@ TEST_CASE("Compress: random heavy Paulis compress to weight-1") {
         auto pauli = make_pauli(n, x_bits, z_bits);
         auto result = compress_pauli(ctx, pauli);
         verify_compression(ctx, pauli, result);
+        verify_bytecode_compression(ctx, pauli, result);
     }
 }
 
 TEST_CASE("Compress: random heavy Paulis with sign") {
     uint64_t seed = 0xCAFEBABE;
-    auto next_rand = [&seed]() -> uint64_t {
-        seed = seed * 6364136223846793005ULL + 1442695040888963407ULL;
-        return seed;
-    };
 
     for (int trial = 0; trial < 50; ++trial) {
         const uint32_t n = 15;
         CompilerContext ctx(n);
 
-        uint32_t k = static_cast<uint32_t>(next_rand() % (n + 1));
+        uint32_t k = static_cast<uint32_t>(test_lcg(seed) % (n + 1));
         for (uint32_t i = 0; i < k; ++i) {
             ctx.reg_manager.activate();
         }
 
         uint64_t qubit_mask = (1ULL << n) - 1;
-        uint64_t x_bits = next_rand() & qubit_mask;
-        uint64_t z_bits = next_rand() & qubit_mask;
-        bool sign = (next_rand() & 1) != 0;
+        uint64_t x_bits = test_lcg(seed) & qubit_mask;
+        uint64_t z_bits = test_lcg(seed) & qubit_mask;
+        bool sign = (test_lcg(seed) & 1) != 0;
         if ((x_bits | z_bits) == 0) {
             z_bits = 1;
         }
@@ -345,6 +432,7 @@ TEST_CASE("Compress: random heavy Paulis with sign") {
         auto pauli = make_pauli(n, x_bits, z_bits, sign);
         auto result = compress_pauli(ctx, pauli);
         verify_compression(ctx, pauli, result);
+        verify_bytecode_compression(ctx, pauli, result);
     }
 }
 
@@ -354,18 +442,14 @@ TEST_CASE("Compress: random heavy Paulis with sign") {
 
 TEST_CASE("Compress: all-dormant heavy Pauli emits only frame opcodes") {
     uint64_t seed = 0x12345678;
-    auto next_rand = [&seed]() -> uint64_t {
-        seed = seed * 6364136223846793005ULL + 1442695040888963407ULL;
-        return seed;
-    };
 
     for (int trial = 0; trial < 50; ++trial) {
         const uint32_t n = 16;
         CompilerContext ctx(n);  // All dormant
 
         uint64_t qubit_mask = (1ULL << n) - 1;
-        uint64_t x_bits = next_rand() & qubit_mask;
-        uint64_t z_bits = next_rand() & qubit_mask;
+        uint64_t x_bits = test_lcg(seed) & qubit_mask;
+        uint64_t z_bits = test_lcg(seed) & qubit_mask;
         if ((x_bits | z_bits) == 0) {
             x_bits = 1;
         }
@@ -375,6 +459,7 @@ TEST_CASE("Compress: all-dormant heavy Pauli emits only frame opcodes") {
 
         REQUIRE(all_frame_opcodes(ctx.bytecode));
         verify_compression(ctx, pauli, result);
+        verify_bytecode_compression(ctx, pauli, result);
     }
 }
 
@@ -479,6 +564,7 @@ TEST_CASE("Compress: array opcode axes are literal axis indices") {
     }
     REQUIRE(found);
     verify_compression(ctx, pauli, result);
+    verify_bytecode_compression(ctx, pauli, result);
 }
 
 // =============================================================================
@@ -496,6 +582,7 @@ TEST_CASE("Compress: full-width X string on 20 qubits") {
     // n-1 CNOTs to clear all X except pivot
     REQUIRE(ctx.bytecode.size() == n - 1);
     verify_compression(ctx, pauli, result);
+    verify_bytecode_compression(ctx, pauli, result);
 }
 
 TEST_CASE("Compress: full-width Z string on 20 qubits") {
@@ -508,6 +595,7 @@ TEST_CASE("Compress: full-width Z string on 20 qubits") {
     REQUIRE(result.basis == CompressedBasis::Z_BASIS);
     REQUIRE(ctx.bytecode.size() == n - 1);
     verify_compression(ctx, pauli, result);
+    verify_bytecode_compression(ctx, pauli, result);
 }
 
 TEST_CASE("Compress: full-width Y string on 10 qubits") {
@@ -519,6 +607,7 @@ TEST_CASE("Compress: full-width Y string on 10 qubits") {
 
     REQUIRE(result.basis == CompressedBasis::X_BASIS);
     verify_compression(ctx, pauli, result);
+    verify_bytecode_compression(ctx, pauli, result);
 }
 
 // =============================================================================
@@ -604,12 +693,6 @@ TEST_CASE("Backend: Gap sampling hazard array accumulation") {
 // Phase 2 Hardening: Scaled Compressor Fuzzing
 // =============================================================================
 
-// Simple LCG for deterministic test-local RNG.
-static uint64_t fuzz_lcg(uint64_t& seed) {
-    seed = seed * 6364136223846793005ULL + 1442695040888963407ULL;
-    return seed;
-}
-
 TEST_CASE("Compress fuzz: 30-qubit heavy Paulis 500 trials") {
     uint64_t seed = 0xA5A5A5A5;
     const uint32_t n = 30;
@@ -617,14 +700,14 @@ TEST_CASE("Compress fuzz: 30-qubit heavy Paulis 500 trials") {
     for (int trial = 0; trial < 500; ++trial) {
         CompilerContext ctx(n);
 
-        uint32_t k = static_cast<uint32_t>(fuzz_lcg(seed) % (n + 1));
+        uint32_t k = static_cast<uint32_t>(test_lcg(seed) % (n + 1));
         for (uint32_t i = 0; i < k; ++i) {
             ctx.reg_manager.activate();
         }
 
         uint64_t qubit_mask = (1ULL << n) - 1;
-        uint64_t x_bits = fuzz_lcg(seed) & qubit_mask;
-        uint64_t z_bits = fuzz_lcg(seed) & qubit_mask;
+        uint64_t x_bits = test_lcg(seed) & qubit_mask;
+        uint64_t z_bits = test_lcg(seed) & qubit_mask;
         if ((x_bits | z_bits) == 0) {
             x_bits = 1;
         }
@@ -632,6 +715,7 @@ TEST_CASE("Compress fuzz: 30-qubit heavy Paulis 500 trials") {
         auto pauli = make_pauli(n, x_bits, z_bits);
         auto result = compress_pauli(ctx, pauli);
         verify_compression(ctx, pauli, result);
+        verify_bytecode_compression(ctx, pauli, result);
     }
 }
 
@@ -642,14 +726,14 @@ TEST_CASE("Compress fuzz: 64-qubit max-width Paulis") {
     for (int trial = 0; trial < 200; ++trial) {
         CompilerContext ctx(n);
 
-        uint32_t k = static_cast<uint32_t>(fuzz_lcg(seed) % (n + 1));
+        uint32_t k = static_cast<uint32_t>(test_lcg(seed) % (n + 1));
         for (uint32_t i = 0; i < k; ++i) {
             ctx.reg_manager.activate();
         }
 
         // Full 64-bit masks, no masking needed
-        uint64_t x_bits = fuzz_lcg(seed);
-        uint64_t z_bits = fuzz_lcg(seed);
+        uint64_t x_bits = test_lcg(seed);
+        uint64_t z_bits = test_lcg(seed);
         if ((x_bits | z_bits) == 0) {
             x_bits = 1;
         }
@@ -657,6 +741,7 @@ TEST_CASE("Compress fuzz: 64-qubit max-width Paulis") {
         auto pauli = make_pauli(n, x_bits, z_bits);
         auto result = compress_pauli(ctx, pauli);
         verify_compression(ctx, pauli, result);
+        verify_bytecode_compression(ctx, pauli, result);
     }
 }
 
@@ -674,6 +759,7 @@ TEST_CASE("Compress adversarial: all-Y strings") {
 
         REQUIRE(result.basis == CompressedBasis::X_BASIS);
         verify_compression(ctx, pauli, result);
+        verify_bytecode_compression(ctx, pauli, result);
     }
 }
 
@@ -691,6 +777,7 @@ TEST_CASE("Compress adversarial: all-Y with varied active partitions") {
 
         REQUIRE(result.basis == CompressedBasis::X_BASIS);
         verify_compression(ctx, pauli, result);
+        verify_bytecode_compression(ctx, pauli, result);
     }
 }
 
@@ -709,6 +796,7 @@ TEST_CASE("Compress adversarial: checkerboard X-Z pattern") {
         auto pauli = make_pauli(n, x_bits, z_bits);
         auto result = compress_pauli(ctx, pauli);
         verify_compression(ctx, pauli, result);
+        verify_bytecode_compression(ctx, pauli, result);
     }
 }
 
@@ -723,6 +811,7 @@ TEST_CASE("Compress adversarial: single X rest Z") {
         REQUIRE(result.pivot == 0);
         REQUIRE(result.basis == CompressedBasis::X_BASIS);
         verify_compression(ctx, pauli, result);
+        verify_bytecode_compression(ctx, pauli, result);
     }
 }
 
@@ -740,6 +829,7 @@ TEST_CASE("Compress adversarial: single X rest Z with active pivot") {
     REQUIRE(result.pivot == 0);
     REQUIRE(result.basis == CompressedBasis::X_BASIS);
     verify_compression(ctx, pauli, result);
+    verify_bytecode_compression(ctx, pauli, result);
 }
 
 TEST_CASE("Compress adversarial: dense XZ overlap") {
@@ -750,15 +840,15 @@ TEST_CASE("Compress adversarial: dense XZ overlap") {
 
     for (int trial = 0; trial < 100; ++trial) {
         CompilerContext ctx(n);
-        uint32_t k = static_cast<uint32_t>(fuzz_lcg(seed) % (n + 1));
+        uint32_t k = static_cast<uint32_t>(test_lcg(seed) % (n + 1));
         for (uint32_t i = 0; i < k; ++i) {
             ctx.reg_manager.activate();
         }
 
         // Generate masks with high density (~75% bits set)
         uint64_t qubit_mask = (1ULL << n) - 1;
-        uint64_t x_bits = (fuzz_lcg(seed) | fuzz_lcg(seed)) & qubit_mask;
-        uint64_t z_bits = (fuzz_lcg(seed) | fuzz_lcg(seed)) & qubit_mask;
+        uint64_t x_bits = (test_lcg(seed) | test_lcg(seed)) & qubit_mask;
+        uint64_t z_bits = (test_lcg(seed) | test_lcg(seed)) & qubit_mask;
         if ((x_bits | z_bits) == 0) {
             x_bits = 1;
         }
@@ -766,6 +856,7 @@ TEST_CASE("Compress adversarial: dense XZ overlap") {
         auto pauli = make_pauli(n, x_bits, z_bits);
         auto result = compress_pauli(ctx, pauli);
         verify_compression(ctx, pauli, result);
+        verify_bytecode_compression(ctx, pauli, result);
     }
 }
 
@@ -787,13 +878,13 @@ TEST_CASE("Compress sequential: 20 compressions on 20 qubits") {
         stim::Tableau<kStimWidth> snap = ctx.v_cum;
 
         uint64_t qubit_mask = (1ULL << n) - 1;
-        uint64_t x_bits = fuzz_lcg(seed) & qubit_mask;
-        uint64_t z_bits = fuzz_lcg(seed) & qubit_mask;
+        uint64_t x_bits = test_lcg(seed) & qubit_mask;
+        uint64_t z_bits = test_lcg(seed) & qubit_mask;
         if ((x_bits | z_bits) == 0) {
             x_bits = 1;
         }
 
-        auto pauli = make_pauli(n, x_bits, z_bits, (fuzz_lcg(seed) & 1) != 0);
+        auto pauli = make_pauli(n, x_bits, z_bits, (test_lcg(seed) & 1) != 0);
         auto result = compress_pauli(ctx, pauli);
         verify_sequential_compression(snap, ctx.v_cum, pauli, result);
     }
@@ -812,13 +903,13 @@ TEST_CASE("Compress sequential: 30 compressions on 30 qubits all-active") {
         stim::Tableau<kStimWidth> snap = ctx.v_cum;
 
         uint64_t qubit_mask = (1ULL << n) - 1;
-        uint64_t x_bits = fuzz_lcg(seed) & qubit_mask;
-        uint64_t z_bits = fuzz_lcg(seed) & qubit_mask;
+        uint64_t x_bits = test_lcg(seed) & qubit_mask;
+        uint64_t z_bits = test_lcg(seed) & qubit_mask;
         if ((x_bits | z_bits) == 0) {
             z_bits = 1;
         }
 
-        auto pauli = make_pauli(n, x_bits, z_bits, (fuzz_lcg(seed) & 1) != 0);
+        auto pauli = make_pauli(n, x_bits, z_bits, (test_lcg(seed) & 1) != 0);
         auto result = compress_pauli(ctx, pauli);
         verify_sequential_compression(snap, ctx.v_cum, pauli, result);
     }
@@ -833,13 +924,13 @@ TEST_CASE("Compress sequential: 30 compressions on 30 qubits all-dormant") {
         stim::Tableau<kStimWidth> snap = ctx.v_cum;
 
         uint64_t qubit_mask = (1ULL << n) - 1;
-        uint64_t x_bits = fuzz_lcg(seed) & qubit_mask;
-        uint64_t z_bits = fuzz_lcg(seed) & qubit_mask;
+        uint64_t x_bits = test_lcg(seed) & qubit_mask;
+        uint64_t z_bits = test_lcg(seed) & qubit_mask;
         if ((x_bits | z_bits) == 0) {
             x_bits = 1;
         }
 
-        auto pauli = make_pauli(n, x_bits, z_bits, (fuzz_lcg(seed) & 1) != 0);
+        auto pauli = make_pauli(n, x_bits, z_bits, (test_lcg(seed) & 1) != 0);
         auto result = compress_pauli(ctx, pauli);
         verify_sequential_compression(snap, ctx.v_cum, pauli, result);
 

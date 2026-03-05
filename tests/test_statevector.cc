@@ -3,6 +3,8 @@
 #include "ucc/frontend/frontend.h"
 #include "ucc/svm/svm.h"
 
+#include "test_helpers.h"
+
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/matchers/catch_matchers_floating_point.hpp>
 #include <cmath>
@@ -12,18 +14,13 @@
 
 using namespace ucc;
 using Catch::Matchers::WithinAbs;
+using ucc::test::check_complex;
 
 constexpr double kTol = 1e-9;
 
 // Tolerance for float-precision tableau multiplication.
 // Stim's to_flat_unitary_matrix returns complex<float> (~7 decimal digits).
 constexpr double kFloatTol = 1e-6;
-
-static void check_complex(std::complex<double> actual, std::complex<double> expected,
-                          double tol = kTol) {
-    CHECK_THAT(actual.real(), WithinAbs(expected.real(), tol));
-    CHECK_THAT(actual.imag(), WithinAbs(expected.imag(), tol));
-}
 
 // Build a minimal CompiledModule with the given settings.
 static CompiledModule make_module(uint32_t num_qubits, uint32_t peak_rank) {

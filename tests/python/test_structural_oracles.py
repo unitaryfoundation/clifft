@@ -31,7 +31,7 @@ _DAGGER_MAP: dict[str, str] = {
 
 
 def _bounded_t_mirror_circuit(
-    num_qubits: int, clifford_depth: int, t_count: int, seed: int
+    num_qubits: int, clifford_gate_count: int, t_count: int, seed: int
 ) -> tuple[str, int]:
     """Generate a U U-dag mirror circuit with bounded T-gate count.
 
@@ -42,7 +42,7 @@ def _bounded_t_mirror_circuit(
 
     Args:
         num_qubits: Number of qubits.
-        clifford_depth: Number of random Clifford gates.
+        clifford_gate_count: Total number of random Clifford gates.
         t_count: Exact number of T gates to insert.
         seed: Random seed.
 
@@ -56,7 +56,7 @@ def _bounded_t_mirror_circuit(
 
     # Build forward Clifford circuit
     fwd: list[str] = []
-    for _ in range(clifford_depth):
+    for _ in range(clifford_gate_count):
         if num_qubits > 1 and rng.random() < 0.4:
             g = str(rng.choice(gates_2q))
             q1, q2 = rng.choice(num_qubits, size=2, replace=False)

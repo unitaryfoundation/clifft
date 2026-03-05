@@ -17,22 +17,22 @@ from utils_qiskit import qiskit_statevector, stim_to_qiskit_noiseless
 import ucc
 
 
+def _ucc_statevector(circuit_str: str) -> np.ndarray:
+    """Compile and execute circuit in UCC, return dense statevector."""
+    prog = ucc.compile(circuit_str)
+    state = ucc.State(prog.peak_rank, prog.num_measurements)
+    ucc.execute(prog, state)
+    sv: np.ndarray = ucc.get_statevector(prog, state)
+    return sv
+
+
 class TestQiskitStatevectorOracle:
     """Validate UCC statevectors against Qiskit-Aer."""
-
-    @staticmethod
-    def _ucc_statevector(circuit_str: str) -> np.ndarray:
-        """Compile and execute circuit in UCC, return dense statevector."""
-        prog = ucc.compile(circuit_str)
-        state = ucc.State(prog.peak_rank, prog.num_measurements)
-        ucc.execute(prog, state)
-        sv: np.ndarray = ucc.get_statevector(prog, state)
-        return sv
 
     def test_single_h(self) -> None:
         """H|0> = |+> matches Qiskit."""
         circuit = "H 0"
-        ucc_sv = self._ucc_statevector(circuit)
+        ucc_sv = _ucc_statevector(circuit)
         qc = stim_to_qiskit_noiseless(circuit)
         qiskit_sv = qiskit_statevector(qc)
         assert_statevectors_equal(ucc_sv, qiskit_sv)
@@ -40,7 +40,7 @@ class TestQiskitStatevectorOracle:
     def test_single_t(self) -> None:
         """H-T circuit matches Qiskit."""
         circuit = "H 0\nT 0"
-        ucc_sv = self._ucc_statevector(circuit)
+        ucc_sv = _ucc_statevector(circuit)
         qc = stim_to_qiskit_noiseless(circuit)
         qiskit_sv = qiskit_statevector(qc)
         assert_statevectors_equal(ucc_sv, qiskit_sv)
@@ -48,7 +48,7 @@ class TestQiskitStatevectorOracle:
     def test_t_dagger(self) -> None:
         """H-T_DAG circuit matches Qiskit."""
         circuit = "H 0\nT_DAG 0"
-        ucc_sv = self._ucc_statevector(circuit)
+        ucc_sv = _ucc_statevector(circuit)
         qc = stim_to_qiskit_noiseless(circuit)
         qiskit_sv = qiskit_statevector(qc)
         assert_statevectors_equal(ucc_sv, qiskit_sv)
@@ -56,7 +56,7 @@ class TestQiskitStatevectorOracle:
     def test_bell_plus_t(self) -> None:
         """Bell state + T gate matches Qiskit."""
         circuit = "H 0\nCX 0 1\nT 0"
-        ucc_sv = self._ucc_statevector(circuit)
+        ucc_sv = _ucc_statevector(circuit)
         qc = stim_to_qiskit_noiseless(circuit)
         qiskit_sv = qiskit_statevector(qc)
         assert_statevectors_equal(ucc_sv, qiskit_sv)
@@ -64,7 +64,7 @@ class TestQiskitStatevectorOracle:
     def test_two_t_equals_s(self) -> None:
         """T*T = S identity matches Qiskit."""
         circuit = "H 0\nT 0\nT 0"
-        ucc_sv = self._ucc_statevector(circuit)
+        ucc_sv = _ucc_statevector(circuit)
         qc = stim_to_qiskit_noiseless(circuit)
         qiskit_sv = qiskit_statevector(qc)
         assert_statevectors_equal(ucc_sv, qiskit_sv)
@@ -72,7 +72,7 @@ class TestQiskitStatevectorOracle:
     def test_four_t_equals_z(self) -> None:
         """T^4 = Z identity matches Qiskit."""
         circuit = "H 0\nT 0\nT 0\nT 0\nT 0"
-        ucc_sv = self._ucc_statevector(circuit)
+        ucc_sv = _ucc_statevector(circuit)
         qc = stim_to_qiskit_noiseless(circuit)
         qiskit_sv = qiskit_statevector(qc)
         assert_statevectors_equal(ucc_sv, qiskit_sv)
@@ -82,7 +82,7 @@ class TestQiskitStatevectorOracle:
     def test_random_clifford_t_small(self, num_qubits: int, seed: int) -> None:
         """Random Clifford+T circuits up to 5 qubits match Qiskit."""
         circuit = random_clifford_t_circuit(num_qubits, depth=15, seed=seed)
-        ucc_sv = self._ucc_statevector(circuit)
+        ucc_sv = _ucc_statevector(circuit)
         qc = stim_to_qiskit_noiseless(circuit)
         qiskit_sv = qiskit_statevector(qc)
         assert_statevectors_equal(ucc_sv, qiskit_sv, msg=f"{num_qubits}q seed={seed}\n{circuit}")
@@ -92,7 +92,7 @@ class TestQiskitStatevectorOracle:
         """Random Clifford+T circuits at 6 qubits match Qiskit."""
         for num_qubits in [6]:
             circuit = random_clifford_t_circuit(num_qubits, depth=20, seed=seed)
-            ucc_sv = self._ucc_statevector(circuit)
+            ucc_sv = _ucc_statevector(circuit)
             qc = stim_to_qiskit_noiseless(circuit)
             qiskit_sv = qiskit_statevector(qc)
             assert_statevectors_equal(
@@ -115,7 +115,7 @@ class TestQiskitStatevectorOracle:
                 "T 0",
             ]
         )
-        ucc_sv = self._ucc_statevector(circuit)
+        ucc_sv = _ucc_statevector(circuit)
         qc = stim_to_qiskit_noiseless(circuit)
         qiskit_sv = qiskit_statevector(qc)
         assert_statevectors_equal(ucc_sv, qiskit_sv)
@@ -127,7 +127,7 @@ class TestQiskitStatevectorOracle:
             lines.append(f"T {i % 2}")
             lines.append("CX 0 1")
         circuit = "\n".join(lines)
-        ucc_sv = self._ucc_statevector(circuit)
+        ucc_sv = _ucc_statevector(circuit)
         qc = stim_to_qiskit_noiseless(circuit)
         qiskit_sv = qiskit_statevector(qc)
         assert_statevectors_equal(ucc_sv, qiskit_sv)
@@ -140,20 +140,12 @@ class TestDenseCliffordTFuzzer:
     (CX, CY, CZ) to stress the compiler's Pauli compression pipeline.
     """
 
-    @staticmethod
-    def _ucc_statevector(circuit_str: str) -> np.ndarray:
-        prog = ucc.compile(circuit_str)
-        state = ucc.State(prog.peak_rank, prog.num_measurements)
-        ucc.execute(prog, state)
-        sv: np.ndarray = ucc.get_statevector(prog, state)
-        return sv
-
     @pytest.mark.parametrize("num_qubits", [3, 4, 5])
     @pytest.mark.parametrize("seed", range(5))
     def test_dense_entanglement_small(self, num_qubits: int, seed: int) -> None:
         """Dense Clifford+T circuits at 3-5 qubits match Qiskit."""
         circuit = random_dense_clifford_t_circuit(num_qubits, depth=30, seed=seed)
-        ucc_sv = self._ucc_statevector(circuit)
+        ucc_sv = _ucc_statevector(circuit)
         qc = stim_to_qiskit_noiseless(circuit)
         qiskit_sv = qiskit_statevector(qc)
         assert_statevectors_equal(
@@ -164,7 +156,7 @@ class TestDenseCliffordTFuzzer:
     def test_dense_entanglement_medium(self, seed: int) -> None:
         """Dense Clifford+T at 6 qubits match Qiskit."""
         circuit = random_dense_clifford_t_circuit(6, depth=40, seed=seed)
-        ucc_sv = self._ucc_statevector(circuit)
+        ucc_sv = _ucc_statevector(circuit)
         qc = stim_to_qiskit_noiseless(circuit)
         qiskit_sv = qiskit_statevector(qc)
         assert_statevectors_equal(ucc_sv, qiskit_sv, msg=f"dense 6q seed={seed}")
@@ -173,7 +165,7 @@ class TestDenseCliffordTFuzzer:
     def test_deep_phase_accumulation(self, seed: int) -> None:
         """Deep circuits (depth=100) stress T-gate phase arithmetic."""
         circuit = random_dense_clifford_t_circuit(4, depth=100, seed=seed, two_qubit_prob=0.3)
-        ucc_sv = self._ucc_statevector(circuit)
+        ucc_sv = _ucc_statevector(circuit)
         qc = stim_to_qiskit_noiseless(circuit)
         qiskit_sv = qiskit_statevector(qc)
         assert_statevectors_equal(ucc_sv, qiskit_sv, msg=f"deep 4q seed={seed}")

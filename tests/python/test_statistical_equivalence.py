@@ -14,7 +14,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 import stim
-from conftest import binomial_tolerance
+from conftest import cross_binomial_tolerance
 
 import ucc
 
@@ -93,7 +93,7 @@ class TestTargetQECCircuit:
         # Check all detectors
         for i in range(len(ucc_det_probs)):
             p_est = (ucc_det_probs[i] + stim_det_probs[i]) / 2
-            tol = binomial_tolerance(p_est, shots, sigma=5.0)
+            tol = cross_binomial_tolerance(p_est, shots, sigma=5.0)
             diff = abs(ucc_det_probs[i] - stim_det_probs[i])
             assert diff < tol, (
                 f"Detector {i} marginal mismatch: "
@@ -104,7 +104,7 @@ class TestTargetQECCircuit:
         # Check all observables
         for i in range(len(ucc_obs_probs)):
             p_est = (ucc_obs_probs[i] + stim_obs_probs[i]) / 2
-            tol = binomial_tolerance(p_est, shots, sigma=5.0)
+            tol = cross_binomial_tolerance(p_est, shots, sigma=5.0)
             diff = abs(ucc_obs_probs[i] - stim_obs_probs[i])
             assert diff < tol, (
                 f"Observable {i} marginal mismatch: "
@@ -138,7 +138,7 @@ class TestSimpleCircuitEquivalence:
         ucc_rate = float(ucc_det.astype(float).mean())
         stim_rate = float(stim_det.astype(float).mean())
 
-        tol = binomial_tolerance((ucc_rate + stim_rate) / 2, shots)
+        tol = cross_binomial_tolerance((ucc_rate + stim_rate) / 2, shots)
         assert abs(ucc_rate - stim_rate) < tol
 
     def test_repeated_measurements_with_readout_noise(self) -> None:
@@ -162,7 +162,7 @@ class TestSimpleCircuitEquivalence:
         ucc_rate = float(ucc_det.astype(float).mean())
         stim_rate = float(stim_det.astype(float).mean())
 
-        tol = binomial_tolerance((ucc_rate + stim_rate) / 2, shots)
+        tol = cross_binomial_tolerance((ucc_rate + stim_rate) / 2, shots)
         assert abs(ucc_rate - stim_rate) < tol
 
     def test_stabilizer_round_with_reset(self) -> None:
@@ -239,7 +239,7 @@ class TestTopologicalQECCodes:
 
         for i in range(len(ucc_det_probs)):
             p_est = (ucc_det_probs[i] + stim_det_probs[i]) / 2
-            tol = binomial_tolerance(p_est, shots, sigma=5.0)
+            tol = cross_binomial_tolerance(p_est, shots, sigma=5.0)
             diff = abs(ucc_det_probs[i] - stim_det_probs[i])
             assert diff < tol, (
                 f"{code_task} detector {i} mismatch: "
@@ -253,7 +253,7 @@ class TestTopologicalQECCodes:
 
         for i in range(len(ucc_obs_probs)):
             p_est = (ucc_obs_probs[i] + stim_obs_probs[i]) / 2
-            tol = binomial_tolerance(p_est, shots, sigma=5.0)
+            tol = cross_binomial_tolerance(p_est, shots, sigma=5.0)
             diff = abs(ucc_obs_probs[i] - stim_obs_probs[i])
             assert diff < tol, (
                 f"{code_task} observable {i} mismatch: "
@@ -363,7 +363,7 @@ class TestUnstructuredNoiseFuzzing:
 
         for i in range(len(ucc_p1)):
             p_est = (ucc_p1[i] + stim_p1[i]) / 2
-            tol = binomial_tolerance(p_est, shots, sigma=5.0)
+            tol = cross_binomial_tolerance(p_est, shots, sigma=5.0)
             diff = abs(ucc_p1[i] - stim_p1[i])
             assert diff < tol, (
                 f"1-body marginal {i} mismatch (qubits={num_qubits}, seed={seed}): "
@@ -381,7 +381,7 @@ class TestUnstructuredNoiseFuzzing:
 
             for i in range(len(ucc_p2)):
                 p_est = (ucc_p2[i] + stim_p2[i]) / 2
-                tol = binomial_tolerance(p_est, shots, sigma=5.0)
+                tol = cross_binomial_tolerance(p_est, shots, sigma=5.0)
                 diff = abs(ucc_p2[i] - stim_p2[i])
                 assert diff < tol, (
                     f"2-body parity {i},{i + 1} mismatch (qubits={num_qubits}, seed={seed}): "
@@ -473,7 +473,7 @@ class TestMidCircuitMeasurementEvolution:
 
         for i in range(len(ucc_p)):
             p_est = (ucc_p[i] + stim_p[i]) / 2
-            tol = binomial_tolerance(p_est, shots, sigma=5.0)
+            tol = cross_binomial_tolerance(p_est, shots, sigma=5.0)
             diff = abs(ucc_p[i] - stim_p[i])
             assert diff < tol, (
                 f"Marginal {i} mismatch (q={num_qubits}, seed={seed}): "
@@ -510,7 +510,7 @@ class TestMidCircuitMeasurementEvolution:
             ucc_rate = float(ucc_par.mean())
             stim_rate = float(stim_par.mean())
             p_est = (ucc_rate + stim_rate) / 2
-            tol = binomial_tolerance(p_est, shots, sigma=5.0)
+            tol = cross_binomial_tolerance(p_est, shots, sigma=5.0)
             diff = abs(ucc_rate - stim_rate)
             assert diff < tol, (
                 f"3-body parity {i},{i + 1},{i + 2} mismatch "

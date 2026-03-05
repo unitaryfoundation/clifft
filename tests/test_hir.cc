@@ -2,12 +2,16 @@
 
 #include "ucc/frontend/hir.h"
 
+#include "test_helpers.h"
+
 #include <catch2/catch_test_macros.hpp>
 #include <string>
 #include <tuple>
 #include <utility>
 
 using namespace ucc;
+using ucc::test::X;
+using ucc::test::Z;
 
 // =============================================================================
 // Test Helpers - Pauli string to bitmask conversion for readable tests
@@ -17,7 +21,7 @@ using namespace ucc;
 // Qubit 0 is the rightmost character: "XYZ" means X on q2, Y on q1, Z on q0.
 // Returns {destab, stab} where destab has X bits and stab has Z bits.
 // Y = iXZ, so both bits are set for Y.
-std::pair<uint64_t, uint64_t> pauli_masks(const std::string& pauli) {
+static std::pair<uint64_t, uint64_t> pauli_masks(const std::string& pauli) {
     uint64_t destab = 0;  // X bits
     uint64_t stab = 0;    // Z bits
     size_t n = pauli.size();
@@ -37,17 +41,13 @@ std::pair<uint64_t, uint64_t> pauli_masks(const std::string& pauli) {
     return {destab, stab};
 }
 
-// Convenience: create masks for single-qubit Paulis
-uint64_t X(size_t qubit) {
-    return 1ULL << qubit;
-}
-uint64_t Z(size_t qubit) {
-    return 1ULL << qubit;
-}
-uint64_t Y_destab(size_t qubit) {
+// Local aliases: Y_destab / Y_stab are trivially the same as Y().
+// They exist only for readability in tests that distinguish the X and Z
+// components of a Y operator.
+static inline uint64_t Y_destab(size_t qubit) {
     return 1ULL << qubit;
 }  // X component of Y
-uint64_t Y_stab(size_t qubit) {
+static inline uint64_t Y_stab(size_t qubit) {
     return 1ULL << qubit;
 }  // Z component of Y
 

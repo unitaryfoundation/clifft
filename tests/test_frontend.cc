@@ -7,19 +7,15 @@
 #include "ucc/circuit/parser.h"
 #include "ucc/frontend/frontend.h"
 
+#include "test_helpers.h"
+
 #include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
 #include <stdexcept>
 
 using namespace ucc;
-
-// Convenience helpers for readable mask assertions
-inline uint64_t X(size_t q) {
-    return 1ULL << q;
-}
-inline uint64_t Z(size_t q) {
-    return 1ULL << q;
-}
+using ucc::test::X;
+using ucc::test::Z;
 
 TEST_CASE("Frontend: identity circuit produces empty HIR", "[frontend]") {
     auto circuit = parse("TICK");
