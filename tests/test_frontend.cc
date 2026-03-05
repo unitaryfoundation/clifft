@@ -308,8 +308,6 @@ TEST_CASE("Frontend: deterministic measurement - no AG matrix", "[frontend][ag]"
 
     REQUIRE(hir.num_ops() == 1);
     REQUIRE(hir.ops[0].op_type() == OpType::MEASURE);
-    REQUIRE(hir.ops[0].ag_matrix_idx() == AgMatrixIdx::None);  // Deterministic
-    REQUIRE(hir.ag_matrices.empty());                          // No AG matrices stored
 }
 
 TEST_CASE("Frontend: anti-commuting Z measurement - generates AG matrix", "[frontend][ag]") {
@@ -323,8 +321,6 @@ TEST_CASE("Frontend: anti-commuting Z measurement - generates AG matrix", "[fron
 
     REQUIRE(hir.num_ops() == 1);
     REQUIRE(hir.ops[0].op_type() == OpType::MEASURE);
-    REQUIRE(hir.ops[0].ag_matrix_idx() != AgMatrixIdx::None);  // Anti-commuting
-    REQUIRE(hir.ag_matrices.size() == 1);                      // One AG matrix stored
 }
 
 TEST_CASE("Frontend: deterministic X measurement after H", "[frontend][ag]") {
@@ -337,8 +333,6 @@ TEST_CASE("Frontend: deterministic X measurement after H", "[frontend][ag]") {
 
     REQUIRE(hir.num_ops() == 1);
     REQUIRE(hir.ops[0].op_type() == OpType::MEASURE);
-    REQUIRE(hir.ops[0].ag_matrix_idx() == AgMatrixIdx::None);  // Deterministic
-    REQUIRE(hir.ag_matrices.empty());
 }
 
 TEST_CASE("Frontend: anti-commuting X measurement", "[frontend][ag]") {
@@ -350,8 +344,6 @@ TEST_CASE("Frontend: anti-commuting X measurement", "[frontend][ag]") {
 
     REQUIRE(hir.num_ops() == 1);
     REQUIRE(hir.ops[0].op_type() == OpType::MEASURE);
-    REQUIRE(hir.ops[0].ag_matrix_idx() != AgMatrixIdx::None);  // Anti-commuting
-    REQUIRE(hir.ag_matrices.size() == 1);
 }
 
 TEST_CASE("Frontend: mid-circuit measurement updates tableau", "[frontend][ag]") {
@@ -368,16 +360,13 @@ TEST_CASE("Frontend: mid-circuit measurement updates tableau", "[frontend][ag]")
 
     // First measurement: anti-commuting (H|0> measured in Z)
     REQUIRE(hir.ops[0].op_type() == OpType::MEASURE);
-    REQUIRE(hir.ops[0].ag_matrix_idx() != AgMatrixIdx::None);
     REQUIRE(hir.ops[0].meas_record_idx() == MeasRecordIdx{0});
 
     // Second measurement: deterministic (qubit already collapsed to Z eigenstate)
     REQUIRE(hir.ops[1].op_type() == OpType::MEASURE);
-    REQUIRE(hir.ops[1].ag_matrix_idx() == AgMatrixIdx::None);
     REQUIRE(hir.ops[1].meas_record_idx() == MeasRecordIdx{1});
 
     // Only one AG matrix (from first measurement)
-    REQUIRE(hir.ag_matrices.size() == 1);
 }
 
 TEST_CASE("Frontend: multiple independent measurements", "[frontend][ag]") {
@@ -390,16 +379,8 @@ TEST_CASE("Frontend: multiple independent measurements", "[frontend][ag]") {
     auto hir = trace(circuit);
 
     REQUIRE(hir.num_ops() == 2);
-
-    // Both measurements are anti-commuting
-    REQUIRE(hir.ops[0].ag_matrix_idx() != AgMatrixIdx::None);
-    REQUIRE(hir.ops[1].ag_matrix_idx() != AgMatrixIdx::None);
-
-    // Two distinct AG matrices
-    REQUIRE(hir.ag_matrices.size() == 2);
-    auto idx0 = static_cast<uint32_t>(hir.ops[0].ag_matrix_idx());
-    auto idx1 = static_cast<uint32_t>(hir.ops[1].ag_matrix_idx());
-    REQUIRE(idx0 != idx1);
+    REQUIRE(hir.ops[0].op_type() == OpType::MEASURE);
+    REQUIRE(hir.ops[1].op_type() == OpType::MEASURE);
 }
 
 TEST_CASE("Frontend: entangled measurement with Bell state", "[frontend][ag]") {
@@ -413,8 +394,6 @@ TEST_CASE("Frontend: entangled measurement with Bell state", "[frontend][ag]") {
     auto hir = trace(circuit);
 
     REQUIRE(hir.num_ops() == 1);
-    REQUIRE(hir.ops[0].ag_matrix_idx() != AgMatrixIdx::None);
-    REQUIRE(hir.ag_matrices.size() == 1);
 }
 
 TEST_CASE("Frontend: Bell state - second qubit deterministic after first measured",
@@ -431,17 +410,16 @@ TEST_CASE("Frontend: Bell state - second qubit deterministic after first measure
     REQUIRE(hir.num_ops() == 2);
 
     // First measurement: anti-commuting
-    REQUIRE(hir.ops[0].ag_matrix_idx() != AgMatrixIdx::None);
 
     // Second measurement: deterministic (perfectly correlated with first)
-    REQUIRE(hir.ops[1].ag_matrix_idx() == AgMatrixIdx::None);
 
     // Only one AG matrix
-    REQUIRE(hir.ag_matrices.size() == 1);
 }
 
-TEST_CASE("Frontend: reset after measurement - T gate sees updated tableau", "[frontend][ag]") {
-    // After reset, the qubit is back to |0>, so T on it should see Z_q
+TEST_CASE("Frontend: reset then T - AOT frame is un-collapsed", "[frontend][ag]") {
+    // With Clifford Frame Determinism the AOT tableau never collapses.
+    // After H 0, inv_state.zs[0] = X_0. R does not change the tableau.
+    // So T 0 sees the rewound Z through the un-collapsed frame: X_0.
     auto circuit = parse(R"(
         H 0
         R 0
@@ -449,19 +427,16 @@ TEST_CASE("Frontend: reset after measurement - T gate sees updated tableau", "[f
     )");
     auto hir = trace(circuit);
 
-    // R decomposes into hidden MEASURE + CONDITIONAL, then T_GATE
     REQUIRE(hir.num_ops() == 3);
-
     REQUIRE(hir.ops[0].op_type() == OpType::MEASURE);
     REQUIRE(hir.ops[0].is_hidden());
     REQUIRE(hir.ops[1].op_type() == OpType::CONDITIONAL_PAULI);
     REQUIRE(hir.ops[1].use_last_outcome());
     REQUIRE(hir.ops[2].op_type() == OpType::T_GATE);
 
-    // After reset, the T gate sees Z_q (qubit is in |0> state)
-    // The destab_mask should be 0 (no X), stab_mask should be Z(0)
-    REQUIRE(hir.ops[2].destab_mask() == 0);
-    REQUIRE(hir.ops[2].stab_mask() == Z(0));
+    // Un-collapsed: T gate sees X_0 (H maps Z->X)
+    REQUIRE(hir.ops[2].destab_mask() == X(0));
+    REQUIRE(hir.ops[2].stab_mask() == 0);
 }
 
 TEST_CASE("Frontend: MPP deterministic measurement", "[frontend][ag]") {
@@ -478,8 +453,6 @@ TEST_CASE("Frontend: MPP deterministic measurement", "[frontend][ag]") {
     REQUIRE(hir.ops[0].op_type() == OpType::MEASURE);
 
     // Z0*Z1 is a stabilizer of the Bell state, so measurement is deterministic
-    REQUIRE(hir.ops[0].ag_matrix_idx() == AgMatrixIdx::None);
-    REQUIRE(hir.ag_matrices.empty());
 }
 
 TEST_CASE("Frontend: MPP anti-commuting measurement", "[frontend][ag]") {
@@ -490,34 +463,16 @@ TEST_CASE("Frontend: MPP anti-commuting measurement", "[frontend][ag]") {
     auto hir = trace(circuit);
 
     REQUIRE(hir.num_ops() == 1);
-    REQUIRE(hir.ops[0].ag_matrix_idx() != AgMatrixIdx::None);
-    REQUIRE(hir.ag_matrices.size() == 1);
-}
-
-TEST_CASE("Frontend: ag_ref_outcome records collapse choice", "[frontend][ag]") {
-    // The ag_ref_outcome field records what outcome the compiler chose
-    // This is needed by the VM to know how to apply the AG pivot
-    auto circuit = parse(R"(
-        H 0
-        M 0
-    )");
-    auto hir = trace(circuit);
-
-    REQUIRE(hir.num_ops() == 1);
-    REQUIRE(hir.ops[0].ag_matrix_idx() != AgMatrixIdx::None);
-
-    // ag_ref_outcome should be 0 or 1 (the compiler's chosen outcome)
-    uint8_t ref = hir.ops[0].ag_ref_outcome();
-    REQUIRE((ref == 0 || ref == 1));
 }
 
 // =============================================================================
-// Classical Control Tests (Task 3.4)
+// Classical Control Tests
 // =============================================================================
 
-TEST_CASE("Frontend: classical feedback sees collapsed tableau", "[frontend][classical]") {
-    // After H; M, the qubit is collapsed to |0> or |1>
-    // The CX rec[-1] 0 should see Z_0 (not the pre-measurement X_0)
+TEST_CASE("Frontend: classical feedback sees un-collapsed tableau", "[frontend][classical]") {
+    // With Clifford Frame Determinism, the AOT tableau never collapses.
+    // After H 0, inv_state.xs[0] = Z_0 (H swaps X<->Z). The CX rec[-1] 0
+    // extracts the rewound X from the un-collapsed tableau.
     auto circuit = parse(R"(
         H 0
         M 0
@@ -527,24 +482,18 @@ TEST_CASE("Frontend: classical feedback sees collapsed tableau", "[frontend][cla
 
     REQUIRE(hir.num_ops() == 2);
 
-    // First: measurement (anti-commuting since H|0> measured in Z)
     REQUIRE(hir.ops[0].op_type() == OpType::MEASURE);
-    REQUIRE(hir.ops[0].ag_matrix_idx() != AgMatrixIdx::None);
-
-    // Second: conditional X on qubit 0
     REQUIRE(hir.ops[1].op_type() == OpType::CONDITIONAL_PAULI);
     REQUIRE(hir.ops[1].controlling_meas() == ControllingMeasIdx{0});
 
-    // After collapse, the qubit is in a Z eigenstate
-    // So the rewound X_0 should map to X_0 (identity tableau on that qubit)
-    // This means destab_mask should have bit 0 set (X component)
-    REQUIRE(hir.ops[1].destab_mask() == X(0));
-    REQUIRE(hir.ops[1].stab_mask() == 0);
+    // Un-collapsed tableau after H: xs[0] = Z_0
+    REQUIRE(hir.ops[1].destab_mask() == 0);
+    REQUIRE(hir.ops[1].stab_mask() == Z(0));
 }
 
 TEST_CASE("Frontend: classical feedback on entangled qubits", "[frontend][classical]") {
-    // Create Bell state, measure qubit 0, apply conditional Z on qubit 1
-    // After measuring qubit 0, qubit 1 is also collapsed (correlated)
+    // With Clifford Frame Determinism the AOT frame never collapses.
+    // After H 0; CX 0 1, inv_state.zs[1] = X_0 * Z_1 (un-collapsed).
     auto circuit = parse(R"(
         H 0
         CX 0 1
@@ -554,24 +503,18 @@ TEST_CASE("Frontend: classical feedback on entangled qubits", "[frontend][classi
     auto hir = trace(circuit);
 
     REQUIRE(hir.num_ops() == 2);
-
-    // First: measurement (anti-commuting on Bell state)
     REQUIRE(hir.ops[0].op_type() == OpType::MEASURE);
-
-    // Second: conditional Z on qubit 1
     REQUIRE(hir.ops[1].op_type() == OpType::CONDITIONAL_PAULI);
     REQUIRE(hir.ops[1].controlling_meas() == ControllingMeasIdx{0});
 
-    // After Bell state collapse to |00> or |11>, the qubits are perfectly correlated.
-    // In the Heisenberg picture, Z_1 is still represented as Z_0*Z_1 because
-    // measuring Z_0 determines Z_1 (they have the same value).
-    // So rewound Z_1 = Z_0*Z_1
-    REQUIRE(hir.ops[1].destab_mask() == 0);
-    REQUIRE(hir.ops[1].stab_mask() == (Z(0) | Z(1)));  // Z_0 * Z_1
+    // Un-collapsed: rewound Z_1 through H 0; CX 0 1 gives X_0 * Z_1
+    REQUIRE(hir.ops[1].destab_mask() == X(0));
+    REQUIRE(hir.ops[1].stab_mask() == Z(1));
 }
 
 TEST_CASE("Frontend: multiple resets in sequence", "[frontend][classical]") {
-    // Multiple resets should all work correctly with updated tableau
+    // Multiple resets with Clifford Frame Determinism: the AOT frame never
+    // collapses, so the tableau remains un-collapsed throughout.
     auto circuit = parse(R"(
         H 0
         H 1
@@ -582,7 +525,6 @@ TEST_CASE("Frontend: multiple resets in sequence", "[frontend][classical]") {
     auto hir = trace(circuit);
 
     // Each R decomposes into MEASURE + CONDITIONAL, then T 0, T 1
-    // R 0 -> MEASURE(hidden) + CONDITIONAL, R 1 -> MEASURE(hidden) + CONDITIONAL
     REQUIRE(hir.num_ops() == 6);
 
     REQUIRE(hir.ops[0].op_type() == OpType::MEASURE);            // R 0 measure
@@ -592,12 +534,12 @@ TEST_CASE("Frontend: multiple resets in sequence", "[frontend][classical]") {
     REQUIRE(hir.ops[4].op_type() == OpType::T_GATE);             // T 0
     REQUIRE(hir.ops[5].op_type() == OpType::T_GATE);             // T 1
 
-    // After both resets, both qubits should be in |0> state
-    // So T gates should see Z_q (not modified by Clifford frame)
-    REQUIRE(hir.ops[4].destab_mask() == 0);
-    REQUIRE(hir.ops[4].stab_mask() == Z(0));
-    REQUIRE(hir.ops[5].destab_mask() == 0);
-    REQUIRE(hir.ops[5].stab_mask() == Z(1));
+    // Without collapse, the tableau after H still maps Z_0 -> X_0, Z_1 -> X_1.
+    // The T gates see the un-collapsed rewound Pauli.
+    REQUIRE(hir.ops[4].destab_mask() == X(0));
+    REQUIRE(hir.ops[4].stab_mask() == 0);
+    REQUIRE(hir.ops[5].destab_mask() == X(1));
+    REQUIRE(hir.ops[5].stab_mask() == 0);
 }
 
 // =============================================================================
@@ -616,8 +558,6 @@ TEST_CASE("Frontend: deterministic measurement with outcome 1 sets ag_ref",
 
     REQUIRE(hir.num_ops() == 1);
     REQUIRE(hir.ops[0].op_type() == OpType::MEASURE);
-    REQUIRE(hir.ops[0].ag_matrix_idx() == AgMatrixIdx::None);  // Deterministic
-    REQUIRE(hir.ops[0].ag_ref_outcome() == 1);                 // Must be 1, not 0!
 }
 
 TEST_CASE("Frontend: deterministic MX measurement with outcome 1", "[frontend][regression]") {
@@ -630,8 +570,6 @@ TEST_CASE("Frontend: deterministic MX measurement with outcome 1", "[frontend][r
     auto hir = trace(circuit);
 
     REQUIRE(hir.num_ops() == 1);
-    REQUIRE(hir.ops[0].ag_matrix_idx() == AgMatrixIdx::None);  // Deterministic
-    REQUIRE(hir.ops[0].ag_ref_outcome() == 1);                 // Must be 1!
 }
 
 TEST_CASE("Frontend: broadcast classical feedback CX rec[-2] 0 rec[-1] 1",

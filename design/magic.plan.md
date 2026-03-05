@@ -78,4 +78,3 @@ Because the new Factored State / RISC architecture uses `uint16_t` for virtual a
 *   **Task 6.2 (Cluster Deployment):** Write a runner script `run_e2e_node.py` using `sinter.collect(..., decoders=['ucc_desaturation'])`. Deploy this to a fleet of AWS CPU spot instances (e.g., `c7i` instances built with `-DUCC_MAX_QUBITS=512 -mavx512f` for AVX-512 hardware vectorization).
 *   **Task 6.3 (Hyper-Threading Guard):** Configure Sinter's worker count to `max(1, os.cpu_count() // 2)` to use physical cores only. Running heavy AVX-512 math on Hyper-Threads causes severe L3 cache evictions and negative scaling.
 *   **Task 6.4 (S3 Aggregation):** Run a background daemon on each node that executes `aws s3 cp` to back up the CSV stats periodically. Download the bucket contents locally and run `sinter combine *.csv > final_stats.csv` to hit the trillion-shot target.
-

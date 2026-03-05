@@ -32,10 +32,25 @@ Instruction make_frame_cz(uint16_t a, uint16_t b) {
     return i;
 }
 
+Instruction make_frame_h(uint16_t v) {
+    Instruction i{};
+    i.opcode = Opcode::OP_FRAME_H;
+    i.axis_1 = v;
+    return i;
+}
+
 Instruction make_frame_s(uint16_t v) {
     Instruction i{};
     i.opcode = Opcode::OP_FRAME_S;
     i.axis_1 = v;
+    return i;
+}
+
+Instruction make_frame_swap(uint16_t a, uint16_t b) {
+    Instruction i{};
+    i.opcode = Opcode::OP_FRAME_SWAP;
+    i.axis_1 = a;
+    i.axis_2 = b;
     return i;
 }
 
@@ -52,6 +67,98 @@ Instruction make_array_cz(uint16_t a_axis, uint16_t b_axis) {
     i.opcode = Opcode::OP_ARRAY_CZ;
     i.axis_1 = a_axis;
     i.axis_2 = b_axis;
+    return i;
+}
+
+Instruction make_array_swap(uint16_t a, uint16_t b) {
+    Instruction i{};
+    i.opcode = Opcode::OP_ARRAY_SWAP;
+    i.axis_1 = a;
+    i.axis_2 = b;
+    return i;
+}
+
+Instruction make_array_h(uint16_t axis) {
+    Instruction i{};
+    i.opcode = Opcode::OP_ARRAY_H;
+    i.axis_1 = axis;
+    return i;
+}
+
+Instruction make_array_s(uint16_t axis) {
+    Instruction i{};
+    i.opcode = Opcode::OP_ARRAY_S;
+    i.axis_1 = axis;
+    return i;
+}
+
+Instruction make_expand(uint16_t axis) {
+    Instruction i{};
+    i.opcode = Opcode::OP_EXPAND;
+    i.axis_1 = axis;
+    return i;
+}
+
+Instruction make_phase_t(uint16_t axis) {
+    Instruction i{};
+    i.opcode = Opcode::OP_PHASE_T;
+    i.axis_1 = axis;
+    return i;
+}
+
+Instruction make_phase_t_dag(uint16_t axis) {
+    Instruction i{};
+    i.opcode = Opcode::OP_PHASE_T_DAG;
+    i.axis_1 = axis;
+    return i;
+}
+
+Instruction make_meas(Opcode meas_opcode, uint16_t axis, uint32_t classical_idx, bool sign) {
+    Instruction i{};
+    i.opcode = meas_opcode;
+    i.axis_1 = axis;
+    i.classical.classical_idx = classical_idx;
+    if (sign) {
+        i.flags |= Instruction::FLAG_SIGN;
+    }
+    return i;
+}
+
+Instruction make_apply_pauli(uint32_t cp_mask_idx, uint32_t condition_idx) {
+    Instruction i{};
+    i.opcode = Opcode::OP_APPLY_PAULI;
+    i.pauli.cp_mask_idx = cp_mask_idx;
+    i.pauli.condition_idx = condition_idx;
+    return i;
+}
+
+Instruction make_noise(uint32_t site_idx) {
+    Instruction i{};
+    i.opcode = Opcode::OP_NOISE;
+    i.pauli.cp_mask_idx = site_idx;
+    return i;
+}
+
+Instruction make_readout_noise(uint32_t entry_idx) {
+    Instruction i{};
+    i.opcode = Opcode::OP_READOUT_NOISE;
+    i.pauli.cp_mask_idx = entry_idx;
+    return i;
+}
+
+Instruction make_detector(uint32_t det_list_idx, uint32_t classical_idx) {
+    Instruction i{};
+    i.opcode = Opcode::OP_DETECTOR;
+    i.pauli.cp_mask_idx = det_list_idx;
+    i.pauli.condition_idx = classical_idx;
+    return i;
+}
+
+Instruction make_observable(uint32_t target_list_idx, uint32_t obs_idx) {
+    Instruction i{};
+    i.opcode = Opcode::OP_OBSERVABLE;
+    i.pauli.cp_mask_idx = target_list_idx;
+    i.pauli.condition_idx = obs_idx;
     return i;
 }
 
@@ -95,7 +202,45 @@ void emit_s(CompilerContext& ctx, stim::TableauTransposedRaii<kStimWidth>& trans
             stim::TableauTransposedRaii<kStimWidth>& trans_local, uint16_t v) {
     trans_cum.append_S(v);
     trans_local.append_S(v);
-    ctx.bytecode.push_back(make_frame_s(v));
+
+    if (v < ctx.reg_manager.active_k()) {
+        ctx.bytecode.push_back(make_array_s(v));
+    } else {
+        ctx.bytecode.push_back(make_frame_s(v));
+    }
+}
+
+// Emit a logical SWAP: update V_cum tracking frame + emit the appropriate
+// bytecode (ARRAY_SWAP if both active, FRAME_SWAP if either dormant;
+// ARRAY_SWAP also performs the frame swap internally).
+void emit_swap(CompilerContext& ctx, uint16_t a, uint16_t b) {
+    if (a == b)
+        return;
+
+    // Update V_cum with SWAP via 3 CNOTs
+    {
+        stim::TableauTransposedRaii<kStimWidth> trans(ctx.v_cum);
+        trans.append_ZCX(a, b);
+        trans.append_ZCX(b, a);
+        trans.append_ZCX(a, b);
+    }
+
+    uint32_t k = ctx.reg_manager.active_k();
+    if (a < k && b < k) {
+        ctx.bytecode.push_back(make_array_swap(a, b));
+    } else {
+        ctx.bytecode.push_back(make_frame_swap(a, b));
+    }
+}
+
+// Map an HIR Pauli (at t=0) into the current virtual frame: P_v = V_cum(P_t0).
+stim::PauliString<kStimWidth> map_to_virtual(const CompilerContext& ctx, uint64_t destab_mask,
+                                             uint64_t stab_mask, bool sign, uint32_t n) {
+    stim::PauliString<kStimWidth> p(n);
+    p.xs.u64[0] = destab_mask;
+    p.zs.u64[0] = stab_mask;
+    p.sign = sign;
+    return ctx.v_cum(p);
 }
 
 }  // namespace
@@ -212,23 +357,264 @@ CompressionResult compress_pauli(CompilerContext& ctx, const stim::PauliString<k
 }  // namespace internal
 
 // =========================================================================
-// lower(): Stub for Phase 4 pipeline wiring
+// lower(): Full pipeline wiring
 // =========================================================================
 
 CompiledModule lower(const HirModule& hir) {
+    using internal::CompilerContext;
+    using internal::compress_pauli;
+    using internal::CompressedBasis;
+
+    const uint32_t n = hir.num_qubits;
+    CompilerContext ctx(n);
+
+    // Track measurement and detector indices for bytecode emission
+    uint32_t meas_emit_idx = 0;
+    uint32_t det_emit_idx = 0;
+    uint32_t obs_emit_idx = 0;
+
+    // Track the last measurement outcome index for use_last_outcome resolution
+    uint32_t last_meas_idx = 0;
+
+    // Count hidden measurements separately (they have their own index space)
+    uint32_t hidden_meas_count = 0;
+    // Total measurement slots: visible + hidden
+    uint32_t total_meas_slots = hir.num_measurements;
+    for (const auto& op : hir.ops) {
+        if (op.op_type() == OpType::MEASURE && op.is_hidden()) {
+            ++hidden_meas_count;
+        }
+    }
+    total_meas_slots += hidden_meas_count;
+
+    // Hidden measurements use indices starting after visible measurements
+    uint32_t hidden_meas_emit_idx = hir.num_measurements;
+
+    for (const auto& op : hir.ops) {
+        switch (op.op_type()) {
+            case OpType::T_GATE: {
+                auto p_v = map_to_virtual(ctx, op.destab_mask(), op.stab_mask(), op.sign(), n);
+                auto result = compress_pauli(ctx, p_v);
+
+                bool is_dormant = result.pivot >= ctx.reg_manager.active_k();
+
+                if (is_dormant && result.basis == CompressedBasis::Z_BASIS) {
+                    // Dormant Z_v: fall through to PHASE_T emission.
+                    // The VM loop naturally skips array elements when v >= active_k.
+                } else if (is_dormant) {
+                    // Dormant X_v: route to next active axis
+                    uint16_t next_axis = static_cast<uint16_t>(ctx.reg_manager.active_k());
+                    if (result.pivot != next_axis) {
+                        emit_swap(ctx, result.pivot, next_axis);
+                        result.pivot = next_axis;
+                    }
+
+                    // Map X_v to Z_v in V_cum and conjugate the Pauli frame
+                    {
+                        stim::TableauTransposedRaii<kStimWidth> trans(ctx.v_cum);
+                        trans.append_H_XZ(result.pivot);
+                    }
+                    ctx.bytecode.push_back(make_frame_h(result.pivot));
+
+                    // Expand the dormant qubit (creating |+> natively)
+                    ctx.bytecode.push_back(make_expand(result.pivot));
+                    ctx.reg_manager.activate();
+                } else if (result.basis == CompressedBasis::X_BASIS) {
+                    // Active X_v. Map to Z_v in V_cum and array+frame.
+                    {
+                        stim::TableauTransposedRaii<kStimWidth> trans(ctx.v_cum);
+                        trans.append_H_XZ(result.pivot);
+                    }
+                    ctx.bytecode.push_back(make_array_h(result.pivot));
+                }
+
+                // Emit diagonal phase gate
+                bool phase_flip = result.sign ^ op.is_dagger();
+                if (phase_flip) {
+                    ctx.bytecode.push_back(make_phase_t_dag(result.pivot));
+                } else {
+                    ctx.bytecode.push_back(make_phase_t(result.pivot));
+                }
+
+                break;
+            }
+
+            case OpType::MEASURE: {
+                // Determine classical output index
+                uint32_t classical_idx;
+                if (op.is_hidden()) {
+                    classical_idx = hidden_meas_emit_idx++;
+                } else {
+                    classical_idx = meas_emit_idx++;
+                }
+
+                // Map the t=0 Pauli to virtual frame, then compress
+                auto p_v = map_to_virtual(ctx, op.destab_mask(), op.stab_mask(), op.sign(), n);
+
+                // Check for identity Pauli (deterministic measurement = 0)
+                uint64_t x_bits = p_v.xs.u64[0];
+                uint64_t z_bits = p_v.zs.u64[0];
+                if ((x_bits | z_bits) == 0) {
+                    // Identity Pauli: outcome is determined solely by the sign
+                    Instruction id_meas =
+                        make_meas(Opcode::OP_MEAS_DORMANT_STATIC, 0, classical_idx, p_v.sign);
+                    id_meas.flags |= Instruction::FLAG_IDENTITY;
+                    ctx.bytecode.push_back(id_meas);
+                    last_meas_idx = classical_idx;
+                    break;
+                }
+
+                auto result = compress_pauli(ctx, p_v);
+                bool is_active = result.pivot < ctx.reg_manager.active_k();
+
+                // Classify and emit the measurement opcode
+                if (!is_active) {
+                    // Dormant pivot
+                    if (result.basis == CompressedBasis::Z_BASIS) {
+                        ctx.bytecode.push_back(make_meas(Opcode::OP_MEAS_DORMANT_STATIC,
+                                                         result.pivot, classical_idx, result.sign));
+                    } else {
+                        ctx.bytecode.push_back(make_meas(Opcode::OP_MEAS_DORMANT_RANDOM,
+                                                         result.pivot, classical_idx, result.sign));
+                    }
+                    // X_BASIS post-measurement: append virtual H to align coordinate system
+                    if (result.basis == CompressedBasis::X_BASIS) {
+                        stim::TableauTransposedRaii<kStimWidth> trans(ctx.v_cum);
+                        trans.append_H_XZ(result.pivot);
+                    }
+                } else {
+                    // Active pivot: compact to k-1 before measurement
+                    uint16_t top = static_cast<uint16_t>(ctx.reg_manager.active_k() - 1);
+                    if (result.pivot != top) {
+                        emit_swap(ctx, result.pivot, top);
+                        result.pivot = top;
+                    }
+
+                    if (result.basis == CompressedBasis::Z_BASIS) {
+                        ctx.bytecode.push_back(make_meas(Opcode::OP_MEAS_ACTIVE_DIAGONAL,
+                                                         result.pivot, classical_idx, result.sign));
+                    } else {
+                        ctx.bytecode.push_back(make_meas(Opcode::OP_MEAS_ACTIVE_INTERFERE,
+                                                         result.pivot, classical_idx, result.sign));
+                    }
+
+                    // X_BASIS post-measurement: append virtual H to align coordinate system
+                    if (result.basis == CompressedBasis::X_BASIS) {
+                        stim::TableauTransposedRaii<kStimWidth> trans(ctx.v_cum);
+                        trans.append_H_XZ(result.pivot);
+                    }
+
+                    ctx.reg_manager.deactivate();
+                }
+
+                last_meas_idx = classical_idx;
+                break;
+            }
+
+            case OpType::CONDITIONAL_PAULI: {
+                // Map the t=0 Pauli to virtual frame
+                auto p_v = map_to_virtual(ctx, op.destab_mask(), op.stab_mask(), op.sign(), n);
+
+                // Store in constant pool
+                uint32_t cp_idx = static_cast<uint32_t>(ctx.constant_pool.pauli_masks.size());
+                ctx.constant_pool.pauli_masks.push_back(std::move(p_v));
+
+                // Resolve the controlling measurement index
+                uint32_t cond_idx;
+                if (op.use_last_outcome()) {
+                    cond_idx = last_meas_idx;
+                } else {
+                    cond_idx = static_cast<uint32_t>(op.controlling_meas());
+                }
+
+                ctx.bytecode.push_back(make_apply_pauli(cp_idx, cond_idx));
+                break;
+            }
+
+            case OpType::NOISE: {
+                // Map each noise channel's Pauli through V_cum
+                auto site_idx = static_cast<uint32_t>(op.noise_site_idx());
+                assert(site_idx < hir.noise_sites.size());
+                const auto& hir_site = hir.noise_sites[site_idx];
+
+                NoiseSite mapped_site;
+                for (const auto& ch : hir_site.channels) {
+                    stim::PauliString<kStimWidth> p(n);
+                    p.xs.u64[0] = ch.destab_mask;
+                    p.zs.u64[0] = ch.stab_mask;
+                    stim::PauliString<kStimWidth> mapped = ctx.v_cum(p);
+                    mapped_site.channels.push_back({mapped.xs.u64[0], mapped.zs.u64[0], ch.prob});
+                }
+
+                uint32_t cp_idx = static_cast<uint32_t>(ctx.constant_pool.noise_sites.size());
+                ctx.constant_pool.noise_sites.push_back(std::move(mapped_site));
+                ctx.bytecode.push_back(make_noise(cp_idx));
+                break;
+            }
+
+            case OpType::READOUT_NOISE: {
+                auto entry_idx = static_cast<uint32_t>(op.readout_noise_idx());
+                assert(entry_idx < hir.readout_noise.size());
+                const auto& entry = hir.readout_noise[entry_idx];
+
+                uint32_t cp_idx = static_cast<uint32_t>(ctx.constant_pool.readout_noise.size());
+                ctx.constant_pool.readout_noise.push_back(entry);
+                ctx.bytecode.push_back(make_readout_noise(cp_idx));
+                break;
+            }
+
+            case OpType::DETECTOR: {
+                auto det_idx = static_cast<uint32_t>(op.detector_idx());
+                assert(det_idx < hir.detector_targets.size());
+                const auto& targets = hir.detector_targets[det_idx];
+
+                uint32_t cp_idx = static_cast<uint32_t>(ctx.constant_pool.detector_targets.size());
+                ctx.constant_pool.detector_targets.push_back(targets);
+                ctx.bytecode.push_back(make_detector(cp_idx, det_emit_idx++));
+                break;
+            }
+
+            case OpType::OBSERVABLE: {
+                auto target_list_idx = op.observable_target_list_idx();
+                assert(target_list_idx < hir.observable_targets.size());
+                const auto& targets = hir.observable_targets[target_list_idx];
+
+                uint32_t cp_idx =
+                    static_cast<uint32_t>(ctx.constant_pool.observable_targets.size());
+                ctx.constant_pool.observable_targets.push_back(targets);
+
+                auto obs_idx = static_cast<uint32_t>(op.observable_idx());
+                ctx.bytecode.push_back(make_observable(cp_idx, obs_idx));
+                ++obs_emit_idx;
+                break;
+            }
+        }
+    }
+
+    assert(obs_emit_idx == hir.num_observables && "observable emission count mismatch");
+
+    // Compute final tableau U_C = U_phys * V_cum^{-1}.
+    // A.then(B) evaluates to B * A in matrix multiplication.
+    // We want U_phys * V_cum^{-1}, so: v_cum_inv.then(U_phys) = U_phys * V_cum^{-1}.
+    if (hir.final_tableau.has_value()) {
+        stim::Tableau<kStimWidth> v_cum_inv = ctx.v_cum.inverse();
+        ctx.constant_pool.final_tableau = v_cum_inv.then(*hir.final_tableau);
+    }
+
+    ctx.constant_pool.global_weight = hir.global_weight;
+
+    uint16_t peak = ctx.reg_manager.peak_k();
+    assert(peak < 64 && "peak_rank >= 64 would cause undefined behavior in 1ULL << k shifts");
+
     CompiledModule result;
+    result.bytecode = std::move(ctx.bytecode);
+    result.constant_pool = std::move(ctx.constant_pool);
     result.num_qubits = hir.num_qubits;
+    result.peak_rank = peak;
     result.num_measurements = hir.num_measurements;
+    result.total_meas_slots = total_meas_slots;
     result.num_detectors = hir.num_detectors;
     result.num_observables = hir.num_observables;
-
-    // TODO: Implement pipeline wiring (Phase 4)
-    // - Iterate HIR ops
-    // - Map t=0 Paulis to virtual frame via V_cum
-    // - Run compress_pauli
-    // - Emit OP_EXPAND, OP_PHASE_T, measurement opcodes
-    // - Compute final_tableau (U_C = U_phys * V_cum^dag)
-
     return result;
 }
 

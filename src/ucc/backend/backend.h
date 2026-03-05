@@ -31,6 +31,8 @@ enum class Opcode : uint8_t {
     OP_ARRAY_CNOT,
     OP_ARRAY_CZ,
     OP_ARRAY_SWAP,
+    OP_ARRAY_H,  // Hadamard on active axis (butterfly + frame swap)
+    OP_ARRAY_S,  // Phase S on active axis (diag(1, i) + frame update)
 
     // Local Math & Expansion
     OP_EXPAND,       // Virtual H_v on dormant: k -> k+1, gamma /= sqrt(2)
@@ -44,8 +46,11 @@ enum class Opcode : uint8_t {
     OP_MEAS_ACTIVE_INTERFERE,  // X-basis fold, halves array (k -> k-1)
 
     // Classical / Errors
-    OP_APPLY_PAULI,  // XORs a full N-bit mask from ConstantPool into P
-    OP_DETECTOR      // Parity check over measurement records
+    OP_APPLY_PAULI,    // XORs a full N-bit mask from ConstantPool into P
+    OP_NOISE,          // Stochastic Pauli channel (rolls RNG, may apply Pauli)
+    OP_READOUT_NOISE,  // Classical bit-flip on measurement result
+    OP_DETECTOR,       // Parity check over measurement records
+    OP_OBSERVABLE,     // Logical observable accumulator
 };
 
 // =============================================================================
@@ -57,6 +62,11 @@ enum class Opcode : uint8_t {
 // architectural changes.
 
 struct alignas(32) Instruction {
+    // Flag bits for measurement instructions
+    static constexpr uint8_t FLAG_SIGN = 1 << 0;      // Measurement sign (XOR with outcome)
+    static constexpr uint8_t FLAG_HIDDEN = 1 << 1;    // Hidden measurement (not in visible record)
+    static constexpr uint8_t FLAG_IDENTITY = 1 << 2;  // Identity measurement (no frame interaction)
+
     Opcode opcode;           // Offset 0
     uint8_t base_phase_idx;  // Offset 1
     uint8_t flags;           // Offset 2
@@ -111,8 +121,17 @@ struct ConstantPool {
     // Full N-bit Pauli masks for OP_APPLY_PAULI (indexed by cp_mask_idx)
     std::vector<stim::PauliString<kStimWidth>> pauli_masks;
 
+    // Noise sites for OP_NOISE (virtual-frame-mapped channels)
+    std::vector<NoiseSite> noise_sites;
+
+    // Readout noise entries for OP_READOUT_NOISE
+    std::vector<ReadoutNoiseEntry> readout_noise;
+
     // Target lists for detector parity checks
     std::vector<std::vector<uint32_t>> detector_targets;
+
+    // Target lists for observable parity checks
+    std::vector<std::vector<uint32_t>> observable_targets;
 };
 
 // =============================================================================
@@ -126,7 +145,8 @@ struct CompiledModule {
     ConstantPool constant_pool;
     uint32_t num_qubits = 0;        // Total physical qubits n
     uint32_t peak_rank = 0;         // Maximum active dimension k reached
-    uint32_t num_measurements = 0;  // Total visible measurements
+    uint32_t num_measurements = 0;  // Visible measurements (user-facing count)
+    uint32_t total_meas_slots = 0;  // Visible + hidden measurements (VM allocation)
     uint32_t num_detectors = 0;     // Total detectors
     uint32_t num_observables = 0;   // Total observables
 };

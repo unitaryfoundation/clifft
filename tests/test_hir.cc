@@ -107,23 +107,17 @@ TEST_CASE("HeisenbergOp bitword operations", "[hir]") {
 }
 
 TEST_CASE("HeisenbergOp::make_measure", "[hir]") {
-    SECTION("Deterministic measurement (no AG matrix)") {
+    SECTION("Measurement with record index") {
         auto op = HeisenbergOp::make_measure(X(0), 0, /*sign=*/false, MeasRecordIdx{5});
 
         REQUIRE(op.op_type() == OpType::MEASURE);
         REQUIRE(op.destab_mask() == X(0));
         REQUIRE(op.stab_mask() == 0);
         REQUIRE(op.meas_record_idx() == MeasRecordIdx{5});
-        REQUIRE(op.ag_matrix_idx() == AgMatrixIdx::None);  // No AG matrix
     }
 
-    SECTION("Non-deterministic measurement (with AG matrix)") {
-        auto op =
-            HeisenbergOp::make_measure(X(0) | X(1), 0, false, MeasRecordIdx{10}, AgMatrixIdx{3},
-                                       /*ag_ref=*/1);
-
-        REQUIRE(op.ag_matrix_idx() == AgMatrixIdx{3});
-        REQUIRE(op.ag_ref_outcome() == 1);
+    SECTION("Multi-qubit measurement") {
+        auto op = HeisenbergOp::make_measure(X(0) | X(1), 0, false, MeasRecordIdx{10});
         REQUIRE(op.meas_record_idx() == MeasRecordIdx{10});
     }
 }
@@ -227,34 +221,18 @@ TEST_CASE("HirModule construction and accessors", "[hir]") {
     REQUIRE(hir.num_t_gates() == 3);  // All T_GATE ops (regardless of is_dagger)
 }
 
-TEST_CASE("HirModule with AG matrices using Tableau", "[hir]") {
+TEST_CASE("HirModule with noise sites", "[hir]") {
     HirModule hir;
     hir.num_qubits = 2;
 
-    // Add an AG matrix as a Stim Tableau
-    hir.ag_matrices.emplace_back(2);  // 2-qubit identity tableau
-    auto& tab = hir.ag_matrices.back();
+    // Add a noise site
+    NoiseSite site;
+    site.channels.push_back({X(0), 0, 0.1});
+    hir.noise_sites.push_back(std::move(site));
 
-    // Verify it's identity
-    REQUIRE(tab.xs[0].xs[0] == true);  // X_0 -> X_0
-    REQUIRE(tab.zs[0].zs[0] == true);  // Z_0 -> Z_0
-    REQUIRE(tab.xs[1].xs[1] == true);  // X_1 -> X_1
-    REQUIRE(tab.zs[1].zs[1] == true);  // Z_1 -> Z_1
-
-    // Apply CNOT(0, 1) - this is a non-trivial transformation
-    // CNOT: X_0 -> X_0 X_1, Z_1 -> Z_0 Z_1
-    tab.prepend_ZCX(0, 1);
-
-    // Verify X_0 now maps to X_0 X_1
-    REQUIRE(tab.xs[0].xs[0] == true);
-    REQUIRE(tab.xs[0].xs[1] == true);
-
-    // Add a measurement that references this AG matrix
-    auto meas = HeisenbergOp::make_measure(X(0), Z(0), false, MeasRecordIdx{0}, AgMatrixIdx{0}, 1);
-    hir.ops.push_back(meas);
-
-    REQUIRE(hir.ag_matrices.size() == 1);
-    REQUIRE(hir.ops[0].ag_matrix_idx() == AgMatrixIdx{0});
+    hir.ops.push_back(HeisenbergOp::make_noise(NoiseSiteIdx{0}));
+    REQUIRE(hir.noise_sites.size() == 1);
+    REQUIRE(hir.ops[0].noise_site_idx() == NoiseSiteIdx{0});
 }
 
 TEST_CASE("Tableau composition for AG pivot computation", "[hir]") {

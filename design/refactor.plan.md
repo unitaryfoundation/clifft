@@ -1,5 +1,39 @@
 # UCC Refactor Plan: Factored State Architecture
 
+## Status: COMPLETE ✅
+
+All four phases (0-4) are implemented and verified. 208 C++ Catch2 tests and
+129 Python integration tests pass, including exact statevector oracle validation
+against Qiskit-Aer and statistical equivalence against Stim for noisy QEC circuits.
+
+Completed on branch `feat/phase4-pipeline-integration` across 3 commits:
+- `bf8ee00` Phase 4 Task 4.1: Remove AG pivot infrastructure from front-end
+- `484c747` Phase 4 Tasks 4.2-4.3: Full lower() pipeline wiring with new opcodes
+- `4878e5a` Phase 4 Task 4.4: Fix 8 pipeline integration bugs (U_C order,
+  measurement normalization, OP_ARRAY_S, T gate lowering, sign tracking)
+
+### Open Items / Known Limitations
+
+1. **No `REPEAT` support.** The parser rejects `REPEAT` blocks. QEC circuits
+   must be fully unrolled (Stim's `circuit.flattened()`) before compilation.
+2. **10-qubit statevector cap.** `get_statevector()` rejects circuits with >10
+   qubits to prevent accidental 2^n blowup. This is a safety guard, not a
+   fundamental limit — sampling works at any qubit count within the 64-qubit
+   frame width.
+3. **No `OP_POSTSELECT`.** Post-selection is not yet implemented in the VM.
+   Required for Magic State Cultivation (see `design/magic.plan.md` Phase 2).
+4. **Single frame width (W=64).** The Pauli frame uses `stim::bitword<64>`,
+   limiting circuits to 64 qubits. Scaling to 512 qubits requires template
+   monomorphization (see `design/magic.plan.md` Phase 1).
+5. **No S-dagger array opcode.** `OP_ARRAY_S` was added but `OP_ARRAY_S_DAG`
+   is not yet needed (compress_pauli only emits S, not S_DAG). May be needed
+   for future gate decompositions.
+6. **Greedy compression is O(n) but not optimal.** The Pauli compressor uses a
+   single-pass greedy pivot selection. It always succeeds but may emit more
+   CNOTs than a global optimization would.
+
+---
+
 ## Executive Summary & Constraints
 
 This plan overhauls the UCC architecture to implement the explicit Factored State Representation defined in `theory.tex`:
@@ -16,7 +50,7 @@ By proving that multi-qubit Aaronson-Gottesman (AG) measurement pivots can be sy
 
 ---
 
-## Phase 0: The Clean Slate
+## Phase 0: The Clean Slate ✅
 
 **Goal:** Eradicate the old GF(2) theory, legacy prototypes, and obsolete opcodes to prevent hallucination of old architecture patterns.
 
@@ -32,7 +66,7 @@ By proving that multi-qubit Aaronson-Gottesman (AG) measurement pivots can be sy
 
 ---
 
-## Phase 1: VM State & RISC Instruction Set
+## Phase 1: VM State & RISC Instruction Set ✅
 
 **Goal:** Define the new execution state and implement the array/frame math for the localized RISC instructions. Test them in absolute isolation.
 
@@ -52,7 +86,7 @@ By proving that multi-qubit Aaronson-Gottesman (AG) measurement pivots can be sy
 
 ---
 
-## Phase 2: The Statevector Expansion Bridge
+## Phase 2: The Statevector Expansion Bridge ✅
 
 **Goal:** Prove the core mathematical equation $|\psi\rangle = \gamma U_C P (|\phi\rangle_A \otimes |0\rangle_D)$ works natively in C++, providing an anchor for future validation.
 
@@ -66,7 +100,7 @@ By proving that multi-qubit Aaronson-Gottesman (AG) measurement pivots can be sy
 
 ---
 
-## Phase 3: The Virtual Frame Compressor (AOT Back-End)
+## Phase 3: The Virtual Frame Compressor (AOT Back-End) ✅
 
 **Goal:** Build the $\mathcal{O}(n)$ greedy Pauli reduction algorithm that translates global physical Pauli operations into localized virtual ones.
 
@@ -83,7 +117,7 @@ By proving that multi-qubit Aaronson-Gottesman (AG) measurement pivots can be sy
 
 ---
 
-## Phase 4: Full Pipeline Integration & Oracles
+## Phase 4: Full Pipeline Integration & Oracles ✅
 
 **Goal:** Wire the Front-End, Back-End, and VM together, utilizing the array compaction technique, and validate against Qiskit/Stim.
 

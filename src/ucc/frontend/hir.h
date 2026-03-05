@@ -42,9 +42,6 @@ inline MeasRecordIdx& operator++(MeasRecordIdx& idx) {
     return idx;
 }
 
-/// Index into HirModule::ag_matrices side-table
-enum class AgMatrixIdx : uint32_t { None = UINT32_MAX };
-
 /// Index of the measurement that controls a CONDITIONAL_PAULI
 enum class ControllingMeasIdx : uint32_t {};
 
@@ -163,24 +160,11 @@ struct HeisenbergOp {
             flags_ &= ~FLAG_USE_LAST_OUTCOME;
     }
 
-    // --- MEASURE accessors (debug-asserted) ---
+    // --- MEASURE accessor (debug-asserted) ---
 
-    [[nodiscard]] AgMatrixIdx ag_matrix_idx() const {
-        assert(type_ == OpType::MEASURE && "ag_matrix_idx called on non-MEASURE op");
-        return static_cast<AgMatrixIdx>(measure_.ag_matrix_idx);
-    }
     [[nodiscard]] MeasRecordIdx meas_record_idx() const {
         assert(type_ == OpType::MEASURE && "meas_record_idx called on non-MEASURE op");
         return static_cast<MeasRecordIdx>(measure_.meas_record_idx);
-    }
-    [[nodiscard]] uint8_t ag_ref_outcome() const {
-        assert(type_ == OpType::MEASURE && "ag_ref_outcome called on non-MEASURE op");
-        return measure_.ag_ref_outcome;
-    }
-
-    [[nodiscard]] uint8_t ag_stab_slot() const {
-        assert(type_ == OpType::MEASURE && "ag_stab_slot called on non-MEASURE op");
-        return measure_.ag_stab_slot;
     }
 
     // --- CONDITIONAL_PAULI accessor (debug-asserted) ---
@@ -237,15 +221,10 @@ struct HeisenbergOp {
     }
 
     // Factory for MEASURE
-    // Uses strong typedefs to prevent accidental argument swapping.
     static HeisenbergOp make_measure(stim::bitword<64> destab, stim::bitword<64> stab, bool s,
-                                     MeasRecordIdx meas_idx, AgMatrixIdx ag_idx = AgMatrixIdx::None,
-                                     uint8_t ag_ref = 0, uint8_t ag_stab_slot = 0) {
+                                     MeasRecordIdx meas_idx) {
         HeisenbergOp op(OpType::MEASURE, destab, stab, s);
-        op.measure_.ag_matrix_idx = static_cast<uint32_t>(ag_idx);
         op.measure_.meas_record_idx = static_cast<uint32_t>(meas_idx);
-        op.measure_.ag_ref_outcome = ag_ref;
-        op.measure_.ag_stab_slot = ag_stab_slot;
         return op;
     }
 
@@ -291,7 +270,7 @@ struct HeisenbergOp {
     HeisenbergOp(OpType t, stim::bitword<64> destab, stim::bitword<64> stab, bool s)
         : destab_mask_(destab), stab_mask_(stab), type_(t), sign_(s), flags_(0) {
         // Zero-initialize the union
-        measure_ = {UINT32_MAX, 0, 0, 0};
+        measure_ = {0};
     }
 
     // --- Data Members ---
@@ -307,10 +286,7 @@ struct HeisenbergOp {
 
         // MEASURE: measurement metadata
         struct {
-            uint32_t ag_matrix_idx;    // Index into HirModule::ag_matrices (UINT32_MAX if none)
             uint32_t meas_record_idx;  // Index in measurement record (for rec[-k] resolution)
-            uint8_t ag_ref_outcome;    // Reference outcome for AG pivot (0 or 1)
-            uint8_t ag_stab_slot;      // Stabilizer row for AG pivot error injection
         } measure_;
 
         // CONDITIONAL_PAULI: classical feedback metadata
@@ -368,10 +344,6 @@ static_assert(sizeof(HeisenbergOp) == 32, "HeisenbergOp must be exactly 32 bytes
 struct HirModule {
     // Operations in execution order
     std::vector<HeisenbergOp> ops;
-
-    // Side-table for AG pivot matrices (indexed by HeisenbergOp::measure.ag_matrix_idx)
-    // Uses Stim's Tableau type directly - AG pivots ARE Clifford transformations.
-    std::vector<stim::Tableau<kStimWidth>> ag_matrices;
 
     // Side-table for noise sites (indexed by HeisenbergOp::noise_.site_idx)
     // Each NoiseSite contains the rewound Pauli channels for a quantum noise operation.

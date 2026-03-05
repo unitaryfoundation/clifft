@@ -271,6 +271,46 @@ static void exec_array_swap(SchrodingerState& state, uint16_t a, uint16_t b) {
     exec_frame_swap(state, a, b);
 }
 
+// ARRAY_H on active axis v: applies the Hadamard butterfly transform to
+// the amplitude array, then updates the Pauli frame identically to FRAME_H.
+// For each pair (i, j) where i has bit v=0 and j=i|(1<<v):
+//   v'[i] = (v[i] + v[j]) / sqrt(2)
+//   v'[j] = (v[i] - v[j]) / sqrt(2)
+static void exec_array_h(SchrodingerState& state, uint16_t v) {
+    assert(v < state.active_k && v < 64 && "ARRAY_H: axis out of range");
+    uint64_t size = 1ULL << state.active_k;
+    uint64_t v_bit = 1ULL << v;
+    auto* arr = state.v();
+
+    for (uint64_t i = 0; i < size; ++i) {
+        if (!(i & v_bit)) {
+            uint64_t j = i | v_bit;
+            auto a = arr[i];
+            auto b = arr[j];
+            arr[i] = (a + b) * kInvSqrt2;
+            arr[j] = (a - b) * kInvSqrt2;
+        }
+    }
+
+    exec_frame_h(state, v);
+}
+
+// ARRAY_S on active axis v: applies diag(1, i) to the amplitude array,
+// then updates the Pauli frame identically to FRAME_S.
+static void exec_array_s(SchrodingerState& state, uint16_t v) {
+    assert(v < state.active_k && v < 64 && "ARRAY_S: axis out of range");
+    uint64_t size = 1ULL << state.active_k;
+    uint64_t v_bit = 1ULL << v;
+    auto* arr = state.v();
+
+    for (uint64_t i = 0; i < size; ++i) {
+        if (i & v_bit) {
+            arr[i] *= kI;
+        }
+    }
+    exec_frame_s(state, v);
+}
+
 // =============================================================================
 // Expansion & Phase Opcodes
 // =============================================================================
@@ -299,7 +339,7 @@ static void exec_expand(SchrodingerState& state, uint16_t v) {
 // the array gets T_dag instead and gamma absorbs e^{i*pi/4} to preserve
 // the factored state identity.
 static void exec_phase_t(SchrodingerState& state, uint16_t v) {
-    assert(v < state.active_k && v < 64 && "PHASE_T: axis out of range");
+    assert(v < 64 && "PHASE_T: axis out of range");
     uint64_t size = 1ULL << state.active_k;
     uint64_t v_bit = 1ULL << v;
     auto* arr = state.v();
@@ -327,7 +367,7 @@ static void exec_phase_t(SchrodingerState& state, uint16_t v) {
 // Mirror of T: if p_x[v]=1, the array gets T instead and gamma absorbs
 // e^{-i*pi/4}.
 static void exec_phase_t_dag(SchrodingerState& state, uint16_t v) {
-    assert(v < state.active_k && v < 64 && "PHASE_T_DAG: axis out of range");
+    assert(v < 64 && "PHASE_T_DAG: axis out of range");
     uint64_t size = 1ULL << state.active_k;
     uint64_t v_bit = 1ULL << v;
     auto* arr = state.v();
@@ -358,8 +398,10 @@ static void exec_phase_t_dag(SchrodingerState& state, uint16_t v) {
 // Dormant-static measurement on axis v: the qubit is not in the amplitude
 // array, and its Z-basis eigenvalue is deterministic. The physical outcome
 // is simply p_x[v] (the X bit of the Pauli frame).
-static void exec_meas_dormant_static(SchrodingerState& state, uint16_t v, uint32_t classical_idx) {
+static void exec_meas_dormant_static(SchrodingerState& state, uint16_t v, uint32_t classical_idx,
+                                     bool sign) {
     uint8_t outcome = bit_get(state.p_x, v) ? 1 : 0;
+    outcome ^= static_cast<uint8_t>(sign);
     state.meas_record[classical_idx] = outcome;
 }
 
@@ -367,19 +409,21 @@ static void exec_meas_dormant_static(SchrodingerState& state, uint16_t v, uint32
 // outcome is uniformly random (e.g. X-basis eigenstate measured in Z).
 // Samples m in {0,1}, extracts phase (-1)^(p_x[v]*m), and resets the
 // frame to anchor the post-measurement computational state.
-static void exec_meas_dormant_random(SchrodingerState& state, uint16_t v, uint32_t classical_idx) {
-    uint8_t m = state.random_double() < 0.5 ? 0 : 1;
+static void exec_meas_dormant_random(SchrodingerState& state, uint16_t v, uint32_t classical_idx,
+                                     bool sign) {
+    uint8_t m_abs = state.random_double() < 0.5 ? 0 : 1;
 
-    // Phase extraction: (-1)^(p_x[v] * m)
-    if (bit_get(state.p_x, v) && m) {
+    // Phase extraction: (-1)^(p_x[v] * m_abs)
+    if (bit_get(state.p_x, v) && m_abs) {
         state.gamma = -state.gamma;
     }
 
-    // Frame reset: anchor the computational zero state
-    bit_set(state.p_x, v, m);
+    // Frame reset: anchor to abstract eigenstate
+    bit_set(state.p_x, v, m_abs);
     bit_set(state.p_z, v, false);
 
-    state.meas_record[classical_idx] = m;
+    // Physical outcome includes the compression sign
+    state.meas_record[classical_idx] = m_abs ^ static_cast<uint8_t>(sign);
 }
 
 // Active-diagonal measurement on axis v (must be active_k-1): the qubit is
@@ -387,7 +431,8 @@ static void exec_meas_dormant_random(SchrodingerState& state, uint16_t v, uint32
 // Samples branch b from probabilities of the upper/lower halves of v[],
 // compacts the array by discarding the unchosen half, and extracts phase
 // (-1)^(p_z[v]*b). Physical outcome m = b XOR p_x[v].
-static void exec_meas_active_diagonal(SchrodingerState& state, uint16_t v, uint32_t classical_idx) {
+static void exec_meas_active_diagonal(SchrodingerState& state, uint16_t v, uint32_t classical_idx,
+                                      bool sign) {
     assert(v == state.active_k - 1 && "Active diagonal measurement must target axis k-1");
 
     uint64_t half = 1ULL << (state.active_k - 1);
@@ -417,13 +462,17 @@ static void exec_meas_active_diagonal(SchrodingerState& state, uint16_t v, uint3
         b = (rand * total < prob_b0) ? 0 : 1;
     }
 
-    // Physical outcome m = b XOR p_x[v]
-    uint8_t m = b ^ static_cast<uint8_t>(px_v);
+    // Abstract outcome (determines array branch + frame state)
+    uint8_t m_abs = b ^ static_cast<uint8_t>(px_v);
+    // Physical outcome (classical record includes compression sign)
+    uint8_t m_phys = m_abs ^ static_cast<uint8_t>(sign);
 
-    // Deferred normalization
+    // Deferred normalization: scale gamma by sqrt(total / prob_b) to
+    // perfectly re-normalize the physical state while preserving accumulated
+    // global scale factors (e.g. 1/sqrt(2) from EXPAND).
     double prob_b = (b == 0) ? prob_b0 : prob_b1;
     assert(prob_b > 0.0);
-    state.gamma /= std::sqrt(prob_b);
+    state.gamma *= std::sqrt(total / prob_b);
 
     // Phase extraction: (-1)^(p_z[v] * b) when b=1
     if (b == 1 && pz_v) {
@@ -447,11 +496,11 @@ static void exec_meas_active_diagonal(SchrodingerState& state, uint16_t v, uint3
 
     state.active_k--;
 
-    // Frame reset
-    bit_set(state.p_x, v, m);
+    // Frame reset: anchor to abstract eigenstate
+    bit_set(state.p_x, v, m_abs);
     bit_set(state.p_z, v, false);
 
-    state.meas_record[classical_idx] = m;
+    state.meas_record[classical_idx] = m_phys;
 }
 
 // Active-interfere measurement on axis v (must be active_k-1): the qubit is
@@ -459,8 +508,8 @@ static void exec_meas_active_diagonal(SchrodingerState& state, uint16_t v, uint3
 // Computes |+> and |-> branch probabilities by summing |v[i] +/- v[i+half]|^2,
 // folds the array (add or subtract), and normalizes. Physical outcome
 // m = b_x XOR p_z[v], with phase extraction (-1)^(p_x[v]*m).
-static void exec_meas_active_interfere(SchrodingerState& state, uint16_t v,
-                                       uint32_t classical_idx) {
+static void exec_meas_active_interfere(SchrodingerState& state, uint16_t v, uint32_t classical_idx,
+                                       bool sign) {
     assert(v == state.active_k - 1 && "Active interfere measurement must target axis k-1");
 
     uint64_t half = 1ULL << (state.active_k - 1);
@@ -494,8 +543,10 @@ static void exec_meas_active_interfere(SchrodingerState& state, uint16_t v,
         b_x = (rand * total < prob_plus) ? 0 : 1;
     }
 
-    // Physical outcome m = b_x XOR p_z[v]
-    uint8_t m = b_x ^ static_cast<uint8_t>(pz_v);
+    // Abstract outcome (determines array fold + frame state)
+    uint8_t m_abs = b_x ^ static_cast<uint8_t>(pz_v);
+    // Physical outcome (classical record includes compression sign)
+    uint8_t m_phys = m_abs ^ static_cast<uint8_t>(sign);
 
     // Fold array: v'[i] = v[i] +/- v[i+half]
     // b_x=0 -> add, b_x=1 -> subtract
@@ -507,13 +558,14 @@ static void exec_meas_active_interfere(SchrodingerState& state, uint16_t v,
         }
     }
 
-    // Deferred normalization (extra factor of 2 for X-basis)
+    // Deferred normalization: extra factor of 2 because X-basis fold
+    // natively doubles squared norm: |a+b|^2 + |a-b|^2 = 2(|a|^2+|b|^2).
     double prob_bx = (b_x == 0) ? prob_plus : prob_minus;
     assert(prob_bx > 0.0);
-    state.gamma /= std::sqrt(2.0 * prob_bx);
+    state.gamma *= std::sqrt(total / (2.0 * prob_bx));
 
-    // Phase extraction: (-1)^(p_x[v] * m)
-    if (px_v && m) {
+    // Phase extraction: (-1)^(p_x[v] * m_abs)
+    if (px_v && m_abs) {
         state.gamma = -state.gamma;
     }
 
@@ -524,28 +576,22 @@ static void exec_meas_active_interfere(SchrodingerState& state, uint16_t v,
 
     state.active_k--;
 
-    // Frame reset
-    bit_set(state.p_x, v, m);
+    // Frame reset: anchor to abstract eigenstate
+    bit_set(state.p_x, v, m_abs);
     bit_set(state.p_z, v, false);
 
-    state.meas_record[classical_idx] = m;
+    state.meas_record[classical_idx] = m_phys;
 }
 
 // =============================================================================
 // Classical / Error Opcodes
 // =============================================================================
 
-// APPLY_PAULI: composes a PauliString error into the Pauli frame via XOR.
-// Pauli frame composition P_current * P_err picks up a sign of
-// (-1)^popcount(p_z & err_x) from Z*X = -X*Z anticommutation on
-// overlapping qubits. The PauliString's own sign is also applied.
-static void exec_apply_pauli(SchrodingerState& state, const ConstantPool& pool,
-                             uint32_t cp_mask_idx) {
-    assert(cp_mask_idx < pool.pauli_masks.size());
-    const auto& ps = pool.pauli_masks[cp_mask_idx];
+// Apply a PauliString to the Pauli frame (shared logic for APPLY_PAULI and NOISE).
+static inline void apply_pauli_to_frame(SchrodingerState& state,
+                                        const stim::PauliString<kStimWidth>& ps) {
     assert(ps.num_qubits <= kStimWidth && "PauliString exceeds single bitword lane");
 
-    // Extract x and z bitmasks from the PauliString (simd_bits -> bitword)
     Bitword err_x = ps.xs.ptr_simd[0];
     Bitword err_z = ps.zs.ptr_simd[0];
 
@@ -554,18 +600,63 @@ static void exec_apply_pauli(SchrodingerState& state, const ConstantPool& pool,
         state.gamma = -state.gamma;
     }
 
-    // XOR into frame
     state.p_x ^= err_x;
     state.p_z ^= err_z;
 
-    // Include the sign from the PauliString itself
     if (ps.sign) {
         state.gamma = -state.gamma;
     }
 }
 
+// APPLY_PAULI: conditionally composes a PauliString error into the Pauli frame.
+// Only applied if the controlling measurement recorded outcome 1.
+static void exec_apply_pauli(SchrodingerState& state, const ConstantPool& pool,
+                             uint32_t cp_mask_idx, uint32_t condition_idx) {
+    assert(cp_mask_idx < pool.pauli_masks.size());
+    assert(condition_idx < state.meas_record.size());
+
+    if (state.meas_record[condition_idx] == 0) {
+        return;
+    }
+
+    apply_pauli_to_frame(state, pool.pauli_masks[cp_mask_idx]);
+}
+
+// NOISE: stochastic Pauli channel. Roll RNG, walk cumulative probability,
+// and if a channel fires, apply its Pauli to the frame.
+static void exec_noise(SchrodingerState& state, const ConstantPool& pool, uint32_t site_idx) {
+    assert(site_idx < pool.noise_sites.size());
+    const auto& site = pool.noise_sites[site_idx];
+
+    double rand = state.random_double();
+    double cumulative = 0.0;
+    for (const auto& ch : site.channels) {
+        cumulative += ch.prob;
+        if (rand < cumulative) {
+            // This channel fires: apply its Pauli
+            stim::PauliString<kStimWidth> ps(kStimWidth);
+            ps.xs.u64[0] = ch.destab_mask;
+            ps.zs.u64[0] = ch.stab_mask;
+            apply_pauli_to_frame(state, ps);
+            return;
+        }
+    }
+    // No channel fired (identity)
+}
+
+// READOUT_NOISE: classical bit-flip on a measurement result.
+static void exec_readout_noise(SchrodingerState& state, const ConstantPool& pool,
+                               uint32_t entry_idx) {
+    assert(entry_idx < pool.readout_noise.size());
+    const auto& entry = pool.readout_noise[entry_idx];
+
+    if (state.random_double() < entry.prob) {
+        assert(entry.meas_idx < state.meas_record.size());
+        state.meas_record[entry.meas_idx] ^= 1;
+    }
+}
+
 // DETECTOR: computes the XOR parity of a list of measurement record entries.
-// The target list is stored in the constant pool; the result goes into det_record.
 static void exec_detector(SchrodingerState& state, const ConstantPool& pool, uint32_t det_list_idx,
                           uint32_t classical_idx) {
     assert(det_list_idx < pool.detector_targets.size());
@@ -581,11 +672,29 @@ static void exec_detector(SchrodingerState& state, const ConstantPool& pool, uin
     state.det_record[classical_idx] = parity;
 }
 
+// OBSERVABLE: computes XOR parity like DETECTOR, but writes to obs_record.
+static void exec_observable(SchrodingerState& state, const ConstantPool& pool,
+                            uint32_t target_list_idx, uint32_t obs_idx) {
+    assert(target_list_idx < pool.observable_targets.size());
+    const auto& targets = pool.observable_targets[target_list_idx];
+
+    uint8_t parity = 0;
+    for (uint32_t meas_idx : targets) {
+        assert(meas_idx < state.meas_record.size());
+        parity ^= state.meas_record[meas_idx];
+    }
+
+    assert(obs_idx < state.obs_record.size());
+    state.obs_record[obs_idx] ^= parity;
+}
+
 // =============================================================================
 // SVM Execution
 // =============================================================================
 
 void execute(const CompiledModule& program, SchrodingerState& state) {
+    assert(program.peak_rank < 64 && "peak_rank >= 64 would cause UB in bit shifts");
+
     for (const auto& instr : program.bytecode) {
         switch (instr.opcode) {
             // Frame opcodes
@@ -615,6 +724,12 @@ void execute(const CompiledModule& program, SchrodingerState& state) {
             case Opcode::OP_ARRAY_SWAP:
                 exec_array_swap(state, instr.axis_1, instr.axis_2);
                 break;
+            case Opcode::OP_ARRAY_H:
+                exec_array_h(state, instr.axis_1);
+                break;
+            case Opcode::OP_ARRAY_S:
+                exec_array_s(state, instr.axis_1);
+                break;
 
             // Expansion & Phase
             case Opcode::OP_EXPAND:
@@ -629,25 +744,45 @@ void execute(const CompiledModule& program, SchrodingerState& state) {
 
             // Measurements
             case Opcode::OP_MEAS_DORMANT_STATIC:
-                exec_meas_dormant_static(state, instr.axis_1, instr.classical.classical_idx);
+                if (instr.flags & Instruction::FLAG_IDENTITY) {
+                    state.meas_record[instr.classical.classical_idx] =
+                        (instr.flags & Instruction::FLAG_SIGN) ? 1 : 0;
+                } else {
+                    exec_meas_dormant_static(state, instr.axis_1, instr.classical.classical_idx,
+                                             (instr.flags & Instruction::FLAG_SIGN) != 0);
+                }
                 break;
             case Opcode::OP_MEAS_DORMANT_RANDOM:
-                exec_meas_dormant_random(state, instr.axis_1, instr.classical.classical_idx);
+                exec_meas_dormant_random(state, instr.axis_1, instr.classical.classical_idx,
+                                         (instr.flags & Instruction::FLAG_SIGN) != 0);
                 break;
             case Opcode::OP_MEAS_ACTIVE_DIAGONAL:
-                exec_meas_active_diagonal(state, instr.axis_1, instr.classical.classical_idx);
+                exec_meas_active_diagonal(state, instr.axis_1, instr.classical.classical_idx,
+                                          (instr.flags & Instruction::FLAG_SIGN) != 0);
                 break;
             case Opcode::OP_MEAS_ACTIVE_INTERFERE:
-                exec_meas_active_interfere(state, instr.axis_1, instr.classical.classical_idx);
+                exec_meas_active_interfere(state, instr.axis_1, instr.classical.classical_idx,
+                                           (instr.flags & Instruction::FLAG_SIGN) != 0);
                 break;
 
             // Classical / Errors
             case Opcode::OP_APPLY_PAULI:
-                exec_apply_pauli(state, program.constant_pool, instr.pauli.cp_mask_idx);
+                exec_apply_pauli(state, program.constant_pool, instr.pauli.cp_mask_idx,
+                                 instr.pauli.condition_idx);
+                break;
+            case Opcode::OP_NOISE:
+                exec_noise(state, program.constant_pool, instr.pauli.cp_mask_idx);
+                break;
+            case Opcode::OP_READOUT_NOISE:
+                exec_readout_noise(state, program.constant_pool, instr.pauli.cp_mask_idx);
                 break;
             case Opcode::OP_DETECTOR:
                 exec_detector(state, program.constant_pool, instr.pauli.cp_mask_idx,
-                              instr.classical.classical_idx);
+                              instr.pauli.condition_idx);
+                break;
+            case Opcode::OP_OBSERVABLE:
+                exec_observable(state, program.constant_pool, instr.pauli.cp_mask_idx,
+                                instr.pauli.condition_idx);
                 break;
         }
     }
@@ -659,15 +794,16 @@ SampleResult sample(const CompiledModule& program, uint32_t shots, uint64_t seed
         return result;
     }
 
-    uint32_t num_meas = program.num_measurements;
+    uint32_t num_vis = program.num_measurements;    // Visible measurements for output
+    uint32_t num_total = program.total_meas_slots;  // Total slots for VM execution
     uint32_t num_det = program.num_detectors;
     uint32_t num_obs = program.num_observables;
 
-    result.measurements.resize(static_cast<size_t>(shots) * num_meas);
+    result.measurements.resize(static_cast<size_t>(shots) * num_vis);
     result.detectors.resize(static_cast<size_t>(shots) * num_det);
     result.observables.resize(static_cast<size_t>(shots) * num_obs);
 
-    SchrodingerState state(program.peak_rank, num_meas, num_det, num_obs, seed);
+    SchrodingerState state(program.peak_rank, num_total, num_det, num_obs, seed);
 
     for (uint32_t shot = 0; shot < shots; ++shot) {
         if (shot > 0) {
@@ -676,9 +812,10 @@ SampleResult sample(const CompiledModule& program, uint32_t shots, uint64_t seed
 
         execute(program, state);
 
-        std::copy(state.meas_record.begin(), state.meas_record.end(),
+        // Copy only visible measurements (first num_vis entries)
+        std::copy(state.meas_record.begin(), state.meas_record.begin() + num_vis,
                   result.measurements.begin() +
-                      static_cast<ptrdiff_t>(static_cast<size_t>(shot) * num_meas));
+                      static_cast<ptrdiff_t>(static_cast<size_t>(shot) * num_vis));
         std::copy(
             state.det_record.begin(), state.det_record.end(),
             result.detectors.begin() + static_cast<ptrdiff_t>(static_cast<size_t>(shot) * num_det));

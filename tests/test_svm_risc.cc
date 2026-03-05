@@ -610,10 +610,10 @@ TEST_CASE("RISC Meas: Active interfere on plus-state") {
     CHECK(state.meas_record[0] == 0);
     CHECK(state.active_k == 0);
     // Folded: v[0] = 1 + 1 = 2
-    // gamma /= sqrt(2 * 4) = sqrt(8)
-    // Original gamma = 1/sqrt(2), so gamma = 1/sqrt(2) / sqrt(8) = 1/4
+    // gamma *= sqrt(total / (2 * prob_bx)) = sqrt(4 / 8) = 1/sqrt(2)
+    // Original gamma = 1/sqrt(2), so gamma = 1/sqrt(2) * 1/sqrt(2) = 0.5
     check_complex(state.v()[0], {2.0, 0.0});
-    CHECK_THAT(std::abs(state.gamma), WithinAbs(0.25, kTol));
+    CHECK_THAT(std::abs(state.gamma), WithinAbs(0.5, kTol));
 }
 
 TEST_CASE("RISC Meas: Active interfere on minus-state") {
@@ -811,8 +811,8 @@ TEST_CASE("RISC Detector: computes parity of measurement records") {
 
     Instruction det{};
     det.opcode = Opcode::OP_DETECTOR;
-    det.pauli.cp_mask_idx = 0;        // detector target list index
-    det.classical.classical_idx = 0;  // detector record index
+    det.pauli.cp_mask_idx = 0;    // detector target list index
+    det.pauli.condition_idx = 0;  // detector record index
     mod.bytecode.push_back(det);
 
     execute(mod, state);
@@ -835,7 +835,7 @@ TEST_CASE("RISC Detector: odd parity") {
     Instruction det{};
     det.opcode = Opcode::OP_DETECTOR;
     det.pauli.cp_mask_idx = 0;
-    det.classical.classical_idx = 0;
+    det.pauli.condition_idx = 0;
     mod.bytecode.push_back(det);
 
     execute(mod, state);
@@ -848,14 +848,15 @@ TEST_CASE("RISC Detector: odd parity") {
 // =============================================================================
 
 TEST_CASE("RISC ApplyPauli: X error flips p_x bit") {
-    SchrodingerState state(4, 0);
+    SchrodingerState state(4, 1);
+    state.meas_record[0] = 1;  // condition_idx=0 fires
     state.p_x = NONE;
     state.p_z = NONE;
 
     CompiledModule mod;
+    mod.num_measurements = 1;
     mod.peak_rank = 4;
 
-    // Build a PauliString with X on qubit 1: "+_X__"
     stim::PauliString<kStimWidth> ps(4);
     ps.xs[1] = true;
     mod.constant_pool.pauli_masks.push_back(ps);
@@ -863,6 +864,7 @@ TEST_CASE("RISC ApplyPauli: X error flips p_x bit") {
     Instruction instr{};
     instr.opcode = Opcode::OP_APPLY_PAULI;
     instr.pauli.cp_mask_idx = 0;
+    instr.pauli.condition_idx = 0;
     mod.bytecode.push_back(instr);
 
     execute(mod, state);
@@ -873,11 +875,13 @@ TEST_CASE("RISC ApplyPauli: X error flips p_x bit") {
 }
 
 TEST_CASE("RISC ApplyPauli: Z error flips p_z bit") {
-    SchrodingerState state(4, 0);
+    SchrodingerState state(4, 1);
+    state.meas_record[0] = 1;
     state.p_x = NONE;
     state.p_z = NONE;
 
     CompiledModule mod;
+    mod.num_measurements = 1;
     mod.peak_rank = 4;
 
     stim::PauliString<kStimWidth> ps(4);
@@ -887,6 +891,7 @@ TEST_CASE("RISC ApplyPauli: Z error flips p_z bit") {
     Instruction instr{};
     instr.opcode = Opcode::OP_APPLY_PAULI;
     instr.pauli.cp_mask_idx = 0;
+    instr.pauli.condition_idx = 0;
     mod.bytecode.push_back(instr);
 
     execute(mod, state);
@@ -897,55 +902,57 @@ TEST_CASE("RISC ApplyPauli: Z error flips p_z bit") {
 }
 
 TEST_CASE("RISC ApplyPauli: Y error composes with anticommutation phase") {
-    // Start with p_z[0]=1 (Z on qubit 0). Apply X error on qubit 0.
-    // Anticommutation: popcount(p_z & err_x) = 1 (odd) -> gamma *= -1
-    SchrodingerState state(4, 0);
+    SchrodingerState state(4, 1);
+    state.meas_record[0] = 1;
     state.p_x = NONE;
     state.p_z = Z(0);
 
     CompiledModule mod;
+    mod.num_measurements = 1;
     mod.peak_rank = 4;
 
     stim::PauliString<kStimWidth> ps(4);
-    ps.xs[0] = true;  // X on qubit 0
+    ps.xs[0] = true;
     mod.constant_pool.pauli_masks.push_back(ps);
 
     Instruction instr{};
     instr.opcode = Opcode::OP_APPLY_PAULI;
     instr.pauli.cp_mask_idx = 0;
+    instr.pauli.condition_idx = 0;
     mod.bytecode.push_back(instr);
 
     execute(mod, state);
 
     CHECK(state.p_x == X(0));
     CHECK(state.p_z == Z(0));
-    // Phase from anticommutation: (-1)^1 = -1
     check_complex(state.gamma, {-1.0, 0.0});
 }
 
 TEST_CASE("RISC ApplyPauli: signed PauliString negates gamma") {
-    SchrodingerState state(4, 0);
+    SchrodingerState state(4, 1);
+    state.meas_record[0] = 1;
     state.p_x = NONE;
     state.p_z = NONE;
 
     CompiledModule mod;
+    mod.num_measurements = 1;
     mod.peak_rank = 4;
 
     stim::PauliString<kStimWidth> ps(4);
     ps.xs[0] = true;
-    ps.sign = true;  // Negative-signed Pauli
+    ps.sign = true;
     mod.constant_pool.pauli_masks.push_back(ps);
 
     Instruction instr{};
     instr.opcode = Opcode::OP_APPLY_PAULI;
     instr.pauli.cp_mask_idx = 0;
+    instr.pauli.condition_idx = 0;
     mod.bytecode.push_back(instr);
 
     execute(mod, state);
 
     CHECK(state.p_x == X(0));
     CHECK(state.p_z == NONE);
-    // Sign from PauliString itself: gamma *= -1
     check_complex(state.gamma, {-1.0, 0.0});
 }
 
