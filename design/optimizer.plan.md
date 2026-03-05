@@ -73,3 +73,20 @@ This plan implements Vandaele's (2025) algorithms. We prioritize **TOHPE** (Thir
 *   **Task 6.2 (Gaussian Elimination):** Implement the block GF(2) solver to extract the right null-space of the combined matrices.
 *   **Task 6.3 (Substitution):** Apply the exact same objective maximization and P' substitution as TOHPE.
 *   **DoD:** FastTODD finds edge-case reductions that TOHPE missed on specific deep circuit topologies.
+
+## **Phase 7: Explicit SPP & SPP_DAG Support [Optional]**
+
+**Goal:** Expose the optimizer's internal CLIFFORD_PHASE machinery directly to the user by parsing Stim's Generalized Pauli Phase gates (SPP and SPP_DAG). This allows manual Phase Gadgets and resolves the missing S-dagger technical debt.
+
+* **Task 7.1 (S-Dagger VM Upgrade):** Resolve "Open Item 5" from the refactor plan.
+  * In backend.h, add OP_FRAME_S_DAG and OP_ARRAY_S_DAG to the Opcode enum.
+  * In svm.cc, implement exec_frame_s_dag (If p_x[v] == 1, multiply gamma by $-i$, then toggle p_z[v]) and exec_array_s_dag (apply $-i$ to the $|1\rangle_v$ branch, and update the frame identically).
+* **Task 7.2 (Parser Generalization):** In src/ucc/circuit/parser.cc, refactor the Pauli-product tokenization logic out of parse_mpp into a reusable parse_pauli_product helper. Add GateType::SPP and GateType::SPP_DAG to gate_data.h and route them to this parsing logic, emitting a single AST node containing the combined Pauli targets.
+* **Task 7.3 (Front-End Rewinding):** In src/ucc/frontend/frontend.cc, evaluate SPP and SPP_DAG similarly to MPP. Construct the physical stim::PauliString, rewind it through sim.inv_state, and extract the $t=0$ masks. Emit a CLIFFORD_PHASE node to the HIR (reusing the node type added in Phase 1). Use a flag to denote if the input was SPP_DAG.
+* **Task 7.4 (Back-End Lowering):** In backend.cc lower(), add the handler for CLIFFORD_PHASE nodes (which now arrive from both the Optimizer and the Front-End):
+  1. Map the $t=0$ mask to the current virtual frame ($P_v = V_{cum} P_{t=0} V_{cum}^\dagger$).
+  2. Run compress_pauli(P_v) to isolate it to a single virtual axis $v$, yielding a basis and a sign.
+  3. **Basis Alignment:** If basis == CompressedBasis::X_BASIS, append H_v to V_cum and emit OP_FRAME_H / OP_ARRAY_H (depending on if $v$ is Active or Dormant) to align the rotation to $Z_v$.
+  4. **Phase Application:** Determine the phase direction: bool is_inv = op.is_dagger() ^ result.sign.
+  5. Append $S_v$ or $S_v^\dagger$ to V_cum, and emit the corresponding OP_FRAME_S[_DAG] or OP_ARRAY_S[_DAG] instruction. *(Note: you do not need to "uncompute" the basis alignment; the $V_{cum}$ tracker permanently adopts the new geometry).*
+* **DoD:** A C++ Catch2 test parsing SPP X0*Y1; SPP_DAG X0*Y1 successfully compiles and simulates. The VM evaluates it entirely using frame and array opcodes without ever expanding the statevector's active dimension. A Python Catch2 test asserts that ucc.get_statevector executing H 0; H 1; SPP X0*X1 perfectly matches a standalone Qiskit oracle executing the equivalent $R_{XX}(\pi/2)$ gadget.
