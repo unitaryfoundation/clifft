@@ -1,4 +1,6 @@
 #include "ucc/backend/compiler_context.h"
+#include "ucc/circuit/parser.h"
+#include "ucc/frontend/frontend.h"
 
 #include "test_helpers.h"
 
@@ -6,6 +8,7 @@
 #include <catch2/matchers/catch_matchers_floating_point.hpp>
 #include <cmath>
 #include <cstdint>
+#include <string>
 
 using namespace ucc;
 using namespace ucc::internal;
@@ -843,4 +846,98 @@ TEST_CASE("Compress sequential: 30 compressions on 30 qubits all-dormant") {
         // All-dormant should only emit frame opcodes
         REQUIRE(all_frame_opcodes(ctx.bytecode));
     }
+}
+
+// =============================================================================
+// Phase 3 Task 3.5: Active/Dormant Boundary - EXPAND Emission
+// =============================================================================
+
+// Helper: compile a circuit string through the full pipeline and return the module.
+static CompiledModule compile_circuit(const std::string& text) {
+    auto circuit = ucc::parse(text);
+    auto hir = ucc::trace(circuit);
+    return ucc::lower(hir);
+}
+
+TEST_CASE("Lower: T on single qubit emits EXPAND") {
+    // H 0; T 0: the H is absorbed into the tableau. The T gate's rewound Pauli
+    // lands on a dormant X-basis axis, requiring EXPAND to activate it.
+    auto mod = compile_circuit("H 0\nT 0");
+
+    uint32_t expand_count = count_opcodes(mod.bytecode, Opcode::OP_EXPAND);
+    CHECK(expand_count == 1);
+    CHECK(mod.peak_rank >= 1);
+}
+
+TEST_CASE("Lower: T on dormant Z-basis needs no EXPAND") {
+    // T 0 (no H): the rewound Pauli is Z_0, which is dormant Z-basis.
+    // This should NOT emit EXPAND -- zero-cost dormant property.
+    auto mod = compile_circuit("T 0");
+
+    uint32_t expand_count = count_opcodes(mod.bytecode, Opcode::OP_EXPAND);
+    CHECK(expand_count == 0);
+    CHECK(mod.peak_rank == 0);
+}
+
+TEST_CASE("Lower: two T gates on same dormant Z-basis emit no EXPAND") {
+    // T 0; T 0: both Paulis are Z_0 on dormant axis. No expansion needed.
+    auto mod = compile_circuit("T 0\nT 0");
+
+    uint32_t expand_count = count_opcodes(mod.bytecode, Opcode::OP_EXPAND);
+    CHECK(expand_count == 0);
+    CHECK(mod.peak_rank == 0);
+}
+
+TEST_CASE("Lower: T after entanglement may require EXPAND") {
+    // H 0; CX 0 1; T 0: the T gate's rewound Pauli is multi-qubit (X0*X1)
+    // because the CX entangled the qubits. After compression, the pivot
+    // may land on a dormant X-basis qubit, requiring EXPAND.
+    auto mod = compile_circuit("H 0\nCX 0 1\nT 0");
+
+    uint32_t expand_count = count_opcodes(mod.bytecode, Opcode::OP_EXPAND);
+    CHECK(expand_count >= 1);
+    CHECK(mod.peak_rank >= 1);
+}
+
+TEST_CASE("Lower: measurement after T deactivates - peak rank is bounded") {
+    // H 0; T 0; M 0: EXPAND activates axis for T, measurement deactivates.
+    // peak_rank should be exactly 1 (breathes 0 -> 1 -> 0).
+    auto mod = compile_circuit("H 0\nT 0\nM 0");
+
+    CHECK(mod.peak_rank == 1);
+    uint32_t expand_count = count_opcodes(mod.bytecode, Opcode::OP_EXPAND);
+    CHECK(expand_count == 1);
+
+    // Should have exactly one active measurement opcode
+    uint32_t diag_count = count_opcodes(mod.bytecode, Opcode::OP_MEAS_ACTIVE_DIAGONAL);
+    uint32_t interf_count = count_opcodes(mod.bytecode, Opcode::OP_MEAS_ACTIVE_INTERFERE);
+    CHECK(diag_count + interf_count == 1);
+}
+
+TEST_CASE("Lower: breathing lifecycle - repeated T then M keeps peak rank low") {
+    // H 0; T 0; M 0; H 1; T 1; M 1
+    // Each qubit breathes 0->1->0 independently. Peak rank should be 1.
+    auto mod = compile_circuit("H 0\nT 0\nM 0\nH 1\nT 1\nM 1");
+
+    CHECK(mod.peak_rank == 1);
+}
+
+TEST_CASE("Lower: two simultaneous T gates may raise peak rank to 2") {
+    // H 0; H 1; T 0; T 1; M 0; M 1
+    // Both T gates need activation before either is measured.
+    auto mod = compile_circuit("H 0\nH 1\nT 0\nT 1\nM 0\nM 1");
+
+    CHECK(mod.peak_rank >= 1);
+    // Verify correct number of measurements
+    CHECK(mod.num_measurements == 2);
+}
+
+TEST_CASE("Lower: pure Clifford circuit emits no EXPAND or T opcodes") {
+    // A pure Clifford circuit should emit no EXPAND, no PHASE_T, no PHASE_T_DAG.
+    // All gates are absorbed into the tableau.
+    auto mod = compile_circuit("H 0\nCX 0 1\nS 1\nH 1\nM 0\nM 1");
+
+    CHECK(count_opcodes(mod.bytecode, Opcode::OP_EXPAND) == 0);
+    CHECK(count_opcodes(mod.bytecode, Opcode::OP_PHASE_T) == 0);
+    CHECK(count_opcodes(mod.bytecode, Opcode::OP_PHASE_T_DAG) == 0);
 }

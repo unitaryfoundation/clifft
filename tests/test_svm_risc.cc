@@ -1080,3 +1080,307 @@ TEST_CASE("RISC Reset: deterministic measurement overwrites previous shot") {
     execute(mod, state);
     CHECK(state.meas_record[0] == 0);
 }
+
+// =============================================================================
+// Phase 3 Hardening: Array Compaction Fuzzers
+// =============================================================================
+
+// Simple LCG for deterministic test-local RNG.
+static uint64_t test_lcg(uint64_t& seed) {
+    seed = seed * 6364136223846793005ULL + 1442695040888963407ULL;
+    return seed;
+}
+
+// Generate a random complex number with magnitude in [0, 1].
+static std::complex<double> random_complex(uint64_t& seed) {
+    double re = static_cast<double>(test_lcg(seed) >> 11) * 0x1.0p-53 * 2.0 - 1.0;
+    double im = static_cast<double>(test_lcg(seed) >> 11) * 0x1.0p-53 * 2.0 - 1.0;
+    return {re, im};
+}
+
+// Compute physical norm: |gamma|^2 * sum(|v[i]|^2)
+static double physical_norm(const SchrodingerState& state) {
+    double arr_norm = 0.0;
+    uint64_t size = state.v_size();
+    for (uint64_t i = 0; i < size; ++i) {
+        arr_norm += std::norm(state.v()[i]);
+    }
+    return std::norm(state.gamma) * arr_norm;
+}
+
+TEST_CASE("Compaction fuzz: active diagonal preserves norm - k=4") {
+    // Bypass compiler: manually construct k=4 state with random amplitudes,
+    // measure the top axis via OP_MEAS_ACTIVE_DIAGONAL, verify norm preserved.
+    uint64_t seed = 0xDEAD0001;
+
+    for (int trial = 0; trial < 200; ++trial) {
+        SchrodingerState state(4, 1, 0, 0, test_lcg(seed));
+        state.active_k = 4;
+
+        // Fill 16 random complex amplitudes
+        double raw_norm = 0.0;
+        for (uint64_t i = 0; i < 16; ++i) {
+            state.v()[i] = random_complex(seed);
+            raw_norm += std::norm(state.v()[i]);
+        }
+        // Normalize so the physical state has norm 1
+        double scale = 1.0 / std::sqrt(raw_norm);
+        for (uint64_t i = 0; i < 16; ++i) {
+            state.v()[i] *= scale;
+        }
+        state.gamma = {1.0, 0.0};
+
+        CHECK_THAT(physical_norm(state), WithinAbs(1.0, 1e-10));
+
+        // Measure top axis (k-1 = 3) in Z-basis
+        auto prog = make_program({make_meas_active_diagonal(3, 0)}, 4, 1);
+        execute(prog, state);
+
+        CHECK(state.active_k == 3);
+        CHECK(state.meas_record[0] <= 1);
+        CHECK_THAT(physical_norm(state), WithinAbs(1.0, 1e-9));
+    }
+}
+
+TEST_CASE("Compaction fuzz: active interfere preserves norm - k=4") {
+    // Same as above but with OP_MEAS_ACTIVE_INTERFERE (X-basis fold).
+    uint64_t seed = 0xDEAD0002;
+
+    for (int trial = 0; trial < 200; ++trial) {
+        SchrodingerState state(4, 1, 0, 0, test_lcg(seed));
+        state.active_k = 4;
+
+        double raw_norm = 0.0;
+        for (uint64_t i = 0; i < 16; ++i) {
+            state.v()[i] = random_complex(seed);
+            raw_norm += std::norm(state.v()[i]);
+        }
+        double scale = 1.0 / std::sqrt(raw_norm);
+        for (uint64_t i = 0; i < 16; ++i) {
+            state.v()[i] *= scale;
+        }
+        state.gamma = {1.0, 0.0};
+
+        CHECK_THAT(physical_norm(state), WithinAbs(1.0, 1e-10));
+
+        auto prog = make_program({make_meas_active_interfere(3, 0)}, 4, 1);
+        execute(prog, state);
+
+        CHECK(state.active_k == 3);
+        CHECK(state.meas_record[0] <= 1);
+        CHECK_THAT(physical_norm(state), WithinAbs(1.0, 1e-9));
+    }
+}
+
+TEST_CASE("Compaction fuzz: cascaded measurements k=4 to k=0") {
+    // Measure all 4 axes one at a time, verifying norm at each step.
+    // Alternates diagonal and interfere to exercise both paths.
+    uint64_t seed = 0xDEAD0003;
+
+    for (int trial = 0; trial < 100; ++trial) {
+        SchrodingerState state(4, 4, 0, 0, test_lcg(seed));
+        state.active_k = 4;
+
+        double raw_norm = 0.0;
+        for (uint64_t i = 0; i < 16; ++i) {
+            state.v()[i] = random_complex(seed);
+            raw_norm += std::norm(state.v()[i]);
+        }
+        double scale = 1.0 / std::sqrt(raw_norm);
+        for (uint64_t i = 0; i < 16; ++i) {
+            state.v()[i] *= scale;
+        }
+        state.gamma = {1.0, 0.0};
+
+        // Measure axis 3 (diagonal), then 2 (interfere), then 1 (diagonal), then 0 (interfere)
+        auto prog =
+            make_program({make_meas_active_diagonal(3, 0), make_meas_active_interfere(2, 1),
+                          make_meas_active_diagonal(1, 2), make_meas_active_interfere(0, 3)},
+                         4, 4);
+        execute(prog, state);
+
+        CHECK(state.active_k == 0);
+        // After all measurements, norm should still be 1
+        CHECK_THAT(physical_norm(state), WithinAbs(1.0, 1e-9));
+    }
+}
+
+TEST_CASE("Compaction fuzz: diagonal with pre-existing Pauli frame") {
+    // Verify compaction preserves norm even when p_x and p_z are non-trivial.
+    uint64_t seed = 0xDEAD0004;
+
+    for (int trial = 0; trial < 100; ++trial) {
+        SchrodingerState state(4, 1, 0, 0, test_lcg(seed));
+        state.active_k = 4;
+
+        double raw_norm = 0.0;
+        for (uint64_t i = 0; i < 16; ++i) {
+            state.v()[i] = random_complex(seed);
+            raw_norm += std::norm(state.v()[i]);
+        }
+        double scale = 1.0 / std::sqrt(raw_norm);
+        for (uint64_t i = 0; i < 16; ++i) {
+            state.v()[i] *= scale;
+        }
+        state.gamma = {1.0, 0.0};
+
+        // Set random frame bits
+        uint64_t px = test_lcg(seed) & 0xF;
+        uint64_t pz = test_lcg(seed) & 0xF;
+        state.p_x = stim::bitword<kStimWidth>(px);
+        state.p_z = stim::bitword<kStimWidth>(pz);
+
+        auto prog = make_program({make_meas_active_diagonal(3, 0)}, 4, 1);
+        execute(prog, state);
+
+        CHECK(state.active_k == 3);
+        CHECK_THAT(physical_norm(state), WithinAbs(1.0, 1e-9));
+    }
+}
+
+TEST_CASE("Compaction fuzz: interfere with pre-existing Pauli frame") {
+    uint64_t seed = 0xDEAD0005;
+
+    for (int trial = 0; trial < 100; ++trial) {
+        SchrodingerState state(4, 1, 0, 0, test_lcg(seed));
+        state.active_k = 4;
+
+        double raw_norm = 0.0;
+        for (uint64_t i = 0; i < 16; ++i) {
+            state.v()[i] = random_complex(seed);
+            raw_norm += std::norm(state.v()[i]);
+        }
+        double scale = 1.0 / std::sqrt(raw_norm);
+        for (uint64_t i = 0; i < 16; ++i) {
+            state.v()[i] *= scale;
+        }
+        state.gamma = {1.0, 0.0};
+
+        uint64_t px = test_lcg(seed) & 0xF;
+        uint64_t pz = test_lcg(seed) & 0xF;
+        state.p_x = stim::bitword<kStimWidth>(px);
+        state.p_z = stim::bitword<kStimWidth>(pz);
+
+        auto prog = make_program({make_meas_active_interfere(3, 0)}, 4, 1);
+        execute(prog, state);
+
+        CHECK(state.active_k == 3);
+        CHECK_THAT(physical_norm(state), WithinAbs(1.0, 1e-9));
+    }
+}
+
+// =============================================================================
+// Phase 3 Hardening: Zero-Probability Branch Stability
+// =============================================================================
+
+TEST_CASE("Zero-prob: minus state interfere is deterministic b_x=1") {
+    // |-> = (|0> - |1>)/sqrt(2). X-basis measurement: prob_plus=0, prob_minus=4.
+    // Must yield b_x=1 deterministically without NaN/Inf in gamma.
+    for (uint32_t trial = 0; trial < 50; ++trial) {
+        SchrodingerState state(2, 1, 0, 0, trial * 31 + 7);
+        state.active_k = 1;
+        state.v()[0] = {1.0, 0.0};
+        state.v()[1] = {-1.0, 0.0};
+        state.gamma = {1.0 / std::sqrt(2.0), 0.0};
+
+        auto prog = make_program({make_meas_active_interfere(0, 0)}, 2, 1);
+        execute(prog, state);
+
+        CHECK(state.meas_record[0] == 1);  // deterministic |-> -> b_x=1
+        CHECK(state.active_k == 0);
+        CHECK(std::isfinite(state.gamma.real()));
+        CHECK(std::isfinite(state.gamma.imag()));
+        CHECK_THAT(physical_norm(state), WithinAbs(1.0, 1e-9));
+    }
+}
+
+TEST_CASE("Zero-prob: plus state interfere is deterministic b_x=0") {
+    // |+> = (|0> + |1>)/sqrt(2). prob_minus=0, must yield b_x=0.
+    for (uint32_t trial = 0; trial < 50; ++trial) {
+        SchrodingerState state(2, 1, 0, 0, trial * 13 + 3);
+        state.active_k = 1;
+        state.v()[0] = {1.0, 0.0};
+        state.v()[1] = {1.0, 0.0};
+        state.gamma = {1.0 / std::sqrt(2.0), 0.0};
+
+        auto prog = make_program({make_meas_active_interfere(0, 0)}, 2, 1);
+        execute(prog, state);
+
+        CHECK(state.meas_record[0] == 0);
+        CHECK(state.active_k == 0);
+        CHECK(std::isfinite(state.gamma.real()));
+        CHECK(std::isfinite(state.gamma.imag()));
+        CHECK_THAT(physical_norm(state), WithinAbs(1.0, 1e-9));
+    }
+}
+
+TEST_CASE("Zero-prob: zero-state diagonal is deterministic b=0") {
+    // |0> state. prob_b1=0, must yield b=0.
+    for (uint32_t trial = 0; trial < 50; ++trial) {
+        SchrodingerState state(2, 1, 0, 0, trial * 17 + 5);
+        state.active_k = 1;
+        state.v()[0] = {1.0, 0.0};
+        state.v()[1] = {0.0, 0.0};
+
+        auto prog = make_program({make_meas_active_diagonal(0, 0)}, 2, 1);
+        execute(prog, state);
+
+        CHECK(state.meas_record[0] == 0);
+        CHECK(state.active_k == 0);
+        CHECK(std::isfinite(state.gamma.real()));
+        CHECK(std::isfinite(state.gamma.imag()));
+        CHECK_THAT(physical_norm(state), WithinAbs(1.0, 1e-9));
+    }
+}
+
+TEST_CASE("Zero-prob: one-state diagonal is deterministic b=1") {
+    // |1> state. prob_b0=0, must yield b=1.
+    for (uint32_t trial = 0; trial < 50; ++trial) {
+        SchrodingerState state(2, 1, 0, 0, trial * 19 + 11);
+        state.active_k = 1;
+        state.v()[0] = {0.0, 0.0};
+        state.v()[1] = {1.0, 0.0};
+
+        auto prog = make_program({make_meas_active_diagonal(0, 0)}, 2, 1);
+        execute(prog, state);
+
+        CHECK(state.meas_record[0] == 1);
+        CHECK(state.active_k == 0);
+        CHECK(std::isfinite(state.gamma.real()));
+        CHECK(std::isfinite(state.gamma.imag()));
+        CHECK_THAT(physical_norm(state), WithinAbs(1.0, 1e-9));
+    }
+}
+
+TEST_CASE("Zero-prob: multi-qubit deterministic interfere") {
+    // k=3 state where axis 2 is in exact |-> across all subspace combinations.
+    // v[i] for i with bit 2 set = -v[i with bit 2 cleared].
+    // Interfere on axis 2 must be deterministic b_x=1.
+    for (uint32_t trial = 0; trial < 50; ++trial) {
+        uint64_t seed = 0xBEEF0000 + trial;
+        SchrodingerState state(3, 1, 0, 0, seed);
+        state.active_k = 3;
+
+        // Fill lower half randomly, upper half = -lower
+        double raw_norm = 0.0;
+        for (uint64_t i = 0; i < 4; ++i) {
+            state.v()[i] = random_complex(seed);
+            state.v()[i + 4] = -state.v()[i];  // bit 2 = |-> pattern
+            raw_norm += 2.0 * std::norm(state.v()[i]);
+        }
+        double scale = 1.0 / std::sqrt(raw_norm);
+        for (uint64_t i = 0; i < 8; ++i) {
+            state.v()[i] *= scale;
+        }
+        state.gamma = {1.0, 0.0};
+
+        auto prog = make_program({make_meas_active_interfere(2, 0)}, 3, 1);
+        execute(prog, state);
+
+        CHECK(state.meas_record[0] == 1);  // deterministic |->
+        CHECK(state.active_k == 2);
+        CHECK(std::isfinite(state.gamma.real()));
+        CHECK(std::isfinite(state.gamma.imag()));
+        CHECK_THAT(physical_norm(state), WithinAbs(1.0, 1e-9));
+    }
+}
