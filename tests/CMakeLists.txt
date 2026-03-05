@@ -9,6 +9,7 @@ add_executable(ucc_tests
     test_stim_contract.cc
     test_hir.cc
     test_frontend.cc
+    test_backend.cc
     test_svm_risc.cc
     test_statevector.cc
 )
