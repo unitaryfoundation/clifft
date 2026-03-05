@@ -340,10 +340,19 @@ static void exec_expand(SchrodingerState& state, uint16_t v) {
 // the factored state identity.
 static void exec_phase_t(SchrodingerState& state, uint16_t v) {
     assert(v < 64 && "PHASE_T: axis out of range");
+    bool px = bit_get(state.p_x, v);
+
+    // Dormant axis: v_bit is beyond 2^k so no array element has it set.
+    // The only possible effect is the gamma phase when px anti-commutes.
+    if (v >= state.active_k) {
+        if (px)
+            state.gamma *= kExpIPiOver4;
+        return;
+    }
+
     uint64_t size = 1ULL << state.active_k;
     uint64_t v_bit = 1ULL << v;
     auto* arr = state.v();
-    bool px = bit_get(state.p_x, v);
 
     if (px) {
         // Anti-commutes: apply T_dag to array, multiply gamma by e^{i*pi/4}
@@ -368,10 +377,18 @@ static void exec_phase_t(SchrodingerState& state, uint16_t v) {
 // e^{-i*pi/4}.
 static void exec_phase_t_dag(SchrodingerState& state, uint16_t v) {
     assert(v < 64 && "PHASE_T_DAG: axis out of range");
+    bool px = bit_get(state.p_x, v);
+
+    // Dormant axis: same O(1) shortcut as exec_phase_t.
+    if (v >= state.active_k) {
+        if (px)
+            state.gamma *= kExpMinusIPiOver4;
+        return;
+    }
+
     uint64_t size = 1ULL << state.active_k;
     uint64_t v_bit = 1ULL << v;
     auto* arr = state.v();
-    bool px = bit_get(state.p_x, v);
 
     if (px) {
         // Anti-commutes: apply T to array, multiply gamma by e^{-i*pi/4}
@@ -548,21 +565,24 @@ static void exec_meas_active_interfere(SchrodingerState& state, uint16_t v, uint
     // Physical outcome (classical record includes compression sign)
     uint8_t m_phys = m_abs ^ static_cast<uint8_t>(sign);
 
-    // Fold array: v'[i] = v[i] +/- v[i+half]
+    // Fold array: v'[i] = (v[i] +/- v[i+half]) / sqrt(2)
     // b_x=0 -> add, b_x=1 -> subtract
+    // The 1/sqrt(2) factor keeps the fold unitary, preventing exponential
+    // magnitude growth from repeated EXPAND + INTERFERE sequences.
     for (uint64_t i = 0; i < half; ++i) {
         if (b_x == 0) {
-            arr[i] = arr[i] + arr[i + half];
+            arr[i] = (arr[i] + arr[i + half]) * kInvSqrt2;
         } else {
-            arr[i] = arr[i] - arr[i + half];
+            arr[i] = (arr[i] - arr[i + half]) * kInvSqrt2;
         }
     }
 
-    // Deferred normalization: extra factor of 2 because X-basis fold
-    // natively doubles squared norm: |a+b|^2 + |a-b|^2 = 2(|a|^2+|b|^2).
+    // Deferred normalization: compensate for probability of chosen branch.
+    // With the unitary 1/sqrt(2) fold above, the surviving branch has
+    // squared norm = prob_bx / 2, matching the diagonal measurement formula.
     double prob_bx = (b_x == 0) ? prob_plus : prob_minus;
     assert(prob_bx > 0.0);
-    state.gamma *= std::sqrt(total / (2.0 * prob_bx));
+    state.gamma *= std::sqrt(total / prob_bx);
 
     // Phase extraction: (-1)^(p_x[v] * m_abs)
     if (px_v && m_abs) {
@@ -595,8 +615,9 @@ static inline void apply_pauli_to_frame(SchrodingerState& state,
     Bitword err_x = ps.xs.ptr_simd[0];
     Bitword err_z = ps.zs.ptr_simd[0];
 
-    // Phase: (-1)^popcount(current_z & err_x)
-    if ((state.p_z & err_x).popcount() & 1) {
+    // Phase: (-1)^popcount(err_z & current_x)
+    // When composing E*P, we commute Z^{e_z} past X^{p_x}, picking up (-1)^{e_z . p_x}.
+    if ((state.p_x & err_z).popcount() & 1) {
         state.gamma = -state.gamma;
     }
 

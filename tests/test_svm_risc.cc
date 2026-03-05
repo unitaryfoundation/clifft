@@ -609,11 +609,11 @@ TEST_CASE("RISC Meas: Active interfere on plus-state") {
     // prob_plus = |1+1|^2 = 4, prob_minus = |1-1|^2 = 0
     CHECK(state.meas_record[0] == 0);
     CHECK(state.active_k == 0);
-    // Folded: v[0] = 1 + 1 = 2
-    // gamma *= sqrt(total / (2 * prob_bx)) = sqrt(4 / 8) = 1/sqrt(2)
-    // Original gamma = 1/sqrt(2), so gamma = 1/sqrt(2) * 1/sqrt(2) = 0.5
-    check_complex(state.v()[0], {2.0, 0.0});
-    CHECK_THAT(std::abs(state.gamma), WithinAbs(0.5, kTol));
+    // Folded: v[0] = (1 + 1) * kInvSqrt2 = sqrt(2)
+    // gamma *= sqrt(total / prob_bx) = sqrt(4 / 4) = 1
+    // Original gamma = 1/sqrt(2), so final gamma = 1/sqrt(2)
+    check_complex(state.v()[0], {std::sqrt(2.0), 0.0});
+    CHECK_THAT(std::abs(state.gamma), WithinAbs(kInvSqrt2, kTol));
 }
 
 TEST_CASE("RISC Meas: Active interfere on minus-state") {
@@ -630,8 +630,8 @@ TEST_CASE("RISC Meas: Active interfere on minus-state") {
     // |-> in X-basis: deterministic b_x=1
     CHECK(state.meas_record[0] == 1);
     CHECK(state.active_k == 0);
-    // Folded: v[0] = 1 - (-1) = 2
-    check_complex(state.v()[0], {2.0, 0.0});
+    // Folded: v[0] = (1 - (-1)) * kInvSqrt2 = sqrt(2)
+    check_complex(state.v()[0], {std::sqrt(2.0), 0.0});
 }
 
 // =============================================================================
@@ -901,7 +901,8 @@ TEST_CASE("RISC ApplyPauli: Z error flips p_z bit") {
     check_complex(state.gamma, {1.0, 0.0});
 }
 
-TEST_CASE("RISC ApplyPauli: Y error composes with anticommutation phase") {
+TEST_CASE("RISC ApplyPauli: X error on Z frame has no anticommutation phase") {
+    // E=X_0 applied to P=Z_0: commutation phase is (-1)^{e_z . p_x} = (-1)^0 = +1
     SchrodingerState state(4, 1);
     state.meas_record[0] = 1;
     state.p_x = NONE;
@@ -913,6 +914,34 @@ TEST_CASE("RISC ApplyPauli: Y error composes with anticommutation phase") {
 
     stim::PauliString<kStimWidth> ps(4);
     ps.xs[0] = true;
+    mod.constant_pool.pauli_masks.push_back(ps);
+
+    Instruction instr{};
+    instr.opcode = Opcode::OP_APPLY_PAULI;
+    instr.pauli.cp_mask_idx = 0;
+    instr.pauli.condition_idx = 0;
+    mod.bytecode.push_back(instr);
+
+    execute(mod, state);
+
+    CHECK(state.p_x == X(0));
+    CHECK(state.p_z == Z(0));
+    check_complex(state.gamma, {1.0, 0.0});
+}
+
+TEST_CASE("RISC ApplyPauli: Z error on X frame negates gamma") {
+    // E=Z_0 applied to P=X_0: commutation phase is (-1)^{e_z . p_x} = (-1)^1 = -1
+    SchrodingerState state(4, 1);
+    state.meas_record[0] = 1;
+    state.p_x = X(0);
+    state.p_z = NONE;
+
+    CompiledModule mod;
+    mod.num_measurements = 1;
+    mod.peak_rank = 4;
+
+    stim::PauliString<kStimWidth> ps(4);
+    ps.zs[0] = true;
     mod.constant_pool.pauli_masks.push_back(ps);
 
     Instruction instr{};

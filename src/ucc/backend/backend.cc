@@ -217,6 +217,9 @@ void emit_swap(CompilerContext& ctx, uint16_t a, uint16_t b) {
     if (a == b)
         return;
 
+    uint32_t k = ctx.reg_manager.active_k();
+    assert((a < k) == (b < k) && "Cannot swap between active and dormant partitions");
+
     // Update V_cum with SWAP via 3 CNOTs
     {
         stim::TableauTransposedRaii<kStimWidth> trans(ctx.v_cum);
@@ -225,7 +228,6 @@ void emit_swap(CompilerContext& ctx, uint16_t a, uint16_t b) {
         trans.append_ZCX(a, b);
     }
 
-    uint32_t k = ctx.reg_manager.active_k();
     if (a < k && b < k) {
         ctx.bytecode.push_back(make_array_swap(a, b));
     } else {
