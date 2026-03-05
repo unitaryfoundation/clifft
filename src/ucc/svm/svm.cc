@@ -18,31 +18,35 @@ namespace ucc {
 namespace {
 
 using Bitword = stim::bitword<kStimWidth>;
+static_assert(kStimWidth == 64, "Direct .val access assumes 64-bit bitword");
 
-inline Bitword single_bit(uint16_t idx) {
-    return Bitword(uint64_t{1}) << idx;
-}
-
-inline bool bit_get(Bitword w, uint16_t idx) {
-    return bool((w >> idx) & uint64_t{1});
+// Fast bit manipulation bypassing SIMD shift overhead by accessing the
+// underlying uint64_t directly. Each helper compiles to 1-2 scalar ALU ops.
+inline bool bit_get(const Bitword& w, uint16_t idx) {
+    return (w.val >> idx) & 1ULL;
 }
 
 inline void bit_set(Bitword& w, uint16_t idx, bool v) {
-    if (bit_get(w, idx) != v) {
-        w ^= single_bit(idx);
+    if (v) {
+        w.val |= (1ULL << idx);
+    } else {
+        w.val &= ~(1ULL << idx);
     }
 }
 
 inline void bit_xor(Bitword& w, uint16_t idx, bool v) {
     if (v) {
-        w ^= single_bit(idx);
+        w.val ^= (1ULL << idx);
     }
 }
 
 inline void bit_swap(Bitword& w1, uint16_t i1, Bitword& w2, uint16_t i2) {
-    bool tmp = bit_get(w1, i1);
-    bit_set(w1, i1, bit_get(w2, i2));
-    bit_set(w2, i2, tmp);
+    bool b1 = bit_get(w1, i1);
+    bool b2 = bit_get(w2, i2);
+    if (b1 != b2) {
+        w1.val ^= (1ULL << i1);
+        w2.val ^= (1ULL << i2);
+    }
 }
 
 // Bit-weaving helpers for branchless 2-qubit iteration.
@@ -223,7 +227,7 @@ static inline void exec_frame_swap(SchrodingerState& state, uint16_t a, uint16_t
 
 // CNOT on active axes (c=control, t=target): permutes the amplitude array
 // using branchless bit-weaving to iterate only over the 2^{k-2} relevant pairs.
-static void exec_array_cnot(SchrodingerState& state, uint16_t c, uint16_t t) {
+static inline void exec_array_cnot(SchrodingerState& state, uint16_t c, uint16_t t) {
     assert(c < state.active_k && c < 64 && "ARRAY_CNOT: control axis out of range");
     assert(t < state.active_k && t < 64 && "ARRAY_CNOT: target axis out of range");
 
@@ -244,7 +248,7 @@ static void exec_array_cnot(SchrodingerState& state, uint16_t c, uint16_t t) {
 // CZ on active axes (c, t): applies diag(1,1,1,-1) in the computational basis.
 // Uses branchless bit-weaving to iterate only over the 2^{k-2} indices
 // where both bit c and bit t are set.
-static void exec_array_cz(SchrodingerState& state, uint16_t c, uint16_t t) {
+static inline void exec_array_cz(SchrodingerState& state, uint16_t c, uint16_t t) {
     assert(c < state.active_k && c < 64 && "ARRAY_CZ: control axis out of range");
     assert(t < state.active_k && t < 64 && "ARRAY_CZ: target axis out of range");
 
@@ -262,7 +266,7 @@ static void exec_array_cz(SchrodingerState& state, uint16_t c, uint16_t t) {
 
 // SWAP on active axes (a, b): permutes the amplitude array using branchless
 // bit-weaving to iterate only over the 2^{k-2} pairs that need swapping.
-static void exec_array_swap(SchrodingerState& state, uint16_t a, uint16_t b) {
+static inline void exec_array_swap(SchrodingerState& state, uint16_t a, uint16_t b) {
     assert(a < state.active_k && a < 64 && "ARRAY_SWAP: axis a out of range");
     assert(b < state.active_k && b < 64 && "ARRAY_SWAP: axis b out of range");
 
@@ -284,7 +288,7 @@ static void exec_array_swap(SchrodingerState& state, uint16_t a, uint16_t b) {
 // For each pair (i, j) where i has bit v=0 and j=i|(1<<v):
 //   v'[i] = (v[i] + v[j]) / sqrt(2)
 //   v'[j] = (v[i] - v[j]) / sqrt(2)
-static void exec_array_h(SchrodingerState& state, uint16_t v) {
+static inline void exec_array_h(SchrodingerState& state, uint16_t v) {
     assert(v < state.active_k && v < 64 && "ARRAY_H: axis out of range");
     uint64_t size = 1ULL << state.active_k;
     uint64_t v_bit = 1ULL << v;
@@ -305,7 +309,7 @@ static void exec_array_h(SchrodingerState& state, uint16_t v) {
 
 // ARRAY_S on active axis v: applies diag(1, i) to the amplitude array,
 // then updates the Pauli frame identically to FRAME_S.
-static void exec_array_s(SchrodingerState& state, uint16_t v) {
+static inline void exec_array_s(SchrodingerState& state, uint16_t v) {
     assert(v < state.active_k && v < 64 && "ARRAY_S: axis out of range");
     uint64_t size = 1ULL << state.active_k;
     uint64_t v_bit = 1ULL << v;
@@ -327,7 +331,7 @@ static void exec_array_s(SchrodingerState& state, uint16_t v) {
 // v must equal active_k (the next available axis). Copies v[i] to v[i + 2^k]
 // for all i < 2^k, producing |phi> tensor |+> on the new axis.
 // gamma /= sqrt(2) to maintain normalization.
-static void exec_expand(SchrodingerState& state, uint16_t v) {
+static inline void exec_expand(SchrodingerState& state, uint16_t v) {
     assert(v == state.active_k && "EXPAND must target the next dormant axis");
     uint64_t old_size = 1ULL << state.active_k;
     auto* arr = state.v();
@@ -346,7 +350,7 @@ static void exec_expand(SchrodingerState& state, uint16_t v) {
 // to array indices where bit v is set. If p_x[v]=1 (T anticommutes with X),
 // the array gets T_dag instead and gamma absorbs e^{i*pi/4} to preserve
 // the factored state identity.
-static void exec_phase_t(SchrodingerState& state, uint16_t v) {
+static inline void exec_phase_t(SchrodingerState& state, uint16_t v) {
     assert(v < 64 && "PHASE_T: axis out of range");
     bool px = bit_get(state.p_x, v);
 
@@ -383,7 +387,7 @@ static void exec_phase_t(SchrodingerState& state, uint16_t v) {
 // T_dag gate (-pi/4 Z-rotation) on active axis v: applies diag(1, e^{-i*pi/4}).
 // Mirror of T: if p_x[v]=1, the array gets T instead and gamma absorbs
 // e^{-i*pi/4}.
-static void exec_phase_t_dag(SchrodingerState& state, uint16_t v) {
+static inline void exec_phase_t_dag(SchrodingerState& state, uint16_t v) {
     assert(v < 64 && "PHASE_T_DAG: axis out of range");
     bool px = bit_get(state.p_x, v);
 
@@ -423,8 +427,8 @@ static void exec_phase_t_dag(SchrodingerState& state, uint16_t v) {
 // Dormant-static measurement on axis v: the qubit is not in the amplitude
 // array, and its Z-basis eigenvalue is deterministic. The physical outcome
 // is simply p_x[v] (the X bit of the Pauli frame).
-static void exec_meas_dormant_static(SchrodingerState& state, uint16_t v, uint32_t classical_idx,
-                                     bool sign) {
+static inline void exec_meas_dormant_static(SchrodingerState& state, uint16_t v,
+                                            uint32_t classical_idx, bool sign) {
     uint8_t outcome = bit_get(state.p_x, v) ? 1 : 0;
     outcome ^= static_cast<uint8_t>(sign);
     state.meas_record[classical_idx] = outcome;
@@ -434,8 +438,8 @@ static void exec_meas_dormant_static(SchrodingerState& state, uint16_t v, uint32
 // outcome is uniformly random (e.g. X-basis eigenstate measured in Z).
 // Samples m in {0,1}, extracts phase (-1)^(p_x[v]*m), and resets the
 // frame to anchor the post-measurement computational state.
-static void exec_meas_dormant_random(SchrodingerState& state, uint16_t v, uint32_t classical_idx,
-                                     bool sign) {
+static inline void exec_meas_dormant_random(SchrodingerState& state, uint16_t v,
+                                            uint32_t classical_idx, bool sign) {
     uint8_t m_abs = state.random_double() < 0.5 ? 0 : 1;
 
     // Phase extraction: (-1)^(p_x[v] * m_abs)
@@ -456,8 +460,8 @@ static void exec_meas_dormant_random(SchrodingerState& state, uint16_t v, uint32
 // Samples branch b from probabilities of the upper/lower halves of v[],
 // compacts the array by discarding the unchosen half, and extracts phase
 // (-1)^(p_z[v]*b). Physical outcome m = b XOR p_x[v].
-static void exec_meas_active_diagonal(SchrodingerState& state, uint16_t v, uint32_t classical_idx,
-                                      bool sign) {
+static inline void exec_meas_active_diagonal(SchrodingerState& state, uint16_t v,
+                                             uint32_t classical_idx, bool sign) {
     assert(v == state.active_k - 1 && "Active diagonal measurement must target axis k-1");
 
     uint64_t half = 1ULL << (state.active_k - 1);
@@ -533,8 +537,8 @@ static void exec_meas_active_diagonal(SchrodingerState& state, uint16_t v, uint3
 // Computes |+> and |-> branch probabilities by summing |v[i] +/- v[i+half]|^2,
 // folds the array (add or subtract), and normalizes. Physical outcome
 // m = b_x XOR p_z[v], with phase extraction (-1)^(p_x[v]*m).
-static void exec_meas_active_interfere(SchrodingerState& state, uint16_t v, uint32_t classical_idx,
-                                       bool sign) {
+static inline void exec_meas_active_interfere(SchrodingerState& state, uint16_t v,
+                                              uint32_t classical_idx, bool sign) {
     assert(v == state.active_k - 1 && "Active interfere measurement must target axis k-1");
 
     uint64_t half = 1ULL << (state.active_k - 1);
@@ -639,8 +643,8 @@ static inline void apply_pauli_to_frame(SchrodingerState& state,
 
 // APPLY_PAULI: conditionally composes a PauliString error into the Pauli frame.
 // Only applied if the controlling measurement recorded outcome 1.
-static void exec_apply_pauli(SchrodingerState& state, const ConstantPool& pool,
-                             uint32_t cp_mask_idx, uint32_t condition_idx) {
+static inline void exec_apply_pauli(SchrodingerState& state, const ConstantPool& pool,
+                                    uint32_t cp_mask_idx, uint32_t condition_idx) {
     assert(cp_mask_idx < pool.pauli_masks.size());
     assert(condition_idx < state.meas_record.size());
 
@@ -655,7 +659,8 @@ static void exec_apply_pauli(SchrodingerState& state, const ConstantPool& pool,
 // If this site's index doesn't match the next expected noise event, it's
 // guaranteed silent (identity) by the exponential gap sampling and we skip
 // the RNG roll entirely.
-static void exec_noise(SchrodingerState& state, const ConstantPool& pool, uint32_t site_idx) {
+static inline void exec_noise(SchrodingerState& state, const ConstantPool& pool,
+                              uint32_t site_idx) {
     assert(site_idx < pool.noise_sites.size());
 
     if (site_idx != state.next_noise_idx)
@@ -685,8 +690,8 @@ static void exec_noise(SchrodingerState& state, const ConstantPool& pool, uint32
 }
 
 // READOUT_NOISE: classical bit-flip on a measurement result.
-static void exec_readout_noise(SchrodingerState& state, const ConstantPool& pool,
-                               uint32_t entry_idx) {
+static inline void exec_readout_noise(SchrodingerState& state, const ConstantPool& pool,
+                                      uint32_t entry_idx) {
     assert(entry_idx < pool.readout_noise.size());
     const auto& entry = pool.readout_noise[entry_idx];
 
@@ -697,8 +702,8 @@ static void exec_readout_noise(SchrodingerState& state, const ConstantPool& pool
 }
 
 // DETECTOR: computes the XOR parity of a list of measurement record entries.
-static void exec_detector(SchrodingerState& state, const ConstantPool& pool, uint32_t det_list_idx,
-                          uint32_t classical_idx) {
+static inline void exec_detector(SchrodingerState& state, const ConstantPool& pool,
+                                 uint32_t det_list_idx, uint32_t classical_idx) {
     assert(det_list_idx < pool.detector_targets.size());
     const auto& targets = pool.detector_targets[det_list_idx];
 
@@ -713,8 +718,8 @@ static void exec_detector(SchrodingerState& state, const ConstantPool& pool, uin
 }
 
 // OBSERVABLE: computes XOR parity like DETECTOR, but writes to obs_record.
-static void exec_observable(SchrodingerState& state, const ConstantPool& pool,
-                            uint32_t target_list_idx, uint32_t obs_idx) {
+static inline void exec_observable(SchrodingerState& state, const ConstantPool& pool,
+                                   uint32_t target_list_idx, uint32_t obs_idx) {
     assert(target_list_idx < pool.observable_targets.size());
     const auto& targets = pool.observable_targets[target_list_idx];
 
@@ -735,9 +740,157 @@ static void exec_observable(SchrodingerState& state, const ConstantPool& pool,
 void execute(const CompiledModule& program, SchrodingerState& state) {
     assert(program.peak_rank < 64 && "peak_rank >= 64 would cause UB in bit shifts");
 
+    if (program.bytecode.empty()) {
+        return;
+    }
+
+#if defined(__GNUC__) || defined(__clang__)
+    // Threaded dispatch table (computed gotos) gives each opcode its own
+    // indirect-branch history entry, dramatically improving prediction.
+    // Sized to 256; designated initializers map enums directly to labels.
+    static const void* dispatch_table[256] = {
+        [static_cast<uint8_t>(Opcode::OP_FRAME_CNOT)] = &&L_OP_FRAME_CNOT,
+        [static_cast<uint8_t>(Opcode::OP_FRAME_CZ)] = &&L_OP_FRAME_CZ,
+        [static_cast<uint8_t>(Opcode::OP_FRAME_H)] = &&L_OP_FRAME_H,
+        [static_cast<uint8_t>(Opcode::OP_FRAME_S)] = &&L_OP_FRAME_S,
+        [static_cast<uint8_t>(Opcode::OP_FRAME_SWAP)] = &&L_OP_FRAME_SWAP,
+
+        [static_cast<uint8_t>(Opcode::OP_ARRAY_CNOT)] = &&L_OP_ARRAY_CNOT,
+        [static_cast<uint8_t>(Opcode::OP_ARRAY_CZ)] = &&L_OP_ARRAY_CZ,
+        [static_cast<uint8_t>(Opcode::OP_ARRAY_SWAP)] = &&L_OP_ARRAY_SWAP,
+        [static_cast<uint8_t>(Opcode::OP_ARRAY_H)] = &&L_OP_ARRAY_H,
+        [static_cast<uint8_t>(Opcode::OP_ARRAY_S)] = &&L_OP_ARRAY_S,
+
+        [static_cast<uint8_t>(Opcode::OP_EXPAND)] = &&L_OP_EXPAND,
+        [static_cast<uint8_t>(Opcode::OP_PHASE_T)] = &&L_OP_PHASE_T,
+        [static_cast<uint8_t>(Opcode::OP_PHASE_T_DAG)] = &&L_OP_PHASE_T_DAG,
+
+        [static_cast<uint8_t>(Opcode::OP_MEAS_DORMANT_STATIC)] = &&L_OP_MEAS_DORMANT_STATIC,
+        [static_cast<uint8_t>(Opcode::OP_MEAS_DORMANT_RANDOM)] = &&L_OP_MEAS_DORMANT_RANDOM,
+        [static_cast<uint8_t>(Opcode::OP_MEAS_ACTIVE_DIAGONAL)] = &&L_OP_MEAS_ACTIVE_DIAGONAL,
+        [static_cast<uint8_t>(Opcode::OP_MEAS_ACTIVE_INTERFERE)] = &&L_OP_MEAS_ACTIVE_INTERFERE,
+
+        [static_cast<uint8_t>(Opcode::OP_APPLY_PAULI)] = &&L_OP_APPLY_PAULI,
+        [static_cast<uint8_t>(Opcode::OP_NOISE)] = &&L_OP_NOISE,
+        [static_cast<uint8_t>(Opcode::OP_READOUT_NOISE)] = &&L_OP_READOUT_NOISE,
+        [static_cast<uint8_t>(Opcode::OP_DETECTOR)] = &&L_OP_DETECTOR,
+        [static_cast<uint8_t>(Opcode::OP_OBSERVABLE)] = &&L_OP_OBSERVABLE,
+    };
+
+    const Instruction* pc = program.bytecode.data();
+    const Instruction* end = pc + program.bytecode.size();
+
+#define DISPATCH()                                              \
+    do {                                                        \
+        if (++pc == end)                                        \
+            return;                                             \
+        goto* dispatch_table[static_cast<uint8_t>(pc->opcode)]; \
+    } while (0)
+
+    goto* dispatch_table[static_cast<uint8_t>(pc->opcode)];
+
+L_OP_FRAME_CNOT:
+    exec_frame_cnot(state, pc->axis_1, pc->axis_2);
+    DISPATCH();
+
+L_OP_FRAME_CZ:
+    exec_frame_cz(state, pc->axis_1, pc->axis_2);
+    DISPATCH();
+
+L_OP_FRAME_H:
+    exec_frame_h(state, pc->axis_1);
+    DISPATCH();
+
+L_OP_FRAME_S:
+    exec_frame_s(state, pc->axis_1);
+    DISPATCH();
+
+L_OP_FRAME_SWAP:
+    exec_frame_swap(state, pc->axis_1, pc->axis_2);
+    DISPATCH();
+
+L_OP_ARRAY_CNOT:
+    exec_array_cnot(state, pc->axis_1, pc->axis_2);
+    DISPATCH();
+
+L_OP_ARRAY_CZ:
+    exec_array_cz(state, pc->axis_1, pc->axis_2);
+    DISPATCH();
+
+L_OP_ARRAY_SWAP:
+    exec_array_swap(state, pc->axis_1, pc->axis_2);
+    DISPATCH();
+
+L_OP_ARRAY_H:
+    exec_array_h(state, pc->axis_1);
+    DISPATCH();
+
+L_OP_ARRAY_S:
+    exec_array_s(state, pc->axis_1);
+    DISPATCH();
+
+L_OP_EXPAND:
+    exec_expand(state, pc->axis_1);
+    DISPATCH();
+
+L_OP_PHASE_T:
+    exec_phase_t(state, pc->axis_1);
+    DISPATCH();
+
+L_OP_PHASE_T_DAG:
+    exec_phase_t_dag(state, pc->axis_1);
+    DISPATCH();
+
+L_OP_MEAS_DORMANT_STATIC:
+    if (pc->flags & Instruction::FLAG_IDENTITY) {
+        state.meas_record[pc->classical.classical_idx] =
+            (pc->flags & Instruction::FLAG_SIGN) ? 1 : 0;
+    } else {
+        exec_meas_dormant_static(state, pc->axis_1, pc->classical.classical_idx,
+                                 (pc->flags & Instruction::FLAG_SIGN) != 0);
+    }
+    DISPATCH();
+
+L_OP_MEAS_DORMANT_RANDOM:
+    exec_meas_dormant_random(state, pc->axis_1, pc->classical.classical_idx,
+                             (pc->flags & Instruction::FLAG_SIGN) != 0);
+    DISPATCH();
+
+L_OP_MEAS_ACTIVE_DIAGONAL:
+    exec_meas_active_diagonal(state, pc->axis_1, pc->classical.classical_idx,
+                              (pc->flags & Instruction::FLAG_SIGN) != 0);
+    DISPATCH();
+
+L_OP_MEAS_ACTIVE_INTERFERE:
+    exec_meas_active_interfere(state, pc->axis_1, pc->classical.classical_idx,
+                               (pc->flags & Instruction::FLAG_SIGN) != 0);
+    DISPATCH();
+
+L_OP_APPLY_PAULI:
+    exec_apply_pauli(state, program.constant_pool, pc->pauli.cp_mask_idx, pc->pauli.condition_idx);
+    DISPATCH();
+
+L_OP_NOISE:
+    exec_noise(state, program.constant_pool, pc->pauli.cp_mask_idx);
+    DISPATCH();
+
+L_OP_READOUT_NOISE:
+    exec_readout_noise(state, program.constant_pool, pc->pauli.cp_mask_idx);
+    DISPATCH();
+
+L_OP_DETECTOR:
+    exec_detector(state, program.constant_pool, pc->pauli.cp_mask_idx, pc->pauli.condition_idx);
+    DISPATCH();
+
+L_OP_OBSERVABLE:
+    exec_observable(state, program.constant_pool, pc->pauli.cp_mask_idx, pc->pauli.condition_idx);
+    DISPATCH();
+
+#undef DISPATCH
+#else
+    // Fallback standard C++ switch loop for MSVC and non-GNU compilers
     for (const auto& instr : program.bytecode) {
         switch (instr.opcode) {
-            // Frame opcodes
             case Opcode::OP_FRAME_CNOT:
                 exec_frame_cnot(state, instr.axis_1, instr.axis_2);
                 break;
@@ -753,8 +906,6 @@ void execute(const CompiledModule& program, SchrodingerState& state) {
             case Opcode::OP_FRAME_SWAP:
                 exec_frame_swap(state, instr.axis_1, instr.axis_2);
                 break;
-
-            // Array opcodes
             case Opcode::OP_ARRAY_CNOT:
                 exec_array_cnot(state, instr.axis_1, instr.axis_2);
                 break;
@@ -770,8 +921,6 @@ void execute(const CompiledModule& program, SchrodingerState& state) {
             case Opcode::OP_ARRAY_S:
                 exec_array_s(state, instr.axis_1);
                 break;
-
-            // Expansion & Phase
             case Opcode::OP_EXPAND:
                 exec_expand(state, instr.axis_1);
                 break;
@@ -781,8 +930,6 @@ void execute(const CompiledModule& program, SchrodingerState& state) {
             case Opcode::OP_PHASE_T_DAG:
                 exec_phase_t_dag(state, instr.axis_1);
                 break;
-
-            // Measurements
             case Opcode::OP_MEAS_DORMANT_STATIC:
                 if (instr.flags & Instruction::FLAG_IDENTITY) {
                     state.meas_record[instr.classical.classical_idx] =
@@ -804,8 +951,6 @@ void execute(const CompiledModule& program, SchrodingerState& state) {
                 exec_meas_active_interfere(state, instr.axis_1, instr.classical.classical_idx,
                                            (instr.flags & Instruction::FLAG_SIGN) != 0);
                 break;
-
-            // Classical / Errors
             case Opcode::OP_APPLY_PAULI:
                 exec_apply_pauli(state, program.constant_pool, instr.pauli.cp_mask_idx,
                                  instr.pauli.condition_idx);
@@ -826,6 +971,7 @@ void execute(const CompiledModule& program, SchrodingerState& state) {
                 break;
         }
     }
+#endif
 }
 
 SampleResult sample(const CompiledModule& program, uint32_t shots, uint64_t seed) {
