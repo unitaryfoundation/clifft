@@ -388,3 +388,242 @@ class TestUnstructuredNoiseFuzzing:
                     f"UCC={ucc_p2[i]:.5f} Stim={stim_p2[i]:.5f} "
                     f"diff={diff:.6f} > tol={tol:.6f}"
                 )
+
+
+def _generate_midcircuit_clifford_circuit(num_qubits: int, depth: int, seed: int) -> str:
+    """Generate a Clifford circuit with mid-circuit measurements and resets.
+
+    Produces circuits that interleave entangling Clifford gates with
+    mid-circuit measurements and resets, forcing the compiler to handle
+    collapse events mid-stream. Uses only Clifford gates so the output
+    is verifiable against Stim.
+
+    Args:
+        num_qubits: Number of qubits.
+        depth: Approximate number of gate layers.
+        seed: Random seed.
+
+    Returns:
+        Circuit string in .stim format (no detectors/observables).
+    """
+    rng = np.random.default_rng(seed)
+    lines: list[str] = []
+    gates_1q = ["H", "S", "S_DAG", "X", "Y", "Z"]
+    gates_2q = ["CX", "CY", "CZ"]
+    noise_prob = 0.02
+
+    for _ in range(depth):
+        r = rng.random()
+        if r < 0.35:
+            # 1-qubit gate
+            gate = rng.choice(gates_1q)
+            q = rng.integers(0, num_qubits)
+            lines.append(f"{gate} {q}")
+        elif r < 0.6 and num_qubits > 1:
+            # 2-qubit gate with optional noise
+            gate = rng.choice(gates_2q)
+            q1, q2 = rng.choice(num_qubits, size=2, replace=False)
+            lines.append(f"{gate} {q1} {q2}")
+            if rng.random() < 0.3:
+                lines.append(f"DEPOLARIZE2({noise_prob}) {q1} {q2}")
+        elif r < 0.8:
+            # Mid-circuit measurement
+            q = rng.integers(0, num_qubits)
+            lines.append(f"M {q}")
+        else:
+            # Reset + re-prepare
+            q = rng.integers(0, num_qubits)
+            lines.append(f"R {q}")
+            if rng.random() < 0.5:
+                lines.append(f"H {q}")
+
+    # Final measurement of all qubits
+    all_q = " ".join(str(i) for i in range(num_qubits))
+    lines.append(f"M {all_q}")
+    return "\n".join(lines)
+
+
+class TestMidCircuitMeasurementEvolution:
+    """Validate mid-circuit measurement + reset + Clifford evolution.
+
+    These circuits interleave collapse events with entangling Clifford
+    gates, testing that the factored state correctly re-evolves after
+    measurement and reset operations.
+    """
+
+    @pytest.mark.parametrize("num_qubits", [2, 3, 4])
+    @pytest.mark.parametrize("seed", [10, 20, 30])
+    def test_midcircuit_marginals(self, num_qubits: int, seed: int) -> None:
+        """Mid-circuit measurement circuits match Stim on 1-body marginals."""
+        shots = 50_000
+        circuit_str = _generate_midcircuit_clifford_circuit(num_qubits, depth=30, seed=seed)
+
+        ucc_prog = ucc.compile(circuit_str)
+        stim_circuit = stim.Circuit(circuit_str)
+        stim_sampler = stim_circuit.compile_sampler(seed=seed)
+
+        ucc_meas, _, _ = ucc.sample(ucc_prog, shots, seed=seed)
+        stim_meas = stim_sampler.sample(shots)
+
+        if ucc_meas.shape[1] == 0:
+            pytest.skip("No measurements in generated circuit")
+
+        ucc_p = ucc_meas.astype(float).mean(axis=0)
+        stim_p = stim_meas.astype(float).mean(axis=0)
+
+        for i in range(len(ucc_p)):
+            p_est = (ucc_p[i] + stim_p[i]) / 2
+            tol = binomial_tolerance(p_est, shots, sigma=5.0)
+            diff = abs(ucc_p[i] - stim_p[i])
+            assert diff < tol, (
+                f"Marginal {i} mismatch (q={num_qubits}, seed={seed}): "
+                f"UCC={ucc_p[i]:.5f} Stim={stim_p[i]:.5f} "
+                f"diff={diff:.6f} > tol={tol:.6f}"
+            )
+
+    @pytest.mark.parametrize("num_qubits", [3, 4])
+    @pytest.mark.parametrize("seed", [10, 20, 30])
+    def test_midcircuit_3body_parity(self, num_qubits: int, seed: int) -> None:
+        """3-body parity checks on mid-circuit measurement circuits.
+
+        Validates triple-measurement XOR correlations to catch phase
+        or entanglement tracking errors invisible to marginal checks.
+        """
+        shots = 50_000
+        circuit_str = _generate_midcircuit_clifford_circuit(num_qubits, depth=30, seed=seed)
+
+        ucc_prog = ucc.compile(circuit_str)
+        stim_circuit = stim.Circuit(circuit_str)
+        stim_sampler = stim_circuit.compile_sampler(seed=seed)
+
+        ucc_meas, _, _ = ucc.sample(ucc_prog, shots, seed=seed)
+        stim_meas = stim_sampler.sample(shots)
+
+        n_meas = ucc_meas.shape[1]
+        if n_meas < 3:
+            pytest.skip("Fewer than 3 measurements")
+
+        # Check consecutive 3-body parities: meas[i] XOR meas[i+1] XOR meas[i+2]
+        for i in range(n_meas - 2):
+            ucc_par = (ucc_meas[:, i] ^ ucc_meas[:, i + 1] ^ ucc_meas[:, i + 2]).astype(float)
+            stim_par = (stim_meas[:, i] ^ stim_meas[:, i + 1] ^ stim_meas[:, i + 2]).astype(float)
+            ucc_rate = float(ucc_par.mean())
+            stim_rate = float(stim_par.mean())
+            p_est = (ucc_rate + stim_rate) / 2
+            tol = binomial_tolerance(p_est, shots, sigma=5.0)
+            diff = abs(ucc_rate - stim_rate)
+            assert diff < tol, (
+                f"3-body parity {i},{i + 1},{i + 2} mismatch "
+                f"(q={num_qubits}, seed={seed}): "
+                f"UCC={ucc_rate:.5f} Stim={stim_rate:.5f} "
+                f"diff={diff:.6f} > tol={tol:.6f}"
+            )
+
+
+def _tvd(p: np.ndarray, q: np.ndarray) -> float:
+    """Total Variation Distance between two probability distributions."""
+    return float(0.5 * np.sum(np.abs(p - q)))
+
+
+def _counts_to_distribution(samples: np.ndarray) -> np.ndarray:
+    """Convert binary measurement matrix to a probability distribution.
+
+    Maps each row to an integer bitstring index, then computes the
+    empirical probability of each outcome.
+
+    Args:
+        samples: Boolean array of shape (shots, n_meas).
+
+    Returns:
+        Probability array of length 2^n_meas.
+    """
+    n_meas = samples.shape[1]
+    n_outcomes = 1 << n_meas
+    # Convert each row to integer index
+    powers = 1 << np.arange(n_meas)
+    indices = samples.astype(int) @ powers
+    counts = np.bincount(indices, minlength=n_outcomes)
+    dist: np.ndarray = counts / counts.sum()
+    return dist
+
+
+class TestTVDSmallMeasurementSpace:
+    """Full distribution TVD checks for circuits with few measurements.
+
+    When the measurement count is small enough (m <= 8), we can enumerate
+    all 2^m outcomes and compare the full empirical distributions via TVD.
+    The threshold is TVD < C * sqrt(k_eff / N) where C ~= 4 and
+    k_eff = 2^m - 1.
+    """
+
+    TVD_C = 4.0  # conservative threshold multiplier
+
+    @staticmethod
+    def _generate_small_measurement_circuit(num_qubits: int, n_measurements: int, seed: int) -> str:
+        """Generate a circuit with exactly n_measurements measurement ops.
+
+        Interleaves entangling gates, T gates, and noise with a controlled
+        number of mid-circuit + final measurements.
+        """
+        rng = np.random.default_rng(seed)
+        lines: list[str] = []
+        gates_1q = ["H", "S", "S_DAG"]
+        gates_2q = ["CX", "CY", "CZ"]
+        meas_emitted = 0
+
+        # Emit some gates then a measurement, repeat
+        while meas_emitted < n_measurements:
+            # 3-8 gates before each measurement
+            n_gates = rng.integers(3, 9)
+            for _ in range(n_gates):
+                if num_qubits > 1 and rng.random() < 0.4:
+                    gate = rng.choice(gates_2q)
+                    q1, q2 = rng.choice(num_qubits, size=2, replace=False)
+                    lines.append(f"{gate} {q1} {q2}")
+                    if rng.random() < 0.3:
+                        lines.append(f"DEPOLARIZE2(0.02) {q1} {q2}")
+                else:
+                    gate = rng.choice(gates_1q)
+                    q = rng.integers(0, num_qubits)
+                    lines.append(f"{gate} {q}")
+            # Measure a qubit
+            q = rng.integers(0, num_qubits)
+            lines.append(f"M {q}")
+            meas_emitted += 1
+            # Sometimes reset after measurement
+            if rng.random() < 0.3:
+                lines.append(f"R {q}")
+
+        return "\n".join(lines)
+
+    @pytest.mark.parametrize("n_measurements", [4, 6, 8])
+    @pytest.mark.parametrize("seed", [42, 123, 456])
+    def test_tvd_small_circuits(self, n_measurements: int, seed: int) -> None:
+        """TVD of full distribution is below statistical threshold."""
+        num_qubits = 3
+        shots = 100_000
+
+        circuit_str = self._generate_small_measurement_circuit(num_qubits, n_measurements, seed)
+
+        ucc_prog = ucc.compile(circuit_str)
+        stim_circuit = stim.Circuit(circuit_str)
+        stim_sampler = stim_circuit.compile_sampler(seed=seed)
+
+        ucc_meas, _, _ = ucc.sample(ucc_prog, shots, seed=seed)
+        stim_meas = stim_sampler.sample(shots)
+
+        assert (
+            ucc_meas.shape[1] == n_measurements
+        ), f"Expected {n_measurements} measurements, got {ucc_meas.shape[1]}"
+
+        ucc_dist = _counts_to_distribution(ucc_meas)
+        stim_dist = _counts_to_distribution(stim_meas)
+
+        tvd = _tvd(ucc_dist, stim_dist)
+        k_eff = (1 << n_measurements) - 1
+        threshold = self.TVD_C * np.sqrt(k_eff / shots)
+
+        assert tvd < threshold, (
+            f"TVD={tvd:.6f} >= threshold={threshold:.6f} "
+            f"(m={n_measurements}, k_eff={k_eff}, N={shots}, seed={seed})"
+        )

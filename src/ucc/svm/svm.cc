@@ -780,8 +780,21 @@ void execute(const CompiledModule& program, SchrodingerState& state) {
     const Instruction* pc = program.bytecode.data();
     const Instruction* end = pc + program.bytecode.size();
 
+#define RENORM_CHECK()                                             \
+    do {                                                           \
+        double g_norm = std::norm(state.gamma);                    \
+        if (g_norm > 1e200 || (g_norm < 1e-200 && g_norm > 0.0)) { \
+            double g_mag = std::sqrt(g_norm);                      \
+            uint64_t sz = state.v_size();                          \
+            for (uint64_t ri = 0; ri < sz; ++ri)                   \
+                state.v()[ri] *= g_mag;                            \
+            state.gamma /= g_mag;                                  \
+        }                                                          \
+    } while (0)
+
 #define DISPATCH()                                              \
     do {                                                        \
+        RENORM_CHECK();                                         \
         if (++pc == end)                                        \
             return;                                             \
         goto* dispatch_table[static_cast<uint8_t>(pc->opcode)]; \
@@ -969,6 +982,18 @@ L_OP_OBSERVABLE:
                 exec_observable(state, program.constant_pool, instr.pauli.cp_mask_idx,
                                 instr.pauli.condition_idx);
                 break;
+        }
+
+        // Amortized renormalization to prevent IEEE-754 overflow/underflow.
+        // std::norm returns squared magnitude, avoiding sqrt in the hot loop.
+        double g_norm = std::norm(state.gamma);
+        if (g_norm > 1e200 || (g_norm < 1e-200 && g_norm > 0.0)) {
+            double g_mag = std::sqrt(g_norm);
+            uint64_t sz = state.v_size();
+            for (uint64_t ri = 0; ri < sz; ++ri) {
+                state.v()[ri] *= g_mag;
+            }
+            state.gamma /= g_mag;
         }
     }
 #endif

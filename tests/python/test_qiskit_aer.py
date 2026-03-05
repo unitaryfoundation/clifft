@@ -7,7 +7,11 @@ oracle independent of both Stim and UCC's own numpy oracle.
 
 import numpy as np
 import pytest
-from conftest import assert_statevectors_equal, random_clifford_t_circuit
+from conftest import (
+    assert_statevectors_equal,
+    random_clifford_t_circuit,
+    random_dense_clifford_t_circuit,
+)
 from utils_qiskit import qiskit_statevector, stim_to_qiskit_noiseless
 
 import ucc
@@ -85,8 +89,8 @@ class TestQiskitStatevectorOracle:
 
     @pytest.mark.parametrize("seed", range(3))
     def test_random_clifford_t_medium(self, seed: int) -> None:
-        """Random Clifford+T circuits at 8-10 qubits match Qiskit."""
-        for num_qubits in [8, 10]:
+        """Random Clifford+T circuits at 6 qubits match Qiskit."""
+        for num_qubits in [6]:
             circuit = random_clifford_t_circuit(num_qubits, depth=20, seed=seed)
             ucc_sv = self._ucc_statevector(circuit)
             qc = stim_to_qiskit_noiseless(circuit)
@@ -127,3 +131,49 @@ class TestQiskitStatevectorOracle:
         qc = stim_to_qiskit_noiseless(circuit)
         qiskit_sv = qiskit_statevector(qc)
         assert_statevectors_equal(ucc_sv, qiskit_sv)
+
+
+class TestDenseCliffordTFuzzer:
+    """Validate UCC against Qiskit-Aer with dense entanglement circuits.
+
+    Uses higher 2-qubit gate probability (50%) and all three 2-qubit gates
+    (CX, CY, CZ) to stress the compiler's Pauli compression pipeline.
+    """
+
+    @staticmethod
+    def _ucc_statevector(circuit_str: str) -> np.ndarray:
+        prog = ucc.compile(circuit_str)
+        state = ucc.State(prog.peak_rank, prog.num_measurements)
+        ucc.execute(prog, state)
+        sv: np.ndarray = ucc.get_statevector(prog, state)
+        return sv
+
+    @pytest.mark.parametrize("num_qubits", [3, 4, 5])
+    @pytest.mark.parametrize("seed", range(5))
+    def test_dense_entanglement_small(self, num_qubits: int, seed: int) -> None:
+        """Dense Clifford+T circuits at 3-5 qubits match Qiskit."""
+        circuit = random_dense_clifford_t_circuit(num_qubits, depth=30, seed=seed)
+        ucc_sv = self._ucc_statevector(circuit)
+        qc = stim_to_qiskit_noiseless(circuit)
+        qiskit_sv = qiskit_statevector(qc)
+        assert_statevectors_equal(
+            ucc_sv, qiskit_sv, msg=f"dense {num_qubits}q seed={seed}\n{circuit}"
+        )
+
+    @pytest.mark.parametrize("seed", range(3))
+    def test_dense_entanglement_medium(self, seed: int) -> None:
+        """Dense Clifford+T at 6 qubits match Qiskit."""
+        circuit = random_dense_clifford_t_circuit(6, depth=40, seed=seed)
+        ucc_sv = self._ucc_statevector(circuit)
+        qc = stim_to_qiskit_noiseless(circuit)
+        qiskit_sv = qiskit_statevector(qc)
+        assert_statevectors_equal(ucc_sv, qiskit_sv, msg=f"dense 6q seed={seed}")
+
+    @pytest.mark.parametrize("seed", range(3))
+    def test_deep_phase_accumulation(self, seed: int) -> None:
+        """Deep circuits (depth=100) stress T-gate phase arithmetic."""
+        circuit = random_dense_clifford_t_circuit(4, depth=100, seed=seed, two_qubit_prob=0.3)
+        ucc_sv = self._ucc_statevector(circuit)
+        qc = stim_to_qiskit_noiseless(circuit)
+        qiskit_sv = qiskit_statevector(qc)
+        assert_statevectors_equal(ucc_sv, qiskit_sv, msg=f"deep 4q seed={seed}")

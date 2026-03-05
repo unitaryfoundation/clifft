@@ -52,6 +52,41 @@ def random_clifford_t_circuit(num_qubits: int, depth: int, seed: int) -> str:
     return "\n".join(lines)
 
 
+def random_dense_clifford_t_circuit(
+    num_qubits: int, depth: int, seed: int, *, two_qubit_prob: float = 0.5
+) -> str:
+    """Generate a random Clifford+T circuit with dense entanglement.
+
+    Higher 2-qubit gate probability and includes CY/CZ alongside CX.
+    Produces circuits with heavy multi-qubit interference that stress
+    the compiler's Pauli compression and virtual axis allocation.
+
+    Args:
+        num_qubits: Number of qubits.
+        depth: Number of gate layers.
+        seed: Random seed.
+        two_qubit_prob: Probability of emitting a 2-qubit gate (default 0.5).
+
+    Returns:
+        Circuit string in .stim format.
+    """
+    rng = np.random.default_rng(seed)
+    gates_1q = ["H", "S", "S_DAG", "T", "T_DAG", "X", "Y", "Z"]
+    gates_2q = ["CX", "CY", "CZ"]
+
+    lines: list[str] = []
+    for _ in range(depth):
+        if num_qubits > 1 and rng.random() < two_qubit_prob:
+            gate = rng.choice(gates_2q)
+            q1, q2 = rng.choice(num_qubits, size=2, replace=False)
+            lines.append(f"{gate} {q1} {q2}")
+        else:
+            gate = rng.choice(gates_1q)
+            q = rng.integers(0, num_qubits)
+            lines.append(f"{gate} {q}")
+    return "\n".join(lines)
+
+
 def random_clifford_circuit(num_qubits: int, depth: int, seed: int) -> str:
     """Generate a random pure-Clifford circuit (no T gates, no measurements)."""
     rng = np.random.default_rng(seed)
