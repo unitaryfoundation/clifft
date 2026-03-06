@@ -2,6 +2,8 @@
 #include "ucc/circuit/circuit.h"
 #include "ucc/circuit/parser.h"
 #include "ucc/frontend/frontend.h"
+#include "ucc/optimizer/pass_manager.h"
+#include "ucc/optimizer/peephole.h"
 #include "ucc/svm/svm.h"
 #include "ucc/util/config.h"
 #include "ucc/util/version.h"
@@ -217,9 +219,11 @@ NB_MODULE(_ucc_core, m) {
         [](const std::string& stim_text, bool skip_optimizer) {
             ucc::Circuit circuit = ucc::parse(stim_text);
             ucc::HirModule hir = ucc::trace(circuit);
-            // When a middle-end optimizer is added, it runs here unless
-            // skip_optimizer is true. Currently a no-op placeholder.
-            (void)skip_optimizer;
+            if (!skip_optimizer) {
+                ucc::PassManager pm;
+                pm.add_pass(std::make_unique<ucc::PeepholeFusionPass>());
+                pm.run(hir);
+            }
             return ucc::lower(hir);
         },
         nb::arg("stim_text"), nb::arg("skip_optimizer") = false,

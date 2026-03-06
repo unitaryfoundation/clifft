@@ -615,6 +615,10 @@ CompiledModule lower(const HirModule& hir) {
                 ++obs_emit_idx;
                 break;
             }
+
+            case OpType::CLIFFORD_PHASE:
+                assert(false && "CLIFFORD_PHASE lowering not yet implemented");
+                break;
         }
     }
 

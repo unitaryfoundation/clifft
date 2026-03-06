@@ -54,6 +54,28 @@ TEST_CASE("HeisenbergOp::make_tgate", "[hir]") {
     }
 }
 
+TEST_CASE("HeisenbergOp::make_clifford_phase", "[hir]") {
+    SECTION("S gate with Z on qubit 0") {
+        auto op = HeisenbergOp::make_clifford_phase(0, Z(0), /*sign=*/false);
+
+        REQUIRE(op.op_type() == OpType::CLIFFORD_PHASE);
+        REQUIRE(op.destab_mask() == 0);
+        REQUIRE(op.stab_mask() == Z(0));
+        REQUIRE(op.sign() == false);
+        REQUIRE(op.is_dagger() == false);
+    }
+
+    SECTION("S_dag gate with X on qubit 1 and negative sign") {
+        auto op = HeisenbergOp::make_clifford_phase(X(1), 0, /*sign=*/true, /*dagger=*/true);
+
+        REQUIRE(op.op_type() == OpType::CLIFFORD_PHASE);
+        REQUIRE(op.destab_mask() == X(1));
+        REQUIRE(op.stab_mask() == 0);
+        REQUIRE(op.sign() == true);
+        REQUIRE(op.is_dagger() == true);
+    }
+}
+
 TEST_CASE("HeisenbergOp bitword operations", "[hir]") {
     // Verify bitword<64> provides expected operations for commutation checks
     auto op1 = HeisenbergOp::make_tgate(X(1) | X(3), Z(0) | Z(2), false);  // X1 X3 Z0 Z2

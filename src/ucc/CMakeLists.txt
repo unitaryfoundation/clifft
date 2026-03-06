@@ -4,6 +4,8 @@
 add_library(ucc_core STATIC
     circuit/parser.cc
     frontend/frontend.cc
+    optimizer/pass_manager.cc
+    optimizer/peephole.cc
     backend/backend.cc
     svm/svm.cc
 )
