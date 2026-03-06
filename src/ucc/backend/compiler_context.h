@@ -82,6 +82,10 @@ struct CompilerContext {
     ConstantPool constant_pool;
     double noise_hazards_accum = 0.0;
 
+    // Explorer telemetry (populated by lower(), parallel to bytecode)
+    std::vector<std::vector<uint32_t>> source_map;
+    std::vector<uint32_t> active_k_history;
+
     // Reusable scratch tableau for compress_pauli, avoiding per-call heap allocation.
     stim::Tableau<kStimWidth> v_local;
     stim::Tableau<kStimWidth> v_local_identity;

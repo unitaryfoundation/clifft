@@ -13,6 +13,7 @@ add_executable(ucc_tests
     test_svm_risc.cc
     test_statevector.cc
     test_optimizer.cc
+    test_source_map.cc
 )
 
 target_link_libraries(ucc_tests PRIVATE

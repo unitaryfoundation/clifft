@@ -408,7 +408,12 @@ CompiledModule lower(const HirModule& hir, const std::vector<uint8_t>& postselec
     // Hidden measurements use indices starting after visible measurements
     uint32_t hidden_meas_emit_idx = hir.num_measurements;
 
-    for (const auto& op : hir.ops) {
+    bool has_source_map = hir.source_map.size() == hir.ops.size();
+
+    for (size_t op_idx = 0; op_idx < hir.ops.size(); ++op_idx) {
+        const auto& op = hir.ops[op_idx];
+        size_t bc_before = ctx.bytecode.size();
+
         switch (op.op_type()) {
             case OpType::T_GATE: {
                 auto p_v = map_to_virtual(ctx, op.destab_mask(), op.stab_mask(), op.sign(), n);
@@ -692,6 +697,17 @@ CompiledModule lower(const HirModule& hir, const std::vector<uint8_t>& postselec
                 break;
             }
         }
+
+        // Batch source-map and k-history: tag all instructions emitted by this HIR op
+        size_t bc_after = ctx.bytecode.size();
+        size_t emitted = bc_after - bc_before;
+        uint32_t k_now = ctx.reg_manager.active_k();
+        for (size_t e = 0; e < emitted; ++e) {
+            if (has_source_map) {
+                ctx.source_map.push_back(hir.source_map[op_idx]);
+            }
+            ctx.active_k_history.push_back(k_now);
+        }
     }
 
     // Compute final tableau U_C = U_phys * V_cum^{-1}.
@@ -710,6 +726,8 @@ CompiledModule lower(const HirModule& hir, const std::vector<uint8_t>& postselec
     CompiledModule result;
     result.bytecode = std::move(ctx.bytecode);
     result.constant_pool = std::move(ctx.constant_pool);
+    result.source_map = std::move(ctx.source_map);
+    result.active_k_history = std::move(ctx.active_k_history);
     result.num_qubits = hir.num_qubits;
     result.peak_rank = peak;
     result.num_measurements = hir.num_measurements;

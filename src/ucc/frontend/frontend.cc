@@ -208,6 +208,12 @@ HirModule trace(const Circuit& circuit) {
     MeasRecordIdx meas_idx{0};
 
     for (const auto& node : circuit.nodes) {
+        // Emit helper: appends an HIR op and its source provenance in lockstep.
+        auto emit = [&](HeisenbergOp op) {
+            hir.ops.push_back(op);
+            hir.source_map.push_back({node.source_line});
+        };
+
         switch (node.gate) {
             // Single-qubit Clifford gates - absorb into tableau
             case GateType::H:
@@ -291,8 +297,8 @@ HirModule trace(const Circuit& circuit) {
                             throw std::runtime_error("CY classical feedback not supported in MVP");
                         }
 
-                        hir.ops.push_back(HeisenbergOp::make_conditional(destab_mask, stab_mask,
-                                                                         sign, controlling_meas));
+                        emit(HeisenbergOp::make_conditional(destab_mask, stab_mask, sign,
+                                                            controlling_meas));
                     }
                 } else {
                     // Regular two-qubit Clifford gate
@@ -312,8 +318,7 @@ HirModule trace(const Circuit& circuit) {
                     uint64_t destab_mask, stab_mask;
                     bool sign;
                     extract_rewound_z(sim, qubit, destab_mask, stab_mask, sign);
-                    hir.ops.push_back(
-                        HeisenbergOp::make_tgate(destab_mask, stab_mask, sign, /*dagger=*/false));
+                    emit(HeisenbergOp::make_tgate(destab_mask, stab_mask, sign, /*dagger=*/false));
                 }
                 break;
             }
@@ -325,8 +330,7 @@ HirModule trace(const Circuit& circuit) {
                     uint64_t destab_mask, stab_mask;
                     bool sign;
                     extract_rewound_z(sim, qubit, destab_mask, stab_mask, sign);
-                    hir.ops.push_back(
-                        HeisenbergOp::make_tgate(destab_mask, stab_mask, sign, /*dagger=*/true));
+                    emit(HeisenbergOp::make_tgate(destab_mask, stab_mask, sign, /*dagger=*/true));
                 }
                 break;
             }
@@ -339,8 +343,7 @@ HirModule trace(const Circuit& circuit) {
                     bool sign;
                     extract_rewound_z(sim, qubit, destab_mask, stab_mask, sign);
                     sign ^= target.is_inverted();
-                    hir.ops.push_back(
-                        HeisenbergOp::make_measure(destab_mask, stab_mask, sign, meas_idx));
+                    emit(HeisenbergOp::make_measure(destab_mask, stab_mask, sign, meas_idx));
                     ++meas_idx;
                 }
                 break;
@@ -354,8 +357,7 @@ HirModule trace(const Circuit& circuit) {
                     bool sign;
                     extract_rewound_x(sim, qubit, destab_mask, stab_mask, sign);
                     sign ^= target.is_inverted();
-                    hir.ops.push_back(
-                        HeisenbergOp::make_measure(destab_mask, stab_mask, sign, meas_idx));
+                    emit(HeisenbergOp::make_measure(destab_mask, stab_mask, sign, meas_idx));
                     ++meas_idx;
                 }
                 break;
@@ -369,8 +371,7 @@ HirModule trace(const Circuit& circuit) {
                     uint64_t destab_mask = pauli.xs.u64[0];
                     uint64_t stab_mask = pauli.zs.u64[0];
                     bool sign = pauli.sign ^ target.is_inverted();
-                    hir.ops.push_back(
-                        HeisenbergOp::make_measure(destab_mask, stab_mask, sign, meas_idx));
+                    emit(HeisenbergOp::make_measure(destab_mask, stab_mask, sign, meas_idx));
                     ++meas_idx;
                 }
                 break;
@@ -396,8 +397,7 @@ HirModule trace(const Circuit& circuit) {
                 uint64_t destab_mask = rewound.xs.u64[0];
                 uint64_t stab_mask = rewound.zs.u64[0];
                 bool sign = rewound.sign ^ inversion_parity;
-                hir.ops.push_back(
-                    HeisenbergOp::make_measure(destab_mask, stab_mask, sign, meas_idx));
+                emit(HeisenbergOp::make_measure(destab_mask, stab_mask, sign, meas_idx));
                 ++meas_idx;
                 break;
             }
@@ -414,7 +414,7 @@ HirModule trace(const Circuit& circuit) {
                     auto meas_op =
                         HeisenbergOp::make_measure(destab_mask, stab_mask, sign, meas_idx);
                     meas_op.set_hidden(true);
-                    hir.ops.push_back(meas_op);
+                    emit(meas_op);
 
                     // Extract rewound X (conditional correction) from same un-collapsed tableau
                     uint64_t corr_destab, corr_stab;
@@ -423,7 +423,7 @@ HirModule trace(const Circuit& circuit) {
                     auto cond_op = HeisenbergOp::make_conditional(corr_destab, corr_stab, corr_sign,
                                                                   ControllingMeasIdx{0});
                     cond_op.set_use_last_outcome(true);
-                    hir.ops.push_back(cond_op);
+                    emit(cond_op);
                 }
                 break;
             }
@@ -440,7 +440,7 @@ HirModule trace(const Circuit& circuit) {
                     auto meas_op =
                         HeisenbergOp::make_measure(destab_mask, stab_mask, sign, meas_idx);
                     meas_op.set_hidden(true);
-                    hir.ops.push_back(meas_op);
+                    emit(meas_op);
 
                     // Extract rewound Z (conditional correction) from same un-collapsed tableau
                     uint64_t corr_destab, corr_stab;
@@ -449,7 +449,7 @@ HirModule trace(const Circuit& circuit) {
                     auto cond_op = HeisenbergOp::make_conditional(corr_destab, corr_stab, corr_sign,
                                                                   ControllingMeasIdx{0});
                     cond_op.set_use_last_outcome(true);
-                    hir.ops.push_back(cond_op);
+                    emit(cond_op);
                 }
                 break;
             }
@@ -464,8 +464,7 @@ HirModule trace(const Circuit& circuit) {
                     // Emit measurement with TRUE physical sign (no inversion).
                     // The feedback correction reads this value via use_last_outcome.
                     extract_rewound_z(sim, qubit, destab_mask, stab_mask, sign);
-                    hir.ops.push_back(
-                        HeisenbergOp::make_measure(destab_mask, stab_mask, sign, meas_idx));
+                    emit(HeisenbergOp::make_measure(destab_mask, stab_mask, sign, meas_idx));
                     uint32_t this_meas = static_cast<uint32_t>(meas_idx);
                     ++meas_idx;
 
@@ -476,14 +475,14 @@ HirModule trace(const Circuit& circuit) {
                     auto cond_op = HeisenbergOp::make_conditional(corr_destab, corr_stab, corr_sign,
                                                                   ControllingMeasIdx{0});
                     cond_op.set_use_last_outcome(true);
-                    hir.ops.push_back(cond_op);
+                    emit(cond_op);
 
                     // Apply inversion AFTER feedback so the classical record is flipped
                     // without corrupting the physical reset.
                     if (target.is_inverted()) {
                         ReadoutNoiseIdx idx{static_cast<uint32_t>(hir.readout_noise.size())};
                         hir.readout_noise.push_back({this_meas, 1.0});
-                        hir.ops.push_back(HeisenbergOp::make_readout_noise(idx));
+                        emit(HeisenbergOp::make_readout_noise(idx));
                     }
                 }
                 break;
@@ -502,7 +501,7 @@ HirModule trace(const Circuit& circuit) {
                     auto meas_op =
                         HeisenbergOp::make_measure(destab_mask, stab_mask, sign, meas_idx);
                     meas_op.set_hidden(true);
-                    hir.ops.push_back(meas_op);
+                    emit(meas_op);
 
                     // X anti-commutes with Y, so X correction flips Y eigenvalue
                     uint64_t corr_destab, corr_stab;
@@ -511,7 +510,7 @@ HirModule trace(const Circuit& circuit) {
                     auto cond_op = HeisenbergOp::make_conditional(corr_destab, corr_stab, corr_sign,
                                                                   ControllingMeasIdx{0});
                     cond_op.set_use_last_outcome(true);
-                    hir.ops.push_back(cond_op);
+                    emit(cond_op);
                 }
                 break;
             }
@@ -526,8 +525,7 @@ HirModule trace(const Circuit& circuit) {
                     uint64_t destab_mask = pauli.xs.u64[0];
                     uint64_t stab_mask = pauli.zs.u64[0];
                     bool sign = pauli.sign;
-                    hir.ops.push_back(
-                        HeisenbergOp::make_measure(destab_mask, stab_mask, sign, meas_idx));
+                    emit(HeisenbergOp::make_measure(destab_mask, stab_mask, sign, meas_idx));
                     uint32_t this_meas = static_cast<uint32_t>(meas_idx);
                     ++meas_idx;
 
@@ -538,12 +536,12 @@ HirModule trace(const Circuit& circuit) {
                     auto cond_op = HeisenbergOp::make_conditional(corr_destab, corr_stab, corr_sign,
                                                                   ControllingMeasIdx{0});
                     cond_op.set_use_last_outcome(true);
-                    hir.ops.push_back(cond_op);
+                    emit(cond_op);
 
                     if (target.is_inverted()) {
                         ReadoutNoiseIdx idx{static_cast<uint32_t>(hir.readout_noise.size())};
                         hir.readout_noise.push_back({this_meas, 1.0});
-                        hir.ops.push_back(HeisenbergOp::make_readout_noise(idx));
+                        emit(HeisenbergOp::make_readout_noise(idx));
                     }
                 }
                 break;
@@ -558,8 +556,7 @@ HirModule trace(const Circuit& circuit) {
 
                     // Emit measurement with TRUE physical sign (no inversion).
                     extract_rewound_x(sim, qubit, destab_mask, stab_mask, sign);
-                    hir.ops.push_back(
-                        HeisenbergOp::make_measure(destab_mask, stab_mask, sign, meas_idx));
+                    emit(HeisenbergOp::make_measure(destab_mask, stab_mask, sign, meas_idx));
                     uint32_t this_meas = static_cast<uint32_t>(meas_idx);
                     ++meas_idx;
 
@@ -570,12 +567,12 @@ HirModule trace(const Circuit& circuit) {
                     auto cond_op = HeisenbergOp::make_conditional(corr_destab, corr_stab, corr_sign,
                                                                   ControllingMeasIdx{0});
                     cond_op.set_use_last_outcome(true);
-                    hir.ops.push_back(cond_op);
+                    emit(cond_op);
 
                     if (target.is_inverted()) {
                         ReadoutNoiseIdx idx{static_cast<uint32_t>(hir.readout_noise.size())};
                         hir.readout_noise.push_back({this_meas, 1.0});
-                        hir.ops.push_back(HeisenbergOp::make_readout_noise(idx));
+                        emit(HeisenbergOp::make_readout_noise(idx));
                     }
                 }
                 break;
@@ -585,7 +582,7 @@ HirModule trace(const Circuit& circuit) {
             case GateType::MPAD: {
                 for (const auto& target : node.targets) {
                     bool sign = (target.value() != 0) ^ target.is_inverted();
-                    hir.ops.push_back(HeisenbergOp::make_measure(0, 0, sign, meas_idx));
+                    emit(HeisenbergOp::make_measure(0, 0, sign, meas_idx));
                     ++meas_idx;
                 }
                 break;
@@ -606,7 +603,7 @@ HirModule trace(const Circuit& circuit) {
                     NoiseSite site = make_single_qubit_noise_site(sim, node.gate, qubit, prob);
                     NoiseSiteIdx idx{static_cast<uint32_t>(hir.noise_sites.size())};
                     hir.noise_sites.push_back(std::move(site));
-                    hir.ops.push_back(HeisenbergOp::make_noise(idx));
+                    emit(HeisenbergOp::make_noise(idx));
                 }
                 break;
             }
@@ -629,7 +626,7 @@ HirModule trace(const Circuit& circuit) {
                     }
                     NoiseSiteIdx idx{static_cast<uint32_t>(hir.noise_sites.size())};
                     hir.noise_sites.push_back(std::move(site));
-                    hir.ops.push_back(HeisenbergOp::make_noise(idx));
+                    emit(HeisenbergOp::make_noise(idx));
                 }
                 break;
             }
@@ -660,7 +657,7 @@ HirModule trace(const Circuit& circuit) {
                     }
                     NoiseSiteIdx idx{static_cast<uint32_t>(hir.noise_sites.size())};
                     hir.noise_sites.push_back(std::move(site));
-                    hir.ops.push_back(HeisenbergOp::make_noise(idx));
+                    emit(HeisenbergOp::make_noise(idx));
                 }
                 break;
             }
@@ -674,7 +671,7 @@ HirModule trace(const Circuit& circuit) {
                     NoiseSite site = make_depolarize2_noise_site(sim, q1, q2, prob);
                     NoiseSiteIdx idx{static_cast<uint32_t>(hir.noise_sites.size())};
                     hir.noise_sites.push_back(std::move(site));
-                    hir.ops.push_back(HeisenbergOp::make_noise(idx));
+                    emit(HeisenbergOp::make_noise(idx));
                 }
                 break;
             }
@@ -687,7 +684,7 @@ HirModule trace(const Circuit& circuit) {
                     double prob = node.args.empty() ? 0.0 : node.args[0];
                     ReadoutNoiseIdx idx{static_cast<uint32_t>(hir.readout_noise.size())};
                     hir.readout_noise.push_back({abs_meas_idx, prob});
-                    hir.ops.push_back(HeisenbergOp::make_readout_noise(idx));
+                    emit(HeisenbergOp::make_readout_noise(idx));
                 }
                 break;
             }
@@ -700,7 +697,7 @@ HirModule trace(const Circuit& circuit) {
                 }
                 DetectorIdx idx{static_cast<uint32_t>(hir.detector_targets.size())};
                 hir.detector_targets.push_back(std::move(targets));
-                hir.ops.push_back(HeisenbergOp::make_detector(idx));
+                emit(HeisenbergOp::make_detector(idx));
                 break;
             }
 
@@ -713,8 +710,7 @@ HirModule trace(const Circuit& circuit) {
                 uint32_t obs_idx = static_cast<uint32_t>(node.args.empty() ? 0.0 : node.args[0]);
                 uint32_t target_list_idx = static_cast<uint32_t>(hir.observable_targets.size());
                 hir.observable_targets.push_back(std::move(targets));
-                hir.ops.push_back(
-                    HeisenbergOp::make_observable(ObservableIdx{obs_idx}, target_list_idx));
+                emit(HeisenbergOp::make_observable(ObservableIdx{obs_idx}, target_list_idx));
                 break;
             }
 

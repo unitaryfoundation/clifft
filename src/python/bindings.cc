@@ -277,6 +277,15 @@ NB_MODULE(_ucc_core, m) {
         .def_prop_ro("num_measurements", [](const ucc::HirModule& h) { return h.num_measurements; })
         .def_prop_ro("num_detectors", [](const ucc::HirModule& h) { return h.num_detectors; })
         .def_prop_ro("num_observables", [](const ucc::HirModule& h) { return h.num_observables; })
+        .def_prop_ro(
+            "source_map",
+            [](const ucc::HirModule& h) {
+                nb::list outer;
+                for (const auto& lines : h.source_map)
+                    outer.append(nb::cast(lines));
+                return outer;
+            },
+            "Source line mapping parallel to ops (list of list of uint32).")
         .def(
             "__len__", [](const ucc::HirModule& h) { return h.ops.size(); },
             "Return the number of HIR operations.")
@@ -463,6 +472,19 @@ NB_MODULE(_ucc_core, m) {
                      [](const ucc::CompiledModule& p) { return p.num_observables; })
         .def_prop_ro("num_instructions",
                      [](const ucc::CompiledModule& p) { return p.bytecode.size(); })
+        .def_prop_ro(
+            "source_map",
+            [](const ucc::CompiledModule& p) {
+                nb::list outer;
+                for (const auto& lines : p.source_map)
+                    outer.append(nb::cast(lines));
+                return outer;
+            },
+            "Source line mapping parallel to bytecode (list of list of uint32).")
+        .def_prop_ro(
+            "active_k_history",
+            [](const ucc::CompiledModule& p) { return nb::cast(p.active_k_history); },
+            "Active dimension k after each instruction (list of uint32).")
         .def(
             "__len__", [](const ucc::CompiledModule& p) { return p.bytecode.size(); },
             "Return the number of bytecode instructions.")

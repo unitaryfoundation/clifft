@@ -188,6 +188,15 @@ struct CompiledModule {
     uint32_t total_meas_slots = 0;  // Visible + hidden measurements (VM allocation)
     uint32_t num_detectors = 0;     // Total detectors
     uint32_t num_observables = 0;   // Total observables
+
+    // --- Source Mapping (Explorer) ---
+    // Parallel to bytecode: source_map[i] lists the original source line(s)
+    // that produced bytecode[i]. Empty if the HIR had no source map.
+    std::vector<std::vector<uint32_t>> source_map;
+
+    // Parallel to bytecode: active_k_history[i] is the active dimension k
+    // after the HIR op that produced bytecode[i] was fully lowered.
+    std::vector<uint32_t> active_k_history;
 };
 
 // =============================================================================

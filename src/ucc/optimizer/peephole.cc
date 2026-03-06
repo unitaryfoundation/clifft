@@ -68,6 +68,8 @@ void PeepholeFusionPass::run(HirModule& hir) {
     cancellations_ = 0;
     fusions_ = 0;
 
+    bool has_source_map = hir.source_map.size() == hir.ops.size();
+
     bool changed = true;
     while (changed) {
         changed = false;
@@ -104,6 +106,11 @@ void PeepholeFusionPass::run(HirModule& hir) {
                         // |total| == 2: fuse into S or S_dag
                         hir.ops[i] = HeisenbergOp::make_clifford_phase(
                             destab_i, stab_i, /*sign=*/false, /*dagger=*/(total == -2));
+                        if (has_source_map) {
+                            auto& dst = hir.source_map[i];
+                            auto& src = hir.source_map[j];
+                            dst.insert(dst.end(), src.begin(), src.end());
+                        }
                         deleted[j] = true;
                         ++fusions_;
                     }
@@ -126,11 +133,18 @@ void PeepholeFusionPass::run(HirModule& hir) {
                 if (!deleted[read]) {
                     if (write != read) {
                         hir.ops[write] = hir.ops[read];
+                        if (has_source_map) {
+                            hir.source_map[write] = std::move(hir.source_map[read]);
+                        }
                     }
                     ++write;
                 }
             }
-            hir.ops.erase(hir.ops.begin() + static_cast<ptrdiff_t>(write), hir.ops.end());
+            auto cut = static_cast<ptrdiff_t>(write);
+            hir.ops.erase(hir.ops.begin() + cut, hir.ops.end());
+            if (has_source_map) {
+                hir.source_map.erase(hir.source_map.begin() + cut, hir.source_map.end());
+            }
         }
     }
 }

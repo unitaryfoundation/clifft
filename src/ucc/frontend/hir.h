@@ -380,6 +380,14 @@ struct HirModule {
     // correct amplitude tracking if exporting to physical routing tools.
     std::complex<double> global_weight = {1.0, 0.0};
 
+    // --- Source Mapping (Explorer) ---
+    // Parallel to ops: source_map[i] lists the original source line(s)
+    // that produced ops[i]. Inner vector has multiple entries when an
+    // optimizer fuses operations (e.g. T+T -> S carries both lines).
+    // Empty vector means the entire map was invalidated by an optimization
+    // pass that could not maintain it.
+    std::vector<std::vector<uint32_t>> source_map;
+
     // --- Optional Debugging Artifacts ---
     // If statevector debugging is enabled, the Front-End saves the final
     // forward tableau here. This represents the geometric reference frame
