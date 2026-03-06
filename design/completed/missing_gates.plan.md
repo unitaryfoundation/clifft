@@ -1,5 +1,7 @@
 # **UCC Implementation Plan: Standard Gate Set Expansion**
 
+> **Status: COMPLETED** — Merged in PR #70 (2026-03-06).
+
 ## **Executive Summary & Constraints**
 
 This plan expands UCC's Front-End to support the vast majority of Stim's remaining standard library, including all missing single/two-qubit Cliffords, pair measurements, Y-basis resets, and custom multi-parameter noise channels. SPP, SPP_DAG, REPEAT, and stateful noise (CORRELATED_ERROR) are explicitly deferred.
@@ -84,3 +86,18 @@ You should see a doc/gates.md file in the stim source dependency tree pulled in 
 ## Phase 6: Summarize difference
 
 As a simple final step, create a design/gates.md file that shows a table of gates, organized by type that we implement in UCC. And then have a final section for STIM gates that UCC does not support currentyl.
+
+---
+
+## Open Items (Deferred)
+
+The following Stim gates were explicitly out of scope for this plan and remain unsupported:
+
+| Gate | Reason Deferred |
+|------|----------------|
+| `SPP` / `SPP_DAG` | Stochastic Pauli products require new Front-End semantics (non-deterministic Clifford frame updates). |
+| `CORRELATED_ERROR` / `ELSE_CORRELATED_ERROR` | Stateful conditional noise model; requires tracking correlated error chains across multiple sites. |
+| `HERALDED_ERASE` | Erasure channel with heralding flag; needs VM support for mid-circuit erasure. |
+| `HERALDED_PAULI_CHANNEL_1` | Heralded single-qubit Pauli channel; same erasure infrastructure dependency. |
+
+See `design/gates.md` for the full gate support matrix.
