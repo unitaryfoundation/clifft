@@ -6,6 +6,7 @@
 
 #include <algorithm>
 #include <bit>
+#include <cassert>
 #include <cmath>
 #include <complex>
 #include <cstdint>
@@ -122,7 +123,28 @@ class SchrodingerState {
     stim::bitword<kStimWidth> p_z = 0;
 
     // Global Scalar (gamma): continuous global phase + deferred normalization
-    std::complex<double> gamma = {1.0, 0.0};
+    [[nodiscard]] std::complex<double> gamma() const { return gamma_; }
+    void set_gamma(std::complex<double> g) { gamma_ = g; }
+
+    // Multiply gamma by a unit-magnitude phase factor.
+    void multiply_phase(std::complex<double> phase) {
+        assert(std::abs(std::norm(phase) - 1.0) < 1e-9 && "Phase must be unitary");
+        gamma_ *= phase;
+    }
+
+    // Multiply gamma by a real scale factor, triggering renormalization
+    // if gamma drifts toward overflow or underflow.
+    void scale_magnitude(double scale) {
+        gamma_ *= scale;
+        double g_norm = std::norm(gamma_);
+        if (g_norm > 1e200 || (g_norm < 1e-200 && g_norm > 0.0)) {
+            double g_mag = std::sqrt(g_norm);
+            uint64_t sz = v_size();
+            for (uint64_t ri = 0; ri < sz; ++ri)
+                v_[ri] *= g_mag;
+            gamma_ /= g_mag;
+        }
+    }
 
     // Current active dimension k (v_ holds 2^active_k meaningful entries)
     uint32_t active_k = 0;
@@ -158,6 +180,7 @@ class SchrodingerState {
     }
 
   private:
+    std::complex<double> gamma_ = {1.0, 0.0};
     std::complex<double>* v_ = nullptr;  // 64-byte aligned
     uint64_t array_size_ = 0;            // 2^peak_rank (allocated capacity)
     uint32_t peak_rank_ = 0;

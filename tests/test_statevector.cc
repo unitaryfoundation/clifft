@@ -53,7 +53,7 @@ TEST_CASE("Statevector: single active qubit in plus state with no tableau") {
     state.active_k = 1;
     state.v()[0] = {1.0, 0.0};
     state.v()[1] = {1.0, 0.0};
-    state.gamma = {1.0 / std::sqrt(2.0), 0.0};
+    state.set_gamma({1.0 / std::sqrt(2.0), 0.0});
 
     auto sv = get_statevector(mod, state);
 
@@ -72,7 +72,7 @@ TEST_CASE("Statevector: two active qubits no tableau") {
     state.v()[1] = {0.0, 0.0};
     state.v()[2] = {0.0, 0.0};
     state.v()[3] = {1.0, 0.0};
-    state.gamma = {1.0 / std::sqrt(2.0), 0.0};
+    state.set_gamma({1.0 / std::sqrt(2.0), 0.0});
 
     auto sv = get_statevector(mod, state);
 
@@ -108,7 +108,7 @@ TEST_CASE("Statevector: Z frame applies phase") {
     state.active_k = 1;
     state.v()[0] = {1.0, 0.0};
     state.v()[1] = {1.0, 0.0};
-    state.gamma = {1.0 / std::sqrt(2.0), 0.0};
+    state.set_gamma({1.0 / std::sqrt(2.0), 0.0});
     state.p_z = stim::bitword<kStimWidth>(uint64_t{1});  // Z on qubit 0
 
     auto sv = get_statevector(mod, state);
@@ -146,7 +146,7 @@ TEST_CASE("Statevector: XZ frame on 2-qubit state") {
 TEST_CASE("Statevector: gamma scales output") {
     auto mod = make_module(1, 1);
     SchrodingerState state(1, 0);
-    state.gamma = {0.0, 1.0};  // gamma = i
+    state.set_gamma({0.0, 1.0});  // gamma = i
 
     auto sv = get_statevector(mod, state);
 
@@ -179,7 +179,7 @@ TEST_CASE("Statevector: 3 qubits with 1 active - dormant qubits contribute zero"
     state.active_k = 1;
     state.v()[0] = {1.0, 0.0};
     state.v()[1] = {1.0, 0.0};
-    state.gamma = {1.0 / std::sqrt(2.0), 0.0};
+    state.set_gamma({1.0 / std::sqrt(2.0), 0.0});
 
     auto sv = get_statevector(mod, state);
 
@@ -268,7 +268,7 @@ TEST_CASE("Statevector: CNOT tableau creates Bell state from plus-zero") {
     state.active_k = 1;
     state.v()[0] = {1.0, 0.0};
     state.v()[1] = {1.0, 0.0};
-    state.gamma = {1.0 / std::sqrt(2.0), 0.0};
+    state.set_gamma({1.0 / std::sqrt(2.0), 0.0});
 
     auto sv = get_statevector(mod, state);
 
@@ -290,7 +290,7 @@ TEST_CASE("Statevector: S tableau on plus state") {
     state.active_k = 1;
     state.v()[0] = {1.0, 0.0};
     state.v()[1] = {1.0, 0.0};
-    state.gamma = {1.0 / std::sqrt(2.0), 0.0};
+    state.set_gamma({1.0 / std::sqrt(2.0), 0.0});
 
     auto sv = get_statevector(mod, state);
 
@@ -330,7 +330,7 @@ TEST_CASE("Statevector: H tableau with Z frame on plus state") {
     state.active_k = 1;
     state.v()[0] = {1.0, 0.0};
     state.v()[1] = {1.0, 0.0};
-    state.gamma = {1.0 / std::sqrt(2.0), 0.0};
+    state.set_gamma({1.0 / std::sqrt(2.0), 0.0});
     state.p_z = stim::bitword<kStimWidth>(uint64_t{1});
 
     auto sv = get_statevector(mod, state);
@@ -423,7 +423,7 @@ TEST_CASE(
     state.active_k = 1;
     state.v()[0] = {1.0, 0.0};
     state.v()[1] = {0.0, 1.0};  // i
-    state.gamma = {0.5, 0.5};
+    state.set_gamma({0.5, 0.5});
     state.p_x = stim::bitword<kStimWidth>(uint64_t{1});  // X on q0
     state.p_z = stim::bitword<kStimWidth>(uint64_t{2});  // Z on q1
 
@@ -482,7 +482,7 @@ TEST_CASE("Statevector: 3 qubits 1 active with non-trivial 3-qubit tableau") {
     state.active_k = 1;
     state.v()[0] = {1.0, 0.0};
     state.v()[1] = {1.0, 0.0};
-    state.gamma = {1.0 / std::sqrt(2.0), 0.0};
+    state.set_gamma({1.0 / std::sqrt(2.0), 0.0});
 
     auto sv = get_statevector(mod, state);
     REQUIRE(sv.size() == 8);

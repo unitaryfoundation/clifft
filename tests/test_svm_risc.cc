@@ -108,7 +108,7 @@ TEST_CASE("RISC Frame: CZ with both X errors negates gamma") {
     execute(prog, state);
 
     // CZ: phase = -1 since both p_x bits are set
-    check_complex(state.gamma, {-1.0, 0.0});
+    check_complex(state.gamma(), {-1.0, 0.0});
     // p_z[1] ^= p_x[0] = 1, p_z[0] ^= p_x[1] = 1
     CHECK(state.p_z == (Z(0) | Z(1)));
 }
@@ -122,7 +122,7 @@ TEST_CASE("RISC Frame: CZ with one X error - no phase") {
     auto prog = make_program({make_frame_cz(0, 1)}, 2);
     execute(prog, state);
 
-    check_complex(state.gamma, {1.0, 0.0});
+    check_complex(state.gamma(), {1.0, 0.0});
     // p_z[1] ^= p_x[0] = 1, p_z[0] ^= p_x[1] = 0
     CHECK(state.p_z == Z(1));
 }
@@ -139,7 +139,7 @@ TEST_CASE("RISC Frame: H swaps p_x and p_z") {
     // H: swap p_x[0] <-> p_z[0], no phase (only one bit set)
     CHECK(state.p_x == NONE);
     CHECK(state.p_z == Z(0));
-    check_complex(state.gamma, {1.0, 0.0});
+    check_complex(state.gamma(), {1.0, 0.0});
 }
 
 TEST_CASE("RISC Frame: H on Y error negates gamma") {
@@ -155,7 +155,7 @@ TEST_CASE("RISC Frame: H on Y error negates gamma") {
     // H(Y)H = -Y, so gamma negated. Bits stay the same (swap of 1,1 = 1,1)
     CHECK(state.p_x == X(0));
     CHECK(state.p_z == Z(0));
-    check_complex(state.gamma, {-1.0, 0.0});
+    check_complex(state.gamma(), {-1.0, 0.0});
 }
 
 TEST_CASE("RISC Frame: S on X error multiplies gamma by i") {
@@ -170,7 +170,7 @@ TEST_CASE("RISC Frame: S on X error multiplies gamma by i") {
     // S: p_x[0]=1 -> gamma *= i, p_z[0] ^= p_x[0] = 1
     CHECK(state.p_x == X(0));
     CHECK(state.p_z == Z(0));
-    check_complex(state.gamma, {0.0, 1.0});
+    check_complex(state.gamma(), {0.0, 1.0});
 }
 
 TEST_CASE("RISC Frame: S on no X error - no phase change") {
@@ -185,7 +185,7 @@ TEST_CASE("RISC Frame: S on no X error - no phase change") {
     // S: p_x[0]=0 -> no phase, p_z[0] ^= 0 = unchanged
     CHECK(state.p_x == NONE);
     CHECK(state.p_z == Z(0));
-    check_complex(state.gamma, {1.0, 0.0});
+    check_complex(state.gamma(), {1.0, 0.0});
 }
 
 TEST_CASE("RISC Frame: S_DAG on X error multiplies gamma by -i") {
@@ -200,7 +200,7 @@ TEST_CASE("RISC Frame: S_DAG on X error multiplies gamma by -i") {
     // S_dag: p_x[0]=1 -> gamma *= -i, p_z[0] ^= p_x[0] = 1
     CHECK(state.p_x == X(0));
     CHECK(state.p_z == Z(0));
-    check_complex(state.gamma, {0.0, -1.0});
+    check_complex(state.gamma(), {0.0, -1.0});
 }
 
 TEST_CASE("RISC Frame: S_DAG on no X error - no phase change") {
@@ -215,7 +215,7 @@ TEST_CASE("RISC Frame: S_DAG on no X error - no phase change") {
     // S_dag: p_x[0]=0 -> no phase, p_z[0] ^= 0 = unchanged
     CHECK(state.p_x == NONE);
     CHECK(state.p_z == Z(0));
-    check_complex(state.gamma, {1.0, 0.0});
+    check_complex(state.gamma(), {1.0, 0.0});
 }
 
 TEST_CASE("RISC Frame: SWAP exchanges bits") {
@@ -261,8 +261,8 @@ TEST_CASE("RISC Array: EXPAND doubles array") {
     CHECK(state.active_k == 1);
     check_complex(state.v()[0], {1.0, 0.0});
     check_complex(state.v()[1], {1.0, 0.0});
-    CHECK_THAT(state.gamma.real(), WithinAbs(1.0 / std::sqrt(2.0), kTol));
-    CHECK_THAT(state.gamma.imag(), WithinAbs(0.0, kTol));
+    CHECK_THAT(state.gamma().real(), WithinAbs(1.0 / std::sqrt(2.0), kTol));
+    CHECK_THAT(state.gamma().imag(), WithinAbs(0.0, kTol));
 }
 
 TEST_CASE("RISC Array: Two EXPANDs create 4-element array") {
@@ -276,7 +276,7 @@ TEST_CASE("RISC Array: Two EXPANDs create 4-element array") {
     for (int j = 0; j < 4; ++j) {
         check_complex(state.v()[j], {1.0, 0.0});
     }
-    CHECK_THAT(state.gamma.real(), WithinAbs(0.5, kTol));
+    CHECK_THAT(state.gamma().real(), WithinAbs(0.5, kTol));
 }
 
 TEST_CASE("RISC Array: CNOT on 2-qubit state") {
@@ -383,7 +383,7 @@ TEST_CASE("RISC Array: S then S_DAG cancels") {
     check_complex(state.v()[1], {0.0, 0.5});
     check_complex(state.v()[2], {-0.5, 0.0});
     check_complex(state.v()[3], {0.0, -0.5});
-    check_complex(state.gamma, {1.0, 0.0});
+    check_complex(state.gamma(), {1.0, 0.0});
 }
 
 // =============================================================================
@@ -396,7 +396,7 @@ TEST_CASE("RISC Phase: T on active axis - no frame error") {
     // |+> state: v = [1, 1], gamma = 1/sqrt(2)
     state.v()[0] = {1.0, 0.0};
     state.v()[1] = {1.0, 0.0};
-    state.gamma = {1.0 / std::sqrt(2.0), 0.0};
+    state.set_gamma({1.0 / std::sqrt(2.0), 0.0});
 
     auto prog = make_program({make_phase_t(0)}, 2);
     execute(prog, state);
@@ -405,8 +405,8 @@ TEST_CASE("RISC Phase: T on active axis - no frame error") {
     check_complex(state.v()[0], {1.0, 0.0});
     check_complex(state.v()[1], {kInvSqrt2, kInvSqrt2});
     // Gamma unchanged
-    CHECK_THAT(state.gamma.real(), WithinAbs(1.0 / std::sqrt(2.0), kTol));
-    CHECK_THAT(state.gamma.imag(), WithinAbs(0.0, kTol));
+    CHECK_THAT(state.gamma().real(), WithinAbs(1.0 / std::sqrt(2.0), kTol));
+    CHECK_THAT(state.gamma().imag(), WithinAbs(0.0, kTol));
 }
 
 TEST_CASE("RISC Phase: T on active axis - with X frame error") {
@@ -422,7 +422,7 @@ TEST_CASE("RISC Phase: T on active axis - with X frame error") {
     // With p_x[0]=1: apply T_dag to array, gamma *= e^{i*pi/4}
     check_complex(state.v()[0], {1.0, 0.0});
     check_complex(state.v()[1], {kInvSqrt2, -kInvSqrt2});  // e^{-i*pi/4}
-    check_complex(state.gamma, {kInvSqrt2, kInvSqrt2});    // e^{i*pi/4}
+    check_complex(state.gamma(), {kInvSqrt2, kInvSqrt2});  // e^{i*pi/4}
 }
 
 TEST_CASE("RISC Phase: T_dag on active axis - no frame error") {
@@ -451,7 +451,7 @@ TEST_CASE("RISC Phase: T then T_dag cancels") {
 
     check_complex(state.v()[0], v0_orig);
     check_complex(state.v()[1], v1_orig);
-    check_complex(state.gamma, {1.0, 0.0});
+    check_complex(state.gamma(), {1.0, 0.0});
 }
 
 TEST_CASE("RISC Phase: Two T gates equal S - applies i to 1-component") {
@@ -484,7 +484,7 @@ TEST_CASE("RISC: EXPAND then PHASE_T - single T gate circuit") {
     CHECK(state.active_k == 1);
     check_complex(state.v()[0], {1.0, 0.0});
     check_complex(state.v()[1], {kInvSqrt2, kInvSqrt2});
-    CHECK_THAT(state.gamma.real(), WithinAbs(1.0 / std::sqrt(2.0), kTol));
+    CHECK_THAT(state.gamma().real(), WithinAbs(1.0 / std::sqrt(2.0), kTol));
 }
 
 // =============================================================================
@@ -521,7 +521,7 @@ TEST_CASE("RISC Meas: Active diagonal on definite 0-state") {
     // v[0] should be 1.0 (the kept amplitude)
     check_complex(state.v()[0], {1.0, 0.0});
     // gamma = 1/sqrt(1.0) = 1.0
-    CHECK_THAT(std::abs(state.gamma), WithinAbs(1.0, kTol));
+    CHECK_THAT(std::abs(state.gamma()), WithinAbs(1.0, kTol));
 }
 
 TEST_CASE("RISC Meas: Active diagonal on definite 1-state") {
@@ -560,7 +560,7 @@ TEST_CASE("RISC Meas: Active interfere on plus-state") {
     state.active_k = 1;
     state.v()[0] = {1.0, 0.0};
     state.v()[1] = {1.0, 0.0};
-    state.gamma = {1.0 / std::sqrt(2.0), 0.0};
+    state.set_gamma({1.0 / std::sqrt(2.0), 0.0});
 
     auto prog = make_program({make_meas_active_interfere(0, 0)}, 2, 1);
     execute(prog, state);
@@ -573,7 +573,7 @@ TEST_CASE("RISC Meas: Active interfere on plus-state") {
     // gamma *= sqrt(total / prob_bx) = sqrt(4 / 4) = 1
     // Original gamma = 1/sqrt(2), so final gamma = 1/sqrt(2)
     check_complex(state.v()[0], {std::sqrt(2.0), 0.0});
-    CHECK_THAT(std::abs(state.gamma), WithinAbs(kInvSqrt2, kTol));
+    CHECK_THAT(std::abs(state.gamma()), WithinAbs(kInvSqrt2, kTol));
 }
 
 TEST_CASE("RISC Meas: Active interfere on minus-state") {
@@ -582,7 +582,7 @@ TEST_CASE("RISC Meas: Active interfere on minus-state") {
     state.active_k = 1;
     state.v()[0] = {1.0, 0.0};
     state.v()[1] = {-1.0, 0.0};
-    state.gamma = {1.0 / std::sqrt(2.0), 0.0};
+    state.set_gamma({1.0 / std::sqrt(2.0), 0.0});
 
     auto prog = make_program({make_meas_active_interfere(0, 0)}, 2, 1);
     execute(prog, state);
@@ -700,7 +700,7 @@ TEST_CASE("RISC Integration: Bell state via targeted initial state") {
     state.v()[1] = {0.0, 0.0};
     state.v()[2] = {0.0, 0.0};
     state.v()[3] = {1.0, 0.0};  // |11>
-    state.gamma = {1.0 / std::sqrt(2.0), 0.0};
+    state.set_gamma({1.0 / std::sqrt(2.0), 0.0});
 
     // Measure axis 1 (k-1), then axis 0
     // Repeated trials to check correlation
@@ -714,7 +714,7 @@ TEST_CASE("RISC Integration: Bell state via targeted initial state") {
         state.v()[1] = {0.0, 0.0};
         state.v()[2] = {0.0, 0.0};
         state.v()[3] = {1.0, 0.0};
-        state.gamma = {1.0 / std::sqrt(2.0), 0.0};
+        state.set_gamma({1.0 / std::sqrt(2.0), 0.0});
         state.p_x = 0;
         state.p_z = 0;
         state.meas_record[0] = 0;
@@ -726,7 +726,7 @@ TEST_CASE("RISC Integration: Bell state via targeted initial state") {
         state.v()[1] = {0.0, 0.0};
         state.v()[2] = {0.0, 0.0};
         state.v()[3] = {1.0, 0.0};
-        state.gamma = {1.0 / std::sqrt(2.0), 0.0};
+        state.set_gamma({1.0 / std::sqrt(2.0), 0.0});
 
         auto prog =
             make_program({make_meas_active_diagonal(1, 0), make_meas_active_diagonal(0, 1)}, 3, 2);
@@ -833,7 +833,7 @@ TEST_CASE("RISC ApplyPauli: X error flips p_x bit") {
 
     CHECK(state.p_x == X(1));
     CHECK(state.p_z == NONE);
-    check_complex(state.gamma, {1.0, 0.0});
+    check_complex(state.gamma(), {1.0, 0.0});
 }
 
 TEST_CASE("RISC ApplyPauli: Z error flips p_z bit") {
@@ -860,7 +860,7 @@ TEST_CASE("RISC ApplyPauli: Z error flips p_z bit") {
 
     CHECK(state.p_x == NONE);
     CHECK(state.p_z == Z(2));
-    check_complex(state.gamma, {1.0, 0.0});
+    check_complex(state.gamma(), {1.0, 0.0});
 }
 
 TEST_CASE("RISC ApplyPauli: X error on Z frame has no anticommutation phase") {
@@ -888,7 +888,7 @@ TEST_CASE("RISC ApplyPauli: X error on Z frame has no anticommutation phase") {
 
     CHECK(state.p_x == X(0));
     CHECK(state.p_z == Z(0));
-    check_complex(state.gamma, {1.0, 0.0});
+    check_complex(state.gamma(), {1.0, 0.0});
 }
 
 TEST_CASE("RISC ApplyPauli: Z error on X frame negates gamma") {
@@ -916,7 +916,7 @@ TEST_CASE("RISC ApplyPauli: Z error on X frame negates gamma") {
 
     CHECK(state.p_x == X(0));
     CHECK(state.p_z == Z(0));
-    check_complex(state.gamma, {-1.0, 0.0});
+    check_complex(state.gamma(), {-1.0, 0.0});
 }
 
 TEST_CASE("RISC ApplyPauli: signed PauliString negates gamma") {
@@ -944,7 +944,7 @@ TEST_CASE("RISC ApplyPauli: signed PauliString negates gamma") {
 
     CHECK(state.p_x == X(0));
     CHECK(state.p_z == NONE);
-    check_complex(state.gamma, {-1.0, 0.0});
+    check_complex(state.gamma(), {-1.0, 0.0});
 }
 
 // =============================================================================
@@ -966,7 +966,7 @@ TEST_CASE("RISC Gamma: Frame S accumulates i phase") {
     // p_x=1, p_z=1. S: gamma*=i (now -1), p_z^=1 -> p_z=0
     // p_x=1, p_z=0. S: gamma*=i (now -i), p_z^=1 -> p_z=1
     // p_x=1, p_z=1. S: gamma*=i (now 1), p_z^=1 -> p_z=0
-    check_complex(state.gamma, {1.0, 0.0});
+    check_complex(state.gamma(), {1.0, 0.0});
     CHECK(state.p_z == NONE);
 }
 
@@ -1061,7 +1061,7 @@ static double physical_norm(const SchrodingerState& state) {
     for (uint64_t i = 0; i < size; ++i) {
         arr_norm += std::norm(state.v()[i]);
     }
-    return std::norm(state.gamma) * arr_norm;
+    return std::norm(state.gamma()) * arr_norm;
 }
 
 TEST_CASE("Compaction fuzz: active diagonal preserves norm - k=4") {
@@ -1086,7 +1086,7 @@ TEST_CASE("Compaction fuzz: active diagonal preserves norm - k=4") {
         for (uint64_t i = 0; i < 16; ++i) {
             state.v()[i] *= scale;
         }
-        state.gamma = {1.0, 0.0};
+        state.set_gamma({1.0, 0.0});
 
         CHECK_THAT(physical_norm(state), WithinAbs(1.0, 1e-10));
 
@@ -1099,7 +1099,7 @@ TEST_CASE("Compaction fuzz: active diagonal preserves norm - k=4") {
             prob_b1 += std::norm(state.v()[i + half]);
         }
         double total_prob = prob_b0 + prob_b1;
-        double gamma_mag_before = std::abs(state.gamma);
+        double gamma_mag_before = std::abs(state.gamma());
 
         // Save frame bit before execute (measurement overwrites p_x)
         bool px_v_before = (state.p_x.val >> 3) & 1;
@@ -1117,7 +1117,7 @@ TEST_CASE("Compaction fuzz: active diagonal preserves norm - k=4") {
         uint8_t b_chosen = m_phys ^ static_cast<uint8_t>(px_v_before);
         double p_chosen = (b_chosen == 0) ? prob_b0 : prob_b1;
         double expected_gamma_scale = std::sqrt(total_prob / p_chosen);
-        double actual_gamma_scale = std::abs(state.gamma) / gamma_mag_before;
+        double actual_gamma_scale = std::abs(state.gamma()) / gamma_mag_before;
         CHECK_THAT(actual_gamma_scale, WithinRel(expected_gamma_scale, 1e-9));
     }
 }
@@ -1141,7 +1141,7 @@ TEST_CASE("Compaction fuzz: active interfere preserves norm - k=4") {
         for (uint64_t i = 0; i < 16; ++i) {
             state.v()[i] *= scale;
         }
-        state.gamma = {1.0, 0.0};
+        state.set_gamma({1.0, 0.0});
 
         CHECK_THAT(physical_norm(state), WithinAbs(1.0, 1e-10));
 
@@ -1156,7 +1156,7 @@ TEST_CASE("Compaction fuzz: active interfere preserves norm - k=4") {
             prob_minus += std::norm(diff);
         }
         double total_prob = prob_plus + prob_minus;
-        double gamma_mag_before = std::abs(state.gamma);
+        double gamma_mag_before = std::abs(state.gamma());
 
         // Save frame bit before execute (measurement overwrites p_z)
         bool pz_v_before = (state.p_z.val >> 3) & 1;
@@ -1173,7 +1173,7 @@ TEST_CASE("Compaction fuzz: active interfere preserves norm - k=4") {
         uint8_t bx_chosen = m_phys ^ static_cast<uint8_t>(pz_v_before);
         double p_chosen = (bx_chosen == 0) ? prob_plus : prob_minus;
         double expected_gamma_scale = std::sqrt(total_prob / p_chosen);
-        double actual_gamma_scale = std::abs(state.gamma) / gamma_mag_before;
+        double actual_gamma_scale = std::abs(state.gamma()) / gamma_mag_before;
         CHECK_THAT(actual_gamma_scale, WithinRel(expected_gamma_scale, 1e-9));
     }
 }
@@ -1198,7 +1198,7 @@ TEST_CASE("Compaction fuzz: cascaded measurements k=4 to k=0") {
         for (uint64_t i = 0; i < 16; ++i) {
             state.v()[i] *= scale;
         }
-        state.gamma = {1.0, 0.0};
+        state.set_gamma({1.0, 0.0});
 
         // Measure axis 3 (diagonal), then 2 (interfere), then 1 (diagonal), then 0 (interfere)
         auto prog =
@@ -1232,7 +1232,7 @@ TEST_CASE("Compaction fuzz: diagonal with pre-existing Pauli frame") {
         for (uint64_t i = 0; i < 16; ++i) {
             state.v()[i] *= scale;
         }
-        state.gamma = {1.0, 0.0};
+        state.set_gamma({1.0, 0.0});
 
         // Set random frame bits
         uint64_t px = test_lcg(seed) & 0xF;
@@ -1249,7 +1249,7 @@ TEST_CASE("Compaction fuzz: diagonal with pre-existing Pauli frame") {
             prob_b1 += std::norm(state.v()[i + half]);
         }
         double total_prob = prob_b0 + prob_b1;
-        double gamma_mag_before = std::abs(state.gamma);
+        double gamma_mag_before = std::abs(state.gamma());
 
         // Save frame bit before execute (measurement overwrites p_x)
         bool px_v_before = (state.p_x.val >> 3) & 1;
@@ -1265,7 +1265,7 @@ TEST_CASE("Compaction fuzz: diagonal with pre-existing Pauli frame") {
         uint8_t b_chosen = m_phys ^ static_cast<uint8_t>(px_v_before);
         double p_chosen = (b_chosen == 0) ? prob_b0 : prob_b1;
         double expected_gamma_scale = std::sqrt(total_prob / p_chosen);
-        double actual_gamma_scale = std::abs(state.gamma) / gamma_mag_before;
+        double actual_gamma_scale = std::abs(state.gamma()) / gamma_mag_before;
         CHECK_THAT(actual_gamma_scale, WithinRel(expected_gamma_scale, 1e-9));
     }
 }
@@ -1288,7 +1288,7 @@ TEST_CASE("Compaction fuzz: interfere with pre-existing Pauli frame") {
         for (uint64_t i = 0; i < 16; ++i) {
             state.v()[i] *= scale;
         }
-        state.gamma = {1.0, 0.0};
+        state.set_gamma({1.0, 0.0});
 
         uint64_t px = test_lcg(seed) & 0xF;
         uint64_t pz = test_lcg(seed) & 0xF;
@@ -1306,7 +1306,7 @@ TEST_CASE("Compaction fuzz: interfere with pre-existing Pauli frame") {
             prob_minus += std::norm(diff);
         }
         double total_prob = prob_plus + prob_minus;
-        double gamma_mag_before = std::abs(state.gamma);
+        double gamma_mag_before = std::abs(state.gamma());
 
         // Save frame bit before execute (measurement overwrites p_z)
         bool pz_v_before = (state.p_z.val >> 3) & 1;
@@ -1322,7 +1322,7 @@ TEST_CASE("Compaction fuzz: interfere with pre-existing Pauli frame") {
         uint8_t bx_chosen = m_phys ^ static_cast<uint8_t>(pz_v_before);
         double p_chosen = (bx_chosen == 0) ? prob_plus : prob_minus;
         double expected_gamma_scale = std::sqrt(total_prob / p_chosen);
-        double actual_gamma_scale = std::abs(state.gamma) / gamma_mag_before;
+        double actual_gamma_scale = std::abs(state.gamma()) / gamma_mag_before;
         CHECK_THAT(actual_gamma_scale, WithinRel(expected_gamma_scale, 1e-9));
     }
 }
@@ -1341,15 +1341,15 @@ TEST_CASE("Zero-prob: minus state interfere is deterministic b_x=1") {
         state.active_k = 1;
         state.v()[0] = {1.0, 0.0};
         state.v()[1] = {-1.0, 0.0};
-        state.gamma = {1.0 / std::sqrt(2.0), 0.0};
+        state.set_gamma({1.0 / std::sqrt(2.0), 0.0});
 
         auto prog = make_program({make_meas_active_interfere(0, 0)}, 2, 1);
         execute(prog, state);
 
         CHECK(state.meas_record[0] == 1);  // deterministic |-> -> b_x=1
         CHECK(state.active_k == 0);
-        CHECK(std::isfinite(state.gamma.real()));
-        CHECK(std::isfinite(state.gamma.imag()));
+        CHECK(std::isfinite(state.gamma().real()));
+        CHECK(std::isfinite(state.gamma().imag()));
         CHECK_THAT(physical_norm(state), WithinAbs(1.0, 1e-9));
     }
 }
@@ -1363,15 +1363,15 @@ TEST_CASE("Zero-prob: plus state interfere is deterministic b_x=0") {
         state.active_k = 1;
         state.v()[0] = {1.0, 0.0};
         state.v()[1] = {1.0, 0.0};
-        state.gamma = {1.0 / std::sqrt(2.0), 0.0};
+        state.set_gamma({1.0 / std::sqrt(2.0), 0.0});
 
         auto prog = make_program({make_meas_active_interfere(0, 0)}, 2, 1);
         execute(prog, state);
 
         CHECK(state.meas_record[0] == 0);
         CHECK(state.active_k == 0);
-        CHECK(std::isfinite(state.gamma.real()));
-        CHECK(std::isfinite(state.gamma.imag()));
+        CHECK(std::isfinite(state.gamma().real()));
+        CHECK(std::isfinite(state.gamma().imag()));
         CHECK_THAT(physical_norm(state), WithinAbs(1.0, 1e-9));
     }
 }
@@ -1391,8 +1391,8 @@ TEST_CASE("Zero-prob: zero-state diagonal is deterministic b=0") {
 
         CHECK(state.meas_record[0] == 0);
         CHECK(state.active_k == 0);
-        CHECK(std::isfinite(state.gamma.real()));
-        CHECK(std::isfinite(state.gamma.imag()));
+        CHECK(std::isfinite(state.gamma().real()));
+        CHECK(std::isfinite(state.gamma().imag()));
         CHECK_THAT(physical_norm(state), WithinAbs(1.0, 1e-9));
     }
 }
@@ -1412,8 +1412,8 @@ TEST_CASE("Zero-prob: one-state diagonal is deterministic b=1") {
 
         CHECK(state.meas_record[0] == 1);
         CHECK(state.active_k == 0);
-        CHECK(std::isfinite(state.gamma.real()));
-        CHECK(std::isfinite(state.gamma.imag()));
+        CHECK(std::isfinite(state.gamma().real()));
+        CHECK(std::isfinite(state.gamma().imag()));
         CHECK_THAT(physical_norm(state), WithinAbs(1.0, 1e-9));
     }
 }
@@ -1440,15 +1440,15 @@ TEST_CASE("Zero-prob: multi-qubit deterministic interfere") {
         for (uint64_t i = 0; i < 8; ++i) {
             state.v()[i] *= scale;
         }
-        state.gamma = {1.0, 0.0};
+        state.set_gamma({1.0, 0.0});
 
         auto prog = make_program({make_meas_active_interfere(2, 0)}, 3, 1);
         execute(prog, state);
 
         CHECK(state.meas_record[0] == 1);  // deterministic |->
         CHECK(state.active_k == 2);
-        CHECK(std::isfinite(state.gamma.real()));
-        CHECK(std::isfinite(state.gamma.imag()));
+        CHECK(std::isfinite(state.gamma().real()));
+        CHECK(std::isfinite(state.gamma().imag()));
         CHECK_THAT(physical_norm(state), WithinAbs(1.0, 1e-9));
     }
 }
@@ -1464,27 +1464,27 @@ TEST_CASE("RISC Integration: Amortized renormalization prevents IEEE-754 drift")
 
     SECTION("Rescues from severe underflow - gamma approaching 0") {
         double extreme_scale = 1e150;
-        state.gamma = {1.0 / extreme_scale, 0.0};
+        state.set_gamma({1.0 / extreme_scale, 0.0});
         state.v()[0] = {extreme_scale, 0.0};
         state.v()[1] = {0.0, 0.0};
 
         execute(prog, state);
 
-        CHECK_THAT(std::abs(state.gamma), WithinAbs(1.0, 0.01));
+        CHECK_THAT(std::abs(state.gamma()), WithinAbs(1.0, 0.01));
         CHECK(std::isfinite(state.v()[0].real()));
         CHECK(std::isfinite(state.v()[1].real()));
     }
 
     SECTION("Rescues from severe overflow - gamma approaching Infinity") {
         double extreme_scale = 1e150;
-        state.gamma = {0.0, extreme_scale};
+        state.set_gamma({0.0, extreme_scale});
         state.v()[0] = {0.0, 0.0};
         state.v()[1] = {1.0 / extreme_scale, 0.0};
 
         execute(prog, state);
 
-        CHECK(std::isfinite(state.gamma.real()));
-        CHECK(std::isfinite(state.gamma.imag()));
+        CHECK(std::isfinite(state.gamma().real()));
+        CHECK(std::isfinite(state.gamma().imag()));
         CHECK(std::isfinite(state.v()[0].real()));
         CHECK(std::isfinite(state.v()[1].real()));
     }
