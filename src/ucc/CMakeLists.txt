@@ -8,6 +8,7 @@ add_library(ucc_core STATIC
     optimizer/peephole.cc
     backend/backend.cc
     svm/svm.cc
+    util/introspection.cc
 )
 
 # Enable position-independent code for use in shared libraries (Python bindings).

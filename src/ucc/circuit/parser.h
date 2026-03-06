@@ -35,13 +35,13 @@ namespace ucc {
 // Parse exception with line information.
 class ParseError : public std::runtime_error {
   public:
-    ParseError(const std::string& msg, int line)
+    ParseError(const std::string& msg, uint32_t line)
         : std::runtime_error("Line " + std::to_string(line) + ": " + msg), line_(line) {}
 
-    int line() const { return line_; }
+    uint32_t line() const { return line_; }
 
   private:
-    int line_;
+    uint32_t line_;
 };
 
 // Parse a circuit from text.

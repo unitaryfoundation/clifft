@@ -177,7 +177,7 @@ class Parser {
 
     Circuit parse() {
         Circuit circuit;
-        int line_num = 0;
+        uint32_t line_num = 0;
 
         // Defensive check for non-ASCII/Unicode characters
         auto non_ascii_it = std::find_if(
@@ -198,7 +198,7 @@ class Parser {
 
     // Parse a block of text line-by-line into the circuit.
     // `remaining` and `line_num` are advanced as text is consumed.
-    void parse_block(std::string_view& remaining, int& line_num, Circuit& circuit) {
+    void parse_block(std::string_view& remaining, uint32_t& line_num, Circuit& circuit) {
         while (!remaining.empty()) {
             line_num++;
             size_t end_of_line = remaining.find('\n');
@@ -228,7 +228,7 @@ class Parser {
     std::string_view text_;
     size_t max_ops_;
 
-    void parse_line(std::string_view line, int& line_num, Circuit& circuit,
+    void parse_line(std::string_view line, uint32_t& line_num, Circuit& circuit,
                     std::string_view& remaining) {
         // Strip comments.
         auto comment_pos = line.find('#');
@@ -330,7 +330,7 @@ class Parser {
                 if (!rest.empty()) {
                     throw ParseError("TICK takes no targets", line_num);
                 }
-                circuit.nodes.push_back({GateType::TICK, {}, args});
+                circuit.nodes.push_back({GateType::TICK, {}, args, line_num});
                 break;
             default:
                 parse_standard_gate(gate, rest, line_num, circuit, arg, args);
@@ -339,7 +339,7 @@ class Parser {
     }
 
     // Parse REPEAT N { ... } block via text-level unrolling.
-    void parse_repeat(std::string_view line, int& line_num, Circuit& circuit,
+    void parse_repeat(std::string_view line, uint32_t& line_num, Circuit& circuit,
                       std::string_view& remaining) {
         // Parse the repetition count from the REPEAT line.
         std::string_view after_keyword = trim(line.substr(6));
@@ -434,14 +434,14 @@ class Parser {
         remaining.remove_prefix(scan_pos + 1);
 
         // Count lines in the body for accurate line numbering during replay.
-        int body_lines = 0;
+        uint32_t body_lines = 0;
         for (char c : body) {
             if (c == '\n')
                 body_lines++;
         }
 
         // Text-level replay: parse the body N times.
-        int base_line = line_num;
+        uint32_t base_line = line_num;
         for (uint32_t i = 0; i < repeat_count; i++) {
             // Each iteration re-parses from the body text, but line numbers
             // reflect the original source location for error reporting.
@@ -460,7 +460,7 @@ class Parser {
     }
 
     // Parse a standard gate with qubit targets (possibly with rec references).
-    void parse_standard_gate(GateType gate, std::string_view targets_str, int line_num,
+    void parse_standard_gate(GateType gate, std::string_view targets_str, uint32_t line_num,
                              Circuit& circuit, double arg, const std::vector<double>& args) {
         // Resets (R, RX) don't accept noise arguments.
         if (is_reset(gate) && arg != 0.0) {
@@ -540,7 +540,7 @@ class Parser {
                         node_args[0] = 0.0;
                     }
 
-                    AstNode node{gate, {t}, std::move(node_args)};
+                    AstNode node{gate, {t}, std::move(node_args), line_num};
                     update_circuit_stats(node, circuit);
                     circuit.nodes.push_back(std::move(node));
 
@@ -548,7 +548,7 @@ class Parser {
                         // Emit READOUT_NOISE targeting the just-created measurement.
                         uint32_t meas_idx = circuit.num_measurements - 1;
                         circuit.nodes.push_back(
-                            {GateType::READOUT_NOISE, {Target::rec(meas_idx)}, {arg}});
+                            {GateType::READOUT_NOISE, {Target::rec(meas_idx)}, {arg}, line_num});
                     }
                 }
                 break;
@@ -584,13 +584,16 @@ class Parser {
                         bool is_noisy_meas = arg > 0.0;
                         circuit.nodes.push_back({GateType::MPP,
                                                  {p0, p1},
-                                                 is_noisy_meas ? std::vector<double>{} : args});
+                                                 is_noisy_meas ? std::vector<double>{} : args,
+                                                 line_num});
                         circuit.num_measurements++;
 
                         if (is_noisy_meas) {
                             uint32_t meas_idx = circuit.num_measurements - 1;
-                            circuit.nodes.push_back(
-                                {GateType::READOUT_NOISE, {Target::rec(meas_idx)}, {arg}});
+                            circuit.nodes.push_back({GateType::READOUT_NOISE,
+                                                     {Target::rec(meas_idx)},
+                                                     {arg},
+                                                     line_num});
                         }
                     }
                     break;
@@ -610,14 +613,14 @@ class Parser {
                         }
                     }
 
-                    AstNode node{gate, {t0, t1}, args};
+                    AstNode node{gate, {t0, t1}, args, line_num};
                     update_circuit_stats(node, circuit);
                     circuit.nodes.push_back(std::move(node));
                 }
                 break;
 
             case GateArity::ANNOTATION:
-                circuit.nodes.push_back({gate, targets, args});
+                circuit.nodes.push_back({gate, targets, args, line_num});
                 break;
 
             case GateArity::MULTI:
@@ -627,7 +630,7 @@ class Parser {
     }
 
     // Parse a single target token.
-    Target parse_target(std::string_view token, int line_num, Circuit& circuit) {
+    Target parse_target(std::string_view token, uint32_t line_num, Circuit& circuit) {
         bool inverted = false;
         std::string_view s = token;
 
@@ -695,7 +698,7 @@ class Parser {
     }
 
     // Parse MPP instruction with multiple Pauli products.
-    void parse_mpp(std::string_view targets_str, int line_num, Circuit& circuit, double arg) {
+    void parse_mpp(std::string_view targets_str, uint32_t line_num, Circuit& circuit, double arg) {
         std::string_view remaining = targets_str;
         uint32_t product_count = 0;
 
@@ -787,13 +790,14 @@ class Parser {
 
             // Emit one AstNode per product.
             // MPP is a visible measurement.
-            AstNode node{GateType::MPP, std::move(pauli_targets), {}};
+            AstNode node{GateType::MPP, std::move(pauli_targets), {}, line_num};
             circuit.num_measurements++;
             circuit.nodes.push_back(std::move(node));
 
             if (is_noisy_meas) {
                 uint32_t meas_idx = circuit.num_measurements - 1;
-                circuit.nodes.push_back({GateType::READOUT_NOISE, {Target::rec(meas_idx)}, {arg}});
+                circuit.nodes.push_back(
+                    {GateType::READOUT_NOISE, {Target::rec(meas_idx)}, {arg}, line_num});
             }
         }
 
@@ -803,7 +807,7 @@ class Parser {
     }
 
     // Parse DETECTOR with rec[-k] targets.
-    void parse_detector(std::string_view targets_str, int line_num, Circuit& circuit) {
+    void parse_detector(std::string_view targets_str, uint32_t line_num, Circuit& circuit) {
         std::vector<Target> targets;
         std::string_view remaining = targets_str;
 
@@ -827,12 +831,12 @@ class Parser {
             targets.push_back(target);
         }
 
-        circuit.nodes.push_back({GateType::DETECTOR, std::move(targets), {}});
+        circuit.nodes.push_back({GateType::DETECTOR, std::move(targets), {}, line_num});
         circuit.num_detectors++;
     }
 
     // Parse OBSERVABLE_INCLUDE with observable index and rec[-k] targets.
-    void parse_observable_include(std::string_view targets_str, int line_num, Circuit& circuit,
+    void parse_observable_include(std::string_view targets_str, uint32_t line_num, Circuit& circuit,
                                   double arg) {
         std::vector<Target> targets;
         std::string_view remaining = targets_str;
@@ -867,7 +871,8 @@ class Parser {
         }
         circuit.num_observables = std::max(circuit.num_observables, obs_idx + 1);
 
-        circuit.nodes.push_back({GateType::OBSERVABLE_INCLUDE, std::move(targets), {arg}});
+        circuit.nodes.push_back(
+            {GateType::OBSERVABLE_INCLUDE, std::move(targets), {arg}, line_num});
     }
 
     // Update circuit statistics after adding a node.

@@ -1129,3 +1129,92 @@ TEST_CASE("PAULI_CHANNEL_1 rejects wrong arg count", "[parser]") {
 TEST_CASE("PAULI_CHANNEL_2 rejects wrong arg count", "[parser]") {
     REQUIRE_THROWS_AS(parse("PAULI_CHANNEL_2(0.01, 0.02, 0.03) 0 1"), ParseError);
 }
+
+// =============================================================================
+// Source Line Tracking
+// =============================================================================
+
+TEST_CASE("Source line tracking for simple gates", "[parser][source_line]") {
+    auto circuit = parse("H 0\nT 1\nM 0");
+    REQUIRE(circuit.nodes.size() == 3);
+    CHECK(circuit.nodes[0].source_line == 1);
+    CHECK(circuit.nodes[1].source_line == 2);
+    CHECK(circuit.nodes[2].source_line == 3);
+}
+
+TEST_CASE("Source line tracking with blank lines and comments", "[parser][source_line]") {
+    auto circuit = parse("H 0\n\n# comment\nT 1\nM 0");
+    REQUIRE(circuit.nodes.size() == 3);
+    CHECK(circuit.nodes[0].source_line == 1);
+    CHECK(circuit.nodes[1].source_line == 4);
+    CHECK(circuit.nodes[2].source_line == 5);
+}
+
+TEST_CASE("Source line tracking with multi-target expansion", "[parser][source_line]") {
+    // "H 0 1 2" on one line expands to 3 AstNodes, all from line 1
+    auto circuit = parse("H 0 1 2");
+    REQUIRE(circuit.nodes.size() == 3);
+    for (auto& node : circuit.nodes) {
+        CHECK(node.source_line == 1);
+    }
+}
+
+TEST_CASE("Source line tracking with REPEAT block", "[parser][source_line]") {
+    // Line 1: REPEAT 2 {
+    // Line 2: H 0
+    // Line 3: T 0
+    // Line 4: }
+    // Line 5: M 0
+    auto circuit = parse("REPEAT 2 {\nH 0\nT 0\n}\nM 0");
+    // 2 iterations of (H, T) + M = 5 nodes
+    REQUIRE(circuit.nodes.size() == 5);
+    // First iteration: lines map back to original block
+    CHECK(circuit.nodes[0].source_line == 2);
+    CHECK(circuit.nodes[1].source_line == 3);
+    // Second iteration: same source lines
+    CHECK(circuit.nodes[2].source_line == 2);
+    CHECK(circuit.nodes[3].source_line == 3);
+    // M after the block
+    CHECK(circuit.nodes[4].source_line == 5);
+}
+
+TEST_CASE("Source line tracking for two-qubit gates", "[parser][source_line]") {
+    auto circuit = parse("CX 0 1\nCZ 2 3");
+    REQUIRE(circuit.nodes.size() == 2);
+    CHECK(circuit.nodes[0].source_line == 1);
+    CHECK(circuit.nodes[1].source_line == 2);
+}
+
+TEST_CASE("Source line tracking for MPP", "[parser][source_line]") {
+    auto circuit = parse("MPP X0*Z1 Y2");
+    // MPP with two products -> 2 AstNodes, both from line 1
+    REQUIRE(circuit.nodes.size() == 2);
+    CHECK(circuit.nodes[0].source_line == 1);
+    CHECK(circuit.nodes[1].source_line == 1);
+}
+
+TEST_CASE("Source line tracking for DETECTOR and OBSERVABLE_INCLUDE", "[parser][source_line]") {
+    auto circuit = parse("M 0\nDETECTOR rec[-1]\nOBSERVABLE_INCLUDE(0) rec[-1]");
+    REQUIRE(circuit.nodes.size() == 3);
+    CHECK(circuit.nodes[0].source_line == 1);
+    CHECK(circuit.nodes[1].source_line == 2);
+    CHECK(circuit.nodes[2].source_line == 3);
+}
+
+TEST_CASE("Source line tracking for noisy measurement decomposition", "[parser][source_line]") {
+    // M(0.01) 0 decomposes into M + READOUT_NOISE, both from same line
+    auto circuit = parse("M(0.01) 0");
+    REQUIRE(circuit.nodes.size() == 2);
+    CHECK(circuit.nodes[0].gate == GateType::M);
+    CHECK(circuit.nodes[0].source_line == 1);
+    CHECK(circuit.nodes[1].gate == GateType::READOUT_NOISE);
+    CHECK(circuit.nodes[1].source_line == 1);
+}
+
+TEST_CASE("Source line tracking for TICK", "[parser][source_line]") {
+    auto circuit = parse("H 0\nTICK\nM 0");
+    REQUIRE(circuit.nodes.size() == 3);
+    CHECK(circuit.nodes[0].source_line == 1);
+    CHECK(circuit.nodes[1].source_line == 2);
+    CHECK(circuit.nodes[2].source_line == 3);
+}

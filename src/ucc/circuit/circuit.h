@@ -35,6 +35,10 @@ struct AstNode {
     // Most gates use args[0] for a single parameter.
     // PAULI_CHANNEL_1 uses 3 args, PAULI_CHANNEL_2 uses 15 args.
     std::vector<double> args;
+
+    // Source line number in the original input text (1-based).
+    // 0 means no source line information available.
+    uint32_t source_line = 0;
 };
 
 // A parsed circuit ready for compilation.

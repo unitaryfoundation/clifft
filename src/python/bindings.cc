@@ -6,6 +6,7 @@
 #include "ucc/optimizer/peephole.h"
 #include "ucc/svm/svm.h"
 #include "ucc/util/config.h"
+#include "ucc/util/introspection.h"
 #include "ucc/util/version.h"
 
 #include <nanobind/make_iterator.h>
@@ -17,212 +18,6 @@
 #include <sstream>
 
 namespace nb = nanobind;
-
-// =============================================================================
-// Formatting Helpers (read-only introspection, no Stim types leaked)
-// =============================================================================
-
-namespace {
-
-std::string format_pauli_mask(const ucc::HeisenbergOp& op) {
-    uint64_t x_bits = static_cast<uint64_t>(op.destab_mask());
-    uint64_t z_bits = static_cast<uint64_t>(op.stab_mask());
-    bool sign = op.sign();
-
-    if (x_bits == 0 && z_bits == 0)
-        return sign ? "-I" : "+I";
-
-    std::string result = sign ? "-" : "+";
-    bool first = true;
-    for (int i = 0; i < 64; ++i) {
-        bool x = (x_bits >> i) & 1;
-        bool z = (z_bits >> i) & 1;
-        if (x || z) {
-            if (!first)
-                result += "*";
-            if (x && z)
-                result += "Y" + std::to_string(i);
-            else if (x)
-                result += "X" + std::to_string(i);
-            else
-                result += "Z" + std::to_string(i);
-            first = false;
-        }
-    }
-    return result;
-}
-
-std::string op_type_to_str(ucc::OpType type) {
-    switch (type) {
-        case ucc::OpType::T_GATE:
-            return "T_GATE";
-        case ucc::OpType::CLIFFORD_PHASE:
-            return "CLIFFORD_PHASE";
-        case ucc::OpType::MEASURE:
-            return "MEASURE";
-        case ucc::OpType::CONDITIONAL_PAULI:
-            return "CONDITIONAL_PAULI";
-        case ucc::OpType::NOISE:
-            return "NOISE";
-        case ucc::OpType::READOUT_NOISE:
-            return "READOUT_NOISE";
-        case ucc::OpType::DETECTOR:
-            return "DETECTOR";
-        case ucc::OpType::OBSERVABLE:
-            return "OBSERVABLE";
-        default:
-            return "UNKNOWN";
-    }
-}
-
-std::string format_hir_op(const ucc::HeisenbergOp& op) {
-    std::ostringstream ss;
-    switch (op.op_type()) {
-        case ucc::OpType::T_GATE:
-            ss << (op.is_dagger() ? "T_DAG " : "T ") << format_pauli_mask(op);
-            break;
-        case ucc::OpType::CLIFFORD_PHASE:
-            ss << (op.is_dagger() ? "S_DAG " : "S ") << format_pauli_mask(op);
-            break;
-        case ucc::OpType::MEASURE:
-            ss << "MEASURE " << format_pauli_mask(op) << " -> rec["
-               << static_cast<uint32_t>(op.meas_record_idx()) << "]";
-            if (op.is_hidden())
-                ss << " (hidden)";
-            break;
-        case ucc::OpType::CONDITIONAL_PAULI:
-            ss << "IF rec["
-               << (op.use_last_outcome()
-                       ? std::string("last")
-                       : std::to_string(static_cast<uint32_t>(op.controlling_meas())))
-               << "] THEN " << format_pauli_mask(op);
-            break;
-        case ucc::OpType::NOISE:
-            ss << "NOISE site=" << static_cast<uint32_t>(op.noise_site_idx());
-            break;
-        case ucc::OpType::READOUT_NOISE:
-            ss << "READOUT_NOISE entry=" << static_cast<uint32_t>(op.readout_noise_idx());
-            break;
-        case ucc::OpType::DETECTOR:
-            ss << "DETECTOR target_list=" << static_cast<uint32_t>(op.detector_idx());
-            break;
-        case ucc::OpType::OBSERVABLE:
-            ss << "OBSERVABLE index=" << static_cast<uint32_t>(op.observable_idx())
-               << " target_list=" << op.observable_target_list_idx();
-            break;
-    }
-    return ss.str();
-}
-
-std::string opcode_to_str(ucc::Opcode op) {
-    switch (op) {
-        case ucc::Opcode::OP_FRAME_CNOT:
-            return "OP_FRAME_CNOT";
-        case ucc::Opcode::OP_FRAME_CZ:
-            return "OP_FRAME_CZ";
-        case ucc::Opcode::OP_FRAME_H:
-            return "OP_FRAME_H";
-        case ucc::Opcode::OP_FRAME_S:
-            return "OP_FRAME_S";
-        case ucc::Opcode::OP_FRAME_S_DAG:
-            return "OP_FRAME_S_DAG";
-        case ucc::Opcode::OP_FRAME_SWAP:
-            return "OP_FRAME_SWAP";
-        case ucc::Opcode::OP_ARRAY_CNOT:
-            return "OP_ARRAY_CNOT";
-        case ucc::Opcode::OP_ARRAY_CZ:
-            return "OP_ARRAY_CZ";
-        case ucc::Opcode::OP_ARRAY_SWAP:
-            return "OP_ARRAY_SWAP";
-        case ucc::Opcode::OP_ARRAY_H:
-            return "OP_ARRAY_H";
-        case ucc::Opcode::OP_ARRAY_S:
-            return "OP_ARRAY_S";
-        case ucc::Opcode::OP_ARRAY_S_DAG:
-            return "OP_ARRAY_S_DAG";
-        case ucc::Opcode::OP_EXPAND:
-            return "OP_EXPAND";
-        case ucc::Opcode::OP_PHASE_T:
-            return "OP_PHASE_T";
-        case ucc::Opcode::OP_PHASE_T_DAG:
-            return "OP_PHASE_T_DAG";
-        case ucc::Opcode::OP_MEAS_DORMANT_STATIC:
-            return "OP_MEAS_DORMANT_STATIC";
-        case ucc::Opcode::OP_MEAS_DORMANT_RANDOM:
-            return "OP_MEAS_DORMANT_RANDOM";
-        case ucc::Opcode::OP_MEAS_ACTIVE_DIAGONAL:
-            return "OP_MEAS_ACTIVE_DIAGONAL";
-        case ucc::Opcode::OP_MEAS_ACTIVE_INTERFERE:
-            return "OP_MEAS_ACTIVE_INTERFERE";
-        case ucc::Opcode::OP_APPLY_PAULI:
-            return "OP_APPLY_PAULI";
-        case ucc::Opcode::OP_NOISE:
-            return "OP_NOISE";
-        case ucc::Opcode::OP_READOUT_NOISE:
-            return "OP_READOUT_NOISE";
-        case ucc::Opcode::OP_DETECTOR:
-            return "OP_DETECTOR";
-        case ucc::Opcode::OP_POSTSELECT:
-            return "OP_POSTSELECT";
-        case ucc::Opcode::OP_OBSERVABLE:
-            return "OP_OBSERVABLE";
-        default:
-            return "UNKNOWN";
-    }
-}
-
-bool is_two_axis_opcode(ucc::Opcode op) {
-    return op == ucc::Opcode::OP_FRAME_CNOT || op == ucc::Opcode::OP_FRAME_CZ ||
-           op == ucc::Opcode::OP_FRAME_SWAP || op == ucc::Opcode::OP_ARRAY_CNOT ||
-           op == ucc::Opcode::OP_ARRAY_CZ || op == ucc::Opcode::OP_ARRAY_SWAP;
-}
-
-bool is_one_axis_opcode(ucc::Opcode op) {
-    return op == ucc::Opcode::OP_FRAME_H || op == ucc::Opcode::OP_FRAME_S ||
-           op == ucc::Opcode::OP_FRAME_S_DAG || op == ucc::Opcode::OP_ARRAY_H ||
-           op == ucc::Opcode::OP_ARRAY_S || op == ucc::Opcode::OP_ARRAY_S_DAG ||
-           op == ucc::Opcode::OP_EXPAND || op == ucc::Opcode::OP_PHASE_T ||
-           op == ucc::Opcode::OP_PHASE_T_DAG;
-}
-
-bool is_meas_opcode(ucc::Opcode op) {
-    return op == ucc::Opcode::OP_MEAS_DORMANT_STATIC || op == ucc::Opcode::OP_MEAS_DORMANT_RANDOM ||
-           op == ucc::Opcode::OP_MEAS_ACTIVE_DIAGONAL ||
-           op == ucc::Opcode::OP_MEAS_ACTIVE_INTERFERE;
-}
-
-std::string format_instruction(const ucc::Instruction& inst) {
-    std::ostringstream ss;
-    ss << opcode_to_str(inst.opcode) << " ";
-
-    if (is_two_axis_opcode(inst.opcode)) {
-        ss << inst.axis_1 << ", " << inst.axis_2;
-    } else if (is_one_axis_opcode(inst.opcode)) {
-        ss << inst.axis_1;
-    } else if (is_meas_opcode(inst.opcode)) {
-        ss << inst.axis_1 << " -> rec[" << inst.classical.classical_idx << "]";
-        if (inst.flags & ucc::Instruction::FLAG_SIGN)
-            ss << " (invert)";
-        if (inst.flags & ucc::Instruction::FLAG_IDENTITY)
-            ss << " (identity)";
-    } else if (inst.opcode == ucc::Opcode::OP_APPLY_PAULI) {
-        ss << "cp_mask=" << inst.pauli.cp_mask_idx << " if rec[" << inst.pauli.condition_idx << "]";
-    } else if (inst.opcode == ucc::Opcode::OP_NOISE) {
-        ss << "cp_site=" << inst.pauli.cp_mask_idx;
-    } else if (inst.opcode == ucc::Opcode::OP_READOUT_NOISE) {
-        ss << "cp_entry=" << inst.pauli.cp_mask_idx;
-    } else if (inst.opcode == ucc::Opcode::OP_DETECTOR ||
-               inst.opcode == ucc::Opcode::OP_POSTSELECT) {
-        ss << "cp_targets=" << inst.pauli.cp_mask_idx << " -> det[" << inst.pauli.condition_idx
-           << "]";
-    } else if (inst.opcode == ucc::Opcode::OP_OBSERVABLE) {
-        ss << "cp_targets=" << inst.pauli.cp_mask_idx << " -> obs[" << inst.pauli.condition_idx
-           << "]";
-    }
-    return ss.str();
-}
-
-}  // namespace
 
 NB_MODULE(_ucc_core, m) {
     m.doc() = "UCC core C++ extension module";
@@ -361,6 +156,7 @@ NB_MODULE(_ucc_core, m) {
         .def_ro("targets", &ucc::AstNode::targets)
         .def_prop_ro("arg", [](const ucc::AstNode& n) { return n.args.empty() ? 0.0 : n.args[0]; })
         .def_ro("args", &ucc::AstNode::args)
+        .def_ro("source_line", &ucc::AstNode::source_line)
         .def("__repr__", [](const ucc::AstNode& n) {
             std::string result = std::string(ucc::gate_name(n.gate));
             for (const auto& t : n.targets) {
@@ -431,13 +227,13 @@ NB_MODULE(_ucc_core, m) {
                      [](const ucc::HeisenbergOp& op) { return op.use_last_outcome(); })
         .def_prop_ro("sign", [](const ucc::HeisenbergOp& op) { return op.sign(); })
         .def_prop_ro("pauli_string",
-                     [](const ucc::HeisenbergOp& op) { return format_pauli_mask(op); })
+                     [](const ucc::HeisenbergOp& op) { return ucc::format_pauli_mask(op); })
         .def(
             "as_dict",
             [](const ucc::HeisenbergOp& op) {
                 nb::dict d;
-                d["op_type"] = op_type_to_str(op.op_type());
-                d["pauli_string"] = format_pauli_mask(op);
+                d["op_type"] = ucc::op_type_to_str(op.op_type());
+                d["pauli_string"] = ucc::format_pauli_mask(op);
                 d["is_dagger"] = op.is_dagger();
                 d["is_hidden"] = op.is_hidden();
                 d["use_last_outcome"] = op.use_last_outcome();
@@ -469,9 +265,9 @@ NB_MODULE(_ucc_core, m) {
                 return d;
             },
             "Return a JSON-friendly dictionary representation.")
-        .def("__str__", [](const ucc::HeisenbergOp& op) { return format_hir_op(op); })
+        .def("__str__", [](const ucc::HeisenbergOp& op) { return ucc::format_hir_op(op); })
         .def("__repr__", [](const ucc::HeisenbergOp& op) {
-            return "<HeisenbergOp: " + format_hir_op(op) + ">";
+            return "<HeisenbergOp: " + ucc::format_hir_op(op) + ">";
         });
 
     nb::class_<ucc::HirModule>(m, "HirModule", "Heisenberg Intermediate Representation")
@@ -521,7 +317,7 @@ NB_MODULE(_ucc_core, m) {
              [](const ucc::HirModule& h) {
                  std::ostringstream ss;
                  for (size_t i = 0; i < h.ops.size(); ++i)
-                     ss << i << ": " << format_hir_op(h.ops[i]) << "\n";
+                     ss << i << ": " << ucc::format_hir_op(h.ops[i]) << "\n";
                  return ss.str();
              })
         .def("__repr__", [](const ucc::HirModule& h) {
@@ -626,13 +422,13 @@ NB_MODULE(_ucc_core, m) {
             "as_dict",
             [](const ucc::Instruction& i) {
                 nb::dict d;
-                d["opcode"] = opcode_to_str(i.opcode);
+                d["opcode"] = ucc::opcode_to_str(i.opcode);
                 d["axis_1"] = i.axis_1;
                 d["axis_2"] = i.axis_2;
                 d["flags"] = i.flags;
-                d["description"] = format_instruction(i);
+                d["description"] = ucc::format_instruction(i);
 
-                if (is_meas_opcode(i.opcode)) {
+                if (ucc::is_meas_opcode(i.opcode)) {
                     d["classical_idx"] = i.classical.classical_idx;
                     d["expected_val"] = i.classical.expected_val;
                 } else if (i.opcode == ucc::Opcode::OP_APPLY_PAULI) {
@@ -653,9 +449,9 @@ NB_MODULE(_ucc_core, m) {
                 return d;
             },
             "Return a JSON-friendly dictionary representation.")
-        .def("__str__", [](const ucc::Instruction& inst) { return format_instruction(inst); })
+        .def("__str__", [](const ucc::Instruction& inst) { return ucc::format_instruction(inst); })
         .def("__repr__", [](const ucc::Instruction& inst) {
-            return "<Instruction: " + format_instruction(inst) + ">";
+            return "<Instruction: " + ucc::format_instruction(inst) + ">";
         });
 
     nb::class_<ucc::CompiledModule>(m, "Program", "A compiled quantum program")
@@ -708,7 +504,7 @@ NB_MODULE(_ucc_core, m) {
              [](const ucc::CompiledModule& p) {
                  std::ostringstream ss;
                  for (size_t i = 0; i < p.bytecode.size(); ++i)
-                     ss << i << ": " << format_instruction(p.bytecode[i]) << "\n";
+                     ss << i << ": " << ucc::format_instruction(p.bytecode[i]) << "\n";
                  return ss.str();
              })
         .def("__repr__", [](const ucc::CompiledModule& p) {
