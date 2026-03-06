@@ -2,73 +2,73 @@
 
 ## Executive Summary & Constraints
 
-The **UCC Compiler Explorer** is a WebAssembly-powered, client-side React application that visualizes the multi-level AOT compilation pipeline.
+The **UCC Compiler Explorer** is a WebAssembly-powered, client-side React application that visualizes the multi-level AOT compilation pipeline. It demonstrates how UCC natively absorbs Cliffords, optimizes the phase polynomial, and geometrically compresses multi-qubit entanglement to physically shrink the Virtual Machine's active memory footprint.
+
+To ensure tight integration and avoid building UI against static mocks, we will execute this plan **"C++ First"**. We will instrument the pipeline, build the Wasm JSON bridge, and test it natively before writing any React.
 
 **Strict Constraints:**
-1. **Preserve the 32-Byte Invariant:** Do NOT add a `source_line` field to `Instruction` or `HeisenbergOp`. Source mapping MUST use parallel `source_map` arrays in the container modules.
-2. **Zero Runtime Overhead:** Source tracking must be guarded by a `CompilerOptions` flag.
-3. **Wasm Isolation:** All Emscripten and JSON logic MUST live exclusively in `src/wasm/`. The core C++ must remain pristine.
-4. **Modern JS Stack:** Use `bun`, `Vite`, `React`, `TypeScript`, and `@monaco-editor/react`.
+1. **Preserve the 32-Byte Invariant:** Do NOT add a `source_line` field to `Instruction` or `HeisenbergOp`. Source mapping MUST use parallel `source_map` vectors in the container modules (`HirModule` and `CompiledModule`).
+2. **AstNode is Exempt:** Because `AstNode` is only used during parsing and is not constrained by L1 cache requirements, add `source_line` directly to it for simplicity.
+3. **The Optimizer Desync Trap:** The Middle-End optimizer deletes and fuses operations using an `erase-remove` idiom. Any pass that mutates `hir.ops` MUST identically mutate `hir.source_map` to prevent catastrophic array desynchronization and UI crashes.
+4. **Wasm & SIMD Isolation:** WebAssembly fundamentally lacks AVX-512 support. The Emscripten build must strictly target the 64-qubit template path (`W=64`) and exclude the `-mavx512f` flags being introduced in the Magic State benchmark.
+5. **Modern JS Stack:** Use `bun`, `Vite`, `React`, `TypeScript`, and `@monaco-editor/react`.
 
 ---
 
-## Part 1: Core C++ Source Mapping
+## Phase 1: Introspection DRY & AST Source Tracking
 
-**Goal:** Instrument the AOT pipeline to track source lines and the Active Dimension ($k$) without altering hot-path structs.
+**Goal:** Extract existing string-formatting logic for reuse, and tag the parser outputs with source lines.
 
-* **Task 1.1 (Parallel Maps):** Add `std::vector<uint32_t> source_map` to `Circuit` and `std::vector<std::vector<uint32_t>> source_map` to `HirModule` and `Program`.
-* **Task 1.2 (Active Dimension Tracking):** Add `std::vector<uint32_t> active_k_history` to `Program`. The Back-End must push the current $k$ dimension into this array for every emitted opcode.
-* **Task 1.3 (Pipeline Propagation):** Update the parser, Front-End, and Back-End to pass source maps through the pipeline when `options.track_source_lines = true`.
+* **Task 1.1 (Introspection Refactor):** Extract the string-formatting functions (`format_pauli_mask`, `op_type_to_str`, `opcode_to_str`, `format_instruction`) out of `src/python/bindings.cc` and into a new shared header/source pair: `src/ucc/util/introspection.h` and `introspection.cc`. Update the Python bindings to use this new file.
+* **Task 1.2 (AST Line Tracking):** Add `uint32_t source_line = 0;` directly to the `AstNode` struct in `circuit.h`.
+* **Task 1.3 (Parser Updates):** In `parser.cc`, update the line-by-line parsing loop to assign the current `line_num` to the emitted `AstNode`s. Note: During `REPEAT` unrolling, the `line_num` should correctly reflect the line inside the block being replayed (which the current logic already supports).
+* **DoD:** The project compiles, the Python bindings format strings correctly using the shared utility, and `AstNode` natively knows its origin line.
 
-## Part 2: WebAssembly Build System
+## Phase 2: Pipeline Propagation & The Optimizer Trap
 
-**Goal:** Create an Emscripten target exposing the compiler to JS.
+**Goal:** Thread source maps and Active Dimension ($k$) history through the Front-End, Middle-End, and Back-End without altering the hot-path 32-byte structs.
 
-* **Task 2.1 (Embind API):** Create `src/wasm/bindings.cc`. Expose:
-    * `compile_to_json(source)`: Returns the HIR, Bytecode, Source Maps, and Active $k$ history as a JSON string.
-    * `simulate_wasm(source, shots)`: Executes the VM natively in Wasm. Hard-abort and return an error if the peak $k > 16$ to prevent browser Out-Of-Memory (OOM) crashes.
-* **Task 2.2 (Build Automation):** Add a `just build-wasm-docker` recipe that compiles the module inside an official Emscripten docker container and outputs to the React `public/` folder.
+* **Task 2.1 (Parallel Maps & History):** Add `std::vector<std::vector<uint32_t>> source_map` to `HirModule` (an inner vector is needed because a fused optimization node maps to multiple original source lines). Add `std::vector<std::vector<uint32_t>> source_map` and `std::vector<uint32_t> active_k_history` to `CompiledModule`.
+* **Task 2.2 (Front-End Trace):** In `frontend.cc`, update `trace()` to push `[node.source_line]` into `HirModule::source_map` for every emitted `HeisenbergOp`.
+* **Task 2.3 (Middle-End Sync - CRITICAL):** In `peephole.cc`, update the `PeepholeFusionPass`. When fusing $T+T \to S$, concatenate the source lines of both $T$ gates into the surviving node's `source_map`. When executing the `erase-remove` compaction loop at the end of the pass, you MUST synchronously shift and truncate `hir.source_map` to perfectly match `hir.ops`.
+* **Task 2.4 (Back-End Lowering):** In `backend.cc` (`lower()`), whenever an `Instruction` is emitted, push the current HIR node's source line vector to `CompiledModule::source_map`. Push the current `reg_manager.active_k()` to `active_k_history`.
+* **DoD:** A native C++ Catch2 test verifies that compiling `H 0\nT 0\nT 0` correctly propagates source lines, and that the optimizer perfectly maintains `hir.ops.size() == hir.source_map.size()` after fusing the $T$ gates.
 
-## Part 3: Frontend Scaffolding, Layout, & Highlighting
+## Phase 3: WebAssembly Build System & JSON Bridge
 
-**Goal:** Setup the modern React architecture and build the interactive UI layout.
+**Goal:** Create an Emscripten target exposing the compiler and SVM to JS, returning real AOT data protected by safe memory bounds.
 
-* **Task 3.1 (Initialization & Dependencies):** Scaffold the app using `bun create vite explorer --template react-ts`. Run `bun add @monaco-editor/react allotment recharts lz-string lucide-react` to install the core UI packages.
-* **Task 3.2 (Wasm Interop Hook):** Create `src/hooks/useUccWasm.ts`. This hook is responsible for asynchronously loading the Emscripten `.js` glue code and `.wasm` binary, initializing the module, and safely exposing the `compile_to_json` and `simulate_wasm` C++ functions to React state.
-* **Task 3.3 (Pane Layout):** Use `<Allotment>` to construct a resizable multi-pane layout:
-    * **Top Split:** Input Editor (Monaco), HIR View (Read-only Text/JSON), and Bytecode View (Read-only Text).
+* **Task 3.1 (Embind API):** Create `src/wasm/bindings.cc` using `#include <emscripten/bind.h>`. Expose:
+    * `compile_to_json(source)`: Calls `ucc::parse(source, /*max_ops=*/10000)` to prevent malicious `REPEAT` blocks from crashing the browser. Traces, optimizes (via `PassManager`), and lowers the circuit. Uses the introspection utilities to serialize the HIR, Bytecode, Source Maps, and Active $k$ history into a single JSON string.
+    * `simulate_wasm(source, shots)`: Parses and compiles the circuit. **Safety Guard:** If `prog.peak_rank > 20` (requiring ~16 MB of continuous RAM), instantly abort and return a JSON error (`{"error": "MemoryLimitExceeded"}`). If safe, execute the VM natively in Wasm, aggregate the measurement histogram, and return it.
+* **Task 3.2 (CMake Wasm Target):** Create `src/wasm/CMakeLists.txt` configured for Emscripten (`emcc`). Ensure it overrides native architecture flags (`-march=native`, `-mavx512f`) to prevent Wasm compile errors.
+* **Task 3.3 (Build Automation):** Add a `just build-wasm` recipe that utilizes an official `emscripten/emsdk` docker container to build the target and output `ucc_wasm.js` and `ucc_wasm.wasm` directly into a new `explorer/public/` directory.
+* **DoD:** Running `just build-wasm` works. A 10-line Node.js/Bun script can require the Wasm module, call `compile_to_json("H 0\nT 0\nM 0")`, and print the JSON payload showing localized RISC opcodes and source maps.
+
+## Phase 4: Frontend Scaffolding, Layout, & Highlighting
+
+**Goal:** Setup the modern React architecture and build the interactive UI layout using the live Wasm data.
+
+* **Task 4.1 (Initialization & Dependencies):** Scaffold the app using `bun create vite explorer --template react-ts`. Run `bun add @monaco-editor/react allotment recharts lz-string lucide-react`.
+* **Task 4.2 (Wasm Interop Hook):** Create `src/hooks/useUccWasm.ts`. This hook asynchronously loads the Emscripten `.js` glue code and `.wasm` binary, initializes the module, and wraps the `compile_to_json` and `simulate_wasm` functions in React state.
+* **Task 4.3 (Pane Layout):** Use `<Allotment>` to construct a resizable multi-pane layout:
+    * **Top Split:** Input Editor (Monaco), HIR View (Read-only Text), and Bytecode View (Read-only Text).
     * **Bottom Split:** The Active Dimension Timeline graph.
-* **Task 3.4 (Bidirectional Highlighting):** Wire Monaco's `editor.deltaDecorations`. When the user clicks a line in the Input Editor, use the JSON `source_map` to highlight the corresponding abstract Paulis in the HIR pane and the localized RISC opcodes in the Bytecode pane.
+* **Task 4.4 (Bidirectional Highlighting):** Wire Monaco's `editor.deltaDecorations`. When the user clicks a line in the Input Editor, scan the Wasm-provided JSON `source_map` arrays. Visually highlight the exact corresponding abstract Paulis in the HIR pane and the localized RISC opcodes in the Bytecode pane.
 
-## Part 4: The Active Dimension ($k$) Timeline
+## Phase 5: The Active Dimension ($k$) Timeline
 
-**Goal:** Visualize the literal memory expansion and compaction of the Virtual Machine.
+**Goal:** Visualize the literal memory expansion and compaction of the Virtual Machine over time.
 
-* **Task 4.1 (Graphing):** Use `recharts` to plot `active_k_history` on the Y-axis against the Bytecode PC on the X-axis using a `stepAfter` digital line style.
-* **Task 4.2 (Visual Feedback):** Users can literally watch the graph step up when a `T` gate executes (`OP_EXPAND`) and watch it fold back down during array compaction (`OP_MEAS_ACTIVE_INTERFERE`). Add a red reference line at $Y=16$ labeled "Browser Memory Limit".
+* **Task 5.1 (Graphing):** Use `recharts` to plot the JSON `active_k_history` array on the Y-axis against the Bytecode PC (Instruction Index) on the X-axis using a `stepAfter` digital line style.
+* **Task 5.2 (Visual Feedback):** Users can literally watch the graph step up when an un-absorbed non-Clifford gate executes (`OP_EXPAND`) and watch it fold back down during array compaction (`OP_MEAS_ACTIVE_INTERFERE`). Add a red reference dashed line at $Y=20$ labeled "Browser Memory Limit (~16MB)".
 
-## Part 5: The Simulation UI Sandbox
+## Phase 6: The Simulation UI Sandbox & Deep Linking
 
-**Goal:** Allow users to execute fast, safe Monte Carlo simulations directly in the browser and visualize the output.
+**Goal:** Allow users to execute fast Monte Carlo simulations directly in the browser and share them.
 
-* **Task 5.1 (UI Controls):** Add a "Simulate (10k Shots)" button to a toolbar above the Input Editor.
-* **Task 5.2 (Execution & Safety Guard):** When clicked, invoke `simulate_wasm` via the custom hook. If the returned JSON contains an `"error"` (e.g., peak $k$ exceeded 16), render a prominent red alert banner warning the user about browser memory limitations and advising them to use the native C++ CLI for heavy workloads.
-* **Task 5.3 (Results Visualization):** If successful, parse the returned JSON results and display the measurement histogram. Use a simple `recharts` BarChart or a stylized HTML list to show the distribution of classical states.
-
-## Part 6: Deep Linking & URL State
-
-**Goal:** Allow users to share specific circuit snippets via URL without a backend database.
-
-* **Task 6.1 (URL Hydration):** In the main `App.tsx` mount effect, check the window location for a `?code=` query parameter. If present, decode and decompress it using `LZString.decompressFromEncodedURIComponent` and set it as the initial string for the Monaco editor.
-* **Task 6.2 (State Sync & Share):** Add a "Share Link" button with a link icon to the toolbar. On click, capture the current editor text, compress it using `LZString.compressToEncodedURIComponent`, append it to the current URL, and copy the full URL to the user's clipboard with a temporary "Copied!" toast notification.
-* **Task 6.3 (Abuse Limits):** Track the character count in the Monaco editor. If the code exceeds 5,000 characters, visually disable the "Share Link" button and add a tooltip explaining that the circuit is too large for URL encoding.
-
-## Part 7: (Optional) The Virtual Frame Inspector
-
-**Goal:** Teach users how $\mathcal{O}(n)$ geometric compression works.
-
-* **Task 7.1:** If enabled, the Back-End records stringified snapshots of the $V_{cum}$ Pauli tracker.
-* **Task 7.2:** When a user hovers over a heavy multi-qubit operator in the HIR, the inspector pane visually displays how the Back-End emitted `OP_FRAME_CNOT` gates to dynamically fold that global operator into a single virtual axis.
-
-> **STATUS: DEFERRED (POST-PAPER 1)**
-> This plan is explicitly excluded from the debut UCC paper to maintain narrative focus and bound engineering time. The core narrative of Paper 1 relies on the fact that FTQC measurements naturally cool the active dimension ($k_{\max}$). Coherent noise introduces continuous rank explosion that contradicts this clean narrative. This will form the basis of a dedicated follow-up paper.
+* **Task 6.1 (UI Controls & Execution):** Add a "Simulate (10k Shots)" button. When clicked, invoke `simulate_wasm` via the custom hook.
+    * If the returned object contains the `"MemoryLimitExceeded"` error, render a prominent red alert banner advising the user to use the native Python CLI for workloads exceeding $k=20$.
+    * If successful, parse the returned histogram and display it. Use a simple `recharts` BarChart or a stylized HTML list to show the probability distribution.
+* **Task 6.2 (URL Hydration):** In the main `App.tsx` mount effect, check the window location for a `?code=` query parameter. If present, decode and decompress it using `LZString.decompressFromEncodedURIComponent` and set it as the initial string for the Monaco editor.
+* **Task 6.3 (State Sync & Share):** Add a "Share Link" button with a link icon to the toolbar. On click, capture the current editor text, compress it using `LZString.compressToEncodedURIComponent`, append it to the current URL, and copy the full URL to the user's clipboard with a temporary "Copied!" toast notification. Disable the button visually if the circuit exceeds ~5,000 characters to prevent URL header overflow.
