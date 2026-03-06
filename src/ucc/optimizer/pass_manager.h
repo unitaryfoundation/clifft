@@ -13,6 +13,12 @@ namespace ucc {
 /// the HirModule mutated by all prior passes.
 class PassManager {
   public:
+    PassManager() = default;
+    PassManager(PassManager&&) = default;
+    PassManager& operator=(PassManager&&) = default;
+    PassManager(const PassManager&) = delete;
+    PassManager& operator=(const PassManager&) = delete;
+
     void add_pass(std::unique_ptr<Pass> pass);
     void run(HirModule& hir);
 

@@ -195,6 +195,79 @@ NB_MODULE(_ucc_core, m) {
         "Parse a quantum circuit from a file with an explicit AST node limit.");
 
     // =========================================================================
+    // Heisenberg IR
+    // =========================================================================
+
+    nb::class_<ucc::HirModule>(m, "HirModule", "Heisenberg Intermediate Representation")
+        .def_prop_ro("num_ops", [](const ucc::HirModule& h) { return h.num_ops(); })
+        .def_prop_ro("num_t_gates", [](const ucc::HirModule& h) { return h.num_t_gates(); })
+        .def_prop_ro("num_qubits", [](const ucc::HirModule& h) { return h.num_qubits; })
+        .def_prop_ro("num_measurements", [](const ucc::HirModule& h) { return h.num_measurements; })
+        .def_prop_ro("num_detectors", [](const ucc::HirModule& h) { return h.num_detectors; })
+        .def_prop_ro("num_observables", [](const ucc::HirModule& h) { return h.num_observables; })
+        .def("__repr__", [](const ucc::HirModule& h) {
+            return "HirModule(" + std::to_string(h.num_ops()) + " ops, " +
+                   std::to_string(h.num_t_gates()) + " T-gates, " + std::to_string(h.num_qubits) +
+                   " qubits)";
+        });
+
+    // Front-end: Circuit -> HIR
+    m.def(
+        "trace", [](const ucc::Circuit& circuit) { return ucc::trace(circuit); },
+        nb::arg("circuit"),
+        "Trace a parsed circuit through the Clifford front-end to produce the "
+        "Heisenberg IR.");
+
+    // =========================================================================
+    // Optimizer Pass Infrastructure
+    // =========================================================================
+
+    nb::class_<ucc::Pass>(m, "Pass", "Abstract base class for HIR optimization passes.");
+
+    nb::class_<ucc::PeepholeFusionPass, ucc::Pass>(
+        m, "PeepholeFusionPass",
+        "Symplectic peephole fusion: cancels and fuses T/T-dag gates on the "
+        "same virtual Pauli axis.")
+        .def(nb::init<>())
+        .def_prop_ro("cancellations", &ucc::PeepholeFusionPass::cancellations)
+        .def_prop_ro("fusions", &ucc::PeepholeFusionPass::fusions)
+        .def("__repr__", [](const ucc::PeepholeFusionPass& p) {
+            return "PeepholeFusionPass(cancellations=" + std::to_string(p.cancellations()) +
+                   ", fusions=" + std::to_string(p.fusions()) + ")";
+        });
+
+    nb::class_<ucc::PassManager>(m, "PassManager",
+                                 "Runs a sequence of optimization passes over an HirModule.")
+        .def(nb::init<>())
+        .def(
+            "add",
+            [](ucc::PassManager& pm, ucc::Pass& pass) {
+                // PassManager needs unique_ptr ownership, but Python owns the pass.
+                // Use a thin non-owning wrapper that delegates to the Python-owned pass.
+                struct BorrowedPass : ucc::Pass {
+                    ucc::Pass& ref;
+                    explicit BorrowedPass(ucc::Pass& r) : ref(r) {}
+                    void run(ucc::HirModule& hir) override { ref.run(hir); }
+                };
+                pm.add_pass(std::make_unique<BorrowedPass>(pass));
+            },
+            nb::arg("pass"), nb::keep_alive<1, 2>(),
+            "Add an optimization pass. Passes run in the order added.")
+        .def(
+            "run", [](ucc::PassManager& pm, ucc::HirModule& hir) { pm.run(hir); }, nb::arg("hir"),
+            "Run all passes on the HIR module in sequence.");
+
+    m.def(
+        "default_pass_manager",
+        []() {
+            ucc::PassManager pm;
+            pm.add_pass(std::make_unique<ucc::PeepholeFusionPass>());
+            return pm;
+        },
+        nb::rv_policy::move,
+        "Return a PassManager pre-loaded with the standard optimization passes.");
+
+    // =========================================================================
     // Compiled Program and Sampling
     // =========================================================================
 
@@ -213,25 +286,24 @@ NB_MODULE(_ucc_core, m) {
                    std::to_string(p.num_measurements) + " measurements)";
         });
 
-    // Compile: stim text -> Program
+    // Back-end: HIR -> Program
+    m.def(
+        "lower", [](const ucc::HirModule& hir) { return ucc::lower(hir); }, nb::arg("hir"),
+        "Lower a Heisenberg IR module to executable VM bytecode.");
+
+    // Convenience: stim text -> Program (parse + trace + lower, no optimization)
     m.def(
         "compile",
-        [](const std::string& stim_text, bool skip_optimizer) {
+        [](const std::string& stim_text) {
             ucc::Circuit circuit = ucc::parse(stim_text);
             ucc::HirModule hir = ucc::trace(circuit);
-            if (!skip_optimizer) {
-                ucc::PassManager pm;
-                pm.add_pass(std::make_unique<ucc::PeepholeFusionPass>());
-                pm.run(hir);
-            }
             return ucc::lower(hir);
         },
-        nb::arg("stim_text"), nb::arg("skip_optimizer") = false,
-        "Compile a quantum circuit to executable bytecode.\n\n"
-        "Args:\n"
-        "    stim_text: Circuit in .stim text format.\n"
-        "    skip_optimizer: If True, bypass the middle-end optimizer "
-        "(future-proofing).\n");
+        nb::arg("stim_text"),
+        "Compile a quantum circuit string to executable bytecode.\n\n"
+        "Convenience function equivalent to lower(trace(parse(text))).\n"
+        "For optimization, use the explicit pipeline: parse -> trace -> "
+        "PassManager.run -> lower.\n");
 
     // Zero-copy transfer: move the vector onto the heap and let the capsule own it.
     // Avoids O(N) memcpy for large shot batches.

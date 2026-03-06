@@ -11,6 +11,16 @@ from conftest import binomial_tolerance
 
 import ucc
 
+
+def _compile_optimized(circuit_str: str) -> ucc.Program:
+    """Compile with the default peephole optimization pass."""
+    circuit = ucc.parse(circuit_str)
+    hir = ucc.trace(circuit)
+    pm = ucc.default_pass_manager()
+    pm.run(hir)
+    return ucc.lower(hir)
+
+
 # ---------------------------------------------------------------------------
 # Bounded-T Mirror Fuzzer
 # ---------------------------------------------------------------------------
@@ -93,8 +103,9 @@ class TestBoundedTMirrorFuzzer:
     yields the all-zeros bitstring. The peak rank must stay <= t_count
     since only T gates expand the active Schrodinger array.
 
-    Uses skip_optimizer=True to future-proof against a middle-end
-    optimizer that might statically cancel the T/T-dag pairs.
+    The baseline tests verify the compiler and VM produce correct results
+    without optimization. The optimized tests verify the peephole pass
+    cancels all T/T-dag pairs, collapsing peak_rank to 0.
     """
 
     NUM_QUBITS = 40
@@ -103,14 +114,30 @@ class TestBoundedTMirrorFuzzer:
     SHOTS = 10_000
 
     @pytest.mark.parametrize("seed", range(5))
-    def test_mirror_40q_12t(self, seed: int) -> None:
-        """40-qubit mirror with 12 T gates yields all-zeros."""
+    def test_mirror_40q_12t_baseline(self, seed: int) -> None:
+        """40-qubit mirror with 12 T gates yields all-zeros without optimizer."""
         circuit, t_count = _bounded_t_mirror_circuit(
             self.NUM_QUBITS, self.CLIFFORD_DEPTH, self.T_COUNT, seed=seed
         )
-        prog = ucc.compile(circuit, skip_optimizer=True)
+        prog = ucc.compile(circuit)
 
         assert prog.peak_rank <= t_count, f"peak_rank={prog.peak_rank} exceeds t_count={t_count}"
+
+        meas, _, _ = ucc.sample(prog, self.SHOTS, seed=seed)
+        shots_nonzero = int(meas.sum(axis=1).astype(bool).sum())
+        assert shots_nonzero == 0, f"{shots_nonzero}/{self.SHOTS} shots were non-zero (seed={seed})"
+
+    @pytest.mark.parametrize("seed", range(5))
+    def test_mirror_40q_12t_optimized(self, seed: int) -> None:
+        """Optimizer cancels all T gates: peak_rank=0, all-zeros output."""
+        circuit, _ = _bounded_t_mirror_circuit(
+            self.NUM_QUBITS, self.CLIFFORD_DEPTH, self.T_COUNT, seed=seed
+        )
+        prog = _compile_optimized(circuit)
+
+        assert (
+            prog.peak_rank == 0
+        ), f"peak_rank={prog.peak_rank}, expected 0 after optimization (seed={seed})"
 
         meas, _, _ = ucc.sample(prog, self.SHOTS, seed=seed)
         shots_nonzero = int(meas.sum(axis=1).astype(bool).sum())
@@ -120,7 +147,7 @@ class TestBoundedTMirrorFuzzer:
         """Peak rank grows with T count, not qubit count."""
         for t_count in [4, 8, 12]:
             circuit, _ = _bounded_t_mirror_circuit(self.NUM_QUBITS, 500, t_count, seed=99)
-            prog = ucc.compile(circuit, skip_optimizer=True)
+            prog = ucc.compile(circuit)
             assert prog.peak_rank <= t_count, f"t_count={t_count}: peak_rank={prog.peak_rank}"
 
 
@@ -167,13 +194,13 @@ class TestBreathingMemoryLifecycle:
     def test_peak_rank_bounded(self, n_rounds: int) -> None:
         """Peak rank stays at exactly 2 regardless of round count."""
         circuit = _breathing_circuit(n_rounds)
-        prog = ucc.compile(circuit, skip_optimizer=True)
+        prog = ucc.compile(circuit)
         assert prog.peak_rank == 2, f"n_rounds={n_rounds}: peak_rank={prog.peak_rank}, expected 2"
 
     def test_breathing_500_rounds_completes(self) -> None:
         """500-round breathing circuit runs without underflow or crash."""
         circuit = _breathing_circuit(500)
-        prog = ucc.compile(circuit, skip_optimizer=True)
+        prog = ucc.compile(circuit)
 
         assert prog.peak_rank == 2
         # Memory: 2^2 * 16 bytes = 64 bytes (trivial)
@@ -187,7 +214,7 @@ class TestBreathingMemoryLifecycle:
     def test_breathing_1000_rounds_completes(self) -> None:
         """1000-round breathing circuit -- extreme gamma stress test."""
         circuit = _breathing_circuit(1000)
-        prog = ucc.compile(circuit, skip_optimizer=True)
+        prog = ucc.compile(circuit)
 
         assert prog.peak_rank == 2
 
