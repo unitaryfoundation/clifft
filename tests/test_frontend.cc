@@ -406,12 +406,12 @@ TEST_CASE("Frontend: broadcast classical feedback CX rec[-2] 0 rec[-1] 1",
     circuit.num_measurements = 2;
 
     // H 0; H 1
-    circuit.nodes.push_back({GateType::H, {Target::qubit(0)}, 0.0});
-    circuit.nodes.push_back({GateType::H, {Target::qubit(1)}, 0.0});
+    circuit.nodes.push_back({GateType::H, {Target::qubit(0)}, {0.0}});
+    circuit.nodes.push_back({GateType::H, {Target::qubit(1)}, {0.0}});
 
     // M 0; M 1
-    circuit.nodes.push_back({GateType::M, {Target::qubit(0)}, 0.0});
-    circuit.nodes.push_back({GateType::M, {Target::qubit(1)}, 0.0});
+    circuit.nodes.push_back({GateType::M, {Target::qubit(0)}, {0.0}});
+    circuit.nodes.push_back({GateType::M, {Target::qubit(1)}, {0.0}});
 
     // CX rec[-2] 0 rec[-1] 1 (broadcast form)
     AstNode cx_node;
@@ -476,7 +476,7 @@ TEST_CASE("Frontend: DEPOLARIZE1 produces 3 rewound channels", "[frontend][noise
 
     AstNode dep1;
     dep1.gate = GateType::DEPOLARIZE1;
-    dep1.arg = 0.03;  // Total error probability
+    dep1.args = {0.03};  // Total error probability
     dep1.targets.push_back(Target::qubit(0));
     circuit.nodes.push_back(dep1);
 
@@ -504,7 +504,7 @@ TEST_CASE("Frontend: X_ERROR produces single channel", "[frontend][noise]") {
 
     AstNode x_err;
     x_err.gate = GateType::X_ERROR;
-    x_err.arg = 0.001;
+    x_err.args = {0.001};
     x_err.targets.push_back(Target::qubit(0));
     circuit.nodes.push_back(x_err);
 
@@ -528,7 +528,7 @@ TEST_CASE("Frontend: Z_ERROR produces single channel", "[frontend][noise]") {
 
     AstNode z_err;
     z_err.gate = GateType::Z_ERROR;
-    z_err.arg = 0.002;
+    z_err.args = {0.002};
     z_err.targets.push_back(Target::qubit(0));
     circuit.nodes.push_back(z_err);
 
@@ -550,7 +550,7 @@ TEST_CASE("Frontend: Y_ERROR produces single channel", "[frontend][noise]") {
 
     AstNode y_err;
     y_err.gate = GateType::Y_ERROR;
-    y_err.arg = 0.003;
+    y_err.args = {0.003};
     y_err.targets.push_back(Target::qubit(0));
     circuit.nodes.push_back(y_err);
 
@@ -573,7 +573,7 @@ TEST_CASE("Frontend: DEPOLARIZE2 produces 15 channels", "[frontend][noise]") {
 
     AstNode dep2;
     dep2.gate = GateType::DEPOLARIZE2;
-    dep2.arg = 0.15;  // Total error probability
+    dep2.args = {0.15};  // Total error probability
     dep2.targets.push_back(Target::qubit(0));
     dep2.targets.push_back(Target::qubit(1));
     circuit.nodes.push_back(dep2);
@@ -605,7 +605,7 @@ TEST_CASE("Frontend: noise rewinding through H gate", "[frontend][noise]") {
 
     AstNode x_err;
     x_err.gate = GateType::X_ERROR;
-    x_err.arg = 0.01;
+    x_err.args = {0.01};
     x_err.targets.push_back(Target::qubit(0));
     circuit.nodes.push_back(x_err);
 
@@ -636,7 +636,7 @@ TEST_CASE("Frontend: READOUT_NOISE emission", "[frontend][noise]") {
     // Then readout noise on that measurement
     AstNode rn;
     rn.gate = GateType::READOUT_NOISE;
-    rn.arg = 0.005;
+    rn.args = {0.005};
     rn.targets.push_back(Target::rec(0));  // Absolute index 0
     circuit.nodes.push_back(rn);
 
@@ -702,7 +702,7 @@ TEST_CASE("Frontend: OBSERVABLE_INCLUDE emission", "[frontend][qec]") {
 
     AstNode obs;
     obs.gate = GateType::OBSERVABLE_INCLUDE;
-    obs.arg = 0;                            // Observable index
+    obs.args = {0};                         // Observable index
     obs.targets.push_back(Target::rec(0));  // rec[-1] -> absolute 0
     circuit.nodes.push_back(obs);
 
@@ -735,13 +735,13 @@ TEST_CASE("Frontend: multiple OBSERVABLE_INCLUDE accumulate", "[frontend][qec]")
 
     AstNode obs1;
     obs1.gate = GateType::OBSERVABLE_INCLUDE;
-    obs1.arg = 0;
+    obs1.args = {0};
     obs1.targets.push_back(Target::rec(0));  // rec[-2] -> absolute 0
     circuit.nodes.push_back(obs1);
 
     AstNode obs2;
     obs2.gate = GateType::OBSERVABLE_INCLUDE;
-    obs2.arg = 0;
+    obs2.args = {0};
     obs2.targets.push_back(Target::rec(1));  // rec[-1] -> absolute 1
     circuit.nodes.push_back(obs2);
 
@@ -768,7 +768,7 @@ TEST_CASE("Frontend: noise broadcasting", "[frontend][noise]") {
 
     AstNode x_err;
     x_err.gate = GateType::X_ERROR;
-    x_err.arg = 0.01;
+    x_err.args = {0.01};
     x_err.targets.push_back(Target::qubit(0));
     x_err.targets.push_back(Target::qubit(1));
     x_err.targets.push_back(Target::qubit(2));
@@ -793,7 +793,7 @@ TEST_CASE("Frontend: DEPOLARIZE2 broadcasting", "[frontend][noise]") {
 
     AstNode dep2;
     dep2.gate = GateType::DEPOLARIZE2;
-    dep2.arg = 0.15;
+    dep2.args = {0.15};
     dep2.targets.push_back(Target::qubit(0));
     dep2.targets.push_back(Target::qubit(1));
     dep2.targets.push_back(Target::qubit(2));
@@ -894,4 +894,112 @@ TEST_CASE("Frontend: full QEC circuit with noise and detectors",
 
     REQUIRE(hir.num_detectors == 1);
     REQUIRE(hir.num_observables == 1);
+}
+
+// --- Phase 1: MPAD and measurement inversion ---
+
+TEST_CASE("Frontend: MPAD emits zero-weight measurements", "[frontend]") {
+    auto circuit = parse("MPAD 1 0 1");
+    auto hir = trace(circuit);
+
+    REQUIRE(hir.num_ops() == 3);
+    for (size_t i = 0; i < 3; ++i) {
+        CHECK(hir.ops[i].op_type() == OpType::MEASURE);
+        CHECK(hir.ops[i].destab_mask() == 0);
+        CHECK(hir.ops[i].stab_mask() == 0);
+    }
+    CHECK(hir.ops[0].sign() == true);   // MPAD 1
+    CHECK(hir.ops[1].sign() == false);  // MPAD 0
+    CHECK(hir.ops[2].sign() == true);   // MPAD 1
+}
+
+TEST_CASE("Frontend: inverted M flips sign", "[frontend]") {
+    // M !0 on a fresh qubit in |0> state: rewound Z is just Z0 with sign=false.
+    // Inversion flips it to sign=true.
+    auto circuit = parse("M !0");
+    auto hir = trace(circuit);
+
+    REQUIRE(hir.num_ops() == 1);
+    CHECK(hir.ops[0].op_type() == OpType::MEASURE);
+    CHECK(hir.ops[0].sign() == true);
+}
+
+TEST_CASE("Frontend: non-inverted M has sign false on fresh qubit", "[frontend]") {
+    auto circuit = parse("M 0");
+    auto hir = trace(circuit);
+
+    REQUIRE(hir.num_ops() == 1);
+    CHECK(hir.ops[0].op_type() == OpType::MEASURE);
+    CHECK(hir.ops[0].sign() == false);
+}
+
+TEST_CASE("Frontend: alias ZCX produces same HIR as CX", "[frontend]") {
+    auto hir_cx = trace(parse("CX 0 1\nM 0 1"));
+    auto hir_zcx = trace(parse("ZCX 0 1\nM 0 1"));
+
+    REQUIRE(hir_cx.num_ops() == hir_zcx.num_ops());
+    for (size_t i = 0; i < hir_cx.num_ops(); ++i) {
+        CHECK(hir_cx.ops[i].destab_mask() == hir_zcx.ops[i].destab_mask());
+        CHECK(hir_cx.ops[i].stab_mask() == hir_zcx.ops[i].stab_mask());
+    }
+}
+
+TEST_CASE("Frontend: I gate produces empty HIR", "[frontend]") {
+    auto circuit = parse("I 0\nI 1\nI 2");
+    auto hir = trace(circuit);
+    CHECK(hir.num_ops() == 0);
+}
+
+// --- Phase 3: Clifford Expansion ---
+
+TEST_CASE("Frontend: expanded Cliffords are fully absorbed into tableau", "[frontend]") {
+    auto circuit = parse("ISWAP 0 1\nC_XYZ 0\nSQRT_XX 0 1\nSWAP 0 1");
+    auto hir = trace(circuit);
+    CHECK(hir.num_ops() == 0);
+}
+
+TEST_CASE("Frontend: SQRT_X and SQRT_X_DAG cancel", "[frontend]") {
+    auto circuit = parse("SQRT_X 0\nSQRT_X_DAG 0\nM 0");
+    auto hir = trace(circuit);
+    // Only measurement op remains (the Cliffords cancel)
+    REQUIRE(hir.num_ops() == 1);
+    CHECK(hir.ops[0].op_type() == OpType::MEASURE);
+}
+
+// --- Phase 4: Multi-Parameter Noise ---
+
+TEST_CASE("Frontend: PAULI_CHANNEL_1 emits noise with correct channel count", "[frontend]") {
+    // PAULI_CHANNEL_1(0.1, 0.2, 0.3) 0 -> 3 channels (X, Y, Z)
+    auto circuit = parse("PAULI_CHANNEL_1(0.1, 0.2, 0.3) 0");
+    auto hir = trace(circuit);
+
+    REQUIRE(hir.num_ops() == 1);
+    CHECK(hir.ops[0].op_type() == OpType::NOISE);
+    REQUIRE(hir.noise_sites.size() == 1);
+    CHECK(hir.noise_sites[0].channels.size() == 3);
+    CHECK(hir.noise_sites[0].channels[0].prob == Catch::Approx(0.1));
+    CHECK(hir.noise_sites[0].channels[1].prob == Catch::Approx(0.2));
+    CHECK(hir.noise_sites[0].channels[2].prob == Catch::Approx(0.3));
+}
+
+TEST_CASE("Frontend: PAULI_CHANNEL_1 skips zero-probability channels", "[frontend]") {
+    // Only X has nonzero prob -> 1 channel
+    auto circuit = parse("PAULI_CHANNEL_1(0.1, 0.0, 0.0) 0");
+    auto hir = trace(circuit);
+
+    REQUIRE(hir.noise_sites.size() == 1);
+    CHECK(hir.noise_sites[0].channels.size() == 1);
+    CHECK(hir.noise_sites[0].channels[0].prob == Catch::Approx(0.1));
+}
+
+TEST_CASE("Frontend: PAULI_CHANNEL_2 emits noise with up to 15 channels", "[frontend]") {
+    auto circuit = parse(
+        "PAULI_CHANNEL_2(0.01, 0.0, 0.0, 0.02, 0.0, 0.0, 0.0, "
+        "0.0, 0.0, 0.0, 0.0, 0.03, 0.0, 0.0, 0.04) 0 1");
+    auto hir = trace(circuit);
+
+    REQUIRE(hir.num_ops() == 1);
+    REQUIRE(hir.noise_sites.size() == 1);
+    // 4 nonzero channels: IX(0.01), XI(0.02), ZI(0.03), ZZ(0.04)
+    CHECK(hir.noise_sites[0].channels.size() == 4);
 }

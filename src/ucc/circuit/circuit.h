@@ -9,7 +9,7 @@
 // - Targets use the 32-bit encoding from target.h (qubit, rec, or Pauli-tagged)
 // - Resets (R, RX, MR, MRX) are kept as first-class operations (not decomposed)
 // - MPP with multiple products is unrolled into separate AstNodes
-// - REPEAT blocks are not supported in MVP (parser will error)
+// - REPEAT blocks are unrolled at parse time (text-level replay)
 
 #include "ucc/circuit/gate_data.h"
 #include "ucc/circuit/target.h"
@@ -31,9 +31,10 @@ struct AstNode {
     // - CX/CZ with classical control: first target is rec, second is qubit
     std::vector<Target> targets;
 
-    // Optional gate argument (e.g., noise probability).
-    // Currently unused in MVP but reserved for future noise support.
-    double arg = 0.0;
+    // Gate arguments (e.g., noise probabilities).
+    // Most gates use args[0] for a single parameter.
+    // PAULI_CHANNEL_1 uses 3 args, PAULI_CHANNEL_2 uses 15 args.
+    std::vector<double> args;
 };
 
 // A parsed circuit ready for compilation.

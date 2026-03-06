@@ -226,14 +226,14 @@ TEST_CASE("Parse noisy MPP decomposes to MPP plus READOUT_NOISE", "[parser][nois
     REQUIRE(circuit.nodes.size() == 2);
     REQUIRE(circuit.num_measurements == 1);
 
-    // First node: clean MPP with arg=0
+    // First node: clean MPP with empty args (no heap alloc for 0.0)
     REQUIRE(circuit.nodes[0].gate == GateType::MPP);
-    REQUIRE(circuit.nodes[0].arg == 0.0);
+    CHECK(circuit.nodes[0].args.empty());
     REQUIRE(circuit.nodes[0].targets.size() == 2);
 
     // Second node: READOUT_NOISE with original probability
     REQUIRE(circuit.nodes[1].gate == GateType::READOUT_NOISE);
-    REQUIRE(circuit.nodes[1].arg == 0.001);
+    REQUIRE(circuit.nodes[1].args[0] == 0.001);
     REQUIRE(circuit.nodes[1].targets.size() == 1);
     REQUIRE(circuit.nodes[1].targets[0].is_rec());
     REQUIRE(circuit.nodes[1].targets[0].value() == 0);  // First measurement
@@ -248,16 +248,16 @@ TEST_CASE("Parse noisy MPP multiple products each get READOUT_NOISE", "[parser][
 
     // First product: MPP + READOUT_NOISE
     REQUIRE(circuit.nodes[0].gate == GateType::MPP);
-    REQUIRE(circuit.nodes[0].arg == 0.0);
+    CHECK(circuit.nodes[0].args.empty());
     REQUIRE(circuit.nodes[1].gate == GateType::READOUT_NOISE);
-    REQUIRE(circuit.nodes[1].arg == 0.002);
+    REQUIRE(circuit.nodes[1].args[0] == 0.002);
     REQUIRE(circuit.nodes[1].targets[0].value() == 0);  // meas index 0
 
     // Second product: MPP + READOUT_NOISE
     REQUIRE(circuit.nodes[2].gate == GateType::MPP);
-    REQUIRE(circuit.nodes[2].arg == 0.0);
+    CHECK(circuit.nodes[2].args.empty());
     REQUIRE(circuit.nodes[3].gate == GateType::READOUT_NOISE);
-    REQUIRE(circuit.nodes[3].arg == 0.002);
+    REQUIRE(circuit.nodes[3].args[0] == 0.002);
     REQUIRE(circuit.nodes[3].targets[0].value() == 1);  // meas index 1
 }
 
@@ -348,7 +348,7 @@ TEST_CASE("Parse gate with parenthesized argument", "[parser]") {
 
     REQUIRE(circuit.nodes.size() == 1);
     REQUIRE(circuit.nodes[0].gate == GateType::H);
-    REQUIRE(circuit.nodes[0].arg == 0.5);
+    REQUIRE(circuit.nodes[0].args[0] == 0.5);
 }
 
 TEST_CASE("Parse inverted measurement targets", "[parser]") {
@@ -365,8 +365,99 @@ TEST_CASE("Error: unknown gate", "[parser]") {
     REQUIRE_THROWS_AS(parse("FOOBAR 0"), ParseError);
 }
 
-TEST_CASE("Error: REPEAT not supported", "[parser]") {
-    REQUIRE_THROWS_AS(parse("REPEAT 10 {\nH 0\n}"), ParseError);
+TEST_CASE("REPEAT basic unrolling", "[parser]") {
+    auto c = parse("REPEAT 3 {\nH 0\n}");
+    REQUIRE(c.nodes.size() == 3);
+    for (auto& n : c.nodes) {
+        REQUIRE(n.gate == GateType::H);
+        REQUIRE(n.targets.size() == 1);
+        REQUIRE(n.targets[0].value() == 0);
+    }
+    REQUIRE(c.num_qubits == 1);
+}
+
+TEST_CASE("REPEAT with measurements and rec references", "[parser]") {
+    // M 0; REPEAT 3 { CX rec[-1] 1; M 1 }
+    // Should produce 7 nodes: M, (CX, M) x 3
+    // CX rec refs should point to measurements 0, 1, 2 respectively.
+    auto c = parse("M 0\nREPEAT 3 {\nCX rec[-1] 1\nM 1\n}");
+    REQUIRE(c.nodes.size() == 7);
+    REQUIRE(c.nodes[0].gate == GateType::M);  // M 0 -> meas #0
+
+    // Iteration 1: CX rec[-1] 1 -> rec[0], M 1 -> meas #1
+    REQUIRE(c.nodes[1].gate == GateType::CX);
+    REQUIRE(c.nodes[1].targets[0].is_rec());
+    REQUIRE(c.nodes[1].targets[0].value() == 0);  // points to meas #0
+    REQUIRE(c.nodes[2].gate == GateType::M);
+
+    // Iteration 2: CX rec[-1] 1 -> rec[1], M 1 -> meas #2
+    REQUIRE(c.nodes[3].gate == GateType::CX);
+    REQUIRE(c.nodes[3].targets[0].value() == 1);  // points to meas #1
+    REQUIRE(c.nodes[4].gate == GateType::M);
+
+    // Iteration 3: CX rec[-1] 1 -> rec[2], M 1 -> meas #3
+    REQUIRE(c.nodes[5].gate == GateType::CX);
+    REQUIRE(c.nodes[5].targets[0].value() == 2);  // points to meas #2
+    REQUIRE(c.nodes[6].gate == GateType::M);
+
+    REQUIRE(c.num_measurements == 4);
+}
+
+TEST_CASE("REPEAT nested", "[parser]") {
+    // REPEAT 2 { REPEAT 3 { H 0 } }
+    auto c = parse("REPEAT 2 {\nREPEAT 3 {\nH 0\n}\n}");
+    REQUIRE(c.nodes.size() == 6);  // 2 * 3 = 6
+    for (auto& n : c.nodes) {
+        REQUIRE(n.gate == GateType::H);
+    }
+}
+
+TEST_CASE("REPEAT safety limit", "[parser]") {
+    // Use a small custom limit to trigger quickly.
+    // REPEAT 10 { H 0 } = 10 nodes, exceeds limit of 5.
+    REQUIRE_THROWS_AS(parse("REPEAT 10 {\nH 0\n}", 5), ParseError);
+
+    // Just under the limit should succeed.
+    auto c = parse("REPEAT 5 {\nH 0\n}", 5);
+    REQUIRE(c.nodes.size() == 5);
+}
+
+TEST_CASE("REPEAT error: missing brace", "[parser]") {
+    REQUIRE_THROWS_AS(parse("REPEAT 3\nH 0"), ParseError);
+}
+
+TEST_CASE("REPEAT error: zero count", "[parser]") {
+    REQUIRE_THROWS_AS(parse("REPEAT 0 {\nH 0\n}"), ParseError);
+}
+
+TEST_CASE("REPEAT error: missing closing brace", "[parser]") {
+    REQUIRE_THROWS_AS(parse("REPEAT 3 {\nH 0\n"), ParseError);
+}
+
+TEST_CASE("REPEAT with multiple gates per iteration", "[parser]") {
+    auto c = parse("REPEAT 2 {\nH 0\nCX 0 1\nM 0 1\n}");
+    // Each iteration: H, CX, M(0), M(1) = 4 nodes
+    REQUIRE(c.nodes.size() == 8);
+    REQUIRE(c.num_measurements == 4);
+    REQUIRE(c.num_qubits == 2);
+}
+
+TEST_CASE("REPEAT ignores braces inside comments", "[parser]") {
+    // The closing brace in the comment should not terminate the block.
+    auto c = parse("REPEAT 2 {\nH 0 # tricky }\nM 0\n}");
+    REQUIRE(c.nodes.size() == 4);  // 2 * (H + M)
+    REQUIRE(c.num_measurements == 2);
+}
+
+TEST_CASE("REPEAT line numbers after block are correct", "[parser]") {
+    // Syntax error on line 5 should report correct line number.
+    try {
+        parse("H 0\nREPEAT 2 {\nH 0\n}\nBADGATE 0");
+        REQUIRE(false);  // Should not reach here.
+    } catch (const ParseError& e) {
+        // Line 5 is where BADGATE is.
+        CHECK(e.line() == 5);
+    }
 }
 
 TEST_CASE("Error: odd number of targets for two-qubit gate", "[parser]") {
@@ -505,14 +596,14 @@ TEST_CASE("Parse noise gates: X_ERROR Y_ERROR Z_ERROR", "[parser][noise]") {
     REQUIRE(circuit.num_qubits == 6);
 
     REQUIRE(circuit.nodes[0].gate == GateType::X_ERROR);
-    REQUIRE(circuit.nodes[0].arg == Catch::Approx(0.001));
+    REQUIRE(circuit.nodes[0].args[0] == Catch::Approx(0.001));
     REQUIRE(circuit.nodes[0].targets[0].value() == 0);
 
     REQUIRE(circuit.nodes[3].gate == GateType::Y_ERROR);
-    REQUIRE(circuit.nodes[3].arg == Catch::Approx(0.002));
+    REQUIRE(circuit.nodes[3].args[0] == Catch::Approx(0.002));
 
     REQUIRE(circuit.nodes[4].gate == GateType::Z_ERROR);
-    REQUIRE(circuit.nodes[4].arg == Catch::Approx(0.003));
+    REQUIRE(circuit.nodes[4].args[0] == Catch::Approx(0.003));
 }
 
 TEST_CASE("Parse noise gates: DEPOLARIZE1 DEPOLARIZE2", "[parser][noise]") {
@@ -527,10 +618,10 @@ TEST_CASE("Parse noise gates: DEPOLARIZE1 DEPOLARIZE2", "[parser][noise]") {
     REQUIRE(circuit.num_qubits == 6);
 
     REQUIRE(circuit.nodes[0].gate == GateType::DEPOLARIZE1);
-    REQUIRE(circuit.nodes[0].arg == Catch::Approx(0.01));
+    REQUIRE(circuit.nodes[0].args[0] == Catch::Approx(0.01));
 
     REQUIRE(circuit.nodes[2].gate == GateType::DEPOLARIZE2);
-    REQUIRE(circuit.nodes[2].arg == Catch::Approx(0.02));
+    REQUIRE(circuit.nodes[2].args[0] == Catch::Approx(0.02));
     REQUIRE(circuit.nodes[2].targets.size() == 2);
     REQUIRE(circuit.nodes[2].targets[0].value() == 2);
     REQUIRE(circuit.nodes[2].targets[1].value() == 3);
@@ -544,11 +635,11 @@ TEST_CASE("Parse noisy measurement: M with readout noise decomposes", "[parser][
     REQUIRE(circuit.num_measurements == 1);
 
     REQUIRE(circuit.nodes[0].gate == GateType::M);
-    REQUIRE(circuit.nodes[0].arg == 0.0);  // Clean measurement
+    REQUIRE(circuit.nodes[0].args[0] == 0.0);  // Clean measurement
     REQUIRE(circuit.nodes[0].targets[0].value() == 0);
 
     REQUIRE(circuit.nodes[1].gate == GateType::READOUT_NOISE);
-    REQUIRE(circuit.nodes[1].arg == Catch::Approx(0.001));
+    REQUIRE(circuit.nodes[1].args[0] == Catch::Approx(0.001));
     REQUIRE(circuit.nodes[1].targets[0].is_rec());
     REQUIRE(circuit.nodes[1].targets[0].value() == 0);  // rec[0]
 }
@@ -591,11 +682,11 @@ TEST_CASE("Parse MX MY with readout noise", "[parser][noise]") {
 
     REQUIRE(circuit.nodes[0].gate == GateType::MX);
     REQUIRE(circuit.nodes[1].gate == GateType::READOUT_NOISE);
-    REQUIRE(circuit.nodes[1].arg == Catch::Approx(0.003));
+    REQUIRE(circuit.nodes[1].args[0] == Catch::Approx(0.003));
 
     REQUIRE(circuit.nodes[2].gate == GateType::MY);
     REQUIRE(circuit.nodes[3].gate == GateType::READOUT_NOISE);
-    REQUIRE(circuit.nodes[3].arg == Catch::Approx(0.004));
+    REQUIRE(circuit.nodes[3].args[0] == Catch::Approx(0.004));
 }
 
 TEST_CASE("Parse M without noise: no READOUT_NOISE emitted", "[parser][noise]") {
@@ -676,13 +767,13 @@ TEST_CASE("Parse OBSERVABLE_INCLUDE", "[parser][qec]") {
 
     auto& obs0 = circuit.nodes[3];
     REQUIRE(obs0.gate == GateType::OBSERVABLE_INCLUDE);
-    REQUIRE(obs0.arg == 0.0);  // Observable index 0
+    REQUIRE(obs0.args[0] == 0.0);  // Observable index 0
     REQUIRE(obs0.targets.size() == 2);
     REQUIRE(obs0.targets[0].value() == 0);  // rec[-3] -> 0
     REQUIRE(obs0.targets[1].value() == 2);  // rec[-1] -> 2
 
     auto& obs2 = circuit.nodes[4];
-    REQUIRE(obs2.arg == 2.0);  // Observable index 2
+    REQUIRE(obs2.args[0] == 2.0);  // Observable index 2
     REQUIRE(obs2.targets.size() == 1);
     REQUIRE(obs2.targets[0].value() == 1);  // rec[-2] -> 1
 }
@@ -816,4 +907,225 @@ TEST_CASE("Parse representative QEC circuit", "[parser][qec][integration]") {
         // These gate types don't exist - coords are fully discarded
         REQUIRE(node.gate != GateType::UNKNOWN);
     }
+}
+
+// --- Phase 1: Aliases, No-Ops, and MPAD ---
+
+TEST_CASE("Parse Stim aliases for single-qubit gates", "[parser]") {
+    auto circuit = parse("H_XZ 0\nSQRT_Z 1\nSQRT_Z_DAG 2");
+    REQUIRE(circuit.nodes.size() == 3);
+    CHECK(circuit.nodes[0].gate == GateType::H);
+    CHECK(circuit.nodes[1].gate == GateType::S);
+    CHECK(circuit.nodes[2].gate == GateType::S_DAG);
+}
+
+TEST_CASE("Parse Stim aliases for two-qubit gates", "[parser]") {
+    auto circuit = parse("ZCX 0 1\nZCY 2 3\nZCZ 4 5");
+    REQUIRE(circuit.nodes.size() == 3);
+    CHECK(circuit.nodes[0].gate == GateType::CX);
+    CHECK(circuit.nodes[1].gate == GateType::CY);
+    CHECK(circuit.nodes[2].gate == GateType::CZ);
+    CHECK(circuit.num_qubits == 6);
+}
+
+TEST_CASE("Parse Stim aliases for measurements and resets", "[parser]") {
+    auto circuit = parse("MZ 0\nMRZ 1\nRZ 2");
+    REQUIRE(circuit.nodes.size() == 3);
+    CHECK(circuit.nodes[0].gate == GateType::M);
+    CHECK(circuit.nodes[1].gate == GateType::MR);
+    CHECK(circuit.nodes[2].gate == GateType::R);
+    CHECK(circuit.num_measurements == 2);
+}
+
+TEST_CASE("Parse identity no-ops - I and II", "[parser]") {
+    auto circuit = parse("I 0 1 2\nII 3 4 5 6");
+    CHECK(circuit.nodes.empty());
+    CHECK(circuit.num_qubits == 7);
+}
+
+TEST_CASE("Parse identity no-ops - I_ERROR and II_ERROR", "[parser]") {
+    auto circuit = parse("I_ERROR(0.01) 0\nII_ERROR(0.02) 1 2");
+    CHECK(circuit.nodes.empty());
+    CHECK(circuit.num_qubits == 3);
+}
+
+TEST_CASE("Parse II with odd targets fails", "[parser]") {
+    REQUIRE_THROWS_AS(parse("II 0 1 2"), ParseError);
+}
+
+TEST_CASE("Parse I updates num_qubits for large indices", "[parser]") {
+    auto circuit = parse("I 49");
+    CHECK(circuit.nodes.empty());
+    CHECK(circuit.num_qubits == 50);
+}
+
+TEST_CASE("Parse MPAD with valid targets", "[parser]") {
+    auto circuit = parse("MPAD 1 0 1");
+    REQUIRE(circuit.nodes.size() == 3);
+    CHECK(circuit.nodes[0].gate == GateType::MPAD);
+    CHECK(circuit.nodes[0].targets[0].value() == 1);
+    CHECK(circuit.nodes[1].targets[0].value() == 0);
+    CHECK(circuit.nodes[2].targets[0].value() == 1);
+    CHECK(circuit.num_measurements == 3);
+    CHECK(circuit.num_qubits == 0);
+}
+
+TEST_CASE("Parse MPAD with invalid target fails", "[parser]") {
+    REQUIRE_THROWS_AS(parse("MPAD 2"), ParseError);
+}
+
+TEST_CASE("Parse MPAD does not affect num_qubits", "[parser]") {
+    auto circuit = parse("H 3\nMPAD 1 0");
+    CHECK(circuit.num_qubits == 4);
+    CHECK(circuit.num_measurements == 2);
+}
+
+TEST_CASE("Parse noisy MPAD decomposes to MPAD plus READOUT_NOISE", "[parser]") {
+    auto circuit = parse("MPAD(0.01) 1");
+    REQUIRE(circuit.nodes.size() == 2);
+    CHECK(circuit.nodes[0].gate == GateType::MPAD);
+    CHECK(circuit.nodes[1].gate == GateType::READOUT_NOISE);
+}
+
+TEST_CASE("Parse MPAD rejects rec targets", "[parser]") {
+    // Requires M first so rec[-1] resolves.
+    REQUIRE_THROWS_AS(parse("M 0\nMPAD rec[-1]"), ParseError);
+}
+
+// --- Phase 2: Pair Measurements and Y-Resets ---
+
+TEST_CASE("Parse MXX desugars to MPP with X-tagged targets", "[parser]") {
+    auto circuit = parse("MXX 0 1");
+    REQUIRE(circuit.nodes.size() == 1);
+    CHECK(circuit.nodes[0].gate == GateType::MPP);
+    CHECK(circuit.nodes[0].targets.size() == 2);
+    CHECK(circuit.nodes[0].targets[0].pauli() == Target::kPauliX);
+    CHECK(circuit.nodes[0].targets[0].value() == 0);
+    CHECK(circuit.nodes[0].targets[1].pauli() == Target::kPauliX);
+    CHECK(circuit.nodes[0].targets[1].value() == 1);
+    CHECK(circuit.num_measurements == 1);
+}
+
+TEST_CASE("Parse MYY desugars to MPP with Y-tagged targets", "[parser]") {
+    auto circuit = parse("MYY 2 3");
+    REQUIRE(circuit.nodes.size() == 1);
+    CHECK(circuit.nodes[0].gate == GateType::MPP);
+    CHECK(circuit.nodes[0].targets[0].pauli() == Target::kPauliY);
+    CHECK(circuit.nodes[0].targets[1].pauli() == Target::kPauliY);
+}
+
+TEST_CASE("Parse MZZ desugars to MPP with Z-tagged targets", "[parser]") {
+    auto circuit = parse("MZZ 0 1");
+    REQUIRE(circuit.nodes.size() == 1);
+    CHECK(circuit.nodes[0].gate == GateType::MPP);
+    CHECK(circuit.nodes[0].targets[0].pauli() == Target::kPauliZ);
+    CHECK(circuit.nodes[0].targets[1].pauli() == Target::kPauliZ);
+}
+
+TEST_CASE("Parse MXX with multiple pairs", "[parser]") {
+    auto circuit = parse("MXX 0 1 2 3");
+    REQUIRE(circuit.nodes.size() == 2);
+    CHECK(circuit.nodes[0].gate == GateType::MPP);
+    CHECK(circuit.nodes[1].gate == GateType::MPP);
+    CHECK(circuit.num_measurements == 2);
+}
+
+TEST_CASE("Parse MXX odd targets fails", "[parser]") {
+    REQUIRE_THROWS_AS(parse("MXX 0 1 2"), ParseError);
+}
+
+TEST_CASE("Parse MXX preserves inversion flags", "[parser]") {
+    auto circuit = parse("MXX !0 1");
+    REQUIRE(circuit.nodes.size() == 1);
+    CHECK(circuit.nodes[0].targets[0].is_inverted());
+    CHECK(!circuit.nodes[0].targets[1].is_inverted());
+}
+
+TEST_CASE("Parse RY and MRY", "[parser]") {
+    auto circuit = parse("RY 0\nMRY 1");
+    REQUIRE(circuit.nodes.size() == 2);
+    CHECK(circuit.nodes[0].gate == GateType::RY);
+    CHECK(circuit.nodes[1].gate == GateType::MRY);
+    CHECK(circuit.num_measurements == 1);
+    CHECK(circuit.num_qubits == 2);
+}
+
+// --- Phase 4: Multi-Parameter Noise ---
+
+TEST_CASE("Parse multi-arg parenthesized arguments", "[parser]") {
+    auto circuit = parse("PAULI_CHANNEL_1(0.1, 0.2, 0.3) 0");
+    REQUIRE(circuit.nodes.size() == 1);
+    CHECK(circuit.nodes[0].gate == GateType::PAULI_CHANNEL_1);
+    REQUIRE(circuit.nodes[0].args.size() == 3);
+    CHECK(circuit.nodes[0].args[0] == Catch::Approx(0.1));
+    CHECK(circuit.nodes[0].args[1] == Catch::Approx(0.2));
+    CHECK(circuit.nodes[0].args[2] == Catch::Approx(0.3));
+}
+
+TEST_CASE("Parse PAULI_CHANNEL_2 with 15 args", "[parser]") {
+    auto circuit = parse(
+        "PAULI_CHANNEL_2(0.01, 0.02, 0.03, 0.04, 0.05, 0.06, 0.07, "
+        "0.08, 0.09, 0.10, 0.11, 0.12, 0.13, 0.14, 0.15) 0 1");
+    REQUIRE(circuit.nodes.size() == 1);
+    CHECK(circuit.nodes[0].gate == GateType::PAULI_CHANNEL_2);
+    REQUIRE(circuit.nodes[0].args.size() == 15);
+    CHECK(circuit.nodes[0].args[14] == Catch::Approx(0.15));
+    CHECK(circuit.num_qubits == 2);
+}
+
+TEST_CASE("Parse PAULI_CHANNEL_1 broadcasts to multiple targets", "[parser]") {
+    auto circuit = parse("PAULI_CHANNEL_1(0.1, 0.2, 0.3) 0 1 2");
+    REQUIRE(circuit.nodes.size() == 3);
+    for (int i = 0; i < 3; ++i) {
+        REQUIRE(circuit.nodes[i].args.size() == 3);
+        CHECK(circuit.nodes[i].args[0] == Catch::Approx(0.1));
+    }
+}
+
+// --- Review Round 2 edge cases ---
+
+TEST_CASE("REPEAT opening brace in comment is ignored", "[parser]") {
+    // The '{' in the comment should not be mistaken for the opening brace.
+    auto c = parse("REPEAT 2\n# wait for {\n{\nH 0\n}");
+    REQUIRE(c.nodes.size() == 2);
+    CHECK(c.nodes[0].gate == GateType::H);
+    CHECK(c.nodes[1].gate == GateType::H);
+}
+
+TEST_CASE("REPEAT inline comment after opening brace is allowed", "[parser]") {
+    auto c = parse("REPEAT 2 { # start loop\nH 0\n}");
+    REQUIRE(c.nodes.size() == 2);
+    CHECK(c.nodes[0].gate == GateType::H);
+}
+
+TEST_CASE("DETECTOR emits empty args vector", "[parser]") {
+    auto circuit = parse("M 0\nDETECTOR rec[-1]");
+    // The DETECTOR node should have an empty args vector (no heap alloc for 0.0).
+    auto& det_node = circuit.nodes.back();
+    CHECK(det_node.gate == GateType::DETECTOR);
+    CHECK(det_node.args.empty());
+}
+
+TEST_CASE("Clean MXX emits empty args vector", "[parser]") {
+    auto circuit = parse("MXX 0 1");
+    REQUIRE(circuit.nodes.size() == 1);
+    CHECK(circuit.nodes[0].gate == GateType::MPP);
+    CHECK(circuit.nodes[0].args.empty());
+}
+
+TEST_CASE("Clean MPP emits empty args vector", "[parser]") {
+    auto circuit = parse("MPP X0*Z1");
+    REQUIRE(circuit.nodes.size() == 1);
+    CHECK(circuit.nodes[0].gate == GateType::MPP);
+    CHECK(circuit.nodes[0].args.empty());
+}
+
+TEST_CASE("PAULI_CHANNEL_1 rejects wrong arg count", "[parser]") {
+    REQUIRE_THROWS_AS(parse("PAULI_CHANNEL_1(0.1, 0.2) 0"), ParseError);
+    REQUIRE_THROWS_AS(parse("PAULI_CHANNEL_1(0.1) 0"), ParseError);
+    REQUIRE_THROWS_AS(parse("PAULI_CHANNEL_1(0.1, 0.2, 0.3, 0.4) 0"), ParseError);
+}
+
+TEST_CASE("PAULI_CHANNEL_2 rejects wrong arg count", "[parser]") {
+    REQUIRE_THROWS_AS(parse("PAULI_CHANNEL_2(0.01, 0.02, 0.03) 0 1"), ParseError);
 }

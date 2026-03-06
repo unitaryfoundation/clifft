@@ -108,11 +108,19 @@ def test_parse_error_rec_out_of_bounds() -> None:
     assert "out of bounds" in str(exc_info.value)
 
 
-def test_parse_error_repeat_not_supported() -> None:
-    """Test that ParseError is raised for REPEAT blocks."""
+def test_repeat_unrolling() -> None:
+    """Test that REPEAT blocks are unrolled correctly."""
+    c = ucc.parse("REPEAT 3 {\nH 0\n}")
+    assert len(c.nodes) == 3
+    for node in c.nodes:
+        assert node.gate == ucc.GateType.H
+
+
+def test_repeat_safety_limit() -> None:
+    """Test that exceeding max_ops raises ParseError."""
     with pytest.raises(ucc.ParseError) as exc_info:
-        ucc.parse("REPEAT 10 {\nH 0\n}")
-    assert "REPEAT" in str(exc_info.value)
+        ucc.parse("REPEAT 10 {\nH 0\n}", max_ops=5)
+    assert "exceeds maximum" in str(exc_info.value)
 
 
 def test_parse_file() -> None:

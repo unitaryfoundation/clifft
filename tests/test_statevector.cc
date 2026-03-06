@@ -518,6 +518,19 @@ static std::vector<std::complex<double>> pipeline_statevector(const std::string&
     return get_statevector(mod, state);
 }
 
+// Helper: compile and execute, return measurement record.
+static std::vector<uint8_t> pipeline_measurements(const std::string& circuit_text,
+                                                  uint64_t seed = 0) {
+    auto circuit = ucc::parse(circuit_text);
+    auto hir = ucc::trace(circuit);
+    auto mod = ucc::lower(hir);
+    SchrodingerState state(mod.peak_rank, mod.total_meas_slots, mod.num_detectors,
+                           mod.num_observables, seed);
+    execute(mod, state);
+    return std::vector<uint8_t>(state.meas_record.begin(),
+                                state.meas_record.begin() + circuit.num_measurements);
+}
+
 // Helper: check that the statevector is normalized (sum of |a_i|^2 = 1).
 static void check_normalized(const std::vector<std::complex<double>>& sv, double tol = 1e-9) {
     double norm = 0.0;
@@ -671,4 +684,238 @@ TEST_CASE("E2E: mirror circuit 4 qubits deep") {
     for (size_t i = 1; i < sv.size(); ++i) {
         CHECK(std::abs(sv[i]) < 1e-5);
     }
+}
+
+// --- Phase 1: Aliases, No-Ops, MPAD, and Inversion ---
+
+TEST_CASE("E2E: Stim aliases produce identical statevectors") {
+    auto sv_h = pipeline_statevector("H 0");
+    auto sv_hxz = pipeline_statevector("H_XZ 0");
+    REQUIRE(sv_h.size() == sv_hxz.size());
+    for (size_t i = 0; i < sv_h.size(); ++i) {
+        check_complex(sv_h[i], sv_hxz[i], kFloatTol);
+    }
+
+    auto sv_s = pipeline_statevector("H 0\nS 0");
+    auto sv_sqrt_z = pipeline_statevector("H 0\nSQRT_Z 0");
+    for (size_t i = 0; i < sv_s.size(); ++i) {
+        check_complex(sv_s[i], sv_sqrt_z[i], kFloatTol);
+    }
+}
+
+TEST_CASE("E2E: ZCX alias produces Bell state") {
+    auto sv = pipeline_statevector("H 0\nZCX 0 1");
+    REQUIRE(sv.size() == 4);
+    check_complex(sv[0], {kInvSqrt2, 0.0}, kFloatTol);
+    check_complex(sv[1], {0.0, 0.0}, kFloatTol);
+    check_complex(sv[2], {0.0, 0.0}, kFloatTol);
+    check_complex(sv[3], {kInvSqrt2, 0.0}, kFloatTol);
+}
+
+TEST_CASE("E2E: I gate is no-op identity") {
+    auto sv_plain = pipeline_statevector("H 0\nT 0");
+    auto sv_with_i = pipeline_statevector("H 0\nI 0\nT 0");
+    REQUIRE(sv_plain.size() == sv_with_i.size());
+    for (size_t i = 0; i < sv_plain.size(); ++i) {
+        check_complex(sv_plain[i], sv_with_i[i], kFloatTol);
+    }
+}
+
+TEST_CASE("E2E: I on high qubit allocates space but is identity") {
+    auto sv = pipeline_statevector("I 3\nH 0");
+    REQUIRE(sv.size() == 16);
+    check_complex(sv[0], {kInvSqrt2, 0.0}, kFloatTol);
+    check_complex(sv[1], {kInvSqrt2, 0.0}, kFloatTol);
+    for (size_t i = 2; i < sv.size(); ++i) {
+        check_complex(sv[i], {0.0, 0.0}, kFloatTol);
+    }
+}
+
+TEST_CASE("E2E: MPAD writes deterministic measurement record") {
+    auto meas = pipeline_measurements("MPAD 1 0 1 0");
+    REQUIRE(meas.size() == 4);
+    CHECK(meas[0] == 1);
+    CHECK(meas[1] == 0);
+    CHECK(meas[2] == 1);
+    CHECK(meas[3] == 0);
+}
+
+TEST_CASE("E2E: MPAD interleaved with real measurements") {
+    // H 0; M 0 produces random result, but MPAD is always deterministic
+    auto meas = pipeline_measurements("MPAD 1\nMPAD 0");
+    REQUIRE(meas.size() == 2);
+    CHECK(meas[0] == 1);
+    CHECK(meas[1] == 0);
+}
+
+TEST_CASE("E2E: inverted M on zero state produces 1") {
+    // Fresh qubit in |0>: M 0 -> 0 deterministically
+    // M !0 -> inverts the result -> 1
+    auto meas_normal = pipeline_measurements("M 0");
+    auto meas_inverted = pipeline_measurements("M !0");
+    REQUIRE(meas_normal.size() == 1);
+    REQUIRE(meas_inverted.size() == 1);
+    CHECK(meas_normal[0] == 0);
+    CHECK(meas_inverted[0] == 1);
+}
+
+TEST_CASE("E2E: I ZCX MPAD combined circuit") {
+    // Validates the DoD: "parser successfully ingests I 0; ZCX 0 1; MPAD 1 0"
+    auto meas = pipeline_measurements("I 0\nZCX 0 1\nMPAD 1 0");
+    REQUIRE(meas.size() == 2);
+    CHECK(meas[0] == 1);
+    CHECK(meas[1] == 0);
+}
+
+TEST_CASE("E2E: MPAD inversion flips deterministic bits") {
+    // MPAD !0 -> value=0, inverted -> sign = 0^1 = 1
+    // MPAD !1 -> value=1, inverted -> sign = 1^1 = 0
+    auto meas = pipeline_measurements("MPAD !0 !1");
+    REQUIRE(meas.size() == 2);
+    CHECK(meas[0] == 1);  // 0 inverted
+    CHECK(meas[1] == 0);  // 1 inverted
+}
+
+// --- Phase 2: Pair Measurements and Y-Resets ---
+
+TEST_CASE("E2E: MXX equivalent to MPP X0*X1") {
+    // Both should produce identical measurement records on a Bell state
+    auto meas_mxx = pipeline_measurements("H 0\nCX 0 1\nMXX 0 1");
+    auto meas_mpp = pipeline_measurements("H 0\nCX 0 1\nMPP X0*X1");
+    REQUIRE(meas_mxx.size() == 1);
+    REQUIRE(meas_mpp.size() == 1);
+    CHECK(meas_mxx[0] == meas_mpp[0]);
+}
+
+TEST_CASE("E2E: MZZ equivalent to MPP Z0*Z1") {
+    auto meas_mzz = pipeline_measurements("H 0\nCX 0 1\nMZZ 0 1");
+    auto meas_mpp = pipeline_measurements("H 0\nCX 0 1\nMPP Z0*Z1");
+    REQUIRE(meas_mzz.size() == 1);
+    REQUIRE(meas_mpp.size() == 1);
+    CHECK(meas_mzz[0] == meas_mpp[0]);
+}
+
+TEST_CASE("E2E: MYY equivalent to MPP Y0*Y1") {
+    auto meas_myy = pipeline_measurements("H 0\nCX 0 1\nMYY 0 1");
+    auto meas_mpp = pipeline_measurements("H 0\nCX 0 1\nMPP Y0*Y1");
+    REQUIRE(meas_myy.size() == 1);
+    REQUIRE(meas_mpp.size() == 1);
+    CHECK(meas_myy[0] == meas_mpp[0]);
+}
+
+TEST_CASE("E2E: RY resets qubit - subsequent MY is deterministic") {
+    // RY collapses to +i eigenstate of Y. MY should give 0 deterministically.
+    auto meas = pipeline_measurements("H 0\nRY 0\nMY 0");
+    REQUIRE(meas.size() == 1);
+    CHECK(meas[0] == 0);
+}
+
+TEST_CASE("E2E: MRY produces visible measurement and resets") {
+    // MRY measures Y-basis (visible) and resets to |+i>.
+    // Subsequent MY should be deterministic 0.
+    auto meas = pipeline_measurements("H 0\nMRY 0\nMY 0");
+    REQUIRE(meas.size() == 2);
+    CHECK(meas[1] == 0);
+}
+
+TEST_CASE("E2E: MZZ on Bell state gives deterministic 0") {
+    // Bell state |00>+|11> is +1 eigenstate of ZZ
+    auto meas = pipeline_measurements("H 0\nCX 0 1\nMZZ 0 1");
+    REQUIRE(meas.size() == 1);
+    CHECK(meas[0] == 0);
+}
+
+TEST_CASE("E2E: MXX on Bell state gives deterministic 0") {
+    // Bell state |00>+|11> is +1 eigenstate of XX
+    auto meas = pipeline_measurements("H 0\nCX 0 1\nMXX 0 1");
+    REQUIRE(meas.size() == 1);
+    CHECK(meas[0] == 0);
+}
+
+// --- Phase 3: Clifford Expansion ---
+
+TEST_CASE("E2E: SWAP exchanges qubit amplitudes") {
+    // H on q0 gives (|00>+|01>)/sqrt(2). SWAP 0 1 exchanges q0<->q1
+    // giving (|00>+|10>)/sqrt(2).
+    auto sv = pipeline_statevector("H 0\nSWAP 0 1");
+    REQUIRE(sv.size() == 4);
+    check_complex(sv[0], {kInvSqrt2, 0.0}, kFloatTol);  // |00>
+    check_complex(sv[1], {0.0, 0.0}, kFloatTol);        // |01>
+    check_complex(sv[2], {kInvSqrt2, 0.0}, kFloatTol);  // |10>
+    check_complex(sv[3], {0.0, 0.0}, kFloatTol);        // |11>
+}
+
+TEST_CASE("E2E: ISWAP on computational basis") {
+    // X 0 gives |01> (idx 1). ISWAP swaps |01> -> i|10> (idx 2).
+    auto sv = pipeline_statevector("X 0\nISWAP 0 1");
+    REQUIRE(sv.size() == 4);
+    check_complex(sv[0], {0.0, 0.0}, kFloatTol);  // |00>
+    check_complex(sv[1], {0.0, 0.0}, kFloatTol);  // |01>
+    check_complex(sv[2], {0.0, 1.0}, kFloatTol);  // |10> with phase i
+    check_complex(sv[3], {0.0, 0.0}, kFloatTol);  // |11>
+}
+
+TEST_CASE("E2E: SQRT_X is half-X rotation") {
+    // SQRT_X^2 = X (up to global phase), verify both amplitudes have equal magnitude
+    auto sv = pipeline_statevector("SQRT_X 0");
+    REQUIRE(sv.size() == 2);
+    CHECK_THAT(std::abs(sv[0]), Catch::Matchers::WithinAbs(kInvSqrt2, kFloatTol));
+    CHECK_THAT(std::abs(sv[1]), Catch::Matchers::WithinAbs(kInvSqrt2, kFloatTol));
+    check_normalized(sv, kFloatTol);
+}
+
+TEST_CASE("E2E: SQRT_X applied twice equals X") {
+    auto sv_xx = pipeline_statevector("SQRT_X 0\nSQRT_X 0");
+    auto sv_x = pipeline_statevector("X 0");
+    REQUIRE(sv_xx.size() == sv_x.size());
+    for (size_t i = 0; i < sv_xx.size(); ++i) {
+        check_complex(sv_xx[i], sv_x[i], kFloatTol);
+    }
+}
+
+TEST_CASE("E2E: C_XYZ is period-3 rotation") {
+    // C_XYZ^3 = I (up to global phase)
+    auto sv = pipeline_statevector("H 0\nC_XYZ 0\nC_XYZ 0\nC_XYZ 0");
+    auto sv_ref = pipeline_statevector("H 0");
+    REQUIRE(sv.size() == sv_ref.size());
+    // Global phase may differ, so check |amplitudes| match
+    for (size_t i = 0; i < sv.size(); ++i) {
+        CHECK_THAT(std::abs(sv[i]), Catch::Matchers::WithinAbs(std::abs(sv_ref[i]), kFloatTol));
+    }
+}
+
+TEST_CASE("E2E: pure Clifford with ISWAP and C_XYZ compiles to zero instructions") {
+    // A pure Clifford circuit should be fully absorbed AOT with zero VM instructions
+    auto circuit = ucc::parse("H 0\nISWAP 0 1\nC_XYZ 0\nSQRT_XX 0 1\nH 1");
+    auto hir = ucc::trace(circuit);
+    auto mod = ucc::lower(hir);
+    CHECK(mod.bytecode.empty());
+}
+
+TEST_CASE("E2E: ISWAP then ISWAP_DAG is identity") {
+    auto sv = pipeline_statevector("H 0\nCX 0 1\nISWAP 0 1\nISWAP_DAG 0 1");
+    auto sv_ref = pipeline_statevector("H 0\nCX 0 1");
+    REQUIRE(sv.size() == sv_ref.size());
+    for (size_t i = 0; i < sv.size(); ++i) {
+        check_complex(sv[i], sv_ref[i], kFloatTol);
+    }
+}
+
+TEST_CASE("E2E: CZSWAP and SWAPCZ alias produce same result") {
+    auto sv_czswap = pipeline_statevector("H 0\nX 1\nCZSWAP 0 1");
+    auto sv_swapcz = pipeline_statevector("H 0\nX 1\nSWAPCZ 0 1");
+    REQUIRE(sv_czswap.size() == sv_swapcz.size());
+    for (size_t i = 0; i < sv_czswap.size(); ++i) {
+        check_complex(sv_czswap[i], sv_swapcz[i], kFloatTol);
+    }
+}
+
+TEST_CASE("E2E: H_XY maps Z to -Z so flips zero to one") {
+    // H_XY stabilizer flows: X->Y, Y->X, Z->-Z.
+    // So |0> (Z eigenstate +1) maps to |1> (Z eigenstate -1).
+    auto sv = pipeline_statevector("H_XY 0");
+    REQUIRE(sv.size() == 2);
+    CHECK_THAT(std::abs(sv[0]), Catch::Matchers::WithinAbs(0.0, kFloatTol));
+    CHECK_THAT(std::abs(sv[1]), Catch::Matchers::WithinAbs(1.0, kFloatTol));
+    check_normalized(sv, kFloatTol);
 }

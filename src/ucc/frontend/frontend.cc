@@ -18,56 +18,65 @@ namespace {
 // Since we only need the inverse tableau for Heisenberg rewinding, this is safe.
 void apply_single_qubit_clifford(stim::TableauSimulator<kStimWidth>& sim, GateType gate,
                                  uint32_t qubit) {
+    // Fast path for high-frequency gates using Stim's native inline methods.
+    // We prepend to inv_state, so we need the INVERSE of each gate.
+    // Self-inverse gates (H, X, Y, Z) are unchanged; S and S_DAG swap.
+    size_t q = static_cast<size_t>(qubit);
     switch (gate) {
         case GateType::H:
-            // H is self-inverse
-            sim.inv_state.prepend_H_XZ(qubit);
-            break;
+            sim.inv_state.prepend_H_XZ(q);
+            return;
         case GateType::S:
-            // S^{-1} = S_DAG, so prepend S_DAG to track inverse
-            sim.inv_state.prepend_SQRT_Z_DAG(qubit);
-            break;
+            sim.inv_state.prepend_SQRT_Z_DAG(q);
+            return;
         case GateType::S_DAG:
-            // S_DAG^{-1} = S, so prepend S to track inverse
-            sim.inv_state.prepend_SQRT_Z(qubit);
-            break;
+            sim.inv_state.prepend_SQRT_Z(q);
+            return;
         case GateType::X:
-            // X is self-inverse
-            sim.inv_state.prepend_X(qubit);
-            break;
+            sim.inv_state.prepend_X(q);
+            return;
         case GateType::Y:
-            // Y is self-inverse
-            sim.inv_state.prepend_Y(qubit);
-            break;
+            sim.inv_state.prepend_Y(q);
+            return;
         case GateType::Z:
-            // Z is self-inverse
-            sim.inv_state.prepend_Z(qubit);
-            break;
+            sim.inv_state.prepend_Z(q);
+            return;
         default:
-            throw std::runtime_error("Not a single-qubit Clifford gate");
+            break;
     }
+    // Generic path for the long tail of Cliffords.
+    const auto& inv_gate = stim::GATE_DATA.at(gate_name(gate)).inverse();
+    auto inv_tab = inv_gate.tableau<kStimWidth>();
+    sim.inv_state.inplace_scatter_prepend(inv_tab, {q});
 }
 
 // Helper to apply a two-qubit Clifford gate to the simulator.
 // Same optimization as single-qubit: direct prepend to inv_state.
 void apply_two_qubit_clifford(stim::TableauSimulator<kStimWidth>& sim, GateType gate, uint32_t q1,
                               uint32_t q2) {
+    // Fast path for high-frequency gates using Stim's native inline methods.
+    size_t a = static_cast<size_t>(q1);
+    size_t b = static_cast<size_t>(q2);
     switch (gate) {
         case GateType::CX:
-            // CNOT is self-inverse
-            sim.inv_state.prepend_ZCX(q1, q2);
-            break;
+            sim.inv_state.prepend_ZCX(a, b);
+            return;
         case GateType::CY:
-            // CY is self-inverse
-            sim.inv_state.prepend_ZCY(q1, q2);
-            break;
+            sim.inv_state.prepend_ZCY(a, b);
+            return;
         case GateType::CZ:
-            // CZ is self-inverse
-            sim.inv_state.prepend_ZCZ(q1, q2);
-            break;
+            sim.inv_state.prepend_ZCZ(a, b);
+            return;
+        case GateType::SWAP:
+            sim.inv_state.prepend_SWAP(a, b);
+            return;
         default:
-            throw std::runtime_error("Not a two-qubit Clifford gate");
+            break;
     }
+    // Generic path for the long tail of two-qubit Cliffords.
+    const auto& inv_gate = stim::GATE_DATA.at(gate_name(gate)).inverse();
+    auto inv_tab = inv_gate.tableau<kStimWidth>();
+    sim.inv_state.inplace_scatter_prepend(inv_tab, {a, b});
 }
 
 // Extract the rewound Z observable for a qubit as uint64_t masks
@@ -206,7 +215,24 @@ HirModule trace(const Circuit& circuit) {
             case GateType::S_DAG:
             case GateType::X:
             case GateType::Y:
-            case GateType::Z: {
+            case GateType::Z:
+            case GateType::SQRT_X:
+            case GateType::SQRT_X_DAG:
+            case GateType::SQRT_Y:
+            case GateType::SQRT_Y_DAG:
+            case GateType::H_XY:
+            case GateType::H_YZ:
+            case GateType::H_NXY:
+            case GateType::H_NXZ:
+            case GateType::H_NYZ:
+            case GateType::C_XYZ:
+            case GateType::C_ZYX:
+            case GateType::C_NXYZ:
+            case GateType::C_NZYX:
+            case GateType::C_XNYZ:
+            case GateType::C_XYNZ:
+            case GateType::C_ZNYX:
+            case GateType::C_ZYNX: {
                 for (const auto& target : node.targets) {
                     uint32_t qubit = target.value();
                     apply_single_qubit_clifford(sim, node.gate, qubit);
@@ -217,7 +243,25 @@ HirModule trace(const Circuit& circuit) {
             // Two-qubit Clifford gates - absorb into tableau
             case GateType::CX:
             case GateType::CY:
-            case GateType::CZ: {
+            case GateType::CZ:
+            case GateType::SWAP:
+            case GateType::ISWAP:
+            case GateType::ISWAP_DAG:
+            case GateType::SQRT_XX:
+            case GateType::SQRT_XX_DAG:
+            case GateType::SQRT_YY:
+            case GateType::SQRT_YY_DAG:
+            case GateType::SQRT_ZZ:
+            case GateType::SQRT_ZZ_DAG:
+            case GateType::CXSWAP:
+            case GateType::CZSWAP:
+            case GateType::SWAPCX:
+            case GateType::XCX:
+            case GateType::XCY:
+            case GateType::XCZ:
+            case GateType::YCX:
+            case GateType::YCY:
+            case GateType::YCZ: {
                 // Check if this is classical feedback (first target is rec)
                 if (!node.targets.empty() && node.targets[0].is_rec()) {
                     // Classical feedback: CX rec[-k] q or CZ rec[-k] q
@@ -294,6 +338,7 @@ HirModule trace(const Circuit& circuit) {
                     uint64_t destab_mask, stab_mask;
                     bool sign;
                     extract_rewound_z(sim, qubit, destab_mask, stab_mask, sign);
+                    sign ^= target.is_inverted();
                     hir.ops.push_back(
                         HeisenbergOp::make_measure(destab_mask, stab_mask, sign, meas_idx));
                     ++meas_idx;
@@ -308,6 +353,7 @@ HirModule trace(const Circuit& circuit) {
                     uint64_t destab_mask, stab_mask;
                     bool sign;
                     extract_rewound_x(sim, qubit, destab_mask, stab_mask, sign);
+                    sign ^= target.is_inverted();
                     hir.ops.push_back(
                         HeisenbergOp::make_measure(destab_mask, stab_mask, sign, meas_idx));
                     ++meas_idx;
@@ -322,7 +368,7 @@ HirModule trace(const Circuit& circuit) {
                     auto pauli = sim.inv_state.y_output(qubit);
                     uint64_t destab_mask = pauli.xs.u64[0];
                     uint64_t stab_mask = pauli.zs.u64[0];
-                    bool sign = pauli.sign;
+                    bool sign = pauli.sign ^ target.is_inverted();
                     hir.ops.push_back(
                         HeisenbergOp::make_measure(destab_mask, stab_mask, sign, meas_idx));
                     ++meas_idx;
@@ -333,8 +379,10 @@ HirModule trace(const Circuit& circuit) {
             // Multi-Pauli measurement (MPP)
             case GateType::MPP: {
                 stim::PauliString<kStimWidth> obs(circuit.num_qubits);
+                bool inversion_parity = false;
                 for (const auto& target : node.targets) {
                     uint32_t q = target.value();
+                    inversion_parity ^= target.is_inverted();
                     if (target.pauli() == Target::kPauliX) {
                         obs.xs[q] = true;
                     } else if (target.pauli() == Target::kPauliY) {
@@ -347,7 +395,7 @@ HirModule trace(const Circuit& circuit) {
                 stim::PauliString<kStimWidth> rewound = sim.inv_state(obs);
                 uint64_t destab_mask = rewound.xs.u64[0];
                 uint64_t stab_mask = rewound.zs.u64[0];
-                bool sign = rewound.sign;
+                bool sign = rewound.sign ^ inversion_parity;
                 hir.ops.push_back(
                     HeisenbergOp::make_measure(destab_mask, stab_mask, sign, meas_idx));
                 ++meas_idx;
@@ -413,13 +461,50 @@ HirModule trace(const Circuit& circuit) {
                     uint64_t destab_mask, stab_mask;
                     bool sign;
 
-                    // Extract rewound Z observable (measurement) from un-collapsed tableau
+                    // Emit measurement with TRUE physical sign (no inversion).
+                    // The feedback correction reads this value via use_last_outcome.
                     extract_rewound_z(sim, qubit, destab_mask, stab_mask, sign);
                     hir.ops.push_back(
                         HeisenbergOp::make_measure(destab_mask, stab_mask, sign, meas_idx));
+                    uint32_t this_meas = static_cast<uint32_t>(meas_idx);
                     ++meas_idx;
 
                     // Extract rewound X (conditional correction) from same un-collapsed tableau
+                    uint64_t corr_destab, corr_stab;
+                    bool corr_sign;
+                    extract_rewound_x(sim, qubit, corr_destab, corr_stab, corr_sign);
+                    auto cond_op = HeisenbergOp::make_conditional(corr_destab, corr_stab, corr_sign,
+                                                                  ControllingMeasIdx{0});
+                    cond_op.set_use_last_outcome(true);
+                    hir.ops.push_back(cond_op);
+
+                    // Apply inversion AFTER feedback so the classical record is flipped
+                    // without corrupting the physical reset.
+                    if (target.is_inverted()) {
+                        ReadoutNoiseIdx idx{static_cast<uint32_t>(hir.readout_noise.size())};
+                        hir.readout_noise.push_back({this_meas, 1.0});
+                        hir.ops.push_back(HeisenbergOp::make_readout_noise(idx));
+                    }
+                }
+                break;
+            }
+
+            // Y-basis reset (hidden measurement + conditional correction)
+            case GateType::RY: {
+                for (const auto& target : node.targets) {
+                    uint32_t qubit = target.value();
+
+                    // Extract rewound Y observable (measurement)
+                    auto pauli = sim.inv_state.y_output(qubit);
+                    uint64_t destab_mask = pauli.xs.u64[0];
+                    uint64_t stab_mask = pauli.zs.u64[0];
+                    bool sign = pauli.sign;
+                    auto meas_op =
+                        HeisenbergOp::make_measure(destab_mask, stab_mask, sign, meas_idx);
+                    meas_op.set_hidden(true);
+                    hir.ops.push_back(meas_op);
+
+                    // X anti-commutes with Y, so X correction flips Y eigenvalue
                     uint64_t corr_destab, corr_stab;
                     bool corr_sign;
                     extract_rewound_x(sim, qubit, corr_destab, corr_stab, corr_sign);
@@ -431,6 +516,39 @@ HirModule trace(const Circuit& circuit) {
                 break;
             }
 
+            // Measure-reset Y-basis (visible measurement + conditional correction)
+            case GateType::MRY: {
+                for (const auto& target : node.targets) {
+                    uint32_t qubit = target.value();
+
+                    // Emit measurement with TRUE physical sign (no inversion).
+                    auto pauli = sim.inv_state.y_output(qubit);
+                    uint64_t destab_mask = pauli.xs.u64[0];
+                    uint64_t stab_mask = pauli.zs.u64[0];
+                    bool sign = pauli.sign;
+                    hir.ops.push_back(
+                        HeisenbergOp::make_measure(destab_mask, stab_mask, sign, meas_idx));
+                    uint32_t this_meas = static_cast<uint32_t>(meas_idx);
+                    ++meas_idx;
+
+                    // X anti-commutes with Y, so X correction flips Y eigenvalue
+                    uint64_t corr_destab, corr_stab;
+                    bool corr_sign;
+                    extract_rewound_x(sim, qubit, corr_destab, corr_stab, corr_sign);
+                    auto cond_op = HeisenbergOp::make_conditional(corr_destab, corr_stab, corr_sign,
+                                                                  ControllingMeasIdx{0});
+                    cond_op.set_use_last_outcome(true);
+                    hir.ops.push_back(cond_op);
+
+                    if (target.is_inverted()) {
+                        ReadoutNoiseIdx idx{static_cast<uint32_t>(hir.readout_noise.size())};
+                        hir.readout_noise.push_back({this_meas, 1.0});
+                        hir.ops.push_back(HeisenbergOp::make_readout_noise(idx));
+                    }
+                }
+                break;
+            }
+
             // Measure-reset X-basis (visible measurement + conditional correction)
             case GateType::MRX: {
                 for (const auto& target : node.targets) {
@@ -438,10 +556,11 @@ HirModule trace(const Circuit& circuit) {
                     uint64_t destab_mask, stab_mask;
                     bool sign;
 
-                    // Extract rewound X observable (measurement) from un-collapsed tableau
+                    // Emit measurement with TRUE physical sign (no inversion).
                     extract_rewound_x(sim, qubit, destab_mask, stab_mask, sign);
                     hir.ops.push_back(
                         HeisenbergOp::make_measure(destab_mask, stab_mask, sign, meas_idx));
+                    uint32_t this_meas = static_cast<uint32_t>(meas_idx);
                     ++meas_idx;
 
                     // Extract rewound Z (conditional correction) from same un-collapsed tableau
@@ -452,6 +571,22 @@ HirModule trace(const Circuit& circuit) {
                                                                   ControllingMeasIdx{0});
                     cond_op.set_use_last_outcome(true);
                     hir.ops.push_back(cond_op);
+
+                    if (target.is_inverted()) {
+                        ReadoutNoiseIdx idx{static_cast<uint32_t>(hir.readout_noise.size())};
+                        hir.readout_noise.push_back({this_meas, 1.0});
+                        hir.ops.push_back(HeisenbergOp::make_readout_noise(idx));
+                    }
+                }
+                break;
+            }
+
+            // MPAD: deterministic classical padding (zero-weight measurement)
+            case GateType::MPAD: {
+                for (const auto& target : node.targets) {
+                    bool sign = (target.value() != 0) ^ target.is_inverted();
+                    hir.ops.push_back(HeisenbergOp::make_measure(0, 0, sign, meas_idx));
+                    ++meas_idx;
                 }
                 break;
             }
@@ -465,7 +600,7 @@ HirModule trace(const Circuit& circuit) {
             case GateType::Y_ERROR:
             case GateType::Z_ERROR:
             case GateType::DEPOLARIZE1: {
-                double prob = node.arg;
+                double prob = node.args.empty() ? 0.0 : node.args[0];
                 for (const auto& target : node.targets) {
                     uint32_t qubit = target.value();
                     NoiseSite site = make_single_qubit_noise_site(sim, node.gate, qubit, prob);
@@ -476,9 +611,63 @@ HirModule trace(const Circuit& circuit) {
                 break;
             }
 
+            // Single-qubit Pauli channel with 3 explicit probabilities
+            case GateType::PAULI_CHANNEL_1: {
+                if (node.args.size() < 3) {
+                    throw std::runtime_error(
+                        "PAULI_CHANNEL_1 requires 3 arguments: P(X), P(Y), P(Z)");
+                }
+                for (const auto& target : node.targets) {
+                    uint32_t qubit = target.value();
+                    NoiseSite site;
+                    // pauli_type: 1=X, 2=Y, 3=Z
+                    for (int p = 0; p < 3; ++p) {
+                        double prob = node.args[static_cast<size_t>(p)];
+                        if (prob > 0.0) {
+                            site.channels.push_back(rewind_single_pauli(sim, qubit, p + 1, prob));
+                        }
+                    }
+                    NoiseSiteIdx idx{static_cast<uint32_t>(hir.noise_sites.size())};
+                    hir.noise_sites.push_back(std::move(site));
+                    hir.ops.push_back(HeisenbergOp::make_noise(idx));
+                }
+                break;
+            }
+
+            // Two-qubit Pauli channel with 15 explicit probabilities
+            case GateType::PAULI_CHANNEL_2: {
+                if (node.args.size() < 15) {
+                    throw std::runtime_error("PAULI_CHANNEL_2 requires 15 arguments");
+                }
+                for (size_t i = 0; i + 1 < node.targets.size(); i += 2) {
+                    uint32_t q1 = node.targets[i].value();
+                    uint32_t q2 = node.targets[i + 1].value();
+                    NoiseSite site;
+                    // Enumerate all non-II two-qubit Paulis in Stim order:
+                    // IX, IY, IZ, XI, XX, XY, XZ, YI, YX, YY, YZ, ZI, ZX, ZY, ZZ
+                    size_t arg_idx = 0;
+                    for (int p1 = 0; p1 <= 3; ++p1) {
+                        for (int p2 = 0; p2 <= 3; ++p2) {
+                            if (p1 == 0 && p2 == 0)
+                                continue;
+                            double prob = node.args[arg_idx];
+                            if (prob > 0.0) {
+                                site.channels.push_back(
+                                    rewind_two_qubit_pauli(sim, q1, q2, p1, p2, prob));
+                            }
+                            ++arg_idx;
+                        }
+                    }
+                    NoiseSiteIdx idx{static_cast<uint32_t>(hir.noise_sites.size())};
+                    hir.noise_sites.push_back(std::move(site));
+                    hir.ops.push_back(HeisenbergOp::make_noise(idx));
+                }
+                break;
+            }
+
             // Two-qubit depolarizing noise
             case GateType::DEPOLARIZE2: {
-                double prob = node.arg;
+                double prob = node.args.empty() ? 0.0 : node.args[0];
                 for (size_t i = 0; i + 1 < node.targets.size(); i += 2) {
                     uint32_t q1 = node.targets[i].value();
                     uint32_t q2 = node.targets[i + 1].value();
@@ -495,7 +684,7 @@ HirModule trace(const Circuit& circuit) {
                 // Parser stores absolute measurement index in target, probability in arg
                 for (const auto& target : node.targets) {
                     uint32_t abs_meas_idx = target.value();
-                    double prob = node.arg;
+                    double prob = node.args.empty() ? 0.0 : node.args[0];
                     ReadoutNoiseIdx idx{static_cast<uint32_t>(hir.readout_noise.size())};
                     hir.readout_noise.push_back({abs_meas_idx, prob});
                     hir.ops.push_back(HeisenbergOp::make_readout_noise(idx));
@@ -521,7 +710,7 @@ HirModule trace(const Circuit& circuit) {
                 for (const auto& target : node.targets) {
                     targets.push_back(target.value());  // Already absolute indices
                 }
-                uint32_t obs_idx = static_cast<uint32_t>(node.arg);
+                uint32_t obs_idx = static_cast<uint32_t>(node.args.empty() ? 0.0 : node.args[0]);
                 uint32_t target_list_idx = static_cast<uint32_t>(hir.observable_targets.size());
                 hir.observable_targets.push_back(std::move(targets));
                 hir.ops.push_back(

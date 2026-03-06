@@ -29,23 +29,89 @@ NB_MODULE(_ucc_core, m) {
 
     // GateType enum
     nb::enum_<ucc::GateType>(m, "GateType", "Quantum gate types")
+        // Single-qubit Cliffords
         .value("H", ucc::GateType::H)
         .value("S", ucc::GateType::S)
         .value("S_DAG", ucc::GateType::S_DAG)
         .value("X", ucc::GateType::X)
         .value("Y", ucc::GateType::Y)
         .value("Z", ucc::GateType::Z)
+        .value("SQRT_X", ucc::GateType::SQRT_X)
+        .value("SQRT_X_DAG", ucc::GateType::SQRT_X_DAG)
+        .value("SQRT_Y", ucc::GateType::SQRT_Y)
+        .value("SQRT_Y_DAG", ucc::GateType::SQRT_Y_DAG)
+        .value("H_XY", ucc::GateType::H_XY)
+        .value("H_YZ", ucc::GateType::H_YZ)
+        .value("H_NXY", ucc::GateType::H_NXY)
+        .value("H_NXZ", ucc::GateType::H_NXZ)
+        .value("H_NYZ", ucc::GateType::H_NYZ)
+        .value("C_XYZ", ucc::GateType::C_XYZ)
+        .value("C_ZYX", ucc::GateType::C_ZYX)
+        .value("C_NXYZ", ucc::GateType::C_NXYZ)
+        .value("C_NZYX", ucc::GateType::C_NZYX)
+        .value("C_XNYZ", ucc::GateType::C_XNYZ)
+        .value("C_XYNZ", ucc::GateType::C_XYNZ)
+        .value("C_ZNYX", ucc::GateType::C_ZNYX)
+        .value("C_ZYNX", ucc::GateType::C_ZYNX)
+        // Non-Clifford
         .value("T", ucc::GateType::T)
         .value("T_DAG", ucc::GateType::T_DAG)
+        // Two-qubit Cliffords
         .value("CX", ucc::GateType::CX)
         .value("CY", ucc::GateType::CY)
         .value("CZ", ucc::GateType::CZ)
+        .value("SWAP", ucc::GateType::SWAP)
+        .value("ISWAP", ucc::GateType::ISWAP)
+        .value("ISWAP_DAG", ucc::GateType::ISWAP_DAG)
+        .value("SQRT_XX", ucc::GateType::SQRT_XX)
+        .value("SQRT_XX_DAG", ucc::GateType::SQRT_XX_DAG)
+        .value("SQRT_YY", ucc::GateType::SQRT_YY)
+        .value("SQRT_YY_DAG", ucc::GateType::SQRT_YY_DAG)
+        .value("SQRT_ZZ", ucc::GateType::SQRT_ZZ)
+        .value("SQRT_ZZ_DAG", ucc::GateType::SQRT_ZZ_DAG)
+        .value("CXSWAP", ucc::GateType::CXSWAP)
+        .value("CZSWAP", ucc::GateType::CZSWAP)
+        .value("SWAPCX", ucc::GateType::SWAPCX)
+        .value("XCX", ucc::GateType::XCX)
+        .value("XCY", ucc::GateType::XCY)
+        .value("XCZ", ucc::GateType::XCZ)
+        .value("YCX", ucc::GateType::YCX)
+        .value("YCY", ucc::GateType::YCY)
+        .value("YCZ", ucc::GateType::YCZ)
+        // Measurements
         .value("M", ucc::GateType::M)
         .value("MX", ucc::GateType::MX)
         .value("MY", ucc::GateType::MY)
         .value("MR", ucc::GateType::MR)
         .value("MRX", ucc::GateType::MRX)
+        .value("MRY", ucc::GateType::MRY)
         .value("MPP", ucc::GateType::MPP)
+        .value("MXX", ucc::GateType::MXX)
+        .value("MYY", ucc::GateType::MYY)
+        .value("MZZ", ucc::GateType::MZZ)
+        // Resets
+        .value("R", ucc::GateType::R)
+        .value("RX", ucc::GateType::RX)
+        .value("RY", ucc::GateType::RY)
+        // Padding
+        .value("MPAD", ucc::GateType::MPAD)
+        // Identity no-ops
+        .value("I", ucc::GateType::I)
+        .value("II", ucc::GateType::II)
+        .value("I_ERROR", ucc::GateType::I_ERROR)
+        .value("II_ERROR", ucc::GateType::II_ERROR)
+        // Noise
+        .value("X_ERROR", ucc::GateType::X_ERROR)
+        .value("Y_ERROR", ucc::GateType::Y_ERROR)
+        .value("Z_ERROR", ucc::GateType::Z_ERROR)
+        .value("DEPOLARIZE1", ucc::GateType::DEPOLARIZE1)
+        .value("DEPOLARIZE2", ucc::GateType::DEPOLARIZE2)
+        .value("PAULI_CHANNEL_1", ucc::GateType::PAULI_CHANNEL_1)
+        .value("PAULI_CHANNEL_2", ucc::GateType::PAULI_CHANNEL_2)
+        .value("READOUT_NOISE", ucc::GateType::READOUT_NOISE)
+        // Annotations
+        .value("DETECTOR", ucc::GateType::DETECTOR)
+        .value("OBSERVABLE_INCLUDE", ucc::GateType::OBSERVABLE_INCLUDE)
         .value("TICK", ucc::GateType::TICK)
         .value("UNKNOWN", ucc::GateType::UNKNOWN);
 
@@ -77,7 +143,8 @@ NB_MODULE(_ucc_core, m) {
     nb::class_<ucc::AstNode>(m, "AstNode", "A single circuit operation")
         .def_ro("gate", &ucc::AstNode::gate)
         .def_ro("targets", &ucc::AstNode::targets)
-        .def_ro("arg", &ucc::AstNode::arg)
+        .def_prop_ro("arg", [](const ucc::AstNode& n) { return n.args.empty() ? 0.0 : n.args[0]; })
+        .def_ro("args", &ucc::AstNode::args)
         .def("__repr__", [](const ucc::AstNode& n) {
             std::string result = std::string(ucc::gate_name(n.gate));
             for (const auto& t : n.targets) {
@@ -109,8 +176,21 @@ NB_MODULE(_ucc_core, m) {
         });
 
     // Circuit parsing
-    m.def("parse", &ucc::parse, nb::arg("text"), "Parse a quantum circuit from a string.");
-    m.def("parse_file", &ucc::parse_file, nb::arg("path"), "Parse a quantum circuit from a file.");
+    m.def(
+        "parse", [](std::string_view text) { return ucc::parse(text); }, nb::arg("text"),
+        "Parse a quantum circuit from a string.");
+    m.def(
+        "parse", [](std::string_view text, size_t max_ops) { return ucc::parse(text, max_ops); },
+        nb::arg("text"), nb::arg("max_ops"),
+        "Parse a quantum circuit from a string with an explicit AST node limit.");
+    m.def(
+        "parse_file", [](const std::string& path) { return ucc::parse_file(path); },
+        nb::arg("path"), "Parse a quantum circuit from a file.");
+    m.def(
+        "parse_file",
+        [](const std::string& path, size_t max_ops) { return ucc::parse_file(path, max_ops); },
+        nb::arg("path"), nb::arg("max_ops"),
+        "Parse a quantum circuit from a file with an explicit AST node limit.");
 
     // =========================================================================
     // Compiled Program and Sampling

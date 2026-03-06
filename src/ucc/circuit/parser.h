@@ -14,8 +14,13 @@
 // - RX q -> MX q; CZ rec[-1] q (reset decomposition)
 // - MPP X0*Z1 X2 -> two separate AstNodes (unrolling)
 //
+// REPEAT handling:
+// - REPEAT N { ... } blocks are unrolled at parse time via text-level replay.
+//   The body text is re-parsed N times against the same Circuit, so rec[-k]
+//   references naturally resolve to correct absolute measurement indices.
+//   Nested REPEAT is supported. A safety limit (kMaxUnrolledOps) prevents OOM.
+//
 // Errors:
-// - REPEAT blocks: not supported in MVP, raises error
 // - Unknown gates: raises error
 // - Malformed syntax: raises error with line number
 
@@ -40,11 +45,18 @@ class ParseError : public std::runtime_error {
 };
 
 // Parse a circuit from text.
-// Throws ParseError on syntax errors or unsupported features.
+// Uses kMaxUnrolledOps as the safety limit on total AST nodes.
 Circuit parse(std::string_view text);
+
+// Parse a circuit from text with an explicit AST node limit.
+// Used by tests to exercise the limit at smaller values.
+Circuit parse(std::string_view text, size_t max_ops);
 
 // Parse a circuit from a file.
 // Throws ParseError on syntax errors, std::runtime_error on file errors.
 Circuit parse_file(const std::string& path);
+
+// Parse a circuit from a file with an explicit AST node limit.
+Circuit parse_file(const std::string& path, size_t max_ops);
 
 }  // namespace ucc
