@@ -169,6 +169,14 @@ Instruction make_detector(uint32_t det_list_idx, uint32_t classical_idx) {
     return i;
 }
 
+Instruction make_postselect(uint32_t det_list_idx, uint32_t classical_idx) {
+    Instruction i{};
+    i.opcode = Opcode::OP_POSTSELECT;
+    i.pauli.cp_mask_idx = det_list_idx;
+    i.pauli.condition_idx = classical_idx;
+    return i;
+}
+
 Instruction make_observable(uint32_t target_list_idx, uint32_t obs_idx) {
     Instruction i{};
     i.opcode = Opcode::OP_OBSERVABLE;
@@ -372,7 +380,7 @@ CompressionResult compress_pauli(CompilerContext& ctx, const stim::PauliString<k
 // lower(): Full pipeline wiring
 // =========================================================================
 
-CompiledModule lower(const HirModule& hir) {
+CompiledModule lower(const HirModule& hir, const std::vector<uint8_t>& postselection_mask) {
     using internal::CompilerContext;
     using internal::compress_pauli;
     using internal::CompressedBasis;
@@ -596,7 +604,15 @@ CompiledModule lower(const HirModule& hir) {
 
                 uint32_t cp_idx = static_cast<uint32_t>(ctx.constant_pool.detector_targets.size());
                 ctx.constant_pool.detector_targets.push_back(targets);
-                ctx.bytecode.push_back(make_detector(cp_idx, det_emit_idx++));
+
+                bool is_postselected = det_emit_idx < postselection_mask.size() &&
+                                       postselection_mask[det_emit_idx] != 0;
+                if (is_postselected) {
+                    ctx.bytecode.push_back(make_postselect(cp_idx, det_emit_idx));
+                } else {
+                    ctx.bytecode.push_back(make_detector(cp_idx, det_emit_idx));
+                }
+                ++det_emit_idx;
                 break;
             }
 

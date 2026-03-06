@@ -1489,3 +1489,142 @@ TEST_CASE("RISC Integration: Amortized renormalization prevents IEEE-754 drift")
         CHECK(std::isfinite(state.v()[1].real()));
     }
 }
+
+// =============================================================================
+// OP_POSTSELECT Tests
+// =============================================================================
+
+TEST_CASE("POSTSELECT: discards shot when parity is non-zero") {
+    // Circuit: measure qubit 0 in X basis (random outcome), then
+    // post-select on detector parity of that measurement.
+    // If outcome == 1, parity != 0 -> discard.
+    // After postselect, there is a second measurement that should NOT execute.
+    CompiledModule mod;
+    mod.peak_rank = 0;
+    mod.num_measurements = 2;
+    mod.total_meas_slots = 2;
+    mod.num_detectors = 1;
+
+    // meas[0]: dormant random measurement on qubit 0
+    mod.bytecode.push_back(make_meas_dormant_random(0, 0));
+
+    // OP_POSTSELECT: check detector parity of meas[0]
+    mod.constant_pool.detector_targets.push_back({0});
+    mod.bytecode.push_back(make_postselect(0, 0));
+
+    // meas[1]: a second dormant static measurement (should not run if discarded)
+    Instruction meas1 = make_meas(Opcode::OP_MEAS_DORMANT_STATIC, 0, 1, true);
+    mod.bytecode.push_back(meas1);
+
+    // Run many shots: some will have meas[0]==1 (discarded), others meas[0]==0
+    uint32_t discarded_count = 0;
+    uint32_t survived_count = 0;
+
+    for (uint64_t seed = 0; seed < 200; ++seed) {
+        SchrodingerState state(mod.peak_rank, mod.total_meas_slots, mod.num_detectors, 0, seed);
+        execute(mod, state);
+
+        if (state.discarded) {
+            ++discarded_count;
+            // det_record should be 0 (written by postselect before aborting)
+            CHECK(state.det_record[0] == 0);
+            // meas[1] should be 0 (never executed, initialized to 0)
+            CHECK(state.meas_record[1] == 0);
+        } else {
+            ++survived_count;
+            // meas[0] must have been 0 for survival
+            CHECK(state.meas_record[0] == 0);
+            // meas[1] should have been executed (sign=true -> outcome=1)
+            CHECK(state.meas_record[1] == 1);
+        }
+    }
+
+    // With a random dormant measurement, roughly half should be discarded
+    CHECK(discarded_count > 0);
+    CHECK(survived_count > 0);
+}
+
+TEST_CASE("POSTSELECT: passes when parity is zero") {
+    // Deterministic circuit: meas[0]=0, so postselect parity is 0.
+    // All instructions after postselect should execute normally.
+    CompiledModule mod;
+    mod.peak_rank = 0;
+    mod.num_measurements = 2;
+    mod.total_meas_slots = 2;
+    mod.num_detectors = 1;
+
+    // meas[0]: dormant static, sign=false -> outcome=0
+    mod.bytecode.push_back(make_meas(Opcode::OP_MEAS_DORMANT_STATIC, 0, 0, false));
+
+    // OP_POSTSELECT: parity of meas[0] = 0 -> pass
+    mod.constant_pool.detector_targets.push_back({0});
+    mod.bytecode.push_back(make_postselect(0, 0));
+
+    // meas[1]: dormant static, sign=true -> outcome=1
+    mod.bytecode.push_back(make_meas(Opcode::OP_MEAS_DORMANT_STATIC, 0, 1, true));
+
+    SchrodingerState state(mod.peak_rank, mod.total_meas_slots, mod.num_detectors, 0, 42);
+    execute(mod, state);
+
+    CHECK_FALSE(state.discarded);
+    CHECK(state.meas_record[0] == 0);
+    CHECK(state.meas_record[1] == 1);
+    CHECK(state.det_record[0] == 0);
+}
+
+TEST_CASE("POSTSELECT: reset clears stale data after discarded shot") {
+    // Verify that after a discarded shot, reset() zeroes classical records
+    // so the next shot doesn't see stale data.
+    CompiledModule mod;
+    mod.peak_rank = 0;
+    mod.num_measurements = 2;
+    mod.total_meas_slots = 2;
+    mod.num_detectors = 1;
+
+    // meas[0]: dormant static, sign=true -> always outcome=1
+    mod.bytecode.push_back(make_meas(Opcode::OP_MEAS_DORMANT_STATIC, 0, 0, true));
+
+    // OP_POSTSELECT: parity of meas[0] = 1 -> always discard
+    mod.constant_pool.detector_targets.push_back({0});
+    mod.bytecode.push_back(make_postselect(0, 0));
+
+    // meas[1]: should never execute due to abort
+    mod.bytecode.push_back(make_meas(Opcode::OP_MEAS_DORMANT_STATIC, 0, 1, true));
+
+    SchrodingerState state(mod.peak_rank, mod.total_meas_slots, mod.num_detectors, 0, 0);
+    execute(mod, state);
+    CHECK(state.discarded);
+    CHECK(state.meas_record[0] == 1);  // was set before postselect
+    CHECK(state.meas_record[1] == 0);  // never reached
+
+    // Reset and run a second shot (which also gets discarded)
+    state.reset(1);
+    CHECK_FALSE(state.discarded);      // reset clears discarded flag
+    CHECK(state.meas_record[0] == 0);  // stale data cleared
+    CHECK(state.meas_record[1] == 0);  // stale data cleared
+
+    execute(mod, state);
+    CHECK(state.discarded);
+}
+
+TEST_CASE("POSTSELECT: sample returns all shots including discarded") {
+    // Verify sample() still returns full arrays and does not crash.
+    CompiledModule mod;
+    mod.peak_rank = 0;
+    mod.num_measurements = 1;
+    mod.total_meas_slots = 1;
+    mod.num_detectors = 1;
+
+    // meas[0]: dormant random
+    mod.bytecode.push_back(make_meas_dormant_random(0, 0));
+
+    // OP_POSTSELECT on meas[0]
+    mod.constant_pool.detector_targets.push_back({0});
+    mod.bytecode.push_back(make_postselect(0, 0));
+
+    auto result = sample(mod, 100, 42);
+
+    // Shape should be 100 shots regardless of how many were discarded
+    CHECK(result.measurements.size() == 100);
+    CHECK(result.detectors.size() == 100);
+}

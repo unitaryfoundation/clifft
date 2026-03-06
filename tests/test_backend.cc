@@ -1098,3 +1098,58 @@ TEST_CASE("Lower: T-T_dag cancels completely") {
     CHECK(count_opcodes(mod.bytecode, Opcode::OP_EXPAND) == 0);
     CHECK(mod.peak_rank == 0);
 }
+
+// =============================================================================
+// Postselection Mask Tests
+// =============================================================================
+
+TEST_CASE("Lower: postselection_mask emits OP_POSTSELECT for flagged detectors") {
+    // Circuit with 2 detectors: flag detector 0 for postselection.
+    std::string text =
+        "M 0\n"
+        "M 1\n"
+        "DETECTOR rec[-1]\n"
+        "DETECTOR rec[-2]\n";
+
+    auto circuit = ucc::parse(text);
+    auto hir = ucc::trace(circuit);
+
+    // Mask: detector 0 is postselected, detector 1 is normal
+    std::vector<uint8_t> mask = {1, 0};
+    auto mod = ucc::lower(hir, mask);
+
+    CHECK(count_opcodes(mod.bytecode, Opcode::OP_POSTSELECT) == 1);
+    CHECK(count_opcodes(mod.bytecode, Opcode::OP_DETECTOR) == 1);
+}
+
+TEST_CASE("Lower: empty postselection_mask emits only OP_DETECTOR") {
+    std::string text =
+        "M 0\n"
+        "DETECTOR rec[-1]\n";
+
+    auto circuit = ucc::parse(text);
+    auto hir = ucc::trace(circuit);
+    auto mod = ucc::lower(hir);
+
+    CHECK(count_opcodes(mod.bytecode, Opcode::OP_POSTSELECT) == 0);
+    CHECK(count_opcodes(mod.bytecode, Opcode::OP_DETECTOR) == 1);
+}
+
+TEST_CASE("Lower: short postselection_mask only affects present indices") {
+    // Mask shorter than detector count: only first detector is postselected.
+    std::string text =
+        "M 0\n"
+        "M 1\n"
+        "DETECTOR rec[-1]\n"
+        "DETECTOR rec[-2]\n"
+        "DETECTOR rec[-1]\n";
+
+    auto circuit = ucc::parse(text);
+    auto hir = ucc::trace(circuit);
+
+    std::vector<uint8_t> mask = {1};  // Only 1 element, 3 detectors
+    auto mod = ucc::lower(hir, mask);
+
+    CHECK(count_opcodes(mod.bytecode, Opcode::OP_POSTSELECT) == 1);
+    CHECK(count_opcodes(mod.bytecode, Opcode::OP_DETECTOR) == 2);
+}

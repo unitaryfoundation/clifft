@@ -52,6 +52,7 @@ enum class Opcode : uint8_t {
     OP_NOISE,          // Stochastic Pauli channel (rolls RNG, may apply Pauli)
     OP_READOUT_NOISE,  // Classical bit-flip on measurement result
     OP_DETECTOR,       // Parity check over measurement records
+    OP_POSTSELECT,     // Post-selection check: abort shot if parity != 0
     OP_OBSERVABLE,     // Logical observable accumulator
 };
 
@@ -132,6 +133,7 @@ Instruction make_apply_pauli(uint32_t cp_mask_idx, uint32_t condition_idx);
 Instruction make_noise(uint32_t site_idx);
 Instruction make_readout_noise(uint32_t entry_idx);
 Instruction make_detector(uint32_t det_list_idx, uint32_t classical_idx);
+Instruction make_postselect(uint32_t det_list_idx, uint32_t classical_idx);
 Instruction make_observable(uint32_t target_list_idx, uint32_t obs_idx);
 
 // =============================================================================
@@ -193,6 +195,8 @@ struct CompiledModule {
 
 /// Lower HIR to executable RISC bytecode.
 /// Tracks virtual frame V_cum, compresses multi-qubit Paulis to local ops.
-CompiledModule lower(const HirModule& hir);
+/// If postselection_mask is non-empty, detectors at indices where
+/// mask[det_idx] != 0 are emitted as OP_POSTSELECT instead of OP_DETECTOR.
+CompiledModule lower(const HirModule& hir, const std::vector<uint8_t>& postselection_mask = {});
 
 }  // namespace ucc

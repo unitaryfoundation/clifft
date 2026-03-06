@@ -286,24 +286,39 @@ NB_MODULE(_ucc_core, m) {
                    std::to_string(p.num_measurements) + " measurements)";
         });
 
-    // Back-end: HIR -> Program
+    // Back-end: HIR -> Program (with optional postselection mask)
     m.def(
-        "lower", [](const ucc::HirModule& hir) { return ucc::lower(hir); }, nb::arg("hir"),
-        "Lower a Heisenberg IR module to executable VM bytecode.");
+        "lower",
+        [](const ucc::HirModule& hir, std::vector<uint8_t> postselection_mask) {
+            return ucc::lower(hir, postselection_mask);
+        },
+        nb::arg("hir"), nb::arg("postselection_mask") = std::vector<uint8_t>{},
+        "Lower a Heisenberg IR module to executable VM bytecode.\n\n"
+        "Args:\n"
+        "    hir: The Heisenberg IR module to lower.\n"
+        "    postselection_mask: Optional list of uint8 flags, one per detector.\n"
+        "        Detectors where mask[i] != 0 become post-selection checks\n"
+        "        that abort the shot early if their parity is non-zero.\n");
 
     // Convenience: stim text -> Program (parse + trace + lower, no optimization)
     m.def(
         "compile",
-        [](const std::string& stim_text) {
+        [](const std::string& stim_text, std::vector<uint8_t> postselection_mask) {
             ucc::Circuit circuit = ucc::parse(stim_text);
             ucc::HirModule hir = ucc::trace(circuit);
-            return ucc::lower(hir);
+            return ucc::lower(hir, postselection_mask);
         },
-        nb::arg("stim_text"),
+        nb::arg("stim_text"), nb::arg("postselection_mask") = std::vector<uint8_t>{},
         "Compile a quantum circuit string to executable bytecode.\n\n"
         "Convenience function equivalent to lower(trace(parse(text))).\n"
         "For optimization, use the explicit pipeline: parse -> trace -> "
-        "PassManager.run -> lower.\n");
+        "PassManager.run -> lower.\n"
+        "\n"
+        "Args:\n"
+        "    stim_text: Circuit in .stim text format.\n"
+        "    postselection_mask: Optional list of uint8 flags, one per detector.\n"
+        "        Detectors where mask[i] != 0 become post-selection checks\n"
+        "        that abort the shot early if their parity is non-zero.\n");
 
     // Zero-copy transfer: move the vector onto the heap and let the capsule own it.
     // Avoids O(N) memcpy for large shot batches.

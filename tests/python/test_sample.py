@@ -626,3 +626,42 @@ class TestNoiseAndQEC:
         assert meas.shape == (shots, 2)
         assert det.shape == (shots, 3)
         assert obs.shape == (shots, 2)
+
+
+class TestPostselection:
+    """Tests for compile() with postselection_mask."""
+
+    def test_compile_with_postselection_mask(self) -> None:
+        """Compile with postselection_mask kwarg works via nanobind."""
+        prog = ucc.compile(
+            "M 0\nDETECTOR rec[-1]\n",
+            postselection_mask=[1],
+        )
+        assert prog.num_detectors == 1
+        assert prog.num_measurements == 1
+
+    def test_postselection_aborts_doomed_shots(self) -> None:
+        """Shots that fail post-selection have zeroed detector records."""
+        # Circuit: random measurement, postselected detector checks it.
+        # Surviving shots must have meas[0]==0. Discarded shots get det=0.
+        circuit = """
+            H 0
+            M 0
+            DETECTOR rec[-1]
+        """
+        prog = ucc.compile(circuit, postselection_mask=[1])
+        meas, det, _ = ucc.sample(prog, 200, seed=42)
+
+        # All detector records should be 0 (postselect writes 0 always)
+        assert np.all(det == 0)
+
+        # With H|0> measurement, roughly half the shots have meas==0
+        survived = meas[:, 0] == 0
+        assert 20 < np.sum(survived) < 180  # not all, not none
+
+    def test_empty_mask_is_default(self) -> None:
+        """Empty postselection_mask produces same result as no mask."""
+        circuit = "M 0\nDETECTOR rec[-1]\n"
+        prog_default = ucc.compile(circuit)
+        prog_empty = ucc.compile(circuit, postselection_mask=[])
+        assert prog_default.num_instructions == prog_empty.num_instructions

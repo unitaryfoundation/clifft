@@ -107,9 +107,11 @@ SchrodingerState::SchrodingerState(SchrodingerState&& other) noexcept
     : p_x(other.p_x),
       p_z(other.p_z),
       active_k(other.active_k),
+      discarded(other.discarded),
       meas_record(std::move(other.meas_record)),
       det_record(std::move(other.det_record)),
       obs_record(std::move(other.obs_record)),
+      next_noise_idx(other.next_noise_idx),
       gamma_(other.gamma_),
       v_(other.v_),
       array_size_(other.array_size_),
@@ -130,6 +132,8 @@ SchrodingerState& SchrodingerState::operator=(SchrodingerState&& other) noexcept
         p_z = other.p_z;
         gamma_ = other.gamma_;
         active_k = other.active_k;
+        discarded = other.discarded;
+        next_noise_idx = other.next_noise_idx;
         meas_record = std::move(other.meas_record);
         det_record = std::move(other.det_record);
         obs_record = std::move(other.obs_record);
@@ -148,9 +152,16 @@ void SchrodingerState::reset(uint64_t seed) {
     gamma_ = {1.0, 0.0};
     active_k = 0;
 
-    // meas_record and det_record are deterministically overwritten by their
-    // respective opcodes (indexed writes, not accumulation), so zeroing is
-    // unnecessary. obs_record uses ^= accumulation and must be cleared.
+    // If the previous shot was discarded by OP_POSTSELECT, the bytecode
+    // loop exited early, leaving meas_record and det_record with stale
+    // data from the aborted shot. Zero them out to avoid garbage.
+    if (discarded) {
+        std::fill(meas_record.begin(), meas_record.end(), 0);
+        std::fill(det_record.begin(), det_record.end(), 0);
+    }
+    discarded = false;
+
+    // obs_record uses ^= accumulation and must always be cleared.
     std::fill(obs_record.begin(), obs_record.end(), 0);
 
     rng_.seed(seed);
@@ -724,6 +735,30 @@ static inline void exec_detector(SchrodingerState& state, const ConstantPool& po
     state.det_record[classical_idx] = parity;
 }
 
+// POSTSELECT: computes XOR parity like DETECTOR, writes 0 to det_record,
+// and sets discarded = true if parity != 0 (shot failed post-selection).
+// Returns true if the shot should be aborted.
+static inline bool exec_postselect(SchrodingerState& state, const ConstantPool& pool,
+                                   uint32_t det_list_idx, uint32_t classical_idx) {
+    assert(det_list_idx < pool.detector_targets.size());
+    const auto& targets = pool.detector_targets[det_list_idx];
+
+    uint8_t parity = 0;
+    for (uint32_t meas_idx : targets) {
+        assert(meas_idx < state.meas_record.size());
+        parity ^= state.meas_record[meas_idx];
+    }
+
+    assert(classical_idx < state.det_record.size());
+    state.det_record[classical_idx] = 0;
+
+    if (parity != 0) {
+        state.discarded = true;
+        return true;
+    }
+    return false;
+}
+
 // OBSERVABLE: computes XOR parity like DETECTOR, but writes to obs_record.
 static inline void exec_observable(SchrodingerState& state, const ConstantPool& pool,
                                    uint32_t target_list_idx, uint32_t obs_idx) {
@@ -783,6 +818,7 @@ void execute(const CompiledModule& program, SchrodingerState& state) {
         [static_cast<uint8_t>(Opcode::OP_NOISE)] = &&L_OP_NOISE,
         [static_cast<uint8_t>(Opcode::OP_READOUT_NOISE)] = &&L_OP_READOUT_NOISE,
         [static_cast<uint8_t>(Opcode::OP_DETECTOR)] = &&L_OP_DETECTOR,
+        [static_cast<uint8_t>(Opcode::OP_POSTSELECT)] = &&L_OP_POSTSELECT,
         [static_cast<uint8_t>(Opcode::OP_OBSERVABLE)] = &&L_OP_OBSERVABLE,
     };
 
@@ -899,6 +935,12 @@ L_OP_DETECTOR:
     exec_detector(state, program.constant_pool, pc->pauli.cp_mask_idx, pc->pauli.condition_idx);
     DISPATCH();
 
+L_OP_POSTSELECT:
+    if (exec_postselect(state, program.constant_pool, pc->pauli.cp_mask_idx,
+                        pc->pauli.condition_idx))
+        return;
+    DISPATCH();
+
 L_OP_OBSERVABLE:
     exec_observable(state, program.constant_pool, pc->pauli.cp_mask_idx, pc->pauli.condition_idx);
     DISPATCH();
@@ -987,6 +1029,11 @@ L_OP_OBSERVABLE:
             case Opcode::OP_DETECTOR:
                 exec_detector(state, program.constant_pool, instr.pauli.cp_mask_idx,
                               instr.pauli.condition_idx);
+                break;
+            case Opcode::OP_POSTSELECT:
+                if (exec_postselect(state, program.constant_pool, instr.pauli.cp_mask_idx,
+                                    instr.pauli.condition_idx))
+                    return;
                 break;
             case Opcode::OP_OBSERVABLE:
                 exec_observable(state, program.constant_pool, instr.pauli.cp_mask_idx,

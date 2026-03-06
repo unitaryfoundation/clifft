@@ -149,6 +149,9 @@ class SchrodingerState {
     // Current active dimension k (v_ holds 2^active_k meaningful entries)
     uint32_t active_k = 0;
 
+    // Post-selection: true if this shot was discarded by OP_POSTSELECT.
+    bool discarded = false;
+
     // Classical Memory
     std::vector<uint8_t> meas_record;
     std::vector<uint8_t> det_record;
