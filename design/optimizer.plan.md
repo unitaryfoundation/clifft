@@ -1,98 +1,75 @@
-# UCC Implementation Plan: State-Agnostic Global Optimization
+# UCC Implementation Plan: State-Agnostic Global Optimization (Lite)
 
 ## Executive Summary & Constraints
 
-In the Factored State architecture, the Front-End mathematically rewinds all non-Clifford operations back to the t=0 vacuum. As a result, the Heisenberg IR (HIR) is inherently a **global phase polynomial** completely devoid of hardware timing or memory layout. This allows the Middle-End to bypass "Hadamard Gadgetization" and synthesize T-count optimizations directly using Third-Order Symmetric Tensor Rank (3-STR) reductions.
+In standard DAG-based quantum compilers, optimization is constrained by rigid temporal graphs, hardware topology, and "Hadamard Gadgetization." UCC's Factored State Architecture bypasses all of this. Because the Front-End mathematically rewinds all physical non-Clifford operations and measurements back to the $t=0$ vacuum, chronological time is completely erased. The Heisenberg IR (HIR) is inherently a **timeless, global phase polynomial** perfectly aligned to the topological geometry of the physical circuit.
 
-This plan implements Vandaele's (2025) algorithms. We prioritize **TOHPE** (Third Order Homogeneous Polynomials Elimination, O(n^2 m^3)) as the core pass, followed by **FastTODD** (O(n^4 m^3)) as a deeper extension.
+Because we do not use a DAG, we do not need rigid "temporal barriers" like clock ticks, classical logic, or measurement gates to prevent invalid optimizations. A $T$ gate can safely commute past a measurement *if and only if* their spatial geometries commute at $t=0$.
 
-"PAPER 1 SCOPE: To establish the 'compiler' narrative without delaying publication, only Phase 1 (Peephole Fusion) will be implemented for the initial release. The $\mathcal{O}(n^4)$ FastTODD algorithms will be explicitly cited as future work."
+To establish the "compiler" narrative for Paper 1, we will implement **Peephole Fusion**. The optimizer will natively scan the HIR and algebraically cancel or fuse $T$ and $T^\dagger$ gates acting on the exact same virtual Pauli axis, regardless of how far apart they appeared in the original circuit.
 
 **Strict Constraints:**
-1. **State-Agnosticism:** The optimizer must manipulate the HIR purely using mathematical masks (destab_mask, stab_mask). It must never require knowledge of an initial state or the Virtual Machine's Active/Dormant sets.
-2. **Virtual Diagonalization Bridge:** Vandaele's binary parity tables strictly require Z-basis operators. The optimizer must dynamically compute local Clifford transformations to temporarily diagonalize arbitrary commuting Pauli cliques into pure Z-strings before executing the linear algebra reductions.
-3. **Clifford Remainders:** T-count reduction alters the phase polynomial at the 3rd order, leaving residual degree-1 and degree-2 phase polynomials (S and CZ equivalents). The optimizer must emit these back into the HIR as explicit nodes. The Back-End will naturally absorb these into the V_cum tracker at zero runtime cost.
-4. **Reproducible** When it comes to actually optimize the circuits (so not the changes to UCC itselef), write scripts to do them in `paper/optimize` directory. The scripts should also generate any plots we would plan to use in a paper.
+1. **State-Agnosticism:** The optimizer must manipulate the HIR purely using symplectic geometry on the mathematical masks (`destab_mask`, `stab_mask`). It must never require knowledge of an initial state, the VM's active dimensions, or physical time.
+2. **No DAG/Time Assumptions:** Do not treat classical annotations or measurements as absolute barriers. The HIR has no concept of time. Commutation is defined *solely* by the $\mathcal{O}(1)$ symplectic inner product.
+3. **Paper 1 Scope:** Advanced $\mathcal{O}(n^4)$ FastTODD / TOHPE linear algebra solvers are explicitly deferred to a future phase. Stick exactly to the adjacent peephole fusions defined below.
+
 ---
 
-## Phase 1: HIR Expansion & Peephole Fusion
+## Phase 1: HIR Expansion & Pass Manager
 
-**Goal:** Expand the HIR to support arbitrary Clifford phase residuals and implement fast adjacent algebraic cancellation.
+**Goal:** Expand the HIR to support arbitrary Clifford phase residuals and implement the optimizer infrastructure.
 
-*   **Task 1.1 (HIR Update):** Update `OpType` in `src/ucc/frontend/hir.h` to include `CLIFFORD_PHASE`. Update `HeisenbergOp` with a factory method to define a Clifford phase rotation (e.g., S, Z, S_dag) applied to a specific Pauli mask.
-*   **Task 1.2 (Pass Interface):** Create `src/ucc/optimizer/pass.h`. Define a pure abstract base class `Pass { virtual void run(HirModule& hir) = 0; }`. Define `PassManager` to execute them sequentially.
-*   **Task 1.3 (Peephole Pass):** Implement `PeepholeFusionPass`. Iterate left-to-right. For each `T_GATE`, scan ahead for another `T_GATE` with identical `destab_mask` and `stab_mask`. Halt the scan immediately if you hit an anti-commuting `MEASURE` or `NOISE` node (using the O(1) symplectic inner product).
-*   **Task 1.4 (Algebraic Fusion):**
-    *   If T * T_dag = I: Delete both nodes.
-    *   If T * T = S: Replace the two nodes with a single `CLIFFORD_PHASE` HIR node on the shared Pauli axis.
-*   **DoD:** A Catch2 test feeds H 0; T 0; T 0; H 0; T 0. The pass fuses the first two T's into a `CLIFFORD_PHASE`, leaving the third T intact. The Back-End absorbs the new node correctly without expanding the active statevector.
+*   **Task 1.1 (HIR Update):** Update `OpType` in `src/ucc/frontend/hir.h` to include `CLIFFORD_PHASE`. Update the `HeisenbergOp` struct with a static factory method `make_clifford_phase(stim::bitword<64> destab, stim::bitword<64> stab, bool sign, bool is_dagger)` to represent an $S$ (`is_dagger = false`) or $S^\dagger$ (`is_dagger = true`) rotation applied to a specific Pauli mask.
+*   **Task 1.2 (Pass Interface):** Create `src/ucc/optimizer/pass.h` and `src/ucc/optimizer/pass_manager.h` (and their `.cc` implementations).
+    * Define a pure abstract base class `class Pass { public: virtual void run(HirModule& hir) = 0; virtual ~Pass() = default; };`.
+    * Define `PassManager` with `add_pass(std::unique_ptr<Pass>)` and `run(HirModule& hir)` methods.
+    * Update `src/ucc/CMakeLists.txt` to compile the new `optimizer/` directory files into the `ucc_core` target.
+*   **Task 1.3 (Bindings Hookup):** In `src/python/bindings.cc`, inside the `compile()` function, replace the `(void)skip_optimizer;` comment block. If `!skip_optimizer`, instantiate the `PassManager`, add the soon-to-be-built `PeepholeFusionPass`, and run it on the `hir` before passing it to `ucc::lower()`.
 
-## Phase 2: Virtual Diagonalization & The Parity Table Bridge
+## Phase 2: Symplectic Peephole Fusion
 
-[DEFERRED TO PAPER 2]
+**Goal:** Scan the timeless HIR left-to-right to algebraically fuse $T$ gates on the same axis using pure symplectic geometry.
 
-**Goal:** Translate a clique of arbitrary commuting HIR Paulis into Vandaele's binary Z-basis Parity Table P, and translate back.
+*   **Task 2.1 (The Sweep):** Implement `PeepholeFusionPass` (in `src/ucc/optimizer/peephole.h/.cc`). Wrap the logic in a `bool changed = true; while (changed) { changed = false; ... }` loop so nested mirror circuits fully resolve. Inside, iterate through the HIR nodes left-to-right. For each `T_GATE` at index $i$, scan ahead (index $j > i$) looking for another `T_GATE` with the exact same `destab_mask` and `stab_mask`.
+    *   *Performance Note:* Do not call `std::vector::erase` during the nested loops to avoid $\mathcal{O}(N^2)$ memory shifting. Track deletions via a `std::vector<bool> deleted` mask and compact `hir.ops` at the very end of each while-loop iteration.
+*   **Task 2.2 (The Commutation Barrier):** As you scan $j$ forward, determine if node $j$ blocks the $T$ gate at $i$ from commuting by checking for anti-commutation. If they anti-commute, **halt the forward scan immediately (`break`)**.
+    *   *Standard Nodes (`T_GATE`, `CLIFFORD_PHASE`, `MEASURE`, `CONDITIONAL_PAULI`):* Use the symplectic inner product over the `stim::bitword` masks: `((op_i.destab_mask() & op_j.stab_mask()) ^ (op_i.stab_mask() & op_j.destab_mask())).popcount() % 2 != 0`. If `true` (odd), they anti-commute.
+    *   *Noise Nodes (`NOISE`):* To keep the struct at 32-bytes, `NOISE` nodes store their geometric masks in a side-table. Look up the channels: `hir.noise_sites[static_cast<uint32_t>(op_j.noise_site_idx())].channels`. Evaluate the inner product between node $i$ and *every* `NoiseChannel` in that site. (Note: `NoiseChannel` uses raw `uint64_t`, so you must use `std::popcount((x1 & z2) ^ (z1 & x2))`). If node $i$ anti-commutes with *any* channel, it is blocked.
+    *   *Classical Nodes (`DETECTOR`, `OBSERVABLE`, `READOUT_NOISE`):* These are purely classical tracking nodes with implicitly zeroed geometric masks. They mathematically commute with everything. Ignore them and continue scanning.
+*   **Task 2.3 (Algebraic Fusion Math):** If a matching, commuting `T_GATE` is found at $j$:
+    *   Calculate effective angles. A $T$ has angle 1, $T^\dagger$ has -1. If the mapped Pauli has a negative phase (`sign() == true`), the rotation direction is inverted ($e^{-i \frac{\pi}{8} (-Z)} = e^{+i \frac{\pi}{8} Z}$): `int eff = (op.is_dagger() ? -1 : 1) * (op.sign() ? -1 : 1);`
+    *   Sum them: `int total = eff_i + eff_j;`
+    *   If `total == 0`: They perfectly cancel ($T \cdot T^\dagger = I$). Mark both node $i$ and $j$ as deleted.
+    *   If `total == 2` or `-2`: They fuse into an $S$ or $S^\dagger$. Replace node $i$ with a `CLIFFORD_PHASE` node (`is_dagger = (total == -2)`, `sign = false`) and mark node $j$ deleted.
+    *   Set `changed = true; break;` so the outer loop restarts the sweep.
+*   **DoD:** A native Catch2 C++ test constructs a `HirModule` with `T 0; DETECTOR; MEASURE Z; T 0`. The pass cleanly slides the $T$ past the classical `DETECTOR` and the commuting diagonal `MEASURE`, fusing the two $T$s into a `CLIFFORD_PHASE`.
 
-*   **Task 2.1 (Clique Extraction):** Implement the first phase of `TohpePass`. Sweep the HIR to collect maximal cliques of mutually commuting `T_GATE`s bounded by stochastic barriers. Let the clique size be m.
-*   **Task 2.2 (Simultaneous Diagonalization):** For a clique of m Paulis, use a local GF(2) solver (or a temporary `stim::Tableau`) to find a Clifford transformation C that maps all m generators to pure Z-strings (i.e., destab_mask becomes 0 for all of them in the temporary frame).
-*   **Task 2.3 (Parity Table Construction):** Construct the binary Parity Table P (size n x m) where column i is the stab_mask of the diagonalized Pauli i.
-*   **Task 2.4 (The Remainder Extraction):** Write a utility that, given an original Parity Table P and an optimized table P', computes the degree-2 and degree-1 difference in the phase polynomial (Vandaele Eq. 14). Emit this difference as diagonal CZ and S operations, map them back through C_dag, and emit them into the HIR as `CLIFFORD_PHASE` nodes alongside the optimized T gates.
-*   **DoD:** A test extracts a commuting clique of Y_0 Z_1 and X_0 X_1, perfectly diagonalizes them to Z_0 and Z_1, builds table P, and translates identical columns back to the original physical masks.
+## Phase 3: Back-End Lowering
 
-## Phase 3: The TOHPE Pass (Algorithm 2)
+**Goal:** Extend the Back-End compiler to geometrically compress the new `CLIFFORD_PHASE` nodes and emit them as VM bytecode.
 
-[DEFERRED TO PAPER 2]
-
-**Goal:** Implement the O(n^2 m^3) Third Order Homogeneous Polynomials Elimination algorithm.
-
-*   **Task 3.1 (GF2 Utilities):** Implement a fast GF(2) right-null-space extraction utility using 64-bit word operations.
-*   **Task 3.2 (Matrix L & Z-set):** Inside `TohpePass`, for a given Parity Table P, compute the binary matrix L where L_{alpha, beta} = P_alpha AND P_beta. Compute the candidate set Z.
-*   **Task 3.3 (Null-Space Search):** Find a vector y in the null-space of L such that y != 0 and (y != 1 or |y| == 0 mod 2).
-*   **Task 3.4 (Objective Maximization):** If y is found, iterate through the Z-set to find the vector z that maximizes the column reduction objective function (Equation 35 from Vandaele 2025).
-*   **Task 3.5 (Substitution):** Execute P' = P XOR (z * y^T). Remove duplicate/zero columns. Call Task 2.4 to overwrite the HIR with the optimized P' and the Clifford remainders.
-*   **DoD:** A synthetic CCZ circuit (7 T-gates) compiles. The TOHPE pass natively isolates the clique, executes Algorithm 2, and outputs an optimized HIR containing exactly 4 T-gates and the correct residual Clifford phases.
+*   **Task 3.1 (Add `emit_s_dag` helper):** In `src/ucc/backend/backend.cc`, below the existing `emit_s` helper, create an `emit_s_dag(ctx, trans_cum, trans_local, v)` helper. It must append `SQRT_Z_DAG` (Stim's $S^\dagger$ gate) to the transposed tableaux, and emit `make_array_s_dag(v)` if active, or `make_frame_s_dag(v)` if dormant.
+*   **Task 3.2 (Expansion Safety):** In `backend.cc` `lower()`, add a switch case for `OpType::CLIFFORD_PHASE`. The structural routing must perfectly mirror the logic used for `T_GATE`.
+    *   Call `map_to_virtual` and `compress_pauli`.
+    *   If the result is dormant and the basis is `X_BASIS`, the compiler **must** still emit `OP_FRAME_SWAP` to route it to the top, append `OP_FRAME_H`, emit `OP_EXPAND` to double the array, and call `ctx.reg_manager.activate()`. (Applying an $S$ gate to $|+\rangle$ yields $|+i\rangle$, which breaks the dormant $|0\rangle_D$ invariant, requiring array expansion).
+    *   If `!is_dormant` and the basis is `X_BASIS`, emit `OP_ARRAY_H`.
+*   **Task 3.3 (Opcode Emission):** After handling the routing, determine the final phase direction: `bool phase_flip = op.is_dagger() ^ result.sign;`.
+    *   If `is_dormant` (which at this point guarantees it's a `Z_BASIS` since `X_BASIS` was activated): emit `OP_FRAME_S_DAG` (if `phase_flip`) else `OP_FRAME_S`.
+    *   If `!is_dormant`: emit `OP_ARRAY_S_DAG` (if `phase_flip`) else `OP_ARRAY_S`.
+*   **DoD:** A Catch2 test feeds `H 0; T 0; T 0` through the full pipeline. The resulting bytecode successfully emits the array/frame updates for a single $S$ gate instead of two $T$ gates, without prematurely expanding the `peak_rank`.
 
 ## Phase 4: Optimization Verification & Oracles
 
-**Goal:** Establish multi-tiered mathematical guarantees that the optimizer does not corrupt quantum probability.
+**Goal:** Establish strict mathematical guarantees that the optimizer does not corrupt quantum probability.
 
-*   **Task 4.1 (Tier 1: Signature Tensor Invariant):**  **DEFER** Write a C++ Catch2 test `test_opt_tensor.cc`. Given a clique P and its optimized replacement P', calculate A_{alpha, beta, gamma} = |P_alpha AND P_beta AND P_gamma| mod 2. Assert that A == A' for all triplets. This mathematically proves 3rd-order equivalence natively in C++.
-*   **Task 4.2 (Tier 2: Exact Statevector Fuzzing):** Write a Python test that generates random 8-qubit Clifford+T circuits. Compile and execute them with the optimizer OFF and ON. Assert that `ucc.get_statevector()` yields identical arrays (fidelity > 0.9999).
-*   **Task 4.3 (Tier 3: The Identity Uncompute Test):** For massive circuits where statevectors OOM (e.g., a 50-qubit Adder). Generate the optimized HIR. Programmatically append the exact syntactic inverse (U_dag) of the *unoptimized* circuit to the HIR. Simulate 100,000 shots. Assert every single shot deterministically measures 0 across all qubits, proving U_opt * U_dag = I.
+*   **Task 4.1 (Tier 1: Exact Statevector Fuzzing):** Write a Python test in `test_structural_oracles.py` (or update `test_qiskit_aer.py`) that generates random 8-qubit Clifford+T circuits (using the existing `random_clifford_t_circuit` helper). Compile and execute them twice: once with `skip_optimizer=True` and once with `skip_optimizer=False`. Assert that `ucc.get_statevector()` yields identical complex arrays (fidelity > 0.9999).
+*   **Task 4.2 (Tier 2: The Identity Uncompute Test):** Update `TestBoundedTMirrorFuzzer` in `test_structural_oracles.py`. Change `skip_optimizer=True` to `skip_optimizer=False`. Because the optimizer mathematically traverses the deep Clifford routing and the outer `while` loop handles nested pairs, it should perfectly cancel all $T$ and $T^\dagger$ gates across the mirror boundary. The resulting output program must have `peak_rank == 0` (zero runtime memory expansion).
 
-## Phase 5: The op-T-mize Benchmark Suite
-[DEFERRED TO PAPER 2]
-**Goal:** Quantify UCC's optimization superiority in the Python layer against industry standards.
+---
 
-*   **Task 5.1 (Benchmark Harness):** Create `paper/optimize/test_bench_optimize.py`. Download the standard `op-T-mize` QASM circuits (Adder8, csla_mux3, barenco_tof_10, gf2^4_mult, etc.).
-*   **Task 5.2 (Execution & Metrics):** Route the circuits through UCC, `pyzx.full_reduce()`, and `pytket.passes.FullPeepholeOptimise`.
-*   **Task 5.3 (Reporting):** For each framework, report:
-    1. Final T-Count.
-    2. Compilation Latency (ms).
-    3. **Peak Active Rank (k_max):** Highlight how UCC's logical T-count reduction directly shrinks the Virtual Machine's physical RAM footprint, a metric completely unique to the Factored State architecture.
+## [DEFERRED] Future Phases (Paper 2)
 
-## Phase 6: The FastTODD Upgrade (Algorithm 3) [Optional]
-[DEFERRED TO PAPER 2]
-**Goal:** Extend TOHPE with the deeper O(n^4 m^3) search space.
-
-*   **Task 6.1 (Sub-solver Matrices):** Implement the `FastToddPass`. It first calls TOHPE until no reductions remain. It then constructs the matrices X^(z) and v^(z) to search for linear dependencies in the expanded space.
-*   **Task 6.2 (Gaussian Elimination):** Implement the block GF(2) solver to extract the right null-space of the combined matrices.
-*   **Task 6.3 (Substitution):** Apply the exact same objective maximization and P' substitution as TOHPE.
-*   **DoD:** FastTODD finds edge-case reductions that TOHPE missed on specific deep circuit topologies.
-
-## **Phase 7: Explicit SPP & SPP_DAG Support [Optional]**
-
-**Goal:** Expose the optimizer's internal CLIFFORD_PHASE machinery directly to the user by parsing Stim's Generalized Pauli Phase gates (SPP and SPP_DAG). This allows manual Phase Gadgets and resolves the missing S-dagger technical debt.
-
-* **Task 7.1 (S-Dagger VM Upgrade):** Resolve "Open Item 5" from the refactor plan.
-  * In backend.h, add OP_FRAME_S_DAG and OP_ARRAY_S_DAG to the Opcode enum.
-  * In svm.cc, implement exec_frame_s_dag (If p_x[v] == 1, multiply gamma by $-i$, then toggle p_z[v]) and exec_array_s_dag (apply $-i$ to the $|1\rangle_v$ branch, and update the frame identically).
-* **Task 7.2 (Parser Generalization):** [DEFERRED TO PAPER 2] In src/ucc/circuit/parser.cc, refactor the Pauli-product tokenization logic out of parse_mpp into a reusable parse_pauli_product helper. Add GateType::SPP and GateType::SPP_DAG to gate_data.h and route them to this parsing logic, emitting a single AST node containing the combined Pauli targets.
-* **Task 7.3 (Front-End Rewinding):** [DEFERRED TO PAPER 2] In src/ucc/frontend/frontend.cc, evaluate SPP and SPP_DAG similarly to MPP. Construct the physical stim::PauliString, rewind it through sim.inv_state, and extract the $t=0$ masks. Emit a CLIFFORD_PHASE node to the HIR (reusing the node type added in Phase 1). Use a flag to denote if the input was SPP_DAG.
-* **Task 7.4 (Back-End Lowering):** In backend.cc lower(), add the handler for CLIFFORD_PHASE nodes (which now arrive from both the Optimizer and the Front-End):
-  1. Map the $t=0$ mask to the current virtual frame ($P_v = V_{cum} P_{t=0} V_{cum}^\dagger$).
-  2. Run compress_pauli(P_v) to isolate it to a single virtual axis $v$, yielding a basis and a sign.
-  3. **Basis Alignment:** If basis == CompressedBasis::X_BASIS, append H_v to V_cum and emit OP_FRAME_H / OP_ARRAY_H (depending on if $v$ is Active or Dormant) to align the rotation to $Z_v$.
-  4. **Phase Application:** Determine the phase direction: bool is_inv = op.is_dagger() ^ result.sign.
-  5. Append $S_v$ or $S_v^\dagger$ to V_cum, and emit the corresponding OP_FRAME_S[_DAG] or OP_ARRAY_S[_DAG] instruction. *(Note: you do not need to "uncompute" the basis alignment; the $V_{cum}$ tracker permanently adopts the new geometry).*
-* **DoD:** A C++ Catch2 test parsing SPP X0*Y1; SPP_DAG X0*Y1 successfully compiles and simulates. The VM evaluates it entirely using frame and array opcodes without ever expanding the statevector's active dimension. A Python Catch2 test asserts that ucc.get_statevector executing H 0; H 1; SPP X0*X1 perfectly matches a standalone Qiskit oracle executing the equivalent $R_{XX}(\pi/2)$ gadget.
+*   **Phase 5:** Virtual Diagonalization & The Parity Table Bridge
+*   **Phase 6:** The TOHPE Pass (Algorithm 2)
+*   **Phase 7:** The op-T-mize Benchmark Suite
+*   **Phase 8:** The FastTODD Upgrade (Algorithm 3)

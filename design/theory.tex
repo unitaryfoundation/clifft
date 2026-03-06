@@ -457,94 +457,106 @@ The \textbf{Compiler Back-End} and \textbf{Virtual Machine} cooperate across a s
 While this work focuses on optimizing discrete FTQC logic to demonstrate flat memory scaling under syndrome cooling, the underlying Factored State architecture is natively continuous. Unlike Stabilizer Rank or graph-theoretic methods---which are fundamentally restricted to discrete algebraic decompositions---UCC's 32-byte RISC payload accommodates inline continuous complex weights. Future work will leverage the AOT compiler's Dominant Term Factoring to boundedly simulate coherent, continuous circuit-level crosstalk without abandoning the rigorous exactness of the Factored State framework.
 
 \section{Another view}
+
 \begin{tikzpicture}[
     >=Stealth,
     font=\sffamily,
     % --- Styles for Implemented (Prototype) ---
-    impl/.style={rectangle, draw=blue!80!black, fill=blue!5, thick, minimum width=3.6cm, minimum height=1.2cm, align=center, rounded corners=1ex, font=\small\bfseries},
-    impl-io/.style={rectangle, draw=black!80, fill=gray!10, thick, minimum width=3.2cm, minimum height=1.0cm, align=center, rounded corners=1ex, font=\small\bfseries},
-    impl-pass/.style={rectangle, draw=blue!80!black, fill=blue!15, thick, minimum width=3.4cm, minimum height=0.8cm, align=center, rounded corners=1ex, font=\footnotesize\bfseries},
+    impl/.style={rectangle, draw=blue!80!black, fill=blue!5, thick, minimum width=4.0cm, minimum height=1.4cm, align=center, rounded corners=1ex, font=\small\bfseries},
+    impl-io/.style={rectangle, draw=black!80, fill=gray!10, thick, minimum width=3.4cm, minimum height=1.0cm, align=center, rounded corners=1ex, font=\small\bfseries},
+    impl-pass/.style={rectangle, draw=blue!80!black, fill=blue!15, thick, minimum width=3.8cm, minimum height=0.9cm, align=center, rounded corners=1ex, font=\footnotesize\bfseries},
     % --- Styles for Future / Ecosystem ---
-    fut/.style={rectangle, draw=gray!50, fill=white, dashed, thick, minimum width=3.6cm, minimum height=1.2cm, align=center, rounded corners=1ex, font=\small, text=gray!80!black},
-    fut-io/.style={rectangle, draw=gray!50, fill=white, dashed, thick, minimum width=3.2cm, minimum height=1.0cm, align=center, rounded corners=1ex, font=\small, text=gray!80!black},
-    fut-pass/.style={rectangle, draw=gray!40, fill=white, dashed, thick, minimum width=3.4cm, minimum height=0.8cm, align=center, rounded corners=1ex, font=\footnotesize, text=gray!80!black},
+    fut/.style={rectangle, draw=gray!50, fill=white, dashed, thick, minimum width=4.0cm, minimum height=1.4cm, align=center, rounded corners=1ex, font=\small, text=gray!80!black},
+    fut-io/.style={rectangle, draw=gray!50, fill=white, dashed, thick, minimum width=3.4cm, minimum height=1.0cm, align=center, rounded corners=1ex, font=\small, text=gray!80!black},
+    fut-pass/.style={rectangle, draw=gray!40, fill=white, dashed, thick, minimum width=3.8cm, minimum height=0.9cm, align=center, rounded corners=1ex, font=\footnotesize, text=gray!80!black},
     % --- Edge styles ---
     arr-impl/.style={->, thick, draw=blue!80!black},
     arr-fut/.style={->, thick, dashed, draw=gray!50},
-    edge-label/.style={above, font=\scriptsize\bfseries, align=center, yshift=0.5mm}
+    lbl-left/.style={left, font=\scriptsize\bfseries, align=right, xshift=-1mm, fill=white, inner sep=2pt},
+    lbl-right/.style={right, font=\scriptsize\bfseries, align=left, xshift=1mm, fill=white, inner sep=2pt},
+    lbl-fut/.style={font=\scriptsize, text=gray!80!black}
 ]
 
 % ==========================================
-% 1. INPUT SOURCES
+% 1. INPUT SOURCES (Top Row)
 % ==========================================
 \node[impl-io] (in-stim) {Extended Stim\\ \normalfont\scriptsize (Native Format)};
-\node[fut-io, above=0.4cm of in-stim] (in-qasm) {OpenQASM 3};
-\node[fut-io, below=0.4cm of in-stim] (in-qiskit) {Qiskit / PennyLane};
+\node[fut-io, left=0.8cm of in-stim] (in-qasm) {OpenQASM 3};
+\node[fut-io, right=0.8cm of in-stim] (in-qiskit) {Qiskit / PennyLane};
 
 % ==========================================
-% 2. FRONT-END
+% 2. FRONT-END COMPILER
 % ==========================================
-\node[impl, right=1.5cm of in-stim, minimum height=2.8cm] (fe) {Front-End Compiler\\[2mm] \normalfont\scriptsize Physical Rewinding \&\\ \normalfont\scriptsize Clifford Absorption};
+\node[impl, below=1.2cm of in-stim, minimum width=7cm] (fe) {Front-End Compiler\\[1mm] \normalfont\scriptsize Physical Rewinding \& Clifford Absorption};
 
-\draw[arr-fut] (in-qasm.east) -- ++(0.5,0) |- (fe.165);
-\draw[arr-impl] (in-stim.east) -- (fe.west);
-\draw[arr-fut] (in-qiskit.east) -- ++(0.5,0) |- (fe.195);
+% Routing inputs to Front-End (curved funnel)
+\draw[arr-fut] (in-qasm.south) to[out=-90, in=90] ([xshift=-2.6cm]fe.north);
+\draw[arr-impl] (in-stim.south) -- (fe.north);
+\draw[arr-fut] (in-qiskit.south) to[out=-90, in=90] ([xshift=2.6cm]fe.north);
 
 % ==========================================
 % 3. MIDDLE-END OPTIMIZER
 % ==========================================
-\node[impl-pass, right=2.2cm of fe] (pass-peep) {Peephole Optimizer\\ \normalfont\scriptsize ($T \cdot T \to S$)};
-\node[fut-pass, above=0.3cm of pass-peep] (pass-todd) {Global Contraction\\ \normalfont\scriptsize (FastTODD / 3-STR)};
-\node[fut-pass, below=0.3cm of pass-peep] (pass-rank) {Dynamic Rank Min.\\ \normalfont\scriptsize (Minimize Peak $k_{\max}$)};
+% Place the implemented peephole pass in the center
+\node[impl-pass, below=2.4cm of fe] (pass-peep) {Peephole Optimizer\\ \normalfont\scriptsize ($T \cdot T \to S$)};
+\node[font=\small\bfseries, above=0.3cm of pass-peep] (me-title) {Middle-End Optimizer (Passes)};
+\node[fut-pass, left=0.6cm of pass-peep] (pass-todd) {Global Contraction\\ \normalfont\scriptsize (FastTODD / 3-STR)};
+\node[fut-pass, right=0.6cm of pass-peep] (pass-rank) {Dynamic Rank Min.\\ \normalfont\scriptsize (Minimize Peak $k_{\max}$)};
 
+% Bounding box for Middle-End
 \begin{scope}[on background layer]
-    \node[rectangle, draw=black!20, fill=black!2, rounded corners=2ex, inner sep=12pt, fit=(pass-todd)(pass-peep)(pass-rank)] (me-box) {};
-    \node[above=0.2cm of me-box, font=\small\bfseries] {Middle-End Optimizer (Passes)};
+    \node[rectangle, draw=black!20, fill=black!2, rounded corners=2ex, inner sep=12pt, fit=(me-title)(pass-todd)(pass-peep)(pass-rank)] (me-box) {};
 \end{scope}
 
-\draw[arr-impl] (fe.east) -- node[edge-label] {Heisenberg\\IR (HIR)} (me-box.west |- fe.east);
+% Arrow from FE to ME Box
+\draw[arr-impl] (fe.south) -- node[lbl-right] {Heisenberg\\IR (HIR)} (me-box.north);
 
 % ==========================================
-% 4. BACK-ENDS
+% 4. COMPILER BACK-ENDS
 % ==========================================
-\node[impl, right=2.2cm of pass-peep] (be-vm) {Compiler Back-End\\[1mm] \normalfont\scriptsize Virtual Compression \&\\ \normalfont\scriptsize RISC Bytecode Emission};
-\node[fut, right=2.2cm of pass-todd] (be-ft) {Lattice Surgery Router\\[1mm] \normalfont\scriptsize Pauli-Based Computation};
-\node[fut, right=2.2cm of pass-rank] (be-nisq) {NISQ Synthesizer\\[1mm] \normalfont\scriptsize Hardware SWAP Routing};
+% Align exactly under their respective passes to create columns
+\node[impl, below=1.8cm of pass-peep] (be-vm) {Compiler Back-End\\[1mm] \normalfont\scriptsize Virtual Compression \&\\ \normalfont\scriptsize RISC Bytecode Emission};
+\node[fut, below=1.8cm of pass-todd] (be-ft) {Lattice Surgery Router\\[1mm] \normalfont\scriptsize Pauli-Based Computation};
+\node[fut, below=1.8cm of pass-rank] (be-nisq) {NISQ Synthesizer\\[1mm] \normalfont\scriptsize Hardware SWAP Routing};
 
-\draw[arr-fut] (me-box.east |- pass-todd) -- node[edge-label, font=\tiny\bfseries] {Optimized HIR} (be-ft.west);
-\draw[arr-impl] (me-box.east |- pass-peep) -- node[edge-label, font=\tiny\bfseries] {Optimized HIR} (be-vm.west);
-\draw[arr-fut] (me-box.east |- pass-rank) -- node[edge-label, font=\tiny\bfseries] {Optimized HIR} (be-nisq.west);
+% Drop-down arrows with HIR labels
+\draw[arr-fut] (pass-todd.south |- me-box.south) -- node[lbl-left, lbl-fut] {Optimized\\HIR} (be-ft.north);
+\draw[arr-impl] (pass-peep.south |- me-box.south) -- node[lbl-right] {Optimized\\HIR} (be-vm.north);
+\draw[arr-fut] (pass-rank.south |- me-box.south) -- node[lbl-right, lbl-fut] {Optimized\\HIR} (be-nisq.north);
 
 % ==========================================
-% 5. EXECUTION & OUTPUTS
+% 5. EXECUTION & TARGETS
 % ==========================================
-\node[impl, right=1.5cm of be-vm] (vm) {Schrödinger VM\\[1mm] \normalfont\scriptsize Execution over\\ \normalfont\scriptsize Contiguous Array};
-\node[fut-io, right=1.5cm of be-ft] (out-ft) {FTQC Hardware\\ \normalfont\scriptsize (e.g., tqec)};
-\node[fut-io, right=1.5cm of be-nisq] (out-nisq) {NISQ Hardware\\ \normalfont\scriptsize (Superconducting / Ion)};
+\node[impl, below=1.5cm of be-vm] (vm) {Schrödinger VM\\[1mm] \normalfont\scriptsize Execution over\\ \normalfont\scriptsize Contiguous Array};
+\node[fut-io, below=1.5cm of be-ft] (out-ft) {FTQC Hardware\\ \normalfont\scriptsize (e.g., tqec)};
+\node[fut-io, below=1.5cm of be-nisq] (out-nisq) {NISQ Hardware\\ \normalfont\scriptsize (Superconducting / Ion)};
 
-\draw[arr-fut] (be-ft.east) -- node[edge-label, font=\tiny] {Logical Ops} (out-ft.west);
-\draw[arr-impl] (be-vm.east) -- node[edge-label, font=\tiny\bfseries] {RISC Bytecode} (vm.west);
-\draw[arr-fut] (be-nisq.east) -- node[edge-label, font=\tiny] {Gate Pulses} (out-nisq.west);
+% Drop-down arrows to execution targets
+\draw[arr-fut] (be-ft.south) -- node[lbl-left, lbl-fut] {Logical Ops} (out-ft.north);
+\draw[arr-impl] (be-vm.south) -- node[lbl-right] {RISC Bytecode} (vm.north);
+\draw[arr-fut] (be-nisq.south) -- node[lbl-right, lbl-fut] {Gate Pulses} (out-nisq.north);
 
-\node[impl-io, right=1cm of vm] (out-bits) {Sampled\\Bitstrings};
-\draw[arr-impl] (vm.east) -- (out-bits.west);
+% ==========================================
+% 6. FINAL OUTPUT
+% ==========================================
+\node[impl-io, below=1.2cm of vm] (out-bits) {Sampled\\Bitstrings};
+\draw[arr-impl] (vm.south) -- (out-bits.north);
 
 % ==========================================
 % LEGEND
 % ==========================================
-\begin{scope}[shift={(4, -4.5)}]
-    \node[rectangle, draw=black!30, fill=white, rounded corners=1ex, thick, inner sep=10pt] (legend) {
-        \begin{tikzpicture}[node distance=0.3cm and 1cm]
-            \node[impl-io, minimum width=0.8cm, minimum height=0.4cm] (l1) {};
-            \node[right=of l1, font=\footnotesize\bfseries, text=black] (t1) {UCC Prototype (Implemented)};
+\node[rectangle, draw=black!30, fill=white, rounded corners=1ex, thick, inner sep=10pt, below=1.2cm of out-bits] (legend) {
+    \begin{tikzpicture}[node distance=0.3cm and 1cm]
+        \node[impl-io, minimum width=0.8cm, minimum height=0.4cm] (l1) {};
+        \node[right=of l1, font=\footnotesize\bfseries, text=black] (t1) {UCC Prototype (Implemented)};
 
-            \node[fut-io, minimum width=0.8cm, minimum height=0.4cm, right=of t1] (l2) {};
-            \node[right=of l2, font=\footnotesize, text=gray!80!black] (t2) {Ecosystem / Future Extension};
-        \end{tikzpicture}
-    };
-\end{scope}
+        \node[fut-io, minimum width=0.8cm, minimum height=0.4cm, right=of t1] (l2) {};
+        \node[right=of l2, font=\footnotesize, text=gray!80!black] (t2) {Ecosystem / Future Extension};
+    \end{tikzpicture}
+};
 
 \end{tikzpicture}
+
 
 \begin{thebibliography}{9}
 
