@@ -54,6 +54,7 @@ enum class Opcode : uint8_t {
     OP_DETECTOR,       // Parity check over measurement records
     OP_POSTSELECT,     // Post-selection check: abort shot if parity != 0
     OP_OBSERVABLE,     // Logical observable accumulator
+    NUM_OPCODES        // Sentinel: must remain last for binding completeness checks
 };
 
 // =============================================================================

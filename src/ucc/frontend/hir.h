@@ -101,7 +101,8 @@ enum class OpType : uint8_t {
     NOISE,              // Stochastic Pauli channel (references NoiseSite side-table)
     READOUT_NOISE,      // Classical bit-flip on measurement result
     DETECTOR,           // Parity check over measurement records
-    OBSERVABLE          // Logical observable accumulator
+    OBSERVABLE,         // Logical observable accumulator
+    NUM_OP_TYPES        // Sentinel: must remain last for binding completeness checks
 };
 
 // A single operation in the Heisenberg IR.
