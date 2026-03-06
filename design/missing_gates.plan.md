@@ -58,3 +58,29 @@ You should see a doc/gates.md file in the stim source dependency tree pulled in 
   * These gates provide exact probabilities for disjoint channels. Instantiate a NoiseSite, iterate over the provided probabilities in node.args, map the corresponding Pauli error (e.g. $X, Y, Z$ for 1Q, or $IX, IY \dots ZZ$ for 2Q) to $t=0$ through sim.inv_state, and push it into site.channels if prob > 0.
   * *Note:* The Back-End and VM already loop over NoiseSite::channels dynamically. By purely populating the AOT struct, the VM supports these gates automatically with zero code changes.
 * **DoD:** A Python test proves PAULI_CHANNEL_1(0.1, 0.2, 0.3) 0 evaluates with correct gap-sampled statistics in the VM.
+
+## Phase 5: Native REPEAT Unrolling
+
+**Goal:** Support Stim's `REPEAT N { ... }` control flow via text-level parser unrolling. This executes entirely AOT, requiring zero changes to the Front-End, Back-End, or Virtual Machine, while perfectly preserving `rec[-k]` semantics.
+
+* **Task 5.1 (Safety Limits):** In `src/ucc/util/config.h`, define a new constant `constexpr size_t kMaxUnrolledOps = 10'000'000;`. This protects the compiler from Out-Of-Memory (OOM) crashes on exponentially deep nested loops.
+* **Task 5.2 (Block Extraction):** In `parser.cc`, update the parsing loop to detect the `REPEAT` keyword.
+1. Parse the repetition integer $N$.
+2. Scan forward from the current position in the main text stream to find the opening brace `{`.
+3. Continue scanning forward, keeping a `depth` counter (increment on `{`, decrement on `}`), until you find the exact matching closing brace `}`.
+4. Extract the `std::string_view` of the block's body (the text between the braces).
+5. Advance the outer parser's `remaining` text stream and `line_num` past the block.
+
+
+* **Task 5.3 (Text-Level Replay):** Loop $N$ times.
+* Inside the loop, instantiate a local `std::string_view` of the block's body and process it using the exact same line-by-line parsing logic, passing the main `circuit` by reference.
+* *Crucial:* Because the text is re-parsed every iteration against the main `circuit`, `circuit.num_measurements` will naturally increment. This mathematically guarantees that `rec[-k]` relative offsets resolve perfectly, even if they point to measurements *outside* the loop!
+* After parsing each line, enforce the safety limit: `if (circuit.nodes.size() > kMaxUnrolledOps) throw ParseError("Circuit exceeds maximum unrolled operations limit");`.
+
+
+* **DoD:** The parser successfully ingests `M 0; REPEAT 3 { CX rec[-1] 1; M 1 }`. The resulting AST contains 7 nodes, with the `CX` gates pointing to absolute measurement targets `0`, `1`, and `2` respectively. A test attempting to unroll 20 million operations immediately raises a `ParseError`.
+
+
+## Phase 6: Summarize difference
+
+As a simple final step, create a design/gates.md file that shows a table of gates, organized by type that we implement in UCC. And then have a final section for STIM gates that UCC does not support currentyl.
