@@ -42,7 +42,7 @@ jobs:
     runs-on: ubuntu-24.04
     env:
       CMAKE_BUILD_TYPE: Debug
-      SKBUILD_BUILD_TYPE: Debug
+      SKBUILD_CMAKE_BUILD_TYPE: Debug
       CMAKE_C_COMPILER_LAUNCHER: ccache
       CMAKE_CXX_COMPILER_LAUNCHER: ccache
     steps:

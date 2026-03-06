@@ -382,7 +382,6 @@ CompiledModule lower(const HirModule& hir) {
 
     // Track detector/observable emission indices
     uint32_t det_emit_idx = 0;
-    uint32_t obs_emit_idx = 0;
 
     // Track the last measurement outcome index for use_last_outcome resolution
     uint32_t last_meas_idx = 0;
@@ -612,17 +611,72 @@ CompiledModule lower(const HirModule& hir) {
 
                 auto obs_idx = static_cast<uint32_t>(op.observable_idx());
                 ctx.bytecode.push_back(make_observable(cp_idx, obs_idx));
-                ++obs_emit_idx;
                 break;
             }
 
-            case OpType::CLIFFORD_PHASE:
-                assert(false && "CLIFFORD_PHASE lowering not yet implemented");
+            case OpType::CLIFFORD_PHASE: {
+                auto p_v = map_to_virtual(ctx, op.destab_mask(), op.stab_mask(), op.sign(), n);
+                auto result = compress_pauli(ctx, p_v);
+
+                bool is_dormant = result.pivot >= ctx.reg_manager.active_k();
+
+                if (is_dormant && result.basis == CompressedBasis::Z_BASIS) {
+                    // Dormant Z: frame-only S/S_dag, no expansion needed.
+                } else if (is_dormant) {
+                    // Dormant X: S|+> = |+i>, which breaks the |0>_D invariant.
+                    // Must expand into the active array.
+                    uint16_t next_axis = static_cast<uint16_t>(ctx.reg_manager.active_k());
+
+                    {
+                        stim::TableauTransposedRaii<kStimWidth> trans_cum(ctx.v_cum);
+                        if (result.pivot != next_axis) {
+                            emit_swap(ctx, trans_cum, result.pivot, next_axis);
+                            result.pivot = next_axis;
+                        }
+
+                        trans_cum.append_H_XZ(result.pivot);
+                    }
+
+                    ctx.bytecode.push_back(make_frame_h(result.pivot));
+
+                    ctx.bytecode.push_back(make_expand(result.pivot));
+                    ctx.reg_manager.activate();
+                } else if (result.basis == CompressedBasis::X_BASIS) {
+                    // Active X: emit H to rotate to Z basis.
+                    {
+                        stim::TableauTransposedRaii<kStimWidth> trans(ctx.v_cum);
+                        trans.append_H_XZ(result.pivot);
+                    }
+                    ctx.bytecode.push_back(make_array_h(result.pivot));
+                }
+
+                // Re-evaluate active status: the array may have just expanded.
+                bool is_active_now = result.pivot < ctx.reg_manager.active_k();
+
+                bool phase_flip = result.sign ^ op.is_dagger();
+
+                if (!is_active_now) {
+                    if (phase_flip) {
+                        ctx.bytecode.push_back(make_frame_s_dag(result.pivot));
+                    } else {
+                        ctx.bytecode.push_back(make_frame_s(result.pivot));
+                    }
+                } else {
+                    if (phase_flip) {
+                        ctx.bytecode.push_back(make_array_s_dag(result.pivot));
+                    } else {
+                        ctx.bytecode.push_back(make_array_s(result.pivot));
+                    }
+                }
+
+                // Do NOT update V_cum here. The runtime opcode (OP_ARRAY_S /
+                // OP_FRAME_S) applies the gate dynamically. Absorbing it into
+                // V_cum would double-apply it.
+
                 break;
+            }
         }
     }
-
-    assert(obs_emit_idx == hir.num_observables && "observable emission count mismatch");
 
     // Compute final tableau U_C = U_phys * V_cum^{-1}.
     // A.then(B) evaluates to B * A in matrix multiplication.
