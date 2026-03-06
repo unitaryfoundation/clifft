@@ -14,7 +14,6 @@ using namespace ucc;
 using namespace ucc::internal;
 using ucc::test::test_lcg;
 using ucc::test::X;
-using ucc::test::Y;
 using ucc::test::Z;
 
 // =============================================================================
@@ -195,12 +194,11 @@ TEST_CASE("Compress: single-qubit X needs no gates") {
 
 TEST_CASE("Compress: single-qubit Y emits S gate") {
     CompilerContext ctx(4);
-    auto pauli = make_pauli(4, Y(1), Y(1));
+    auto pauli = make_pauli(4, X(1), Z(1));
     auto result = compress_pauli(ctx, pauli);
 
     REQUIRE(result.pivot == 1);
     REQUIRE(result.basis == CompressedBasis::X_BASIS);
-    // Y_1 -> S maps to -X_1, so sign flips from the original
     REQUIRE(result.sign == true);
     REQUIRE(count_opcodes(ctx.bytecode, Opcode::OP_FRAME_S) == 1);
     verify_compression(ctx, pauli, result);
@@ -298,7 +296,7 @@ TEST_CASE("Compress: negative X preserves sign") {
 
 TEST_CASE("Compress: negative Y gives positive X after S") {
     CompilerContext ctx(4);
-    auto pauli = make_pauli(4, Y(0), Y(0), /*sign=*/true);
+    auto pauli = make_pauli(4, X(0), Z(0), /*sign=*/true);
     auto result = compress_pauli(ctx, pauli);
 
     REQUIRE(result.basis == CompressedBasis::X_BASIS);
@@ -386,6 +384,7 @@ TEST_CASE("Compress: random heavy Paulis compress to weight-1") {
     uint64_t seed = 0xDEADBEEF;
 
     for (int trial = 0; trial < 100; ++trial) {
+        INFO("Trial: " << trial << " | Seed: " << seed);
         const uint32_t n = 20;
         CompilerContext ctx(n);
 
@@ -413,6 +412,7 @@ TEST_CASE("Compress: random heavy Paulis with sign") {
     uint64_t seed = 0xCAFEBABE;
 
     for (int trial = 0; trial < 50; ++trial) {
+        INFO("Trial: " << trial << " | Seed: " << seed);
         const uint32_t n = 15;
         CompilerContext ctx(n);
 
@@ -444,6 +444,7 @@ TEST_CASE("Compress: all-dormant heavy Pauli emits only frame opcodes") {
     uint64_t seed = 0x12345678;
 
     for (int trial = 0; trial < 50; ++trial) {
+        INFO("Trial: " << trial << " | Seed: " << seed);
         const uint32_t n = 16;
         CompilerContext ctx(n);  // All dormant
 
@@ -690,7 +691,7 @@ TEST_CASE("Backend: Gap sampling hazard array accumulation") {
 }
 
 // =============================================================================
-// Phase 2 Hardening: Scaled Compressor Fuzzing
+// Scaled Compressor Fuzzing
 // =============================================================================
 
 TEST_CASE("Compress fuzz: 30-qubit heavy Paulis 500 trials") {
@@ -698,6 +699,7 @@ TEST_CASE("Compress fuzz: 30-qubit heavy Paulis 500 trials") {
     const uint32_t n = 30;
 
     for (int trial = 0; trial < 500; ++trial) {
+        INFO("Trial: " << trial << " | Seed: " << seed);
         CompilerContext ctx(n);
 
         uint32_t k = static_cast<uint32_t>(test_lcg(seed) % (n + 1));
@@ -724,6 +726,7 @@ TEST_CASE("Compress fuzz: 64-qubit max-width Paulis") {
     const uint32_t n = 64;
 
     for (int trial = 0; trial < 200; ++trial) {
+        INFO("Trial: " << trial << " | Seed: " << seed);
         CompilerContext ctx(n);
 
         uint32_t k = static_cast<uint32_t>(test_lcg(seed) % (n + 1));
@@ -746,7 +749,7 @@ TEST_CASE("Compress fuzz: 64-qubit max-width Paulis") {
 }
 
 // =============================================================================
-// Phase 2 Hardening: Adversarial Patterns
+// Adversarial Patterns
 // =============================================================================
 
 TEST_CASE("Compress adversarial: all-Y strings") {
@@ -839,6 +842,7 @@ TEST_CASE("Compress adversarial: dense XZ overlap") {
     const uint32_t n = 30;
 
     for (int trial = 0; trial < 100; ++trial) {
+        INFO("Trial: " << trial << " | Seed: " << seed);
         CompilerContext ctx(n);
         uint32_t k = static_cast<uint32_t>(test_lcg(seed) % (n + 1));
         for (uint32_t i = 0; i < k; ++i) {
@@ -861,7 +865,7 @@ TEST_CASE("Compress adversarial: dense XZ overlap") {
 }
 
 // =============================================================================
-// Phase 2 Hardening: Sequential Compression Stress
+// Sequential Compression Stress
 // =============================================================================
 
 TEST_CASE("Compress sequential: 20 compressions on 20 qubits") {
@@ -940,7 +944,7 @@ TEST_CASE("Compress sequential: 30 compressions on 30 qubits all-dormant") {
 }
 
 // =============================================================================
-// Phase 3 Task 3.5: Active/Dormant Boundary - EXPAND Emission
+// Active/Dormant Boundary - EXPAND Emission
 // =============================================================================
 
 // Helper: compile a circuit string through the full pipeline and return the module.

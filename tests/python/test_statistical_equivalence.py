@@ -85,10 +85,10 @@ class TestTargetQECCircuit:
         stim_det, stim_obs = stim_sampler.sample(shots, separate_observables=True)
 
         # Compute marginal probabilities
-        ucc_det_probs = ucc_det.astype(float).mean(axis=0)
-        stim_det_probs = stim_det.astype(float).mean(axis=0)
-        ucc_obs_probs = ucc_obs.astype(float).mean(axis=0)
-        stim_obs_probs = stim_obs.astype(float).mean(axis=0)
+        ucc_det_probs = ucc_det.mean(axis=0, dtype=float)
+        stim_det_probs = stim_det.mean(axis=0, dtype=float)
+        ucc_obs_probs = ucc_obs.mean(axis=0, dtype=float)
+        stim_obs_probs = stim_obs.mean(axis=0, dtype=float)
 
         # Check all detectors
         for i in range(len(ucc_det_probs)):
@@ -135,8 +135,8 @@ class TestSimpleCircuitEquivalence:
         _, ucc_det, _ = ucc.sample(prog, shots, seed=99)
         stim_det, _ = stim_sampler.sample(shots, separate_observables=True)
 
-        ucc_rate = float(ucc_det.astype(float).mean())
-        stim_rate = float(stim_det.astype(float).mean())
+        ucc_rate = float(ucc_det.mean(dtype=float))
+        stim_rate = float(stim_det.mean(dtype=float))
 
         tol = cross_binomial_tolerance((ucc_rate + stim_rate) / 2, shots)
         assert abs(ucc_rate - stim_rate) < tol
@@ -159,8 +159,8 @@ class TestSimpleCircuitEquivalence:
 
         # Detector fires when readout noise causes disagreement
         # Expected rate: 2 * 0.05 * 0.95 ~ 0.095 (one or the other flips)
-        ucc_rate = float(ucc_det.astype(float).mean())
-        stim_rate = float(stim_det.astype(float).mean())
+        ucc_rate = float(ucc_det.mean(dtype=float))
+        stim_rate = float(stim_det.mean(dtype=float))
 
         tol = cross_binomial_tolerance((ucc_rate + stim_rate) / 2, shots)
         assert abs(ucc_rate - stim_rate) < tol
@@ -234,8 +234,8 @@ class TestTopologicalQECCodes:
         stim_det, stim_obs = stim_sampler.sample(shots, separate_observables=True)
 
         # Check detector marginals
-        ucc_det_probs = ucc_det.astype(float).mean(axis=0)
-        stim_det_probs = stim_det.astype(float).mean(axis=0)
+        ucc_det_probs = ucc_det.mean(axis=0, dtype=float)
+        stim_det_probs = stim_det.mean(axis=0, dtype=float)
 
         for i in range(len(ucc_det_probs)):
             p_est = (ucc_det_probs[i] + stim_det_probs[i]) / 2
@@ -248,8 +248,8 @@ class TestTopologicalQECCodes:
             )
 
         # Check observable marginals
-        ucc_obs_probs = ucc_obs.astype(float).mean(axis=0)
-        stim_obs_probs = stim_obs.astype(float).mean(axis=0)
+        ucc_obs_probs = ucc_obs.mean(axis=0, dtype=float)
+        stim_obs_probs = stim_obs.mean(axis=0, dtype=float)
 
         for i in range(len(ucc_obs_probs)):
             p_est = (ucc_obs_probs[i] + stim_obs_probs[i]) / 2
@@ -358,8 +358,8 @@ class TestUnstructuredNoiseFuzzing:
             pytest.skip("No measurements in generated circuit")
 
         # 1-body marginals: P(measurement_i = 1)
-        ucc_p1 = ucc_meas.astype(float).mean(axis=0)
-        stim_p1 = stim_meas.astype(float).mean(axis=0)
+        ucc_p1 = ucc_meas.mean(axis=0, dtype=float)
+        stim_p1 = stim_meas.mean(axis=0, dtype=float)
 
         for i in range(len(ucc_p1)):
             p_est = (ucc_p1[i] + stim_p1[i]) / 2
@@ -376,8 +376,8 @@ class TestUnstructuredNoiseFuzzing:
             ucc_parity = ucc_meas[:, :-1] ^ ucc_meas[:, 1:]
             stim_parity = stim_meas[:, :-1] ^ stim_meas[:, 1:]
 
-            ucc_p2 = ucc_parity.astype(float).mean(axis=0)
-            stim_p2 = stim_parity.astype(float).mean(axis=0)
+            ucc_p2 = ucc_parity.mean(axis=0, dtype=float)
+            stim_p2 = stim_parity.mean(axis=0, dtype=float)
 
             for i in range(len(ucc_p2)):
                 p_est = (ucc_p2[i] + stim_p2[i]) / 2
@@ -468,8 +468,8 @@ class TestMidCircuitMeasurementEvolution:
         if ucc_meas.shape[1] == 0:
             pytest.skip("No measurements in generated circuit")
 
-        ucc_p = ucc_meas.astype(float).mean(axis=0)
-        stim_p = stim_meas.astype(float).mean(axis=0)
+        ucc_p = ucc_meas.mean(axis=0, dtype=float)
+        stim_p = stim_meas.mean(axis=0, dtype=float)
 
         for i in range(len(ucc_p)):
             p_est = (ucc_p[i] + stim_p[i]) / 2

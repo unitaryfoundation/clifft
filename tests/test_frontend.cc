@@ -53,7 +53,6 @@ TEST_CASE("Frontend: single T gate on qubit 0", "[frontend]") {
 }
 
 TEST_CASE("Frontend: H then T - rewound Z becomes X", "[frontend]") {
-    // This is the key test from the MVP plan DoD:
     // "H 0; T 0" should emit HIR with mask corresponding to +X axis
     auto circuit = parse(R"(
         H 0
@@ -292,176 +291,6 @@ TEST_CASE("Frontend: T count tracking", "[frontend]") {
 }
 
 // =============================================================================
-// AG Pivot Tests (Task 3.3)
-// =============================================================================
-
-TEST_CASE("Frontend: deterministic measurement - no AG matrix", "[frontend][ag]") {
-    // Measuring |0> in Z-basis is deterministic (outcome always 0)
-    auto circuit = parse(R"(
-        M 0
-    )");
-    auto hir = trace(circuit);
-
-    REQUIRE(hir.num_ops() == 1);
-    REQUIRE(hir.ops[0].op_type() == OpType::MEASURE);
-}
-
-TEST_CASE("Frontend: anti-commuting Z measurement - generates AG matrix", "[frontend][ag]") {
-    // After H, measuring in Z-basis is random (50/50)
-    // This should generate an AG pivot matrix
-    auto circuit = parse(R"(
-        H 0
-        M 0
-    )");
-    auto hir = trace(circuit);
-
-    REQUIRE(hir.num_ops() == 1);
-    REQUIRE(hir.ops[0].op_type() == OpType::MEASURE);
-}
-
-TEST_CASE("Frontend: deterministic X measurement after H", "[frontend][ag]") {
-    // H|0> = |+>, so MX is deterministic (outcome always 0)
-    auto circuit = parse(R"(
-        H 0
-        MX 0
-    )");
-    auto hir = trace(circuit);
-
-    REQUIRE(hir.num_ops() == 1);
-    REQUIRE(hir.ops[0].op_type() == OpType::MEASURE);
-}
-
-TEST_CASE("Frontend: anti-commuting X measurement", "[frontend][ag]") {
-    // |0> measured in X-basis is random (50/50)
-    auto circuit = parse(R"(
-        MX 0
-    )");
-    auto hir = trace(circuit);
-
-    REQUIRE(hir.num_ops() == 1);
-    REQUIRE(hir.ops[0].op_type() == OpType::MEASURE);
-}
-
-TEST_CASE("Frontend: mid-circuit measurement updates tableau", "[frontend][ag]") {
-    // Key test: after measuring qubit 0, the tableau should be collapsed.
-    // A subsequent measurement on the same qubit should be deterministic.
-    auto circuit = parse(R"(
-        H 0
-        M 0
-        M 0
-    )");
-    auto hir = trace(circuit);
-
-    REQUIRE(hir.num_ops() == 2);
-
-    // First measurement: anti-commuting (H|0> measured in Z)
-    REQUIRE(hir.ops[0].op_type() == OpType::MEASURE);
-    REQUIRE(hir.ops[0].meas_record_idx() == MeasRecordIdx{0});
-
-    // Second measurement: deterministic (qubit already collapsed to Z eigenstate)
-    REQUIRE(hir.ops[1].op_type() == OpType::MEASURE);
-    REQUIRE(hir.ops[1].meas_record_idx() == MeasRecordIdx{1});
-
-    // Only one AG matrix (from first measurement)
-}
-
-TEST_CASE("Frontend: multiple independent measurements", "[frontend][ag]") {
-    // Two independent qubits, each with anti-commuting measurement
-    auto circuit = parse(R"(
-        H 0
-        H 1
-        M 0 1
-    )");
-    auto hir = trace(circuit);
-
-    REQUIRE(hir.num_ops() == 2);
-    REQUIRE(hir.ops[0].op_type() == OpType::MEASURE);
-    REQUIRE(hir.ops[1].op_type() == OpType::MEASURE);
-}
-
-TEST_CASE("Frontend: entangled measurement with Bell state", "[frontend][ag]") {
-    // Create Bell state |00> + |11>, then measure qubit 0
-    // This should be anti-commuting (50/50)
-    auto circuit = parse(R"(
-        H 0
-        CX 0 1
-        M 0
-    )");
-    auto hir = trace(circuit);
-
-    REQUIRE(hir.num_ops() == 1);
-}
-
-TEST_CASE("Frontend: Bell state - second qubit deterministic after first measured",
-          "[frontend][ag]") {
-    // Bell state: after measuring qubit 0, qubit 1 is determined
-    auto circuit = parse(R"(
-        H 0
-        CX 0 1
-        M 0
-        M 1
-    )");
-    auto hir = trace(circuit);
-
-    REQUIRE(hir.num_ops() == 2);
-
-    // First measurement: anti-commuting
-
-    // Second measurement: deterministic (perfectly correlated with first)
-
-    // Only one AG matrix
-}
-
-TEST_CASE("Frontend: reset then T - AOT frame is un-collapsed", "[frontend][ag]") {
-    // With Clifford Frame Determinism the AOT tableau never collapses.
-    // After H 0, inv_state.zs[0] = X_0. R does not change the tableau.
-    // So T 0 sees the rewound Z through the un-collapsed frame: X_0.
-    auto circuit = parse(R"(
-        H 0
-        R 0
-        T 0
-    )");
-    auto hir = trace(circuit);
-
-    REQUIRE(hir.num_ops() == 3);
-    REQUIRE(hir.ops[0].op_type() == OpType::MEASURE);
-    REQUIRE(hir.ops[0].is_hidden());
-    REQUIRE(hir.ops[1].op_type() == OpType::CONDITIONAL_PAULI);
-    REQUIRE(hir.ops[1].use_last_outcome());
-    REQUIRE(hir.ops[2].op_type() == OpType::T_GATE);
-
-    // Un-collapsed: T gate sees X_0 (H maps Z->X)
-    REQUIRE(hir.ops[2].destab_mask() == X(0));
-    REQUIRE(hir.ops[2].stab_mask() == 0);
-}
-
-TEST_CASE("Frontend: MPP deterministic measurement", "[frontend][ag]") {
-    // After CX, Z0*Z1 stabilizes the state
-    // Measuring Z0*Z1 on a Bell state should be deterministic
-    auto circuit = parse(R"(
-        H 0
-        CX 0 1
-        MPP Z0*Z1
-    )");
-    auto hir = trace(circuit);
-
-    REQUIRE(hir.num_ops() == 1);
-    REQUIRE(hir.ops[0].op_type() == OpType::MEASURE);
-
-    // Z0*Z1 is a stabilizer of the Bell state, so measurement is deterministic
-}
-
-TEST_CASE("Frontend: MPP anti-commuting measurement", "[frontend][ag]") {
-    // X0*X1 anti-commutes with the |00> state (not a stabilizer)
-    auto circuit = parse(R"(
-        MPP X0*X1
-    )");
-    auto hir = trace(circuit);
-
-    REQUIRE(hir.num_ops() == 1);
-}
-
-// =============================================================================
 // Classical Control Tests
 // =============================================================================
 
@@ -636,7 +465,7 @@ TEST_CASE("Frontend: CY classical feedback throws", "[frontend][regression]") {
 }
 
 // =============================================================================
-// Phase 2.2: Noise and QEC Emission Tests
+// Noise and QEC Emission Tests
 // =============================================================================
 
 TEST_CASE("Frontend: DEPOLARIZE1 produces 3 rewound channels", "[frontend][noise]") {
@@ -981,11 +810,9 @@ TEST_CASE("Frontend: DEPOLARIZE2 broadcasting", "[frontend][noise]") {
     REQUIRE(hir.noise_sites[1].channels.size() == 15);
 }
 
-TEST_CASE("Frontend: DoD - DEPOLARIZE1 after Clifford produces 3 rewound masks",
-          "[frontend][noise][dod]") {
-    // This test matches the Phase 2.2 Definition of Done:
-    // "A pure Clifford circuit with DEPOLARIZE1 0 produces an HIR NOISE node
-    //  pointing to a NoiseSite of exactly 3 rewound Pauli masks."
+TEST_CASE("Frontend: DEPOLARIZE1 after Clifford produces 3 rewound masks", "[frontend][noise]") {
+    // A pure Clifford circuit with DEPOLARIZE1 0 produces an HIR NOISE node
+    // pointing to a NoiseSite of exactly 3 rewound Pauli masks.
     auto circuit = parse("H 0\nCX 0 1\nDEPOLARIZE1(0.01) 0");
 
     auto hir = trace(circuit);

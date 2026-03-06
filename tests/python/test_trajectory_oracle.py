@@ -289,17 +289,17 @@ class TestDepolarizingChannelDeterministic:
         assert 0.4 < stim_rate < 0.9, f"Stim rate {stim_rate} outside expected range"
 
 
-class TestMeasureMergeErrorTracking:
-    """Test error frame tracking when AG_PIVOT follows MEASURE_MERGE."""
+class TestActiveInterfereErrorTracking:
+    """Test error frame tracking through active interference and array compaction."""
 
-    def test_x_error_with_measure_merge(self) -> None:
-        """Error frame tracking must be correct when AG_PIVOT follows MEASURE_MERGE.
+    def test_x_error_with_active_interfere(self) -> None:
+        """Error frame tracking must survive OP_MEAS_ACTIVE_INTERFERE.
 
         H 0 -> |+>
-        T 0 -> creates GF2 dimension (MEASURE_MERGE required)
+        T 0 -> creates active dimension (interference required)
         X_ERROR(1) 0 -> error_parity = 1
-        M 0 -> MEASURE_MERGE + AG_PIVOT(use_prev_outcome=True)
-        M 0 -> MEASURE_DETERMINISTIC (checks error frame integrity)
+        M 0 -> OP_MEAS_ACTIVE_INTERFERE + array compaction
+        M 0 -> deterministic re-measurement (checks error frame integrity)
         DETECTOR -> two consecutive measurements must always match
         """
         circuit = """

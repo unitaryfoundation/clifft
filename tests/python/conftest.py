@@ -22,16 +22,18 @@ def binomial_tolerance(p: float, n: int, *, sigma: float = 5.0) -> float:
     Default 5-sigma gives <1 in 3.5 million false positive rate per assertion.
 
     Args:
-        p: Expected probability (0 < p < 1)
+        p: Expected probability (0 to 1 inclusive)
         n: Number of samples (shots)
         sigma: Number of standard deviations for the bound
 
     Returns:
-        Tolerance value such that |observed - p| < tolerance with high probability
+        Tolerance value such that |observed - p| < tolerance with high probability.
+        Returns a tiny epsilon (1e-12) for deterministic probabilities (p == 0
+        or p == 1) so that exact matches pass strict-less-than comparisons.
     """
-    # Clamp p to avoid zero variance for p=0 or p=1
-    p_clamped = max(min(p, 0.99), 0.01)
-    std_err = float(np.sqrt((p_clamped * (1 - p_clamped)) / n))
+    if p == 0.0 or p == 1.0:
+        return 1e-12
+    std_err = float(np.sqrt((p * (1 - p)) / n))
     return sigma * std_err
 
 

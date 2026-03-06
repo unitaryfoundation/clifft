@@ -13,43 +13,7 @@ using namespace ucc;
 using ucc::test::X;
 using ucc::test::Z;
 
-// =============================================================================
-// Test Helpers - Pauli string to bitmask conversion for readable tests
-// =============================================================================
-
-// Converts a Pauli string like "XYZ" to (destab_mask, stab_mask) pair.
-// Qubit 0 is the rightmost character: "XYZ" means X on q2, Y on q1, Z on q0.
-// Returns {destab, stab} where destab has X bits and stab has Z bits.
-// Y = iXZ, so both bits are set for Y.
-static std::pair<uint64_t, uint64_t> pauli_masks(const std::string& pauli) {
-    uint64_t destab = 0;  // X bits
-    uint64_t stab = 0;    // Z bits
-    size_t n = pauli.size();
-    for (size_t i = 0; i < n; ++i) {
-        size_t qubit = n - 1 - i;  // Rightmost char is qubit 0
-        char c = pauli[i];
-        if (c == 'X') {
-            destab |= (1ULL << qubit);
-        } else if (c == 'Z') {
-            stab |= (1ULL << qubit);
-        } else if (c == 'Y') {
-            destab |= (1ULL << qubit);
-            stab |= (1ULL << qubit);
-        }
-        // 'I' or '_' -> no bits set
-    }
-    return {destab, stab};
-}
-
-// Local aliases: Y_destab / Y_stab are trivially the same as Y().
-// They exist only for readability in tests that distinguish the X and Z
-// components of a Y operator.
-static inline uint64_t Y_destab(size_t qubit) {
-    return 1ULL << qubit;
-}  // X component of Y
-static inline uint64_t Y_stab(size_t qubit) {
-    return 1ULL << qubit;
-}  // Z component of Y
+using ucc::test::pauli_masks;
 
 // =============================================================================
 // HeisenbergOp Tests

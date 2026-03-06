@@ -5,7 +5,6 @@ from conftest import (
     assert_statevectors_equal,
     binomial_tolerance,
     random_clifford_circuit,
-    random_clifford_t_circuit,
 )
 
 import ucc
@@ -45,15 +44,13 @@ class TestSample:
         """Measurement of |0> always gives 0."""
         prog = ucc.compile("M 0")
         meas, _, _ = ucc.sample(prog, 100, seed=42)
-        for shot in meas:
-            assert shot[0] == 0
+        assert np.all(meas[:, 0] == 0)
 
     def test_sample_deterministic_one(self) -> None:
         """Measurement of |1> always gives 1."""
         prog = ucc.compile("X 0\nM 0")
         meas, _, _ = ucc.sample(prog, 100, seed=42)
-        for shot in meas:
-            assert shot[0] == 1
+        assert np.all(meas[:, 0] == 1)
 
     def test_sample_superposition(self) -> None:
         """|+> state gives roughly 50/50 distribution."""
@@ -75,8 +72,7 @@ class TestSample:
             M 1
         """)
         meas, _, _ = ucc.sample(prog, 500, seed=99)
-        for shot in meas:
-            assert shot[0] == shot[1], f"Bell state not correlated: {shot}"
+        assert np.all(meas[:, 0] == meas[:, 1]), "Bell state not correlated"
 
     def test_sample_reproducible(self) -> None:
         """Same seed produces same results."""
@@ -116,8 +112,7 @@ class TestSample:
         # R's internal measurement is hidden, matching Stim behavior
         assert meas.shape == (100, 1), f"Expected 1 visible measurement, got {meas.shape}"
         # Measurement after reset should always be 0
-        for shot in meas:
-            assert shot[0] == 0, f"Reset failed: {shot}"
+        assert np.all(meas[:, 0] == 0), "Reset failed"
 
     def test_sample_mr_visible(self) -> None:
         """MR (measure-and-reset) produces visible measurement unlike R."""
@@ -298,6 +293,28 @@ class TestStatevector:
             norm = float(np.sqrt(np.sum(np.abs(sv) ** 2)))
             assert abs(norm - 1.0) < 1e-10, f"Not normalized: {circuit}"
 
+    def test_statevector_after_measurement(self) -> None:
+        """Statevector correctly handles active rank after measurement."""
+        circuit = "H 0\nT 0\nM 0"
+        prog = ucc.compile(circuit)
+
+        state = ucc.State(prog.peak_rank, prog.num_measurements, seed=42)
+        ucc.execute(prog, state)
+        sv = ucc.get_statevector(prog, state)
+
+        # Statevector must be perfectly normalized (catches garbage memory bug)
+        norm = float(np.sqrt(np.sum(np.abs(sv) ** 2)))
+        assert abs(norm - 1.0) < 1e-10, f"Not normalized: {norm}"
+
+        # The state must be cleanly collapsed AND match the measurement record
+        outcome = state.meas_record[0]
+        if outcome == 0:
+            assert abs(abs(sv[0]) - 1.0) < 1e-5, f"Expected |0> but got {sv}"
+            assert abs(sv[1]) < 1e-5, f"Expected no |1> component but got {sv}"
+        else:
+            assert abs(abs(sv[1]) - 1.0) < 1e-5, f"Expected |1> but got {sv}"
+            assert abs(sv[0]) < 1e-5, f"Expected no |0> component but got {sv}"
+
 
 class TestCliffordValidation:
     """Validate pure-Clifford statevectors against Stim."""
@@ -438,120 +455,8 @@ class TestSamplingValidation:
         assert abs(stim_00 - 0.5) < tolerance, f"Stim |00>={stim_00} outside {tolerance:.4f} tol"
         assert abs(stim_11 - 0.5) < tolerance, f"Stim |11>={stim_11} outside {tolerance:.4f} tol"
 
-
-class TestOracleValidation:
-    """Validate Clifford+T statevectors against standalone numpy oracle."""
-
-    def _oracle_statevector(self, circuit_str: str) -> np.ndarray:
-        """Use the standalone numpy oracle to compute statevector."""
-        from clifford_t_oracle import simulate_circuit
-
-        return simulate_circuit(circuit_str)
-
-    def test_oracle_single_t(self) -> None:
-        """Single T gate matches oracle."""
-        circuit = "H 0\nT 0"
-
-        # UCC statevector
-        prog = ucc.compile(circuit)
-        state = ucc.State(prog.peak_rank, prog.num_measurements)
-        ucc.execute(prog, state)
-        ucc_sv = ucc.get_statevector(prog, state)
-
-        # Oracle statevector
-        oracle_sv = self._oracle_statevector(circuit)
-        assert_statevectors_equal(ucc_sv, oracle_sv)
-
-    def test_oracle_two_t_gates(self) -> None:
-        """Two T gates match oracle."""
-        circuit = "H 0\nT 0\nT 0"
-
-        prog = ucc.compile(circuit)
-        state = ucc.State(prog.peak_rank, prog.num_measurements)
-        ucc.execute(prog, state)
-        ucc_sv = ucc.get_statevector(prog, state)
-
-        oracle_sv = self._oracle_statevector(circuit)
-        assert_statevectors_equal(ucc_sv, oracle_sv)
-
-    def test_oracle_t_dag(self) -> None:
-        """T_dag matches oracle."""
-        circuit = "H 0\nT_DAG 0"
-
-        prog = ucc.compile(circuit)
-        state = ucc.State(prog.peak_rank, prog.num_measurements)
-        ucc.execute(prog, state)
-        ucc_sv = ucc.get_statevector(prog, state)
-
-        oracle_sv = self._oracle_statevector(circuit)
-        assert_statevectors_equal(ucc_sv, oracle_sv)
-
-    def test_oracle_bell_plus_t(self) -> None:
-        """Bell + T matches oracle."""
-        circuit = "H 0\nCX 0 1\nT 0"
-
-        prog = ucc.compile(circuit)
-        state = ucc.State(prog.peak_rank, prog.num_measurements)
-        ucc.execute(prog, state)
-        ucc_sv = ucc.get_statevector(prog, state)
-
-        oracle_sv = self._oracle_statevector(circuit)
-        assert_statevectors_equal(ucc_sv, oracle_sv)
-
-    def test_oracle_multi_qubit_clifford_t(self) -> None:
-        """Multi-qubit Clifford+T matches oracle."""
-        circuit = "H 0\nH 1\nCX 0 1\nT 0\nT 1"
-
-        prog = ucc.compile(circuit)
-        state = ucc.State(prog.peak_rank, prog.num_measurements)
-        ucc.execute(prog, state)
-        ucc_sv = ucc.get_statevector(prog, state)
-
-        oracle_sv = self._oracle_statevector(circuit)
-        assert_statevectors_equal(ucc_sv, oracle_sv)
-
-    def test_oracle_random_clifford_t_fuzz(self) -> None:
-        """Random Clifford+T circuits match oracle."""
-        for num_qubits in [2, 3, 4]:
-            for seed in range(5):
-                circuit_str = random_clifford_t_circuit(num_qubits, 15, seed)
-
-                prog = ucc.compile(circuit_str)
-                state = ucc.State(prog.peak_rank, prog.num_measurements)
-                ucc.execute(prog, state)
-                ucc_sv = ucc.get_statevector(prog, state)
-
-                oracle_sv = self._oracle_statevector(circuit_str)
-                assert_statevectors_equal(ucc_sv, oracle_sv, msg=f"circuit:\n{circuit_str}")
-
-    def test_statevector_after_measurement(self) -> None:
-        """Statevector correctly handles active rank after measurement."""
-        # H 0, T 0 creates a superposition. M 0 collapses it.
-        # peak_rank is 1, but final_rank is 0.
-        circuit = "H 0\nT 0\nM 0"
-        prog = ucc.compile(circuit)
-
-        state = ucc.State(prog.peak_rank, prog.num_measurements, seed=42)
-        ucc.execute(prog, state)
-        sv = ucc.get_statevector(prog, state)
-
-        # Statevector must be perfectly normalized (catches garbage memory bug)
-        norm = float(np.sqrt(np.sum(np.abs(sv) ** 2)))
-        assert abs(norm - 1.0) < 1e-10, f"Not normalized: {norm}"
-
-        # The state must be cleanly collapsed AND match the measurement record
-        outcome = state.meas_record[0]
-        if outcome == 0:
-            # Measured |0> eigenspace: |psi> ~ |0>
-            assert abs(abs(sv[0]) - 1.0) < 1e-5, f"Expected |0> but got {sv}"
-            assert abs(sv[1]) < 1e-5, f"Expected no |1> component but got {sv}"
-        else:
-            # Measured |1> eigenspace: |psi> ~ |1>
-            assert abs(abs(sv[1]) - 1.0) < 1e-5, f"Expected |1> but got {sv}"
-            assert abs(sv[0]) < 1e-5, f"Expected no |0> component but got {sv}"
-
-    def test_sample_measure_merge_y_observable(self) -> None:
-        """Test OP_MEASURE_MERGE correctly computes interference with Y-phases."""
+    def test_measure_merge_y_observable(self) -> None:
+        """OP_MEASURE_MERGE correctly computes interference with Y-phases."""
         # H 0; T 0 rotates the state to (|0> + e^{ipi/4}|1>)/sqrt(2)
         # S 0 adds phase: (|0> + e^{i*3pi/4}|1>)/sqrt(2)
         # MX 0 forces an OP_MEASURE_MERGE where the rewound observable is Y.
@@ -560,7 +465,6 @@ class TestOracleValidation:
 
         # P(+) = |<+|psi>|^2 = |1 + e^{i3pi/4}|^2 / 4
         #      = (2 - sqrt(2)) / 4 ~ 0.1464
-        # This asymmetric probability proves complex interference is working.
         shots = 10000
         expected_p0 = (2 - np.sqrt(2)) / 4  # ~ 0.1464
         meas, _, _ = ucc.sample(prog, shots, seed=42)

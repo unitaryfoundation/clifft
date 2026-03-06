@@ -491,7 +491,7 @@ TEST_CASE("Realistic circuit: surface code syndrome extraction", "[parser]") {
 }
 
 // =============================================================================
-// Phase 2.1: Noise and QEC gate parsing tests
+// Noise and QEC gate parsing tests
 // =============================================================================
 
 TEST_CASE("Parse noise gates: X_ERROR Y_ERROR Z_ERROR", "[parser][noise]") {
@@ -712,7 +712,7 @@ TEST_CASE("Error: OBSERVABLE_INCLUDE with non-integer index", "[parser][qec]") {
 }
 
 TEST_CASE("Parse representative QEC circuit", "[parser][qec][integration]") {
-    // Minimal circuit exercising all Phase 2.1 parsing features:
+    // Minimal circuit exercising all noise and QEC parsing features:
     // - Coordinate annotations (discarded)
     // - Noise channels (X_ERROR, Y_ERROR, Z_ERROR, DEPOLARIZE1, DEPOLARIZE2)
     // - Noisy measurements decomposed to READOUT_NOISE

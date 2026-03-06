@@ -1,4 +1,4 @@
-"""Structural Oracle Tests - Phase 5.
+"""Structural Oracle Tests.
 
 Validates exact destructive interference, memory lifecycle bounds,
 and biased amplitude statistics without requiring an external oracle.
@@ -12,7 +12,7 @@ from conftest import binomial_tolerance
 import ucc
 
 # ---------------------------------------------------------------------------
-# Task 5.1: Bounded-T Mirror Fuzzer
+# Bounded-T Mirror Fuzzer
 # ---------------------------------------------------------------------------
 
 _DAGGER_MAP: dict[str, str] = {
@@ -125,7 +125,7 @@ class TestBoundedTMirrorFuzzer:
 
 
 # ---------------------------------------------------------------------------
-# Task 5.2: Breathing Memory Lifecycle
+# Breathing Memory Lifecycle
 # ---------------------------------------------------------------------------
 
 
@@ -197,7 +197,7 @@ class TestBreathingMemoryLifecycle:
 
 
 # ---------------------------------------------------------------------------
-# Task 5.3: Biased Amplitude Statistics
+# Biased Amplitude Statistics
 # ---------------------------------------------------------------------------
 
 # Analytical circuits with exact P(0) values.

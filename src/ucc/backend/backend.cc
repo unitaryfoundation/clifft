@@ -13,8 +13,6 @@ using internal::CompilerContext;
 using internal::CompressedBasis;
 using internal::CompressionResult;
 
-namespace {
-
 // =========================================================================
 // Instruction factories
 // =========================================================================
@@ -178,6 +176,8 @@ Instruction make_observable(uint32_t target_list_idx, uint32_t obs_idx) {
     i.pauli.condition_idx = obs_idx;
     return i;
 }
+
+namespace {
 
 // =========================================================================
 // Emit helpers: append gate to V_cum and emit RISC opcode

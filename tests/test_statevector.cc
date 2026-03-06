@@ -15,6 +15,7 @@
 using namespace ucc;
 using Catch::Matchers::WithinAbs;
 using ucc::test::check_complex;
+using ucc::test::kInvSqrt2;
 
 constexpr double kTol = 1e-9;
 
@@ -57,9 +58,9 @@ TEST_CASE("Statevector: single active qubit in plus state with no tableau") {
     auto sv = get_statevector(mod, state);
 
     REQUIRE(sv.size() == 2);
-    constexpr double s = 0.70710678118654752440;  // 1/sqrt(2)
-    check_complex(sv[0], {s, 0.0});
-    check_complex(sv[1], {s, 0.0});
+
+    check_complex(sv[0], {kInvSqrt2, 0.0});
+    check_complex(sv[1], {kInvSqrt2, 0.0});
 }
 
 TEST_CASE("Statevector: two active qubits no tableau") {
@@ -76,11 +77,11 @@ TEST_CASE("Statevector: two active qubits no tableau") {
     auto sv = get_statevector(mod, state);
 
     REQUIRE(sv.size() == 4);
-    constexpr double s = 0.70710678118654752440;
-    check_complex(sv[0], {s, 0.0});
+
+    check_complex(sv[0], {kInvSqrt2, 0.0});
     check_complex(sv[1], {0.0, 0.0});
     check_complex(sv[2], {0.0, 0.0});
-    check_complex(sv[3], {s, 0.0});
+    check_complex(sv[3], {kInvSqrt2, 0.0});
 }
 
 // =============================================================================
@@ -113,10 +114,10 @@ TEST_CASE("Statevector: Z frame applies phase") {
     auto sv = get_statevector(mod, state);
 
     REQUIRE(sv.size() == 2);
-    constexpr double s = 0.70710678118654752440;
+
     // Z|+> = (Z|0> + Z|1>)/sqrt(2) = (|0> - |1>)/sqrt(2)
-    check_complex(sv[0], {s, 0.0});
-    check_complex(sv[1], {-s, 0.0});
+    check_complex(sv[0], {kInvSqrt2, 0.0});
+    check_complex(sv[1], {-kInvSqrt2, 0.0});
 }
 
 TEST_CASE("Statevector: XZ frame on 2-qubit state") {
@@ -183,15 +184,15 @@ TEST_CASE("Statevector: 3 qubits with 1 active - dormant qubits contribute zero"
     auto sv = get_statevector(mod, state);
 
     REQUIRE(sv.size() == 8);
-    constexpr double s = 0.70710678118654752440;
-    check_complex(sv[0], {s, 0.0});    // |000>
-    check_complex(sv[1], {s, 0.0});    // |001>
-    check_complex(sv[2], {0.0, 0.0});  // |010>
-    check_complex(sv[3], {0.0, 0.0});  // |011>
-    check_complex(sv[4], {0.0, 0.0});  // |100>
-    check_complex(sv[5], {0.0, 0.0});  // |101>
-    check_complex(sv[6], {0.0, 0.0});  // |110>
-    check_complex(sv[7], {0.0, 0.0});  // |111>
+
+    check_complex(sv[0], {kInvSqrt2, 0.0});  // |000>
+    check_complex(sv[1], {kInvSqrt2, 0.0});  // |001>
+    check_complex(sv[2], {0.0, 0.0});        // |010>
+    check_complex(sv[3], {0.0, 0.0});        // |011>
+    check_complex(sv[4], {0.0, 0.0});        // |100>
+    check_complex(sv[5], {0.0, 0.0});        // |101>
+    check_complex(sv[6], {0.0, 0.0});        // |110>
+    check_complex(sv[7], {0.0, 0.0});        // |111>
 }
 
 TEST_CASE("Statevector: all dormant returns zero state") {
@@ -233,9 +234,9 @@ TEST_CASE("Statevector: Hadamard tableau on zero state produces plus") {
     auto sv = get_statevector(mod, state);
 
     REQUIRE(sv.size() == 2);
-    constexpr double s = 0.70710678118654752440;
-    check_complex(sv[0], {s, 0.0}, kFloatTol);
-    check_complex(sv[1], {s, 0.0}, kFloatTol);
+
+    check_complex(sv[0], {kInvSqrt2, 0.0}, kFloatTol);
+    check_complex(sv[1], {kInvSqrt2, 0.0}, kFloatTol);
 }
 
 TEST_CASE("Statevector: Hadamard tableau on one-state produces minus") {
@@ -248,10 +249,10 @@ TEST_CASE("Statevector: Hadamard tableau on one-state produces minus") {
     auto sv = get_statevector(mod, state);
 
     REQUIRE(sv.size() == 2);
-    constexpr double s = 0.70710678118654752440;
+
     // H|1> = (|0> - |1>)/sqrt(2)
-    check_complex(sv[0], {s, 0.0}, kFloatTol);
-    check_complex(sv[1], {-s, 0.0}, kFloatTol);
+    check_complex(sv[0], {kInvSqrt2, 0.0}, kFloatTol);
+    check_complex(sv[1], {-kInvSqrt2, 0.0}, kFloatTol);
 }
 
 TEST_CASE("Statevector: CNOT tableau creates Bell state from plus-zero") {
@@ -272,11 +273,11 @@ TEST_CASE("Statevector: CNOT tableau creates Bell state from plus-zero") {
     auto sv = get_statevector(mod, state);
 
     REQUIRE(sv.size() == 4);
-    constexpr double s = 0.70710678118654752440;
-    check_complex(sv[0], {s, 0.0}, kFloatTol);    // |00>
-    check_complex(sv[1], {0.0, 0.0}, kFloatTol);  // |01>
-    check_complex(sv[2], {0.0, 0.0}, kFloatTol);  // |10>
-    check_complex(sv[3], {s, 0.0}, kFloatTol);    // |11>
+
+    check_complex(sv[0], {kInvSqrt2, 0.0}, kFloatTol);  // |00>
+    check_complex(sv[1], {0.0, 0.0}, kFloatTol);        // |01>
+    check_complex(sv[2], {0.0, 0.0}, kFloatTol);        // |10>
+    check_complex(sv[3], {kInvSqrt2, 0.0}, kFloatTol);  // |11>
 }
 
 TEST_CASE("Statevector: S tableau on plus state") {
@@ -294,9 +295,9 @@ TEST_CASE("Statevector: S tableau on plus state") {
     auto sv = get_statevector(mod, state);
 
     REQUIRE(sv.size() == 2);
-    constexpr double s = 0.70710678118654752440;
-    check_complex(sv[0], {s, 0.0}, kFloatTol);
-    check_complex(sv[1], {0.0, s}, kFloatTol);  // i/sqrt(2)
+
+    check_complex(sv[0], {kInvSqrt2, 0.0}, kFloatTol);
+    check_complex(sv[1], {0.0, kInvSqrt2}, kFloatTol);  // i/sqrt(2)
 }
 
 // =============================================================================
@@ -314,10 +315,10 @@ TEST_CASE("Statevector: H tableau with Z frame on zero state") {
     auto sv = get_statevector(mod, state);
 
     REQUIRE(sv.size() == 2);
-    constexpr double s = 0.70710678118654752440;
+
     // Z|0> = |0>, then H|0> = |+>
-    check_complex(sv[0], {s, 0.0}, kFloatTol);
-    check_complex(sv[1], {s, 0.0}, kFloatTol);
+    check_complex(sv[0], {kInvSqrt2, 0.0}, kFloatTol);
+    check_complex(sv[1], {kInvSqrt2, 0.0}, kFloatTol);
 }
 
 TEST_CASE("Statevector: H tableau with Z frame on plus state") {
@@ -352,7 +353,7 @@ TEST_CASE("Statevector: rejects more than 10 qubits") {
 }
 
 // =============================================================================
-// Phase 1 Hardening: Combined-Layer Tests
+// Combined-Layer Tests
 // =============================================================================
 
 TEST_CASE(
@@ -429,11 +430,10 @@ TEST_CASE(
     auto sv = get_statevector(mod, state);
     REQUIRE(sv.size() == 4);
 
-    constexpr double s = 0.70710678118654752440;  // 1/sqrt(2)
     // final[0] = 0.6i / sqrt(2)
-    check_complex(sv[0], {0.0, 0.6 * s}, kFloatTol);
+    check_complex(sv[0], {0.0, 0.6 * kInvSqrt2}, kFloatTol);
     // final[1] = -0.6 / sqrt(2)
-    check_complex(sv[1], {-0.6 * s, 0.0}, kFloatTol);
+    check_complex(sv[1], {-0.6 * kInvSqrt2, 0.0}, kFloatTol);
     check_complex(sv[2], {0.0, 0.0}, kFloatTol);
     check_complex(sv[3], {0.0, 0.0}, kFloatTol);
 }
@@ -499,7 +499,7 @@ TEST_CASE("Statevector: 3 qubits 1 active with non-trivial 3-qubit tableau") {
 }
 
 // =============================================================================
-// Phase 1 Hardening: Native End-to-End Pipeline Tests
+// Native End-to-End Pipeline Tests
 // =============================================================================
 //
 // These tests exercise parse -> trace -> lower -> execute -> get_statevector
@@ -530,9 +530,9 @@ static void check_normalized(const std::vector<std::complex<double>>& sv, double
 TEST_CASE("E2E: single H produces plus state") {
     auto sv = pipeline_statevector("H 0");
     REQUIRE(sv.size() == 2);
-    constexpr double s = 0.70710678118654752440;
-    check_complex(sv[0], {s, 0.0}, kFloatTol);
-    check_complex(sv[1], {s, 0.0}, kFloatTol);
+
+    check_complex(sv[0], {kInvSqrt2, 0.0}, kFloatTol);
+    check_complex(sv[1], {kInvSqrt2, 0.0}, kFloatTol);
     check_normalized(sv, kFloatTol);
 }
 
@@ -541,20 +541,20 @@ TEST_CASE("E2E: H-T on single qubit") {
     // T|+> = (|0> + e^{i*pi/4}|1>) / sqrt(2)
     auto sv = pipeline_statevector("H 0\nT 0");
     REQUIRE(sv.size() == 2);
-    constexpr double s = 0.70710678118654752440;
-    check_complex(sv[0], {s, 0.0}, kFloatTol);
-    check_complex(sv[1], {s * s, s * s}, kFloatTol);  // e^{i*pi/4}/sqrt(2)
+
+    check_complex(sv[0], {kInvSqrt2, 0.0}, kFloatTol);
+    check_complex(sv[1], {kInvSqrt2 * kInvSqrt2, kInvSqrt2 * kInvSqrt2}, kFloatTol);
     check_normalized(sv, kFloatTol);
 }
 
 TEST_CASE("E2E: Bell state from H-CX") {
     auto sv = pipeline_statevector("H 0\nCX 0 1");
     REQUIRE(sv.size() == 4);
-    constexpr double s = 0.70710678118654752440;
-    check_complex(sv[0], {s, 0.0}, kFloatTol);    // |00>
-    check_complex(sv[1], {0.0, 0.0}, kFloatTol);  // |01>
-    check_complex(sv[2], {0.0, 0.0}, kFloatTol);  // |10>
-    check_complex(sv[3], {s, 0.0}, kFloatTol);    // |11>
+
+    check_complex(sv[0], {kInvSqrt2, 0.0}, kFloatTol);  // |00>
+    check_complex(sv[1], {0.0, 0.0}, kFloatTol);        // |01>
+    check_complex(sv[2], {0.0, 0.0}, kFloatTol);        // |10>
+    check_complex(sv[3], {kInvSqrt2, 0.0}, kFloatTol);  // |11>
     check_normalized(sv, kFloatTol);
 }
 
@@ -565,8 +565,8 @@ TEST_CASE("E2E: Bell plus T gate") {
     // Result: (|00> + e^{i*pi/4}|11>) / sqrt(2)
     auto sv = pipeline_statevector("H 0\nCX 0 1\nT 0");
     REQUIRE(sv.size() == 4);
-    constexpr double s = 0.70710678118654752440;
-    check_complex(sv[0], {s, 0.0}, kFloatTol);
+
+    check_complex(sv[0], {kInvSqrt2, 0.0}, kFloatTol);
     check_complex(sv[1], {0.0, 0.0}, kFloatTol);
     check_complex(sv[2], {0.0, 0.0}, kFloatTol);
     // e^{i*pi/4}/sqrt(2) = (1+i)/(2)
@@ -599,9 +599,9 @@ TEST_CASE("E2E: GHZ state on 3 qubits") {
     // H 0; CX 0 1; CX 0 2 -> (|000> + |111>)/sqrt(2)
     auto sv = pipeline_statevector("H 0\nCX 0 1\nCX 0 2");
     REQUIRE(sv.size() == 8);
-    constexpr double s = 0.70710678118654752440;
-    check_complex(sv[0], {s, 0.0}, kFloatTol);  // |000>
-    check_complex(sv[7], {s, 0.0}, kFloatTol);  // |111>
+
+    check_complex(sv[0], {kInvSqrt2, 0.0}, kFloatTol);  // |000>
+    check_complex(sv[7], {kInvSqrt2, 0.0}, kFloatTol);  // |111>
     // All others zero
     for (int i = 1; i < 7; ++i) {
         check_complex(sv[i], {0.0, 0.0}, kFloatTol);

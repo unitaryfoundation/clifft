@@ -2,7 +2,6 @@
 #include "ucc/svm/svm.h"
 
 #include "test_helpers.h"
-#include "test_instruction_factory.h"
 
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/matchers/catch_matchers_floating_point.hpp>
@@ -14,33 +13,43 @@ using namespace ucc;
 using Catch::Matchers::WithinAbs;
 using Catch::Matchers::WithinRel;
 using ucc::test::check_complex;
-using ucc::test::make_array_cnot;
-using ucc::test::make_array_cz;
-using ucc::test::make_array_s;
-using ucc::test::make_array_s_dag;
-using ucc::test::make_array_swap;
-using ucc::test::make_expand;
-using ucc::test::make_frame_cnot;
-using ucc::test::make_frame_cz;
-using ucc::test::make_frame_h;
-using ucc::test::make_frame_s;
-using ucc::test::make_frame_s_dag;
-using ucc::test::make_frame_swap;
-using ucc::test::make_meas_active_diagonal;
-using ucc::test::make_meas_active_interfere;
-using ucc::test::make_meas_dormant_random;
-using ucc::test::make_meas_dormant_static;
-using ucc::test::make_phase_t;
-using ucc::test::make_phase_t_dag;
-using ucc::test::make_program;
+using ucc::test::kInvSqrt2;
 using ucc::test::test_lcg;
-
-// Portable 1/sqrt(2) constant (avoids non-standard M_SQRT1_2).
-constexpr double kInvSqrt2 = 0.70710678118654752440;
 
 // =============================================================================
 // Helpers
 // =============================================================================
+
+namespace {
+
+CompiledModule make_program(std::vector<Instruction> bytecode, uint32_t peak_rank,
+                            uint32_t num_meas = 0, uint32_t num_det = 0, uint32_t num_obs = 0) {
+    CompiledModule mod;
+    mod.bytecode = std::move(bytecode);
+    mod.peak_rank = peak_rank;
+    mod.num_measurements = num_meas;
+    mod.num_detectors = num_det;
+    mod.num_observables = num_obs;
+    return mod;
+}
+
+Instruction make_meas_dormant_static(uint16_t v, uint32_t classical_idx) {
+    return make_meas(Opcode::OP_MEAS_DORMANT_STATIC, v, classical_idx, false);
+}
+
+Instruction make_meas_dormant_random(uint16_t v, uint32_t classical_idx) {
+    return make_meas(Opcode::OP_MEAS_DORMANT_RANDOM, v, classical_idx, false);
+}
+
+Instruction make_meas_active_diagonal(uint16_t v, uint32_t classical_idx) {
+    return make_meas(Opcode::OP_MEAS_ACTIVE_DIAGONAL, v, classical_idx, false);
+}
+
+Instruction make_meas_active_interfere(uint16_t v, uint32_t classical_idx) {
+    return make_meas(Opcode::OP_MEAS_ACTIVE_INTERFERE, v, classical_idx, false);
+}
+
+}  // namespace
 
 // Semantic helpers for constructing Pauli frame bitmasks as bitwords.
 // These differ from the uint64_t helpers in test_helpers.h because
@@ -595,10 +604,11 @@ TEST_CASE("RISC Meas: Dormant random - statistical test") {
     uint32_t ones = 0;
     constexpr uint32_t num_trials = 10000;
 
+    SchrodingerState state(2, 1);
+    auto prog = make_program({make_meas_dormant_random(0, 0)}, 2, 1);
     for (uint32_t trial = 0; trial < num_trials; ++trial) {
-        SchrodingerState state(2, 1, 0, 0, trial * 12345 + 42);
-
-        auto prog = make_program({make_meas_dormant_random(0, 0)}, 2, 1);
+        INFO("Trial: " << trial);
+        state.reset(trial * 12345 + 42);
         execute(prog, state);
 
         if (state.meas_record[0] == 0) {
@@ -628,11 +638,12 @@ TEST_CASE("RISC Integration: Expand-T-MeasDiag gives correct statistics") {
     uint32_t ones = 0;
     constexpr uint32_t num_trials = 10000;
 
+    SchrodingerState state(2, 1);
+    auto prog =
+        make_program({make_expand(0), make_phase_t(0), make_meas_active_diagonal(0, 0)}, 2, 1);
     for (uint32_t trial = 0; trial < num_trials; ++trial) {
-        SchrodingerState state(2, 1, 0, 0, trial * 77 + 13);
-
-        auto prog =
-            make_program({make_expand(0), make_phase_t(0), make_meas_active_diagonal(0, 0)}, 2, 1);
+        INFO("Trial: " << trial);
+        state.reset(trial * 77 + 13);
         execute(prog, state);
 
         if (state.meas_record[0] == 0) {
@@ -650,10 +661,11 @@ TEST_CASE("RISC Integration: Expand-MeasInterfere on plus gives deterministic 0"
     // EXPAND(0) creates |+>, measuring in X-basis should deterministically yield 0
     constexpr uint32_t num_trials = 100;
 
+    SchrodingerState state(2, 1);
+    auto prog = make_program({make_expand(0), make_meas_active_interfere(0, 0)}, 2, 1);
     for (uint32_t trial = 0; trial < num_trials; ++trial) {
-        SchrodingerState state(2, 1, 0, 0, trial);
-
-        auto prog = make_program({make_expand(0), make_meas_active_interfere(0, 0)}, 2, 1);
+        INFO("Trial: " << trial);
+        state.reset(trial);
         execute(prog, state);
 
         CHECK(state.meas_record[0] == 0);
@@ -666,15 +678,13 @@ TEST_CASE("RISC Integration: Two-qubit EXPAND-CNOT-MEAS pipeline runs correctly"
 
     constexpr uint32_t num_trials = 1000;
 
+    SchrodingerState state(3, 2);
+    auto prog = make_program({make_expand(0), make_expand(1), make_array_cnot(0, 1),
+                              make_meas_active_diagonal(1, 0), make_meas_active_diagonal(0, 1)},
+                             3, 2);
     for (uint32_t trial = 0; trial < num_trials; ++trial) {
-        SchrodingerState state(3, 2, 0, 0, trial * 31);
-
-        // Expand both, CNOT, then measure both in Z-basis
-        // To measure qubit 1 (axis 1) we need it at active_k-1.
-        // After CNOT: active_k = 2. Measure axis 1 first (it's at k-1=1).
-        auto prog = make_program({make_expand(0), make_expand(1), make_array_cnot(0, 1),
-                                  make_meas_active_diagonal(1, 0), make_meas_active_diagonal(0, 1)},
-                                 3, 2);
+        INFO("Trial: " << trial);
+        state.reset(trial * 31);
         execute(prog, state);
 
         CHECK(state.active_k == 0);
@@ -698,6 +708,7 @@ TEST_CASE("RISC Integration: Bell state via targeted initial state") {
     constexpr uint32_t num_trials = 1000;
 
     for (uint32_t trial = 0; trial < num_trials; ++trial) {
+        INFO("Trial: " << trial);
         state.active_k = 2;
         state.v()[0] = {1.0, 0.0};
         state.v()[1] = {0.0, 0.0};
@@ -1033,7 +1044,7 @@ TEST_CASE("RISC Reset: deterministic measurement overwrites previous shot") {
 }
 
 // =============================================================================
-// Phase 3 Hardening: Array Compaction Fuzzers
+// Array Compaction Fuzzers
 // =============================================================================
 
 // Generate a random complex number with magnitude in [0, 1].
@@ -1057,9 +1068,11 @@ TEST_CASE("Compaction fuzz: active diagonal preserves norm - k=4") {
     // Bypass compiler: manually construct k=4 state with random amplitudes,
     // measure the top axis via OP_MEAS_ACTIVE_DIAGONAL, verify norm preserved.
     uint64_t seed = 0xDEAD0001;
+    SchrodingerState state(4, 1);
 
     for (int trial = 0; trial < 200; ++trial) {
-        SchrodingerState state(4, 1, 0, 0, test_lcg(seed));
+        INFO("Trial: " << trial << " | Seed: " << seed);
+        state.reset(test_lcg(seed));
         state.active_k = 4;
 
         // Fill 16 random complex amplitudes
@@ -1112,9 +1125,11 @@ TEST_CASE("Compaction fuzz: active diagonal preserves norm - k=4") {
 TEST_CASE("Compaction fuzz: active interfere preserves norm - k=4") {
     // Same as above but with OP_MEAS_ACTIVE_INTERFERE (X-basis fold).
     uint64_t seed = 0xDEAD0002;
+    SchrodingerState state(4, 1);
 
     for (int trial = 0; trial < 200; ++trial) {
-        SchrodingerState state(4, 1, 0, 0, test_lcg(seed));
+        INFO("Trial: " << trial << " | Seed: " << seed);
+        state.reset(test_lcg(seed));
         state.active_k = 4;
 
         double raw_norm = 0.0;
@@ -1167,9 +1182,11 @@ TEST_CASE("Compaction fuzz: cascaded measurements k=4 to k=0") {
     // Measure all 4 axes one at a time, verifying norm at each step.
     // Alternates diagonal and interfere to exercise both paths.
     uint64_t seed = 0xDEAD0003;
+    SchrodingerState state(4, 4);
 
     for (int trial = 0; trial < 100; ++trial) {
-        SchrodingerState state(4, 4, 0, 0, test_lcg(seed));
+        INFO("Trial: " << trial << " | Seed: " << seed);
+        state.reset(test_lcg(seed));
         state.active_k = 4;
 
         double raw_norm = 0.0;
@@ -1199,9 +1216,11 @@ TEST_CASE("Compaction fuzz: cascaded measurements k=4 to k=0") {
 TEST_CASE("Compaction fuzz: diagonal with pre-existing Pauli frame") {
     // Verify compaction preserves norm even when p_x and p_z are non-trivial.
     uint64_t seed = 0xDEAD0004;
+    SchrodingerState state(4, 1);
 
     for (int trial = 0; trial < 100; ++trial) {
-        SchrodingerState state(4, 1, 0, 0, test_lcg(seed));
+        INFO("Trial: " << trial << " | Seed: " << seed);
+        state.reset(test_lcg(seed));
         state.active_k = 4;
 
         double raw_norm = 0.0;
@@ -1253,9 +1272,11 @@ TEST_CASE("Compaction fuzz: diagonal with pre-existing Pauli frame") {
 
 TEST_CASE("Compaction fuzz: interfere with pre-existing Pauli frame") {
     uint64_t seed = 0xDEAD0005;
+    SchrodingerState state(4, 1);
 
     for (int trial = 0; trial < 100; ++trial) {
-        SchrodingerState state(4, 1, 0, 0, test_lcg(seed));
+        INFO("Trial: " << trial << " | Seed: " << seed);
+        state.reset(test_lcg(seed));
         state.active_k = 4;
 
         double raw_norm = 0.0;
@@ -1307,14 +1328,16 @@ TEST_CASE("Compaction fuzz: interfere with pre-existing Pauli frame") {
 }
 
 // =============================================================================
-// Phase 3 Hardening: Zero-Probability Branch Stability
+// Zero-Probability Branch Stability
 // =============================================================================
 
 TEST_CASE("Zero-prob: minus state interfere is deterministic b_x=1") {
     // |-> = (|0> - |1>)/sqrt(2). X-basis measurement: prob_plus=0, prob_minus=4.
     // Must yield b_x=1 deterministically without NaN/Inf in gamma.
+    SchrodingerState state(2, 1);
     for (uint32_t trial = 0; trial < 50; ++trial) {
-        SchrodingerState state(2, 1, 0, 0, trial * 31 + 7);
+        INFO("Trial: " << trial);
+        state.reset(trial * 31 + 7);
         state.active_k = 1;
         state.v()[0] = {1.0, 0.0};
         state.v()[1] = {-1.0, 0.0};
@@ -1333,8 +1356,10 @@ TEST_CASE("Zero-prob: minus state interfere is deterministic b_x=1") {
 
 TEST_CASE("Zero-prob: plus state interfere is deterministic b_x=0") {
     // |+> = (|0> + |1>)/sqrt(2). prob_minus=0, must yield b_x=0.
+    SchrodingerState state(2, 1);
     for (uint32_t trial = 0; trial < 50; ++trial) {
-        SchrodingerState state(2, 1, 0, 0, trial * 13 + 3);
+        INFO("Trial: " << trial);
+        state.reset(trial * 13 + 3);
         state.active_k = 1;
         state.v()[0] = {1.0, 0.0};
         state.v()[1] = {1.0, 0.0};
@@ -1353,8 +1378,10 @@ TEST_CASE("Zero-prob: plus state interfere is deterministic b_x=0") {
 
 TEST_CASE("Zero-prob: zero-state diagonal is deterministic b=0") {
     // |0> state. prob_b1=0, must yield b=0.
+    SchrodingerState state(2, 1);
     for (uint32_t trial = 0; trial < 50; ++trial) {
-        SchrodingerState state(2, 1, 0, 0, trial * 17 + 5);
+        INFO("Trial: " << trial);
+        state.reset(trial * 17 + 5);
         state.active_k = 1;
         state.v()[0] = {1.0, 0.0};
         state.v()[1] = {0.0, 0.0};
@@ -1372,8 +1399,10 @@ TEST_CASE("Zero-prob: zero-state diagonal is deterministic b=0") {
 
 TEST_CASE("Zero-prob: one-state diagonal is deterministic b=1") {
     // |1> state. prob_b0=0, must yield b=1.
+    SchrodingerState state(2, 1);
     for (uint32_t trial = 0; trial < 50; ++trial) {
-        SchrodingerState state(2, 1, 0, 0, trial * 19 + 11);
+        INFO("Trial: " << trial);
+        state.reset(trial * 19 + 11);
         state.active_k = 1;
         state.v()[0] = {0.0, 0.0};
         state.v()[1] = {1.0, 0.0};
@@ -1393,9 +1422,11 @@ TEST_CASE("Zero-prob: multi-qubit deterministic interfere") {
     // k=3 state where axis 2 is in exact |-> across all subspace combinations.
     // v[i] for i with bit 2 set = -v[i with bit 2 cleared].
     // Interfere on axis 2 must be deterministic b_x=1.
+    SchrodingerState state(3, 1);
     for (uint32_t trial = 0; trial < 50; ++trial) {
         uint64_t seed = 0xBEEF0000 + trial;
-        SchrodingerState state(3, 1, 0, 0, seed);
+        INFO("Trial: " << trial << " | Seed: " << seed);
+        state.reset(seed);
         state.active_k = 3;
 
         // Fill lower half randomly, upper half = -lower
