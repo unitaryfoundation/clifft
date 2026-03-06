@@ -6,6 +6,8 @@ This plan expands UCC's Front-End to support the vast majority of Stim's remaini
 
 Because UCC utilizes the **Factored State Architecture**, physical Cliffords are mathematically absorbed Ahead-Of-Time (AOT) and measurements are geometrically compiled. Therefore, **this entire expansion requires absolutely zero changes to the Virtual Machine's execution loop or the 32-byte Instruction struct.**
 
+You should see a doc/gates.md file in the stim source dependency tree pulled in as part of the build. Rember to rely on stim native definitions and functions for your implementation.
+
 **Strict Constraints:**
 
 1. **Zero VM Changes:** Do not add any new Opcode types to the VM for Clifford gates, measurements, or noise.
