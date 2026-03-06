@@ -47,14 +47,23 @@ To ensure tight integration and avoid building UI against static mocks, we will 
 
 ## Phase 4: Frontend Scaffolding, Layout, & Highlighting
 
-**Goal:** Setup the modern React architecture and build the interactive UI layout using the live Wasm data.
+**Goal:** Setup the modern React architecture and build the interactive UI layout using synchronized Monaco editors.
 
 * **Task 4.1 (Initialization & Dependencies):** Scaffold the app using `bun create vite explorer --template react-ts`. Run `bun add @monaco-editor/react allotment recharts lz-string lucide-react`.
-* **Task 4.2 (Wasm Interop Hook):** Create `src/hooks/useUccWasm.ts`. This hook asynchronously loads the Emscripten `.js` glue code and `.wasm` binary, initializes the module, and wraps the `compile_to_json` and `simulate_wasm` functions in React state.
-* **Task 4.3 (Pane Layout):** Use `<Allotment>` to construct a resizable multi-pane layout:
-    * **Top Split:** Input Editor (Monaco), HIR View (Read-only Text), and Bytecode View (Read-only Text).
-    * **Bottom Split:** The Active Dimension Timeline graph.
-* **Task 4.4 (Bidirectional Highlighting):** Wire Monaco's `editor.deltaDecorations`. When the user clicks a line in the Input Editor, scan the Wasm-provided JSON `source_map` arrays. Visually highlight the exact corresponding abstract Paulis in the HIR pane and the localized RISC opcodes in the Bytecode pane.
+* **Task 4.2 (Wasm Interop Hook):** Create `src/hooks/useUccWasm.ts`. This hook asynchronously loads the Emscripten module and safely exposes `compile_to_json` and `simulate_wasm` to React.
+* **Task 4.3 (The IDE Layout):** Use `<Allotment>` to construct a resizable workspace:
+    * **Top Split (3 Columns):**
+        1. **Source Input:** Editable Monaco instance.
+        2. **HIR View:** Read-only Monaco instance for the abstract phase polynomial.
+        3. **VM Bytecode:** Read-only Monaco instance for the localized RISC instructions.
+    * **Bottom Split (Telemetry & Output):**
+        1. **Active Dimension Graph:** (`recharts` step-line graph).
+        2. **Simulation Results:** (Placeholder for the Monte Carlo histogram).
+* **Task 4.4 (Live Compilation):** Wire a debounced effect (e.g., 200ms) to the Source Input. On change, call `compile_to_json`. Update the text models of the HIR and Bytecode Monaco instances, and store the returned `source_map` arrays in React state.
+* **Task 4.5 (Bidirectional Highlighting):** Track a `hoveredSourceLine` in React state.
+    * Wire the Source editor's `onDidChangeCursorPosition` event to update this state.
+    * When it changes, scan the JSON `source_map` arrays returned by the compiler.
+    * Use Monaco's `editor.createDecorationsCollection()` on the HIR and Bytecode editors to apply a subtle background highlight CSS class to the exact lines that correspond to the active source code.
 
 ## Phase 5: The Active Dimension ($k$) Timeline
 
@@ -67,8 +76,8 @@ To ensure tight integration and avoid building UI against static mocks, we will 
 
 **Goal:** Allow users to execute fast Monte Carlo simulations directly in the browser and share them.
 
-* **Task 6.1 (UI Controls & Execution):** Add a "Simulate (10k Shots)" button. When clicked, invoke `simulate_wasm` via the custom hook.
-    * If the returned object contains the `"MemoryLimitExceeded"` error, render a prominent red alert banner advising the user to use the native Python CLI for workloads exceeding $k=20$.
-    * If successful, parse the returned histogram and display it. Use a simple `recharts` BarChart or a stylized HTML list to show the probability distribution.
-* **Task 6.2 (URL Hydration):** In the main `App.tsx` mount effect, check the window location for a `?code=` query parameter. If present, decode and decompress it using `LZString.decompressFromEncodedURIComponent` and set it as the initial string for the Monaco editor.
-* **Task 6.3 (State Sync & Share):** Add a "Share Link" button with a link icon to the toolbar. On click, capture the current editor text, compress it using `LZString.compressToEncodedURIComponent`, append it to the current URL, and copy the full URL to the user's clipboard with a temporary "Copied!" toast notification. Disable the button visually if the circuit exceeds ~5,000 characters to prevent URL header overflow.
+* **Task 6.1 (UI Controls & Execution):** Add a "Simulate (10k Shots)" button above the Source Editor. When clicked, invoke `simulate_wasm(source, 10000)` via the custom hook.
+    * If it returns `"MemoryLimitExceeded"` (because $k > 20$), render a prominent red alert banner in the Simulation Results pane advising the user to use the native Python CLI.
+* **Task 6.2 (Output Visualization):** If successful, parse the returned histogram and render a `recharts` BarChart or stylized list in the Simulation Results pane showing the probability distribution of the measurements.
+* **Task 6.3 (URL Hydration):** In the main `App.tsx` mount effect, check the window location for a `?code=` query parameter. If present, decode and decompress it using `LZString.decompressFromEncodedURIComponent` and set it as the initial string for the Monaco editor.
+* **Task 6.4 (State Sync & Share):** Add a "Share Link" button with a link icon to the toolbar. On click, capture the current editor text, compress it using `LZString.compressToEncodedURIComponent`, append it to the current URL, and copy the full URL to the user's clipboard. Disable the button visually if the circuit exceeds ~5,000 characters.
