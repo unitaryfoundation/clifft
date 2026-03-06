@@ -4,52 +4,53 @@
 
 This plan outlines the complete end-to-end trajectory for reproducing the 463-qubit trillion-shot Magic State Cultivation curve.
 
-Because the new Factored State / RISC architecture uses `uint16_t` for virtual axes inside the 32-byte VM instruction, the bytecode natively supports 65,536 qubits without structural changes. We only need to widen the 1D Pauli frame trackers using C++ templates to achieve extreme speed at the 512-qubit scale.
+To accelerate validation, we will first implement the fast-fail execution and sampling architecture to test the 42-qubit baseline (which fits in the MVP's 64-qubit limit). Then, we will widen the 1D Pauli frame trackers using C++ templates to achieve extreme speed at the 512-qubit scale for the final end-to-end demonstration.
 
 **Strict Constraints:**
 1. **The 32-Byte Invariant:** The `Instruction` struct MUST remain exactly 32 bytes at all times.
 2. **Single-Threaded C++ Core:** Do NOT implement C++ multithreading (e.g., `<thread>`). Multi-core saturation is handled entirely by Sinter's Python worker processes.
 3. **Survivor Sampling Only:** To prevent OOMs during 10-million shot batches, C++ must only allocate and push array data to Python for shots that survived post-selection.
-4. **Reproducible** When it comes to actually sampling the circuits (so not the changes to UCC itselef), write scripts to do them in `paper/magic` directory. The scripts should also generate any plots we would plan to use in a paper.
+4. **Reproducible:** When it comes to actually sampling the circuits (so not the changes to UCC itself), write scripts to do them in the `paper/magic` directory. The scripts should also generate any plots we would plan to use in a paper.
+
 ---
 
-## Phase 1: 512-Qubit Template Monomorphization (AVX-512)
-
-**Goal:** Scale the C++ Core's Pauli trackers to support the 463-qubit escape stage while preserving perfect inline memory layouts.
-
-*   **Task 1.1 (Template Architecture):** In `svm.h`, template `SchrodingerState<W>` and the inner execution loop `execute_impl<W>`.
-*   **Task 1.2 (Bitword Upgrade):** Replace the hardcoded `stim::bitword<64> p_x, p_z;` trackers with `stim::bitword<W>`. (We will instantiate this for $W=64$, $W=256$, and $W=512$).
-*   **Task 1.3 (CMake Config):** Add `-DUCC_MAX_QUBITS=512` as a CMake cache variable. When active, conditionally compile the $W=512$ path and add `-mavx512f` for native wide-vector math on compatible CPUs.
-*   **DoD:** The codebase compiles. The 32-byte `Instruction` struct is unmodified. Catch2 tests pass flawlessly for circuits utilizing 400+ qubits, automatically vectorizing the frame XORs over AVX registers.
-
-## Phase 2: Sinter-Native Fast-Fail Compilation (`OP_POSTSELECT`)
+## Phase 1: Sinter-Native Fast-Fail Compilation (`OP_POSTSELECT`)
 
 **Goal:** Allow the C++ compiler to ingest Sinter's `postselection_mask` and natively lower targeted parity checks into early-abort instructions.
 
-*   **Task 2.1 (Compiler API):** Update `ucc::lower()` to accept an optional `std::vector<uint8_t> postselection_mask`.
-*   **Task 2.2 (Bytecode Lowering):** As the Back-End iterates the HIR, if it encounters a `DETECTOR` flagged in the mask, emit `OP_POSTSELECT` instead of `OP_DETECTOR`.
-*   **Task 2.3 (SVM Execution):** Implement `OP_POSTSELECT`. It evaluates the XOR parity of the referenced measurements. If it fails, set a `discarded = true` flag on the state and `return` immediately, exiting the bytecode loop. Ensure a `0` is still recorded to `det_record` to maintain PyMatching array shapes.
+*   **Task 1.1 (Compiler API):** Update `ucc::lower()` to accept an optional `std::vector<uint8_t> postselection_mask`.
+*   **Task 1.2 (Bytecode Lowering):** As the Back-End iterates the HIR, if it encounters a `DETECTOR` flagged in the mask, emit `OP_POSTSELECT` instead of `OP_DETECTOR`.
+*   **Task 1.3 (SVM Execution):** Implement `OP_POSTSELECT`. It evaluates the XOR parity of the referenced measurements. If it fails, set a `discarded = true` flag on the state and `return` immediately, exiting the bytecode loop. Ensure a `0` is still recorded to `det_record` to maintain PyMatching array shapes.
 *   **DoD:** Doomed shots instantly abort at the exact instruction they fail, saving deep non-Clifford FLOPs.
 
-## Phase 3: Dense Survivor Sampling ($\mathcal{O}(1)$ Discard Memory)
+## Phase 2: Dense Survivor Sampling ($\mathcal{O}(1)$ Discard Memory)
 
 **Goal:** Return measurement/detector arrays *only* for shots that survived post-selection.
 
-*   **Task 3.1 (Stats Struct Update):** Define `SampleStats` returning `total_shots`, `passed_shots`, and flattened 1D arrays ONLY for shots where `!discarded`.
-*   **Task 3.2 (C++ Sampler):** Implement `ucc.sample_survivors()` via nanobind. Use `nanobind::gil_scoped_release` so Sinter's multiple Python worker processes can run C++ concurrently.
+*   **Task 2.1 (Stats Struct Update):** Define `SampleStats` returning `total_shots`, `passed_shots`, and flattened 1D arrays ONLY for shots where `!discarded`.
+*   **Task 2.2 (C++ Sampler):** Implement `ucc.sample_survivors()` via nanobind. Use `nanobind::gil_scoped_release` so Sinter's multiple Python worker processes can run C++ concurrently.
 *   **DoD:** Sinter can request 10M shots. With a 99.7% discard rate, UCC returns a tiny ~75 MB numpy array to Python instead of a 25 GB blowout.
 
-## Phase 4: The 42-Qubit Cultivation Baseline (vs. SOFT GPU)
+## Phase 3: The 42-Qubit Cultivation Baseline (vs. SOFT GPU)
 
-**Goal:** Prove UCC's CPU execution speed and exact numerical equivalence against the Li et al. SOFT simulator's 16-GPU cluster baseline using their exact 42-qubit circuits.
+**Goal:** Prove UCC's CPU execution speed and exact numerical equivalence against the Li et al. SOFT simulator's 16-GPU cluster baseline using their exact 42-qubit circuits (which natively fit inside the `stim::bitword<64>` MVP limit).
 
-*   **Task 4.1 (The Sinter Adapter):** Create `paper/magic/ucc_soft_sampler.py` and implement `UccSoftSampler` inheriting from `sinter.Sampler`.
+*   **Task 3.1 (The Sinter Adapter):** Create `paper/magic/ucc_soft_sampler.py` and implement `UccSoftSampler` inheriting from `sinter.Sampler`.
     *   Override `compiled_sampler_for_task(self, task)`. Extract `task.postselection_mask`, pass it directly to `ucc.compile(..., postselection_mask=mask)`, and return a custom compiled sampler.
     *   Override `sample(self, max_shots)`. Generate a random 64-bit batch seed (`import secrets; secrets.randbits(64)`) to ensure cross-worker determinism. Call `stats = ucc.sample_survivors(..., keep_surviving_records=False)`.
     *   Return a `sinter.AnonTaskStats` object populating `shots`, `errors` (using `stats.observable_ones[0]`), and `discards` to satisfy Sinter's pipeline contract.
-*   **Task 4.2 (Execution & Validation):** Write `run_vs_soft.py` to register the sampler via Sinter's `custom_decoders` argument. Target the exact distance-5 MSC circuits from the SOFT repository (e.g., `haoliri0-soft/magic_state_cultivation/circuits/circuit_d5_p0.001.stim`).
-*   **Task 4.3 (Postselection Filtering):** Use Sinter's `--postselected_detectors_predicate "coords[4] == -9"` flag. This natively instructs Sinter to build the post-selection mask, because the SOFT circuits use a 5th coordinate of `-9` to flag cultivation success checks.
+*   **Task 3.2 (Execution & Validation):** Write `run_vs_soft.py` to register the sampler via Sinter's `custom_decoders` argument. Target the exact distance-5 MSC circuits from the SOFT repository (e.g., `haoliri0-soft/magic_state_cultivation/circuits/circuit_d5_p0.001.stim`).
+*   **Task 3.3 (Postselection Filtering):** Use Sinter's `--postselected_detectors_predicate "coords[4] == -9"` flag. This natively instructs Sinter to build the post-selection mask, because the SOFT circuits use a 5th coordinate of `-9` to flag cultivation success checks.
 *   **DoD:** Sinter natively utilizes all physical CPU cores and outputs a CSV exactly matching the SOFT paper's Table III: an $85.60\%$ discard rate and a $4.59 \times 10^{-9}$ logical error rate for $p=0.001$, proving $\mathcal{O}(1)$ performance scalability on a single CPU core.
+
+## Phase 4: 512-Qubit Template Monomorphization (AVX-512)
+
+**Goal:** Scale the C++ Core's Pauli trackers to support the 463-qubit escape stage while preserving perfect inline memory layouts.
+
+*   **Task 4.1 (Template Architecture):** In `svm.h`, template `SchrodingerState<W>` and the inner execution loop `execute_impl<W>`.
+*   **Task 4.2 (Bitword Upgrade):** Replace the hardcoded `stim::bitword<64> p_x, p_z;` trackers with `stim::bitword<W>`. (We will instantiate this for $W=64$, $W=256$, and $W=512$).
+*   **Task 4.3 (CMake Config):** Add `-DUCC_MAX_QUBITS=512` as a CMake cache variable. When active, conditionally compile the $W=512$ path and add `-mavx512f` for native wide-vector math on compatible CPUs.
+*   **DoD:** The codebase compiles. The 32-byte `Instruction` struct is unmodified. Catch2 tests pass flawlessly for circuits utilizing 400+ qubits, automatically vectorizing the frame XORs over AVX registers.
 
 ## Phase 5: The 463-Qubit End-to-End Splicer & Decoder Hijack
 
