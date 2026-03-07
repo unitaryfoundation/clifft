@@ -6,6 +6,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <numbers>
+#include <random>
 #include <stdexcept>
 
 namespace ucc {
@@ -76,12 +77,34 @@ constexpr std::complex<double> kExpMinusIPiOver4{kInvSqrt2, -kInvSqrt2};  // e^{
 }  // namespace
 
 // =============================================================================
+// PRNG Entropy Seeding
+// =============================================================================
+
+void Xoshiro256PlusPlus::seed_from_entropy() {
+    // Workaround for https://gcc.gnu.org/bugzilla/show_bug.cgi?id=94087
+    // See https://github.com/quantumlib/Stim/issues/26
+#if defined(__linux__) && defined(__GLIBCXX__) && __GLIBCXX__ >= 20200128
+    std::random_device rd("/dev/urandom");
+#else
+    std::random_device rd;
+#endif
+    auto rd64 = [&rd]() -> uint64_t { return (static_cast<uint64_t>(rd()) << 32) | rd(); };
+    seed_full(rd64(), rd64(), rd64(), rd64());
+}
+
+// =============================================================================
 // SchrodingerState Implementation
 // =============================================================================
 
 SchrodingerState::SchrodingerState(uint32_t peak_rank, uint32_t num_measurements,
-                                   uint32_t num_detectors, uint32_t num_observables, uint64_t seed)
-    : peak_rank_(peak_rank), rng_(seed) {
+                                   uint32_t num_detectors, uint32_t num_observables,
+                                   std::optional<uint64_t> seed)
+    : peak_rank_(peak_rank), rng_(0) {
+    if (seed.has_value()) {
+        rng_.seed(*seed);
+    } else {
+        rng_.seed_from_entropy();
+    }
     meas_record.resize(num_measurements, 0);
     det_record.resize(num_detectors, 0);
     obs_record.resize(num_observables, 0);
@@ -143,7 +166,7 @@ SchrodingerState& SchrodingerState::operator=(SchrodingerState&& other) noexcept
     return *this;
 }
 
-void SchrodingerState::reset(uint64_t seed) {
+void SchrodingerState::reset() {
     uint64_t active_size = (active_k > 0) ? (uint64_t{1} << active_k) : 1;
     std::memset(v_, 0, active_size * sizeof(std::complex<double>));
     v_[0] = {1.0, 0.0};
@@ -164,7 +187,7 @@ void SchrodingerState::reset(uint64_t seed) {
     // obs_record uses ^= accumulation and must always be cleared.
     std::fill(obs_record.begin(), obs_record.end(), 0);
 
-    rng_.seed(seed);
+    // PRNG is NOT reseeded -- it streams forward naturally across shots.
 }
 
 // =============================================================================
@@ -1044,7 +1067,7 @@ L_OP_OBSERVABLE:
 #endif
 }
 
-SampleResult sample(const CompiledModule& program, uint32_t shots, uint64_t seed) {
+SampleResult sample(const CompiledModule& program, uint32_t shots, std::optional<uint64_t> seed) {
     SampleResult result;
     if (shots == 0) {
         return result;
@@ -1063,7 +1086,7 @@ SampleResult sample(const CompiledModule& program, uint32_t shots, uint64_t seed
 
     for (uint32_t shot = 0; shot < shots; ++shot) {
         if (shot > 0) {
-            state.reset(seed + shot);
+            state.reset();
         }
 
         state.next_noise_idx = 0;
@@ -1081,6 +1104,74 @@ SampleResult sample(const CompiledModule& program, uint32_t shots, uint64_t seed
         std::copy(state.obs_record.begin(), state.obs_record.end(),
                   result.observables.begin() +
                       static_cast<ptrdiff_t>(static_cast<size_t>(shot) * num_obs));
+    }
+
+    return result;
+}
+
+// =============================================================================
+// Survivor-Only Sampling
+// =============================================================================
+//
+// Returns results only for shots that pass all OP_POSTSELECT checks.
+// With keep_records=false, zero arrays are allocated -- only shot/discard
+// counts and per-observable error counts are tracked. This is the fast path
+// for Sinter integration where decoders are not needed.
+
+SurvivorResult sample_survivors(const CompiledModule& program, uint32_t shots,
+                                std::optional<uint64_t> seed, bool keep_records) {
+    SurvivorResult result;
+    result.total_shots = shots;
+    if (shots == 0) {
+        return result;
+    }
+
+    uint32_t num_total = program.total_meas_slots;
+    uint32_t num_det = program.num_detectors;
+    uint32_t num_obs = program.num_observables;
+
+    result.observable_ones.resize(num_obs, 0);
+
+    if (keep_records) {
+        result.detectors.reserve(static_cast<size_t>(shots) * num_det);
+        result.observables.reserve(static_cast<size_t>(shots) * num_obs);
+    }
+
+    SchrodingerState state(program.peak_rank, num_total, num_det, num_obs, seed);
+
+    for (uint32_t shot = 0; shot < shots; ++shot) {
+        if (shot > 0) {
+            state.reset();
+        }
+
+        state.next_noise_idx = 0;
+        state.draw_next_noise(program.constant_pool.noise_hazards);
+
+        execute(program, state);
+
+        if (state.discarded) {
+            continue;
+        }
+
+        result.passed_shots++;
+
+        bool any_obs_flipped = false;
+        for (uint32_t i = 0; i < num_obs; ++i) {
+            if (state.obs_record[i]) {
+                result.observable_ones[i]++;
+                any_obs_flipped = true;
+            }
+        }
+        if (any_obs_flipped) {
+            result.logical_errors++;
+        }
+
+        if (keep_records) {
+            result.detectors.insert(result.detectors.end(), state.det_record.begin(),
+                                    state.det_record.end());
+            result.observables.insert(result.observables.end(), state.obs_record.begin(),
+                                      state.obs_record.end());
+        }
     }
 
     return result;

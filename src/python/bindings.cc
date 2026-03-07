@@ -12,6 +12,7 @@
 #include <nanobind/make_iterator.h>
 #include <nanobind/nanobind.h>
 #include <nanobind/ndarray.h>
+#include <nanobind/stl/optional.h>
 #include <nanobind/stl/string.h>
 #include <nanobind/stl/string_view.h>
 #include <nanobind/stl/vector.h>
@@ -582,8 +583,13 @@ NB_MODULE(_ucc_core, m) {
     // Sample: Program + shots -> tuple of (measurements, detectors, observables)
     m.def(
         "sample",
-        [make_numpy_array](const ucc::CompiledModule& program, uint32_t shots, uint64_t seed) {
-            ucc::SampleResult result = ucc::sample(program, shots, seed);
+        [make_numpy_array](const ucc::CompiledModule& program, uint32_t shots,
+                           std::optional<uint64_t> seed) {
+            ucc::SampleResult result;
+            {
+                nb::gil_scoped_release release;
+                result = ucc::sample(program, shots, seed);
+            }
 
             auto meas_arr =
                 make_numpy_array(std::move(result.measurements), shots, program.num_measurements);
@@ -594,18 +600,62 @@ NB_MODULE(_ucc_core, m) {
 
             return nb::make_tuple(meas_arr, det_arr, obs_arr);
         },
-        nb::arg("program"), nb::arg("shots"), nb::arg("seed") = 0,
-        "Run a compiled program and return all result records.");
+        nb::arg("program"), nb::arg("shots"), nb::arg("seed") = nb::none(),
+        "Run a compiled program and return all result records.\n\n"
+        "If seed is None (default), uses 256-bit OS hardware entropy.");
+
+    // Sample survivors: only non-discarded shots contribute to output.
+    m.def(
+        "sample_survivors",
+        [make_numpy_array](const ucc::CompiledModule& program, uint32_t shots,
+                           std::optional<uint64_t> seed, bool keep_records) {
+            ucc::SurvivorResult result;
+            {
+                nb::gil_scoped_release release;
+                result = ucc::sample_survivors(program, shots, seed, keep_records);
+            }
+
+            nb::dict d;
+            d["total_shots"] = result.total_shots;
+            d["passed_shots"] = result.passed_shots;
+            d["discards"] = result.total_shots - result.passed_shots;
+            d["logical_errors"] = result.logical_errors;
+
+            // Observable error counts as numpy array
+            size_t num_obs = result.observable_ones.size();
+            auto* obs_ones = new std::vector<uint64_t>(std::move(result.observable_ones));
+            nb::capsule obs_owner(
+                obs_ones, [](void* p) noexcept { delete static_cast<std::vector<uint64_t>*>(p); });
+            d["observable_ones"] = nb::ndarray<nb::numpy, uint64_t, nb::c_contig>(
+                obs_ones->data(), {num_obs}, obs_owner);
+
+            if (keep_records) {
+                d["detectors"] = make_numpy_array(std::move(result.detectors), result.passed_shots,
+                                                  program.num_detectors);
+                d["observables"] = make_numpy_array(std::move(result.observables),
+                                                    result.passed_shots, program.num_observables);
+            }
+
+            return d;
+        },
+        nb::arg("program"), nb::arg("shots"), nb::arg("seed") = nb::none(),
+        nb::arg("keep_records") = false,
+        "Sample shots and return results only for surviving (non-discarded) shots.\n\n"
+        "If seed is None (default), uses 256-bit OS hardware entropy.\n"
+        "Returns a dict with keys: total_shots, passed_shots, discards,\n"
+        "observable_ones (numpy uint64 array of per-observable error counts),\n"
+        "and optionally detectors/observables numpy arrays when keep_records=True.");
 
     // =========================================================================
     // Statevector API
     // =========================================================================
 
     nb::class_<ucc::SchrodingerState>(m, "State", "Schrodinger VM execution state")
-        .def(nb::init<uint32_t, uint32_t, uint32_t, uint32_t, uint64_t>(), nb::arg("peak_rank"),
-             nb::arg("num_measurements"), nb::arg("num_detectors") = 0,
-             nb::arg("num_observables") = 0, nb::arg("seed") = 0)
-        .def("reset", &ucc::SchrodingerState::reset, nb::arg("seed"))
+        .def(nb::init<uint32_t, uint32_t, uint32_t, uint32_t, std::optional<uint64_t>>(),
+             nb::arg("peak_rank"), nb::arg("num_measurements"), nb::arg("num_detectors") = 0,
+             nb::arg("num_observables") = 0, nb::arg("seed") = nb::none())
+        .def("reset", &ucc::SchrodingerState::reset)
+        .def("reseed", &ucc::SchrodingerState::reseed, nb::arg("seed"))
         .def_prop_ro(
             "meas_record",
             [](const ucc::SchrodingerState& s) { return std::vector<uint8_t>(s.meas_record); })

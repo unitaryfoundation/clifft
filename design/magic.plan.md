@@ -14,7 +14,40 @@ To accelerate validation, we will first implement the fast-fail execution and sa
 
 ---
 
-## Phase 1: Sinter-Native Fast-Fail Compilation (`OP_POSTSELECT`)
+## Current Status (2026-03-07)
+
+- **Phase 1:** COMPLETE. Merged as PR #76 at commit `c8b5f29`.
+- **Phase 2:** COMPLETE. On branch `feat/survivor-sampling-sinter` (PR #78).
+- **Phase 3:** COMPLETE. Sinter adapter working end-to-end on PR #78.
+- **Phases 4-6:** Not started.
+
+### Implementation Notes (deviations from original plan)
+
+- **Phase 2 `SurvivorResult`** has additional fields beyond the plan:
+  `logical_errors` (count of shots with any observable flipped, required by
+  Sinter's `errors` contract) and `observable_ones` (per-observable counts).
+- **Phase 3 adapter** does not use `postselected_detectors_predicate` CLI flag.
+  Instead, `UccCompiledSampler.__init__` unpacks Sinter's bit-packed
+  `task.postselection_mask` directly via `np.unpackbits(bitorder='little')`.
+- **PRNG seeding** was redesigned during Phase 2/3 review. The C++ VM now
+  seeds xoshiro256++ once per batch (256-bit OS hardware entropy by default)
+  and streams forward across shots. `reset()` clears only memory arrays, not
+  the PRNG. Deterministic replay available via explicit `seed` parameter.
+  This eliminates birthday-paradox seed collisions at trillion-shot scale.
+- **Noise hazard clamp** tightened from `0.9999` to `1.0 - 1e-15` to ensure
+  `p=1.0` noise channels reliably fire under the streaming PRNG.
+- **Vendored circuit**: `paper/magic/circuits/circuit_d3_p0.001.stim` from
+  SOFT repo (Apache-2.0). Contains T/T_DAG gates. Cannot be parsed by Stim
+  (non-Clifford); UCC compiles it natively. Used for future Phase 5 work.
+- **Current test circuit**: `tools/bench/target_qec.stim` is a 14-qubit
+  S-gate Clifford proxy (22 detectors, 1 observable, 13 postselected).
+  All current validation uses this circuit. Reproducing the SOFT paper's
+  exact statistics (85.60% discard, 4.59e-9 error rate at p=0.001) requires
+  billions of shots on beefier hardware (Phase 6 territory).
+
+---
+
+## Phase 1: Sinter-Native Fast-Fail Compilation (`OP_POSTSELECT`) [DONE]
 
 **Goal:** Allow the C++ compiler to ingest Sinter's `postselection_mask` and natively lower targeted parity checks into early-abort instructions.
 
@@ -23,7 +56,7 @@ To accelerate validation, we will first implement the fast-fail execution and sa
 *   **Task 1.3 (SVM Execution):** Implement `OP_POSTSELECT`. It evaluates the XOR parity of the referenced measurements. If it fails, set a `discarded = true` flag on the state and `return` immediately, exiting the bytecode loop. Ensure a `0` is still recorded to `det_record` to maintain PyMatching array shapes.
 *   **DoD:** Doomed shots instantly abort at the exact instruction they fail, saving deep non-Clifford FLOPs.
 
-## Phase 2: Dense Survivor Sampling ($\mathcal{O}(1)$ Discard Memory)
+## Phase 2: Dense Survivor Sampling ($\mathcal{O}(1)$ Discard Memory) [DONE]
 
 **Goal:** Return measurement/detector arrays *only* for shots that survived post-selection.
 
@@ -31,7 +64,7 @@ To accelerate validation, we will first implement the fast-fail execution and sa
 *   **Task 2.2 (C++ Sampler):** Implement `ucc.sample_survivors()` via nanobind. Use `nanobind::gil_scoped_release` so Sinter's multiple Python worker processes can run C++ concurrently.
 *   **DoD:** Sinter can request 10M shots. With a 99.7% discard rate, UCC returns a tiny ~75 MB numpy array to Python instead of a 25 GB blowout.
 
-## Phase 3: The 42-Qubit Cultivation Baseline (vs. SOFT GPU)
+## Phase 3: The 42-Qubit Cultivation Baseline (vs. SOFT GPU) [DONE]
 
 **Goal:** Prove UCC's CPU execution speed and exact numerical equivalence against the Li et al. SOFT simulator's 16-GPU cluster baseline using their exact 42-qubit circuits (which natively fit inside the `stim::bitword<64>` MVP limit).
 

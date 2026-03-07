@@ -586,7 +586,7 @@ CompiledModule lower(const HirModule& hir, const std::vector<uint8_t>& postselec
                 ctx.bytecode.push_back(make_noise(cp_idx));
 
                 // Accumulate hazard for exponential gap sampling
-                ctx.noise_hazards_accum += -std::log(1.0 - std::min(prob_sum, 0.9999));
+                ctx.noise_hazards_accum += -std::log(1.0 - std::min(prob_sum, 1.0 - 1e-15));
                 ctx.constant_pool.noise_hazards.push_back(ctx.noise_hazards_accum);
                 break;
             }

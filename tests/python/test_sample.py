@@ -665,3 +665,140 @@ class TestPostselection:
         prog_default = ucc.compile(circuit)
         prog_empty = ucc.compile(circuit, postselection_mask=[])
         assert prog_default.num_instructions == prog_empty.num_instructions
+
+
+class TestSampleSurvivors:
+    """Tests for sample_survivors() API."""
+
+    def test_counting_only_fast_path(self) -> None:
+        """keep_records=False returns counts only, no arrays."""
+        circuit = """
+            H 0
+            M 0
+            DETECTOR rec[-1]
+            OBSERVABLE_INCLUDE(0) rec[-1]
+        """
+        prog = ucc.compile(circuit, postselection_mask=[1])
+        result = ucc.sample_survivors(prog, 1000, seed=42)
+
+        assert result["total_shots"] == 1000
+        assert 0 < result["passed_shots"] < 1000
+        assert result["discards"] == 1000 - result["passed_shots"]
+        # Survivors have meas[0]==0, so observable parity is always 0
+        assert result["observable_ones"][0] == 0
+        assert result["logical_errors"] == 0
+        # No arrays in counting-only mode
+        assert "detectors" not in result
+        assert "observables" not in result
+
+    def test_keep_records_returns_arrays(self) -> None:
+        """keep_records=True populates detector/observable numpy arrays."""
+        circuit = """
+            H 0
+            M 0
+            DETECTOR rec[-1]
+            OBSERVABLE_INCLUDE(0) rec[-1]
+        """
+        prog = ucc.compile(circuit, postselection_mask=[1])
+        result = ucc.sample_survivors(prog, 200, seed=42, keep_records=True)
+
+        passed = result["passed_shots"]
+        assert passed > 0
+        assert result["detectors"].shape == (passed, 1)
+        assert result["observables"].shape == (passed, 1)
+        # All surviving observables should be 0
+        assert np.all(result["observables"] == 0)
+
+    def test_no_postselection_all_pass(self) -> None:
+        """Without postselection, all shots pass."""
+        circuit = """
+            H 0
+            M 0
+            DETECTOR rec[-1]
+        """
+        prog = ucc.compile(circuit)  # no mask
+        result = ucc.sample_survivors(prog, 100, seed=42)
+
+        assert result["total_shots"] == 100
+        assert result["passed_shots"] == 100
+        assert result["discards"] == 0
+
+    def test_observable_ones_counts_errors(self) -> None:
+        """observable_ones correctly counts logical errors in survivors."""
+        # No postselection, random observable. ~50% should be 1.
+        circuit = """
+            H 0
+            M 0
+            OBSERVABLE_INCLUDE(0) rec[-1]
+        """
+        prog = ucc.compile(circuit)
+        result = ucc.sample_survivors(prog, 10000, seed=42)
+
+        assert result["passed_shots"] == 10000
+        ones = int(result["observable_ones"][0])
+        assert 4000 < ones < 6000  # ~50% with generous bounds
+
+    def test_target_qec_circuit(self) -> None:
+        """Smoke test with the real d=3 MSC cultivation circuit."""
+        import pathlib
+
+        import stim
+
+        circuit_path = pathlib.Path("tools/bench/target_qec.stim")
+        stim_circuit = stim.Circuit.from_file(str(circuit_path))
+        text = circuit_path.read_text()
+
+        # Build postselection mask from coord[4] == -9
+        coords = stim_circuit.get_detector_coordinates()
+        mask = [0] * stim_circuit.num_detectors
+        for k, v in coords.items():
+            if len(v) >= 5 and v[4] == -9:
+                mask[k] = 1
+
+        prog = ucc.compile(text, postselection_mask=mask)
+        result = ucc.sample_survivors(prog, 5000, seed=42)
+
+        assert result["total_shots"] == 5000
+        assert result["passed_shots"] > 0
+        assert result["discards"] > 0
+        assert len(result["observable_ones"]) == 1
+
+    def test_keep_records_100_percent_discard(self) -> None:
+        """keep_records=True with all shots discarded returns empty arrays."""
+        # Circuit: deterministic meas=1, postselect -> always discards
+        circuit = """
+            X 0
+            M 0
+            DETECTOR rec[-1]
+            OBSERVABLE_INCLUDE(0) rec[-1]
+        """
+        prog = ucc.compile(circuit, postselection_mask=[1])
+        result = ucc.sample_survivors(prog, 100, seed=42, keep_records=True)
+
+        assert result["total_shots"] == 100
+        assert result["passed_shots"] == 0
+        assert result["discards"] == 100
+        assert "detectors" in result
+        assert "observables" in result
+        assert result["detectors"].shape == (0, 1)
+        assert result["observables"].shape == (0, 1)
+
+    def test_logical_errors_multi_observable(self) -> None:
+        """logical_errors counts shots, not total observable flips."""
+        # Two observables both keyed to same random measurement.
+        circuit = """
+            H 0
+            M 0
+            OBSERVABLE_INCLUDE(0) rec[-1]
+            OBSERVABLE_INCLUDE(1) rec[-1]
+        """
+        prog = ucc.compile(circuit)
+        result = ucc.sample_survivors(prog, 10000, seed=42)
+
+        assert result["passed_shots"] == 10000
+        # Both observables fire on same shots
+        ones_0 = int(result["observable_ones"][0])
+        ones_1 = int(result["observable_ones"][1])
+        assert ones_0 == ones_1
+        # logical_errors == per-shot count, not sum of per-observable
+        assert result["logical_errors"] == ones_0

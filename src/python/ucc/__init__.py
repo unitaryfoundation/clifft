@@ -29,6 +29,7 @@ from ucc._ucc_core import (
     parse,
     parse_file,
     sample,
+    sample_survivors,
     trace,
     version,
 )
@@ -58,6 +59,7 @@ __all__ = [
     "parse",
     "parse_file",
     "sample",
+    "sample_survivors",
     "trace",
     "version",
 ]

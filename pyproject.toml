@@ -31,6 +31,7 @@ dev = [
     "pre-commit>=3.6",
     "nanobind>=2.0",
     "scikit-build-core>=0.10",
+    "sinter>=1.14",
 ]
 
 [dependency-groups]
@@ -44,6 +45,7 @@ dev = [
     "nanobind>=2.0",
     "scikit-build-core>=0.10",
     "stim>=1.10",
+    "sinter>=1.14",
     "qiskit>=1.0",
     "qiskit-aer>=0.14",
 ]
@@ -92,11 +94,12 @@ exclude = [
 ]
 
 [[tool.mypy.overrides]]
-module = ["numpy.*", "stim.*", "pytest.*", "ucc", "ucc._ucc_core", "qiskit.*", "qiskit_aer.*"]
+module = ["numpy.*", "stim.*", "sinter.*", "pytest.*", "ucc", "ucc._ucc_core", "qiskit.*", "qiskit_aer.*"]
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests/python"]
+pythonpath = ["."]
 
 [tool.coverage.run]
 source = ["ucc"]

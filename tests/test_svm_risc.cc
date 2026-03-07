@@ -608,7 +608,8 @@ TEST_CASE("RISC Meas: Dormant random - statistical test") {
     auto prog = make_program({make_meas_dormant_random(0, 0)}, 2, 1);
     for (uint32_t trial = 0; trial < num_trials; ++trial) {
         INFO("Trial: " << trial);
-        state.reset(trial * 12345 + 42);
+        state.reseed(trial * 12345 + 42);
+        state.reset();
         execute(prog, state);
 
         if (state.meas_record[0] == 0) {
@@ -643,7 +644,8 @@ TEST_CASE("RISC Integration: Expand-T-MeasDiag gives correct statistics") {
         make_program({make_expand(0), make_phase_t(0), make_meas_active_diagonal(0, 0)}, 2, 1);
     for (uint32_t trial = 0; trial < num_trials; ++trial) {
         INFO("Trial: " << trial);
-        state.reset(trial * 77 + 13);
+        state.reseed(trial * 77 + 13);
+        state.reset();
         execute(prog, state);
 
         if (state.meas_record[0] == 0) {
@@ -665,7 +667,8 @@ TEST_CASE("RISC Integration: Expand-MeasInterfere on plus gives deterministic 0"
     auto prog = make_program({make_expand(0), make_meas_active_interfere(0, 0)}, 2, 1);
     for (uint32_t trial = 0; trial < num_trials; ++trial) {
         INFO("Trial: " << trial);
-        state.reset(trial);
+        state.reseed(trial);
+        state.reset();
         execute(prog, state);
 
         CHECK(state.meas_record[0] == 0);
@@ -684,7 +687,8 @@ TEST_CASE("RISC Integration: Two-qubit EXPAND-CNOT-MEAS pipeline runs correctly"
                              3, 2);
     for (uint32_t trial = 0; trial < num_trials; ++trial) {
         INFO("Trial: " << trial);
-        state.reset(trial * 31);
+        state.reseed(trial * 31);
+        state.reset();
         execute(prog, state);
 
         CHECK(state.active_k == 0);
@@ -720,7 +724,8 @@ TEST_CASE("RISC Integration: Bell state via targeted initial state") {
         state.meas_record[0] = 0;
         state.meas_record[1] = 0;
         // Reseed
-        state.reset(trial * 97 + 7);
+        state.reseed(trial * 97 + 7);
+        state.reset();
         state.active_k = 2;
         state.v()[0] = {1.0, 0.0};
         state.v()[1] = {0.0, 0.0};
@@ -1004,7 +1009,8 @@ TEST_CASE("RISC Reset: meas and det records do not leak between shots") {
 
     for (uint32_t shot = 0; shot < 100; ++shot) {
         if (shot > 0) {
-            state.reset(shot);
+            state.reseed(shot);
+            state.reset();
         }
         execute(mod, state);
 
@@ -1038,7 +1044,8 @@ TEST_CASE("RISC Reset: deterministic measurement overwrites previous shot") {
     CHECK(state.meas_record[0] == 1);
 
     // Shot 2: reset clears p_x -> measurement should yield 0
-    state.reset(1);
+    state.reseed(1);
+    state.reset();
     execute(mod, state);
     CHECK(state.meas_record[0] == 0);
 }
@@ -1072,7 +1079,8 @@ TEST_CASE("Compaction fuzz: active diagonal preserves norm - k=4") {
 
     for (int trial = 0; trial < 200; ++trial) {
         INFO("Trial: " << trial << " | Seed: " << seed);
-        state.reset(test_lcg(seed));
+        state.reseed(test_lcg(seed));
+        state.reset();
         state.active_k = 4;
 
         // Fill 16 random complex amplitudes
@@ -1129,7 +1137,8 @@ TEST_CASE("Compaction fuzz: active interfere preserves norm - k=4") {
 
     for (int trial = 0; trial < 200; ++trial) {
         INFO("Trial: " << trial << " | Seed: " << seed);
-        state.reset(test_lcg(seed));
+        state.reseed(test_lcg(seed));
+        state.reset();
         state.active_k = 4;
 
         double raw_norm = 0.0;
@@ -1186,7 +1195,8 @@ TEST_CASE("Compaction fuzz: cascaded measurements k=4 to k=0") {
 
     for (int trial = 0; trial < 100; ++trial) {
         INFO("Trial: " << trial << " | Seed: " << seed);
-        state.reset(test_lcg(seed));
+        state.reseed(test_lcg(seed));
+        state.reset();
         state.active_k = 4;
 
         double raw_norm = 0.0;
@@ -1220,7 +1230,8 @@ TEST_CASE("Compaction fuzz: diagonal with pre-existing Pauli frame") {
 
     for (int trial = 0; trial < 100; ++trial) {
         INFO("Trial: " << trial << " | Seed: " << seed);
-        state.reset(test_lcg(seed));
+        state.reseed(test_lcg(seed));
+        state.reset();
         state.active_k = 4;
 
         double raw_norm = 0.0;
@@ -1276,7 +1287,8 @@ TEST_CASE("Compaction fuzz: interfere with pre-existing Pauli frame") {
 
     for (int trial = 0; trial < 100; ++trial) {
         INFO("Trial: " << trial << " | Seed: " << seed);
-        state.reset(test_lcg(seed));
+        state.reseed(test_lcg(seed));
+        state.reset();
         state.active_k = 4;
 
         double raw_norm = 0.0;
@@ -1337,7 +1349,8 @@ TEST_CASE("Zero-prob: minus state interfere is deterministic b_x=1") {
     SchrodingerState state(2, 1);
     for (uint32_t trial = 0; trial < 50; ++trial) {
         INFO("Trial: " << trial);
-        state.reset(trial * 31 + 7);
+        state.reseed(trial * 31 + 7);
+        state.reset();
         state.active_k = 1;
         state.v()[0] = {1.0, 0.0};
         state.v()[1] = {-1.0, 0.0};
@@ -1359,7 +1372,8 @@ TEST_CASE("Zero-prob: plus state interfere is deterministic b_x=0") {
     SchrodingerState state(2, 1);
     for (uint32_t trial = 0; trial < 50; ++trial) {
         INFO("Trial: " << trial);
-        state.reset(trial * 13 + 3);
+        state.reseed(trial * 13 + 3);
+        state.reset();
         state.active_k = 1;
         state.v()[0] = {1.0, 0.0};
         state.v()[1] = {1.0, 0.0};
@@ -1381,7 +1395,8 @@ TEST_CASE("Zero-prob: zero-state diagonal is deterministic b=0") {
     SchrodingerState state(2, 1);
     for (uint32_t trial = 0; trial < 50; ++trial) {
         INFO("Trial: " << trial);
-        state.reset(trial * 17 + 5);
+        state.reseed(trial * 17 + 5);
+        state.reset();
         state.active_k = 1;
         state.v()[0] = {1.0, 0.0};
         state.v()[1] = {0.0, 0.0};
@@ -1402,7 +1417,8 @@ TEST_CASE("Zero-prob: one-state diagonal is deterministic b=1") {
     SchrodingerState state(2, 1);
     for (uint32_t trial = 0; trial < 50; ++trial) {
         INFO("Trial: " << trial);
-        state.reset(trial * 19 + 11);
+        state.reseed(trial * 19 + 11);
+        state.reset();
         state.active_k = 1;
         state.v()[0] = {0.0, 0.0};
         state.v()[1] = {1.0, 0.0};
@@ -1426,7 +1442,8 @@ TEST_CASE("Zero-prob: multi-qubit deterministic interfere") {
     for (uint32_t trial = 0; trial < 50; ++trial) {
         uint64_t seed = 0xBEEF0000 + trial;
         INFO("Trial: " << trial << " | Seed: " << seed);
-        state.reset(seed);
+        state.reseed(seed);
+        state.reset();
         state.active_k = 3;
 
         // Fill lower half randomly, upper half = -lower
@@ -1598,7 +1615,8 @@ TEST_CASE("POSTSELECT: reset clears stale data after discarded shot") {
     CHECK(state.meas_record[1] == 0);  // never reached
 
     // Reset and run a second shot (which also gets discarded)
-    state.reset(1);
+    state.reseed(1);
+    state.reset();
     CHECK_FALSE(state.discarded);      // reset clears discarded flag
     CHECK(state.meas_record[0] == 0);  // stale data cleared
     CHECK(state.meas_record[1] == 0);  // stale data cleared
@@ -1627,4 +1645,153 @@ TEST_CASE("POSTSELECT: sample returns all shots including discarded") {
     // Shape should be 100 shots regardless of how many were discarded
     CHECK(result.measurements.size() == 100);
     CHECK(result.detectors.size() == 100);
+}
+
+TEST_CASE("sample_survivors: counting-only fast path") {
+    // meas[0] is random, postselected. About half the shots discard.
+    CompiledModule mod;
+    mod.peak_rank = 0;
+    mod.num_measurements = 1;
+    mod.total_meas_slots = 1;
+    mod.num_detectors = 1;
+    mod.num_observables = 1;
+
+    mod.bytecode.push_back(make_meas_dormant_random(0, 0));
+    mod.constant_pool.detector_targets.push_back({0});
+    mod.bytecode.push_back(make_postselect(0, 0));
+
+    // Observable: parity of meas[0]. For survivors, meas[0]==0 always
+    // (postselect discards meas[0]==1), so observable should always be 0.
+    mod.constant_pool.observable_targets.push_back({0});
+    mod.bytecode.push_back(make_observable(0, 0));
+
+    auto result = sample_survivors(mod, 1000, 42, false);
+
+    CHECK(result.total_shots == 1000);
+    CHECK(result.passed_shots > 0);
+    CHECK(result.passed_shots < 1000);
+    CHECK(result.passed_shots + (result.total_shots - result.passed_shots) == 1000);
+    CHECK(result.observable_ones.size() == 1);
+    CHECK(result.observable_ones[0] == 0);  // survivors always have meas[0]==0
+    CHECK(result.detectors.empty());        // keep_records=false
+    CHECK(result.observables.empty());
+}
+
+TEST_CASE("sample_survivors: keep_records populates arrays") {
+    CompiledModule mod;
+    mod.peak_rank = 0;
+    mod.num_measurements = 1;
+    mod.total_meas_slots = 1;
+    mod.num_detectors = 1;
+    mod.num_observables = 1;
+
+    mod.bytecode.push_back(make_meas_dormant_random(0, 0));
+    mod.constant_pool.detector_targets.push_back({0});
+    mod.bytecode.push_back(make_postselect(0, 0));
+
+    mod.constant_pool.observable_targets.push_back({0});
+    mod.bytecode.push_back(make_observable(0, 0));
+
+    auto result = sample_survivors(mod, 200, 42, true);
+
+    CHECK(result.total_shots == 200);
+    CHECK(result.passed_shots > 0);
+    CHECK(result.detectors.size() == result.passed_shots * 1);
+    CHECK(result.observables.size() == result.passed_shots * 1);
+
+    // All surviving obs should be 0 (meas[0]==0 when not discarded)
+    for (uint32_t i = 0; i < result.passed_shots; ++i) {
+        CHECK(result.observables[i] == 0);
+    }
+}
+
+TEST_CASE("sample_survivors: zero shots returns empty result") {
+    CompiledModule mod;
+    mod.peak_rank = 0;
+    mod.num_measurements = 0;
+    mod.total_meas_slots = 0;
+
+    auto result = sample_survivors(mod, 0, 0, false);
+
+    CHECK(result.total_shots == 0);
+    CHECK(result.passed_shots == 0);
+    CHECK(result.observable_ones.empty());
+    CHECK(result.detectors.empty());
+    CHECK(result.observables.empty());
+}
+
+TEST_CASE("sample_survivors: no postselection means all shots pass") {
+    CompiledModule mod;
+    mod.peak_rank = 0;
+    mod.num_measurements = 1;
+    mod.total_meas_slots = 1;
+    mod.num_detectors = 1;
+    mod.num_observables = 0;
+
+    mod.bytecode.push_back(make_meas_dormant_random(0, 0));
+
+    // Regular detector (not postselect)
+    mod.constant_pool.detector_targets.push_back({0});
+    mod.bytecode.push_back(make_detector(0, 0));
+
+    auto result = sample_survivors(mod, 100, 42, false);
+
+    CHECK(result.total_shots == 100);
+    CHECK(result.passed_shots == 100);
+}
+
+TEST_CASE("sample_survivors: observable_ones counts correctly") {
+    // Circuit with no postselection and a random observable.
+    // Observable parity = meas[0], which is random ~50/50.
+    CompiledModule mod;
+    mod.peak_rank = 0;
+    mod.num_measurements = 1;
+    mod.total_meas_slots = 1;
+    mod.num_detectors = 0;
+    mod.num_observables = 1;
+
+    mod.bytecode.push_back(make_meas_dormant_random(0, 0));
+
+    mod.constant_pool.observable_targets.push_back({0});
+    mod.bytecode.push_back(make_observable(0, 0));
+
+    auto result = sample_survivors(mod, 10000, 42, false);
+
+    CHECK(result.total_shots == 10000);
+    CHECK(result.passed_shots == 10000);  // no postselection
+    CHECK(result.observable_ones.size() == 1);
+    // ~50% should have obs[0]==1 (random dormant measurement)
+    CHECK(result.observable_ones[0] > 4000);
+    CHECK(result.observable_ones[0] < 6000);
+    // logical_errors == observable_ones[0] for single-observable circuits
+    CHECK(result.logical_errors == result.observable_ones[0]);
+}
+
+TEST_CASE("sample_survivors: logical_errors counts shots with any obs flipped") {
+    // Two observables, both keyed to the same random measurement.
+    // Every shot with meas[0]==1 flips BOTH observables, but logical_errors
+    // should count it as a single error (per-shot, not per-observable).
+    CompiledModule mod;
+    mod.peak_rank = 0;
+    mod.num_measurements = 1;
+    mod.total_meas_slots = 1;
+    mod.num_detectors = 0;
+    mod.num_observables = 2;
+
+    mod.bytecode.push_back(make_meas_dormant_random(0, 0));
+
+    mod.constant_pool.observable_targets.push_back({0});
+    mod.bytecode.push_back(make_observable(0, 0));
+    mod.constant_pool.observable_targets.push_back({0});
+    mod.bytecode.push_back(make_observable(1, 1));
+
+    auto result = sample_survivors(mod, 10000, 42, false);
+
+    CHECK(result.passed_shots == 10000);
+    CHECK(result.observable_ones[0] > 4000);
+    CHECK(result.observable_ones[0] < 6000);
+    // Both observables fire on the same shots
+    CHECK(result.observable_ones[0] == result.observable_ones[1]);
+    // logical_errors should equal observable_ones[0], NOT the sum
+    CHECK(result.logical_errors == result.observable_ones[0]);
 }
