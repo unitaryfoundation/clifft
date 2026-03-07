@@ -174,6 +174,22 @@ test-wasm:
     node --experimental-vm-modules src/wasm/test_wasm.mjs
 
 # -------------------------
+# Explorer
+# -------------------------
+
+# Install explorer dependencies
+explorer-install:
+  cd explorer && npm ci
+
+# Start the explorer dev server
+explorer-dev:
+  cd explorer && npx vite --port 8000 --host
+
+# Build the explorer for production
+explorer-build:
+  cd explorer && npm run build
+
+# -------------------------
 # Utility
 # -------------------------
 

@@ -65,6 +65,28 @@ jobs:
       - name: Run pre-commit
         run: uv tool run pre-commit run --all-files
 
+  explorer-lint:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: explorer/package-lock.json
+
+      - name: Install dependencies
+        run: cd explorer && npm ci
+
+      - name: TypeScript type check
+        run: cd explorer && npx tsc -b
+
+      - name: ESLint
+        run: cd explorer && npm run lint
+
   build-and-test:
     needs: lint
     runs-on: ubuntu-24.04

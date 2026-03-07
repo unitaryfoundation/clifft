@@ -1,0 +1,102 @@
+name: Explorer PR Preview
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, reopened, synchronize, closed]
+
+concurrency:
+  group: "pr-preview-${{ github.ref }}"
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    if: github.event.action != 'closed'
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Build Wasm module
+        run: |
+          docker run --rm \
+            -u "$(id -u):$(id -g)" \
+            -v "${{ github.workspace }}:/src" \
+            -w /src \
+            emscripten/emsdk:3.1.74 \
+            bash -c '
+              emcmake cmake -B build-wasm -S src/wasm \
+                -DCMAKE_BUILD_TYPE=Release \
+                -DFETCHCONTENT_QUIET=ON && \
+              cmake --build build-wasm -j$(nproc)'
+          mkdir -p explorer/public
+          cp build-wasm/ucc_wasm.js explorer/public/
+          cp build-wasm/ucc_wasm.wasm explorer/public/
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: explorer/package-lock.json
+
+      - name: Install dependencies
+        run: cd explorer && npm ci
+
+      - name: Build explorer
+        run: cd explorer && npm run build
+        env:
+          VITE_BASE_PATH: /ucc-next/pr-preview/pr-${{ github.event.number }}/
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: explorer-dist
+          path: explorer/dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-24.04
+    if: github.event.pull_request.head.repo.fork == false
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Download build artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: explorer-dist
+          path: explorer/dist
+
+      - name: Deploy PR preview
+        uses: rossjrw/pr-preview-action@v1
+        with:
+          source-dir: explorer/dist
+          preview-branch: gh-pages
+          umbrella-dir: pr-preview
+          pages-base-url: unitaryfoundation.github.io/ucc-next
+          action: auto
+
+  cleanup:
+    runs-on: ubuntu-24.04
+    if: github.event.action == 'closed'
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Remove PR preview
+        uses: rossjrw/pr-preview-action@v1
+        with:
+          source-dir: explorer/dist
+          preview-branch: gh-pages
+          umbrella-dir: pr-preview
+          pages-base-url: unitaryfoundation.github.io/ucc-next
+          action: remove

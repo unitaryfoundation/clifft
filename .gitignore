@@ -17,6 +17,8 @@ cmake-build-*/
 # Wasm build output
 explorer/public/ucc_wasm.js
 explorer/public/ucc_wasm.wasm
+explorer/node_modules/
+explorer/dist/
 
 # Code coverage
 coverage/
