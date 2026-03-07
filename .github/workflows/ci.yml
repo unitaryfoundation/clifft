@@ -14,6 +14,34 @@ concurrency:
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 jobs:
+  wasm:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Build Wasm module
+        run: |
+          docker run --rm \
+            -u "$(id -u):$(id -g)" \
+            -v "${{ github.workspace }}:/src" \
+            -w /src \
+            emscripten/emsdk:3.1.74 \
+            bash -c '
+              emcmake cmake -B build-wasm -S src/wasm \
+                -DCMAKE_BUILD_TYPE=Release \
+                -DFETCHCONTENT_QUIET=ON && \
+              cmake --build build-wasm -j$(nproc)'
+
+      - name: Run Wasm smoke tests
+        run: |
+          docker run --rm \
+            -u "$(id -u):$(id -g)" \
+            -v "${{ github.workspace }}:/src" \
+            -w /src \
+            emscripten/emsdk:3.1.74 \
+            node --experimental-vm-modules src/wasm/test_wasm.mjs
+
   lint:
     runs-on: ubuntu-24.04
     steps:

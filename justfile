@@ -139,6 +139,41 @@ bench *args="":
   uv run pytest tools/bench/ --benchmark-sort=name --benchmark-columns=Mean,StdDev,Ops {{args}}
 
 # -------------------------
+# WebAssembly (Explorer)
+# -------------------------
+
+# Build the Wasm module using the emscripten/emsdk Docker image
+build-wasm:
+  #!/usr/bin/env bash
+  set -euo pipefail
+  echo "Building UCC Wasm module..."
+  docker run --rm \
+    -u "$(id -u):$(id -g)" \
+    -v "{{justfile_directory()}}:/src" \
+    -w /src \
+    emscripten/emsdk:3.1.74 \
+    bash -c '\
+      emcmake cmake -B build-wasm -S src/wasm \
+        -DCMAKE_BUILD_TYPE=Release \
+        -DFETCHCONTENT_QUIET=ON && \
+      cmake --build build-wasm -j$(nproc)'
+  mkdir -p explorer/public
+  cp build-wasm/ucc_wasm.js explorer/public/ucc_wasm.js
+  cp build-wasm/ucc_wasm.wasm explorer/public/ucc_wasm.wasm
+  echo "Output: explorer/public/ucc_wasm.{js,wasm}"
+
+# Test the Wasm module with a quick Node.js smoke test
+test-wasm:
+  #!/usr/bin/env bash
+  set -euo pipefail
+  docker run --rm \
+    -u "$(id -u):$(id -g)" \
+    -v "{{justfile_directory()}}:/src" \
+    -w /src \
+    emscripten/emsdk:3.1.74 \
+    node --experimental-vm-modules src/wasm/test_wasm.mjs
+
+# -------------------------
 # Utility
 # -------------------------
 

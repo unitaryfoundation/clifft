@@ -208,6 +208,60 @@ Open these files in a browser to view detailed line-by-line coverage.
 - Coverage artifacts are gitignored.
 
 
+## WebAssembly Build (Compiler Explorer)
+
+UCC can be compiled to WebAssembly for the browser-based Compiler Explorer. This uses [Emscripten](https://emscripten.org/) via Docker, so no native Emscripten install is needed.
+
+### Prerequisites
+
+- **Docker** must be installed and running. The build uses the `emscripten/emsdk:3.1.74` image.
+  - Install Docker: https://docs.docker.com/engine/install/
+  - The image is pulled automatically on first build (~1.5 GB download).
+
+### Building
+
+```bash
+# Build the Wasm module (outputs to explorer/public/)
+just build-wasm
+
+# Run the Node.js smoke tests
+just test-wasm
+```
+
+The build produces two files:
+- `explorer/public/ucc_wasm.js` (~92 KB) - JavaScript loader/glue
+- `explorer/public/ucc_wasm.wasm` (~460 KB) - WebAssembly binary
+
+### Manual Build (without `just`)
+
+```bash
+# Build
+docker run --rm \
+  -u "$(id -u):$(id -g)" \
+  -v "$(pwd):/src" -w /src \
+  emscripten/emsdk:3.1.74 \
+  bash -c 'emcmake cmake -B build-wasm -S src/wasm \
+    -DCMAKE_BUILD_TYPE=Release -DFETCHCONTENT_QUIET=ON && \
+    cmake --build build-wasm -j$(nproc)'
+
+# Copy outputs
+mkdir -p explorer/public
+cp build-wasm/ucc_wasm.{js,wasm} explorer/public/
+
+# Test
+docker run --rm \
+  -u "$(id -u):$(id -g)" \
+  -v "$(pwd):/src" -w /src \
+  emscripten/emsdk:3.1.74 \
+  node --experimental-vm-modules src/wasm/test_wasm.mjs
+```
+
+### Troubleshooting
+
+- **"docker: command not found"** - Install Docker Desktop or Docker Engine for your platform.
+- **Permission errors on output files** - The build uses `-u $(id -u):$(id -g)` to match your host user. If files are owned by root, delete `build-wasm/` and rebuild.
+- **First build is slow (~5 min)** - Emscripten fetches and compiles Stim + dependencies from source. Subsequent rebuilds are incremental.
+
 # `just` Shortcuts (Optional)
 
 For convenience, this repository includes a `justfile` that wraps common development commands.
