@@ -246,19 +246,23 @@ it picks up from the last saved state with no duplicate work.
      - Quick-profile single-core to confirm expected throughput
      - Test multi-worker scaling (1, 4, 12, 24 workers)
 
-4.3. Estimated compute per point (single c7i.24xlarge, 24 workers,
-     assuming ~50-100k shots/s per core from Step 2 profiling):
+4.3. Estimated compute per point (single c7i.24xlarge, 24 workers):
+
+     Measured single-core throughput (d=5 p=0.001, no postselection):
+     105 us/shot (~9.5k shots/s) with BMI2 PDEP optimization.
+     With postselection early-exit (~85% discard after ~20% of
+     instructions), effective throughput is ~29k shots/s per core.
+     Cluster throughput: ~29k * 24 cores = ~700k shots/s.
 
 | p | Total Shots Needed | Estimated Wall Time | Est. Cost (spot) |
 |---|---|---|---|
-| 0.002 | ~30B | ~3-6 hours | ~$5-10 |
-| 0.001 | ~75B | ~8-16 hours | ~$12-25 |
-| 0.0005 | ~135B | ~15-30 hours | ~$25-50 |
+| 0.002 | ~3B | ~1.2 hours | ~$2 |
+| 0.001 | ~7.5B | ~3 hours | ~$5 |
+| 0.0005 | ~13.5B | ~5.4 hours | ~$8 |
 
-     Total estimated cost: **$50-100** on a single instance.
+     Total estimated cost: **~$15** on a single instance.
      The paper used 16 NVIDIA A100 GPUs; we're targeting one
-     48-vCPU node. Actual numbers from Step 2 profiling will
-     refine these estimates.
+     48-vCPU node.
 
 4.4. Download results:
      ```bash
@@ -367,8 +371,8 @@ reproduce the paper's Figure 2 error bars.
 
 ## Status
 
-- [ ] Step 1: Fix postselection and vendor circuits
-- [ ] Step 2: Local profiling and optimization
+- [x] Step 1: Fix postselection and vendor circuits
+- [x] Step 2: Local profiling and optimization (no optimization needed yet)
 - [ ] Step 3: Local correctness validation (observe d=5 errors)
 - [ ] Step 4: Cloud execution (single instance, 3 data points)
 - [ ] Step 5: Generate plots and tables

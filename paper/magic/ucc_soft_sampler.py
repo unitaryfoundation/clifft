@@ -42,6 +42,13 @@ class UccCompiledSampler(sinter.CompiledSampler):
     """A compiled sampler that executes a single task using UCC."""
 
     def __init__(self, task: sinter.Task) -> None:
+        # Stim is a Clifford simulator and cannot represent non-Clifford
+        # gates (T/T_DAG), so the raw circuit text is passed via
+        # json_metadata["circuit_text"]. task.circuit is a sanitized copy
+        # (T->I) used only for Sinter metadata like num_detectors.
+        meta = task.json_metadata or {}
+        stim_text: str = meta.get("circuit_text", str(task.circuit))
+
         num_det = task.circuit.num_detectors
         if task.postselection_mask is not None:
             mask = np.unpackbits(
@@ -52,7 +59,6 @@ class UccCompiledSampler(sinter.CompiledSampler):
         else:
             mask = [0] * num_det
 
-        stim_text = str(task.circuit)
         self._program = ucc.compile(stim_text, postselection_mask=mask)
 
     def sample(self, suggested_shots: int) -> sinter.AnonTaskStats:

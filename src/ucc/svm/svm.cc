@@ -9,6 +9,10 @@
 #include <random>
 #include <stdexcept>
 
+#if defined(__x86_64__) || defined(_M_X64)
+#include <immintrin.h>
+#endif
+
 namespace ucc {
 
 // =============================================================================
@@ -52,20 +56,48 @@ inline void bit_swap(Bitword& w1, uint16_t i1, Bitword& w2, uint16_t i2) {
     }
 }
 
-// Bit-weaving helpers for branchless 2-qubit iteration.
-// insert_zero_bit(val, pos) stretches val by inserting a 0 at bit position pos,
-// shifting all higher bits up. This lets us enumerate subspaces without branches.
+// Bit-weaving helpers for branchless qubit-subspace iteration.
+//
+// On x86-64 with BMI2, we use the PDEP hardware instruction which scatters
+// contiguous bits of `val` into positions marked by 1s in `mask` in a single
+// cycle. This replaces ~15 shift/and operations per index calculation.
+//
+// For 1-axis ops: pdep_mask = ~(1ULL << axis), deposits i into all bits
+// except the axis bit. For 2-axis ops: pdep_mask = ~(c_bit | t_bit).
+//
+// The scalar fallback (insert_zero_bit) is kept for non-x86 platforms and
+// for measurement code that still needs it.
+
+#if defined(__BMI2__) && (defined(__x86_64__) || defined(_M_X64))
+#define UCC_HAS_PDEP 1
+#else
+#define UCC_HAS_PDEP 0
+#endif
+
 inline uint64_t insert_zero_bit(uint64_t val, uint16_t pos) {
     uint64_t mask = (1ULL << pos) - 1;
     return (val & mask) | ((val & ~mask) << 1);
 }
 
-inline uint64_t insert_two_zero_bits(uint64_t val, uint16_t bit1, uint16_t bit2) {
+inline uint64_t scatter_bits_1(uint64_t val, [[maybe_unused]] uint64_t pdep_mask,
+                               [[maybe_unused]] uint16_t bit_pos) {
+#if UCC_HAS_PDEP
+    return _pdep_u64(val, pdep_mask);
+#else
+    return insert_zero_bit(val, bit_pos);
+#endif
+}
+
+inline uint64_t scatter_bits_2(uint64_t val, [[maybe_unused]] uint64_t pdep_mask,
+                               [[maybe_unused]] uint16_t bit1, [[maybe_unused]] uint16_t bit2) {
+#if UCC_HAS_PDEP
+    return _pdep_u64(val, pdep_mask);
+#else
     uint16_t min_bit = std::min(bit1, bit2);
     uint16_t max_bit = std::max(bit1, bit2);
     val = insert_zero_bit(val, min_bit);
-    val = insert_zero_bit(val, max_bit);
-    return val;
+    return insert_zero_bit(val, max_bit);
+#endif
 }
 
 constexpr double kInvSqrt2 = std::numbers::sqrt2 / 2.0;
@@ -262,12 +294,12 @@ static inline void exec_array_cnot(SchrodingerState& state, uint16_t c, uint16_t
     uint64_t iters = 1ULL << (state.active_k - 2);
     uint64_t c_bit = 1ULL << c;
     uint64_t t_bit = 1ULL << t;
+    uint64_t pdep_mask = ~(c_bit | t_bit);
     auto* v = state.v();
 
     for (uint64_t i = 0; i < iters; ++i) {
-        uint64_t base0 = insert_two_zero_bits(i, c, t) | c_bit;
-        uint64_t base1 = base0 | t_bit;
-        std::swap(v[base0], v[base1]);
+        uint64_t base0 = scatter_bits_2(i, pdep_mask, c, t) | c_bit;
+        std::swap(v[base0], v[base0 | t_bit]);
     }
 
     exec_frame_cnot(state, c, t);
@@ -282,11 +314,12 @@ static inline void exec_array_cz(SchrodingerState& state, uint16_t c, uint16_t t
     assert(t < state.active_k && t < 64 && "ARRAY_CZ: target axis out of range");
 
     uint64_t iters = 1ULL << (state.active_k - 2);
-    uint64_t mask = (1ULL << c) | (1ULL << t);
+    uint64_t both_bits = (1ULL << c) | (1ULL << t);
+    uint64_t pdep_mask = ~both_bits;
     auto* v = state.v();
 
     for (uint64_t i = 0; i < iters; ++i) {
-        uint64_t idx = insert_two_zero_bits(i, c, t) | mask;
+        uint64_t idx = scatter_bits_2(i, pdep_mask, c, t) | both_bits;
         v[idx] = -v[idx];
     }
 
@@ -303,10 +336,11 @@ static inline void exec_array_swap(SchrodingerState& state, uint16_t a, uint16_t
     uint64_t iters = 1ULL << (state.active_k - 2);
     uint64_t a_bit = 1ULL << a;
     uint64_t b_bit = 1ULL << b;
+    uint64_t pdep_mask = ~(a_bit | b_bit);
     auto* v = state.v();
 
     for (uint64_t i = 0; i < iters; ++i) {
-        uint64_t base = insert_two_zero_bits(i, a, b);
+        uint64_t base = scatter_bits_2(i, pdep_mask, a, b);
         std::swap(v[base | a_bit], v[base | b_bit]);
     }
 
@@ -322,10 +356,11 @@ static inline void exec_array_h(SchrodingerState& state, uint16_t v) {
     assert(v < state.active_k && v < 64 && "ARRAY_H: axis out of range");
     uint64_t iters = 1ULL << (state.active_k - 1);
     uint64_t v_bit = 1ULL << v;
+    uint64_t pdep_mask = ~v_bit;
     auto* arr = state.v();
 
     for (uint64_t i = 0; i < iters; ++i) {
-        uint64_t idx0 = insert_zero_bit(i, v);
+        uint64_t idx0 = scatter_bits_1(i, pdep_mask, v);
         uint64_t idx1 = idx0 | v_bit;
         auto a = arr[idx0];
         auto b = arr[idx1];
@@ -353,11 +388,11 @@ static inline void exec_array_s(SchrodingerState& state, uint16_t v) {
     assert(v < state.active_k && v < 64 && "ARRAY_S: axis out of range");
     uint64_t iters = 1ULL << (state.active_k - 1);
     uint64_t v_bit = 1ULL << v;
+    uint64_t pdep_mask = ~v_bit;
     auto* arr = state.v();
 
     for (uint64_t i = 0; i < iters; ++i) {
-        uint64_t idx = insert_zero_bit(i, v) | v_bit;
-        arr[idx] *= kI;
+        arr[scatter_bits_1(i, pdep_mask, v) | v_bit] *= kI;
     }
     exec_frame_s(state, v);
 }
@@ -368,11 +403,11 @@ static inline void exec_array_s_dag(SchrodingerState& state, uint16_t v) {
     assert(v < state.active_k && v < 64 && "ARRAY_S_DAG: axis out of range");
     uint64_t iters = 1ULL << (state.active_k - 1);
     uint64_t v_bit = 1ULL << v;
+    uint64_t pdep_mask = ~v_bit;
     auto* arr = state.v();
 
     for (uint64_t i = 0; i < iters; ++i) {
-        uint64_t idx = insert_zero_bit(i, v) | v_bit;
-        arr[idx] *= kMinusI;
+        arr[scatter_bits_1(i, pdep_mask, v) | v_bit] *= kMinusI;
     }
     exec_frame_s_dag(state, v);
 }
@@ -417,18 +452,17 @@ static inline void exec_phase_t(SchrodingerState& state, uint16_t v) {
 
     uint64_t iters = 1ULL << (state.active_k - 1);
     uint64_t v_bit = 1ULL << v;
+    uint64_t pdep_mask = ~v_bit;
     auto* arr = state.v();
 
     if (px) {
         for (uint64_t i = 0; i < iters; ++i) {
-            uint64_t idx = insert_zero_bit(i, v) | v_bit;
-            arr[idx] *= kExpMinusIPiOver4;
+            arr[scatter_bits_1(i, pdep_mask, v) | v_bit] *= kExpMinusIPiOver4;
         }
         state.multiply_phase(kExpIPiOver4);
     } else {
         for (uint64_t i = 0; i < iters; ++i) {
-            uint64_t idx = insert_zero_bit(i, v) | v_bit;
-            arr[idx] *= kExpIPiOver4;
+            arr[scatter_bits_1(i, pdep_mask, v) | v_bit] *= kExpIPiOver4;
         }
     }
 }
@@ -448,18 +482,17 @@ static inline void exec_phase_t_dag(SchrodingerState& state, uint16_t v) {
 
     uint64_t iters = 1ULL << (state.active_k - 1);
     uint64_t v_bit = 1ULL << v;
+    uint64_t pdep_mask = ~v_bit;
     auto* arr = state.v();
 
     if (px) {
         for (uint64_t i = 0; i < iters; ++i) {
-            uint64_t idx = insert_zero_bit(i, v) | v_bit;
-            arr[idx] *= kExpIPiOver4;
+            arr[scatter_bits_1(i, pdep_mask, v) | v_bit] *= kExpIPiOver4;
         }
         state.multiply_phase(kExpMinusIPiOver4);
     } else {
         for (uint64_t i = 0; i < iters; ++i) {
-            uint64_t idx = insert_zero_bit(i, v) | v_bit;
-            arr[idx] *= kExpMinusIPiOver4;
+            arr[scatter_bits_1(i, pdep_mask, v) | v_bit] *= kExpMinusIPiOver4;
         }
     }
 }
