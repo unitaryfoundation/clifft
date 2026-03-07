@@ -46,6 +46,10 @@ py-install:
 py-test *args="":
   uv run pytest tests/python/ -v {{args}}
 
+# Test that code examples in docs actually execute
+py-doctest *args="":
+  uv run pytest --codeblocks docs/ README.md -v {{args}}
+
 # Convenience: ensure venv exists, then install, then run python tests
 py:
   just py-venv
@@ -172,6 +176,18 @@ test-wasm:
     -w /src \
     emscripten/emsdk:3.1.74 \
     node --experimental-vm-modules src/wasm/test_wasm.mjs
+
+# -------------------------
+# Documentation
+# -------------------------
+
+# Serve docs locally with live reload
+docs-serve:
+  uv run mkdocs serve -a 0.0.0.0:8000
+
+# Build docs to site/
+docs-build:
+  uv run mkdocs build --strict
 
 # -------------------------
 # Explorer

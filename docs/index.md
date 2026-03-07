@@ -1,0 +1,68 @@
+---
+hide:
+  - navigation
+---
+
+# UCC — Unitary Compiler Collection
+
+<p style="font-size: 1.2em;">
+A multi-level Ahead-of-Time (AOT) compiler and Schrodinger Virtual Machine for quantum circuits.
+</p>
+
+[![CI](https://github.com/unitaryfoundation/ucc-next/actions/workflows/ci.yml/badge.svg)](https://github.com/unitaryfoundation/ucc-next/actions/workflows/ci.yml)
+[![codecov](https://codecov.io/gh/unitaryfoundation/ucc-next/graph/badge.svg)](https://codecov.io/gh/unitaryfoundation/ucc-next)
+
+---
+
+## What is UCC?
+
+UCC compiles universal quantum circuits (Clifford + T and beyond) into a compact bytecode representation that is executed by a high-performance virtual machine. It solves the exponential memory wall of non-Clifford simulation by *factoring* the quantum state into deterministic coordinate transformations and probabilistic complex amplitudes.
+
+$$|\psi\rangle = \gamma \, U_C \, P \, \Big( |\phi\rangle_A \otimes |0\rangle_D \Big)$$
+
+Only the $2^k$ amplitudes of qubits in active superposition are stored — not $2^n$ for all $n$ qubits. For circuits where non-Clifford entanglement is bounded (e.g., magic state distillation), this yields exponential memory savings.
+
+## Quick Example
+
+```python
+import ucc
+
+# Compile a circuit from Stim format
+program = ucc.compile("""
+    H 0
+    CNOT 0 1
+    T 2
+    M 0 1 2
+""")
+
+# Sample measurement outcomes
+meas, det, obs = ucc.sample(program, shots=1000, seed=42)
+print(meas[:5])  # First 5 shots
+```
+
+## Key Features
+
+<div class="grid cards" markdown>
+
+- :material-lightning-bolt: **AOT Compilation**
+
+    Clifford gates are absorbed at compile time. The VM only executes non-Clifford operations and measurements.
+
+- :material-memory: **Factored State**
+
+    Memory scales as $2^k$ where $k$ is the number of active (non-Clifford) qubits, not $2^n$ total qubits.
+
+- :material-speedometer: **RISC Bytecode VM**
+
+    Cache-aligned 32-byte instructions. Single memory allocation. No dynamic resizing in the hot loop.
+
+- :material-format-list-checks: **Stim Compatible**
+
+    Parses Stim circuit format with support for noise channels, detectors, and repeat blocks.
+
+</div>
+
+## Get Started
+
+[Install UCC](getting-started/installation.md){ .md-button .md-button--primary }
+[Try the Explorer](explorer.md){ .md-button }

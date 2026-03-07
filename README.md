@@ -9,6 +9,8 @@ UCC supports Clifford + T gates and beyond, with a focus on high-performance sim
 
 ## Installation
 
+<!--pytest.mark.skip-->
+
 ```bash
 pip install ucc
 ```

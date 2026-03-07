@@ -14,6 +14,9 @@ build-coverage/
 build-profile/
 cmake-build-*/
 
+# MkDocs build output
+site/
+
 # Wasm build output
 explorer/public/ucc_wasm.js
 explorer/public/ucc_wasm.wasm

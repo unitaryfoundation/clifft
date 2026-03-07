@@ -1,4 +1,4 @@
-name: Explorer PR Preview
+name: Docs PR Preview
 
 on:
   pull_request:
@@ -19,7 +19,16 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      # --- Build explorer SPA ---
+      - name: Cache Wasm build
+        id: wasm-cache
+        uses: actions/cache@v4
+        with:
+          path: build-wasm
+          key: wasm-${{ runner.os }}-${{ hashFiles('src/wasm/**', 'src/ucc/**', 'cmake/**') }}
+
       - name: Build Wasm module
+        if: steps.wasm-cache.outputs.cache-hit != 'true'
         run: |
           docker run --rm \
             -u "$(id -u):$(id -g)" \
@@ -31,6 +40,9 @@ jobs:
                 -DCMAKE_BUILD_TYPE=Release \
                 -DFETCHCONTENT_QUIET=ON && \
               cmake --build build-wasm -j$(nproc)'
+
+      - name: Copy Wasm artifacts
+        run: |
           mkdir -p explorer/public
           cp build-wasm/ucc_wasm.js explorer/public/
           cp build-wasm/ucc_wasm.wasm explorer/public/
@@ -42,19 +54,31 @@ jobs:
           cache: npm
           cache-dependency-path: explorer/package-lock.json
 
-      - name: Install dependencies
-        run: cd explorer && npm ci
-
       - name: Build explorer
-        run: cd explorer && npm run build
+        run: |
+          cd explorer && npm ci
+          VITE_BASE_PATH=/ucc-next/pr-preview/pr-${{ github.event.number }}/playground/ npm run build
+
+      # --- Build MkDocs (docs group only, no C++ extension needed) ---
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
+      - name: Build docs
+        run: uv run --only-group docs mkdocs build
         env:
-          VITE_BASE_PATH: /ucc-next/pr-preview/pr-${{ github.event.number }}/
+          SITE_URL: https://unitaryfoundation.github.io/ucc-next/pr-preview/pr-${{ github.event.number }}/
+
+      # --- Merge: copy explorer into mkdocs output ---
+      - name: Copy explorer into site
+        run: cp -r explorer/dist site/playground
 
       - name: Upload build artifact
         uses: actions/upload-artifact@v4
         with:
-          name: explorer-dist
-          path: explorer/dist
+          name: site-dist
+          path: site
 
   deploy:
     needs: build
@@ -70,13 +94,13 @@ jobs:
       - name: Download build artifact
         uses: actions/download-artifact@v4
         with:
-          name: explorer-dist
-          path: explorer/dist
+          name: site-dist
+          path: site
 
       - name: Deploy PR preview
         uses: rossjrw/pr-preview-action@v1
         with:
-          source-dir: explorer/dist
+          source-dir: site
           preview-branch: gh-pages
           umbrella-dir: pr-preview
           pages-base-url: unitaryfoundation.github.io/ucc-next
@@ -95,7 +119,7 @@ jobs:
       - name: Remove PR preview
         uses: rossjrw/pr-preview-action@v1
         with:
-          source-dir: explorer/dist
+          source-dir: site
           preview-branch: gh-pages
           umbrella-dir: pr-preview
           pages-base-url: unitaryfoundation.github.io/ucc-next

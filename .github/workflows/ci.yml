@@ -20,7 +20,15 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      - name: Cache Wasm build
+        id: wasm-cache
+        uses: actions/cache@v4
+        with:
+          path: build-wasm
+          key: wasm-${{ runner.os }}-${{ hashFiles('src/wasm/**', 'src/ucc/**', 'cmake/**') }}
+
       - name: Build Wasm module
+        if: steps.wasm-cache.outputs.cache-hit != 'true'
         run: |
           docker run --rm \
             -u "$(id -u):$(id -g)" \
@@ -154,6 +162,9 @@ jobs:
 
       - name: Run Python tests (JUnit)
         run: uv run pytest tests/python/ -v --junitxml=build/pytest-junit.xml
+
+      - name: Test documentation code examples
+        run: uv run pytest --codeblocks docs/ README.md -v
 
       - name: Publish Python test report
         if: always()

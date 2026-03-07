@@ -1,0 +1,78 @@
+site_name: UCC — Unitary Compiler Collection
+site_url: https://unitaryfoundation.github.io/ucc-next/
+repo_url: https://github.com/unitaryfoundation/ucc-next
+repo_name: unitaryfoundation/ucc-next
+
+theme:
+  name: material
+  custom_dir: docs/overrides
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: deep purple
+      accent: amber
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: deep purple
+      accent: amber
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+  features:
+    - navigation.instant
+    - navigation.tabs
+    - navigation.sections
+    - navigation.top
+    - content.code.copy
+    - search.highlight
+    - toc.follow
+
+markdown_extensions:
+  - pymdownx.arithmatex:
+      generic: true
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.superfences
+  - pymdownx.tabbed:
+      alternate_style: true
+  - admonition
+  - pymdownx.details
+  - attr_list
+  - md_in_html
+  - pymdownx.emoji:
+      emoji_index: !!python/name:material.extensions.emoji.twemoji
+      emoji_generator: !!python/name:material.extensions.emoji.to_svg
+  - toc:
+      permalink: true
+
+extra_javascript:
+  - javascripts/katex.js
+
+extra_css:
+  - https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css
+
+plugins:
+  - search
+  - minify:
+      minify_html: true
+
+nav:
+  - Home: index.md
+  - Getting Started:
+    - Installation: getting-started/installation.md
+    - Quick Start: getting-started/quickstart.md
+  - User Guide:
+    - Compiling Circuits: guide/compiling.md
+    - Simulation: guide/simulation.md
+    - Supported Gates: guide/gates.md
+    - "Tutorial: Surface Code": guide/surface-code.md
+  - Theory:
+    - Overview: theory/overview.md
+    - Architecture: theory/architecture.md
+  - Explorer: explorer.md
+  - Development:
+    - Contributing: development/contributing.md
+    - Building from Source: development/building.md

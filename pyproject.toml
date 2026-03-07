@@ -48,6 +48,13 @@ dev = [
     "sinter>=1.14",
     "qiskit>=1.0",
     "qiskit-aer>=0.14",
+    "pytest-codeblocks>=0.17.0",
+]
+docs = [
+    "mkdocs>=1.6,<2",
+    "mkdocs-material>=9.6",
+    "mkdocs-minify-plugin>=0.8",
+    "pymdown-extensions>=10.7",
 ]
 
 [tool.scikit-build]
