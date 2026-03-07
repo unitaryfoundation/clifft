@@ -111,3 +111,4 @@ env/
 # Others
 *.swp
 *.swo
+results/
