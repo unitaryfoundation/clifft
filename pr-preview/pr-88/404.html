@@ -34,9 +34,8 @@
       var container = document.querySelector('.md-header__inner');
       if (!container) return;
 
-      // Build URL from MkDocs base_url (works for both prod and PR preview)
-      var base = 'https://unitaryfoundation.github.io/ucc-next/'.replace(/\/$/, '');
-      var url = base + '/playground/';
+      // Resolve playground URL from MkDocs base_url (relative, works for PR previews)
+      var url = new URL('playground/', new URL('/ucc-next/', location)).href;
 
       var source = container.querySelector('.md-header__source');
       var btn = document.createElement('div');
