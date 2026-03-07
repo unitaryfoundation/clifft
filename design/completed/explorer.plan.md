@@ -1,5 +1,11 @@
 # UCC Implementation Plan: WebAssembly Compiler Explorer
 
+## Status: COMPLETE ✅
+
+All six phases implemented and merged across PRs #79, #81, #82, and #83.
+The explorer is live at https://unitaryfoundation.github.io/ucc-next/ and
+automatically deploys PR previews via GitHub Pages.
+
 ## Executive Summary & Constraints
 
 The **UCC Compiler Explorer** is a WebAssembly-powered, client-side React application that visualizes the multi-level AOT compilation pipeline. It demonstrates how UCC natively absorbs Cliffords, optimizes the phase polynomial, and geometrically compresses multi-qubit entanglement to physically shrink the Virtual Machine's active memory footprint.
@@ -15,7 +21,7 @@ To ensure tight integration and avoid building UI against static mocks, we will 
 
 ---
 
-## Phase 1: Introspection DRY & AST Source Tracking
+## Phase 1: Introspection DRY & AST Source Tracking ✅
 
 **Goal:** Extract existing string-formatting logic for reuse, and tag the parser outputs with source lines.
 
@@ -24,7 +30,7 @@ To ensure tight integration and avoid building UI against static mocks, we will 
 * **Task 1.3 (Parser Updates):** In `parser.cc`, update the line-by-line parsing loop to assign the current `line_num` to the emitted `AstNode`s. Note: During `REPEAT` unrolling, the `line_num` should correctly reflect the line inside the block being replayed (which the current logic already supports).
 * **DoD:** The project compiles, the Python bindings format strings correctly using the shared utility, and `AstNode` natively knows its origin line.
 
-## Phase 2: Pipeline Propagation & The Optimizer Trap
+## Phase 2: Pipeline Propagation & The Optimizer Trap ✅
 
 **Goal:** Thread source maps and Active Dimension ($k$) history through the Front-End, Middle-End, and Back-End without altering the hot-path 32-byte structs.
 
@@ -34,7 +40,7 @@ To ensure tight integration and avoid building UI against static mocks, we will 
 * **Task 2.4 (Back-End Lowering):** In `backend.cc` (`lower()`), whenever an `Instruction` is emitted, push the current HIR node's source line vector to `CompiledModule::source_map`. Push the current `reg_manager.active_k()` to `active_k_history`.
 * **DoD:** A native C++ Catch2 test verifies that compiling `H 0\nT 0\nT 0` correctly propagates source lines, and that the optimizer perfectly maintains `hir.ops.size() == hir.source_map.size()` after fusing the $T$ gates.
 
-## Phase 3: WebAssembly Build System & JSON Bridge
+## Phase 3: WebAssembly Build System & JSON Bridge ✅
 
 **Goal:** Create an Emscripten target exposing the compiler and SVM to JS, returning real AOT data protected by safe memory bounds.
 
@@ -45,7 +51,7 @@ To ensure tight integration and avoid building UI against static mocks, we will 
 * **Task 3.3 (Build Automation):** Add a `just build-wasm` recipe that utilizes an official `emscripten/emsdk` docker container to build the target and output `ucc_wasm.js` and `ucc_wasm.wasm` directly into a new `explorer/public/` directory.
 * **DoD:** Running `just build-wasm` works. A 10-line Node.js/Bun script can require the Wasm module, call `compile_to_json("H 0\nT 0\nM 0")`, and print the JSON payload showing localized RISC opcodes and source maps.
 
-## Phase 4: Frontend Scaffolding, Layout, & Highlighting
+## Phase 4: Frontend Scaffolding, Layout, & Highlighting ✅
 
 **Goal:** Setup the modern React architecture and build the interactive UI layout using synchronized Monaco editors.
 
@@ -65,14 +71,14 @@ To ensure tight integration and avoid building UI against static mocks, we will 
     * When it changes, scan the JSON `source_map` arrays returned by the compiler.
     * Use Monaco's `editor.createDecorationsCollection()` on the HIR and Bytecode editors to apply a subtle background highlight CSS class to the exact lines that correspond to the active source code.
 
-## Phase 5: The Active Dimension ($k$) Timeline
+## Phase 5: The Active Dimension ($k$) Timeline ✅
 
 **Goal:** Visualize the literal memory expansion and compaction of the Virtual Machine over time.
 
 * **Task 5.1 (Graphing):** Use `recharts` to plot the JSON `active_k_history` array on the Y-axis against the Bytecode PC (Instruction Index) on the X-axis using a `stepAfter` digital line style.
 * **Task 5.2 (Visual Feedback):** Users can literally watch the graph step up when an un-absorbed non-Clifford gate executes (`OP_EXPAND`) and watch it fold back down during array compaction (`OP_MEAS_ACTIVE_INTERFERE`). Add a red reference dashed line at $Y=20$ labeled "Browser Memory Limit (~16MB)".
 
-## Phase 6: The Simulation UI Sandbox & Deep Linking
+## Phase 6: The Simulation UI Sandbox & Deep Linking ✅
 
 **Goal:** Allow users to execute fast Monte Carlo simulations directly in the browser and share them.
 
@@ -81,3 +87,50 @@ To ensure tight integration and avoid building UI against static mocks, we will 
 * **Task 6.2 (Output Visualization):** If successful, parse the returned histogram and render a `recharts` BarChart or stylized list in the Simulation Results pane showing the probability distribution of the measurements.
 * **Task 6.3 (URL Hydration):** In the main `App.tsx` mount effect, check the window location for a `?code=` query parameter. If present, decode and decompress it using `LZString.decompressFromEncodedURIComponent` and set it as the initial string for the Monaco editor.
 * **Task 6.4 (State Sync & Share):** Add a "Share Link" button with a link icon to the toolbar. On click, capture the current editor text, compress it using `LZString.compressToEncodedURIComponent`, append it to the current URL, and copy the full URL to the user's clipboard. Disable the button visually if the circuit exceeds ~5,000 characters.
+
+---
+
+## Implementation Notes
+
+**Deviations from plan:**
+- Used `npm` + Vite instead of `bun` (broader CI compatibility).
+- Added `monaco-editor` as explicit dependency (peer dep of `@monaco-editor/react`).
+- Wasm loading uses a module-level promise cache instead of `<script>` dedup
+  (cleaner StrictMode handling).
+- Source map uses `number[][]` (per-instruction list of source lines) to handle
+  optimizer fusion correctly.
+- `compile_to_json` accepts an `optimize` boolean flag to let users toggle the
+  peephole pass manager from the UI.
+
+**Extras implemented beyond plan scope (PR #83):**
+- Monarch syntax highlighting for stim, ucc-hir, and ucc-bytecode languages
+  (structural regex, zero maintenance when new gates/opcodes are added).
+- Configurable shot count with split button dropdown (1k/10k/100k presets +
+  freeform input) and per-shot timing display.
+- 8-step guided tour with keyboard navigation, localStorage persistence, and
+  aria-modal accessibility.
+- Light/dark theme toggle with `prefers-color-scheme` system detection and
+  localStorage persistence.
+- Bidirectional scrollbar markers (overview ruler) on all three editor panes.
+- Yellow gutter glyph on bytecode pane marking the k-history PC position.
+- PR preview workflow (`.github/workflows/pr_preview.yml`) with least-privilege
+  permissions split across build/deploy/cleanup jobs.
+- Explorer TypeScript + ESLint CI job in `.github/workflows/ci.yml`.
+
+## Open Items / Future Work
+
+- **Code splitting:** The main JS bundle is ~645 KB gzipped (~196 KB). Monaco
+  editor dominates; consider `import()` dynamic loading or `manualChunks`.
+- **Mobile / responsive layout:** The 3-column Allotment layout doesn't adapt
+  well to narrow viewports. Consider stacked layout below a breakpoint.
+- **Error display in editors:** Compilation errors show as `; Error: ...` text
+  in the HIR/bytecode panes. Could use Monaco diagnostic markers instead.
+- **Bytecode cursor -> k-history:** The yellow chart reference line tracks
+  source line -> first matching bytecode PC. Direct bytecode cursor tracking
+  would be more precise when multiple instructions map to the same source line.
+- **Web worker for simulation:** `simulate_wasm` blocks the main thread.
+  Moving it to a Web Worker would keep the UI responsive during long runs.
+- **Permalink versioning:** Shared URLs encode circuit text but not compiler
+  version. A version hash in the URL would help reproducibility.
+- **Production deployment:** Currently only deployed via PR previews to
+  GitHub Pages. Needs a main-branch deploy workflow for the canonical URL.
