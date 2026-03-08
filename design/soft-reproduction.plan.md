@@ -233,9 +233,8 @@ correct observable tracking through the non-Clifford T/T_DAG gates.
 ### Step 4: Cloud Execution
 
 **What:** Run the three Table III data points to convergence on a
-single EC2 instance. One instance is sufficient -- Sinter's built-in
-multi-worker parallelism saturates all cores, and `save_resume_filepath`
-handles crash resilience. S3 backup is optional insurance.
+single EC2 instance. Split into two sub-steps: first benchmark to
+get real throughput numbers and cost estimates, then run production.
 
 **Architecture:**
 
@@ -243,78 +242,79 @@ A single `c7i.24xlarge` (48 vCPUs / 24 physical cores, Sapphire
 Rapids with AVX-512) runs all three data points sequentially. Sinter
 uses `num_workers = os.cpu_count() // 2` workers (24 processes) to
 avoid hyperthreading contention on AVX-512 workloads. Each p-value
-runs until `max_errors=100` or a shot budget is exhausted.
-
-```
-EC2 Instance (c7i.24xlarge)
-  run_cloud.py --noise 0.002   # fastest, ~3-6 hours
-  run_cloud.py --noise 0.001   # ~8-16 hours
-  run_cloud.py --noise 0.0005  # ~15-30 hours
-```
+runs until `max_errors` is reached.
 
 Sinter's `save_resume_filepath` writes progress to a local CSV after
 every batch of completed shots. On restart (spot reclaim, crash),
 it picks up from the last saved state with no duplicate work.
 
-**Tasks:**
+A systemd timer syncs results to S3 every 5 minutes at idle I/O
+priority (`ionice -c3`), ensuring no interference with sampling.
 
-4.1. Write `paper/magic/run_cloud.py`:
-     - Accept `--noise` flag to select which p value to run.
-     - Use `sinter.collect()` with `max_errors=100` (paper had
-       22-49 errors per point; 100 gives tighter CIs).
-     - Use `save_resume_filepath` for crash resilience.
-     - Print progress every 60 seconds.
+#### Step 4a: Cloud Benchmarking
 
-4.2. Write `paper/magic/cloud_setup.sh`:
-     - Install system deps (gcc, cmake, python3.12, uv)
-     - Clone repo, build UCC
-     - Quick-profile single-core to confirm expected throughput
-     - Test multi-worker scaling (1, 4, 12, 24 workers)
+Before committing to a multi-day run, spin up the c7i.24xlarge for
+~30 minutes to measure real throughput with AVX-512/BMI2.
 
-4.3. Estimated compute per point (single c7i.24xlarge, 24 workers):
+```bash
+bash paper/magic/cloud_setup.sh
+uv run python paper/magic/benchmark_cloud.py --duration 60
+```
 
-     Measured single-core throughput (d=5 p=0.001, no postselection):
-     105 us/shot (~9.5k shots/s) with BMI2 PDEP optimization.
-     With postselection early-exit (~85% discard after ~20% of
-     instructions), effective throughput is ~29k shots/s per core.
-     Cluster throughput: ~29k * 24 cores = ~700k shots/s.
+`benchmark_cloud.py` runs each of the 3 noise levels at 1 worker
+and N workers (auto-detected), then prints:
+- Measured shots/s and survivors/s per noise level
+- Multi-core scaling efficiency
+- Extrapolated wall time and cost for production runs
 
-| p | Total Shots Needed | Estimated Wall Time | Est. Cost (spot) |
-|---|---|---|---|
-| 0.002 | ~3B | ~1.2 hours | ~$2 |
-| 0.001 | ~7.5B | ~3 hours | ~$5 |
-| 0.0005 | ~13.5B | ~5.4 hours | ~$8 |
+**Preliminary cost estimates** (from this VM, 80k shots/s single-core,
+extrapolated to c7i at 1.3x, 24 cores, $1.50/hr spot):
 
-     Total estimated cost: **~$15** on a single instance.
-     The paper used 16 NVIDIA A100 GPUs; we're targeting one
-     48-vCPU node.
+| p | Survivors needed | Total shots | Est. Wall (24w) | Spot cost |
+|---|---|---|---|---|
+| 0.002 (100 err) | 2.9B | 141B | 16h | $24 |
+| 0.001 (100 err) | 21.8B | 151B | 46h | $70 |
+| 0.0005 (100 err) | 637B | 1.68T | 998h | $1,496 |
+| 0.002 (22 err) | 645M | 31B | 3.5h | $5 |
+| 0.001 (49 err) | 10.7B | 74B | 23h | $34 |
+| 0.0005 (8 err) | 51B | 134B | 80h | $120 |
 
-4.4. Download results:
-     ```bash
-     scp ec2-user@instance:~/ucc-next/results_*.csv ./results/
-     ```
+The p=0.0005 point at 100 errors is infeasible on CPU. Options:
+- Match paper error counts (22, 49, 8): ~107h, ~$159 spot
+- Skip p=0.0005 or run with fewer errors
+- Run only p=0.002 + p=0.001: ~50h, ~$75 spot
 
-**AWS Setup (minimal):**
+Real benchmark numbers will refine these estimates.
 
-No S3 configuration is strictly required. Sinter's
-`save_resume_filepath` provides local crash resilience. For optional
-S3 backup as extra insurance:
+**DoD (4a):** Have measured throughput for all 3 noise levels on
+c7i.24xlarge. Decide final error targets and budget.
 
-1. Create an S3 bucket: `aws s3 mb s3://ucc-soft-results`
-2. Create an IAM instance profile with `s3:PutObject` permission
-   on that bucket, and attach it to the EC2 instance at launch.
-3. Add a cron job on the instance:
-   ```bash
-   # /etc/cron.d/ucc-backup
-   */5 * * * * ec2-user aws s3 cp /home/ec2-user/ucc-next/results_*.csv s3://ucc-soft-results/$(hostname)/
-   ```
+#### Step 4b: Production Runs
 
-Alternatively, skip S3 entirely and just `scp` the results when
-each run completes. For spot instances, enable the 2-minute
-interruption warning handler to trigger a final upload.
+```bash
+bash paper/magic/setup_s3_sync.sh <bucket-name>
+uv run python paper/magic/run_cloud.py --noise 0.002 --max-errors 100
+uv run python paper/magic/run_cloud.py --noise 0.001 --max-errors 50
+uv run python paper/magic/run_cloud.py --noise 0.0005 --max-errors 8
+```
 
-**DoD:** Have CSV files with >= 50 errors for each of the three Table
-III noise strengths.
+Each run uses `save_resume_filepath` for crash resilience and prints
+progress every 60 seconds. Results are saved to `results/` and synced
+to S3 in the background.
+
+**Scripts:**
+
+- `paper/magic/cloud_setup.sh` -- bootstrap instance (deps, clone,
+  build with `-march=native`, smoke test)
+- `paper/magic/setup_s3_sync.sh` -- install systemd timer for
+  background S3 sync (ionice idle priority, every 5 min)
+- `paper/magic/benchmark_cloud.py` -- measure throughput, print
+  cost projections
+- `paper/magic/run_cloud.py` -- run single noise level to
+  convergence with progress logging and resume
+
+**DoD (4b):** Have CSV files with sufficient errors for each noise
+strength to produce meaningful likelihood-ratio CIs.
 
 ### Step 5: Generate Plots and Tables
 
