@@ -32,24 +32,30 @@ enum class Opcode : uint8_t {
     OP_ARRAY_CNOT,
     OP_ARRAY_CZ,
     OP_ARRAY_SWAP,
-    OP_ARRAY_H,      // Hadamard on active axis (butterfly + frame swap)
-    OP_ARRAY_S,      // Phase S on active axis (diag(1, i) + frame update)
-    OP_ARRAY_S_DAG,  // Phase S-dagger on active axis (diag(1, -i) + frame update)
+    OP_ARRAY_MULTI_CNOT,  // Fused star-graph: multiple controls, one target
+    OP_ARRAY_MULTI_CZ,    // Fused star-graph: one control, multiple targets
+    OP_ARRAY_H,           // Hadamard on active axis (butterfly + frame swap)
+    OP_ARRAY_S,           // Phase S on active axis (diag(1, i) + frame update)
+    OP_ARRAY_S_DAG,       // Phase S-dagger on active axis (diag(1, -i) + frame update)
 
     // Local Math & Expansion
-    OP_EXPAND,       // Virtual H_v on dormant: k -> k+1, gamma /= sqrt(2)
-    OP_PHASE_T,      // Active diagonal T phase
-    OP_PHASE_T_DAG,  // Active diagonal T-dagger phase
+    OP_EXPAND,        // Virtual H_v on dormant: k -> k+1, gamma /= sqrt(2)
+    OP_PHASE_T,       // Active diagonal T phase
+    OP_PHASE_T_DAG,   // Active diagonal T-dagger phase
+    OP_EXPAND_T,      // Fused EXPAND + PHASE_T in one array pass
+    OP_EXPAND_T_DAG,  // Fused EXPAND + PHASE_T_DAG in one array pass
 
     // Measurement
     OP_MEAS_DORMANT_STATIC,    // Deterministic outcome from p_x
     OP_MEAS_DORMANT_RANDOM,    // Random pivot, algebraic phase to gamma
     OP_MEAS_ACTIVE_DIAGONAL,   // Z-basis filter, halves array (k -> k-1)
     OP_MEAS_ACTIVE_INTERFERE,  // X-basis fold, halves array (k -> k-1)
+    OP_SWAP_MEAS_INTERFERE,    // Fused ARRAY_SWAP + MEAS_ACTIVE_INTERFERE
 
     // Classical / Errors
     OP_APPLY_PAULI,    // XORs a full N-bit mask from ConstantPool into P
     OP_NOISE,          // Stochastic Pauli channel (rolls RNG, may apply Pauli)
+    OP_NOISE_BLOCK,    // Contiguous block of noise sites [start, start+count)
     OP_READOUT_NOISE,  // Classical bit-flip on measurement result
     OP_DETECTOR,       // Parity check over measurement records
     OP_POSTSELECT,     // Post-selection check: abort shot if parity != 0
@@ -101,6 +107,12 @@ struct alignas(32) Instruction {
             uint8_t _pad_c[16];      // Offset 16
         } pauli;
 
+        // Variant D: Multi-gate bitmask (MULTI_CNOT/MULTI_CZ)
+        struct {
+            uint64_t mask;       // Offset 8 (64-bit control/target bitmask)
+            uint8_t _pad_d[16];  // Offset 16
+        } multi_gate;
+
         uint8_t raw[24];  // Full payload access
     };
 };
@@ -123,15 +135,22 @@ Instruction make_frame_swap(uint16_t a, uint16_t b);
 Instruction make_array_cnot(uint16_t ctrl_axis, uint16_t tgt_axis);
 Instruction make_array_cz(uint16_t a_axis, uint16_t b_axis);
 Instruction make_array_swap(uint16_t a, uint16_t b);
+Instruction make_array_multi_cnot(uint16_t target, uint64_t ctrl_mask);
+Instruction make_array_multi_cz(uint16_t control, uint64_t target_mask);
 Instruction make_array_h(uint16_t axis);
 Instruction make_array_s(uint16_t axis);
 Instruction make_array_s_dag(uint16_t axis);
 Instruction make_expand(uint16_t axis);
 Instruction make_phase_t(uint16_t axis);
 Instruction make_phase_t_dag(uint16_t axis);
+Instruction make_expand_t(uint16_t axis);
+Instruction make_expand_t_dag(uint16_t axis);
+Instruction make_swap_meas_interfere(uint16_t swap_from, uint16_t swap_to, uint32_t classical_idx,
+                                     bool sign);
 Instruction make_meas(Opcode meas_opcode, uint16_t axis, uint32_t classical_idx, bool sign);
 Instruction make_apply_pauli(uint32_t cp_mask_idx, uint32_t condition_idx);
 Instruction make_noise(uint32_t site_idx);
+Instruction make_noise_block(uint32_t start_site, uint32_t count);
 Instruction make_readout_noise(uint32_t entry_idx);
 Instruction make_detector(uint32_t det_list_idx, uint32_t classical_idx);
 Instruction make_postselect(uint32_t det_list_idx, uint32_t classical_idx);

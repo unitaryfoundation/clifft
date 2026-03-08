@@ -86,6 +86,22 @@ Instruction make_array_swap(uint16_t a, uint16_t b) {
     return i;
 }
 
+Instruction make_array_multi_cnot(uint16_t target, uint64_t ctrl_mask) {
+    Instruction i{};
+    i.opcode = Opcode::OP_ARRAY_MULTI_CNOT;
+    i.axis_1 = target;
+    i.multi_gate.mask = ctrl_mask;
+    return i;
+}
+
+Instruction make_array_multi_cz(uint16_t control, uint64_t target_mask) {
+    Instruction i{};
+    i.opcode = Opcode::OP_ARRAY_MULTI_CZ;
+    i.axis_1 = control;
+    i.multi_gate.mask = target_mask;
+    return i;
+}
+
 Instruction make_array_h(uint16_t axis) {
     Instruction i{};
     i.opcode = Opcode::OP_ARRAY_H;
@@ -128,6 +144,33 @@ Instruction make_phase_t_dag(uint16_t axis) {
     return i;
 }
 
+Instruction make_expand_t(uint16_t axis) {
+    Instruction i{};
+    i.opcode = Opcode::OP_EXPAND_T;
+    i.axis_1 = axis;
+    return i;
+}
+
+Instruction make_expand_t_dag(uint16_t axis) {
+    Instruction i{};
+    i.opcode = Opcode::OP_EXPAND_T_DAG;
+    i.axis_1 = axis;
+    return i;
+}
+
+Instruction make_swap_meas_interfere(uint16_t swap_from, uint16_t swap_to, uint32_t classical_idx,
+                                     bool sign) {
+    Instruction i{};
+    i.opcode = Opcode::OP_SWAP_MEAS_INTERFERE;
+    i.axis_1 = swap_from;
+    i.axis_2 = swap_to;
+    i.classical.classical_idx = classical_idx;
+    if (sign) {
+        i.flags |= Instruction::FLAG_SIGN;
+    }
+    return i;
+}
+
 Instruction make_meas(Opcode meas_opcode, uint16_t axis, uint32_t classical_idx, bool sign) {
     Instruction i{};
     i.opcode = meas_opcode;
@@ -151,6 +194,14 @@ Instruction make_noise(uint32_t site_idx) {
     Instruction i{};
     i.opcode = Opcode::OP_NOISE;
     i.pauli.cp_mask_idx = site_idx;
+    return i;
+}
+
+Instruction make_noise_block(uint32_t start_site, uint32_t count) {
+    Instruction i{};
+    i.opcode = Opcode::OP_NOISE_BLOCK;
+    i.pauli.cp_mask_idx = start_site;
+    i.pauli.condition_idx = count;
     return i;
 }
 
@@ -734,6 +785,7 @@ CompiledModule lower(const HirModule& hir, const std::vector<uint8_t>& postselec
     result.total_meas_slots = total_meas_slots;
     result.num_detectors = hir.num_detectors;
     result.num_observables = hir.num_observables;
+
     return result;
 }
 

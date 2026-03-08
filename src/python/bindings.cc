@@ -2,8 +2,13 @@
 #include "ucc/circuit/circuit.h"
 #include "ucc/circuit/parser.h"
 #include "ucc/frontend/frontend.h"
+#include "ucc/optimizer/bytecode_pass.h"
+#include "ucc/optimizer/expand_t_pass.h"
+#include "ucc/optimizer/multi_gate_pass.h"
+#include "ucc/optimizer/noise_block_pass.h"
 #include "ucc/optimizer/pass_manager.h"
 #include "ucc/optimizer/peephole.h"
+#include "ucc/optimizer/swap_meas_pass.h"
 #include "ucc/svm/svm.h"
 #include "ucc/util/config.h"
 #include "ucc/util/introspection.h"
@@ -393,6 +398,65 @@ NB_MODULE(_ucc_core, m) {
         "Return a PassManager pre-loaded with the standard optimization passes.");
 
     // =========================================================================
+    // Bytecode Optimization Passes
+    // =========================================================================
+
+    nb::class_<ucc::BytecodePass>(m, "BytecodePass",
+                                  "Abstract base class for bytecode optimization passes.\n\n"
+                                  "Each pass receives a mutable Program and may rewrite,\n"
+                                  "reorder, or remove instructions.");
+
+    nb::class_<ucc::NoiseBlockPass, ucc::BytecodePass>(
+        m, "NoiseBlockPass", "Coalesces contiguous OP_NOISE instructions into OP_NOISE_BLOCK.")
+        .def(nb::init<>());
+
+    nb::class_<ucc::ExpandTPass, ucc::BytecodePass>(
+        m, "ExpandTPass", "Fuses OP_EXPAND + OP_PHASE_T into single OP_EXPAND_T instructions.")
+        .def(nb::init<>());
+
+    nb::class_<ucc::SwapMeasPass, ucc::BytecodePass>(
+        m, "SwapMeasPass",
+        "Fuses OP_ARRAY_SWAP + OP_MEAS_ACTIVE_INTERFERE into OP_SWAP_MEAS_INTERFERE.")
+        .def(nb::init<>());
+
+    nb::class_<ucc::MultiGatePass, ucc::BytecodePass>(
+        m, "MultiGatePass", "Fuses sequences of same-type 2-qubit gates into multi-target ops.")
+        .def(nb::init<>());
+
+    nb::class_<ucc::BytecodePassManager>(m, "BytecodePassManager",
+                                         "Runs a sequence of bytecode optimization passes "
+                                         "over a Program.")
+        .def(nb::init<>())
+        .def(
+            "add",
+            [](ucc::BytecodePassManager& bpm, ucc::BytecodePass& pass) {
+                struct BorrowedBytecodePass : ucc::BytecodePass {
+                    ucc::BytecodePass& ref;
+                    explicit BorrowedBytecodePass(ucc::BytecodePass& r) : ref(r) {}
+                    void run(ucc::CompiledModule& mod) override { ref.run(mod); }
+                };
+                bpm.add_pass(std::make_unique<BorrowedBytecodePass>(pass));
+            },
+            nb::arg("pass"), nb::keep_alive<1, 2>(),
+            "Add a bytecode optimization pass. Passes run in the order added.")
+        .def(
+            "run", [](ucc::BytecodePassManager& bpm, ucc::CompiledModule& mod) { bpm.run(mod); },
+            nb::arg("program"), "Run all bytecode passes on the program in sequence.");
+
+    m.def(
+        "default_bytecode_pass_manager",
+        []() {
+            ucc::BytecodePassManager bpm;
+            bpm.add_pass(std::make_unique<ucc::NoiseBlockPass>());
+            bpm.add_pass(std::make_unique<ucc::ExpandTPass>());
+            bpm.add_pass(std::make_unique<ucc::SwapMeasPass>());
+            return bpm;
+        },
+        nb::rv_policy::move,
+        "Return a BytecodePassManager pre-loaded with the default passes:\n"
+        "NoiseBlockPass, ExpandTPass, SwapMeasPass.");
+
+    // =========================================================================
     // Compiled Program and Sampling
     // =========================================================================
 
@@ -406,18 +470,24 @@ NB_MODULE(_ucc_core, m) {
         .value("OP_ARRAY_CNOT", ucc::Opcode::OP_ARRAY_CNOT)
         .value("OP_ARRAY_CZ", ucc::Opcode::OP_ARRAY_CZ)
         .value("OP_ARRAY_SWAP", ucc::Opcode::OP_ARRAY_SWAP)
+        .value("OP_ARRAY_MULTI_CNOT", ucc::Opcode::OP_ARRAY_MULTI_CNOT)
+        .value("OP_ARRAY_MULTI_CZ", ucc::Opcode::OP_ARRAY_MULTI_CZ)
         .value("OP_ARRAY_H", ucc::Opcode::OP_ARRAY_H)
         .value("OP_ARRAY_S", ucc::Opcode::OP_ARRAY_S)
         .value("OP_ARRAY_S_DAG", ucc::Opcode::OP_ARRAY_S_DAG)
         .value("OP_EXPAND", ucc::Opcode::OP_EXPAND)
         .value("OP_PHASE_T", ucc::Opcode::OP_PHASE_T)
         .value("OP_PHASE_T_DAG", ucc::Opcode::OP_PHASE_T_DAG)
+        .value("OP_EXPAND_T", ucc::Opcode::OP_EXPAND_T)
+        .value("OP_EXPAND_T_DAG", ucc::Opcode::OP_EXPAND_T_DAG)
         .value("OP_MEAS_DORMANT_STATIC", ucc::Opcode::OP_MEAS_DORMANT_STATIC)
         .value("OP_MEAS_DORMANT_RANDOM", ucc::Opcode::OP_MEAS_DORMANT_RANDOM)
         .value("OP_MEAS_ACTIVE_DIAGONAL", ucc::Opcode::OP_MEAS_ACTIVE_DIAGONAL)
         .value("OP_MEAS_ACTIVE_INTERFERE", ucc::Opcode::OP_MEAS_ACTIVE_INTERFERE)
+        .value("OP_SWAP_MEAS_INTERFERE", ucc::Opcode::OP_SWAP_MEAS_INTERFERE)
         .value("OP_APPLY_PAULI", ucc::Opcode::OP_APPLY_PAULI)
         .value("OP_NOISE", ucc::Opcode::OP_NOISE)
+        .value("OP_NOISE_BLOCK", ucc::Opcode::OP_NOISE_BLOCK)
         .value("OP_READOUT_NOISE", ucc::Opcode::OP_READOUT_NOISE)
         .value("OP_DETECTOR", ucc::Opcode::OP_DETECTOR)
         .value("OP_POSTSELECT", ucc::Opcode::OP_POSTSELECT)
@@ -453,8 +523,14 @@ NB_MODULE(_ucc_core, m) {
                     d["observable_index"] = i.pauli.condition_idx;
                 } else if (i.opcode == ucc::Opcode::OP_NOISE) {
                     d["noise_site_idx"] = i.pauli.cp_mask_idx;
+                } else if (i.opcode == ucc::Opcode::OP_NOISE_BLOCK) {
+                    d["start_site"] = i.pauli.cp_mask_idx;
+                    d["count"] = i.pauli.condition_idx;
                 } else if (i.opcode == ucc::Opcode::OP_READOUT_NOISE) {
                     d["readout_noise_idx"] = i.pauli.cp_mask_idx;
+                } else if (i.opcode == ucc::Opcode::OP_ARRAY_MULTI_CNOT ||
+                           i.opcode == ucc::Opcode::OP_ARRAY_MULTI_CZ) {
+                    d["mask"] = i.multi_gate.mask;
                 }
                 return d;
             },
@@ -544,13 +620,17 @@ NB_MODULE(_ucc_core, m) {
         },
         nb::arg("hir"), nb::arg("postselection_mask") = std::vector<uint8_t>{},
         "Lower a Heisenberg IR module to executable VM bytecode.\n\n"
+        "To optimize the bytecode, use a BytecodePassManager after lowering:\n"
+        "    prog = ucc.lower(hir)\n"
+        "    bpm = ucc.default_bytecode_pass_manager()\n"
+        "    bpm.run(prog)\n\n"
         "Args:\n"
         "    hir: The Heisenberg IR module to lower.\n"
         "    postselection_mask: Optional list of uint8 flags, one per detector.\n"
         "        Detectors where mask[i] != 0 become post-selection checks\n"
         "        that abort the shot early if their parity is non-zero.\n");
 
-    // Convenience: stim text -> Program (parse + trace + lower, no optimization)
+    // Convenience: stim text -> Program (parse + trace + lower)
     m.def(
         "compile",
         [](const std::string& stim_text, std::vector<uint8_t> postselection_mask) {
@@ -561,8 +641,8 @@ NB_MODULE(_ucc_core, m) {
         nb::arg("stim_text"), nb::arg("postselection_mask") = std::vector<uint8_t>{},
         "Compile a quantum circuit string to executable bytecode.\n\n"
         "Convenience function equivalent to lower(trace(parse(text))).\n"
-        "For optimization, use the explicit pipeline: parse -> trace -> "
-        "PassManager.run -> lower.\n"
+        "For optimization, use the explicit pipeline: parse -> trace ->\n"
+        "PassManager.run -> lower -> BytecodePassManager.run.\n"
         "\n"
         "Args:\n"
         "    stim_text: Circuit in .stim text format.\n"

@@ -1,6 +1,7 @@
 #include "ucc/svm/svm.h"
 
 #include <algorithm>
+#include <bit>
 #include <cassert>
 #include <cmath>
 #include <cstdlib>
@@ -347,11 +348,67 @@ static inline void exec_array_swap(SchrodingerState& state, uint16_t a, uint16_t
     exec_frame_swap(state, a, b);
 }
 
-// ARRAY_H on active axis v: applies the Hadamard butterfly transform to
-// the amplitude array, then updates the Pauli frame identically to FRAME_H.
-// For each pair (i, j) where i has bit v=0 and j=i|(1<<v):
-//   v'[i] = (v[i] + v[j]) / sqrt(2)
-//   v'[j] = (v[i] - v[j]) / sqrt(2)
+// MULTI_CNOT: fused star-graph of CNOTs sharing a target axis.
+// Equivalent to CNOT(c1,t), CNOT(c2,t), ..., CNOT(cW,t) but in one pass.
+// The combined unitary flips the target bit when the parity of control bits
+// is odd: |x> -> |x XOR (popcount(x & ctrl_mask) % 2) << target>.
+static inline void exec_array_multi_cnot(SchrodingerState& state, uint16_t target,
+                                         uint64_t ctrl_mask) {
+    assert(target < state.active_k && target < 64);
+
+    uint64_t t_bit = 1ULL << target;
+    uint64_t half = 1ULL << (state.active_k - 1);
+    uint64_t cm = ctrl_mask;
+    auto* v = state.v();
+
+    // Iterate over all indices with target bit = 0, conditionally swap.
+    for (uint64_t idx = 0; idx < half; ++idx) {
+        // Insert a zero bit at the target position to get the actual index.
+        uint64_t lo_mask = t_bit - 1;
+        uint64_t actual = (idx & lo_mask) | ((idx & ~lo_mask) << 1);
+        if (std::popcount(actual & cm) & 1) {
+            std::swap(v[actual], v[actual | t_bit]);
+        }
+    }
+
+    // Frame updates: each individual CNOT(c, t) spreads X_c -> X_t, Z_t -> Z_c.
+    // These all commute since they share the target.
+    for (uint16_t c = 0; c < state.active_k; ++c) {
+        if (ctrl_mask & (1ULL << c)) {
+            exec_frame_cnot(state, c, target);
+        }
+    }
+}
+
+// MULTI_CZ: fused star-graph of CZs sharing a control axis.
+// Equivalent to CZ(c,t1), CZ(c,t2), ..., CZ(c,tW) but in one pass.
+// The combined diagonal negates v[idx] when the control bit is set AND
+// the parity of target bits is odd.
+static inline void exec_array_multi_cz(SchrodingerState& state, uint16_t control,
+                                       uint64_t target_mask) {
+    assert(control < state.active_k && control < 64);
+
+    uint64_t c_bit = 1ULL << control;
+    uint64_t size = 1ULL << state.active_k;
+    uint64_t tm = target_mask;
+    auto* v = state.v();
+
+    for (uint64_t idx = 0; idx < size; ++idx) {
+        if ((idx & c_bit) && (std::popcount(idx & tm) & 1)) {
+            v[idx] = -v[idx];
+        }
+    }
+
+    // Frame updates: each CZ(c, t) spreads X_c -> Z_t, X_t -> Z_c.
+    for (uint16_t t = 0; t < state.active_k; ++t) {
+        if (target_mask & (1ULL << t)) {
+            exec_frame_cz(state, control, t);
+        }
+    }
+}
+
+// ARRAY_H on active axis v: applies the Hadamard butterfly transform,
+// then updates the Pauli frame.
 static inline void exec_array_h(SchrodingerState& state, uint16_t v) {
     assert(v < state.active_k && v < 64 && "ARRAY_H: axis out of range");
     uint64_t iters = 1ULL << (state.active_k - 1);
@@ -432,8 +489,8 @@ static inline void exec_expand(SchrodingerState& state, uint16_t v) {
         arr[i + half] = arr[i];
     }
 
-    state.scale_magnitude(1.0 / std::sqrt(2.0));
     state.active_k++;
+    state.scale_magnitude(1.0 / std::sqrt(2.0));
 }
 
 // T gate (pi/4 Z-rotation) on active axis v: applies diag(1, e^{i*pi/4})
@@ -494,6 +551,57 @@ static inline void exec_phase_t_dag(SchrodingerState& state, uint16_t v) {
         for (uint64_t i = 0; i < iters; ++i) {
             arr[scatter_bits_1(i, pdep_mask, v) | v_bit] *= kExpMinusIPiOver4;
         }
+    }
+}
+
+// Fused EXPAND + PHASE_T: duplicates the array into the upper half while
+// applying the T phase to the new axis in a single pass.  The expand
+// operation sets v[i + half] = v[i] for all i < 2^k, then T multiplies
+// v[idx] by exp(i*pi/4) for all idx with the new bit set.  By fusing,
+// we write v[i + half] = v[i] * phase in one loop instead of two.
+static inline void exec_expand_t(SchrodingerState& state, uint16_t v) {
+    assert(v == state.active_k && "EXPAND_T must target the next dormant axis");
+    assert(state.v_size() <= state.array_size() / 2);
+    uint64_t half = 1ULL << state.active_k;
+    auto* arr = state.v();
+    bool px = bit_get(state.p_x, v);
+
+    // The phase applied to the upper half (bit v set).
+    // If p_x[v]=1, T anticommutes with X -> array gets T_dag, gamma absorbs T.
+    std::complex<double> phase = px ? kExpMinusIPiOver4 : kExpIPiOver4;
+
+    for (uint64_t i = 0; i < half; ++i) {
+        arr[i + half] = arr[i] * phase;
+    }
+
+    state.active_k++;
+    state.scale_magnitude(1.0 / std::sqrt(2.0));
+
+    if (px) {
+        state.multiply_phase(kExpIPiOver4);
+    }
+}
+
+// Fused EXPAND + PHASE_T_DAG: same fusion but with T-dagger phase.
+static inline void exec_expand_t_dag(SchrodingerState& state, uint16_t v) {
+    assert(v == state.active_k && "EXPAND_T_DAG must target the next dormant axis");
+    assert(state.v_size() <= state.array_size() / 2);
+    uint64_t half = 1ULL << state.active_k;
+    auto* arr = state.v();
+    bool px = bit_get(state.p_x, v);
+
+    // If p_x[v]=1, T_dag anticommutes -> array gets T, gamma absorbs T_dag.
+    std::complex<double> phase = px ? kExpIPiOver4 : kExpMinusIPiOver4;
+
+    for (uint64_t i = 0; i < half; ++i) {
+        arr[i + half] = arr[i] * phase;
+    }
+
+    state.active_k++;
+    state.scale_magnitude(1.0 / std::sqrt(2.0));
+
+    if (px) {
+        state.multiply_phase(kExpMinusIPiOver4);
     }
 }
 
@@ -689,6 +797,107 @@ static inline void exec_meas_active_interfere(SchrodingerState& state, uint16_t 
     state.meas_record[classical_idx] = m_phys;
 }
 
+// Fused SWAP + MEAS_ACTIVE_INTERFERE: performs the logical swap and X-basis
+// fold in a single O(2^k) memory pass, eliminating the redundant O(2^k)
+// array permutation that a separate ARRAY_SWAP would require.
+//
+// The key insight is that we can map every output index `idx` directly to
+// its unswapped source indices without physically permuting the array.
+// For each output index in [0, 2^(k-1)):
+//   - Extract bit f from idx to determine which "half" of the swap we are in
+//   - Reconstruct the pre-swap base index by moving that bit to position t
+//   - Read the pair (base, base|f_bit) and fold them with +/- as usual
+//
+// Memory safety of the in-place fold:
+//   When b_f=0: sources are arr[idx] and arr[idx|f_bit] (both >= idx).
+//     The arr[idx|f_bit] value is consumed here before that higher index
+//     is reached; when the loop gets there, b_f=1 redirects reads to the
+//     upper half, so the overwritten lower-half value is never re-read.
+//   When b_f=1: sources are in the upper half (>= 2^t > idx), which is
+//     strictly read-only during the fold pass.
+static inline void exec_swap_meas_interfere(SchrodingerState& state, uint16_t f, uint16_t t,
+                                            uint32_t classical_idx, bool sign) {
+    assert(t == state.active_k - 1 && "Swap target must be k-1");
+
+    if (f == t) {
+        exec_meas_active_interfere(state, t, classical_idx, sign);
+        return;
+    }
+
+    // Frame update: equivalent to FRAME_SWAP(f, t) before measurement
+    exec_frame_swap(state, f, t);
+    bool px_v = bit_get(state.p_x, t);
+    bool pz_v = bit_get(state.p_z, t);
+
+    uint64_t half = 1ULL << t;
+    auto* arr = state.v();
+    uint64_t f_bit = 1ULL << f;
+
+    // Pass 1: Compute X-basis probabilities with swapped index mapping
+    double prob_plus = 0.0;
+    double prob_minus = 0.0;
+    for (uint64_t idx = 0; idx < half; ++idx) {
+        uint64_t b_f = (idx >> f) & 1;
+        uint64_t base = (idx & ~f_bit) | (b_f << t);
+
+        auto sum = arr[base] + arr[base | f_bit];
+        auto diff = arr[base] - arr[base | f_bit];
+        prob_plus += std::norm(sum);
+        prob_minus += std::norm(diff);
+    }
+
+    double total = prob_plus + prob_minus;
+    assert(total > 0.0 && "Active interfere measurement on zero-norm state");
+
+    // Sample X-basis branch
+    uint8_t b_x;
+    if (prob_minus <= 0.0) {
+        b_x = 0;
+    } else if (prob_plus <= 0.0) {
+        b_x = 1;
+    } else {
+        double rand = state.random_double();
+        b_x = (rand * total < prob_plus) ? 0 : 1;
+    }
+
+    // Pass 2: In-place fold with swapped index mapping
+    if (b_x == 0) {
+        for (uint64_t idx = 0; idx < half; ++idx) {
+            uint64_t b_f = (idx >> f) & 1;
+            uint64_t base = (idx & ~f_bit) | (b_f << t);
+            arr[idx] = (arr[base] + arr[base | f_bit]) * kInvSqrt2;
+        }
+    } else {
+        for (uint64_t idx = 0; idx < half; ++idx) {
+            uint64_t b_f = (idx >> f) & 1;
+            uint64_t base = (idx & ~f_bit) | (b_f << t);
+            arr[idx] = (arr[base] - arr[base | f_bit]) * kInvSqrt2;
+        }
+    }
+
+    // Zero upper half, decrement active dimension
+    std::memset(arr + half, 0, half * sizeof(std::complex<double>));
+    state.active_k--;
+
+    // Deferred normalization
+    double prob_bx = (b_x == 0) ? prob_plus : prob_minus;
+    state.scale_magnitude(std::sqrt(total / prob_bx));
+
+    // Abstract and physical outcomes
+    uint8_t m_abs = b_x ^ static_cast<uint8_t>(pz_v);
+    uint8_t m_phys = m_abs ^ static_cast<uint8_t>(sign);
+
+    if (px_v && m_abs) {
+        state.multiply_phase({-1.0, 0.0});
+    }
+
+    // Frame reset: anchor to abstract eigenstate
+    bit_set(state.p_x, t, m_abs);
+    bit_set(state.p_z, t, false);
+
+    state.meas_record[classical_idx] = m_phys;
+}
+
 // =============================================================================
 // Classical / Error Opcodes
 // =============================================================================
@@ -761,6 +970,18 @@ static inline void exec_noise(SchrodingerState& state, const ConstantPool& pool,
 
     state.next_noise_idx++;
     state.draw_next_noise(pool.noise_hazards);
+}
+
+// NOISE_BLOCK: processes a contiguous range of noise sites [start, start+count)
+// in a tight loop. The gap-sampler's next_noise_idx determines which (if any)
+// sites within the block actually fire. Most shots skip the entire block when
+// next_noise_idx falls outside [start, start+count).
+static inline void exec_noise_block(SchrodingerState& state, const ConstantPool& pool,
+                                    uint32_t start_site, uint32_t count) {
+    uint32_t end_site = start_site + count;
+    while (state.next_noise_idx >= start_site && state.next_noise_idx < end_site) {
+        exec_noise(state, pool, state.next_noise_idx);
+    }
 }
 
 // READOUT_NOISE: classical bit-flip on a measurement result.
@@ -857,6 +1078,8 @@ void execute(const CompiledModule& program, SchrodingerState& state) {
         [static_cast<uint8_t>(Opcode::OP_ARRAY_CNOT)] = &&L_OP_ARRAY_CNOT,
         [static_cast<uint8_t>(Opcode::OP_ARRAY_CZ)] = &&L_OP_ARRAY_CZ,
         [static_cast<uint8_t>(Opcode::OP_ARRAY_SWAP)] = &&L_OP_ARRAY_SWAP,
+        [static_cast<uint8_t>(Opcode::OP_ARRAY_MULTI_CNOT)] = &&L_OP_ARRAY_MULTI_CNOT,
+        [static_cast<uint8_t>(Opcode::OP_ARRAY_MULTI_CZ)] = &&L_OP_ARRAY_MULTI_CZ,
         [static_cast<uint8_t>(Opcode::OP_ARRAY_H)] = &&L_OP_ARRAY_H,
         [static_cast<uint8_t>(Opcode::OP_ARRAY_S)] = &&L_OP_ARRAY_S,
         [static_cast<uint8_t>(Opcode::OP_ARRAY_S_DAG)] = &&L_OP_ARRAY_S_DAG,
@@ -864,14 +1087,18 @@ void execute(const CompiledModule& program, SchrodingerState& state) {
         [static_cast<uint8_t>(Opcode::OP_EXPAND)] = &&L_OP_EXPAND,
         [static_cast<uint8_t>(Opcode::OP_PHASE_T)] = &&L_OP_PHASE_T,
         [static_cast<uint8_t>(Opcode::OP_PHASE_T_DAG)] = &&L_OP_PHASE_T_DAG,
+        [static_cast<uint8_t>(Opcode::OP_EXPAND_T)] = &&L_OP_EXPAND_T,
+        [static_cast<uint8_t>(Opcode::OP_EXPAND_T_DAG)] = &&L_OP_EXPAND_T_DAG,
 
         [static_cast<uint8_t>(Opcode::OP_MEAS_DORMANT_STATIC)] = &&L_OP_MEAS_DORMANT_STATIC,
         [static_cast<uint8_t>(Opcode::OP_MEAS_DORMANT_RANDOM)] = &&L_OP_MEAS_DORMANT_RANDOM,
         [static_cast<uint8_t>(Opcode::OP_MEAS_ACTIVE_DIAGONAL)] = &&L_OP_MEAS_ACTIVE_DIAGONAL,
         [static_cast<uint8_t>(Opcode::OP_MEAS_ACTIVE_INTERFERE)] = &&L_OP_MEAS_ACTIVE_INTERFERE,
+        [static_cast<uint8_t>(Opcode::OP_SWAP_MEAS_INTERFERE)] = &&L_OP_SWAP_MEAS_INTERFERE,
 
         [static_cast<uint8_t>(Opcode::OP_APPLY_PAULI)] = &&L_OP_APPLY_PAULI,
         [static_cast<uint8_t>(Opcode::OP_NOISE)] = &&L_OP_NOISE,
+        [static_cast<uint8_t>(Opcode::OP_NOISE_BLOCK)] = &&L_OP_NOISE_BLOCK,
         [static_cast<uint8_t>(Opcode::OP_READOUT_NOISE)] = &&L_OP_READOUT_NOISE,
         [static_cast<uint8_t>(Opcode::OP_DETECTOR)] = &&L_OP_DETECTOR,
         [static_cast<uint8_t>(Opcode::OP_POSTSELECT)] = &&L_OP_POSTSELECT,
@@ -926,6 +1153,14 @@ L_OP_ARRAY_SWAP:
     exec_array_swap(state, pc->axis_1, pc->axis_2);
     DISPATCH();
 
+L_OP_ARRAY_MULTI_CNOT:
+    exec_array_multi_cnot(state, pc->axis_1, pc->multi_gate.mask);
+    DISPATCH();
+
+L_OP_ARRAY_MULTI_CZ:
+    exec_array_multi_cz(state, pc->axis_1, pc->multi_gate.mask);
+    DISPATCH();
+
 L_OP_ARRAY_H:
     exec_array_h(state, pc->axis_1);
     DISPATCH();
@@ -948,6 +1183,14 @@ L_OP_PHASE_T:
 
 L_OP_PHASE_T_DAG:
     exec_phase_t_dag(state, pc->axis_1);
+    DISPATCH();
+
+L_OP_EXPAND_T:
+    exec_expand_t(state, pc->axis_1);
+    DISPATCH();
+
+L_OP_EXPAND_T_DAG:
+    exec_expand_t_dag(state, pc->axis_1);
     DISPATCH();
 
 L_OP_MEAS_DORMANT_STATIC:
@@ -975,12 +1218,21 @@ L_OP_MEAS_ACTIVE_INTERFERE:
                                (pc->flags & Instruction::FLAG_SIGN) != 0);
     DISPATCH();
 
+L_OP_SWAP_MEAS_INTERFERE:
+    exec_swap_meas_interfere(state, pc->axis_1, pc->axis_2, pc->classical.classical_idx,
+                             (pc->flags & Instruction::FLAG_SIGN) != 0);
+    DISPATCH();
+
 L_OP_APPLY_PAULI:
     exec_apply_pauli(state, program.constant_pool, pc->pauli.cp_mask_idx, pc->pauli.condition_idx);
     DISPATCH();
 
 L_OP_NOISE:
     exec_noise(state, program.constant_pool, pc->pauli.cp_mask_idx);
+    DISPATCH();
+
+L_OP_NOISE_BLOCK:
+    exec_noise_block(state, program.constant_pool, pc->pauli.cp_mask_idx, pc->pauli.condition_idx);
     DISPATCH();
 
 L_OP_READOUT_NOISE:
@@ -1033,6 +1285,12 @@ L_OP_OBSERVABLE:
             case Opcode::OP_ARRAY_SWAP:
                 exec_array_swap(state, instr.axis_1, instr.axis_2);
                 break;
+            case Opcode::OP_ARRAY_MULTI_CNOT:
+                exec_array_multi_cnot(state, instr.axis_1, instr.multi_gate.mask);
+                break;
+            case Opcode::OP_ARRAY_MULTI_CZ:
+                exec_array_multi_cz(state, instr.axis_1, instr.multi_gate.mask);
+                break;
             case Opcode::OP_ARRAY_H:
                 exec_array_h(state, instr.axis_1);
                 break;
@@ -1050,6 +1308,12 @@ L_OP_OBSERVABLE:
                 break;
             case Opcode::OP_PHASE_T_DAG:
                 exec_phase_t_dag(state, instr.axis_1);
+                break;
+            case Opcode::OP_EXPAND_T:
+                exec_expand_t(state, instr.axis_1);
+                break;
+            case Opcode::OP_EXPAND_T_DAG:
+                exec_expand_t_dag(state, instr.axis_1);
                 break;
             case Opcode::OP_MEAS_DORMANT_STATIC:
                 if (instr.flags & Instruction::FLAG_IDENTITY) {
@@ -1072,12 +1336,21 @@ L_OP_OBSERVABLE:
                 exec_meas_active_interfere(state, instr.axis_1, instr.classical.classical_idx,
                                            (instr.flags & Instruction::FLAG_SIGN) != 0);
                 break;
+            case Opcode::OP_SWAP_MEAS_INTERFERE:
+                exec_swap_meas_interfere(state, instr.axis_1, instr.axis_2,
+                                         instr.classical.classical_idx,
+                                         (instr.flags & Instruction::FLAG_SIGN) != 0);
+                break;
             case Opcode::OP_APPLY_PAULI:
                 exec_apply_pauli(state, program.constant_pool, instr.pauli.cp_mask_idx,
                                  instr.pauli.condition_idx);
                 break;
             case Opcode::OP_NOISE:
                 exec_noise(state, program.constant_pool, instr.pauli.cp_mask_idx);
+                break;
+            case Opcode::OP_NOISE_BLOCK:
+                exec_noise_block(state, program.constant_pool, instr.pauli.cp_mask_idx,
+                                 instr.pauli.condition_idx);
                 break;
             case Opcode::OP_READOUT_NOISE:
                 exec_readout_noise(state, program.constant_pool, instr.pauli.cp_mask_idx);

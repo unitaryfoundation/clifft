@@ -125,13 +125,107 @@ sampling and array arithmetic that are unaffected by dispatch changes.
 
 ---
 
+## Bytecode Optimization Passes (PR #92)
+
+Four bytecode optimization passes applied post-lowering, pre-execution.
+All passes operate on the `vector<Instruction>` bytecode in-place.
+
+### Pass 1: NoiseBlockPass
+
+Collapses runs of individual `OP_NOISE` instructions into a single
+`OP_NOISE_BLOCK` that samples a geometric distribution to skip over
+non-firing noise sites in bulk. For the d=5 circuit, 3471 noise
+instructions collapse to 24 blocks.
+
+### Pass 2: MultiGatePass
+
+Detects star-graph patterns where multiple CNOTs (or CZs) share a
+common target (or control) axis. Fuses them into `OP_ARRAY_MULTI_CNOT`
+or `OP_ARRAY_MULTI_CZ` using a 64-bit bitmask encoding.
+For d=5: 191 individual CNOTs become 44 CNOT + 45 MULTI_CNOT.
+
+### Pass 3: ExpandTPass
+
+Fuses adjacent `OP_EXPAND` + `OP_PHASE_T/T_DAG` on the same axis into
+`OP_EXPAND_T/T_DAG`, performing the array duplication and phase rotation
+in a single loop. 24 pairs fused in the d=5 circuit.
+
+### Pass 4: SwapMeasPass
+
+Fuses adjacent `OP_ARRAY_SWAP` + `OP_MEAS_ACTIVE_INTERFERE` into
+`OP_SWAP_MEAS_INTERFERE`, performing the swap and Born measurement
+in a single pass. 15 pairs fused in the d=5 circuit.
+
+### Results (d=5 surface code, 100k shots, RelWithDebInfo -O2 -march=native)
+
+**Default pipeline** (NoiseBlockPass + ExpandTPass + SwapMeasPass):
+
+| Metric | Before (main) | After (optimized) | Change |
+|---|---|---|---|
+| **Instructions** | 5,111 | 1,625 | 3.15x fewer |
+| **Per-shot time** | ~103 us | ~98 us | **~5% faster** |
+| **Optimization cost** | -- | 0.7 ms (one-time) | Negligible |
+
+**With MultiGatePass** (opt-in via `UCC_ENABLE_MULTI_GATE=1`):
+
+| Metric | Before (main) | After (all passes) | Change |
+|---|---|---|---|
+| **Instructions** | 5,111 | 1,518 | 3.37x fewer |
+| **Per-shot time** | ~103 us | ~88 us | **~15% faster** |
+
+MultiGatePass is excluded from the default pipeline because its
+popcount-based parity branch creates ~50/50 branch mispredictions in
+the inner loop (33.9% of runtime when enabled). At rank=10 (d=5), the
+dispatch savings still outweigh the misprediction penalty, but at
+higher ranks the O(2^k) branch penalty will dominate. It will be
+re-enabled once the inner loop is rewritten with branchless AVX2 blends.
+
+### Instruction Profile (1625 total, default pipeline)
+
+| Category | Count | % | Cost |
+|---|---|---|---|
+| FRAME ops | 764 | 47.0% | ~2 XORs each |
+| MEAS_DORMANT | 215 | 13.2% | bit read |
+| APPLY_PAULI | 135 | 8.3% | XOR + popcount |
+| NOISE_BLOCK | 24 | 1.5% | geometric skip |
+| DETECTOR | 107 | 6.6% | parity XOR |
+| ARRAY_CNOT | 191 | 11.8% | 2^(k-2) swaps |
+| ARRAY_CZ | 6 | 0.4% | 2^(k-2) negations |
+| PHASE_T/T_DAG | 48 | 3.0% | 2^(k-1) multiplies |
+| EXPAND_T | 24 | 1.5% | 2^(k-1) copy+multiply |
+| SWAP_MEAS | 15 | 0.9% | fused swap+Born+fold |
+| Other | 96 | 5.9% | misc |
+
+### SwapMeasPass: Single-Pass Memory Fusion
+
+The `OP_SWAP_MEAS_INTERFERE` handler now performs the logical swap and
+X-basis fold in a single O(2^k) memory pass, eliminating the redundant
+O(2^k) array permutation that separate ARRAY_SWAP + MEAS_ACTIVE_INTERFERE
+would require. Each output index is mapped directly to its unswapped
+source indices using bit extraction, and the in-place fold is provably
+hazard-free without any temporary buffer.
+
+### Hotspot Analysis (perf record, d=5 circuit, with MultiGatePass)
+
+| % of runtime | Operation | Notes |
+|---|---|---|
+| **33.9%** | MULTI_CNOT inner loop | Naive bit-insertion + unpredictable popcount branch |
+| **19.6%** | EXPAND_T inner loop | Already fused, inherent work |
+| **8.6%** | ARRAY_CNOT inner loop | Uses PDEP, well-optimized |
+| **7.0%** | PHASE_T inner loop | Uses PDEP, well-optimized |
+| **5.6%** | MEAS_ACTIVE_INTERFERE | Born probability + fold |
+| **~5%** | Frame/meas/detector | O(1) per instruction |
+| **<1%** | Dispatch overhead | Computed goto |
+
+---
+
 ## Remaining Optimization Opportunities
 
-1. **Dispatch overhead still ~25-35%** — consider merging common opcode
-   sequences (e.g. FRAME_CZ + FRAME_CZ) into fused super-instructions.
-2. **T-gate array loops not vectorized** — the `if (i & v_bit)` branch
-   defeats auto-vectorization. Branchless bit-weaving (like ARRAY_CNOT
-   already uses) would help.
+1. **MULTI_CNOT branchless/PDEP** (33.9% of runtime) — the popcount
+   parity branch is ~50/50 unpredictable. A branchless conditional
+   swap or restructured index enumeration could help significantly.
+2. **AVX vectorization** — the inner loops process one complex<double>
+   (16 bytes) at a time. AVX2 could process 2 per cycle.
 3. **Measurement probability loops** — `prob_b0 += norm(arr[i])` could
    use SIMD horizontal reduction.
 4. **Per-shot `reset()` reseeds Xoshiro** — 4-word SplitMix expansion

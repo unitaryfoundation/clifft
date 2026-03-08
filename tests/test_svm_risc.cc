@@ -1795,3 +1795,67 @@ TEST_CASE("sample_survivors: logical_errors counts shots with any obs flipped") 
     // logical_errors should equal observable_ones[0], NOT the sum
     CHECK(result.logical_errors == result.observable_ones[0]);
 }
+
+// =============================================================================
+// Regression: scale_magnitude must see full array after EXPAND
+// =============================================================================
+
+// If active_k is incremented after scale_magnitude, a renormalization
+// triggered during EXPAND only rescales the lower half, corrupting the
+// upper half. This test forces gamma near the underflow threshold so
+// that the 1/sqrt(2) factor triggers renormalization.
+
+TEST_CASE("RISC EXPAND: renormalization rescales both halves") {
+    SchrodingerState state(3, 0);
+    // Seed array: v[0] = (2.0, 1.0) as a non-trivial value
+    state.v()[0] = {2.0, 1.0};
+
+    // Push gamma near underflow: |gamma|^2 = 1e-200, so after *= 1/sqrt(2)
+    // |gamma|^2 = 5e-201 < 1e-200 and renormalization fires.
+    state.set_gamma({1e-100, 0.0});
+
+    auto prog = make_program({make_expand(0)}, 3);
+    execute(prog, state);
+
+    CHECK(state.active_k == 1);
+    // Both halves must be identical (EXPAND duplicates lower into upper)
+    check_complex(state.v()[0], state.v()[1]);
+    // Verify the full statevector norm is preserved:
+    // |psi|^2 = |gamma|^2 * (|v[0]|^2 + |v[1]|^2)
+    double v_norm_sq = std::norm(state.v()[0]) + std::norm(state.v()[1]);
+    double psi_norm_sq = std::norm(state.gamma()) * v_norm_sq;
+    // Original: |gamma|^2 * |v[0]|^2 = 1e-200 * 5 = 5e-200
+    // After expand: *= 1/sqrt(2) -> should give 5e-200 (duplicated + halved)
+    CHECK_THAT(psi_norm_sq, WithinRel(5e-200, 1e-6));
+}
+
+TEST_CASE("RISC EXPAND_T: renormalization rescales both halves") {
+    SchrodingerState state(3, 0);
+    state.v()[0] = {2.0, 1.0};
+    state.set_gamma({1e-100, 0.0});
+
+    auto prog = make_program({make_expand_t(0)}, 3);
+    execute(prog, state);
+
+    CHECK(state.active_k == 1);
+    // Upper half = lower * e^{i*pi/4}; magnitudes must match
+    CHECK_THAT(std::abs(state.v()[0]), WithinRel(std::abs(state.v()[1]), 1e-12));
+    double v_norm_sq = std::norm(state.v()[0]) + std::norm(state.v()[1]);
+    double psi_norm_sq = std::norm(state.gamma()) * v_norm_sq;
+    CHECK_THAT(psi_norm_sq, WithinRel(5e-200, 1e-6));
+}
+
+TEST_CASE("RISC EXPAND_T_DAG: renormalization rescales both halves") {
+    SchrodingerState state(3, 0);
+    state.v()[0] = {2.0, 1.0};
+    state.set_gamma({1e-100, 0.0});
+
+    auto prog = make_program({make_expand_t_dag(0)}, 3);
+    execute(prog, state);
+
+    CHECK(state.active_k == 1);
+    CHECK_THAT(std::abs(state.v()[0]), WithinRel(std::abs(state.v()[1]), 1e-12));
+    double v_norm_sq = std::norm(state.v()[0]) + std::norm(state.v()[1]);
+    double psi_norm_sq = std::norm(state.gamma()) * v_norm_sq;
+    CHECK_THAT(psi_norm_sq, WithinRel(5e-200, 1e-6));
+}

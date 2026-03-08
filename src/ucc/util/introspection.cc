@@ -114,6 +114,10 @@ std::string opcode_to_str(Opcode op) {
             return "OP_ARRAY_CZ";
         case Opcode::OP_ARRAY_SWAP:
             return "OP_ARRAY_SWAP";
+        case Opcode::OP_ARRAY_MULTI_CNOT:
+            return "OP_ARRAY_MULTI_CNOT";
+        case Opcode::OP_ARRAY_MULTI_CZ:
+            return "OP_ARRAY_MULTI_CZ";
         case Opcode::OP_ARRAY_H:
             return "OP_ARRAY_H";
         case Opcode::OP_ARRAY_S:
@@ -126,6 +130,10 @@ std::string opcode_to_str(Opcode op) {
             return "OP_PHASE_T";
         case Opcode::OP_PHASE_T_DAG:
             return "OP_PHASE_T_DAG";
+        case Opcode::OP_EXPAND_T:
+            return "OP_EXPAND_T";
+        case Opcode::OP_EXPAND_T_DAG:
+            return "OP_EXPAND_T_DAG";
         case Opcode::OP_MEAS_DORMANT_STATIC:
             return "OP_MEAS_DORMANT_STATIC";
         case Opcode::OP_MEAS_DORMANT_RANDOM:
@@ -134,10 +142,14 @@ std::string opcode_to_str(Opcode op) {
             return "OP_MEAS_ACTIVE_DIAGONAL";
         case Opcode::OP_MEAS_ACTIVE_INTERFERE:
             return "OP_MEAS_ACTIVE_INTERFERE";
+        case Opcode::OP_SWAP_MEAS_INTERFERE:
+            return "OP_SWAP_MEAS_INTERFERE";
         case Opcode::OP_APPLY_PAULI:
             return "OP_APPLY_PAULI";
         case Opcode::OP_NOISE:
             return "OP_NOISE";
+        case Opcode::OP_NOISE_BLOCK:
+            return "OP_NOISE_BLOCK";
         case Opcode::OP_READOUT_NOISE:
             return "OP_READOUT_NOISE";
         case Opcode::OP_DETECTOR:
@@ -154,18 +166,21 @@ std::string opcode_to_str(Opcode op) {
 bool is_two_axis_opcode(Opcode op) {
     return op == Opcode::OP_FRAME_CNOT || op == Opcode::OP_FRAME_CZ ||
            op == Opcode::OP_FRAME_SWAP || op == Opcode::OP_ARRAY_CNOT ||
-           op == Opcode::OP_ARRAY_CZ || op == Opcode::OP_ARRAY_SWAP;
+           op == Opcode::OP_ARRAY_CZ || op == Opcode::OP_ARRAY_SWAP ||
+           op == Opcode::OP_SWAP_MEAS_INTERFERE;
 }
 
 bool is_one_axis_opcode(Opcode op) {
     return op == Opcode::OP_FRAME_H || op == Opcode::OP_FRAME_S || op == Opcode::OP_FRAME_S_DAG ||
            op == Opcode::OP_ARRAY_H || op == Opcode::OP_ARRAY_S || op == Opcode::OP_ARRAY_S_DAG ||
-           op == Opcode::OP_EXPAND || op == Opcode::OP_PHASE_T || op == Opcode::OP_PHASE_T_DAG;
+           op == Opcode::OP_EXPAND || op == Opcode::OP_PHASE_T || op == Opcode::OP_PHASE_T_DAG ||
+           op == Opcode::OP_EXPAND_T || op == Opcode::OP_EXPAND_T_DAG;
 }
 
 bool is_meas_opcode(Opcode op) {
     return op == Opcode::OP_MEAS_DORMANT_STATIC || op == Opcode::OP_MEAS_DORMANT_RANDOM ||
-           op == Opcode::OP_MEAS_ACTIVE_DIAGONAL || op == Opcode::OP_MEAS_ACTIVE_INTERFERE;
+           op == Opcode::OP_MEAS_ACTIVE_DIAGONAL || op == Opcode::OP_MEAS_ACTIVE_INTERFERE ||
+           op == Opcode::OP_SWAP_MEAS_INTERFERE;
 }
 
 std::string format_instruction(const Instruction& inst) {
@@ -182,10 +197,24 @@ std::string format_instruction(const Instruction& inst) {
             ss << " (invert)";
         if (inst.flags & Instruction::FLAG_IDENTITY)
             ss << " (identity)";
+    } else if (inst.opcode == Opcode::OP_ARRAY_MULTI_CNOT) {
+        ss << "target=" << inst.axis_1 << " ctrl_mask=0x" << std::hex << inst.multi_gate.mask
+           << std::dec;
+    } else if (inst.opcode == Opcode::OP_ARRAY_MULTI_CZ) {
+        ss << "ctrl=" << inst.axis_1 << " target_mask=0x" << std::hex << inst.multi_gate.mask
+           << std::dec;
+    } else if (inst.opcode == Opcode::OP_SWAP_MEAS_INTERFERE) {
+        ss << "swap(" << inst.axis_1 << "," << inst.axis_2
+           << ") meas_idx=" << inst.classical.classical_idx;
+        if (inst.flags & Instruction::FLAG_SIGN)
+            ss << " (sign)";
     } else if (inst.opcode == Opcode::OP_APPLY_PAULI) {
         ss << "cp_mask=" << inst.pauli.cp_mask_idx << " if rec[" << inst.pauli.condition_idx << "]";
     } else if (inst.opcode == Opcode::OP_NOISE) {
         ss << "cp_site=" << inst.pauli.cp_mask_idx;
+    } else if (inst.opcode == Opcode::OP_NOISE_BLOCK) {
+        ss << "sites=[" << inst.pauli.cp_mask_idx << ".."
+           << (inst.pauli.cp_mask_idx + inst.pauli.condition_idx) << ")";
     } else if (inst.opcode == Opcode::OP_READOUT_NOISE) {
         ss << "cp_entry=" << inst.pauli.cp_mask_idx;
     } else if (inst.opcode == Opcode::OP_DETECTOR || inst.opcode == Opcode::OP_POSTSELECT) {

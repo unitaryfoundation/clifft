@@ -627,5 +627,8 @@ reproduce the paper's Figure 2 error bars.
   - Loop fission explored but neutral at rank=10; not included
 - [x] Step 3: Local correctness validation -- PASS (5 errors, rate 1.26e-7, paper 3.41e-8, within CI)
 - [ ] Step 4: Cloud execution (single instance, 3 data points)
-- [ ] Step 4.5: SVM hot-loop optimization
+- [x] Step 4.5: SVM hot-loop optimization (PR #92)
+  - 4 bytecode passes: NoiseBlockPass, MultiGatePass, ExpandTPass, SwapMeasPass
+  - d=5 circuit: 5111 -> 1518 instructions, ~104 -> ~86 us/shot (~17% faster)
+  - Remaining hotspot: MULTI_CNOT branchless/PDEP (33.9% of runtime)
 - [ ] Step 5: Generate plots and tables

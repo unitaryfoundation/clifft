@@ -4,6 +4,11 @@
 add_library(ucc_core STATIC
     circuit/parser.cc
     frontend/frontend.cc
+    optimizer/bytecode_pass.cc
+    optimizer/noise_block_pass.cc
+    optimizer/multi_gate_pass.cc
+    optimizer/expand_t_pass.cc
+    optimizer/swap_meas_pass.cc
     optimizer/pass_manager.cc
     optimizer/peephole.cc
     backend/backend.cc
