@@ -213,7 +213,7 @@ explorer-build:
 # This helps to share with Chat LLMs
 aidigest:
     rm -f ai.all.digest.txt
-    uvx gitingest . -e build -e cmake -e uv.lock -e .git -e .venv -e __pycache__ -e .pytest_cache -e .jj -e design.old -o ai.all.digest.txt
+    uvx gitingest . -e "*.pdf" -e explorer -i "design/*.md" -i design/theory.tex -i src -i tests -i README.md -i pyproject.toml -o ai.all.digest.txt
 
 aidesigndigest:
     rm -f aidesign.digest.txt
