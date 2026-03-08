@@ -54,6 +54,18 @@
       "detail": "Swaps amplitudes between two active virtual axes. Used to route the measurement target to the highest axis before collapse.",
       "operands": "axis_1, axis_2"
     },
+    "OP_ARRAY_MULTI_CNOT": {
+      "category": "Array",
+      "summary": "Fused multi-control CNOT on the Schrodinger state vector.",
+      "detail": "Applies a star-graph CNOT with multiple control axes and one target axis in a single fused pass over the state vector. The control axes are encoded as a 64-bit bitmask. Equivalent to a sequence of pairwise OP_ARRAY_CNOT instructions but faster.",
+      "operands": "axis_1 (target), multi_gate.mask (control bitmask)"
+    },
+    "OP_ARRAY_MULTI_CZ": {
+      "category": "Array",
+      "summary": "Fused multi-target CZ on the Schrodinger state vector.",
+      "detail": "Applies a star-graph CZ with one control axis and multiple target axes in a single fused pass over the state vector. The target axes are encoded as a 64-bit bitmask. Equivalent to a sequence of pairwise OP_ARRAY_CZ instructions but faster.",
+      "operands": "axis_1 (control), multi_gate.mask (target bitmask)"
+    },
     "OP_ARRAY_H": {
       "category": "Array",
       "summary": "Hadamard gate on the Schrodinger state vector.",
@@ -90,6 +102,18 @@
       "detail": "Applies diag(1, exp(-i*pi/4)) to one active virtual axis. The conjugate of OP_PHASE_T.",
       "operands": "axis_1"
     },
+    "OP_EXPAND_T": {
+      "category": "Subspace",
+      "summary": "Fused EXPAND + T-gate in one array pass.",
+      "detail": "Combines OP_EXPAND and OP_PHASE_T into a single instruction. Promotes a dormant qubit to active (k -> k+1) and immediately applies the T phase rotation, saving one pass over the state vector.",
+      "operands": "axis_1"
+    },
+    "OP_EXPAND_T_DAG": {
+      "category": "Subspace",
+      "summary": "Fused EXPAND + T-dagger in one array pass.",
+      "detail": "Combines OP_EXPAND and OP_PHASE_T_DAG into a single instruction. Promotes a dormant qubit to active (k -> k+1) and immediately applies the T-dagger phase rotation, saving one pass over the state vector.",
+      "operands": "axis_1"
+    },
     "OP_MEAS_DORMANT_STATIC": {
       "category": "Measurement",
       "summary": "Deterministic measurement of a dormant qubit.",
@@ -114,6 +138,12 @@
       "detail": "Collapses the state vector by folding (adding or subtracting) two halves together, depending on the measurement outcome. Halves the array: k -> k-1. This handles the case where the measured Pauli has off-diagonal terms.",
       "operands": "axis_1 -> rec[classical_idx]"
     },
+    "OP_SWAP_MEAS_INTERFERE": {
+      "category": "Measurement",
+      "summary": "Fused SWAP + X-basis measurement in one array pass.",
+      "detail": "Combines OP_ARRAY_SWAP and OP_MEAS_ACTIVE_INTERFERE into a single instruction. Swaps the target axis to the highest active dimension and immediately performs the interference (fold) measurement, halving the array: k -> k-1.",
+      "operands": "axis_1 (swap_from), axis_2 (swap_to) -> rec[classical_idx]"
+    },
     "OP_APPLY_PAULI": {
       "category": "Meta",
       "summary": "Apply a full N-bit Pauli mask to the frame (classical feedback).",
@@ -125,6 +155,12 @@
       "summary": "Stochastic Pauli noise channel.",
       "detail": "Rolls the RNG against a probability table from the constant pool. If triggered, applies a random Pauli (X, Y, or Z) to the frame. Models depolarizing, dephasing, and other Pauli noise channels.",
       "operands": "cp_site (constant pool noise site index)"
+    },
+    "OP_NOISE_BLOCK": {
+      "category": "Meta",
+      "summary": "Contiguous block of noise sites processed in a batch.",
+      "detail": "Processes a contiguous range [start, start+count) of noise sites from the constant pool in one instruction. When noise is disabled for a shot, the VM skips the entire block in O(1) instead of dispatching individual OP_NOISE instructions.",
+      "operands": "pauli.cp_mask_idx (start_site), pauli.condition_idx (count)"
     },
     "OP_READOUT_NOISE": {
       "category": "Meta",
