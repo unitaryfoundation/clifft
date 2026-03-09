@@ -16,7 +16,7 @@ Please apply the following specific refactors file-by-file:
 In all four bytecode passes (`src/ucc/optimizer/expand_t_pass.cc`, `src/ucc/optimizer/multi_gate_pass.cc`, `src/ucc/optimizer/noise_block_pass.cc`, `src/ucc/optimizer/swap_meas_pass.cc`):
 * Locate the pass-through branches at the end of the while-loops where unmodified instructions are pushed to `new_src`. Change `new_src.push_back(old_src[i]);` to use move semantics: `new_src.push_back(std::move(old_src[i]));`.
 * Locate the blocks where source map lines are merged piecemeal (e.g., `for (uint32_t line : old_src[x]) merged.push_back(line);`). Replace these `for` loops with standard vector range insertions:
-  `merged.insert(merged.end(), old_src[x].begin(), old_src[x].end());`
+  `merged.insert(merged.end(), old_src[x].begin(), old_src[x].end());` This code now has more complicated source maps -- see recent commit history to see if this is still relevant.
 
 ### 2. Fix Silent Mask Truncation in HIR
 * **`src/ucc/frontend/hir.h`**: In `struct NoiseChannel`, change `destab_mask` and `stab_mask` from `uint64_t` to `stim::bitword<kStimWidth>`.
