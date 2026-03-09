@@ -755,6 +755,7 @@ NB_MODULE(_ucc_core, m) {
              nb::arg("num_observables") = 0, nb::arg("seed") = nb::none())
         .def("reset", &ucc::SchrodingerState::reset)
         .def("reseed", &ucc::SchrodingerState::reseed, nb::arg("seed"))
+        .def_prop_ro("dust_clamps", [](const ucc::SchrodingerState& s) { return s.dust_clamps; })
         .def_prop_ro(
             "meas_record",
             [](const ucc::SchrodingerState& s) { return std::vector<uint8_t>(s.meas_record); })

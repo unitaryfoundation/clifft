@@ -17,6 +17,37 @@
 namespace ucc {
 
 // =============================================================================
+// Measurement branch sampling with IEEE-754 dust clamping
+// =============================================================================
+
+// Relative epsilon for detecting floating-point dust in measurement
+// probabilities. Squared amplitudes from analytically-zero Clifford+T
+// interference sit around 1e-30 to 1e-24; this threshold safely swallows
+// that dust while preserving genuine probabilities (e.g. R_ZZ angles
+// producing probabilities ~1e-16).
+static constexpr double kDustEpsilon = 1e-18;
+
+// Sample a binary measurement outcome from two branch probabilities,
+// clamping IEEE-754 dust to avoid spurious PRNG rolls. Returns 0 if
+// prob0 wins, 1 if prob1 wins. Deterministic when one branch is dust.
+static inline uint8_t sample_branch(SchrodingerState& state, double prob0, double prob1,
+                                    double total) {
+    double eps = kDustEpsilon * total;
+    if (prob1 <= eps) {
+        if (prob1 > 0.0)
+            state.dust_clamps++;
+        return 0;
+    }
+    if (prob0 <= eps) {
+        if (prob0 > 0.0)
+            state.dust_clamps++;
+        return 1;
+    }
+    double rand = state.random_double();
+    return (rand * total < prob0) ? 0 : 1;
+}
+
+// =============================================================================
 // Bit helpers for stim::bitword<kStimWidth>
 //
 // These use only the portable bitword API (shift, bitwise ops, popcount) so
@@ -168,6 +199,7 @@ SchrodingerState::SchrodingerState(SchrodingerState&& other) noexcept
       det_record(std::move(other.det_record)),
       obs_record(std::move(other.obs_record)),
       next_noise_idx(other.next_noise_idx),
+      dust_clamps(other.dust_clamps),
       gamma_(other.gamma_),
       v_(other.v_),
       array_size_(other.array_size_),
@@ -190,6 +222,7 @@ SchrodingerState& SchrodingerState::operator=(SchrodingerState&& other) noexcept
         active_k = other.active_k;
         discarded = other.discarded;
         next_noise_idx = other.next_noise_idx;
+        dust_clamps = other.dust_clamps;
         meas_record = std::move(other.meas_record);
         det_record = std::move(other.det_record);
         obs_record = std::move(other.obs_record);
@@ -664,17 +697,7 @@ static inline void exec_meas_active_diagonal(SchrodingerState& state, uint16_t v
     double total = prob_b0 + prob_b1;
     assert(total > 0.0 && "Active diagonal measurement on zero-norm state");
 
-    // Sample abstract branch b. Handle deterministic cases explicitly to avoid
-    // dividing by a zero-probability branch due to floating-point edge cases.
-    uint8_t b;
-    if (prob_b1 <= 0.0) {
-        b = 0;
-    } else if (prob_b0 <= 0.0) {
-        b = 1;
-    } else {
-        double rand = state.random_double();
-        b = (rand * total < prob_b0) ? 0 : 1;
-    }
+    uint8_t b = sample_branch(state, prob_b0, prob_b1, total);
 
     // Abstract outcome (determines array branch + frame state)
     uint8_t m_abs = b ^ static_cast<uint8_t>(px_v);
@@ -742,17 +765,7 @@ static inline void exec_meas_active_interfere(SchrodingerState& state, uint16_t 
     double total = prob_plus + prob_minus;
     assert(total > 0.0 && "Active interfere measurement on zero-norm state");
 
-    // Sample X-basis branch. Handle deterministic cases explicitly to avoid
-    // dividing by a zero-probability branch due to floating-point edge cases.
-    uint8_t b_x;
-    if (prob_minus <= 0.0) {
-        b_x = 0;
-    } else if (prob_plus <= 0.0) {
-        b_x = 1;
-    } else {
-        double rand = state.random_double();
-        b_x = (rand * total < prob_plus) ? 0 : 1;
-    }
+    uint8_t b_x = sample_branch(state, prob_plus, prob_minus, total);
 
     // Abstract outcome (determines array fold + frame state)
     uint8_t m_abs = b_x ^ static_cast<uint8_t>(pz_v);
@@ -849,16 +862,7 @@ static inline void exec_swap_meas_interfere(SchrodingerState& state, uint16_t f,
     double total = prob_plus + prob_minus;
     assert(total > 0.0 && "Active interfere measurement on zero-norm state");
 
-    // Sample X-basis branch
-    uint8_t b_x;
-    if (prob_minus <= 0.0) {
-        b_x = 0;
-    } else if (prob_plus <= 0.0) {
-        b_x = 1;
-    } else {
-        double rand = state.random_double();
-        b_x = (rand * total < prob_plus) ? 0 : 1;
-    }
+    uint8_t b_x = sample_branch(state, prob_plus, prob_minus, total);
 
     // Pass 2: In-place fold with swapped index mapping
     if (b_x == 0) {

@@ -202,6 +202,11 @@ class SchrodingerState {
         next_noise_idx = static_cast<uint32_t>(std::distance(hazards.begin(), it));
     }
 
+    // Telemetry: count of times the epsilon threshold caught floating-point
+    // dust in active measurements, forcing a deterministic branch instead of
+    // a spurious PRNG roll. Accumulates across shots (not reset per shot).
+    uint64_t dust_clamps = 0;
+
   private:
     std::complex<double> gamma_ = {1.0, 0.0};
     std::complex<double>* v_ = nullptr;  // 64-byte aligned

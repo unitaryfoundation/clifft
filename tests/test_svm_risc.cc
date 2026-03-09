@@ -1,4 +1,6 @@
 #include "ucc/backend/backend.h"
+#include "ucc/circuit/parser.h"
+#include "ucc/frontend/frontend.h"
 #include "ucc/svm/svm.h"
 
 #include "test_helpers.h"
@@ -1858,4 +1860,55 @@ TEST_CASE("RISC EXPAND_T_DAG: renormalization rescales both halves") {
     double v_norm_sq = std::norm(state.v()[0]) + std::norm(state.v()[1]);
     double psi_norm_sq = std::norm(state.gamma()) * v_norm_sq;
     CHECK_THAT(psi_norm_sq, WithinRel(5e-200, 1e-6));
+}
+
+// =============================================================================
+// Dust clamp telemetry
+// =============================================================================
+
+TEST_CASE("Dust clamps: T-to-the-4th interference triggers epsilon catch") {
+    // H 0; T^4 0; H 0; M 0 -- T^4 = Z analytically, so H Z H = X basis
+    // measurement is deterministic. But the four chained complex multiplications
+    // leave IEEE-754 dust: |v[0]+v[1]|^2 ~ 5e-32 instead of exactly 0.
+    //
+    // Without the epsilon clamp, the dust (prob ~ 5e-32 > 0.0) falls through
+    // to the PRNG branch, which consumes a random_double() call. This steals
+    // a PRNG roll, causing trajectory divergence vs. optimized code that never
+    // sees the dust. With seeds where the PRNG roll happens to land in the
+    // dust branch, the VM would record outcome 1 instead of the correct 0.
+    auto circuit = ucc::parse("H 0\nT 0\nT 0\nT 0\nT 0\nH 0\nM 0");
+    auto hir = ucc::trace(circuit);
+    auto mod = ucc::lower(hir);
+
+    REQUIRE(mod.peak_rank >= 1);
+
+    SchrodingerState state(mod.peak_rank, mod.num_measurements);
+    state.reseed(42);
+    execute(mod, state);
+
+    CHECK(state.dust_clamps > 0);
+
+    // H|0> = |+>, Z|+> = |->, H|-> = |1>, so the measurement is
+    // deterministically 1. Without the clamp, a PRNG roll on the dust
+    // branch could yield 0 for some seeds.
+    REQUIRE(state.meas_record.size() == 1);
+    CHECK(state.meas_record[0] == 1);
+}
+
+TEST_CASE("Dust clamps: accumulates across multiple shots") {
+    auto circuit = ucc::parse("H 0\nT 0\nT 0\nT 0\nT 0\nH 0\nM 0");
+    auto hir = ucc::trace(circuit);
+    auto mod = ucc::lower(hir);
+
+    SchrodingerState state(mod.peak_rank, mod.num_measurements);
+    state.reseed(42);
+
+    uint32_t shots = 10;
+    for (uint32_t s = 0; s < shots; ++s) {
+        state.reset();
+        execute(mod, state);
+    }
+
+    // Each shot triggers exactly one dust clamp in the interfere measurement
+    CHECK(state.dust_clamps == shots);
 }
