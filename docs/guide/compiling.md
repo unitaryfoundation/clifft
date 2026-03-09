@@ -5,11 +5,11 @@ UCC compiles quantum circuits through a four-stage Ahead-of-Time (AOT) pipeline.
 ## The Compilation Pipeline
 
 ```text
-Circuit Text --> Parse --> Front-End --> Optimizer --> Back-End --> Program
-                 |           |              |            |            |
-              Circuit     HirModule     HirModule    Program     Bytecode
-               (AST)       (HIR)    (Optimized HIR)  (RISC)     ready to
-                                                                 execute
+Circuit Text --> Parse --> Front-End --> HIR Optimizer --> Back-End --> Bytecode Optimizer --> Program
+                 |           |              |               |               |                  |
+              Circuit     HirModule     HirModule       Program         Program            Bytecode
+               (AST)       (HIR)    (Optimized HIR)   (raw RISC)   (fused instructions)   ready to
+                                                                                          execute
 ```
 
 ## One-Step Compilation
@@ -66,16 +66,16 @@ hir = ucc.trace(circuit)
 print(hir)  # HirModule(4 ops, 2 T-gates, 2 qubits)
 ```
 
-### 3. Optimization
+### 3. HIR Optimization
 
-The optimizer applies transformation passes to the HIR:
+The optimizer applies transformation passes to the HIR before lowering:
 
 <!--pytest-codeblocks:cont-->
 
 ```python
 import ucc
 
-# Get the default pass manager (includes peephole fusion)
+# Get the default HIR pass manager (includes peephole fusion)
 pm = ucc.default_pass_manager()
 
 # Or build a custom one
@@ -96,6 +96,27 @@ pm.run(hir)
 program = ucc.lower(hir)
 ```
 
+### 5. Bytecode Optimization
+
+After lowering, a second pass manager optimizes the RISC bytecode. This fuses instructions to reduce redundant array passes:
+
+<!--pytest-codeblocks:cont-->
+
+```python
+# Get the default bytecode pass manager
+bpm = ucc.default_bytecode_pass_manager()
+
+# Run bytecode passes on the compiled program
+bpm.run(program)
+```
+
+The default bytecode pipeline includes:
+
+- **NoiseBlockPass** — collapses runs of noise ops into block instructions
+- **MultiGatePass** — fuses contiguous CNOT/CZ ops sharing an axis into star-graph instructions
+- **ExpandTPass** — fuses expand + T-phase into a single copy-and-rotate
+- **SwapMeasPass** — fuses swap + measurement into one operation
+
 ## Full Custom Pipeline
 
 Putting it all together:
@@ -109,12 +130,16 @@ circuit = ucc.parse("H 0\nT 0\nCNOT 0 1\nM 0 1")
 # Front-end: Clifford tracing
 hir = ucc.trace(circuit)
 
-# Optimize
+# HIR optimization
 pm = ucc.default_pass_manager()
 pm.run(hir)
 
 # Back-end: lower to bytecode
 program = ucc.lower(hir)
+
+# Bytecode optimization
+bpm = ucc.default_bytecode_pass_manager()
+bpm.run(program)
 ```
 
 This is equivalent to `ucc.compile()` but gives you access to intermediate representations for debugging or custom optimization passes.

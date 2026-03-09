@@ -7,8 +7,13 @@
 #include "ucc/backend/backend.h"
 #include "ucc/circuit/parser.h"
 #include "ucc/frontend/frontend.h"
+#include "ucc/optimizer/bytecode_pass.h"
+#include "ucc/optimizer/expand_t_pass.h"
+#include "ucc/optimizer/multi_gate_pass.h"
+#include "ucc/optimizer/noise_block_pass.h"
 #include "ucc/optimizer/pass_manager.h"
 #include "ucc/optimizer/peephole.h"
+#include "ucc/optimizer/swap_meas_pass.h"
 #include "ucc/svm/svm.h"
 #include "ucc/util/introspection.h"
 
@@ -45,6 +50,14 @@ PipelineResult run_pipeline(const std::string& source, bool optimize) {
             pm.run(result.hir);
         }
         result.prog = ucc::lower(result.hir);
+        if (optimize) {
+            ucc::BytecodePassManager bpm;
+            bpm.add_pass(std::make_unique<ucc::NoiseBlockPass>());
+            bpm.add_pass(std::make_unique<ucc::MultiGatePass>());
+            bpm.add_pass(std::make_unique<ucc::ExpandTPass>());
+            bpm.add_pass(std::make_unique<ucc::SwapMeasPass>());
+            bpm.run(result.prog);
+        }
     } catch (const std::exception& e) {
         result.error = e.what();
     }

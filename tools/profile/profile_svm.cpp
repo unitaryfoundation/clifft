@@ -12,6 +12,8 @@
 #include "ucc/optimizer/expand_t_pass.h"
 #include "ucc/optimizer/multi_gate_pass.h"
 #include "ucc/optimizer/noise_block_pass.h"
+#include "ucc/optimizer/pass_manager.h"
+#include "ucc/optimizer/peephole.h"
 #include "ucc/optimizer/swap_meas_pass.h"
 #include "ucc/svm/svm.h"
 
@@ -153,6 +155,9 @@ int main() {
     std::cout << "Frontend (Clifford absorption)..." << std::flush;
     t0 = std::chrono::high_resolution_clock::now();
     ucc::HirModule hir = ucc::trace(circuit);
+    ucc::PassManager pm;
+    pm.add_pass(std::make_unique<ucc::PeepholeFusionPass>());
+    pm.run(hir);
     t1 = std::chrono::high_resolution_clock::now();
     auto trace_ms = std::chrono::duration<double, std::milli>(t1 - t0).count();
     std::cout << " done (" << trace_ms << " ms)\n";
@@ -184,9 +189,7 @@ int main() {
     t0 = std::chrono::high_resolution_clock::now();
     ucc::BytecodePassManager bpm;
     bpm.add_pass(std::make_unique<ucc::NoiseBlockPass>());
-    if (get_env_bool("UCC_ENABLE_MULTI_GATE")) {
-        bpm.add_pass(std::make_unique<ucc::MultiGatePass>());
-    }
+    bpm.add_pass(std::make_unique<ucc::MultiGatePass>());
     bpm.add_pass(std::make_unique<ucc::ExpandTPass>());
     bpm.add_pass(std::make_unique<ucc::SwapMeasPass>());
     bpm.run(program);

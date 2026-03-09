@@ -70,21 +70,40 @@ Because the Back-End compresses all multi-qubit global topology into localized v
 
 ```c++
 enum class Opcode : uint8_t {
-    // Frame Opcodes (Zero-cost dormant updates)
-    OP_FRAME_CNOT, OP_FRAME_CZ, OP_FRAME_H, OP_FRAME_S, OP_FRAME_SWAP,
+    // Frame Opcodes (Zero-cost dormant updates. Update p_x, p_z only)
+    OP_FRAME_CNOT, OP_FRAME_CZ, OP_FRAME_H, OP_FRAME_S, OP_FRAME_S_DAG, OP_FRAME_SWAP,
 
-    // Array Opcodes (Update p_x, p_z AND loop over v[])
-    OP_ARRAY_CNOT, OP_ARRAY_CZ, OP_ARRAY_SWAP, OP_ARRAY_H, OP_ARRAY_S,
+    // Array Opcodes (Update p_x, p_z AND loop over v[] to swap/mix)
+    OP_ARRAY_CNOT, OP_ARRAY_CZ, OP_ARRAY_SWAP,
+    OP_ARRAY_MULTI_CNOT,  // Fused star-graph: multiple controls, one target
+    OP_ARRAY_MULTI_CZ,    // Fused star-graph: one control, multiple targets
+    OP_ARRAY_H,           // Hadamard on active axis (butterfly + frame swap)
+    OP_ARRAY_S,           // Phase S on active axis (diag(1, i) + frame update)
+    OP_ARRAY_S_DAG,       // Phase S-dagger on active axis (diag(1, -i) + frame update)
 
     // Local Math & Expansion
-    OP_EXPAND, OP_PHASE_T, OP_PHASE_T_DAG,
+    OP_EXPAND,        // Virtual H_v on dormant: k -> k+1, gamma /= sqrt(2)
+    OP_PHASE_T,       // Active diagonal T phase
+    OP_PHASE_T_DAG,   // Active diagonal T-dagger phase
+    OP_EXPAND_T,      // Fused EXPAND + PHASE_T in one array pass
+    OP_EXPAND_T_DAG,  // Fused EXPAND + PHASE_T_DAG in one array pass
 
     // Measurement
-    OP_MEAS_DORMANT_STATIC, OP_MEAS_DORMANT_RANDOM,
-    OP_MEAS_ACTIVE_DIAGONAL, OP_MEAS_ACTIVE_INTERFERE,
+    OP_MEAS_DORMANT_STATIC,    // Deterministic outcome from p_x
+    OP_MEAS_DORMANT_RANDOM,    // Random pivot, algebraic phase to gamma
+    OP_MEAS_ACTIVE_DIAGONAL,   // Z-basis filter, halves array (k -> k-1)
+    OP_MEAS_ACTIVE_INTERFERE,  // X-basis fold, halves array (k -> k-1)
+    OP_SWAP_MEAS_INTERFERE,    // Fused ARRAY_SWAP + MEAS_ACTIVE_INTERFERE
 
-    // Classical / Errors / QEC
-    OP_APPLY_PAULI, OP_NOISE, OP_READOUT_NOISE, OP_DETECTOR, OP_OBSERVABLE
+    // Classical / Errors
+    OP_APPLY_PAULI,    // XORs a full N-bit mask from ConstantPool into P
+    OP_NOISE,          // Stochastic Pauli channel (rolls RNG, may apply Pauli)
+    OP_NOISE_BLOCK,    // Contiguous block of noise sites [start, start+count)
+    OP_READOUT_NOISE,  // Classical bit-flip on measurement result
+    OP_DETECTOR,       // Parity check over measurement records
+    OP_POSTSELECT,     // Post-selection check: abort shot if parity != 0
+    OP_OBSERVABLE,     // Logical observable accumulator
+    NUM_OPCODES        // Sentinel: must remain last for binding completeness checks
 };
 
 struct alignas(32) Instruction {
@@ -114,6 +133,12 @@ struct alignas(32) Instruction {
             uint32_t condition_idx;  // Offset 12
             uint8_t _pad_c[16];      // Explicit padding to 24 bytes
         } pauli;
+
+        // For OP_ARRAY_MULTI_CNOT / OP_ARRAY_MULTI_CZ star-graph fusions
+        struct {
+            uint64_t mask;       // Offset 8: ctrl_mask (MULTI_CNOT) or target_mask (MULTI_CZ)
+            uint8_t _pad_d[16];  // Explicit padding to 24 bytes
+        } multi;
 
         uint8_t raw[24];
     };

@@ -8,11 +8,30 @@ The codebase strictly mirrors the 4-stage pipeline:
 
 *   `src/ucc/circuit/`: Circuit AST, parser, and target encoding.
 *   `src/ucc/frontend/`: Drives `stim::TableauSimulator`, absorbs physical Cliffords, emits the Heisenberg IR (HIR).
-*   `src/ucc/optimizer/`: Middle-End optimization passes (pure HIR manipulation).
+*   `src/ucc/optimizer/`: Two-level optimization: HIR passes (pure Heisenberg IR manipulation) and bytecode passes (post-lowering instruction fusion).
 *   `src/ucc/backend/`: Tracks the virtual frame mapping ($V_{cum}$) and Active/Dormant sets. Synthesizes virtual basis compression. Emits localized RISC bytecode.
 *   `src/ucc/svm/`: The runtime Virtual Machine. Executes the RISC bytecode over a dense $2^k$ array and lightweight bitword Pauli frames.
 
 **Isolation Invariant:** The VM (`svm/`) must never include `stim::Tableau` or evaluate tableau mathematics. It executes purely on basic C++ types and arrays.
+
+## 1b. Two-Level Optimizer
+
+Optimization occurs at two distinct IR levels, each with its own pass manager:
+
+### HIR Passes (Pre-Lowering)
+Operate on the Heisenberg IR before bytecode emission. Managed by `PassManager`.
+
+*   **PeepholeFusionPass:** Fuses consecutive T/T-dagger gates on the same qubit (T+T=S, T+T_dag=identity).
+
+### Bytecode Passes (Post-Lowering)
+Operate on the finalized RISC bytecode after the Back-End has lowered the HIR. Managed by `BytecodePassManager`. These passes rewrite, reorder, or fuse instructions:
+
+*   **NoiseBlockPass:** Collapses runs of identical `OP_NOISE` instructions into single `OP_NOISE_BLOCK` ops, reducing dispatch overhead.
+*   **MultiGatePass:** Fuses contiguous `OP_ARRAY_CNOT` instructions sharing a target axis into `OP_ARRAY_MULTI_CNOT`, and contiguous `OP_ARRAY_CZ` sharing a control axis into `OP_ARRAY_MULTI_CZ`. These star-graph fusions process all controls/targets in one $O(2^k)$ array pass instead of many.
+*   **ExpandTPass:** Fuses `OP_EXPAND` immediately followed by `OP_PHASE_T` (or `T_DAG`) into a single `OP_EXPAND_T` (or `OP_EXPAND_T_DAG`) that duplicates and phase-rotates in one loop.
+*   **SwapMeasPass:** Fuses `OP_ARRAY_SWAP` immediately followed by `OP_MEAS_ACTIVE_INTERFERE` into `OP_SWAP_MEAS_INTERFERE`, eliminating a redundant array pass.
+
+The default pipeline runs all passes in order: `NoiseBlockPass -> MultiGatePass -> ExpandTPass -> SwapMeasPass`.
 
 ## 2. The Stim Integration Contract (CRITICAL)
 

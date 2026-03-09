@@ -448,13 +448,14 @@ NB_MODULE(_ucc_core, m) {
         []() {
             ucc::BytecodePassManager bpm;
             bpm.add_pass(std::make_unique<ucc::NoiseBlockPass>());
+            bpm.add_pass(std::make_unique<ucc::MultiGatePass>());
             bpm.add_pass(std::make_unique<ucc::ExpandTPass>());
             bpm.add_pass(std::make_unique<ucc::SwapMeasPass>());
             return bpm;
         },
         nb::rv_policy::move,
         "Return a BytecodePassManager pre-loaded with the default passes:\n"
-        "NoiseBlockPass, ExpandTPass, SwapMeasPass.");
+        "NoiseBlockPass, MultiGatePass, ExpandTPass, SwapMeasPass.");
 
     // =========================================================================
     // Compiled Program and Sampling

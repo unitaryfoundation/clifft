@@ -10,7 +10,7 @@ The source code mirrors the pipeline stages:
 |-----------|---------------|------|
 | `src/ucc/circuit/` | Input | Circuit AST, parser, target encoding |
 | `src/ucc/frontend/` | Stage 1 | Drives stabilizer tableau, absorbs Cliffords, emits HIR |
-| `src/ucc/optimizer/` | Stage 2 | Optimization passes (pure HIR manipulation) |
+| `src/ucc/optimizer/` | Stage 2 | Two-level optimization: HIR passes and bytecode passes |
 | `src/ucc/backend/` | Stage 3 | Virtual frame tracking, basis compression, bytecode emission |
 | `src/ucc/svm/` | Stage 4 | Runtime VM: executes RISC bytecode over dense arrays |
 | `src/python/` | Bindings | Python API via nanobind |
@@ -41,6 +41,27 @@ The Back-End synthesizes virtual compression sequences. These are mathematically
 The final offline Clifford frame for statevector expansion is:
 
 $$U_C = U_{\text{phys}} \, V_{\text{cum}}^\dagger$$
+
+## Optimization Passes
+
+UCC optimizes at two distinct IR levels, each with its own pass manager:
+
+### HIR Passes (Pre-Lowering)
+
+Operate on the Heisenberg IR before bytecode emission:
+
+- **PeepholeFusionPass** — Fuses consecutive T/T-dagger gates on the same qubit (T+T=S, T+T_dag=identity)
+
+### Bytecode Passes (Post-Lowering)
+
+Operate on the finalized RISC bytecode. These rewrite and fuse instructions to reduce array passes:
+
+- **NoiseBlockPass** — Collapses runs of identical noise instructions into single block operations
+- **MultiGatePass** — Fuses contiguous CNOT/CZ ops sharing an axis into star-graph instructions (`MULTI_CNOT`, `MULTI_CZ`) that process all controls/targets in one array sweep
+- **ExpandTPass** — Fuses expand + T-phase into a single copy-and-rotate loop
+- **SwapMeasPass** — Fuses swap + measurement into one operation
+
+The default pipeline runs all passes in order: NoiseBlock → MultiGate → ExpandT → SwapMeas. On a distance-5 surface code circuit, this compresses ~5100 raw instructions down to ~1500.
 
 ## Bytecode Format
 
