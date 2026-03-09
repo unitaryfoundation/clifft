@@ -5,10 +5,10 @@ It's possible some of these are already fixed. If you disagree with any, please 
 
 Treat each bullet point as a strict requirement. Do not make any changes related to union memory initialization, 64-bit bounds/truncations, or bit-shift undefined behavior.
 
-### 1. `src/ucc/frontend/frontend.cc`
+### 1. `src/ucc/frontend/frontend.cc` -- DONE
 
-* **Math Error in Y-Basis Corrections:** In `trace()`, within the switch cases for `GateType::RY` and `GateType::MRY`, the conditional correction extracts the rewound $X$ mask (`extract_rewound_x`). This is mathematically incorrect as applying $X$ to $|-Y\rangle$ injects an unphysical $-i$ global phase. Change this to extract the rewound $Z$ mask (`extract_rewound_z`) instead, which correctly maps $|-Y\rangle \to |+Y\rangle$ perfectly.
-* **Duplicated Reset Decompositions:** The AST tracing logic inside the switch block for `R`, `RX`, `RY`, `MR`, `MRX`, and `MRY` is heavily copy-pasted (extracting observables, emitting measurements, extracting corrections, emitting conditionals, handling readout noise). Extract this sequence into a generic helper lambda inside `trace()` (e.g., `emit_reset_sequence(...)`) to drastically reduce duplicated code.
+* **Math Error in Y-Basis Corrections:** DONE. Changed `extract_rewound_x` to `extract_rewound_z` in RY and MRY correction paths. Added multi-seed regression tests in `test_statevector.cc`.
+* **Duplicated Reset Decompositions:** DONE. Unified all 6 cases (R, RX, RY, MR, MRX, MRY) into a single switch case with `Basis` enum and two lambdas (`extract_meas`, `extract_corr`). Reduced frontend.cc by ~87 lines.
 
 ### 2. `src/ucc/circuit/parser.cc` & `src/ucc/circuit/parser.h`
 

@@ -402,174 +402,87 @@ HirModule trace(const Circuit& circuit) {
                 break;
             }
 
-            // Z-basis reset (hidden measurement + conditional correction)
-            case GateType::R: {
-                for (const auto& target : node.targets) {
-                    uint32_t qubit = target.value();
-                    uint64_t destab_mask, stab_mask;
-                    bool sign;
-
-                    // Extract rewound Z observable (measurement) from un-collapsed tableau
-                    extract_rewound_z(sim, qubit, destab_mask, stab_mask, sign);
-                    auto meas_op =
-                        HeisenbergOp::make_measure(destab_mask, stab_mask, sign, meas_idx);
-                    meas_op.set_hidden(true);
-                    emit(meas_op);
-
-                    // Extract rewound X (conditional correction) from same un-collapsed tableau
-                    uint64_t corr_destab, corr_stab;
-                    bool corr_sign;
-                    extract_rewound_x(sim, qubit, corr_destab, corr_stab, corr_sign);
-                    auto cond_op = HeisenbergOp::make_conditional(corr_destab, corr_stab, corr_sign,
-                                                                  ControllingMeasIdx{0});
-                    cond_op.set_use_last_outcome(true);
-                    emit(cond_op);
-                }
-                break;
-            }
-
-            // X-basis reset (hidden measurement + conditional correction)
-            case GateType::RX: {
-                for (const auto& target : node.targets) {
-                    uint32_t qubit = target.value();
-                    uint64_t destab_mask, stab_mask;
-                    bool sign;
-
-                    // Extract rewound X observable (measurement) from un-collapsed tableau
-                    extract_rewound_x(sim, qubit, destab_mask, stab_mask, sign);
-                    auto meas_op =
-                        HeisenbergOp::make_measure(destab_mask, stab_mask, sign, meas_idx);
-                    meas_op.set_hidden(true);
-                    emit(meas_op);
-
-                    // Extract rewound Z (conditional correction) from same un-collapsed tableau
-                    uint64_t corr_destab, corr_stab;
-                    bool corr_sign;
-                    extract_rewound_z(sim, qubit, corr_destab, corr_stab, corr_sign);
-                    auto cond_op = HeisenbergOp::make_conditional(corr_destab, corr_stab, corr_sign,
-                                                                  ControllingMeasIdx{0});
-                    cond_op.set_use_last_outcome(true);
-                    emit(cond_op);
-                }
-                break;
-            }
-
-            // Measure-reset Z-basis (visible measurement + conditional correction)
-            case GateType::MR: {
-                for (const auto& target : node.targets) {
-                    uint32_t qubit = target.value();
-                    uint64_t destab_mask, stab_mask;
-                    bool sign;
-
-                    // Emit measurement with TRUE physical sign (no inversion).
-                    // The feedback correction reads this value via use_last_outcome.
-                    extract_rewound_z(sim, qubit, destab_mask, stab_mask, sign);
-                    emit(HeisenbergOp::make_measure(destab_mask, stab_mask, sign, meas_idx));
-                    uint32_t this_meas = static_cast<uint32_t>(meas_idx);
-                    ++meas_idx;
-
-                    // Extract rewound X (conditional correction) from same un-collapsed tableau
-                    uint64_t corr_destab, corr_stab;
-                    bool corr_sign;
-                    extract_rewound_x(sim, qubit, corr_destab, corr_stab, corr_sign);
-                    auto cond_op = HeisenbergOp::make_conditional(corr_destab, corr_stab, corr_sign,
-                                                                  ControllingMeasIdx{0});
-                    cond_op.set_use_last_outcome(true);
-                    emit(cond_op);
-
-                    // Apply inversion AFTER feedback so the classical record is flipped
-                    // without corrupting the physical reset.
-                    if (target.is_inverted()) {
-                        ReadoutNoiseIdx idx{static_cast<uint32_t>(hir.readout_noise.size())};
-                        hir.readout_noise.push_back({this_meas, 1.0});
-                        emit(HeisenbergOp::make_readout_noise(idx));
-                    }
-                }
-                break;
-            }
-
-            // Y-basis reset (hidden measurement + conditional correction)
-            case GateType::RY: {
-                for (const auto& target : node.targets) {
-                    uint32_t qubit = target.value();
-
-                    // Extract rewound Y observable (measurement)
-                    auto pauli = sim.inv_state.y_output(qubit);
-                    uint64_t destab_mask = pauli.xs.u64[0];
-                    uint64_t stab_mask = pauli.zs.u64[0];
-                    bool sign = pauli.sign;
-                    auto meas_op =
-                        HeisenbergOp::make_measure(destab_mask, stab_mask, sign, meas_idx);
-                    meas_op.set_hidden(true);
-                    emit(meas_op);
-
-                    // X anti-commutes with Y, so X correction flips Y eigenvalue
-                    uint64_t corr_destab, corr_stab;
-                    bool corr_sign;
-                    extract_rewound_x(sim, qubit, corr_destab, corr_stab, corr_sign);
-                    auto cond_op = HeisenbergOp::make_conditional(corr_destab, corr_stab, corr_sign,
-                                                                  ControllingMeasIdx{0});
-                    cond_op.set_use_last_outcome(true);
-                    emit(cond_op);
-                }
-                break;
-            }
-
-            // Measure-reset Y-basis (visible measurement + conditional correction)
+            // Unified reset / measure-reset decomposition.
+            // Pattern: extract measurement observable -> emit meas -> extract
+            // correction -> emit conditional -> (MR only) emit readout noise.
+            // Basis pairings: Z -> X correction, X -> Z correction,
+            //                 Y -> Z correction (X injects unphysical -i phase).
+            case GateType::R:
+            case GateType::RX:
+            case GateType::RY:
+            case GateType::MR:
+            case GateType::MRX:
             case GateType::MRY: {
-                for (const auto& target : node.targets) {
-                    uint32_t qubit = target.value();
+                bool hidden = is_reset(node.gate);
 
-                    // Emit measurement with TRUE physical sign (no inversion).
-                    auto pauli = sim.inv_state.y_output(qubit);
-                    uint64_t destab_mask = pauli.xs.u64[0];
-                    uint64_t stab_mask = pauli.zs.u64[0];
-                    bool sign = pauli.sign;
-                    emit(HeisenbergOp::make_measure(destab_mask, stab_mask, sign, meas_idx));
-                    uint32_t this_meas = static_cast<uint32_t>(meas_idx);
-                    ++meas_idx;
-
-                    // X anti-commutes with Y, so X correction flips Y eigenvalue
-                    uint64_t corr_destab, corr_stab;
-                    bool corr_sign;
-                    extract_rewound_x(sim, qubit, corr_destab, corr_stab, corr_sign);
-                    auto cond_op = HeisenbergOp::make_conditional(corr_destab, corr_stab, corr_sign,
-                                                                  ControllingMeasIdx{0});
-                    cond_op.set_use_last_outcome(true);
-                    emit(cond_op);
-
-                    if (target.is_inverted()) {
-                        ReadoutNoiseIdx idx{static_cast<uint32_t>(hir.readout_noise.size())};
-                        hir.readout_noise.push_back({this_meas, 1.0});
-                        emit(HeisenbergOp::make_readout_noise(idx));
-                    }
+                enum class Basis { Z, X, Y };
+                Basis basis;
+                switch (node.gate) {
+                    case GateType::R:
+                    case GateType::MR:
+                        basis = Basis::Z;
+                        break;
+                    case GateType::RX:
+                    case GateType::MRX:
+                        basis = Basis::X;
+                        break;
+                    default:
+                        basis = Basis::Y;
+                        break;
                 }
-                break;
-            }
 
-            // Measure-reset X-basis (visible measurement + conditional correction)
-            case GateType::MRX: {
+                auto extract_meas = [&](uint32_t q, uint64_t& dm, uint64_t& sm, bool& s) {
+                    switch (basis) {
+                        case Basis::Z:
+                            extract_rewound_z(sim, q, dm, sm, s);
+                            break;
+                        case Basis::X:
+                            extract_rewound_x(sim, q, dm, sm, s);
+                            break;
+                        case Basis::Y: {
+                            auto pauli = sim.inv_state.y_output(q);
+                            dm = pauli.xs.u64[0];
+                            sm = pauli.zs.u64[0];
+                            s = pauli.sign;
+                            break;
+                        }
+                    }
+                };
+
+                auto extract_corr = [&](uint32_t q, uint64_t& dm, uint64_t& sm, bool& s) {
+                    if (basis == Basis::Z)
+                        extract_rewound_x(sim, q, dm, sm, s);
+                    else
+                        extract_rewound_z(sim, q, dm, sm, s);
+                };
+
                 for (const auto& target : node.targets) {
                     uint32_t qubit = target.value();
                     uint64_t destab_mask, stab_mask;
                     bool sign;
+                    extract_meas(qubit, destab_mask, stab_mask, sign);
 
-                    // Emit measurement with TRUE physical sign (no inversion).
-                    extract_rewound_x(sim, qubit, destab_mask, stab_mask, sign);
-                    emit(HeisenbergOp::make_measure(destab_mask, stab_mask, sign, meas_idx));
+                    if (hidden) {
+                        auto meas_op =
+                            HeisenbergOp::make_measure(destab_mask, stab_mask, sign, meas_idx);
+                        meas_op.set_hidden(true);
+                        emit(meas_op);
+                    } else {
+                        emit(HeisenbergOp::make_measure(destab_mask, stab_mask, sign, meas_idx));
+                    }
                     uint32_t this_meas = static_cast<uint32_t>(meas_idx);
-                    ++meas_idx;
+                    if (!hidden)
+                        ++meas_idx;
 
-                    // Extract rewound Z (conditional correction) from same un-collapsed tableau
                     uint64_t corr_destab, corr_stab;
                     bool corr_sign;
-                    extract_rewound_z(sim, qubit, corr_destab, corr_stab, corr_sign);
+                    extract_corr(qubit, corr_destab, corr_stab, corr_sign);
                     auto cond_op = HeisenbergOp::make_conditional(corr_destab, corr_stab, corr_sign,
                                                                   ControllingMeasIdx{0});
                     cond_op.set_use_last_outcome(true);
                     emit(cond_op);
 
-                    if (target.is_inverted()) {
+                    if (!hidden && target.is_inverted()) {
                         ReadoutNoiseIdx idx{static_cast<uint32_t>(hir.readout_noise.size())};
                         hir.readout_noise.push_back({this_meas, 1.0});
                         emit(HeisenbergOp::make_readout_noise(idx));

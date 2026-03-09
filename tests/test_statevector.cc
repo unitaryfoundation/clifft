@@ -818,6 +818,37 @@ TEST_CASE("E2E: MRY produces visible measurement and resets") {
     CHECK(meas[1] == 0);
 }
 
+TEST_CASE("E2E: RY correction uses Z not X - multi-seed determinism") {
+    // After RY, the qubit must be in |+Y>. If the correction incorrectly used
+    // X instead of Z, the state would be X|+Y> = i|-Y>, and MY would yield 1.
+    // Test across multiple seeds to catch non-deterministic correction errors.
+    for (uint64_t seed = 0; seed < 20; ++seed) {
+        auto meas = pipeline_measurements("S 0\nH 0\nRY 0\nMY 0", seed);
+        REQUIRE(meas.size() == 1);
+        CHECK(meas[0] == 0);
+    }
+}
+
+TEST_CASE("E2E: MRY correction uses Z not X - multi-seed determinism") {
+    // MRY measures Y then resets to |+Y>. Subsequent MY must be deterministic 0.
+    // Wrong correction (X instead of Z) would produce i|-Y>, giving MY=1.
+    for (uint64_t seed = 0; seed < 20; ++seed) {
+        auto meas = pipeline_measurements("S 0\nH 0\nMRY 0\nMY 0", seed);
+        REQUIRE(meas.size() == 2);
+        CHECK(meas[1] == 0);
+    }
+}
+
+TEST_CASE("E2E: RY after entangling gate - MY deterministic") {
+    // Entangle then reset Y-basis on qubit 0. The reset must produce |+Y>
+    // regardless of which branch the hidden measurement collapsed to.
+    for (uint64_t seed = 0; seed < 20; ++seed) {
+        auto meas = pipeline_measurements("H 0\nCX 0 1\nRY 0\nMY 0\nM 1", seed);
+        REQUIRE(meas.size() == 2);
+        CHECK(meas[0] == 0);
+    }
+}
+
 TEST_CASE("E2E: MZZ on Bell state gives deterministic 0") {
     // Bell state |00>+|11> is +1 eigenstate of ZZ
     auto meas = pipeline_measurements("H 0\nCX 0 1\nMZZ 0 1");
