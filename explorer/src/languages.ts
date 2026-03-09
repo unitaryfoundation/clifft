@@ -2,8 +2,30 @@
 // All rules are structural (regex patterns) rather than enumerative,
 // so they automatically cover new gates, opcodes, or HIR ops without updates.
 
-import type { languages } from "monaco-editor";
+import type { languages, editor, IMarkdownString, Position } from "monaco-editor";
 import type { Monaco } from "@monaco-editor/react";
+import opcodesData from "@docs/opcodes.json";
+
+interface OpDoc {
+  category: string;
+  summary: string;
+  detail: string;
+  operands?: string;
+  display?: string[];
+}
+
+const opcodeMap = opcodesData.opcodes as Record<string, OpDoc>;
+const hirMap = opcodesData.hir_ops as Record<string, OpDoc>;
+
+// Build a reverse lookup from HIR display names (T, T_DAG, MEASURE, etc.) to docs
+const hirDisplayMap: Record<string, OpDoc> = {};
+for (const [, doc] of Object.entries(hirMap)) {
+  if (doc.display) {
+    for (const name of doc.display) {
+      hirDisplayMap[name] = doc;
+    }
+  }
+}
 
 // --- Stim circuit language ---
 export const stimLanguage: languages.IMonarchLanguage = {
@@ -94,6 +116,22 @@ export const bytecodeLanguage: languages.IMonarchLanguage = {
 // multiple times (e.g. StrictMode, multiple editors).
 let registered = false;
 
+/** Format an opcode doc entry as Monaco-flavored Markdown for the hover widget. */
+function formatOpcodeHover(name: string, doc: OpDoc): IMarkdownString {
+  const lines = [
+    `**\`${name}\`** &mdash; _${doc.category}_`,
+    "",
+    doc.summary,
+  ];
+  if (doc.detail) {
+    lines.push("", doc.detail);
+  }
+  if (doc.operands) {
+    lines.push("", `**Operands:** \`${doc.operands}\``);
+  }
+  return { value: lines.join("\n"), isTrusted: true };
+}
+
 export function registerLanguages(monaco: Monaco): void {
   if (registered) return;
   registered = true;
@@ -106,4 +144,77 @@ export function registerLanguages(monaco: Monaco): void {
 
   monaco.languages.register({ id: "ucc-bytecode" });
   monaco.languages.setMonarchTokensProvider("ucc-bytecode", bytecodeLanguage);
+
+  // --- Hover providers ---
+
+  // VM Bytecode: hover over OP_* tokens
+  monaco.languages.registerHoverProvider("ucc-bytecode", {
+    provideHover(
+      model: editor.ITextModel,
+      position: Position,
+    ) {
+      const word = model.getWordAtPosition(position);
+      if (!word) return null;
+
+      // getWordAtPosition splits on underscore by default; expand to full OP_* token
+      const line = model.getLineContent(position.lineNumber);
+      const match = line.match(/OP_[A-Z_]+/);
+      if (!match) return null;
+
+      const opName = match[0];
+      const startCol = match.index! + 1; // Monaco columns are 1-based
+      const endCol = startCol + opName.length;
+
+      // Only show hover if cursor is within the opcode token
+      if (position.column < startCol || position.column > endCol) return null;
+
+      const doc = opcodeMap[opName];
+      if (!doc) return null;
+
+      return {
+        range: {
+          startLineNumber: position.lineNumber,
+          startColumn: startCol,
+          endLineNumber: position.lineNumber,
+          endColumn: endCol,
+        },
+        contents: [formatOpcodeHover(opName, doc)],
+      };
+    },
+  });
+
+  // HIR: hover over op-type keywords (T, T_DAG, S, S_DAG, MEASURE, etc.)
+  monaco.languages.registerHoverProvider("ucc-hir", {
+    provideHover(
+      model: editor.ITextModel,
+      position: Position,
+    ) {
+      const word = model.getWordAtPosition(position);
+      if (!word) return null;
+
+      // Expand to full keyword token (letters, digits, underscores)
+      const line = model.getLineContent(position.lineNumber);
+      const match = line.match(/^[A-Z][A-Z0-9_]*/);
+      if (!match) return null;
+
+      const kwName = match[0];
+      const startCol = match.index! + 1;
+      const endCol = startCol + kwName.length;
+
+      if (position.column < startCol || position.column > endCol) return null;
+
+      const doc = hirDisplayMap[kwName];
+      if (!doc) return null;
+
+      return {
+        range: {
+          startLineNumber: position.lineNumber,
+          startColumn: startCol,
+          endLineNumber: position.lineNumber,
+          endColumn: endCol,
+        },
+        contents: [formatOpcodeHover(kwName, doc)],
+      };
+    },
+  });
 }

@@ -1,10 +1,56 @@
-import { useState, useCallback, useRef, useEffect, type KeyboardEvent } from "react";
+import {
+  useState,
+  useCallback,
+  useRef,
+  useEffect,
+  type KeyboardEvent,
+  type ReactNode,
+} from "react";
 import { X, ChevronLeft, ChevronRight } from "lucide-react";
 
 interface TourStep {
   title: string;
   content: string;
   target?: string; // CSS selector to highlight
+}
+
+/** Render inline `code` spans within a text string. */
+function renderInlineCode(text: string): ReactNode[] {
+  const parts = text.split(/(`[^`]+`)/);
+  return parts.map((part, i) => {
+    if (part.startsWith("`") && part.endsWith("`")) {
+      return (
+        <code key={i} className="tour-code">
+          {part.slice(1, -1)}
+        </code>
+      );
+    }
+    return part;
+  });
+}
+
+/**
+ * Render tour content with basic markdown support:
+ * - Paragraphs separated by blank lines
+ * - Bullet lists (lines starting with "- ")
+ * - Inline `code` spans
+ */
+function renderTourContent(content: string): ReactNode[] {
+  const blocks = content.split("\n\n");
+  return blocks.map((block, bi) => {
+    const lines = block.split("\n");
+    const isList = lines.every((l) => l.startsWith("- "));
+    if (isList) {
+      return (
+        <ul key={bi} className="tour-list">
+          {lines.map((line, li) => (
+            <li key={li}>{renderInlineCode(line.slice(2))}</li>
+          ))}
+        </ul>
+      );
+    }
+    return <p key={bi}>{renderInlineCode(block)}</p>;
+  });
 }
 
 const STEPS: TourStep[] = [
@@ -18,8 +64,8 @@ const STEPS: TourStep[] = [
   {
     title: "Source Editor (left)",
     content:
-      "Write your circuit here using Stim syntax: gate names like H, CNOT, " +
-      "T, S, M followed by qubit indices. The compiler runs automatically " +
+      "Write your circuit here using Stim syntax: gate names like `H`, `CNOT`, " +
+      "`T`, `S`, `M` followed by qubit indices. The compiler runs automatically " +
       "as you type (200ms debounce).\n\n" +
       "Try it: delete a line or add new gates and watch the other panels update.",
     target: ".editor-pane:nth-child(1)",
@@ -27,12 +73,12 @@ const STEPS: TourStep[] = [
   {
     title: "Heisenberg IR (middle)",
     content:
-      "UCC's front-end absorbs Clifford gates (H, CNOT, S, CZ, SWAP...) into a " +
+      "UCC's front-end absorbs Clifford gates (`H`, `CNOT`, `S`, `CZ`, `SWAP`...) into a " +
       "Heisenberg frame tracked via Stim's tableau algebra. This means Cliffords " +
       "vanish from the IR entirely!\n\n" +
       "What remains are non-Clifford ops: T gates appear as phase rotations on " +
-      "Pauli products (e.g. 'T +X0*Z1'), and measurements show their effective " +
-      "Pauli observable (e.g. 'MEASURE +X0 -> rec[0]').\n\n" +
+      "Pauli products (e.g. `T +X0*Z1`), and measurements show their effective " +
+      "Pauli observable (e.g. `MEASURE +X0 -> rec[0]`).\n\n" +
       "Fewer HIR ops than source lines = the compiler is doing its job.",
     target: ".editor-pane:nth-child(2)",
   },
@@ -42,9 +88,11 @@ const STEPS: TourStep[] = [
       "The back-end compresses multi-qubit Pauli products down to 1- and 2-qubit " +
       "operations on virtual axes using geometric decomposition. The output is a " +
       "flat stream of RISC-style 32-byte instructions.\n\n" +
-      "OP_FRAME_* ops manipulate the Heisenberg tracking frame. OP_ARRAY_* ops " +
-      "touch the Schrodinger state vector. OP_EXPAND grows the active subspace. " +
-      "OP_PHASE_T applies T rotations. OP_MEAS_* performs measurements.",
+      "- `OP_FRAME_*` -- manipulate the Heisenberg tracking frame\n" +
+      "- `OP_ARRAY_*` -- touch the Schrodinger state vector\n" +
+      "- `OP_EXPAND` -- grows the active subspace\n" +
+      "- `OP_PHASE_T` -- applies T rotations\n" +
+      "- `OP_MEAS_*` -- performs measurements",
     target: ".editor-pane:nth-child(3)",
   },
   {
@@ -59,10 +107,10 @@ const STEPS: TourStep[] = [
   {
     title: "Active Dimensions (k) Timeline",
     content:
-      "This chart shows how the active subspace dimension 'k' changes at each " +
-      "bytecode instruction. k starts at 0 and grows when OP_EXPAND adds a " +
+      "This chart shows how the active subspace dimension `k` changes at each " +
+      "bytecode instruction. `k` starts at 0 and grows when `OP_EXPAND` adds a " +
       "qubit to the Schrodinger state.\n\n" +
-      "The red dashed line marks k=20, the browser memory limit (~16 MB). " +
+      "The red dashed line marks `k=20`, the browser memory limit (~16 MB). " +
       "Circuits that stay below this line can be simulated in-browser.\n\n" +
       "The yellow dashed line follows your cursor position in the bytecode editor.",
     target: ".chart-pane:nth-child(1)",
@@ -70,9 +118,9 @@ const STEPS: TourStep[] = [
   {
     title: "Simulation",
     content:
-      "Click Simulate to run a Monte Carlo simulation entirely in your browser " +
+      "Click `Simulate` to run a Monte Carlo simulation entirely in your browser " +
       "via WebAssembly. You can configure the number of shots by clicking the " +
-      "arrow next to the Simulate button.\n\n" +
+      "arrow next to the `Simulate` button.\n\n" +
       "The histogram shows measurement outcome probabilities. Hover bars for " +
       "exact counts. Timing stats appear below the chart.",
     target: ".chart-pane:nth-child(2)",
@@ -80,9 +128,9 @@ const STEPS: TourStep[] = [
   {
     title: "Sharing & Options",
     content:
-      "The Share button compresses your circuit into a URL you can send to anyone. " +
+      "The `Share` button compresses your circuit into a URL you can send to anyone. " +
       "They'll see your exact circuit when they open the link.\n\n" +
-      "The Optimize toggle controls whether the compiler's peephole pass manager " +
+      "The `Optimize` toggle controls whether the compiler's peephole pass manager " +
       "runs. Turn it off to see the unoptimized bytecode.",
   },
 ];
@@ -139,11 +187,7 @@ export function GuidedTour({ onClose }: Props) {
           {step + 1} / {STEPS.length}
         </div>
         <h3 className="tour-title">{current.title}</h3>
-        <div className="tour-content">
-          {current.content.split("\n\n").map((para, i) => (
-            <p key={i}>{para}</p>
-          ))}
-        </div>
+        <div className="tour-content">{renderTourContent(current.content)}</div>
         <div className="tour-nav">
           <button
             className="tour-nav-btn"

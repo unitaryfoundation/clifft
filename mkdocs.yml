@@ -73,6 +73,8 @@ nav:
     - Overview: theory/overview.md
     - Architecture: theory/architecture.md
   - Explorer: explorer.md
+  - Reference:
+    - Instruction Reference: reference/opcodes.md
   - Development:
     - Contributing: development/contributing.md
     - Building from Source: development/building.md

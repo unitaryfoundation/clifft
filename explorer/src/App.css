@@ -457,7 +457,35 @@ html, body, #root {
   margin-bottom: 8px;
 }
 
-.tour-content p:last-child {
+.tour-content p:last-child,
+.tour-content ul:last-child {
+  margin-bottom: 0;
+}
+
+.tour-code {
+  font-family: var(--font-mono, "Roboto Mono", monospace);
+  font-size: 0.9em;
+  padding: 1px 5px;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--accent);
+}
+
+[data-theme="light"] .tour-code {
+  background: rgba(0, 0, 0, 0.06);
+}
+
+.tour-list {
+  margin: 0 0 8px 0;
+  padding-left: 18px;
+  list-style: disc;
+}
+
+.tour-list li {
+  margin-bottom: 3px;
+}
+
+.tour-list li:last-child {
   margin-bottom: 0;
 }
 
