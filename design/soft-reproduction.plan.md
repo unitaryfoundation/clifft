@@ -238,10 +238,10 @@ get real throughput numbers and cost estimates, then run production.
 
 **Architecture:**
 
-A single `c7i.24xlarge` (48 vCPUs / 24 physical cores, Sapphire
+A single `c7i.24xlarge` (96 vCPUs / 48 physical cores, Sapphire
 Rapids with AVX-512) runs all three data points sequentially. Sinter
-uses `num_workers = os.cpu_count() // 2` workers (24 processes) to
-avoid hyperthreading contention on AVX-512 workloads. Each p-value
+uses 48 workers (one per physical core, half the vCPUs). Benchmarking
+shows near-linear scaling (45.8-47.8x on 48 workers). Each p-value
 runs until `max_errors` is reached.
 
 Sinter's `save_resume_filepath` writes progress to a local CSV after
@@ -267,24 +267,53 @@ and N workers (auto-detected), then prints:
 - Multi-core scaling efficiency
 - Extrapolated wall time and cost for production runs
 
-**Preliminary cost estimates** (from this VM, 80k shots/s single-core,
-extrapolated to c7i at 1.3x, 24 cores, $1.50/hr spot):
+**Result: COMPLETE.** c7i.24xlarge (96 logical CPUs, 48 workers),
+60s per test. Throughput is ~3.7x higher than preliminary estimates
+due to (a) 48 physical cores (the plan incorrectly assumed 24),
+and (b) better per-core performance than the 1.3x extrapolation
+assumed.
 
-| p | Survivors needed | Total shots | Est. Wall (24w) | Spot cost |
+| p | Workers | Shots/s | Surv/s | Discard% | Scaling |
+|---|---|---|---|---|---|
+| 0.002 | 1 | 176,019 | 3,664 | 97.92% | -- |
+| 0.002 | 48 | 8,058,145 | 167,759 | 97.92% | 45.8x |
+| 0.001 | 1 | 66,621 | 9,577 | 85.63% | -- |
+| 0.001 | 48 | 3,165,308 | 455,670 | 85.60% | 47.5x |
+| 0.0005 | 1 | 36,560 | 13,859 | 62.09% | -- |
+| 0.0005 | 48 | 1,746,721 | 662,387 | 62.08% | 47.8x |
+
+Key observations:
+- **Discard rates match paper exactly** (within 0.03pp at all noise levels).
+- **Near-linear scaling:** 95-100% efficiency across 48 workers.
+- **Single-core throughput varies by noise level:** higher noise =
+  higher discard = faster early-exit (176k at p=0.002 vs 37k at p=0.0005).
+- **Single-core is 2.2x faster than dev VM** (176k vs 80k at p=0.002),
+  reflecting AVX-512/BMI2 speedups on Sapphire Rapids.
+- **48 workers = physical cores only** (half the 96 vCPUs); HT not used.
+
+**Cost projections (measured, 48 workers, $1.50/hr spot):**
+
+*100 errors per noise level (high-confidence CIs):*
+
+| p | Survivors needed | Total shots | Wall time | Spot cost |
 |---|---|---|---|---|
-| 0.002 (100 err) | 2.9B | 141B | 16h | $24 |
-| 0.001 (100 err) | 21.8B | 151B | 46h | $70 |
-| 0.0005 (100 err) | 637B | 1.68T | 998h | $1,496 |
-| 0.002 (22 err) | 645M | 31B | 3.5h | $5 |
-| 0.001 (49 err) | 10.7B | 74B | 23h | $34 |
-| 0.0005 (8 err) | 51B | 134B | 80h | $120 |
+| 0.002 | 2.9B | 141B | 4h 51m | $7 |
+| 0.001 | 21.8B | 151B | 13h 16m | $20 |
+| 0.0005 | 637B | 1.68T | 267h 15m | $401 |
+| **Total** | | **~1.97T shots** | **285h 23m** | **$428** |
 
-The p=0.0005 point at 100 errors is infeasible on CPU. Options:
-- Match paper error counts (22, 49, 8): ~107h, ~$159 spot
-- Skip p=0.0005 or run with fewer errors
-- Run only p=0.002 + p=0.001: ~50h, ~$75 spot
+*Match paper error counts (22, 49, 8):*
 
-Real benchmark numbers will refine these estimates.
+| p | Errors | Survivors needed | Total shots | Wall time | Spot cost |
+|---|---|---|---|---|---|
+| 0.002 | 22 | 645M | 31B | 1h 04m | $2 |
+| 0.001 | 49 | 10.7B | 74B | 6h 30m | $10 |
+| 0.0005 | 8 | 51B | 134B | 21h 22m | $32 |
+| **Total** | **79** | | **~239B shots** | **28h 57m** | **$43** |
+
+The p=0.0005 point dominates cost in both scenarios. At 100
+errors it requires 1.68T shots ($401); matching the paper's 8
+errors is much more feasible at 134B shots ($32).
 
 **DoD (4a):** Have measured throughput for all 3 noise levels on
 c7i.24xlarge. Decide final error targets and budget.
@@ -403,7 +432,8 @@ reproduce the paper's Figure 2 error bars.
   - Runtime tracking (per-task Time/us-per-shot) added to `run_vs_soft.py`
   - Loop fission explored but neutral at rank=10; not included
 - [x] Step 3: Local correctness validation -- PASS (5 errors, rate 1.26e-7, paper 3.41e-8, within CI)
-- [ ] Step 4: Cloud execution (single instance, 3 data points)
+- [~] Step 4: Cloud execution (single instance, 3 data points)
+  - [x] Step 4a: Cloud benchmarking -- COMPLETE (c7i.24xlarge, 48 physical cores, 3.7x cheaper than est.)
 - [x] Step 4.5: SVM hot-loop optimization (PR #92)
   - 4 bytecode passes: NoiseBlockPass, MultiGatePass, ExpandTPass, SwapMeasPass
   - d=5 circuit: 5111 -> 1518 instructions, ~104 -> ~86 us/shot (~17% faster)
