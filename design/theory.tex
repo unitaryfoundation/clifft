@@ -75,7 +75,11 @@ We leverage this decoupling to define the exact physical quantum state at time $
 The components of this representation are defined as follows:
 \begin{itemize}
     \item $U_C^{(t)} \in \mathcal{C}_n$ is the \textbf{Clifford Frame}, stored in classical memory as a standard $n$-qubit stabilizer tableau. It tracks the logical coordinate system mapping virtual qubits to physical qubits.
-    \item $P^{(t)} \in \mathcal{P}_n$ is the \textbf{Pauli Frame}. It is defined strictly in the \textit{virtual} basis and tracks discrete bit-flips and phase-flips. To avoid heavy matrix multiplication, the virtual machine tracks $P^{(t)}$ as binary integers via bitwise XOR operations ($\oplus$), explicitly extracting any resulting Pauli group multiplication phases ($\pm 1, \pm i$) into $\gamma^{(t)}$. Tracking $P^{(t)}$ explicitly avoids the computational expense of iterating over the statevector to multiply amplitudes dynamically.
+    \item \textbf{$P^{(t)}$ (The Virtual Pauli Frame):} An $n$-qubit phase-free Pauli operator acting strictly on the \textit{virtual} coordinate basis. It is canonically parameterized by two boolean vectors $\mathbf{x}^{(t)}, \mathbf{z}^{(t)} \in \{0, 1\}^n$, such that:
+\begin{equation}
+    P^{(t)} = \bigotimes_{j=0}^{n-1} X_j^{x_j^{(t)}} Z_j^{z_j^{(t)}}
+\end{equation}
+By continuously absorbing any global phases ($\pm 1, \pm i$) generated during Pauli commutation into the global scalar $\gamma^{(t)}$, $P^{(t)}$ is restricted to a pure geometric tracker. This formulation mathematically isolates all discrete stochastic errors and deterministic measurement back-actions from the continuous active statevector, allowing the runtime to evaluate error propagation via zero-cost $\mathcal{O}(1)$ bitwise XORs on the $\mathbf{x}$ and $\mathbf{z}$ vectors.
     \item $A$ and $D$ are the disjoint sets of \textbf{Active} and \textbf{Dormant} virtual qubits, respectively, where $|A| = k$ and $|D| = n-k$.
     \item $|\phi^{(t)}\rangle_A \in \mathbb{C}^{2^k}$ is the \textbf{Active Statevector}. It is a dense, unnormalized complex array of size $2^k$ that exclusively tracks non-Clifford superposition.
     \item $\gamma^{(t)} \in \mathbb{C}$ is a \textbf{Global Scalar} tracking the continuous global phase and overall physical norm, facilitating deferred scalar division during measurements.
