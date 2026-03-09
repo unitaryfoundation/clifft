@@ -27,6 +27,25 @@ program = ucc.compile("""
 """)
 ```
 
+To enable HIR and bytecode optimization passes, supply pass managers:
+
+```python
+import ucc
+
+program = ucc.compile(
+    """
+    H 0
+    CNOT 0 1
+    T 2
+    M 0 1 2
+    """,
+    hir_passes=ucc.default_pass_manager(),
+    bytecode_passes=ucc.default_bytecode_pass_manager(),
+)
+```
+
+When omitted (or `None`), the corresponding optimization stage is skipped.
+
 ## Step-by-Step Compilation
 
 You can also run each stage individually for inspection or custom pipelines:

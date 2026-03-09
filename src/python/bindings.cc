@@ -634,22 +634,40 @@ NB_MODULE(_ucc_core, m) {
     // Convenience: stim text -> Program (parse + trace + lower)
     m.def(
         "compile",
-        [](const std::string& stim_text, std::vector<uint8_t> postselection_mask) {
+        [](const std::string& stim_text, std::vector<uint8_t> postselection_mask,
+           ucc::PassManager* hir_passes, ucc::BytecodePassManager* bytecode_passes) {
             ucc::Circuit circuit = ucc::parse(stim_text);
             ucc::HirModule hir = ucc::trace(circuit);
-            return ucc::lower(hir, postselection_mask);
+            if (hir_passes)
+                hir_passes->run(hir);
+            auto program = ucc::lower(hir, postselection_mask);
+            if (bytecode_passes)
+                bytecode_passes->run(program);
+            return program;
         },
         nb::arg("stim_text"), nb::arg("postselection_mask") = std::vector<uint8_t>{},
+        nb::arg("hir_passes") = nb::none(), nb::arg("bytecode_passes") = nb::none(),
         "Compile a quantum circuit string to executable bytecode.\n\n"
-        "Convenience function equivalent to lower(trace(parse(text))).\n"
-        "For optimization, use the explicit pipeline: parse -> trace ->\n"
-        "PassManager.run -> lower -> BytecodePassManager.run.\n"
+        "Runs the full pipeline: parse -> trace -> [HIR optimize] ->\n"
+        "lower -> [bytecode optimize].  Pass manager arguments are\n"
+        "optional; when None the corresponding optimization stage is\n"
+        "skipped (matching the previous default behavior).\n"
+        "\n"
+        "Example with all optimizations enabled::\n"
+        "\n"
+        "    prog = ucc.compile(\n"
+        "        text,\n"
+        "        hir_passes=ucc.default_pass_manager(),\n"
+        "        bytecode_passes=ucc.default_bytecode_pass_manager(),\n"
+        "    )\n"
         "\n"
         "Args:\n"
         "    stim_text: Circuit in .stim text format.\n"
         "    postselection_mask: Optional list of uint8 flags, one per detector.\n"
         "        Detectors where mask[i] != 0 become post-selection checks\n"
-        "        that abort the shot early if their parity is non-zero.\n");
+        "        that abort the shot early if their parity is non-zero.\n"
+        "    hir_passes: Optional PassManager to run on the HIR before lowering.\n"
+        "    bytecode_passes: Optional BytecodePassManager to run after lowering.\n");
 
     // Zero-copy transfer: move the vector onto the heap and let the capsule own it.
     // Avoids O(N) memcpy for large shot batches.
