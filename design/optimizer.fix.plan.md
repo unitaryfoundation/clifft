@@ -1,41 +1,41 @@
+Please implement a series of targeted C++ performance, architecture, and testing fixes across the UCC codebase.
 
-You are an Expert C++20 Systems Engineer and Compiler Architect. I need you to perform a strict refactoring of this quantum compiler codebase based on a recent architectural review.
+It's possible some of these are already fixed. If you disagree with any, please stop and let me review and understand why. Please also commit each as standalone commits to make it easier to review. Please stop and open a PR after each phase (1,2,3) so I can review. As part of that PR, you should update this document to reflect your progress
 
-*CRITICAL INSTRUCTION: Do not modify the 64-bit mask logic, `uint16_t` axis scaling, or bitshift operations. Those are being handled in a separate 512-bit architectural update. Focus strictly on the items listed below.*
 
-Please implement the following fixes, grouped by domain. Work through them step by step, with one commit per bullet. Please open a PR for review after each section (e.g. 1, 2, 3).
+CRITICAL INSTRUCTIONS:
+- ONLY implement the specific fixes listed below.
+- DO NOT change `SchrodingerState` memory management (it already perfectly follows the Rule of Five).
+- DO NOT change Python GIL release logic in `bindings.cc` (it is already correct).
+- DO NOT replace the manual array compaction in `PeepholeFusionPass::run` with `std::erase_if` (it is compacting parallel SoA arrays, so the two-pointer loop is absolutely required).
+- DO NOT touch the 64-bit array masks in `OP_ARRAY_MULTI_CNOT` (they operate safely on the active array dimension `k`, which mathematically will never reach 64).
 
-If you disagree with a suggestion, stop and ask for feedback.  Some of them may have already been addressed, in which case also stop and ask for feedback.
+Please apply the following specific refactors file-by-file:
 
-### 1. Correctness & Memory Safety
+### 1. Optimize Bytecode Passes (Remove Deep Copies & Suboptimal Loops)
+In all four bytecode passes (`src/ucc/optimizer/expand_t_pass.cc`, `src/ucc/optimizer/multi_gate_pass.cc`, `src/ucc/optimizer/noise_block_pass.cc`, `src/ucc/optimizer/swap_meas_pass.cc`):
+* Locate the pass-through branches at the end of the while-loops where unmodified instructions are pushed to `new_src`. Change `new_src.push_back(old_src[i]);` to use move semantics: `new_src.push_back(std::move(old_src[i]));`.
+* Locate the blocks where source map lines are merged piecemeal (e.g., `for (uint32_t line : old_src[x]) merged.push_back(line);`). Replace these `for` loops with standard vector range insertions:
+  `merged.insert(merged.end(), old_src[x].begin(), old_src[x].end());`
 
-* **Implement the Rule of Five (`SchrodingerState`):** The struct dynamically allocates a heap array (`std::complex<double>* v`) but lacks a destructor, copy constructor, move constructor, and assignment operators. Implement these to prevent memory leaks and double-free segfaults (especially critical when bridged to Python via `nanobind`).
-* **Fix Instruction Data Erasure (`ExpandTPass`):** When creating the `fused` instruction, explicitly copy over the `flags` and `base_phase_idx` from the original `OP_PHASE_T` instruction. Currently, they are discarded, which permanently destroys quantum parity/conditional state.
-* **Preserve Frame Sign (`PeepholeFusionPass`):** When fusing $T$ and $T^\dagger$ into an $S$ gate, the code blindly hardcodes `/*sign=*/false`. Update this to mathematically calculate and preserve the resulting algebraic sign based on the incoming gates.
-* **Prevent Out-of-Bounds Segfaults (`is_blocked`):** Add a strict bounds check for `site_idx` against `hir.noise_sites.size()` before indexing the array to protect against malformed compiler IR.
-* **Release the Python GIL:** For Python bindings, ensure entry points like `ucc.sample()` that execute dense statevector array math explicitly drop the lock using `nanobind::gil_scoped_release` to prevent starving multithreaded Python hosts.
+### 2. Fix Silent Mask Truncation in HIR
+* **`src/ucc/frontend/hir.h`**: In `struct NoiseChannel`, change `destab_mask` and `stab_mask` from `uint64_t` to `stim::bitword<kStimWidth>`.
+* **`src/ucc/frontend/frontend.cc`**: Update the instantiations of `NoiseChannel` (e.g., inside `rewind_single_pauli` and `rewind_two_qubit_pauli`) to properly extract the full bitword instead of downcasting to `uint64_t`. Use `rewound.xs.ptr_simd[0]` and `rewound.zs.ptr_simd[0]` instead of `.u64[0]`.
+* **`src/ucc/backend/backend.cc` & `src/ucc/svm/svm.cc`**: Update the `OpType::NOISE` logic to assign and extract native bitwords (`ptr_simd[0]`) rather than using `u64[0]`.
+* **`src/ucc/optimizer/peephole.cc`**:
+  * Delete the `anti_commute_raw` helper function entirely.
+  * Update the main `anti_commute` inline function to take `stim::bitword<kStimWidth>` instead of hardcoding `stim::bitword<64>`.
+  * In `is_blocked` under `OpType::NOISE`, remove the `uint64_t` downcasts for `xi` and `zi`, and check commutation by calling the standard helper directly: `anti_commute(op_i.destab_mask(), op_i.stab_mask(), ch.destab_mask, ch.stab_mask)`.
 
-### 2. Architecture & Algorithmic Complexity
+### 3. Micro-Optimize the Optimizer
+In `src/ucc/optimizer/peephole.cc`:
+* In `anti_commute`, change the parity calculation from `.popcount() % 2 != 0` to a bitwise AND: `(.popcount() & 1) != 0`.
+* In `PeepholeFusionPass::run`, change `std::vector<bool> deleted(n, false);` to a fast byte array `std::vector<uint8_t> deleted(n, 0);` to eliminate the massive instruction-decode overhead of the STL bit-packed proxy.
 
-* **Fix $O(N^3)$ Bottleneck (`PeepholeFusionPass`):** The nested $O(N^2)$ loop combined with manual $O(N)$ array compaction on *every single fusion* will freeze the compiler on deep circuits. Refactor this to use a single-pass active-qubit frontier array or a dependency DAG. At an absolute minimum, defer compaction to a single `std::erase_if` pass at the end of the loop.
-* **Deduplicate Bytecode Pass Boilerplate:** `ExpandTPass`, `MultiGatePass`, `NoiseBlockPass`, and `SwapMeasPass` identically duplicate ~30 lines of variable initialization, vector capacity reservations, and `while` loop iteration. Unify this behind a base `InstructionRewriter` visitor class or a shared sliding-window pipeline utility.
-* **Flatten `source_map` for Cache Locality:** Change `CompiledModule::source_map` from a cache-thrashing `std::vector<std::vector<uint32_t>>` to a contiguous 1D array (`std::vector<uint32_t>`) backed by a `{uint32_t offset, uint32_t length}` span table (CSR format). Update all passes accordingly.
-* **Fix Symmetry Blindspot (`SwapMeasPass`):** `OP_ARRAY_SWAP(a, b)` is mathematically symmetric. Update the pass to check for both `SWAP(k-1, tgt)` and `SWAP(tgt, k-1)` so valid commutative optimizations aren't missed.
+### 4. Modernize Constants and Padding
+* **`tests/test_helpers.h`**: Add `#include <numbers>` and replace the manually typed 20-digit `kInvSqrt2` constant with `constexpr double kInvSqrt2 = std::numbers::inv_sqrt2;`.
 
-### 3. Modern C++20 Best Practices
 
-* **Eliminate Accidental Deep Copies:** In the fall-through/skip pathways of all bytecode passes, `new_src.push_back(old_src[i]);` deep-copies a vector for every unmodified instruction. Change this to `std::move(old_src[i])`.
-* **Optimize Vector Insertions:** Replace piecewise insertions (`for (uint32_t line : old_src[i]) merged.push_back(line);`) with bulk pre-sized inserts (`merged.insert(merged.end(), old_src[i].begin(), old_src[i].end());`).
-* **Remove `std::vector<bool>` Overhead:** In `PeepholeFusionPass`, change `std::vector<bool> deleted` to `std::vector<uint8_t> deleted` to avoid bit-proxy decoding/branching overhead in the hot loop.
-* **Fast Bitwise Parity:** In `anti_commute` and `anti_commute_raw`, change the signed modulo `.popcount() % 2 != 0` to pure bitwise math (`.popcount() & 1`).
-* **Apply `[[nodiscard]]`:** Add `[[nodiscard]]` to pure mathematical queries (`anti_commute`, `anti_commute_raw`, `effective_angle`, `is_blocked`, `pauli_masks`) to ensure bounds/commutation checks are never accidentally dropped.
-* **Standard Constants:** In `test_helpers.h`, replace the manually typed `kInvSqrt2` with C++20's `<numbers>` library (`std::numbers::inv_sqrt2`).
-* **Clean Struct Layout:** Remove the explicit padding members (e.g., `uint8_t _pad_a[8]`) inside the `Instruction` payload union. Rely entirely on the struct-level `alignas(32)`.
-* **Delete Vacuous Comments:** Remove comments that literally narrate code execution (e.g., `// Pass through all other instructions`, `// Start of a noise run`, `// Compact: remove deleted ops`).
-
-### 4. Test Suite Hardening
-
-* **Fix Vacuous Rubber-Stamping (`test_bytecode_passes.cc`):** Under `MULTI_CNOT`, replace the conditional `if (cnot_count >= 2) { CHECK(...); }` with a strict `REQUIRE(cnot_count >= 2);` so the test immediately fails if the parser breaks.
-* **Fix Brittle RNG Assertions:** Tests asserting equivalence via `REQUIRE(res_orig.measurements == res_opt.measurements)` with a fixed RNG seed are brittle when passes like `NoiseBlockPass` legitimately alter RNG draw sequences. Rewrite these to compare structural bounds or pure statevectors.
-* **Strengthen State Matchers:** In `test_optimizer.cc` (e.g., "T_dag plus T_dag fuses to S_dag"), add explicit assertions that the target virtual axes (`stab_mask` and `destab_mask`) survive the fusion completely untouched.
-* **Fix Absolute Tolerance Hazards:** Update `check_complex` (`test_helpers.h`) to evaluate using `Catch::Matchers::WithinRel` alongside `Catch::Matchers::WithinAbs` to safely handle relative drift in exponentially decaying statevector amplitudes.
+### 5. Fix Vacuous Tests and Weak Assertions
+* **`tests/test_bytecode_passes.cc`**: In the test `"MULTI_CNOT: equivalent to sequential CNOTs"`, remove the `if (cnot_count >= 2)` wrapper. Replace it with `REQUIRE(cnot_count >= 2);` unconditionally to ensure parser regressions immediately fail the test. Do the same for the inner `CHECK(multi_count >= 1);`, changing it to a direct `REQUIRE`.
+* **`tests/test_optimizer.cc`**: In `"Peephole: T plus T fuses to S"` and `"Peephole: T_dag plus T_dag fuses to S_dag"`, add assertions to guarantee the geometric target survived the fusion untouched (e.g., `REQUIRE(hir.ops[0].destab_mask() == 0); REQUIRE(hir.ops[0].stab_mask() == Z(0));`).

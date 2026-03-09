@@ -1,41 +1,37 @@
-You are an Expert C++20 Systems Engineer and Compiler Architect. I need you to perform a strict refactoring of this quantum compiler codebase based on a recent architectural review.
+Please act as an expert C++ and Python developer. I need you to implement a series of correctness fixes, performance optimizations, and code-quality improvements across my quantum compiler codebase based on a recent architecture review.
 
-*CRITICAL INSTRUCTION: Do not modify the 64-bit mask logic, `uint16_t` axis scaling, or bitshift operations. Those are being handled in a separate 512-bit architectural update. Focus strictly on the items listed below.*
+ It's possible some of these are already fixed. If you disagree with any, please stop and let me review and understand why. Please also commit each as standalone commits to make it easier to review. Please stop and open a PR after each phase (1,2,3) so I can review. As part of that PR, you should update this document to reflect your progress
 
-Please implement the following fixes, grouped by domain. Work through them step by step, with one commit per bullet. Please open a PR for review after each section (e.g. 1, 2, 3).
 
-If you disagree with a suggestion, stop and ask for feedback.  Some of them may have already been addressed, in which case also stop and ask for feedback.
+**CRITICAL CONSTRAINT:** Do **not** make any changes related to 64-bit hardcoding limits, physical scaling constraints, `TableauTransposedRaii`, or C++ undefined behavior (e.g., bit-shift bounds). Do not attempt to add destructors to `SchrodingerState`. Focus strictly on the following items grouped by domain:
 
-### 1. C++ Core & Memory Safety
+### 1. Python Bindings & GIL Management (`src/python/bindings.cc`)
 
-* **Fix `SchrodingerState` Memory Leak:** Convert the raw `std::complex<double>* v` pointer to `std::unique_ptr<std::complex<double>[]> v`. This ensures Python's garbage collector correctly frees the statevector array when a `State` object is destroyed via `nanobind`. Update constructors and `reset()` logic accordingly.
-* **Use `std::span`:** Modify `ucc::compile` and `ucc::lower` to accept `std::span<const uint8_t> postselection_mask` instead of passing `std::vector<uint8_t>` by value. Update the Python bindings to pass nanobind array views to avoid $O(N)$ deep copies.
-* **Optimize Bit-Scanning:** In `src/ucc/util/introspection.cc`, refactor `format_pauli_mask` to `#include <bit>` and use `std::countr_zero` on the bitmasks to jump directly to active bits instead of scanning all bits sequentially with a `for` loop.
-* **Remove C-style Union Padding:** In `design/data_structs.md` and the `Instruction` struct, delete all manual padding arrays (e.g., `uint8_t _pad_a[8];`). The outer union natively sizes itself to its largest member, making explicit padding brittle and unnecessary.
-* **Modernization:** Apply `[[nodiscard]]` to query and pipeline functions (`max_sim_qubits`, `trace`, `lower`). Apply `constexpr noexcept` to the opcode classifiers. Delete `kInvSqrt2` in `test_helpers.h` and use `std::numbers::inv_sqrt2` from `<numbers>`.
+* **Zero-Copy Template Refactor:** The ownership transfer of `std::vector` to a `nanobind::capsule` (to avoid deep copies) is currently duplicated for `uint8_t`, `uint64_t`, and `complex<double>`. Create a reusable C++ template (e.g., `template <typename T> nb::ndarray<nb::numpy, T, nb::c_contig> make_numpy_array(std::vector<T> vec, std::initializer_list<size_t> shape)`) and refactor `sample`, `sample_survivors`, and `get_statevector` to use it. In `get_statevector`, eliminate the `new std::complex<double>[n]` allocation and blocking `std::copy`, moving the `std::vector` directly into the zero-copy template.
+* **Fix GIL Blocking:** Add `nb::gil_scoped_release release;` to the `execute` and `get_statevector` bindings so that dense matrix operations don't freeze multithreaded Python workloads (like Sinter).
+* **Fix Python Polymorphism:** Apply nanobind trampoline macros (`NB_TRAMPOLINE`) to `ucc::Pass` and `ucc::BytecodePass`. Create trampoline wrapper classes (e.g., `PyPass` and `PyBytecodePass`) so Python subclasses can properly override the virtual `run()` methods. Change the bindings to bind the wrappers instead.
+* **Clean up Comments:** Delete vacuous comments that just restate the code (e.g., `// GateType enum`, `// Circuit class`, `// Bytecode Optimization Passes`).
 
-### 2. Python Bindings (`nanobind`)
+### 2. C++ Core API & Refactoring
 
-* **Release the GIL:** Add `nb::gil_scoped_release release;` to the Python bindings for `execute` and `get_statevector` to prevent hard-locking the Python interpreter during exponential array evaluations.
-* **Fix Python Polymorphism:** Wrap the `ucc::Pass` and `ucc::BytecodePass` bindings with the `NB_TRAMPOLINE` macro. Without this, C++ cannot execute overridden `run()` methods defined in Python subclasses.
-* **Zero-Copy Abstraction:** The `nb::capsule` ownership transfer boilerplate is duplicated in `make_numpy_array`, `sample_survivors`, and `get_statevector`. Abstract this into a reusable C++ template function (e.g., `template <typename T> wrap_vector_to_numpy(...)`).
-* **Eliminate Statevector Deep Copy:** In `get_statevector`, eliminate the `new[]` allocation and blocking `std::copy`. Heap-allocate the returned `std::vector` directly and use the new zero-copy template to transfer ownership to NumPy.
+* **Modern C++ Attributes:**
+* In `src/ucc/util/introspection.h` and `src/ucc/util/introspection.cc`, add `[[nodiscard]] constexpr noexcept` to the opcode classifiers (`is_two_axis_opcode`, `is_one_axis_opcode`, `is_meas_opcode`).
+* Add `[[nodiscard]]` to the pipeline functions `ucc::trace` (`src/ucc/frontend/frontend.h`) and `ucc::lower` (`src/ucc/backend/backend.h`).
 
-### 3. Wasm / WebAssembly Fixes
 
-* **Fix PRNG Lobotomization:** In `src/wasm/bindings.cc`, `simulate_wasm` currently hardcodes a seed of `0` via `ucc::sample(prog, shots, 0)`. Change this to use a proper random seed (e.g., via `<random>`) or accept an optional seed from JavaScript so it produces actual stochastic distributions.
-* **Fix WASM Heap Fragmentation:** In `simulate_wasm`, the histogram generation loop appends to a string dynamically (`key += ...`) per measurement per shot. Pre-allocate the string with `key.resize(n_meas)` and write to the characters directly by index. Replace `std::map` with `std::unordered_map` to prevent $O(N \log M)$ pointer-chasing.
-* **Stop WASM Rubber-Stamping:** In `test_wasm.mjs`, the simulation test only checks `total == 1000`. Add assertions that actually check the physics (e.g., a Hadamard circuit should yield ~500 for '0' and ~500 for '1').
+### 3. WebAssembly Endpoint (`src/wasm/bindings.cc`, `src/wasm/test_wasm.mjs`)
 
-### 4. Python Testing & Validation Oracles
+* **Fix PRNG Lobotomization:** In `simulate_wasm`, replace the hardcoded `0` seed in `ucc::sample(prog, shots, 0)` with a dynamically generated seed from the device random (not sure how to do this for WASM?)
+* **Fix Heap Fragmentation:** In `simulate_wasm`, change `std::map<std::string, uint32_t> histogram;` to `std::unordered_map`. Hoist the `std::string key;` declaration outside the `for (shot)` loop, call `key.reserve(n_meas);` once, and use `key.clear();` inside the loop to eliminate memory allocation churn.
+* **Enforce Physics in Wasm Tests:** In `test_wasm.mjs`, update the simulation verification for `H 0; M 0`. Instead of just asserting `total == 1000`, assert that the histogram contains roughly 500 counts for `'0'` and 500 counts for `'1'`.
 
-* **Fix Fidelity Oracle (Critical):** In `tests/python/conftest.py`, `assert_statevectors_equal` checks `fidelity < 1.0 - rtol` without enforcing normalization. This will silently pass unnormalized vectors (e.g., an array with norm 2.0 yielding fidelity 4.0). Add explicit assertions that `actual` is normalized ($L^2$ norm == 1.0) before computing fidelity.
-* **Strict Qiskit Oracle:** In `utils_qiskit.py` (`stim_to_qiskit_noiseless`), instead of silently `continue`-ing when hitting unsupported measurements/resets (`M`, `R`, `MX`, etc.), explicitly `raise ValueError`. This prevents uncollapsed circuits from silently passing tests.
-* **Tighten Statistical Bounds:** Fix loose bounds in `cross_binomial_tolerance` (scaling $5\sigma$ by $\sqrt{2}$ creates a vacuous $7.07\sigma$ bound). In the test suite (e.g., `test_sample_survivors`), replace hardcoded assertions like `4000 < ones < 6000` for 10,000 shots with strict binomial math.
-* **Fix Tautological Assertions:** In `TestHirPeepholeUncomputationLadder`, remove `np.testing.assert_array_equal(base_m, opt_m)` where they have both just been independently asserted to equal `np.zeros_like`.
+### 4. Python Test Suite & Oracles
 
-### 5. Documentation Cleanup
+* **Fix Invalid Fidelity Oracle:** In `tests/python/conftest.py` (`assert_statevectors_equal`), change the strict less-than check `if fidelity < 1.0 - rtol:` to `if abs(fidelity - 1.0) > rtol:`.
+* **Silently Ignored Qiskit Gates:** In `tests/python/utils_qiskit.py` (`stim_to_qiskit_noiseless`), instead of using `continue` to silently skip measurement and reset gates (`M`, `R`, `MX`, etc.), explicitly raise a `ValueError("Measurements and resets are not supported in the noiseless statevector oracle")`.
+* **Tighten Statistical Bounds:** In `tests/python/test_sample.py` (`test_observable_ones_counts_errors`), change the wildly loose `4000 < ones < 6000` assertion. Use the existing `binomial_tolerance` helper (or equivalent $5\sigma$ math) to tighten the bounds.
+* **Remove Tautological Assertions:** In `tests/python/test_optimization_invariants.py` (`TestHirPeepholeUncomputationLadder`), delete the `np.testing.assert_array_equal(base_m, opt_m)` assertion immediately following the code that asserts both arrays are strictly equal to `np.zeros_like`.
 
-* **Fix Tableau Misinformation:** Update `design/architecture.md`. Transposing a tableau makes *prepending* fast. Appending (row operations) is natively fast in Stim's default memory layout.
-* **Fix Struct Documentation:** Update `design/data_structs.md` so the multi-gate member is correctly named `multi_gate` (to match the actual C++ code in `bindings.cc`), not `multi`.
-* **Remove Vacuous Comments:** Strip out comments that merely restate the code (e.g., `// GateType enum`, `// Circuit class`). Remove the contradictory payload union comments (`up to 12 bytes` vs `exactly 12 bytes`).
+### 5. Documentation (`design/data_structs.md`)
+
+* **Sync Structs to Code:** Update the documentation for the `Instruction` struct. Change the union struct name `multi` to `multi_gate` to match the C++ implementation. Remove the references to the manual `_pad` arrays to match the updates in `backend.h`.
