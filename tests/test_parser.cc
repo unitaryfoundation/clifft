@@ -9,6 +9,7 @@
 // - Report errors for unknown gates and malformed syntax
 
 #include "ucc/circuit/circuit.h"
+#include "ucc/circuit/gate_data.h"
 #include "ucc/circuit/parser.h"
 #include "ucc/circuit/target.h"
 
@@ -1268,4 +1269,124 @@ TEST_CASE("Source line tracking for TICK", "[parser][source_line]") {
     CHECK(circuit.nodes[0].source_line == 1);
     CHECK(circuit.nodes[1].source_line == 2);
     CHECK(circuit.nodes[2].source_line == 3);
+}
+
+// =========================================================================
+// GateTraits lookup table
+// =========================================================================
+
+TEST_CASE("GateTraits: spot-check single-qubit Cliffords", "[gate_data]") {
+    CHECK(gate_arity(GateType::H) == GateArity::SINGLE);
+    CHECK(is_clifford(GateType::H));
+    CHECK(!is_measurement(GateType::H));
+    CHECK(!is_noise_gate(GateType::H));
+    CHECK(gate_name(GateType::H) == "H");
+
+    CHECK(is_clifford(GateType::S));
+    CHECK(is_clifford(GateType::S_DAG));
+    CHECK(is_clifford(GateType::X));
+    CHECK(is_clifford(GateType::Y));
+    CHECK(is_clifford(GateType::Z));
+    CHECK(is_clifford(GateType::SQRT_X));
+    CHECK(is_clifford(GateType::C_XYZ));
+    CHECK(is_clifford(GateType::C_ZYNX));
+}
+
+TEST_CASE("GateTraits: non-Clifford T gates", "[gate_data]") {
+    CHECK(!is_clifford(GateType::T));
+    CHECK(!is_clifford(GateType::T_DAG));
+    CHECK(gate_arity(GateType::T) == GateArity::SINGLE);
+    CHECK(gate_name(GateType::T) == "T");
+    CHECK(gate_name(GateType::T_DAG) == "T_DAG");
+}
+
+TEST_CASE("GateTraits: two-qubit Cliffords are PAIR arity", "[gate_data]") {
+    CHECK(gate_arity(GateType::CX) == GateArity::PAIR);
+    CHECK(gate_arity(GateType::CZ) == GateArity::PAIR);
+    CHECK(gate_arity(GateType::SWAP) == GateArity::PAIR);
+    CHECK(gate_arity(GateType::ISWAP) == GateArity::PAIR);
+    CHECK(gate_arity(GateType::YCZ) == GateArity::PAIR);
+    CHECK(is_clifford(GateType::CX));
+    CHECK(is_clifford(GateType::YCZ));
+}
+
+TEST_CASE("GateTraits: measurements", "[gate_data]") {
+    CHECK(is_measurement(GateType::M));
+    CHECK(is_measurement(GateType::MX));
+    CHECK(is_measurement(GateType::MY));
+    CHECK(is_measurement(GateType::MR));
+    CHECK(is_measurement(GateType::MRX));
+    CHECK(is_measurement(GateType::MRY));
+    CHECK(is_measurement(GateType::MPP));
+    CHECK(is_measurement(GateType::MPAD));
+    CHECK(!is_measurement(GateType::H));
+    CHECK(!is_measurement(GateType::R));
+}
+
+TEST_CASE("GateTraits: measure-reset subset", "[gate_data]") {
+    CHECK(is_measure_reset(GateType::MR));
+    CHECK(is_measure_reset(GateType::MRX));
+    CHECK(is_measure_reset(GateType::MRY));
+    CHECK(!is_measure_reset(GateType::M));
+    CHECK(!is_measure_reset(GateType::R));
+}
+
+TEST_CASE("GateTraits: resets", "[gate_data]") {
+    CHECK(is_reset(GateType::R));
+    CHECK(is_reset(GateType::RX));
+    CHECK(is_reset(GateType::RY));
+    CHECK(!is_reset(GateType::MR));
+    CHECK(!is_reset(GateType::H));
+}
+
+TEST_CASE("GateTraits: identity no-ops", "[gate_data]") {
+    CHECK(is_identity_noop(GateType::I));
+    CHECK(is_identity_noop(GateType::II));
+    CHECK(is_identity_noop(GateType::I_ERROR));
+    CHECK(is_identity_noop(GateType::II_ERROR));
+    CHECK(!is_identity_noop(GateType::H));
+    CHECK(gate_arity(GateType::II) == GateArity::PAIR);
+    CHECK(gate_arity(GateType::II_ERROR) == GateArity::PAIR);
+}
+
+TEST_CASE("GateTraits: noise channels", "[gate_data]") {
+    CHECK(is_noise_gate(GateType::X_ERROR));
+    CHECK(is_noise_gate(GateType::Y_ERROR));
+    CHECK(is_noise_gate(GateType::Z_ERROR));
+    CHECK(is_noise_gate(GateType::DEPOLARIZE1));
+    CHECK(is_noise_gate(GateType::DEPOLARIZE2));
+    CHECK(is_noise_gate(GateType::PAULI_CHANNEL_1));
+    CHECK(is_noise_gate(GateType::PAULI_CHANNEL_2));
+    CHECK(is_noise_gate(GateType::READOUT_NOISE));
+    CHECK(!is_noise_gate(GateType::M));
+    CHECK(gate_arity(GateType::DEPOLARIZE2) == GateArity::PAIR);
+    CHECK(gate_arity(GateType::PAULI_CHANNEL_2) == GateArity::PAIR);
+}
+
+TEST_CASE("GateTraits: annotations are ANNOTATION arity", "[gate_data]") {
+    CHECK(gate_arity(GateType::TICK) == GateArity::ANNOTATION);
+    CHECK(gate_arity(GateType::DETECTOR) == GateArity::ANNOTATION);
+    CHECK(gate_arity(GateType::OBSERVABLE_INCLUDE) == GateArity::ANNOTATION);
+    CHECK(gate_name(GateType::TICK) == "TICK");
+}
+
+TEST_CASE("GateTraits: MPP is MULTI arity", "[gate_data]") {
+    CHECK(gate_arity(GateType::MPP) == GateArity::MULTI);
+    CHECK(is_measurement(GateType::MPP));
+    CHECK(!is_clifford(GateType::MPP));
+}
+
+TEST_CASE("GateTraits: pair measurements MXX MYY MZZ", "[gate_data]") {
+    CHECK(gate_arity(GateType::MXX) == GateArity::PAIR);
+    CHECK(gate_arity(GateType::MYY) == GateArity::PAIR);
+    CHECK(gate_arity(GateType::MZZ) == GateArity::PAIR);
+    CHECK(is_measurement(GateType::MXX));
+}
+
+TEST_CASE("GateTraits: UNKNOWN sentinel", "[gate_data]") {
+    CHECK(gate_arity(GateType::UNKNOWN) == GateArity::SINGLE);
+    CHECK(!is_clifford(GateType::UNKNOWN));
+    CHECK(!is_measurement(GateType::UNKNOWN));
+    CHECK(!is_noise_gate(GateType::UNKNOWN));
+    CHECK(gate_name(GateType::UNKNOWN) == "UNKNOWN");
 }

@@ -17,14 +17,14 @@ Treat each bullet point as a strict requirement. Do not make any changes related
 * **Unbounded Recursion Stack Overflow:** DONE. Threaded `uint32_t depth` through `parse_block`, `parse_line`, and `parse_repeat`. Throws at depth > 100. Renamed local brace-tracking variable to `brace_depth` to avoid shadowing.
 * **Cache-Destroying Memory Zeroing:** DONE. Replaced `std::string(size, '\0')` with `std::make_unique<char[]>` + `std::string_view`.
 
-### 3. `src/python/bindings.cc`
+### 3. `src/python/bindings.cc` -- DONE
 
-* **Python GIL Starvation:** Massive circuit compilations block multi-threaded Python workloads. Wrap the core C++ execution inside `parse`, `parse_file`, `trace`, and `lower` with `nb::gil_scoped_release release;` so the C++ engine releases the Python Global Interpreter Lock while executing. (For the `compile` function, be careful to release the GIL only around the intensive C++ calls, ensuring you reacquire or avoid releasing it while interacting with Python `PassManager` objects).
+* **Python GIL Starvation:** DONE. Added `nb::gil_scoped_release` to `parse` (both overloads), `parse_file` (both overloads), `trace`, `lower`, and `compile`. PassManager and BytecodePassManager are pure C++ so the entire `compile` lambda releases the GIL. Added `test_gil_release.py` with 4 threading tests.
 
-### 4. `src/ucc/circuit/gate_data.h`
+### 4. `src/ucc/circuit/gate_data.h` -- DONE
 
-* **Massive Switch Statement Duplication:** Replace the 8 massive, duplicated switch statements (`gate_arity`, `is_clifford`, `is_measurement`, `is_reset`, `is_measure_reset`, `is_identity_noop`, `is_noise_gate`, `gate_name`) with a single `struct GateTraits`. Create a `constexpr std::array<GateTraits, static_cast<size_t>(GateType::UNKNOWN) + 1>` to centralize all gate properties. Update the 8 inline helper functions to simply return `kGateTraits[static_cast<size_t>(g)].property`.
+* **Massive Switch Statement Duplication:** DONE. Replaced 8 switch statements with a single `constexpr GateTraits kGateTraitsData[]` lookup table indexed by `GateType` enum value. Each helper function is now a one-liner. A `static_assert` ensures the table has exactly one entry per `GateType`. Added 12 Catch2 tests covering every gate category.
 
-### 5. `tests/test_frontend.cc`
+### 5. `tests/test_frontend.cc` -- DONE
 
-* **Vacuous Tautologies in Tests:** In `TEST_CASE("Frontend: alias ZCX produces same HIR as CX")`, add `REQUIRE(hir_cx.num_ops() > 0);` before the `for` loop that iterates over `hir_cx.num_ops()`. This prevents the test from trivially passing if parsing failed and produced 0 nodes.
+* **Vacuous Tautologies in Tests:** DONE. Added `REQUIRE(hir_cx.num_ops() > 0)` before the comparison loop in the ZCX alias test.

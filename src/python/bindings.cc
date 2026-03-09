@@ -195,18 +195,33 @@ NB_MODULE(_ucc_core, m) {
 
     // Circuit parsing
     m.def(
-        "parse", [](std::string_view text) { return ucc::parse(text); }, nb::arg("text"),
-        "Parse a quantum circuit from a string.");
+        "parse",
+        [](std::string_view text) {
+            nb::gil_scoped_release release;
+            return ucc::parse(text);
+        },
+        nb::arg("text"), "Parse a quantum circuit from a string.");
     m.def(
-        "parse", [](std::string_view text, size_t max_ops) { return ucc::parse(text, max_ops); },
+        "parse",
+        [](std::string_view text, size_t max_ops) {
+            nb::gil_scoped_release release;
+            return ucc::parse(text, max_ops);
+        },
         nb::arg("text"), nb::arg("max_ops"),
         "Parse a quantum circuit from a string with an explicit AST node limit.");
     m.def(
-        "parse_file", [](const std::string& path) { return ucc::parse_file(path); },
+        "parse_file",
+        [](const std::string& path) {
+            nb::gil_scoped_release release;
+            return ucc::parse_file(path);
+        },
         nb::arg("path"), "Parse a quantum circuit from a file.");
     m.def(
         "parse_file",
-        [](const std::string& path, size_t max_ops) { return ucc::parse_file(path, max_ops); },
+        [](const std::string& path, size_t max_ops) {
+            nb::gil_scoped_release release;
+            return ucc::parse_file(path, max_ops);
+        },
         nb::arg("path"), nb::arg("max_ops"),
         "Parse a quantum circuit from a file with an explicit AST node limit.");
 
@@ -343,7 +358,11 @@ NB_MODULE(_ucc_core, m) {
 
     // Front-end: Circuit -> HIR
     m.def(
-        "trace", [](const ucc::Circuit& circuit) { return ucc::trace(circuit); },
+        "trace",
+        [](const ucc::Circuit& circuit) {
+            nb::gil_scoped_release release;
+            return ucc::trace(circuit);
+        },
         nb::arg("circuit"),
         "Trace a parsed circuit through the Clifford front-end to produce the "
         "Heisenberg IR.");
@@ -617,6 +636,7 @@ NB_MODULE(_ucc_core, m) {
     m.def(
         "lower",
         [](const ucc::HirModule& hir, std::vector<uint8_t> postselection_mask) {
+            nb::gil_scoped_release release;
             return ucc::lower(hir, postselection_mask);
         },
         nb::arg("hir"), nb::arg("postselection_mask") = std::vector<uint8_t>{},
@@ -636,6 +656,7 @@ NB_MODULE(_ucc_core, m) {
         "compile",
         [](const std::string& stim_text, std::vector<uint8_t> postselection_mask,
            ucc::PassManager* hir_passes, ucc::BytecodePassManager* bytecode_passes) {
+            nb::gil_scoped_release release;
             ucc::Circuit circuit = ucc::parse(stim_text);
             ucc::HirModule hir = ucc::trace(circuit);
             if (hir_passes)

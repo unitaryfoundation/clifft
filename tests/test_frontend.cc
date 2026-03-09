@@ -937,6 +937,7 @@ TEST_CASE("Frontend: alias ZCX produces same HIR as CX", "[frontend]") {
     auto hir_cx = trace(parse("CX 0 1\nM 0 1"));
     auto hir_zcx = trace(parse("ZCX 0 1\nM 0 1"));
 
+    REQUIRE(hir_cx.num_ops() > 0);
     REQUIRE(hir_cx.num_ops() == hir_zcx.num_ops());
     for (size_t i = 0; i < hir_cx.num_ops(); ++i) {
         CHECK(hir_cx.ops[i].destab_mask() == hir_zcx.ops[i].destab_mask());

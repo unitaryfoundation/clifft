@@ -129,333 +129,151 @@ enum class GateArity : uint8_t {
     ANNOTATION,  // No qubit targets (TICK)
 };
 
-// Get the arity classification for a gate type.
+// Centralized gate metadata. One entry per GateType, indexed by enum value.
+// Booleans default to false so designated initializers only name true fields.
+struct GateTraits {
+    GateArity arity;
+    bool clifford = false;
+    bool measurement = false;
+    bool reset = false;
+    bool measure_reset = false;
+    bool identity_noop = false;
+    bool noise = false;
+    std::string_view name;
+};
+
+namespace detail {
+
+constexpr auto S = GateArity::SINGLE;
+constexpr auto P = GateArity::PAIR;
+constexpr auto ML = GateArity::MULTI;
+constexpr auto A = GateArity::ANNOTATION;
+
+// clang-format off
+inline constexpr GateTraits kGateTraitsData[] = {
+    // Single-qubit Cliffords
+    {.arity = S, .clifford = true, .name = "H"},
+    {.arity = S, .clifford = true, .name = "S"},
+    {.arity = S, .clifford = true, .name = "S_DAG"},
+    {.arity = S, .clifford = true, .name = "X"},
+    {.arity = S, .clifford = true, .name = "Y"},
+    {.arity = S, .clifford = true, .name = "Z"},
+    {.arity = S, .clifford = true, .name = "SQRT_X"},
+    {.arity = S, .clifford = true, .name = "SQRT_X_DAG"},
+    {.arity = S, .clifford = true, .name = "SQRT_Y"},
+    {.arity = S, .clifford = true, .name = "SQRT_Y_DAG"},
+    {.arity = S, .clifford = true, .name = "H_XY"},
+    {.arity = S, .clifford = true, .name = "H_YZ"},
+    {.arity = S, .clifford = true, .name = "H_NXY"},
+    {.arity = S, .clifford = true, .name = "H_NXZ"},
+    {.arity = S, .clifford = true, .name = "H_NYZ"},
+    {.arity = S, .clifford = true, .name = "C_XYZ"},
+    {.arity = S, .clifford = true, .name = "C_ZYX"},
+    {.arity = S, .clifford = true, .name = "C_NXYZ"},
+    {.arity = S, .clifford = true, .name = "C_NZYX"},
+    {.arity = S, .clifford = true, .name = "C_XNYZ"},
+    {.arity = S, .clifford = true, .name = "C_XYNZ"},
+    {.arity = S, .clifford = true, .name = "C_ZNYX"},
+    {.arity = S, .clifford = true, .name = "C_ZYNX"},
+    // Non-Clifford
+    {.arity = S, .name = "T"},
+    {.arity = S, .name = "T_DAG"},
+    // Two-qubit Cliffords
+    {.arity = P, .clifford = true, .name = "CX"},
+    {.arity = P, .clifford = true, .name = "CY"},
+    {.arity = P, .clifford = true, .name = "CZ"},
+    {.arity = P, .clifford = true, .name = "SWAP"},
+    {.arity = P, .clifford = true, .name = "ISWAP"},
+    {.arity = P, .clifford = true, .name = "ISWAP_DAG"},
+    {.arity = P, .clifford = true, .name = "SQRT_XX"},
+    {.arity = P, .clifford = true, .name = "SQRT_XX_DAG"},
+    {.arity = P, .clifford = true, .name = "SQRT_YY"},
+    {.arity = P, .clifford = true, .name = "SQRT_YY_DAG"},
+    {.arity = P, .clifford = true, .name = "SQRT_ZZ"},
+    {.arity = P, .clifford = true, .name = "SQRT_ZZ_DAG"},
+    {.arity = P, .clifford = true, .name = "CXSWAP"},
+    {.arity = P, .clifford = true, .name = "CZSWAP"},
+    {.arity = P, .clifford = true, .name = "SWAPCX"},
+    {.arity = P, .clifford = true, .name = "XCX"},
+    {.arity = P, .clifford = true, .name = "XCY"},
+    {.arity = P, .clifford = true, .name = "XCZ"},
+    {.arity = P, .clifford = true, .name = "YCX"},
+    {.arity = P, .clifford = true, .name = "YCY"},
+    {.arity = P, .clifford = true, .name = "YCZ"},
+    // Measurements
+    {.arity = S, .measurement = true, .name = "M"},
+    {.arity = S, .measurement = true, .name = "MX"},
+    {.arity = S, .measurement = true, .name = "MY"},
+    {.arity = S, .measurement = true, .measure_reset = true, .name = "MR"},
+    {.arity = S, .measurement = true, .measure_reset = true, .name = "MRX"},
+    {.arity = ML, .measurement = true, .name = "MPP"},
+    {.arity = P, .measurement = true, .name = "MXX"},
+    {.arity = P, .measurement = true, .name = "MYY"},
+    {.arity = P, .measurement = true, .name = "MZZ"},
+    // Resets
+    {.arity = S, .reset = true, .name = "R"},
+    {.arity = S, .reset = true, .name = "RX"},
+    {.arity = S, .reset = true, .name = "RY"},
+    {.arity = S, .measurement = true, .measure_reset = true, .name = "MRY"},
+    // Deterministic padding
+    {.arity = S, .measurement = true, .name = "MPAD"},
+    // Identity no-ops
+    {.arity = S, .identity_noop = true, .name = "I"},
+    {.arity = P, .identity_noop = true, .name = "II"},
+    {.arity = S, .identity_noop = true, .name = "I_ERROR"},
+    {.arity = P, .identity_noop = true, .name = "II_ERROR"},
+    // Noise channels
+    {.arity = S, .noise = true, .name = "X_ERROR"},
+    {.arity = S, .noise = true, .name = "Y_ERROR"},
+    {.arity = S, .noise = true, .name = "Z_ERROR"},
+    {.arity = S, .noise = true, .name = "DEPOLARIZE1"},
+    {.arity = P, .noise = true, .name = "DEPOLARIZE2"},
+    {.arity = S, .noise = true, .name = "PAULI_CHANNEL_1"},
+    {.arity = P, .noise = true, .name = "PAULI_CHANNEL_2"},
+    {.arity = S, .noise = true, .name = "READOUT_NOISE"},
+    // QEC annotations
+    {.arity = A, .name = "DETECTOR"},
+    {.arity = A, .name = "OBSERVABLE_INCLUDE"},
+    {.arity = A, .name = "TICK"},
+    // Sentinel
+    {.arity = S, .name = "UNKNOWN"},
+};
+// clang-format on
+
+static_assert(sizeof(kGateTraitsData) / sizeof(kGateTraitsData[0]) ==
+                  static_cast<size_t>(GateType::UNKNOWN) + 1,
+              "kGateTraitsData must have one entry per GateType");
+
+}  // namespace detail
+
+// Lookup gate traits by enum value. O(1) array index.
+inline constexpr const GateTraits& gate_traits(GateType g) {
+    return detail::kGateTraitsData[static_cast<size_t>(g)];
+}
+
 inline constexpr GateArity gate_arity(GateType g) {
-    switch (g) {
-        case GateType::CX:
-        case GateType::CY:
-        case GateType::CZ:
-        case GateType::SWAP:
-        case GateType::ISWAP:
-        case GateType::ISWAP_DAG:
-        case GateType::SQRT_XX:
-        case GateType::SQRT_XX_DAG:
-        case GateType::SQRT_YY:
-        case GateType::SQRT_YY_DAG:
-        case GateType::SQRT_ZZ:
-        case GateType::SQRT_ZZ_DAG:
-        case GateType::CXSWAP:
-        case GateType::CZSWAP:
-        case GateType::SWAPCX:
-        case GateType::XCX:
-        case GateType::XCY:
-        case GateType::XCZ:
-        case GateType::YCX:
-        case GateType::YCY:
-        case GateType::YCZ:
-        case GateType::MXX:
-        case GateType::MYY:
-        case GateType::MZZ:
-        case GateType::II:
-        case GateType::II_ERROR:
-        case GateType::DEPOLARIZE2:
-        case GateType::PAULI_CHANNEL_2:
-            return GateArity::PAIR;
-        case GateType::MPP:
-            return GateArity::MULTI;
-        case GateType::TICK:
-        case GateType::DETECTOR:
-        case GateType::OBSERVABLE_INCLUDE:
-            return GateArity::ANNOTATION;
-        default:
-            return GateArity::SINGLE;
-    }
+    return gate_traits(g).arity;
 }
-
-// Check if a gate is a Clifford gate.
 inline constexpr bool is_clifford(GateType g) {
-    switch (g) {
-        case GateType::H:
-        case GateType::S:
-        case GateType::S_DAG:
-        case GateType::X:
-        case GateType::Y:
-        case GateType::Z:
-        case GateType::SQRT_X:
-        case GateType::SQRT_X_DAG:
-        case GateType::SQRT_Y:
-        case GateType::SQRT_Y_DAG:
-        case GateType::H_XY:
-        case GateType::H_YZ:
-        case GateType::H_NXY:
-        case GateType::H_NXZ:
-        case GateType::H_NYZ:
-        case GateType::C_XYZ:
-        case GateType::C_ZYX:
-        case GateType::C_NXYZ:
-        case GateType::C_NZYX:
-        case GateType::C_XNYZ:
-        case GateType::C_XYNZ:
-        case GateType::C_ZNYX:
-        case GateType::C_ZYNX:
-        case GateType::CX:
-        case GateType::CY:
-        case GateType::CZ:
-        case GateType::SWAP:
-        case GateType::ISWAP:
-        case GateType::ISWAP_DAG:
-        case GateType::SQRT_XX:
-        case GateType::SQRT_XX_DAG:
-        case GateType::SQRT_YY:
-        case GateType::SQRT_YY_DAG:
-        case GateType::SQRT_ZZ:
-        case GateType::SQRT_ZZ_DAG:
-        case GateType::CXSWAP:
-        case GateType::CZSWAP:
-        case GateType::SWAPCX:
-        case GateType::XCX:
-        case GateType::XCY:
-        case GateType::XCZ:
-        case GateType::YCX:
-        case GateType::YCY:
-        case GateType::YCZ:
-            return true;
-        default:
-            return false;
-    }
+    return gate_traits(g).clifford;
 }
-
-// Check if a gate is a measurement (produces visible outcome).
 inline constexpr bool is_measurement(GateType g) {
-    switch (g) {
-        case GateType::M:
-        case GateType::MX:
-        case GateType::MY:
-        case GateType::MR:
-        case GateType::MRX:
-        case GateType::MRY:
-        case GateType::MPP:
-        case GateType::MXX:
-        case GateType::MYY:
-        case GateType::MZZ:
-        case GateType::MPAD:
-            return true;
-        default:
-            return false;
-    }
+    return gate_traits(g).measurement;
 }
-
-// Check if a gate is a reset (no visible outcome, but collapses state).
 inline constexpr bool is_reset(GateType g) {
-    switch (g) {
-        case GateType::R:
-        case GateType::RX:
-        case GateType::RY:
-            return true;
-        default:
-            return false;
-    }
+    return gate_traits(g).reset;
 }
-
-// Check if a gate is a measure-reset (produces visible outcome AND resets).
 inline constexpr bool is_measure_reset(GateType g) {
-    switch (g) {
-        case GateType::MR:
-        case GateType::MRX:
-        case GateType::MRY:
-            return true;
-        default:
-            return false;
-    }
+    return gate_traits(g).measure_reset;
 }
-
-// Check if a gate is an identity no-op (parsed but never emitted to AST).
 inline constexpr bool is_identity_noop(GateType g) {
-    switch (g) {
-        case GateType::I:
-        case GateType::II:
-        case GateType::I_ERROR:
-        case GateType::II_ERROR:
-            return true;
-        default:
-            return false;
-    }
+    return gate_traits(g).identity_noop;
 }
-
-// Check if a gate is a noise channel.
 inline constexpr bool is_noise_gate(GateType g) {
-    switch (g) {
-        case GateType::X_ERROR:
-        case GateType::Y_ERROR:
-        case GateType::Z_ERROR:
-        case GateType::DEPOLARIZE1:
-        case GateType::DEPOLARIZE2:
-        case GateType::PAULI_CHANNEL_1:
-        case GateType::PAULI_CHANNEL_2:
-        case GateType::READOUT_NOISE:
-            return true;
-        default:
-            return false;
-    }
+    return gate_traits(g).noise;
 }
-
-// Convert gate type to string for display/debugging.
 inline constexpr std::string_view gate_name(GateType g) {
-    switch (g) {
-        case GateType::H:
-            return "H";
-        case GateType::S:
-            return "S";
-        case GateType::S_DAG:
-            return "S_DAG";
-        case GateType::X:
-            return "X";
-        case GateType::Y:
-            return "Y";
-        case GateType::Z:
-            return "Z";
-        case GateType::SQRT_X:
-            return "SQRT_X";
-        case GateType::SQRT_X_DAG:
-            return "SQRT_X_DAG";
-        case GateType::SQRT_Y:
-            return "SQRT_Y";
-        case GateType::SQRT_Y_DAG:
-            return "SQRT_Y_DAG";
-        case GateType::H_XY:
-            return "H_XY";
-        case GateType::H_YZ:
-            return "H_YZ";
-        case GateType::H_NXY:
-            return "H_NXY";
-        case GateType::H_NXZ:
-            return "H_NXZ";
-        case GateType::H_NYZ:
-            return "H_NYZ";
-        case GateType::C_XYZ:
-            return "C_XYZ";
-        case GateType::C_ZYX:
-            return "C_ZYX";
-        case GateType::C_NXYZ:
-            return "C_NXYZ";
-        case GateType::C_NZYX:
-            return "C_NZYX";
-        case GateType::C_XNYZ:
-            return "C_XNYZ";
-        case GateType::C_XYNZ:
-            return "C_XYNZ";
-        case GateType::C_ZNYX:
-            return "C_ZNYX";
-        case GateType::C_ZYNX:
-            return "C_ZYNX";
-        case GateType::T:
-            return "T";
-        case GateType::T_DAG:
-            return "T_DAG";
-        case GateType::CX:
-            return "CX";
-        case GateType::CY:
-            return "CY";
-        case GateType::CZ:
-            return "CZ";
-        case GateType::SWAP:
-            return "SWAP";
-        case GateType::ISWAP:
-            return "ISWAP";
-        case GateType::ISWAP_DAG:
-            return "ISWAP_DAG";
-        case GateType::SQRT_XX:
-            return "SQRT_XX";
-        case GateType::SQRT_XX_DAG:
-            return "SQRT_XX_DAG";
-        case GateType::SQRT_YY:
-            return "SQRT_YY";
-        case GateType::SQRT_YY_DAG:
-            return "SQRT_YY_DAG";
-        case GateType::SQRT_ZZ:
-            return "SQRT_ZZ";
-        case GateType::SQRT_ZZ_DAG:
-            return "SQRT_ZZ_DAG";
-        case GateType::CXSWAP:
-            return "CXSWAP";
-        case GateType::CZSWAP:
-            return "CZSWAP";
-        case GateType::SWAPCX:
-            return "SWAPCX";
-        case GateType::XCX:
-            return "XCX";
-        case GateType::XCY:
-            return "XCY";
-        case GateType::XCZ:
-            return "XCZ";
-        case GateType::YCX:
-            return "YCX";
-        case GateType::YCY:
-            return "YCY";
-        case GateType::YCZ:
-            return "YCZ";
-        case GateType::M:
-            return "M";
-        case GateType::MX:
-            return "MX";
-        case GateType::MY:
-            return "MY";
-        case GateType::MR:
-            return "MR";
-        case GateType::MRX:
-            return "MRX";
-        case GateType::MPP:
-            return "MPP";
-        case GateType::MXX:
-            return "MXX";
-        case GateType::MYY:
-            return "MYY";
-        case GateType::MZZ:
-            return "MZZ";
-        case GateType::R:
-            return "R";
-        case GateType::RX:
-            return "RX";
-        case GateType::RY:
-            return "RY";
-        case GateType::MRY:
-            return "MRY";
-        case GateType::MPAD:
-            return "MPAD";
-        case GateType::I:
-            return "I";
-        case GateType::II:
-            return "II";
-        case GateType::I_ERROR:
-            return "I_ERROR";
-        case GateType::II_ERROR:
-            return "II_ERROR";
-        case GateType::X_ERROR:
-            return "X_ERROR";
-        case GateType::Y_ERROR:
-            return "Y_ERROR";
-        case GateType::Z_ERROR:
-            return "Z_ERROR";
-        case GateType::DEPOLARIZE1:
-            return "DEPOLARIZE1";
-        case GateType::DEPOLARIZE2:
-            return "DEPOLARIZE2";
-        case GateType::PAULI_CHANNEL_1:
-            return "PAULI_CHANNEL_1";
-        case GateType::PAULI_CHANNEL_2:
-            return "PAULI_CHANNEL_2";
-        case GateType::READOUT_NOISE:
-            return "READOUT_NOISE";
-        case GateType::DETECTOR:
-            return "DETECTOR";
-        case GateType::OBSERVABLE_INCLUDE:
-            return "OBSERVABLE_INCLUDE";
-        case GateType::TICK:
-            return "TICK";
-        case GateType::UNKNOWN:
-            return "UNKNOWN";
-    }
-    return "UNKNOWN";
+    return gate_traits(g).name;
 }
 
 // Parse gate name string to GateType.
