@@ -7,6 +7,7 @@
 #include <charconv>
 #include <fast_float/fast_float.h>
 #include <fstream>
+#include <memory>
 #include <stdexcept>
 #include <string>
 #include <string_view>
@@ -191,14 +192,15 @@ class Parser {
         }
 
         std::string_view remaining = text_;
-        parse_block(remaining, line_num, circuit);
+        parse_block(remaining, line_num, circuit, 0);
 
         return circuit;
     }
 
     // Parse a block of text line-by-line into the circuit.
     // `remaining` and `line_num` are advanced as text is consumed.
-    void parse_block(std::string_view& remaining, uint32_t& line_num, Circuit& circuit) {
+    void parse_block(std::string_view& remaining, uint32_t& line_num, Circuit& circuit,
+                     uint32_t depth) {
         while (!remaining.empty()) {
             line_num++;
             size_t end_of_line = remaining.find('\n');
@@ -216,7 +218,7 @@ class Parser {
                 line.remove_suffix(1);
             }
 
-            parse_line(line, line_num, circuit, remaining);
+            parse_line(line, line_num, circuit, remaining, depth);
 
             if (circuit.nodes.size() > max_ops_) {
                 throw ParseError("Circuit exceeds maximum unrolled operations limit", line_num);
@@ -225,11 +227,12 @@ class Parser {
     }
 
   private:
+    static constexpr uint32_t kMaxRecursionDepth = 100;
     std::string_view text_;
     size_t max_ops_;
 
     void parse_line(std::string_view line, uint32_t& line_num, Circuit& circuit,
-                    std::string_view& remaining) {
+                    std::string_view& remaining, uint32_t depth) {
         // Strip comments.
         auto comment_pos = line.find('#');
         if (comment_pos != std::string_view::npos) {
@@ -248,7 +251,7 @@ class Parser {
 
         // Handle REPEAT N { ... } blocks.
         if (line.starts_with("REPEAT") && (line.size() == 6 || !is_gate_char(line[6]))) {
-            parse_repeat(line, line_num, circuit, remaining);
+            parse_repeat(line, line_num, circuit, remaining, depth);
             return;
         }
 
@@ -340,7 +343,10 @@ class Parser {
 
     // Parse REPEAT N { ... } block via text-level unrolling.
     void parse_repeat(std::string_view line, uint32_t& line_num, Circuit& circuit,
-                      std::string_view& remaining) {
+                      std::string_view& remaining, uint32_t depth) {
+        if (depth >= kMaxRecursionDepth) {
+            throw ParseError("Max recursion depth exceeded", line_num);
+        }
         // Parse the repetition count from the REPEAT line.
         std::string_view after_keyword = trim(line.substr(6));
 
@@ -399,9 +405,9 @@ class Parser {
             }
         }
 
-        // Scan remaining for the matching closing brace, tracking depth.
+        // Scan remaining for the matching closing brace, tracking brace depth.
         // Skip characters inside comments (# to end of line).
-        int depth = 1;
+        int brace_depth = 1;
         size_t body_start = 0;
         size_t scan_pos = 0;
         bool in_comment = false;
@@ -413,17 +419,17 @@ class Parser {
             } else if (c == '#') {
                 in_comment = true;
             } else if (c == '{') {
-                depth++;
+                brace_depth++;
             } else if (c == '}') {
-                depth--;
-                if (depth == 0) {
+                brace_depth--;
+                if (brace_depth == 0) {
                     break;
                 }
             }
             scan_pos++;
         }
 
-        if (depth != 0) {
+        if (brace_depth != 0) {
             throw ParseError("REPEAT block missing closing brace '}'", line_num);
         }
 
@@ -440,14 +446,31 @@ class Parser {
                 body_lines++;
         }
 
+        // Skip empty bodies to avoid spinning on e.g. REPEAT 4000000000 {}
+        bool body_has_content = false;
+        {
+            bool in_cmt = false;
+            for (char c : body) {
+                if (in_cmt) {
+                    if (c == '\n')
+                        in_cmt = false;
+                } else if (c == '#') {
+                    in_cmt = true;
+                } else if (c != ' ' && c != '\t' && c != '\n' && c != '\r') {
+                    body_has_content = true;
+                    break;
+                }
+            }
+        }
+
         // Text-level replay: parse the body N times.
         uint32_t base_line = line_num;
-        for (uint32_t i = 0; i < repeat_count; i++) {
+        for (uint32_t i = 0; i < repeat_count && body_has_content; i++) {
             // Each iteration re-parses from the body text, but line numbers
             // reflect the original source location for error reporting.
             line_num = base_line;
             std::string_view body_remaining = body;
-            parse_block(body_remaining, line_num, circuit);
+            parse_block(body_remaining, line_num, circuit, depth + 1);
 
             // Enforce safety limit after each iteration.
             if (circuit.nodes.size() > max_ops_) {
@@ -716,6 +739,7 @@ class Parser {
 
             // Each product is like "X0*Z1*Y2".
             std::vector<Target> pauli_targets;
+            std::unordered_set<uint32_t> seen_qubits;
 
             size_t pos = 0;
             while (pos < product_str.size()) {
@@ -767,6 +791,10 @@ class Parser {
                 // Validate qubit index fits in 28-bit encoding.
                 if (qubit >= (1u << 28)) {
                     throw ParseError("Qubit index too large (must be < 2^28)", line_num);
+                }
+
+                if (!seen_qubits.insert(qubit).second) {
+                    throw ParseError("Duplicate qubit in MPP product", line_num);
                 }
 
                 if (pauli_targets.size() >= kMaxTargetsPerInstruction) {
@@ -937,11 +965,12 @@ Circuit parse_file(const std::string& path, size_t max_ops) {
     }
     file.seekg(0, std::ios::beg);
 
-    std::string buffer(static_cast<size_t>(size), '\0');
-    if (file.read(buffer.data(), size)) {
-        return parse(buffer, max_ops);
+    auto buf_size = static_cast<size_t>(size);
+    auto buffer = std::make_unique<char[]>(buf_size);
+    if (!file.read(buffer.get(), size)) {
+        throw std::runtime_error("Error reading file: " + path);
     }
-    throw std::runtime_error("Error reading file: " + path);
+    return parse(std::string_view(buffer.get(), buf_size), max_ops);
 }
 
 }  // namespace ucc

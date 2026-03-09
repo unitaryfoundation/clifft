@@ -10,12 +10,12 @@ Treat each bullet point as a strict requirement. Do not make any changes related
 * **Math Error in Y-Basis Corrections:** DONE. Changed `extract_rewound_x` to `extract_rewound_z` in RY and MRY correction paths. Added multi-seed regression tests in `test_statevector.cc`.
 * **Duplicated Reset Decompositions:** DONE. Unified all 6 cases (R, RX, RY, MR, MRX, MRY) into a single switch case with `Basis` enum and two lambdas (`extract_meas`, `extract_corr`). Reduced frontend.cc by ~87 lines.
 
-### 2. `src/ucc/circuit/parser.cc` & `src/ucc/circuit/parser.h`
+### 2. `src/ucc/circuit/parser.cc` & `src/ucc/circuit/parser.h` -- DONE
 
-* **Anti-Hermitian MPP Phase Loss:** In `Parser::parse_mpp`, users can submit malformed products with duplicate qubits (e.g., `MPP X0*Z0`). Track the seen qubits for the current product being parsed (e.g., using a local `std::vector<bool>` or a small set). If a duplicate qubit index is encountered within the *same* product, throw a `ParseError("Duplicate qubit in MPP product")` to prevent silent phase loss.
-* **Parser Denial of Service (Empty Loops):** In `Parser::parse_repeat`, a massive empty loop like `REPEAT 4000000000 {}` bypasses the AST `max_ops` limit and spins infinitely. Right before the `for (uint32_t i = 0; i < repeat_count; i++)` unrolling loop, check if the `body` string contains only whitespace/comments. If it does, break or return early.
-* **Unbounded Recursion Stack Overflow:** Deeply nested `REPEAT` blocks will blow the C++ call stack. Add a `uint32_t recursion_depth = 0` parameter to `parse_block` and `parse_repeat`. Increment it on recursive calls. If `recursion_depth > 100`, throw a `ParseError("Max recursion depth exceeded")`. Update the `parser.h` signature accordingly.
-* **Cache-Destroying Memory Zeroing:** In `parse_file`, `std::string buffer(size, '\0')` eagerly forces the OS to page-fault and zero-fill gigabytes of RAM, which `file.read()` immediately overwrites. Replace the `std::string` buffer allocation with C++23's `std::string::resize_and_overwrite`, or manually allocate an uninitialized `std::unique_ptr<char[]>` to read into before passing a `std::string_view` of it to `parse()`.
+* **Anti-Hermitian MPP Phase Loss:** DONE. Added `vector<bool> seen_qubits` per product; throws `ParseError("Duplicate qubit in MPP product")` on duplicates.
+* **Parser Denial of Service (Empty Loops):** DONE. Scans body for non-whitespace/non-comment content before the unroll loop; skips iteration entirely if empty.
+* **Unbounded Recursion Stack Overflow:** DONE. Threaded `uint32_t depth` through `parse_block`, `parse_line`, and `parse_repeat`. Throws at depth > 100. Renamed local brace-tracking variable to `brace_depth` to avoid shadowing.
+* **Cache-Destroying Memory Zeroing:** DONE. Replaced `std::string(size, '\0')` with `std::make_unique<char[]>` + `std::string_view`.
 
 ### 3. `src/python/bindings.cc`
 

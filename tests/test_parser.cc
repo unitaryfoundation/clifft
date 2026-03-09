@@ -261,6 +261,19 @@ TEST_CASE("Parse noisy MPP multiple products each get READOUT_NOISE", "[parser][
     REQUIRE(circuit.nodes[3].targets[0].value() == 1);  // meas index 1
 }
 
+TEST_CASE("Parse MPP rejects duplicate qubit in product", "[parser]") {
+    // X0*Z0 has qubit 0 appearing twice which causes silent phase loss
+    CHECK_THROWS_AS(parse("MPP X0*Z0"), ParseError);
+    CHECK_THROWS_AS(parse("MPP Y1*X1"), ParseError);
+    // Different qubits in same product is fine
+    CHECK_NOTHROW(parse("MPP X0*Z1"));
+    // Same qubit in different products is fine
+    CHECK_NOTHROW(parse("MPP X0 Z0"));
+    // High qubit indices must not cause excessive memory allocation
+    CHECK_NOTHROW(parse("MPP X100000*Z200000"));
+    CHECK_THROWS_AS(parse("MPP X100000*Z100000"), ParseError);
+}
+
 TEST_CASE("Parse reset R as first-class gate", "[parser]") {
     auto circuit = parse("R 0");
 
@@ -422,8 +435,46 @@ TEST_CASE("REPEAT safety limit", "[parser]") {
     REQUIRE(c.nodes.size() == 5);
 }
 
+TEST_CASE("REPEAT with empty body completes instantly", "[parser]") {
+    // A massive empty repeat must not spin for billions of iterations.
+    auto c1 = parse("REPEAT 999999999 {\n}\nH 0");
+    CHECK(c1.nodes.size() == 1);  // only the H
+
+    // Body with only comments is also empty
+    auto c2 = parse("REPEAT 999999999 {\n# just a comment\n}\nH 0");
+    CHECK(c2.nodes.size() == 1);
+
+    // Body with whitespace only
+    auto c3 = parse("REPEAT 999999999 {\n   \n\t\n}\nH 0");
+    CHECK(c3.nodes.size() == 1);
+
+    // Non-empty body still works
+    auto c4 = parse("REPEAT 3 {\nH 0\n}");
+    CHECK(c4.nodes.size() == 3);
+}
+
 TEST_CASE("REPEAT error: missing brace", "[parser]") {
     REQUIRE_THROWS_AS(parse("REPEAT 3\nH 0"), ParseError);
+}
+
+TEST_CASE("REPEAT error: max recursion depth exceeded", "[parser]") {
+    // Build a circuit with 101 levels of nesting
+    std::string text;
+    for (int i = 0; i < 101; i++)
+        text += "REPEAT 1 {\n";
+    text += "H 0\n";
+    for (int i = 0; i < 101; i++)
+        text += "}\n";
+    CHECK_THROWS_AS(parse(text), ParseError);
+
+    // 100 levels should be fine
+    std::string ok;
+    for (int i = 0; i < 100; i++)
+        ok += "REPEAT 1 {\n";
+    ok += "H 0\n";
+    for (int i = 0; i < 100; i++)
+        ok += "}\n";
+    CHECK_NOTHROW(parse(ok));
 }
 
 TEST_CASE("REPEAT error: zero count", "[parser]") {
