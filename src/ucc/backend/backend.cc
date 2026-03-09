@@ -5,13 +5,18 @@
 #include <algorithm>
 #include <bit>
 #include <cassert>
+#include <climits>
 #include <cmath>
+#include <numbers>
+#include <span>
 
 namespace ucc {
 
 using internal::CompilerContext;
 using internal::CompressedBasis;
 using internal::CompressionResult;
+
+constexpr double kInvSqrt2 = std::numbers::sqrt2 / 2.0;
 
 // =========================================================================
 // Instruction factories
@@ -253,10 +258,10 @@ void emit_cnot(CompilerContext& ctx, stim::TableauTransposedRaii<kStimWidth>& tr
     uint32_t k = ctx.reg_manager.active_k();
     if (ctrl >= k) {
         // Dormant control: CNOT is identity on the array.
-        ctx.bytecode.push_back(make_frame_cnot(ctrl, tgt));
+        ctx.emit(make_frame_cnot(ctrl, tgt));
     } else {
         assert(tgt < k && "CNOT with active control but dormant target should never occur");
-        ctx.bytecode.push_back(make_array_cnot(ctrl, tgt));
+        ctx.emit(make_array_cnot(ctrl, tgt));
     }
 }
 
@@ -268,9 +273,9 @@ void emit_cz(CompilerContext& ctx, stim::TableauTransposedRaii<kStimWidth>& tran
     uint32_t k = ctx.reg_manager.active_k();
     if (a >= k || b >= k) {
         // Either operand dormant: CZ is identity on the array.
-        ctx.bytecode.push_back(make_frame_cz(a, b));
+        ctx.emit(make_frame_cz(a, b));
     } else {
-        ctx.bytecode.push_back(make_array_cz(a, b));
+        ctx.emit(make_array_cz(a, b));
     }
 }
 
@@ -280,9 +285,9 @@ void emit_s(CompilerContext& ctx, stim::TableauTransposedRaii<kStimWidth>& trans
     trans_local.append_S(v);
 
     if (v < ctx.reg_manager.active_k()) {
-        ctx.bytecode.push_back(make_array_s(v));
+        ctx.emit(make_array_s(v));
     } else {
-        ctx.bytecode.push_back(make_frame_s(v));
+        ctx.emit(make_frame_s(v));
     }
 }
 
@@ -301,9 +306,9 @@ void emit_swap(CompilerContext& ctx, stim::TableauTransposedRaii<kStimWidth>& tr
     trans_cum.append_ZCX(a, b);
 
     if (a < k && b < k) {
-        ctx.bytecode.push_back(make_array_swap(a, b));
+        ctx.emit(make_array_swap(a, b));
     } else {
-        ctx.bytecode.push_back(make_frame_swap(a, b));
+        ctx.emit(make_frame_swap(a, b));
     }
 }
 
@@ -315,6 +320,47 @@ stim::PauliString<kStimWidth> map_to_virtual(const CompilerContext& ctx, uint64_
     p.zs.u64[0] = stab_mask;
     p.sign = sign;
     return ctx.v_cum(p);
+}
+
+// Route a compressed Pauli to the Z basis on an active axis.
+// Handles three cases:
+//   - Dormant Z: no-op (already diagonal in dormant frame)
+//   - Dormant X: swap to next active slot, H into Z, expand
+//   - Active X: H into Z on the array
+// Mutates result.pivot if a swap is needed.
+void route_to_active_z(CompilerContext& ctx, CompressionResult& result) {
+    bool is_dormant = result.pivot >= ctx.reg_manager.active_k();
+
+    if (is_dormant && result.basis == CompressedBasis::Z_BASIS) {
+        return;
+    }
+
+    if (is_dormant) {
+        uint16_t next_axis = static_cast<uint16_t>(ctx.reg_manager.active_k());
+
+        {
+            stim::TableauTransposedRaii<kStimWidth> trans_cum(ctx.v_cum);
+            if (result.pivot != next_axis) {
+                emit_swap(ctx, trans_cum, result.pivot, next_axis);
+                result.pivot = next_axis;
+            }
+
+            trans_cum.append_H_XZ(result.pivot);
+        }
+
+        ctx.emit(make_frame_h(result.pivot));
+        ctx.emit(make_expand(result.pivot));
+        ctx.reg_manager.activate();
+        return;
+    }
+
+    if (result.basis == CompressedBasis::X_BASIS) {
+        {
+            stim::TableauTransposedRaii<kStimWidth> trans(ctx.v_cum);
+            trans.append_H_XZ(result.pivot);
+        }
+        ctx.emit(make_array_h(result.pivot));
+    }
 }
 
 }  // namespace
@@ -338,7 +384,6 @@ CompressionResult compress_pauli(CompilerContext& ctx, const stim::PauliString<k
 
     assert((x_bits | z_bits) != 0 && "Cannot compress identity Pauli");
 
-    // Reset reusable scratch tableau to identity for this compression.
     ctx.v_local = ctx.v_local_identity;
 
     uint16_t pivot;
@@ -373,9 +418,9 @@ CompressionResult compress_pauli(CompilerContext& ctx, const stim::PauliString<k
             while (to_clear_x != 0) {
                 uint16_t q = static_cast<uint16_t>(std::countr_zero(to_clear_x));
                 emit_cnot(ctx, trans_cum, trans_local, pivot, q);
-                if (z_bits & (1ULL << q)) {
-                    z_bits ^= (1ULL << pivot);
-                }
+                // Branchless: if bit q of z_bits is set, toggle the pivot bit.
+                // -(x & 1) produces an all-ones mask when bit is set, all-zeros otherwise.
+                z_bits ^= (-((z_bits >> q) & 1)) & (1ULL << pivot);
                 to_clear_x &= to_clear_x - 1;
             }
 
@@ -431,7 +476,7 @@ CompressionResult compress_pauli(CompilerContext& ctx, const stim::PauliString<k
 // lower(): Full pipeline wiring
 // =========================================================================
 
-CompiledModule lower(const HirModule& hir, const std::vector<uint8_t>& postselection_mask) {
+CompiledModule lower(const HirModule& hir, std::span<const uint8_t> postselection_mask) {
     using internal::CompilerContext;
     using internal::compress_pauli;
     using internal::CompressedBasis;
@@ -439,15 +484,12 @@ CompiledModule lower(const HirModule& hir, const std::vector<uint8_t>& postselec
     const uint32_t n = hir.num_qubits;
     CompilerContext ctx(n);
 
-    // Track detector/observable emission indices
     uint32_t det_emit_idx = 0;
 
     // Track the last measurement outcome index for use_last_outcome resolution
-    uint32_t last_meas_idx = 0;
+    uint32_t last_meas_idx = UINT32_MAX;
 
-    // Count hidden measurements separately (they have their own index space)
     uint32_t hidden_meas_count = 0;
-    // Total measurement slots: visible + hidden
     uint32_t total_meas_slots = hir.num_measurements;
     for (const auto& op : hir.ops) {
         if (op.op_type() == OpType::MEASURE && op.is_hidden()) {
@@ -456,10 +498,13 @@ CompiledModule lower(const HirModule& hir, const std::vector<uint8_t>& postselec
     }
     total_meas_slots += hidden_meas_count;
 
-    // Hidden measurements use indices starting after visible measurements
     uint32_t hidden_meas_emit_idx = hir.num_measurements;
 
     bool has_source_map = hir.source_map.size() == hir.ops.size();
+
+    if (has_source_map) {
+        ctx.source_map_offsets.push_back(0);
+    }
 
     for (size_t op_idx = 0; op_idx < hir.ops.size(); ++op_idx) {
         const auto& op = hir.ops[op_idx];
@@ -470,44 +515,25 @@ CompiledModule lower(const HirModule& hir, const std::vector<uint8_t>& postselec
                 auto p_v = map_to_virtual(ctx, op.destab_mask(), op.stab_mask(), op.sign(), n);
                 auto result = compress_pauli(ctx, p_v);
 
-                bool is_dormant = result.pivot >= ctx.reg_manager.active_k();
+                route_to_active_z(ctx, result);
 
-                if (is_dormant && result.basis == CompressedBasis::Z_BASIS) {
-                    // Dormant Z_v: fall through to PHASE_T emission.
-                    // The VM loop naturally skips array elements when v >= active_k.
-                } else if (is_dormant) {
-                    // Dormant X_v: route to next active axis
-                    uint16_t next_axis = static_cast<uint16_t>(ctx.reg_manager.active_k());
-
-                    {
-                        stim::TableauTransposedRaii<kStimWidth> trans_cum(ctx.v_cum);
-                        if (result.pivot != next_axis) {
-                            emit_swap(ctx, trans_cum, result.pivot, next_axis);
-                            result.pivot = next_axis;
-                        }
-
-                        trans_cum.append_H_XZ(result.pivot);
+                // Global phase correction when compression inverted the Pauli (-Z).
+                // T on -Z = e^{i*pi/4} T^dag; T^dag on -Z = e^{-i*pi/4} T.
+                if (result.sign) {
+                    if (!op.is_dagger()) {
+                        ctx.constant_pool.global_weight *=
+                            std::complex<double>(kInvSqrt2, kInvSqrt2);
+                    } else {
+                        ctx.constant_pool.global_weight *=
+                            std::complex<double>(kInvSqrt2, -kInvSqrt2);
                     }
-
-                    ctx.bytecode.push_back(make_frame_h(result.pivot));
-
-                    ctx.bytecode.push_back(make_expand(result.pivot));
-                    ctx.reg_manager.activate();
-                } else if (result.basis == CompressedBasis::X_BASIS) {
-                    // Active X_v. Map to Z_v in V_cum and array+frame.
-                    {
-                        stim::TableauTransposedRaii<kStimWidth> trans(ctx.v_cum);
-                        trans.append_H_XZ(result.pivot);
-                    }
-                    ctx.bytecode.push_back(make_array_h(result.pivot));
                 }
 
-                // Emit diagonal phase gate
                 bool phase_flip = result.sign ^ op.is_dagger();
                 if (phase_flip) {
-                    ctx.bytecode.push_back(make_phase_t_dag(result.pivot));
+                    ctx.emit(make_phase_t_dag(result.pivot));
                 } else {
-                    ctx.bytecode.push_back(make_phase_t(result.pivot));
+                    ctx.emit(make_phase_t(result.pivot));
                 }
 
                 break;
@@ -524,10 +550,8 @@ CompiledModule lower(const HirModule& hir, const std::vector<uint8_t>& postselec
                     classical_idx = static_cast<uint32_t>(op.meas_record_idx());
                 }
 
-                // Map the t=0 Pauli to virtual frame, then compress
                 auto p_v = map_to_virtual(ctx, op.destab_mask(), op.stab_mask(), op.sign(), n);
 
-                // Check for identity Pauli (deterministic measurement = 0)
                 uint64_t x_bits = p_v.xs.u64[0];
                 uint64_t z_bits = p_v.zs.u64[0];
                 if ((x_bits | z_bits) == 0) {
@@ -535,7 +559,7 @@ CompiledModule lower(const HirModule& hir, const std::vector<uint8_t>& postselec
                     Instruction id_meas =
                         make_meas(Opcode::OP_MEAS_DORMANT_STATIC, 0, classical_idx, p_v.sign);
                     id_meas.flags |= Instruction::FLAG_IDENTITY;
-                    ctx.bytecode.push_back(id_meas);
+                    ctx.emit(id_meas);
                     last_meas_idx = classical_idx;
                     break;
                 }
@@ -543,15 +567,14 @@ CompiledModule lower(const HirModule& hir, const std::vector<uint8_t>& postselec
                 auto result = compress_pauli(ctx, p_v);
                 bool is_active = result.pivot < ctx.reg_manager.active_k();
 
-                // Classify and emit the measurement opcode
                 if (!is_active) {
                     // Dormant pivot
                     if (result.basis == CompressedBasis::Z_BASIS) {
-                        ctx.bytecode.push_back(make_meas(Opcode::OP_MEAS_DORMANT_STATIC,
-                                                         result.pivot, classical_idx, result.sign));
+                        ctx.emit(make_meas(Opcode::OP_MEAS_DORMANT_STATIC, result.pivot,
+                                           classical_idx, result.sign));
                     } else {
-                        ctx.bytecode.push_back(make_meas(Opcode::OP_MEAS_DORMANT_RANDOM,
-                                                         result.pivot, classical_idx, result.sign));
+                        ctx.emit(make_meas(Opcode::OP_MEAS_DORMANT_RANDOM, result.pivot,
+                                           classical_idx, result.sign));
                     }
                     // X_BASIS post-measurement: append virtual H to align coordinate system
                     if (result.basis == CompressedBasis::X_BASIS) {
@@ -570,13 +593,11 @@ CompiledModule lower(const HirModule& hir, const std::vector<uint8_t>& postselec
                         }
 
                         if (result.basis == CompressedBasis::Z_BASIS) {
-                            ctx.bytecode.push_back(make_meas(Opcode::OP_MEAS_ACTIVE_DIAGONAL,
-                                                             result.pivot, classical_idx,
-                                                             result.sign));
+                            ctx.emit(make_meas(Opcode::OP_MEAS_ACTIVE_DIAGONAL, result.pivot,
+                                               classical_idx, result.sign));
                         } else {
-                            ctx.bytecode.push_back(make_meas(Opcode::OP_MEAS_ACTIVE_INTERFERE,
-                                                             result.pivot, classical_idx,
-                                                             result.sign));
+                            ctx.emit(make_meas(Opcode::OP_MEAS_ACTIVE_INTERFERE, result.pivot,
+                                               classical_idx, result.sign));
                         }
 
                         if (result.basis == CompressedBasis::X_BASIS) {
@@ -592,27 +613,25 @@ CompiledModule lower(const HirModule& hir, const std::vector<uint8_t>& postselec
             }
 
             case OpType::CONDITIONAL_PAULI: {
-                // Map the t=0 Pauli to virtual frame
                 auto p_v = map_to_virtual(ctx, op.destab_mask(), op.stab_mask(), op.sign(), n);
 
-                // Store in constant pool
                 uint32_t cp_idx = static_cast<uint32_t>(ctx.constant_pool.pauli_masks.size());
                 ctx.constant_pool.pauli_masks.push_back(std::move(p_v));
 
-                // Resolve the controlling measurement index
                 uint32_t cond_idx;
                 if (op.use_last_outcome()) {
+                    assert(last_meas_idx != UINT32_MAX &&
+                           "Conditional Pauli executed before any measurement");
                     cond_idx = last_meas_idx;
                 } else {
                     cond_idx = static_cast<uint32_t>(op.controlling_meas());
                 }
 
-                ctx.bytecode.push_back(make_apply_pauli(cp_idx, cond_idx));
+                ctx.emit(make_apply_pauli(cp_idx, cond_idx));
                 break;
             }
 
             case OpType::NOISE: {
-                // Map each noise channel's Pauli through V_cum
                 auto site_idx = static_cast<uint32_t>(op.noise_site_idx());
                 assert(site_idx < hir.noise_sites.size());
                 const auto& hir_site = hir.noise_sites[site_idx];
@@ -634,10 +653,12 @@ CompiledModule lower(const HirModule& hir, const std::vector<uint8_t>& postselec
 
                 uint32_t cp_idx = static_cast<uint32_t>(ctx.constant_pool.noise_sites.size());
                 ctx.constant_pool.noise_sites.push_back(std::move(mapped_site));
-                ctx.bytecode.push_back(make_noise(cp_idx));
+                ctx.emit(make_noise(cp_idx));
 
-                // Accumulate hazard for exponential gap sampling
-                ctx.noise_hazards_accum += -std::log(1.0 - std::min(prob_sum, 1.0 - 1e-15));
+                // Accumulate hazard for exponential gap sampling.
+                // log1p(-x) avoids catastrophic cancellation when prob_sum is near zero,
+                // where log(1 - x) would lose significant digits.
+                ctx.noise_hazards_accum += -std::log1p(-std::min(prob_sum, 1.0 - 1e-15));
                 ctx.constant_pool.noise_hazards.push_back(ctx.noise_hazards_accum);
                 break;
             }
@@ -649,7 +670,7 @@ CompiledModule lower(const HirModule& hir, const std::vector<uint8_t>& postselec
 
                 uint32_t cp_idx = static_cast<uint32_t>(ctx.constant_pool.readout_noise.size());
                 ctx.constant_pool.readout_noise.push_back(entry);
-                ctx.bytecode.push_back(make_readout_noise(cp_idx));
+                ctx.emit(make_readout_noise(cp_idx));
                 break;
             }
 
@@ -664,9 +685,9 @@ CompiledModule lower(const HirModule& hir, const std::vector<uint8_t>& postselec
                 bool is_postselected = det_emit_idx < postselection_mask.size() &&
                                        postselection_mask[det_emit_idx] != 0;
                 if (is_postselected) {
-                    ctx.bytecode.push_back(make_postselect(cp_idx, det_emit_idx));
+                    ctx.emit(make_postselect(cp_idx, det_emit_idx));
                 } else {
-                    ctx.bytecode.push_back(make_detector(cp_idx, det_emit_idx));
+                    ctx.emit(make_detector(cp_idx, det_emit_idx));
                 }
                 ++det_emit_idx;
                 break;
@@ -682,7 +703,7 @@ CompiledModule lower(const HirModule& hir, const std::vector<uint8_t>& postselec
                 ctx.constant_pool.observable_targets.push_back(targets);
 
                 auto obs_idx = static_cast<uint32_t>(op.observable_idx());
-                ctx.bytecode.push_back(make_observable(cp_idx, obs_idx));
+                ctx.emit(make_observable(cp_idx, obs_idx));
                 break;
             }
 
@@ -690,54 +711,33 @@ CompiledModule lower(const HirModule& hir, const std::vector<uint8_t>& postselec
                 auto p_v = map_to_virtual(ctx, op.destab_mask(), op.stab_mask(), op.sign(), n);
                 auto result = compress_pauli(ctx, p_v);
 
-                bool is_dormant = result.pivot >= ctx.reg_manager.active_k();
+                route_to_active_z(ctx, result);
 
-                if (is_dormant && result.basis == CompressedBasis::Z_BASIS) {
-                    // Dormant Z: frame-only S/S_dag, no expansion needed.
-                } else if (is_dormant) {
-                    // Dormant X: S|+> = |+i>, which breaks the |0>_D invariant.
-                    // Must expand into the active array.
-                    uint16_t next_axis = static_cast<uint16_t>(ctx.reg_manager.active_k());
-
-                    {
-                        stim::TableauTransposedRaii<kStimWidth> trans_cum(ctx.v_cum);
-                        if (result.pivot != next_axis) {
-                            emit_swap(ctx, trans_cum, result.pivot, next_axis);
-                            result.pivot = next_axis;
-                        }
-
-                        trans_cum.append_H_XZ(result.pivot);
-                    }
-
-                    ctx.bytecode.push_back(make_frame_h(result.pivot));
-
-                    ctx.bytecode.push_back(make_expand(result.pivot));
-                    ctx.reg_manager.activate();
-                } else if (result.basis == CompressedBasis::X_BASIS) {
-                    // Active X: emit H to rotate to Z basis.
-                    {
-                        stim::TableauTransposedRaii<kStimWidth> trans(ctx.v_cum);
-                        trans.append_H_XZ(result.pivot);
-                    }
-                    ctx.bytecode.push_back(make_array_h(result.pivot));
-                }
-
-                // Re-evaluate active status: the array may have just expanded.
                 bool is_active_now = result.pivot < ctx.reg_manager.active_k();
+
+                // Global phase correction when compression inverted the Pauli (-Z).
+                // S on -Z = i S^dag; S^dag on -Z = -i S.
+                if (result.sign) {
+                    if (!op.is_dagger()) {
+                        ctx.constant_pool.global_weight *= std::complex<double>(0.0, 1.0);
+                    } else {
+                        ctx.constant_pool.global_weight *= std::complex<double>(0.0, -1.0);
+                    }
+                }
 
                 bool phase_flip = result.sign ^ op.is_dagger();
 
                 if (!is_active_now) {
                     if (phase_flip) {
-                        ctx.bytecode.push_back(make_frame_s_dag(result.pivot));
+                        ctx.emit(make_frame_s_dag(result.pivot));
                     } else {
-                        ctx.bytecode.push_back(make_frame_s(result.pivot));
+                        ctx.emit(make_frame_s(result.pivot));
                     }
                 } else {
                     if (phase_flip) {
-                        ctx.bytecode.push_back(make_array_s_dag(result.pivot));
+                        ctx.emit(make_array_s_dag(result.pivot));
                     } else {
-                        ctx.bytecode.push_back(make_array_s(result.pivot));
+                        ctx.emit(make_array_s(result.pivot));
                     }
                 }
 
@@ -749,15 +749,15 @@ CompiledModule lower(const HirModule& hir, const std::vector<uint8_t>& postselec
             }
         }
 
-        // Batch source-map and k-history: tag all instructions emitted by this HIR op
+        // Tag all instructions emitted by this HIR op with source lines (CSR)
         size_t bc_after = ctx.bytecode.size();
         size_t emitted = bc_after - bc_before;
-        uint32_t k_now = ctx.reg_manager.active_k();
-        for (size_t e = 0; e < emitted; ++e) {
-            if (has_source_map) {
-                ctx.source_map.push_back(hir.source_map[op_idx]);
+        if (has_source_map) {
+            const auto& lines = hir.source_map[op_idx];
+            for (size_t e = 0; e < emitted; ++e) {
+                ctx.source_map_data.insert(ctx.source_map_data.end(), lines.begin(), lines.end());
+                ctx.source_map_offsets.push_back(static_cast<uint32_t>(ctx.source_map_data.size()));
             }
-            ctx.active_k_history.push_back(k_now);
         }
     }
 
@@ -769,7 +769,7 @@ CompiledModule lower(const HirModule& hir, const std::vector<uint8_t>& postselec
         ctx.constant_pool.final_tableau = v_cum_inv.then(*hir.final_tableau);
     }
 
-    ctx.constant_pool.global_weight = hir.global_weight;
+    ctx.constant_pool.global_weight *= hir.global_weight;
 
     uint16_t peak = ctx.reg_manager.peak_k();
     assert(peak < 64 && "peak_rank >= 64 would cause undefined behavior in 1ULL << k shifts");
@@ -777,7 +777,8 @@ CompiledModule lower(const HirModule& hir, const std::vector<uint8_t>& postselec
     CompiledModule result;
     result.bytecode = std::move(ctx.bytecode);
     result.constant_pool = std::move(ctx.constant_pool);
-    result.source_map = std::move(ctx.source_map);
+    result.source_map_data = std::move(ctx.source_map_data);
+    result.source_map_offsets = std::move(ctx.source_map_offsets);
     result.active_k_history = std::move(ctx.active_k_history);
     result.num_qubits = hir.num_qubits;
     result.peak_rank = peak;

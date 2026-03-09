@@ -7,6 +7,7 @@
 #include <complex>
 #include <cstdint>
 #include <optional>
+#include <span>
 #include <vector>
 
 namespace ucc {
@@ -209,12 +210,16 @@ struct CompiledModule {
     uint32_t num_observables = 0;   // Total observables
 
     // --- Source Mapping (Explorer) ---
-    // Parallel to bytecode: source_map[i] lists the original source line(s)
-    // that produced bytecode[i]. Empty if the HIR had no source map.
-    std::vector<std::vector<uint32_t>> source_map;
+    // CSR (Compressed Sparse Row) format for source line mapping.
+    // For bytecode instruction i, its source lines are:
+    //   source_map_data[source_map_offsets[i] .. source_map_offsets[i+1])
+    // Empty if the HIR had no source map.
+    std::vector<uint32_t> source_map_data;
+    std::vector<uint32_t> source_map_offsets;
 
     // Parallel to bytecode: active_k_history[i] is the active dimension k
-    // after the HIR op that produced bytecode[i] was fully lowered.
+    // at the time bytecode[i] was emitted. For measurement instructions,
+    // this captures k before deactivation (the pre-compaction dimension).
     std::vector<uint32_t> active_k_history;
 };
 
@@ -226,6 +231,7 @@ struct CompiledModule {
 /// Tracks virtual frame V_cum, compresses multi-qubit Paulis to local ops.
 /// If postselection_mask is non-empty, detectors at indices where
 /// mask[det_idx] != 0 are emitted as OP_POSTSELECT instead of OP_DETECTOR.
-CompiledModule lower(const HirModule& hir, const std::vector<uint8_t>& postselection_mask = {});
+[[nodiscard]] CompiledModule lower(const HirModule& hir,
+                                   std::span<const uint8_t> postselection_mask = {});
 
 }  // namespace ucc

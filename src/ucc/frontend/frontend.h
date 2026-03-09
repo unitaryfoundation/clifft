@@ -29,6 +29,6 @@ namespace ucc {
 // - Emits HeisenbergOps for classical feedback (CX/CZ with rec targets)
 //
 // Throws std::runtime_error if the circuit exceeds 64 qubits (MVP limit).
-HirModule trace(const Circuit& circuit);
+[[nodiscard]] HirModule trace(const Circuit& circuit);
 
 }  // namespace ucc

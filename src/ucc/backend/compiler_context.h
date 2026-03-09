@@ -83,7 +83,10 @@ struct CompilerContext {
     double noise_hazards_accum = 0.0;
 
     // Explorer telemetry (populated by lower(), parallel to bytecode)
-    std::vector<std::vector<uint32_t>> source_map;
+    // CSR source map: source_map_data holds line numbers, source_map_offsets
+    // delineates per-instruction ranges.
+    std::vector<uint32_t> source_map_data;
+    std::vector<uint32_t> source_map_offsets;
     std::vector<uint32_t> active_k_history;
 
     // Reusable scratch tableau for compress_pauli, avoiding per-call heap allocation.
@@ -95,6 +98,12 @@ struct CompilerContext {
           reg_manager(num_qubits),
           v_local(num_qubits),
           v_local_identity(num_qubits) {}
+
+    // Emit an instruction and record the current active dimension.
+    void emit(const Instruction& instr) {
+        bytecode.push_back(instr);
+        active_k_history.push_back(reg_manager.active_k());
+    }
 };
 
 // =============================================================================
@@ -127,7 +136,8 @@ struct CompressionResult {
 ///   - Does NOT modify ctx.reg_manager (activation is the caller's job)
 ///
 /// The input PauliString must be non-identity (at least one qubit set).
-CompressionResult compress_pauli(CompilerContext& ctx, const stim::PauliString<kStimWidth>& pauli);
+[[nodiscard]] CompressionResult compress_pauli(CompilerContext& ctx,
+                                               const stim::PauliString<kStimWidth>& pauli);
 
 }  // namespace internal
 }  // namespace ucc

@@ -573,8 +573,16 @@ NB_MODULE(_ucc_core, m) {
             "source_map",
             [](const ucc::CompiledModule& p) {
                 nb::list outer;
-                for (const auto& lines : p.source_map)
+                if (p.source_map_offsets.empty())
+                    return outer;
+                size_t n = p.source_map_offsets.size() - 1;
+                for (size_t i = 0; i < n; ++i) {
+                    uint32_t begin = p.source_map_offsets[i];
+                    uint32_t end = p.source_map_offsets[i + 1];
+                    std::vector<uint32_t> lines(p.source_map_data.begin() + begin,
+                                                p.source_map_data.begin() + end);
                     outer.append(nb::cast(lines));
+                }
                 return outer;
             },
             "Source line mapping parallel to bytecode (list of list of uint32).")

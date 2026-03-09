@@ -94,7 +94,20 @@ std::string compile_to_json(const std::string& source, bool optimize) {
         {"hir_ops", hir_strs},
         {"bytecode", bc_strs},
         {"hir_source_map", hir.source_map},
-        {"bytecode_source_map", prog.source_map},
+        {"bytecode_source_map",
+         [&]() {
+             json arr = json::array();
+             if (!prog.source_map_offsets.empty()) {
+                 size_t n = prog.source_map_offsets.size() - 1;
+                 for (size_t i = 0; i < n; ++i) {
+                     uint32_t b = prog.source_map_offsets[i];
+                     uint32_t e = prog.source_map_offsets[i + 1];
+                     arr.push_back(std::vector<uint32_t>(prog.source_map_data.begin() + b,
+                                                         prog.source_map_data.begin() + e));
+                 }
+             }
+             return arr;
+         }()},
         {"active_k_history", prog.active_k_history},
     };
     return j.dump();

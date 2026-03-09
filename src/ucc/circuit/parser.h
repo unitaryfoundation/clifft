@@ -46,17 +46,17 @@ class ParseError : public std::runtime_error {
 
 // Parse a circuit from text.
 // Uses kMaxUnrolledOps as the safety limit on total AST nodes.
-Circuit parse(std::string_view text);
+[[nodiscard]] Circuit parse(std::string_view text);
 
 // Parse a circuit from text with an explicit AST node limit.
 // Used by tests to exercise the limit at smaller values.
-Circuit parse(std::string_view text, size_t max_ops);
+[[nodiscard]] Circuit parse(std::string_view text, size_t max_ops);
 
 // Parse a circuit from a file.
 // Throws ParseError on syntax errors, std::runtime_error on file errors.
-Circuit parse_file(const std::string& path);
+[[nodiscard]] Circuit parse_file(const std::string& path);
 
 // Parse a circuit from a file with an explicit AST node limit.
-Circuit parse_file(const std::string& path, size_t max_ops);
+[[nodiscard]] Circuit parse_file(const std::string& path, size_t max_ops);
 
 }  // namespace ucc

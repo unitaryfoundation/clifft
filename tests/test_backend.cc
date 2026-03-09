@@ -62,6 +62,13 @@ static stim::Tableau<kStimWidth> bytecode_to_tableau(const std::vector<Instructi
                 case Opcode::OP_ARRAY_S:
                     trans.append_S(a);
                     break;
+                case Opcode::OP_FRAME_S_DAG:
+                case Opcode::OP_ARRAY_S_DAG:
+                    // S^dag = S^3; the transposed RAII has no append_S_DAG
+                    trans.append_S(a);
+                    trans.append_S(a);
+                    trans.append_S(a);
+                    break;
                 case Opcode::OP_FRAME_SWAP:
                 case Opcode::OP_ARRAY_SWAP:
                     // Match the 3-CNOT decomposition emitted by the compiler
@@ -139,6 +146,49 @@ static void verify_bytecode_compression(const CompilerContext& ctx,
     }
 
     REQUIRE(compressed.sign == result.sign);
+
+    // Verify ARRAY vs FRAME opcode semantics: array opcodes must target
+    // active axes (< active_k), frame opcodes must target dormant axes
+    // (>= active_k). compress_pauli never changes active_k, so the final
+    // value is valid for all emitted instructions.
+    uint32_t k = ctx.reg_manager.active_k();
+    for (const auto& instr : ctx.bytecode) {
+        uint16_t a = instr.axis_1;
+        uint16_t b = instr.axis_2;
+        switch (instr.opcode) {
+            case Opcode::OP_ARRAY_CNOT:
+            case Opcode::OP_ARRAY_CZ:
+            case Opcode::OP_ARRAY_SWAP:
+            case Opcode::OP_ARRAY_H:
+            case Opcode::OP_ARRAY_S:
+            case Opcode::OP_ARRAY_S_DAG:
+                REQUIRE(a < k);
+                if (instr.opcode == Opcode::OP_ARRAY_CNOT || instr.opcode == Opcode::OP_ARRAY_CZ ||
+                    instr.opcode == Opcode::OP_ARRAY_SWAP) {
+                    REQUIRE(b < k);
+                }
+                break;
+            case Opcode::OP_FRAME_CNOT:
+                // Frame CNOT: control is dormant, target can be active or dormant
+                REQUIRE(a >= k);
+                break;
+            case Opcode::OP_FRAME_CZ:
+                // Frame CZ: at least one operand is dormant
+                REQUIRE((a >= k || b >= k));
+                break;
+            case Opcode::OP_FRAME_H:
+            case Opcode::OP_FRAME_S:
+            case Opcode::OP_FRAME_S_DAG:
+                REQUIRE(a >= k);
+                break;
+            case Opcode::OP_FRAME_SWAP:
+                REQUIRE(a >= k);
+                REQUIRE(b >= k);
+                break;
+            default:
+                break;
+        }
+    }
 }
 
 // Count opcodes of a given type in the bytecode.
@@ -474,14 +524,11 @@ TEST_CASE("Compress: all-dormant heavy Pauli emits only frame opcodes") {
 // v_cum_after: v_cum AFTER this compress_pauli call.
 // The local frame is: v_local = v_cum_before^{-1}.then(v_cum_after)
 // and v_local(input) should be the weight-1 compressed Pauli.
-static void verify_sequential_compression(const stim::Tableau<kStimWidth>& v_cum_before,
+static void verify_sequential_compression(const CompilerContext& ctx,
+                                          const stim::Tableau<kStimWidth>& v_cum_before,
                                           const stim::Tableau<kStimWidth>& v_cum_after,
                                           const stim::PauliString<kStimWidth>& input,
-                                          const CompressionResult& result) {
-    // v_cum gates are appended: v_cum_after = v_local composed with v_cum_before.
-    // Stim's append model: v_cum_after(P) = v_local(v_cum_before(P)).
-    // So v_cum_after = v_cum_before.then(v_local).
-    // Therefore v_local = v_cum_before.inverse().then(v_cum_after).
+                                          const CompressionResult& result, size_t bc_before) {
     stim::Tableau<kStimWidth> v_local = v_cum_before.inverse().then(v_cum_after);
     stim::PauliString<kStimWidth> compressed = v_local(input);
 
@@ -503,6 +550,21 @@ static void verify_sequential_compression(const stim::Tableau<kStimWidth>& v_cum
     }
 
     REQUIRE(compressed.sign == result.sign);
+
+    // Verify bytecode emitted during this compression step independently
+    // produces the correct single-qubit Pauli on the declared pivot.
+    std::vector<Instruction> step_bytecode(ctx.bytecode.begin() + static_cast<ptrdiff_t>(bc_before),
+                                           ctx.bytecode.end());
+    stim::Tableau<kStimWidth> tab =
+        bytecode_to_tableau(step_bytecode, static_cast<uint32_t>(input.num_qubits));
+    stim::PauliString<kStimWidth> bc_compressed = tab(input);
+    uint64_t bcx = bc_compressed.xs.u64[0];
+    uint64_t bcz = bc_compressed.zs.u64[0];
+    uint64_t bc_support = bcx | bcz;
+    REQUIRE(bc_support != 0);
+    REQUIRE((bc_support & (bc_support - 1)) == 0);
+    REQUIRE(static_cast<uint16_t>(__builtin_ctzll(bc_support)) == result.pivot);
+    REQUIRE(bc_compressed.sign == result.sign);
 }
 
 TEST_CASE("Compress: sequential compressions accumulate in V_cum") {
@@ -519,13 +581,15 @@ TEST_CASE("Compress: sequential compressions accumulate in V_cum") {
 
     // Snapshot v_cum before second compression.
     stim::Tableau<kStimWidth> snap1 = ctx.v_cum;
+    size_t bc1 = ctx.bytecode.size();
     auto r2 = compress_pauli(ctx, p2);
-    verify_sequential_compression(snap1, ctx.v_cum, p2, r2);
+    verify_sequential_compression(ctx, snap1, ctx.v_cum, p2, r2, bc1);
 
     // Snapshot v_cum before third compression.
     stim::Tableau<kStimWidth> snap2 = ctx.v_cum;
+    size_t bc2 = ctx.bytecode.size();
     auto r3 = compress_pauli(ctx, p3);
-    verify_sequential_compression(snap2, ctx.v_cum, p3, r3);
+    verify_sequential_compression(ctx, snap2, ctx.v_cum, p3, r3, bc2);
 
     // V_cum should be non-identity after multiple compressions.
     bool is_identity = true;
@@ -682,9 +746,9 @@ TEST_CASE("Backend: Gap sampling hazard array accumulation") {
 
     REQUIRE(prog.constant_pool.noise_hazards.size() == 3);
 
-    double h1 = -std::log(1.0 - 0.5);
-    double h2 = h1 - std::log(1.0 - 0.75);
-    double h3 = h2 - std::log(1.0 - (1.0 - 1e-15));
+    double h1 = -std::log1p(-0.5);
+    double h2 = h1 - std::log1p(-0.75);
+    double h3 = h2 - std::log1p(-(1.0 - 1e-15));
 
     CHECK_THAT(prog.constant_pool.noise_hazards[0], Catch::Matchers::WithinAbs(h1, 1e-5));
     CHECK_THAT(prog.constant_pool.noise_hazards[1], Catch::Matchers::WithinAbs(h2, 1e-5));
@@ -881,6 +945,7 @@ TEST_CASE("Compress sequential: 20 compressions on 20 qubits") {
 
     for (int step = 0; step < 20; ++step) {
         stim::Tableau<kStimWidth> snap = ctx.v_cum;
+        size_t bc_snap = ctx.bytecode.size();
 
         uint64_t qubit_mask = (1ULL << n) - 1;
         uint64_t x_bits = test_lcg(seed) & qubit_mask;
@@ -891,7 +956,7 @@ TEST_CASE("Compress sequential: 20 compressions on 20 qubits") {
 
         auto pauli = make_pauli(n, x_bits, z_bits, (test_lcg(seed) & 1) != 0);
         auto result = compress_pauli(ctx, pauli);
-        verify_sequential_compression(snap, ctx.v_cum, pauli, result);
+        verify_sequential_compression(ctx, snap, ctx.v_cum, pauli, result, bc_snap);
     }
 }
 
@@ -906,6 +971,7 @@ TEST_CASE("Compress sequential: 30 compressions on 30 qubits all-active") {
 
     for (int step = 0; step < 30; ++step) {
         stim::Tableau<kStimWidth> snap = ctx.v_cum;
+        size_t bc_snap = ctx.bytecode.size();
 
         uint64_t qubit_mask = (1ULL << n) - 1;
         uint64_t x_bits = test_lcg(seed) & qubit_mask;
@@ -916,7 +982,7 @@ TEST_CASE("Compress sequential: 30 compressions on 30 qubits all-active") {
 
         auto pauli = make_pauli(n, x_bits, z_bits, (test_lcg(seed) & 1) != 0);
         auto result = compress_pauli(ctx, pauli);
-        verify_sequential_compression(snap, ctx.v_cum, pauli, result);
+        verify_sequential_compression(ctx, snap, ctx.v_cum, pauli, result, bc_snap);
     }
 }
 
@@ -927,6 +993,7 @@ TEST_CASE("Compress sequential: 30 compressions on 30 qubits all-dormant") {
 
     for (int step = 0; step < 30; ++step) {
         stim::Tableau<kStimWidth> snap = ctx.v_cum;
+        size_t bc_snap = ctx.bytecode.size();
 
         uint64_t qubit_mask = (1ULL << n) - 1;
         uint64_t x_bits = test_lcg(seed) & qubit_mask;
@@ -937,7 +1004,7 @@ TEST_CASE("Compress sequential: 30 compressions on 30 qubits all-dormant") {
 
         auto pauli = make_pauli(n, x_bits, z_bits, (test_lcg(seed) & 1) != 0);
         auto result = compress_pauli(ctx, pauli);
-        verify_sequential_compression(snap, ctx.v_cum, pauli, result);
+        verify_sequential_compression(ctx, snap, ctx.v_cum, pauli, result, bc_snap);
 
         // All-dormant should only emit frame opcodes
         REQUIRE(all_frame_opcodes(ctx.bytecode));

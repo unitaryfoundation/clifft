@@ -24,11 +24,19 @@ def test_compiled_source_map_parallel_to_bytecode() -> None:
 
 
 def test_active_k_history_shows_expansion_and_compaction() -> None:
-    """k rises for T gate expansion and falls back after measurement."""
+    """k rises for T gate expansion; measurement records k before deactivation."""
     prog = ucc.lower(ucc.trace(ucc.parse("H 0\nT 0\nM 0")))
     k_hist = list(prog.active_k_history)
     assert max(k_hist) >= 1, "T gate should expand k to at least 1"
-    assert k_hist[-1] == 0, "Measurement should compact k back to 0"
+    # Measurement records k at emission time (before deactivation), so
+    # the final instruction in a single-qubit circuit still has k=1.
+    assert k_hist[-1] == 1, "Measurement should record k before deactivation"
+    # In a 2-qubit circuit, after M 0 deactivates k drops back to 0,
+    # then the second T re-expands.
+    prog2 = ucc.lower(ucc.trace(ucc.parse("H 0\nT 0\nM 0\nH 1\nT 1\nM 1")))
+    k2 = list(prog2.active_k_history)
+    assert max(k2) >= 1, "T gate should expand k"
+    assert 0 in k2, "k should drop to 0 between the two qubit lifecycles"
 
 
 def test_optimizer_preserves_source_map() -> None:

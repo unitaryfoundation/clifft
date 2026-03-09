@@ -4,23 +4,34 @@ namespace ucc {
 
 void MultiGatePass::run(CompiledModule& module) {
     auto& old_bc = module.bytecode;
-    auto& old_src = module.source_map;
+    auto& old_src_data = module.source_map_data;
+    auto& old_src_off = module.source_map_offsets;
     auto& old_kh = module.active_k_history;
-    bool has_src = !old_src.empty();
+    bool has_src = !old_src_off.empty();
     bool has_kh = !old_kh.empty();
 
     std::vector<Instruction> new_bc;
-    std::vector<std::vector<uint32_t>> new_src;
+    std::vector<uint32_t> new_src_data;
+    std::vector<uint32_t> new_src_off;
     std::vector<uint32_t> new_kh;
     new_bc.reserve(old_bc.size());
-    if (has_src)
-        new_src.reserve(old_bc.size());
+    if (has_src) {
+        new_src_data.reserve(old_src_data.size());
+        new_src_off.push_back(0);
+    }
     if (has_kh)
         new_kh.reserve(old_bc.size());
 
+    auto merge_src_range = [&](size_t run_start, size_t run_len) {
+        if (!has_src)
+            return;
+        uint32_t b = old_src_off[run_start], e = old_src_off[run_start + run_len];
+        new_src_data.insert(new_src_data.end(), old_src_data.begin() + b, old_src_data.begin() + e);
+        new_src_off.push_back(static_cast<uint32_t>(new_src_data.size()));
+    };
+
     size_t i = 0;
     while (i < old_bc.size()) {
-        // --- ARRAY_CNOT star: contiguous CNOTs sharing a target axis ---
         if (old_bc[i].opcode == Opcode::OP_ARRAY_CNOT) {
             uint16_t shared_target = old_bc[i].axis_2;
             size_t run_start = i;
@@ -40,20 +51,12 @@ void MultiGatePass::run(CompiledModule& module) {
                 new_bc.push_back(old_bc[run_start]);
             }
 
-            if (has_src) {
-                std::vector<uint32_t> merged;
-                for (size_t j = run_start; j < run_start + run_len; ++j)
-                    for (uint32_t line : old_src[j])
-                        merged.push_back(line);
-                new_src.push_back(std::move(merged));
-            }
-            if (has_kh) {
+            merge_src_range(run_start, run_len);
+            if (has_kh)
                 new_kh.push_back(old_kh[run_start + run_len - 1]);
-            }
             continue;
         }
 
-        // --- ARRAY_CZ star: contiguous CZs sharing a first axis ---
         if (old_bc[i].opcode == Opcode::OP_ARRAY_CZ) {
             uint16_t shared_ctrl = old_bc[i].axis_1;
             size_t run_start = i;
@@ -73,31 +76,24 @@ void MultiGatePass::run(CompiledModule& module) {
                 new_bc.push_back(old_bc[run_start]);
             }
 
-            if (has_src) {
-                std::vector<uint32_t> merged;
-                for (size_t j = run_start; j < run_start + run_len; ++j)
-                    for (uint32_t line : old_src[j])
-                        merged.push_back(line);
-                new_src.push_back(std::move(merged));
-            }
-            if (has_kh) {
+            merge_src_range(run_start, run_len);
+            if (has_kh)
                 new_kh.push_back(old_kh[run_start + run_len - 1]);
-            }
             continue;
         }
 
-        // --- Pass through all other instructions ---
         new_bc.push_back(old_bc[i]);
-        if (has_src)
-            new_src.push_back(old_src[i]);
+        merge_src_range(i, 1);
         if (has_kh)
             new_kh.push_back(old_kh[i]);
         ++i;
     }
 
     old_bc = std::move(new_bc);
-    if (has_src)
-        old_src = std::move(new_src);
+    if (has_src) {
+        old_src_data = std::move(new_src_data);
+        old_src_off = std::move(new_src_off);
+    }
     if (has_kh)
         old_kh = std::move(new_kh);
 }
