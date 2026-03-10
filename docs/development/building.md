@@ -31,6 +31,8 @@ uv run pytest tests/python/ -v
 
 The editable install (`-e .`) means you can re-run `uv pip install -e .` after modifying C++ code to rebuild.
 
+Note that this builds with the maximum number of qubits as set by `UCC_MAX_QUBITS` in the `pyproject.toml`. If you modify, you will need to rebuild.
+
 ## Standalone C++ Build
 
 For pure C++ development without Python:
