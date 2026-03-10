@@ -51,7 +51,7 @@ Standard statevector (SV) simulators scale as $\mathcal{O}(2^N)$. ZX-calculus St
 **Goal:** Execute the parameter sweeps. Set a hard system memory limit (e.g., 30GB) and a timeout of 120 seconds.
 
 *   **Task 3.1 (Panel A - The Physical Qubit Wall):**
-    *   *Parameters:* Lock $t=20$, $k=15$. Sweep $N \in [20, 24, 28, 30, 32, 40]$.
+    *   *Parameters:* Lock $t=20$, $k=15$. Sweep $N \in [20, 24, 28, 30, 32, 36, 40]$.
     *   *Expected Outcome:* Qiskit scales exponentially, crashing at $N \approx 30$. `tsim` and UCC execution times remain flat.
 *   **Task 3.2 (Panel B - The Active Rank Wall):**
     *   *Parameters:* Lock $N=50$, $t=40$. Sweep $k \in [10, 15, 20, 25, 30, 32]$.
