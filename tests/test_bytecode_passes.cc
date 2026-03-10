@@ -21,27 +21,22 @@ static CompiledModule make_module(std::vector<Instruction> bc) {
     return m;
 }
 
-// Helper: set source_map from a list-of-lists to CSR format.
-static void set_source_map(CompiledModule& m, const std::vector<std::vector<uint32_t>>& lists) {
-    m.source_map_data.clear();
-    m.source_map_offsets.clear();
-    m.source_map_offsets.push_back(0);
-    for (const auto& v : lists) {
-        m.source_map_data.insert(m.source_map_data.end(), v.begin(), v.end());
-        m.source_map_offsets.push_back(static_cast<uint32_t>(m.source_map_data.size()));
+// Helper: set source_map from a list-of-lists + active_k values.
+static void set_source_map(CompiledModule& m, const std::vector<std::vector<uint32_t>>& lists,
+                           const std::vector<uint32_t>& k_hist = {}) {
+    m.source_map = SourceMap();
+    for (size_t i = 0; i < lists.size(); ++i) {
+        uint32_t k = (i < k_hist.size()) ? k_hist[i] : 0;
+        m.source_map.append(lists[i], k);
     }
 }
 
-// Helper: read CSR source_map back as list-of-lists for assertions.
+// Helper: read source_map back as list-of-lists for assertions.
 static std::vector<std::vector<uint32_t>> get_source_map(const CompiledModule& m) {
     std::vector<std::vector<uint32_t>> result;
-    if (m.source_map_offsets.empty())
-        return result;
-    size_t n = m.source_map_offsets.size() - 1;
-    for (size_t i = 0; i < n; ++i) {
-        uint32_t b = m.source_map_offsets[i];
-        uint32_t e = m.source_map_offsets[i + 1];
-        result.emplace_back(m.source_map_data.begin() + b, m.source_map_data.begin() + e);
+    for (size_t i = 0; i < m.source_map.size(); ++i) {
+        auto lines = m.source_map.lines_for(i);
+        result.emplace_back(lines.begin(), lines.end());
     }
     return result;
 }
@@ -114,8 +109,7 @@ TEST_CASE("NoiseBlockPass: preserves source map", "[bytecode-pass]") {
         make_noise(2),
         make_frame_h(0),
     };
-    set_source_map(m, {{10}, {11}, {12}, {20}});
-    m.active_k_history = {0, 0, 0, 1};
+    set_source_map(m, {{10}, {11}, {12}, {20}}, {0, 0, 0, 1});
 
     NoiseBlockPass().run(m);
     REQUIRE(m.bytecode.size() == 2);
@@ -123,9 +117,10 @@ TEST_CASE("NoiseBlockPass: preserves source map", "[bytecode-pass]") {
     REQUIRE(sm.size() == 2);
     CHECK(sm[0] == std::vector<uint32_t>{10, 11, 12});
     CHECK(sm[1] == std::vector<uint32_t>{20});
-    REQUIRE(m.active_k_history.size() == 2);
-    CHECK(m.active_k_history[0] == 0);
-    CHECK(m.active_k_history[1] == 1);
+    auto kh = m.source_map.active_k_history();
+    REQUIRE(kh.size() == 2);
+    CHECK(kh[0] == 0);
+    CHECK(kh[1] == 1);
 }
 
 TEST_CASE("NoiseBlockPass: empty bytecode is a no-op", "[bytecode-pass]") {
@@ -287,8 +282,7 @@ TEST_CASE("MultiGatePass: preserves source map", "[bytecode-pass]") {
         make_array_cnot(2, 3),
         make_array_h(0),
     };
-    set_source_map(m, {{10}, {11}, {12}, {20}});
-    m.active_k_history = {5, 5, 5, 5};
+    set_source_map(m, {{10}, {11}, {12}, {20}}, {5, 5, 5, 5});
 
     MultiGatePass().run(m);
     REQUIRE(m.bytecode.size() == 2);
@@ -296,9 +290,10 @@ TEST_CASE("MultiGatePass: preserves source map", "[bytecode-pass]") {
     REQUIRE(sm.size() == 2);
     CHECK(sm[0] == std::vector<uint32_t>{10, 11, 12});
     CHECK(sm[1] == std::vector<uint32_t>{20});
-    REQUIRE(m.active_k_history.size() == 2);
-    CHECK(m.active_k_history[0] == 5);
-    CHECK(m.active_k_history[1] == 5);
+    auto kh = m.source_map.active_k_history();
+    REQUIRE(kh.size() == 2);
+    CHECK(kh[0] == 5);
+    CHECK(kh[1] == 5);
 }
 
 TEST_CASE("MultiGatePass: mixed CNOT and CZ runs", "[bytecode-pass]") {
@@ -497,8 +492,7 @@ TEST_CASE("ExpandTPass: standalone EXPAND kept", "[bytecode-pass]") {
 TEST_CASE("ExpandTPass: preserves source map", "[bytecode-pass]") {
     CompiledModule m;
     m.bytecode = {make_expand(3), make_phase_t(3), make_frame_h(0)};
-    set_source_map(m, {{10}, {11}, {20}});
-    m.active_k_history = {3, 4, 4};
+    set_source_map(m, {{10}, {11}, {20}}, {3, 4, 4});
 
     ExpandTPass().run(m);
     REQUIRE(m.bytecode.size() == 2);
@@ -506,8 +500,9 @@ TEST_CASE("ExpandTPass: preserves source map", "[bytecode-pass]") {
     REQUIRE(sm.size() == 2);
     CHECK(sm[0] == std::vector<uint32_t>{10, 11});
     CHECK(sm[1] == std::vector<uint32_t>{20});
-    REQUIRE(m.active_k_history.size() == 2);
-    CHECK(m.active_k_history[0] == 4);
+    auto kh = m.source_map.active_k_history();
+    REQUIRE(kh.size() == 2);
+    CHECK(kh[0] == 4);
 }
 
 TEST_CASE("ExpandTPass: empty bytecode", "[bytecode-pass]") {
@@ -611,8 +606,7 @@ TEST_CASE("SwapMeasPass: preserves source map", "[bytecode-pass]") {
         make_meas(Opcode::OP_MEAS_ACTIVE_INTERFERE, 3, 42, false),
         make_frame_h(0),
     };
-    set_source_map(m, {{10}, {11}, {20}});
-    m.active_k_history = {4, 3, 3};
+    set_source_map(m, {{10}, {11}, {20}}, {4, 3, 3});
 
     SwapMeasPass().run(m);
     REQUIRE(m.bytecode.size() == 2);
@@ -620,8 +614,9 @@ TEST_CASE("SwapMeasPass: preserves source map", "[bytecode-pass]") {
     REQUIRE(sm.size() == 2);
     CHECK(sm[0] == std::vector<uint32_t>{10, 11});
     CHECK(sm[1] == std::vector<uint32_t>{20});
-    REQUIRE(m.active_k_history.size() == 2);
-    CHECK(m.active_k_history[0] == 3);
+    auto kh = m.source_map.active_k_history();
+    REQUIRE(kh.size() == 2);
+    CHECK(kh[0] == 3);
 }
 
 TEST_CASE("SwapMeasPass: empty bytecode", "[bytecode-pass]") {

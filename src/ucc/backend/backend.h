@@ -1,5 +1,6 @@
 #pragma once
 
+#include "ucc/backend/source_map.h"
 #include "ucc/frontend/hir.h"
 
 #include "stim.h"
@@ -209,18 +210,9 @@ struct CompiledModule {
     uint32_t num_detectors = 0;     // Total detectors
     uint32_t num_observables = 0;   // Total observables
 
-    // --- Source Mapping (Explorer) ---
-    // CSR (Compressed Sparse Row) format for source line mapping.
-    // For bytecode instruction i, its source lines are:
-    //   source_map_data[source_map_offsets[i] .. source_map_offsets[i+1])
+    // Source line mapping and per-instruction active_k history.
     // Empty if the HIR had no source map.
-    std::vector<uint32_t> source_map_data;
-    std::vector<uint32_t> source_map_offsets;
-
-    // Parallel to bytecode: active_k_history[i] is the active dimension k
-    // at the time bytecode[i] was emitted. For measurement instructions,
-    // this captures k before deactivation (the pre-compaction dimension).
-    std::vector<uint32_t> active_k_history;
+    SourceMap source_map;
 };
 
 // =============================================================================

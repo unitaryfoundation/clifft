@@ -502,10 +502,6 @@ CompiledModule lower(const HirModule& hir, std::span<const uint8_t> postselectio
 
     bool has_source_map = hir.source_map.size() == hir.ops.size();
 
-    if (has_source_map) {
-        ctx.source_map_offsets.push_back(0);
-    }
-
     for (size_t op_idx = 0; op_idx < hir.ops.size(); ++op_idx) {
         const auto& op = hir.ops[op_idx];
         size_t bc_before = ctx.bytecode.size();
@@ -749,14 +745,13 @@ CompiledModule lower(const HirModule& hir, std::span<const uint8_t> postselectio
             }
         }
 
-        // Tag all instructions emitted by this HIR op with source lines (CSR)
+        // Tag all instructions emitted by this HIR op with source lines and k
         size_t bc_after = ctx.bytecode.size();
         size_t emitted = bc_after - bc_before;
         if (has_source_map) {
             const auto& lines = hir.source_map[op_idx];
             for (size_t e = 0; e < emitted; ++e) {
-                ctx.source_map_data.insert(ctx.source_map_data.end(), lines.begin(), lines.end());
-                ctx.source_map_offsets.push_back(static_cast<uint32_t>(ctx.source_map_data.size()));
+                ctx.source_map.append(lines, ctx.emit_k_history[bc_before + e]);
             }
         }
     }
@@ -777,9 +772,7 @@ CompiledModule lower(const HirModule& hir, std::span<const uint8_t> postselectio
     CompiledModule result;
     result.bytecode = std::move(ctx.bytecode);
     result.constant_pool = std::move(ctx.constant_pool);
-    result.source_map_data = std::move(ctx.source_map_data);
-    result.source_map_offsets = std::move(ctx.source_map_offsets);
-    result.active_k_history = std::move(ctx.active_k_history);
+    result.source_map = std::move(ctx.source_map);
     result.num_qubits = hir.num_qubits;
     result.peak_rank = peak;
     result.num_measurements = hir.num_measurements;

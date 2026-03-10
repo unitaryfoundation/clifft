@@ -16,18 +16,15 @@
 
 using namespace ucc;
 
-// Helper: number of bytecode instructions in the CSR source map.
+// Helper: number of bytecode instructions in the source map.
 static size_t source_map_size(const CompiledModule& m) {
-    if (m.source_map_offsets.empty())
-        return 0;
-    return m.source_map_offsets.size() - 1;
+    return m.source_map.size();
 }
 
 // Helper: retrieve the source lines for bytecode instruction i.
 static std::vector<uint32_t> source_map_entry(const CompiledModule& m, size_t i) {
-    uint32_t b = m.source_map_offsets[i];
-    uint32_t e = m.source_map_offsets[i + 1];
-    return {m.source_map_data.begin() + b, m.source_map_data.begin() + e};
+    auto lines = m.source_map.lines_for(i);
+    return {lines.begin(), lines.end()};
 }
 
 // Helper: full pipeline through trace (no optimizer)
@@ -144,14 +141,14 @@ TEST_CASE("Source map: T plus T_dag cancellation removes both from map", "[sourc
 TEST_CASE("Source map: lower produces parallel source_map and k_history", "[source_map]") {
     auto prog = compiled_from("H 0\nT 0\nM 0");
     REQUIRE(source_map_size(prog) == prog.bytecode.size());
-    REQUIRE(prog.active_k_history.size() == prog.bytecode.size());
+    REQUIRE(prog.source_map.active_k_history().size() == prog.bytecode.size());
 }
 
 TEST_CASE("Source map: k_history shows expansion from T gate", "[source_map]") {
     auto prog = compiled_from("H 0\nT 0\nM 0");
     // T gate expands k from 0 to 1 -- at least some entries should be 1
     bool found_k1 = false;
-    for (auto k : prog.active_k_history) {
+    for (auto k : prog.source_map.active_k_history()) {
         if (k == 1) {
             found_k1 = true;
             break;
@@ -167,10 +164,10 @@ TEST_CASE("Source map: k_history shows compaction after measurement", "[source_m
     // so the second T's EXPAND records k=1, and the second M records k=1.
     // After M1 deactivates, the following instructions (if any) get k=0.
     auto prog = compiled_from("H 0\nT 0\nM 0\nH 1\nT 1\nM 1");
-    REQUIRE(!prog.active_k_history.empty());
+    REQUIRE(!prog.source_map.active_k_history().empty());
     // Verify breathing: k should reach 1 and return
     bool found_k1 = false;
-    for (auto k : prog.active_k_history) {
+    for (auto k : prog.source_map.active_k_history()) {
         if (k == 1) {
             found_k1 = true;
             break;
@@ -179,7 +176,7 @@ TEST_CASE("Source map: k_history shows compaction after measurement", "[source_m
     REQUIRE(found_k1);
     // The last measurement deactivates, so the final k recorded is 1
     // (measurement itself runs at k=1; deactivation is a post-emission effect).
-    REQUIRE(prog.active_k_history.back() == 1);
+    REQUIRE(prog.source_map.active_k_history().back() == 1);
 }
 
 TEST_CASE("Source map: bytecode source lines trace back to correct input", "[source_map]") {
@@ -199,12 +196,12 @@ TEST_CASE("Source map: bytecode source lines trace back to correct input", "[sou
 TEST_CASE("Source map: optimized pipeline still produces valid maps", "[source_map]") {
     auto prog = compiled_from("H 0\nT 0\nT 0\nM 0", /*optimize=*/true);
     REQUIRE(source_map_size(prog) == prog.bytecode.size());
-    REQUIRE(prog.active_k_history.size() == prog.bytecode.size());
+    REQUIRE(prog.source_map.active_k_history().size() == prog.bytecode.size());
 }
 
 TEST_CASE("Source map: empty circuit produces empty maps", "[source_map]") {
     auto prog = compiled_from("");
     REQUIRE(prog.bytecode.empty());
     REQUIRE(source_map_size(prog) == 0);
-    REQUIRE(prog.active_k_history.empty());
+    REQUIRE(prog.source_map.active_k_history().empty());
 }

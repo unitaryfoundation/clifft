@@ -573,22 +573,16 @@ NB_MODULE(_ucc_core, m) {
             "source_map",
             [](const ucc::CompiledModule& p) {
                 nb::list outer;
-                if (p.source_map_offsets.empty())
-                    return outer;
-                size_t n = p.source_map_offsets.size() - 1;
-                for (size_t i = 0; i < n; ++i) {
-                    uint32_t begin = p.source_map_offsets[i];
-                    uint32_t end = p.source_map_offsets[i + 1];
-                    std::vector<uint32_t> lines(p.source_map_data.begin() + begin,
-                                                p.source_map_data.begin() + end);
-                    outer.append(nb::cast(lines));
+                for (size_t i = 0; i < p.source_map.size(); ++i) {
+                    auto lines = p.source_map.lines_for(i);
+                    outer.append(nb::cast(std::vector<uint32_t>(lines.begin(), lines.end())));
                 }
                 return outer;
             },
             "Source line mapping parallel to bytecode (list of list of uint32).")
         .def_prop_ro(
             "active_k_history",
-            [](const ucc::CompiledModule& p) { return nb::cast(p.active_k_history); },
+            [](const ucc::CompiledModule& p) { return nb::cast(p.source_map.active_k_history()); },
             "Active dimension k after each instruction (list of uint32).")
         .def(
             "__len__", [](const ucc::CompiledModule& p) { return p.bytecode.size(); },

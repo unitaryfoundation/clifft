@@ -7,6 +7,7 @@
 // PauliStrings, and verify the resulting V_cum and bytecode.
 
 #include "ucc/backend/backend.h"
+#include "ucc/backend/source_map.h"
 #include "ucc/frontend/hir.h"
 
 #include "stim.h"
@@ -83,11 +84,8 @@ struct CompilerContext {
     double noise_hazards_accum = 0.0;
 
     // Explorer telemetry (populated by lower(), parallel to bytecode)
-    // CSR source map: source_map_data holds line numbers, source_map_offsets
-    // delineates per-instruction ranges.
-    std::vector<uint32_t> source_map_data;
-    std::vector<uint32_t> source_map_offsets;
-    std::vector<uint32_t> active_k_history;
+    SourceMap source_map;
+    std::vector<uint32_t> emit_k_history;  // per-instruction k captured at emit time
 
     // Reusable scratch tableau for compress_pauli, avoiding per-call heap allocation.
     stim::Tableau<kStimWidth> v_local;
@@ -102,7 +100,7 @@ struct CompilerContext {
     // Emit an instruction and record the current active dimension.
     void emit(const Instruction& instr) {
         bytecode.push_back(instr);
-        active_k_history.push_back(reg_manager.active_k());
+        emit_k_history.push_back(reg_manager.active_k());
     }
 };
 
