@@ -4,13 +4,13 @@ This document describes the concrete software architecture of UCC: directory str
 
 ## 1. Repository Layout
 
-The codebase strictly mirrors the 4-stage pipeline:
+The codebase strictly mirrors the 5-stage pipeline:
 
 *   `src/ucc/circuit/`: Circuit AST, parser, and target encoding.
 *   `src/ucc/frontend/`: Drives `stim::TableauSimulator`, absorbs physical Cliffords, emits the Heisenberg IR (HIR).
 *   `src/ucc/optimizer/`: Two-level optimization: HIR passes (pure Heisenberg IR manipulation) and bytecode passes (post-lowering instruction fusion).
 *   `src/ucc/backend/`: Tracks the virtual frame mapping ($V_{cum}$) and Active/Dormant sets. Synthesizes virtual basis compression. Emits localized RISC bytecode.
-*   `src/ucc/svm/`: The runtime Virtual Machine. Executes the RISC bytecode over a dense $2^k$ array and lightweight bitword Pauli frames.
+*   `src/ucc/svm/`: The runtime Virtual Machine. Executes the RISC bytecode over a dense $2^k$ array and lightweight `ucc::BitMask<kMaxInlineQubits>` Pauli frames.
 
 **Isolation Invariant:** The VM (`svm/`) must never include `stim::Tableau` or evaluate tableau mathematics. It executes purely on basic C++ types and arrays.
 
@@ -37,7 +37,7 @@ The default pipeline runs all passes in order: `NoiseBlockPass -> MultiGatePass 
 
 UCC uses `Stim` exclusively as an AOT mathematical tableau library, **not** as a circuit engine. The runtime Virtual Machine never touches `stim::TableauSimulator`.
 
-Because UCC factors the state into physical and virtual coordinate frames, the AOT compiler must manipulate the stabilizer frame from *both ends* of the circuit. We map this to Stim's APIs as follows:
+Because UCC factors the state into physical and virtual coordinate frames, the compiler must manipulate the stabilizer frame from *both ends* of the circuit. We map this to Stim's APIs as follows:
 
 ### Front-End: Physical Lab Frame (Prepending)
 The Front-End tracks $U_{phys}^\dagger$. As it steps forward through the circuit, it must mathematically **prepend** physical gates to the inverse tableau.
@@ -58,7 +58,7 @@ We test the mathematical transformations layer-by-layer exclusively in C++ using
 1. **Parser Tests (`test_parser.cc`):** Validates lexical conversion of `.stim` text to `ucc::Circuit` AST.
 2. **Front-End Tests (`test_frontend.cc`):** Validates that Heisenberg rewinding exactly matches Stim's mathematical definition of $U_{phys}^\dagger P U_{phys}$.
 3. **Virtual Compression Tests (`test_backend.cc`):** Feeds random, heavy `stim::PauliString` masks into the Back-End's compressor. Asserts that the resulting $V_{cum}$ successfully compresses the operator to a single virtual qubit.
-4. **RISC Math Tests (`test_svm_risc.cc`):** Bypasses the compiler entirely. Manually constructs `Instruction` opcodes and a dummy `SchrodingerState`. Executes them to assert the pure array math and Pauli frame XORs perfectly match theoretical density matrix operations.
+4. **RISC Math Tests (`test_svm_risc.cc`):** Bypasses the compiler entirely. Manually constructs `Instruction` opcodes and a dummy `SchrodingerState`. Executes them to assert the pure array math and Pauli frame XORs perfectly match theoretical statevector operations.
 5. **Statevector Oracle (`test_statevector.cc`):** Expands the VM's factored state representation ($|\psi\rangle = \gamma U_C P |\phi\rangle_A$) into a dense $2^n$ statevector, and verifies it against pure unitary matrix multiplication.
 
 ## 4. Python Bindings

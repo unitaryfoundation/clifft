@@ -135,5 +135,5 @@ The plot shows the classic threshold behavior of the surface code:
 - **Above threshold**: larger codes perform *worse* because they have more opportunities for errors to accumulate.
 - The crossover point is the **threshold** of the surface code under this noise model.
 
-!!! note "Current qubit limit"
-    UCC's current MVP supports up to 64 qubits, which accommodates distances 3 (26 qubits) and 5 (64 qubits). Distance 7 would require 118 qubits. Higher distances will be available as UCC's Pauli frame width is expanded.
+!!! note "Arbitrary qubit scaling"
+    By default, UCC supports up to 64 qubits. To simulate larger circuits (e.g., distance 7 requires 118 qubits), change `UCC_MAX_QUBITS` in `pyproject.toml` and rebuild. See [Custom Qubit Width](../../DEVELOPMENT.md#custom-qubit-width) for details.

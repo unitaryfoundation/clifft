@@ -4,6 +4,11 @@ set shell := ["bash", "-lc"]
 # Default build dir for standalone CMake builds.
 build_dir := "build"
 
+# Maximum qubit count for standalone C++ builds. Passed as -DUCC_MAX_QUBITS.
+# For Python builds, set UCC_MAX_QUBITS in pyproject.toml instead.
+# Override with: just max_qubits=512 configure build test
+max_qubits := "64"
+
 # Coverage build dir (separate to avoid mixing instrumented/non-instrumented objects)
 cov_build_dir := "build-coverage"
 
@@ -16,7 +21,7 @@ default:
 # -------------------------
 
 configure *args="":
-  cmake -B {{build_dir}} {{args}}
+  cmake -B {{build_dir}} -DUCC_MAX_QUBITS={{max_qubits}} {{args}}
 
 build *args="":
   cmake --build {{build_dir}} {{args}}
@@ -76,7 +81,7 @@ cpp-cov:
 
   # Clean and build with coverage flags
   rm -rf {{cov_build_dir}}
-  cmake -B {{cov_build_dir}} -DCMAKE_BUILD_TYPE=Debug -DUCC_COVERAGE=ON
+  cmake -B {{cov_build_dir}} -DCMAKE_BUILD_TYPE=Debug -DUCC_COVERAGE=ON -DUCC_MAX_QUBITS={{max_qubits}}
   cmake --build {{cov_build_dir}} -j${CORES}
 
   # Run tests to generate .gcda files

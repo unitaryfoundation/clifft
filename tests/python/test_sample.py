@@ -455,11 +455,11 @@ class TestSamplingValidation:
         assert abs(stim_00 - 0.5) < tolerance, f"Stim |00>={stim_00} outside {tolerance:.4f} tol"
         assert abs(stim_11 - 0.5) < tolerance, f"Stim |11>={stim_11} outside {tolerance:.4f} tol"
 
-    def test_measure_merge_y_observable(self) -> None:
-        """OP_MEASURE_MERGE correctly computes interference with Y-phases."""
+    def test_meas_active_interfere_y_observable(self) -> None:
+        """OP_MEAS_ACTIVE_INTERFERE correctly computes interference with Y-phases."""
         # H 0; T 0 rotates the state to (|0> + e^{ipi/4}|1>)/sqrt(2)
         # S 0 adds phase: (|0> + e^{i*3pi/4}|1>)/sqrt(2)
-        # MX 0 forces an OP_MEASURE_MERGE where the rewound observable is Y.
+        # MX 0 forces an OP_MEAS_ACTIVE_INTERFERE where the rewound observable is Y.
         circuit = "H 0\nT 0\nS 0\nMX 0"
         prog = ucc.compile(circuit)
 

@@ -6,7 +6,7 @@ hide:
 # UCC — Unitary Compiler Collection
 
 <p style="font-size: 1.2em;">
-A multi-level Ahead-of-Time (AOT) compiler and Schrodinger Virtual Machine for quantum circuits.
+A multi-level compiler and Schrodinger Virtual Machine for quantum circuits.
 </p>
 
 [![CI](https://github.com/unitaryfoundation/ucc-next/actions/workflows/ci.yml/badge.svg)](https://github.com/unitaryfoundation/ucc-next/actions/workflows/ci.yml)
@@ -44,7 +44,7 @@ print(meas[:5])  # First 5 shots
 
 <div class="grid cards" markdown>
 
-- :material-lightning-bolt: **AOT Compilation**
+- :material-lightning-bolt: **Multi-Level Compilation**
 
     Clifford gates are absorbed at compile time. The VM only executes non-Clifford operations and measurements.
 

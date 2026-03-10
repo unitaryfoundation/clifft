@@ -77,6 +77,53 @@ cmake -B build -DCMAKE_BUILD_TYPE=Release
 cmake -B build -DCMAKE_BUILD_TYPE=RelWithDebInfo
 ```
 
+### Custom Qubit Width
+
+By default, UCC supports up to 64 qubits. This limit is a compile-time constant that controls the width of inline Pauli bitmasks (`BitMask<N>`) used in the HIR and VM Pauli frame. The VM `Instruction` struct stays 32 bytes regardless — only compile-time structures (HIR, Pauli frame) grow.
+
+To simulate larger circuits (e.g., distance-7 surface codes require 118 qubits, magic state cultivation needs ~480), rebuild with a higher limit. The value must be a multiple of 64.
+
+At 64 qubits, each `BitMask` is a single `uint64_t` (8 bytes). At 512 qubits, it grows to 8 words (64 bytes). The compiler auto-vectorizes these operations (AVX2/AVX-512 on x86, NEON on ARM), so the overhead is modest for compilation, but the VM hot loop is unaffected since instructions use `uint16_t` axis indices.
+
+#### Python package
+
+The qubit width is configured in `pyproject.toml`. Edit the `UCC_MAX_QUBITS` value under `[tool.scikit-build.cmake.define]`:
+
+```toml
+[tool.scikit-build.cmake.define]
+UCC_MAX_QUBITS = "512"
+```
+
+Then rebuild:
+
+```bash
+uv pip install -e .
+```
+
+All standard `uv` commands (`uv run`, `uv sync`, etc.) respect this setting automatically. Verify with:
+
+```bash
+uv run python -c "import ucc; print(ucc.max_sim_qubits())"
+```
+
+#### Standalone C++ build
+
+For pure C++ development, pass the flag directly to CMake:
+
+```bash
+cmake -B build -DUCC_MAX_QUBITS=512
+cmake --build build -j
+ctest --test-dir build --output-on-failure
+```
+
+Or with `just`:
+
+```bash
+just max_qubits=512 configure build test
+```
+
+The `max_qubits` variable in the justfile only affects standalone C++ builds. Python builds always read from `pyproject.toml`.
+
 ### First Build
 
 The first build takes 10-15 minutes because Stim (a dependency) has many source files. Subsequent incremental builds are fast.

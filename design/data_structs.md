@@ -9,15 +9,14 @@ This document defines the strict C++ memory layouts for the Heisenberg IR (HIR),
 The HIR represents physical operations mapped to the $t=0$ reference frame. It contains no VM execution logic.
 
 ```cpp
-constexpr size_t kStimWidth = 64; // Limits MVP to 64 qubits
+constexpr uint32_t kMaxInlineQubits = UCC_MAX_QUBITS;
 
 struct HeisenbergOp {
     // Re-wound static Pauli masks
-    stim::bitword<kStimWidth> destab_mask_; // 8 bytes: X-bits at t=0
-    stim::bitword<kStimWidth> stab_mask_;   // 8 bytes: Z-bits at t=0
+    ucc::BitMask<kMaxInlineQubits> destab_mask_;
+    ucc::BitMask<kMaxInlineQubits> stab_mask_;
 
-    // Payload union (up to 12 bytes allowed to maintain 32-byte total size)
-    // Payload union (exactly 12 bytes to maintain 32-byte total size)
+    // Payload union (exactly 12 bytes to maintain 32-byte total size at 64 qubits)
     union {
         struct { uint32_t meas_record_idx; } measure_;
         struct { uint32_t controlling_meas; } conditional_;
@@ -30,83 +29,100 @@ struct HeisenbergOp {
     OpType type_;
     bool sign_;
     uint8_t flags_;
-    // exactly 32 bytes
 };
-static_assert(sizeof(HeisenbergOp) == 32);
+
+#if UCC_MAX_QUBITS == 64
+static_assert(sizeof(HeisenbergOp) == 32, "HeisenbergOp must be exactly 32 bytes at 64-qubit width");
+#endif
 ```
 
 ## VM Execution State (SchrodingerState)
 The VM State maps exactly to the Factored State Representation.
 
 ```c++
-struct alignas(64) SchrodingerState {
+class SchrodingerState {
+public:
     // 1. The Pauli Frame (P)
     // Tracks physical errors & measurement parities.
-    stim::bitword<kStimWidth> p_x = 0;
-    stim::bitword<kStimWidth> p_z = 0;
+    ucc::BitMask<kMaxInlineQubits> p_x = 0;
+    ucc::BitMask<kMaxInlineQubits> p_z = 0;
 
     // 2. Global Scalar (gamma)
     // Tracks continuous global phase and deferred normalization.
     std::complex<double> gamma = {1.0, 0.0};
 
     // 3. Active Statevector (|phi>_A)
-    // Allocated ONCE to 2^{peak_rank} elements.
-    std::complex<double>* v = nullptr;
-    uint64_t v_size = 1;               // Current active size (2^k)
-    uint32_t active_k = 0;             // Current active dimension k
+    // Allocated ONCE, accessed via v()
+    uint32_t active_k = 0;
 
-    // Classical Memory & QEC Tracking
+    // Classical Memory
     std::vector<uint8_t> meas_record;
     std::vector<uint8_t> det_record;
     std::vector<uint8_t> obs_record;
 
-    // Deterministic PRNG
+    // Gap-based noise sampling
+    uint32_t next_noise_idx = 0;
+
+private:
+    std::complex<double>* v_ = nullptr;  // 64-byte aligned
+    uint64_t array_size_ = 0;            // 2^peak_rank (allocated capacity)
     Xoshiro256PlusPlus rng_;
-};
 };
 ```
 ## The 32-Byte RISC Instruction Bytecode
-Because the Back-End compresses all multi-qubit global topology into localized virtual operations AOT, the VM uses a RISC-like instruction set targeting specific virtual axes.We use uint16_t for axis indices, liberating the struct from massive 64-bit mask requirements and making it natively ready for 512-qubit scaling.
+Because the Back-End compresses all multi-qubit global topology into localized virtual operations at compile time, the VM uses a RISC-like instruction set targeting specific virtual axes. We use `uint16_t` for axis indices, liberating the struct from massive 64-bit mask requirements and making it natively ready for 512-qubit scaling.
 
 ```c++
 enum class Opcode : uint8_t {
     // Frame Opcodes (Zero-cost dormant updates. Update p_x, p_z only)
-    OP_FRAME_CNOT, OP_FRAME_CZ, OP_FRAME_H, OP_FRAME_S, OP_FRAME_S_DAG, OP_FRAME_SWAP,
+    OP_FRAME_CNOT,
+    OP_FRAME_CZ,
+    OP_FRAME_H,
+    OP_FRAME_S,
+    OP_FRAME_S_DAG,
+    OP_FRAME_SWAP,
 
     // Array Opcodes (Update p_x, p_z AND loop over v[] to swap/mix)
-    OP_ARRAY_CNOT, OP_ARRAY_CZ, OP_ARRAY_SWAP,
-    OP_ARRAY_MULTI_CNOT,  // Fused star-graph: multiple controls, one target
-    OP_ARRAY_MULTI_CZ,    // Fused star-graph: one control, multiple targets
-    OP_ARRAY_H,           // Hadamard on active axis (butterfly + frame swap)
-    OP_ARRAY_S,           // Phase S on active axis (diag(1, i) + frame update)
-    OP_ARRAY_S_DAG,       // Phase S-dagger on active axis (diag(1, -i) + frame update)
+    OP_ARRAY_CNOT,
+    OP_ARRAY_CZ,
+    OP_ARRAY_SWAP,
+    OP_ARRAY_MULTI_CNOT,
+    OP_ARRAY_MULTI_CZ,
+    OP_ARRAY_H,
+    OP_ARRAY_S,
+    OP_ARRAY_S_DAG,
 
     // Local Math & Expansion
-    OP_EXPAND,        // Virtual H_v on dormant: k -> k+1, gamma /= sqrt(2)
-    OP_PHASE_T,       // Active diagonal T phase
-    OP_PHASE_T_DAG,   // Active diagonal T-dagger phase
-    OP_EXPAND_T,      // Fused EXPAND + PHASE_T in one array pass
-    OP_EXPAND_T_DAG,  // Fused EXPAND + PHASE_T_DAG in one array pass
+    OP_EXPAND,
+    OP_PHASE_T,
+    OP_PHASE_T_DAG,
+    OP_EXPAND_T,
+    OP_EXPAND_T_DAG,
 
     // Measurement
-    OP_MEAS_DORMANT_STATIC,    // Deterministic outcome from p_x
-    OP_MEAS_DORMANT_RANDOM,    // Random pivot, algebraic phase to gamma
-    OP_MEAS_ACTIVE_DIAGONAL,   // Z-basis filter, halves array (k -> k-1)
-    OP_MEAS_ACTIVE_INTERFERE,  // X-basis fold, halves array (k -> k-1)
-    OP_SWAP_MEAS_INTERFERE,    // Fused ARRAY_SWAP + MEAS_ACTIVE_INTERFERE
+    OP_MEAS_DORMANT_STATIC,
+    OP_MEAS_DORMANT_RANDOM,
+    OP_MEAS_ACTIVE_DIAGONAL,
+    OP_MEAS_ACTIVE_INTERFERE,
+    OP_SWAP_MEAS_INTERFERE,
 
     // Classical / Errors
-    OP_APPLY_PAULI,    // XORs a full N-bit mask from ConstantPool into P
-    OP_NOISE,          // Stochastic Pauli channel (rolls RNG, may apply Pauli)
-    OP_NOISE_BLOCK,    // Contiguous block of noise sites [start, start+count)
-    OP_READOUT_NOISE,  // Classical bit-flip on measurement result
-    OP_DETECTOR,       // Parity check over measurement records
-    OP_POSTSELECT,     // Post-selection check: abort shot if parity != 0
-    OP_OBSERVABLE,     // Logical observable accumulator
-    NUM_OPCODES        // Sentinel: must remain last for binding completeness checks
+    OP_APPLY_PAULI,
+    OP_NOISE,
+    OP_NOISE_BLOCK,
+    OP_READOUT_NOISE,
+    OP_DETECTOR,
+    OP_POSTSELECT,
+    OP_OBSERVABLE,
+    NUM_OPCODES
 };
 
 struct alignas(32) Instruction {
+    // Flag bits for measurement instructions
+    static constexpr uint8_t FLAG_SIGN = 1 << 0;
+    static constexpr uint8_t FLAG_HIDDEN = 1 << 1;
+    static constexpr uint8_t FLAG_IDENTITY = 1 << 2;
+
     Opcode opcode;      // Offset 0
     uint8_t _reserved;  // Offset 1
     uint8_t flags;      // Offset 2
@@ -116,30 +132,37 @@ struct alignas(32) Instruction {
 
     // 24 bytes remaining for payload (Offsets 8..31)
     union {
+        // Variant A: Local Math Payloads
         struct {
-            double weight_re;  // Offset 8
-            double weight_im;  // Offset 16
+            double weight_re;   // Offset 8
+            double weight_im;   // Offset 16
+            uint8_t _pad_a[8];  // Offset 24
         } math;
 
+        // Variant B: Classical targets (Measurements)
         struct {
             uint32_t classical_idx;  // Offset 8
             uint32_t expected_val;   // Offset 12
+            uint8_t _pad_b[16];      // Offset 16
         } classical;
 
+        // Variant C: Full Pauli injection (Errors/Conditionals)
         struct {
             uint32_t cp_mask_idx;    // Offset 8
             uint32_t condition_idx;  // Offset 12
+            uint8_t _pad_c[16];      // Offset 16
         } pauli;
 
-        // For OP_ARRAY_MULTI_CNOT / OP_ARRAY_MULTI_CZ star-graph fusions
+        // Variant D: Multi-gate bitmask (MULTI_CNOT/MULTI_CZ)
         struct {
-            uint64_t mask;  // Offset 8: ctrl_mask (MULTI_CNOT) or target_mask (MULTI_CZ)
+            uint64_t mask;       // Offset 8 (64-bit control/target bitmask)
+            uint8_t _pad_d[16];  // Offset 16
         } multi_gate;
 
         uint8_t raw[24];
     };
 };
-static_assert(sizeof(Instruction) == 32, "Must be exactly 32 bytes");
+static_assert(sizeof(Instruction) == 32, "Instruction must be exactly 32 bytes");
 ```
 ## Execution Semantics Example
 

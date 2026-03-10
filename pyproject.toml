@@ -5,7 +5,7 @@ build-backend = "scikit_build_core.build"
 [project]
 name = "ucc"
 version = "0.1.0"
-description = "Universal Compiler Collection - AOT compiler and VM for quantum circuits"
+description = "Unitary Compiler Collection - Multi-level compiler and VM for quantum circuits"
 readme = "README.md"
 requires-python = ">=3.12"
 license = "Apache-2.0"
@@ -66,6 +66,12 @@ build-dir = "build/{wheel_tag}"
 
 # Build stable ABI wheels for CPython 3.12+
 wheel.py-api = "cp312"
+
+# Maximum qubit count (compile-time). Controls the width of inline Pauli
+# bitmasks used by the HIR and VM Pauli frame. Must be a multiple of 64.
+# Change to "512" for large circuits (e.g., distance-7+ surface codes).
+[tool.scikit-build.cmake.define]
+UCC_MAX_QUBITS = "64"
 
 [tool.ruff]
 line-length = 100

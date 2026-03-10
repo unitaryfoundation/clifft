@@ -1,6 +1,6 @@
 # Theoretical Overview
 
-UCC (Unitary Compiler Collection) is a multi-level Ahead-of-Time (AOT) compiler and execution engine for universal quantum circuits. It solves the exponential memory wall of non-Clifford simulation by decoupling the deterministic coordinate transformations of a quantum circuit from its probabilistic complex amplitudes.
+UCC (Unitary Compiler Collection) is a multi-level compiler and execution engine for universal quantum circuits. It solves the exponential memory wall of non-Clifford simulation by decoupling the deterministic coordinate transformations of a quantum circuit from its probabilistic complex amplitudes.
 
 ## The Factored State Representation
 
@@ -10,7 +10,7 @@ $$|\psi^{(t)}\rangle = \gamma^{(t)} \, U_C^{(t)} \, P^{(t)} \, \Big( |\phi^{(t)}
 
 Each component serves a distinct purpose:
 
-- **$U_C$ (The Clifford Frame):** A static coordinate system mapping virtual qubits to physical qubits. Evaluated entirely at compile time (AOT).
+- **$U_C$ (The Clifford Frame):** A static coordinate system mapping virtual qubits to physical qubits. Evaluated entirely at compile time.
 
 - **$P$ (The Pauli Frame):** Tracks discrete stochastic bit-flips and phase-flips from measurements and noise. Updated at runtime via fast $\mathcal{O}(1)$ bitwise XOR operations.
 
@@ -24,7 +24,7 @@ Each component serves a distinct purpose:
 
 For circuits where non-Clifford entanglement is bounded — such as magic state distillation, where syndrome measurements aggressively "cool" superposition — the peak active dimension $k_{\text{max}}$ remains small even as the total qubit count $n$ grows to hundreds. UCC allocates $2^{k_{\text{max}}}$ complex amplitudes instead of $2^n$, yielding exponential memory savings.
 
-## The Four-Stage Pipeline
+## The Five-Stage Pipeline
 
 ```text
 Circuit Text  -->  1. Front-End (Physical Rewinding)
@@ -33,7 +33,7 @@ Circuit Text  -->  1. Front-End (Physical Rewinding)
                         v
                    Heisenberg IR (HIR)
                         |
-                   2. Middle-End (Optimizer)
+                   2. Middle-End Optimizer
                         |  O(1) static Pauli commutation checks to fuse
                         |  and cancel redundant operations.
                         v
@@ -44,9 +44,15 @@ Circuit Text  -->  1. Front-End (Physical Rewinding)
                         |  Synthesizes greedy O(n) basis compressions.
                         |  Emits localized RISC bytecode.
                         v
-                   Program (Bytecode + Constant Pool)
+                   Program (Raw Bytecode + Constant Pool)
                         |
-                   4. Virtual Machine (Execution)
+                   4. Bytecode Optimizer
+                        |  Fuses sequences of instructions to minimize
+                        |  array passes and dispatch overhead.
+                        v
+                   Optimized Program
+                        |
+                   5. Virtual Machine (Execution)
                         |  Executes array updates and tracks Pauli frame P.
                         |  Allocates exactly ONE array of size 2^{k_max}.
                         v
@@ -61,7 +67,7 @@ $$P_{t \to 0} = U_{\text{phys}}^\dagger \, P_t \, U_{\text{phys}}$$
 
 The output is the **Heisenberg IR (HIR)**: a static list of abstract Pauli operations completely devoid of hardware timing or memory layout.
 
-### Stage 2: Middle-End (Optimizer)
+### Stage 2: Middle-End Optimizer
 
 The optimizer applies $\mathcal{O}(1)$ static Pauli commutation checks to fuse and cancel redundant operations in the HIR. Because the HIR is purely algebraic, the optimizer can reason about gate interactions without simulating the full quantum state.
 
@@ -75,7 +81,11 @@ The Back-End bridges the static HIR to the runtime VM. It maintains a cumulative
 
 Because multi-qubit measurements are explicitly compressed into single-qubit virtual measurements at compile time, no tableau mathematics runs at simulation time.
 
-### Stage 4: Virtual Machine (SVM)
+### Stage 4: Bytecode Optimizer
+
+After lowering, a second pass manager applies peephole optimizations directly to the RISC bytecode. These passes fuse sequences of instructions to eliminate redundant passes over the array and reduce dispatch overhead.
+
+### Stage 5: Virtual Machine (SVM)
 
 The VM executes the RISC bytecode over millions of shots. Key properties:
 

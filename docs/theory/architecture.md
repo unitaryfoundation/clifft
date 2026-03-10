@@ -1,6 +1,6 @@
 # Software Architecture
 
-This page describes UCC's concrete software architecture: how the codebase maps to the four-stage pipeline and the key integration contracts.
+This page describes UCC's concrete software architecture: how the codebase maps to the five-stage pipeline and the key integration contracts.
 
 ## Repository Layout
 
@@ -10,9 +10,9 @@ The source code mirrors the pipeline stages:
 |-----------|---------------|------|
 | `src/ucc/circuit/` | Input | Circuit AST, parser, target encoding |
 | `src/ucc/frontend/` | Stage 1 | Drives stabilizer tableau, absorbs Cliffords, emits HIR |
-| `src/ucc/optimizer/` | Stage 2 | Two-level optimization: HIR passes and bytecode passes |
+| `src/ucc/optimizer/` | Stage 2 & 4 | Two-level optimization: HIR passes and bytecode passes |
 | `src/ucc/backend/` | Stage 3 | Virtual frame tracking, basis compression, bytecode emission |
-| `src/ucc/svm/` | Stage 4 | Runtime VM: executes RISC bytecode over dense arrays |
+| `src/ucc/svm/` | Stage 5 | Runtime VM: executes RISC bytecode over dense arrays |
 | `src/python/` | Bindings | Python API via nanobind |
 
 !!! important "Isolation Invariant"
@@ -77,7 +77,7 @@ The fixed instruction size ensures L1 cache alignment and predictable memory acc
 
 The VM allocates a single contiguous complex array of size $2^{k_{\text{max}}}$ at program start. This array is never resized during execution. When measurements reduce the active set, the array is logically compacted (the compiler emits SWAP instructions to route measured qubits to the top axis before measurement).
 
-The Pauli frame ($P$) is tracked as a pair of $n$-bit integers using Stim's `bitword` type, supporting efficient SIMD operations.
+The Pauli frame ($P$) is tracked as a pair of $n$-bit masks using the custom, auto-vectorized `ucc::BitMask<kMaxInlineQubits>`, supporting arbitrary scaling natively without heap allocations.
 
 ## Python Bindings
 

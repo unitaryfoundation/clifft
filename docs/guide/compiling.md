@@ -1,15 +1,15 @@
 # Compiling Circuits
 
-UCC compiles quantum circuits through a four-stage Ahead-of-Time (AOT) pipeline. This page explains each stage and the Python API for interacting with them.
+UCC compiles quantum circuits through a five-stage multi-level pipeline. This page explains each stage and the Python API for interacting with them.
 
 ## The Compilation Pipeline
 
 ```text
-Circuit Text --> Parse --> Front-End --> HIR Optimizer --> Back-End --> Bytecode Optimizer --> Program
-                 |           |              |               |               |                  |
-              Circuit     HirModule     HirModule       Program         Program            Bytecode
-               (AST)       (HIR)    (Optimized HIR)   (raw RISC)   (fused instructions)   ready to
-                                                                                          execute
+Circuit Text --> Parse --> Front-End --> Middle-End Optimizer --> Back-End --> Bytecode Optimizer --> Program
+                 |           |                 |                  |               |                  |
+              Circuit     HirModule        HirModule          Program         Program            Bytecode
+               (AST)       (HIR)       (Optimized HIR)      (raw RISC)   (fused instructions)   ready to
+                                                                                                execute
 ```
 
 ## One-Step Compilation
@@ -85,7 +85,7 @@ hir = ucc.trace(circuit)
 print(hir)  # HirModule(4 ops, 2 T-gates, 2 qubits)
 ```
 
-### 3. HIR Optimization
+### 3. Middle-End Optimization
 
 The optimizer applies transformation passes to the HIR before lowering:
 
