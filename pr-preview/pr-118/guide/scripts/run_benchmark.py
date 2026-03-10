@@ -13,24 +13,22 @@ import csv
 import json
 import os
 import re
-import resource
 import subprocess
 import sys
 import time
 from typing import Any
+
+try:
+    import resource
+except ImportError:
+    resource = None  # type: ignore[assignment]
 
 TIMEOUT_S = 120
 MEM_LIMIT_GB = 6.5
 RESULTS_FILE = os.path.join(os.path.dirname(__file__), "benchmark_results.csv")
 CSV_HEADER = ["Sweep", "N", "t", "k", "Tool", "Status", "Exec_s", "PeakMem_MB"]
 
-# Sweep A: fix k=12, t=20, vary N  (qubit scaling)
-# Sweep B: fix N=24, t=40, vary k  (rank scaling)
-SWEEPS: list[tuple[str, list[int], int, int]] = [
-    ("qubit_scaling", [16, 20, 24, 26, 28, 29], 20, 12),
-    ("rank_scaling", [24], 40, 0),  # k varies per point, handled below
-]
-
+QUBIT_N_VALUES = [16, 20, 24, 26, 28, 29]
 RANK_K_VALUES = [8, 12, 16, 20, 22, 24, 25]
 
 
@@ -48,6 +46,9 @@ def build_circuit_qiskit(n: int, t: int, k: int) -> str:
     representation only needs 2^k.
     """
     from qiskit import QuantumCircuit
+
+    if n < 1 or k < 1:
+        raise ValueError(f"n and k must be >= 1, got n={n}, k={k}")
 
     actual_k = min(k, n)
     qc = QuantumCircuit(n, n)
@@ -115,6 +116,9 @@ def qasm_to_stim(qasm: str) -> str:
             lines.append(f"M {m.group(1)}")
             continue
 
+        # Fail fast on unsupported instructions
+        raise ValueError(f"Unsupported QASM instruction: {line!r}")
+
     return "\n".join(lines) + "\n"
 
 
@@ -179,7 +183,7 @@ def run_worker(tool: str, qasm_str: str, stim_str: str) -> dict[str, Any]:
 
 def execute_internal(tool: str, qasm_path: str, stim_path: str) -> None:
     """Payload executed inside the isolated subprocess."""
-    if sys.platform.startswith("linux"):
+    if resource is not None and sys.platform.startswith("linux"):
         mem_str = os.environ.get("UCC_BENCH_MEM_LIMIT_GB")
         if mem_str:
             limit = int(float(mem_str) * 1024**3)
@@ -202,9 +206,17 @@ def execute_internal(tool: str, qasm_path: str, stim_path: str) -> None:
             program = ucc.compile(f.read())
         ucc.sample(program, shots=1)
 
+    else:
+        print(f"Unknown tool: {tool}", file=sys.stderr)
+        sys.exit(1)
+
     elapsed = time.perf_counter() - start
-    peak_kb = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
-    peak_mb = peak_kb / 1024 if sys.platform.startswith("linux") else peak_kb / (1024 * 1024)
+
+    if resource is not None:
+        peak_kb = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+        peak_mb = peak_kb / 1024 if sys.platform.startswith("linux") else peak_kb / (1024 * 1024)
+    else:
+        peak_mb = 0.0
 
     print(json.dumps({"status": "SUCCESS", "exec_s": elapsed, "peak_mb": peak_mb}))
     sys.exit(0)
@@ -229,7 +241,7 @@ def run_sweeps() -> str:
     rows: list[list[Any]] = []
 
     # Sweep A: qubit scaling
-    n_values = [16, 20, 24, 26, 28, 29]
+    n_values = QUBIT_N_VALUES
     t_a, k_a = 20, 12
     for n in n_values:
         for tool in ["ucc", "qiskit"]:
