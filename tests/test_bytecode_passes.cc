@@ -321,19 +321,17 @@ TEST_CASE("MultiGatePass: empty bytecode is a no-op", "[bytecode-pass]") {
 // =============================================================================
 
 TEST_CASE("MULTI_CNOT: equivalent to sequential CNOTs", "[bytecode-pass][svm]") {
-    // Build two programs: one with 3 individual CNOTs, one with fused MULTI_CNOT.
-    // Both should produce identical statevectors for any input.
-    // Use a small circuit that produces star-graph CNOTs naturally.
+    // T gates activate the qubits into the statevector array.
+    // The measurement MPP Z0*Z1*Z2*Z3 forces compress_pauli to handle a pure Z-string.
+    // It emits CNOTs that fold all Z bits onto a single pivot, natively generating
+    // a sequence of contiguous ARRAY_CNOTs sharing a target.
     auto circuit = ucc::parse(
-        "H 0\n"
-        "CNOT 0 1\n"
-        "CNOT 0 2\n"
-        "CNOT 0 3\n"
-        "M 0 1 2 3\n");
+        "H 0\nH 1\nH 2\nH 3\n"
+        "T 0\nT 1\nT 2\nT 3\n"
+        "MPP Z0*Z1*Z2*Z3\n");
     auto hir = ucc::trace(circuit);
     auto prog_original = ucc::lower(hir);
 
-    // Count CNOT instructions
     size_t cnot_count = 0;
     for (const auto& instr : prog_original.bytecode)
         if (instr.opcode == Opcode::OP_ARRAY_CNOT)
@@ -342,14 +340,16 @@ TEST_CASE("MULTI_CNOT: equivalent to sequential CNOTs", "[bytecode-pass][svm]") 
     auto prog_fused = prog_original;
     MultiGatePass().run(prog_fused);
 
-    // Verify fusion happened if there were enough CNOTs
-    if (cnot_count >= 2) {
-        size_t multi_count = 0;
-        for (const auto& instr : prog_fused.bytecode)
-            if (instr.opcode == Opcode::OP_ARRAY_MULTI_CNOT)
-                ++multi_count;
-        CHECK(multi_count >= 1);
-    }
+    // Unconditionally require the backend emitted the sequence
+    REQUIRE(cnot_count >= 2);
+
+    size_t multi_count = 0;
+    for (const auto& instr : prog_fused.bytecode)
+        if (instr.opcode == Opcode::OP_ARRAY_MULTI_CNOT)
+            ++multi_count;
+
+    // Assert the pass actually fused them
+    REQUIRE(multi_count >= 1);
 
     uint64_t seed = 99;
     auto res_orig = ucc::sample(prog_original, 1000, seed);
@@ -358,23 +358,35 @@ TEST_CASE("MULTI_CNOT: equivalent to sequential CNOTs", "[bytecode-pass][svm]") 
 }
 
 TEST_CASE("MULTI_CZ: equivalent to sequential CZs", "[bytecode-pass][svm]") {
+    // T gates activate the qubits.
+    // The measurement MPP X0*Z1*Z2*Z3 forces compress_pauli to handle an X-pivot
+    // with Z-residues. It clears the Z-residues by natively emitting a burst
+    // of contiguous ARRAY_CZs sharing a control.
     auto circuit = ucc::parse(
-        "H 0\n"
-        "H 1\n"
-        "H 2\n"
-        "H 3\n"
-        "CZ 0 1\n"
-        "CZ 0 2\n"
-        "CZ 0 3\n"
-        "H 0\n"
-        "H 1\n"
-        "H 2\n"
-        "H 3\n"
-        "M 0 1 2 3\n");
+        "H 0\nH 1\nH 2\nH 3\n"
+        "T 0\nT 1\nT 2\nT 3\n"
+        "MPP X0*Z1*Z2*Z3\n");
     auto hir = ucc::trace(circuit);
     auto prog_original = ucc::lower(hir);
+
+    size_t cz_count = 0;
+    for (const auto& instr : prog_original.bytecode)
+        if (instr.opcode == Opcode::OP_ARRAY_CZ)
+            ++cz_count;
+
     auto prog_fused = prog_original;
     MultiGatePass().run(prog_fused);
+
+    // Unconditionally require the backend emitted the sequence
+    REQUIRE(cz_count >= 2);
+
+    size_t multi_count = 0;
+    for (const auto& instr : prog_fused.bytecode)
+        if (instr.opcode == Opcode::OP_ARRAY_MULTI_CZ)
+            ++multi_count;
+
+    // Assert the pass actually fused them
+    REQUIRE(multi_count >= 1);
 
     uint64_t seed = 77;
     auto res_orig = ucc::sample(prog_original, 1000, seed);

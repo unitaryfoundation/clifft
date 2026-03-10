@@ -635,10 +635,11 @@ CompiledModule lower(const HirModule& hir, std::span<const uint8_t> postselectio
                 NoiseSite mapped_site;
                 for (const auto& ch : hir_site.channels) {
                     stim::PauliString<kStimWidth> p(n);
-                    p.xs.u64[0] = ch.destab_mask;
-                    p.zs.u64[0] = ch.stab_mask;
+                    p.xs.ptr_simd[0] = ch.destab_mask;
+                    p.zs.ptr_simd[0] = ch.stab_mask;
                     stim::PauliString<kStimWidth> mapped = ctx.v_cum(p);
-                    mapped_site.channels.push_back({mapped.xs.u64[0], mapped.zs.u64[0], ch.prob});
+                    mapped_site.channels.push_back(
+                        {mapped.xs.ptr_simd[0], mapped.zs.ptr_simd[0], ch.prob});
                 }
 
                 // Compute total channel probability for gap sampling

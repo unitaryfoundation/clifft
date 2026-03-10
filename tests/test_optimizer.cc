@@ -35,6 +35,8 @@ TEST_CASE("Peephole: T plus T fuses to S", "[optimizer]") {
     REQUIRE(hir.ops.size() == 1);
     REQUIRE(hir.ops[0].op_type() == OpType::CLIFFORD_PHASE);
     REQUIRE(hir.ops[0].is_dagger() == false);
+    REQUIRE(hir.ops[0].destab_mask() == 0);
+    REQUIRE(hir.ops[0].stab_mask() == Z(0));
     REQUIRE(pass.fusions() == 1);
     REQUIRE(pass.cancellations() == 0);
 }
@@ -48,6 +50,8 @@ TEST_CASE("Peephole: T_dag plus T_dag fuses to S_dag", "[optimizer]") {
     REQUIRE(hir.ops.size() == 1);
     REQUIRE(hir.ops[0].op_type() == OpType::CLIFFORD_PHASE);
     REQUIRE(hir.ops[0].is_dagger() == true);
+    REQUIRE(hir.ops[0].destab_mask() == 0);
+    REQUIRE(hir.ops[0].stab_mask() == Z(0));
     REQUIRE(pass.fusions() == 1);
 }
 

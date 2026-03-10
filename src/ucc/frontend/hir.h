@@ -70,9 +70,9 @@ constexpr size_t kStimWidth = 64;
 
 /// A single Pauli error channel with its rewound masks and probability.
 struct NoiseChannel {
-    uint64_t destab_mask;  // X-bits of the rewound Pauli
-    uint64_t stab_mask;    // Z-bits of the rewound Pauli
-    double prob;           // Probability of this channel firing
+    stim::bitword<kStimWidth> destab_mask;  // X-bits of the rewound Pauli
+    stim::bitword<kStimWidth> stab_mask;    // Z-bits of the rewound Pauli
+    double prob;                            // Probability of this channel firing
 };
 
 /// A noise site: a collection of mutually exclusive Pauli channels.

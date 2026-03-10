@@ -7,14 +7,14 @@
 #include <complex>
 #include <cstddef>
 #include <cstdint>
+#include <numbers>
 #include <string>
 #include <utility>
 
 namespace ucc {
 namespace test {
 
-// Portable 1/sqrt(2) constant (avoids non-standard M_SQRT1_2).
-constexpr double kInvSqrt2 = 0.70710678118654752440;
+constexpr double kInvSqrt2 = 1.0 / std::numbers::sqrt2;
 
 // Bitmask helpers for readable Pauli construction.
 // Usage: make_pauli(n, X(0) | X(1), Z(2) | Z(3))

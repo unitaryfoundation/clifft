@@ -1,6 +1,5 @@
 #include "ucc/optimizer/peephole.h"
 
-#include <bit>
 #include <cstddef>
 #include <cstdint>
 #include <vector>
@@ -9,17 +8,11 @@ namespace ucc {
 
 namespace {
 
-/// Symplectic inner product over bitword<64> masks.
+/// Symplectic inner product over bitword masks.
 /// Returns true if the two Pauli strings anti-commute.
-inline bool anti_commute(stim::bitword<64> x1, stim::bitword<64> z1, stim::bitword<64> x2,
-                         stim::bitword<64> z2) {
-    return ((x1 & z2) ^ (z1 & x2)).popcount() % 2 != 0;
-}
-
-/// Symplectic inner product over raw uint64_t masks.
-/// Used for NoiseChannel which stores raw integers.
-inline bool anti_commute_raw(uint64_t x1, uint64_t z1, uint64_t x2, uint64_t z2) {
-    return std::popcount((x1 & z2) ^ (z1 & x2)) % 2 != 0;
+inline bool anti_commute(stim::bitword<kStimWidth> x1, stim::bitword<kStimWidth> z1,
+                         stim::bitword<kStimWidth> x2, stim::bitword<kStimWidth> z2) {
+    return (((x1 & z2) ^ (z1 & x2)).popcount() & 1) != 0;
 }
 
 /// Compute the effective rotation direction for a T gate.
@@ -42,10 +35,9 @@ inline bool is_blocked(const HeisenbergOp& op_i, const HeisenbergOp& op_j, const
         case OpType::NOISE: {
             auto site_idx = static_cast<uint32_t>(op_j.noise_site_idx());
             const auto& channels = hir.noise_sites[site_idx].channels;
-            uint64_t xi = static_cast<uint64_t>(op_i.destab_mask());
-            uint64_t zi = static_cast<uint64_t>(op_i.stab_mask());
             for (const auto& ch : channels) {
-                if (anti_commute_raw(xi, zi, ch.destab_mask, ch.stab_mask)) {
+                if (anti_commute(op_i.destab_mask(), op_i.stab_mask(), ch.destab_mask,
+                                 ch.stab_mask)) {
                     return true;
                 }
             }
@@ -74,7 +66,7 @@ void PeepholeFusionPass::run(HirModule& hir) {
     while (changed) {
         changed = false;
         size_t n = hir.ops.size();
-        std::vector<bool> deleted(n, false);
+        std::vector<uint8_t> deleted(n, 0);
 
         for (size_t i = 0; i < n; ++i) {
             if (deleted[i])

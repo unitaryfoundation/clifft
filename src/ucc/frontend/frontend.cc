@@ -115,7 +115,7 @@ NoiseChannel rewind_single_pauli(const stim::TableauSimulator<kStimWidth>& sim, 
             break;
     }
     stim::PauliString<kStimWidth> rewound = sim.inv_state(pauli);
-    return NoiseChannel{rewound.xs.u64[0], rewound.zs.u64[0], prob};
+    return NoiseChannel{rewound.xs.ptr_simd[0], rewound.zs.ptr_simd[0], prob};
 }
 
 // Rewind a two-qubit Pauli through the tableau.
@@ -137,7 +137,7 @@ NoiseChannel rewind_two_qubit_pauli(const stim::TableauSimulator<kStimWidth>& si
         pauli.zs[q2] = true;  // Y or Z
 
     stim::PauliString<kStimWidth> rewound = sim.inv_state(pauli);
-    return NoiseChannel{rewound.xs.u64[0], rewound.zs.u64[0], prob};
+    return NoiseChannel{rewound.xs.ptr_simd[0], rewound.zs.ptr_simd[0], prob};
 }
 
 // Create a NoiseSite for a single-qubit noise channel.

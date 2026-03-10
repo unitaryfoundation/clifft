@@ -2,6 +2,14 @@ Please implement a series of targeted C++ performance, architecture, and testing
 
 It's possible some of these are already fixed. If you disagree with any, please stop and let me review and understand why. Please also commit each as standalone commits to make it easier to review. Please stop and open a PR after each phase (1,2,3) so I can review. As part of that PR, you should update this document to reflect your progress
 
+## Progress
+
+- Phase 1: **Skipped** -- `Instruction` is a 32-byte POD union; `std::move` has no benefit over copy. Source map merging was already refactored to `SourceMap::copy_entry()`/`merge_entries()` in PR #107.
+- Phase 2: **Done** (commit 7321fc1) -- `NoiseChannel` masks upgraded to `bitword<kStimWidth>`, all producers/consumers updated to use `ptr_simd[0]`, `anti_commute_raw` deleted.
+- Phase 3: **Done** (included in Phase 2 commit) -- `& 1` parity, `vector<uint8_t>` for deleted array.
+- Phase 4: **Done** (commit 8d07fb7) -- `kInvSqrt2 = 1.0 / std::numbers::sqrt2` (C++20; `inv_sqrt2` is C++26).
+- Phase 5: **Done** (commit fcf04a7) -- Vacuous MULTI_CNOT/CZ tests replaced with T+MPP circuits that actually produce ARRAY_CNOT/CZ bytecodes. Geometric mask assertions added to peephole fusion tests.
+
 
 CRITICAL INSTRUCTIONS:
 - ONLY implement the specific fixes listed below.

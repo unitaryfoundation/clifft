@@ -965,8 +965,8 @@ static inline void exec_noise(SchrodingerState& state, const ConstantPool& pool,
         cumulative += ch.prob;
         if (rand < cumulative) {
             stim::PauliString<kStimWidth> ps(kStimWidth);
-            ps.xs.u64[0] = ch.destab_mask;
-            ps.zs.u64[0] = ch.stab_mask;
+            ps.xs.ptr_simd[0] = ch.destab_mask;
+            ps.zs.ptr_simd[0] = ch.stab_mask;
             apply_pauli_to_frame(state, ps);
             break;
         }
