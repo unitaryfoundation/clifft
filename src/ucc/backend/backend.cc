@@ -799,6 +799,13 @@ CompiledModule lower(const HirModule& hir, std::span<const uint8_t> postselectio
 
                 break;
             }
+
+            case OpType::NUM_OP_TYPES:
+#if defined(__GNUC__) || defined(__clang__)
+                __builtin_unreachable();
+#elif defined(_MSC_VER)
+                __assume(0);
+#endif
         }
 
         // Tag all instructions emitted by this HIR op with source lines and k

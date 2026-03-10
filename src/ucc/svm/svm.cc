@@ -5,7 +5,6 @@
 #include <cassert>
 #include <cmath>
 #include <cstdlib>
-#include <cstring>
 #include <numbers>
 #include <random>
 #include <stdexcept>
@@ -174,7 +173,7 @@ SchrodingerState::SchrodingerState(uint32_t peak_rank, uint32_t num_measurements
         throw std::bad_alloc();
     }
 
-    std::memset(v_, 0, array_size_ * sizeof(std::complex<double>));
+    std::fill(v_, v_ + array_size_, std::complex<double>(0.0, 0.0));
     v_[0] = {1.0, 0.0};
 }
 
@@ -230,7 +229,7 @@ SchrodingerState& SchrodingerState::operator=(SchrodingerState&& other) noexcept
 
 void SchrodingerState::reset() {
     uint64_t active_size = (active_k > 0) ? (uint64_t{1} << active_k) : 1;
-    std::memset(v_, 0, active_size * sizeof(std::complex<double>));
+    std::fill(v_, v_ + active_size, std::complex<double>(0.0, 0.0));
     v_[0] = {1.0, 0.0};
     p_x = 0;
     p_z = 0;
@@ -1055,6 +1054,8 @@ void execute(const CompiledModule& program, SchrodingerState& state) {
     // Threaded dispatch table (computed gotos) gives each opcode its own
     // indirect-branch history entry, dramatically improving prediction.
     // Sized to 256; designated initializers map enums directly to labels.
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wpedantic"
     static const void* dispatch_table[256] = {
         [static_cast<uint8_t>(Opcode::OP_FRAME_CNOT)] = &&L_OP_FRAME_CNOT,
         [static_cast<uint8_t>(Opcode::OP_FRAME_CZ)] = &&L_OP_FRAME_CZ,
@@ -1241,6 +1242,7 @@ L_OP_OBSERVABLE:
     exec_observable(state, program.constant_pool, pc->pauli.cp_mask_idx, pc->pauli.condition_idx);
     DISPATCH();
 
+#pragma GCC diagnostic pop
 #undef DISPATCH
 #else
     // Fallback standard C++ switch loop for MSVC and non-GNU compilers

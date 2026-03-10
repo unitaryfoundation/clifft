@@ -90,6 +90,8 @@ std::string format_hir_op(const HeisenbergOp& op) {
             ss << "OBSERVABLE index=" << static_cast<uint32_t>(op.observable_idx())
                << " target_list=" << op.observable_target_list_idx();
             break;
+        case OpType::NUM_OP_TYPES:
+            break;
     }
     return ss.str();
 }

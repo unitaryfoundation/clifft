@@ -504,7 +504,7 @@ TEST_CASE("REPEAT ignores braces inside comments", "[parser]") {
 TEST_CASE("REPEAT line numbers after block are correct", "[parser]") {
     // Syntax error on line 5 should report correct line number.
     try {
-        parse("H 0\nREPEAT 2 {\nH 0\n}\nBADGATE 0");
+        (void)parse("H 0\nREPEAT 2 {\nH 0\n}\nBADGATE 0");
         REQUIRE(false);  // Should not reach here.
     } catch (const ParseError& e) {
         // Line 5 is where BADGATE is.
