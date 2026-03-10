@@ -115,7 +115,7 @@
   If we apply virtual Cliffords $V$ to compress an operator $O(\tilde{P})$, how is the global state preserved?
 
   \vspace{0.5em}
-  The compiler mathematically inserts the identity $V^\dagger V = I$ into the factored state:
+  The compiler mathematically inserts the identity $V^\dagger V = I$ into the factored state, effectively \textbf{pushing it forward}:
   \begin{equation*}
       \dots \underbrace{U_C^{(t)} \alert{V^\dagger}}_{\text{1. Offline Frame}} \;\; \underbrace{\Big[ \alert{V} O(\tilde{P}) \alert{V^\dagger} \Big]}_{\text{2. Localized Op}} \;\; \underbrace{\Big( \alert{V} \tilde{P}^{(t)} \alert{V^\dagger} \Big)}_{\text{3. Pauli Tracker}} \;\; \underbrace{\alert{V} \Big( |\phi^{(t)}\rangle_A \otimes |0\rangle_D \Big)}_{\text{4. Active Array}}
   \end{equation*}
@@ -140,60 +140,69 @@
       \textbf{Circuit} (2 Qubits)
       \vspace{0.5em}
 
-      \only<1>{$\rightarrow$ Init $|00\rangle$\\ \color{gray} Phys $H(q_0)$, CX$(q_0 \to q_1)$\\ \color{gray} Phys $T(q_1)$\\ \color{gray} Measure $q_1$}
-      \only<2>{\color{gray} Init $|00\rangle$\\ \color{black}$\rightarrow$ Phys $H(q_0)$, CX$(q_0 \to q_1)$\\ \color{gray} Phys $T(q_1)$\\ \color{gray} Measure $q_1$}
-      \only<3>{\color{gray} Init $|00\rangle$\\ \color{gray} Phys $H(q_0)$, CX$(q_0 \to q_1)$\\ \color{black}$\rightarrow$ Phys $T(q_1)$ \textit{(Compile)}\\ \color{gray} Measure $q_1$}
-      \only<4>{\color{gray} Init $|00\rangle$\\ \color{gray} Phys $H(q_0)$, CX$(q_0 \to q_1)$\\ \color{black}$\rightarrow$ Phys $T(q_1)$ \textit{(Execute)}\\ \color{gray} Measure $q_1$}
-      \only<5>{\color{gray} Init $|00\rangle$\\ \color{gray} Phys $H(q_0)$, CX$(q_0 \to q_1)$\\ \color{gray} Phys $T(q_1)$\\ \color{black}$\rightarrow$ Measure $q_1$}
+      \only<1>{$\rightarrow$ Init $|00\rangle$\\ \color{gray} Phys $H(q_0)$\\ \color{gray} Phys $T(q_0)$\\ \color{gray} Phys CX$(q_0 \to q_1)$\\ \color{gray} Measure $q_1$}
+      \only<2>{\color{gray} Init $|00\rangle$\\ \color{black}$\rightarrow$ Phys $H(q_0)$\\ \color{gray} Phys $T(q_0)$\\ \color{gray} Phys CX$(q_0 \to q_1)$\\ \color{gray} Measure $q_1$}
+      \only<3>{\color{gray} Init $|00\rangle$\\ \color{gray} Phys $H(q_0)$\\ \color{black}$\rightarrow$ Phys $T(q_0)$ \textit{(Compile)}\\ \color{gray} Phys CX$(q_0 \to q_1)$\\ \color{gray} Measure $q_1$}
+      \only<4>{\color{gray} Init $|00\rangle$\\ \color{gray} Phys $H(q_0)$\\ \color{black}$\rightarrow$ Phys $T(q_0)$ \textit{(Execute)}\\ \color{gray} Phys CX$(q_0 \to q_1)$\\ \color{gray} Measure $q_1$}
+      \only<5>{\color{gray} Init $|00\rangle$\\ \color{gray} Phys $H(q_0)$\\ \color{gray} Phys $T(q_0)$\\ \color{black}$\rightarrow$ Phys CX$(q_0 \to q_1)$\\ \color{gray} Measure $q_1$}
+      \only<6>{\color{gray} Init $|00\rangle$\\ \color{gray} Phys $H(q_0)$\\ \color{gray} Phys $T(q_0)$\\ \color{gray} Phys CX$(q_0 \to q_1)$\\ \color{black}$\rightarrow$ Measure $q_1$}
 
       \vspace{1.5em}
-      \textit{\footnotesize Observe how Pauli compression safely folds multi-qubit operators \textbf{before} expanding the array.}
+      \only<3>{\textit{\footnotesize \textbf{Why no $I/Z$ branching?}\\ $T \propto \exp(-i \frac{\pi}{8} Z)$. Because $I$ is invariant, $V$ distributes directly into the exponent: $\exp(-i\frac{\pi}{8} \alert{V Z_0 V^\dagger})$.}}
+      \only<5>{\alert{\textbf{Key Insight:}}\\ \footnotesize The physical CX entangles the qubits, but because it is a Clifford, the Active Array doesn't care! It costs zero FLOPs.}
     \end{column}
 
     \begin{column}{0.6\textwidth}
       \begin{block}{System State at $t$}
         \only<1>{
-          $U_C = I$ \\
-          $\tilde{P} = I$ \\
+          $U_C = I$, \quad $\tilde{P}^{(t)} = I$ \\
           $A = \emptyset, \quad D = \{0, 1\} \quad \mathbf{(k=0)}$ \\
-          $|\phi\rangle_A = [1]$ \\
-          $\gamma = 1.0$
+          $|\phi\rangle_A = [1], \quad \gamma = 1.0$
         }
         \only<2>{
           \textbf{Action:} Update deterministic frame offline.\\
           \vspace{0.5em}
-          $U_C = \text{CX}_{0\to1} \cdot H_0$ \\
-          $\tilde{P} = I$ \\
+          $U_C = H_0$ \\
+          $\tilde{P}^{(t)} = I$ \\
           $A = \emptyset, \quad D = \{0, 1\} \quad \mathbf{(k=0)}$ \\
-          $|\phi\rangle_A = [1]$ \quad \alert{\textit{(Zero FLOPs!)}} \\
-          $\gamma = 1.0$
+          $|\phi\rangle_A = [1]$ \quad \alert{\textit{(Zero FLOPs!)}}
         }
         \only<3>{
-          \textbf{Exact Pauli Compression:}\\
-          Physical $Z_1$ rewinds through $U_C$ to virtual \alert{$\mathbf{X_0 \otimes Z_1}$}.\\
+          \textbf{Compile T-Gate (Rotation about Z):}\\
+          $T \propto \exp(-i \frac{\pi}{8} \mathbf{Z_0})$. We track the generator!\\
           \vspace{0.5em}
-          Compiler applies virtual $V = \text{CZ}_{0,1}$ to compress $X_0 \otimes Z_1 \to X_0$.\\
+          \textit{We don't branch into $I$ and $Z$ universes!} Physical $Z_0$ maps through $U_C$ to virtual \alert{$\mathbf{X_0}$}.\\
           \vspace{0.5em}
-          \textit{Generator is cleanly isolated to axis $q_0$ without expanding the array!}
+          Compiler applies $V = H_0$ to align $X_0 \to Z_0$ for the continuous diagonal phase.
         }
         \only<4>{
-          \textbf{Dimensionality Expansion:}\\
+          \textbf{Execute T-Gate (Dimensionality Expansion):}\\
           \vspace{0.5em}
-          Virtual $H_0$ maps $X_0 \to Z_0$ for diagonal $T$ phase. Axis $q_0$ activates.\\
-          $U_C \leftarrow U_C \cdot \text{CZ}_{0,1} \cdot H_0$ \\
+          Virtual $V^\dagger$ pushes into $U_C$ ($U_C \leftarrow U_C \cdot H_0 = I$).\\
+          Axis $q_0$ activates.\\
           $A = \{0\}, \quad D = \{1\} \quad \mathbf{(k=1)}$ \\
-          $|\phi\rangle_A = [1, e^{i\pi/4}]^T$ \quad \textit{(Array Doubles)} \\
-          $\gamma = 1/\sqrt{2}$
+          $|\phi\rangle_A = [1, e^{i\pi/4}]^T$ \quad \textit{(Array Doubles!)} \\
+          $\gamma = e^{i\pi/8} / \sqrt{2}$ \quad \textit{(Absorbs global phase)}
         }
         \only<5>{
-          \textbf{Action:} Projective Measurement. Outcome $m$.\\
-          \textbf{Array Compaction!}\\
+          \textbf{Physical Entanglement:}\\
+          Clifford gate maps directly into the offline frame.\\
           \vspace{0.5em}
-          Active qubit collapses based on outcome.\\
-          $\tilde{P} \leftarrow$ Updates $\mathbf{x}, \mathbf{z}$ tracking. \\
+          $U_C \leftarrow \text{CX}_{0\to 1} \cdot U_C = \text{CX}_{0\to 1}$ \\
+          $A = \{0\}, \quad D = \{1\} \quad \mathbf{(k=1)}$ \\
+          $|\phi\rangle_A = [1, e^{i\pi/4}]^T$ \\
+          \vspace{0.5em}
+          \alert{\textit{The array is completely untouched!}}
+        }
+        \only<6>{
+          \textbf{Action:} Projective Measurement. Outcome $m$.\\
+          Physical $Z_1$ pushes through $\text{CX}_{0\to 1}$ to \alert{$\mathbf{Z_0 \otimes Z_1}$}.\\
+          \vspace{0.5em}
+          Virtual $V = \text{CX}_{1 \to 0}$ compresses it to $Z_0$. Measure Active $q_0$.\\
+          $\tilde{P}^{(t)} \leftarrow$ Updates $\mathbf{x}, \mathbf{z}$ tracking. \\
           $A = \emptyset, \quad D = \{0, 1\} \quad \mathbf{(k=0)}$ \\
-          $|\phi\rangle_A = [1]$ \quad \textit{(Array Halves)} \\
-          $\gamma \leftarrow \gamma / \sqrt{p_{m}}$ \quad \textit{(Phase extracted)}
+          $|\phi\rangle_A = [1]$ \quad \textit{(Array Halves!)} \\
+          $\gamma \leftarrow \gamma / \sqrt{p_m}$
         }
       \end{block}
     \end{column}
@@ -235,54 +244,58 @@
 
 \begin{frame}{UCC Architecture Diagram}
   \begin{center}
-    \adjustbox{max width=\textwidth, max height=0.85\textheight}{
+    \adjustbox{max width=0.95\textwidth, max height=0.85\textheight}{
       \begin{tikzpicture}[
         >=Stealth,
         font=\sffamily,
-        node distance=0.8cm and 1.2cm,
-        impl/.style={rectangle, draw=blue!80!black, fill=blue!5, thick, minimum width=3.8cm, minimum height=1.4cm, align=center, rounded corners=1ex, font=\normalsize\bfseries},
-        impl-io/.style={rectangle, draw=black!80, fill=gray!10, thick, minimum width=2.5cm, minimum height=1.0cm, align=center, rounded corners=1ex, font=\normalsize\bfseries},
-        fut/.style={rectangle, draw=gray!50, fill=white, dashed, thick, minimum width=3.8cm, minimum height=1.4cm, align=center, rounded corners=1ex, font=\normalsize, text=gray!80!black},
-        fut-io/.style={rectangle, draw=gray!50, fill=white, dashed, thick, minimum width=2.5cm, minimum height=1.0cm, align=center, rounded corners=1ex, font=\normalsize, text=gray!80!black},
-        arr-impl/.style={->, line width=0.5mm, draw=blue!80!black},
-        arr-fut/.style={->, line width=0.5mm, dashed, draw=gray!50}
+        node distance=1.2cm and 2.0cm,
+        impl/.style={rectangle, draw=blue!80!black, fill=blue!5, thick, minimum width=5.5cm, minimum height=1.6cm, align=center, rounded corners=1ex, font=\large\bfseries},
+        impl-io/.style={rectangle, draw=black!80, fill=gray!10, thick, minimum width=3.5cm, minimum height=1.0cm, align=center, rounded corners=1ex, font=\normalsize\bfseries},
+        fut/.style={rectangle, draw=gray!50, fill=white, dashed, thick, minimum width=5.5cm, minimum height=1.6cm, align=center, rounded corners=1ex, font=\normalsize, text=gray!80!black},
+        fut-io/.style={rectangle, draw=gray!50, fill=white, dashed, thick, minimum width=3.5cm, minimum height=1.0cm, align=center, rounded corners=1ex, font=\normalsize, text=gray!80!black},
+        arr-impl/.style={->, line width=0.6mm, draw=blue!80!black},
+        arr-fut/.style={->, line width=0.6mm, dashed, draw=gray!50}
       ]
 
       % Top Row (Left to Right)
-      \node[impl-io] (in-stim) {Extended Stim\\ \small (Native)};
-      \node[fut-io, above=0.3cm of in-stim] (in-qasm) {OpenQASM 3};
-      \node[fut-io, below=0.3cm of in-stim] (in-qiskit) {Qiskit};
+      \node[impl-io] (in-stim) {Extended Stim\\ \small (Native Format)};
+      \node[fut-io, above=0.2cm of in-stim] (in-qasm) {OpenQASM 3};
+      \node[fut-io, below=0.2cm of in-stim] (in-qiskit) {Qiskit / Cirq};
 
-      \node[impl, right=1.2cm of in-stim] (fe) {Front-End Compiler\\ \small Physical Rewinding \&\\ \small Clifford Absorption};
-      \node[impl, right=1.2cm of fe] (me) {Middle-End Optimizer\\ \small Global Commutation \&\\ \small FastTODD (HIR)};
+      \node[impl, right=2cm of in-stim] (fe) {Front-End Compiler\\ \normalsize Physical Rewinding \&\\ \normalsize Clifford Absorption};
 
-      % Bottom Row (Right to Left)
-      \node[impl, below=1.5cm of me] (be) {Compiler Back-End\\ \small Virtual Compression \&\\ \small RISC Bytecode Emission};
-      \node[impl, left=1.2cm of be] (vm) {Schrödinger VM\\ \small $\mathcal{O}(2^k)$ Execution over\\ \small Contiguous Array};
-      \node[impl-io, left=1.2cm of vm] (out-bits) {Sampled\\ \small Bitstrings};
+      % Middle Row (Right to Left)
+      \node[impl, below=1.5cm of fe] (me) {Middle-End Optimizer\\ \normalsize Global Commutation \&\\ \normalsize Algebraic Fusion (HIR)};
 
-      \node[fut, right=1.2cm of be] (hw) {Hardware Routers\\ \small (tqec / NISQ)};
+      \node[impl, left=2cm of me] (be) {Compiler Back-End\\ \normalsize Virtual Compression \&\\ \normalsize RISC Bytecode Emission};
+
+      % Bottom Row
+      \node[impl, below=1.5cm of be] (vm) {Schrödinger VM\\ \normalsize $\mathcal{O}(2^k)$ Execution over\\ \normalsize Contiguous Array};
+
+      \node[fut, below=1.5cm of me] (hw) {Hardware Routers\\ \normalsize (e.g., tqec / NISQ)};
+
+      \node[impl-io, below=0.8cm of vm] (out-bits) {Sampled Bitstrings};
 
       % Arrows
-      \draw[arr-impl] (in-stim) -- (fe);
-      \draw[arr-fut] (in-qasm.east) to[out=0, in=160] (fe.160);
-      \draw[arr-fut] (in-qiskit.east) to[out=0, in=200] (fe.200);
+      \draw[arr-impl] (in-stim.east) -- (fe.west);
+      \draw[arr-fut] (in-qasm.east) to[out=0, in=150] (fe.150);
+      \draw[arr-fut] (in-qiskit.east) to[out=0, in=210] (fe.210);
 
-      \draw[arr-impl] (fe) -- node[above, font=\small\bfseries] {Heisenberg IR} (me);
+      \draw[arr-impl] (fe.south) -- node[right, font=\normalsize\bfseries] {Heisenberg IR} (me.north);
+      \draw[arr-impl] (me.west) -- node[above, font=\normalsize\bfseries] {Optimized HIR} (be.east);
 
-      \draw[arr-impl] (me) -- node[right, font=\small\bfseries] {Optimized HIR} (be);
+      \draw[arr-impl] (be.south) -- node[right, font=\normalsize\bfseries] {RISC Bytecode} (vm.north);
+      \draw[arr-impl] (vm.south) -- (out-bits.north);
 
-      \draw[arr-impl] (be) -- node[above, font=\small\bfseries] {RISC Bytecode} (vm);
-      \draw[arr-impl] (vm) -- (out-bits);
-      \draw[arr-fut] (be) -- node[above, font=\small] {Opt. HIR} (hw);
+      \draw[arr-fut] (me.south) -- node[right, font=\normalsize] {Opt. HIR} (hw.north);
 
       % Legend
-      \node[rectangle, draw=gray!50, fill=gray!5, rounded corners=0.5ex, thick, inner sep=4pt, below=0.8cm of fe] (legend) {
+      \node[rectangle, draw=gray!50, fill=gray!5, rounded corners=0.5ex, thick, inner sep=6pt, below=0.8cm of hw] (legend) {
           \begin{tikzpicture}
-              \draw[blue!80!black, fill=blue!5, thick, rounded corners=0.2ex] (0,0) rectangle (0.4, 0.25);
-              \node[anchor=west, font=\scriptsize\bfseries, text=black, inner sep=2pt] at (0.4, 0.125) {UCC Implemented};
-              \draw[gray!50, fill=white, dashed, thick, rounded corners=0.2ex] (3.0,0) rectangle (3.4, 0.25);
-              \node[anchor=west, font=\scriptsize, text=gray!80!black, inner sep=2pt] at (3.4, 0.125) {Future Extension / Ecosystem};
+              \draw[blue!80!black, fill=blue!5, thick, rounded corners=0.2ex] (0,0) rectangle (0.6, 0.3);
+              \node[anchor=west, font=\normalsize\bfseries, text=black, inner sep=4pt] at (0.6, 0.15) {UCC Implemented};
+              \draw[gray!50, fill=white, dashed, thick, rounded corners=0.2ex] (4.5,0) rectangle (5.1, 0.3);
+              \node[anchor=west, font=\normalsize, text=gray!80!black, inner sep=4pt] at (5.1, 0.15) {Future / Ecosystem};
           \end{tikzpicture}
       };
 
