@@ -1342,6 +1342,82 @@ TEST_CASE("Compaction fuzz: interfere with pre-existing Pauli frame") {
 }
 
 // =============================================================================
+// Extreme Magnitude Compaction Tests
+// =============================================================================
+
+TEST_CASE("Compaction fuzz: extreme magnitudes diagonal - k=4") {
+    // Inject extreme gamma magnitudes (1e+/-150) to stress-test the deferred
+    // normalization rescue math during measurement compaction.
+    uint64_t seed = 0xDEAD0099;
+    SchrodingerState state(4, 1);
+
+    double extreme_scales[] = {1e-150, 1e-100, 1e100, 1e150};
+
+    for (double ext_scale : extreme_scales) {
+        for (int trial = 0; trial < 50; ++trial) {
+            INFO("Scale: " << ext_scale << " | Trial: " << trial);
+            state.reseed(test_lcg(seed));
+            state.reset();
+            state.active_k = 4;
+
+            double raw_norm = 0.0;
+            for (uint64_t i = 0; i < 16; ++i) {
+                state.v()[i] = random_complex(seed);
+                raw_norm += std::norm(state.v()[i]);
+            }
+            double scale = ext_scale / std::sqrt(raw_norm);
+            for (uint64_t i = 0; i < 16; ++i) {
+                state.v()[i] *= scale;
+            }
+            state.set_gamma({1.0 / ext_scale, 0.0});
+
+            auto prog = make_program({make_meas_active_diagonal(3, 0)}, 4, 1);
+            execute(prog, state);
+
+            CHECK(state.active_k == 3);
+            CHECK(std::isfinite(state.gamma().real()));
+            CHECK(std::isfinite(state.gamma().imag()));
+            CHECK_THAT(physical_norm(state), WithinAbs(1.0, 1e-6));
+        }
+    }
+}
+
+TEST_CASE("Compaction fuzz: extreme magnitudes interfere - k=4") {
+    uint64_t seed = 0xDEAD009A;
+    SchrodingerState state(4, 1);
+
+    double extreme_scales[] = {1e-150, 1e-100, 1e100, 1e150};
+
+    for (double ext_scale : extreme_scales) {
+        for (int trial = 0; trial < 50; ++trial) {
+            INFO("Scale: " << ext_scale << " | Trial: " << trial);
+            state.reseed(test_lcg(seed));
+            state.reset();
+            state.active_k = 4;
+
+            double raw_norm = 0.0;
+            for (uint64_t i = 0; i < 16; ++i) {
+                state.v()[i] = random_complex(seed);
+                raw_norm += std::norm(state.v()[i]);
+            }
+            double scale = ext_scale / std::sqrt(raw_norm);
+            for (uint64_t i = 0; i < 16; ++i) {
+                state.v()[i] *= scale;
+            }
+            state.set_gamma({1.0 / ext_scale, 0.0});
+
+            auto prog = make_program({make_meas_active_interfere(3, 0)}, 4, 1);
+            execute(prog, state);
+
+            CHECK(state.active_k == 3);
+            CHECK(std::isfinite(state.gamma().real()));
+            CHECK(std::isfinite(state.gamma().imag()));
+            CHECK_THAT(physical_norm(state), WithinAbs(1.0, 1e-6));
+        }
+    }
+}
+
+// =============================================================================
 // Zero-Probability Branch Stability
 // =============================================================================
 

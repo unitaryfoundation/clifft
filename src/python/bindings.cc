@@ -796,6 +796,7 @@ NB_MODULE(_ucc_core, m) {
     m.def(
         "execute",
         [](const ucc::CompiledModule& program, ucc::SchrodingerState& state) {
+            nb::gil_scoped_release release;
             ucc::execute(program, state);
         },
         nb::arg("program"), nb::arg("state"),
@@ -805,16 +806,23 @@ NB_MODULE(_ucc_core, m) {
     m.def(
         "get_statevector",
         [](const ucc::CompiledModule& program, const ucc::SchrodingerState& state) {
-            auto sv = ucc::get_statevector(program, state);
+            // Heap-allocate so the capsule can own the data's lifetime beyond
+            // this lambda. Use unique_ptr for exception safety: if
+            // get_statevector throws, the allocation is cleaned up automatically.
+            auto owner_vec = std::make_unique<std::vector<std::complex<double>>>();
+            {
+                nb::gil_scoped_release release;
+                *owner_vec = ucc::get_statevector(program, state);
+            }
 
-            size_t n = sv.size();
-            auto* data = new std::complex<double>[n];
-            std::copy(sv.begin(), sv.end(), data);
+            size_t n = owner_vec->size();
+            auto* raw = owner_vec.release();
+            nb::capsule owner(raw, [](void* p) noexcept {
+                delete static_cast<std::vector<std::complex<double>>*>(p);
+            });
 
-            nb::capsule owner(
-                data, [](void* p) noexcept { delete[] static_cast<std::complex<double>*>(p); });
-
-            return nb::ndarray<nb::numpy, std::complex<double>, nb::c_contig>(data, {n}, owner);
+            return nb::ndarray<nb::numpy, std::complex<double>, nb::c_contig>(raw->data(), {n},
+                                                                              owner);
         },
         nb::arg("program"), nb::arg("state"), "Expand the SVM state into a dense statevector.");
 }

@@ -655,7 +655,10 @@ CompiledModule lower(const HirModule& hir, std::span<const uint8_t> postselectio
                 // Accumulate hazard for exponential gap sampling.
                 // log1p(-x) avoids catastrophic cancellation when prob_sum is near zero,
                 // where log(1 - x) would lose significant digits.
-                ctx.noise_hazards_accum += -std::log1p(-std::min(prob_sum, 1.0 - 1e-15));
+                // Clamp to 1 - 2^-53 (one ULP below 1.0 in double precision).
+                // This matches the maximum value of random_double() = (rng() >> 11) * 2^-53,
+                // preventing log1p(-1) = -inf when prob_sum rounds to exactly 1.0.
+                ctx.noise_hazards_accum += -std::log1p(-std::min(prob_sum, 1.0 - 0x1.0p-53));
                 ctx.constant_pool.noise_hazards.push_back(ctx.noise_hazards_accum);
                 break;
             }

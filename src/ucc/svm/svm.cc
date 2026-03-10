@@ -164,6 +164,10 @@ SchrodingerState::SchrodingerState(uint32_t peak_rank, uint32_t num_measurements
                                    uint32_t num_detectors, uint32_t num_observables,
                                    std::optional<uint64_t> seed)
     : peak_rank_(peak_rank), rng_(0) {
+    if (peak_rank >= 63) {
+        throw std::invalid_argument(
+            "peak_rank >= 63 would cause undefined behavior in 1ULL << peak_rank");
+    }
     if (seed.has_value()) {
         rng_.seed(*seed);
     } else {
@@ -207,6 +211,8 @@ SchrodingerState::SchrodingerState(SchrodingerState&& other) noexcept
       rng_(std::move(other.rng_)) {
     other.v_ = nullptr;
     other.array_size_ = 0;
+    other.active_k = 0;
+    other.peak_rank_ = 0;
 }
 
 SchrodingerState& SchrodingerState::operator=(SchrodingerState&& other) noexcept {
@@ -228,6 +234,8 @@ SchrodingerState& SchrodingerState::operator=(SchrodingerState&& other) noexcept
         obs_record = std::move(other.obs_record);
         other.v_ = nullptr;
         other.array_size_ = 0;
+        other.active_k = 0;
+        other.peak_rank_ = 0;
     }
     return *this;
 }
@@ -329,7 +337,7 @@ static inline void exec_array_cnot(SchrodingerState& state, uint16_t c, uint16_t
     uint64_t c_bit = 1ULL << c;
     uint64_t t_bit = 1ULL << t;
     uint64_t pdep_mask = ~(c_bit | t_bit);
-    auto* v = state.v();
+    auto* __restrict v = state.v();
 
     for (uint64_t i = 0; i < iters; ++i) {
         uint64_t base0 = scatter_bits_2(i, pdep_mask, c, t) | c_bit;
@@ -350,7 +358,7 @@ static inline void exec_array_cz(SchrodingerState& state, uint16_t c, uint16_t t
     uint64_t iters = 1ULL << (state.active_k - 2);
     uint64_t both_bits = (1ULL << c) | (1ULL << t);
     uint64_t pdep_mask = ~both_bits;
-    auto* v = state.v();
+    auto* __restrict v = state.v();
 
     for (uint64_t i = 0; i < iters; ++i) {
         uint64_t idx = scatter_bits_2(i, pdep_mask, c, t) | both_bits;
@@ -371,7 +379,7 @@ static inline void exec_array_swap(SchrodingerState& state, uint16_t a, uint16_t
     uint64_t a_bit = 1ULL << a;
     uint64_t b_bit = 1ULL << b;
     uint64_t pdep_mask = ~(a_bit | b_bit);
-    auto* v = state.v();
+    auto* __restrict v = state.v();
 
     for (uint64_t i = 0; i < iters; ++i) {
         uint64_t base = scatter_bits_2(i, pdep_mask, a, b);
@@ -391,14 +399,12 @@ static inline void exec_array_multi_cnot(SchrodingerState& state, uint16_t targe
 
     uint64_t t_bit = 1ULL << target;
     uint64_t half = 1ULL << (state.active_k - 1);
+    uint64_t pdep_mask = ~t_bit;
     uint64_t cm = ctrl_mask;
-    auto* v = state.v();
+    auto* __restrict v = state.v();
 
-    // Iterate over all indices with target bit = 0, conditionally swap.
     for (uint64_t idx = 0; idx < half; ++idx) {
-        // Insert a zero bit at the target position to get the actual index.
-        uint64_t lo_mask = t_bit - 1;
-        uint64_t actual = (idx & lo_mask) | ((idx & ~lo_mask) << 1);
+        uint64_t actual = scatter_bits_1(idx, pdep_mask, target);
         if (std::popcount(actual & cm) & 1) {
             std::swap(v[actual], v[actual | t_bit]);
         }
@@ -424,7 +430,7 @@ static inline void exec_array_multi_cz(SchrodingerState& state, uint16_t control
     uint64_t c_bit = 1ULL << control;
     uint64_t size = 1ULL << state.active_k;
     uint64_t tm = target_mask;
-    auto* v = state.v();
+    auto* __restrict v = state.v();
 
     for (uint64_t idx = 0; idx < size; ++idx) {
         if ((idx & c_bit) && (std::popcount(idx & tm) & 1)) {
@@ -447,7 +453,7 @@ static inline void exec_array_h(SchrodingerState& state, uint16_t v) {
     uint64_t iters = 1ULL << (state.active_k - 1);
     uint64_t v_bit = 1ULL << v;
     uint64_t pdep_mask = ~v_bit;
-    auto* arr = state.v();
+    auto* __restrict arr = state.v();
 
     for (uint64_t i = 0; i < iters; ++i) {
         uint64_t idx0 = scatter_bits_1(i, pdep_mask, v);
@@ -479,7 +485,7 @@ static inline void exec_array_s(SchrodingerState& state, uint16_t v) {
     uint64_t iters = 1ULL << (state.active_k - 1);
     uint64_t v_bit = 1ULL << v;
     uint64_t pdep_mask = ~v_bit;
-    auto* arr = state.v();
+    auto* __restrict arr = state.v();
 
     for (uint64_t i = 0; i < iters; ++i) {
         arr[scatter_bits_1(i, pdep_mask, v) | v_bit] *= kI;
@@ -494,7 +500,7 @@ static inline void exec_array_s_dag(SchrodingerState& state, uint16_t v) {
     uint64_t iters = 1ULL << (state.active_k - 1);
     uint64_t v_bit = 1ULL << v;
     uint64_t pdep_mask = ~v_bit;
-    auto* arr = state.v();
+    auto* __restrict arr = state.v();
 
     for (uint64_t i = 0; i < iters; ++i) {
         arr[scatter_bits_1(i, pdep_mask, v) | v_bit] *= kMinusI;
@@ -514,7 +520,7 @@ static inline void exec_expand(SchrodingerState& state, uint16_t v) {
     assert(v == state.active_k && "EXPAND must target the next dormant axis");
     assert(state.v_size() <= state.array_size() / 2 && "EXPAND exceeded AOT peak_rank allocation!");
     uint64_t old_size = 1ULL << state.active_k;
-    auto* arr = state.v();
+    auto* __restrict arr = state.v();
 
     // Duplicate: v[i | (1 << k)] = v[i] for all i < 2^k
     uint64_t half = old_size;
@@ -543,7 +549,7 @@ static inline void exec_phase_t(SchrodingerState& state, uint16_t v) {
     uint64_t iters = 1ULL << (state.active_k - 1);
     uint64_t v_bit = 1ULL << v;
     uint64_t pdep_mask = ~v_bit;
-    auto* arr = state.v();
+    auto* __restrict arr = state.v();
 
     if (px) {
         for (uint64_t i = 0; i < iters; ++i) {
@@ -573,7 +579,7 @@ static inline void exec_phase_t_dag(SchrodingerState& state, uint16_t v) {
     uint64_t iters = 1ULL << (state.active_k - 1);
     uint64_t v_bit = 1ULL << v;
     uint64_t pdep_mask = ~v_bit;
-    auto* arr = state.v();
+    auto* __restrict arr = state.v();
 
     if (px) {
         for (uint64_t i = 0; i < iters; ++i) {
@@ -596,7 +602,7 @@ static inline void exec_expand_t(SchrodingerState& state, uint16_t v) {
     assert(v == state.active_k && "EXPAND_T must target the next dormant axis");
     assert(state.v_size() <= state.array_size() / 2);
     uint64_t half = 1ULL << state.active_k;
-    auto* arr = state.v();
+    auto* __restrict arr = state.v();
     bool px = bit_get(state.p_x, v);
 
     // The phase applied to the upper half (bit v set).
@@ -620,7 +626,7 @@ static inline void exec_expand_t_dag(SchrodingerState& state, uint16_t v) {
     assert(v == state.active_k && "EXPAND_T_DAG must target the next dormant axis");
     assert(state.v_size() <= state.array_size() / 2);
     uint64_t half = 1ULL << state.active_k;
-    auto* arr = state.v();
+    auto* __restrict arr = state.v();
     bool px = bit_get(state.p_x, v);
 
     // If p_x[v]=1, T_dag anticommutes -> array gets T, gamma absorbs T_dag.
@@ -683,7 +689,7 @@ static inline void exec_meas_active_diagonal(SchrodingerState& state, uint16_t v
     assert(v == state.active_k - 1 && "Active diagonal measurement must target axis k-1");
 
     uint64_t half = 1ULL << (state.active_k - 1);
-    auto* arr = state.v();
+    auto* __restrict arr = state.v();
     bool px_v = bit_get(state.p_x, v);
     bool pz_v = bit_get(state.p_z, v);
 
@@ -704,31 +710,26 @@ static inline void exec_meas_active_diagonal(SchrodingerState& state, uint16_t v
     // Physical outcome (classical record includes compression sign)
     uint8_t m_phys = m_abs ^ static_cast<uint8_t>(sign);
 
-    // Deferred normalization: scale gamma by sqrt(total / prob_b) to
-    // perfectly re-normalize the physical state while preserving accumulated
-    // global scale factors (e.g. 1/sqrt(2) from EXPAND).
-    double prob_b = (b == 0) ? prob_b0 : prob_b1;
-    assert(prob_b > 0.0);
-    state.scale_magnitude(std::sqrt(total / prob_b));
-
     // Phase extraction: (-1)^(p_z[v] * b) when b=1
     if (b == 1 && pz_v) {
         state.multiply_phase({-1.0, 0.0});
     }
 
-    // Keep chosen branch, compact array
-    if (b == 0) {
-        // Keep lower half (already in place)
-    } else {
-        // Move upper half down
+    // Compact array: keep chosen branch
+    if (b == 1) {
         for (uint64_t i = 0; i < half; ++i) {
             arr[i] = arr[i + half];
         }
     }
 
-    std::memset(arr + half, 0, half * sizeof(std::complex<double>));
-
+    // Decrement active_k before renormalization so scale_magnitude only
+    // touches the surviving half, saving 50% of FLOPs.
     state.active_k--;
+
+    double prob_b = (b == 0) ? prob_b0 : prob_b1;
+    if (prob_b > 0.0) {
+        state.scale_magnitude(std::sqrt(total / prob_b));
+    }
 
     // Frame reset: anchor to abstract eigenstate
     bit_set(state.p_x, v, m_abs);
@@ -747,7 +748,7 @@ static inline void exec_meas_active_interfere(SchrodingerState& state, uint16_t 
     assert(v == state.active_k - 1 && "Active interfere measurement must target axis k-1");
 
     uint64_t half = 1ULL << (state.active_k - 1);
-    auto* arr = state.v();
+    auto* __restrict arr = state.v();
     bool px_v = bit_get(state.p_x, v);
     bool pz_v = bit_get(state.p_z, v);
 
@@ -787,21 +788,22 @@ static inline void exec_meas_active_interfere(SchrodingerState& state, uint16_t 
         }
     }
 
-    // Deferred normalization: compensate for probability of chosen branch.
-    // With the unitary 1/sqrt(2) fold above, the surviving branch has
-    // squared norm = prob_bx / 2, matching the diagonal measurement formula.
-    double prob_bx = (b_x == 0) ? prob_plus : prob_minus;
-    assert(prob_bx > 0.0);
-    state.scale_magnitude(std::sqrt(total / prob_bx));
-
     // Phase extraction: (-1)^(p_x[v] * m_abs)
     if (px_v && m_abs) {
         state.multiply_phase({-1.0, 0.0});
     }
 
-    std::memset(arr + half, 0, half * sizeof(std::complex<double>));
-
+    // Decrement active_k before renormalization so scale_magnitude only
+    // touches the surviving half, saving 50% of FLOPs.
     state.active_k--;
+
+    // Deferred normalization: compensate for probability of chosen branch.
+    // With the unitary 1/sqrt(2) fold above, the surviving branch has
+    // squared norm = prob_bx / 2, matching the diagonal measurement formula.
+    double prob_bx = (b_x == 0) ? prob_plus : prob_minus;
+    if (prob_bx > 0.0) {
+        state.scale_magnitude(std::sqrt(total / prob_bx));
+    }
 
     // Frame reset: anchor to abstract eigenstate
     bit_set(state.p_x, v, m_abs);
@@ -843,7 +845,7 @@ static inline void exec_swap_meas_interfere(SchrodingerState& state, uint16_t f,
     bool pz_v = bit_get(state.p_z, t);
 
     uint64_t half = 1ULL << t;
-    auto* arr = state.v();
+    auto* __restrict arr = state.v();
     uint64_t f_bit = 1ULL << f;
 
     // Pass 1: Compute X-basis probabilities with swapped index mapping
@@ -879,13 +881,14 @@ static inline void exec_swap_meas_interfere(SchrodingerState& state, uint16_t f,
         }
     }
 
-    // Zero upper half, decrement active dimension
-    std::memset(arr + half, 0, half * sizeof(std::complex<double>));
+    // Decrement active_k before renormalization so scale_magnitude only
+    // touches the surviving half, saving 50% of FLOPs.
     state.active_k--;
 
-    // Deferred normalization
     double prob_bx = (b_x == 0) ? prob_plus : prob_minus;
-    state.scale_magnitude(std::sqrt(total / prob_bx));
+    if (prob_bx > 0.0) {
+        state.scale_magnitude(std::sqrt(total / prob_bx));
+    }
 
     // Abstract and physical outcomes
     uint8_t m_abs = b_x ^ static_cast<uint8_t>(pz_v);
@@ -911,8 +914,8 @@ static inline void apply_pauli_to_frame(SchrodingerState& state,
                                         const stim::PauliString<kStimWidth>& ps) {
     assert(ps.num_qubits <= kStimWidth && "PauliString exceeds single bitword lane");
 
-    Bitword err_x = ps.xs.ptr_simd[0];
-    Bitword err_z = ps.zs.ptr_simd[0];
+    Bitword err_x(ps.xs.u64[0]);
+    Bitword err_z(ps.zs.u64[0]);
 
     // Phase: (-1)^popcount(err_z & current_x)
     // When composing E*P, we commute Z^{e_z} past X^{p_x}, picking up (-1)^{e_z . p_x}.

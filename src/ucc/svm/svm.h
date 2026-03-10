@@ -154,11 +154,13 @@ class SchrodingerState {
 
     // Multiply gamma by a real scale factor, triggering renormalization
     // if gamma drifts toward overflow or underflow.
+    // Uses std::abs (not std::norm) to avoid squaring-induced underflow:
+    // norm() squares the magnitude, so values near 1e-154 underflow to 0,
+    // while abs() uses hypot() which stays representable down to ~5e-308.
     void scale_magnitude(double scale) {
         gamma_ *= scale;
-        double g_norm = std::norm(gamma_);
-        if (g_norm > 1e200 || (g_norm < 1e-200 && g_norm > 0.0)) {
-            double g_mag = std::sqrt(g_norm);
+        double g_mag = std::abs(gamma_);
+        if (g_mag > 1e100 || (g_mag < 1e-100 && g_mag > 0.0)) {
             uint64_t sz = v_size();
             for (uint64_t ri = 0; ri < sz; ++ri)
                 v_[ri] *= g_mag;

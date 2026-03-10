@@ -730,7 +730,7 @@ TEST_CASE("Backend: Gap sampling hazard array accumulation") {
     NoiseSite site2;
     site2.channels.push_back({2, 0, 0.75});
     NoiseSite site3;
-    site3.channels.push_back({4, 0, 1.0});  // clamped to 1.0 - 1e-15
+    site3.channels.push_back({4, 0, 1.0});  // clamped to 1.0 - 2^-53
 
     HirModule hir;
     hir.num_qubits = 3;
@@ -748,7 +748,7 @@ TEST_CASE("Backend: Gap sampling hazard array accumulation") {
 
     double h1 = -std::log1p(-0.5);
     double h2 = h1 - std::log1p(-0.75);
-    double h3 = h2 - std::log1p(-(1.0 - 1e-15));
+    double h3 = h2 - std::log1p(-(1.0 - 0x1.0p-53));
 
     CHECK_THAT(prog.constant_pool.noise_hazards[0], Catch::Matchers::WithinAbs(h1, 1e-5));
     CHECK_THAT(prog.constant_pool.noise_hazards[1], Catch::Matchers::WithinAbs(h2, 1e-5));

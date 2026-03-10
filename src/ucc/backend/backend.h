@@ -128,35 +128,36 @@ static_assert(sizeof(Instruction) == 32, "Instruction must be exactly 32 bytes")
 // Static factory methods that construct fully-initialized Instructions.
 // Used by both the Back-End compiler and test code.
 
-Instruction make_frame_cnot(uint16_t ctrl, uint16_t tgt);
-Instruction make_frame_cz(uint16_t a, uint16_t b);
-Instruction make_frame_h(uint16_t v);
-Instruction make_frame_s(uint16_t v);
-Instruction make_frame_s_dag(uint16_t v);
-Instruction make_frame_swap(uint16_t a, uint16_t b);
-Instruction make_array_cnot(uint16_t ctrl_axis, uint16_t tgt_axis);
-Instruction make_array_cz(uint16_t a_axis, uint16_t b_axis);
-Instruction make_array_swap(uint16_t a, uint16_t b);
-Instruction make_array_multi_cnot(uint16_t target, uint64_t ctrl_mask);
-Instruction make_array_multi_cz(uint16_t control, uint64_t target_mask);
-Instruction make_array_h(uint16_t axis);
-Instruction make_array_s(uint16_t axis);
-Instruction make_array_s_dag(uint16_t axis);
-Instruction make_expand(uint16_t axis);
-Instruction make_phase_t(uint16_t axis);
-Instruction make_phase_t_dag(uint16_t axis);
-Instruction make_expand_t(uint16_t axis);
-Instruction make_expand_t_dag(uint16_t axis);
-Instruction make_swap_meas_interfere(uint16_t swap_from, uint16_t swap_to, uint32_t classical_idx,
-                                     bool sign);
-Instruction make_meas(Opcode meas_opcode, uint16_t axis, uint32_t classical_idx, bool sign);
-Instruction make_apply_pauli(uint32_t cp_mask_idx, uint32_t condition_idx);
-Instruction make_noise(uint32_t site_idx);
-Instruction make_noise_block(uint32_t start_site, uint32_t count);
-Instruction make_readout_noise(uint32_t entry_idx);
-Instruction make_detector(uint32_t det_list_idx, uint32_t classical_idx);
-Instruction make_postselect(uint32_t det_list_idx, uint32_t classical_idx);
-Instruction make_observable(uint32_t target_list_idx, uint32_t obs_idx);
+[[nodiscard]] Instruction make_frame_cnot(uint16_t ctrl, uint16_t tgt);
+[[nodiscard]] Instruction make_frame_cz(uint16_t a, uint16_t b);
+[[nodiscard]] Instruction make_frame_h(uint16_t v);
+[[nodiscard]] Instruction make_frame_s(uint16_t v);
+[[nodiscard]] Instruction make_frame_s_dag(uint16_t v);
+[[nodiscard]] Instruction make_frame_swap(uint16_t a, uint16_t b);
+[[nodiscard]] Instruction make_array_cnot(uint16_t ctrl_axis, uint16_t tgt_axis);
+[[nodiscard]] Instruction make_array_cz(uint16_t a_axis, uint16_t b_axis);
+[[nodiscard]] Instruction make_array_swap(uint16_t a, uint16_t b);
+[[nodiscard]] Instruction make_array_multi_cnot(uint16_t target, uint64_t ctrl_mask);
+[[nodiscard]] Instruction make_array_multi_cz(uint16_t control, uint64_t target_mask);
+[[nodiscard]] Instruction make_array_h(uint16_t axis);
+[[nodiscard]] Instruction make_array_s(uint16_t axis);
+[[nodiscard]] Instruction make_array_s_dag(uint16_t axis);
+[[nodiscard]] Instruction make_expand(uint16_t axis);
+[[nodiscard]] Instruction make_phase_t(uint16_t axis);
+[[nodiscard]] Instruction make_phase_t_dag(uint16_t axis);
+[[nodiscard]] Instruction make_expand_t(uint16_t axis);
+[[nodiscard]] Instruction make_expand_t_dag(uint16_t axis);
+[[nodiscard]] Instruction make_swap_meas_interfere(uint16_t swap_from, uint16_t swap_to,
+                                                   uint32_t classical_idx, bool sign);
+[[nodiscard]] Instruction make_meas(Opcode meas_opcode, uint16_t axis, uint32_t classical_idx,
+                                    bool sign);
+[[nodiscard]] Instruction make_apply_pauli(uint32_t cp_mask_idx, uint32_t condition_idx);
+[[nodiscard]] Instruction make_noise(uint32_t site_idx);
+[[nodiscard]] Instruction make_noise_block(uint32_t start_site, uint32_t count);
+[[nodiscard]] Instruction make_readout_noise(uint32_t entry_idx);
+[[nodiscard]] Instruction make_detector(uint32_t det_list_idx, uint32_t classical_idx);
+[[nodiscard]] Instruction make_postselect(uint32_t det_list_idx, uint32_t classical_idx);
+[[nodiscard]] Instruction make_observable(uint32_t target_list_idx, uint32_t obs_idx);
 
 // =============================================================================
 // Constant Pool

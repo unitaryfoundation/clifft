@@ -109,21 +109,34 @@ def generate_star_graph_honeypot(num_qubits: int, depth: int, seed: int) -> str:
             lines.append(f"T {q}")
 
         elif r < 0.35 and num_qubits > 2:
-            # Star-graph CX burst: multiple controls -> same target
+            # Star-graph CX burst: multiple controls -> same target.
+            # Occasionally allow duplicate controls (replace=True) to
+            # test algebraic cancellation in MultiGatePass XOR logic.
             target = int(rng.integers(0, num_qubits))
-            controls = [i for i in range(num_qubits) if i != target]
-            rng.shuffle(controls)
-            fan_in = min(int(rng.integers(2, min(6, len(controls) + 1))), len(controls))
-            for c in controls[:fan_in]:
+            pool = [i for i in range(num_qubits) if i != target]
+            fan_in = min(int(rng.integers(2, min(6, len(pool) + 1))), len(pool))
+            allow_dupes = bool(rng.random() < 0.3)
+            if allow_dupes:
+                controls = [int(rng.choice(pool)) for _ in range(fan_in)]
+            else:
+                rng.shuffle(pool)
+                controls = pool[:fan_in]
+            for c in controls:
                 lines.append(f"CX {c} {target}")
 
         elif r < 0.55 and num_qubits > 2:
-            # Star-graph CZ burst: same control -> multiple targets
+            # Star-graph CZ burst: same control -> multiple targets.
+            # Occasionally allow duplicate targets for cancellation testing.
             control = int(rng.integers(0, num_qubits))
-            targets = [i for i in range(num_qubits) if i != control]
-            rng.shuffle(targets)
-            fan_out = min(int(rng.integers(2, min(6, len(targets) + 1))), len(targets))
-            for t in targets[:fan_out]:
+            pool = [i for i in range(num_qubits) if i != control]
+            fan_out = min(int(rng.integers(2, min(6, len(pool) + 1))), len(pool))
+            allow_dupes = bool(rng.random() < 0.3)
+            if allow_dupes:
+                targets = [int(rng.choice(pool)) for _ in range(fan_out)]
+            else:
+                rng.shuffle(pool)
+                targets = pool[:fan_out]
+            for t in targets:
                 lines.append(f"CZ {control} {t}")
 
         elif r < 0.70:

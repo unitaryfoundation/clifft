@@ -310,6 +310,53 @@ TEST_CASE("MultiGatePass: mixed CNOT and CZ runs", "[bytecode-pass]") {
     CHECK(m.bytecode[1].opcode == Opcode::OP_ARRAY_MULTI_CZ);
 }
 
+TEST_CASE("MultiGatePass: duplicate CNOT controls cancel via XOR", "[bytecode-pass]") {
+    // Two identical CNOTs with same control and target should cancel completely.
+    auto m = make_module({
+        make_array_cnot(0, 3),
+        make_array_cnot(0, 3),
+    });
+    MultiGatePass().run(m);
+    CHECK(m.bytecode.empty());
+}
+
+TEST_CASE("MultiGatePass: triple CNOT leaves single gate", "[bytecode-pass]") {
+    // Three identical CNOTs: XOR yields a single surviving gate.
+    auto m = make_module({
+        make_array_cnot(0, 3),
+        make_array_cnot(0, 3),
+        make_array_cnot(0, 3),
+    });
+    MultiGatePass().run(m);
+    REQUIRE(m.bytecode.size() == 1);
+    CHECK(m.bytecode[0].opcode == Opcode::OP_ARRAY_CNOT);
+    CHECK(m.bytecode[0].axis_1 == 0);
+    CHECK(m.bytecode[0].axis_2 == 3);
+}
+
+TEST_CASE("MultiGatePass: duplicate CZ targets cancel via XOR", "[bytecode-pass]") {
+    auto m = make_module({
+        make_array_cz(5, 0),
+        make_array_cz(5, 0),
+    });
+    MultiGatePass().run(m);
+    CHECK(m.bytecode.empty());
+}
+
+TEST_CASE("MultiGatePass: mixed duplicates partial cancel", "[bytecode-pass]") {
+    // CNOT(0,3), CNOT(1,3), CNOT(0,3): ctrl 0 cancels, only ctrl 1 survives.
+    auto m = make_module({
+        make_array_cnot(0, 3),
+        make_array_cnot(1, 3),
+        make_array_cnot(0, 3),
+    });
+    MultiGatePass().run(m);
+    REQUIRE(m.bytecode.size() == 1);
+    CHECK(m.bytecode[0].opcode == Opcode::OP_ARRAY_CNOT);
+    CHECK(m.bytecode[0].axis_1 == 1);
+    CHECK(m.bytecode[0].axis_2 == 3);
+}
+
 TEST_CASE("MultiGatePass: empty bytecode is a no-op", "[bytecode-pass]") {
     auto m = make_module({});
     MultiGatePass().run(m);

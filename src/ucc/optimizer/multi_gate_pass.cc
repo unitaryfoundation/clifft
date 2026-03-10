@@ -1,5 +1,7 @@
 #include "ucc/optimizer/multi_gate_pass.h"
 
+#include <bit>
+
 namespace ucc {
 
 void MultiGatePass::run(CompiledModule& module) {
@@ -23,18 +25,22 @@ void MultiGatePass::run(CompiledModule& module) {
 
             while (i < old_bc.size() && old_bc[i].opcode == Opcode::OP_ARRAY_CNOT &&
                    old_bc[i].axis_2 == shared_target) {
-                ctrl_mask |= 1ULL << old_bc[i].axis_1;
+                ctrl_mask ^= 1ULL << old_bc[i].axis_1;
                 ++run_len;
                 ++i;
             }
 
-            if (run_len >= 2) {
+            if (ctrl_mask == 0) {
+                // All gates cancelled (self-inverse pairs)
+            } else if (run_len >= 2 && std::popcount(ctrl_mask) >= 2) {
                 new_bc.push_back(make_array_multi_cnot(shared_target, ctrl_mask));
             } else {
-                new_bc.push_back(old_bc[run_start]);
+                // Single surviving gate: emit as plain CNOT
+                uint16_t ctrl_axis = static_cast<uint16_t>(std::countr_zero(ctrl_mask));
+                new_bc.push_back(make_array_cnot(ctrl_axis, shared_target));
             }
 
-            if (has_sm)
+            if (ctrl_mask != 0 && has_sm)
                 new_sm.merge_entries(old_sm, run_start, run_start + run_len);
             continue;
         }
@@ -47,18 +53,21 @@ void MultiGatePass::run(CompiledModule& module) {
 
             while (i < old_bc.size() && old_bc[i].opcode == Opcode::OP_ARRAY_CZ &&
                    old_bc[i].axis_1 == shared_ctrl) {
-                target_mask |= 1ULL << old_bc[i].axis_2;
+                target_mask ^= 1ULL << old_bc[i].axis_2;
                 ++run_len;
                 ++i;
             }
 
-            if (run_len >= 2) {
+            if (target_mask == 0) {
+                // All gates cancelled
+            } else if (run_len >= 2 && std::popcount(target_mask) >= 2) {
                 new_bc.push_back(make_array_multi_cz(shared_ctrl, target_mask));
             } else {
-                new_bc.push_back(old_bc[run_start]);
+                uint16_t tgt_axis = static_cast<uint16_t>(std::countr_zero(target_mask));
+                new_bc.push_back(make_array_cz(shared_ctrl, tgt_axis));
             }
 
-            if (has_sm)
+            if (target_mask != 0 && has_sm)
                 new_sm.merge_entries(old_sm, run_start, run_start + run_len);
             continue;
         }
