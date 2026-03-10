@@ -1,0 +1,348 @@
+\documentclass[11pt, aspectratio=169]{beamer}
+
+\usetheme{metropolis}
+\metroset{block=fill}
+
+\usepackage[utf8]{inputenc}
+\usepackage{amsmath, amssymb, physics}
+\usepackage{tikz}
+\usetikzlibrary{shapes.geometric, arrows.meta, positioning, fit, backgrounds, calc}
+\usepackage{adjustbox}
+
+\title{The Unitary Compiler Collection (UCC)}
+\subtitle{Exact Classical Simulation via the Factored State Architecture}
+\author{Unitary Foundation Team}
+\date{\today}
+
+\begin{document}
+
+\maketitle
+
+\begin{frame}{Agenda}
+  \setbeamertemplate{section in toc}[sections numbered]
+  \tableofcontents[hideallsubsections]
+\end{frame}
+
+% =======================================================
+\section{The Simulation Bottleneck \& The Pivot}
+% =======================================================
+
+\begin{frame}{The Universal Simulation Bottleneck}
+  Simulating fault-tolerant quantum circuits (FTQC) requires deep non-Clifford logic (e.g., $T$-gates). Standard exact simulators inevitably hit exponential walls:
+
+  \vspace{0.5em}
+  \begin{itemize}
+      \item \textbf{Statevector Simulators (e.g., Qiskit):} Hit the \alert{$\mathcal{O}(2^N)$ Physical Memory Wall}. Cannot exceed $\sim$40-50 qubits regardless of circuit structure.
+      \item \textbf{Stabilizer Rank (e.g., tsim):} Hit the \alert{$\mathcal{O}(2^{\alpha t})$ T-Count Wall}. Branches on every $T$-gate; times out on deep arithmetic logic.
+      \item \textbf{Generalized Stabilizers (e.g., SOFT):} Avoids the T-count wall, but dynamic tableau pivoting across sparse vectors introduces heavy \alert{$\mathcal{O}(n^2)$ overhead per shot}.
+  \end{itemize}
+\end{frame}
+
+\begin{frame}{Motivating Example: Magic State Cultivation (MSC)}
+  \textbf{The Goal:} Evaluate Magic State Cultivation protocols over $10^{12}$ shots to escape the physical noise floor.
+
+  \vspace{1em}
+  \begin{alertblock}{The Challenge}
+      \begin{itemize}
+          \item Highly probabilistic (requires fast-fail post-selection).
+          \item Deep non-Clifford $T$-gate entanglement.
+          \item Standard tools simply cannot scale to trillions of shots at FTQC hardware scales without massive GPU clusters.
+      \end{itemize}
+  \end{alertblock}
+\end{frame}
+
+\begin{frame}{The ``New'' UCC: A Strategic Pivot}
+  \textbf{Previous UCC:} An open-source routing and bridging compiler. \\
+  \textbf{New UCC:} A \textbf{Multi-Level Compiler} and \textbf{Schrödinger Virtual Machine (SVM)} built explicitly for the Early FTQC Era.
+
+  \vspace{1em}
+  \begin{itemize}
+      \item We break the exponential bottlenecks by decoupling deterministic routing from probabilistic non-Clifford entanglement.
+      \item UCC scales exponentially \textit{only} with the \textbf{Peak Active Rank} ($k_{\max}$).
+  \end{itemize}
+\end{frame}
+
+% =======================================================
+\section{The Core Theory: The Factored State}
+% =======================================================
+
+\begin{frame}{Circuit Composition \& The Heisenberg Mapping}
+  We partition all quantum operations into two sets:
+  \begin{enumerate}
+      \item \textbf{Deterministic:} Clifford Unitaries ($C \in \mathcal{C}_n$).
+      \item \textbf{Active:} Non-Clifford rotations ($T$), Measurements, Pauli Noise.
+  \end{enumerate}
+
+  \vspace{1em}
+  Instead of applying Cliffords to the statevector, we map Active operations \textit{backward} through the Clifford frame ($U_C$) into a static virtual basis:
+  \begin{equation*}
+      \tilde{P}_O = (U_C^{(t)})^\dagger P_O U_C^{(t)}
+  \end{equation*}
+
+  \textit{Insight:} Coordinate mapping is defined entirely by Pauli tracking, completely independent of complex amplitudes!
+\end{frame}
+
+\begin{frame}{The Factored State Equation}
+  We define the exact physical quantum state at time $t$ via a strict factorization:
+  \begin{equation*}
+      \Large |\psi^{(t)}\rangle = \gamma^{(t)} U_C^{(t)} \tilde{P}^{(t)} \Big( |\phi^{(t)}\rangle_A \otimes |0\rangle_D \Big)
+  \end{equation*}
+
+  \vspace{0.2em}
+  \begin{itemize}
+      \item \textbf{$U_C^{(t)}$ (Clifford Frame):} Deterministic geometric coordinate mapping.
+      \item \textbf{$\tilde{P}^{(t)}$ (Virtual Pauli Frame):} Tracks discrete stochastic errors via virtual $X$ and $Z$ vectors: $\tilde{P}^{(t)} = \bigotimes_{j=0}^{n-1} X_j^{x_j^{(t)}} Z_j^{z_j^{(t)}}$. Evaluated via $\mathcal{O}(1)$ bitwise XORs.
+      \item \textbf{$|\phi^{(t)}\rangle_A$ (Active Statevector):} A dense $2^k$ array tracking non-Clifford superposition on $k$ \textit{Active} virtual qubits.
+      \item \textbf{$|0\rangle_D$ (Dormant Qubits):} The $n-k$ qubits mathematically locked in $|0\rangle$.
+      \item \textbf{$\gamma^{(t)}$ (Global Scalar):} Tracks continuous phases and deferred normalization.
+  \end{itemize}
+\end{frame}
+
+\begin{frame}{Virtual Compression (The ``Secret Sauce'')}
+  How do we apply a mapped multi-qubit operator (e.g., $\tilde{P} = X_0 \otimes Z_1$) without evaluating a full $2^n$ statevector?
+
+  \vspace{0.5em}
+  \begin{block}{Lemma 2: Exact Pauli Compression}
+      The Multi-Level compiler constructively synthesizes a sequence of virtual Cliffords $V$ to compress \textit{any} multi-qubit Pauli onto a \textbf{single virtual axis} $v$. ($V \tilde{P} V^\dagger = P_v$).
+  \end{block}
+
+  \begin{block}{Lemma 1: Zero-Cost Dormancy}
+      If $V$ uses a Dormant qubit as a control (e.g., CNOT$_{D \to A}$), it mathematically acts as the Identity on the Active statevector. \textbf{Zero FLOPs required.}
+  \end{block}
+\end{frame}
+
+\begin{frame}{Applying the Compression: Where does $V$ go?}
+  If we apply virtual Cliffords $V$ to compress an operator $O(\tilde{P})$, how is the global state preserved?
+
+  \vspace{0.5em}
+  The compiler mathematically inserts the identity $V^\dagger V = I$ into the factored state:
+  \begin{equation*}
+      \dots \underbrace{U_C^{(t)} \alert{V^\dagger}}_{\text{1. Offline Frame}} \;\; \underbrace{\Big[ \alert{V} O(\tilde{P}) \alert{V^\dagger} \Big]}_{\text{2. Localized Op}} \;\; \underbrace{\Big( \alert{V} \tilde{P}^{(t)} \alert{V^\dagger} \Big)}_{\text{3. Pauli Tracker}} \;\; \underbrace{\alert{V} \Big( |\phi^{(t)}\rangle_A \otimes |0\rangle_D \Big)}_{\text{4. Active Array}}
+  \end{equation*}
+
+  \vspace{1em}
+  The transformation $V$ distributes exactly where it is needed:
+  \begin{enumerate}
+      \item \textbf{Clifford Frame:} Absorbs the inverse offline ($U_C \leftarrow U_C V^\dagger$).
+      \item \textbf{The Operation:} Compresses to act on a single virtual axis ($O(P_v)$).
+      \item \textbf{Pauli Frame:} Is dynamically conjugated via $\mathcal{O}(1)$ bitwise XORs.
+      \item \textbf{Active Array:} Undergoes the transformation $V$ (which costs \textbf{zero FLOPs} if controlled by a dormant qubit!).
+  \end{enumerate}
+\end{frame}
+
+% =======================================================
+\section{Walkthrough: A Toy Example}
+% =======================================================
+
+\begin{frame}{Walkthrough: Step-by-Step Factored State}
+  \begin{columns}[T]
+    \begin{column}{0.4\textwidth}
+      \textbf{Circuit} (2 Qubits)
+      \vspace{0.5em}
+
+      \only<1>{$\rightarrow$ Init $|00\rangle$\\ \color{gray} Phys $H(q_0)$, CX$(q_0 \to q_1)$\\ \color{gray} Phys $T(q_1)$\\ \color{gray} Measure $q_1$}
+      \only<2>{\color{gray} Init $|00\rangle$\\ \color{black}$\rightarrow$ Phys $H(q_0)$, CX$(q_0 \to q_1)$\\ \color{gray} Phys $T(q_1)$\\ \color{gray} Measure $q_1$}
+      \only<3>{\color{gray} Init $|00\rangle$\\ \color{gray} Phys $H(q_0)$, CX$(q_0 \to q_1)$\\ \color{black}$\rightarrow$ Phys $T(q_1)$ \textit{(Compile)}\\ \color{gray} Measure $q_1$}
+      \only<4>{\color{gray} Init $|00\rangle$\\ \color{gray} Phys $H(q_0)$, CX$(q_0 \to q_1)$\\ \color{black}$\rightarrow$ Phys $T(q_1)$ \textit{(Execute)}\\ \color{gray} Measure $q_1$}
+      \only<5>{\color{gray} Init $|00\rangle$\\ \color{gray} Phys $H(q_0)$, CX$(q_0 \to q_1)$\\ \color{gray} Phys $T(q_1)$\\ \color{black}$\rightarrow$ Measure $q_1$}
+
+      \vspace{1.5em}
+      \textit{\footnotesize Observe how Pauli compression safely folds multi-qubit operators \textbf{before} expanding the array.}
+    \end{column}
+
+    \begin{column}{0.6\textwidth}
+      \begin{block}{System State at $t$}
+        \only<1>{
+          $U_C = I$ \\
+          $\tilde{P} = I$ \\
+          $A = \emptyset, \quad D = \{0, 1\} \quad \mathbf{(k=0)}$ \\
+          $|\phi\rangle_A = [1]$ \\
+          $\gamma = 1.0$
+        }
+        \only<2>{
+          \textbf{Action:} Update deterministic frame offline.\\
+          \vspace{0.5em}
+          $U_C = \text{CX}_{0\to1} \cdot H_0$ \\
+          $\tilde{P} = I$ \\
+          $A = \emptyset, \quad D = \{0, 1\} \quad \mathbf{(k=0)}$ \\
+          $|\phi\rangle_A = [1]$ \quad \alert{\textit{(Zero FLOPs!)}} \\
+          $\gamma = 1.0$
+        }
+        \only<3>{
+          \textbf{Exact Pauli Compression:}\\
+          Physical $Z_1$ rewinds through $U_C$ to virtual \alert{$\mathbf{X_0 \otimes Z_1}$}.\\
+          \vspace{0.5em}
+          Compiler applies virtual $V = \text{CZ}_{0,1}$ to compress $X_0 \otimes Z_1 \to X_0$.\\
+          \vspace{0.5em}
+          \textit{Generator is cleanly isolated to axis $q_0$ without expanding the array!}
+        }
+        \only<4>{
+          \textbf{Dimensionality Expansion:}\\
+          \vspace{0.5em}
+          Virtual $H_0$ maps $X_0 \to Z_0$ for diagonal $T$ phase. Axis $q_0$ activates.\\
+          $U_C \leftarrow U_C \cdot \text{CZ}_{0,1} \cdot H_0$ \\
+          $A = \{0\}, \quad D = \{1\} \quad \mathbf{(k=1)}$ \\
+          $|\phi\rangle_A = [1, e^{i\pi/4}]^T$ \quad \textit{(Array Doubles)} \\
+          $\gamma = 1/\sqrt{2}$
+        }
+        \only<5>{
+          \textbf{Action:} Projective Measurement. Outcome $m$.\\
+          \textbf{Array Compaction!}\\
+          \vspace{0.5em}
+          Active qubit collapses based on outcome.\\
+          $\tilde{P} \leftarrow$ Updates $\mathbf{x}, \mathbf{z}$ tracking. \\
+          $A = \emptyset, \quad D = \{0, 1\} \quad \mathbf{(k=0)}$ \\
+          $|\phi\rangle_A = [1]$ \quad \textit{(Array Halves)} \\
+          $\gamma \leftarrow \gamma / \sqrt{p_{m}}$ \quad \textit{(Phase extracted)}
+        }
+      \end{block}
+    \end{column}
+  \end{columns}
+\end{frame}
+
+% =======================================================
+\section{Software Architecture}
+% =======================================================
+
+\begin{frame}{The ``Aha!'' Moment: Theorem 1}
+  Look closely at the walkthrough. When did $U_C$ update? When did the Pauli operators compress?
+
+  \vspace{1em}
+  \begin{alertblock}{Theorem 1: Clifford Frame Determinism}
+      The evolution of the Clifford Frame $U_C$ and the dimensional bounds of the active set ($k_{\max}$) depend \textit{exclusively} on the sequence of physical operations. They are strictly independent of probabilistic measurement outcomes or continuous non-Clifford amplitudes.
+  \end{alertblock}
+
+  \vspace{1em}
+  \textbf{Consequence:} We do not need to do heavy tableau math online. We cleanly split the simulation into an \textbf{Offline Multi-Level Compiler} and an \textbf{Online Virtual Machine}.
+\end{frame}
+
+\begin{frame}{Decoupling Computational Complexity}
+  \textbf{1. Multi-Level Compiler (Offline):}
+  \begin{itemize}
+      \item Eats the $\mathcal{O}(G n^2)$ topological matrix tracking.
+      \item Evaluates optimal Pauli Compressions to single virtual axes.
+      \item Computes global algebraic optimizations over the timeless \textbf{Heisenberg IR (HIR)}.
+  \end{itemize}
+
+  \vspace{1em}
+  \textbf{2. The Schrödinger Virtual Machine (Online):}
+  \begin{itemize}
+      \item Executes in strictly bounded $\mathcal{O}(2^{k_{\max}})$.
+      \item No dynamic memory allocation. Executes purely localized RISC bytecode.
+      \item \textit{Note: The extreme C++ engineering making the VM fast (32-byte opcodes, branchless hardware popcounts) is a topic for a future deep-dive!}
+  \end{itemize}
+\end{frame}
+
+\begin{frame}{UCC Architecture Diagram}
+  \begin{center}
+    \adjustbox{max width=\textwidth, max height=0.85\textheight}{
+      \begin{tikzpicture}[
+        >=Stealth,
+        font=\sffamily,
+        node distance=0.8cm and 1.2cm,
+        impl/.style={rectangle, draw=blue!80!black, fill=blue!5, thick, minimum width=3.8cm, minimum height=1.4cm, align=center, rounded corners=1ex, font=\normalsize\bfseries},
+        impl-io/.style={rectangle, draw=black!80, fill=gray!10, thick, minimum width=2.5cm, minimum height=1.0cm, align=center, rounded corners=1ex, font=\normalsize\bfseries},
+        fut/.style={rectangle, draw=gray!50, fill=white, dashed, thick, minimum width=3.8cm, minimum height=1.4cm, align=center, rounded corners=1ex, font=\normalsize, text=gray!80!black},
+        fut-io/.style={rectangle, draw=gray!50, fill=white, dashed, thick, minimum width=2.5cm, minimum height=1.0cm, align=center, rounded corners=1ex, font=\normalsize, text=gray!80!black},
+        arr-impl/.style={->, line width=0.5mm, draw=blue!80!black},
+        arr-fut/.style={->, line width=0.5mm, dashed, draw=gray!50}
+      ]
+
+      % Top Row (Left to Right)
+      \node[impl-io] (in-stim) {Extended Stim\\ \small (Native)};
+      \node[fut-io, above=0.3cm of in-stim] (in-qasm) {OpenQASM 3};
+      \node[fut-io, below=0.3cm of in-stim] (in-qiskit) {Qiskit};
+
+      \node[impl, right=1.2cm of in-stim] (fe) {Front-End Compiler\\ \small Physical Rewinding \&\\ \small Clifford Absorption};
+      \node[impl, right=1.2cm of fe] (me) {Middle-End Optimizer\\ \small Global Commutation \&\\ \small FastTODD (HIR)};
+
+      % Bottom Row (Right to Left)
+      \node[impl, below=1.5cm of me] (be) {Compiler Back-End\\ \small Virtual Compression \&\\ \small RISC Bytecode Emission};
+      \node[impl, left=1.2cm of be] (vm) {Schrödinger VM\\ \small $\mathcal{O}(2^k)$ Execution over\\ \small Contiguous Array};
+      \node[impl-io, left=1.2cm of vm] (out-bits) {Sampled\\ \small Bitstrings};
+
+      \node[fut, right=1.2cm of be] (hw) {Hardware Routers\\ \small (tqec / NISQ)};
+
+      % Arrows
+      \draw[arr-impl] (in-stim) -- (fe);
+      \draw[arr-fut] (in-qasm.east) to[out=0, in=160] (fe.160);
+      \draw[arr-fut] (in-qiskit.east) to[out=0, in=200] (fe.200);
+
+      \draw[arr-impl] (fe) -- node[above, font=\small\bfseries] {Heisenberg IR} (me);
+
+      \draw[arr-impl] (me) -- node[right, font=\small\bfseries] {Optimized HIR} (be);
+
+      \draw[arr-impl] (be) -- node[above, font=\small\bfseries] {RISC Bytecode} (vm);
+      \draw[arr-impl] (vm) -- (out-bits);
+      \draw[arr-fut] (be) -- node[above, font=\small] {Opt. HIR} (hw);
+
+      % Legend
+      \node[rectangle, draw=gray!50, fill=gray!5, rounded corners=0.5ex, thick, inner sep=4pt, below=0.8cm of fe] (legend) {
+          \begin{tikzpicture}
+              \draw[blue!80!black, fill=blue!5, thick, rounded corners=0.2ex] (0,0) rectangle (0.4, 0.25);
+              \node[anchor=west, font=\scriptsize\bfseries, text=black, inner sep=2pt] at (0.4, 0.125) {UCC Implemented};
+              \draw[gray!50, fill=white, dashed, thick, rounded corners=0.2ex] (3.0,0) rectangle (3.4, 0.25);
+              \node[anchor=west, font=\scriptsize, text=gray!80!black, inner sep=2pt] at (3.4, 0.125) {Future Extension / Ecosystem};
+          \end{tikzpicture}
+      };
+
+      \end{tikzpicture}
+    }
+  \end{center}
+\end{frame}
+
+% =======================================================
+\section{Benchmarks \& Results}
+% =======================================================
+
+\begin{frame}[standout]
+  Live Demo \\ \normalsize \textit{Manually driving compiler and evaluating active bounds}
+\end{frame}
+
+\begin{frame}{The ``Three Walls'' Benchmark}
+  We mathematically isolated scaling vectors to prove the architecture avoids standard exponential walls:
+
+  \vspace{1em}
+  \begin{itemize}
+      \item \textbf{The Physical Wall ($N$):} Sweeping physical qubit count $N$. Qiskit (Statevector) OOMs at $N=30$. \alert{UCC and \texttt{tsim} remain perfectly flat.}
+      \item \textbf{The Stabilizer Rank Wall ($t$):} Sweeping $T$-count. GPU-accelerated \texttt{tsim} times out at $t=60$. \alert{UCC stays perfectly flat.}
+      \item \textbf{The Active Rank Wall ($k_{\max}$):} \alert{UCC hits its theoretical $\mathcal{O}(2^k)$ OOM limit at $k \approx 30$}, proving we are honestly bounded only by peak simultaneous entanglement.
+  \end{itemize}
+\end{frame}
+
+\begin{frame}{Scaling Up: Magic State Cultivation}
+  \textbf{Goal:} Evaluate Magic State Cultivation (MSC) protocols at scale.
+
+  \vspace{1em}
+  \textbf{Phase 1 Validated ($d=5$ Cultivation Step):}
+  \begin{itemize}
+      \item The SOFT simulator (Li et al. 2025) previously required a 16-GPU cluster to process online dynamic tableaus for this 42-qubit circuit.
+      \item By utilizing \textit{Dense Survivor Sampling} and fast-fail opcodes, \textbf{UCC accurately matched the results on a single physical CPU core}.
+      \item \textbf{Estimated Trillion-Shot Cost:} $\sim$\$500 and 29 hours on an AWS spot cluster to fully map this specific $d=5$ protocol curve.
+  \end{itemize}
+
+  \vspace{0.5em}
+  \textbf{Next Target:} We are actively estimating the runtime and cost required to execute the \textit{full} 463-qubit ($d=7$) end-to-end cultivation protocol.
+\end{frame}
+
+% =======================================================
+\section{Next Steps \& Discussion}
+% =======================================================
+
+\begin{frame}{Feedback \& Discussion}
+  \begin{enumerate}
+      \item \textbf{Project Scope:} Should this Multi-Level VM architecture fully replace the old UCC (bridging/routing), or sit alongside it as a specialized engine?
+      \vspace{1em}
+      \item \textbf{Publication Strategy:} What are the most critical benchmarks to include in the initial paper? (e.g., 3-Walls, FastTODD optimization, MSC validation).
+      \vspace{1em}
+      \item \textbf{Narrative Framing:} Does positioning UCC as ``A Multi-Level Compiler \& Execution Engine for the Early Fault Tolerance Era'' resonate with the foundation's vision?
+  \end{enumerate}
+\end{frame}
+
+\begin{frame}[standout]
+  Thank You! \\
+  \vspace{0.5cm}
+  \normalsize Questions?
+\end{frame}
+
+\end{document}
