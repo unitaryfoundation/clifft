@@ -69,6 +69,7 @@ nav:
     - Simulation: guide/simulation.md
     - Supported Gates: guide/gates.md
     - "Tutorial: Surface Code": guide/surface-code.md
+    - "Benchmark: UCC vs Qiskit": guide/benchmark.md
   - Theory:
     - Overview: theory/overview.md
     - Architecture: theory/architecture.md
