@@ -62,7 +62,16 @@ endif()
 # masks (BitMask<N>) used by the HIR and SVM Pauli frame. The VM Instruction
 # struct stays 32 bytes regardless -- only offline AOT structures grow.
 # Default 64 matches the MVP; set to 512 for magic state cultivation circuits.
-set(UCC_MAX_QUBITS "64" CACHE STRING "Maximum supported qubits (must be a multiple of 64, >= 64)")
+# Can be set via -DUCC_MAX_QUBITS=N or the UCC_MAX_QUBITS env var.
+# The env var is checked every configure, so `export UCC_MAX_QUBITS=512`
+# works with scikit-build-core editable installs that reconfigure each build.
+if(DEFINED ENV{UCC_MAX_QUBITS})
+    set(UCC_MAX_QUBITS "$ENV{UCC_MAX_QUBITS}" CACHE STRING
+        "Maximum supported qubits (must be a multiple of 64, >= 64)" FORCE)
+else()
+    set(UCC_MAX_QUBITS "64" CACHE STRING
+        "Maximum supported qubits (must be a multiple of 64, >= 64)")
+endif()
 if(UCC_MAX_QUBITS LESS 64)
     message(FATAL_ERROR "UCC_MAX_QUBITS must be >= 64, got ${UCC_MAX_QUBITS}")
 endif()

@@ -86,6 +86,15 @@ cd ucc-next
 bash paper/magic/cloud_setup.sh
 ```
 
+**512-qubit build:** To compile with support for up to 512 qubits
+(wider Pauli bitmasks, needed for future larger circuits), pass
+`--max-qubits 512`. This increases `BitMask` from 8 bytes to 64
+bytes, which may slightly slow frame-heavy operations:
+
+```bash
+bash paper/magic/cloud_setup.sh --max-qubits 512
+```
+
 ### 4. Run the Benchmark
 
 Measure real throughput before committing to long runs (~10 min):

@@ -2,20 +2,43 @@
 # Cloud instance setup for UCC SOFT paper reproduction.
 #
 # Usage (on a fresh EC2 instance):
-#   curl -sL <raw-github-url>/paper/magic/cloud_setup.sh | bash
-#   # or:
 #   git clone https://github.com/unitaryfoundation/ucc-next.git
 #   cd ucc-next && bash paper/magic/cloud_setup.sh
+#   cd ucc-next && bash paper/magic/cloud_setup.sh --max-qubits 512
 #
 # Tested on: Amazon Linux 2023, Ubuntu 22.04/24.04
 # Target instance: c7i.24xlarge (48 vCPUs, Sapphire Rapids, AVX-512)
 
 set -euo pipefail
 
+# ---------------------------------------------------------------------------
+# Parse arguments
+# ---------------------------------------------------------------------------
+MAX_QUBITS=64
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        --max-qubits)
+            MAX_QUBITS="$2"
+            shift 2
+            ;;
+        *)
+            echo "Unknown option: $1"
+            echo "Usage: bash cloud_setup.sh [--max-qubits N]"
+            exit 1
+            ;;
+    esac
+done
+
+if (( MAX_QUBITS < 64 )) || (( MAX_QUBITS % 64 != 0 )); then
+    echo "ERROR: --max-qubits must be >= 64 and a multiple of 64 (got $MAX_QUBITS)"
+    exit 1
+fi
+
 echo "=== UCC Cloud Setup ==="
 echo "Instance: $(uname -n)"
 echo "CPUs: $(nproc)"
 echo "Arch: $(uname -m)"
+echo "Max qubits: $MAX_QUBITS"
 echo
 
 # ---------------------------------------------------------------------------
@@ -63,13 +86,18 @@ echo "Repo: $(git log --oneline -1)"
 # ---------------------------------------------------------------------------
 # 4. Build UCC with native optimizations
 # ---------------------------------------------------------------------------
-echo "--- Building UCC (Release, -march=native) ---"
+echo "--- Building UCC (Release, -march=native, MAX_QUBITS=$MAX_QUBITS) ---"
+export UCC_MAX_QUBITS="$MAX_QUBITS"
 uv venv --python 3.12 || uv venv
-uv pip install -e . 2>&1 | tail -3
+uv pip install -e . --config-settings="cmake.define.UCC_MAX_QUBITS=$MAX_QUBITS" 2>&1 | tail -3
 
 # Also build native profiler for quick checks
-cmake -B build -DCMAKE_BUILD_TYPE=Release -DUCC_BUILD_PROFILER=ON 2>&1 | tail -5
+cmake -B build -DCMAKE_BUILD_TYPE=Release -DUCC_BUILD_PROFILER=ON -DUCC_MAX_QUBITS="$MAX_QUBITS" 2>&1 | tail -5
 cmake --build build -j"$(nproc)" 2>&1 | tail -5
+
+echo
+echo "NOTE: To rebuild with MAX_QUBITS=$MAX_QUBITS in future sessions, set:"
+echo "  export UCC_MAX_QUBITS=$MAX_QUBITS"
 
 # ---------------------------------------------------------------------------
 # 5. Verify BMI2/AVX-512 is enabled
@@ -95,6 +123,7 @@ echo "--- Smoke test (1000 shots, d=5 p=0.001) ---"
 uv run python -c "
 import ucc
 import pathlib
+print(f'  UCC max_sim_qubits={ucc.max_sim_qubits}')
 text = pathlib.Path('paper/magic/circuits/circuit_d5_p0.001.stim').read_text()
 p = ucc.compile(text, postselection_mask=[1]*107)
 stats = ucc.sample_survivors(p, 1000, keep_records=False)
