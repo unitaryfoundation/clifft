@@ -323,7 +323,7 @@ MacBook Pro, battery power. Workers pinned to 10 performance cores.
 
 ### AWS c7i.16xlarge (64 vCPUs / 32 physical cores, Sapphire Rapids)
 
-Amazon Linux 2023, AVX-512 + BMI2. 60s per test.
+Amazon Linux 2023, AVX-512 + BMI2. 60s per test. 64-qubit build.
 
 | p | Workers | Shots/s | Surv/s | Discard% | Scaling |
 |---|---|---|---|---|---|
@@ -334,19 +334,33 @@ Amazon Linux 2023, AVX-512 + BMI2. 60s per test.
 | 0.0005 | 1 | 33,039 | 12,525 | 62.09% | -- |
 | 0.0005 | 32 | 964,100 | 365,619 | 62.08% | 29.2x |
 
+### AWS c7i.24xlarge (96 vCPUs / 48 physical cores, Sapphire Rapids)
+
+Amazon Linux 2023, AVX-512 + BMI2. 60s per test. 512-qubit build
+(`--max-qubits 512`, 64-byte BitMask).
+
+| p | Workers | Shots/s | Surv/s | Discard% | Scaling |
+|---|---|---|---|---|---|
+| 0.0020 | 1 | 175,466 | 3,655 | 97.92% | -- |
+| 0.0020 | 48 | 8,129,818 | 169,219 | 97.92% | 46.3x |
+| 0.0010 | 1 | 68,566 | 9,859 | 85.62% | -- |
+| 0.0010 | 48 | 3,260,017 | 469,252 | 85.61% | 47.5x |
+| 0.0005 | 1 | 37,964 | 14,401 | 62.07% | -- |
+| 0.0005 | 48 | 1,813,658 | 687,772 | 62.08% | 47.8x |
+
 ### Per-Core Comparison
 
 | p | M4 Pro | c7i (Sapphire Rapids) | Ratio |
 |---|---|---|---|
-| 0.0020 | 216,660 | 141,838 | M4 Pro 1.53x faster |
-| 0.0010 | 82,847 | 57,718 | M4 Pro 1.44x faster |
-| 0.0005 | 46,861 | 33,039 | M4 Pro 1.42x faster |
+| 0.0020 | 216,660 | 175,466 | M4 Pro 1.23x faster |
+| 0.0010 | 82,847 | 68,566 | M4 Pro 1.21x faster |
+| 0.0005 | 46,861 | 37,964 | M4 Pro 1.23x faster |
 
-### Cost Projections (c7i.16xlarge, 32 workers)
+### Cost Projections (c7i.24xlarge, 48 workers, 512-qubit build)
 
-Spot price ~$1.00/hr for c7i.16xlarge.
+Spot price ~$1.50/hr for c7i.24xlarge.
 
 | Target | p=0.002 | p=0.001 | p=0.0005 | Total |
 |---|---|---|---|---|
-| Match paper (22/49/8 errors) | 2h, $2 | 12h, $12 | 39h, $39 | **53h, $53** |
-| 100 errors each | 10h, $10 | 25h, $25 | 484h, $484 | **519h, $519** |
+| Match paper (22/49/8 errors) | 1h, $2 | 6h, $9 | 21h, $31 | **28h, $42** |
+| 100 errors each | 5h, $7 | 13h, $19 | 257h, $386 | **275h, $413** |

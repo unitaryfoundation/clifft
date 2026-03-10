@@ -267,11 +267,10 @@ and N workers (auto-detected), then prints:
 - Multi-core scaling efficiency
 - Extrapolated wall time and cost for production runs
 
-**Result: COMPLETE.** c7i.24xlarge (96 logical CPUs, 48 workers),
-60s per test. Throughput is ~3.7x higher than preliminary estimates
-due to (a) 48 physical cores (the plan incorrectly assumed 24),
-and (b) better per-core performance than the 1.3x extrapolation
-assumed.
+**Result: COMPLETE.** Two benchmark runs on c7i.24xlarge (96 logical
+CPUs, 48 workers), 60s per test.
+
+*Run 1: 64-qubit build (default BitMask width):*
 
 | p | Workers | Shots/s | Surv/s | Discard% | Scaling |
 |---|---|---|---|---|---|
@@ -282,6 +281,17 @@ assumed.
 | 0.0005 | 1 | 36,560 | 13,859 | 62.09% | -- |
 | 0.0005 | 48 | 1,746,721 | 662,387 | 62.08% | 47.8x |
 
+*Run 2: 512-qubit build (`--max-qubits 512`, 64-byte BitMask):*
+
+| p | Workers | Shots/s | Surv/s | Discard% | Scaling |
+|---|---|---|---|---|---|
+| 0.002 | 1 | 175,466 | 3,655 | 97.92% | -- |
+| 0.002 | 48 | 8,129,818 | 169,219 | 97.92% | 46.3x |
+| 0.001 | 1 | 68,566 | 9,859 | 85.62% | -- |
+| 0.001 | 48 | 3,260,017 | 469,252 | 85.61% | 47.5x |
+| 0.0005 | 1 | 37,964 | 14,401 | 62.07% | -- |
+| 0.0005 | 48 | 1,813,658 | 687,772 | 62.08% | 47.8x |
+
 Key observations:
 - **Discard rates match paper exactly** (within 0.03pp at all noise levels).
 - **Near-linear scaling:** 95-100% efficiency across 48 workers.
@@ -290,30 +300,38 @@ Key observations:
 - **Single-core is 2.2x faster than dev VM** (176k vs 80k at p=0.002),
   reflecting AVX-512/BMI2 speedups on Sapphire Rapids.
 - **48 workers = physical cores only** (half the 96 vCPUs); HT not used.
+- **512-qubit build has negligible overhead:** widening BitMask from
+  8 to 64 bytes costs < 1% on single-core and is actually slightly
+  faster multi-core (within noise). The wider build is safe to use
+  for production runs with no performance penalty.
 
-**Cost projections (measured, 48 workers, $1.50/hr spot):**
+**Cost projections (512-qubit build, 48 workers, $1.50/hr spot):**
 
 *100 errors per noise level (high-confidence CIs):*
 
 | p | Survivors needed | Total shots | Wall time | Spot cost |
 |---|---|---|---|---|
-| 0.002 | 2.9B | 141B | 4h 51m | $7 |
-| 0.001 | 21.8B | 151B | 13h 16m | $20 |
-| 0.0005 | 637B | 1.68T | 267h 15m | $401 |
-| **Total** | | **~1.97T shots** | **285h 23m** | **$428** |
+| 0.002 | 2.9B | 141B | 4h 49m | $7 |
+| 0.001 | 21.8B | 151B | 12h 53m | $19 |
+| 0.0005 | 637B | 1.68T | 257h 23m | $386 |
+| **Total** | | **~1.97T shots** | **275h 06m** | **$413** |
 
 *Match paper error counts (22, 49, 8):*
 
 | p | Errors | Survivors needed | Total shots | Wall time | Spot cost |
 |---|---|---|---|---|---|
-| 0.002 | 22 | 645M | 31B | 1h 04m | $2 |
-| 0.001 | 49 | 10.7B | 74B | 6h 30m | $10 |
-| 0.0005 | 8 | 51B | 134B | 21h 22m | $32 |
-| **Total** | **79** | | **~239B shots** | **28h 57m** | **$43** |
+| 0.002 | 22 | 645M | 31B | 1h 03m | $2 |
+| 0.001 | 49 | 10.7B | 74B | 6h 19m | $9 |
+| 0.0005 | 8 | 51B | 134B | 20h 35m | $31 |
+| **Total** | **79** | | **~239B shots** | **27h 58m** | **$42** |
 
 The p=0.0005 point dominates cost in both scenarios. At 100
-errors it requires 1.68T shots ($401); matching the paper's 8
-errors is much more feasible at 134B shots ($32).
+errors it requires 1.68T shots ($386); matching the paper's 8
+errors is much more feasible at 134B shots ($31).
+
+Raw CPU hours: each wall-time hour uses 48 cores, so total CPU
+hours = wall hours x 48. For 100 errors: 275h x 48 = **13,203
+CPU-hours**. For matching paper: 28h x 48 = **1,343 CPU-hours**.
 
 **DoD (4a):** Have measured throughput for all 3 noise levels on
 c7i.24xlarge. Decide final error targets and budget.
@@ -433,7 +451,7 @@ reproduce the paper's Figure 2 error bars.
   - Loop fission explored but neutral at rank=10; not included
 - [x] Step 3: Local correctness validation -- PASS (5 errors, rate 1.26e-7, paper 3.41e-8, within CI)
 - [~] Step 4: Cloud execution (single instance, 3 data points)
-  - [x] Step 4a: Cloud benchmarking -- COMPLETE (c7i.24xlarge, 48 physical cores, 3.7x cheaper than est.)
+  - [x] Step 4a: Cloud benchmarking -- COMPLETE (c7i.24xlarge, 48 physical cores; 512-qubit build has < 1% overhead)
 - [x] Step 4.5: SVM hot-loop optimization (PR #92)
   - 4 bytecode passes: NoiseBlockPass, MultiGatePass, ExpandTPass, SwapMeasPass
   - d=5 circuit: 5111 -> 1518 instructions, ~104 -> ~86 us/shot (~17% faster)
