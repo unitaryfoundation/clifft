@@ -19,7 +19,7 @@ To accelerate validation, we will first implement the fast-fail execution and sa
 - **Phase 1:** COMPLETE. Merged as PR #76 at commit `c8b5f29`.
 - **Phase 2:** COMPLETE. On branch `feat/survivor-sampling-sinter` (PR #78).
 - **Phase 3:** COMPLETE. Sinter adapter working end-to-end on PR #78.
-- **Phases 4-6:** Not started.
+- **Phase 4:** COMPLETE. Tasks 4.1+4.2 merged as PR #111. Tasks 4.3-4.5 on PR #112.
 
 ### Implementation Notes (deviations from original plan)
 
@@ -76,7 +76,7 @@ To accelerate validation, we will first implement the fast-fail execution and sa
 *   **Task 3.3 (Postselection Filtering):** Use Sinter's `--postselected_detectors_predicate "coords[4] == -9"` flag. This natively instructs Sinter to build the post-selection mask, because the SOFT circuits use a 5th coordinate of `-9` to flag cultivation success checks.
 *   **DoD:** Sinter natively utilizes all physical CPU cores and outputs a CSV exactly matching the SOFT paper's Table III: an $85.60\%$ discard rate and a $4.59 \times 10^{-9}$ logical error rate for $p=0.001$, proving $\mathcal{O}(1)$ performance scalability on a single CPU core.
 
-## Phase 4: 512-Qubit Scale (Compile-Time Parameterization)
+## Phase 4: 512-Qubit Scale (Compile-Time Parameterization) [DONE]
 
 **Goal:** Parameterize the physical tracking limits to natively support 512-qubit circuits at compile-time, relying on C++ auto-vectorization for portability while strictly preserving the VM's 32-byte `Instruction` footprint.
 

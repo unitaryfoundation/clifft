@@ -138,9 +138,9 @@ class SchrodingerState {
     // --- Factored State Components ---
 
     // The Pauli Frame (P): tracks stochastic bit-flips and phase-flips.
-    // Uses stim::bitword<kStimWidth> for future 512-qubit scalability.
-    stim::bitword<kStimWidth> p_x = 0;
-    stim::bitword<kStimWidth> p_z = 0;
+    // Uses BitMask<kMaxInlineQubits> for compile-time 512-qubit scalability.
+    PauliBitMask p_x;
+    PauliBitMask p_z;
 
     // Global Scalar (gamma): continuous global phase + deferred normalization
     [[nodiscard]] std::complex<double> gamma() const { return gamma_; }

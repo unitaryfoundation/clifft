@@ -15,6 +15,9 @@
 // - No generic LCU gates (only T fast-path)
 // - AG matrices and noise sites stored in side-tables to avoid bloating HIR
 
+#include "ucc/util/bitmask.h"
+#include "ucc/util/config.h"
+
 #include "stim.h"
 
 #include <cassert>
@@ -54,11 +57,13 @@ enum class DetectorIdx : uint32_t {};
 /// Index into HirModule::observable_targets side-table
 enum class ObservableIdx : uint32_t {};
 
-// SIMD width for Stim types. Change this to scale beyond 64 qubits.
-// Note: For >64 qubits, upgrade bitword<64> to bitword<256> or bitword<512>
-// (for AVX/AVX-512). Do NOT use simd_bits<W> for fixed-size masks - that's
-// for variable-length bit arrays and would add heap allocation overhead.
+// SIMD lane width for Stim types. Stim's TableauSimulator<W> handles
+// arbitrary qubit counts via dynamic heap allocation at any W; this
+// controls only the SIMD register width for internal bit operations.
 constexpr size_t kStimWidth = 64;
+
+// Inline Pauli mask type used throughout the HIR and SVM.
+using PauliBitMask = BitMask<kMaxInlineQubits>;
 
 // =============================================================================
 // Noise Channel Structures
@@ -70,9 +75,9 @@ constexpr size_t kStimWidth = 64;
 
 /// A single Pauli error channel with its rewound masks and probability.
 struct NoiseChannel {
-    stim::bitword<kStimWidth> destab_mask;  // X-bits of the rewound Pauli
-    stim::bitword<kStimWidth> stab_mask;    // Z-bits of the rewound Pauli
-    double prob;                            // Probability of this channel firing
+    PauliBitMask destab_mask;  // X-bits of the rewound Pauli
+    PauliBitMask stab_mask;    // Z-bits of the rewound Pauli
+    double prob;               // Probability of this channel firing
 };
 
 /// A noise site: a collection of mutually exclusive Pauli channels.
@@ -131,8 +136,8 @@ struct HeisenbergOp {
     // --- Accessors (common to all OpTypes) ---
 
     [[nodiscard]] OpType op_type() const { return type_; }
-    [[nodiscard]] stim::bitword<64> destab_mask() const { return destab_mask_; }
-    [[nodiscard]] stim::bitword<64> stab_mask() const { return stab_mask_; }
+    [[nodiscard]] const PauliBitMask& destab_mask() const { return destab_mask_; }
+    [[nodiscard]] const PauliBitMask& stab_mask() const { return stab_mask_; }
     [[nodiscard]] bool sign() const { return sign_; }
     [[nodiscard]] uint8_t flags() const { return flags_; }
 
@@ -215,7 +220,7 @@ struct HeisenbergOp {
     // --- Factory Methods ---
 
     // Factory for T/T_dag gates
-    static HeisenbergOp make_tgate(stim::bitword<64> destab, stim::bitword<64> stab, bool s,
+    static HeisenbergOp make_tgate(PauliBitMask destab, PauliBitMask stab, bool s,
                                    bool dagger = false) {
         HeisenbergOp op(OpType::T_GATE, destab, stab, s);
         op.set_dagger(dagger);
@@ -223,15 +228,15 @@ struct HeisenbergOp {
     }
 
     // Factory for S/S_dag gates (produced by optimizer T+T fusion)
-    static HeisenbergOp make_clifford_phase(stim::bitword<64> destab, stim::bitword<64> stab,
-                                            bool s, bool dagger = false) {
+    static HeisenbergOp make_clifford_phase(PauliBitMask destab, PauliBitMask stab, bool s,
+                                            bool dagger = false) {
         HeisenbergOp op(OpType::CLIFFORD_PHASE, destab, stab, s);
         op.set_dagger(dagger);
         return op;
     }
 
     // Factory for MEASURE
-    static HeisenbergOp make_measure(stim::bitword<64> destab, stim::bitword<64> stab, bool s,
+    static HeisenbergOp make_measure(PauliBitMask destab, PauliBitMask stab, bool s,
                                      MeasRecordIdx meas_idx) {
         HeisenbergOp op(OpType::MEASURE, destab, stab, s);
         op.measure_.meas_record_idx = static_cast<uint32_t>(meas_idx);
@@ -239,7 +244,7 @@ struct HeisenbergOp {
     }
 
     // Factory for CONDITIONAL_PAULI
-    static HeisenbergOp make_conditional(stim::bitword<64> destab, stim::bitword<64> stab, bool s,
+    static HeisenbergOp make_conditional(PauliBitMask destab, PauliBitMask stab, bool s,
                                          ControllingMeasIdx controlling_meas) {
         HeisenbergOp op(OpType::CONDITIONAL_PAULI, destab, stab, s);
         op.conditional_.controlling_meas = static_cast<uint32_t>(controlling_meas);
@@ -277,7 +282,7 @@ struct HeisenbergOp {
 
   private:
     // Private constructor - use factory methods
-    HeisenbergOp(OpType t, stim::bitword<64> destab, stim::bitword<64> stab, bool s)
+    HeisenbergOp(OpType t, PauliBitMask destab, PauliBitMask stab, bool s)
         : destab_mask_(destab), stab_mask_(stab), type_(t), sign_(s), flags_(0) {
         // Zero-initialize the union
         measure_ = {0};
@@ -286,8 +291,8 @@ struct HeisenbergOp {
     // --- Data Members ---
 
     // The rewound Pauli string (topological geometry at t=0)
-    stim::bitword<64> destab_mask_;  // X-bits (destabilizer component) - 8 bytes
-    stim::bitword<64> stab_mask_;    // Z-bits (stabilizer component)   - 8 bytes
+    PauliBitMask destab_mask_;  // X-bits (destabilizer component)
+    PauliBitMask stab_mask_;    // Z-bits (stabilizer component)
 
     // Payload (interpretation depends on OpType) - 12 bytes
     union {
@@ -332,8 +337,12 @@ struct HeisenbergOp {
     // 1 byte padding -> Total: 32 bytes
 };
 
-// Verify 32-byte layout for cache alignment
-static_assert(sizeof(HeisenbergOp) == 32, "HeisenbergOp must be exactly 32 bytes");
+// At kMaxInlineQubits == 64 the HIR struct is exactly 32 bytes (2 per cache line).
+// At larger widths the struct grows (offline AOT data, not hot-path).
+#if UCC_MAX_QUBITS == 64
+static_assert(sizeof(HeisenbergOp) == 32,
+              "HeisenbergOp must be exactly 32 bytes at 64-qubit width");
+#endif
 
 // The complete HIR module - output of the Front-End.
 //

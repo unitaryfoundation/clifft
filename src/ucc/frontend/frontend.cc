@@ -79,21 +79,33 @@ void apply_two_qubit_clifford(stim::TableauSimulator<kStimWidth>& sim, GateType 
     sim.inv_state.inplace_scatter_prepend(inv_tab, {a, b});
 }
 
-// Extract the rewound Z observable for a qubit as uint64_t masks
+// Copy Stim's dynamically-sized PauliString bits into our fixed-width BitMask.
+PauliBitMask stim_to_bitmask(const stim::simd_bits_range_ref<kStimWidth>& bits, uint32_t n) {
+    PauliBitMask m;
+    uint32_t words = (n + 63) / 64;
+    for (uint32_t w = 0; w < words && w < kMaxInlineWords; ++w) {
+        m.w[w] = bits.u64[w];
+    }
+    return m;
+}
+
+// Extract the rewound Z observable for a qubit as PauliBitMask masks
 void extract_rewound_z(const stim::TableauSimulator<kStimWidth>& sim, uint32_t qubit,
-                       uint64_t& destab_mask, uint64_t& stab_mask, bool& sign) {
+                       PauliBitMask& destab_mask, PauliBitMask& stab_mask, bool& sign) {
     const auto& pauli = sim.inv_state.zs[qubit];
-    destab_mask = pauli.xs.u64[0];
-    stab_mask = pauli.zs.u64[0];
+    uint32_t n = sim.inv_state.num_qubits;
+    destab_mask = stim_to_bitmask(pauli.xs, n);
+    stab_mask = stim_to_bitmask(pauli.zs, n);
     sign = pauli.sign;
 }
 
-// Extract the rewound X observable for a qubit as uint64_t masks
+// Extract the rewound X observable for a qubit as PauliBitMask masks
 void extract_rewound_x(const stim::TableauSimulator<kStimWidth>& sim, uint32_t qubit,
-                       uint64_t& destab_mask, uint64_t& stab_mask, bool& sign) {
+                       PauliBitMask& destab_mask, PauliBitMask& stab_mask, bool& sign) {
     const auto& pauli = sim.inv_state.xs[qubit];
-    destab_mask = pauli.xs.u64[0];
-    stab_mask = pauli.zs.u64[0];
+    uint32_t n = sim.inv_state.num_qubits;
+    destab_mask = stim_to_bitmask(pauli.xs, n);
+    stab_mask = stim_to_bitmask(pauli.zs, n);
     sign = pauli.sign;
 }
 
@@ -115,7 +127,8 @@ NoiseChannel rewind_single_pauli(const stim::TableauSimulator<kStimWidth>& sim, 
             break;
     }
     stim::PauliString<kStimWidth> rewound = sim.inv_state(pauli);
-    return NoiseChannel{rewound.xs.ptr_simd[0], rewound.zs.ptr_simd[0], prob};
+    uint32_t n = sim.inv_state.num_qubits;
+    return NoiseChannel{stim_to_bitmask(rewound.xs, n), stim_to_bitmask(rewound.zs, n), prob};
 }
 
 // Rewind a two-qubit Pauli through the tableau.
@@ -137,7 +150,8 @@ NoiseChannel rewind_two_qubit_pauli(const stim::TableauSimulator<kStimWidth>& si
         pauli.zs[q2] = true;  // Y or Z
 
     stim::PauliString<kStimWidth> rewound = sim.inv_state(pauli);
-    return NoiseChannel{rewound.xs.ptr_simd[0], rewound.zs.ptr_simd[0], prob};
+    uint32_t n = sim.inv_state.num_qubits;
+    return NoiseChannel{stim_to_bitmask(rewound.xs, n), stim_to_bitmask(rewound.zs, n), prob};
 }
 
 // Create a NoiseSite for a single-qubit noise channel.
@@ -187,10 +201,10 @@ NoiseSite make_depolarize2_noise_site(const stim::TableauSimulator<kStimWidth>& 
 }  // namespace
 
 HirModule trace(const Circuit& circuit) {
-    // Check MVP constraint: 64 qubits max
     if (circuit.num_qubits > kMaxInlineQubits) {
-        throw std::runtime_error("Circuit exceeds 64-qubit MVP limit: " +
-                                 std::to_string(circuit.num_qubits) + " qubits");
+        throw std::runtime_error(
+            "Circuit exceeds " + std::to_string(kMaxInlineQubits) +
+            "-qubit compile-time limit: " + std::to_string(circuit.num_qubits) + " qubits");
     }
 
     HirModule hir;
@@ -283,7 +297,7 @@ HirModule trace(const Circuit& circuit) {
                         // Extract the rewound Pauli that will be conditionally applied
                         // For CX rec[-k] q: apply X_q if measurement was 1
                         // For CZ rec[-k] q: apply Z_q if measurement was 1
-                        uint64_t destab_mask, stab_mask;
+                        PauliBitMask destab_mask, stab_mask;
                         bool sign;
 
                         if (node.gate == GateType::CX) {
@@ -315,7 +329,7 @@ HirModule trace(const Circuit& circuit) {
             case GateType::T: {
                 for (const auto& target : node.targets) {
                     uint32_t qubit = target.value();
-                    uint64_t destab_mask, stab_mask;
+                    PauliBitMask destab_mask, stab_mask;
                     bool sign;
                     extract_rewound_z(sim, qubit, destab_mask, stab_mask, sign);
                     emit(HeisenbergOp::make_tgate(destab_mask, stab_mask, sign, /*dagger=*/false));
@@ -327,7 +341,7 @@ HirModule trace(const Circuit& circuit) {
             case GateType::T_DAG: {
                 for (const auto& target : node.targets) {
                     uint32_t qubit = target.value();
-                    uint64_t destab_mask, stab_mask;
+                    PauliBitMask destab_mask, stab_mask;
                     bool sign;
                     extract_rewound_z(sim, qubit, destab_mask, stab_mask, sign);
                     emit(HeisenbergOp::make_tgate(destab_mask, stab_mask, sign, /*dagger=*/true));
@@ -339,7 +353,7 @@ HirModule trace(const Circuit& circuit) {
             case GateType::M: {
                 for (const auto& target : node.targets) {
                     uint32_t qubit = target.value();
-                    uint64_t destab_mask, stab_mask;
+                    PauliBitMask destab_mask, stab_mask;
                     bool sign;
                     extract_rewound_z(sim, qubit, destab_mask, stab_mask, sign);
                     sign ^= target.is_inverted();
@@ -353,7 +367,7 @@ HirModule trace(const Circuit& circuit) {
             case GateType::MX: {
                 for (const auto& target : node.targets) {
                     uint32_t qubit = target.value();
-                    uint64_t destab_mask, stab_mask;
+                    PauliBitMask destab_mask, stab_mask;
                     bool sign;
                     extract_rewound_x(sim, qubit, destab_mask, stab_mask, sign);
                     sign ^= target.is_inverted();
@@ -368,8 +382,9 @@ HirModule trace(const Circuit& circuit) {
                 for (const auto& target : node.targets) {
                     uint32_t qubit = target.value();
                     auto pauli = sim.inv_state.y_output(qubit);
-                    uint64_t destab_mask = pauli.xs.u64[0];
-                    uint64_t stab_mask = pauli.zs.u64[0];
+                    uint32_t n = sim.inv_state.num_qubits;
+                    PauliBitMask destab_mask = stim_to_bitmask(pauli.xs, n);
+                    PauliBitMask stab_mask = stim_to_bitmask(pauli.zs, n);
                     bool sign = pauli.sign ^ target.is_inverted();
                     emit(HeisenbergOp::make_measure(destab_mask, stab_mask, sign, meas_idx));
                     ++meas_idx;
@@ -394,8 +409,9 @@ HirModule trace(const Circuit& circuit) {
                     }
                 }
                 stim::PauliString<kStimWidth> rewound = sim.inv_state(obs);
-                uint64_t destab_mask = rewound.xs.u64[0];
-                uint64_t stab_mask = rewound.zs.u64[0];
+                uint32_t n = sim.inv_state.num_qubits;
+                PauliBitMask destab_mask = stim_to_bitmask(rewound.xs, n);
+                PauliBitMask stab_mask = stim_to_bitmask(rewound.zs, n);
                 bool sign = rewound.sign ^ inversion_parity;
                 emit(HeisenbergOp::make_measure(destab_mask, stab_mask, sign, meas_idx));
                 ++meas_idx;
@@ -431,7 +447,7 @@ HirModule trace(const Circuit& circuit) {
                         break;
                 }
 
-                auto extract_meas = [&](uint32_t q, uint64_t& dm, uint64_t& sm, bool& s) {
+                auto extract_meas = [&](uint32_t q, PauliBitMask& dm, PauliBitMask& sm, bool& s) {
                     switch (basis) {
                         case Basis::Z:
                             extract_rewound_z(sim, q, dm, sm, s);
@@ -441,15 +457,16 @@ HirModule trace(const Circuit& circuit) {
                             break;
                         case Basis::Y: {
                             auto pauli = sim.inv_state.y_output(q);
-                            dm = pauli.xs.u64[0];
-                            sm = pauli.zs.u64[0];
+                            uint32_t n = sim.inv_state.num_qubits;
+                            dm = stim_to_bitmask(pauli.xs, n);
+                            sm = stim_to_bitmask(pauli.zs, n);
                             s = pauli.sign;
                             break;
                         }
                     }
                 };
 
-                auto extract_corr = [&](uint32_t q, uint64_t& dm, uint64_t& sm, bool& s) {
+                auto extract_corr = [&](uint32_t q, PauliBitMask& dm, PauliBitMask& sm, bool& s) {
                     if (basis == Basis::Z)
                         extract_rewound_x(sim, q, dm, sm, s);
                     else
@@ -458,7 +475,7 @@ HirModule trace(const Circuit& circuit) {
 
                 for (const auto& target : node.targets) {
                     uint32_t qubit = target.value();
-                    uint64_t destab_mask, stab_mask;
+                    PauliBitMask destab_mask, stab_mask;
                     bool sign;
                     extract_meas(qubit, destab_mask, stab_mask, sign);
 
@@ -474,7 +491,7 @@ HirModule trace(const Circuit& circuit) {
                     if (!hidden)
                         ++meas_idx;
 
-                    uint64_t corr_destab, corr_stab;
+                    PauliBitMask corr_destab, corr_stab;
                     bool corr_sign;
                     extract_corr(qubit, corr_destab, corr_stab, corr_sign);
                     auto cond_op = HeisenbergOp::make_conditional(corr_destab, corr_stab, corr_sign,

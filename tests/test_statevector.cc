@@ -92,7 +92,7 @@ TEST_CASE("Statevector: X frame flips the zero state") {
     // |0> with p_x[0]=1 -> P|0> = X|0> = |1>
     auto mod = make_module(1, 1);
     SchrodingerState state(1, 0);
-    state.p_x = stim::bitword<kStimWidth>(uint64_t{1});  // X on qubit 0
+    state.p_x = PauliBitMask(uint64_t{1});  // X on qubit 0
 
     auto sv = get_statevector(mod, state);
 
@@ -109,7 +109,7 @@ TEST_CASE("Statevector: Z frame applies phase") {
     state.v()[0] = {1.0, 0.0};
     state.v()[1] = {1.0, 0.0};
     state.set_gamma({1.0 / std::sqrt(2.0), 0.0});
-    state.p_z = stim::bitword<kStimWidth>(uint64_t{1});  // Z on qubit 0
+    state.p_z = PauliBitMask(uint64_t{1});  // Z on qubit 0
 
     auto sv = get_statevector(mod, state);
 
@@ -127,8 +127,8 @@ TEST_CASE("Statevector: XZ frame on 2-qubit state") {
     // Z1 on |00> is trivial (eigenvalue +1 since bit 1 = 0)
     auto mod = make_module(2, 2);
     SchrodingerState state(2, 0);
-    state.p_x = stim::bitword<kStimWidth>(uint64_t{1});  // X on qubit 0
-    state.p_z = stim::bitword<kStimWidth>(uint64_t{2});  // Z on qubit 1
+    state.p_x = PauliBitMask(uint64_t{1});  // X on qubit 0
+    state.p_z = PauliBitMask(uint64_t{2});  // Z on qubit 1
 
     auto sv = get_statevector(mod, state);
 
@@ -244,7 +244,7 @@ TEST_CASE("Statevector: Hadamard tableau on one-state produces minus") {
     auto mod = make_module(1, 1);
     mod.constant_pool.final_tableau = stim::Tableau<kStimWidth>::gate1("+Z", "+X");
     SchrodingerState state(1, 0);
-    state.p_x = stim::bitword<kStimWidth>(uint64_t{1});
+    state.p_x = PauliBitMask(uint64_t{1});
 
     auto sv = get_statevector(mod, state);
 
@@ -310,7 +310,7 @@ TEST_CASE("Statevector: H tableau with Z frame on zero state") {
     auto mod = make_module(1, 1);
     mod.constant_pool.final_tableau = stim::Tableau<kStimWidth>::gate1("+Z", "+X");
     SchrodingerState state(1, 0);
-    state.p_z = stim::bitword<kStimWidth>(uint64_t{1});
+    state.p_z = PauliBitMask(uint64_t{1});
 
     auto sv = get_statevector(mod, state);
 
@@ -331,7 +331,7 @@ TEST_CASE("Statevector: H tableau with Z frame on plus state") {
     state.v()[0] = {1.0, 0.0};
     state.v()[1] = {1.0, 0.0};
     state.set_gamma({1.0 / std::sqrt(2.0), 0.0});
-    state.p_z = stim::bitword<kStimWidth>(uint64_t{1});
+    state.p_z = PauliBitMask(uint64_t{1});
 
     auto sv = get_statevector(mod, state);
 
@@ -424,8 +424,8 @@ TEST_CASE(
     state.v()[0] = {1.0, 0.0};
     state.v()[1] = {0.0, 1.0};  // i
     state.set_gamma({0.5, 0.5});
-    state.p_x = stim::bitword<kStimWidth>(uint64_t{1});  // X on q0
-    state.p_z = stim::bitword<kStimWidth>(uint64_t{2});  // Z on q1
+    state.p_x = PauliBitMask(uint64_t{1});  // X on q0
+    state.p_z = PauliBitMask(uint64_t{2});  // Z on q1
 
     auto sv = get_statevector(mod, state);
     REQUIRE(sv.size() == 4);

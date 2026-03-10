@@ -53,16 +53,19 @@ Instruction make_meas_active_interfere(uint16_t v, uint32_t classical_idx) {
 
 }  // namespace
 
-// Semantic helpers for constructing Pauli frame bitmasks as bitwords.
-// These differ from the uint64_t helpers in test_helpers.h because
-// SchrodingerState::p_x / p_z use stim::bitword<kStimWidth>.
-static stim::bitword<kStimWidth> X(uint16_t q) {
-    return stim::bitword<kStimWidth>(uint64_t{1} << q);
+// Semantic helpers for constructing Pauli frame bitmasks.
+// SchrodingerState::p_x / p_z now use PauliBitMask (BitMask<kMaxInlineQubits>).
+static PauliBitMask X(uint16_t q) {
+    PauliBitMask m;
+    m.bit_set(q, true);
+    return m;
 }
-static stim::bitword<kStimWidth> Z(uint16_t q) {
-    return stim::bitword<kStimWidth>(uint64_t{1} << q);
+static PauliBitMask Z(uint16_t q) {
+    PauliBitMask m;
+    m.bit_set(q, true);
+    return m;
 }
-static const stim::bitword<kStimWidth> NONE{uint64_t{0}};
+static const PauliBitMask NONE{};
 
 constexpr double kTol = 1e-12;
 
@@ -758,8 +761,8 @@ TEST_CASE("RISC Meas: Dormant random resets frame correctly") {
 
     // After measurement, p_z[0] must be 0, p_x[0] must equal the outcome
     uint8_t m = state.meas_record[0];
-    CHECK(bool((state.p_x >> 0) & uint64_t{1}) == bool(m));
-    CHECK((state.p_z & uint64_t{1}) == uint64_t{0});
+    CHECK(state.p_x.bit_get(0) == bool(m));
+    CHECK(!state.p_z.bit_get(0));
 }
 
 // =============================================================================
@@ -826,9 +829,9 @@ TEST_CASE("RISC ApplyPauli: X error flips p_x bit") {
     mod.num_measurements = 1;
     mod.peak_rank = 4;
 
-    stim::PauliString<kStimWidth> ps(4);
-    ps.xs[1] = true;
-    mod.constant_pool.pauli_masks.push_back(ps);
+    PauliMask pm;
+    pm.x.bit_set(1, true);
+    mod.constant_pool.pauli_masks.push_back(pm);
 
     Instruction instr{};
     instr.opcode = Opcode::OP_APPLY_PAULI;
@@ -853,9 +856,9 @@ TEST_CASE("RISC ApplyPauli: Z error flips p_z bit") {
     mod.num_measurements = 1;
     mod.peak_rank = 4;
 
-    stim::PauliString<kStimWidth> ps(4);
-    ps.zs[2] = true;
-    mod.constant_pool.pauli_masks.push_back(ps);
+    PauliMask pm;
+    pm.z.bit_set(2, true);
+    mod.constant_pool.pauli_masks.push_back(pm);
 
     Instruction instr{};
     instr.opcode = Opcode::OP_APPLY_PAULI;
@@ -881,9 +884,9 @@ TEST_CASE("RISC ApplyPauli: X error on Z frame has no anticommutation phase") {
     mod.num_measurements = 1;
     mod.peak_rank = 4;
 
-    stim::PauliString<kStimWidth> ps(4);
-    ps.xs[0] = true;
-    mod.constant_pool.pauli_masks.push_back(ps);
+    PauliMask pm;
+    pm.x.bit_set(0, true);
+    mod.constant_pool.pauli_masks.push_back(pm);
 
     Instruction instr{};
     instr.opcode = Opcode::OP_APPLY_PAULI;
@@ -909,9 +912,9 @@ TEST_CASE("RISC ApplyPauli: Z error on X frame negates gamma") {
     mod.num_measurements = 1;
     mod.peak_rank = 4;
 
-    stim::PauliString<kStimWidth> ps(4);
-    ps.zs[0] = true;
-    mod.constant_pool.pauli_masks.push_back(ps);
+    PauliMask pm;
+    pm.z.bit_set(0, true);
+    mod.constant_pool.pauli_masks.push_back(pm);
 
     Instruction instr{};
     instr.opcode = Opcode::OP_APPLY_PAULI;
@@ -926,7 +929,7 @@ TEST_CASE("RISC ApplyPauli: Z error on X frame negates gamma") {
     check_complex(state.gamma(), {-1.0, 0.0});
 }
 
-TEST_CASE("RISC ApplyPauli: signed PauliString negates gamma") {
+TEST_CASE("RISC ApplyPauli: signed Pauli mask negates gamma") {
     SchrodingerState state(4, 1);
     state.meas_record[0] = 1;
     state.p_x = NONE;
@@ -936,10 +939,10 @@ TEST_CASE("RISC ApplyPauli: signed PauliString negates gamma") {
     mod.num_measurements = 1;
     mod.peak_rank = 4;
 
-    stim::PauliString<kStimWidth> ps(4);
-    ps.xs[0] = true;
-    ps.sign = true;
-    mod.constant_pool.pauli_masks.push_back(ps);
+    PauliMask pm;
+    pm.x.bit_set(0, true);
+    pm.sign = true;
+    mod.constant_pool.pauli_masks.push_back(pm);
 
     Instruction instr{};
     instr.opcode = Opcode::OP_APPLY_PAULI;
@@ -1112,7 +1115,7 @@ TEST_CASE("Compaction fuzz: active diagonal preserves norm - k=4") {
         double gamma_mag_before = std::abs(state.gamma());
 
         // Save frame bit before execute (measurement overwrites p_x)
-        bool px_v_before = (state.p_x.val >> 3) & 1;
+        bool px_v_before = state.p_x.bit_get(3);
 
         // Measure top axis (k-1 = 3) in Z-basis
         auto prog = make_program({make_meas_active_diagonal(3, 0)}, 4, 1);
@@ -1170,7 +1173,7 @@ TEST_CASE("Compaction fuzz: active interfere preserves norm - k=4") {
         double gamma_mag_before = std::abs(state.gamma());
 
         // Save frame bit before execute (measurement overwrites p_z)
-        bool pz_v_before = (state.p_z.val >> 3) & 1;
+        bool pz_v_before = state.p_z.bit_get(3);
 
         auto prog = make_program({make_meas_active_interfere(3, 0)}, 4, 1);
         execute(prog, state);
@@ -1250,8 +1253,8 @@ TEST_CASE("Compaction fuzz: diagonal with pre-existing Pauli frame") {
         // Set random frame bits
         uint64_t px = test_lcg(seed) & 0xF;
         uint64_t pz = test_lcg(seed) & 0xF;
-        state.p_x = stim::bitword<kStimWidth>(px);
-        state.p_z = stim::bitword<kStimWidth>(pz);
+        state.p_x = PauliBitMask(px);
+        state.p_z = PauliBitMask(pz);
 
         // Calculate theoretical branch probabilities before measurement
         double prob_b0 = 0.0;
@@ -1265,7 +1268,7 @@ TEST_CASE("Compaction fuzz: diagonal with pre-existing Pauli frame") {
         double gamma_mag_before = std::abs(state.gamma());
 
         // Save frame bit before execute (measurement overwrites p_x)
-        bool px_v_before = (state.p_x.val >> 3) & 1;
+        bool px_v_before = state.p_x.bit_get(3);
 
         auto prog = make_program({make_meas_active_diagonal(3, 0)}, 4, 1);
         execute(prog, state);
@@ -1306,8 +1309,8 @@ TEST_CASE("Compaction fuzz: interfere with pre-existing Pauli frame") {
 
         uint64_t px = test_lcg(seed) & 0xF;
         uint64_t pz = test_lcg(seed) & 0xF;
-        state.p_x = stim::bitword<kStimWidth>(px);
-        state.p_z = stim::bitword<kStimWidth>(pz);
+        state.p_x = PauliBitMask(px);
+        state.p_z = PauliBitMask(pz);
 
         // Calculate theoretical X-basis branch probabilities before measurement
         double prob_plus = 0.0;
@@ -1323,7 +1326,7 @@ TEST_CASE("Compaction fuzz: interfere with pre-existing Pauli frame") {
         double gamma_mag_before = std::abs(state.gamma());
 
         // Save frame bit before execute (measurement overwrites p_z)
-        bool pz_v_before = (state.p_z.val >> 3) & 1;
+        bool pz_v_before = state.p_z.bit_get(3);
 
         auto prog = make_program({make_meas_active_interfere(3, 0)}, 4, 1);
         execute(prog, state);

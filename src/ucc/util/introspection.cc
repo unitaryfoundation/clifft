@@ -5,18 +5,18 @@
 namespace ucc {
 
 std::string format_pauli_mask(const HeisenbergOp& op) {
-    uint64_t x_bits = static_cast<uint64_t>(op.destab_mask());
-    uint64_t z_bits = static_cast<uint64_t>(op.stab_mask());
+    const auto& x_mask = op.destab_mask();
+    const auto& z_mask = op.stab_mask();
     bool sign = op.sign();
 
-    if (x_bits == 0 && z_bits == 0)
+    if (x_mask.is_zero() && z_mask.is_zero())
         return sign ? "-I" : "+I";
 
     std::string result = sign ? "-" : "+";
     bool first = true;
-    for (int i = 0; i < static_cast<int>(kStimWidth); ++i) {
-        bool x = (x_bits >> i) & 1;
-        bool z = (z_bits >> i) & 1;
+    for (uint32_t i = 0; i < kMaxInlineQubits; ++i) {
+        bool x = x_mask.bit_get(i);
+        bool z = z_mask.bit_get(i);
         if (x || z) {
             if (!first)
                 result += "*";

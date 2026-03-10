@@ -313,11 +313,15 @@ void emit_swap(CompilerContext& ctx, stim::TableauTransposedRaii<kStimWidth>& tr
 }
 
 // Map an HIR Pauli (at t=0) into the current virtual frame: P_v = V_cum(P_t0).
-stim::PauliString<kStimWidth> map_to_virtual(const CompilerContext& ctx, uint64_t destab_mask,
-                                             uint64_t stab_mask, bool sign, uint32_t n) {
+stim::PauliString<kStimWidth> map_to_virtual(const CompilerContext& ctx,
+                                             const PauliBitMask& destab_mask,
+                                             const PauliBitMask& stab_mask, bool sign, uint32_t n) {
     stim::PauliString<kStimWidth> p(n);
-    p.xs.u64[0] = destab_mask;
-    p.zs.u64[0] = stab_mask;
+    uint32_t words = (n + 63) / 64;
+    for (uint32_t w = 0; w < words && w < kMaxInlineWords; ++w) {
+        p.xs.u64[w] = destab_mask.w[w];
+        p.zs.u64[w] = stab_mask.w[w];
+    }
     p.sign = sign;
     return ctx.v_cum(p);
 }
@@ -375,14 +379,51 @@ namespace internal {
 // Given a non-identity PauliString P = X^x Z^z, computes virtual Clifford V
 // such that V P V^dag = (+/-)P_v where P_v in {X_v, Z_v}.
 
+// Find a dormant pivot in a BitMask, exploiting the active rank bound.
+// Since k_max <= 30, the active_mask only affects word[0]. Any set bit
+// in words 1..N is guaranteed dormant -- return it immediately.
+static uint16_t find_dormant_pivot(const PauliBitMask& bits, uint32_t k) {
+    assert(k <= kMaxInlineQubits);
+    for (uint32_t w = 1; w < kMaxInlineWords; ++w) {
+        if (bits.w[w] != 0) {
+            return static_cast<uint16_t>(w * 64 + std::countr_zero(bits.w[w]));
+        }
+    }
+    // k < 64: mask off the active bits in word[0] to find dormant ones.
+    // k >= 64: all of word[0] is active, so no dormant bits there.
+    if (k < 64) {
+        uint64_t active_mask = (k == 0) ? 0ULL : ((1ULL << k) - 1);
+        uint64_t dormant_w0 = bits.w[0] & ~active_mask;
+        if (dormant_w0 != 0) {
+            return static_cast<uint16_t>(std::countr_zero(dormant_w0));
+        }
+    }
+    return static_cast<uint16_t>(bits.lowest_bit());
+}
+
+// Find an active pivot in a BitMask (prefer bits < k in word[0]).
+static uint16_t find_active_pivot(const PauliBitMask& bits, uint32_t k) {
+    assert(k <= kMaxInlineQubits);
+    // k < 64: mask to just the active region of word[0].
+    // k >= 64: all of word[0] is active, use it directly.
+    uint64_t active_w0 = (k == 0) ? 0ULL : (k >= 64) ? bits.w[0] : bits.w[0] & ((1ULL << k) - 1);
+    if (active_w0 != 0) {
+        return static_cast<uint16_t>(std::countr_zero(active_w0));
+    }
+    return static_cast<uint16_t>(bits.lowest_bit());
+}
+
 CompressionResult compress_pauli(CompilerContext& ctx, const stim::PauliString<kStimWidth>& pauli) {
     const uint32_t n = ctx.reg_manager.num_qubits();
+    const uint32_t words = (n + 63) / 64;
 
-    static_assert(kStimWidth == 64, "compress_pauli assumes 64-bit width");
-    uint64_t x_bits = pauli.xs.u64[0];
-    uint64_t z_bits = pauli.zs.u64[0];
+    PauliBitMask x_bits, z_bits;
+    for (uint32_t w = 0; w < words && w < kMaxInlineWords; ++w) {
+        x_bits.w[w] = pauli.xs.u64[w];
+        z_bits.w[w] = pauli.zs.u64[w];
+    }
 
-    assert((x_bits | z_bits) != 0 && "Cannot compress identity Pauli");
+    assert(!(x_bits | z_bits).is_zero() && "Cannot compress identity Pauli");
 
     ctx.v_local = ctx.v_local_identity;
 
@@ -397,43 +438,39 @@ CompressionResult compress_pauli(CompilerContext& ctx, const stim::PauliString<k
         stim::TableauTransposedRaii<kStimWidth> trans_local(ctx.v_local);
 
         uint32_t k = ctx.reg_manager.active_k();
-        uint64_t active_mask = (k == 0) ? 0ULL : ((1ULL << k) - 1);
 
-        if (x_bits != 0) {
+        if (!x_bits.is_zero()) {
             // =============================================================
             // Case 1: X-support is non-empty.
             // =============================================================
 
             // Pick pivot from X-support, preferring dormant axes (>= k).
-            uint64_t x_dormant = x_bits & ~active_mask;
-            if (x_dormant != 0) {
-                pivot = static_cast<uint16_t>(std::countr_zero(x_dormant));
-            } else {
-                pivot = static_cast<uint16_t>(std::countr_zero(x_bits));
-            }
+            pivot = find_dormant_pivot(x_bits, k);
 
             // X-compression: CNOT(pivot -> q) annihilates X_q.
             // Z propagation: Z_t -> Z_c Z_t, so z_pivot ^= z_q.
-            uint64_t to_clear_x = x_bits & ~(1ULL << pivot);
-            while (to_clear_x != 0) {
-                uint16_t q = static_cast<uint16_t>(std::countr_zero(to_clear_x));
+            PauliBitMask to_clear_x = x_bits;
+            to_clear_x.bit_set(pivot, false);
+            while (!to_clear_x.is_zero()) {
+                uint16_t q = static_cast<uint16_t>(to_clear_x.lowest_bit());
                 emit_cnot(ctx, trans_cum, trans_local, pivot, q);
-                // Branchless: if bit q of z_bits is set, toggle the pivot bit.
-                // -(x & 1) produces an all-ones mask when bit is set, all-zeros otherwise.
-                z_bits ^= (-((z_bits >> q) & 1)) & (1ULL << pivot);
-                to_clear_x &= to_clear_x - 1;
+                if (z_bits.bit_get(q)) {
+                    z_bits.bit_xor(pivot);
+                }
+                to_clear_x.clear_lowest_bit();
             }
 
             // Z-compression: CZ(pivot, q) clears residual Z_q.
-            uint64_t to_clear_z = z_bits & ~(1ULL << pivot);
-            while (to_clear_z != 0) {
-                uint16_t q = static_cast<uint16_t>(std::countr_zero(to_clear_z));
+            PauliBitMask to_clear_z = z_bits;
+            to_clear_z.bit_set(pivot, false);
+            while (!to_clear_z.is_zero()) {
+                uint16_t q = static_cast<uint16_t>(to_clear_z.lowest_bit());
                 emit_cz(ctx, trans_cum, trans_local, pivot, q);
-                to_clear_z &= to_clear_z - 1;
+                to_clear_z.clear_lowest_bit();
             }
 
             // Y_pivot -> S Y S^dag = -X. Emit S to resolve.
-            if (z_bits & (1ULL << pivot)) {
+            if (z_bits.bit_get(pivot)) {
                 emit_s(ctx, trans_cum, trans_local, pivot);
             }
 
@@ -445,19 +482,15 @@ CompressionResult compress_pauli(CompilerContext& ctx, const stim::PauliString<k
             // =============================================================
 
             // Pick pivot from Z-support, preferring active axes (< k).
-            uint64_t z_active = z_bits & active_mask;
-            if (z_active != 0) {
-                pivot = static_cast<uint16_t>(std::countr_zero(z_active));
-            } else {
-                pivot = static_cast<uint16_t>(std::countr_zero(z_bits));
-            }
+            pivot = find_active_pivot(z_bits, k);
 
             // Z-compression: CNOT(q -> pivot) folds Z_q onto pivot.
-            uint64_t to_clear_z = z_bits & ~(1ULL << pivot);
-            while (to_clear_z != 0) {
-                uint16_t q = static_cast<uint16_t>(std::countr_zero(to_clear_z));
+            PauliBitMask to_clear_z = z_bits;
+            to_clear_z.bit_set(pivot, false);
+            while (!to_clear_z.is_zero()) {
+                uint16_t q = static_cast<uint16_t>(to_clear_z.lowest_bit());
                 emit_cnot(ctx, trans_cum, trans_local, q, pivot);
-                to_clear_z &= to_clear_z - 1;
+                to_clear_z.clear_lowest_bit();
             }
 
             basis = CompressedBasis::Z_BASIS;
@@ -548,9 +581,13 @@ CompiledModule lower(const HirModule& hir, std::span<const uint8_t> postselectio
 
                 auto p_v = map_to_virtual(ctx, op.destab_mask(), op.stab_mask(), op.sign(), n);
 
-                uint64_t x_bits = p_v.xs.u64[0];
-                uint64_t z_bits = p_v.zs.u64[0];
-                if ((x_bits | z_bits) == 0) {
+                PauliBitMask pv_x, pv_z;
+                uint32_t pv_words = (n + 63) / 64;
+                for (uint32_t w = 0; w < pv_words && w < kMaxInlineWords; ++w) {
+                    pv_x.w[w] = p_v.xs.u64[w];
+                    pv_z.w[w] = p_v.zs.u64[w];
+                }
+                if ((pv_x | pv_z).is_zero()) {
                     // Identity Pauli: outcome is determined solely by the sign
                     Instruction id_meas =
                         make_meas(Opcode::OP_MEAS_DORMANT_STATIC, 0, classical_idx, p_v.sign);
@@ -611,8 +648,16 @@ CompiledModule lower(const HirModule& hir, std::span<const uint8_t> postselectio
             case OpType::CONDITIONAL_PAULI: {
                 auto p_v = map_to_virtual(ctx, op.destab_mask(), op.stab_mask(), op.sign(), n);
 
+                PauliMask pm;
+                uint32_t pm_words = (n + 63) / 64;
+                for (uint32_t w = 0; w < pm_words && w < kMaxInlineWords; ++w) {
+                    pm.x.w[w] = p_v.xs.u64[w];
+                    pm.z.w[w] = p_v.zs.u64[w];
+                }
+                pm.sign = p_v.sign;
+
                 uint32_t cp_idx = static_cast<uint32_t>(ctx.constant_pool.pauli_masks.size());
-                ctx.constant_pool.pauli_masks.push_back(std::move(p_v));
+                ctx.constant_pool.pauli_masks.push_back(pm);
 
                 uint32_t cond_idx;
                 if (op.use_last_outcome()) {
@@ -633,13 +678,20 @@ CompiledModule lower(const HirModule& hir, std::span<const uint8_t> postselectio
                 const auto& hir_site = hir.noise_sites[site_idx];
 
                 NoiseSite mapped_site;
+                uint32_t nw = (n + 63) / 64;
                 for (const auto& ch : hir_site.channels) {
                     stim::PauliString<kStimWidth> p(n);
-                    p.xs.ptr_simd[0] = ch.destab_mask;
-                    p.zs.ptr_simd[0] = ch.stab_mask;
+                    for (uint32_t w = 0; w < nw && w < kMaxInlineWords; ++w) {
+                        p.xs.u64[w] = ch.destab_mask.w[w];
+                        p.zs.u64[w] = ch.stab_mask.w[w];
+                    }
                     stim::PauliString<kStimWidth> mapped = ctx.v_cum(p);
-                    mapped_site.channels.push_back(
-                        {mapped.xs.ptr_simd[0], mapped.zs.ptr_simd[0], ch.prob});
+                    PauliBitMask mapped_x, mapped_z;
+                    for (uint32_t w = 0; w < nw && w < kMaxInlineWords; ++w) {
+                        mapped_x.w[w] = mapped.xs.u64[w];
+                        mapped_z.w[w] = mapped.zs.u64[w];
+                    }
+                    mapped_site.channels.push_back({mapped_x, mapped_z, ch.prob});
                 }
 
                 // Compute total channel probability for gap sampling
@@ -771,7 +823,10 @@ CompiledModule lower(const HirModule& hir, std::span<const uint8_t> postselectio
     ctx.constant_pool.global_weight *= hir.global_weight;
 
     uint16_t peak = ctx.reg_manager.peak_k();
-    assert(peak < 64 && "peak_rank >= 64 would cause undefined behavior in 1ULL << k shifts");
+    if (peak >= 63) {
+        throw std::runtime_error("peak active rank (" + std::to_string(peak) +
+                                 ") >= 63: would cause undefined behavior in SVM 1ULL << k shifts");
+    }
 
     CompiledModule result;
     result.bytecode = std::move(ctx.bytecode);

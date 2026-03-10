@@ -8,10 +8,10 @@ namespace ucc {
 
 namespace {
 
-/// Symplectic inner product over bitword masks.
+/// Symplectic inner product over BitMask masks.
 /// Returns true if the two Pauli strings anti-commute.
-inline bool anti_commute(stim::bitword<kStimWidth> x1, stim::bitword<kStimWidth> z1,
-                         stim::bitword<kStimWidth> x2, stim::bitword<kStimWidth> z2) {
+inline bool anti_commute(const PauliBitMask& x1, const PauliBitMask& z1, const PauliBitMask& x2,
+                         const PauliBitMask& z2) {
     return (((x1 & z2) ^ (z1 & x2)).popcount() & 1) != 0;
 }
 

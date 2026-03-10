@@ -47,44 +47,32 @@ static inline uint8_t sample_branch(SchrodingerState& state, double prob0, doubl
     return (rand * total < prob0) ? 0 : 1;
 }
 
-// =============================================================================
-// Bit helpers for stim::bitword<kStimWidth>
-//
-// These use only the portable bitword API (shift, bitwise ops, popcount) so
-// they work at any kStimWidth (64, 128, 256) without touching internal fields.
-// =============================================================================
-
 namespace {
 
-using Bitword = stim::bitword<kStimWidth>;
-static_assert(kStimWidth == 64, "Direct .val access assumes 64-bit bitword");
+// =============================================================================
+// Bit helpers for PauliBitMask (BitMask<kMaxInlineQubits>)
+// =============================================================================
 
-// Fast bit manipulation bypassing SIMD shift overhead by accessing the
-// underlying uint64_t directly. Each helper compiles to 1-2 scalar ALU ops.
-inline bool bit_get(const Bitword& w, uint16_t idx) {
-    return (w.val >> idx) & 1ULL;
+inline bool bit_get(const PauliBitMask& m, uint16_t idx) {
+    return m.bit_get(idx);
 }
 
-inline void bit_set(Bitword& w, uint16_t idx, bool v) {
+inline void bit_set(PauliBitMask& m, uint16_t idx, bool v) {
+    m.bit_set(idx, v);
+}
+
+inline void bit_xor(PauliBitMask& m, uint16_t idx, bool v) {
     if (v) {
-        w.val |= (1ULL << idx);
-    } else {
-        w.val &= ~(1ULL << idx);
+        m.bit_xor(idx);
     }
 }
 
-inline void bit_xor(Bitword& w, uint16_t idx, bool v) {
-    if (v) {
-        w.val ^= (1ULL << idx);
-    }
-}
-
-inline void bit_swap(Bitword& w1, uint16_t i1, Bitword& w2, uint16_t i2) {
-    bool b1 = bit_get(w1, i1);
-    bool b2 = bit_get(w2, i2);
+inline void bit_swap(PauliBitMask& m1, uint16_t i1, PauliBitMask& m2, uint16_t i2) {
+    bool b1 = m1.bit_get(i1);
+    bool b2 = m2.bit_get(i2);
     if (b1 != b2) {
-        w1.val ^= (1ULL << i1);
-        w2.val ^= (1ULL << i2);
+        m1.bit_xor(i1);
+        m2.bit_xor(i2);
     }
 }
 
@@ -909,14 +897,9 @@ static inline void exec_swap_meas_interfere(SchrodingerState& state, uint16_t f,
 // Classical / Error Opcodes
 // =============================================================================
 
-// Apply a PauliString to the Pauli frame (shared logic for APPLY_PAULI and NOISE).
-static inline void apply_pauli_to_frame(SchrodingerState& state,
-                                        const stim::PauliString<kStimWidth>& ps) {
-    assert(ps.num_qubits <= kStimWidth && "PauliString exceeds single bitword lane");
-
-    Bitword err_x(ps.xs.u64[0]);
-    Bitword err_z(ps.zs.u64[0]);
-
+// Apply a Pauli error to the Pauli frame (shared logic for APPLY_PAULI and NOISE).
+static inline void apply_pauli_to_frame(SchrodingerState& state, const PauliBitMask& err_x,
+                                        const PauliBitMask& err_z, bool sign) {
     // Phase: (-1)^popcount(err_z & current_x)
     // When composing E*P, we commute Z^{e_z} past X^{p_x}, picking up (-1)^{e_z . p_x}.
     if ((state.p_x & err_z).popcount() & 1) {
@@ -926,12 +909,12 @@ static inline void apply_pauli_to_frame(SchrodingerState& state,
     state.p_x ^= err_x;
     state.p_z ^= err_z;
 
-    if (ps.sign) {
+    if (sign) {
         state.multiply_phase({-1.0, 0.0});
     }
 }
 
-// APPLY_PAULI: conditionally composes a PauliString error into the Pauli frame.
+// APPLY_PAULI: conditionally composes a Pauli error into the Pauli frame.
 // Only applied if the controlling measurement recorded outcome 1.
 static inline void exec_apply_pauli(SchrodingerState& state, const ConstantPool& pool,
                                     uint32_t cp_mask_idx, uint32_t condition_idx) {
@@ -942,7 +925,8 @@ static inline void exec_apply_pauli(SchrodingerState& state, const ConstantPool&
         return;
     }
 
-    apply_pauli_to_frame(state, pool.pauli_masks[cp_mask_idx]);
+    const auto& pm = pool.pauli_masks[cp_mask_idx];
+    apply_pauli_to_frame(state, pm.x, pm.z, pm.sign);
 }
 
 // NOISE: stochastic Pauli channel with gap-based skip optimization.
@@ -967,10 +951,7 @@ static inline void exec_noise(SchrodingerState& state, const ConstantPool& pool,
     for (const auto& ch : site.channels) {
         cumulative += ch.prob;
         if (rand < cumulative) {
-            stim::PauliString<kStimWidth> ps(kStimWidth);
-            ps.xs.ptr_simd[0] = ch.destab_mask;
-            ps.zs.ptr_simd[0] = ch.stab_mask;
-            apply_pauli_to_frame(state, ps);
+            apply_pauli_to_frame(state, ch.destab_mask, ch.stab_mask, false);
             break;
         }
     }

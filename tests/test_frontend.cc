@@ -268,9 +268,9 @@ TEST_CASE("Frontend: MPP Z product", "[frontend]") {
     REQUIRE(hir.ops[0].stab_mask() == Z(1));  // Just Z1
 }
 
-TEST_CASE("Frontend: exceeds 64 qubit limit", "[frontend]") {
+TEST_CASE("Frontend: exceeds max qubit limit", "[frontend]") {
     Circuit circuit;
-    circuit.num_qubits = 65;  // Exceeds MVP limit
+    circuit.num_qubits = kMaxInlineQubits + 1;
 
     REQUIRE_THROWS_AS(trace(circuit), std::runtime_error);
 }

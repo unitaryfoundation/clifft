@@ -166,6 +166,15 @@ static_assert(sizeof(Instruction) == 32, "Instruction must be exactly 32 bytes")
 // Heavy data referenced by index from Instructions. Kept separate to maintain
 // the 32-byte Instruction size constraint.
 
+/// Full Pauli mask stored in the ConstantPool for OP_APPLY_PAULI.
+/// Uses BitMask<kMaxInlineQubits> instead of stim::PauliString to avoid
+/// heap allocations on the VM execution hot path.
+struct PauliMask {
+    PauliBitMask x;
+    PauliBitMask z;
+    bool sign = false;
+};
+
 struct ConstantPool {
     // Forward Clifford tableau at circuit end (for statevector expansion).
     // Computed as U_C = U_phys * V_cum^dag at end of compilation.
@@ -175,7 +184,7 @@ struct ConstantPool {
     std::complex<double> global_weight = {1.0, 0.0};
 
     // Full N-bit Pauli masks for OP_APPLY_PAULI (indexed by cp_mask_idx)
-    std::vector<stim::PauliString<kStimWidth>> pauli_masks;
+    std::vector<PauliMask> pauli_masks;
 
     // Noise sites for OP_NOISE (virtual-frame-mapped channels)
     std::vector<NoiseSite> noise_sites;
