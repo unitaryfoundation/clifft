@@ -76,14 +76,30 @@ To accelerate validation, we will first implement the fast-fail execution and sa
 *   **Task 3.3 (Postselection Filtering):** Use Sinter's `--postselected_detectors_predicate "coords[4] == -9"` flag. This natively instructs Sinter to build the post-selection mask, because the SOFT circuits use a 5th coordinate of `-9` to flag cultivation success checks.
 *   **DoD:** Sinter natively utilizes all physical CPU cores and outputs a CSV exactly matching the SOFT paper's Table III: an $85.60\%$ discard rate and a $4.59 \times 10^{-9}$ logical error rate for $p=0.001$, proving $\mathcal{O}(1)$ performance scalability on a single CPU core.
 
-## Phase 4: 512-Qubit Template Monomorphization (AVX-512)
+## Phase 4: 512-Qubit Scale (Compile-Time Parameterization)
 
-**Goal:** Scale the C++ Core's Pauli trackers to support the 463-qubit escape stage while preserving perfect inline memory layouts.
+**Goal:** Parameterize the physical tracking limits to natively support 512-qubit circuits at compile-time, relying on C++ auto-vectorization for portability while strictly preserving the VM's 32-byte `Instruction` footprint.
 
-*   **Task 4.1 (Template Architecture):** In `svm.h`, template `SchrodingerState<W>` and the inner execution loop `execute_impl<W>`.
-*   **Task 4.2 (Bitword Upgrade):** Replace the hardcoded `stim::bitword<64> p_x, p_z;` trackers with `stim::bitword<W>`. (We will instantiate this for $W=64$, $W=256$, and $W=512$).
-*   **Task 4.3 (CMake Config):** Add `-DUCC_MAX_QUBITS=512` as a CMake cache variable. When active, conditionally compile the $W=512$ path and add `-mavx512f` for native wide-vector math on compatible CPUs.
-*   **DoD:** The codebase compiles. The 32-byte `Instruction` struct is unmodified. Catch2 tests pass flawlessly for circuits utilizing 400+ qubits, automatically vectorizing the frame XORs over AVX registers.
+*   **Task 4.1 (CMake & Configuration Plumb-Through):**
+    *   Update `CMakeLists.txt` to accept a cache variable `UCC_MAX_QUBITS` (default `64`). Plumb this through to C++ via `ucc/util/config.h` as `constexpr uint32_t kMaxInlineQubits`.
+    *   *Crucial Constraint:* Leave Stim's internal SIMD lane width (`kStimWidth`) locked at `64`. Stim's `TableauSimulator` handles arbitrary qubit scaling via dynamic heap allocation; only our inline AOT tracking structs need to expand.
+*   **Task 4.2 (The Auto-Vectorized `BitMask` Type):**
+    *   Create `src/ucc/util/bitmask.h`.
+    *   Implement `template <size_t N> struct BitMask` wrapping `std::array<uint64_t, N/64>`.
+    *   Implement inline bitwise operators (`^=`, `&=`, `|`, `==`) and a `popcount()` method using fixed-size `for` loops. Rely strictly on compiler auto-vectorization (`-O3`) to emit optimal AVX or NEON instructions based on the build target.
+    *   Port the bit-level helpers (`bit_get`, `bit_set`, `bit_xor`, `bit_swap`) into this struct, routing to the correct word via `idx / 64` and `idx % 64`.
+*   **Task 4.3 (Relaxing Hardcoded 64-bit Constraints):**
+    *   In `hir.h`, replace `stim::bitword<64>` with `ucc::BitMask<kMaxInlineQubits>` inside `HeisenbergOp` and `NoiseChannel`.
+    *   Wrap the `static_assert(sizeof(HeisenbergOp) == 32)` in an `#if kMaxInlineQubits == 64` block. At 512 qubits, the offline struct will safely grow to ~144 bytes.
+    *   In `frontend.cc`, update `extract_rewound_x` and `extract_rewound_z` to loop over `kMaxInlineQubits / 64` words when copying from Stim's dynamically sized `sim.inv_state.zs[q]` into our fixed-width `BitMask`.
+*   **Task 4.4 (Word-Aware Basis Compression):**
+    *   In `backend.cc` (`compress_pauli`), replace the hardcoded `u64[0]` references with a loop over the `UCC_MAX_QUBITS / 64` words.
+    *   **The Fast-Path:** Because $k_{\max} \le 30$, the `active_mask` strictly applies only to `word[0]`. Any X or Z bits found in words `1` through `N/64 - 1` are mathematically guaranteed to belong to dormant axes. Exploit this to instantly select dormant pivots without masking.
+    *   Update `CompilerContext::v_cum` and `map_to_virtual` to seamlessly marshal between our static `BitMask` and Stim's dynamic `PauliString`.
+*   **Task 4.5 (SVM Frame Execution Handlers):**
+    *   In `svm.h`, update `SchrodingerState::p_x` and `p_z` to use `ucc::BitMask<kMaxInlineQubits>`.
+    *   In `svm.cc` (`apply_pauli_to_frame`), update the logic to iterate over the `BitMask` words when XORing the `ConstantPool` mask into the Pauli frame.
+*   **DoD:** The codebase compiles via `just build-dev` and passes all Catch2 tests flawlessly with the default 64 qubits. Recompiling with `-DUCC_MAX_QUBITS=512` successfully builds and passes integration tests containing >400-qubit multi-word Pauli strings without relying on architecture-specific intrinsics.
 
 ## Phase 5: The 463-Qubit End-to-End Splicer & Decoder Hijack
 
