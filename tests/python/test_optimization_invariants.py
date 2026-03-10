@@ -176,12 +176,6 @@ class TestHirPeepholeUncomputationLadder:
             np.zeros_like(opt_m),
             err_msg="Optimized ladder produced non-zero measurements",
         )
-        # Both paths must agree exactly
-        np.testing.assert_array_equal(
-            base_m,
-            opt_m,
-            err_msg="HIR optimization changed measurement outcome on deterministic circuit",
-        )
 
     @pytest.mark.parametrize("seed", _SEEDS)
     @pytest.mark.parametrize("nq,depth", _LARGE_CONFIGS)
@@ -198,7 +192,6 @@ class TestHirPeepholeUncomputationLadder:
 
         np.testing.assert_array_equal(base_m, np.zeros_like(base_m))
         np.testing.assert_array_equal(opt_m, np.zeros_like(opt_m))
-        np.testing.assert_array_equal(base_m, opt_m)
 
     def test_dust_clamps_telemetry(self) -> None:
         """Prove the unoptimized ladder generates FP dust that the VM clamps."""

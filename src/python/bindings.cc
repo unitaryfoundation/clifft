@@ -25,6 +25,20 @@
 
 namespace nb = nanobind;
 
+// Zero-copy transfer: move a std::vector into a numpy array via capsule ownership.
+// Uses unique_ptr for exception safety: if capsule construction throws,
+// the vector is automatically freed. Ownership transfers to the capsule
+// via release() only after the capsule is successfully constructed.
+template <typename T>
+nb::ndarray<nb::numpy, T, nb::c_contig> vec_to_numpy(std::vector<T> vec,
+                                                     std::initializer_list<size_t> shape) {
+    auto owner_ptr = std::make_unique<std::vector<T>>(std::move(vec));
+    T* data = owner_ptr->data();
+    nb::capsule owner(owner_ptr.release(),
+                      [](void* p) noexcept { delete static_cast<std::vector<T>*>(p); });
+    return nb::ndarray<nb::numpy, T, nb::c_contig>(data, shape, owner);
+}
+
 NB_MODULE(_ucc_core, m) {
     m.doc() = "UCC core C++ extension module";
 
@@ -44,7 +58,6 @@ NB_MODULE(_ucc_core, m) {
     m.def("_num_optypes", []() { return static_cast<int>(ucc::OpType::NUM_OP_TYPES); });
     m.def("_num_opcodes", []() { return static_cast<int>(ucc::Opcode::NUM_OPCODES); });
 
-    // GateType enum
     nb::enum_<ucc::GateType>(m, "GateType", "Quantum gate types")
         // Single-qubit Cliffords
         .value("H", ucc::GateType::H)
@@ -132,7 +145,6 @@ NB_MODULE(_ucc_core, m) {
         .value("TICK", ucc::GateType::TICK)
         .value("UNKNOWN", ucc::GateType::UNKNOWN);
 
-    // Target class
     nb::class_<ucc::Target>(m, "Target", "Encoded quantum target")
         .def_prop_ro("value", [](const ucc::Target& t) { return t.value(); })
         .def_prop_ro("is_rec", [](const ucc::Target& t) { return t.is_rec(); })
@@ -156,7 +168,6 @@ NB_MODULE(_ucc_core, m) {
             return result;
         });
 
-    // AstNode class
     nb::class_<ucc::AstNode>(m, "AstNode", "A single circuit operation")
         .def_ro("gate", &ucc::AstNode::gate)
         .def_ro("targets", &ucc::AstNode::targets)
@@ -181,7 +192,6 @@ NB_MODULE(_ucc_core, m) {
             return result;
         });
 
-    // Circuit class
     nb::class_<ucc::Circuit>(m, "Circuit", "A parsed quantum circuit")
         .def_ro("nodes", &ucc::Circuit::nodes)
         .def_ro("num_qubits", &ucc::Circuit::num_qubits)
@@ -193,7 +203,6 @@ NB_MODULE(_ucc_core, m) {
                    " measurements)";
         });
 
-    // Circuit parsing
     m.def(
         "parse",
         [](std::string_view text) {
@@ -226,9 +235,6 @@ NB_MODULE(_ucc_core, m) {
         "Parse a quantum circuit from a file with an explicit AST node limit.");
 
     // =========================================================================
-    // Heisenberg IR
-    // =========================================================================
-
     nb::enum_<ucc::OpType>(m, "OpType", "Heisenberg IR operation types")
         .value("T_GATE", ucc::OpType::T_GATE)
         .value("CLIFFORD_PHASE", ucc::OpType::CLIFFORD_PHASE)
@@ -367,10 +373,6 @@ NB_MODULE(_ucc_core, m) {
         "Trace a parsed circuit through the Clifford front-end to produce the "
         "Heisenberg IR.");
 
-    // =========================================================================
-    // Optimizer Pass Infrastructure
-    // =========================================================================
-
     nb::class_<ucc::Pass>(m, "Pass", "Abstract base class for HIR optimization passes.");
 
     nb::class_<ucc::PeepholeFusionPass, ucc::Pass>(
@@ -415,10 +417,6 @@ NB_MODULE(_ucc_core, m) {
         },
         nb::rv_policy::move,
         "Return a PassManager pre-loaded with the standard optimization passes.");
-
-    // =========================================================================
-    // Bytecode Optimization Passes
-    // =========================================================================
 
     nb::class_<ucc::BytecodePass>(m, "BytecodePass",
                                   "Abstract base class for bytecode optimization passes.\n\n"
@@ -475,10 +473,6 @@ NB_MODULE(_ucc_core, m) {
         nb::rv_policy::move,
         "Return a BytecodePassManager pre-loaded with the default passes:\n"
         "NoiseBlockPass, MultiGatePass, ExpandTPass, SwapMeasPass.");
-
-    // =========================================================================
-    // Compiled Program and Sampling
-    // =========================================================================
 
     nb::enum_<ucc::Opcode>(m, "Opcode", "RISC Virtual Machine opcodes")
         .value("OP_FRAME_CNOT", ucc::Opcode::OP_FRAME_CNOT)
@@ -692,21 +686,10 @@ NB_MODULE(_ucc_core, m) {
         "    hir_passes: Optional PassManager to run on the HIR before lowering.\n"
         "    bytecode_passes: Optional BytecodePassManager to run after lowering.\n");
 
-    // Zero-copy transfer: move the vector onto the heap and let the capsule own it.
-    // Avoids O(N) memcpy for large shot batches.
-    auto make_numpy_array = [](std::vector<uint8_t> vec, size_t rows, size_t cols) {
-        auto* owner_vec = new std::vector<uint8_t>(std::move(vec));
-        nb::capsule owner(owner_vec,
-                          [](void* p) noexcept { delete static_cast<std::vector<uint8_t>*>(p); });
-        return nb::ndarray<nb::numpy, uint8_t, nb::c_contig>(owner_vec->data(), {rows, cols},
-                                                             owner);
-    };
-
     // Sample: Program + shots -> tuple of (measurements, detectors, observables)
     m.def(
         "sample",
-        [make_numpy_array](const ucc::CompiledModule& program, uint32_t shots,
-                           std::optional<uint64_t> seed) {
+        [](const ucc::CompiledModule& program, uint32_t shots, std::optional<uint64_t> seed) {
             ucc::SampleResult result;
             {
                 nb::gil_scoped_release release;
@@ -714,11 +697,11 @@ NB_MODULE(_ucc_core, m) {
             }
 
             auto meas_arr =
-                make_numpy_array(std::move(result.measurements), shots, program.num_measurements);
+                vec_to_numpy(std::move(result.measurements), {shots, program.num_measurements});
             auto det_arr =
-                make_numpy_array(std::move(result.detectors), shots, program.num_detectors);
+                vec_to_numpy(std::move(result.detectors), {shots, program.num_detectors});
             auto obs_arr =
-                make_numpy_array(std::move(result.observables), shots, program.num_observables);
+                vec_to_numpy(std::move(result.observables), {shots, program.num_observables});
 
             return nb::make_tuple(meas_arr, det_arr, obs_arr);
         },
@@ -729,8 +712,8 @@ NB_MODULE(_ucc_core, m) {
     // Sample survivors: only non-discarded shots contribute to output.
     m.def(
         "sample_survivors",
-        [make_numpy_array](const ucc::CompiledModule& program, uint32_t shots,
-                           std::optional<uint64_t> seed, bool keep_records) {
+        [](const ucc::CompiledModule& program, uint32_t shots, std::optional<uint64_t> seed,
+           bool keep_records) {
             ucc::SurvivorResult result;
             {
                 nb::gil_scoped_release release;
@@ -743,19 +726,14 @@ NB_MODULE(_ucc_core, m) {
             d["discards"] = result.total_shots - result.passed_shots;
             d["logical_errors"] = result.logical_errors;
 
-            // Observable error counts as numpy array
             size_t num_obs = result.observable_ones.size();
-            auto* obs_ones = new std::vector<uint64_t>(std::move(result.observable_ones));
-            nb::capsule obs_owner(
-                obs_ones, [](void* p) noexcept { delete static_cast<std::vector<uint64_t>*>(p); });
-            d["observable_ones"] = nb::ndarray<nb::numpy, uint64_t, nb::c_contig>(
-                obs_ones->data(), {num_obs}, obs_owner);
+            d["observable_ones"] = vec_to_numpy(std::move(result.observable_ones), {num_obs});
 
             if (keep_records) {
-                d["detectors"] = make_numpy_array(std::move(result.detectors), result.passed_shots,
-                                                  program.num_detectors);
-                d["observables"] = make_numpy_array(std::move(result.observables),
-                                                    result.passed_shots, program.num_observables);
+                d["detectors"] = vec_to_numpy(std::move(result.detectors),
+                                              {result.passed_shots, program.num_detectors});
+                d["observables"] = vec_to_numpy(std::move(result.observables),
+                                                {result.passed_shots, program.num_observables});
             }
 
             return d;
@@ -767,10 +745,6 @@ NB_MODULE(_ucc_core, m) {
         "Returns a dict with keys: total_shots, passed_shots, discards,\n"
         "observable_ones (numpy uint64 array of per-observable error counts),\n"
         "and optionally detectors/observables numpy arrays when keep_records=True.");
-
-    // =========================================================================
-    // Statevector API
-    // =========================================================================
 
     nb::class_<ucc::SchrodingerState>(m, "State", "Schrodinger VM execution state")
         .def(nb::init<uint32_t, uint32_t, uint32_t, uint32_t, std::optional<uint64_t>>(),
@@ -806,23 +780,13 @@ NB_MODULE(_ucc_core, m) {
     m.def(
         "get_statevector",
         [](const ucc::CompiledModule& program, const ucc::SchrodingerState& state) {
-            // Heap-allocate so the capsule can own the data's lifetime beyond
-            // this lambda. Use unique_ptr for exception safety: if
-            // get_statevector throws, the allocation is cleaned up automatically.
-            auto owner_vec = std::make_unique<std::vector<std::complex<double>>>();
+            std::vector<std::complex<double>> sv;
             {
                 nb::gil_scoped_release release;
-                *owner_vec = ucc::get_statevector(program, state);
+                sv = ucc::get_statevector(program, state);
             }
-
-            size_t n = owner_vec->size();
-            auto* raw = owner_vec.release();
-            nb::capsule owner(raw, [](void* p) noexcept {
-                delete static_cast<std::vector<std::complex<double>>*>(p);
-            });
-
-            return nb::ndarray<nb::numpy, std::complex<double>, nb::c_contig>(raw->data(), {n},
-                                                                              owner);
+            size_t n = sv.size();
+            return vec_to_numpy(std::move(sv), {n});
         },
         nb::arg("program"), nb::arg("state"), "Expand the SVM state into a dense statevector.");
 }

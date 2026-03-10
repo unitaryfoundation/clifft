@@ -8,11 +8,12 @@ def assert_statevectors_equal(
 ) -> None:
     """Assert two statevectors are equal up to global phase.
 
-    Uses fidelity: |<psi|phi>|^2 >= 1 - rtol
+    Uses fidelity: abs(|<psi|phi>|^2 - 1) <= rtol.
+    Catches both underflow (imperfect overlap) and overflow (numerical error).
     """
     fidelity = float(np.abs(np.vdot(expected, actual)) ** 2)
-    if fidelity < 1.0 - rtol:
-        raise AssertionError(f"Fidelity {fidelity:.6f} < {1.0 - rtol}. {msg}")
+    if abs(fidelity - 1.0) > rtol:
+        raise AssertionError(f"Fidelity {fidelity:.6f}, expected ~1.0 (rtol={rtol}). {msg}")
 
 
 def binomial_tolerance(p: float, n: int, *, sigma: float = 5.0) -> float:

@@ -19,10 +19,10 @@
 
 #include <cstdint>
 #include <emscripten/bind.h>
-#include <map>
 #include <memory>
 #include <nlohmann/json.hpp>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 namespace {
@@ -132,14 +132,15 @@ std::string simulate_wasm(const std::string& source, uint32_t shots, bool optimi
             .dump();
     }
 
-    ucc::SampleResult samples = ucc::sample(prog, shots, 0);
+    ucc::SampleResult samples = ucc::sample(prog, shots, std::nullopt);
 
     // Aggregate measurement bitstrings into a histogram
     uint32_t n_meas = prog.num_measurements;
-    std::map<std::string, uint32_t> histogram;
+    std::unordered_map<std::string, uint32_t> histogram;
+    std::string key;
+    key.reserve(n_meas);
     for (uint32_t shot = 0; shot < shots; ++shot) {
-        std::string key;
-        key.reserve(n_meas);
+        key.clear();
         for (uint32_t m = 0; m < n_meas; ++m) {
             key += (samples.measurements[shot * n_meas + m] ? '1' : '0');
         }

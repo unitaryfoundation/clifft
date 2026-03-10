@@ -107,38 +107,34 @@ enum class Opcode : uint8_t {
 };
 
 struct alignas(32) Instruction {
-    Opcode opcode;           // Offset 0
-    uint8_t base_phase_idx;  // Offset 1
-    uint8_t flags;           // Offset 2
-    uint8_t _pad;            // Offset 3
-    uint16_t axis_1;         // Offset 4
-    uint16_t axis_2;         // Offset 6
+    Opcode opcode;      // Offset 0
+    uint8_t _reserved;  // Offset 1
+    uint8_t flags;      // Offset 2
+    uint8_t _pad;       // Offset 3
+    uint16_t axis_1;    // Offset 4
+    uint16_t axis_2;    // Offset 6
 
     // 24 bytes remaining for payload (Offsets 8..31)
     union {
         struct {
-            double weight_re;   // Offset 8
-            double weight_im;   // Offset 16
-            uint8_t _pad_a[8];  // Explicit padding to 24 bytes
+            double weight_re;  // Offset 8
+            double weight_im;  // Offset 16
         } math;
 
         struct {
             uint32_t classical_idx;  // Offset 8
             uint32_t expected_val;   // Offset 12
-            uint8_t _pad_b[16];      // Explicit padding to 24 bytes
         } classical;
 
         struct {
             uint32_t cp_mask_idx;    // Offset 8
             uint32_t condition_idx;  // Offset 12
-            uint8_t _pad_c[16];      // Explicit padding to 24 bytes
         } pauli;
 
         // For OP_ARRAY_MULTI_CNOT / OP_ARRAY_MULTI_CZ star-graph fusions
         struct {
-            uint64_t mask;       // Offset 8: ctrl_mask (MULTI_CNOT) or target_mask (MULTI_CZ)
-            uint8_t _pad_d[16];  // Explicit padding to 24 bytes
-        } multi;
+            uint64_t mask;  // Offset 8: ctrl_mask (MULTI_CNOT) or target_mask (MULTI_CZ)
+        } multi_gate;
 
         uint8_t raw[24];
     };

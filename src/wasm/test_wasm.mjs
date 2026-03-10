@@ -64,6 +64,11 @@ assert.equal(simResult.shots, 1000, "Expected 1000 shots");
 assert.equal(simResult.num_measurements, 1, "Expected 1 measurement");
 const total = Object.values(simResult.histogram).reduce((a, b) => a + b, 0);
 assert.equal(total, 1000, "Histogram counts should sum to shots");
+// H|0> should produce roughly 50/50 distribution
+const count0 = simResult.histogram["0"] || 0;
+const count1 = simResult.histogram["1"] || 0;
+assert.ok(count0 >= 350 && count0 <= 650, `Expected ~500 zeros, got ${count0}`);
+assert.ok(count1 >= 350 && count1 <= 650, `Expected ~500 ones, got ${count1}`);
 
 // --- no-measurement circuit returns consistent schema ---
 const noMeasJson = mod.simulate_wasm("H 0", 100, true);

@@ -95,9 +95,11 @@ def stim_to_qiskit_noiseless(stim_text: str) -> QuantumCircuit:
         if gate is None:
             continue
 
-        # Skip measurements and resets for pure unitary evolution
-        if gate in ("M", "MX", "MY", "MR", "MRX", "R", "RX"):
-            continue
+        if gate in ("M", "MX", "MY", "MR", "MRX", "MRY", "R", "RX", "RY"):
+            raise ValueError(
+                f"Gate '{gate}' not supported in noiseless statevector oracle. "
+                "Measurements and resets collapse state."
+            )
 
         _apply_gate(qc, gate, targets, 0)
 

@@ -736,7 +736,11 @@ class TestSampleSurvivors:
 
         assert result["passed_shots"] == 10000
         ones = int(result["observable_ones"][0])
-        assert 4000 < ones < 6000  # ~50% with generous bounds
+        shots = 10000
+        tol = binomial_tolerance(0.5, shots) * shots
+        assert (
+            abs(ones - shots * 0.5) < tol
+        ), f"Expected ~{shots * 0.5:.0f} ones, got {ones} (tol={tol:.0f})"
 
     def test_target_qec_circuit(self) -> None:
         """Smoke test with the real d=3 MSC cultivation circuit."""

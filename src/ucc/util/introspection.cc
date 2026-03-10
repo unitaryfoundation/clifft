@@ -163,26 +163,6 @@ std::string opcode_to_str(Opcode op) {
     }
 }
 
-bool is_two_axis_opcode(Opcode op) {
-    return op == Opcode::OP_FRAME_CNOT || op == Opcode::OP_FRAME_CZ ||
-           op == Opcode::OP_FRAME_SWAP || op == Opcode::OP_ARRAY_CNOT ||
-           op == Opcode::OP_ARRAY_CZ || op == Opcode::OP_ARRAY_SWAP ||
-           op == Opcode::OP_SWAP_MEAS_INTERFERE;
-}
-
-bool is_one_axis_opcode(Opcode op) {
-    return op == Opcode::OP_FRAME_H || op == Opcode::OP_FRAME_S || op == Opcode::OP_FRAME_S_DAG ||
-           op == Opcode::OP_ARRAY_H || op == Opcode::OP_ARRAY_S || op == Opcode::OP_ARRAY_S_DAG ||
-           op == Opcode::OP_EXPAND || op == Opcode::OP_PHASE_T || op == Opcode::OP_PHASE_T_DAG ||
-           op == Opcode::OP_EXPAND_T || op == Opcode::OP_EXPAND_T_DAG;
-}
-
-bool is_meas_opcode(Opcode op) {
-    return op == Opcode::OP_MEAS_DORMANT_STATIC || op == Opcode::OP_MEAS_DORMANT_RANDOM ||
-           op == Opcode::OP_MEAS_ACTIVE_DIAGONAL || op == Opcode::OP_MEAS_ACTIVE_INTERFERE ||
-           op == Opcode::OP_SWAP_MEAS_INTERFERE;
-}
-
 std::string format_instruction(const Instruction& inst) {
     std::ostringstream ss;
     ss << opcode_to_str(inst.opcode) << " ";
