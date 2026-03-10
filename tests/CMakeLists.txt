@@ -5,6 +5,7 @@ include(CTest)
 include(Catch)
 
 add_executable(ucc_tests
+    test_bitmask.cc
     test_parser.cc
     test_stim_contract.cc
     test_hir.cc

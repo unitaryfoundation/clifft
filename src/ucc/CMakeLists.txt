@@ -30,6 +30,10 @@ target_link_libraries(ucc_core PUBLIC
 
 target_link_libraries(ucc_core PRIVATE fast_float)
 
+if(DEFINED UCC_MAX_QUBITS)
+    target_compile_definitions(ucc_core PUBLIC UCC_MAX_QUBITS=${UCC_MAX_QUBITS})
+endif()
+
 target_compile_features(ucc_core PUBLIC cxx_std_20)
 
 # Code coverage instrumentation (only for UCC code, not dependencies)

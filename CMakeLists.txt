@@ -58,6 +58,20 @@ if(CMAKE_BUILD_TYPE STREQUAL "Release" OR CMAKE_BUILD_TYPE STREQUAL "RelWithDebI
     endif()
 endif()
 
+# Maximum qubit count (compile-time). Determines the width of inline Pauli
+# masks (BitMask<N>) used by the HIR and SVM Pauli frame. The VM Instruction
+# struct stays 32 bytes regardless -- only offline AOT structures grow.
+# Default 64 matches the MVP; set to 512 for magic state cultivation circuits.
+set(UCC_MAX_QUBITS "64" CACHE STRING "Maximum supported qubits (must be a multiple of 64, >= 64)")
+if(UCC_MAX_QUBITS LESS 64)
+    message(FATAL_ERROR "UCC_MAX_QUBITS must be >= 64, got ${UCC_MAX_QUBITS}")
+endif()
+math(EXPR _UCC_MOD "${UCC_MAX_QUBITS} % 64")
+if(NOT _UCC_MOD EQUAL 0)
+    message(FATAL_ERROR "UCC_MAX_QUBITS must be a multiple of 64, got ${UCC_MAX_QUBITS}")
+endif()
+message(STATUS "UCC_MAX_QUBITS = ${UCC_MAX_QUBITS}")
+
 # Code coverage option (for use with gcov/lcov)
 # Note: Coverage flags are applied per-target in src/ucc/CMakeLists.txt to avoid
 # instrumenting external dependencies (Stim, Catch2) which would slow builds.
