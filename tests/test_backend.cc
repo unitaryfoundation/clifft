@@ -5,6 +5,7 @@
 
 #include "test_helpers.h"
 
+#include <bit>
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/matchers/catch_matchers_floating_point.hpp>
 #include <cmath>
@@ -99,7 +100,7 @@ static stim::PauliString<kStimWidth> verify_compression(const CompilerContext& c
     REQUIRE((support & (support - 1)) == 0);  // Power of two = single bit
 
     // The single bit must be the declared pivot
-    uint16_t actual_pivot = static_cast<uint16_t>(__builtin_ctzll(support));
+    uint16_t actual_pivot = static_cast<uint16_t>(std::countr_zero(static_cast<uint64_t>(support)));
     REQUIRE(actual_pivot == result.pivot);
 
     // Basis must match
@@ -134,7 +135,7 @@ static void verify_bytecode_compression(const CompilerContext& ctx,
     REQUIRE(support != 0);
     REQUIRE((support & (support - 1)) == 0);
 
-    uint16_t actual_pivot = static_cast<uint16_t>(__builtin_ctzll(support));
+    uint16_t actual_pivot = static_cast<uint16_t>(std::countr_zero(static_cast<uint64_t>(support)));
     REQUIRE(actual_pivot == result.pivot);
 
     if (result.basis == CompressedBasis::X_BASIS) {
@@ -538,7 +539,7 @@ static void verify_sequential_compression(const CompilerContext& ctx,
     REQUIRE(support != 0);
     REQUIRE((support & (support - 1)) == 0);
 
-    uint16_t actual_pivot = static_cast<uint16_t>(__builtin_ctzll(support));
+    uint16_t actual_pivot = static_cast<uint16_t>(std::countr_zero(static_cast<uint64_t>(support)));
     REQUIRE(actual_pivot == result.pivot);
 
     if (result.basis == CompressedBasis::X_BASIS) {
@@ -563,7 +564,8 @@ static void verify_sequential_compression(const CompilerContext& ctx,
     uint64_t bc_support = bcx | bcz;
     REQUIRE(bc_support != 0);
     REQUIRE((bc_support & (bc_support - 1)) == 0);
-    REQUIRE(static_cast<uint16_t>(__builtin_ctzll(bc_support)) == result.pivot);
+    REQUIRE(static_cast<uint16_t>(std::countr_zero(static_cast<uint64_t>(bc_support))) ==
+            result.pivot);
     REQUIRE(bc_compressed.sign == result.sign);
 }
 

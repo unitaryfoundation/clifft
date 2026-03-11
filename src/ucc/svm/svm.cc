@@ -13,7 +13,31 @@
 #include <immintrin.h>
 #endif
 
+#ifdef _WIN32
+#include <malloc.h>
+#endif
+
 namespace ucc {
+
+namespace {
+
+void* aligned_alloc_portable(size_t alignment, size_t size) {
+#ifdef _WIN32
+    return _aligned_malloc(size, alignment);
+#else
+    return std::aligned_alloc(alignment, size);
+#endif
+}
+
+void aligned_free_portable(void* ptr) {
+#ifdef _WIN32
+    _aligned_free(ptr);
+#else
+    std::free(ptr);
+#endif
+}
+
+}  // namespace
 
 // =============================================================================
 // Measurement branch sampling with IEEE-754 dust clamping
@@ -168,7 +192,7 @@ SchrodingerState::SchrodingerState(uint32_t peak_rank, uint32_t num_measurements
     array_size_ = 1ULL << peak_rank;
     size_t bytes = array_size_ * sizeof(std::complex<double>);
     size_t aligned_bytes = (bytes + 63) & ~63ULL;
-    v_ = static_cast<std::complex<double>*>(std::aligned_alloc(64, aligned_bytes));
+    v_ = static_cast<std::complex<double>*>(aligned_alloc_portable(64, aligned_bytes));
     if (!v_) {
         throw std::bad_alloc();
     }
@@ -178,7 +202,7 @@ SchrodingerState::SchrodingerState(uint32_t peak_rank, uint32_t num_measurements
 }
 
 SchrodingerState::~SchrodingerState() {
-    std::free(v_);
+    aligned_free_portable(v_);
 }
 
 SchrodingerState::SchrodingerState(SchrodingerState&& other) noexcept
@@ -204,7 +228,7 @@ SchrodingerState::SchrodingerState(SchrodingerState&& other) noexcept
 
 SchrodingerState& SchrodingerState::operator=(SchrodingerState&& other) noexcept {
     if (this != &other) {
-        std::free(v_);
+        aligned_free_portable(v_);
         v_ = other.v_;
         array_size_ = other.array_size_;
         peak_rank_ = other.peak_rank_;

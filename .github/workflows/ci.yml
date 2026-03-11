@@ -7,7 +7,6 @@ on:
 
 permissions:
   contents: read
-  checks: write
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -97,10 +96,21 @@ jobs:
 
   build-and-test:
     needs: lint
-    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-24.04
+            install-deps: sudo apt-get update && sudo apt-get install -y ninja-build
+          - os: macos-latest
+            install-deps: brew install ninja
+          - os: windows-latest
+            install-deps: ""
+    runs-on: ${{ matrix.os }}
     env:
       CMAKE_BUILD_TYPE: Debug
       SKBUILD_CMAKE_BUILD_TYPE: Debug
+      CMAKE_GENERATOR: Ninja
       CMAKE_C_COMPILER_LAUNCHER: ccache
       CMAKE_CXX_COMPILER_LAUNCHER: ccache
     steps:
@@ -108,9 +118,8 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Install system dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y ninja-build
+        if: matrix.install-deps != ''
+        run: ${{ matrix.install-deps }}
 
       - name: Setup ccache
         uses: hendrikmuhs/ccache-action@v1.2
@@ -123,60 +132,31 @@ jobs:
           enable-cache: true
           python-version: "3.12"
 
-      # Force Debug mode for both C++ and Python builds to catch assert() failures
+      - name: Setup MSVC dev environment
+        if: runner.os == 'Windows'
+        uses: ilammy/msvc-dev-cmd@v1
+
       - name: Configure C++ build
         run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=${{ env.CMAKE_BUILD_TYPE }}
 
       - name: Build C++
-        run: cmake --build build --parallel
+        run: cmake --build build --config ${{ env.CMAKE_BUILD_TYPE }} --parallel
 
-      - name: Run C++ tests (CTest + JUnit)
+      - name: Run C++ tests
         run: |
-          set -euo pipefail
           ctest --test-dir build \
+            --build-config ${{ env.CMAKE_BUILD_TYPE }} \
             --output-on-failure \
             --parallel \
-            --timeout 300 \
-            --output-junit build/ctest-junit.xml \
-            | tee build/ctest.log
-
-      - name: Publish C++ test report
-        if: always()
-        uses: mikepenz/action-junit-report@v4
-        with:
-          report_paths: build/ctest-junit.xml
-          fail_on_failure: false
-
-      - name: Upload C++ test artifacts
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: cpp-test-artifacts
-          path: |
-            build/ctest.log
-            build/ctest-junit.xml
-          if-no-files-found: ignore
+            --timeout 300
+        shell: bash
 
       - name: Install Python package
         run: uv pip install -e ".[dev]"
 
-      - name: Run Python tests (JUnit)
-        run: uv run pytest tests/python/ -v --junitxml=build/pytest-junit.xml
+      - name: Run Python tests
+        run: uv run pytest tests/python/ -v
 
       - name: Test documentation code examples
+        if: runner.os == 'Linux'
         run: uv run pytest --codeblocks docs/ README.md -v
-
-      - name: Publish Python test report
-        if: always()
-        uses: mikepenz/action-junit-report@v4
-        with:
-          report_paths: build/pytest-junit.xml
-          fail_on_failure: false
-
-      - name: Upload Pytest JUnit XML
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: pytest-junit
-          path: build/pytest-junit.xml
-          if-no-files-found: ignore
