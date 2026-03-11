@@ -4,6 +4,12 @@ on:
   pull_request:
     branches: [main]
     types: [opened, reopened, synchronize, closed]
+    paths:
+      - 'docs/**'
+      - 'explorer/**'
+      - 'src/wasm/**'
+      - 'mkdocs.yml'
+      - '.github/workflows/pr_preview.yml'
 
 concurrency:
   group: "pr-preview-${{ github.ref }}"
@@ -19,27 +25,8 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # --- Build explorer SPA ---
-      - name: Cache Wasm build
-        id: wasm-cache
-        uses: actions/cache@v4
-        with:
-          path: build-wasm
-          key: wasm-${{ runner.os }}-${{ hashFiles('src/wasm/**', 'src/ucc/**', 'cmake/**') }}
-
       - name: Build Wasm module
-        if: steps.wasm-cache.outputs.cache-hit != 'true'
-        run: |
-          docker run --rm \
-            -u "$(id -u):$(id -g)" \
-            -v "${{ github.workspace }}:/src" \
-            -w /src \
-            emscripten/emsdk:3.1.74 \
-            bash -c '
-              emcmake cmake -B build-wasm -S src/wasm \
-                -DCMAKE_BUILD_TYPE=Release \
-                -DFETCHCONTENT_QUIET=ON && \
-              cmake --build build-wasm -j$(nproc)'
+        uses: ./.github/actions/build-wasm
 
       - name: Copy Wasm artifacts
         run: |

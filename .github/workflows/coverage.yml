@@ -2,8 +2,8 @@ name: Coverage
 
 on:
   workflow_dispatch:  # Manual trigger
-  push:
-    branches: [main]  # Run on main merges
+  schedule:
+    - cron: '0 6 * * 1'  # Weekly: Monday 6am UTC
 
 permissions:
   contents: read

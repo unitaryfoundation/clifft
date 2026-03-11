@@ -8,8 +8,8 @@
 *.patch
 
 # C++ / CMake build artifacts
-build/
-build-wasm/
+/build/
+/build-wasm/
 build-coverage/
 build-profile/
 cmake-build-*/
@@ -56,7 +56,7 @@ __pycache__/
 *.egg
 *.egg-info/
 dist/
-build/
+# Note: /build/ is already ignored above (C++ section)
 .eggs/
 *.log
 *.sqlite3
