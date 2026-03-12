@@ -47,6 +47,16 @@ enum class GateType : uint16_t {
     T,
     T_DAG,
 
+    // Parameterized rotation gates (continuous angles in half-turn units)
+    R_X,
+    R_Y,
+    R_Z,
+    U3,
+    R_XX,
+    R_YY,
+    R_ZZ,
+    R_PAULI,
+
     // Two-qubit Clifford gates
     CX,
     CY,
@@ -178,6 +188,15 @@ inline constexpr GateTraits kGateTraitsData[] = {
     // Non-Clifford
     {.arity = S, .name = "T"},
     {.arity = S, .name = "T_DAG"},
+    // Parameterized rotations
+    {.arity = S, .name = "R_X"},
+    {.arity = S, .name = "R_Y"},
+    {.arity = S, .name = "R_Z"},
+    {.arity = S, .name = "U3"},
+    {.arity = P, .name = "R_XX"},
+    {.arity = P, .name = "R_YY"},
+    {.arity = P, .name = "R_ZZ"},
+    {.arity = ML, .name = "R_PAULI"},
     // Two-qubit Cliffords
     {.arity = P, .clifford = true, .name = "CX"},
     {.arity = P, .clifford = true, .name = "CY"},

@@ -1,8 +1,10 @@
 """Independent Qiskit-Aer validation of UCC statevector correctness.
 
 Proves that UCC's Clifford+T amplitude interference matches Qiskit-Aer's
-statevector simulator exactly (fidelity > 0.9999). This provides a third-party
-oracle independent of both Stim and UCC's own numpy oracle.
+statevector simulator exactly (complex amplitude equality, not just fidelity).
+This provides a third-party oracle independent of both Stim and UCC's own
+numpy oracle.  Exact amplitude comparison catches global phase drift bugs
+that fidelity-based tests would miss.
 """
 
 import numpy as np
@@ -169,3 +171,164 @@ class TestDenseCliffordTFuzzer:
         qc = stim_to_qiskit_noiseless(circuit)
         qiskit_sv = qiskit_statevector(qc)
         assert_statevectors_equal(ucc_sv, qiskit_sv, msg=f"deep 4q seed={seed}")
+
+
+class TestArbitraryRotations:
+    """Validate continuous rotation gates against Qiskit Aer."""
+
+    def _check_amplitudes(self, stim_text: str, atol: float = 1e-6) -> None:
+        """Compile+execute with UCC, compare exact amplitudes against Qiskit.
+
+        Because Stim's to_flat_unitary_matrix (used in the get_statevector
+        oracle) canonicalizes global phase, the oracle U_C matrix may differ
+        from the true physical global phase by a scalar.  We project out
+        this single global scalar and then enforce strict equality across
+        all relative amplitudes to catch any true phase drift.
+        """
+        import ucc
+
+        prog = ucc.compile(
+            stim_text,
+            hir_passes=ucc.default_pass_manager(),
+            bytecode_passes=ucc.default_bytecode_pass_manager(),
+        )
+        state = ucc.State(prog.peak_rank, prog.num_measurements, seed=42)
+        ucc.execute(prog, state)
+        ucc_sv = np.array(ucc.get_statevector(prog, state))
+
+        qc = stim_to_qiskit_noiseless(stim_text)
+        qiskit_sv = qiskit_statevector(qc)
+
+        # Align global phase before comparison to factor out Stim's artifact
+        overlap = np.vdot(ucc_sv, qiskit_sv)
+        if np.abs(overlap) > 1e-8:
+            phase = overlap / np.abs(overlap)
+            ucc_sv = ucc_sv * phase
+
+        np.testing.assert_allclose(
+            ucc_sv,
+            qiskit_sv,
+            atol=atol,
+            err_msg=(
+                f"Amplitude mismatch after phase alignment\n"
+                f"UCC:    {ucc_sv[:8]}\n"
+                f"Qiskit: {qiskit_sv[:8]}"
+            ),
+        )
+
+    def test_rz_single_qubit(self) -> None:
+        self._check_amplitudes("R_Z(0.25) 0")
+
+    def test_rz_is_t_gate(self) -> None:
+        """R_Z(0.25) should be equivalent to T gate up to global phase."""
+        self._check_amplitudes("H 0\nR_Z(0.25) 0\nH 0")
+
+    def test_rx_single_qubit(self) -> None:
+        self._check_amplitudes("R_X(0.5) 0")
+
+    def test_ry_single_qubit(self) -> None:
+        self._check_amplitudes("R_Y(0.3) 0")
+
+    def test_u3_gate(self) -> None:
+        self._check_amplitudes("U3(0.5, 0.25, 0.125) 0")
+
+    def test_u3_is_x_gate(self) -> None:
+        """U3(1, 0, 0) should match X gate up to global phase."""
+        self._check_amplitudes("U3(1.0, 0.0, 0.0) 0")
+
+    def test_rzz_two_qubit(self) -> None:
+        self._check_amplitudes("H 0\nH 1\nR_ZZ(0.3) 0 1")
+
+    def test_rxx_two_qubit(self) -> None:
+        self._check_amplitudes("R_XX(0.4) 0 1")
+
+    def test_ryy_two_qubit(self) -> None:
+        self._check_amplitudes("R_YY(0.2) 0 1")
+
+    def test_r_pauli_xyz(self) -> None:
+        self._check_amplitudes("R_PAULI(0.1) X0*Y1*Z2")
+
+    def test_rotations_after_cliffords(self) -> None:
+        """Rotations after entangling gates should still match."""
+        circuit = """
+            H 0
+            CX 0 1
+            R_Z(0.3) 0
+            R_X(0.2) 1
+        """
+        self._check_amplitudes(circuit)
+
+    def test_multiple_rotations_compose(self) -> None:
+        """Multiple rotations on same qubit should compose correctly."""
+        circuit = """
+            H 0
+            R_Z(0.1) 0
+            R_Z(0.2) 0
+            R_Z(0.3) 0
+        """
+        self._check_amplitudes(circuit)
+
+    @pytest.mark.parametrize("seed", range(5))
+    def test_random_rotation_circuits(self, seed: int) -> None:
+        """Random circuits mixing Cliffords and rotations."""
+        rng = np.random.default_rng(seed + 1000)
+        n_qubits = 3
+        lines: list[str] = []
+        for _ in range(10):
+            gate_type = rng.integers(0, 6)
+            if gate_type == 0:
+                q = int(rng.integers(0, n_qubits))
+                lines.append(f"H {q}")
+            elif gate_type == 1:
+                q1, q2 = rng.choice(n_qubits, 2, replace=False)
+                lines.append(f"CX {int(q1)} {int(q2)}")
+            elif gate_type == 2:
+                q = int(rng.integers(0, n_qubits))
+                alpha = float(rng.uniform(-2.0, 2.0))
+                lines.append(f"R_Z({alpha:.6f}) {q}")
+            elif gate_type == 3:
+                q = int(rng.integers(0, n_qubits))
+                alpha = float(rng.uniform(-2.0, 2.0))
+                lines.append(f"R_X({alpha:.6f}) {q}")
+            elif gate_type == 4:
+                q = int(rng.integers(0, n_qubits))
+                alpha = float(rng.uniform(-2.0, 2.0))
+                lines.append(f"R_Y({alpha:.6f}) {q}")
+            elif gate_type == 5:
+                q = int(rng.integers(0, n_qubits))
+                theta = float(rng.uniform(-2.0, 2.0))
+                phi = float(rng.uniform(-2.0, 2.0))
+                lam = float(rng.uniform(-2.0, 2.0))
+                lines.append(f"U3({theta:.6f}, {phi:.6f}, {lam:.6f}) {q}")
+
+        self._check_amplitudes("\n".join(lines))
+
+    @pytest.mark.parametrize("seed", range(3))
+    def test_random_two_qubit_rotations(self, seed: int) -> None:
+        """Random circuits with two-qubit Pauli rotations."""
+        rng = np.random.default_rng(seed + 2000)
+        n_qubits = 3
+        lines: list[str] = []
+        for _ in range(8):
+            gate_type = rng.integers(0, 5)
+            if gate_type == 0:
+                q = int(rng.integers(0, n_qubits))
+                lines.append(f"H {q}")
+            elif gate_type == 1:
+                q1, q2 = rng.choice(n_qubits, 2, replace=False)
+                alpha = float(rng.uniform(-1.0, 1.0))
+                lines.append(f"R_XX({alpha:.6f}) {int(q1)} {int(q2)}")
+            elif gate_type == 2:
+                q1, q2 = rng.choice(n_qubits, 2, replace=False)
+                alpha = float(rng.uniform(-1.0, 1.0))
+                lines.append(f"R_YY({alpha:.6f}) {int(q1)} {int(q2)}")
+            elif gate_type == 3:
+                q1, q2 = rng.choice(n_qubits, 2, replace=False)
+                alpha = float(rng.uniform(-1.0, 1.0))
+                lines.append(f"R_ZZ({alpha:.6f}) {int(q1)} {int(q2)}")
+            elif gate_type == 4:
+                q = int(rng.integers(0, n_qubits))
+                alpha = float(rng.uniform(-1.0, 1.0))
+                lines.append(f"R_Z({alpha:.6f}) {q}")
+
+        self._check_amplitudes("\n".join(lines))

@@ -104,6 +104,56 @@ Two-qubit Cliffords are also absorbed at compile time.
 | `QUBIT_COORDS` | Coordinate annotation (discarded) |
 | `SHIFT_COORDS` | Coordinate shift (discarded) |
 
+## Continuous Rotation Gates
+
+UCC extends the Stim gate set with arbitrary-angle rotation gates. All angle
+parameters are in **half-turns** (multiply by pi to get radians).
+
+### Single-Qubit Rotations
+
+| Gate | Syntax | Notes |
+|------|--------|-------|
+| `R_X` | `R_X(alpha) target` | Rotation about X axis by `alpha * pi` radians |
+| `R_Y` | `R_Y(alpha) target` | Rotation about Y axis by `alpha * pi` radians |
+| `R_Z` | `R_Z(alpha) target` | Rotation about Z axis by `alpha * pi` radians |
+| `U3`  | `U3(theta,phi,lambda) target` | General SU(2) gate = `R_Z(phi) R_Y(theta) R_Z(lambda)` |
+| `U`   | `U(theta,phi,lambda) target` | Alias for `U3` |
+
+!!! note "Name conflicts with Stim"
+    UCC uses `R_X`, `R_Y`, `R_Z` (with underscores) to avoid collision with
+    Stim's `RX` / `RY` reset-in-basis instructions.
+
+### Two-Qubit Pauli Rotations
+
+| Gate | Syntax | Notes |
+|------|--------|-------|
+| `R_XX` | `R_XX(alpha) q0 q1` | `exp(-i * alpha * pi/2 * XX)` |
+| `R_YY` | `R_YY(alpha) q0 q1` | `exp(-i * alpha * pi/2 * YY)` |
+| `R_ZZ` | `R_ZZ(alpha) q0 q1` | `exp(-i * alpha * pi/2 * ZZ)` |
+
+Duplicate target qubits (e.g. `R_XX(0.5) 3 3`) are rejected at parse time.
+
+### Multi-Qubit Pauli Rotation
+
+| Gate | Syntax | Notes |
+|------|--------|-------|
+| `R_PAULI` | `R_PAULI(alpha) X0*Y1*Z2` | Arbitrary Pauli product rotation |
+
+The target list uses Stim's Pauli product syntax (e.g. `X0*Y1*Z2`). Maximum
+target count is 64 qubits per instruction.
+
+### Compilation Path
+
+All rotation gates are reduced by the front-end to a single HIR type
+(`PHASE_ROTATION`) via Clifford absorption. The front-end conjugates each
+rotation axis into the Heisenberg frame, factors out the global phase
+`e^{-i*alpha*pi/2}` into `global_weight`, and passes the relative diagonal
+phase `diag(1, e^{i*alpha*pi})` to the back-end.
+
+The peephole optimizer fuses adjacent `PHASE_ROTATION` ops on the same Pauli
+and demotes rotations at Clifford/T angles back to their exact discrete
+counterparts (e.g. `R_Z(0.5)` becomes `S`, `R_Z(0.25)` becomes `T`).
+
 ## Not Yet Supported
 
 | Gate | Category | Reason |

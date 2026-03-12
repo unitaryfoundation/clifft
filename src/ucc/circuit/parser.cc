@@ -51,6 +51,21 @@ const std::unordered_map<std::string_view, GateType> kGateNames = {
     // Non-Clifford
     {"T", GateType::T},
     {"T_DAG", GateType::T_DAG},
+    // Parameterized rotations
+    // Note: RX, RY, RZ without underscore are Stim aliases for resets,
+    // so rotation gates always use the underscore form R_X, R_Y, R_Z.
+    {"R_X", GateType::R_X},
+    {"R_Y", GateType::R_Y},
+    {"R_Z", GateType::R_Z},
+    {"U3", GateType::U3},
+    {"U", GateType::U3},
+    {"R_XX", GateType::R_XX},
+    {"RXX", GateType::R_XX},
+    {"R_YY", GateType::R_YY},
+    {"RYY", GateType::R_YY},
+    {"R_ZZ", GateType::R_ZZ},
+    {"RZZ", GateType::R_ZZ},
+    {"R_PAULI", GateType::R_PAULI},
     // Two-qubit Clifford
     {"CX", GateType::CX},
     {"CNOT", GateType::CX},  // Alias
@@ -318,10 +333,26 @@ class Parser {
             throw ParseError("PAULI_CHANNEL_2 requires exactly 15 arguments", line_num);
         }
 
+        // Validate argument counts for parameterized rotations.
+        if ((gate == GateType::R_X || gate == GateType::R_Y || gate == GateType::R_Z ||
+             gate == GateType::R_XX || gate == GateType::R_YY || gate == GateType::R_ZZ ||
+             gate == GateType::R_PAULI) &&
+            args.size() != 1) {
+            throw ParseError(
+                std::string(ucc::gate_name(gate)) + " requires exactly 1 argument (alpha)",
+                line_num);
+        }
+        if (gate == GateType::U3 && args.size() != 3) {
+            throw ParseError("U3 requires exactly 3 arguments (theta, phi, lambda)", line_num);
+        }
+
         // Parse based on gate type.
         switch (gate) {
             case GateType::MPP:
                 parse_mpp(rest, line_num, circuit, arg);
+                break;
+            case GateType::R_PAULI:
+                parse_r_pauli(rest, line_num, circuit, args);
                 break;
             case GateType::DETECTOR:
                 parse_detector(rest, line_num, circuit);
@@ -832,6 +863,89 @@ class Parser {
         if (product_count == 0) {
             throw ParseError("MPP requires at least one Pauli product", line_num);
         }
+    }
+
+    // Parse R_PAULI instruction: R_PAULI(alpha) X0*Y1*Z2
+    // Exactly one Pauli product with the rotation angle from args[0].
+    void parse_r_pauli(std::string_view targets_str, uint32_t line_num, Circuit& circuit,
+                       const std::vector<double>& args) {
+        std::string_view product_str = next_token(targets_str);
+        if (product_str.empty()) {
+            throw ParseError("R_PAULI requires a Pauli product (e.g. X0*Y1*Z2)", line_num);
+        }
+
+        // Check no extra tokens.
+        std::string_view extra = next_token(targets_str);
+        if (!extra.empty()) {
+            throw ParseError("R_PAULI takes exactly one Pauli product", line_num);
+        }
+
+        std::vector<Target> pauli_targets;
+        std::unordered_set<uint32_t> seen_qubits;
+
+        size_t pos = 0;
+        while (pos < product_str.size()) {
+            if (product_str[pos] == '*') {
+                if (pos == 0 || pos + 1 >= product_str.size() || product_str[pos + 1] == '*') {
+                    throw ParseError("Malformed Pauli product in R_PAULI: misplaced '*'", line_num);
+                }
+                pos++;
+                continue;
+            }
+
+            char pauli_char = product_str[pos];
+            uint32_t pauli_flag;
+            switch (pauli_char) {
+                case 'X':
+                    pauli_flag = Target::kPauliX;
+                    break;
+                case 'Y':
+                    pauli_flag = Target::kPauliY;
+                    break;
+                case 'Z':
+                    pauli_flag = Target::kPauliZ;
+                    break;
+                default:
+                    throw ParseError("Invalid Pauli in R_PAULI: " + std::string(1, pauli_char),
+                                     line_num);
+            }
+            pos++;
+
+            size_t num_start = pos;
+            while (pos < product_str.size() && std::isdigit(product_str[pos])) {
+                pos++;
+            }
+
+            if (num_start == pos) {
+                throw ParseError("Expected qubit index after Pauli letter in R_PAULI", line_num);
+            }
+
+            uint32_t qubit;
+            if (!parse_uint(std::string_view(product_str).substr(num_start, pos - num_start),
+                            qubit)) {
+                throw ParseError("Invalid qubit index in R_PAULI", line_num);
+            }
+
+            if (qubit >= (1u << 28)) {
+                throw ParseError("Qubit index too large (must be < 2^28)", line_num);
+            }
+
+            if (!seen_qubits.insert(qubit).second) {
+                throw ParseError("Duplicate qubit in R_PAULI product", line_num);
+            }
+
+            if (pauli_targets.size() >= kMaxTargetsPerInstruction) {
+                throw ParseError("Too many Pauli terms in R_PAULI product", line_num);
+            }
+            pauli_targets.push_back(Target::pauli(qubit, pauli_flag));
+            circuit.num_qubits = std::max(circuit.num_qubits, qubit + 1);
+        }
+
+        if (pauli_targets.empty()) {
+            throw ParseError("Empty Pauli product in R_PAULI", line_num);
+        }
+
+        circuit.nodes.push_back({GateType::R_PAULI, std::move(pauli_targets), args, line_num});
     }
 
     // Parse DETECTOR with rec[-k] targets.

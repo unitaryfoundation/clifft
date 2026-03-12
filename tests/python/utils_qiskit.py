@@ -4,7 +4,9 @@ Translates noiseless Clifford+T circuits from .stim text format into
 Qiskit QuantumCircuit objects. Used as an independent oracle for
 statevector validation against UCC.
 
-Supported gates: H, S, S_DAG, T, T_DAG, X, Y, Z, CX, CY, CZ, M, MX, MY, R, RX, MR, MRX.
+Supported gates: H, S, S_DAG, T, T_DAG, X, Y, Z, CX, CY, CZ, M, MX, MY, R, RX, MR, MRX,
+R_X, R_Y, R_Z, U3, R_XX, R_YY, R_ZZ, R_PAULI.
+All rotation angles use half-turn units (alpha * pi = radians).
 Noise instructions and annotations (TICK, DETECTOR, etc.) are skipped.
 """
 
@@ -43,11 +45,11 @@ def stim_to_qiskit(stim_text: str) -> QuantumCircuit:
         if not line or line.startswith("#"):
             continue
 
-        gate, arg, targets = _parse_line(line)
+        gate, args, targets, pauli_targets = _parse_line(line)
         if gate is None:
             continue
 
-        clbit_idx = _apply_gate(qc, gate, targets, clbit_idx)
+        clbit_idx = _apply_gate(qc, gate, args, targets, pauli_targets, clbit_idx)
 
     return qc
 
@@ -91,7 +93,7 @@ def stim_to_qiskit_noiseless(stim_text: str) -> QuantumCircuit:
         if not line or line.startswith("#"):
             continue
 
-        gate, arg, targets = _parse_line(line)
+        gate, args, targets, pauli_targets = _parse_line(line)
         if gate is None:
             continue
 
@@ -101,7 +103,7 @@ def stim_to_qiskit_noiseless(stim_text: str) -> QuantumCircuit:
                 "Measurements and resets collapse state."
             )
 
-        _apply_gate(qc, gate, targets, 0)
+        _apply_gate(qc, gate, args, targets, pauli_targets, 0)
 
     return qc
 
@@ -129,40 +131,69 @@ _SKIP_GATES = frozenset(
     }
 )
 
-# Regex to strip parenthesized arguments like (0.001)
+# Regex to strip parenthesized arguments like (0.001) or (0.5, 0.25, 0.75)
 _ARG_RE = re.compile(r"\(([^)]+)\)")
 
+# Regex to parse Pauli product targets like X0*Y1*Z2
+_PAULI_RE = re.compile(r"([XYZ])(\d+)")
 
-def _parse_line(line: str) -> tuple[str | None, float | None, list[int]]:
-    """Parse a single stim line into (gate, arg, qubit_targets).
 
-    Returns (None, None, []) for lines that should be skipped.
+# Regex to extract gate name and optional parenthesized args from the raw line
+_GATE_LINE_RE = re.compile(
+    r"^([A-Za-z_][A-Za-z0-9_]*)"  # gate name
+    r"(?:\(([^)]+)\))?"  # optional (args)
+    r"(.*)$"  # rest of line (targets)
+)
+
+
+def _parse_line(
+    line: str,
+) -> tuple[str | None, list[float], list[int], list[tuple[str, int]]]:
+    """Parse a single stim line into (gate, args, qubit_targets, pauli_targets).
+
+    Returns (None, [], [], []) for lines that should be skipped.
+    pauli_targets is a list of (pauli_char, qubit) tuples for R_PAULI.
     """
-    parts = line.split()
-    if not parts:
-        return None, None, []
+    # Strip inline comments
+    comment_pos = line.find("#")
+    if comment_pos >= 0:
+        line = line[:comment_pos]
+    line = line.strip()
+    if not line:
+        return None, [], [], []
 
-    raw_gate = parts[0]
+    m = _GATE_LINE_RE.match(line)
+    if not m:
+        return None, [], [], []
 
-    # Extract parenthesized argument if present
-    arg_match = _ARG_RE.search(raw_gate)
-    arg = float(arg_match.group(1)) if arg_match else None
-    gate = _ARG_RE.sub("", raw_gate).upper()
+    gate = m.group(1).upper()
+    args_str = m.group(2)  # may be None
+    rest = m.group(3).strip()
+
+    args: list[float] = []
+    if args_str:
+        args = [float(x.strip()) for x in args_str.split(",")]
 
     if gate in _SKIP_GATES:
-        return None, None, []
+        return None, [], [], []
 
-    # Parse targets: skip rec[] references, extract bare integer qubit indices
+    # Parse targets from the rest of the line
     targets: list[int] = []
-    for tok in parts[1:]:
+    pauli_targets: list[tuple[str, int]] = []
+    for tok in rest.split():
         if tok.startswith("rec[") or tok.startswith("!"):
+            continue
+        # Check for Pauli product syntax (X0*Y1*Z2)
+        if any(c in tok for c in "XYZ") and not tok.startswith("rec"):
+            for pm in _PAULI_RE.finditer(tok):
+                pauli_targets.append((pm.group(1), int(pm.group(2))))
             continue
         try:
             targets.append(int(tok))
         except ValueError:
             continue
 
-    return gate, arg, targets
+    return gate, args, targets, pauli_targets
 
 
 def _find_num_qubits(stim_text: str) -> int:
@@ -176,11 +207,13 @@ def _find_num_qubits(stim_text: str) -> int:
         line = line.strip()
         if not line or line.startswith("#"):
             continue
-        gate, _, targets = _parse_line(line)
+        gate, _, targets, pauli_targets = _parse_line(line)
         if gate is None:
             continue
         if targets:
             max_q = max(max_q, max(targets))
+        for _, q in pauli_targets:
+            max_q = max(max_q, q)
     return max(max_q + 1, 1)
 
 
@@ -191,13 +224,20 @@ def _count_measurements(stim_text: str) -> int:
         line = line.strip()
         if not line or line.startswith("#"):
             continue
-        gate, _, targets = _parse_line(line)
+        gate, _, targets, _ = _parse_line(line)
         if gate in ("M", "MR", "MX", "MY", "MRX"):
             count += len(targets)
     return count
 
 
-def _apply_gate(qc: QuantumCircuit, gate: str, targets: list[int], clbit_idx: int) -> int:
+def _apply_gate(
+    qc: QuantumCircuit,
+    gate: str,
+    args: list[float],
+    targets: list[int],
+    pauli_targets: list[tuple[str, int]],
+    clbit_idx: int,
+) -> int:
     """Apply a gate to the Qiskit circuit. Returns updated clbit_idx."""
     if gate == "H":
         for q in targets:
@@ -256,9 +296,63 @@ def _apply_gate(qc: QuantumCircuit, gate: str, targets: list[int], clbit_idx: in
             qc.measure(q, clbit_idx)
             qc.reset(q)
             clbit_idx += 1
-    elif gate in ("R", "RX"):
+    elif gate in ("R",):
         for q in targets:
             qc.reset(q)
+    elif gate == "RX":
+        # Stim RX: reset to +1 eigenstate of X
+        for q in targets:
+            qc.reset(q)
+            qc.h(q)
+    elif gate == "RY":
+        # Stim RY: reset to +1 eigenstate of Y
+        for q in targets:
+            qc.reset(q)
+            qc.h(q)
+            qc.s(q)
+    elif gate in ("R_X",):
+        alpha = args[0] if args else 0.0
+        for q in targets:
+            qc.rx(alpha * np.pi, q)
+    elif gate in ("R_Y",):
+        alpha = args[0] if args else 0.0
+        for q in targets:
+            qc.ry(alpha * np.pi, q)
+    elif gate in ("R_Z",):
+        alpha = args[0] if args else 0.0
+        for q in targets:
+            qc.rz(alpha * np.pi, q)
+    elif gate in ("U3", "U"):
+        theta = args[0] * np.pi if len(args) > 0 else 0.0
+        phi = args[1] * np.pi if len(args) > 1 else 0.0
+        lam = args[2] * np.pi if len(args) > 2 else 0.0
+        for q in targets:
+            qc.u(theta, phi, lam, q)
+    elif gate in ("R_XX", "RXX"):
+        alpha = args[0] if args else 0.0
+        for i in range(0, len(targets), 2):
+            qc.rxx(alpha * np.pi, targets[i], targets[i + 1])
+    elif gate in ("R_YY", "RYY"):
+        alpha = args[0] if args else 0.0
+        for i in range(0, len(targets), 2):
+            qc.ryy(alpha * np.pi, targets[i], targets[i + 1])
+    elif gate in ("R_ZZ", "RZZ"):
+        alpha = args[0] if args else 0.0
+        for i in range(0, len(targets), 2):
+            qc.rzz(alpha * np.pi, targets[i], targets[i + 1])
+    elif gate == "R_PAULI":
+        from qiskit.quantum_info import Operator, SparsePauliOp
+        from scipy.linalg import expm  # type: ignore[import-not-found]
+
+        alpha = args[0] if args else 0.0
+        n = qc.num_qubits
+        label = ["I"] * n
+        for pauli_char, q in pauli_targets:
+            label[q] = pauli_char
+        pauli_str = "".join(reversed(label))
+        pauli_matrix = SparsePauliOp(pauli_str).to_matrix()
+        unitary = expm(-1j * alpha * np.pi / 2.0 * pauli_matrix)
+        qc.unitary(Operator(unitary), list(range(n)))
     else:
         raise ValueError(f"Unsupported gate in Qiskit translator: {gate}")
 

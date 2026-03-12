@@ -4,6 +4,8 @@
 
 #include "stim.h"
 
+#include <cmath>
+#include <numbers>
 #include <random>
 #include <stdexcept>
 #include <string>
@@ -198,6 +200,46 @@ NoiseSite make_depolarize2_noise_site(const stim::TableauSimulator<kStimWidth>& 
     return site;
 }
 
+// Accumulate the global phase for R_Z(alpha) into hir.global_weight.
+// R_Z(alpha) = exp(-i*alpha*pi/2 * Z) factors as:
+//   global: e^{-i*alpha*pi/2}
+//   relative: diag(1, e^{i*alpha*pi})
+void accumulate_rz_global_phase(HirModule& hir, double alpha) {
+    double angle = -alpha * std::numbers::pi / 2.0;
+    hir.global_weight *= std::complex<double>(std::cos(angle), std::sin(angle));
+}
+
+// Trace an R_Z(alpha) on a single qubit: extract rewound Z, emit PHASE_ROTATION,
+// accumulate global phase.
+//
+// When sign is true the rewound Pauli is -Z, so the physical operator is
+// exp(-i*alpha*pi/2 * (-Z)) = exp(+i*alpha*pi/2 * Z), whose global phase
+// is e^{+i*alpha*pi/2}.  We pass the sign-adjusted alpha to the global
+// phase accumulator so the tracked phase is always correct.
+void trace_rz(stim::TableauSimulator<kStimWidth>& sim, HirModule& hir, uint32_t qubit, double alpha,
+              auto& emit) {
+    PauliBitMask destab_mask, stab_mask;
+    bool sign;
+    extract_rewound_z(sim, qubit, destab_mask, stab_mask, sign);
+    double effective_alpha = sign ? -alpha : alpha;
+    accumulate_rz_global_phase(hir, effective_alpha);
+    emit(HeisenbergOp::make_phase_rotation(destab_mask, stab_mask, sign, alpha));
+}
+
+// Trace an arbitrary Pauli rotation exp(-i*alpha*pi/2 * P) where P is built
+// from a stim::PauliString.  Same sign-adjusted global phase logic as trace_rz.
+void trace_pauli_rotation(stim::TableauSimulator<kStimWidth>& sim, HirModule& hir,
+                          const stim::PauliString<kStimWidth>& obs, double alpha, auto& emit) {
+    stim::PauliString<kStimWidth> rewound = sim.inv_state(obs);
+    uint32_t n = sim.inv_state.num_qubits;
+    PauliBitMask destab_mask = stim_to_bitmask(rewound.xs, n);
+    PauliBitMask stab_mask = stim_to_bitmask(rewound.zs, n);
+    bool sign = rewound.sign;
+    double effective_alpha = sign ? -alpha : alpha;
+    accumulate_rz_global_phase(hir, effective_alpha);
+    emit(HeisenbergOp::make_phase_rotation(destab_mask, stab_mask, sign, alpha));
+}
+
 }  // namespace
 
 HirModule trace(const Circuit& circuit) {
@@ -346,6 +388,117 @@ HirModule trace(const Circuit& circuit) {
                     extract_rewound_z(sim, qubit, destab_mask, stab_mask, sign);
                     emit(HeisenbergOp::make_tgate(destab_mask, stab_mask, sign, /*dagger=*/true));
                 }
+                break;
+            }
+
+            // R_Z: emit PHASE_ROTATION with rewound Z
+            case GateType::R_Z: {
+                double alpha = node.args[0];
+                for (const auto& target : node.targets) {
+                    trace_rz(sim, hir, target.value(), alpha, emit);
+                }
+                break;
+            }
+
+            // R_X: H * R_Z * H (conjugate by Hadamard)
+            case GateType::R_X: {
+                double alpha = node.args[0];
+                for (const auto& target : node.targets) {
+                    size_t q = static_cast<size_t>(target.value());
+                    sim.inv_state.prepend_H_XZ(q);
+                    trace_rz(sim, hir, target.value(), alpha, emit);
+                    sim.inv_state.prepend_H_XZ(q);
+                }
+                break;
+            }
+
+            // R_Y: H_YZ * R_Z * H_YZ (conjugate by Y-Z Hadamard)
+            case GateType::R_Y: {
+                double alpha = node.args[0];
+                for (const auto& target : node.targets) {
+                    size_t q = static_cast<size_t>(target.value());
+                    sim.inv_state.prepend_H_YZ(q);
+                    trace_rz(sim, hir, target.value(), alpha, emit);
+                    sim.inv_state.prepend_H_YZ(q);
+                }
+                break;
+            }
+
+            // U3(theta, phi, lambda) = R_Z(phi) * R_Y(theta) * R_Z(lambda)
+            // All params in half-turn units.
+            case GateType::U3: {
+                double theta = node.args[0];
+                double phi = node.args[1];
+                double lambda = node.args[2];
+                for (const auto& target : node.targets) {
+                    uint32_t qubit = target.value();
+                    size_t q = static_cast<size_t>(qubit);
+
+                    // R_Z(lambda)
+                    trace_rz(sim, hir, qubit, lambda, emit);
+
+                    // R_Y(theta) = H_YZ * R_Z(theta) * H_YZ
+                    sim.inv_state.prepend_H_YZ(q);
+                    trace_rz(sim, hir, qubit, theta, emit);
+                    sim.inv_state.prepend_H_YZ(q);
+
+                    // R_Z(phi)
+                    trace_rz(sim, hir, qubit, phi, emit);
+
+                    // Align global phase with Qiskit's U3 definition
+                    double u3_phase = (phi + lambda) * std::numbers::pi / 2.0;
+                    hir.global_weight *=
+                        std::complex<double>(std::cos(u3_phase), std::sin(u3_phase));
+                }
+                break;
+            }
+
+            // R_XX, R_YY, R_ZZ: two-qubit Pauli rotations
+            case GateType::R_XX:
+            case GateType::R_YY:
+            case GateType::R_ZZ: {
+                double alpha = node.args[0];
+                for (size_t i = 0; i + 1 < node.targets.size(); i += 2) {
+                    uint32_t q1 = node.targets[i].value();
+                    uint32_t q2 = node.targets[i + 1].value();
+                    if (q1 == q2) {
+                        throw std::runtime_error("Duplicate qubit in pair rotation: q" +
+                                                 std::to_string(q1));
+                    }
+                    stim::PauliString<kStimWidth> obs(circuit.num_qubits);
+                    if (node.gate == GateType::R_XX) {
+                        obs.xs[q1] = true;
+                        obs.xs[q2] = true;
+                    } else if (node.gate == GateType::R_YY) {
+                        obs.xs[q1] = true;
+                        obs.zs[q1] = true;
+                        obs.xs[q2] = true;
+                        obs.zs[q2] = true;
+                    } else {
+                        obs.zs[q1] = true;
+                        obs.zs[q2] = true;
+                    }
+                    trace_pauli_rotation(sim, hir, obs, alpha, emit);
+                }
+                break;
+            }
+
+            // R_PAULI: N-qubit Pauli rotation from tagged targets
+            case GateType::R_PAULI: {
+                double alpha = node.args[0];
+                stim::PauliString<kStimWidth> obs(circuit.num_qubits);
+                for (const auto& target : node.targets) {
+                    uint32_t q = target.value();
+                    if (target.pauli() == Target::kPauliX) {
+                        obs.xs[q] = true;
+                    } else if (target.pauli() == Target::kPauliY) {
+                        obs.xs[q] = true;
+                        obs.zs[q] = true;
+                    } else {
+                        obs.zs[q] = true;
+                    }
+                }
+                trace_pauli_rotation(sim, hir, obs, alpha, emit);
                 break;
             }
 

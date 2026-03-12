@@ -656,6 +656,67 @@ static inline void exec_expand_t_dag(SchrodingerState& state, uint16_t v) {
 }
 
 // =============================================================================
+// Continuous Rotation Opcodes
+// =============================================================================
+
+// Continuous Z-rotation on active axis v: applies diag(1, z) where
+// z = weight_re + i*weight_im = e^{i*alpha*pi}. If p_x[v]=1 (X error),
+// the array gets z* instead and gamma absorbs z to preserve the factored
+// state identity.
+static inline void exec_phase_rot(SchrodingerState& state, uint16_t v, double z_re, double z_im) {
+    assert(v < 64 && "PHASE_ROT: axis out of range");
+    bool px = bit_get(state.p_x, v);
+    std::complex<double> z(z_re, z_im);
+
+    if (v >= state.active_k) {
+        if (px)
+            state.multiply_phase(z);
+        return;
+    }
+
+    uint64_t iters = 1ULL << (state.active_k - 1);
+    uint64_t v_bit = 1ULL << v;
+    uint64_t pdep_mask = ~v_bit;
+    auto* __restrict arr = state.v();
+
+    if (px) {
+        std::complex<double> z_conj(z_re, -z_im);
+        for (uint64_t i = 0; i < iters; ++i) {
+            arr[scatter_bits_1(i, pdep_mask, v) | v_bit] *= z_conj;
+        }
+        state.multiply_phase(z);
+    } else {
+        for (uint64_t i = 0; i < iters; ++i) {
+            arr[scatter_bits_1(i, pdep_mask, v) | v_bit] *= z;
+        }
+    }
+}
+
+// Fused EXPAND + PHASE_ROT: duplicates the array into the upper half while
+// applying the continuous phase to the new axis in a single pass.
+static inline void exec_expand_rot(SchrodingerState& state, uint16_t v, double z_re, double z_im) {
+    assert(v == state.active_k && "EXPAND_ROT must target the next dormant axis");
+    assert(state.v_size() <= state.array_size() / 2);
+    uint64_t half = 1ULL << state.active_k;
+    auto* __restrict arr = state.v();
+    bool px = bit_get(state.p_x, v);
+
+    std::complex<double> z(z_re, z_im);
+    std::complex<double> phase = px ? std::complex<double>(z_re, -z_im) : z;
+
+    for (uint64_t i = 0; i < half; ++i) {
+        arr[i + half] = arr[i] * phase;
+    }
+
+    state.active_k++;
+    state.scale_magnitude(1.0 / std::sqrt(2.0));
+
+    if (px) {
+        state.multiply_phase(z);
+    }
+}
+
+// =============================================================================
 // Measurement Opcodes
 // =============================================================================
 
@@ -1102,6 +1163,8 @@ void execute(const CompiledModule& program, SchrodingerState& state) {
         [static_cast<uint8_t>(Opcode::OP_PHASE_T_DAG)] = &&L_OP_PHASE_T_DAG,
         [static_cast<uint8_t>(Opcode::OP_EXPAND_T)] = &&L_OP_EXPAND_T,
         [static_cast<uint8_t>(Opcode::OP_EXPAND_T_DAG)] = &&L_OP_EXPAND_T_DAG,
+        [static_cast<uint8_t>(Opcode::OP_PHASE_ROT)] = &&L_OP_PHASE_ROT,
+        [static_cast<uint8_t>(Opcode::OP_EXPAND_ROT)] = &&L_OP_EXPAND_ROT,
 
         [static_cast<uint8_t>(Opcode::OP_MEAS_DORMANT_STATIC)] = &&L_OP_MEAS_DORMANT_STATIC,
         [static_cast<uint8_t>(Opcode::OP_MEAS_DORMANT_RANDOM)] = &&L_OP_MEAS_DORMANT_RANDOM,
@@ -1204,6 +1267,14 @@ L_OP_EXPAND_T:
 
 L_OP_EXPAND_T_DAG:
     exec_expand_t_dag(state, pc->axis_1);
+    DISPATCH();
+
+L_OP_PHASE_ROT:
+    exec_phase_rot(state, pc->axis_1, pc->math.weight_re, pc->math.weight_im);
+    DISPATCH();
+
+L_OP_EXPAND_ROT:
+    exec_expand_rot(state, pc->axis_1, pc->math.weight_re, pc->math.weight_im);
     DISPATCH();
 
 L_OP_MEAS_DORMANT_STATIC:
@@ -1328,6 +1399,12 @@ L_OP_OBSERVABLE:
                 break;
             case Opcode::OP_EXPAND_T_DAG:
                 exec_expand_t_dag(state, instr.axis_1);
+                break;
+            case Opcode::OP_PHASE_ROT:
+                exec_phase_rot(state, instr.axis_1, instr.math.weight_re, instr.math.weight_im);
+                break;
+            case Opcode::OP_EXPAND_ROT:
+                exec_expand_rot(state, instr.axis_1, instr.math.weight_re, instr.math.weight_im);
                 break;
             case Opcode::OP_MEAS_DORMANT_STATIC:
                 if (instr.flags & Instruction::FLAG_IDENTITY) {

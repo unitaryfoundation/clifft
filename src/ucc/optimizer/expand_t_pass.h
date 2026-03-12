@@ -17,4 +17,11 @@ class ExpandTPass : public BytecodePass {
     void run(CompiledModule& module) override;
 };
 
+/// Fuses contiguous OP_EXPAND + OP_PHASE_ROT pairs into single
+/// OP_EXPAND_ROT instructions.
+class ExpandRotPass : public BytecodePass {
+  public:
+    void run(CompiledModule& module) override;
+};
+
 }  // namespace ucc

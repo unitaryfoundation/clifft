@@ -105,6 +105,7 @@ enum class OpType : uint8_t {
     CONDITIONAL_PAULI,  // Classical feedback: apply Pauli if measurement was 1
     NOISE,              // Stochastic Pauli channel (references NoiseSite side-table)
     READOUT_NOISE,      // Classical bit-flip on measurement result
+    PHASE_ROTATION,     // Continuous Z-rotation by angle alpha (half-turns)
     DETECTOR,           // Parity check over measurement records
     OBSERVABLE,         // Logical observable accumulator
     NUM_OP_TYPES        // Sentinel: must remain last for binding completeness checks
@@ -217,6 +218,13 @@ struct HeisenbergOp {
         return observable_.target_list_idx;
     }
 
+    // --- PHASE_ROTATION accessor (debug-asserted) ---
+
+    [[nodiscard]] double alpha() const {
+        assert(type_ == OpType::PHASE_ROTATION && "alpha called on non-PHASE_ROTATION op");
+        return phase_.alpha;
+    }
+
     // --- Factory Methods ---
 
     // Factory for T/T_dag gates
@@ -280,6 +288,14 @@ struct HeisenbergOp {
         return op;
     }
 
+    // Factory for PHASE_ROTATION (continuous Z-rotation)
+    static HeisenbergOp make_phase_rotation(PauliBitMask destab, PauliBitMask stab, bool s,
+                                            double alpha) {
+        HeisenbergOp op(OpType::PHASE_ROTATION, destab, stab, s);
+        op.phase_.alpha = alpha;
+        return op;
+    }
+
   private:
     // Private constructor - use factory methods
     HeisenbergOp(OpType t, PauliBitMask destab, PauliBitMask stab, bool s)
@@ -329,6 +345,11 @@ struct HeisenbergOp {
             uint32_t obs_idx;          // Which logical observable (0, 1, 2, ...)
             uint32_t target_list_idx;  // Index into observable_targets side-table
         } observable_;
+
+        // PHASE_ROTATION: continuous angle in half-turn units
+        struct {
+            double alpha;  // Rotation angle: R_Z(alpha) = exp(-i*alpha*pi/2 * Z)
+        } phase_;
     };
 
     OpType type_;    // 1 byte

@@ -1222,3 +1222,34 @@ TEST_CASE("Lower: short postselection_mask only affects present indices") {
     CHECK(count_opcodes(mod.bytecode, Opcode::OP_POSTSELECT) == 1);
     CHECK(count_opcodes(mod.bytecode, Opcode::OP_DETECTOR) == 2);
 }
+
+TEST_CASE("Lower: PHASE_ROTATION geometric artifact correction", "[backend][rotation]") {
+    // Manually construct a PHASE_ROTATION with a +Y Pauli on qubit 0.
+    // +Y compresses to -Z via the virtual frame, flipping result.sign.
+    // The Back-End must correct global_weight for this geometric artifact.
+    HirModule hir;
+    hir.num_qubits = 1;
+    hir.global_weight = {1.0, 0.0};
+
+    // +Y on qubit 0: destab=X(0), stab=Z(0), sign=false
+    hir.ops.push_back(HeisenbergOp::make_phase_rotation(X(0), Z(0), false, 0.5));
+
+    auto mod = ucc::lower(hir);
+
+    // +Y compresses to -Z, so result.sign is true while op.sign() is false.
+    // The Back-End should apply a phase correction of e^{i * 0.5 * pi} = +i.
+    CHECK_THAT(mod.constant_pool.global_weight.real(), Catch::Matchers::WithinAbs(0.0, 1e-12));
+    CHECK_THAT(mod.constant_pool.global_weight.imag(), Catch::Matchers::WithinAbs(1.0, 1e-12));
+
+    // The emitted VM instruction should have alpha inverted to -0.5.
+    // z = e^{i * (-0.5) * pi} = -i
+    bool found_rot = false;
+    for (const auto& instr : mod.bytecode) {
+        if (instr.opcode == Opcode::OP_PHASE_ROT || instr.opcode == Opcode::OP_EXPAND_ROT) {
+            CHECK_THAT(instr.math.weight_re, Catch::Matchers::WithinAbs(0.0, 1e-12));
+            CHECK_THAT(instr.math.weight_im, Catch::Matchers::WithinAbs(-1.0, 1e-12));
+            found_rot = true;
+        }
+    }
+    REQUIRE(found_rot);
+}

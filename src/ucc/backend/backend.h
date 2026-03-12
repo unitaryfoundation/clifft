@@ -46,6 +46,8 @@ enum class Opcode : uint8_t {
     OP_PHASE_T_DAG,   // Active diagonal T-dagger phase
     OP_EXPAND_T,      // Fused EXPAND + PHASE_T in one array pass
     OP_EXPAND_T_DAG,  // Fused EXPAND + PHASE_T_DAG in one array pass
+    OP_PHASE_ROT,     // Continuous Z-rotation on active axis (arbitrary angle)
+    OP_EXPAND_ROT,    // Fused EXPAND + PHASE_ROT in one array pass
 
     // Measurement
     OP_MEAS_DORMANT_STATIC,    // Deterministic outcome from p_x
@@ -147,6 +149,8 @@ static_assert(sizeof(Instruction) == 32, "Instruction must be exactly 32 bytes")
 [[nodiscard]] Instruction make_phase_t_dag(uint16_t axis);
 [[nodiscard]] Instruction make_expand_t(uint16_t axis);
 [[nodiscard]] Instruction make_expand_t_dag(uint16_t axis);
+[[nodiscard]] Instruction make_phase_rot(uint16_t axis, double re, double im);
+[[nodiscard]] Instruction make_expand_rot(uint16_t axis, double re, double im);
 [[nodiscard]] Instruction make_swap_meas_interfere(uint16_t swap_from, uint16_t swap_to,
                                                    uint32_t classical_idx, bool sign);
 [[nodiscard]] Instruction make_meas(Opcode meas_opcode, uint16_t axis, uint32_t classical_idx,

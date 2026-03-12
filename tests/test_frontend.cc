@@ -1004,3 +1004,101 @@ TEST_CASE("Frontend: PAULI_CHANNEL_2 emits noise with up to 15 channels", "[fron
     // 4 nonzero channels: IX(0.01), XI(0.02), ZI(0.03), ZZ(0.04)
     CHECK(hir.noise_sites[0].channels.size() == 4);
 }
+
+// =============================================================================
+// Phase rotation tracing tests
+// =============================================================================
+
+TEST_CASE("Frontend: R_Z emits PHASE_ROTATION", "[frontend][rotation]") {
+    auto circuit = parse("R_Z(0.25) 0");
+    auto hir = trace(circuit);
+
+    REQUIRE(hir.num_ops() == 1);
+    CHECK(hir.ops[0].op_type() == OpType::PHASE_ROTATION);
+    CHECK(hir.ops[0].alpha() == Catch::Approx(0.25));
+}
+
+TEST_CASE("Frontend: R_X desugars through Hadamard", "[frontend][rotation]") {
+    auto circuit = parse("R_X(0.5) 0");
+    auto hir = trace(circuit);
+
+    REQUIRE(hir.num_ops() == 1);
+    CHECK(hir.ops[0].op_type() == OpType::PHASE_ROTATION);
+    CHECK(hir.ops[0].alpha() == Catch::Approx(0.5));
+}
+
+TEST_CASE("Frontend: R_Y desugars through H_YZ", "[frontend][rotation]") {
+    auto circuit = parse("R_Y(0.5) 0");
+    auto hir = trace(circuit);
+
+    REQUIRE(hir.num_ops() == 1);
+    CHECK(hir.ops[0].op_type() == OpType::PHASE_ROTATION);
+    CHECK(hir.ops[0].alpha() == Catch::Approx(0.5));
+}
+
+TEST_CASE("Frontend: U3 emits three PHASE_ROTATION ops", "[frontend][rotation]") {
+    auto circuit = parse("U3(0.5, 0.25, 0.125) 0");
+    auto hir = trace(circuit);
+
+    // U3 = R_Z(phi) * R_Y(theta) * R_Z(lambda) -> 3 rotations
+    REQUIRE(hir.num_ops() == 3);
+    for (size_t i = 0; i < 3; ++i) {
+        CHECK(hir.ops[i].op_type() == OpType::PHASE_ROTATION);
+    }
+    // lambda=0.125 first, then theta=0.5, then phi=0.25
+    CHECK(hir.ops[0].alpha() == Catch::Approx(0.125));
+    CHECK(hir.ops[1].alpha() == Catch::Approx(0.5));
+    CHECK(hir.ops[2].alpha() == Catch::Approx(0.25));
+}
+
+TEST_CASE("Frontend: R_ZZ emits PHASE_ROTATION on two-qubit Pauli", "[frontend][rotation]") {
+    auto circuit = parse("R_ZZ(0.3) 0 1");
+    auto hir = trace(circuit);
+
+    REQUIRE(hir.num_ops() == 1);
+    CHECK(hir.ops[0].op_type() == OpType::PHASE_ROTATION);
+    CHECK(hir.ops[0].alpha() == Catch::Approx(0.3));
+    // ZZ: stab_mask should have bits 0 and 1 set, destab should be zero
+    CHECK(hir.ops[0].stab_mask().bit_get(0));
+    CHECK(hir.ops[0].stab_mask().bit_get(1));
+    CHECK(hir.ops[0].destab_mask().is_zero());
+}
+
+TEST_CASE("Frontend: R_XX emits PHASE_ROTATION with X masks", "[frontend][rotation]") {
+    auto circuit = parse("R_XX(0.3) 0 1");
+    auto hir = trace(circuit);
+
+    REQUIRE(hir.num_ops() == 1);
+    CHECK(hir.ops[0].op_type() == OpType::PHASE_ROTATION);
+    // XX: destab_mask should have bits 0 and 1 set
+    CHECK(hir.ops[0].destab_mask().bit_get(0));
+    CHECK(hir.ops[0].destab_mask().bit_get(1));
+    CHECK(hir.ops[0].stab_mask().is_zero());
+}
+
+TEST_CASE("Frontend: R_PAULI emits PHASE_ROTATION on arbitrary Pauli", "[frontend][rotation]") {
+    auto circuit = parse("R_PAULI(0.1) X0*Y1*Z2");
+    auto hir = trace(circuit);
+
+    REQUIRE(hir.num_ops() == 1);
+    CHECK(hir.ops[0].op_type() == OpType::PHASE_ROTATION);
+    CHECK(hir.ops[0].alpha() == Catch::Approx(0.1));
+    // X0: destab bit 0, Y1: both bits 1, Z2: stab bit 2
+    CHECK(hir.ops[0].destab_mask().bit_get(0));
+    CHECK(hir.ops[0].destab_mask().bit_get(1));
+    CHECK(!hir.ops[0].destab_mask().bit_get(2));
+    CHECK(!hir.ops[0].stab_mask().bit_get(0));
+    CHECK(hir.ops[0].stab_mask().bit_get(1));
+    CHECK(hir.ops[0].stab_mask().bit_get(2));
+}
+
+TEST_CASE("Frontend: R_Z global phase accumulation", "[frontend][rotation]") {
+    auto circuit = parse("R_Z(0.5) 0");
+    auto hir = trace(circuit);
+
+    // Global phase: e^{-i*0.5*pi/2} = e^{-i*pi/4}
+    double expected_re = std::cos(-0.5 * std::numbers::pi / 2.0);
+    double expected_im = std::sin(-0.5 * std::numbers::pi / 2.0);
+    CHECK(hir.global_weight.real() == Catch::Approx(expected_re).epsilon(1e-12));
+    CHECK(hir.global_weight.imag() == Catch::Approx(expected_im).epsilon(1e-12));
+}

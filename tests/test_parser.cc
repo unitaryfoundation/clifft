@@ -1390,3 +1390,95 @@ TEST_CASE("GateTraits: UNKNOWN sentinel", "[gate_data]") {
     CHECK(!is_noise_gate(GateType::UNKNOWN));
     CHECK(gate_name(GateType::UNKNOWN) == "UNKNOWN");
 }
+
+// =============================================================================
+// Parameterized rotation gate parsing
+// =============================================================================
+
+TEST_CASE("Parse R_Z with single arg", "[parser][rotation]") {
+    auto circuit = parse("R_Z(0.25) 0");
+    REQUIRE(circuit.nodes.size() == 1);
+    CHECK(circuit.nodes[0].gate == GateType::R_Z);
+    CHECK(circuit.nodes[0].targets[0].value() == 0);
+    REQUIRE(circuit.nodes[0].args.size() == 1);
+    CHECK(circuit.nodes[0].args[0] == Catch::Approx(0.25));
+}
+
+TEST_CASE("Parse R_X and R_Y", "[parser][rotation]") {
+    auto circuit = parse("R_X(0.5) 0\nR_Y(1.0) 1");
+    REQUIRE(circuit.nodes.size() == 2);
+    CHECK(circuit.nodes[0].gate == GateType::R_X);
+    CHECK(circuit.nodes[0].args[0] == Catch::Approx(0.5));
+    CHECK(circuit.nodes[1].gate == GateType::R_Y);
+    CHECK(circuit.nodes[1].args[0] == Catch::Approx(1.0));
+}
+
+TEST_CASE("Parse U3 with three args", "[parser][rotation]") {
+    auto circuit = parse("U3(0.5, 0.25, 0.75) 0");
+    REQUIRE(circuit.nodes.size() == 1);
+    CHECK(circuit.nodes[0].gate == GateType::U3);
+    REQUIRE(circuit.nodes[0].args.size() == 3);
+    CHECK(circuit.nodes[0].args[0] == Catch::Approx(0.5));
+    CHECK(circuit.nodes[0].args[1] == Catch::Approx(0.25));
+    CHECK(circuit.nodes[0].args[2] == Catch::Approx(0.75));
+}
+
+TEST_CASE("Parse R_ZZ pair gate", "[parser][rotation]") {
+    auto circuit = parse("R_ZZ(0.3) 0 1");
+    REQUIRE(circuit.nodes.size() == 1);
+    CHECK(circuit.nodes[0].gate == GateType::R_ZZ);
+    REQUIRE(circuit.nodes[0].targets.size() == 2);
+    CHECK(circuit.nodes[0].targets[0].value() == 0);
+    CHECK(circuit.nodes[0].targets[1].value() == 1);
+    CHECK(circuit.nodes[0].args[0] == Catch::Approx(0.3));
+}
+
+TEST_CASE("Parse R_PAULI with Pauli product", "[parser][rotation]") {
+    auto circuit = parse("R_PAULI(0.1) X0*Y1*Z2");
+    REQUIRE(circuit.nodes.size() == 1);
+    CHECK(circuit.nodes[0].gate == GateType::R_PAULI);
+    REQUIRE(circuit.nodes[0].targets.size() == 3);
+    CHECK(circuit.nodes[0].targets[0].pauli() == Target::kPauliX);
+    CHECK(circuit.nodes[0].targets[0].value() == 0);
+    CHECK(circuit.nodes[0].targets[1].pauli() == Target::kPauliY);
+    CHECK(circuit.nodes[0].targets[1].value() == 1);
+    CHECK(circuit.nodes[0].targets[2].pauli() == Target::kPauliZ);
+    CHECK(circuit.nodes[0].targets[2].value() == 2);
+    CHECK(circuit.nodes[0].args[0] == Catch::Approx(0.1));
+}
+
+TEST_CASE("Parse R_Z broadcasts across targets", "[parser][rotation]") {
+    auto circuit = parse("R_Z(0.5) 0 1 2");
+    REQUIRE(circuit.nodes.size() == 3);
+    for (size_t i = 0; i < 3; ++i) {
+        CHECK(circuit.nodes[i].gate == GateType::R_Z);
+        CHECK(circuit.nodes[i].targets[0].value() == i);
+        CHECK(circuit.nodes[i].args[0] == Catch::Approx(0.5));
+    }
+}
+
+TEST_CASE("Parse R_Z missing arg is error", "[parser][rotation]") {
+    CHECK_THROWS_AS(parse("R_Z 0"), ParseError);
+}
+
+TEST_CASE("Parse U3 wrong arg count is error", "[parser][rotation]") {
+    CHECK_THROWS_AS(parse("U3(0.5) 0"), ParseError);
+    CHECK_THROWS_AS(parse("U3(0.5, 0.25) 0"), ParseError);
+}
+
+TEST_CASE("Parse R_PAULI missing product is error", "[parser][rotation]") {
+    CHECK_THROWS_AS(parse("R_PAULI(0.1)"), ParseError);
+}
+
+TEST_CASE("GateTraits: rotation gate arities", "[gate_data][rotation]") {
+    CHECK(gate_arity(GateType::R_X) == GateArity::SINGLE);
+    CHECK(gate_arity(GateType::R_Y) == GateArity::SINGLE);
+    CHECK(gate_arity(GateType::R_Z) == GateArity::SINGLE);
+    CHECK(gate_arity(GateType::U3) == GateArity::SINGLE);
+    CHECK(gate_arity(GateType::R_XX) == GateArity::PAIR);
+    CHECK(gate_arity(GateType::R_YY) == GateArity::PAIR);
+    CHECK(gate_arity(GateType::R_ZZ) == GateArity::PAIR);
+    CHECK(gate_arity(GateType::R_PAULI) == GateArity::MULTI);
+    CHECK(!is_clifford(GateType::R_Z));
+    CHECK(!is_measurement(GateType::R_Z));
+}

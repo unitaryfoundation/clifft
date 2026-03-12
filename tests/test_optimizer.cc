@@ -316,3 +316,37 @@ TEST_CASE("Peephole: sign inversion makes same-direction fuse", "[optimizer]") {
     REQUIRE(hir.ops[0].op_type() == OpType::CLIFFORD_PHASE);
     REQUIRE(hir.ops[0].is_dagger() == true);  // total=-2 -> S_dag
 }
+
+TEST_CASE("Peephole: PHASE_ROTATION demotes to Clifford and T gates", "[optimizer]") {
+    // 0.5 half-turns is S gate
+    auto hir_s = hir_from("R_Z(0.5) 0");
+    PeepholeFusionPass pass_s;
+    pass_s.run(hir_s);
+    REQUIRE(hir_s.ops.size() == 1);
+    REQUIRE(hir_s.ops[0].op_type() == OpType::CLIFFORD_PHASE);
+    REQUIRE(hir_s.ops[0].is_dagger() == false);
+
+    // 1.5 half-turns is S_dag gate
+    auto hir_sdag = hir_from("R_Z(1.5) 0");
+    PeepholeFusionPass pass_sdag;
+    pass_sdag.run(hir_sdag);
+    REQUIRE(hir_sdag.ops.size() == 1);
+    REQUIRE(hir_sdag.ops[0].op_type() == OpType::CLIFFORD_PHASE);
+    REQUIRE(hir_sdag.ops[0].is_dagger() == true);
+
+    // 0.25 half-turns is T gate
+    auto hir_t = hir_from("R_Z(0.25) 0");
+    PeepholeFusionPass pass_t;
+    pass_t.run(hir_t);
+    REQUIRE(hir_t.ops.size() == 1);
+    REQUIRE(hir_t.ops[0].op_type() == OpType::T_GATE);
+    REQUIRE(hir_t.ops[0].is_dagger() == false);
+
+    // 1.75 half-turns is T_dag gate
+    auto hir_tdag = hir_from("R_Z(1.75) 0");
+    PeepholeFusionPass pass_tdag;
+    pass_tdag.run(hir_tdag);
+    REQUIRE(hir_tdag.ops.size() == 1);
+    REQUIRE(hir_tdag.ops[0].op_type() == OpType::T_GATE);
+    REQUIRE(hir_tdag.ops[0].is_dagger() == true);
+}

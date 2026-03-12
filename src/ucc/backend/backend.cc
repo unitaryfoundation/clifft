@@ -163,6 +163,24 @@ Instruction make_expand_t_dag(uint16_t axis) {
     return i;
 }
 
+Instruction make_phase_rot(uint16_t axis, double re, double im) {
+    Instruction i{};
+    i.opcode = Opcode::OP_PHASE_ROT;
+    i.axis_1 = axis;
+    i.math.weight_re = re;
+    i.math.weight_im = im;
+    return i;
+}
+
+Instruction make_expand_rot(uint16_t axis, double re, double im) {
+    Instruction i{};
+    i.opcode = Opcode::OP_EXPAND_ROT;
+    i.axis_1 = axis;
+    i.math.weight_re = re;
+    i.math.weight_im = im;
+    return i;
+}
+
 Instruction make_swap_meas_interfere(uint16_t swap_from, uint16_t swap_to, uint32_t classical_idx,
                                      bool sign) {
     Instruction i{};
@@ -564,6 +582,38 @@ CompiledModule lower(const HirModule& hir, std::span<const uint8_t> postselectio
                 } else {
                     ctx.emit(make_phase_t(result.pivot));
                 }
+
+                break;
+            }
+
+            case OpType::PHASE_ROTATION: {
+                double alpha = op.alpha();
+                auto p_v = map_to_virtual(ctx, op.destab_mask(), op.stab_mask(), op.sign(), n);
+                auto result = compress_pauli(ctx, p_v);
+
+                route_to_active_z(ctx, result);
+
+                // The Front-End unconditionally extracted the physical global phase.
+                // If compress_pauli dynamically flipped the geometric sign
+                // (result.sign != op.sign()), correct the global phase artifact
+                // left behind by the VM's diagonal factorization.
+                if (result.sign != op.sign()) {
+                    double corr = op.alpha() * std::numbers::pi * (op.sign() ? -1.0 : 1.0);
+                    ctx.constant_pool.global_weight *=
+                        std::complex<double>(std::cos(corr), std::sin(corr));
+                }
+
+                // result.sign absorbs both the original op.sign() and any
+                // compression flips.
+                if (result.sign)
+                    alpha = -alpha;
+
+                // Compute relative phase z = e^{i*alpha*pi}
+                double angle = alpha * std::numbers::pi;
+                double z_re = std::cos(angle);
+                double z_im = std::sin(angle);
+
+                ctx.emit(make_phase_rot(result.pivot, z_re, z_im));
 
                 break;
             }

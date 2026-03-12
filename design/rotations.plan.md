@@ -15,6 +15,41 @@ Additionally, as you add them, ensure these new gates, HIR nodes and opcodes are
 
 ---
 
+## Angular Convention (Half-Turns)
+
+All angular parameters in UCC use **half-turn units**: the user-facing value $\alpha$ is multiplied by $\pi$ internally to produce radians. This is consistent with QASM convention (where gates like `rz(theta)` take radians), but avoids requiring the user to write `pi` explicitly.
+
+| UCC Syntax | QASM Equivalent | Rotation Angle (radians) | Special Case |
+|---|---|---|---|
+| `R_Z(0.25)` | `rz(pi/4)` | $\pi/4$ | T gate (up to global phase) |
+| `R_Z(0.5)` | `rz(pi/2)` | $\pi/2$ | S gate (up to global phase) |
+| `R_Z(1.0)` | `rz(pi)` | $\pi$ | Z gate (up to global phase) |
+| `R_Z(2.0)` | `rz(2*pi)` | $2\pi$ | Identity (up to global phase) |
+
+The matrix for $R_Z(\alpha)$ is:
+$$R_Z(\alpha) = \exp\!\left(-i\frac{\alpha\pi}{2} Z\right) = \begin{pmatrix} e^{-i\alpha\pi/2} & 0 \\ 0 & e^{i\alpha\pi/2} \end{pmatrix}$$
+
+This factors as a global phase $e^{-i\alpha\pi/2}$ times the relative diagonal $\text{diag}(1, e^{i\alpha\pi})$. The global phase is absorbed into `global_weight` AOT; the VM only applies $z = e^{i\alpha\pi}$.
+
+For $U_3$, all three parameters use the same half-turn convention:
+$$U_3(\theta, \phi, \lambda) \equiv R_Z(\phi)\, R_Y(\theta)\, R_Z(\lambda)$$
+
+where $R_Y(\alpha) = \exp(-i\frac{\alpha\pi}{2} Y)$. The resulting unitary matrix is:
+$$U_3(\theta,\phi,\lambda) = \begin{pmatrix} \cos(\theta\pi/2) & -e^{i\lambda\pi}\sin(\theta\pi/2) \\ e^{i\phi\pi}\sin(\theta\pi/2) & e^{i(\phi+\lambda)\pi}\cos(\theta\pi/2) \end{pmatrix}$$
+
+up to the global phase $e^{-i(\phi+\lambda)\pi/2}$ that the front-end absorbs.
+
+Examples:
+- `U3(1, 0, 0)` = X gate (up to global phase)
+- `U3(0.5, 0, 0)` = $R_Y(\pi/2)$ (up to global phase)
+- `U3(0, 0, 0.5)` = S gate (up to global phase)
+
+For multi-qubit Pauli rotations, the same convention applies:
+$$R_P(\alpha) = \exp\!\left(-i\frac{\alpha\pi}{2} P\right)$$
+where $P$ is an arbitrary Pauli string (e.g., $X \otimes Y \otimes Z$).
+
+---
+
 ## Phase 1: Syntax & AST Extension
 
 **Goal:** Parse the new parameterized gates and extract their angular arguments.
@@ -41,7 +76,7 @@ Additionally, as you add them, ensure these new gates, HIR nodes and opcodes are
         *   Trace $R_Z(\lambda)$ logic.
         *   Call `sim.inv_state.prepend_H_YZ()`, trace $R_Z(\theta)$ logic, call `sim.inv_state.prepend_H_YZ()`.
         *   Trace $R_Z(\phi)$ logic.
-        *   *Note:* Ensure you apply the appropriate phase shift scalar to `hir.global_weight` so the final matrix matches the standard Qiskit $U_3$ definition (which factors out an overall phase of $e^{i(\phi+\lambda)\pi/2}$ relative to the raw $R_Z R_Y R_Z$ sequence).
+        *   Accumulate the overall global phase $e^{-i(\phi+\lambda)\pi/2}$ into `hir.global_weight`. This accounts for the three individual $R_Z$ global phase extractions summing to the correct total for the $U_3$ definition.
 
 ## Phase 3: Middle-End Fusion
 
@@ -79,5 +114,5 @@ Additionally, as you add them, ensure these new gates, HIR nodes and opcodes are
 
 **Goal:** Mathematically prove that the $N$-qubit continuous array math identically matches dense matrix simulators.
 
-*   **Task 6.1 (Qiskit Translation):** Update `utils_qiskit.py` to parse the new syntax and map it to Qiskit operations (`qc.rx`, `qc.ry`, `qc.rz`, `qc.rzz`, `qc.u`, and `PauliEvolutionGate`).
+*   **Task 6.1 (Qiskit Translation):** Update `utils_qiskit.py` to parse the new syntax and map it to Qiskit operations. Since UCC uses half-turn units, the translation must multiply by $\pi$ to get Qiskit's radian convention: `qc.rx(alpha * pi, q)`, `qc.ry(alpha * pi, q)`, `qc.rz(alpha * pi, q)`, `qc.u(theta * pi, phi * pi, lam * pi, q)`, etc.
 *   **Task 6.2 (Statevector Fidelity):** In `test_qiskit_aer.py`, add `TestArbitraryRotations`. Generate random circuits containing the new gates and assert that the UCC output statevector maintains $>0.9999$ fidelity with Qiskit-Aer.

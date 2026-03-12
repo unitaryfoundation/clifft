@@ -177,6 +177,22 @@ Combines OP_EXPAND and OP_PHASE_T_DAG into a single instruction. Promotes a dorm
 
 **Operands:** `axis_1`
 
+#### `OP_PHASE_ROT`
+
+**Continuous Z-rotation on an active axis with arbitrary phase.**
+
+Applies diag(1, z) where z = e^{i*alpha*pi} is stored as (weight_re, weight_im) in the instruction math payload. If the Pauli frame has p_x set on this axis, the array receives z* and gamma absorbs z to preserve the factored state equation. This is the generalization of OP_PHASE_T to arbitrary angles.
+
+**Operands:** `axis_1, math.weight_re, math.weight_im`
+
+#### `OP_EXPAND_ROT`
+
+**Fused EXPAND + PHASE_ROT in a single array pass.**
+
+Activates a dormant axis and applies diag(1, z) in one fused loop: arr[i+half] = arr[i] * phase. Avoids the two-pass penalty of separate EXPAND + PHASE_ROT. The phase z is stored in the instruction math payload.
+
+**Operands:** `axis_1, math.weight_re, math.weight_im`
+
 ### Measurement
 
 Measurement ops collapse qubits, either algebraically (dormant) or by filtering/folding the state vector (active).
@@ -300,6 +316,12 @@ The primary non-Clifford operation. Applies exp(i*pi/8 * P) where P is the Pauli
 **S or S-dagger gate: pi/4 phase rotation on a Pauli product.**
 
 Although S is a Clifford gate, when it appears in the HIR it means the front-end could not fully absorb it into the frame (e.g. it acts on a Pauli product that spans multiple qubits). S_DAG applies the inverse.
+
+#### `PHASE_ROTATION`
+
+**Continuous Z-rotation by angle alpha (half-turns) on a Pauli product.**
+
+Applies exp(-i*alpha*pi/2 * P) where P is the rewound Pauli product and alpha is in half-turn units. The front-end factors out the global phase e^{-i*alpha*pi/2} into global_weight, leaving only the relative phase diag(1, e^{i*alpha*pi}) for the VM. All single-qubit rotations (R_X, R_Y, R_Z, U3) and multi-qubit Pauli rotations (R_XX, R_YY, R_ZZ, R_PAULI) are reduced to this single HIR type via Clifford absorption.
 
 ### Measurement
 

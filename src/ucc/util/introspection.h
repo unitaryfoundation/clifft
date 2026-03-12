@@ -35,7 +35,8 @@ std::string opcode_to_str(Opcode op);
     return op == Opcode::OP_FRAME_H || op == Opcode::OP_FRAME_S || op == Opcode::OP_FRAME_S_DAG ||
            op == Opcode::OP_ARRAY_H || op == Opcode::OP_ARRAY_S || op == Opcode::OP_ARRAY_S_DAG ||
            op == Opcode::OP_EXPAND || op == Opcode::OP_PHASE_T || op == Opcode::OP_PHASE_T_DAG ||
-           op == Opcode::OP_EXPAND_T || op == Opcode::OP_EXPAND_T_DAG;
+           op == Opcode::OP_EXPAND_T || op == Opcode::OP_EXPAND_T_DAG ||
+           op == Opcode::OP_PHASE_ROT || op == Opcode::OP_EXPAND_ROT;
 }
 
 [[nodiscard]] constexpr bool is_meas_opcode(Opcode op) noexcept {

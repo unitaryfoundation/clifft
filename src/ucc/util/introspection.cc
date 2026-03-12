@@ -46,6 +46,8 @@ std::string op_type_to_str(OpType type) {
             return "NOISE";
         case OpType::READOUT_NOISE:
             return "READOUT_NOISE";
+        case OpType::PHASE_ROTATION:
+            return "PHASE_ROTATION";
         case OpType::DETECTOR:
             return "DETECTOR";
         case OpType::OBSERVABLE:
@@ -89,6 +91,9 @@ std::string format_hir_op(const HeisenbergOp& op) {
         case OpType::OBSERVABLE:
             ss << "OBSERVABLE index=" << static_cast<uint32_t>(op.observable_idx())
                << " target_list=" << op.observable_target_list_idx();
+            break;
+        case OpType::PHASE_ROTATION:
+            ss << "PHASE_ROTATION alpha=" << op.alpha();
             break;
         case OpType::NUM_OP_TYPES:
             break;
@@ -136,6 +141,10 @@ std::string opcode_to_str(Opcode op) {
             return "OP_EXPAND_T";
         case Opcode::OP_EXPAND_T_DAG:
             return "OP_EXPAND_T_DAG";
+        case Opcode::OP_PHASE_ROT:
+            return "OP_PHASE_ROT";
+        case Opcode::OP_EXPAND_ROT:
+            return "OP_EXPAND_ROT";
         case Opcode::OP_MEAS_DORMANT_STATIC:
             return "OP_MEAS_DORMANT_STATIC";
         case Opcode::OP_MEAS_DORMANT_RANDOM:
@@ -171,6 +180,8 @@ std::string format_instruction(const Instruction& inst) {
 
     if (is_two_axis_opcode(inst.opcode)) {
         ss << inst.axis_1 << ", " << inst.axis_2;
+    } else if (inst.opcode == Opcode::OP_PHASE_ROT || inst.opcode == Opcode::OP_EXPAND_ROT) {
+        ss << inst.axis_1 << " z=(" << inst.math.weight_re << ", " << inst.math.weight_im << ")";
     } else if (is_one_axis_opcode(inst.opcode)) {
         ss << inst.axis_1;
     } else if (is_meas_opcode(inst.opcode)) {

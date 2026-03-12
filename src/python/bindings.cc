@@ -86,6 +86,15 @@ NB_MODULE(_ucc_core, m) {
         // Non-Clifford
         .value("T", ucc::GateType::T)
         .value("T_DAG", ucc::GateType::T_DAG)
+        // Parameterized rotations
+        .value("R_X", ucc::GateType::R_X)
+        .value("R_Y", ucc::GateType::R_Y)
+        .value("R_Z", ucc::GateType::R_Z)
+        .value("U3", ucc::GateType::U3)
+        .value("R_XX", ucc::GateType::R_XX)
+        .value("R_YY", ucc::GateType::R_YY)
+        .value("R_ZZ", ucc::GateType::R_ZZ)
+        .value("R_PAULI", ucc::GateType::R_PAULI)
         // Two-qubit Cliffords
         .value("CX", ucc::GateType::CX)
         .value("CY", ucc::GateType::CY)
@@ -242,6 +251,7 @@ NB_MODULE(_ucc_core, m) {
         .value("CONDITIONAL_PAULI", ucc::OpType::CONDITIONAL_PAULI)
         .value("NOISE", ucc::OpType::NOISE)
         .value("READOUT_NOISE", ucc::OpType::READOUT_NOISE)
+        .value("PHASE_ROTATION", ucc::OpType::PHASE_ROTATION)
         .value("DETECTOR", ucc::OpType::DETECTOR)
         .value("OBSERVABLE", ucc::OpType::OBSERVABLE);
 
@@ -285,6 +295,9 @@ NB_MODULE(_ucc_core, m) {
                     case ucc::OpType::OBSERVABLE:
                         d["observable_idx"] = static_cast<uint32_t>(op.observable_idx());
                         d["observable_target_list_idx"] = op.observable_target_list_idx();
+                        break;
+                    case ucc::OpType::PHASE_ROTATION:
+                        d["alpha"] = op.alpha();
                         break;
                     default:
                         break;
@@ -431,6 +444,11 @@ NB_MODULE(_ucc_core, m) {
         m, "ExpandTPass", "Fuses OP_EXPAND + OP_PHASE_T into single OP_EXPAND_T instructions.")
         .def(nb::init<>());
 
+    nb::class_<ucc::ExpandRotPass, ucc::BytecodePass>(
+        m, "ExpandRotPass",
+        "Fuses OP_EXPAND + OP_PHASE_ROT into single OP_EXPAND_ROT instructions.")
+        .def(nb::init<>());
+
     nb::class_<ucc::SwapMeasPass, ucc::BytecodePass>(
         m, "SwapMeasPass",
         "Fuses OP_ARRAY_SWAP + OP_MEAS_ACTIVE_INTERFERE into OP_SWAP_MEAS_INTERFERE.")
@@ -467,6 +485,7 @@ NB_MODULE(_ucc_core, m) {
             bpm.add_pass(std::make_unique<ucc::NoiseBlockPass>());
             bpm.add_pass(std::make_unique<ucc::MultiGatePass>());
             bpm.add_pass(std::make_unique<ucc::ExpandTPass>());
+            bpm.add_pass(std::make_unique<ucc::ExpandRotPass>());
             bpm.add_pass(std::make_unique<ucc::SwapMeasPass>());
             return bpm;
         },
@@ -494,6 +513,8 @@ NB_MODULE(_ucc_core, m) {
         .value("OP_PHASE_T_DAG", ucc::Opcode::OP_PHASE_T_DAG)
         .value("OP_EXPAND_T", ucc::Opcode::OP_EXPAND_T)
         .value("OP_EXPAND_T_DAG", ucc::Opcode::OP_EXPAND_T_DAG)
+        .value("OP_PHASE_ROT", ucc::Opcode::OP_PHASE_ROT)
+        .value("OP_EXPAND_ROT", ucc::Opcode::OP_EXPAND_ROT)
         .value("OP_MEAS_DORMANT_STATIC", ucc::Opcode::OP_MEAS_DORMANT_STATIC)
         .value("OP_MEAS_DORMANT_RANDOM", ucc::Opcode::OP_MEAS_DORMANT_RANDOM)
         .value("OP_MEAS_ACTIVE_DIAGONAL", ucc::Opcode::OP_MEAS_ACTIVE_DIAGONAL)
@@ -545,6 +566,10 @@ NB_MODULE(_ucc_core, m) {
                 } else if (i.opcode == ucc::Opcode::OP_ARRAY_MULTI_CNOT ||
                            i.opcode == ucc::Opcode::OP_ARRAY_MULTI_CZ) {
                     d["mask"] = i.multi_gate.mask;
+                } else if (i.opcode == ucc::Opcode::OP_PHASE_ROT ||
+                           i.opcode == ucc::Opcode::OP_EXPAND_ROT) {
+                    d["weight_re"] = i.math.weight_re;
+                    d["weight_im"] = i.math.weight_im;
                 }
                 return d;
             },
