@@ -185,6 +185,18 @@
       "summary": "Logical observable accumulator.",
       "detail": "Accumulates the XOR parity of measurement record entries into a logical observable. Used in error correction to track logical qubit values across multiple rounds of syndrome measurements.",
       "operands": "cp_targets (constant pool target list index) -> obs[observable_idx]"
+    },
+    "OP_PHASE_ROT": {
+      "category": "Subspace",
+      "summary": "Continuous Z-rotation on an active axis with arbitrary phase.",
+      "detail": "Applies diag(1, z) where z = e^{i*alpha*pi} is stored as (weight_re, weight_im) in the instruction math payload. If the Pauli frame has p_x set on this axis, the array receives z* and gamma absorbs z to preserve the factored state.",
+      "operands": "axis_1, math.weight_re, math.weight_im"
+    },
+    "OP_EXPAND_ROT": {
+      "category": "Subspace",
+      "summary": "Fused EXPAND + PHASE_ROT in a single array pass.",
+      "detail": "Activates a dormant axis and applies diag(1, z) in one fused loop: arr[i+half] = arr[i] * phase. Avoids the two-pass penalty of separate EXPAND + PHASE_ROT. The phase z is stored in the instruction math payload.",
+      "operands": "axis_1, math.weight_re, math.weight_im"
     }
   },
   "hir_ops": {
@@ -192,49 +204,76 @@
       "category": "Non-Clifford",
       "summary": "T or T-dagger gate: pi/8 phase rotation on a Pauli product.",
       "detail": "The primary non-Clifford operation. Applies exp(i*pi/8 * P) where P is the Pauli product shown (e.g. +X0*Z1). T_DAG applies the conjugate rotation. These cannot be absorbed into the Heisenberg frame and are passed through to the back-end.",
-      "display": ["T", "T_DAG"]
+      "display": [
+        "T",
+        "T_DAG"
+      ]
     },
     "CLIFFORD_PHASE": {
       "category": "Non-Clifford",
       "summary": "S or S-dagger gate: pi/4 phase rotation on a Pauli product.",
       "detail": "Although S is a Clifford gate, when it appears in the HIR it means the front-end could not fully absorb it into the frame (e.g. it acts on a Pauli product that spans multiple qubits). S_DAG applies the inverse.",
-      "display": ["S", "S_DAG"]
+      "display": [
+        "S",
+        "S_DAG"
+      ]
     },
     "MEASURE": {
       "category": "Measurement",
       "summary": "Destructive measurement of a Pauli observable.",
       "detail": "Measures the Pauli product shown (e.g. +X0, -Z0*Z1) and stores the outcome in the measurement record. The Pauli is the effective observable after Heisenberg frame transformation -- it may differ from the original circuit's measurement basis.",
-      "display": ["MEASURE"]
+      "display": [
+        "MEASURE"
+      ]
     },
     "CONDITIONAL_PAULI": {
       "category": "Feedback",
       "summary": "Classical feedback: apply Pauli correction conditioned on a measurement.",
       "detail": "If the referenced measurement record entry is 1, applies the shown Pauli product to the frame. Implements feed-forward operations like teleportation corrections and QEC feedback.",
-      "display": ["IF", "THEN"]
+      "display": [
+        "IF",
+        "THEN"
+      ]
     },
     "NOISE": {
       "category": "Noise",
       "summary": "Stochastic Pauli noise channel.",
       "detail": "Represents a noise process (depolarizing, dephasing, etc.) that may randomly apply a Pauli operator. References a NoiseSite side-table with the channel probabilities.",
-      "display": ["NOISE"]
+      "display": [
+        "NOISE"
+      ]
     },
     "READOUT_NOISE": {
       "category": "Noise",
       "summary": "Classical bit-flip noise on a measurement result.",
       "detail": "Models measurement readout errors as a classical bit-flip probability applied to the measurement record after the quantum measurement.",
-      "display": ["READOUT_NOISE"]
+      "display": [
+        "READOUT_NOISE"
+      ]
     },
     "DETECTOR": {
       "category": "QEC",
       "summary": "Detector: parity check over measurement records.",
       "detail": "Defines a parity check (XOR) over a set of measurement record entries. In error correction, detectors flag syndrome changes between rounds.",
-      "display": ["DETECTOR"]
+      "display": [
+        "DETECTOR"
+      ]
     },
     "OBSERVABLE": {
       "category": "QEC",
       "summary": "Logical observable accumulator.",
       "detail": "Accumulates measurement record parities into a logical observable for error correction tracking.",
-      "display": ["OBSERVABLE"]
+      "display": [
+        "OBSERVABLE"
+      ]
+    },
+    "PHASE_ROTATION": {
+      "category": "Non-Clifford",
+      "summary": "Continuous Z-rotation by angle alpha (half-turns) on a Pauli product.",
+      "detail": "Applies exp(-i*alpha*pi/2 * P) where P is the rewound Pauli product and alpha is in half-turn units. The front-end factors out the global phase e^{-i*alpha*pi/2} into global_weight, leaving only the relative phase diag(1, e^{i*alpha*pi}) for the VM. All single-qubit rotations (R_X, R_Y, R_Z, U3) and multi-qubit Pauli rotations (R_XX, R_YY, R_ZZ, R_PAULI) are reduced to this single HIR type via Clifford absorption.",
+      "display": [
+        "PHASE_ROTATION"
+      ]
     }
   }
 }
