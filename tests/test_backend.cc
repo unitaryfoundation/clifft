@@ -1,7 +1,9 @@
 #include "ucc/backend/compiler_context.h"
+#include "ucc/backend/reference_syndrome.h"
 #include "ucc/circuit/parser.h"
 #include "ucc/frontend/frontend.h"
 #include "ucc/optimizer/peephole.h"
+#include "ucc/optimizer/remove_noise_pass.h"
 
 #include "test_helpers.h"
 
@@ -1252,4 +1254,130 @@ TEST_CASE("Lower: PHASE_ROTATION geometric artifact correction", "[backend][rota
         }
     }
     REQUIRE(found_rot);
+}
+
+// =============================================================================
+// Error Syndrome Normalization - Backend
+// =============================================================================
+
+TEST_CASE("lower injects FLAG_EXPECTED_ONE into detector instructions") {
+    auto circuit = parse(
+        "X 0\n"
+        "M 0\n"
+        "DETECTOR rec[-1]\n"
+        "DETECTOR rec[-1]\n");
+    auto hir = ucc::trace(circuit);
+
+    // expected_detectors: det0 -> 1, det1 -> 0
+    std::vector<uint8_t> expected_det = {1, 0};
+    auto mod = ucc::lower(hir, {}, expected_det, {});
+
+    // Find the two OP_DETECTOR instructions
+    std::vector<const Instruction*> dets;
+    for (const auto& instr : mod.bytecode) {
+        if (instr.opcode == Opcode::OP_DETECTOR) {
+            dets.push_back(&instr);
+        }
+    }
+    REQUIRE(dets.size() == 2);
+    CHECK((dets[0]->flags & Instruction::FLAG_EXPECTED_ONE) != 0);
+    CHECK((dets[1]->flags & Instruction::FLAG_EXPECTED_ONE) == 0);
+}
+
+TEST_CASE("lower injects FLAG_EXPECTED_ONE into postselect instructions") {
+    auto circuit = parse(
+        "X 0\n"
+        "M 0\n"
+        "DETECTOR rec[-1]\n"
+        "DETECTOR rec[-1]\n");
+    auto hir = ucc::trace(circuit);
+
+    // Postselect det0, expected_detectors: det0 -> 1
+    std::vector<uint8_t> ps_mask = {1, 0};
+    std::vector<uint8_t> expected_det = {1, 0};
+    auto mod = ucc::lower(hir, ps_mask, expected_det, {});
+
+    // det0 should be OP_POSTSELECT with FLAG_EXPECTED_ONE
+    const Instruction* ps = nullptr;
+    const Instruction* det = nullptr;
+    for (const auto& instr : mod.bytecode) {
+        if (instr.opcode == Opcode::OP_POSTSELECT)
+            ps = &instr;
+        if (instr.opcode == Opcode::OP_DETECTOR)
+            det = &instr;
+    }
+    REQUIRE(ps != nullptr);
+    REQUIRE(det != nullptr);
+    CHECK((ps->flags & Instruction::FLAG_EXPECTED_ONE) != 0);
+    CHECK((det->flags & Instruction::FLAG_EXPECTED_ONE) == 0);
+}
+
+TEST_CASE("lower stores expected_observables in CompiledModule") {
+    auto circuit = parse(
+        "M 0\n"
+        "OBSERVABLE_INCLUDE(0) rec[-1]\n");
+    auto hir = ucc::trace(circuit);
+
+    std::vector<uint8_t> expected_obs = {1};
+    auto mod = ucc::lower(hir, {}, {}, expected_obs);
+
+    REQUIRE(mod.expected_observables.size() == 1);
+    CHECK(mod.expected_observables[0] == 1);
+}
+
+TEST_CASE("RemoveNoisePass strips noise ops and clears side-tables") {
+    auto circuit = parse(
+        "X_ERROR(0.1) 0\n"
+        "M 0\n"
+        "DETECTOR rec[-1]\n");
+    auto hir = ucc::trace(circuit);
+
+    REQUIRE(hir.noise_sites.size() > 0);
+    size_t original_ops = hir.ops.size();
+
+    RemoveNoisePass strip;
+    strip.run(hir);
+
+    CHECK(hir.ops.size() < original_ops);
+    CHECK(hir.noise_sites.empty());
+    CHECK(hir.readout_noise.empty());
+
+    // No NOISE ops remain
+    for (const auto& op : hir.ops) {
+        CHECK(op.op_type() != OpType::NOISE);
+        CHECK(op.op_type() != OpType::READOUT_NOISE);
+    }
+}
+
+TEST_CASE("compute_reference_syndrome extracts expected parities") {
+    // X 0 -> M 0 produces measurement=1
+    // DETECTOR rec[-1] -> raw parity = 1
+    // OBSERVABLE_INCLUDE(0) rec[-1] -> raw parity = 1
+    auto circuit = parse(
+        "X 0\n"
+        "M 0\n"
+        "DETECTOR rec[-1]\n"
+        "OBSERVABLE_INCLUDE(0) rec[-1]\n");
+    auto hir = ucc::trace(circuit);
+
+    auto ref = compute_reference_syndrome(hir);
+    REQUIRE(ref.detectors.size() == 1);
+    REQUIRE(ref.observables.size() == 1);
+    CHECK(ref.detectors[0] == 1);
+    CHECK(ref.observables[0] == 1);
+}
+
+TEST_CASE("compute_reference_syndrome ignores noise") {
+    // Same circuit but with noise - reference should still be clean
+    auto circuit = parse(
+        "X 0\n"
+        "X_ERROR(1.0) 0\n"  // Would flip back to 0 if not stripped
+        "M 0\n"
+        "DETECTOR rec[-1]\n");
+    auto hir = ucc::trace(circuit);
+
+    auto ref = compute_reference_syndrome(hir);
+    REQUIRE(ref.detectors.size() == 1);
+    // Reference should see M0=1 (X applied), not M0=0 (X then X_ERROR)
+    CHECK(ref.detectors[0] == 1);
 }

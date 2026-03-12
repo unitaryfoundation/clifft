@@ -806,3 +806,154 @@ class TestSampleSurvivors:
         assert ones_0 == ones_1
         # logical_errors == per-shot count, not sum of per-observable
         assert result["logical_errors"] == ones_0
+
+
+class TestSyndromeNormalization:
+    def test_normalize_syndromes_multiple_observables_xord(self) -> None:
+        """Test normalize_syndromes=True on a circuit where multiple includes XOR together."""
+        import numpy as np
+
+        # Circuit design:
+        # X 0, X 1, X 2 -> All measurements evaluate to 1
+        # DET 0: M0 (evaluates to 1)
+        # DET 1: M0 ^ M1 (evaluates to 1 ^ 1 = 0)
+        # OBS 0: M0 ^ M1 ^ M2 (1 ^ 1 ^ 1 = 1) -> 3 includes!
+        # OBS 1: M1 (1) -> 1 include
+        circuit = """
+            X 0 1 2
+            M 0 1 2
+            DETECTOR rec[-3]
+            DETECTOR rec[-3] rec[-2]
+
+            OBSERVABLE_INCLUDE(0) rec[-3]
+            OBSERVABLE_INCLUDE(0) rec[-2]
+            OBSERVABLE_INCLUDE(0) rec[-1]
+
+            OBSERVABLE_INCLUDE(1) rec[-2]
+        """
+
+        # 1. Baseline: Without normalization, physical parities match the math above
+        prog_raw = ucc.compile(circuit, normalize_syndromes=False)
+        _, det_raw, obs_raw = ucc.sample(prog_raw, shots=10, seed=0)
+
+        assert np.all(det_raw[:, 0] == 1)
+        assert np.all(det_raw[:, 1] == 0)
+        assert np.all(obs_raw[:, 0] == 1)
+        assert np.all(obs_raw[:, 1] == 1)
+
+        # 2. Normalized: All output parities must be strictly 0.
+        # We also apply a postselection mask on DET 0 (which natively evaluates to 1).
+        # Since it is normalized, it becomes 0, meaning shots should SURVIVE.
+        prog_norm = ucc.compile(
+            circuit,
+            normalize_syndromes=True,
+            postselection_mask=[1, 0],
+        )
+
+        res = ucc.sample_survivors(prog_norm, shots=10, seed=0, keep_records=True)
+
+        assert res["passed_shots"] == 10  # Normalized 1^1=0, so shots survive!
+        assert np.all(res["detectors"] == 0)
+        assert np.all(res["observables"] == 0)
+        assert res["logical_errors"] == 0
+
+    def test_normalize_syndromes_conflict_raises(self) -> None:
+        """Cannot provide explicit expected parities with normalize_syndromes=True."""
+        import pytest
+
+        circuit = "M 0\nDETECTOR rec[-1]\n"
+        with pytest.raises(ValueError):
+            ucc.compile(
+                circuit,
+                normalize_syndromes=True,
+                expected_detectors=[0],
+            )
+
+    def test_normalize_syndromes_no_noise_passthrough(self) -> None:
+        """Normalization on a circuit without noise produces all-zero syndromes."""
+        import numpy as np
+
+        circuit = """
+            X 0
+            M 0
+            DETECTOR rec[-1]
+            OBSERVABLE_INCLUDE(0) rec[-1]
+        """
+        prog = ucc.compile(circuit, normalize_syndromes=True)
+        _, det, obs = ucc.sample(prog, shots=5, seed=0)
+
+        assert np.all(det == 0)
+        assert np.all(obs == 0)
+
+    def test_normalize_syndromes_with_noise_detects_errors(self) -> None:
+        """With noise and normalization, errors show up as 1s in syndromes."""
+        import numpy as np
+
+        # A circuit where noise can flip the detector
+        circuit = """
+            X_ERROR(1.0) 0
+            M 0
+            DETECTOR rec[-1]
+        """
+        prog = ucc.compile(circuit, normalize_syndromes=True)
+        _, det, _ = ucc.sample(prog, shots=10, seed=0)
+
+        # With 100% X error, measurement flips from 0 to 1.
+        # Reference (noiseless) detector parity = 0.
+        # Noisy parity = 1. Normalized: 1 ^ 0 = 1 (error detected).
+        assert np.all(det[:, 0] == 1)
+
+    def test_explicit_expected_detectors(self) -> None:
+        """Explicit expected_detectors without normalize_syndromes works."""
+        import numpy as np
+
+        circuit = """
+            X 0
+            M 0
+            DETECTOR rec[-1]
+        """
+        # Raw detector parity = 1. With expected_detectors=[1], normalized = 0.
+        prog = ucc.compile(circuit, expected_detectors=[1])
+        _, det, _ = ucc.sample(prog, shots=5, seed=0)
+
+        assert np.all(det[:, 0] == 0)
+
+    def test_explicit_expected_observables(self) -> None:
+        """Explicit expected_observables without normalize_syndromes works."""
+        import numpy as np
+
+        circuit = """
+            X 0
+            M 0
+            OBSERVABLE_INCLUDE(0) rec[-1]
+        """
+        # Raw obs = 1. With expected_observables=[1], normalized = 0.
+        prog = ucc.compile(circuit, expected_observables=[1])
+        _, _, obs = ucc.sample(prog, shots=5, seed=0)
+
+        assert np.all(obs[:, 0] == 0)
+
+    def test_compute_reference_syndrome_api(self) -> None:
+        """compute_reference_syndrome is accessible from Python."""
+        circuit = ucc.parse("X 0\nM 0\nDETECTOR rec[-1]\nOBSERVABLE_INCLUDE(0) rec[-1]\n")
+        hir = ucc.trace(circuit)
+        ref = ucc.compute_reference_syndrome(hir)
+
+        assert ref["detectors"] == [1]
+        assert ref["observables"] == [1]
+
+    def test_remove_noise_pass_api(self) -> None:
+        """RemoveNoisePass is accessible from Python."""
+        circuit = ucc.parse("X_ERROR(0.1) 0\nM 0\n")
+        hir = ucc.trace(circuit)
+
+        original_count = hir.num_ops
+        strip = ucc.RemoveNoisePass()
+
+        pm = ucc.HirPassManager()
+        pm.add(strip)
+        pm.run(hir)
+
+        assert hir.num_ops < original_count
+        for op in hir:
+            assert op.op_type != ucc.OpType.NOISE

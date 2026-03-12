@@ -1608,7 +1608,7 @@ TEST_CASE("POSTSELECT: discards shot when parity is non-zero") {
 
     // OP_POSTSELECT: check detector parity of meas[0]
     mod.constant_pool.detector_targets.push_back({0});
-    mod.bytecode.push_back(make_postselect(0, 0));
+    mod.bytecode.push_back(make_postselect(0, 0, ExpectedParity::Zero));
 
     // meas[1]: a second dormant static measurement (should not run if discarded)
     Instruction meas1 = make_meas(Opcode::OP_MEAS_DORMANT_STATIC, 0, 1, true);
@@ -1656,7 +1656,7 @@ TEST_CASE("POSTSELECT: passes when parity is zero") {
 
     // OP_POSTSELECT: parity of meas[0] = 0 -> pass
     mod.constant_pool.detector_targets.push_back({0});
-    mod.bytecode.push_back(make_postselect(0, 0));
+    mod.bytecode.push_back(make_postselect(0, 0, ExpectedParity::Zero));
 
     // meas[1]: dormant static, sign=true -> outcome=1
     mod.bytecode.push_back(make_meas(Opcode::OP_MEAS_DORMANT_STATIC, 0, 1, true));
@@ -1684,7 +1684,7 @@ TEST_CASE("POSTSELECT: reset clears stale data after discarded shot") {
 
     // OP_POSTSELECT: parity of meas[0] = 1 -> always discard
     mod.constant_pool.detector_targets.push_back({0});
-    mod.bytecode.push_back(make_postselect(0, 0));
+    mod.bytecode.push_back(make_postselect(0, 0, ExpectedParity::Zero));
 
     // meas[1]: should never execute due to abort
     mod.bytecode.push_back(make_meas(Opcode::OP_MEAS_DORMANT_STATIC, 0, 1, true));
@@ -1719,7 +1719,7 @@ TEST_CASE("POSTSELECT: sample returns all shots including discarded") {
 
     // OP_POSTSELECT on meas[0]
     mod.constant_pool.detector_targets.push_back({0});
-    mod.bytecode.push_back(make_postselect(0, 0));
+    mod.bytecode.push_back(make_postselect(0, 0, ExpectedParity::Zero));
 
     auto result = sample(mod, 100, 42);
 
@@ -1739,7 +1739,7 @@ TEST_CASE("sample_survivors: counting-only fast path") {
 
     mod.bytecode.push_back(make_meas_dormant_random(0, 0));
     mod.constant_pool.detector_targets.push_back({0});
-    mod.bytecode.push_back(make_postselect(0, 0));
+    mod.bytecode.push_back(make_postselect(0, 0, ExpectedParity::Zero));
 
     // Observable: parity of meas[0]. For survivors, meas[0]==0 always
     // (postselect discards meas[0]==1), so observable should always be 0.
@@ -1768,7 +1768,7 @@ TEST_CASE("sample_survivors: keep_records populates arrays") {
 
     mod.bytecode.push_back(make_meas_dormant_random(0, 0));
     mod.constant_pool.detector_targets.push_back({0});
-    mod.bytecode.push_back(make_postselect(0, 0));
+    mod.bytecode.push_back(make_postselect(0, 0, ExpectedParity::Zero));
 
     mod.constant_pool.observable_targets.push_back({0});
     mod.bytecode.push_back(make_observable(0, 0));
@@ -1813,7 +1813,7 @@ TEST_CASE("sample_survivors: no postselection means all shots pass") {
 
     // Regular detector (not postselect)
     mod.constant_pool.detector_targets.push_back({0});
-    mod.bytecode.push_back(make_detector(0, 0));
+    mod.bytecode.push_back(make_detector(0, 0, ExpectedParity::Zero));
 
     auto result = sample_survivors(mod, 100, 42, false);
 
@@ -1990,4 +1990,135 @@ TEST_CASE("Dust clamps: accumulates across multiple shots") {
 
     // Each shot triggers exactly one dust clamp in the interfere measurement
     CHECK(state.dust_clamps == shots);
+}
+
+// =============================================================================
+// Error Syndrome Normalization
+// =============================================================================
+
+TEST_CASE("Detector FLAG_EXPECTED_ONE normalizes parity to zero") {
+    // M0=1 -> raw detector parity = 1.
+    // With FLAG_EXPECTED_ONE, parity starts at 1, so 1^1 = 0.
+    CompiledModule mod;
+    mod.peak_rank = 0;
+    mod.num_measurements = 1;
+    mod.total_meas_slots = 1;
+    mod.num_detectors = 1;
+
+    // Identity measurement that produces 1 (FLAG_SIGN)
+    Instruction id_meas = make_meas(Opcode::OP_MEAS_DORMANT_STATIC, 0, 0, true);
+    id_meas.flags |= Instruction::FLAG_IDENTITY;
+    mod.bytecode.push_back(id_meas);
+
+    // Detector referencing rec[0], with expected parity 1
+    mod.constant_pool.detector_targets.push_back({0});
+    mod.bytecode.push_back(make_detector(0, 0, ExpectedParity::One));
+
+    auto result = sample(mod, 1, uint64_t{0});
+    CHECK(result.measurements[0] == 1);  // Raw measurement is 1
+    CHECK(result.detectors[0] == 0);     // Normalized: 1 ^ 1 = 0
+}
+
+TEST_CASE("Detector FLAG_EXPECTED_ONE flips zero parity to one") {
+    // M0=0 -> raw parity = 0. With expected_one, 0 ^ 1 = 1 (error detected).
+    CompiledModule mod;
+    mod.peak_rank = 0;
+    mod.num_measurements = 1;
+    mod.total_meas_slots = 1;
+    mod.num_detectors = 1;
+
+    Instruction id_meas = make_meas(Opcode::OP_MEAS_DORMANT_STATIC, 0, 0, false);
+    id_meas.flags |= Instruction::FLAG_IDENTITY;
+    mod.bytecode.push_back(id_meas);
+
+    mod.constant_pool.detector_targets.push_back({0});
+    mod.bytecode.push_back(make_detector(0, 0, ExpectedParity::One));
+
+    auto result = sample(mod, 1, uint64_t{0});
+    CHECK(result.measurements[0] == 0);
+    CHECK(result.detectors[0] == 1);  // 0 ^ 1 = 1 (error)
+}
+
+TEST_CASE("Postselect FLAG_EXPECTED_ONE survives when raw parity is one") {
+    // M0=1 -> raw parity = 1. Without normalization: discarded.
+    // With FLAG_EXPECTED_ONE: 1^1 = 0, shot survives.
+    CompiledModule mod;
+    mod.peak_rank = 0;
+    mod.num_measurements = 1;
+    mod.total_meas_slots = 1;
+    mod.num_detectors = 1;
+
+    Instruction id_meas = make_meas(Opcode::OP_MEAS_DORMANT_STATIC, 0, 0, true);
+    id_meas.flags |= Instruction::FLAG_IDENTITY;
+    mod.bytecode.push_back(id_meas);
+
+    mod.constant_pool.detector_targets.push_back({0});
+    mod.bytecode.push_back(make_postselect(0, 0, ExpectedParity::One));
+
+    auto result = sample_survivors(mod, 10, uint64_t{0});
+    CHECK(result.passed_shots == 10);  // All survive
+}
+
+TEST_CASE("Postselect FLAG_EXPECTED_ONE discards when raw parity is zero") {
+    // M0=0 -> raw parity = 0. With expected_one: 0^1 = 1 -> discarded.
+    CompiledModule mod;
+    mod.peak_rank = 0;
+    mod.num_measurements = 1;
+    mod.total_meas_slots = 1;
+    mod.num_detectors = 1;
+
+    Instruction id_meas = make_meas(Opcode::OP_MEAS_DORMANT_STATIC, 0, 0, false);
+    id_meas.flags |= Instruction::FLAG_IDENTITY;
+    mod.bytecode.push_back(id_meas);
+
+    mod.constant_pool.detector_targets.push_back({0});
+    mod.bytecode.push_back(make_postselect(0, 0, ExpectedParity::One));
+
+    auto result = sample_survivors(mod, 10, uint64_t{0});
+    CHECK(result.passed_shots == 0);  // All discarded
+}
+
+TEST_CASE("Observable normalization via expected_observables") {
+    // M0=1 -> obs_record[0] ^= 1 = 1 (raw).
+    // With expected_observables = {1}, output = 1 ^ 1 = 0.
+    CompiledModule mod;
+    mod.peak_rank = 0;
+    mod.num_measurements = 1;
+    mod.total_meas_slots = 1;
+    mod.num_observables = 1;
+
+    Instruction id_meas = make_meas(Opcode::OP_MEAS_DORMANT_STATIC, 0, 0, true);
+    id_meas.flags |= Instruction::FLAG_IDENTITY;
+    mod.bytecode.push_back(id_meas);
+
+    mod.constant_pool.observable_targets.push_back({0});
+    mod.bytecode.push_back(make_observable(0, 0));
+    mod.expected_observables = {1};
+
+    auto result = sample(mod, 1, uint64_t{0});
+    CHECK(result.observables[0] == 0);  // Normalized: 1 ^ 1 = 0
+}
+
+TEST_CASE("Observable normalization in sample_survivors") {
+    // Same setup but verifying sample_survivors path.
+    CompiledModule mod;
+    mod.peak_rank = 0;
+    mod.num_measurements = 1;
+    mod.total_meas_slots = 1;
+    mod.num_observables = 1;
+
+    Instruction id_meas = make_meas(Opcode::OP_MEAS_DORMANT_STATIC, 0, 0, true);
+    id_meas.flags |= Instruction::FLAG_IDENTITY;
+    mod.bytecode.push_back(id_meas);
+
+    mod.constant_pool.observable_targets.push_back({0});
+    mod.bytecode.push_back(make_observable(0, 0));
+    mod.expected_observables = {1};
+
+    auto result = sample_survivors(mod, 10, uint64_t{0}, true);
+    CHECK(result.passed_shots == 10);
+    CHECK(result.logical_errors == 0);
+    for (uint32_t i = 0; i < 10; ++i) {
+        CHECK(result.observables[i] == 0);
+    }
 }

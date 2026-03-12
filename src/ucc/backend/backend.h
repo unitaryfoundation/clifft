@@ -80,6 +80,8 @@ struct alignas(32) Instruction {
     static constexpr uint8_t FLAG_SIGN = 1 << 0;      // Measurement sign (XOR with outcome)
     static constexpr uint8_t FLAG_HIDDEN = 1 << 1;    // Hidden measurement (not in visible record)
     static constexpr uint8_t FLAG_IDENTITY = 1 << 2;  // Identity measurement (no frame interaction)
+    // Flag bit for detector/postselect: noiseless reference parity is 1
+    static constexpr uint8_t FLAG_EXPECTED_ONE = 1 << 3;
 
     Opcode opcode;      // Offset 0
     uint8_t _reserved;  // Offset 1 (padding for 32-byte alignment)
@@ -159,8 +161,13 @@ static_assert(sizeof(Instruction) == 32, "Instruction must be exactly 32 bytes")
 [[nodiscard]] Instruction make_noise(uint32_t site_idx);
 [[nodiscard]] Instruction make_noise_block(uint32_t start_site, uint32_t count);
 [[nodiscard]] Instruction make_readout_noise(uint32_t entry_idx);
-[[nodiscard]] Instruction make_detector(uint32_t det_list_idx, uint32_t classical_idx);
-[[nodiscard]] Instruction make_postselect(uint32_t det_list_idx, uint32_t classical_idx);
+/// Strongly-typed flag for detector/postselect expected noiseless parity.
+enum class ExpectedParity : uint8_t { Zero = 0, One = 1 };
+
+[[nodiscard]] Instruction make_detector(uint32_t det_list_idx, uint32_t classical_idx,
+                                        ExpectedParity expected);
+[[nodiscard]] Instruction make_postselect(uint32_t det_list_idx, uint32_t classical_idx,
+                                          ExpectedParity expected);
 [[nodiscard]] Instruction make_observable(uint32_t target_list_idx, uint32_t obs_idx);
 
 // =============================================================================
@@ -224,6 +231,11 @@ struct CompiledModule {
     uint32_t num_detectors = 0;     // Total detectors
     uint32_t num_observables = 0;   // Total observables
 
+    // Expected noiseless observable parities for syndrome normalization.
+    // When non-empty, sample()/sample_survivors() XOR obs_record[i] with
+    // expected_observables[i] before writing output.
+    std::vector<uint8_t> expected_observables;
+
     // Source line mapping and per-instruction active_k history.
     // Empty if the HIR had no source map.
     SourceMap source_map;
@@ -237,7 +249,11 @@ struct CompiledModule {
 /// Tracks virtual frame V_cum, compresses multi-qubit Paulis to local ops.
 /// If postselection_mask is non-empty, detectors at indices where
 /// mask[det_idx] != 0 are emitted as OP_POSTSELECT instead of OP_DETECTOR.
+/// expected_detectors/expected_observables carry noiseless reference parities
+/// for error syndrome normalization.
 [[nodiscard]] CompiledModule lower(const HirModule& hir,
-                                   std::span<const uint8_t> postselection_mask = {});
+                                   std::span<const uint8_t> postselection_mask = {},
+                                   std::span<const uint8_t> expected_detectors = {},
+                                   std::span<const uint8_t> expected_observables = {});
 
 }  // namespace ucc

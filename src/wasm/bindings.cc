@@ -13,6 +13,7 @@
 #include "ucc/optimizer/multi_gate_pass.h"
 #include "ucc/optimizer/noise_block_pass.h"
 #include "ucc/optimizer/peephole.h"
+#include "ucc/optimizer/remove_noise_pass.h"
 #include "ucc/optimizer/swap_meas_pass.h"
 #include "ucc/svm/svm.h"
 #include "ucc/util/introspection.h"

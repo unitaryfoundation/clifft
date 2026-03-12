@@ -1,4 +1,5 @@
 #include "ucc/backend/backend.h"
+#include "ucc/backend/reference_syndrome.h"
 #include "ucc/circuit/circuit.h"
 #include "ucc/circuit/parser.h"
 #include "ucc/frontend/frontend.h"
@@ -8,6 +9,7 @@
 #include "ucc/optimizer/multi_gate_pass.h"
 #include "ucc/optimizer/noise_block_pass.h"
 #include "ucc/optimizer/peephole.h"
+#include "ucc/optimizer/remove_noise_pass.h"
 #include "ucc/optimizer/swap_meas_pass.h"
 #include "ucc/svm/svm.h"
 #include "ucc/util/config.h"
@@ -400,6 +402,30 @@ NB_MODULE(_ucc_core, m) {
                    ", fusions=" + std::to_string(p.fusions()) + ")";
         });
 
+    nb::class_<ucc::RemoveNoisePass, ucc::HirPass>(
+        m, "RemoveNoisePass",
+        "Strips all stochastic noise and readout noise ops from the HIR.\n"
+        "Not included in the default pass list. Used internally by\n"
+        "compute_reference_syndrome() for noiseless reference shots.")
+        .def(nb::init<>());
+
+    m.def(
+        "compute_reference_syndrome",
+        [](const ucc::HirModule& hir) {
+            ucc::ReferenceSyndrome ref;
+            {
+                nb::gil_scoped_release release;
+                ref = ucc::compute_reference_syndrome(hir);
+            }
+            nb::dict d;
+            d["detectors"] = nb::cast(std::move(ref.detectors));
+            d["observables"] = nb::cast(std::move(ref.observables));
+            return d;
+        },
+        nb::arg("hir"),
+        "Compute noiseless reference syndrome for an HirModule.\n\n"
+        "Returns a dict with 'detectors' and 'observables' lists.");
+
     nb::class_<ucc::HirPassManager>(m, "HirPassManager",
                                     "Runs a sequence of optimization passes over an HirModule.")
         .def(nb::init<>())
@@ -653,14 +679,17 @@ NB_MODULE(_ucc_core, m) {
                    std::to_string(p.num_measurements) + " measurements)";
         });
 
-    // Back-end: HIR -> Program (with optional postselection mask)
+    // Back-end: HIR -> Program (with optional postselection/normalization masks)
     m.def(
         "lower",
-        [](const ucc::HirModule& hir, std::vector<uint8_t> postselection_mask) {
+        [](const ucc::HirModule& hir, std::vector<uint8_t> postselection_mask,
+           std::vector<uint8_t> expected_detectors, std::vector<uint8_t> expected_observables) {
             nb::gil_scoped_release release;
-            return ucc::lower(hir, postselection_mask);
+            return ucc::lower(hir, postselection_mask, expected_detectors, expected_observables);
         },
         nb::arg("hir"), nb::arg("postselection_mask") = std::vector<uint8_t>{},
+        nb::arg("expected_detectors") = std::vector<uint8_t>{},
+        nb::arg("expected_observables") = std::vector<uint8_t>{},
         "Lower a Heisenberg IR module to executable VM bytecode.\n\n"
         "To optimize the bytecode, use a BytecodePassManager after lowering:\n"
         "    prog = ucc.lower(hir)\n"
@@ -670,44 +699,64 @@ NB_MODULE(_ucc_core, m) {
         "    hir: The Heisenberg IR module to lower.\n"
         "    postselection_mask: Optional list of uint8 flags, one per detector.\n"
         "        Detectors where mask[i] != 0 become post-selection checks\n"
-        "        that abort the shot early if their parity is non-zero.\n");
+        "        that abort the shot early if their parity is non-zero.\n"
+        "    expected_detectors: Optional noiseless reference parities for detectors.\n"
+        "    expected_observables: Optional noiseless reference parities for observables.\n");
 
     // Convenience: stim text -> Program (parse + trace + lower)
     m.def(
         "compile",
         [](const std::string& stim_text, std::vector<uint8_t> postselection_mask,
-           ucc::HirPassManager* hir_passes, ucc::BytecodePassManager* bytecode_passes) {
+           std::vector<uint8_t> expected_detectors, std::vector<uint8_t> expected_observables,
+           bool normalize_syndromes, ucc::HirPassManager* hir_passes,
+           ucc::BytecodePassManager* bytecode_passes) {
             nb::gil_scoped_release release;
             ucc::Circuit circuit = ucc::parse(stim_text);
             ucc::HirModule hir = ucc::trace(circuit);
             if (hir_passes)
                 hir_passes->run(hir);
-            auto program = ucc::lower(hir, postselection_mask);
+
+            if (normalize_syndromes) {
+                if (!expected_detectors.empty() || !expected_observables.empty()) {
+                    throw std::invalid_argument(
+                        "Cannot provide expected parities when normalize_syndromes=True");
+                }
+                auto ref = ucc::compute_reference_syndrome(hir);
+                expected_detectors = std::move(ref.detectors);
+                expected_observables = std::move(ref.observables);
+            }
+
+            auto program =
+                ucc::lower(hir, postselection_mask, expected_detectors, expected_observables);
             if (bytecode_passes)
                 bytecode_passes->run(program);
             return program;
         },
         nb::arg("stim_text"), nb::arg("postselection_mask") = std::vector<uint8_t>{},
-        nb::arg("hir_passes") = nb::none(), nb::arg("bytecode_passes") = nb::none(),
+        nb::arg("expected_detectors") = std::vector<uint8_t>{},
+        nb::arg("expected_observables") = std::vector<uint8_t>{},
+        nb::arg("normalize_syndromes") = false, nb::arg("hir_passes") = nb::none(),
+        nb::arg("bytecode_passes") = nb::none(),
         "Compile a quantum circuit string to executable bytecode.\n\n"
         "Runs the full pipeline: parse -> trace -> [HIR optimize] ->\n"
         "lower -> [bytecode optimize].  Pass manager arguments are\n"
         "optional; when None the corresponding optimization stage is\n"
         "skipped (matching the previous default behavior).\n"
         "\n"
-        "Example with all optimizations enabled::\n"
-        "\n"
-        "    prog = ucc.compile(\n"
-        "        text,\n"
-        "        hir_passes=ucc.default_hir_pass_manager(),\n"
-        "        bytecode_passes=ucc.default_bytecode_pass_manager(),\n"
-        "    )\n"
+        "When normalize_syndromes=True, a noiseless reference shot is\n"
+        "executed internally to extract expected detector and observable\n"
+        "parities. Detectors and observables are then XOR-normalized so\n"
+        "that 0 means 'matches noiseless reference' and 1 means 'error'.\n"
         "\n"
         "Args:\n"
         "    stim_text: Circuit in .stim text format.\n"
         "    postselection_mask: Optional list of uint8 flags, one per detector.\n"
         "        Detectors where mask[i] != 0 become post-selection checks\n"
         "        that abort the shot early if their parity is non-zero.\n"
+        "    expected_detectors: Optional noiseless reference parities for detectors.\n"
+        "    expected_observables: Optional noiseless reference parities for observables.\n"
+        "    normalize_syndromes: If True, auto-compute reference parities from a\n"
+        "        noiseless reference shot (mutually exclusive with explicit parities).\n"
         "    hir_passes: Optional HirPassManager to run on the HIR before lowering.\n"
         "    bytecode_passes: Optional BytecodePassManager to run after lowering.\n");
 

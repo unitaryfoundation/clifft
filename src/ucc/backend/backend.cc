@@ -235,19 +235,26 @@ Instruction make_readout_noise(uint32_t entry_idx) {
     return i;
 }
 
-Instruction make_detector(uint32_t det_list_idx, uint32_t classical_idx) {
+Instruction make_detector(uint32_t det_list_idx, uint32_t classical_idx, ExpectedParity expected) {
     Instruction i{};
     i.opcode = Opcode::OP_DETECTOR;
     i.pauli.cp_mask_idx = det_list_idx;
     i.pauli.condition_idx = classical_idx;
+    if (expected == ExpectedParity::One) {
+        i.flags |= Instruction::FLAG_EXPECTED_ONE;
+    }
     return i;
 }
 
-Instruction make_postselect(uint32_t det_list_idx, uint32_t classical_idx) {
+Instruction make_postselect(uint32_t det_list_idx, uint32_t classical_idx,
+                            ExpectedParity expected) {
     Instruction i{};
     i.opcode = Opcode::OP_POSTSELECT;
     i.pauli.cp_mask_idx = det_list_idx;
     i.pauli.condition_idx = classical_idx;
+    if (expected == ExpectedParity::One) {
+        i.flags |= Instruction::FLAG_EXPECTED_ONE;
+    }
     return i;
 }
 
@@ -527,7 +534,9 @@ CompressionResult compress_pauli(CompilerContext& ctx, const stim::PauliString<k
 // lower(): Full pipeline wiring
 // =========================================================================
 
-CompiledModule lower(const HirModule& hir, std::span<const uint8_t> postselection_mask) {
+CompiledModule lower(const HirModule& hir, std::span<const uint8_t> postselection_mask,
+                     std::span<const uint8_t> expected_detectors,
+                     std::span<const uint8_t> expected_observables) {
     using internal::CompilerContext;
     using internal::compress_pauli;
     using internal::CompressedBasis;
@@ -786,10 +795,14 @@ CompiledModule lower(const HirModule& hir, std::span<const uint8_t> postselectio
 
                 bool is_postselected = det_emit_idx < postselection_mask.size() &&
                                        postselection_mask[det_emit_idx] != 0;
+                ExpectedParity exp = (det_emit_idx < expected_detectors.size() &&
+                                      expected_detectors[det_emit_idx] != 0)
+                                         ? ExpectedParity::One
+                                         : ExpectedParity::Zero;
                 if (is_postselected) {
-                    ctx.emit(make_postselect(cp_idx, det_emit_idx));
+                    ctx.emit(make_postselect(cp_idx, det_emit_idx, exp));
                 } else {
-                    ctx.emit(make_detector(cp_idx, det_emit_idx));
+                    ctx.emit(make_detector(cp_idx, det_emit_idx, exp));
                 }
                 ++det_emit_idx;
                 break;
@@ -895,6 +908,7 @@ CompiledModule lower(const HirModule& hir, std::span<const uint8_t> postselectio
     result.total_meas_slots = total_meas_slots;
     result.num_detectors = hir.num_detectors;
     result.num_observables = hir.num_observables;
+    result.expected_observables.assign(expected_observables.begin(), expected_observables.end());
 
     return result;
 }

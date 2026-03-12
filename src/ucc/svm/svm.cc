@@ -1069,12 +1069,14 @@ static inline void exec_readout_noise(SchrodingerState& state, const ConstantPoo
 }
 
 // DETECTOR: computes the XOR parity of a list of measurement record entries.
+// When expected_one is true, the parity is initialized to 1 so that the
+// noiseless reference outcome (which would also be 1) normalizes to 0.
 static inline void exec_detector(SchrodingerState& state, const ConstantPool& pool,
-                                 uint32_t det_list_idx, uint32_t classical_idx) {
+                                 uint32_t det_list_idx, uint32_t classical_idx, bool expected_one) {
     assert(det_list_idx < pool.detector_targets.size());
     const auto& targets = pool.detector_targets[det_list_idx];
 
-    uint8_t parity = 0;
+    uint8_t parity = static_cast<uint8_t>(expected_one);
     for (uint32_t meas_idx : targets) {
         assert(meas_idx < state.meas_record.size());
         parity ^= state.meas_record[meas_idx];
@@ -1086,13 +1088,16 @@ static inline void exec_detector(SchrodingerState& state, const ConstantPool& po
 
 // POSTSELECT: computes XOR parity like DETECTOR, writes 0 to det_record,
 // and sets discarded = true if parity != 0 (shot failed post-selection).
+// When expected_one is true, the parity is initialized to 1 so that the
+// noiseless reference outcome normalizes to 0 (no false discards).
 // Returns true if the shot should be aborted.
 static inline bool exec_postselect(SchrodingerState& state, const ConstantPool& pool,
-                                   uint32_t det_list_idx, uint32_t classical_idx) {
+                                   uint32_t det_list_idx, uint32_t classical_idx,
+                                   bool expected_one) {
     assert(det_list_idx < pool.detector_targets.size());
     const auto& targets = pool.detector_targets[det_list_idx];
 
-    uint8_t parity = 0;
+    uint8_t parity = static_cast<uint8_t>(expected_one);
     for (uint32_t meas_idx : targets) {
         assert(meas_idx < state.meas_record.size());
         parity ^= state.meas_record[meas_idx];
@@ -1324,12 +1329,13 @@ L_OP_READOUT_NOISE:
     DISPATCH();
 
 L_OP_DETECTOR:
-    exec_detector(state, program.constant_pool, pc->pauli.cp_mask_idx, pc->pauli.condition_idx);
+    exec_detector(state, program.constant_pool, pc->pauli.cp_mask_idx, pc->pauli.condition_idx,
+                  (pc->flags & Instruction::FLAG_EXPECTED_ONE) != 0);
     DISPATCH();
 
 L_OP_POSTSELECT:
     if (exec_postselect(state, program.constant_pool, pc->pauli.cp_mask_idx,
-                        pc->pauli.condition_idx))
+                        pc->pauli.condition_idx, (pc->flags & Instruction::FLAG_EXPECTED_ONE) != 0))
         return;
     DISPATCH();
 
@@ -1448,11 +1454,13 @@ L_OP_OBSERVABLE:
                 break;
             case Opcode::OP_DETECTOR:
                 exec_detector(state, program.constant_pool, instr.pauli.cp_mask_idx,
-                              instr.pauli.condition_idx);
+                              instr.pauli.condition_idx,
+                              (instr.flags & Instruction::FLAG_EXPECTED_ONE) != 0);
                 break;
             case Opcode::OP_POSTSELECT:
                 if (exec_postselect(state, program.constant_pool, instr.pauli.cp_mask_idx,
-                                    instr.pauli.condition_idx))
+                                    instr.pauli.condition_idx,
+                                    (instr.flags & Instruction::FLAG_EXPECTED_ONE) != 0))
                     return;
                 break;
             case Opcode::OP_OBSERVABLE:
@@ -1498,9 +1506,17 @@ SampleResult sample(const CompiledModule& program, uint32_t shots, std::optional
         std::copy(
             state.det_record.begin(), state.det_record.end(),
             result.detectors.begin() + static_cast<ptrdiff_t>(static_cast<size_t>(shot) * num_det));
-        std::copy(state.obs_record.begin(), state.obs_record.end(),
-                  result.observables.begin() +
-                      static_cast<ptrdiff_t>(static_cast<size_t>(shot) * num_obs));
+
+        // Normalize observables against noiseless reference before output
+        auto obs_out = result.observables.begin() +
+                       static_cast<ptrdiff_t>(static_cast<size_t>(shot) * num_obs);
+        for (uint32_t i = 0; i < num_obs; ++i) {
+            uint8_t val = state.obs_record[i];
+            if (i < program.expected_observables.size() && program.expected_observables[i] != 0) {
+                val ^= 1;
+            }
+            obs_out[static_cast<ptrdiff_t>(i)] = val;
+        }
     }
 
     return result;
@@ -1554,9 +1570,16 @@ SurvivorResult sample_survivors(const CompiledModule& program, uint32_t shots,
 
         bool any_obs_flipped = false;
         for (uint32_t i = 0; i < num_obs; ++i) {
-            if (state.obs_record[i]) {
+            uint8_t val = state.obs_record[i];
+            if (i < program.expected_observables.size() && program.expected_observables[i] != 0) {
+                val ^= 1;
+            }
+            if (val) {
                 result.observable_ones[i]++;
                 any_obs_flipped = true;
+            }
+            if (keep_records) {
+                result.observables.push_back(val);
             }
         }
         if (any_obs_flipped) {
@@ -1566,8 +1589,6 @@ SurvivorResult sample_survivors(const CompiledModule& program, uint32_t shots,
         if (keep_records) {
             result.detectors.insert(result.detectors.end(), state.det_record.begin(),
                                     state.det_record.end());
-            result.observables.insert(result.observables.end(), state.obs_record.begin(),
-                                      state.obs_record.end());
         }
     }
 
