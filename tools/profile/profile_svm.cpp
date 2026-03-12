@@ -10,9 +10,9 @@
 #include "ucc/frontend/frontend.h"
 #include "ucc/optimizer/bytecode_pass.h"
 #include "ucc/optimizer/expand_t_pass.h"
+#include "ucc/optimizer/hir_pass_manager.h"
 #include "ucc/optimizer/multi_gate_pass.h"
 #include "ucc/optimizer/noise_block_pass.h"
-#include "ucc/optimizer/pass_manager.h"
 #include "ucc/optimizer/peephole.h"
 #include "ucc/optimizer/swap_meas_pass.h"
 #include "ucc/svm/svm.h"
@@ -155,7 +155,7 @@ int main() {
     std::cout << "Frontend (Clifford absorption)..." << std::flush;
     t0 = std::chrono::high_resolution_clock::now();
     ucc::HirModule hir = ucc::trace(circuit);
-    ucc::PassManager pm;
+    ucc::HirPassManager pm;
     pm.add_pass(std::make_unique<ucc::PeepholeFusionPass>());
     pm.run(hir);
     t1 = std::chrono::high_resolution_clock::now();

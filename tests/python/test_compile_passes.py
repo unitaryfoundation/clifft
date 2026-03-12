@@ -52,14 +52,14 @@ def test_compile_both_passes_matches_manual() -> None:
 
     prog = ucc.compile(
         text,
-        hir_passes=ucc.default_pass_manager(),
+        hir_passes=ucc.default_hir_pass_manager(),
         bytecode_passes=ucc.default_bytecode_pass_manager(),
     )
 
     # Manual pipeline
     circuit = ucc.parse(text)
     hir = ucc.trace(circuit)
-    pm = ucc.default_pass_manager()
+    pm = ucc.default_hir_pass_manager()
     pm.run(hir)
     prog_manual = ucc.lower(hir)
     bpm = ucc.default_bytecode_pass_manager()
@@ -78,11 +78,11 @@ def test_compile_hir_only_matches_manual() -> None:
     """compile() with only hir_passes matches manual trace + optimize + lower."""
     text = "H 0\nT 0\nT_DAG 0\nM 0"  # T/T_DAG cancel
 
-    prog = ucc.compile(text, hir_passes=ucc.default_pass_manager())
+    prog = ucc.compile(text, hir_passes=ucc.default_hir_pass_manager())
 
     circuit = ucc.parse(text)
     hir = ucc.trace(circuit)
-    pm = ucc.default_pass_manager()
+    pm = ucc.default_hir_pass_manager()
     pm.run(hir)
     prog_manual = ucc.lower(hir)
 
@@ -95,7 +95,7 @@ def test_hir_passes_reduce_t_cancellation() -> None:
     text = "H 0\nT 0\nT_DAG 0\nM 0"
 
     prog_no_opt = ucc.compile(text)
-    prog_opt = ucc.compile(text, hir_passes=ucc.default_pass_manager())
+    prog_opt = ucc.compile(text, hir_passes=ucc.default_hir_pass_manager())
 
     # Without optimization, T and T_DAG both expand the array.
     # With peephole, they cancel and peak_rank should be lower.
@@ -146,7 +146,7 @@ def test_compile_postselection_with_passes() -> None:
     prog = ucc.compile(
         text,
         postselection_mask=[1],
-        hir_passes=ucc.default_pass_manager(),
+        hir_passes=ucc.default_hir_pass_manager(),
         bytecode_passes=ucc.default_bytecode_pass_manager(),
     )
 
@@ -165,7 +165,7 @@ def test_postselection_without_passes_unchanged() -> None:
     prog_opt = ucc.compile(
         text,
         postselection_mask=mask,
-        hir_passes=ucc.default_pass_manager(),
+        hir_passes=ucc.default_hir_pass_manager(),
         bytecode_passes=ucc.default_bytecode_pass_manager(),
     )
 
@@ -199,7 +199,7 @@ def test_statevector_identical_with_passes(num_qubits: int, depth: int, seed: in
     prog_base = ucc.compile(stim_text)
     prog_opt = ucc.compile(
         stim_text,
-        hir_passes=ucc.default_pass_manager(),
+        hir_passes=ucc.default_hir_pass_manager(),
         bytecode_passes=ucc.default_bytecode_pass_manager(),
     )
 
@@ -224,10 +224,10 @@ def test_statevector_identical_with_passes(num_qubits: int, depth: int, seed: in
 
 
 def test_custom_pass_manager_via_compile() -> None:
-    """A manually-built PassManager works when passed to compile()."""
+    """A manually-built HirPassManager works when passed to compile()."""
     text = "H 0\nT 0\nT_DAG 0\nM 0"
 
-    pm = ucc.PassManager()
+    pm = ucc.HirPassManager()
     pm.add(ucc.PeepholeFusionPass())
 
     prog = ucc.compile(text, hir_passes=pm)

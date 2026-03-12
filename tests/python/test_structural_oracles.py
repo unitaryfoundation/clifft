@@ -16,7 +16,7 @@ def _compile_optimized(circuit_str: str) -> ucc.Program:
     """Compile with the default peephole optimization pass."""
     circuit = ucc.parse(circuit_str)
     hir = ucc.trace(circuit)
-    pm = ucc.default_pass_manager()
+    pm = ucc.default_hir_pass_manager()
     pm.run(hir)
     return ucc.lower(hir)
 

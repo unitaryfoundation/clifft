@@ -24,7 +24,7 @@ def _compile_optimized(circuit_str: str) -> ucc.Program:
     """Compile with the default peephole optimization pass."""
     circuit = ucc.parse(circuit_str)
     hir = ucc.trace(circuit)
-    pm = ucc.default_pass_manager()
+    pm = ucc.default_hir_pass_manager()
     pm.run(hir)
     return ucc.lower(hir)
 
@@ -293,7 +293,7 @@ class TestExplicitPipelineAPI:
         hir = ucc.trace(circuit)
         assert hir.num_t_gates == 2
 
-        pm = ucc.default_pass_manager()
+        pm = ucc.default_hir_pass_manager()
         pm.run(hir)
         assert hir.num_t_gates == 0
 
@@ -303,7 +303,7 @@ class TestExplicitPipelineAPI:
         hir = ucc.trace(circuit)
 
         peephole = ucc.PeepholeFusionPass()
-        pm = ucc.PassManager()
+        pm = ucc.HirPassManager()
         pm.add(peephole)
         pm.run(hir)
 

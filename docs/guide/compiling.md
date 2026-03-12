@@ -39,7 +39,7 @@ program = ucc.compile(
     T 2
     M 0 1 2
     """,
-    hir_passes=ucc.default_pass_manager(),
+    hir_passes=ucc.default_hir_pass_manager(),
     bytecode_passes=ucc.default_bytecode_pass_manager(),
 )
 ```
@@ -95,10 +95,10 @@ The optimizer applies transformation passes to the HIR before lowering:
 import ucc
 
 # Get the default HIR pass manager (includes peephole fusion)
-pm = ucc.default_pass_manager()
+pm = ucc.default_hir_pass_manager()
 
 # Or build a custom one
-pm = ucc.PassManager()
+pm = ucc.HirPassManager()
 pm.add(ucc.PeepholeFusionPass())
 
 # Run passes on the HIR module
@@ -150,7 +150,7 @@ circuit = ucc.parse("H 0\nT 0\nCNOT 0 1\nM 0 1")
 hir = ucc.trace(circuit)
 
 # HIR optimization
-pm = ucc.default_pass_manager()
+pm = ucc.default_hir_pass_manager()
 pm.run(hir)
 
 # Back-end: lower to bytecode

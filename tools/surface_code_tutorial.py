@@ -34,7 +34,7 @@ def generate_surface_code_circuit(
 def run_ucc(circuit: stim.Circuit, shots: int) -> tuple[float, float, float]:
     """Compile and sample with UCC. Returns (logical_err, compile_s, sample_s)."""
     stim_text = str(circuit)
-    hir_pm = ucc.default_pass_manager()
+    hir_pm = ucc.default_hir_pass_manager()
     bpm = ucc.default_bytecode_pass_manager()
 
     t0 = time.perf_counter()

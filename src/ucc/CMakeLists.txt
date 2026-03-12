@@ -9,7 +9,7 @@ add_library(ucc_core STATIC
     optimizer/multi_gate_pass.cc
     optimizer/expand_t_pass.cc
     optimizer/swap_meas_pass.cc
-    optimizer/pass_manager.cc
+    optimizer/hir_pass_manager.cc
     optimizer/peephole.cc
     backend/backend.cc
     svm/svm.cc

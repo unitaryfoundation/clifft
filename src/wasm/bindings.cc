@@ -9,9 +9,9 @@
 #include "ucc/frontend/frontend.h"
 #include "ucc/optimizer/bytecode_pass.h"
 #include "ucc/optimizer/expand_t_pass.h"
+#include "ucc/optimizer/hir_pass_manager.h"
 #include "ucc/optimizer/multi_gate_pass.h"
 #include "ucc/optimizer/noise_block_pass.h"
-#include "ucc/optimizer/pass_manager.h"
 #include "ucc/optimizer/peephole.h"
 #include "ucc/optimizer/swap_meas_pass.h"
 #include "ucc/svm/svm.h"
@@ -45,7 +45,7 @@ PipelineResult run_pipeline(const std::string& source, bool optimize) {
         auto circuit = ucc::parse(source, MAX_OPS);
         result.hir = ucc::trace(circuit);
         if (optimize) {
-            ucc::PassManager pm;
+            ucc::HirPassManager pm;
             pm.add_pass(std::make_unique<ucc::PeepholeFusionPass>());
             pm.run(result.hir);
         }

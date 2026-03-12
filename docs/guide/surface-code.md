@@ -74,7 +74,7 @@ def run_ucc(
     Returns (logical_error_rate, compile_seconds, sample_seconds).
     """
     stim_text = str(circuit)
-    hir_pm = ucc.default_pass_manager()
+    hir_pm = ucc.default_hir_pass_manager()
     bpm = ucc.default_bytecode_pass_manager()
 
     t0 = time.perf_counter()
@@ -200,7 +200,7 @@ For distance $d$, the rotated surface code uses $d^2 + (d-1)^2$ total qubits. Di
 
 `ucc.compile()` accepts the full Stim circuit text — including `REPEAT` blocks, noise channels, `DETECTOR` and `OBSERVABLE_INCLUDE` annotations. In this tutorial, we use the full optimization pipeline:
 
-- **HIR passes** (`ucc.default_pass_manager()`): Peephole fusion on the Heisenberg IR
+- **HIR passes** (`ucc.default_hir_pass_manager()`): Peephole fusion on the Heisenberg IR
 - **Bytecode passes** (`ucc.default_bytecode_pass_manager()`): Noise block coalescing, multi-gate fusion, expand-T fusion, and swap-measure optimization
 
 The compiled program is then sampled with `ucc.sample()`, which returns three arrays:

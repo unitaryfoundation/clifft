@@ -1,6 +1,6 @@
 #pragma once
 
-#include "ucc/optimizer/pass.h"
+#include "ucc/optimizer/hir_pass.h"
 
 #include <cstddef>
 
@@ -9,7 +9,7 @@ namespace ucc {
 /// Peephole fusion pass: scans the HIR to algebraically cancel or fuse
 /// T/T_dag gates acting on the same virtual Pauli axis using the
 /// symplectic inner product as a commutation check.
-class PeepholeFusionPass : public Pass {
+class PeepholeFusionPass : public HirPass {
   public:
     void run(HirModule& hir) override;
 

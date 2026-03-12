@@ -4,9 +4,9 @@
 #include "ucc/frontend/frontend.h"
 #include "ucc/optimizer/bytecode_pass.h"
 #include "ucc/optimizer/expand_t_pass.h"
+#include "ucc/optimizer/hir_pass_manager.h"
 #include "ucc/optimizer/multi_gate_pass.h"
 #include "ucc/optimizer/noise_block_pass.h"
-#include "ucc/optimizer/pass_manager.h"
 #include "ucc/optimizer/peephole.h"
 #include "ucc/optimizer/swap_meas_pass.h"
 #include "ucc/svm/svm.h"
@@ -386,9 +386,9 @@ NB_MODULE(_ucc_core, m) {
         "Trace a parsed circuit through the Clifford front-end to produce the "
         "Heisenberg IR.");
 
-    nb::class_<ucc::Pass>(m, "Pass", "Abstract base class for HIR optimization passes.");
+    nb::class_<ucc::HirPass>(m, "HirPass", "Abstract base class for HIR optimization passes.");
 
-    nb::class_<ucc::PeepholeFusionPass, ucc::Pass>(
+    nb::class_<ucc::PeepholeFusionPass, ucc::HirPass>(
         m, "PeepholeFusionPass",
         "Symplectic peephole fusion: cancels and fuses T/T-dag gates on the "
         "same virtual Pauli axis.")
@@ -400,17 +400,17 @@ NB_MODULE(_ucc_core, m) {
                    ", fusions=" + std::to_string(p.fusions()) + ")";
         });
 
-    nb::class_<ucc::PassManager>(m, "PassManager",
-                                 "Runs a sequence of optimization passes over an HirModule.")
+    nb::class_<ucc::HirPassManager>(m, "HirPassManager",
+                                    "Runs a sequence of optimization passes over an HirModule.")
         .def(nb::init<>())
         .def(
             "add",
-            [](ucc::PassManager& pm, ucc::Pass& pass) {
-                // PassManager needs unique_ptr ownership, but Python owns the pass.
+            [](ucc::HirPassManager& pm, ucc::HirPass& pass) {
+                // HirPassManager needs unique_ptr ownership, but Python owns the pass.
                 // Use a thin non-owning wrapper that delegates to the Python-owned pass.
-                struct BorrowedPass : ucc::Pass {
-                    ucc::Pass& ref;
-                    explicit BorrowedPass(ucc::Pass& r) : ref(r) {}
+                struct BorrowedPass : ucc::HirPass {
+                    ucc::HirPass& ref;
+                    explicit BorrowedPass(ucc::HirPass& r) : ref(r) {}
                     void run(ucc::HirModule& hir) override { ref.run(hir); }
                 };
                 pm.add_pass(std::make_unique<BorrowedPass>(pass));
@@ -418,18 +418,18 @@ NB_MODULE(_ucc_core, m) {
             nb::arg("pass"), nb::keep_alive<1, 2>(),
             "Add an optimization pass. Passes run in the order added.")
         .def(
-            "run", [](ucc::PassManager& pm, ucc::HirModule& hir) { pm.run(hir); }, nb::arg("hir"),
-            "Run all passes on the HIR module in sequence.");
+            "run", [](ucc::HirPassManager& pm, ucc::HirModule& hir) { pm.run(hir); },
+            nb::arg("hir"), "Run all passes on the HIR module in sequence.");
 
     m.def(
-        "default_pass_manager",
+        "default_hir_pass_manager",
         []() {
-            ucc::PassManager pm;
+            ucc::HirPassManager pm;
             pm.add_pass(std::make_unique<ucc::PeepholeFusionPass>());
             return pm;
         },
         nb::rv_policy::move,
-        "Return a PassManager pre-loaded with the standard optimization passes.");
+        "Return an HirPassManager pre-loaded with the standard optimization passes.");
 
     nb::class_<ucc::BytecodePass>(m, "BytecodePass",
                                   "Abstract base class for bytecode optimization passes.\n\n"
@@ -491,7 +491,7 @@ NB_MODULE(_ucc_core, m) {
         },
         nb::rv_policy::move,
         "Return a BytecodePassManager pre-loaded with the default passes:\n"
-        "NoiseBlockPass, MultiGatePass, ExpandTPass, SwapMeasPass.");
+        "NoiseBlockPass, MultiGatePass, ExpandTPass, ExpandRotPass, SwapMeasPass.");
 
     nb::enum_<ucc::Opcode>(m, "Opcode", "RISC Virtual Machine opcodes")
         .value("OP_FRAME_CNOT", ucc::Opcode::OP_FRAME_CNOT)
@@ -676,7 +676,7 @@ NB_MODULE(_ucc_core, m) {
     m.def(
         "compile",
         [](const std::string& stim_text, std::vector<uint8_t> postselection_mask,
-           ucc::PassManager* hir_passes, ucc::BytecodePassManager* bytecode_passes) {
+           ucc::HirPassManager* hir_passes, ucc::BytecodePassManager* bytecode_passes) {
             nb::gil_scoped_release release;
             ucc::Circuit circuit = ucc::parse(stim_text);
             ucc::HirModule hir = ucc::trace(circuit);
@@ -699,7 +699,7 @@ NB_MODULE(_ucc_core, m) {
         "\n"
         "    prog = ucc.compile(\n"
         "        text,\n"
-        "        hir_passes=ucc.default_pass_manager(),\n"
+        "        hir_passes=ucc.default_hir_pass_manager(),\n"
         "        bytecode_passes=ucc.default_bytecode_pass_manager(),\n"
         "    )\n"
         "\n"
@@ -708,7 +708,7 @@ NB_MODULE(_ucc_core, m) {
         "    postselection_mask: Optional list of uint8 flags, one per detector.\n"
         "        Detectors where mask[i] != 0 become post-selection checks\n"
         "        that abort the shot early if their parity is non-zero.\n"
-        "    hir_passes: Optional PassManager to run on the HIR before lowering.\n"
+        "    hir_passes: Optional HirPassManager to run on the HIR before lowering.\n"
         "    bytecode_passes: Optional BytecodePassManager to run after lowering.\n");
 
     // Sample: Program + shots -> tuple of (measurements, detectors, observables)

@@ -9,10 +9,10 @@ namespace ucc {
 /// Each pass receives a mutable HirModule and may rewrite, reorder,
 /// or remove operations. Passes operate on the timeless Heisenberg IR
 /// using purely symplectic geometry -- no DAG or time assumptions.
-class Pass {
+class HirPass {
   public:
     virtual void run(HirModule& hir) = 0;
-    virtual ~Pass() = default;
+    virtual ~HirPass() = default;
 };
 
 }  // namespace ucc

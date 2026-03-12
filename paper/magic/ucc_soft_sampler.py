@@ -62,7 +62,7 @@ class UccCompiledSampler(sinter.CompiledSampler):
         self._program = ucc.compile(
             stim_text,
             postselection_mask=mask,
-            hir_passes=ucc.default_pass_manager(),
+            hir_passes=ucc.default_hir_pass_manager(),
             bytecode_passes=ucc.default_bytecode_pass_manager(),
         )
 

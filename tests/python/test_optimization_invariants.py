@@ -157,7 +157,7 @@ class TestHirPeepholeUncomputationLadder:
     def test_small(self, nq: int, depth: int, seed: int) -> None:
         circuit = generate_uncomputation_ladder(nq, depth, seed=seed, noise_prob=0.0)
         base = ucc.compile(circuit)
-        opt = ucc.compile(circuit, hir_passes=ucc.default_pass_manager())
+        opt = ucc.compile(circuit, hir_passes=ucc.default_hir_pass_manager())
 
         assert base.peak_rank <= _MAX_PEAK_RANK
         assert opt.peak_rank <= base.peak_rank
@@ -182,7 +182,7 @@ class TestHirPeepholeUncomputationLadder:
     def test_large(self, nq: int, depth: int, seed: int) -> None:
         circuit = generate_uncomputation_ladder(nq, depth, seed=seed, noise_prob=0.0)
         base = ucc.compile(circuit)
-        opt = ucc.compile(circuit, hir_passes=ucc.default_pass_manager())
+        opt = ucc.compile(circuit, hir_passes=ucc.default_hir_pass_manager())
 
         assert base.peak_rank <= _MAX_PEAK_RANK
         assert opt.peak_rank <= base.peak_rank
@@ -208,7 +208,7 @@ class TestHirPeepholeUncomputationLadder:
             base_state.dust_clamps > 0
         ), "Unoptimized ladder should clamp FP dust in active measurements"
 
-        opt = ucc.compile(circuit, hir_passes=ucc.default_pass_manager())
+        opt = ucc.compile(circuit, hir_passes=ucc.default_hir_pass_manager())
         opt_state = ucc.State(opt.peak_rank, opt.num_measurements, seed=42)
         ucc.execute(opt, opt_state)
         assert (
@@ -243,21 +243,21 @@ class TestHirPeepholeStatevectorOracle:
     def test_random_clifford_t_5q(self, seed: int) -> None:
         circuit = random_clifford_t_circuit(5, 40, seed=seed)
         base_sv = _ucc_statevector(circuit)
-        opt_sv = _ucc_statevector(circuit, hir_passes=ucc.default_pass_manager())
+        opt_sv = _ucc_statevector(circuit, hir_passes=ucc.default_hir_pass_manager())
         assert_statevectors_equal(opt_sv, base_sv)
 
     @pytest.mark.parametrize("seed", _SEEDS)
     def test_dense_clifford_t_4q(self, seed: int) -> None:
         circuit = random_dense_clifford_t_circuit(4, 50, seed=seed)
         base_sv = _ucc_statevector(circuit)
-        opt_sv = _ucc_statevector(circuit, hir_passes=ucc.default_pass_manager())
+        opt_sv = _ucc_statevector(circuit, hir_passes=ucc.default_hir_pass_manager())
         assert_statevectors_equal(opt_sv, base_sv)
 
     @pytest.mark.parametrize("seed", _SEEDS)
     def test_dense_clifford_t_8q(self, seed: int) -> None:
         circuit = random_dense_clifford_t_circuit(8, 60, seed=seed)
         base_sv = _ucc_statevector(circuit)
-        opt_sv = _ucc_statevector(circuit, hir_passes=ucc.default_pass_manager())
+        opt_sv = _ucc_statevector(circuit, hir_passes=ucc.default_hir_pass_manager())
         assert_statevectors_equal(opt_sv, base_sv)
 
 
@@ -303,7 +303,7 @@ class TestHirPeepholeStatisticalEquivalence:
         base = ucc.compile(circuit)
         opt = ucc.compile(
             circuit,
-            hir_passes=ucc.default_pass_manager(),
+            hir_passes=ucc.default_hir_pass_manager(),
             bytecode_passes=ucc.default_bytecode_pass_manager(),
         )
 
@@ -317,7 +317,7 @@ class TestHirPeepholeStatisticalEquivalence:
         base = ucc.compile(circuit)
         opt = ucc.compile(
             circuit,
-            hir_passes=ucc.default_pass_manager(),
+            hir_passes=ucc.default_hir_pass_manager(),
             bytecode_passes=ucc.default_bytecode_pass_manager(),
         )
 
@@ -331,7 +331,7 @@ class TestHirPeepholeStatisticalEquivalence:
         base = ucc.compile(circuit)
         opt = ucc.compile(
             circuit,
-            hir_passes=ucc.default_pass_manager(),
+            hir_passes=ucc.default_hir_pass_manager(),
             bytecode_passes=ucc.default_bytecode_pass_manager(),
         )
 

@@ -42,7 +42,7 @@ def test_active_k_history_shows_expansion_and_compaction() -> None:
 def test_optimizer_preserves_source_map() -> None:
     """Peephole fusion keeps source_map in sync."""
     hir = ucc.trace(ucc.parse("H 0\nT 0\nT 0\nM 0"))
-    pm = ucc.PassManager()
+    pm = ucc.HirPassManager()
     pm.add(ucc.PeepholeFusionPass())
     pm.run(hir)
     assert len(hir.source_map) == hir.num_ops

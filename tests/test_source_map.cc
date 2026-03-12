@@ -6,7 +6,7 @@
 #include "ucc/backend/backend.h"
 #include "ucc/circuit/parser.h"
 #include "ucc/frontend/frontend.h"
-#include "ucc/optimizer/pass_manager.h"
+#include "ucc/optimizer/hir_pass_manager.h"
 #include "ucc/optimizer/peephole.h"
 
 #include <catch2/catch_test_macros.hpp>
@@ -35,7 +35,7 @@ static HirModule hir_from(const char* text) {
 // Helper: full pipeline through trace + peephole
 static HirModule hir_optimized(const char* text) {
     auto hir = hir_from(text);
-    PassManager pm;
+    HirPassManager pm;
     pm.add_pass(std::make_unique<PeepholeFusionPass>());
     pm.run(hir);
     return hir;
@@ -45,7 +45,7 @@ static HirModule hir_optimized(const char* text) {
 static CompiledModule compiled_from(const char* text, bool optimize = false) {
     auto hir = hir_from(text);
     if (optimize) {
-        PassManager pm;
+        HirPassManager pm;
         pm.add_pass(std::make_unique<PeepholeFusionPass>());
         pm.run(hir);
     }

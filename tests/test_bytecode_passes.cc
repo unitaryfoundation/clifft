@@ -474,7 +474,7 @@ TEST_CASE("MULTI_CNOT and MULTI_CZ: d5 circuit deterministic equivalence", "[byt
     REQUIRE(res_orig.detectors == res_fused.detectors);
 }
 
-TEST_CASE("PassManager: NoiseBlock then MultiGate", "[bytecode-pass]") {
+TEST_CASE("BytecodePassManager: NoiseBlock then MultiGate", "[bytecode-pass]") {
     auto circuit = ucc::parse(
         "H 0\n"
         "CNOT 0 1\n"
