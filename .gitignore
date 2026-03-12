@@ -112,3 +112,8 @@ env/
 *.swp
 *.swo
 results/
+
+# QV benchmark outputs
+paper/qv_benchmark/results*.csv
+paper/qv_benchmark/*.pdf
+paper/qv_benchmark/*.png
