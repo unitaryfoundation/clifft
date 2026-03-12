@@ -93,7 +93,7 @@ std::string format_hir_op(const HeisenbergOp& op) {
                << " target_list=" << op.observable_target_list_idx();
             break;
         case OpType::PHASE_ROTATION:
-            ss << "PHASE_ROTATION alpha=" << op.alpha();
+            ss << "PHASE_ROTATION " << format_pauli_mask(op) << " alpha=" << op.alpha();
             break;
         case OpType::NUM_OP_TYPES:
             break;

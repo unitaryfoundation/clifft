@@ -46,6 +46,71 @@ program = ucc.compile(
 
 When omitted (or `None`), the corresponding optimization stage is skipped.
 
+### Syndrome Normalization
+
+For circuits with detectors and observables (e.g., QEC circuits), detector and observable outputs represent raw measurement parities by default. A `DETECTOR` that natively evaluates to `1` in a noiseless circuit will always output `1`, even without errors. This can confuse decoders like PyMatching that expect `0` = "no error" and `1` = "error".
+
+Set `normalize_syndromes=True` to automatically compute a noiseless reference and XOR-normalize all outputs:
+
+<!--pytest.mark.skip-->
+
+```python
+import ucc
+
+program = ucc.compile(
+    circuit_text,
+    normalize_syndromes=True,
+    hir_passes=ucc.default_hir_pass_manager(),
+    bytecode_passes=ucc.default_bytecode_pass_manager(),
+)
+```
+
+This internally:
+
+1. Strips all noise from the HIR
+2. Runs a single noiseless reference shot
+3. XOR-normalizes each detector and observable against the reference
+
+After normalization, `0` strictly means "matches noiseless reference" and `1` strictly means "error". Post-selection also benefits: a detector that natively fires in the clean circuit won't cause spurious discards.
+
+!!! note
+    `normalize_syndromes=True` is mutually exclusive with manually passing
+    `expected_detectors` or `expected_observables`.
+
+You can also supply explicit reference parities if you've computed them yourself:
+
+<!--pytest.mark.skip-->
+
+```python
+import ucc
+
+program = ucc.compile(
+    circuit_text,
+    expected_detectors=[1, 0, 0, 1],
+    expected_observables=[1],
+)
+```
+
+### Combining Post-Selection and Normalization
+
+Post-selection and syndrome normalization compose naturally:
+
+<!--pytest.mark.skip-->
+
+```python
+import ucc
+
+program = ucc.compile(
+    circuit_text,
+    postselection_mask=[1, 0, 0],  # Post-select on detector 0
+    normalize_syndromes=True,       # Auto-normalize all syndromes
+    hir_passes=ucc.default_hir_pass_manager(),
+    bytecode_passes=ucc.default_bytecode_pass_manager(),
+)
+
+result = ucc.sample_survivors(program, shots=1_000_000, seed=42)
+```
+
 ## Step-by-Step Compilation
 
 You can also run each stage individually for inspection or custom pipelines:
@@ -115,6 +180,8 @@ pm.run(hir)
 program = ucc.lower(hir)
 ```
 
+`lower()` also accepts optional `postselection_mask`, `expected_detectors`, and `expected_observables` arguments for syndrome normalization and post-selection at the bytecode level (see [Syndrome Normalization](#syndrome-normalization)).
+
 ### 5. Bytecode Optimization
 
 After lowering, a second pass manager optimizes the RISC bytecode. This fuses instructions to reduce redundant array passes:
@@ -134,6 +201,7 @@ The default bytecode pipeline includes:
 - **NoiseBlockPass** — collapses runs of noise ops into block instructions
 - **MultiGatePass** — fuses contiguous CNOT/CZ ops sharing an axis into star-graph instructions
 - **ExpandTPass** — fuses expand + T-phase into a single copy-and-rotate
+- **ExpandRotPass** — fuses expand + continuous rotation into a single copy-and-rotate
 - **SwapMeasPass** — fuses swap + measurement into one operation
 
 ## Full Custom Pipeline
@@ -162,6 +230,39 @@ bpm.run(program)
 ```
 
 This is equivalent to `ucc.compile()` but gives you access to intermediate representations for debugging or custom optimization passes.
+
+## Reference Syndrome Computation
+
+If you need the noiseless reference parities without compiling, use `compute_reference_syndrome()` on an `HirModule`:
+
+<!--pytest.mark.skip-->
+
+```python
+import ucc
+
+circuit = ucc.parse(circuit_text)
+hir = ucc.trace(circuit)
+ref = ucc.compute_reference_syndrome(hir)
+
+print(ref["detectors"])     # list of expected detector parities
+print(ref["observables"])   # list of expected observable parities
+```
+
+This strips noise from the HIR, lowers and executes a single shot, and returns the noiseless parities. It is the same logic used internally by `normalize_syndromes=True`.
+
+## Noise Removal Pass
+
+`RemoveNoisePass` strips all stochastic noise and readout noise ops from the HIR. It is **not** included in the default pass list — it is used internally by `compute_reference_syndrome()` for noiseless reference shots, but you can use it directly if needed:
+
+<!--pytest.mark.skip-->
+
+```python
+import ucc
+
+pm = ucc.HirPassManager()
+pm.add(ucc.RemoveNoisePass())
+pm.run(hir)  # hir now has no noise ops
+```
 
 ## Post-Selection
 

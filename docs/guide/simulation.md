@@ -109,6 +109,28 @@ meas, det, obs = ucc.sample(program, shots=10000, seed=42)
 # obs shape: (10000, num_observables)
 ```
 
+### Syndrome Normalization
+
+By default, detector and observable values are raw measurement parities. For QEC workflows where decoders expect `0` = "no error", use `normalize_syndromes=True` at compile time:
+
+<!--pytest.mark.skip-->
+
+```python
+import ucc
+
+program = ucc.compile(
+    circuit_text,
+    normalize_syndromes=True,
+    hir_passes=ucc.default_hir_pass_manager(),
+    bytecode_passes=ucc.default_bytecode_pass_manager(),
+)
+
+meas, det, obs = ucc.sample(program, shots=10000, seed=42)
+# det and obs are now XOR-normalized against the noiseless reference
+```
+
+See [Compiling Circuits](compiling.md#syndrome-normalization) for details.
+
 ## Deterministic Seeds
 
 All sampling functions accept an optional `seed` parameter for reproducible results:
@@ -129,7 +151,8 @@ If `seed` is omitted (or `None`), UCC uses 256-bit OS hardware entropy.
 Simulation speed depends on the peak rank $k$ (number of simultaneously active non-Clifford qubits), not the total qubit count. The bytecode optimizer significantly reduces per-shot cost by fusing instructions:
 
 - **MultiGatePass** fuses star-graph CNOT/CZ patterns into single array sweeps, often the biggest win for QEC circuits
-- **ExpandTPass** and **SwapMeasPass** eliminate redundant array traversals
+- **ExpandTPass** and **ExpandRotPass** eliminate redundant array traversals for T-gates and continuous rotations
+- **SwapMeasPass** fuses swap + measurement into single operations
 - **NoiseBlockPass** reduces dispatch overhead for noise-heavy circuits
 
 For a distance-5 surface code (~17 qubits, peak rank 10), bytecode optimization compresses ~5100 raw instructions to ~1500, delivering roughly a 3.4x reduction in instruction count.
