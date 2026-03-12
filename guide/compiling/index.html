@@ -75,7 +75,7 @@
 <a id=__codelineno-2-7 name=__codelineno-2-7 href=#__codelineno-2-7></a><span class=sd>    T 2</span>
 <a id=__codelineno-2-8 name=__codelineno-2-8 href=#__codelineno-2-8></a><span class=sd>    M 0 1 2</span>
 <a id=__codelineno-2-9 name=__codelineno-2-9 href=#__codelineno-2-9></a><span class=sd>    &quot;&quot;&quot;</span><span class=p>,</span>
-<a id=__codelineno-2-10 name=__codelineno-2-10 href=#__codelineno-2-10></a>    <span class=n>hir_passes</span><span class=o>=</span><span class=n>ucc</span><span class=o>.</span><span class=n>default_pass_manager</span><span class=p>(),</span>
+<a id=__codelineno-2-10 name=__codelineno-2-10 href=#__codelineno-2-10></a>    <span class=n>hir_passes</span><span class=o>=</span><span class=n>ucc</span><span class=o>.</span><span class=n>default_hir_pass_manager</span><span class=p>(),</span>
 <a id=__codelineno-2-11 name=__codelineno-2-11 href=#__codelineno-2-11></a>    <span class=n>bytecode_passes</span><span class=o>=</span><span class=n>ucc</span><span class=o>.</span><span class=n>default_bytecode_pass_manager</span><span class=p>(),</span>
 <a id=__codelineno-2-12 name=__codelineno-2-12 href=#__codelineno-2-12></a><span class=p>)</span>
 </code></pre></div> <p>When omitted (or <code>None</code>), the corresponding optimization stage is skipped.</p> <h2 id=step-by-step-compilation>Step-by-Step Compilation<a class=headerlink href=#step-by-step-compilation title="Permanent link">&para;</a></h2> <p>You can also run each stage individually for inspection or custom pipelines:</p> <h3 id=1-parsing>1. Parsing<a class=headerlink href=#1-parsing title="Permanent link">&para;</a></h3> <p><code>ucc.parse()</code> converts Stim circuit text into an AST:</p> <div class=highlight><pre><span></span><code><a id=__codelineno-3-1 name=__codelineno-3-1 href=#__codelineno-3-1></a><span class=kn>import</span><span class=w> </span><span class=nn>ucc</span>
@@ -95,10 +95,10 @@
 </code></pre></div> <h3 id=3-middle-end-optimization>3. Middle-End Optimization<a class=headerlink href=#3-middle-end-optimization title="Permanent link">&para;</a></h3> <p>The optimizer applies transformation passes to the HIR before lowering:</p> <!--pytest-codeblocks:cont--> <div class=highlight><pre><span></span><code><a id=__codelineno-6-1 name=__codelineno-6-1 href=#__codelineno-6-1></a><span class=kn>import</span><span class=w> </span><span class=nn>ucc</span>
 <a id=__codelineno-6-2 name=__codelineno-6-2 href=#__codelineno-6-2></a>
 <a id=__codelineno-6-3 name=__codelineno-6-3 href=#__codelineno-6-3></a><span class=c1># Get the default HIR pass manager (includes peephole fusion)</span>
-<a id=__codelineno-6-4 name=__codelineno-6-4 href=#__codelineno-6-4></a><span class=n>pm</span> <span class=o>=</span> <span class=n>ucc</span><span class=o>.</span><span class=n>default_pass_manager</span><span class=p>()</span>
+<a id=__codelineno-6-4 name=__codelineno-6-4 href=#__codelineno-6-4></a><span class=n>pm</span> <span class=o>=</span> <span class=n>ucc</span><span class=o>.</span><span class=n>default_hir_pass_manager</span><span class=p>()</span>
 <a id=__codelineno-6-5 name=__codelineno-6-5 href=#__codelineno-6-5></a>
 <a id=__codelineno-6-6 name=__codelineno-6-6 href=#__codelineno-6-6></a><span class=c1># Or build a custom one</span>
-<a id=__codelineno-6-7 name=__codelineno-6-7 href=#__codelineno-6-7></a><span class=n>pm</span> <span class=o>=</span> <span class=n>ucc</span><span class=o>.</span><span class=n>PassManager</span><span class=p>()</span>
+<a id=__codelineno-6-7 name=__codelineno-6-7 href=#__codelineno-6-7></a><span class=n>pm</span> <span class=o>=</span> <span class=n>ucc</span><span class=o>.</span><span class=n>HirPassManager</span><span class=p>()</span>
 <a id=__codelineno-6-8 name=__codelineno-6-8 href=#__codelineno-6-8></a><span class=n>pm</span><span class=o>.</span><span class=n>add</span><span class=p>(</span><span class=n>ucc</span><span class=o>.</span><span class=n>PeepholeFusionPass</span><span class=p>())</span>
 <a id=__codelineno-6-9 name=__codelineno-6-9 href=#__codelineno-6-9></a>
 <a id=__codelineno-6-10 name=__codelineno-6-10 href=#__codelineno-6-10></a><span class=c1># Run passes on the HIR module</span>
@@ -118,7 +118,7 @@
 <a id=__codelineno-9-7 name=__codelineno-9-7 href=#__codelineno-9-7></a><span class=n>hir</span> <span class=o>=</span> <span class=n>ucc</span><span class=o>.</span><span class=n>trace</span><span class=p>(</span><span class=n>circuit</span><span class=p>)</span>
 <a id=__codelineno-9-8 name=__codelineno-9-8 href=#__codelineno-9-8></a>
 <a id=__codelineno-9-9 name=__codelineno-9-9 href=#__codelineno-9-9></a><span class=c1># HIR optimization</span>
-<a id=__codelineno-9-10 name=__codelineno-9-10 href=#__codelineno-9-10></a><span class=n>pm</span> <span class=o>=</span> <span class=n>ucc</span><span class=o>.</span><span class=n>default_pass_manager</span><span class=p>()</span>
+<a id=__codelineno-9-10 name=__codelineno-9-10 href=#__codelineno-9-10></a><span class=n>pm</span> <span class=o>=</span> <span class=n>ucc</span><span class=o>.</span><span class=n>default_hir_pass_manager</span><span class=p>()</span>
 <a id=__codelineno-9-11 name=__codelineno-9-11 href=#__codelineno-9-11></a><span class=n>pm</span><span class=o>.</span><span class=n>run</span><span class=p>(</span><span class=n>hir</span><span class=p>)</span>
 <a id=__codelineno-9-12 name=__codelineno-9-12 href=#__codelineno-9-12></a>
 <a id=__codelineno-9-13 name=__codelineno-9-13 href=#__codelineno-9-13></a><span class=c1># Back-end: lower to bytecode</span>
