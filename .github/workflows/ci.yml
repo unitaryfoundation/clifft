@@ -5,11 +5,13 @@ on:
     branches: [main]
     paths-ignore:
       - 'design/**'
+      - 'paper/**'
   pull_request:
     paths-ignore:
       - 'design/**'
       - 'docs/**'
       - 'explorer/**'
+      - 'paper/**'
       - '*.md'
       - '.github/workflows/docs.yml'
       - '.github/workflows/pr_preview.yml'
