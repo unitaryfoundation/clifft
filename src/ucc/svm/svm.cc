@@ -260,6 +260,11 @@ SchrodingerState::SchrodingerState(uint32_t peak_rank, uint32_t num_measurements
     }
 #endif
 
+    // Zero-initialize the full allocation. While the normal VM path only
+    // touches v_[0] at startup (active_k=0) and grows via OP_EXPAND, external
+    // code may set active_k directly (e.g. tests, custom pipelines). For mmap
+    // allocations the kernel provides zeroed pages, but aligned_alloc does not.
+    std::fill(v_, v_ + array_size_, std::complex<double>(0.0, 0.0));
     v_[0] = {1.0, 0.0};
 }
 
@@ -336,6 +341,8 @@ SchrodingerState& SchrodingerState::operator=(SchrodingerState&& other) noexcept
 }
 
 void SchrodingerState::reset() {
+    uint64_t active_size = (active_k > 0) ? (uint64_t{1} << active_k) : 1;
+    std::fill(v_, v_ + active_size, std::complex<double>(0.0, 0.0));
     v_[0] = {1.0, 0.0};
     p_x = 0;
     p_z = 0;
