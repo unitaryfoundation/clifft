@@ -39,21 +39,37 @@ elseif(MSVC)
     add_compile_options(/W4)
 endif()
 
-# Performance optimizations for Release builds
-# Use native CPU features (AVX2, AVX-512 on x86; NEON on ARM) when available.
+# SIMD intrinsics: enable AVX2/FMA on x86 for ALL build types so that Debug
+# builds exercise the same SIMD code paths as Release. This only adds the
+# instruction-set flags; it does NOT enable aggressive optimizations like
+# -ffast-math or -march=native (those remain Release-only below).
+if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+    if(NOT CMAKE_SYSTEM_PROCESSOR MATCHES "arm|aarch64|ARM64")
+        include(CheckCXXCompilerFlag)
+        check_cxx_compiler_flag(-mavx2 HAS_AVX2)
+        check_cxx_compiler_flag(-mfma HAS_FMA)
+        if(HAS_AVX2)
+            add_compile_options(-mavx2)
+            message(STATUS "Enabled AVX2 instructions for all build types")
+        endif()
+        if(HAS_FMA)
+            add_compile_options(-mfma)
+            message(STATUS "Enabled FMA instructions for all build types")
+        endif()
+    endif()
+endif()
+
+# Additional Release-only optimizations: full native tuning and fast-math.
 #
 # TODO(PyPI): When building wheels for PyPI distribution, replace -march=native
 # with a baseline like -march=x86-64-v3 (AVX2, ~2015 CPUs) to ensure compatibility.
 # For now, -march=native is fine since users build from source on their own machine.
 if(CMAKE_BUILD_TYPE STREQUAL "Release" OR CMAKE_BUILD_TYPE STREQUAL "RelWithDebInfo")
     if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
-        # Detect architecture for correct native tuning flags
         if(CMAKE_SYSTEM_PROCESSOR MATCHES "arm|aarch64|ARM64")
-            # Apple Silicon and other ARM: use -mcpu=native
             add_compile_options(-mcpu=native -ffast-math)
             message(STATUS "Enabled ARM native CPU optimizations: -mcpu=native -ffast-math")
         else()
-            # x86/x86_64: use -march=native -mtune=native
             add_compile_options(-march=native -mtune=native -ffast-math)
             message(STATUS "Enabled x86 native CPU optimizations: -march=native -mtune=native -ffast-math")
         endif()

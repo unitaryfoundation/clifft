@@ -1,5 +1,12 @@
 # UCC Implementation Plan: Cache-Blocked RISC Simulator
 
+## Status: ABANDONED
+
+Phase 1 was implemented on branch `feat/cache-block-phase1` (9 commits, not
+merged). QV-20 benchmarking showed a 29% slowdown (8.22s vs 6.37s baseline)
+because the statevector fits in LLC and SWAP routing added ~1GB of extra memory
+traffic. See `design/vm-throughput.plan.md` for the replacement strategy.
+
 ## Context & Goal
 
 Simulation of large quantum circuits is ultimately bounded by the "Memory Wall."

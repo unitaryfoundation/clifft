@@ -211,9 +211,11 @@ class SchrodingerState {
 
   private:
     std::complex<double> gamma_ = {1.0, 0.0};
-    std::complex<double>* v_ = nullptr;  // 64-byte aligned
+    std::complex<double>* v_ = nullptr;  // page-aligned
     uint64_t array_size_ = 0;            // 2^peak_rank (allocated capacity)
+    size_t v_alloc_bytes_ = 0;           // actual allocation size in bytes
     uint32_t peak_rank_ = 0;
+    bool v_is_mmap_ = false;  // true if v_ allocated via mmap
     Xoshiro256PlusPlus rng_;
 };
 

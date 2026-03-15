@@ -182,6 +182,8 @@ std::string format_instruction(const Instruction& inst) {
         ss << inst.axis_1 << ", " << inst.axis_2;
     } else if (inst.opcode == Opcode::OP_PHASE_ROT || inst.opcode == Opcode::OP_EXPAND_ROT) {
         ss << inst.axis_1 << " z=(" << inst.math.weight_re << ", " << inst.math.weight_im << ")";
+    } else if (inst.opcode == Opcode::OP_ARRAY_U2) {
+        ss << inst.axis_1 << " cp_idx=" << inst.u2.cp_idx;
     } else if (is_one_axis_opcode(inst.opcode)) {
         ss << inst.axis_1;
     } else if (is_meas_opcode(inst.opcode)) {

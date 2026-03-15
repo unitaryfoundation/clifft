@@ -1,5 +1,7 @@
 #include "ucc/svm/svm.h"
 
+#include "ucc/util/constants.h"
+
 #include <algorithm>
 #include <bit>
 #include <cassert>
@@ -9,12 +11,17 @@
 #include <random>
 #include <stdexcept>
 
-#if defined(__x86_64__) || defined(_M_X64)
+#if defined(__AVX2__) || defined(__x86_64__) || defined(_M_X64) || defined(__i386__) || \
+    defined(_M_IX86)
 #include <immintrin.h>
 #endif
 
 #ifdef _WIN32
 #include <malloc.h>
+#endif
+
+#if defined(__linux__)
+#include <sys/mman.h>
 #endif
 
 namespace ucc {
@@ -143,11 +150,30 @@ inline uint64_t scatter_bits_2(uint64_t val, [[maybe_unused]] uint64_t pdep_mask
 #endif
 }
 
-constexpr double kInvSqrt2 = std::numbers::sqrt2 / 2.0;
-constexpr std::complex<double> kI{0.0, 1.0};
-constexpr std::complex<double> kMinusI{0.0, -1.0};
-constexpr std::complex<double> kExpIPiOver4{kInvSqrt2, kInvSqrt2};        // e^{i*pi/4}
-constexpr std::complex<double> kExpMinusIPiOver4{kInvSqrt2, -kInvSqrt2};  // e^{-i*pi/4}
+// Math constants imported from ucc/util/constants.h via `using`.
+using ucc::kExpIPiOver4;
+using ucc::kExpMinusIPiOver4;
+using ucc::kI;
+using ucc::kInvSqrt2;
+using ucc::kMinusI;
+
+#if defined(__AVX2__)
+// Multiplies a vector of two packed complex numbers (V) by two complex
+// scalars whose real and imaginary parts are pre-broadcast:
+//   V      = [Re0, Im0, Re1, Im1]
+//   S_re   = [c0_re, c0_re, c1_re, c1_re]
+//   S_im   = [c0_im, c0_im, c1_im, c1_im]
+// Returns  [c0*z0, c1*z1] via the addsub trick:
+//   _mm256_addsub_pd subtracts on even lanes (real) and adds on odd (imag).
+static inline __m256d cmul_m256d(__m256d V, __m256d S_re, __m256d S_im) {
+    __m256d V_swap = _mm256_permute_pd(V, 0x5);
+#if defined(__FMA__)
+    return _mm256_fmaddsub_pd(V, S_re, _mm256_mul_pd(V_swap, S_im));
+#else
+    return _mm256_addsub_pd(_mm256_mul_pd(V, S_re), _mm256_mul_pd(V_swap, S_im));
+#endif
+}
+#endif
 
 }  // namespace
 
@@ -188,20 +214,62 @@ SchrodingerState::SchrodingerState(uint32_t peak_rank, uint32_t num_measurements
     det_record.resize(num_detectors, 0);
     obs_record.resize(num_observables, 0);
 
-    // Allocate 2^peak_rank complex numbers, 64-byte aligned for AVX
     array_size_ = 1ULL << peak_rank;
     size_t bytes = array_size_ * sizeof(std::complex<double>);
-    size_t aligned_bytes = (bytes + 63) & ~63ULL;
-    v_ = static_cast<std::complex<double>*>(aligned_alloc_portable(64, aligned_bytes));
-    if (!v_) {
-        throw std::bad_alloc();
+    // Round up to page boundary for mmap/aligned_alloc compatibility.
+    size_t aligned_bytes = (bytes + 4095) & ~4095ULL;
+    v_alloc_bytes_ = aligned_bytes;
+
+#if defined(__linux__)
+    // Try MAP_HUGETLB for 2MB huge pages (works without THP kernel support).
+    // Only worthwhile for allocations >= 2MB.
+    static constexpr size_t kHugePageSize = 2 * 1024 * 1024;
+    if (aligned_bytes >= kHugePageSize) {
+        size_t huge_aligned = (aligned_bytes + kHugePageSize - 1) & ~(kHugePageSize - 1);
+        void* p = mmap(nullptr, huge_aligned, PROT_READ | PROT_WRITE,
+                       MAP_PRIVATE | MAP_ANONYMOUS | MAP_HUGETLB, -1, 0);
+        if (p != MAP_FAILED) {
+            v_ = static_cast<std::complex<double>*>(p);
+            v_alloc_bytes_ = huge_aligned;
+            v_is_mmap_ = true;
+        }
     }
 
-    std::fill(v_, v_ + array_size_, std::complex<double>(0.0, 0.0));
+    if (!v_) {
+        // Align to huge page boundary so madvise(MADV_HUGEPAGE) works on any
+        // architecture (ARM64 may use 16KB or 64KB base pages).
+        size_t alloc_bytes = (aligned_bytes >= kHugePageSize)
+                                 ? ((aligned_bytes + kHugePageSize - 1) & ~(kHugePageSize - 1))
+                                 : aligned_bytes;
+        size_t alloc_align = (aligned_bytes >= kHugePageSize) ? kHugePageSize : 4096;
+        v_ = static_cast<std::complex<double>*>(aligned_alloc_portable(alloc_align, alloc_bytes));
+        if (!v_) {
+            throw std::bad_alloc();
+        }
+        if (aligned_bytes >= kHugePageSize) {
+            madvise(v_, alloc_bytes, MADV_HUGEPAGE);
+        }
+        v_alloc_bytes_ = alloc_bytes;
+    }
+#else
+    if (!v_) {
+        v_ = static_cast<std::complex<double>*>(aligned_alloc_portable(4096, aligned_bytes));
+        if (!v_) {
+            throw std::bad_alloc();
+        }
+    }
+#endif
+
     v_[0] = {1.0, 0.0};
 }
 
 SchrodingerState::~SchrodingerState() {
+#if defined(__linux__)
+    if (v_is_mmap_) {
+        munmap(v_, v_alloc_bytes_);
+        return;
+    }
+#endif
     aligned_free_portable(v_);
 }
 
@@ -218,19 +286,33 @@ SchrodingerState::SchrodingerState(SchrodingerState&& other) noexcept
       gamma_(other.gamma_),
       v_(other.v_),
       array_size_(other.array_size_),
+      v_alloc_bytes_(other.v_alloc_bytes_),
       peak_rank_(other.peak_rank_),
+      v_is_mmap_(other.v_is_mmap_),
       rng_(std::move(other.rng_)) {
     other.v_ = nullptr;
     other.array_size_ = 0;
+    other.v_alloc_bytes_ = 0;
+    other.v_is_mmap_ = false;
     other.active_k = 0;
     other.peak_rank_ = 0;
 }
 
 SchrodingerState& SchrodingerState::operator=(SchrodingerState&& other) noexcept {
     if (this != &other) {
+#if defined(__linux__)
+        if (v_is_mmap_) {
+            munmap(v_, v_alloc_bytes_);
+        } else {
+            aligned_free_portable(v_);
+        }
+#else
         aligned_free_portable(v_);
+#endif
         v_ = other.v_;
         array_size_ = other.array_size_;
+        v_alloc_bytes_ = other.v_alloc_bytes_;
+        v_is_mmap_ = other.v_is_mmap_;
         peak_rank_ = other.peak_rank_;
         rng_ = std::move(other.rng_);
         p_x = other.p_x;
@@ -245,6 +327,8 @@ SchrodingerState& SchrodingerState::operator=(SchrodingerState&& other) noexcept
         obs_record = std::move(other.obs_record);
         other.v_ = nullptr;
         other.array_size_ = 0;
+        other.v_alloc_bytes_ = 0;
+        other.v_is_mmap_ = false;
         other.active_k = 0;
         other.peak_rank_ = 0;
     }
@@ -252,8 +336,6 @@ SchrodingerState& SchrodingerState::operator=(SchrodingerState&& other) noexcept
 }
 
 void SchrodingerState::reset() {
-    uint64_t active_size = (active_k > 0) ? (uint64_t{1} << active_k) : 1;
-    std::fill(v_, v_ + active_size, std::complex<double>(0.0, 0.0));
     v_[0] = {1.0, 0.0};
     p_x = 0;
     p_z = 0;
@@ -717,6 +799,114 @@ static inline void exec_expand_rot(SchrodingerState& state, uint16_t v, double z
 }
 
 // =============================================================================
+// Fused Single-Axis U2 Opcode
+// =============================================================================
+
+// OP_ARRAY_U2: applies a pre-computed 2x2 unitary matrix from the ConstantPool.
+// The 4-state FSM selects the correct matrix based on the incoming Pauli frame
+// bits (p_x, p_z) on the target axis. This replaces multiple sequential
+// single-axis array passes with one butterfly sweep.
+static inline void exec_array_u2(SchrodingerState& state, const ConstantPool& pool, uint16_t axis,
+                                 uint32_t cp_idx) {
+    assert(axis < 64 && "ARRAY_U2: axis out of range");
+    const auto& node = pool.fused_u2_nodes[cp_idx];
+
+    uint8_t in_state = static_cast<uint8_t>((bit_get(state.p_z, axis) ? 2 : 0) |
+                                            (bit_get(state.p_x, axis) ? 1 : 0));
+
+    const auto* mat = node.matrices[in_state];
+    state.multiply_phase(node.gamma_multipliers[in_state]);
+
+    uint8_t out = node.out_states[in_state];
+    bit_set(state.p_x, axis, (out & 1) != 0);
+    bit_set(state.p_z, axis, (out & 2) != 0);
+
+    // Dormant fast-path: axis not in the active array, only frame + gamma matter.
+    if (axis >= state.active_k)
+        return;
+
+    uint64_t iters = 1ULL << (state.active_k - 1);
+    uint64_t v_bit = 1ULL << axis;
+    uint64_t pdep_mask = ~v_bit;
+    auto* __restrict arr = state.v();
+
+    const std::complex<double> m00 = mat[0];
+    const std::complex<double> m01 = mat[1];
+    const std::complex<double> m10 = mat[2];
+    const std::complex<double> m11 = mat[3];
+
+#if defined(__AVX2__)
+    auto* __restrict arr_dbl = reinterpret_cast<double*>(arr);
+
+    if (axis == 0) {
+        // axis==0: old0 and old1 are physically adjacent (idx0=i*2, idx1=i*2+1).
+        // Load both into one 256-bit register, broadcast each to both lanes,
+        // multiply by the matrix columns, and store back.
+        __m256d m_col0_re = _mm256_setr_pd(m00.real(), m00.real(), m10.real(), m10.real());
+        __m256d m_col0_im = _mm256_setr_pd(m00.imag(), m00.imag(), m10.imag(), m10.imag());
+        __m256d m_col1_re = _mm256_setr_pd(m01.real(), m01.real(), m11.real(), m11.real());
+        __m256d m_col1_im = _mm256_setr_pd(m01.imag(), m01.imag(), m11.imag(), m11.imag());
+
+        for (uint64_t i = 0; i < iters; ++i) {
+            uint64_t idx0 = i << 1;
+            double* base = arr_dbl + (idx0 << 1);
+
+            __m256d v_both = _mm256_load_pd(base);
+            __m256d v_old0 = _mm256_permute2f128_pd(v_both, v_both, 0x00);
+            __m256d v_old1 = _mm256_permute2f128_pd(v_both, v_both, 0x11);
+
+            __m256d term0 = cmul_m256d(v_old0, m_col0_re, m_col0_im);
+            __m256d term1 = cmul_m256d(v_old1, m_col1_re, m_col1_im);
+
+            _mm256_store_pd(base, _mm256_add_pd(term0, term1));
+        }
+        return;
+    } else {
+        // axis>0: consecutive loop indices i, i+1 produce consecutive memory
+        // addresses for idx0 (and likewise for idx1). Process two butterflies
+        // per iteration using 256-bit loads that span two complex values.
+        __m256d m00_re = _mm256_set1_pd(m00.real());
+        __m256d m00_im = _mm256_set1_pd(m00.imag());
+        __m256d m01_re = _mm256_set1_pd(m01.real());
+        __m256d m01_im = _mm256_set1_pd(m01.imag());
+        __m256d m10_re = _mm256_set1_pd(m10.real());
+        __m256d m10_im = _mm256_set1_pd(m10.imag());
+        __m256d m11_re = _mm256_set1_pd(m11.real());
+        __m256d m11_im = _mm256_set1_pd(m11.imag());
+
+        for (uint64_t i = 0; i < iters; i += 2) {
+            uint64_t idx0 = scatter_bits_1(i, pdep_mask, axis);
+            uint64_t idx1 = idx0 | v_bit;
+
+            __m256d v_old0 = _mm256_load_pd(arr_dbl + (idx0 << 1));
+            __m256d v_old1 = _mm256_load_pd(arr_dbl + (idx1 << 1));
+
+            __m256d new0 = _mm256_add_pd(cmul_m256d(v_old0, m00_re, m00_im),
+                                         cmul_m256d(v_old1, m01_re, m01_im));
+            __m256d new1 = _mm256_add_pd(cmul_m256d(v_old0, m10_re, m10_im),
+                                         cmul_m256d(v_old1, m11_re, m11_im));
+
+            _mm256_store_pd(arr_dbl + (idx0 << 1), new0);
+            _mm256_store_pd(arr_dbl + (idx1 << 1), new1);
+        }
+        return;
+    }
+#endif
+
+    // Scalar fallback for non-AVX2 targets (e.g. Wasm, older x86).
+    for (uint64_t i = 0; i < iters; ++i) {
+        uint64_t idx0 = scatter_bits_1(i, pdep_mask, axis);
+        uint64_t idx1 = idx0 | v_bit;
+
+        auto old0 = arr[idx0];
+        auto old1 = arr[idx1];
+
+        arr[idx0] = m00 * old0 + m01 * old1;
+        arr[idx1] = m10 * old0 + m11 * old1;
+    }
+}
+
+// =============================================================================
 // Measurement Opcodes
 // =============================================================================
 
@@ -1170,6 +1360,7 @@ void execute(const CompiledModule& program, SchrodingerState& state) {
         [static_cast<uint8_t>(Opcode::OP_EXPAND_T_DAG)] = &&L_OP_EXPAND_T_DAG,
         [static_cast<uint8_t>(Opcode::OP_PHASE_ROT)] = &&L_OP_PHASE_ROT,
         [static_cast<uint8_t>(Opcode::OP_EXPAND_ROT)] = &&L_OP_EXPAND_ROT,
+        [static_cast<uint8_t>(Opcode::OP_ARRAY_U2)] = &&L_OP_ARRAY_U2,
 
         [static_cast<uint8_t>(Opcode::OP_MEAS_DORMANT_STATIC)] = &&L_OP_MEAS_DORMANT_STATIC,
         [static_cast<uint8_t>(Opcode::OP_MEAS_DORMANT_RANDOM)] = &&L_OP_MEAS_DORMANT_RANDOM,
@@ -1280,6 +1471,10 @@ L_OP_PHASE_ROT:
 
 L_OP_EXPAND_ROT:
     exec_expand_rot(state, pc->axis_1, pc->math.weight_re, pc->math.weight_im);
+    DISPATCH();
+
+L_OP_ARRAY_U2:
+    exec_array_u2(state, program.constant_pool, pc->axis_1, pc->u2.cp_idx);
     DISPATCH();
 
 L_OP_MEAS_DORMANT_STATIC:
@@ -1411,6 +1606,9 @@ L_OP_OBSERVABLE:
                 break;
             case Opcode::OP_EXPAND_ROT:
                 exec_expand_rot(state, instr.axis_1, instr.math.weight_re, instr.math.weight_im);
+                break;
+            case Opcode::OP_ARRAY_U2:
+                exec_array_u2(state, program.constant_pool, instr.axis_1, instr.u2.cp_idx);
                 break;
             case Opcode::OP_MEAS_DORMANT_STATIC:
                 if (instr.flags & Instruction::FLAG_IDENTITY) {

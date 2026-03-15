@@ -48,6 +48,7 @@ enum class Opcode : uint8_t {
     OP_EXPAND_T_DAG,  // Fused EXPAND + PHASE_T_DAG in one array pass
     OP_PHASE_ROT,     // Continuous Z-rotation on active axis (arbitrary angle)
     OP_EXPAND_ROT,    // Fused EXPAND + PHASE_ROT in one array pass
+    OP_ARRAY_U2,      // Fused single-axis 2x2 unitary (ConstantPool lookup)
 
     // Measurement
     OP_MEAS_DORMANT_STATIC,    // Deterministic outcome from p_x
@@ -119,6 +120,12 @@ struct alignas(32) Instruction {
             uint8_t _pad_d[16];  // Offset 16
         } multi_gate;
 
+        // Variant E: Fused single-axis 2x2 unitary (OP_ARRAY_U2)
+        struct {
+            uint32_t cp_idx;     // Offset 8 (Index into ConstantPool::fused_u2_nodes)
+            uint8_t _pad_e[20];  // Offset 12
+        } u2;
+
         uint8_t raw[24];  // Full payload access
     };
 };
@@ -153,6 +160,7 @@ static_assert(sizeof(Instruction) == 32, "Instruction must be exactly 32 bytes")
 [[nodiscard]] Instruction make_expand_t_dag(uint16_t axis);
 [[nodiscard]] Instruction make_phase_rot(uint16_t axis, double re, double im);
 [[nodiscard]] Instruction make_expand_rot(uint16_t axis, double re, double im);
+[[nodiscard]] Instruction make_array_u2(uint16_t axis, uint32_t cp_idx);
 [[nodiscard]] Instruction make_swap_meas_interfere(uint16_t swap_from, uint16_t swap_to,
                                                    uint32_t classical_idx, bool sign);
 [[nodiscard]] Instruction make_meas(Opcode meas_opcode, uint16_t axis, uint32_t classical_idx,
@@ -186,6 +194,22 @@ struct PauliMask {
     bool sign = false;
 };
 
+// Pre-computed 2x2 unitary for OP_ARRAY_U2 (single-axis CISC fusion).
+// For each of 4 possible incoming Pauli frame states on the target axis
+// ((p_z << 1) | p_x: 0=I, 1=X, 2=Z, 3=Y), stores the fused matrix,
+// accumulated global phase, and resulting frame state.
+struct FusedU2Node {
+    // Row-major 2x2 matrices indexed by 2-bit input frame state.
+    // matrices[s][0..3] = {a, b, c, d} where U|0>=a|0>+c|1>, U|1>=b|0>+d|1>
+    std::complex<double> matrices[4][4];
+
+    // Global phase multiplier accumulated during the fused sequence.
+    std::complex<double> gamma_multipliers[4];
+
+    // Resulting 2-bit (p_z << 1) | p_x frame state after the sequence.
+    uint8_t out_states[4];
+};
+
 struct ConstantPool {
     // Forward Clifford tableau at circuit end (for statevector expansion).
     // Computed as U_C = U_phys * V_cum^dag at end of compilation.
@@ -213,6 +237,9 @@ struct ConstantPool {
     // Entry i = sum of -log(1 - prob_sum_j) for noise sites j=0..i.
     // Allows O(1) skip of silent noise sites via exponential gap sampling.
     std::vector<double> noise_hazards;
+
+    // Fused single-axis 2x2 unitary nodes for OP_ARRAY_U2.
+    std::vector<FusedU2Node> fused_u2_nodes;
 };
 
 // =============================================================================

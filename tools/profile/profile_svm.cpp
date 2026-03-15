@@ -14,6 +14,7 @@
 #include "ucc/optimizer/multi_gate_pass.h"
 #include "ucc/optimizer/noise_block_pass.h"
 #include "ucc/optimizer/peephole.h"
+#include "ucc/optimizer/single_axis_fusion_pass.h"
 #include "ucc/optimizer/swap_meas_pass.h"
 #include "ucc/svm/svm.h"
 
@@ -192,6 +193,7 @@ int main() {
     bpm.add_pass(std::make_unique<ucc::MultiGatePass>());
     bpm.add_pass(std::make_unique<ucc::ExpandTPass>());
     bpm.add_pass(std::make_unique<ucc::SwapMeasPass>());
+    bpm.add_pass(std::make_unique<ucc::SingleAxisFusionPass>());
     bpm.run(program);
     t1 = std::chrono::high_resolution_clock::now();
     auto opt_ms = std::chrono::duration<double, std::milli>(t1 - t0).count();

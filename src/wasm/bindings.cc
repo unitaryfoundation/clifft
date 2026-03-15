@@ -14,6 +14,7 @@
 #include "ucc/optimizer/noise_block_pass.h"
 #include "ucc/optimizer/peephole.h"
 #include "ucc/optimizer/remove_noise_pass.h"
+#include "ucc/optimizer/single_axis_fusion_pass.h"
 #include "ucc/optimizer/swap_meas_pass.h"
 #include "ucc/svm/svm.h"
 #include "ucc/util/introspection.h"
@@ -58,6 +59,7 @@ PipelineResult run_pipeline(const std::string& source, bool optimize) {
             bpm.add_pass(std::make_unique<ucc::ExpandTPass>());
             bpm.add_pass(std::make_unique<ucc::ExpandRotPass>());
             bpm.add_pass(std::make_unique<ucc::SwapMeasPass>());
+            bpm.add_pass(std::make_unique<ucc::SingleAxisFusionPass>());
             bpm.run(result.prog);
         }
     } catch (const std::exception& e) {

@@ -1,0 +1,142 @@
+[
+  {
+    "compile_ms": 4.745664000097349,
+    "total_ms": 187.1309939999719,
+    "per_shot_ms": 1.871309939999719,
+    "instructions": 2258,
+    "peak_rank": 10,
+    "circuit": "QV-10",
+    "shots": 100,
+    "fusion": false
+  },
+  {
+    "compile_ms": 6.582954000009522,
+    "total_ms": 82.36082200005512,
+    "per_shot_ms": 0.8236082200005512,
+    "instructions": 814,
+    "peak_rank": 10,
+    "circuit": "QV-10",
+    "shots": 100,
+    "fusion": true
+  },
+  {
+    "compile_ms": 4.662279999934071,
+    "total_ms": 609.5702039999651,
+    "per_shot_ms": 1.2191404079999302,
+    "instructions": 2258,
+    "peak_rank": 10,
+    "circuit": "QV-10",
+    "shots": 500,
+    "fusion": false
+  },
+  {
+    "compile_ms": 4.639328000052956,
+    "total_ms": 394.66562699999486,
+    "per_shot_ms": 0.7893312539999897,
+    "instructions": 814,
+    "peak_rank": 10,
+    "circuit": "QV-10",
+    "shots": 500,
+    "fusion": true
+  },
+  {
+    "compile_ms": 19.545122999943487,
+    "total_ms": 6533.339522000006,
+    "per_shot_ms": 6533.339522000006,
+    "instructions": 8967,
+    "peak_rank": 20,
+    "circuit": "QV-20",
+    "shots": 1,
+    "fusion": false
+  },
+  {
+    "compile_ms": 19.77586999998948,
+    "total_ms": 3507.518779999941,
+    "per_shot_ms": 3507.518779999941,
+    "instructions": 3089,
+    "peak_rank": 20,
+    "circuit": "QV-20",
+    "shots": 1,
+    "fusion": true
+  },
+  {
+    "compile_ms": 19.059307000020453,
+    "total_ms": 18694.80940199992,
+    "per_shot_ms": 6231.603133999973,
+    "instructions": 8967,
+    "peak_rank": 20,
+    "circuit": "QV-20",
+    "shots": 3,
+    "fusion": false
+  },
+  {
+    "compile_ms": 18.948698000031072,
+    "total_ms": 10568.417382999996,
+    "per_shot_ms": 3522.805794333332,
+    "instructions": 3089,
+    "peak_rank": 20,
+    "circuit": "QV-20",
+    "shots": 3,
+    "fusion": true
+  },
+  {
+    "compile_ms": 18.95959999990282,
+    "total_ms": 31849.80129200005,
+    "per_shot_ms": 6369.96025840001,
+    "instructions": 8967,
+    "peak_rank": 20,
+    "circuit": "QV-20",
+    "shots": 5,
+    "fusion": false
+  },
+  {
+    "compile_ms": 20.33303899997918,
+    "total_ms": 17008.781152999974,
+    "per_shot_ms": 3401.756230599995,
+    "instructions": 3089,
+    "peak_rank": 20,
+    "circuit": "QV-20",
+    "shots": 5,
+    "fusion": true
+  },
+  {
+    "compile_ms": 24.63823899995532,
+    "total_ms": 87.76968400002261,
+    "per_shot_ms": 0.08776968400002261,
+    "instructions": 1518,
+    "peak_rank": 10,
+    "circuit": "Cultivation d=5",
+    "shots": 1000,
+    "fusion": false
+  },
+  {
+    "compile_ms": 24.353596999958427,
+    "total_ms": 91.71585499996127,
+    "per_shot_ms": 0.09171585499996127,
+    "instructions": 1518,
+    "peak_rank": 10,
+    "circuit": "Cultivation d=5",
+    "shots": 1000,
+    "fusion": true
+  },
+  {
+    "compile_ms": 24.187879999999495,
+    "total_ms": 444.6318779999956,
+    "per_shot_ms": 0.08892637559999912,
+    "instructions": 1518,
+    "peak_rank": 10,
+    "circuit": "Cultivation d=5",
+    "shots": 5000,
+    "fusion": false
+  },
+  {
+    "compile_ms": 24.49574800004939,
+    "total_ms": 445.8188199999995,
+    "per_shot_ms": 0.0891637639999999,
+    "instructions": 1518,
+    "peak_rank": 10,
+    "circuit": "Cultivation d=5",
+    "shots": 5000,
+    "fusion": true
+  }
+]

@@ -181,6 +181,14 @@ Instruction make_expand_rot(uint16_t axis, double re, double im) {
     return i;
 }
 
+Instruction make_array_u2(uint16_t axis, uint32_t cp_idx) {
+    Instruction i{};
+    i.opcode = Opcode::OP_ARRAY_U2;
+    i.axis_1 = axis;
+    i.u2.cp_idx = cp_idx;
+    return i;
+}
+
 Instruction make_swap_meas_interfere(uint16_t swap_from, uint16_t swap_to, uint32_t classical_idx,
                                      bool sign) {
     Instruction i{};

@@ -34,6 +34,7 @@ add_library(ucc_core STATIC
     ${CMAKE_CURRENT_SOURCE_DIR}/../ucc/optimizer/hir_pass_manager.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/../ucc/optimizer/peephole.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/../ucc/optimizer/swap_meas_pass.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/../ucc/optimizer/single_axis_fusion_pass.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/../ucc/backend/backend.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/../ucc/svm/svm.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/../ucc/util/introspection.cc

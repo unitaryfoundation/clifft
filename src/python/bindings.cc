@@ -10,6 +10,7 @@
 #include "ucc/optimizer/noise_block_pass.h"
 #include "ucc/optimizer/peephole.h"
 #include "ucc/optimizer/remove_noise_pass.h"
+#include "ucc/optimizer/single_axis_fusion_pass.h"
 #include "ucc/optimizer/swap_meas_pass.h"
 #include "ucc/svm/svm.h"
 #include "ucc/util/config.h"
@@ -484,6 +485,11 @@ NB_MODULE(_ucc_core, m) {
         m, "MultiGatePass", "Fuses sequences of same-type 2-qubit gates into multi-target ops.")
         .def(nb::init<>());
 
+    nb::class_<ucc::SingleAxisFusionPass, ucc::BytecodePass>(
+        m, "SingleAxisFusionPass",
+        "Fuses consecutive single-axis ops into OP_ARRAY_U2 with precomputed 2x2 matrices.")
+        .def(nb::init<>());
+
     nb::class_<ucc::BytecodePassManager>(m, "BytecodePassManager",
                                          "Runs a sequence of bytecode optimization passes "
                                          "over a Program.")
@@ -513,11 +519,13 @@ NB_MODULE(_ucc_core, m) {
             bpm.add_pass(std::make_unique<ucc::ExpandTPass>());
             bpm.add_pass(std::make_unique<ucc::ExpandRotPass>());
             bpm.add_pass(std::make_unique<ucc::SwapMeasPass>());
+            bpm.add_pass(std::make_unique<ucc::SingleAxisFusionPass>());
             return bpm;
         },
         nb::rv_policy::move,
         "Return a BytecodePassManager pre-loaded with the default passes:\n"
-        "NoiseBlockPass, MultiGatePass, ExpandTPass, ExpandRotPass, SwapMeasPass.");
+        "NoiseBlockPass, MultiGatePass, ExpandTPass, ExpandRotPass, SwapMeasPass,\n"
+        "SingleAxisFusionPass.");
 
     nb::enum_<ucc::Opcode>(m, "Opcode", "RISC Virtual Machine opcodes")
         .value("OP_FRAME_CNOT", ucc::Opcode::OP_FRAME_CNOT)
@@ -541,6 +549,7 @@ NB_MODULE(_ucc_core, m) {
         .value("OP_EXPAND_T_DAG", ucc::Opcode::OP_EXPAND_T_DAG)
         .value("OP_PHASE_ROT", ucc::Opcode::OP_PHASE_ROT)
         .value("OP_EXPAND_ROT", ucc::Opcode::OP_EXPAND_ROT)
+        .value("OP_ARRAY_U2", ucc::Opcode::OP_ARRAY_U2)
         .value("OP_MEAS_DORMANT_STATIC", ucc::Opcode::OP_MEAS_DORMANT_STATIC)
         .value("OP_MEAS_DORMANT_RANDOM", ucc::Opcode::OP_MEAS_DORMANT_RANDOM)
         .value("OP_MEAS_ACTIVE_DIAGONAL", ucc::Opcode::OP_MEAS_ACTIVE_DIAGONAL)
@@ -596,6 +605,8 @@ NB_MODULE(_ucc_core, m) {
                            i.opcode == ucc::Opcode::OP_EXPAND_ROT) {
                     d["weight_re"] = i.math.weight_re;
                     d["weight_im"] = i.math.weight_im;
+                } else if (i.opcode == ucc::Opcode::OP_ARRAY_U2) {
+                    d["cp_idx"] = i.u2.cp_idx;
                 }
                 return d;
             },

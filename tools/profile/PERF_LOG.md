@@ -231,3 +231,59 @@ hazard-free without any temporary buffer.
 4. **Per-shot `reset()` reseeds Xoshiro** — 4-word SplitMix expansion
    is cheap but still called 100k times. Counter-based seeding would
    be even cheaper.
+
+---
+
+## QV-20 Profile: Post-Fusion (SingleAxisFusionPass)
+
+**Config:** `RelWithDebInfo` (-O2 -g -march=native), 3 shots, perf record -F 9999
+**Circuit:** QV-20 (20 qubits, peak_rank=20, 16MB statevector, 2^19 pairs/sweep)
+**Bytecode:** 8987 -> 3089 instructions after fusion
+**Per-shot:** ~4,784 ms (RelWithDebInfo); ~3,402 ms (Release)
+
+### Top-Level
+
+99.73% of cycles in `ucc::execute()`. Compilation is negligible.
+
+### Hotspot Breakdown by Logical Operation
+
+| % of Runtime | Operation | Source | Notes |
+|---|---|---|---|
+| **~73.5%** | **exec_array_u2** inner loop | svm.cc:814-822 | 2x2 matrix butterfly sweep |
+| **~7.0%** | **exec_array_cz** inner loop | svm.cc:429-431 | v[idx] = -v[idx] negate |
+| **~5.3%** | **exec_array_cnot** inner loop | svm.cc:408-410 | std::swap butterfly |
+| **~1.8%** | **exec_phase_rot** inner loop | svm.cc:744-745 | arr[i] *= z diagonal |
+| **~1.8%** | **scatter_bits** (PDEP) | bmi2intrin.h:71 | Index computation |
+| **~7.2%** | Dispatch + misc | svm.cc | Goto, frame ops, measurement |
+
+### exec_array_u2 Assembly Analysis
+
+The compiler emits scalar `vmulsd`/`vfmadd231sd` — one `double` at a time.
+It does NOT auto-vectorize to 256-bit AVX despite `-ffast-math`. Each
+complex multiply = 4 scalar muls + 2 adds. The loop body per iteration:
+
+| % | What | Instructions |
+|---|---|---|
+| 29.3% | complex multiply (4x) | vmulsd + vfnmadd/vfmadd |
+| 13.3% | Load arr[idx1] | 2x vmovsd from memory |
+| 11.2% | complex add (2x) | vaddsd |
+| 6.0% | complex __rep() | Register shuffles |
+| 6.0% | Store arr[idx1] | 2x vmovsd to memory |
+| 4.1% | Loop counter + PDEP | inc + pdep for scatter index |
+| 3.5% | Load arr[idx0] | 2x vmovsd from memory |
+| 2.9% | Store arr[idx0] | 2x vmovsd to memory |
+
+### Optimization Opportunities
+
+1. **AVX2 SIMD for U2** (~73.5% of runtime) — hand-written `__m256d`
+   intrinsics could process real+imag in parallel or batch 2 pairs.
+   Expected ~1.5-2x on inner loop, ~1.3-1.5x system.
+
+2. **Branchless CNOT/CZ** (12.3%) — already memory-bandwidth bound but
+   AVX prefetching or batched patterns might help.
+
+3. **Axis-locality reordering** — scatter_bits PDEP creates non-sequential
+   access. High axis bits = full-array strides. Reordering virtual axes
+   so frequently-touched axes get low bit positions improves locality.
+
+4. **Measurement loops** (<2%) — negligible for QV circuits.
