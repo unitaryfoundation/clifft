@@ -16,6 +16,7 @@ add_library(ucc_core STATIC
     backend/backend.cc
     backend/reference_syndrome.cc
     svm/svm.cc
+    svm/svm_state.cc
     util/introspection.cc
 )
 
