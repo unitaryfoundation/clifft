@@ -1,10 +1,12 @@
 // svm_kernels.inl -- VM execution kernels (textually included)
 //
 // This file contains all exec_* opcode handlers and the execute_internal()
-// dispatch loop. It is designed to be #include'd into a single translation
-// unit that provides the necessary headers and namespace context.
+// dispatch loop. It is #include'd into per-ISA translation units
+// (svm_scalar.cc, svm_avx2.cc) that define UCC_SIMD_NAMESPACE before
+// including this file.
 //
-// Required includes before this file:
+// Required before this file:
+//   #define UCC_SIMD_NAMESPACE scalar  (or avx2, etc.)
 //   #include "ucc/svm/svm.h"
 //   #include "ucc/svm/svm_internal.h"
 //   #include "ucc/svm/svm_math.h"
@@ -18,6 +20,7 @@
 #include <utility>
 
 namespace ucc {
+namespace UCC_SIMD_NAMESPACE {
 
 namespace {
 
@@ -1356,4 +1359,5 @@ L_OP_OBSERVABLE:
 #endif
 }
 
+}  // namespace UCC_SIMD_NAMESPACE
 }  // namespace ucc

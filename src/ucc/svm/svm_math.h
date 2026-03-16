@@ -15,6 +15,7 @@ namespace ucc {
 
 // =============================================================================
 // Bit helpers for PauliBitMask (BitMask<kMaxInlineQubits>)
+// These are pure bit-manipulation and have no ISA dependency.
 // =============================================================================
 
 inline bool bit_get(const PauliBitMask& m, uint16_t idx) {
@@ -51,14 +52,18 @@ inline void bit_swap(PauliBitMask& m1, uint16_t i1, PauliBitMask& m2, uint16_t i
 // For 1-axis ops: pdep_mask = ~(1ULL << axis), deposits i into all bits
 // except the axis bit. For 2-axis ops: pdep_mask = ~(c_bit | t_bit).
 //
-// The scalar fallback (insert_zero_bit) is kept for non-x86 platforms and
-// for measurement code that still needs it.
+// These functions change implementation based on __BMI2__ compiler flags,
+// so they live inside UCC_SIMD_NAMESPACE to avoid ODR violations when
+// compiled into separate scalar and AVX2 translation units.
 
 #if defined(__BMI2__) && (defined(__x86_64__) || defined(_M_X64))
 #define UCC_HAS_PDEP 1
 #else
 #define UCC_HAS_PDEP 0
 #endif
+
+#ifdef UCC_SIMD_NAMESPACE
+namespace UCC_SIMD_NAMESPACE {
 
 inline uint64_t insert_zero_bit(uint64_t val, uint16_t pos) {
     uint64_t mask = (1ULL << pos) - 1;
@@ -85,5 +90,8 @@ inline uint64_t scatter_bits_2(uint64_t val, [[maybe_unused]] uint64_t pdep_mask
     return insert_zero_bit(val, max_bit);
 #endif
 }
+
+}  // namespace UCC_SIMD_NAMESPACE
+#endif
 
 }  // namespace ucc

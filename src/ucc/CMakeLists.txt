@@ -16,9 +16,19 @@ add_library(ucc_core STATIC
     backend/backend.cc
     backend/reference_syndrome.cc
     svm/svm.cc
+    svm/svm_scalar.cc
     svm/svm_state.cc
     util/introspection.cc
 )
+
+# x86-64 runtime dispatch: compile AVX2 TU with SIMD flags, enable dispatcher.
+if((CMAKE_SYSTEM_PROCESSOR MATCHES "(x86_64|AMD64|amd64)") AND NOT MSVC)
+    target_sources(ucc_core PRIVATE svm/svm_avx2.cc)
+    set_source_files_properties(svm/svm_avx2.cc
+        PROPERTIES COMPILE_OPTIONS "-mavx2;-mbmi2;-mfma"
+    )
+    target_compile_definitions(ucc_core PRIVATE UCC_ENABLE_RUNTIME_DISPATCH)
+endif()
 
 # Enable position-independent code for use in shared libraries (Python bindings).
 set_target_properties(ucc_core PROPERTIES POSITION_INDEPENDENT_CODE ON)

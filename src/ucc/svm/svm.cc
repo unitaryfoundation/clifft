@@ -6,24 +6,64 @@
 
 #include <algorithm>
 #include <bit>
+#include <cstdlib>
 #include <stdexcept>
 
-#if defined(__AVX2__) || defined(__x86_64__) || defined(_M_X64) || defined(__i386__) || \
-    defined(_M_IX86)
-#include <immintrin.h>
+namespace ucc {
+
+// =============================================================================
+// Forward declarations for per-ISA execute_internal() implementations
+// =============================================================================
+
+namespace scalar {
+void execute_internal(const CompiledModule& program, SchrodingerState& state);
+}  // namespace scalar
+
+#if defined(UCC_ENABLE_RUNTIME_DISPATCH)
+namespace avx2 {
+void execute_internal(const CompiledModule& program, SchrodingerState& state);
+}  // namespace avx2
 #endif
 
-// Textually include all exec_* kernel functions and execute_internal().
-#include "svm_kernels.inl"  // NOLINT(bugprone-suspicious-include)
+// =============================================================================
+// CPUID Runtime Dispatcher
+// =============================================================================
 
-namespace ucc {
+using DispatchFn = void (*)(const CompiledModule&, SchrodingerState&);
+
+#if defined(UCC_ENABLE_RUNTIME_DISPATCH)
+
+static DispatchFn resolve_dispatcher() {
+    // Allow environment override for testing.
+    if (const char* env = std::getenv("UCC_FORCE_ISA")) {
+        if (env[0] == 'a' || env[0] == 'A') {
+            return avx2::execute_internal;
+        }
+        return scalar::execute_internal;
+    }
+
+#if (defined(__GNUC__) || defined(__clang__)) && \
+    (defined(__x86_64__) || defined(__i386__) || defined(_M_X64))
+    if (__builtin_cpu_supports("avx2") && __builtin_cpu_supports("bmi2")) {
+        return avx2::execute_internal;
+    }
+#endif
+    return scalar::execute_internal;
+}
+
+#endif  // UCC_ENABLE_RUNTIME_DISPATCH
 
 // =============================================================================
 // Public execute() wrapper
 // =============================================================================
 
 void execute(const CompiledModule& program, SchrodingerState& state) {
-    execute_internal(program, state);
+#if defined(UCC_ENABLE_RUNTIME_DISPATCH)
+    static DispatchFn fn = resolve_dispatcher();
+    fn(program, state);
+#else
+    scalar::execute_internal(program, state);
+#endif
 }
 
 // =============================================================================
