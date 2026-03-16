@@ -185,13 +185,14 @@ jobs:
       - name: Build C++
         run: cmake --build build --config ${{ env.CMAKE_BUILD_TYPE }} --parallel
 
-      - name: Run C++ tests
+      - name: Run C++ tests (skip benchmarks on cross-platform)
         run: |
           ctest --test-dir build \
             --build-config ${{ env.CMAKE_BUILD_TYPE }} \
             --output-on-failure \
             --parallel \
-            --timeout 300
+            --timeout 300 \
+            -E "Bench"
         shell: bash
 
       - name: Install Python package
