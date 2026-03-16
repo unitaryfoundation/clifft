@@ -1,6 +1,6 @@
 # UCC SVM Architecture Refactor & SIMD Runtime Dispatch Plan
 
-## Status: In Progress (Steps 1-2 complete)
+## Status: In Progress (Steps 1-3 complete)
 
 The UCC Virtual Machine currently suffers from a monolithic `svm.cc` file (~1900 lines) that interleaves OS-level memory allocation, PRNG state, bit-weaving mathematics, and the execution dispatch loop. Furthermore, profiling reveals two distinct bottlenecks depending on circuit scale:
 1. **QV-20 (Rank 20):** Bound by memory contiguity and 3-cycle `pdep` latencies that defeat auto-vectorization on simple 2-qubit gates.

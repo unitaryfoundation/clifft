@@ -178,15 +178,31 @@ static inline void exec_array_multi_cnot(SchrodingerState& state, uint16_t targe
     uint64_t t_bit = 1ULL << target;
     uint64_t half = 1ULL << (state.active_k - 1);
     uint64_t pdep_mask = ~t_bit;
-    uint64_t cm = ctrl_mask;
     auto* __restrict v = state.v();
 
+#if UCC_HAS_PDEP
+    // ILP trick: map ctrl_mask from address-space into loop-counter-space
+    // so popcount runs on idx (immediately available) in parallel with pdep.
+    uint64_t mapped_cm = _pext_u64(ctrl_mask, pdep_mask);
     for (uint64_t idx = 0; idx < half; ++idx) {
         uint64_t actual = scatter_bits_1(idx, pdep_mask, target);
-        if (std::popcount(actual & cm) & 1) {
-            std::swap(v[actual], v[actual | t_bit]);
-        }
+        bool parity = (std::popcount(idx & mapped_cm) & 1) != 0;
+        auto a0 = v[actual];
+        auto a1 = v[actual | t_bit];
+        v[actual] = parity ? a1 : a0;
+        v[actual | t_bit] = parity ? a0 : a1;
     }
+#else
+    uint64_t cm = ctrl_mask;
+    for (uint64_t idx = 0; idx < half; ++idx) {
+        uint64_t actual = scatter_bits_1(idx, pdep_mask, target);
+        bool parity = (std::popcount(actual & cm) & 1) != 0;
+        auto a0 = v[actual];
+        auto a1 = v[actual | t_bit];
+        v[actual] = parity ? a1 : a0;
+        v[actual | t_bit] = parity ? a0 : a1;
+    }
+#endif
 
     // Frame updates: each individual CNOT(c, t) spreads X_c -> X_t, Z_t -> Z_c.
     // These all commute since they share the target.
@@ -201,20 +217,35 @@ static inline void exec_array_multi_cnot(SchrodingerState& state, uint16_t targe
 // Equivalent to CZ(c,t1), CZ(c,t2), ..., CZ(c,tW) but in one pass.
 // The combined diagonal negates v[idx] when the control bit is set AND
 // the parity of target bits is odd.
+//
+// Loop iterates over half the array (control bit always set), using
+// scatter_bits_1 to skip the control-bit-unset indices entirely.
 static inline void exec_array_multi_cz(SchrodingerState& state, uint16_t control,
                                        uint64_t target_mask) {
     assert(control < state.active_k && control < 64);
 
     uint64_t c_bit = 1ULL << control;
-    uint64_t size = 1ULL << state.active_k;
-    uint64_t tm = target_mask;
+    uint64_t half = 1ULL << (state.active_k - 1);
+    uint64_t pdep_mask = ~c_bit;
     auto* __restrict v = state.v();
 
-    for (uint64_t idx = 0; idx < size; ++idx) {
-        if ((idx & c_bit) && (std::popcount(idx & tm) & 1)) {
-            v[idx] = -v[idx];
-        }
+#if UCC_HAS_PDEP
+    // ILP trick: map target_mask into loop-counter-space so popcount
+    // runs on idx (immediately available) in parallel with pdep.
+    uint64_t mapped_tm = _pext_u64(target_mask, pdep_mask);
+    for (uint64_t idx = 0; idx < half; ++idx) {
+        uint64_t actual = scatter_bits_1(idx, pdep_mask, control) | c_bit;
+        bool negate = (std::popcount(idx & mapped_tm) & 1) != 0;
+        v[actual] = negate ? -v[actual] : v[actual];
     }
+#else
+    uint64_t tm = target_mask;
+    for (uint64_t idx = 0; idx < half; ++idx) {
+        uint64_t actual = scatter_bits_1(idx, pdep_mask, control) | c_bit;
+        bool negate = (std::popcount(actual & tm) & 1) != 0;
+        v[actual] = negate ? -v[actual] : v[actual];
+    }
+#endif
 
     // Frame updates: each CZ(c, t) spreads X_c -> Z_t, X_t -> Z_c.
     for (uint16_t t = 0; t < state.active_k; ++t) {
@@ -536,9 +567,8 @@ static inline void exec_array_u2(SchrodingerState& state, const ConstantPool& po
             uint64_t idx0 = i << 1;
             double* base = arr_dbl + (idx0 << 1);
 
-            __m256d v_both = _mm256_load_pd(base);
-            __m256d v_old0 = _mm256_permute2f128_pd(v_both, v_both, 0x00);
-            __m256d v_old1 = _mm256_permute2f128_pd(v_both, v_both, 0x11);
+            __m256d v_old0 = _mm256_broadcast_pd(reinterpret_cast<const __m128d*>(base));
+            __m256d v_old1 = _mm256_broadcast_pd(reinterpret_cast<const __m128d*>(base + 2));
 
             __m256d term0 = cmul_m256d(v_old0, m_col0_re, m_col0_im);
             __m256d term1 = cmul_m256d(v_old1, m_col1_re, m_col1_im);
