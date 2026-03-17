@@ -111,6 +111,39 @@ static inline void exec_array_cnot(SchrodingerState& state, uint16_t c, uint16_t
     assert(c < state.active_k && c < 64 && "ARRAY_CNOT: control axis out of range");
     assert(t < state.active_k && t < 64 && "ARRAY_CNOT: target axis out of range");
 
+#if defined(__AVX2__)
+    uint16_t lo = std::min(c, t);
+    uint16_t hi = std::max(c, t);
+    if (lo >= 1 && state.active_k >= kMinRankFor3DLoop) {
+        uint64_t step_lo = 1ULL << lo;
+        uint64_t step_hi = 1ULL << hi;
+        auto* v = state.v();
+
+        // CNOT swaps the |ctrl=1, tgt=0> and |ctrl=1, tgt=1> quadrants.
+        // Hoist the quadrant selection outside all loops.
+        uint64_t step_a = (c == hi) ? step_hi : step_lo;
+
+        for (uint64_t i = 0; i < (1ULL << state.active_k); i += 2 * step_hi) {
+            for (uint64_t j = 0; j < step_hi; j += 2 * step_lo) {
+                uint64_t base = i + j;
+                double* qa = reinterpret_cast<double*>(v + base + step_a);
+                double* qb = reinterpret_cast<double*>(v + base + step_hi + step_lo);
+
+                for (uint64_t k = 0; k < step_lo; k += 2) {
+                    uint64_t off = k * 2;
+                    __m256d va = _mm256_load_pd(qa + off);
+                    __m256d vb = _mm256_load_pd(qb + off);
+                    _mm256_store_pd(qa + off, vb);
+                    _mm256_store_pd(qb + off, va);
+                }
+            }
+        }
+
+        exec_frame_cnot(state, c, t);
+        return;
+    }
+#endif
+
     uint64_t iters = 1ULL << (state.active_k - 2);
     uint64_t c_bit = 1ULL << c;
     uint64_t t_bit = 1ULL << t;
@@ -126,12 +159,37 @@ static inline void exec_array_cnot(SchrodingerState& state, uint16_t c, uint16_t
 }
 
 // CZ on active axes (c, t): applies diag(1,1,1,-1) in the computational basis.
-// Uses branchless bit-weaving to iterate only over the 2^{k-2} indices
-// where both bit c and bit t are set.
 static inline void exec_array_cz(SchrodingerState& state, uint16_t c, uint16_t t) {
     assert(c != t && "Control and Target axes must be distinct");
     assert(c < state.active_k && c < 64 && "ARRAY_CZ: control axis out of range");
     assert(t < state.active_k && t < 64 && "ARRAY_CZ: target axis out of range");
+
+#if defined(__AVX2__)
+    uint16_t lo = std::min(c, t);
+    uint16_t hi = std::max(c, t);
+    if (lo >= 1 && state.active_k >= kMinRankFor3DLoop) {
+        uint64_t step_lo = 1ULL << lo;
+        uint64_t step_hi = 1ULL << hi;
+        auto* v = state.v();
+        __m256d sign_mask = _mm256_set1_pd(-0.0);
+
+        for (uint64_t i = 0; i < (1ULL << state.active_k); i += 2 * step_hi) {
+            for (uint64_t j = 0; j < step_hi; j += 2 * step_lo) {
+                uint64_t base = i + j;
+                double* q11 = reinterpret_cast<double*>(v + base + step_hi + step_lo);
+
+                for (uint64_t k = 0; k < step_lo; k += 2) {
+                    uint64_t off = k * 2;
+                    __m256d val = _mm256_load_pd(q11 + off);
+                    _mm256_store_pd(q11 + off, _mm256_xor_pd(val, sign_mask));
+                }
+            }
+        }
+
+        exec_frame_cz(state, c, t);
+        return;
+    }
+#endif
 
     uint64_t iters = 1ULL << (state.active_k - 2);
     uint64_t both_bits = (1ULL << c) | (1ULL << t);
@@ -146,12 +204,41 @@ static inline void exec_array_cz(SchrodingerState& state, uint16_t c, uint16_t t
     exec_frame_cz(state, c, t);
 }
 
-// SWAP on active axes (a, b): permutes the amplitude array using branchless
-// bit-weaving to iterate only over the 2^{k-2} pairs that need swapping.
+// SWAP on active axes (a, b): permutes the amplitude array by swapping the
+// |01> and |10> quadrants.
 static inline void exec_array_swap(SchrodingerState& state, uint16_t a, uint16_t b) {
     assert(a != b && "ARRAY_SWAP: axes a and b must be distinct");
     assert(a < state.active_k && a < 64 && "ARRAY_SWAP: axis a out of range");
     assert(b < state.active_k && b < 64 && "ARRAY_SWAP: axis b out of range");
+
+#if defined(__AVX2__)
+    uint16_t lo = std::min(a, b);
+    uint16_t hi = std::max(a, b);
+    if (lo >= 1 && state.active_k >= kMinRankFor3DLoop) {
+        uint64_t step_lo = 1ULL << lo;
+        uint64_t step_hi = 1ULL << hi;
+        auto* v = state.v();
+
+        for (uint64_t i = 0; i < (1ULL << state.active_k); i += 2 * step_hi) {
+            for (uint64_t j = 0; j < step_hi; j += 2 * step_lo) {
+                uint64_t base = i + j;
+                double* q01 = reinterpret_cast<double*>(v + base + step_lo);
+                double* q10 = reinterpret_cast<double*>(v + base + step_hi);
+
+                for (uint64_t k = 0; k < step_lo; k += 2) {
+                    uint64_t off = k * 2;
+                    __m256d va = _mm256_load_pd(q01 + off);
+                    __m256d vb = _mm256_load_pd(q10 + off);
+                    _mm256_store_pd(q01 + off, vb);
+                    _mm256_store_pd(q10 + off, va);
+                }
+            }
+        }
+
+        exec_frame_swap(state, a, b);
+        return;
+    }
+#endif
 
     uint64_t iters = 1ULL << (state.active_k - 2);
     uint64_t a_bit = 1ULL << a;

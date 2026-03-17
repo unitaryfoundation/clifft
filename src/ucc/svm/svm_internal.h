@@ -41,6 +41,12 @@ inline void aligned_free_portable(void* ptr) {
 // producing probabilities ~1e-16).
 inline constexpr double kDustEpsilon = 1e-18;
 
+// Minimum active_k for the AVX2 3D waterfall loops in 2-qubit gates.
+// Below this rank the array fits in L1 cache and the flat pdep loop
+// has less setup overhead; above it the structured stride pattern
+// lets the hardware prefetcher hide main-memory latency.
+inline constexpr uint16_t kMinRankFor3DLoop = 9;
+
 // Sample a binary measurement outcome from two branch probabilities,
 // clamping IEEE-754 dust to avoid spurious PRNG rolls. Returns 0 if
 // prob0 wins, 1 if prob1 wins. Deterministic when one branch is dust.
