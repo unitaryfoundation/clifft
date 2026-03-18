@@ -55,6 +55,11 @@ NB_MODULE(_ucc_core, m) {
         "max_sim_qubits", []() { return ucc::kMaxInlineQubits; },
         "Return the maximum number of qubits supported by the simulator");
 
+    m.def(
+        "svm_backend", []() { return ucc::svm_backend(); },
+        "Return the active SVM dispatch backend: 'avx512', 'avx2', or 'scalar'.\n\n"
+        "Reflects the resolved CPUID path or UCC_FORCE_ISA environment override.");
+
     // Sentinel-based enum counts for defensive binding tests.
     // If a new enum value is added in C++ but not bound in Python,
     // the test_introspection.py tripwire will catch it.

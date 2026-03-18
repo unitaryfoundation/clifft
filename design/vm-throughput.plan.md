@@ -1,6 +1,6 @@
 # UCC SVM Architecture Refactor & SIMD Runtime Dispatch Plan
 
-## Status: In Progress (Steps 1-4 complete)
+## Status: In Progress (Steps 1-5 complete, Step 6 planned)
 
 The UCC Virtual Machine currently suffers from a monolithic `svm.cc` file (~1900 lines) that interleaves OS-level memory allocation, PRNG state, bit-weaving mathematics, and the execution dispatch loop. Furthermore, profiling reveals two distinct bottlenecks depending on circuit scale:
 1. **QV-20 (Rank 20):** Bound by memory contiguity and 3-cycle `pdep` latencies that defeat auto-vectorization on simple 2-qubit gates.
@@ -125,3 +125,38 @@ Add AVX-512 support for high-end Linux compute nodes to double ALU throughput an
 - **Difficulty:** High
 - **Impact:** Further throughput improvements on supported hardware.
 - **Validation:** Test natively on dev machine with `UCC_FORCE_ISA=avx512`. Benchmark all three circuits. Report final speedups vs. original baseline.
+
+---
+
+## Step 6: Single-Axis Vectorization
+
+Vectorize single-axis phase gates and EXPAND fused gates using 2D waterfall loops (phase/H/S) and flat 1D loops (EXPAND). Profiling data from Step 5 confirms these are the dominant remaining hotspots:
+
+- **QV-20**: `exec_phase_rot` accounts for ~14% of total runtime. 81% of its invocations (482/592) have `axis >= 2` at `active_k = 20`, making them directly eligible for AVX-512 vectorization. Each such invocation performs 524K scalar `complex *= phase` operations.
+- **Cultivation d=5**: `exec_phase_t` + `exec_phase_t_dag` total ~23% of runtime. Only 15% of invocations have `axis >= 2` (most land on axis 0), but the EXPAND_T/EXPAND_T_DAG fused gates (24 total, always targeting `active_k`) have perfectly contiguous memory.
+
+**Rejected optimization**: Lowering the `kMinRankFor3DLoop` threshold for multi-gates. Bytecode analysis shows 86% of `OP_ARRAY_MULTI_CNOT` invocations in Cultivation land on axis 0 or 1, making the `axis >= 2` contiguity guard — not the rank threshold — the binding constraint. Zero additional invocations would be captured.
+
+- **Tasks:**
+  1. **2D Waterfall for Phase Gates (`exec_phase_rot`, `exec_phase_t`, `exec_phase_t_dag`):**
+     - These gates multiply `arr[idx | v_bit]` by a complex phase for all indices where bit `v` is set. When `v >= 2`, the set-bit indices form contiguous chunks of size `step = 1 << v`.
+     - Implement a 2D loop: outer stride `2 * step`, inner contiguous chunk processing `step` complex doubles.
+     - AVX-512 path (`v >= 2 && active_k >= kMinRankFor3DLoop`): inner loop steps by 4 using `cmul_m512d`.
+     - AVX2 path (`v >= 1 && active_k >= kMinRankFor3DLoop`): inner loop steps by 2 using `cmul_m256d`.
+     - Broadcast `phase_re` and `phase_im` into `__m512d`/`__m256d` registers outside all loops.
+  2. **2D Waterfall for Hadamard (`exec_array_h`):**
+     - Butterfly transform: load from both quadrants `q0` and `q1`, compute `(q0 + q1) * inv_sqrt2` and `(q0 - q1) * inv_sqrt2` using `_mm512_add_pd` / `_mm512_sub_pd` + `_mm512_mul_pd`.
+     - Same guards as phase gates: `v >= 2` for AVX-512, `v >= 1` for AVX2, `active_k >= kMinRankFor3DLoop`.
+  3. **2D Waterfall for S/S_dag (`exec_array_s`, `exec_array_s_dag`):**
+     - S gate multiplies by `i` (swap re/im, negate new re). S_dag multiplies by `-i`.
+     - Same 2D structure as phase gates but with the fixed `i` / `-i` phase.
+     - Same guards as above.
+  4. **Flat 1D Loop for EXPAND Gates (`exec_expand`, `exec_expand_t`, `exec_expand_t_dag`, `exec_expand_rot`):**
+     - Because `v == active_k`, memory is perfectly contiguous. No outer loop needed.
+     - Read from lower half `arr[0..half)`, write to upper half `arr[half..2*half)` with optional phase multiplication.
+     - Aggressive thresholds: `active_k >= 2` for AVX-512 (half = 4 complex doubles = one `__m512d`), `active_k >= 1` for AVX2 (half = 2 complex doubles = one `__m256d`).
+     - `exec_expand` (pure copy + scale by `1/sqrt(2)`) can fuse the copy and scale into one pass using `_mm512_mul_pd` with a broadcast `inv_sqrt2`.
+- **Files:** `src/ucc/svm/svm_kernels.inl`
+- **Difficulty:** Medium
+- **Impact:** QV-20 should see ~10-14% improvement from phase rotation vectorization. Cultivation should see modest gains from EXPAND vectorization.
+- **Validation:** All tests pass on avx512/avx2/scalar. Benchmark all three circuits. Report speedups vs. Step 5 baseline.

@@ -23,6 +23,9 @@ void execute_internal(const CompiledModule& program, SchrodingerState& state);
 namespace avx2 {
 void execute_internal(const CompiledModule& program, SchrodingerState& state);
 }  // namespace avx2
+namespace avx512 {
+void execute_internal(const CompiledModule& program, SchrodingerState& state);
+}  // namespace avx512
 #endif
 
 // =============================================================================
@@ -36,6 +39,10 @@ using DispatchFn = void (*)(const CompiledModule&, SchrodingerState&);
 static DispatchFn resolve_dispatcher() {
     // Allow environment override for testing.
     if (const char* env = std::getenv("UCC_FORCE_ISA")) {
+        if (env[0] == '5' || (env[0] == 'a' && env[3] == '5')) {
+            // "avx512" or "512"
+            return avx512::execute_internal;
+        }
         if (env[0] == 'a' || env[0] == 'A') {
             return avx2::execute_internal;
         }
@@ -44,6 +51,9 @@ static DispatchFn resolve_dispatcher() {
 
 #if (defined(__GNUC__) || defined(__clang__)) && \
     (defined(__x86_64__) || defined(__i386__) || defined(_M_X64))
+    if (__builtin_cpu_supports("avx512f") && __builtin_cpu_supports("avx512dq")) {
+        return avx512::execute_internal;
+    }
     if (__builtin_cpu_supports("avx2") && __builtin_cpu_supports("bmi2")) {
         return avx2::execute_internal;
     }
@@ -57,13 +67,27 @@ static DispatchFn resolve_dispatcher() {
 // Public execute() wrapper
 // =============================================================================
 
+// Resolved once on first use; shared by execute() and svm_backend().
+#if defined(UCC_ENABLE_RUNTIME_DISPATCH)
+static DispatchFn resolved_fn = resolve_dispatcher();
+#endif
+
 void execute(const CompiledModule& program, SchrodingerState& state) {
 #if defined(UCC_ENABLE_RUNTIME_DISPATCH)
-    static DispatchFn fn = resolve_dispatcher();
-    fn(program, state);
+    resolved_fn(program, state);
 #else
     scalar::execute_internal(program, state);
 #endif
+}
+
+const char* svm_backend() {
+#if defined(UCC_ENABLE_RUNTIME_DISPATCH)
+    if (resolved_fn == avx512::execute_internal)
+        return "avx512";
+    if (resolved_fn == avx2::execute_internal)
+        return "avx2";
+#endif
+    return "scalar";
 }
 
 // =============================================================================

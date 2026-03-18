@@ -42,6 +42,19 @@ static inline __m256d cmul_m256d(__m256d V, __m256d S_re, __m256d S_im) {
 }
 #endif
 
+#if defined(__AVX512F__) && defined(__AVX512DQ__)
+// 512-bit complex multiplication: multiplies 4 packed complex numbers (V) by
+// 4 complex scalars whose real and imaginary parts are pre-broadcast:
+//   V      = [Re0, Im0, Re1, Im1, Re2, Im2, Re3, Im3]
+//   S_re   = [c0_re, c0_re, c1_re, c1_re, c2_re, c2_re, c3_re, c3_re]
+//   S_im   = [c0_im, c0_im, c1_im, c1_im, c2_im, c2_im, c3_im, c3_im]
+// Returns  [c0*z0, c1*z1, c2*z2, c3*z3] via fmaddsub.
+static inline __m512d cmul_m512d(__m512d V, __m512d S_re, __m512d S_im) {
+    __m512d V_swap = _mm512_permute_pd(V, 0x55);
+    return _mm512_fmaddsub_pd(V, S_re, _mm512_mul_pd(V_swap, S_im));
+}
+#endif
+
 // =============================================================================
 // Frame Opcode Handlers (Zero-cost: update P only, no array touch)
 // =============================================================================
@@ -111,36 +124,67 @@ static inline void exec_array_cnot(SchrodingerState& state, uint16_t c, uint16_t
     assert(c < state.active_k && c < 64 && "ARRAY_CNOT: control axis out of range");
     assert(t < state.active_k && t < 64 && "ARRAY_CNOT: target axis out of range");
 
-#if defined(__AVX2__)
-    uint16_t lo = std::min(c, t);
-    uint16_t hi = std::max(c, t);
-    if (lo >= 1 && state.active_k >= kMinRankFor3DLoop) {
-        uint64_t step_lo = 1ULL << lo;
-        uint64_t step_hi = 1ULL << hi;
-        auto* v = state.v();
+#if defined(__AVX512F__) && defined(__AVX512DQ__)
+    {
+        uint16_t lo = std::min(c, t);
+        uint16_t hi = std::max(c, t);
+        if (lo >= 2 && state.active_k >= kMinRankFor3DLoop) {
+            uint64_t step_lo = 1ULL << lo;
+            uint64_t step_hi = 1ULL << hi;
+            auto* v = state.v();
+            uint64_t step_a = (c == hi) ? step_hi : step_lo;
 
-        // CNOT swaps the |ctrl=1, tgt=0> and |ctrl=1, tgt=1> quadrants.
-        // Hoist the quadrant selection outside all loops.
-        uint64_t step_a = (c == hi) ? step_hi : step_lo;
+            for (uint64_t i = 0; i < (1ULL << state.active_k); i += 2 * step_hi) {
+                for (uint64_t j = 0; j < step_hi; j += 2 * step_lo) {
+                    uint64_t base = i + j;
+                    double* qa = reinterpret_cast<double*>(v + base + step_a);
+                    double* qb = reinterpret_cast<double*>(v + base + step_hi + step_lo);
 
-        for (uint64_t i = 0; i < (1ULL << state.active_k); i += 2 * step_hi) {
-            for (uint64_t j = 0; j < step_hi; j += 2 * step_lo) {
-                uint64_t base = i + j;
-                double* qa = reinterpret_cast<double*>(v + base + step_a);
-                double* qb = reinterpret_cast<double*>(v + base + step_hi + step_lo);
-
-                for (uint64_t k = 0; k < step_lo; k += 2) {
-                    uint64_t off = k * 2;
-                    __m256d va = _mm256_load_pd(qa + off);
-                    __m256d vb = _mm256_load_pd(qb + off);
-                    _mm256_store_pd(qa + off, vb);
-                    _mm256_store_pd(qb + off, va);
+                    for (uint64_t k = 0; k < step_lo; k += 4) {
+                        uint64_t off = k * 2;
+                        __m512d va = _mm512_load_pd(qa + off);
+                        __m512d vb = _mm512_load_pd(qb + off);
+                        _mm512_store_pd(qa + off, vb);
+                        _mm512_store_pd(qb + off, va);
+                    }
                 }
             }
-        }
 
-        exec_frame_cnot(state, c, t);
-        return;
+            exec_frame_cnot(state, c, t);
+            return;
+        }
+    }
+#endif
+
+#if defined(__AVX2__)
+    {
+        uint16_t lo = std::min(c, t);
+        uint16_t hi = std::max(c, t);
+        if (lo >= 1 && state.active_k >= kMinRankFor3DLoop) {
+            uint64_t step_lo = 1ULL << lo;
+            uint64_t step_hi = 1ULL << hi;
+            auto* v = state.v();
+            uint64_t step_a = (c == hi) ? step_hi : step_lo;
+
+            for (uint64_t i = 0; i < (1ULL << state.active_k); i += 2 * step_hi) {
+                for (uint64_t j = 0; j < step_hi; j += 2 * step_lo) {
+                    uint64_t base = i + j;
+                    double* qa = reinterpret_cast<double*>(v + base + step_a);
+                    double* qb = reinterpret_cast<double*>(v + base + step_hi + step_lo);
+
+                    for (uint64_t k = 0; k < step_lo; k += 2) {
+                        uint64_t off = k * 2;
+                        __m256d va = _mm256_load_pd(qa + off);
+                        __m256d vb = _mm256_load_pd(qb + off);
+                        _mm256_store_pd(qa + off, vb);
+                        _mm256_store_pd(qb + off, va);
+                    }
+                }
+            }
+
+            exec_frame_cnot(state, c, t);
+            return;
+        }
     }
 #endif
 
@@ -164,30 +208,61 @@ static inline void exec_array_cz(SchrodingerState& state, uint16_t c, uint16_t t
     assert(c < state.active_k && c < 64 && "ARRAY_CZ: control axis out of range");
     assert(t < state.active_k && t < 64 && "ARRAY_CZ: target axis out of range");
 
-#if defined(__AVX2__)
-    uint16_t lo = std::min(c, t);
-    uint16_t hi = std::max(c, t);
-    if (lo >= 1 && state.active_k >= kMinRankFor3DLoop) {
-        uint64_t step_lo = 1ULL << lo;
-        uint64_t step_hi = 1ULL << hi;
-        auto* v = state.v();
-        __m256d sign_mask = _mm256_set1_pd(-0.0);
+#if defined(__AVX512F__) && defined(__AVX512DQ__)
+    {
+        uint16_t lo = std::min(c, t);
+        uint16_t hi = std::max(c, t);
+        if (lo >= 2 && state.active_k >= kMinRankFor3DLoop) {
+            uint64_t step_lo = 1ULL << lo;
+            uint64_t step_hi = 1ULL << hi;
+            auto* v = state.v();
+            __m512d sign_mask = _mm512_set1_pd(-0.0);
 
-        for (uint64_t i = 0; i < (1ULL << state.active_k); i += 2 * step_hi) {
-            for (uint64_t j = 0; j < step_hi; j += 2 * step_lo) {
-                uint64_t base = i + j;
-                double* q11 = reinterpret_cast<double*>(v + base + step_hi + step_lo);
+            for (uint64_t i = 0; i < (1ULL << state.active_k); i += 2 * step_hi) {
+                for (uint64_t j = 0; j < step_hi; j += 2 * step_lo) {
+                    uint64_t base = i + j;
+                    double* q11 = reinterpret_cast<double*>(v + base + step_hi + step_lo);
 
-                for (uint64_t k = 0; k < step_lo; k += 2) {
-                    uint64_t off = k * 2;
-                    __m256d val = _mm256_load_pd(q11 + off);
-                    _mm256_store_pd(q11 + off, _mm256_xor_pd(val, sign_mask));
+                    for (uint64_t k = 0; k < step_lo; k += 4) {
+                        uint64_t off = k * 2;
+                        __m512d val = _mm512_load_pd(q11 + off);
+                        _mm512_store_pd(q11 + off, _mm512_xor_pd(val, sign_mask));
+                    }
                 }
             }
-        }
 
-        exec_frame_cz(state, c, t);
-        return;
+            exec_frame_cz(state, c, t);
+            return;
+        }
+    }
+#endif
+
+#if defined(__AVX2__)
+    {
+        uint16_t lo = std::min(c, t);
+        uint16_t hi = std::max(c, t);
+        if (lo >= 1 && state.active_k >= kMinRankFor3DLoop) {
+            uint64_t step_lo = 1ULL << lo;
+            uint64_t step_hi = 1ULL << hi;
+            auto* v = state.v();
+            __m256d sign_mask = _mm256_set1_pd(-0.0);
+
+            for (uint64_t i = 0; i < (1ULL << state.active_k); i += 2 * step_hi) {
+                for (uint64_t j = 0; j < step_hi; j += 2 * step_lo) {
+                    uint64_t base = i + j;
+                    double* q11 = reinterpret_cast<double*>(v + base + step_hi + step_lo);
+
+                    for (uint64_t k = 0; k < step_lo; k += 2) {
+                        uint64_t off = k * 2;
+                        __m256d val = _mm256_load_pd(q11 + off);
+                        _mm256_store_pd(q11 + off, _mm256_xor_pd(val, sign_mask));
+                    }
+                }
+            }
+
+            exec_frame_cz(state, c, t);
+            return;
+        }
     }
 #endif
 
@@ -211,32 +286,65 @@ static inline void exec_array_swap(SchrodingerState& state, uint16_t a, uint16_t
     assert(a < state.active_k && a < 64 && "ARRAY_SWAP: axis a out of range");
     assert(b < state.active_k && b < 64 && "ARRAY_SWAP: axis b out of range");
 
-#if defined(__AVX2__)
-    uint16_t lo = std::min(a, b);
-    uint16_t hi = std::max(a, b);
-    if (lo >= 1 && state.active_k >= kMinRankFor3DLoop) {
-        uint64_t step_lo = 1ULL << lo;
-        uint64_t step_hi = 1ULL << hi;
-        auto* v = state.v();
+#if defined(__AVX512F__) && defined(__AVX512DQ__)
+    {
+        uint16_t lo = std::min(a, b);
+        uint16_t hi = std::max(a, b);
+        if (lo >= 2 && state.active_k >= kMinRankFor3DLoop) {
+            uint64_t step_lo = 1ULL << lo;
+            uint64_t step_hi = 1ULL << hi;
+            auto* v = state.v();
 
-        for (uint64_t i = 0; i < (1ULL << state.active_k); i += 2 * step_hi) {
-            for (uint64_t j = 0; j < step_hi; j += 2 * step_lo) {
-                uint64_t base = i + j;
-                double* q01 = reinterpret_cast<double*>(v + base + step_lo);
-                double* q10 = reinterpret_cast<double*>(v + base + step_hi);
+            for (uint64_t i = 0; i < (1ULL << state.active_k); i += 2 * step_hi) {
+                for (uint64_t j = 0; j < step_hi; j += 2 * step_lo) {
+                    uint64_t base = i + j;
+                    double* q01 = reinterpret_cast<double*>(v + base + step_lo);
+                    double* q10 = reinterpret_cast<double*>(v + base + step_hi);
 
-                for (uint64_t k = 0; k < step_lo; k += 2) {
-                    uint64_t off = k * 2;
-                    __m256d va = _mm256_load_pd(q01 + off);
-                    __m256d vb = _mm256_load_pd(q10 + off);
-                    _mm256_store_pd(q01 + off, vb);
-                    _mm256_store_pd(q10 + off, va);
+                    for (uint64_t k = 0; k < step_lo; k += 4) {
+                        uint64_t off = k * 2;
+                        __m512d va = _mm512_load_pd(q01 + off);
+                        __m512d vb = _mm512_load_pd(q10 + off);
+                        _mm512_store_pd(q01 + off, vb);
+                        _mm512_store_pd(q10 + off, va);
+                    }
                 }
             }
-        }
 
-        exec_frame_swap(state, a, b);
-        return;
+            exec_frame_swap(state, a, b);
+            return;
+        }
+    }
+#endif
+
+#if defined(__AVX2__)
+    {
+        uint16_t lo = std::min(a, b);
+        uint16_t hi = std::max(a, b);
+        if (lo >= 1 && state.active_k >= kMinRankFor3DLoop) {
+            uint64_t step_lo = 1ULL << lo;
+            uint64_t step_hi = 1ULL << hi;
+            auto* v = state.v();
+
+            for (uint64_t i = 0; i < (1ULL << state.active_k); i += 2 * step_hi) {
+                for (uint64_t j = 0; j < step_hi; j += 2 * step_lo) {
+                    uint64_t base = i + j;
+                    double* q01 = reinterpret_cast<double*>(v + base + step_lo);
+                    double* q10 = reinterpret_cast<double*>(v + base + step_hi);
+
+                    for (uint64_t k = 0; k < step_lo; k += 2) {
+                        uint64_t off = k * 2;
+                        __m256d va = _mm256_load_pd(q01 + off);
+                        __m256d vb = _mm256_load_pd(q10 + off);
+                        _mm256_store_pd(q01 + off, vb);
+                        _mm256_store_pd(q10 + off, va);
+                    }
+                }
+            }
+
+            exec_frame_swap(state, a, b);
+            return;
+        }
     }
 #endif
 
@@ -266,6 +374,44 @@ static inline void exec_array_multi_cnot(SchrodingerState& state, uint16_t targe
     uint64_t half = 1ULL << (state.active_k - 1);
     uint64_t pdep_mask = ~t_bit;
     auto* __restrict v = state.v();
+
+#if defined(__AVX512F__) && defined(__AVX512DQ__) && UCC_HAS_PDEP
+    // AVX-512 opmask path: process 4 complex doubles at a time.
+    // Only safe when target >= 2 so consecutive idx values map to
+    // contiguous memory addresses (stride >= 4 complex doubles).
+    if (target >= 2 && state.active_k >= kMinRankFor3DLoop) {
+        uint64_t mapped_cm = _pext_u64(ctrl_mask, pdep_mask);
+        auto* v_dbl = reinterpret_cast<double*>(v);
+
+        for (uint64_t idx = 0; idx < half; idx += 4) {
+            uint64_t a0 = scatter_bits_1(idx, pdep_mask, target);
+
+            bool p0 = (std::popcount((idx + 0) & mapped_cm) & 1) != 0;
+            bool p1 = (std::popcount((idx + 1) & mapped_cm) & 1) != 0;
+            bool p2 = (std::popcount((idx + 2) & mapped_cm) & 1) != 0;
+            bool p3 = (std::popcount((idx + 3) & mapped_cm) & 1) != 0;
+
+            // Each parity bit controls 2 double lanes (re, im of one complex).
+            __mmask8 mask = static_cast<__mmask8>((p0 ? 0x03 : 0) | (p1 ? 0x0C : 0) |
+                                                  (p2 ? 0x30 : 0) | (p3 ? 0xC0 : 0));
+
+            __m512d va = _mm512_load_pd(v_dbl + (a0 << 1));
+            __m512d vb = _mm512_load_pd(v_dbl + ((a0 | t_bit) << 1));
+
+            // Where mask is 0: keep va in slot 0, vb in slot 1 (no swap).
+            // Where mask is 1: put vb in slot 0, va in slot 1 (swap).
+            _mm512_store_pd(v_dbl + (a0 << 1), _mm512_mask_blend_pd(mask, va, vb));
+            _mm512_store_pd(v_dbl + ((a0 | t_bit) << 1), _mm512_mask_blend_pd(mask, vb, va));
+        }
+
+        for (uint16_t c = 0; c < state.active_k; ++c) {
+            if (ctrl_mask & (1ULL << c)) {
+                exec_frame_cnot(state, c, target);
+            }
+        }
+        return;
+    }
+#endif
 
 #if UCC_HAS_PDEP
     // ILP trick: map ctrl_mask from address-space into loop-counter-space
@@ -315,6 +461,41 @@ static inline void exec_array_multi_cz(SchrodingerState& state, uint16_t control
     uint64_t half = 1ULL << (state.active_k - 1);
     uint64_t pdep_mask = ~c_bit;
     auto* __restrict v = state.v();
+
+#if defined(__AVX512F__) && defined(__AVX512DQ__) && UCC_HAS_PDEP
+    // AVX-512 opmask path: process 4 complex doubles at a time.
+    // Only safe when control >= 2 so consecutive idx values map to
+    // contiguous memory addresses (stride >= 4 complex doubles).
+    if (control >= 2 && state.active_k >= kMinRankFor3DLoop) {
+        uint64_t mapped_tm = _pext_u64(target_mask, pdep_mask);
+        auto* v_dbl = reinterpret_cast<double*>(v);
+        __m512d sign_mask = _mm512_set1_pd(-0.0);
+
+        for (uint64_t idx = 0; idx < half; idx += 4) {
+            uint64_t a0 = scatter_bits_1(idx, pdep_mask, control) | c_bit;
+
+            bool p0 = (std::popcount((idx + 0) & mapped_tm) & 1) != 0;
+            bool p1 = (std::popcount((idx + 1) & mapped_tm) & 1) != 0;
+            bool p2 = (std::popcount((idx + 2) & mapped_tm) & 1) != 0;
+            bool p3 = (std::popcount((idx + 3) & mapped_tm) & 1) != 0;
+
+            __mmask8 mask = static_cast<__mmask8>((p0 ? 0x03 : 0) | (p1 ? 0x0C : 0) |
+                                                  (p2 ? 0x30 : 0) | (p3 ? 0xC0 : 0));
+
+            __m512d val = _mm512_load_pd(v_dbl + (a0 << 1));
+            // Negate masked lanes: XOR with sign bit where parity is odd.
+            __m512d neg = _mm512_xor_pd(val, sign_mask);
+            _mm512_store_pd(v_dbl + (a0 << 1), _mm512_mask_blend_pd(mask, val, neg));
+        }
+
+        for (uint16_t t = 0; t < state.active_k; ++t) {
+            if (target_mask & (1ULL << t)) {
+                exec_frame_cz(state, control, t);
+            }
+        }
+        return;
+    }
+#endif
 
 #if UCC_HAS_PDEP
     // ILP trick: map target_mask into loop-counter-space so popcount
@@ -637,6 +818,41 @@ static inline void exec_array_u2(SchrodingerState& state, const ConstantPool& po
     const std::complex<double> m01 = mat[1];
     const std::complex<double> m10 = mat[2];
     const std::complex<double> m11 = mat[3];
+
+#if defined(__AVX512F__) && defined(__AVX512DQ__)
+    // AVX-512 path for axis >= 2: process 4 butterflies per iteration.
+    // When axis >= 2, the gap between A and B branches is >= 4 complex doubles,
+    // so 4 consecutive A values and 4 consecutive B values each fill a __m512d.
+    if (axis >= 2 && state.active_k >= kMinRankFor3DLoop) {
+        auto* __restrict arr_dbl = reinterpret_cast<double*>(arr);
+
+        __m512d m00_re = _mm512_set1_pd(m00.real());
+        __m512d m00_im = _mm512_set1_pd(m00.imag());
+        __m512d m01_re = _mm512_set1_pd(m01.real());
+        __m512d m01_im = _mm512_set1_pd(m01.imag());
+        __m512d m10_re = _mm512_set1_pd(m10.real());
+        __m512d m10_im = _mm512_set1_pd(m10.imag());
+        __m512d m11_re = _mm512_set1_pd(m11.real());
+        __m512d m11_im = _mm512_set1_pd(m11.imag());
+
+        for (uint64_t i = 0; i < iters; i += 4) {
+            uint64_t idx0 = scatter_bits_1(i, pdep_mask, axis);
+            uint64_t idx1 = idx0 | v_bit;
+
+            __m512d v_old0 = _mm512_load_pd(arr_dbl + (idx0 << 1));
+            __m512d v_old1 = _mm512_load_pd(arr_dbl + (idx1 << 1));
+
+            __m512d new0 = _mm512_add_pd(cmul_m512d(v_old0, m00_re, m00_im),
+                                         cmul_m512d(v_old1, m01_re, m01_im));
+            __m512d new1 = _mm512_add_pd(cmul_m512d(v_old0, m10_re, m10_im),
+                                         cmul_m512d(v_old1, m11_re, m11_im));
+
+            _mm512_store_pd(arr_dbl + (idx0 << 1), new0);
+            _mm512_store_pd(arr_dbl + (idx1 << 1), new1);
+        }
+        return;
+    }
+#endif
 
 #if defined(__AVX2__)
     auto* __restrict arr_dbl = reinterpret_cast<double*>(arr);

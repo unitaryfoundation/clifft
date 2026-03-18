@@ -226,6 +226,10 @@ class SchrodingerState {
 /// Execute a compiled program for one shot, populating state with results.
 void execute(const CompiledModule& program, SchrodingerState& state);
 
+/// Return the name of the active SVM dispatch backend ("avx512", "avx2", or "scalar").
+/// Reflects the resolved CPUID path or UCC_FORCE_ISA override.
+const char* svm_backend();
+
 /// Results from sampling a circuit.
 struct SampleResult {
     std::vector<uint8_t> measurements;  // Shape: [shots * num_measurements]

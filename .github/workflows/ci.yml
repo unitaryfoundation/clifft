@@ -120,7 +120,7 @@ jobs:
       - name: Build C++
         run: cmake --build build --config ${{ env.CMAKE_BUILD_TYPE }} --parallel
 
-      - name: Run C++ tests
+      - name: Run C++ tests (default ISA)
         run: |
           ctest --test-dir build \
             --build-config ${{ env.CMAKE_BUILD_TYPE }} \
@@ -129,10 +129,39 @@ jobs:
             --timeout 300
         shell: bash
 
+      - name: Run C++ tests (scalar ISA)
+        env:
+          UCC_FORCE_ISA: scalar
+        run: |
+          ctest --test-dir build \
+            --build-config ${{ env.CMAKE_BUILD_TYPE }} \
+            --output-on-failure \
+            --parallel \
+            --timeout 300 \
+            -E "Bench"
+        shell: bash
+
+      - name: Run C++ tests (avx2 ISA)
+        env:
+          UCC_FORCE_ISA: avx2
+        run: |
+          ctest --test-dir build \
+            --build-config ${{ env.CMAKE_BUILD_TYPE }} \
+            --output-on-failure \
+            --parallel \
+            --timeout 300 \
+            -E "Bench"
+        shell: bash
+
       - name: Install Python package
         run: uv pip install -e ".[dev]"
 
-      - name: Run Python tests
+      - name: Run Python tests (default ISA)
+        run: uv run pytest tests/python/ -v
+
+      - name: Run Python tests (scalar ISA)
+        env:
+          UCC_FORCE_ISA: scalar
         run: uv run pytest tests/python/ -v
 
       - name: Test documentation code examples

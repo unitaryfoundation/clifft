@@ -172,6 +172,20 @@ class TestProgramIntrospection:
         assert len(parsed["bytecode"]) == len(prog)
 
 
+class TestSvmBackend:
+    """Verify svm_backend() returns a valid ISA string."""
+
+    def test_svm_backend_returns_valid_isa(self) -> None:
+        backend = ucc.svm_backend()
+        assert backend in ("avx512", "avx2", "scalar")
+
+    def test_svm_backend_respects_force_env(self) -> None:
+        """UCC_FORCE_ISA is read at first call; just verify the return is stable."""
+        b1 = ucc.svm_backend()
+        b2 = ucc.svm_backend()
+        assert b1 == b2
+
+
 class TestEnumBindings:
     """Verify OpType and Opcode enums are accessible."""
 
