@@ -16,6 +16,7 @@
 #include <bit>
 #include <cassert>
 #include <cmath>
+#include <cstring>
 #include <numbers>
 #include <utility>
 
@@ -527,10 +528,59 @@ static inline void exec_array_multi_cz(SchrodingerState& state, uint16_t control
 // then updates the Pauli frame.
 static inline void exec_array_h(SchrodingerState& state, uint16_t v) {
     assert(v < state.active_k && v < 64 && "ARRAY_H: axis out of range");
-    uint64_t iters = 1ULL << (state.active_k - 1);
     uint64_t v_bit = 1ULL << v;
-    uint64_t pdep_mask = ~v_bit;
     auto* __restrict arr = state.v();
+
+#if defined(__AVX512F__) && defined(__AVX512DQ__)
+    if (v >= 2 && state.active_k >= kMinRankFor3DLoop) {
+        uint64_t step = v_bit;
+        uint64_t total = 1ULL << state.active_k;
+        __m512d inv_sqrt2 = _mm512_set1_pd(kInvSqrt2);
+        double* d = reinterpret_cast<double*>(arr);
+
+        for (uint64_t outer = 0; outer < total; outer += 2 * step) {
+            double* q0 = d + outer * 2;
+            double* q1 = d + (outer + step) * 2;
+            for (uint64_t k = 0; k < step; k += 4) {
+                uint64_t off = k * 2;
+                __m512d a = _mm512_load_pd(q0 + off);
+                __m512d b = _mm512_load_pd(q1 + off);
+                _mm512_store_pd(q0 + off, _mm512_mul_pd(_mm512_add_pd(a, b), inv_sqrt2));
+                _mm512_store_pd(q1 + off, _mm512_mul_pd(_mm512_sub_pd(a, b), inv_sqrt2));
+            }
+        }
+
+        exec_frame_h(state, v);
+        return;
+    }
+#endif
+
+#if defined(__AVX2__)
+    if (v >= 1 && state.active_k >= kMinRankFor3DLoop) {
+        uint64_t step = v_bit;
+        uint64_t total = 1ULL << state.active_k;
+        __m256d inv_sqrt2 = _mm256_set1_pd(kInvSqrt2);
+        double* d = reinterpret_cast<double*>(arr);
+
+        for (uint64_t outer = 0; outer < total; outer += 2 * step) {
+            double* q0 = d + outer * 2;
+            double* q1 = d + (outer + step) * 2;
+            for (uint64_t k = 0; k < step; k += 2) {
+                uint64_t off = k * 2;
+                __m256d a = _mm256_load_pd(q0 + off);
+                __m256d b = _mm256_load_pd(q1 + off);
+                _mm256_store_pd(q0 + off, _mm256_mul_pd(_mm256_add_pd(a, b), inv_sqrt2));
+                _mm256_store_pd(q1 + off, _mm256_mul_pd(_mm256_sub_pd(a, b), inv_sqrt2));
+            }
+        }
+
+        exec_frame_h(state, v);
+        return;
+    }
+#endif
+
+    uint64_t iters = 1ULL << (state.active_k - 1);
+    uint64_t pdep_mask = ~v_bit;
 
     for (uint64_t i = 0; i < iters; ++i) {
         uint64_t idx0 = scatter_bits_1(i, pdep_mask, v);
@@ -555,18 +605,71 @@ static inline void exec_frame_s_dag(SchrodingerState& state, uint16_t v) {
     bit_xor(state.p_z, v, px);
 }
 
+// =============================================================================
+// Shared Phase Waterfall Helper
+// =============================================================================
+
+// Multiplies arr[idx | v_bit] by the complex phase (phase_re, phase_im) for
+// all indices where bit v is set. Uses AVX-512/AVX2 2D waterfall loops when
+// v >= 2/1 (contiguous chunks), falling through to the scalar pdep loop.
+static inline void apply_phase_waterfall(SchrodingerState& state, uint16_t v, double phase_re,
+                                         double phase_im) {
+    uint64_t v_bit = 1ULL << v;
+    auto* __restrict arr = state.v();
+
+#if defined(__AVX512F__) && defined(__AVX512DQ__)
+    if (v >= 2 && state.active_k >= kMinRankFor3DLoop) {
+        uint64_t step = v_bit;
+        uint64_t total = 1ULL << state.active_k;
+        __m512d s_re = _mm512_set1_pd(phase_re);
+        __m512d s_im = _mm512_set1_pd(phase_im);
+        double* d = reinterpret_cast<double*>(arr);
+
+        for (uint64_t outer = 0; outer < total; outer += 2 * step) {
+            double* base = d + (outer + step) * 2;
+            for (uint64_t k = 0; k < step; k += 4) {
+                uint64_t off = k * 2;
+                __m512d val = _mm512_load_pd(base + off);
+                _mm512_store_pd(base + off, cmul_m512d(val, s_re, s_im));
+            }
+        }
+        return;
+    }
+#endif
+
+#if defined(__AVX2__)
+    if (v >= 1 && state.active_k >= kMinRankFor3DLoop) {
+        uint64_t step = v_bit;
+        uint64_t total = 1ULL << state.active_k;
+        __m256d s_re = _mm256_set1_pd(phase_re);
+        __m256d s_im = _mm256_set1_pd(phase_im);
+        double* d = reinterpret_cast<double*>(arr);
+
+        for (uint64_t outer = 0; outer < total; outer += 2 * step) {
+            double* base = d + (outer + step) * 2;
+            for (uint64_t k = 0; k < step; k += 2) {
+                uint64_t off = k * 2;
+                __m256d val = _mm256_load_pd(base + off);
+                _mm256_store_pd(base + off, cmul_m256d(val, s_re, s_im));
+            }
+        }
+        return;
+    }
+#endif
+
+    uint64_t iters = 1ULL << (state.active_k - 1);
+    uint64_t pdep_mask = ~v_bit;
+    std::complex<double> phase(phase_re, phase_im);
+    for (uint64_t i = 0; i < iters; ++i) {
+        arr[scatter_bits_1(i, pdep_mask, v) | v_bit] *= phase;
+    }
+}
+
 // ARRAY_S on active axis v: applies diag(1, i) to the amplitude array,
 // then updates the Pauli frame identically to FRAME_S.
 static inline void exec_array_s(SchrodingerState& state, uint16_t v) {
     assert(v < state.active_k && v < 64 && "ARRAY_S: axis out of range");
-    uint64_t iters = 1ULL << (state.active_k - 1);
-    uint64_t v_bit = 1ULL << v;
-    uint64_t pdep_mask = ~v_bit;
-    auto* __restrict arr = state.v();
-
-    for (uint64_t i = 0; i < iters; ++i) {
-        arr[scatter_bits_1(i, pdep_mask, v) | v_bit] *= kI;
-    }
+    apply_phase_waterfall(state, v, 0.0, 1.0);
     exec_frame_s(state, v);
 }
 
@@ -574,14 +677,7 @@ static inline void exec_array_s(SchrodingerState& state, uint16_t v) {
 // then updates the Pauli frame identically to FRAME_S_DAG.
 static inline void exec_array_s_dag(SchrodingerState& state, uint16_t v) {
     assert(v < state.active_k && v < 64 && "ARRAY_S_DAG: axis out of range");
-    uint64_t iters = 1ULL << (state.active_k - 1);
-    uint64_t v_bit = 1ULL << v;
-    uint64_t pdep_mask = ~v_bit;
-    auto* __restrict arr = state.v();
-
-    for (uint64_t i = 0; i < iters; ++i) {
-        arr[scatter_bits_1(i, pdep_mask, v) | v_bit] *= kMinusI;
-    }
+    apply_phase_waterfall(state, v, 0.0, -1.0);
     exec_frame_s_dag(state, v);
 }
 
@@ -596,17 +692,61 @@ static inline void exec_array_s_dag(SchrodingerState& state, uint16_t v) {
 static inline void exec_expand(SchrodingerState& state, uint16_t v) {
     assert(v == state.active_k && "EXPAND must target the next dormant axis");
     assert(state.v_size() <= state.array_size() / 2 && "EXPAND exceeded AOT peak_rank allocation!");
-    uint64_t old_size = 1ULL << state.active_k;
+    (void)v;
+    uint64_t half = 1ULL << state.active_k;
     auto* __restrict arr = state.v();
 
-    // Duplicate: v[i | (1 << k)] = v[i] for all i < 2^k
-    uint64_t half = old_size;
-    for (uint64_t i = 0; i < half; ++i) {
-        arr[i + half] = arr[i];
-    }
+    std::memcpy(arr + half, arr, half * sizeof(std::complex<double>));
 
     state.active_k++;
     state.scale_magnitude(1.0 / std::sqrt(2.0));
+}
+
+// =============================================================================
+// Flat 1D EXPAND+Phase Vectorization Helper
+// =============================================================================
+
+// Copies arr[0..half) to arr[half..2*half) while multiplying by a complex
+// phase. Uses AVX-512/AVX2 flat 1D loops with aggressive thresholds since
+// EXPAND targets v == active_k (perfectly contiguous, no outer loop needed).
+static inline void expand_with_phase(std::complex<double>* __restrict arr, uint64_t half,
+                                     double phase_re, double phase_im) {
+#if defined(__AVX512F__) && defined(__AVX512DQ__)
+    if (half >= 4) {
+        __m512d s_re = _mm512_set1_pd(phase_re);
+        __m512d s_im = _mm512_set1_pd(phase_im);
+        double* src = reinterpret_cast<double*>(arr);
+        double* dst = reinterpret_cast<double*>(arr + half);
+        uint64_t doubles = half * 2;
+
+        for (uint64_t k = 0; k < doubles; k += 8) {
+            __m512d val = _mm512_load_pd(src + k);
+            _mm512_store_pd(dst + k, cmul_m512d(val, s_re, s_im));
+        }
+        return;
+    }
+#endif
+
+#if defined(__AVX2__)
+    if (half >= 2) {
+        __m256d s_re = _mm256_set1_pd(phase_re);
+        __m256d s_im = _mm256_set1_pd(phase_im);
+        double* src = reinterpret_cast<double*>(arr);
+        double* dst = reinterpret_cast<double*>(arr + half);
+        uint64_t doubles = half * 2;
+
+        for (uint64_t k = 0; k < doubles; k += 4) {
+            __m256d val = _mm256_load_pd(src + k);
+            _mm256_store_pd(dst + k, cmul_m256d(val, s_re, s_im));
+        }
+        return;
+    }
+#endif
+
+    std::complex<double> phase(phase_re, phase_im);
+    for (uint64_t i = 0; i < half; ++i) {
+        arr[i + half] = arr[i] * phase;
+    }
 }
 
 // T gate (pi/4 Z-rotation) on active axis v: applies diag(1, e^{i*pi/4})
@@ -623,20 +763,11 @@ static inline void exec_phase_t(SchrodingerState& state, uint16_t v) {
         return;
     }
 
-    uint64_t iters = 1ULL << (state.active_k - 1);
-    uint64_t v_bit = 1ULL << v;
-    uint64_t pdep_mask = ~v_bit;
-    auto* __restrict arr = state.v();
-
     if (px) {
-        for (uint64_t i = 0; i < iters; ++i) {
-            arr[scatter_bits_1(i, pdep_mask, v) | v_bit] *= kExpMinusIPiOver4;
-        }
+        apply_phase_waterfall(state, v, kInvSqrt2, -kInvSqrt2);
         state.multiply_phase(kExpIPiOver4);
     } else {
-        for (uint64_t i = 0; i < iters; ++i) {
-            arr[scatter_bits_1(i, pdep_mask, v) | v_bit] *= kExpIPiOver4;
-        }
+        apply_phase_waterfall(state, v, kInvSqrt2, kInvSqrt2);
     }
 }
 
@@ -653,20 +784,11 @@ static inline void exec_phase_t_dag(SchrodingerState& state, uint16_t v) {
         return;
     }
 
-    uint64_t iters = 1ULL << (state.active_k - 1);
-    uint64_t v_bit = 1ULL << v;
-    uint64_t pdep_mask = ~v_bit;
-    auto* __restrict arr = state.v();
-
     if (px) {
-        for (uint64_t i = 0; i < iters; ++i) {
-            arr[scatter_bits_1(i, pdep_mask, v) | v_bit] *= kExpIPiOver4;
-        }
+        apply_phase_waterfall(state, v, kInvSqrt2, kInvSqrt2);
         state.multiply_phase(kExpMinusIPiOver4);
     } else {
-        for (uint64_t i = 0; i < iters; ++i) {
-            arr[scatter_bits_1(i, pdep_mask, v) | v_bit] *= kExpMinusIPiOver4;
-        }
+        apply_phase_waterfall(state, v, kInvSqrt2, -kInvSqrt2);
     }
 }
 
@@ -682,13 +804,10 @@ static inline void exec_expand_t(SchrodingerState& state, uint16_t v) {
     auto* __restrict arr = state.v();
     bool px = bit_get(state.p_x, v);
 
-    // The phase applied to the upper half (bit v set).
     // If p_x[v]=1, T anticommutes with X -> array gets T_dag, gamma absorbs T.
-    std::complex<double> phase = px ? kExpMinusIPiOver4 : kExpIPiOver4;
-
-    for (uint64_t i = 0; i < half; ++i) {
-        arr[i + half] = arr[i] * phase;
-    }
+    double ph_re = kInvSqrt2;
+    double ph_im = px ? -kInvSqrt2 : kInvSqrt2;
+    expand_with_phase(arr, half, ph_re, ph_im);
 
     state.active_k++;
     state.scale_magnitude(1.0 / std::sqrt(2.0));
@@ -707,11 +826,9 @@ static inline void exec_expand_t_dag(SchrodingerState& state, uint16_t v) {
     bool px = bit_get(state.p_x, v);
 
     // If p_x[v]=1, T_dag anticommutes -> array gets T, gamma absorbs T_dag.
-    std::complex<double> phase = px ? kExpIPiOver4 : kExpMinusIPiOver4;
-
-    for (uint64_t i = 0; i < half; ++i) {
-        arr[i + half] = arr[i] * phase;
-    }
+    double ph_re = kInvSqrt2;
+    double ph_im = px ? kInvSqrt2 : -kInvSqrt2;
+    expand_with_phase(arr, half, ph_re, ph_im);
 
     state.active_k++;
     state.scale_magnitude(1.0 / std::sqrt(2.0));
@@ -740,21 +857,11 @@ static inline void exec_phase_rot(SchrodingerState& state, uint16_t v, double z_
         return;
     }
 
-    uint64_t iters = 1ULL << (state.active_k - 1);
-    uint64_t v_bit = 1ULL << v;
-    uint64_t pdep_mask = ~v_bit;
-    auto* __restrict arr = state.v();
-
     if (px) {
-        std::complex<double> z_conj(z_re, -z_im);
-        for (uint64_t i = 0; i < iters; ++i) {
-            arr[scatter_bits_1(i, pdep_mask, v) | v_bit] *= z_conj;
-        }
+        apply_phase_waterfall(state, v, z_re, -z_im);
         state.multiply_phase(z);
     } else {
-        for (uint64_t i = 0; i < iters; ++i) {
-            arr[scatter_bits_1(i, pdep_mask, v) | v_bit] *= z;
-        }
+        apply_phase_waterfall(state, v, z_re, z_im);
     }
 }
 
@@ -767,18 +874,14 @@ static inline void exec_expand_rot(SchrodingerState& state, uint16_t v, double z
     auto* __restrict arr = state.v();
     bool px = bit_get(state.p_x, v);
 
-    std::complex<double> z(z_re, z_im);
-    std::complex<double> phase = px ? std::complex<double>(z_re, -z_im) : z;
-
-    for (uint64_t i = 0; i < half; ++i) {
-        arr[i + half] = arr[i] * phase;
-    }
+    double ph_im = px ? -z_im : z_im;
+    expand_with_phase(arr, half, z_re, ph_im);
 
     state.active_k++;
     state.scale_magnitude(1.0 / std::sqrt(2.0));
 
     if (px) {
-        state.multiply_phase(z);
+        state.multiply_phase(std::complex<double>(z_re, z_im));
     }
 }
 
