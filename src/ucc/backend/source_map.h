@@ -28,7 +28,7 @@ class SourceMap {
     SourceMap() = default;
 
     // True if no entries have been recorded.
-    [[nodiscard]] bool empty() const { return offsets_.empty(); }
+    [[nodiscard]] bool empty() const { return active_k_.empty(); }
 
     // Number of instruction entries.
     [[nodiscard]] size_t size() const { return active_k_.size(); }
@@ -37,8 +37,6 @@ class SourceMap {
 
     // Append source lines and active_k for one new output instruction.
     void append(std::span<const uint32_t> lines, uint32_t active_k) {
-        if (offsets_.empty())
-            offsets_.push_back(0);
         data_.insert(data_.end(), lines.begin(), lines.end());
         offsets_.push_back(static_cast<uint32_t>(data_.size()));
         active_k_.push_back(active_k);
@@ -57,11 +55,9 @@ class SourceMap {
     // contiguous range [offsets_[begin], offsets_[end]) in the source.
     void merge_entries(const SourceMap& src, size_t begin, size_t end) {
         assert(begin < end && end <= src.size());
-        if (offsets_.empty())
-            offsets_.push_back(0);
         uint32_t b = src.offsets_[begin];
         uint32_t e = src.offsets_[end];
-        data_.insert(data_.end(), src.data_.data() + b, src.data_.data() + e);
+        data_.insert(data_.end(), src.data_.begin() + b, src.data_.begin() + e);
         offsets_.push_back(static_cast<uint32_t>(data_.size()));
         active_k_.push_back(src.active_k_at(end - 1));
     }
@@ -97,8 +93,8 @@ class SourceMap {
 
   private:
     std::vector<uint32_t> data_;
-    std::vector<uint32_t> offsets_;   // size = num_entries + 1 (CSR format)
-    std::vector<uint32_t> active_k_;  // size = num_entries
+    std::vector<uint32_t> offsets_{0};  // size = num_entries + 1 (CSR format)
+    std::vector<uint32_t> active_k_;    // size = num_entries
 };
 
 }  // namespace ucc

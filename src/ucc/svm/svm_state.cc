@@ -95,11 +95,13 @@ SchrodingerState::SchrodingerState(uint32_t peak_rank, uint32_t num_measurements
     }
 #endif
 
-    // Zero-initialize the full allocation. While the normal VM path only
-    // touches v_[0] at startup (active_k=0) and grows via OP_EXPAND, external
-    // code may set active_k directly (e.g. tests, custom pipelines). For mmap
-    // allocations the kernel provides zeroed pages, but aligned_alloc does not.
-    std::fill(v_, v_ + array_size_, std::complex<double>(0.0, 0.0));
+    // mmap(MAP_ANONYMOUS) guarantees zero-filled pages from the kernel.
+    // Only aligned_alloc needs explicit zeroing. Avoid touching the full
+    // allocation upfront -- it defeats demand paging and forces the OS to
+    // commit every physical page, causing latency spikes at large peak_rank.
+    if (!v_is_mmap_) {
+        std::fill(v_, v_ + array_size_, std::complex<double>(0.0, 0.0));
+    }
     v_[0] = {1.0, 0.0};
 }
 

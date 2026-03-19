@@ -3,6 +3,7 @@
 #include "ucc/util/config.h"
 
 #include <algorithm>
+#include <array>
 #include <cctype>
 #include <charconv>
 #include <fast_float/fast_float.h>
@@ -11,134 +12,134 @@
 #include <stdexcept>
 #include <string>
 #include <string_view>
-#include <unordered_map>
 #include <unordered_set>
+#include <utility>
 
 namespace ucc {
 
 namespace {
 
-// Gate name lookup table.
-const std::unordered_map<std::string_view, GateType> kGateNames = {
-    // Single-qubit Clifford
-    {"H", GateType::H},
-    {"H_XZ", GateType::H},  // Stim alias
-    {"S", GateType::S},
-    {"S_DAG", GateType::S_DAG},
-    {"SQRT_Z", GateType::S},          // Stim alias
-    {"SQRT_Z_DAG", GateType::S_DAG},  // Stim alias
-    {"X", GateType::X},
-    {"Y", GateType::Y},
-    {"Z", GateType::Z},
-    // Additional single-qubit Cliffords
-    {"SQRT_X", GateType::SQRT_X},
-    {"SQRT_X_DAG", GateType::SQRT_X_DAG},
-    {"SQRT_Y", GateType::SQRT_Y},
-    {"SQRT_Y_DAG", GateType::SQRT_Y_DAG},
-    {"H_XY", GateType::H_XY},
-    {"H_YZ", GateType::H_YZ},
-    {"H_NXY", GateType::H_NXY},
-    {"H_NXZ", GateType::H_NXZ},
-    {"H_NYZ", GateType::H_NYZ},
-    {"C_XYZ", GateType::C_XYZ},
-    {"C_ZYX", GateType::C_ZYX},
+// Gate name lookup table -- sorted for binary search, lives in .rodata
+// with zero static initialization cost (no heap allocation at startup).
+constexpr std::pair<std::string_view, GateType> kGateNames[] = {
+    {"CNOT", GateType::CX},
+    {"CX", GateType::CX},
+    {"CXSWAP", GateType::CXSWAP},
+    {"CY", GateType::CY},
+    {"CZ", GateType::CZ},
+    {"CZSWAP", GateType::CZSWAP},
     {"C_NXYZ", GateType::C_NXYZ},
     {"C_NZYX", GateType::C_NZYX},
     {"C_XNYZ", GateType::C_XNYZ},
     {"C_XYNZ", GateType::C_XYNZ},
+    {"C_XYZ", GateType::C_XYZ},
     {"C_ZNYX", GateType::C_ZNYX},
     {"C_ZYNX", GateType::C_ZYNX},
-    // Non-Clifford
-    {"T", GateType::T},
-    {"T_DAG", GateType::T_DAG},
-    // Parameterized rotations
-    // Note: RX, RY, RZ without underscore are Stim aliases for resets,
-    // so rotation gates always use the underscore form R_X, R_Y, R_Z.
-    {"R_X", GateType::R_X},
-    {"R_Y", GateType::R_Y},
-    {"R_Z", GateType::R_Z},
-    {"U3", GateType::U3},
-    {"U", GateType::U3},
-    {"R_XX", GateType::R_XX},
-    {"RXX", GateType::R_XX},
-    {"R_YY", GateType::R_YY},
-    {"RYY", GateType::R_YY},
-    {"R_ZZ", GateType::R_ZZ},
-    {"RZZ", GateType::R_ZZ},
-    {"R_PAULI", GateType::R_PAULI},
-    // Two-qubit Clifford
-    {"CX", GateType::CX},
-    {"CNOT", GateType::CX},  // Alias
-    {"ZCX", GateType::CX},   // Stim alias
-    {"CY", GateType::CY},
-    {"ZCY", GateType::CY},  // Stim alias
-    {"CZ", GateType::CZ},
-    {"ZCZ", GateType::CZ},  // Stim alias
-    // Additional two-qubit Cliffords
-    {"SWAP", GateType::SWAP},
+    {"C_ZYX", GateType::C_ZYX},
+    {"DEPOLARIZE1", GateType::DEPOLARIZE1},
+    {"DEPOLARIZE2", GateType::DEPOLARIZE2},
+    {"DETECTOR", GateType::DETECTOR},
+    {"H", GateType::H},
+    {"H_NXY", GateType::H_NXY},
+    {"H_NXZ", GateType::H_NXZ},
+    {"H_NYZ", GateType::H_NYZ},
+    {"H_XY", GateType::H_XY},
+    {"H_XZ", GateType::H},
+    {"H_YZ", GateType::H_YZ},
+    {"I", GateType::I},
+    {"II", GateType::II},
+    {"II_ERROR", GateType::II_ERROR},
     {"ISWAP", GateType::ISWAP},
     {"ISWAP_DAG", GateType::ISWAP_DAG},
+    {"I_ERROR", GateType::I_ERROR},
+    {"M", GateType::M},
+    {"MPAD", GateType::MPAD},
+    {"MPP", GateType::MPP},
+    {"MR", GateType::MR},
+    {"MRX", GateType::MRX},
+    {"MRY", GateType::MRY},
+    {"MRZ", GateType::MR},
+    {"MX", GateType::MX},
+    {"MXX", GateType::MXX},
+    {"MY", GateType::MY},
+    {"MYY", GateType::MYY},
+    {"MZ", GateType::M},
+    {"MZZ", GateType::MZZ},
+    {"OBSERVABLE_INCLUDE", GateType::OBSERVABLE_INCLUDE},
+    {"PAULI_CHANNEL_1", GateType::PAULI_CHANNEL_1},
+    {"PAULI_CHANNEL_2", GateType::PAULI_CHANNEL_2},
+    {"R", GateType::R},
+    {"RX", GateType::RX},
+    {"RXX", GateType::R_XX},
+    {"RY", GateType::RY},
+    {"RYY", GateType::R_YY},
+    {"RZ", GateType::R},
+    {"RZZ", GateType::R_ZZ},
+    {"R_PAULI", GateType::R_PAULI},
+    {"R_X", GateType::R_X},
+    {"R_XX", GateType::R_XX},
+    {"R_Y", GateType::R_Y},
+    {"R_YY", GateType::R_YY},
+    {"R_Z", GateType::R_Z},
+    {"R_ZZ", GateType::R_ZZ},
+    {"S", GateType::S},
+    {"SQRT_X", GateType::SQRT_X},
     {"SQRT_XX", GateType::SQRT_XX},
     {"SQRT_XX_DAG", GateType::SQRT_XX_DAG},
+    {"SQRT_X_DAG", GateType::SQRT_X_DAG},
+    {"SQRT_Y", GateType::SQRT_Y},
     {"SQRT_YY", GateType::SQRT_YY},
     {"SQRT_YY_DAG", GateType::SQRT_YY_DAG},
+    {"SQRT_Y_DAG", GateType::SQRT_Y_DAG},
+    {"SQRT_Z", GateType::S},
     {"SQRT_ZZ", GateType::SQRT_ZZ},
     {"SQRT_ZZ_DAG", GateType::SQRT_ZZ_DAG},
-    {"CXSWAP", GateType::CXSWAP},
-    {"CZSWAP", GateType::CZSWAP},
-    {"SWAPCZ", GateType::CZSWAP},  // Stim alias
+    {"SQRT_Z_DAG", GateType::S_DAG},
+    {"SWAP", GateType::SWAP},
     {"SWAPCX", GateType::SWAPCX},
+    {"SWAPCZ", GateType::CZSWAP},
+    {"S_DAG", GateType::S_DAG},
+    {"T", GateType::T},
+    {"TICK", GateType::TICK},
+    {"T_DAG", GateType::T_DAG},
+    {"U", GateType::U3},
+    {"U3", GateType::U3},
+    {"X", GateType::X},
     {"XCX", GateType::XCX},
     {"XCY", GateType::XCY},
     {"XCZ", GateType::XCZ},
+    {"X_ERROR", GateType::X_ERROR},
+    {"Y", GateType::Y},
     {"YCX", GateType::YCX},
     {"YCY", GateType::YCY},
     {"YCZ", GateType::YCZ},
-    // Measurements
-    {"M", GateType::M},
-    {"MZ", GateType::M},  // Stim alias
-    {"MX", GateType::MX},
-    {"MY", GateType::MY},
-    {"MR", GateType::MR},
-    {"MRZ", GateType::MR},  // Stim alias
-    {"MRX", GateType::MRX},
-    {"MPP", GateType::MPP},
-    {"MXX", GateType::MXX},
-    {"MYY", GateType::MYY},
-    {"MZZ", GateType::MZZ},
-    // Resets
-    {"R", GateType::R},
-    {"RZ", GateType::R},  // Stim alias
-    {"RX", GateType::RX},
-    {"RY", GateType::RY},
-    {"MRY", GateType::MRY},
-    // Deterministic padding
-    {"MPAD", GateType::MPAD},
-    // Identity no-ops
-    {"I", GateType::I},
-    {"II", GateType::II},
-    {"I_ERROR", GateType::I_ERROR},
-    {"II_ERROR", GateType::II_ERROR},
-    // Noise channels
-    {"X_ERROR", GateType::X_ERROR},
     {"Y_ERROR", GateType::Y_ERROR},
+    {"Z", GateType::Z},
+    {"ZCX", GateType::CX},
+    {"ZCY", GateType::CY},
+    {"ZCZ", GateType::CZ},
     {"Z_ERROR", GateType::Z_ERROR},
-    {"DEPOLARIZE1", GateType::DEPOLARIZE1},
-    {"DEPOLARIZE2", GateType::DEPOLARIZE2},
-    {"PAULI_CHANNEL_1", GateType::PAULI_CHANNEL_1},
-    {"PAULI_CHANNEL_2", GateType::PAULI_CHANNEL_2},
-    // QEC annotations
-    {"DETECTOR", GateType::DETECTOR},
-    {"OBSERVABLE_INCLUDE", GateType::OBSERVABLE_INCLUDE},
-    // Annotations
-    {"TICK", GateType::TICK},
 };
+constexpr size_t kNumGateNames = std::size(kGateNames);
+static_assert(std::is_sorted(std::begin(kGateNames), std::end(kGateNames),
+                             [](const auto& a, const auto& b) { return a.first < b.first; }),
+              "kGateNames must be sorted by name for binary search");
+
+// Binary search the sorted gate table. Returns nullptr if not found.
+constexpr const std::pair<std::string_view, GateType>* find_gate(std::string_view name) {
+    auto it =
+        std::lower_bound(std::begin(kGateNames), std::end(kGateNames), name,
+                         [](const auto& entry, std::string_view key) { return entry.first < key; });
+    if (it != std::end(kGateNames) && it->first == name) {
+        return it;
+    }
+    return nullptr;
+}
 
 // Coordinate annotations to silently discard (no AST nodes emitted).
-const std::unordered_set<std::string_view> kDiscardedAnnotations = {
-    "QUBIT_COORDS",
-    "SHIFT_COORDS",
-};
+bool is_discarded_annotation(std::string_view name) {
+    return name == "QUBIT_COORDS" || name == "SHIFT_COORDS";
+}
 
 // Trim whitespace from both ends.
 std::string_view trim(std::string_view s) {
@@ -313,13 +314,13 @@ class Parser {
         double arg = args.empty() ? 0.0 : args[0];
 
         // Silently discard coordinate annotations (no AST nodes emitted).
-        if (kDiscardedAnnotations.contains(gate_name)) {
+        if (is_discarded_annotation(gate_name)) {
             return;
         }
 
         // Look up gate type.
-        auto gate_it = kGateNames.find(gate_name);
-        if (gate_it == kGateNames.end()) {
+        auto* gate_it = find_gate(gate_name);
+        if (!gate_it) {
             throw ParseError("Unknown gate: " + std::string(gate_name), line_num);
         }
 
@@ -1041,11 +1042,8 @@ class Parser {
 }  // namespace
 
 GateType parse_gate_name(std::string_view name) {
-    auto it = kGateNames.find(name);
-    if (it != kGateNames.end()) {
-        return it->second;
-    }
-    return GateType::UNKNOWN;
+    auto* it = find_gate(name);
+    return it ? it->second : GateType::UNKNOWN;
 }
 
 Circuit parse(std::string_view text) {

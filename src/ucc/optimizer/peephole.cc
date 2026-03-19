@@ -247,10 +247,9 @@ void PeepholeFusionPass::run(HirModule& hir) {
                     ++write;
                 }
             }
-            auto cut = static_cast<ptrdiff_t>(write);
-            hir.ops.erase(hir.ops.begin() + cut, hir.ops.end());
+            hir.ops.erase(hir.ops.begin() + static_cast<ptrdiff_t>(write), hir.ops.end());
             if (has_source_map) {
-                hir.source_map.erase(hir.source_map.begin() + cut, hir.source_map.end());
+                hir.source_map.resize(write);
             }
         }
     }
