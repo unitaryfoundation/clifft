@@ -176,13 +176,16 @@ TEST_CASE("Frontend: reset R as first-class operation", "[frontend]") {
     )");
     auto hir = trace(circuit);
 
-    // R decomposes into hidden MEASURE + CONDITIONAL with use_last_outcome flag
+    // R decomposes into hidden MEASURE + CONDITIONAL with absolute index
     REQUIRE(hir.num_ops() == 2);
     REQUIRE(hir.ops[0].op_type() == OpType::MEASURE);
     REQUIRE(hir.ops[0].is_hidden());  // Hidden measurement for reset
+    REQUIRE(hir.ops[0].meas_record_idx() ==
+            MeasRecordIdx{0});  // Hidden index starts at num_measurements=0
     REQUIRE(hir.ops[1].op_type() == OpType::CONDITIONAL_PAULI);
-    REQUIRE(hir.ops[1].use_last_outcome());  // Uses outcome of preceding hidden measurement
-    REQUIRE(hir.num_measurements == 0);      // R has no visible measurement
+    REQUIRE(hir.ops[1].controlling_meas() == ControllingMeasIdx{0});  // References the hidden meas
+    REQUIRE(hir.num_measurements == 0);  // R has no visible measurement
+    REQUIRE(hir.num_hidden_measurements == 1);
 }
 
 TEST_CASE("Frontend: MR as first-class operation", "[frontend]") {
@@ -192,14 +195,15 @@ TEST_CASE("Frontend: MR as first-class operation", "[frontend]") {
     )");
     auto hir = trace(circuit);
 
-    // MR produces a visible MEASURE followed by CONDITIONAL with use_last_outcome
+    // MR produces a visible MEASURE followed by CONDITIONAL with absolute index
     REQUIRE(hir.num_ops() == 2);
     REQUIRE(hir.ops[0].op_type() == OpType::MEASURE);
     REQUIRE(hir.ops[0].meas_record_idx() == MeasRecordIdx{0});
     REQUIRE(!hir.ops[0].is_hidden());  // MR has visible measurement
     REQUIRE(hir.ops[1].op_type() == OpType::CONDITIONAL_PAULI);
-    REQUIRE(hir.ops[1].use_last_outcome());
+    REQUIRE(hir.ops[1].controlling_meas() == ControllingMeasIdx{0});
     REQUIRE(hir.num_measurements == 1);
+    REQUIRE(hir.num_hidden_measurements == 0);
 }
 
 TEST_CASE("Frontend: MRX as first-class operation", "[frontend]") {
@@ -209,13 +213,55 @@ TEST_CASE("Frontend: MRX as first-class operation", "[frontend]") {
     )");
     auto hir = trace(circuit);
 
-    // MRX produces a visible MEASURE followed by CONDITIONAL with use_last_outcome
+    // MRX produces a visible MEASURE followed by CONDITIONAL with absolute index
     REQUIRE(hir.num_ops() == 2);
     REQUIRE(hir.ops[0].op_type() == OpType::MEASURE);
     REQUIRE(!hir.ops[0].is_hidden());  // MRX has visible measurement
     REQUIRE(hir.ops[1].op_type() == OpType::CONDITIONAL_PAULI);
-    REQUIRE(hir.ops[1].use_last_outcome());
+    REQUIRE(hir.ops[1].controlling_meas() == ControllingMeasIdx{0});
     REQUIRE(hir.num_measurements == 1);
+    REQUIRE(hir.num_hidden_measurements == 0);
+}
+
+TEST_CASE("Frontend: mixed visible and hidden measurement index layout", "[frontend]") {
+    // M 0 -> visible meas_idx=0
+    // R 1 -> hidden meas_idx=2 (starts at num_measurements), conditional refs 2
+    // MR 2 -> visible meas_idx=1, conditional refs 1
+    // Layout: [0,num_measurements) visible, [num_measurements,..) hidden
+    auto circuit = parse(R"(
+        M 0
+        R 1
+        MR 2
+    )");
+    auto hir = trace(circuit);
+
+    REQUIRE(hir.num_measurements == 2);         // M and MR are visible
+    REQUIRE(hir.num_hidden_measurements == 1);  // R contributes one hidden
+
+    // Op 0: M 0 -> visible, meas_idx=0
+    REQUIRE(hir.ops[0].op_type() == OpType::MEASURE);
+    REQUIRE(!hir.ops[0].is_hidden());
+    REQUIRE(hir.ops[0].meas_record_idx() == MeasRecordIdx{0});
+
+    // Op 1: hidden MEASURE from R 1 -> meas_idx=2 (first hidden slot)
+    REQUIRE(hir.ops[1].op_type() == OpType::MEASURE);
+    REQUIRE(hir.ops[1].is_hidden());
+    REQUIRE(hir.ops[1].meas_record_idx() == MeasRecordIdx{2});
+
+    // Op 2: CONDITIONAL_PAULI from R 1 -> references hidden meas_idx=2
+    REQUIRE(hir.ops[2].op_type() == OpType::CONDITIONAL_PAULI);
+    REQUIRE(hir.ops[2].controlling_meas() == ControllingMeasIdx{2});
+
+    // Op 3: MR 2 -> visible, meas_idx=1
+    REQUIRE(hir.ops[3].op_type() == OpType::MEASURE);
+    REQUIRE(!hir.ops[3].is_hidden());
+    REQUIRE(hir.ops[3].meas_record_idx() == MeasRecordIdx{1});
+
+    // Op 4: CONDITIONAL_PAULI from MR 2 -> references visible meas_idx=1
+    REQUIRE(hir.ops[4].op_type() == OpType::CONDITIONAL_PAULI);
+    REQUIRE(hir.ops[4].controlling_meas() == ControllingMeasIdx{1});
+
+    REQUIRE(hir.num_ops() == 5);
 }
 
 TEST_CASE("Frontend: measurement record indexing", "[frontend]") {

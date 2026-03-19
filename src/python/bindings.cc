@@ -11,6 +11,7 @@
 #include "ucc/optimizer/peephole.h"
 #include "ucc/optimizer/remove_noise_pass.h"
 #include "ucc/optimizer/single_axis_fusion_pass.h"
+#include "ucc/optimizer/statevector_squeeze_pass.h"
 #include "ucc/optimizer/swap_meas_pass.h"
 #include "ucc/svm/svm.h"
 #include "ucc/util/config.h"
@@ -268,8 +269,6 @@ NB_MODULE(_ucc_core, m) {
         .def_prop_ro("op_type", [](const ucc::HeisenbergOp& op) { return op.op_type(); })
         .def_prop_ro("is_dagger", [](const ucc::HeisenbergOp& op) { return op.is_dagger(); })
         .def_prop_ro("is_hidden", [](const ucc::HeisenbergOp& op) { return op.is_hidden(); })
-        .def_prop_ro("use_last_outcome",
-                     [](const ucc::HeisenbergOp& op) { return op.use_last_outcome(); })
         .def_prop_ro("sign", [](const ucc::HeisenbergOp& op) { return op.sign(); })
         .def_prop_ro("pauli_string",
                      [](const ucc::HeisenbergOp& op) { return ucc::format_pauli_mask(op); })
@@ -281,7 +280,6 @@ NB_MODULE(_ucc_core, m) {
                 d["pauli_string"] = ucc::format_pauli_mask(op);
                 d["is_dagger"] = op.is_dagger();
                 d["is_hidden"] = op.is_hidden();
-                d["use_last_outcome"] = op.use_last_outcome();
                 d["sign"] = op.sign();
 
                 switch (op.op_type()) {
@@ -408,6 +406,12 @@ NB_MODULE(_ucc_core, m) {
                    ", fusions=" + std::to_string(p.fusions()) + ")";
         });
 
+    nb::class_<ucc::StatevectorSqueezePass, ucc::HirPass>(
+        m, "StatevectorSqueezePass",
+        "Bidirectional bubble sort: moves measurements leftward and\n"
+        "non-Clifford gates rightward to minimize peak active rank.")
+        .def(nb::init<>());
+
     nb::class_<ucc::RemoveNoisePass, ucc::HirPass>(
         m, "RemoveNoisePass",
         "Strips all stochastic noise and readout noise ops from the HIR.\n"
@@ -458,6 +462,7 @@ NB_MODULE(_ucc_core, m) {
         []() {
             ucc::HirPassManager pm;
             pm.add_pass(std::make_unique<ucc::PeepholeFusionPass>());
+            pm.add_pass(std::make_unique<ucc::StatevectorSqueezePass>());
             return pm;
         },
         nb::rv_policy::move,

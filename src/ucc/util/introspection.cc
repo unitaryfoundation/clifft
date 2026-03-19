@@ -73,11 +73,8 @@ std::string format_hir_op(const HeisenbergOp& op) {
                 ss << " (hidden)";
             break;
         case OpType::CONDITIONAL_PAULI:
-            ss << "IF rec["
-               << (op.use_last_outcome()
-                       ? std::string("last")
-                       : std::to_string(static_cast<uint32_t>(op.controlling_meas())))
-               << "] THEN " << format_pauli_mask(op);
+            ss << "IF rec[" << static_cast<uint32_t>(op.controlling_meas()) << "] THEN "
+               << format_pauli_mask(op);
             break;
         case OpType::NOISE:
             ss << "NOISE site=" << static_cast<uint32_t>(op.noise_site_idx());

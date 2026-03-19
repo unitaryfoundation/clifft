@@ -553,20 +553,7 @@ CompiledModule lower(const HirModule& hir, std::span<const uint8_t> postselectio
     CompilerContext ctx(n);
 
     uint32_t det_emit_idx = 0;
-
-    // Track the last measurement outcome index for use_last_outcome resolution
-    uint32_t last_meas_idx = UINT32_MAX;
-
-    uint32_t hidden_meas_count = 0;
-    uint32_t total_meas_slots = hir.num_measurements;
-    for (const auto& op : hir.ops) {
-        if (op.op_type() == OpType::MEASURE && op.is_hidden()) {
-            ++hidden_meas_count;
-        }
-    }
-    total_meas_slots += hidden_meas_count;
-
-    uint32_t hidden_meas_emit_idx = hir.num_measurements;
+    uint32_t total_meas_slots = hir.num_measurements + hir.num_hidden_measurements;
 
     bool has_source_map = hir.source_map.size() == hir.ops.size();
 
@@ -636,15 +623,7 @@ CompiledModule lower(const HirModule& hir, std::span<const uint8_t> postselectio
             }
 
             case OpType::MEASURE: {
-                // Determine classical output index: visible measurements
-                // use the front-end's pre-computed record index; hidden
-                // measurements get indices in the separate hidden range.
-                uint32_t classical_idx;
-                if (op.is_hidden()) {
-                    classical_idx = hidden_meas_emit_idx++;
-                } else {
-                    classical_idx = static_cast<uint32_t>(op.meas_record_idx());
-                }
+                uint32_t classical_idx = static_cast<uint32_t>(op.meas_record_idx());
 
                 auto p_v = map_to_virtual(ctx, op.destab_mask(), op.stab_mask(), op.sign(), n);
 
@@ -660,7 +639,6 @@ CompiledModule lower(const HirModule& hir, std::span<const uint8_t> postselectio
                         make_meas(Opcode::OP_MEAS_DORMANT_STATIC, 0, classical_idx, p_v.sign);
                     id_meas.flags |= Instruction::FLAG_IDENTITY;
                     ctx.emit(id_meas);
-                    last_meas_idx = classical_idx;
                     break;
                 }
 
@@ -708,7 +686,6 @@ CompiledModule lower(const HirModule& hir, std::span<const uint8_t> postselectio
                     ctx.reg_manager.deactivate();
                 }
 
-                last_meas_idx = classical_idx;
                 break;
             }
 
@@ -726,14 +703,7 @@ CompiledModule lower(const HirModule& hir, std::span<const uint8_t> postselectio
                 uint32_t cp_idx = static_cast<uint32_t>(ctx.constant_pool.pauli_masks.size());
                 ctx.constant_pool.pauli_masks.push_back(pm);
 
-                uint32_t cond_idx;
-                if (op.use_last_outcome()) {
-                    assert(last_meas_idx != UINT32_MAX &&
-                           "Conditional Pauli executed before any measurement");
-                    cond_idx = last_meas_idx;
-                } else {
-                    cond_idx = static_cast<uint32_t>(op.controlling_meas());
-                }
+                uint32_t cond_idx = static_cast<uint32_t>(op.controlling_meas());
 
                 ctx.emit(make_apply_pauli(cp_idx, cond_idx));
                 break;

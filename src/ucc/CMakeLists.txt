@@ -11,8 +11,10 @@ add_library(ucc_core STATIC
     optimizer/swap_meas_pass.cc
     optimizer/single_axis_fusion_pass.cc
     optimizer/hir_pass_manager.cc
+    optimizer/commutation.cc
     optimizer/peephole.cc
     optimizer/remove_noise_pass.cc
+    optimizer/statevector_squeeze_pass.cc
     backend/backend.cc
     backend/reference_syndrome.cc
     svm/svm.cc

@@ -3,7 +3,7 @@
 ## Executive Summary
 
 This plan outlines the implementation of a globally state-agnostic optimization pass for the UCC compiler. To minimize the "active spacetime volume" (\int 2^{k(t)} dt) evaluated by the Virtual Machine, we will implement a Bidirectional Statevector Squeeze.
-Because UCC's Front-End rewinds all operations to the t=0 vacuum, we bypass physical DAG constraints and evaluate commutations using ultra-fast \mathcal{O}(1) symplectic inner products. 
+Because UCC's Front-End rewinds all operations to the t=0 vacuum, we bypass physical DAG constraints and evaluate commutations using ultra-fast \mathcal{O}(1) symplectic inner products.
 
 First, we will clean up the Front-End to remove a temporal dependency (use_last_outcome), making the Heisenberg IR (HIR) a pure, position-independent algebraic graph. Then, we will implement the Squeezer.
 
@@ -115,4 +115,3 @@ Agent Tasks:
    * PyZX (pyzx): full_reduce()
    * UCC: Our native compilation pipeline.
  * Extract and plot the resulting peak active rank (k_{\max}), final T-count, and compilation wall-clock latency (ms) for all three tools. Generate a publication-ready CSV and Matplotlib chart.
- 

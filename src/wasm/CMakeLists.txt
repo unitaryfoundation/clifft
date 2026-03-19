@@ -32,9 +32,11 @@ add_library(ucc_core STATIC
     ${CMAKE_CURRENT_SOURCE_DIR}/../ucc/optimizer/multi_gate_pass.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/../ucc/optimizer/noise_block_pass.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/../ucc/optimizer/hir_pass_manager.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/../ucc/optimizer/commutation.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/../ucc/optimizer/peephole.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/../ucc/optimizer/swap_meas_pass.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/../ucc/optimizer/single_axis_fusion_pass.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/../ucc/optimizer/statevector_squeeze_pass.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/../ucc/backend/backend.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/../ucc/svm/svm.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/../ucc/svm/svm_scalar.cc

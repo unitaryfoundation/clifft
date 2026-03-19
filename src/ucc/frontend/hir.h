@@ -132,7 +132,6 @@ struct HeisenbergOp {
     // Flag constants (matching Instruction flags)
     static constexpr uint8_t FLAG_IS_DAGGER = 1 << 0;
     static constexpr uint8_t FLAG_HIDDEN = 1 << 2;
-    static constexpr uint8_t FLAG_USE_LAST_OUTCOME = 1 << 3;
 
     // --- Accessors (common to all OpTypes) ---
 
@@ -158,14 +157,6 @@ struct HeisenbergOp {
             flags_ |= FLAG_HIDDEN;
         else
             flags_ &= ~FLAG_HIDDEN;
-    }
-
-    [[nodiscard]] bool use_last_outcome() const { return (flags_ & FLAG_USE_LAST_OUTCOME) != 0; }
-    void set_use_last_outcome(bool v) {
-        if (v)
-            flags_ |= FLAG_USE_LAST_OUTCOME;
-        else
-            flags_ &= ~FLAG_USE_LAST_OUTCOME;
     }
 
     // --- MEASURE accessor (debug-asserted) ---
@@ -399,7 +390,8 @@ struct HirModule {
 
     // Circuit metadata
     uint32_t num_qubits = 0;
-    uint32_t num_measurements = 0;  // Visible measurements only (M, MX, MY, MPP, MR, MRX)
+    uint32_t num_measurements = 0;         // Visible measurements only (M, MX, MY, MPP, MR, MRX)
+    uint32_t num_hidden_measurements = 0;  // Hidden measurements (from reset decomposition)
     uint32_t num_detectors = 0;
     uint32_t num_observables = 0;
 

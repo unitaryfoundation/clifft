@@ -263,6 +263,9 @@ HirModule trace(const Circuit& circuit) {
     // Track measurement index for rec[-k] resolution
     MeasRecordIdx meas_idx{0};
 
+    // Hidden measurements get indices starting after all visible ones
+    uint32_t hidden_meas_idx = circuit.num_measurements;
+
     for (const auto& node : circuit.nodes) {
         // Emit helper: appends an HIR op and its source provenance in lockstep.
         auto emit = [&](HeisenbergOp op) {
@@ -632,24 +635,24 @@ HirModule trace(const Circuit& circuit) {
                     bool sign;
                     extract_meas(qubit, destab_mask, stab_mask, sign);
 
+                    uint32_t this_meas;
                     if (hidden) {
-                        auto meas_op =
-                            HeisenbergOp::make_measure(destab_mask, stab_mask, sign, meas_idx);
+                        this_meas = hidden_meas_idx++;
+                        auto meas_op = HeisenbergOp::make_measure(destab_mask, stab_mask, sign,
+                                                                  MeasRecordIdx{this_meas});
                         meas_op.set_hidden(true);
                         emit(meas_op);
                     } else {
+                        this_meas = static_cast<uint32_t>(meas_idx);
                         emit(HeisenbergOp::make_measure(destab_mask, stab_mask, sign, meas_idx));
-                    }
-                    uint32_t this_meas = static_cast<uint32_t>(meas_idx);
-                    if (!hidden)
                         ++meas_idx;
+                    }
 
                     PauliBitMask corr_destab, corr_stab;
                     bool corr_sign;
                     extract_corr(qubit, corr_destab, corr_stab, corr_sign);
                     auto cond_op = HeisenbergOp::make_conditional(corr_destab, corr_stab, corr_sign,
-                                                                  ControllingMeasIdx{0});
-                    cond_op.set_use_last_outcome(true);
+                                                                  ControllingMeasIdx{this_meas});
                     emit(cond_op);
 
                     if (!hidden && target.is_inverted()) {
@@ -802,6 +805,9 @@ HirModule trace(const Circuit& circuit) {
                                          std::string(gate_name(node.gate)));
         }
     }
+
+    // Record how many hidden measurements were emitted
+    hir.num_hidden_measurements = hidden_meas_idx - circuit.num_measurements;
 
     // Store forward tableau for statevector expansion
     hir.final_tableau = sim.inv_state.inverse();

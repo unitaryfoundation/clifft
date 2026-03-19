@@ -1,5 +1,7 @@
 #include "ucc/optimizer/peephole.h"
 
+#include "ucc/optimizer/commutation.h"
+
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
@@ -42,13 +44,6 @@ inline bool try_demote_rotation(HeisenbergOp& op, double alpha) {
         return true;
     }
     return false;
-}
-
-/// Symplectic inner product over BitMask masks.
-/// Returns true if the two Pauli strings anti-commute.
-inline bool anti_commute(const PauliBitMask& x1, const PauliBitMask& z1, const PauliBitMask& x2,
-                         const PauliBitMask& z2) {
-    return (((x1 & z2) ^ (z1 & x2)).popcount() & 1) != 0;
 }
 
 /// Compute the effective rotation direction for a T gate.
