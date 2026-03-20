@@ -1,3 +1,9 @@
+export interface PassInfo {
+  name: string;
+  kind: "hir" | "bytecode";
+  default: boolean;
+}
+
 export interface CompileSuccess {
   error?: undefined;
   num_qubits: number;
@@ -39,6 +45,7 @@ export function isSimulateSuccess(r: SimulateResult): r is SimulateSuccess {
 }
 
 export interface UccModule {
-  compile_to_json: (source: string, optimize: boolean) => string;
-  simulate_wasm: (source: string, shots: number, optimize: boolean) => string;
+  get_available_passes: () => string;
+  compile_to_json: (source: string, passes_json: string) => string;
+  simulate_wasm: (source: string, shots: number, passes_json: string) => string;
 }

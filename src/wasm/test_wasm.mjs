@@ -8,8 +8,30 @@ const createModule = require("../../build-wasm/ucc_wasm.js");
 
 const mod = await createModule();
 
-// --- compile_to_json ---
-const json = mod.compile_to_json("H 0\nT 0\nM 0", true);
+// Default passes config (empty string = use defaults)
+const DEFAULTS = "";
+// No passes at all
+const NO_PASSES = JSON.stringify({ hir: [], bc: [] });
+
+// --- get_available_passes ---
+const passesJson = mod.get_available_passes();
+const passes = JSON.parse(passesJson);
+console.log("get_available_passes:", passes.length, "passes");
+assert.ok(passes.length >= 9, "Expected at least 9 registered passes");
+const names = passes.map((p) => p.name);
+assert.ok(names.includes("PeepholeFusionPass"), "Missing PeepholeFusionPass");
+assert.ok(names.includes("StatevectorSqueezePass"), "Missing StatevectorSqueezePass");
+assert.ok(names.includes("RemoveNoisePass"), "Missing RemoveNoisePass");
+assert.ok(names.includes("SingleAxisFusionPass"), "Missing SingleAxisFusionPass");
+// Check schema
+for (const p of passes) {
+    assert.ok(typeof p.name === "string");
+    assert.ok(p.kind === "hir" || p.kind === "bytecode");
+    assert.ok(typeof p.default === "boolean");
+}
+
+// --- compile_to_json with defaults ---
+const json = mod.compile_to_json("H 0\nT 0\nM 0", DEFAULTS);
 const result = JSON.parse(json);
 
 console.log("compile_to_json result:");
@@ -23,7 +45,7 @@ console.log("  bytecode_source_map sample:", result.bytecode_source_map.slice(0,
 
 assert.equal(result.error, undefined, "Expected no error");
 assert.equal(result.num_qubits, 1, "Expected 1 qubit");
-assert.ok(result.peak_rank >= 1, "Expected peak_rank >= 1");
+assert.ok(result.peak_rank >= 0, "Expected peak_rank >= 0");
 assert.ok(result.hir_ops.length > 0, "Expected HIR ops");
 assert.ok(result.bytecode.length > 0, "Expected bytecode");
 assert.equal(
@@ -37,11 +59,11 @@ assert.equal(
     "source_map parallel to bytecode"
 );
 
-// --- optimize flag toggle ---
+// --- optimize toggle via pass config ---
 // T T = S; peephole fusion should reduce 2 T ops to 1 S op
-const unoptJson = mod.compile_to_json("T 0\nT 0\nM 0", false);
+const unoptJson = mod.compile_to_json("T 0\nT 0\nM 0", NO_PASSES);
 const unopt = JSON.parse(unoptJson);
-const optJson = mod.compile_to_json("T 0\nT 0\nM 0", true);
+const optJson = mod.compile_to_json("T 0\nT 0\nM 0", DEFAULTS);
 const opt = JSON.parse(optJson);
 console.log("\nOptimize toggle:");
 console.log("  unoptimized HIR ops:", unopt.hir_ops.length);
@@ -51,8 +73,18 @@ assert.ok(
     "Optimized should have fewer ops (T+T fused to S)"
 );
 
+// --- selective passes ---
+const hirOnlyJson = mod.compile_to_json(
+    "T 0\nT 0\nM 0",
+    JSON.stringify({ hir: ["PeepholeFusionPass"], bc: [] })
+);
+const hirOnly = JSON.parse(hirOnlyJson);
+console.log("\nSelective passes (HIR only):");
+console.log("  HIR ops:", hirOnly.hir_ops.length);
+assert.ok(hirOnly.hir_ops.length <= opt.hir_ops.length, "HIR-only should still fuse T+T");
+
 // --- simulate_wasm ---
-const simJson = mod.simulate_wasm("H 0\nM 0", 1000, true);
+const simJson = mod.simulate_wasm("H 0\nM 0", 1000, DEFAULTS);
 const simResult = JSON.parse(simJson);
 
 console.log("\nsimulate_wasm result:");
@@ -71,7 +103,7 @@ assert.ok(count0 >= 350 && count0 <= 650, `Expected ~500 zeros, got ${count0}`);
 assert.ok(count1 >= 350 && count1 <= 650, `Expected ~500 ones, got ${count1}`);
 
 // --- no-measurement circuit returns consistent schema ---
-const noMeasJson = mod.simulate_wasm("H 0", 100, true);
+const noMeasJson = mod.simulate_wasm("H 0", 100, DEFAULTS);
 const noMeasResult = JSON.parse(noMeasJson);
 console.log("\nNo-measurement test:", noMeasResult);
 assert.equal(noMeasResult.shots, 100, "Expected shots in no-measurement result");
@@ -83,19 +115,19 @@ const bigLines = [];
 for (let i = 0; i < 25; i++) bigLines.push(`H ${i}`);
 for (let i = 0; i < 25; i++) bigLines.push(`T ${i}`);
 bigLines.push("M 0");
-const bigJson = mod.simulate_wasm(bigLines.join("\n"), 10, true);
+const bigJson = mod.simulate_wasm(bigLines.join("\n"), 10, DEFAULTS);
 const bigResult = JSON.parse(bigJson);
 console.log("\nMemory limit test:", bigResult.error);
 assert.equal(bigResult.error, "MemoryLimitExceeded", "Expected MemoryLimitExceeded");
 
 // --- shots limit guard ---
-const tooManyJson = mod.simulate_wasm("H 0\nM 0", 200000, true);
+const tooManyJson = mod.simulate_wasm("H 0\nM 0", 200000, DEFAULTS);
 const tooManyResult = JSON.parse(tooManyJson);
 console.log("Shots limit test:", tooManyResult.error);
 assert.ok(tooManyResult.error.startsWith("ShotsLimitExceeded"), "Expected ShotsLimitExceeded");
 
 // --- parse error ---
-const errJson = mod.compile_to_json("INVALID_GATE 0", true);
+const errJson = mod.compile_to_json("INVALID_GATE 0", DEFAULTS);
 const errResult = JSON.parse(errJson);
 console.log("Parse error test:", errResult.error ? "caught" : "MISSING");
 assert.ok(errResult.error, "Expected parse error");

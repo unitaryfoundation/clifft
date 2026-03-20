@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, useCallback } from "react";
-import type { CompileResult, SimulateResult, UccModule } from "../types";
+import type { CompileResult, SimulateResult, UccModule, PassInfo } from "../types";
 
 declare function createUccModule(opts?: {
   locateFile?: (path: string) => string;
@@ -32,9 +32,19 @@ function loadModule(): Promise<UccModule> {
   return modulePromise;
 }
 
+export interface PassConfig {
+  hir: string[];
+  bc: string[];
+}
+
+function passConfigToJson(config: PassConfig): string {
+  return JSON.stringify(config);
+}
+
 export function useUccWasm() {
   const moduleRef = useRef<UccModule | null>(null);
   const [status, setStatus] = useState<WasmStatus>("loading");
+  const [availablePasses, setAvailablePasses] = useState<PassInfo[]>([]);
 
   useEffect(() => {
     let cancelled = false;
@@ -43,6 +53,12 @@ export function useUccWasm() {
       .then((mod) => {
         if (!cancelled) {
           moduleRef.current = mod;
+          try {
+            const passes = JSON.parse(mod.get_available_passes()) as PassInfo[];
+            setAvailablePasses(passes);
+          } catch {
+            // Registry parse failure is non-fatal
+          }
           setStatus("ready");
         }
       })
@@ -56,10 +72,29 @@ export function useUccWasm() {
   }, []);
 
   const compile = useCallback(
-    (source: string, optimize: boolean): CompileResult | null => {
+    (source: string, passConfig: PassConfig): CompileResult | null => {
       if (!moduleRef.current) return null;
       try {
-        const json = moduleRef.current.compile_to_json(source, optimize);
+        const json = moduleRef.current.compile_to_json(
+          source,
+          passConfigToJson(passConfig),
+        );
+        return JSON.parse(json) as CompileResult;
+      } catch (e) {
+        return { error: e instanceof Error ? e.message : String(e) };
+      }
+    },
+    [],
+  );
+
+  const compileBaseline = useCallback(
+    (source: string): CompileResult | null => {
+      if (!moduleRef.current) return null;
+      try {
+        const json = moduleRef.current.compile_to_json(
+          source,
+          JSON.stringify({ hir: [], bc: [] }),
+        );
         return JSON.parse(json) as CompileResult;
       } catch (e) {
         return { error: e instanceof Error ? e.message : String(e) };
@@ -69,10 +104,14 @@ export function useUccWasm() {
   );
 
   const simulate = useCallback(
-    (source: string, shots: number, optimize: boolean): SimulateResult | null => {
+    (source: string, shots: number, passConfig: PassConfig): SimulateResult | null => {
       if (!moduleRef.current) return null;
       try {
-        const json = moduleRef.current.simulate_wasm(source, shots, optimize);
+        const json = moduleRef.current.simulate_wasm(
+          source,
+          shots,
+          passConfigToJson(passConfig),
+        );
         return JSON.parse(json) as SimulateResult;
       } catch (e) {
         return { error: e instanceof Error ? e.message : String(e) };
@@ -81,5 +120,5 @@ export function useUccWasm() {
     [],
   );
 
-  return { status, compile, simulate };
+  return { status, compile, compileBaseline, simulate, availablePasses };
 }

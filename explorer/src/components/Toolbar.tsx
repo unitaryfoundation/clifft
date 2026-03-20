@@ -1,14 +1,30 @@
 import { useCallback, useState, useRef, useEffect } from "react";
-import { Play, Share2, Loader2, HelpCircle, ChevronDown, Sun, Moon } from "lucide-react";
+import {
+  Play,
+  Share2,
+  Loader2,
+  HelpCircle,
+  ChevronDown,
+  Sun,
+  Moon,
+  Settings2,
+  Bookmark,
+  Clock,
+  Trash2,
+  Columns2,
+} from "lucide-react";
 import LZString from "lz-string";
-import type { WasmStatus } from "../hooks/useUccWasm";
+import type { WasmStatus, PassConfig } from "../hooks/useUccWasm";
 import type { Theme } from "../hooks/useTheme";
+import type { PassInfo } from "../types";
+import type { SavedCircuit } from "../hooks/useCircuitStorage";
 
 interface Props {
   wasmStatus: WasmStatus;
   source: string;
-  optimize: boolean;
-  onOptimizeChange: (v: boolean) => void;
+  passConfig: PassConfig;
+  onPassConfigChange: (config: PassConfig) => void;
+  availablePasses: PassInfo[];
   onSimulate: () => void;
   simulating: boolean;
   shots: number;
@@ -16,6 +32,12 @@ interface Props {
   onTourOpen: () => void;
   theme: Theme;
   onThemeToggle: () => void;
+  diffView: boolean;
+  onDiffViewChange: (v: boolean) => void;
+  savedCircuits: SavedCircuit[];
+  onSaveCircuit: (name: string, source: string) => void;
+  onLoadCircuit: (source: string) => void;
+  onDeleteCircuit: (id: string) => void;
 }
 
 const MAX_URL_LENGTH = 8000;
@@ -23,8 +45,9 @@ const MAX_URL_LENGTH = 8000;
 export function Toolbar({
   wasmStatus,
   source,
-  optimize,
-  onOptimizeChange,
+  passConfig,
+  onPassConfigChange,
+  availablePasses,
   onSimulate,
   simulating,
   shots,
@@ -32,10 +55,20 @@ export function Toolbar({
   onTourOpen,
   theme,
   onThemeToggle,
+  diffView,
+  onDiffViewChange,
+  savedCircuits,
+  onSaveCircuit,
+  onLoadCircuit,
+  onDeleteCircuit,
 }: Props) {
   const [copied, setCopied] = useState(false);
   const [shotsOpen, setShotsOpen] = useState(false);
+  const [passesOpen, setPassesOpen] = useState(false);
+  const [recentsOpen, setRecentsOpen] = useState(false);
   const shotsRef = useRef<HTMLDivElement>(null);
+  const passesRef = useRef<HTMLDivElement>(null);
+  const recentsRef = useRef<HTMLDivElement>(null);
 
   const buildShareUrl = useCallback(() => {
     const compressed = LZString.compressToEncodedURIComponent(source);
@@ -53,19 +86,61 @@ export function Toolbar({
     }
   };
 
-  // Close shots dropdown on outside click
+  const handleSave = () => {
+    const name = window.prompt(
+      "Save circuit as:",
+      `Circuit ${new Date().toLocaleString()}`,
+    );
+    if (name) {
+      onSaveCircuit(name, source);
+    }
+  };
+
+  // Close dropdowns on outside click
   useEffect(() => {
-    if (!shotsOpen) return;
+    if (!shotsOpen && !passesOpen && !recentsOpen) return;
     const handleClick = (e: MouseEvent) => {
-      if (shotsRef.current && !shotsRef.current.contains(e.target as Node)) {
+      if (shotsOpen && shotsRef.current && !shotsRef.current.contains(e.target as Node)) {
         setShotsOpen(false);
+      }
+      if (passesOpen && passesRef.current && !passesRef.current.contains(e.target as Node)) {
+        setPassesOpen(false);
+      }
+      if (recentsOpen && recentsRef.current && !recentsRef.current.contains(e.target as Node)) {
+        setRecentsOpen(false);
       }
     };
     document.addEventListener("mousedown", handleClick);
     return () => document.removeEventListener("mousedown", handleClick);
-  }, [shotsOpen]);
+  }, [shotsOpen, passesOpen, recentsOpen]);
 
-  // Approximate: source length correlates with URL length; exact check at share time
+  const togglePass = (name: string, kind: "hir" | "bytecode") => {
+    const key = kind === "hir" ? "hir" : "bc";
+    const current = passConfig[key];
+    const next = current.includes(name)
+      ? current.filter((n) => n !== name)
+      : [...current, name];
+    onPassConfigChange({ ...passConfig, [key]: next });
+  };
+
+  const selectDefaults = () => {
+    const hir = availablePasses
+      .filter((p) => p.kind === "hir" && p.default)
+      .map((p) => p.name);
+    const bc = availablePasses
+      .filter((p) => p.kind === "bytecode" && p.default)
+      .map((p) => p.name);
+    onPassConfigChange({ hir, bc });
+  };
+
+  const deselectAll = () => {
+    onPassConfigChange({ hir: [], bc: [] });
+  };
+
+  const hirPasses = availablePasses.filter((p) => p.kind === "hir");
+  const bcPasses = availablePasses.filter((p) => p.kind === "bytecode");
+  const totalEnabled = passConfig.hir.length + passConfig.bc.length;
+
   const canShare = source.length <= MAX_URL_LENGTH;
   const canSimulate = wasmStatus === "ready" && !simulating;
 
@@ -90,13 +165,69 @@ export function Toolbar({
         </span>
       </div>
       <div className="toolbar-right">
-        <label className="toolbar-toggle">
+        {/* Configure Passes */}
+        <div className="passes-group" ref={passesRef}>
+          <button
+            className="toolbar-btn"
+            onClick={() => setPassesOpen((v) => !v)}
+            title="Configure optimization passes"
+          >
+            <Settings2 size={14} />
+            Passes ({totalEnabled})
+          </button>
+          {passesOpen && (
+            <div className="passes-dropdown">
+              <div className="passes-actions">
+                <button className="passes-action" onClick={selectDefaults}>
+                  Defaults
+                </button>
+                <button className="passes-action" onClick={deselectAll}>
+                  None
+                </button>
+              </div>
+              {hirPasses.length > 0 && (
+                <>
+                  <div className="passes-section-label">HIR Passes</div>
+                  {hirPasses.map((p) => (
+                    <label key={p.name} className="passes-item">
+                      <input
+                        type="checkbox"
+                        checked={passConfig.hir.includes(p.name)}
+                        onChange={() => togglePass(p.name, "hir")}
+                      />
+                      <span>{p.name}</span>
+                    </label>
+                  ))}
+                </>
+              )}
+              {bcPasses.length > 0 && (
+                <>
+                  <div className="passes-section-label">Bytecode Passes</div>
+                  {bcPasses.map((p) => (
+                    <label key={p.name} className="passes-item">
+                      <input
+                        type="checkbox"
+                        checked={passConfig.bc.includes(p.name)}
+                        onChange={() => togglePass(p.name, "bytecode")}
+                      />
+                      <span>{p.name}</span>
+                    </label>
+                  ))}
+                </>
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* Diff View toggle */}
+        <label className="toolbar-toggle" title="Show diff between baseline and optimized">
           <input
             type="checkbox"
-            checked={optimize}
-            onChange={(e) => onOptimizeChange(e.target.checked)}
+            checked={diffView}
+            onChange={(e) => onDiffViewChange(e.target.checked)}
           />
-          Optimize
+          <Columns2 size={12} />
+          Diff
         </label>
 
         {/* Simulate button group with shots dropdown */}
@@ -154,6 +285,60 @@ export function Toolbar({
           )}
         </div>
 
+        {/* Save circuit */}
+        <button
+          className="toolbar-btn"
+          onClick={handleSave}
+          title="Save circuit to local storage"
+        >
+          <Bookmark size={14} />
+          Save
+        </button>
+
+        {/* Recents dropdown */}
+        <div className="recents-group" ref={recentsRef}>
+          <button
+            className="toolbar-btn"
+            onClick={() => setRecentsOpen((v) => !v)}
+            title="Recent saved circuits"
+            disabled={savedCircuits.length === 0}
+          >
+            <Clock size={14} />
+            Recents
+            {savedCircuits.length > 0 && (
+              <span className="recents-badge">{savedCircuits.length}</span>
+            )}
+          </button>
+          {recentsOpen && savedCircuits.length > 0 && (
+            <div className="recents-dropdown">
+              {savedCircuits.map((c) => (
+                <div key={c.id} className="recents-item">
+                  <button
+                    className="recents-item-name"
+                    onClick={() => {
+                      onLoadCircuit(c.source);
+                      setRecentsOpen(false);
+                    }}
+                    title={c.source.slice(0, 100)}
+                  >
+                    <span className="recents-item-label">{c.name}</span>
+                    <span className="recents-item-date">
+                      {new Date(c.timestamp).toLocaleDateString()}
+                    </span>
+                  </button>
+                  <button
+                    className="recents-item-delete"
+                    onClick={() => onDeleteCircuit(c.id)}
+                    title="Delete"
+                  >
+                    <Trash2 size={12} />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
         <button
           className="toolbar-btn"
           onClick={handleShare}
@@ -161,7 +346,7 @@ export function Toolbar({
           title={canShare ? "Copy shareable link" : "Circuit too long to share via URL"}
         >
           <Share2 size={14} />
-          {copied ? "Copied!" : "Share"}
+          {copied ? "Copied!" : "Share Circuit"}
         </button>
 
         <button

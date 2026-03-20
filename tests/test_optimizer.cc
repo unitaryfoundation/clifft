@@ -350,3 +350,42 @@ TEST_CASE("Peephole: PHASE_ROTATION demotes to Clifford and T gates", "[optimize
     REQUIRE(hir_tdag.ops[0].op_type() == OpType::T_GATE);
     REQUIRE(hir_tdag.ops[0].is_dagger() == true);
 }
+
+// --- Pass registry tripwire tests ---
+#include "ucc/optimizer/pass_factory.h"
+#include "ucc/optimizer/pass_registry.h"
+
+TEST_CASE("Pass registry: all entries resolve via factory") {
+    for (size_t i = 0; i < ucc::kNumRegisteredPasses; ++i) {
+        const auto& info = ucc::kRegisteredPasses[i];
+        if (info.kind == ucc::PassKind::HIR) {
+            auto pass = ucc::make_hir_pass(info.name);
+            REQUIRE(pass != nullptr);
+        } else {
+            auto pass = ucc::make_bytecode_pass(info.name);
+            REQUIRE(pass != nullptr);
+        }
+    }
+}
+
+TEST_CASE("Pass registry: default managers use registry") {
+    auto hpm = ucc::default_hir_pass_manager();
+    auto bpm = ucc::default_bytecode_pass_manager();
+
+    // Smoke test: run on a trivial circuit
+    auto circuit = ucc::parse("H 0\nCNOT 0 1\nM 0\nM 1");
+    auto hir = ucc::trace(circuit);
+    hpm.run(hir);
+    auto prog = ucc::lower(hir);
+    bpm.run(prog);
+    REQUIRE(prog.num_qubits == 2);
+}
+
+TEST_CASE("Pass registry: JSON round-trip is valid") {
+    std::string json = ucc::pass_registry_json();
+    REQUIRE(json.front() == '[');
+    REQUIRE(json.back() == ']');
+    REQUIRE(json.find("PeepholeFusionPass") != std::string::npos);
+    REQUIRE(json.find("SingleAxisFusionPass") != std::string::npos);
+    REQUIRE(json.find("RemoveNoisePass") != std::string::npos);
+}

@@ -13,6 +13,7 @@ add_library(ucc_core STATIC
     optimizer/hir_pass_manager.cc
     optimizer/commutation.cc
     optimizer/peephole.cc
+    optimizer/pass_factory.cc
     optimizer/remove_noise_pass.cc
     optimizer/statevector_squeeze_pass.cc
     backend/backend.cc

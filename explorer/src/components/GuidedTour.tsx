@@ -128,10 +128,12 @@ const STEPS: TourStep[] = [
   {
     title: "Sharing & Options",
     content:
-      "The `Share` button compresses your circuit into a URL you can send to anyone. " +
-      "They'll see your exact circuit when they open the link.\n\n" +
-      "The `Optimize` toggle controls whether the compiler's peephole pass manager " +
-      "runs. Turn it off to see the unoptimized bytecode.",
+      "The `Share Circuit` button compresses your circuit into a URL you can send to " +
+      "anyone. The `Save` button stores circuits in your browser's local storage, " +
+      "and `Recents` shows previously saved circuits.\n\n" +
+      "The `Passes` button lets you individually toggle each HIR and bytecode " +
+      "optimization pass. The `Diff` toggle shows a side-by-side comparison of " +
+      "unoptimized vs. optimized output with inline diff markers.",
   },
 ];
 

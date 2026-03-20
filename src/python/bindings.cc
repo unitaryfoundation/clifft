@@ -8,6 +8,7 @@
 #include "ucc/optimizer/hir_pass_manager.h"
 #include "ucc/optimizer/multi_gate_pass.h"
 #include "ucc/optimizer/noise_block_pass.h"
+#include "ucc/optimizer/pass_factory.h"
 #include "ucc/optimizer/peephole.h"
 #include "ucc/optimizer/remove_noise_pass.h"
 #include "ucc/optimizer/single_axis_fusion_pass.h"
@@ -458,13 +459,7 @@ NB_MODULE(_ucc_core, m) {
             nb::arg("hir"), "Run all passes on the HIR module in sequence.");
 
     m.def(
-        "default_hir_pass_manager",
-        []() {
-            ucc::HirPassManager pm;
-            pm.add_pass(std::make_unique<ucc::PeepholeFusionPass>());
-            pm.add_pass(std::make_unique<ucc::StatevectorSqueezePass>());
-            return pm;
-        },
+        "default_hir_pass_manager", []() { return ucc::default_hir_pass_manager(); },
         nb::rv_policy::move,
         "Return an HirPassManager pre-loaded with the standard optimization passes.");
 
@@ -521,17 +516,7 @@ NB_MODULE(_ucc_core, m) {
             nb::arg("program"), "Run all bytecode passes on the program in sequence.");
 
     m.def(
-        "default_bytecode_pass_manager",
-        []() {
-            ucc::BytecodePassManager bpm;
-            bpm.add_pass(std::make_unique<ucc::NoiseBlockPass>());
-            bpm.add_pass(std::make_unique<ucc::MultiGatePass>());
-            bpm.add_pass(std::make_unique<ucc::ExpandTPass>());
-            bpm.add_pass(std::make_unique<ucc::ExpandRotPass>());
-            bpm.add_pass(std::make_unique<ucc::SwapMeasPass>());
-            bpm.add_pass(std::make_unique<ucc::SingleAxisFusionPass>());
-            return bpm;
-        },
+        "default_bytecode_pass_manager", []() { return ucc::default_bytecode_pass_manager(); },
         nb::rv_policy::move,
         "Return a BytecodePassManager pre-loaded with the default passes:\n"
         "NoiseBlockPass, MultiGatePass, ExpandTPass, ExpandRotPass, SwapMeasPass,\n"

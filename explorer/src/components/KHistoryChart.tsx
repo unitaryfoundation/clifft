@@ -7,24 +7,34 @@ import {
   Tooltip,
   ReferenceLine,
   ResponsiveContainer,
+  Line,
 } from "recharts";
 import type { ChartColors } from "../hooks/useTheme";
 
 interface Props {
   history: number[];
+  baselineHistory?: number[];
   highlightPC: number | null;
   colors: ChartColors;
 }
 
 const MEMORY_LIMIT_K = 20;
 
-export function KHistoryChart({ history, highlightPC, colors }: Props) {
+export function KHistoryChart({ history, baselineHistory, highlightPC, colors }: Props) {
   if (history.length === 0) {
     return <div className="chart-placeholder">No bytecode yet</div>;
   }
 
-  const data = history.map((k, i) => ({ pc: i, k }));
-  const maxK = Math.max(...history, MEMORY_LIMIT_K + 2);
+  // Build data array; baseline may have different length so pad with undefined
+  const maxLen = Math.max(history.length, baselineHistory?.length ?? 0);
+  const data = Array.from({ length: maxLen }, (_, i) => ({
+    pc: i,
+    k: i < history.length ? history[i] : undefined,
+    baseline: baselineHistory && i < baselineHistory.length ? baselineHistory[i] : undefined,
+  }));
+
+  const allVals = [...history, ...(baselineHistory ?? [])];
+  const maxK = Math.max(...allVals, MEMORY_LIMIT_K + 2);
 
   return (
     <ResponsiveContainer width="100%" height="100%">
@@ -45,8 +55,20 @@ export function KHistoryChart({ history, highlightPC, colors }: Props) {
         <Tooltip
           contentStyle={{ background: colors.tooltipBg, border: `1px solid ${colors.tooltipBorder}`, fontSize: 12 }}
           labelFormatter={(pc) => `PC: ${pc}`}
-          formatter={(value) => [`k = ${value}`, "Active Dimensions"]}
         />
+        {baselineHistory && baselineHistory.length > 0 && (
+          <Line
+            type="stepAfter"
+            dataKey="baseline"
+            stroke={colors.axis}
+            strokeWidth={1.5}
+            strokeDasharray="6 3"
+            dot={false}
+            isAnimationActive={false}
+            name="Baseline k"
+            connectNulls={false}
+          />
+        )}
         <Area
           type="stepAfter"
           dataKey="k"
@@ -56,6 +78,7 @@ export function KHistoryChart({ history, highlightPC, colors }: Props) {
           strokeWidth={2}
           dot={false}
           isAnimationActive={false}
+          name="Optimized k"
         />
         <ReferenceLine
           y={MEMORY_LIMIT_K}

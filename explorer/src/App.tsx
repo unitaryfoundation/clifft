@@ -1,11 +1,13 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { Allotment } from "allotment";
 import "allotment/dist/style.css";
-import Editor, { type BeforeMount, type OnMount } from "@monaco-editor/react";
+import Editor, { DiffEditor, type BeforeMount, type OnMount } from "@monaco-editor/react";
 import type { editor as monacoEditor } from "monaco-editor";
 import LZString from "lz-string";
 import { useUccWasm } from "./hooks/useUccWasm";
+import type { PassConfig } from "./hooks/useUccWasm";
 import { useTheme } from "./hooks/useTheme";
+import { useCircuitStorage, saveDraft, loadDraft } from "./hooks/useCircuitStorage";
 import { Toolbar } from "./components/Toolbar";
 import { KHistoryChart } from "./components/KHistoryChart";
 import { HistogramChart } from "./components/HistogramChart";
@@ -37,6 +39,8 @@ function getInitialSource(): string {
       // ignore bad encoded data
     }
   }
+  const draft = loadDraft();
+  if (draft) return draft;
   return DEFAULT_SOURCE;
 }
 
@@ -44,14 +48,27 @@ function getInitialSource(): string {
 const HIGHLIGHT_CLASS = "source-map-highlight";
 
 export default function App() {
-  const { status: wasmStatus, compile, simulate } = useUccWasm();
+  const { status: wasmStatus, compile, compileBaseline, simulate, availablePasses } = useUccWasm();
   const { theme, toggle: toggleTheme, chartColors } = useTheme();
+  const { saved, saveCircuit, deleteCircuit } = useCircuitStorage();
   const monacoTheme = theme === "dark" ? "vs-dark" : "vs";
   const rulerColor = theme === "dark" ? "#4fc3f7" : "#0277bd";
 
   const [source, setSource] = useState(getInitialSource);
-  const [optimize, setOptimize] = useState(true);
+  const defaultPassConfig = useMemo<PassConfig>(() => {
+    if (availablePasses.length === 0) return { hir: [], bc: [] };
+    return {
+      hir: availablePasses.filter((p) => p.kind === "hir" && p.default).map((p) => p.name),
+      bc: availablePasses.filter((p) => p.kind === "bytecode" && p.default).map((p) => p.name),
+    };
+  }, [availablePasses]);
+  const [userPassConfig, setUserPassConfig] = useState<PassConfig | null>(null);
+  const passConfig = userPassConfig ?? defaultPassConfig;
+  const setPassConfig = useCallback((config: PassConfig) => setUserPassConfig(config), []);
+  const passConfigReady = availablePasses.length > 0;
   const [compileResult, setCompileResult] = useState<CompileResult | null>(null);
+  const [baselineResult, setBaselineResult] = useState<CompileResult | null>(null);
+  const [diffView, setDiffViewRaw] = useState(false);
   const [simResult, setSimResult] = useState<SimulateResult | null>(null);
   const [simElapsedMs, setSimElapsedMs] = useState<number | null>(null);
   const [simulating, setSimulating] = useState(false);
@@ -88,17 +105,38 @@ export default function App() {
   // --- Debounced compilation ---
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // Callback: toggle diff view and eagerly compile baseline when turning on
+  const setDiffView = useCallback(
+    (on: boolean) => {
+      setDiffViewRaw(on);
+      if (on && wasmStatus === "ready") {
+        setBaselineResult(compileBaseline(source));
+      }
+    },
+    [wasmStatus, compileBaseline, source],
+  );
+
   useEffect(() => {
-    if (wasmStatus !== "ready") return;
+    if (wasmStatus !== "ready" || !passConfigReady) return;
     if (timerRef.current) clearTimeout(timerRef.current);
     timerRef.current = setTimeout(() => {
-      const result = compile(source, optimize);
+      const result = compile(source, passConfig);
       setCompileResult(result);
+
+      // Save draft on successful compile
+      if (result && isCompileSuccess(result)) {
+        saveDraft(source);
+      }
+
+      // Lazy baseline: only compile when diff view is active
+      if (diffView) {
+        setBaselineResult(compileBaseline(source));
+      }
     }, DEBOUNCE_MS);
     return () => {
       if (timerRef.current) clearTimeout(timerRef.current);
     };
-  }, [source, optimize, wasmStatus, compile]);
+  }, [source, passConfig, passConfigReady, wasmStatus, compile, compileBaseline, diffView]);
 
   // Keep ref in sync for cursor handlers that close over mount-time state
   useEffect(() => {
@@ -123,6 +161,8 @@ export default function App() {
 
   // --- Update read-only editors when compile result changes ---
   useEffect(() => {
+    // Skip editor updates when diff view is active (DiffEditor manages its own content)
+    if (diffView) return;
     if (!compileResult || !isCompileSuccess(compileResult)) {
       const errorText = compileResult?.error ? `; Error: ${compileResult.error}` : "";
       updateReadOnlyEditor(hirEditorRef.current, errorText);
@@ -131,10 +171,17 @@ export default function App() {
     }
     updateReadOnlyEditor(hirEditorRef.current, compileResult.hir_ops.join("\n"));
     updateReadOnlyEditor(bcEditorRef.current, compileResult.bytecode.join("\n"));
-  }, [compileResult, updateReadOnlyEditor]);
+  }, [compileResult, updateReadOnlyEditor, diffView]);
 
-  // --- Bidirectional highlighting ---
+  // --- Bidirectional highlighting (only in non-diff mode) ---
   useEffect(() => {
+    if (diffView) {
+      hirDecosRef.current?.clear();
+      bcDecosRef.current?.clear();
+      bcPcDecosRef.current?.clear();
+      sourceDecosRef.current?.clear();
+      return;
+    }
     if (!compileResult || !isCompileSuccess(compileResult) || cursorSourceLine === null) {
       hirDecosRef.current?.clear();
       bcDecosRef.current?.clear();
@@ -180,7 +227,6 @@ export default function App() {
       })),
     );
 
-    // Blue scrollbar markers on bytecode (consistent with source/HIR)
     bcDecosRef.current?.set(
       bcLines.map((ln) => ({
         range: { startLineNumber: ln, startColumn: 1, endLineNumber: ln, endColumn: 1 },
@@ -192,7 +238,6 @@ export default function App() {
       })),
     );
 
-    // Yellow gutter glyph on the first matching bytecode line (PC for k-history)
     if (bcLines.length > 0) {
       bcPcDecosRef.current?.set([
         {
@@ -210,7 +255,7 @@ export default function App() {
     } else {
       bcPcDecosRef.current?.clear();
     }
-  }, [cursorSourceLine, compileResult, rulerColor]);
+  }, [cursorSourceLine, compileResult, rulerColor, diffView]);
 
   // --- Editor mount handlers ---
   const onSourceMount: OnMount = (editor) => {
@@ -229,7 +274,6 @@ export default function App() {
       if (!cr || !isCompileSuccess(cr)) return;
       const hirIdx = e.position.lineNumber - 1;
       const srcLines = cr.hir_source_map[hirIdx];
-      // Filter out sentinel 0 values (Monaco lines are 1-based)
       const validLine = srcLines?.find((l: number) => l >= 1);
       if (validLine !== undefined) {
         setCursorSourceLine(validLine);
@@ -256,33 +300,64 @@ export default function App() {
   // --- Simulation ---
   const handleSimulate = useCallback(() => {
     setSimulating(true);
-    // Defer to next frame so the UI updates before blocking on Wasm
     requestAnimationFrame(() => {
       const t0 = performance.now();
-      const result = simulate(source, shots, optimize);
+      const result = simulate(source, shots, passConfig);
       const elapsed = performance.now() - t0;
       setSimResult(result);
       setSimElapsedMs(elapsed);
       setSimulating(false);
     });
-  }, [source, shots, optimize, simulate]);
+  }, [source, shots, passConfig, simulate]);
 
   const handleTourClose = useCallback(() => {
     setTourOpen(false);
     localStorage.setItem(TOUR_SEEN_KEY, "1");
   }, []);
 
+  const handleLoadCircuit = useCallback((circuitSource: string) => {
+    setSource(circuitSource);
+    if (sourceEditorRef.current) {
+      sourceEditorRef.current.setValue(circuitSource);
+    }
+  }, []);
+
   // --- Stats bar ---
   const stats: CompileSuccess | null =
     compileResult && isCompileSuccess(compileResult) ? compileResult : null;
+  const baselineStats: CompileSuccess | null =
+    baselineResult && isCompileSuccess(baselineResult) ? baselineResult : null;
+
+  // Format a stat with optional before->after arrow (only in diff mode)
+  const formatStat = (label: string, optimized: number, baseline: number | undefined) => {
+    if (diffView && baseline !== undefined && baseline !== optimized) {
+      return (
+        <span key={label}>
+          {label}: {baseline} {"\u2192"} {optimized}
+        </span>
+      );
+    }
+    return (
+      <span key={label}>
+        {label}: {optimized}
+      </span>
+    );
+  };
+
+  // Diff content for DiffEditor
+  const hirBaseline = baselineStats ? baselineStats.hir_ops.join("\n") : "";
+  const hirOptimized = stats ? stats.hir_ops.join("\n") : "";
+  const bcBaseline = baselineStats ? baselineStats.bytecode.join("\n") : "";
+  const bcOptimized = stats ? stats.bytecode.join("\n") : "";
 
   return (
     <div className="app">
       <Toolbar
         wasmStatus={wasmStatus}
         source={source}
-        optimize={optimize}
-        onOptimizeChange={setOptimize}
+        passConfig={passConfig}
+        onPassConfigChange={setPassConfig}
+        availablePasses={availablePasses}
         onSimulate={handleSimulate}
         simulating={simulating}
         shots={shots}
@@ -290,16 +365,22 @@ export default function App() {
         onTourOpen={() => setTourOpen(true)}
         theme={theme}
         onThemeToggle={toggleTheme}
+        diffView={diffView}
+        onDiffViewChange={setDiffView}
+        savedCircuits={saved}
+        onSaveCircuit={saveCircuit}
+        onLoadCircuit={handleLoadCircuit}
+        onDeleteCircuit={deleteCircuit}
       />
 
       {stats && (
         <div className="stats-bar">
-          <span>Qubits: {stats.num_qubits}</span>
-          <span>Peak k: {stats.peak_rank}</span>
-          <span>T gates: {stats.num_t_gates}</span>
-          <span>Measurements: {stats.num_measurements}</span>
-          <span>HIR ops: {stats.hir_ops.length}</span>
-          <span>Bytecode: {stats.bytecode.length}</span>
+          {formatStat("Qubits", stats.num_qubits, baselineStats?.num_qubits)}
+          {formatStat("Peak k", stats.peak_rank, baselineStats?.peak_rank)}
+          {formatStat("T gates", stats.num_t_gates, baselineStats?.num_t_gates)}
+          {formatStat("Measurements", stats.num_measurements, baselineStats?.num_measurements)}
+          {formatStat("HIR ops", stats.hir_ops.length, baselineStats?.hir_ops.length)}
+          {formatStat("Bytecode", stats.bytecode.length, baselineStats?.bytecode.length)}
         </div>
       )}
 
@@ -331,47 +412,89 @@ export default function App() {
               </Allotment.Pane>
               <Allotment.Pane>
                 <div className="editor-pane">
-                  <div className="editor-label">HIR (Heisenberg IR)</div>
-                  <Editor
-                    defaultLanguage="ucc-hir"
-                    defaultValue=""
-                    theme={monacoTheme}
-                    beforeMount={handleBeforeMount}
-                    onMount={onHirMount}
-                    options={{
-                      readOnly: true,
-                      minimap: { enabled: false },
-                      fontSize: 13,
-                      lineNumbers: "on",
-                      scrollBeyondLastLine: false,
-                      wordWrap: "off",
-                      automaticLayout: true,
-                      domReadOnly: true,
-                    }}
-                  />
+                  <div className="editor-label">
+                    HIR (Heisenberg IR)
+                    {diffView && <span className="editor-label-badge">DIFF</span>}
+                  </div>
+                  {diffView ? (
+                    <DiffEditor
+                      original={hirBaseline}
+                      modified={hirOptimized}
+                      language="ucc-hir"
+                      theme={monacoTheme}
+                      beforeMount={handleBeforeMount}
+                      options={{
+                        readOnly: true,
+                        minimap: { enabled: false },
+                        fontSize: 13,
+                        scrollBeyondLastLine: false,
+                        automaticLayout: true,
+                        renderSideBySide: false,
+                      }}
+                    />
+                  ) : (
+                    <Editor
+                      defaultLanguage="ucc-hir"
+                      defaultValue=""
+                      theme={monacoTheme}
+                      beforeMount={handleBeforeMount}
+                      onMount={onHirMount}
+                      options={{
+                        readOnly: true,
+                        minimap: { enabled: false },
+                        fontSize: 13,
+                        lineNumbers: "on",
+                        scrollBeyondLastLine: false,
+                        wordWrap: "off",
+                        automaticLayout: true,
+                        domReadOnly: true,
+                      }}
+                    />
+                  )}
                 </div>
               </Allotment.Pane>
               <Allotment.Pane>
                 <div className="editor-pane">
-                  <div className="editor-label">VM Bytecode (RISC)</div>
-                  <Editor
-                    defaultLanguage="ucc-bytecode"
-                    defaultValue=""
-                    theme={monacoTheme}
-                    beforeMount={handleBeforeMount}
-                    onMount={onBcMount}
-                    options={{
-                      readOnly: true,
-                      minimap: { enabled: false },
-                      fontSize: 13,
-                      lineNumbers: "on",
-                      scrollBeyondLastLine: false,
-                      wordWrap: "off",
-                      automaticLayout: true,
-                      domReadOnly: true,
-                      glyphMargin: true,
-                    }}
-                  />
+                  <div className="editor-label">
+                    VM Bytecode (RISC)
+                    {diffView && <span className="editor-label-badge">DIFF</span>}
+                  </div>
+                  {diffView ? (
+                    <DiffEditor
+                      original={bcBaseline}
+                      modified={bcOptimized}
+                      language="ucc-bytecode"
+                      theme={monacoTheme}
+                      beforeMount={handleBeforeMount}
+                      options={{
+                        readOnly: true,
+                        minimap: { enabled: false },
+                        fontSize: 13,
+                        scrollBeyondLastLine: false,
+                        automaticLayout: true,
+                        renderSideBySide: false,
+                      }}
+                    />
+                  ) : (
+                    <Editor
+                      defaultLanguage="ucc-bytecode"
+                      defaultValue=""
+                      theme={monacoTheme}
+                      beforeMount={handleBeforeMount}
+                      onMount={onBcMount}
+                      options={{
+                        readOnly: true,
+                        minimap: { enabled: false },
+                        fontSize: 13,
+                        lineNumbers: "on",
+                        scrollBeyondLastLine: false,
+                        wordWrap: "off",
+                        automaticLayout: true,
+                        domReadOnly: true,
+                        glyphMargin: true,
+                      }}
+                    />
+                  )}
                 </div>
               </Allotment.Pane>
             </Allotment>
@@ -386,6 +509,11 @@ export default function App() {
                   <div className="chart-container">
                     <KHistoryChart
                       history={stats?.active_k_history ?? []}
+                      baselineHistory={
+                        diffView && baselineStats
+                          ? baselineStats.active_k_history
+                          : undefined
+                      }
                       highlightPC={highlightPC}
                       colors={chartColors}
                     />
