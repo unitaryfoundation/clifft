@@ -129,6 +129,65 @@ static inline void exec_array_cnot(SchrodingerState& state, uint16_t c, uint16_t
     {
         uint16_t lo = std::min(c, t);
         uint16_t hi = std::max(c, t);
+
+        if (lo == 0 && hi == 1 && state.active_k >= kMinRankFor3DLoop) {
+            // Both axes in bottom 2 bits. In register [C0,C1,C2,C3]:
+            //   CNOT(0,1): control=axis0, swap C1<->C3 (|01> <-> |11>)
+            //   CNOT(1,0): control=axis1, swap C2<->C3 (|10> <-> |11>)
+            __m512i perm = (c == 0) ? _mm512_setr_epi64(0, 1, 6, 7, 4, 5, 2, 3)
+                                    : _mm512_setr_epi64(0, 1, 2, 3, 6, 7, 4, 5);
+            double* d = reinterpret_cast<double*>(state.v());
+            uint64_t total = 1ULL << state.active_k;
+
+            for (uint64_t i = 0; i < total; i += 4) {
+                double* p = d + (i << 1);
+                __m512d val = _mm512_load_pd(p);
+                _mm512_store_pd(p, _mm512_permutexvar_pd(perm, val));
+            }
+            exec_frame_cnot(state, c, t);
+            return;
+        }
+
+        if (lo <= 1 && hi >= 2 && state.active_k >= kMinRankFor3DLoop) {
+            uint64_t step_hi = 1ULL << hi;
+            uint64_t total = 1ULL << state.active_k;
+            double* d = reinterpret_cast<double*>(state.v());
+
+            if (c == hi) {
+                // Control is the big axis. In the upper half (control=1),
+                // swap the lo-bit pairs in each register.
+                __m512i perm = (lo == 0) ? _mm512_setr_epi64(2, 3, 0, 1, 6, 7, 4, 5)
+                                         : _mm512_setr_epi64(4, 5, 6, 7, 0, 1, 2, 3);
+                for (uint64_t outer = 0; outer < total; outer += 2 * step_hi) {
+                    double* q1 = d + (outer + step_hi) * 2;
+                    for (uint64_t k = 0; k < step_hi; k += 4) {
+                        double* p = q1 + k * 2;
+                        _mm512_store_pd(p, _mm512_permutexvar_pd(perm, _mm512_load_pd(p)));
+                    }
+                }
+            } else {
+                // Control is the small axis. Swap lo-bit-set elements
+                // between lower half (bit_hi=0) and upper half (bit_hi=1).
+                // lo=0: swap odd complex slots; lo=1: swap upper 256 bits.
+                __mmask8 swap_mask = (lo == 0) ? __mmask8(0xCC) : __mmask8(0xF0);
+                for (uint64_t outer = 0; outer < total; outer += 2 * step_hi) {
+                    double* q0 = d + outer * 2;
+                    double* q1 = d + (outer + step_hi) * 2;
+                    for (uint64_t k = 0; k < step_hi; k += 4) {
+                        double* p0 = q0 + k * 2;
+                        double* p1 = q1 + k * 2;
+                        __m512d v0 = _mm512_load_pd(p0);
+                        __m512d v1 = _mm512_load_pd(p1);
+                        // Swap only the lanes where lo-bit is set.
+                        _mm512_store_pd(p0, _mm512_mask_blend_pd(swap_mask, v0, v1));
+                        _mm512_store_pd(p1, _mm512_mask_blend_pd(swap_mask, v1, v0));
+                    }
+                }
+            }
+            exec_frame_cnot(state, c, t);
+            return;
+        }
+
         if (lo >= 2 && state.active_k >= kMinRankFor3DLoop) {
             uint64_t step_lo = 1ULL << lo;
             uint64_t step_hi = 1ULL << hi;
@@ -213,6 +272,50 @@ static inline void exec_array_cz(SchrodingerState& state, uint16_t c, uint16_t t
     {
         uint16_t lo = std::min(c, t);
         uint16_t hi = std::max(c, t);
+
+        if (lo == 0 && hi == 1 && state.active_k >= kMinRankFor3DLoop) {
+            // Both axes in the bottom 2 bits: |11> is C3 in each group of 4.
+            // Negate only lanes 6,7 (C3's real,imag) via masked XOR.
+            double* d = reinterpret_cast<double*>(state.v());
+            uint64_t total = 1ULL << state.active_k;
+            __m512d sign_mask = _mm512_set1_pd(-0.0);
+            const __mmask8 mask_11 = 0xC0;  // bits: 11000000 = lanes 6,7
+
+            for (uint64_t i = 0; i < total; i += 4) {
+                double* p = d + (i << 1);
+                __m512d val = _mm512_load_pd(p);
+                _mm512_store_pd(p, _mm512_mask_xor_pd(val, mask_11, val, sign_mask));
+            }
+            exec_frame_cz(state, c, t);
+            return;
+        }
+
+        if (lo <= 1 && hi >= 2 && state.active_k >= kMinRankFor3DLoop) {
+            // Mixed case: one axis in {0,1}, the other >= 2.
+            // Negate |11> elements in the upper half (bit_hi set).
+            // When lo=0: |11> = odd complex indices in upper half.
+            // When lo=1: |11> = upper pair (C2,C3) of each 4-element group in upper half.
+            uint64_t step_hi = 1ULL << hi;
+            uint64_t total = 1ULL << state.active_k;
+            double* d = reinterpret_cast<double*>(state.v());
+            __m512d sign_mask = _mm512_set1_pd(-0.0);
+            // Negate only elements where lo-bit is set:
+            // lo=0: odd complex slots (C1,C3) -> lanes 2,3,6,7
+            // lo=1: upper half of register (C2,C3) -> lanes 4,5,6,7
+            __mmask8 neg_mask = (lo == 0) ? __mmask8(0xCC) : __mmask8(0xF0);
+
+            for (uint64_t outer = 0; outer < total; outer += 2 * step_hi) {
+                double* q1 = d + (outer + step_hi) * 2;
+                for (uint64_t k = 0; k < step_hi; k += 4) {
+                    double* p = q1 + k * 2;
+                    __m512d val = _mm512_load_pd(p);
+                    _mm512_store_pd(p, _mm512_mask_xor_pd(val, neg_mask, val, sign_mask));
+                }
+            }
+            exec_frame_cz(state, c, t);
+            return;
+        }
+
         if (lo >= 2 && state.active_k >= kMinRankFor3DLoop) {
             uint64_t step_lo = 1ULL << lo;
             uint64_t step_hi = 1ULL << hi;
@@ -291,6 +394,22 @@ static inline void exec_array_swap(SchrodingerState& state, uint16_t a, uint16_t
     {
         uint16_t lo = std::min(a, b);
         uint16_t hi = std::max(a, b);
+
+        if (lo == 0 && hi == 1 && state.active_k >= kMinRankFor3DLoop) {
+            // Swap |01> (C1) and |10> (C2) in each group of 4 complex values.
+            const __m512i perm = _mm512_setr_epi64(0, 1, 4, 5, 2, 3, 6, 7);
+            double* d = reinterpret_cast<double*>(state.v());
+            uint64_t total = 1ULL << state.active_k;
+
+            for (uint64_t i = 0; i < total; i += 4) {
+                double* p = d + (i << 1);
+                __m512d val = _mm512_load_pd(p);
+                _mm512_store_pd(p, _mm512_permutexvar_pd(perm, val));
+            }
+            exec_frame_swap(state, a, b);
+            return;
+        }
+
         if (lo >= 2 && state.active_k >= kMinRankFor3DLoop) {
             uint64_t step_lo = 1ULL << lo;
             uint64_t step_hi = 1ULL << hi;
@@ -532,16 +651,71 @@ static inline void exec_array_h(SchrodingerState& state, uint16_t v) {
     auto* __restrict arr = state.v();
 
 #if defined(__AVX512F__) && defined(__AVX512DQ__)
-    if (v >= 2 && state.active_k >= kMinRankFor3DLoop) {
-        uint64_t step = v_bit;
+    if (state.active_k >= kMinRankFor3DLoop) {
+        double* d = reinterpret_cast<double*>(arr);
         uint64_t total = 1ULL << state.active_k;
         __m512d inv_sqrt2 = _mm512_set1_pd(kInvSqrt2);
-        double* d = reinterpret_cast<double*>(arr);
 
+        if (v == 0) {
+            // Axis 0: butterfly between adjacent complex pairs.
+            // [C0,C1,C2,C3] -> C0'=(C0+C1)/sqrt2, C1'=(C0-C1)/sqrt2, etc.
+            const __m512i swap_idx = _mm512_setr_epi64(2, 3, 0, 1, 6, 7, 4, 5);
+
+            for (uint64_t i = 0; i < total; i += 4) {
+                double* p = d + (i << 1);
+                __m512d val = _mm512_load_pd(p);
+                __m512d swp = _mm512_permutexvar_pd(swap_idx, val);
+                __m512d sum = _mm512_mul_pd(_mm512_add_pd(val, swp), inv_sqrt2);
+                __m512d dif = _mm512_mul_pd(_mm512_sub_pd(swp, val), inv_sqrt2);
+                // Even complex slots (C0,C2) get (a+b), odd (C1,C3) get (a-b).
+                // dif = (swp-val)/sqrt2: at odd slots where swp holds a and val holds b,
+                // this yields (a-b)/sqrt2 as required by the Hadamard.
+                const __mmask8 blend = 0xCC;  // bits: 11001100
+                _mm512_store_pd(p, _mm512_mask_blend_pd(blend, sum, dif));
+            }
+            exec_frame_h(state, v);
+            return;
+        }
+
+        if (v == 1) {
+            // Axis 1: butterfly between lower and upper 256-bit halves.
+            // [C0,C1,C2,C3] -> lower'=(lower+upper)/sqrt2, upper'=(lower-upper)/sqrt2
+            const __m512i swap_idx = _mm512_setr_epi64(4, 5, 6, 7, 0, 1, 2, 3);
+
+            for (uint64_t i = 0; i < total; i += 4) {
+                double* p = d + (i << 1);
+                __m512d val = _mm512_load_pd(p);
+                __m512d swp = _mm512_permutexvar_pd(swap_idx, val);
+                __m512d sum = _mm512_mul_pd(_mm512_add_pd(val, swp), inv_sqrt2);
+                __m512d dif = _mm512_mul_pd(_mm512_sub_pd(swp, val), inv_sqrt2);
+                // dif = (swp-val)/sqrt2: at upper half where swp holds the |0> amp
+                // and val holds the |1> amp, this yields (a-b)/sqrt2.
+                const __mmask8 blend = 0xF0;  // bits: 11110000
+                _mm512_store_pd(p, _mm512_mask_blend_pd(blend, sum, dif));
+            }
+            exec_frame_h(state, v);
+            return;
+        }
+
+        // Axis >= 2: structured stride loop with 2x unrolling.
+        uint64_t step = v_bit;
         for (uint64_t outer = 0; outer < total; outer += 2 * step) {
             double* q0 = d + outer * 2;
             double* q1 = d + (outer + step) * 2;
-            for (uint64_t k = 0; k < step; k += 4) {
+            uint64_t k = 0;
+            for (; k + 8 <= step; k += 8) {
+                uint64_t off0 = k * 2;
+                uint64_t off1 = (k + 4) * 2;
+                __m512d a0 = _mm512_load_pd(q0 + off0);
+                __m512d b0 = _mm512_load_pd(q1 + off0);
+                __m512d a1 = _mm512_load_pd(q0 + off1);
+                __m512d b1 = _mm512_load_pd(q1 + off1);
+                _mm512_store_pd(q0 + off0, _mm512_mul_pd(_mm512_add_pd(a0, b0), inv_sqrt2));
+                _mm512_store_pd(q1 + off0, _mm512_mul_pd(_mm512_sub_pd(a0, b0), inv_sqrt2));
+                _mm512_store_pd(q0 + off1, _mm512_mul_pd(_mm512_add_pd(a1, b1), inv_sqrt2));
+                _mm512_store_pd(q1 + off1, _mm512_mul_pd(_mm512_sub_pd(a1, b1), inv_sqrt2));
+            }
+            for (; k < step; k += 4) {
                 uint64_t off = k * 2;
                 __m512d a = _mm512_load_pd(q0 + off);
                 __m512d b = _mm512_load_pd(q1 + off);
@@ -549,7 +723,6 @@ static inline void exec_array_h(SchrodingerState& state, uint16_t v) {
                 _mm512_store_pd(q1 + off, _mm512_mul_pd(_mm512_sub_pd(a, b), inv_sqrt2));
             }
         }
-
         exec_frame_h(state, v);
         return;
     }
@@ -618,16 +791,62 @@ static inline void apply_phase_waterfall(SchrodingerState& state, uint16_t v, do
     auto* __restrict arr = state.v();
 
 #if defined(__AVX512F__) && defined(__AVX512DQ__)
-    if (v >= 2 && state.active_k >= kMinRankFor3DLoop) {
-        uint64_t step = v_bit;
+    if (state.active_k >= kMinRankFor3DLoop) {
+        double* d = reinterpret_cast<double*>(arr);
         uint64_t total = 1ULL << state.active_k;
+
+        if (v == 0) {
+            // Axis 0: odd complex elements (index 1,3,5,...) get the phase.
+            // In a 512-bit register [C0, C1, C2, C3], apply phase to C1,C3
+            // and leave C0,C2 unchanged. Use blend after cmul.
+            __m512d s_re = _mm512_set1_pd(phase_re);
+            __m512d s_im = _mm512_set1_pd(phase_im);
+            // Blend mask: keep lanes 0-1 (C0) and 4-5 (C2) from original,
+            // take lanes 2-3 (C1) and 6-7 (C3) from the phase-multiplied version.
+            const __mmask8 blend = 0xCC;  // bits: 11001100
+
+            for (uint64_t i = 0; i < total; i += 4) {
+                double* p = d + (i << 1);
+                __m512d val = _mm512_load_pd(p);
+                __m512d phased = cmul_m512d(val, s_re, s_im);
+                _mm512_store_pd(p, _mm512_mask_blend_pd(blend, val, phased));
+            }
+            return;
+        }
+
+        if (v == 1) {
+            // Axis 1: upper-half complex elements (index 2,3 in each group
+            // of 4) get the phase. In [C0, C1, C2, C3], apply to C2,C3.
+            __m512d s_re = _mm512_set1_pd(phase_re);
+            __m512d s_im = _mm512_set1_pd(phase_im);
+            const __mmask8 blend = 0xF0;  // bits: 11110000
+
+            for (uint64_t i = 0; i < total; i += 4) {
+                double* p = d + (i << 1);
+                __m512d val = _mm512_load_pd(p);
+                __m512d phased = cmul_m512d(val, s_re, s_im);
+                _mm512_store_pd(p, _mm512_mask_blend_pd(blend, val, phased));
+            }
+            return;
+        }
+
+        // Axis >= 2: structured stride loop with 2x unrolling.
+        uint64_t step = v_bit;
         __m512d s_re = _mm512_set1_pd(phase_re);
         __m512d s_im = _mm512_set1_pd(phase_im);
-        double* d = reinterpret_cast<double*>(arr);
 
         for (uint64_t outer = 0; outer < total; outer += 2 * step) {
             double* base = d + (outer + step) * 2;
-            for (uint64_t k = 0; k < step; k += 4) {
+            uint64_t k = 0;
+            for (; k + 8 <= step; k += 8) {
+                uint64_t off0 = k * 2;
+                uint64_t off1 = (k + 4) * 2;
+                __m512d v0 = _mm512_load_pd(base + off0);
+                __m512d v1 = _mm512_load_pd(base + off1);
+                _mm512_store_pd(base + off0, cmul_m512d(v0, s_re, s_im));
+                _mm512_store_pd(base + off1, cmul_m512d(v1, s_re, s_im));
+            }
+            for (; k < step; k += 4) {
                 uint64_t off = k * 2;
                 __m512d val = _mm512_load_pd(base + off);
                 _mm512_store_pd(base + off, cmul_m512d(val, s_re, s_im));
@@ -923,12 +1142,72 @@ static inline void exec_array_u2(SchrodingerState& state, const ConstantPool& po
     const std::complex<double> m11 = mat[3];
 
 #if defined(__AVX512F__) && defined(__AVX512DQ__)
-    // AVX-512 path for axis >= 2: process 4 butterflies per iteration.
-    // When axis >= 2, the gap between A and B branches is >= 4 complex doubles,
-    // so 4 consecutive A values and 4 consecutive B values each fill a __m512d.
-    if (axis >= 2 && state.active_k >= kMinRankFor3DLoop) {
+    if (state.active_k >= kMinRankFor3DLoop) {
         auto* __restrict arr_dbl = reinterpret_cast<double*>(arr);
 
+        if (axis == 0) {
+            // Axis 0: |0> and |1> amplitudes are adjacent complex pairs.
+            // A 512-bit register holds [C0, C1, C2, C3] where C0/C2 are
+            // |0>-branch and C1/C3 are |1>-branch. Swap adjacent pairs
+            // via permutexvar to get the cross-term, then FMA both halves.
+            const __m512i swap_idx = _mm512_setr_epi64(2, 3, 0, 1, 6, 7, 4, 5);
+
+            // Broadcast matrix elements into lane-aware vectors:
+            // lanes 0-1,4-5 (even complex slots = |0>) get m00/m01
+            // lanes 2-3,6-7 (odd complex slots = |1>) get m11/m10
+            // Note: at odd slots, v_in holds b (|1>) and v_swp holds a (|0>),
+            // so c_self (applied to v_in=b) needs m11, c_swap (applied to v_swp=a) needs m10.
+            __m512d c_self_re = _mm512_setr_pd(m00.real(), m00.real(), m11.real(), m11.real(),
+                                               m00.real(), m00.real(), m11.real(), m11.real());
+            __m512d c_self_im = _mm512_setr_pd(m00.imag(), m00.imag(), m11.imag(), m11.imag(),
+                                               m00.imag(), m00.imag(), m11.imag(), m11.imag());
+            __m512d c_swap_re = _mm512_setr_pd(m01.real(), m01.real(), m10.real(), m10.real(),
+                                               m01.real(), m01.real(), m10.real(), m10.real());
+            __m512d c_swap_im = _mm512_setr_pd(m01.imag(), m01.imag(), m10.imag(), m10.imag(),
+                                               m01.imag(), m01.imag(), m10.imag(), m10.imag());
+
+            uint64_t total = 1ULL << state.active_k;
+            for (uint64_t i = 0; i < total; i += 4) {
+                double* p = arr_dbl + (i << 1);
+                __m512d v_in = _mm512_load_pd(p);
+                __m512d v_swp = _mm512_permutexvar_pd(swap_idx, v_in);
+                _mm512_store_pd(p, _mm512_add_pd(cmul_m512d(v_in, c_self_re, c_self_im),
+                                                 cmul_m512d(v_swp, c_swap_re, c_swap_im)));
+            }
+            return;
+        }
+
+        if (axis == 1) {
+            // Axis 1: |0> and |1> amplitudes are separated by 2 complex
+            // doubles. In a 512-bit register [C0, C1, C2, C3], axis-1
+            // pairs C0<->C2 and C1<->C3, i.e. swap lower and upper 256
+            // bits. Use permutexvar to rearrange.
+            const __m512i swap_idx = _mm512_setr_epi64(4, 5, 6, 7, 0, 1, 2, 3);
+
+            // Lower 256 bits (C0,C1) are |0>-branch, upper (C2,C3) are |1>-branch.
+            __m512d c_self_re = _mm512_setr_pd(m00.real(), m00.real(), m00.real(), m00.real(),
+                                               m11.real(), m11.real(), m11.real(), m11.real());
+            __m512d c_self_im = _mm512_setr_pd(m00.imag(), m00.imag(), m00.imag(), m00.imag(),
+                                               m11.imag(), m11.imag(), m11.imag(), m11.imag());
+            __m512d c_swap_re = _mm512_setr_pd(m01.real(), m01.real(), m01.real(), m01.real(),
+                                               m10.real(), m10.real(), m10.real(), m10.real());
+            __m512d c_swap_im = _mm512_setr_pd(m01.imag(), m01.imag(), m01.imag(), m01.imag(),
+                                               m10.imag(), m10.imag(), m10.imag(), m10.imag());
+
+            uint64_t total = 1ULL << state.active_k;
+            for (uint64_t i = 0; i < total; i += 4) {
+                double* p = arr_dbl + (i << 1);
+                __m512d v_in = _mm512_load_pd(p);
+                __m512d v_swp = _mm512_permutexvar_pd(swap_idx, v_in);
+                _mm512_store_pd(p, _mm512_add_pd(cmul_m512d(v_in, c_self_re, c_self_im),
+                                                 cmul_m512d(v_swp, c_swap_re, c_swap_im)));
+            }
+            return;
+        }
+
+        // Axis >= 2: process 4 butterflies per iteration, 2x unrolled to
+        // overlap DRAM latency. Issuing 4 loads before any math lets the
+        // CPU's line fill buffers fetch cache lines in parallel.
         __m512d m00_re = _mm512_set1_pd(m00.real());
         __m512d m00_im = _mm512_set1_pd(m00.imag());
         __m512d m01_re = _mm512_set1_pd(m01.real());
@@ -938,7 +1217,33 @@ static inline void exec_array_u2(SchrodingerState& state, const ConstantPool& po
         __m512d m11_re = _mm512_set1_pd(m11.real());
         __m512d m11_im = _mm512_set1_pd(m11.imag());
 
-        for (uint64_t i = 0; i < iters; i += 4) {
+        uint64_t i = 0;
+        for (; i + 8 <= iters; i += 8) {
+            uint64_t idx0_A = scatter_bits_1(i, pdep_mask, axis);
+            uint64_t idx1_A = idx0_A | v_bit;
+            uint64_t idx0_B = scatter_bits_1(i + 4, pdep_mask, axis);
+            uint64_t idx1_B = idx0_B | v_bit;
+
+            __m512d vA0 = _mm512_load_pd(arr_dbl + (idx0_A << 1));
+            __m512d vA1 = _mm512_load_pd(arr_dbl + (idx1_A << 1));
+            __m512d vB0 = _mm512_load_pd(arr_dbl + (idx0_B << 1));
+            __m512d vB1 = _mm512_load_pd(arr_dbl + (idx1_B << 1));
+
+            __m512d nA0 =
+                _mm512_add_pd(cmul_m512d(vA0, m00_re, m00_im), cmul_m512d(vA1, m01_re, m01_im));
+            __m512d nA1 =
+                _mm512_add_pd(cmul_m512d(vA0, m10_re, m10_im), cmul_m512d(vA1, m11_re, m11_im));
+            __m512d nB0 =
+                _mm512_add_pd(cmul_m512d(vB0, m00_re, m00_im), cmul_m512d(vB1, m01_re, m01_im));
+            __m512d nB1 =
+                _mm512_add_pd(cmul_m512d(vB0, m10_re, m10_im), cmul_m512d(vB1, m11_re, m11_im));
+
+            _mm512_store_pd(arr_dbl + (idx0_A << 1), nA0);
+            _mm512_store_pd(arr_dbl + (idx1_A << 1), nA1);
+            _mm512_store_pd(arr_dbl + (idx0_B << 1), nB0);
+            _mm512_store_pd(arr_dbl + (idx1_B << 1), nB1);
+        }
+        for (; i < iters; i += 4) {
             uint64_t idx0 = scatter_bits_1(i, pdep_mask, axis);
             uint64_t idx1 = idx0 | v_bit;
 

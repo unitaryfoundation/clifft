@@ -13,6 +13,7 @@ add_executable(ucc_tests
     test_frontend.cc
     test_backend.cc
     test_svm_risc.cc
+    test_svm_avx512_axis01.cc
     test_statevector.cc
     test_optimizer.cc
     test_bytecode_passes.cc
