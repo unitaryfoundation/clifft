@@ -40,21 +40,16 @@ def test_active_k_history_shows_expansion_and_compaction() -> None:
 
 
 def test_optimizer_preserves_source_map() -> None:
-    """Peephole fusion keeps source_map in sync."""
+    """Peephole fusion keeps source_map in sync after S absorption."""
     hir = ucc.trace(ucc.parse("H 0\nT 0\nT 0\nM 0"))
     pm = ucc.HirPassManager()
     pm.add(ucc.PeepholeFusionPass())
     pm.run(hir)
     assert len(hir.source_map) == hir.num_ops
-    # The fused S gate should carry both T-gate source lines
-    found = False
-    for i, op in enumerate(hir):
-        if op.as_dict()["op_type"] == "CLIFFORD_PHASE":
-            lines = hir.source_map[i]
-            assert 2 in lines and 3 in lines
-            found = True
-            break
-    assert found, "Expected a fused CLIFFORD_PHASE op"
+    # T+T fused to S and absorbed; only MEASURE remains
+    assert hir.num_ops == 1
+    op = list(hir)[0]
+    assert op.as_dict()["op_type"] == "MEASURE"
 
 
 def test_empty_circuit_produces_empty_maps() -> None:

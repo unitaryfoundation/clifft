@@ -192,7 +192,6 @@ class TestEnumBindings:
     def test_optype_values(self) -> None:
         assert ucc.OpType.T_GATE is not None
         assert ucc.OpType.MEASURE is not None
-        assert ucc.OpType.CLIFFORD_PHASE is not None
 
     def test_opcode_values(self) -> None:
         assert ucc.Opcode.OP_EXPAND is not None

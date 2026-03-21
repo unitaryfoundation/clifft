@@ -1110,11 +1110,11 @@ TEST_CASE("Lower: pure Clifford circuit emits no EXPAND or T opcodes") {
 }
 
 // =============================================================================
-// CLIFFORD_PHASE Backend Lowering Tests
+// S Absorption via Peephole + Backend Lowering Tests
 // =============================================================================
 
-// compile_circuit runs parse -> trace -> lower (no optimizer).
-// compile_optimized adds the optimizer pass so T+T fuses to CLIFFORD_PHASE.
+// compile_optimized runs parse -> trace -> peephole -> lower.
+// T+T fusion now absorbs S into the Pauli frame (no CLIFFORD_PHASE).
 static CompiledModule compile_optimized(const std::string& text) {
     auto circuit = ucc::parse(text);
     auto hir = ucc::trace(circuit);
@@ -1123,43 +1123,40 @@ static CompiledModule compile_optimized(const std::string& text) {
     return ucc::lower(hir);
 }
 
-TEST_CASE("Lower: H-T-T fuses to single S via optimizer") {
-    // H 0; T 0; T 0: optimizer fuses T+T into CLIFFORD_PHASE(S).
-    // Backend should emit EXPAND + ARRAY_S (not two PHASE_T ops).
+TEST_CASE("Lower: H-T-T absorbs S -- no S or T opcodes emitted") {
+    // H 0; T 0; T 0: optimizer absorbs the fused S into the coordinate frame.
+    // No runtime S or T opcodes should appear.
     auto mod = compile_optimized("H 0\nT 0\nT 0");
 
     CHECK(count_opcodes(mod.bytecode, Opcode::OP_PHASE_T) == 0);
     CHECK(count_opcodes(mod.bytecode, Opcode::OP_PHASE_T_DAG) == 0);
-    CHECK(count_opcodes(mod.bytecode, Opcode::OP_EXPAND) == 1);
-    uint32_t s_count = count_opcodes(mod.bytecode, Opcode::OP_ARRAY_S) +
-                       count_opcodes(mod.bytecode, Opcode::OP_FRAME_S);
-    CHECK(s_count == 1);
-    CHECK(mod.peak_rank == 1);
+    CHECK(count_opcodes(mod.bytecode, Opcode::OP_ARRAY_S) == 0);
+    CHECK(count_opcodes(mod.bytecode, Opcode::OP_FRAME_S) == 0);
+    CHECK(mod.peak_rank == 0);
 }
 
-TEST_CASE("Lower: T-T on dormant Z fuses to FRAME_S with no EXPAND") {
-    // T 0; T 0 (no H): rewound Pauli is Z_0, dormant Z-basis.
-    // Optimizer fuses to CLIFFORD_PHASE(S). Backend emits FRAME_S, no EXPAND.
+TEST_CASE("Lower: T-T on dormant Z absorbs S offline -- no runtime ops") {
+    // T 0; T 0 (no H): fused S absorbed into frame. Nothing to lower.
     auto mod = compile_optimized("T 0\nT 0");
 
     CHECK(count_opcodes(mod.bytecode, Opcode::OP_PHASE_T) == 0);
     CHECK(count_opcodes(mod.bytecode, Opcode::OP_EXPAND) == 0);
-    CHECK(count_opcodes(mod.bytecode, Opcode::OP_FRAME_S) == 1);
+    CHECK(count_opcodes(mod.bytecode, Opcode::OP_FRAME_S) == 0);
     CHECK(mod.peak_rank == 0);
 }
 
-TEST_CASE("Lower: T_dag-T_dag fuses to S_dag") {
+TEST_CASE("Lower: T_dag-T_dag absorbs S_dag offline") {
     auto mod = compile_optimized("T_DAG 0\nT_DAG 0");
 
     CHECK(count_opcodes(mod.bytecode, Opcode::OP_PHASE_T) == 0);
     CHECK(count_opcodes(mod.bytecode, Opcode::OP_PHASE_T_DAG) == 0);
-    uint32_t s_dag_count = count_opcodes(mod.bytecode, Opcode::OP_ARRAY_S_DAG) +
-                           count_opcodes(mod.bytecode, Opcode::OP_FRAME_S_DAG);
-    CHECK(s_dag_count == 1);
+    CHECK(count_opcodes(mod.bytecode, Opcode::OP_ARRAY_S) == 0);
+    CHECK(count_opcodes(mod.bytecode, Opcode::OP_ARRAY_S_DAG) == 0);
+    CHECK(count_opcodes(mod.bytecode, Opcode::OP_FRAME_S) == 0);
+    CHECK(count_opcodes(mod.bytecode, Opcode::OP_FRAME_S_DAG) == 0);
 }
 
 TEST_CASE("Lower: T-T_dag cancels completely") {
-    // T 0; T_DAG 0: optimizer cancels to identity. No phase opcodes at all.
     auto mod = compile_optimized("T 0\nT_DAG 0");
 
     CHECK(count_opcodes(mod.bytecode, Opcode::OP_PHASE_T) == 0);

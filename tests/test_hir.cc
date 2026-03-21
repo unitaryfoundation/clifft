@@ -54,26 +54,18 @@ TEST_CASE("HeisenbergOp::make_tgate", "[hir]") {
     }
 }
 
-TEST_CASE("HeisenbergOp::make_clifford_phase", "[hir]") {
-    SECTION("S gate with Z on qubit 0") {
-        auto op = HeisenbergOp::make_clifford_phase(0, Z(0), /*sign=*/false);
+TEST_CASE("HeisenbergOp::set_pauli replaces masks and sign", "[hir]") {
+    auto op = HeisenbergOp::make_tgate(0, Z(0), /*sign=*/false);
+    REQUIRE(op.stab_mask() == Z(0));
+    REQUIRE(op.sign() == false);
 
-        REQUIRE(op.op_type() == OpType::CLIFFORD_PHASE);
-        REQUIRE(op.destab_mask() == 0);
-        REQUIRE(op.stab_mask() == Z(0));
-        REQUIRE(op.sign() == false);
-        REQUIRE(op.is_dagger() == false);
-    }
-
-    SECTION("S_dag gate with X on qubit 1 and negative sign") {
-        auto op = HeisenbergOp::make_clifford_phase(X(1), 0, /*sign=*/true, /*dagger=*/true);
-
-        REQUIRE(op.op_type() == OpType::CLIFFORD_PHASE);
-        REQUIRE(op.destab_mask() == X(1));
-        REQUIRE(op.stab_mask() == 0);
-        REQUIRE(op.sign() == true);
-        REQUIRE(op.is_dagger() == true);
-    }
+    op.set_pauli(X(1), Z(2), true);
+    REQUIRE(op.destab_mask() == X(1));
+    REQUIRE(op.stab_mask() == Z(2));
+    REQUIRE(op.sign() == true);
+    // OpType and flags are preserved
+    REQUIRE(op.op_type() == OpType::T_GATE);
+    REQUIRE(op.is_dagger() == false);
 }
 
 TEST_CASE("HeisenbergOp bitword operations", "[hir]") {

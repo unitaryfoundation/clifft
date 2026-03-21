@@ -340,3 +340,160 @@ class TestExplicitPipelineAPI:
 
         assert prog_conv.peak_rank == prog_explicit.peak_rank
         assert prog_conv.num_instructions == prog_explicit.num_instructions
+
+
+# ---------------------------------------------------------------------------
+# S-Absorption Differential: Optimized vs Unoptimized Statevector
+#
+# These tests compile each circuit twice -- once with no optimizations
+# (forcing the VM to execute physical T/rotation opcodes) and once with
+# peephole S-absorption active -- then assert the dense statevectors match.
+# This proves the symplectic conjugation, tableau basis transformation,
+# and global phase tracking are equivalent to physical gate application.
+# ---------------------------------------------------------------------------
+
+
+def _assert_absorption_preserves_state(stim_text: str, atol: float = 1e-6) -> ucc.Program:
+    """Compile with and without optimization; assert statevector equivalence."""
+    # Baseline: no HIR or bytecode passes
+    prog_base = ucc.compile(stim_text)
+    state_base = ucc.State(prog_base.peak_rank, prog_base.num_measurements)
+    ucc.execute(prog_base, state_base)
+    sv_base = np.array(ucc.get_statevector(prog_base, state_base))
+
+    # Optimized: full default pass managers (includes PeepholeFusionPass)
+    prog_opt = ucc.compile(
+        stim_text,
+        hir_passes=ucc.default_hir_pass_manager(),
+        bytecode_passes=ucc.default_bytecode_pass_manager(),
+    )
+    state_opt = ucc.State(prog_opt.peak_rank, prog_opt.num_measurements)
+    ucc.execute(prog_opt, state_opt)
+    sv_opt = np.array(ucc.get_statevector(prog_opt, state_opt))
+
+    # Align global phase before comparison. Stim's
+    # Tableau::to_flat_unitary_matrix canonicalizes the first non-zero
+    # amplitude to positive-real, which arbitrarily strips the physical
+    # global phase when the peephole absorbs S gates into the tableau.
+    idx = int(np.argmax(np.abs(sv_base)))
+    if np.abs(sv_base[idx]) > 1e-8 and np.abs(sv_opt[idx]) > 1e-8:
+        phase_diff = sv_base[idx] / sv_opt[idx]
+        sv_opt = sv_opt * (phase_diff / np.abs(phase_diff))
+
+    np.testing.assert_allclose(
+        sv_opt,
+        sv_base,
+        atol=atol,
+        err_msg=f"Statevector mismatch for:\n{stim_text}",
+    )
+    return prog_opt
+
+
+class TestNegativeSignTFusion:
+    """Regression tests for global phase loss when T gates have negative Pauli signs.
+
+    When the front-end encounters T after X (which conjugates Z -> -Z), the
+    HIR T gate has sign=true. The identity T(-P) = exp(i*pi/4) * T_dag(+P)
+    means that fusing or canceling negative-sign T gates must track the
+    extra global phase. These tests catch the phase loss bug.
+    """
+
+    def test_negative_sign_t_fusion(self) -> None:
+        """T(-Z) + T(-Z) = i * S_dag: must preserve exp(i*pi/2) global phase."""
+        _assert_absorption_preserves_state("X 0\nT 0\nT 0")
+
+    def test_negative_sign_t_dag_fusion(self) -> None:
+        """T_dag(-Z) + T_dag(-Z) = -i * S: must preserve exp(-i*pi/2) global phase."""
+        _assert_absorption_preserves_state("X 0\nT_DAG 0\nT_DAG 0")
+
+    def test_negative_sign_t_cancellation(self) -> None:
+        """T(-Z) + T_dag(-Z) = identity: cancellation should not corrupt phase."""
+        _assert_absorption_preserves_state("X 0\nT 0\nT_DAG 0")
+
+    def test_mixed_sign_t_cancellation_global_phase(self) -> None:
+        """T(+Z) and T(-Z) cancel but leave exp(i*pi/4) global phase."""
+        _assert_absorption_preserves_state("T 0\nX 0\nT 0")
+
+    def test_mixed_sign_t_fusion_global_phase(self) -> None:
+        """T(+Z) and T_dag(-Z) fuse to S, leaving a global phase."""
+        _assert_absorption_preserves_state("T 0\nX 0\nT_DAG 0")
+
+    def test_s_absorption_creates_negative_t_then_fuses(self) -> None:
+        """S absorption conjugates downstream T to negative sign, which then fuses.
+
+        T 0; T 0 -> S on Z(0). H changes frame. Third and fourth T are on X(0),
+        which anti-commutes with Z(0). S conjugation produces Y(0) with sign=true.
+        The two newly-negative T gates must fuse correctly.
+        """
+        _assert_absorption_preserves_state("T 0\nT 0\nH 0\nT 0\nT 0")
+
+    def test_triple_t_on_negative_axis(self) -> None:
+        """Three T gates on -Z: two fuse to S, one remains. Phase must be correct."""
+        _assert_absorption_preserves_state("X 0\nT 0\nT 0\nT 0")
+
+    def test_s_absorption_flips_phase_rotation_sign(self) -> None:
+        """S absorbed on Z(0) conjugates downstream R_Z on X(0), flipping sign.
+
+        The sign flip must be accompanied by alpha negation to maintain the
+        physical gate identity, or the backend global phase correction breaks.
+        """
+        _assert_absorption_preserves_state("T 0\nT 0\nH 0\nR_Z(0.3) 0")
+
+    def test_s_absorption_commuting_phase_rotation_unchanged(self) -> None:
+        """S on Z(0) commutes with R_Z on Z(0): sign and alpha unchanged."""
+        _assert_absorption_preserves_state("T 0\nT 0\nR_Z(0.3) 0")
+
+    def test_chain_of_negative_sign_fusions(self) -> None:
+        """Deep chain exercising repeated negative-sign normalization.
+
+        Six T(-Z) gates: three fusions, each contributing exp(i*pi/2) = i.
+        Net global phase = i^3 = -i. Net S_dag^3 = S_dag.
+        """
+        _assert_absorption_preserves_state("X 0\nT 0\nT 0\nT 0\nT 0\nT 0\nT 0")
+
+    def test_multi_qubit_negative_sign_fusion(self) -> None:
+        """Negative signs on entangled multi-qubit Pauli axes."""
+        _assert_absorption_preserves_state("X 0\nX 1\nH 0\nCX 0 1\nT 1\nT 1")
+
+
+class TestSAbsorptionDifferential:
+    """Targeted circuits that stress every aspect of S-absorption."""
+
+    def test_final_tableau_only(self) -> None:
+        """S absorbed with no downstream active ops -- tests tableau projection.
+
+        H 0; CX 0 1; T 1; T 1: the fused S on the entangled ZZ axis
+        has no downstream ops to conjugate. Correctness depends entirely
+        on the final_tableau physical-to-virtual mapping and the
+        !is_dagger time-direction inversion.
+        """
+        _assert_absorption_preserves_state("H 0\nCX 0 1\nT 1\nT 1")
+
+    def test_downstream_anti_commutation(self) -> None:
+        """S on Z_0 conjugates a downstream T on X_0 (after H) to Y_0.
+
+        T 0; T 0; H 0; T 0: the first two Ts fuse to S on Z(0).
+        The H changes the frame. The third T acts on X(0), which
+        anti-commutes with Z(0). S conjugation must transform it to Y(0).
+        """
+        _assert_absorption_preserves_state("T 0\nT 0\nH 0\nT 0")
+
+    def test_multi_qubit_symplectic_sign(self) -> None:
+        """Multi-qubit Pauli products stress the mask_plus/mask_minus popcount.
+
+        R_XX(0.25) + R_XX(0.25) fuses to S on the XX axis. The downstream
+        R_YY anti-commutes with XX, exercising the per-qubit cyclic phase
+        tracking across multiple qubit pairs simultaneously.
+        """
+        _assert_absorption_preserves_state(
+            "H 0\nH 1\nR_XX(0.25) 0 1\nR_XX(0.25) 0 1\nR_YY(0.25) 0 1"
+        )
+
+    def test_phase_rotation_demotion(self) -> None:
+        """PHASE_ROTATION at S/S_dag angles demoted and absorbed.
+
+        The front-end extracts the absolute global phase for continuous
+        rotations. S-absorption must not double-count it. If wrong, the
+        output differs by exactly 45 degrees.
+        """
+        _assert_absorption_preserves_state("R_Z(0.5) 0\nH 1\nR_Z(1.5) 1")

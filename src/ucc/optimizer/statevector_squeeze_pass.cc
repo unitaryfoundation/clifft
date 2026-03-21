@@ -28,14 +28,13 @@ void StatevectorSqueezePass::run(HirModule& hir) {
     if (hir.ops.size() >= 2) {
         for (size_t i = hir.ops.size() - 2;; --i) {
             auto t = hir.ops[i].op_type();
-            if (t == OpType::T_GATE || t == OpType::PHASE_ROTATION || t == OpType::CLIFFORD_PHASE) {
+            if (t == OpType::T_GATE || t == OpType::PHASE_ROTATION) {
                 size_t curr = i;
                 while (curr < hir.ops.size() - 1 &&
                        can_swap(hir.ops[curr], hir.ops[curr + 1], hir)) {
                     // Don't uselessly reorder two expanding gates past each other
                     auto nt = hir.ops[curr + 1].op_type();
-                    if (nt == OpType::T_GATE || nt == OpType::PHASE_ROTATION ||
-                        nt == OpType::CLIFFORD_PHASE) {
+                    if (nt == OpType::T_GATE || nt == OpType::PHASE_ROTATION) {
                         break;
                     }
                     std::swap(hir.ops[curr], hir.ops[curr + 1]);

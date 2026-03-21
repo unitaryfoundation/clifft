@@ -215,15 +215,6 @@
                 "T_DAG"
             ]
         },
-        "CLIFFORD_PHASE": {
-            "category": "Non-Clifford",
-            "summary": "S or S-dagger gate: pi/4 phase rotation on a Pauli product.",
-            "detail": "Although S is a Clifford gate, when it appears in the HIR it means the front-end could not fully absorb it into the frame (e.g. it acts on a Pauli product that spans multiple qubits). S_DAG applies the inverse.",
-            "display": [
-                "S",
-                "S_DAG"
-            ]
-        },
         "MEASURE": {
             "category": "Measurement",
             "summary": "Destructive measurement of a Pauli observable.",

@@ -100,7 +100,6 @@ enum class ReadoutNoiseIdx : uint32_t {};
 // Operation types in the HIR
 enum class OpType : uint8_t {
     T_GATE,             // T or T_dag gate (pi/8 phase) - FLAG_IS_DAGGER distinguishes
-    CLIFFORD_PHASE,     // S or S_dag gate (pi/4 phase) - FLAG_IS_DAGGER distinguishes
     MEASURE,            // Destructive measurement (Z, X, or multi-Pauli)
     CONDITIONAL_PAULI,  // Classical feedback: apply Pauli if measurement was 1
     NOISE,              // Stochastic Pauli channel (references NoiseSite side-table)
@@ -226,14 +225,6 @@ struct HeisenbergOp {
         return op;
     }
 
-    // Factory for S/S_dag gates (produced by optimizer T+T fusion)
-    static HeisenbergOp make_clifford_phase(PauliBitMask destab, PauliBitMask stab, bool s,
-                                            bool dagger = false) {
-        HeisenbergOp op(OpType::CLIFFORD_PHASE, destab, stab, s);
-        op.set_dagger(dagger);
-        return op;
-    }
-
     // Factory for MEASURE
     static HeisenbergOp make_measure(PauliBitMask destab, PauliBitMask stab, bool s,
                                      MeasRecordIdx meas_idx) {
@@ -285,6 +276,13 @@ struct HeisenbergOp {
         HeisenbergOp op(OpType::PHASE_ROTATION, destab, stab, s);
         op.phase_.alpha = alpha;
         return op;
+    }
+
+    // Replace the Pauli masks and sign in-place, preserving OpType and flags.
+    void set_pauli(PauliBitMask destab, PauliBitMask stab, bool sign) {
+        destab_mask_ = destab;
+        stab_mask_ = stab;
+        sign_ = sign;
     }
 
   private:

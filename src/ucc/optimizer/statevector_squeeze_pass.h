@@ -6,7 +6,7 @@ namespace ucc {
 
 /// Minimizes the active spacetime volume by reordering HIR operations:
 /// - Sweep 1 (leftward): bubbles MEASURE ops as early as possible
-/// - Sweep 2 (rightward): bubbles T_GATE, CLIFFORD_PHASE, and PHASE_ROTATION
+/// - Sweep 2 (rightward): bubbles T_GATE and PHASE_ROTATION
 ///   ops as late as possible
 ///
 /// This reduces peak_rank by compacting qubit lifetimes: measurements free

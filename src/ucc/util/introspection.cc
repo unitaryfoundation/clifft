@@ -36,8 +36,6 @@ std::string op_type_to_str(OpType type) {
     switch (type) {
         case OpType::T_GATE:
             return "T_GATE";
-        case OpType::CLIFFORD_PHASE:
-            return "CLIFFORD_PHASE";
         case OpType::MEASURE:
             return "MEASURE";
         case OpType::CONDITIONAL_PAULI:
@@ -62,9 +60,6 @@ std::string format_hir_op(const HeisenbergOp& op) {
     switch (op.op_type()) {
         case OpType::T_GATE:
             ss << (op.is_dagger() ? "T_DAG " : "T ") << format_pauli_mask(op);
-            break;
-        case OpType::CLIFFORD_PHASE:
-            ss << (op.is_dagger() ? "S_DAG " : "S ") << format_pauli_mask(op);
             break;
         case OpType::MEASURE:
             ss << "MEASURE " << format_pauli_mask(op) << " -> rec["

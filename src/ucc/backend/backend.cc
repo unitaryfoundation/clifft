@@ -800,47 +800,6 @@ CompiledModule lower(const HirModule& hir, std::span<const uint8_t> postselectio
                 break;
             }
 
-            case OpType::CLIFFORD_PHASE: {
-                auto p_v = map_to_virtual(ctx, op.destab_mask(), op.stab_mask(), op.sign(), n);
-                auto result = compress_pauli(ctx, p_v);
-
-                route_to_active_z(ctx, result);
-
-                bool is_active_now = result.pivot < ctx.reg_manager.active_k();
-
-                // Global phase correction when compression inverted the Pauli (-Z).
-                // S on -Z = i S^dag; S^dag on -Z = -i S.
-                if (result.sign) {
-                    if (!op.is_dagger()) {
-                        ctx.constant_pool.global_weight *= std::complex<double>(0.0, 1.0);
-                    } else {
-                        ctx.constant_pool.global_weight *= std::complex<double>(0.0, -1.0);
-                    }
-                }
-
-                bool phase_flip = result.sign ^ op.is_dagger();
-
-                if (!is_active_now) {
-                    if (phase_flip) {
-                        ctx.emit(make_frame_s_dag(result.pivot));
-                    } else {
-                        ctx.emit(make_frame_s(result.pivot));
-                    }
-                } else {
-                    if (phase_flip) {
-                        ctx.emit(make_array_s_dag(result.pivot));
-                    } else {
-                        ctx.emit(make_array_s(result.pivot));
-                    }
-                }
-
-                // Do NOT update V_cum here. The runtime opcode (OP_ARRAY_S /
-                // OP_FRAME_S) applies the gate dynamically. Absorbing it into
-                // V_cum would double-apply it.
-
-                break;
-            }
-
             case OpType::NUM_OP_TYPES:
 #if defined(__GNUC__) || defined(__clang__)
                 __builtin_unreachable();

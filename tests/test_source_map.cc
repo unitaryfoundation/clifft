@@ -101,25 +101,13 @@ TEST_CASE("Source map: peephole fusion preserves parallel size", "[source_map]")
     REQUIRE(hir.source_map.size() == hir.ops.size());
 }
 
-TEST_CASE("Source map: T plus T fusion carries both source lines", "[source_map]") {
+TEST_CASE("Source map: T plus T fusion deletes both source entries", "[source_map]") {
     // H 0 (line 1) -> absorbed by tableau
-    // T 0 (line 2) + T 0 (line 3) -> fused to S
+    // T 0 (line 2) + T 0 (line 3) -> fused to S, absorbed offline
     auto hir = hir_optimized("H 0\nT 0\nT 0");
-    // Find the fused CLIFFORD_PHASE op
-    bool found = false;
-    for (size_t i = 0; i < hir.ops.size(); ++i) {
-        if (hir.ops[i].op_type() == OpType::CLIFFORD_PHASE) {
-            REQUIRE(hir.source_map[i].size() == 2);
-            // Both original T gate lines should be present
-            auto& lines = hir.source_map[i];
-            bool has_2 = (lines[0] == 2 || lines[1] == 2);
-            bool has_3 = (lines[0] == 3 || lines[1] == 3);
-            REQUIRE(has_2);
-            REQUIRE(has_3);
-            found = true;
-        }
-    }
-    REQUIRE(found);
+    // S absorption eliminates both T-gate ops. No ops should remain.
+    REQUIRE(hir.ops.empty());
+    REQUIRE(hir.source_map.empty());
 }
 
 TEST_CASE("Source map: T plus T_dag cancellation removes both from map", "[source_map]") {
@@ -127,10 +115,9 @@ TEST_CASE("Source map: T plus T_dag cancellation removes both from map", "[sourc
     // M 0 (line 3) -> measurement remains
     auto hir = hir_optimized("T 0\nT_DAG 0\nM 0");
     REQUIRE(hir.source_map.size() == hir.ops.size());
-    // No T_GATE or CLIFFORD_PHASE should remain
+    // No T_GATE should remain (CLIFFORD_PHASE no longer exists)
     for (size_t i = 0; i < hir.ops.size(); ++i) {
         REQUIRE(hir.ops[i].op_type() != OpType::T_GATE);
-        REQUIRE(hir.ops[i].op_type() != OpType::CLIFFORD_PHASE);
     }
 }
 

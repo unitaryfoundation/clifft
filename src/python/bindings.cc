@@ -256,7 +256,6 @@ NB_MODULE(_ucc_core, m) {
     // =========================================================================
     nb::enum_<ucc::OpType>(m, "OpType", "Heisenberg IR operation types")
         .value("T_GATE", ucc::OpType::T_GATE)
-        .value("CLIFFORD_PHASE", ucc::OpType::CLIFFORD_PHASE)
         .value("MEASURE", ucc::OpType::MEASURE)
         .value("CONDITIONAL_PAULI", ucc::OpType::CONDITIONAL_PAULI)
         .value("NOISE", ucc::OpType::NOISE)
