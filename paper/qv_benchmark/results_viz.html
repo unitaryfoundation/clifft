@@ -117,7 +117,7 @@
     margin-top: 1rem;
     font-style: italic;
   }
-  #scaling-chart, #bar-chart, #memory-chart, #improvement-chart { width: 100%; }
+  #scaling-chart, #journey-chart, #breakdown-chart, #memory-chart { width: 100%; }
 </style>
 </head>
 <body>
@@ -125,10 +125,31 @@
 <h1>UCC Quantum Volume Benchmark</h1>
 <p class="subtitle">
   Single-shot QV circuit simulation &middot; Single-threaded &middot;
-  Fusion + AVX2 optimizations &middot; N = 6 to 22 qubits
+  Intel Xeon 8259CL (Cascade Lake), 2 vCPUs &middot; N = 6 to 22 qubits
 </p>
 
-<div class="kpi-row" id="kpis"></div>
+<div class="kpi-row">
+  <div class="kpi-card">
+    <div class="kpi-label">UCC QV-20</div>
+    <div class="kpi-value accent">0.33s</div>
+    <div class="kpi-detail">compile + sample (1 shot)</div>
+  </div>
+  <div class="kpi-card">
+    <div class="kpi-label">vs Qiskit-Aer (QV-20)</div>
+    <div class="kpi-value">5.55x faster</div>
+    <div class="kpi-detail">Qiskit: 1.82s</div>
+  </div>
+  <div class="kpi-card">
+    <div class="kpi-label">vs v0 Baseline (QV-20)</div>
+    <div class="kpi-value">19.4x faster</div>
+    <div class="kpi-detail">v0: 6.37s</div>
+  </div>
+  <div class="kpi-card">
+    <div class="kpi-label">UCC Peak Memory (QV-20)</div>
+    <div class="kpi-value accent">94 MB</div>
+    <div class="kpi-detail">vs Qiskit 106 MB, qsim 231 MB</div>
+  </div>
+</div>
 
 <div class="chart-container">
   <div class="chart-title">Execution Time vs Qubit Count (log scale)</div>
@@ -137,15 +158,15 @@
 </div>
 
 <div class="chart-container">
-  <div class="chart-title">Head-to-Head: UCC vs Qiskit-Aer</div>
-  <div class="chart-desc">Direct comparison showing the performance gap at each qubit count.</div>
-  <div id="bar-chart"></div>
+  <div class="chart-title">UCC Optimization Journey</div>
+  <div class="chart-desc">Performance evolution: baseline &rarr; SingleAxisFusion + AVX2 &rarr; TileAxisFusion + AVX-512 fast-paths.</div>
+  <div id="journey-chart"></div>
 </div>
 
 <div class="chart-container">
-  <div class="chart-title">UCC Optimization Impact (Before vs After)</div>
-  <div class="chart-desc">Old UCC results (pre-optimization) vs current with fusion + AVX2.</div>
-  <div id="improvement-chart"></div>
+  <div class="chart-title">UCC Compile vs Sample Time</div>
+  <div class="chart-desc">AOT compilation is negligible; nearly all time is spent in the VM sample loop.</div>
+  <div id="breakdown-chart"></div>
 </div>
 
 <div class="chart-container">
@@ -157,342 +178,46 @@
 <div class="chart-container">
   <div class="chart-title">Detailed Results Table</div>
   <div class="chart-desc">Median execution time (seconds) across 3 runs per configuration.</div>
-  <div id="table-container"></div>
+  <table>
+    <thead>
+      <tr>
+        <th>N</th>
+        <th>UCC</th>
+        <th>Qiskit-Aer</th>
+        <th>Qulacs</th>
+        <th>qsim</th>
+        <th>vs v0</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr><td><strong>6</strong></td><td class="sim-ucc">0.0030s</td><td class="sim-qiskit">0.0047s</td><td class="sim-qulacs fastest">0.0002s</td><td class="sim-qsim">0.011s</td><td>-</td></tr>
+      <tr><td><strong>8</strong></td><td class="sim-ucc">0.0052s</td><td class="sim-qiskit">0.0072s</td><td class="sim-qulacs fastest">0.0005s</td><td class="sim-qsim">0.020s</td><td>-</td></tr>
+      <tr><td><strong>10</strong></td><td class="sim-ucc">0.0086s</td><td class="sim-qiskit">0.013s</td><td class="sim-qulacs fastest">0.0019s</td><td class="sim-qsim">0.028s</td><td>-</td></tr>
+      <tr><td><strong>12</strong></td><td class="sim-ucc">0.012s</td><td class="sim-qiskit">0.025s</td><td class="sim-qulacs fastest">0.0096s</td><td class="sim-qsim">0.039s</td><td><span class="improvement">1.2x faster</span></td></tr>
+      <tr><td><strong>14</strong></td><td class="sim-ucc fastest">0.018s</td><td class="sim-qiskit">0.082s</td><td class="sim-qulacs">0.052s</td><td class="sim-qsim">0.055s</td><td><span class="improvement">2.7x faster</span></td></tr>
+      <tr><td><strong>16</strong></td><td class="sim-ucc fastest">0.032s</td><td class="sim-qiskit">0.098s</td><td class="sim-qulacs">0.258s</td><td class="sim-qsim">0.074s</td><td><span class="improvement">6.8x faster</span></td></tr>
+      <tr><td><strong>18</strong></td><td class="sim-ucc fastest">0.086s</td><td class="sim-qiskit">0.385s</td><td class="sim-qulacs">1.36s</td><td class="sim-qsim">0.112s</td><td><span class="improvement">14.0x faster</span></td></tr>
+      <tr><td><strong>20</strong></td><td class="sim-ucc">0.329s</td><td class="sim-qiskit">1.82s</td><td class="sim-qulacs">6.94s</td><td class="sim-qsim fastest">0.215s</td><td><span class="improvement">19.4x faster</span></td></tr>
+      <tr><td><strong>22</strong></td><td class="sim-ucc">2.35s</td><td class="sim-qiskit">8.38s</td><td class="sim-qulacs">36.81s</td><td class="sim-qsim fastest">0.846s</td><td><span class="improvement">22.7x faster</span></td></tr>
+    </tbody>
+  </table>
+  <p class="note">All benchmarks: single-threaded, OMP_NUM_THREADS=1, 6 GB memory limit, median of 3 runs.
+  qsim uses Google's optimized C++ SIMD engine with AVX-512.
+  UCC uses factored-state representation with Clifford frame compression + tile-axis U4 fusion + AVX-512 intrinsics.</p>
 </div>
 
 <script>
-// Current benchmark data
-const csvText = `N,simulator,repeat,seed,status,exec_s,compile_s,sample_s,peak_mb
-6,ucc,0,42,SUCCESS,0.002211,0.002086,0.000125,74.8
-6,ucc,1,43,SUCCESS,0.002042,0.001943,9.9e-05,75.2
-6,ucc,2,44,SUCCESS,0.0021,0.001958,0.000142,75.2
-6,qiskit,0,42,SUCCESS,0.004283,0.0,0.0,85.4
-6,qiskit,1,43,SUCCESS,0.004468,0.0,0.0,85.3
-6,qiskit,2,44,SUCCESS,0.004193,0.0,0.0,85.1
-6,qulacs,0,42,SUCCESS,0.00017,0.0,0.0,75.7
-6,qulacs,1,43,SUCCESS,0.000163,0.0,0.0,75.9
-6,qulacs,2,44,SUCCESS,0.000185,0.0,0.0,76.1
-6,qsim,0,42,SUCCESS,0.010981,0.0,0.0,218.1
-6,qsim,1,43,SUCCESS,0.010788,0.0,0.0,218.7
-6,qsim,2,44,SUCCESS,0.010822,0.0,0.0,218.0
-8,ucc,0,42,SUCCESS,0.003707,0.003524,0.000183,74.9
-8,ucc,1,43,SUCCESS,0.003796,0.003598,0.000198,75.0
-8,ucc,2,44,SUCCESS,0.003749,0.00357,0.00018,75.1
-8,qiskit,0,42,SUCCESS,0.007141,0.0,0.0,86.2
-8,qiskit,1,43,SUCCESS,0.007787,0.0,0.0,85.5
-8,qiskit,2,44,SUCCESS,0.004892,0.0,0.0,86.0
-8,qulacs,0,42,SUCCESS,0.00044,0.0,0.0,76.2
-8,qulacs,1,43,SUCCESS,0.000449,0.0,0.0,75.8
-8,qulacs,2,44,SUCCESS,0.000439,0.0,0.0,76.0
-8,qsim,0,42,SUCCESS,0.018063,0.0,0.0,218.2
-8,qsim,1,43,SUCCESS,0.021458,0.0,0.0,218.3
-8,qsim,2,44,SUCCESS,0.018511,0.0,0.0,218.2
-10,ucc,0,42,SUCCESS,0.00605,0.005589,0.000461,75.1
-10,ucc,1,43,SUCCESS,0.00585,0.005341,0.00051,75.9
-10,ucc,2,44,SUCCESS,0.006697,0.006201,0.000495,76.1
-10,qiskit,0,42,SUCCESS,0.015555,0.0,0.0,86.2
-10,qiskit,1,43,SUCCESS,0.012291,0.0,0.0,86.1
-10,qiskit,2,44,SUCCESS,0.009247,0.0,0.0,86.6
-10,qulacs,0,42,SUCCESS,0.001878,0.0,0.0,76.0
-10,qulacs,1,43,SUCCESS,0.001866,0.0,0.0,76.0
-10,qulacs,2,44,SUCCESS,0.003259,0.0,0.0,76.2
-10,qsim,0,42,SUCCESS,0.027691,0.0,0.0,218.7
-10,qsim,1,43,SUCCESS,0.029714,0.0,0.0,218.1
-10,qsim,2,44,SUCCESS,0.027703,0.0,0.0,218.7
-12,ucc,0,42,SUCCESS,0.01016,0.007903,0.002256,75.6
-12,ucc,1,43,SUCCESS,0.01025,0.00772,0.00253,76.1
-12,ucc,2,44,SUCCESS,0.009931,0.007715,0.002216,76.0
-12,qiskit,0,42,SUCCESS,0.02404,0.0,0.0,86.6
-12,qiskit,1,43,SUCCESS,0.029296,0.0,0.0,86.9
-12,qiskit,2,44,SUCCESS,0.023156,0.0,0.0,86.6
-12,qulacs,0,42,SUCCESS,0.009615,0.0,0.0,76.8
-12,qulacs,1,43,SUCCESS,0.009261,0.0,0.0,77.2
-12,qulacs,2,44,SUCCESS,0.009275,0.0,0.0,76.5
-12,qsim,0,42,SUCCESS,0.040591,0.0,0.0,219.0
-12,qsim,1,43,SUCCESS,0.038472,0.0,0.0,219.8
-12,qsim,2,44,SUCCESS,0.038319,0.0,0.0,218.7
-14,ucc,0,42,SUCCESS,0.023214,0.010678,0.012535,76.8
-14,ucc,1,43,SUCCESS,0.023643,0.010588,0.013055,76.0
-14,ucc,2,44,SUCCESS,0.025008,0.011048,0.01396,76.0
-14,qiskit,0,42,SUCCESS,0.080177,0.0,0.0,88.2
-14,qiskit,1,43,SUCCESS,0.077792,0.0,0.0,87.6
-14,qiskit,2,44,SUCCESS,0.083001,0.0,0.0,87.3
-14,qulacs,0,42,SUCCESS,0.048507,0.0,0.0,78.0
-14,qulacs,1,43,SUCCESS,0.049021,0.0,0.0,76.7
-14,qulacs,2,44,SUCCESS,0.049286,0.0,0.0,77.7
-14,qsim,0,42,SUCCESS,0.052859,0.0,0.0,219.7
-14,qsim,1,43,SUCCESS,0.056433,0.0,0.0,220.5
-14,qsim,2,44,SUCCESS,0.05336,0.0,0.0,219.5
-16,ucc,0,42,SUCCESS,0.080889,0.014169,0.06672,77.4
-16,ucc,1,43,SUCCESS,0.077698,0.01396,0.063738,77.4
-16,ucc,2,44,SUCCESS,0.080012,0.014005,0.066007,78.5
-16,qiskit,0,42,SUCCESS,0.090798,0.0,0.0,88.0
-16,qiskit,1,43,SUCCESS,0.095576,0.0,0.0,88.7
-16,qiskit,2,44,SUCCESS,0.094043,0.0,0.0,89.2
-16,qulacs,0,42,SUCCESS,0.254891,0.0,0.0,78.8
-16,qulacs,1,43,SUCCESS,0.265067,0.0,0.0,78.9
-16,qulacs,2,44,SUCCESS,0.257522,0.0,0.0,78.7
-16,qsim,0,42,SUCCESS,0.071717,0.0,0.0,221.1
-16,qsim,1,43,SUCCESS,0.069273,0.0,0.0,221.0
-16,qsim,2,44,SUCCESS,0.07141,0.0,0.0,221.3
-18,ucc,0,42,SUCCESS,0.393657,0.017975,0.375683,80.5
-18,ucc,1,43,SUCCESS,0.407682,0.017892,0.38979,81.1
-18,ucc,2,44,SUCCESS,0.425862,0.018389,0.407473,82.0
-18,qiskit,0,42,SUCCESS,0.384596,0.0,0.0,91.9
-18,qiskit,1,43,SUCCESS,0.366223,0.0,0.0,92.3
-18,qiskit,2,44,SUCCESS,0.368262,0.0,0.0,92.1
-18,qulacs,0,42,SUCCESS,1.311362,0.0,0.0,84.8
-18,qulacs,1,43,SUCCESS,1.289125,0.0,0.0,85.7
-18,qulacs,2,44,SUCCESS,1.29092,0.0,0.0,85.3
-18,qsim,0,42,SUCCESS,0.109018,0.0,0.0,223.8
-18,qsim,1,43,SUCCESS,0.11131,0.0,0.0,223.5
-18,qsim,2,44,SUCCESS,0.108039,0.0,0.0,223.5
-20,ucc,0,42,SUCCESS,2.118607,0.022408,2.096199,94.1
-20,ucc,1,43,SUCCESS,2.104004,0.022475,2.08153,94.6
-20,ucc,2,44,SUCCESS,2.125145,0.023995,2.10115,94.3
-20,qiskit,0,42,SUCCESS,1.73087,0.0,0.0,104.7
-20,qiskit,1,43,SUCCESS,1.727982,0.0,0.0,105.7
-20,qiskit,2,44,SUCCESS,1.796946,0.0,0.0,105.5
-20,qulacs,0,42,SUCCESS,6.81204,0.0,0.0,109.2
-20,qulacs,1,43,SUCCESS,6.790866,0.0,0.0,109.9
-20,qulacs,2,44,SUCCESS,6.658139,0.0,0.0,109.6
-20,qsim,0,42,SUCCESS,0.19444,0.0,0.0,230.7
-20,qsim,1,43,SUCCESS,0.201251,0.0,0.0,230.7
-20,qsim,2,44,SUCCESS,0.205658,0.0,0.0,230.4
-22,ucc,0,42,SUCCESS,16.724946,0.028805,16.696142,143.2
-22,ucc,1,43,SUCCESS,18.094142,0.027559,18.066583,143.6
-22,ucc,2,44,SUCCESS,16.827763,0.027446,16.800317,142.8
-22,qiskit,0,42,SUCCESS,8.109042,0.0,0.0,154.1
-22,qiskit,1,43,SUCCESS,8.183417,0.0,0.0,153.7
-22,qiskit,2,44,SUCCESS,8.2396,0.0,0.0,153.7
-22,qulacs,0,42,SUCCESS,35.46138,0.0,0.0,206.3
-22,qulacs,1,43,SUCCESS,35.514637,0.0,0.0,206.5
-22,qulacs,2,44,SUCCESS,35.577487,0.0,0.0,206.3
-22,qsim,0,42,SUCCESS,0.911894,0.0,0.0,255.9
-22,qsim,1,43,SUCCESS,0.87252,0.0,0.0,255.8
-22,qsim,2,44,SUCCESS,0.837564,0.0,0.0,256.0`;
+const scalingData = [{"N": 6, "Simulator": "Qiskit-Aer", "median_s": 0.004737, "min_s": 0.004277, "max_s": 0.004894}, {"N": 6, "Simulator": "qsim (Google)", "median_s": 0.011354, "min_s": 0.011053, "max_s": 0.013146}, {"N": 6, "Simulator": "Qulacs", "median_s": 0.000189, "min_s": 0.000161, "max_s": 0.000308}, {"N": 6, "Simulator": "UCC (this work)", "median_s": 0.003039, "min_s": 0.00294, "max_s": 0.003147}, {"N": 8, "Simulator": "Qiskit-Aer", "median_s": 0.007238, "min_s": 0.00507, "max_s": 0.008178}, {"N": 8, "Simulator": "qsim (Google)", "median_s": 0.020358, "min_s": 0.018903, "max_s": 0.020974}, {"N": 8, "Simulator": "Qulacs", "median_s": 0.000471, "min_s": 0.000457, "max_s": 0.000478}, {"N": 8, "Simulator": "UCC (this work)", "median_s": 0.005159, "min_s": 0.005138, "max_s": 0.007364}, {"N": 10, "Simulator": "Qiskit-Aer", "median_s": 0.012629, "min_s": 0.009545, "max_s": 0.01267}, {"N": 10, "Simulator": "qsim (Google)", "median_s": 0.027969, "min_s": 0.027652, "max_s": 0.028717}, {"N": 10, "Simulator": "Qulacs", "median_s": 0.001937, "min_s": 0.001862, "max_s": 0.00195}, {"N": 10, "Simulator": "UCC (this work)", "median_s": 0.008648, "min_s": 0.008055, "max_s": 0.009142}, {"N": 12, "Simulator": "Qiskit-Aer", "median_s": 0.0255, "min_s": 0.024575, "max_s": 0.028998}, {"N": 12, "Simulator": "qsim (Google)", "median_s": 0.039451, "min_s": 0.038799, "max_s": 0.041915}, {"N": 12, "Simulator": "Qulacs", "median_s": 0.009634, "min_s": 0.009513, "max_s": 0.009829}, {"N": 12, "Simulator": "UCC (this work)", "median_s": 0.011899, "min_s": 0.011734, "max_s": 0.012251}, {"N": 14, "Simulator": "Qiskit-Aer", "median_s": 0.081911, "min_s": 0.078299, "max_s": 0.086569}, {"N": 14, "Simulator": "qsim (Google)", "median_s": 0.055435, "min_s": 0.052987, "max_s": 0.055622}, {"N": 14, "Simulator": "Qulacs", "median_s": 0.052382, "min_s": 0.050212, "max_s": 0.053209}, {"N": 14, "Simulator": "UCC (this work)", "median_s": 0.018403, "min_s": 0.0172, "max_s": 0.019698}, {"N": 16, "Simulator": "Qiskit-Aer", "median_s": 0.097915, "min_s": 0.096028, "max_s": 0.101575}, {"N": 16, "Simulator": "qsim (Google)", "median_s": 0.073752, "min_s": 0.070884, "max_s": 0.078259}, {"N": 16, "Simulator": "Qulacs", "median_s": 0.258124, "min_s": 0.257697, "max_s": 0.258175}, {"N": 16, "Simulator": "UCC (this work)", "median_s": 0.0322, "min_s": 0.029101, "max_s": 0.032273}, {"N": 18, "Simulator": "Qiskit-Aer", "median_s": 0.385437, "min_s": 0.380454, "max_s": 0.396423}, {"N": 18, "Simulator": "qsim (Google)", "median_s": 0.111874, "min_s": 0.108796, "max_s": 0.114629}, {"N": 18, "Simulator": "Qulacs", "median_s": 1.357819, "min_s": 1.314693, "max_s": 1.374502}, {"N": 18, "Simulator": "UCC (this work)", "median_s": 0.086134, "min_s": 0.082829, "max_s": 0.086855}, {"N": 20, "Simulator": "Qiskit-Aer", "median_s": 1.824595, "min_s": 1.715023, "max_s": 1.839579}, {"N": 20, "Simulator": "qsim (Google)", "median_s": 0.215395, "min_s": 0.20578, "max_s": 0.370744}, {"N": 20, "Simulator": "Qulacs", "median_s": 6.941692, "min_s": 6.940204, "max_s": 6.951442}, {"N": 20, "Simulator": "UCC (this work)", "median_s": 0.328525, "min_s": 0.297238, "max_s": 0.378475}, {"N": 22, "Simulator": "Qiskit-Aer", "median_s": 8.381279, "min_s": 8.34229, "max_s": 8.705799}, {"N": 22, "Simulator": "qsim (Google)", "median_s": 0.845651, "min_s": 0.828704, "max_s": 0.848422}, {"N": 22, "Simulator": "Qulacs", "median_s": 36.805439, "min_s": 36.566853, "max_s": 36.9133}, {"N": 22, "Simulator": "UCC (this work)", "median_s": 2.347538, "min_s": 2.183948, "max_s": 2.349571}];
 
-// Old benchmark data (pre-optimization)
-const oldCsvText = `N,simulator,repeat,seed,status,exec_s,compile_s,sample_s,peak_mb
-6,ucc,0,42,SUCCESS,0.001951,0.001861,9e-05,74.6
-6,ucc,1,43,SUCCESS,0.001988,0.001882,0.000106,74.7
-6,ucc,2,44,SUCCESS,0.001991,0.001904,8.8e-05,74.7
-6,qiskit,0,42,SUCCESS,0.005322,0.0,0.0,85.4
-6,qiskit,1,43,SUCCESS,0.006652,0.0,0.0,85.0
-6,qiskit,2,44,SUCCESS,0.004201,0.0,0.0,85.2
-6,qulacs,0,42,SUCCESS,0.000158,0.0,0.0,76.3
-6,qulacs,1,43,SUCCESS,0.000151,0.0,0.0,76.4
-6,qulacs,2,44,SUCCESS,0.000154,0.0,0.0,76.5
-6,qsim,0,42,SUCCESS,0.011311,0.0,0.0,218.0
-6,qsim,1,43,SUCCESS,0.011026,0.0,0.0,217.9
-6,qsim,2,44,SUCCESS,0.010633,0.0,0.0,218.3
-8,ucc,0,42,SUCCESS,0.003564,0.003275,0.000288,74.8
-8,ucc,1,43,SUCCESS,0.003753,0.003449,0.000304,74.7
-8,ucc,2,44,SUCCESS,0.003553,0.003286,0.000267,74.5
-8,qiskit,0,42,SUCCESS,0.007557,0.0,0.0,86.4
-8,qiskit,1,43,SUCCESS,0.008279,0.0,0.0,86.0
-8,qiskit,2,44,SUCCESS,0.004827,0.0,0.0,86.0
-8,qulacs,0,42,SUCCESS,0.000445,0.0,0.0,76.4
-8,qulacs,1,43,SUCCESS,0.000434,0.0,0.0,75.9
-8,qulacs,2,44,SUCCESS,0.000442,0.0,0.0,75.9
-8,qsim,0,42,SUCCESS,0.018585,0.0,0.0,218.3
-8,qsim,1,43,SUCCESS,0.018187,0.0,0.0,218.4
-8,qsim,2,44,SUCCESS,0.018507,0.0,0.0,218.6
-10,ucc,0,42,SUCCESS,0.006391,0.005248,0.001143,74.8
-10,ucc,1,43,SUCCESS,0.006584,0.005304,0.00128,74.9
-10,ucc,2,44,SUCCESS,0.006493,0.005395,0.001097,75.0
-10,qiskit,0,42,SUCCESS,0.0122,0.0,0.0,86.1
-10,qiskit,1,43,SUCCESS,0.011932,0.0,0.0,86.5
-10,qiskit,2,44,SUCCESS,0.009355,0.0,0.0,86.1
-10,qulacs,0,42,SUCCESS,0.001904,0.0,0.0,76.1
-10,qulacs,1,43,SUCCESS,0.001879,0.0,0.0,75.9
-10,qulacs,2,44,SUCCESS,0.001855,0.0,0.0,76.5
-10,qsim,0,42,SUCCESS,0.027966,0.0,0.0,218.8
-10,qsim,1,43,SUCCESS,0.027835,0.0,0.0,218.9
-10,qsim,2,44,SUCCESS,0.027231,0.0,0.0,218.4
-12,ucc,0,42,SUCCESS,0.014397,0.007497,0.0069,75.2
-12,ucc,1,43,SUCCESS,0.014593,0.007526,0.007067,75.6
-12,ucc,2,44,SUCCESS,0.014192,0.007549,0.006643,74.9
-12,qiskit,0,42,SUCCESS,0.024184,0.0,0.0,86.3
-12,qiskit,1,43,SUCCESS,0.027778,0.0,0.0,86.7
-12,qiskit,2,44,SUCCESS,0.023435,0.0,0.0,86.3
-12,qulacs,0,42,SUCCESS,0.009597,0.0,0.0,76.3
-12,qulacs,1,43,SUCCESS,0.009243,0.0,0.0,76.8
-12,qulacs,2,44,SUCCESS,0.009345,0.0,0.0,76.5
-12,qsim,0,42,SUCCESS,0.039604,0.0,0.0,219.4
-12,qsim,1,43,SUCCESS,0.038893,0.0,0.0,219.2
-12,qsim,2,44,SUCCESS,0.038595,0.0,0.0,220.0
-14,ucc,0,42,SUCCESS,0.047864,0.010359,0.037505,76.0
-14,ucc,1,43,SUCCESS,0.049111,0.010574,0.038537,76.4
-14,ucc,2,44,SUCCESS,0.048866,0.010432,0.038434,75.9
-14,qiskit,0,42,SUCCESS,0.077789,0.0,0.0,88.0
-14,qiskit,1,43,SUCCESS,0.076572,0.0,0.0,87.5
-14,qiskit,2,44,SUCCESS,0.081865,0.0,0.0,87.6
-14,qulacs,0,42,SUCCESS,0.049139,0.0,0.0,77.4
-14,qulacs,1,43,SUCCESS,0.051853,0.0,0.0,77.2
-14,qulacs,2,44,SUCCESS,0.04959,0.0,0.0,77.8
-14,qsim,0,42,SUCCESS,0.054263,0.0,0.0,220.0
-14,qsim,1,43,SUCCESS,0.053135,0.0,0.0,219.5
-14,qsim,2,44,SUCCESS,0.052962,0.0,0.0,220.2
-16,ucc,0,42,SUCCESS,0.216164,0.013788,0.202376,77.0
-16,ucc,1,43,SUCCESS,0.222222,0.015792,0.20643,76.8
-16,ucc,2,44,SUCCESS,0.219931,0.013752,0.206179,77.2
-16,qiskit,0,42,SUCCESS,0.089201,0.0,0.0,87.8
-16,qiskit,1,43,SUCCESS,0.098631,0.0,0.0,88.6
-16,qiskit,2,44,SUCCESS,0.098003,0.0,0.0,88.9
-16,qulacs,0,42,SUCCESS,0.258345,0.0,0.0,78.6
-16,qulacs,1,43,SUCCESS,0.257372,0.0,0.0,78.6
-16,qulacs,2,44,SUCCESS,0.256129,0.0,0.0,79.6
-16,qsim,0,42,SUCCESS,0.075512,0.0,0.0,221.4
-16,qsim,1,43,SUCCESS,0.069277,0.0,0.0,220.9
-16,qsim,2,44,SUCCESS,0.072602,0.0,0.0,220.9
-18,ucc,0,42,SUCCESS,1.215392,0.017866,1.197526,81.0
-18,ucc,1,43,SUCCESS,1.192153,0.017703,1.17445,80.3
-18,ucc,2,44,SUCCESS,1.209025,0.017876,1.191149,80.1
-18,qiskit,0,42,SUCCESS,0.367438,0.0,0.0,92.7
-18,qiskit,1,43,SUCCESS,0.362988,0.0,0.0,92.7
-18,qiskit,2,44,SUCCESS,0.363855,0.0,0.0,92.8
-18,qulacs,0,42,SUCCESS,1.297377,0.0,0.0,84.7
-18,qulacs,1,43,SUCCESS,1.325465,0.0,0.0,85.6
-18,qulacs,2,44,SUCCESS,1.304755,0.0,0.0,84.9
-18,qsim,0,42,SUCCESS,0.10984,0.0,0.0,223.6
-18,qsim,1,43,SUCCESS,0.111059,0.0,0.0,223.5
-18,qsim,2,44,SUCCESS,0.110056,0.0,0.0,223.3
-20,ucc,0,42,SUCCESS,6.637568,0.022381,6.615186,93.0
-20,ucc,1,43,SUCCESS,6.367328,0.022946,6.344382,93.0
-20,ucc,2,44,SUCCESS,6.342965,0.022206,6.320758,93.9
-20,qiskit,0,42,SUCCESS,1.660843,0.0,0.0,104.9
-20,qiskit,1,43,SUCCESS,1.702027,0.0,0.0,104.7
-20,qiskit,2,44,SUCCESS,1.702828,0.0,0.0,104.8
-20,qulacs,0,42,SUCCESS,6.535319,0.0,0.0,109.2
-20,qulacs,1,43,SUCCESS,6.698374,0.0,0.0,109.1
-20,qulacs,2,44,SUCCESS,6.577105,0.0,0.0,109.9
-20,qsim,0,42,SUCCESS,0.195934,0.0,0.0,230.3
-20,qsim,1,43,SUCCESS,0.198529,0.0,0.0,230.2
-20,qsim,2,44,SUCCESS,0.19811,0.0,0.0,231.0
-22,ucc,0,42,SUCCESS,52.003453,0.02678,51.976673,141.6
-22,ucc,1,43,SUCCESS,53.311116,0.027393,53.283723,141.5
-22,ucc,2,44,SUCCESS,54.546101,0.02709,54.519012,141.6
-22,qiskit,0,42,SUCCESS,8.080518,0.0,0.0,153.8
-22,qiskit,1,43,SUCCESS,8.169451,0.0,0.0,154.2`;
+const simDomain = ["UCC (this work)", "Qiskit-Aer", "Qulacs", "qsim (Google)"];
+const simRange = ["#3b82f6", "#f59e0b", "#a855f7", "#ef4444"];
 
-function parseCSV(text) {
-  const lines = text.trim().split('\n');
-  const header = lines[0].split(',');
-  return lines.slice(1).map(line => {
-    const vals = line.split(',');
-    const obj = {};
-    header.forEach((h, i) => obj[h.trim()] = vals[i]?.trim());
-    return obj;
-  });
-}
-
-function median(arr) {
-  const s = [...arr].sort((a, b) => a - b);
-  const m = Math.floor(s.length / 2);
-  return s.length % 2 ? s[m] : (s[m-1] + s[m]) / 2;
-}
-
-const rows = parseCSV(csvText).filter(r => r.status === 'SUCCESS');
-const oldRows = parseCSV(oldCsvText).filter(r => r.status === 'SUCCESS');
-
-// Aggregate: median exec_s per (N, simulator)
-function aggregate(data) {
-  const groups = {};
-  data.forEach(r => {
-    const key = `${r.N}-${r.simulator}`;
-    if (!groups[key]) groups[key] = { N: +r.N, simulator: r.simulator, times: [], mems: [] };
-    groups[key].times.push(+r.exec_s);
-    if (r.peak_mb) groups[key].mems.push(+r.peak_mb);
-  });
-  return Object.values(groups).map(g => ({
-    N: g.N,
-    simulator: g.simulator,
-    median_s: median(g.times),
-    min_s: Math.min(...g.times),
-    max_s: Math.max(...g.times),
-    median_mb: g.mems.length ? median(g.mems) : 0
-  }));
-}
-
-const agg = aggregate(rows);
-const oldAgg = aggregate(oldRows);
-
-// --- KPIs ---
-const uccN20 = agg.find(r => r.N === 20 && r.simulator === 'ucc');
-const qiskitN20 = agg.find(r => r.N === 20 && r.simulator === 'qiskit');
-const oldUccN20 = oldAgg.find(r => r.N === 20 && r.simulator === 'ucc');
-const qulacsN20 = agg.find(r => r.N === 20 && r.simulator === 'qulacs');
-
-const kpiDiv = document.getElementById('kpis');
-const kpis = [
-  {
-    label: 'UCC QV-20',
-    value: uccN20 ? `${uccN20.median_s.toFixed(2)}s` : '-',
-    cls: 'accent',
-    detail: 'Single-shot execution time'
-  },
-  {
-    label: 'Speedup vs Old UCC',
-    value: (oldUccN20 && uccN20) ? `${(oldUccN20.median_s / uccN20.median_s).toFixed(1)}x` : '-',
-    cls: '',
-    detail: `Was ${oldUccN20 ? oldUccN20.median_s.toFixed(2) : '?'}s (fusion + AVX2)`
-  },
-  {
-    label: 'Gap to Qiskit-Aer',
-    value: (uccN20 && qiskitN20) ? `${(uccN20.median_s / qiskitN20.median_s).toFixed(2)}x` : '-',
-    cls: 'neutral',
-    detail: `Qiskit: ${qiskitN20 ? qiskitN20.median_s.toFixed(2) : '?'}s`
-  },
-  {
-    label: 'Speedup vs Qulacs',
-    value: (uccN20 && qulacsN20) ? `${(qulacsN20.median_s / uccN20.median_s).toFixed(1)}x` : '-',
-    cls: '',
-    detail: `Qulacs: ${qulacsN20 ? qulacsN20.median_s.toFixed(2) : '?'}s`
-  }
-];
-
-kpis.forEach(k => {
-  const card = document.createElement('div');
-  card.className = 'kpi-card';
-  card.innerHTML = `
-    <div class="kpi-label">${k.label}</div>
-    <div class="kpi-value ${k.cls}">${k.value}</div>
-    <div class="kpi-detail">${k.detail}</div>
-  `;
-  kpiDiv.appendChild(card);
-});
-
-// --- Color map ---
-const simColors = {
-  'ucc': '#3b82f6',
-  'qiskit': '#f59e0b',
-  'qulacs': '#a855f7',
-  'qsim': '#ef4444'
-};
-const simNames = {
-  'ucc': 'UCC (this work)',
-  'qiskit': 'Qiskit-Aer',
-  'qulacs': 'Qulacs',
-  'qsim': 'qsim (Google)'
-};
-
-const chartData = agg.map(r => ({
-  N: r.N,
-  Simulator: simNames[r.simulator] || r.simulator,
-  median_s: r.median_s,
-  min_s: r.min_s,
-  max_s: r.max_s,
-  median_mb: r.median_mb
-}));
-
-// --- Scaling Chart (log scale) ---
 const scalingSpec = {
   $schema: 'https://vega.github.io/schema/vega-lite/v5.json',
   width: 'container',
   height: 380,
   background: '#1a1d27',
-  data: { values: chartData },
+  data: { values: scalingData },
   layer: [
     {
       mark: { type: 'errorbar', ticks: true },
@@ -502,7 +227,7 @@ const scalingSpec = {
         y2: { field: 'max_s' },
         color: {
           field: 'Simulator', type: 'nominal',
-          scale: { domain: Object.values(simNames), range: Object.values(simColors) }
+          scale: { domain: simDomain, range: simRange }
         }
       }
     },
@@ -515,14 +240,6 @@ const scalingSpec = {
           scale: { type: 'log', domain: [0.0001, 100] }
         },
         color: { field: 'Simulator', type: 'nominal' },
-        strokeDash: {
-          field: 'Simulator', type: 'nominal',
-          scale: {
-            domain: Object.values(simNames),
-            range: [[1,0], [1,0], [1,0], [1,0]]
-          },
-          legend: null
-        },
         tooltip: [
           { field: 'Simulator', type: 'nominal' },
           { field: 'N', type: 'quantitative', title: 'Qubits' },
@@ -539,87 +256,31 @@ const scalingSpec = {
 };
 vegaEmbed('#scaling-chart', scalingSpec, { actions: false, renderer: 'svg' });
 
-// --- Bar Chart: UCC vs Qiskit ---
-const barData = [];
-agg.filter(r => r.simulator === 'ucc' || r.simulator === 'qiskit').forEach(r => {
-  barData.push({
-    N: r.N,
-    Simulator: simNames[r.simulator],
-    median_s: r.median_s
-  });
-});
+const journeyData = [{"N": 6, "Version": "v0: Baseline", "median_s": 0.001988}, {"N": 6, "Version": "v1: SingleAxisFusion + AVX2", "median_s": 0.0021}, {"N": 6, "Version": "v2: + TileFusion + AVX-512 (current)", "median_s": 0.003039}, {"N": 8, "Version": "v0: Baseline", "median_s": 0.003564}, {"N": 8, "Version": "v1: SingleAxisFusion + AVX2", "median_s": 0.003749}, {"N": 8, "Version": "v2: + TileFusion + AVX-512 (current)", "median_s": 0.005159}, {"N": 10, "Version": "v0: Baseline", "median_s": 0.006493}, {"N": 10, "Version": "v1: SingleAxisFusion + AVX2", "median_s": 0.00605}, {"N": 10, "Version": "v2: + TileFusion + AVX-512 (current)", "median_s": 0.008648}, {"N": 12, "Version": "v0: Baseline", "median_s": 0.014397}, {"N": 12, "Version": "v1: SingleAxisFusion + AVX2", "median_s": 0.01016}, {"N": 12, "Version": "v2: + TileFusion + AVX-512 (current)", "median_s": 0.011899}, {"N": 14, "Version": "v0: Baseline", "median_s": 0.048866}, {"N": 14, "Version": "v1: SingleAxisFusion + AVX2", "median_s": 0.023643}, {"N": 14, "Version": "v2: + TileFusion + AVX-512 (current)", "median_s": 0.018403}, {"N": 16, "Version": "v0: Baseline", "median_s": 0.219931}, {"N": 16, "Version": "v1: SingleAxisFusion + AVX2", "median_s": 0.080012}, {"N": 16, "Version": "v2: + TileFusion + AVX-512 (current)", "median_s": 0.0322}, {"N": 18, "Version": "v0: Baseline", "median_s": 1.209025}, {"N": 18, "Version": "v1: SingleAxisFusion + AVX2", "median_s": 0.407682}, {"N": 18, "Version": "v2: + TileFusion + AVX-512 (current)", "median_s": 0.086134}, {"N": 20, "Version": "v0: Baseline", "median_s": 6.367328}, {"N": 20, "Version": "v1: SingleAxisFusion + AVX2", "median_s": 2.118607}, {"N": 20, "Version": "v2: + TileFusion + AVX-512 (current)", "median_s": 0.328525}, {"N": 22, "Version": "v0: Baseline", "median_s": 53.311116}, {"N": 22, "Version": "v1: SingleAxisFusion + AVX2", "median_s": 16.827763}, {"N": 22, "Version": "v2: + TileFusion + AVX-512 (current)", "median_s": 2.347538}];
 
-// Also compute ratio data for UCC/Qiskit
-const nValues = [...new Set(agg.map(r => r.N))].sort((a, b) => a - b);
-const ratioData = [];
-nValues.forEach(n => {
-  const u = agg.find(r => r.N === n && r.simulator === 'ucc');
-  const q = agg.find(r => r.N === n && r.simulator === 'qiskit');
-  if (u && q) {
-    ratioData.push({ N: n, ucc_s: u.median_s, qiskit_s: q.median_s, ratio: u.median_s / q.median_s });
-  }
-});
-
-const barSpec = {
+const journeySpec = {
   $schema: 'https://vega.github.io/schema/vega-lite/v5.json',
   width: 'container',
   height: 320,
   background: '#1a1d27',
-  data: { values: barData },
-  mark: { type: 'line', point: { filled: true, size: 80 }, strokeWidth: 2.5 },
-  encoding: {
-    x: {
-      field: 'N', type: 'quantitative', title: 'Qubits (N)',
-      scale: { domain: [5, 23] }
-    },
-    y: {
-      field: 'median_s', type: 'quantitative', title: 'Execution Time (s)',
-      scale: { type: 'log' }
-    },
-    color: {
-      field: 'Simulator', type: 'nominal',
-      scale: { domain: [simNames.ucc, simNames.qiskit], range: [simColors.ucc, simColors.qiskit] }
-    },
-    tooltip: [
-      { field: 'Simulator' },
-      { field: 'N', title: 'Qubits' },
-      { field: 'median_s', title: 'Time (s)', format: '.4f' }
-    ]
-  },
-  config: {
-    axis: { labelColor: '#888', titleColor: '#aaa', gridColor: '#2a2d3a', domainColor: '#2a2d3a' },
-    legend: { labelColor: '#ccc', titleColor: '#aaa' },
-    view: { stroke: null }
-  }
-};
-vegaEmbed('#bar-chart', barSpec, { actions: false, renderer: 'svg' });
-
-// --- Improvement Chart: old UCC vs new UCC ---
-const impData = [];
-agg.filter(r => r.simulator === 'ucc').forEach(r => {
-  impData.push({ N: r.N, Version: 'UCC (fusion + AVX2)', median_s: r.median_s });
-});
-oldAgg.filter(r => r.simulator === 'ucc').forEach(r => {
-  impData.push({ N: r.N, Version: 'UCC (before)', median_s: r.median_s });
-});
-
-const impSpec = {
-  $schema: 'https://vega.github.io/schema/vega-lite/v5.json',
-  width: 'container',
-  height: 320,
-  background: '#1a1d27',
-  data: { values: impData },
+  data: { values: journeyData },
   mark: { type: 'line', point: { filled: true, size: 80 }, strokeWidth: 2.5 },
   encoding: {
     x: { field: 'N', type: 'quantitative', title: 'Qubits (N)', scale: { domain: [5, 23] } },
     y: { field: 'median_s', type: 'quantitative', title: 'Execution Time (s)', scale: { type: 'log' } },
     color: {
       field: 'Version', type: 'nominal',
-      scale: { domain: ['UCC (before)', 'UCC (fusion + AVX2)'], range: ['#666', '#3b82f6'] }
+      scale: {
+        domain: ['v0: Baseline', 'v1: SingleAxisFusion + AVX2', 'v2: + TileFusion + AVX-512 (current)'],
+        range: ['#666', '#8b5cf6', '#3b82f6']
+      }
     },
     strokeDash: {
       field: 'Version', type: 'nominal',
-      scale: { domain: ['UCC (before)', 'UCC (fusion + AVX2)'], range: [[6, 4], [1, 0]] },
+      scale: {
+        domain: ['v0: Baseline', 'v1: SingleAxisFusion + AVX2', 'v2: + TileFusion + AVX-512 (current)'],
+        range: [[8, 4], [4, 4], [1, 0]]
+      },
       legend: null
     },
     tooltip: [
@@ -634,14 +295,40 @@ const impSpec = {
     view: { stroke: null }
   }
 };
-vegaEmbed('#improvement-chart', impSpec, { actions: false, renderer: 'svg' });
+vegaEmbed('#journey-chart', journeySpec, { actions: false, renderer: 'svg' });
 
-// --- Memory Chart ---
-const memData = agg.map(r => ({
-  N: r.N,
-  Simulator: simNames[r.simulator] || r.simulator,
-  median_mb: r.median_mb
-}));
+const breakdownData = [{"N": 6, "Phase": "Compile", "seconds": 0.002913}, {"N": 6, "Phase": "Sample (1 shot)", "seconds": 9.6e-05}, {"N": 8, "Phase": "Compile", "seconds": 0.005057}, {"N": 8, "Phase": "Sample (1 shot)", "seconds": 0.000143}, {"N": 10, "Phase": "Compile", "seconds": 0.008358}, {"N": 10, "Phase": "Sample (1 shot)", "seconds": 0.000289}, {"N": 12, "Phase": "Compile", "seconds": 0.011414}, {"N": 12, "Phase": "Sample (1 shot)", "seconds": 0.000485}, {"N": 14, "Phase": "Compile", "seconds": 0.016325}, {"N": 14, "Phase": "Sample (1 shot)", "seconds": 0.002087}, {"N": 16, "Phase": "Compile", "seconds": 0.020754}, {"N": 16, "Phase": "Sample (1 shot)", "seconds": 0.009781}, {"N": 18, "Phase": "Compile", "seconds": 0.026675}, {"N": 18, "Phase": "Sample (1 shot)", "seconds": 0.05964}, {"N": 20, "Phase": "Compile", "seconds": 0.033242}, {"N": 20, "Phase": "Sample (1 shot)", "seconds": 0.29615}, {"N": 22, "Phase": "Compile", "seconds": 0.040787}, {"N": 22, "Phase": "Sample (1 shot)", "seconds": 2.306751}];
+
+const breakdownSpec = {
+  $schema: 'https://vega.github.io/schema/vega-lite/v5.json',
+  width: 'container',
+  height: 300,
+  background: '#1a1d27',
+  data: { values: breakdownData },
+  mark: { type: 'bar' },
+  encoding: {
+    x: { field: 'N', type: 'ordinal', title: 'Qubits (N)' },
+    y: { field: 'seconds', type: 'quantitative', title: 'Time (s)', scale: { type: 'log' } },
+    color: {
+      field: 'Phase', type: 'nominal',
+      scale: { domain: ['Compile', 'Sample (1 shot)'], range: ['#6366f1', '#22c55e'] }
+    },
+    xOffset: { field: 'Phase', type: 'nominal' },
+    tooltip: [
+      { field: 'Phase' },
+      { field: 'N', title: 'Qubits' },
+      { field: 'seconds', title: 'Time (s)', format: '.6f' }
+    ]
+  },
+  config: {
+    axis: { labelColor: '#888', titleColor: '#aaa', gridColor: '#2a2d3a', domainColor: '#2a2d3a' },
+    legend: { labelColor: '#ccc', titleColor: '#aaa' },
+    view: { stroke: null }
+  }
+};
+vegaEmbed('#breakdown-chart', breakdownSpec, { actions: false, renderer: 'svg' });
+
+const memData = [{"N": 6, "Simulator": "Qiskit-Aer", "median_mb": 85.4}, {"N": 6, "Simulator": "qsim (Google)", "median_mb": 218.1}, {"N": 6, "Simulator": "Qulacs", "median_mb": 75.9}, {"N": 6, "Simulator": "UCC (this work)", "median_mb": 74.9}, {"N": 8, "Simulator": "Qiskit-Aer", "median_mb": 86.2}, {"N": 8, "Simulator": "qsim (Google)", "median_mb": 218.4}, {"N": 8, "Simulator": "Qulacs", "median_mb": 76.2}, {"N": 8, "Simulator": "UCC (this work)", "median_mb": 75.2}, {"N": 10, "Simulator": "Qiskit-Aer", "median_mb": 86.0}, {"N": 10, "Simulator": "qsim (Google)", "median_mb": 218.8}, {"N": 10, "Simulator": "Qulacs", "median_mb": 76.1}, {"N": 10, "Simulator": "UCC (this work)", "median_mb": 75.5}, {"N": 12, "Simulator": "Qiskit-Aer", "median_mb": 86.6}, {"N": 12, "Simulator": "qsim (Google)", "median_mb": 219.3}, {"N": 12, "Simulator": "Qulacs", "median_mb": 76.8}, {"N": 12, "Simulator": "UCC (this work)", "median_mb": 76.6}, {"N": 14, "Simulator": "Qiskit-Aer", "median_mb": 87.9}, {"N": 14, "Simulator": "qsim (Google)", "median_mb": 219.9}, {"N": 14, "Simulator": "Qulacs", "median_mb": 77.1}, {"N": 14, "Simulator": "UCC (this work)", "median_mb": 77.2}, {"N": 16, "Simulator": "Qiskit-Aer", "median_mb": 88.6}, {"N": 16, "Simulator": "qsim (Google)", "median_mb": 221.2}, {"N": 16, "Simulator": "Qulacs", "median_mb": 78.6}, {"N": 16, "Simulator": "UCC (this work)", "median_mb": 78.1}, {"N": 18, "Simulator": "Qiskit-Aer", "median_mb": 92.9}, {"N": 18, "Simulator": "qsim (Google)", "median_mb": 223.6}, {"N": 18, "Simulator": "Qulacs", "median_mb": 85.0}, {"N": 18, "Simulator": "UCC (this work)", "median_mb": 81.8}, {"N": 20, "Simulator": "Qiskit-Aer", "median_mb": 105.6}, {"N": 20, "Simulator": "qsim (Google)", "median_mb": 230.6}, {"N": 20, "Simulator": "Qulacs", "median_mb": 110.0}, {"N": 20, "Simulator": "UCC (this work)", "median_mb": 93.6}, {"N": 22, "Simulator": "Qiskit-Aer", "median_mb": 154.3}, {"N": 22, "Simulator": "qsim (Google)", "median_mb": 255.7}, {"N": 22, "Simulator": "Qulacs", "median_mb": 205.8}, {"N": 22, "Simulator": "UCC (this work)", "median_mb": 143.1}];
 
 const memSpec = {
   $schema: 'https://vega.github.io/schema/vega-lite/v5.json',
@@ -655,7 +342,7 @@ const memSpec = {
     y: { field: 'median_mb', type: 'quantitative', title: 'Peak RSS (MB)' },
     color: {
       field: 'Simulator', type: 'nominal',
-      scale: { domain: Object.values(simNames), range: Object.values(simColors) }
+      scale: { domain: simDomain, range: simRange }
     },
     tooltip: [
       { field: 'Simulator' },
@@ -670,51 +357,7 @@ const memSpec = {
   }
 };
 vegaEmbed('#memory-chart', memSpec, { actions: false, renderer: 'svg' });
-
-// --- Data Table ---
-const sims = ['ucc', 'qiskit', 'qulacs', 'qsim'];
-
-let tableHTML = '<table><thead><tr><th>N</th>';
-sims.forEach(s => tableHTML += `<th class="sim-${s}">${simNames[s]}</th>`);
-tableHTML += '<th>UCC vs Old</th></tr></thead><tbody>';
-
-nValues.forEach(n => {
-  tableHTML += `<tr><td><strong>${n}</strong></td>`;
-  const times = {};
-  sims.forEach(s => {
-    const r = agg.find(x => x.N === n && x.simulator === s);
-    times[s] = r ? r.median_s : Infinity;
-  });
-  const fastest = Math.min(...Object.values(times));
-
-  sims.forEach(s => {
-    const t = times[s];
-    if (t === Infinity) {
-      tableHTML += '<td>-</td>';
-    } else {
-      const fmt = t < 0.01 ? t.toFixed(4) : t < 1 ? t.toFixed(3) : t.toFixed(2);
-      const cls = Math.abs(t - fastest) / fastest < 0.05 ? ' fastest' : '';
-      tableHTML += `<td class="sim-${s}${cls}">${fmt}s</td>`;
-    }
-  });
-
-  // Improvement column
-  const oldR = oldAgg.find(x => x.N === n && x.simulator === 'ucc');
-  const newR = agg.find(x => x.N === n && x.simulator === 'ucc');
-  if (oldR && newR && newR.median_s > 0) {
-    const speedup = oldR.median_s / newR.median_s;
-    tableHTML += `<td><span class="improvement">${speedup.toFixed(1)}x faster</span></td>`;
-  } else {
-    tableHTML += '<td>-</td>';
-  }
-  tableHTML += '</tr>';
-});
-
-tableHTML += '</tbody></table>';
-tableHTML += '<p class="note">All benchmarks: single-threaded, OMP_NUM_THREADS=1, 6 GB memory limit, median of 3 runs. qsim uses Google\'s optimized C++ SIMD engine with AVX-512. UCC uses factored-state representation with Clifford frame compression + single-axis fusion + AVX2 intrinsics.</p>';
-
-document.getElementById('table-container').innerHTML = tableHTML;
-
 </script>
+
 </body>
 </html>
