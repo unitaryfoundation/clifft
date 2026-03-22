@@ -10,6 +10,7 @@
 #include "ucc/optimizer/single_axis_fusion_pass.h"
 #include "ucc/optimizer/statevector_squeeze_pass.h"
 #include "ucc/optimizer/swap_meas_pass.h"
+#include "ucc/optimizer/tile_axis_fusion_pass.h"
 
 #include <cstddef>
 #include <cstdint>
@@ -78,6 +79,10 @@ inline const PassInfo kRegisteredPasses[] = {
      .kind = PassKind::Bytecode,
      .default_enabled = true,
      .make_bc = make_bc<SwapMeasPass>},
+    {.name = "TileAxisFusionPass",
+     .kind = PassKind::Bytecode,
+     .default_enabled = true,
+     .make_bc = make_bc<TileAxisFusionPass>},
     {.name = "SingleAxisFusionPass",
      .kind = PassKind::Bytecode,
      .default_enabled = true,

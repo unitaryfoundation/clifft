@@ -18,6 +18,7 @@ add_executable(ucc_tests
     test_optimizer.cc
     test_bytecode_passes.cc
     test_single_axis_fusion.cc
+    test_tile_axis_fusion.cc
     test_source_map.cc
 )
 

@@ -9,6 +9,7 @@ add_library(ucc_core STATIC
     optimizer/multi_gate_pass.cc
     optimizer/expand_t_pass.cc
     optimizer/swap_meas_pass.cc
+    optimizer/tile_axis_fusion_pass.cc
     optimizer/single_axis_fusion_pass.cc
     optimizer/hir_pass_manager.cc
     optimizer/commutation.cc

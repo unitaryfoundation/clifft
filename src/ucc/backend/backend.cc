@@ -189,6 +189,15 @@ Instruction make_array_u2(uint16_t axis, uint32_t cp_idx) {
     return i;
 }
 
+Instruction make_array_u4(uint16_t axis_lo, uint16_t axis_hi, uint32_t cp_idx) {
+    Instruction i{};
+    i.opcode = Opcode::OP_ARRAY_U4;
+    i.axis_1 = axis_lo;
+    i.axis_2 = axis_hi;
+    i.u4.cp_idx = cp_idx;
+    return i;
+}
+
 Instruction make_swap_meas_interfere(uint16_t swap_from, uint16_t swap_to, uint32_t classical_idx,
                                      bool sign) {
     Instruction i{};

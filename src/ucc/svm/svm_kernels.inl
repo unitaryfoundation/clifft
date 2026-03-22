@@ -1333,6 +1333,244 @@ static inline void exec_array_u2(SchrodingerState& state, const ConstantPool& po
 }
 
 // =============================================================================
+// Fused 2-Axis U4 Opcode
+// =============================================================================
+
+// OP_ARRAY_U4: applies a pre-computed 4x4 unitary matrix from the ConstantPool.
+// The 16-state FSM selects the correct matrix based on the incoming Pauli frame
+// bits (px_lo, pz_lo, px_hi, pz_hi) on the two target axes. This replaces an
+// entire tile run of 1Q+2Q ops with one array sweep.
+//
+// Basis ordering: |b_hi, b_lo> with lo=LSB. The four basis states at each
+// position are indexed as: |00>=0, |01>=1, |10>=2, |11>=3.
+static inline void exec_array_u4(SchrodingerState& state, const ConstantPool& pool,
+                                 uint16_t axis_lo, uint16_t axis_hi, uint32_t cp_idx) {
+    assert(axis_lo < axis_hi && "U4: axis_lo must be less than axis_hi");
+    assert(axis_hi < state.active_k && axis_hi < 64 && "U4: axis_hi out of range");
+
+    const auto& node = pool.fused_u4_nodes[cp_idx];
+
+    // Compute 4-bit incoming frame state: (pz_hi << 3) | (px_hi << 2) | (pz_lo << 1) | px_lo
+    uint8_t px_lo = bit_get(state.p_x, axis_lo) ? 1 : 0;
+    uint8_t pz_lo = bit_get(state.p_z, axis_lo) ? 1 : 0;
+    uint8_t px_hi = bit_get(state.p_x, axis_hi) ? 1 : 0;
+    uint8_t pz_hi = bit_get(state.p_z, axis_hi) ? 1 : 0;
+    uint8_t in_state = static_cast<uint8_t>((pz_hi << 3) | (px_hi << 2) | (pz_lo << 1) | px_lo);
+
+    const auto& entry = node.entries[in_state];
+    state.multiply_phase(entry.gamma_multiplier);
+
+    uint8_t out = entry.out_state;
+    bit_set(state.p_x, axis_lo, (out & 1) != 0);
+    bit_set(state.p_z, axis_lo, (out & 2) != 0);
+    bit_set(state.p_x, axis_hi, (out & 4) != 0);
+    bit_set(state.p_z, axis_hi, (out & 8) != 0);
+
+    // Array sweep: apply the 4x4 matrix to every block of 4 elements.
+    // Block indices: {base, base|lo_bit, base|hi_bit, base|lo_bit|hi_bit}
+    uint64_t lo_bit = 1ULL << axis_lo;
+    uint64_t hi_bit = 1ULL << axis_hi;
+    uint64_t both_bits = lo_bit | hi_bit;
+    auto* __restrict arr = state.v();
+
+    // Extract matrix elements (row-major: mat[row][col])
+    const auto& mat = entry.matrix;
+
+    // Iterate over all 2^(k-2) blocks where both axis bits are zero.
+    uint64_t iters = 1ULL << (state.active_k - 2);
+    uint64_t pdep_mask = ~both_bits;
+
+#if defined(__AVX512F__) && defined(__AVX512DQ__)
+    // Structured stride loop for axis_lo >= 2: consecutive loop indices
+    // produce contiguous memory. Process 4 blocks per AVX-512 iteration.
+    if (axis_lo >= 2 && state.active_k >= kMinRankFor3DLoop) {
+        auto* d = reinterpret_cast<double*>(arr);
+        uint64_t step_lo = lo_bit;
+        uint64_t step_hi = hi_bit;
+
+        // Broadcast all 16 matrix coefficients
+        __m512d m00_re = _mm512_set1_pd(mat[0][0].real());
+        __m512d m00_im = _mm512_set1_pd(mat[0][0].imag());
+        __m512d m01_re = _mm512_set1_pd(mat[0][1].real());
+        __m512d m01_im = _mm512_set1_pd(mat[0][1].imag());
+        __m512d m02_re = _mm512_set1_pd(mat[0][2].real());
+        __m512d m02_im = _mm512_set1_pd(mat[0][2].imag());
+        __m512d m03_re = _mm512_set1_pd(mat[0][3].real());
+        __m512d m03_im = _mm512_set1_pd(mat[0][3].imag());
+        __m512d m10_re = _mm512_set1_pd(mat[1][0].real());
+        __m512d m10_im = _mm512_set1_pd(mat[1][0].imag());
+        __m512d m11_re = _mm512_set1_pd(mat[1][1].real());
+        __m512d m11_im = _mm512_set1_pd(mat[1][1].imag());
+        __m512d m12_re = _mm512_set1_pd(mat[1][2].real());
+        __m512d m12_im = _mm512_set1_pd(mat[1][2].imag());
+        __m512d m13_re = _mm512_set1_pd(mat[1][3].real());
+        __m512d m13_im = _mm512_set1_pd(mat[1][3].imag());
+        __m512d m20_re = _mm512_set1_pd(mat[2][0].real());
+        __m512d m20_im = _mm512_set1_pd(mat[2][0].imag());
+        __m512d m21_re = _mm512_set1_pd(mat[2][1].real());
+        __m512d m21_im = _mm512_set1_pd(mat[2][1].imag());
+        __m512d m22_re = _mm512_set1_pd(mat[2][2].real());
+        __m512d m22_im = _mm512_set1_pd(mat[2][2].imag());
+        __m512d m23_re = _mm512_set1_pd(mat[2][3].real());
+        __m512d m23_im = _mm512_set1_pd(mat[2][3].imag());
+        __m512d m30_re = _mm512_set1_pd(mat[3][0].real());
+        __m512d m30_im = _mm512_set1_pd(mat[3][0].imag());
+        __m512d m31_re = _mm512_set1_pd(mat[3][1].real());
+        __m512d m31_im = _mm512_set1_pd(mat[3][1].imag());
+        __m512d m32_re = _mm512_set1_pd(mat[3][2].real());
+        __m512d m32_im = _mm512_set1_pd(mat[3][2].imag());
+        __m512d m33_re = _mm512_set1_pd(mat[3][3].real());
+        __m512d m33_im = _mm512_set1_pd(mat[3][3].imag());
+
+        for (uint64_t i3 = 0; i3 < (1ULL << state.active_k); i3 += 2 * step_hi) {
+            for (uint64_t i2 = 0; i2 < step_hi; i2 += 2 * step_lo) {
+                uint64_t base = i3 + i2;
+                double* p00 = d + base * 2;
+                double* p01 = d + (base + step_lo) * 2;
+                double* p10 = d + (base + step_hi) * 2;
+                double* p11 = d + (base + step_hi + step_lo) * 2;
+
+                for (uint64_t k = 0; k < step_lo; k += 4) {
+                    uint64_t off = k * 2;
+                    __m512d v0 = _mm512_load_pd(p00 + off);
+                    __m512d v1 = _mm512_load_pd(p01 + off);
+                    __m512d v2 = _mm512_load_pd(p10 + off);
+                    __m512d v3 = _mm512_load_pd(p11 + off);
+
+                    __m512d n0 = _mm512_add_pd(_mm512_add_pd(cmul_m512d(v0, m00_re, m00_im),
+                                                             cmul_m512d(v1, m01_re, m01_im)),
+                                               _mm512_add_pd(cmul_m512d(v2, m02_re, m02_im),
+                                                             cmul_m512d(v3, m03_re, m03_im)));
+                    __m512d n1 = _mm512_add_pd(_mm512_add_pd(cmul_m512d(v0, m10_re, m10_im),
+                                                             cmul_m512d(v1, m11_re, m11_im)),
+                                               _mm512_add_pd(cmul_m512d(v2, m12_re, m12_im),
+                                                             cmul_m512d(v3, m13_re, m13_im)));
+                    __m512d n2 = _mm512_add_pd(_mm512_add_pd(cmul_m512d(v0, m20_re, m20_im),
+                                                             cmul_m512d(v1, m21_re, m21_im)),
+                                               _mm512_add_pd(cmul_m512d(v2, m22_re, m22_im),
+                                                             cmul_m512d(v3, m23_re, m23_im)));
+                    __m512d n3 = _mm512_add_pd(_mm512_add_pd(cmul_m512d(v0, m30_re, m30_im),
+                                                             cmul_m512d(v1, m31_re, m31_im)),
+                                               _mm512_add_pd(cmul_m512d(v2, m32_re, m32_im),
+                                                             cmul_m512d(v3, m33_re, m33_im)));
+
+                    _mm512_store_pd(p00 + off, n0);
+                    _mm512_store_pd(p01 + off, n1);
+                    _mm512_store_pd(p10 + off, n2);
+                    _mm512_store_pd(p11 + off, n3);
+                }
+            }
+        }
+        return;
+    }
+#endif
+
+#if defined(__AVX2__)
+    // AVX2 structured stride loop for axis_lo >= 1: process 2 blocks per
+    // iteration using 256-bit loads (2 complex doubles per register).
+    if (axis_lo >= 1) {
+        auto* d = reinterpret_cast<double*>(arr);
+        uint64_t step_lo = lo_bit;
+        uint64_t step_hi = hi_bit;
+
+        // Broadcast all 16 matrix coefficients into 256-bit registers
+        __m256d m00_re = _mm256_set1_pd(mat[0][0].real());
+        __m256d m00_im = _mm256_set1_pd(mat[0][0].imag());
+        __m256d m01_re = _mm256_set1_pd(mat[0][1].real());
+        __m256d m01_im = _mm256_set1_pd(mat[0][1].imag());
+        __m256d m02_re = _mm256_set1_pd(mat[0][2].real());
+        __m256d m02_im = _mm256_set1_pd(mat[0][2].imag());
+        __m256d m03_re = _mm256_set1_pd(mat[0][3].real());
+        __m256d m03_im = _mm256_set1_pd(mat[0][3].imag());
+        __m256d m10_re = _mm256_set1_pd(mat[1][0].real());
+        __m256d m10_im = _mm256_set1_pd(mat[1][0].imag());
+        __m256d m11_re = _mm256_set1_pd(mat[1][1].real());
+        __m256d m11_im = _mm256_set1_pd(mat[1][1].imag());
+        __m256d m12_re = _mm256_set1_pd(mat[1][2].real());
+        __m256d m12_im = _mm256_set1_pd(mat[1][2].imag());
+        __m256d m13_re = _mm256_set1_pd(mat[1][3].real());
+        __m256d m13_im = _mm256_set1_pd(mat[1][3].imag());
+        __m256d m20_re = _mm256_set1_pd(mat[2][0].real());
+        __m256d m20_im = _mm256_set1_pd(mat[2][0].imag());
+        __m256d m21_re = _mm256_set1_pd(mat[2][1].real());
+        __m256d m21_im = _mm256_set1_pd(mat[2][1].imag());
+        __m256d m22_re = _mm256_set1_pd(mat[2][2].real());
+        __m256d m22_im = _mm256_set1_pd(mat[2][2].imag());
+        __m256d m23_re = _mm256_set1_pd(mat[2][3].real());
+        __m256d m23_im = _mm256_set1_pd(mat[2][3].imag());
+        __m256d m30_re = _mm256_set1_pd(mat[3][0].real());
+        __m256d m30_im = _mm256_set1_pd(mat[3][0].imag());
+        __m256d m31_re = _mm256_set1_pd(mat[3][1].real());
+        __m256d m31_im = _mm256_set1_pd(mat[3][1].imag());
+        __m256d m32_re = _mm256_set1_pd(mat[3][2].real());
+        __m256d m32_im = _mm256_set1_pd(mat[3][2].imag());
+        __m256d m33_re = _mm256_set1_pd(mat[3][3].real());
+        __m256d m33_im = _mm256_set1_pd(mat[3][3].imag());
+
+        for (uint64_t i3 = 0; i3 < (1ULL << state.active_k); i3 += 2 * step_hi) {
+            for (uint64_t i2 = 0; i2 < step_hi; i2 += 2 * step_lo) {
+                uint64_t base = i3 + i2;
+                double* p00 = d + base * 2;
+                double* p01 = d + (base + step_lo) * 2;
+                double* p10 = d + (base + step_hi) * 2;
+                double* p11 = d + (base + step_hi + step_lo) * 2;
+
+                for (uint64_t k = 0; k < step_lo; k += 2) {
+                    uint64_t off = k * 2;
+                    __m256d v0 = _mm256_load_pd(p00 + off);
+                    __m256d v1 = _mm256_load_pd(p01 + off);
+                    __m256d v2 = _mm256_load_pd(p10 + off);
+                    __m256d v3 = _mm256_load_pd(p11 + off);
+
+                    __m256d n0 = _mm256_add_pd(_mm256_add_pd(cmul_m256d(v0, m00_re, m00_im),
+                                                             cmul_m256d(v1, m01_re, m01_im)),
+                                               _mm256_add_pd(cmul_m256d(v2, m02_re, m02_im),
+                                                             cmul_m256d(v3, m03_re, m03_im)));
+                    __m256d n1 = _mm256_add_pd(_mm256_add_pd(cmul_m256d(v0, m10_re, m10_im),
+                                                             cmul_m256d(v1, m11_re, m11_im)),
+                                               _mm256_add_pd(cmul_m256d(v2, m12_re, m12_im),
+                                                             cmul_m256d(v3, m13_re, m13_im)));
+                    __m256d n2 = _mm256_add_pd(_mm256_add_pd(cmul_m256d(v0, m20_re, m20_im),
+                                                             cmul_m256d(v1, m21_re, m21_im)),
+                                               _mm256_add_pd(cmul_m256d(v2, m22_re, m22_im),
+                                                             cmul_m256d(v3, m23_re, m23_im)));
+                    __m256d n3 = _mm256_add_pd(_mm256_add_pd(cmul_m256d(v0, m30_re, m30_im),
+                                                             cmul_m256d(v1, m31_re, m31_im)),
+                                               _mm256_add_pd(cmul_m256d(v2, m32_re, m32_im),
+                                                             cmul_m256d(v3, m33_re, m33_im)));
+
+                    _mm256_store_pd(p00 + off, n0);
+                    _mm256_store_pd(p01 + off, n1);
+                    _mm256_store_pd(p10 + off, n2);
+                    _mm256_store_pd(p11 + off, n3);
+                }
+            }
+        }
+        return;
+    }
+#endif
+
+    // Scalar fallback: iterate over 2^(k-2) blocks using bit scattering.
+    for (uint64_t i = 0; i < iters; ++i) {
+        uint64_t base = scatter_bits_2(i, pdep_mask, axis_lo, axis_hi);
+        uint64_t i0 = base;
+        uint64_t i1 = base | lo_bit;
+        uint64_t i2 = base | hi_bit;
+        uint64_t i3 = base | both_bits;
+
+        auto v0 = arr[i0];
+        auto v1 = arr[i1];
+        auto v2 = arr[i2];
+        auto v3 = arr[i3];
+
+        arr[i0] = mat[0][0] * v0 + mat[0][1] * v1 + mat[0][2] * v2 + mat[0][3] * v3;
+        arr[i1] = mat[1][0] * v0 + mat[1][1] * v1 + mat[1][2] * v2 + mat[1][3] * v3;
+        arr[i2] = mat[2][0] * v0 + mat[2][1] * v1 + mat[2][2] * v2 + mat[2][3] * v3;
+        arr[i3] = mat[3][0] * v0 + mat[3][1] * v1 + mat[3][2] * v2 + mat[3][3] * v3;
+    }
+}
+
+// =============================================================================
 // Measurement Opcodes
 // =============================================================================
 
@@ -1791,6 +2029,7 @@ void execute_internal(const CompiledModule& program, SchrodingerState& state) {
         [static_cast<uint8_t>(Opcode::OP_PHASE_ROT)] = &&L_OP_PHASE_ROT,
         [static_cast<uint8_t>(Opcode::OP_EXPAND_ROT)] = &&L_OP_EXPAND_ROT,
         [static_cast<uint8_t>(Opcode::OP_ARRAY_U2)] = &&L_OP_ARRAY_U2,
+        [static_cast<uint8_t>(Opcode::OP_ARRAY_U4)] = &&L_OP_ARRAY_U4,
 
         [static_cast<uint8_t>(Opcode::OP_MEAS_DORMANT_STATIC)] = &&L_OP_MEAS_DORMANT_STATIC,
         [static_cast<uint8_t>(Opcode::OP_MEAS_DORMANT_RANDOM)] = &&L_OP_MEAS_DORMANT_RANDOM,
@@ -1905,6 +2144,10 @@ L_OP_EXPAND_ROT:
 
 L_OP_ARRAY_U2:
     exec_array_u2(state, program.constant_pool, pc->axis_1, pc->u2.cp_idx);
+    DISPATCH();
+
+L_OP_ARRAY_U4:
+    exec_array_u4(state, program.constant_pool, pc->axis_1, pc->axis_2, pc->u4.cp_idx);
     DISPATCH();
 
 L_OP_MEAS_DORMANT_STATIC:
@@ -2039,6 +2282,10 @@ L_OP_OBSERVABLE:
                 break;
             case Opcode::OP_ARRAY_U2:
                 exec_array_u2(state, program.constant_pool, instr.axis_1, instr.u2.cp_idx);
+                break;
+            case Opcode::OP_ARRAY_U4:
+                exec_array_u4(state, program.constant_pool, instr.axis_1, instr.axis_2,
+                              instr.u4.cp_idx);
                 break;
             case Opcode::OP_MEAS_DORMANT_STATIC:
                 if (instr.flags & Instruction::FLAG_IDENTITY) {

@@ -14,6 +14,7 @@
 #include "ucc/optimizer/single_axis_fusion_pass.h"
 #include "ucc/optimizer/statevector_squeeze_pass.h"
 #include "ucc/optimizer/swap_meas_pass.h"
+#include "ucc/optimizer/tile_axis_fusion_pass.h"
 #include "ucc/svm/svm.h"
 #include "ucc/util/config.h"
 #include "ucc/util/introspection.h"
@@ -489,6 +490,11 @@ NB_MODULE(_ucc_core, m) {
         m, "MultiGatePass", "Fuses sequences of same-type 2-qubit gates into multi-target ops.")
         .def(nb::init<>());
 
+    nb::class_<ucc::TileAxisFusionPass, ucc::BytecodePass>(
+        m, "TileAxisFusionPass",
+        "Fuses 2-qubit tile sequences into OP_ARRAY_U4 with precomputed 4x4 matrices.")
+        .def(nb::init<>());
+
     nb::class_<ucc::SingleAxisFusionPass, ucc::BytecodePass>(
         m, "SingleAxisFusionPass",
         "Fuses consecutive single-axis ops into OP_ARRAY_U2 with precomputed 2x2 matrices.")
@@ -544,6 +550,7 @@ NB_MODULE(_ucc_core, m) {
         .value("OP_PHASE_ROT", ucc::Opcode::OP_PHASE_ROT)
         .value("OP_EXPAND_ROT", ucc::Opcode::OP_EXPAND_ROT)
         .value("OP_ARRAY_U2", ucc::Opcode::OP_ARRAY_U2)
+        .value("OP_ARRAY_U4", ucc::Opcode::OP_ARRAY_U4)
         .value("OP_MEAS_DORMANT_STATIC", ucc::Opcode::OP_MEAS_DORMANT_STATIC)
         .value("OP_MEAS_DORMANT_RANDOM", ucc::Opcode::OP_MEAS_DORMANT_RANDOM)
         .value("OP_MEAS_ACTIVE_DIAGONAL", ucc::Opcode::OP_MEAS_ACTIVE_DIAGONAL)

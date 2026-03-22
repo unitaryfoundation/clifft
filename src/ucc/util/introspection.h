@@ -28,7 +28,7 @@ std::string opcode_to_str(Opcode op);
     return op == Opcode::OP_FRAME_CNOT || op == Opcode::OP_FRAME_CZ ||
            op == Opcode::OP_FRAME_SWAP || op == Opcode::OP_ARRAY_CNOT ||
            op == Opcode::OP_ARRAY_CZ || op == Opcode::OP_ARRAY_SWAP ||
-           op == Opcode::OP_SWAP_MEAS_INTERFERE;
+           op == Opcode::OP_SWAP_MEAS_INTERFERE || op == Opcode::OP_ARRAY_U4;
 }
 
 [[nodiscard]] constexpr bool is_one_axis_opcode(Opcode op) noexcept {

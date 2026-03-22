@@ -49,6 +49,7 @@ enum class Opcode : uint8_t {
     OP_PHASE_ROT,     // Continuous Z-rotation on active axis (arbitrary angle)
     OP_EXPAND_ROT,    // Fused EXPAND + PHASE_ROT in one array pass
     OP_ARRAY_U2,      // Fused single-axis 2x2 unitary (ConstantPool lookup)
+    OP_ARRAY_U4,      // Fused 2-axis 4x4 unitary (ConstantPool lookup)
 
     // Measurement
     OP_MEAS_DORMANT_STATIC,    // Deterministic outcome from p_x
@@ -126,6 +127,12 @@ struct alignas(32) Instruction {
             uint8_t _pad_e[20];  // Offset 12
         } u2;
 
+        // Variant F: Fused 2-axis 4x4 unitary (OP_ARRAY_U4)
+        struct {
+            uint32_t cp_idx;     // Offset 8 (Index into ConstantPool::fused_u4_nodes)
+            uint8_t _pad_f[20];  // Offset 12
+        } u4;
+
         uint8_t raw[24];  // Full payload access
     };
 };
@@ -161,6 +168,7 @@ static_assert(sizeof(Instruction) == 32, "Instruction must be exactly 32 bytes")
 [[nodiscard]] Instruction make_phase_rot(uint16_t axis, double re, double im);
 [[nodiscard]] Instruction make_expand_rot(uint16_t axis, double re, double im);
 [[nodiscard]] Instruction make_array_u2(uint16_t axis, uint32_t cp_idx);
+[[nodiscard]] Instruction make_array_u4(uint16_t axis_lo, uint16_t axis_hi, uint32_t cp_idx);
 [[nodiscard]] Instruction make_swap_meas_interfere(uint16_t swap_from, uint16_t swap_to,
                                                    uint32_t classical_idx, bool sign);
 [[nodiscard]] Instruction make_meas(Opcode meas_opcode, uint16_t axis, uint32_t classical_idx,
@@ -210,6 +218,25 @@ struct FusedU2Node {
     uint8_t out_states[4];
 };
 
+// Pre-computed 4x4 unitary for OP_ARRAY_U4 (2-axis tile fusion).
+// For each of 16 possible incoming Pauli frame states on {axis_lo, axis_hi}
+// ((pz_hi << 3) | (px_hi << 2) | (pz_lo << 1) | px_lo), stores the fused
+// 4x4 matrix, accumulated global phase, and resulting frame state.
+struct FusedU4Node {
+    struct Entry {
+        // Row-major 4x4 matrix: U|j> = sum_i matrix[i][j] |i>
+        // Basis ordering: |00>, |01>, |10>, |11> with lo=LSB, hi=MSB.
+        std::complex<double> matrix[4][4];
+
+        // Global phase multiplier accumulated during the fused sequence.
+        std::complex<double> gamma_multiplier;
+
+        // Resulting 4-bit frame state: (pz_hi << 3) | (px_hi << 2) | (pz_lo << 1) | px_lo
+        uint8_t out_state;
+    };
+    Entry entries[16];  // Indexed by 4-bit incoming frame state
+};
+
 struct ConstantPool {
     // Forward Clifford tableau at circuit end (for statevector expansion).
     // Computed as U_C = U_phys * V_cum^dag at end of compilation.
@@ -240,6 +267,9 @@ struct ConstantPool {
 
     // Fused single-axis 2x2 unitary nodes for OP_ARRAY_U2.
     std::vector<FusedU2Node> fused_u2_nodes;
+
+    // Fused 2-axis 4x4 unitary nodes for OP_ARRAY_U4.
+    std::vector<FusedU4Node> fused_u4_nodes;
 };
 
 // =============================================================================

@@ -137,6 +137,10 @@ std::string opcode_to_str(Opcode op) {
             return "OP_PHASE_ROT";
         case Opcode::OP_EXPAND_ROT:
             return "OP_EXPAND_ROT";
+        case Opcode::OP_ARRAY_U2:
+            return "OP_ARRAY_U2";
+        case Opcode::OP_ARRAY_U4:
+            return "OP_ARRAY_U4";
         case Opcode::OP_MEAS_DORMANT_STATIC:
             return "OP_MEAS_DORMANT_STATIC";
         case Opcode::OP_MEAS_DORMANT_RANDOM:
@@ -176,6 +180,8 @@ std::string format_instruction(const Instruction& inst) {
         ss << inst.axis_1 << " z=(" << inst.math.weight_re << ", " << inst.math.weight_im << ")";
     } else if (inst.opcode == Opcode::OP_ARRAY_U2) {
         ss << inst.axis_1 << " cp_idx=" << inst.u2.cp_idx;
+    } else if (inst.opcode == Opcode::OP_ARRAY_U4) {
+        ss << inst.axis_1 << ", " << inst.axis_2 << " cp_idx=" << inst.u4.cp_idx;
     } else if (is_one_axis_opcode(inst.opcode)) {
         ss << inst.axis_1;
     } else if (is_meas_opcode(inst.opcode)) {

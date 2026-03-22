@@ -37,6 +37,7 @@ add_library(ucc_core STATIC
     ${CMAKE_CURRENT_SOURCE_DIR}/../ucc/optimizer/pass_factory.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/../ucc/optimizer/remove_noise_pass.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/../ucc/optimizer/swap_meas_pass.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/../ucc/optimizer/tile_axis_fusion_pass.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/../ucc/optimizer/single_axis_fusion_pass.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/../ucc/optimizer/statevector_squeeze_pass.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/../ucc/backend/backend.cc
