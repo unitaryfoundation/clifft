@@ -91,4 +91,4 @@ meas, _, _ = ucc.sample(program, shots=10000, seed=42)
 
 - [Compiling Circuits](../guide/compiling.md) — the compilation pipeline in detail
 - [Simulation](../guide/simulation.md) — sampling, statevectors, and detectors
-- [Supported Gates](../guide/gates.md) — full gate reference
+- [Supported Gates](../reference/gates.md) — full gate reference

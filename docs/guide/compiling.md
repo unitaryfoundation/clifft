@@ -196,13 +196,8 @@ bpm = ucc.default_bytecode_pass_manager()
 bpm.run(program)
 ```
 
-The default bytecode pipeline includes:
-
-- **NoiseBlockPass** — collapses runs of noise ops into block instructions
-- **MultiGatePass** — fuses contiguous CNOT/CZ ops sharing an axis into star-graph instructions
-- **ExpandTPass** — fuses expand + T-phase into a single copy-and-rotate
-- **ExpandRotPass** — fuses expand + continuous rotation into a single copy-and-rotate
-- **SwapMeasPass** — fuses swap + measurement into one operation
+See [Optimization Passes](../reference/passes.md) for the full list of default
+and optional passes available at both IR levels.
 
 ## Full Custom Pipeline
 

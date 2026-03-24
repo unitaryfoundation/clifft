@@ -56,6 +56,8 @@ extra_css:
 
 plugins:
   - search
+  - macros:
+      module_name: docs/macros
   - minify:
       minify_html: true
 
@@ -67,7 +69,6 @@ nav:
   - User Guide:
     - Compiling Circuits: guide/compiling.md
     - Simulation: guide/simulation.md
-    - Supported Gates: guide/gates.md
     - "Tutorial: Surface Code": guide/surface-code.md
     - "Benchmark: UCC vs Qiskit": guide/benchmark.md
   - Theory:
@@ -75,7 +76,9 @@ nav:
     - Architecture: theory/architecture.md
   - Explorer: explorer.md
   - Reference:
-    - Instruction Reference: reference/opcodes.md
+    - Supported Gates: reference/gates.md
+    - Instruction Reference: reference/instructions.md
+    - Optimization Passes: reference/passes.md
   - Development:
     - Contributing: development/contributing.md
     - Building from Source: development/building.md

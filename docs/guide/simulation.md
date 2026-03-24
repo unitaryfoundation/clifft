@@ -148,14 +148,7 @@ If `seed` is omitted (or `None`), UCC uses 256-bit OS hardware entropy.
 
 ## Performance
 
-Simulation speed depends on the peak rank $k$ (number of simultaneously active non-Clifford qubits), not the total qubit count. The bytecode optimizer significantly reduces per-shot cost by fusing instructions:
-
-- **MultiGatePass** fuses star-graph CNOT/CZ patterns into single array sweeps, often the biggest win for QEC circuits
-- **ExpandTPass** and **ExpandRotPass** eliminate redundant array traversals for T-gates and continuous rotations
-- **SwapMeasPass** fuses swap + measurement into single operations
-- **NoiseBlockPass** reduces dispatch overhead for noise-heavy circuits
-
-For a distance-5 surface code (~17 qubits, peak rank 10), bytecode optimization compresses ~5100 raw instructions to ~1500, delivering roughly a 3.4x reduction in instruction count.
+Simulation speed depends on the peak rank $k$ (number of simultaneously active non-Clifford qubits), not the total qubit count. The bytecode optimizer significantly reduces per-shot cost by fusing instructions — see [Optimization Passes](../reference/passes.md) for the full list.
 
 ## Simulation Limits
 

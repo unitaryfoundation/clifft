@@ -194,7 +194,7 @@ Stim generates the full noisy surface code circuit including:
 - `DETECTOR` annotations marking parity checks
 - `OBSERVABLE_INCLUDE` annotations for logical observable tracking
 
-For distance $d$, the rotated surface code uses $d^2 + (d-1)^2$ total qubits. Distance 3 uses 26 qubits; distance 5 uses 64.
+For distance $d$, the rotated surface code has $d^2$ data qubits and $(d^2 - 1)/2$ ancilla qubits. Stim allocates qubit indices on a 2D coordinate grid, so the total qubit index count is higher: distance 3 uses 26 qubit indices, and distance 5 uses 64.
 
 ### UCC Compilation & Sampling
 
@@ -239,4 +239,7 @@ Representative timing on an x86-64 Linux system (20,000 shots):
 Both UCC and Stim have a similar compilation phase that resolves deterministic Clifford impacts ahead of time. The sampling speed difference comes down to vectorization: because Stim is Clifford-only, it never needs an active statevector array, so it can pack the Pauli frame and measurement sampling into wide SIMD operations — processing hundreds of shots per instruction. UCC's Schrodinger VM must be ready for non-Clifford gates (like T) to appear at any point, so it cannot vectorize across shots as aggressively. In practice, Stim's advantage on pure stabilizer circuits scales with the native SIMD bitwidth of the architecture (e.g., ~256x for AVX2). The key takeaway is that UCC produces **correct results** — the logical error rates agree — while offering a compilation pipeline that generalizes beyond stabilizer circuits.
 
 !!! note "Current qubit limit"
-    UCC's current implementation supports up to 512 qubits for Clifford+noise circuits, which comfortably accommodates distances 3 (26 qubits) and 5 (64 qubits). Distance 7 (118 qubits) and beyond are supported as well.
+    UCC's default build supports up to 64 qubits, which accommodates distances
+    3 (26 qubit indices) and 5 (64 qubit indices). For larger circuits like
+    distance 7 (118 qubit indices), rebuild with `UCC_MAX_QUBITS=128` or higher.
+    See [Building from Source](../development/building.md#ucc_max_qubits) for details.

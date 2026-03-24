@@ -50,18 +50,21 @@ UCC optimizes at two distinct IR levels, each with its own pass manager:
 
 Operate on the Heisenberg IR before bytecode emission:
 
-- **PeepholeFusionPass** — Fuses consecutive T/T-dagger gates on the same qubit (T+T=S, T+T_dag=identity)
+- **PeepholeFusionPass** — Algebraic T-gate cancellation and fusion (T+T=S, T+T_dag=identity)
+- **StatevectorSqueezePass** — Reorders HIR operations to minimize peak active rank
 
 ### Bytecode Passes (Post-Lowering)
 
 Operate on the finalized RISC bytecode. These rewrite and fuse instructions to reduce array passes:
 
 - **NoiseBlockPass** — Collapses runs of identical noise instructions into single block operations
-- **MultiGatePass** — Fuses contiguous CNOT/CZ ops sharing an axis into star-graph instructions (`MULTI_CNOT`, `MULTI_CZ`) that process all controls/targets in one array sweep
-- **ExpandTPass** — Fuses expand + T-phase into a single copy-and-rotate loop
+- **MultiGatePass** — Fuses contiguous CNOT/CZ ops sharing an axis into star-graph instructions
+- **ExpandTPass** / **ExpandRotPass** — Fuses expand + phase into single copy-and-rotate loops
 - **SwapMeasPass** — Fuses swap + measurement into one operation
+- **TileAxisFusionPass** — Fuses 2-qubit tile sequences into precomputed 4x4 unitaries
+- **SingleAxisFusionPass** — Fuses single-axis operation chains into precomputed 2x2 unitaries
 
-The default pipeline runs all passes in order: NoiseBlock → MultiGate → ExpandT → SwapMeas. On a distance-5 surface code circuit, this compresses ~5100 raw instructions down to ~1500.
+See the [Optimization Passes](../reference/passes.md) reference for detailed descriptions of each pass.
 
 ## Bytecode Format
 
