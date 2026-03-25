@@ -35,10 +35,12 @@ CIRCUIT_PATH = Path(__file__).resolve().parent.parent / "circuits" / "circuit_d3
 IMAGE_DIR = Path(__file__).resolve().parent.parent / "images"
 IMAGE_DIR.mkdir(exist_ok=True)
 
-MAX_K = 12  # Maximum fault count to simulate
-SHOTS_PER_STRATUM = 100_000  # Shots per stratum
-BRUTE_FORCE_SHOTS = 1_000_000  # For validation comparison
+MAX_K = 16  # Maximum fault count to simulate
+SHOTS_PER_STRATUM = 750_000  # Shots per stratum (matches paper Fig 13 caption)
 SEED_BASE = 42
+
+# Physical error rates for reweighting
+P_VALUES = np.array([0.0005, 0.001, 0.002, 0.003, 0.005, 0.007, 0.01])
 
 matplotlib.rcParams.update(
     {
@@ -87,7 +89,7 @@ def main() -> None:
     print(f"Loading circuit: {CIRCUIT_PATH}")
     circuit_text = CIRCUIT_PATH.read_text()
 
-    # Build all-detector postselection mask
+    # Build all-detector postselection mask (one flag per detector)
     prog_probe = ucc.compile(
         circuit_text,
         normalize_syndromes=True,
@@ -139,14 +141,14 @@ def main() -> None:
         print(
             f"  k={k:2d}: P(K=k)={P_K[k]:.3e}, "
             f"pass={passed}/{total}, err={errors}, "
-            f"p_fail|k={p_fail_k:.4f}, p_surv|k={p_surv_k:.4f}"
+            f"p_fail|k={p_fail_k:.6f}, p_surv|k={p_surv_k:.4f}"
         )
 
     elapsed = time.time() - t0
     total_shots_all = sum(d["total"] for d in stratum_data)
     print(f"Total time: {elapsed:.2f}s ({total_shots_all:,} shots)")
 
-    # Compute weighted error rate
+    # Compute weighted error rate at the circuit's native p
     weighted_errors = 0.0
     weighted_survival = 0.0
     for d in stratum_data:
@@ -161,67 +163,85 @@ def main() -> None:
     print(f"\nImportance sampling estimate: p_fail = {p_fail_is:.6e}")
 
     # -----------------------------------------------------------------------
-    # Step 3: Brute-force validation
+    # Step 3: Reweight for different physical error rates
     # -----------------------------------------------------------------------
-    print(f"\nBrute-force validation ({BRUTE_FORCE_SHOTS:,} shots)...")
-    t0 = time.time()
-    bf = ucc.sample_survivors(prog, shots=BRUTE_FORCE_SHOTS, seed=SEED_BASE)
-    bf_elapsed = time.time() - t0
-    bf_rate = bf["logical_errors"] / bf["passed_shots"] if bf["passed_shots"] > 0 else 0.0
-    print(
-        f"  Brute force: {bf_rate:.6e} "
-        f"({bf['logical_errors']} errors / {bf['passed_shots']} passed, {bf_elapsed:.2f}s)"
-    )
-    if bf_rate > 0:
-        print(f"  Ratio (IS / BF): {p_fail_is / bf_rate:.4f}")
-
-    # -----------------------------------------------------------------------
-    # Step 4: Reweight for different physical error rates
-    # -----------------------------------------------------------------------
-    p_values = np.array([0.0005, 0.001, 0.002, 0.003, 0.005, 0.007, 0.01])
     error_rates: list[float] = []
+    error_bars: list[float] = []
     discard_rates: list[float] = []
 
-    print(f"\n{'p':>8s} {'p_fail':>12s} {'discard%':>10s}")
-    print("-" * 35)
-    for p in p_values:
+    print(f"\n{'p':>8s} {'p_fail':>12s} {'95% CI':>14s} {'discard%':>10s}")
+    print("-" * 50)
+    for p in P_VALUES:
         pmf: NDArray[np.float64] = binom.pmf(np.arange(MAX_K + 1), n_sites, p)
         w_err = 0.0
         w_surv = 0.0
         w_total = 0.0
+        var_w_err = 0.0
+
         for d in stratum_data:
             k = d["k"]
             total_k = d["total"]
             if total_k == 0 or pmf[k] < 1e-30:
                 continue
-            w_err += pmf[k] * d["errors"] / total_k
-            w_surv += pmf[k] * d["passed"] / total_k
+
+            p_fail_k = d["errors"] / total_k
+            p_surv_k = d["passed"] / total_k
+
+            w_err += pmf[k] * p_fail_k
+            w_surv += pmf[k] * p_surv_k
             w_total += pmf[k]
+
+            # Variance of numerator (Eq. 55 from Tuloup & Ayral)
+            var_w_err += (pmf[k] ** 2) * (p_fail_k * (1.0 - p_fail_k)) / total_k
+
         rate = w_err / w_surv if w_surv > 0 else 0.0
+        se_rate = np.sqrt(var_w_err) / w_surv if w_surv > 0 else 0.0
+        ci_95 = 1.96 * float(se_rate)
         disc = 1.0 - w_surv / w_total if w_total > 0 else 0.0
+
         error_rates.append(rate)
+        error_bars.append(ci_95)
         discard_rates.append(disc)
-        print(f"{p:8.4f} {rate:12.3e} {disc * 100:9.2f}%")
+        print(f"{p:8.4f} {rate:12.3e}  +/- {ci_95:10.3e} {disc * 100:9.2f}%")
 
     # -----------------------------------------------------------------------
     # Plot 1: PMF and conditional error rate (dual-axis, like Fig 12a)
+    # Two sets of PMF bars: p=0.001 and p=0.01
     # -----------------------------------------------------------------------
-    fig, ax1 = plt.subplots(figsize=(8, 5))
+    fig, ax1 = plt.subplots(figsize=(10, 5.5))
 
     k_vals = np.arange(MAX_K + 1)
+    bar_width = 0.35
+
+    # PMF bars for p=0.001 (the native circuit probability)
     ax1.bar(
-        k_vals - 0.2,
+        k_vals - bar_width / 2,
         P_K,
-        width=0.4,
-        color="#b39ddb",
-        label=f"P(K=k), p={site_probs[0]}",
+        width=bar_width,
+        color="#ce93d8",
+        alpha=0.8,
+        label="P(k), p=0.001",
         zorder=3,
     )
+
+    # PMF bars for p=0.01
+    pmf_001: NDArray[np.float64] = binom.pmf(k_vals, n_sites, 0.01)
+    ax1.bar(
+        k_vals + bar_width / 2,
+        pmf_001,
+        width=bar_width,
+        color="#5c6bc0",
+        alpha=0.8,
+        label="P(k), p=0.01",
+        zorder=3,
+    )
+
     ax1.set_xlabel("Number of faults k")
-    ax1.set_ylabel("P(K=k)", color="#7e57c2")
-    ax1.tick_params(axis="y", labelcolor="#7e57c2")
+    ax1.set_ylabel("P(k)")
+    ax1.tick_params(axis="y")
     ax1.set_xticks(k_vals)
 
+    # Right axis: conditional error rate (errors / total shots)
     ax2 = ax1.twinx()
     p_fail_per_k: list[float] = []
     p_fail_per_k_err: list[float] = []
@@ -243,11 +263,11 @@ def main() -> None:
         yerr=p_fail_per_k_err,
         fmt="o-",
         color="#e53935",
-        label="p_fail|k (per total shot)",
+        label="Error rate",
         zorder=4,
         capsize=3,
     )
-    ax2.set_ylabel("Conditional error rate p_fail|k", color="#e53935")
+    ax2.set_ylabel("Error rate", color="#e53935")
     ax2.tick_params(axis="y", labelcolor="#e53935")
 
     lines1, labels1 = ax1.get_legend_handles_labels()
@@ -262,27 +282,42 @@ def main() -> None:
 
     # -----------------------------------------------------------------------
     # Plot 2: Weighted contributions P(K=k) * p_fail|k (like Fig 12b)
+    # Three sets of bars: p=0.001, p=0.003, p=0.01
     # -----------------------------------------------------------------------
-    fig, ax = plt.subplots(figsize=(8, 5))
+    fig, ax = plt.subplots(figsize=(10, 5.5))
 
-    contributions: list[float] = []
-    for d in stratum_data:
-        k = d["k"]
-        passed_k = d["passed"]
-        errors_k = d["errors"]
-        if passed_k > 0:
-            contributions.append(P_K[k] * errors_k / passed_k)
-        else:
-            contributions.append(0.0)
+    plot_ps = [0.001, 0.003, 0.01]
+    plot_colors = ["#7b1fa2", "#1565c0", "#00bcd4"]
+    n_bars = len(plot_ps)
+    total_bar_width = 0.7
+    single_bar_width = total_bar_width / n_bars
 
-    ax.bar(k_vals, contributions, color="#42a5f5", zorder=3)
+    for i, (p_val, color) in enumerate(zip(plot_ps, plot_colors)):
+        pmf_p: NDArray[np.float64] = binom.pmf(k_vals, n_sites, p_val)
+        contribs: list[float] = []
+        for d in stratum_data:
+            k = d["k"]
+            total_k = d["total"]
+            if total_k > 0:
+                contribs.append(pmf_p[k] * d["errors"] / total_k)
+            else:
+                contribs.append(0.0)
+        offset = (i - (n_bars - 1) / 2) * single_bar_width
+        ax.bar(
+            k_vals + offset,
+            contribs,
+            width=single_bar_width,
+            color=color,
+            alpha=0.85,
+            label=f"p={p_val}",
+            zorder=3,
+        )
+
     ax.set_xlabel("Number of faults k")
-    ax.set_ylabel("P(K=k) * p_fail|k")
-    ax.set_title(
-        "Weighted Error Contributions by Stratum\n"
-        "(area under this curve = total logical error rate before survival normalization)"
-    )
+    ax.set_ylabel(r"P(k) $\times$ p$_{fail|k}$")
+    ax.set_title("Weighted Error Contributions by Stratum")
     ax.set_xticks(k_vals)
+    ax.legend()
     ax.grid(axis="y", alpha=0.3)
     fig.tight_layout()
     fig.savefig(IMAGE_DIR / "is_weighted_contributions.png", bbox_inches="tight")
@@ -290,18 +325,43 @@ def main() -> None:
     plt.close(fig)
 
     # -----------------------------------------------------------------------
-    # Plot 3: Error rate sweep via reweighting (like Fig 2 from SOFT paper)
+    # Plot 3: Logical error rate vs attempts per kept shot (like Fig 13a)
     # -----------------------------------------------------------------------
-    fig, ax = plt.subplots(figsize=(8, 5))
-    ax.semilogy(p_values * 100, error_rates, "s-", color="#e53935", label="d=3, gate=T")
-    ax.set_xlabel("Physical error rate p (%)")
-    ax.set_ylabel("Logical error rate (per surviving shot)")
-    ax.set_title(
-        "Error Rate Sweep via Reweighting\n"
-        "(single simulation reweighted to multiple physical error rates)"
+    fig, ax = plt.subplots(figsize=(8, 5.5))
+
+    attempts_per_kept = [1.0 / (1.0 - d) for d in discard_rates]
+
+    ax.errorbar(
+        attempts_per_kept,
+        error_rates,
+        yerr=error_bars,
+        fmt="s-",
+        color="#e53935",
+        label="d=3, gate=T",
+        capsize=4,
+        markersize=6,
+        linewidth=1.5,
     )
+
+    ax.set_xscale("log")
+    ax.set_yscale("log")
+    ax.set_xlabel("Attempts per kept shot")
+    ax.set_ylabel("Logical error rate (per kept shot)")
+    ax.set_title("Logical Error Rate vs. Overhead")
+
+    for p, x, y in zip(P_VALUES, attempts_per_kept, error_rates):
+        ax.annotate(
+            f"p={p}",
+            (x, y),
+            textcoords="offset points",
+            xytext=(0, 12),
+            ha="center",
+            fontsize=8,
+            color="#555555",
+        )
+
     ax.legend()
-    ax.grid(True, alpha=0.3)
+    ax.grid(True, which="both", alpha=0.3)
     fig.tight_layout()
     fig.savefig(IMAGE_DIR / "is_error_rate_sweep.png", bbox_inches="tight")
     print(f"Saved: {IMAGE_DIR / 'is_error_rate_sweep.png'}")
