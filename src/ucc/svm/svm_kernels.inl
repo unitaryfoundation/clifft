@@ -1884,6 +1884,9 @@ static inline void exec_noise(SchrodingerState& state, const ConstantPool& pool,
         prob_sum += ch.prob;
     }
 
+    // Channel selection: PRNG roll determines which Pauli fires.
+    // This is unchanged for forced faults -- we only control *whether*
+    // the site fires, not *which* channel within it.
     double rand = state.random_double() * prob_sum;
     double cumulative = 0.0;
     for (const auto& ch : site.channels) {
@@ -1894,8 +1897,13 @@ static inline void exec_noise(SchrodingerState& state, const ConstantPool& pool,
         }
     }
 
-    state.next_noise_idx++;
-    state.draw_next_noise(pool.noise_hazards);
+    // Advance to next firing site: forced-fault cursor or gap sampler.
+    if (state.forced_faults.active) {
+        state.advance_forced_noise();
+    } else {
+        state.next_noise_idx++;
+        state.draw_next_noise(pool.noise_hazards);
+    }
 }
 
 // NOISE_BLOCK: processes a contiguous range of noise sites [start, start+count)
@@ -1911,12 +1919,27 @@ static inline void exec_noise_block(SchrodingerState& state, const ConstantPool&
 }
 
 // READOUT_NOISE: classical bit-flip on a measurement result.
+// In forced-fault mode, a two-pointer comparison replaces the PRNG roll:
+// the bit flips iff entry_idx matches the next forced readout index.
 static inline void exec_readout_noise(SchrodingerState& state, const ConstantPool& pool,
                                       uint32_t entry_idx) {
     assert(entry_idx < pool.readout_noise.size());
     const auto& entry = pool.readout_noise[entry_idx];
 
-    if (state.random_double() < entry.prob) {
+    bool fire = false;
+    if (state.forced_faults.active) {
+        auto& ff = state.forced_faults;
+        // The backend emits OP_READOUT_NOISE with strictly increasing
+        // entry_idx, so a simple equality check suffices here.
+        if (ff.readout_pos < ff.readout_indices.size() &&
+            ff.readout_indices[ff.readout_pos] == entry_idx) {
+            fire = true;
+            ff.readout_pos++;
+        }
+    } else {
+        fire = (state.random_double() < entry.prob);
+    }
+    if (fire) {
         assert(entry.meas_idx < state.meas_record.size());
         state.meas_record[entry.meas_idx] ^= 1;
     }

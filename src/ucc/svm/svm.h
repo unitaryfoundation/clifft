@@ -183,6 +183,27 @@ class SchrodingerState {
     // Sites with index < next_noise_idx are guaranteed silent (identity).
     uint32_t next_noise_idx = 0;
 
+    // Forced-fault state for importance sampling (k-fault conditioning).
+    // When active, the gap sampler is bypassed: only sites listed in
+    // noise_indices fire, and only readout entries in readout_indices flip.
+    struct ForcedFaults {
+        bool active = false;
+        std::vector<uint32_t> noise_indices;    // Sorted quantum site indices to force
+        std::vector<uint32_t> readout_indices;  // Sorted readout entry indices to force
+        uint32_t noise_pos = 0;                 // Two-pointer cursor for noise
+        uint32_t readout_pos = 0;               // Two-pointer cursor for readout
+    } forced_faults;
+
+    // Advance the forced-fault noise cursor to the next forced site.
+    void advance_forced_noise() {
+        auto& ff = forced_faults;
+        if (ff.noise_pos < ff.noise_indices.size()) {
+            next_noise_idx = ff.noise_indices[ff.noise_pos++];
+        } else {
+            next_noise_idx = static_cast<uint32_t>(-1);  // Sentinel: no more faults
+        }
+    }
+
     // Advance next_noise_idx by sampling an exponential gap.
     // Uses the cumulative hazard table to skip silent noise sites in O(1).
     void draw_next_noise(const std::vector<double>& hazards) {
@@ -270,6 +291,23 @@ struct SurvivorResult {
 SurvivorResult sample_survivors(const CompiledModule& program, uint32_t shots,
                                 std::optional<uint64_t> seed = std::nullopt,
                                 bool keep_records = false);
+
+/// Sample with exactly k forced faults per shot.
+/// Sites are sampled from the exact conditional Poisson-Binomial
+/// distribution. When all site probabilities are uniform, an O(k)
+/// Fisher-Yates sampler is used automatically.
+SampleResult sample_k(const CompiledModule& program, uint32_t shots, uint32_t k,
+                      std::optional<uint64_t> seed = std::nullopt);
+
+/// Sample survivors with exactly k forced faults per shot.
+SurvivorResult sample_k_survivors(const CompiledModule& program, uint32_t shots, uint32_t k,
+                                  std::optional<uint64_t> seed = std::nullopt,
+                                  bool keep_records = false);
+
+/// Return per-site total fault probabilities for importance sampling.
+/// The returned vector has length N_q + N_r: first the quantum noise sites
+/// (sum of channel probs), then the readout noise entries.
+std::vector<double> noise_site_probabilities(const CompiledModule& program);
 
 // =============================================================================
 // Statevector Expansion

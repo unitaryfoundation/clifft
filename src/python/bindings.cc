@@ -685,6 +685,16 @@ NB_MODULE(_ucc_core, m) {
                      ss << i << ": " << ucc::format_instruction(p.bytecode[i]) << "\n";
                  return ss.str();
              })
+        .def_prop_ro(
+            "noise_site_probabilities",
+            [](const ucc::CompiledModule& p) {
+                auto probs = ucc::noise_site_probabilities(p);
+                size_t n = probs.size();
+                return vec_to_numpy(std::move(probs), {n});
+            },
+            nb::rv_policy::move,
+            "Per-site total fault probabilities: quantum noise sites followed by\n"
+            "readout noise entries. Use for Poisson-Binomial PMF computation.")
         .def("__repr__", [](const ucc::CompiledModule& p) {
             return "Program(" + std::to_string(p.bytecode.size()) +
                    " instructions, peak_rank=" + std::to_string(p.peak_rank) + ", " +
@@ -794,6 +804,80 @@ NB_MODULE(_ucc_core, m) {
         nb::arg("program"), nb::arg("shots"), nb::arg("seed") = nb::none(),
         "Run a compiled program and return all result records.\n\n"
         "If seed is None (default), uses 256-bit OS hardware entropy.");
+
+    // Sample with forced k-faults (importance sampling).
+    m.def(
+        "sample_k",
+        [](const ucc::CompiledModule& program, uint32_t shots, uint32_t k,
+           std::optional<uint64_t> seed) {
+            ucc::SampleResult result;
+            {
+                nb::gil_scoped_release release;
+                result = ucc::sample_k(program, shots, k, seed);
+            }
+
+            auto meas_arr =
+                vec_to_numpy(std::move(result.measurements), {shots, program.num_measurements});
+            auto det_arr =
+                vec_to_numpy(std::move(result.detectors), {shots, program.num_detectors});
+            auto obs_arr =
+                vec_to_numpy(std::move(result.observables), {shots, program.num_observables});
+
+            return nb::make_tuple(meas_arr, det_arr, obs_arr);
+        },
+        nb::arg("program"), nb::arg("shots"), nb::arg("k"), nb::arg("seed") = nb::none(),
+        "Sample with exactly k forced faults per shot (importance sampling).\n\n"
+        "Sites are drawn from the exact conditional Poisson-Binomial\n"
+        "distribution. Results are conditioned on K=k and must be combined\n"
+        "across strata with P(K=k) weights for correct error rate estimation.\n"
+        "For post-selected circuits, weight numerator and denominator\n"
+        "separately: p_fail = sum(P(K=k)*errors_k/shots_k) / sum(P(K=k)*passed_k/shots_k).\n\n"
+        "Raises ValueError if the k-fault stratum has zero probability mass\n"
+        "(e.g. k exceeds the number of non-zero-probability sites).\n\n"
+        "When all site probabilities are equal, an O(k) Fisher-Yates\n"
+        "sampler is used automatically.\n\n"
+        "Returns a tuple of (measurements, detectors, observables) numpy arrays.");
+
+    // Sample survivors with forced k-faults.
+    m.def(
+        "sample_k_survivors",
+        [](const ucc::CompiledModule& program, uint32_t shots, uint32_t k,
+           std::optional<uint64_t> seed, bool keep_records) {
+            ucc::SurvivorResult result;
+            {
+                nb::gil_scoped_release release;
+                result = ucc::sample_k_survivors(program, shots, k, seed, keep_records);
+            }
+
+            nb::dict d;
+            d["total_shots"] = result.total_shots;
+            d["passed_shots"] = result.passed_shots;
+            d["discards"] = result.total_shots - result.passed_shots;
+            d["logical_errors"] = result.logical_errors;
+
+            size_t num_obs = result.observable_ones.size();
+            d["observable_ones"] = vec_to_numpy(std::move(result.observable_ones), {num_obs});
+
+            if (keep_records) {
+                d["detectors"] = vec_to_numpy(std::move(result.detectors),
+                                              {result.passed_shots, program.num_detectors});
+                d["observables"] = vec_to_numpy(std::move(result.observables),
+                                                {result.passed_shots, program.num_observables});
+            }
+
+            return d;
+        },
+        nb::arg("program"), nb::arg("shots"), nb::arg("k"), nb::arg("seed") = nb::none(),
+        nb::arg("keep_records") = false,
+        "Sample survivors with exactly k forced faults per shot.\n\n"
+        "Results are conditioned on K=k. To estimate the overall logical\n"
+        "error rate across strata, weight numerator and denominator\n"
+        "separately to account for k-dependent survival probability:\n"
+        "  p_fail = sum(P(K=k)*logical_errors_k/shots_k)\n"
+        "         / sum(P(K=k)*passed_k/shots_k)\n\n"
+        "Raises ValueError if the k-fault stratum has zero probability mass.\n\n"
+        "Returns a dict with total_shots, passed_shots, discards, logical_errors,\n"
+        "observable_ones, and optionally detectors/observables arrays.");
 
     // Sample survivors: only non-discarded shots contribute to output.
     m.def(

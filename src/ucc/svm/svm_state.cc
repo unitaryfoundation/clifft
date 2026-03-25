@@ -124,6 +124,7 @@ SchrodingerState::SchrodingerState(SchrodingerState&& other) noexcept
       det_record(std::move(other.det_record)),
       obs_record(std::move(other.obs_record)),
       next_noise_idx(other.next_noise_idx),
+      forced_faults(std::move(other.forced_faults)),
       dust_clamps(other.dust_clamps),
       gamma_(other.gamma_),
       v_(other.v_),
@@ -163,6 +164,7 @@ SchrodingerState& SchrodingerState::operator=(SchrodingerState&& other) noexcept
         active_k = other.active_k;
         discarded = other.discarded;
         next_noise_idx = other.next_noise_idx;
+        forced_faults = std::move(other.forced_faults);
         dust_clamps = other.dust_clamps;
         meas_record = std::move(other.meas_record);
         det_record = std::move(other.det_record);
@@ -197,6 +199,10 @@ void SchrodingerState::reset() {
 
     // obs_record uses ^= accumulation and must always be cleared.
     std::fill(obs_record.begin(), obs_record.end(), 0);
+
+    // Reset forced-fault cursors (vectors are refilled per shot externally).
+    forced_faults.noise_pos = 0;
+    forced_faults.readout_pos = 0;
 
     // PRNG is NOT reseeded -- it streams forward naturally across shots.
 }

@@ -42,22 +42,35 @@ using a DP table sweep (Section 4.2).
 
 ### 2.3 Stratified Estimator
 
-The overall logical error rate is:
+### Without Post-Selection
+
+When all shots survive (no `OP_POSTSELECT` in the circuit), the overall
+logical error rate is:
 
     p_L = sum_{k=0}^{k_max} P(K = k) * p_L(k)
 
-where `p_L(k)` is the conditional logical error rate given `k` faults,
-estimated by running `n_k` shots with exactly `k` forced faults:
-
-    p_L(k) = (logical errors in stratum k) / (passed shots in stratum k)
+where `p_L(k) = logical_errors_k / shots_k` is the conditional logical
+error rate given `k` faults, estimated from `shots_k` forced-fault shots.
 
 The variance of the stratified estimator is:
 
-    Var(p_L) = sum_k P(K = k)^2 * Var(p_L(k))
-             = sum_k P(K = k)^2 * p_L(k) * (1 - p_L(k)) / n_k
+    Var(p_L) = sum_k P(K = k)^2 * p_L(k) * (1 - p_L(k)) / n_k
 
 For strata where `P(K = k)` is tiny, even crude estimates of `p_L(k)`
 contribute negligible variance to the total.
+
+### With Post-Selection
+
+When the circuit contains `OP_POSTSELECT` instructions, the survival
+probability depends on `k`. The numerator and denominator must be
+weighted separately:
+
+    p_L = (sum_k P(K=k) * logical_errors_k / shots_k)
+        / (sum_k P(K=k) * passed_k / shots_k)
+
+where `passed_k` is the number of shots that survived post-selection in
+stratum `k`. This reduces to the simpler formula when `passed_k == shots_k`
+for all `k`.
 
 ## 3. Unified Fault Site Model
 
@@ -131,10 +144,15 @@ Before the shots loop in both `sample()` and `sample_survivors()`, when
 
 1. **Build the odds-ratio vector** `w[i] = p_i / (1 - p_i)` for all `N`
    unified sites. Clamp `p_i` to `[0, 1 - 1e-15]` to prevent division
-   by zero.
+   by zero. Then rescale the entire vector so its mean is 1.0 -- this
+   prevents double overflow when `p ~ 1` (huge `w_i`) or underflow when
+   `p ~ 0` with large `k`. The constant scaling factor cancels exactly
+   in the conditional inclusion probability `w_i * DP[i+1][j-1] / DP[i][j]`.
 
-2. **Detect uniform mode:** If all `p_i` are identical within `1e-9`
-   tolerance, set a flag and skip the DP table entirely.
+2. **Detect uniform mode:** If all `p_i` are exactly equal (bitwise),
+   set a flag and skip the DP table entirely. Exact equality is safe
+   because circuit noise probabilities originate from floating-point
+   literals that round-trip identically.
 
 3. **Build a flat DP table** of size `(N + 1) * (k + 1)` using a single
    `std::vector<double>`. Entry `W[i][j]` (accessed as
@@ -363,8 +381,10 @@ d = 5  # Code distance
 max_k = 15
 P_K = poisson_binomial_pmf(site_probs, max_k)
 
-p_fail_total = 0.0
-var_total = 0.0
+# Accumulate weighted numerator and denominator separately to handle
+# post-selection correctly (survival probability may depend on k).
+weighted_errors = 0.0
+weighted_survival = 0.0
 
 for k in range(d, max_k + 1):
     if P_K[k] < 1e-15:
@@ -375,17 +395,16 @@ for k in range(d, max_k + 1):
     # Dedicated forced-fault function -- results must be weighted by P_K[k]
     result = ucc.sample_k_survivors(prog, shots=shots_for_k, k=k)
 
+    total = result["total_shots"]
     passed = result["passed_shots"]
-    if passed == 0:
+    if total == 0:
         continue
 
-    p_fail_given_k = result["logical_errors"] / passed
-    p_fail_total += P_K[k] * p_fail_given_k
+    weighted_errors += P_K[k] * result["logical_errors"] / total
+    weighted_survival += P_K[k] * passed / total
 
-    var_given_k = (p_fail_given_k * (1.0 - p_fail_given_k)) / passed
-    var_total += P_K[k] ** 2 * var_given_k
-
-print(f"Error Rate: {p_fail_total:.3e} +/- {np.sqrt(var_total):.3e}")
+p_fail = weighted_errors / weighted_survival if weighted_survival > 0 else 0.0
+print(f"Error Rate: {p_fail:.3e}")
 ```
 
 ## 6. Implementation Task Breakdown
