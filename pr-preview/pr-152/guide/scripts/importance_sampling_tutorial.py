@@ -15,7 +15,6 @@ Generates:
 
 from __future__ import annotations
 
-import math
 import time
 from pathlib import Path
 from typing import TypedDict
@@ -96,9 +95,7 @@ def main() -> None:
         bytecode_passes=ucc.default_bytecode_pass_manager(),
     )
     num_det: int = prog_probe.num_detectors
-    mask = [0xFF] * math.ceil(num_det / 8)
-    if num_det % 8 != 0:
-        mask[-1] = (1 << (num_det % 8)) - 1
+    mask = [1] * num_det
 
     prog = ucc.compile(
         circuit_text,
@@ -229,11 +226,11 @@ def main() -> None:
     p_fail_per_k: list[float] = []
     p_fail_per_k_err: list[float] = []
     for d in stratum_data:
-        passed_k = d["passed"]
+        total_k = d["total"]
         errors_k = d["errors"]
-        if passed_k > 0:
-            rate_k = errors_k / passed_k
-            se = np.sqrt(rate_k * (1 - rate_k) / passed_k)
+        if total_k > 0:
+            rate_k = errors_k / total_k
+            se = np.sqrt(rate_k * (1 - rate_k) / total_k)
             p_fail_per_k.append(rate_k)
             p_fail_per_k_err.append(1.96 * float(se))
         else:
@@ -246,7 +243,7 @@ def main() -> None:
         yerr=p_fail_per_k_err,
         fmt="o-",
         color="#e53935",
-        label="p_fail|k (per surviving shot)",
+        label="p_fail|k (per total shot)",
         zorder=4,
         capsize=3,
     )
