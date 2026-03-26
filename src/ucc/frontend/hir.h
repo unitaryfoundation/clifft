@@ -57,6 +57,9 @@ enum class DetectorIdx : uint32_t {};
 /// Index into HirModule::observable_targets side-table
 enum class ObservableIdx : uint32_t {};
 
+/// Index into the expectation value record (absolute position)
+enum class ExpValIdx : uint32_t {};
+
 // SIMD lane width for Stim types. Stim's TableauSimulator<W> handles
 // arbitrary qubit counts via dynamic heap allocation at any W; this
 // controls only the SIMD register width for internal bit operations.
@@ -107,6 +110,7 @@ enum class OpType : uint8_t {
     PHASE_ROTATION,     // Continuous Z-rotation by angle alpha (half-turns)
     DETECTOR,           // Parity check over measurement records
     OBSERVABLE,         // Logical observable accumulator
+    EXP_VAL,            // Non-destructive expectation value probe
     NUM_OP_TYPES        // Sentinel: must remain last for binding completeness checks
 };
 
@@ -208,6 +212,13 @@ struct HeisenbergOp {
         return observable_.target_list_idx;
     }
 
+    // --- EXP_VAL accessor (debug-asserted) ---
+
+    [[nodiscard]] ExpValIdx exp_val_idx() const {
+        assert(type_ == OpType::EXP_VAL && "exp_val_idx called on non-EXP_VAL op");
+        return static_cast<ExpValIdx>(exp_val_.exp_val_idx);
+    }
+
     // --- PHASE_ROTATION accessor (debug-asserted) ---
 
     [[nodiscard]] double alpha() const {
@@ -267,6 +278,14 @@ struct HeisenbergOp {
         HeisenbergOp op(OpType::OBSERVABLE, 0, 0, false);
         op.observable_.obs_idx = static_cast<uint32_t>(obs_idx);
         op.observable_.target_list_idx = target_list_idx;
+        return op;
+    }
+
+    // Factory for EXP_VAL (non-destructive expectation value probe)
+    static HeisenbergOp make_exp_val(PauliBitMask destab, PauliBitMask stab, bool s,
+                                     ExpValIdx idx) {
+        HeisenbergOp op(OpType::EXP_VAL, destab, stab, s);
+        op.exp_val_.exp_val_idx = static_cast<uint32_t>(idx);
         return op;
     }
 
@@ -339,6 +358,11 @@ struct HeisenbergOp {
         struct {
             double alpha;  // Rotation angle: R_Z(alpha) = exp(-i*alpha*pi/2 * Z)
         } phase_;
+
+        // EXP_VAL: index into expectation value record
+        struct {
+            uint32_t exp_val_idx;
+        } exp_val_;
     };
 
     OpType type_;    // 1 byte
@@ -392,6 +416,7 @@ struct HirModule {
     uint32_t num_hidden_measurements = 0;  // Hidden measurements (from reset decomposition)
     uint32_t num_detectors = 0;
     uint32_t num_observables = 0;
+    uint32_t num_exp_vals = 0;
 
     // Global weight accumulator.
     // The Front-End accumulates the dominant terms factored out of each gate.

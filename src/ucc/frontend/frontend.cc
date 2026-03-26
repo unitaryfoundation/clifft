@@ -254,6 +254,7 @@ HirModule trace(const Circuit& circuit) {
     hir.num_measurements = circuit.num_measurements;
     hir.num_detectors = circuit.num_detectors;
     hir.num_observables = circuit.num_observables;
+    hir.num_exp_vals = circuit.num_exp_vals;
 
     // Initialize tableau simulator with a fixed seed (deterministic for testing)
     // The RNG is only used for measurement collapse, which we handle separately
@@ -265,6 +266,9 @@ HirModule trace(const Circuit& circuit) {
 
     // Hidden measurements get indices starting after all visible ones
     uint32_t hidden_meas_idx = circuit.num_measurements;
+
+    // Track expectation value index (one per Pauli product)
+    ExpValIdx exp_val_idx{0};
 
     for (const auto& node : circuit.nodes) {
         // Emit helper: appends an HIR op and its source provenance in lockstep.
@@ -797,6 +801,32 @@ HirModule trace(const Circuit& circuit) {
                 uint32_t target_list_idx = static_cast<uint32_t>(hir.observable_targets.size());
                 hir.observable_targets.push_back(std::move(targets));
                 emit(HeisenbergOp::make_observable(ObservableIdx{obs_idx}, target_list_idx));
+                break;
+            }
+
+            // Non-destructive expectation value probe
+            case GateType::EXP_VAL: {
+                stim::PauliString<kStimWidth> obs(circuit.num_qubits);
+                bool inversion_parity = false;
+                for (const auto& target : node.targets) {
+                    uint32_t q = target.value();
+                    inversion_parity ^= target.is_inverted();
+                    if (target.pauli() == Target::kPauliX) {
+                        obs.xs[q] = true;
+                    } else if (target.pauli() == Target::kPauliY) {
+                        obs.xs[q] = true;
+                        obs.zs[q] = true;
+                    } else {
+                        obs.zs[q] = true;
+                    }
+                }
+                stim::PauliString<kStimWidth> rewound = sim.inv_state(obs);
+                uint32_t n = sim.inv_state.num_qubits;
+                PauliBitMask destab_mask = stim_to_bitmask(rewound.xs, n);
+                PauliBitMask stab_mask = stim_to_bitmask(rewound.zs, n);
+                bool sign = rewound.sign ^ inversion_parity;
+                emit(HeisenbergOp::make_exp_val(destab_mask, stab_mask, sign, exp_val_idx));
+                exp_val_idx = ExpValIdx{static_cast<uint32_t>(exp_val_idx) + 1};
                 break;
             }
 

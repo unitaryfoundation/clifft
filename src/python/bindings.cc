@@ -263,7 +263,8 @@ NB_MODULE(_ucc_core, m) {
         .value("READOUT_NOISE", ucc::OpType::READOUT_NOISE)
         .value("PHASE_ROTATION", ucc::OpType::PHASE_ROTATION)
         .value("DETECTOR", ucc::OpType::DETECTOR)
-        .value("OBSERVABLE", ucc::OpType::OBSERVABLE);
+        .value("OBSERVABLE", ucc::OpType::OBSERVABLE)
+        .value("EXP_VAL", ucc::OpType::EXP_VAL);
 
     nb::class_<ucc::HeisenbergOp>(m, "HeisenbergOp",
                                   "A single abstract operation in the Heisenberg IR")
@@ -305,6 +306,9 @@ NB_MODULE(_ucc_core, m) {
                         break;
                     case ucc::OpType::PHASE_ROTATION:
                         d["alpha"] = op.alpha();
+                        break;
+                    case ucc::OpType::EXP_VAL:
+                        d["exp_val_idx"] = static_cast<uint32_t>(op.exp_val_idx());
                         break;
                     default:
                         break;

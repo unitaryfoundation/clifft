@@ -50,6 +50,8 @@ std::string op_type_to_str(OpType type) {
             return "DETECTOR";
         case OpType::OBSERVABLE:
             return "OBSERVABLE";
+        case OpType::EXP_VAL:
+            return "EXP_VAL";
         default:
             return "UNKNOWN";
     }
@@ -86,6 +88,10 @@ std::string format_hir_op(const HeisenbergOp& op) {
             break;
         case OpType::PHASE_ROTATION:
             ss << "PHASE_ROTATION " << format_pauli_mask(op) << " alpha=" << op.alpha();
+            break;
+        case OpType::EXP_VAL:
+            ss << "EXP_VAL " << format_pauli_mask(op) << " -> exp["
+               << static_cast<uint32_t>(op.exp_val_idx()) << "]";
             break;
         case OpType::NUM_OP_TYPES:
             break;

@@ -314,6 +314,132 @@ TEST_CASE("Frontend: MPP Z product", "[frontend]") {
     REQUIRE(hir.ops[0].stab_mask() == Z(1));  // Just Z1
 }
 
+// =============================================================================
+// EXP_VAL tests
+// =============================================================================
+
+TEST_CASE("Frontend: EXP_VAL single Z product - no Cliffords", "[frontend][exp_val]") {
+    auto circuit = parse("EXP_VAL Z0");
+    auto hir = trace(circuit);
+
+    REQUIRE(hir.num_ops() == 1);
+    REQUIRE(hir.ops[0].op_type() == OpType::EXP_VAL);
+    REQUIRE(hir.ops[0].exp_val_idx() == ExpValIdx{0});
+    REQUIRE(hir.ops[0].destab_mask() == 0);
+    REQUIRE(hir.ops[0].stab_mask() == Z(0));
+    REQUIRE(hir.num_exp_vals == 1);
+}
+
+TEST_CASE("Frontend: EXP_VAL X after Hadamard rewinds to Z", "[frontend][exp_val]") {
+    auto circuit = parse(R"(
+        H 0
+        EXP_VAL X0
+    )");
+    auto hir = trace(circuit);
+
+    REQUIRE(hir.num_ops() == 1);
+    REQUIRE(hir.ops[0].op_type() == OpType::EXP_VAL);
+    // After H, X0 is conjugated to Z0
+    REQUIRE(hir.ops[0].destab_mask() == 0);
+    REQUIRE(hir.ops[0].stab_mask() == Z(0));
+}
+
+TEST_CASE("Frontend: EXP_VAL multi-qubit product with Cliffords", "[frontend][exp_val]") {
+    auto circuit = parse(R"(
+        H 0
+        H 1
+        EXP_VAL X0*X1
+    )");
+    auto hir = trace(circuit);
+
+    REQUIRE(hir.num_ops() == 1);
+    REQUIRE(hir.ops[0].op_type() == OpType::EXP_VAL);
+    // After H on both qubits, X is conjugated to Z
+    REQUIRE(hir.ops[0].destab_mask() == 0);
+    REQUIRE(hir.ops[0].stab_mask() == (Z(0) | Z(1)));
+}
+
+TEST_CASE("Frontend: EXP_VAL multiple products get consecutive indices", "[frontend][exp_val]") {
+    auto circuit = parse(R"(
+        EXP_VAL X0
+        EXP_VAL Z0*Z1
+    )");
+    auto hir = trace(circuit);
+
+    REQUIRE(hir.num_ops() == 2);
+    REQUIRE(hir.ops[0].op_type() == OpType::EXP_VAL);
+    REQUIRE(hir.ops[0].exp_val_idx() == ExpValIdx{0});
+    REQUIRE(hir.ops[1].op_type() == OpType::EXP_VAL);
+    REQUIRE(hir.ops[1].exp_val_idx() == ExpValIdx{1});
+    REQUIRE(hir.num_exp_vals == 2);
+}
+
+TEST_CASE("Frontend: EXP_VAL does not affect measurement indices", "[frontend][exp_val]") {
+    auto circuit = parse(R"(
+        M 0
+        EXP_VAL X0
+        M 1
+    )");
+    auto hir = trace(circuit);
+
+    // Two measurements and one EXP_VAL
+    REQUIRE(hir.num_measurements == 2);
+    REQUIRE(hir.num_exp_vals == 1);
+
+    // Find the ops by type
+    size_t meas_count = 0;
+    size_t exp_val_count = 0;
+    for (const auto& op : hir.ops) {
+        if (op.op_type() == OpType::MEASURE) {
+            if (meas_count == 0) {
+                REQUIRE(op.meas_record_idx() == MeasRecordIdx{0});
+            } else {
+                REQUIRE(op.meas_record_idx() == MeasRecordIdx{1});
+            }
+            ++meas_count;
+        } else if (op.op_type() == OpType::EXP_VAL) {
+            REQUIRE(op.exp_val_idx() == ExpValIdx{0});
+            ++exp_val_count;
+        }
+    }
+    REQUIRE(meas_count == 2);
+    REQUIRE(exp_val_count == 1);
+}
+
+TEST_CASE("Frontend: EXP_VAL source map entries preserved", "[frontend][exp_val]") {
+    auto circuit = parse(R"(
+        EXP_VAL Z0
+    )");
+    auto hir = trace(circuit);
+
+    REQUIRE(hir.source_map.size() == hir.num_ops());
+    REQUIRE(!hir.source_map[0].empty());
+}
+
+TEST_CASE("Frontend: EXP_VAL rewind matches MPP rewind", "[frontend][exp_val]") {
+    // Same Pauli product through the same Clifford circuit should yield
+    // the same rewound masks whether it's MPP or EXP_VAL
+    auto circuit_mpp = parse(R"(
+        H 0
+        CX 0 1
+        MPP X0*Z1
+    )");
+    auto hir_mpp = trace(circuit_mpp);
+
+    auto circuit_ev = parse(R"(
+        H 0
+        CX 0 1
+        EXP_VAL X0*Z1
+    )");
+    auto hir_ev = trace(circuit_ev);
+
+    REQUIRE(hir_mpp.num_ops() == 1);
+    REQUIRE(hir_ev.num_ops() == 1);
+    REQUIRE(hir_mpp.ops[0].destab_mask() == hir_ev.ops[0].destab_mask());
+    REQUIRE(hir_mpp.ops[0].stab_mask() == hir_ev.ops[0].stab_mask());
+    REQUIRE(hir_mpp.ops[0].sign() == hir_ev.ops[0].sign());
+}
+
 TEST_CASE("Frontend: exceeds max qubit limit", "[frontend]") {
     Circuit circuit;
     circuit.num_qubits = kMaxInlineQubits + 1;
