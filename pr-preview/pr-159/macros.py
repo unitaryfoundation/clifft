@@ -43,7 +43,6 @@ def define_env(env: Any) -> None:
     hir_categories_order = [
         "Non-Clifford",
         "Measurement",
-        "Probe",
         "Feedback",
         "Noise",
         "QEC",

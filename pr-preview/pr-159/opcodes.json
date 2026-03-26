@@ -285,7 +285,7 @@
             ]
         },
         "EXP_VAL": {
-            "category": "Probe",
+            "category": "Measurement",
             "summary": "Non-destructive expectation value of a rewound Pauli product.",
             "detail": "Evaluates <P> for the rewound Pauli product P at the point in the circuit where the probe appears. Does not collapse the state, mutate the Pauli frame, or affect measurement/detector/observable records. Each probe produces one float64 result in [-1, 1] indexed by exp_val_idx.",
             "display": [
