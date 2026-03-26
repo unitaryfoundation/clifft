@@ -63,13 +63,23 @@ print(sv)  # [0.707+0j, 0+0j, 0+0j, 0.707+0j]
 
 For circuits with post-selection (e.g., magic state distillation), compile with a `postselection_mask` and use `sample_survivors()`:
 
+!!! important "Mask format: one flag per detector, not bit-packed"
+    `postselection_mask` is a **flat list of `uint8` flags with exactly one
+    element per detector**.  Set `mask[i] = 1` to post-select on detector *i*,
+    or `0` to leave it as a normal detector.  This is **not** a bit-packed
+    byte array — each element maps directly to one detector index.
+
+    Sinter uses a different (bit-packed) convention.  If you are converting
+    from a Sinter `postselection_mask`, unpack it first with
+    `numpy.unpackbits(..., count=num_det, bitorder="little")`.
+
 <!--pytest.mark.skip-->
 
 ```python
 import ucc
 
-# Mark detector 0 for post-selection
-program = ucc.compile(circuit_text, postselection_mask=[1])
+# Mark detectors 0 and 2 for post-selection (one flag per detector)
+program = ucc.compile(circuit_text, postselection_mask=[1, 0, 1])
 
 # Only returns stats for shots that pass post-selection
 result = ucc.sample_survivors(program, shots=1_000_000, seed=42)
@@ -146,10 +156,31 @@ assert (meas1 == meas2).all()  # Identical
 
 If `seed` is omitted (or `None`), UCC uses 256-bit OS hardware entropy.
 
+## Importance Sampling (Forced k-Faults)
+
+For circuits where logical errors are extremely rare (e.g., QEC at low physical error rates), standard Monte Carlo requires an impractical number of shots. UCC provides **stratified importance sampling** via `sample_k` and `sample_k_survivors`, which force exactly `k` physical faults per shot and weight the results by the exact Poisson-Binomial probability $P(K = k)$.
+
+<!--pytest.mark.skip-->
+
+```python
+import ucc
+
+result = ucc.sample_k_survivors(prog, shots=50_000, k=3, seed=42)
+# Returns dict with total_shots, passed_shots, logical_errors, etc.
+```
+
+Key API:
+
+- **`ucc.sample_k(program, shots, k, seed=None)`** -- Like `sample()`, but forces exactly `k` faults. Returns `(measurements, detectors, observables)`.
+- **`ucc.sample_k_survivors(program, shots, k, seed=None, keep_records=False)`** -- Like `sample_survivors()`, but forces exactly `k` faults. Returns a dict with shot statistics.
+- **`program.noise_site_probabilities`** -- 1D numpy array of per-site fault probabilities (quantum noise sites followed by readout noise entries). Use for computing the Poisson-Binomial PMF.
+
+Results from these functions must be combined across strata with $P(K=k)$ weights. See the [Importance Sampling Tutorial](importance-sampling.md) for a complete walkthrough.
+
 ## Performance
 
-Simulation speed depends on the peak rank $k$ (number of simultaneously active non-Clifford qubits), not the total qubit count. The bytecode optimizer significantly reduces per-shot cost by fusing instructions — see [Optimization Passes](../reference/passes.md) for the full list.
+Simulation speed depends on the peak rank $k$ (number of simultaneously active non-Clifford qubits), not the total qubit count. The bytecode optimizer significantly reduces per-shot cost by fusing instructions -- see [Optimization Passes](../reference/passes.md) for the full list.
 
 ## Simulation Limits
 
-The SVM can handle circuits with many more physical qubits than a naive simulator — the factored state representation means only $2^k$ amplitudes are stored, where $k$ is the peak number of simultaneously active (non-Clifford) qubits.
+The SVM can handle circuits with many more physical qubits than a naive simulator -- the factored state representation means only $2^k$ amplitudes are stored, where $k$ is the peak number of simultaneously active (non-Clifford) qubits.

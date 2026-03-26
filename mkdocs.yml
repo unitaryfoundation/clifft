@@ -70,6 +70,7 @@ nav:
     - Compiling Circuits: guide/compiling.md
     - Simulation: guide/simulation.md
     - "Tutorial: Surface Code": guide/surface-code.md
+    - "Tutorial: Importance Sampling": guide/importance-sampling.md
     - "Benchmark: UCC vs Qiskit": guide/benchmark.md
   - Theory:
     - Overview: theory/overview.md
