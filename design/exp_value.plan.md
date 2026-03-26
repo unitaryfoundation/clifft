@@ -741,5 +741,5 @@ read-only probing) cleanly separated.
 - [x] Phase 4: Back-End / Lowering
 - [x] Phase 5: VM State and Execution Kernel
 - [x] Phase 6: Sampling API and Python Bindings
-- [ ] Phase 7: Introspection and Documentation
-- [ ] Phase 8: Python Integration Tests
+- [x] Phase 7: Introspection and Documentation
+- [x] Phase 8: Python Integration Tests
