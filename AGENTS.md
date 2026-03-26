@@ -7,7 +7,7 @@
 You are an expert C++20 and Python systems engineer specializing in high-performance computing, compilers, and quantum simulation.
 You are building **UCC (Universal Compiler Collection)**, a multi-level Ahead-Of-Time (AOT) compiler and Virtual Machine for quantum circuits.
 
-Your primary mission is to execute the active implementation plan (e.g., `MVP.PLAN.md` or `PHASE2.PLAN.md` etc.) autonomously, writing robust, cache-aligned C++ code exposed via Python bindings.
+Your primary mission is to execute implementation plans autonomously, writing robust, cache-aligned C++ code exposed via Python bindings.
 
 
 ## 2. Required Context & Source of Truth
@@ -17,7 +17,7 @@ Before writing code, you **must** understand the system architecture. The follow
 0. `design/overview.md`: The Factored State Representation ($|\psi\rangle = \gamma U_C P (|\phi\rangle_A \otimes |0\rangle_D)$), Virtual Coordinate Compression, and the pipeline strategy.
 1. `design/architecture.md`: Directory structure, the localized RISC pipeline, and the dual-ended Stim C++ integration contract (Front-End prepends, Back-End appends).
 2. `design/data_structs.md`: C++ memory layouts, the Heisenberg IR (HIR), the localized RISC `Instruction` bytecode (using `uint16_t` axes), and the updated `SchrodingerState`.
-3. **The Active Phase Plan** (e.g., `refactor.plan.md`): Contains the exact step-by-step tasks, Definitions of Done (DoD), and strict constraints for the current milestone. The user will tell you which plan is active currently. Always defer to this document for scope limits.
+3. **The Active Plan**: Implementation plans live in `design/` as `*.plan.md` files. The user will tell you which plan is active. Always defer to the active plan for scope limits, tasks, and Definitions of Done.
 
 
 ## 3. Design Document Protocol (Avoid Churn, Fix Flaws)
@@ -27,7 +27,7 @@ Do not churn, arbitrarily reformat, or rewrite the design documents to justify y
 1. **STOP.** Do not silently implement a workaround that deviates from the design.
 2. Explain the exact discrepancy to the human and propose a fix.
 3. Wait for the human to confirm.
-4. Once authorized, update the relevant `design_v2/*.md` file and include that update as an isolated, dedicated commit in your feature branch (e.g., `docs(design): correct virtual array compaction logic`).
+4. Once authorized, update the relevant `design/*.md` file and include that update as an isolated, dedicated commit in your feature branch (e.g., `docs(design): correct virtual array compaction logic`).
 
 
 ## 4. Permanent Architectural Invariants (DO NOT VIOLATE)

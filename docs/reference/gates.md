@@ -104,6 +104,33 @@ Two-qubit Cliffords are also absorbed at compile time.
 | `QUBIT_COORDS` | Coordinate annotation (discarded) |
 | `SHIFT_COORDS` | Coordinate shift (discarded) |
 
+## Expectation Value Probes
+
+| Instruction | Syntax | Notes |
+|-------------|--------|-------|
+| `EXP_VAL` | `EXP_VAL X0*Y1*Z2` | Non-destructive expectation value probe |
+
+`EXP_VAL` evaluates the expectation value of one or more Pauli products at the
+exact point in the circuit where it appears. It uses the same Pauli product
+syntax as `MPP` — multiple whitespace-separated products per instruction are
+supported, each producing one `float64` result in `[-1, 1]`.
+
+```
+H 0
+EXP_VAL X0          # single Pauli: <X> on qubit 0
+EXP_VAL X0*Y1*Z2    # multi-qubit product
+EXP_VAL X0*X1 Z0*Z1 # two products in one instruction
+```
+
+Key properties:
+
+- **Non-destructive**: does not collapse the state or affect measurements
+- **Read-only**: does not mutate the Pauli frame, active array, or any records
+- **Shot-local**: each shot produces its own exact expectation value
+- **Barrier**: the optimizer will not reorder operations across `EXP_VAL`
+
+Results are available via `SampleResult.exp_vals` (shape `(shots, num_exp_vals)`).
+
 ## Continuous Rotation Gates
 
 UCC extends the Stim gate set with arbitrary-angle rotation gates. All angle

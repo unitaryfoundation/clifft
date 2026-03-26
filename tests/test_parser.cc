@@ -549,6 +549,112 @@ TEST_CASE("Error: MPP consecutive asterisks", "[parser]") {
     REQUIRE_THROWS_AS(parse("MPP X0**Z1"), ParseError);
 }
 
+// --- EXP_VAL tests ---
+
+TEST_CASE("Parse EXP_VAL single qubit", "[parser]") {
+    auto circuit = parse("EXP_VAL X0");
+
+    REQUIRE(circuit.nodes.size() == 1);
+    REQUIRE(circuit.num_exp_vals == 1);
+    REQUIRE(circuit.num_measurements == 0);
+    REQUIRE(circuit.nodes[0].gate == GateType::EXP_VAL);
+    REQUIRE(circuit.nodes[0].targets.size() == 1);
+    REQUIRE(circuit.nodes[0].targets[0].pauli() == Target::kPauliX);
+    REQUIRE(circuit.nodes[0].targets[0].value() == 0);
+}
+
+TEST_CASE("Parse EXP_VAL multi-qubit product", "[parser]") {
+    auto circuit = parse("EXP_VAL X0*Y1*Z2");
+
+    REQUIRE(circuit.nodes.size() == 1);
+    REQUIRE(circuit.num_exp_vals == 1);
+    REQUIRE(circuit.nodes[0].gate == GateType::EXP_VAL);
+    REQUIRE(circuit.nodes[0].targets.size() == 3);
+
+    REQUIRE(circuit.nodes[0].targets[0].pauli() == Target::kPauliX);
+    REQUIRE(circuit.nodes[0].targets[0].value() == 0);
+
+    REQUIRE(circuit.nodes[0].targets[1].pauli() == Target::kPauliY);
+    REQUIRE(circuit.nodes[0].targets[1].value() == 1);
+
+    REQUIRE(circuit.nodes[0].targets[2].pauli() == Target::kPauliZ);
+    REQUIRE(circuit.nodes[0].targets[2].value() == 2);
+}
+
+TEST_CASE("Parse EXP_VAL multiple products", "[parser]") {
+    auto circuit = parse("EXP_VAL X0*Y1 Z2*Z3");
+
+    // Two products -> two AstNodes.
+    REQUIRE(circuit.nodes.size() == 2);
+    REQUIRE(circuit.num_exp_vals == 2);
+
+    // First product: X0*Y1
+    REQUIRE(circuit.nodes[0].gate == GateType::EXP_VAL);
+    REQUIRE(circuit.nodes[0].targets.size() == 2);
+    REQUIRE(circuit.nodes[0].targets[0].pauli() == Target::kPauliX);
+    REQUIRE(circuit.nodes[0].targets[1].pauli() == Target::kPauliY);
+
+    // Second product: Z2*Z3
+    REQUIRE(circuit.nodes[1].gate == GateType::EXP_VAL);
+    REQUIRE(circuit.nodes[1].targets.size() == 2);
+    REQUIRE(circuit.nodes[1].targets[0].pauli() == Target::kPauliZ);
+    REQUIRE(circuit.nodes[1].targets[1].pauli() == Target::kPauliZ);
+}
+
+TEST_CASE("Parse EXP_VAL three single-qubit products", "[parser]") {
+    auto circuit = parse("EXP_VAL X0 Y1 Z2");
+
+    REQUIRE(circuit.nodes.size() == 3);
+    REQUIRE(circuit.num_exp_vals == 3);
+
+    REQUIRE(circuit.nodes[0].targets[0].pauli() == Target::kPauliX);
+    REQUIRE(circuit.nodes[1].targets[0].pauli() == Target::kPauliY);
+    REQUIRE(circuit.nodes[2].targets[0].pauli() == Target::kPauliZ);
+}
+
+TEST_CASE("Parse EXP_VAL does not increment num_measurements", "[parser]") {
+    auto circuit = parse("H 0\nM 0\nEXP_VAL X0\nMPP Z0*Z1");
+
+    REQUIRE(circuit.num_measurements == 2);  // M + MPP
+    REQUIRE(circuit.num_exp_vals == 1);
+}
+
+TEST_CASE("Parse EXP_VAL multiple instructions", "[parser]") {
+    auto circuit = parse("EXP_VAL X0\nEXP_VAL Z0*Z1\nEXP_VAL Y2");
+
+    REQUIRE(circuit.nodes.size() == 3);
+    REQUIRE(circuit.num_exp_vals == 3);
+}
+
+TEST_CASE("Parse EXP_VAL rejects duplicate qubit in product", "[parser]") {
+    CHECK_THROWS_AS(parse("EXP_VAL X0*Z0"), ParseError);
+    CHECK_THROWS_AS(parse("EXP_VAL Y1*X1"), ParseError);
+    // Different qubits in same product is fine
+    CHECK_NOTHROW(parse("EXP_VAL X0*Z1"));
+    // Same qubit in different products is fine
+    CHECK_NOTHROW(parse("EXP_VAL X0 Z0"));
+}
+
+TEST_CASE("Error: EXP_VAL with no products", "[parser]") {
+    REQUIRE_THROWS_AS(parse("EXP_VAL"), ParseError);
+}
+
+TEST_CASE("Error: EXP_VAL trailing asterisk", "[parser]") {
+    REQUIRE_THROWS_AS(parse("EXP_VAL X0*"), ParseError);
+}
+
+TEST_CASE("Error: EXP_VAL leading asterisk", "[parser]") {
+    REQUIRE_THROWS_AS(parse("EXP_VAL *X0"), ParseError);
+}
+
+TEST_CASE("Error: EXP_VAL invalid Pauli", "[parser]") {
+    REQUIRE_THROWS_AS(parse("EXP_VAL W0"), ParseError);
+}
+
+TEST_CASE("Error: EXP_VAL rejects arguments", "[parser]") {
+    REQUIRE_THROWS_AS(parse("EXP_VAL(0.1) X0"), ParseError);
+}
+
 TEST_CASE("Error: R with no targets", "[parser]") {
     REQUIRE_THROWS_AS(parse("R"), ParseError);
 }
@@ -1374,6 +1480,16 @@ TEST_CASE("GateTraits: MPP is MULTI arity", "[gate_data]") {
     CHECK(gate_arity(GateType::MPP) == GateArity::MULTI);
     CHECK(is_measurement(GateType::MPP));
     CHECK(!is_clifford(GateType::MPP));
+}
+
+TEST_CASE("GateTraits: EXP_VAL is MULTI arity, non-measurement", "[gate_data]") {
+    CHECK(gate_arity(GateType::EXP_VAL) == GateArity::MULTI);
+    CHECK(!is_measurement(GateType::EXP_VAL));
+    CHECK(!is_clifford(GateType::EXP_VAL));
+    CHECK(!is_noise_gate(GateType::EXP_VAL));
+    CHECK(!is_reset(GateType::EXP_VAL));
+    CHECK(is_exp_val(GateType::EXP_VAL));
+    CHECK(gate_name(GateType::EXP_VAL) == "EXP_VAL");
 }
 
 TEST_CASE("GateTraits: pair measurements MXX MYY MZZ", "[gate_data]") {

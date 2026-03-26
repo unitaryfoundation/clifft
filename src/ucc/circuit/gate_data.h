@@ -127,6 +127,9 @@ enum class GateType : uint16_t {
     // Annotations
     TICK,  // Timing layer marker (no-op)
 
+    // Simulation-only probes
+    EXP_VAL,  // Non-destructive expectation value
+
     // Sentinel for unknown/unsupported gates
     UNKNOWN,
 };
@@ -254,6 +257,8 @@ inline constexpr GateTraits kGateTraitsData[] = {
     {.arity = A, .name = "DETECTOR"},
     {.arity = A, .name = "OBSERVABLE_INCLUDE"},
     {.arity = A, .name = "TICK"},
+    // Simulation-only probes
+    {.arity = ML, .name = "EXP_VAL"},
     // Sentinel
     {.arity = S, .name = "UNKNOWN"},
 };
@@ -290,6 +295,9 @@ inline constexpr bool is_identity_noop(GateType g) {
 }
 inline constexpr bool is_noise_gate(GateType g) {
     return gate_traits(g).noise;
+}
+inline constexpr bool is_exp_val(GateType g) {
+    return g == GateType::EXP_VAL;
 }
 inline constexpr std::string_view gate_name(GateType g) {
     return gate_traits(g).name;

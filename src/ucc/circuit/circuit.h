@@ -57,6 +57,9 @@ struct Circuit {
 
     // Number of observables (max observable index + 1).
     uint32_t num_observables = 0;
+
+    // Number of EXP_VAL expectation value probes (one per Pauli product).
+    uint32_t num_exp_vals = 0;
 };
 
 }  // namespace ucc
