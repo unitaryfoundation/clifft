@@ -3,6 +3,9 @@
 
 Runs the full importance sampling workflow on both the d=3 T-gate and
 S-gate magic state cultivation circuits, then generates comparison plots.
+This reproduces the d=3 versions of Figs. 12 and 13 from "Computing
+logical error thresholds with the Pauli Frame Sparse Representation" by
+Thomas Tuloup and Thomas Ayral (arXiv:2603.14670).
 
 Usage:
     uv run python docs/guide/scripts/importance_sampling_tutorial.py
@@ -74,19 +77,18 @@ class SweepResult(TypedDict):
 
 
 # ---------------------------------------------------------------------------
-# Poisson-Binomial PMF via dynamic programming
+# Binomial PMF for the uniform-p circuits used in this tutorial
 # ---------------------------------------------------------------------------
 
 
-def poisson_binomial_pmf(probs: NDArray[np.float64], max_k: int) -> NDArray[np.float64]:
-    """Compute the Poisson-Binomial PMF P(K=k) for k = 0, ..., max_k."""
-    dp = np.zeros(max_k + 1)
-    dp[0] = 1.0
-    for p in probs:
-        for k in range(max_k, 0, -1):
-            dp[k] = dp[k] * (1.0 - p) + dp[k - 1] * p
-        dp[0] *= 1.0 - p
-    return dp
+def uniform_fault_pmf(probs: NDArray[np.float64], max_k: int) -> NDArray[np.float64]:
+    """Compute P(K=k) for a circuit where every noise site shares one fault rate."""
+    if probs.size == 0:
+        return np.zeros(max_k + 1, dtype=np.float64)
+    if not np.allclose(probs, probs[0]):
+        raise ValueError("tutorial expects a uniform fault probability across all sites")
+    # probs[i] is the total fault probability for the i-th noise site/trial.
+    return np.asarray(binom.pmf(np.arange(max_k + 1), probs.size, probs[0]), dtype=np.float64)
 
 
 # ---------------------------------------------------------------------------
@@ -113,6 +115,9 @@ def run_stratified_is(
         hir_passes=ucc.default_hir_pass_manager(),
         bytecode_passes=ucc.default_bytecode_pass_manager(),
     )
+    # Today we compile once to discover the detector count, then again with an
+    # all-detector postselection mask. A front-end detector count query would
+    # remove this extra compile.
     num_det: int = prog_probe.num_detectors
     mask = [1] * num_det
 
@@ -128,7 +133,7 @@ def run_stratified_is(
     n_sites = len(site_probs)
     print(f"  peak_rank={prog.peak_rank}, {num_det} detectors, {n_sites} noise sites")
 
-    pmf = poisson_binomial_pmf(site_probs, MAX_K)
+    pmf = uniform_fault_pmf(site_probs, MAX_K)
 
     print(f"  Running {MAX_K + 1} strata x {SHOTS_PER_STRATUM} shots")
     t0 = time.time()

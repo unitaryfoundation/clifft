@@ -1,5 +1,5 @@
-# Vendored from: https://github.com/haoliri0/SOFT/blob/main/magic_state_cultivation/circuits/
-# Source: Li, H. et al. "SOFT: Simulating quantum fault tolerance" (2025)
+# Vendored from: https://github.com/Strilanc/magic-state-cultivation
+# Context: Gidney, Shutty, and Jones, "Magic state cultivation: growing T states as cheap as CNOT gates" (2024)
 # License: Apache-2.0
 # Note: Contains S/S_DAG gates (Clifford). d=3 S-gate magic state cultivation circuit.
 QUBIT_COORDS(0, 0) 0
