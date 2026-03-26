@@ -140,9 +140,9 @@ def run_stratified_is(
     stratum_data: list[StratumRecord] = []
     for k in range(MAX_K + 1):
         r = ucc.sample_k_survivors(prog, shots=SHOTS_PER_STRATUM, k=k, seed=SEED_BASE + k)
-        total: int = r["total_shots"]
-        passed: int = r["passed_shots"]
-        errors: int = r["logical_errors"]
+        total: int = r.total_shots
+        passed: int = r.passed_shots
+        errors: int = r.logical_errors
         stratum_data.append(StratumRecord(k=k, total=total, passed=passed, errors=errors))
         p_fail_k = errors / total if total > 0 else 0.0
         p_surv_k = passed / total if total > 0 else 0.0
