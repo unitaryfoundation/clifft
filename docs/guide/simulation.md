@@ -4,7 +4,7 @@ UCC's Schrodinger Virtual Machine (SVM) executes compiled programs to produce me
 
 ## Sampling
 
-`ucc.sample()` runs a compiled program for multiple shots and returns measurement, detector, and observable outcomes:
+`ucc.sample()` runs a compiled program for multiple shots and returns a `SampleResult` with measurement, detector, and observable outcomes:
 
 ```python
 import ucc
@@ -16,14 +16,14 @@ program = ucc.compile("""
 """)
 
 # Sample 10,000 shots
-meas, det, obs = ucc.sample(program, shots=10000, seed=42)
+result = ucc.sample(program, shots=10000, seed=42)
 
-# meas is a 2D array: (shots x num_measurements)
-print(meas.shape)  # (10000, 2)
-print(meas[:5])    # First 5 shots
+# result.measurements is a 2D array: (shots x num_measurements)
+print(result.measurements.shape)  # (10000, 2)
+print(result.measurements[:5])    # First 5 shots
 ```
 
-`ucc.sample()` always returns a tuple of three numpy arrays: `(measurements, detectors, observables)`. For circuits without detectors or observables, those arrays will have zero columns.
+`ucc.sample()` returns a `SampleResult` object with `.measurements`, `.detectors`, and `.observables` attributes (each a numpy array). For circuits without detectors or observables, those arrays will have zero columns. Tuple unpacking (`m, d, o = ucc.sample(...)`) is supported for backward compatibility.
 
 ## Statevector Extraction
 
@@ -83,11 +83,11 @@ program = ucc.compile(circuit_text, postselection_mask=[1, 0, 1])
 
 # Only returns stats for shots that pass post-selection
 result = ucc.sample_survivors(program, shots=1_000_000, seed=42)
-print(f"Survival rate: {result['passed_shots'] / result['total_shots']:.4f}")
-print(f"Logical errors: {result['logical_errors']}")
+print(f"Survival rate: {result.passed_shots / result.total_shots:.4f}")
+print(f"Logical errors: {result.logical_errors}")
 ```
 
-The returned dict contains:
+The returned `SampleResult` object contains:
 
 - `total_shots` — number of shots attempted
 - `passed_shots` — number that survived post-selection
@@ -114,9 +114,9 @@ program = ucc.compile("""
     OBSERVABLE_INCLUDE(0) rec[-1]
 """)
 
-meas, det, obs = ucc.sample(program, shots=10000, seed=42)
-# det shape: (10000, num_detectors)
-# obs shape: (10000, num_observables)
+result = ucc.sample(program, shots=10000, seed=42)
+# result.detectors shape: (10000, num_detectors)
+# result.observables shape: (10000, num_observables)
 ```
 
 ### Syndrome Normalization
@@ -135,8 +135,8 @@ program = ucc.compile(
     bytecode_passes=ucc.default_bytecode_pass_manager(),
 )
 
-meas, det, obs = ucc.sample(program, shots=10000, seed=42)
-# det and obs are now XOR-normalized against the noiseless reference
+result = ucc.sample(program, shots=10000, seed=42)
+# result.detectors and result.observables are now XOR-normalized against the noiseless reference
 ```
 
 See [Compiling Circuits](compiling.md#syndrome-normalization) for details.
@@ -149,9 +149,9 @@ All sampling functions accept an optional `seed` parameter for reproducible resu
 import ucc
 
 program = ucc.compile("H 0\nM 0")
-meas1, _, _ = ucc.sample(program, 100, seed=42)
-meas2, _, _ = ucc.sample(program, 100, seed=42)
-assert (meas1 == meas2).all()  # Identical
+r1 = ucc.sample(program, 100, seed=42)
+r2 = ucc.sample(program, 100, seed=42)
+assert (r1.measurements == r2.measurements).all()  # Identical
 ```
 
 If `seed` is omitted (or `None`), UCC uses 256-bit OS hardware entropy.
@@ -166,13 +166,13 @@ For circuits where logical errors are extremely rare (e.g., QEC at low physical 
 import ucc
 
 result = ucc.sample_k_survivors(prog, shots=50_000, k=3, seed=42)
-# Returns dict with total_shots, passed_shots, logical_errors, etc.
+# Returns SampleResult with survivor metadata and surviving-shot arrays
 ```
 
 Key API:
 
-- **`ucc.sample_k(program, shots, k, seed=None)`** -- Like `sample()`, but forces exactly `k` faults. Returns `(measurements, detectors, observables)`.
-- **`ucc.sample_k_survivors(program, shots, k, seed=None, keep_records=False)`** -- Like `sample_survivors()`, but forces exactly `k` faults. Returns a dict with shot statistics.
+- **`ucc.sample_k(program, shots, k, seed=None)`** -- Like `sample()`, but forces exactly `k` faults. Returns a `SampleResult` with `.measurements`, `.detectors`, and `.observables`.
+- **`ucc.sample_k_survivors(program, shots, k, seed=None, keep_records=False)`** -- Like `sample_survivors()`, but forces exactly `k` faults. Returns a `SampleResult` whose arrays contain only surviving shots plus survivor metadata.
 - **`program.noise_site_probabilities`** -- 1D numpy array of per-site fault probabilities (quantum noise sites followed by readout noise entries). Use for computing the Poisson-Binomial PMF.
 
 Results from these functions must be combined across strata with $P(K=k)$ weights. See the [Importance Sampling Tutorial](importance-sampling.md) for a complete walkthrough.

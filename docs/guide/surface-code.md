@@ -82,10 +82,10 @@ def run_ucc(
     compile_s = time.perf_counter() - t0
 
     t0 = time.perf_counter()
-    _meas, det, obs = ucc.sample(prog, shots)
+    result = ucc.sample(prog, shots)
     sample_s = time.perf_counter() - t0
 
-    logical_err = decode_logical_error_rate(det, obs, circuit)
+    logical_err = decode_logical_error_rate(result.detectors, result.observables, circuit)
     return logical_err, compile_s, sample_s
 
 
@@ -203,7 +203,7 @@ For distance $d$, the rotated surface code has $d^2$ data qubits and $(d^2 - 1)/
 - **HIR passes** (`ucc.default_hir_pass_manager()`): Peephole fusion on the Heisenberg IR
 - **Bytecode passes** (`ucc.default_bytecode_pass_manager()`): Noise block coalescing, multi-gate fusion, expand-T fusion, and swap-measure optimization
 
-The compiled program is then sampled with `ucc.sample()`, which returns three arrays:
+The compiled program is then sampled with `ucc.sample()`, which returns a `SampleResult` object:
 
 - **measurements**: raw measurement outcomes
 - **detectors**: detector values (syndrome bits)

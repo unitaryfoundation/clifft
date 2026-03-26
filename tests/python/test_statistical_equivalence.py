@@ -81,13 +81,13 @@ class TestTargetQECCircuit:
         seed = 12345
 
         # Sample from both engines
-        _, ucc_det, ucc_obs = ucc.sample(ucc_program, shots, seed=seed)
+        result = ucc.sample(ucc_program, shots, seed=seed)
         stim_det, stim_obs = stim_sampler.sample(shots, separate_observables=True)
 
         # Compute marginal probabilities
-        ucc_det_probs = ucc_det.mean(axis=0, dtype=float)
+        ucc_det_probs = result.detectors.mean(axis=0, dtype=float)
         stim_det_probs = stim_det.mean(axis=0, dtype=float)
-        ucc_obs_probs = ucc_obs.mean(axis=0, dtype=float)
+        ucc_obs_probs = result.observables.mean(axis=0, dtype=float)
         stim_obs_probs = stim_obs.mean(axis=0, dtype=float)
 
         # Check all detectors
@@ -132,10 +132,10 @@ class TestSimpleCircuitEquivalence:
         stim_circuit = stim.Circuit(circuit)
         stim_sampler = stim_circuit.compile_detector_sampler(seed=99)
 
-        _, ucc_det, _ = ucc.sample(prog, shots, seed=99)
+        result = ucc.sample(prog, shots, seed=99)
         stim_det, _ = stim_sampler.sample(shots, separate_observables=True)
 
-        ucc_rate = float(ucc_det.mean(dtype=float))
+        ucc_rate = float(result.detectors.mean(dtype=float))
         stim_rate = float(stim_det.mean(dtype=float))
 
         tol = cross_binomial_tolerance((ucc_rate + stim_rate) / 2, shots)
@@ -154,12 +154,12 @@ class TestSimpleCircuitEquivalence:
         stim_circuit = stim.Circuit(circuit)
         stim_sampler = stim_circuit.compile_detector_sampler(seed=123)
 
-        _, ucc_det, _ = ucc.sample(prog, shots, seed=123)
+        result = ucc.sample(prog, shots, seed=123)
         stim_det, _ = stim_sampler.sample(shots, separate_observables=True)
 
         # Detector fires when readout noise causes disagreement
         # Expected rate: 2 * 0.05 * 0.95 ~ 0.095 (one or the other flips)
-        ucc_rate = float(ucc_det.mean(dtype=float))
+        ucc_rate = float(result.detectors.mean(dtype=float))
         stim_rate = float(stim_det.mean(dtype=float))
 
         tol = cross_binomial_tolerance((ucc_rate + stim_rate) / 2, shots)
@@ -180,11 +180,11 @@ class TestSimpleCircuitEquivalence:
         stim_circuit = stim.Circuit(circuit)
         stim_sampler = stim_circuit.compile_detector_sampler(seed=42)
 
-        _, ucc_det, _ = ucc.sample(prog, shots, seed=42)
+        result = ucc.sample(prog, shots, seed=42)
         stim_det, _ = stim_sampler.sample(shots, separate_observables=True)
 
         # Clean Bell state: detector should always be 0
-        assert np.all(ucc_det == 0), "UCC: Clean Bell detector should be 0"
+        assert np.all(result.detectors == 0), "UCC: Clean Bell detector should be 0"
         assert np.all(stim_det == 0), "Stim: Clean Bell detector should be 0"
 
 
@@ -230,11 +230,11 @@ class TestTopologicalQECCodes:
         assert ucc_prog.num_observables == stim_circuit.num_observables
 
         # Sample from both
-        _, ucc_det, ucc_obs = ucc.sample(ucc_prog, shots, seed=seed)
+        result = ucc.sample(ucc_prog, shots, seed=seed)
         stim_det, stim_obs = stim_sampler.sample(shots, separate_observables=True)
 
         # Check detector marginals
-        ucc_det_probs = ucc_det.mean(axis=0, dtype=float)
+        ucc_det_probs = result.detectors.mean(axis=0, dtype=float)
         stim_det_probs = stim_det.mean(axis=0, dtype=float)
 
         for i in range(len(ucc_det_probs)):
@@ -248,7 +248,7 @@ class TestTopologicalQECCodes:
             )
 
         # Check observable marginals
-        ucc_obs_probs = ucc_obs.mean(axis=0, dtype=float)
+        ucc_obs_probs = result.observables.mean(axis=0, dtype=float)
         stim_obs_probs = stim_obs.mean(axis=0, dtype=float)
 
         for i in range(len(ucc_obs_probs)):
@@ -350,15 +350,15 @@ class TestUnstructuredNoiseFuzzing:
         stim_sampler = stim_circuit.compile_sampler(seed=seed)
 
         # Sample from both
-        ucc_meas, _, _ = ucc.sample(ucc_prog, shots, seed=seed)
+        result = ucc.sample(ucc_prog, shots, seed=seed)
         stim_meas = stim_sampler.sample(shots)
 
         # Skip if no measurements were generated
-        if ucc_meas.shape[1] == 0:
+        if result.measurements.shape[1] == 0:
             pytest.skip("No measurements in generated circuit")
 
         # 1-body marginals: P(measurement_i = 1)
-        ucc_p1 = ucc_meas.mean(axis=0, dtype=float)
+        ucc_p1 = result.measurements.mean(axis=0, dtype=float)
         stim_p1 = stim_meas.mean(axis=0, dtype=float)
 
         for i in range(len(ucc_p1)):
@@ -372,8 +372,8 @@ class TestUnstructuredNoiseFuzzing:
             )
 
         # Adjacent 2-body parities: P(meas[i] XOR meas[i+1] = 1)
-        if ucc_meas.shape[1] >= 2:
-            ucc_parity = ucc_meas[:, :-1] ^ ucc_meas[:, 1:]
+        if result.measurements.shape[1] >= 2:
+            ucc_parity = result.measurements[:, :-1] ^ result.measurements[:, 1:]
             stim_parity = stim_meas[:, :-1] ^ stim_meas[:, 1:]
 
             ucc_p2 = ucc_parity.mean(axis=0, dtype=float)
@@ -462,13 +462,13 @@ class TestMidCircuitMeasurementEvolution:
         stim_circuit = stim.Circuit(circuit_str)
         stim_sampler = stim_circuit.compile_sampler(seed=seed)
 
-        ucc_meas, _, _ = ucc.sample(ucc_prog, shots, seed=seed)
+        result = ucc.sample(ucc_prog, shots, seed=seed)
         stim_meas = stim_sampler.sample(shots)
 
-        if ucc_meas.shape[1] == 0:
+        if result.measurements.shape[1] == 0:
             pytest.skip("No measurements in generated circuit")
 
-        ucc_p = ucc_meas.mean(axis=0, dtype=float)
+        ucc_p = result.measurements.mean(axis=0, dtype=float)
         stim_p = stim_meas.mean(axis=0, dtype=float)
 
         for i in range(len(ucc_p)):
@@ -496,16 +496,20 @@ class TestMidCircuitMeasurementEvolution:
         stim_circuit = stim.Circuit(circuit_str)
         stim_sampler = stim_circuit.compile_sampler(seed=seed)
 
-        ucc_meas, _, _ = ucc.sample(ucc_prog, shots, seed=seed)
+        result = ucc.sample(ucc_prog, shots, seed=seed)
         stim_meas = stim_sampler.sample(shots)
 
-        n_meas = ucc_meas.shape[1]
+        n_meas = result.measurements.shape[1]
         if n_meas < 3:
             pytest.skip("Fewer than 3 measurements")
 
         # Check consecutive 3-body parities: meas[i] XOR meas[i+1] XOR meas[i+2]
         for i in range(n_meas - 2):
-            ucc_par = (ucc_meas[:, i] ^ ucc_meas[:, i + 1] ^ ucc_meas[:, i + 2]).astype(float)
+            ucc_par = (
+                result.measurements[:, i]
+                ^ result.measurements[:, i + 1]
+                ^ result.measurements[:, i + 2]
+            ).astype(float)
             stim_par = (stim_meas[:, i] ^ stim_meas[:, i + 1] ^ stim_meas[:, i + 2]).astype(float)
             ucc_rate = float(ucc_par.mean())
             stim_rate = float(stim_par.mean())
@@ -609,14 +613,14 @@ class TestTVDSmallMeasurementSpace:
         stim_circuit = stim.Circuit(circuit_str)
         stim_sampler = stim_circuit.compile_sampler(seed=seed)
 
-        ucc_meas, _, _ = ucc.sample(ucc_prog, shots, seed=seed)
+        result = ucc.sample(ucc_prog, shots, seed=seed)
         stim_meas = stim_sampler.sample(shots)
 
         assert (
-            ucc_meas.shape[1] == n_measurements
-        ), f"Expected {n_measurements} measurements, got {ucc_meas.shape[1]}"
+            result.measurements.shape[1] == n_measurements
+        ), f"Expected {n_measurements} measurements, got {result.measurements.shape[1]}"
 
-        ucc_dist = _counts_to_distribution(ucc_meas)
+        ucc_dist = _counts_to_distribution(result.measurements)
         stim_dist = _counts_to_distribution(stim_meas)
 
         tvd = _tvd(ucc_dist, stim_dist)

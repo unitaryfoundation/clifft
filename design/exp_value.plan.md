@@ -97,24 +97,16 @@ Change `ucc.sample()` to return a `SampleResult` object instead of a
 bare tuple. The `__iter__` support means existing `m, d, o = ucc.sample()`
 code continues to work during a deprecation period.
 
-### Task 0.3: Add sample_stim() compatibility helper
-
-Touch: `src/python/bindings.cc` or `src/python/ucc/__init__.py`
-
-Add `ucc.sample_stim()` that returns the legacy 3-tuple
-`(measurements, detectors, observables)` for callers that need a
-drop-in match with Stim's sampling interface. This is a thin wrapper
-around `sample()` that extracts the three arrays.
-
-### Task 0.4: Update sample_survivors() to return SampleResult
+### Task 0.4: Update sample_survivors() to return unified SampleResult
 
 Touch: `src/python/bindings.cc`
 
 Change `sample_survivors()` from returning a dict to returning a
-`SampleResult` object. Same attribute pattern as `sample()`, with
-the arrays containing only the surviving (post-selected) shots.
-The `SampleResult.__iter__` unpacking provides backward compatibility
-for callers destructuring the result.
+`SampleResult` object. The `.measurements`, `.detectors`, and
+`.observables` arrays contain only the surviving (post-selected)
+shots. Survivor-only metadata is exposed on the same object via
+`.total_shots`, `.passed_shots`, `.discards`, `.logical_errors`, and
+`.observable_ones`.
 
 ### Task 0.5: Update sample_k() to return SampleResult
 
@@ -123,13 +115,16 @@ Touch: `src/python/bindings.cc`
 Change `sample_k()` from returning a bare tuple to returning a
 `SampleResult` object. Same attribute pattern.
 
-### Task 0.6: Update sample_k_survivors() to return SampleResult
+### Task 0.6: Update sample_k_survivors() to return unified SampleResult
 
 Touch: `src/python/bindings.cc`
 
 Change `sample_k_survivors()` from returning a dict to returning a
-`SampleResult` object. Same attribute pattern as the other sampling
-functions, with arrays containing only surviving shots.
+`SampleResult` object. The `.measurements`, `.detectors`, and
+`.observables` arrays contain only surviving shots, and survivor-only
+metadata is exposed on the same object via `.total_shots`,
+`.passed_shots`, `.discards`, `.logical_errors`, and
+`.observable_ones`.
 
 ### Task 0.7: Update all internal callers
 
@@ -139,13 +134,15 @@ Update existing Python code to use the result object pattern. Keep
 `m, d, o = ucc.sample(...)` unpacking working via `__iter__` but
 migrate tests to use attribute access where it improves clarity.
 Update `sample_survivors()` and `sample_k_survivors()` callers from
-dict key access (`result["measurements"]`) to attribute access
-(`result.measurements`).
+dict key access to attribute access. Do not preserve dict-style access
+on the new result object; callers should fail clearly and migrate.
 
 **DoD:** All four sampling functions (`sample()`, `sample_survivors()`,
 `sample_k()`, `sample_k_survivors()`) return `SampleResult` objects.
-`sample_stim()` returns the legacy 3-tuple. All existing tests pass.
-Merged as its own PR.
+For survivor APIs, the shot arrays contain only surviving shots and the
+same object also carries survivor metadata. Dict-style compatibility is
+removed. All existing tests and docs are updated and pass. Merged as
+its own PR.
 
 ---
 
@@ -507,8 +504,6 @@ this task simply adds a new attribute:
 - All four sampling functions already return `SampleResult` (from
   Phase 0), so `exp_vals` is automatically available on all results.
 
-- `sample_stim()` continues to return the legacy 3-tuple, unaffected.
-
 **Program metadata:**
 
 - Expose `Program.num_exp_vals` property
@@ -549,7 +544,7 @@ these automatically.
 
 **DoD:** `SampleResult.exp_vals` is accessible from all four sampling
 functions. `State.exp_vals` is accessible. Enum completeness tests
-pass. `sample_stim()` is unaffected.
+pass.
 
 ---
 

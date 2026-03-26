@@ -67,13 +67,13 @@ class TestSqueezeBasicPeakRankReduction:
         base = ucc.compile(circuit)
         squeezed = ucc.compile(circuit, hir_passes=_squeeze_only_pass_manager())
 
-        m1, _, _ = ucc.sample(base, shots, seed=42)
-        m2, _, _ = ucc.sample(squeezed, shots, seed=42)
+        base_result = ucc.sample(base, shots, seed=42)
+        squeezed_result = ucc.sample(squeezed, shots, seed=42)
 
         # Both should produce roughly 50/50 coin flips
-        for col in range(m1.shape[1]):
-            p1 = float(m1[:, col].mean())
-            p2 = float(m2[:, col].mean())
+        for col in range(base_result.measurements.shape[1]):
+            p1 = float(base_result.measurements[:, col].mean())
+            p2 = float(squeezed_result.measurements[:, col].mean())
             tol = cross_binomial_tolerance((p1 + p2) / 2.0, shots, sigma=5.0)
             assert (
                 abs(p1 - p2) < tol
@@ -91,11 +91,11 @@ class TestSqueezeBasicPeakRankReduction:
 
         # Verify sampling correctness regardless of peak_rank change
         shots = 10_000
-        m1, _, _ = ucc.sample(base, shots, seed=42)
-        m2, _, _ = ucc.sample(squeezed, shots, seed=42)
-        for col in range(m1.shape[1]):
-            p1 = float(m1[:, col].mean())
-            p2 = float(m2[:, col].mean())
+        base_result = ucc.sample(base, shots, seed=42)
+        squeezed_result = ucc.sample(squeezed, shots, seed=42)
+        for col in range(base_result.measurements.shape[1]):
+            p1 = float(base_result.measurements[:, col].mean())
+            p2 = float(squeezed_result.measurements[:, col].mean())
             tol = cross_binomial_tolerance((p1 + p2) / 2.0, shots, sigma=5.0)
             assert abs(p1 - p2) < tol
 
@@ -212,11 +212,11 @@ class TestSqueezeClassicalDataflow:
 
         assert squeezed.peak_rank < base.peak_rank
 
-        m1, _, _ = ucc.sample(base, shots, seed=99)
-        m2, _, _ = ucc.sample(squeezed, shots, seed=99)
-        for col in range(m1.shape[1]):
-            p1 = float(m1[:, col].mean())
-            p2 = float(m2[:, col].mean())
+        base_result = ucc.sample(base, shots, seed=99)
+        squeezed_result = ucc.sample(squeezed, shots, seed=99)
+        for col in range(base_result.measurements.shape[1]):
+            p1 = float(base_result.measurements[:, col].mean())
+            p2 = float(squeezed_result.measurements[:, col].mean())
             tol = cross_binomial_tolerance((p1 + p2) / 2.0, shots, sigma=5.0)
             assert abs(p1 - p2) < tol, f"col {col}: {p1:.4f} vs {p2:.4f}"
 
@@ -296,9 +296,9 @@ class TestSqueezeEdgeCases:
         circuit = "H 0\nT 0\nH 1\nT 1\nM 0\nM 1"
         prog = ucc.compile(circuit)
         shots = 5_000
-        m, _, _ = ucc.sample(prog, shots, seed=42)
+        result = ucc.sample(prog, shots, seed=42)
         # Should produce valid results without crashing
-        assert m.shape == (shots, 2)
+        assert result.measurements.shape == (shots, 2)
 
 
 class TestSqueezeStatevectorOracle:
@@ -346,9 +346,9 @@ class TestSqueezeStatisticalEquivalence:
             hir_passes=_squeeze_only_pass_manager(),
             bytecode_passes=ucc.default_bytecode_pass_manager(),
         )
-        base_m, _, _ = ucc.sample(base, self._SHOTS, seed=seed)
-        squeezed_m, _, _ = ucc.sample(squeezed, self._SHOTS, seed=seed)
-        self._assert_marginals_match(base_m, squeezed_m)
+        base_result = ucc.sample(base, self._SHOTS, seed=seed)
+        squeezed_result = ucc.sample(squeezed, self._SHOTS, seed=seed)
+        self._assert_marginals_match(base_result.measurements, squeezed_result.measurements)
 
 
 class TestSqueezeProbabilisticReordering:
@@ -391,9 +391,9 @@ class TestSqueezeProbabilisticReordering:
         # M 1 should bubble past X_ERROR(0) and M 0 since masks commute
         assert squeezed.peak_rank < base.peak_rank
 
-        m1, _, _ = ucc.sample(base, self._SHOTS, seed=10)
-        m2, _, _ = ucc.sample(squeezed, self._SHOTS, seed=10)
-        self._assert_marginals_match(m1, m2)
+        base_result = ucc.sample(base, self._SHOTS, seed=10)
+        squeezed_result = ucc.sample(squeezed, self._SHOTS, seed=10)
+        self._assert_marginals_match(base_result.measurements, squeezed_result.measurements)
 
     def test_independent_measurements_reorder_freely(self) -> None:
         """Two independent measurements separated by noise can reorder.
@@ -410,9 +410,9 @@ class TestSqueezeProbabilisticReordering:
 
         assert squeezed.peak_rank < base.peak_rank
 
-        m1, _, _ = ucc.sample(base, shots, seed=77)
-        m2, _, _ = ucc.sample(squeezed, shots, seed=77)
-        self._assert_marginals_match(m1, m2)
+        base_result = ucc.sample(base, shots, seed=77)
+        squeezed_result = ucc.sample(squeezed, shots, seed=77)
+        self._assert_marginals_match(base_result.measurements, squeezed_result.measurements)
 
     def test_noise_vs_noise_anti_commutation_guard(self) -> None:
         """X_ERROR and Z_ERROR on the same qubit must NOT swap.
@@ -478,6 +478,6 @@ class TestSqueezeProbabilisticReordering:
 
         assert squeezed.peak_rank < base.peak_rank
 
-        m1, _, _ = ucc.sample(base, shots, seed=123)
-        m2, _, _ = ucc.sample(squeezed, shots, seed=123)
-        self._assert_marginals_match(m1, m2)
+        base_result = ucc.sample(base, shots, seed=123)
+        squeezed_result = ucc.sample(squeezed, shots, seed=123)
+        self._assert_marginals_match(base_result.measurements, squeezed_result.measurements)

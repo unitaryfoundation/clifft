@@ -4,6 +4,7 @@ A multi-level AOT compiler and Schrodinger Virtual Machine for quantum circuits
 (Clifford + T and beyond).
 """
 
+from ucc._sample_result import SampleResult
 from ucc._ucc_core import (
     AstNode,
     BytecodePass,
@@ -59,17 +60,18 @@ __all__ = [
     "GateType",
     "HeisenbergOp",
     "HirModule",
+    "HirPass",
+    "HirPassManager",
     "Instruction",
     "MultiGatePass",
     "NoiseBlockPass",
     "Opcode",
     "OpType",
     "ParseError",
-    "HirPass",
-    "HirPassManager",
     "PeepholeFusionPass",
     "Program",
     "RemoveNoisePass",
+    "SampleResult",
     "SingleAxisFusionPass",
     "State",
     "StatevectorSqueezePass",

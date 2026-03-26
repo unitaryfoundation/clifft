@@ -97,10 +97,10 @@ def test_frame_flow_x_error_before_fused_block() -> None:
     prog_no_fuse = _compile_no_fusion(text)
     prog_fused = _compile_with_fusion(text)
 
-    meas_ref, _, _ = ucc.sample(prog_no_fuse, 1000, seed=42)
-    meas_opt, _, _ = ucc.sample(prog_fused, 1000, seed=42)
+    ref_result = ucc.sample(prog_no_fuse, 1000, seed=42)
+    opt_result = ucc.sample(prog_fused, 1000, seed=42)
 
-    np.testing.assert_array_equal(meas_ref, meas_opt)
+    np.testing.assert_array_equal(ref_result.measurements, opt_result.measurements)
 
 
 def test_frame_flow_z_error_before_fused_block() -> None:
@@ -110,10 +110,10 @@ def test_frame_flow_z_error_before_fused_block() -> None:
     prog_no_fuse = _compile_no_fusion(text)
     prog_fused = _compile_with_fusion(text)
 
-    meas_ref, _, _ = ucc.sample(prog_no_fuse, 1000, seed=42)
-    meas_opt, _, _ = ucc.sample(prog_fused, 1000, seed=42)
+    ref_result = ucc.sample(prog_no_fuse, 1000, seed=42)
+    opt_result = ucc.sample(prog_fused, 1000, seed=42)
 
-    np.testing.assert_array_equal(meas_ref, meas_opt)
+    np.testing.assert_array_equal(ref_result.measurements, opt_result.measurements)
 
 
 # ---------------------------------------------------------------------------
@@ -174,7 +174,7 @@ def test_fusion_preserves_noisy_sampling() -> None:
     prog_fused = _compile_with_fusion(text)
 
     shots = 10_000
-    meas_ref, _, _ = ucc.sample(prog_no_fuse, shots, seed=42)
-    meas_opt, _, _ = ucc.sample(prog_fused, shots, seed=42)
+    ref_result = ucc.sample(prog_no_fuse, shots, seed=42)
+    opt_result = ucc.sample(prog_fused, shots, seed=42)
 
-    np.testing.assert_array_equal(meas_ref, meas_opt)
+    np.testing.assert_array_equal(ref_result.measurements, opt_result.measurements)

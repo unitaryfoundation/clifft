@@ -17,8 +17,8 @@ import ucc
 def sample_ucc(circuit_text: str, shots: int, seed: int = 0) -> tuple[np.ndarray, np.ndarray]:
     """Sample from UCC, returning (detectors, observables) as bool arrays."""
     prog = ucc.compile(circuit_text)
-    _, det, obs = ucc.sample(prog, shots, seed=seed)
-    return det.astype(bool), obs.astype(bool)
+    result = ucc.sample(prog, shots, seed=seed)
+    return result.detectors.astype(bool), result.observables.astype(bool)
 
 
 def sample_stim(circuit_text: str, shots: int, seed: int = 0) -> tuple[np.ndarray, np.ndarray]:

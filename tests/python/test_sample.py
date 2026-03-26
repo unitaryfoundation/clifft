@@ -43,22 +43,22 @@ class TestSample:
     def test_sample_deterministic_zero(self) -> None:
         """Measurement of |0> always gives 0."""
         prog = ucc.compile("M 0")
-        meas, _, _ = ucc.sample(prog, 100, seed=42)
-        assert np.all(meas[:, 0] == 0)
+        result = ucc.sample(prog, 100, seed=42)
+        assert np.all(result.measurements[:, 0] == 0)
 
     def test_sample_deterministic_one(self) -> None:
         """Measurement of |1> always gives 1."""
         prog = ucc.compile("X 0\nM 0")
-        meas, _, _ = ucc.sample(prog, 100, seed=42)
-        assert np.all(meas[:, 0] == 1)
+        result = ucc.sample(prog, 100, seed=42)
+        assert np.all(result.measurements[:, 0] == 1)
 
     def test_sample_superposition(self) -> None:
         """|+> state gives roughly 50/50 distribution."""
         prog = ucc.compile("H 0\nM 0")
         shots = 1000
-        meas, _, _ = ucc.sample(prog, shots, seed=42)
-        p0 = float(np.mean(meas[:, 0] == 0))
-        p1 = float(np.mean(meas[:, 0] == 1))
+        result = ucc.sample(prog, shots, seed=42)
+        p0 = float(np.mean(result.measurements[:, 0] == 0))
+        p1 = float(np.mean(result.measurements[:, 0] == 1))
         tolerance = binomial_tolerance(0.5, shots)
         assert abs(p0 - 0.5) < tolerance, f"p(0)={p0} outside {tolerance:.3f} tolerance"
         assert abs(p1 - 0.5) < tolerance, f"p(1)={p1} outside {tolerance:.3f} tolerance"
@@ -71,34 +71,36 @@ class TestSample:
             M 0
             M 1
         """)
-        meas, _, _ = ucc.sample(prog, 500, seed=99)
-        assert np.all(meas[:, 0] == meas[:, 1]), "Bell state not correlated"
+        result = ucc.sample(prog, 500, seed=99)
+        assert np.all(
+            result.measurements[:, 0] == result.measurements[:, 1]
+        ), "Bell state not correlated"
 
     def test_sample_reproducible(self) -> None:
         """Same seed produces same results."""
         prog = ucc.compile("H 0\nM 0")
-        meas1, _, _ = ucc.sample(prog, 100, seed=12345)
-        meas2, _, _ = ucc.sample(prog, 100, seed=12345)
-        assert np.array_equal(meas1, meas2)
+        result1 = ucc.sample(prog, 100, seed=12345)
+        result2 = ucc.sample(prog, 100, seed=12345)
+        assert np.array_equal(result1.measurements, result2.measurements)
 
     def test_sample_different_seeds(self) -> None:
         """Different seeds produce different results."""
         prog = ucc.compile("H 0\nM 0")
-        meas1, _, _ = ucc.sample(prog, 100, seed=1)
-        meas2, _, _ = ucc.sample(prog, 100, seed=2)
+        result1 = ucc.sample(prog, 100, seed=1)
+        result2 = ucc.sample(prog, 100, seed=2)
         # With 100 random bits, probability of match is 2^-100
-        assert not np.array_equal(meas1, meas2)
+        assert not np.array_equal(result1.measurements, result2.measurements)
 
     def test_sample_shape(self) -> None:
         """Results have correct shape and type."""
         prog = ucc.compile("H 0\nM 0\nH 1\nM 1")
-        meas, det, obs = ucc.sample(prog, 50, seed=0)
-        assert isinstance(meas, np.ndarray)
-        assert meas.dtype == np.uint8
-        assert meas.shape == (50, 2)
+        result = ucc.sample(prog, 50, seed=0)
+        assert isinstance(result.measurements, np.ndarray)
+        assert result.measurements.dtype == np.uint8
+        assert result.measurements.shape == (50, 2)
         # No detectors/observables in this circuit
-        assert det.shape == (50, 0)
-        assert obs.shape == (50, 0)
+        assert result.detectors.shape == (50, 0)
+        assert result.observables.shape == (50, 0)
 
     def test_sample_reset_works(self) -> None:
         """Reset correctly resets to |0>."""
@@ -107,12 +109,15 @@ class TestSample:
             R 0
             M 0
         """)
-        meas, _, _ = ucc.sample(prog, 100, seed=42)
+        result = ucc.sample(prog, 100, seed=42)
         # Only one visible measurement (from M 0, after reset)
         # R's internal measurement is hidden, matching Stim behavior
-        assert meas.shape == (100, 1), f"Expected 1 visible measurement, got {meas.shape}"
+        assert result.measurements.shape == (
+            100,
+            1,
+        ), f"Expected 1 visible measurement, got {result.measurements.shape}"
         # Measurement after reset should always be 0
-        assert np.all(meas[:, 0] == 0), "Reset failed"
+        assert np.all(result.measurements[:, 0] == 0), "Reset failed"
 
     def test_sample_mr_visible(self) -> None:
         """MR (measure-and-reset) produces visible measurement unlike R."""
@@ -124,14 +129,14 @@ class TestSample:
         assert prog_mr.num_measurements == 1, "MR should have 1 visible measurement"
 
         # MR on |0> should always measure 0
-        meas, _, _ = ucc.sample(prog_mr, 100, seed=42)
-        assert meas.shape == (100, 1)
-        assert np.all(meas == 0), "MR on |0> should always measure 0"
+        result = ucc.sample(prog_mr, 100, seed=42)
+        assert result.measurements.shape == (100, 1)
+        assert np.all(result.measurements == 0), "MR on |0> should always measure 0"
 
         # MR after X should measure 1
         prog = ucc.compile("X 0\nMR 0")
-        meas, _, _ = ucc.sample(prog, 100, seed=42)
-        assert np.all(meas == 1), "MR after X should measure 1"
+        result = ucc.sample(prog, 100, seed=42)
+        assert np.all(result.measurements == 1), "MR after X should measure 1"
 
     def test_gap_sampling_sparse_errors(self) -> None:
         """Verify geometric gap sampling correctly models independent errors."""
@@ -150,23 +155,25 @@ class TestSample:
             lines.append(f"M {i}")
 
         prog = ucc.compile("\n".join(lines))
-        meas, _, _ = ucc.sample(prog, shots, seed=42)
+        result = ucc.sample(prog, shots, seed=42)
 
         # 1. Overall error rate should be exactly p
-        overall_rate = float(np.mean(meas))
+        overall_rate = float(np.mean(result.measurements))
         tolerance = binomial_tolerance(p, n_qubits * shots, sigma=5.0)
         assert abs(overall_rate - p) < tolerance, f"Overall rate {overall_rate} off"
 
         # 2. Per-qubit error rate should be uniformly p across the array.
         # This catches bugs where the jump math favors early or late indices.
-        per_qubit_rates = np.mean(meas, axis=0)
+        per_qubit_rates = np.mean(result.measurements, axis=0)
         q_tol = binomial_tolerance(p, shots, sigma=5.0)
         for i, rate in enumerate(per_qubit_rates):
             assert abs(rate - p) < q_tol, f"Qubit {i} rate {rate} outside tolerance"
 
         # 3. Check for lack of artificial correlation (adjacent suppression).
         # The probability of (i and i+1) both being 1 should equal p^2.
-        adjacent_both_1 = float(np.mean((meas[:, :-1] == 1) & (meas[:, 1:] == 1)))
+        adjacent_both_1 = float(
+            np.mean((result.measurements[:, :-1] == 1) & (result.measurements[:, 1:] == 1))
+        )
         expected_adj = p * p
         adj_tol = binomial_tolerance(expected_adj, (n_qubits - 1) * shots, sigma=5.0)
         assert (
@@ -382,7 +389,7 @@ class TestSamplingValidation:
         for circuit_str in circuits:
             # UCC sampling
             prog = ucc.compile(circuit_str)
-            ucc_meas, _, _ = ucc.sample(prog, 100, seed=42)
+            result = ucc.sample(prog, 100, seed=42)
 
             # Stim sampling (seed is in compile_sampler, not sample)
             stim_circuit = stim.Circuit(circuit_str)
@@ -393,12 +400,12 @@ class TestSamplingValidation:
             # (Note: seeds may differ, but deterministic outcomes should be consistent)
             if prog.num_measurements == 1:
                 # Single measurement: check value consistency
-                ucc_vals = set(tuple(r) for r in ucc_meas)
+                ucc_vals = set(tuple(r) for r in result.measurements)
                 stim_vals = set(tuple(r) for r in stim_results)
                 assert ucc_vals == stim_vals, f"Mismatch for: {circuit_str}"
             else:
                 # Multi-measurement: check correlation structure
-                for ucc_shot in ucc_meas:
+                for ucc_shot in result.measurements:
                     if "CX" in circuit_str:  # Bell state
                         assert ucc_shot[0] == ucc_shot[1], "Bell correlation broken"
 
@@ -411,8 +418,8 @@ class TestSamplingValidation:
 
         # UCC sampling
         prog = ucc.compile(circuit_str)
-        ucc_meas, _, _ = ucc.sample(prog, shots, seed=12345)
-        ucc_p0 = np.mean(ucc_meas[:, 0] == 0)
+        result = ucc.sample(prog, shots, seed=12345)
+        ucc_p0 = np.mean(result.measurements[:, 0] == 0)
 
         # Stim sampling (seed is in compile_sampler, not sample)
         stim_circuit = stim.Circuit(circuit_str)
@@ -437,9 +444,9 @@ class TestSamplingValidation:
 
         # UCC sampling
         prog = ucc.compile(circuit_str)
-        ucc_meas, _, _ = ucc.sample(prog, shots, seed=999)
-        ucc_00 = np.mean((ucc_meas[:, 0] == 0) & (ucc_meas[:, 1] == 0))
-        ucc_11 = np.mean((ucc_meas[:, 0] == 1) & (ucc_meas[:, 1] == 1))
+        result = ucc.sample(prog, shots, seed=999)
+        ucc_00 = np.mean((result.measurements[:, 0] == 0) & (result.measurements[:, 1] == 0))
+        ucc_11 = np.mean((result.measurements[:, 0] == 1) & (result.measurements[:, 1] == 1))
 
         # Stim sampling (seed is in compile_sampler, not sample)
         stim_circuit = stim.Circuit(circuit_str)
@@ -467,8 +474,8 @@ class TestSamplingValidation:
         #      = (2 - sqrt(2)) / 4 ~ 0.1464
         shots = 10000
         expected_p0 = (2 - np.sqrt(2)) / 4  # ~ 0.1464
-        meas, _, _ = ucc.sample(prog, shots, seed=42)
-        p0 = float(np.mean(meas[:, 0] == 0))
+        result = ucc.sample(prog, shots, seed=42)
+        p0 = float(np.mean(result.measurements[:, 0] == 0))
         tolerance = binomial_tolerance(expected_p0, shots)
 
         assert abs(p0 - expected_p0) < tolerance, (
@@ -480,16 +487,20 @@ class TestSamplingValidation:
 class TestNoiseAndQEC:
     """Tests for noise simulation and QEC features."""
 
-    def test_sample_returns_three_arrays(self) -> None:
-        """sample() returns (measurements, detectors, observables) tuple."""
+    def test_sample_returns_sample_result(self) -> None:
+        """sample() returns a SampleResult with attribute access and unpacking."""
         prog = ucc.compile("H 0\nM 0")
         result = ucc.sample(prog, 10, seed=0)
-        assert isinstance(result, tuple)
-        assert len(result) == 3
+        assert isinstance(result, ucc.SampleResult)
+        # Attribute access
+        assert result.measurements.shape == (10, 1)
+        assert result.detectors.shape == (10, 0)
+        assert result.observables.shape == (10, 0)
+        # Tuple unpacking still works
         meas, det, obs = result
         assert meas.shape == (10, 1)
-        assert det.shape == (10, 0)  # No detectors
-        assert obs.shape == (10, 0)  # No observables
+        assert det.shape == (10, 0)
+        assert obs.shape == (10, 0)
 
     def test_program_detector_observable_counts(self) -> None:
         """Program reports correct detector and observable counts."""
@@ -513,9 +524,9 @@ class TestNoiseAndQEC:
             M 1
             DETECTOR rec[-1] rec[-2]
         """)
-        meas, det, _ = ucc.sample(prog, 100, seed=42)
+        result = ucc.sample(prog, 100, seed=42)
         # All detectors should be 0 (perfect correlation)
-        assert np.all(det == 0)
+        assert np.all(result.detectors == 0)
 
     def test_observable_accumulates_xor(self) -> None:
         """Multiple OBSERVABLE_INCLUDE to same index XOR together."""
@@ -528,9 +539,9 @@ class TestNoiseAndQEC:
             OBSERVABLE_INCLUDE(0) rec[-1]
             OBSERVABLE_INCLUDE(0) rec[-2]
         """)
-        meas, _, obs = ucc.sample(prog, 100, seed=42)
+        result = ucc.sample(prog, 100, seed=42)
         # Observable is XOR of two identical bits = 0
-        assert np.all(obs == 0)
+        assert np.all(result.observables == 0)
 
     def test_observable_tracks_logical_value(self) -> None:
         """Observable correctly tracks logical qubit value."""
@@ -539,22 +550,22 @@ class TestNoiseAndQEC:
             M 0
             OBSERVABLE_INCLUDE(0) rec[-1]
         """)
-        meas, _, obs = ucc.sample(prog, 100, seed=42)
+        result = ucc.sample(prog, 100, seed=42)
         # Observable should equal measurement (single reference)
-        assert np.array_equal(meas[:, 0], obs[:, 0])
+        assert np.array_equal(result.measurements[:, 0], result.observables[:, 0])
 
     def test_readout_noise_flips_bits(self) -> None:
         """M(p) readout noise flips measurement results."""
         # 100% readout noise flips |0> -> measured as 1
         prog = ucc.compile("M(1.0) 0")
-        meas, _, _ = ucc.sample(prog, 100, seed=42)
-        assert np.all(meas == 1)
+        result = ucc.sample(prog, 100, seed=42)
+        assert np.all(result.measurements == 1)
 
     def test_readout_noise_probabilistic(self) -> None:
         """M(0.5) readout noise gives ~50% flip rate."""
         prog = ucc.compile("M(0.5) 0")
-        meas, _, _ = ucc.sample(prog, 1000, seed=42)
-        flip_rate = float(np.mean(meas))
+        result = ucc.sample(prog, 1000, seed=42)
+        flip_rate = float(np.mean(result.measurements))
         # Should be ~50% (measuring |0> with 50% flip = 50% ones)
         tolerance = binomial_tolerance(0.5, 1000)
         assert abs(flip_rate - 0.5) < tolerance
@@ -565,9 +576,9 @@ class TestNoiseAndQEC:
             X_ERROR(1.0) 0
             M 0
         """)
-        meas, _, _ = ucc.sample(prog, 100, seed=42)
+        result = ucc.sample(prog, 100, seed=42)
         # X flips |0> to |1>
-        assert np.all(meas == 1)
+        assert np.all(result.measurements == 1)
 
     def test_pauli_noise_z_error(self) -> None:
         """Z_ERROR doesn't affect computational basis measurement."""
@@ -575,9 +586,9 @@ class TestNoiseAndQEC:
             Z_ERROR(1.0) 0
             M 0
         """)
-        meas, _, _ = ucc.sample(prog, 100, seed=42)
+        result = ucc.sample(prog, 100, seed=42)
         # Z|0> = |0>, so still measure 0
-        assert np.all(meas == 0)
+        assert np.all(result.measurements == 0)
 
     def test_depolarize1_probabilistic(self) -> None:
         """DEPOLARIZE1 applies X, Y, or Z with equal probability."""
@@ -585,9 +596,9 @@ class TestNoiseAndQEC:
             DEPOLARIZE1(1.0) 0
             M 0
         """)
-        meas, _, _ = ucc.sample(prog, 3000, seed=42)
+        result = ucc.sample(prog, 3000, seed=42)
         # X and Y flip |0>->|1>, Z doesn't. Expected: 2/3 ones.
-        ones_rate = float(np.mean(meas))
+        ones_rate = float(np.mean(result.measurements))
         expected = 2.0 / 3.0
         tolerance = binomial_tolerance(expected, 3000)
         assert abs(ones_rate - expected) < tolerance
@@ -603,11 +614,11 @@ class TestNoiseAndQEC:
             M 0
             DETECTOR rec[-1] rec[-2]
         """)
-        meas, det, _ = ucc.sample(prog, 10, seed=0)
+        result = ucc.sample(prog, 10, seed=0)
         # First meas = 0, second meas = 1, detector = 1
-        assert np.all(meas[:, 0] == 0)
-        assert np.all(meas[:, 1] == 1)
-        assert np.all(det[:, 0] == 1)
+        assert np.all(result.measurements[:, 0] == 0)
+        assert np.all(result.measurements[:, 1] == 1)
+        assert np.all(result.detectors[:, 0] == 1)
 
     def test_sample_shape_with_qec(self) -> None:
         """sample() returns correct shapes with detectors/observables."""
@@ -622,10 +633,10 @@ class TestNoiseAndQEC:
             OBSERVABLE_INCLUDE(1) rec[-2]
         """)
         shots = 50
-        meas, det, obs = ucc.sample(prog, shots, seed=0)
-        assert meas.shape == (shots, 2)
-        assert det.shape == (shots, 3)
-        assert obs.shape == (shots, 2)
+        result = ucc.sample(prog, shots, seed=0)
+        assert result.measurements.shape == (shots, 2)
+        assert result.detectors.shape == (shots, 3)
+        assert result.observables.shape == (shots, 2)
 
 
 class TestPostselection:
@@ -650,13 +661,13 @@ class TestPostselection:
             DETECTOR rec[-1]
         """
         prog = ucc.compile(circuit, postselection_mask=[1])
-        meas, det, _ = ucc.sample(prog, 200, seed=42)
+        result = ucc.sample(prog, 200, seed=42)
 
         # All detector records should be 0 (postselect writes 0 always)
-        assert np.all(det == 0)
+        assert np.all(result.detectors == 0)
 
         # With H|0> measurement, roughly half the shots have meas==0
-        survived = meas[:, 0] == 0
+        survived = result.measurements[:, 0] == 0
         assert 20 < np.sum(survived) < 180  # not all, not none
 
     def test_empty_mask_is_default(self) -> None:
@@ -671,7 +682,7 @@ class TestSampleSurvivors:
     """Tests for sample_survivors() API."""
 
     def test_counting_only_fast_path(self) -> None:
-        """keep_records=False returns counts only, no arrays."""
+        """keep_records=False returns survivor metadata with empty arrays."""
         circuit = """
             H 0
             M 0
@@ -681,18 +692,19 @@ class TestSampleSurvivors:
         prog = ucc.compile(circuit, postselection_mask=[1])
         result = ucc.sample_survivors(prog, 1000, seed=42)
 
-        assert result["total_shots"] == 1000
-        assert 0 < result["passed_shots"] < 1000
-        assert result["discards"] == 1000 - result["passed_shots"]
+        assert result.total_shots == 1000
+        assert 0 < result.passed_shots < 1000
+        assert result.discards == 1000 - result.passed_shots
         # Survivors have meas[0]==0, so observable parity is always 0
-        assert result["observable_ones"][0] == 0
-        assert result["logical_errors"] == 0
-        # No arrays in counting-only mode
-        assert "detectors" not in result
-        assert "observables" not in result
+        assert result.observable_ones[0] == 0
+        assert result.logical_errors == 0
+        assert isinstance(result, ucc.SampleResult)
+        assert result.measurements.shape == (0, prog.num_measurements)
+        assert result.detectors.shape == (0, prog.num_detectors)
+        assert result.observables.shape == (0, prog.num_observables)
 
     def test_keep_records_returns_arrays(self) -> None:
-        """keep_records=True populates detector/observable numpy arrays."""
+        """keep_records=True populates survivor measurement and syndrome arrays."""
         circuit = """
             H 0
             M 0
@@ -702,12 +714,15 @@ class TestSampleSurvivors:
         prog = ucc.compile(circuit, postselection_mask=[1])
         result = ucc.sample_survivors(prog, 200, seed=42, keep_records=True)
 
-        passed = result["passed_shots"]
+        passed = result.passed_shots
         assert passed > 0
-        assert result["detectors"].shape == (passed, 1)
-        assert result["observables"].shape == (passed, 1)
+        assert result.measurements.shape == (passed, prog.num_measurements)
+        assert result.detectors.shape == (passed, 1)
+        assert result.observables.shape == (passed, 1)
+        assert np.all(result.measurements[:, 0] == 0)
+        assert np.all(result.detectors[:, 0] == 0)
         # All surviving observables should be 0
-        assert np.all(result["observables"] == 0)
+        assert np.all(result.observables == 0)
 
     def test_no_postselection_all_pass(self) -> None:
         """Without postselection, all shots pass."""
@@ -719,9 +734,9 @@ class TestSampleSurvivors:
         prog = ucc.compile(circuit)  # no mask
         result = ucc.sample_survivors(prog, 100, seed=42)
 
-        assert result["total_shots"] == 100
-        assert result["passed_shots"] == 100
-        assert result["discards"] == 0
+        assert result.total_shots == 100
+        assert result.passed_shots == 100
+        assert result.discards == 0
 
     def test_observable_ones_counts_errors(self) -> None:
         """observable_ones correctly counts logical errors in survivors."""
@@ -734,8 +749,8 @@ class TestSampleSurvivors:
         prog = ucc.compile(circuit)
         result = ucc.sample_survivors(prog, 10000, seed=42)
 
-        assert result["passed_shots"] == 10000
-        ones = int(result["observable_ones"][0])
+        assert result.passed_shots == 10000
+        ones = int(result.observable_ones[0])
         shots = 10000
         tol = binomial_tolerance(0.5, shots) * shots
         assert (
@@ -762,10 +777,10 @@ class TestSampleSurvivors:
         prog = ucc.compile(text, postselection_mask=mask)
         result = ucc.sample_survivors(prog, 5000, seed=42)
 
-        assert result["total_shots"] == 5000
-        assert result["passed_shots"] > 0
-        assert result["discards"] > 0
-        assert len(result["observable_ones"]) == 1
+        assert result.total_shots == 5000
+        assert result.passed_shots > 0
+        assert result.discards > 0
+        assert len(result.observable_ones) == 1
 
     def test_keep_records_100_percent_discard(self) -> None:
         """keep_records=True with all shots discarded returns empty arrays."""
@@ -779,13 +794,12 @@ class TestSampleSurvivors:
         prog = ucc.compile(circuit, postselection_mask=[1])
         result = ucc.sample_survivors(prog, 100, seed=42, keep_records=True)
 
-        assert result["total_shots"] == 100
-        assert result["passed_shots"] == 0
-        assert result["discards"] == 100
-        assert "detectors" in result
-        assert "observables" in result
-        assert result["detectors"].shape == (0, 1)
-        assert result["observables"].shape == (0, 1)
+        assert result.total_shots == 100
+        assert result.passed_shots == 0
+        assert result.discards == 100
+        assert result.measurements.shape == (0, 1)
+        assert result.detectors.shape == (0, 1)
+        assert result.observables.shape == (0, 1)
 
     def test_logical_errors_multi_observable(self) -> None:
         """logical_errors counts shots, not total observable flips."""
@@ -799,13 +813,13 @@ class TestSampleSurvivors:
         prog = ucc.compile(circuit)
         result = ucc.sample_survivors(prog, 10000, seed=42)
 
-        assert result["passed_shots"] == 10000
+        assert result.passed_shots == 10000
         # Both observables fire on same shots
-        ones_0 = int(result["observable_ones"][0])
-        ones_1 = int(result["observable_ones"][1])
+        ones_0 = int(result.observable_ones[0])
+        ones_1 = int(result.observable_ones[1])
         assert ones_0 == ones_1
         # logical_errors == per-shot count, not sum of per-observable
-        assert result["logical_errors"] == ones_0
+        assert result.logical_errors == ones_0
 
 
 class TestSyndromeNormalization:
@@ -834,12 +848,12 @@ class TestSyndromeNormalization:
 
         # 1. Baseline: Without normalization, physical parities match the math above
         prog_raw = ucc.compile(circuit, normalize_syndromes=False)
-        _, det_raw, obs_raw = ucc.sample(prog_raw, shots=10, seed=0)
+        result_raw = ucc.sample(prog_raw, shots=10, seed=0)
 
-        assert np.all(det_raw[:, 0] == 1)
-        assert np.all(det_raw[:, 1] == 0)
-        assert np.all(obs_raw[:, 0] == 1)
-        assert np.all(obs_raw[:, 1] == 1)
+        assert np.all(result_raw.detectors[:, 0] == 1)
+        assert np.all(result_raw.detectors[:, 1] == 0)
+        assert np.all(result_raw.observables[:, 0] == 1)
+        assert np.all(result_raw.observables[:, 1] == 1)
 
         # 2. Normalized: All output parities must be strictly 0.
         # We also apply a postselection mask on DET 0 (which natively evaluates to 1).
@@ -852,10 +866,10 @@ class TestSyndromeNormalization:
 
         res = ucc.sample_survivors(prog_norm, shots=10, seed=0, keep_records=True)
 
-        assert res["passed_shots"] == 10  # Normalized 1^1=0, so shots survive!
-        assert np.all(res["detectors"] == 0)
-        assert np.all(res["observables"] == 0)
-        assert res["logical_errors"] == 0
+        assert res.passed_shots == 10  # Normalized 1^1=0, so shots survive!
+        assert np.all(res.detectors == 0)
+        assert np.all(res.observables == 0)
+        assert res.logical_errors == 0
 
     def test_normalize_syndromes_conflict_raises(self) -> None:
         """Cannot provide explicit expected parities with normalize_syndromes=True."""
@@ -880,10 +894,10 @@ class TestSyndromeNormalization:
             OBSERVABLE_INCLUDE(0) rec[-1]
         """
         prog = ucc.compile(circuit, normalize_syndromes=True)
-        _, det, obs = ucc.sample(prog, shots=5, seed=0)
+        result = ucc.sample(prog, shots=5, seed=0)
 
-        assert np.all(det == 0)
-        assert np.all(obs == 0)
+        assert np.all(result.detectors == 0)
+        assert np.all(result.observables == 0)
 
     def test_normalize_syndromes_with_noise_detects_errors(self) -> None:
         """With noise and normalization, errors show up as 1s in syndromes."""
@@ -896,12 +910,12 @@ class TestSyndromeNormalization:
             DETECTOR rec[-1]
         """
         prog = ucc.compile(circuit, normalize_syndromes=True)
-        _, det, _ = ucc.sample(prog, shots=10, seed=0)
+        result = ucc.sample(prog, shots=10, seed=0)
 
         # With 100% X error, measurement flips from 0 to 1.
         # Reference (noiseless) detector parity = 0.
         # Noisy parity = 1. Normalized: 1 ^ 0 = 1 (error detected).
-        assert np.all(det[:, 0] == 1)
+        assert np.all(result.detectors[:, 0] == 1)
 
     def test_explicit_expected_detectors(self) -> None:
         """Explicit expected_detectors without normalize_syndromes works."""
@@ -914,9 +928,9 @@ class TestSyndromeNormalization:
         """
         # Raw detector parity = 1. With expected_detectors=[1], normalized = 0.
         prog = ucc.compile(circuit, expected_detectors=[1])
-        _, det, _ = ucc.sample(prog, shots=5, seed=0)
+        result = ucc.sample(prog, shots=5, seed=0)
 
-        assert np.all(det[:, 0] == 0)
+        assert np.all(result.detectors[:, 0] == 0)
 
     def test_explicit_expected_observables(self) -> None:
         """Explicit expected_observables without normalize_syndromes works."""
@@ -929,9 +943,9 @@ class TestSyndromeNormalization:
         """
         # Raw obs = 1. With expected_observables=[1], normalized = 0.
         prog = ucc.compile(circuit, expected_observables=[1])
-        _, _, obs = ucc.sample(prog, shots=5, seed=0)
+        result = ucc.sample(prog, shots=5, seed=0)
 
-        assert np.all(obs[:, 0] == 0)
+        assert np.all(result.observables[:, 0] == 0)
 
     def test_compute_reference_syndrome_api(self) -> None:
         """compute_reference_syndrome is accessible from Python."""

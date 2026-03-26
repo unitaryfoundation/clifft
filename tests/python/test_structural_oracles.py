@@ -123,8 +123,8 @@ class TestBoundedTMirrorFuzzer:
 
         assert prog.peak_rank <= t_count, f"peak_rank={prog.peak_rank} exceeds t_count={t_count}"
 
-        meas, _, _ = ucc.sample(prog, self.SHOTS, seed=seed)
-        shots_nonzero = int(meas.sum(axis=1).astype(bool).sum())
+        result = ucc.sample(prog, self.SHOTS, seed=seed)
+        shots_nonzero = int(result.measurements.sum(axis=1).astype(bool).sum())
         assert shots_nonzero == 0, f"{shots_nonzero}/{self.SHOTS} shots were non-zero (seed={seed})"
 
     @pytest.mark.parametrize("seed", range(5))
@@ -139,8 +139,8 @@ class TestBoundedTMirrorFuzzer:
             prog.peak_rank == 0
         ), f"peak_rank={prog.peak_rank}, expected 0 after optimization (seed={seed})"
 
-        meas, _, _ = ucc.sample(prog, self.SHOTS, seed=seed)
-        shots_nonzero = int(meas.sum(axis=1).astype(bool).sum())
+        result = ucc.sample(prog, self.SHOTS, seed=seed)
+        shots_nonzero = int(result.measurements.sum(axis=1).astype(bool).sum())
         assert shots_nonzero == 0, f"{shots_nonzero}/{self.SHOTS} shots were non-zero (seed={seed})"
 
     def test_mirror_peak_rank_scales_with_t_count(self) -> None:
@@ -205,11 +205,11 @@ class TestBreathingMemoryLifecycle:
         assert prog.peak_rank == 2
         # Memory: 2^2 * 16 bytes = 64 bytes (trivial)
 
-        meas, _, _ = ucc.sample(prog, 1000, seed=42)
+        result = ucc.sample(prog, 1000, seed=42)
         # All 1000 shots must complete (no NaN, no crash)
-        assert meas.shape == (1000, 501)  # 500 mid-circuit + 1 final
+        assert result.measurements.shape == (1000, 501)  # 500 mid-circuit + 1 final
         # No NaN-induced garbage: every measurement must be 0 or 1
-        assert np.all((meas == 0) | (meas == 1))
+        assert np.all((result.measurements == 0) | (result.measurements == 1))
 
     def test_breathing_1000_rounds_completes(self) -> None:
         """1000-round breathing circuit -- extreme gamma stress test."""
@@ -218,9 +218,9 @@ class TestBreathingMemoryLifecycle:
 
         assert prog.peak_rank == 2
 
-        meas, _, _ = ucc.sample(prog, 100, seed=7)
-        assert meas.shape == (100, 1001)
-        assert np.all((meas == 0) | (meas == 1))
+        result = ucc.sample(prog, 100, seed=7)
+        assert result.measurements.shape == (100, 1001)
+        assert np.all((result.measurements == 0) | (result.measurements == 1))
 
 
 # ---------------------------------------------------------------------------
@@ -277,9 +277,9 @@ class TestBiasedAmplitudeStatistics:
     def test_biased_single_qubit(self, name: str, circuit: str, expected_p0: float) -> None:
         """Single-qubit biased circuit matches analytical P(0)."""
         prog = ucc.compile(circuit)
-        meas, _, _ = ucc.sample(prog, self.SHOTS, seed=42)
+        result = ucc.sample(prog, self.SHOTS, seed=42)
 
-        observed_p0 = float(1.0 - meas[:, 0].astype(float).mean())
+        observed_p0 = float(1.0 - result.measurements[:, 0].astype(float).mean())
         tol = binomial_tolerance(expected_p0, self.SHOTS, sigma=5.0)
         diff = abs(observed_p0 - expected_p0)
         assert diff < tol, (
@@ -296,10 +296,10 @@ class TestBiasedAmplitudeStatistics:
         """
         circuit = "H 0\nT 0\nH 0\nCX 0 1\nM 0 1"
         prog = ucc.compile(circuit)
-        meas, _, _ = ucc.sample(prog, self.SHOTS, seed=42)
+        result = ucc.sample(prog, self.SHOTS, seed=42)
 
-        m0 = meas[:, 0].astype(float)
-        m1 = meas[:, 1].astype(float)
+        m0 = result.measurements[:, 0].astype(float)
+        m1 = result.measurements[:, 1].astype(float)
 
         # Both qubits have cos^2(pi/8) bias for |0>
         expected_p0 = (1.0 + np.cos(np.pi / 4)) / 2.0
@@ -311,7 +311,7 @@ class TestBiasedAmplitudeStatistics:
             ), f"Qubit {qi} marginal: {observed:.6f} vs {expected_p0:.6f}"
 
         # CX copies q0 to q1: parity must be exactly 0
-        parity_nonzero = int((meas[:, 0] ^ meas[:, 1]).sum())
+        parity_nonzero = int((result.measurements[:, 0] ^ result.measurements[:, 1]).sum())
         assert parity_nonzero == 0, f"{parity_nonzero}/{self.SHOTS} shots had m0 != m1"
 
     @pytest.mark.parametrize("seed", range(3))
@@ -323,8 +323,8 @@ class TestBiasedAmplitudeStatistics:
             expected_p0 = (1.0 + np.cos(n_t * np.pi / 4.0)) / 2.0
 
             prog = ucc.compile(circuit)
-            meas, _, _ = ucc.sample(prog, self.SHOTS, seed=seed)
-            observed_p0 = float(1.0 - meas[:, 0].astype(float).mean())
+            result = ucc.sample(prog, self.SHOTS, seed=seed)
+            observed_p0 = float(1.0 - result.measurements[:, 0].astype(float).mean())
 
             tol = binomial_tolerance(expected_p0, self.SHOTS, sigma=5.0)
             diff = abs(observed_p0 - expected_p0)

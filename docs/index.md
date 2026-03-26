@@ -36,8 +36,8 @@ program = ucc.compile("""
 """)
 
 # Sample measurement outcomes
-meas, det, obs = ucc.sample(program, shots=1000, seed=42)
-print(meas[:5])  # First 5 shots
+result = ucc.sample(program, shots=1000, seed=42)
+print(result.measurements[:5])  # First 5 shots
 ```
 
 ## Key Features

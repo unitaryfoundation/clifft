@@ -782,7 +782,7 @@ NB_MODULE(_ucc_core, m) {
         "    hir_passes: Optional HirPassManager to run on the HIR before lowering.\n"
         "    bytecode_passes: Optional BytecodePassManager to run after lowering.\n");
 
-    // Sample: Program + shots -> tuple of (measurements, detectors, observables)
+    // Sample: Program + shots -> SampleResult
     m.def(
         "sample",
         [](const ucc::CompiledModule& program, uint32_t shots, std::optional<uint64_t> seed) {
@@ -799,11 +799,15 @@ NB_MODULE(_ucc_core, m) {
             auto obs_arr =
                 vec_to_numpy(std::move(result.observables), {shots, program.num_observables});
 
-            return nb::make_tuple(meas_arr, det_arr, obs_arr);
+            // Import the Python SampleResult class and construct it.
+            nb::object mod = nb::module_::import_("ucc._sample_result");
+            return mod.attr("SampleResult")(meas_arr, det_arr, obs_arr);
         },
         nb::arg("program"), nb::arg("shots"), nb::arg("seed") = nb::none(),
-        "Run a compiled program and return all result records.\n\n"
-        "If seed is None (default), uses 256-bit OS hardware entropy.");
+        "Run a compiled program and return a SampleResult.\n\n"
+        "If seed is None (default), uses 256-bit OS hardware entropy.\n\n"
+        "Returns a SampleResult with .measurements, .detectors, .observables attributes.\n"
+        "Supports tuple unpacking: m, d, o = ucc.sample(prog, shots)");
 
     // Sample with forced k-faults (importance sampling).
     m.def(
@@ -823,7 +827,8 @@ NB_MODULE(_ucc_core, m) {
             auto obs_arr =
                 vec_to_numpy(std::move(result.observables), {shots, program.num_observables});
 
-            return nb::make_tuple(meas_arr, det_arr, obs_arr);
+            nb::object mod = nb::module_::import_("ucc._sample_result");
+            return mod.attr("SampleResult")(meas_arr, det_arr, obs_arr);
         },
         nb::arg("program"), nb::arg("shots"), nb::arg("k"), nb::arg("seed") = nb::none(),
         "Sample with exactly k forced faults per shot (importance sampling).\n\n"
@@ -836,36 +841,44 @@ NB_MODULE(_ucc_core, m) {
         "(e.g. k exceeds the number of non-zero-probability sites).\n\n"
         "When all site probabilities are equal, an O(k) Fisher-Yates\n"
         "sampler is used automatically.\n\n"
-        "Returns a tuple of (measurements, detectors, observables) numpy arrays.");
+        "Returns a SampleResult with .measurements, .detectors, .observables attributes.\n"
+        "Supports tuple unpacking: m, d, o = ucc.sample_k(prog, shots, k)");
+
+    // Helper lambda to populate a SampleResult Python object from C++ survivor data.
+    auto make_survivor_result = [](ucc::SurvivorResult result, const ucc::CompiledModule& program,
+                                   bool keep_records) -> nb::object {
+        size_t num_obs = result.observable_ones.size();
+        auto obs_ones_arr = vec_to_numpy(std::move(result.observable_ones), {num_obs});
+
+        nb::object mod = nb::module_::import_("ucc._sample_result");
+        nb::object cls = mod.attr("SampleResult");
+
+        std::vector<uint8_t> meas_storage =
+            keep_records ? std::move(result.measurements) : std::vector<uint8_t>{};
+        std::vector<uint8_t> det_storage =
+            keep_records ? std::move(result.detectors) : std::vector<uint8_t>{};
+        std::vector<uint8_t> obs_storage =
+            keep_records ? std::move(result.observables) : std::vector<uint8_t>{};
+
+        size_t rows = keep_records ? result.passed_shots : 0;
+        auto meas_arr = vec_to_numpy(std::move(meas_storage), {rows, program.num_measurements});
+        auto det_arr = vec_to_numpy(std::move(det_storage), {rows, program.num_detectors});
+        auto obs_arr = vec_to_numpy(std::move(obs_storage), {rows, program.num_observables});
+        return cls(meas_arr, det_arr, obs_arr, result.total_shots, result.passed_shots,
+                   result.logical_errors, obs_ones_arr);
+    };
 
     // Sample survivors with forced k-faults.
     m.def(
         "sample_k_survivors",
-        [](const ucc::CompiledModule& program, uint32_t shots, uint32_t k,
-           std::optional<uint64_t> seed, bool keep_records) {
+        [make_survivor_result](const ucc::CompiledModule& program, uint32_t shots, uint32_t k,
+                               std::optional<uint64_t> seed, bool keep_records) {
             ucc::SurvivorResult result;
             {
                 nb::gil_scoped_release release;
                 result = ucc::sample_k_survivors(program, shots, k, seed, keep_records);
             }
-
-            nb::dict d;
-            d["total_shots"] = result.total_shots;
-            d["passed_shots"] = result.passed_shots;
-            d["discards"] = result.total_shots - result.passed_shots;
-            d["logical_errors"] = result.logical_errors;
-
-            size_t num_obs = result.observable_ones.size();
-            d["observable_ones"] = vec_to_numpy(std::move(result.observable_ones), {num_obs});
-
-            if (keep_records) {
-                d["detectors"] = vec_to_numpy(std::move(result.detectors),
-                                              {result.passed_shots, program.num_detectors});
-                d["observables"] = vec_to_numpy(std::move(result.observables),
-                                                {result.passed_shots, program.num_observables});
-            }
-
-            return d;
+            return make_survivor_result(std::move(result), program, keep_records);
         },
         nb::arg("program"), nb::arg("shots"), nb::arg("k"), nb::arg("seed") = nb::none(),
         nb::arg("keep_records") = false,
@@ -876,45 +889,31 @@ NB_MODULE(_ucc_core, m) {
         "  p_fail = sum(P(K=k)*logical_errors_k/shots_k)\n"
         "         / sum(P(K=k)*passed_k/shots_k)\n\n"
         "Raises ValueError if the k-fault stratum has zero probability mass.\n\n"
-        "Returns a dict with total_shots, passed_shots, discards, logical_errors,\n"
-        "observable_ones, and optionally detectors/observables arrays.");
+        "Returns a SampleResult whose measurements/detectors/observables arrays\n"
+        "contain only surviving shots. Survivor metadata is available via\n"
+        ".total_shots, .passed_shots, .discards, .logical_errors, and\n"
+        ".observable_ones.");
 
     // Sample survivors: only non-discarded shots contribute to output.
     m.def(
         "sample_survivors",
-        [](const ucc::CompiledModule& program, uint32_t shots, std::optional<uint64_t> seed,
-           bool keep_records) {
+        [make_survivor_result](const ucc::CompiledModule& program, uint32_t shots,
+                               std::optional<uint64_t> seed, bool keep_records) {
             ucc::SurvivorResult result;
             {
                 nb::gil_scoped_release release;
                 result = ucc::sample_survivors(program, shots, seed, keep_records);
             }
-
-            nb::dict d;
-            d["total_shots"] = result.total_shots;
-            d["passed_shots"] = result.passed_shots;
-            d["discards"] = result.total_shots - result.passed_shots;
-            d["logical_errors"] = result.logical_errors;
-
-            size_t num_obs = result.observable_ones.size();
-            d["observable_ones"] = vec_to_numpy(std::move(result.observable_ones), {num_obs});
-
-            if (keep_records) {
-                d["detectors"] = vec_to_numpy(std::move(result.detectors),
-                                              {result.passed_shots, program.num_detectors});
-                d["observables"] = vec_to_numpy(std::move(result.observables),
-                                                {result.passed_shots, program.num_observables});
-            }
-
-            return d;
+            return make_survivor_result(std::move(result), program, keep_records);
         },
         nb::arg("program"), nb::arg("shots"), nb::arg("seed") = nb::none(),
         nb::arg("keep_records") = false,
         "Sample shots and return results only for surviving (non-discarded) shots.\n\n"
-        "If seed is None (default), uses 256-bit OS hardware entropy.\n"
-        "Returns a dict with keys: total_shots, passed_shots, discards,\n"
-        "observable_ones (numpy uint64 array of per-observable error counts),\n"
-        "and optionally detectors/observables numpy arrays when keep_records=True.");
+        "If seed is None (default), uses 256-bit OS hardware entropy.\n\n"
+        "Returns a SampleResult whose measurements/detectors/observables arrays\n"
+        "contain only surviving shots. Survivor metadata is available via\n"
+        ".total_shots, .passed_shots, .discards, .logical_errors, and\n"
+        ".observable_ones.");
 
     nb::class_<ucc::SchrodingerState>(m, "State", "Schrodinger VM execution state")
         .def(nb::init<uint32_t, uint32_t, uint32_t, uint32_t, std::optional<uint64_t>>(),

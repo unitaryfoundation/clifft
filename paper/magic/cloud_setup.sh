@@ -127,8 +127,8 @@ print(f'  UCC max_sim_qubits={ucc.max_sim_qubits}')
 text = pathlib.Path('paper/magic/circuits/circuit_d5_p0.001.stim').read_text()
 p = ucc.compile(text, postselection_mask=[1]*107)
 stats = ucc.sample_survivors(p, 1000, keep_records=False)
-print(f'  shots={stats[\"total_shots\"]}, discards={stats[\"discards\"]}, '
-      f'errors={stats[\"logical_errors\"]}')
+print(f'  shots={stats.total_shots}, discards={stats.discards}, '
+      f'errors={stats.logical_errors}')
 print('  Smoke test PASSED')
 "
 

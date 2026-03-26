@@ -105,12 +105,18 @@ def test_exact_trajectory_noisy() -> None:
         prog_opt.num_instructions < prog_base.num_instructions
     ), "Optimized program should have fewer instructions"
 
-    meas_b, det_b, obs_b = ucc.sample(prog_base, shots=5000, seed=42)
-    meas_o, det_o, obs_o = ucc.sample(prog_opt, shots=5000, seed=42)
+    base_result = ucc.sample(prog_base, shots=5000, seed=42)
+    opt_result = ucc.sample(prog_opt, shots=5000, seed=42)
 
-    np.testing.assert_array_equal(meas_b, meas_o, err_msg="Measurement records diverged")
-    np.testing.assert_array_equal(det_b, det_o, err_msg="Detector records diverged")
-    np.testing.assert_array_equal(obs_b, obs_o, err_msg="Observable records diverged")
+    np.testing.assert_array_equal(
+        base_result.measurements, opt_result.measurements, err_msg="Measurement records diverged"
+    )
+    np.testing.assert_array_equal(
+        base_result.detectors, opt_result.detectors, err_msg="Detector records diverged"
+    )
+    np.testing.assert_array_equal(
+        base_result.observables, opt_result.observables, err_msg="Observable records diverged"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -141,12 +147,18 @@ def test_exact_trajectory_noiseless() -> None:
     prog_base = ucc.compile(NOISELESS_WITH_MEAS)
     prog_opt = compile_optimized(NOISELESS_WITH_MEAS)
 
-    meas_b, det_b, obs_b = ucc.sample(prog_base, shots=5000, seed=99)
-    meas_o, det_o, obs_o = ucc.sample(prog_opt, shots=5000, seed=99)
+    base_result = ucc.sample(prog_base, shots=5000, seed=99)
+    opt_result = ucc.sample(prog_opt, shots=5000, seed=99)
 
-    np.testing.assert_array_equal(meas_b, meas_o, err_msg="Measurement records diverged")
-    np.testing.assert_array_equal(det_b, det_o, err_msg="Detector records diverged")
-    np.testing.assert_array_equal(obs_b, obs_o, err_msg="Observable records diverged")
+    np.testing.assert_array_equal(
+        base_result.measurements, opt_result.measurements, err_msg="Measurement records diverged"
+    )
+    np.testing.assert_array_equal(
+        base_result.detectors, opt_result.detectors, err_msg="Detector records diverged"
+    )
+    np.testing.assert_array_equal(
+        base_result.observables, opt_result.observables, err_msg="Observable records diverged"
+    )
 
 
 # ---------------------------------------------------------------------------

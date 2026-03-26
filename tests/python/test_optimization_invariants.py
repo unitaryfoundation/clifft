@@ -65,17 +65,23 @@ def run_differential_trajectory(circuit_str: str, shots: int, seed: int) -> None
     )
 
     # --- PRNG trajectory synchronization ---
-    base_m, base_d, base_o = ucc.sample(base_prog, shots, seed=seed)
-    opt_m, opt_d, opt_o = ucc.sample(opt_prog, shots, seed=seed)
+    base_result = ucc.sample(base_prog, shots, seed=seed)
+    opt_result = ucc.sample(opt_prog, shots, seed=seed)
 
     np.testing.assert_array_equal(
-        base_m, opt_m, err_msg="Measurement records diverged after bytecode optimization"
+        base_result.measurements,
+        opt_result.measurements,
+        err_msg="Measurement records diverged after bytecode optimization",
     )
     np.testing.assert_array_equal(
-        base_d, opt_d, err_msg="Detector records diverged after bytecode optimization"
+        base_result.detectors,
+        opt_result.detectors,
+        err_msg="Detector records diverged after bytecode optimization",
     )
     np.testing.assert_array_equal(
-        base_o, opt_o, err_msg="Observable records diverged after bytecode optimization"
+        base_result.observables,
+        opt_result.observables,
+        err_msg="Observable records diverged after bytecode optimization",
     )
 
 
@@ -162,18 +168,18 @@ class TestHirPeepholeUncomputationLadder:
         assert base.peak_rank <= _MAX_PEAK_RANK
         assert opt.peak_rank <= base.peak_rank
 
-        base_m, _, _ = ucc.sample(base, _SHOTS, seed=seed)
-        opt_m, _, _ = ucc.sample(opt, _SHOTS, seed=seed)
+        base_result = ucc.sample(base, _SHOTS, seed=seed)
+        opt_result = ucc.sample(opt, _SHOTS, seed=seed)
 
         # All measurements must be deterministic zero
         np.testing.assert_array_equal(
-            base_m,
-            np.zeros_like(base_m),
+            base_result.measurements,
+            np.zeros_like(base_result.measurements),
             err_msg="Unoptimized ladder produced non-zero measurements",
         )
         np.testing.assert_array_equal(
-            opt_m,
-            np.zeros_like(opt_m),
+            opt_result.measurements,
+            np.zeros_like(opt_result.measurements),
             err_msg="Optimized ladder produced non-zero measurements",
         )
 
@@ -187,11 +193,15 @@ class TestHirPeepholeUncomputationLadder:
         assert base.peak_rank <= _MAX_PEAK_RANK
         assert opt.peak_rank <= base.peak_rank
 
-        base_m, _, _ = ucc.sample(base, _SHOTS, seed=seed)
-        opt_m, _, _ = ucc.sample(opt, _SHOTS, seed=seed)
+        base_result = ucc.sample(base, _SHOTS, seed=seed)
+        opt_result = ucc.sample(opt, _SHOTS, seed=seed)
 
-        np.testing.assert_array_equal(base_m, np.zeros_like(base_m))
-        np.testing.assert_array_equal(opt_m, np.zeros_like(opt_m))
+        np.testing.assert_array_equal(
+            base_result.measurements, np.zeros_like(base_result.measurements)
+        )
+        np.testing.assert_array_equal(
+            opt_result.measurements, np.zeros_like(opt_result.measurements)
+        )
 
     def test_dust_clamps_telemetry(self) -> None:
         """Prove the unoptimized ladder generates FP dust that the VM clamps."""
@@ -307,9 +317,9 @@ class TestHirPeepholeStatisticalEquivalence:
             bytecode_passes=ucc.default_bytecode_pass_manager(),
         )
 
-        base_m, _, _ = ucc.sample(base, _STAT_SHOTS, seed=seed)
-        opt_m, _, _ = ucc.sample(opt, _STAT_SHOTS, seed=seed)
-        self._assert_marginals_match(base_m, opt_m)
+        base_result = ucc.sample(base, _STAT_SHOTS, seed=seed)
+        opt_result = ucc.sample(opt, _STAT_SHOTS, seed=seed)
+        self._assert_marginals_match(base_result.measurements, opt_result.measurements)
 
     @pytest.mark.parametrize("seed", _SEEDS)
     def test_commutation_gauntlet_noisy_20q(self, seed: int) -> None:
@@ -321,9 +331,9 @@ class TestHirPeepholeStatisticalEquivalence:
             bytecode_passes=ucc.default_bytecode_pass_manager(),
         )
 
-        base_m, _, _ = ucc.sample(base, _STAT_SHOTS, seed=seed)
-        opt_m, _, _ = ucc.sample(opt, _STAT_SHOTS, seed=seed)
-        self._assert_marginals_match(base_m, opt_m)
+        base_result = ucc.sample(base, _STAT_SHOTS, seed=seed)
+        opt_result = ucc.sample(opt, _STAT_SHOTS, seed=seed)
+        self._assert_marginals_match(base_result.measurements, opt_result.measurements)
 
     @pytest.mark.parametrize("seed", _SEEDS)
     def test_uncomputation_ladder_noisy_10q(self, seed: int) -> None:
@@ -335,6 +345,6 @@ class TestHirPeepholeStatisticalEquivalence:
             bytecode_passes=ucc.default_bytecode_pass_manager(),
         )
 
-        base_m, _, _ = ucc.sample(base, _STAT_SHOTS, seed=seed)
-        opt_m, _, _ = ucc.sample(opt, _STAT_SHOTS, seed=seed)
-        self._assert_marginals_match(base_m, opt_m)
+        base_result = ucc.sample(base, _STAT_SHOTS, seed=seed)
+        opt_result = ucc.sample(opt, _STAT_SHOTS, seed=seed)
+        self._assert_marginals_match(base_result.measurements, opt_result.measurements)

@@ -174,9 +174,9 @@ for k in range(max_k + 1):
     result = ucc.sample_k_survivors(prog, shots=shots_per_k, k=k, seed=42 + k)
     stratum_data.append({
         "k": k,
-        "total": result["total_shots"],
-        "passed": result["passed_shots"],
-        "errors": result["logical_errors"],
+        "total": result.total_shots,
+        "passed": result.passed_shots,
+        "errors": result.logical_errors,
     })
 ```
 
@@ -334,8 +334,7 @@ postselection. Key observations:
 ### `ucc.sample_k(program, shots, k, seed=None)`
 
 Sample with exactly `k` forced faults per shot. Returns
-`(measurements, detectors, observables)` numpy arrays, just like
-`ucc.sample()`. Results must be weighted by $P(K=k)$ for correct
+a `SampleResult`, just like `ucc.sample()`. Results must be weighted by $P(K=k)$ for correct
 error rate estimation.
 
 Raises `ValueError` if the stratum has zero probability mass (e.g., `k`
@@ -344,17 +343,10 @@ exceeds the number of non-zero-probability sites).
 ### `ucc.sample_k_survivors(program, shots, k, seed=None, keep_records=False)`
 
 Sample survivors with exactly `k` forced faults per shot. Returns a
-dict:
-
-| Key | Type | Description |
-|---|---|---|
-| `total_shots` | int | Number of shots attempted |
-| `passed_shots` | int | Shots that survived postselection |
-| `discards` | int | Shots discarded by postselection |
-| `logical_errors` | int | Count of logical errors |
-| `observable_ones` | ndarray | Per-observable error counts |
-| `detectors` | ndarray | *(only if `keep_records=True`)* |
-| `observables` | ndarray | *(only if `keep_records=True`)* |
+`SampleResult` whose `.measurements`, `.detectors`, and `.observables`
+arrays contain only surviving shots. Survivor metadata is available via
+`.total_shots`, `.passed_shots`, `.discards`, `.logical_errors`, and
+`.observable_ones`.
 
 Raises `ValueError` if the stratum has zero probability mass.
 

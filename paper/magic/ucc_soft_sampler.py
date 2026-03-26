@@ -73,9 +73,9 @@ class UccCompiledSampler(sinter.CompiledSampler):
         t1 = time.monotonic()
 
         return sinter.AnonTaskStats(
-            shots=stats["total_shots"],
-            errors=stats["logical_errors"],
-            discards=stats["discards"],
+            shots=stats.total_shots,
+            errors=stats.logical_errors,
+            discards=stats.discards,
             seconds=t1 - t0,
         )
 

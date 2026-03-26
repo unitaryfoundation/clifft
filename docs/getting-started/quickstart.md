@@ -18,9 +18,9 @@ circuit = """
 # Compile to bytecode
 program = ucc.compile(circuit)
 
-# Sample 1000 shots — returns (measurements, detectors, observables)
-meas, det, obs = ucc.sample(program, shots=1000, seed=42)
-print(meas[:5])  # First 5 shots
+# Sample 1000 shots
+result = ucc.sample(program, shots=1000, seed=42)
+print(result.measurements[:5])  # First 5 shots
 ```
 
 The output is an array of measurement bitstrings. For a Bell state, you'll see either `00` or `11` with roughly equal probability.
@@ -39,11 +39,11 @@ program = ucc.compile("""
     M 0
 """)
 
-meas, _, _ = ucc.sample(program, shots=10000, seed=42)
+result = ucc.sample(program, shots=10000, seed=42)
 
 # Count outcomes
-ones = meas[:, 0].sum()
-print(f"|1> probability: {ones / len(meas):.3f}")  # ~0.146
+ones = result.measurements[:, 0].sum()
+print(f"|1> probability: {ones / len(result.measurements):.3f}")  # ~0.146
 ```
 
 ## Statevector Access
@@ -84,7 +84,7 @@ program = ucc.compile("""
     M 0 1
 """)
 
-meas, _, _ = ucc.sample(program, shots=10000, seed=42)
+result = ucc.sample(program, shots=10000, seed=42)
 ```
 
 ## Next Steps

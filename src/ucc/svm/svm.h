@@ -281,8 +281,9 @@ struct SurvivorResult {
     std::vector<uint64_t> observable_ones;
 
     // Flat arrays for surviving shots only. Empty when keep_records=false.
-    std::vector<uint8_t> detectors;    // Shape: [passed_shots * num_detectors]
-    std::vector<uint8_t> observables;  // Shape: [passed_shots * num_observables]
+    std::vector<uint8_t> measurements;  // Shape: [passed_shots * num_measurements]
+    std::vector<uint8_t> detectors;     // Shape: [passed_shots * num_detectors]
+    std::vector<uint8_t> observables;   // Shape: [passed_shots * num_observables]
 };
 
 /// Sample shots and return results only for survivors (non-discarded shots).

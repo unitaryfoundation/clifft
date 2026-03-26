@@ -265,8 +265,8 @@ class TestMirrorTGateAnnihilation:
         prog = _compile_optimized(circuit_with_meas)
         assert prog.peak_rank == 0
 
-        results, _, _ = ucc.sample(prog, 1000, seed=seed)
-        nonzero = int(results.sum(axis=1).astype(bool).sum())
+        result = ucc.sample(prog, 1000, seed=seed)
+        nonzero = int(result.measurements.sum(axis=1).astype(bool).sum())
         assert nonzero == 0, f"{nonzero}/1000 shots non-zero (seed={seed})"
 
     def test_mirror_statevector_is_identity(self) -> None:
@@ -326,8 +326,8 @@ class TestExplicitPipelineAPI:
 
         assert prog.peak_rank == 1
         assert prog.num_measurements == 1
-        meas, _, _ = ucc.sample(prog, 100, seed=0)
-        assert meas.shape == (100, 1)
+        result = ucc.sample(prog, 100, seed=0)
+        assert result.measurements.shape == (100, 1)
 
     def test_compile_convenience_matches_explicit(self) -> None:
         """ucc.compile() produces same result as parse -> trace -> lower."""

@@ -162,6 +162,7 @@ SurvivorResult sample_survivors(const CompiledModule& program, uint32_t shots,
         return result;
     }
 
+    uint32_t num_vis = program.num_measurements;
     uint32_t num_total = program.total_meas_slots;
     uint32_t num_det = program.num_detectors;
     uint32_t num_obs = program.num_observables;
@@ -169,6 +170,7 @@ SurvivorResult sample_survivors(const CompiledModule& program, uint32_t shots,
     result.observable_ones.resize(num_obs, 0);
 
     if (keep_records) {
+        result.measurements.reserve(static_cast<size_t>(shots) * num_vis);
         result.detectors.reserve(static_cast<size_t>(shots) * num_det);
         result.observables.reserve(static_cast<size_t>(shots) * num_obs);
     }
@@ -210,6 +212,8 @@ SurvivorResult sample_survivors(const CompiledModule& program, uint32_t shots,
         }
 
         if (keep_records) {
+            result.measurements.insert(result.measurements.end(), state.meas_record.begin(),
+                                       state.meas_record.begin() + num_vis);
             result.detectors.insert(result.detectors.end(), state.det_record.begin(),
                                     state.det_record.end());
         }
@@ -487,6 +491,7 @@ SurvivorResult sample_k_survivors(const CompiledModule& program, uint32_t shots,
     if (shots == 0)
         return result;
 
+    uint32_t num_vis = program.num_measurements;
     uint32_t num_total = program.total_meas_slots;
     uint32_t num_det = program.num_detectors;
     uint32_t num_obs = program.num_observables;
@@ -494,6 +499,7 @@ SurvivorResult sample_k_survivors(const CompiledModule& program, uint32_t shots,
     result.observable_ones.resize(num_obs, 0);
 
     if (keep_records) {
+        result.measurements.reserve(static_cast<size_t>(shots) * num_vis);
         result.detectors.reserve(static_cast<size_t>(shots) * num_det);
         result.observables.reserve(static_cast<size_t>(shots) * num_obs);
     }
@@ -544,6 +550,8 @@ SurvivorResult sample_k_survivors(const CompiledModule& program, uint32_t shots,
             result.logical_errors++;
 
         if (keep_records) {
+            result.measurements.insert(result.measurements.end(), state.meas_record.begin(),
+                                       state.meas_record.begin() + num_vis);
             result.detectors.insert(result.detectors.end(), state.det_record.begin(),
                                     state.det_record.end());
         }
