@@ -84,6 +84,12 @@ bool can_swap(const HeisenbergOp& left, const HeisenbergOp& right, const HirModu
         return false;
     }
 
+    // EXP_VAL is a positional probe: the user expects the expectation value
+    // at an exact circuit point. Never reorder anything across it.
+    if (lt == OpType::EXP_VAL || rt == OpType::EXP_VAL) {
+        return false;
+    }
+
     // Quantum commutativity via symplectic inner product.
     // Both ops carry inline Pauli masks:
     bool left_is_noise = (lt == OpType::NOISE);

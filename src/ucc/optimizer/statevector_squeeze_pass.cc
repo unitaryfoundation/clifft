@@ -9,6 +9,9 @@ namespace ucc {
 void StatevectorSqueezePass::run(HirModule& hir) {
     bool has_sm = hir.source_map.size() == hir.ops.size();
 
+    // EXP_VAL acts as a hard barrier via can_swap(), so neither sweep
+    // will move operations across an expectation value probe.
+
     // Sweep 1: Eager Compaction (leftward bubble of MEASUREs)
     for (size_t i = 1; i < hir.ops.size(); ++i) {
         if (hir.ops[i].op_type() != OpType::MEASURE) {

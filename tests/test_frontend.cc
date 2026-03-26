@@ -374,6 +374,24 @@ TEST_CASE("Frontend: EXP_VAL multiple products get consecutive indices", "[front
     REQUIRE(hir.num_exp_vals == 2);
 }
 
+TEST_CASE("Frontend: EXP_VAL single instruction with multiple products", "[frontend][exp_val]") {
+    auto circuit = parse("EXP_VAL X0 Z1");
+    auto hir = trace(circuit);
+
+    REQUIRE(hir.num_ops() == 2);
+    REQUIRE(hir.num_exp_vals == 2);
+
+    REQUIRE(hir.ops[0].op_type() == OpType::EXP_VAL);
+    REQUIRE(hir.ops[0].exp_val_idx() == ExpValIdx{0});
+    REQUIRE(hir.ops[0].destab_mask() == X(0));
+    REQUIRE(hir.ops[0].stab_mask() == 0);
+
+    REQUIRE(hir.ops[1].op_type() == OpType::EXP_VAL);
+    REQUIRE(hir.ops[1].exp_val_idx() == ExpValIdx{1});
+    REQUIRE(hir.ops[1].destab_mask() == 0);
+    REQUIRE(hir.ops[1].stab_mask() == Z(1));
+}
+
 TEST_CASE("Frontend: EXP_VAL does not affect measurement indices", "[frontend][exp_val]") {
     auto circuit = parse(R"(
         M 0
@@ -416,6 +434,16 @@ TEST_CASE("Frontend: EXP_VAL source map entries preserved", "[frontend][exp_val]
     REQUIRE(!hir.source_map[0].empty());
 }
 
+TEST_CASE("Frontend: EXP_VAL multi-product source map entries preserved", "[frontend][exp_val]") {
+    auto circuit = parse("EXP_VAL X0 Z1");
+    auto hir = trace(circuit);
+
+    REQUIRE(hir.num_ops() == 2);
+    REQUIRE(hir.source_map.size() == hir.num_ops());
+    REQUIRE(hir.source_map[0] == std::vector<uint32_t>{1});
+    REQUIRE(hir.source_map[1] == std::vector<uint32_t>{1});
+}
+
 TEST_CASE("Frontend: EXP_VAL rewind matches MPP rewind", "[frontend][exp_val]") {
     // Same Pauli product through the same Clifford circuit should yield
     // the same rewound masks whether it's MPP or EXP_VAL
@@ -438,6 +466,25 @@ TEST_CASE("Frontend: EXP_VAL rewind matches MPP rewind", "[frontend][exp_val]") 
     REQUIRE(hir_mpp.ops[0].destab_mask() == hir_ev.ops[0].destab_mask());
     REQUIRE(hir_mpp.ops[0].stab_mask() == hir_ev.ops[0].stab_mask());
     REQUIRE(hir_mpp.ops[0].sign() == hir_ev.ops[0].sign());
+}
+
+TEST_CASE("Frontend: EXP_VAL inversion parity flips sign", "[frontend][exp_val]") {
+    Circuit circuit;
+    circuit.num_qubits = 2;
+    circuit.num_exp_vals = 1;
+    circuit.nodes.push_back(
+        {GateType::EXP_VAL,
+         {Target::pauli(0, Target::kPauliX).inverted(), Target::pauli(1, Target::kPauliY)},
+         {},
+         1});
+
+    auto hir = trace(circuit);
+
+    REQUIRE(hir.num_ops() == 1);
+    REQUIRE(hir.ops[0].op_type() == OpType::EXP_VAL);
+    REQUIRE(hir.ops[0].destab_mask() == (X(0) | X(1)));
+    REQUIRE(hir.ops[0].stab_mask() == Z(1));
+    REQUIRE(hir.ops[0].sign());
 }
 
 TEST_CASE("Frontend: exceeds max qubit limit", "[frontend]") {

@@ -3,7 +3,9 @@
 #include "ucc/circuit/parser.h"
 #include "ucc/frontend/frontend.h"
 #include "ucc/frontend/hir.h"
+#include "ucc/optimizer/commutation.h"
 #include "ucc/optimizer/peephole.h"
+#include "ucc/optimizer/statevector_squeeze_pass.h"
 #include "ucc/util/constants.h"
 
 #include "test_helpers.h"
@@ -561,4 +563,147 @@ TEST_CASE("Pass registry: JSON round-trip is valid") {
     REQUIRE(json.find("PeepholeFusionPass") != std::string::npos);
     REQUIRE(json.find("SingleAxisFusionPass") != std::string::npos);
     REQUIRE(json.find("RemoveNoisePass") != std::string::npos);
+}
+
+// =============================================================================
+// EXP_VAL barrier tests
+// =============================================================================
+
+TEST_CASE("Commutation: EXP_VAL blocks T_GATE swap", "[optimizer][exp_val]") {
+    auto hir = hir_from("T 0\nEXP_VAL Z0");
+    REQUIRE(hir.ops.size() == 2);
+    REQUIRE(!can_swap(hir.ops[0], hir.ops[1], hir));
+}
+
+TEST_CASE("Commutation: EXP_VAL blocks MEASURE swap", "[optimizer][exp_val]") {
+    auto hir = hir_from("EXP_VAL Z0\nM 0");
+    REQUIRE(hir.ops.size() == 2);
+    REQUIRE(!can_swap(hir.ops[0], hir.ops[1], hir));
+}
+
+TEST_CASE("Commutation: EXP_VAL blocks NOISE swap", "[optimizer][exp_val]") {
+    auto hir = hir_from("EXP_VAL Z0\nX_ERROR(0.1) 0");
+    REQUIRE(hir.ops.size() == 2);
+    REQUIRE(!can_swap(hir.ops[0], hir.ops[1], hir));
+}
+
+TEST_CASE("Commutation: EXP_VAL blocks commuting NOISE swap", "[optimizer][exp_val]") {
+    auto hir = hir_from("EXP_VAL Z0\nZ_ERROR(0.1) 0");
+    REQUIRE(hir.ops.size() == 2);
+    REQUIRE(!can_swap(hir.ops[0], hir.ops[1], hir));
+}
+
+TEST_CASE("Commutation: EXP_VAL blocks disjoint NOISE swap", "[optimizer][exp_val]") {
+    auto hir = hir_from("EXP_VAL Z0\nZ_ERROR(0.1) 1");
+    REQUIRE(hir.ops.size() == 2);
+    REQUIRE(!can_swap(hir.ops[0], hir.ops[1], hir));
+}
+
+TEST_CASE("Commutation: NOISE also cannot cross EXP_VAL from the left", "[optimizer][exp_val]") {
+    auto hir = hir_from("Z_ERROR(0.1) 0\nEXP_VAL Z0");
+    REQUIRE(hir.ops.size() == 2);
+    REQUIRE(!can_swap(hir.ops[0], hir.ops[1], hir));
+}
+
+TEST_CASE("Commutation: EXP_VAL blocks even commuting Paulis", "[optimizer][exp_val]") {
+    // Z0 and Z1 commute, but EXP_VAL is a positional barrier
+    auto hir = hir_from("T 0\nEXP_VAL Z1");
+    REQUIRE(hir.ops.size() == 2);
+    REQUIRE(!can_swap(hir.ops[0], hir.ops[1], hir));
+}
+
+TEST_CASE("Peephole: T-gates do not fuse across EXP_VAL", "[optimizer][exp_val]") {
+    // T 0 ... EXP_VAL Z0 ... T 0 should NOT fuse
+    auto hir = hir_from("T 0\nEXP_VAL Z0\nT 0");
+
+    REQUIRE(hir.ops.size() == 3);
+    REQUIRE(hir.ops[0].op_type() == OpType::T_GATE);
+    REQUIRE(hir.ops[1].op_type() == OpType::EXP_VAL);
+    REQUIRE(hir.ops[2].op_type() == OpType::T_GATE);
+
+    PeepholeFusionPass pass;
+    pass.run(hir);
+
+    // Both T gates and the EXP_VAL must survive
+    REQUIRE(hir.ops.size() == 3);
+    REQUIRE(pass.cancellations() == 0);
+    REQUIRE(pass.fusions() == 0);
+}
+
+TEST_CASE("Squeeze: measurement does not bubble past EXP_VAL", "[optimizer][exp_val]") {
+    // T 0 activates qubit 0; EXP_VAL probes; M 0 measures.
+    // Without the barrier, the squeeze pass would try to bubble M leftward.
+    auto hir = hir_from("T 0\nEXP_VAL Z0\nM 0");
+
+    REQUIRE(hir.ops.size() == 3);
+    REQUIRE(hir.ops[0].op_type() == OpType::T_GATE);
+    REQUIRE(hir.ops[1].op_type() == OpType::EXP_VAL);
+    REQUIRE(hir.ops[2].op_type() == OpType::MEASURE);
+
+    StatevectorSqueezePass pass;
+    pass.run(hir);
+
+    // Order must be preserved: T, EXP_VAL, MEASURE
+    REQUIRE(hir.ops.size() == 3);
+    REQUIRE(hir.ops[0].op_type() == OpType::T_GATE);
+    REQUIRE(hir.ops[1].op_type() == OpType::EXP_VAL);
+    REQUIRE(hir.ops[2].op_type() == OpType::MEASURE);
+}
+
+TEST_CASE("Squeeze: measurement does not bubble past NOISE and EXP_VAL", "[optimizer][exp_val]") {
+    auto hir = hir_from("T 0\nZ_ERROR(0.1) 1\nEXP_VAL Z0\nM 0");
+
+    REQUIRE(hir.ops.size() == 4);
+    REQUIRE(hir.ops[0].op_type() == OpType::T_GATE);
+    REQUIRE(hir.ops[1].op_type() == OpType::NOISE);
+    REQUIRE(hir.ops[2].op_type() == OpType::EXP_VAL);
+    REQUIRE(hir.ops[3].op_type() == OpType::MEASURE);
+
+    StatevectorSqueezePass pass;
+    pass.run(hir);
+
+    REQUIRE(hir.ops.size() == 4);
+    REQUIRE(hir.ops[0].op_type() == OpType::NOISE);
+    REQUIRE(hir.ops[1].op_type() == OpType::T_GATE);
+    REQUIRE(hir.ops[2].op_type() == OpType::EXP_VAL);
+    REQUIRE(hir.ops[3].op_type() == OpType::MEASURE);
+}
+
+TEST_CASE("Peephole: virtual S conjugation updates EXP_VAL masks", "[optimizer][exp_val]") {
+    // Circuit: T 0, T 0, EXP_VAL X0
+    // T+T fuses to virtual S on Z0. The S conjugation must update the
+    // downstream EXP_VAL's Pauli mask: S^dag X S = Y, so the rewound
+    // X0 should become Y0 (both destab and stab bits set on qubit 0).
+    auto hir = hir_from("T 0\nT 0\nEXP_VAL X0");
+
+    REQUIRE(hir.ops.size() == 3);
+
+    PeepholeFusionPass pass;
+    pass.run(hir);
+
+    // T+T fused into virtual S (absorbed), leaving only EXP_VAL
+    REQUIRE(hir.ops.size() == 1);
+    REQUIRE(hir.ops[0].op_type() == OpType::EXP_VAL);
+    REQUIRE(pass.fusions() == 1);
+
+    // S^dag X S = Y: both X and Z bits set on qubit 0
+    REQUIRE(hir.ops[0].destab_mask() == X(0));
+    REQUIRE(hir.ops[0].stab_mask() == Z(0));
+}
+
+TEST_CASE("Peephole: commuting NOISE does not bypass EXP_VAL barrier", "[optimizer][exp_val]") {
+    auto hir = hir_from("T 0\nEXP_VAL Z0\nZ_ERROR(0.01) 1\nT 0");
+
+    REQUIRE(hir.ops.size() == 4);
+
+    PeepholeFusionPass pass;
+    pass.run(hir);
+
+    REQUIRE(hir.ops.size() == 4);
+    REQUIRE(hir.ops[0].op_type() == OpType::T_GATE);
+    REQUIRE(hir.ops[1].op_type() == OpType::EXP_VAL);
+    REQUIRE(hir.ops[2].op_type() == OpType::NOISE);
+    REQUIRE(hir.ops[3].op_type() == OpType::T_GATE);
+    REQUIRE(pass.cancellations() == 0);
+    REQUIRE(pass.fusions() == 0);
 }

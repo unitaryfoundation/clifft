@@ -82,7 +82,8 @@ void apply_virtual_s_downstream(HirModule& hir, size_t start_idx, const PauliBit
         switch (op.op_type()) {
             case OpType::T_GATE:
             case OpType::MEASURE:
-            case OpType::CONDITIONAL_PAULI: {
+            case OpType::CONDITIONAL_PAULI:
+            case OpType::EXP_VAL: {
                 PauliBitMask x_i = op.destab_mask();
                 PauliBitMask z_i = op.stab_mask();
                 bool sign_i = op.sign();
@@ -222,6 +223,9 @@ inline bool is_blocked(const HeisenbergOp& op_i, const HeisenbergOp& op_j, const
             }
             return false;
         }
+
+        case OpType::EXP_VAL:
+            return true;
 
         case OpType::DETECTOR:
         case OpType::OBSERVABLE:
