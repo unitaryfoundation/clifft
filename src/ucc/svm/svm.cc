@@ -112,7 +112,12 @@ SampleResult sample(const CompiledModule& program, uint32_t shots, std::optional
     result.observables.resize(static_cast<size_t>(shots) * num_obs);
     result.exp_vals.resize(static_cast<size_t>(shots) * num_ev);
 
-    SchrodingerState state(program.peak_rank, num_total, num_det, num_obs, seed, num_ev);
+    SchrodingerState state({.peak_rank = program.peak_rank,
+                            .num_measurements = num_total,
+                            .num_detectors = num_det,
+                            .num_observables = num_obs,
+                            .num_exp_vals = num_ev,
+                            .seed = seed});
 
     for (uint32_t shot = 0; shot < shots; ++shot) {
         if (shot > 0) {
@@ -184,7 +189,12 @@ SurvivorResult sample_survivors(const CompiledModule& program, uint32_t shots,
         result.exp_vals.reserve(static_cast<size_t>(shots) * num_ev);
     }
 
-    SchrodingerState state(program.peak_rank, num_total, num_det, num_obs, seed, num_ev);
+    SchrodingerState state({.peak_rank = program.peak_rank,
+                            .num_measurements = num_total,
+                            .num_detectors = num_det,
+                            .num_observables = num_obs,
+                            .num_exp_vals = num_ev,
+                            .seed = seed});
 
     for (uint32_t shot = 0; shot < shots; ++shot) {
         if (shot > 0) {
@@ -467,7 +477,12 @@ SampleResult sample_k(const CompiledModule& program, uint32_t shots, uint32_t k,
         std::iota(uniform_pool.begin(), uniform_pool.end(), 0);
     }
 
-    SchrodingerState state(program.peak_rank, num_total, num_det, num_obs, seed, num_ev);
+    SchrodingerState state({.peak_rank = program.peak_rank,
+                            .num_measurements = num_total,
+                            .num_detectors = num_det,
+                            .num_observables = num_obs,
+                            .num_exp_vals = num_ev,
+                            .seed = seed});
 
     for (uint32_t shot = 0; shot < shots; ++shot) {
         if (shot > 0)
@@ -537,7 +552,12 @@ SurvivorResult sample_k_survivors(const CompiledModule& program, uint32_t shots,
         std::iota(uniform_pool.begin(), uniform_pool.end(), 0);
     }
 
-    SchrodingerState state(program.peak_rank, num_total, num_det, num_obs, seed, num_ev);
+    SchrodingerState state({.peak_rank = program.peak_rank,
+                            .num_measurements = num_total,
+                            .num_detectors = num_det,
+                            .num_observables = num_obs,
+                            .num_exp_vals = num_ev,
+                            .seed = seed});
 
     for (uint32_t shot = 0; shot < shots; ++shot) {
         if (shot > 0)

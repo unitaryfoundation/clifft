@@ -32,7 +32,7 @@ def _compile_optimized(circuit_str: str) -> ucc.Program:
 def _ucc_statevector(circuit_str: str, *, optimize: bool = False) -> np.ndarray:
     """Compile and execute circuit in UCC, return dense statevector."""
     prog = _compile_optimized(circuit_str) if optimize else ucc.compile(circuit_str)
-    state = ucc.State(prog.peak_rank, prog.num_measurements)
+    state = ucc.State(peak_rank=prog.peak_rank, num_measurements=prog.num_measurements)
     ucc.execute(prog, state)
     sv: np.ndarray = ucc.get_statevector(prog, state)
     return sv
@@ -357,7 +357,9 @@ def _assert_absorption_preserves_state(stim_text: str, atol: float = 1e-6) -> uc
     """Compile with and without optimization; assert statevector equivalence."""
     # Baseline: no HIR or bytecode passes
     prog_base = ucc.compile(stim_text)
-    state_base = ucc.State(prog_base.peak_rank, prog_base.num_measurements)
+    state_base = ucc.State(
+        peak_rank=prog_base.peak_rank, num_measurements=prog_base.num_measurements
+    )
     ucc.execute(prog_base, state_base)
     sv_base = np.array(ucc.get_statevector(prog_base, state_base))
 
@@ -367,7 +369,7 @@ def _assert_absorption_preserves_state(stim_text: str, atol: float = 1e-6) -> uc
         hir_passes=ucc.default_hir_pass_manager(),
         bytecode_passes=ucc.default_bytecode_pass_manager(),
     )
-    state_opt = ucc.State(prog_opt.peak_rank, prog_opt.num_measurements)
+    state_opt = ucc.State(peak_rank=prog_opt.peak_rank, num_measurements=prog_opt.num_measurements)
     ucc.execute(prog_opt, state_opt)
     sv_opt = np.array(ucc.get_statevector(prog_opt, state_opt))
 

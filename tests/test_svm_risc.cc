@@ -69,6 +69,25 @@ static const PauliBitMask NONE{};
 
 constexpr double kTol = 1e-12;
 
+TEST_CASE("SchrodingerState config initializes optional buffers and seed") {
+    StateConfig cfg{
+        .peak_rank = 2,
+        .num_measurements = 1,
+        .num_detectors = 2,
+        .num_observables = 3,
+        .num_exp_vals = 4,
+        .seed = 42,
+    };
+    SchrodingerState a(cfg);
+    SchrodingerState b(cfg);
+
+    CHECK(a.meas_record.size() == 1);
+    CHECK(a.det_record.size() == 2);
+    CHECK(a.obs_record.size() == 3);
+    CHECK(a.exp_vals.size() == 4);
+    CHECK(a.random_double() == b.random_double());
+}
+
 // =============================================================================
 // Frame Opcode Tests
 // =============================================================================
@@ -752,7 +771,7 @@ TEST_CASE("RISC Integration: Bell state via targeted initial state") {
 }
 
 TEST_CASE("RISC Meas: Dormant random resets frame correctly") {
-    SchrodingerState state(2, 1, 0, 0, 42);
+    SchrodingerState state({.peak_rank = 2, .num_measurements = 1, .seed = 42});
     state.p_x = X(0);  // X error on qubit 0
     state.p_z = Z(0);  // Z error on qubit 0
 
@@ -770,7 +789,7 @@ TEST_CASE("RISC Meas: Dormant random resets frame correctly") {
 // =============================================================================
 
 TEST_CASE("RISC Detector: computes parity of measurement records") {
-    SchrodingerState state(2, 3, 1);
+    SchrodingerState state({.peak_rank = 2, .num_measurements = 3, .num_detectors = 1});
     state.meas_record[0] = 1;
     state.meas_record[1] = 0;
     state.meas_record[2] = 1;
@@ -794,7 +813,7 @@ TEST_CASE("RISC Detector: computes parity of measurement records") {
 }
 
 TEST_CASE("RISC Detector: odd parity") {
-    SchrodingerState state(2, 2, 1);
+    SchrodingerState state({.peak_rank = 2, .num_measurements = 2, .num_detectors = 1});
     state.meas_record[0] = 1;
     state.meas_record[1] = 0;
 
@@ -1010,7 +1029,10 @@ TEST_CASE("RISC Reset: meas and det records do not leak between shots") {
 
     // Run 100 shots manually, verifying each shot's detector matches its
     // measurement. If reset() left stale data, some shots would mismatch.
-    SchrodingerState state(mod.peak_rank, mod.total_meas_slots, mod.num_detectors, 0, 0);
+    SchrodingerState state({.peak_rank = mod.peak_rank,
+                            .num_measurements = mod.total_meas_slots,
+                            .num_detectors = mod.num_detectors,
+                            .seed = 0});
 
     for (uint32_t shot = 0; shot < 100; ++shot) {
         if (shot > 0) {
@@ -1041,7 +1063,8 @@ TEST_CASE("RISC Reset: deterministic measurement overwrites previous shot") {
 
     mod.bytecode.push_back(make_meas_dormant_static(0, 0));
 
-    SchrodingerState state(mod.peak_rank, mod.total_meas_slots, 0, 0, 0);
+    SchrodingerState state(
+        {.peak_rank = mod.peak_rank, .num_measurements = mod.total_meas_slots, .seed = 0});
 
     // Shot 1: force p_x[0]=1 -> measurement yields 1
     state.p_x = X(0);
@@ -1619,7 +1642,10 @@ TEST_CASE("POSTSELECT: discards shot when parity is non-zero") {
     uint32_t survived_count = 0;
 
     for (uint64_t seed = 0; seed < 200; ++seed) {
-        SchrodingerState state(mod.peak_rank, mod.total_meas_slots, mod.num_detectors, 0, seed);
+        SchrodingerState state({.peak_rank = mod.peak_rank,
+                                .num_measurements = mod.total_meas_slots,
+                                .num_detectors = mod.num_detectors,
+                                .seed = seed});
         execute(mod, state);
 
         if (state.discarded) {
@@ -1661,7 +1687,10 @@ TEST_CASE("POSTSELECT: passes when parity is zero") {
     // meas[1]: dormant static, sign=true -> outcome=1
     mod.bytecode.push_back(make_meas(Opcode::OP_MEAS_DORMANT_STATIC, 0, 1, true));
 
-    SchrodingerState state(mod.peak_rank, mod.total_meas_slots, mod.num_detectors, 0, 42);
+    SchrodingerState state({.peak_rank = mod.peak_rank,
+                            .num_measurements = mod.total_meas_slots,
+                            .num_detectors = mod.num_detectors,
+                            .seed = 42});
     execute(mod, state);
 
     CHECK_FALSE(state.discarded);
@@ -1689,7 +1718,10 @@ TEST_CASE("POSTSELECT: reset clears stale data after discarded shot") {
     // meas[1]: should never execute due to abort
     mod.bytecode.push_back(make_meas(Opcode::OP_MEAS_DORMANT_STATIC, 0, 1, true));
 
-    SchrodingerState state(mod.peak_rank, mod.total_meas_slots, mod.num_detectors, 0, 0);
+    SchrodingerState state({.peak_rank = mod.peak_rank,
+                            .num_measurements = mod.total_meas_slots,
+                            .num_detectors = mod.num_detectors,
+                            .seed = 0});
     execute(mod, state);
     CHECK(state.discarded);
     CHECK(state.meas_record[0] == 1);  // was set before postselect

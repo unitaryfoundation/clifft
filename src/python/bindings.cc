@@ -934,10 +934,19 @@ NB_MODULE(_ucc_core, m) {
         ".observable_ones.");
 
     nb::class_<ucc::SchrodingerState>(m, "State", "Schrodinger VM execution state")
-        .def(nb::init<uint32_t, uint32_t, uint32_t, uint32_t, std::optional<uint64_t>, uint32_t>(),
-             nb::arg("peak_rank"), nb::arg("num_measurements"), nb::arg("num_detectors") = 0,
-             nb::arg("num_observables") = 0, nb::arg("seed") = nb::none(),
-             nb::arg("num_exp_vals") = 0)
+        .def(nb::new_([](uint32_t peak_rank, uint32_t num_measurements, uint32_t num_detectors,
+                         uint32_t num_observables, uint32_t num_exp_vals,
+                         std::optional<uint64_t> seed) {
+                 return ucc::SchrodingerState({.peak_rank = peak_rank,
+                                               .num_measurements = num_measurements,
+                                               .num_detectors = num_detectors,
+                                               .num_observables = num_observables,
+                                               .num_exp_vals = num_exp_vals,
+                                               .seed = seed});
+             }),
+             nb::kw_only(), nb::arg("peak_rank"), nb::arg("num_measurements"),
+             nb::arg("num_detectors") = 0, nb::arg("num_observables") = 0,
+             nb::arg("num_exp_vals") = 0, nb::arg("seed") = nb::none())
         .def("reset", &ucc::SchrodingerState::reset)
         .def("reseed", &ucc::SchrodingerState::reseed, nb::arg("seed"))
         .def_prop_ro("dust_clamps", [](const ucc::SchrodingerState& s) { return s.dust_clamps; })

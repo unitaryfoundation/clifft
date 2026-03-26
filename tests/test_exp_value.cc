@@ -24,8 +24,12 @@ static CompiledModule compile_circuit(const std::string& text) {
 // Helper: compile and execute one shot, return the exp_vals vector.
 static std::vector<double> run_exp_vals(const std::string& text, uint64_t seed = 42) {
     auto mod = compile_circuit(text);
-    SchrodingerState state(mod.peak_rank, mod.total_meas_slots, mod.num_detectors,
-                           mod.num_observables, seed, mod.num_exp_vals);
+    SchrodingerState state({.peak_rank = mod.peak_rank,
+                            .num_measurements = mod.total_meas_slots,
+                            .num_detectors = mod.num_detectors,
+                            .num_observables = mod.num_observables,
+                            .num_exp_vals = mod.num_exp_vals,
+                            .seed = seed});
     execute(mod, state);
     return state.exp_vals;
 }

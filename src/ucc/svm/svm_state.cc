@@ -32,23 +32,21 @@ void Xoshiro256PlusPlus::seed_from_entropy() {
 // SchrodingerState Implementation
 // =============================================================================
 
-SchrodingerState::SchrodingerState(uint32_t peak_rank, uint32_t num_measurements,
-                                   uint32_t num_detectors, uint32_t num_observables,
-                                   std::optional<uint64_t> seed, uint32_t num_exp_vals)
-    : peak_rank_(peak_rank), rng_(0) {
+SchrodingerState::SchrodingerState(StateConfig cfg) : peak_rank_(cfg.peak_rank), rng_(0) {
+    uint32_t peak_rank = cfg.peak_rank;
     if (peak_rank >= 63) {
         throw std::invalid_argument(
             "peak_rank >= 63 would cause undefined behavior in 1ULL << peak_rank");
     }
-    if (seed.has_value()) {
-        rng_.seed(*seed);
+    if (cfg.seed.has_value()) {
+        rng_.seed(*cfg.seed);
     } else {
         rng_.seed_from_entropy();
     }
-    meas_record.resize(num_measurements, 0);
-    det_record.resize(num_detectors, 0);
-    obs_record.resize(num_observables, 0);
-    exp_vals.resize(num_exp_vals, 0.0);
+    meas_record.resize(cfg.num_measurements, 0);
+    det_record.resize(cfg.num_detectors, 0);
+    obs_record.resize(cfg.num_observables, 0);
+    exp_vals.resize(cfg.num_exp_vals, 0.0);
 
     array_size_ = 1ULL << peak_rank;
     size_t bytes = array_size_ * sizeof(std::complex<double>);

@@ -42,7 +42,7 @@ def _compile_with_fusion(text: str) -> ucc.Program:
 
 def _get_sv(prog: ucc.Program) -> np.ndarray:
     """Execute one shot and extract the statevector."""
-    state = ucc.State(prog.peak_rank, prog.num_measurements)
+    state = ucc.State(peak_rank=prog.peak_rank, num_measurements=prog.num_measurements)
     ucc.execute(prog, state)
     return np.array(ucc.get_statevector(prog, state))
 

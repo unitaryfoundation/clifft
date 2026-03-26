@@ -1,6 +1,7 @@
 """Python integration tests for ucc.compile and ucc.sample."""
 
 import numpy as np
+import pytest
 from conftest import (
     assert_statevectors_equal,
     binomial_tolerance,
@@ -188,7 +189,7 @@ class TestStatevector:
         """Pure Clifford circuit matches expected statevector."""
         # H|0> = |+> = [1/sqrt(2), 1/sqrt(2)]
         prog = ucc.compile("H 0")
-        state = ucc.State(prog.peak_rank, prog.num_measurements)
+        state = ucc.State(peak_rank=prog.peak_rank, num_measurements=prog.num_measurements)
         ucc.execute(prog, state)
         sv = ucc.get_statevector(prog, state)
 
@@ -198,7 +199,7 @@ class TestStatevector:
     def test_statevector_bell_state(self) -> None:
         """Bell state matches expected statevector."""
         prog = ucc.compile("H 0\nCX 0 1")
-        state = ucc.State(prog.peak_rank, prog.num_measurements)
+        state = ucc.State(peak_rank=prog.peak_rank, num_measurements=prog.num_measurements)
         ucc.execute(prog, state)
         sv = ucc.get_statevector(prog, state)
 
@@ -209,7 +210,7 @@ class TestStatevector:
     def test_statevector_single_t_gate(self) -> None:
         """H-T circuit: [1/sqrt(2), e^{ipi/4}/sqrt(2)]."""
         prog = ucc.compile("H 0\nT 0")
-        state = ucc.State(prog.peak_rank, prog.num_measurements)
+        state = ucc.State(peak_rank=prog.peak_rank, num_measurements=prog.num_measurements)
         ucc.execute(prog, state)
         sv = ucc.get_statevector(prog, state)
 
@@ -219,7 +220,7 @@ class TestStatevector:
     def test_statevector_t_dagger(self) -> None:
         """H-T_dag circuit: [1/sqrt(2), e^{-ipi/4}/sqrt(2)]."""
         prog = ucc.compile("H 0\nT_DAG 0")
-        state = ucc.State(prog.peak_rank, prog.num_measurements)
+        state = ucc.State(peak_rank=prog.peak_rank, num_measurements=prog.num_measurements)
         ucc.execute(prog, state)
         sv = ucc.get_statevector(prog, state)
 
@@ -229,7 +230,7 @@ class TestStatevector:
     def test_statevector_two_t_equals_s(self) -> None:
         """T-T = S: H-T-T should equal H-S."""
         prog = ucc.compile("H 0\nT 0\nT 0")
-        state = ucc.State(prog.peak_rank, prog.num_measurements)
+        state = ucc.State(peak_rank=prog.peak_rank, num_measurements=prog.num_measurements)
         ucc.execute(prog, state)
         sv = ucc.get_statevector(prog, state)
 
@@ -240,7 +241,7 @@ class TestStatevector:
     def test_statevector_four_t_equals_z(self) -> None:
         """T^4 = Z: H-T-T-T-T should equal H-Z."""
         prog = ucc.compile("H 0\nT 0\nT 0\nT 0\nT 0")
-        state = ucc.State(prog.peak_rank, prog.num_measurements)
+        state = ucc.State(peak_rank=prog.peak_rank, num_measurements=prog.num_measurements)
         ucc.execute(prog, state)
         sv = ucc.get_statevector(prog, state)
 
@@ -251,7 +252,7 @@ class TestStatevector:
     def test_statevector_t_on_zero(self) -> None:
         """T|0> = |0> (global phase only)."""
         prog = ucc.compile("T 0")
-        state = ucc.State(prog.peak_rank, prog.num_measurements)
+        state = ucc.State(peak_rank=prog.peak_rank, num_measurements=prog.num_measurements)
         ucc.execute(prog, state)
         sv = ucc.get_statevector(prog, state)
 
@@ -262,7 +263,7 @@ class TestStatevector:
     def test_statevector_two_qubit_t(self) -> None:
         """Two-qubit circuit with T on qubit 0."""
         prog = ucc.compile("H 0\nH 1\nT 0")
-        state = ucc.State(prog.peak_rank, prog.num_measurements)
+        state = ucc.State(peak_rank=prog.peak_rank, num_measurements=prog.num_measurements)
         ucc.execute(prog, state)
         sv = ucc.get_statevector(prog, state)
 
@@ -274,7 +275,7 @@ class TestStatevector:
     def test_statevector_bell_plus_t(self) -> None:
         """Bell state with T on control qubit."""
         prog = ucc.compile("H 0\nCX 0 1\nT 0")
-        state = ucc.State(prog.peak_rank, prog.num_measurements)
+        state = ucc.State(peak_rank=prog.peak_rank, num_measurements=prog.num_measurements)
         ucc.execute(prog, state)
         sv = ucc.get_statevector(prog, state)
 
@@ -294,7 +295,7 @@ class TestStatevector:
         ]
         for circuit in circuits:
             prog = ucc.compile(circuit)
-            state = ucc.State(prog.peak_rank, prog.num_measurements)
+            state = ucc.State(peak_rank=prog.peak_rank, num_measurements=prog.num_measurements)
             ucc.execute(prog, state)
             sv = ucc.get_statevector(prog, state)
             norm = float(np.sqrt(np.sum(np.abs(sv) ** 2)))
@@ -305,7 +306,7 @@ class TestStatevector:
         circuit = "H 0\nT 0\nM 0"
         prog = ucc.compile(circuit)
 
-        state = ucc.State(prog.peak_rank, prog.num_measurements, seed=42)
+        state = ucc.State(peak_rank=prog.peak_rank, num_measurements=prog.num_measurements, seed=42)
         ucc.execute(prog, state)
         sv = ucc.get_statevector(prog, state)
 
@@ -335,7 +336,7 @@ class TestCliffordValidation:
 
             # UCC statevector
             prog = ucc.compile(circuit_str)
-            state = ucc.State(prog.peak_rank, prog.num_measurements)
+            state = ucc.State(peak_rank=prog.peak_rank, num_measurements=prog.num_measurements)
             ucc.execute(prog, state)
             ucc_sv = ucc.get_statevector(prog, state)
 
@@ -357,7 +358,7 @@ class TestCliffordValidation:
 
                 # UCC statevector
                 prog = ucc.compile(circuit_str)
-                state = ucc.State(prog.peak_rank, prog.num_measurements)
+                state = ucc.State(peak_rank=prog.peak_rank, num_measurements=prog.num_measurements)
                 ucc.execute(prog, state)
                 ucc_sv = ucc.get_statevector(prog, state)
 
@@ -1003,14 +1004,17 @@ class TestExpVal:
 
     def test_state_exp_vals(self) -> None:
         """State.exp_vals is accessible and correctly sized."""
-        state = ucc.State(1, 0, num_exp_vals=2)
+        state = ucc.State(peak_rank=1, num_measurements=0, num_exp_vals=2)
         assert len(state.exp_vals) == 2
 
-    def test_state_constructor_seed_backward_compat(self) -> None:
-        """Positional seed argument still works (not misinterpreted as num_exp_vals)."""
-        # Old-style: State(peak_rank, num_meas, num_det, num_obs, seed)
-        state = ucc.State(1, 0, 0, 0, 42)
-        # seed=42 should NOT allocate 42 exp_val slots
+    def test_state_constructor_requires_keywords(self) -> None:
+        """State constructor rejects positional arguments beyond self."""
+        with pytest.raises(TypeError):
+            ucc.State(1, 0)
+
+    def test_state_constructor_seed_keyword(self) -> None:
+        """Keyword seed does not affect exp_vals sizing."""
+        state = ucc.State(peak_rank=1, num_measurements=0, seed=42)
         assert len(state.exp_vals) == 0
 
     def test_exp_val_multiple_probes(self) -> None:

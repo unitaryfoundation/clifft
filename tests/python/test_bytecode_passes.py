@@ -48,8 +48,10 @@ def test_statevector_oracle(num_qubits: int, depth: int, seed: int) -> None:
     prog_base = ucc.compile(stim_text)
     prog_opt = compile_optimized(stim_text)
 
-    state_base = ucc.State(prog_base.peak_rank, prog_base.num_measurements)
-    state_opt = ucc.State(prog_opt.peak_rank, prog_opt.num_measurements)
+    state_base = ucc.State(
+        peak_rank=prog_base.peak_rank, num_measurements=prog_base.num_measurements
+    )
+    state_opt = ucc.State(peak_rank=prog_opt.peak_rank, num_measurements=prog_opt.num_measurements)
 
     ucc.execute(prog_base, state_base)
     ucc.execute(prog_opt, state_opt)
@@ -197,8 +199,10 @@ def test_multi_gate_pass_opt_in() -> None:
     assert prog_opt.num_instructions < prog_base.num_instructions
 
     # Verify correctness
-    state_base = ucc.State(prog_base.peak_rank, prog_base.num_measurements)
-    state_opt = ucc.State(prog_opt.peak_rank, prog_opt.num_measurements)
+    state_base = ucc.State(
+        peak_rank=prog_base.peak_rank, num_measurements=prog_base.num_measurements
+    )
+    state_opt = ucc.State(peak_rank=prog_opt.peak_rank, num_measurements=prog_opt.num_measurements)
     ucc.execute(prog_base, state_base)
     ucc.execute(prog_opt, state_opt)
 

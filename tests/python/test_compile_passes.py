@@ -203,8 +203,10 @@ def test_statevector_identical_with_passes(num_qubits: int, depth: int, seed: in
         bytecode_passes=ucc.default_bytecode_pass_manager(),
     )
 
-    state_base = ucc.State(prog_base.peak_rank, prog_base.num_measurements)
-    state_opt = ucc.State(prog_opt.peak_rank, prog_opt.num_measurements)
+    state_base = ucc.State(
+        peak_rank=prog_base.peak_rank, num_measurements=prog_base.num_measurements
+    )
+    state_opt = ucc.State(peak_rank=prog_opt.peak_rank, num_measurements=prog_opt.num_measurements)
 
     ucc.execute(prog_base, state_base)
     ucc.execute(prog_opt, state_opt)

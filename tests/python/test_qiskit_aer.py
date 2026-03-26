@@ -22,7 +22,7 @@ import ucc
 def _ucc_statevector(circuit_str: str) -> np.ndarray:
     """Compile and execute circuit in UCC, return dense statevector."""
     prog = ucc.compile(circuit_str)
-    state = ucc.State(prog.peak_rank, prog.num_measurements)
+    state = ucc.State(peak_rank=prog.peak_rank, num_measurements=prog.num_measurements)
     ucc.execute(prog, state)
     sv: np.ndarray = ucc.get_statevector(prog, state)
     return sv
@@ -192,7 +192,7 @@ class TestArbitraryRotations:
             hir_passes=ucc.default_hir_pass_manager(),
             bytecode_passes=ucc.default_bytecode_pass_manager(),
         )
-        state = ucc.State(prog.peak_rank, prog.num_measurements, seed=42)
+        state = ucc.State(peak_rank=prog.peak_rank, num_measurements=prog.num_measurements, seed=42)
         ucc.execute(prog, state)
         ucc_sv = np.array(ucc.get_statevector(prog, state))
 

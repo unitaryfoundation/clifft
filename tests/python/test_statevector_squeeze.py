@@ -22,7 +22,7 @@ def _squeeze_only_pass_manager() -> ucc.HirPassManager:
 def _ucc_statevector(circuit_str: str, **compile_kwargs: object) -> np.ndarray:
     """Compile and execute a noiseless circuit, return dense statevector."""
     prog = ucc.compile(circuit_str, **compile_kwargs)
-    state = ucc.State(prog.peak_rank, prog.num_measurements)
+    state = ucc.State(peak_rank=prog.peak_rank, num_measurements=prog.num_measurements)
     ucc.execute(prog, state)
     sv: np.ndarray = ucc.get_statevector(prog, state)
     return sv

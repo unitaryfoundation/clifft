@@ -43,7 +43,8 @@ CompiledModule make_program(std::vector<Instruction> bytecode, uint32_t peak_ran
 // (simulates mid-execution where qubits are already active).
 SchrodingerState run_raw(CompiledModule& prog, uint8_t init_px = 0, uint8_t init_pz = 0,
                          uint64_t seed = 42) {
-    SchrodingerState state(prog.peak_rank, prog.num_measurements, 0, 0, seed);
+    SchrodingerState state(
+        {.peak_rank = prog.peak_rank, .num_measurements = prog.num_measurements, .seed = seed});
     state.active_k = prog.peak_rank;
     state.p_x.bit_set(0, init_px != 0);
     state.p_z.bit_set(0, init_pz != 0);
@@ -278,11 +279,11 @@ TEST_CASE("U2 fusion: Rz-H-Rz blocks around CNOT on 2 qubits") {
     CHECK(fused.bytecode[2].opcode == Opcode::OP_ARRAY_U2);
 
     // Verify mathematical equivalence (qubits already active)
-    SchrodingerState ref_state(2, 0, 0, 0, 42);
+    SchrodingerState ref_state({.peak_rank = 2, .num_measurements = 0, .seed = 42});
     ref_state.active_k = 2;
     execute(unfused, ref_state);
 
-    SchrodingerState opt_state(2, 0, 0, 0, 42);
+    SchrodingerState opt_state({.peak_rank = 2, .num_measurements = 0, .seed = 42});
     opt_state.active_k = 2;
     execute(fused, opt_state);
 
@@ -326,11 +327,13 @@ TEST_CASE("U2 fusion: end-to-end statevector equivalence for Clifford+T circuit"
     REQUIRE(fused.bytecode.size() < unfused.bytecode.size());
 
     // Verify statevector equivalence
-    SchrodingerState ref_state(unfused.peak_rank, unfused.num_measurements, 0, 0, 42);
+    SchrodingerState ref_state(
+        {.peak_rank = unfused.peak_rank, .num_measurements = unfused.num_measurements, .seed = 42});
     execute(unfused, ref_state);
     auto ref_sv = get_statevector(unfused, ref_state);
 
-    SchrodingerState opt_state(fused.peak_rank, fused.num_measurements, 0, 0, 42);
+    SchrodingerState opt_state(
+        {.peak_rank = fused.peak_rank, .num_measurements = fused.num_measurements, .seed = 42});
     execute(fused, opt_state);
     auto opt_sv = get_statevector(fused, opt_state);
 
@@ -381,11 +384,14 @@ TEST_CASE("U2 fusion: randomized Clifford+T fuzzer") {
         CompiledModule fused = lower(hir2);
         SingleAxisFusionPass().run(fused);
 
-        SchrodingerState ref_state(unfused.peak_rank, unfused.num_measurements, 0, 0, 42);
+        SchrodingerState ref_state({.peak_rank = unfused.peak_rank,
+                                    .num_measurements = unfused.num_measurements,
+                                    .seed = 42});
         execute(unfused, ref_state);
         auto ref_sv = get_statevector(unfused, ref_state);
 
-        SchrodingerState opt_state(fused.peak_rank, fused.num_measurements, 0, 0, 42);
+        SchrodingerState opt_state(
+            {.peak_rank = fused.peak_rank, .num_measurements = fused.num_measurements, .seed = 42});
         execute(fused, opt_state);
         auto opt_sv = get_statevector(fused, opt_state);
 

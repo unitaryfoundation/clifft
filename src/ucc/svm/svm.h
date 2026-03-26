@@ -100,12 +100,21 @@ class Xoshiro256PlusPlus {
 //   - gamma: global scalar (phase + deferred normalization)
 //   - active_k: current active dimension k
 
+struct StateConfig {
+    uint32_t peak_rank;
+    uint32_t num_measurements;
+    uint32_t num_detectors = 0;
+    uint32_t num_observables = 0;
+    uint32_t num_exp_vals = 0;
+    std::optional<uint64_t> seed = std::nullopt;
+};
+
 class SchrodingerState {
   public:
-    explicit SchrodingerState(uint32_t peak_rank, uint32_t num_measurements,
-                              uint32_t num_detectors = 0, uint32_t num_observables = 0,
-                              std::optional<uint64_t> seed = std::nullopt,
-                              uint32_t num_exp_vals = 0);
+    explicit SchrodingerState(StateConfig cfg);
+    SchrodingerState(uint32_t peak_rank, uint32_t num_measurements)
+        : SchrodingerState(
+              StateConfig{.peak_rank = peak_rank, .num_measurements = num_measurements}) {}
 
     ~SchrodingerState();
 

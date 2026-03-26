@@ -56,7 +56,7 @@ void fill_pattern(SchrodingerState& state) {
 std::vector<std::complex<double>> run_unfused(const std::vector<Instruction>& bc, uint32_t rank,
                                               uint64_t seed = 42) {
     auto prog = make_program(bc, rank);
-    SchrodingerState state(rank, 0, 0, 0, seed);
+    SchrodingerState state({.peak_rank = rank, .num_measurements = 0, .seed = seed});
     state.active_k = rank;
     fill_pattern(state);
     execute(prog, state);
@@ -76,7 +76,7 @@ std::vector<std::complex<double>> run_fused(const std::vector<Instruction>& bc, 
     TileAxisFusionPass pass;
     pass.run(prog);
 
-    SchrodingerState state(rank, 0, 0, 0, seed);
+    SchrodingerState state({.peak_rank = rank, .num_measurements = 0, .seed = seed});
     state.active_k = rank;
     fill_pattern(state);
     execute(prog, state);
@@ -108,7 +108,7 @@ std::vector<std::complex<double>> run_with_frame(const std::vector<Instruction>&
         TileAxisFusionPass pass;
         pass.run(prog);
     }
-    SchrodingerState state(rank, 0, 0, 0, seed);
+    SchrodingerState state({.peak_rank = rank, .num_measurements = 0, .seed = seed});
     state.active_k = rank;
     fill_pattern(state);
     state.p_x.bit_set(axis_lo, px_lo != 0);
@@ -134,7 +134,7 @@ std::complex<double> run_and_get_gamma(const std::vector<Instruction>& bc, uint3
         TileAxisFusionPass pass;
         pass.run(prog);
     }
-    SchrodingerState state(rank, 0, 0, 0, seed);
+    SchrodingerState state({.peak_rank = rank, .num_measurements = 0, .seed = seed});
     state.active_k = rank;
     fill_pattern(state);
     state.p_x.bit_set(axis_lo, px_lo != 0);
@@ -156,7 +156,7 @@ std::tuple<bool, bool, bool, bool> run_and_get_frame(const std::vector<Instructi
         TileAxisFusionPass pass;
         pass.run(prog);
     }
-    SchrodingerState state(rank, 0, 0, 0, seed);
+    SchrodingerState state({.peak_rank = rank, .num_measurements = 0, .seed = seed});
     state.active_k = rank;
     fill_pattern(state);
     state.p_x.bit_set(axis_lo, px_lo != 0);
@@ -572,7 +572,9 @@ TEST_CASE("U4 fusion: full pipeline statevector oracle") {
 
     // Compile without fusion
     auto prog_nofuse = lower(hir);
-    SchrodingerState state_nofuse(prog_nofuse.peak_rank, prog_nofuse.total_meas_slots, 0, 0, 42);
+    SchrodingerState state_nofuse({.peak_rank = prog_nofuse.peak_rank,
+                                   .num_measurements = prog_nofuse.total_meas_slots,
+                                   .seed = 42});
     execute(prog_nofuse, state_nofuse);
     auto sv_ref = get_statevector(prog_nofuse, state_nofuse);
 
@@ -580,7 +582,9 @@ TEST_CASE("U4 fusion: full pipeline statevector oracle") {
     auto prog_fuse = lower(hir);
     TileAxisFusionPass tile_pass;
     tile_pass.run(prog_fuse);
-    SchrodingerState state_fuse(prog_fuse.peak_rank, prog_fuse.total_meas_slots, 0, 0, 42);
+    SchrodingerState state_fuse({.peak_rank = prog_fuse.peak_rank,
+                                 .num_measurements = prog_fuse.total_meas_slots,
+                                 .seed = 42});
     execute(prog_fuse, state_fuse);
     auto sv_fuse = get_statevector(prog_fuse, state_fuse);
 

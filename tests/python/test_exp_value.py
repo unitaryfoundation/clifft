@@ -52,7 +52,7 @@ def pauli_expectation(sv: np.ndarray, pauli_str: str, num_qubits: int) -> float:
 def ucc_statevector(circuit_str: str) -> np.ndarray:
     """Compile and execute circuit in UCC, return dense statevector."""
     prog = ucc.compile(circuit_str)
-    state = ucc.State(prog.peak_rank, prog.num_measurements)
+    state = ucc.State(peak_rank=prog.peak_rank, num_measurements=prog.num_measurements)
     ucc.execute(prog, state)
     return np.array(ucc.get_statevector(prog, state))
 

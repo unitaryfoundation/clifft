@@ -212,14 +212,18 @@ class TestHirPeepholeUncomputationLadder:
 
         base = ucc.compile(circuit)
         assert base.peak_rank > 1, "Need active measurements to generate dust"
-        base_state = ucc.State(base.peak_rank, base.num_measurements, seed=42)
+        base_state = ucc.State(
+            peak_rank=base.peak_rank, num_measurements=base.num_measurements, seed=42
+        )
         ucc.execute(base, base_state)
         assert (
             base_state.dust_clamps > 0
         ), "Unoptimized ladder should clamp FP dust in active measurements"
 
         opt = ucc.compile(circuit, hir_passes=ucc.default_hir_pass_manager())
-        opt_state = ucc.State(opt.peak_rank, opt.num_measurements, seed=42)
+        opt_state = ucc.State(
+            peak_rank=opt.peak_rank, num_measurements=opt.num_measurements, seed=42
+        )
         ucc.execute(opt, opt_state)
         assert (
             opt_state.dust_clamps <= base_state.dust_clamps
@@ -234,7 +238,7 @@ class TestHirPeepholeUncomputationLadder:
 def _ucc_statevector(circuit_str: str, **compile_kwargs: object) -> np.ndarray:
     """Compile and execute a noiseless circuit, return dense statevector."""
     prog = ucc.compile(circuit_str, **compile_kwargs)
-    state = ucc.State(prog.peak_rank, prog.num_measurements)
+    state = ucc.State(peak_rank=prog.peak_rank, num_measurements=prog.num_measurements)
     ucc.execute(prog, state)
     sv: np.ndarray = ucc.get_statevector(prog, state)
     return sv
