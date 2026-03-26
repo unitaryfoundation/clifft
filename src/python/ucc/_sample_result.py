@@ -33,6 +33,7 @@ class SampleResult:
         "measurements",
         "detectors",
         "observables",
+        "exp_vals",
         "total_shots",
         "passed_shots",
         "discards",
@@ -49,10 +50,16 @@ class SampleResult:
         passed_shots: int | None = None,
         logical_errors: int | None = None,
         observable_ones: npt.NDArray[np.uint64] | None = None,
+        exp_vals: npt.NDArray[np.float64] | None = None,
     ) -> None:
         self.measurements = measurements
         self.detectors = detectors
         self.observables = observables
+        self.exp_vals = (
+            exp_vals
+            if exp_vals is not None
+            else np.empty((measurements.shape[0], 0), dtype=np.float64)
+        )
         self.total_shots = total_shots
         self.passed_shots = passed_shots
         self.discards = (

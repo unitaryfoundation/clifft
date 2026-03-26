@@ -186,6 +186,12 @@
             "detail": "Accumulates the XOR parity of measurement record entries into a logical observable. Used in error correction to track logical qubit values across multiple rounds of syndrome measurements.",
             "operands": "cp_targets (constant pool target list index) -> obs[observable_idx]"
         },
+        "OP_EXP_VAL": {
+            "category": "Measurement",
+            "summary": "Read-only expectation value probe.",
+            "detail": "Evaluates the expectation value <P> of a Pauli product on the current state without mutating anything. The full virtual Pauli mask is stored in the constant pool. Accounts for Pauli frame conjugation and dormant/active qubit splitting. Result is a float64 in [-1, 1] written to exp_vals[exp_val_idx].",
+            "operands": "cp_exp_val_idx (constant pool exp val mask index) -> exp[exp_val_idx]"
+        },
         "OP_PHASE_ROT": {
             "category": "Subspace",
             "summary": "Continuous Z-rotation on an active axis with arbitrary phase.",
@@ -279,7 +285,7 @@
             ]
         },
         "EXP_VAL": {
-            "category": "Probe",
+            "category": "Measurement",
             "summary": "Non-destructive expectation value of a rewound Pauli product.",
             "detail": "Evaluates <P> for the rewound Pauli product P at the point in the circuit where the probe appears. Does not collapse the state, mutate the Pauli frame, or affect measurement/detector/observable records. Each probe produces one float64 result in [-1, 1] indexed by exp_val_idx.",
             "display": [

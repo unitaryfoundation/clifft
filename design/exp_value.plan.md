@@ -318,8 +318,17 @@ Touch: `src/ucc/backend/backend.h`
   Instruction make_exp_val(uint32_t cp_exp_val_idx,
                            uint32_t exp_val_idx);
   ```
-  Use the `pauli` payload variant: `cp_mask_idx` = constant pool index,
-  `condition_idx` = exp val record index.
+  Uses a dedicated `exp_val` payload variant (Variant G) with
+  semantically meaningful field names:
+  ```cpp
+  struct {
+      uint32_t cp_exp_val_idx;  // Index into ConstantPool::exp_val_masks
+      uint32_t exp_val_idx;     // Index into state.exp_vals
+      uint8_t _pad_g[16];
+  } exp_val;
+  ```
+  This aligns with the same offsets/sizes as the `pauli` variant but
+  uses clear naming for the exp val use case.
 - Add `CompiledModule::num_exp_vals`
 
 Design note: we use a separate `exp_val_masks` vector (not the existing
@@ -725,12 +734,12 @@ read-only probing) cleanly separated.
 
 ## Status
 
-- [ ] Phase 0: Refactor sampling return types (prerequisite PR)
-- [ ] Phase 1: Parser and AST
-- [ ] Phase 2: HIR and Front-End
-- [ ] Phase 3: Optimizer Rules
-- [ ] Phase 4: Back-End / Lowering
-- [ ] Phase 5: VM State and Execution Kernel
-- [ ] Phase 6: Sampling API and Python Bindings
+- [x] Phase 0: Refactor sampling return types (prerequisite PR)
+- [x] Phase 1: Parser and AST
+- [x] Phase 2: HIR and Front-End
+- [x] Phase 3: Optimizer Rules
+- [x] Phase 4: Back-End / Lowering
+- [x] Phase 5: VM State and Execution Kernel
+- [x] Phase 6: Sampling API and Python Bindings
 - [ ] Phase 7: Introspection and Documentation
 - [ ] Phase 8: Python Integration Tests

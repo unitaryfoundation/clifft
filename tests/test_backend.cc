@@ -1378,3 +1378,43 @@ TEST_CASE("compute_reference_syndrome ignores noise") {
     // Reference should see M0=1 (X applied), not M0=0 (X then X_ERROR)
     CHECK(ref.detectors[0] == 1);
 }
+
+// =============================================================================
+// EXP_VAL Lowering
+// =============================================================================
+
+TEST_CASE("Lower: EXP_VAL emits OP_EXP_VAL") {
+    auto mod = compile_circuit("EXP_VAL Z0");
+    CHECK(count_opcodes(mod.bytecode, Opcode::OP_EXP_VAL) == 1);
+    CHECK(mod.num_exp_vals == 1);
+}
+
+TEST_CASE("Lower: EXP_VAL multi-product emits multiple OP_EXP_VAL") {
+    auto mod = compile_circuit("EXP_VAL X0 Z1");
+    CHECK(count_opcodes(mod.bytecode, Opcode::OP_EXP_VAL) == 2);
+    CHECK(mod.num_exp_vals == 2);
+}
+
+TEST_CASE("Lower: EXP_VAL does not emit routing instructions") {
+    auto mod = compile_circuit("H 0\nEXP_VAL X0");
+    // No SWAPs, EXPANDs, or other routing should be emitted around EXP_VAL
+    CHECK(count_opcodes(mod.bytecode, Opcode::OP_EXPAND) == 0);
+    CHECK(count_opcodes(mod.bytecode, Opcode::OP_ARRAY_SWAP) == 0);
+    CHECK(count_opcodes(mod.bytecode, Opcode::OP_EXP_VAL) == 1);
+}
+
+TEST_CASE("Lower: EXP_VAL constant pool mask is correct") {
+    // Z0 after no Cliffords: virtual Pauli should be Z on axis 0
+    auto mod = compile_circuit("EXP_VAL Z0");
+    REQUIRE(mod.constant_pool.exp_val_masks.size() == 1);
+    const auto& pm = mod.constant_pool.exp_val_masks[0];
+    CHECK(pm.x.is_zero());  // No X support
+    CHECK(pm.z.w[0] == 1);  // Z on qubit 0
+    CHECK(!pm.sign);
+}
+
+TEST_CASE("Lower: EXP_VAL does not affect measurement count") {
+    auto mod = compile_circuit("H 0\nEXP_VAL X0\nM 0");
+    CHECK(mod.num_measurements == 1);
+    CHECK(mod.num_exp_vals == 1);
+}

@@ -283,6 +283,14 @@ Instruction make_observable(uint32_t target_list_idx, uint32_t obs_idx) {
     return i;
 }
 
+Instruction make_exp_val(uint32_t cp_exp_val_idx, uint32_t exp_val_idx) {
+    Instruction i{};
+    i.opcode = Opcode::OP_EXP_VAL;
+    i.exp_val.cp_exp_val_idx = cp_exp_val_idx;
+    i.exp_val.exp_val_idx = exp_val_idx;
+    return i;
+}
+
 namespace {
 
 // =========================================================================
@@ -809,6 +817,24 @@ CompiledModule lower(const HirModule& hir, std::span<const uint8_t> postselectio
                 break;
             }
 
+            case OpType::EXP_VAL: {
+                auto p_v = map_to_virtual(ctx, op.destab_mask(), op.stab_mask(), op.sign(), n);
+
+                PauliMask pm;
+                uint32_t pm_words = (n + 63) / 64;
+                for (uint32_t w = 0; w < pm_words && w < kMaxInlineWords; ++w) {
+                    pm.x.w[w] = p_v.xs.u64[w];
+                    pm.z.w[w] = p_v.zs.u64[w];
+                }
+                pm.sign = p_v.sign;
+
+                uint32_t cp_idx = static_cast<uint32_t>(ctx.constant_pool.exp_val_masks.size());
+                ctx.constant_pool.exp_val_masks.push_back(pm);
+
+                ctx.emit(make_exp_val(cp_idx, static_cast<uint32_t>(op.exp_val_idx())));
+                break;
+            }
+
             case OpType::NUM_OP_TYPES:
 #if defined(__GNUC__) || defined(__clang__)
                 __builtin_unreachable();
@@ -854,6 +880,7 @@ CompiledModule lower(const HirModule& hir, std::span<const uint8_t> postselectio
     result.total_meas_slots = total_meas_slots;
     result.num_detectors = hir.num_detectors;
     result.num_observables = hir.num_observables;
+    result.num_exp_vals = hir.num_exp_vals;
     result.expected_observables.assign(expected_observables.begin(), expected_observables.end());
 
     return result;

@@ -66,6 +66,7 @@ enum class Opcode : uint8_t {
     OP_DETECTOR,       // Parity check over measurement records
     OP_POSTSELECT,     // Post-selection check: abort shot if parity != 0
     OP_OBSERVABLE,     // Logical observable accumulator
+    OP_EXP_VAL,        // Read-only expectation value probe (full virtual Pauli mask)
     NUM_OPCODES        // Sentinel: must remain last for binding completeness checks
 };
 
@@ -133,6 +134,14 @@ struct alignas(32) Instruction {
             uint8_t _pad_f[20];  // Offset 12
         } u4;
 
+        // Variant G: Expectation value probe (OP_EXP_VAL)
+        // Same layout as pauli variant but with semantically meaningful names.
+        struct {
+            uint32_t cp_exp_val_idx;  // Offset 8 (Index into ConstantPool::exp_val_masks)
+            uint32_t exp_val_idx;     // Offset 12 (Index into state.exp_vals)
+            uint8_t _pad_g[16];       // Offset 16
+        } exp_val;
+
         uint8_t raw[24];  // Full payload access
     };
 };
@@ -185,6 +194,7 @@ enum class ExpectedParity : uint8_t { Zero = 0, One = 1 };
 [[nodiscard]] Instruction make_postselect(uint32_t det_list_idx, uint32_t classical_idx,
                                           ExpectedParity expected);
 [[nodiscard]] Instruction make_observable(uint32_t target_list_idx, uint32_t obs_idx);
+[[nodiscard]] Instruction make_exp_val(uint32_t cp_exp_val_idx, uint32_t exp_val_idx);
 
 // =============================================================================
 // Constant Pool
@@ -248,6 +258,11 @@ struct ConstantPool {
     // Full N-bit Pauli masks for OP_APPLY_PAULI (indexed by cp_mask_idx)
     std::vector<PauliMask> pauli_masks;
 
+    // Full N-bit Pauli masks for OP_EXP_VAL (indexed by cp_exp_val_idx).
+    // Separate from pauli_masks to avoid index collision between frame
+    // mutation (APPLY_PAULI) and read-only probing (EXP_VAL).
+    std::vector<PauliMask> exp_val_masks;
+
     // Noise sites for OP_NOISE (virtual-frame-mapped channels)
     std::vector<NoiseSite> noise_sites;
 
@@ -287,6 +302,7 @@ struct CompiledModule {
     uint32_t total_meas_slots = 0;  // Visible + hidden measurements (VM allocation)
     uint32_t num_detectors = 0;     // Total detectors
     uint32_t num_observables = 0;   // Total observables
+    uint32_t num_exp_vals = 0;      // Total expectation value probes
 
     // Expected noiseless observable parities for syndrome normalization.
     // When non-empty, sample()/sample_survivors() XOR obs_record[i] with

@@ -21,6 +21,7 @@ add_executable(ucc_tests
     test_tile_axis_fusion.cc
     test_source_map.cc
     test_importance_sampling.cc
+    test_exp_value.cc
 )
 
 target_link_libraries(ucc_tests PRIVATE

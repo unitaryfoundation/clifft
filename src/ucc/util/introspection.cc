@@ -171,6 +171,8 @@ std::string opcode_to_str(Opcode op) {
             return "OP_POSTSELECT";
         case Opcode::OP_OBSERVABLE:
             return "OP_OBSERVABLE";
+        case Opcode::OP_EXP_VAL:
+            return "OP_EXP_VAL";
         default:
             return "UNKNOWN";
     }
@@ -222,6 +224,8 @@ std::string format_instruction(const Instruction& inst) {
     } else if (inst.opcode == Opcode::OP_OBSERVABLE) {
         ss << "cp_targets=" << inst.pauli.cp_mask_idx << " -> obs[" << inst.pauli.condition_idx
            << "]";
+    } else if (inst.opcode == Opcode::OP_EXP_VAL) {
+        ss << "cp=" << inst.exp_val.cp_exp_val_idx << " -> exp[" << inst.exp_val.exp_val_idx << "]";
     }
     return ss.str();
 }

@@ -328,6 +328,7 @@ NB_MODULE(_ucc_core, m) {
         .def_prop_ro("num_measurements", [](const ucc::HirModule& h) { return h.num_measurements; })
         .def_prop_ro("num_detectors", [](const ucc::HirModule& h) { return h.num_detectors; })
         .def_prop_ro("num_observables", [](const ucc::HirModule& h) { return h.num_observables; })
+        .def_prop_ro("num_exp_vals", [](const ucc::HirModule& h) { return h.num_exp_vals; })
         .def_prop_ro(
             "source_map",
             [](const ucc::HirModule& h) {
@@ -566,7 +567,8 @@ NB_MODULE(_ucc_core, m) {
         .value("OP_READOUT_NOISE", ucc::Opcode::OP_READOUT_NOISE)
         .value("OP_DETECTOR", ucc::Opcode::OP_DETECTOR)
         .value("OP_POSTSELECT", ucc::Opcode::OP_POSTSELECT)
-        .value("OP_OBSERVABLE", ucc::Opcode::OP_OBSERVABLE);
+        .value("OP_OBSERVABLE", ucc::Opcode::OP_OBSERVABLE)
+        .value("OP_EXP_VAL", ucc::Opcode::OP_EXP_VAL);
 
     nb::class_<ucc::Instruction>(m, "Instruction", "A localized RISC operation for the VM")
         .def_prop_ro("opcode", [](const ucc::Instruction& i) { return i.opcode; })
@@ -612,6 +614,9 @@ NB_MODULE(_ucc_core, m) {
                     d["weight_im"] = i.math.weight_im;
                 } else if (i.opcode == ucc::Opcode::OP_ARRAY_U2) {
                     d["cp_idx"] = i.u2.cp_idx;
+                } else if (i.opcode == ucc::Opcode::OP_EXP_VAL) {
+                    d["cp_exp_val_idx"] = i.exp_val.cp_exp_val_idx;
+                    d["exp_val_idx"] = i.exp_val.exp_val_idx;
                 }
                 return d;
             },
@@ -628,6 +633,7 @@ NB_MODULE(_ucc_core, m) {
         .def_prop_ro("num_detectors", [](const ucc::CompiledModule& p) { return p.num_detectors; })
         .def_prop_ro("num_observables",
                      [](const ucc::CompiledModule& p) { return p.num_observables; })
+        .def_prop_ro("num_exp_vals", [](const ucc::CompiledModule& p) { return p.num_exp_vals; })
         .def_prop_ro("num_instructions",
                      [](const ucc::CompiledModule& p) { return p.bytecode.size(); })
         .def_prop_ro(
@@ -802,10 +808,12 @@ NB_MODULE(_ucc_core, m) {
                 vec_to_numpy(std::move(result.detectors), {shots, program.num_detectors});
             auto obs_arr =
                 vec_to_numpy(std::move(result.observables), {shots, program.num_observables});
+            auto ev_arr = vec_to_numpy(std::move(result.exp_vals), {shots, program.num_exp_vals});
 
             // Import the Python SampleResult class and construct it.
             nb::object mod = nb::module_::import_("ucc._sample_result");
-            return mod.attr("SampleResult")(meas_arr, det_arr, obs_arr);
+            return mod.attr("SampleResult")(meas_arr, det_arr, obs_arr, nb::none(), nb::none(),
+                                            nb::none(), nb::none(), ev_arr);
         },
         nb::arg("program"), nb::arg("shots"), nb::arg("seed") = nb::none(),
         "Run a compiled program and return a SampleResult.\n\n"
@@ -830,9 +838,11 @@ NB_MODULE(_ucc_core, m) {
                 vec_to_numpy(std::move(result.detectors), {shots, program.num_detectors});
             auto obs_arr =
                 vec_to_numpy(std::move(result.observables), {shots, program.num_observables});
+            auto ev_arr = vec_to_numpy(std::move(result.exp_vals), {shots, program.num_exp_vals});
 
             nb::object mod = nb::module_::import_("ucc._sample_result");
-            return mod.attr("SampleResult")(meas_arr, det_arr, obs_arr);
+            return mod.attr("SampleResult")(meas_arr, det_arr, obs_arr, nb::none(), nb::none(),
+                                            nb::none(), nb::none(), ev_arr);
         },
         nb::arg("program"), nb::arg("shots"), nb::arg("k"), nb::arg("seed") = nb::none(),
         "Sample with exactly k forced faults per shot (importance sampling).\n\n"
@@ -863,13 +873,17 @@ NB_MODULE(_ucc_core, m) {
             keep_records ? std::move(result.detectors) : std::vector<uint8_t>{};
         std::vector<uint8_t> obs_storage =
             keep_records ? std::move(result.observables) : std::vector<uint8_t>{};
+        std::vector<double> ev_storage =
+            keep_records ? std::move(result.exp_vals) : std::vector<double>{};
 
         size_t rows = keep_records ? result.passed_shots : 0;
         auto meas_arr = vec_to_numpy(std::move(meas_storage), {rows, program.num_measurements});
         auto det_arr = vec_to_numpy(std::move(det_storage), {rows, program.num_detectors});
         auto obs_arr = vec_to_numpy(std::move(obs_storage), {rows, program.num_observables});
+        auto ev_arr =
+            vec_to_numpy(std::move(ev_storage), {rows, static_cast<size_t>(program.num_exp_vals)});
         return cls(meas_arr, det_arr, obs_arr, result.total_shots, result.passed_shots,
-                   result.logical_errors, obs_ones_arr);
+                   result.logical_errors, obs_ones_arr, ev_arr);
     };
 
     // Sample survivors with forced k-faults.
@@ -920,9 +934,10 @@ NB_MODULE(_ucc_core, m) {
         ".observable_ones.");
 
     nb::class_<ucc::SchrodingerState>(m, "State", "Schrodinger VM execution state")
-        .def(nb::init<uint32_t, uint32_t, uint32_t, uint32_t, std::optional<uint64_t>>(),
+        .def(nb::init<uint32_t, uint32_t, uint32_t, uint32_t, std::optional<uint64_t>, uint32_t>(),
              nb::arg("peak_rank"), nb::arg("num_measurements"), nb::arg("num_detectors") = 0,
-             nb::arg("num_observables") = 0, nb::arg("seed") = nb::none())
+             nb::arg("num_observables") = 0, nb::arg("seed") = nb::none(),
+             nb::arg("num_exp_vals") = 0)
         .def("reset", &ucc::SchrodingerState::reset)
         .def("reseed", &ucc::SchrodingerState::reseed, nb::arg("seed"))
         .def_prop_ro("dust_clamps", [](const ucc::SchrodingerState& s) { return s.dust_clamps; })
@@ -935,6 +950,8 @@ NB_MODULE(_ucc_core, m) {
         .def_prop_ro(
             "obs_record",
             [](const ucc::SchrodingerState& s) { return std::vector<uint8_t>(s.obs_record); })
+        .def_prop_ro("exp_vals",
+                     [](const ucc::SchrodingerState& s) { return std::vector<double>(s.exp_vals); })
         .def("__repr__", [](const ucc::SchrodingerState& s) {
             return "State(array_size=" + std::to_string(s.array_size()) + ")";
         });

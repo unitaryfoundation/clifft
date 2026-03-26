@@ -513,7 +513,7 @@ static std::vector<std::complex<double>> pipeline_statevector(const std::string&
     auto hir = ucc::trace(circuit);
     auto mod = ucc::lower(hir);
     SchrodingerState state(mod.peak_rank, mod.total_meas_slots, mod.num_detectors,
-                           mod.num_observables, seed);
+                           mod.num_observables, seed, mod.num_exp_vals);
     execute(mod, state);
     return get_statevector(mod, state);
 }
@@ -525,7 +525,7 @@ static std::vector<uint8_t> pipeline_measurements(const std::string& circuit_tex
     auto hir = ucc::trace(circuit);
     auto mod = ucc::lower(hir);
     SchrodingerState state(mod.peak_rank, mod.total_meas_slots, mod.num_detectors,
-                           mod.num_observables, seed);
+                           mod.num_observables, seed, mod.num_exp_vals);
     execute(mod, state);
     return std::vector<uint8_t>(state.meas_record.begin(),
                                 state.meas_record.begin() + circuit.num_measurements);

@@ -192,12 +192,14 @@ class TestEnumBindings:
     def test_optype_values(self) -> None:
         assert ucc.OpType.T_GATE is not None
         assert ucc.OpType.MEASURE is not None
+        assert ucc.OpType.EXP_VAL is not None
 
     def test_opcode_values(self) -> None:
         assert ucc.Opcode.OP_EXPAND is not None
         assert ucc.Opcode.OP_PHASE_T is not None
         assert ucc.Opcode.OP_MEAS_ACTIVE_DIAGONAL is not None
         assert ucc.Opcode.OP_POSTSELECT is not None
+        assert ucc.Opcode.OP_EXP_VAL is not None
 
 
 class TestEnumBindingCompleteness:

@@ -34,7 +34,7 @@ void Xoshiro256PlusPlus::seed_from_entropy() {
 
 SchrodingerState::SchrodingerState(uint32_t peak_rank, uint32_t num_measurements,
                                    uint32_t num_detectors, uint32_t num_observables,
-                                   std::optional<uint64_t> seed)
+                                   std::optional<uint64_t> seed, uint32_t num_exp_vals)
     : peak_rank_(peak_rank), rng_(0) {
     if (peak_rank >= 63) {
         throw std::invalid_argument(
@@ -48,6 +48,7 @@ SchrodingerState::SchrodingerState(uint32_t peak_rank, uint32_t num_measurements
     meas_record.resize(num_measurements, 0);
     det_record.resize(num_detectors, 0);
     obs_record.resize(num_observables, 0);
+    exp_vals.resize(num_exp_vals, 0.0);
 
     array_size_ = 1ULL << peak_rank;
     size_t bytes = array_size_ * sizeof(std::complex<double>);
@@ -123,6 +124,7 @@ SchrodingerState::SchrodingerState(SchrodingerState&& other) noexcept
       meas_record(std::move(other.meas_record)),
       det_record(std::move(other.det_record)),
       obs_record(std::move(other.obs_record)),
+      exp_vals(std::move(other.exp_vals)),
       next_noise_idx(other.next_noise_idx),
       forced_faults(std::move(other.forced_faults)),
       dust_clamps(other.dust_clamps),
@@ -169,6 +171,7 @@ SchrodingerState& SchrodingerState::operator=(SchrodingerState&& other) noexcept
         meas_record = std::move(other.meas_record);
         det_record = std::move(other.det_record);
         obs_record = std::move(other.obs_record);
+        exp_vals = std::move(other.exp_vals);
         other.v_ = nullptr;
         other.array_size_ = 0;
         other.v_alloc_bytes_ = 0;
@@ -199,6 +202,9 @@ void SchrodingerState::reset() {
 
     // obs_record uses ^= accumulation and must always be cleared.
     std::fill(obs_record.begin(), obs_record.end(), 0);
+
+    // exp_vals are written per-shot; zero for the next shot.
+    std::fill(exp_vals.begin(), exp_vals.end(), 0.0);
 
     // Reset forced-fault cursors (vectors are refilled per shot externally).
     forced_faults.noise_pos = 0;

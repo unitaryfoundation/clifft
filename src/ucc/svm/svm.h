@@ -104,7 +104,8 @@ class SchrodingerState {
   public:
     explicit SchrodingerState(uint32_t peak_rank, uint32_t num_measurements,
                               uint32_t num_detectors = 0, uint32_t num_observables = 0,
-                              std::optional<uint64_t> seed = std::nullopt);
+                              std::optional<uint64_t> seed = std::nullopt,
+                              uint32_t num_exp_vals = 0);
 
     ~SchrodingerState();
 
@@ -178,6 +179,9 @@ class SchrodingerState {
     std::vector<uint8_t> meas_record;
     std::vector<uint8_t> det_record;
     std::vector<uint8_t> obs_record;
+
+    // Expectation value record: one double per EXP_VAL probe per shot.
+    std::vector<double> exp_vals;
 
     // Gap-based noise sampling: index of next noise site that might fire.
     // Sites with index < next_noise_idx are guaranteed silent (identity).
@@ -256,6 +260,7 @@ struct SampleResult {
     std::vector<uint8_t> measurements;  // Shape: [shots * num_measurements]
     std::vector<uint8_t> detectors;     // Shape: [shots * num_detectors]
     std::vector<uint8_t> observables;   // Shape: [shots * num_observables]
+    std::vector<double> exp_vals;       // Shape: [shots * num_exp_vals]
 };
 
 /// Run multiple shots and return all records.
@@ -284,6 +289,7 @@ struct SurvivorResult {
     std::vector<uint8_t> measurements;  // Shape: [passed_shots * num_measurements]
     std::vector<uint8_t> detectors;     // Shape: [passed_shots * num_detectors]
     std::vector<uint8_t> observables;   // Shape: [passed_shots * num_observables]
+    std::vector<double> exp_vals;       // Shape: [passed_shots * num_exp_vals]
 };
 
 /// Sample shots and return results only for survivors (non-discarded shots).

@@ -971,3 +971,60 @@ class TestSyndromeNormalization:
         assert hir.num_ops < original_count
         for op in hir:
             assert op.op_type != ucc.OpType.NOISE
+
+
+class TestExpVal:
+    """Tests for EXP_VAL expectation value probes via Python bindings."""
+
+    def test_sample_returns_exp_vals(self) -> None:
+        """sample() populates exp_vals for circuits with EXP_VAL."""
+        prog = ucc.compile("EXP_VAL Z0")
+        result = ucc.sample(prog, 10, seed=42)
+        assert result.exp_vals.shape == (10, 1)
+        assert result.exp_vals.dtype == np.float64
+        np.testing.assert_allclose(result.exp_vals[:, 0], 1.0, atol=1e-12)
+
+    def test_no_exp_val_gives_empty(self) -> None:
+        """Circuits without EXP_VAL have shape (shots, 0) exp_vals."""
+        prog = ucc.compile("H 0\nM 0")
+        result = ucc.sample(prog, 5, seed=0)
+        assert result.exp_vals.shape == (5, 0)
+        assert prog.num_exp_vals == 0
+
+    def test_program_num_exp_vals(self) -> None:
+        """Program.num_exp_vals reports the correct count."""
+        prog = ucc.compile("EXP_VAL X0 Z1")
+        assert prog.num_exp_vals == 2
+
+    def test_hir_num_exp_vals(self) -> None:
+        """HirModule.num_exp_vals reports the correct count."""
+        hir = ucc.trace(ucc.parse("EXP_VAL X0*Y1 Z2"))
+        assert hir.num_exp_vals == 2
+
+    def test_state_exp_vals(self) -> None:
+        """State.exp_vals is accessible and correctly sized."""
+        state = ucc.State(1, 0, num_exp_vals=2)
+        assert len(state.exp_vals) == 2
+
+    def test_state_constructor_seed_backward_compat(self) -> None:
+        """Positional seed argument still works (not misinterpreted as num_exp_vals)."""
+        # Old-style: State(peak_rank, num_meas, num_det, num_obs, seed)
+        state = ucc.State(1, 0, 0, 0, 42)
+        # seed=42 should NOT allocate 42 exp_val slots
+        assert len(state.exp_vals) == 0
+
+    def test_exp_val_multiple_probes(self) -> None:
+        """Multiple EXP_VAL probes return consecutive columns."""
+        prog = ucc.compile("H 0\nEXP_VAL X0\nEXP_VAL Z0")
+        result = ucc.sample(prog, 5, seed=0)
+        assert result.exp_vals.shape == (5, 2)
+        np.testing.assert_allclose(result.exp_vals[:, 0], 1.0, atol=1e-12)  # <X> on |+>
+        np.testing.assert_allclose(result.exp_vals[:, 1], 0.0, atol=1e-12)  # <Z> on |+>
+
+    def test_exp_val_does_not_disturb_measurement(self) -> None:
+        """EXP_VAL is non-destructive: measurements after it are unaffected."""
+        prog = ucc.compile("EXP_VAL Z0\nM 0")
+        result = ucc.sample(prog, 100, seed=0)
+        # |0> state: all measurements should be 0
+        assert np.all(result.measurements == 0)
+        np.testing.assert_allclose(result.exp_vals[:, 0], 1.0, atol=1e-12)

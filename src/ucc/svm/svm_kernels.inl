@@ -2006,6 +2006,121 @@ static inline void exec_observable(SchrodingerState& state, const ConstantPool& 
     state.obs_record[obs_idx] ^= parity;
 }
 
+// EXP_VAL: read-only expectation value probe.
+// Evaluates <P> on the current state without mutating anything.
+static inline void exec_exp_val(SchrodingerState& state, const ConstantPool& pool,
+                                uint32_t cp_exp_val_idx, uint32_t exp_val_idx) {
+    assert(cp_exp_val_idx < pool.exp_val_masks.size());
+    assert(exp_val_idx < state.exp_vals.size());
+
+    const auto& pm = pool.exp_val_masks[cp_exp_val_idx];
+
+    // Step 1: Frame conjugation.
+    // Compute symplectic anti-commutation parity between stored Pauli P
+    // and the current runtime Pauli frame. If P anti-commutes with the
+    // frame, the expectation sign flips.
+    bool frame_sign = pm.sign;
+    if ((pm.x & state.p_z).popcount() & 1)
+        frame_sign = !frame_sign;
+    if ((pm.z & state.p_x).popcount() & 1)
+        frame_sign = !frame_sign;
+
+    // Step 2: Dormant/active split.
+    // Dormant qubits (axes >= active_k) are in |0> state.
+    // X or Y support on a dormant qubit gives <P> = 0.
+    // Z support on a dormant qubit contributes +1 (identity for Z|0>=|0>).
+    uint32_t k = state.active_k;
+
+    // Check if any dormant qubit has X support by masking out the active bits.
+    // Any X bit set in the dormant range means the result is 0.
+    {
+        PauliBitMask dormant_x = pm.x;
+        // Clear active bits [0, k)
+        uint32_t full_words = k / 64;
+        uint32_t remaining = k % 64;
+        for (uint32_t w = 0; w < full_words && w < kMaxInlineWords; ++w)
+            dormant_x.w[w] = 0;
+        if (remaining > 0 && full_words < kMaxInlineWords)
+            dormant_x.w[full_words] &= ~((uint64_t{1} << remaining) - 1);
+        if (!dormant_x.is_zero()) {
+            state.exp_vals[exp_val_idx] = 0.0;
+            return;
+        }
+    }
+
+    // Step 3: Active-space evaluation.
+    // Extract active-space X and Z masks (bits 0..k-1).
+    uint64_t x_active = 0;
+    uint64_t z_active = 0;
+    for (uint32_t q = 0; q < k && q < 64; ++q) {
+        if (bit_get(pm.x, q))
+            x_active |= (uint64_t{1} << q);
+        if (bit_get(pm.z, q))
+            z_active |= (uint64_t{1} << q);
+    }
+
+    // Compute the constant phase factor: i^popcount(x_active & z_active)
+    // This is the phase from the Pauli type (XZ -> iY).
+    uint32_t yz_count = std::popcount(x_active & z_active);
+    // i^n cycles: 1, i, -1, -i
+    std::complex<double> i_phase;
+    switch (yz_count & 3) {
+        case 0:
+            i_phase = {1.0, 0.0};
+            break;
+        case 1:
+            i_phase = {0.0, 1.0};
+            break;
+        case 2:
+            i_phase = {-1.0, 0.0};
+            break;
+        case 3:
+            i_phase = {0.0, -1.0};
+            break;
+    }
+    if (frame_sign)
+        i_phase = -i_phase;
+
+    const auto* arr = state.v();
+    uint64_t dim = uint64_t{1} << k;
+
+    std::complex<double> numerator{0.0, 0.0};
+    double denominator = 0.0;
+
+    for (uint64_t j = 0; j < dim; ++j) {
+        double norm_j = std::norm(arr[j]);
+        denominator += norm_j;
+
+        // c(j) = phase * (-1)^popcount(j & z_active)
+        uint64_t j_xor = j ^ x_active;
+        double z_sign = (std::popcount(j & z_active) & 1) ? -1.0 : 1.0;
+
+        // <P> += conj(a[j ^ x_active]) * z_sign * a[j]
+        numerator += std::conj(arr[j_xor]) * (z_sign * arr[j]);
+    }
+
+    // Multiply by the constant i-phase factor
+    numerator *= i_phase;
+
+    // The result should be real for Hermitian Paulis
+    double result = 0.0;
+    if (denominator > 0.0) {
+        result = numerator.real() / denominator;
+    }
+
+    // Clamp to [-1, 1] for numerical safety.
+    // A result outside this range by more than a small epsilon indicates a bug
+    // (e.g. unnormalized state or incorrect accumulation).
+    assert(result >= -1.0 - 1e-6 && result <= 1.0 + 1e-6 &&
+           "exp_val result outside [-1, 1] by more than numerical tolerance");
+    if (result > 1.0)
+        result = 1.0;
+    if (result < -1.0)
+        result = -1.0;
+
+    state.exp_vals[exp_val_idx] = result;
+}
+
 }  // namespace
 
 // =============================================================================
@@ -2067,6 +2182,7 @@ void execute_internal(const CompiledModule& program, SchrodingerState& state) {
         [static_cast<uint8_t>(Opcode::OP_DETECTOR)] = &&L_OP_DETECTOR,
         [static_cast<uint8_t>(Opcode::OP_POSTSELECT)] = &&L_OP_POSTSELECT,
         [static_cast<uint8_t>(Opcode::OP_OBSERVABLE)] = &&L_OP_OBSERVABLE,
+        [static_cast<uint8_t>(Opcode::OP_EXP_VAL)] = &&L_OP_EXP_VAL,
     };
 
     const Instruction* pc = program.bytecode.data();
@@ -2234,6 +2350,10 @@ L_OP_OBSERVABLE:
     exec_observable(state, program.constant_pool, pc->pauli.cp_mask_idx, pc->pauli.condition_idx);
     DISPATCH();
 
+L_OP_EXP_VAL:
+    exec_exp_val(state, program.constant_pool, pc->exp_val.cp_exp_val_idx, pc->exp_val.exp_val_idx);
+    DISPATCH();
+
 #pragma GCC diagnostic pop
 #undef DISPATCH
 #else
@@ -2364,6 +2484,10 @@ L_OP_OBSERVABLE:
             case Opcode::OP_OBSERVABLE:
                 exec_observable(state, program.constant_pool, instr.pauli.cp_mask_idx,
                                 instr.pauli.condition_idx);
+                break;
+            case Opcode::OP_EXP_VAL:
+                exec_exp_val(state, program.constant_pool, instr.exp_val.cp_exp_val_idx,
+                             instr.exp_val.exp_val_idx);
                 break;
         }
     }

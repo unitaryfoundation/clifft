@@ -105,12 +105,14 @@ SampleResult sample(const CompiledModule& program, uint32_t shots, std::optional
     uint32_t num_total = program.total_meas_slots;  // Total slots for VM execution
     uint32_t num_det = program.num_detectors;
     uint32_t num_obs = program.num_observables;
+    uint32_t num_ev = program.num_exp_vals;
 
     result.measurements.resize(static_cast<size_t>(shots) * num_vis);
     result.detectors.resize(static_cast<size_t>(shots) * num_det);
     result.observables.resize(static_cast<size_t>(shots) * num_obs);
+    result.exp_vals.resize(static_cast<size_t>(shots) * num_ev);
 
-    SchrodingerState state(program.peak_rank, num_total, num_det, num_obs, seed);
+    SchrodingerState state(program.peak_rank, num_total, num_det, num_obs, seed, num_ev);
 
     for (uint32_t shot = 0; shot < shots; ++shot) {
         if (shot > 0) {
@@ -140,6 +142,11 @@ SampleResult sample(const CompiledModule& program, uint32_t shots, std::optional
             }
             obs_out[static_cast<ptrdiff_t>(i)] = val;
         }
+
+        // Copy expectation values
+        std::copy(
+            state.exp_vals.begin(), state.exp_vals.end(),
+            result.exp_vals.begin() + static_cast<ptrdiff_t>(static_cast<size_t>(shot) * num_ev));
     }
 
     return result;
@@ -166,6 +173,7 @@ SurvivorResult sample_survivors(const CompiledModule& program, uint32_t shots,
     uint32_t num_total = program.total_meas_slots;
     uint32_t num_det = program.num_detectors;
     uint32_t num_obs = program.num_observables;
+    uint32_t num_ev = program.num_exp_vals;
 
     result.observable_ones.resize(num_obs, 0);
 
@@ -173,9 +181,10 @@ SurvivorResult sample_survivors(const CompiledModule& program, uint32_t shots,
         result.measurements.reserve(static_cast<size_t>(shots) * num_vis);
         result.detectors.reserve(static_cast<size_t>(shots) * num_det);
         result.observables.reserve(static_cast<size_t>(shots) * num_obs);
+        result.exp_vals.reserve(static_cast<size_t>(shots) * num_ev);
     }
 
-    SchrodingerState state(program.peak_rank, num_total, num_det, num_obs, seed);
+    SchrodingerState state(program.peak_rank, num_total, num_det, num_obs, seed, num_ev);
 
     for (uint32_t shot = 0; shot < shots; ++shot) {
         if (shot > 0) {
@@ -216,6 +225,8 @@ SurvivorResult sample_survivors(const CompiledModule& program, uint32_t shots,
                                        state.meas_record.begin() + num_vis);
             result.detectors.insert(result.detectors.end(), state.det_record.begin(),
                                     state.det_record.end());
+            result.exp_vals.insert(result.exp_vals.end(), state.exp_vals.begin(),
+                                   state.exp_vals.end());
         }
     }
 
@@ -434,10 +445,12 @@ SampleResult sample_k(const CompiledModule& program, uint32_t shots, uint32_t k,
     uint32_t num_total = program.total_meas_slots;
     uint32_t num_det = program.num_detectors;
     uint32_t num_obs = program.num_observables;
+    uint32_t num_ev = program.num_exp_vals;
 
     result.measurements.resize(static_cast<size_t>(shots) * num_vis);
     result.detectors.resize(static_cast<size_t>(shots) * num_det);
     result.observables.resize(static_cast<size_t>(shots) * num_obs);
+    result.exp_vals.resize(static_cast<size_t>(shots) * num_ev);
 
     // Build fault site probabilities and precompute DP table.
     auto probs = noise_site_probabilities(program);
@@ -454,7 +467,7 @@ SampleResult sample_k(const CompiledModule& program, uint32_t shots, uint32_t k,
         std::iota(uniform_pool.begin(), uniform_pool.end(), 0);
     }
 
-    SchrodingerState state(program.peak_rank, num_total, num_det, num_obs, seed);
+    SchrodingerState state(program.peak_rank, num_total, num_det, num_obs, seed, num_ev);
 
     for (uint32_t shot = 0; shot < shots; ++shot) {
         if (shot > 0)
@@ -479,6 +492,10 @@ SampleResult sample_k(const CompiledModule& program, uint32_t shots, uint32_t k,
             }
             obs_out[static_cast<ptrdiff_t>(i)] = val;
         }
+
+        std::copy(
+            state.exp_vals.begin(), state.exp_vals.end(),
+            result.exp_vals.begin() + static_cast<ptrdiff_t>(static_cast<size_t>(shot) * num_ev));
     }
 
     return result;
@@ -495,6 +512,7 @@ SurvivorResult sample_k_survivors(const CompiledModule& program, uint32_t shots,
     uint32_t num_total = program.total_meas_slots;
     uint32_t num_det = program.num_detectors;
     uint32_t num_obs = program.num_observables;
+    uint32_t num_ev = program.num_exp_vals;
 
     result.observable_ones.resize(num_obs, 0);
 
@@ -502,6 +520,7 @@ SurvivorResult sample_k_survivors(const CompiledModule& program, uint32_t shots,
         result.measurements.reserve(static_cast<size_t>(shots) * num_vis);
         result.detectors.reserve(static_cast<size_t>(shots) * num_det);
         result.observables.reserve(static_cast<size_t>(shots) * num_obs);
+        result.exp_vals.reserve(static_cast<size_t>(shots) * num_ev);
     }
 
     auto probs = noise_site_probabilities(program);
@@ -518,7 +537,7 @@ SurvivorResult sample_k_survivors(const CompiledModule& program, uint32_t shots,
         std::iota(uniform_pool.begin(), uniform_pool.end(), 0);
     }
 
-    SchrodingerState state(program.peak_rank, num_total, num_det, num_obs, seed);
+    SchrodingerState state(program.peak_rank, num_total, num_det, num_obs, seed, num_ev);
 
     for (uint32_t shot = 0; shot < shots; ++shot) {
         if (shot > 0)
@@ -554,6 +573,8 @@ SurvivorResult sample_k_survivors(const CompiledModule& program, uint32_t shots,
                                        state.meas_record.begin() + num_vis);
             result.detectors.insert(result.detectors.end(), state.det_record.begin(),
                                     state.det_record.end());
+            result.exp_vals.insert(result.exp_vals.end(), state.exp_vals.begin(),
+                                   state.exp_vals.end());
         }
     }
 
