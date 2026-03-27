@@ -23,7 +23,7 @@ print(result.measurements.shape)  # (10000, 2)
 print(result.measurements[:5])    # First 5 shots
 ```
 
-`ucc.sample()` returns a `SampleResult` object with `.measurements`, `.detectors`, and `.observables` attributes (each a numpy array). For circuits without detectors or observables, those arrays will have zero columns. Tuple unpacking (`m, d, o = ucc.sample(...)`) is supported for backward compatibility.
+`ucc.sample()` returns a `SampleResult` object with `.measurements`, `.detectors`, `.observables`, and `.exp_vals` attributes (each a numpy array). For circuits without detectors, observables, or expectation value probes, those arrays will have zero columns. Tuple unpacking (`m, d, o = ucc.sample(...)`) is supported for backward compatibility.
 
 ## Statevector Extraction
 
@@ -140,6 +140,38 @@ result = ucc.sample(program, shots=10000, seed=42)
 ```
 
 See [Compiling Circuits](compiling.md#syndrome-normalization) for details.
+
+## Expectation Values
+
+`EXP_VAL` is a non-destructive probe that computes the expectation value of a Pauli product operator on the current state, without collapsing it. This is useful for observing properties of the quantum state mid-circuit without affecting subsequent operations.
+
+```python
+import ucc
+import numpy as np
+
+program = ucc.compile("""
+    H 0
+    CNOT 0 1
+    EXP_VAL X0*X1 Z0*Z1
+    M 0 1
+""")
+
+result = ucc.sample(program, shots=1000, seed=42)
+
+# result.exp_vals is a 2D array: (shots x num_exp_vals)
+print(result.exp_vals.shape)  # (1000, 2)
+print(np.mean(result.exp_vals, axis=0))  # [1.0, 1.0] for Bell state
+```
+
+Each `EXP_VAL` instruction takes one or more Pauli product strings (e.g., `X0`, `Z0*Z1`, `X0*Y1*Z2`). Each product produces one column in `result.exp_vals`, with values in the range [-1, +1].
+
+Key properties:
+
+- **Non-destructive**: `EXP_VAL` does not collapse the state or consume qubits. Measurements after an `EXP_VAL` are unaffected.
+- **Pauli frame aware**: In noisy circuits, the expectation value accounts for the current Pauli frame. For example, a `Z_ERROR` before `EXP_VAL X0` will flip the sign because Z anti-commutes with X.
+- **Per-shot values**: Each shot produces an independent expectation value. For Clifford states this is deterministic ($\pm 1$ or $0$); for non-Clifford states (after T gates) or noisy circuits, values vary across shots.
+
+The `Program` object reports `program.num_exp_vals` for the total number of probes. Circuits without `EXP_VAL` produce an empty array with shape `(shots, 0)`.
 
 ## Deterministic Seeds
 

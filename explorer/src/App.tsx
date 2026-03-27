@@ -11,6 +11,7 @@ import { useCircuitStorage, saveDraft, loadDraft } from "./hooks/useCircuitStora
 import { Toolbar } from "./components/Toolbar";
 import { KHistoryChart } from "./components/KHistoryChart";
 import { HistogramChart } from "./components/HistogramChart";
+import { ExpValTable } from "./components/ExpValTable";
 import { GuidedTour } from "./components/GuidedTour";
 import { registerLanguages } from "./languages";
 import { isCompileSuccess, isSimulateSuccess } from "./types";
@@ -72,6 +73,7 @@ export default function App() {
   const [simResult, setSimResult] = useState<SimulateResult | null>(null);
   const [simElapsedMs, setSimElapsedMs] = useState<number | null>(null);
   const [simulating, setSimulating] = useState(false);
+  const [simTab, setSimTab] = useState<"measurements" | "exp_vals">("measurements");
   const [shots, setShots] = useState(DEFAULT_SHOTS);
   const [cursorSourceLine, setCursorSourceLine] = useState<number | null>(null);
   const [tourOpen, setTourOpen] = useState(
@@ -307,6 +309,12 @@ export default function App() {
       setSimResult(result);
       setSimElapsedMs(elapsed);
       setSimulating(false);
+      // Auto-switch tab if result has expectation values
+      if (result && isSimulateSuccess(result) && result.exp_vals && result.exp_vals.length > 0) {
+        setSimTab("exp_vals");
+      } else {
+        setSimTab("measurements");
+      }
     });
   }, [source, shots, passConfig, simulate]);
 
@@ -522,8 +530,21 @@ export default function App() {
               </Allotment.Pane>
               <Allotment.Pane>
                 <div className="chart-pane">
-                  <div className="chart-label">
-                    Simulation Results
+                  <div className="chart-label sim-tabs">
+                    <button
+                      className={`sim-tab${simTab === "measurements" ? " sim-tab-active" : ""}`}
+                      onClick={() => setSimTab("measurements")}
+                    >
+                      Measurements
+                    </button>
+                    {simResult && isSimulateSuccess(simResult) && simResult.exp_vals && simResult.exp_vals.length > 0 && (
+                      <button
+                        className={`sim-tab${simTab === "exp_vals" ? " sim-tab-active" : ""}`}
+                        onClick={() => setSimTab("exp_vals")}
+                      >
+                        Expectation Values
+                      </button>
+                    )}
                     {simResult && isSimulateSuccess(simResult) && (
                       <span className="chart-label-detail">
                         {" "}({simResult.shots.toLocaleString()} shots)
@@ -531,7 +552,11 @@ export default function App() {
                     )}
                   </div>
                   <div className="chart-container">
-                    <HistogramChart result={simResult} elapsedMs={simElapsedMs} colors={chartColors} />
+                    {simTab === "exp_vals" && simResult && isSimulateSuccess(simResult) && simResult.exp_vals && simResult.exp_vals.length > 0 ? (
+                      <ExpValTable expVals={simResult.exp_vals} shots={simResult.shots} elapsedMs={simElapsedMs} />
+                    ) : (
+                      <HistogramChart result={simResult} elapsedMs={simElapsedMs} colors={chartColors} />
+                    )}
                   </div>
                 </div>
               </Allotment.Pane>

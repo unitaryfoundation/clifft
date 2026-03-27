@@ -14,10 +14,12 @@
 #include "ucc/svm/svm.h"
 #include "ucc/util/introspection.h"
 
+#include <cmath>
 #include <cstdint>
 #include <emscripten/bind.h>
 #include <memory>
 #include <nlohmann/json.hpp>
+#include <sstream>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -127,6 +129,44 @@ std::string compile_to_json(const std::string& source, const std::string& passes
     return j.dump();
 }
 
+// Extract EXP_VAL labels from source text by re-parsing lines.
+// Returns one entry per Pauli product: {label, line} where line is 1-based.
+// "EXP_VAL X0*Z2 Y1" produces two entries: ("X0*Z2", line) and ("Y1", line).
+std::vector<std::pair<std::string, uint32_t>> extract_exp_val_labels(const std::string& source) {
+    std::vector<std::pair<std::string, uint32_t>> labels;
+    std::istringstream stream(source);
+    std::string line;
+    uint32_t line_num = 0;
+    while (std::getline(stream, line)) {
+        ++line_num;
+        // Strip leading whitespace
+        size_t start = line.find_first_not_of(" \t");
+        if (start == std::string::npos)
+            continue;
+        std::string_view sv(line.data() + start, line.size() - start);
+        if (sv.substr(0, 8) != "EXP_VAL " && sv != "EXP_VAL")
+            continue;
+        if (sv.size() <= 8)
+            continue;
+        // Extract the rest after "EXP_VAL "
+        std::string_view rest = sv.substr(8);
+        // Split on whitespace to get individual Pauli products
+        size_t pos = 0;
+        while (pos < rest.size()) {
+            while (pos < rest.size() && (rest[pos] == ' ' || rest[pos] == '\t'))
+                ++pos;
+            if (pos >= rest.size())
+                break;
+            size_t end = pos;
+            while (end < rest.size() && rest[end] != ' ' && rest[end] != '\t')
+                ++end;
+            labels.emplace_back(std::string(rest.substr(pos, end - pos)), line_num);
+            pos = end;
+        }
+    }
+    return labels;
+}
+
 std::string simulate_wasm(const std::string& source, uint32_t shots,
                           const std::string& passes_json) {
     if (shots > MAX_SHOTS) {
@@ -143,33 +183,65 @@ std::string simulate_wasm(const std::string& source, uint32_t shots,
         return json({{"error", "MemoryLimitExceeded"}}).dump();
     }
 
-    if (prog.num_measurements == 0) {
+    uint32_t n_meas = prog.num_measurements;
+    uint32_t n_ev = prog.num_exp_vals;
+
+    if (n_meas == 0 && n_ev == 0) {
         return json({
                         {"histogram", json::object()},
                         {"shots", shots},
                         {"num_measurements", 0},
+                        {"exp_vals", json::array()},
                     })
             .dump();
     }
 
     ucc::SampleResult samples = ucc::sample(prog, shots, std::nullopt);
 
-    uint32_t n_meas = prog.num_measurements;
+    // Build measurement histogram
     std::unordered_map<std::string, uint32_t> histogram;
-    std::string key;
-    key.reserve(n_meas);
-    for (uint32_t shot = 0; shot < shots; ++shot) {
-        key.clear();
-        for (uint32_t m = 0; m < n_meas; ++m) {
-            key += (samples.measurements[shot * n_meas + m] ? '1' : '0');
+    if (n_meas > 0) {
+        std::string key;
+        key.reserve(n_meas);
+        for (uint32_t shot = 0; shot < shots; ++shot) {
+            key.clear();
+            for (uint32_t m = 0; m < n_meas; ++m) {
+                key += (samples.measurements[shot * n_meas + m] ? '1' : '0');
+            }
+            ++histogram[key];
         }
-        ++histogram[key];
+    }
+
+    // Build exp_val statistics (mean and std per probe)
+    json ev_arr = json::array();
+    if (n_ev > 0) {
+        auto labels = extract_exp_val_labels(source);
+        for (uint32_t ei = 0; ei < n_ev; ++ei) {
+            double sum = 0.0;
+            double sum_sq = 0.0;
+            for (uint32_t shot = 0; shot < shots; ++shot) {
+                double v = samples.exp_vals[shot * n_ev + ei];
+                sum += v;
+                sum_sq += v * v;
+            }
+            double mean = sum / shots;
+            double variance = (sum_sq / shots) - (mean * mean);
+            double stddev = (variance > 0.0) ? std::sqrt(variance) : 0.0;
+
+            json entry = {{"mean", mean}, {"std", stddev}};
+            if (ei < labels.size()) {
+                entry["label"] = labels[ei].first;
+                entry["line"] = labels[ei].second;
+            }
+            ev_arr.push_back(entry);
+        }
     }
 
     json j = {
         {"histogram", histogram},
         {"shots", shots},
         {"num_measurements", n_meas},
+        {"exp_vals", ev_arr},
     };
     return j.dump();
 }

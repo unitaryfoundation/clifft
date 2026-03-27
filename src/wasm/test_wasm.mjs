@@ -102,6 +102,32 @@ const count1 = simResult.histogram["1"] || 0;
 assert.ok(count0 >= 350 && count0 <= 650, `Expected ~500 zeros, got ${count0}`);
 assert.ok(count1 >= 350 && count1 <= 650, `Expected ~500 ones, got ${count1}`);
 
+// --- EXP_VAL expectation value probes ---
+const evJson = mod.simulate_wasm("H 0\nEXP_VAL X0 Z0", 1000, DEFAULTS);
+const evResult = JSON.parse(evJson);
+console.log("\nEXP_VAL test:");
+console.log("  exp_vals:", evResult.exp_vals);
+assert.equal(evResult.exp_vals.length, 2, "Expected 2 exp_val entries");
+// <X> on |+> = +1 (deterministic)
+assert.ok(Math.abs(evResult.exp_vals[0].mean - 1.0) < 0.01, `Expected <X>=+1, got ${evResult.exp_vals[0].mean}`);
+// <Z> on |+> = 0
+assert.ok(Math.abs(evResult.exp_vals[1].mean) < 0.1, `Expected <Z>=0, got ${evResult.exp_vals[1].mean}`);
+// Check labels from source text
+assert.equal(evResult.exp_vals[0].label, "X0", "Expected label X0");
+assert.equal(evResult.exp_vals[1].label, "Z0", "Expected label Z0");
+assert.equal(evResult.exp_vals[0].line, 2, "Expected line 2");
+assert.equal(evResult.exp_vals[1].line, 2, "Expected line 2 (same line)");
+// std for deterministic <X>=+1 should be 0
+assert.ok(evResult.exp_vals[0].std < 0.01, `Expected std~0, got ${evResult.exp_vals[0].std}`);
+
+// --- EXP_VAL-only circuit (no measurements) returns exp_vals ---
+const evOnlyJson = mod.simulate_wasm("EXP_VAL Z0", 100, DEFAULTS);
+const evOnlyResult = JSON.parse(evOnlyJson);
+console.log("EXP_VAL-only test:", { exp_vals: evOnlyResult.exp_vals, num_measurements: evOnlyResult.num_measurements });
+assert.equal(evOnlyResult.num_measurements, 0, "Expected 0 measurements");
+assert.equal(evOnlyResult.exp_vals.length, 1, "Expected 1 exp_val");
+assert.ok(Math.abs(evOnlyResult.exp_vals[0].mean - 1.0) < 1e-10, "Expected <Z>=+1 on |0>");
+
 // --- no-measurement circuit returns consistent schema ---
 const noMeasJson = mod.simulate_wasm("H 0", 100, DEFAULTS);
 const noMeasResult = JSON.parse(noMeasJson);

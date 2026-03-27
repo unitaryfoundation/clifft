@@ -27,11 +27,19 @@ export function isCompileSuccess(r: CompileResult): r is CompileSuccess {
   return !('error' in r) || r.error === undefined;
 }
 
+export interface ExpValEntry {
+  label?: string;
+  line?: number;
+  mean: number;
+  std: number;
+}
+
 export interface SimulateSuccess {
   error?: undefined;
   histogram: Record<string, number>;
   shots: number;
   num_measurements: number;
+  exp_vals?: ExpValEntry[];
 }
 
 export interface SimulateError {
