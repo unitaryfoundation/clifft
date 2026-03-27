@@ -122,7 +122,6 @@ SchrodingerState::SchrodingerState(SchrodingerState&& other) noexcept
       meas_record(std::move(other.meas_record)),
       det_record(std::move(other.det_record)),
       obs_record(std::move(other.obs_record)),
-      exp_vals(std::move(other.exp_vals)),
       next_noise_idx(other.next_noise_idx),
       forced_faults(std::move(other.forced_faults)),
       dust_clamps(other.dust_clamps),
@@ -132,7 +131,8 @@ SchrodingerState::SchrodingerState(SchrodingerState&& other) noexcept
       v_alloc_bytes_(other.v_alloc_bytes_),
       peak_rank_(other.peak_rank_),
       v_is_mmap_(other.v_is_mmap_),
-      rng_(std::move(other.rng_)) {
+      rng_(std::move(other.rng_)),
+      exp_vals(std::move(other.exp_vals)) {
     other.v_ = nullptr;
     other.array_size_ = 0;
     other.v_alloc_bytes_ = 0;

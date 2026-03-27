@@ -189,9 +189,6 @@ class SchrodingerState {
     std::vector<uint8_t> det_record;
     std::vector<uint8_t> obs_record;
 
-    // Expectation value record: one double per EXP_VAL probe per shot.
-    std::vector<double> exp_vals;
-
     // Gap-based noise sampling: index of next noise site that might fire.
     // Sites with index < next_noise_idx are guaranteed silent (identity).
     uint32_t next_noise_idx = 0;
@@ -251,6 +248,13 @@ class SchrodingerState {
     uint32_t peak_rank_ = 0;
     bool v_is_mmap_ = false;  // true if v_ allocated via mmap
     Xoshiro256PlusPlus rng_;
+
+    // --- Cold fields (rare per-shot probes) ---
+    // Placed after rng_ to preserve cache-line packing of hot fields
+    // (gamma_, v_, rng_) which are accessed on every opcode.
+  public:
+    // Expectation value record: one double per EXP_VAL probe per shot.
+    std::vector<double> exp_vals;
 };
 
 // =============================================================================
