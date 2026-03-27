@@ -73,6 +73,8 @@ export default function App() {
   const [simResult, setSimResult] = useState<SimulateResult | null>(null);
   const [simElapsedMs, setSimElapsedMs] = useState<number | null>(null);
   const [simulating, setSimulating] = useState(false);
+  const [simSource, setSimSource] = useState<string | null>(null);
+  const simStale = simResult !== null && simSource !== null && source !== simSource;
   const [simTab, setSimTab] = useState<"measurements" | "exp_vals">("measurements");
   const [shots, setShots] = useState(DEFAULT_SHOTS);
   const [cursorSourceLine, setCursorSourceLine] = useState<number | null>(null);
@@ -308,6 +310,7 @@ export default function App() {
       const elapsed = performance.now() - t0;
       setSimResult(result);
       setSimElapsedMs(elapsed);
+      setSimSource(source);
       setSimulating(false);
       // Auto-switch tab if result has expectation values
       if (result && isSimulateSuccess(result) && result.exp_vals && result.exp_vals.length > 0) {
@@ -549,6 +552,9 @@ export default function App() {
                       <span className="chart-label-detail">
                         {" "}({simResult.shots.toLocaleString()} shots)
                       </span>
+                    )}
+                    {simStale && (
+                      <span className="sim-stale-label">stale</span>
                     )}
                   </div>
                   <div className="chart-container">

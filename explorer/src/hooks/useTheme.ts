@@ -7,6 +7,7 @@ export interface ChartColors {
   axis: string;
   tooltipBg: string;
   tooltipBorder: string;
+  tooltipText: string;
   accent: string;
   accentFill: string;
   error: string;
@@ -17,6 +18,7 @@ const DARK_CHART: ChartColors = {
   axis: "#888",
   tooltipBg: "#252526",
   tooltipBorder: "#444",
+  tooltipText: "#e0e0e0",
   accent: "#4fc3f7",
   accentFill: "#4fc3f7",
   error: "#ef5350",
@@ -27,6 +29,7 @@ const LIGHT_CHART: ChartColors = {
   axis: "#666",
   tooltipBg: "#ffffff",
   tooltipBorder: "#d0d0d0",
+  tooltipText: "#333333",
   accent: "#0277bd",
   accentFill: "#0277bd",
   error: "#c62828",

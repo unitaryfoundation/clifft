@@ -54,6 +54,8 @@ export function KHistoryChart({ history, baselineHistory, highlightPC, colors }:
         />
         <Tooltip
           contentStyle={{ background: colors.tooltipBg, border: `1px solid ${colors.tooltipBorder}`, fontSize: 12 }}
+          labelStyle={{ color: colors.tooltipText }}
+          itemStyle={{ color: colors.tooltipText }}
           labelFormatter={(pc) => `PC: ${pc}`}
         />
         {baselineHistory && baselineHistory.length > 0 && (

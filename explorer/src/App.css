@@ -254,6 +254,15 @@ html, body, #root {
   padding: 4px;
 }
 
+.sim-stale-label {
+  margin-left: 8px;
+  color: #ffd54f;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
 .chart-placeholder {
   display: flex;
   align-items: center;

@@ -95,6 +95,8 @@ export function HistogramChart({ result, elapsedMs, colors }: Props) {
             />
             <Tooltip
               contentStyle={{ background: colors.tooltipBg, border: `1px solid ${colors.tooltipBorder}`, fontSize: 12 }}
+              labelStyle={{ color: colors.tooltipText }}
+              itemStyle={{ color: colors.tooltipText }}
               formatter={(value, _name, item) => {
                 const v = Number(value);
                 const count = (item as { payload: { count: number } }).payload.count;
