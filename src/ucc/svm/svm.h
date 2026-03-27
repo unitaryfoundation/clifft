@@ -184,6 +184,11 @@ class SchrodingerState {
     // Post-selection: true if this shot was discarded by OP_POSTSELECT.
     bool discarded = false;
 
+    // True when the program has EXP_VAL probes. Fits in existing padding
+    // after discarded (3 bytes free before the next 8-byte-aligned field),
+    // so this does not shift any downstream struct layout.
+    bool has_exp_vals = false;
+
     // Classical Memory
     std::vector<uint8_t> meas_record;
     std::vector<uint8_t> det_record;

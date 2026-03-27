@@ -47,6 +47,7 @@ SchrodingerState::SchrodingerState(StateConfig cfg) : peak_rank_(cfg.peak_rank),
     det_record.resize(cfg.num_detectors, 0);
     obs_record.resize(cfg.num_observables, 0);
     exp_vals.resize(cfg.num_exp_vals, 0.0);
+    has_exp_vals = (cfg.num_exp_vals > 0);
 
     array_size_ = 1ULL << peak_rank;
     size_t bytes = array_size_ * sizeof(std::complex<double>);
@@ -119,6 +120,7 @@ SchrodingerState::SchrodingerState(SchrodingerState&& other) noexcept
       p_z(other.p_z),
       active_k(other.active_k),
       discarded(other.discarded),
+      has_exp_vals(other.has_exp_vals),
       meas_record(std::move(other.meas_record)),
       det_record(std::move(other.det_record)),
       obs_record(std::move(other.obs_record)),
@@ -163,6 +165,7 @@ SchrodingerState& SchrodingerState::operator=(SchrodingerState&& other) noexcept
         gamma_ = other.gamma_;
         active_k = other.active_k;
         discarded = other.discarded;
+        has_exp_vals = other.has_exp_vals;
         next_noise_idx = other.next_noise_idx;
         forced_faults = std::move(other.forced_faults);
         dust_clamps = other.dust_clamps;
@@ -202,7 +205,8 @@ void SchrodingerState::reset() {
     std::fill(obs_record.begin(), obs_record.end(), 0);
 
     // exp_vals are written per-shot; zero for the next shot.
-    std::fill(exp_vals.begin(), exp_vals.end(), 0.0);
+    if (has_exp_vals)
+        std::fill(exp_vals.begin(), exp_vals.end(), 0.0);
 
     // Reset forced-fault cursors (vectors are refilled per shot externally).
     forced_faults.noise_pos = 0;

@@ -2008,8 +2008,16 @@ static inline void exec_observable(SchrodingerState& state, const ConstantPool& 
 
 // EXP_VAL: read-only expectation value probe.
 // Evaluates <P> on the current state without mutating anything.
-static inline void exec_exp_val(SchrodingerState& state, const ConstantPool& pool,
-                                uint32_t cp_exp_val_idx, uint32_t exp_val_idx) {
+// Marked cold/noinline to keep its large body out of the main dispatch loop,
+// reducing instruction-cache pressure on the hot opcode path.
+#if defined(__GNUC__) || defined(__clang__)
+__attribute__((noinline, cold))
+#elif defined(_MSC_VER)
+__declspec(noinline)
+#endif
+static void
+exec_exp_val(SchrodingerState& state, const ConstantPool& pool, uint32_t cp_exp_val_idx,
+             uint32_t exp_val_idx) {
     assert(cp_exp_val_idx < pool.exp_val_masks.size());
     assert(exp_val_idx < state.exp_vals.size());
 

@@ -149,9 +149,10 @@ SampleResult sample(const CompiledModule& program, uint32_t shots, std::optional
         }
 
         // Copy expectation values
-        std::copy(
-            state.exp_vals.begin(), state.exp_vals.end(),
-            result.exp_vals.begin() + static_cast<ptrdiff_t>(static_cast<size_t>(shot) * num_ev));
+        if (num_ev > 0)
+            std::copy(state.exp_vals.begin(), state.exp_vals.end(),
+                      result.exp_vals.begin() +
+                          static_cast<ptrdiff_t>(static_cast<size_t>(shot) * num_ev));
     }
 
     return result;
@@ -235,8 +236,9 @@ SurvivorResult sample_survivors(const CompiledModule& program, uint32_t shots,
                                        state.meas_record.begin() + num_vis);
             result.detectors.insert(result.detectors.end(), state.det_record.begin(),
                                     state.det_record.end());
-            result.exp_vals.insert(result.exp_vals.end(), state.exp_vals.begin(),
-                                   state.exp_vals.end());
+            if (num_ev > 0)
+                result.exp_vals.insert(result.exp_vals.end(), state.exp_vals.begin(),
+                                       state.exp_vals.end());
         }
     }
 
@@ -508,9 +510,10 @@ SampleResult sample_k(const CompiledModule& program, uint32_t shots, uint32_t k,
             obs_out[static_cast<ptrdiff_t>(i)] = val;
         }
 
-        std::copy(
-            state.exp_vals.begin(), state.exp_vals.end(),
-            result.exp_vals.begin() + static_cast<ptrdiff_t>(static_cast<size_t>(shot) * num_ev));
+        if (num_ev > 0)
+            std::copy(state.exp_vals.begin(), state.exp_vals.end(),
+                      result.exp_vals.begin() +
+                          static_cast<ptrdiff_t>(static_cast<size_t>(shot) * num_ev));
     }
 
     return result;
@@ -593,8 +596,9 @@ SurvivorResult sample_k_survivors(const CompiledModule& program, uint32_t shots,
                                        state.meas_record.begin() + num_vis);
             result.detectors.insert(result.detectors.end(), state.det_record.begin(),
                                     state.det_record.end());
-            result.exp_vals.insert(result.exp_vals.end(), state.exp_vals.begin(),
-                                   state.exp_vals.end());
+            if (num_ev > 0)
+                result.exp_vals.insert(result.exp_vals.end(), state.exp_vals.begin(),
+                                       state.exp_vals.end());
         }
     }
 
