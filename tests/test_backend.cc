@@ -89,10 +89,11 @@ static stim::Tableau<kStimWidth> bytecode_to_tableau(const std::vector<Instructi
 
 // Verify that V_cum P V_cum^dag is a single-qubit Pauli on the expected pivot.
 // Returns the compressed PauliString for further inspection.
-static stim::PauliString<kStimWidth> verify_compression(const CompilerContext& ctx,
+static stim::PauliString<kStimWidth> verify_compression(CompilerContext& ctx,
                                                         const stim::PauliString<kStimWidth>& input,
                                                         const CompressionResult& result) {
-    stim::PauliString<kStimWidth> compressed = ctx.v_cum(input);
+    ctx.virtual_frame.flush();
+    stim::PauliString<kStimWidth> compressed = ctx.virtual_frame.materialized_tableau()(input);
     uint64_t cx = compressed.xs.u64[0];
     uint64_t cz = compressed.zs.u64[0];
 
@@ -584,22 +585,28 @@ TEST_CASE("Compress: sequential compressions accumulate in V_cum") {
     verify_compression(ctx, p1, r1);
 
     // Snapshot v_cum before second compression.
-    stim::Tableau<kStimWidth> snap1 = ctx.v_cum;
+    ctx.virtual_frame.flush();
+    stim::Tableau<kStimWidth> snap1 = ctx.virtual_frame.materialized_tableau();
     size_t bc1 = ctx.bytecode.size();
     auto r2 = compress_pauli(ctx, p2);
-    verify_sequential_compression(ctx, snap1, ctx.v_cum, p2, r2, bc1);
+    ctx.virtual_frame.flush();
+    verify_sequential_compression(ctx, snap1, ctx.virtual_frame.materialized_tableau(), p2, r2,
+                                  bc1);
 
     // Snapshot v_cum before third compression.
-    stim::Tableau<kStimWidth> snap2 = ctx.v_cum;
+    stim::Tableau<kStimWidth> snap2 = ctx.virtual_frame.materialized_tableau();
     size_t bc2 = ctx.bytecode.size();
     auto r3 = compress_pauli(ctx, p3);
-    verify_sequential_compression(ctx, snap2, ctx.v_cum, p3, r3, bc2);
+    ctx.virtual_frame.flush();
+    verify_sequential_compression(ctx, snap2, ctx.virtual_frame.materialized_tableau(), p3, r3,
+                                  bc2);
 
     // V_cum should be non-identity after multiple compressions.
     bool is_identity = true;
     for (uint32_t q = 0; q < n; ++q) {
-        if (ctx.v_cum.xs[q].xs.u64[0] != (1ULL << q) || ctx.v_cum.xs[q].zs.u64[0] != 0 ||
-            ctx.v_cum.zs[q].xs.u64[0] != 0 || ctx.v_cum.zs[q].zs.u64[0] != (1ULL << q)) {
+        const auto& v_cum = ctx.virtual_frame.materialized_tableau();
+        if (v_cum.xs[q].xs.u64[0] != (1ULL << q) || v_cum.xs[q].zs.u64[0] != 0 ||
+            v_cum.zs[q].xs.u64[0] != 0 || v_cum.zs[q].zs.u64[0] != (1ULL << q)) {
             is_identity = false;
             break;
         }
@@ -948,7 +955,8 @@ TEST_CASE("Compress sequential: 20 compressions on 20 qubits") {
     }
 
     for (int step = 0; step < 20; ++step) {
-        stim::Tableau<kStimWidth> snap = ctx.v_cum;
+        ctx.virtual_frame.flush();
+        stim::Tableau<kStimWidth> snap = ctx.virtual_frame.materialized_tableau();
         size_t bc_snap = ctx.bytecode.size();
 
         uint64_t qubit_mask = (1ULL << n) - 1;
@@ -960,7 +968,9 @@ TEST_CASE("Compress sequential: 20 compressions on 20 qubits") {
 
         auto pauli = make_pauli(n, x_bits, z_bits, (test_lcg(seed) & 1) != 0);
         auto result = compress_pauli(ctx, pauli);
-        verify_sequential_compression(ctx, snap, ctx.v_cum, pauli, result, bc_snap);
+        ctx.virtual_frame.flush();
+        verify_sequential_compression(ctx, snap, ctx.virtual_frame.materialized_tableau(), pauli,
+                                      result, bc_snap);
     }
 }
 
@@ -974,7 +984,8 @@ TEST_CASE("Compress sequential: 30 compressions on 30 qubits all-active") {
     }
 
     for (int step = 0; step < 30; ++step) {
-        stim::Tableau<kStimWidth> snap = ctx.v_cum;
+        ctx.virtual_frame.flush();
+        stim::Tableau<kStimWidth> snap = ctx.virtual_frame.materialized_tableau();
         size_t bc_snap = ctx.bytecode.size();
 
         uint64_t qubit_mask = (1ULL << n) - 1;
@@ -986,7 +997,9 @@ TEST_CASE("Compress sequential: 30 compressions on 30 qubits all-active") {
 
         auto pauli = make_pauli(n, x_bits, z_bits, (test_lcg(seed) & 1) != 0);
         auto result = compress_pauli(ctx, pauli);
-        verify_sequential_compression(ctx, snap, ctx.v_cum, pauli, result, bc_snap);
+        ctx.virtual_frame.flush();
+        verify_sequential_compression(ctx, snap, ctx.virtual_frame.materialized_tableau(), pauli,
+                                      result, bc_snap);
     }
 }
 
@@ -996,7 +1009,8 @@ TEST_CASE("Compress sequential: 30 compressions on 30 qubits all-dormant") {
     CompilerContext ctx(n);  // k=0, all dormant
 
     for (int step = 0; step < 30; ++step) {
-        stim::Tableau<kStimWidth> snap = ctx.v_cum;
+        ctx.virtual_frame.flush();
+        stim::Tableau<kStimWidth> snap = ctx.virtual_frame.materialized_tableau();
         size_t bc_snap = ctx.bytecode.size();
 
         uint64_t qubit_mask = (1ULL << n) - 1;
@@ -1008,7 +1022,9 @@ TEST_CASE("Compress sequential: 30 compressions on 30 qubits all-dormant") {
 
         auto pauli = make_pauli(n, x_bits, z_bits, (test_lcg(seed) & 1) != 0);
         auto result = compress_pauli(ctx, pauli);
-        verify_sequential_compression(ctx, snap, ctx.v_cum, pauli, result, bc_snap);
+        ctx.virtual_frame.flush();
+        verify_sequential_compression(ctx, snap, ctx.virtual_frame.materialized_tableau(), pauli,
+                                      result, bc_snap);
 
         // All-dormant should only emit frame opcodes
         REQUIRE(all_frame_opcodes(ctx.bytecode));
@@ -1417,4 +1433,62 @@ TEST_CASE("Lower: EXP_VAL does not affect measurement count") {
     auto mod = compile_circuit("H 0\nEXP_VAL X0\nM 0");
     CHECK(mod.num_measurements == 1);
     CHECK(mod.num_exp_vals == 1);
+}
+
+TEST_CASE("Lower: queued virtual gates affect later EXP_VAL masks") {
+    HirModule hir;
+    hir.num_qubits = 1;
+    hir.num_exp_vals = 1;
+
+    // T on an X-basis dormant axis queues a virtual H and EXPAND without
+    // immediately materializing the H into v_cum.
+    hir.ops.push_back(HeisenbergOp::make_tgate(X(0), 0, false));
+    hir.ops.push_back(HeisenbergOp::make_exp_val(X(0), 0, false, ExpValIdx{0}));
+
+    auto mod = lower(hir);
+
+    REQUIRE(mod.constant_pool.exp_val_masks.size() == 1);
+    const auto& pm = mod.constant_pool.exp_val_masks[0];
+    CHECK(pm.x.is_zero());
+    CHECK(pm.z == Z(0));
+    CHECK(!pm.sign);
+}
+
+TEST_CASE("Lower: queued virtual gates affect later measurements") {
+    HirModule hir;
+    hir.num_qubits = 1;
+    hir.num_measurements = 1;
+
+    // The queued virtual H from the T gate should map a later X probe to Z,
+    // making the active measurement diagonal instead of interfering.
+    hir.ops.push_back(HeisenbergOp::make_tgate(X(0), 0, false));
+    hir.ops.push_back(HeisenbergOp::make_measure(X(0), 0, false, MeasRecordIdx{0}));
+
+    auto mod = lower(hir);
+
+    CHECK(mod.peak_rank == 1);
+    CHECK(count_opcodes(mod.bytecode, Opcode::OP_MEAS_ACTIVE_DIAGONAL) == 1);
+    CHECK(count_opcodes(mod.bytecode, Opcode::OP_MEAS_ACTIVE_INTERFERE) == 0);
+}
+
+TEST_CASE("Lower: queued virtual gates affect later noise masks") {
+    HirModule hir;
+    hir.num_qubits = 1;
+
+    NoiseSite site;
+    site.channels.push_back({X(0), 0, 0.25});
+    hir.noise_sites.push_back(site);
+
+    // Leave a virtual H pending, then map an X-error noise site through it.
+    hir.ops.push_back(HeisenbergOp::make_tgate(X(0), 0, false));
+    hir.ops.push_back(HeisenbergOp::make_noise(NoiseSiteIdx{0}));
+
+    auto mod = lower(hir);
+
+    REQUIRE(mod.constant_pool.noise_sites.size() == 1);
+    REQUIRE(mod.constant_pool.noise_sites[0].channels.size() == 1);
+    const auto& ch = mod.constant_pool.noise_sites[0].channels[0];
+    CHECK(ch.destab_mask.is_zero());
+    CHECK(ch.stab_mask == Z(0));
+    CHECK_THAT(ch.prob, Catch::Matchers::WithinAbs(0.25, 1e-12));
 }

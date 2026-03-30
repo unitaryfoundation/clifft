@@ -111,49 +111,48 @@ void extract_rewound_x(const stim::TableauSimulator<kStimWidth>& sim, uint32_t q
     sign = pauli.sign;
 }
 
+// Accumulate bitmasks from a single-qubit Pauli generator's tableau row.
+// For X (type=1): read xs[q]; for Z (type=3): read zs[q]; for Y (type=2): XOR both rows.
+// Sign is irrelevant for noise channels since E and -E are physically identical.
+void accumulate_pauli_row(const stim::Tableau<kStimWidth>& tab, uint32_t qubit, int pauli_type,
+                          uint32_t n, PauliBitMask& xs_out, PauliBitMask& zs_out) {
+    if (pauli_type == 1) {  // X
+        xs_out ^= stim_to_bitmask(tab.xs[qubit].xs, n);
+        zs_out ^= stim_to_bitmask(tab.xs[qubit].zs, n);
+    } else if (pauli_type == 3) {  // Z
+        xs_out ^= stim_to_bitmask(tab.zs[qubit].xs, n);
+        zs_out ^= stim_to_bitmask(tab.zs[qubit].zs, n);
+    } else if (pauli_type == 2) {  // Y = iXZ -> XOR both rows
+        xs_out ^= stim_to_bitmask(tab.xs[qubit].xs, n);
+        zs_out ^= stim_to_bitmask(tab.xs[qubit].zs, n);
+        xs_out ^= stim_to_bitmask(tab.zs[qubit].xs, n);
+        zs_out ^= stim_to_bitmask(tab.zs[qubit].zs, n);
+    }
+}
+
 // Rewind a single-qubit Pauli (X, Y, or Z) through the tableau.
 // pauli_type: 1=X, 2=Y, 3=Z
+// Reads tableau rows directly instead of constructing a PauliString.
 NoiseChannel rewind_single_pauli(const stim::TableauSimulator<kStimWidth>& sim, uint32_t qubit,
                                  int pauli_type, double prob) {
-    stim::PauliString<kStimWidth> pauli(sim.inv_state.num_qubits);
-    switch (pauli_type) {
-        case 1:  // X
-            pauli.xs[qubit] = true;
-            break;
-        case 2:  // Y = iXZ
-            pauli.xs[qubit] = true;
-            pauli.zs[qubit] = true;
-            break;
-        case 3:  // Z
-            pauli.zs[qubit] = true;
-            break;
-    }
-    stim::PauliString<kStimWidth> rewound = sim.inv_state(pauli);
     uint32_t n = sim.inv_state.num_qubits;
-    return NoiseChannel{stim_to_bitmask(rewound.xs, n), stim_to_bitmask(rewound.zs, n), prob};
+    PauliBitMask xs{}, zs{};
+    accumulate_pauli_row(sim.inv_state, qubit, pauli_type, n, xs, zs);
+    return NoiseChannel{xs, zs, prob};
 }
 
 // Rewind a two-qubit Pauli through the tableau.
 // pauli1, pauli2: 0=I, 1=X, 2=Y, 3=Z
+// XORs tableau rows directly instead of constructing a PauliString.
 NoiseChannel rewind_two_qubit_pauli(const stim::TableauSimulator<kStimWidth>& sim, uint32_t q1,
                                     uint32_t q2, int pauli1, int pauli2, double prob) {
-    stim::PauliString<kStimWidth> pauli(sim.inv_state.num_qubits);
-
-    // Set Pauli on q1
-    if (pauli1 == 1 || pauli1 == 2)
-        pauli.xs[q1] = true;  // X or Y
-    if (pauli1 == 2 || pauli1 == 3)
-        pauli.zs[q1] = true;  // Y or Z
-
-    // Set Pauli on q2
-    if (pauli2 == 1 || pauli2 == 2)
-        pauli.xs[q2] = true;  // X or Y
-    if (pauli2 == 2 || pauli2 == 3)
-        pauli.zs[q2] = true;  // Y or Z
-
-    stim::PauliString<kStimWidth> rewound = sim.inv_state(pauli);
     uint32_t n = sim.inv_state.num_qubits;
-    return NoiseChannel{stim_to_bitmask(rewound.xs, n), stim_to_bitmask(rewound.zs, n), prob};
+    PauliBitMask xs{}, zs{};
+    if (pauli1 != 0)
+        accumulate_pauli_row(sim.inv_state, q1, pauli1, n, xs, zs);
+    if (pauli2 != 0)
+        accumulate_pauli_row(sim.inv_state, q2, pauli2, n, xs, zs);
+    return NoiseChannel{xs, zs, prob};
 }
 
 // Create a NoiseSite for a single-qubit noise channel.

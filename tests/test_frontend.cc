@@ -11,11 +11,54 @@
 
 #include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
+#include <random>
 #include <stdexcept>
 
 using namespace ucc;
 using ucc::test::X;
 using ucc::test::Z;
+
+static PauliBitMask stim_to_bitmask(const stim::simd_bits_range_ref<kStimWidth>& bits, uint32_t n) {
+    PauliBitMask m;
+    uint32_t words = (n + 63) / 64;
+    for (uint32_t w = 0; w < words && w < kMaxInlineWords; ++w) {
+        m.w[w] = bits.u64[w];
+    }
+    return m;
+}
+
+static NoiseChannel rewind_single_pauli_reference(const stim::TableauSimulator<kStimWidth>& sim,
+                                                  uint32_t qubit, int pauli_type, double prob) {
+    stim::PauliString<kStimWidth> pauli(sim.inv_state.num_qubits);
+    if (pauli_type == 1 || pauli_type == 2)
+        pauli.xs[qubit] = true;
+    if (pauli_type == 2 || pauli_type == 3)
+        pauli.zs[qubit] = true;
+
+    auto rewound = sim.inv_state(pauli);
+    uint32_t n = sim.inv_state.num_qubits;
+    return {stim_to_bitmask(rewound.xs, n), stim_to_bitmask(rewound.zs, n), prob};
+}
+
+static NoiseChannel rewind_two_qubit_pauli_reference(const stim::TableauSimulator<kStimWidth>& sim,
+                                                     uint32_t q1, uint32_t q2, int pauli1,
+                                                     int pauli2, double prob) {
+    stim::PauliString<kStimWidth> pauli(sim.inv_state.num_qubits);
+
+    if (pauli1 == 1 || pauli1 == 2)
+        pauli.xs[q1] = true;
+    if (pauli1 == 2 || pauli1 == 3)
+        pauli.zs[q1] = true;
+
+    if (pauli2 == 1 || pauli2 == 2)
+        pauli.xs[q2] = true;
+    if (pauli2 == 2 || pauli2 == 3)
+        pauli.zs[q2] = true;
+
+    auto rewound = sim.inv_state(pauli);
+    uint32_t n = sim.inv_state.num_qubits;
+    return {stim_to_bitmask(rewound.xs, n), stim_to_bitmask(rewound.zs, n), prob};
+}
 
 TEST_CASE("Frontend: identity circuit produces empty HIR", "[frontend]") {
     auto circuit = parse("TICK");
@@ -837,6 +880,60 @@ TEST_CASE("Frontend: noise rewinding through H gate", "[frontend][noise]") {
     // X after H = Z at t=0: destab=0, stab=1
     REQUIRE(site.channels[0].destab_mask == 0);
     REQUIRE(site.channels[0].stab_mask == 1);
+}
+
+TEST_CASE("Frontend: Y_ERROR rewinds through entangling Cliffords", "[frontend][noise]") {
+    auto circuit = parse("H 0\nCX 0 1\nY_ERROR(0.02) 1");
+    auto hir = trace(circuit);
+
+    REQUIRE(hir.num_ops() == 1);
+    REQUIRE(hir.ops[0].op_type() == OpType::NOISE);
+    REQUIRE(hir.noise_sites.size() == 1);
+    REQUIRE(hir.noise_sites[0].channels.size() == 1);
+
+    std::mt19937_64 rng(0);
+    stim::TableauSimulator<kStimWidth> sim(std::move(rng), 2);
+    sim.inv_state.prepend_H_XZ(0);
+    sim.inv_state.prepend_ZCX(0, 1);
+    auto expected = rewind_single_pauli_reference(sim, 1, 2, 0.02);
+
+    const auto& actual = hir.noise_sites[0].channels[0];
+    CHECK(actual.destab_mask == expected.destab_mask);
+    CHECK(actual.stab_mask == expected.stab_mask);
+    CHECK(actual.prob == Catch::Approx(expected.prob));
+}
+
+TEST_CASE("Frontend: DEPOLARIZE2 rewinds through entangling Cliffords", "[frontend][noise]") {
+    auto circuit = parse("H 0\nCX 0 1\nDEPOLARIZE2(0.15) 0 1");
+    auto hir = trace(circuit);
+
+    REQUIRE(hir.num_ops() == 1);
+    REQUIRE(hir.ops[0].op_type() == OpType::NOISE);
+    REQUIRE(hir.noise_sites.size() == 1);
+    REQUIRE(hir.noise_sites[0].channels.size() == 15);
+
+    std::mt19937_64 rng(0);
+    stim::TableauSimulator<kStimWidth> sim(std::move(rng), 2);
+    sim.inv_state.prepend_H_XZ(0);
+    sim.inv_state.prepend_ZCX(0, 1);
+
+    double channel_prob = 0.15 / 15.0;
+    std::vector<NoiseChannel> expected;
+    for (int p1 = 0; p1 <= 3; ++p1) {
+        for (int p2 = 0; p2 <= 3; ++p2) {
+            if (p1 == 0 && p2 == 0)
+                continue;
+            expected.push_back(rewind_two_qubit_pauli_reference(sim, 0, 1, p1, p2, channel_prob));
+        }
+    }
+
+    const auto& actual_site = hir.noise_sites[0];
+    REQUIRE(actual_site.channels.size() == expected.size());
+    for (size_t i = 0; i < expected.size(); ++i) {
+        CHECK(actual_site.channels[i].destab_mask == expected[i].destab_mask);
+        CHECK(actual_site.channels[i].stab_mask == expected[i].stab_mask);
+        CHECK(actual_site.channels[i].prob == Catch::Approx(expected[i].prob));
+    }
 }
 
 TEST_CASE("Frontend: READOUT_NOISE emission", "[frontend][noise]") {
