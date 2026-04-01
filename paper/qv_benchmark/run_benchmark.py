@@ -36,7 +36,7 @@ _CSV_HEADER: List[str] = [
     "peak_mb",
 ]
 
-_DEFAULT_SIMULATORS: str = "ucc,qiskit,qulacs,qsim"
+_DEFAULT_SIMULATORS: str = "ucc,qiskit,qulacs,qsim,qrack"
 
 _PROJECT_ROOT: Path = Path(__file__).resolve().parent.parent.parent
 
@@ -190,14 +190,18 @@ def _run_worker(
         status = _classify_failure(proc.returncode, proc.stderr)
         return {"status": status}
 
-    # Parse the last non-empty line of stdout as JSON.
+    # Find the JSON result line in stdout.  Some backends (e.g. Qrack's native
+    # library) print non-JSON diagnostics to stdout, so scan in reverse for
+    # the first parseable JSON object.
     stdout_lines = [ln for ln in proc.stdout.strip().splitlines() if ln.strip()]
-    if not stdout_lines:
-        return {"status": "ERROR"}
-
-    try:
-        data: Dict[str, Any] = json.loads(stdout_lines[-1])
-    except (json.JSONDecodeError, IndexError):
+    data: Dict[str, Any] | None = None
+    for ln in reversed(stdout_lines):
+        try:
+            data = json.loads(ln)
+            break
+        except (json.JSONDecodeError, ValueError):
+            continue
+    if data is None:
         return {"status": "ERROR"}
 
     data.setdefault("status", "SUCCESS")

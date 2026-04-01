@@ -107,3 +107,4 @@ N,simulator,repeat,seed,status,exec_s,compile_s,sample_s,peak_mb
 22,qsim,0,42,SUCCESS,0.828704,0.0,0.0,255.5
 22,qsim,1,43,SUCCESS,0.845651,0.0,0.0,255.9
 22,qsim,2,44,SUCCESS,0.848422,0.0,0.0,255.7
+6,qrack,0,42,ERROR,,,,

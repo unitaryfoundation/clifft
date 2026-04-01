@@ -21,8 +21,9 @@ import time
 os.environ["OMP_NUM_THREADS"] = "1"
 os.environ["MKL_NUM_THREADS"] = "1"
 os.environ["OPENBLAS_NUM_THREADS"] = "1"
+os.environ["QRACK_DISABLE_OPENCL"] = "1"  # Qrack CPU-only; suppress native "No platforms" msg
 
-VALID_SIMULATORS: set[str] = {"ucc", "qiskit", "qulacs", "qsim"}
+VALID_SIMULATORS: set[str] = {"ucc", "qiskit", "qulacs", "qsim", "qrack"}
 
 
 def _apply_mem_limit() -> None:
@@ -134,11 +135,28 @@ def _run_qsim(qasm: str) -> dict[str, float]:
     return {"exec_s": exec_s, "compile_s": 0.0, "sample_s": 0.0}
 
 
+def _run_qrack(qasm: str) -> dict[str, float]:
+    from qiskit.circuit import QuantumCircuit
+    from qiskit.providers.qrack import QasmSimulator
+
+    qkc = QuantumCircuit.from_qasm_str(qasm)
+    sim = QasmSimulator(shots=1)
+    # Skip transpile — input QASM is already in cx+u3 basis, and the
+    # qrack provider's target property is incompatible with Qiskit 2.x transpile.
+
+    t0 = time.perf_counter()
+    sim.run(qkc, shots=1).result()
+    exec_s = time.perf_counter() - t0
+
+    return {"exec_s": exec_s, "compile_s": 0.0, "sample_s": 0.0}
+
+
 _RUNNERS: dict[str, object] = {
     "ucc": _run_ucc,
     "qiskit": _run_qiskit,
     "qulacs": _run_qulacs,
     "qsim": _run_qsim,
+    "qrack": _run_qrack,
 }
 
 
