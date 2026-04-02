@@ -337,6 +337,10 @@ Sample with exactly `k` forced faults per shot. Returns
 a `SampleResult`, just like `ucc.sample()`. Results must be weighted by $P(K=k)$ for correct
 error rate estimation.
 
+For programs with post-selection, use `ucc.sample_k_survivors(...)`
+instead. Fixed-row output from `sample_k(...)` cannot represent
+discarded shots.
+
 Raises `ValueError` if the stratum has zero probability mass (e.g., `k`
 exceeds the number of non-zero-probability sites).
 

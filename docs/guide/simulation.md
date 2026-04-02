@@ -203,7 +203,7 @@ result = ucc.sample_k_survivors(prog, shots=50_000, k=3, seed=42)
 
 Key API:
 
-- **`ucc.sample_k(program, shots, k, seed=None)`** -- Like `sample()`, but forces exactly `k` faults. Returns a `SampleResult` with `.measurements`, `.detectors`, and `.observables`.
+- **`ucc.sample_k(program, shots, k, seed=None)`** -- Like `sample()`, but forces exactly `k` faults. Only valid for programs without post-selection; post-selected programs must use `sample_k_survivors()`. Returns a `SampleResult` with `.measurements`, `.detectors`, and `.observables`.
 - **`ucc.sample_k_survivors(program, shots, k, seed=None, keep_records=False)`** -- Like `sample_survivors()`, but forces exactly `k` faults. Returns a `SampleResult` whose arrays contain only surviving shots plus survivor metadata.
 - **`program.noise_site_probabilities`** -- 1D numpy array of per-site fault probabilities (quantum noise sites followed by readout noise entries). Use for computing the Poisson-Binomial PMF.
 

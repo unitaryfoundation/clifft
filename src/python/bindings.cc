@@ -634,6 +634,9 @@ NB_MODULE(_ucc_core, m) {
         .def_prop_ro("num_observables",
                      [](const ucc::CompiledModule& p) { return p.num_observables; })
         .def_prop_ro("num_exp_vals", [](const ucc::CompiledModule& p) { return p.num_exp_vals; })
+        .def_prop_ro(
+            "has_postselection", [](const ucc::CompiledModule& p) { return p.has_postselection; },
+            "True if the program contains OP_POSTSELECT instructions.")
         .def_prop_ro("num_instructions",
                      [](const ucc::CompiledModule& p) { return p.bytecode.size(); })
         .def_prop_ro(
@@ -796,6 +799,12 @@ NB_MODULE(_ucc_core, m) {
     m.def(
         "sample",
         [](const ucc::CompiledModule& program, uint32_t shots, std::optional<uint64_t> seed) {
+            if (program.has_postselection) {
+                throw nb::value_error(
+                    "sample() cannot be used with post-selected programs because it "
+                    "returns a fixed number of rows and cannot discard shots. "
+                    "Use sample_survivors(program, shots, keep_records=True) instead.");
+            }
             ucc::SampleResult result;
             {
                 nb::gil_scoped_release release;
@@ -817,6 +826,8 @@ NB_MODULE(_ucc_core, m) {
         },
         nb::arg("program"), nb::arg("shots"), nb::arg("seed") = nb::none(),
         "Run a compiled program and return a SampleResult.\n\n"
+        "Raises ValueError for post-selected programs because fixed-row output\n"
+        "cannot represent discarded shots. Use sample_survivors() instead.\n\n"
         "If seed is None (default), uses 256-bit OS hardware entropy.\n\n"
         "Returns a SampleResult with .measurements, .detectors, .observables attributes.\n"
         "Supports tuple unpacking: m, d, o = ucc.sample(prog, shots)");
@@ -826,6 +837,12 @@ NB_MODULE(_ucc_core, m) {
         "sample_k",
         [](const ucc::CompiledModule& program, uint32_t shots, uint32_t k,
            std::optional<uint64_t> seed) {
+            if (program.has_postselection) {
+                throw nb::value_error(
+                    "sample_k() cannot be used with post-selected programs because it "
+                    "returns a fixed number of rows and cannot discard shots. "
+                    "Use sample_k_survivors(program, shots, k, keep_records=True) instead.");
+            }
             ucc::SampleResult result;
             {
                 nb::gil_scoped_release release;
@@ -849,8 +866,11 @@ NB_MODULE(_ucc_core, m) {
         "Sites are drawn from the exact conditional Poisson-Binomial\n"
         "distribution. Results are conditioned on K=k and must be combined\n"
         "across strata with P(K=k) weights for correct error rate estimation.\n"
+        "Raises ValueError for post-selected programs because fixed-row output\n"
+        "cannot represent discarded shots. Use sample_k_survivors() instead.\n\n"
         "For post-selected circuits, weight numerator and denominator\n"
-        "separately: p_fail = sum(P(K=k)*errors_k/shots_k) / sum(P(K=k)*passed_k/shots_k).\n\n"
+        "separately via sample_k_survivors(): p_fail =\n"
+        "sum(P(K=k)*errors_k/shots_k) / sum(P(K=k)*passed_k/shots_k).\n\n"
         "Raises ValueError if the k-fault stratum has zero probability mass\n"
         "(e.g. k exceeds the number of non-zero-probability sites).\n\n"
         "When all site probabilities are equal, an O(k) Fisher-Yates\n"

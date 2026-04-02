@@ -296,13 +296,14 @@ struct ConstantPool {
 struct CompiledModule {
     std::vector<Instruction> bytecode;
     ConstantPool constant_pool;
-    uint32_t num_qubits = 0;        // Total physical qubits n
-    uint32_t peak_rank = 0;         // Maximum active dimension k reached
-    uint32_t num_measurements = 0;  // Visible measurements (user-facing count)
-    uint32_t total_meas_slots = 0;  // Visible + hidden measurements (VM allocation)
-    uint32_t num_detectors = 0;     // Total detectors
-    uint32_t num_observables = 0;   // Total observables
-    uint32_t num_exp_vals = 0;      // Total expectation value probes
+    uint32_t num_qubits = 0;         // Total physical qubits n
+    uint32_t peak_rank = 0;          // Maximum active dimension k reached
+    uint32_t num_measurements = 0;   // Visible measurements (user-facing count)
+    uint32_t total_meas_slots = 0;   // Visible + hidden measurements (VM allocation)
+    uint32_t num_detectors = 0;      // Total detectors
+    uint32_t num_observables = 0;    // Total observables
+    uint32_t num_exp_vals = 0;       // Total expectation value probes
+    bool has_postselection = false;  // True if any detector uses OP_POSTSELECT
 
     // Expected noiseless observable parities for syndrome normalization.
     // When non-empty, sample()/sample_survivors() XOR obs_record[i] with

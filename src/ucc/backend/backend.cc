@@ -544,6 +544,7 @@ CompiledModule lower(const HirModule& hir, std::span<const uint8_t> postselectio
     uint32_t total_meas_slots = hir.num_measurements + hir.num_hidden_measurements;
 
     bool has_source_map = hir.source_map.size() == hir.ops.size();
+    bool has_postselection = false;
 
     for (size_t op_idx = 0; op_idx < hir.ops.size(); ++op_idx) {
         const auto& op = hir.ops[op_idx];
@@ -753,6 +754,7 @@ CompiledModule lower(const HirModule& hir, std::span<const uint8_t> postselectio
                                          : ExpectedParity::Zero;
                 if (is_postselected) {
                     ctx.emit(make_postselect(cp_idx, det_emit_idx, exp));
+                    has_postselection = true;
                 } else {
                     ctx.emit(make_detector(cp_idx, det_emit_idx, exp));
                 }
@@ -839,6 +841,7 @@ CompiledModule lower(const HirModule& hir, std::span<const uint8_t> postselectio
     result.num_detectors = hir.num_detectors;
     result.num_observables = hir.num_observables;
     result.num_exp_vals = hir.num_exp_vals;
+    result.has_postselection = has_postselection;
     result.expected_observables.assign(expected_observables.begin(), expected_observables.end());
 
     return result;

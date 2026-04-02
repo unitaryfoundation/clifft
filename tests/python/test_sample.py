@@ -652,24 +652,47 @@ class TestPostselection:
         assert prog.num_detectors == 1
         assert prog.num_measurements == 1
 
-    def test_postselection_aborts_doomed_shots(self) -> None:
-        """Shots that fail post-selection have zeroed detector records."""
-        # Circuit: random measurement, postselected detector checks it.
-        # Surviving shots must have meas[0]==0. Discarded shots get det=0.
+    def test_has_postselection_flag(self) -> None:
+        """has_postselection is True when mask is non-trivial, False otherwise."""
+        circuit = "M 0\nDETECTOR rec[-1]\n"
+        prog_no_mask = ucc.compile(circuit)
+        assert prog_no_mask.has_postselection is False
+
+        prog_zero_mask = ucc.compile(circuit, postselection_mask=[0])
+        assert prog_zero_mask.has_postselection is False
+
+        prog_with_mask = ucc.compile(circuit, postselection_mask=[1])
+        assert prog_with_mask.has_postselection is True
+
+    def test_sample_raises_on_postselected_program(self) -> None:
+        """sample() raises ValueError when program has postselection."""
         circuit = """
             H 0
             M 0
             DETECTOR rec[-1]
         """
         prog = ucc.compile(circuit, postselection_mask=[1])
-        result = ucc.sample(prog, 200, seed=42)
+        with pytest.raises(ValueError, match="sample_survivors"):
+            ucc.sample(prog, 10)
 
-        # All detector records should be 0 (postselect writes 0 always)
-        assert np.all(result.detectors == 0)
+    def test_sample_k_raises_on_postselected_program(self) -> None:
+        """sample_k() raises ValueError when program has postselection."""
+        circuit = """
+            R 0
+            DEPOLARIZE1(0.1) 0
+            M 0
+            DETECTOR rec[-1]
+        """
+        prog = ucc.compile(circuit, postselection_mask=[1])
+        with pytest.raises(ValueError, match="sample_k_survivors"):
+            ucc.sample_k(prog, 10, k=1)
 
-        # With H|0> measurement, roughly half the shots have meas==0
-        survived = result.measurements[:, 0] == 0
-        assert 20 < np.sum(survived) < 180  # not all, not none
+    def test_sample_ok_without_postselection(self) -> None:
+        """sample() works fine when program has no postselection."""
+        circuit = "M 0\nDETECTOR rec[-1]\n"
+        prog = ucc.compile(circuit)
+        result = ucc.sample(prog, 10, seed=42)
+        assert result.detectors.shape == (10, 1)
 
     def test_empty_mask_is_default(self) -> None:
         """Empty postselection_mask produces same result as no mask."""
