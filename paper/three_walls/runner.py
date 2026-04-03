@@ -6,6 +6,12 @@ Usage:
 
     # Local validation on a small VM (UCC + Qiskit only, small params)
     python runner.py --local
+
+    # Fast smoke test across all three tools
+    python runner.py --smoke
+
+    # Compare single-threaded vs best-effort Qiskit execution
+    python runner.py --smoke --qiskit-thread-policy best-effort
 """
 
 import argparse
@@ -22,6 +28,7 @@ from generator import generate_boundary_circuit
 TIMEOUT_S = 120
 RESULTS_FILE = "results_walls.csv"
 CSV_HEADER = ["Panel", "N", "t", "k", "Tool", "Status", "Exec_s", "PeakMem_MB"]
+QISKIT_THREAD_POLICIES = ("single", "best-effort")
 
 # Sweep definitions: (Panel_Name, N_list, t_list, k_list, Tools)
 SweepDef = tuple[str, list[int], list[int], list[int], list[str]]
@@ -38,8 +45,14 @@ FULL_SWEEPS: list[SweepDef] = [
 # Panel C: Both scale linearly in t; UCC has smaller constant (2^k vs 2^N).
 LOCAL_SWEEPS: list[SweepDef] = [
     ("Panel_A", [16, 20, 24, 26, 28, 29], [20], [12], ["qiskit", "ucc"]),
-    ("Panel_B", [24], [40], [8, 12, 16, 20, 22, 24, 25], ["qiskit", "ucc"]),
+    ("Panel_B", [24], [40], [8, 12, 16, 20, 22, 24], ["qiskit", "ucc"]),
     ("Panel_C", [26], [10, 100, 500, 1000, 5000], [12], ["qiskit", "ucc"]),
+]
+
+SMOKE_SWEEPS: list[SweepDef] = [
+    ("Panel_A", [10], [5], [3], ["qiskit", "ucc", "tsim"]),
+    ("Panel_B", [12], [8], [4], ["qiskit", "ucc", "tsim"]),
+    ("Panel_C", [12], [20], [4], ["qiskit", "ucc", "tsim"]),
 ]
 
 
@@ -57,15 +70,24 @@ def check_theoretical_oom(tool: str, N: int, k: int, max_ram_gb: float) -> bool:
 
 
 def run_worker_process(
-    tool: str, stim_file: str, qasm_file: str, mem_limit_gb: float
+    tool: str,
+    stim_file: str,
+    qasm_file: str,
+    mem_limit_gb: float,
+    qiskit_thread_policy: str = "single",
 ) -> dict[str, Any]:
     """Run the simulation in an isolated subprocess."""
     cmd = [sys.executable, __file__, "--internal-worker", tool, stim_file, qasm_file]
 
     env = os.environ.copy()
-    env["OMP_NUM_THREADS"] = "1"
-    env["MKL_NUM_THREADS"] = "1"
+    if tool != "qiskit" or qiskit_thread_policy == "single":
+        env["OMP_NUM_THREADS"] = "1"
+        env["MKL_NUM_THREADS"] = "1"
+    else:
+        env.pop("OMP_NUM_THREADS", None)
+        env.pop("MKL_NUM_THREADS", None)
     env["UCC_BENCH_MEM_LIMIT_GB"] = str(mem_limit_gb)
+    env["UCC_BENCH_QISKIT_THREAD_POLICY"] = qiskit_thread_policy
 
     try:
         result = subprocess.run(cmd, capture_output=True, text=True, timeout=TIMEOUT_S, env=env)
@@ -118,7 +140,11 @@ def execute_internal(tool: str, stim_file: str, qasm_file: str) -> None:
         from qiskit_aer import AerSimulator
 
         qc = QuantumCircuit.from_qasm_file(qasm_file)
-        sim = AerSimulator(method="statevector", max_parallel_threads=1)
+        qiskit_thread_policy = os.environ.get("UCC_BENCH_QISKIT_THREAD_POLICY", "single")
+        if qiskit_thread_policy == "best-effort":
+            sim = AerSimulator(method="statevector")
+        else:
+            sim = AerSimulator(method="statevector", max_parallel_threads=1)
         sim.run(transpile(qc, sim), shots=1).result()
 
     elif tool == "tsim":
@@ -147,7 +173,12 @@ def execute_internal(tool: str, stim_file: str, qasm_file: str) -> None:
     sys.exit(0)
 
 
-def run_sweep(sweeps: list[SweepDef], max_ram_gb: float, mem_limit_gb: float) -> None:
+def run_sweep(
+    sweeps: list[SweepDef],
+    max_ram_gb: float,
+    mem_limit_gb: float,
+    qiskit_thread_policy: str,
+) -> None:
     """Iterate through the parameter phase space."""
     if not os.path.exists(RESULTS_FILE):
         with open(RESULTS_FILE, mode="w", newline="") as f:
@@ -158,14 +189,15 @@ def run_sweep(sweeps: list[SweepDef], max_ram_gb: float, mem_limit_gb: float) ->
         for n_val in n_list:
             for t_val in t_list:
                 for k_val in k_list:
-                    base = f"circuits/bench_{panel}_N{n_val}_t{t_val}_k{k_val}"
-                    stim_f, qasm_f = generate_boundary_circuit(n_val, t_val, k_val, base)
+                    actual_k = min(k_val, n_val)
+                    base = f"circuits/bench_{panel}_N{n_val}_t{t_val}_k{actual_k}"
+                    stim_f, qasm_f = generate_boundary_circuit(n_val, t_val, actual_k, base)
 
                     for tool in tools:
-                        label = f"[{panel}] {tool:<7} (N={n_val:<3}, t={t_val:<3}, k={k_val:<2})"
+                        label = f"[{panel}] {tool:<7} (N={n_val:<3}, t={t_val:<3}, k={actual_k:<2})"
                         print(f"{label} -> ", end="", flush=True)
 
-                        if check_theoretical_oom(tool, n_val, k_val, max_ram_gb):
+                        if check_theoretical_oom(tool, n_val, actual_k, max_ram_gb):
                             print("SKIPPED (Math OOM)")
                             res: dict[str, Any] = {
                                 "status": "OOM",
@@ -173,7 +205,13 @@ def run_sweep(sweeps: list[SweepDef], max_ram_gb: float, mem_limit_gb: float) ->
                                 "peak_mb": 0.0,
                             }
                         else:
-                            res = run_worker_process(tool, stim_f, qasm_f, mem_limit_gb)
+                            res = run_worker_process(
+                                tool,
+                                stim_f,
+                                qasm_f,
+                                mem_limit_gb,
+                                qiskit_thread_policy=qiskit_thread_policy,
+                            )
                             status = res["status"]
                             secs = res["exec_s"]
                             mb = res["peak_mb"]
@@ -185,7 +223,7 @@ def run_sweep(sweeps: list[SweepDef], max_ram_gb: float, mem_limit_gb: float) ->
                                     panel,
                                     n_val,
                                     t_val,
-                                    k_val,
+                                    actual_k,
                                     tool,
                                     res["status"],
                                     res["exec_s"],
@@ -209,6 +247,11 @@ def main() -> None:
         help="Use scaled-down sweeps for local testing on limited hardware.",
     )
     parser.add_argument(
+        "--smoke",
+        action="store_true",
+        help="Run one small datapoint per panel across qiskit, ucc, and tsim.",
+    )
+    parser.add_argument(
         "--max-ram-gb",
         type=float,
         default=None,
@@ -220,23 +263,39 @@ def main() -> None:
         default=6.5,
         help="Per-worker RLIMIT_AS memory cap in GB (default: 6.5).",
     )
+    parser.add_argument(
+        "--qiskit-thread-policy",
+        choices=QISKIT_THREAD_POLICIES,
+        default="single",
+        help=(
+            "Qiskit thread policy: 'single' pins Aer to one thread for the architectural "
+            "comparison, while 'best-effort' lets Aer use its default thread settings."
+        ),
+    )
     args = parser.parse_args()
 
     if args.internal_worker:
         execute_internal(args.internal_worker[0], args.internal_worker[1], args.internal_worker[2])
     else:
-        if args.local:
+        if args.smoke:
+            sweeps = SMOKE_SWEEPS
+            max_ram = args.max_ram_gb if args.max_ram_gb is not None else 7.0
+            mode = "SMOKE"
+        elif args.local:
             sweeps = LOCAL_SWEEPS
             max_ram = args.max_ram_gb if args.max_ram_gb is not None else 7.0
+            mode = "LOCAL"
         else:
             sweeps = FULL_SWEEPS
             max_ram = args.max_ram_gb if args.max_ram_gb is not None else 30.0
+            mode = "FULL"
         print(
-            f"Mode: {'LOCAL' if args.local else 'FULL'}"
+            f"Mode: {mode}"
             f" | RAM budget: {max_ram}GB"
             f" | Worker mem limit: {args.mem_limit_gb}GB"
+            f" | Qiskit threads: {args.qiskit_thread_policy}"
         )
-        run_sweep(sweeps, max_ram, args.mem_limit_gb)
+        run_sweep(sweeps, max_ram, args.mem_limit_gb, args.qiskit_thread_policy)
 
 
 if __name__ == "__main__":
