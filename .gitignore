@@ -1,8 +1,6 @@
 # Root-level benchmark circuit downloads (not vendored)
 /circuits
 /circuits.zip
-# But do track vendored paper circuits
-!paper/magic/circuits/
 *.DS_Store
 *digest.txt
 *.patch

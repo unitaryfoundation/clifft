@@ -1,7 +1,0 @@
-circuits/
-results_walls.csv
-*.png
-
-# Track checked-in results
-!results/
-!results/**
