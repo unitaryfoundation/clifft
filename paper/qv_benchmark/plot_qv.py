@@ -21,9 +21,9 @@ import matplotlib.pyplot as plt  # noqa: E402
 import numpy as np  # noqa: E402
 import pandas as pd  # noqa: E402
 
-_DEFAULT_INPUT: str = "paper/qv_benchmark/results.csv"
-_DEFAULT_OUTPUT: str = "paper/qv_benchmark/qv_scaling.pdf"
-_PROJECT_ROOT: Path = Path(__file__).resolve().parent.parent.parent
+_HERE: Path = Path(__file__).resolve().parent
+_DEFAULT_INPUT: str = str(_HERE / "results.csv")
+_DEFAULT_OUTPUT: str = str(_HERE / "qv_scaling.pdf")
 
 _SIM_STYLE: Dict[str, Dict[str, object]] = {
     "ucc": {"color": "#1f77b4", "marker": "o", "label": "UCC"},
@@ -163,12 +163,7 @@ def main(argv: Sequence[str] | None = None) -> None:
     args = parser.parse_args(argv)
 
     csv_path = Path(args.input)
-    if not csv_path.is_absolute():
-        csv_path = _PROJECT_ROOT / csv_path
-
     output_path = Path(args.output)
-    if not output_path.is_absolute():
-        output_path = _PROJECT_ROOT / output_path
 
     plot(csv_path, output_path)
 

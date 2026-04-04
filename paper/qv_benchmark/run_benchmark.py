@@ -38,7 +38,7 @@ _CSV_HEADER: List[str] = [
 
 _DEFAULT_SIMULATORS: str = "ucc,qiskit,qulacs,qsim,qrack"
 
-_PROJECT_ROOT: Path = Path(__file__).resolve().parent.parent.parent
+_HERE: Path = Path(__file__).resolve().parent
 
 
 # ---------------------------------------------------------------------------
@@ -88,9 +88,7 @@ def _build_parser() -> argparse.ArgumentParser:
         "--simulators",
         type=str,
         default=_DEFAULT_SIMULATORS,
-        help=(
-            "Comma-separated list of simulators to benchmark " f"(default: {_DEFAULT_SIMULATORS})."
-        ),
+        help=(f"Comma-separated list of simulators to benchmark (default: {_DEFAULT_SIMULATORS})."),
     )
     p.add_argument(
         "--mem-limit-gb",
@@ -107,8 +105,8 @@ def _build_parser() -> argparse.ArgumentParser:
     p.add_argument(
         "--output",
         type=str,
-        default="paper/qv_benchmark/results.csv",
-        help="Output CSV path (default: paper/qv_benchmark/results.csv).",
+        default=str(_HERE / "results.csv"),
+        help="Output CSV path (default: results.csv in this directory).",
     )
     p.add_argument(
         "--seed",
@@ -167,8 +165,7 @@ def _run_worker(
     """
     cmd: List[str] = [
         sys.executable,
-        "-m",
-        "paper.qv_benchmark.worker",
+        str(_HERE / "worker.py"),
         simulator,
         str(n_qubits),
         str(seed),
@@ -181,7 +178,6 @@ def _run_worker(
             text=True,
             timeout=timeout,
             env=env,
-            cwd=str(_PROJECT_ROOT),
         )
     except subprocess.TimeoutExpired:
         return {"status": "TIMEOUT"}
@@ -322,8 +318,6 @@ def main(argv: Sequence[str] | None = None) -> None:
     repeats: int = args.repeats
     timeout: int = args.timeout
     csv_path = Path(args.output)
-    if not csv_path.is_absolute():
-        csv_path = _PROJECT_ROOT / csv_path
 
     env = _make_env(args.mem_limit_gb)
 

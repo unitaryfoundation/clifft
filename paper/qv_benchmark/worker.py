@@ -16,6 +16,10 @@ import os
 import resource
 import sys
 import time
+from pathlib import Path
+
+# Allow sibling imports when run as a standalone script.
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 # ---- pin every backend to a single thread BEFORE heavy imports -----------
 os.environ["OMP_NUM_THREADS"] = "1"
@@ -70,8 +74,9 @@ def _result_json(
 
 
 def _run_ucc(qasm: str) -> dict[str, float]:
+    from qasm_adapter import to_ucc_stim
+
     import ucc  # heavy import inside branch
-    from paper.qv_benchmark.qasm_adapter import to_ucc_stim
 
     stim = to_ucc_stim(qasm)
 
@@ -106,9 +111,8 @@ def _run_qiskit(qasm: str) -> dict[str, float]:
 
 
 def _run_qulacs(qasm: str) -> dict[str, float]:
+    from qasm_adapter import to_qulacs_circuit
     from qulacs import QuantumState
-
-    from paper.qv_benchmark.qasm_adapter import to_qulacs_circuit
 
     qc, nq = to_qulacs_circuit(qasm)
     state = QuantumState(nq)
@@ -122,8 +126,7 @@ def _run_qulacs(qasm: str) -> dict[str, float]:
 
 def _run_qsim(qasm: str) -> dict[str, float]:
     import qsimcirq
-
-    from paper.qv_benchmark.qasm_adapter import to_cirq_circuit
+    from qasm_adapter import to_cirq_circuit
 
     circuit = to_cirq_circuit(qasm)
     sim = qsimcirq.QSimSimulator(qsimcirq.QSimOptions(cpu_threads=1))
@@ -184,7 +187,7 @@ def main() -> None:
         _apply_mem_limit()
 
         # -- generate QV circuit (not timed) -----------------------------------
-        from paper.qv_benchmark.generator import generate_qv_qasm
+        from generator import generate_qv_qasm
 
         qasm: str = generate_qv_qasm(num_qubits, seed=seed)
 

@@ -10,9 +10,13 @@ For noiseless simulation of random QV circuits the HOP converges to
 from __future__ import annotations
 
 import sys
+from pathlib import Path
 from typing import Dict, List
 
 import numpy as np
+
+# Allow sibling imports when run as a standalone script.
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 
 def compute_hop(statevector: np.ndarray) -> float:
@@ -60,13 +64,14 @@ def validate_ucc(num_qubits: int, seed: int = 42) -> Dict[str, object]:
         ``pass`` is *True* when fidelity > 0.999 **and** HOP > 0.70.
     """
     # -- generate QASM --------------------------------------------------
-    from paper.qv_benchmark.generator import generate_qv_qasm_unmeasured
+    from generator import generate_qv_qasm_unmeasured
 
     qasm: str = generate_qv_qasm_unmeasured(num_qubits, seed=seed)
 
     # -- UCC statevector ------------------------------------------------
+    from qasm_adapter import to_ucc_stim
+
     import ucc
-    from paper.qv_benchmark.qasm_adapter import to_ucc_stim
 
     stim: str = to_ucc_stim(qasm)
     prog = ucc.compile(stim)
@@ -114,7 +119,7 @@ def _main() -> None:
         res = validate_ucc(n, seed=42)
         results.append(res)
         status = "PASS" if res["pass"] else "FAIL"
-        print(f"{status}  fidelity={res['fidelity']:.6f}  " f"HOP={res['hop']:.4f}")
+        print(f"{status}  fidelity={res['fidelity']:.6f}  HOP={res['hop']:.4f}")
 
     any_failed: bool = any(not r["pass"] for r in results)
     if any_failed:

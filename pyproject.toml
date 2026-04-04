@@ -108,7 +108,7 @@ exclude = [
 ]
 
 [[tool.mypy.overrides]]
-module = ["numpy.*", "stim.*", "sinter.*", "pytest.*", "ucc", "ucc._ucc_core", "qiskit.*", "qiskit_aer.*", "tsim.*", "generator", "matplotlib", "matplotlib.*", "pymatching", "pymatching.*", "cirq", "cirq.*", "qulacs", "qulacs.*", "qsimcirq", "qsimcirq.*", "pandas", "pandas.*"]
+module = ["numpy.*", "stim.*", "sinter.*", "pytest.*", "ucc", "ucc._ucc_core", "qiskit.*", "qiskit_aer.*", "tsim.*", "generator", "qasm_adapter", "matplotlib", "matplotlib.*", "pymatching", "pymatching.*", "cirq", "cirq.*", "qulacs", "qulacs.*", "qsimcirq", "qsimcirq.*", "pandas", "pandas.*"]
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]
