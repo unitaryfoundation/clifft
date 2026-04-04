@@ -5,27 +5,24 @@ times across simulators as a function of qubit count.
 
 Usage
 -----
-    python -m paper.qv_benchmark.plot_qv [--input results.csv] [--output qv_scaling.pdf]
+    python plot_qv.py [--input results.csv] [--output qv_scaling.pdf]
 """
 
 from __future__ import annotations
 
 import argparse
 from pathlib import Path
-from typing import Dict, List, Sequence, Tuple
+from typing import Sequence
 
 import matplotlib
 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt  # noqa: E402
-import numpy as np  # noqa: E402
 import pandas as pd  # noqa: E402
 
 _HERE: Path = Path(__file__).resolve().parent
-_DEFAULT_INPUT: str = str(_HERE / "results.csv")
-_DEFAULT_OUTPUT: str = str(_HERE / "qv_scaling.pdf")
 
-_SIM_STYLE: Dict[str, Dict[str, object]] = {
+_SIM_STYLE: dict[str, dict[str, object]] = {
     "ucc": {"color": "#1f77b4", "marker": "o", "label": "UCC"},
     "qiskit": {"color": "#ff7f0e", "marker": "s", "label": "Qiskit-Aer"},
     "qulacs": {"color": "#2ca02c", "marker": "^", "label": "Qulacs"},
@@ -35,82 +32,32 @@ _SIM_STYLE: Dict[str, Dict[str, object]] = {
 
 def _build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(description="Plot QV benchmark scaling results.")
-    p.add_argument("--input", type=str, default=_DEFAULT_INPUT, help="Input CSV.")
-    p.add_argument("--output", type=str, default=_DEFAULT_OUTPUT, help="Output plot path.")
+    p.add_argument("--input", type=str, default=str(_HERE / "results.csv"), help="Input CSV.")
+    p.add_argument("--output", type=str, default=str(_HERE / "qv_scaling.pdf"), help="Output plot.")
     return p
-
-
-def _load_data(csv_path: Path) -> pd.DataFrame:
-    """Load and validate the results CSV."""
-    df = pd.read_csv(csv_path)
-    for col in ("N", "simulator", "status", "exec_s"):
-        if col not in df.columns:
-            raise ValueError(f"Missing column '{col}' in {csv_path}")
-    return df
-
-
-def _compute_stats(
-    df: pd.DataFrame,
-) -> Dict[str, Tuple[List[int], List[float], List[float], List[float]]]:
-    """Compute median, min, max exec times per (simulator, N).
-
-    Returns a dict mapping simulator name to (n_vals, medians, mins, maxs).
-    Only includes rows with status == 'SUCCESS'.
-    """
-    success = df[df["status"] == "SUCCESS"].copy()
-    success["exec_s"] = success["exec_s"].astype(float)
-
-    stats: Dict[str, Tuple[List[int], List[float], List[float], List[float]]] = {}
-
-    for sim in success["simulator"].unique():
-        sim_df = success[success["simulator"] == sim]
-        grouped = sim_df.groupby("N")["exec_s"]
-        agg = grouped.agg(["median", "min", "max"]).sort_index()
-
-        n_vals = agg.index.tolist()
-        medians = agg["median"].tolist()
-        mins = agg["min"].tolist()
-        maxs = agg["max"].tolist()
-        stats[sim] = (n_vals, medians, mins, maxs)
-
-    return stats
-
-
-def _find_failures(df: pd.DataFrame) -> Dict[str, List[int]]:
-    """Find (simulator, N) combos where all repeats failed (OOM/TIMEOUT/ERROR)."""
-    failures: Dict[str, List[int]] = {}
-    for sim in df["simulator"].unique():
-        sim_df = df[df["simulator"] == sim]
-        failed_ns: List[int] = []
-        for n, grp in sim_df.groupby("N"):
-            if (grp["status"] != "SUCCESS").all():
-                failed_ns.append(int(n))
-        if failed_ns:
-            failures[sim] = failed_ns
-    return failures
 
 
 def plot(csv_path: Path, output_path: Path) -> None:
     """Generate the QV scaling plot."""
-    df = _load_data(csv_path)
-    stats = _compute_stats(df)
-    failures = _find_failures(df)
+    df = pd.read_csv(csv_path)
+    success = df[df["status"] == "SUCCESS"].copy()
+    success["exec_s"] = success["exec_s"].astype(float)
+
+    stats = success.groupby(["simulator", "N"])["exec_s"].agg(["median", "min", "max"])
 
     fig, ax = plt.subplots(figsize=(8, 5))
 
-    for sim, (n_vals, medians, mins, maxs) in stats.items():
+    for sim in stats.index.get_level_values("simulator").unique():
         style = _SIM_STYLE.get(sim, {"color": "gray", "marker": "x", "label": sim})
-        n_arr = np.array(n_vals)
-        med_arr = np.array(medians)
-        min_arr = np.array(mins)
-        max_arr = np.array(maxs)
-
-        yerr_lo = med_arr - min_arr
-        yerr_hi = max_arr - med_arr
+        sim_stats = stats.loc[sim]
+        n_vals = sim_stats.index.values
+        medians = sim_stats["median"].values
+        yerr_lo = medians - sim_stats["min"].values
+        yerr_hi = sim_stats["max"].values - medians
 
         ax.errorbar(
-            n_arr,
-            med_arr,
+            n_vals,
+            medians,
             yerr=[yerr_lo, yerr_hi],
             fmt=f"-{style['marker']}",
             color=style["color"],
@@ -120,19 +67,14 @@ def plot(csv_path: Path, output_path: Path) -> None:
             linewidth=1.5,
         )
 
-    # Mark failure points
-    y_ceiling = ax.get_ylim()[1] if ax.get_ylim()[1] > 0 else 1.0
-    for sim, failed_ns in failures.items():
-        style = _SIM_STYLE.get(sim, {"color": "gray", "marker": "x", "label": sim})
-        for n in failed_ns:
+    # Mark failure points (all repeats failed for a given N)
+    all_failed = df.groupby(["simulator", "N"]).filter(lambda g: (g["status"] != "SUCCESS").all())
+    if not all_failed.empty:
+        y_ceiling = ax.get_ylim()[1] if ax.get_ylim()[1] > 0 else 1.0
+        for (sim, n), _ in all_failed.groupby(["simulator", "N"]):
+            style = _SIM_STYLE.get(sim, {"color": "gray", "marker": "x", "label": sim})
             ax.plot(
-                n,
-                y_ceiling * 0.9,
-                "x",
-                color="red",
-                markersize=12,
-                markeredgewidth=2,
-                zorder=10,
+                n, y_ceiling * 0.9, "x", color="red", markersize=12, markeredgewidth=2, zorder=10
             )
             ax.annotate(
                 f"{style['label']} OOM",
@@ -159,13 +101,8 @@ def plot(csv_path: Path, output_path: Path) -> None:
 
 def main(argv: Sequence[str] | None = None) -> None:
     """Entry point."""
-    parser = _build_parser()
-    args = parser.parse_args(argv)
-
-    csv_path = Path(args.input)
-    output_path = Path(args.output)
-
-    plot(csv_path, output_path)
+    args = _build_parser().parse_args(argv)
+    plot(Path(args.input), Path(args.output))
 
 
 if __name__ == "__main__":

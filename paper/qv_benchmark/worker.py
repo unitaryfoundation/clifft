@@ -6,7 +6,7 @@ Usage
 -----
     python worker.py <simulator> <num_qubits> <seed>
 
-where *simulator* is one of: ``ucc``, ``qiskit``, ``qulacs``, ``qsim``.
+where *simulator* is one of: ``ucc``, ``qiskit``, ``qulacs``, ``qsim``, ``qrack``.
 """
 
 from __future__ import annotations

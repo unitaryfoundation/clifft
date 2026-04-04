@@ -11,7 +11,6 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
-from typing import Dict, List
 
 import numpy as np
 
@@ -44,7 +43,7 @@ def compute_hop(statevector: np.ndarray) -> float:
     return hop
 
 
-def validate_ucc(num_qubits: int, seed: int = 42) -> Dict[str, object]:
+def validate_ucc(num_qubits: int, seed: int = 42) -> dict[str, object]:
     """Run a single QV validation round for *num_qubits* qubits.
 
     Generates a random (unmeasured) QV circuit, simulates it with both UCC and
@@ -76,10 +75,10 @@ def validate_ucc(num_qubits: int, seed: int = 42) -> Dict[str, object]:
     stim: str = to_ucc_stim(qasm)
     prog = ucc.compile(stim)
     state = ucc.State(
-        prog.peak_rank,
-        prog.num_measurements,
-        prog.num_detectors,
-        prog.num_observables,
+        peak_rank=prog.peak_rank,
+        num_measurements=prog.num_measurements,
+        num_detectors=prog.num_detectors,
+        num_observables=prog.num_observables,
         seed=42,
     )
     ucc.execute(prog, state)
@@ -111,8 +110,8 @@ def validate_ucc(num_qubits: int, seed: int = 42) -> Dict[str, object]:
 
 def _main() -> None:
     """Run validation for several qubit counts and report results."""
-    qubit_counts: List[int] = [4, 6, 8]
-    results: List[Dict[str, object]] = []
+    qubit_counts = [4, 6, 8]
+    results: list[dict[str, object]] = []
 
     for n in qubit_counts:
         print(f"Validating N={n} ... ", end="", flush=True)
