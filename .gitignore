@@ -111,7 +111,13 @@ env/
 *.swo
 results/
 
-# QV benchmark outputs
+# Benchmark outputs
 paper/qv_benchmark/results*.csv
 paper/qv_benchmark/*.pdf
 paper/qv_benchmark/*.png
+paper/clifford_bench/results*.csv
+paper/clifford_bench/*.pdf
+paper/clifford_bench/*.png
+paper/near_clifford_bench/results*.csv
+paper/near_clifford_bench/*.pdf
+paper/near_clifford_bench/*.png

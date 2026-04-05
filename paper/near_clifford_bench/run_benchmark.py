@@ -1,52 +1,71 @@
-"""Clifford-limit (surface code) benchmark.
+"""Near-Clifford benchmark: magic state cultivation.
 
-Compares UCC, Stim, and tsim on rotated surface code memory-Z circuits
-with depolarizing noise, sweeping physical error rate.
+Benchmarks UCC and tsim on magic state cultivation circuits (d=3, d=5)
+at various physical error rates.  Stim cannot simulate non-Clifford
+circuits and is not included.
+
+The template circuits in ``circuits/`` were generated at p=0.005.
+Other error rates are produced by text substitution of the noise
+parameter.
 
 Usage
 -----
     python run_benchmark.py
-    python run_benchmark.py --distances 3,5,7 --simulators ucc,stim
+    python run_benchmark.py --distances 3,5 --simulators ucc,tsim
+    python run_benchmark.py --distances 3 --error-rates 1e-3,5e-3
 """
 
 from __future__ import annotations
 
 import argparse
+import re
 import sys
 from pathlib import Path
 from typing import Sequence
 
-# Support both `python run_benchmark.py` and `python -m paper.clifford_bench.run_benchmark`.
+# Support both `python run_benchmark.py` and `python -m paper.near_clifford_bench.run_benchmark`.
 _REPO_ROOT = str(Path(__file__).resolve().parent.parent.parent)
 if _REPO_ROOT not in sys.path:
     sys.path.insert(0, _REPO_ROOT)
 
 import pandas as pd  # noqa: E402
-import stim  # noqa: E402
 
 from paper.bench_common import run_benchmark_loop  # noqa: E402
 
 _HERE = Path(__file__).resolve().parent
+_CIRCUITS_DIR = _HERE / "circuits"
 
-_DEFAULT_SIMULATORS = "ucc,stim,tsim"
-_DEFAULT_ERROR_RATES = "1e-7,1e-6,1e-5,1e-4,1e-3,1e-2,1e-1"
+# Template noise rate baked into the vendored circuit files.
+_TEMPLATE_ERROR_RATE = 0.005
+
+_DEFAULT_SIMULATORS = "ucc,tsim"
+_DEFAULT_ERROR_RATES = "1e-3,5e-3"
 
 
 # ---------------------------------------------------------------------------
-# Circuit generation
+# Circuit loading
 # ---------------------------------------------------------------------------
 
+# Matches all noise parameters: gate errors, depolarizing channels, and
+# noisy measurements like M(0.005), MX(0.005), etc.
+_NOISE_RE = re.compile(
+    r"(?P<prefix>(?:X_ERROR|Y_ERROR|Z_ERROR|DEPOLARIZE1|DEPOLARIZE2|MX?|MY|MZ)\()"
+    + re.escape(str(_TEMPLATE_ERROR_RATE))
+    + r"(?P<suffix>\))"
+)
 
-def generate_circuit(distance: int, rounds: int, phys_error_rate: float) -> stim.Circuit:
-    return stim.Circuit.generated(
-        "surface_code:rotated_memory_z",
-        rounds=rounds,
-        distance=distance,
-        after_clifford_depolarization=phys_error_rate,
-        after_reset_flip_probability=phys_error_rate,
-        before_measure_flip_probability=phys_error_rate,
-        before_round_data_depolarization=phys_error_rate,
-    )
+
+def _load_cultivation_circuit(distance: int, error_rate: float) -> str:
+    """Load a cultivation circuit template and substitute the noise rate.
+
+    Returns raw program text (not a stim.Circuit) because these circuits
+    contain non-Clifford gates (T, T_DAG) that stim cannot parse.
+    """
+    path = _CIRCUITS_DIR / f"cultivation_d{distance}.stim"
+    text = path.read_text()
+    if error_rate != _TEMPLATE_ERROR_RATE:
+        text = _NOISE_RE.sub(rf"\g<prefix>{error_rate}\g<suffix>", text)
+    return text
 
 
 # ---------------------------------------------------------------------------
@@ -56,19 +75,13 @@ def generate_circuit(distance: int, rounds: int, phys_error_rate: float) -> stim
 
 def _build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
-        description="Run Clifford-limit surface code benchmarks.",
+        description="Run near-Clifford magic state cultivation benchmarks.",
     )
     p.add_argument(
         "--distances",
         type=str,
-        default="7",
-        help="Comma-separated code distances (default: 7).",
-    )
-    p.add_argument(
-        "--rounds",
-        type=int,
-        default=None,
-        help="Fixed number of rounds (default: rounds = distance).",
+        default="3,5",
+        help="Comma-separated code distances (default: 3,5).",
     )
     p.add_argument(
         "--error-rates",
@@ -86,7 +99,7 @@ def _build_parser() -> argparse.ArgumentParser:
         "--repeats",
         type=int,
         default=3,
-        help="Repetitions per (distance, p, simulator) combo (default: 3).",
+        help="Repetitions per (circuit, simulator) combo (default: 3).",
     )
     p.add_argument(
         "--simulators",
@@ -123,18 +136,15 @@ def main(argv: Sequence[str] | None = None) -> None:
     error_rates = [float(p.strip()) for p in args.error_rates.split(",")]
     simulators = [s.strip() for s in args.simulators.split(",") if s.strip()]
 
-    # Build (metadata, circuit) pairs for each (distance, error_rate).
-    circuits: list[tuple[dict[str, object], stim.Circuit]] = []
+    circuits: list[tuple[dict[str, object], str]] = []
     for d in distances:
-        rounds = args.rounds if args.rounds is not None else d
         for p in error_rates:
             meta: dict[str, object] = {
+                "circuit": f"cultivation d={d} p={p:.0e}",
                 "distance": d,
-                "rounds": rounds,
                 "phys_error_rate": p,
-                "circuit": f"d={d} r={rounds} p={p:.0e}",
             }
-            circuits.append((meta, generate_circuit(d, rounds, p)))
+            circuits.append((meta, _load_cultivation_circuit(d, p)))
 
     results = run_benchmark_loop(
         circuits=circuits,
