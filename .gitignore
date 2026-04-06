@@ -121,3 +121,6 @@ paper/clifford_bench/*.png
 paper/near_clifford_bench/results*.csv
 paper/near_clifford_bench/*.pdf
 paper/near_clifford_bench/*.png
+paper/distillation_bench/results*.csv
+paper/distillation_bench/*.pdf
+paper/distillation_bench/*.png
