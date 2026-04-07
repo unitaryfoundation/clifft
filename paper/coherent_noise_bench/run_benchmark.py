@@ -37,7 +37,6 @@ _REPO_ROOT = str(Path(__file__).resolve().parent.parent.parent)
 if _REPO_ROOT not in sys.path:
     sys.path.insert(0, _REPO_ROOT)
 
-import pandas as pd  # noqa: E402
 import stim  # noqa: E402
 
 from paper.bench_common import run_benchmark_loop  # noqa: E402
@@ -195,6 +194,8 @@ def main(argv: Sequence[str] | None = None) -> None:
         repeats=args.repeats,
         batch_size=args.batch_size,
     )
+
+    import pandas as pd
 
     csv_path = Path(args.output)
     df = pd.DataFrame(results)
