@@ -12,19 +12,11 @@ Usage
 from __future__ import annotations
 
 import argparse
-import sys
 from pathlib import Path
 from typing import Sequence
 
-# Support both `python run_benchmark.py` and `python -m paper.clifford_bench.run_benchmark`.
-_REPO_ROOT = str(Path(__file__).resolve().parent.parent.parent)
-if _REPO_ROOT not in sys.path:
-    sys.path.insert(0, _REPO_ROOT)
-
-import pandas as pd  # noqa: E402
-import stim  # noqa: E402
-
-from paper.bench_common import run_benchmark_loop  # noqa: E402
+import stim
+from bench_common import run_benchmark_loop
 
 _HERE = Path(__file__).resolve().parent
 
@@ -95,13 +87,6 @@ def _build_parser() -> argparse.ArgumentParser:
         help=f"Comma-separated simulators (default: {_DEFAULT_SIMULATORS}).",
     )
     p.add_argument(
-        "--batch-size",
-        type=int,
-        default=None,
-        help="Fixed tsim batch size (skip autotuning). Useful once the "
-        "optimal size is known for a given GPU.",
-    )
-    p.add_argument(
         "--output",
         type=str,
         default=str(_HERE / "results.csv"),
@@ -136,17 +121,15 @@ def main(argv: Sequence[str] | None = None) -> None:
             }
             circuits.append((meta, generate_circuit(d, rounds, p)))
 
-    results = run_benchmark_loop(
+    csv_path = Path(args.output)
+    run_benchmark_loop(
         circuits=circuits,
         simulators=simulators,
         shots=args.shots,
         repeats=args.repeats,
-        batch_size=args.batch_size,
+        output_csv=csv_path,
     )
 
-    csv_path = Path(args.output)
-    df = pd.DataFrame(results)
-    df.to_csv(csv_path, index=False)
     print(f"\nResults written to {csv_path}")
 
 

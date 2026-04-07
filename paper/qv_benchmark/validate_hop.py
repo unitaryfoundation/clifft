@@ -10,12 +10,8 @@ For noiseless simulation of random QV circuits the HOP converges to
 from __future__ import annotations
 
 import sys
-from pathlib import Path
 
 import numpy as np
-
-# Allow sibling imports when run as a standalone script.
-sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 
 def compute_hop(statevector: np.ndarray) -> float:
@@ -63,12 +59,12 @@ def validate_ucc(num_qubits: int, seed: int = 42) -> dict[str, object]:
         ``pass`` is *True* when fidelity > 0.999 **and** HOP > 0.70.
     """
     # -- generate QASM --------------------------------------------------
-    from generator import generate_qv_qasm_unmeasured
+    from qv_benchmark.generator import generate_qv_qasm_unmeasured
 
     qasm: str = generate_qv_qasm_unmeasured(num_qubits, seed=seed)
 
     # -- UCC statevector ------------------------------------------------
-    from qasm_adapter import to_ucc_stim
+    from qv_benchmark.qasm_adapter import to_ucc_stim
 
     import ucc
 

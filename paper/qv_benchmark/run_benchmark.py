@@ -154,7 +154,8 @@ def _run_worker(
     """
     cmd: list[str] = [
         sys.executable,
-        str(_HERE / "worker.py"),
+        "-m",
+        "qv_benchmark.worker",
         simulator,
         str(n_qubits),
         str(seed),

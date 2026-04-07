@@ -1,0 +1,34 @@
+[build-system]
+requires = ["setuptools>=68.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ucc-paper-benchmarks"
+version = "0.1.0"
+description = "Benchmark suite for the UCC paper"
+requires-python = ">=3.12"
+dependencies = [
+    "stim",
+    "pandas",
+    "numpy",
+]
+
+# ucc and tsim are runtime dependencies but not PyPI packages.
+# Install ucc from the parent repo (`pip install -e ..`); install tsim
+# per its own instructions (`pip install bloqade-tsim`).  Benchmarks
+# that select only available simulators (--simulators stim) work without
+# these.
+
+[project.optional-dependencies]
+plot = ["matplotlib"]
+qv = ["qiskit>=1.0", "qiskit-aer"]
+
+[tool.setuptools]
+py-modules = ["bench_common"]
+packages = [
+    "clifford_bench",
+    "near_clifford_bench",
+    "distillation_bench",
+    "coherent_noise_bench",
+    "qv_benchmark",
+]

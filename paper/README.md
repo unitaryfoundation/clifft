@@ -12,31 +12,34 @@ error correction circuits.
 | `distillation_bench/` | Magic state distillation 85q | UCC, tsim | [17,1,5] color code; needs `UCC_MAX_QUBITS>=128` |
 | `coherent_noise_bench/` | Surface code + R_Z noise | UCC | Coherent over-rotation per Tuloup & Ayral (arXiv:2603.14670) |
 
-## Dependencies
+## Setup
 
-All benchmarks require `stim` and `pandas` (for CSV output).  tsim
-benchmarks additionally require `bloqade-tsim`.  These are not declared
-as project dependencies since they are only needed for benchmarking:
+The `paper/` directory is a standalone Python package.  Install it
+(in editable mode) to make all benchmark modules importable:
 
 ```bash
-# UCC + Stim benchmarks
-uv run --with pandas python paper/clifford_bench/run_benchmark.py ...
-
-# With tsim
-JAX_PLATFORMS=cpu uv run --with 'pandas,bloqade-tsim>=0.1.2' \
-    python paper/clifford_bench/run_benchmark.py --simulators ucc,stim,tsim ...
+cd paper
+uv sync          # creates .venv and installs stim, pandas, numpy
 ```
+
+**Additional runtime dependencies** (not on PyPI):
+- **ucc** — install from the parent repo: `uv pip install -e ..`
+- **tsim** — `uv pip install bloqade-tsim>=0.1.2`
+
+Benchmarks that select only available simulators (e.g.
+`--simulators stim`) work without ucc or tsim.
 
 ## Quick start
 
-```bash
-# Run a single benchmark (UCC only, quick test)
-uv run --with pandas python paper/clifford_bench/run_benchmark.py \
-    --distances 3 --shots 1000 --repeats 1 --simulators ucc
+All commands below run from the `paper/` directory:
 
-# Run with tsim (CPU)
-JAX_PLATFORMS=cpu uv run --with 'pandas,bloqade-tsim>=0.1.2' \
-    python paper/clifford_bench/run_benchmark.py \
+```bash
+# Run a single benchmark (Stim only, quick test)
+uv run python -m clifford_bench.run_benchmark \
+    --distances 3 --shots 1000 --repeats 1 --simulators stim
+
+# Run with UCC + tsim (CPU)
+JAX_PLATFORMS=cpu uv run python -m clifford_bench.run_benchmark \
     --distances 3 --simulators ucc,stim,tsim
 ```
 
@@ -48,11 +51,9 @@ Each circuit is compiled in a separate subprocess, so hung compiles
 are fully killed on timeout.
 
 ```bash
-JAX_PLATFORMS=cpu uv run --with 'bloqade-tsim>=0.1.2' \
-    python paper/tsim_compile_check.py
+JAX_PLATFORMS=cpu uv run python -m tsim_compile_check
 
-JAX_PLATFORMS=cpu uv run --with 'bloqade-tsim>=0.1.2' \
-    python paper/tsim_compile_check.py --timeout 120
+JAX_PLATFORMS=cpu uv run python -m tsim_compile_check --timeout 120
 ```
 
 This tests all benchmark circuits with both the default and cutting

@@ -8,7 +8,9 @@ from __future__ import annotations
 
 import os
 import time
-from typing import Any, TypeAlias
+import traceback
+from pathlib import Path
+from typing import TypeAlias
 
 # Must be set before JAX is imported (tsim depends on JAX).
 os.environ.setdefault("XLA_PYTHON_CLIENT_PREALLOCATE", "false")
@@ -73,61 +75,11 @@ class UccRunner:
         self._ucc.sample(self._prog, shots)
 
 
-def _autotune_tsim_batch_size(sampler: Any, shots: int, separate_observables: bool = True) -> int:
-    """Find the batch size that maximizes tsim throughput.
-
-    Starts from a small batch and doubles until throughput stops improving
-    or the batch no longer fits in device memory, mirroring the strategy
-    described in the tsim paper.  As a side-effect, the winning batch size
-    also serves as the JIT warmup.
-
-    Raises on the first probe if the sampler fails for any reason (including
-    OOM), since there is no valid batch size to fall back to.
-    """
-    batch = min(64, shots)
-    best_throughput = 0.0
-    best_batch = batch
-
-    first = True
-    while batch <= shots:
-        try:
-            t0 = time.perf_counter()
-            sampler.sample(batch, separate_observables=separate_observables)
-            elapsed = time.perf_counter() - t0
-        except Exception:
-            if first:
-                # No successful batch yet — propagate so the caller sees
-                # the real error (OOM, API mismatch, backend bug, etc.).
-                raise
-            # Later iterations may hit device memory limits; keep the
-            # previous best.
-            break
-
-        first = False
-        throughput = batch / elapsed
-        if throughput > best_throughput:
-            best_throughput = throughput
-            best_batch = batch
-        else:
-            # Throughput stopped improving — done.
-            break
-        batch *= 2
-
-    return best_batch
-
-
 class TsimRunner:
-    """Tsim benchmark runner with batch-size autotuning."""
+    """Tsim benchmark runner.
 
-    def __init__(
-        self,
-        batch_size: int | None = None,
-    ) -> None:
-        self._batch_size = batch_size
-
-    @property
-    def batch_size(self) -> int | None:
-        return self._batch_size
+    Batch sizing is handled by tsim internally (QuEraComputing/tsim#84).
+    """
 
     def compile(self, circuit: CircuitLike, shots: int) -> None:
         # CPU vs GPU is controlled by setting JAX_PLATFORMS=cpu before
@@ -138,12 +90,8 @@ class TsimRunner:
         tc = tsim.Circuit(circuit if isinstance(circuit, str) else str(circuit))
         self._sampler = tc.compile_detector_sampler()
 
-        if self._batch_size is not None:
-            # User-specified batch size — just warm up the JIT.
-            self._sampler.sample(min(self._batch_size, shots), separate_observables=True)
-        else:
-            # Autotune batch size (also warms up the JIT).
-            self._batch_size = _autotune_tsim_batch_size(self._sampler, shots)
+        # Warmup: populate JIT caches.
+        self._sampler.sample(min(_WARMUP_SHOTS, shots), separate_observables=True)
 
     def compile_metadata(self) -> dict[str, object]:
         total = sum(
@@ -154,7 +102,7 @@ class TsimRunner:
         return {"tsim_num_graphs": total}
 
     def sample(self, shots: int) -> None:
-        self._sampler.sample(shots, batch_size=self._batch_size, separate_observables=True)
+        self._sampler.sample(shots, separate_observables=True)
 
 
 RUNNERS: dict[str, type] = {
@@ -175,10 +123,13 @@ def run_benchmark_loop(
     simulators: list[str],
     shots: int,
     repeats: int,
-    batch_size: int | None = None,
+    output_csv: Path,
     label_key: str = "circuit",
 ) -> list[dict[str, object]]:
     """Run the compile-once / sample-many timing loop.
+
+    Results are written incrementally to *output_csv* so that partial
+    data survives interruptions.
 
     Parameters
     ----------
@@ -194,8 +145,9 @@ def run_benchmark_loop(
         Number of shots per timed sample call.
     repeats:
         How many timed sample repetitions per (circuit, simulator).
-    batch_size:
-        Optional fixed tsim batch size (skip autotuning).
+    output_csv:
+        Path to the output CSV file.  Written incrementally (header
+        first, then one row per sample).
     label_key:
         Which key in *metadata* to use for human-readable progress
         messages.  Defaults to ``"circuit"``.
@@ -204,9 +156,25 @@ def run_benchmark_loop(
     -------
     List of result dicts suitable for ``pd.DataFrame(results)``.
     """
+    import pandas as pd
+
     results: list[dict[str, object]] = []
     total = len(circuits) * len(simulators) * repeats
     done = 0
+
+    output_csv.parent.mkdir(parents=True, exist_ok=True)
+
+    def _append_row(row: dict[str, object]) -> None:
+        results.append(row)
+        # Rewrite the full CSV each time so that pd.DataFrame can
+        # reconcile heterogeneous column sets across rows (e.g.
+        # simulator-specific metadata, error_detail on failures).
+        # Write to a temp file first, then atomically replace so that
+        # a kill/spot interruption during the write never corrupts or
+        # truncates the previous version.
+        tmp = output_csv.with_suffix(".csv.tmp")
+        pd.DataFrame(results).to_csv(tmp, index=False)
+        os.replace(tmp, output_csv)
 
     for metadata, circuit in circuits:
         label = str(metadata.get(label_key, ""))
@@ -216,7 +184,7 @@ def run_benchmark_loop(
                 print(f"  Unknown simulator '{sim}', skipping.")
                 continue
 
-            runner = factory(batch_size=batch_size) if factory is TsimRunner else factory()
+            runner = factory()
             header = f"{label} {sim}"
             print(f"  {header}: compiling ...", end="", flush=True)
             try:
@@ -224,10 +192,11 @@ def run_benchmark_loop(
                 runner.compile(circuit, shots)
                 compile_s = time.perf_counter() - t0
             except Exception as exc:  # noqa: BLE001
+                tb = traceback.format_exc()
                 print(f" ERROR ({type(exc).__name__}: {exc})")
                 for rep in range(repeats):
                     done += 1
-                    results.append(
+                    _append_row(
                         {
                             **metadata,
                             "shots": shots,
@@ -236,16 +205,14 @@ def run_benchmark_loop(
                             "status": "ERROR",
                             "compile_s": "",
                             "sample_s": "",
+                            "error_detail": tb,
                         }
                     )
                 continue
 
             compile_meta = runner.compile_metadata()
-            batch_info = ""
-            if isinstance(runner, TsimRunner) and runner.batch_size is not None:
-                batch_info = f", batch_size={runner.batch_size}"
             meta_info = "".join(f", {k}={v}" for k, v in compile_meta.items())
-            print(f" {compile_s * 1e3:.1f}ms{batch_info}{meta_info}")
+            print(f" {compile_s * 1e3:.1f}ms{meta_info}")
 
             for rep in range(repeats):
                 done += 1
@@ -273,8 +240,9 @@ def run_benchmark_loop(
                     row["status"] = "ERROR"
                     row["compile_s"] = round(compile_s, 6)
                     row["sample_s"] = ""
+                    row["error_detail"] = traceback.format_exc()
                     print(f"ERROR ({type(exc).__name__}: {exc})")
 
-                results.append(row)
+                _append_row(row)
 
     return results

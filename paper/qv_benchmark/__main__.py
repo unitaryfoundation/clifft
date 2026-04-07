@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from paper.qv_benchmark.run_benchmark import main
+from qv_benchmark.run_benchmark import main
 
 if __name__ == "__main__":
     main()

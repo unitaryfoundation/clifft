@@ -23,10 +23,6 @@ import sys
 import textwrap
 from pathlib import Path
 
-_REPO_ROOT = str(Path(__file__).resolve().parent.parent)
-if _REPO_ROOT not in sys.path:
-    sys.path.insert(0, _REPO_ROOT)
-
 # Subprocess script that compiles a circuit and prints JSON result.
 _COMPILE_SCRIPT = textwrap.dedent("""\
     import json, os, sys, time
@@ -146,7 +142,7 @@ def main() -> None:
         circuits.append(("distillation 85q", dist_path.read_text()))
 
     # --- Coherent noise ---
-    from paper.coherent_noise_bench.run_benchmark import generate_coherent_circuit
+    from coherent_noise_bench.run_benchmark import generate_coherent_circuit
 
     for d, r in [(3, 1), (3, 3), (5, 1), (5, 5)]:
         ct = generate_coherent_circuit(d, r, 1e-3, 0.02)
