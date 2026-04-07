@@ -36,6 +36,9 @@ class StimRunner:
         # Warmup: populate CPU caches / branch predictors.
         self._sampler.sample(min(_WARMUP_SHOTS, shots), separate_observables=True)
 
+    def compile_metadata(self) -> dict[str, object]:
+        return {}
+
     def sample(self, shots: int) -> None:
         self._sampler.sample(shots, separate_observables=True)
 
@@ -61,6 +64,10 @@ class UccRunner:
         # Warmup: populate CPU caches / branch predictors.
         ucc.sample(self._prog, min(_WARMUP_SHOTS, shots))
         self._ucc = ucc
+
+    def compile_metadata(self) -> dict[str, object]:
+        k_hist = list(self._prog.active_k_history)
+        return {"peak_active_k": max(k_hist) if k_hist else 0}
 
     def sample(self, shots: int) -> None:
         self._ucc.sample(self._prog, shots)
@@ -112,7 +119,10 @@ def _autotune_tsim_batch_size(sampler: Any, shots: int, separate_observables: bo
 class TsimRunner:
     """Tsim benchmark runner with batch-size autotuning."""
 
-    def __init__(self, batch_size: int | None = None) -> None:
+    def __init__(
+        self,
+        batch_size: int | None = None,
+    ) -> None:
         self._batch_size = batch_size
 
     @property
@@ -127,12 +137,21 @@ class TsimRunner:
 
         tc = tsim.Circuit(circuit if isinstance(circuit, str) else str(circuit))
         self._sampler = tc.compile_detector_sampler()
+
         if self._batch_size is not None:
             # User-specified batch size — just warm up the JIT.
             self._sampler.sample(min(self._batch_size, shots), separate_observables=True)
         else:
             # Autotune batch size (also warms up the JIT).
             self._batch_size = _autotune_tsim_batch_size(self._sampler, shots)
+
+    def compile_metadata(self) -> dict[str, object]:
+        total = sum(
+            csg.num_graphs
+            for comp in self._sampler._program.components
+            for csg in comp.compiled_scalar_graphs
+        )
+        return {"tsim_num_graphs": total}
 
     def sample(self, shots: int) -> None:
         self._sampler.sample(shots, batch_size=self._batch_size, separate_observables=True)
@@ -221,10 +240,12 @@ def run_benchmark_loop(
                     )
                 continue
 
+            compile_meta = runner.compile_metadata()
             batch_info = ""
             if isinstance(runner, TsimRunner) and runner.batch_size is not None:
                 batch_info = f", batch_size={runner.batch_size}"
-            print(f" {compile_s * 1e3:.1f}ms{batch_info}")
+            meta_info = "".join(f", {k}={v}" for k, v in compile_meta.items())
+            print(f" {compile_s * 1e3:.1f}ms{batch_info}{meta_info}")
 
             for rep in range(repeats):
                 done += 1
@@ -233,6 +254,7 @@ def run_benchmark_loop(
 
                 row: dict[str, object] = {
                     **metadata,
+                    **compile_meta,
                     "shots": shots,
                     "simulator": sim,
                     "repeat": rep,

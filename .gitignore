@@ -124,3 +124,6 @@ paper/near_clifford_bench/*.png
 paper/distillation_bench/results*.csv
 paper/distillation_bench/*.pdf
 paper/distillation_bench/*.png
+paper/coherent_noise_bench/results*.csv
+paper/coherent_noise_bench/*.pdf
+paper/coherent_noise_bench/*.png
