@@ -23,7 +23,7 @@ import pandas as pd  # noqa: E402
 _HERE: Path = Path(__file__).resolve().parent
 
 _SIM_STYLE: dict[str, dict[str, object]] = {
-    "ucc": {"color": "#1f77b4", "marker": "o", "label": "UCC"},
+    "clifft": {"color": "#1f77b4", "marker": "o", "label": "Clifft"},
     "qiskit": {"color": "#ff7f0e", "marker": "s", "label": "Qiskit-Aer"},
     "qulacs": {"color": "#2ca02c", "marker": "^", "label": "Qulacs"},
     "qsim": {"color": "#d62728", "marker": "D", "label": "Qsim"},

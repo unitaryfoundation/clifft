@@ -1,7 +1,7 @@
 # Vendored from: https://github.com/haoliri0/SOFT/blob/main/magic_state_cultivation/circuits/circuit_d5_p0.005.stim
 # Source: Li, H. et al. "SOFT: Simulating quantum fault tolerance" (2025)
 # License: Apache-2.0
-# Note: Contains T/T_DAG gates (non-Clifford). Use UCC to compile and simulate.
+# Note: Contains T/T_DAG gates (non-Clifford). Use Clifft to compile and simulate.
 QUBIT_COORDS(0, 0) 0
 QUBIT_COORDS(0, 1) 1
 QUBIT_COORDS(1, 0) 2

@@ -1,6 +1,6 @@
 # Compiler Explorer
 
-The UCC Compiler Explorer is an interactive browser-based tool for writing, compiling, and simulating quantum circuits. It runs entirely in your browser using WebAssembly — no installation required.
+The Clifft Compiler Explorer is an interactive browser-based tool for writing, compiling, and simulating quantum circuits. It runs entirely in your browser using WebAssembly — no installation required.
 
 <div class="grid cards" markdown>
 
@@ -22,7 +22,7 @@ The UCC Compiler Explorer is an interactive browser-based tool for writing, comp
 
 ## How It Works
 
-The explorer compiles the UCC C++ core to WebAssembly using Emscripten. The full AOT compilation pipeline — parsing, front-end Clifford absorption, optimization, back-end virtual compression, and bytecode emission — runs client-side in the browser. Simulation executes the same Schrodinger Virtual Machine as the native build.
+The explorer compiles the Clifft C++ core to WebAssembly using Emscripten. The full AOT compilation pipeline — parsing, front-end Clifford absorption, optimization, back-end virtual compression, and bytecode emission — runs client-side in the browser. Simulation executes the same Schrodinger Virtual Machine as the native build.
 
 !!! note "Performance"
     The WebAssembly build is slower than native C++ (roughly 3-5x). For production workloads, use the Python package.

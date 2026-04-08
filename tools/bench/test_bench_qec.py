@@ -1,4 +1,4 @@
-"""Performance benchmarks comparing UCC and Stim.
+"""Performance benchmarks comparing Clifft and Stim.
 
 This module measures compilation latency and per-shot execution overhead
 for both engines on a representative QEC circuit.
@@ -12,7 +12,7 @@ from typing import Any
 import pytest
 import stim
 
-import ucc
+import clifft
 
 # Load target circuit from file
 _CIRCUIT_PATH = Path(__file__).parent / "target_qec.stim"
@@ -90,9 +90,9 @@ def stim_sampler(stim_circuit: stim.Circuit) -> stim.CompiledDetectorSampler:
 
 
 @pytest.fixture(scope="module")
-def ucc_program() -> ucc.Program:
-    """Pre-compiled UCC program."""
-    return ucc.compile(_CIRCUIT_TEXT)
+def clifft_program() -> clifft.Program:
+    """Pre-compiled Clifft program."""
+    return clifft.compile(_CIRCUIT_TEXT)
 
 
 # =============================================================================
@@ -110,13 +110,13 @@ def test_compile_stim(benchmark: Any) -> None:
     benchmark(compile_stim)
 
 
-def test_compile_ucc(benchmark: Any) -> None:
-    """Measure UCC circuit parsing and compilation time."""
+def test_compile_clifft(benchmark: Any) -> None:
+    """Measure Clifft circuit parsing and compilation time."""
 
-    def compile_ucc() -> ucc.Program:
-        return ucc.compile(_CIRCUIT_TEXT)
+    def compile_clifft() -> clifft.Program:
+        return clifft.compile(_CIRCUIT_TEXT)
 
-    benchmark(compile_ucc)
+    benchmark(compile_clifft)
 
 
 # =============================================================================
@@ -133,10 +133,10 @@ def test_sample_stim(benchmark: Any, stim_sampler: stim.CompiledDetectorSampler)
     benchmark(sample_stim)
 
 
-def test_sample_ucc(benchmark: Any, ucc_program: ucc.Program) -> None:
-    """Measure UCC execution time for 100k shots."""
+def test_sample_clifft(benchmark: Any, clifft_program: clifft.Program) -> None:
+    """Measure Clifft execution time for 100k shots."""
 
-    def sample_ucc() -> object:
-        return ucc.sample(ucc_program, _BENCHMARK_SHOTS, seed=0)
+    def sample_clifft() -> object:
+        return clifft.sample(clifft_program, _BENCHMARK_SHOTS, seed=0)
 
-    benchmark(sample_ucc)
+    benchmark(sample_clifft)

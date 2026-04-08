@@ -1,17 +1,17 @@
 # Paper Benchmarks
 
-Performance benchmarks comparing UCC against Stim and tsim on quantum
+Performance benchmarks comparing Clifft against Stim and tsim on quantum
 error correction circuits.
 
 ## Benchmarks
 
 | Directory | Circuit | Simulators | Notes |
 |-----------|---------|-----------|-------|
-| `clifford_bench/` | Surface code memory (Clifford) | UCC, Stim, tsim | Pure stabilizer; all simulators work |
-| `near_clifford_bench/` | Magic state cultivation d=3,5 | UCC, tsim | 29 T gates (d=3); tsim needs `strategy="cutting"` |
-| `distillation_bench/` | Magic state distillation 85q | UCC, tsim | [17,1,5] color code; needs `UCC_MAX_QUBITS>=128` |
-| `coherent_noise_bench/` | Surface code + R_Z noise | UCC | Coherent over-rotation per Tuloup & Ayral (arXiv:2603.14670) |
-| `qv_benchmark/` | Quantum Volume (random) | UCC, Qiskit, Qulacs, qsim, Qrack | Fully non-Clifford; worst-case exponential scaling |
+| `clifford_bench/` | Surface code memory (Clifford) | Clifft, Stim, tsim | Pure stabilizer; all simulators work |
+| `near_clifford_bench/` | Magic state cultivation d=3,5 | Clifft, tsim | 29 T gates (d=3); tsim needs `strategy="cutting"` |
+| `distillation_bench/` | Magic state distillation 85q | Clifft, tsim | [17,1,5] color code; needs `CLIFFT_MAX_QUBITS>=128` |
+| `coherent_noise_bench/` | Surface code + R_Z noise | Clifft | Coherent over-rotation per Tuloup & Ayral (arXiv:2603.14670) |
+| `qv_benchmark/` | Quantum Volume (random) | Clifft, Qiskit, Qulacs, qsim, Qrack | Fully non-Clifford; worst-case exponential scaling |
 
 ## Setup
 
@@ -24,11 +24,11 @@ uv sync          # creates .venv and installs stim, pandas, numpy
 ```
 
 **Additional runtime dependencies** (not on PyPI):
-- **ucc** — install from the parent repo: `uv pip install -e ..`
+- **clifft** — install from the parent repo: `uv pip install -e ..`
 - **tsim** — `uv pip install bloqade-tsim>=0.1.2`
 
 Benchmarks that select only available simulators (e.g.
-`--simulators stim`) work without ucc or tsim.
+`--simulators stim`) work without clifft or tsim.
 
 ## Quick start
 
@@ -48,29 +48,29 @@ uses the default compilation strategy for Clifford/distillation
 and cutting for non-Clifford circuits.
 
 ```bash
-# 1. Clifford surface code d=3,5,7 — Stim, UCC, tsim (default strategy)
+# 1. Clifford surface code d=3,5,7 — Stim, Clifft, tsim (default strategy)
 JAX_PLATFORMS=cpu uv run python -m clifford_bench.run_benchmark \
     --distances 3,5,7 --error-rates 1e-3 \
-    --simulators stim,ucc,tsim
+    --simulators stim,clifft,tsim
 
-# 2. Near-Clifford cultivation d=3 — UCC, tsim (cutting strategy)
+# 2. Near-Clifford cultivation d=3 — Clifft, tsim (cutting strategy)
 JAX_PLATFORMS=cpu uv run python -m near_clifford_bench.run_benchmark \
     --distances 3 --error-rates 1e-3 \
-    --simulators ucc,tsim
+    --simulators clifft,tsim
 
-# 3. Magic state distillation 85q — UCC, tsim (default strategy)
+# 3. Magic state distillation 85q — Clifft, tsim (default strategy)
 JAX_PLATFORMS=cpu uv run python -m distillation_bench.run_benchmark \
-    --simulators ucc,tsim
+    --simulators clifft,tsim
 
-# 4. Coherent noise d=5 r=1 — UCC, tsim (cutting strategy)
+# 4. Coherent noise d=5 r=1 — Clifft, tsim (cutting strategy)
 JAX_PLATFORMS=cpu uv run python -m coherent_noise_bench.run_benchmark \
     --distances 5 --rounds 1 \
-    --simulators ucc,tsim
+    --simulators clifft,tsim
 
-# 5. Coherent noise d=5 r=5 — UCC only (tsim cannot compile)
+# 5. Coherent noise d=5 r=5 — Clifft only (tsim cannot compile)
 uv run python -m coherent_noise_bench.run_benchmark \
     --distances 5 --rounds 5 \
-    --simulators ucc
+    --simulators clifft
 ```
 
 Notes:
@@ -83,7 +83,7 @@ Notes:
 
 ## Quantum Volume benchmark
 
-The QV benchmark compares UCC against statevector simulators
+The QV benchmark compares Clifft against statevector simulators
 (Qiskit-Aer, Qulacs, qsim, Qrack) on fully random circuits that
 scale exponentially in memory.  Each (simulator, N, seed) runs in
 an isolated subprocess with memory and timeout limits.
@@ -106,7 +106,7 @@ Memory scaling for statevector simulators is 2^N × 16 bytes:
 | 32 | 64 GB           |
 
 N=32 is the practical ceiling for 96 GB — beyond that nothing fits.
-UCC on random QV circuits has similar exponential scaling, so expect
+Clifft on random QV circuits has similar exponential scaling, so expect
 OOM at comparable N values.  The benchmark gracefully records OOM
 and timeout as status codes in the CSV.
 

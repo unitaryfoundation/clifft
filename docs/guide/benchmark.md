@@ -1,10 +1,10 @@
 <!--pytest-codeblocks:skipfile-->
 
-# Benchmark: UCC vs Qiskit-Aer
+# Benchmark: Clifft vs Qiskit-Aer
 
-UCC's factored-state architecture means simulation cost scales with the circuit's non-Clifford complexity (the *active rank* $k$), not the total qubit count $N$. This page compares UCC against Qiskit-Aer's statevector simulator on two parameter sweeps that isolate each scaling dimension.
+Clifft's factored-state architecture means simulation cost scales with the circuit's non-Clifford complexity (the *active rank* $k$), not the total qubit count $N$. This page compares Clifft against Qiskit-Aer's statevector simulator on two parameter sweeps that isolate each scaling dimension.
 
-![UCC vs Qiskit-Aer: Simulation Performance](images/benchmark_comparison.png)
+![Clifft vs Qiskit-Aer: Simulation Performance](images/benchmark_comparison.png)
 
 ## Circuit Design
 
@@ -16,7 +16,7 @@ The benchmark circuit has three parameters:
 
 The circuit places T-gates interleaved with Hadamard and CNOT gates on the first $k$ qubits, then pads the remaining $N - k$ qubits with a Clifford entangling layer (Hadamards followed by a CNOT chain across all $N$ qubits).
 
-A dense statevector simulator like Qiskit-Aer must allocate $2^N$ complex amplitudes regardless of circuit structure. UCC's compiler recognizes that the Clifford padding can be absorbed into an offline Pauli frame, so its virtual machine only allocates $2^k$ amplitudes.
+A dense statevector simulator like Qiskit-Aer must allocate $2^N$ complex amplitudes regardless of circuit structure. Clifft's compiler recognizes that the Clifford padding can be absorbed into an offline Pauli frame, so its virtual machine only allocates $2^k$ amplitudes.
 
 ## Two Sweeps
 
@@ -24,7 +24,7 @@ A dense statevector simulator like Qiskit-Aer must allocate $2^N$ complex amplit
 
 Fix $k = 12$ and $t = 20$, sweep $N$ from 16 to 29.
 
-- **UCC** stays flat at ~60ms and ~73MB regardless of $N$, because its active array is always $2^{12}$.
+- **Clifft** stays flat at ~60ms and ~73MB regardless of $N$, because its active array is always $2^{12}$.
 - **Qiskit-Aer** doubles in time and memory with each additional qubit. It times out at $N = 28$ (>120s) and exceeds available RAM at $N = 29$.
 
 ### Rank Scaling (right panels)
@@ -32,19 +32,19 @@ Fix $k = 12$ and $t = 20$, sweep $N$ from 16 to 29.
 Fix $N = 24$ and $t = 40$, sweep $k$ from 8 to 25.
 
 - **Qiskit-Aer** is constant at ~10s and ~343MB, since it always tracks $2^{24}$ amplitudes.
-- **UCC** scales as $O(2^k)$. For small $k$ it is over 100x faster; by $k = 24$ the two converge because UCC's active array approaches Qiskit's full statevector.
+- **Clifft** scales as $O(2^k)$. For small $k$ it is over 100x faster; by $k = 24$ the two converge because Clifft's active array approaches Qiskit's full statevector.
 
-This is the honest tradeoff: UCC wins when $k \ll N$, which is the regime relevant to most error-corrected and near-term circuits where Clifford gates dominate.
+This is the honest tradeoff: Clifft wins when $k \ll N$, which is the regime relevant to most error-corrected and near-term circuits where Clifford gates dominate.
 
 ## Prerequisites
 
 ```bash
-pip install ucc qiskit qiskit-aer matplotlib
+pip install clifft qiskit qiskit-aer matplotlib
 ```
 
 ## Running the Benchmark
 
-The benchmark script is self-contained. It generates circuits in Qiskit, converts them to Stim format for UCC, runs both simulators in isolated subprocesses (for clean memory measurement), and produces the plot.
+The benchmark script is self-contained. It generates circuits in Qiskit, converts them to Stim format for Clifft, runs both simulators in isolated subprocesses (for clean memory measurement), and produces the plot.
 
 ```bash
 # Run full benchmark and generate plot
@@ -61,7 +61,7 @@ On an 8GB machine, the full sweep takes approximately 5-10 minutes. Qiskit will 
 
 ## Key Excerpts
 
-The core logic is shown below. See [`docs/guide/scripts/run_benchmark.py`](https://github.com/unitaryfoundation/ucc-next/blob/main/docs/guide/scripts/run_benchmark.py) for the complete runnable script including plotting, subprocess isolation, and CSV output.
+The core logic is shown below. See [`docs/guide/scripts/run_benchmark.py`](https://github.com/unitaryfoundation/clifft/blob/main/docs/guide/scripts/run_benchmark.py) for the complete runnable script including plotting, subprocess isolation, and CSV output.
 
 ```python
 import os
@@ -81,7 +81,7 @@ def build_circuit_qiskit(n: int, t: int, k: int) -> str:
 
     The circuit places T-gates (non-Clifford) on k active qubits and
     pads the remaining N-k qubits with Cliffords.  A dense-state
-    simulator must track 2^N amplitudes, but UCC's factored-state
+    simulator must track 2^N amplitudes, but Clifft's factored-state
     representation only needs 2^k.
     """
     from qiskit import QuantumCircuit
@@ -175,7 +175,7 @@ def run_worker(tool: str, qasm_str: str, stim_str: str) -> dict[str, Any]:
         env = os.environ.copy()
         env["OMP_NUM_THREADS"] = "1"
         env["MKL_NUM_THREADS"] = "1"
-        env["UCC_BENCH_MEM_LIMIT_GB"] = str(MEM_LIMIT_GB)
+        env["CLIFFT_BENCH_MEM_LIMIT_GB"] = str(MEM_LIMIT_GB)
 
         result = subprocess.run(
             cmd, capture_output=True, text=True,
@@ -203,7 +203,7 @@ def run_worker(tool: str, qasm_str: str, stim_str: str) -> dict[str, Any]:
 def execute_internal(tool: str, qasm_path: str, stim_path: str) -> None:
     """Payload executed inside the isolated subprocess."""
     if sys.platform.startswith("linux"):
-        mem_str = os.environ.get("UCC_BENCH_MEM_LIMIT_GB")
+        mem_str = os.environ.get("CLIFFT_BENCH_MEM_LIMIT_GB")
         if mem_str:
             limit = int(float(mem_str) * 1024**3)
             resource.setrlimit(
@@ -222,12 +222,12 @@ def execute_internal(tool: str, qasm_path: str, stim_path: str) -> None:
         )
         sim.run(transpile(qc, sim), shots=1).result()
 
-    elif tool == "ucc":
-        import ucc
+    elif tool == "clifft":
+        import clifft
 
         with open(stim_path) as f:
-            program = ucc.compile(f.read())
-        ucc.sample(program, shots=1)
+            program = clifft.compile(f.read())
+        clifft.sample(program, shots=1)
 
     elapsed = time.perf_counter() - start
     peak_kb = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
@@ -250,7 +250,7 @@ def run_sweeps() -> list[list[Any]]:
 
     # Sweep A: qubit scaling (fix k=12, t=20, vary N)
     for n in [16, 20, 24, 26, 28, 29]:
-        for tool in ["ucc", "qiskit"]:
+        for tool in ["clifft", "qiskit"]:
             qasm = build_circuit_qiskit(n, 20, 12)
             stim = qasm_to_stim(qasm)
             res = run_worker(tool, qasm, stim)
@@ -261,7 +261,7 @@ def run_sweeps() -> list[list[Any]]:
 
     # Sweep B: rank scaling (fix N=24, t=40, vary k)
     for k in [8, 12, 16, 20, 22, 24, 25]:
-        for tool in ["ucc", "qiskit"]:
+        for tool in ["clifft", "qiskit"]:
             qasm = build_circuit_qiskit(24, 40, k)
             stim = qasm_to_stim(qasm)
             res = run_worker(tool, qasm, stim)
@@ -297,9 +297,9 @@ Each simulation runs in a separate subprocess with:
 - **Single-threaded** execution (`OMP_NUM_THREADS=1`) for fair comparison
 - **Peak memory** measured via `resource.getrusage(RUSAGE_SELF).ru_maxrss`
 
-### Why UCC Wins at Low Rank
+### Why Clifft Wins at Low Rank
 
-The key insight is UCC's factored-state representation:
+The key insight is Clifft's factored-state representation:
 
 $$|\psi\rangle = \gamma \, U_C \, P \, (|\phi\rangle_A \otimes |0\rangle_D)$$
 
@@ -308,4 +308,4 @@ The compiler absorbs all Clifford gates into the offline frame $U_C$ and Pauli f
 Qiskit-Aer has no such factorization — it must allocate and evolve a full $2^N$ statevector for every circuit.
 
 !!! note "Reproducing results"
-    Exact timings depend on hardware. The qualitative scaling behavior (UCC flat in N, exponential in k; Qiskit exponential in N, flat in k) is consistent across machines. The pre-generated plot was produced on a single-core Linux VM with 8GB RAM.
+    Exact timings depend on hardware. The qualitative scaling behavior (Clifft flat in N, exponential in k; Qiskit exponential in N, flat in k) is consistent across machines. The pre-generated plot was produced on a single-core Linux VM with 8GB RAM.

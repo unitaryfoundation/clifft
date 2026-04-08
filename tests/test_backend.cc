@@ -1,9 +1,9 @@
-#include "ucc/backend/compiler_context.h"
-#include "ucc/backend/reference_syndrome.h"
-#include "ucc/circuit/parser.h"
-#include "ucc/frontend/frontend.h"
-#include "ucc/optimizer/peephole.h"
-#include "ucc/optimizer/remove_noise_pass.h"
+#include "clifft/backend/compiler_context.h"
+#include "clifft/backend/reference_syndrome.h"
+#include "clifft/circuit/parser.h"
+#include "clifft/frontend/frontend.h"
+#include "clifft/optimizer/peephole.h"
+#include "clifft/optimizer/remove_noise_pass.h"
 
 #include "test_helpers.h"
 
@@ -14,11 +14,11 @@
 #include <cstdint>
 #include <string>
 
-using namespace ucc;
-using namespace ucc::internal;
-using ucc::test::test_lcg;
-using ucc::test::X;
-using ucc::test::Z;
+using namespace clifft;
+using namespace clifft::internal;
+using clifft::test::test_lcg;
+using clifft::test::X;
+using clifft::test::Z;
 
 // =============================================================================
 // Helpers
@@ -1037,9 +1037,9 @@ TEST_CASE("Compress sequential: 30 compressions on 30 qubits all-dormant") {
 
 // Helper: compile a circuit string through the full pipeline and return the module.
 static CompiledModule compile_circuit(const std::string& text) {
-    auto circuit = ucc::parse(text);
-    auto hir = ucc::trace(circuit);
-    return ucc::lower(hir);
+    auto circuit = clifft::parse(text);
+    auto hir = clifft::trace(circuit);
+    return clifft::lower(hir);
 }
 
 TEST_CASE("Lower: T on single qubit emits EXPAND") {
@@ -1132,11 +1132,11 @@ TEST_CASE("Lower: pure Clifford circuit emits no EXPAND or T opcodes") {
 // compile_optimized runs parse -> trace -> peephole -> lower.
 // T+T fusion now absorbs S into the Pauli frame (no CLIFFORD_PHASE).
 static CompiledModule compile_optimized(const std::string& text) {
-    auto circuit = ucc::parse(text);
-    auto hir = ucc::trace(circuit);
-    ucc::PeepholeFusionPass pass;
+    auto circuit = clifft::parse(text);
+    auto hir = clifft::trace(circuit);
+    clifft::PeepholeFusionPass pass;
     pass.run(hir);
-    return ucc::lower(hir);
+    return clifft::lower(hir);
 }
 
 TEST_CASE("Lower: H-T-T absorbs S -- no S or T opcodes emitted") {
@@ -1195,12 +1195,12 @@ TEST_CASE("Lower: postselection_mask emits OP_POSTSELECT for flagged detectors")
         "DETECTOR rec[-1]\n"
         "DETECTOR rec[-2]\n";
 
-    auto circuit = ucc::parse(text);
-    auto hir = ucc::trace(circuit);
+    auto circuit = clifft::parse(text);
+    auto hir = clifft::trace(circuit);
 
     // Mask: detector 0 is postselected, detector 1 is normal
     std::vector<uint8_t> mask = {1, 0};
-    auto mod = ucc::lower(hir, mask);
+    auto mod = clifft::lower(hir, mask);
 
     CHECK(count_opcodes(mod.bytecode, Opcode::OP_POSTSELECT) == 1);
     CHECK(count_opcodes(mod.bytecode, Opcode::OP_DETECTOR) == 1);
@@ -1211,9 +1211,9 @@ TEST_CASE("Lower: empty postselection_mask emits only OP_DETECTOR") {
         "M 0\n"
         "DETECTOR rec[-1]\n";
 
-    auto circuit = ucc::parse(text);
-    auto hir = ucc::trace(circuit);
-    auto mod = ucc::lower(hir);
+    auto circuit = clifft::parse(text);
+    auto hir = clifft::trace(circuit);
+    auto mod = clifft::lower(hir);
 
     CHECK(count_opcodes(mod.bytecode, Opcode::OP_POSTSELECT) == 0);
     CHECK(count_opcodes(mod.bytecode, Opcode::OP_DETECTOR) == 1);
@@ -1228,11 +1228,11 @@ TEST_CASE("Lower: short postselection_mask only affects present indices") {
         "DETECTOR rec[-2]\n"
         "DETECTOR rec[-1]\n";
 
-    auto circuit = ucc::parse(text);
-    auto hir = ucc::trace(circuit);
+    auto circuit = clifft::parse(text);
+    auto hir = clifft::trace(circuit);
 
     std::vector<uint8_t> mask = {1};  // Only 1 element, 3 detectors
-    auto mod = ucc::lower(hir, mask);
+    auto mod = clifft::lower(hir, mask);
 
     CHECK(count_opcodes(mod.bytecode, Opcode::OP_POSTSELECT) == 1);
     CHECK(count_opcodes(mod.bytecode, Opcode::OP_DETECTOR) == 2);
@@ -1249,7 +1249,7 @@ TEST_CASE("Lower: PHASE_ROTATION geometric artifact correction", "[backend][rota
     // +Y on qubit 0: destab=X(0), stab=Z(0), sign=false
     hir.ops.push_back(HeisenbergOp::make_phase_rotation(X(0), Z(0), false, 0.5));
 
-    auto mod = ucc::lower(hir);
+    auto mod = clifft::lower(hir);
 
     // +Y compresses to -Z, so result.sign is true while op.sign() is false.
     // The Back-End should apply a phase correction of e^{i * 0.5 * pi} = +i.
@@ -1279,11 +1279,11 @@ TEST_CASE("lower injects FLAG_EXPECTED_ONE into detector instructions") {
         "M 0\n"
         "DETECTOR rec[-1]\n"
         "DETECTOR rec[-1]\n");
-    auto hir = ucc::trace(circuit);
+    auto hir = clifft::trace(circuit);
 
     // expected_detectors: det0 -> 1, det1 -> 0
     std::vector<uint8_t> expected_det = {1, 0};
-    auto mod = ucc::lower(hir, {}, expected_det, {});
+    auto mod = clifft::lower(hir, {}, expected_det, {});
 
     // Find the two OP_DETECTOR instructions
     std::vector<const Instruction*> dets;
@@ -1303,12 +1303,12 @@ TEST_CASE("lower injects FLAG_EXPECTED_ONE into postselect instructions") {
         "M 0\n"
         "DETECTOR rec[-1]\n"
         "DETECTOR rec[-1]\n");
-    auto hir = ucc::trace(circuit);
+    auto hir = clifft::trace(circuit);
 
     // Postselect det0, expected_detectors: det0 -> 1
     std::vector<uint8_t> ps_mask = {1, 0};
     std::vector<uint8_t> expected_det = {1, 0};
-    auto mod = ucc::lower(hir, ps_mask, expected_det, {});
+    auto mod = clifft::lower(hir, ps_mask, expected_det, {});
 
     // det0 should be OP_POSTSELECT with FLAG_EXPECTED_ONE
     const Instruction* ps = nullptr;
@@ -1329,10 +1329,10 @@ TEST_CASE("lower stores expected_observables in CompiledModule") {
     auto circuit = parse(
         "M 0\n"
         "OBSERVABLE_INCLUDE(0) rec[-1]\n");
-    auto hir = ucc::trace(circuit);
+    auto hir = clifft::trace(circuit);
 
     std::vector<uint8_t> expected_obs = {1};
-    auto mod = ucc::lower(hir, {}, {}, expected_obs);
+    auto mod = clifft::lower(hir, {}, {}, expected_obs);
 
     REQUIRE(mod.expected_observables.size() == 1);
     CHECK(mod.expected_observables[0] == 1);
@@ -1343,7 +1343,7 @@ TEST_CASE("RemoveNoisePass strips noise ops and clears side-tables") {
         "X_ERROR(0.1) 0\n"
         "M 0\n"
         "DETECTOR rec[-1]\n");
-    auto hir = ucc::trace(circuit);
+    auto hir = clifft::trace(circuit);
 
     REQUIRE(hir.noise_sites.size() > 0);
     size_t original_ops = hir.ops.size();
@@ -1371,7 +1371,7 @@ TEST_CASE("compute_reference_syndrome extracts expected parities") {
         "M 0\n"
         "DETECTOR rec[-1]\n"
         "OBSERVABLE_INCLUDE(0) rec[-1]\n");
-    auto hir = ucc::trace(circuit);
+    auto hir = clifft::trace(circuit);
 
     auto ref = compute_reference_syndrome(hir);
     REQUIRE(ref.detectors.size() == 1);
@@ -1387,7 +1387,7 @@ TEST_CASE("compute_reference_syndrome ignores noise") {
         "X_ERROR(1.0) 0\n"  // Would flip back to 0 if not stripped
         "M 0\n"
         "DETECTOR rec[-1]\n");
-    auto hir = ucc::trace(circuit);
+    auto hir = clifft::trace(circuit);
 
     auto ref = compute_reference_syndrome(hir);
     REQUIRE(ref.detectors.size() == 1);

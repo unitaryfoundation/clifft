@@ -1,10 +1,10 @@
 # Theoretical Overview
 
-UCC (Unitary Compiler Collection) is a multi-level compiler and execution engine for universal quantum circuits. It solves the exponential memory wall of non-Clifford simulation by decoupling the deterministic coordinate transformations of a quantum circuit from its probabilistic complex amplitudes.
+Clifft is a multi-level compiler and execution engine for universal quantum circuits. It solves the exponential memory wall of non-Clifford simulation by decoupling the deterministic coordinate transformations of a quantum circuit from its probabilistic complex amplitudes.
 
 ## The Factored State Representation
 
-UCC represents the exact physical quantum state at time $t$ via a strict factorization:
+Clifft represents the exact physical quantum state at time $t$ via a strict factorization:
 
 $$|\psi^{(t)}\rangle = \gamma^{(t)} \, U_C^{(t)} \, P^{(t)} \, \Big( |\phi^{(t)}\rangle_A \otimes |0\rangle_D \Big)$$
 
@@ -22,7 +22,7 @@ Each component serves a distinct purpose:
 
 ### Why This Matters
 
-For circuits where non-Clifford entanglement is bounded — such as magic state distillation, where syndrome measurements aggressively "cool" superposition — the peak active dimension $k_{\text{max}}$ remains small even as the total qubit count $n$ grows to hundreds. UCC allocates $2^{k_{\text{max}}}$ complex amplitudes instead of $2^n$, yielding exponential memory savings.
+For circuits where non-Clifford entanglement is bounded — such as magic state distillation, where syndrome measurements aggressively "cool" superposition — the peak active dimension $k_{\text{max}}$ remains small even as the total qubit count $n$ grows to hundreds. Clifft allocates $2^{k_{\text{max}}}$ complex amplitudes instead of $2^n$, yielding exponential memory savings.
 
 ## The Five-Stage Pipeline
 

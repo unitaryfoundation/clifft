@@ -1,6 +1,6 @@
 # Supported Gates
 
-UCC parses [Stim circuit format](https://github.com/quantumlib/Stim/blob/main/doc/file_format_stim_circuit.md) and supports nearly all Stim gates, plus non-Clifford extensions.
+Clifft parses [Stim circuit format](https://github.com/quantumlib/Stim/blob/main/doc/file_format_stim_circuit.md) and supports nearly all Stim gates, plus non-Clifford extensions.
 
 ## Pauli Gates
 
@@ -36,7 +36,7 @@ All single-qubit Cliffords are absorbed AOT — they update the Clifford frame $
 | `T` | $\pi/8$ gate |
 | `T_DAG` | Inverse $\pi/8$ gate |
 
-These are UCC extensions beyond Stim's gate set. Non-Clifford gates activate qubits in the virtual machine, expanding the active statevector.
+These are Clifft extensions beyond Stim's gate set. Non-Clifford gates activate qubits in the virtual machine, expanding the active statevector.
 
 ## Two-Qubit Clifford Gates
 
@@ -133,7 +133,7 @@ Results are available via `SampleResult.exp_vals` (shape `(shots, num_exp_vals)`
 
 ## Continuous Rotation Gates
 
-UCC extends the Stim gate set with arbitrary-angle rotation gates. All angle
+Clifft extends the Stim gate set with arbitrary-angle rotation gates. All angle
 parameters are in **half-turns** (multiply by pi to get radians).
 
 ### Single-Qubit Rotations
@@ -147,7 +147,7 @@ parameters are in **half-turns** (multiply by pi to get radians).
 | `U`   | `U(theta,phi,lambda) target` | Alias for `U3` |
 
 !!! note "Name conflicts with Stim"
-    UCC uses `R_X`, `R_Y`, `R_Z` (with underscores) to avoid collision with
+    Clifft uses `R_X`, `R_Y`, `R_Z` (with underscores) to avoid collision with
     Stim's `RX` / `RY` reset-in-basis instructions.
 
 ### Two-Qubit Pauli Rotations

@@ -7,8 +7,8 @@ export interface SavedCircuit {
   source: string;
 }
 
-const DRAFT_KEY = "ucc-current-draft";
-const SAVED_KEY = "ucc-saved-circuits";
+const DRAFT_KEY = "clifft-current-draft";
+const SAVED_KEY = "clifft-saved-circuits";
 const MAX_SAVED = 15;
 
 function loadSaved(): SavedCircuit[] {

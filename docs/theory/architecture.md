@@ -1,6 +1,6 @@
 # Software Architecture
 
-This page describes UCC's concrete software architecture: how the codebase maps to the five-stage pipeline and the key integration contracts.
+This page describes Clifft's concrete software architecture: how the codebase maps to the five-stage pipeline and the key integration contracts.
 
 ## Repository Layout
 
@@ -8,11 +8,11 @@ The source code mirrors the pipeline stages:
 
 | Directory | Pipeline Stage | Role |
 |-----------|---------------|------|
-| `src/ucc/circuit/` | Input | Circuit AST, parser, target encoding |
-| `src/ucc/frontend/` | Stage 1 | Drives stabilizer tableau, absorbs Cliffords, emits HIR |
-| `src/ucc/optimizer/` | Stage 2 & 4 | Two-level optimization: HIR passes and bytecode passes |
-| `src/ucc/backend/` | Stage 3 | Virtual frame tracking, basis compression, bytecode emission |
-| `src/ucc/svm/` | Stage 5 | Runtime VM: executes RISC bytecode over dense arrays |
+| `src/clifft/circuit/` | Input | Circuit AST, parser, target encoding |
+| `src/clifft/frontend/` | Stage 1 | Drives stabilizer tableau, absorbs Cliffords, emits HIR |
+| `src/clifft/optimizer/` | Stage 2 & 4 | Two-level optimization: HIR passes and bytecode passes |
+| `src/clifft/backend/` | Stage 3 | Virtual frame tracking, basis compression, bytecode emission |
+| `src/clifft/svm/` | Stage 5 | Runtime VM: executes RISC bytecode over dense arrays |
 | `src/python/` | Bindings | Python API via nanobind |
 
 !!! important "Isolation Invariant"
@@ -20,9 +20,9 @@ The source code mirrors the pipeline stages:
 
 ## The Stim Integration Contract
 
-UCC uses [Stim](https://github.com/quantumlib/Stim) exclusively as an AOT mathematical tableau library, **not** as a circuit simulation engine. The runtime VM never touches Stim.
+Clifft uses [Stim](https://github.com/quantumlib/Stim) exclusively as an AOT mathematical tableau library, **not** as a circuit simulation engine. The runtime VM never touches Stim.
 
-Because UCC factors the state into physical and virtual coordinate frames, the AOT compiler manipulates the stabilizer frame from *both ends* of the circuit:
+Because Clifft factors the state into physical and virtual coordinate frames, the AOT compiler manipulates the stabilizer frame from *both ends* of the circuit:
 
 ### Front-End: Physical Frame (Prepending)
 
@@ -44,7 +44,7 @@ $$U_C = U_{\text{phys}} \, V_{\text{cum}}^\dagger$$
 
 ## Optimization Passes
 
-UCC optimizes at two distinct IR levels, each with its own pass manager:
+Clifft optimizes at two distinct IR levels, each with its own pass manager:
 
 ### HIR Passes (Pre-Lowering)
 
@@ -80,14 +80,14 @@ The fixed instruction size ensures L1 cache alignment and predictable memory acc
 
 The VM allocates a single contiguous complex array of size $2^{k_{\text{max}}}$ at program start. This array is never resized during execution. When measurements reduce the active set, the array is logically compacted (the compiler emits SWAP instructions to route measured qubits to the top axis before measurement).
 
-The Pauli frame ($P$) is tracked as a pair of $n$-bit masks using the custom, auto-vectorized `ucc::BitMask<kMaxInlineQubits>`, supporting arbitrary scaling natively without heap allocations.
+The Pauli frame ($P$) is tracked as a pair of $n$-bit masks using the custom, auto-vectorized `clifft::BitMask<kMaxInlineQubits>`, supporting arbitrary scaling natively without heap allocations.
 
 ## Python Bindings
 
-UCC uses [nanobind](https://github.com/wjakob/nanobind) to expose the C++ core to Python. The Python layer provides:
+Clifft uses [nanobind](https://github.com/wjakob/nanobind) to expose the C++ core to Python. The Python layer provides:
 
-- `ucc.compile()` and `ucc.sample()` as the primary interface
-- `ucc.execute()` and `ucc.get_statevector()` for exact state inspection
-- `ucc.trace()` for compilation pipeline debugging
+- `clifft.compile()` and `clifft.sample()` as the primary interface
+- `clifft.execute()` and `clifft.get_statevector()` for exact state inspection
+- `clifft.trace()` for compilation pipeline debugging
 
 See the [User Guide](../guide/compiling.md) for API details.

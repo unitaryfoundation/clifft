@@ -1,4 +1,4 @@
-# UCC pre-commit hooks
+# Clifft pre-commit hooks
 # Run with: uv run pre-commit run --all-files
 
 repos:

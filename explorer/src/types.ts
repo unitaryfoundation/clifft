@@ -52,7 +52,7 @@ export function isSimulateSuccess(r: SimulateResult): r is SimulateSuccess {
   return !('error' in r) || r.error === undefined;
 }
 
-export interface UccModule {
+export interface ClifftModule {
   get_available_passes: () => string;
   compile_to_json: (source: string, passes_json: string) => string;
   simulate_wasm: (source: string, shots: number, passes_json: string) => string;

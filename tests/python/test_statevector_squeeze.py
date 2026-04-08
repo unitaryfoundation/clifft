@@ -9,22 +9,22 @@ import pytest
 from conftest import assert_statevectors_equal, cross_binomial_tolerance
 from utils_fuzzing import generate_uncomputation_ladder
 
-import ucc
+import clifft
 
 
-def _squeeze_only_pass_manager() -> ucc.HirPassManager:
+def _squeeze_only_pass_manager() -> clifft.HirPassManager:
     """Return a pass manager with only the squeeze pass (no peephole)."""
-    pm = ucc.HirPassManager()
-    pm.add(ucc.StatevectorSqueezePass())
+    pm = clifft.HirPassManager()
+    pm.add(clifft.StatevectorSqueezePass())
     return pm
 
 
-def _ucc_statevector(circuit_str: str, **compile_kwargs: object) -> np.ndarray:
+def _clifft_statevector(circuit_str: str, **compile_kwargs: object) -> np.ndarray:
     """Compile and execute a noiseless circuit, return dense statevector."""
-    prog = ucc.compile(circuit_str, **compile_kwargs)
-    state = ucc.State(peak_rank=prog.peak_rank, num_measurements=prog.num_measurements)
-    ucc.execute(prog, state)
-    sv: np.ndarray = ucc.get_statevector(prog, state)
+    prog = clifft.compile(circuit_str, **compile_kwargs)
+    state = clifft.State(peak_rank=prog.peak_rank, num_measurements=prog.num_measurements)
+    clifft.execute(prog, state)
+    sv: np.ndarray = clifft.get_statevector(prog, state)
     return sv
 
 
@@ -42,8 +42,8 @@ class TestSqueezeBasicPeakRankReduction:
         """
         circuit = "H 0\nT 0\nH 1\nT 1\nM 0\nM 1"
 
-        base = ucc.compile(circuit)
-        squeezed = ucc.compile(circuit, hir_passes=_squeeze_only_pass_manager())
+        base = clifft.compile(circuit)
+        squeezed = clifft.compile(circuit, hir_passes=_squeeze_only_pass_manager())
 
         assert base.peak_rank == 2, f"Expected baseline peak_rank=2, got {base.peak_rank}"
         assert (
@@ -53,8 +53,8 @@ class TestSqueezeBasicPeakRankReduction:
     def test_three_independent_qubits(self) -> None:
         """Three independent qubits: squeeze should reduce peak_rank."""
         circuit = "H 0\nT 0\nH 1\nT 1\nH 2\nT 2\nM 0\nM 1\nM 2"
-        base = ucc.compile(circuit)
-        squeezed = ucc.compile(circuit, hir_passes=_squeeze_only_pass_manager())
+        base = clifft.compile(circuit)
+        squeezed = clifft.compile(circuit, hir_passes=_squeeze_only_pass_manager())
 
         assert base.peak_rank == 3
         assert squeezed.peak_rank < base.peak_rank
@@ -64,11 +64,11 @@ class TestSqueezeBasicPeakRankReduction:
         circuit = "H 0\nT 0\nH 1\nT 1\nM 0\nM 1"
         shots = 10_000
 
-        base = ucc.compile(circuit)
-        squeezed = ucc.compile(circuit, hir_passes=_squeeze_only_pass_manager())
+        base = clifft.compile(circuit)
+        squeezed = clifft.compile(circuit, hir_passes=_squeeze_only_pass_manager())
 
-        base_result = ucc.sample(base, shots, seed=42)
-        squeezed_result = ucc.sample(squeezed, shots, seed=42)
+        base_result = clifft.sample(base, shots, seed=42)
+        squeezed_result = clifft.sample(squeezed, shots, seed=42)
 
         # Both should produce roughly 50/50 coin flips
         for col in range(base_result.measurements.shape[1]):
@@ -86,13 +86,13 @@ class TestSqueezeBasicPeakRankReduction:
         The squeezer respects anti-commutation barriers and preserves semantics.
         """
         circuit = "H 0\nCX 0 1\nT 0\nT 1\nM 0\nM 1"
-        base = ucc.compile(circuit)
-        squeezed = ucc.compile(circuit, hir_passes=_squeeze_only_pass_manager())
+        base = clifft.compile(circuit)
+        squeezed = clifft.compile(circuit, hir_passes=_squeeze_only_pass_manager())
 
         # Verify sampling correctness regardless of peak_rank change
         shots = 10_000
-        base_result = ucc.sample(base, shots, seed=42)
-        squeezed_result = ucc.sample(squeezed, shots, seed=42)
+        base_result = clifft.sample(base, shots, seed=42)
+        squeezed_result = clifft.sample(squeezed, shots, seed=42)
         for col in range(base_result.measurements.shape[1]):
             p1 = float(base_result.measurements[:, col].mean())
             p2 = float(squeezed_result.measurements[:, col].mean())
@@ -107,8 +107,8 @@ class TestSqueezeBasicPeakRankReduction:
         The order of quantum-significant ops must be preserved.
         """
         circuit_str = "H 0\nT 0\nX_ERROR(0.1) 0\nM 0"
-        base = ucc.compile(circuit_str)
-        squeezed = ucc.compile(circuit_str, hir_passes=_squeeze_only_pass_manager())
+        base = clifft.compile(circuit_str)
+        squeezed = clifft.compile(circuit_str, hir_passes=_squeeze_only_pass_manager())
 
         # Both should have peak_rank=1 since the noise barrier blocks
         # the measurement from bubbling past X_ERROR
@@ -129,8 +129,8 @@ class TestSqueezeClassicalDataflow:
         """
         circuit = "H 0\nT 0\nH 1\nT 1\nM 0\nDETECTOR rec[-1]\nM 1"
 
-        base = ucc.compile(circuit)
-        squeezed = ucc.compile(circuit, hir_passes=_squeeze_only_pass_manager())
+        base = clifft.compile(circuit)
+        squeezed = clifft.compile(circuit, hir_passes=_squeeze_only_pass_manager())
 
         assert base.peak_rank == 2
         assert squeezed.peak_rank == 0
@@ -138,11 +138,11 @@ class TestSqueezeClassicalDataflow:
     def test_measure_blocked_by_own_detector(self) -> None:
         """M 0 must NOT bubble past a DETECTOR that references meas_idx 0."""
         circuit = "H 0\nM 0\nDETECTOR rec[-1]"
-        hir = ucc.trace(ucc.parse(circuit))
+        hir = clifft.trace(clifft.parse(circuit))
         ops_before = [op["op_type"] for op in hir.as_dict()["ops"]]
 
-        pm = ucc.HirPassManager()
-        pm.add(ucc.StatevectorSqueezePass())
+        pm = clifft.HirPassManager()
+        pm.add(clifft.StatevectorSqueezePass())
         pm.run(hir)
         ops_after = [op["op_type"] for op in hir.as_dict()["ops"]]
 
@@ -151,10 +151,10 @@ class TestSqueezeClassicalDataflow:
     def test_measure_blocked_by_own_conditional_pauli(self) -> None:
         """M 0 must NOT swap past a CONDITIONAL_PAULI that reads meas_idx 0."""
         circuit = "H 0\nH 1\nM 0\nCX rec[-1] 1\nM 1"
-        hir = ucc.trace(ucc.parse(circuit))
+        hir = clifft.trace(clifft.parse(circuit))
 
-        pm = ucc.HirPassManager()
-        pm.add(ucc.StatevectorSqueezePass())
+        pm = clifft.HirPassManager()
+        pm.add(clifft.StatevectorSqueezePass())
         pm.run(hir)
         ops_after = [
             (op["op_type"], op.get("meas_record_idx"), op.get("controlling_meas"))
@@ -174,10 +174,10 @@ class TestSqueezeClassicalDataflow:
         any CONDITIONAL_PAULI that reads that same bit.
         """
         circuit = "H 0\nH 1\nM(0.1) 0\nCX rec[-1] 1\nM 1"
-        hir = ucc.trace(ucc.parse(circuit))
+        hir = clifft.trace(clifft.parse(circuit))
 
-        pm = ucc.HirPassManager()
-        pm.add(ucc.StatevectorSqueezePass())
+        pm = clifft.HirPassManager()
+        pm.add(clifft.StatevectorSqueezePass())
         pm.run(hir)
         ops = hir.as_dict()["ops"]
         types = [op["op_type"] for op in ops]
@@ -192,8 +192,8 @@ class TestSqueezeClassicalDataflow:
         """M 1 should bubble past an OBSERVABLE that only references meas_idx 0."""
         circuit = "H 0\nT 0\nH 1\nT 1\nM 0\nOBSERVABLE_INCLUDE(0) rec[-1]\nM 1"
 
-        base = ucc.compile(circuit)
-        squeezed = ucc.compile(circuit, hir_passes=_squeeze_only_pass_manager())
+        base = clifft.compile(circuit)
+        squeezed = clifft.compile(circuit, hir_passes=_squeeze_only_pass_manager())
 
         assert base.peak_rank == 2
         assert squeezed.peak_rank == 0
@@ -207,13 +207,13 @@ class TestSqueezeClassicalDataflow:
         """
         circuit = "H 0\nT 0\n" "H 1\nT 1\n" "H 2\nT 2\n" "M 0\n" "DETECTOR rec[-1]\n" "M 1\nM 2"
         shots = 10_000
-        base = ucc.compile(circuit)
-        squeezed = ucc.compile(circuit, hir_passes=_squeeze_only_pass_manager())
+        base = clifft.compile(circuit)
+        squeezed = clifft.compile(circuit, hir_passes=_squeeze_only_pass_manager())
 
         assert squeezed.peak_rank < base.peak_rank
 
-        base_result = ucc.sample(base, shots, seed=99)
-        squeezed_result = ucc.sample(squeezed, shots, seed=99)
+        base_result = clifft.sample(base, shots, seed=99)
+        squeezed_result = clifft.sample(squeezed, shots, seed=99)
         for col in range(base_result.measurements.shape[1]):
             p1 = float(base_result.measurements[:, col].mean())
             p2 = float(squeezed_result.measurements[:, col].mean())
@@ -231,10 +231,10 @@ class TestSqueezeSweep2Expansion:
         a T gate, bubbling stops immediately.
         """
         circuit = "H 0\nH 1\nH 2\nT 0\nT 1\nT 2\nM 0\nM 1\nM 2"
-        hir = ucc.trace(ucc.parse(circuit))
+        hir = clifft.trace(clifft.parse(circuit))
 
-        pm = ucc.HirPassManager()
-        pm.add(ucc.StatevectorSqueezePass())
+        pm = clifft.HirPassManager()
+        pm.add(clifft.StatevectorSqueezePass())
         pm.run(hir)
         ops = hir.as_dict()["ops"]
         types = [op["op_type"] for op in ops]
@@ -248,8 +248,8 @@ class TestSqueezeSweep2Expansion:
     def test_phase_rotation_bubbles_right(self) -> None:
         """PHASE_ROTATION (from R_Z) should bubble rightward in Sweep 2."""
         circuit = "H 0\nH 1\nR_Z(0.3) 0\nR_Z(0.5) 1\nM 0\nM 1"
-        base = ucc.compile(circuit)
-        squeezed = ucc.compile(circuit, hir_passes=_squeeze_only_pass_manager())
+        base = clifft.compile(circuit)
+        squeezed = clifft.compile(circuit, hir_passes=_squeeze_only_pass_manager())
 
         # With squeeze, the measurements should compact before the rotations
         assert squeezed.peak_rank <= base.peak_rank
@@ -261,42 +261,42 @@ class TestSqueezeEdgeCases:
     def test_single_qubit_no_op(self) -> None:
         """A single M 0 circuit has nothing to squeeze."""
         circuit = "H 0\nM 0"
-        base = ucc.compile(circuit)
-        squeezed = ucc.compile(circuit, hir_passes=_squeeze_only_pass_manager())
+        base = clifft.compile(circuit)
+        squeezed = clifft.compile(circuit, hir_passes=_squeeze_only_pass_manager())
         assert base.peak_rank == squeezed.peak_rank
 
     def test_empty_circuit(self) -> None:
         """Empty circuit should not crash the squeezer."""
         circuit = ""
-        base = ucc.compile(circuit)
-        squeezed = ucc.compile(circuit, hir_passes=_squeeze_only_pass_manager())
+        base = clifft.compile(circuit)
+        squeezed = clifft.compile(circuit, hir_passes=_squeeze_only_pass_manager())
         assert base.peak_rank == squeezed.peak_rank == 0
 
     def test_all_cliffords_no_squeeze_needed(self) -> None:
         """Pure Clifford circuit: squeezer runs but nothing expands."""
         circuit = "H 0\nCX 0 1\nS 0\nM 0\nM 1"
-        base = ucc.compile(circuit)
-        squeezed = ucc.compile(circuit, hir_passes=_squeeze_only_pass_manager())
+        base = clifft.compile(circuit)
+        squeezed = clifft.compile(circuit, hir_passes=_squeeze_only_pass_manager())
         assert squeezed.peak_rank == base.peak_rank
 
     def test_squeeze_idempotent(self) -> None:
         """Running the squeezer twice should produce the same result as once."""
         circuit = "H 0\nT 0\nH 1\nT 1\nH 2\nT 2\nM 0\nM 1\nM 2"
         pm1 = _squeeze_only_pass_manager()
-        pm2 = ucc.HirPassManager()
-        pm2.add(ucc.StatevectorSqueezePass())
-        pm2.add(ucc.StatevectorSqueezePass())
+        pm2 = clifft.HirPassManager()
+        pm2.add(clifft.StatevectorSqueezePass())
+        pm2.add(clifft.StatevectorSqueezePass())
 
-        once = ucc.compile(circuit, hir_passes=pm1)
-        twice = ucc.compile(circuit, hir_passes=pm2)
+        once = clifft.compile(circuit, hir_passes=pm1)
+        twice = clifft.compile(circuit, hir_passes=pm2)
         assert once.peak_rank == twice.peak_rank
 
     def test_squeeze_with_default_pipeline(self) -> None:
         """Squeeze pass works correctly in the full default pipeline."""
         circuit = "H 0\nT 0\nH 1\nT 1\nM 0\nM 1"
-        prog = ucc.compile(circuit)
+        prog = clifft.compile(circuit)
         shots = 5_000
-        result = ucc.sample(prog, shots, seed=42)
+        result = clifft.sample(prog, shots, seed=42)
         # Should produce valid results without crashing
         assert result.measurements.shape == (shots, 2)
 
@@ -310,8 +310,8 @@ class TestSqueezeStatevectorOracle:
         from conftest import random_clifford_t_circuit
 
         circuit = random_clifford_t_circuit(5, 40, seed=seed)
-        base_sv = _ucc_statevector(circuit)
-        squeezed_sv = _ucc_statevector(circuit, hir_passes=_squeeze_only_pass_manager())
+        base_sv = _clifft_statevector(circuit)
+        squeezed_sv = _clifft_statevector(circuit, hir_passes=_squeeze_only_pass_manager())
         assert_statevectors_equal(squeezed_sv, base_sv)
 
 
@@ -340,14 +340,14 @@ class TestSqueezeStatisticalEquivalence:
     @pytest.mark.parametrize("seed", [0, 1, 2, 3, 4])
     def test_noisy_uncomputation_ladder_10q(self, seed: int) -> None:
         circuit = generate_uncomputation_ladder(10, 100, seed=seed, noise_prob=0.02)
-        base = ucc.compile(circuit)
-        squeezed = ucc.compile(
+        base = clifft.compile(circuit)
+        squeezed = clifft.compile(
             circuit,
             hir_passes=_squeeze_only_pass_manager(),
-            bytecode_passes=ucc.default_bytecode_pass_manager(),
+            bytecode_passes=clifft.default_bytecode_pass_manager(),
         )
-        base_result = ucc.sample(base, self._SHOTS, seed=seed)
-        squeezed_result = ucc.sample(squeezed, self._SHOTS, seed=seed)
+        base_result = clifft.sample(base, self._SHOTS, seed=seed)
+        squeezed_result = clifft.sample(squeezed, self._SHOTS, seed=seed)
         self._assert_marginals_match(base_result.measurements, squeezed_result.measurements)
 
 
@@ -385,14 +385,14 @@ class TestSqueezeProbabilisticReordering:
         """
         circuit = "H 0\nH 1\nT 0\nT 1\nX_ERROR(0.1) 0\nM 0\nM 1"
 
-        base = ucc.compile(circuit)
-        squeezed = ucc.compile(circuit, hir_passes=_squeeze_only_pass_manager())
+        base = clifft.compile(circuit)
+        squeezed = clifft.compile(circuit, hir_passes=_squeeze_only_pass_manager())
 
         # M 1 should bubble past X_ERROR(0) and M 0 since masks commute
         assert squeezed.peak_rank < base.peak_rank
 
-        base_result = ucc.sample(base, self._SHOTS, seed=10)
-        squeezed_result = ucc.sample(squeezed, self._SHOTS, seed=10)
+        base_result = clifft.sample(base, self._SHOTS, seed=10)
+        squeezed_result = clifft.sample(squeezed, self._SHOTS, seed=10)
         self._assert_marginals_match(base_result.measurements, squeezed_result.measurements)
 
     def test_independent_measurements_reorder_freely(self) -> None:
@@ -405,13 +405,13 @@ class TestSqueezeProbabilisticReordering:
         circuit = "H 0\nH 1\nT 0\nT 1\nZ_ERROR(0.05) 0\nM 0\nM 1"
         shots = self._SHOTS
 
-        base = ucc.compile(circuit)
-        squeezed = ucc.compile(circuit, hir_passes=_squeeze_only_pass_manager())
+        base = clifft.compile(circuit)
+        squeezed = clifft.compile(circuit, hir_passes=_squeeze_only_pass_manager())
 
         assert squeezed.peak_rank < base.peak_rank
 
-        base_result = ucc.sample(base, shots, seed=77)
-        squeezed_result = ucc.sample(squeezed, shots, seed=77)
+        base_result = clifft.sample(base, shots, seed=77)
+        squeezed_result = clifft.sample(squeezed, shots, seed=77)
         self._assert_marginals_match(base_result.measurements, squeezed_result.measurements)
 
     def test_noise_vs_noise_anti_commutation_guard(self) -> None:
@@ -422,11 +422,11 @@ class TestSqueezeProbabilisticReordering:
         noise_sites_anti_commute check blocks this.
         """
         circuit = "H 0\nX_ERROR(0.1) 0\nZ_ERROR(0.1) 0\nM 0"
-        hir = ucc.trace(ucc.parse(circuit))
+        hir = clifft.trace(clifft.parse(circuit))
         types_before = [op["op_type"] for op in hir.as_dict()["ops"]]
 
-        pm = ucc.HirPassManager()
-        pm.add(ucc.StatevectorSqueezePass())
+        pm = clifft.HirPassManager()
+        pm.add(clifft.StatevectorSqueezePass())
         pm.run(hir)
         types_after = [op["op_type"] for op in hir.as_dict()["ops"]]
 
@@ -441,10 +441,10 @@ class TestSqueezeProbabilisticReordering:
     def test_noise_vs_noise_commuting_channels_can_swap(self) -> None:
         """Two X_ERROR ops on the same qubit have commuting channels and can swap."""
         circuit = "H 0\nX_ERROR(0.1) 0\nX_ERROR(0.2) 0\nM 0"
-        hir = ucc.trace(ucc.parse(circuit))
+        hir = clifft.trace(clifft.parse(circuit))
 
-        pm = ucc.HirPassManager()
-        pm.add(ucc.StatevectorSqueezePass())
+        pm = clifft.HirPassManager()
+        pm.add(clifft.StatevectorSqueezePass())
         pm.run(hir)
 
         # Both are NOISE with X channels that commute with each other.
@@ -473,11 +473,11 @@ class TestSqueezeProbabilisticReordering:
         circuit = "\n".join(lines)
         shots = self._SHOTS
 
-        base = ucc.compile(circuit)
-        squeezed = ucc.compile(circuit, hir_passes=_squeeze_only_pass_manager())
+        base = clifft.compile(circuit)
+        squeezed = clifft.compile(circuit, hir_passes=_squeeze_only_pass_manager())
 
         assert squeezed.peak_rank < base.peak_rank
 
-        base_result = ucc.sample(base, shots, seed=123)
-        squeezed_result = ucc.sample(squeezed, shots, seed=123)
+        base_result = clifft.sample(base, shots, seed=123)
+        squeezed_result = clifft.sample(squeezed, shots, seed=123)
         self._assert_marginals_match(base_result.measurements, squeezed_result.measurements)

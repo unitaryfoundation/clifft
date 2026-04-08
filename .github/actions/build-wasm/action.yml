@@ -1,5 +1,5 @@
 name: Build Wasm Module
-description: Build UCC Wasm module via Emscripten with caching
+description: Build Clifft Wasm module via Emscripten with caching
 
 runs:
   using: composite
@@ -9,7 +9,7 @@ runs:
       uses: actions/cache@v4
       with:
         path: build-wasm
-        key: wasm-${{ runner.os }}-${{ hashFiles('src/wasm/**', 'src/ucc/**', 'cmake/**') }}
+        key: wasm-${{ runner.os }}-${{ hashFiles('src/wasm/**', 'src/clifft/**', 'cmake/**') }}
 
     - name: Build Wasm module
       if: steps.wasm-cache.outputs.cache-hit != 'true'

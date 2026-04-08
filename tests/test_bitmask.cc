@@ -1,8 +1,8 @@
-#include "ucc/util/bitmask.h"
+#include "clifft/util/bitmask.h"
 
 #include <catch2/catch_test_macros.hpp>
 
-using ucc::BitMask;
+using clifft::BitMask;
 
 // =========================================================================
 // Basic construction and comparison

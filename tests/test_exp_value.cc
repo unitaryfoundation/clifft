@@ -1,24 +1,24 @@
 // End-to-end tests for EXP_VAL: parse -> trace -> lower -> execute.
 // Uses the compile_circuit pattern to test the full pipeline.
 
-#include "ucc/backend/backend.h"
-#include "ucc/circuit/parser.h"
-#include "ucc/frontend/frontend.h"
-#include "ucc/svm/svm.h"
+#include "clifft/backend/backend.h"
+#include "clifft/circuit/parser.h"
+#include "clifft/frontend/frontend.h"
+#include "clifft/svm/svm.h"
 
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/matchers/catch_matchers_floating_point.hpp>
 #include <cmath>
 #include <string>
 
-using namespace ucc;
+using namespace clifft;
 using Catch::Matchers::WithinAbs;
 
 // Helper: compile a circuit string through the full pipeline and return the module.
 static CompiledModule compile_circuit(const std::string& text) {
-    auto circuit = ucc::parse(text);
-    auto hir = ucc::trace(circuit);
-    return ucc::lower(hir);
+    auto circuit = clifft::parse(text);
+    auto hir = clifft::trace(circuit);
+    return clifft::lower(hir);
 }
 
 // Helper: compile and execute one shot, return the exp_vals vector.

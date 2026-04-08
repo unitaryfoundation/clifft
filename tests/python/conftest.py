@@ -1,4 +1,4 @@
-"""Shared test fixtures and utilities for UCC Python tests."""
+"""Shared test fixtures and utilities for Clifft Python tests."""
 
 import numpy as np
 

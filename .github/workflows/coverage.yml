@@ -34,7 +34,7 @@ jobs:
 
       # ---------- C++ Unit Test Coverage ----------
       - name: Configure C++ build with coverage
-        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug -DUCC_COVERAGE=ON
+        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug -DCLIFFT_COVERAGE=ON
 
       - name: Build C++
         run: cmake --build build --parallel
@@ -53,7 +53,7 @@ jobs:
           lcov --remove build/cpp-tests.info \
                '*/build/_deps/*' \
                '*/build/*/tests/*' \
-               '*/ucc-next/tests/*' \
+               '*/clifft/tests/*' \
                '/usr/*' \
                --output-file build/cpp-tests.info \
                --ignore-errors unused \
@@ -64,7 +64,7 @@ jobs:
       - name: Install Python package with coverage
         run: uv pip install -e ".[dev]"
         env:
-          CMAKE_ARGS: "-DUCC_COVERAGE=ON"
+          CMAKE_ARGS: "-DCLIFFT_COVERAGE=ON"
           SKBUILD_BUILD_TYPE: Debug
 
       # Reset counters before Python tests
@@ -74,7 +74,7 @@ jobs:
       - name: Run Python tests
         run: |
           uv run pytest tests/python/ -v \
-            --cov=ucc \
+            --cov=clifft \
             --cov-report=xml:build/python-coverage.xml
 
       - name: Capture C++ coverage from Python tests
@@ -92,7 +92,7 @@ jobs:
           lcov --remove build/cpp-from-python.info \
                '*/_deps/*' \
                '*/build/*/tests/*' \
-               '*/ucc-next/tests/*' \
+               '*/clifft/tests/*' \
                '/usr/*' \
                '*/pybind11/*' \
                --output-file build/cpp-from-python.info \

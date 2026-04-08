@@ -1,12 +1,12 @@
 """Clifford-limit (surface code) benchmark.
 
-Compares UCC, Stim, and tsim on rotated surface code memory-Z circuits
+Compares Clifft, Stim, and tsim on rotated surface code memory-Z circuits
 with depolarizing noise, sweeping physical error rate.
 
 Usage
 -----
     python run_benchmark.py
-    python run_benchmark.py --distances 3,5,7 --simulators ucc,stim
+    python run_benchmark.py --distances 3,5,7 --simulators clifft,stim
 """
 
 from __future__ import annotations
@@ -20,7 +20,7 @@ from bench_common import run_benchmark_loop
 
 _HERE = Path(__file__).resolve().parent
 
-_DEFAULT_SIMULATORS = "ucc,stim,tsim"
+_DEFAULT_SIMULATORS = "clifft,stim,tsim"
 _DEFAULT_ERROR_RATES = "1e-3"
 
 

@@ -1,7 +1,7 @@
-#include "ucc/backend/backend.h"
-#include "ucc/circuit/parser.h"
-#include "ucc/frontend/frontend.h"
-#include "ucc/svm/svm.h"
+#include "clifft/backend/backend.h"
+#include "clifft/circuit/parser.h"
+#include "clifft/frontend/frontend.h"
+#include "clifft/svm/svm.h"
 
 #include "test_helpers.h"
 
@@ -12,10 +12,10 @@
 #include <numeric>
 #include <vector>
 
-using namespace ucc;
+using namespace clifft;
 using Catch::Matchers::WithinAbs;
-using ucc::test::check_complex;
-using ucc::test::kInvSqrt2;
+using clifft::test::check_complex;
+using clifft::test::kInvSqrt2;
 
 constexpr double kTol = 1e-9;
 
@@ -509,9 +509,9 @@ TEST_CASE("Statevector: 3 qubits 1 active with non-trivial 3-qubit tableau") {
 // Helper: compile and execute a circuit string, return dense statevector.
 static std::vector<std::complex<double>> pipeline_statevector(const std::string& circuit_text,
                                                               uint64_t seed = 0) {
-    auto circuit = ucc::parse(circuit_text);
-    auto hir = ucc::trace(circuit);
-    auto mod = ucc::lower(hir);
+    auto circuit = clifft::parse(circuit_text);
+    auto hir = clifft::trace(circuit);
+    auto mod = clifft::lower(hir);
     SchrodingerState state({.peak_rank = mod.peak_rank,
                             .num_measurements = mod.total_meas_slots,
                             .num_detectors = mod.num_detectors,
@@ -525,9 +525,9 @@ static std::vector<std::complex<double>> pipeline_statevector(const std::string&
 // Helper: compile and execute, return measurement record.
 static std::vector<uint8_t> pipeline_measurements(const std::string& circuit_text,
                                                   uint64_t seed = 0) {
-    auto circuit = ucc::parse(circuit_text);
-    auto hir = ucc::trace(circuit);
-    auto mod = ucc::lower(hir);
+    auto circuit = clifft::parse(circuit_text);
+    auto hir = clifft::trace(circuit);
+    auto mod = clifft::lower(hir);
     SchrodingerState state({.peak_rank = mod.peak_rank,
                             .num_measurements = mod.total_meas_slots,
                             .num_detectors = mod.num_detectors,
@@ -925,9 +925,9 @@ TEST_CASE("E2E: C_XYZ is period-3 rotation") {
 
 TEST_CASE("E2E: pure Clifford with ISWAP and C_XYZ compiles to zero instructions") {
     // A pure Clifford circuit should be fully absorbed AOT with zero VM instructions
-    auto circuit = ucc::parse("H 0\nISWAP 0 1\nC_XYZ 0\nSQRT_XX 0 1\nH 1");
-    auto hir = ucc::trace(circuit);
-    auto mod = ucc::lower(hir);
+    auto circuit = clifft::parse("H 0\nISWAP 0 1\nC_XYZ 0\nSQRT_XX 0 1\nH 1");
+    auto hir = clifft::trace(circuit);
+    auto mod = clifft::lower(hir);
     CHECK(mod.bytecode.empty());
 }
 

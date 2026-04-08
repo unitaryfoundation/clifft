@@ -1,6 +1,6 @@
 """Near-Clifford benchmark: magic state cultivation.
 
-Benchmarks UCC and tsim on magic state cultivation circuits (d=3, d=5)
+Benchmarks Clifft and tsim on magic state cultivation circuits (d=3, d=5)
 at various physical error rates.  Stim cannot simulate non-Clifford
 circuits and is not included.
 
@@ -11,7 +11,7 @@ parameter.
 Usage
 -----
     python run_benchmark.py
-    python run_benchmark.py --distances 3,5 --simulators ucc,tsim
+    python run_benchmark.py --distances 3,5 --simulators clifft,tsim
     python run_benchmark.py --distances 3 --error-rates 1e-3,5e-3
 """
 
@@ -30,7 +30,7 @@ _CIRCUITS_DIR = _HERE / "circuits"
 # Template noise rate baked into the vendored circuit files.
 _TEMPLATE_ERROR_RATE = 0.005
 
-_DEFAULT_SIMULATORS = "ucc,tsim"
+_DEFAULT_SIMULATORS = "clifft,tsim"
 _DEFAULT_ERROR_RATES = "1e-3,5e-3"
 
 

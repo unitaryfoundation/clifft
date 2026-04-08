@@ -26,7 +26,7 @@ from utils_fuzzing import (
     generate_uncomputation_ladder,
 )
 
-import ucc
+import clifft
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -42,10 +42,10 @@ def run_differential_trajectory(circuit_str: str, shots: int, seed: int) -> None
     bytecode passes (no HIR passes) so that the lowered instruction stream
     is identical up to bytecode-level rewrites.
     """
-    base_prog = ucc.compile(circuit_str)
-    opt_prog = ucc.compile(
+    base_prog = clifft.compile(circuit_str)
+    opt_prog = clifft.compile(
         circuit_str,
-        bytecode_passes=ucc.default_bytecode_pass_manager(),
+        bytecode_passes=clifft.default_bytecode_pass_manager(),
     )
 
     # --- Structural invariants ---
@@ -65,8 +65,8 @@ def run_differential_trajectory(circuit_str: str, shots: int, seed: int) -> None
     )
 
     # --- PRNG trajectory synchronization ---
-    base_result = ucc.sample(base_prog, shots, seed=seed)
-    opt_result = ucc.sample(opt_prog, shots, seed=seed)
+    base_result = clifft.sample(base_prog, shots, seed=seed)
+    opt_result = clifft.sample(opt_prog, shots, seed=seed)
 
     np.testing.assert_array_equal(
         base_result.measurements,
@@ -162,14 +162,14 @@ class TestHirPeepholeUncomputationLadder:
     @pytest.mark.parametrize("nq,depth", _SMALL_CONFIGS)
     def test_small(self, nq: int, depth: int, seed: int) -> None:
         circuit = generate_uncomputation_ladder(nq, depth, seed=seed, noise_prob=0.0)
-        base = ucc.compile(circuit)
-        opt = ucc.compile(circuit, hir_passes=ucc.default_hir_pass_manager())
+        base = clifft.compile(circuit)
+        opt = clifft.compile(circuit, hir_passes=clifft.default_hir_pass_manager())
 
         assert base.peak_rank <= _MAX_PEAK_RANK
         assert opt.peak_rank <= base.peak_rank
 
-        base_result = ucc.sample(base, _SHOTS, seed=seed)
-        opt_result = ucc.sample(opt, _SHOTS, seed=seed)
+        base_result = clifft.sample(base, _SHOTS, seed=seed)
+        opt_result = clifft.sample(opt, _SHOTS, seed=seed)
 
         # All measurements must be deterministic zero
         np.testing.assert_array_equal(
@@ -187,14 +187,14 @@ class TestHirPeepholeUncomputationLadder:
     @pytest.mark.parametrize("nq,depth", _LARGE_CONFIGS)
     def test_large(self, nq: int, depth: int, seed: int) -> None:
         circuit = generate_uncomputation_ladder(nq, depth, seed=seed, noise_prob=0.0)
-        base = ucc.compile(circuit)
-        opt = ucc.compile(circuit, hir_passes=ucc.default_hir_pass_manager())
+        base = clifft.compile(circuit)
+        opt = clifft.compile(circuit, hir_passes=clifft.default_hir_pass_manager())
 
         assert base.peak_rank <= _MAX_PEAK_RANK
         assert opt.peak_rank <= base.peak_rank
 
-        base_result = ucc.sample(base, _SHOTS, seed=seed)
-        opt_result = ucc.sample(opt, _SHOTS, seed=seed)
+        base_result = clifft.sample(base, _SHOTS, seed=seed)
+        opt_result = clifft.sample(opt, _SHOTS, seed=seed)
 
         np.testing.assert_array_equal(
             base_result.measurements, np.zeros_like(base_result.measurements)
@@ -210,21 +210,21 @@ class TestHirPeepholeUncomputationLadder:
         # peak_rank to 1. Both paths clamp dust, but the optimizer reduces it.
         circuit = generate_uncomputation_ladder(4, 50, seed=42, noise_prob=0.0)
 
-        base = ucc.compile(circuit)
+        base = clifft.compile(circuit)
         assert base.peak_rank > 1, "Need active measurements to generate dust"
-        base_state = ucc.State(
+        base_state = clifft.State(
             peak_rank=base.peak_rank, num_measurements=base.num_measurements, seed=42
         )
-        ucc.execute(base, base_state)
+        clifft.execute(base, base_state)
         assert (
             base_state.dust_clamps > 0
         ), "Unoptimized ladder should clamp FP dust in active measurements"
 
-        opt = ucc.compile(circuit, hir_passes=ucc.default_hir_pass_manager())
-        opt_state = ucc.State(
+        opt = clifft.compile(circuit, hir_passes=clifft.default_hir_pass_manager())
+        opt_state = clifft.State(
             peak_rank=opt.peak_rank, num_measurements=opt.num_measurements, seed=42
         )
-        ucc.execute(opt, opt_state)
+        clifft.execute(opt, opt_state)
         assert (
             opt_state.dust_clamps <= base_state.dust_clamps
         ), "Optimizer should not increase the number of dust clamps"
@@ -235,12 +235,12 @@ class TestHirPeepholeUncomputationLadder:
 # ---------------------------------------------------------------------------
 
 
-def _ucc_statevector(circuit_str: str, **compile_kwargs: object) -> np.ndarray:
+def _clifft_statevector(circuit_str: str, **compile_kwargs: object) -> np.ndarray:
     """Compile and execute a noiseless circuit, return dense statevector."""
-    prog = ucc.compile(circuit_str, **compile_kwargs)
-    state = ucc.State(peak_rank=prog.peak_rank, num_measurements=prog.num_measurements)
-    ucc.execute(prog, state)
-    sv: np.ndarray = ucc.get_statevector(prog, state)
+    prog = clifft.compile(circuit_str, **compile_kwargs)
+    state = clifft.State(peak_rank=prog.peak_rank, num_measurements=prog.num_measurements)
+    clifft.execute(prog, state)
+    sv: np.ndarray = clifft.get_statevector(prog, state)
     return sv
 
 
@@ -256,22 +256,22 @@ class TestHirPeepholeStatevectorOracle:
     @pytest.mark.parametrize("seed", _SEEDS)
     def test_random_clifford_t_5q(self, seed: int) -> None:
         circuit = random_clifford_t_circuit(5, 40, seed=seed)
-        base_sv = _ucc_statevector(circuit)
-        opt_sv = _ucc_statevector(circuit, hir_passes=ucc.default_hir_pass_manager())
+        base_sv = _clifft_statevector(circuit)
+        opt_sv = _clifft_statevector(circuit, hir_passes=clifft.default_hir_pass_manager())
         assert_statevectors_equal(opt_sv, base_sv)
 
     @pytest.mark.parametrize("seed", _SEEDS)
     def test_dense_clifford_t_4q(self, seed: int) -> None:
         circuit = random_dense_clifford_t_circuit(4, 50, seed=seed)
-        base_sv = _ucc_statevector(circuit)
-        opt_sv = _ucc_statevector(circuit, hir_passes=ucc.default_hir_pass_manager())
+        base_sv = _clifft_statevector(circuit)
+        opt_sv = _clifft_statevector(circuit, hir_passes=clifft.default_hir_pass_manager())
         assert_statevectors_equal(opt_sv, base_sv)
 
     @pytest.mark.parametrize("seed", _SEEDS)
     def test_dense_clifford_t_8q(self, seed: int) -> None:
         circuit = random_dense_clifford_t_circuit(8, 60, seed=seed)
-        base_sv = _ucc_statevector(circuit)
-        opt_sv = _ucc_statevector(circuit, hir_passes=ucc.default_hir_pass_manager())
+        base_sv = _clifft_statevector(circuit)
+        opt_sv = _clifft_statevector(circuit, hir_passes=clifft.default_hir_pass_manager())
         assert_statevectors_equal(opt_sv, base_sv)
 
 
@@ -314,41 +314,41 @@ class TestHirPeepholeStatisticalEquivalence:
     @pytest.mark.parametrize("seed", _SEEDS)
     def test_star_graph_noisy_10q(self, seed: int) -> None:
         circuit = generate_star_graph_honeypot(10, 100, seed=seed)
-        base = ucc.compile(circuit)
-        opt = ucc.compile(
+        base = clifft.compile(circuit)
+        opt = clifft.compile(
             circuit,
-            hir_passes=ucc.default_hir_pass_manager(),
-            bytecode_passes=ucc.default_bytecode_pass_manager(),
+            hir_passes=clifft.default_hir_pass_manager(),
+            bytecode_passes=clifft.default_bytecode_pass_manager(),
         )
 
-        base_result = ucc.sample(base, _STAT_SHOTS, seed=seed)
-        opt_result = ucc.sample(opt, _STAT_SHOTS, seed=seed)
+        base_result = clifft.sample(base, _STAT_SHOTS, seed=seed)
+        opt_result = clifft.sample(opt, _STAT_SHOTS, seed=seed)
         self._assert_marginals_match(base_result.measurements, opt_result.measurements)
 
     @pytest.mark.parametrize("seed", _SEEDS)
     def test_commutation_gauntlet_noisy_20q(self, seed: int) -> None:
         circuit = generate_commutation_gauntlet(20, 200, seed=seed)
-        base = ucc.compile(circuit)
-        opt = ucc.compile(
+        base = clifft.compile(circuit)
+        opt = clifft.compile(
             circuit,
-            hir_passes=ucc.default_hir_pass_manager(),
-            bytecode_passes=ucc.default_bytecode_pass_manager(),
+            hir_passes=clifft.default_hir_pass_manager(),
+            bytecode_passes=clifft.default_bytecode_pass_manager(),
         )
 
-        base_result = ucc.sample(base, _STAT_SHOTS, seed=seed)
-        opt_result = ucc.sample(opt, _STAT_SHOTS, seed=seed)
+        base_result = clifft.sample(base, _STAT_SHOTS, seed=seed)
+        opt_result = clifft.sample(opt, _STAT_SHOTS, seed=seed)
         self._assert_marginals_match(base_result.measurements, opt_result.measurements)
 
     @pytest.mark.parametrize("seed", _SEEDS)
     def test_uncomputation_ladder_noisy_10q(self, seed: int) -> None:
         circuit = generate_uncomputation_ladder(10, 100, seed=seed, noise_prob=0.02)
-        base = ucc.compile(circuit)
-        opt = ucc.compile(
+        base = clifft.compile(circuit)
+        opt = clifft.compile(
             circuit,
-            hir_passes=ucc.default_hir_pass_manager(),
-            bytecode_passes=ucc.default_bytecode_pass_manager(),
+            hir_passes=clifft.default_hir_pass_manager(),
+            bytecode_passes=clifft.default_bytecode_pass_manager(),
         )
 
-        base_result = ucc.sample(base, _STAT_SHOTS, seed=seed)
-        opt_result = ucc.sample(opt, _STAT_SHOTS, seed=seed)
+        base_result = clifft.sample(base, _STAT_SHOTS, seed=seed)
+        opt_result = clifft.sample(opt, _STAT_SHOTS, seed=seed)
         self._assert_marginals_match(base_result.measurements, opt_result.measurements)

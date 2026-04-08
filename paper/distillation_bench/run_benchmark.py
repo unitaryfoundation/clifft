@@ -1,6 +1,6 @@
 """Magic state distillation benchmark.
 
-Benchmarks UCC and tsim on a logical magic state distillation circuit
+Benchmarks Clifft and tsim on a logical magic state distillation circuit
 (85 qubits, [17,1,5] color code) from Rodriguez et al. (2025).
 
 The vendored circuit in ``circuits/`` was extracted from the tsim
@@ -19,7 +19,7 @@ Other noise rates are produced by text substitution of both parameters.
 Usage
 -----
     python run_benchmark.py
-    python run_benchmark.py --prep-noise 0.05,0.01 --simulators ucc,tsim
+    python run_benchmark.py --prep-noise 0.05,0.01 --simulators clifft,tsim
 """
 
 from __future__ import annotations
@@ -38,7 +38,7 @@ _CIRCUITS_DIR = _HERE / "circuits"
 _TEMPLATE_PREP_NOISE = 0.05
 _TEMPLATE_CIRCUIT_NOISE = 0.01  # prep / 5
 
-_DEFAULT_SIMULATORS = "ucc,tsim"
+_DEFAULT_SIMULATORS = "clifft,tsim"
 _DEFAULT_PREP_NOISE = "0.05"
 
 # Circuit noise / prep noise ratio (fixed by the protocol).

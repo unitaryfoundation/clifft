@@ -14,7 +14,7 @@ dedicated shot batches at each fault count $k$ and weighting the results
 by the exact probability $P(K = k)$, we can estimate $p_L$ with
 dramatically fewer total shots.
 
-This tutorial walks through UCC's importance sampling API for the
+This tutorial walks through Clifft's importance sampling API for the
 distance-3 magic state cultivation protocol from Craig Gidney, Noah
 Shutty, and Cody Jones, "Magic state cultivation: growing T states as
 cheap as CNOT gates" ([arXiv:2409.17595](https://arxiv.org/abs/2409.17595)).
@@ -46,7 +46,7 @@ qubits:
 
 - **T-gate circuit** ([`circuit_d3_t_gate_p0.001.stim`](circuits/circuit_d3_t_gate_p0.001.stim)):
   Contains T/T_DAG gates (non-Clifford), which standard Clifford
-  simulators like Stim cannot handle. UCC compiles and simulates the
+  simulators like Stim cannot handle. Clifft compiles and simulates the
   actual T-state preparation circuit natively.
 - **S-gate circuit** ([`circuit_d3_s_gate_p0.001.stim`](circuits/circuit_d3_s_gate_p0.001.stim)):
   Contains S/S_DAG gates (Clifford). Tuloup and Ayral used this proxy
@@ -60,7 +60,7 @@ Both circuits share the same structure: 15 qubits, 20 detectors,
 
 ```python
 import numpy as np
-import ucc
+import clifft
 
 # Load the circuit
 with open("docs/guide/circuits/circuit_d3_t_gate_p0.001.stim") as f:
@@ -68,23 +68,23 @@ with open("docs/guide/circuits/circuit_d3_t_gate_p0.001.stim") as f:
 
 # Build an all-detector postselection mask.
 # Magic state cultivation discards any shot where a detector fires.
-prog_probe = ucc.compile(
+prog_probe = clifft.compile(
     circuit_text,
     normalize_syndromes=True,
-    hir_passes=ucc.default_hir_pass_manager(),
-    bytecode_passes=ucc.default_bytecode_pass_manager(),
+    hir_passes=clifft.default_hir_pass_manager(),
+    bytecode_passes=clifft.default_bytecode_pass_manager(),
 )
 num_det = prog_probe.num_detectors
 
 mask = [1] * num_det  # one flag per detector
 
 # Compile with postselection
-prog = ucc.compile(
+prog = clifft.compile(
     circuit_text,
     normalize_syndromes=True,
     postselection_mask=mask,
-    hir_passes=ucc.default_hir_pass_manager(),
-    bytecode_passes=ucc.default_bytecode_pass_manager(),
+    hir_passes=clifft.default_hir_pass_manager(),
+    bytecode_passes=clifft.default_bytecode_pass_manager(),
 )
 
 print(f"Peak rank:      {prog.peak_rank}")       # 4 (only 2^4 = 16 amplitudes)
@@ -113,7 +113,7 @@ $$
 P(K = k) = \binom{N}{k} p^k (1-p)^{N-k}
 $$
 
-UCC exposes the per-site probabilities through
+Clifft exposes the per-site probabilities through
 `program.noise_site_probabilities`. We can verify they are uniform, then
 compute the PMF directly:
 
@@ -171,7 +171,7 @@ shots_per_k = 750_000
 stratum_data = []
 
 for k in range(max_k + 1):
-    result = ucc.sample_k_survivors(prog, shots=shots_per_k, k=k, seed=42 + k)
+    result = clifft.sample_k_survivors(prog, shots=shots_per_k, k=k, seed=42 + k)
     stratum_data.append({
         "k": k,
         "total": result.total_shots,
@@ -218,7 +218,7 @@ Output:
 Importance sampling estimate: p_fail = 9.8221e-07
 ```
 
-The logical error rate is roughly $10^{-6}$. UCC is fast enough that
+The logical error rate is roughly $10^{-6}$. Clifft is fast enough that
 brute-force Monte Carlo is still possible here, but it would need far
 more shots to reach comparable precision. This is where importance
 sampling helps: we captured enough error events across strata to produce
@@ -331,20 +331,20 @@ postselection. Key observations:
 
 ## API Reference
 
-### `ucc.sample_k(program, shots, k, seed=None)`
+### `clifft.sample_k(program, shots, k, seed=None)`
 
 Sample with exactly `k` forced faults per shot. Returns
-a `SampleResult`, just like `ucc.sample()`. Results must be weighted by $P(K=k)$ for correct
+a `SampleResult`, just like `clifft.sample()`. Results must be weighted by $P(K=k)$ for correct
 error rate estimation.
 
-For programs with post-selection, use `ucc.sample_k_survivors(...)`
+For programs with post-selection, use `clifft.sample_k_survivors(...)`
 instead. Fixed-row output from `sample_k(...)` cannot represent
 discarded shots.
 
 Raises `ValueError` if the stratum has zero probability mass (e.g., `k`
 exceeds the number of non-zero-probability sites).
 
-### `ucc.sample_k_survivors(program, shots, k, seed=None, keep_records=False)`
+### `clifft.sample_k_survivors(program, shots, k, seed=None, keep_records=False)`
 
 Sample survivors with exactly `k` forced faults per shot. Returns a
 `SampleResult` whose `.measurements`, `.detectors`, and `.observables`

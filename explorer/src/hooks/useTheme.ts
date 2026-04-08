@@ -35,7 +35,7 @@ const LIGHT_CHART: ChartColors = {
   error: "#c62828",
 };
 
-const STORAGE_KEY = "ucc-theme";
+const STORAGE_KEY = "clifft-theme";
 
 function getSystemTheme(): Theme {
   return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";

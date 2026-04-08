@@ -1,18 +1,18 @@
 // Bytecode optimization pass unit tests
 
-#include "ucc/backend/backend.h"
-#include "ucc/circuit/parser.h"
-#include "ucc/frontend/frontend.h"
-#include "ucc/optimizer/bytecode_pass.h"
-#include "ucc/optimizer/expand_t_pass.h"
-#include "ucc/optimizer/multi_gate_pass.h"
-#include "ucc/optimizer/noise_block_pass.h"
-#include "ucc/optimizer/swap_meas_pass.h"
-#include "ucc/svm/svm.h"
+#include "clifft/backend/backend.h"
+#include "clifft/circuit/parser.h"
+#include "clifft/frontend/frontend.h"
+#include "clifft/optimizer/bytecode_pass.h"
+#include "clifft/optimizer/expand_t_pass.h"
+#include "clifft/optimizer/multi_gate_pass.h"
+#include "clifft/optimizer/noise_block_pass.h"
+#include "clifft/optimizer/swap_meas_pass.h"
+#include "clifft/svm/svm.h"
 
 #include <catch2/catch_test_macros.hpp>
 
-using namespace ucc;
+using namespace clifft;
 
 // Helper: build a minimal CompiledModule with just bytecode.
 static CompiledModule make_module(std::vector<Instruction> bc) {
@@ -137,14 +137,14 @@ TEST_CASE("OP_NOISE_BLOCK: equivalent to individual OP_NOISE at low noise",
           "[bytecode-pass][svm]") {
     // Low-noise deterministic-trajectory equivalence test (same seed).
     // Use a small circuit with noise sites that have very low probability.
-    auto circuit = ucc::parse(
+    auto circuit = clifft::parse(
         "H 0\n"
         "DEPOLARIZE1(0.0001) 0\n"
         "DEPOLARIZE1(0.0001) 0\n"
         "DEPOLARIZE1(0.0001) 0\n"
         "M 0\n");
-    auto hir = ucc::trace(circuit);
-    auto prog_original = ucc::lower(hir);
+    auto hir = clifft::trace(circuit);
+    auto prog_original = clifft::lower(hir);
 
     // Count OP_NOISE instructions before optimization
     size_t noise_count = 0;
@@ -172,28 +172,28 @@ TEST_CASE("OP_NOISE_BLOCK: equivalent to individual OP_NOISE at low noise",
 
     // Both must produce identical results with deterministic seed
     uint64_t seed = 12345;
-    auto res_orig = ucc::sample(prog_original, 1000, seed);
-    auto res_opt = ucc::sample(prog_optimized, 1000, seed);
+    auto res_orig = clifft::sample(prog_original, 1000, seed);
+    auto res_opt = clifft::sample(prog_optimized, 1000, seed);
     REQUIRE(res_orig.measurements == res_opt.measurements);
 }
 
 TEST_CASE("OP_NOISE_BLOCK: deterministic equivalence with full noise", "[bytecode-pass][svm]") {
     // A circuit with enough noise to trigger actual errors
-    auto circuit = ucc::parse(
+    auto circuit = clifft::parse(
         "H 0\n"
         "CNOT 0 1\n"
         "DEPOLARIZE1(0.01) 0 1\n"
         "DEPOLARIZE2(0.01) 0 1\n"
         "M 0 1\n"
         "DETECTOR rec[-1] rec[-2]\n");
-    auto hir = ucc::trace(circuit);
-    auto prog_original = ucc::lower(hir);
+    auto hir = clifft::trace(circuit);
+    auto prog_original = clifft::lower(hir);
     auto prog_optimized = prog_original;
     NoiseBlockPass().run(prog_optimized);
 
     uint64_t seed = 42;
-    auto res_orig = ucc::sample(prog_original, 5000, seed);
-    auto res_opt = ucc::sample(prog_optimized, 5000, seed);
+    auto res_orig = clifft::sample(prog_original, 5000, seed);
+    auto res_opt = clifft::sample(prog_optimized, 5000, seed);
     REQUIRE(res_orig.measurements == res_opt.measurements);
     REQUIRE(res_orig.detectors == res_opt.detectors);
 }
@@ -372,12 +372,12 @@ TEST_CASE("MULTI_CNOT: equivalent to sequential CNOTs", "[bytecode-pass][svm]") 
     // The measurement MPP Z0*Z1*Z2*Z3 forces compress_pauli to handle a pure Z-string.
     // It emits CNOTs that fold all Z bits onto a single pivot, natively generating
     // a sequence of contiguous ARRAY_CNOTs sharing a target.
-    auto circuit = ucc::parse(
+    auto circuit = clifft::parse(
         "H 0\nH 1\nH 2\nH 3\n"
         "T 0\nT 1\nT 2\nT 3\n"
         "MPP Z0*Z1*Z2*Z3\n");
-    auto hir = ucc::trace(circuit);
-    auto prog_original = ucc::lower(hir);
+    auto hir = clifft::trace(circuit);
+    auto prog_original = clifft::lower(hir);
 
     size_t cnot_count = 0;
     for (const auto& instr : prog_original.bytecode)
@@ -399,8 +399,8 @@ TEST_CASE("MULTI_CNOT: equivalent to sequential CNOTs", "[bytecode-pass][svm]") 
     REQUIRE(multi_count >= 1);
 
     uint64_t seed = 99;
-    auto res_orig = ucc::sample(prog_original, 1000, seed);
-    auto res_fused = ucc::sample(prog_fused, 1000, seed);
+    auto res_orig = clifft::sample(prog_original, 1000, seed);
+    auto res_fused = clifft::sample(prog_fused, 1000, seed);
     REQUIRE(res_orig.measurements == res_fused.measurements);
 }
 
@@ -409,12 +409,12 @@ TEST_CASE("MULTI_CZ: equivalent to sequential CZs", "[bytecode-pass][svm]") {
     // The measurement MPP X0*Z1*Z2*Z3 forces compress_pauli to handle an X-pivot
     // with Z-residues. It clears the Z-residues by natively emitting a burst
     // of contiguous ARRAY_CZs sharing a control.
-    auto circuit = ucc::parse(
+    auto circuit = clifft::parse(
         "H 0\nH 1\nH 2\nH 3\n"
         "T 0\nT 1\nT 2\nT 3\n"
         "MPP X0*Z1*Z2*Z3\n");
-    auto hir = ucc::trace(circuit);
-    auto prog_original = ucc::lower(hir);
+    auto hir = clifft::trace(circuit);
+    auto prog_original = clifft::lower(hir);
 
     size_t cz_count = 0;
     for (const auto& instr : prog_original.bytecode)
@@ -436,14 +436,14 @@ TEST_CASE("MULTI_CZ: equivalent to sequential CZs", "[bytecode-pass][svm]") {
     REQUIRE(multi_count >= 1);
 
     uint64_t seed = 77;
-    auto res_orig = ucc::sample(prog_original, 1000, seed);
-    auto res_fused = ucc::sample(prog_fused, 1000, seed);
+    auto res_orig = clifft::sample(prog_original, 1000, seed);
+    auto res_fused = clifft::sample(prog_fused, 1000, seed);
     REQUIRE(res_orig.measurements == res_fused.measurements);
 }
 
 TEST_CASE("MULTI_CNOT and MULTI_CZ: d5 circuit deterministic equivalence", "[bytecode-pass][svm]") {
     // Use a surface-code-like circuit with noise to stress-test.
-    auto circuit = ucc::parse(
+    auto circuit = clifft::parse(
         "H 0\n"
         "CNOT 0 1\n"
         "CNOT 0 2\n"
@@ -457,8 +457,8 @@ TEST_CASE("MULTI_CNOT and MULTI_CZ: d5 circuit deterministic equivalence", "[byt
         "DEPOLARIZE2(0.001) 0 1\n"
         "M 0 1 2 3 4\n"
         "DETECTOR rec[-1] rec[-2]\n");
-    auto hir = ucc::trace(circuit);
-    auto prog_original = ucc::lower(hir);
+    auto hir = clifft::trace(circuit);
+    auto prog_original = clifft::lower(hir);
 
     auto prog_fused = prog_original;
     NoiseBlockPass().run(prog_fused);
@@ -468,21 +468,21 @@ TEST_CASE("MULTI_CNOT and MULTI_CZ: d5 circuit deterministic equivalence", "[byt
     NoiseBlockPass().run(prog_original);
 
     uint64_t seed = 12345;
-    auto res_orig = ucc::sample(prog_original, 5000, seed);
-    auto res_fused = ucc::sample(prog_fused, 5000, seed);
+    auto res_orig = clifft::sample(prog_original, 5000, seed);
+    auto res_fused = clifft::sample(prog_fused, 5000, seed);
     REQUIRE(res_orig.measurements == res_fused.measurements);
     REQUIRE(res_orig.detectors == res_fused.detectors);
 }
 
 TEST_CASE("BytecodePassManager: NoiseBlock then MultiGate", "[bytecode-pass]") {
-    auto circuit = ucc::parse(
+    auto circuit = clifft::parse(
         "H 0\n"
         "CNOT 0 1\n"
         "CNOT 0 2\n"
         "DEPOLARIZE1(0.01) 0 1 2\n"
         "M 0 1 2\n");
-    auto hir = ucc::trace(circuit);
-    auto prog = ucc::lower(hir);
+    auto hir = clifft::trace(circuit);
+    auto prog = clifft::lower(hir);
 
     BytecodePassManager bpm;
     bpm.add_pass(std::make_unique<NoiseBlockPass>());
@@ -575,13 +575,13 @@ TEST_CASE("ExpandTPass: empty bytecode", "[bytecode-pass]") {
 // =============================================================================
 
 TEST_CASE("EXPAND_T: equivalent to EXPAND then T", "[bytecode-pass][svm]") {
-    auto circuit = ucc::parse(
+    auto circuit = clifft::parse(
         "H 0\n"
         "T 0\n"
         "H 0\n"
         "M 0\n");
-    auto hir = ucc::trace(circuit);
-    auto prog_original = ucc::lower(hir);
+    auto hir = clifft::trace(circuit);
+    auto prog_original = clifft::lower(hir);
     auto prog_fused = prog_original;
     ExpandTPass().run(prog_fused);
 
@@ -593,13 +593,13 @@ TEST_CASE("EXPAND_T: equivalent to EXPAND then T", "[bytecode-pass][svm]") {
     CHECK(has_expand_t);
 
     uint64_t seed = 42;
-    auto res_orig = ucc::sample(prog_original, 5000, seed);
-    auto res_fused = ucc::sample(prog_fused, 5000, seed);
+    auto res_orig = clifft::sample(prog_original, 5000, seed);
+    auto res_fused = clifft::sample(prog_fused, 5000, seed);
     REQUIRE(res_orig.measurements == res_fused.measurements);
 }
 
 TEST_CASE("EXPAND_T: multi-T circuit deterministic equivalence", "[bytecode-pass][svm]") {
-    auto circuit = ucc::parse(
+    auto circuit = clifft::parse(
         "H 0\n"
         "T 0\n"
         "T 0\n"
@@ -609,14 +609,14 @@ TEST_CASE("EXPAND_T: multi-T circuit deterministic equivalence", "[bytecode-pass
         "H 0\n"
         "H 1\n"
         "M 0 1\n");
-    auto hir = ucc::trace(circuit);
-    auto prog_original = ucc::lower(hir);
+    auto hir = clifft::trace(circuit);
+    auto prog_original = clifft::lower(hir);
     auto prog_fused = prog_original;
     ExpandTPass().run(prog_fused);
 
     uint64_t seed = 123;
-    auto res_orig = ucc::sample(prog_original, 5000, seed);
-    auto res_fused = ucc::sample(prog_fused, 5000, seed);
+    auto res_orig = clifft::sample(prog_original, 5000, seed);
+    auto res_fused = clifft::sample(prog_fused, 5000, seed);
     REQUIRE(res_orig.measurements == res_fused.measurements);
 }
 
@@ -691,7 +691,7 @@ TEST_CASE("SwapMeasPass: empty bytecode", "[bytecode-pass]") {
 TEST_CASE("SWAP_MEAS_INTERFERE: equivalent to separate SWAP + MEAS", "[bytecode-pass][svm]") {
     // Circuit that generates SWAP + MEAS_ACTIVE_INTERFERE patterns.
     // Multiple T gates force active measurements with SWAPs.
-    auto circuit = ucc::parse(
+    auto circuit = clifft::parse(
         "H 0\n"
         "CNOT 0 1\n"
         "T 0\n"
@@ -699,19 +699,19 @@ TEST_CASE("SWAP_MEAS_INTERFERE: equivalent to separate SWAP + MEAS", "[bytecode-
         "H 0\n"
         "H 1\n"
         "M 0 1\n");
-    auto hir = ucc::trace(circuit);
-    auto prog_original = ucc::lower(hir);
+    auto hir = clifft::trace(circuit);
+    auto prog_original = clifft::lower(hir);
     auto prog_fused = prog_original;
     SwapMeasPass().run(prog_fused);
 
     uint64_t seed = 42;
-    auto res_orig = ucc::sample(prog_original, 5000, seed);
-    auto res_fused = ucc::sample(prog_fused, 5000, seed);
+    auto res_orig = clifft::sample(prog_original, 5000, seed);
+    auto res_fused = clifft::sample(prog_fused, 5000, seed);
     REQUIRE(res_orig.measurements == res_fused.measurements);
 }
 
 TEST_CASE("All passes combined: deterministic equivalence", "[bytecode-pass][svm]") {
-    auto circuit = ucc::parse(
+    auto circuit = clifft::parse(
         "H 0\n"
         "CNOT 0 1\n"
         "CNOT 0 2\n"
@@ -729,8 +729,8 @@ TEST_CASE("All passes combined: deterministic equivalence", "[bytecode-pass][svm
         "H 3\n"
         "M 0 1 2 3\n"
         "DETECTOR rec[-1] rec[-2]\n");
-    auto hir = ucc::trace(circuit);
-    auto prog_original = ucc::lower(hir);
+    auto hir = clifft::trace(circuit);
+    auto prog_original = clifft::lower(hir);
 
     auto prog_optimized = prog_original;
     BytecodePassManager bpm;
@@ -743,8 +743,8 @@ TEST_CASE("All passes combined: deterministic equivalence", "[bytecode-pass][svm
     CHECK(prog_optimized.bytecode.size() < prog_original.bytecode.size());
 
     uint64_t seed = 12345;
-    auto res_orig = ucc::sample(prog_original, 5000, seed);
-    auto res_opt = ucc::sample(prog_optimized, 5000, seed);
+    auto res_orig = clifft::sample(prog_original, 5000, seed);
+    auto res_opt = clifft::sample(prog_optimized, 5000, seed);
     REQUIRE(res_orig.measurements == res_opt.measurements);
     REQUIRE(res_orig.detectors == res_opt.detectors);
 }

@@ -1,6 +1,6 @@
 // HIR (Heisenberg IR) unit tests
 
-#include "ucc/frontend/hir.h"
+#include "clifft/frontend/hir.h"
 
 #include "test_helpers.h"
 
@@ -9,11 +9,11 @@
 #include <tuple>
 #include <utility>
 
-using namespace ucc;
-using ucc::test::X;
-using ucc::test::Z;
+using namespace clifft;
+using clifft::test::X;
+using clifft::test::Z;
 
-using ucc::test::pauli_masks;
+using clifft::test::pauli_masks;
 
 // =============================================================================
 // HeisenbergOp Tests

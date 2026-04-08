@@ -8,15 +8,15 @@
 // - Parse classical feedback (CX rec[-k] q)
 // - Report errors for unknown gates and malformed syntax
 
-#include "ucc/circuit/circuit.h"
-#include "ucc/circuit/gate_data.h"
-#include "ucc/circuit/parser.h"
-#include "ucc/circuit/target.h"
+#include "clifft/circuit/circuit.h"
+#include "clifft/circuit/gate_data.h"
+#include "clifft/circuit/parser.h"
+#include "clifft/circuit/target.h"
 
 #include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
 
-using namespace ucc;
+using namespace clifft;
 
 TEST_CASE("Parse empty circuit", "[parser]") {
     auto circuit = parse("");

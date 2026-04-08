@@ -17,24 +17,24 @@ from conftest import (
     random_dense_clifford_t_circuit,
 )
 
-import ucc
+import clifft
 
 
-def _compile_optimized(circuit_str: str) -> ucc.Program:
+def _compile_optimized(circuit_str: str) -> clifft.Program:
     """Compile with the default peephole optimization pass."""
-    circuit = ucc.parse(circuit_str)
-    hir = ucc.trace(circuit)
-    pm = ucc.default_hir_pass_manager()
+    circuit = clifft.parse(circuit_str)
+    hir = clifft.trace(circuit)
+    pm = clifft.default_hir_pass_manager()
     pm.run(hir)
-    return ucc.lower(hir)
+    return clifft.lower(hir)
 
 
-def _ucc_statevector(circuit_str: str, *, optimize: bool = False) -> np.ndarray:
-    """Compile and execute circuit in UCC, return dense statevector."""
-    prog = _compile_optimized(circuit_str) if optimize else ucc.compile(circuit_str)
-    state = ucc.State(peak_rank=prog.peak_rank, num_measurements=prog.num_measurements)
-    ucc.execute(prog, state)
-    sv: np.ndarray = ucc.get_statevector(prog, state)
+def _clifft_statevector(circuit_str: str, *, optimize: bool = False) -> np.ndarray:
+    """Compile and execute circuit in Clifft, return dense statevector."""
+    prog = _compile_optimized(circuit_str) if optimize else clifft.compile(circuit_str)
+    state = clifft.State(peak_rank=prog.peak_rank, num_measurements=prog.num_measurements)
+    clifft.execute(prog, state)
+    sv: np.ndarray = clifft.get_statevector(prog, state)
     return sv
 
 
@@ -55,8 +55,8 @@ class TestPeepholeStatevectorEquivalence:
     def test_random_8q_depth30(self, seed: int) -> None:
         """8-qubit random Clifford+T circuits preserve statevector."""
         circuit = random_clifford_t_circuit(8, depth=30, seed=seed)
-        sv_baseline = _ucc_statevector(circuit)
-        sv_optimized = _ucc_statevector(circuit, optimize=True)
+        sv_baseline = _clifft_statevector(circuit)
+        sv_optimized = _clifft_statevector(circuit, optimize=True)
         assert_statevectors_equal(
             sv_optimized,
             sv_baseline,
@@ -67,8 +67,8 @@ class TestPeepholeStatevectorEquivalence:
     def test_random_8q_depth60(self, seed: int) -> None:
         """Deeper 8-qubit circuits stress multi-layer fusion."""
         circuit = random_clifford_t_circuit(8, depth=60, seed=seed)
-        sv_baseline = _ucc_statevector(circuit)
-        sv_optimized = _ucc_statevector(circuit, optimize=True)
+        sv_baseline = _clifft_statevector(circuit)
+        sv_optimized = _clifft_statevector(circuit, optimize=True)
         assert_statevectors_equal(
             sv_optimized,
             sv_baseline,
@@ -80,8 +80,8 @@ class TestPeepholeStatevectorEquivalence:
     def test_random_small_circuits(self, num_qubits: int, seed: int) -> None:
         """Small circuits from 2 to 6 qubits preserve statevector."""
         circuit = random_clifford_t_circuit(num_qubits, depth=20, seed=seed)
-        sv_baseline = _ucc_statevector(circuit)
-        sv_optimized = _ucc_statevector(circuit, optimize=True)
+        sv_baseline = _clifft_statevector(circuit)
+        sv_optimized = _clifft_statevector(circuit, optimize=True)
         assert_statevectors_equal(
             sv_optimized,
             sv_baseline,
@@ -92,8 +92,8 @@ class TestPeepholeStatevectorEquivalence:
     def test_dense_entanglement_5q(self, seed: int) -> None:
         """Dense 2-qubit gate circuits stress Pauli mask interference."""
         circuit = random_dense_clifford_t_circuit(5, depth=40, seed=seed)
-        sv_baseline = _ucc_statevector(circuit)
-        sv_optimized = _ucc_statevector(circuit, optimize=True)
+        sv_baseline = _clifft_statevector(circuit)
+        sv_optimized = _clifft_statevector(circuit, optimize=True)
         assert_statevectors_equal(
             sv_optimized,
             sv_baseline,
@@ -104,8 +104,8 @@ class TestPeepholeStatevectorEquivalence:
     def test_deep_phase_accumulation(self, seed: int) -> None:
         """Deep circuits with many T gates test accumulated fusion accuracy."""
         circuit = random_dense_clifford_t_circuit(4, depth=100, seed=seed, two_qubit_prob=0.3)
-        sv_baseline = _ucc_statevector(circuit)
-        sv_optimized = _ucc_statevector(circuit, optimize=True)
+        sv_baseline = _clifft_statevector(circuit)
+        sv_optimized = _clifft_statevector(circuit, optimize=True)
         assert_statevectors_equal(
             sv_optimized,
             sv_baseline,
@@ -124,36 +124,36 @@ class TestPeepholeAlgebraicIdentities:
     def test_t_tdag_cancel_preserves_statevector(self) -> None:
         """Adjacent T T_DAG on same qubit cancels to identity."""
         circuit = "H 0\nT 0\nT_DAG 0"
-        sv_baseline = _ucc_statevector(circuit)
-        sv_optimized = _ucc_statevector(circuit, optimize=True)
+        sv_baseline = _clifft_statevector(circuit)
+        sv_optimized = _clifft_statevector(circuit, optimize=True)
         assert_statevectors_equal(sv_optimized, sv_baseline)
 
     def test_two_t_fuse_to_s(self) -> None:
         """T T = S preserves amplitudes."""
         circuit = "H 0\nT 0\nT 0"
-        sv_baseline = _ucc_statevector(circuit)
-        sv_optimized = _ucc_statevector(circuit, optimize=True)
+        sv_baseline = _clifft_statevector(circuit)
+        sv_optimized = _clifft_statevector(circuit, optimize=True)
         assert_statevectors_equal(sv_optimized, sv_baseline)
 
     def test_four_t_equals_z(self) -> None:
         """T^4 = Z identity preserved through optimizer."""
         circuit = "H 0\nT 0\nT 0\nT 0\nT 0"
-        sv_baseline = _ucc_statevector(circuit)
-        sv_optimized = _ucc_statevector(circuit, optimize=True)
+        sv_baseline = _clifft_statevector(circuit)
+        sv_optimized = _clifft_statevector(circuit, optimize=True)
         assert_statevectors_equal(sv_optimized, sv_baseline)
 
     def test_separated_t_gates_fuse(self) -> None:
         """T gates separated by commuting Cliffords still fuse."""
         circuit = "H 0\nH 1\nT 0\nS 1\nH 1\nT 0"
-        sv_baseline = _ucc_statevector(circuit)
-        sv_optimized = _ucc_statevector(circuit, optimize=True)
+        sv_baseline = _clifft_statevector(circuit)
+        sv_optimized = _clifft_statevector(circuit, optimize=True)
         assert_statevectors_equal(sv_optimized, sv_baseline)
 
     def test_entangled_t_fusion(self) -> None:
         """T gates on entangled qubits preserve interference."""
         circuit = "H 0\nCX 0 1\nT 0\nT 1\nT_DAG 0"
-        sv_baseline = _ucc_statevector(circuit)
-        sv_optimized = _ucc_statevector(circuit, optimize=True)
+        sv_baseline = _clifft_statevector(circuit)
+        sv_optimized = _clifft_statevector(circuit, optimize=True)
         assert_statevectors_equal(sv_optimized, sv_baseline)
 
 
@@ -244,7 +244,7 @@ class TestMirrorTGateAnnihilation:
         meas = "M " + " ".join(str(i) for i in range(self.NUM_QUBITS))
         circuit_with_meas = circuit + "\n" + meas
 
-        prog_baseline = ucc.compile(circuit_with_meas)
+        prog_baseline = clifft.compile(circuit_with_meas)
         prog_optimized = _compile_optimized(circuit_with_meas)
 
         assert (
@@ -265,14 +265,14 @@ class TestMirrorTGateAnnihilation:
         prog = _compile_optimized(circuit_with_meas)
         assert prog.peak_rank == 0
 
-        result = ucc.sample(prog, 1000, seed=seed)
+        result = clifft.sample(prog, 1000, seed=seed)
         nonzero = int(result.measurements.sum(axis=1).astype(bool).sum())
         assert nonzero == 0, f"{nonzero}/1000 shots non-zero (seed={seed})"
 
     def test_mirror_statevector_is_identity(self) -> None:
         """Small mirror circuit statevector equals |00...0>."""
         circuit = _bounded_t_mirror_circuit(4, 50, 6, seed=42)
-        sv = _ucc_statevector(circuit, optimize=True)
+        sv = _clifft_statevector(circuit, optimize=True)
 
         # |00...0> = [1, 0, 0, ..., 0] up to global phase
         fidelity = float(np.abs(sv[0]) ** 2)
@@ -289,21 +289,21 @@ class TestExplicitPipelineAPI:
 
     def test_hir_t_gate_count(self) -> None:
         """HirModule reports correct T-gate count before and after optimization."""
-        circuit = ucc.parse("H 0\nT 0\nT 0\nM 0")
-        hir = ucc.trace(circuit)
+        circuit = clifft.parse("H 0\nT 0\nT 0\nM 0")
+        hir = clifft.trace(circuit)
         assert hir.num_t_gates == 2
 
-        pm = ucc.default_hir_pass_manager()
+        pm = clifft.default_hir_pass_manager()
         pm.run(hir)
         assert hir.num_t_gates == 0
 
     def test_peephole_pass_stats(self) -> None:
         """PeepholeFusionPass reports cancellation and fusion counts."""
-        circuit = ucc.parse("H 0\nT 0\nT_DAG 0\nH 1\nT 1\nT 1\nM 0 1")
-        hir = ucc.trace(circuit)
+        circuit = clifft.parse("H 0\nT 0\nT_DAG 0\nH 1\nT 1\nT 1\nM 0 1")
+        hir = clifft.trace(circuit)
 
-        peephole = ucc.PeepholeFusionPass()
-        pm = ucc.HirPassManager()
+        peephole = clifft.PeepholeFusionPass()
+        pm = clifft.HirPassManager()
         pm.add(peephole)
         pm.run(hir)
 
@@ -312,31 +312,31 @@ class TestExplicitPipelineAPI:
 
     def test_hir_metadata(self) -> None:
         """HirModule exposes circuit metadata."""
-        circuit = ucc.parse("H 0\nCX 0 1\nT 0\nM 0 1")
-        hir = ucc.trace(circuit)
+        circuit = clifft.parse("H 0\nCX 0 1\nT 0\nM 0 1")
+        hir = clifft.trace(circuit)
         assert hir.num_qubits == 2
         assert hir.num_measurements == 2
         assert hir.num_ops > 0
 
     def test_lower_produces_valid_program(self) -> None:
         """lower() produces a Program that can be sampled."""
-        circuit = ucc.parse("H 0\nT 0\nM 0")
-        hir = ucc.trace(circuit)
-        prog = ucc.lower(hir)
+        circuit = clifft.parse("H 0\nT 0\nM 0")
+        hir = clifft.trace(circuit)
+        prog = clifft.lower(hir)
 
         assert prog.peak_rank == 1
         assert prog.num_measurements == 1
-        result = ucc.sample(prog, 100, seed=0)
+        result = clifft.sample(prog, 100, seed=0)
         assert result.measurements.shape == (100, 1)
 
     def test_compile_convenience_matches_explicit(self) -> None:
-        """ucc.compile() produces same result as parse -> trace -> lower."""
+        """clifft.compile() produces same result as parse -> trace -> lower."""
         text = "H 0\nT 0\nM 0"
-        prog_conv = ucc.compile(text)
+        prog_conv = clifft.compile(text)
 
-        circuit = ucc.parse(text)
-        hir = ucc.trace(circuit)
-        prog_explicit = ucc.lower(hir)
+        circuit = clifft.parse(text)
+        hir = clifft.trace(circuit)
+        prog_explicit = clifft.lower(hir)
 
         assert prog_conv.peak_rank == prog_explicit.peak_rank
         assert prog_conv.num_instructions == prog_explicit.num_instructions
@@ -353,25 +353,27 @@ class TestExplicitPipelineAPI:
 # ---------------------------------------------------------------------------
 
 
-def _assert_absorption_preserves_state(stim_text: str, atol: float = 1e-6) -> ucc.Program:
+def _assert_absorption_preserves_state(stim_text: str, atol: float = 1e-6) -> clifft.Program:
     """Compile with and without optimization; assert statevector equivalence."""
     # Baseline: no HIR or bytecode passes
-    prog_base = ucc.compile(stim_text)
-    state_base = ucc.State(
+    prog_base = clifft.compile(stim_text)
+    state_base = clifft.State(
         peak_rank=prog_base.peak_rank, num_measurements=prog_base.num_measurements
     )
-    ucc.execute(prog_base, state_base)
-    sv_base = np.array(ucc.get_statevector(prog_base, state_base))
+    clifft.execute(prog_base, state_base)
+    sv_base = np.array(clifft.get_statevector(prog_base, state_base))
 
     # Optimized: full default pass managers (includes PeepholeFusionPass)
-    prog_opt = ucc.compile(
+    prog_opt = clifft.compile(
         stim_text,
-        hir_passes=ucc.default_hir_pass_manager(),
-        bytecode_passes=ucc.default_bytecode_pass_manager(),
+        hir_passes=clifft.default_hir_pass_manager(),
+        bytecode_passes=clifft.default_bytecode_pass_manager(),
     )
-    state_opt = ucc.State(peak_rank=prog_opt.peak_rank, num_measurements=prog_opt.num_measurements)
-    ucc.execute(prog_opt, state_opt)
-    sv_opt = np.array(ucc.get_statevector(prog_opt, state_opt))
+    state_opt = clifft.State(
+        peak_rank=prog_opt.peak_rank, num_measurements=prog_opt.num_measurements
+    )
+    clifft.execute(prog_opt, state_opt)
+    sv_opt = np.array(clifft.get_statevector(prog_opt, state_opt))
 
     # Align global phase before comparison. Stim's
     # Tableau::to_flat_unitary_matrix canonicalizes the first non-zero

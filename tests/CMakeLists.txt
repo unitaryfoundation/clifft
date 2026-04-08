@@ -1,10 +1,10 @@
-# UCC Test Suite
+# Clifft Test Suite
 # Uses Catch2 v3 for unit testing
 
 include(CTest)
 include(Catch)
 
-add_executable(ucc_tests
+add_executable(clifft_tests
     test_benchmarks.cc
     test_bitmask.cc
     test_parser.cc
@@ -24,21 +24,21 @@ add_executable(ucc_tests
     test_exp_value.cc
 )
 
-target_link_libraries(ucc_tests PRIVATE
-    ucc_core
+target_link_libraries(clifft_tests PRIVATE
+    clifft_core
     Catch2::Catch2WithMain
 )
 
 # Provide absolute path to test fixture files so benchmarks work from any cwd.
-target_compile_definitions(ucc_tests PRIVATE
-    UCC_FIXTURES_DIR="${CMAKE_CURRENT_SOURCE_DIR}/fixtures"
+target_compile_definitions(clifft_tests PRIVATE
+    CLIFFT_FIXTURES_DIR="${CMAKE_CURRENT_SOURCE_DIR}/fixtures"
 )
 
 # Code coverage instrumentation for test executable
-if(UCC_COVERAGE)
-    target_compile_options(ucc_tests PRIVATE --coverage)
-    target_link_options(ucc_tests PRIVATE --coverage)
+if(CLIFFT_COVERAGE)
+    target_compile_options(clifft_tests PRIVATE --coverage)
+    target_link_options(clifft_tests PRIVATE --coverage)
 endif()
 
 # Auto-discover Catch2 tests for CTest integration
-catch_discover_tests(ucc_tests)
+catch_discover_tests(clifft_tests)

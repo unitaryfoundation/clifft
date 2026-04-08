@@ -13,8 +13,8 @@ from typing import Any
 import pytest
 
 ROOT = Path(__file__).resolve().parent.parent.parent
-OPCODE_HEADER = ROOT / "src" / "ucc" / "backend" / "backend.h"
-HIR_HEADER = ROOT / "src" / "ucc" / "frontend" / "hir.h"
+OPCODE_HEADER = ROOT / "src" / "clifft" / "backend" / "backend.h"
+HIR_HEADER = ROOT / "src" / "clifft" / "frontend" / "hir.h"
 OPCODES_JSON = ROOT / "docs" / "opcodes.json"
 
 # Sentinel values that should NOT have documentation entries

@@ -1,22 +1,22 @@
-// UCC SVM Profiling Tool
+// Clifft SVM Profiling Tool
 //
 // Generates or loads a quantum circuit, compiles it, and runs N shots
 // for profiling with Linux perf or other sampling profilers.
 //
 // See tools/profile/README.md for full usage instructions.
 
-#include "ucc/backend/backend.h"
-#include "ucc/circuit/parser.h"
-#include "ucc/frontend/frontend.h"
-#include "ucc/optimizer/bytecode_pass.h"
-#include "ucc/optimizer/expand_t_pass.h"
-#include "ucc/optimizer/hir_pass_manager.h"
-#include "ucc/optimizer/multi_gate_pass.h"
-#include "ucc/optimizer/noise_block_pass.h"
-#include "ucc/optimizer/peephole.h"
-#include "ucc/optimizer/single_axis_fusion_pass.h"
-#include "ucc/optimizer/swap_meas_pass.h"
-#include "ucc/svm/svm.h"
+#include "clifft/backend/backend.h"
+#include "clifft/circuit/parser.h"
+#include "clifft/frontend/frontend.h"
+#include "clifft/optimizer/bytecode_pass.h"
+#include "clifft/optimizer/expand_t_pass.h"
+#include "clifft/optimizer/hir_pass_manager.h"
+#include "clifft/optimizer/multi_gate_pass.h"
+#include "clifft/optimizer/noise_block_pass.h"
+#include "clifft/optimizer/peephole.h"
+#include "clifft/optimizer/single_axis_fusion_pass.h"
+#include "clifft/optimizer/swap_meas_pass.h"
+#include "clifft/svm/svm.h"
 
 #include <chrono>
 #include <cstdint>
@@ -100,14 +100,14 @@ std::string read_file(const std::string& path) {
 }
 
 int main() {
-    int num_qubits = get_env_int("UCC_NUM_QUBITS", kDefaultNumQubits);
-    int clifford_depth = get_env_int("UCC_CLIFFORD_DEPTH", kDefaultCliffordDepth);
-    int t_gates = get_env_int("UCC_T_GATES", kDefaultTGates);
-    uint32_t shots = static_cast<uint32_t>(get_env_int("UCC_SHOTS", kDefaultShots));
-    const char* circuit_file = std::getenv("UCC_CIRCUIT_FILE");
-    bool postselect_all = get_env_bool("UCC_POSTSELECT_ALL");
+    int num_qubits = get_env_int("CLIFFT_NUM_QUBITS", kDefaultNumQubits);
+    int clifford_depth = get_env_int("CLIFFT_CLIFFORD_DEPTH", kDefaultCliffordDepth);
+    int t_gates = get_env_int("CLIFFT_T_GATES", kDefaultTGates);
+    uint32_t shots = static_cast<uint32_t>(get_env_int("CLIFFT_SHOTS", kDefaultShots));
+    const char* circuit_file = std::getenv("CLIFFT_CIRCUIT_FILE");
+    bool postselect_all = get_env_bool("CLIFFT_POSTSELECT_ALL");
 
-    std::cout << "UCC SVM Profiler\n";
+    std::cout << "Clifft SVM Profiler\n";
     std::cout << "================\n";
 
     auto t0 = std::chrono::high_resolution_clock::now();
@@ -133,8 +133,8 @@ int main() {
         std::cout << "\n";
         std::cout << "Shots:   " << shots << "\n";
         std::cout << "Postselect all: " << (postselect_all ? "yes" : "no") << "\n";
-        std::cout << "(Set UCC_CIRCUIT_FILE to profile a file, or UCC_NUM_QUBITS, "
-                     "UCC_CLIFFORD_DEPTH, UCC_T_GATES, UCC_SHOTS)\n\n";
+        std::cout << "(Set CLIFFT_CIRCUIT_FILE to profile a file, or CLIFFT_NUM_QUBITS, "
+                     "CLIFFT_CLIFFORD_DEPTH, CLIFFT_T_GATES, CLIFFT_SHOTS)\n\n";
 
         std::cout << "Generating circuit..." << std::flush;
         t0 = std::chrono::high_resolution_clock::now();
@@ -147,7 +147,7 @@ int main() {
     // Parse
     std::cout << "Parsing..." << std::flush;
     t0 = std::chrono::high_resolution_clock::now();
-    ucc::Circuit circuit = ucc::parse(circuit_text);
+    clifft::Circuit circuit = clifft::parse(circuit_text);
     t1 = std::chrono::high_resolution_clock::now();
     auto parse_ms = std::chrono::duration<double, std::milli>(t1 - t0).count();
     std::cout << " done (" << parse_ms << " ms, " << circuit.nodes.size() << " ops)\n";
@@ -155,9 +155,9 @@ int main() {
     // Frontend
     std::cout << "Frontend (Clifford absorption)..." << std::flush;
     t0 = std::chrono::high_resolution_clock::now();
-    ucc::HirModule hir = ucc::trace(circuit);
-    ucc::HirPassManager pm;
-    pm.add_pass(std::make_unique<ucc::PeepholeFusionPass>());
+    clifft::HirModule hir = clifft::trace(circuit);
+    clifft::HirPassManager pm;
+    pm.add_pass(std::make_unique<clifft::PeepholeFusionPass>());
     pm.run(hir);
     t1 = std::chrono::high_resolution_clock::now();
     auto trace_ms = std::chrono::duration<double, std::milli>(t1 - t0).count();
@@ -168,7 +168,7 @@ int main() {
     if (postselect_all) {
         uint32_t num_det = 0;
         for (const auto& op : hir.ops) {
-            if (op.op_type() == ucc::OpType::DETECTOR) {
+            if (op.op_type() == clifft::OpType::DETECTOR) {
                 ++num_det;
             }
         }
@@ -179,7 +179,7 @@ int main() {
     // Backend
     std::cout << "Backend (bytecode generation)..." << std::flush;
     t0 = std::chrono::high_resolution_clock::now();
-    ucc::CompiledModule program = ucc::lower(hir, postselection_mask);
+    clifft::CompiledModule program = clifft::lower(hir, postselection_mask);
     t1 = std::chrono::high_resolution_clock::now();
     auto lower_ms = std::chrono::duration<double, std::milli>(t1 - t0).count();
     size_t pre_opt_count = program.bytecode.size();
@@ -188,12 +188,12 @@ int main() {
     // Bytecode optimization passes
     std::cout << "Bytecode optimization..." << std::flush;
     t0 = std::chrono::high_resolution_clock::now();
-    ucc::BytecodePassManager bpm;
-    bpm.add_pass(std::make_unique<ucc::NoiseBlockPass>());
-    bpm.add_pass(std::make_unique<ucc::MultiGatePass>());
-    bpm.add_pass(std::make_unique<ucc::ExpandTPass>());
-    bpm.add_pass(std::make_unique<ucc::SwapMeasPass>());
-    bpm.add_pass(std::make_unique<ucc::SingleAxisFusionPass>());
+    clifft::BytecodePassManager bpm;
+    bpm.add_pass(std::make_unique<clifft::NoiseBlockPass>());
+    bpm.add_pass(std::make_unique<clifft::MultiGatePass>());
+    bpm.add_pass(std::make_unique<clifft::ExpandTPass>());
+    bpm.add_pass(std::make_unique<clifft::SwapMeasPass>());
+    bpm.add_pass(std::make_unique<clifft::SingleAxisFusionPass>());
     bpm.run(program);
     t1 = std::chrono::high_resolution_clock::now();
     auto opt_ms = std::chrono::duration<double, std::milli>(t1 - t0).count();
@@ -211,7 +211,7 @@ int main() {
     if (postselect_all) {
         std::cout << "Running " << shots << " shots (with postselection)..." << std::flush;
         t0 = std::chrono::high_resolution_clock::now();
-        ucc::SurvivorResult result = ucc::sample_survivors(program, shots, 0, false);
+        clifft::SurvivorResult result = clifft::sample_survivors(program, shots, 0, false);
         t1 = std::chrono::high_resolution_clock::now();
         auto sample_ms = std::chrono::duration<double, std::milli>(t1 - t0).count();
 
@@ -231,7 +231,7 @@ int main() {
     } else {
         std::cout << "Running " << shots << " shots..." << std::flush;
         t0 = std::chrono::high_resolution_clock::now();
-        ucc::SampleResult result = ucc::sample(program, shots, 0);
+        clifft::SampleResult result = clifft::sample(program, shots, 0);
         t1 = std::chrono::high_resolution_clock::now();
         auto sample_ms = std::chrono::duration<double, std::milli>(t1 - t0).count();
 

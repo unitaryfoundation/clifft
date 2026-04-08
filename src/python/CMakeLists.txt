@@ -14,7 +14,7 @@ find_package(nanobind CONFIG REQUIRED)
 
 # Build the extension module
 nanobind_add_module(
-    _ucc_core
+    _clifft_core
     # Target stable ABI for Python 3.12+ (reduces number of wheels needed)
     STABLE_ABI
     # Source files
@@ -22,18 +22,18 @@ nanobind_add_module(
 )
 
 # Link against our core library
-target_link_libraries(_ucc_core PRIVATE ucc_core)
+target_link_libraries(_clifft_core PRIVATE clifft_core)
 
 # Code coverage: propagate gcov linkage to the shared module
-if(UCC_COVERAGE)
-    target_link_options(_ucc_core PRIVATE --coverage)
+if(CLIFFT_COVERAGE)
+    target_link_options(_clifft_core PRIVATE --coverage)
 endif()
 
-# Install the extension module into the ucc package directory
+# Install the extension module into the clifft package directory
 # LIBRARY for .so (Linux/macOS), RUNTIME for .pyd (Windows)
-install(TARGETS _ucc_core
-    LIBRARY DESTINATION ucc
-    RUNTIME DESTINATION ucc)
+install(TARGETS _clifft_core
+    LIBRARY DESTINATION clifft
+    RUNTIME DESTINATION clifft)
 
 # Install Python package files
-install(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/ucc/ DESTINATION ucc)
+install(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/clifft/ DESTINATION clifft)

@@ -1,10 +1,10 @@
 // Tests for importance sampling: DP table, subset sampling, and sample_k API.
 
-#include "ucc/backend/backend.h"
-#include "ucc/backend/reference_syndrome.h"
-#include "ucc/circuit/parser.h"
-#include "ucc/frontend/frontend.h"
-#include "ucc/svm/svm.h"
+#include "clifft/backend/backend.h"
+#include "clifft/backend/reference_syndrome.h"
+#include "clifft/circuit/parser.h"
+#include "clifft/frontend/frontend.h"
+#include "clifft/svm/svm.h"
 
 #include <algorithm>
 #include <catch2/catch_test_macros.hpp>
@@ -19,11 +19,11 @@ using Catch::Matchers::WithinRel;
 namespace {
 
 // Compile a stim circuit string with normalized syndromes.
-ucc::CompiledModule compile_circuit(const std::string& stim_text) {
-    auto circuit = ucc::parse(stim_text);
-    auto hir = ucc::trace(circuit);
-    auto ref = ucc::compute_reference_syndrome(hir);
-    return ucc::lower(hir, {}, ref.detectors, ref.observables);
+clifft::CompiledModule compile_circuit(const std::string& stim_text) {
+    auto circuit = clifft::parse(stim_text);
+    auto hir = clifft::trace(circuit);
+    auto ref = clifft::compute_reference_syndrome(hir);
+    return clifft::lower(hir, {}, ref.detectors, ref.observables);
 }
 
 }  // namespace
@@ -45,7 +45,7 @@ TEST_CASE("noise_site_probabilities - basic extraction") {
         OBSERVABLE_INCLUDE(0) rec[-1]
     )";
     auto prog = compile_circuit(circuit_text);
-    auto probs = ucc::noise_site_probabilities(prog);
+    auto probs = clifft::noise_site_probabilities(prog);
 
     // Should have 2 quantum noise sites + 1 readout noise entry = 3 total.
     REQUIRE(probs.size() == 3);
@@ -65,7 +65,7 @@ TEST_CASE("noise_site_probabilities - no noise") {
         M 0
     )";
     auto prog = compile_circuit(circuit_text);
-    auto probs = ucc::noise_site_probabilities(prog);
+    auto probs = clifft::noise_site_probabilities(prog);
     CHECK(probs.empty());
 }
 
@@ -84,7 +84,7 @@ TEST_CASE("sample_k - k=0 produces no errors") {
         OBSERVABLE_INCLUDE(0) rec[-1]
     )";
     auto prog = compile_circuit(circuit_text);
-    auto result = ucc::sample_k(prog, 1000, 0, 42);
+    auto result = clifft::sample_k(prog, 1000, 0, 42);
 
     // With k=0 forced faults, no noise fires at all.
     // All observables should be 0, all detectors should be 0.
@@ -114,7 +114,7 @@ TEST_CASE("sample_k_survivors - k=0 no errors") {
         OBSERVABLE_INCLUDE(0) rec[-1]
     )";
     auto prog = compile_circuit(circuit_text);
-    auto result = ucc::sample_k_survivors(prog, 5000, 0, 42);
+    auto result = clifft::sample_k_survivors(prog, 5000, 0, 42);
 
     CHECK(result.total_shots == 5000);
     CHECK(result.passed_shots == 5000);
@@ -136,11 +136,11 @@ TEST_CASE("sample_k - k=N forces all sites") {
         OBSERVABLE_INCLUDE(0) rec[-1]
     )";
     auto prog = compile_circuit(circuit_text);
-    auto probs = ucc::noise_site_probabilities(prog);
+    auto probs = clifft::noise_site_probabilities(prog);
     uint32_t n_total = static_cast<uint32_t>(probs.size());
     REQUIRE(n_total == 1);
 
-    auto result = ucc::sample_k(prog, 500, 1, 42);
+    auto result = clifft::sample_k(prog, 500, 1, 42);
 
     // Every shot should have the observable flipped.
     uint32_t flips = 0;
@@ -163,11 +163,11 @@ TEST_CASE("sample_k - k exceeds total sites throws") {
         OBSERVABLE_INCLUDE(0) rec[-1]
     )";
     auto prog = compile_circuit(circuit_text);
-    auto probs = ucc::noise_site_probabilities(prog);
+    auto probs = clifft::noise_site_probabilities(prog);
     uint32_t n_total = static_cast<uint32_t>(probs.size());
 
-    CHECK_THROWS_AS(ucc::sample_k(prog, 10, n_total + 1, 42), std::invalid_argument);
-    CHECK_THROWS_AS(ucc::sample_k_survivors(prog, 10, n_total + 1, 42), std::invalid_argument);
+    CHECK_THROWS_AS(clifft::sample_k(prog, 10, n_total + 1, 42), std::invalid_argument);
+    CHECK_THROWS_AS(clifft::sample_k_survivors(prog, 10, n_total + 1, 42), std::invalid_argument);
 }
 
 TEST_CASE("sample_k - zero probability site rejects impossible strata") {
@@ -180,15 +180,15 @@ TEST_CASE("sample_k - zero probability site rejects impossible strata") {
         OBSERVABLE_INCLUDE(0) rec[-1]
     )";
     auto prog = compile_circuit(circuit_text);
-    auto probs = ucc::noise_site_probabilities(prog);
+    auto probs = clifft::noise_site_probabilities(prog);
     REQUIRE(probs.size() == 1);
     CHECK(probs[0] == 0.0);
 
     // k=0 is fine: zero faults on a zero-probability site is valid.
-    CHECK_NOTHROW(ucc::sample_k(prog, 10, 0, 42));
+    CHECK_NOTHROW(clifft::sample_k(prog, 10, 0, 42));
     // k=1 is impossible: zero-mass stratum (the only site has p=0).
-    CHECK_THROWS_AS(ucc::sample_k(prog, 10, 1, 42), std::invalid_argument);
-    CHECK_THROWS_AS(ucc::sample_k_survivors(prog, 10, 1, 42), std::invalid_argument);
+    CHECK_THROWS_AS(clifft::sample_k(prog, 10, 1, 42), std::invalid_argument);
+    CHECK_THROWS_AS(clifft::sample_k_survivors(prog, 10, 1, 42), std::invalid_argument);
 }
 
 TEST_CASE("sample_k - noiseless circuit rejects k greater than 0") {
@@ -199,11 +199,11 @@ TEST_CASE("sample_k - noiseless circuit rejects k greater than 0") {
         OBSERVABLE_INCLUDE(0) rec[-1]
     )";
     auto prog = compile_circuit(circuit_text);
-    auto probs = ucc::noise_site_probabilities(prog);
+    auto probs = clifft::noise_site_probabilities(prog);
     CHECK(probs.empty());
 
-    CHECK_NOTHROW(ucc::sample_k(prog, 10, 0, 42));
-    CHECK_THROWS_AS(ucc::sample_k(prog, 10, 1, 42), std::invalid_argument);
+    CHECK_NOTHROW(clifft::sample_k(prog, 10, 0, 42));
+    CHECK_THROWS_AS(clifft::sample_k(prog, 10, 1, 42), std::invalid_argument);
 }
 
 // =============================================================================
@@ -220,10 +220,10 @@ TEST_CASE("sample_k - readout noise forcing") {
         OBSERVABLE_INCLUDE(0) rec[-1]
     )";
     auto prog = compile_circuit(circuit_text);
-    auto probs = ucc::noise_site_probabilities(prog);
+    auto probs = clifft::noise_site_probabilities(prog);
     REQUIRE(probs.size() == 1);  // One readout noise entry, no quantum noise
 
-    auto result = ucc::sample_k(prog, 500, 1, 42);
+    auto result = clifft::sample_k(prog, 500, 1, 42);
 
     // Every shot should have the observable flipped (readout noise forced).
     uint32_t flips = 0;
@@ -251,13 +251,13 @@ TEST_CASE("sample_k - uniform probability uses Fisher-Yates path") {
         OBSERVABLE_INCLUDE(0) rec[-1]
     )";
     auto prog = compile_circuit(circuit_text);
-    auto probs = ucc::noise_site_probabilities(prog);
+    auto probs = clifft::noise_site_probabilities(prog);
     REQUIRE(probs.size() == 5);
 
     // With k=2 forced faults on 5 uniform sites, exactly 2 detectors
     // should fire per shot (give or take adjacency effects).
     // Main check: it runs without crashing and produces reasonable results.
-    auto result = ucc::sample_k(prog, 1000, 2, 42);
+    auto result = clifft::sample_k(prog, 1000, 2, 42);
 
     // Every shot should have exactly 2 faults. Since X_ERROR flips qubits,
     // we can check that exactly 2 measurements are flipped per shot.
@@ -286,11 +286,11 @@ TEST_CASE("sample_k - non-uniform probabilities fire exactly k sites") {
         OBSERVABLE_INCLUDE(0) rec[-1]
     )";
     auto prog = compile_circuit(circuit_text);
-    auto probs = ucc::noise_site_probabilities(prog);
+    auto probs = clifft::noise_site_probabilities(prog);
     REQUIRE(probs.size() == 3);
 
     for (uint32_t k = 0; k <= 3; ++k) {
-        auto result = ucc::sample_k(prog, 500, k, 42 + k);
+        auto result = clifft::sample_k(prog, 500, k, 42 + k);
         for (uint32_t shot = 0; shot < 500; ++shot) {
             uint32_t flips = 0;
             for (uint32_t i = 0; i < 3; ++i) {
@@ -319,7 +319,7 @@ TEST_CASE("sample_k - non-uniform favors higher probability sites") {
     )";
     auto prog = compile_circuit(circuit_text);
 
-    auto result = ucc::sample_k(prog, 10000, 1, 42);
+    auto result = clifft::sample_k(prog, 10000, 1, 42);
 
     // Count which site was selected in each shot.
     uint32_t count[3] = {0, 0, 0};
@@ -351,17 +351,17 @@ TEST_CASE("sample_k_survivors - postselection discards some shots") {
         DETECTOR rec[-2]
         OBSERVABLE_INCLUDE(0) rec[-1]
     )";
-    auto circuit = ucc::parse(circuit_text);
-    auto hir = ucc::trace(circuit);
-    auto ref = ucc::compute_reference_syndrome(hir);
+    auto circuit = clifft::parse(circuit_text);
+    auto hir = clifft::trace(circuit);
+    auto ref = clifft::compute_reference_syndrome(hir);
 
     // Postselect on first detector: shots where qubit 0 flips get discarded.
     std::vector<uint8_t> ps_mask = {1, 0};
-    auto prog = ucc::lower(hir, ps_mask, ref.detectors, ref.observables);
+    auto prog = clifft::lower(hir, ps_mask, ref.detectors, ref.observables);
 
     // k=1: one of two sites fires. When site 0 fires, detector 0 triggers
     // and the shot is postselected out. When site 1 fires, it passes.
-    auto result = ucc::sample_k_survivors(prog, 1000, 1, 42);
+    auto result = clifft::sample_k_survivors(prog, 1000, 1, 42);
 
     CHECK(result.total_shots == 1000);
     // Roughly half should be discarded (site 0 vs site 1 equal probability).
@@ -383,8 +383,8 @@ TEST_CASE("sample_k - deterministic with same seed") {
     )";
     auto prog = compile_circuit(circuit_text);
 
-    auto r1 = ucc::sample_k(prog, 100, 2, 12345);
-    auto r2 = ucc::sample_k(prog, 100, 2, 12345);
+    auto r1 = clifft::sample_k(prog, 100, 2, 12345);
+    auto r2 = clifft::sample_k(prog, 100, 2, 12345);
 
     CHECK(r1.measurements == r2.measurements);
     CHECK(r1.detectors == r2.detectors);

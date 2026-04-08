@@ -3,9 +3,9 @@ requires = ["setuptools>=68.0"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "ucc-paper-benchmarks"
+name = "clifft-paper-benchmarks"
 version = "0.1.0"
-description = "Benchmark suite for the UCC paper"
+description = "Benchmark suite for the Clifft paper"
 requires-python = ">=3.12"
 dependencies = [
     "stim",
@@ -13,8 +13,8 @@ dependencies = [
     "numpy",
 ]
 
-# ucc and tsim are runtime dependencies but not PyPI packages.
-# Install ucc from the parent repo (`pip install -e ..`); install tsim
+# clifft and tsim are runtime dependencies but not PyPI packages.
+# Install clifft from the parent repo (`pip install -e ..`); install tsim
 # per its own instructions (`pip install bloqade-tsim`).  Benchmarks
 # that select only available simulators (--simulators stim) work without
 # these.

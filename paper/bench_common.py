@@ -1,6 +1,6 @@
 """Shared benchmark infrastructure for paper benchmarks.
 
-Provides runner classes (StimRunner, UccRunner, TsimRunner) and a
+Provides runner classes (StimRunner, ClifftRunner, TsimRunner) and a
 generic timing loop that individual benchmarks can reuse.
 """
 
@@ -45,34 +45,34 @@ class StimRunner:
         self._sampler.sample(shots, separate_observables=True)
 
 
-class UccRunner:
-    """UCC benchmark runner.
+class ClifftRunner:
+    """Clifft benchmark runner.
 
-    NOTE: ucc.sample() always materializes measurements, detectors, and
+    NOTE: clifft.sample() always materializes measurements, detectors, and
     observables, whereas Stim/tsim compile_detector_sampler() only produces
     detectors + observables.  For d=7 this is 385 vs 337 values per shot
-    (~6% difference in Stim's own timing), so UCC's numbers are slightly
+    (~6% difference in Stim's own timing), so Clifft's numbers are slightly
     conservative relative to the other backends.
     """
 
     def compile(self, circuit: CircuitLike, shots: int) -> None:
-        import ucc
+        import clifft
 
-        self._prog = ucc.compile(
+        self._prog = clifft.compile(
             circuit if isinstance(circuit, str) else str(circuit),
-            hir_passes=ucc.default_hir_pass_manager(),
-            bytecode_passes=ucc.default_bytecode_pass_manager(),
+            hir_passes=clifft.default_hir_pass_manager(),
+            bytecode_passes=clifft.default_bytecode_pass_manager(),
         )
         # Warmup: populate CPU caches / branch predictors.
-        ucc.sample(self._prog, min(_WARMUP_SHOTS, shots))
-        self._ucc = ucc
+        clifft.sample(self._prog, min(_WARMUP_SHOTS, shots))
+        self._clifft = clifft
 
     def compile_metadata(self) -> dict[str, object]:
         k_hist = list(self._prog.active_k_history)
         return {"peak_active_k": max(k_hist) if k_hist else 0}
 
     def sample(self, shots: int) -> None:
-        self._ucc.sample(self._prog, shots)
+        self._clifft.sample(self._prog, shots)
 
 
 class TsimRunner:
@@ -110,7 +110,7 @@ class TsimRunner:
 
 RUNNERS: dict[str, type] = {
     "stim": StimRunner,
-    "ucc": UccRunner,
+    "clifft": ClifftRunner,
     "tsim": TsimRunner,
 }
 

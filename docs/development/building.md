@@ -13,17 +13,17 @@
 
 ## Python Package Build (Recommended)
 
-Builds the `ucc` Python package with C++ extensions:
+Builds the `clifft` Python package with C++ extensions:
 
 ```bash
-git clone https://github.com/unitaryfoundation/ucc-next.git
-cd ucc-next
+git clone https://github.com/unitaryfoundation/clifft.git
+cd clifft
 
 uv venv
 uv pip install -e .
 
 # Verify
-uv run python -c "import ucc; print(ucc.version())"
+uv run python -c "import clifft; print(clifft.version())"
 
 # Run tests
 uv run pytest tests/python/ -v
@@ -31,7 +31,7 @@ uv run pytest tests/python/ -v
 
 The editable install (`-e .`) means you can re-run `uv pip install -e .` after modifying C++ code to rebuild.
 
-Note that this builds with the maximum number of qubits as set by `UCC_MAX_QUBITS` in the `pyproject.toml`. If you modify, you will need to rebuild. See [UCC_MAX_QUBITS](#ucc_max_qubits) below.
+Note that this builds with the maximum number of qubits as set by `CLIFFT_MAX_QUBITS` in the `pyproject.toml`. If you modify, you will need to rebuild. See [CLIFFT_MAX_QUBITS](#clifft_max_qubits) below.
 
 ## Standalone C++ Build
 
@@ -55,9 +55,9 @@ ctest --test-dir build --output-on-failure
     Stim (a dependency) has many source files. Subsequent builds are incremental.
     If you hit memory pressure, reduce parallelism: `cmake --build build -j1`
 
-## UCC_MAX_QUBITS
+## CLIFFT_MAX_QUBITS
 
-UCC's Pauli frame uses a compile-time-sized bitmask. The `UCC_MAX_QUBITS` setting controls the maximum number of qubits the simulator can handle. It must be a multiple of 64.
+Clifft's Pauli frame uses a compile-time-sized bitmask. The `CLIFFT_MAX_QUBITS` setting controls the maximum number of qubits the simulator can handle. It must be a multiple of 64.
 
 | Setting | Max Qubits | Use Case |
 |---------|-----------|----------|
@@ -66,7 +66,7 @@ UCC's Pauli frame uses a compile-time-sized bitmask. The `UCC_MAX_QUBITS` settin
 | 256 | 256 | Large QEC experiments |
 | 512 | 512 | Production-scale circuits |
 
-**Python build:** Edit `UCC_MAX_QUBITS` in `pyproject.toml` under `[tool.scikit-build.cmake.define]`, then rebuild:
+**Python build:** Edit `CLIFFT_MAX_QUBITS` in `pyproject.toml` under `[tool.scikit-build.cmake.define]`, then rebuild:
 
 ```bash
 uv pip install -e .
@@ -75,19 +75,19 @@ uv pip install -e .
 **C++ build:** Pass the value as a CMake variable:
 
 ```bash
-cmake -B build -DUCC_MAX_QUBITS=128
+cmake -B build -DCLIFFT_MAX_QUBITS=128
 cmake --build build -j
 ```
 
 Or set the environment variable (checked at configure time):
 
 ```bash
-export UCC_MAX_QUBITS=128
+export CLIFFT_MAX_QUBITS=128
 cmake -B build
 ```
 
 !!! warning "Rebuild required"
-    Changing `UCC_MAX_QUBITS` requires a full rebuild. The value is baked into
+    Changing `CLIFFT_MAX_QUBITS` requires a full rebuild. The value is baked into
     struct layouts at compile time.
 
 ## WebAssembly Build
@@ -100,7 +100,7 @@ just build-wasm
 just test-wasm
 ```
 
-Outputs `explorer/public/ucc_wasm.{js,wasm}`. See the [Explorer](../explorer.md) page.
+Outputs `explorer/public/clifft_wasm.{js,wasm}`. See the [Explorer](../explorer.md) page.
 
 ## IDE Setup
 

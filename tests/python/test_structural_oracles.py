@@ -9,16 +9,16 @@ import numpy as np
 import pytest
 from conftest import binomial_tolerance
 
-import ucc
+import clifft
 
 
-def _compile_optimized(circuit_str: str) -> ucc.Program:
+def _compile_optimized(circuit_str: str) -> clifft.Program:
     """Compile with the default peephole optimization pass."""
-    circuit = ucc.parse(circuit_str)
-    hir = ucc.trace(circuit)
-    pm = ucc.default_hir_pass_manager()
+    circuit = clifft.parse(circuit_str)
+    hir = clifft.trace(circuit)
+    pm = clifft.default_hir_pass_manager()
     pm.run(hir)
-    return ucc.lower(hir)
+    return clifft.lower(hir)
 
 
 # ---------------------------------------------------------------------------
@@ -119,11 +119,11 @@ class TestBoundedTMirrorFuzzer:
         circuit, t_count = _bounded_t_mirror_circuit(
             self.NUM_QUBITS, self.CLIFFORD_DEPTH, self.T_COUNT, seed=seed
         )
-        prog = ucc.compile(circuit)
+        prog = clifft.compile(circuit)
 
         assert prog.peak_rank <= t_count, f"peak_rank={prog.peak_rank} exceeds t_count={t_count}"
 
-        result = ucc.sample(prog, self.SHOTS, seed=seed)
+        result = clifft.sample(prog, self.SHOTS, seed=seed)
         shots_nonzero = int(result.measurements.sum(axis=1).astype(bool).sum())
         assert shots_nonzero == 0, f"{shots_nonzero}/{self.SHOTS} shots were non-zero (seed={seed})"
 
@@ -139,7 +139,7 @@ class TestBoundedTMirrorFuzzer:
             prog.peak_rank == 0
         ), f"peak_rank={prog.peak_rank}, expected 0 after optimization (seed={seed})"
 
-        result = ucc.sample(prog, self.SHOTS, seed=seed)
+        result = clifft.sample(prog, self.SHOTS, seed=seed)
         shots_nonzero = int(result.measurements.sum(axis=1).astype(bool).sum())
         assert shots_nonzero == 0, f"{shots_nonzero}/{self.SHOTS} shots were non-zero (seed={seed})"
 
@@ -147,7 +147,7 @@ class TestBoundedTMirrorFuzzer:
         """Peak rank grows with T count, not qubit count."""
         for t_count in [4, 8, 12]:
             circuit, _ = _bounded_t_mirror_circuit(self.NUM_QUBITS, 500, t_count, seed=99)
-            prog = ucc.compile(circuit)
+            prog = clifft.compile(circuit)
             assert prog.peak_rank <= t_count, f"t_count={t_count}: peak_rank={prog.peak_rank}"
 
 
@@ -194,18 +194,18 @@ class TestBreathingMemoryLifecycle:
     def test_peak_rank_bounded(self, n_rounds: int) -> None:
         """Peak rank stays at exactly 2 regardless of round count."""
         circuit = _breathing_circuit(n_rounds)
-        prog = ucc.compile(circuit)
+        prog = clifft.compile(circuit)
         assert prog.peak_rank == 2, f"n_rounds={n_rounds}: peak_rank={prog.peak_rank}, expected 2"
 
     def test_breathing_500_rounds_completes(self) -> None:
         """500-round breathing circuit runs without underflow or crash."""
         circuit = _breathing_circuit(500)
-        prog = ucc.compile(circuit)
+        prog = clifft.compile(circuit)
 
         assert prog.peak_rank == 2
         # Memory: 2^2 * 16 bytes = 64 bytes (trivial)
 
-        result = ucc.sample(prog, 1000, seed=42)
+        result = clifft.sample(prog, 1000, seed=42)
         # All 1000 shots must complete (no NaN, no crash)
         assert result.measurements.shape == (1000, 501)  # 500 mid-circuit + 1 final
         # No NaN-induced garbage: every measurement must be 0 or 1
@@ -214,11 +214,11 @@ class TestBreathingMemoryLifecycle:
     def test_breathing_1000_rounds_completes(self) -> None:
         """1000-round breathing circuit -- extreme gamma stress test."""
         circuit = _breathing_circuit(1000)
-        prog = ucc.compile(circuit)
+        prog = clifft.compile(circuit)
 
         assert prog.peak_rank == 2
 
-        result = ucc.sample(prog, 100, seed=7)
+        result = clifft.sample(prog, 100, seed=7)
         assert result.measurements.shape == (100, 1001)
         assert np.all((result.measurements == 0) | (result.measurements == 1))
 
@@ -276,8 +276,8 @@ class TestBiasedAmplitudeStatistics:
     )
     def test_biased_single_qubit(self, name: str, circuit: str, expected_p0: float) -> None:
         """Single-qubit biased circuit matches analytical P(0)."""
-        prog = ucc.compile(circuit)
-        result = ucc.sample(prog, self.SHOTS, seed=42)
+        prog = clifft.compile(circuit)
+        result = clifft.sample(prog, self.SHOTS, seed=42)
 
         observed_p0 = float(1.0 - result.measurements[:, 0].astype(float).mean())
         tol = binomial_tolerance(expected_p0, self.SHOTS, sigma=5.0)
@@ -295,8 +295,8 @@ class TestBiasedAmplitudeStatistics:
         Both qubits have cos^2(pi/8) marginal, and m0 XOR m1 = 0 always.
         """
         circuit = "H 0\nT 0\nH 0\nCX 0 1\nM 0 1"
-        prog = ucc.compile(circuit)
-        result = ucc.sample(prog, self.SHOTS, seed=42)
+        prog = clifft.compile(circuit)
+        result = clifft.sample(prog, self.SHOTS, seed=42)
 
         m0 = result.measurements[:, 0].astype(float)
         m1 = result.measurements[:, 1].astype(float)
@@ -322,8 +322,8 @@ class TestBiasedAmplitudeStatistics:
             circuit = "\n".join(lines)
             expected_p0 = (1.0 + np.cos(n_t * np.pi / 4.0)) / 2.0
 
-            prog = ucc.compile(circuit)
-            result = ucc.sample(prog, self.SHOTS, seed=seed)
+            prog = clifft.compile(circuit)
+            result = clifft.sample(prog, self.SHOTS, seed=seed)
             observed_p0 = float(1.0 - result.measurements[:, 0].astype(float).mean())
 
             tol = binomial_tolerance(expected_p0, self.SHOTS, sigma=5.0)

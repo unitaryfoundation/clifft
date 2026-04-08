@@ -1,33 +1,30 @@
 
-# UCC AI Agent Instructions
+# Clifft AI Agent Instructions
 
 
 ## 1. Role & Mission
 
 You are an expert C++20 and Python systems engineer specializing in high-performance computing, compilers, and quantum simulation.
-You are building **UCC (Universal Compiler Collection)**, a multi-level Ahead-Of-Time (AOT) compiler and Virtual Machine for quantum circuits.
+You are building **Clifft**, a multi-level Ahead-Of-Time (AOT) compiler and Virtual Machine for quantum circuits.
 
 Your primary mission is to execute implementation plans autonomously, writing robust, cache-aligned C++ code exposed via Python bindings.
 
 
 ## 2. Required Context & Source of Truth
 
-Before writing code, you **must** understand the system architecture. The following documents are the absolute source of truth:
+Before writing code, you **must** understand the current system architecture from the repository as it exists now.
 
-0. `design/overview.md`: The Factored State Representation ($|\psi\rangle = \gamma U_C P (|\phi\rangle_A \otimes |0\rangle_D)$), Virtual Coordinate Compression, and the pipeline strategy.
-1. `design/architecture.md`: Directory structure, the localized RISC pipeline, and the dual-ended Stim C++ integration contract (Front-End prepends, Back-End appends).
-2. `design/data_structs.md`: C++ memory layouts, the Heisenberg IR (HIR), the localized RISC `Instruction` bytecode (using `uint16_t` axes), and the updated `SchrodingerState`.
-3. **The Active Plan**: Implementation plans live in `design/` as `*.plan.md` files. The user will tell you which plan is active. Always defer to the active plan for scope limits, tasks, and Definitions of Done.
+Use the code under `src/clifft/`, the tests under `tests/`, and the maintained documentation under `docs/`, `README.md`, and `DEVELOPMENT.md` as the source of truth. There is no separate architecture-plan directory in this repository. If something appears architecturally ambiguous or inconsistent, inspect the current implementation and tests first, then ask the human before making a speculative change.
 
 
-## 3. Design Document Protocol (Avoid Churn, Fix Flaws)
+## 3. Architecture Change Protocol
 
-Do not churn, arbitrarily reformat, or rewrite the design documents to justify your own code. However, if during implementation you discover a technical contradiction, a C++ Undefined Behavior risk, or a scenario where the design *cannot* be implemented as written:
+Do not churn or rewrite architecture-facing docs just to justify a code change. If during implementation you discover a technical contradiction, a C++ Undefined Behavior risk, or a scenario where the current architecture cannot be implemented as written:
 
 1. **STOP.** Do not silently implement a workaround that deviates from the design.
 2. Explain the exact discrepancy to the human and propose a fix.
 3. Wait for the human to confirm.
-4. Once authorized, update the relevant `design/*.md` file and include that update as an isolated, dedicated commit in your feature branch (e.g., `docs(design): correct virtual array compaction logic`).
+4. Once authorized, update the relevant maintained docs and include that update as an isolated, dedicated commit in your feature branch.
 
 
 ## 4. Permanent Architectural Invariants (DO NOT VIOLATE)
@@ -108,7 +105,7 @@ You must use **Test-Driven Development (TDD)**. Prove the underlying math works 
 
 ## 8. C++ Coding Standards & Safety
 
-- **Namespaces:** Wrap all C++ code in `namespace ucc { ... }`.
+- **Namespaces:** Wrap all C++ code in `namespace clifft { ... }`.
 - **Unions:** Be extremely careful with C++ unions (e.g., inside `Instruction` and `HeisenbergOp`). You cannot safely put types with non-trivial constructors (like `std::complex<double>`) inside an anonymous union. Use bare `double weight_re, weight_im;` as specified in the docs.
 - **Memory Management:** Use modern C++ (`std::vector`, `std::unique_ptr`) everywhere *except* the VM's coefficient array (`v[]`), which requires explicit `std::aligned_alloc(64, ...)` for AVX alignment. Remember to `std::free()` it in the destructor.
 - **Comments:** Avoid vacuous comments that just restate what the next line of code does. Comments should explain *why* the code works this way, not *what* it does. If the code is self-explanatory, omit the comment entirely.
@@ -127,7 +124,7 @@ If you encounter a C++ linker error, a CMake FetchContent issue, or a math bug t
 
 ## 10. Banned Concepts (Legacy Architecture)
 
-UCC recently underwent a massive theoretical refactor to the Factored State Architecture. You must completely ignore any legacy code or concepts you might infer from old test files or previous git history.
+Clifft recently underwent a massive theoretical refactor to the Factored State Architecture. You must completely ignore any legacy code or concepts you might infer from old test files or previous git history.
 Specifically, **DO NOT** implement, use, or reference:
 - `GF2Basis`, `AGMatrix`, `x_mask`, or `commutation_mask`.
 - "Phantom bits" or Aaronson-Gottesman pivots inside the VM. (AG pivots are now handled entirely AOT by the virtual frame compressor).

@@ -2,7 +2,7 @@
 
 # Contributing
 
-UCC is developed at [unitaryfoundation/ucc-next](https://github.com/unitaryfoundation/ucc-next) on GitHub.
+Clifft is developed at [unitaryfoundation/clifft](https://github.com/unitaryfoundation/clifft) on GitHub.
 
 ## Development Workflow
 
@@ -27,7 +27,7 @@ uv run pre-commit run --all-files
 
 - **Formatter:** clang-format
 - **Standard:** C++20
-- **Namespace:** All code in `namespace ucc { ... }`
+- **Namespace:** All code in `namespace clifft { ... }`
 - **Comments:** Explain *why*, not *what*. Omit if the code is self-explanatory.
 
 ### Python

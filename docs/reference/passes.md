@@ -1,6 +1,6 @@
 # Optimization Passes
 
-UCC optimizes at two distinct IR levels, each with its own pass manager.
+Clifft optimizes at two distinct IR levels, each with its own pass manager.
 **HIR passes** operate on the Heisenberg IR before bytecode emission.
 **Bytecode passes** operate on the finalized RISC bytecode after the
 back-end has lowered the HIR.
@@ -19,21 +19,21 @@ The default bytecode pipeline:
 1. **{{ p['name'] }}** -- {{ p['summary'] }}
 {% endfor %}
 
-Use `ucc.default_hir_pass_manager()` and `ucc.default_bytecode_pass_manager()`
+Use `clifft.default_hir_pass_manager()` and `clifft.default_bytecode_pass_manager()`
 to get these defaults, or build a custom pipeline:
 
 ```python
-import ucc
+import clifft
 
 # Custom HIR pipeline
-pm = ucc.HirPassManager()
-pm.add(ucc.PeepholeFusionPass())
-pm.add(ucc.StatevectorSqueezePass())
+pm = clifft.HirPassManager()
+pm.add(clifft.PeepholeFusionPass())
+pm.add(clifft.StatevectorSqueezePass())
 
 # Custom bytecode pipeline
-bpm = ucc.BytecodePassManager()
-bpm.add(ucc.NoiseBlockPass())
-bpm.add(ucc.MultiGatePass())
+bpm = clifft.BytecodePassManager()
+bpm.add(clifft.NoiseBlockPass())
+bpm.add(clifft.MultiGatePass())
 ```
 
 ---
@@ -47,7 +47,7 @@ bpm.add(ucc.MultiGatePass())
 |---|---|
 | **Kind** | HIR (pre-lowering) |
 | **Default** | {{ '✅ Enabled' if p['default_enabled'] else '❌ Disabled' }} |
-| **Python** | `ucc.{{ p['python_name'] }}()` |
+| **Python** | `clifft.{{ p['python_name'] }}()` |
 
 {{ p['detail'] }}
 
@@ -64,7 +64,7 @@ bpm.add(ucc.MultiGatePass())
 |---|---|
 | **Kind** | Bytecode (post-lowering) |
 | **Default** | {{ '✅ Enabled' if p['default_enabled'] else '❌ Disabled' }} |
-| **Python** | `ucc.{{ p['python_name'] }}()` |
+| **Python** | `clifft.{{ p['python_name'] }}()` |
 
 {{ p['detail'] }}
 

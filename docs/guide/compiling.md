@@ -1,6 +1,6 @@
 # Compiling Circuits
 
-UCC compiles quantum circuits through a five-stage multi-level pipeline. This page explains each stage and the Python API for interacting with them.
+Clifft compiles quantum circuits through a five-stage multi-level pipeline. This page explains each stage and the Python API for interacting with them.
 
 ## The Compilation Pipeline
 
@@ -14,12 +14,12 @@ Circuit Text --> Parse --> Front-End --> Middle-End Optimizer --> Back-End --> B
 
 ## One-Step Compilation
 
-For most use cases, `ucc.compile()` runs the full pipeline:
+For most use cases, `clifft.compile()` runs the full pipeline:
 
 ```python
-import ucc
+import clifft
 
-program = ucc.compile("""
+program = clifft.compile("""
     H 0
     CNOT 0 1
     T 2
@@ -30,17 +30,17 @@ program = ucc.compile("""
 To enable HIR and bytecode optimization passes, supply pass managers:
 
 ```python
-import ucc
+import clifft
 
-program = ucc.compile(
+program = clifft.compile(
     """
     H 0
     CNOT 0 1
     T 2
     M 0 1 2
     """,
-    hir_passes=ucc.default_hir_pass_manager(),
-    bytecode_passes=ucc.default_bytecode_pass_manager(),
+    hir_passes=clifft.default_hir_pass_manager(),
+    bytecode_passes=clifft.default_bytecode_pass_manager(),
 )
 ```
 
@@ -55,13 +55,13 @@ Set `normalize_syndromes=True` to automatically compute a noiseless reference an
 <!--pytest.mark.skip-->
 
 ```python
-import ucc
+import clifft
 
-program = ucc.compile(
+program = clifft.compile(
     circuit_text,
     normalize_syndromes=True,
-    hir_passes=ucc.default_hir_pass_manager(),
-    bytecode_passes=ucc.default_bytecode_pass_manager(),
+    hir_passes=clifft.default_hir_pass_manager(),
+    bytecode_passes=clifft.default_bytecode_pass_manager(),
 )
 ```
 
@@ -82,9 +82,9 @@ You can also supply explicit reference parities if you've computed them yourself
 <!--pytest.mark.skip-->
 
 ```python
-import ucc
+import clifft
 
-program = ucc.compile(
+program = clifft.compile(
     circuit_text,
     expected_detectors=[1, 0, 0, 1],
     expected_observables=[1],
@@ -98,17 +98,17 @@ Post-selection and syndrome normalization compose naturally:
 <!--pytest.mark.skip-->
 
 ```python
-import ucc
+import clifft
 
-program = ucc.compile(
+program = clifft.compile(
     circuit_text,
     postselection_mask=[1, 0, 0],  # Post-select on detector 0
     normalize_syndromes=True,       # Auto-normalize all syndromes
-    hir_passes=ucc.default_hir_pass_manager(),
-    bytecode_passes=ucc.default_bytecode_pass_manager(),
+    hir_passes=clifft.default_hir_pass_manager(),
+    bytecode_passes=clifft.default_bytecode_pass_manager(),
 )
 
-result = ucc.sample_survivors(program, shots=1_000_000, seed=42)
+result = clifft.sample_survivors(program, shots=1_000_000, seed=42)
 ```
 
 ## Step-by-Step Compilation
@@ -117,12 +117,12 @@ You can also run each stage individually for inspection or custom pipelines:
 
 ### 1. Parsing
 
-`ucc.parse()` converts Stim circuit text into an AST:
+`clifft.parse()` converts Stim circuit text into an AST:
 
 ```python
-import ucc
+import clifft
 
-circuit = ucc.parse("""
+circuit = clifft.parse("""
     H 0
     CNOT 0 1
     M 0 1
@@ -134,18 +134,18 @@ You can also parse from a file:
 <!--pytest.mark.skip-->
 
 ```python
-circuit = ucc.parse_file("my_circuit.stim")
+circuit = clifft.parse_file("my_circuit.stim")
 ```
 
 ### 2. Front-End (Clifford Tracing)
 
-`ucc.trace()` runs the Clifford front-end, absorbing Clifford gates into the Heisenberg frame and producing the Heisenberg IR:
+`clifft.trace()` runs the Clifford front-end, absorbing Clifford gates into the Heisenberg frame and producing the Heisenberg IR:
 
 ```python
-import ucc
+import clifft
 
-circuit = ucc.parse("H 0\nCNOT 0 1\nT 0\nM 0 1")
-hir = ucc.trace(circuit)
+circuit = clifft.parse("H 0\nCNOT 0 1\nT 0\nM 0 1")
+hir = clifft.trace(circuit)
 
 print(hir)  # HirModule(4 ops, 2 T-gates, 2 qubits)
 ```
@@ -157,14 +157,14 @@ The optimizer applies transformation passes to the HIR before lowering:
 <!--pytest-codeblocks:cont-->
 
 ```python
-import ucc
+import clifft
 
 # Get the default HIR pass manager (includes peephole fusion)
-pm = ucc.default_hir_pass_manager()
+pm = clifft.default_hir_pass_manager()
 
 # Or build a custom one
-pm = ucc.HirPassManager()
-pm.add(ucc.PeepholeFusionPass())
+pm = clifft.HirPassManager()
+pm.add(clifft.PeepholeFusionPass())
 
 # Run passes on the HIR module
 pm.run(hir)
@@ -172,12 +172,12 @@ pm.run(hir)
 
 ### 4. Back-End (Lowering)
 
-`ucc.lower()` compiles the HIR down to executable VM bytecode:
+`clifft.lower()` compiles the HIR down to executable VM bytecode:
 
 <!--pytest-codeblocks:cont-->
 
 ```python
-program = ucc.lower(hir)
+program = clifft.lower(hir)
 ```
 
 `lower()` also accepts optional `postselection_mask`, `expected_detectors`, and `expected_observables` arguments for syndrome normalization and post-selection at the bytecode level (see [Syndrome Normalization](#syndrome-normalization)).
@@ -190,7 +190,7 @@ After lowering, a second pass manager optimizes the RISC bytecode. This fuses in
 
 ```python
 # Get the default bytecode pass manager
-bpm = ucc.default_bytecode_pass_manager()
+bpm = clifft.default_bytecode_pass_manager()
 
 # Run bytecode passes on the compiled program
 bpm.run(program)
@@ -204,27 +204,27 @@ and optional passes available at both IR levels.
 Putting it all together:
 
 ```python
-import ucc
+import clifft
 
 # Parse
-circuit = ucc.parse("H 0\nT 0\nCNOT 0 1\nM 0 1")
+circuit = clifft.parse("H 0\nT 0\nCNOT 0 1\nM 0 1")
 
 # Front-end: Clifford tracing
-hir = ucc.trace(circuit)
+hir = clifft.trace(circuit)
 
 # HIR optimization
-pm = ucc.default_hir_pass_manager()
+pm = clifft.default_hir_pass_manager()
 pm.run(hir)
 
 # Back-end: lower to bytecode
-program = ucc.lower(hir)
+program = clifft.lower(hir)
 
 # Bytecode optimization
-bpm = ucc.default_bytecode_pass_manager()
+bpm = clifft.default_bytecode_pass_manager()
 bpm.run(program)
 ```
 
-This is equivalent to `ucc.compile()` but gives you access to intermediate representations for debugging or custom optimization passes.
+This is equivalent to `clifft.compile()` but gives you access to intermediate representations for debugging or custom optimization passes.
 
 ## Reference Syndrome Computation
 
@@ -233,11 +233,11 @@ If you need the noiseless reference parities without compiling, use `compute_ref
 <!--pytest.mark.skip-->
 
 ```python
-import ucc
+import clifft
 
-circuit = ucc.parse(circuit_text)
-hir = ucc.trace(circuit)
-ref = ucc.compute_reference_syndrome(hir)
+circuit = clifft.parse(circuit_text)
+hir = clifft.trace(circuit)
+ref = clifft.compute_reference_syndrome(hir)
 
 print(ref["detectors"])     # list of expected detector parities
 print(ref["observables"])   # list of expected observable parities
@@ -252,10 +252,10 @@ This strips noise from the HIR, lowers and executes a single shot, and returns t
 <!--pytest.mark.skip-->
 
 ```python
-import ucc
+import clifft
 
-pm = ucc.HirPassManager()
-pm.add(ucc.RemoveNoisePass())
+pm = clifft.HirPassManager()
+pm.add(clifft.RemoveNoisePass())
 pm.run(hir)  # hir now has no noise ops
 ```
 
@@ -266,10 +266,10 @@ For circuits with detectors (e.g., QEC), you can mark specific detectors for pos
 <!--pytest.mark.skip-->
 
 ```python
-import ucc
+import clifft
 
 # Mark detector 0 for post-selection
-program = ucc.compile(circuit_text, postselection_mask=[1])
+program = clifft.compile(circuit_text, postselection_mask=[1])
 ```
 
 See [Simulation](simulation.md) for how to use `sample_survivors()` with post-selection.

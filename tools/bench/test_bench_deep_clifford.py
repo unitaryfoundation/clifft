@@ -11,7 +11,7 @@ from typing import Any
 import pytest
 import stim
 
-import ucc
+import clifft
 
 _NUM_QUBITS = 50
 _CLIFFORD_DEPTH = 5000
@@ -74,7 +74,7 @@ def test_00_deep_clifford_info(record_property: Any) -> None:
             m_count += targets
 
     total_cliffords = h_count + s_count + cx_count
-    program = ucc.compile(_DEEP_CLIFFORD_CIRCUIT)
+    program = clifft.compile(_DEEP_CLIFFORD_CIRCUIT)
 
     record_property("num_qubits", _NUM_QUBITS)
     record_property("clifford_depth", _CLIFFORD_DEPTH)
@@ -83,14 +83,14 @@ def test_00_deep_clifford_info(record_property: Any) -> None:
     record_property("cx_gates", cx_count)
     record_property("total_cliffords", total_cliffords)
     record_property("measurements", m_count)
-    record_property("ucc_instructions", program.num_instructions)
-    record_property("ucc_peak_rank", program.peak_rank)
+    record_property("clifft_instructions", program.num_instructions)
+    record_property("clifft_peak_rank", program.peak_rank)
 
     compression = total_cliffords / program.num_instructions if program.num_instructions else 0
 
     print(f"\n  Circuit: {_NUM_QUBITS} qubits, {_CLIFFORD_DEPTH} gates")
     print(f"  H: {h_count}, S: {s_count}, CX: {cx_count}, M: {m_count}")
-    print(f"  UCC: {program.num_instructions} instructions, {compression:.0f}x compression")
+    print(f"  Clifft: {program.num_instructions} instructions, {compression:.0f}x compression")
 
 
 @pytest.fixture(scope="module")
@@ -106,9 +106,9 @@ def stim_sampler(stim_circuit: stim.Circuit) -> stim.CompiledMeasurementSampler:
 
 
 @pytest.fixture(scope="module")
-def ucc_program() -> ucc.Program:
-    """Pre-compiled UCC program."""
-    return ucc.compile(_DEEP_CLIFFORD_CIRCUIT)
+def clifft_program() -> clifft.Program:
+    """Pre-compiled Clifft program."""
+    return clifft.compile(_DEEP_CLIFFORD_CIRCUIT)
 
 
 def test_compile_stim_deep(benchmark: Any) -> None:
@@ -121,13 +121,13 @@ def test_compile_stim_deep(benchmark: Any) -> None:
     benchmark(compile_stim)
 
 
-def test_compile_ucc_deep(benchmark: Any) -> None:
-    """Measure UCC circuit parsing and compilation time."""
+def test_compile_clifft_deep(benchmark: Any) -> None:
+    """Measure Clifft circuit parsing and compilation time."""
 
-    def compile_ucc() -> ucc.Program:
-        return ucc.compile(_DEEP_CLIFFORD_CIRCUIT)
+    def compile_clifft() -> clifft.Program:
+        return clifft.compile(_DEEP_CLIFFORD_CIRCUIT)
 
-    benchmark(compile_ucc)
+    benchmark(compile_clifft)
 
 
 def test_sample_stim_deep(benchmark: Any, stim_sampler: stim.CompiledMeasurementSampler) -> None:
@@ -139,17 +139,17 @@ def test_sample_stim_deep(benchmark: Any, stim_sampler: stim.CompiledMeasurement
     benchmark(sample_stim)
 
 
-def test_sample_ucc_deep(benchmark: Any, ucc_program: ucc.Program) -> None:
-    """Measure UCC execution time for 100k shots."""
+def test_sample_clifft_deep(benchmark: Any, clifft_program: clifft.Program) -> None:
+    """Measure Clifft execution time for 100k shots."""
 
-    def sample_ucc() -> object:
-        return ucc.sample(ucc_program, _BENCHMARK_SHOTS, seed=0)
+    def sample_clifft() -> object:
+        return clifft.sample(clifft_program, _BENCHMARK_SHOTS, seed=0)
 
-    benchmark(sample_ucc)
+    benchmark(sample_clifft)
 
 
 def test_clifford_absorption_scaling(record_property: Any) -> None:
-    """Verify UCC instruction count is O(measurements), not O(gates)."""
+    """Verify Clifft instruction count is O(measurements), not O(gates)."""
     import time
 
     num_qubits = 20
@@ -162,7 +162,7 @@ def test_clifford_absorption_scaling(record_property: Any) -> None:
         circuit_text = generate_deep_clifford_circuit(num_qubits=num_qubits, depth=depth, seed=42)
 
         t0 = time.perf_counter()
-        program = ucc.compile(circuit_text)
+        program = clifft.compile(circuit_text)
         compile_time_ms = (time.perf_counter() - t0) * 1000
 
         print(f"  {depth:>8}  {compile_time_ms:>12.2f}  {program.num_instructions:>12}")

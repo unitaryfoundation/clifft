@@ -1,7 +1,7 @@
 """Unified QASM 2.0 parser and simulator adapter.
 
 Parses transpiled QASM 2.0 (cx + u3 basis) into an intermediate gate list,
-then converts to formats consumed by UCC/Stim, Qulacs, Cirq, and Qiskit.
+then converts to formats consumed by Clifft/Stim, Qulacs, Cirq, and Qiskit.
 """
 
 from __future__ import annotations
@@ -158,12 +158,12 @@ def parse_qasm(qasm: str) -> tuple[list[GateOp], int]:
 
 
 # ---------------------------------------------------------------------------
-# Adapter 1: UCC Stim-superset format
+# Adapter 1: Clifft Stim-superset format
 # ---------------------------------------------------------------------------
 
 
-def to_ucc_stim(qasm: str) -> str:
-    """Convert QASM 2.0 to UCC's Stim-superset text format.
+def to_clifft_stim(qasm: str) -> str:
+    """Convert QASM 2.0 to Clifft's Stim-superset text format.
 
     Mapping
     -------
@@ -172,7 +172,7 @@ def to_ucc_stim(qasm: str) -> str:
     * ``measure ...``     -> ``M i``
     * barriers are skipped
 
-    UCC's rotation gates use half-turn units (multiples of pi), while
+    Clifft's rotation gates use half-turn units (multiples of pi), while
     QASM 2.0 uses radians. Parameters are divided by pi during conversion.
 
     Parameters
@@ -183,7 +183,7 @@ def to_ucc_stim(qasm: str) -> str:
     Returns
     -------
     str
-        UCC/Stim-superset program text.
+        Clifft/Stim-superset program text.
     """
     ops, _nq = parse_qasm(qasm)
     lines: list[str] = []

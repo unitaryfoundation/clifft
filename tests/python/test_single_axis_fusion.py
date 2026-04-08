@@ -8,43 +8,43 @@ import numpy as np
 import pytest
 from conftest import assert_statevectors_equal, random_dense_clifford_t_circuit
 
-import ucc
+import clifft
 
 
-def _compile_no_fusion(text: str) -> ucc.Program:
+def _compile_no_fusion(text: str) -> clifft.Program:
     """Compile with default passes but WITHOUT SingleAxisFusionPass."""
-    circuit = ucc.parse(text)
-    hir = ucc.trace(circuit)
-    pm = ucc.default_hir_pass_manager()
+    circuit = clifft.parse(text)
+    hir = clifft.trace(circuit)
+    pm = clifft.default_hir_pass_manager()
     pm.run(hir)
-    prog = ucc.lower(hir)
-    bpm = ucc.BytecodePassManager()
-    bpm.add(ucc.NoiseBlockPass())
-    bpm.add(ucc.MultiGatePass())
-    bpm.add(ucc.ExpandTPass())
-    bpm.add(ucc.ExpandRotPass())
-    bpm.add(ucc.SwapMeasPass())
+    prog = clifft.lower(hir)
+    bpm = clifft.BytecodePassManager()
+    bpm.add(clifft.NoiseBlockPass())
+    bpm.add(clifft.MultiGatePass())
+    bpm.add(clifft.ExpandTPass())
+    bpm.add(clifft.ExpandRotPass())
+    bpm.add(clifft.SwapMeasPass())
     bpm.run(prog)
     return prog
 
 
-def _compile_with_fusion(text: str) -> ucc.Program:
+def _compile_with_fusion(text: str) -> clifft.Program:
     """Compile with all default passes INCLUDING SingleAxisFusionPass."""
-    circuit = ucc.parse(text)
-    hir = ucc.trace(circuit)
-    pm = ucc.default_hir_pass_manager()
+    circuit = clifft.parse(text)
+    hir = clifft.trace(circuit)
+    pm = clifft.default_hir_pass_manager()
     pm.run(hir)
-    prog = ucc.lower(hir)
-    bpm = ucc.default_bytecode_pass_manager()
+    prog = clifft.lower(hir)
+    bpm = clifft.default_bytecode_pass_manager()
     bpm.run(prog)
     return prog
 
 
-def _get_sv(prog: ucc.Program) -> np.ndarray:
+def _get_sv(prog: clifft.Program) -> np.ndarray:
     """Execute one shot and extract the statevector."""
-    state = ucc.State(peak_rank=prog.peak_rank, num_measurements=prog.num_measurements)
-    ucc.execute(prog, state)
-    return np.array(ucc.get_statevector(prog, state))
+    state = clifft.State(peak_rank=prog.peak_rank, num_measurements=prog.num_measurements)
+    clifft.execute(prog, state)
+    return np.array(clifft.get_statevector(prog, state))
 
 
 # ---------------------------------------------------------------------------
@@ -61,7 +61,7 @@ def test_u3_single_gate_fusion() -> None:
 
     assert len(prog_fused) < len(prog_no_fuse)
 
-    u2_count = sum(1 for inst in prog_fused if inst.opcode == ucc.Opcode.OP_ARRAY_U2)
+    u2_count = sum(1 for inst in prog_fused if inst.opcode == clifft.Opcode.OP_ARRAY_U2)
     assert u2_count >= 1, f"Expected at least 1 OP_ARRAY_U2, got {u2_count}"
 
     sv_ref = _get_sv(prog_no_fuse)
@@ -97,8 +97,8 @@ def test_frame_flow_x_error_before_fused_block() -> None:
     prog_no_fuse = _compile_no_fusion(text)
     prog_fused = _compile_with_fusion(text)
 
-    ref_result = ucc.sample(prog_no_fuse, 1000, seed=42)
-    opt_result = ucc.sample(prog_fused, 1000, seed=42)
+    ref_result = clifft.sample(prog_no_fuse, 1000, seed=42)
+    opt_result = clifft.sample(prog_fused, 1000, seed=42)
 
     np.testing.assert_array_equal(ref_result.measurements, opt_result.measurements)
 
@@ -110,8 +110,8 @@ def test_frame_flow_z_error_before_fused_block() -> None:
     prog_no_fuse = _compile_no_fusion(text)
     prog_fused = _compile_with_fusion(text)
 
-    ref_result = ucc.sample(prog_no_fuse, 1000, seed=42)
-    opt_result = ucc.sample(prog_fused, 1000, seed=42)
+    ref_result = clifft.sample(prog_no_fuse, 1000, seed=42)
+    opt_result = clifft.sample(prog_fused, 1000, seed=42)
 
     np.testing.assert_array_equal(ref_result.measurements, opt_result.measurements)
 
@@ -157,7 +157,7 @@ def test_fusion_reduces_instruction_count_for_qv_style_circuit() -> None:
     ratio = len(prog_fused) / len(prog_no_fuse)
     assert ratio < 0.8, f"Expected >20% reduction, got {1-ratio:.1%}"
 
-    u2_count = sum(1 for inst in prog_fused if inst.opcode == ucc.Opcode.OP_ARRAY_U2)
+    u2_count = sum(1 for inst in prog_fused if inst.opcode == clifft.Opcode.OP_ARRAY_U2)
     assert u2_count > 0
 
 
@@ -174,7 +174,7 @@ def test_fusion_preserves_noisy_sampling() -> None:
     prog_fused = _compile_with_fusion(text)
 
     shots = 10_000
-    ref_result = ucc.sample(prog_no_fuse, shots, seed=42)
-    opt_result = ucc.sample(prog_fused, shots, seed=42)
+    ref_result = clifft.sample(prog_no_fuse, shots, seed=42)
+    opt_result = clifft.sample(prog_fused, shots, seed=42)
 
     np.testing.assert_array_equal(ref_result.measurements, opt_result.measurements)

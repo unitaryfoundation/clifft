@@ -1,13 +1,13 @@
 // Tests for the SingleAxisFusionPass and OP_ARRAY_U2 execution.
 
-#include "ucc/backend/backend.h"
-#include "ucc/circuit/parser.h"
-#include "ucc/frontend/frontend.h"
-#include "ucc/optimizer/bytecode_pass.h"
-#include "ucc/optimizer/expand_t_pass.h"
-#include "ucc/optimizer/single_axis_fusion_pass.h"
-#include "ucc/svm/svm.h"
-#include "ucc/util/constants.h"
+#include "clifft/backend/backend.h"
+#include "clifft/circuit/parser.h"
+#include "clifft/frontend/frontend.h"
+#include "clifft/optimizer/bytecode_pass.h"
+#include "clifft/optimizer/expand_t_pass.h"
+#include "clifft/optimizer/single_axis_fusion_pass.h"
+#include "clifft/svm/svm.h"
+#include "clifft/util/constants.h"
 
 #include "test_helpers.h"
 
@@ -17,9 +17,9 @@
 #include <complex>
 #include <vector>
 
-using namespace ucc;
+using namespace clifft;
 using Catch::Matchers::WithinAbs;
-using ucc::test::check_complex;
+using clifft::test::check_complex;
 
 // =============================================================================
 // Helpers
@@ -358,18 +358,18 @@ TEST_CASE("U2 fusion: randomized Clifford+T fuzzer") {
         const char* gates_2q[] = {"CX", "CY", "CZ"};
 
         for (int d = 0; d < kDepth; ++d) {
-            uint64_t r = ucc::test::test_lcg(lcg);
+            uint64_t r = clifft::test::test_lcg(lcg);
             if (r % 3 == 0 && kNumQubits > 1) {
-                uint64_t r2 = ucc::test::test_lcg(lcg);
+                uint64_t r2 = clifft::test::test_lcg(lcg);
                 int q1 = static_cast<int>(r2 % kNumQubits);
-                uint64_t r3 = ucc::test::test_lcg(lcg);
+                uint64_t r3 = clifft::test::test_lcg(lcg);
                 int q2 = static_cast<int>(r3 % (kNumQubits - 1));
                 if (q2 >= q1)
                     ++q2;
                 circuit_text += std::string(gates_2q[r2 / 3 % 3]) + " " + std::to_string(q1) + " " +
                                 std::to_string(q2) + "\n";
             } else {
-                uint64_t r2 = ucc::test::test_lcg(lcg);
+                uint64_t r2 = clifft::test::test_lcg(lcg);
                 int q = static_cast<int>(r2 % kNumQubits);
                 circuit_text += std::string(gates_1q[r2 / 5 % 5]) + " " + std::to_string(q) + "\n";
             }

@@ -1,18 +1,18 @@
-// Emscripten/Embind bridge for the UCC Compiler Explorer.
+// Emscripten/Embind bridge for the Clifft Compiler Explorer.
 //
 // Exposes three functions to JavaScript:
 //   get_available_passes() -> JSON string with pass registry
 //   compile_to_json(source, passes_json) -> JSON string with HIR, bytecode, source maps
 //   simulate_wasm(source, shots, passes_json) -> JSON string with measurement histogram
 
-#include "ucc/backend/backend.h"
-#include "ucc/circuit/parser.h"
-#include "ucc/frontend/frontend.h"
-#include "ucc/optimizer/bytecode_pass.h"
-#include "ucc/optimizer/hir_pass_manager.h"
-#include "ucc/optimizer/pass_factory.h"
-#include "ucc/svm/svm.h"
-#include "ucc/util/introspection.h"
+#include "clifft/backend/backend.h"
+#include "clifft/circuit/parser.h"
+#include "clifft/frontend/frontend.h"
+#include "clifft/optimizer/bytecode_pass.h"
+#include "clifft/optimizer/hir_pass_manager.h"
+#include "clifft/optimizer/pass_factory.h"
+#include "clifft/svm/svm.h"
+#include "clifft/util/introspection.h"
 
 #include <cmath>
 #include <cstdint>
@@ -33,8 +33,8 @@ constexpr uint32_t MAX_OPS = 10000;
 constexpr uint32_t MAX_PEAK_RANK = 20;
 
 struct PipelineResult {
-    ucc::HirModule hir;
-    ucc::CompiledModule prog;
+    clifft::HirModule hir;
+    clifft::CompiledModule prog;
     std::string error;
 };
 
@@ -43,36 +43,36 @@ struct PipelineResult {
 PipelineResult run_pipeline(const std::string& source, const std::string& passes_json) {
     PipelineResult result;
     try {
-        auto circuit = ucc::parse(source, MAX_OPS);
-        result.hir = ucc::trace(circuit);
+        auto circuit = clifft::parse(source, MAX_OPS);
+        result.hir = clifft::trace(circuit);
 
         bool use_defaults = passes_json.empty() || passes_json == "{}";
 
         if (use_defaults) {
-            auto hpm = ucc::default_hir_pass_manager();
+            auto hpm = clifft::default_hir_pass_manager();
             hpm.run(result.hir);
         } else {
             auto cfg = json::parse(passes_json);
             if (cfg.contains("hir") && cfg["hir"].is_array()) {
-                ucc::HirPassManager hpm;
+                clifft::HirPassManager hpm;
                 for (const auto& name : cfg["hir"]) {
-                    hpm.add_pass(ucc::make_hir_pass(name.get<std::string>()));
+                    hpm.add_pass(clifft::make_hir_pass(name.get<std::string>()));
                 }
                 hpm.run(result.hir);
             }
         }
 
-        result.prog = ucc::lower(result.hir);
+        result.prog = clifft::lower(result.hir);
 
         if (use_defaults) {
-            auto bpm = ucc::default_bytecode_pass_manager();
+            auto bpm = clifft::default_bytecode_pass_manager();
             bpm.run(result.prog);
         } else {
             auto cfg = json::parse(passes_json);
             if (cfg.contains("bc") && cfg["bc"].is_array()) {
-                ucc::BytecodePassManager bpm;
+                clifft::BytecodePassManager bpm;
                 for (const auto& name : cfg["bc"]) {
-                    bpm.add_pass(ucc::make_bytecode_pass(name.get<std::string>()));
+                    bpm.add_pass(clifft::make_bytecode_pass(name.get<std::string>()));
                 }
                 bpm.run(result.prog);
             }
@@ -84,7 +84,7 @@ PipelineResult run_pipeline(const std::string& source, const std::string& passes
 }
 
 std::string get_available_passes() {
-    return ucc::pass_registry_json();
+    return clifft::pass_registry_json();
 }
 
 std::string compile_to_json(const std::string& source, const std::string& passes_json) {
@@ -98,13 +98,13 @@ std::string compile_to_json(const std::string& source, const std::string& passes
     std::vector<std::string> hir_strs;
     hir_strs.reserve(hir.ops.size());
     for (const auto& op : hir.ops) {
-        hir_strs.push_back(ucc::format_hir_op(op));
+        hir_strs.push_back(clifft::format_hir_op(op));
     }
 
     std::vector<std::string> bc_strs;
     bc_strs.reserve(prog.bytecode.size());
     for (const auto& instr : prog.bytecode) {
-        bc_strs.push_back(ucc::format_instruction(instr));
+        bc_strs.push_back(clifft::format_instruction(instr));
     }
 
     json j = {
@@ -196,7 +196,7 @@ std::string simulate_wasm(const std::string& source, uint32_t shots,
             .dump();
     }
 
-    ucc::SampleResult samples = ucc::sample(prog, shots, std::nullopt);
+    clifft::SampleResult samples = clifft::sample(prog, shots, std::nullopt);
 
     // Build measurement histogram
     std::unordered_map<std::string, uint32_t> histogram;
@@ -248,7 +248,7 @@ std::string simulate_wasm(const std::string& source, uint32_t shots,
 
 }  // namespace
 
-EMSCRIPTEN_BINDINGS(ucc_wasm) {
+EMSCRIPTEN_BINDINGS(clifft_wasm) {
     emscripten::function("get_available_passes", &get_available_passes);
     emscripten::function("compile_to_json", &compile_to_json);
     emscripten::function("simulate_wasm", &simulate_wasm);

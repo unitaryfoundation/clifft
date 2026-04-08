@@ -2,7 +2,7 @@
 
 Translates noiseless Clifford+T circuits from .stim text format into
 Qiskit QuantumCircuit objects. Used as an independent oracle for
-statevector validation against UCC.
+statevector validation against Clifft.
 
 Supported gates: H, S, S_DAG, T, T_DAG, X, Y, Z, CX, CY, CZ, M, MX, MY, R, RX, MR, MRX,
 R_X, R_Y, R_Z, U3, R_XX, R_YY, R_ZZ, R_PAULI.
@@ -62,7 +62,7 @@ def qiskit_statevector(qc: QuantumCircuit) -> np.ndarray:
 
     Returns:
         Dense statevector as a numpy array of complex128, in little-endian
-        qubit ordering (qubit 0 = LSB) to match UCC's convention.
+        qubit ordering (qubit 0 = LSB) to match Clifft's convention.
     """
     qc_copy = qc.copy()
     qc_copy.save_statevector()
@@ -70,7 +70,7 @@ def qiskit_statevector(qc: QuantumCircuit) -> np.ndarray:
     result = sim.run(qc_copy, shots=1).result()
     sv = result.data()["statevector"]
     # Qiskit's Statevector index convention: index bit i corresponds to qubit i.
-    # This already matches Stim/UCC little-endian convention (qubit 0 = LSB).
+    # This already matches Stim/Clifft little-endian convention (qubit 0 = LSB).
     return np.asarray(sv.data, dtype=np.complex128)
 
 

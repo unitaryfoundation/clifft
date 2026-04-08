@@ -1,6 +1,6 @@
 # Clifford-Limit Surface Code Benchmark
 
-Benchmarks UCC vs Stim vs tsim on **rotated surface code memory-Z** circuits
+Benchmarks Clifft vs Stim vs tsim on **rotated surface code memory-Z** circuits
 in the fully Clifford (stabilizer) regime, sweeping depolarizing error rate.
 
 Default configuration targets **d=7, 7 rounds, 1M shots** to match the
@@ -12,7 +12,7 @@ comparison point in the tsim paper (Hoshino et al.).
 stim>=1.10
 pandas
 matplotlib
-ucc
+clifft
 tsim
 ```
 
@@ -21,11 +21,11 @@ For GPU runs, JAX must be installed with GPU support.
 ## Running
 
 ```bash
-# Full benchmark (d=7, 1M shots, ucc + stim + tsim, 3 repeats)
+# Full benchmark (d=7, 1M shots, clifft + stim + tsim, 3 repeats)
 python run_benchmark.py
 
 # Quick local test
-python run_benchmark.py --distances 3 --shots 1000 --repeats 1 --simulators ucc,stim
+python run_benchmark.py --distances 3 --shots 1000 --repeats 1 --simulators clifft,stim
 
 # Multiple distances
 python run_benchmark.py --distances 3,5,7
@@ -76,7 +76,7 @@ Produces a log-log plot of sample time vs error rate.
 | `--error-rates` | `1e-7,...,1e-1` | Comma-separated physical error rates |
 | `--shots` | `1000000` | Shots per run |
 | `--repeats` | `3` | Repetitions per configuration |
-| `--simulators` | `ucc,stim,tsim` | Comma-separated simulator backends |
+| `--simulators` | `clifft,stim,tsim` | Comma-separated simulator backends |
 | `--output` | `results.csv` | Output CSV path |
 
 ### plot_clifford.py
@@ -89,9 +89,9 @@ Produces a log-log plot of sample time vs error rate.
 ## Caveats
 
 **Sampling output asymmetry.** Stim and tsim use `compile_detector_sampler()`,
-which returns only detectors and observables. UCC's `sample()` always
+which returns only detectors and observables. Clifft's `sample()` always
 materializes the full measurement record in addition to detectors and
 observables. For d=7 this is 385 measurements vs 337 detector+observable values
-per shot. Empirically this adds ~6% overhead in Stim's own timing, so UCC's
-sample-time numbers are slightly conservative (i.e. UCC is doing more work per
+per shot. Empirically this adds ~6% overhead in Stim's own timing, so Clifft's
+sample-time numbers are slightly conservative (i.e. Clifft is doing more work per
 shot than the other backends).

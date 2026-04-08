@@ -1,10 +1,10 @@
-// Smoke test for the UCC Wasm module.
+// Smoke test for the Clifft Wasm module.
 // Run via: just test-wasm
 
 import assert from "node:assert/strict";
 import { createRequire } from "node:module";
 const require = createRequire(import.meta.url);
-const createModule = require("../../build-wasm/ucc_wasm.js");
+const createModule = require("../../build-wasm/clifft_wasm.js");
 
 const mod = await createModule();
 

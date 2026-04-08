@@ -1,44 +1,44 @@
 # Simulation
 
-UCC's Schrodinger Virtual Machine (SVM) executes compiled programs to produce measurement results or statevectors.
+Clifft's Schrodinger Virtual Machine (SVM) executes compiled programs to produce measurement results or statevectors.
 
 ## Sampling
 
-`ucc.sample()` runs a compiled program for multiple shots and returns a `SampleResult` with measurement, detector, and observable outcomes:
+`clifft.sample()` runs a compiled program for multiple shots and returns a `SampleResult` with measurement, detector, and observable outcomes:
 
 ```python
-import ucc
+import clifft
 
-program = ucc.compile("""
+program = clifft.compile("""
     H 0
     CNOT 0 1
     M 0 1
 """)
 
 # Sample 10,000 shots
-result = ucc.sample(program, shots=10000, seed=42)
+result = clifft.sample(program, shots=10000, seed=42)
 
 # result.measurements is a 2D array: (shots x num_measurements)
 print(result.measurements.shape)  # (10000, 2)
 print(result.measurements[:5])    # First 5 shots
 ```
 
-`ucc.sample()` returns a `SampleResult` object with `.measurements`, `.detectors`, `.observables`, and `.exp_vals` attributes (each a numpy array). For circuits without detectors, observables, or expectation value probes, those arrays will have zero columns. Tuple unpacking (`m, d, o = ucc.sample(...)`) is supported for backward compatibility.
+`clifft.sample()` returns a `SampleResult` object with `.measurements`, `.detectors`, `.observables`, and `.exp_vals` attributes (each a numpy array). For circuits without detectors, observables, or expectation value probes, those arrays will have zero columns. Tuple unpacking (`m, d, o = clifft.sample(...)`) is supported for backward compatibility.
 
 ## Statevector Extraction
 
 For exact state inspection (without measurement collapse), use `execute()` and `get_statevector()`:
 
 ```python
-import ucc
+import clifft
 
-program = ucc.compile("""
+program = clifft.compile("""
     H 0
     CNOT 0 1
 """)
 
 # Create a state object sized to the program
-state = ucc.State(
+state = clifft.State(
     peak_rank=program.peak_rank,
     num_measurements=program.num_measurements,
     num_detectors=program.num_detectors,
@@ -46,10 +46,10 @@ state = ucc.State(
 )
 
 # Execute the program
-ucc.execute(program, state)
+clifft.execute(program, state)
 
 # Extract the full statevector
-sv = ucc.get_statevector(program, state)
+sv = clifft.get_statevector(program, state)
 
 # sv is a numpy array of complex amplitudes
 print(sv)  # [0.707+0j, 0+0j, 0+0j, 0.707+0j]
@@ -76,13 +76,13 @@ For circuits with post-selection (e.g., magic state distillation), compile with 
 <!--pytest.mark.skip-->
 
 ```python
-import ucc
+import clifft
 
 # Mark detectors 0 and 2 for post-selection (one flag per detector)
-program = ucc.compile(circuit_text, postselection_mask=[1, 0, 1])
+program = clifft.compile(circuit_text, postselection_mask=[1, 0, 1])
 
 # Only returns stats for shots that pass post-selection
-result = ucc.sample_survivors(program, shots=1_000_000, seed=42)
+result = clifft.sample_survivors(program, shots=1_000_000, seed=42)
 print(f"Survival rate: {result.passed_shots / result.total_shots:.4f}")
 print(f"Logical errors: {result.logical_errors}")
 ```
@@ -104,9 +104,9 @@ This is critical for distillation circuits with >99% discard rates — doomed sh
 Circuits with `DETECTOR` and `OBSERVABLE_INCLUDE` annotations automatically produce detector and observable results alongside measurements:
 
 ```python
-import ucc
+import clifft
 
-program = ucc.compile("""
+program = clifft.compile("""
     H 0
     CNOT 0 1
     M 0 1
@@ -114,7 +114,7 @@ program = ucc.compile("""
     OBSERVABLE_INCLUDE(0) rec[-1]
 """)
 
-result = ucc.sample(program, shots=10000, seed=42)
+result = clifft.sample(program, shots=10000, seed=42)
 # result.detectors shape: (10000, num_detectors)
 # result.observables shape: (10000, num_observables)
 ```
@@ -126,16 +126,16 @@ By default, detector and observable values are raw measurement parities. For QEC
 <!--pytest.mark.skip-->
 
 ```python
-import ucc
+import clifft
 
-program = ucc.compile(
+program = clifft.compile(
     circuit_text,
     normalize_syndromes=True,
-    hir_passes=ucc.default_hir_pass_manager(),
-    bytecode_passes=ucc.default_bytecode_pass_manager(),
+    hir_passes=clifft.default_hir_pass_manager(),
+    bytecode_passes=clifft.default_bytecode_pass_manager(),
 )
 
-result = ucc.sample(program, shots=10000, seed=42)
+result = clifft.sample(program, shots=10000, seed=42)
 # result.detectors and result.observables are now XOR-normalized against the noiseless reference
 ```
 
@@ -146,17 +146,17 @@ See [Compiling Circuits](compiling.md#syndrome-normalization) for details.
 `EXP_VAL` is a non-destructive probe that computes the expectation value of a Pauli product operator on the current state, without collapsing it. This is useful for observing properties of the quantum state mid-circuit without affecting subsequent operations.
 
 ```python
-import ucc
+import clifft
 import numpy as np
 
-program = ucc.compile("""
+program = clifft.compile("""
     H 0
     CNOT 0 1
     EXP_VAL X0*X1 Z0*Z1
     M 0 1
 """)
 
-result = ucc.sample(program, shots=1000, seed=42)
+result = clifft.sample(program, shots=1000, seed=42)
 
 # result.exp_vals is a 2D array: (shots x num_exp_vals)
 print(result.exp_vals.shape)  # (1000, 2)
@@ -178,33 +178,33 @@ The `Program` object reports `program.num_exp_vals` for the total number of prob
 All sampling functions accept an optional `seed` parameter for reproducible results:
 
 ```python
-import ucc
+import clifft
 
-program = ucc.compile("H 0\nM 0")
-r1 = ucc.sample(program, 100, seed=42)
-r2 = ucc.sample(program, 100, seed=42)
+program = clifft.compile("H 0\nM 0")
+r1 = clifft.sample(program, 100, seed=42)
+r2 = clifft.sample(program, 100, seed=42)
 assert (r1.measurements == r2.measurements).all()  # Identical
 ```
 
-If `seed` is omitted (or `None`), UCC uses 256-bit OS hardware entropy.
+If `seed` is omitted (or `None`), Clifft uses 256-bit OS hardware entropy.
 
 ## Importance Sampling (Forced k-Faults)
 
-For circuits where logical errors are extremely rare (e.g., QEC at low physical error rates), standard Monte Carlo requires an impractical number of shots. UCC provides **stratified importance sampling** via `sample_k` and `sample_k_survivors`, which force exactly `k` physical faults per shot and weight the results by the exact Poisson-Binomial probability $P(K = k)$.
+For circuits where logical errors are extremely rare (e.g., QEC at low physical error rates), standard Monte Carlo requires an impractical number of shots. Clifft provides **stratified importance sampling** via `sample_k` and `sample_k_survivors`, which force exactly `k` physical faults per shot and weight the results by the exact Poisson-Binomial probability $P(K = k)$.
 
 <!--pytest.mark.skip-->
 
 ```python
-import ucc
+import clifft
 
-result = ucc.sample_k_survivors(prog, shots=50_000, k=3, seed=42)
+result = clifft.sample_k_survivors(prog, shots=50_000, k=3, seed=42)
 # Returns SampleResult with survivor metadata and surviving-shot arrays
 ```
 
 Key API:
 
-- **`ucc.sample_k(program, shots, k, seed=None)`** -- Like `sample()`, but forces exactly `k` faults. Only valid for programs without post-selection; post-selected programs must use `sample_k_survivors()`. Returns a `SampleResult` with `.measurements`, `.detectors`, and `.observables`.
-- **`ucc.sample_k_survivors(program, shots, k, seed=None, keep_records=False)`** -- Like `sample_survivors()`, but forces exactly `k` faults. Returns a `SampleResult` whose arrays contain only surviving shots plus survivor metadata.
+- **`clifft.sample_k(program, shots, k, seed=None)`** -- Like `sample()`, but forces exactly `k` faults. Only valid for programs without post-selection; post-selected programs must use `sample_k_survivors()`. Returns a `SampleResult` with `.measurements`, `.detectors`, and `.observables`.
+- **`clifft.sample_k_survivors(program, shots, k, seed=None, keep_records=False)`** -- Like `sample_survivors()`, but forces exactly `k` faults. Returns a `SampleResult` whose arrays contain only surviving shots plus survivor metadata.
 - **`program.noise_site_probabilities`** -- 1D numpy array of per-site fault probabilities (quantum noise sites followed by readout noise entries). Use for computing the Poisson-Binomial PMF.
 
 Results from these functions must be combined across strata with $P(K=k)$ weights. See the [Importance Sampling Tutorial](importance-sampling.md) for a complete walkthrough.

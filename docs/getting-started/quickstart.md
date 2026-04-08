@@ -1,13 +1,13 @@
 # Quick Start
 
-This guide walks through compiling and simulating your first quantum circuit with UCC.
+This guide walks through compiling and simulating your first quantum circuit with Clifft.
 
 ## Your First Circuit
 
-UCC uses [Stim circuit format](https://github.com/quantumlib/Stim/blob/main/doc/file_format_stim_circuit.md) as input. Here's a Bell state circuit:
+Clifft uses [Stim circuit format](https://github.com/quantumlib/Stim/blob/main/doc/file_format_stim_circuit.md) as input. Here's a Bell state circuit:
 
 ```python
-import ucc
+import clifft
 
 circuit = """
     H 0
@@ -16,10 +16,10 @@ circuit = """
 """
 
 # Compile to bytecode
-program = ucc.compile(circuit)
+program = clifft.compile(circuit)
 
 # Sample 1000 shots
-result = ucc.sample(program, shots=1000, seed=42)
+result = clifft.sample(program, shots=1000, seed=42)
 print(result.measurements[:5])  # First 5 shots
 ```
 
@@ -27,19 +27,19 @@ The output is an array of measurement bitstrings. For a Bell state, you'll see e
 
 ## Non-Clifford Gates
 
-UCC extends Stim's gate set with non-Clifford gates like `T` and `T_DAG`:
+Clifft extends Stim's gate set with non-Clifford gates like `T` and `T_DAG`:
 
 ```python
-import ucc
+import clifft
 
-program = ucc.compile("""
+program = clifft.compile("""
     H 0
     T 0
     H 0
     M 0
 """)
 
-result = ucc.sample(program, shots=10000, seed=42)
+result = clifft.sample(program, shots=10000, seed=42)
 
 # Count outcomes
 ones = result.measurements[:, 0].sum()
@@ -51,32 +51,32 @@ print(f"|1> probability: {ones / len(result.measurements):.3f}")  # ~0.146
 For debugging or verification, you can extract the full statevector:
 
 ```python
-import ucc
+import clifft
 
 # Compile without measurements
-program = ucc.compile("""
+program = clifft.compile("""
     H 0
     CNOT 0 1
 """)
 
 # Create state, execute, and extract statevector
-state = ucc.State(
+state = clifft.State(
     peak_rank=program.peak_rank,
     num_measurements=program.num_measurements,
 )
-ucc.execute(program, state)
-sv = ucc.get_statevector(program, state)
+clifft.execute(program, state)
+sv = clifft.get_statevector(program, state)
 print(sv)  # [0.707+0j, 0+0j, 0+0j, 0.707+0j]
 ```
 
 ## Noisy Circuits
 
-UCC supports Stim's noise channels for error modeling:
+Clifft supports Stim's noise channels for error modeling:
 
 ```python
-import ucc
+import clifft
 
-program = ucc.compile("""
+program = clifft.compile("""
     H 0
     DEPOLARIZE1(0.01) 0
     CNOT 0 1
@@ -84,7 +84,7 @@ program = ucc.compile("""
     M 0 1
 """)
 
-result = ucc.sample(program, shots=10000, seed=42)
+result = clifft.sample(program, shots=10000, seed=42)
 ```
 
 ## Next Steps

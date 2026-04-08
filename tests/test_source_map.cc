@@ -3,18 +3,18 @@
 // Verifies that source line provenance threads correctly through the
 // full compile pipeline: parse -> trace -> optimize -> lower.
 
-#include "ucc/backend/backend.h"
-#include "ucc/circuit/parser.h"
-#include "ucc/frontend/frontend.h"
-#include "ucc/optimizer/hir_pass_manager.h"
-#include "ucc/optimizer/peephole.h"
+#include "clifft/backend/backend.h"
+#include "clifft/circuit/parser.h"
+#include "clifft/frontend/frontend.h"
+#include "clifft/optimizer/hir_pass_manager.h"
+#include "clifft/optimizer/peephole.h"
 
 #include <catch2/catch_test_macros.hpp>
 #include <cstdint>
 #include <memory>
 #include <vector>
 
-using namespace ucc;
+using namespace clifft;
 
 // Helper: number of bytecode instructions in the source map.
 static size_t source_map_size(const CompiledModule& m) {
@@ -29,7 +29,7 @@ static std::vector<uint32_t> source_map_entry(const CompiledModule& m, size_t i)
 
 // Helper: full pipeline through trace (no optimizer)
 static HirModule hir_from(const char* text) {
-    return ucc::trace(ucc::parse(text));
+    return clifft::trace(clifft::parse(text));
 }
 
 // Helper: full pipeline through trace + peephole
@@ -49,7 +49,7 @@ static CompiledModule compiled_from(const char* text, bool optimize = false) {
         pm.add_pass(std::make_unique<PeepholeFusionPass>());
         pm.run(hir);
     }
-    return ucc::lower(hir);
+    return clifft::lower(hir);
 }
 
 // =============================================================================

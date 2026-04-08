@@ -5,7 +5,7 @@ Reports which circuits tsim can compile (with default and cutting
 strategies) and which time out.  Each compilation runs in a separate
 subprocess so that hung compiles are fully killed on timeout.
 
-Requires: bloqade-tsim >= 0.1.2, stim, ucc
+Requires: bloqade-tsim >= 0.1.2, stim, clifft
 
 Usage:
     JAX_PLATFORMS=cpu uv run --with 'bloqade-tsim>=0.1.2' \

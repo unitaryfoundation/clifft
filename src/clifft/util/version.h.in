@@ -1,0 +1,10 @@
+#pragma once
+
+// Auto-generated version header. Do not edit manually.
+// Source of truth: pyproject.toml
+
+namespace clifft {
+
+constexpr const char* kVersion = "@CLIFFT_VERSION@";
+
+}  // namespace clifft

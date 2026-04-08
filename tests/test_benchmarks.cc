@@ -1,39 +1,39 @@
-// UCC Performance Benchmarks
+// Clifft Performance Benchmarks
 //
 // Catch2 benchmark tests for regression tracking. Run with:
 //   ctest --test-dir build -R Bench
 // Or for detailed output:
-//   ./build/tests/ucc_tests "[bench]" --benchmark-samples 10
+//   ./build/tests/clifft_tests "[bench]" --benchmark-samples 10
 //
 // Each benchmark targets ~100ms per iteration to keep CI fast while
 // providing meaningful measurements.
 
-#include "ucc/backend/backend.h"
-#include "ucc/circuit/parser.h"
-#include "ucc/frontend/frontend.h"
-#include "ucc/optimizer/bytecode_pass.h"
-#include "ucc/optimizer/expand_t_pass.h"
-#include "ucc/optimizer/hir_pass_manager.h"
-#include "ucc/optimizer/multi_gate_pass.h"
-#include "ucc/optimizer/noise_block_pass.h"
-#include "ucc/optimizer/peephole.h"
-#include "ucc/optimizer/single_axis_fusion_pass.h"
-#include "ucc/optimizer/swap_meas_pass.h"
-#include "ucc/svm/svm.h"
+#include "clifft/backend/backend.h"
+#include "clifft/circuit/parser.h"
+#include "clifft/frontend/frontend.h"
+#include "clifft/optimizer/bytecode_pass.h"
+#include "clifft/optimizer/expand_t_pass.h"
+#include "clifft/optimizer/hir_pass_manager.h"
+#include "clifft/optimizer/multi_gate_pass.h"
+#include "clifft/optimizer/noise_block_pass.h"
+#include "clifft/optimizer/peephole.h"
+#include "clifft/optimizer/single_axis_fusion_pass.h"
+#include "clifft/optimizer/swap_meas_pass.h"
+#include "clifft/svm/svm.h"
 
 #include <catch2/benchmark/catch_benchmark.hpp>
 #include <catch2/catch_test_macros.hpp>
 #include <string>
 
-using namespace ucc;
+using namespace clifft;
 
 // Resolved at build time by CMake so tests work from any working directory.
-#ifndef UCC_FIXTURES_DIR
-#define UCC_FIXTURES_DIR "tests/fixtures"
+#ifndef CLIFFT_FIXTURES_DIR
+#define CLIFFT_FIXTURES_DIR "tests/fixtures"
 #endif
 
 static std::string fixture(const char* name) {
-    return std::string(UCC_FIXTURES_DIR) + "/" + name;
+    return std::string(CLIFFT_FIXTURES_DIR) + "/" + name;
 }
 
 // Compile a circuit file through the full optimizer pipeline.

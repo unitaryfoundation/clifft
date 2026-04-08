@@ -5,8 +5,8 @@
 // Each test constructs a state at rank 10, applies a gate on axis 0 or 1,
 // then verifies the result against manually computed expected values.
 
-#include "ucc/backend/backend.h"
-#include "ucc/svm/svm.h"
+#include "clifft/backend/backend.h"
+#include "clifft/svm/svm.h"
 
 #include "test_helpers.h"
 
@@ -17,8 +17,8 @@
 #include <numbers>
 #include <vector>
 
-using namespace ucc;
-using ucc::test::check_complex;
+using namespace clifft;
+using clifft::test::check_complex;
 
 namespace {
 

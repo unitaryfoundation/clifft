@@ -1,16 +1,16 @@
 cmake_minimum_required(VERSION 3.20)
-project(ucc LANGUAGES CXX)
+project(clifft LANGUAGES CXX)
 
 # Version: parse from pyproject.toml (single source of truth)
 file(READ "${CMAKE_CURRENT_SOURCE_DIR}/pyproject.toml" PYPROJECT_CONTENT)
 string(REGEX MATCH "version = \"([0-9]+\\.[0-9]+\\.[0-9]+)\"" _ "${PYPROJECT_CONTENT}")
-set(UCC_VERSION "${CMAKE_MATCH_1}")
+set(CLIFFT_VERSION "${CMAKE_MATCH_1}")
 
 # Generate version header
-file(MAKE_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/generated/ucc/util)
+file(MAKE_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/generated/clifft/util)
 configure_file(
-    ${CMAKE_CURRENT_SOURCE_DIR}/src/ucc/util/version.h.in
-    ${CMAKE_CURRENT_BINARY_DIR}/generated/ucc/util/version.h
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/clifft/util/version.h.in
+    ${CMAKE_CURRENT_BINARY_DIR}/generated/clifft/util/version.h
     @ONLY
 )
 
@@ -80,35 +80,35 @@ endif()
 # masks (BitMask<N>) used by the HIR and SVM Pauli frame. The VM Instruction
 # struct stays 32 bytes regardless -- only compile-time structures grow.
 # Default 64 matches the MVP; set to 512 for magic state cultivation circuits.
-# Can be set via -DUCC_MAX_QUBITS=N or the UCC_MAX_QUBITS env var.
-# The env var is checked every configure, so `export UCC_MAX_QUBITS=512`
+# Can be set via -DCLIFFT_MAX_QUBITS=N or the CLIFFT_MAX_QUBITS env var.
+# The env var is checked every configure, so `export CLIFFT_MAX_QUBITS=512`
 # works with scikit-build-core editable installs that reconfigure each build.
-if(DEFINED ENV{UCC_MAX_QUBITS})
-    set(UCC_MAX_QUBITS "$ENV{UCC_MAX_QUBITS}" CACHE STRING
+if(DEFINED ENV{CLIFFT_MAX_QUBITS})
+    set(CLIFFT_MAX_QUBITS "$ENV{CLIFFT_MAX_QUBITS}" CACHE STRING
         "Maximum supported qubits (must be a multiple of 64, >= 64)" FORCE)
 else()
-    set(UCC_MAX_QUBITS "64" CACHE STRING
+    set(CLIFFT_MAX_QUBITS "64" CACHE STRING
         "Maximum supported qubits (must be a multiple of 64, >= 64)")
 endif()
-if(UCC_MAX_QUBITS LESS 64)
-    message(FATAL_ERROR "UCC_MAX_QUBITS must be >= 64, got ${UCC_MAX_QUBITS}")
+if(CLIFFT_MAX_QUBITS LESS 64)
+    message(FATAL_ERROR "CLIFFT_MAX_QUBITS must be >= 64, got ${CLIFFT_MAX_QUBITS}")
 endif()
-math(EXPR _UCC_MOD "${UCC_MAX_QUBITS} % 64")
-if(NOT _UCC_MOD EQUAL 0)
-    message(FATAL_ERROR "UCC_MAX_QUBITS must be a multiple of 64, got ${UCC_MAX_QUBITS}")
+math(EXPR _CLIFFT_MOD "${CLIFFT_MAX_QUBITS} % 64")
+if(NOT _CLIFFT_MOD EQUAL 0)
+    message(FATAL_ERROR "CLIFFT_MAX_QUBITS must be a multiple of 64, got ${CLIFFT_MAX_QUBITS}")
 endif()
-message(STATUS "UCC_MAX_QUBITS = ${UCC_MAX_QUBITS}")
+message(STATUS "CLIFFT_MAX_QUBITS = ${CLIFFT_MAX_QUBITS}")
 
 # Code coverage option (for use with gcov/lcov)
-# Note: Coverage flags are applied per-target in src/ucc/CMakeLists.txt to avoid
+# Note: Coverage flags are applied per-target in src/clifft/CMakeLists.txt to avoid
 # instrumenting external dependencies (Stim, Catch2) which would slow builds.
-option(UCC_COVERAGE "Enable code coverage instrumentation" OFF)
-if(UCC_COVERAGE)
+option(CLIFFT_COVERAGE "Enable code coverage instrumentation" OFF)
+if(CLIFFT_COVERAGE)
     if(NOT CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
         message(WARNING "Code coverage requires GCC or Clang")
-        set(UCC_COVERAGE OFF)
+        set(CLIFFT_COVERAGE OFF)
     else()
-        message(STATUS "Code coverage enabled (UCC targets only)")
+        message(STATUS "Code coverage enabled (Clifft targets only)")
     endif()
 endif()
 
@@ -117,7 +117,7 @@ include(cmake/FetchStim.cmake)
 include(cmake/FetchFastFloat.cmake)
 
 # Build the core library
-add_subdirectory(src/ucc)
+add_subdirectory(src/clifft)
 
 # Python bindings (only when building via scikit-build-core)
 if(SKBUILD)
@@ -129,10 +129,10 @@ else()
     add_subdirectory(tests)
 
     # Profiling tool (opt-in, not part of default or coverage builds)
-    option(UCC_BUILD_PROFILER "Build the SVM profiling harness" OFF)
-    if(UCC_BUILD_PROFILER)
+    option(CLIFFT_BUILD_PROFILER "Build the SVM profiling harness" OFF)
+    if(CLIFFT_BUILD_PROFILER)
         add_executable(profile_svm tools/profile/profile_svm.cpp)
-        target_link_libraries(profile_svm PRIVATE ucc_core)
+        target_link_libraries(profile_svm PRIVATE clifft_core)
         target_include_directories(profile_svm PRIVATE
             ${CMAKE_CURRENT_SOURCE_DIR}/src
             ${CMAKE_CURRENT_BINARY_DIR}/generated

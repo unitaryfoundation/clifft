@@ -28,12 +28,12 @@ STYLES: dict[str, dict] = {
         "linewidth": 2.5,
         "label": "Stim CPU",
     },
-    "ucc": {
+    "clifft": {
         "color": "#E74C3C",
         "marker": "o",
         "linestyle": "-",
         "linewidth": 2,
-        "label": "UCC CPU",
+        "label": "Clifft CPU",
     },
     "tsim-cpu": {
         "color": "#3498DB",

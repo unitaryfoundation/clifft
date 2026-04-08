@@ -1,6 +1,6 @@
-# UCC Development Guide
+# Clifft Development Guide
 
-This document covers how to build and develop UCC locally.
+This document covers how to build and develop Clifft locally.
 
 ## Platform Support
 
@@ -21,24 +21,24 @@ This document covers how to build and develop UCC locally.
 
 ## Building
 
-UCC can be built in two ways:
+Clifft can be built in two ways:
 1. **As a Python package** (recommended for most users)
 2. **As a standalone C++ library** (for C++ development/testing)
 
 ### Python Package Build (Recommended)
 
-This builds the `ucc` Python package with C++ extensions:
+This builds the `clifft` Python package with C++ extensions:
 
 ```bash
-git clone https://github.com/unitaryfoundation/ucc-next.git
-cd ucc-next
+git clone https://github.com/unitaryfoundation/clifft.git
+cd clifft
 
 # Create virtual environment and install in editable mode
 uv venv
 uv pip install -e .
 
 # Verify installation
-uv run python -c "import ucc; print(ucc.version())"
+uv run python -c "import clifft; print(clifft.version())"
 
 # Run Python tests
 uv run pytest tests/python/ -v
@@ -51,8 +51,8 @@ The editable install (`-e .`) rebuilds the C++ extension automatically when you 
 For pure C++ development without Python:
 
 ```bash
-git clone https://github.com/unitaryfoundation/ucc-next.git
-cd ucc-next
+git clone https://github.com/unitaryfoundation/clifft.git
+cd clifft
 
 # Configure (Debug is the default)
 cmake -B build
@@ -79,7 +79,7 @@ cmake -B build -DCMAKE_BUILD_TYPE=RelWithDebInfo
 
 ### Custom Qubit Width
 
-By default, UCC supports up to 64 qubits. This limit is a compile-time constant that controls the width of inline Pauli bitmasks (`BitMask<N>`) used in the HIR and VM Pauli frame. The VM `Instruction` struct stays 32 bytes regardless — only compile-time structures (HIR, Pauli frame) grow.
+By default, Clifft supports up to 64 qubits. This limit is a compile-time constant that controls the width of inline Pauli bitmasks (`BitMask<N>`) used in the HIR and VM Pauli frame. The VM `Instruction` struct stays 32 bytes regardless — only compile-time structures (HIR, Pauli frame) grow.
 
 To simulate larger circuits (e.g., distance-7 surface codes require 118 qubits, magic state cultivation needs ~480), rebuild with a higher limit. The value must be a multiple of 64.
 
@@ -87,11 +87,11 @@ At 64 qubits, each `BitMask` is a single `uint64_t` (8 bytes). At 512 qubits, it
 
 #### Python package
 
-The qubit width is configured in `pyproject.toml`. Edit the `UCC_MAX_QUBITS` value under `[tool.scikit-build.cmake.define]`:
+The qubit width is configured in `pyproject.toml`. Edit the `CLIFFT_MAX_QUBITS` value under `[tool.scikit-build.cmake.define]`:
 
 ```toml
 [tool.scikit-build.cmake.define]
-UCC_MAX_QUBITS = "512"
+CLIFFT_MAX_QUBITS = "512"
 ```
 
 Then rebuild:
@@ -103,7 +103,7 @@ uv pip install -e .
 All standard `uv` commands (`uv run`, `uv sync`, etc.) respect this setting automatically. Verify with:
 
 ```bash
-uv run python -c "import ucc; print(ucc.max_sim_qubits())"
+uv run python -c "import clifft; print(clifft.max_sim_qubits())"
 ```
 
 #### Standalone C++ build
@@ -111,7 +111,7 @@ uv run python -c "import ucc; print(ucc.max_sim_qubits())"
 For pure C++ development, pass the flag directly to CMake:
 
 ```bash
-cmake -B build -DUCC_MAX_QUBITS=512
+cmake -B build -DCLIFFT_MAX_QUBITS=512
 cmake --build build -j
 ctest --test-dir build --output-on-failure
 ```
@@ -183,7 +183,7 @@ ln -sf build/compile_commands.json .
 
 ## Code Coverage
 
-UCC supports code coverage for both Python and C++ code.
+Clifft supports code coverage for both Python and C++ code.
 
 ### Prerequisites
 
@@ -217,14 +217,14 @@ just cov
 **Python coverage:**
 
 ```bash
-uv run pytest tests/python/ -v --cov=ucc --cov-report=term --cov-report=html:coverage/python
+uv run pytest tests/python/ -v --cov=clifft --cov-report=term --cov-report=html:coverage/python
 ```
 
 **C++ coverage:**
 
 ```bash
 # Build with coverage instrumentation
-cmake -B build-coverage -DCMAKE_BUILD_TYPE=Debug -DUCC_COVERAGE=ON
+cmake -B build-coverage -DCMAKE_BUILD_TYPE=Debug -DCLIFFT_COVERAGE=ON
 cmake --build build-coverage -j
 
 # Run tests (generates .gcda files)
@@ -251,13 +251,13 @@ Open these files in a browser to view detailed line-by-line coverage.
 ### Notes
 
 - C++ coverage uses a separate build directory (`build-coverage/`) to avoid mixing instrumented and non-instrumented object files.
-- Python coverage only measures Python code in `src/python/ucc/`. The C++ extension (`_ucc_core`) is not measured by Python coverage tools—use C++ coverage for that.
+- Python coverage only measures Python code in `src/python/clifft/`. The C++ extension (`_clifft_core`) is not measured by Python coverage tools—use C++ coverage for that.
 - Coverage artifacts are gitignored.
 
 
 ## WebAssembly Build (Compiler Explorer)
 
-UCC can be compiled to WebAssembly for the browser-based Compiler Explorer. This uses [Emscripten](https://emscripten.org/) via Docker, so no native Emscripten install is needed.
+Clifft can be compiled to WebAssembly for the browser-based Compiler Explorer. This uses [Emscripten](https://emscripten.org/) via Docker, so no native Emscripten install is needed.
 
 ### Prerequisites
 
@@ -276,8 +276,8 @@ just test-wasm
 ```
 
 The build produces two files:
-- `explorer/public/ucc_wasm.js` (~92 KB) - JavaScript loader/glue
-- `explorer/public/ucc_wasm.wasm` (~460 KB) - WebAssembly binary
+- `explorer/public/clifft_wasm.js` (~92 KB) - JavaScript loader/glue
+- `explorer/public/clifft_wasm.wasm` (~460 KB) - WebAssembly binary
 
 ### Manual Build (without `just`)
 
@@ -293,7 +293,7 @@ docker run --rm \
 
 # Copy outputs
 mkdir -p explorer/public
-cp build-wasm/ucc_wasm.{js,wasm} explorer/public/
+cp build-wasm/clifft_wasm.{js,wasm} explorer/public/
 
 # Test
 docker run --rm \

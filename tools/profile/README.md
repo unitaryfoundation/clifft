@@ -1,17 +1,17 @@
 # SVM Profiling Tool
 
-A native C++ harness for profiling UCC's Schrödinger Virtual Machine with
+A native C++ harness for profiling Clifft's Schrödinger Virtual Machine with
 `perf` (Linux) or other sampling profilers. It compiles a circuit and runs
 many shots so the hot loops accumulate enough samples for meaningful analysis.
 
 ## Build
 
 The profiler is opt-in (not part of default or coverage builds). Use
-`-DUCC_BUILD_PROFILER=ON` and `RelWithDebInfo` for debug symbols at full
+`-DCLIFFT_BUILD_PROFILER=ON` and `RelWithDebInfo` for debug symbols at full
 optimization (`-O2 -g`):
 
 ```bash
-cmake -B build -DCMAKE_BUILD_TYPE=RelWithDebInfo -DUCC_BUILD_PROFILER=ON
+cmake -B build -DCMAKE_BUILD_TYPE=RelWithDebInfo -DCLIFFT_BUILD_PROFILER=ON
 cmake --build build -j$(nproc)
 ```
 
@@ -28,21 +28,21 @@ just profile-build
 ./build/profile_svm
 
 # T-gate workload (exercises SVM branch/collide/measure inner loops)
-UCC_T_GATES=10 UCC_SHOTS=100000 ./build/profile_svm
+CLIFFT_T_GATES=10 CLIFFT_SHOTS=100000 ./build/profile_svm
 
 # Load a real circuit file
-UCC_CIRCUIT_FILE=tools/bench/target_qec.stim UCC_SHOTS=100000 ./build/profile_svm
+CLIFFT_CIRCUIT_FILE=tools/bench/target_qec.stim CLIFFT_SHOTS=100000 ./build/profile_svm
 ```
 
 ## Environment variables
 
 | Variable | Default | Description |
 |---|---|---|
-| `UCC_CIRCUIT_FILE` | *(none)* | Path to a `.stim` file. Overrides random generation. |
-| `UCC_NUM_QUBITS` | 50 | Number of qubits for random circuit |
-| `UCC_CLIFFORD_DEPTH` | 5000 | Number of random Clifford gates |
-| `UCC_T_GATES` | 0 | Number of T-gates to append |
-| `UCC_SHOTS` | 100000 | Number of shots to sample |
+| `CLIFFT_CIRCUIT_FILE` | *(none)* | Path to a `.stim` file. Overrides random generation. |
+| `CLIFFT_NUM_QUBITS` | 50 | Number of qubits for random circuit |
+| `CLIFFT_CLIFFORD_DEPTH` | 5000 | Number of random Clifford gates |
+| `CLIFFT_T_GATES` | 0 | Number of T-gates to append |
+| `CLIFFT_SHOTS` | 100000 | Number of shots to sample |
 
 ## Profiling with `perf`
 
@@ -53,11 +53,11 @@ UCC_CIRCUIT_FILE=tools/bench/target_qec.stim UCC_SHOTS=100000 ./build/profile_sv
 perf record -F 9999 -g --call-graph dwarf -o perf.data ./build/profile_svm
 
 # QEC circuit
-UCC_CIRCUIT_FILE=tools/bench/target_qec.stim UCC_SHOTS=100000 \
+CLIFFT_CIRCUIT_FILE=tools/bench/target_qec.stim CLIFFT_SHOTS=100000 \
   perf record -F 9999 -g --call-graph dwarf -o perf.data ./build/profile_svm
 
 # T-gate circuit (SVM inner loop dominated)
-UCC_T_GATES=10 UCC_CLIFFORD_DEPTH=500 UCC_SHOTS=100000 \
+CLIFFT_T_GATES=10 CLIFFT_CLIFFORD_DEPTH=500 CLIFFT_SHOTS=100000 \
   perf record -F 9999 -g --call-graph dwarf -o perf.data ./build/profile_svm
 ```
 
@@ -72,7 +72,7 @@ perf report -i perf.data
 
 # Annotated assembly for a specific function
 perf annotate -i perf.data --stdio \
-  --symbol="ucc::execute(ucc::CompiledModule const&, ucc::SchrodingerState&)"
+  --symbol="clifft::execute(clifft::CompiledModule const&, clifft::SchrodingerState&)"
 
 # Map hot addresses to source lines
 perf report -i perf.data --stdio --no-children --sort=srcline --percent-limit 1
@@ -119,7 +119,7 @@ tableau operations and memory allocation:
 | ~10% | `stim::TableauHalf::operator[]` | Tableau indexing |
 | ~10% | `stim::bit_ref::bit_ref` | Bit-level access |
 | ~8% | `malloc` + `cfree` | Stim PauliString temporaries |
-| ~2% | `ucc::execute` | Dispatch + scalar ops only |
+| ~2% | `clifft::execute` | Dispatch + scalar ops only |
 
 ### QEC circuit
 
@@ -127,7 +127,7 @@ Balanced profile with noise gap sampling driving RNG usage:
 
 | % | Symbol | Notes |
 |---|---|---|
-| ~22% | `ucc::execute` | SVM dispatch + inlined ops |
+| ~22% | `clifft::execute` | SVM dispatch + inlined ops |
 | ~19% | `mt19937_64` (operator + gen_rand) | RNG for noise + measurement |
 | ~11% | `stim::Tableau::scatter_eval` | AG_PIVOT |
 | ~8% | `SchrodingerState::reset` | Shot reset (memset records) |
@@ -141,7 +141,7 @@ SVM inner loops become visible but Stim tableau ops still dominate:
 | % | Symbol | Notes |
 |---|---|---|
 | ~26% | `stim::Tableau::scatter_eval` | AG_PIVOT |
-| ~18% | `ucc::execute` | branch/collide/measure loops |
+| ~18% | `clifft::execute` | branch/collide/measure loops |
 | ~12% | `stim::PauliStringRef::inplace_right_mul` | AG_PIVOT |
 | ~10% | `stim::Tableau::operator()` | AG_PIVOT |
 | ~8% | `stim::bit_ref` + `TableauHalf` | AG_PIVOT indexing |

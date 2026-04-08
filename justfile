@@ -4,8 +4,8 @@ set shell := ["bash", "-lc"]
 # Default build dir for standalone CMake builds.
 build_dir := "build"
 
-# Maximum qubit count for standalone C++ builds. Passed as -DUCC_MAX_QUBITS.
-# For Python builds, set UCC_MAX_QUBITS in pyproject.toml instead.
+# Maximum qubit count for standalone C++ builds. Passed as -DCLIFFT_MAX_QUBITS.
+# For Python builds, set CLIFFT_MAX_QUBITS in pyproject.toml instead.
 # Override with: just max_qubits=512 configure build test
 max_qubits := "64"
 
@@ -21,7 +21,7 @@ default:
 # -------------------------
 
 configure *args="":
-  cmake -B {{build_dir}} -DUCC_MAX_QUBITS={{max_qubits}} {{args}}
+  cmake -B {{build_dir}} -DCLIFFT_MAX_QUBITS={{max_qubits}} {{args}}
 
 build *args="":
   cmake --build {{build_dir}} {{args}}
@@ -67,7 +67,7 @@ py:
 
 # Python coverage: run pytest with coverage and generate HTML report
 py-cov:
-  uv run pytest tests/python/ -v --cov=ucc --cov-report=term --cov-report=html:coverage/python
+  uv run pytest tests/python/ -v --cov=clifft --cov-report=term --cov-report=html:coverage/python
   @echo "\n📊 Python coverage report: coverage/python/index.html"
 
 # C++ coverage: build with instrumentation, run tests, generate HTML report
@@ -81,7 +81,7 @@ cpp-cov:
 
   # Clean and build with coverage flags
   rm -rf {{cov_build_dir}}
-  cmake -B {{cov_build_dir}} -DCMAKE_BUILD_TYPE=Debug -DUCC_COVERAGE=ON -DUCC_MAX_QUBITS={{max_qubits}}
+  cmake -B {{cov_build_dir}} -DCMAKE_BUILD_TYPE=Debug -DCLIFFT_COVERAGE=ON -DCLIFFT_MAX_QUBITS={{max_qubits}}
   cmake --build {{cov_build_dir}} -j${CORES}
 
   # Run tests to generate .gcda files
@@ -132,7 +132,7 @@ profile_build_dir := "build-profile"
 
 # Build the SVM profiling harness (RelWithDebInfo for perf-friendly symbols)
 profile-build:
-  cmake -B {{profile_build_dir}} -DCMAKE_BUILD_TYPE=RelWithDebInfo -DUCC_BUILD_PROFILER=ON
+  cmake -B {{profile_build_dir}} -DCMAKE_BUILD_TYPE=RelWithDebInfo -DCLIFFT_BUILD_PROFILER=ON
   cmake --build {{profile_build_dir}} --target profile_svm -j$(nproc)
 
 # Run the profiler with default settings (50-qubit Clifford, 100k shots)
@@ -143,7 +143,7 @@ profile *args="":
 # Benchmarking
 # -------------------------
 
-# Run performance benchmarks comparing UCC vs Stim
+# Run performance benchmarks comparing Clifft vs Stim
 bench *args="":
   uv run pytest tools/bench/ --benchmark-sort=name --benchmark-columns=Mean,StdDev,Ops {{args}}
 
@@ -155,7 +155,7 @@ bench *args="":
 build-wasm:
   #!/usr/bin/env bash
   set -euo pipefail
-  echo "Building UCC Wasm module..."
+  echo "Building Clifft Wasm module..."
   docker run --rm \
     -u "$(id -u):$(id -g)" \
     -v "{{justfile_directory()}}:/src" \
@@ -167,9 +167,9 @@ build-wasm:
         -DFETCHCONTENT_QUIET=ON && \
       cmake --build build-wasm -j$(nproc)'
   mkdir -p explorer/public
-  cp build-wasm/ucc_wasm.js explorer/public/ucc_wasm.js
-  cp build-wasm/ucc_wasm.wasm explorer/public/ucc_wasm.wasm
-  echo "Output: explorer/public/ucc_wasm.{js,wasm}"
+  cp build-wasm/clifft_wasm.js explorer/public/clifft_wasm.js
+  cp build-wasm/clifft_wasm.wasm explorer/public/clifft_wasm.wasm
+  echo "Output: explorer/public/clifft_wasm.{js,wasm}"
 
 # Test the Wasm module with a quick Node.js smoke test
 test-wasm:
@@ -218,8 +218,8 @@ explorer-build:
 # This helps to share with Chat LLMs
 aidigest:
     rm -f ai.all.digest.txt
-    uvx gitingest . -e "*.pdf" -e explorer -i "design/*.md" -i design/theory.tex -i src -i tests -i README.md -i pyproject.toml -o ai.all.digest.txt
+    uvx gitingest . -e "*.pdf" -e explorer -i src -i tests -i docs -i README.md -i pyproject.toml -o ai.all.digest.txt
 
 aidesigndigest:
     rm -f aidesign.digest.txt
-    uvx gitingest . -i "design/*.md" -o aidesign.digest.txt
+    uvx gitingest . -i docs -i README.md -o aidesign.digest.txt

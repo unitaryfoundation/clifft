@@ -1,7 +1,7 @@
-"""Validate UCC Quantum Volume via Heavy Output Probability and statevector fidelity.
+"""Validate Clifft Quantum Volume via Heavy Output Probability and statevector fidelity.
 
 Computes the Heavy Output Probability (HOP) from ideal statevector simulation
-and cross-checks UCC statevectors against Qiskit-Aer reference values.
+and cross-checks Clifft statevectors against Qiskit-Aer reference values.
 
 For noiseless simulation of random QV circuits the HOP converges to
 (ln(2) + 1) / 2 ~ 0.846 as circuit width grows.
@@ -39,10 +39,10 @@ def compute_hop(statevector: np.ndarray) -> float:
     return hop
 
 
-def validate_ucc(num_qubits: int, seed: int = 42) -> dict[str, object]:
+def validate_clifft(num_qubits: int, seed: int = 42) -> dict[str, object]:
     """Run a single QV validation round for *num_qubits* qubits.
 
-    Generates a random (unmeasured) QV circuit, simulates it with both UCC and
+    Generates a random (unmeasured) QV circuit, simulates it with both Clifft and
     Qiskit, then checks statevector fidelity and HOP.
 
     Parameters
@@ -63,22 +63,22 @@ def validate_ucc(num_qubits: int, seed: int = 42) -> dict[str, object]:
 
     qasm: str = generate_qv_qasm_unmeasured(num_qubits, seed=seed)
 
-    # -- UCC statevector ------------------------------------------------
-    from qv_benchmark.qasm_adapter import to_ucc_stim
+    # -- Clifft statevector ------------------------------------------------
+    from qv_benchmark.qasm_adapter import to_clifft_stim
 
-    import ucc
+    import clifft
 
-    stim: str = to_ucc_stim(qasm)
-    prog = ucc.compile(stim)
-    state = ucc.State(
+    stim: str = to_clifft_stim(qasm)
+    prog = clifft.compile(stim)
+    state = clifft.State(
         peak_rank=prog.peak_rank,
         num_measurements=prog.num_measurements,
         num_detectors=prog.num_detectors,
         num_observables=prog.num_observables,
         seed=42,
     )
-    ucc.execute(prog, state)
-    sv_ucc: np.ndarray = ucc.get_statevector(prog, state)
+    clifft.execute(prog, state)
+    sv_clifft: np.ndarray = clifft.get_statevector(prog, state)
 
     # -- Qiskit reference statevector -----------------------------------
     from qiskit.circuit import QuantumCircuit
@@ -87,11 +87,11 @@ def validate_ucc(num_qubits: int, seed: int = 42) -> dict[str, object]:
     qkc: QuantumCircuit = QuantumCircuit.from_qasm_str(qasm)
     sv_qk: np.ndarray = Statevector.from_instruction(qkc).data
 
-    # -- fidelity: |<sv_ucc|sv_qk>|^2 ----------------------------------
-    fidelity: float = float(np.abs(np.vdot(sv_ucc, sv_qk)) ** 2)
+    # -- fidelity: |<sv_clifft|sv_qk>|^2 -------------------------------
+    fidelity: float = float(np.abs(np.vdot(sv_clifft, sv_qk)) ** 2)
 
-    # -- HOP from UCC statevector ---------------------------------------
-    hop: float = compute_hop(sv_ucc)
+    # -- HOP from Clifft statevector ---------------------------------------
+    hop: float = compute_hop(sv_clifft)
 
     passed: bool = fidelity > 0.999 and hop > 0.70
 
@@ -111,7 +111,7 @@ def _main() -> None:
 
     for n in qubit_counts:
         print(f"Validating N={n} ... ", end="", flush=True)
-        res = validate_ucc(n, seed=42)
+        res = validate_clifft(n, seed=42)
         results.append(res)
         status = "PASS" if res["pass"] else "FAIL"
         print(f"{status}  fidelity={res['fidelity']:.6f}  HOP={res['hop']:.4f}")

@@ -3,9 +3,9 @@ requires = ["scikit-build-core>=0.10", "nanobind>=2.0"]
 build-backend = "scikit_build_core.build"
 
 [project]
-name = "ucc"
+name = "clifft"
 version = "0.1.0"
-description = "Unitary Compiler Collection - Multi-level compiler and VM for quantum circuits"
+description = "Clifft - Multi-level compiler and VM for quantum circuits"
 readme = "README.md"
 requires-python = ">=3.12"
 license = "Apache-2.0"
@@ -72,7 +72,7 @@ wheel.py-api = "cp312"
 # bitmasks used by the HIR and VM Pauli frame. Must be a multiple of 64.
 # Change to "512" for large circuits (e.g., distance-7+ surface codes).
 [tool.scikit-build.cmake.define]
-UCC_MAX_QUBITS = "64"
+CLIFFT_MAX_QUBITS = "64"
 
 [tool.ruff]
 line-length = 100
@@ -91,7 +91,7 @@ select = [
 ignore = []
 
 [tool.ruff.lint.isort]
-known-first-party = ["ucc"]
+known-first-party = ["clifft"]
 
 [tool.mypy]
 python_version = "3.12"
@@ -108,7 +108,7 @@ exclude = [
 ]
 
 [[tool.mypy.overrides]]
-module = ["numpy.*", "stim.*", "sinter.*", "pytest.*", "ucc", "ucc._ucc_core", "qiskit.*", "qiskit_aer.*", "tsim.*", "bench_common", "qv_benchmark.*", "clifford_bench.*", "near_clifford_bench.*", "distillation_bench.*", "coherent_noise_bench.*", "matplotlib", "matplotlib.*", "pymatching", "pymatching.*", "cirq", "cirq.*", "qulacs", "qulacs.*", "qsimcirq", "qsimcirq.*", "pandas", "pandas.*"]
+module = ["numpy.*", "stim.*", "sinter.*", "pytest.*", "clifft", "clifft._clifft_core", "qiskit.*", "qiskit_aer.*", "tsim.*", "bench_common", "qv_benchmark.*", "clifford_bench.*", "near_clifford_bench.*", "distillation_bench.*", "coherent_noise_bench.*", "matplotlib", "matplotlib.*", "pymatching", "pymatching.*", "cirq", "cirq.*", "qulacs", "qulacs.*", "qsimcirq", "qsimcirq.*", "pandas", "pandas.*"]
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]
@@ -116,8 +116,8 @@ testpaths = ["tests/python"]
 pythonpath = ["."]
 
 [tool.coverage.run]
-source = ["ucc"]
-omit = ["*/_ucc_core*"]  # C++ extension not measurable by Python coverage
+source = ["clifft"]
+omit = ["*/_clifft_core*"]  # C++ extension not measurable by Python coverage
 
 [tool.coverage.report]
 exclude_lines = [

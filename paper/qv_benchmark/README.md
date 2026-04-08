@@ -1,9 +1,9 @@
 # Quantum Volume Benchmark
 
-Benchmarks UCC against Qiskit-Aer, Qulacs, qsim, and Qrack on random
+Benchmarks Clifft against Qiskit-Aer, Qulacs, qsim, and Qrack on random
 **Quantum Volume** circuits, scaling qubit count from 6 to 26+. These
 circuits are dense with non-Clifford gates, showcasing the regime where
-UCC's compiled stabilizer VM excels.
+Clifft's compiled stabilizer VM excels.
 
 ## Dependencies
 
@@ -11,7 +11,7 @@ UCC's compiled stabilizer VM excels.
 numpy
 pandas
 matplotlib
-ucc
+clifft
 qiskit
 qiskit-aer
 qulacs
@@ -28,13 +28,13 @@ All commands run from the `paper/` directory (see top-level
 
 ```bash
 # Quick test
-uv run python -m qv_benchmark --min-q 6 --max-q 12 --repeats 1 --simulators ucc,qiskit
+uv run python -m qv_benchmark --min-q 6 --max-q 12 --repeats 1 --simulators clifft,qiskit
 
 # Specific qubit counts
 uv run python -m qv_benchmark --qubits 10,14,18,22
 
 # Single simulator
-uv run python -m qv_benchmark --simulators ucc
+uv run python -m qv_benchmark --simulators clifft
 
 # Recommended EC2 run (24-core, 96 GB RAM)
 uv run python -m qv_benchmark \
@@ -62,7 +62,7 @@ Produces a log-scale execution time vs qubit count plot.
 python validate_hop.py
 ```
 
-Validates UCC's statevector output against Qiskit-Aer using fidelity
+Validates Clifft's statevector output against Qiskit-Aer using fidelity
 checks and Heavy Output Probability (HOP) computation.
 
 ## CLI options (run_benchmark.py)
@@ -74,7 +74,7 @@ checks and Heavy Output Probability (HOP) computation.
 | `--step` | `2` | Step size for qubit range |
 | `--qubits` | — | Explicit comma-separated qubit counts (overrides min/max) |
 | `--repeats` | `3` | Repetitions per configuration |
-| `--simulators` | `ucc,qiskit,qulacs,qsim,qrack` | Comma-separated backends |
+| `--simulators` | `clifft,qiskit,qulacs,qsim,qrack` | Comma-separated backends |
 | `--mem-limit-gb` | `6.0` | Per-worker memory cap (RLIMIT_AS) |
 | `--timeout` | `300` | Per-worker timeout in seconds |
 | `--output` | `results.csv` | Output CSV path |
@@ -87,6 +87,6 @@ checks and Heavy Output Probability (HOP) computation.
 | `run_benchmark.py` | Orchestrator — spawns subprocess workers, collects CSV |
 | `worker.py` | Subprocess worker for a single (simulator, N, seed) run |
 | `generator.py` | Random QV circuit generation (QASM 2.0) |
-| `qasm_adapter.py` | Converts QASM to UCC/stim, Qulacs, Cirq formats |
+| `qasm_adapter.py` | Converts QASM to Clifft/stim, Qulacs, Cirq formats |
 | `plot_qv.py` | Publication-ready scaling plot |
 | `validate_hop.py` | Statevector fidelity + HOP validation |

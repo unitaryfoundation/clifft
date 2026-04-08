@@ -14,7 +14,7 @@ import {
   Columns2,
 } from "lucide-react";
 import LZString from "lz-string";
-import type { WasmStatus, PassConfig } from "../hooks/useUccWasm";
+import type { WasmStatus, PassConfig } from "../hooks/useClifftWasm";
 import type { Theme } from "../hooks/useTheme";
 import type { PassInfo } from "../types";
 import type { SavedCircuit } from "../hooks/useCircuitStorage";
@@ -147,7 +147,7 @@ export function Toolbar({
   return (
     <div className="toolbar">
       <div className="toolbar-left">
-        <span className="toolbar-title">UCC Compiler Explorer</span>
+        <span className="toolbar-title">Clifft Compiler Explorer</span>
         <button
           className="toolbar-btn toolbar-btn-tour"
           onClick={onTourOpen}

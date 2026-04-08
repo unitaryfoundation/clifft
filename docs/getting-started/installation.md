@@ -5,11 +5,11 @@
 ## From PyPI
 
 ```bash
-pip install ucc
+pip install clifft
 ```
 
 !!! note "Python 3.12+ required"
-    UCC requires Python 3.12 or later.
+    Clifft requires Python 3.12 or later.
 
 ## Platform Support
 
@@ -24,15 +24,15 @@ pip install ucc
 For development or if pre-built wheels aren't available for your platform:
 
 ```bash
-git clone https://github.com/unitaryfoundation/ucc-next.git
-cd ucc-next
+git clone https://github.com/unitaryfoundation/clifft.git
+cd clifft
 
 # Using uv (recommended)
 uv venv
 uv pip install -e .
 
 # Verify
-uv run python -c "import ucc; print(ucc.version())"
+uv run python -c "import clifft; print(clifft.version())"
 ```
 
 !!! info "First build takes 10-15 minutes"

@@ -1,7 +1,7 @@
-#include "ucc/backend/backend.h"
-#include "ucc/circuit/parser.h"
-#include "ucc/frontend/frontend.h"
-#include "ucc/svm/svm.h"
+#include "clifft/backend/backend.h"
+#include "clifft/circuit/parser.h"
+#include "clifft/frontend/frontend.h"
+#include "clifft/svm/svm.h"
 
 #include "test_helpers.h"
 
@@ -11,12 +11,12 @@
 #include <complex>
 #include <vector>
 
-using namespace ucc;
+using namespace clifft;
 using Catch::Matchers::WithinAbs;
 using Catch::Matchers::WithinRel;
-using ucc::test::check_complex;
-using ucc::test::kInvSqrt2;
-using ucc::test::test_lcg;
+using clifft::test::check_complex;
+using clifft::test::kInvSqrt2;
+using clifft::test::test_lcg;
 
 // =============================================================================
 // Helpers
@@ -1987,9 +1987,9 @@ TEST_CASE("Dust clamps: T-to-the-4th interference triggers epsilon catch") {
     // a PRNG roll, causing trajectory divergence vs. optimized code that never
     // sees the dust. With seeds where the PRNG roll happens to land in the
     // dust branch, the VM would record outcome 1 instead of the correct 0.
-    auto circuit = ucc::parse("H 0\nT 0\nT 0\nT 0\nT 0\nH 0\nM 0");
-    auto hir = ucc::trace(circuit);
-    auto mod = ucc::lower(hir);
+    auto circuit = clifft::parse("H 0\nT 0\nT 0\nT 0\nT 0\nH 0\nM 0");
+    auto hir = clifft::trace(circuit);
+    auto mod = clifft::lower(hir);
 
     REQUIRE(mod.peak_rank >= 1);
 
@@ -2007,9 +2007,9 @@ TEST_CASE("Dust clamps: T-to-the-4th interference triggers epsilon catch") {
 }
 
 TEST_CASE("Dust clamps: accumulates across multiple shots") {
-    auto circuit = ucc::parse("H 0\nT 0\nT 0\nT 0\nT 0\nH 0\nM 0");
-    auto hir = ucc::trace(circuit);
-    auto mod = ucc::lower(hir);
+    auto circuit = clifft::parse("H 0\nT 0\nT 0\nT 0\nT 0\nH 0\nM 0");
+    auto hir = clifft::trace(circuit);
+    auto mod = clifft::lower(hir);
 
     SchrodingerState state(mod.peak_rank, mod.num_measurements);
     state.reseed(42);

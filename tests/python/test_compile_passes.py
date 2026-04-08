@@ -1,4 +1,4 @@
-"""Tests for ucc.compile() with optional hir_passes and bytecode_passes.
+"""Tests for clifft.compile() with optional hir_passes and bytecode_passes.
 
 Verifies that the pass manager arguments are wired correctly through
 the compile convenience function, producing the same results as the
@@ -9,7 +9,7 @@ import numpy as np
 import pytest
 from conftest import random_dense_clifford_t_circuit
 
-import ucc
+import clifft
 
 # ---------------------------------------------------------------------------
 # Backward compatibility: omitting pass managers matches old behavior
@@ -20,11 +20,11 @@ def test_compile_no_passes_matches_manual_pipeline() -> None:
     """compile() with no pass managers equals parse -> trace -> lower."""
     text = "H 0\nT 0\nCNOT 0 1\nM 0 1"
 
-    prog_convenience = ucc.compile(text)
+    prog_convenience = clifft.compile(text)
 
-    circuit = ucc.parse(text)
-    hir = ucc.trace(circuit)
-    prog_manual = ucc.lower(hir)
+    circuit = clifft.parse(text)
+    hir = clifft.trace(circuit)
+    prog_manual = clifft.lower(hir)
 
     assert prog_convenience.num_instructions == prog_manual.num_instructions
     assert prog_convenience.peak_rank == prog_manual.peak_rank
@@ -34,8 +34,8 @@ def test_compile_explicit_none_same_as_default() -> None:
     """Passing None explicitly is identical to omitting the arguments."""
     text = "H 0\nT 0\nCNOT 0 1\nM 0 1"
 
-    p1 = ucc.compile(text)
-    p2 = ucc.compile(text, hir_passes=None, bytecode_passes=None)
+    p1 = clifft.compile(text)
+    p2 = clifft.compile(text, hir_passes=None, bytecode_passes=None)
 
     assert p1.num_instructions == p2.num_instructions
     assert p1.peak_rank == p2.peak_rank
@@ -50,19 +50,19 @@ def test_compile_both_passes_matches_manual() -> None:
     """compile() with both pass managers matches the full manual pipeline."""
     text = "H 0\nT 0\nCNOT 0 1\nT 1\nM 0 1"
 
-    prog = ucc.compile(
+    prog = clifft.compile(
         text,
-        hir_passes=ucc.default_hir_pass_manager(),
-        bytecode_passes=ucc.default_bytecode_pass_manager(),
+        hir_passes=clifft.default_hir_pass_manager(),
+        bytecode_passes=clifft.default_bytecode_pass_manager(),
     )
 
     # Manual pipeline
-    circuit = ucc.parse(text)
-    hir = ucc.trace(circuit)
-    pm = ucc.default_hir_pass_manager()
+    circuit = clifft.parse(text)
+    hir = clifft.trace(circuit)
+    pm = clifft.default_hir_pass_manager()
     pm.run(hir)
-    prog_manual = ucc.lower(hir)
-    bpm = ucc.default_bytecode_pass_manager()
+    prog_manual = clifft.lower(hir)
+    bpm = clifft.default_bytecode_pass_manager()
     bpm.run(prog_manual)
 
     assert prog.num_instructions == prog_manual.num_instructions
@@ -78,13 +78,13 @@ def test_compile_hir_only_matches_manual() -> None:
     """compile() with only hir_passes matches manual trace + optimize + lower."""
     text = "H 0\nT 0\nT_DAG 0\nM 0"  # T/T_DAG cancel
 
-    prog = ucc.compile(text, hir_passes=ucc.default_hir_pass_manager())
+    prog = clifft.compile(text, hir_passes=clifft.default_hir_pass_manager())
 
-    circuit = ucc.parse(text)
-    hir = ucc.trace(circuit)
-    pm = ucc.default_hir_pass_manager()
+    circuit = clifft.parse(text)
+    hir = clifft.trace(circuit)
+    pm = clifft.default_hir_pass_manager()
     pm.run(hir)
-    prog_manual = ucc.lower(hir)
+    prog_manual = clifft.lower(hir)
 
     assert prog.num_instructions == prog_manual.num_instructions
     assert prog.peak_rank == prog_manual.peak_rank
@@ -94,8 +94,8 @@ def test_hir_passes_reduce_t_cancellation() -> None:
     """Peephole fusion cancels T/T_DAG, reducing peak rank."""
     text = "H 0\nT 0\nT_DAG 0\nM 0"
 
-    prog_no_opt = ucc.compile(text)
-    prog_opt = ucc.compile(text, hir_passes=ucc.default_hir_pass_manager())
+    prog_no_opt = clifft.compile(text)
+    prog_opt = clifft.compile(text, hir_passes=clifft.default_hir_pass_manager())
 
     # Without optimization, T and T_DAG both expand the array.
     # With peephole, they cancel and peak_rank should be lower.
@@ -111,12 +111,12 @@ def test_compile_bytecode_only_matches_manual() -> None:
     """compile() with only bytecode_passes matches manual lower + optimize."""
     text = "H 0\nT 0\nCNOT 0 1\nM 0 1"
 
-    prog = ucc.compile(text, bytecode_passes=ucc.default_bytecode_pass_manager())
+    prog = clifft.compile(text, bytecode_passes=clifft.default_bytecode_pass_manager())
 
-    circuit = ucc.parse(text)
-    hir = ucc.trace(circuit)
-    prog_manual = ucc.lower(hir)
-    bpm = ucc.default_bytecode_pass_manager()
+    circuit = clifft.parse(text)
+    hir = clifft.trace(circuit)
+    prog_manual = clifft.lower(hir)
+    bpm = clifft.default_bytecode_pass_manager()
     bpm.run(prog_manual)
 
     assert prog.num_instructions == prog_manual.num_instructions
@@ -127,8 +127,8 @@ def test_bytecode_passes_fuse_instructions() -> None:
     """Bytecode passes should fuse ops, reducing instruction count."""
     text = "H 0\nT 0\nCNOT 0 1\nM 0 1"
 
-    prog_no_opt = ucc.compile(text)
-    prog_opt = ucc.compile(text, bytecode_passes=ucc.default_bytecode_pass_manager())
+    prog_no_opt = clifft.compile(text)
+    prog_opt = clifft.compile(text, bytecode_passes=clifft.default_bytecode_pass_manager())
 
     # Fused instructions should not increase instruction count
     assert prog_opt.num_instructions <= prog_no_opt.num_instructions
@@ -143,17 +143,17 @@ def test_compile_postselection_with_passes() -> None:
     """Postselection mask works together with pass managers."""
     text = "H 0\nM 0\nDETECTOR rec[-1]"
 
-    prog = ucc.compile(
+    prog = clifft.compile(
         text,
         postselection_mask=[1],
-        hir_passes=ucc.default_hir_pass_manager(),
-        bytecode_passes=ucc.default_bytecode_pass_manager(),
+        hir_passes=clifft.default_hir_pass_manager(),
+        bytecode_passes=clifft.default_bytecode_pass_manager(),
     )
 
     assert prog.num_detectors == 1
     # Should have an OP_POSTSELECT in the bytecode
     opcodes = [prog[i].opcode for i in range(prog.num_instructions)]
-    assert ucc.Opcode.OP_POSTSELECT in opcodes
+    assert clifft.Opcode.OP_POSTSELECT in opcodes
 
 
 def test_postselection_without_passes_unchanged() -> None:
@@ -161,12 +161,12 @@ def test_postselection_without_passes_unchanged() -> None:
     text = "H 0\nM 0\nDETECTOR rec[-1]"
     mask = [1]
 
-    prog_base = ucc.compile(text, postselection_mask=mask)
-    prog_opt = ucc.compile(
+    prog_base = clifft.compile(text, postselection_mask=mask)
+    prog_opt = clifft.compile(
         text,
         postselection_mask=mask,
-        hir_passes=ucc.default_hir_pass_manager(),
-        bytecode_passes=ucc.default_bytecode_pass_manager(),
+        hir_passes=clifft.default_hir_pass_manager(),
+        bytecode_passes=clifft.default_bytecode_pass_manager(),
     )
 
     assert prog_base.num_detectors == prog_opt.num_detectors
@@ -196,23 +196,25 @@ def test_statevector_identical_with_passes(num_qubits: int, depth: int, seed: in
     """
     stim_text = random_dense_clifford_t_circuit(num_qubits, depth, seed)
 
-    prog_base = ucc.compile(stim_text)
-    prog_opt = ucc.compile(
+    prog_base = clifft.compile(stim_text)
+    prog_opt = clifft.compile(
         stim_text,
-        hir_passes=ucc.default_hir_pass_manager(),
-        bytecode_passes=ucc.default_bytecode_pass_manager(),
+        hir_passes=clifft.default_hir_pass_manager(),
+        bytecode_passes=clifft.default_bytecode_pass_manager(),
     )
 
-    state_base = ucc.State(
+    state_base = clifft.State(
         peak_rank=prog_base.peak_rank, num_measurements=prog_base.num_measurements
     )
-    state_opt = ucc.State(peak_rank=prog_opt.peak_rank, num_measurements=prog_opt.num_measurements)
+    state_opt = clifft.State(
+        peak_rank=prog_opt.peak_rank, num_measurements=prog_opt.num_measurements
+    )
 
-    ucc.execute(prog_base, state_base)
-    ucc.execute(prog_opt, state_opt)
+    clifft.execute(prog_base, state_base)
+    clifft.execute(prog_opt, state_opt)
 
-    sv_base = ucc.get_statevector(prog_base, state_base)
-    sv_opt = ucc.get_statevector(prog_opt, state_opt)
+    sv_base = clifft.get_statevector(prog_base, state_base)
+    sv_opt = clifft.get_statevector(prog_opt, state_opt)
 
     fidelity = float(np.abs(np.vdot(sv_base, sv_opt)) ** 2)
     assert (
@@ -229,10 +231,10 @@ def test_custom_pass_manager_via_compile() -> None:
     """A manually-built HirPassManager works when passed to compile()."""
     text = "H 0\nT 0\nT_DAG 0\nM 0"
 
-    pm = ucc.HirPassManager()
-    pm.add(ucc.PeepholeFusionPass())
+    pm = clifft.HirPassManager()
+    pm.add(clifft.PeepholeFusionPass())
 
-    prog = ucc.compile(text, hir_passes=pm)
+    prog = clifft.compile(text, hir_passes=pm)
     assert prog.peak_rank == 0  # T/T_DAG cancelled, no active dims
 
 
@@ -240,10 +242,10 @@ def test_custom_bytecode_pass_manager_via_compile() -> None:
     """A manually-built BytecodePassManager works when passed to compile()."""
     text = "H 0\nT 0\nCNOT 0 1\nM 0 1"
 
-    bpm = ucc.BytecodePassManager()
-    bpm.add(ucc.ExpandTPass())
+    bpm = clifft.BytecodePassManager()
+    bpm.add(clifft.ExpandTPass())
 
-    prog = ucc.compile(text, bytecode_passes=bpm)
+    prog = clifft.compile(text, bytecode_passes=bpm)
     # Should have fused expand+T into OP_EXPAND_T
     opcodes = [prog[i].opcode for i in range(prog.num_instructions)]
-    assert ucc.Opcode.OP_EXPAND_T in opcodes or ucc.Opcode.OP_EXPAND_T_DAG in opcodes
+    assert clifft.Opcode.OP_EXPAND_T in opcodes or clifft.Opcode.OP_EXPAND_T_DAG in opcodes

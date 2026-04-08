@@ -1,24 +1,24 @@
 // Optimizer unit tests
 
-#include "ucc/circuit/parser.h"
-#include "ucc/frontend/frontend.h"
-#include "ucc/frontend/hir.h"
-#include "ucc/optimizer/commutation.h"
-#include "ucc/optimizer/peephole.h"
-#include "ucc/optimizer/statevector_squeeze_pass.h"
-#include "ucc/util/constants.h"
+#include "clifft/circuit/parser.h"
+#include "clifft/frontend/frontend.h"
+#include "clifft/frontend/hir.h"
+#include "clifft/optimizer/commutation.h"
+#include "clifft/optimizer/peephole.h"
+#include "clifft/optimizer/statevector_squeeze_pass.h"
+#include "clifft/util/constants.h"
 
 #include "test_helpers.h"
 
 #include <catch2/catch_test_macros.hpp>
 
-using namespace ucc;
-using ucc::test::X;
-using ucc::test::Z;
+using namespace clifft;
+using clifft::test::X;
+using clifft::test::Z;
 
 // Helper: parse a .stim circuit string through the front-end to produce HIR.
 static HirModule hir_from(const char* text) {
-    return ucc::trace(ucc::parse(text));
+    return clifft::trace(clifft::parse(text));
 }
 
 // =============================================================================
@@ -527,37 +527,37 @@ TEST_CASE("Peephole: S absorption creates negative T that subsequently fuses", "
 }
 
 // --- Pass registry tripwire tests ---
-#include "ucc/optimizer/pass_factory.h"
-#include "ucc/optimizer/pass_registry.h"
+#include "clifft/optimizer/pass_factory.h"
+#include "clifft/optimizer/pass_registry.h"
 
 TEST_CASE("Pass registry: all entries resolve via factory") {
-    for (size_t i = 0; i < ucc::kNumRegisteredPasses; ++i) {
-        const auto& info = ucc::kRegisteredPasses[i];
-        if (info.kind == ucc::PassKind::HIR) {
-            auto pass = ucc::make_hir_pass(info.name);
+    for (size_t i = 0; i < clifft::kNumRegisteredPasses; ++i) {
+        const auto& info = clifft::kRegisteredPasses[i];
+        if (info.kind == clifft::PassKind::HIR) {
+            auto pass = clifft::make_hir_pass(info.name);
             REQUIRE(pass != nullptr);
         } else {
-            auto pass = ucc::make_bytecode_pass(info.name);
+            auto pass = clifft::make_bytecode_pass(info.name);
             REQUIRE(pass != nullptr);
         }
     }
 }
 
 TEST_CASE("Pass registry: default managers use registry") {
-    auto hpm = ucc::default_hir_pass_manager();
-    auto bpm = ucc::default_bytecode_pass_manager();
+    auto hpm = clifft::default_hir_pass_manager();
+    auto bpm = clifft::default_bytecode_pass_manager();
 
     // Smoke test: run on a trivial circuit
-    auto circuit = ucc::parse("H 0\nCNOT 0 1\nM 0\nM 1");
-    auto hir = ucc::trace(circuit);
+    auto circuit = clifft::parse("H 0\nCNOT 0 1\nM 0\nM 1");
+    auto hir = clifft::trace(circuit);
     hpm.run(hir);
-    auto prog = ucc::lower(hir);
+    auto prog = clifft::lower(hir);
     bpm.run(prog);
     REQUIRE(prog.num_qubits == 2);
 }
 
 TEST_CASE("Pass registry: JSON round-trip is valid") {
-    std::string json = ucc::pass_registry_json();
+    std::string json = clifft::pass_registry_json();
     REQUIRE(json.front() == '[');
     REQUIRE(json.back() == ']');
     REQUIRE(json.find("PeepholeFusionPass") != std::string::npos);

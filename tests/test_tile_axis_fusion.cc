@@ -7,14 +7,14 @@
 // 4. Boundary halting: tiles correctly break at EXPAND, measurement, noise
 // 5. Integration: full pipeline with get_statevector oracle
 
-#include "ucc/backend/backend.h"
-#include "ucc/circuit/parser.h"
-#include "ucc/frontend/frontend.h"
-#include "ucc/optimizer/bytecode_pass.h"
-#include "ucc/optimizer/single_axis_fusion_pass.h"
-#include "ucc/optimizer/tile_axis_fusion_pass.h"
-#include "ucc/svm/svm.h"
-#include "ucc/util/constants.h"
+#include "clifft/backend/backend.h"
+#include "clifft/circuit/parser.h"
+#include "clifft/frontend/frontend.h"
+#include "clifft/optimizer/bytecode_pass.h"
+#include "clifft/optimizer/single_axis_fusion_pass.h"
+#include "clifft/optimizer/tile_axis_fusion_pass.h"
+#include "clifft/svm/svm.h"
+#include "clifft/util/constants.h"
 
 #include "test_helpers.h"
 
@@ -25,8 +25,8 @@
 #include <numbers>
 #include <vector>
 
-using namespace ucc;
-using ucc::test::check_complex;
+using namespace clifft;
+using clifft::test::check_complex;
 
 namespace {
 

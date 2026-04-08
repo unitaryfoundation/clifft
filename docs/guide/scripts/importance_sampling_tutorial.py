@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Importance sampling tutorial script for UCC documentation.
+"""Importance sampling tutorial script for Clifft documentation.
 
 Runs the full importance sampling workflow on both the d=3 T-gate and
 S-gate magic state cultivation circuits, then generates comparison plots.
@@ -28,7 +28,7 @@ import numpy as np
 from numpy.typing import NDArray
 from scipy.stats import binom  # type: ignore[import-not-found]
 
-import ucc
+import clifft
 
 # ---------------------------------------------------------------------------
 # Configuration
@@ -109,11 +109,11 @@ def run_stratified_is(
     print(f"{'='*60}")
     circuit_text = circuit_path.read_text()
 
-    prog_probe = ucc.compile(
+    prog_probe = clifft.compile(
         circuit_text,
         normalize_syndromes=True,
-        hir_passes=ucc.default_hir_pass_manager(),
-        bytecode_passes=ucc.default_bytecode_pass_manager(),
+        hir_passes=clifft.default_hir_pass_manager(),
+        bytecode_passes=clifft.default_bytecode_pass_manager(),
     )
     # Today we compile once to discover the detector count, then again with an
     # all-detector postselection mask. A front-end detector count query would
@@ -121,12 +121,12 @@ def run_stratified_is(
     num_det: int = prog_probe.num_detectors
     mask = [1] * num_det
 
-    prog = ucc.compile(
+    prog = clifft.compile(
         circuit_text,
         normalize_syndromes=True,
         postselection_mask=mask,
-        hir_passes=ucc.default_hir_pass_manager(),
-        bytecode_passes=ucc.default_bytecode_pass_manager(),
+        hir_passes=clifft.default_hir_pass_manager(),
+        bytecode_passes=clifft.default_bytecode_pass_manager(),
     )
 
     site_probs: NDArray[np.float64] = prog.noise_site_probabilities
@@ -139,7 +139,7 @@ def run_stratified_is(
     t0 = time.time()
     stratum_data: list[StratumRecord] = []
     for k in range(MAX_K + 1):
-        r = ucc.sample_k_survivors(prog, shots=SHOTS_PER_STRATUM, k=k, seed=SEED_BASE + k)
+        r = clifft.sample_k_survivors(prog, shots=SHOTS_PER_STRATUM, k=k, seed=SEED_BASE + k)
         total: int = r.total_shots
         passed: int = r.passed_shots
         errors: int = r.logical_errors

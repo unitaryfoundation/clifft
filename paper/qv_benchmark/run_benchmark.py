@@ -6,7 +6,7 @@ combination and collects results into a CSV file.
 Usage
 -----
     python run_benchmark.py --min-q 6 --max-q 26 --repeats 3
-    python run_benchmark.py --qubits 10,14,18,22 --simulators ucc,qiskit
+    python run_benchmark.py --qubits 10,14,18,22 --simulators clifft,qiskit
 """
 
 from __future__ import annotations
@@ -25,7 +25,7 @@ import pandas as pd
 # Constants
 # ---------------------------------------------------------------------------
 
-_DEFAULT_SIMULATORS: str = "ucc,qiskit,qulacs,qsim,qrack"
+_DEFAULT_SIMULATORS: str = "clifft,qiskit,qulacs,qsim,qrack"
 
 _HERE: Path = Path(__file__).resolve().parent
 
@@ -124,7 +124,7 @@ def _make_env(mem_limit_gb: float) -> dict[str, str]:
     env["OMP_NUM_THREADS"] = "1"
     env["MKL_NUM_THREADS"] = "1"
     env["OPENBLAS_NUM_THREADS"] = "1"
-    env["UCC_BENCH_MEM_LIMIT_GB"] = str(mem_limit_gb)
+    env["CLIFFT_BENCH_MEM_LIMIT_GB"] = str(mem_limit_gb)
     return env
 
 

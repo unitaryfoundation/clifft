@@ -1,4 +1,4 @@
-# UCC C++ formatting rules
+# Clifft C++ formatting rules
 # Based on Google style with minor adjustments
 
 BasedOnStyle: Google
@@ -26,8 +26,8 @@ AlignTrailingComments: true
 # Includes
 IncludeBlocks: Regroup
 IncludeCategories:
-  # UCC headers first
-  - Regex: '^"ucc/'
+  # Clifft headers first
+  - Regex: '^"clifft/'
     Priority: 1
   # Other local headers
   - Regex: '^"'

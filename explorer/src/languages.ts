@@ -1,4 +1,4 @@
-// Lightweight Monarch tokenizers for UCC's three editor panes.
+// Lightweight Monarch tokenizers for Clifft's three editor panes.
 // All rules are structural (regex patterns) rather than enumerative,
 // so they automatically cover new gates, opcodes, or HIR ops without updates.
 
@@ -139,16 +139,16 @@ export function registerLanguages(monaco: Monaco): void {
   monaco.languages.register({ id: "stim" });
   monaco.languages.setMonarchTokensProvider("stim", stimLanguage);
 
-  monaco.languages.register({ id: "ucc-hir" });
-  monaco.languages.setMonarchTokensProvider("ucc-hir", hirLanguage);
+  monaco.languages.register({ id: "clifft-hir" });
+  monaco.languages.setMonarchTokensProvider("clifft-hir", hirLanguage);
 
-  monaco.languages.register({ id: "ucc-bytecode" });
-  monaco.languages.setMonarchTokensProvider("ucc-bytecode", bytecodeLanguage);
+  monaco.languages.register({ id: "clifft-bytecode" });
+  monaco.languages.setMonarchTokensProvider("clifft-bytecode", bytecodeLanguage);
 
   // --- Hover providers ---
 
   // VM Bytecode: hover over OP_* tokens
-  monaco.languages.registerHoverProvider("ucc-bytecode", {
+  monaco.languages.registerHoverProvider("clifft-bytecode", {
     provideHover(
       model: editor.ITextModel,
       position: Position,
@@ -184,7 +184,7 @@ export function registerLanguages(monaco: Monaco): void {
   });
 
   // HIR: hover over op-type keywords (T, T_DAG, S, S_DAG, MEASURE, etc.)
-  monaco.languages.registerHoverProvider("ucc-hir", {
+  monaco.languages.registerHoverProvider("clifft-hir", {
     provideHover(
       model: editor.ITextModel,
       position: Position,

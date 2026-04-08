@@ -1,6 +1,6 @@
 """Statistical Equivalence Tests - Bulk Distribution Validation.
 
-This module validates that UCC's AOT noise scheduling, multi-Pauli
+This module validates that Clifft's AOT noise scheduling, multi-Pauli
 depolarizing decomposition, readout noise, and classical logic pipelines
 produce statistically equivalent distributions to Stim.
 
@@ -16,7 +16,7 @@ import pytest
 import stim
 from conftest import cross_binomial_tolerance
 
-import ucc
+import clifft
 
 # Path to the shared target QEC circuit file (also used by benchmarks)
 _TARGET_QEC_PATH = Path(__file__).parent.parent.parent / "tools" / "bench" / "target_qec.stim"
@@ -50,9 +50,9 @@ class TestTargetQECCircuit:
         return _load_target_qec_circuit()
 
     @pytest.fixture(scope="class")
-    def ucc_program(self, circuit_text: str) -> ucc.Program:
-        """Compile UCC program."""
-        return ucc.compile(circuit_text)
+    def clifft_program(self, circuit_text: str) -> clifft.Program:
+        """Compile Clifft program."""
+        return clifft.compile(circuit_text)
 
     @pytest.fixture(scope="class")
     def stim_sampler(self, circuit_text: str) -> stim.CompiledDetectorSampler:
@@ -60,15 +60,17 @@ class TestTargetQECCircuit:
         circuit = stim.Circuit(circuit_text)
         return circuit.compile_detector_sampler(seed=42)
 
-    def test_circuit_metadata_matches(self, circuit_text: str, ucc_program: ucc.Program) -> None:
-        """Verify UCC and Stim agree on circuit structure."""
+    def test_circuit_metadata_matches(
+        self, circuit_text: str, clifft_program: clifft.Program
+    ) -> None:
+        """Verify Clifft and Stim agree on circuit structure."""
         stim_circuit = stim.Circuit(circuit_text)
 
-        assert ucc_program.num_detectors == stim_circuit.num_detectors
-        assert ucc_program.num_observables == stim_circuit.num_observables
+        assert clifft_program.num_detectors == stim_circuit.num_detectors
+        assert clifft_program.num_observables == stim_circuit.num_observables
 
     def test_marginal_probabilities_within_bounds(
-        self, ucc_program: ucc.Program, stim_sampler: stim.CompiledDetectorSampler
+        self, clifft_program: clifft.Program, stim_sampler: stim.CompiledDetectorSampler
     ) -> None:
         """All detector and observable marginals match within 5-sigma bounds.
 
@@ -81,34 +83,34 @@ class TestTargetQECCircuit:
         seed = 12345
 
         # Sample from both engines
-        result = ucc.sample(ucc_program, shots, seed=seed)
+        result = clifft.sample(clifft_program, shots, seed=seed)
         stim_det, stim_obs = stim_sampler.sample(shots, separate_observables=True)
 
         # Compute marginal probabilities
-        ucc_det_probs = result.detectors.mean(axis=0, dtype=float)
+        clifft_det_probs = result.detectors.mean(axis=0, dtype=float)
         stim_det_probs = stim_det.mean(axis=0, dtype=float)
-        ucc_obs_probs = result.observables.mean(axis=0, dtype=float)
+        clifft_obs_probs = result.observables.mean(axis=0, dtype=float)
         stim_obs_probs = stim_obs.mean(axis=0, dtype=float)
 
         # Check all detectors
-        for i in range(len(ucc_det_probs)):
-            p_est = (ucc_det_probs[i] + stim_det_probs[i]) / 2
+        for i in range(len(clifft_det_probs)):
+            p_est = (clifft_det_probs[i] + stim_det_probs[i]) / 2
             tol = cross_binomial_tolerance(p_est, shots, sigma=5.0)
-            diff = abs(ucc_det_probs[i] - stim_det_probs[i])
+            diff = abs(clifft_det_probs[i] - stim_det_probs[i])
             assert diff < tol, (
                 f"Detector {i} marginal mismatch: "
-                f"UCC={ucc_det_probs[i]:.5f} Stim={stim_det_probs[i]:.5f} "
+                f"Clifft={clifft_det_probs[i]:.5f} Stim={stim_det_probs[i]:.5f} "
                 f"diff={diff:.6f} > tol={tol:.6f}"
             )
 
         # Check all observables
-        for i in range(len(ucc_obs_probs)):
-            p_est = (ucc_obs_probs[i] + stim_obs_probs[i]) / 2
+        for i in range(len(clifft_obs_probs)):
+            p_est = (clifft_obs_probs[i] + stim_obs_probs[i]) / 2
             tol = cross_binomial_tolerance(p_est, shots, sigma=5.0)
-            diff = abs(ucc_obs_probs[i] - stim_obs_probs[i])
+            diff = abs(clifft_obs_probs[i] - stim_obs_probs[i])
             assert diff < tol, (
                 f"Observable {i} marginal mismatch: "
-                f"UCC={ucc_obs_probs[i]:.5f} Stim={stim_obs_probs[i]:.5f} "
+                f"Clifft={clifft_obs_probs[i]:.5f} Stim={stim_obs_probs[i]:.5f} "
                 f"diff={diff:.6f} > tol={tol:.6f}"
             )
 
@@ -128,18 +130,18 @@ class TestSimpleCircuitEquivalence:
         """
         shots = 10_000
 
-        prog = ucc.compile(circuit)
+        prog = clifft.compile(circuit)
         stim_circuit = stim.Circuit(circuit)
         stim_sampler = stim_circuit.compile_detector_sampler(seed=99)
 
-        result = ucc.sample(prog, shots, seed=99)
+        result = clifft.sample(prog, shots, seed=99)
         stim_det, _ = stim_sampler.sample(shots, separate_observables=True)
 
-        ucc_rate = float(result.detectors.mean(dtype=float))
+        clifft_rate = float(result.detectors.mean(dtype=float))
         stim_rate = float(stim_det.mean(dtype=float))
 
-        tol = cross_binomial_tolerance((ucc_rate + stim_rate) / 2, shots)
-        assert abs(ucc_rate - stim_rate) < tol
+        tol = cross_binomial_tolerance((clifft_rate + stim_rate) / 2, shots)
+        assert abs(clifft_rate - stim_rate) < tol
 
     def test_repeated_measurements_with_readout_noise(self) -> None:
         """Repeated measurements with readout noise match Stim."""
@@ -150,20 +152,20 @@ class TestSimpleCircuitEquivalence:
         """
         shots = 10_000
 
-        prog = ucc.compile(circuit)
+        prog = clifft.compile(circuit)
         stim_circuit = stim.Circuit(circuit)
         stim_sampler = stim_circuit.compile_detector_sampler(seed=123)
 
-        result = ucc.sample(prog, shots, seed=123)
+        result = clifft.sample(prog, shots, seed=123)
         stim_det, _ = stim_sampler.sample(shots, separate_observables=True)
 
         # Detector fires when readout noise causes disagreement
         # Expected rate: 2 * 0.05 * 0.95 ~ 0.095 (one or the other flips)
-        ucc_rate = float(result.detectors.mean(dtype=float))
+        clifft_rate = float(result.detectors.mean(dtype=float))
         stim_rate = float(stim_det.mean(dtype=float))
 
-        tol = cross_binomial_tolerance((ucc_rate + stim_rate) / 2, shots)
-        assert abs(ucc_rate - stim_rate) < tol
+        tol = cross_binomial_tolerance((clifft_rate + stim_rate) / 2, shots)
+        assert abs(clifft_rate - stim_rate) < tol
 
     def test_stabilizer_round_with_reset(self) -> None:
         """Circuit with resets has correct detector behavior."""
@@ -176,15 +178,15 @@ class TestSimpleCircuitEquivalence:
         """
         shots = 1_000
 
-        prog = ucc.compile(circuit)
+        prog = clifft.compile(circuit)
         stim_circuit = stim.Circuit(circuit)
         stim_sampler = stim_circuit.compile_detector_sampler(seed=42)
 
-        result = ucc.sample(prog, shots, seed=42)
+        result = clifft.sample(prog, shots, seed=42)
         stim_det, _ = stim_sampler.sample(shots, separate_observables=True)
 
         # Clean Bell state: detector should always be 0
-        assert np.all(result.detectors == 0), "UCC: Clean Bell detector should be 0"
+        assert np.all(result.detectors == 0), "Clifft: Clean Bell detector should be 0"
         assert np.all(stim_det == 0), "Stim: Clean Bell detector should be 0"
 
 
@@ -222,42 +224,42 @@ class TestTopologicalQECCodes:
         circuit_str = str(stim_circuit)
 
         # Compile both
-        ucc_prog = ucc.compile(circuit_str)
+        clifft_prog = clifft.compile(circuit_str)
         stim_sampler = stim_circuit.compile_detector_sampler(seed=seed)
 
         # Verify metadata matches
-        assert ucc_prog.num_detectors == stim_circuit.num_detectors
-        assert ucc_prog.num_observables == stim_circuit.num_observables
+        assert clifft_prog.num_detectors == stim_circuit.num_detectors
+        assert clifft_prog.num_observables == stim_circuit.num_observables
 
         # Sample from both
-        result = ucc.sample(ucc_prog, shots, seed=seed)
+        result = clifft.sample(clifft_prog, shots, seed=seed)
         stim_det, stim_obs = stim_sampler.sample(shots, separate_observables=True)
 
         # Check detector marginals
-        ucc_det_probs = result.detectors.mean(axis=0, dtype=float)
+        clifft_det_probs = result.detectors.mean(axis=0, dtype=float)
         stim_det_probs = stim_det.mean(axis=0, dtype=float)
 
-        for i in range(len(ucc_det_probs)):
-            p_est = (ucc_det_probs[i] + stim_det_probs[i]) / 2
+        for i in range(len(clifft_det_probs)):
+            p_est = (clifft_det_probs[i] + stim_det_probs[i]) / 2
             tol = cross_binomial_tolerance(p_est, shots, sigma=5.0)
-            diff = abs(ucc_det_probs[i] - stim_det_probs[i])
+            diff = abs(clifft_det_probs[i] - stim_det_probs[i])
             assert diff < tol, (
                 f"{code_task} detector {i} mismatch: "
-                f"UCC={ucc_det_probs[i]:.5f} Stim={stim_det_probs[i]:.5f} "
+                f"Clifft={clifft_det_probs[i]:.5f} Stim={stim_det_probs[i]:.5f} "
                 f"diff={diff:.6f} > tol={tol:.6f}"
             )
 
         # Check observable marginals
-        ucc_obs_probs = result.observables.mean(axis=0, dtype=float)
+        clifft_obs_probs = result.observables.mean(axis=0, dtype=float)
         stim_obs_probs = stim_obs.mean(axis=0, dtype=float)
 
-        for i in range(len(ucc_obs_probs)):
-            p_est = (ucc_obs_probs[i] + stim_obs_probs[i]) / 2
+        for i in range(len(clifft_obs_probs)):
+            p_est = (clifft_obs_probs[i] + stim_obs_probs[i]) / 2
             tol = cross_binomial_tolerance(p_est, shots, sigma=5.0)
-            diff = abs(ucc_obs_probs[i] - stim_obs_probs[i])
+            diff = abs(clifft_obs_probs[i] - stim_obs_probs[i])
             assert diff < tol, (
                 f"{code_task} observable {i} mismatch: "
-                f"UCC={ucc_obs_probs[i]:.5f} Stim={stim_obs_probs[i]:.5f} "
+                f"Clifft={clifft_obs_probs[i]:.5f} Stim={stim_obs_probs[i]:.5f} "
                 f"diff={diff:.6f} > tol={tol:.6f}"
             )
 
@@ -274,7 +276,7 @@ def _generate_random_noisy_circuit(num_qubits: int, depth_per_qubit: int, seed: 
         seed: Random seed for reproducibility
 
     Returns:
-        Circuit string compatible with both UCC and Stim
+        Circuit string compatible with both Clifft and Stim
     """
     rng = np.random.default_rng(seed)
     lines: list[str] = []
@@ -322,7 +324,7 @@ class TestUnstructuredNoiseFuzzing:
     """Statistical equivalence tests on random noisy circuits.
 
     Tests chaotic topologies with random gates and noise to validate
-    that UCC correctly tracks both local basis states and non-local
+    that Clifft correctly tracks both local basis states and non-local
     entanglement correlations.
     """
 
@@ -342,15 +344,15 @@ class TestUnstructuredNoiseFuzzing:
 
         # Compile both
         try:
-            ucc_prog = ucc.compile(circuit_str)
+            clifft_prog = clifft.compile(circuit_str)
         except Exception as e:
-            pytest.fail(f"UCC compilation failed: {e}\nCircuit:\n{circuit_str}")
+            pytest.fail(f"Clifft compilation failed: {e}\nCircuit:\n{circuit_str}")
 
         stim_circuit = stim.Circuit(circuit_str)
         stim_sampler = stim_circuit.compile_sampler(seed=seed)
 
         # Sample from both
-        result = ucc.sample(ucc_prog, shots, seed=seed)
+        result = clifft.sample(clifft_prog, shots, seed=seed)
         stim_meas = stim_sampler.sample(shots)
 
         # Skip if no measurements were generated
@@ -358,34 +360,34 @@ class TestUnstructuredNoiseFuzzing:
             pytest.skip("No measurements in generated circuit")
 
         # 1-body marginals: P(measurement_i = 1)
-        ucc_p1 = result.measurements.mean(axis=0, dtype=float)
+        clifft_p1 = result.measurements.mean(axis=0, dtype=float)
         stim_p1 = stim_meas.mean(axis=0, dtype=float)
 
-        for i in range(len(ucc_p1)):
-            p_est = (ucc_p1[i] + stim_p1[i]) / 2
+        for i in range(len(clifft_p1)):
+            p_est = (clifft_p1[i] + stim_p1[i]) / 2
             tol = cross_binomial_tolerance(p_est, shots, sigma=5.0)
-            diff = abs(ucc_p1[i] - stim_p1[i])
+            diff = abs(clifft_p1[i] - stim_p1[i])
             assert diff < tol, (
                 f"1-body marginal {i} mismatch (qubits={num_qubits}, seed={seed}): "
-                f"UCC={ucc_p1[i]:.5f} Stim={stim_p1[i]:.5f} "
+                f"Clifft={clifft_p1[i]:.5f} Stim={stim_p1[i]:.5f} "
                 f"diff={diff:.6f} > tol={tol:.6f}"
             )
 
         # Adjacent 2-body parities: P(meas[i] XOR meas[i+1] = 1)
         if result.measurements.shape[1] >= 2:
-            ucc_parity = result.measurements[:, :-1] ^ result.measurements[:, 1:]
+            clifft_parity = result.measurements[:, :-1] ^ result.measurements[:, 1:]
             stim_parity = stim_meas[:, :-1] ^ stim_meas[:, 1:]
 
-            ucc_p2 = ucc_parity.mean(axis=0, dtype=float)
+            clifft_p2 = clifft_parity.mean(axis=0, dtype=float)
             stim_p2 = stim_parity.mean(axis=0, dtype=float)
 
-            for i in range(len(ucc_p2)):
-                p_est = (ucc_p2[i] + stim_p2[i]) / 2
+            for i in range(len(clifft_p2)):
+                p_est = (clifft_p2[i] + stim_p2[i]) / 2
                 tol = cross_binomial_tolerance(p_est, shots, sigma=5.0)
-                diff = abs(ucc_p2[i] - stim_p2[i])
+                diff = abs(clifft_p2[i] - stim_p2[i])
                 assert diff < tol, (
                     f"2-body parity {i},{i + 1} mismatch (qubits={num_qubits}, seed={seed}): "
-                    f"UCC={ucc_p2[i]:.5f} Stim={stim_p2[i]:.5f} "
+                    f"Clifft={clifft_p2[i]:.5f} Stim={stim_p2[i]:.5f} "
                     f"diff={diff:.6f} > tol={tol:.6f}"
                 )
 
@@ -458,26 +460,26 @@ class TestMidCircuitMeasurementEvolution:
         shots = 50_000
         circuit_str = _generate_midcircuit_clifford_circuit(num_qubits, depth=30, seed=seed)
 
-        ucc_prog = ucc.compile(circuit_str)
+        clifft_prog = clifft.compile(circuit_str)
         stim_circuit = stim.Circuit(circuit_str)
         stim_sampler = stim_circuit.compile_sampler(seed=seed)
 
-        result = ucc.sample(ucc_prog, shots, seed=seed)
+        result = clifft.sample(clifft_prog, shots, seed=seed)
         stim_meas = stim_sampler.sample(shots)
 
         if result.measurements.shape[1] == 0:
             pytest.skip("No measurements in generated circuit")
 
-        ucc_p = result.measurements.mean(axis=0, dtype=float)
+        clifft_p = result.measurements.mean(axis=0, dtype=float)
         stim_p = stim_meas.mean(axis=0, dtype=float)
 
-        for i in range(len(ucc_p)):
-            p_est = (ucc_p[i] + stim_p[i]) / 2
+        for i in range(len(clifft_p)):
+            p_est = (clifft_p[i] + stim_p[i]) / 2
             tol = cross_binomial_tolerance(p_est, shots, sigma=5.0)
-            diff = abs(ucc_p[i] - stim_p[i])
+            diff = abs(clifft_p[i] - stim_p[i])
             assert diff < tol, (
                 f"Marginal {i} mismatch (q={num_qubits}, seed={seed}): "
-                f"UCC={ucc_p[i]:.5f} Stim={stim_p[i]:.5f} "
+                f"Clifft={clifft_p[i]:.5f} Stim={stim_p[i]:.5f} "
                 f"diff={diff:.6f} > tol={tol:.6f}"
             )
 
@@ -492,11 +494,11 @@ class TestMidCircuitMeasurementEvolution:
         shots = 50_000
         circuit_str = _generate_midcircuit_clifford_circuit(num_qubits, depth=30, seed=seed)
 
-        ucc_prog = ucc.compile(circuit_str)
+        clifft_prog = clifft.compile(circuit_str)
         stim_circuit = stim.Circuit(circuit_str)
         stim_sampler = stim_circuit.compile_sampler(seed=seed)
 
-        result = ucc.sample(ucc_prog, shots, seed=seed)
+        result = clifft.sample(clifft_prog, shots, seed=seed)
         stim_meas = stim_sampler.sample(shots)
 
         n_meas = result.measurements.shape[1]
@@ -505,21 +507,21 @@ class TestMidCircuitMeasurementEvolution:
 
         # Check consecutive 3-body parities: meas[i] XOR meas[i+1] XOR meas[i+2]
         for i in range(n_meas - 2):
-            ucc_par = (
+            clifft_par = (
                 result.measurements[:, i]
                 ^ result.measurements[:, i + 1]
                 ^ result.measurements[:, i + 2]
             ).astype(float)
             stim_par = (stim_meas[:, i] ^ stim_meas[:, i + 1] ^ stim_meas[:, i + 2]).astype(float)
-            ucc_rate = float(ucc_par.mean())
+            clifft_rate = float(clifft_par.mean())
             stim_rate = float(stim_par.mean())
-            p_est = (ucc_rate + stim_rate) / 2
+            p_est = (clifft_rate + stim_rate) / 2
             tol = cross_binomial_tolerance(p_est, shots, sigma=5.0)
-            diff = abs(ucc_rate - stim_rate)
+            diff = abs(clifft_rate - stim_rate)
             assert diff < tol, (
                 f"3-body parity {i},{i + 1},{i + 2} mismatch "
                 f"(q={num_qubits}, seed={seed}): "
-                f"UCC={ucc_rate:.5f} Stim={stim_rate:.5f} "
+                f"Clifft={clifft_rate:.5f} Stim={stim_rate:.5f} "
                 f"diff={diff:.6f} > tol={tol:.6f}"
             )
 
@@ -609,21 +611,21 @@ class TestTVDSmallMeasurementSpace:
 
         circuit_str = self._generate_small_measurement_circuit(num_qubits, n_measurements, seed)
 
-        ucc_prog = ucc.compile(circuit_str)
+        clifft_prog = clifft.compile(circuit_str)
         stim_circuit = stim.Circuit(circuit_str)
         stim_sampler = stim_circuit.compile_sampler(seed=seed)
 
-        result = ucc.sample(ucc_prog, shots, seed=seed)
+        result = clifft.sample(clifft_prog, shots, seed=seed)
         stim_meas = stim_sampler.sample(shots)
 
         assert (
             result.measurements.shape[1] == n_measurements
         ), f"Expected {n_measurements} measurements, got {result.measurements.shape[1]}"
 
-        ucc_dist = _counts_to_distribution(result.measurements)
+        clifft_dist = _counts_to_distribution(result.measurements)
         stim_dist = _counts_to_distribution(stim_meas)
 
-        tvd = _tvd(ucc_dist, stim_dist)
+        tvd = _tvd(clifft_dist, stim_dist)
         k_eff = (1 << n_measurements) - 1
         threshold = self.TVD_C * np.sqrt(k_eff / shots)
 

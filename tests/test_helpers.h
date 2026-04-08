@@ -1,6 +1,6 @@
 #pragma once
 
-// Shared test helpers for UCC Catch2 tests.
+// Shared test helpers for Clifft Catch2 tests.
 
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/matchers/catch_matchers_floating_point.hpp>
@@ -11,7 +11,7 @@
 #include <string>
 #include <utility>
 
-namespace ucc {
+namespace clifft {
 namespace test {
 
 constexpr double kInvSqrt2 = 1.0 / std::numbers::sqrt2;
@@ -64,4 +64,4 @@ inline void check_complex(std::complex<double> actual, std::complex<double> expe
 }
 
 }  // namespace test
-}  // namespace ucc
+}  // namespace clifft

@@ -1,6 +1,6 @@
 """Coherent noise (surface code) benchmark.
 
-Benchmarks UCC and tsim on rotated surface code memory-Z circuits with
+Benchmarks Clifft and tsim on rotated surface code memory-Z circuits with
 coherent R_Z over-rotation noise.  All depolarizing noise channels
 (DEPOLARIZE1 and DEPOLARIZE2) are replaced with R_Z(alpha) on the
 same qubit targets, modeling coherent noise after every gate and
@@ -16,14 +16,14 @@ non-Clifford rotation suitable for benchmarking.
 
 Stim cannot simulate non-Clifford gates.  tsim supports R_Z but its
 compilation currently hangs on surface code circuits with rounds > 1
-(tracked separately).  Default simulators: UCC only.
+(tracked separately).  Default simulators: Clifft only.
 
 Usage
 -----
     python run_benchmark.py
     python run_benchmark.py --distances 3,5
     python run_benchmark.py --rz-angle 0.01
-    python run_benchmark.py --simulators ucc,tsim  # if tsim compilation is fixed
+    python run_benchmark.py --simulators clifft,tsim  # if tsim compilation is fixed
 """
 
 from __future__ import annotations
@@ -37,7 +37,7 @@ from bench_common import run_benchmark_loop
 
 _HERE = Path(__file__).resolve().parent
 
-_DEFAULT_SIMULATORS = "ucc"
+_DEFAULT_SIMULATORS = "clifft"
 _DEFAULT_RZ_ANGLE = 0.02
 _DEFAULT_DEPOL_RATE = "1e-3"
 

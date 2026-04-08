@@ -55,10 +55,10 @@ function renderTourContent(content: string): ReactNode[] {
 
 const STEPS: TourStep[] = [
   {
-    title: "Welcome to the UCC Compiler Explorer",
+    title: "Welcome to the Clifft Compiler Explorer",
     content:
       "This tool lets you write quantum circuits in Stim format and see, " +
-      "in real time, how the UCC compiler transforms them through its " +
+      "in real time, how the Clifft compiler transforms them through its " +
       "pipeline. Let's walk through each panel.",
   },
   {
@@ -73,7 +73,7 @@ const STEPS: TourStep[] = [
   {
     title: "Heisenberg IR (middle)",
     content:
-      "UCC's front-end absorbs Clifford gates (`H`, `CNOT`, `S`, `CZ`, `SWAP`...) into a " +
+      "Clifft's front-end absorbs Clifford gates (`H`, `CNOT`, `S`, `CZ`, `SWAP`...) into a " +
       "Heisenberg frame tracked via Stim's tableau algebra. This means Cliffords " +
       "vanish from the IR entirely!\n\n" +
       "What remains are non-Clifford ops: T gates appear as phase rotations on " +

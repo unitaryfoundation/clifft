@@ -1,26 +1,26 @@
-# UCC - Unitary Compiler Collection
+# Clifft
 
-[![CI](https://github.com/unitaryfoundation/ucc-next/actions/workflows/ci.yml/badge.svg)](https://github.com/unitaryfoundation/ucc-next/actions/workflows/ci.yml)
-[![codecov](https://codecov.io/gh/unitaryfoundation/ucc-next/graph/badge.svg)](https://codecov.io/gh/unitaryfoundation/ucc-next)
+[![CI](https://github.com/unitaryfoundation/clifft/actions/workflows/ci.yml/badge.svg)](https://github.com/unitaryfoundation/clifft/actions/workflows/ci.yml)
+[![codecov](https://codecov.io/gh/unitaryfoundation/clifft/graph/badge.svg)](https://codecov.io/gh/unitaryfoundation/clifft)
 
 A multi-level compiler and Schrodinger Virtual Machine (SVM) for quantum circuits.
 
-UCC supports Clifford + T gates and beyond, with a focus on high-performance simulation.
+Clifft supports Clifford + T gates and beyond, with a focus on high-performance simulation.
 
 ## Installation
 
 <!--pytest.mark.skip-->
 
 ```bash
-pip install ucc
+pip install clifft
 ```
 
 ## Quick Start
 
 ```python
-import ucc
+import clifft
 
-print(ucc.version())
+print(clifft.version())
 ```
 
 ## Development

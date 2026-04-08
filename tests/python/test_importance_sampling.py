@@ -4,15 +4,15 @@ import numpy as np
 import numpy.typing as npt
 import pytest
 
-import ucc
+import clifft
 
 
-def _compile(stim_text: str) -> ucc.Program:
-    return ucc.compile(
+def _compile(stim_text: str) -> clifft.Program:
+    return clifft.compile(
         stim_text,
         normalize_syndromes=True,
-        hir_passes=ucc.default_hir_pass_manager(),
-        bytecode_passes=ucc.default_bytecode_pass_manager(),
+        hir_passes=clifft.default_hir_pass_manager(),
+        bytecode_passes=clifft.default_bytecode_pass_manager(),
     )
 
 
@@ -67,7 +67,7 @@ class TestSampleK:
             OBSERVABLE_INCLUDE(0) rec[-1]
             """
         )
-        result = ucc.sample_k(prog, shots=1000, k=0, seed=42)
+        result = clifft.sample_k(prog, shots=1000, k=0, seed=42)
         assert result.measurements.shape == (1000, 3)
         assert np.all(result.observables == 0)
         assert np.all(result.detectors == 0)
@@ -85,7 +85,7 @@ class TestSampleK:
         )
         n_sites = len(prog.noise_site_probabilities)
         assert n_sites == 1
-        result = ucc.sample_k(prog, shots=500, k=1, seed=42)
+        result = clifft.sample_k(prog, shots=500, k=1, seed=42)
         assert np.all(result.observables == 1)
 
     def test_k_exceeds_n_raises(self) -> None:
@@ -99,19 +99,19 @@ class TestSampleK:
         )
         n_sites = len(prog.noise_site_probabilities)
         with pytest.raises(ValueError):
-            ucc.sample_k(prog, shots=10, k=n_sites + 1, seed=42)
+            clifft.sample_k(prog, shots=10, k=n_sites + 1, seed=42)
 
     def test_zero_mass_stratum_raises(self) -> None:
         """k > 0 on a noiseless circuit should raise (zero-mass stratum)."""
         prog = _compile("R 0\nM 0\nOBSERVABLE_INCLUDE(0) rec[-1]")
         assert len(prog.noise_site_probabilities) == 0
         # k=0 is fine
-        ucc.sample_k(prog, shots=5, k=0, seed=42)
+        clifft.sample_k(prog, shots=5, k=0, seed=42)
         # k=1 is impossible
         with pytest.raises(ValueError):
-            ucc.sample_k(prog, shots=5, k=1, seed=42)
+            clifft.sample_k(prog, shots=5, k=1, seed=42)
         with pytest.raises(ValueError):
-            ucc.sample_k_survivors(prog, shots=5, k=1, seed=42)
+            clifft.sample_k_survivors(prog, shots=5, k=1, seed=42)
 
     def test_exactly_k_faults_per_shot(self) -> None:
         """Verify exactly k measurements flip per shot with X_ERROR."""
@@ -126,7 +126,7 @@ class TestSampleK:
             """
         )
         for k in range(4):
-            result = ucc.sample_k(prog, shots=200, k=k, seed=42 + k)
+            result = clifft.sample_k(prog, shots=200, k=k, seed=42 + k)
             flips_per_shot = np.sum(result.measurements, axis=1)
             np.testing.assert_array_equal(flips_per_shot, k)
 
@@ -140,8 +140,8 @@ class TestSampleK:
             OBSERVABLE_INCLUDE(0) rec[-1]
             """
         )
-        r1 = ucc.sample_k(prog, shots=100, k=1, seed=99)
-        r2 = ucc.sample_k(prog, shots=100, k=1, seed=99)
+        r1 = clifft.sample_k(prog, shots=100, k=1, seed=99)
+        r2 = clifft.sample_k(prog, shots=100, k=1, seed=99)
         np.testing.assert_array_equal(r1.measurements, r2.measurements)
         np.testing.assert_array_equal(r1.detectors, r2.detectors)
         np.testing.assert_array_equal(r1.observables, r2.observables)
@@ -157,7 +157,7 @@ class TestSampleK:
             """
         )
         assert len(prog.noise_site_probabilities) == 1
-        result = ucc.sample_k(prog, shots=500, k=1, seed=42)
+        result = clifft.sample_k(prog, shots=500, k=1, seed=42)
         assert np.all(result.observables == 1)
 
 
@@ -173,8 +173,8 @@ class TestSampleKSurvivors:
             OBSERVABLE_INCLUDE(0) rec[-1]
             """
         )
-        result = ucc.sample_k_survivors(prog, shots=5000, k=0, seed=42)
-        assert isinstance(result, ucc.SampleResult)
+        result = clifft.sample_k_survivors(prog, shots=5000, k=0, seed=42)
+        assert isinstance(result, clifft.SampleResult)
         assert result.total_shots == 5000
         assert result.passed_shots == 5000
         assert result.logical_errors == 0
@@ -190,7 +190,7 @@ class TestSampleKSurvivors:
             OBSERVABLE_INCLUDE(0) rec[-1]
             """
         )
-        result = ucc.sample_k_survivors(prog, shots=100, k=1, seed=42, keep_records=True)
+        result = clifft.sample_k_survivors(prog, shots=100, k=1, seed=42, keep_records=True)
         passed = result.passed_shots
         assert passed > 0
         assert result.measurements.shape == (passed, prog.num_measurements)
@@ -215,10 +215,10 @@ class TestImportanceSamplingEndToEnd:
         probs = prog.noise_site_probabilities
         assert len(probs) == 1
 
-        r0 = ucc.sample_k_survivors(prog, shots=1000, k=0, seed=42)
+        r0 = clifft.sample_k_survivors(prog, shots=1000, k=0, seed=42)
         assert r0.logical_errors == 0
 
-        r1 = ucc.sample_k_survivors(prog, shots=1000, k=1, seed=42)
+        r1 = clifft.sample_k_survivors(prog, shots=1000, k=1, seed=42)
         assert r1.logical_errors == r1.passed_shots
 
     def test_weighted_error_rate_single_qubit(self) -> None:
@@ -243,7 +243,7 @@ class TestImportanceSamplingEndToEnd:
         for k in range(max_k + 1):
             if pmf[k] < 1e-15:
                 continue
-            result = ucc.sample_k_survivors(prog, shots=10000, k=k, seed=42 + k)
+            result = clifft.sample_k_survivors(prog, shots=10000, k=k, seed=42 + k)
             total = result.total_shots
             if total == 0:
                 continue
@@ -253,7 +253,7 @@ class TestImportanceSamplingEndToEnd:
         p_fail_stratified = weighted_errors / weighted_survival if weighted_survival > 0 else 0.0
 
         # Brute force Monte Carlo estimate
-        mc_result = ucc.sample_survivors(prog, shots=100000, seed=99)
+        mc_result = clifft.sample_survivors(prog, shots=100000, seed=99)
         p_fail_mc = mc_result.logical_errors / mc_result.passed_shots
 
         # For single qubit with X_ERROR(p), p_L = p exactly.
@@ -283,7 +283,7 @@ class TestImportanceSamplingEndToEnd:
         for k in range(max_k + 1):
             if pmf[k] < 1e-15:
                 continue
-            result = ucc.sample_k_survivors(prog, shots=10000, k=k, seed=42 + k)
+            result = clifft.sample_k_survivors(prog, shots=10000, k=k, seed=42 + k)
             total = result.total_shots
             if total == 0:
                 continue
@@ -293,7 +293,7 @@ class TestImportanceSamplingEndToEnd:
         p_fail_stratified = weighted_errors / weighted_survival if weighted_survival > 0 else 0.0
 
         # Brute force MC
-        mc_result = ucc.sample_survivors(prog, shots=100000, seed=99)
+        mc_result = clifft.sample_survivors(prog, shots=100000, seed=99)
         p_fail_mc = mc_result.logical_errors / mc_result.passed_shots
 
         # Observable is rec[-1] = qubit 1. Error whenever qubit 1 flips.

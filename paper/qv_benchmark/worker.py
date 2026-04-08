@@ -6,7 +6,7 @@ Usage
 -----
     python worker.py <simulator> <num_qubits> <seed>
 
-where *simulator* is one of: ``ucc``, ``qiskit``, ``qulacs``, ``qsim``, ``qrack``.
+where *simulator* is one of: ``clifft``, ``qiskit``, ``qulacs``, ``qsim``, ``qrack``.
 """
 
 from __future__ import annotations
@@ -23,12 +23,12 @@ os.environ["MKL_NUM_THREADS"] = "1"
 os.environ["OPENBLAS_NUM_THREADS"] = "1"
 os.environ["QRACK_DISABLE_OPENCL"] = "1"  # Qrack CPU-only; suppress native "No platforms" msg
 
-VALID_SIMULATORS: set[str] = {"ucc", "qiskit", "qulacs", "qsim", "qrack"}
+VALID_SIMULATORS: set[str] = {"clifft", "qiskit", "qulacs", "qsim", "qrack"}
 
 
 def _apply_mem_limit() -> None:
-    """Apply ``RLIMIT_AS`` if *UCC_BENCH_MEM_LIMIT_GB* is set (Linux only)."""
-    limit_gb_str: str | None = os.environ.get("UCC_BENCH_MEM_LIMIT_GB")
+    """Apply ``RLIMIT_AS`` if *CLIFFT_BENCH_MEM_LIMIT_GB* is set (Linux only)."""
+    limit_gb_str: str | None = os.environ.get("CLIFFT_BENCH_MEM_LIMIT_GB")
     if limit_gb_str is None:
         return
     try:
@@ -69,21 +69,21 @@ def _result_json(
 # ---- per-simulator runners -----------------------------------------------
 
 
-def _run_ucc(qasm: str) -> dict[str, float]:
-    from qv_benchmark.qasm_adapter import to_ucc_stim
+def _run_clifft(qasm: str) -> dict[str, float]:
+    from qv_benchmark.qasm_adapter import to_clifft_stim
 
-    import ucc  # heavy import inside branch
+    import clifft  # heavy import inside branch
 
-    stim = to_ucc_stim(qasm)
+    stim = to_clifft_stim(qasm)
 
     t0 = time.perf_counter()
-    hir_pm = ucc.default_hir_pass_manager()
-    byt_pm = ucc.default_bytecode_pass_manager()
-    prog = ucc.compile(stim, hir_passes=hir_pm, bytecode_passes=byt_pm)
+    hir_pm = clifft.default_hir_pass_manager()
+    byt_pm = clifft.default_bytecode_pass_manager()
+    prog = clifft.compile(stim, hir_passes=hir_pm, bytecode_passes=byt_pm)
     t_compile = time.perf_counter() - t0
 
     t1 = time.perf_counter()
-    ucc.sample(prog, shots=1)
+    clifft.sample(prog, shots=1)
     t_sample = time.perf_counter() - t1
 
     total = t_compile + t_sample
@@ -151,7 +151,7 @@ def _run_qrack(qasm: str) -> dict[str, float]:
 
 
 _RUNNERS: dict[str, object] = {
-    "ucc": _run_ucc,
+    "clifft": _run_clifft,
     "qiskit": _run_qiskit,
     "qulacs": _run_qulacs,
     "qsim": _run_qsim,

@@ -4,11 +4,9 @@ on:
   push:
     branches: [main]
     paths-ignore:
-      - 'design/**'
       - 'paper/**'
   pull_request:
     paths-ignore:
-      - 'design/**'
       - 'docs/**'
       - 'explorer/**'
       - 'paper/**'
@@ -131,7 +129,7 @@ jobs:
 
       - name: Run C++ tests (scalar ISA)
         env:
-          UCC_FORCE_ISA: scalar
+          CLIFFT_FORCE_ISA: scalar
         run: |
           ctest --test-dir build \
             --build-config ${{ env.CMAKE_BUILD_TYPE }} \
@@ -143,7 +141,7 @@ jobs:
 
       - name: Run C++ tests (avx2 ISA)
         env:
-          UCC_FORCE_ISA: avx2
+          CLIFFT_FORCE_ISA: avx2
         run: |
           ctest --test-dir build \
             --build-config ${{ env.CMAKE_BUILD_TYPE }} \
@@ -161,7 +159,7 @@ jobs:
 
       - name: Run Python tests (scalar ISA)
         env:
-          UCC_FORCE_ISA: scalar
+          CLIFFT_FORCE_ISA: scalar
         run: uv run pytest tests/python/ -v
 
       - name: Test documentation code examples

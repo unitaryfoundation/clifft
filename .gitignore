@@ -16,8 +16,8 @@ cmake-build-*/
 site/
 
 # Wasm build output
-explorer/public/ucc_wasm.js
-explorer/public/ucc_wasm.wasm
+explorer/public/clifft_wasm.js
+explorer/public/clifft_wasm.wasm
 explorer/node_modules/
 explorer/dist/
 

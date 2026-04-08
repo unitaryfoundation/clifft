@@ -4,8 +4,8 @@
 // Key invariant: Clifford gates are absorbed, T gates emit HeisenbergOps
 // with correctly rewound Pauli masks.
 
-#include "ucc/circuit/parser.h"
-#include "ucc/frontend/frontend.h"
+#include "clifft/circuit/parser.h"
+#include "clifft/frontend/frontend.h"
 
 #include "test_helpers.h"
 
@@ -14,9 +14,9 @@
 #include <random>
 #include <stdexcept>
 
-using namespace ucc;
-using ucc::test::X;
-using ucc::test::Z;
+using namespace clifft;
+using clifft::test::X;
+using clifft::test::Z;
 
 static PauliBitMask stim_to_bitmask(const stim::simd_bits_range_ref<kStimWidth>& bits, uint32_t n) {
     PauliBitMask m;

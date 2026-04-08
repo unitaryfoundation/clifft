@@ -1,4 +1,4 @@
-# UCC SVM Performance Log
+# Clifft SVM Performance Log
 
 **Environment:** Linux 6.8, GCC 13, x86-64 VM (4 vCPU), Stim SSE2 (128-bit SIMD).
 **Build:** `RelWithDebInfo` (`-O2 -g`) for profiling, `Release` for benchmarks.
@@ -12,9 +12,9 @@
 
 ---
 
-## Current Performance: UCC vs Stim (pytest-benchmark, 100k shots)
+## Current Performance: Clifft vs Stim (pytest-benchmark, 100k shots)
 
-| Benchmark | Stim | UCC | Ratio |
+| Benchmark | Stim | Clifft | Ratio |
 |---|---|---|---|
 | **Compile QEC** | 72 us | 2,032 us | 28x slower |
 | **Compile Deep Clifford** | 1,146 us | 2,129 us | 1.9x slower |
@@ -22,7 +22,7 @@
 | **Sample Deep Clifford** | 21.7 ms | 730.6 ms | 33x slower |
 
 Stim's advantage comes from its SIMD frame simulator processing 128
-shots per circuit pass (SSE2). UCC runs each shot independently through
+shots per circuit pass (SSE2). Clifft runs each shot independently through
 a scalar Schrodinger VM.
 
 ## Native Profiler Timing (100k shots, RelWithDebInfo)
@@ -166,7 +166,7 @@ in a single pass. 15 pairs fused in the d=5 circuit.
 | **Per-shot time** | ~103 us | ~98 us | **~5% faster** |
 | **Optimization cost** | -- | 0.7 ms (one-time) | Negligible |
 
-**With MultiGatePass** (opt-in via `UCC_ENABLE_MULTI_GATE=1`):
+**With MultiGatePass** (opt-in via `CLIFFT_ENABLE_MULTI_GATE=1`):
 
 | Metric | Before (main) | After (all passes) | Change |
 |---|---|---|---|
@@ -243,7 +243,7 @@ hazard-free without any temporary buffer.
 
 ### Top-Level
 
-99.73% of cycles in `ucc::execute()`. Compilation is negligible.
+99.73% of cycles in `clifft::execute()`. Compilation is negligible.
 
 ### Hotspot Breakdown by Logical Operation
 

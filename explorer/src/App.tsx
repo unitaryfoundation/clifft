@@ -4,8 +4,8 @@ import "allotment/dist/style.css";
 import Editor, { DiffEditor, type BeforeMount, type OnMount } from "@monaco-editor/react";
 import type { editor as monacoEditor } from "monaco-editor";
 import LZString from "lz-string";
-import { useUccWasm } from "./hooks/useUccWasm";
-import type { PassConfig } from "./hooks/useUccWasm";
+import { useClifftWasm } from "./hooks/useClifftWasm";
+import type { PassConfig } from "./hooks/useClifftWasm";
 import { useTheme } from "./hooks/useTheme";
 import { useCircuitStorage, saveDraft, loadDraft } from "./hooks/useCircuitStorage";
 import { Toolbar } from "./components/Toolbar";
@@ -27,7 +27,7 @@ M 1
 
 const DEBOUNCE_MS = 200;
 const DEFAULT_SHOTS = 10000;
-const TOUR_SEEN_KEY = "ucc-tour-seen";
+const TOUR_SEEN_KEY = "clifft-tour-seen";
 
 function getInitialSource(): string {
   const params = new URLSearchParams(window.location.search);
@@ -49,7 +49,7 @@ function getInitialSource(): string {
 const HIGHLIGHT_CLASS = "source-map-highlight";
 
 export default function App() {
-  const { status: wasmStatus, compile, compileBaseline, simulate, availablePasses } = useUccWasm();
+  const { status: wasmStatus, compile, compileBaseline, simulate, availablePasses } = useClifftWasm();
   const { theme, toggle: toggleTheme, chartColors } = useTheme();
   const { saved, saveCircuit, deleteCircuit } = useCircuitStorage();
   const monacoTheme = theme === "dark" ? "vs-dark" : "vs";
@@ -431,7 +431,7 @@ export default function App() {
                     <DiffEditor
                       original={hirBaseline}
                       modified={hirOptimized}
-                      language="ucc-hir"
+                      language="clifft-hir"
                       theme={monacoTheme}
                       beforeMount={handleBeforeMount}
                       options={{
@@ -445,7 +445,7 @@ export default function App() {
                     />
                   ) : (
                     <Editor
-                      defaultLanguage="ucc-hir"
+                      defaultLanguage="clifft-hir"
                       defaultValue=""
                       theme={monacoTheme}
                       beforeMount={handleBeforeMount}
@@ -474,7 +474,7 @@ export default function App() {
                     <DiffEditor
                       original={bcBaseline}
                       modified={bcOptimized}
-                      language="ucc-bytecode"
+                      language="clifft-bytecode"
                       theme={monacoTheme}
                       beforeMount={handleBeforeMount}
                       options={{
@@ -488,7 +488,7 @@ export default function App() {
                     />
                   ) : (
                     <Editor
-                      defaultLanguage="ucc-bytecode"
+                      defaultLanguage="clifft-bytecode"
                       defaultValue=""
                       theme={monacoTheme}
                       beforeMount={handleBeforeMount}

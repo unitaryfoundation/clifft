@@ -1,6 +1,6 @@
 """Exact Trajectory Validation - Physics Oracle.
 
-This module validates that UCC's Heisenberg rewinding of Pauli masks
+This module validates that Clifft's Heisenberg rewinding of Pauli masks
 matches Stim's geometry by comparing detector and observable outputs
 for circuits with deterministically injected errors.
 
@@ -11,13 +11,13 @@ both engines should deterministically flip the same detectors.
 import numpy as np
 import stim
 
-import ucc
+import clifft
 
 
-def sample_ucc(circuit_text: str, shots: int, seed: int = 0) -> tuple[np.ndarray, np.ndarray]:
-    """Sample from UCC, returning (detectors, observables) as bool arrays."""
-    prog = ucc.compile(circuit_text)
-    result = ucc.sample(prog, shots, seed=seed)
+def sample_clifft(circuit_text: str, shots: int, seed: int = 0) -> tuple[np.ndarray, np.ndarray]:
+    """Sample from Clifft, returning (detectors, observables) as bool arrays."""
+    prog = clifft.compile(circuit_text)
+    result = clifft.sample(prog, shots, seed=seed)
     return result.detectors.astype(bool), result.observables.astype(bool)
 
 
@@ -43,11 +43,11 @@ class TestBellStateDetector:
         """Clean Bell state: measurements always correlated, detector = 0."""
         shots = 100
 
-        ucc_det, _ = sample_ucc(self.CLEAN_BELL, shots)
+        clifft_det, _ = sample_clifft(self.CLEAN_BELL, shots)
         stim_det, _ = sample_stim(self.CLEAN_BELL, shots)
 
         # Both should always be False (0)
-        assert np.all(~ucc_det), "UCC: Clean Bell detector should always be 0"
+        assert np.all(~clifft_det), "Clifft: Clean Bell detector should always be 0"
         assert np.all(~stim_det), "Stim: Clean Bell detector should always be 0"
 
     def test_x_error_after_cx_flips_detector(self) -> None:
@@ -61,14 +61,14 @@ class TestBellStateDetector:
         """
         shots = 100
 
-        ucc_det, _ = sample_ucc(circuit, shots)
+        clifft_det, _ = sample_clifft(circuit, shots)
         stim_det, _ = sample_stim(circuit, shots)
 
         # Both should always be True (1) - error flips detector
-        assert np.all(ucc_det), "UCC: X_ERROR should flip detector"
+        assert np.all(clifft_det), "Clifft: X_ERROR should flip detector"
         assert np.all(stim_det), "Stim: X_ERROR should flip detector"
         # Exact match
-        np.testing.assert_array_equal(ucc_det, stim_det)
+        np.testing.assert_array_equal(clifft_det, stim_det)
 
     def test_z_error_before_measurement_detected(self) -> None:
         """Z error before H+M changes measurement basis outcome."""
@@ -82,13 +82,13 @@ class TestBellStateDetector:
         """
         shots = 100
 
-        ucc_det, _ = sample_ucc(circuit, shots)
+        clifft_det, _ = sample_clifft(circuit, shots)
         stim_det, _ = sample_stim(circuit, shots)
 
         # Error flips the expected measurement outcome
-        assert np.all(ucc_det), "UCC: Z_ERROR should be detected"
+        assert np.all(clifft_det), "Clifft: Z_ERROR should be detected"
         assert np.all(stim_det), "Stim: Z_ERROR should be detected"
-        np.testing.assert_array_equal(ucc_det, stim_det)
+        np.testing.assert_array_equal(clifft_det, stim_det)
 
 
 class TestMultiQubitErrorPropagation:
@@ -109,14 +109,14 @@ class TestMultiQubitErrorPropagation:
         """
         shots = 100
 
-        ucc_det, _ = sample_ucc(circuit, shots)
+        clifft_det, _ = sample_clifft(circuit, shots)
         stim_det, _ = sample_stim(circuit, shots)
 
         # X propagates through CX: X_0 -> X_0 X_1, both qubits flip
         # Detector XORs them: 1 ^ 1 = 0
-        assert np.all(~ucc_det), "UCC: Propagated X errors should cancel in detector"
+        assert np.all(~clifft_det), "Clifft: Propagated X errors should cancel in detector"
         assert np.all(~stim_det), "Stim: Propagated X errors should cancel in detector"
-        np.testing.assert_array_equal(ucc_det, stim_det)
+        np.testing.assert_array_equal(clifft_det, stim_det)
 
     def test_z_error_on_target_invisible_before_entanglement(self) -> None:
         """Z error on |0> is invisible (eigenstate of Z).
@@ -133,13 +133,13 @@ class TestMultiQubitErrorPropagation:
         """
         shots = 100
 
-        ucc_det, _ = sample_ucc(circuit, shots)
+        clifft_det, _ = sample_clifft(circuit, shots)
         stim_det, _ = sample_stim(circuit, shots)
 
         # Z error on |0> is invisible (eigenstate), detector stays 0
-        assert np.all(~ucc_det), "UCC: Z error on |0> should be invisible"
+        assert np.all(~clifft_det), "Clifft: Z error on |0> should be invisible"
         assert np.all(~stim_det), "Stim: Z error on |0> should be invisible"
-        np.testing.assert_array_equal(ucc_det, stim_det)
+        np.testing.assert_array_equal(clifft_det, stim_det)
 
 
 class TestObservableTracking:
@@ -156,13 +156,13 @@ class TestObservableTracking:
         """
         shots = 100
 
-        _, ucc_obs = sample_ucc(circuit, shots)
+        _, clifft_obs = sample_clifft(circuit, shots)
         _, stim_obs = sample_stim(circuit, shots)
 
         # Bell state: both measurements same, XOR = 0
-        assert np.all(~ucc_obs), "UCC: Bell state observable should be 0"
+        assert np.all(~clifft_obs), "Clifft: Bell state observable should be 0"
         assert np.all(~stim_obs), "Stim: Bell state observable should be 0"
-        np.testing.assert_array_equal(ucc_obs, stim_obs)
+        np.testing.assert_array_equal(clifft_obs, stim_obs)
 
     def test_error_flips_observable(self) -> None:
         """X error on one qubit flips the observable."""
@@ -176,13 +176,13 @@ class TestObservableTracking:
         """
         shots = 100
 
-        _, ucc_obs = sample_ucc(circuit, shots)
+        _, clifft_obs = sample_clifft(circuit, shots)
         _, stim_obs = sample_stim(circuit, shots)
 
         # X error breaks correlation: 0,1 or 1,0 -> XOR = 1
-        assert np.all(ucc_obs), "UCC: X error should flip observable"
+        assert np.all(clifft_obs), "Clifft: X error should flip observable"
         assert np.all(stim_obs), "Stim: X error should flip observable"
-        np.testing.assert_array_equal(ucc_obs, stim_obs)
+        np.testing.assert_array_equal(clifft_obs, stim_obs)
 
 
 class TestMultipleDetectors:
@@ -201,14 +201,14 @@ class TestMultipleDetectors:
         """
         shots = 100
 
-        ucc_det, _ = sample_ucc(circuit, shots)
+        clifft_det, _ = sample_clifft(circuit, shots)
         stim_det, _ = sample_stim(circuit, shots)
 
         # Two independent Bell pairs, both detectors = 0
-        assert ucc_det.shape == (shots, 2)
-        assert np.all(~ucc_det), "UCC: Both detectors should be 0"
+        assert clifft_det.shape == (shots, 2)
+        assert np.all(~clifft_det), "Clifft: Both detectors should be 0"
         assert np.all(~stim_det), "Stim: Both detectors should be 0"
-        np.testing.assert_array_equal(ucc_det, stim_det)
+        np.testing.assert_array_equal(clifft_det, stim_det)
 
     def test_error_affects_specific_detector(self) -> None:
         """Error on one Bell pair only affects its detector."""
@@ -224,13 +224,13 @@ class TestMultipleDetectors:
         """
         shots = 100
 
-        ucc_det, _ = sample_ucc(circuit, shots)
+        clifft_det, _ = sample_clifft(circuit, shots)
         stim_det, _ = sample_stim(circuit, shots)
 
         # First detector (q0,q1) should fire, second (q2,q3) should not
-        assert np.all(ucc_det[:, 0]), "UCC: First detector should fire"
-        assert np.all(~ucc_det[:, 1]), "UCC: Second detector should not fire"
-        np.testing.assert_array_equal(ucc_det, stim_det)
+        assert np.all(clifft_det[:, 0]), "Clifft: First detector should fire"
+        assert np.all(~clifft_det[:, 1]), "Clifft: Second detector should not fire"
+        np.testing.assert_array_equal(clifft_det, stim_det)
 
 
 class TestYError:
@@ -247,13 +247,13 @@ class TestYError:
         """
         shots = 100
 
-        ucc_det, _ = sample_ucc(circuit, shots)
+        clifft_det, _ = sample_clifft(circuit, shots)
         stim_det, _ = sample_stim(circuit, shots)
 
         # Y = iXZ, and X part flips the measurement
-        assert np.all(ucc_det), "UCC: Y_ERROR should flip detector"
+        assert np.all(clifft_det), "Clifft: Y_ERROR should flip detector"
         assert np.all(stim_det), "Stim: Y_ERROR should flip detector"
-        np.testing.assert_array_equal(ucc_det, stim_det)
+        np.testing.assert_array_equal(clifft_det, stim_det)
 
 
 class TestDepolarizingChannelDeterministic:
@@ -276,16 +276,16 @@ class TestDepolarizingChannelDeterministic:
         shots = 100
         seed = 42
 
-        ucc_det, _ = sample_ucc(circuit, shots, seed=seed)
+        clifft_det, _ = sample_clifft(circuit, shots, seed=seed)
         stim_det, _ = sample_stim(circuit, shots, seed=seed)
 
         # With different RNG streams, we can't expect exact match per-shot,
         # but the statistics should be similar (roughly 2/3 fire)
-        ucc_rate = float(np.mean(ucc_det))
+        clifft_rate = float(np.mean(clifft_det))
         stim_rate = float(np.mean(stim_det))
 
         # Both should be roughly 2/3 (X and Y flip, Z doesn't)
-        assert 0.4 < ucc_rate < 0.9, f"UCC rate {ucc_rate} outside expected range"
+        assert 0.4 < clifft_rate < 0.9, f"Clifft rate {clifft_rate} outside expected range"
         assert 0.4 < stim_rate < 0.9, f"Stim rate {stim_rate} outside expected range"
 
 
@@ -314,9 +314,9 @@ class TestActiveInterfereErrorTracking:
 
         # We cannot use Stim as an oracle here because Stim cannot simulate T gates.
         # But quantum mechanics guarantees the two consecutive measurements must match.
-        ucc_det, _ = sample_ucc(circuit, shots)
+        clifft_det, _ = sample_clifft(circuit, shots)
 
-        assert np.all(~ucc_det), "UCC: Measurements should match (error frame corrupted!)"
+        assert np.all(~clifft_det), "Clifft: Measurements should match (error frame corrupted!)"
 
 
 class TestComplexCircuit:
@@ -332,18 +332,18 @@ class TestComplexCircuit:
         """
         shots = 100
 
-        ucc_det, _ = sample_ucc(circuit, shots)
+        clifft_det, _ = sample_clifft(circuit, shots)
         stim_det, _ = sample_stim(circuit, shots)
 
         # Clean circuit: detector always 0
-        np.testing.assert_array_equal(ucc_det, stim_det)
-        assert np.all(~ucc_det)
+        np.testing.assert_array_equal(clifft_det, stim_det)
+        assert np.all(~clifft_det)
 
     def test_bell_state_with_x_error_fires_detector(self) -> None:
         """X error on control qubit breaks Bell correlation, firing detector.
 
         We use X_ERROR(1) for deterministic error injection that both
-        UCC and Stim's detector sampler recognize.
+        Clifft and Stim's detector sampler recognize.
         """
         circuit = """
             H 0
@@ -354,9 +354,9 @@ class TestComplexCircuit:
         """
         shots = 100
 
-        ucc_det, _ = sample_ucc(circuit, shots)
+        clifft_det, _ = sample_clifft(circuit, shots)
         stim_det, _ = sample_stim(circuit, shots)
 
         # X error on q0 after CX: only q0 flips, detector fires
-        np.testing.assert_array_equal(ucc_det, stim_det)
-        assert np.all(ucc_det), "Detector should fire with X error"
+        np.testing.assert_array_equal(clifft_det, stim_det)
+        assert np.all(clifft_det), "Detector should fire with X error"

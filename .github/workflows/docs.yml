@@ -4,7 +4,6 @@ on:
   push:
     branches: [main]
     paths-ignore:
-      - 'design/**'
       - 'paper/**'
   workflow_dispatch:
 
@@ -28,8 +27,8 @@ jobs:
       - name: Copy Wasm artifacts
         run: |
           mkdir -p explorer/public
-          cp build-wasm/ucc_wasm.js explorer/public/
-          cp build-wasm/ucc_wasm.wasm explorer/public/
+          cp build-wasm/clifft_wasm.js explorer/public/
+          cp build-wasm/clifft_wasm.wasm explorer/public/
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -41,7 +40,7 @@ jobs:
       - name: Build explorer
         run: |
           cd explorer && npm ci
-          VITE_BASE_PATH=/ucc-next/playground/ npm run build
+          VITE_BASE_PATH=/clifft/playground/ npm run build
 
       # --- Build MkDocs (docs group only, no C++ extension needed) ---
       - name: Install uv

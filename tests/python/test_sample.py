@@ -1,4 +1,4 @@
-"""Python integration tests for ucc.compile and ucc.sample."""
+"""Python integration tests for clifft.compile and clifft.sample."""
 
 import numpy as np
 import pytest
@@ -8,28 +8,28 @@ from conftest import (
     random_clifford_circuit,
 )
 
-import ucc
+import clifft
 
 
 class TestCompile:
-    """Tests for ucc.compile()."""
+    """Tests for clifft.compile()."""
 
     def test_compile_simple(self) -> None:
         """Compile a simple circuit."""
-        prog = ucc.compile("H 0\nT 0\nM 0")
+        prog = clifft.compile("H 0\nT 0\nM 0")
         assert prog.peak_rank == 1
         assert prog.num_measurements == 1
         assert prog.num_instructions >= 1
 
     def test_compile_pure_clifford(self) -> None:
         """Pure Clifford circuit has peak_rank 0."""
-        prog = ucc.compile("H 0\nCX 0 1\nM 0\nM 1")
+        prog = clifft.compile("H 0\nCX 0 1\nM 0\nM 1")
         assert prog.peak_rank == 0
         assert prog.num_measurements == 2
 
     def test_compile_multiple_t_gates(self) -> None:
         """Multiple independent T gates increase peak_rank."""
-        prog = ucc.compile("""
+        prog = clifft.compile("""
             H 0
             H 1
             T 0
@@ -39,25 +39,25 @@ class TestCompile:
 
 
 class TestSample:
-    """Tests for ucc.sample()."""
+    """Tests for clifft.sample()."""
 
     def test_sample_deterministic_zero(self) -> None:
         """Measurement of |0> always gives 0."""
-        prog = ucc.compile("M 0")
-        result = ucc.sample(prog, 100, seed=42)
+        prog = clifft.compile("M 0")
+        result = clifft.sample(prog, 100, seed=42)
         assert np.all(result.measurements[:, 0] == 0)
 
     def test_sample_deterministic_one(self) -> None:
         """Measurement of |1> always gives 1."""
-        prog = ucc.compile("X 0\nM 0")
-        result = ucc.sample(prog, 100, seed=42)
+        prog = clifft.compile("X 0\nM 0")
+        result = clifft.sample(prog, 100, seed=42)
         assert np.all(result.measurements[:, 0] == 1)
 
     def test_sample_superposition(self) -> None:
         """|+> state gives roughly 50/50 distribution."""
-        prog = ucc.compile("H 0\nM 0")
+        prog = clifft.compile("H 0\nM 0")
         shots = 1000
-        result = ucc.sample(prog, shots, seed=42)
+        result = clifft.sample(prog, shots, seed=42)
         p0 = float(np.mean(result.measurements[:, 0] == 0))
         p1 = float(np.mean(result.measurements[:, 0] == 1))
         tolerance = binomial_tolerance(0.5, shots)
@@ -66,36 +66,36 @@ class TestSample:
 
     def test_sample_bell_state_correlated(self) -> None:
         """Bell state measurements are always correlated."""
-        prog = ucc.compile("""
+        prog = clifft.compile("""
             H 0
             CX 0 1
             M 0
             M 1
         """)
-        result = ucc.sample(prog, 500, seed=99)
+        result = clifft.sample(prog, 500, seed=99)
         assert np.all(
             result.measurements[:, 0] == result.measurements[:, 1]
         ), "Bell state not correlated"
 
     def test_sample_reproducible(self) -> None:
         """Same seed produces same results."""
-        prog = ucc.compile("H 0\nM 0")
-        result1 = ucc.sample(prog, 100, seed=12345)
-        result2 = ucc.sample(prog, 100, seed=12345)
+        prog = clifft.compile("H 0\nM 0")
+        result1 = clifft.sample(prog, 100, seed=12345)
+        result2 = clifft.sample(prog, 100, seed=12345)
         assert np.array_equal(result1.measurements, result2.measurements)
 
     def test_sample_different_seeds(self) -> None:
         """Different seeds produce different results."""
-        prog = ucc.compile("H 0\nM 0")
-        result1 = ucc.sample(prog, 100, seed=1)
-        result2 = ucc.sample(prog, 100, seed=2)
+        prog = clifft.compile("H 0\nM 0")
+        result1 = clifft.sample(prog, 100, seed=1)
+        result2 = clifft.sample(prog, 100, seed=2)
         # With 100 random bits, probability of match is 2^-100
         assert not np.array_equal(result1.measurements, result2.measurements)
 
     def test_sample_shape(self) -> None:
         """Results have correct shape and type."""
-        prog = ucc.compile("H 0\nM 0\nH 1\nM 1")
-        result = ucc.sample(prog, 50, seed=0)
+        prog = clifft.compile("H 0\nM 0\nH 1\nM 1")
+        result = clifft.sample(prog, 50, seed=0)
         assert isinstance(result.measurements, np.ndarray)
         assert result.measurements.dtype == np.uint8
         assert result.measurements.shape == (50, 2)
@@ -105,12 +105,12 @@ class TestSample:
 
     def test_sample_reset_works(self) -> None:
         """Reset correctly resets to |0>."""
-        prog = ucc.compile("""
+        prog = clifft.compile("""
             X 0
             R 0
             M 0
         """)
-        result = ucc.sample(prog, 100, seed=42)
+        result = clifft.sample(prog, 100, seed=42)
         # Only one visible measurement (from M 0, after reset)
         # R's internal measurement is hidden, matching Stim behavior
         assert result.measurements.shape == (
@@ -123,20 +123,20 @@ class TestSample:
     def test_sample_mr_visible(self) -> None:
         """MR (measure-and-reset) produces visible measurement unlike R."""
         # R produces 0 visible measurements, MR produces 1
-        prog_r = ucc.compile("R 0")
-        prog_mr = ucc.compile("MR 0")
+        prog_r = clifft.compile("R 0")
+        prog_mr = clifft.compile("MR 0")
 
         assert prog_r.num_measurements == 0, "R should have 0 visible measurements"
         assert prog_mr.num_measurements == 1, "MR should have 1 visible measurement"
 
         # MR on |0> should always measure 0
-        result = ucc.sample(prog_mr, 100, seed=42)
+        result = clifft.sample(prog_mr, 100, seed=42)
         assert result.measurements.shape == (100, 1)
         assert np.all(result.measurements == 0), "MR on |0> should always measure 0"
 
         # MR after X should measure 1
-        prog = ucc.compile("X 0\nMR 0")
-        result = ucc.sample(prog, 100, seed=42)
+        prog = clifft.compile("X 0\nMR 0")
+        result = clifft.sample(prog, 100, seed=42)
         assert np.all(result.measurements == 1), "MR after X should measure 1"
 
     def test_gap_sampling_sparse_errors(self) -> None:
@@ -155,8 +155,8 @@ class TestSample:
         for i in range(n_qubits):
             lines.append(f"M {i}")
 
-        prog = ucc.compile("\n".join(lines))
-        result = ucc.sample(prog, shots, seed=42)
+        prog = clifft.compile("\n".join(lines))
+        result = clifft.sample(prog, shots, seed=42)
 
         # 1. Overall error rate should be exactly p
         overall_rate = float(np.mean(result.measurements))
@@ -183,25 +183,25 @@ class TestSample:
 
 
 class TestStatevector:
-    """Tests for ucc.get_statevector()."""
+    """Tests for clifft.get_statevector()."""
 
     def test_statevector_pure_clifford(self) -> None:
         """Pure Clifford circuit matches expected statevector."""
         # H|0> = |+> = [1/sqrt(2), 1/sqrt(2)]
-        prog = ucc.compile("H 0")
-        state = ucc.State(peak_rank=prog.peak_rank, num_measurements=prog.num_measurements)
-        ucc.execute(prog, state)
-        sv = ucc.get_statevector(prog, state)
+        prog = clifft.compile("H 0")
+        state = clifft.State(peak_rank=prog.peak_rank, num_measurements=prog.num_measurements)
+        clifft.execute(prog, state)
+        sv = clifft.get_statevector(prog, state)
 
         expected = np.array([1 / np.sqrt(2), 1 / np.sqrt(2)], dtype=complex)
         assert_statevectors_equal(sv, expected)
 
     def test_statevector_bell_state(self) -> None:
         """Bell state matches expected statevector."""
-        prog = ucc.compile("H 0\nCX 0 1")
-        state = ucc.State(peak_rank=prog.peak_rank, num_measurements=prog.num_measurements)
-        ucc.execute(prog, state)
-        sv = ucc.get_statevector(prog, state)
+        prog = clifft.compile("H 0\nCX 0 1")
+        state = clifft.State(peak_rank=prog.peak_rank, num_measurements=prog.num_measurements)
+        clifft.execute(prog, state)
+        sv = clifft.get_statevector(prog, state)
 
         # |Phi+> = (|00> + |11>)/sqrt(2)
         expected = np.array([1 / np.sqrt(2), 0, 0, 1 / np.sqrt(2)], dtype=complex)
@@ -209,30 +209,30 @@ class TestStatevector:
 
     def test_statevector_single_t_gate(self) -> None:
         """H-T circuit: [1/sqrt(2), e^{ipi/4}/sqrt(2)]."""
-        prog = ucc.compile("H 0\nT 0")
-        state = ucc.State(peak_rank=prog.peak_rank, num_measurements=prog.num_measurements)
-        ucc.execute(prog, state)
-        sv = ucc.get_statevector(prog, state)
+        prog = clifft.compile("H 0\nT 0")
+        state = clifft.State(peak_rank=prog.peak_rank, num_measurements=prog.num_measurements)
+        clifft.execute(prog, state)
+        sv = clifft.get_statevector(prog, state)
 
         expected = np.array([1 / np.sqrt(2), np.exp(1j * np.pi / 4) / np.sqrt(2)], dtype=complex)
         assert_statevectors_equal(sv, expected)
 
     def test_statevector_t_dagger(self) -> None:
         """H-T_dag circuit: [1/sqrt(2), e^{-ipi/4}/sqrt(2)]."""
-        prog = ucc.compile("H 0\nT_DAG 0")
-        state = ucc.State(peak_rank=prog.peak_rank, num_measurements=prog.num_measurements)
-        ucc.execute(prog, state)
-        sv = ucc.get_statevector(prog, state)
+        prog = clifft.compile("H 0\nT_DAG 0")
+        state = clifft.State(peak_rank=prog.peak_rank, num_measurements=prog.num_measurements)
+        clifft.execute(prog, state)
+        sv = clifft.get_statevector(prog, state)
 
         expected = np.array([1 / np.sqrt(2), np.exp(-1j * np.pi / 4) / np.sqrt(2)], dtype=complex)
         assert_statevectors_equal(sv, expected)
 
     def test_statevector_two_t_equals_s(self) -> None:
         """T-T = S: H-T-T should equal H-S."""
-        prog = ucc.compile("H 0\nT 0\nT 0")
-        state = ucc.State(peak_rank=prog.peak_rank, num_measurements=prog.num_measurements)
-        ucc.execute(prog, state)
-        sv = ucc.get_statevector(prog, state)
+        prog = clifft.compile("H 0\nT 0\nT 0")
+        state = clifft.State(peak_rank=prog.peak_rank, num_measurements=prog.num_measurements)
+        clifft.execute(prog, state)
+        sv = clifft.get_statevector(prog, state)
 
         # H-S: [1/sqrt(2), i/sqrt(2)]
         expected = np.array([1 / np.sqrt(2), 1j / np.sqrt(2)], dtype=complex)
@@ -240,10 +240,10 @@ class TestStatevector:
 
     def test_statevector_four_t_equals_z(self) -> None:
         """T^4 = Z: H-T-T-T-T should equal H-Z."""
-        prog = ucc.compile("H 0\nT 0\nT 0\nT 0\nT 0")
-        state = ucc.State(peak_rank=prog.peak_rank, num_measurements=prog.num_measurements)
-        ucc.execute(prog, state)
-        sv = ucc.get_statevector(prog, state)
+        prog = clifft.compile("H 0\nT 0\nT 0\nT 0\nT 0")
+        state = clifft.State(peak_rank=prog.peak_rank, num_measurements=prog.num_measurements)
+        clifft.execute(prog, state)
+        sv = clifft.get_statevector(prog, state)
 
         # H-Z: [1/sqrt(2), -1/sqrt(2)]
         expected = np.array([1 / np.sqrt(2), -1 / np.sqrt(2)], dtype=complex)
@@ -251,10 +251,10 @@ class TestStatevector:
 
     def test_statevector_t_on_zero(self) -> None:
         """T|0> = |0> (global phase only)."""
-        prog = ucc.compile("T 0")
-        state = ucc.State(peak_rank=prog.peak_rank, num_measurements=prog.num_measurements)
-        ucc.execute(prog, state)
-        sv = ucc.get_statevector(prog, state)
+        prog = clifft.compile("T 0")
+        state = clifft.State(peak_rank=prog.peak_rank, num_measurements=prog.num_measurements)
+        clifft.execute(prog, state)
+        sv = clifft.get_statevector(prog, state)
 
         # T|0> = |0> up to global phase
         expected = np.array([1, 0], dtype=complex)
@@ -262,10 +262,10 @@ class TestStatevector:
 
     def test_statevector_two_qubit_t(self) -> None:
         """Two-qubit circuit with T on qubit 0."""
-        prog = ucc.compile("H 0\nH 1\nT 0")
-        state = ucc.State(peak_rank=prog.peak_rank, num_measurements=prog.num_measurements)
-        ucc.execute(prog, state)
-        sv = ucc.get_statevector(prog, state)
+        prog = clifft.compile("H 0\nH 1\nT 0")
+        state = clifft.State(peak_rank=prog.peak_rank, num_measurements=prog.num_measurements)
+        clifft.execute(prog, state)
+        sv = clifft.get_statevector(prog, state)
 
         # T on q0 affects indices where bit 0 is set (indices 1, 3)
         phase = np.exp(1j * np.pi / 4)
@@ -274,10 +274,10 @@ class TestStatevector:
 
     def test_statevector_bell_plus_t(self) -> None:
         """Bell state with T on control qubit."""
-        prog = ucc.compile("H 0\nCX 0 1\nT 0")
-        state = ucc.State(peak_rank=prog.peak_rank, num_measurements=prog.num_measurements)
-        ucc.execute(prog, state)
-        sv = ucc.get_statevector(prog, state)
+        prog = clifft.compile("H 0\nCX 0 1\nT 0")
+        state = clifft.State(peak_rank=prog.peak_rank, num_measurements=prog.num_measurements)
+        clifft.execute(prog, state)
+        sv = clifft.get_statevector(prog, state)
 
         # Bell state: (|00> + |11>)/sqrt(2)
         # T on q0: |00>->|00>, |11>->e^{ipi/4}|11>
@@ -294,21 +294,26 @@ class TestStatevector:
             "H 0\nT 0\nT 0\nT 0",
         ]
         for circuit in circuits:
-            prog = ucc.compile(circuit)
-            state = ucc.State(peak_rank=prog.peak_rank, num_measurements=prog.num_measurements)
-            ucc.execute(prog, state)
-            sv = ucc.get_statevector(prog, state)
+            prog = clifft.compile(circuit)
+            state = clifft.State(
+                peak_rank=prog.peak_rank,
+                num_measurements=prog.num_measurements,
+            )
+            clifft.execute(prog, state)
+            sv = clifft.get_statevector(prog, state)
             norm = float(np.sqrt(np.sum(np.abs(sv) ** 2)))
             assert abs(norm - 1.0) < 1e-10, f"Not normalized: {circuit}"
 
     def test_statevector_after_measurement(self) -> None:
         """Statevector correctly handles active rank after measurement."""
         circuit = "H 0\nT 0\nM 0"
-        prog = ucc.compile(circuit)
+        prog = clifft.compile(circuit)
 
-        state = ucc.State(peak_rank=prog.peak_rank, num_measurements=prog.num_measurements, seed=42)
-        ucc.execute(prog, state)
-        sv = ucc.get_statevector(prog, state)
+        state = clifft.State(
+            peak_rank=prog.peak_rank, num_measurements=prog.num_measurements, seed=42
+        )
+        clifft.execute(prog, state)
+        sv = clifft.get_statevector(prog, state)
 
         # Statevector must be perfectly normalized (catches garbage memory bug)
         norm = float(np.sqrt(np.sum(np.abs(sv) ** 2)))
@@ -334,11 +339,11 @@ class TestCliffordValidation:
         for seed in range(10):
             circuit_str = random_clifford_circuit(1, 5, seed)
 
-            # UCC statevector
-            prog = ucc.compile(circuit_str)
-            state = ucc.State(peak_rank=prog.peak_rank, num_measurements=prog.num_measurements)
-            ucc.execute(prog, state)
-            ucc_sv = ucc.get_statevector(prog, state)
+            # Clifft statevector
+            prog = clifft.compile(circuit_str)
+            state = clifft.State(peak_rank=prog.peak_rank, num_measurements=prog.num_measurements)
+            clifft.execute(prog, state)
+            clifft_sv = clifft.get_statevector(prog, state)
 
             # Stim statevector
             stim_circuit = stim.Circuit(circuit_str)
@@ -346,7 +351,7 @@ class TestCliffordValidation:
             sim.do_circuit(stim_circuit)
             stim_sv = sim.state_vector(endian="little")
 
-            assert_statevectors_equal(ucc_sv, stim_sv, msg=f"circuit:\n{circuit_str}")
+            assert_statevectors_equal(clifft_sv, stim_sv, msg=f"circuit:\n{circuit_str}")
 
     def test_random_clifford_multi_qubit(self) -> None:
         """Random 2-4 qubit Clifford circuits match Stim."""
@@ -356,11 +361,13 @@ class TestCliffordValidation:
             for seed in range(5):
                 circuit_str = random_clifford_circuit(num_qubits, 10, seed)
 
-                # UCC statevector
-                prog = ucc.compile(circuit_str)
-                state = ucc.State(peak_rank=prog.peak_rank, num_measurements=prog.num_measurements)
-                ucc.execute(prog, state)
-                ucc_sv = ucc.get_statevector(prog, state)
+                # Clifft statevector
+                prog = clifft.compile(circuit_str)
+                state = clifft.State(
+                    peak_rank=prog.peak_rank, num_measurements=prog.num_measurements
+                )
+                clifft.execute(prog, state)
+                clifft_sv = clifft.get_statevector(prog, state)
 
                 # Stim statevector
                 stim_circuit = stim.Circuit(circuit_str)
@@ -369,7 +376,7 @@ class TestCliffordValidation:
                 stim_sv = sim.state_vector(endian="little")
 
                 assert_statevectors_equal(
-                    ucc_sv, stim_sv, msg=f"{num_qubits}q circuit:\n{circuit_str}"
+                    clifft_sv, stim_sv, msg=f"{num_qubits}q circuit:\n{circuit_str}"
                 )
 
 
@@ -388,9 +395,9 @@ class TestSamplingValidation:
         ]
 
         for circuit_str in circuits:
-            # UCC sampling
-            prog = ucc.compile(circuit_str)
-            result = ucc.sample(prog, 100, seed=42)
+            # Clifft sampling
+            prog = clifft.compile(circuit_str)
+            result = clifft.sample(prog, 100, seed=42)
 
             # Stim sampling (seed is in compile_sampler, not sample)
             stim_circuit = stim.Circuit(circuit_str)
@@ -401,14 +408,14 @@ class TestSamplingValidation:
             # (Note: seeds may differ, but deterministic outcomes should be consistent)
             if prog.num_measurements == 1:
                 # Single measurement: check value consistency
-                ucc_vals = set(tuple(r) for r in result.measurements)
+                clifft_vals = set(tuple(r) for r in result.measurements)
                 stim_vals = set(tuple(r) for r in stim_results)
-                assert ucc_vals == stim_vals, f"Mismatch for: {circuit_str}"
+                assert clifft_vals == stim_vals, f"Mismatch for: {circuit_str}"
             else:
                 # Multi-measurement: check correlation structure
-                for ucc_shot in result.measurements:
+                for clifft_shot in result.measurements:
                     if "CX" in circuit_str:  # Bell state
-                        assert ucc_shot[0] == ucc_shot[1], "Bell correlation broken"
+                        assert clifft_shot[0] == clifft_shot[1], "Bell correlation broken"
 
     def test_statistical_distribution_h(self) -> None:
         """H gate sampling matches Stim statistically."""
@@ -417,10 +424,10 @@ class TestSamplingValidation:
         circuit_str = "H 0\nM 0"
         shots = 10000
 
-        # UCC sampling
-        prog = ucc.compile(circuit_str)
-        result = ucc.sample(prog, shots, seed=12345)
-        ucc_p0 = np.mean(result.measurements[:, 0] == 0)
+        # Clifft sampling
+        prog = clifft.compile(circuit_str)
+        result = clifft.sample(prog, shots, seed=12345)
+        clifft_p0 = np.mean(result.measurements[:, 0] == 0)
 
         # Stim sampling (seed is in compile_sampler, not sample)
         stim_circuit = stim.Circuit(circuit_str)
@@ -430,11 +437,15 @@ class TestSamplingValidation:
 
         # Both should be close to 0.5, and close to each other
         tolerance = binomial_tolerance(0.5, shots)
-        assert abs(ucc_p0 - 0.5) < tolerance, f"UCC p0={ucc_p0} outside {tolerance:.4f} tol"
+        assert (
+            abs(clifft_p0 - 0.5) < tolerance
+        ), f"Clifft p0={clifft_p0} outside {tolerance:.4f} tol"
         assert abs(stim_p0 - 0.5) < tolerance, f"Stim p0={stim_p0} outside {tolerance:.4f} tol"
         # For comparing two independent estimates, variance adds: 2*std_err
         cross_tolerance = 2 * tolerance
-        assert abs(ucc_p0 - stim_p0) < cross_tolerance, f"UCC vs Stim: {ucc_p0} vs {stim_p0}"
+        assert (
+            abs(clifft_p0 - stim_p0) < cross_tolerance
+        ), f"Clifft vs Stim: {clifft_p0} vs {stim_p0}"
 
     def test_statistical_distribution_bell(self) -> None:
         """Bell state sampling matches Stim statistically."""
@@ -443,11 +454,11 @@ class TestSamplingValidation:
         circuit_str = "H 0\nCX 0 1\nM 0\nM 1"
         shots = 10000
 
-        # UCC sampling
-        prog = ucc.compile(circuit_str)
-        result = ucc.sample(prog, shots, seed=999)
-        ucc_00 = np.mean((result.measurements[:, 0] == 0) & (result.measurements[:, 1] == 0))
-        ucc_11 = np.mean((result.measurements[:, 0] == 1) & (result.measurements[:, 1] == 1))
+        # Clifft sampling
+        prog = clifft.compile(circuit_str)
+        result = clifft.sample(prog, shots, seed=999)
+        clifft_00 = np.mean((result.measurements[:, 0] == 0) & (result.measurements[:, 1] == 0))
+        clifft_11 = np.mean((result.measurements[:, 0] == 1) & (result.measurements[:, 1] == 1))
 
         # Stim sampling (seed is in compile_sampler, not sample)
         stim_circuit = stim.Circuit(circuit_str)
@@ -458,8 +469,12 @@ class TestSamplingValidation:
 
         # Bell state: 50% |00>, 50% |11>
         tolerance = binomial_tolerance(0.5, shots)
-        assert abs(ucc_00 - 0.5) < tolerance, f"UCC |00>={ucc_00} outside {tolerance:.4f} tol"
-        assert abs(ucc_11 - 0.5) < tolerance, f"UCC |11>={ucc_11} outside {tolerance:.4f} tol"
+        assert (
+            abs(clifft_00 - 0.5) < tolerance
+        ), f"Clifft |00>={clifft_00} outside {tolerance:.4f} tol"
+        assert (
+            abs(clifft_11 - 0.5) < tolerance
+        ), f"Clifft |11>={clifft_11} outside {tolerance:.4f} tol"
         assert abs(stim_00 - 0.5) < tolerance, f"Stim |00>={stim_00} outside {tolerance:.4f} tol"
         assert abs(stim_11 - 0.5) < tolerance, f"Stim |11>={stim_11} outside {tolerance:.4f} tol"
 
@@ -469,13 +484,13 @@ class TestSamplingValidation:
         # S 0 adds phase: (|0> + e^{i*3pi/4}|1>)/sqrt(2)
         # MX 0 forces an OP_MEAS_ACTIVE_INTERFERE where the rewound observable is Y.
         circuit = "H 0\nT 0\nS 0\nMX 0"
-        prog = ucc.compile(circuit)
+        prog = clifft.compile(circuit)
 
         # P(+) = |<+|psi>|^2 = |1 + e^{i3pi/4}|^2 / 4
         #      = (2 - sqrt(2)) / 4 ~ 0.1464
         shots = 10000
         expected_p0 = (2 - np.sqrt(2)) / 4  # ~ 0.1464
-        result = ucc.sample(prog, shots, seed=42)
+        result = clifft.sample(prog, shots, seed=42)
         p0 = float(np.mean(result.measurements[:, 0] == 0))
         tolerance = binomial_tolerance(expected_p0, shots)
 
@@ -490,9 +505,9 @@ class TestNoiseAndQEC:
 
     def test_sample_returns_sample_result(self) -> None:
         """sample() returns a SampleResult with attribute access and unpacking."""
-        prog = ucc.compile("H 0\nM 0")
-        result = ucc.sample(prog, 10, seed=0)
-        assert isinstance(result, ucc.SampleResult)
+        prog = clifft.compile("H 0\nM 0")
+        result = clifft.sample(prog, 10, seed=0)
+        assert isinstance(result, clifft.SampleResult)
         # Attribute access
         assert result.measurements.shape == (10, 1)
         assert result.detectors.shape == (10, 0)
@@ -505,7 +520,7 @@ class TestNoiseAndQEC:
 
     def test_program_detector_observable_counts(self) -> None:
         """Program reports correct detector and observable counts."""
-        prog = ucc.compile("""
+        prog = clifft.compile("""
             H 0
             M 0
             DETECTOR rec[-1]
@@ -518,21 +533,21 @@ class TestNoiseAndQEC:
     def test_detector_computes_parity(self) -> None:
         """DETECTOR computes XOR of referenced measurements."""
         # Bell state: M 0 and M 1 always match, so XOR = 0
-        prog = ucc.compile("""
+        prog = clifft.compile("""
             H 0
             CX 0 1
             M 0
             M 1
             DETECTOR rec[-1] rec[-2]
         """)
-        result = ucc.sample(prog, 100, seed=42)
+        result = clifft.sample(prog, 100, seed=42)
         # All detectors should be 0 (perfect correlation)
         assert np.all(result.detectors == 0)
 
     def test_observable_accumulates_xor(self) -> None:
         """Multiple OBSERVABLE_INCLUDE to same index XOR together."""
         # Bell state: two identical measurements XOR to 0
-        prog = ucc.compile("""
+        prog = clifft.compile("""
             H 0
             CX 0 1
             M 0
@@ -540,32 +555,32 @@ class TestNoiseAndQEC:
             OBSERVABLE_INCLUDE(0) rec[-1]
             OBSERVABLE_INCLUDE(0) rec[-2]
         """)
-        result = ucc.sample(prog, 100, seed=42)
+        result = clifft.sample(prog, 100, seed=42)
         # Observable is XOR of two identical bits = 0
         assert np.all(result.observables == 0)
 
     def test_observable_tracks_logical_value(self) -> None:
         """Observable correctly tracks logical qubit value."""
-        prog = ucc.compile("""
+        prog = clifft.compile("""
             H 0
             M 0
             OBSERVABLE_INCLUDE(0) rec[-1]
         """)
-        result = ucc.sample(prog, 100, seed=42)
+        result = clifft.sample(prog, 100, seed=42)
         # Observable should equal measurement (single reference)
         assert np.array_equal(result.measurements[:, 0], result.observables[:, 0])
 
     def test_readout_noise_flips_bits(self) -> None:
         """M(p) readout noise flips measurement results."""
         # 100% readout noise flips |0> -> measured as 1
-        prog = ucc.compile("M(1.0) 0")
-        result = ucc.sample(prog, 100, seed=42)
+        prog = clifft.compile("M(1.0) 0")
+        result = clifft.sample(prog, 100, seed=42)
         assert np.all(result.measurements == 1)
 
     def test_readout_noise_probabilistic(self) -> None:
         """M(0.5) readout noise gives ~50% flip rate."""
-        prog = ucc.compile("M(0.5) 0")
-        result = ucc.sample(prog, 1000, seed=42)
+        prog = clifft.compile("M(0.5) 0")
+        result = clifft.sample(prog, 1000, seed=42)
         flip_rate = float(np.mean(result.measurements))
         # Should be ~50% (measuring |0> with 50% flip = 50% ones)
         tolerance = binomial_tolerance(0.5, 1000)
@@ -573,31 +588,31 @@ class TestNoiseAndQEC:
 
     def test_pauli_noise_x_error(self) -> None:
         """X_ERROR(1.0) always flips qubit."""
-        prog = ucc.compile("""
+        prog = clifft.compile("""
             X_ERROR(1.0) 0
             M 0
         """)
-        result = ucc.sample(prog, 100, seed=42)
+        result = clifft.sample(prog, 100, seed=42)
         # X flips |0> to |1>
         assert np.all(result.measurements == 1)
 
     def test_pauli_noise_z_error(self) -> None:
         """Z_ERROR doesn't affect computational basis measurement."""
-        prog = ucc.compile("""
+        prog = clifft.compile("""
             Z_ERROR(1.0) 0
             M 0
         """)
-        result = ucc.sample(prog, 100, seed=42)
+        result = clifft.sample(prog, 100, seed=42)
         # Z|0> = |0>, so still measure 0
         assert np.all(result.measurements == 0)
 
     def test_depolarize1_probabilistic(self) -> None:
         """DEPOLARIZE1 applies X, Y, or Z with equal probability."""
-        prog = ucc.compile("""
+        prog = clifft.compile("""
             DEPOLARIZE1(1.0) 0
             M 0
         """)
-        result = ucc.sample(prog, 3000, seed=42)
+        result = clifft.sample(prog, 3000, seed=42)
         # X and Y flip |0>->|1>, Z doesn't. Expected: 2/3 ones.
         ones_rate = float(np.mean(result.measurements))
         expected = 2.0 / 3.0
@@ -609,13 +624,13 @@ class TestNoiseAndQEC:
         # Two measurements with X_ERROR in between
         # First M gives 0, X_ERROR flips, second M gives 1
         # Detector XORs them: 0 XOR 1 = 1
-        prog = ucc.compile("""
+        prog = clifft.compile("""
             M 0
             X_ERROR(1.0) 0
             M 0
             DETECTOR rec[-1] rec[-2]
         """)
-        result = ucc.sample(prog, 10, seed=0)
+        result = clifft.sample(prog, 10, seed=0)
         # First meas = 0, second meas = 1, detector = 1
         assert np.all(result.measurements[:, 0] == 0)
         assert np.all(result.measurements[:, 1] == 1)
@@ -623,7 +638,7 @@ class TestNoiseAndQEC:
 
     def test_sample_shape_with_qec(self) -> None:
         """sample() returns correct shapes with detectors/observables."""
-        prog = ucc.compile("""
+        prog = clifft.compile("""
             H 0
             M 0
             M 1
@@ -634,7 +649,7 @@ class TestNoiseAndQEC:
             OBSERVABLE_INCLUDE(1) rec[-2]
         """)
         shots = 50
-        result = ucc.sample(prog, shots, seed=0)
+        result = clifft.sample(prog, shots, seed=0)
         assert result.measurements.shape == (shots, 2)
         assert result.detectors.shape == (shots, 3)
         assert result.observables.shape == (shots, 2)
@@ -645,7 +660,7 @@ class TestPostselection:
 
     def test_compile_with_postselection_mask(self) -> None:
         """Compile with postselection_mask kwarg works via nanobind."""
-        prog = ucc.compile(
+        prog = clifft.compile(
             "M 0\nDETECTOR rec[-1]\n",
             postselection_mask=[1],
         )
@@ -655,13 +670,13 @@ class TestPostselection:
     def test_has_postselection_flag(self) -> None:
         """has_postselection is True when mask is non-trivial, False otherwise."""
         circuit = "M 0\nDETECTOR rec[-1]\n"
-        prog_no_mask = ucc.compile(circuit)
+        prog_no_mask = clifft.compile(circuit)
         assert prog_no_mask.has_postselection is False
 
-        prog_zero_mask = ucc.compile(circuit, postselection_mask=[0])
+        prog_zero_mask = clifft.compile(circuit, postselection_mask=[0])
         assert prog_zero_mask.has_postselection is False
 
-        prog_with_mask = ucc.compile(circuit, postselection_mask=[1])
+        prog_with_mask = clifft.compile(circuit, postselection_mask=[1])
         assert prog_with_mask.has_postselection is True
 
     def test_sample_raises_on_postselected_program(self) -> None:
@@ -671,9 +686,9 @@ class TestPostselection:
             M 0
             DETECTOR rec[-1]
         """
-        prog = ucc.compile(circuit, postselection_mask=[1])
+        prog = clifft.compile(circuit, postselection_mask=[1])
         with pytest.raises(ValueError, match="sample_survivors"):
-            ucc.sample(prog, 10)
+            clifft.sample(prog, 10)
 
     def test_sample_k_raises_on_postselected_program(self) -> None:
         """sample_k() raises ValueError when program has postselection."""
@@ -683,22 +698,22 @@ class TestPostselection:
             M 0
             DETECTOR rec[-1]
         """
-        prog = ucc.compile(circuit, postselection_mask=[1])
+        prog = clifft.compile(circuit, postselection_mask=[1])
         with pytest.raises(ValueError, match="sample_k_survivors"):
-            ucc.sample_k(prog, 10, k=1)
+            clifft.sample_k(prog, 10, k=1)
 
     def test_sample_ok_without_postselection(self) -> None:
         """sample() works fine when program has no postselection."""
         circuit = "M 0\nDETECTOR rec[-1]\n"
-        prog = ucc.compile(circuit)
-        result = ucc.sample(prog, 10, seed=42)
+        prog = clifft.compile(circuit)
+        result = clifft.sample(prog, 10, seed=42)
         assert result.detectors.shape == (10, 1)
 
     def test_empty_mask_is_default(self) -> None:
         """Empty postselection_mask produces same result as no mask."""
         circuit = "M 0\nDETECTOR rec[-1]\n"
-        prog_default = ucc.compile(circuit)
-        prog_empty = ucc.compile(circuit, postselection_mask=[])
+        prog_default = clifft.compile(circuit)
+        prog_empty = clifft.compile(circuit, postselection_mask=[])
         assert prog_default.num_instructions == prog_empty.num_instructions
 
 
@@ -713,8 +728,8 @@ class TestSampleSurvivors:
             DETECTOR rec[-1]
             OBSERVABLE_INCLUDE(0) rec[-1]
         """
-        prog = ucc.compile(circuit, postselection_mask=[1])
-        result = ucc.sample_survivors(prog, 1000, seed=42)
+        prog = clifft.compile(circuit, postselection_mask=[1])
+        result = clifft.sample_survivors(prog, 1000, seed=42)
 
         assert result.total_shots == 1000
         assert 0 < result.passed_shots < 1000
@@ -722,7 +737,7 @@ class TestSampleSurvivors:
         # Survivors have meas[0]==0, so observable parity is always 0
         assert result.observable_ones[0] == 0
         assert result.logical_errors == 0
-        assert isinstance(result, ucc.SampleResult)
+        assert isinstance(result, clifft.SampleResult)
         assert result.measurements.shape == (0, prog.num_measurements)
         assert result.detectors.shape == (0, prog.num_detectors)
         assert result.observables.shape == (0, prog.num_observables)
@@ -735,8 +750,8 @@ class TestSampleSurvivors:
             DETECTOR rec[-1]
             OBSERVABLE_INCLUDE(0) rec[-1]
         """
-        prog = ucc.compile(circuit, postselection_mask=[1])
-        result = ucc.sample_survivors(prog, 200, seed=42, keep_records=True)
+        prog = clifft.compile(circuit, postselection_mask=[1])
+        result = clifft.sample_survivors(prog, 200, seed=42, keep_records=True)
 
         passed = result.passed_shots
         assert passed > 0
@@ -755,8 +770,8 @@ class TestSampleSurvivors:
             M 0
             DETECTOR rec[-1]
         """
-        prog = ucc.compile(circuit)  # no mask
-        result = ucc.sample_survivors(prog, 100, seed=42)
+        prog = clifft.compile(circuit)  # no mask
+        result = clifft.sample_survivors(prog, 100, seed=42)
 
         assert result.total_shots == 100
         assert result.passed_shots == 100
@@ -770,8 +785,8 @@ class TestSampleSurvivors:
             M 0
             OBSERVABLE_INCLUDE(0) rec[-1]
         """
-        prog = ucc.compile(circuit)
-        result = ucc.sample_survivors(prog, 10000, seed=42)
+        prog = clifft.compile(circuit)
+        result = clifft.sample_survivors(prog, 10000, seed=42)
 
         assert result.passed_shots == 10000
         ones = int(result.observable_ones[0])
@@ -798,8 +813,8 @@ class TestSampleSurvivors:
             if len(v) >= 5 and v[4] == -9:
                 mask[k] = 1
 
-        prog = ucc.compile(text, postselection_mask=mask)
-        result = ucc.sample_survivors(prog, 5000, seed=42)
+        prog = clifft.compile(text, postselection_mask=mask)
+        result = clifft.sample_survivors(prog, 5000, seed=42)
 
         assert result.total_shots == 5000
         assert result.passed_shots > 0
@@ -815,8 +830,8 @@ class TestSampleSurvivors:
             DETECTOR rec[-1]
             OBSERVABLE_INCLUDE(0) rec[-1]
         """
-        prog = ucc.compile(circuit, postselection_mask=[1])
-        result = ucc.sample_survivors(prog, 100, seed=42, keep_records=True)
+        prog = clifft.compile(circuit, postselection_mask=[1])
+        result = clifft.sample_survivors(prog, 100, seed=42, keep_records=True)
 
         assert result.total_shots == 100
         assert result.passed_shots == 0
@@ -834,8 +849,8 @@ class TestSampleSurvivors:
             OBSERVABLE_INCLUDE(0) rec[-1]
             OBSERVABLE_INCLUDE(1) rec[-1]
         """
-        prog = ucc.compile(circuit)
-        result = ucc.sample_survivors(prog, 10000, seed=42)
+        prog = clifft.compile(circuit)
+        result = clifft.sample_survivors(prog, 10000, seed=42)
 
         assert result.passed_shots == 10000
         # Both observables fire on same shots
@@ -871,8 +886,8 @@ class TestSyndromeNormalization:
         """
 
         # 1. Baseline: Without normalization, physical parities match the math above
-        prog_raw = ucc.compile(circuit, normalize_syndromes=False)
-        result_raw = ucc.sample(prog_raw, shots=10, seed=0)
+        prog_raw = clifft.compile(circuit, normalize_syndromes=False)
+        result_raw = clifft.sample(prog_raw, shots=10, seed=0)
 
         assert np.all(result_raw.detectors[:, 0] == 1)
         assert np.all(result_raw.detectors[:, 1] == 0)
@@ -882,13 +897,13 @@ class TestSyndromeNormalization:
         # 2. Normalized: All output parities must be strictly 0.
         # We also apply a postselection mask on DET 0 (which natively evaluates to 1).
         # Since it is normalized, it becomes 0, meaning shots should SURVIVE.
-        prog_norm = ucc.compile(
+        prog_norm = clifft.compile(
             circuit,
             normalize_syndromes=True,
             postselection_mask=[1, 0],
         )
 
-        res = ucc.sample_survivors(prog_norm, shots=10, seed=0, keep_records=True)
+        res = clifft.sample_survivors(prog_norm, shots=10, seed=0, keep_records=True)
 
         assert res.passed_shots == 10  # Normalized 1^1=0, so shots survive!
         assert np.all(res.detectors == 0)
@@ -901,7 +916,7 @@ class TestSyndromeNormalization:
 
         circuit = "M 0\nDETECTOR rec[-1]\n"
         with pytest.raises(ValueError):
-            ucc.compile(
+            clifft.compile(
                 circuit,
                 normalize_syndromes=True,
                 expected_detectors=[0],
@@ -917,8 +932,8 @@ class TestSyndromeNormalization:
             DETECTOR rec[-1]
             OBSERVABLE_INCLUDE(0) rec[-1]
         """
-        prog = ucc.compile(circuit, normalize_syndromes=True)
-        result = ucc.sample(prog, shots=5, seed=0)
+        prog = clifft.compile(circuit, normalize_syndromes=True)
+        result = clifft.sample(prog, shots=5, seed=0)
 
         assert np.all(result.detectors == 0)
         assert np.all(result.observables == 0)
@@ -933,8 +948,8 @@ class TestSyndromeNormalization:
             M 0
             DETECTOR rec[-1]
         """
-        prog = ucc.compile(circuit, normalize_syndromes=True)
-        result = ucc.sample(prog, shots=10, seed=0)
+        prog = clifft.compile(circuit, normalize_syndromes=True)
+        result = clifft.sample(prog, shots=10, seed=0)
 
         # With 100% X error, measurement flips from 0 to 1.
         # Reference (noiseless) detector parity = 0.
@@ -951,8 +966,8 @@ class TestSyndromeNormalization:
             DETECTOR rec[-1]
         """
         # Raw detector parity = 1. With expected_detectors=[1], normalized = 0.
-        prog = ucc.compile(circuit, expected_detectors=[1])
-        result = ucc.sample(prog, shots=5, seed=0)
+        prog = clifft.compile(circuit, expected_detectors=[1])
+        result = clifft.sample(prog, shots=5, seed=0)
 
         assert np.all(result.detectors[:, 0] == 0)
 
@@ -966,35 +981,35 @@ class TestSyndromeNormalization:
             OBSERVABLE_INCLUDE(0) rec[-1]
         """
         # Raw obs = 1. With expected_observables=[1], normalized = 0.
-        prog = ucc.compile(circuit, expected_observables=[1])
-        result = ucc.sample(prog, shots=5, seed=0)
+        prog = clifft.compile(circuit, expected_observables=[1])
+        result = clifft.sample(prog, shots=5, seed=0)
 
         assert np.all(result.observables[:, 0] == 0)
 
     def test_compute_reference_syndrome_api(self) -> None:
         """compute_reference_syndrome is accessible from Python."""
-        circuit = ucc.parse("X 0\nM 0\nDETECTOR rec[-1]\nOBSERVABLE_INCLUDE(0) rec[-1]\n")
-        hir = ucc.trace(circuit)
-        ref = ucc.compute_reference_syndrome(hir)
+        circuit = clifft.parse("X 0\nM 0\nDETECTOR rec[-1]\nOBSERVABLE_INCLUDE(0) rec[-1]\n")
+        hir = clifft.trace(circuit)
+        ref = clifft.compute_reference_syndrome(hir)
 
         assert ref["detectors"] == [1]
         assert ref["observables"] == [1]
 
     def test_remove_noise_pass_api(self) -> None:
         """RemoveNoisePass is accessible from Python."""
-        circuit = ucc.parse("X_ERROR(0.1) 0\nM 0\n")
-        hir = ucc.trace(circuit)
+        circuit = clifft.parse("X_ERROR(0.1) 0\nM 0\n")
+        hir = clifft.trace(circuit)
 
         original_count = hir.num_ops
-        strip = ucc.RemoveNoisePass()
+        strip = clifft.RemoveNoisePass()
 
-        pm = ucc.HirPassManager()
+        pm = clifft.HirPassManager()
         pm.add(strip)
         pm.run(hir)
 
         assert hir.num_ops < original_count
         for op in hir:
-            assert op.op_type != ucc.OpType.NOISE
+            assert op.op_type != clifft.OpType.NOISE
 
 
 class TestExpVal:
@@ -1002,56 +1017,56 @@ class TestExpVal:
 
     def test_sample_returns_exp_vals(self) -> None:
         """sample() populates exp_vals for circuits with EXP_VAL."""
-        prog = ucc.compile("EXP_VAL Z0")
-        result = ucc.sample(prog, 10, seed=42)
+        prog = clifft.compile("EXP_VAL Z0")
+        result = clifft.sample(prog, 10, seed=42)
         assert result.exp_vals.shape == (10, 1)
         assert result.exp_vals.dtype == np.float64
         np.testing.assert_allclose(result.exp_vals[:, 0], 1.0, atol=1e-12)
 
     def test_no_exp_val_gives_empty(self) -> None:
         """Circuits without EXP_VAL have shape (shots, 0) exp_vals."""
-        prog = ucc.compile("H 0\nM 0")
-        result = ucc.sample(prog, 5, seed=0)
+        prog = clifft.compile("H 0\nM 0")
+        result = clifft.sample(prog, 5, seed=0)
         assert result.exp_vals.shape == (5, 0)
         assert prog.num_exp_vals == 0
 
     def test_program_num_exp_vals(self) -> None:
         """Program.num_exp_vals reports the correct count."""
-        prog = ucc.compile("EXP_VAL X0 Z1")
+        prog = clifft.compile("EXP_VAL X0 Z1")
         assert prog.num_exp_vals == 2
 
     def test_hir_num_exp_vals(self) -> None:
         """HirModule.num_exp_vals reports the correct count."""
-        hir = ucc.trace(ucc.parse("EXP_VAL X0*Y1 Z2"))
+        hir = clifft.trace(clifft.parse("EXP_VAL X0*Y1 Z2"))
         assert hir.num_exp_vals == 2
 
     def test_state_exp_vals(self) -> None:
         """State.exp_vals is accessible and correctly sized."""
-        state = ucc.State(peak_rank=1, num_measurements=0, num_exp_vals=2)
+        state = clifft.State(peak_rank=1, num_measurements=0, num_exp_vals=2)
         assert len(state.exp_vals) == 2
 
     def test_state_constructor_requires_keywords(self) -> None:
         """State constructor rejects positional arguments beyond self."""
         with pytest.raises(TypeError):
-            ucc.State(1, 0)
+            clifft.State(1, 0)
 
     def test_state_constructor_seed_keyword(self) -> None:
         """Keyword seed does not affect exp_vals sizing."""
-        state = ucc.State(peak_rank=1, num_measurements=0, seed=42)
+        state = clifft.State(peak_rank=1, num_measurements=0, seed=42)
         assert len(state.exp_vals) == 0
 
     def test_exp_val_multiple_probes(self) -> None:
         """Multiple EXP_VAL probes return consecutive columns."""
-        prog = ucc.compile("H 0\nEXP_VAL X0\nEXP_VAL Z0")
-        result = ucc.sample(prog, 5, seed=0)
+        prog = clifft.compile("H 0\nEXP_VAL X0\nEXP_VAL Z0")
+        result = clifft.sample(prog, 5, seed=0)
         assert result.exp_vals.shape == (5, 2)
         np.testing.assert_allclose(result.exp_vals[:, 0], 1.0, atol=1e-12)  # <X> on |+>
         np.testing.assert_allclose(result.exp_vals[:, 1], 0.0, atol=1e-12)  # <Z> on |+>
 
     def test_exp_val_does_not_disturb_measurement(self) -> None:
         """EXP_VAL is non-destructive: measurements after it are unaffected."""
-        prog = ucc.compile("EXP_VAL Z0\nM 0")
-        result = ucc.sample(prog, 100, seed=0)
+        prog = clifft.compile("EXP_VAL Z0\nM 0")
+        result = clifft.sample(prog, 100, seed=0)
         # |0> state: all measurements should be 0
         assert np.all(result.measurements == 0)
         np.testing.assert_allclose(result.exp_vals[:, 0], 1.0, atol=1e-12)

@@ -1,6 +1,6 @@
 # Instruction Reference
 
-This page documents all instruction types used by the UCC compiler at both
+This page documents all instruction types used by the Clifft compiler at both
 levels of the pipeline: the **Heisenberg IR** (HIR) produced by the front-end,
 and the **VM Opcodes** (RISC bytecode) executed by the Schrodinger Virtual Machine.
 
