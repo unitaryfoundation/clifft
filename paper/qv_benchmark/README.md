@@ -23,18 +23,24 @@ Not all simulators are required — use `--simulators` to select a subset.
 
 ## Running
 
-```bash
-# Full benchmark (6–26 qubits, all simulators, 3 repeats)
-python run_benchmark.py
+All commands run from the `paper/` directory (see top-level
+[`README.md`](../README.md) for setup).
 
+```bash
 # Quick test
-python run_benchmark.py --min-q 6 --max-q 12 --repeats 1 --simulators ucc,qiskit
+uv run python -m qv_benchmark --min-q 6 --max-q 12 --repeats 1 --simulators ucc,qiskit
 
 # Specific qubit counts
-python run_benchmark.py --qubits 10,14,18,22
+uv run python -m qv_benchmark --qubits 10,14,18,22
 
 # Single simulator
-python run_benchmark.py --simulators ucc
+uv run python -m qv_benchmark --simulators ucc
+
+# Recommended EC2 run (24-core, 96 GB RAM)
+uv run python -m qv_benchmark \
+    --min-q 6 --max-q 32 --step 2 \
+    --mem-limit-gb 80 --timeout 600 \
+    --repeats 3
 ```
 
 Results are written to `results.csv` in this directory.

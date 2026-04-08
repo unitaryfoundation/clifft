@@ -11,6 +11,7 @@ error correction circuits.
 | `near_clifford_bench/` | Magic state cultivation d=3,5 | UCC, tsim | 29 T gates (d=3); tsim needs `strategy="cutting"` |
 | `distillation_bench/` | Magic state distillation 85q | UCC, tsim | [17,1,5] color code; needs `UCC_MAX_QUBITS>=128` |
 | `coherent_noise_bench/` | Surface code + R_Z noise | UCC | Coherent over-rotation per Tuloup & Ayral (arXiv:2603.14670) |
+| `qv_benchmark/` | Quantum Volume (random) | UCC, Qiskit, Qulacs, qsim, Qrack | Fully non-Clifford; worst-case exponential scaling |
 
 ## Setup
 
@@ -79,6 +80,41 @@ Notes:
   `--tsim-strategy default`.
 - Distillation uses its own noise model (`--prep-noise 0.05` by
   default), not `--error-rates`.
+
+## Quantum Volume benchmark
+
+The QV benchmark compares UCC against statevector simulators
+(Qiskit-Aer, Qulacs, qsim, Qrack) on fully random circuits that
+scale exponentially in memory.  Each (simulator, N, seed) runs in
+an isolated subprocess with memory and timeout limits.
+
+**Recommended run (24-core, 96 GB RAM instance):**
+
+```bash
+uv run python -m qv_benchmark \
+    --min-q 6 --max-q 32 --step 2 \
+    --mem-limit-gb 80 --timeout 600 \
+    --repeats 3
+```
+
+Memory scaling for statevector simulators is 2^N × 16 bytes:
+
+| N  | Statevector RAM |
+|----|-----------------|
+| 28 | 4 GB            |
+| 30 | 16 GB           |
+| 32 | 64 GB           |
+
+N=32 is the practical ceiling for 96 GB — beyond that nothing fits.
+UCC on random QV circuits has similar exponential scaling, so expect
+OOM at comparable N values.  The benchmark gracefully records OOM
+and timeout as status codes in the CSV.
+
+For a faster first pass, use `--repeats 1` to find the OOM
+boundaries, then re-run with `--repeats 3` on a narrower range.
+
+See [`qv_benchmark/README.md`](qv_benchmark/README.md) for full
+CLI options and simulator-specific details.
 
 ## tsim compile check
 
