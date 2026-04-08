@@ -21,7 +21,7 @@ from bench_common import run_benchmark_loop
 _HERE = Path(__file__).resolve().parent
 
 _DEFAULT_SIMULATORS = "ucc,stim,tsim"
-_DEFAULT_ERROR_RATES = "1e-7,1e-6,1e-5,1e-4,1e-3,1e-2,1e-1"
+_DEFAULT_ERROR_RATES = "1e-3"
 
 
 # ---------------------------------------------------------------------------
@@ -87,6 +87,12 @@ def _build_parser() -> argparse.ArgumentParser:
         help=f"Comma-separated simulators (default: {_DEFAULT_SIMULATORS}).",
     )
     p.add_argument(
+        "--tsim-strategy",
+        type=str,
+        default="default",
+        help="tsim compilation strategy: 'default' or 'cutting' (default: default).",
+    )
+    p.add_argument(
         "--output",
         type=str,
         default=str(_HERE / "results.csv"),
@@ -128,6 +134,7 @@ def main(argv: Sequence[str] | None = None) -> None:
         shots=args.shots,
         repeats=args.repeats,
         output_csv=csv_path,
+        tsim_strategy=args.tsim_strategy,
     )
 
     print(f"\nResults written to {csv_path}")

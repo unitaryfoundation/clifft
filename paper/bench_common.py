@@ -81,6 +81,9 @@ class TsimRunner:
     Batch sizing is handled by tsim internally (QuEraComputing/tsim#84).
     """
 
+    def __init__(self, strategy: str = "default") -> None:
+        self._strategy = strategy
+
     def compile(self, circuit: CircuitLike, shots: int) -> None:
         # CPU vs GPU is controlled by setting JAX_PLATFORMS=cpu before
         # launching the script.  JAX reads this env var once at import time,
@@ -88,7 +91,7 @@ class TsimRunner:
         import tsim
 
         tc = tsim.Circuit(circuit if isinstance(circuit, str) else str(circuit))
-        self._sampler = tc.compile_detector_sampler()
+        self._sampler = tc.compile_detector_sampler(strategy=self._strategy)
 
         # Warmup: populate JIT caches.
         self._sampler.sample(min(_WARMUP_SHOTS, shots), separate_observables=True)
@@ -124,6 +127,7 @@ def run_benchmark_loop(
     shots: int,
     repeats: int,
     output_csv: Path,
+    tsim_strategy: str = "default",
     label_key: str = "circuit",
 ) -> list[dict[str, object]]:
     """Run the compile-once / sample-many timing loop.
@@ -148,6 +152,8 @@ def run_benchmark_loop(
     output_csv:
         Path to the output CSV file.  Written incrementally (header
         first, then one row per sample).
+    tsim_strategy:
+        Compilation strategy for tsim (``"default"`` or ``"cutting"``).
     label_key:
         Which key in *metadata* to use for human-readable progress
         messages.  Defaults to ``"circuit"``.
@@ -184,7 +190,7 @@ def run_benchmark_loop(
                 print(f"  Unknown simulator '{sim}', skipping.")
                 continue
 
-            runner = factory()
+            runner = factory(strategy=tsim_strategy) if factory is TsimRunner else factory()
             header = f"{label} {sim}"
             print(f"  {header}: compiling ...", end="", flush=True)
             try:

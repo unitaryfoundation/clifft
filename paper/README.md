@@ -31,17 +31,54 @@ Benchmarks that select only available simulators (e.g.
 
 ## Quick start
 
-All commands below run from the `paper/` directory:
+All commands below run from the `paper/` directory.
 
 ```bash
-# Run a single benchmark (Stim only, quick test)
+# Smoke test (Stim only, fast)
 uv run python -m clifford_bench.run_benchmark \
     --distances 3 --shots 1000 --repeats 1 --simulators stim
-
-# Run with UCC + tsim (CPU)
-JAX_PLATFORMS=cpu uv run python -m clifford_bench.run_benchmark \
-    --distances 3 --simulators ucc,stim,tsim
 ```
+
+## Recommended benchmark plan
+
+The commands below cover the full set of paper benchmarks at
+`p=1e-3`.  Each benchmark writes its own `results.csv`.  tsim
+uses the default compilation strategy for Clifford/distillation
+and cutting for non-Clifford circuits.
+
+```bash
+# 1. Clifford surface code d=3,5,7 — Stim, UCC, tsim (default strategy)
+JAX_PLATFORMS=cpu uv run python -m clifford_bench.run_benchmark \
+    --distances 3,5,7 --error-rates 1e-3 \
+    --simulators stim,ucc,tsim
+
+# 2. Near-Clifford cultivation d=3 — UCC, tsim (cutting strategy)
+JAX_PLATFORMS=cpu uv run python -m near_clifford_bench.run_benchmark \
+    --distances 3 --error-rates 1e-3 \
+    --simulators ucc,tsim
+
+# 3. Magic state distillation 85q — UCC, tsim (default strategy)
+JAX_PLATFORMS=cpu uv run python -m distillation_bench.run_benchmark \
+    --simulators ucc,tsim
+
+# 4. Coherent noise d=5 r=1 — UCC, tsim (cutting strategy)
+JAX_PLATFORMS=cpu uv run python -m coherent_noise_bench.run_benchmark \
+    --distances 5 --rounds 1 \
+    --simulators ucc,tsim
+
+# 5. Coherent noise d=5 r=5 — UCC only (tsim cannot compile)
+uv run python -m coherent_noise_bench.run_benchmark \
+    --distances 5 --rounds 5 \
+    --simulators ucc
+```
+
+Notes:
+- `JAX_PLATFORMS=cpu` is only needed when tsim is included.
+- The near-Clifford and coherent benchmarks default to
+  `--tsim-strategy cutting`; Clifford and distillation default to
+  `--tsim-strategy default`.
+- Distillation uses its own noise model (`--prep-noise 0.05` by
+  default), not `--error-rates`.
 
 ## tsim compile check
 

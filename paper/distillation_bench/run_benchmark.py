@@ -117,6 +117,12 @@ def _build_parser() -> argparse.ArgumentParser:
         help=f"Comma-separated simulators (default: {_DEFAULT_SIMULATORS}).",
     )
     p.add_argument(
+        "--tsim-strategy",
+        type=str,
+        default="default",
+        help="tsim compilation strategy: 'default' or 'cutting' (default: default).",
+    )
+    p.add_argument(
         "--output",
         type=str,
         default=str(_HERE / "results.csv"),
@@ -153,6 +159,7 @@ def main(argv: Sequence[str] | None = None) -> None:
         shots=args.shots,
         repeats=args.repeats,
         output_csv=csv_path,
+        tsim_strategy=args.tsim_strategy,
     )
 
     print(f"\nResults written to {csv_path}")
