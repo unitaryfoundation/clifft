@@ -1,6 +1,6 @@
-"""Standalone benchmark: UCC vs Qiskit-Aer.
+"""Standalone benchmark: Clifft vs Qiskit-Aer.
 
-Generates circuits in Qiskit, converts to Stim format for UCC,
+Generates circuits in Qiskit, converts to Stim format for Clifft,
 runs both simulators across two parameter sweeps, and plots results.
 
 Usage:
@@ -42,7 +42,7 @@ def build_circuit_qiskit(n: int, t: int, k: int) -> str:
 
     The circuit places T-gates (non-Clifford) on k active qubits and
     pads the remaining N-k qubits with Cliffords.  A dense-state
-    simulator must track 2^N amplitudes, but UCC's factored-state
+    simulator must track 2^N amplitudes, but Clifft's factored-state
     representation only needs 2^k.
     """
     from qiskit import QuantumCircuit
@@ -152,7 +152,7 @@ def run_worker(tool: str, qasm_str: str, stim_str: str) -> dict[str, Any]:
         env = os.environ.copy()
         env["OMP_NUM_THREADS"] = "1"
         env["MKL_NUM_THREADS"] = "1"
-        env["UCC_BENCH_MEM_LIMIT_GB"] = str(MEM_LIMIT_GB)
+        env["CLIFFT_BENCH_MEM_LIMIT_GB"] = str(MEM_LIMIT_GB)
 
         result = subprocess.run(cmd, capture_output=True, text=True, timeout=TIMEOUT_S, env=env)
 
@@ -184,7 +184,7 @@ def run_worker(tool: str, qasm_str: str, stim_str: str) -> dict[str, Any]:
 def execute_internal(tool: str, qasm_path: str, stim_path: str) -> None:
     """Payload executed inside the isolated subprocess."""
     if resource is not None and sys.platform.startswith("linux"):
-        mem_str = os.environ.get("UCC_BENCH_MEM_LIMIT_GB")
+        mem_str = os.environ.get("CLIFFT_BENCH_MEM_LIMIT_GB")
         if mem_str:
             limit = int(float(mem_str) * 1024**3)
             resource.setrlimit(resource.RLIMIT_AS, (limit, limit))
@@ -199,12 +199,12 @@ def execute_internal(tool: str, qasm_path: str, stim_path: str) -> None:
         sim = AerSimulator(method="statevector", max_parallel_threads=1)
         sim.run(transpile(qc, sim), shots=1).result()
 
-    elif tool == "ucc":
-        import ucc
+    elif tool == "clifft":
+        import clifft
 
         with open(stim_path) as f:
-            program = ucc.compile(f.read())
-        ucc.sample(program, shots=1)
+            program = clifft.compile(f.read())
+        clifft.sample(program, shots=1)
 
     else:
         print(f"Unknown tool: {tool}", file=sys.stderr)
@@ -244,7 +244,7 @@ def run_sweeps() -> str:
     n_values = QUBIT_N_VALUES
     t_a, k_a = 20, 12
     for n in n_values:
-        for tool in ["ucc", "qiskit"]:
+        for tool in ["clifft", "qiskit"]:
             label = f"[qubit_scaling] {tool:<7} N={n}"
             print(f"{label} -> ", end="", flush=True)
 
@@ -263,7 +263,7 @@ def run_sweeps() -> str:
     # Sweep B: rank scaling
     n_b, t_b = 24, 40
     for k in RANK_K_VALUES:
-        for tool in ["ucc", "qiskit"]:
+        for tool in ["clifft", "qiskit"]:
             label = f"[rank_scaling]  {tool:<7} k={k}"
             print(f"{label} -> ", end="", flush=True)
 
@@ -303,7 +303,7 @@ def plot_results(csv_path: str, output_path: str) -> None:
 
     TOOL_STYLE = {
         "qiskit": {"color": "#E74C3C", "marker": "s", "label": "Qiskit-Aer (statevector)"},
-        "ucc": {"color": "#2ECC71", "marker": "o", "label": "UCC"},
+        "clifft": {"color": "#2ECC71", "marker": "o", "label": "Clifft"},
     }
 
     TIMEOUT_CEIL = 120.0
@@ -350,7 +350,7 @@ def plot_results(csv_path: str, output_path: str) -> None:
         ax_mem = axes[1][col]
         panel_rows = [r for r in results if r["Sweep"] == sweep]
 
-        for tool in ["ucc", "qiskit"]:
+        for tool in ["clifft", "qiskit"]:
             style = TOOL_STYLE[tool]
             ok = [r for r in panel_rows if r["Tool"] == tool and r["Status"] == "SUCCESS"]
             fail = [
@@ -452,7 +452,7 @@ def plot_results(csv_path: str, output_path: str) -> None:
     )
 
     fig.suptitle(
-        "UCC vs Qiskit-Aer: Simulation Performance",
+        "Clifft vs Qiskit-Aer: Simulation Performance",
         fontsize=13,
         fontweight="bold",
     )
@@ -469,7 +469,7 @@ def plot_results(csv_path: str, output_path: str) -> None:
 
 def main() -> None:
     """Entry point."""
-    parser = argparse.ArgumentParser(description="UCC vs Qiskit-Aer benchmark")
+    parser = argparse.ArgumentParser(description="Clifft vs Qiskit-Aer benchmark")
     parser.add_argument(
         "--internal-worker",
         nargs=3,
