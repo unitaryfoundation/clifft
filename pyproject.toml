@@ -1,10 +1,10 @@
 [build-system]
-requires = ["scikit-build-core>=0.10", "nanobind>=2.0"]
+requires = ["scikit-build-core>=0.10", "nanobind>=2.0", "setuptools-scm>=8"]
 build-backend = "scikit_build_core.build"
 
 [project]
 name = "clifft"
-version = "0.1.0"
+dynamic = ["version"]
 description = "Clifft - Multi-level compiler and VM for quantum circuits"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -67,6 +67,13 @@ build-dir = "build/{wheel_tag}"
 
 # Build stable ABI wheels for CPython 3.12+
 wheel.py-api = "cp312"
+
+# Version: derived from git tags via setuptools-scm
+[tool.scikit-build.metadata.version]
+provider = "scikit_build_core.metadata.setuptools_scm"
+
+[tool.setuptools_scm]
+fallback_version = "0.0.0"
 
 # Maximum qubit count (compile-time). Controls the width of inline Pauli
 # bitmasks used by the HIR and VM Pauli frame. Must be a multiple of 64.

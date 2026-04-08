@@ -27,6 +27,14 @@ print(clifft.version())
 
 See [DEVELOPMENT.md](DEVELOPMENT.md) for build instructions.
 
+## Acknowledgements
+
+Clifft was developed with the assistance of AI tools, primarily
+[Claude](https://claude.ai) by Anthropic. All AI-generated code has been
+reviewed by human contributors. See our
+[contributing guide](docs/development/contributing.md) for our AI contribution
+policy.
+
 ## License
 
 Apache-2.0

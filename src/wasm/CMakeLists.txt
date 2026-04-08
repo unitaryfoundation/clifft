@@ -60,9 +60,8 @@ target_compile_options(libstim PRIVATE -fexceptions)
 
 # Generate version header (minimal, just needs to exist)
 file(MAKE_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/generated/clifft/util)
-file(READ "${CMAKE_CURRENT_SOURCE_DIR}/../../pyproject.toml" PYPROJECT_CONTENT)
-string(REGEX MATCH "version = \"([0-9]+\\.[0-9]+\\.[0-9]+)\"" _ "${PYPROJECT_CONTENT}")
-set(CLIFFT_VERSION "${CMAKE_MATCH_1}")
+set(CLIFFT_PROJECT_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/../..")
+include(${CLIFFT_PROJECT_ROOT}/cmake/ClifftVersion.cmake)
 configure_file(
     ${CMAKE_CURRENT_SOURCE_DIR}/../clifft/util/version.h.in
     ${CMAKE_CURRENT_BINARY_DIR}/generated/clifft/util/version.h

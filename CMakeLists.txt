@@ -1,10 +1,8 @@
 cmake_minimum_required(VERSION 3.20)
 project(clifft LANGUAGES CXX)
 
-# Version: parse from pyproject.toml (single source of truth)
-file(READ "${CMAKE_CURRENT_SOURCE_DIR}/pyproject.toml" PYPROJECT_CONTENT)
-string(REGEX MATCH "version = \"([0-9]+\\.[0-9]+\\.[0-9]+)\"" _ "${PYPROJECT_CONTENT}")
-set(CLIFFT_VERSION "${CMAKE_MATCH_1}")
+# Version: derived from git tags (or VERSION file in sdists)
+include(cmake/ClifftVersion.cmake)
 
 # Generate version header
 file(MAKE_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/generated/clifft/util)
@@ -59,19 +57,30 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
     endif()
 endif()
 
-# Additional Release-only optimizations: full native tuning and fast-math.
+# Additional Release-only optimizations.
 #
-# TODO(PyPI): When building wheels for PyPI distribution, replace -march=native
-# with a baseline like -march=x86-64-v3 (AVX2, ~2015 CPUs) to ensure compatibility.
-# For now, -march=native is fine since users build from source on their own machine.
+# When building wheels for PyPI (SKBUILD is set), use portable baselines so
+# the resulting binary runs on a wide range of hardware.  Local developer
+# builds use -march=native for maximum performance on the build machine.
 if(CMAKE_BUILD_TYPE STREQUAL "Release" OR CMAKE_BUILD_TYPE STREQUAL "RelWithDebInfo")
     if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+        add_compile_options(-ffast-math)
         if(CMAKE_SYSTEM_PROCESSOR MATCHES "arm|aarch64|ARM64")
-            add_compile_options(-mcpu=native -ffast-math)
-            message(STATUS "Enabled ARM native CPU optimizations: -mcpu=native -ffast-math")
+            if(SKBUILD)
+                message(STATUS "PyPI wheel build: using portable ARM optimizations")
+            else()
+                add_compile_options(-mcpu=native)
+                message(STATUS "Enabled ARM native CPU optimizations: -mcpu=native -ffast-math")
+            endif()
         else()
-            add_compile_options(-march=native -mtune=native -ffast-math)
-            message(STATUS "Enabled x86 native CPU optimizations: -march=native -mtune=native -ffast-math")
+            if(SKBUILD)
+                # x86-64-v3 baseline: AVX2 + FMA (~2015 CPUs and later)
+                add_compile_options(-march=x86-64-v3)
+                message(STATUS "PyPI wheel build: using x86-64-v3 baseline (AVX2)")
+            else()
+                add_compile_options(-march=native -mtune=native)
+                message(STATUS "Enabled x86 native CPU optimizations: -march=native -mtune=native -ffast-math")
+            endif()
         endif()
     endif()
 endif()

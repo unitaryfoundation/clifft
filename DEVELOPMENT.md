@@ -345,3 +345,144 @@ Recipes evolve over time, so always check `--list` for the current options. Comm
 - `just lint` — run pre-commit checks
 
 `just` is optional — all underlying CMake and `uv` commands documented above remain the source of truth.
+
+## Releasing
+
+Clifft uses [setuptools-scm](https://github.com/pypa/setuptools-scm) to
+derive the package version from git tags. The release workflow builds
+wheels for Linux (x86_64, aarch64) and macOS (arm64), then publishes to
+PyPI via trusted publishers.
+
+### Versioning
+
+The version is determined automatically from git tags:
+
+- **Tagged commits** (e.g., `v0.2.0`): version is `0.2.0`
+- **Development builds**: version is `0.2.1.dev3+g1a2b3c4` (tag + commit
+  distance + hash)
+
+There is no hardcoded version in `pyproject.toml`. The git tag is the
+single source of truth.
+
+### Release process
+
+#### 1. Test wheel builds on TestPyPI (optional but recommended)
+
+Before committing to a release, verify that wheels build and install
+correctly by running the release workflow manually. Manual dispatch
+always publishes to TestPyPI only — it cannot publish to PyPI.
+
+1. Go to **Actions** > **Release** > **Run workflow**
+2. Select the branch (usually `main`)
+3. Wait for builds to complete, then verify:
+
+   ```bash
+   pip install --index-url https://test.pypi.org/simple/ \
+       --extra-index-url https://pypi.org/simple/ clifft
+   python -c "import clifft; print(clifft.__version__)"
+   ```
+
+Note: TestPyPI versions from manual dispatch will have dev suffixes
+like `0.1.1.dev3+g1a2b3c4` since there's no release tag yet.
+
+#### 2. Update the changelog
+
+Generate the changelog for the upcoming release using
+[git-cliff](https://git-cliff.org/):
+
+```bash
+# Preview what the changelog will contain
+git cliff --tag v0.2.0 --unreleased
+
+# Write the full changelog
+git cliff --tag v0.2.0 -o CHANGELOG.md
+```
+
+Review `CHANGELOG.md`, edit if needed (fix typos, clarify entries,
+remove noise), then commit:
+
+```bash
+git add CHANGELOG.md
+git commit -m "docs: update changelog for v0.2.0"
+```
+
+#### 3. Tag and push
+
+```bash
+git tag v0.2.0
+git push origin main v0.2.0
+```
+
+#### 4. CI runs automatically
+
+The tag push triggers the release workflow, which runs these steps
+in order:
+
+1. **Build** — sdist and wheels for all platforms (Linux x86_64,
+   Linux aarch64, macOS arm64)
+2. **Publish to TestPyPI** — dry run on the test index
+3. **Publish to PyPI** — the real release (only on tag push)
+4. **Create GitHub Release** — extracts the release notes from the
+   committed `CHANGELOG.md` and creates a GitHub Release for the tag
+
+If any step fails, subsequent steps are skipped. For example, if
+TestPyPI fails, PyPI is not attempted.
+
+#### 5. Verify the release
+
+```bash
+pip install clifft==0.2.0
+python -c "import clifft; print(clifft.__version__)"
+```
+
+Check that the [GitHub Release](https://github.com/unitaryfoundation/clifft/releases)
+was created. You can edit the release notes on GitHub after the fact
+if needed.
+
+### Changelog maintenance
+
+The changelog is generated from conventional commit messages using
+[git-cliff](https://git-cliff.org/) with the config in `cliff.toml`.
+The quality of the changelog depends on the quality of commit messages:
+
+- Use conventional commit prefixes: `feat:`, `fix:`, `docs:`, `perf:`,
+  `refactor:`, `test:`, `build:`, `ci:`
+- Write the commit subject as a user-facing description, not an
+  implementation detail
+- `chore:` and `style:` commits are excluded from the changelog
+
+Install git-cliff locally:
+
+```bash
+# macOS
+brew install git-cliff
+
+# Or via cargo
+cargo install git-cliff
+```
+
+### Prerequisites (one-time setup)
+
+These steps are needed once when setting up the new repository:
+
+1. **PyPI trusted publisher**: On [pypi.org](https://pypi.org), configure a
+   trusted publisher for the `clifft` package:
+   - Owner: `unitaryfoundation`
+   - Repository: `clifft`
+   - Workflow: `release.yml`
+   - Environment: `pypi`
+
+2. **TestPyPI trusted publisher**: Same as above on
+   [test.pypi.org](https://test.pypi.org) with environment `testpypi`.
+
+3. **GitHub environments**: Create two environments in the repo settings:
+   - `pypi` — optionally add required reviewers for production releases
+   - `testpypi` — no restrictions needed
+
+4. **Initial version tag**: After migrating to the new repo, push the first
+   tag to establish the version baseline:
+
+   ```bash
+   git tag v0.1.0
+   git push origin v0.1.0
+   ```

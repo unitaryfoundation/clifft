@@ -1,7 +1,7 @@
 #pragma once
 
 // Auto-generated version header. Do not edit manually.
-// Source of truth: pyproject.toml
+// Source of truth: git tags (via cmake/ClifftVersion.cmake)
 
 namespace clifft {
 

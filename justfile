@@ -211,15 +211,14 @@ explorer-build:
   cd explorer && npm run build
 
 # -------------------------
-# Utility
+# Release
 # -------------------------
 
-# aidigest creates a flat digest of all files in the repo, excluding build artifacts and other ignored files.
-# This helps to share with Chat LLMs
-aidigest:
-    rm -f ai.all.digest.txt
-    uvx gitingest . -e "*.pdf" -e explorer -i src -i tests -i docs -i README.md -i pyproject.toml -o ai.all.digest.txt
+# Preview changelog for the next release (pass version, e.g. just changelog-preview v0.2.0)
+changelog-preview version:
+  git cliff --tag {{version}} --unreleased
 
-aidesigndigest:
-    rm -f aidesign.digest.txt
-    uvx gitingest . -i docs -i README.md -o aidesign.digest.txt
+# Generate CHANGELOG.md for the next release (pass version, e.g. just changelog v0.2.0)
+changelog version:
+  git cliff --tag {{version}} -o CHANGELOG.md
+  @echo "Updated CHANGELOG.md — review, edit, then commit."
