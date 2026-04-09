@@ -704,7 +704,7 @@ TEST_CASE("Frontend: broadcast classical feedback CX rec[-2] 0 rec[-1] 1",
 }
 
 TEST_CASE("Frontend: CY classical feedback throws", "[frontend][regression]") {
-    // CY rec[-k] q is not supported in MVP
+    // CY rec[-k] q classical feedback is not supported
     // We need to manually construct this since the parser won't generate it
     Circuit circuit;
     circuit.num_qubits = 1;
@@ -1212,7 +1212,7 @@ TEST_CASE("Frontend: full QEC circuit with noise and detectors",
     REQUIRE(hir.num_observables == 1);
 }
 
-// --- Phase 1: MPAD and measurement inversion ---
+// --- MPAD and measurement inversion ---
 
 TEST_CASE("Frontend: MPAD emits zero-weight measurements", "[frontend]") {
     auto circuit = parse("MPAD 1 0 1");
@@ -1267,7 +1267,7 @@ TEST_CASE("Frontend: I gate produces empty HIR", "[frontend]") {
     CHECK(hir.num_ops() == 0);
 }
 
-// --- Phase 3: Clifford Expansion ---
+// --- Clifford Expansion ---
 
 TEST_CASE("Frontend: expanded Cliffords are fully absorbed into tableau", "[frontend]") {
     auto circuit = parse("ISWAP 0 1\nC_XYZ 0\nSQRT_XX 0 1\nSWAP 0 1");
@@ -1283,7 +1283,7 @@ TEST_CASE("Frontend: SQRT_X and SQRT_X_DAG cancel", "[frontend]") {
     CHECK(hir.ops[0].op_type() == OpType::MEASURE);
 }
 
-// --- Phase 4: Multi-Parameter Noise ---
+// --- Multi-Parameter Noise ---
 
 TEST_CASE("Frontend: PAULI_CHANNEL_1 emits noise with correct channel count", "[frontend]") {
     // PAULI_CHANNEL_1(0.1, 0.2, 0.3) 0 -> 3 channels (X, Y, Z)

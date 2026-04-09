@@ -53,7 +53,7 @@ static CompiledModule compiled_from(const char* text, bool optimize = false) {
 }
 
 // =============================================================================
-// Task 2.2: Front-End source map population
+// Front-End source map population
 // =============================================================================
 
 TEST_CASE("Source map: trace populates source_map parallel to ops", "[source_map]") {
@@ -93,7 +93,7 @@ TEST_CASE("Source map: multi-target gate emits one source_map entry per op", "[s
 }
 
 // =============================================================================
-// Task 2.3: Optimizer maintains source_map invariant
+// Optimizer maintains source_map invariant
 // =============================================================================
 
 TEST_CASE("Source map: peephole fusion preserves parallel size", "[source_map]") {
@@ -122,7 +122,7 @@ TEST_CASE("Source map: T plus T_dag cancellation removes both from map", "[sourc
 }
 
 // =============================================================================
-// Task 2.4: Back-End source map and k-history
+// Back-End source map and k-history
 // =============================================================================
 
 TEST_CASE("Source map: lower produces parallel source_map and k_history", "[source_map]") {

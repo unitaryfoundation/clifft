@@ -28,7 +28,7 @@ namespace clifft {
 // - Emits HeisenbergOps for measurements
 // - Emits HeisenbergOps for classical feedback (CX/CZ with rec targets)
 //
-// Throws std::runtime_error if the circuit exceeds 64 qubits (MVP limit).
+// Throws std::runtime_error if the circuit exceeds CLIFFT_MAX_QUBITS.
 [[nodiscard]] HirModule trace(const Circuit& circuit);
 
 }  // namespace clifft

@@ -84,9 +84,6 @@ CLIFFT_MAX_QUBITS = "64"
 [tool.ruff]
 line-length = 100
 target-version = "py312"
-exclude = [
-    "prototype/",  # Legacy prototype code, not production
-]
 
 [tool.ruff.lint]
 select = [
@@ -110,9 +107,6 @@ disallow_untyped_defs = false
 disallow_incomplete_defs = true
 no_implicit_optional = true
 strict_equality = true
-exclude = [
-    "^prototype/",  # Legacy prototype code, not production
-]
 
 [[tool.mypy.overrides]]
 module = ["numpy.*", "stim.*", "sinter.*", "pytest.*", "clifft", "clifft._clifft_core", "qiskit.*", "qiskit_aer.*", "tsim.*", "bench_common", "qv_benchmark.*", "clifford_bench.*", "near_clifford_bench.*", "distillation_bench.*", "coherent_noise_bench.*", "matplotlib", "matplotlib.*", "pymatching", "pymatching.*", "cirq", "cirq.*", "qulacs", "qulacs.*", "qsimcirq", "qsimcirq.*", "pandas", "pandas.*"]

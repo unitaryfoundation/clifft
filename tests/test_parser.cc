@@ -357,7 +357,7 @@ TEST_CASE("Parse TICK annotation", "[parser]") {
 }
 
 TEST_CASE("Parse gate with parenthesized argument", "[parser]") {
-    // Even though we don't use noise in MVP, parser should skip the argument.
+    // Parser should accept and skip parenthesized gate arguments.
     auto circuit = parse("H(0.5) 0");
 
     REQUIRE(circuit.nodes.size() == 1);
@@ -1067,7 +1067,7 @@ TEST_CASE("Parse representative QEC circuit", "[parser][qec][integration]") {
     }
 }
 
-// --- Phase 1: Aliases, No-Ops, and MPAD ---
+// --- Aliases, No-Ops, and MPAD ---
 
 TEST_CASE("Parse Stim aliases for single-qubit gates", "[parser]") {
     auto circuit = parse("H_XZ 0\nSQRT_Z 1\nSQRT_Z_DAG 2");
@@ -1150,7 +1150,7 @@ TEST_CASE("Parse MPAD rejects rec targets", "[parser]") {
     REQUIRE_THROWS_AS(parse("M 0\nMPAD rec[-1]"), ParseError);
 }
 
-// --- Phase 2: Pair Measurements and Y-Resets ---
+// --- Pair Measurements and Y-Resets ---
 
 TEST_CASE("Parse MXX desugars to MPP with X-tagged targets", "[parser]") {
     auto circuit = parse("MXX 0 1");
@@ -1208,7 +1208,7 @@ TEST_CASE("Parse RY and MRY", "[parser]") {
     CHECK(circuit.num_qubits == 2);
 }
 
-// --- Phase 4: Multi-Parameter Noise ---
+// --- Multi-Parameter Noise ---
 
 TEST_CASE("Parse multi-arg parenthesized arguments", "[parser]") {
     auto circuit = parse("PAULI_CHANNEL_1(0.1, 0.2, 0.3) 0");

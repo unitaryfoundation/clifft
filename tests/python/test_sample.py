@@ -141,7 +141,7 @@ class TestSample:
 
     def test_gap_sampling_sparse_errors(self) -> None:
         """Verify geometric gap sampling correctly models independent errors."""
-        # 50 qubits (within 64-qubit MVP limit), each has a 2% chance
+        # 50 qubits (within default 64-qubit limit), each has a 2% chance
         # of flipping. With linear sampling this is 50 RNG rolls.
         # With gap sampling, it's ~1 roll per shot.
         n_qubits = 50

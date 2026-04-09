@@ -7,8 +7,7 @@
 // compiler can fully unroll and auto-vectorize at -O3 (AVX2, AVX-512,
 // NEON) without architecture-specific intrinsics in our source.
 //
-// At N=64 the array is a single uint64_t -- identical codegen to the
-// MVP's raw uint64_t path. At N=512 it becomes 8 words (64 bytes),
+// At N=64 the array is a single uint64_t. At N=512 it becomes 8 words (64 bytes),
 // fitting exactly in one AVX-512 register or two AVX2 registers.
 
 #include <array>

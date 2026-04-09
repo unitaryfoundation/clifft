@@ -694,7 +694,7 @@ TEST_CASE("E2E: mirror circuit 4 qubits deep") {
     }
 }
 
-// --- Phase 1: Aliases, No-Ops, MPAD, and Inversion ---
+// --- Aliases, No-Ops, MPAD, and Inversion ---
 
 TEST_CASE("E2E: Stim aliases produce identical statevectors") {
     auto sv_h = pipeline_statevector("H 0");
@@ -768,7 +768,8 @@ TEST_CASE("E2E: inverted M on zero state produces 1") {
 }
 
 TEST_CASE("E2E: I ZCX MPAD combined circuit") {
-    // Validates the DoD: "parser successfully ingests I 0; ZCX 0 1; MPAD 1 0"
+    // Validates that parser ingests I 0; ZCX 0 1; MPAD 1 0 and full pipeline produces correct
+    // measurements
     auto meas = pipeline_measurements("I 0\nZCX 0 1\nMPAD 1 0");
     REQUIRE(meas.size() == 2);
     CHECK(meas[0] == 1);
@@ -784,7 +785,7 @@ TEST_CASE("E2E: MPAD inversion flips deterministic bits") {
     CHECK(meas[1] == 0);  // 1 inverted
 }
 
-// --- Phase 2: Pair Measurements and Y-Resets ---
+// --- Pair Measurements and Y-Resets ---
 
 TEST_CASE("E2E: MXX equivalent to MPP X0*X1") {
     // Both should produce identical measurement records on a Bell state
@@ -871,7 +872,7 @@ TEST_CASE("E2E: MXX on Bell state gives deterministic 0") {
     CHECK(meas[0] == 0);
 }
 
-// --- Phase 3: Clifford Expansion ---
+// --- Clifford Expansion ---
 
 TEST_CASE("E2E: SWAP exchanges qubit amplitudes") {
     // H on q0 gives (|00>+|01>)/sqrt(2). SWAP 0 1 exchanges q0<->q1

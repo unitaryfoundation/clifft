@@ -355,8 +355,8 @@ HirModule trace(const Circuit& circuit) {
                             // Z on target qubit, rewound through tableau
                             extract_rewound_z(sim, target_qubit, destab_mask, stab_mask, sign);
                         } else {
-                            // CY classical feedback not supported in MVP
-                            throw std::runtime_error("CY classical feedback not supported in MVP");
+                            // CY classical feedback not supported
+                            throw std::runtime_error("CY classical feedback not supported");
                         }
 
                         emit(HeisenbergOp::make_conditional(destab_mask, stab_mask, sign,

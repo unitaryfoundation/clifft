@@ -2,17 +2,15 @@
 
 // Heisenberg IR (HIR) Data Structures
 //
-// The HIR is the output of the Front-End and input to the Back-End (optimizer skipped in MVP).
+// The HIR is the output of the Front-End and input to the optimizer and Back-End.
 // It represents non-Clifford gates and measurements as abstract Pauli-string operations
 // with explicit masks and weights. Clifford gates are absorbed into the tableau and do not
 // appear in the HIR.
 //
 // Key design decisions:
-// - Uses stim::bitword<64> for Pauli masks (zero-overhead wrapper around uint64_t)
-// - Uses stim::Tableau<W> for AG pivot matrices (SIMD-aligned, templated for future expansion)
-// - MVP uses W=64 (64 qubits); changing W scales to more qubits automatically
+// - Uses BitMask<N> for Pauli masks (compile-time width, N = CLIFFT_MAX_QUBITS)
+// - Uses stim::Tableau<W> for AG pivot matrices (SIMD-aligned)
 // - 32-byte HeisenbergOp for optimal cache alignment (2 ops per 64-byte L1 cache line)
-// - No generic LCU gates (only T fast-path)
 // - AG matrices and noise sites stored in side-tables to avoid bloating HIR
 
 #include "clifft/util/bitmask.h"
