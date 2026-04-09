@@ -52,6 +52,7 @@ Operate on the Heisenberg IR before bytecode emission:
 
 - **PeepholeFusionPass** — Algebraic T-gate cancellation and fusion (T+T=S, T+T_dag=identity)
 - **StatevectorSqueezePass** — Reorders HIR operations to minimize peak active rank
+- **RemoveNoisePass** — Strips all noise (not in default pipeline; used internally for noiseless reference shots)
 
 ### Bytecode Passes (Post-Lowering)
 

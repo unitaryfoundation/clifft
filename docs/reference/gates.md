@@ -6,7 +6,6 @@ Clifft parses [Stim circuit format](https://github.com/quantumlib/Stim/blob/main
 
 | Gate | Notes |
 |------|-------|
-| `I`  | Identity (no-op, parsed but not emitted) |
 | `X`  | Pauli X |
 | `Y`  | Pauli Y |
 | `Z`  | Pauli Z |
@@ -25,7 +24,7 @@ All Pauli gates are single-qubit Cliffords absorbed at compile time (zero VM cos
 | `H_XY`, `H_NXY` | Hadamard variants in X,Y plane |
 | `H_YZ`, `H_NYZ` | Hadamard variants in Y,Z plane |
 | `H_NXZ` | Negated Hadamard |
-| `C_XYZ`, `C_ZYX`, ... | Period-3 Clifford rotations (all 8 variants) |
+| `C_XYZ`, `C_ZYX`, `C_NXYZ`, `C_NZYX`, `C_XNYZ`, `C_XYNZ`, `C_ZNYX`, `C_ZYNX` | Period-3 Clifford rotations |
 
 All single-qubit Cliffords are absorbed AOT — they update the Clifford frame $U_C$ at compile time and have zero cost at runtime.
 
@@ -48,7 +47,7 @@ These are Clifft extensions beyond Stim's gate set. Non-Clifford gates activate 
 | `SWAP` | Qubit swap |
 | `ISWAP`, `ISWAP_DAG` | Imaginary swap and inverse |
 | `CXSWAP`, `SWAPCX` | CX+SWAP composites |
-| `CZSWAP` / `SWAPCZ` | CZ+SWAP composite |
+| `CZSWAP` | CZ+SWAP composite (alias: `SWAPCZ`) |
 | `SQRT_XX`, `SQRT_XX_DAG` | Square root of XX and inverse |
 | `SQRT_YY`, `SQRT_YY_DAG` | Square root of YY and inverse |
 | `SQRT_ZZ`, `SQRT_ZZ_DAG` | Square root of ZZ and inverse |
@@ -91,6 +90,21 @@ Two-qubit Cliffords are also absorbed at compile time.
 | `Z_ERROR(p)` | Single-qubit Z error |
 | `PAULI_CHANNEL_1(px,py,pz)` | General single-qubit Pauli channel |
 | `PAULI_CHANNEL_2(...)` | General two-qubit Pauli channel (15 params) |
+
+Noisy measurements (e.g., `M(0.01) 0`) are decomposed by the parser into a
+clean measurement followed by an internal `READOUT_NOISE` instruction that
+models classical bit-flip errors on the measurement result.
+
+## Identity Gates
+
+| Gate | Notes |
+|------|-------|
+| `I` | Single-qubit identity (parsed but not emitted) |
+| `II` | Two-qubit identity (parsed but not emitted) |
+| `I_ERROR` | Single-qubit identity error (no-op) |
+| `II_ERROR` | Two-qubit identity error (no-op) |
+
+These are accepted for compatibility with Stim circuits but have no effect.
 
 ## Annotations and Control Flow
 
