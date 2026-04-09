@@ -13,15 +13,21 @@ pip install clifft
 
 ## Platform Support
 
-| Platform | Status |
-|----------|--------|
-| Linux (x86_64) | :white_check_mark: Supported |
-| macOS (Intel & Apple Silicon) | :white_check_mark: Supported |
-| Windows | :x: Not yet supported |
+| Platform / CPU family | PyPI wheel |
+|---|---|
+| Linux `x86_64` with AVX2 | :white_check_mark: Supported |
+| Linux `aarch64` | :white_check_mark: Supported |
+| macOS `arm64` | :white_check_mark: Supported |
+| Windows `amd64` | :white_check_mark: Supported |
+| macOS `x86_64` | :x: Not supported |
+| Other CPU families | :x: Not supported |
+
+All other platforms and CPU families should build from source. See
+[Building from Source](../development/building.md).
 
 ## From Source
 
-For development or if pre-built wheels aren't available for your platform:
+For development, or if pre-built wheels are not available for your platform or CPU family:
 
 ```bash
 git clone https://github.com/unitaryfoundation/clifft.git

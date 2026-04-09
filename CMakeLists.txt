@@ -37,50 +37,82 @@ elseif(MSVC)
     add_compile_options(/W4)
 endif()
 
-# SIMD intrinsics: enable AVX2/FMA on x86 for ALL build types so that Debug
-# builds exercise the same SIMD code paths as Release. This only adds the
-# instruction-set flags; it does NOT enable aggressive optimizations like
-# -ffast-math or -march=native (those remain Release-only below).
+# CPU baseline policy for optimized builds.
+#
+# Local source builds default to native tuning. Release wheel CI should set an
+# explicit portable baseline via CLIFFT_CPU_BASELINE.
+set(CLIFFT_CPU_BASELINE "native" CACHE STRING
+    "CPU baseline for optimized builds: native, generic, or x86-64-v3")
+set_property(CACHE CLIFFT_CPU_BASELINE PROPERTY STRINGS native generic x86-64-v3)
+
+if(NOT CLIFFT_CPU_BASELINE STREQUAL "native" AND
+   NOT CLIFFT_CPU_BASELINE STREQUAL "generic" AND
+   NOT CLIFFT_CPU_BASELINE STREQUAL "x86-64-v3")
+    message(FATAL_ERROR
+        "CLIFFT_CPU_BASELINE must be one of: native, generic, x86-64-v3. "
+        "Got '${CLIFFT_CPU_BASELINE}'.")
+endif()
+
+message(STATUS "CLIFFT_CPU_BASELINE = ${CLIFFT_CPU_BASELINE}")
+
+# If the selected build baseline explicitly guarantees AVX2/FMA, enable those
+# instructions globally so the generic code can also use the same floor.
 if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
-    if(NOT CMAKE_SYSTEM_PROCESSOR MATCHES "arm|aarch64|ARM64")
+    if(CMAKE_SYSTEM_PROCESSOR MATCHES "(x86_64|AMD64|amd64)" AND
+       CLIFFT_CPU_BASELINE STREQUAL "x86-64-v3")
         include(CheckCXXCompilerFlag)
         check_cxx_compiler_flag(-mavx2 HAS_AVX2)
         check_cxx_compiler_flag(-mfma HAS_FMA)
+        set(_CLIFFT_X86_64_V3_FEATURES "")
         if(HAS_AVX2)
             add_compile_options(-mavx2)
-            message(STATUS "Enabled AVX2 instructions for all build types")
+            list(APPEND _CLIFFT_X86_64_V3_FEATURES "AVX2")
         endif()
         if(HAS_FMA)
             add_compile_options(-mfma)
-            message(STATUS "Enabled FMA instructions for all build types")
+            list(APPEND _CLIFFT_X86_64_V3_FEATURES "FMA")
+        endif()
+        if(_CLIFFT_X86_64_V3_FEATURES)
+            list(JOIN _CLIFFT_X86_64_V3_FEATURES "/" _CLIFFT_X86_64_V3_FEATURES_STR)
+            message(STATUS "Enabled x86-64-v3 SIMD baseline (${_CLIFFT_X86_64_V3_FEATURES_STR})")
+        else()
+            message(STATUS "Compiler did not accept extra AVX2/FMA flags for x86-64-v3 baseline")
         endif()
     endif()
 endif()
 
 # Additional Release-only optimizations.
-#
-# When building wheels for PyPI (SKBUILD is set), use portable baselines so
-# the resulting binary runs on a wide range of hardware.  Local developer
-# builds use -march=native for maximum performance on the build machine.
 if(CMAKE_BUILD_TYPE STREQUAL "Release" OR CMAKE_BUILD_TYPE STREQUAL "RelWithDebInfo")
     if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
         add_compile_options(-ffast-math)
         if(CMAKE_SYSTEM_PROCESSOR MATCHES "arm|aarch64|ARM64")
-            if(SKBUILD)
-                message(STATUS "PyPI wheel build: using portable ARM optimizations")
-            else()
+            if(CLIFFT_CPU_BASELINE STREQUAL "native")
                 add_compile_options(-mcpu=native)
                 message(STATUS "Enabled ARM native CPU optimizations: -mcpu=native -ffast-math")
-            endif()
-        else()
-            if(SKBUILD)
-                # x86-64-v3 baseline: AVX2 + FMA (~2015 CPUs and later)
-                add_compile_options(-march=x86-64-v3)
-                message(STATUS "PyPI wheel build: using x86-64-v3 baseline (AVX2)")
+            elseif(CLIFFT_CPU_BASELINE STREQUAL "generic")
+                message(STATUS "Using portable ARM baseline with -ffast-math")
             else()
+                message(FATAL_ERROR
+                    "CLIFFT_CPU_BASELINE=x86-64-v3 is only valid on x86-64 builds")
+            endif()
+        elseif(CMAKE_SYSTEM_PROCESSOR MATCHES "(x86_64|AMD64|amd64)")
+            if(CLIFFT_CPU_BASELINE STREQUAL "x86-64-v3")
+                # x86-64-v3 baseline: AVX2 + BMI2 + FMA (~2015 CPUs and later)
+                add_compile_options(-march=x86-64-v3)
+                message(STATUS "Using x86-64-v3 CPU baseline: -march=x86-64-v3 -ffast-math")
+            elseif(CLIFFT_CPU_BASELINE STREQUAL "native")
                 add_compile_options(-march=native -mtune=native)
                 message(STATUS "Enabled x86 native CPU optimizations: -march=native -mtune=native -ffast-math")
+            else()
+                message(STATUS "Using generic x86-64 baseline with -ffast-math")
             endif()
+        elseif(CLIFFT_CPU_BASELINE STREQUAL "x86-64-v3")
+            message(FATAL_ERROR
+                "CLIFFT_CPU_BASELINE=x86-64-v3 is only valid on x86-64 builds")
+        elseif(CLIFFT_CPU_BASELINE STREQUAL "native")
+            message(STATUS
+                "No architecture-specific native tuning configured for "
+                "${CMAKE_SYSTEM_PROCESSOR}; using generic optimized flags")
         endif()
     endif()
 endif()
@@ -88,7 +120,8 @@ endif()
 # Maximum qubit count (compile-time). Determines the width of inline Pauli
 # masks (BitMask<N>) used by the HIR and SVM Pauli frame. The VM Instruction
 # struct stays 32 bytes regardless -- only compile-time structures grow.
-# Default is 64; set to 512 for magic state cultivation circuits.
+# Default 64 covers the common small-circuit development workflow; set to 512
+# for magic state cultivation circuits.
 # Can be set via -DCLIFFT_MAX_QUBITS=N or the CLIFFT_MAX_QUBITS env var.
 # The env var is checked every configure, so `export CLIFFT_MAX_QUBITS=512`
 # works with scikit-build-core editable installs that reconfigure each build.

@@ -12,6 +12,20 @@ execute_process(
     OUTPUT_STRIP_TRAILING_WHITESPACE OUTPUT_VARIABLE nanobind_DIR)
 find_package(nanobind CONFIG REQUIRED)
 
+# Generate a tiny Python build-config module so import-time checks can know the
+# wheel/source CPU baseline without importing the extension first.
+file(MAKE_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/clifft)
+set(CLIFFT_PY_REQUIRES_X86_64_V3 "False")
+if(CMAKE_SYSTEM_PROCESSOR MATCHES "(x86_64|AMD64|amd64)" AND
+   CLIFFT_CPU_BASELINE STREQUAL "x86-64-v3")
+    set(CLIFFT_PY_REQUIRES_X86_64_V3 "True")
+endif()
+configure_file(
+    ${CMAKE_CURRENT_SOURCE_DIR}/_build_config.py.in
+    ${CMAKE_CURRENT_BINARY_DIR}/clifft/_build_config.py
+    @ONLY
+)
+
 # Build the extension module
 nanobind_add_module(
     _clifft_core
@@ -37,3 +51,4 @@ install(TARGETS _clifft_core
 
 # Install Python package files
 install(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/clifft/ DESTINATION clifft)
+install(FILES ${CMAKE_CURRENT_BINARY_DIR}/clifft/_build_config.py DESTINATION clifft)

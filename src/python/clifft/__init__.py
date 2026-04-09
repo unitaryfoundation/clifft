@@ -4,6 +4,13 @@ A multi-level AOT compiler and Schrodinger Virtual Machine for quantum circuits
 (Clifford + T and beyond).
 """
 
+# ruff: noqa: E402
+
+from clifft._build_config import CPU_BASELINE, REQUIRES_X86_64_V3_BASELINE
+from clifft._cpu_check import ensure_supported_cpu
+
+ensure_supported_cpu(CPU_BASELINE, REQUIRES_X86_64_V3_BASELINE)
+
 from clifft._clifft_core import (
     AstNode,
     BytecodePass,

@@ -80,6 +80,7 @@ fallback_version = "0.0.0"
 # Change to "512" for large circuits (e.g., distance-7+ surface codes).
 [tool.scikit-build.cmake.define]
 CLIFFT_MAX_QUBITS = "64"
+CLIFFT_CPU_BASELINE = { env = "CLIFFT_CPU_BASELINE", default = "native" }
 
 [tool.ruff]
 line-length = 100

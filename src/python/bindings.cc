@@ -61,7 +61,8 @@ NB_MODULE(_clifft_core, m) {
     m.def(
         "svm_backend", []() { return clifft::svm_backend(); },
         "Return the active SVM dispatch backend: 'avx512', 'avx2', or 'scalar'.\n\n"
-        "Reflects the resolved CPUID path or CLIFFT_FORCE_ISA environment override.");
+        "Reflects the resolved runtime kernel path or CLIFFT_FORCE_ISA environment override. "
+        "'scalar' names the generic/base SVM path.");
 
     // Sentinel-based enum counts for defensive binding tests.
     // If a new enum value is added in C++ but not bound in Python,

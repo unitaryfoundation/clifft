@@ -15,6 +15,18 @@ Clifft supports Clifford + T gates and beyond, with a focus on high-performance 
 pip install clifft
 ```
 
+| Platform / CPU family | PyPI wheel |
+|---|---|
+| Linux `x86_64` with AVX2 | Supported |
+| Linux `aarch64` | Supported |
+| macOS `arm64` | Supported |
+| Windows `amd64` | Supported |
+| macOS `x86_64` | Not supported |
+| Other CPU families | Not supported |
+
+All other platforms and CPU families should build from source. See
+[installation docs](docs/getting-started/installation.md#from-source).
+
 ## Quick Start
 
 ```python

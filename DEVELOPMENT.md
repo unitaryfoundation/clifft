@@ -4,11 +4,28 @@ This document covers how to build and develop Clifft locally.
 
 ## Platform Support
 
-| Platform | Status |
-|----------|--------|
-| Linux (x86_64) | ✅ Supported |
-| macOS (Intel & Apple Silicon) | ✅ Supported |
-| Windows | ❌ Not yet supported |
+### PyPI wheels
+
+| Platform / CPU family | Wheel status | Notes |
+|---|---|---|
+| Linux `x86_64` with AVX2/BMI2/FMA | ✅ Supported | Wheel uses an `x86-64-v3` baseline and can dispatch to the AVX-512 SVM path on capable CPUs. |
+| Linux `x86_64` without AVX2 | ❌ Not supported | Install from source with `pip install --no-binary clifft clifft`. |
+| Linux `aarch64` | ✅ Supported | Portable ARM wheel. |
+| macOS `arm64` | ✅ Supported | Portable Apple Silicon wheel. |
+| Windows `amd64` | ✅ Supported | Portable Windows wheel using the base SVM path on MSVC. |
+| macOS `x86_64` | ❌ Not supported | Build from source. |
+| Other CPU families | ❌ Not supported | No wheels are published. |
+
+### Source builds
+
+| Platform / CPU family | Source build status | Notes |
+|---|---|---|
+| Linux `x86_64` | ✅ Supported | Local optimized builds default to native CPU tuning and can dispatch to AVX-512 on capable CPUs. |
+| Linux `aarch64` | ✅ Supported | Local GNU/Clang Release builds default to `-mcpu=native`. |
+| macOS `arm64` | ✅ Supported | Local Python and C++ source builds are supported. |
+| Windows `amd64` | ✅ Supported | CI builds and tests MSVC regularly. |
+| macOS `x86_64` | ✅ Supported | Source build only. |
+| Other CPU families | ⚠️ Best effort | No wheels are published; portable source builds should avoid accidental x86-only flags. |
 
 ## Prerequisites
 
@@ -45,6 +62,8 @@ uv run pytest tests/python/ -v
 ```
 
 The editable install (`-e .`) rebuilds the C++ extension automatically when you run `uv pip install -e .` again after modifying C++ code.
+
+Optimized local Python builds default to `CLIFFT_CPU_BASELINE=native`. On x86 GNU/Clang builds, that keeps the AVX2 and AVX-512 SVM specializations available for runtime dispatch. Published wheels use explicit portable baselines instead.
 
 ### Standalone C++ Build
 
@@ -350,7 +369,7 @@ Recipes evolve over time, so always check `--list` for the current options. Comm
 
 Clifft uses [setuptools-scm](https://github.com/pypa/setuptools-scm) to
 derive the package version from git tags. The release workflow builds
-wheels for Linux (x86_64, aarch64) and macOS (arm64), then publishes to
+wheels for Linux (x86_64, aarch64), macOS (arm64), and Windows (amd64), then publishes to
 PyPI via trusted publishers.
 
 ### Versioning
@@ -419,7 +438,7 @@ The tag push triggers the release workflow, which runs these steps
 in order:
 
 1. **Build** — sdist and wheels for all platforms (Linux x86_64,
-   Linux aarch64, macOS arm64)
+   Linux aarch64, macOS arm64, Windows amd64)
 2. **Publish to TestPyPI** — dry run on the test index
 3. **Publish to PyPI** — the real release (only on tag push)
 4. **Create GitHub Release** — extracts the release notes from the

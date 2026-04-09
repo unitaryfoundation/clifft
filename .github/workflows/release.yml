@@ -46,12 +46,19 @@ jobs:
           - os: ubuntu-24.04
             arch: x86_64
             cibw_archs: x86_64
+            cpu_baseline: x86-64-v3
           - os: ubuntu-24.04-arm
             arch: aarch64
             cibw_archs: aarch64
+            cpu_baseline: generic
           - os: macos-14
             arch: arm64
             cibw_archs: arm64
+            cpu_baseline: generic
+          - os: windows-latest
+            arch: amd64
+            cibw_archs: AMD64
+            cpu_baseline: generic
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -68,10 +75,11 @@ jobs:
           CIBW_BUILD: "cp312-*"
           CIBW_ARCHS: ${{ matrix.cibw_archs }}
           CIBW_SKIP: "*-musllinux*"
+          CIBW_ENVIRONMENT: CLIFFT_CPU_BASELINE=${{ matrix.cpu_baseline }}
           # Install build dependencies inside the cibuildwheel container
           CIBW_BEFORE_BUILD: pip install setuptools-scm
           # Smoke-test: import the built package
-          CIBW_TEST_COMMAND: python -c "import clifft; print(clifft.__version__)"
+          CIBW_TEST_COMMAND: python -c "import clifft; print(clifft.__version__); print(clifft.svm_backend())"
 
       - uses: actions/upload-artifact@v4
         with:

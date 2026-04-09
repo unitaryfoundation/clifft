@@ -33,6 +33,31 @@ The editable install (`-e .`) means you can re-run `uv pip install -e .` after m
 
 Note that this builds with the maximum number of qubits as set by `CLIFFT_MAX_QUBITS` in the `pyproject.toml`. If you modify, you will need to rebuild. See [CLIFFT_MAX_QUBITS](#clifft_max_qubits) below.
 
+### Platform and CPU support
+
+| Platform / CPU family | PyPI wheel | Source build | Notes |
+|---|---|---|---|
+| Linux `x86_64` with AVX2/BMI2/FMA | Supported | Supported | Wheel uses an `x86-64-v3` baseline and can dispatch to the AVX-512 SVM path on capable CPUs. |
+| Linux `x86_64` without AVX2 | Not supported | Supported | Use `pip install --no-binary clifft clifft` or build from a checkout. |
+| Linux `aarch64` | Supported | Supported | Wheels use a portable ARM baseline; local optimized builds default to native CPU tuning. |
+| macOS `arm64` | Supported | Supported | Wheels use a portable Apple Silicon baseline; local optimized builds are supported. |
+| Windows `amd64` | Supported | Supported | Wheels use the base SVM path on MSVC; Linux x86 wheels expose the hand-tuned AVX2/AVX-512 paths. |
+| macOS `x86_64` | Not supported | Supported | Build from source. |
+| Other CPU families | Not supported | Best effort | No wheels are published. |
+
+### CPU baseline policy
+
+- Published wheels use explicit portable baselines chosen in CI.
+- Local Python source builds and standalone C++ Release builds default to `CLIFFT_CPU_BASELINE=native`.
+- Supported values are `native`, `generic`, and `x86-64-v3`.
+- `x86-64-v3` is intended for Linux `x86_64` wheels and requires AVX2, BMI2, and FMA.
+
+Override the default when needed:
+
+```bash
+CLIFFT_CPU_BASELINE=generic uv pip install -e .
+```
+
 ## Standalone C++ Build
 
 For pure C++ development without Python:
@@ -50,6 +75,8 @@ ctest --test-dir build --output-on-failure
 | Debug | `-DCMAKE_BUILD_TYPE=Debug` | Development (default) |
 | Release | `-DCMAKE_BUILD_TYPE=Release` | Benchmarking |
 | RelWithDebInfo | `-DCMAKE_BUILD_TYPE=RelWithDebInfo` | Profiling |
+
+For optimized source builds, `Release` and `RelWithDebInfo` default to native CPU tuning on the build machine. On x86 GNU/Clang builds, that keeps the AVX2 and AVX-512 SVM specializations available for runtime dispatch.
 
 !!! info "First build takes 10-15 minutes"
     Stim (a dependency) has many source files. Subsequent builds are incremental.
