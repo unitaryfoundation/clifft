@@ -49,6 +49,19 @@ install(TARGETS _clifft_core
     LIBRARY DESTINATION clifft
     RUNTIME DESTINATION clifft)
 
+# Generate type stubs for the C++ extension at install time so that type
+# checkers (mypy, pyright) can see the full API.  INSTALL_TIME runs stubgen
+# after the .so is in its final location, which is required for import.
+nanobind_add_stub(
+    _clifft_core_stub
+    MODULE        clifft._clifft_core
+    OUTPUT        clifft/_clifft_core.pyi
+    MARKER_FILE   clifft/py.typed
+    INCLUDE_PRIVATE
+    INSTALL_TIME
+    DEPENDS       _clifft_core
+)
+
 # Install Python package files
 install(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/clifft/ DESTINATION clifft)
 install(FILES ${CMAKE_CURRENT_BINARY_DIR}/clifft/_build_config.py DESTINATION clifft)
