@@ -48,6 +48,15 @@ Results are written to `results.csv` in this directory.
 Each `(simulator, N, seed)` combination runs in an isolated subprocess to
 capture peak RSS memory and prevent GC drift between runs.
 
+For best Clifft performance on QV, use a custom 64-qubit build:
+
+```bash
+CLIFFT_MAX_QUBITS=64 uv pip install -e ..
+```
+
+The default package build uses 128 qubits to better cover the paper-facing
+surface-code and distillation workflows.
+
 ## Plotting
 
 ```bash

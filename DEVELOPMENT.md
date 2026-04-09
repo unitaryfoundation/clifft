@@ -98,11 +98,13 @@ cmake -B build -DCMAKE_BUILD_TYPE=RelWithDebInfo
 
 ### Custom Qubit Width
 
-By default, Clifft supports up to 64 qubits. This limit is a compile-time constant that controls the width of inline Pauli bitmasks (`BitMask<N>`) used in the HIR and VM Pauli frame. The VM `Instruction` struct stays 32 bytes regardless — only compile-time structures (HIR, Pauli frame) grow.
+By default, Clifft supports up to 128 qubits. This limit is a compile-time constant that controls the width of inline Pauli bitmasks (`BitMask<N>`) used in the HIR and VM Pauli frame. The VM `Instruction` struct stays 32 bytes regardless — only compile-time structures (HIR, Pauli frame) grow.
 
-To simulate larger circuits (e.g., distance-7 surface codes require 118 qubits, magic state cultivation needs ~480), rebuild with a higher limit. The value must be a multiple of 64.
+This default covers the paper-facing distance-7 surface code and 85-qubit distillation workloads. To simulate larger circuits (e.g., magic state cultivation at ~480 qubits), rebuild with a higher limit. The value must be a multiple of 64.
 
 At 64 qubits, each `BitMask` is a single `uint64_t` (8 bytes). At 512 qubits, it grows to 8 words (64 bytes). The compiler auto-vectorizes these operations (AVX2/AVX-512 on x86, NEON on ARM), so the overhead is modest for compilation, but the VM hot loop is unaffected since instructions use `uint16_t` axis indices.
+
+If you are benchmarking small random circuits such as `paper/qv_benchmark`, a custom 64-qubit build is still the best-performance configuration.
 
 #### Python package
 

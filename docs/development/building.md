@@ -88,8 +88,8 @@ Clifft's Pauli frame uses a compile-time-sized bitmask. The `CLIFFT_MAX_QUBITS` 
 
 | Setting | Max Qubits | Use Case |
 |---------|-----------|----------|
-| 64 (default) | 64 | Development, small circuits |
-| 128 | 128 | Distance-7 surface codes |
+| 64 | 64 | Best small-circuit and QV performance |
+| 128 (default) | 128 | Distance-7 surface codes, 85-qubit distillation |
 | 256 | 256 | Large QEC experiments |
 | 512 | 512 | Production-scale circuits |
 

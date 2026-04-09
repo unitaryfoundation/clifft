@@ -120,8 +120,9 @@ endif()
 # Maximum qubit count (compile-time). Determines the width of inline Pauli
 # masks (BitMask<N>) used by the HIR and SVM Pauli frame. The VM Instruction
 # struct stays 32 bytes regardless -- only compile-time structures grow.
-# Default 64 covers the common small-circuit development workflow; set to 512
-# for magic state cultivation circuits.
+# Default 128 covers the paper-facing install experience (distance-7 surface
+# code and 85-qubit distillation). Rebuild with 64 for best small/QV
+# performance or 512 for larger cultivation circuits.
 # Can be set via -DCLIFFT_MAX_QUBITS=N or the CLIFFT_MAX_QUBITS env var.
 # The env var is checked every configure, so `export CLIFFT_MAX_QUBITS=512`
 # works with scikit-build-core editable installs that reconfigure each build.
@@ -129,7 +130,7 @@ if(DEFINED ENV{CLIFFT_MAX_QUBITS})
     set(CLIFFT_MAX_QUBITS "$ENV{CLIFFT_MAX_QUBITS}" CACHE STRING
         "Maximum supported qubits (must be a multiple of 64, >= 64)" FORCE)
 else()
-    set(CLIFFT_MAX_QUBITS "64" CACHE STRING
+    set(CLIFFT_MAX_QUBITS "128" CACHE STRING
         "Maximum supported qubits (must be a multiple of 64, >= 64)")
 endif()
 if(CLIFFT_MAX_QUBITS LESS 64)

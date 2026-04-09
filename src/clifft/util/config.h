@@ -8,11 +8,11 @@
 namespace clifft {
 
 // Maximum number of qubits supported at compile-time.
-// Set via -DCLIFFT_MAX_QUBITS=N at CMake configure time (default 64).
+// Set via -DCLIFFT_MAX_QUBITS=N at CMake configure time (default 128).
 // Determines the width of BitMask<N> used in HIR Pauli masks and the
 // SVM Pauli frame. The VM Instruction struct stays 32 bytes regardless.
 #ifndef CLIFFT_MAX_QUBITS
-#define CLIFFT_MAX_QUBITS 64
+#define CLIFFT_MAX_QUBITS 128
 #endif
 
 static_assert(CLIFFT_MAX_QUBITS >= 64, "CLIFFT_MAX_QUBITS must be at least 64");

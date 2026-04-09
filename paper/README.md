@@ -110,6 +110,10 @@ Clifft on random QV circuits has similar exponential scaling, so expect
 OOM at comparable N values.  The benchmark gracefully records OOM
 and timeout as status codes in the CSV.
 
+For best Clifft performance on these small random circuits, rebuild the
+package with `CLIFFT_MAX_QUBITS=64`. The default 128-qubit package build is
+chosen to better cover the paper-facing surface-code and distillation demos.
+
 For a faster first pass, use `--repeats 1` to find the OOM
 boundaries, then re-run with `--repeats 3` on a narrower range.
 

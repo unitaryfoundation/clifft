@@ -21,7 +21,7 @@ def test_version() -> None:
 def test_max_sim_qubits() -> None:
     """Test that max_sim_qubits() returns the expected value."""
     max_qubits = clifft.max_sim_qubits()
-    assert max_qubits == 64
+    assert max_qubits == 128
 
 
 def test_module_version_attribute() -> None:
