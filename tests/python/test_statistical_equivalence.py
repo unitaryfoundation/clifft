@@ -18,8 +18,8 @@ from conftest import cross_binomial_tolerance
 
 import clifft
 
-# Path to the shared target QEC circuit file (also used by benchmarks)
-_TARGET_QEC_PATH = Path(__file__).parent.parent.parent / "tools" / "bench" / "target_qec.stim"
+# Path to the shared target QEC circuit fixture
+_TARGET_QEC_PATH = Path(__file__).parent.parent / "fixtures" / "target_qec.stim"
 
 
 def _load_target_qec_circuit() -> str:

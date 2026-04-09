@@ -31,7 +31,7 @@ just profile-build
 CLIFFT_T_GATES=10 CLIFFT_SHOTS=100000 ./build/profile_svm
 
 # Load a real circuit file
-CLIFFT_CIRCUIT_FILE=tools/bench/target_qec.stim CLIFFT_SHOTS=100000 ./build/profile_svm
+CLIFFT_CIRCUIT_FILE=tests/fixtures/target_qec.stim CLIFFT_SHOTS=100000 ./build/profile_svm
 ```
 
 ## Environment variables
@@ -53,7 +53,7 @@ CLIFFT_CIRCUIT_FILE=tools/bench/target_qec.stim CLIFFT_SHOTS=100000 ./build/prof
 perf record -F 9999 -g --call-graph dwarf -o perf.data ./build/profile_svm
 
 # QEC circuit
-CLIFFT_CIRCUIT_FILE=tools/bench/target_qec.stim CLIFFT_SHOTS=100000 \
+CLIFFT_CIRCUIT_FILE=tests/fixtures/target_qec.stim CLIFFT_SHOTS=100000 \
   perf record -F 9999 -g --call-graph dwarf -o perf.data ./build/profile_svm
 
 # T-gate circuit (SVM inner loop dominated)

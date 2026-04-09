@@ -802,7 +802,7 @@ class TestSampleSurvivors:
 
         import stim
 
-        circuit_path = pathlib.Path("tools/bench/target_qec.stim")
+        circuit_path = pathlib.Path("tests/fixtures/target_qec.stim")
         stim_circuit = stim.Circuit.from_file(str(circuit_path))
         text = circuit_path.read_text()
 

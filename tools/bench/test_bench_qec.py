@@ -15,7 +15,7 @@ import stim
 import clifft
 
 # Load target circuit from file
-_CIRCUIT_PATH = Path(__file__).parent / "target_qec.stim"
+_CIRCUIT_PATH = Path(__file__).parent.parent.parent / "tests" / "fixtures" / "target_qec.stim"
 _CIRCUIT_TEXT = _CIRCUIT_PATH.read_text()
 
 # Number of shots for sampling benchmarks
