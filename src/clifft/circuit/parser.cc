@@ -19,122 +19,31 @@ namespace clifft {
 
 namespace {
 
-// Gate name lookup table -- sorted for binary search, lives in .rodata
-// with zero static initialization cost (no heap allocation at startup).
-constexpr std::pair<std::string_view, GateType> kGateNames[] = {
-    {"CNOT", GateType::CX},
-    {"CX", GateType::CX},
-    {"CXSWAP", GateType::CXSWAP},
-    {"CY", GateType::CY},
-    {"CZ", GateType::CZ},
-    {"CZSWAP", GateType::CZSWAP},
-    {"C_NXYZ", GateType::C_NXYZ},
-    {"C_NZYX", GateType::C_NZYX},
-    {"C_XNYZ", GateType::C_XNYZ},
-    {"C_XYNZ", GateType::C_XYNZ},
-    {"C_XYZ", GateType::C_XYZ},
-    {"C_ZNYX", GateType::C_ZNYX},
-    {"C_ZYNX", GateType::C_ZYNX},
-    {"C_ZYX", GateType::C_ZYX},
-    {"DEPOLARIZE1", GateType::DEPOLARIZE1},
-    {"DEPOLARIZE2", GateType::DEPOLARIZE2},
-    {"DETECTOR", GateType::DETECTOR},
-    {"EXP_VAL", GateType::EXP_VAL},
-    {"H", GateType::H},
-    {"H_NXY", GateType::H_NXY},
-    {"H_NXZ", GateType::H_NXZ},
-    {"H_NYZ", GateType::H_NYZ},
-    {"H_XY", GateType::H_XY},
-    {"H_XZ", GateType::H},
-    {"H_YZ", GateType::H_YZ},
-    {"I", GateType::I},
-    {"II", GateType::II},
-    {"II_ERROR", GateType::II_ERROR},
-    {"ISWAP", GateType::ISWAP},
-    {"ISWAP_DAG", GateType::ISWAP_DAG},
-    {"I_ERROR", GateType::I_ERROR},
-    {"M", GateType::M},
-    {"MPAD", GateType::MPAD},
-    {"MPP", GateType::MPP},
-    {"MR", GateType::MR},
-    {"MRX", GateType::MRX},
-    {"MRY", GateType::MRY},
-    {"MRZ", GateType::MR},
-    {"MX", GateType::MX},
-    {"MXX", GateType::MXX},
-    {"MY", GateType::MY},
-    {"MYY", GateType::MYY},
-    {"MZ", GateType::M},
-    {"MZZ", GateType::MZZ},
-    {"OBSERVABLE_INCLUDE", GateType::OBSERVABLE_INCLUDE},
-    {"PAULI_CHANNEL_1", GateType::PAULI_CHANNEL_1},
-    {"PAULI_CHANNEL_2", GateType::PAULI_CHANNEL_2},
-    {"R", GateType::R},
-    {"RX", GateType::RX},
-    {"RXX", GateType::R_XX},
-    {"RY", GateType::RY},
-    {"RYY", GateType::R_YY},
-    {"RZ", GateType::R},
-    {"RZZ", GateType::R_ZZ},
-    {"R_PAULI", GateType::R_PAULI},
-    {"R_X", GateType::R_X},
-    {"R_XX", GateType::R_XX},
-    {"R_Y", GateType::R_Y},
-    {"R_YY", GateType::R_YY},
-    {"R_Z", GateType::R_Z},
-    {"R_ZZ", GateType::R_ZZ},
-    {"S", GateType::S},
-    {"SQRT_X", GateType::SQRT_X},
-    {"SQRT_XX", GateType::SQRT_XX},
-    {"SQRT_XX_DAG", GateType::SQRT_XX_DAG},
-    {"SQRT_X_DAG", GateType::SQRT_X_DAG},
-    {"SQRT_Y", GateType::SQRT_Y},
-    {"SQRT_YY", GateType::SQRT_YY},
-    {"SQRT_YY_DAG", GateType::SQRT_YY_DAG},
-    {"SQRT_Y_DAG", GateType::SQRT_Y_DAG},
-    {"SQRT_Z", GateType::S},
-    {"SQRT_ZZ", GateType::SQRT_ZZ},
-    {"SQRT_ZZ_DAG", GateType::SQRT_ZZ_DAG},
-    {"SQRT_Z_DAG", GateType::S_DAG},
-    {"SWAP", GateType::SWAP},
-    {"SWAPCX", GateType::SWAPCX},
-    {"SWAPCZ", GateType::CZSWAP},
-    {"S_DAG", GateType::S_DAG},
-    {"T", GateType::T},
-    {"TICK", GateType::TICK},
-    {"T_DAG", GateType::T_DAG},
-    {"U", GateType::U3},
-    {"U3", GateType::U3},
-    {"X", GateType::X},
-    {"XCX", GateType::XCX},
-    {"XCY", GateType::XCY},
-    {"XCZ", GateType::XCZ},
-    {"X_ERROR", GateType::X_ERROR},
-    {"Y", GateType::Y},
-    {"YCX", GateType::YCX},
-    {"YCY", GateType::YCY},
-    {"YCZ", GateType::YCZ},
-    {"Y_ERROR", GateType::Y_ERROR},
-    {"Z", GateType::Z},
-    {"ZCX", GateType::CX},
-    {"ZCY", GateType::CY},
+// Alternate gate names (Stim compatibility, shorthand, Z-basis synonyms).
+// Only aliases live here; canonical names come from kGateTraitsData in gate_data.h.
+constexpr std::pair<std::string_view, GateType> kGateAliases[] = {
+    {"CNOT", GateType::CX},       {"H_XZ", GateType::H},
+    {"MRZ", GateType::MR},        {"MZ", GateType::M},
+    {"RXX", GateType::R_XX},      {"RYY", GateType::R_YY},
+    {"RZ", GateType::R},          {"RZZ", GateType::R_ZZ},
+    {"SQRT_Z", GateType::S},      {"SQRT_Z_DAG", GateType::S_DAG},
+    {"SWAPCZ", GateType::CZSWAP}, {"U", GateType::U3},
+    {"ZCX", GateType::CX},        {"ZCY", GateType::CY},
     {"ZCZ", GateType::CZ},
-    {"Z_ERROR", GateType::Z_ERROR},
 };
-constexpr size_t kNumGateNames = std::size(kGateNames);
-static_assert(std::is_sorted(std::begin(kGateNames), std::end(kGateNames),
-                             [](const auto& a, const auto& b) { return a.first < b.first; }),
-              "kGateNames must be sorted by name for binary search");
 
-// Binary search the sorted gate table. Returns nullptr if not found.
-constexpr const std::pair<std::string_view, GateType>* find_gate(std::string_view name) {
-    auto it =
-        std::lower_bound(std::begin(kGateNames), std::end(kGateNames), name,
-                         [](const auto& entry, std::string_view key) { return entry.first < key; });
-    if (it != std::end(kGateNames) && it->first == name) {
-        return it;
+// Look up a gate name, checking aliases first then canonical names from gate_data.h.
+constexpr GateType find_gate(std::string_view name) {
+    for (const auto& [alias, type] : kGateAliases) {
+        if (alias == name)
+            return type;
     }
-    return nullptr;
+    for (size_t i = 0; i < static_cast<size_t>(GateType::UNKNOWN); ++i) {
+        if (detail::kGateTraitsData[i].name == name) {
+            return static_cast<GateType>(i);
+        }
+    }
+    return GateType::UNKNOWN;
 }
 
 // Coordinate annotations to silently discard (no AST nodes emitted).
@@ -320,12 +229,10 @@ class Parser {
         }
 
         // Look up gate type.
-        auto* gate_it = find_gate(gate_name);
-        if (!gate_it) {
+        GateType gate = find_gate(gate_name);
+        if (gate == GateType::UNKNOWN) {
             throw ParseError("Unknown gate: " + std::string(gate_name), line_num);
         }
-
-        GateType gate = gate_it->second;
 
         // Validate argument counts for multi-probability channels.
         if (gate == GateType::PAULI_CHANNEL_1 && args.size() != 3) {
@@ -1152,8 +1059,7 @@ class Parser {
 }  // namespace
 
 GateType parse_gate_name(std::string_view name) {
-    auto* it = find_gate(name);
-    return it ? it->second : GateType::UNKNOWN;
+    return find_gate(name);
 }
 
 Circuit parse(std::string_view text) {
