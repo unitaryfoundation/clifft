@@ -289,7 +289,7 @@ struct CompilerContext {
     ConstantPool constant_pool;
     double noise_hazards_accum = 0.0;
 
-    // Explorer telemetry (populated by lower(), parallel to bytecode)
+    // Playground telemetry (populated by lower(), parallel to bytecode)
     SourceMap source_map;
     std::vector<uint32_t> emit_k_history;  // per-instruction k captured at emit time
 

@@ -75,7 +75,7 @@ nav:
   - Theory:
     - Overview: theory/overview.md
     - Architecture: theory/architecture.md
-  - Explorer: explorer.md
+  - Playground: playground.md
   - Reference:
     - Supported Gates: reference/gates.md
     - Instruction Reference: reference/instructions.md

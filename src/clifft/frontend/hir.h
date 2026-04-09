@@ -423,7 +423,7 @@ struct HirModule {
     // correct amplitude tracking if exporting to physical routing tools.
     std::complex<double> global_weight = {1.0, 0.0};
 
-    // --- Source Mapping (Explorer) ---
+    // --- Source Mapping (Playground) ---
     // Parallel to ops: source_map[i] lists the original source line(s)
     // that produced ops[i]. Inner vector has multiple entries when an
     // optimizer fuses operations (e.g. T+T -> S carries both lines).

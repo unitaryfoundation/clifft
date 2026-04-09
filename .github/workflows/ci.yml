@@ -8,7 +8,7 @@ on:
   pull_request:
     paths-ignore:
       - 'docs/**'
-      - 'explorer/**'
+      - 'playground/**'
       - 'paper/**'
       - '*.md'
       - '.github/workflows/docs.yml'
@@ -63,7 +63,7 @@ jobs:
       - name: Run pre-commit
         run: uv tool run pre-commit run --all-files
 
-  explorer-lint:
+  playground-lint:
     runs-on: ubuntu-24.04
     steps:
       - name: Checkout code
@@ -74,16 +74,16 @@ jobs:
         with:
           node-version: 22
           cache: npm
-          cache-dependency-path: explorer/package-lock.json
+          cache-dependency-path: playground/package-lock.json
 
       - name: Install dependencies
-        run: cd explorer && npm ci
+        run: cd playground && npm ci
 
       - name: TypeScript type check
-        run: cd explorer && npx tsc -b
+        run: cd playground && npx tsc -b
 
       - name: ESLint
-        run: cd explorer && npm run lint
+        run: cd playground && npm run lint
 
   build-and-test:
     needs: lint

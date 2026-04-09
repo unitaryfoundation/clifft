@@ -276,9 +276,9 @@ Open these files in a browser to view detailed line-by-line coverage.
 - Coverage artifacts are gitignored.
 
 
-## WebAssembly Build (Compiler Explorer)
+## WebAssembly Build (Playground)
 
-Clifft can be compiled to WebAssembly for the browser-based Compiler Explorer. This uses [Emscripten](https://emscripten.org/) via Docker, so no native Emscripten install is needed.
+Clifft can be compiled to WebAssembly for the browser-based Playground. This uses [Emscripten](https://emscripten.org/) via Docker, so no native Emscripten install is needed.
 
 ### Prerequisites
 
@@ -289,7 +289,7 @@ Clifft can be compiled to WebAssembly for the browser-based Compiler Explorer. T
 ### Building
 
 ```bash
-# Build the Wasm module (outputs to explorer/public/)
+# Build the Wasm module (outputs to playground/public/)
 just build-wasm
 
 # Run the Node.js smoke tests
@@ -297,8 +297,8 @@ just test-wasm
 ```
 
 The build produces two files:
-- `explorer/public/clifft_wasm.js` (~92 KB) - JavaScript loader/glue
-- `explorer/public/clifft_wasm.wasm` (~460 KB) - WebAssembly binary
+- `playground/public/clifft_wasm.js` (~92 KB) - JavaScript loader/glue
+- `playground/public/clifft_wasm.wasm` (~460 KB) - WebAssembly binary
 
 ### Manual Build (without `just`)
 
@@ -313,8 +313,8 @@ docker run --rm \
     cmake --build build-wasm -j$(nproc)'
 
 # Copy outputs
-mkdir -p explorer/public
-cp build-wasm/clifft_wasm.{js,wasm} explorer/public/
+mkdir -p playground/public
+cp build-wasm/clifft_wasm.{js,wasm} playground/public/
 
 # Test
 docker run --rm \

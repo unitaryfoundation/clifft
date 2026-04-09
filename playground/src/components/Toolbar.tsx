@@ -147,7 +147,7 @@ export function Toolbar({
   return (
     <div className="toolbar">
       <div className="toolbar-left">
-        <span className="toolbar-title">Clifft Compiler Explorer</span>
+        <span className="toolbar-title">Clifft Playground</span>
         <button
           className="toolbar-btn toolbar-btn-tour"
           onClick={onTourOpen}

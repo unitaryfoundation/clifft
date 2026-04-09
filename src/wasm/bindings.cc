@@ -1,4 +1,4 @@
-// Emscripten/Embind bridge for the Clifft Compiler Explorer.
+// Emscripten/Embind bridge for the Clifft Playground.
 //
 // Exposes three functions to JavaScript:
 //   get_available_passes() -> JSON string with pass registry

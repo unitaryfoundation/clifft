@@ -18,5 +18,5 @@ Initial public release of Clifft.
 - Python bindings via nanobind (`import clifft`)
 - HIR and bytecode optimization passes (peephole fusion, single-axis fusion, statevector squeeze, noise block, expand-T, and more)
 - Expectation value computation
-- WebAssembly build for browser-based Compiler Explorer
+- WebAssembly build for browser-based Playground
 - MkDocs documentation site

@@ -148,7 +148,7 @@ bench *args="":
   uv run pytest tools/bench/ --benchmark-sort=name --benchmark-columns=Mean,StdDev,Ops {{args}}
 
 # -------------------------
-# WebAssembly (Explorer)
+# WebAssembly (Playground)
 # -------------------------
 
 # Build the Wasm module using the emscripten/emsdk Docker image
@@ -166,10 +166,10 @@ build-wasm:
         -DCMAKE_BUILD_TYPE=Release \
         -DFETCHCONTENT_QUIET=ON && \
       cmake --build build-wasm -j$(nproc)'
-  mkdir -p explorer/public
-  cp build-wasm/clifft_wasm.js explorer/public/clifft_wasm.js
-  cp build-wasm/clifft_wasm.wasm explorer/public/clifft_wasm.wasm
-  echo "Output: explorer/public/clifft_wasm.{js,wasm}"
+  mkdir -p playground/public
+  cp build-wasm/clifft_wasm.js playground/public/clifft_wasm.js
+  cp build-wasm/clifft_wasm.wasm playground/public/clifft_wasm.wasm
+  echo "Output: playground/public/clifft_wasm.{js,wasm}"
 
 # Test the Wasm module with a quick Node.js smoke test
 test-wasm:
@@ -195,20 +195,20 @@ docs-build:
   uv run mkdocs build --strict
 
 # -------------------------
-# Explorer
+# Playground
 # -------------------------
 
-# Install explorer dependencies
-explorer-install:
-  cd explorer && npm ci
+# Install playground dependencies
+playground-install:
+  cd playground && npm ci
 
-# Start the explorer dev server
-explorer-dev:
-  cd explorer && npx vite --port 8000 --host
+# Start the playground dev server
+playground-dev:
+  cd playground && npx vite --port 8000 --host
 
-# Build the explorer for production
-explorer-build:
-  cd explorer && npm run build
+# Build the playground for production
+playground-build:
+  cd playground && npm run build
 
 # -------------------------
 # Release

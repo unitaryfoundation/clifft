@@ -55,7 +55,7 @@ function renderTourContent(content: string): ReactNode[] {
 
 const STEPS: TourStep[] = [
   {
-    title: "Welcome to the Clifft Compiler Explorer",
+    title: "Welcome to the Clifft Playground",
     content:
       "This tool lets you write quantum circuits in Stim format and see, " +
       "in real time, how the Clifft compiler transforms them through its " +

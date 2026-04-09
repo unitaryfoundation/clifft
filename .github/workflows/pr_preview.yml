@@ -6,7 +6,7 @@ on:
     types: [opened, reopened, synchronize, closed]
     paths:
       - 'docs/**'
-      - 'explorer/**'
+      - 'playground/**'
       - 'src/wasm/**'
       - 'mkdocs.yml'
       - '.github/workflows/pr_preview.yml'
@@ -30,20 +30,20 @@ jobs:
 
       - name: Copy Wasm artifacts
         run: |
-          mkdir -p explorer/public
-          cp build-wasm/clifft_wasm.js explorer/public/
-          cp build-wasm/clifft_wasm.wasm explorer/public/
+          mkdir -p playground/public
+          cp build-wasm/clifft_wasm.js playground/public/
+          cp build-wasm/clifft_wasm.wasm playground/public/
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: npm
-          cache-dependency-path: explorer/package-lock.json
+          cache-dependency-path: playground/package-lock.json
 
-      - name: Build explorer
+      - name: Build playground
         run: |
-          cd explorer && npm ci
+          cd playground && npm ci
           VITE_BASE_PATH=/clifft/pr-preview/pr-${{ github.event.number }}/playground/ npm run build
 
       # --- Build MkDocs (docs group only, no C++ extension needed) ---
@@ -57,9 +57,9 @@ jobs:
         env:
           SITE_URL: https://unitaryfoundation.github.io/clifft/pr-preview/pr-${{ github.event.number }}/
 
-      # --- Merge: copy explorer into mkdocs output ---
-      - name: Copy explorer into site
-        run: cp -r explorer/dist site/playground
+      # --- Merge: copy playground into mkdocs output ---
+      - name: Copy playground into site
+        run: cp -r playground/dist site/playground
 
       - name: Upload build artifact
         uses: actions/upload-artifact@v4
