@@ -5,8 +5,8 @@ combination and collects results into a CSV file.
 
 Usage
 -----
-    python run_benchmark.py --min-q 6 --max-q 26 --repeats 3
-    python run_benchmark.py --qubits 10,14,18,22 --simulators clifft,qiskit
+    python qv_benchmark/run_benchmark.py --min-q 6 --max-q 26 --repeats 3
+    python qv_benchmark/run_benchmark.py --qubits 10,14,18,22 --simulators clifft,qiskit
 """
 
 from __future__ import annotations
@@ -154,8 +154,7 @@ def _run_worker(
     """
     cmd: list[str] = [
         sys.executable,
-        "-m",
-        "qv_benchmark.worker",
+        str(_HERE / "worker.py"),
         simulator,
         str(n_qubits),
         str(seed),

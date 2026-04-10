@@ -4,7 +4,7 @@ Spawned by the orchestrator in a fresh process to prevent GC drift.
 
 Usage
 -----
-    python worker.py <simulator> <num_qubits> <seed>
+    python qv_benchmark/worker.py <simulator> <num_qubits> <seed>
 
 where *simulator* is one of: ``clifft``, ``qiskit``, ``qulacs``, ``qsim``, ``qrack``.
 """
@@ -16,6 +16,11 @@ import os
 import resource
 import sys
 import time
+from pathlib import Path
+
+# Allow direct script invocation: add this directory to the import path
+# so sibling modules (generator, qasm_adapter) are importable.
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 # ---- pin every backend to a single thread BEFORE heavy imports -----------
 os.environ["OMP_NUM_THREADS"] = "1"
@@ -70,7 +75,7 @@ def _result_json(
 
 
 def _run_clifft(qasm: str) -> dict[str, float]:
-    from qv_benchmark.qasm_adapter import to_clifft_stim
+    from qasm_adapter import to_clifft_stim
 
     import clifft  # heavy import inside branch
 
@@ -107,8 +112,8 @@ def _run_qiskit(qasm: str) -> dict[str, float]:
 
 
 def _run_qulacs(qasm: str) -> dict[str, float]:
+    from qasm_adapter import to_qulacs_circuit
     from qulacs import QuantumState
-    from qv_benchmark.qasm_adapter import to_qulacs_circuit
 
     qc, nq = to_qulacs_circuit(qasm)
     state = QuantumState(nq)
@@ -122,7 +127,7 @@ def _run_qulacs(qasm: str) -> dict[str, float]:
 
 def _run_qsim(qasm: str) -> dict[str, float]:
     import qsimcirq
-    from qv_benchmark.qasm_adapter import to_cirq_circuit
+    from qasm_adapter import to_cirq_circuit
 
     circuit = to_cirq_circuit(qasm)
     sim = qsimcirq.QSimSimulator(qsimcirq.QSimOptions(cpu_threads=1))
@@ -183,7 +188,7 @@ def main() -> None:
         _apply_mem_limit()
 
         # -- generate QV circuit (not timed) -----------------------------------
-        from qv_benchmark.generator import generate_qv_qasm
+        from generator import generate_qv_qasm
 
         qasm: str = generate_qv_qasm(num_qubits, seed=seed)
 

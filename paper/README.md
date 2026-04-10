@@ -15,20 +15,26 @@ error correction circuits.
 
 ## Setup
 
-The `paper/` directory is a standalone Python package.  Install it
-(in editable mode) to make all benchmark modules importable:
-
 ```bash
 cd paper
-uv sync          # creates .venv and installs stim, pandas, numpy
+uv sync          # creates .venv and installs clifft, stim, pandas, numpy, matplotlib
 ```
 
-**Additional runtime dependencies** (not on PyPI):
-- **clifft** — install from the parent repo: `uv pip install -e ..`
-- **tsim** — `uv pip install bloqade-tsim>=0.1.2`
+Each benchmark group builds clifft from source with a different
+`CLIFFT_MAX_QUBITS` value. After `uv sync`, rebuild clifft with
+the appropriate qubit width:
+
+```bash
+CLIFFT_MAX_QUBITS=64  uv pip install --no-binary clifft clifft   # QV, Clifford
+CLIFFT_MAX_QUBITS=512 uv pip install --no-binary clifft clifft   # magic state cultivation
+```
+
+**Dependency groups** (install with `uv sync --group <name>`):
+- **tsim** — `uv sync --group tsim` (adds bloqade-tsim for Clifford/near-Clifford benchmarks)
+- **qv** — `uv sync --group qv` (adds qiskit, qiskit-aer for QV benchmark)
 
 Benchmarks that select only available simulators (e.g.
-`--simulators stim`) work without clifft or tsim.
+`--simulators stim`) work without tsim or qiskit.
 
 ## Quick start
 
@@ -36,7 +42,7 @@ All commands below run from the `paper/` directory.
 
 ```bash
 # Smoke test (Stim only, fast)
-uv run python -m clifford_bench.run_benchmark \
+uv run python clifford_bench/run_benchmark.py \
     --distances 3 --shots 1000 --repeats 1 --simulators stim
 ```
 
@@ -49,26 +55,26 @@ and cutting for non-Clifford circuits.
 
 ```bash
 # 1. Clifford surface code d=3,5,7 — Stim, Clifft, tsim (default strategy)
-JAX_PLATFORMS=cpu uv run python -m clifford_bench.run_benchmark \
+JAX_PLATFORMS=cpu uv run python clifford_bench/run_benchmark.py \
     --distances 3,5,7 --error-rates 1e-3 \
     --simulators stim,clifft,tsim
 
 # 2. Near-Clifford cultivation d=3 — Clifft, tsim (cutting strategy)
-JAX_PLATFORMS=cpu uv run python -m near_clifford_bench.run_benchmark \
+JAX_PLATFORMS=cpu uv run python near_clifford_bench/run_benchmark.py \
     --distances 3 --error-rates 1e-3 \
     --simulators clifft,tsim
 
 # 3. Magic state distillation 85q — Clifft, tsim (default strategy)
-JAX_PLATFORMS=cpu uv run python -m distillation_bench.run_benchmark \
+JAX_PLATFORMS=cpu uv run python distillation_bench/run_benchmark.py \
     --simulators clifft,tsim
 
 # 4. Coherent noise d=5 r=1 — Clifft, tsim (cutting strategy)
-JAX_PLATFORMS=cpu uv run python -m coherent_noise_bench.run_benchmark \
+JAX_PLATFORMS=cpu uv run python coherent_noise_bench/run_benchmark.py \
     --distances 5 --rounds 1 \
     --simulators clifft,tsim
 
 # 5. Coherent noise d=5 r=5 — Clifft only (tsim cannot compile)
-uv run python -m coherent_noise_bench.run_benchmark \
+uv run python coherent_noise_bench/run_benchmark.py \
     --distances 5 --rounds 5 \
     --simulators clifft
 ```
@@ -91,7 +97,7 @@ an isolated subprocess with memory and timeout limits.
 **Recommended run (24-core, 96 GB RAM instance):**
 
 ```bash
-uv run python -m qv_benchmark \
+uv run python qv_benchmark/run_benchmark.py \
     --min-q 6 --max-q 32 --step 2 \
     --mem-limit-gb 80 --timeout 600 \
     --repeats 3
@@ -128,9 +134,9 @@ Each circuit is compiled in a separate subprocess, so hung compiles
 are fully killed on timeout.
 
 ```bash
-JAX_PLATFORMS=cpu uv run python -m tsim_compile_check
+JAX_PLATFORMS=cpu uv run python tsim_compile_check.py
 
-JAX_PLATFORMS=cpu uv run python -m tsim_compile_check --timeout 120
+JAX_PLATFORMS=cpu uv run python tsim_compile_check.py --timeout 120
 ```
 
 This tests all benchmark circuits with both the default and cutting

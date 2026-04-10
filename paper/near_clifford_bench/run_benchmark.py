@@ -19,8 +19,12 @@ from __future__ import annotations
 
 import argparse
 import re
+import sys
 from pathlib import Path
 from typing import Sequence
+
+# Allow direct script invocation from the repo root.
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from bench_common import run_benchmark_loop
 

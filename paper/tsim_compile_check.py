@@ -9,9 +9,9 @@ Requires: bloqade-tsim >= 0.1.2, stim, clifft
 
 Usage:
     JAX_PLATFORMS=cpu uv run --with 'bloqade-tsim>=0.1.2' \
-        python paper/tsim_compile_check.py
+        python tsim_compile_check.py
     JAX_PLATFORMS=cpu uv run --with 'bloqade-tsim>=0.1.2' \
-        python paper/tsim_compile_check.py --timeout 120
+        python tsim_compile_check.py --timeout 120
 """
 
 from __future__ import annotations

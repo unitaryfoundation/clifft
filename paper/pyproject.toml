@@ -1,34 +1,33 @@
-[build-system]
-requires = ["setuptools>=68.0"]
-build-backend = "setuptools.build_meta"
-
 [project]
 name = "clifft-paper-benchmarks"
 version = "0.1.0"
 description = "Benchmark suite for the Clifft paper"
 requires-python = ">=3.12"
 dependencies = [
+    "clifft",
     "stim",
     "pandas",
     "numpy",
+    "matplotlib",
 ]
 
-# clifft and tsim are runtime dependencies but not PyPI packages.
-# Install clifft from the parent repo (`pip install -e ..`); install tsim
-# per its own instructions (`pip install bloqade-tsim`).  Benchmarks
-# that select only available simulators (--simulators stim) work without
-# these.
-
-[project.optional-dependencies]
-plot = ["matplotlib"]
-qv = ["qiskit>=1.0", "qiskit-aer"]
-
-[tool.setuptools]
-py-modules = ["bench_common"]
-packages = [
-    "clifford_bench",
-    "near_clifford_bench",
-    "distillation_bench",
-    "coherent_noise_bench",
-    "qv_benchmark",
+[dependency-groups]
+qv = [
+    "qiskit>=1.0",
+    "qiskit-aer",
 ]
+tsim = [
+    "bloqade-tsim>=0.1.2",
+]
+
+[tool.uv]
+package = false
+
+[tool.uv.sources]
+# Pin the exact clifft commit used for paper results. Each benchmark group
+# builds clifft from source with a different CLIFFT_MAX_QUBITS value:
+#   QV benchmark:                    CLIFFT_MAX_QUBITS=64
+#   Clifford / near-Clifford / tsim: CLIFFT_MAX_QUBITS=64
+#   Magic state cultivation:         CLIFFT_MAX_QUBITS=512
+# Install with: CLIFFT_MAX_QUBITS=<N> uv pip install --no-binary clifft clifft
+clifft = { git = "https://github.com/unitaryfoundation/ucc-next", rev = "6d54aa8" }

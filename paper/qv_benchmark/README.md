@@ -28,16 +28,16 @@ All commands run from the `paper/` directory (see top-level
 
 ```bash
 # Quick test
-uv run python -m qv_benchmark --min-q 6 --max-q 12 --repeats 1 --simulators clifft,qiskit
+uv run python qv_benchmark/run_benchmark.py --min-q 6 --max-q 12 --repeats 1 --simulators clifft,qiskit
 
 # Specific qubit counts
-uv run python -m qv_benchmark --qubits 10,14,18,22
+uv run python qv_benchmark/run_benchmark.py --qubits 10,14,18,22
 
 # Single simulator
-uv run python -m qv_benchmark --simulators clifft
+uv run python qv_benchmark/run_benchmark.py --simulators clifft
 
 # Recommended EC2 run (24-core, 96 GB RAM)
-uv run python -m qv_benchmark \
+uv run python qv_benchmark/run_benchmark.py \
     --min-q 6 --max-q 32 --step 2 \
     --mem-limit-gb 80 --timeout 600 \
     --repeats 3
@@ -60,7 +60,7 @@ surface-code and distillation workflows.
 ## Plotting
 
 ```bash
-python plot_qv.py
+uv run python qv_benchmark/plot_qv.py
 ```
 
 Produces a log-scale execution time vs qubit count plot.
@@ -68,7 +68,7 @@ Produces a log-scale execution time vs qubit count plot.
 ## Validation
 
 ```bash
-python validate_hop.py
+uv run python qv_benchmark/validate_hop.py
 ```
 
 Validates Clifft's statevector output against Qiskit-Aer using fidelity
