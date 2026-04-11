@@ -32,6 +32,9 @@ CLIFFT_T_GATES=10 CLIFFT_SHOTS=100000 ./build/profile_svm
 
 # Load a real circuit file
 CLIFFT_CIRCUIT_FILE=tests/fixtures/target_qec.stim CLIFFT_SHOTS=100000 ./build/profile_svm
+
+# QV-20: large statevector workload (peak rank 20, array ops dominate)
+CLIFFT_CIRCUIT_FILE=tools/bench/fixtures/qv20_seed42.stim CLIFFT_SHOTS=10 ./build/profile_svm
 ```
 
 ## Environment variables

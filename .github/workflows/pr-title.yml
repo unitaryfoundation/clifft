@@ -16,7 +16,7 @@ jobs:
           TITLE: ${{ github.event.pull_request.title }}
         run: |
           # Conventional commit prefixes accepted by git-cliff
-          PATTERN='^(feat|fix|docs|perf|refactor|test|build|ci|chore|style|revert)(\(.+\))?!?: .+'
+          PATTERN='^(feat|fix|docs|perf|refactor|test|bench|build|ci|chore|style|revert)(\(.+\))?!?: .+'
 
           if [[ ! "$TITLE" =~ $PATTERN ]]; then
             echo "::error::PR title does not follow conventional commit format."
@@ -24,7 +24,7 @@ jobs:
             echo "Expected: <type>[optional scope]: <description>"
             echo "Got:      $TITLE"
             echo ""
-            echo "Valid types: feat, fix, docs, perf, refactor, test, build, ci, chore, style, revert"
+            echo "Valid types: feat, fix, docs, perf, refactor, test, bench, build, ci, chore, style, revert"
             echo "Examples:"
             echo "  feat: add importance sampling API"
             echo "  fix(parser): handle empty REPEAT blocks"
