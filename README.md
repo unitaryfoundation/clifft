@@ -27,6 +27,16 @@ pip install clifft
 All other platforms and CPU families should build from source. See
 [installation docs](docs/getting-started/installation.md#from-source).
 
+For macOS source builds, install Homebrew `libomp` first if you want
+OpenMP-enabled multi-core statevector execution:
+
+<!--pytest.mark.skip-->
+```bash
+brew install libomp
+```
+
+Linux source builds typically find OpenMP automatically with GCC or Clang.
+
 ## Quick Start
 
 ```python

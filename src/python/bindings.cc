@@ -20,6 +20,10 @@
 #include "clifft/util/introspection.h"
 #include "clifft/util/version.h"
 
+#ifdef _OPENMP
+#include <omp.h>
+#endif
+
 #include <nanobind/make_iterator.h>
 #include <nanobind/nanobind.h>
 #include <nanobind/ndarray.h>
@@ -63,6 +67,38 @@ NB_MODULE(_clifft_core, m) {
         "Return the active SVM dispatch backend: 'avx512', 'avx2', or 'scalar'.\n\n"
         "Reflects the resolved runtime kernel path or CLIFFT_FORCE_ISA environment override. "
         "'scalar' names the generic/base SVM path.");
+
+    m.def(
+        "set_num_threads",
+        [](int n) {
+#ifdef _OPENMP
+            omp_set_num_threads(n);
+#else
+            (void)n;
+#endif
+        },
+        nb::arg("num_threads"),
+        "Set the number of OpenMP threads for multi-core statevector operations.\n\n"
+        "Threading only activates for circuits with peak rank >= 18\n"
+        "(statevector >= 4 MB). Pure Clifford and low-T-count circuits\n"
+        "run single-threaded regardless of this setting.\n\n"
+        "When using multiprocessing (e.g. sinter), set num_threads=1 in\n"
+        "each worker to avoid oversubscription.\n\n"
+        "Has no effect if Clifft was built without OpenMP support.");
+
+    m.def(
+        "get_num_threads",
+        []() -> int {
+#ifdef _OPENMP
+            return omp_get_max_threads();
+#else
+            return 1;
+#endif
+        },
+        "Return the current maximum number of OpenMP threads.\n\n"
+        "Threading only activates for circuits with peak rank >= 18\n"
+        "(statevector >= 4 MB).\n\n"
+        "Returns 1 if Clifft was built without OpenMP support.");
 
     // Sentinel-based enum counts for defensive binding tests.
     // If a new enum value is added in C++ but not bound in Python,

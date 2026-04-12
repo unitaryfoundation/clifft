@@ -1,0 +1,68 @@
+name: Thread Sanitizer
+
+on:
+  workflow_dispatch:  # Manual trigger
+  schedule:
+    - cron: '0 4 * * *'  # Nightly: 4am UTC
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tsan-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  tsan:
+    runs-on: ubuntu-24.04
+    env:
+      CMAKE_BUILD_TYPE: Debug
+      CMAKE_GENERATOR: Ninja
+      # TSan flags: compile and link with -fsanitize=thread.
+      # Suppress known false positives from OpenMP runtime internals.
+      TSAN_OPTIONS: "suppressions=tools/tsan/suppressions.txt second_deadlock_stack=1"
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install system dependencies
+        run: sudo apt-get update && sudo apt-get install -y ninja-build libomp-dev
+
+      - name: Setup uv and Python
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          python-version: "3.12"
+
+      # ---------- C++ Tests with TSan ----------
+      - name: Configure C++ build with TSan
+        run: |
+          cmake -S . -B build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Debug \
+            -DCMAKE_C_COMPILER=clang \
+            -DCMAKE_CXX_COMPILER=clang++ \
+            -DCMAKE_CXX_FLAGS="-fsanitize=thread -g -O1" \
+            -DCMAKE_EXE_LINKER_FLAGS="-fsanitize=thread" \
+            -DCMAKE_SHARED_LINKER_FLAGS="-fsanitize=thread"
+
+      - name: Build C++
+        run: cmake --build build --parallel
+
+      - name: Run C++ tests under TSan (skip benchmarks)
+        run: |
+          ctest --test-dir build \
+            --output-on-failure \
+            --timeout 600 \
+            -E "Bench"
+
+      # ---------- Python Tests with TSan ----------
+      - name: Install Python package (TSan build)
+        env:
+          # scikit-build-core accepts semicolon-separated cmake args
+          SKBUILD_CMAKE_ARGS: "-DCMAKE_C_COMPILER=clang;-DCMAKE_CXX_COMPILER=clang++;-DCMAKE_CXX_FLAGS=-fsanitize=thread -g -O1;-DCMAKE_SHARED_LINKER_FLAGS=-fsanitize=thread"
+        run: uv pip install -e ".[dev]"
+
+      - name: Run multicore Python tests under TSan
+        env:
+          OMP_NUM_THREADS: 2
+        run: uv run pytest tests/python/test_openmp.py -v

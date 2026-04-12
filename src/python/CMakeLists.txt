@@ -38,6 +38,29 @@ nanobind_add_module(
 # Link against our core library
 target_link_libraries(_clifft_core PRIVATE clifft_core)
 
+# OpenMP for set_num_threads / get_num_threads bindings.
+# The Homebrew libomp hint may already be set by src/clifft/CMakeLists.txt,
+# but scikit-build-core may invoke this file in a separate configure.
+if(NOT EMSCRIPTEN)
+    if(APPLE AND NOT DEFINED OpenMP_ROOT)
+        execute_process(
+            COMMAND brew --prefix libomp
+            OUTPUT_VARIABLE _BREW_LIBOMP_PREFIX
+            OUTPUT_STRIP_TRAILING_WHITESPACE
+            ERROR_QUIET
+            RESULT_VARIABLE _BREW_LIBOMP_RESULT
+        )
+        if(_BREW_LIBOMP_RESULT EQUAL 0 AND _BREW_LIBOMP_PREFIX)
+            set(OpenMP_ROOT "${_BREW_LIBOMP_PREFIX}")
+        endif()
+    endif()
+
+    find_package(OpenMP)
+    if(OpenMP_CXX_FOUND)
+        target_link_libraries(_clifft_core PRIVATE OpenMP::OpenMP_CXX)
+    endif()
+endif()
+
 # Code coverage: propagate gcov linkage to the shared module
 if(CLIFFT_COVERAGE)
     target_link_options(_clifft_core PRIVATE --coverage)

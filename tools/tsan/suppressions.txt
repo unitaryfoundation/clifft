@@ -1,0 +1,20 @@
+# ThreadSanitizer suppressions for known false positives.
+#
+# OpenMP runtimes have benign races in their internal bookkeeping
+# (thread pool management, fork/join barriers) that TSan flags.
+# These are well-known issues in libomp/libgomp and not actual bugs.
+#
+# We suppress only the runtime's internal functions, NOT races in
+# Clifft code that happen to be called from OMP parallel regions.
+
+# libomp internal thread pool and barrier management
+race:__kmp_resume_64
+race:__kmp_suspend_64
+race:__kmp_launch_monitor
+race:__kmp_create_worker
+race:__kmp_set_num_threads
+race:__kmp_internal_end_atexit
+
+# libgomp (GCC OpenMP runtime) internals
+race:gomp_team_start
+race:gomp_thread_start

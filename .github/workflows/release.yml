@@ -78,6 +78,8 @@ jobs:
           CIBW_ENVIRONMENT: CLIFFT_CPU_BASELINE=${{ matrix.cpu_baseline }}
           # Install build dependencies inside the cibuildwheel container
           CIBW_BEFORE_BUILD: pip install setuptools-scm
+          # Install libomp on macOS for OpenMP support in wheels
+          CIBW_BEFORE_ALL_MACOS: brew install libomp
           # Smoke-test: import the built package
           CIBW_TEST_COMMAND: python -c "import clifft; print(clifft.__version__); print(clifft.svm_backend())"
 

@@ -2,6 +2,7 @@
 #include "clifft/svm/svm_internal.h"
 
 #include <algorithm>
+#include <cstring>
 #include <new>
 #include <random>
 #include <stdexcept>
@@ -96,11 +97,21 @@ SchrodingerState::SchrodingerState(StateConfig cfg) : peak_rank_(cfg.peak_rank),
 #endif
 
     // mmap(MAP_ANONYMOUS) guarantees zero-filled pages from the kernel.
-    // Only aligned_alloc needs explicit zeroing. Avoid touching the full
-    // allocation upfront -- it defeats demand paging and forces the OS to
-    // commit every physical page, causing latency spikes at large peak_rank.
+    // Only aligned_alloc needs explicit zeroing. Parallelizing the fill
+    // distributes physical pages across NUMA nodes via first-touch policy,
+    // so later OpenMP worker threads access local memory.
     if (!v_is_mmap_) {
-        std::fill(v_, v_ + array_size_, std::complex<double>(0.0, 0.0));
+        int64_t n = static_cast<int64_t>(array_size_);
+        if (peak_rank_ >= kMinRankForThreads) {
+#pragma omp parallel for schedule(static)
+            for (int64_t i = 0; i < n; ++i) {
+                v_[i] = {0.0, 0.0};
+            }
+        } else {
+            for (int64_t i = 0; i < n; ++i) {
+                v_[i] = {0.0, 0.0};
+            }
+        }
     }
     v_[0] = {1.0, 0.0};
 }
@@ -185,7 +196,17 @@ SchrodingerState& SchrodingerState::operator=(SchrodingerState&& other) noexcept
 
 void SchrodingerState::reset() {
     uint64_t active_size = (active_k > 0) ? (uint64_t{1} << active_k) : 1;
-    std::fill(v_, v_ + active_size, std::complex<double>(0.0, 0.0));
+    int64_t n = static_cast<int64_t>(active_size);
+    if (active_k >= kMinRankForThreads) {
+#pragma omp parallel for schedule(static)
+        for (int64_t i = 0; i < n; ++i) {
+            v_[i] = {0.0, 0.0};
+        }
+    } else {
+        for (int64_t i = 0; i < n; ++i) {
+            v_[i] = {0.0, 0.0};
+        }
+    }
     v_[0] = {1.0, 0.0};
     p_x = 0;
     p_z = 0;

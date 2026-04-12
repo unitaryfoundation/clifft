@@ -51,6 +51,31 @@ target_link_libraries(clifft_core PUBLIC
 
 target_link_libraries(clifft_core PRIVATE fast_float)
 
+# Optional OpenMP for multi-core array parallelism (large statevectors).
+# Not available under Emscripten (WASM). When absent, OMP pragmas are
+# silently ignored and all paths remain single-threaded.
+if(NOT EMSCRIPTEN)
+    # On macOS with Apple clang, Homebrew's libomp is not on the default
+    # search path. Point CMake at it so find_package(OpenMP) succeeds.
+    if(APPLE AND NOT DEFINED OpenMP_ROOT)
+        execute_process(
+            COMMAND brew --prefix libomp
+            OUTPUT_VARIABLE _BREW_LIBOMP_PREFIX
+            OUTPUT_STRIP_TRAILING_WHITESPACE
+            ERROR_QUIET
+            RESULT_VARIABLE _BREW_LIBOMP_RESULT
+        )
+        if(_BREW_LIBOMP_RESULT EQUAL 0 AND _BREW_LIBOMP_PREFIX)
+            set(OpenMP_ROOT "${_BREW_LIBOMP_PREFIX}")
+        endif()
+    endif()
+
+    find_package(OpenMP)
+    if(OpenMP_CXX_FOUND)
+        target_link_libraries(clifft_core PRIVATE OpenMP::OpenMP_CXX)
+    endif()
+endif()
+
 if(DEFINED CLIFFT_MAX_QUBITS)
     target_compile_definitions(clifft_core PUBLIC CLIFFT_MAX_QUBITS=${CLIFFT_MAX_QUBITS})
 endif()

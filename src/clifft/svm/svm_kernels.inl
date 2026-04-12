@@ -139,11 +139,10 @@ static inline void exec_array_cnot(SchrodingerState& state, uint16_t c, uint16_t
             double* d = reinterpret_cast<double*>(state.v());
             uint64_t total = 1ULL << state.active_k;
 
-            for (uint64_t i = 0; i < total; i += 4) {
+            parallel_flat_loop(total, 4, state.active_k, [&](uint64_t i) {
                 double* p = d + (i << 1);
-                __m512d val = _mm512_load_pd(p);
-                _mm512_store_pd(p, _mm512_permutexvar_pd(perm, val));
-            }
+                _mm512_store_pd(p, _mm512_permutexvar_pd(perm, _mm512_load_pd(p)));
+            });
             exec_frame_cnot(state, c, t);
             return;
         }
@@ -158,31 +157,26 @@ static inline void exec_array_cnot(SchrodingerState& state, uint16_t c, uint16_t
                 // swap the lo-bit pairs in each register.
                 __m512i perm = (lo == 0) ? _mm512_setr_epi64(2, 3, 0, 1, 6, 7, 4, 5)
                                          : _mm512_setr_epi64(4, 5, 6, 7, 0, 1, 2, 3);
-                for (uint64_t outer = 0; outer < total; outer += 2 * step_hi) {
-                    double* q1 = d + (outer + step_hi) * 2;
-                    for (uint64_t k = 0; k < step_hi; k += 4) {
-                        double* p = q1 + k * 2;
+                parallel_stride_loop(
+                    total, step_hi, 4, state.active_k, [&](uint64_t outer, uint64_t k) {
+                        double* p = d + (outer + step_hi) * 2 + k * 2;
                         _mm512_store_pd(p, _mm512_permutexvar_pd(perm, _mm512_load_pd(p)));
-                    }
-                }
+                    });
             } else {
                 // Control is the small axis. Swap lo-bit-set elements
                 // between lower half (bit_hi=0) and upper half (bit_hi=1).
                 // lo=0: swap odd complex slots; lo=1: swap upper 256 bits.
                 __mmask8 swap_mask = (lo == 0) ? __mmask8(0xCC) : __mmask8(0xF0);
-                for (uint64_t outer = 0; outer < total; outer += 2 * step_hi) {
-                    double* q0 = d + outer * 2;
-                    double* q1 = d + (outer + step_hi) * 2;
-                    for (uint64_t k = 0; k < step_hi; k += 4) {
-                        double* p0 = q0 + k * 2;
-                        double* p1 = q1 + k * 2;
+                parallel_stride_loop(
+                    total, step_hi, 4, state.active_k, [&](uint64_t outer, uint64_t k) {
+                        double* p0 = d + outer * 2 + k * 2;
+                        double* p1 = d + (outer + step_hi) * 2 + k * 2;
                         __m512d v0 = _mm512_load_pd(p0);
                         __m512d v1 = _mm512_load_pd(p1);
                         // Swap only the lanes where lo-bit is set.
                         _mm512_store_pd(p0, _mm512_mask_blend_pd(swap_mask, v0, v1));
                         _mm512_store_pd(p1, _mm512_mask_blend_pd(swap_mask, v1, v0));
-                    }
-                }
+                    });
             }
             exec_frame_cnot(state, c, t);
             return;
@@ -193,22 +187,18 @@ static inline void exec_array_cnot(SchrodingerState& state, uint16_t c, uint16_t
             uint64_t step_hi = 1ULL << hi;
             auto* v = state.v();
             uint64_t step_a = (c == hi) ? step_hi : step_lo;
+            uint64_t total = 1ULL << state.active_k;
 
-            for (uint64_t i = 0; i < (1ULL << state.active_k); i += 2 * step_hi) {
-                for (uint64_t j = 0; j < step_hi; j += 2 * step_lo) {
-                    uint64_t base = i + j;
+            parallel_3d_stride_loop(
+                total, step_hi, step_lo, 4, state.active_k, [&](uint64_t base, uint64_t k) {
                     double* qa = reinterpret_cast<double*>(v + base + step_a);
                     double* qb = reinterpret_cast<double*>(v + base + step_hi + step_lo);
-
-                    for (uint64_t k = 0; k < step_lo; k += 4) {
-                        uint64_t off = k * 2;
-                        __m512d va = _mm512_load_pd(qa + off);
-                        __m512d vb = _mm512_load_pd(qb + off);
-                        _mm512_store_pd(qa + off, vb);
-                        _mm512_store_pd(qb + off, va);
-                    }
-                }
-            }
+                    uint64_t off = k * 2;
+                    __m512d va = _mm512_load_pd(qa + off);
+                    __m512d vb = _mm512_load_pd(qb + off);
+                    _mm512_store_pd(qa + off, vb);
+                    _mm512_store_pd(qb + off, va);
+                });
 
             exec_frame_cnot(state, c, t);
             return;
@@ -225,22 +215,18 @@ static inline void exec_array_cnot(SchrodingerState& state, uint16_t c, uint16_t
             uint64_t step_hi = 1ULL << hi;
             auto* v = state.v();
             uint64_t step_a = (c == hi) ? step_hi : step_lo;
+            uint64_t total = 1ULL << state.active_k;
 
-            for (uint64_t i = 0; i < (1ULL << state.active_k); i += 2 * step_hi) {
-                for (uint64_t j = 0; j < step_hi; j += 2 * step_lo) {
-                    uint64_t base = i + j;
+            parallel_3d_stride_loop(
+                total, step_hi, step_lo, 2, state.active_k, [&](uint64_t base, uint64_t k) {
                     double* qa = reinterpret_cast<double*>(v + base + step_a);
                     double* qb = reinterpret_cast<double*>(v + base + step_hi + step_lo);
-
-                    for (uint64_t k = 0; k < step_lo; k += 2) {
-                        uint64_t off = k * 2;
-                        __m256d va = _mm256_load_pd(qa + off);
-                        __m256d vb = _mm256_load_pd(qb + off);
-                        _mm256_store_pd(qa + off, vb);
-                        _mm256_store_pd(qb + off, va);
-                    }
-                }
-            }
+                    uint64_t off = k * 2;
+                    __m256d va = _mm256_load_pd(qa + off);
+                    __m256d vb = _mm256_load_pd(qb + off);
+                    _mm256_store_pd(qa + off, vb);
+                    _mm256_store_pd(qb + off, va);
+                });
 
             exec_frame_cnot(state, c, t);
             return;
@@ -254,10 +240,12 @@ static inline void exec_array_cnot(SchrodingerState& state, uint16_t c, uint16_t
     uint64_t pdep_mask = ~(c_bit | t_bit);
     auto* __restrict v = state.v();
 
-    for (uint64_t i = 0; i < iters; ++i) {
+    int64_t n = static_cast<int64_t>(iters);
+    parallel_for(n, state.active_k, [&](int64_t ii) {
+        uint64_t i = static_cast<uint64_t>(ii);
         uint64_t base0 = scatter_bits_2(i, pdep_mask, c, t) | c_bit;
         std::swap(v[base0], v[base0 | t_bit]);
-    }
+    });
 
     exec_frame_cnot(state, c, t);
 }
@@ -281,11 +269,11 @@ static inline void exec_array_cz(SchrodingerState& state, uint16_t c, uint16_t t
             __m512d sign_mask = _mm512_set1_pd(-0.0);
             const __mmask8 mask_11 = 0xC0;  // bits: 11000000 = lanes 6,7
 
-            for (uint64_t i = 0; i < total; i += 4) {
+            parallel_flat_loop(total, 4, state.active_k, [&](uint64_t i) {
                 double* p = d + (i << 1);
                 __m512d val = _mm512_load_pd(p);
                 _mm512_store_pd(p, _mm512_mask_xor_pd(val, mask_11, val, sign_mask));
-            }
+            });
             exec_frame_cz(state, c, t);
             return;
         }
@@ -304,14 +292,12 @@ static inline void exec_array_cz(SchrodingerState& state, uint16_t c, uint16_t t
             // lo=1: upper half of register (C2,C3) -> lanes 4,5,6,7
             __mmask8 neg_mask = (lo == 0) ? __mmask8(0xCC) : __mmask8(0xF0);
 
-            for (uint64_t outer = 0; outer < total; outer += 2 * step_hi) {
-                double* q1 = d + (outer + step_hi) * 2;
-                for (uint64_t k = 0; k < step_hi; k += 4) {
-                    double* p = q1 + k * 2;
+            parallel_stride_loop(
+                total, step_hi, 4, state.active_k, [&](uint64_t outer, uint64_t k) {
+                    double* p = d + (outer + step_hi) * 2 + k * 2;
                     __m512d val = _mm512_load_pd(p);
                     _mm512_store_pd(p, _mm512_mask_xor_pd(val, neg_mask, val, sign_mask));
-                }
-            }
+                });
             exec_frame_cz(state, c, t);
             return;
         }
@@ -321,19 +307,15 @@ static inline void exec_array_cz(SchrodingerState& state, uint16_t c, uint16_t t
             uint64_t step_hi = 1ULL << hi;
             auto* v = state.v();
             __m512d sign_mask = _mm512_set1_pd(-0.0);
+            uint64_t total = 1ULL << state.active_k;
 
-            for (uint64_t i = 0; i < (1ULL << state.active_k); i += 2 * step_hi) {
-                for (uint64_t j = 0; j < step_hi; j += 2 * step_lo) {
-                    uint64_t base = i + j;
+            parallel_3d_stride_loop(
+                total, step_hi, step_lo, 4, state.active_k, [&](uint64_t base, uint64_t k) {
                     double* q11 = reinterpret_cast<double*>(v + base + step_hi + step_lo);
-
-                    for (uint64_t k = 0; k < step_lo; k += 4) {
-                        uint64_t off = k * 2;
-                        __m512d val = _mm512_load_pd(q11 + off);
-                        _mm512_store_pd(q11 + off, _mm512_xor_pd(val, sign_mask));
-                    }
-                }
-            }
+                    uint64_t off = k * 2;
+                    __m512d val = _mm512_load_pd(q11 + off);
+                    _mm512_store_pd(q11 + off, _mm512_xor_pd(val, sign_mask));
+                });
 
             exec_frame_cz(state, c, t);
             return;
@@ -350,19 +332,15 @@ static inline void exec_array_cz(SchrodingerState& state, uint16_t c, uint16_t t
             uint64_t step_hi = 1ULL << hi;
             auto* v = state.v();
             __m256d sign_mask = _mm256_set1_pd(-0.0);
+            uint64_t total = 1ULL << state.active_k;
 
-            for (uint64_t i = 0; i < (1ULL << state.active_k); i += 2 * step_hi) {
-                for (uint64_t j = 0; j < step_hi; j += 2 * step_lo) {
-                    uint64_t base = i + j;
+            parallel_3d_stride_loop(
+                total, step_hi, step_lo, 2, state.active_k, [&](uint64_t base, uint64_t k) {
                     double* q11 = reinterpret_cast<double*>(v + base + step_hi + step_lo);
-
-                    for (uint64_t k = 0; k < step_lo; k += 2) {
-                        uint64_t off = k * 2;
-                        __m256d val = _mm256_load_pd(q11 + off);
-                        _mm256_store_pd(q11 + off, _mm256_xor_pd(val, sign_mask));
-                    }
-                }
-            }
+                    uint64_t off = k * 2;
+                    __m256d val = _mm256_load_pd(q11 + off);
+                    _mm256_store_pd(q11 + off, _mm256_xor_pd(val, sign_mask));
+                });
 
             exec_frame_cz(state, c, t);
             return;
@@ -375,10 +353,12 @@ static inline void exec_array_cz(SchrodingerState& state, uint16_t c, uint16_t t
     uint64_t pdep_mask = ~both_bits;
     auto* __restrict v = state.v();
 
-    for (uint64_t i = 0; i < iters; ++i) {
+    int64_t n = static_cast<int64_t>(iters);
+    parallel_for(n, state.active_k, [&](int64_t ii) {
+        uint64_t i = static_cast<uint64_t>(ii);
         uint64_t idx = scatter_bits_2(i, pdep_mask, c, t) | both_bits;
         v[idx] = -v[idx];
-    }
+    });
 
     exec_frame_cz(state, c, t);
 }
@@ -401,11 +381,11 @@ static inline void exec_array_swap(SchrodingerState& state, uint16_t a, uint16_t
             double* d = reinterpret_cast<double*>(state.v());
             uint64_t total = 1ULL << state.active_k;
 
-            for (uint64_t i = 0; i < total; i += 4) {
+            parallel_flat_loop(total, 4, state.active_k, [&](uint64_t i) {
                 double* p = d + (i << 1);
                 __m512d val = _mm512_load_pd(p);
                 _mm512_store_pd(p, _mm512_permutexvar_pd(perm, val));
-            }
+            });
             exec_frame_swap(state, a, b);
             return;
         }
@@ -413,23 +393,19 @@ static inline void exec_array_swap(SchrodingerState& state, uint16_t a, uint16_t
         if (lo >= 2 && state.active_k >= kMinRankFor3DLoop) {
             uint64_t step_lo = 1ULL << lo;
             uint64_t step_hi = 1ULL << hi;
+            uint64_t total = 1ULL << state.active_k;
             auto* v = state.v();
 
-            for (uint64_t i = 0; i < (1ULL << state.active_k); i += 2 * step_hi) {
-                for (uint64_t j = 0; j < step_hi; j += 2 * step_lo) {
-                    uint64_t base = i + j;
-                    double* q01 = reinterpret_cast<double*>(v + base + step_lo);
-                    double* q10 = reinterpret_cast<double*>(v + base + step_hi);
-
-                    for (uint64_t k = 0; k < step_lo; k += 4) {
-                        uint64_t off = k * 2;
-                        __m512d va = _mm512_load_pd(q01 + off);
-                        __m512d vb = _mm512_load_pd(q10 + off);
-                        _mm512_store_pd(q01 + off, vb);
-                        _mm512_store_pd(q10 + off, va);
-                    }
-                }
-            }
+            parallel_3d_stride_loop(total, step_hi, step_lo, 4, state.active_k,
+                                    [&](uint64_t base, uint64_t k) {
+                                        double* q01 = reinterpret_cast<double*>(v + base + step_lo);
+                                        double* q10 = reinterpret_cast<double*>(v + base + step_hi);
+                                        uint64_t off = k * 2;
+                                        __m512d va = _mm512_load_pd(q01 + off);
+                                        __m512d vb = _mm512_load_pd(q10 + off);
+                                        _mm512_store_pd(q01 + off, vb);
+                                        _mm512_store_pd(q10 + off, va);
+                                    });
 
             exec_frame_swap(state, a, b);
             return;
@@ -444,23 +420,19 @@ static inline void exec_array_swap(SchrodingerState& state, uint16_t a, uint16_t
         if (lo >= 1 && state.active_k >= kMinRankFor3DLoop) {
             uint64_t step_lo = 1ULL << lo;
             uint64_t step_hi = 1ULL << hi;
+            uint64_t total = 1ULL << state.active_k;
             auto* v = state.v();
 
-            for (uint64_t i = 0; i < (1ULL << state.active_k); i += 2 * step_hi) {
-                for (uint64_t j = 0; j < step_hi; j += 2 * step_lo) {
-                    uint64_t base = i + j;
-                    double* q01 = reinterpret_cast<double*>(v + base + step_lo);
-                    double* q10 = reinterpret_cast<double*>(v + base + step_hi);
-
-                    for (uint64_t k = 0; k < step_lo; k += 2) {
-                        uint64_t off = k * 2;
-                        __m256d va = _mm256_load_pd(q01 + off);
-                        __m256d vb = _mm256_load_pd(q10 + off);
-                        _mm256_store_pd(q01 + off, vb);
-                        _mm256_store_pd(q10 + off, va);
-                    }
-                }
-            }
+            parallel_3d_stride_loop(total, step_hi, step_lo, 2, state.active_k,
+                                    [&](uint64_t base, uint64_t k) {
+                                        double* q01 = reinterpret_cast<double*>(v + base + step_lo);
+                                        double* q10 = reinterpret_cast<double*>(v + base + step_hi);
+                                        uint64_t off = k * 2;
+                                        __m256d va = _mm256_load_pd(q01 + off);
+                                        __m256d vb = _mm256_load_pd(q10 + off);
+                                        _mm256_store_pd(q01 + off, vb);
+                                        _mm256_store_pd(q10 + off, va);
+                                    });
 
             exec_frame_swap(state, a, b);
             return;
@@ -474,10 +446,12 @@ static inline void exec_array_swap(SchrodingerState& state, uint16_t a, uint16_t
     uint64_t pdep_mask = ~(a_bit | b_bit);
     auto* __restrict v = state.v();
 
-    for (uint64_t i = 0; i < iters; ++i) {
+    int64_t n = static_cast<int64_t>(iters);
+    parallel_for(n, state.active_k, [&](int64_t ii) {
+        uint64_t i = static_cast<uint64_t>(ii);
         uint64_t base = scatter_bits_2(i, pdep_mask, a, b);
         std::swap(v[base | a_bit], v[base | b_bit]);
-    }
+    });
 
     exec_frame_swap(state, a, b);
 }
@@ -503,7 +477,7 @@ static inline void exec_array_multi_cnot(SchrodingerState& state, uint16_t targe
         uint64_t mapped_cm = _pext_u64(ctrl_mask, pdep_mask);
         auto* v_dbl = reinterpret_cast<double*>(v);
 
-        for (uint64_t idx = 0; idx < half; idx += 4) {
+        parallel_flat_loop(half, 4, state.active_k, [&](uint64_t idx) {
             uint64_t a0 = scatter_bits_1(idx, pdep_mask, target);
 
             bool p0 = (std::popcount((idx + 0) & mapped_cm) & 1) != 0;
@@ -522,7 +496,7 @@ static inline void exec_array_multi_cnot(SchrodingerState& state, uint16_t targe
             // Where mask is 1: put vb in slot 0, va in slot 1 (swap).
             _mm512_store_pd(v_dbl + (a0 << 1), _mm512_mask_blend_pd(mask, va, vb));
             _mm512_store_pd(v_dbl + ((a0 | t_bit) << 1), _mm512_mask_blend_pd(mask, vb, va));
-        }
+        });
 
         for (uint16_t c = 0; c < state.active_k; ++c) {
             if (ctrl_mask & (1ULL << c)) {
@@ -537,23 +511,31 @@ static inline void exec_array_multi_cnot(SchrodingerState& state, uint16_t targe
     // ILP trick: map ctrl_mask from address-space into loop-counter-space
     // so popcount runs on idx (immediately available) in parallel with pdep.
     uint64_t mapped_cm = _pext_u64(ctrl_mask, pdep_mask);
-    for (uint64_t idx = 0; idx < half; ++idx) {
-        uint64_t actual = scatter_bits_1(idx, pdep_mask, target);
-        bool parity = (std::popcount(idx & mapped_cm) & 1) != 0;
-        auto a0 = v[actual];
-        auto a1 = v[actual | t_bit];
-        v[actual] = parity ? a1 : a0;
-        v[actual | t_bit] = parity ? a0 : a1;
+    {
+        int64_t n = static_cast<int64_t>(half);
+        parallel_for(n, state.active_k, [&](int64_t ii) {
+            uint64_t idx = static_cast<uint64_t>(ii);
+            uint64_t actual = scatter_bits_1(idx, pdep_mask, target);
+            bool parity = (std::popcount(idx & mapped_cm) & 1) != 0;
+            auto a0 = v[actual];
+            auto a1 = v[actual | t_bit];
+            v[actual] = parity ? a1 : a0;
+            v[actual | t_bit] = parity ? a0 : a1;
+        });
     }
 #else
     uint64_t cm = ctrl_mask;
-    for (uint64_t idx = 0; idx < half; ++idx) {
-        uint64_t actual = scatter_bits_1(idx, pdep_mask, target);
-        bool parity = (std::popcount(actual & cm) & 1) != 0;
-        auto a0 = v[actual];
-        auto a1 = v[actual | t_bit];
-        v[actual] = parity ? a1 : a0;
-        v[actual | t_bit] = parity ? a0 : a1;
+    {
+        int64_t n = static_cast<int64_t>(half);
+        parallel_for(n, state.active_k, [&](int64_t ii) {
+            uint64_t idx = static_cast<uint64_t>(ii);
+            uint64_t actual = scatter_bits_1(idx, pdep_mask, target);
+            bool parity = (std::popcount(actual & cm) & 1) != 0;
+            auto a0 = v[actual];
+            auto a1 = v[actual | t_bit];
+            v[actual] = parity ? a1 : a0;
+            v[actual | t_bit] = parity ? a0 : a1;
+        });
     }
 #endif
 
@@ -591,7 +573,7 @@ static inline void exec_array_multi_cz(SchrodingerState& state, uint16_t control
         auto* v_dbl = reinterpret_cast<double*>(v);
         __m512d sign_mask = _mm512_set1_pd(-0.0);
 
-        for (uint64_t idx = 0; idx < half; idx += 4) {
+        parallel_flat_loop(half, 4, state.active_k, [&](uint64_t idx) {
             uint64_t a0 = scatter_bits_1(idx, pdep_mask, control) | c_bit;
 
             bool p0 = (std::popcount((idx + 0) & mapped_tm) & 1) != 0;
@@ -606,7 +588,7 @@ static inline void exec_array_multi_cz(SchrodingerState& state, uint16_t control
             // Negate masked lanes: XOR with sign bit where parity is odd.
             __m512d neg = _mm512_xor_pd(val, sign_mask);
             _mm512_store_pd(v_dbl + (a0 << 1), _mm512_mask_blend_pd(mask, val, neg));
-        }
+        });
 
         for (uint16_t t = 0; t < state.active_k; ++t) {
             if (target_mask & (1ULL << t)) {
@@ -621,17 +603,25 @@ static inline void exec_array_multi_cz(SchrodingerState& state, uint16_t control
     // ILP trick: map target_mask into loop-counter-space so popcount
     // runs on idx (immediately available) in parallel with pdep.
     uint64_t mapped_tm = _pext_u64(target_mask, pdep_mask);
-    for (uint64_t idx = 0; idx < half; ++idx) {
-        uint64_t actual = scatter_bits_1(idx, pdep_mask, control) | c_bit;
-        bool negate = (std::popcount(idx & mapped_tm) & 1) != 0;
-        v[actual] = negate ? -v[actual] : v[actual];
+    {
+        int64_t n = static_cast<int64_t>(half);
+        parallel_for(n, state.active_k, [&](int64_t ii) {
+            uint64_t idx = static_cast<uint64_t>(ii);
+            uint64_t actual = scatter_bits_1(idx, pdep_mask, control) | c_bit;
+            bool negate = (std::popcount(idx & mapped_tm) & 1) != 0;
+            v[actual] = negate ? -v[actual] : v[actual];
+        });
     }
 #else
     uint64_t tm = target_mask;
-    for (uint64_t idx = 0; idx < half; ++idx) {
-        uint64_t actual = scatter_bits_1(idx, pdep_mask, control) | c_bit;
-        bool negate = (std::popcount(actual & tm) & 1) != 0;
-        v[actual] = negate ? -v[actual] : v[actual];
+    {
+        int64_t n = static_cast<int64_t>(half);
+        parallel_for(n, state.active_k, [&](int64_t ii) {
+            uint64_t idx = static_cast<uint64_t>(ii);
+            uint64_t actual = scatter_bits_1(idx, pdep_mask, control) | c_bit;
+            bool negate = (std::popcount(actual & tm) & 1) != 0;
+            v[actual] = negate ? -v[actual] : v[actual];
+        });
     }
 #endif
 
@@ -661,7 +651,7 @@ static inline void exec_array_h(SchrodingerState& state, uint16_t v) {
             // [C0,C1,C2,C3] -> C0'=(C0+C1)/sqrt2, C1'=(C0-C1)/sqrt2, etc.
             const __m512i swap_idx = _mm512_setr_epi64(2, 3, 0, 1, 6, 7, 4, 5);
 
-            for (uint64_t i = 0; i < total; i += 4) {
+            parallel_flat_loop(total, 4, state.active_k, [&](uint64_t i) {
                 double* p = d + (i << 1);
                 __m512d val = _mm512_load_pd(p);
                 __m512d swp = _mm512_permutexvar_pd(swap_idx, val);
@@ -672,7 +662,7 @@ static inline void exec_array_h(SchrodingerState& state, uint16_t v) {
                 // this yields (a-b)/sqrt2 as required by the Hadamard.
                 const __mmask8 blend = 0xCC;  // bits: 11001100
                 _mm512_store_pd(p, _mm512_mask_blend_pd(blend, sum, dif));
-            }
+            });
             exec_frame_h(state, v);
             return;
         }
@@ -682,7 +672,7 @@ static inline void exec_array_h(SchrodingerState& state, uint16_t v) {
             // [C0,C1,C2,C3] -> lower'=(lower+upper)/sqrt2, upper'=(lower-upper)/sqrt2
             const __m512i swap_idx = _mm512_setr_epi64(4, 5, 6, 7, 0, 1, 2, 3);
 
-            for (uint64_t i = 0; i < total; i += 4) {
+            parallel_flat_loop(total, 4, state.active_k, [&](uint64_t i) {
                 double* p = d + (i << 1);
                 __m512d val = _mm512_load_pd(p);
                 __m512d swp = _mm512_permutexvar_pd(swap_idx, val);
@@ -692,37 +682,22 @@ static inline void exec_array_h(SchrodingerState& state, uint16_t v) {
                 // and val holds the |1> amp, this yields (a-b)/sqrt2.
                 const __mmask8 blend = 0xF0;  // bits: 11110000
                 _mm512_store_pd(p, _mm512_mask_blend_pd(blend, sum, dif));
-            }
+            });
             exec_frame_h(state, v);
             return;
         }
 
         // Axis >= 2: structured stride loop with 2x unrolling.
         uint64_t step = v_bit;
-        for (uint64_t outer = 0; outer < total; outer += 2 * step) {
+        parallel_stride_loop(total, step, 4, state.active_k, [&](uint64_t outer, uint64_t k) {
             double* q0 = d + outer * 2;
             double* q1 = d + (outer + step) * 2;
-            uint64_t k = 0;
-            for (; k + 8 <= step; k += 8) {
-                uint64_t off0 = k * 2;
-                uint64_t off1 = (k + 4) * 2;
-                __m512d a0 = _mm512_load_pd(q0 + off0);
-                __m512d b0 = _mm512_load_pd(q1 + off0);
-                __m512d a1 = _mm512_load_pd(q0 + off1);
-                __m512d b1 = _mm512_load_pd(q1 + off1);
-                _mm512_store_pd(q0 + off0, _mm512_mul_pd(_mm512_add_pd(a0, b0), inv_sqrt2));
-                _mm512_store_pd(q1 + off0, _mm512_mul_pd(_mm512_sub_pd(a0, b0), inv_sqrt2));
-                _mm512_store_pd(q0 + off1, _mm512_mul_pd(_mm512_add_pd(a1, b1), inv_sqrt2));
-                _mm512_store_pd(q1 + off1, _mm512_mul_pd(_mm512_sub_pd(a1, b1), inv_sqrt2));
-            }
-            for (; k < step; k += 4) {
-                uint64_t off = k * 2;
-                __m512d a = _mm512_load_pd(q0 + off);
-                __m512d b = _mm512_load_pd(q1 + off);
-                _mm512_store_pd(q0 + off, _mm512_mul_pd(_mm512_add_pd(a, b), inv_sqrt2));
-                _mm512_store_pd(q1 + off, _mm512_mul_pd(_mm512_sub_pd(a, b), inv_sqrt2));
-            }
-        }
+            uint64_t off0 = k * 2;
+            __m512d a0 = _mm512_load_pd(q0 + off0);
+            __m512d b0 = _mm512_load_pd(q1 + off0);
+            _mm512_store_pd(q0 + off0, _mm512_mul_pd(_mm512_add_pd(a0, b0), inv_sqrt2));
+            _mm512_store_pd(q1 + off0, _mm512_mul_pd(_mm512_sub_pd(a0, b0), inv_sqrt2));
+        });
         exec_frame_h(state, v);
         return;
     }
@@ -735,17 +710,15 @@ static inline void exec_array_h(SchrodingerState& state, uint16_t v) {
         __m256d inv_sqrt2 = _mm256_set1_pd(kInvSqrt2);
         double* d = reinterpret_cast<double*>(arr);
 
-        for (uint64_t outer = 0; outer < total; outer += 2 * step) {
+        parallel_stride_loop(total, step, 2, state.active_k, [&](uint64_t outer, uint64_t k) {
             double* q0 = d + outer * 2;
             double* q1 = d + (outer + step) * 2;
-            for (uint64_t k = 0; k < step; k += 2) {
-                uint64_t off = k * 2;
-                __m256d a = _mm256_load_pd(q0 + off);
-                __m256d b = _mm256_load_pd(q1 + off);
-                _mm256_store_pd(q0 + off, _mm256_mul_pd(_mm256_add_pd(a, b), inv_sqrt2));
-                _mm256_store_pd(q1 + off, _mm256_mul_pd(_mm256_sub_pd(a, b), inv_sqrt2));
-            }
-        }
+            uint64_t off = k * 2;
+            __m256d a = _mm256_load_pd(q0 + off);
+            __m256d b = _mm256_load_pd(q1 + off);
+            _mm256_store_pd(q0 + off, _mm256_mul_pd(_mm256_add_pd(a, b), inv_sqrt2));
+            _mm256_store_pd(q1 + off, _mm256_mul_pd(_mm256_sub_pd(a, b), inv_sqrt2));
+        });
 
         exec_frame_h(state, v);
         return;
@@ -755,14 +728,16 @@ static inline void exec_array_h(SchrodingerState& state, uint16_t v) {
     uint64_t iters = 1ULL << (state.active_k - 1);
     uint64_t pdep_mask = ~v_bit;
 
-    for (uint64_t i = 0; i < iters; ++i) {
+    int64_t n = static_cast<int64_t>(iters);
+    parallel_for(n, state.active_k, [&](int64_t ii) {
+        uint64_t i = static_cast<uint64_t>(ii);
         uint64_t idx0 = scatter_bits_1(i, pdep_mask, v);
         uint64_t idx1 = idx0 | v_bit;
         auto a = arr[idx0];
         auto b = arr[idx1];
         arr[idx0] = (a + b) * kInvSqrt2;
         arr[idx1] = (a - b) * kInvSqrt2;
-    }
+    });
 
     exec_frame_h(state, v);
 }
@@ -805,12 +780,12 @@ static inline void apply_phase_waterfall(SchrodingerState& state, uint16_t v, do
             // take lanes 2-3 (C1) and 6-7 (C3) from the phase-multiplied version.
             const __mmask8 blend = 0xCC;  // bits: 11001100
 
-            for (uint64_t i = 0; i < total; i += 4) {
+            parallel_flat_loop(total, 4, state.active_k, [&](uint64_t i) {
                 double* p = d + (i << 1);
                 __m512d val = _mm512_load_pd(p);
                 __m512d phased = cmul_m512d(val, s_re, s_im);
                 _mm512_store_pd(p, _mm512_mask_blend_pd(blend, val, phased));
-            }
+            });
             return;
         }
 
@@ -821,37 +796,26 @@ static inline void apply_phase_waterfall(SchrodingerState& state, uint16_t v, do
             __m512d s_im = _mm512_set1_pd(phase_im);
             const __mmask8 blend = 0xF0;  // bits: 11110000
 
-            for (uint64_t i = 0; i < total; i += 4) {
+            parallel_flat_loop(total, 4, state.active_k, [&](uint64_t i) {
                 double* p = d + (i << 1);
                 __m512d val = _mm512_load_pd(p);
                 __m512d phased = cmul_m512d(val, s_re, s_im);
                 _mm512_store_pd(p, _mm512_mask_blend_pd(blend, val, phased));
-            }
+            });
             return;
         }
 
-        // Axis >= 2: structured stride loop with 2x unrolling.
+        // Axis >= 2: structured stride loop.
         uint64_t step = v_bit;
         __m512d s_re = _mm512_set1_pd(phase_re);
         __m512d s_im = _mm512_set1_pd(phase_im);
 
-        for (uint64_t outer = 0; outer < total; outer += 2 * step) {
+        parallel_stride_loop(total, step, 4, state.active_k, [&](uint64_t outer, uint64_t k) {
             double* base = d + (outer + step) * 2;
-            uint64_t k = 0;
-            for (; k + 8 <= step; k += 8) {
-                uint64_t off0 = k * 2;
-                uint64_t off1 = (k + 4) * 2;
-                __m512d v0 = _mm512_load_pd(base + off0);
-                __m512d v1 = _mm512_load_pd(base + off1);
-                _mm512_store_pd(base + off0, cmul_m512d(v0, s_re, s_im));
-                _mm512_store_pd(base + off1, cmul_m512d(v1, s_re, s_im));
-            }
-            for (; k < step; k += 4) {
-                uint64_t off = k * 2;
-                __m512d val = _mm512_load_pd(base + off);
-                _mm512_store_pd(base + off, cmul_m512d(val, s_re, s_im));
-            }
-        }
+            uint64_t off = k * 2;
+            __m512d val = _mm512_load_pd(base + off);
+            _mm512_store_pd(base + off, cmul_m512d(val, s_re, s_im));
+        });
         return;
     }
 #endif
@@ -864,14 +828,12 @@ static inline void apply_phase_waterfall(SchrodingerState& state, uint16_t v, do
         __m256d s_im = _mm256_set1_pd(phase_im);
         double* d = reinterpret_cast<double*>(arr);
 
-        for (uint64_t outer = 0; outer < total; outer += 2 * step) {
+        parallel_stride_loop(total, step, 2, state.active_k, [&](uint64_t outer, uint64_t k) {
             double* base = d + (outer + step) * 2;
-            for (uint64_t k = 0; k < step; k += 2) {
-                uint64_t off = k * 2;
-                __m256d val = _mm256_load_pd(base + off);
-                _mm256_store_pd(base + off, cmul_m256d(val, s_re, s_im));
-            }
-        }
+            uint64_t off = k * 2;
+            __m256d val = _mm256_load_pd(base + off);
+            _mm256_store_pd(base + off, cmul_m256d(val, s_re, s_im));
+        });
         return;
     }
 #endif
@@ -879,9 +841,11 @@ static inline void apply_phase_waterfall(SchrodingerState& state, uint16_t v, do
     uint64_t iters = 1ULL << (state.active_k - 1);
     uint64_t pdep_mask = ~v_bit;
     std::complex<double> phase(phase_re, phase_im);
-    for (uint64_t i = 0; i < iters; ++i) {
+    int64_t n = static_cast<int64_t>(iters);
+    parallel_for(n, state.active_k, [&](int64_t ii) {
+        uint64_t i = static_cast<uint64_t>(ii);
         arr[scatter_bits_1(i, pdep_mask, v) | v_bit] *= phase;
-    }
+    });
 }
 
 // ARRAY_S on active axis v: applies diag(1, i) to the amplitude array,
@@ -915,7 +879,17 @@ static inline void exec_expand(SchrodingerState& state, uint16_t v) {
     uint64_t half = 1ULL << state.active_k;
     auto* __restrict arr = state.v();
 
-    std::memcpy(arr + half, arr, half * sizeof(std::complex<double>));
+    // Parallel copy also distributes newly activated upper-half pages across
+    // NUMA nodes via first-touch policy. std::memcpy is single-threaded.
+    if (state.active_k >= kMinRankForThreads) {
+        int64_t n = static_cast<int64_t>(half);
+#pragma omp parallel for schedule(static)
+        for (int64_t i = 0; i < n; ++i) {
+            arr[half + i] = arr[i];
+        }
+    } else {
+        std::memcpy(arr + half, arr, half * sizeof(std::complex<double>));
+    }
 
     state.active_k++;
     state.scale_magnitude(1.0 / std::sqrt(2.0));
@@ -929,19 +903,20 @@ static inline void exec_expand(SchrodingerState& state, uint16_t v) {
 // phase. Uses AVX-512/AVX2 flat 1D loops with aggressive thresholds since
 // EXPAND targets v == active_k (perfectly contiguous, no outer loop needed).
 static inline void expand_with_phase(std::complex<double>* __restrict arr, uint64_t half,
-                                     double phase_re, double phase_im) {
+                                     double phase_re, double phase_im, uint16_t active_k = 0) {
 #if defined(__AVX512F__) && defined(__AVX512DQ__)
     if (half >= 4) {
         __m512d s_re = _mm512_set1_pd(phase_re);
         __m512d s_im = _mm512_set1_pd(phase_im);
         double* src = reinterpret_cast<double*>(arr);
         double* dst = reinterpret_cast<double*>(arr + half);
-        uint64_t doubles = half * 2;
+        int64_t n = static_cast<int64_t>(half / 4);
 
-        for (uint64_t k = 0; k < doubles; k += 8) {
+        parallel_for(n, active_k, [&](int64_t ki) {
+            uint64_t k = static_cast<uint64_t>(ki) * 8;
             __m512d val = _mm512_load_pd(src + k);
             _mm512_store_pd(dst + k, cmul_m512d(val, s_re, s_im));
-        }
+        });
         return;
     }
 #endif
@@ -952,20 +927,20 @@ static inline void expand_with_phase(std::complex<double>* __restrict arr, uint6
         __m256d s_im = _mm256_set1_pd(phase_im);
         double* src = reinterpret_cast<double*>(arr);
         double* dst = reinterpret_cast<double*>(arr + half);
-        uint64_t doubles = half * 2;
+        int64_t n = static_cast<int64_t>(half / 2);
 
-        for (uint64_t k = 0; k < doubles; k += 4) {
+        parallel_for(n, active_k, [&](int64_t ki) {
+            uint64_t k = static_cast<uint64_t>(ki) * 4;
             __m256d val = _mm256_load_pd(src + k);
             _mm256_store_pd(dst + k, cmul_m256d(val, s_re, s_im));
-        }
+        });
         return;
     }
 #endif
 
     std::complex<double> phase(phase_re, phase_im);
-    for (uint64_t i = 0; i < half; ++i) {
-        arr[i + half] = arr[i] * phase;
-    }
+    int64_t n = static_cast<int64_t>(half);
+    parallel_for(n, active_k, [&](int64_t i) { arr[i + half] = arr[i] * phase; });
 }
 
 // T gate (pi/4 Z-rotation) on active axis v: applies diag(1, e^{i*pi/4})
@@ -1026,7 +1001,7 @@ static inline void exec_expand_t(SchrodingerState& state, uint16_t v) {
     // If p_x[v]=1, T anticommutes with X -> array gets T_dag, gamma absorbs T.
     double ph_re = kInvSqrt2;
     double ph_im = px ? -kInvSqrt2 : kInvSqrt2;
-    expand_with_phase(arr, half, ph_re, ph_im);
+    expand_with_phase(arr, half, ph_re, ph_im, state.active_k);
 
     state.active_k++;
     state.scale_magnitude(1.0 / std::sqrt(2.0));
@@ -1047,7 +1022,7 @@ static inline void exec_expand_t_dag(SchrodingerState& state, uint16_t v) {
     // If p_x[v]=1, T_dag anticommutes -> array gets T, gamma absorbs T_dag.
     double ph_re = kInvSqrt2;
     double ph_im = px ? kInvSqrt2 : -kInvSqrt2;
-    expand_with_phase(arr, half, ph_re, ph_im);
+    expand_with_phase(arr, half, ph_re, ph_im, state.active_k);
 
     state.active_k++;
     state.scale_magnitude(1.0 / std::sqrt(2.0));
@@ -1094,7 +1069,7 @@ static inline void exec_expand_rot(SchrodingerState& state, uint16_t v, double z
     bool px = bit_get(state.p_x, v);
 
     double ph_im = px ? -z_im : z_im;
-    expand_with_phase(arr, half, z_re, ph_im);
+    expand_with_phase(arr, half, z_re, ph_im, state.active_k);
 
     state.active_k++;
     state.scale_magnitude(1.0 / std::sqrt(2.0));
@@ -1167,13 +1142,13 @@ static inline void exec_array_u2(SchrodingerState& state, const ConstantPool& po
                                                m01.imag(), m01.imag(), m10.imag(), m10.imag());
 
             uint64_t total = 1ULL << state.active_k;
-            for (uint64_t i = 0; i < total; i += 4) {
+            parallel_flat_loop(total, 4, state.active_k, [&](uint64_t i) {
                 double* p = arr_dbl + (i << 1);
                 __m512d v_in = _mm512_load_pd(p);
                 __m512d v_swp = _mm512_permutexvar_pd(swap_idx, v_in);
                 _mm512_store_pd(p, _mm512_add_pd(cmul_m512d(v_in, c_self_re, c_self_im),
                                                  cmul_m512d(v_swp, c_swap_re, c_swap_im)));
-            }
+            });
             return;
         }
 
@@ -1195,68 +1170,46 @@ static inline void exec_array_u2(SchrodingerState& state, const ConstantPool& po
                                                m10.imag(), m10.imag(), m10.imag(), m10.imag());
 
             uint64_t total = 1ULL << state.active_k;
-            for (uint64_t i = 0; i < total; i += 4) {
+            parallel_flat_loop(total, 4, state.active_k, [&](uint64_t i) {
                 double* p = arr_dbl + (i << 1);
                 __m512d v_in = _mm512_load_pd(p);
                 __m512d v_swp = _mm512_permutexvar_pd(swap_idx, v_in);
                 _mm512_store_pd(p, _mm512_add_pd(cmul_m512d(v_in, c_self_re, c_self_im),
                                                  cmul_m512d(v_swp, c_swap_re, c_swap_im)));
-            }
+            });
             return;
         }
 
-        // Axis >= 2: process 4 butterflies per iteration, 2x unrolled to
-        // overlap DRAM latency. Issuing 4 loads before any math lets the
-        // CPU's line fill buffers fetch cache lines in parallel.
-        __m512d m00_re = _mm512_set1_pd(m00.real());
-        __m512d m00_im = _mm512_set1_pd(m00.imag());
-        __m512d m01_re = _mm512_set1_pd(m01.real());
-        __m512d m01_im = _mm512_set1_pd(m01.imag());
-        __m512d m10_re = _mm512_set1_pd(m10.real());
-        __m512d m10_im = _mm512_set1_pd(m10.imag());
-        __m512d m11_re = _mm512_set1_pd(m11.real());
-        __m512d m11_im = _mm512_set1_pd(m11.imag());
+        // Axis >= 2: structured stride loop with butterfly pattern.
+        {
+            __m512d m00_re = _mm512_set1_pd(m00.real());
+            __m512d m00_im = _mm512_set1_pd(m00.imag());
+            __m512d m01_re = _mm512_set1_pd(m01.real());
+            __m512d m01_im = _mm512_set1_pd(m01.imag());
+            __m512d m10_re = _mm512_set1_pd(m10.real());
+            __m512d m10_im = _mm512_set1_pd(m10.imag());
+            __m512d m11_re = _mm512_set1_pd(m11.real());
+            __m512d m11_im = _mm512_set1_pd(m11.imag());
 
-        uint64_t i = 0;
-        for (; i + 8 <= iters; i += 8) {
-            uint64_t idx0_A = scatter_bits_1(i, pdep_mask, axis);
-            uint64_t idx1_A = idx0_A | v_bit;
-            uint64_t idx0_B = scatter_bits_1(i + 4, pdep_mask, axis);
-            uint64_t idx1_B = idx0_B | v_bit;
+            uint64_t total = 1ULL << state.active_k;
+            uint64_t step = v_bit;
 
-            __m512d vA0 = _mm512_load_pd(arr_dbl + (idx0_A << 1));
-            __m512d vA1 = _mm512_load_pd(arr_dbl + (idx1_A << 1));
-            __m512d vB0 = _mm512_load_pd(arr_dbl + (idx0_B << 1));
-            __m512d vB1 = _mm512_load_pd(arr_dbl + (idx1_B << 1));
+            parallel_stride_loop(total, step, 4, state.active_k, [&](uint64_t outer, uint64_t k) {
+                double* q0 = arr_dbl + outer * 2;
+                double* q1 = arr_dbl + (outer + step) * 2;
+                uint64_t off = k * 2;
 
-            __m512d nA0 =
-                _mm512_add_pd(cmul_m512d(vA0, m00_re, m00_im), cmul_m512d(vA1, m01_re, m01_im));
-            __m512d nA1 =
-                _mm512_add_pd(cmul_m512d(vA0, m10_re, m10_im), cmul_m512d(vA1, m11_re, m11_im));
-            __m512d nB0 =
-                _mm512_add_pd(cmul_m512d(vB0, m00_re, m00_im), cmul_m512d(vB1, m01_re, m01_im));
-            __m512d nB1 =
-                _mm512_add_pd(cmul_m512d(vB0, m10_re, m10_im), cmul_m512d(vB1, m11_re, m11_im));
+                __m512d vA0 = _mm512_load_pd(q0 + off);
+                __m512d vA1 = _mm512_load_pd(q1 + off);
 
-            _mm512_store_pd(arr_dbl + (idx0_A << 1), nA0);
-            _mm512_store_pd(arr_dbl + (idx1_A << 1), nA1);
-            _mm512_store_pd(arr_dbl + (idx0_B << 1), nB0);
-            _mm512_store_pd(arr_dbl + (idx1_B << 1), nB1);
-        }
-        for (; i < iters; i += 4) {
-            uint64_t idx0 = scatter_bits_1(i, pdep_mask, axis);
-            uint64_t idx1 = idx0 | v_bit;
+                __m512d nA0 =
+                    _mm512_add_pd(cmul_m512d(vA0, m00_re, m00_im), cmul_m512d(vA1, m01_re, m01_im));
+                __m512d nA1 =
+                    _mm512_add_pd(cmul_m512d(vA0, m10_re, m10_im), cmul_m512d(vA1, m11_re, m11_im));
 
-            __m512d v_old0 = _mm512_load_pd(arr_dbl + (idx0 << 1));
-            __m512d v_old1 = _mm512_load_pd(arr_dbl + (idx1 << 1));
-
-            __m512d new0 = _mm512_add_pd(cmul_m512d(v_old0, m00_re, m00_im),
-                                         cmul_m512d(v_old1, m01_re, m01_im));
-            __m512d new1 = _mm512_add_pd(cmul_m512d(v_old0, m10_re, m10_im),
-                                         cmul_m512d(v_old1, m11_re, m11_im));
-
-            _mm512_store_pd(arr_dbl + (idx0 << 1), new0);
-            _mm512_store_pd(arr_dbl + (idx1 << 1), new1);
+                _mm512_store_pd(q0 + off, nA0);
+                _mm512_store_pd(q1 + off, nA1);
+            });
         }
         return;
     }
@@ -1274,7 +1227,9 @@ static inline void exec_array_u2(SchrodingerState& state, const ConstantPool& po
         __m256d m_col1_re = _mm256_setr_pd(m01.real(), m01.real(), m11.real(), m11.real());
         __m256d m_col1_im = _mm256_setr_pd(m01.imag(), m01.imag(), m11.imag(), m11.imag());
 
-        for (uint64_t i = 0; i < iters; ++i) {
+        int64_t n = static_cast<int64_t>(iters);
+        parallel_for(n, state.active_k, [&](int64_t ii) {
+            uint64_t i = static_cast<uint64_t>(ii);
             uint64_t idx0 = i << 1;
             double* base = arr_dbl + (idx0 << 1);
 
@@ -1285,7 +1240,7 @@ static inline void exec_array_u2(SchrodingerState& state, const ConstantPool& po
             __m256d term1 = cmul_m256d(v_old1, m_col1_re, m_col1_im);
 
             _mm256_store_pd(base, _mm256_add_pd(term0, term1));
-        }
+        });
         return;
     } else {
         // axis>0: consecutive loop indices i, i+1 produce consecutive memory
@@ -1300,35 +1255,43 @@ static inline void exec_array_u2(SchrodingerState& state, const ConstantPool& po
         __m256d m11_re = _mm256_set1_pd(m11.real());
         __m256d m11_im = _mm256_set1_pd(m11.imag());
 
-        for (uint64_t i = 0; i < iters; i += 2) {
-            uint64_t idx0 = scatter_bits_1(i, pdep_mask, axis);
-            uint64_t idx1 = idx0 | v_bit;
+        uint64_t total = 1ULL << state.active_k;
+        uint64_t step = v_bit;
 
-            __m256d v_old0 = _mm256_load_pd(arr_dbl + (idx0 << 1));
-            __m256d v_old1 = _mm256_load_pd(arr_dbl + (idx1 << 1));
+        parallel_stride_loop(total, step, 2, state.active_k, [&](uint64_t outer, uint64_t k) {
+            double* q0 = arr_dbl + outer * 2;
+            double* q1 = arr_dbl + (outer + step) * 2;
+            uint64_t off = k * 2;
+
+            __m256d v_old0 = _mm256_load_pd(q0 + off);
+            __m256d v_old1 = _mm256_load_pd(q1 + off);
 
             __m256d new0 = _mm256_add_pd(cmul_m256d(v_old0, m00_re, m00_im),
                                          cmul_m256d(v_old1, m01_re, m01_im));
             __m256d new1 = _mm256_add_pd(cmul_m256d(v_old0, m10_re, m10_im),
                                          cmul_m256d(v_old1, m11_re, m11_im));
 
-            _mm256_store_pd(arr_dbl + (idx0 << 1), new0);
-            _mm256_store_pd(arr_dbl + (idx1 << 1), new1);
-        }
+            _mm256_store_pd(q0 + off, new0);
+            _mm256_store_pd(q1 + off, new1);
+        });
         return;
     }
 #endif
 
     // Scalar fallback for non-AVX2 targets (e.g. Wasm, older x86).
-    for (uint64_t i = 0; i < iters; ++i) {
-        uint64_t idx0 = scatter_bits_1(i, pdep_mask, axis);
-        uint64_t idx1 = idx0 | v_bit;
+    {
+        int64_t n = static_cast<int64_t>(iters);
+        parallel_for(n, state.active_k, [&](int64_t ii) {
+            uint64_t i = static_cast<uint64_t>(ii);
+            uint64_t idx0 = scatter_bits_1(i, pdep_mask, axis);
+            uint64_t idx1 = idx0 | v_bit;
 
-        auto old0 = arr[idx0];
-        auto old1 = arr[idx1];
+            auto old0 = arr[idx0];
+            auto old1 = arr[idx1];
 
-        arr[idx0] = m00 * old0 + m01 * old1;
-        arr[idx1] = m10 * old0 + m11 * old1;
+            arr[idx0] = m00 * old0 + m01 * old1;
+            arr[idx1] = m10 * old0 + m11 * old1;
+        });
     }
 }
 
@@ -1422,16 +1385,16 @@ static inline void exec_array_u4(SchrodingerState& state, const ConstantPool& po
         __m512d m33_re = _mm512_set1_pd(mat[3][3].real());
         __m512d m33_im = _mm512_set1_pd(mat[3][3].imag());
 
-        for (uint64_t i3 = 0; i3 < (1ULL << state.active_k); i3 += 2 * step_hi) {
-            for (uint64_t i2 = 0; i2 < step_hi; i2 += 2 * step_lo) {
-                uint64_t base = i3 + i2;
-                double* p00 = d + base * 2;
-                double* p01 = d + (base + step_lo) * 2;
-                double* p10 = d + (base + step_hi) * 2;
-                double* p11 = d + (base + step_hi + step_lo) * 2;
-
-                for (uint64_t k = 0; k < step_lo; k += 4) {
+        {
+            uint64_t total = 1ULL << state.active_k;
+            parallel_3d_stride_loop(
+                total, step_hi, step_lo, 4, state.active_k, [&](uint64_t base, uint64_t k) {
+                    double* p00 = d + base * 2;
+                    double* p01 = d + (base + step_lo) * 2;
+                    double* p10 = d + (base + step_hi) * 2;
+                    double* p11 = d + (base + step_hi + step_lo) * 2;
                     uint64_t off = k * 2;
+
                     __m512d v0 = _mm512_load_pd(p00 + off);
                     __m512d v1 = _mm512_load_pd(p01 + off);
                     __m512d v2 = _mm512_load_pd(p10 + off);
@@ -1458,8 +1421,7 @@ static inline void exec_array_u4(SchrodingerState& state, const ConstantPool& po
                     _mm512_store_pd(p01 + off, n1);
                     _mm512_store_pd(p10 + off, n2);
                     _mm512_store_pd(p11 + off, n3);
-                }
-            }
+                });
         }
         return;
     }
@@ -1507,66 +1469,63 @@ static inline void exec_array_u4(SchrodingerState& state, const ConstantPool& po
         __m256d m33_re = _mm256_set1_pd(mat[3][3].real());
         __m256d m33_im = _mm256_set1_pd(mat[3][3].imag());
 
-        for (uint64_t i3 = 0; i3 < (1ULL << state.active_k); i3 += 2 * step_hi) {
-            for (uint64_t i2 = 0; i2 < step_hi; i2 += 2 * step_lo) {
-                uint64_t base = i3 + i2;
+        uint64_t total = 1ULL << state.active_k;
+        parallel_3d_stride_loop(
+            total, step_hi, step_lo, 2, state.active_k, [&](uint64_t base, uint64_t k) {
                 double* p00 = d + base * 2;
                 double* p01 = d + (base + step_lo) * 2;
                 double* p10 = d + (base + step_hi) * 2;
                 double* p11 = d + (base + step_hi + step_lo) * 2;
+                uint64_t off = k * 2;
 
-                for (uint64_t k = 0; k < step_lo; k += 2) {
-                    uint64_t off = k * 2;
-                    __m256d v0 = _mm256_load_pd(p00 + off);
-                    __m256d v1 = _mm256_load_pd(p01 + off);
-                    __m256d v2 = _mm256_load_pd(p10 + off);
-                    __m256d v3 = _mm256_load_pd(p11 + off);
+                __m256d v0 = _mm256_load_pd(p00 + off);
+                __m256d v1 = _mm256_load_pd(p01 + off);
+                __m256d v2 = _mm256_load_pd(p10 + off);
+                __m256d v3 = _mm256_load_pd(p11 + off);
 
-                    __m256d n0 = _mm256_add_pd(_mm256_add_pd(cmul_m256d(v0, m00_re, m00_im),
-                                                             cmul_m256d(v1, m01_re, m01_im)),
-                                               _mm256_add_pd(cmul_m256d(v2, m02_re, m02_im),
-                                                             cmul_m256d(v3, m03_re, m03_im)));
-                    __m256d n1 = _mm256_add_pd(_mm256_add_pd(cmul_m256d(v0, m10_re, m10_im),
-                                                             cmul_m256d(v1, m11_re, m11_im)),
-                                               _mm256_add_pd(cmul_m256d(v2, m12_re, m12_im),
-                                                             cmul_m256d(v3, m13_re, m13_im)));
-                    __m256d n2 = _mm256_add_pd(_mm256_add_pd(cmul_m256d(v0, m20_re, m20_im),
-                                                             cmul_m256d(v1, m21_re, m21_im)),
-                                               _mm256_add_pd(cmul_m256d(v2, m22_re, m22_im),
-                                                             cmul_m256d(v3, m23_re, m23_im)));
-                    __m256d n3 = _mm256_add_pd(_mm256_add_pd(cmul_m256d(v0, m30_re, m30_im),
-                                                             cmul_m256d(v1, m31_re, m31_im)),
-                                               _mm256_add_pd(cmul_m256d(v2, m32_re, m32_im),
-                                                             cmul_m256d(v3, m33_re, m33_im)));
+                __m256d n0 = _mm256_add_pd(
+                    _mm256_add_pd(cmul_m256d(v0, m00_re, m00_im), cmul_m256d(v1, m01_re, m01_im)),
+                    _mm256_add_pd(cmul_m256d(v2, m02_re, m02_im), cmul_m256d(v3, m03_re, m03_im)));
+                __m256d n1 = _mm256_add_pd(
+                    _mm256_add_pd(cmul_m256d(v0, m10_re, m10_im), cmul_m256d(v1, m11_re, m11_im)),
+                    _mm256_add_pd(cmul_m256d(v2, m12_re, m12_im), cmul_m256d(v3, m13_re, m13_im)));
+                __m256d n2 = _mm256_add_pd(
+                    _mm256_add_pd(cmul_m256d(v0, m20_re, m20_im), cmul_m256d(v1, m21_re, m21_im)),
+                    _mm256_add_pd(cmul_m256d(v2, m22_re, m22_im), cmul_m256d(v3, m23_re, m23_im)));
+                __m256d n3 = _mm256_add_pd(
+                    _mm256_add_pd(cmul_m256d(v0, m30_re, m30_im), cmul_m256d(v1, m31_re, m31_im)),
+                    _mm256_add_pd(cmul_m256d(v2, m32_re, m32_im), cmul_m256d(v3, m33_re, m33_im)));
 
-                    _mm256_store_pd(p00 + off, n0);
-                    _mm256_store_pd(p01 + off, n1);
-                    _mm256_store_pd(p10 + off, n2);
-                    _mm256_store_pd(p11 + off, n3);
-                }
-            }
-        }
+                _mm256_store_pd(p00 + off, n0);
+                _mm256_store_pd(p01 + off, n1);
+                _mm256_store_pd(p10 + off, n2);
+                _mm256_store_pd(p11 + off, n3);
+            });
         return;
     }
 #endif
 
     // Scalar fallback: iterate over 2^(k-2) blocks using bit scattering.
-    for (uint64_t i = 0; i < iters; ++i) {
-        uint64_t base = scatter_bits_2(i, pdep_mask, axis_lo, axis_hi);
-        uint64_t i0 = base;
-        uint64_t i1 = base | lo_bit;
-        uint64_t i2 = base | hi_bit;
-        uint64_t i3 = base | both_bits;
+    {
+        int64_t n = static_cast<int64_t>(iters);
+        parallel_for(n, state.active_k, [&](int64_t ii) {
+            uint64_t i = static_cast<uint64_t>(ii);
+            uint64_t base = scatter_bits_2(i, pdep_mask, axis_lo, axis_hi);
+            uint64_t i0 = base;
+            uint64_t i1 = base | lo_bit;
+            uint64_t i2 = base | hi_bit;
+            uint64_t i3 = base | both_bits;
 
-        auto v0 = arr[i0];
-        auto v1 = arr[i1];
-        auto v2 = arr[i2];
-        auto v3 = arr[i3];
+            auto v0 = arr[i0];
+            auto v1 = arr[i1];
+            auto v2 = arr[i2];
+            auto v3 = arr[i3];
 
-        arr[i0] = mat[0][0] * v0 + mat[0][1] * v1 + mat[0][2] * v2 + mat[0][3] * v3;
-        arr[i1] = mat[1][0] * v0 + mat[1][1] * v1 + mat[1][2] * v2 + mat[1][3] * v3;
-        arr[i2] = mat[2][0] * v0 + mat[2][1] * v1 + mat[2][2] * v2 + mat[2][3] * v3;
-        arr[i3] = mat[3][0] * v0 + mat[3][1] * v1 + mat[3][2] * v2 + mat[3][3] * v3;
+            arr[i0] = mat[0][0] * v0 + mat[0][1] * v1 + mat[0][2] * v2 + mat[0][3] * v3;
+            arr[i1] = mat[1][0] * v0 + mat[1][1] * v1 + mat[1][2] * v2 + mat[1][3] * v3;
+            arr[i2] = mat[2][0] * v0 + mat[2][1] * v1 + mat[2][2] * v2 + mat[2][3] * v3;
+            arr[i3] = mat[3][0] * v0 + mat[3][1] * v1 + mat[3][2] * v2 + mat[3][3] * v3;
+        });
     }
 }
 
@@ -1622,10 +1581,12 @@ static inline void exec_meas_active_diagonal(SchrodingerState& state, uint16_t v
     // Compute probability of array branch b=0 (bit v = 0) and b=1 (bit v = 1)
     double prob_b0 = 0.0;
     double prob_b1 = 0.0;
-    for (uint64_t i = 0; i < half; ++i) {
-        prob_b0 += std::norm(arr[i]);         // bit v = 0
-        prob_b1 += std::norm(arr[i + half]);  // bit v = 1
-    }
+    parallel_reduce(static_cast<int64_t>(half), state.active_k, prob_b0, prob_b1,
+                    [&](int64_t ii, double& p0, double& p1) {
+                        uint64_t i = static_cast<uint64_t>(ii);
+                        p0 += std::norm(arr[i]);         // bit v = 0
+                        p1 += std::norm(arr[i + half]);  // bit v = 1
+                    });
     double total = prob_b0 + prob_b1;
     assert(total > 0.0 && "Active diagonal measurement on zero-norm state");
 
@@ -1643,9 +1604,9 @@ static inline void exec_meas_active_diagonal(SchrodingerState& state, uint16_t v
 
     // Compact array: keep chosen branch
     if (b == 1) {
-        for (uint64_t i = 0; i < half; ++i) {
-            arr[i] = arr[i + half];
-        }
+        int64_t n = static_cast<int64_t>(half);
+        parallel_for(n, state.active_k,
+                     [&](int64_t ii) { arr[ii] = arr[static_cast<uint64_t>(ii) + half]; });
     }
 
     // Decrement active_k before renormalization so scale_magnitude only
@@ -1683,12 +1644,14 @@ static inline void exec_meas_active_interfere(SchrodingerState& state, uint16_t 
     // b_x=1 (|-> branch): sum |v[i] - v[i+half]|^2
     double prob_plus = 0.0;
     double prob_minus = 0.0;
-    for (uint64_t i = 0; i < half; ++i) {
-        auto sum = arr[i] + arr[i + half];
-        auto diff = arr[i] - arr[i + half];
-        prob_plus += std::norm(sum);
-        prob_minus += std::norm(diff);
-    }
+    parallel_reduce(static_cast<int64_t>(half), state.active_k, prob_plus, prob_minus,
+                    [&](int64_t ii, double& pp, double& pm) {
+                        uint64_t i = static_cast<uint64_t>(ii);
+                        auto sum = arr[i] + arr[i + half];
+                        auto diff = arr[i] - arr[i + half];
+                        pp += std::norm(sum);
+                        pm += std::norm(diff);
+                    });
     double total = prob_plus + prob_minus;
     assert(total > 0.0 && "Active interfere measurement on zero-norm state");
 
@@ -1704,13 +1667,18 @@ static inline void exec_meas_active_interfere(SchrodingerState& state, uint16_t 
     // The 1/sqrt(2) factor keeps the fold unitary, preventing exponential
     // magnitude growth from repeated EXPAND + INTERFERE sequences.
     // Branch hoisted outside the loop so the compiler can auto-vectorize.
-    if (b_x == 0) {
-        for (uint64_t i = 0; i < half; ++i) {
-            arr[i] = (arr[i] + arr[i + half]) * kInvSqrt2;
-        }
-    } else {
-        for (uint64_t i = 0; i < half; ++i) {
-            arr[i] = (arr[i] - arr[i + half]) * kInvSqrt2;
+    {
+        int64_t n = static_cast<int64_t>(half);
+        if (b_x == 0) {
+            parallel_for(n, state.active_k, [&](int64_t ii) {
+                uint64_t i = static_cast<uint64_t>(ii);
+                arr[i] = (arr[i] + arr[i + half]) * kInvSqrt2;
+            });
+        } else {
+            parallel_for(n, state.active_k, [&](int64_t ii) {
+                uint64_t i = static_cast<uint64_t>(ii);
+                arr[i] = (arr[i] - arr[i + half]) * kInvSqrt2;
+            });
         }
     }
 
@@ -1774,18 +1742,21 @@ static inline void exec_swap_meas_interfere(SchrodingerState& state, uint16_t f,
     auto* __restrict arr = state.v();
     uint64_t f_bit = 1ULL << f;
 
-    // Pass 1: Compute X-basis probabilities with swapped index mapping
+    // Pass 1: Compute X-basis probabilities with swapped index mapping.
+    // Read-only pass, safe to parallelize with reduction.
     double prob_plus = 0.0;
     double prob_minus = 0.0;
-    for (uint64_t idx = 0; idx < half; ++idx) {
-        uint64_t b_f = (idx >> f) & 1;
-        uint64_t base = (idx & ~f_bit) | (b_f << t);
+    parallel_reduce(static_cast<int64_t>(half), state.active_k, prob_plus, prob_minus,
+                    [&](int64_t ii, double& pp, double& pm) {
+                        uint64_t idx = static_cast<uint64_t>(ii);
+                        uint64_t b_f = (idx >> f) & 1;
+                        uint64_t base = (idx & ~f_bit) | (b_f << t);
 
-        auto sum = arr[base] + arr[base | f_bit];
-        auto diff = arr[base] - arr[base | f_bit];
-        prob_plus += std::norm(sum);
-        prob_minus += std::norm(diff);
-    }
+                        auto sum = arr[base] + arr[base | f_bit];
+                        auto diff = arr[base] - arr[base | f_bit];
+                        pp += std::norm(sum);
+                        pm += std::norm(diff);
+                    });
 
     double total = prob_plus + prob_minus;
     assert(total > 0.0 && "Active interfere measurement on zero-norm state");
@@ -2092,22 +2063,25 @@ exec_exp_val(SchrodingerState& state, const ConstantPool& pool, uint32_t cp_exp_
     const auto* arr = state.v();
     uint64_t dim = uint64_t{1} << k;
 
-    std::complex<double> numerator{0.0, 0.0};
-    double denominator = 0.0;
-
-    for (uint64_t j = 0; j < dim; ++j) {
-        double norm_j = std::norm(arr[j]);
-        denominator += norm_j;
-
-        // c(j) = phase * (-1)^popcount(j & z_active)
-        uint64_t j_xor = j ^ x_active;
-        double z_sign = (std::popcount(j & z_active) & 1) ? -1.0 : 1.0;
-
-        // <P> += conj(a[j ^ x_active]) * z_sign * a[j]
-        numerator += std::conj(arr[j_xor]) * (z_sign * arr[j]);
-    }
+    // Reduce on primitive doubles for MSVC OpenMP 2.0 compatibility
+    // (no custom reductions on std::complex).
+    double num_re = 0.0, num_im = 0.0, denominator = 0.0;
+    parallel_reduce(static_cast<int64_t>(dim), state.active_k, num_re, num_im, denominator,
+                    [&](int64_t jj, double& nre, double& nim, double& denom) {
+                        uint64_t j = static_cast<uint64_t>(jj);
+                        double norm_j = std::norm(arr[j]);
+                        denom += norm_j;
+                        // c(j) = phase * (-1)^popcount(j & z_active)
+                        uint64_t j_xor = j ^ x_active;
+                        double z_sign = (std::popcount(j & z_active) & 1) ? -1.0 : 1.0;
+                        // <P> += conj(a[j ^ x_active]) * z_sign * a[j]
+                        std::complex<double> term = std::conj(arr[j_xor]) * (z_sign * arr[j]);
+                        nre += term.real();
+                        nim += term.imag();
+                    });
 
     // Multiply by the constant i-phase factor
+    std::complex<double> numerator{num_re, num_im};
     numerator *= i_phase;
 
     // The result should be real for Hermitian Paulis

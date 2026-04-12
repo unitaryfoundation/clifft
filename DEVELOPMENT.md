@@ -35,6 +35,8 @@ This document covers how to build and develop Clifft locally.
   - macOS: Xcode Command Line Tools (Clang 14+) or `brew install llvm`
 - **Python** 3.12+ (for Python bindings and dev tools)
 - **uv** (Python package manager) — install via `curl -LsSf https://astral.sh/uv/install.sh | sh`
+- **OpenMP runtime on macOS** (optional, enables multi-core statevector kernels)
+  - `brew install libomp`
 
 ## Building
 
@@ -65,6 +67,19 @@ The editable install (`-e .`) rebuilds the C++ extension automatically when you 
 
 Optimized local Python builds default to `CLIFFT_CPU_BASELINE=native`. On x86 GNU/Clang builds, that keeps the AVX2 and AVX-512 SVM specializations available for runtime dispatch. Published wheels use explicit portable baselines instead.
 
+OpenMP is optional. On Linux, GCC/Clang source builds typically find it automatically. On macOS with Apple clang, install Homebrew `libomp` before building if you want multi-core statevector execution:
+
+```bash
+brew install libomp
+uv pip install -e .
+```
+
+If CMake does not find OpenMP automatically, point scikit-build-core at it explicitly:
+
+```bash
+SKBUILD_CMAKE_ARGS="-DOpenMP_ROOT=$(brew --prefix libomp)" uv pip install -e .
+```
+
 ### Standalone C++ Build
 
 For pure C++ development without Python:
@@ -81,6 +96,21 @@ cmake --build build -j4
 
 # Run C++ tests
 ctest --test-dir build --output-on-failure
+```
+
+OpenMP is optional here as well. Linux toolchains usually find it automatically. On macOS with Apple clang, install Homebrew `libomp` first to enable the threaded SVM kernels:
+
+```bash
+brew install libomp
+cmake -B build -DCMAKE_BUILD_TYPE=Release
+cmake --build build -j4
+```
+
+If `find_package(OpenMP)` still does not resolve, set `OpenMP_ROOT` explicitly:
+
+```bash
+cmake -B build -DOpenMP_ROOT="$(brew --prefix libomp)"
+cmake --build build -j4
 ```
 
 ### Build Types

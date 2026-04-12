@@ -173,7 +173,7 @@ jobs:
       matrix:
         include:
           - os: macos-latest
-            install-deps: brew install ninja
+            install-deps: brew install ninja libomp
           - os: windows-latest
             install-deps: ""
     runs-on: ${{ matrix.os }}
