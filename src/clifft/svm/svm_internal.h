@@ -102,14 +102,19 @@ inline void parallel_for(int64_t n, uint16_t active_k, KernelFunc&& kernel) {
 
 // Parallel reduction with 2 accumulators: runs `kernel(i, acc1, acc2)` for
 // i in [0, n) and sums acc1/acc2 across threads via OpenMP reduction.
+// Uses local copies to avoid MSVC OpenMP 2.0 error C3030 (reduction on
+// reference types is not supported).
 template <typename KernelFunc>
 inline void parallel_reduce(int64_t n, uint16_t active_k, double& acc1, double& acc2,
                             KernelFunc&& kernel) {
     if (active_k >= kMinRankForThreads) {
-#pragma omp parallel for schedule(static) reduction(+ : acc1, acc2)
+        double local1 = acc1, local2 = acc2;
+#pragma omp parallel for schedule(static) reduction(+ : local1, local2)
         for (int64_t i = 0; i < n; ++i) {
-            kernel(i, acc1, acc2);
+            kernel(i, local1, local2);
         }
+        acc1 = local1;
+        acc2 = local2;
     } else {
         for (int64_t i = 0; i < n; ++i) {
             kernel(i, acc1, acc2);
@@ -122,10 +127,14 @@ template <typename KernelFunc>
 inline void parallel_reduce(int64_t n, uint16_t active_k, double& acc1, double& acc2, double& acc3,
                             KernelFunc&& kernel) {
     if (active_k >= kMinRankForThreads) {
-#pragma omp parallel for schedule(static) reduction(+ : acc1, acc2, acc3)
+        double local1 = acc1, local2 = acc2, local3 = acc3;
+#pragma omp parallel for schedule(static) reduction(+ : local1, local2, local3)
         for (int64_t i = 0; i < n; ++i) {
-            kernel(i, acc1, acc2, acc3);
+            kernel(i, local1, local2, local3);
         }
+        acc1 = local1;
+        acc2 = local2;
+        acc3 = local3;
     } else {
         for (int64_t i = 0; i < n; ++i) {
             kernel(i, acc1, acc2, acc3);
