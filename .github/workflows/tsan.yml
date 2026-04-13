@@ -28,13 +28,6 @@ jobs:
       - name: Install system dependencies
         run: sudo apt-get update && sudo apt-get install -y ninja-build libomp-dev
 
-      - name: Setup uv and Python
-        uses: astral-sh/setup-uv@v5
-        with:
-          enable-cache: true
-          python-version: "3.12"
-
-      # ---------- C++ Tests with TSan ----------
       - name: Configure C++ build with TSan
         run: |
           cmake -S . -B build -G Ninja \
@@ -54,15 +47,3 @@ jobs:
             --output-on-failure \
             --timeout 600 \
             -E "Bench"
-
-      # ---------- Python Tests with TSan ----------
-      - name: Install Python package (TSan build)
-        env:
-          # scikit-build-core accepts semicolon-separated cmake args
-          SKBUILD_CMAKE_ARGS: "-DCMAKE_C_COMPILER=clang;-DCMAKE_CXX_COMPILER=clang++;-DCMAKE_CXX_FLAGS=-fsanitize=thread -g -O1;-DCMAKE_SHARED_LINKER_FLAGS=-fsanitize=thread"
-        run: uv pip install -e ".[dev]"
-
-      - name: Run multicore Python tests under TSan
-        env:
-          OMP_NUM_THREADS: 2
-        run: uv run pytest tests/python/test_openmp.py -v
