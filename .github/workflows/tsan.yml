@@ -20,7 +20,7 @@ jobs:
       CMAKE_GENERATOR: Ninja
       # TSan flags: compile and link with -fsanitize=thread.
       # Suppress known false positives from OpenMP runtime internals.
-      TSAN_OPTIONS: "suppressions=tools/tsan/suppressions.txt second_deadlock_stack=1"
+      TSAN_OPTIONS: "suppressions=${{ github.workspace }}/tools/tsan/suppressions.txt second_deadlock_stack=1"
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
