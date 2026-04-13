@@ -150,6 +150,20 @@ html, body, #root {
   to { transform: rotate(360deg); }
 }
 
+/* --- Remote load banner --- */
+.remote-load-banner {
+  padding: 6px 12px;
+  background: var(--bg-surface);
+  border-bottom: 1px solid var(--border);
+  font-size: 12px;
+  color: var(--text-dim);
+  text-align: center;
+}
+.remote-load-error {
+  color: #ef5350;
+  background: rgba(239, 83, 80, 0.08);
+}
+
 /* --- Stats bar --- */
 .stats-bar {
   display: flex;
@@ -373,6 +387,12 @@ html, body, #root {
 .shots-preset-active {
   border-color: var(--accent-green);
   color: var(--accent-green);
+}
+
+/* --- Warning button --- */
+.toolbar-btn-warn {
+  border-color: #ffb74d;
+  color: #ffb74d;
 }
 
 /* --- Theme toggle button --- */

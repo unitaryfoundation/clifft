@@ -29,8 +29,8 @@ namespace {
 using json = nlohmann::json;
 
 constexpr uint32_t MAX_SHOTS = 100000;
-constexpr uint32_t MAX_OPS = 10000;
-constexpr uint32_t MAX_PEAK_RANK = 20;
+constexpr uint32_t MAX_OPS = 50000;
+constexpr uint32_t MAX_PEAK_RANK = 24;
 
 struct PipelineResult {
     clifft::HirModule hir;

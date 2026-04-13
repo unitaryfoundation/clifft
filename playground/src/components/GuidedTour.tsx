@@ -110,8 +110,9 @@ const STEPS: TourStep[] = [
       "This chart shows how the active subspace dimension `k` changes at each " +
       "bytecode instruction. `k` starts at 0 and grows when `OP_EXPAND` adds a " +
       "qubit to the Schrodinger state.\n\n" +
-      "The red dashed line marks `k=20`, the browser memory limit (~16 MB). " +
-      "Circuits that stay below this line can be simulated in-browser.\n\n" +
+      "The red dashed line marks `k=24`, the browser memory limit (~256 MB). " +
+      "Near-Clifford circuits with hundreds of qubits but few T gates keep `k` " +
+      "low and simulate comfortably in-browser.\n\n" +
       "The yellow dashed line follows your cursor position in the bytecode editor.",
     target: ".chart-pane:nth-child(1)",
   },
@@ -128,8 +129,11 @@ const STEPS: TourStep[] = [
   {
     title: "Sharing & Options",
     content:
-      "The `Share Circuit` button compresses your circuit into a URL you can send to " +
-      "anyone. The `Save` button stores circuits in your browser's local storage, " +
+      "The `Share` button compresses your circuit into a URL you can send to " +
+      "anyone. For larger circuits, you can also load from external sources by " +
+      "adding `?gist=<id>` (GitHub Gist) or `?url=<encoded-url>` (any " +
+      "CORS-enabled URL) to the playground URL.\n\n" +
+      "The `Save` button stores circuits in your browser's local storage, " +
       "and `Recents` shows previously saved circuits.\n\n" +
       "The `Passes` button lets you individually toggle each HIR and bytecode " +
       "optimization pass. The `Diff` toggle shows a side-by-side comparison of " +

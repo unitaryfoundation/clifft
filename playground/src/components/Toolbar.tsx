@@ -1,4 +1,4 @@
-import { useCallback, useState, useRef, useEffect } from "react";
+import { useCallback, useMemo, useState, useRef, useEffect } from "react";
 import {
   Play,
   Share2,
@@ -40,7 +40,8 @@ interface Props {
   onDeleteCircuit: (id: string) => void;
 }
 
-const MAX_URL_LENGTH = 8000;
+const SAFE_URL_LENGTH = 8000;
+const MAX_URL_LENGTH = 32000;
 
 export function Toolbar({
   wasmStatus,
@@ -141,7 +142,9 @@ export function Toolbar({
   const bcPasses = availablePasses.filter((p) => p.kind === "bytecode");
   const totalEnabled = passConfig.hir.length + passConfig.bc.length;
 
-  const canShare = source.length <= MAX_URL_LENGTH;
+  const shareUrl = useMemo(() => buildShareUrl(), [buildShareUrl]);
+  const canShare = shareUrl.length <= MAX_URL_LENGTH;
+  const shareWarning = shareUrl.length > SAFE_URL_LENGTH && shareUrl.length <= MAX_URL_LENGTH;
   const canSimulate = wasmStatus === "ready" && !simulating;
 
   return (
@@ -340,13 +343,19 @@ export function Toolbar({
         </div>
 
         <button
-          className="toolbar-btn"
+          className={`toolbar-btn${shareWarning ? " toolbar-btn-warn" : ""}`}
           onClick={handleShare}
           disabled={!canShare}
-          title={canShare ? "Copy shareable link" : "Circuit too long to share via URL"}
+          title={
+            !canShare
+              ? "Circuit too large to share via URL. Use a GitHub Gist and share with ?gist=<id>"
+              : shareWarning
+                ? "URL is long and may not work in all browsers. Consider using a GitHub Gist."
+                : "Copy shareable link"
+          }
         >
           <Share2 size={14} />
-          {copied ? "Copied!" : "Share Circuit"}
+          {copied ? "Copied!" : "Share"}
         </button>
 
         <button

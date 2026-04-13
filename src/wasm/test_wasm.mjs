@@ -138,8 +138,8 @@ assert.deepEqual(noMeasResult.histogram, {}, "Expected empty histogram");
 
 // --- memory limit guard ---
 const bigLines = [];
-for (let i = 0; i < 25; i++) bigLines.push(`H ${i}`);
-for (let i = 0; i < 25; i++) bigLines.push(`T ${i}`);
+for (let i = 0; i < 30; i++) bigLines.push(`H ${i}`);
+for (let i = 0; i < 30; i++) bigLines.push(`T ${i}`);
 bigLines.push("M 0");
 const bigJson = mod.simulate_wasm(bigLines.join("\n"), 10, DEFAULTS);
 const bigResult = JSON.parse(bigJson);

@@ -18,7 +18,7 @@ interface Props {
   colors: ChartColors;
 }
 
-const MEMORY_LIMIT_K = 20;
+const MEMORY_LIMIT_K = 24;
 
 export function KHistoryChart({ history, baselineHistory, highlightPC, colors }: Props) {
   if (history.length === 0) {
@@ -87,7 +87,7 @@ export function KHistoryChart({ history, baselineHistory, highlightPC, colors }:
           stroke={colors.error}
           strokeDasharray="6 3"
           label={{
-            value: "Browser Memory Limit (~16MB)",
+            value: "Browser Memory Limit (~256 MB)",
             position: "right",
             fill: colors.error,
             fontSize: 10,

@@ -40,9 +40,83 @@ function getInitialSource(): string {
       // ignore bad encoded data
     }
   }
+  // For ?gist= and ?url= we return the default/draft immediately and load
+  // async in a useEffect (see useRemoteCircuit below).
   const draft = loadDraft();
   if (draft) return draft;
   return DEFAULT_SOURCE;
+}
+
+type RemoteLoadState =
+  | { status: "idle" }
+  | { status: "loading"; label: string }
+  | { status: "error"; message: string };
+
+async function fetchGist(id: string): Promise<string> {
+  const resp = await fetch(`https://api.github.com/gists/${id}`);
+  if (!resp.ok) throw new Error(`GitHub API returned ${resp.status}`);
+  const data = await resp.json();
+  const files = data.files as Record<string, { content: string }>;
+  const first = Object.values(files)[0];
+  if (!first) throw new Error("Gist has no files");
+  return first.content;
+}
+
+async function fetchUrl(url: string): Promise<string> {
+  const resp = await fetch(url);
+  if (!resp.ok) throw new Error(`Fetch returned ${resp.status}`);
+  return resp.text();
+}
+
+function getInitialRemoteState(): RemoteLoadState {
+  const params = new URLSearchParams(window.location.search);
+  // ?code= takes precedence — don't fetch remote if inline code is present
+  if (params.get("code")) return { status: "idle" };
+  if (params.get("gist")) {
+    const id = params.get("gist")!;
+    return { status: "loading", label: `Loading gist ${id.slice(0, 8)}...` };
+  }
+  if (params.get("url")) {
+    return { status: "loading", label: "Loading circuit from URL..." };
+  }
+  return { status: "idle" };
+}
+
+function useRemoteCircuit(onLoad: (source: string) => void, userHasEditedRef: React.RefObject<boolean>) {
+  const [state, setState] = useState<RemoteLoadState>(getInitialRemoteState);
+  const ranRef = useRef(false);
+
+  useEffect(() => {
+    if (ranRef.current) return;
+    const params = new URLSearchParams(window.location.search);
+    // ?code= takes precedence over remote params
+    if (params.get("code")) return;
+    const gistId = params.get("gist");
+    const url = params.get("url");
+
+    const handleResult = (content: string) => {
+      setState({ status: "idle" });
+      // Don't clobber user edits or manual circuit selections that
+      // happened while the fetch was in flight.
+      if (!userHasEditedRef.current) {
+        onLoad(content);
+      }
+    };
+
+    if (gistId) {
+      ranRef.current = true;
+      fetchGist(gistId)
+        .then(handleResult)
+        .catch((err) => setState({ status: "error", message: `Failed to load gist: ${err.message}` }));
+    } else if (url) {
+      ranRef.current = true;
+      fetchUrl(url)
+        .then(handleResult)
+        .catch((err) => setState({ status: "error", message: `Failed to load URL: ${err.message}` }));
+    }
+  }, [onLoad, userHasEditedRef]);
+
+  return state;
 }
 
 // Decoration style for highlighted lines
@@ -55,7 +129,12 @@ export default function App() {
   const monacoTheme = theme === "dark" ? "vs-dark" : "vs";
   const rulerColor = theme === "dark" ? "#4fc3f7" : "#0277bd";
 
-  const [source, setSource] = useState(getInitialSource);
+  const [source, setSourceRaw] = useState(getInitialSource);
+  const userHasEditedRef = useRef(false);
+  const setSource = useCallback((v: string) => {
+    userHasEditedRef.current = true;
+    setSourceRaw(v);
+  }, []);
   const defaultPassConfig = useMemo<PassConfig>(() => {
     if (availablePasses.length === 0) return { hir: [], bc: [] };
     return {
@@ -331,7 +410,9 @@ export default function App() {
     if (sourceEditorRef.current) {
       sourceEditorRef.current.setValue(circuitSource);
     }
-  }, []);
+  }, [setSource]);
+
+  const remoteState = useRemoteCircuit(handleLoadCircuit, userHasEditedRef);
 
   // --- Stats bar ---
   const stats: CompileSuccess | null =
@@ -363,6 +444,12 @@ export default function App() {
 
   return (
     <div className="app">
+      {remoteState.status === "loading" && (
+        <div className="remote-load-banner">Loading: {remoteState.label}</div>
+      )}
+      {remoteState.status === "error" && (
+        <div className="remote-load-banner remote-load-error">{remoteState.message}</div>
+      )}
       <Toolbar
         wasmStatus={wasmStatus}
         source={source}
