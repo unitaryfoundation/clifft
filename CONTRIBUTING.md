@@ -8,4 +8,4 @@ Quick links:
 
 - [Report a bug](https://github.com/unitaryfoundation/clifft/issues/new?template=bug_report.yml)
 - [Request a feature](https://github.com/unitaryfoundation/clifft/issues/new?template=feature_request.yml)
-- [Development setup](DEVELOPMENT.md)
+- [Building from source](docs/development/building.md)

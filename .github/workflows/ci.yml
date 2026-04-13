@@ -3,13 +3,10 @@ name: CI
 on:
   push:
     branches: [main]
-    paths-ignore:
-      - 'paper/**'
   pull_request:
     paths-ignore:
       - 'docs/**'
       - 'playground/**'
-      - 'paper/**'
       - '*.md'
       - '.github/workflows/docs.yml'
       - '.github/workflows/pr_preview.yml'

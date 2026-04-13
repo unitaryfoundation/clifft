@@ -11,7 +11,7 @@ with a focus on high-performance simulation.
 ## Source of Truth
 
 Use the code under `src/clifft/`, the tests under `tests/`, and the
-documentation under `docs/`, `README.md`, and `DEVELOPMENT.md` as the source
+documentation under `docs/` and `README.md` as the source
 of truth. If something appears architecturally ambiguous, inspect the current
 implementation and tests first, then ask the human before making a speculative
 change.

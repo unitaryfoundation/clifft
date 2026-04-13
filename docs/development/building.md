@@ -182,3 +182,12 @@ just lint      # Run pre-commit checks
 ```
 
 `just` is optional — all underlying commands are documented above.
+
+## Dependency Groups
+
+Development dependencies are managed via [PEP 735 dependency groups](https://peps.python.org/pep-0735/) in `pyproject.toml`. The `uv` package manager uses these automatically.
+
+- **`dev`** (default) — Installed by `uv sync`. Includes everything needed for building, testing, and linting.
+- **`docs`** — Installed with `uv sync --group docs`. Includes the MkDocs toolchain for building the documentation site.
+
+The only runtime dependency is `numpy`. All other packages are development-only.

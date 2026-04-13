@@ -25,15 +25,6 @@ dependencies = [
     "numpy>=1.26",
 ]
 
-[project.optional-dependencies]
-dev = [
-    "pytest>=8.0",
-    "pre-commit>=3.6",
-    "nanobind>=2.0",
-    "scikit-build-core>=0.10",
-    "sinter>=1.14",
-]
-
 [dependency-groups]
 dev = [
     "pytest>=8.0",
@@ -45,7 +36,6 @@ dev = [
     "nanobind>=2.0",
     "scikit-build-core>=0.10",
     "stim>=1.10",
-    "sinter>=1.14",
     "qiskit>=1.0",
     "qiskit-aer>=0.14",
     "pytest-codeblocks>=0.17.0",
@@ -112,7 +102,7 @@ no_implicit_optional = true
 strict_equality = true
 
 [[tool.mypy.overrides]]
-module = ["numpy.*", "stim.*", "sinter.*", "pytest.*", "clifft", "clifft._clifft_core", "qiskit.*", "qiskit_aer.*", "tsim.*", "bench_common", "qv_benchmark.*", "clifford_bench.*", "near_clifford_bench.*", "distillation_bench.*", "coherent_noise_bench.*", "matplotlib", "matplotlib.*", "pymatching", "pymatching.*", "cirq", "cirq.*", "qulacs", "qulacs.*", "qsimcirq", "qsimcirq.*", "pandas", "pandas.*"]
+module = ["numpy.*", "stim.*", "pytest.*", "clifft", "clifft._clifft_core", "qiskit.*", "qiskit_aer.*", "matplotlib", "matplotlib.*"]
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]

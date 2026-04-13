@@ -84,3 +84,4 @@ nav:
     - Contributing: development/contributing.md
     - Building from Source: development/building.md
     - Testing Strategy: development/testing.md
+    - Releasing: development/releasing.md

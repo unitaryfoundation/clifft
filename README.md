@@ -47,7 +47,7 @@ print(clifft.version())
 
 ## Development
 
-See [DEVELOPMENT.md](DEVELOPMENT.md) for build instructions.
+See the [building from source](docs/development/building.md) guide for build instructions.
 
 ## Acknowledgements
 
