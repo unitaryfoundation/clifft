@@ -53,7 +53,7 @@ jobs:
           enable-cache: true
 
       - name: Build docs
-        run: uv run --only-group docs mkdocs build
+        run: uv run --only-group docs mkdocs build --strict
         env:
           SITE_URL: https://unitaryfoundation.github.io/clifft/pr-preview/pr-${{ github.event.number }}/
 

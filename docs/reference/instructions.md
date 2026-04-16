@@ -5,7 +5,7 @@ levels of the pipeline: the **Heisenberg IR** (HIR) produced by the front-end,
 and the **VM Opcodes** (RISC bytecode) executed by the Schrodinger Virtual Machine.
 
 The same data powers the hover tooltips in the
-[Playground](../playground.md).
+[Playground](../playground/).
 
 !!! tip "Playground Tooltips"
     In the Playground, hover over any opcode or HIR keyword to see
