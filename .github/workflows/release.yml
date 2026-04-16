@@ -55,6 +55,7 @@ jobs:
             arch: arm64
             cibw_archs: arm64
             cpu_baseline: generic
+            cibw_environment: MACOSX_DEPLOYMENT_TARGET=14.0
           - os: windows-latest
             arch: amd64
             cibw_archs: AMD64
@@ -75,7 +76,9 @@ jobs:
           CIBW_BUILD: "cp312-*"
           CIBW_ARCHS: ${{ matrix.cibw_archs }}
           CIBW_SKIP: "*-musllinux*"
-          CIBW_ENVIRONMENT: CLIFFT_CPU_BASELINE=${{ matrix.cpu_baseline }}
+          CIBW_ENVIRONMENT: >-
+            CLIFFT_CPU_BASELINE=${{ matrix.cpu_baseline }}
+            ${{ matrix.cibw_environment || '' }}
           # Install build dependencies inside the cibuildwheel container
           CIBW_BEFORE_BUILD: pip install setuptools-scm
           # Install libomp on macOS for OpenMP support in wheels
