@@ -76,6 +76,9 @@ jobs:
           CIBW_BUILD: "cp312-*"
           CIBW_ARCHS: ${{ matrix.cibw_archs }}
           CIBW_SKIP: "*-musllinux*"
+          # manylinux_2_28 (AlmaLinux 8, GCC 12) needed for -march=x86-64-v3
+          CIBW_MANYLINUX_X86_64_IMAGE: manylinux_2_28
+          CIBW_MANYLINUX_AARCH64_IMAGE: manylinux_2_28
           CIBW_ENVIRONMENT: >-
             CLIFFT_CPU_BASELINE=${{ matrix.cpu_baseline }}
             ${{ matrix.cibw_environment || '' }}
