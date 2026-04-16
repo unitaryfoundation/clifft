@@ -59,7 +59,9 @@ jobs:
 
       # --- Merge: copy playground into mkdocs output ---
       - name: Copy playground into site
-        run: cp -r playground/dist site/playground
+        run: |
+          rm -rf site/playground
+          cp -r playground/dist site/playground
 
       - name: Upload build artifact
         uses: actions/upload-artifact@v4
