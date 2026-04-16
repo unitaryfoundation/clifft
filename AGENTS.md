@@ -1,6 +1,6 @@
 # Clifft AI Agent Instructions
 
-Instructions for AI coding assistants working on this repository.
+Instructions for AI coding assistants working on the Clifft repository.
 
 ## Project Overview
 
