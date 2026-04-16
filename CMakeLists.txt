@@ -1,4 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
+# CI verification test — remove this comment
 project(clifft LANGUAGES CXX)
 
 # Version: derived from git tags (or VERSION file in sdists)

@@ -1,6 +1,7 @@
 ---
 hide:
   - navigation
+# CI verification test — remove this comment
 ---
 
 # Clifft
