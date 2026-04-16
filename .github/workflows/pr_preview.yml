@@ -1,0 +1,113 @@
+name: Docs PR Preview
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, reopened, synchronize, closed]
+    paths:
+      - 'docs/**'
+      - 'playground/**'
+      - 'src/wasm/**'
+      - 'mkdocs.yml'
+      - '.github/workflows/pr_preview.yml'
+
+concurrency:
+  group: "pr-preview-${{ github.ref }}"
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    if: github.event.action != 'closed'
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Build Wasm module
+        uses: ./.github/actions/build-wasm
+
+      - name: Copy Wasm artifacts
+        run: |
+          mkdir -p playground/public
+          cp build-wasm/clifft_wasm.js playground/public/
+          cp build-wasm/clifft_wasm.wasm playground/public/
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: playground/package-lock.json
+
+      - name: Build playground
+        run: |
+          cd playground && npm ci
+          VITE_BASE_PATH=/clifft/pr-preview/pr-${{ github.event.number }}/playground/ npm run build
+
+      # --- Build MkDocs (docs group only, no C++ extension needed) ---
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
+      - name: Build docs
+        run: uv run --only-group docs mkdocs build
+        env:
+          SITE_URL: https://unitaryfoundation.github.io/clifft/pr-preview/pr-${{ github.event.number }}/
+
+      # --- Merge: copy playground into mkdocs output ---
+      - name: Copy playground into site
+        run: cp -r playground/dist site/playground
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: site-dist
+          path: site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-24.04
+    if: github.event.pull_request.head.repo.fork == false
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Download build artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: site-dist
+          path: site
+
+      - name: Deploy PR preview
+        uses: rossjrw/pr-preview-action@v1
+        with:
+          source-dir: site
+          preview-branch: gh-pages
+          umbrella-dir: pr-preview
+          pages-base-url: unitaryfoundation.github.io/clifft
+          action: auto
+
+  cleanup:
+    runs-on: ubuntu-24.04
+    if: github.event.action == 'closed'
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Remove PR preview
+        uses: rossjrw/pr-preview-action@v1
+        with:
+          source-dir: site
+          preview-branch: gh-pages
+          umbrella-dir: pr-preview
+          pages-base-url: unitaryfoundation.github.io/clifft
+          action: remove

@@ -1,0 +1,226 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    paths-ignore:
+      - 'docs/**'
+      - 'playground/**'
+      - '*.md'
+      - '.github/workflows/docs.yml'
+      - '.github/workflows/pr_preview.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+jobs:
+  wasm:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Build Wasm module
+        uses: ./.github/actions/build-wasm
+
+      - name: Run Wasm smoke tests
+        run: |
+          docker run --rm \
+            -u "$(id -u):$(id -g)" \
+            -v "${{ github.workspace }}:/src" \
+            -w /src \
+            emscripten/emsdk:3.1.74 \
+            node --experimental-vm-modules src/wasm/test_wasm.mjs
+
+  lint:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup uv and Python
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          python-version: "3.12"
+
+      - name: Cache pre-commit
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pre-commit
+          key: ${{ runner.os }}-pre-commit-${{ hashFiles('.pre-commit-config.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-pre-commit-
+
+      - name: Run pre-commit
+        run: uv tool run pre-commit run --all-files
+
+  playground-lint:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: playground/package-lock.json
+
+      - name: Install dependencies
+        run: cd playground && npm ci
+
+      - name: TypeScript type check
+        run: cd playground && npx tsc -b
+
+      - name: ESLint
+        run: cd playground && npm run lint
+
+  build-and-test:
+    needs: lint
+    runs-on: ubuntu-24.04
+    env:
+      CMAKE_BUILD_TYPE: Debug
+      SKBUILD_CMAKE_BUILD_TYPE: Debug
+      CMAKE_GENERATOR: Ninja
+      CMAKE_C_COMPILER_LAUNCHER: ccache
+      CMAKE_CXX_COMPILER_LAUNCHER: ccache
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install system dependencies
+        run: sudo apt-get update && sudo apt-get install -y ninja-build
+
+      - name: Setup ccache
+        uses: hendrikmuhs/ccache-action@v1.2
+        with:
+          key: ${{ runner.os }}-ccache-${{ env.CMAKE_BUILD_TYPE }}
+
+      - name: Setup uv and Python
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          python-version: "3.12"
+
+      - name: Configure C++ build
+        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=${{ env.CMAKE_BUILD_TYPE }}
+
+      - name: Build C++
+        run: cmake --build build --config ${{ env.CMAKE_BUILD_TYPE }} --parallel
+
+      - name: Run C++ tests (default ISA)
+        run: |
+          ctest --test-dir build \
+            --build-config ${{ env.CMAKE_BUILD_TYPE }} \
+            --output-on-failure \
+            --parallel \
+            --timeout 300
+        shell: bash
+
+      - name: Run C++ tests (scalar ISA)
+        env:
+          CLIFFT_FORCE_ISA: scalar
+        run: |
+          ctest --test-dir build \
+            --build-config ${{ env.CMAKE_BUILD_TYPE }} \
+            --output-on-failure \
+            --parallel \
+            --timeout 300 \
+            -E "Bench"
+        shell: bash
+
+      - name: Run C++ tests (avx2 ISA)
+        env:
+          CLIFFT_FORCE_ISA: avx2
+        run: |
+          ctest --test-dir build \
+            --build-config ${{ env.CMAKE_BUILD_TYPE }} \
+            --output-on-failure \
+            --parallel \
+            --timeout 300 \
+            -E "Bench"
+        shell: bash
+
+      - name: Install Python package
+        run: uv pip install -e ".[dev]"
+
+      - name: Run Python tests (default ISA)
+        run: uv run pytest tests/python/ -v
+
+      - name: Run Python tests (scalar ISA)
+        env:
+          CLIFFT_FORCE_ISA: scalar
+        run: uv run pytest tests/python/ -v
+
+      - name: Test documentation code examples
+        run: uv run pytest --codeblocks docs/ README.md -v
+
+  cross-platform:
+    if: github.event_name == 'push'
+    needs: lint
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+            install-deps: brew install ninja libomp
+          - os: windows-latest
+            install-deps: ""
+    runs-on: ${{ matrix.os }}
+    env:
+      CMAKE_BUILD_TYPE: Debug
+      SKBUILD_CMAKE_BUILD_TYPE: Debug
+      CMAKE_GENERATOR: Ninja
+      CMAKE_C_COMPILER_LAUNCHER: ccache
+      CMAKE_CXX_COMPILER_LAUNCHER: ccache
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install system dependencies
+        if: matrix.install-deps != ''
+        run: ${{ matrix.install-deps }}
+
+      - name: Setup ccache
+        uses: hendrikmuhs/ccache-action@v1.2
+        with:
+          key: ${{ runner.os }}-ccache-${{ env.CMAKE_BUILD_TYPE }}
+
+      - name: Setup uv and Python
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          python-version: "3.12"
+
+      - name: Setup MSVC dev environment
+        if: runner.os == 'Windows'
+        uses: ilammy/msvc-dev-cmd@v1
+
+      - name: Configure C++ build
+        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=${{ env.CMAKE_BUILD_TYPE }}
+
+      - name: Build C++
+        run: cmake --build build --config ${{ env.CMAKE_BUILD_TYPE }} --parallel
+
+      - name: Run C++ tests (skip benchmarks on cross-platform)
+        run: |
+          ctest --test-dir build \
+            --build-config ${{ env.CMAKE_BUILD_TYPE }} \
+            --output-on-failure \
+            --parallel \
+            --timeout 300 \
+            -E "Bench"
+        shell: bash
+
+      - name: Install Python package
+        run: uv pip install -e ".[dev]"
+
+      - name: Run Python tests
+        run: uv run pytest tests/python/ -v

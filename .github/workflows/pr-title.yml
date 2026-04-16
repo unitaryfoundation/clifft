@@ -1,0 +1,35 @@
+name: PR Title
+
+on:
+  pull_request:
+    types: [opened, edited, synchronize, reopened]
+
+permissions:
+  contents: read
+
+jobs:
+  check-title:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Validate conventional commit format
+        env:
+          TITLE: ${{ github.event.pull_request.title }}
+        run: |
+          # Conventional commit prefixes accepted by git-cliff
+          PATTERN='^(feat|fix|docs|perf|refactor|test|bench|build|ci|chore|style|revert)(\(.+\))?!?: .+'
+
+          if [[ ! "$TITLE" =~ $PATTERN ]]; then
+            echo "::error::PR title does not follow conventional commit format."
+            echo ""
+            echo "Expected: <type>[optional scope]: <description>"
+            echo "Got:      $TITLE"
+            echo ""
+            echo "Valid types: feat, fix, docs, perf, refactor, test, bench, build, ci, chore, style, revert"
+            echo "Examples:"
+            echo "  feat: add importance sampling API"
+            echo "  fix(parser): handle empty REPEAT blocks"
+            echo "  docs: update installation guide"
+            exit 1
+          fi
+
+          echo "PR title is valid: $TITLE"

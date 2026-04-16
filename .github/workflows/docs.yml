@@ -1,0 +1,62 @@
+name: Deploy Docs
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: docs-deploy
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+
+jobs:
+  deploy:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Build Wasm module
+        uses: ./.github/actions/build-wasm
+
+      - name: Copy Wasm artifacts
+        run: |
+          mkdir -p playground/public
+          cp build-wasm/clifft_wasm.js playground/public/
+          cp build-wasm/clifft_wasm.wasm playground/public/
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: playground/package-lock.json
+
+      - name: Build playground
+        run: |
+          cd playground && npm ci
+          VITE_BASE_PATH=/clifft/playground/ npm run build
+
+      # --- Build MkDocs (docs group only, no C++ extension needed) ---
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
+      - name: Build docs
+        run: uv run --only-group docs mkdocs build --strict
+
+      # --- Merge: copy playground SPA into mkdocs output ---
+      - name: Copy playground into site
+        run: cp -r playground/dist site/playground
+
+      # --- Deploy to gh-pages (preserving pr-preview/) ---
+      - name: Deploy to GitHub Pages
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./site
+          keep_files: true

@@ -1,0 +1,59 @@
+"""Tests for source map and active-k history propagation through Python bindings."""
+
+import clifft
+
+
+def test_hir_source_map_parallel_to_ops() -> None:
+    """HirModule.source_map length matches num_ops."""
+    hir = clifft.trace(clifft.parse("H 0\nT 0\nM 0"))
+    assert len(hir.source_map) == hir.num_ops
+
+
+def test_hir_source_map_contains_correct_lines() -> None:
+    """T gate on line 2 maps to source_line 2."""
+    hir = clifft.trace(clifft.parse("H 0\nT 0\nM 0"))
+    # First HIR op is the T gate (H absorbed), should be line 2
+    assert hir.source_map[0] == [2]
+
+
+def test_compiled_source_map_parallel_to_bytecode() -> None:
+    """CompiledModule source_map and active_k_history match bytecode length."""
+    prog = clifft.lower(clifft.trace(clifft.parse("H 0\nT 0\nM 0")))
+    assert len(prog.source_map) == prog.num_instructions
+    assert len(prog.active_k_history) == prog.num_instructions
+
+
+def test_active_k_history_shows_expansion_and_compaction() -> None:
+    """k rises for T gate expansion; measurement records k before deactivation."""
+    prog = clifft.lower(clifft.trace(clifft.parse("H 0\nT 0\nM 0")))
+    k_hist = list(prog.active_k_history)
+    assert max(k_hist) >= 1, "T gate should expand k to at least 1"
+    # Measurement records k at emission time (before deactivation), so
+    # the final instruction in a single-qubit circuit still has k=1.
+    assert k_hist[-1] == 1, "Measurement should record k before deactivation"
+    # In a 2-qubit circuit, after M 0 deactivates k drops back to 0,
+    # then the second T re-expands.
+    prog2 = clifft.lower(clifft.trace(clifft.parse("H 0\nT 0\nM 0\nH 1\nT 1\nM 1")))
+    k2 = list(prog2.active_k_history)
+    assert max(k2) >= 1, "T gate should expand k"
+    assert 0 in k2, "k should drop to 0 between the two qubit lifecycles"
+
+
+def test_optimizer_preserves_source_map() -> None:
+    """Peephole fusion keeps source_map in sync after S absorption."""
+    hir = clifft.trace(clifft.parse("H 0\nT 0\nT 0\nM 0"))
+    pm = clifft.HirPassManager()
+    pm.add(clifft.PeepholeFusionPass())
+    pm.run(hir)
+    assert len(hir.source_map) == hir.num_ops
+    # T+T fused to S and absorbed; only MEASURE remains
+    assert hir.num_ops == 1
+    op = list(hir)[0]
+    assert op.as_dict()["op_type"] == "MEASURE"
+
+
+def test_empty_circuit_produces_empty_maps() -> None:
+    """Empty circuit yields empty source_map and k_history."""
+    prog = clifft.lower(clifft.trace(clifft.parse("")))
+    assert len(prog.source_map) == 0
+    assert len(prog.active_k_history) == 0

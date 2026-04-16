@@ -1,0 +1,1420 @@
+// Front-End unit tests
+//
+// Tests the trace() function which converts Circuit -> HirModule
+// Key invariant: Clifford gates are absorbed, T gates emit HeisenbergOps
+// with correctly rewound Pauli masks.
+
+#include "clifft/circuit/parser.h"
+#include "clifft/frontend/frontend.h"
+
+#include "test_helpers.h"
+
+#include <catch2/catch_approx.hpp>
+#include <catch2/catch_test_macros.hpp>
+#include <random>
+#include <stdexcept>
+
+using namespace clifft;
+using clifft::test::X;
+using clifft::test::Z;
+
+static PauliBitMask stim_to_bitmask(const stim::simd_bits_range_ref<kStimWidth>& bits, uint32_t n) {
+    PauliBitMask m;
+    uint32_t words = (n + 63) / 64;
+    for (uint32_t w = 0; w < words && w < kMaxInlineWords; ++w) {
+        m.w[w] = bits.u64[w];
+    }
+    return m;
+}
+
+static NoiseChannel rewind_single_pauli_reference(const stim::TableauSimulator<kStimWidth>& sim,
+                                                  uint32_t qubit, int pauli_type, double prob) {
+    stim::PauliString<kStimWidth> pauli(sim.inv_state.num_qubits);
+    if (pauli_type == 1 || pauli_type == 2)
+        pauli.xs[qubit] = true;
+    if (pauli_type == 2 || pauli_type == 3)
+        pauli.zs[qubit] = true;
+
+    auto rewound = sim.inv_state(pauli);
+    uint32_t n = sim.inv_state.num_qubits;
+    return {stim_to_bitmask(rewound.xs, n), stim_to_bitmask(rewound.zs, n), prob};
+}
+
+static NoiseChannel rewind_two_qubit_pauli_reference(const stim::TableauSimulator<kStimWidth>& sim,
+                                                     uint32_t q1, uint32_t q2, int pauli1,
+                                                     int pauli2, double prob) {
+    stim::PauliString<kStimWidth> pauli(sim.inv_state.num_qubits);
+
+    if (pauli1 == 1 || pauli1 == 2)
+        pauli.xs[q1] = true;
+    if (pauli1 == 2 || pauli1 == 3)
+        pauli.zs[q1] = true;
+
+    if (pauli2 == 1 || pauli2 == 2)
+        pauli.xs[q2] = true;
+    if (pauli2 == 2 || pauli2 == 3)
+        pauli.zs[q2] = true;
+
+    auto rewound = sim.inv_state(pauli);
+    uint32_t n = sim.inv_state.num_qubits;
+    return {stim_to_bitmask(rewound.xs, n), stim_to_bitmask(rewound.zs, n), prob};
+}
+
+TEST_CASE("Frontend: identity circuit produces empty HIR", "[frontend]") {
+    auto circuit = parse("TICK");
+    auto hir = trace(circuit);
+
+    REQUIRE(hir.num_ops() == 0);
+    REQUIRE(hir.num_qubits == 0);
+}
+
+TEST_CASE("Frontend: pure Clifford circuit produces empty HIR", "[frontend]") {
+    auto circuit = parse(R"(
+        H 0
+        S 0
+        CX 0 1
+        H 1
+    )");
+    auto hir = trace(circuit);
+
+    // All Cliffords absorbed - no HIR ops
+    REQUIRE(hir.num_ops() == 0);
+    REQUIRE(hir.num_qubits == 2);
+}
+
+TEST_CASE("Frontend: single T gate on qubit 0", "[frontend]") {
+    auto circuit = parse("T 0");
+    auto hir = trace(circuit);
+
+    REQUIRE(hir.num_ops() == 1);
+    REQUIRE(hir.ops[0].op_type() == OpType::T_GATE);
+
+    // Without any Cliffords, rewound Z0 is just Z0
+    REQUIRE(hir.ops[0].destab_mask() == 0);   // No X
+    REQUIRE(hir.ops[0].stab_mask() == Z(0));  // Z on qubit 0
+    REQUIRE(hir.ops[0].sign() == false);
+}
+
+TEST_CASE("Frontend: H then T - rewound Z becomes X", "[frontend]") {
+    // "H 0; T 0" should emit HIR with mask corresponding to +X axis
+    auto circuit = parse(R"(
+        H 0
+        T 0
+    )");
+    auto hir = trace(circuit);
+
+    REQUIRE(hir.num_ops() == 1);
+    REQUIRE(hir.ops[0].op_type() == OpType::T_GATE);
+
+    // After H, the Z observable is conjugated to X
+    // So the T gate's rewound Z is X on qubit 0
+    REQUIRE(hir.ops[0].destab_mask() == X(0));  // X on qubit 0
+    REQUIRE(hir.ops[0].stab_mask() == 0);       // No Z
+    REQUIRE(hir.ops[0].sign() == false);
+}
+
+TEST_CASE("Frontend: H; S; T - rewound Z is still X (S commutes with Z)", "[frontend]") {
+    auto circuit = parse(R"(
+        H 0
+        S 0
+        T 0
+    )");
+    auto hir = trace(circuit);
+
+    REQUIRE(hir.num_ops() == 1);
+    REQUIRE(hir.ops[0].op_type() == OpType::T_GATE);
+
+    // S commutes with Z, so rewound Z after H;S is still X
+    REQUIRE(hir.ops[0].destab_mask() == X(0));  // X on qubit 0
+    REQUIRE(hir.ops[0].stab_mask() == 0);       // No Z
+}
+
+TEST_CASE("Frontend: T_DAG gate", "[frontend]") {
+    auto circuit = parse(R"(
+        H 0
+        T_DAG 0
+    )");
+    auto hir = trace(circuit);
+
+    REQUIRE(hir.num_ops() == 1);
+    REQUIRE(hir.ops[0].op_type() == OpType::T_GATE);
+    REQUIRE(hir.ops[0].is_dagger() == true);    // T_dag, not T
+    REQUIRE(hir.ops[0].destab_mask() == X(0));  // X on qubit 0
+}
+
+TEST_CASE("Frontend: multiple T gates on different qubits", "[frontend]") {
+    auto circuit = parse(R"(
+        H 0
+        H 1
+        T 0 1
+    )");
+    auto hir = trace(circuit);
+
+    REQUIRE(hir.num_ops() == 2);
+
+    // T on qubit 0: rewound Z is X0
+    REQUIRE(hir.ops[0].op_type() == OpType::T_GATE);
+    REQUIRE(hir.ops[0].destab_mask() == X(0));  // X on qubit 0
+    REQUIRE(hir.ops[0].stab_mask() == 0);
+
+    // T on qubit 1: rewound Z is X1
+    REQUIRE(hir.ops[1].op_type() == OpType::T_GATE);
+    REQUIRE(hir.ops[1].destab_mask() == X(1));  // X on qubit 1
+    REQUIRE(hir.ops[1].stab_mask() == 0);
+}
+
+TEST_CASE("Frontend: CX entangles qubits - T sees multi-qubit Pauli", "[frontend]") {
+    auto circuit = parse(R"(
+        H 0
+        CX 0 1
+        T 1
+    )");
+    auto hir = trace(circuit);
+
+    REQUIRE(hir.num_ops() == 1);
+    REQUIRE(hir.ops[0].op_type() == OpType::T_GATE);
+
+    // After H 0; CX 0 1:
+    // Z1 rewound = (CX H)_dag Z1 (CX H) = H_dag CX_dag Z1 CX H = H_dag (Z0 Z1) H = X0 Z1
+    REQUIRE(hir.ops[0].destab_mask() == X(0));  // X on qubit 0
+    REQUIRE(hir.ops[0].stab_mask() == Z(1));    // Z on qubit 1
+}
+
+TEST_CASE("Frontend: Z-basis measurement", "[frontend]") {
+    auto circuit = parse(R"(
+        H 0
+        M 0
+    )");
+    auto hir = trace(circuit);
+
+    REQUIRE(hir.num_ops() == 1);
+    REQUIRE(hir.ops[0].op_type() == OpType::MEASURE);
+
+    // After H, Z0 is conjugated to X0
+    REQUIRE(hir.ops[0].destab_mask() == X(0));  // X on qubit 0
+    REQUIRE(hir.ops[0].stab_mask() == 0);
+    REQUIRE(hir.ops[0].meas_record_idx() == MeasRecordIdx{0});
+}
+
+TEST_CASE("Frontend: X-basis measurement", "[frontend]") {
+    auto circuit = parse(R"(
+        H 0
+        MX 0
+    )");
+    auto hir = trace(circuit);
+
+    REQUIRE(hir.num_ops() == 1);
+    REQUIRE(hir.ops[0].op_type() == OpType::MEASURE);
+
+    // MX measures X observable
+    // After H, X0 is conjugated to Z0
+    REQUIRE(hir.ops[0].destab_mask() == 0);
+    REQUIRE(hir.ops[0].stab_mask() == Z(0));  // Z on qubit 0
+}
+
+TEST_CASE("Frontend: reset R as first-class operation", "[frontend]") {
+    auto circuit = parse(R"(
+        H 0
+        R 0
+    )");
+    auto hir = trace(circuit);
+
+    // R decomposes into hidden MEASURE + CONDITIONAL with absolute index
+    REQUIRE(hir.num_ops() == 2);
+    REQUIRE(hir.ops[0].op_type() == OpType::MEASURE);
+    REQUIRE(hir.ops[0].is_hidden());  // Hidden measurement for reset
+    REQUIRE(hir.ops[0].meas_record_idx() ==
+            MeasRecordIdx{0});  // Hidden index starts at num_measurements=0
+    REQUIRE(hir.ops[1].op_type() == OpType::CONDITIONAL_PAULI);
+    REQUIRE(hir.ops[1].controlling_meas() == ControllingMeasIdx{0});  // References the hidden meas
+    REQUIRE(hir.num_measurements == 0);  // R has no visible measurement
+    REQUIRE(hir.num_hidden_measurements == 1);
+}
+
+TEST_CASE("Frontend: MR as first-class operation", "[frontend]") {
+    auto circuit = parse(R"(
+        H 0
+        MR 0
+    )");
+    auto hir = trace(circuit);
+
+    // MR produces a visible MEASURE followed by CONDITIONAL with absolute index
+    REQUIRE(hir.num_ops() == 2);
+    REQUIRE(hir.ops[0].op_type() == OpType::MEASURE);
+    REQUIRE(hir.ops[0].meas_record_idx() == MeasRecordIdx{0});
+    REQUIRE(!hir.ops[0].is_hidden());  // MR has visible measurement
+    REQUIRE(hir.ops[1].op_type() == OpType::CONDITIONAL_PAULI);
+    REQUIRE(hir.ops[1].controlling_meas() == ControllingMeasIdx{0});
+    REQUIRE(hir.num_measurements == 1);
+    REQUIRE(hir.num_hidden_measurements == 0);
+}
+
+TEST_CASE("Frontend: MRX as first-class operation", "[frontend]") {
+    auto circuit = parse(R"(
+        H 0
+        MRX 0
+    )");
+    auto hir = trace(circuit);
+
+    // MRX produces a visible MEASURE followed by CONDITIONAL with absolute index
+    REQUIRE(hir.num_ops() == 2);
+    REQUIRE(hir.ops[0].op_type() == OpType::MEASURE);
+    REQUIRE(!hir.ops[0].is_hidden());  // MRX has visible measurement
+    REQUIRE(hir.ops[1].op_type() == OpType::CONDITIONAL_PAULI);
+    REQUIRE(hir.ops[1].controlling_meas() == ControllingMeasIdx{0});
+    REQUIRE(hir.num_measurements == 1);
+    REQUIRE(hir.num_hidden_measurements == 0);
+}
+
+TEST_CASE("Frontend: mixed visible and hidden measurement index layout", "[frontend]") {
+    // M 0 -> visible meas_idx=0
+    // R 1 -> hidden meas_idx=2 (starts at num_measurements), conditional refs 2
+    // MR 2 -> visible meas_idx=1, conditional refs 1
+    // Layout: [0,num_measurements) visible, [num_measurements,..) hidden
+    auto circuit = parse(R"(
+        M 0
+        R 1
+        MR 2
+    )");
+    auto hir = trace(circuit);
+
+    REQUIRE(hir.num_measurements == 2);         // M and MR are visible
+    REQUIRE(hir.num_hidden_measurements == 1);  // R contributes one hidden
+
+    // Op 0: M 0 -> visible, meas_idx=0
+    REQUIRE(hir.ops[0].op_type() == OpType::MEASURE);
+    REQUIRE(!hir.ops[0].is_hidden());
+    REQUIRE(hir.ops[0].meas_record_idx() == MeasRecordIdx{0});
+
+    // Op 1: hidden MEASURE from R 1 -> meas_idx=2 (first hidden slot)
+    REQUIRE(hir.ops[1].op_type() == OpType::MEASURE);
+    REQUIRE(hir.ops[1].is_hidden());
+    REQUIRE(hir.ops[1].meas_record_idx() == MeasRecordIdx{2});
+
+    // Op 2: CONDITIONAL_PAULI from R 1 -> references hidden meas_idx=2
+    REQUIRE(hir.ops[2].op_type() == OpType::CONDITIONAL_PAULI);
+    REQUIRE(hir.ops[2].controlling_meas() == ControllingMeasIdx{2});
+
+    // Op 3: MR 2 -> visible, meas_idx=1
+    REQUIRE(hir.ops[3].op_type() == OpType::MEASURE);
+    REQUIRE(!hir.ops[3].is_hidden());
+    REQUIRE(hir.ops[3].meas_record_idx() == MeasRecordIdx{1});
+
+    // Op 4: CONDITIONAL_PAULI from MR 2 -> references visible meas_idx=1
+    REQUIRE(hir.ops[4].op_type() == OpType::CONDITIONAL_PAULI);
+    REQUIRE(hir.ops[4].controlling_meas() == ControllingMeasIdx{1});
+
+    REQUIRE(hir.num_ops() == 5);
+}
+
+TEST_CASE("Frontend: measurement record indexing", "[frontend]") {
+    auto circuit = parse(R"(
+        M 0
+        M 1
+        M 2
+    )");
+    auto hir = trace(circuit);
+
+    REQUIRE(hir.num_ops() == 3);
+    REQUIRE(hir.ops[0].meas_record_idx() == MeasRecordIdx{0});
+    REQUIRE(hir.ops[1].meas_record_idx() == MeasRecordIdx{1});
+    REQUIRE(hir.ops[2].meas_record_idx() == MeasRecordIdx{2});
+}
+
+TEST_CASE("Frontend: MPP single Pauli product", "[frontend]") {
+    auto circuit = parse(R"(
+        H 0
+        H 1
+        MPP X0*X1
+    )");
+    auto hir = trace(circuit);
+
+    REQUIRE(hir.num_ops() == 1);
+    REQUIRE(hir.ops[0].op_type() == OpType::MEASURE);
+
+    // MPP X0*X1 measures the X0tensorX1 observable
+    // After H on both qubits, X is conjugated to Z
+    // So rewound X0*X1 = Z0*Z1
+    REQUIRE(hir.ops[0].destab_mask() == 0);            // No X
+    REQUIRE(hir.ops[0].stab_mask() == (Z(0) | Z(1)));  // Z on qubits 0 and 1
+}
+
+TEST_CASE("Frontend: MPP Z product", "[frontend]") {
+    auto circuit = parse(R"(
+        H 0
+        CX 0 1
+        MPP Z0*Z1
+    )");
+    auto hir = trace(circuit);
+
+    REQUIRE(hir.num_ops() == 1);
+
+    // After H 0; CX 0 1:
+    // Z0 rewound = X0
+    // Z1 rewound = X0 Z1
+    // Product Z0*Z1 = X0 * (X0 Z1) = Z1 (X0 cancels)
+    REQUIRE(hir.ops[0].destab_mask() == 0);
+    REQUIRE(hir.ops[0].stab_mask() == Z(1));  // Just Z1
+}
+
+// =============================================================================
+// EXP_VAL tests
+// =============================================================================
+
+TEST_CASE("Frontend: EXP_VAL single Z product - no Cliffords", "[frontend][exp_val]") {
+    auto circuit = parse("EXP_VAL Z0");
+    auto hir = trace(circuit);
+
+    REQUIRE(hir.num_ops() == 1);
+    REQUIRE(hir.ops[0].op_type() == OpType::EXP_VAL);
+    REQUIRE(hir.ops[0].exp_val_idx() == ExpValIdx{0});
+    REQUIRE(hir.ops[0].destab_mask() == 0);
+    REQUIRE(hir.ops[0].stab_mask() == Z(0));
+    REQUIRE(hir.num_exp_vals == 1);
+}
+
+TEST_CASE("Frontend: EXP_VAL X after Hadamard rewinds to Z", "[frontend][exp_val]") {
+    auto circuit = parse(R"(
+        H 0
+        EXP_VAL X0
+    )");
+    auto hir = trace(circuit);
+
+    REQUIRE(hir.num_ops() == 1);
+    REQUIRE(hir.ops[0].op_type() == OpType::EXP_VAL);
+    // After H, X0 is conjugated to Z0
+    REQUIRE(hir.ops[0].destab_mask() == 0);
+    REQUIRE(hir.ops[0].stab_mask() == Z(0));
+}
+
+TEST_CASE("Frontend: EXP_VAL multi-qubit product with Cliffords", "[frontend][exp_val]") {
+    auto circuit = parse(R"(
+        H 0
+        H 1
+        EXP_VAL X0*X1
+    )");
+    auto hir = trace(circuit);
+
+    REQUIRE(hir.num_ops() == 1);
+    REQUIRE(hir.ops[0].op_type() == OpType::EXP_VAL);
+    // After H on both qubits, X is conjugated to Z
+    REQUIRE(hir.ops[0].destab_mask() == 0);
+    REQUIRE(hir.ops[0].stab_mask() == (Z(0) | Z(1)));
+}
+
+TEST_CASE("Frontend: EXP_VAL multiple products get consecutive indices", "[frontend][exp_val]") {
+    auto circuit = parse(R"(
+        EXP_VAL X0
+        EXP_VAL Z0*Z1
+    )");
+    auto hir = trace(circuit);
+
+    REQUIRE(hir.num_ops() == 2);
+    REQUIRE(hir.ops[0].op_type() == OpType::EXP_VAL);
+    REQUIRE(hir.ops[0].exp_val_idx() == ExpValIdx{0});
+    REQUIRE(hir.ops[1].op_type() == OpType::EXP_VAL);
+    REQUIRE(hir.ops[1].exp_val_idx() == ExpValIdx{1});
+    REQUIRE(hir.num_exp_vals == 2);
+}
+
+TEST_CASE("Frontend: EXP_VAL single instruction with multiple products", "[frontend][exp_val]") {
+    auto circuit = parse("EXP_VAL X0 Z1");
+    auto hir = trace(circuit);
+
+    REQUIRE(hir.num_ops() == 2);
+    REQUIRE(hir.num_exp_vals == 2);
+
+    REQUIRE(hir.ops[0].op_type() == OpType::EXP_VAL);
+    REQUIRE(hir.ops[0].exp_val_idx() == ExpValIdx{0});
+    REQUIRE(hir.ops[0].destab_mask() == X(0));
+    REQUIRE(hir.ops[0].stab_mask() == 0);
+
+    REQUIRE(hir.ops[1].op_type() == OpType::EXP_VAL);
+    REQUIRE(hir.ops[1].exp_val_idx() == ExpValIdx{1});
+    REQUIRE(hir.ops[1].destab_mask() == 0);
+    REQUIRE(hir.ops[1].stab_mask() == Z(1));
+}
+
+TEST_CASE("Frontend: EXP_VAL does not affect measurement indices", "[frontend][exp_val]") {
+    auto circuit = parse(R"(
+        M 0
+        EXP_VAL X0
+        M 1
+    )");
+    auto hir = trace(circuit);
+
+    // Two measurements and one EXP_VAL
+    REQUIRE(hir.num_measurements == 2);
+    REQUIRE(hir.num_exp_vals == 1);
+
+    // Find the ops by type
+    size_t meas_count = 0;
+    size_t exp_val_count = 0;
+    for (const auto& op : hir.ops) {
+        if (op.op_type() == OpType::MEASURE) {
+            if (meas_count == 0) {
+                REQUIRE(op.meas_record_idx() == MeasRecordIdx{0});
+            } else {
+                REQUIRE(op.meas_record_idx() == MeasRecordIdx{1});
+            }
+            ++meas_count;
+        } else if (op.op_type() == OpType::EXP_VAL) {
+            REQUIRE(op.exp_val_idx() == ExpValIdx{0});
+            ++exp_val_count;
+        }
+    }
+    REQUIRE(meas_count == 2);
+    REQUIRE(exp_val_count == 1);
+}
+
+TEST_CASE("Frontend: EXP_VAL source map entries preserved", "[frontend][exp_val]") {
+    auto circuit = parse(R"(
+        EXP_VAL Z0
+    )");
+    auto hir = trace(circuit);
+
+    REQUIRE(hir.source_map.size() == hir.num_ops());
+    REQUIRE(!hir.source_map[0].empty());
+}
+
+TEST_CASE("Frontend: EXP_VAL multi-product source map entries preserved", "[frontend][exp_val]") {
+    auto circuit = parse("EXP_VAL X0 Z1");
+    auto hir = trace(circuit);
+
+    REQUIRE(hir.num_ops() == 2);
+    REQUIRE(hir.source_map.size() == hir.num_ops());
+    REQUIRE(hir.source_map[0] == std::vector<uint32_t>{1});
+    REQUIRE(hir.source_map[1] == std::vector<uint32_t>{1});
+}
+
+TEST_CASE("Frontend: EXP_VAL rewind matches MPP rewind", "[frontend][exp_val]") {
+    // Same Pauli product through the same Clifford circuit should yield
+    // the same rewound masks whether it's MPP or EXP_VAL
+    auto circuit_mpp = parse(R"(
+        H 0
+        CX 0 1
+        MPP X0*Z1
+    )");
+    auto hir_mpp = trace(circuit_mpp);
+
+    auto circuit_ev = parse(R"(
+        H 0
+        CX 0 1
+        EXP_VAL X0*Z1
+    )");
+    auto hir_ev = trace(circuit_ev);
+
+    REQUIRE(hir_mpp.num_ops() == 1);
+    REQUIRE(hir_ev.num_ops() == 1);
+    REQUIRE(hir_mpp.ops[0].destab_mask() == hir_ev.ops[0].destab_mask());
+    REQUIRE(hir_mpp.ops[0].stab_mask() == hir_ev.ops[0].stab_mask());
+    REQUIRE(hir_mpp.ops[0].sign() == hir_ev.ops[0].sign());
+}
+
+TEST_CASE("Frontend: EXP_VAL inversion parity flips sign", "[frontend][exp_val]") {
+    Circuit circuit;
+    circuit.num_qubits = 2;
+    circuit.num_exp_vals = 1;
+    circuit.nodes.push_back(
+        {GateType::EXP_VAL,
+         {Target::pauli(0, Target::kPauliX).inverted(), Target::pauli(1, Target::kPauliY)},
+         {},
+         1});
+
+    auto hir = trace(circuit);
+
+    REQUIRE(hir.num_ops() == 1);
+    REQUIRE(hir.ops[0].op_type() == OpType::EXP_VAL);
+    REQUIRE(hir.ops[0].destab_mask() == (X(0) | X(1)));
+    REQUIRE(hir.ops[0].stab_mask() == Z(1));
+    REQUIRE(hir.ops[0].sign());
+}
+
+TEST_CASE("Frontend: exceeds max qubit limit", "[frontend]") {
+    Circuit circuit;
+    circuit.num_qubits = kMaxInlineQubits + 1;
+
+    REQUIRE_THROWS_AS(trace(circuit), std::runtime_error);
+}
+
+TEST_CASE("Frontend: T count tracking", "[frontend]") {
+    auto circuit = parse(R"(
+        H 0
+        T 0
+        T 1
+        T_DAG 2
+        M 0
+    )");
+    auto hir = trace(circuit);
+
+    // 3 T/T_dag gates + 1 measurement
+    REQUIRE(hir.num_ops() == 4);
+    REQUIRE(hir.num_t_gates() == 3);
+}
+
+// =============================================================================
+// Classical Control Tests
+// =============================================================================
+
+TEST_CASE("Frontend: classical feedback sees un-collapsed tableau", "[frontend][classical]") {
+    // With Clifford Frame Determinism, the AOT tableau never collapses.
+    // After H 0, inv_state.xs[0] = Z_0 (H swaps X<->Z). The CX rec[-1] 0
+    // extracts the rewound X from the un-collapsed tableau.
+    auto circuit = parse(R"(
+        H 0
+        M 0
+        CX rec[-1] 0
+    )");
+    auto hir = trace(circuit);
+
+    REQUIRE(hir.num_ops() == 2);
+
+    REQUIRE(hir.ops[0].op_type() == OpType::MEASURE);
+    REQUIRE(hir.ops[1].op_type() == OpType::CONDITIONAL_PAULI);
+    REQUIRE(hir.ops[1].controlling_meas() == ControllingMeasIdx{0});
+
+    // Un-collapsed tableau after H: xs[0] = Z_0
+    REQUIRE(hir.ops[1].destab_mask() == 0);
+    REQUIRE(hir.ops[1].stab_mask() == Z(0));
+}
+
+TEST_CASE("Frontend: classical feedback on entangled qubits", "[frontend][classical]") {
+    // With Clifford Frame Determinism the AOT frame never collapses.
+    // After H 0; CX 0 1, inv_state.zs[1] = X_0 * Z_1 (un-collapsed).
+    auto circuit = parse(R"(
+        H 0
+        CX 0 1
+        M 0
+        CZ rec[-1] 1
+    )");
+    auto hir = trace(circuit);
+
+    REQUIRE(hir.num_ops() == 2);
+    REQUIRE(hir.ops[0].op_type() == OpType::MEASURE);
+    REQUIRE(hir.ops[1].op_type() == OpType::CONDITIONAL_PAULI);
+    REQUIRE(hir.ops[1].controlling_meas() == ControllingMeasIdx{0});
+
+    // Un-collapsed: rewound Z_1 through H 0; CX 0 1 gives X_0 * Z_1
+    REQUIRE(hir.ops[1].destab_mask() == X(0));
+    REQUIRE(hir.ops[1].stab_mask() == Z(1));
+}
+
+TEST_CASE("Frontend: multiple resets in sequence", "[frontend][classical]") {
+    // Multiple resets with Clifford Frame Determinism: the AOT frame never
+    // collapses, so the tableau remains un-collapsed throughout.
+    auto circuit = parse(R"(
+        H 0
+        H 1
+        R 0
+        R 1
+        T 0 1
+    )");
+    auto hir = trace(circuit);
+
+    // Each R decomposes into MEASURE + CONDITIONAL, then T 0, T 1
+    REQUIRE(hir.num_ops() == 6);
+
+    REQUIRE(hir.ops[0].op_type() == OpType::MEASURE);            // R 0 measure
+    REQUIRE(hir.ops[1].op_type() == OpType::CONDITIONAL_PAULI);  // R 0 correction
+    REQUIRE(hir.ops[2].op_type() == OpType::MEASURE);            // R 1 measure
+    REQUIRE(hir.ops[3].op_type() == OpType::CONDITIONAL_PAULI);  // R 1 correction
+    REQUIRE(hir.ops[4].op_type() == OpType::T_GATE);             // T 0
+    REQUIRE(hir.ops[5].op_type() == OpType::T_GATE);             // T 1
+
+    // Without collapse, the tableau after H still maps Z_0 -> X_0, Z_1 -> X_1.
+    // The T gates see the un-collapsed rewound Pauli.
+    REQUIRE(hir.ops[4].destab_mask() == X(0));
+    REQUIRE(hir.ops[4].stab_mask() == 0);
+    REQUIRE(hir.ops[5].destab_mask() == X(1));
+    REQUIRE(hir.ops[5].stab_mask() == 0);
+}
+
+// =============================================================================
+// Regression Tests (Review Feedback Fixes)
+// =============================================================================
+
+TEST_CASE("Frontend: deterministic measurement with outcome 1 sets ag_ref",
+          "[frontend][regression]") {
+    // Critical bug fix: ag_ref must be set even for deterministic measurements
+    // X gate flips |0> to |1>, so M should deterministically give 1
+    auto circuit = parse(R"(
+        X 0
+        M 0
+    )");
+    auto hir = trace(circuit);
+
+    REQUIRE(hir.num_ops() == 1);
+    REQUIRE(hir.ops[0].op_type() == OpType::MEASURE);
+}
+
+TEST_CASE("Frontend: deterministic MX measurement with outcome 1", "[frontend][regression]") {
+    // H;X|0> = H|1> = |->, so MX gives deterministic 1
+    auto circuit = parse(R"(
+        X 0
+        H 0
+        MX 0
+    )");
+    auto hir = trace(circuit);
+
+    REQUIRE(hir.num_ops() == 1);
+}
+
+TEST_CASE("Frontend: broadcast classical feedback CX rec[-2] 0 rec[-1] 1",
+          "[frontend][regression]") {
+    // Test that classical feedback loop handles multiple pairs
+    // Manually construct circuit with broadcast CX feedback
+    Circuit circuit;
+    circuit.num_qubits = 2;
+    circuit.num_measurements = 2;
+
+    // H 0; H 1
+    circuit.nodes.push_back({GateType::H, {Target::qubit(0)}, {0.0}});
+    circuit.nodes.push_back({GateType::H, {Target::qubit(1)}, {0.0}});
+
+    // M 0; M 1
+    circuit.nodes.push_back({GateType::M, {Target::qubit(0)}, {0.0}});
+    circuit.nodes.push_back({GateType::M, {Target::qubit(1)}, {0.0}});
+
+    // CX rec[-2] 0 rec[-1] 1 (broadcast form)
+    AstNode cx_node;
+    cx_node.gate = GateType::CX;
+    cx_node.targets.push_back(Target::rec(0));  // rec[-2] -> absolute 0
+    cx_node.targets.push_back(Target::qubit(0));
+    cx_node.targets.push_back(Target::rec(1));  // rec[-1] -> absolute 1
+    cx_node.targets.push_back(Target::qubit(1));
+    circuit.nodes.push_back(cx_node);
+
+    auto hir = trace(circuit);
+
+    // M 0, M 1, CX rec[-2] 0, CX rec[-1] 1
+    REQUIRE(hir.num_ops() == 4);
+
+    REQUIRE(hir.ops[0].op_type() == OpType::MEASURE);
+    REQUIRE(hir.ops[0].meas_record_idx() == MeasRecordIdx{0});
+
+    REQUIRE(hir.ops[1].op_type() == OpType::MEASURE);
+    REQUIRE(hir.ops[1].meas_record_idx() == MeasRecordIdx{1});
+
+    // Both conditional paulis should be emitted
+    REQUIRE(hir.ops[2].op_type() == OpType::CONDITIONAL_PAULI);
+    REQUIRE(hir.ops[2].controlling_meas() == ControllingMeasIdx{0});
+
+    REQUIRE(hir.ops[3].op_type() == OpType::CONDITIONAL_PAULI);
+    REQUIRE(hir.ops[3].controlling_meas() == ControllingMeasIdx{1});
+}
+
+TEST_CASE("Frontend: CY classical feedback throws", "[frontend][regression]") {
+    // CY rec[-k] q classical feedback is not supported
+    // We need to manually construct this since the parser won't generate it
+    Circuit circuit;
+    circuit.num_qubits = 1;
+    circuit.num_measurements = 1;
+
+    // First add a measurement
+    AstNode m_node;
+    m_node.gate = GateType::M;
+    m_node.targets.push_back(Target::qubit(0));
+    circuit.nodes.push_back(m_node);
+
+    // Then add CY rec[-1] 0
+    AstNode cy_node;
+    cy_node.gate = GateType::CY;
+    cy_node.targets.push_back(Target::rec(0));  // rec[-1] -> absolute index 0
+    cy_node.targets.push_back(Target::qubit(0));
+    circuit.nodes.push_back(cy_node);
+
+    REQUIRE_THROWS_AS(trace(circuit), std::runtime_error);
+}
+
+// =============================================================================
+// Noise and QEC Emission Tests
+// =============================================================================
+
+TEST_CASE("Frontend: DEPOLARIZE1 produces 3 rewound channels", "[frontend][noise]") {
+    // DEPOLARIZE1(p) on a single qubit should produce 3 NoiseChannels (X, Y, Z)
+    // each with probability p/3.
+    Circuit circuit;
+    circuit.num_qubits = 1;
+
+    AstNode dep1;
+    dep1.gate = GateType::DEPOLARIZE1;
+    dep1.args = {0.03};  // Total error probability
+    dep1.targets.push_back(Target::qubit(0));
+    circuit.nodes.push_back(dep1);
+
+    auto hir = trace(circuit);
+
+    REQUIRE(hir.num_ops() == 1);
+    REQUIRE(hir.ops[0].op_type() == OpType::NOISE);
+
+    auto site_idx = hir.ops[0].noise_site_idx();
+    REQUIRE(static_cast<uint32_t>(site_idx) == 0);
+    REQUIRE(hir.noise_sites.size() == 1);
+
+    const auto& site = hir.noise_sites[0];
+    REQUIRE(site.channels.size() == 3);
+
+    // Each channel should have probability p/3 = 0.01
+    for (const auto& ch : site.channels) {
+        REQUIRE(ch.prob == Catch::Approx(0.01));
+    }
+}
+
+TEST_CASE("Frontend: X_ERROR produces single channel", "[frontend][noise]") {
+    Circuit circuit;
+    circuit.num_qubits = 1;
+
+    AstNode x_err;
+    x_err.gate = GateType::X_ERROR;
+    x_err.args = {0.001};
+    x_err.targets.push_back(Target::qubit(0));
+    circuit.nodes.push_back(x_err);
+
+    auto hir = trace(circuit);
+
+    REQUIRE(hir.num_ops() == 1);
+    REQUIRE(hir.ops[0].op_type() == OpType::NOISE);
+
+    const auto& site = hir.noise_sites[0];
+    REQUIRE(site.channels.size() == 1);
+    REQUIRE(site.channels[0].prob == Catch::Approx(0.001));
+
+    // X on qubit 0 at t=0 (identity tableau): destab=1, stab=0
+    REQUIRE(site.channels[0].destab_mask == 1);
+    REQUIRE(site.channels[0].stab_mask == 0);
+}
+
+TEST_CASE("Frontend: Z_ERROR produces single channel", "[frontend][noise]") {
+    Circuit circuit;
+    circuit.num_qubits = 1;
+
+    AstNode z_err;
+    z_err.gate = GateType::Z_ERROR;
+    z_err.args = {0.002};
+    z_err.targets.push_back(Target::qubit(0));
+    circuit.nodes.push_back(z_err);
+
+    auto hir = trace(circuit);
+
+    REQUIRE(hir.num_ops() == 1);
+    const auto& site = hir.noise_sites[0];
+    REQUIRE(site.channels.size() == 1);
+    REQUIRE(site.channels[0].prob == Catch::Approx(0.002));
+
+    // Z on qubit 0 at t=0: destab=0, stab=1
+    REQUIRE(site.channels[0].destab_mask == 0);
+    REQUIRE(site.channels[0].stab_mask == 1);
+}
+
+TEST_CASE("Frontend: Y_ERROR produces single channel", "[frontend][noise]") {
+    Circuit circuit;
+    circuit.num_qubits = 1;
+
+    AstNode y_err;
+    y_err.gate = GateType::Y_ERROR;
+    y_err.args = {0.003};
+    y_err.targets.push_back(Target::qubit(0));
+    circuit.nodes.push_back(y_err);
+
+    auto hir = trace(circuit);
+
+    REQUIRE(hir.num_ops() == 1);
+    const auto& site = hir.noise_sites[0];
+    REQUIRE(site.channels.size() == 1);
+    REQUIRE(site.channels[0].prob == Catch::Approx(0.003));
+
+    // Y = iXZ on qubit 0 at t=0: destab=1, stab=1
+    REQUIRE(site.channels[0].destab_mask == 1);
+    REQUIRE(site.channels[0].stab_mask == 1);
+}
+
+TEST_CASE("Frontend: DEPOLARIZE2 produces 15 channels", "[frontend][noise]") {
+    // DEPOLARIZE2(p) on qubits 0,1 should produce 15 channels (all non-II Paulis)
+    Circuit circuit;
+    circuit.num_qubits = 2;
+
+    AstNode dep2;
+    dep2.gate = GateType::DEPOLARIZE2;
+    dep2.args = {0.15};  // Total error probability
+    dep2.targets.push_back(Target::qubit(0));
+    dep2.targets.push_back(Target::qubit(1));
+    circuit.nodes.push_back(dep2);
+
+    auto hir = trace(circuit);
+
+    REQUIRE(hir.num_ops() == 1);
+    REQUIRE(hir.ops[0].op_type() == OpType::NOISE);
+
+    const auto& site = hir.noise_sites[0];
+    REQUIRE(site.channels.size() == 15);
+
+    // Each channel should have probability p/15 = 0.01
+    for (const auto& ch : site.channels) {
+        REQUIRE(ch.prob == Catch::Approx(0.01));
+    }
+}
+
+TEST_CASE("Frontend: noise rewinding through H gate", "[frontend][noise]") {
+    // H 0, X_ERROR 0
+    // X after H becomes Z (at t=0, the error manifests as Z)
+    Circuit circuit;
+    circuit.num_qubits = 1;
+
+    AstNode h;
+    h.gate = GateType::H;
+    h.targets.push_back(Target::qubit(0));
+    circuit.nodes.push_back(h);
+
+    AstNode x_err;
+    x_err.gate = GateType::X_ERROR;
+    x_err.args = {0.01};
+    x_err.targets.push_back(Target::qubit(0));
+    circuit.nodes.push_back(x_err);
+
+    auto hir = trace(circuit);
+
+    REQUIRE(hir.num_ops() == 1);
+    const auto& site = hir.noise_sites[0];
+    REQUIRE(site.channels.size() == 1);
+
+    // X after H = Z at t=0: destab=0, stab=1
+    REQUIRE(site.channels[0].destab_mask == 0);
+    REQUIRE(site.channels[0].stab_mask == 1);
+}
+
+TEST_CASE("Frontend: Y_ERROR rewinds through entangling Cliffords", "[frontend][noise]") {
+    auto circuit = parse("H 0\nCX 0 1\nY_ERROR(0.02) 1");
+    auto hir = trace(circuit);
+
+    REQUIRE(hir.num_ops() == 1);
+    REQUIRE(hir.ops[0].op_type() == OpType::NOISE);
+    REQUIRE(hir.noise_sites.size() == 1);
+    REQUIRE(hir.noise_sites[0].channels.size() == 1);
+
+    std::mt19937_64 rng(0);
+    stim::TableauSimulator<kStimWidth> sim(std::move(rng), 2);
+    sim.inv_state.prepend_H_XZ(0);
+    sim.inv_state.prepend_ZCX(0, 1);
+    auto expected = rewind_single_pauli_reference(sim, 1, 2, 0.02);
+
+    const auto& actual = hir.noise_sites[0].channels[0];
+    CHECK(actual.destab_mask == expected.destab_mask);
+    CHECK(actual.stab_mask == expected.stab_mask);
+    CHECK(actual.prob == Catch::Approx(expected.prob));
+}
+
+TEST_CASE("Frontend: DEPOLARIZE2 rewinds through entangling Cliffords", "[frontend][noise]") {
+    auto circuit = parse("H 0\nCX 0 1\nDEPOLARIZE2(0.15) 0 1");
+    auto hir = trace(circuit);
+
+    REQUIRE(hir.num_ops() == 1);
+    REQUIRE(hir.ops[0].op_type() == OpType::NOISE);
+    REQUIRE(hir.noise_sites.size() == 1);
+    REQUIRE(hir.noise_sites[0].channels.size() == 15);
+
+    std::mt19937_64 rng(0);
+    stim::TableauSimulator<kStimWidth> sim(std::move(rng), 2);
+    sim.inv_state.prepend_H_XZ(0);
+    sim.inv_state.prepend_ZCX(0, 1);
+
+    double channel_prob = 0.15 / 15.0;
+    std::vector<NoiseChannel> expected;
+    for (int p1 = 0; p1 <= 3; ++p1) {
+        for (int p2 = 0; p2 <= 3; ++p2) {
+            if (p1 == 0 && p2 == 0)
+                continue;
+            expected.push_back(rewind_two_qubit_pauli_reference(sim, 0, 1, p1, p2, channel_prob));
+        }
+    }
+
+    const auto& actual_site = hir.noise_sites[0];
+    REQUIRE(actual_site.channels.size() == expected.size());
+    for (size_t i = 0; i < expected.size(); ++i) {
+        CHECK(actual_site.channels[i].destab_mask == expected[i].destab_mask);
+        CHECK(actual_site.channels[i].stab_mask == expected[i].stab_mask);
+        CHECK(actual_site.channels[i].prob == Catch::Approx(expected[i].prob));
+    }
+}
+
+TEST_CASE("Frontend: READOUT_NOISE emission", "[frontend][noise]") {
+    // Manually construct a circuit with READOUT_NOISE
+    // (normally parser decomposes M(p) into M + READOUT_NOISE)
+    Circuit circuit;
+    circuit.num_qubits = 1;
+    circuit.num_measurements = 1;
+
+    // First, a measurement
+    AstNode m;
+    m.gate = GateType::M;
+    m.targets.push_back(Target::qubit(0));
+    circuit.nodes.push_back(m);
+
+    // Then readout noise on that measurement
+    AstNode rn;
+    rn.gate = GateType::READOUT_NOISE;
+    rn.args = {0.005};
+    rn.targets.push_back(Target::rec(0));  // Absolute index 0
+    circuit.nodes.push_back(rn);
+
+    auto hir = trace(circuit);
+
+    REQUIRE(hir.num_ops() == 2);
+    REQUIRE(hir.ops[0].op_type() == OpType::MEASURE);
+    REQUIRE(hir.ops[1].op_type() == OpType::READOUT_NOISE);
+
+    // Verify the readout noise index points to correct entry
+    REQUIRE(static_cast<uint32_t>(hir.ops[1].readout_noise_idx()) == 0);
+    REQUIRE(hir.readout_noise.size() == 1);
+    REQUIRE(hir.readout_noise[0].meas_idx == 0);
+    REQUIRE(hir.readout_noise[0].prob == Catch::Approx(0.005));
+}
+
+TEST_CASE("Frontend: DETECTOR emission", "[frontend][qec]") {
+    // M 0, M 1, DETECTOR rec[-1] rec[-2]
+    Circuit circuit;
+    circuit.num_qubits = 2;
+    circuit.num_measurements = 2;
+    circuit.num_detectors = 1;
+
+    AstNode m0, m1;
+    m0.gate = GateType::M;
+    m0.targets.push_back(Target::qubit(0));
+    m1.gate = GateType::M;
+    m1.targets.push_back(Target::qubit(1));
+    circuit.nodes.push_back(m0);
+    circuit.nodes.push_back(m1);
+
+    AstNode det;
+    det.gate = GateType::DETECTOR;
+    det.targets.push_back(Target::rec(1));  // rec[-1] -> absolute 1
+    det.targets.push_back(Target::rec(0));  // rec[-2] -> absolute 0
+    circuit.nodes.push_back(det);
+
+    auto hir = trace(circuit);
+
+    REQUIRE(hir.num_ops() == 3);
+    REQUIRE(hir.ops[2].op_type() == OpType::DETECTOR);
+
+    // Verify the detector index points to correct target list
+    REQUIRE(static_cast<uint32_t>(hir.ops[2].detector_idx()) == 0);
+    REQUIRE(hir.detector_targets.size() == 1);
+    REQUIRE(hir.detector_targets[0].size() == 2);
+    REQUIRE(hir.detector_targets[0][0] == 1);  // rec[-1]
+    REQUIRE(hir.detector_targets[0][1] == 0);  // rec[-2]
+    REQUIRE(hir.num_detectors == 1);
+}
+
+TEST_CASE("Frontend: OBSERVABLE_INCLUDE emission", "[frontend][qec]") {
+    // M 0, OBSERVABLE_INCLUDE(0) rec[-1]
+    Circuit circuit;
+    circuit.num_qubits = 1;
+    circuit.num_measurements = 1;
+    circuit.num_observables = 1;
+
+    AstNode m;
+    m.gate = GateType::M;
+    m.targets.push_back(Target::qubit(0));
+    circuit.nodes.push_back(m);
+
+    AstNode obs;
+    obs.gate = GateType::OBSERVABLE_INCLUDE;
+    obs.args = {0};                         // Observable index
+    obs.targets.push_back(Target::rec(0));  // rec[-1] -> absolute 0
+    circuit.nodes.push_back(obs);
+
+    auto hir = trace(circuit);
+
+    REQUIRE(hir.num_ops() == 2);
+    REQUIRE(hir.ops[1].op_type() == OpType::OBSERVABLE);
+
+    auto obs_idx = hir.ops[1].observable_idx();
+    REQUIRE(static_cast<uint32_t>(obs_idx) == 0);
+
+    REQUIRE(hir.observable_targets.size() == 1);
+    REQUIRE(hir.observable_targets[0].size() == 1);
+    REQUIRE(hir.observable_targets[0][0] == 0);
+    REQUIRE(hir.num_observables == 1);
+}
+
+TEST_CASE("Frontend: multiple OBSERVABLE_INCLUDE accumulate", "[frontend][qec]") {
+    // M 0 1, OBSERVABLE_INCLUDE(0) rec[-2], OBSERVABLE_INCLUDE(0) rec[-1]
+    Circuit circuit;
+    circuit.num_qubits = 2;
+    circuit.num_measurements = 2;
+    circuit.num_observables = 1;
+
+    AstNode m;
+    m.gate = GateType::M;
+    m.targets.push_back(Target::qubit(0));
+    m.targets.push_back(Target::qubit(1));
+    circuit.nodes.push_back(m);
+
+    AstNode obs1;
+    obs1.gate = GateType::OBSERVABLE_INCLUDE;
+    obs1.args = {0};
+    obs1.targets.push_back(Target::rec(0));  // rec[-2] -> absolute 0
+    circuit.nodes.push_back(obs1);
+
+    AstNode obs2;
+    obs2.gate = GateType::OBSERVABLE_INCLUDE;
+    obs2.args = {0};
+    obs2.targets.push_back(Target::rec(1));  // rec[-1] -> absolute 1
+    circuit.nodes.push_back(obs2);
+
+    auto hir = trace(circuit);
+
+    REQUIRE(hir.num_ops() == 4);  // 2 measurements + 2 observable includes
+    REQUIRE(hir.ops[2].op_type() == OpType::OBSERVABLE);
+    REQUIRE(hir.ops[3].op_type() == OpType::OBSERVABLE);
+
+    // Both should reference observable 0
+    REQUIRE(static_cast<uint32_t>(hir.ops[2].observable_idx()) == 0);
+    REQUIRE(static_cast<uint32_t>(hir.ops[3].observable_idx()) == 0);
+
+    // Each has its own target list
+    REQUIRE(hir.observable_targets.size() == 2);
+    REQUIRE(hir.observable_targets[0][0] == 0);
+    REQUIRE(hir.observable_targets[1][0] == 1);
+}
+
+TEST_CASE("Frontend: noise broadcasting", "[frontend][noise]") {
+    // X_ERROR(0.01) 0 1 2 should produce 3 separate noise sites
+    Circuit circuit;
+    circuit.num_qubits = 3;
+
+    AstNode x_err;
+    x_err.gate = GateType::X_ERROR;
+    x_err.args = {0.01};
+    x_err.targets.push_back(Target::qubit(0));
+    x_err.targets.push_back(Target::qubit(1));
+    x_err.targets.push_back(Target::qubit(2));
+    circuit.nodes.push_back(x_err);
+
+    auto hir = trace(circuit);
+
+    REQUIRE(hir.num_ops() == 3);
+    REQUIRE(hir.noise_sites.size() == 3);
+
+    // Each site should have X error on its respective qubit
+    // Qubit 0: destab=1, Qubit 1: destab=2, Qubit 2: destab=4
+    REQUIRE(hir.noise_sites[0].channels[0].destab_mask == 1);
+    REQUIRE(hir.noise_sites[1].channels[0].destab_mask == 2);
+    REQUIRE(hir.noise_sites[2].channels[0].destab_mask == 4);
+}
+
+TEST_CASE("Frontend: DEPOLARIZE2 broadcasting", "[frontend][noise]") {
+    // DEPOLARIZE2(0.15) 0 1 2 3 should produce 2 separate noise sites
+    Circuit circuit;
+    circuit.num_qubits = 4;
+
+    AstNode dep2;
+    dep2.gate = GateType::DEPOLARIZE2;
+    dep2.args = {0.15};
+    dep2.targets.push_back(Target::qubit(0));
+    dep2.targets.push_back(Target::qubit(1));
+    dep2.targets.push_back(Target::qubit(2));
+    dep2.targets.push_back(Target::qubit(3));
+    circuit.nodes.push_back(dep2);
+
+    auto hir = trace(circuit);
+
+    REQUIRE(hir.num_ops() == 2);
+    REQUIRE(hir.noise_sites.size() == 2);
+
+    // Each site should have 15 channels
+    REQUIRE(hir.noise_sites[0].channels.size() == 15);
+    REQUIRE(hir.noise_sites[1].channels.size() == 15);
+}
+
+TEST_CASE("Frontend: DEPOLARIZE1 after Clifford produces 3 rewound masks", "[frontend][noise]") {
+    // A pure Clifford circuit with DEPOLARIZE1 0 produces an HIR NOISE node
+    // pointing to a NoiseSite of exactly 3 rewound Pauli masks.
+    auto circuit = parse("H 0\nCX 0 1\nDEPOLARIZE1(0.01) 0");
+
+    auto hir = trace(circuit);
+
+    // Should have exactly one NOISE op
+    size_t noise_count = 0;
+    for (const auto& op : hir.ops) {
+        if (op.op_type() == OpType::NOISE) {
+            noise_count++;
+            auto idx = op.noise_site_idx();
+            const auto& site = hir.noise_sites[static_cast<uint32_t>(idx)];
+            // Exactly 3 Pauli masks (X, Y, Z)
+            REQUIRE(site.channels.size() == 3);
+        }
+    }
+    REQUIRE(noise_count == 1);
+}
+
+TEST_CASE("Frontend: full QEC circuit with noise and detectors",
+          "[frontend][noise][qec][integration]") {
+    // A simple QEC-like circuit with noise and detectors
+    const char* circuit_text = R"(
+        R 0 1
+        H 0
+        CX 0 1
+        DEPOLARIZE2(0.001) 0 1
+        M 0 1
+        DETECTOR rec[-1] rec[-2]
+        OBSERVABLE_INCLUDE(0) rec[-1]
+    )";
+
+    auto circuit = parse(circuit_text);
+    auto hir = trace(circuit);
+
+    // Count operation types
+    size_t noise_ops = 0, visible_measure_ops = 0, hidden_measure_ops = 0;
+    size_t detector_ops = 0, observable_ops = 0;
+    size_t reset_ops = 0;
+
+    for (const auto& op : hir.ops) {
+        switch (op.op_type()) {
+            case OpType::NOISE:
+                noise_ops++;
+                break;
+            case OpType::MEASURE:
+                if (op.is_hidden()) {
+                    hidden_measure_ops++;
+                } else {
+                    visible_measure_ops++;
+                }
+                break;
+            case OpType::CONDITIONAL_PAULI:
+                reset_ops++;  // Count conditionals as "reset ops" for this test
+                break;
+            case OpType::DETECTOR:
+                detector_ops++;
+                break;
+            case OpType::OBSERVABLE:
+                observable_ops++;
+                break;
+            default:
+                break;
+        }
+    }
+
+    // R 0, R 1 produce 2 hidden measurements
+    // M 0 1 produces 2 visible measurements
+    REQUIRE(visible_measure_ops == 2);
+    REQUIRE(hidden_measure_ops == 2);
+    // 2 resets from R 0 1 (conditional corrections)
+    REQUIRE(reset_ops == 2);
+    // 1 DEPOLARIZE2 -> 1 noise site with 15 channels
+    REQUIRE(noise_ops == 1);
+    REQUIRE(hir.noise_sites[0].channels.size() == 15);
+    // 1 DETECTOR
+    REQUIRE(detector_ops == 1);
+    // 1 OBSERVABLE_INCLUDE
+    REQUIRE(observable_ops == 1);
+
+    REQUIRE(hir.num_detectors == 1);
+    REQUIRE(hir.num_observables == 1);
+}
+
+// --- MPAD and measurement inversion ---
+
+TEST_CASE("Frontend: MPAD emits zero-weight measurements", "[frontend]") {
+    auto circuit = parse("MPAD 1 0 1");
+    auto hir = trace(circuit);
+
+    REQUIRE(hir.num_ops() == 3);
+    for (size_t i = 0; i < 3; ++i) {
+        CHECK(hir.ops[i].op_type() == OpType::MEASURE);
+        CHECK(hir.ops[i].destab_mask() == 0);
+        CHECK(hir.ops[i].stab_mask() == 0);
+    }
+    CHECK(hir.ops[0].sign() == true);   // MPAD 1
+    CHECK(hir.ops[1].sign() == false);  // MPAD 0
+    CHECK(hir.ops[2].sign() == true);   // MPAD 1
+}
+
+TEST_CASE("Frontend: inverted M flips sign", "[frontend]") {
+    // M !0 on a fresh qubit in |0> state: rewound Z is just Z0 with sign=false.
+    // Inversion flips it to sign=true.
+    auto circuit = parse("M !0");
+    auto hir = trace(circuit);
+
+    REQUIRE(hir.num_ops() == 1);
+    CHECK(hir.ops[0].op_type() == OpType::MEASURE);
+    CHECK(hir.ops[0].sign() == true);
+}
+
+TEST_CASE("Frontend: non-inverted M has sign false on fresh qubit", "[frontend]") {
+    auto circuit = parse("M 0");
+    auto hir = trace(circuit);
+
+    REQUIRE(hir.num_ops() == 1);
+    CHECK(hir.ops[0].op_type() == OpType::MEASURE);
+    CHECK(hir.ops[0].sign() == false);
+}
+
+TEST_CASE("Frontend: alias ZCX produces same HIR as CX", "[frontend]") {
+    auto hir_cx = trace(parse("CX 0 1\nM 0 1"));
+    auto hir_zcx = trace(parse("ZCX 0 1\nM 0 1"));
+
+    REQUIRE(hir_cx.num_ops() > 0);
+    REQUIRE(hir_cx.num_ops() == hir_zcx.num_ops());
+    for (size_t i = 0; i < hir_cx.num_ops(); ++i) {
+        CHECK(hir_cx.ops[i].destab_mask() == hir_zcx.ops[i].destab_mask());
+        CHECK(hir_cx.ops[i].stab_mask() == hir_zcx.ops[i].stab_mask());
+    }
+}
+
+TEST_CASE("Frontend: I gate produces empty HIR", "[frontend]") {
+    auto circuit = parse("I 0\nI 1\nI 2");
+    auto hir = trace(circuit);
+    CHECK(hir.num_ops() == 0);
+}
+
+// --- Clifford Expansion ---
+
+TEST_CASE("Frontend: expanded Cliffords are fully absorbed into tableau", "[frontend]") {
+    auto circuit = parse("ISWAP 0 1\nC_XYZ 0\nSQRT_XX 0 1\nSWAP 0 1");
+    auto hir = trace(circuit);
+    CHECK(hir.num_ops() == 0);
+}
+
+TEST_CASE("Frontend: SQRT_X and SQRT_X_DAG cancel", "[frontend]") {
+    auto circuit = parse("SQRT_X 0\nSQRT_X_DAG 0\nM 0");
+    auto hir = trace(circuit);
+    // Only measurement op remains (the Cliffords cancel)
+    REQUIRE(hir.num_ops() == 1);
+    CHECK(hir.ops[0].op_type() == OpType::MEASURE);
+}
+
+// --- Multi-Parameter Noise ---
+
+TEST_CASE("Frontend: PAULI_CHANNEL_1 emits noise with correct channel count", "[frontend]") {
+    // PAULI_CHANNEL_1(0.1, 0.2, 0.3) 0 -> 3 channels (X, Y, Z)
+    auto circuit = parse("PAULI_CHANNEL_1(0.1, 0.2, 0.3) 0");
+    auto hir = trace(circuit);
+
+    REQUIRE(hir.num_ops() == 1);
+    CHECK(hir.ops[0].op_type() == OpType::NOISE);
+    REQUIRE(hir.noise_sites.size() == 1);
+    CHECK(hir.noise_sites[0].channels.size() == 3);
+    CHECK(hir.noise_sites[0].channels[0].prob == Catch::Approx(0.1));
+    CHECK(hir.noise_sites[0].channels[1].prob == Catch::Approx(0.2));
+    CHECK(hir.noise_sites[0].channels[2].prob == Catch::Approx(0.3));
+}
+
+TEST_CASE("Frontend: PAULI_CHANNEL_1 skips zero-probability channels", "[frontend]") {
+    // Only X has nonzero prob -> 1 channel
+    auto circuit = parse("PAULI_CHANNEL_1(0.1, 0.0, 0.0) 0");
+    auto hir = trace(circuit);
+
+    REQUIRE(hir.noise_sites.size() == 1);
+    CHECK(hir.noise_sites[0].channels.size() == 1);
+    CHECK(hir.noise_sites[0].channels[0].prob == Catch::Approx(0.1));
+}
+
+TEST_CASE("Frontend: PAULI_CHANNEL_2 emits noise with up to 15 channels", "[frontend]") {
+    auto circuit = parse(
+        "PAULI_CHANNEL_2(0.01, 0.0, 0.0, 0.02, 0.0, 0.0, 0.0, "
+        "0.0, 0.0, 0.0, 0.0, 0.03, 0.0, 0.0, 0.04) 0 1");
+    auto hir = trace(circuit);
+
+    REQUIRE(hir.num_ops() == 1);
+    REQUIRE(hir.noise_sites.size() == 1);
+    // 4 nonzero channels: IX(0.01), XI(0.02), ZI(0.03), ZZ(0.04)
+    CHECK(hir.noise_sites[0].channels.size() == 4);
+}
+
+// =============================================================================
+// Phase rotation tracing tests
+// =============================================================================
+
+TEST_CASE("Frontend: R_Z emits PHASE_ROTATION", "[frontend][rotation]") {
+    auto circuit = parse("R_Z(0.25) 0");
+    auto hir = trace(circuit);
+
+    REQUIRE(hir.num_ops() == 1);
+    CHECK(hir.ops[0].op_type() == OpType::PHASE_ROTATION);
+    CHECK(hir.ops[0].alpha() == Catch::Approx(0.25));
+}
+
+TEST_CASE("Frontend: R_X desugars through Hadamard", "[frontend][rotation]") {
+    auto circuit = parse("R_X(0.5) 0");
+    auto hir = trace(circuit);
+
+    REQUIRE(hir.num_ops() == 1);
+    CHECK(hir.ops[0].op_type() == OpType::PHASE_ROTATION);
+    CHECK(hir.ops[0].alpha() == Catch::Approx(0.5));
+}
+
+TEST_CASE("Frontend: R_Y desugars through H_YZ", "[frontend][rotation]") {
+    auto circuit = parse("R_Y(0.5) 0");
+    auto hir = trace(circuit);
+
+    REQUIRE(hir.num_ops() == 1);
+    CHECK(hir.ops[0].op_type() == OpType::PHASE_ROTATION);
+    CHECK(hir.ops[0].alpha() == Catch::Approx(0.5));
+}
+
+TEST_CASE("Frontend: U3 emits three PHASE_ROTATION ops", "[frontend][rotation]") {
+    auto circuit = parse("U3(0.5, 0.25, 0.125) 0");
+    auto hir = trace(circuit);
+
+    // U3 = R_Z(phi) * R_Y(theta) * R_Z(lambda) -> 3 rotations
+    REQUIRE(hir.num_ops() == 3);
+    for (size_t i = 0; i < 3; ++i) {
+        CHECK(hir.ops[i].op_type() == OpType::PHASE_ROTATION);
+    }
+    // lambda=0.125 first, then theta=0.5, then phi=0.25
+    CHECK(hir.ops[0].alpha() == Catch::Approx(0.125));
+    CHECK(hir.ops[1].alpha() == Catch::Approx(0.5));
+    CHECK(hir.ops[2].alpha() == Catch::Approx(0.25));
+}
+
+TEST_CASE("Frontend: R_ZZ emits PHASE_ROTATION on two-qubit Pauli", "[frontend][rotation]") {
+    auto circuit = parse("R_ZZ(0.3) 0 1");
+    auto hir = trace(circuit);
+
+    REQUIRE(hir.num_ops() == 1);
+    CHECK(hir.ops[0].op_type() == OpType::PHASE_ROTATION);
+    CHECK(hir.ops[0].alpha() == Catch::Approx(0.3));
+    // ZZ: stab_mask should have bits 0 and 1 set, destab should be zero
+    CHECK(hir.ops[0].stab_mask().bit_get(0));
+    CHECK(hir.ops[0].stab_mask().bit_get(1));
+    CHECK(hir.ops[0].destab_mask().is_zero());
+}
+
+TEST_CASE("Frontend: R_XX emits PHASE_ROTATION with X masks", "[frontend][rotation]") {
+    auto circuit = parse("R_XX(0.3) 0 1");
+    auto hir = trace(circuit);
+
+    REQUIRE(hir.num_ops() == 1);
+    CHECK(hir.ops[0].op_type() == OpType::PHASE_ROTATION);
+    // XX: destab_mask should have bits 0 and 1 set
+    CHECK(hir.ops[0].destab_mask().bit_get(0));
+    CHECK(hir.ops[0].destab_mask().bit_get(1));
+    CHECK(hir.ops[0].stab_mask().is_zero());
+}
+
+TEST_CASE("Frontend: R_PAULI emits PHASE_ROTATION on arbitrary Pauli", "[frontend][rotation]") {
+    auto circuit = parse("R_PAULI(0.1) X0*Y1*Z2");
+    auto hir = trace(circuit);
+
+    REQUIRE(hir.num_ops() == 1);
+    CHECK(hir.ops[0].op_type() == OpType::PHASE_ROTATION);
+    CHECK(hir.ops[0].alpha() == Catch::Approx(0.1));
+    // X0: destab bit 0, Y1: both bits 1, Z2: stab bit 2
+    CHECK(hir.ops[0].destab_mask().bit_get(0));
+    CHECK(hir.ops[0].destab_mask().bit_get(1));
+    CHECK(!hir.ops[0].destab_mask().bit_get(2));
+    CHECK(!hir.ops[0].stab_mask().bit_get(0));
+    CHECK(hir.ops[0].stab_mask().bit_get(1));
+    CHECK(hir.ops[0].stab_mask().bit_get(2));
+}
+
+TEST_CASE("Frontend: R_Z global phase accumulation", "[frontend][rotation]") {
+    auto circuit = parse("R_Z(0.5) 0");
+    auto hir = trace(circuit);
+
+    // Global phase: e^{-i*0.5*pi/2} = e^{-i*pi/4}
+    double expected_re = std::cos(-0.5 * std::numbers::pi / 2.0);
+    double expected_im = std::sin(-0.5 * std::numbers::pi / 2.0);
+    CHECK(hir.global_weight.real() == Catch::Approx(expected_re).epsilon(1e-12));
+    CHECK(hir.global_weight.imag() == Catch::Approx(expected_im).epsilon(1e-12));
+}

@@ -1,0 +1,127 @@
+[build-system]
+requires = ["scikit-build-core>=0.10", "nanobind>=2.0", "setuptools-scm>=8"]
+build-backend = "scikit_build_core.build"
+
+[project]
+name = "clifft"
+dynamic = ["version"]
+description = "Clifft - Multi-level compiler and VM for quantum circuits"
+readme = "README.md"
+requires-python = ">=3.12"
+license = "Apache-2.0"
+authors = [
+    { name = "Brad Chase", email = "brad@unitary.foundation" },
+]
+keywords = ["quantum", "compiler", "simulation", "clifford", "stabilizer"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Science/Research",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: C++",
+    "Topic :: Scientific/Engineering :: Physics",
+]
+dependencies = [
+    "numpy>=1.26",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0",
+    "pytest-cov>=4.1",
+    "pytest-benchmark>=4.0",
+    "pre-commit>=3.6",
+    "mypy>=1.8",
+    "ruff>=0.3",
+    "nanobind>=2.0",
+    "scikit-build-core>=0.10",
+    "stim>=1.10",
+    "qiskit>=1.0",
+    "qiskit-aer>=0.14",
+    "pytest-codeblocks>=0.17.0",
+]
+docs = [
+    "mkdocs>=1.6,<2",
+    "mkdocs-material>=9.6",
+    "mkdocs-macros-plugin>=1.0",
+    "mkdocs-minify-plugin>=0.8",
+    "pymdown-extensions>=10.7",
+]
+
+[tool.scikit-build]
+# Protect the configuration against future changes in scikit-build-core
+minimum-version = "build-system.requires"
+
+# Setuptools-style build caching in a local directory
+build-dir = "build/{wheel_tag}"
+
+# Build stable ABI wheels for CPython 3.12+
+wheel.py-api = "cp312"
+
+# Version: derived from git tags via setuptools-scm
+[tool.scikit-build.metadata.version]
+provider = "scikit_build_core.metadata.setuptools_scm"
+
+[tool.setuptools_scm]
+fallback_version = "0.0.0"
+
+# Maximum qubit count (compile-time). Controls the width of inline Pauli
+# bitmasks used by the HIR and VM Pauli frame. Must be a multiple of 64.
+# Default "128" covers distance-7 surface codes and 85-qubit distillation.
+# Rebuild with "64" for best small-circuit/QV performance or "512" for larger
+# cultivation-style circuits.
+[tool.scikit-build.cmake.define]
+CLIFFT_MAX_QUBITS = "128"
+CLIFFT_CPU_BASELINE = { env = "CLIFFT_CPU_BASELINE", default = "native" }
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = [
+    "E",      # pycodestyle errors
+    "W",      # pycodestyle warnings
+    "F",      # pyflakes
+    "I",      # isort
+]
+ignore = []
+
+[tool.ruff.lint.isort]
+known-first-party = ["clifft"]
+
+[tool.mypy]
+python_version = "3.12"
+warn_return_any = true
+warn_unused_configs = true
+warn_unused_ignores = true
+check_untyped_defs = true
+disallow_untyped_defs = false
+disallow_incomplete_defs = true
+no_implicit_optional = true
+strict_equality = true
+
+[[tool.mypy.overrides]]
+module = ["numpy.*", "stim.*", "pytest.*", "clifft", "clifft._clifft_core", "qiskit.*", "qiskit_aer.*", "matplotlib", "matplotlib.*"]
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests/python"]
+pythonpath = ["."]
+markers = [
+    "multicore: tests requiring multi-core VM (active_k >= 18, uses OpenMP threads)",
+]
+
+[tool.coverage.run]
+source = ["clifft"]
+omit = ["*/_clifft_core*"]  # C++ extension not measurable by Python coverage
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "if TYPE_CHECKING:",
+    "raise NotImplementedError",
+]
+
+[tool.coverage.html]
+directory = "coverage/python"

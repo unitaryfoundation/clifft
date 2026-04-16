@@ -1,0 +1,164 @@
+name: Release
+
+# Trigger on version tags (e.g., v0.1.0, v1.2.3)
+on:
+  push:
+    tags:
+      - "v[0-9]+.[0-9]+.[0-9]+"
+  workflow_dispatch:
+    # Manual dispatch always publishes to TestPyPI only.
+    # PyPI publishing requires a version tag push.
+
+permissions:
+  contents: read
+
+jobs:
+  # -----------------------------------------------------------
+  # Build sdist (source distribution)
+  # -----------------------------------------------------------
+  sdist:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Full history for setuptools-scm
+
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+
+      - name: Build sdist
+        run: uv build --sdist
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sdist
+          path: dist/*.tar.gz
+
+  # -----------------------------------------------------------
+  # Build wheels via cibuildwheel
+  # -----------------------------------------------------------
+  wheels:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-24.04
+            arch: x86_64
+            cibw_archs: x86_64
+            cpu_baseline: x86-64-v3
+          - os: ubuntu-24.04-arm
+            arch: aarch64
+            cibw_archs: aarch64
+            cpu_baseline: generic
+          - os: macos-14
+            arch: arm64
+            cibw_archs: arm64
+            cpu_baseline: generic
+          - os: windows-latest
+            arch: amd64
+            cibw_archs: AMD64
+            cpu_baseline: generic
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Full history for setuptools-scm
+
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+
+      - name: Build wheels
+        uses: pypa/cibuildwheel@v2.22
+        env:
+          CIBW_BUILD: "cp312-*"
+          CIBW_ARCHS: ${{ matrix.cibw_archs }}
+          CIBW_SKIP: "*-musllinux*"
+          CIBW_ENVIRONMENT: CLIFFT_CPU_BASELINE=${{ matrix.cpu_baseline }}
+          # Install build dependencies inside the cibuildwheel container
+          CIBW_BEFORE_BUILD: pip install setuptools-scm
+          # Install libomp on macOS for OpenMP support in wheels
+          CIBW_BEFORE_ALL_MACOS: brew install libomp
+          # Smoke-test: import the built package
+          CIBW_TEST_COMMAND: python -c "import clifft; print(clifft.__version__); print(clifft.svm_backend())"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wheel-${{ matrix.os }}-${{ matrix.arch }}
+          path: wheelhouse/*.whl
+
+  # -----------------------------------------------------------
+  # Publish to TestPyPI (on tag push, before PyPI)
+  # -----------------------------------------------------------
+  publish-testpypi:
+    needs: [sdist, wheels]
+    runs-on: ubuntu-24.04
+    environment: testpypi
+    permissions:
+      id-token: write  # Required for trusted publishing
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Publish to TestPyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          repository-url: https://test.pypi.org/legacy/
+
+  # -----------------------------------------------------------
+  # Publish to PyPI (only on tag push, after TestPyPI)
+  # -----------------------------------------------------------
+  publish-pypi:
+    needs: [publish-testpypi]
+    # Only publish to PyPI on tag pushes — never on manual dispatch.
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-24.04
+    environment: pypi
+    permissions:
+      id-token: write  # Required for trusted publishing
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+
+  # -----------------------------------------------------------
+  # Create GitHub Release (only on tag push, after PyPI)
+  # -----------------------------------------------------------
+  github-release:
+    needs: [publish-pypi]
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Extract release notes from CHANGELOG.md
+        run: |
+          # Extract the section for this version from the committed changelog.
+          # Matches from "## [X.Y.Z]" to the next "## [" or end of file.
+          VERSION="${GITHUB_REF_NAME#v}"
+          awk -v ver="$VERSION" '
+            /^## \[/ { if (found) exit; if ($0 ~ "^## \\[" ver "\\]") found=1; next }
+            found { print }
+          ' CHANGELOG.md > RELEASE_NOTES.md
+
+          if [ ! -s RELEASE_NOTES.md ]; then
+            echo "No entry found for $VERSION in CHANGELOG.md, using tag message." >&2
+            echo "Release $VERSION" > RELEASE_NOTES.md
+          fi
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${{ github.ref_name }}" \
+            --title "${{ github.ref_name }}" \
+            --notes-file RELEASE_NOTES.md
