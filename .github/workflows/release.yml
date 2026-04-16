@@ -8,6 +8,11 @@ on:
   workflow_dispatch:
     # Manual dispatch always publishes to TestPyPI only.
     # PyPI publishing requires a version tag push.
+    inputs:
+      test_version:
+        description: "Version for TestPyPI (e.g. 0.1.0.dev1). Required because PyPI rejects local version specifiers from untagged builds."
+        required: true
+        default: "0.1.0.dev1"
 
 permissions:
   contents: read
@@ -29,6 +34,8 @@ jobs:
 
       - name: Build sdist
         run: uv build --sdist
+        env:
+          SETUPTOOLS_SCM_PRETEND_VERSION: ${{ inputs.test_version || '' }}
 
       - uses: actions/upload-artifact@v4
         with:
@@ -78,6 +85,7 @@ jobs:
           CIBW_ENVIRONMENT: >-
             CLIFFT_CPU_BASELINE=${{ matrix.cpu_baseline }}
             ${{ matrix.cibw_environment || '' }}
+            ${{ inputs.test_version && format('SETUPTOOLS_SCM_PRETEND_VERSION={0}', inputs.test_version) || '' }}
           # Install build dependencies inside the cibuildwheel container
           CIBW_BEFORE_BUILD: pip install setuptools-scm
           # Install libomp on macOS for OpenMP support in wheels
