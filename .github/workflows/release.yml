@@ -66,10 +66,6 @@ jobs:
         with:
           fetch-depth: 0  # Full history for setuptools-scm
 
-      - uses: astral-sh/setup-uv@v5
-        with:
-          python-version: "3.12"
-
       - name: Build wheels
         uses: pypa/cibuildwheel@v2.22
         env:
