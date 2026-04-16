@@ -65,4 +65,4 @@ print(result.measurements[:5])  # First 5 shots
 ## Get Started
 
 [Install Clifft](getting-started/installation.md){ .md-button .md-button--primary }
-[Try the Playground](playground.md){ .md-button }
+[Try the Playground](playground/){ .md-button }

@@ -149,7 +149,7 @@ cmake -B build
 
 ## WebAssembly Build
 
-For the browser-based [Playground](../playground.md):
+For the browser-based [Playground](../playground/):
 
 ```bash
 # Requires Docker
@@ -157,7 +157,7 @@ just build-wasm
 just test-wasm
 ```
 
-Outputs `playground/public/clifft_wasm.{js,wasm}`. See the [Playground](../playground.md) page.
+Outputs `playground/public/clifft_wasm.{js,wasm}`. See the [Playground](../playground/) page.
 
 ## IDE Setup
 
