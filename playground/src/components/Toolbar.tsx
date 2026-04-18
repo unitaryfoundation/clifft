@@ -12,11 +12,13 @@ import {
   Clock,
   Trash2,
   Columns2,
+  Download,
+  X,
 } from "lucide-react";
 import LZString from "lz-string";
 import type { WasmStatus, PassConfig } from "../hooks/useClifftWasm";
 import type { Theme } from "../hooks/useTheme";
-import type { PassInfo } from "../types";
+import type { PassInfo, SourceOrigin } from "../types";
 import type { SavedCircuit } from "../hooks/useCircuitStorage";
 
 interface Props {
@@ -37,7 +39,9 @@ interface Props {
   savedCircuits: SavedCircuit[];
   onSaveCircuit: (name: string, source: string) => void;
   onLoadCircuit: (source: string) => void;
+  onLoadFromUrl: (source: string, url: string) => void;
   onDeleteCircuit: (id: string) => void;
+  sourceOrigin: SourceOrigin;
 }
 
 const SAFE_URL_LENGTH = 8000;
@@ -61,20 +65,31 @@ export function Toolbar({
   savedCircuits,
   onSaveCircuit,
   onLoadCircuit,
+  onLoadFromUrl,
   onDeleteCircuit,
+  sourceOrigin,
 }: Props) {
   const [copied, setCopied] = useState(false);
   const [shotsOpen, setShotsOpen] = useState(false);
   const [passesOpen, setPassesOpen] = useState(false);
   const [recentsOpen, setRecentsOpen] = useState(false);
+  const [loadOpen, setLoadOpen] = useState(false);
+  const [loadUrl, setLoadUrl] = useState("");
+  const [loadBusy, setLoadBusy] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [loadHelpOpen, setLoadHelpOpen] = useState(false);
   const shotsRef = useRef<HTMLDivElement>(null);
   const passesRef = useRef<HTMLDivElement>(null);
   const recentsRef = useRef<HTMLDivElement>(null);
+  const loadInputRef = useRef<HTMLInputElement>(null);
 
   const buildShareUrl = useCallback(() => {
+    if (sourceOrigin) {
+      return `${window.location.origin}${window.location.pathname}?url=${encodeURIComponent(sourceOrigin.value)}`;
+    }
     const compressed = LZString.compressToEncodedURIComponent(source);
     return `${window.location.origin}${window.location.pathname}?code=${compressed}`;
-  }, [source]);
+  }, [source, sourceOrigin]);
 
   const handleShare = async () => {
     const url = buildShareUrl();
@@ -143,9 +158,49 @@ export function Toolbar({
   const totalEnabled = passConfig.hir.length + passConfig.bc.length;
 
   const shareUrl = useMemo(() => buildShareUrl(), [buildShareUrl]);
-  const canShare = shareUrl.length <= MAX_URL_LENGTH;
-  const shareWarning = shareUrl.length > SAFE_URL_LENGTH && shareUrl.length <= MAX_URL_LENGTH;
+  // When sharing via ?url=, the link size doesn't depend on the source length.
+  const canShare = sourceOrigin !== null || shareUrl.length <= MAX_URL_LENGTH;
+  const shareWarning =
+    !sourceOrigin &&
+    shareUrl.length > SAFE_URL_LENGTH &&
+    shareUrl.length <= MAX_URL_LENGTH;
   const canSimulate = wasmStatus === "ready" && !simulating;
+
+  // Auto-focus URL input on open
+  useEffect(() => {
+    if (loadOpen) {
+      loadInputRef.current?.focus();
+    }
+  }, [loadOpen]);
+
+  const closeLoadModal = useCallback(() => {
+    setLoadOpen(false);
+    setLoadError(null);
+    setLoadBusy(false);
+    setLoadHelpOpen(false);
+  }, []);
+
+  const submitLoad = useCallback(async () => {
+    const url = loadUrl.trim();
+    if (!url) {
+      setLoadError("Enter a URL.");
+      return;
+    }
+    setLoadBusy(true);
+    setLoadError(null);
+    try {
+      const resp = await fetch(url);
+      if (!resp.ok) throw new Error(`Fetch returned ${resp.status}`);
+      const text = await resp.text();
+      onLoadFromUrl(text, url);
+      setLoadUrl("");
+      closeLoadModal();
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      setLoadError(`Failed to load: ${msg}`);
+      setLoadBusy(false);
+    }
+  }, [loadUrl, onLoadFromUrl, closeLoadModal]);
 
   return (
     <div className="toolbar">
@@ -298,6 +353,16 @@ export function Toolbar({
           Save
         </button>
 
+        {/* Load from URL */}
+        <button
+          className="toolbar-btn"
+          onClick={() => setLoadOpen(true)}
+          title="Load a circuit from a CORS-enabled URL"
+        >
+          <Download size={14} />
+          Load
+        </button>
+
         {/* Recents dropdown */}
         <div className="recents-group" ref={recentsRef}>
           <button
@@ -348,10 +413,12 @@ export function Toolbar({
           disabled={!canShare}
           title={
             !canShare
-              ? "Circuit too large to share via URL. Use a GitHub Gist and share with ?gist=<id>"
+              ? "Circuit too large to share via URL. Host it somewhere CORS-enabled and use Load to paste its URL."
               : shareWarning
-                ? "URL is long and may not work in all browsers. Consider using a GitHub Gist."
-                : "Copy shareable link"
+                ? "URL is long and may not work in all browsers. Host the circuit externally and use Load to paste its URL."
+                : sourceOrigin
+                  ? "Copy shareable link (pointing at the loaded URL)"
+                  : "Copy shareable link"
           }
         >
           <Share2 size={14} />
@@ -366,6 +433,98 @@ export function Toolbar({
           {theme === "dark" ? <Sun size={14} /> : <Moon size={14} />}
         </button>
       </div>
+
+      {loadOpen && (
+        <div
+          className="load-overlay"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Load circuit from URL"
+          onKeyDown={(e) => {
+            if (e.key === "Escape") closeLoadModal();
+          }}
+        >
+          <div className="load-backdrop" onClick={closeLoadModal} />
+          <div className="load-card">
+            <button
+              className="load-close"
+              onClick={closeLoadModal}
+              title="Close"
+              aria-label="Close"
+            >
+              <X size={16} />
+            </button>
+            <div className="load-title">
+              Load circuit from URL
+              <button
+                className="load-help-btn"
+                onClick={() => setLoadHelpOpen((v) => !v)}
+                title="What kind of URL?"
+                aria-label="Help"
+              >
+                <HelpCircle size={14} />
+              </button>
+            </div>
+            <div className="load-desc">
+              Paste a direct URL to a raw <code>.stim</code> file. The host must
+              allow CORS. After loading, the Share link will point to this URL
+              until you edit the circuit.
+            </div>
+            {loadHelpOpen && (
+              <div className="load-help">
+                <strong>Works with any CORS-enabled raw text URL</strong>, for
+                example:
+                <ul>
+                  <li>
+                    GitHub Gist raw file:
+                    {" "}<code>https://gist.githubusercontent.com/&lt;user&gt;/&lt;id&gt;/raw/&lt;name&gt;.stim</code>
+                  </li>
+                  <li>
+                    GitHub repo raw file:
+                    {" "}<code>https://raw.githubusercontent.com/&lt;user&gt;/&lt;repo&gt;/&lt;ref&gt;/&lt;path&gt;.stim</code>
+                  </li>
+                  <li>Any public static host that serves plain text with CORS.</li>
+                </ul>
+                Not a playground share URL &mdash; use a URL that points
+                directly at the circuit file itself.
+              </div>
+            )}
+            <input
+              ref={loadInputRef}
+              type="url"
+              className="load-input"
+              placeholder="https://example.com/circuit.stim"
+              value={loadUrl}
+              onChange={(e) => setLoadUrl(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && !loadBusy) {
+                  e.preventDefault();
+                  void submitLoad();
+                }
+              }}
+              disabled={loadBusy}
+            />
+            {loadError && <div className="load-error">{loadError}</div>}
+            <div className="load-actions">
+              <button
+                className="toolbar-btn"
+                onClick={closeLoadModal}
+                disabled={loadBusy}
+              >
+                Cancel
+              </button>
+              <button
+                className="toolbar-btn toolbar-btn-primary"
+                onClick={() => void submitLoad()}
+                disabled={loadBusy || !loadUrl.trim()}
+              >
+                {loadBusy ? <Loader2 size={14} className="spin" /> : <Download size={14} />}
+                Load
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

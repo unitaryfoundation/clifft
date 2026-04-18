@@ -57,3 +57,5 @@ export interface ClifftModule {
   compile_to_json: (source: string, passes_json: string) => string;
   simulate_wasm: (source: string, shots: number, passes_json: string) => string;
 }
+
+export type SourceOrigin = { kind: "url"; value: string } | null;

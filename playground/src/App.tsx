@@ -15,7 +15,7 @@ import { ExpValTable } from "./components/ExpValTable";
 import { GuidedTour } from "./components/GuidedTour";
 import { registerLanguages } from "./languages";
 import { isCompileSuccess, isSimulateSuccess } from "./types";
-import type { CompileResult, CompileSuccess, SimulateResult } from "./types";
+import type { CompileResult, CompileSuccess, SimulateResult, SourceOrigin } from "./types";
 
 const DEFAULT_SOURCE = `H 0
 CNOT 0 1
@@ -40,8 +40,8 @@ function getInitialSource(): string {
       // ignore bad encoded data
     }
   }
-  // For ?gist= and ?url= we return the default/draft immediately and load
-  // async in a useEffect (see useRemoteCircuit below).
+  // For ?url= we return the default/draft immediately and load async
+  // in a useEffect (see useRemoteCircuit below).
   const draft = loadDraft();
   if (draft) return draft;
   return DEFAULT_SOURCE;
@@ -51,16 +51,6 @@ type RemoteLoadState =
   | { status: "idle" }
   | { status: "loading"; label: string }
   | { status: "error"; message: string };
-
-async function fetchGist(id: string): Promise<string> {
-  const resp = await fetch(`https://api.github.com/gists/${id}`);
-  if (!resp.ok) throw new Error(`GitHub API returned ${resp.status}`);
-  const data = await resp.json();
-  const files = data.files as Record<string, { content: string }>;
-  const first = Object.values(files)[0];
-  if (!first) throw new Error("Gist has no files");
-  return first.content;
-}
 
 async function fetchUrl(url: string): Promise<string> {
   const resp = await fetch(url);
@@ -72,17 +62,16 @@ function getInitialRemoteState(): RemoteLoadState {
   const params = new URLSearchParams(window.location.search);
   // ?code= takes precedence — don't fetch remote if inline code is present
   if (params.get("code")) return { status: "idle" };
-  if (params.get("gist")) {
-    const id = params.get("gist")!;
-    return { status: "loading", label: `Loading gist ${id.slice(0, 8)}...` };
-  }
   if (params.get("url")) {
     return { status: "loading", label: "Loading circuit from URL..." };
   }
   return { status: "idle" };
 }
 
-function useRemoteCircuit(onLoad: (source: string) => void, userHasEditedRef: React.RefObject<boolean>) {
+function useRemoteCircuit(
+  onLoad: (source: string, url: string) => void,
+  userHasEditedRef: React.RefObject<boolean>,
+) {
   const [state, setState] = useState<RemoteLoadState>(getInitialRemoteState);
   const ranRef = useRef(false);
 
@@ -91,29 +80,20 @@ function useRemoteCircuit(onLoad: (source: string) => void, userHasEditedRef: Re
     const params = new URLSearchParams(window.location.search);
     // ?code= takes precedence over remote params
     if (params.get("code")) return;
-    const gistId = params.get("gist");
     const url = params.get("url");
+    if (!url) return;
 
-    const handleResult = (content: string) => {
-      setState({ status: "idle" });
-      // Don't clobber user edits or manual circuit selections that
-      // happened while the fetch was in flight.
-      if (!userHasEditedRef.current) {
-        onLoad(content);
-      }
-    };
-
-    if (gistId) {
-      ranRef.current = true;
-      fetchGist(gistId)
-        .then(handleResult)
-        .catch((err) => setState({ status: "error", message: `Failed to load gist: ${err.message}` }));
-    } else if (url) {
-      ranRef.current = true;
-      fetchUrl(url)
-        .then(handleResult)
-        .catch((err) => setState({ status: "error", message: `Failed to load URL: ${err.message}` }));
-    }
+    ranRef.current = true;
+    fetchUrl(url)
+      .then((content) => {
+        setState({ status: "idle" });
+        // Don't clobber user edits or manual circuit selections that
+        // happened while the fetch was in flight.
+        if (!userHasEditedRef.current) {
+          onLoad(content, url);
+        }
+      })
+      .catch((err) => setState({ status: "error", message: `Failed to load URL: ${err.message}` }));
   }, [onLoad, userHasEditedRef]);
 
   return state;
@@ -130,10 +110,19 @@ export default function App() {
   const rulerColor = theme === "dark" ? "#4fc3f7" : "#0277bd";
 
   const [source, setSourceRaw] = useState(getInitialSource);
+  const [sourceOrigin, setSourceOrigin] = useState<SourceOrigin>(null);
   const userHasEditedRef = useRef(false);
+  // When we push text into the Monaco editor programmatically, we skip
+  // the resulting onChange so it doesn't clear sourceOrigin.
+  const skipNextOnChangeRef = useRef(false);
   const setSource = useCallback((v: string) => {
+    if (skipNextOnChangeRef.current) {
+      skipNextOnChangeRef.current = false;
+      return;
+    }
     userHasEditedRef.current = true;
     setSourceRaw(v);
+    setSourceOrigin(null);
   }, []);
   const defaultPassConfig = useMemo<PassConfig>(() => {
     if (availablePasses.length === 0) return { hir: [], bc: [] };
@@ -405,14 +394,35 @@ export default function App() {
     localStorage.setItem(TOUR_SEEN_KEY, "1");
   }, []);
 
-  const handleLoadCircuit = useCallback((circuitSource: string) => {
-    setSource(circuitSource);
+  // Unified entry point for non-edit source updates. origin=null means
+  // "this content has no remote URL to share back" (e.g. Recents). A
+  // non-null origin makes Share emit a `?url=` link until the user edits.
+  const loadWithOrigin = useCallback((circuitSource: string, origin: SourceOrigin) => {
+    userHasEditedRef.current = true;
+    setSourceRaw(circuitSource);
+    setSourceOrigin(origin);
     if (sourceEditorRef.current) {
+      skipNextOnChangeRef.current = true;
       sourceEditorRef.current.setValue(circuitSource);
     }
-  }, [setSource]);
+  }, []);
 
-  const remoteState = useRemoteCircuit(handleLoadCircuit, userHasEditedRef);
+  const handleLoadCircuit = useCallback(
+    (circuitSource: string) => loadWithOrigin(circuitSource, null),
+    [loadWithOrigin],
+  );
+  const handleLoadFromUrl = useCallback(
+    (circuitSource: string, url: string) =>
+      loadWithOrigin(circuitSource, { kind: "url", value: url }),
+    [loadWithOrigin],
+  );
+  const handleRemoteLoad = useCallback(
+    (circuitSource: string, url: string) =>
+      loadWithOrigin(circuitSource, { kind: "url", value: url }),
+    [loadWithOrigin],
+  );
+
+  const remoteState = useRemoteCircuit(handleRemoteLoad, userHasEditedRef);
 
   // --- Stats bar ---
   const stats: CompileSuccess | null =
@@ -468,7 +478,9 @@ export default function App() {
         savedCircuits={saved}
         onSaveCircuit={saveCircuit}
         onLoadCircuit={handleLoadCircuit}
+        onLoadFromUrl={handleLoadFromUrl}
         onDeleteCircuit={deleteCircuit}
+        sourceOrigin={sourceOrigin}
       />
 
       {stats && (
