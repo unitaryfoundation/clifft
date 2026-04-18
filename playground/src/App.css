@@ -871,3 +871,137 @@ html, body, #root {
   letter-spacing: 0.5px;
   vertical-align: middle;
 }
+
+/* --- Load-from-URL modal --- */
+.load-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  outline: none;
+}
+
+.load-backdrop {
+  position: absolute;
+  inset: 0;
+  background: var(--backdrop-bg);
+}
+
+.load-card {
+  position: relative;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 20px 20px 16px;
+  max-width: 480px;
+  width: 90%;
+  box-shadow: 0 8px 32px var(--shadow-color);
+  animation: tour-in 0.18s ease-out;
+}
+
+.load-close {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  background: none;
+  border: none;
+  color: var(--text-dim);
+  cursor: pointer;
+  padding: 4px;
+  border-radius: 4px;
+}
+
+.load-close:hover { color: var(--text); }
+
+.load-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--accent);
+  margin-bottom: 6px;
+}
+
+.load-help-btn {
+  background: none;
+  border: none;
+  color: var(--text-dim);
+  cursor: pointer;
+  padding: 2px;
+  border-radius: 3px;
+  display: inline-flex;
+}
+
+.load-help-btn:hover { color: var(--text); }
+
+.load-desc {
+  font-size: 12px;
+  color: var(--text-dim);
+  line-height: 1.5;
+  margin-bottom: 10px;
+}
+
+.load-desc code,
+.load-help code {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  padding: 0 4px;
+  font-size: 11px;
+  word-break: break-all;
+}
+
+.load-help {
+  font-size: 12px;
+  color: var(--text);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 8px 10px;
+  margin-bottom: 10px;
+  line-height: 1.5;
+}
+
+.load-help ul {
+  margin: 6px 0;
+  padding-left: 18px;
+}
+
+.load-help li { margin: 3px 0; }
+
+.load-input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 8px 10px;
+  font-size: 13px;
+  font-family: inherit;
+  background: var(--bg);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  outline: none;
+}
+
+.load-input:focus {
+  border-color: var(--accent);
+}
+
+.load-input:disabled {
+  opacity: 0.6;
+}
+
+.load-error {
+  margin-top: 8px;
+  font-size: 12px;
+  color: #ef5350;
+}
+
+.load-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 14px;
+}

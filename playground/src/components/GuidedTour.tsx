@@ -130,9 +130,11 @@ const STEPS: TourStep[] = [
     title: "Sharing & Options",
     content:
       "The `Share` button compresses your circuit into a URL you can send to " +
-      "anyone. For larger circuits, you can also load from external sources by " +
-      "adding `?gist=<id>` (GitHub Gist) or `?url=<encoded-url>` (any " +
-      "CORS-enabled URL) to the playground URL.\n\n" +
+      "anyone.\n\n" +
+      "For larger circuits, host the `.stim` file somewhere with CORS " +
+      "(e.g. a GitHub Gist's raw URL, or `raw.githubusercontent.com`) and " +
+      "click `Load` to paste its URL. Until you edit the circuit, `Share` " +
+      "will emit a compact `?url=<...>` link pointing to that file.\n\n" +
       "The `Save` button stores circuits in your browser's local storage, " +
       "and `Recents` shows previously saved circuits.\n\n" +
       "The `Passes` button lets you individually toggle each HIR and bytecode " +
