@@ -139,7 +139,7 @@ circuit = clifft.parse_file("my_circuit.stim")
 
 ### 2. Front-End (Clifford Tracing)
 
-`clifft.trace()` runs the Clifford front-end, absorbing Clifford gates into the Heisenberg frame and producing the Heisenberg IR:
+`clifft.trace()` runs the Clifford front-end, absorbing Clifford gates into the offline Clifford frame $U_C$ and producing the Heisenberg IR:
 
 ```python
 import clifft
