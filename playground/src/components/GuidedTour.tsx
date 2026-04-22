@@ -74,7 +74,7 @@ const STEPS: TourStep[] = [
     title: "Heisenberg IR (middle)",
     content:
       "Clifft's front-end absorbs Clifford gates (`H`, `CNOT`, `S`, `CZ`, `SWAP`...) into an " +
-      "offline Clifford frame `U_C` tracked via Stim's tableau algebra. This means Cliffords " +
+      "offline Clifford frame `U_C`. This means Cliffords " +
       "vanish from the IR entirely!\n\n" +
       "What remains are non-Clifford ops: T gates appear as phase rotations on " +
       "Pauli products (e.g. `T +X0*Z1`), and measurements show their effective " +

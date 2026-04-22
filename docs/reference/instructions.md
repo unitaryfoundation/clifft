@@ -45,7 +45,7 @@ falls into one of the categories below.
 {% for cat in opcode_categories %}
 ### {{ cat }}
 
-{% if cat == 'Frame' %}Frame ops update the runtime virtual Pauli frame $\tilde P$ (stored as a pair of bitmasks) via bitwise XOR. They are pure bookkeeping -- no state vector work is performed. Note: the offline Clifford frame $U_C$ is resolved entirely at compile time and never tracked at runtime.
+{% if cat == 'Frame' %}Frame ops update the runtime virtual Pauli frame tracking bit and phase flips. These are fast bitwise operations -- no state vector updates are required.
 {% elif cat == 'Array' %}Array ops apply unitary gates directly to the Schrodinger state vector |phi>_A.
 {% elif cat == 'Subspace' %}Subspace ops change the size of the active subspace or apply non-Clifford rotations.
 {% elif cat == 'Measurement' %}Measurement ops collapse qubits, either algebraically (dormant) or by filtering/folding the state vector (active).

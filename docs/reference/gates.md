@@ -186,9 +186,8 @@ target count is 64 qubits per instruction.
 ### Compilation Path
 
 All rotation gates are reduced by the front-end to a single HIR type
-(`PHASE_ROTATION`) via Clifford absorption. The front-end conjugates each
-rotation axis by the offline Clifford frame $U_C$ (i.e. the Heisenberg
-mapping $\tilde P = U_C^\dagger P U_C$), factors out the global phase
+(`PHASE_ROTATION`) via Clifford absorption. The front-end maps each rotation
+to the virtual basis via the Heisenberg mapping, factors out the global phase
 `e^{-i*alpha*pi/2}` into `global_weight`, and passes the relative diagonal
 phase `diag(1, e^{i*alpha*pi})` to the back-end.
 
