@@ -73,8 +73,8 @@ const STEPS: TourStep[] = [
   {
     title: "Heisenberg IR (middle)",
     content:
-      "Clifft's front-end absorbs Clifford gates (`H`, `CNOT`, `S`, `CZ`, `SWAP`...) into a " +
-      "Heisenberg frame tracked via Stim's tableau algebra. This means Cliffords " +
+      "Clifft's front-end absorbs Clifford gates (`H`, `CNOT`, `S`, `CZ`, `SWAP`...) into an " +
+      "offline Clifford frame `U_C`. This means Cliffords " +
       "vanish from the IR entirely!\n\n" +
       "What remains are non-Clifford ops: T gates appear as phase rotations on " +
       "Pauli products (e.g. `T +X0*Z1`), and measurements show their effective " +
@@ -88,7 +88,7 @@ const STEPS: TourStep[] = [
       "The back-end compresses multi-qubit Pauli products down to 1- and 2-qubit " +
       "operations on virtual axes using geometric decomposition. The output is a " +
       "flat stream of RISC-style 32-byte instructions.\n\n" +
-      "- `OP_FRAME_*` -- manipulate the Heisenberg tracking frame\n" +
+      "- `OP_FRAME_*` -- update the runtime virtual Pauli frame (bitmask XOR)\n" +
       "- `OP_ARRAY_*` -- touch the Schrodinger state vector\n" +
       "- `OP_EXPAND` -- grows the active subspace\n" +
       "- `OP_PHASE_T` -- applies T rotations\n" +

@@ -16,7 +16,7 @@ The benchmark circuit has three parameters:
 
 The circuit places T-gates interleaved with Hadamard and CNOT gates on the first $k$ qubits, then pads the remaining $N - k$ qubits with a Clifford entangling layer (Hadamards followed by a CNOT chain across all $N$ qubits).
 
-A dense statevector simulator like Qiskit-Aer must allocate $2^N$ complex amplitudes regardless of circuit structure. Clifft's compiler recognizes that the Clifford padding can be absorbed into an offline Pauli frame, so its virtual machine only allocates $2^k$ amplitudes.
+A dense statevector simulator like Qiskit-Aer must allocate $2^N$ complex amplitudes regardless of circuit structure. Clifft's compiler recognizes that the Clifford padding can be absorbed into an offline Clifford frame $U_C$, so its virtual machine only allocates $2^k$ amplitudes.
 
 ## Two Sweeps
 
@@ -303,7 +303,7 @@ The key insight is Clifft's factored-state representation:
 
 $$|\psi\rangle = \gamma \, U_C \, P \, (|\phi\rangle_A \otimes |0\rangle_D)$$
 
-The compiler absorbs all Clifford gates into the offline frame $U_C$ and Pauli frame $P$. Only the active subspace $|\phi\rangle_A$ (dimension $2^k$) is stored and evolved by the virtual machine. The dormant qubits $|0\rangle_D$ cost nothing at runtime.
+The compiler absorbs all Clifford gates into the offline Clifford frame $U_C$. Only the active subspace $|\phi\rangle_A$ (dimension $2^k$) is stored and evolved by the virtual machine. At runtime the VM maintains only the active statevector and a lightweight Pauli frame $P$ (updated by XOR for conditional Paulis and noise); $U_C$ is not tracked online. The dormant qubits $|0\rangle_D$ cost nothing at runtime.
 
 Qiskit-Aer has no such factorization — it must allocate and evolve a full $2^N$ statevector for every circuit.
 

@@ -16,8 +16,9 @@ The same data powers the hover tooltips in the
 ## HIR Operation Types
 
 The Heisenberg IR is the intermediate representation produced by the front-end.
-Clifford gates are absorbed into the tracking frame and do not appear in the HIR.
-What remains are non-Clifford operations, measurements, and meta-instructions.
+Clifford gates are absorbed into the offline Clifford frame $U_C$ and do not
+appear in the HIR. What remains are non-Clifford operations, measurements, and
+meta-instructions.
 
 {% for cat in hir_categories %}
 ### {{ cat }}
@@ -44,7 +45,7 @@ falls into one of the categories below.
 {% for cat in opcode_categories %}
 ### {{ cat }}
 
-{% if cat == 'Frame' %}Frame ops update the Heisenberg tracking frame U_C. They are pure bookkeeping -- no state vector work is performed.
+{% if cat == 'Frame' %}Frame ops update the runtime virtual Pauli frame tracking bit and phase flips. These are fast bitwise operations -- no state vector updates are required.
 {% elif cat == 'Array' %}Array ops apply unitary gates directly to the Schrodinger state vector |phi>_A.
 {% elif cat == 'Subspace' %}Subspace ops change the size of the active subspace or apply non-Clifford rotations.
 {% elif cat == 'Measurement' %}Measurement ops collapse qubits, either algebraically (dormant) or by filtering/folding the state vector (active).
