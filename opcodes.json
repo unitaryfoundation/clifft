@@ -2,38 +2,38 @@
     "opcodes": {
         "OP_FRAME_CNOT": {
             "category": "Frame",
-            "summary": "CNOT update on the Heisenberg tracking frame.",
-            "detail": "Applies a CNOT (controlled-X) conjugation to the virtual Pauli frame U_C. This is pure bookkeeping with no state vector work -- the frame tracks how Clifford gates transform the Pauli basis.",
+            "summary": "CNOT update on the virtual Pauli frame.",
+            "detail": "Conjugates the virtual Pauli frame P by CNOT via bitwise XOR: propagates p_x from control to target and p_z from target to control. Pure bookkeeping with no state vector work.",
             "operands": "axis_1 (control), axis_2 (target)"
         },
         "OP_FRAME_CZ": {
             "category": "Frame",
-            "summary": "CZ update on the Heisenberg tracking frame.",
-            "detail": "Applies a controlled-Z conjugation to the virtual Pauli frame U_C. Like all frame ops, this has zero cost on the state vector -- it only updates the algebraic tracking structure.",
+            "summary": "CZ update on the virtual Pauli frame.",
+            "detail": "Conjugates the virtual Pauli frame P by CZ via bitwise XOR: propagates p_x on each axis into p_z on the other. Any resulting phase is absorbed into gamma. No state vector work.",
             "operands": "axis_1, axis_2"
         },
         "OP_FRAME_H": {
             "category": "Frame",
-            "summary": "Hadamard update on the Heisenberg tracking frame.",
-            "detail": "Applies a Hadamard conjugation to a single virtual axis in the Pauli frame. Swaps X and Z components of that axis in the frame.",
+            "summary": "Hadamard update on the virtual Pauli frame.",
+            "detail": "Conjugates the virtual Pauli frame P by Hadamard on a single axis: swaps the p_x and p_z bits of that axis, absorbing any resulting phase into gamma. No state vector work.",
             "operands": "axis_1"
         },
         "OP_FRAME_S": {
             "category": "Frame",
-            "summary": "S-gate update on the Heisenberg tracking frame.",
-            "detail": "Applies an S (pi/4 phase) conjugation to a single virtual axis in the Pauli frame. Maps X -> Y on that axis.",
+            "summary": "S-gate update on the virtual Pauli frame.",
+            "detail": "Conjugates the virtual Pauli frame P by S (pi/4 phase) on a single axis. Maps X -> Y by XOR-ing p_x into p_z, absorbing any resulting phase into gamma.",
             "operands": "axis_1"
         },
         "OP_FRAME_S_DAG": {
             "category": "Frame",
-            "summary": "S-dagger update on the Heisenberg tracking frame.",
-            "detail": "Applies an S-dagger (inverse pi/4 phase) conjugation to a single virtual axis in the Pauli frame. Maps X -> -Y on that axis.",
+            "summary": "S-dagger update on the virtual Pauli frame.",
+            "detail": "Conjugates the virtual Pauli frame P by S-dagger (inverse pi/4 phase) on a single axis. Maps X -> -Y by XOR-ing p_x into p_z, absorbing the resulting phase into gamma.",
             "operands": "axis_1"
         },
         "OP_FRAME_SWAP": {
             "category": "Frame",
-            "summary": "SWAP update on the Heisenberg tracking frame.",
-            "detail": "Swaps two virtual axes in the Pauli frame. Used by the compiler to route qubits for measurement or gate decomposition.",
+            "summary": "SWAP update on the virtual Pauli frame.",
+            "detail": "Swaps the p_x and p_z bits between two axes of the virtual Pauli frame P. Used by the compiler to route qubits for measurement or gate decomposition.",
             "operands": "axis_1, axis_2"
         },
         "OP_ARRAY_CNOT": {
@@ -93,7 +93,7 @@
         "OP_PHASE_T": {
             "category": "Subspace",
             "summary": "T-gate (pi/8 phase rotation) on an active axis.",
-            "detail": "Applies diag(1, exp(i*pi/4)) to one active virtual axis. This is the primary non-Clifford gate -- it cannot be absorbed into the Heisenberg frame and requires direct state vector work.",
+            "detail": "Applies diag(1, exp(i*pi/4)) to one active virtual axis. This is the primary non-Clifford gate -- it cannot be absorbed into the offline Clifford frame U_C and requires direct state vector work.",
             "operands": "axis_1"
         },
         "OP_PHASE_T_DAG": {
@@ -221,7 +221,7 @@
         "T_GATE": {
             "category": "Non-Clifford",
             "summary": "T or T-dagger gate: pi/8 phase rotation on a Pauli product.",
-            "detail": "The primary non-Clifford operation. Applies exp(i*pi/8 * P) where P is the Pauli product shown (e.g. +X0*Z1). T_DAG applies the conjugate rotation. These cannot be absorbed into the Heisenberg frame and are passed through to the back-end.",
+            "detail": "The primary non-Clifford operation. Applies exp(i*pi/8 * P) where P is the Pauli product shown (e.g. +X0*Z1). T_DAG applies the conjugate rotation. These cannot be absorbed into the offline Clifford frame U_C and are passed through to the back-end.",
             "display": [
                 "T",
                 "T_DAG"
@@ -230,7 +230,7 @@
         "MEASURE": {
             "category": "Measurement",
             "summary": "Destructive measurement of a Pauli observable.",
-            "detail": "Measures the Pauli product shown (e.g. +X0, -Z0*Z1) and stores the outcome in the measurement record. The Pauli is the effective observable after Heisenberg frame transformation -- it may differ from the original circuit's measurement basis.",
+            "detail": "Measures the Pauli product shown (e.g. +X0, -Z0*Z1) and stores the outcome in the measurement record. The Pauli is the effective observable after the Heisenberg mapping U_C^dag P U_C -- it may differ from the original circuit's measurement basis.",
             "display": [
                 "MEASURE"
             ]
