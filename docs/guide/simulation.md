@@ -1,6 +1,6 @@
 # Simulation
 
-Clifft's Schrodinger Virtual Machine (SVM) executes compiled programs to produce measurement results or statevectors.
+Clifft's Schrodinger Virtual Machine (SVM) executes compiled programs to produce measurement results or state vectors.
 
 ## Sampling
 
@@ -25,7 +25,7 @@ print(result.measurements[:5])    # First 5 shots
 
 `clifft.sample()` returns a `SampleResult` object with `.measurements`, `.detectors`, `.observables`, and `.exp_vals` attributes (each a numpy array). For circuits without detectors, observables, or expectation value probes, those arrays will have zero columns. Tuple unpacking (`m, d, o = clifft.sample(...)`) is supported for backward compatibility.
 
-## Statevector Extraction
+## State Vector Extraction
 
 For exact state inspection (without measurement collapse), use `execute()` and `get_statevector()`:
 
@@ -48,14 +48,14 @@ state = clifft.State(
 # Execute the program
 clifft.execute(program, state)
 
-# Extract the full statevector
+# Extract the full state vector
 sv = clifft.get_statevector(program, state)
 
 # sv is a numpy array of complex amplitudes
 print(sv)  # [0.707+0j, 0+0j, 0+0j, 0.707+0j]
 ```
 
-!!! warning "Statevector scales exponentially"
+!!! warning "State vector scales exponentially"
     `get_statevector()` expands the factored state into a dense $2^n$ vector.
     This is only practical for circuits with a moderate number of qubits.
 

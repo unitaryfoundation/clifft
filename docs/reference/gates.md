@@ -35,7 +35,7 @@ All single-qubit Cliffords are absorbed AOT — they update the Clifford frame $
 | `T` | $\pi/8$ gate |
 | `T_DAG` | Inverse $\pi/8$ gate |
 
-These are Clifft extensions beyond Stim's gate set. Non-Clifford gates activate qubits in the virtual machine, expanding the active statevector.
+These are Clifft extensions beyond Stim's gate set. Non-Clifford gates activate qubits in the virtual machine, expanding the active state vector.
 
 ## Two-Qubit Clifford Gates
 
