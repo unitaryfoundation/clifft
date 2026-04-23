@@ -211,7 +211,7 @@ Results from these functions must be combined across strata with $P(K=k)$ weight
 
 ## Performance
 
-Simulation speed depends on the peak rank $k$ (number of simultaneously active non-Clifford qubits), not the total qubit count. The bytecode optimizer significantly reduces per-shot cost by fusing instructions -- see [Optimization Passes](../reference/passes.md) for the full list.
+Simulation speed depends on the peak active dimension $k$ (number of simultaneously active non-Clifford qubits, exposed as `program.peak_rank`), not the total qubit count. The bytecode optimizer significantly reduces per-shot cost by fusing instructions -- see [Optimization Passes](../reference/passes.md) for the full list.
 
 ## Simulation Limits
 

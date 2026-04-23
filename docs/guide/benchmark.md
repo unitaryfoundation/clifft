@@ -2,7 +2,7 @@
 
 # Benchmark: Clifft vs Qiskit-Aer
 
-Clifft's factored-state architecture means simulation cost scales with the circuit's non-Clifford complexity (the *active rank* $k$), not the total qubit count $N$. This page compares Clifft against Qiskit-Aer's statevector simulator on two parameter sweeps that isolate each scaling dimension.
+Clifft's factored-state architecture means simulation cost scales with the circuit's non-Clifford complexity (the *active dimension* $k$, also called the *active rank*), not the total qubit count $N$. This page compares Clifft against Qiskit-Aer's statevector simulator on two parameter sweeps that isolate each scaling axis.
 
 ![Clifft vs Qiskit-Aer: Simulation Performance](images/benchmark_comparison.png)
 
@@ -11,7 +11,7 @@ Clifft's factored-state architecture means simulation cost scales with the circu
 The benchmark circuit has three parameters:
 
 - **N** — total physical qubits
-- **k** — active rank (number of qubits that receive non-Clifford T-gates)
+- **k** — active dimension (number of qubits that receive non-Clifford T-gates)
 - **t** — total T-gates applied
 
 The circuit places T-gates interleaved with Hadamard and CNOT gates on the first $k$ qubits, then pads the remaining $N - k$ qubits with a Clifford entangling layer (Hadamards followed by a CNOT chain across all $N$ qubits).
@@ -27,7 +27,7 @@ Fix $k = 12$ and $t = 20$, sweep $N$ from 16 to 29.
 - **Clifft** stays flat at ~60ms and ~73MB regardless of $N$, because its active array is always $2^{12}$.
 - **Qiskit-Aer** doubles in time and memory with each additional qubit. It times out at $N = 28$ (>120s) and exceeds available RAM at $N = 29$.
 
-### Rank Scaling (right panels)
+### Active-Dimension Scaling (right panels)
 
 Fix $N = 24$ and $t = 40$, sweep $k$ from 8 to 25.
 
@@ -297,7 +297,7 @@ Each simulation runs in a separate subprocess with:
 - **Single-threaded** execution (`OMP_NUM_THREADS=1`) for fair comparison
 - **Peak memory** measured via `resource.getrusage(RUSAGE_SELF).ru_maxrss`
 
-### Why Clifft Wins at Low Rank
+### Why Clifft Wins at Low Active Dimension
 
 The key insight is Clifft's factored-state representation:
 

@@ -33,7 +33,7 @@ Clifft optimizes at two distinct IR levels, each with its own pass manager:
 Operate on the Heisenberg IR before bytecode emission:
 
 - **PeepholeFusionPass** — Algebraic T-gate cancellation and fusion (T+T=S, T+T_dag=identity)
-- **StatevectorSqueezePass** — Reorders HIR operations to minimize peak active rank
+- **StatevectorSqueezePass** — Reorders HIR operations to minimize peak active dimension
 - **RemoveNoisePass** — Strips all noise (not in default pipeline; used internally for noiseless reference shots)
 
 ### Bytecode Passes (Post-Lowering)

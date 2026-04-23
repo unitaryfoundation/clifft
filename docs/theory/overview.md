@@ -14,7 +14,7 @@ Each component serves a distinct purpose:
 
 - **$P$ (The Pauli Frame):** Tracks discrete stochastic bit-flips and phase-flips from measurements and noise. Updated at runtime via fast $\mathcal{O}(1)$ bitwise XOR operations.
 
-- **$A$ and $D$ (Active/Dormant Sets):** The $n$ virtual qubits are partitioned into $k$ *Active* qubits (in superposition) and $n - k$ *Dormant* qubits (in the computational zero state).
+- **$A$ and $D$ (Active/Dormant Sets):** The $n$ virtual qubits are partitioned into $k$ *Active* qubits (in superposition) and $n - k$ *Dormant* qubits (in the computational zero state). $k$ is the **active dimension** (also called the *active rank*).
 
 - **$|\phi\rangle_A$ (The Active Statevector):** A dense, unnormalized complex array of size $2^k$ tracking non-Clifford interference. This is the only component that requires exponential memory — but it scales with $k$, not $n$.
 
@@ -92,4 +92,4 @@ The VM executes the bytecode over millions of shots. Key properties:
 
 - **Array Compaction:** When an active qubit is measured, it collapses and is demoted to dormant. The compiler emits virtual SWAP instructions to keep the array contiguous in memory, physically halving its size without strided fragmentation.
 
-- **Single Allocation:** The VM allocates its complex amplitude array exactly once based on the peak active rank $k_{\text{max}}$. No dynamic resizing during execution.
+- **Single Allocation:** The VM allocates its complex amplitude array exactly once based on the peak active dimension $k_{\text{max}}$. No dynamic resizing during execution.

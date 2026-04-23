@@ -82,9 +82,9 @@ def define_env(env: Any) -> None:
             "kind": "HIR",
             "default_enabled": True,
             "python_name": "StatevectorSqueezePass",
-            "summary": "Minimizes peak active rank by reordering HIR operations.",
+            "summary": "Minimizes peak active dimension by reordering HIR operations.",
             "detail": (
-                "Reduces peak_rank by compacting qubit lifetimes. "
+                "Reduces `peak_rank` by compacting qubit lifetimes. "
                 "Sweep 1 (leftward) bubbles MEASURE ops as early as possible. "
                 "Sweep 2 (rightward) bubbles T_GATE and PHASE_ROTATION ops as "
                 "late as possible. Measurements free active dimensions sooner, "
