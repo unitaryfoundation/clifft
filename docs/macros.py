@@ -130,7 +130,7 @@ def define_env(env: Any) -> None:
                 "Fuses contiguous ARRAY_CNOT instructions sharing a target axis into "
                 "OP_ARRAY_MULTI_CNOT, and contiguous ARRAY_CZ sharing a control axis "
                 "into OP_ARRAY_MULTI_CZ. These star-graph patterns arise from the "
-                "backend's greedy Pauli compressor. The fused instruction processes all "
+                "backend's Pauli localization pass. The fused instruction processes all "
                 "controls/targets in one O(2^k) array pass using popcount-based parity."
             ),
         },

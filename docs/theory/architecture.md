@@ -11,7 +11,7 @@ The source code mirrors the pipeline stages:
 | `src/clifft/circuit/` | Input | Circuit AST, parser, target encoding |
 | `src/clifft/frontend/` | Stage 1 | Drives stabilizer tableau, absorbs Cliffords, emits HIR |
 | `src/clifft/optimizer/` | Stage 2 & 4 | Two-level optimization: HIR passes and bytecode passes |
-| `src/clifft/backend/` | Stage 3 | Virtual frame tracking, basis compression, bytecode emission |
+| `src/clifft/backend/` | Stage 3 | Virtual frame tracking, Pauli localization, bytecode emission |
 | `src/clifft/svm/` | Stage 5 | Runtime VM: executes bytecode over dense arrays |
 | `src/python/` | Bindings | Python API via nanobind |
 

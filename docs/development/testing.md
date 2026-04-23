@@ -22,7 +22,7 @@ To guarantee physical accuracy, Clifft relies heavily on **Structured Testing** 
     * **Commutation Gauntlets:** Tests the HIR pass manager by forcing `T` gates to slide past deep chains of commuting and anti-commuting Pauli barriers.
     * **Star-Graph Honeypots:** Generates massive CNOT/CZ fan-outs to verify the `MultiGatePass` fused bytecode loops evaluate parities correctly.
     * **Breathing Memory Lifecycles:** Injects and measures `T`-state qubits repeatedly to stress the VM's array compaction and ensure the continuous scale factor $\gamma$ doesn't drift into IEEE-754 underflow limits.
-* **Random Fuzzing:** Dense random Clifford+T circuits are used specifically to shake out edge cases in the greedy Pauli basis compressor and ensure the generated $\mathcal{O}(N)$ bytecode correctly routes physical correlations.
+* **Random Fuzzing:** Dense random Clifford+T circuits are used specifically to shake out edge cases in the greedy Pauli localization pass and ensure the generated $\mathcal{O}(N)$ bytecode correctly routes physical correlations.
 
 All procedural generators are centralized in [`utils_fuzzing.py`](https://github.com/unitaryfoundation/clifft/blob/main/tests/python/utils_fuzzing.py).
 
@@ -40,7 +40,7 @@ Beneath the end-to-end Python oracles, the C++ codebase is rigidly unit-tested u
 
 * **Parsing & AST:** [`test_parser.cc`](https://github.com/unitaryfoundation/clifft/blob/main/tests/test_parser.cc) validates lexical conversion of text to `clifft::Circuit`, unrolling of `REPEAT` blocks, and multi-qubit syntactic sugar.
 * **Front-End:** [`test_frontend.cc`](https://github.com/unitaryfoundation/clifft/blob/main/tests/test_frontend.cc) validates mathematical absorption of physical Cliffords and rewound mask extractions.
-* **Virtual Compression:** [`test_backend.cc`](https://github.com/unitaryfoundation/clifft/blob/main/tests/test_backend.cc) feeds massive, random `stim::PauliString` masks into the Back-End's compressor, asserting that the resulting sequence of virtual CNOT/CZ gates perfectly isolates the mask to a single active or dormant virtual bit.
+* **Pauli Localization:** [`test_backend.cc`](https://github.com/unitaryfoundation/clifft/blob/main/tests/test_backend.cc) feeds massive, random `stim::PauliString` masks into the Back-End's localization pass, asserting that the resulting sequence of virtual CNOT/CZ gates perfectly isolates the mask to a single active or dormant virtual bit.
 * **VM Array Math:** [`test_svm.cc`](https://github.com/unitaryfoundation/clifft/blob/main/tests/test_svm.cc) completely bypasses the compiler. We manually construct localized `Instruction` opcodes and directly mutate a dummy `SchrodingerState` to assert the raw C++ array loops and hardware `popcount` routines correctly evaluate quantum superposition.
 
 ## Running the Tests

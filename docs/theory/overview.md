@@ -27,9 +27,9 @@ For circuits where non-Clifford entanglement is bounded — such as magic state 
 ## The Five-Stage Pipeline
 
 ```text
-Circuit Text  -->  1. Front-End (Physical Rewinding)
-                        |  Absorbs physical Cliffords. Rewinds non-Cliffords
-                        |  and measurements to the t=0 vacuum.
+Circuit Text  -->  1. Front-End (Heisenberg Mapping)
+                        |  Absorbs physical Cliffords. Maps non-Cliffords
+                        |  and measurements to the virtual basis.
                         v
                    Heisenberg IR (HIR)
                         |
@@ -39,9 +39,9 @@ Circuit Text  -->  1. Front-End (Physical Rewinding)
                         v
                    Optimized HIR
                         |
-                   3. Back-End (Virtual Compression)
-                        |  Maps t=0 Paulis to the active virtual frame.
-                        |  Synthesizes greedy O(n) basis compressions.
+                   3. Back-End (Pauli Localization)
+                        |  Synthesizes greedy O(n) virtual Clifford sequences
+                        |  that localize each Pauli product to a single axis.
                         |  Emits localized VM bytecode.
                         v
                    Program (Raw Bytecode + Constant Pool)
@@ -59,11 +59,11 @@ Circuit Text  -->  1. Front-End (Physical Rewinding)
                    Measurement Results
 ```
 
-### Stage 1: Front-End (Physical Rewinding)
+### Stage 1: Front-End (Heisenberg Mapping)
 
-The Front-End mathematically absorbs all physical Clifford operations using a stabilizer tableau simulator. For every non-Clifford gate, measurement, or noise channel, it extracts the *rewound* Pauli string at $t = 0$:
+The Front-End mathematically absorbs all physical Clifford operations into the offline Clifford frame $U_C$ using a stabilizer tableau simulator. For every non-Clifford gate, measurement, or noise channel, it extracts the virtual Pauli string via the Heisenberg mapping:
 
-$$P_{t \to 0} = U_{\text{phys}}^\dagger \, P_t \, U_{\text{phys}}$$
+$$P_{\text{virtual}} = U_C^\dagger \, P \, U_C$$
 
 The output is the **Heisenberg IR (HIR)**: a static list of abstract Pauli operations completely devoid of hardware timing or memory layout.
 
@@ -71,15 +71,14 @@ The output is the **Heisenberg IR (HIR)**: a static list of abstract Pauli opera
 
 The optimizer applies $\mathcal{O}(1)$ static Pauli commutation checks to fuse and cancel redundant operations in the HIR. Because the HIR is purely algebraic, the optimizer can reason about gate interactions without simulating the full quantum state.
 
-### Stage 3: Back-End (Virtual Compression)
+### Stage 3: Back-End (Pauli Localization)
 
-The Back-End bridges the static HIR to the runtime VM. It maintains a cumulative virtual frame mapping $V_{\text{cum}}$ and, for each multi-qubit Pauli in the HIR:
+The Back-End bridges the static HIR to the runtime VM. For each multi-qubit Pauli product in the HIR it:
 
-1. Maps the $t = 0$ Pauli to the current virtual frame: $P_v = V_{\text{cum}} \, P_{t=0} \, V_{\text{cum}}^\dagger$
-2. Computes a greedy $\mathcal{O}(n)$ compression sequence of virtual CNOT/CZ gates to localize $P_v$ onto a single virtual axis
-3. Emits localized VM opcodes
+1. Synthesizes a greedy $\mathcal{O}(n)$ sequence of virtual CNOT/CZ gates that localizes the product onto a single virtual axis
+2. Emits localized VM opcodes
 
-Because multi-qubit measurements are explicitly compressed into single-qubit virtual measurements at compile time, no tableau mathematics runs at simulation time.
+Because multi-qubit Pauli operations are localized to single-qubit virtual ops at compile time, no tableau mathematics runs at simulation time.
 
 ### Stage 4: Bytecode Optimizer
 
