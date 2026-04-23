@@ -22,25 +22,7 @@ The source code mirrors the pipeline stages:
 
 Clifft uses [Stim](https://github.com/quantumlib/Stim) exclusively as an AOT mathematical tableau library, **not** as a circuit simulation engine. The runtime VM never touches Stim.
 
-Because Clifft factors the state into physical and virtual coordinate frames, the AOT compiler manipulates the stabilizer frame from *both ends* of the circuit:
-
-### Front-End: Physical Frame (Prepending)
-
-The Front-End tracks $U_{\text{phys}}^\dagger$. As it steps forward through the circuit, it **prepends** physical gates to the inverse tableau:
-
-- **API:** `sim.inv_state.prepend_H_XZ()`, `sim.inv_state.prepend_ZCX()`
-- **Extraction:** `sim.inv_state.zs[q]` extracts the physical $Z_q$ operator rewound to $t = 0$
-
-### Back-End: Virtual Frame (Appending)
-
-The Back-End synthesizes virtual compression sequences. These are mathematically **appended** to the tracking frame $V_{\text{cum}}$:
-
-- **API:** Uses Stim's `TableauTransposedRaii` for efficient row operations
-- **Execution:** `transposed_raii.append_ZCX()`, `transposed_raii.append_H_XZ()`
-
-The final offline Clifford frame for statevector expansion is:
-
-$$U_C = U_{\text{phys}} \, V_{\text{cum}}^\dagger$$
+The compiler uses Stim to construct and manipulate the offline Clifford frame $U_C$ through the Heisenberg mapping, and exploits `TableauTransposedRaii` for efficient row operations when synthesizing the Pauli localization sequences emitted by the Back-End. Once compilation finishes, $U_C$ is discarded — the VM executes over the virtual basis alone.
 
 ## Optimization Passes
 
