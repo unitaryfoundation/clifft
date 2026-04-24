@@ -6,7 +6,7 @@ hide:
 # Clifft
 
 <p style="font-size: 1.2em;">
-A fast exact state vector simulator for near-Clifford quantum circuits.
+A fast exact simulator for near-Clifford quantum circuits.
 </p>
 
 [![Unitary Foundation](https://img.shields.io/badge/Supported%20By-Unitary%20Foundation-FFFF00.svg)](https://unitary.foundation)
@@ -21,16 +21,20 @@ A fast exact state vector simulator for near-Clifford quantum circuits.
 
 ## What is Clifft?
 
-Clifft compiles universal quantum circuits (Clifford + T and beyond) into a compact bytecode representation that is executed by a high-performance virtual machine. It is highly performant for near-Clifford circuits, which are mostly Clifford but have some non-Clifford gates. It achieves this performance by *factoring* the quantum state into components that are known ahead of time, versus those that vary shot-by-shot as a result of stochastic noise and measurement.
+Clifft is an exact simulator for quantum circuits whose dominant structure is Clifford, but whose behavior depends on localized non-Clifford operations. It accepts Stim-compatible circuits, extends them with non-Clifford gates, and compiles them into bytecode executed by a high-performance virtual machine.
 
-Clifft's performance scales mostly as $2^k$ vst $2^n$ for all $n$ qubits. The quantity $k$ is the active dimension or rank, and generally grows with non-Clifford gates and shrinks with measurements. For circuits where non-Clifford entanglement is bounded (e.g., magic state distillation), this yields exponential memory savings over standard state vector simulator.
+Clifft works by factoring the quantum state into an offline Clifford frame, an online Pauli frame, and a dense active state vector. Clifford coordinate transformations are resolved ahead of time, while each shot performs only lightweight frame updates and localized state-vector evolution.
+
+The main cost scales with $2^k$ rather than $2^n$, where $n$ is the total number of qubits and $k$ is the active dimension of the state vector. Non-Clifford operations can increase $k$, while measurements can reduce it. For near-Clifford protocols with frequent measurements, such as magic-state preparation circuits, this can provide large memory and runtime savings over standard dense state-vector simulation.
 
 ## Quick Example
+
+Install via `pip install clifft`, then:
 
 ```python
 import clifft
 
-# Compile a circuit in Stim format extended with T gates
+# Compile a Stim-format circuit extended with T gates.
 program = clifft.compile("""
     H 0
     CNOT 0 1
@@ -38,34 +42,39 @@ program = clifft.compile("""
     M 0 1 2
 """)
 
-# Sample measurement outcomes
+# Sample measurement outcomes.
 result = clifft.sample(program, shots=1000)
-print(result.measurements[:5])  # First 5 shots
+print(result.measurements[:5])  # First 5 shots.
 ```
 
 ## Key Features
 
 <div class="grid cards" markdown>
 
-- :material-lightning-bolt: **Multi-Level Compilation**
+- :material-format-list-checks: **Stim-Compatible Circuits**
 
-    Clifford gates are absorbed at compile time. The VM only executes non-Clifford operations and measurements.
+    Parse standard Stim circuits, including noise channels, detectors, observables, and repeat blocks, with extensions for non-Clifford gates.
 
-- :material-memory: **Factored State**
+- :material-api: **Stim-Like Python API**
 
-    Memory scales as $2^k$ where $k$ is the number of active (non-Clifford) qubits, not $2^n$ total qubits.
+    Compile circuits once, then sample many shots through a familiar Python interface.
 
-- :material-speedometer: **Bytecode VM**
+- :material-filter: **Built-In Filtering and Importance Sampling**
 
-    Cache-aligned 32-byte instructions. Single memory allocation. No dynamic resizing in the hot loop.
+    Use detector-based early-exit filters and integrated importance sampling to focus computation on rare events.
 
-- :material-format-list-checks: **Stim Compatible**
+- :material-tune: **Optimizing Compiler Pipeline**
 
-    Parses Stim circuit format with support for noise channels, detectors, and repeat blocks.
+    Multi-level optimization passes reduce active state-vector work before execution.
+
+- :material-speedometer: **Near-Clifford Performance**
+
+    For circuits with bounded active dimension, memory and runtime scale with the localized active state rather than the full qubit count.
 
 </div>
 
 ## Get Started
 
 [Install Clifft](getting-started/installation.md){ .md-button .md-button--primary }
+
 [Try the Playground](playground/){ .md-button }
