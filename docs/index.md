@@ -6,7 +6,7 @@ hide:
 # Clifft
 
 <p style="font-size: 1.2em;">
-A multi-level compiler and Schrodinger Virtual Machine for quantum circuits.
+A fast exact state vector simulator for near-Clifford quantum circuits.
 </p>
 
 [![CI](https://github.com/unitaryfoundation/clifft/actions/workflows/ci.yml/badge.svg)](https://github.com/unitaryfoundation/clifft/actions/workflows/ci.yml)
@@ -16,18 +16,16 @@ A multi-level compiler and Schrodinger Virtual Machine for quantum circuits.
 
 ## What is Clifft?
 
-Clifft compiles universal quantum circuits (Clifford + T and beyond) into a compact bytecode representation that is executed by a high-performance virtual machine. It solves the exponential memory wall of non-Clifford simulation by *factoring* the quantum state into deterministic coordinate transformations and probabilistic complex amplitudes.
+Clifft compiles universal quantum circuits (Clifford + T and beyond) into a compact bytecode representation that is executed by a high-performance virtual machine. It is highly performant for near-Clifford circuits, which are mostly Clifford but have some non-Clifford gates. It achieves this performance by *factoring* the quantum state into components that are known ahead of time, versus those that vary shot-by-shot as a result of stochastic noise and measurement.
 
-$$|\psi\rangle = \gamma \, U_C \, P \, \Big( |\phi\rangle_A \otimes |0\rangle_D \Big)$$
-
-Only the $2^k$ amplitudes of qubits in active superposition are stored — not $2^n$ for all $n$ qubits. For circuits where non-Clifford entanglement is bounded (e.g., magic state distillation), this yields exponential memory savings.
+Clifft's performance scales mostly as $2^k$ vst $2^n$ for all $n$ qubits. The quantity $k$ is the active dimension or rank, and generally grows with non-Clifford gates and shrinks with measurements. For circuits where non-Clifford entanglement is bounded (e.g., magic state distillation), this yields exponential memory savings over standard state vector simulator.
 
 ## Quick Example
 
 ```python
 import clifft
 
-# Compile a circuit from Stim format
+# Compile a circuit in Stim format extended with T gates
 program = clifft.compile("""
     H 0
     CNOT 0 1
@@ -36,7 +34,7 @@ program = clifft.compile("""
 """)
 
 # Sample measurement outcomes
-result = clifft.sample(program, shots=1000, seed=42)
+result = clifft.sample(program, shots=1000)
 print(result.measurements[:5])  # First 5 shots
 ```
 
