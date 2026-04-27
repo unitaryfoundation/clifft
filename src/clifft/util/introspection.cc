@@ -131,16 +131,16 @@ std::string opcode_to_str(Opcode op) {
             return "OP_ARRAY_S_DAG";
         case Opcode::OP_EXPAND:
             return "OP_EXPAND";
-        case Opcode::OP_PHASE_T:
-            return "OP_PHASE_T";
-        case Opcode::OP_PHASE_T_DAG:
-            return "OP_PHASE_T_DAG";
+        case Opcode::OP_ARRAY_T:
+            return "OP_ARRAY_T";
+        case Opcode::OP_ARRAY_T_DAG:
+            return "OP_ARRAY_T_DAG";
         case Opcode::OP_EXPAND_T:
             return "OP_EXPAND_T";
         case Opcode::OP_EXPAND_T_DAG:
             return "OP_EXPAND_T_DAG";
-        case Opcode::OP_PHASE_ROT:
-            return "OP_PHASE_ROT";
+        case Opcode::OP_ARRAY_ROT:
+            return "OP_ARRAY_ROT";
         case Opcode::OP_EXPAND_ROT:
             return "OP_EXPAND_ROT";
         case Opcode::OP_ARRAY_U2:
@@ -184,7 +184,7 @@ std::string format_instruction(const Instruction& inst) {
 
     if (is_two_axis_opcode(inst.opcode)) {
         ss << inst.axis_1 << ", " << inst.axis_2;
-    } else if (inst.opcode == Opcode::OP_PHASE_ROT || inst.opcode == Opcode::OP_EXPAND_ROT) {
+    } else if (inst.opcode == Opcode::OP_ARRAY_ROT || inst.opcode == Opcode::OP_EXPAND_ROT) {
         ss << inst.axis_1 << " z=(" << inst.math.weight_re << ", " << inst.math.weight_im << ")";
     } else if (inst.opcode == Opcode::OP_ARRAY_U2) {
         ss << inst.axis_1 << " cp_idx=" << inst.u2.cp_idx;

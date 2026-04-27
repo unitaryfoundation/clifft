@@ -34,9 +34,9 @@ std::string opcode_to_str(Opcode op);
 [[nodiscard]] constexpr bool is_one_axis_opcode(Opcode op) noexcept {
     return op == Opcode::OP_FRAME_H || op == Opcode::OP_FRAME_S || op == Opcode::OP_FRAME_S_DAG ||
            op == Opcode::OP_ARRAY_H || op == Opcode::OP_ARRAY_S || op == Opcode::OP_ARRAY_S_DAG ||
-           op == Opcode::OP_EXPAND || op == Opcode::OP_PHASE_T || op == Opcode::OP_PHASE_T_DAG ||
+           op == Opcode::OP_EXPAND || op == Opcode::OP_ARRAY_T || op == Opcode::OP_ARRAY_T_DAG ||
            op == Opcode::OP_EXPAND_T || op == Opcode::OP_EXPAND_T_DAG ||
-           op == Opcode::OP_PHASE_ROT || op == Opcode::OP_EXPAND_ROT || op == Opcode::OP_ARRAY_U2;
+           op == Opcode::OP_ARRAY_ROT || op == Opcode::OP_EXPAND_ROT || op == Opcode::OP_ARRAY_U2;
 }
 
 [[nodiscard]] constexpr bool is_meas_opcode(Opcode op) noexcept {

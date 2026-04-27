@@ -422,7 +422,7 @@ TEST_CASE("RISC Phase: T on active axis - no frame error") {
     state.v()[1] = {1.0, 0.0};
     state.set_gamma({1.0 / std::sqrt(2.0), 0.0});
 
-    auto prog = make_program({make_phase_t(0)}, 2);
+    auto prog = make_program({make_array_t(0)}, 2);
     execute(prog, state);
 
     // T applies e^{i*pi/4} to |1> component (no frame error)
@@ -440,7 +440,7 @@ TEST_CASE("RISC Phase: T on active axis - with X frame error") {
     state.v()[1] = {1.0, 0.0};
     state.p_x = X(0);  // X error on qubit 0
 
-    auto prog = make_program({make_phase_t(0)}, 2);
+    auto prog = make_program({make_array_t(0)}, 2);
     execute(prog, state);
 
     // With p_x[0]=1: apply T_dag to array, gamma *= e^{i*pi/4}
@@ -455,7 +455,7 @@ TEST_CASE("RISC Phase: T_dag on active axis - no frame error") {
     state.v()[0] = {1.0, 0.0};
     state.v()[1] = {1.0, 0.0};
 
-    auto prog = make_program({make_phase_t_dag(0)}, 2);
+    auto prog = make_program({make_array_t_dag(0)}, 2);
     execute(prog, state);
 
     check_complex(state.v()[0], {1.0, 0.0});
@@ -470,7 +470,7 @@ TEST_CASE("RISC Phase: T then T_dag cancels") {
     auto v0_orig = state.v()[0];
     auto v1_orig = state.v()[1];
 
-    auto prog = make_program({make_phase_t(0), make_phase_t_dag(0)}, 2);
+    auto prog = make_program({make_array_t(0), make_array_t_dag(0)}, 2);
     execute(prog, state);
 
     check_complex(state.v()[0], v0_orig);
@@ -484,7 +484,7 @@ TEST_CASE("RISC Phase: Two T gates equal S - applies i to 1-component") {
     state.v()[0] = {1.0, 0.0};
     state.v()[1] = {1.0, 0.0};
 
-    auto prog = make_program({make_phase_t(0), make_phase_t(0)}, 2);
+    auto prog = make_program({make_array_t(0), make_array_t(0)}, 2);
     execute(prog, state);
 
     // Two T gates = S = diag(1, i)
@@ -496,15 +496,15 @@ TEST_CASE("RISC Phase: Two T gates equal S - applies i to 1-component") {
 // Expand + Phase: T gate on dormant qubit via H then T
 // =============================================================================
 
-TEST_CASE("RISC: EXPAND then PHASE_T - single T gate circuit") {
+TEST_CASE("RISC: EXPAND then ARRAY_T - single T gate circuit") {
     SchrodingerState state(2, 0);
     // Initial state: |0>, active_k = 0, v = [1]
 
-    auto prog = make_program({make_expand(0), make_phase_t(0)}, 2);
+    auto prog = make_program({make_expand(0), make_array_t(0)}, 2);
     execute(prog, state);
 
     // After EXPAND(0): v = [1, 1], gamma = 1/sqrt(2), active_k = 1
-    // After PHASE_T(0): v = [1, e^{i*pi/4}]
+    // After ARRAY_T(0): v = [1, e^{i*pi/4}]
     CHECK(state.active_k == 1);
     check_complex(state.v()[0], {1.0, 0.0});
     check_complex(state.v()[1], {kInvSqrt2, kInvSqrt2});
@@ -665,7 +665,7 @@ TEST_CASE("RISC Integration: Expand-T-MeasDiag gives correct statistics") {
 
     SchrodingerState state(2, 1);
     auto prog =
-        make_program({make_expand(0), make_phase_t(0), make_meas_active_diagonal(0, 0)}, 2, 1);
+        make_program({make_expand(0), make_array_t(0), make_meas_active_diagonal(0, 0)}, 2, 1);
     for (uint32_t trial = 0; trial < num_trials; ++trial) {
         INFO("Trial: " << trial);
         state.reseed(trial * 77 + 13);

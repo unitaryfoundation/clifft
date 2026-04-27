@@ -91,7 +91,7 @@ const STEPS: TourStep[] = [
       "- `OP_FRAME_*` -- update the runtime virtual Pauli frame (bitmask XOR)\n" +
       "- `OP_ARRAY_*` -- touch the Schrodinger state vector\n" +
       "- `OP_EXPAND` -- grows the active subspace\n" +
-      "- `OP_PHASE_T` -- applies T rotations\n" +
+      "- `OP_ARRAY_T` -- applies T rotations\n" +
       "- `OP_MEAS_*` -- performs measurements",
     target: ".editor-pane:nth-child(3)",
   },

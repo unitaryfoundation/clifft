@@ -59,11 +59,11 @@ SchrodingerState run_raw(CompiledModule& prog, uint8_t init_px = 0, uint8_t init
 // =============================================================================
 
 TEST_CASE("U2 fusion: 4-state oracle for H-T-S sequence") {
-    // Build a 1-qubit program: ARRAY_H(0), PHASE_T(0), ARRAY_S(0)
-    auto unfused = make_program({make_array_h(0), make_phase_t(0), make_array_s(0)}, 1);
+    // Build a 1-qubit program: ARRAY_H(0), ARRAY_T(0), ARRAY_S(0)
+    auto unfused = make_program({make_array_h(0), make_array_t(0), make_array_s(0)}, 1);
 
     // Apply fusion pass
-    auto fused = make_program({make_array_h(0), make_phase_t(0), make_array_s(0)}, 1);
+    auto fused = make_program({make_array_h(0), make_array_t(0), make_array_s(0)}, 1);
     SingleAxisFusionPass().run(fused);
 
     REQUIRE(fused.bytecode.size() == 1);
@@ -100,10 +100,10 @@ TEST_CASE("U2 fusion: 4-state oracle for Rz-H-Rz sequence") {
     double re2 = std::cos(angle2), im2 = std::sin(angle2);
 
     auto unfused = make_program(
-        {make_phase_rot(0, re1, im1), make_array_h(0), make_phase_rot(0, re2, im2)}, 1);
+        {make_array_rot(0, re1, im1), make_array_h(0), make_array_rot(0, re2, im2)}, 1);
 
     auto fused = make_program(
-        {make_phase_rot(0, re1, im1), make_array_h(0), make_phase_rot(0, re2, im2)}, 1);
+        {make_array_rot(0, re1, im1), make_array_h(0), make_array_rot(0, re2, im2)}, 1);
     SingleAxisFusionPass().run(fused);
 
     REQUIRE(fused.bytecode.size() == 1);
@@ -129,12 +129,12 @@ TEST_CASE("U2 fusion: 4-state oracle for S-H-Rz-H-Rz sequence") {
     double re1 = std::cos(1.2), im1 = std::sin(1.2);
     double re2 = std::cos(-0.5), im2 = std::sin(-0.5);
 
-    auto unfused = make_program({make_array_s(0), make_array_h(0), make_phase_rot(0, re1, im1),
-                                 make_array_h(0), make_phase_rot(0, re2, im2)},
+    auto unfused = make_program({make_array_s(0), make_array_h(0), make_array_rot(0, re1, im1),
+                                 make_array_h(0), make_array_rot(0, re2, im2)},
                                 1);
 
-    auto fused = make_program({make_array_s(0), make_array_h(0), make_phase_rot(0, re1, im1),
-                               make_array_h(0), make_phase_rot(0, re2, im2)},
+    auto fused = make_program({make_array_s(0), make_array_h(0), make_array_rot(0, re1, im1),
+                               make_array_h(0), make_array_rot(0, re2, im2)},
                               1);
     SingleAxisFusionPass().run(fused);
 
@@ -169,34 +169,34 @@ TEST_CASE("U2 fusion: does not fuse single array op") {
     CHECK(mod.bytecode[0].opcode == Opcode::OP_ARRAY_H);
 }
 
-TEST_CASE("U2 fusion: does not fuse isolated PHASE_ROT") {
-    auto mod = make_program({make_phase_rot(0, 1.0, 0.0)}, 1);
+TEST_CASE("U2 fusion: does not fuse isolated ARRAY_ROT") {
+    auto mod = make_program({make_array_rot(0, 1.0, 0.0)}, 1);
     SingleAxisFusionPass().run(mod);
 
     REQUIRE(mod.bytecode.size() == 1);
-    CHECK(mod.bytecode[0].opcode == Opcode::OP_PHASE_ROT);
+    CHECK(mod.bytecode[0].opcode == Opcode::OP_ARRAY_ROT);
 }
 
 TEST_CASE("U2 fusion: terminates at two-qubit gate boundary") {
     // H(0), T(0) -> NOT fusible (only 2 array ops, no ROT)
     // CNOT(0,1) -> boundary
     // H(1), T(1), S(1) -> fusible (3 array ops)
-    auto mod = make_program({make_array_h(0), make_phase_t(0), make_array_cnot(0, 1),
-                             make_array_h(1), make_phase_t(1), make_array_s(1)},
+    auto mod = make_program({make_array_h(0), make_array_t(0), make_array_cnot(0, 1),
+                             make_array_h(1), make_array_t(1), make_array_s(1)},
                             2);
     SingleAxisFusionPass().run(mod);
 
     REQUIRE(mod.bytecode.size() == 4);
     CHECK(mod.bytecode[0].opcode == Opcode::OP_ARRAY_H);  // H(0) unfused
-    CHECK(mod.bytecode[1].opcode == Opcode::OP_PHASE_T);  // T(0) unfused
+    CHECK(mod.bytecode[1].opcode == Opcode::OP_ARRAY_T);  // T(0) unfused
     CHECK(mod.bytecode[2].opcode == Opcode::OP_ARRAY_CNOT);
     CHECK(mod.bytecode[3].opcode == Opcode::OP_ARRAY_U2);  // H(1)+T(1)+S(1) fused
     CHECK(mod.bytecode[3].axis_1 == 1);
 }
 
 TEST_CASE("U2 fusion: terminates at EXPAND boundary") {
-    auto mod = make_program({make_array_h(0), make_phase_rot(0, 0.5, 0.866), make_expand(1),
-                             make_array_h(1), make_phase_rot(1, 0.707, 0.707)},
+    auto mod = make_program({make_array_h(0), make_array_rot(0, 0.5, 0.866), make_expand(1),
+                             make_array_h(1), make_array_rot(1, 0.707, 0.707)},
                             2);
     SingleAxisFusionPass().run(mod);
 
@@ -208,12 +208,12 @@ TEST_CASE("U2 fusion: terminates at EXPAND boundary") {
 
 TEST_CASE("U2 fusion: different axes break runs") {
     // H(0), Rz(1) -> axis changes, each is length 1, no fusion
-    auto mod = make_program({make_array_h(0), make_phase_rot(1, 0.5, 0.866)}, 2);
+    auto mod = make_program({make_array_h(0), make_array_rot(1, 0.5, 0.866)}, 2);
     SingleAxisFusionPass().run(mod);
 
     REQUIRE(mod.bytecode.size() == 2);
     CHECK(mod.bytecode[0].opcode == Opcode::OP_ARRAY_H);
-    CHECK(mod.bytecode[1].opcode == Opcode::OP_PHASE_ROT);
+    CHECK(mod.bytecode[1].opcode == Opcode::OP_ARRAY_ROT);
 }
 
 TEST_CASE("U2 fusion: frame-only ops contribute to run but need array partner") {
@@ -231,9 +231,9 @@ TEST_CASE("U2 fusion: frame-only ops contribute to run but need array partner") 
     CHECK(mod2.bytecode[0].opcode == Opcode::OP_FRAME_S);
     CHECK(mod2.bytecode[1].opcode == Opcode::OP_ARRAY_H);
 
-    // FRAME_S(0) + ARRAY_H(0) + PHASE_ROT(0) -> 2 array ops -> fuse!
+    // FRAME_S(0) + ARRAY_H(0) + ARRAY_ROT(0) -> 2 array ops -> fuse!
     double re = std::cos(0.5), im = std::sin(0.5);
-    auto mod3 = make_program({make_frame_s(0), make_array_h(0), make_phase_rot(0, re, im)}, 1);
+    auto mod3 = make_program({make_frame_s(0), make_array_h(0), make_array_rot(0, re, im)}, 1);
     SingleAxisFusionPass().run(mod3);
     REQUIRE(mod3.bytecode.size() == 1);
     CHECK(mod3.bytecode[0].opcode == Opcode::OP_ARRAY_U2);
@@ -241,7 +241,7 @@ TEST_CASE("U2 fusion: frame-only ops contribute to run but need array partner") 
 
 TEST_CASE("U2 fusion: measurement terminates run") {
     auto meas = make_meas(Opcode::OP_MEAS_ACTIVE_DIAGONAL, 0, 0, false);
-    auto mod = make_program({make_array_h(0), make_phase_rot(0, 0.5, 0.866), meas}, 1, 1);
+    auto mod = make_program({make_array_h(0), make_array_rot(0, 0.5, 0.866), meas}, 1, 1);
     SingleAxisFusionPass().run(mod);
 
     REQUIRE(mod.bytecode.size() == 2);
@@ -261,15 +261,15 @@ TEST_CASE("U2 fusion: Rz-H-Rz blocks around CNOT on 2 qubits") {
     double r4 = std::cos(-0.2), i4 = std::sin(-0.2);
 
     auto unfused =
-        make_program({make_phase_rot(0, r1, i1), make_array_h(0), make_phase_rot(0, r2, i2),
-                      make_array_cnot(0, 1), make_phase_rot(1, r3, i3), make_array_h(1),
-                      make_phase_rot(1, r4, i4)},
+        make_program({make_array_rot(0, r1, i1), make_array_h(0), make_array_rot(0, r2, i2),
+                      make_array_cnot(0, 1), make_array_rot(1, r3, i3), make_array_h(1),
+                      make_array_rot(1, r4, i4)},
                      2);
 
     auto fused =
-        make_program({make_phase_rot(0, r1, i1), make_array_h(0), make_phase_rot(0, r2, i2),
-                      make_array_cnot(0, 1), make_phase_rot(1, r3, i3), make_array_h(1),
-                      make_phase_rot(1, r4, i4)},
+        make_program({make_array_rot(0, r1, i1), make_array_h(0), make_array_rot(0, r2, i2),
+                      make_array_cnot(0, 1), make_array_rot(1, r3, i3), make_array_h(1),
+                      make_array_rot(1, r4, i4)},
                      2);
     SingleAxisFusionPass().run(fused);
 

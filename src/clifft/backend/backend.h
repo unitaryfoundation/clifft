@@ -30,7 +30,7 @@ enum class Opcode : uint8_t {
     OP_FRAME_S_DAG,
     OP_FRAME_SWAP,
 
-    // Array Opcodes (Update p_x, p_z AND loop over v[] to swap/mix)
+    // Array Opcodes (Fixed k. Update p_x, p_z AND loop over v[] to swap/mix)
     OP_ARRAY_CNOT,
     OP_ARRAY_CZ,
     OP_ARRAY_SWAP,
@@ -39,17 +39,17 @@ enum class Opcode : uint8_t {
     OP_ARRAY_H,           // Hadamard on active axis (butterfly + frame swap)
     OP_ARRAY_S,           // Phase S on active axis (diag(1, i) + frame update)
     OP_ARRAY_S_DAG,       // Phase S-dagger on active axis (diag(1, -i) + frame update)
+    OP_ARRAY_T,           // Active diagonal T phase (non-Clifford)
+    OP_ARRAY_T_DAG,       // Active diagonal T-dagger phase (non-Clifford)
+    OP_ARRAY_ROT,         // Continuous Z-rotation on active axis (arbitrary angle)
+    OP_ARRAY_U2,          // Fused single-axis 2x2 unitary (ConstantPool lookup)
+    OP_ARRAY_U4,          // Fused 2-axis 4x4 unitary (ConstantPool lookup)
 
-    // Local Math & Expansion
+    // Subspace Expansion (k -> k+1; non-Clifford rotations may be fused in)
     OP_EXPAND,        // Virtual H_v on dormant: k -> k+1, gamma /= sqrt(2)
-    OP_PHASE_T,       // Active diagonal T phase
-    OP_PHASE_T_DAG,   // Active diagonal T-dagger phase
-    OP_EXPAND_T,      // Fused EXPAND + PHASE_T in one array pass
-    OP_EXPAND_T_DAG,  // Fused EXPAND + PHASE_T_DAG in one array pass
-    OP_PHASE_ROT,     // Continuous Z-rotation on active axis (arbitrary angle)
-    OP_EXPAND_ROT,    // Fused EXPAND + PHASE_ROT in one array pass
-    OP_ARRAY_U2,      // Fused single-axis 2x2 unitary (ConstantPool lookup)
-    OP_ARRAY_U4,      // Fused 2-axis 4x4 unitary (ConstantPool lookup)
+    OP_EXPAND_T,      // Fused EXPAND + ARRAY_T in one array pass
+    OP_EXPAND_T_DAG,  // Fused EXPAND + ARRAY_T_DAG in one array pass
+    OP_EXPAND_ROT,    // Fused EXPAND + ARRAY_ROT in one array pass
 
     // Measurement
     OP_MEAS_DORMANT_STATIC,    // Deterministic outcome from p_x
@@ -169,15 +169,15 @@ static_assert(sizeof(Instruction) == 32, "Instruction must be exactly 32 bytes")
 [[nodiscard]] Instruction make_array_h(uint16_t axis);
 [[nodiscard]] Instruction make_array_s(uint16_t axis);
 [[nodiscard]] Instruction make_array_s_dag(uint16_t axis);
-[[nodiscard]] Instruction make_expand(uint16_t axis);
-[[nodiscard]] Instruction make_phase_t(uint16_t axis);
-[[nodiscard]] Instruction make_phase_t_dag(uint16_t axis);
-[[nodiscard]] Instruction make_expand_t(uint16_t axis);
-[[nodiscard]] Instruction make_expand_t_dag(uint16_t axis);
-[[nodiscard]] Instruction make_phase_rot(uint16_t axis, double re, double im);
-[[nodiscard]] Instruction make_expand_rot(uint16_t axis, double re, double im);
+[[nodiscard]] Instruction make_array_t(uint16_t axis);
+[[nodiscard]] Instruction make_array_t_dag(uint16_t axis);
+[[nodiscard]] Instruction make_array_rot(uint16_t axis, double re, double im);
 [[nodiscard]] Instruction make_array_u2(uint16_t axis, uint32_t cp_idx);
 [[nodiscard]] Instruction make_array_u4(uint16_t axis_lo, uint16_t axis_hi, uint32_t cp_idx);
+[[nodiscard]] Instruction make_expand(uint16_t axis);
+[[nodiscard]] Instruction make_expand_t(uint16_t axis);
+[[nodiscard]] Instruction make_expand_t_dag(uint16_t axis);
+[[nodiscard]] Instruction make_expand_rot(uint16_t axis, double re, double im);
 [[nodiscard]] Instruction make_swap_meas_interfere(uint16_t swap_from, uint16_t swap_to,
                                                    uint32_t classical_idx, bool sign);
 [[nodiscard]] Instruction make_meas(Opcode meas_opcode, uint16_t axis, uint32_t classical_idx,

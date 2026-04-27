@@ -135,16 +135,16 @@ Instruction make_expand(uint16_t axis) {
     return i;
 }
 
-Instruction make_phase_t(uint16_t axis) {
+Instruction make_array_t(uint16_t axis) {
     Instruction i{};
-    i.opcode = Opcode::OP_PHASE_T;
+    i.opcode = Opcode::OP_ARRAY_T;
     i.axis_1 = axis;
     return i;
 }
 
-Instruction make_phase_t_dag(uint16_t axis) {
+Instruction make_array_t_dag(uint16_t axis) {
     Instruction i{};
-    i.opcode = Opcode::OP_PHASE_T_DAG;
+    i.opcode = Opcode::OP_ARRAY_T_DAG;
     i.axis_1 = axis;
     return i;
 }
@@ -163,9 +163,9 @@ Instruction make_expand_t_dag(uint16_t axis) {
     return i;
 }
 
-Instruction make_phase_rot(uint16_t axis, double re, double im) {
+Instruction make_array_rot(uint16_t axis, double re, double im) {
     Instruction i{};
-    i.opcode = Opcode::OP_PHASE_ROT;
+    i.opcode = Opcode::OP_ARRAY_ROT;
     i.axis_1 = axis;
     i.math.weight_re = re;
     i.math.weight_im = im;
@@ -571,9 +571,9 @@ CompiledModule lower(const HirModule& hir, std::span<const uint8_t> postselectio
 
                 bool phase_flip = result.sign ^ op.is_dagger();
                 if (phase_flip) {
-                    ctx.emit(make_phase_t_dag(result.pivot));
+                    ctx.emit(make_array_t_dag(result.pivot));
                 } else {
-                    ctx.emit(make_phase_t(result.pivot));
+                    ctx.emit(make_array_t(result.pivot));
                 }
 
                 break;
@@ -606,7 +606,7 @@ CompiledModule lower(const HirModule& hir, std::span<const uint8_t> postselectio
                 double z_re = std::cos(angle);
                 double z_im = std::sin(angle);
 
-                ctx.emit(make_phase_rot(result.pivot, z_re, z_im));
+                ctx.emit(make_array_rot(result.pivot, z_re, z_im));
 
                 break;
             }

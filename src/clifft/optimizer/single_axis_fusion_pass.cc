@@ -18,9 +18,9 @@ bool is_fusible(Opcode op) {
         case Opcode::OP_ARRAY_H:
         case Opcode::OP_ARRAY_S:
         case Opcode::OP_ARRAY_S_DAG:
-        case Opcode::OP_PHASE_T:
-        case Opcode::OP_PHASE_T_DAG:
-        case Opcode::OP_PHASE_ROT:
+        case Opcode::OP_ARRAY_T:
+        case Opcode::OP_ARRAY_T_DAG:
+        case Opcode::OP_ARRAY_ROT:
         case Opcode::OP_FRAME_H:
         case Opcode::OP_FRAME_S:
         case Opcode::OP_FRAME_S_DAG:
@@ -36,9 +36,9 @@ bool is_array_op(Opcode op) {
         case Opcode::OP_ARRAY_H:
         case Opcode::OP_ARRAY_S:
         case Opcode::OP_ARRAY_S_DAG:
-        case Opcode::OP_PHASE_T:
-        case Opcode::OP_PHASE_T_DAG:
-        case Opcode::OP_PHASE_ROT:
+        case Opcode::OP_ARRAY_T:
+        case Opcode::OP_ARRAY_T_DAG:
+        case Opcode::OP_ARRAY_ROT:
             return true;
         default:
             return false;
@@ -88,7 +88,7 @@ void simulate_instruction(const Instruction& inst, uint8_t& px, uint8_t& pz, Mat
             pz ^= px;
             break;
 
-        case Opcode::OP_PHASE_T:
+        case Opcode::OP_ARRAY_T:
             if (px) {
                 U[3] = kExpMinusIPiOver4;
                 gamma *= kExpIPiOver4;
@@ -97,7 +97,7 @@ void simulate_instruction(const Instruction& inst, uint8_t& px, uint8_t& pz, Mat
             }
             break;
 
-        case Opcode::OP_PHASE_T_DAG:
+        case Opcode::OP_ARRAY_T_DAG:
             if (px) {
                 U[3] = kExpIPiOver4;
                 gamma *= kExpMinusIPiOver4;
@@ -106,7 +106,7 @@ void simulate_instruction(const Instruction& inst, uint8_t& px, uint8_t& pz, Mat
             }
             break;
 
-        case Opcode::OP_PHASE_ROT: {
+        case Opcode::OP_ARRAY_ROT: {
             std::complex<double> z(inst.math.weight_re, inst.math.weight_im);
             if (px) {
                 U[3] = std::conj(z);
@@ -194,13 +194,13 @@ void SingleAxisFusionPass::run(CompiledModule& module) {
         size_t run_start = i;
         size_t run_end = i + 1;
         int array_op_count = is_array_op(old_bc[i].opcode) ? 1 : 0;
-        bool has_rot = (old_bc[i].opcode == Opcode::OP_PHASE_ROT);
+        bool has_rot = (old_bc[i].opcode == Opcode::OP_ARRAY_ROT);
 
         while (run_end < old_bc.size() && is_fusible(old_bc[run_end].opcode) &&
                fusible_axis(old_bc[run_end]) == axis) {
             if (is_array_op(old_bc[run_end].opcode))
                 ++array_op_count;
-            if (old_bc[run_end].opcode == Opcode::OP_PHASE_ROT)
+            if (old_bc[run_end].opcode == Opcode::OP_ARRAY_ROT)
                 has_rot = true;
             ++run_end;
         }

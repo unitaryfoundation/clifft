@@ -233,7 +233,7 @@ TEST_CASE("U4 fusion: all 16 Pauli frame input states produce correct results") 
 
     // A non-trivial tile: CNOT + H_lo + S_hi + CZ + T_lo
     auto bc = std::vector<Instruction>{make_array_cnot(lo, hi), make_array_h(lo), make_array_s(hi),
-                                       make_array_cz(lo, hi), make_phase_t(lo)};
+                                       make_array_cz(lo, hi), make_array_t(lo)};
 
     for (uint8_t in_state = 0; in_state < 16; ++in_state) {
         CAPTURE(in_state);
@@ -308,7 +308,7 @@ TEST_CASE("U4 fusion: axes 3 and 5 - fully strided 3D loops") {
     uint16_t lo = 3, hi = 5;
 
     auto bc = std::vector<Instruction>{make_array_cnot(hi, lo), make_array_h(lo),
-                                       make_array_cz(lo, hi), make_phase_t(hi)};
+                                       make_array_cz(lo, hi), make_array_t(hi)};
 
     check_statevectors_equal(run_fused(bc, rank), run_unfused(bc, rank));
 }
@@ -318,7 +318,7 @@ TEST_CASE("U4 fusion: axes 2 and 3 at high rank 10 - AVX-512 structured stride")
     uint16_t lo = 2, hi = 3;
 
     auto bc = std::vector<Instruction>{make_array_cnot(lo, hi), make_array_h(lo), make_array_s(hi),
-                                       make_array_cz(lo, hi), make_phase_t(lo)};
+                                       make_array_cz(lo, hi), make_array_t(lo)};
 
     check_statevectors_equal(run_fused(bc, rank), run_unfused(bc, rank));
 }
@@ -474,14 +474,14 @@ TEST_CASE("U4 fusion: QV-like tile sequence matches unfused") {
 
     auto bc = std::vector<Instruction>{
         make_array_cnot(lo, hi), make_array_h(lo), make_array_h(hi),        make_array_cz(lo, hi),
-        make_phase_t(lo),        make_phase_t(hi), make_array_cnot(hi, lo), make_array_s(lo),
+        make_array_t(lo),        make_array_t(hi), make_array_cnot(hi, lo), make_array_s(lo),
         make_array_cz(lo, hi),   make_array_h(hi), make_array_cnot(lo, hi), make_array_cz(lo, hi),
         make_array_s(hi),        make_array_h(lo)};
 
     check_statevectors_equal(run_fused(bc, rank), run_unfused(bc, rank));
 }
 
-TEST_CASE("U4 fusion: tile with T-dagger and PHASE_ROT") {
+TEST_CASE("U4 fusion: tile with T-dagger and ARRAY_ROT") {
     constexpr uint32_t rank = 4;
     uint16_t lo = 0, hi = 2;
 
@@ -489,8 +489,8 @@ TEST_CASE("U4 fusion: tile with T-dagger and PHASE_ROT") {
     double re = std::cos(0.3);
     double im = std::sin(0.3);
 
-    auto bc = std::vector<Instruction>{make_array_cnot(lo, hi), make_phase_t_dag(hi),
-                                       make_phase_rot(lo, re, im), make_array_cz(lo, hi)};
+    auto bc = std::vector<Instruction>{make_array_cnot(lo, hi), make_array_t_dag(hi),
+                                       make_array_rot(lo, re, im), make_array_cz(lo, hi)};
 
     check_statevectors_equal(run_fused(bc, rank), run_unfused(bc, rank));
 }
@@ -637,7 +637,7 @@ TEST_CASE("U4 fusion: long tile run at rank 10") {
 
     auto bc =
         std::vector<Instruction>{make_array_cnot(lo, hi), make_array_h(lo),        make_array_s(hi),
-                                 make_array_cz(lo, hi),   make_phase_t(lo),        make_phase_t(hi),
+                                 make_array_cz(lo, hi),   make_array_t(lo),        make_array_t(hi),
                                  make_array_cnot(hi, lo), make_array_h(hi),        make_array_s(lo),
                                  make_array_cz(lo, hi),   make_array_cnot(lo, hi), make_array_h(lo),
                                  make_array_cz(lo, hi)};

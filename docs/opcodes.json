@@ -90,28 +90,28 @@
             "detail": "Doubles the state vector by applying a virtual Hadamard on a dormant axis: k -> k+1 and gamma is divided by sqrt(2). The new axis is initialized to equal superposition. This is the only instruction that grows the active subspace.",
             "operands": "axis_1"
         },
-        "OP_PHASE_T": {
-            "category": "Subspace",
+        "OP_ARRAY_T": {
+            "category": "Array",
             "summary": "T-gate (pi/8 phase rotation) on an active axis.",
             "detail": "Applies diag(1, exp(i*pi/4)) to one active virtual axis. This is the primary non-Clifford gate -- it cannot be absorbed into the offline Clifford frame U_C and requires direct state vector work.",
             "operands": "axis_1"
         },
-        "OP_PHASE_T_DAG": {
-            "category": "Subspace",
+        "OP_ARRAY_T_DAG": {
+            "category": "Array",
             "summary": "T-dagger (inverse pi/8 phase rotation) on an active axis.",
-            "detail": "Applies diag(1, exp(-i*pi/4)) to one active virtual axis. The conjugate of OP_PHASE_T.",
+            "detail": "Applies diag(1, exp(-i*pi/4)) to one active virtual axis. The conjugate of OP_ARRAY_T.",
             "operands": "axis_1"
         },
         "OP_EXPAND_T": {
             "category": "Subspace",
             "summary": "Fused EXPAND + T-gate in one array pass.",
-            "detail": "Combines OP_EXPAND and OP_PHASE_T into a single instruction. Promotes a dormant qubit to active (k -> k+1) and immediately applies the T phase rotation, saving one pass over the state vector.",
+            "detail": "Combines OP_EXPAND and OP_ARRAY_T into a single instruction. Promotes a dormant qubit to active (k -> k+1) and immediately applies the T phase rotation, saving one pass over the state vector.",
             "operands": "axis_1"
         },
         "OP_EXPAND_T_DAG": {
             "category": "Subspace",
             "summary": "Fused EXPAND + T-dagger in one array pass.",
-            "detail": "Combines OP_EXPAND and OP_PHASE_T_DAG into a single instruction. Promotes a dormant qubit to active (k -> k+1) and immediately applies the T-dagger phase rotation, saving one pass over the state vector.",
+            "detail": "Combines OP_EXPAND and OP_ARRAY_T_DAG into a single instruction. Promotes a dormant qubit to active (k -> k+1) and immediately applies the T-dagger phase rotation, saving one pass over the state vector.",
             "operands": "axis_1"
         },
         "OP_MEAS_DORMANT_STATIC": {
@@ -192,26 +192,26 @@
             "detail": "Evaluates the expectation value <P> of a Pauli product on the current state without mutating anything. The full virtual Pauli mask is stored in the constant pool. Accounts for Pauli frame conjugation and dormant/active qubit splitting. Result is a float64 in [-1, 1] written to exp_vals[exp_val_idx].",
             "operands": "cp_exp_val_idx (constant pool exp val mask index) -> exp[exp_val_idx]"
         },
-        "OP_PHASE_ROT": {
-            "category": "Subspace",
+        "OP_ARRAY_ROT": {
+            "category": "Array",
             "summary": "Continuous Z-rotation on an active axis with arbitrary phase.",
             "detail": "Applies diag(1, z) where z = e^{i*alpha*pi} is stored as (weight_re, weight_im) in the instruction math payload. If the Pauli frame has p_x set on this axis, the array receives z* and gamma absorbs z to preserve the factored state.",
             "operands": "axis_1, math.weight_re, math.weight_im"
         },
         "OP_EXPAND_ROT": {
             "category": "Subspace",
-            "summary": "Fused EXPAND + PHASE_ROT in a single array pass.",
-            "detail": "Activates a dormant axis and applies diag(1, z) in one fused loop: arr[i+half] = arr[i] * phase. Avoids the two-pass penalty of separate EXPAND + PHASE_ROT. The phase z is stored in the instruction math payload.",
+            "summary": "Fused EXPAND + ARRAY_ROT in a single array pass.",
+            "detail": "Activates a dormant axis and applies diag(1, z) in one fused loop: arr[i+half] = arr[i] * phase. Avoids the two-pass penalty of separate EXPAND + ARRAY_ROT. The phase z is stored in the instruction math payload.",
             "operands": "axis_1, math.weight_re, math.weight_im"
         },
         "OP_ARRAY_U2": {
-            "category": "Subspace",
+            "category": "Array",
             "summary": "Fused single-axis 2x2 unitary gate from ConstantPool.",
-            "detail": "Applies a precomputed 2x2 unitary matrix to all amplitude pairs on one virtual axis in a single butterfly sweep. The pass precomputes 4 matrices (one per incoming Pauli frame state: I, X, Z, Y) to eliminate runtime branching. Replaces sequences of ARRAY_H, ARRAY_S, PHASE_ROT, etc. on the same axis.",
+            "detail": "Applies a precomputed 2x2 unitary matrix to all amplitude pairs on one virtual axis in a single butterfly sweep. The pass precomputes 4 matrices (one per incoming Pauli frame state: I, X, Z, Y) to eliminate runtime branching. Replaces sequences of ARRAY_H, ARRAY_S, ARRAY_ROT, etc. on the same axis.",
             "operands": "axis_1, u2.cp_idx"
         },
         "OP_ARRAY_U4": {
-            "category": "Subspace",
+            "category": "Array",
             "summary": "Fused 2-axis 4x4 unitary gate from ConstantPool.",
             "detail": "Applies a precomputed 4x4 unitary matrix to all blocks of 4 amplitudes spanning two virtual axes in a single array sweep. The pass precomputes 16 matrices (one per incoming Pauli frame state on the two axes) and the corresponding output frame states. Replaces entire tile runs of interleaved 1Q and 2Q operations on a fixed axis pair.",
             "operands": "axis_1 (lo), axis_2 (hi), u4.cp_idx"

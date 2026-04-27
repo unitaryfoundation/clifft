@@ -4,7 +4,7 @@
 
 namespace clifft {
 
-/// Fuses contiguous OP_EXPAND + OP_PHASE_T (or T_DAG) pairs into single
+/// Fuses contiguous OP_EXPAND + OP_ARRAY_T (or T_DAG) pairs into single
 /// OP_EXPAND_T (or OP_EXPAND_T_DAG) instructions.
 ///
 /// Every T-gate injection in the factored state architecture requires an
@@ -17,7 +17,7 @@ class ExpandTPass : public BytecodePass {
     void run(CompiledModule& module) override;
 };
 
-/// Fuses contiguous OP_EXPAND + OP_PHASE_ROT pairs into single
+/// Fuses contiguous OP_EXPAND + OP_ARRAY_ROT pairs into single
 /// OP_EXPAND_ROT instructions.
 class ExpandRotPass : public BytecodePass {
   public:
