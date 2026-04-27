@@ -19,7 +19,7 @@ circuit = """
 program = clifft.compile(circuit)
 
 # Sample 1000 shots
-result = clifft.sample(program, shots=1000, seed=42)
+result = clifft.sample(program, shots=1000)
 print(result.measurements[:5])  # First 5 shots
 ```
 
@@ -39,7 +39,7 @@ program = clifft.compile("""
     M 0
 """)
 
-result = clifft.sample(program, shots=10000, seed=42)
+result = clifft.sample(program, shots=10000)
 
 # Count outcomes
 ones = result.measurements[:, 0].sum()
