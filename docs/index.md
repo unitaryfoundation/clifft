@@ -52,7 +52,7 @@ print(result.measurements[:5])  # First 5 shots
 
     Memory scales as $2^k$ where $k$ is the number of active (non-Clifford) qubits, not $2^n$ total qubits.
 
-- :material-speedometer: **RISC Bytecode VM**
+- :material-speedometer: **Bytecode VM**
 
     Cache-aligned 32-byte instructions. Single memory allocation. No dynamic resizing in the hot loop.
 

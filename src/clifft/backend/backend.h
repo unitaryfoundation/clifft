@@ -14,10 +14,10 @@
 namespace clifft {
 
 // =============================================================================
-// RISC Execution Bytecode Opcodes
+// VM Execution Bytecode Opcodes
 // =============================================================================
 //
-// The VM uses a localized RISC instruction set. All multi-qubit global topology
+// The VM uses a localized instruction set. All multi-qubit global topology
 // is compressed into local 1-qubit and 2-qubit virtual axis operations by the
 // Back-End AOT compiler. The VM never evaluates basis spans or commutations.
 
@@ -71,7 +71,7 @@ enum class Opcode : uint8_t {
 };
 
 // =============================================================================
-// 32-Byte RISC Instruction Bytecode
+// 32-Byte VM Instruction Bytecode
 // =============================================================================
 //
 // Exactly 32 bytes ensures 2 instructions per 64-byte L1 cache line.
@@ -319,7 +319,7 @@ struct CompiledModule {
 // Back-End API
 // =============================================================================
 
-/// Lower HIR to executable RISC bytecode.
+/// Lower HIR to executable VM bytecode.
 /// Tracks virtual frame V_cum, compresses multi-qubit Paulis to local ops.
 /// If postselection_mask is non-empty, detectors at indices where
 /// mask[det_idx] != 0 are emitted as OP_POSTSELECT instead of OP_DETECTOR.

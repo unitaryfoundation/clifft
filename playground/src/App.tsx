@@ -566,7 +566,7 @@ export default function App() {
               <Allotment.Pane>
                 <div className="editor-pane">
                   <div className="editor-label">
-                    VM Bytecode (RISC)
+                    VM Bytecode
                     {diffView && <span className="editor-label-badge">DIFF</span>}
                   </div>
                   {diffView ? (

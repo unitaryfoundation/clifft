@@ -87,7 +87,7 @@ const STEPS: TourStep[] = [
     content:
       "The back-end compresses multi-qubit Pauli products down to 1- and 2-qubit " +
       "operations on virtual axes using geometric decomposition. The output is a " +
-      "flat stream of RISC-style 32-byte instructions.\n\n" +
+      "flat stream of 32-byte VM instructions.\n\n" +
       "- `OP_FRAME_*` -- update the runtime virtual Pauli frame (bitmask XOR)\n" +
       "- `OP_ARRAY_*` -- touch the Schrodinger state vector\n" +
       "- `OP_EXPAND` -- grows the active subspace\n" +

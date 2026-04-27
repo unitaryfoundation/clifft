@@ -34,7 +34,7 @@ static stim::PauliString<kStimWidth> make_pauli(uint32_t n, uint64_t x_bits, uin
     return p;
 }
 
-// Build a Stim Tableau from a sequence of RISC bytecode instructions.
+// Build a Stim Tableau from a sequence of VM bytecode instructions.
 // Only handles frame/array gate opcodes (CNOT, CZ, H, S, SWAP).
 // This reconstructs the virtual-coordinate transformation from the raw
 // bytecode, independently of v_cum, to verify the compiler's emission.

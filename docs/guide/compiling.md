@@ -8,7 +8,7 @@ Clifft compiles quantum circuits through a five-stage multi-level pipeline. This
 Circuit Text --> Parse --> Front-End --> Middle-End Optimizer --> Back-End --> Bytecode Optimizer --> Program
                  |           |                 |                  |               |                  |
               Circuit     HirModule        HirModule          Program         Program            Bytecode
-               (AST)       (HIR)       (Optimized HIR)      (raw RISC)   (fused instructions)   ready to
+               (AST)       (HIR)       (Optimized HIR)    (raw bytecode) (fused instructions)   ready to
                                                                                                 execute
 ```
 
@@ -184,7 +184,7 @@ program = clifft.lower(hir)
 
 ### 5. Bytecode Optimization
 
-After lowering, a second pass manager optimizes the RISC bytecode. This fuses instructions to reduce redundant array passes:
+After lowering, a second pass manager optimizes the bytecode. This fuses instructions to reduce redundant array passes:
 
 <!--pytest-codeblocks:cont-->
 

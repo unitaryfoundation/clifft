@@ -2,7 +2,7 @@
 
 This page documents all instruction types used by the Clifft compiler at both
 levels of the pipeline: the **Heisenberg IR** (HIR) produced by the front-end,
-and the **VM Opcodes** (RISC bytecode) executed by the Schrodinger Virtual Machine.
+and the **VM Opcodes** (bytecode) executed by the Schrodinger Virtual Machine.
 
 The same data powers the hover tooltips in the
 [Playground](../playground/).
@@ -39,7 +39,7 @@ meta-instructions.
 
 ## VM Opcodes
 
-The VM executes a flat stream of RISC-style 32-byte instructions. Each opcode
+The VM executes a flat stream of 32-byte instructions. Each opcode
 falls into one of the categories below.
 
 {% for cat in opcode_categories %}

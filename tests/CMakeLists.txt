@@ -12,7 +12,7 @@ add_executable(clifft_tests
     test_hir.cc
     test_frontend.cc
     test_backend.cc
-    test_svm_risc.cc
+    test_svm.cc
     test_svm_avx512_axis01.cc
     test_statevector.cc
     test_optimizer.cc
