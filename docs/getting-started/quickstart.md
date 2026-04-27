@@ -89,6 +89,6 @@ result = clifft.sample(program, shots=10000, seed=42)
 
 ## Next Steps
 
-- [Compiling Circuits](../guide/compiling.md) — the compilation pipeline in detail
+- [Compiling Circuits](../guide/compilation.md) — the compilation pipeline in detail
 - [Simulation](../guide/simulation.md) — sampling, state vectors, and detectors
 - [Supported Gates](../reference/gates.md) — full gate reference

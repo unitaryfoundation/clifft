@@ -139,7 +139,7 @@ result = clifft.sample(program, shots=10000, seed=42)
 # result.detectors and result.observables are now XOR-normalized against the noiseless reference
 ```
 
-See [Compiling Circuits](compiling.md#syndrome-normalization) for details.
+See [Compiling Circuits](compilation.md#syndrome-normalization) for details.
 
 ## Expectation Values
 

@@ -48,4 +48,4 @@ Clifft uses [nanobind](https://github.com/wjakob/nanobind) to expose the C++ cor
 - `clifft.execute()` and `clifft.get_statevector()` for exact state inspection
 - `clifft.trace()` for compilation pipeline debugging
 
-See the [User Guide](../guide/compiling.md) for API details.
+See the [User Guide](../guide/compilation.md) for API details.
