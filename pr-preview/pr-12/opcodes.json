@@ -3,19 +3,19 @@
         "OP_FRAME_CNOT": {
             "category": "Frame",
             "summary": "CNOT update on the virtual Pauli frame.",
-            "detail": "Conjugates the virtual Pauli frame P by CNOT via bitwise XOR: propagates p_x from control to target and p_z from target to control. Pure bookkeeping with no state vector work.",
+            "detail": "Conjugates the virtual Pauli frame P by CNOT via bitwise XOR: propagates p_x from control to target and p_z from target to control.",
             "operands": "axis_1 (control), axis_2 (target)"
         },
         "OP_FRAME_CZ": {
             "category": "Frame",
             "summary": "CZ update on the virtual Pauli frame.",
-            "detail": "Conjugates the virtual Pauli frame P by CZ via bitwise XOR: propagates p_x on each axis into p_z on the other. Any resulting phase is absorbed into gamma. No state vector work.",
+            "detail": "Conjugates the virtual Pauli frame P by CZ via bitwise XOR: propagates p_x on each axis into p_z on the other. Any resulting phase is absorbed into gamma.",
             "operands": "axis_1, axis_2"
         },
         "OP_FRAME_H": {
             "category": "Frame",
             "summary": "Hadamard update on the virtual Pauli frame.",
-            "detail": "Conjugates the virtual Pauli frame P by Hadamard on a single axis: swaps the p_x and p_z bits of that axis, absorbing any resulting phase into gamma. No state vector work.",
+            "detail": "Conjugates the virtual Pauli frame P by Hadamard on a single axis: swaps the p_x and p_z bits of that axis, absorbing any resulting phase into gamma.",
             "operands": "axis_1"
         },
         "OP_FRAME_S": {
@@ -38,66 +38,66 @@
         },
         "OP_ARRAY_CNOT": {
             "category": "Array",
-            "summary": "CNOT gate on the Schrodinger state vector.",
-            "detail": "Applies a controlled-X gate to two active virtual axes in the state vector |phi>_A. Pairs of amplitudes separated by the target axis stride are XOR-permuted.",
+            "summary": "CNOT gate on the active state vector.",
+            "detail": "Applies a controlled-X gate to two active virtual axes in the state vector. Pairs of amplitudes separated by the target axis stride are XOR-permuted.",
             "operands": "axis_1 (control), axis_2 (target)"
         },
         "OP_ARRAY_CZ": {
             "category": "Array",
-            "summary": "CZ gate on the Schrodinger state vector.",
+            "summary": "CZ gate on the active state vector.",
             "detail": "Applies a controlled-Z gate to two active virtual axes. Negates amplitudes where both axes are in the |1> state.",
             "operands": "axis_1, axis_2"
         },
         "OP_ARRAY_SWAP": {
             "category": "Array",
-            "summary": "SWAP gate on the Schrodinger state vector.",
+            "summary": "SWAP gate on the active state vector.",
             "detail": "Swaps amplitudes between two active virtual axes. Used to route the measurement target to the highest axis before collapse.",
             "operands": "axis_1, axis_2"
         },
         "OP_ARRAY_MULTI_CNOT": {
             "category": "Array",
-            "summary": "Fused multi-control CNOT on the Schrodinger state vector.",
+            "summary": "Fused multi-control CNOT on the active state vector.",
             "detail": "Applies a star-graph CNOT with multiple control axes and one target axis in a single fused pass over the state vector. The control axes are encoded as a 64-bit bitmask. Equivalent to a sequence of pairwise OP_ARRAY_CNOT instructions but faster.",
             "operands": "axis_1 (target), multi_gate.mask (control bitmask)"
         },
         "OP_ARRAY_MULTI_CZ": {
             "category": "Array",
-            "summary": "Fused multi-target CZ on the Schrodinger state vector.",
+            "summary": "Fused multi-target CZ on the active state vector.",
             "detail": "Applies a star-graph CZ with one control axis and multiple target axes in a single fused pass over the state vector. The target axes are encoded as a 64-bit bitmask. Equivalent to a sequence of pairwise OP_ARRAY_CZ instructions but faster.",
             "operands": "axis_1 (control), multi_gate.mask (target bitmask)"
         },
         "OP_ARRAY_H": {
             "category": "Array",
-            "summary": "Hadamard gate on the Schrodinger state vector.",
+            "summary": "Hadamard gate on the active state vector.",
             "detail": "Applies a Hadamard (butterfly) transform to one active virtual axis. Each pair of amplitudes is replaced by their sum and difference, divided by sqrt(2).",
             "operands": "axis_1"
         },
         "OP_ARRAY_S": {
             "category": "Array",
-            "summary": "S-gate (phase) on the Schrodinger state vector.",
+            "summary": "S-gate (phase) on the active state vector.",
             "detail": "Applies diag(1, i) to one active virtual axis. Multiplies all amplitudes where that axis is |1> by i.",
             "operands": "axis_1"
         },
         "OP_ARRAY_S_DAG": {
             "category": "Array",
-            "summary": "S-dagger gate on the Schrodinger state vector.",
+            "summary": "S-dagger gate on the active state vector.",
             "detail": "Applies diag(1, -i) to one active virtual axis. Multiplies all amplitudes where that axis is |1> by -i.",
             "operands": "axis_1"
         },
         "OP_EXPAND": {
             "category": "Subspace",
             "summary": "Promote a dormant qubit to active, growing k by 1.",
-            "detail": "Doubles the state vector by applying a virtual Hadamard on a dormant axis: k -> k+1 and gamma is divided by sqrt(2). The new axis is initialized to equal superposition. This is the only instruction that grows the active subspace.",
+            "detail": "Doubles the state vector by applying a virtual Hadamard on a dormant axis: k -> k+1 and gamma is divided by sqrt(2). The new axis is initialized to equal superposition.",
             "operands": "axis_1"
         },
         "OP_PHASE_T": {
-            "category": "Subspace",
+            "category": "Array",
             "summary": "T-gate (pi/8 phase rotation) on an active axis.",
-            "detail": "Applies diag(1, exp(i*pi/4)) to one active virtual axis. This is the primary non-Clifford gate -- it cannot be absorbed into the offline Clifford frame U_C and requires direct state vector work.",
+            "detail": "Applies diag(1, exp(i*pi/4)) to one active virtual axis.",
             "operands": "axis_1"
         },
         "OP_PHASE_T_DAG": {
-            "category": "Subspace",
+            "category": "Array",
             "summary": "T-dagger (inverse pi/8 phase rotation) on an active axis.",
             "detail": "Applies diag(1, exp(-i*pi/4)) to one active virtual axis. The conjugate of OP_PHASE_T.",
             "operands": "axis_1"
@@ -189,11 +189,11 @@
         "OP_EXP_VAL": {
             "category": "Measurement",
             "summary": "Read-only expectation value probe.",
-            "detail": "Evaluates the expectation value <P> of a Pauli product on the current state without mutating anything. The full virtual Pauli mask is stored in the constant pool. Accounts for Pauli frame conjugation and dormant/active qubit splitting. Result is a float64 in [-1, 1] written to exp_vals[exp_val_idx].",
+            "detail": "Evaluates the expectation value <P> of a Pauli product on the current state without mutating anything. The full virtual Pauli mask is stored in the constant pool. Result is a float64 in [-1, 1] written to exp_vals[exp_val_idx].",
             "operands": "cp_exp_val_idx (constant pool exp val mask index) -> exp[exp_val_idx]"
         },
         "OP_PHASE_ROT": {
-            "category": "Subspace",
+            "category": "Array",
             "summary": "Continuous Z-rotation on an active axis with arbitrary phase.",
             "detail": "Applies diag(1, z) where z = e^{i*alpha*pi} is stored as (weight_re, weight_im) in the instruction math payload. If the Pauli frame has p_x set on this axis, the array receives z* and gamma absorbs z to preserve the factored state.",
             "operands": "axis_1, math.weight_re, math.weight_im"
@@ -205,13 +205,13 @@
             "operands": "axis_1, math.weight_re, math.weight_im"
         },
         "OP_ARRAY_U2": {
-            "category": "Subspace",
+            "category": "Array",
             "summary": "Fused single-axis 2x2 unitary gate from ConstantPool.",
             "detail": "Applies a precomputed 2x2 unitary matrix to all amplitude pairs on one virtual axis in a single butterfly sweep. The pass precomputes 4 matrices (one per incoming Pauli frame state: I, X, Z, Y) to eliminate runtime branching. Replaces sequences of ARRAY_H, ARRAY_S, PHASE_ROT, etc. on the same axis.",
             "operands": "axis_1, u2.cp_idx"
         },
         "OP_ARRAY_U4": {
-            "category": "Subspace",
+            "category": "Array",
             "summary": "Fused 2-axis 4x4 unitary gate from ConstantPool.",
             "detail": "Applies a precomputed 4x4 unitary matrix to all blocks of 4 amplitudes spanning two virtual axes in a single array sweep. The pass precomputes 16 matrices (one per incoming Pauli frame state on the two axes) and the corresponding output frame states. Replaces entire tile runs of interleaved 1Q and 2Q operations on a fixed axis pair.",
             "operands": "axis_1 (lo), axis_2 (hi), u4.cp_idx"

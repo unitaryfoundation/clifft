@@ -84,7 +84,7 @@ def define_env(env: Any) -> None:
             "python_name": "StatevectorSqueezePass",
             "summary": "Minimizes peak active dimension by reordering HIR operations.",
             "detail": (
-                "Reduces `peak_rank` by compacting qubit lifetimes. "
+                "Attempts to reduce `peak_rank` by compacting qubit lifetimes. "
                 "Sweep 1 (leftward) bubbles MEASURE ops as early as possible. "
                 "Sweep 2 (rightward) bubbles T_GATE and PHASE_ROTATION ops as "
                 "late as possible. Measurements free active dimensions sooner, "
@@ -116,8 +116,7 @@ def define_env(env: Any) -> None:
                 "indices into single OP_NOISE_BLOCK instructions. The VM's "
                 "exponential gap-sampling already skips silent noise sites in O(1), "
                 "but without this pass the dispatch loop still individually fetches "
-                "and decodes each OP_NOISE. For a d=5 surface code, this collapses "
-                "~3400 OP_NOISE instructions into ~24 OP_NOISE_BLOCK instructions."
+                "and decodes each OP_NOISE."
             ),
         },
         {
