@@ -294,7 +294,7 @@ Instruction make_exp_val(uint32_t cp_exp_val_idx, uint32_t exp_val_idx) {
 namespace {
 
 // =========================================================================
-// Emit helpers: push gate to pending queue and emit RISC opcode
+// Emit helpers: push gate to pending queue and emit VM opcode
 // =========================================================================
 
 void emit_cnot(CompilerContext& ctx, uint16_t ctrl, uint16_t tgt) {

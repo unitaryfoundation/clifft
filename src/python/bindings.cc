@@ -573,7 +573,7 @@ NB_MODULE(_clifft_core, m) {
         "NoiseBlockPass, MultiGatePass, ExpandTPass, ExpandRotPass, SwapMeasPass,\n"
         "SingleAxisFusionPass.");
 
-    nb::enum_<clifft::Opcode>(m, "Opcode", "RISC Virtual Machine opcodes")
+    nb::enum_<clifft::Opcode>(m, "Opcode", "Virtual Machine opcodes")
         .value("OP_FRAME_CNOT", clifft::Opcode::OP_FRAME_CNOT)
         .value("OP_FRAME_CZ", clifft::Opcode::OP_FRAME_CZ)
         .value("OP_FRAME_H", clifft::Opcode::OP_FRAME_H)
@@ -611,7 +611,7 @@ NB_MODULE(_clifft_core, m) {
         .value("OP_OBSERVABLE", clifft::Opcode::OP_OBSERVABLE)
         .value("OP_EXP_VAL", clifft::Opcode::OP_EXP_VAL);
 
-    nb::class_<clifft::Instruction>(m, "Instruction", "A localized RISC operation for the VM")
+    nb::class_<clifft::Instruction>(m, "Instruction", "A localized VM operation")
         .def_prop_ro("opcode", [](const clifft::Instruction& i) { return i.opcode; })
         .def_prop_ro("flags", [](const clifft::Instruction& i) { return i.flags; })
         .def_prop_ro("axis_1", [](const clifft::Instruction& i) { return i.axis_1; })

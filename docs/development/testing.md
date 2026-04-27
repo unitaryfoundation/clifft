@@ -41,7 +41,7 @@ Beneath the end-to-end Python oracles, the C++ codebase is rigidly unit-tested u
 * **Parsing & AST:** [`test_parser.cc`](https://github.com/unitaryfoundation/clifft/blob/main/tests/test_parser.cc) validates lexical conversion of text to `clifft::Circuit`, unrolling of `REPEAT` blocks, and multi-qubit syntactic sugar.
 * **Front-End:** [`test_frontend.cc`](https://github.com/unitaryfoundation/clifft/blob/main/tests/test_frontend.cc) validates mathematical absorption of physical Cliffords and rewound mask extractions.
 * **Virtual Compression:** [`test_backend.cc`](https://github.com/unitaryfoundation/clifft/blob/main/tests/test_backend.cc) feeds massive, random `stim::PauliString` masks into the Back-End's compressor, asserting that the resulting sequence of virtual CNOT/CZ gates perfectly isolates the mask to a single active or dormant virtual bit.
-* **RISC Array Math:** [`test_svm_risc.cc`](https://github.com/unitaryfoundation/clifft/blob/main/tests/test_svm_risc.cc) completely bypasses the compiler. We manually construct localized `Instruction` opcodes and directly mutate a dummy `SchrodingerState` to assert the raw C++ array loops and hardware `popcount` routines correctly evaluate quantum superposition.
+* **VM Array Math:** [`test_svm.cc`](https://github.com/unitaryfoundation/clifft/blob/main/tests/test_svm.cc) completely bypasses the compiler. We manually construct localized `Instruction` opcodes and directly mutate a dummy `SchrodingerState` to assert the raw C++ array loops and hardware `popcount` routines correctly evaluate quantum superposition.
 
 ## Running the Tests
 

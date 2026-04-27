@@ -2,7 +2,7 @@
 
 Clifft optimizes at two distinct IR levels, each with its own pass manager.
 **HIR passes** operate on the Heisenberg IR before bytecode emission.
-**Bytecode passes** operate on the finalized RISC bytecode after the
+**Bytecode passes** operate on the finalized bytecode after the
 back-end has lowered the HIR.
 
 ## Default Pipeline

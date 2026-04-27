@@ -12,7 +12,7 @@ The source code mirrors the pipeline stages:
 | `src/clifft/frontend/` | Stage 1 | Drives stabilizer tableau, absorbs Cliffords, emits HIR |
 | `src/clifft/optimizer/` | Stage 2 & 4 | Two-level optimization: HIR passes and bytecode passes |
 | `src/clifft/backend/` | Stage 3 | Virtual frame tracking, basis compression, bytecode emission |
-| `src/clifft/svm/` | Stage 5 | Runtime VM: executes RISC bytecode over dense arrays |
+| `src/clifft/svm/` | Stage 5 | Runtime VM: executes bytecode over dense arrays |
 | `src/python/` | Bindings | Python API via nanobind |
 
 !!! important "Isolation Invariant"
@@ -56,7 +56,7 @@ Operate on the Heisenberg IR before bytecode emission:
 
 ### Bytecode Passes (Post-Lowering)
 
-Operate on the finalized RISC bytecode. These rewrite and fuse instructions to reduce array passes:
+Operate on the finalized bytecode. These rewrite and fuse instructions to reduce array passes:
 
 - **NoiseBlockPass** — Collapses runs of identical noise instructions into single block operations
 - **MultiGatePass** — Fuses contiguous CNOT/CZ ops sharing an axis into star-graph instructions
@@ -69,7 +69,7 @@ See the [Optimization Passes](../reference/passes.md) reference for detailed des
 
 ## Bytecode Format
 
-The VM executes a RISC instruction set with **32-byte cache-aligned instructions**. Each instruction encodes:
+The VM executes an instruction set with **32-byte cache-aligned instructions**. Each instruction encodes:
 
 - An opcode (gate type, frame operation, measurement, etc.)
 - Up to 2 virtual axis indices (`uint16_t`)

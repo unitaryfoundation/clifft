@@ -329,7 +329,7 @@ struct CompressionResult {
 ///
 /// Side effects:
 ///   - Appends virtual gates to ctx.virtual_frame
-///   - Emits corresponding RISC opcodes to ctx.bytecode
+///   - Emits corresponding VM opcodes to ctx.bytecode
 ///   - Does NOT modify ctx.reg_manager (activation is the caller's job)
 ///
 /// The input PauliString must be non-identity (at least one qubit set).

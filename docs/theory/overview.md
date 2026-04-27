@@ -42,7 +42,7 @@ Circuit Text  -->  1. Front-End (Physical Rewinding)
                    3. Back-End (Virtual Compression)
                         |  Maps t=0 Paulis to the active virtual frame.
                         |  Synthesizes greedy O(n) basis compressions.
-                        |  Emits localized RISC bytecode.
+                        |  Emits localized VM bytecode.
                         v
                    Program (Raw Bytecode + Constant Pool)
                         |
@@ -77,17 +77,17 @@ The Back-End bridges the static HIR to the runtime VM. It maintains a cumulative
 
 1. Maps the $t = 0$ Pauli to the current virtual frame: $P_v = V_{\text{cum}} \, P_{t=0} \, V_{\text{cum}}^\dagger$
 2. Computes a greedy $\mathcal{O}(n)$ compression sequence of virtual CNOT/CZ gates to localize $P_v$ onto a single virtual axis
-3. Emits localized RISC opcodes
+3. Emits localized VM opcodes
 
 Because multi-qubit measurements are explicitly compressed into single-qubit virtual measurements at compile time, no tableau mathematics runs at simulation time.
 
 ### Stage 4: Bytecode Optimizer
 
-After lowering, a second pass manager applies peephole optimizations directly to the RISC bytecode. These passes fuse sequences of instructions to eliminate redundant passes over the array and reduce dispatch overhead.
+After lowering, a second pass manager applies peephole optimizations directly to the bytecode. These passes fuse sequences of instructions to eliminate redundant passes over the array and reduce dispatch overhead.
 
 ### Stage 5: Virtual Machine (SVM)
 
-The VM executes the RISC bytecode over millions of shots. Key properties:
+The VM executes the bytecode over millions of shots. Key properties:
 
 - **Zero-Cost Dormant Operations:** If a virtual CNOT targets a dormant qubit (known to be $|0\rangle$), the VM simply conjugates the Pauli frame via bitwise XOR. The complex array is untouched.
 

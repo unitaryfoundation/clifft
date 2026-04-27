@@ -92,7 +92,7 @@ TEST_CASE("SchrodingerState config initializes optional buffers and seed") {
 // Frame Opcode Tests
 // =============================================================================
 
-TEST_CASE("RISC Frame: CNOT updates p_x and p_z") {
+TEST_CASE("VM Frame: CNOT updates p_x and p_z") {
     SchrodingerState state(2, 0);
 
     // Set p_x[0] = 1 (X error on qubit 0)
@@ -108,7 +108,7 @@ TEST_CASE("RISC Frame: CNOT updates p_x and p_z") {
     CHECK(state.p_z == NONE);
 }
 
-TEST_CASE("RISC Frame: CNOT propagates Z backward") {
+TEST_CASE("VM Frame: CNOT propagates Z backward") {
     SchrodingerState state(2, 0);
 
     state.p_x = NONE;
@@ -122,7 +122,7 @@ TEST_CASE("RISC Frame: CNOT propagates Z backward") {
     CHECK(state.p_z == (Z(0) | Z(1)));
 }
 
-TEST_CASE("RISC Frame: CZ with both X errors negates gamma") {
+TEST_CASE("VM Frame: CZ with both X errors negates gamma") {
     SchrodingerState state(2, 0);
 
     state.p_x = X(0) | X(1);  // X on both
@@ -137,7 +137,7 @@ TEST_CASE("RISC Frame: CZ with both X errors negates gamma") {
     CHECK(state.p_z == (Z(0) | Z(1)));
 }
 
-TEST_CASE("RISC Frame: CZ with one X error - no phase") {
+TEST_CASE("VM Frame: CZ with one X error - no phase") {
     SchrodingerState state(2, 0);
 
     state.p_x = X(0);  // X on qubit 0 only
@@ -151,7 +151,7 @@ TEST_CASE("RISC Frame: CZ with one X error - no phase") {
     CHECK(state.p_z == Z(1));
 }
 
-TEST_CASE("RISC Frame: H swaps p_x and p_z") {
+TEST_CASE("VM Frame: H swaps p_x and p_z") {
     SchrodingerState state(2, 0);
 
     state.p_x = X(0);  // X on qubit 0
@@ -166,7 +166,7 @@ TEST_CASE("RISC Frame: H swaps p_x and p_z") {
     check_complex(state.gamma(), {1.0, 0.0});
 }
 
-TEST_CASE("RISC Frame: H on Y error negates gamma") {
+TEST_CASE("VM Frame: H on Y error negates gamma") {
     SchrodingerState state(2, 0);
 
     // Y = iXZ, so both bits set
@@ -182,7 +182,7 @@ TEST_CASE("RISC Frame: H on Y error negates gamma") {
     check_complex(state.gamma(), {-1.0, 0.0});
 }
 
-TEST_CASE("RISC Frame: S on X error multiplies gamma by i") {
+TEST_CASE("VM Frame: S on X error multiplies gamma by i") {
     SchrodingerState state(2, 0);
 
     state.p_x = X(0);
@@ -197,7 +197,7 @@ TEST_CASE("RISC Frame: S on X error multiplies gamma by i") {
     check_complex(state.gamma(), {0.0, 1.0});
 }
 
-TEST_CASE("RISC Frame: S on no X error - no phase change") {
+TEST_CASE("VM Frame: S on no X error - no phase change") {
     SchrodingerState state(2, 0);
 
     state.p_x = NONE;
@@ -212,7 +212,7 @@ TEST_CASE("RISC Frame: S on no X error - no phase change") {
     check_complex(state.gamma(), {1.0, 0.0});
 }
 
-TEST_CASE("RISC Frame: S_DAG on X error multiplies gamma by -i") {
+TEST_CASE("VM Frame: S_DAG on X error multiplies gamma by -i") {
     SchrodingerState state(2, 0);
 
     state.p_x = X(0);
@@ -227,7 +227,7 @@ TEST_CASE("RISC Frame: S_DAG on X error multiplies gamma by -i") {
     check_complex(state.gamma(), {0.0, -1.0});
 }
 
-TEST_CASE("RISC Frame: S_DAG on no X error - no phase change") {
+TEST_CASE("VM Frame: S_DAG on no X error - no phase change") {
     SchrodingerState state(2, 0);
 
     state.p_x = NONE;
@@ -242,7 +242,7 @@ TEST_CASE("RISC Frame: S_DAG on no X error - no phase change") {
     check_complex(state.gamma(), {1.0, 0.0});
 }
 
-TEST_CASE("RISC Frame: SWAP exchanges bits") {
+TEST_CASE("VM Frame: SWAP exchanges bits") {
     SchrodingerState state(3, 0);
 
     state.p_x = X(0) | X(2);  // X on 0,2
@@ -256,7 +256,7 @@ TEST_CASE("RISC Frame: SWAP exchanges bits") {
     CHECK(state.p_z == Z(1));
 }
 
-TEST_CASE("RISC Frame: SWAP asymmetric case") {
+TEST_CASE("VM Frame: SWAP asymmetric case") {
     SchrodingerState state(3, 0);
 
     state.p_x = X(0);  // X on 0
@@ -274,7 +274,7 @@ TEST_CASE("RISC Frame: SWAP asymmetric case") {
 // Array Opcode Tests
 // =============================================================================
 
-TEST_CASE("RISC Array: EXPAND doubles array") {
+TEST_CASE("VM Array: EXPAND doubles array") {
     SchrodingerState state(3, 0);
     // Start with active_k = 0, v[0] = 1.0
 
@@ -289,7 +289,7 @@ TEST_CASE("RISC Array: EXPAND doubles array") {
     CHECK_THAT(state.gamma().imag(), WithinAbs(0.0, kTol));
 }
 
-TEST_CASE("RISC Array: Two EXPANDs create 4-element array") {
+TEST_CASE("VM Array: Two EXPANDs create 4-element array") {
     SchrodingerState state(3, 0);
 
     auto prog = make_program({make_expand(0), make_expand(1)}, 3);
@@ -303,7 +303,7 @@ TEST_CASE("RISC Array: Two EXPANDs create 4-element array") {
     CHECK_THAT(state.gamma().real(), WithinAbs(0.5, kTol));
 }
 
-TEST_CASE("RISC Array: CNOT on 2-qubit state") {
+TEST_CASE("VM Array: CNOT on 2-qubit state") {
     SchrodingerState state(2, 0);
     state.active_k = 2;
     // Set up |10> state: v = [0, 0, 1, 0]
@@ -320,7 +320,7 @@ TEST_CASE("RISC Array: CNOT on 2-qubit state") {
     check_complex(state.v()[2], {1.0, 0.0});
 }
 
-TEST_CASE("RISC Array: CNOT flips target when control is 1") {
+TEST_CASE("VM Array: CNOT flips target when control is 1") {
     SchrodingerState state(2, 0);
     state.active_k = 2;
     // |01> state: v[1] = 1 (qubit 0 = 1, qubit 1 = 0)
@@ -340,7 +340,7 @@ TEST_CASE("RISC Array: CNOT flips target when control is 1") {
     check_complex(state.v()[3], {1.0, 0.0});  // |11> = index 3
 }
 
-TEST_CASE("RISC Array: CZ negates 11 component") {
+TEST_CASE("VM Array: CZ negates 11 component") {
     SchrodingerState state(2, 0);
     state.active_k = 2;
     // Equal superposition: |00> + |01> + |10> + |11>
@@ -358,7 +358,7 @@ TEST_CASE("RISC Array: CZ negates 11 component") {
     check_complex(state.v()[3], {-1.0, 0.0});
 }
 
-TEST_CASE("RISC Array: SWAP exchanges axes") {
+TEST_CASE("VM Array: SWAP exchanges axes") {
     SchrodingerState state(2, 0);
     state.active_k = 2;
     // |01> state
@@ -377,7 +377,7 @@ TEST_CASE("RISC Array: SWAP exchanges axes") {
     check_complex(state.v()[3], {0.0, 0.0});
 }
 
-TEST_CASE("RISC Array: S_DAG applies -i to 1-component") {
+TEST_CASE("VM Array: S_DAG applies -i to 1-component") {
     SchrodingerState state(2, 0);
     state.active_k = 1;
     state.v()[0] = {1.0, 0.0};  // |0>
@@ -391,7 +391,7 @@ TEST_CASE("RISC Array: S_DAG applies -i to 1-component") {
     check_complex(state.v()[1], {0.0, -1.0});
 }
 
-TEST_CASE("RISC Array: S then S_DAG cancels") {
+TEST_CASE("VM Array: S then S_DAG cancels") {
     SchrodingerState state(2, 0);
     state.active_k = 2;
     state.v()[0] = {0.5, 0.0};
@@ -414,7 +414,7 @@ TEST_CASE("RISC Array: S then S_DAG cancels") {
 // Phase T/T_dag Tests
 // =============================================================================
 
-TEST_CASE("RISC Phase: T on active axis - no frame error") {
+TEST_CASE("VM Phase: T on active axis - no frame error") {
     SchrodingerState state(2, 0);
     state.active_k = 1;
     // |+> state: v = [1, 1], gamma = 1/sqrt(2)
@@ -433,7 +433,7 @@ TEST_CASE("RISC Phase: T on active axis - no frame error") {
     CHECK_THAT(state.gamma().imag(), WithinAbs(0.0, kTol));
 }
 
-TEST_CASE("RISC Phase: T on active axis - with X frame error") {
+TEST_CASE("VM Phase: T on active axis - with X frame error") {
     SchrodingerState state(2, 0);
     state.active_k = 1;
     state.v()[0] = {1.0, 0.0};
@@ -449,7 +449,7 @@ TEST_CASE("RISC Phase: T on active axis - with X frame error") {
     check_complex(state.gamma(), {kInvSqrt2, kInvSqrt2});  // e^{i*pi/4}
 }
 
-TEST_CASE("RISC Phase: T_dag on active axis - no frame error") {
+TEST_CASE("VM Phase: T_dag on active axis - no frame error") {
     SchrodingerState state(2, 0);
     state.active_k = 1;
     state.v()[0] = {1.0, 0.0};
@@ -462,7 +462,7 @@ TEST_CASE("RISC Phase: T_dag on active axis - no frame error") {
     check_complex(state.v()[1], {kInvSqrt2, -kInvSqrt2});  // e^{-i*pi/4}
 }
 
-TEST_CASE("RISC Phase: T then T_dag cancels") {
+TEST_CASE("VM Phase: T then T_dag cancels") {
     SchrodingerState state(2, 0);
     state.active_k = 1;
     state.v()[0] = {0.6, 0.1};
@@ -478,7 +478,7 @@ TEST_CASE("RISC Phase: T then T_dag cancels") {
     check_complex(state.gamma(), {1.0, 0.0});
 }
 
-TEST_CASE("RISC Phase: Two T gates equal S - applies i to 1-component") {
+TEST_CASE("VM Phase: Two T gates equal S - applies i to 1-component") {
     SchrodingerState state(2, 0);
     state.active_k = 1;
     state.v()[0] = {1.0, 0.0};
@@ -496,7 +496,7 @@ TEST_CASE("RISC Phase: Two T gates equal S - applies i to 1-component") {
 // Expand + Phase: T gate on dormant qubit via H then T
 // =============================================================================
 
-TEST_CASE("RISC: EXPAND then ARRAY_T - single T gate circuit") {
+TEST_CASE("VM: EXPAND then ARRAY_T - single T gate circuit") {
     SchrodingerState state(2, 0);
     // Initial state: |0>, active_k = 0, v = [1]
 
@@ -515,7 +515,7 @@ TEST_CASE("RISC: EXPAND then ARRAY_T - single T gate circuit") {
 // Measurement Tests
 // =============================================================================
 
-TEST_CASE("RISC Meas: Dormant static - outcome from p_x") {
+TEST_CASE("VM Meas: Dormant static - outcome from p_x") {
     SchrodingerState state(2, 2);
 
     // p_x[0] = 0, p_x[1] = 1
@@ -529,7 +529,7 @@ TEST_CASE("RISC Meas: Dormant static - outcome from p_x") {
     CHECK(state.meas_record[1] == 1);  // p_x[1] = 1
 }
 
-TEST_CASE("RISC Meas: Active diagonal on definite 0-state") {
+TEST_CASE("VM Meas: Active diagonal on definite 0-state") {
     // 1-qubit active state |0>: v = [1, 0]
     SchrodingerState state(2, 1);
     state.active_k = 1;
@@ -548,7 +548,7 @@ TEST_CASE("RISC Meas: Active diagonal on definite 0-state") {
     CHECK_THAT(std::abs(state.gamma()), WithinAbs(1.0, kTol));
 }
 
-TEST_CASE("RISC Meas: Active diagonal on definite 1-state") {
+TEST_CASE("VM Meas: Active diagonal on definite 1-state") {
     SchrodingerState state(2, 1);
     state.active_k = 1;
     state.v()[0] = {0.0, 0.0};
@@ -563,7 +563,7 @@ TEST_CASE("RISC Meas: Active diagonal on definite 1-state") {
     check_complex(state.v()[0], {1.0, 0.0});
 }
 
-TEST_CASE("RISC Meas: Active diagonal with p_x flips outcome") {
+TEST_CASE("VM Meas: Active diagonal with p_x flips outcome") {
     SchrodingerState state(2, 1);
     state.active_k = 1;
     state.v()[0] = {1.0, 0.0};  // All amplitude in |0>
@@ -578,7 +578,7 @@ TEST_CASE("RISC Meas: Active diagonal with p_x flips outcome") {
     CHECK(state.active_k == 0);
 }
 
-TEST_CASE("RISC Meas: Active interfere on plus-state") {
+TEST_CASE("VM Meas: Active interfere on plus-state") {
     // |+> = (|0> + |1>)/sqrt(2)
     SchrodingerState state(2, 1);
     state.active_k = 1;
@@ -600,7 +600,7 @@ TEST_CASE("RISC Meas: Active interfere on plus-state") {
     CHECK_THAT(std::abs(state.gamma()), WithinAbs(kInvSqrt2, kTol));
 }
 
-TEST_CASE("RISC Meas: Active interfere on minus-state") {
+TEST_CASE("VM Meas: Active interfere on minus-state") {
     // |-> = (|0> - |1>)/sqrt(2)
     SchrodingerState state(2, 1);
     state.active_k = 1;
@@ -622,7 +622,7 @@ TEST_CASE("RISC Meas: Active interfere on minus-state") {
 // Dormant Random Measurement Test
 // =============================================================================
 
-TEST_CASE("RISC Meas: Dormant random - statistical test") {
+TEST_CASE("VM Meas: Dormant random - statistical test") {
     // Run many shots and check 50/50 distribution
     uint32_t zeros = 0;
     uint32_t ones = 0;
@@ -652,7 +652,7 @@ TEST_CASE("RISC Meas: Dormant random - statistical test") {
 // Integration mini-tests: End-to-end bytecode sequences
 // =============================================================================
 
-TEST_CASE("RISC Integration: Expand-T-MeasDiag gives correct statistics") {
+TEST_CASE("VM Integration: Expand-T-MeasDiag gives correct statistics") {
     // H|0> then T then measure Z: should give 50/50 with T phase
     // After EXPAND: v = [1, 1], gamma = 1/sqrt(2)
     // After T: v = [1, e^{i*pi/4}], gamma = 1/sqrt(2)
@@ -683,7 +683,7 @@ TEST_CASE("RISC Integration: Expand-T-MeasDiag gives correct statistics") {
     CHECK_THAT(ratio, WithinAbs(0.5, 0.05));
 }
 
-TEST_CASE("RISC Integration: Expand-MeasInterfere on plus gives deterministic 0") {
+TEST_CASE("VM Integration: Expand-MeasInterfere on plus gives deterministic 0") {
     // EXPAND(0) creates |+>, measuring in X-basis should deterministically yield 0
     constexpr uint32_t num_trials = 100;
 
@@ -699,7 +699,7 @@ TEST_CASE("RISC Integration: Expand-MeasInterfere on plus gives deterministic 0"
     }
 }
 
-TEST_CASE("RISC Integration: Two-qubit EXPAND-CNOT-MEAS pipeline runs correctly") {
+TEST_CASE("VM Integration: Two-qubit EXPAND-CNOT-MEAS pipeline runs correctly") {
     // EXPAND(0), EXPAND(1) produces |++> = uniform superposition [1,1,1,1]/2.
     // CNOT on |++> = |++> (invariant), so measurements are independent 50/50.
 
@@ -719,7 +719,7 @@ TEST_CASE("RISC Integration: Two-qubit EXPAND-CNOT-MEAS pipeline runs correctly"
     }
 }
 
-TEST_CASE("RISC Integration: Bell state via targeted initial state") {
+TEST_CASE("VM Integration: Bell state via targeted initial state") {
     // Create Bell state: (|00> + |11>)/sqrt(2)
     // Start with active_k = 2 and manually set amplitudes
     SchrodingerState state(3, 2);
@@ -770,7 +770,7 @@ TEST_CASE("RISC Integration: Bell state via targeted initial state") {
     CHECK(same == num_trials);
 }
 
-TEST_CASE("RISC Meas: Dormant random resets frame correctly") {
+TEST_CASE("VM Meas: Dormant random resets frame correctly") {
     SchrodingerState state({.peak_rank = 2, .num_measurements = 1, .seed = 42});
     state.p_x = X(0);  // X error on qubit 0
     state.p_z = Z(0);  // Z error on qubit 0
@@ -788,7 +788,7 @@ TEST_CASE("RISC Meas: Dormant random resets frame correctly") {
 // Detector Test
 // =============================================================================
 
-TEST_CASE("RISC Detector: computes parity of measurement records") {
+TEST_CASE("VM Detector: computes parity of measurement records") {
     SchrodingerState state({.peak_rank = 2, .num_measurements = 3, .num_detectors = 1});
     state.meas_record[0] = 1;
     state.meas_record[1] = 0;
@@ -812,7 +812,7 @@ TEST_CASE("RISC Detector: computes parity of measurement records") {
     CHECK(state.det_record[0] == 0);
 }
 
-TEST_CASE("RISC Detector: odd parity") {
+TEST_CASE("VM Detector: odd parity") {
     SchrodingerState state({.peak_rank = 2, .num_measurements = 2, .num_detectors = 1});
     state.meas_record[0] = 1;
     state.meas_record[1] = 0;
@@ -838,7 +838,7 @@ TEST_CASE("RISC Detector: odd parity") {
 // APPLY_PAULI Tests
 // =============================================================================
 
-TEST_CASE("RISC ApplyPauli: X error flips p_x bit") {
+TEST_CASE("VM ApplyPauli: X error flips p_x bit") {
     SchrodingerState state(4, 1);
     state.meas_record[0] = 1;  // condition_idx=0 fires
     state.p_x = NONE;
@@ -865,7 +865,7 @@ TEST_CASE("RISC ApplyPauli: X error flips p_x bit") {
     check_complex(state.gamma(), {1.0, 0.0});
 }
 
-TEST_CASE("RISC ApplyPauli: Z error flips p_z bit") {
+TEST_CASE("VM ApplyPauli: Z error flips p_z bit") {
     SchrodingerState state(4, 1);
     state.meas_record[0] = 1;
     state.p_x = NONE;
@@ -892,7 +892,7 @@ TEST_CASE("RISC ApplyPauli: Z error flips p_z bit") {
     check_complex(state.gamma(), {1.0, 0.0});
 }
 
-TEST_CASE("RISC ApplyPauli: X error on Z frame has no anticommutation phase") {
+TEST_CASE("VM ApplyPauli: X error on Z frame has no anticommutation phase") {
     // E=X_0 applied to P=Z_0: commutation phase is (-1)^{e_z . p_x} = (-1)^0 = +1
     SchrodingerState state(4, 1);
     state.meas_record[0] = 1;
@@ -920,7 +920,7 @@ TEST_CASE("RISC ApplyPauli: X error on Z frame has no anticommutation phase") {
     check_complex(state.gamma(), {1.0, 0.0});
 }
 
-TEST_CASE("RISC ApplyPauli: Z error on X frame negates gamma") {
+TEST_CASE("VM ApplyPauli: Z error on X frame negates gamma") {
     // E=Z_0 applied to P=X_0: commutation phase is (-1)^{e_z . p_x} = (-1)^1 = -1
     SchrodingerState state(4, 1);
     state.meas_record[0] = 1;
@@ -948,7 +948,7 @@ TEST_CASE("RISC ApplyPauli: Z error on X frame negates gamma") {
     check_complex(state.gamma(), {-1.0, 0.0});
 }
 
-TEST_CASE("RISC ApplyPauli: signed Pauli mask negates gamma") {
+TEST_CASE("VM ApplyPauli: signed Pauli mask negates gamma") {
     SchrodingerState state(4, 1);
     state.meas_record[0] = 1;
     state.p_x = NONE;
@@ -980,7 +980,7 @@ TEST_CASE("RISC ApplyPauli: signed Pauli mask negates gamma") {
 // Gamma Tracking Tests
 // =============================================================================
 
-TEST_CASE("RISC Gamma: Frame S accumulates i phase") {
+TEST_CASE("VM Gamma: Frame S accumulates i phase") {
     SchrodingerState state(2, 0);
     state.p_x = X(0);  // X on qubit 0
 
@@ -1003,7 +1003,7 @@ TEST_CASE("RISC Gamma: Frame S accumulates i phase") {
 // Multi-Shot Reset Tests (validate no stale data after reset)
 // =============================================================================
 
-TEST_CASE("RISC Reset: meas and det records do not leak between shots") {
+TEST_CASE("VM Reset: meas and det records do not leak between shots") {
     // Construct a program where measurement outcome depends on the RNG seed.
     // A dormant-random measurement produces outcome 0 or 1 depending on seed.
     // A detector then reads that measurement. If stale data from a previous
@@ -1050,7 +1050,7 @@ TEST_CASE("RISC Reset: meas and det records do not leak between shots") {
     // (Dormant-random with no frame bias is 50/50, so this is near-certain.)
 }
 
-TEST_CASE("RISC Reset: deterministic measurement overwrites previous shot") {
+TEST_CASE("VM Reset: deterministic measurement overwrites previous shot") {
     // Shot 1: manually set p_x[0]=1 so dormant-static measurement yields 1.
     // Shot 2: reset clears p_x, so measurement should yield 0.
     // Without deterministic overwrite this would leak the stale 1.
@@ -1574,7 +1574,7 @@ TEST_CASE("Zero-prob: multi-qubit deterministic interfere") {
     }
 }
 
-TEST_CASE("RISC Integration: Amortized renormalization prevents IEEE-754 drift") {
+TEST_CASE("VM Integration: Amortized renormalization prevents IEEE-754 drift") {
     // Renormalization only fires on magnitude-changing opcodes (EXPAND,
     // MEAS_ACTIVE_DIAGONAL, MEAS_ACTIVE_INTERFERE). Use EXPAND to trigger it.
     // 3 physical qubits, 1 active (k=1). EXPAND promotes axis 1 -> k becomes 2.
@@ -1918,7 +1918,7 @@ TEST_CASE("sample_survivors: logical_errors counts shots with any obs flipped") 
 // upper half. This test forces gamma near the underflow threshold so
 // that the 1/sqrt(2) factor triggers renormalization.
 
-TEST_CASE("RISC EXPAND: renormalization rescales both halves") {
+TEST_CASE("VM EXPAND: renormalization rescales both halves") {
     SchrodingerState state(3, 0);
     // Seed array: v[0] = (2.0, 1.0) as a non-trivial value
     state.v()[0] = {2.0, 1.0};
@@ -1942,7 +1942,7 @@ TEST_CASE("RISC EXPAND: renormalization rescales both halves") {
     CHECK_THAT(psi_norm_sq, WithinRel(5e-200, 1e-6));
 }
 
-TEST_CASE("RISC EXPAND_T: renormalization rescales both halves") {
+TEST_CASE("VM EXPAND_T: renormalization rescales both halves") {
     SchrodingerState state(3, 0);
     state.v()[0] = {2.0, 1.0};
     state.set_gamma({1e-100, 0.0});
@@ -1958,7 +1958,7 @@ TEST_CASE("RISC EXPAND_T: renormalization rescales both halves") {
     CHECK_THAT(psi_norm_sq, WithinRel(5e-200, 1e-6));
 }
 
-TEST_CASE("RISC EXPAND_T_DAG: renormalization rescales both halves") {
+TEST_CASE("VM EXPAND_T_DAG: renormalization rescales both halves") {
     SchrodingerState state(3, 0);
     state.v()[0] = {2.0, 1.0};
     state.set_gamma({1e-100, 0.0});
