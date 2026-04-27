@@ -196,7 +196,7 @@ class TestEnumBindings:
 
     def test_opcode_values(self) -> None:
         assert clifft.Opcode.OP_EXPAND is not None
-        assert clifft.Opcode.OP_PHASE_T is not None
+        assert clifft.Opcode.OP_ARRAY_T is not None
         assert clifft.Opcode.OP_MEAS_ACTIVE_DIAGONAL is not None
         assert clifft.Opcode.OP_POSTSELECT is not None
         assert clifft.Opcode.OP_EXP_VAL is not None

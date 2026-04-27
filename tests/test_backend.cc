@@ -1116,13 +1116,13 @@ TEST_CASE("Lower: two simultaneous T gates may raise peak rank to 2") {
 }
 
 TEST_CASE("Lower: pure Clifford circuit emits no EXPAND or T opcodes") {
-    // A pure Clifford circuit should emit no EXPAND, no PHASE_T, no PHASE_T_DAG.
+    // A pure Clifford circuit should emit no EXPAND, no ARRAY_T, no ARRAY_T_DAG.
     // All gates are absorbed into the tableau.
     auto mod = compile_circuit("H 0\nCX 0 1\nS 1\nH 1\nM 0\nM 1");
 
     CHECK(count_opcodes(mod.bytecode, Opcode::OP_EXPAND) == 0);
-    CHECK(count_opcodes(mod.bytecode, Opcode::OP_PHASE_T) == 0);
-    CHECK(count_opcodes(mod.bytecode, Opcode::OP_PHASE_T_DAG) == 0);
+    CHECK(count_opcodes(mod.bytecode, Opcode::OP_ARRAY_T) == 0);
+    CHECK(count_opcodes(mod.bytecode, Opcode::OP_ARRAY_T_DAG) == 0);
 }
 
 // =============================================================================
@@ -1144,8 +1144,8 @@ TEST_CASE("Lower: H-T-T absorbs S -- no S or T opcodes emitted") {
     // No runtime S or T opcodes should appear.
     auto mod = compile_optimized("H 0\nT 0\nT 0");
 
-    CHECK(count_opcodes(mod.bytecode, Opcode::OP_PHASE_T) == 0);
-    CHECK(count_opcodes(mod.bytecode, Opcode::OP_PHASE_T_DAG) == 0);
+    CHECK(count_opcodes(mod.bytecode, Opcode::OP_ARRAY_T) == 0);
+    CHECK(count_opcodes(mod.bytecode, Opcode::OP_ARRAY_T_DAG) == 0);
     CHECK(count_opcodes(mod.bytecode, Opcode::OP_ARRAY_S) == 0);
     CHECK(count_opcodes(mod.bytecode, Opcode::OP_FRAME_S) == 0);
     CHECK(mod.peak_rank == 0);
@@ -1155,7 +1155,7 @@ TEST_CASE("Lower: T-T on dormant Z absorbs S offline -- no runtime ops") {
     // T 0; T 0 (no H): fused S absorbed into frame. Nothing to lower.
     auto mod = compile_optimized("T 0\nT 0");
 
-    CHECK(count_opcodes(mod.bytecode, Opcode::OP_PHASE_T) == 0);
+    CHECK(count_opcodes(mod.bytecode, Opcode::OP_ARRAY_T) == 0);
     CHECK(count_opcodes(mod.bytecode, Opcode::OP_EXPAND) == 0);
     CHECK(count_opcodes(mod.bytecode, Opcode::OP_FRAME_S) == 0);
     CHECK(mod.peak_rank == 0);
@@ -1164,8 +1164,8 @@ TEST_CASE("Lower: T-T on dormant Z absorbs S offline -- no runtime ops") {
 TEST_CASE("Lower: T_dag-T_dag absorbs S_dag offline") {
     auto mod = compile_optimized("T_DAG 0\nT_DAG 0");
 
-    CHECK(count_opcodes(mod.bytecode, Opcode::OP_PHASE_T) == 0);
-    CHECK(count_opcodes(mod.bytecode, Opcode::OP_PHASE_T_DAG) == 0);
+    CHECK(count_opcodes(mod.bytecode, Opcode::OP_ARRAY_T) == 0);
+    CHECK(count_opcodes(mod.bytecode, Opcode::OP_ARRAY_T_DAG) == 0);
     CHECK(count_opcodes(mod.bytecode, Opcode::OP_ARRAY_S) == 0);
     CHECK(count_opcodes(mod.bytecode, Opcode::OP_ARRAY_S_DAG) == 0);
     CHECK(count_opcodes(mod.bytecode, Opcode::OP_FRAME_S) == 0);
@@ -1175,8 +1175,8 @@ TEST_CASE("Lower: T_dag-T_dag absorbs S_dag offline") {
 TEST_CASE("Lower: T-T_dag cancels completely") {
     auto mod = compile_optimized("T 0\nT_DAG 0");
 
-    CHECK(count_opcodes(mod.bytecode, Opcode::OP_PHASE_T) == 0);
-    CHECK(count_opcodes(mod.bytecode, Opcode::OP_PHASE_T_DAG) == 0);
+    CHECK(count_opcodes(mod.bytecode, Opcode::OP_ARRAY_T) == 0);
+    CHECK(count_opcodes(mod.bytecode, Opcode::OP_ARRAY_T_DAG) == 0);
     CHECK(count_opcodes(mod.bytecode, Opcode::OP_ARRAY_S) == 0);
     CHECK(count_opcodes(mod.bytecode, Opcode::OP_FRAME_S) == 0);
     CHECK(count_opcodes(mod.bytecode, Opcode::OP_EXPAND) == 0);
@@ -1238,8 +1238,8 @@ TEST_CASE("Lower: short postselection_mask only affects present indices") {
     CHECK(count_opcodes(mod.bytecode, Opcode::OP_DETECTOR) == 2);
 }
 
-TEST_CASE("Lower: PHASE_ROTATION geometric artifact correction", "[backend][rotation]") {
-    // Manually construct a PHASE_ROTATION with a +Y Pauli on qubit 0.
+TEST_CASE("Lower: ARRAY_ROTATION geometric artifact correction", "[backend][rotation]") {
+    // Manually construct a ARRAY_ROTATION with a +Y Pauli on qubit 0.
     // +Y compresses to -Z via the virtual frame, flipping result.sign.
     // The Back-End must correct global_weight for this geometric artifact.
     HirModule hir;
@@ -1260,7 +1260,7 @@ TEST_CASE("Lower: PHASE_ROTATION geometric artifact correction", "[backend][rota
     // z = e^{i * (-0.5) * pi} = -i
     bool found_rot = false;
     for (const auto& instr : mod.bytecode) {
-        if (instr.opcode == Opcode::OP_PHASE_ROT || instr.opcode == Opcode::OP_EXPAND_ROT) {
+        if (instr.opcode == Opcode::OP_ARRAY_ROT || instr.opcode == Opcode::OP_EXPAND_ROT) {
             CHECK_THAT(instr.math.weight_re, Catch::Matchers::WithinAbs(0.0, 1e-12));
             CHECK_THAT(instr.math.weight_im, Catch::Matchers::WithinAbs(-1.0, 1e-12));
             found_rot = true;

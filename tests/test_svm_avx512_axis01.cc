@@ -519,7 +519,7 @@ TEST_CASE("AVX512 axis01: phase rotation on axis 0 at rank 10") {
     // T gate: e^{i*pi/4}
     double angle = std::numbers::pi / 4.0;
     std::complex<double> phase = {std::cos(angle), std::sin(angle)};
-    auto prog = make_program({make_phase_rot(0, phase.real(), phase.imag())}, kHighRank);
+    auto prog = make_program({make_array_rot(0, phase.real(), phase.imag())}, kHighRank);
     execute(prog, state);
 
     // Phase on axis 0: multiply |1> amplitudes (bit 0 = 1) by phase
@@ -545,7 +545,7 @@ TEST_CASE("AVX512 axis01: phase rotation on axis 1 at rank 10") {
 
     double angle = std::numbers::pi / 3.0;
     std::complex<double> phase = {std::cos(angle), std::sin(angle)};
-    auto prog = make_program({make_phase_rot(1, phase.real(), phase.imag())}, kHighRank);
+    auto prog = make_program({make_array_rot(1, phase.real(), phase.imag())}, kHighRank);
     execute(prog, state);
 
     for (uint64_t i = 0; i < n; ++i) {

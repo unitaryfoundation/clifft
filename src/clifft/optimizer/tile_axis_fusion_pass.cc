@@ -21,9 +21,9 @@ bool is_1q_array_op(Opcode op) {
         case Opcode::OP_ARRAY_H:
         case Opcode::OP_ARRAY_S:
         case Opcode::OP_ARRAY_S_DAG:
-        case Opcode::OP_PHASE_T:
-        case Opcode::OP_PHASE_T_DAG:
-        case Opcode::OP_PHASE_ROT:
+        case Opcode::OP_ARRAY_T:
+        case Opcode::OP_ARRAY_T_DAG:
+        case Opcode::OP_ARRAY_ROT:
             return true;
         default:
             return false;
@@ -244,7 +244,7 @@ void simulate_tile_instruction(const Instruction& inst, uint8_t& px_lo, uint8_t&
             mat4_mul_left(M, U);
             break;
         }
-        case Opcode::OP_PHASE_T: {
+        case Opcode::OP_ARRAY_T: {
             Mat2 u = {1.0, 0.0, 0.0, 1.0};
             if (px) {
                 u[3] = kExpMinusIPiOver4;
@@ -255,7 +255,7 @@ void simulate_tile_instruction(const Instruction& inst, uint8_t& px_lo, uint8_t&
             mat4_mul_left(M, kron_axis(u, on_hi_axis));
             break;
         }
-        case Opcode::OP_PHASE_T_DAG: {
+        case Opcode::OP_ARRAY_T_DAG: {
             Mat2 u = {1.0, 0.0, 0.0, 1.0};
             if (px) {
                 u[3] = kExpIPiOver4;
@@ -266,7 +266,7 @@ void simulate_tile_instruction(const Instruction& inst, uint8_t& px_lo, uint8_t&
             mat4_mul_left(M, kron_axis(u, on_hi_axis));
             break;
         }
-        case Opcode::OP_PHASE_ROT: {
+        case Opcode::OP_ARRAY_ROT: {
             std::complex<double> z(inst.math.weight_re, inst.math.weight_im);
             Mat2 u = {1.0, 0.0, 0.0, 1.0};
             if (px) {

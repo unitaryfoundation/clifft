@@ -19,10 +19,10 @@ void ExpandTPass::run(CompiledModule& module) {
             uint16_t axis = old_bc[i].axis_1;
             Opcode next_op = old_bc[i + 1].opcode;
 
-            if ((next_op == Opcode::OP_PHASE_T || next_op == Opcode::OP_PHASE_T_DAG) &&
+            if ((next_op == Opcode::OP_ARRAY_T || next_op == Opcode::OP_ARRAY_T_DAG) &&
                 old_bc[i + 1].axis_1 == axis) {
                 Opcode fused_op =
-                    (next_op == Opcode::OP_PHASE_T) ? Opcode::OP_EXPAND_T : Opcode::OP_EXPAND_T_DAG;
+                    (next_op == Opcode::OP_ARRAY_T) ? Opcode::OP_EXPAND_T : Opcode::OP_EXPAND_T_DAG;
                 Instruction fused{};
                 fused.opcode = fused_op;
                 fused.axis_1 = axis;
@@ -63,7 +63,7 @@ void ExpandRotPass::run(CompiledModule& module) {
         if (i + 1 < old_bc.size() && old_bc[i].opcode == Opcode::OP_EXPAND) {
             uint16_t axis = old_bc[i].axis_1;
 
-            if (old_bc[i + 1].opcode == Opcode::OP_PHASE_ROT && old_bc[i + 1].axis_1 == axis) {
+            if (old_bc[i + 1].opcode == Opcode::OP_ARRAY_ROT && old_bc[i + 1].axis_1 == axis) {
                 new_bc.push_back(make_expand_rot(axis, old_bc[i + 1].math.weight_re,
                                                  old_bc[i + 1].math.weight_im));
                 if (has_sm)

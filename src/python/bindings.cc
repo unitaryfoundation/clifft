@@ -518,12 +518,12 @@ NB_MODULE(_clifft_core, m) {
         .def(nb::init<>());
 
     nb::class_<clifft::ExpandTPass, clifft::BytecodePass>(
-        m, "ExpandTPass", "Fuses OP_EXPAND + OP_PHASE_T into single OP_EXPAND_T instructions.")
+        m, "ExpandTPass", "Fuses OP_EXPAND + OP_ARRAY_T into single OP_EXPAND_T instructions.")
         .def(nb::init<>());
 
     nb::class_<clifft::ExpandRotPass, clifft::BytecodePass>(
         m, "ExpandRotPass",
-        "Fuses OP_EXPAND + OP_PHASE_ROT into single OP_EXPAND_ROT instructions.")
+        "Fuses OP_EXPAND + OP_ARRAY_ROT into single OP_EXPAND_ROT instructions.")
         .def(nb::init<>());
 
     nb::class_<clifft::SwapMeasPass, clifft::BytecodePass>(
@@ -589,11 +589,11 @@ NB_MODULE(_clifft_core, m) {
         .value("OP_ARRAY_S", clifft::Opcode::OP_ARRAY_S)
         .value("OP_ARRAY_S_DAG", clifft::Opcode::OP_ARRAY_S_DAG)
         .value("OP_EXPAND", clifft::Opcode::OP_EXPAND)
-        .value("OP_PHASE_T", clifft::Opcode::OP_PHASE_T)
-        .value("OP_PHASE_T_DAG", clifft::Opcode::OP_PHASE_T_DAG)
+        .value("OP_ARRAY_T", clifft::Opcode::OP_ARRAY_T)
+        .value("OP_ARRAY_T_DAG", clifft::Opcode::OP_ARRAY_T_DAG)
         .value("OP_EXPAND_T", clifft::Opcode::OP_EXPAND_T)
         .value("OP_EXPAND_T_DAG", clifft::Opcode::OP_EXPAND_T_DAG)
-        .value("OP_PHASE_ROT", clifft::Opcode::OP_PHASE_ROT)
+        .value("OP_ARRAY_ROT", clifft::Opcode::OP_ARRAY_ROT)
         .value("OP_EXPAND_ROT", clifft::Opcode::OP_EXPAND_ROT)
         .value("OP_ARRAY_U2", clifft::Opcode::OP_ARRAY_U2)
         .value("OP_ARRAY_U4", clifft::Opcode::OP_ARRAY_U4)
@@ -649,7 +649,7 @@ NB_MODULE(_clifft_core, m) {
                 } else if (i.opcode == clifft::Opcode::OP_ARRAY_MULTI_CNOT ||
                            i.opcode == clifft::Opcode::OP_ARRAY_MULTI_CZ) {
                     d["mask"] = i.multi_gate.mask;
-                } else if (i.opcode == clifft::Opcode::OP_PHASE_ROT ||
+                } else if (i.opcode == clifft::Opcode::OP_ARRAY_ROT ||
                            i.opcode == clifft::Opcode::OP_EXPAND_ROT) {
                     d["weight_re"] = i.math.weight_re;
                     d["weight_im"] = i.math.weight_im;

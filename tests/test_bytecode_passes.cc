@@ -508,7 +508,7 @@ TEST_CASE("BytecodePassManager: NoiseBlock then MultiGate", "[bytecode-pass]") {
 TEST_CASE("ExpandTPass: EXPAND + T fused into EXPAND_T", "[bytecode-pass]") {
     auto m = make_module({
         make_expand(3),
-        make_phase_t(3),
+        make_array_t(3),
     });
     ExpandTPass().run(m);
     REQUIRE(m.bytecode.size() == 1);
@@ -519,7 +519,7 @@ TEST_CASE("ExpandTPass: EXPAND + T fused into EXPAND_T", "[bytecode-pass]") {
 TEST_CASE("ExpandTPass: EXPAND + T_DAG fused into EXPAND_T_DAG", "[bytecode-pass]") {
     auto m = make_module({
         make_expand(5),
-        make_phase_t_dag(5),
+        make_array_t_dag(5),
     });
     ExpandTPass().run(m);
     REQUIRE(m.bytecode.size() == 1);
@@ -530,12 +530,12 @@ TEST_CASE("ExpandTPass: EXPAND + T_DAG fused into EXPAND_T_DAG", "[bytecode-pass
 TEST_CASE("ExpandTPass: mismatched axes not fused", "[bytecode-pass]") {
     auto m = make_module({
         make_expand(3),
-        make_phase_t(4),  // different axis
+        make_array_t(4),  // different axis
     });
     ExpandTPass().run(m);
     REQUIRE(m.bytecode.size() == 2);
     CHECK(m.bytecode[0].opcode == Opcode::OP_EXPAND);
-    CHECK(m.bytecode[1].opcode == Opcode::OP_PHASE_T);
+    CHECK(m.bytecode[1].opcode == Opcode::OP_ARRAY_T);
 }
 
 TEST_CASE("ExpandTPass: standalone EXPAND kept", "[bytecode-pass]") {
@@ -550,7 +550,7 @@ TEST_CASE("ExpandTPass: standalone EXPAND kept", "[bytecode-pass]") {
 
 TEST_CASE("ExpandTPass: preserves source map", "[bytecode-pass]") {
     CompiledModule m;
-    m.bytecode = {make_expand(3), make_phase_t(3), make_frame_h(0)};
+    m.bytecode = {make_expand(3), make_array_t(3), make_frame_h(0)};
     set_source_map(m, {{10}, {11}, {20}}, {3, 4, 4});
 
     ExpandTPass().run(m);

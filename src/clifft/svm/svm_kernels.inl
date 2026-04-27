@@ -947,8 +947,8 @@ static inline void expand_with_phase(std::complex<double>* __restrict arr, uint6
 // to array indices where bit v is set. If p_x[v]=1 (T anticommutes with X),
 // the array gets T_dag instead and gamma absorbs e^{i*pi/4} to preserve
 // the factored state identity.
-static inline void exec_phase_t(SchrodingerState& state, uint16_t v) {
-    assert(v < 64 && "PHASE_T: axis out of range");
+static inline void exec_array_t(SchrodingerState& state, uint16_t v) {
+    assert(v < 64 && "ARRAY_T: axis out of range");
     bool px = bit_get(state.p_x, v);
 
     if (v >= state.active_k) {
@@ -968,8 +968,8 @@ static inline void exec_phase_t(SchrodingerState& state, uint16_t v) {
 // T_dag gate (-pi/4 Z-rotation) on active axis v: applies diag(1, e^{-i*pi/4}).
 // Mirror of T: if p_x[v]=1, the array gets T instead and gamma absorbs
 // e^{-i*pi/4}.
-static inline void exec_phase_t_dag(SchrodingerState& state, uint16_t v) {
-    assert(v < 64 && "PHASE_T_DAG: axis out of range");
+static inline void exec_array_t_dag(SchrodingerState& state, uint16_t v) {
+    assert(v < 64 && "ARRAY_T_DAG: axis out of range");
     bool px = bit_get(state.p_x, v);
 
     if (v >= state.active_k) {
@@ -986,7 +986,7 @@ static inline void exec_phase_t_dag(SchrodingerState& state, uint16_t v) {
     }
 }
 
-// Fused EXPAND + PHASE_T: duplicates the array into the upper half while
+// Fused EXPAND + ARRAY_T: duplicates the array into the upper half while
 // applying the T phase to the new axis in a single pass.  The expand
 // operation sets v[i + half] = v[i] for all i < 2^k, then T multiplies
 // v[idx] by exp(i*pi/4) for all idx with the new bit set.  By fusing,
@@ -1011,7 +1011,7 @@ static inline void exec_expand_t(SchrodingerState& state, uint16_t v) {
     }
 }
 
-// Fused EXPAND + PHASE_T_DAG: same fusion but with T-dagger phase.
+// Fused EXPAND + ARRAY_T_DAG: same fusion but with T-dagger phase.
 static inline void exec_expand_t_dag(SchrodingerState& state, uint16_t v) {
     assert(v == state.active_k && "EXPAND_T_DAG must target the next dormant axis");
     assert(state.v_size() <= state.array_size() / 2);
@@ -1040,8 +1040,8 @@ static inline void exec_expand_t_dag(SchrodingerState& state, uint16_t v) {
 // z = weight_re + i*weight_im = e^{i*alpha*pi}. If p_x[v]=1 (X error),
 // the array gets z* instead and gamma absorbs z to preserve the factored
 // state identity.
-static inline void exec_phase_rot(SchrodingerState& state, uint16_t v, double z_re, double z_im) {
-    assert(v < 64 && "PHASE_ROT: axis out of range");
+static inline void exec_array_rot(SchrodingerState& state, uint16_t v, double z_re, double z_im) {
+    assert(v < 64 && "ARRAY_ROT: axis out of range");
     bool px = bit_get(state.p_x, v);
     std::complex<double> z(z_re, z_im);
 
@@ -1059,7 +1059,7 @@ static inline void exec_phase_rot(SchrodingerState& state, uint16_t v, double z_
     }
 }
 
-// Fused EXPAND + PHASE_ROT: duplicates the array into the upper half while
+// Fused EXPAND + ARRAY_ROT: duplicates the array into the upper half while
 // applying the continuous phase to the new axis in a single pass.
 static inline void exec_expand_rot(SchrodingerState& state, uint16_t v, double z_re, double z_im) {
     assert(v == state.active_k && "EXPAND_ROT must target the next dormant axis");
@@ -2140,16 +2140,16 @@ void execute_internal(const CompiledModule& program, SchrodingerState& state) {
         [static_cast<uint8_t>(Opcode::OP_ARRAY_H)] = &&L_OP_ARRAY_H,
         [static_cast<uint8_t>(Opcode::OP_ARRAY_S)] = &&L_OP_ARRAY_S,
         [static_cast<uint8_t>(Opcode::OP_ARRAY_S_DAG)] = &&L_OP_ARRAY_S_DAG,
-
-        [static_cast<uint8_t>(Opcode::OP_EXPAND)] = &&L_OP_EXPAND,
-        [static_cast<uint8_t>(Opcode::OP_PHASE_T)] = &&L_OP_PHASE_T,
-        [static_cast<uint8_t>(Opcode::OP_PHASE_T_DAG)] = &&L_OP_PHASE_T_DAG,
-        [static_cast<uint8_t>(Opcode::OP_EXPAND_T)] = &&L_OP_EXPAND_T,
-        [static_cast<uint8_t>(Opcode::OP_EXPAND_T_DAG)] = &&L_OP_EXPAND_T_DAG,
-        [static_cast<uint8_t>(Opcode::OP_PHASE_ROT)] = &&L_OP_PHASE_ROT,
-        [static_cast<uint8_t>(Opcode::OP_EXPAND_ROT)] = &&L_OP_EXPAND_ROT,
+        [static_cast<uint8_t>(Opcode::OP_ARRAY_T)] = &&L_OP_ARRAY_T,
+        [static_cast<uint8_t>(Opcode::OP_ARRAY_T_DAG)] = &&L_OP_ARRAY_T_DAG,
+        [static_cast<uint8_t>(Opcode::OP_ARRAY_ROT)] = &&L_OP_ARRAY_ROT,
         [static_cast<uint8_t>(Opcode::OP_ARRAY_U2)] = &&L_OP_ARRAY_U2,
         [static_cast<uint8_t>(Opcode::OP_ARRAY_U4)] = &&L_OP_ARRAY_U4,
+
+        [static_cast<uint8_t>(Opcode::OP_EXPAND)] = &&L_OP_EXPAND,
+        [static_cast<uint8_t>(Opcode::OP_EXPAND_T)] = &&L_OP_EXPAND_T,
+        [static_cast<uint8_t>(Opcode::OP_EXPAND_T_DAG)] = &&L_OP_EXPAND_T_DAG,
+        [static_cast<uint8_t>(Opcode::OP_EXPAND_ROT)] = &&L_OP_EXPAND_ROT,
 
         [static_cast<uint8_t>(Opcode::OP_MEAS_DORMANT_STATIC)] = &&L_OP_MEAS_DORMANT_STATIC,
         [static_cast<uint8_t>(Opcode::OP_MEAS_DORMANT_RANDOM)] = &&L_OP_MEAS_DORMANT_RANDOM,
@@ -2239,12 +2239,12 @@ L_OP_EXPAND:
     exec_expand(state, pc->axis_1);
     DISPATCH();
 
-L_OP_PHASE_T:
-    exec_phase_t(state, pc->axis_1);
+L_OP_ARRAY_T:
+    exec_array_t(state, pc->axis_1);
     DISPATCH();
 
-L_OP_PHASE_T_DAG:
-    exec_phase_t_dag(state, pc->axis_1);
+L_OP_ARRAY_T_DAG:
+    exec_array_t_dag(state, pc->axis_1);
     DISPATCH();
 
 L_OP_EXPAND_T:
@@ -2255,8 +2255,8 @@ L_OP_EXPAND_T_DAG:
     exec_expand_t_dag(state, pc->axis_1);
     DISPATCH();
 
-L_OP_PHASE_ROT:
-    exec_phase_rot(state, pc->axis_1, pc->math.weight_re, pc->math.weight_im);
+L_OP_ARRAY_ROT:
+    exec_array_rot(state, pc->axis_1, pc->math.weight_re, pc->math.weight_im);
     DISPATCH();
 
 L_OP_EXPAND_ROT:
@@ -2387,11 +2387,11 @@ L_OP_EXP_VAL:
             case Opcode::OP_EXPAND:
                 exec_expand(state, instr.axis_1);
                 break;
-            case Opcode::OP_PHASE_T:
-                exec_phase_t(state, instr.axis_1);
+            case Opcode::OP_ARRAY_T:
+                exec_array_t(state, instr.axis_1);
                 break;
-            case Opcode::OP_PHASE_T_DAG:
-                exec_phase_t_dag(state, instr.axis_1);
+            case Opcode::OP_ARRAY_T_DAG:
+                exec_array_t_dag(state, instr.axis_1);
                 break;
             case Opcode::OP_EXPAND_T:
                 exec_expand_t(state, instr.axis_1);
@@ -2399,8 +2399,8 @@ L_OP_EXP_VAL:
             case Opcode::OP_EXPAND_T_DAG:
                 exec_expand_t_dag(state, instr.axis_1);
                 break;
-            case Opcode::OP_PHASE_ROT:
-                exec_phase_rot(state, instr.axis_1, instr.math.weight_re, instr.math.weight_im);
+            case Opcode::OP_ARRAY_ROT:
+                exec_array_rot(state, instr.axis_1, instr.math.weight_re, instr.math.weight_im);
                 break;
             case Opcode::OP_EXPAND_ROT:
                 exec_expand_rot(state, instr.axis_1, instr.math.weight_re, instr.math.weight_im);

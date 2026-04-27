@@ -141,7 +141,7 @@ def define_env(env: Any) -> None:
             "python_name": "ExpandTPass",
             "summary": "Fuses EXPAND + T-phase into a single array pass.",
             "detail": (
-                "Fuses contiguous OP_EXPAND + OP_PHASE_T (or T_DAG) pairs into "
+                "Fuses contiguous OP_EXPAND + OP_ARRAY_T (or T_DAG) pairs into "
                 "single OP_EXPAND_T (or OP_EXPAND_T_DAG) instructions. The separate "
                 "instructions cause two array passes; the fused instruction performs "
                 "both in one loop: arr[i+half] = arr[i] * exp(+/-i*pi/4)."
@@ -154,7 +154,7 @@ def define_env(env: Any) -> None:
             "python_name": "ExpandRotPass",
             "summary": "Fuses EXPAND + continuous rotation into a single array pass.",
             "detail": (
-                "Fuses contiguous OP_EXPAND + OP_PHASE_ROT pairs into single "
+                "Fuses contiguous OP_EXPAND + OP_ARRAY_ROT pairs into single "
                 "OP_EXPAND_ROT instructions, eliminating the two-pass penalty of "
                 "separate expand and phase-rotate operations."
             ),
@@ -195,8 +195,8 @@ def define_env(env: Any) -> None:
             "python_name": "SingleAxisFusionPass",
             "summary": "Fuses single-axis operation chains into precomputed 2x2 unitaries.",
             "detail": (
-                "Fuses consecutive single-axis operations (ARRAY_H, ARRAY_S, PHASE_T, "
-                "PHASE_ROT, etc.) on the same virtual axis into a single OP_ARRAY_U2 "
+                "Fuses consecutive single-axis operations (ARRAY_H, ARRAY_S, ARRAY_T, "
+                "ARRAY_ROT, etc.) on the same virtual axis into a single OP_ARRAY_U2 "
                 "instruction. Pre-computes 2x2 unitary matrices for all 4 possible "
                 "incoming Pauli frame states (I, X, Z, Y). A run is fused if it "
                 "contains at least 3 array-touching operations, or at least 2 when "
