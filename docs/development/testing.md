@@ -1,47 +1,56 @@
 <!--pytest-codeblocks:skipfile-->
 # Testing Strategy
 
-Clifft employs a two-tier testing strategy: fast C++ unit tests to validate individual compiler pipeline mechanics, and extensive Python-based oracles for full-system integration and quantum physics validation.
+Clifft uses a layered testing strategy. Fast C++ unit tests validate individual compiler and runtime components, while Python integration tests compare full-system behavior against independent simulation oracles and statistical expectations.
 
-Because Clifft is an exact simulation engine designed for Fault-Tolerant Quantum Computing (FTQC), the test suite strictly enforces absolute deterministic correctness for basis transformations and bounds statistical deviations for noise sampling.
+This split mirrors Clifft's architecture. The compiler pipeline is tested for deterministic correctness: parsing, Clifford absorption, HIR construction, Pauli localization, bytecode generation, and active-state updates should produce exact, reproducible results. The sampling layer is tested statistically: noisy circuits and detector outputs are compared against independent references within shot-noise bounds.
 
-## Core Primitives & The Stim Contract
+Because Clifft is an exact simulator for near-Clifford fault-tolerant circuits, the tests emphasize both sides of the system: exact basis and frame transformations, and correct stochastic behavior under noise, measurements, detectors, and observables.
 
-Clifft relies heavily on [Stim](https://github.com/quantumlib/Stim) for stabilizer frame tracking and Pauli rewinding. Because `stim` is heavily battle-tested by the quantum error correction community, we intentionally **do not** write tests verifying its underlying GF(2) mathematics.
+## Core Primitives and the Stim Contract
 
-Instead, we explicitly validate **our assumptions** about Stim's APIs. We maintain a dedicated contract test suite ([`tests/test_stim_contract.cc`](https://github.com/unitaryfoundation/clifft/blob/main/tests/test_stim_contract.cc)) that asserts specific Heisenberg rewinding behaviors and tableau conjugation rules. If an upstream change in Stim ever subtly alters these semantics, this suite acts as an immediate tripwire, preventing mysterious upstream breakages in the Clifft Front-End.
+Clifft relies on Stim for stabilizer tableau operations used in Clifford-frame tracking and Pauli rewinding. We do not duplicate Stim's test suite or independently re-test its underlying GF(2) tableau algebra.
 
-## Verifying Quantum Phenomena (Structured vs. Random)
+Instead, Clifft maintains contract tests for the specific Stim semantics that the compiler depends on. The dedicated suite ([`tests/test_stim_contract.cc`](https://github.com/unitaryfoundation/clifft/blob/main/tests/test_stim_contract.cc)) checks the expected Heisenberg rewinding behavior, Pauli-string conventions, and tableau conjugation rules used by the front end.
 
-Random circuit fuzzing is a staple of quantum simulator testing, but it has a major flaw: deep random circuits quickly scramble amplitudes into uniform white noise. This makes it mathematically difficult to prove that deep, uniquely quantum phenomena—like complex phase accumulation or destructive interference—are actually being simulated correctly, as opposed to just outputting random noise.
+These tests act as a compatibility tripwire. If an upstream Stim change alters an API behavior or convention that Clifft relies on, the contract suite should fail close to the source of the mismatch rather than producing a harder-to-debug compiler or runtime error later in the pipeline.
 
-To guarantee physical accuracy, Clifft relies heavily on **Structured Testing** alongside random fuzzing:
+## Structured and Random Circuit Oracles
 
-* **Mirror Circuits ($U U^\dagger = I$):** We construct deep, highly entangled circuits, insert a bounded number of non-Clifford `T` gates, and immediately append the exact analytical inverse of the circuit. Mathematically, the final state vector must perfectly return to $|00\dots0\rangle$. This proves that the VM's active array expansion, `T`-gate phase tracking, and floating-point renormalization are perfectly reversible. Furthermore, when the AOT optimizer is enabled, it proves that complete analytical `T`-gate annihilation occurs, collapsing the peak active dimension to exactly 0 ([`test_structural_oracles.py`](https://github.com/unitaryfoundation/clifft/blob/main/tests/python/test_structural_oracles.py), [`test_peephole_oracle.py`](https://github.com/unitaryfoundation/clifft/blob/main/tests/python/test_peephole_oracle.py)).
-* **Structured Topologies:** We generate specific circuit topologies designed to trigger complex compiler behaviors:
-    * **Commutation Gauntlets:** Tests the HIR pass manager by forcing `T` gates to slide past deep chains of commuting and anti-commuting Pauli barriers.
-    * **Star-Graph Honeypots:** Generates massive CNOT/CZ fan-outs to verify the `MultiGatePass` fused bytecode loops evaluate parities correctly.
-    * **Breathing Memory Lifecycles:** Injects and measures `T`-state qubits repeatedly to stress the VM's array compaction and ensure the continuous scale factor $\gamma$ doesn't drift into IEEE-754 underflow limits.
-* **Random Fuzzing:** Dense random Clifford+T circuits are used specifically to shake out edge cases in the greedy Pauli localization pass and ensure the generated $\mathcal{O}(N)$ bytecode correctly routes physical correlations.
+Random circuit fuzzing is useful for finding edge cases, but it is not sufficient on its own. Deep random circuits can produce output distributions and dense states whose errors are difficult to diagnose locally. Clifft therefore combines random fuzzing with structured circuit families whose expected behavior is known analytically.
+
+* **Mirror circuits ($UU^{\dag} = I$):** We generate deep, entangling circuits with a bounded number of non-Clifford gates and append the exact inverse circuit. The final state must return to `|00...0⟩`. These tests exercise active-state expansion, non-Clifford phase handling, measurement-free reversibility, and normalization behavior. With optimization enabled, related tests check that the compiler can recognize and eliminate cancelling non-Clifford structure in these cases ([`test_structural_oracles.py`](https://github.com/unitaryfoundation/clifft/blob/main/tests/python/test_structural_oracles.py), [`test_peephole_oracle.py`](https://github.com/unitaryfoundation/clifft/blob/main/tests/python/test_peephole_oracle.py)).
+
+* **Structured compiler stress tests:** We generate circuit families designed to exercise specific parts of the compiler and VM:
+    * **Commutation tests:** circuits that force non-Clifford operations through chains of commuting and anti-commuting Pauli structure, stressing HIR rewrites and scheduling.
+    * **Parity/localization tests:** CNOT/CZ fan-out patterns that verify multi-qubit Pauli products are localized correctly and that fused bytecode evaluates parities as intended.
+    * **Active-state lifecycle tests:** circuits that repeatedly introduce and remove active degrees of freedom, stressing active-array growth, compaction, and accumulated scale-factor handling.
+
+* **Random fuzzing:** Dense random Clifford+T circuits are used to shake out edge cases in greedy Pauli localization, bytecode generation, and the routing of physical correlations through the virtual frame.
 
 All procedural generators are centralized in [`utils_fuzzing.py`](https://github.com/unitaryfoundation/clifft/blob/main/tests/python/utils_fuzzing.py).
 
 ## External Cross-Validation Oracles
 
-To ensure Clifft's novel architecture produces universally correct results, we validate the end-to-end Python API against independent, third-party physics oracles.
+End-to-end Python tests compare Clifft against independent references whenever practical. These tests are intended to validate the full compiler-to-VM path rather than isolated implementation details.
 
-* **Exact State Vector Equivalence (Qiskit):** We extract the VM's factored state representation ($|\psi\rangle = \gamma U_C P |\phi\rangle_A$) and geometrically expand it into a dense $2^n$ state vector. This array is compared via a strict fidelity check ($>0.9999$) against the exact same circuit simulated by **Qiskit Aer** ([`test_qiskit_aer.py`](https://github.com/unitaryfoundation/clifft/blob/main/tests/python/test_qiskit_aer.py)). This guarantees our non-Clifford phase math matches the rest of the industry.
-* **Statistical Equivalence (Stim):** Because Clifft computes stochastic noise models and classical logic Ahead-Of-Time, we must prove our gap-sampling distributions match standard Monte Carlo execution. We run complex surface code extraction rounds for millions of shots in both Clifft and Stim. We then require the marginal firing probability of every QEC detector and logical observable to agree with its expected value within a 5σ binomial shot-noise bound. ([`test_statistical_equivalence.py`](https://github.com/unitaryfoundation/clifft/blob/main/tests/python/test_statistical_equivalence.py)).
-* **Exact Trajectories:** To verify our Heisenberg-rewound virtual frames trigger the exact same classical detector cascades as a physical laboratory, we inject $100\%$ deterministic Pauli errors (e.g., `X_ERROR(1.0)`) into entangled topological states. We verify that Clifft's hardware-agnostic bytecode flips the exact same deterministic detector bits as Stim's frame-tracking sampler ([`test_trajectory_oracle.py`](https://github.com/unitaryfoundation/clifft/blob/main/tests/python/test_trajectory_oracle.py)).
+* **Exact state-vector equivalence with Qiskit Aer:** For small circuits, we extract Clifft's frame-factored state representation and expand it into a dense $2^n$ state vector. We then compare this state against the same circuit simulated by Qiskit Aer using a strict fidelity threshold ([`test_qiskit_aer.py`](https://github.com/unitaryfoundation/clifft/blob/main/tests/python/test_qiskit_aer.py)). This checks that Clifft's non-Clifford phase handling and frame reconstruction agree with an independent dense-state simulator.
+
+* **Statistical equivalence with Stim:** For purely Clifford noisy circuits, Clifft should reproduce the detector and observable statistics produced by Stim. We run surface-code-style extraction circuits for many shots in both simulators and require each detector and logical observable marginal to agree within a binomial shot-noise bound ([`test_statistical_equivalence.py`](https://github.com/unitaryfoundation/clifft/blob/main/tests/python/test_statistical_equivalence.py)). This validates Clifft's ahead-of-time handling of stochastic noise, measurements, detectors, and classical record logic in the Clifford regime.
+
+* **Deterministic trajectory tests:** To test individual noisy trajectories without relying on statistical convergence, we inject deterministic Pauli errors such as `X_ERROR(1.0)` into entangled circuits. Clifft's detector and observable outputs are then compared directly against Stim's frame-tracking sampler ([`test_trajectory_oracle.py`](https://github.com/unitaryfoundation/clifft/blob/main/tests/python/test_trajectory_oracle.py)). These tests check that rewound frames, bytecode execution, and detector updates produce the expected classical outcomes.
 
 ## Layer-by-Layer C++ Unit Testing
 
-Beneath the end-to-end Python oracles, the C++ codebase is rigidly unit-tested using `Catch2`. Because the pipeline is broken into independent stages, each stage is tested in isolation:
+The C++ core is unit-tested with `Catch2`. These tests target individual layers of the compiler and runtime so that failures can be localized before reaching the full Python integration suite.
 
-* **Parsing & AST:** [`test_parser.cc`](https://github.com/unitaryfoundation/clifft/blob/main/tests/test_parser.cc) validates lexical conversion of text to `clifft::Circuit`, unrolling of `REPEAT` blocks, and multi-qubit syntactic sugar.
-* **Front-End:** [`test_frontend.cc`](https://github.com/unitaryfoundation/clifft/blob/main/tests/test_frontend.cc) validates mathematical absorption of physical Cliffords and rewound mask extractions.
-* **Pauli Localization:** [`test_backend.cc`](https://github.com/unitaryfoundation/clifft/blob/main/tests/test_backend.cc) feeds massive, random `stim::PauliString` masks into the Back-End's localization pass, asserting that the resulting sequence of virtual CNOT/CZ gates perfectly isolates the mask to a single active or dormant virtual bit.
-* **VM Array Math:** [`test_svm.cc`](https://github.com/unitaryfoundation/clifft/blob/main/tests/test_svm.cc) completely bypasses the compiler. We manually construct localized `Instruction` opcodes and directly mutate a dummy `SchrodingerState` to assert the raw C++ array loops and hardware `popcount` routines correctly evaluate quantum superposition.
+* **Parsing and AST:** [`test_parser.cc`](https://github.com/unitaryfoundation/clifft/blob/main/tests/test_parser.cc) validates conversion from text to `clifft::Circuit`, including `REPEAT` unrolling and supported Stim-like syntax.
+
+* **Front end:** [`test_frontend.cc`](https://github.com/unitaryfoundation/clifft/blob/main/tests/test_frontend.cc) checks Clifford absorption, Heisenberg rewinding, and extraction of the Pauli masks passed into HIR.
+
+* **Pauli localization and backend lowering:** [`test_backend.cc`](https://github.com/unitaryfoundation/clifft/blob/main/tests/test_backend.cc) tests localization of Pauli products into virtual single-qubit axes and verifies the virtual Clifford updates emitted by the backend.
+
+* **Schrödinger VM array operations:** [`test_svm.cc`](https://github.com/unitaryfoundation/clifft/blob/main/tests/test_svm.cc) bypasses the compiler and directly constructs localized VM instructions. These tests check the active-state array kernels, parity evaluation, and low-level update rules used during bytecode execution.
 
 ## Running the Tests
 
