@@ -5,12 +5,13 @@ build-backend = "scikit_build_core.build"
 [project]
 name = "clifft"
 dynamic = ["version"]
-description = "Clifft - Multi-level compiler and VM for quantum circuits"
+description = "Clifft - fast exact simulator for near-Clifford quantum circuits"
 readme = "README.md"
 requires-python = ">=3.12"
 license = "Apache-2.0"
 authors = [
     { name = "Brad Chase", email = "brad@unitary.foundation" },
+    { name = "Farrokh Labib", email = "farrokh@unitary.foundation"}
 ]
 keywords = ["quantum", "compiler", "simulation", "clifford", "stabilizer"]
 classifiers = [
