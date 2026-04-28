@@ -32,6 +32,8 @@ print(result.measurements[:5])    # First 5 shots
 
 For Stim-like compatibility, tuple unpacking is also supported:
 
+<!--pytest-codeblocks:cont-->
+
 ```python
 measurements, detectors, observables = clifft.sample(program, shots=10000, seed=42)
 ```
