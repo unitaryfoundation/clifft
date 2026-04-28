@@ -78,3 +78,9 @@ print(result.measurements[:5])  # First 5 shots.
 [Install Clifft](getting-started/installation.md){ .md-button .md-button--primary }
 
 [Try the Playground](playground/){ .md-button }
+
+## Funding
+
+This work was supported by the U.S. Department of Energy, Office of Science,
+Office of Advanced Scientific Computing Research, Accelerated Research in
+Quantum Computing under Award Number DE-SC0025336.

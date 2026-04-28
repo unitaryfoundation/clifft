@@ -90,6 +90,12 @@ and review, implementation analysis, documentation editing, and checks of
 selected derivations or arguments. All substantive design, validation, and
 release decisions were made by the human contributors.
 
+## Funding
+
+This work was supported by the U.S. Department of Energy, Office of Science,
+Office of Advanced Scientific Computing Research, Accelerated Research in
+Quantum Computing under Award Number DE-SC0025336.
+
 ## License
 
 Apache-2.0
