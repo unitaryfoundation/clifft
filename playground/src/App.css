@@ -8,13 +8,13 @@
   --border: #333;
   --text: #d4d4d4;
   --text-dim: #888;
-  --accent: #4fc3f7;
+  --accent: #5882d8;
   --accent-green: #81c784;
   --error-red: #ef5350;
   --shadow-color: rgba(0, 0, 0, 0.4);
-  --highlight-bg: rgba(79, 195, 247, 0.22);
+  --highlight-bg: rgba(88, 130, 216, 0.22);
   --backdrop-bg: rgba(0, 0, 0, 0.6);
-  --tour-glow: rgba(79, 195, 247, 0.1);
+  --tour-glow: rgba(88, 130, 216, 0.1);
 }
 
 /* Light theme */
@@ -25,13 +25,13 @@
   --border: #d0d0d0;
   --text: #1e1e1e;
   --text-dim: #666;
-  --accent: #0277bd;
+  --accent: #3C64B4;
   --accent-green: #2e7d32;
   --error-red: #c62828;
   --shadow-color: rgba(0, 0, 0, 0.15);
-  --highlight-bg: rgba(2, 119, 189, 0.15);
+  --highlight-bg: rgba(60, 100, 180, 0.15);
   --backdrop-bg: rgba(0, 0, 0, 0.3);
-  --tour-glow: rgba(2, 119, 189, 0.08);
+  --tour-glow: rgba(60, 100, 180, 0.08);
 }
 
 * {
@@ -70,6 +70,13 @@ html, body, #root {
   display: flex;
   align-items: center;
   gap: 12px;
+}
+
+.toolbar-mark {
+  width: 18px;
+  height: 18px;
+  display: block;
+  flex-shrink: 0;
 }
 
 .toolbar-title {
