@@ -51,36 +51,28 @@ print(result.measurements[:5])  # First 5 shots.
 
 <div class="grid cards" markdown>
 
-- :material-format-list-checks: **Stim-Compatible Circuits**
+- **Stim-Compatible Format and API**
 
-    Parse standard Stim circuits, including noise channels, detectors, observables, and repeat blocks, with extensions for non-Clifford gates.
+    Parse Stim-format circuits, including noise channels, detectors, observables, and repeat blocks, with extensions for non-Clifford gates. Compile once, then sample many shots through a familiar Python interface.
 
-- :material-api: **Stim-Like Python API**
+- **Exact Near-Clifford Simulation**
 
-    Compile circuits once, then sample many shots through a familiar Python interface.
+    Simulate circuits with localized non-Clifford operations exactly, without approximating the quantum state.
 
-- :material-filter: **Built-In Filtering and Importance Sampling**
-
-    Use detector-based early-exit filters and integrated importance sampling to focus computation on rare events.
-
-- :material-tune: **Optimizing Compiler Pipeline**
+- **Optimizing Compiler Pipeline**
 
     Multi-level optimization passes reduce active state-vector work before execution.
 
-- :material-speedometer: **Near-Clifford Performance**
+- **Active-Dimension Scaling**
 
     For circuits with bounded active dimension, memory and runtime scale with the localized active state rather than the full qubit count.
 
 </div>
+
+For QEC workflows, Clifft also supports detector-based post-selection, survivor sampling, and stratified importance sampling for rare-event estimation.
 
 ## Get Started
 
 [Install Clifft](getting-started/installation.md){ .md-button .md-button--primary }
 
 [Try the Playground](playground/){ .md-button }
-
-## Funding
-
-This work was supported by the U.S. Department of Energy, Office of Science,
-Office of Advanced Scientific Computing Research, Accelerated Research in
-Quantum Computing under Award Number DE-SC0025336.
