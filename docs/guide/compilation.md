@@ -1,21 +1,10 @@
 # Compiling Circuits
 
-Clifft compiles quantum circuits through a five-stage multi-level pipeline. This page explains each stage and the Python API for interacting with them.
-
-## The Compilation Pipeline
-
-```text
-Circuit Text --> Parse --> Front-End --> Middle-End Optimizer --> Back-End --> Bytecode Optimizer --> Program
-                 |           |                 |                  |               |                  |
-              Circuit     HirModule        HirModule          Program         Program            Bytecode
-               (AST)       (HIR)       (Optimized HIR)    (raw bytecode) (fused instructions)   ready to
-                                                                                                execute
-```
+Clifft compiles Stim-format circuit text into an executable SVM program. For most users, `clifft.compile()` is the only compilation API needed. Lower-level APIs are available when you want to inspect intermediate representations, customize optimization passes, or build your own compilation flow.
 
 ## One-Step Compilation
 
-For most use cases, `clifft.compile()` runs the full pipeline with the
-default HIR and bytecode optimization passes:
+For most use cases, `clifft.compile()` parses the circuit, traces Clifford operations into the Heisenberg IR, applies the default HIR and bytecode optimization passes, and returns a simulatable program:
 
 ```python
 import clifft
@@ -27,6 +16,8 @@ program = clifft.compile("""
     M 0 1 2
 """)
 ```
+
+The returned `Program` can be passed directly to `clifft.sample()`, `clifft.sample_survivors()`, or other simulation APIs.
 
 To skip optimization, pass `None` for the corresponding stage:
 
@@ -45,77 +36,17 @@ program = clifft.compile(
 )
 ```
 
-You can also supply a custom `HirPassManager` or `BytecodePassManager` to
-override the defaults (see [Optimization Passes](../reference/passes.md)).
+You can also supply a custom `HirPassManager` or `BytecodePassManager` to override the defaults. See [Optimization Passes](../reference/passes.md) for details.
 
-### Syndrome Normalization
-
-For circuits with detectors and observables (e.g., QEC circuits), detector and observable outputs represent raw measurement parities by default. A `DETECTOR` that natively evaluates to `1` in a noiseless circuit will always output `1`, even without errors. This can confuse decoders like PyMatching that expect `0` = "no error" and `1` = "error".
-
-Set `normalize_syndromes=True` to automatically compute a noiseless reference and XOR-normalize all outputs:
-
-<!--pytest.mark.skip-->
-
-```python
-import clifft
-
-program = clifft.compile(
-    circuit_text,
-    normalize_syndromes=True,
-)
-```
-
-This internally:
-
-1. Strips all noise from the HIR
-2. Runs a single noiseless reference shot
-3. XOR-normalizes each detector and observable against the reference
-
-After normalization, `0` strictly means "matches noiseless reference" and `1` strictly means "error". Post-selection also benefits: a detector that natively fires in the clean circuit won't cause spurious discards.
-
-!!! note
-    `normalize_syndromes=True` is mutually exclusive with manually passing
-    `expected_detectors` or `expected_observables`.
-
-You can also supply explicit reference parities if you've computed them yourself:
-
-<!--pytest.mark.skip-->
-
-```python
-import clifft
-
-program = clifft.compile(
-    circuit_text,
-    expected_detectors=[1, 0, 0, 1],
-    expected_observables=[1],
-)
-```
-
-### Combining Post-Selection and Normalization
-
-Post-selection and syndrome normalization compose naturally:
-
-<!--pytest.mark.skip-->
-
-```python
-import clifft
-
-program = clifft.compile(
-    circuit_text,
-    postselection_mask=[1, 0, 0],  # Post-select on detector 0
-    normalize_syndromes=True,       # Auto-normalize all syndromes
-)
-
-result = clifft.sample_survivors(program, shots=1_000_000, seed=42)
-```
+Some simulation workflows also pass options such as `postselection_mask`, `normalize_syndromes`, `expected_detectors`, or `expected_observables` to `compile()`. These options affect how detector and observable outputs are interpreted during sampling; see [Simulation](simulation.md#detectors-observables-and-post-selection).
 
 ## Step-by-Step Compilation
 
-You can also run each stage individually for inspection or custom pipelines:
+The lower-level compilation APIs expose the same stages used by `clifft.compile()`. They are useful for debugging, inspecting intermediate representations, or experimenting with custom optimization passes.
 
 ### 1. Parsing
 
-`clifft.parse()` converts Stim circuit text into an AST:
+`clifft.parse()` converts Stim-format circuit text into an AST:
 
 ```python
 import clifft
@@ -135,9 +66,9 @@ You can also parse from a file:
 circuit = clifft.parse_file("my_circuit.stim")
 ```
 
-### 2. Front-End (Clifford Tracing)
+### 2. Front-End: Clifford Tracing
 
-`clifft.trace()` runs the Clifford front-end, absorbing Clifford gates into the offline Clifford frame $U_C$ and producing the Heisenberg IR:
+`clifft.trace()` absorbs Clifford operations into Clifft's frame representation and produces the Heisenberg IR (`HirModule`). Non-Clifford operations, measurements, detectors, observables, and noise are represented explicitly in this IR:
 
 ```python
 import clifft
@@ -145,32 +76,29 @@ import clifft
 circuit = clifft.parse("H 0\nCNOT 0 1\nT 0\nM 0 1")
 hir = clifft.trace(circuit)
 
-print(hir)  # HirModule(4 ops, 2 T-gates, 2 qubits)
+print(hir)
 ```
 
-### 3. Middle-End Optimization
+### 3. HIR Optimization
 
-The optimizer applies transformation passes to the HIR before lowering:
+HIR passes transform the traced circuit before it is lowered to executable bytecode. The default pass manager applies Clifft's standard optimizations; you can also build a custom pass manager when experimenting with individual passes.
 
 <!--pytest-codeblocks:cont-->
 
 ```python
-import clifft
-
-# Get the default HIR pass manager (includes peephole fusion)
+# Use the default HIR pass manager
 pm = clifft.default_hir_pass_manager()
+pm.run(hir)
 
 # Or build a custom one
 pm = clifft.HirPassManager()
 pm.add(clifft.PeepholeFusionPass())
-
-# Run passes on the HIR module
 pm.run(hir)
 ```
 
-### 4. Back-End (Lowering)
+### 4. Back-End: Lowering to Bytecode
 
-`clifft.lower()` compiles the HIR down to executable VM bytecode:
+`clifft.lower()` converts optimized HIR into an executable SVM program:
 
 <!--pytest-codeblocks:cont-->
 
@@ -178,24 +106,20 @@ pm.run(hir)
 program = clifft.lower(hir)
 ```
 
-`lower()` also accepts optional `postselection_mask`, `expected_detectors`, and `expected_observables` arguments for syndrome normalization and post-selection at the bytecode level (see [Syndrome Normalization](#syndrome-normalization)).
+Most users should call `clifft.compile()` instead. Use `lower()` directly when you are building a custom compilation pipeline or inspecting the output of individual optimization stages.
 
 ### 5. Bytecode Optimization
 
-After lowering, a second pass manager optimizes the bytecode. This fuses instructions to reduce redundant array passes:
+After lowering, bytecode passes optimize the executable program. These passes do not change the circuit semantics; they reduce runtime overhead, for example by fusing compatible operations.
 
 <!--pytest-codeblocks:cont-->
 
 ```python
-# Get the default bytecode pass manager
 bpm = clifft.default_bytecode_pass_manager()
-
-# Run bytecode passes on the compiled program
 bpm.run(program)
 ```
 
-See [Optimization Passes](../reference/passes.md) for the full list of default
-and optional passes available at both IR levels.
+See [Optimization Passes](../reference/passes.md) for the full list of default and optional passes available at both IR levels.
 
 ## Full Custom Pipeline
 
@@ -222,11 +146,11 @@ bpm = clifft.default_bytecode_pass_manager()
 bpm.run(program)
 ```
 
-This is equivalent to `clifft.compile()` but gives you access to intermediate representations for debugging or custom optimization passes.
+This is equivalent to `clifft.compile()` with default passes, but exposes each intermediate representation for inspection or customization.
 
-## Reference Syndrome Computation
+## Advanced: Reference Syndrome Computation
 
-If you need the noiseless reference parities without compiling, use `compute_reference_syndrome()` on an `HirModule`:
+For QEC workflows, `compute_reference_syndrome()` computes the noiseless detector and observable parities for an `HirModule`. This is the same reference used internally when compiling with `normalize_syndromes=True`.
 
 <!--pytest.mark.skip-->
 
@@ -237,37 +161,8 @@ circuit = clifft.parse(circuit_text)
 hir = clifft.trace(circuit)
 ref = clifft.compute_reference_syndrome(hir)
 
-print(ref["detectors"])     # list of expected detector parities
-print(ref["observables"])   # list of expected observable parities
+print(ref["detectors"])
+print(ref["observables"])
 ```
 
-This strips noise from the HIR, lowers and executes a single shot, and returns the noiseless parities. It is the same logic used internally by `normalize_syndromes=True`.
-
-## Noise Removal Pass
-
-`RemoveNoisePass` strips all stochastic noise and readout noise ops from the HIR. It is **not** included in the default pass list — it is used internally by `compute_reference_syndrome()` for noiseless reference shots, but you can use it directly if needed:
-
-<!--pytest.mark.skip-->
-
-```python
-import clifft
-
-pm = clifft.HirPassManager()
-pm.add(clifft.RemoveNoisePass())
-pm.run(hir)  # hir now has no noise ops
-```
-
-## Post-Selection
-
-For circuits with detectors (e.g., QEC), you can mark specific detectors for post-selection. Shots where a marked detector fires are discarded:
-
-<!--pytest.mark.skip-->
-
-```python
-import clifft
-
-# Mark detector 0 for post-selection
-program = clifft.compile(circuit_text, postselection_mask=[1])
-```
-
-See [Simulation](simulation.md) for how to use `sample_survivors()` with post-selection.
+Most users do not need to call this directly; use `normalize_syndromes=True` when compiling instead. See [Simulation](simulation.md#syndrome-normalization) for details.
