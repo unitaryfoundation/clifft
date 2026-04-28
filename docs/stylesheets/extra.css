@@ -1,0 +1,29 @@
+/* Brand color overrides for the Clifft documentation theme.
+ *
+ * Sampled from the dense "t" stroke of the wordmark.
+ */
+
+:root {
+  --clifft-brand-blue: #3C64B4;
+  --clifft-brand-blue-dark: #5882d8;
+}
+
+/* Light scheme: brand blue accent against neutral white header. */
+[data-md-color-scheme="default"] {
+  --md-accent-fg-color: var(--clifft-brand-blue);
+  --md-accent-fg-color--transparent: rgba(60, 100, 180, 0.1);
+  --md-typeset-a-color: var(--clifft-brand-blue);
+}
+
+/* Dark scheme: lighter brand blue for legibility on dark backgrounds. */
+[data-md-color-scheme="slate"] {
+  --md-accent-fg-color: var(--clifft-brand-blue-dark);
+  --md-accent-fg-color--transparent: rgba(88, 130, 216, 0.15);
+  --md-typeset-a-color: var(--clifft-brand-blue-dark);
+}
+
+/* Swap the header logo to the dark variant when in slate (dark) scheme. */
+[data-md-color-scheme="slate"] .md-header__button.md-logo img,
+[data-md-color-scheme="slate"] .md-header__button.md-logo svg {
+  content: url("../assets/logos/clifft-mark-dark.png");
+}

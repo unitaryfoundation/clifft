@@ -1,4 +1,9 @@
-# Clifft
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/logos/clifft-logo-dark.png">
+    <img src="docs/assets/logos/clifft-logo-light.png" alt="Clifft" width="420">
+  </picture>
+</p>
 
 [![PyPI version](https://img.shields.io/pypi/v/clifft.svg?color=blue)](https://pypi.org/project/clifft/)
 [![Python versions](https://img.shields.io/pypi/pyversions/clifft.svg)](https://pypi.org/project/clifft/)

@@ -3,9 +3,12 @@ hide:
   - navigation
 ---
 
-# Clifft
+<p align="center" markdown>
+  ![Clifft](assets/logos/clifft-logo-light.png#only-light){ width=420 }
+  ![Clifft](assets/logos/clifft-logo-dark.png#only-dark){ width=420 }
+</p>
 
-<p style="font-size: 1.2em;">
+<p style="font-size: 1.2em; text-align: center;">
 A fast exact simulator for near-Clifford quantum circuits.
 </p>
 
