@@ -14,7 +14,8 @@ Circuit Text --> Parse --> Front-End --> Middle-End Optimizer --> Back-End --> B
 
 ## One-Step Compilation
 
-For most use cases, `clifft.compile()` runs the full pipeline:
+For most use cases, `clifft.compile()` runs the full pipeline with the
+default HIR and bytecode optimization passes:
 
 ```python
 import clifft
@@ -27,7 +28,7 @@ program = clifft.compile("""
 """)
 ```
 
-To enable HIR and bytecode optimization passes, supply pass managers:
+To skip optimization, pass `None` for the corresponding stage:
 
 ```python
 import clifft
@@ -39,12 +40,13 @@ program = clifft.compile(
     T 2
     M 0 1 2
     """,
-    hir_passes=clifft.default_hir_pass_manager(),
-    bytecode_passes=clifft.default_bytecode_pass_manager(),
+    hir_passes=None,
+    bytecode_passes=None,
 )
 ```
 
-When omitted (or `None`), the corresponding optimization stage is skipped.
+You can also supply a custom `HirPassManager` or `BytecodePassManager` to
+override the defaults (see [Optimization Passes](../reference/passes.md)).
 
 ### Syndrome Normalization
 
@@ -60,8 +62,6 @@ import clifft
 program = clifft.compile(
     circuit_text,
     normalize_syndromes=True,
-    hir_passes=clifft.default_hir_pass_manager(),
-    bytecode_passes=clifft.default_bytecode_pass_manager(),
 )
 ```
 
@@ -104,8 +104,6 @@ program = clifft.compile(
     circuit_text,
     postselection_mask=[1, 0, 0],  # Post-select on detector 0
     normalize_syndromes=True,       # Auto-normalize all syndromes
-    hir_passes=clifft.default_hir_pass_manager(),
-    bytecode_passes=clifft.default_bytecode_pass_manager(),
 )
 
 result = clifft.sample_survivors(program, shots=1_000_000, seed=42)
