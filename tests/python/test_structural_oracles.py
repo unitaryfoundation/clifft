@@ -194,13 +194,13 @@ class TestBreathingMemoryLifecycle:
     def test_peak_rank_bounded(self, n_rounds: int) -> None:
         """Peak rank stays at exactly 2 regardless of round count."""
         circuit = _breathing_circuit(n_rounds)
-        prog = clifft.compile(circuit)
+        prog = clifft.compile(circuit, hir_passes=None, bytecode_passes=None)
         assert prog.peak_rank == 2, f"n_rounds={n_rounds}: peak_rank={prog.peak_rank}, expected 2"
 
     def test_breathing_500_rounds_completes(self) -> None:
         """500-round breathing circuit runs without underflow or crash."""
         circuit = _breathing_circuit(500)
-        prog = clifft.compile(circuit)
+        prog = clifft.compile(circuit, hir_passes=None, bytecode_passes=None)
 
         assert prog.peak_rank == 2
         # Memory: 2^2 * 16 bytes = 64 bytes (trivial)
@@ -214,7 +214,7 @@ class TestBreathingMemoryLifecycle:
     def test_breathing_1000_rounds_completes(self) -> None:
         """1000-round breathing circuit -- extreme gamma stress test."""
         circuit = _breathing_circuit(1000)
-        prog = clifft.compile(circuit)
+        prog = clifft.compile(circuit, hir_passes=None, bytecode_passes=None)
 
         assert prog.peak_rank == 2
 

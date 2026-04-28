@@ -332,7 +332,7 @@ class TestExplicitPipelineAPI:
     def test_compile_convenience_matches_explicit(self) -> None:
         """clifft.compile() produces same result as parse -> trace -> lower."""
         text = "H 0\nT 0\nM 0"
-        prog_conv = clifft.compile(text)
+        prog_conv = clifft.compile(text, hir_passes=None, bytecode_passes=None)
 
         circuit = clifft.parse(text)
         hir = clifft.trace(circuit)
@@ -356,7 +356,7 @@ class TestExplicitPipelineAPI:
 def _assert_absorption_preserves_state(stim_text: str, atol: float = 1e-6) -> clifft.Program:
     """Compile with and without optimization; assert statevector equivalence."""
     # Baseline: no HIR or bytecode passes
-    prog_base = clifft.compile(stim_text)
+    prog_base = clifft.compile(stim_text, hir_passes=None, bytecode_passes=None)
     state_base = clifft.State(
         peak_rank=prog_base.peak_rank, num_measurements=prog_base.num_measurements
     )

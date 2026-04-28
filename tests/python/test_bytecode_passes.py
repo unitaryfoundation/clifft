@@ -13,12 +13,20 @@ from conftest import random_dense_clifford_t_circuit
 import clifft
 
 
+def compile_unoptimized(stim_text: str) -> clifft.Program:
+    """Compile with no HIR or bytecode optimization (baseline for A/B tests)."""
+    return clifft.compile(stim_text, hir_passes=None, bytecode_passes=None)
+
+
 def compile_optimized(stim_text: str) -> clifft.Program:
-    """Compile and run default bytecode optimization passes."""
-    prog = clifft.compile(stim_text)
-    bpm = clifft.default_bytecode_pass_manager()
-    bpm.run(prog)
-    return prog
+    """Compile with default bytecode passes only.
+
+    HIR passes are skipped so the bytecode A/B tests share an identical
+    HIR (and therefore identical PRNG trajectories) on both sides.
+    """
+    return clifft.compile(
+        stim_text, hir_passes=None, bytecode_passes=clifft.default_bytecode_pass_manager()
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -45,7 +53,7 @@ def test_statevector_oracle(num_qubits: int, depth: int, seed: int) -> None:
     """Statevectors must be perfectly identical for optimized vs baseline."""
     stim_text = random_dense_clifford_t_circuit(num_qubits, depth, seed)
 
-    prog_base = clifft.compile(stim_text)
+    prog_base = compile_unoptimized(stim_text)
     prog_opt = compile_optimized(stim_text)
 
     state_base = clifft.State(
@@ -101,7 +109,7 @@ def test_exact_trajectory_noisy() -> None:
     This proves OP_NOISE_BLOCK keeps the gap-sampler perfectly synced
     with the original per-site OP_NOISE dispatch.
     """
-    prog_base = clifft.compile(NOISY_CIRCUIT)
+    prog_base = compile_unoptimized(NOISY_CIRCUIT)
     prog_opt = compile_optimized(NOISY_CIRCUIT)
 
     # Verify optimization actually changed something
@@ -148,7 +156,7 @@ def test_exact_trajectory_noiseless() -> None:
 
     Tests OP_EXPAND_T and OP_SWAP_MEAS_INTERFERE fusion correctness.
     """
-    prog_base = clifft.compile(NOISELESS_WITH_MEAS)
+    prog_base = compile_unoptimized(NOISELESS_WITH_MEAS)
     prog_opt = compile_optimized(NOISELESS_WITH_MEAS)
 
     base_result = clifft.sample(prog_base, shots=5000, seed=99)
@@ -172,7 +180,7 @@ def test_exact_trajectory_noiseless() -> None:
 
 def test_custom_bytecode_pass_manager() -> None:
     """Users can build a custom BytecodePassManager and run individual passes."""
-    prog = clifft.compile(NOISY_CIRCUIT)
+    prog = compile_unoptimized(NOISY_CIRCUIT)
     n_before = prog.num_instructions
 
     bpm = clifft.BytecodePassManager()
@@ -187,8 +195,8 @@ def test_multi_gate_pass_opt_in() -> None:
     """MultiGatePass can be added explicitly to the pipeline."""
     stim_text = random_dense_clifford_t_circuit(4, 100, 2000)
 
-    prog_base = clifft.compile(stim_text)
-    prog_opt = clifft.compile(stim_text)
+    prog_base = compile_unoptimized(stim_text)
+    prog_opt = compile_unoptimized(stim_text)
 
     bpm = clifft.BytecodePassManager()
     bpm.add(clifft.NoiseBlockPass())

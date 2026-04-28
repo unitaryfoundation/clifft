@@ -16,7 +16,7 @@ class TestCompile:
 
     def test_compile_simple(self) -> None:
         """Compile a simple circuit."""
-        prog = clifft.compile("H 0\nT 0\nM 0")
+        prog = clifft.compile("H 0\nT 0\nM 0", hir_passes=None, bytecode_passes=None)
         assert prog.peak_rank == 1
         assert prog.num_measurements == 1
         assert prog.num_instructions >= 1
