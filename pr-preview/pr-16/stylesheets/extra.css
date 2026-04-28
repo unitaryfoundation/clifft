@@ -22,8 +22,10 @@
   --md-typeset-a-color: var(--clifft-brand-blue-dark);
 }
 
-/* Swap the header logo to the dark variant when in slate (dark) scheme. */
-[data-md-color-scheme="slate"] .md-header__button.md-logo img,
-[data-md-color-scheme="slate"] .md-header__button.md-logo svg {
+/* Swap the logo to the dark variant in slate (dark) scheme.
+ * Targets both the header logo and the drawer/sidebar logo on mobile.
+ */
+[data-md-color-scheme="slate"] [data-md-component="logo"] img,
+[data-md-color-scheme="slate"] .md-logo img {
   content: url("../assets/logos/clifft-mark-dark.png");
 }
