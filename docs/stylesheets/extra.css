@@ -22,6 +22,22 @@
   --md-typeset-a-color: var(--clifft-brand-blue-dark);
 }
 
+/* Visually hidden but still readable by screen readers. Used on the home
+ * page so the auto-rendered "Clifft" heading does not duplicate the hero
+ * logo while still anchoring the document for accessibility and SEO.
+ */
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
 /* Swap the logo to the dark variant in slate (dark) scheme.
  * Targets both the header logo and the drawer/sidebar logo on mobile.
  */

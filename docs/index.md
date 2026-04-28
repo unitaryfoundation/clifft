@@ -1,7 +1,10 @@
 ---
 hide:
   - navigation
+title: Clifft
 ---
+
+# Clifft { .visually-hidden }
 
 <p align="center" markdown>
   ![Clifft](assets/logos/clifft-logo-light.png#only-light){ width=420 }
