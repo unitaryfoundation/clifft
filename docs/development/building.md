@@ -10,7 +10,7 @@
     - macOS: Xcode Command Line Tools (Clang 14+) or `brew install llvm`
 - **Python** 3.12+
 - **uv** — `curl -LsSf https://astral.sh/uv/install.sh | sh`
-- **OpenMP runtime on macOS** (optional, enables multi-core statevector kernels)
+- **OpenMP runtime on macOS** (optional, enables multi-core state vector kernels)
     - `brew install libomp`
 
 ## Python Package Build (Recommended)
@@ -35,7 +35,7 @@ The editable install (`-e .`) means you can re-run `uv pip install -e .` after m
 
 Note that this builds with the maximum number of qubits as set by `CLIFFT_MAX_QUBITS` in the `pyproject.toml`. If you modify, you will need to rebuild. See [CLIFFT_MAX_QUBITS](#clifft_max_qubits) below.
 
-OpenMP support is optional. Linux source builds usually pick it up automatically with GCC or Clang. On macOS with Apple clang, install Homebrew `libomp` before building if you want multi-core statevector execution:
+OpenMP support is optional. Linux source builds usually pick it up automatically with GCC or Clang. On macOS with Apple clang, install Homebrew `libomp` before building if you want multi-core state vector execution:
 
 ```bash
 brew install libomp

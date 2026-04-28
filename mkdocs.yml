@@ -67,7 +67,7 @@ nav:
     - Installation: getting-started/installation.md
     - Quick Start: getting-started/quickstart.md
   - User Guide:
-    - Compiling Circuits: guide/compiling.md
+    - Compiling Circuits: guide/compilation.md
     - Simulation: guide/simulation.md
     - "Tutorial: Surface Code": guide/surface-code.md
     - "Tutorial: Importance Sampling": guide/importance-sampling.md

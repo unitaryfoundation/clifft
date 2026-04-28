@@ -28,14 +28,54 @@ All Pauli gates are single-qubit Cliffords absorbed at compile time (zero VM cos
 
 All single-qubit Cliffords are absorbed AOT — they update the Clifford frame $U_C$ at compile time and have zero cost at runtime.
 
-## Non-Clifford Gates
+## Non-Clifford Extensions
+
+Clifft extends Stim with discrete and arbitrary-angle non-Clifford gates. These operations can activate qubits in the virtual machine and expand the active state vector.
+
+### T Gates
 
 | Gate | Notes |
 |------|-------|
 | `T` | $\pi/8$ gate |
 | `T_DAG` | Inverse $\pi/8$ gate |
 
-These are Clifft extensions beyond Stim's gate set. Non-Clifford gates activate qubits in the virtual machine, expanding the active statevector.
+### Continuous Rotations
+
+Clifft extends the Stim gate set with arbitrary-angle rotation gates. All angle
+parameters are in **half-turns** (multiply by pi to get radians).
+
+#### Single-Qubit Rotations
+
+| Gate | Syntax | Notes |
+|------|--------|-------|
+| `R_X` | `R_X(alpha) target` | Rotation about X axis by `alpha * pi` radians |
+| `R_Y` | `R_Y(alpha) target` | Rotation about Y axis by `alpha * pi` radians |
+| `R_Z` | `R_Z(alpha) target` | Rotation about Z axis by `alpha * pi` radians |
+| `U3`  | `U3(theta,phi,lambda) target` | General SU(2) gate = `R_Z(phi) R_Y(theta) R_Z(lambda)` |
+| `U`   | `U(theta,phi,lambda) target` | Alias for `U3` |
+
+!!! note "Name conflicts with Stim"
+    Clifft uses `R_X`, `R_Y`, `R_Z` (with underscores) to avoid collision with
+    Stim's `RX` / `RY` reset-in-basis instructions.
+
+#### Two-Qubit Pauli Rotations
+
+| Gate | Syntax | Notes |
+|------|--------|-------|
+| `R_XX` | `R_XX(alpha) q0 q1` | `exp(-i * alpha * pi/2 * XX)` |
+| `R_YY` | `R_YY(alpha) q0 q1` | `exp(-i * alpha * pi/2 * YY)` |
+| `R_ZZ` | `R_ZZ(alpha) q0 q1` | `exp(-i * alpha * pi/2 * ZZ)` |
+
+Duplicate target qubits (e.g. `R_XX(0.5) 3 3`) are rejected at parse time.
+
+#### Multi-Qubit Pauli Rotation
+
+| Gate | Syntax | Notes |
+|------|--------|-------|
+| `R_PAULI` | `R_PAULI(alpha) X0*Y1*Z2` | Arbitrary Pauli product rotation |
+
+The target list uses Stim's Pauli product syntax (e.g. `X0*Y1*Z2`). Maximum
+target count is 64 qubits per instruction.
 
 ## Two-Qubit Clifford Gates
 
@@ -136,64 +176,8 @@ EXP_VAL X0*Y1*Z2    # multi-qubit product
 EXP_VAL X0*X1 Z0*Z1 # two products in one instruction
 ```
 
-Key properties:
-
-- **Non-destructive**: does not collapse the state or affect measurements
-- **Read-only**: does not mutate the Pauli frame, active array, or any records
-- **Shot-local**: each shot produces its own exact expectation value
-- **Barrier**: the optimizer will not reorder operations across `EXP_VAL`
-
 Results are available via `SampleResult.exp_vals` (shape `(shots, num_exp_vals)`).
 
-## Continuous Rotation Gates
-
-Clifft extends the Stim gate set with arbitrary-angle rotation gates. All angle
-parameters are in **half-turns** (multiply by pi to get radians).
-
-### Single-Qubit Rotations
-
-| Gate | Syntax | Notes |
-|------|--------|-------|
-| `R_X` | `R_X(alpha) target` | Rotation about X axis by `alpha * pi` radians |
-| `R_Y` | `R_Y(alpha) target` | Rotation about Y axis by `alpha * pi` radians |
-| `R_Z` | `R_Z(alpha) target` | Rotation about Z axis by `alpha * pi` radians |
-| `U3`  | `U3(theta,phi,lambda) target` | General SU(2) gate = `R_Z(phi) R_Y(theta) R_Z(lambda)` |
-| `U`   | `U(theta,phi,lambda) target` | Alias for `U3` |
-
-!!! note "Name conflicts with Stim"
-    Clifft uses `R_X`, `R_Y`, `R_Z` (with underscores) to avoid collision with
-    Stim's `RX` / `RY` reset-in-basis instructions.
-
-### Two-Qubit Pauli Rotations
-
-| Gate | Syntax | Notes |
-|------|--------|-------|
-| `R_XX` | `R_XX(alpha) q0 q1` | `exp(-i * alpha * pi/2 * XX)` |
-| `R_YY` | `R_YY(alpha) q0 q1` | `exp(-i * alpha * pi/2 * YY)` |
-| `R_ZZ` | `R_ZZ(alpha) q0 q1` | `exp(-i * alpha * pi/2 * ZZ)` |
-
-Duplicate target qubits (e.g. `R_XX(0.5) 3 3`) are rejected at parse time.
-
-### Multi-Qubit Pauli Rotation
-
-| Gate | Syntax | Notes |
-|------|--------|-------|
-| `R_PAULI` | `R_PAULI(alpha) X0*Y1*Z2` | Arbitrary Pauli product rotation |
-
-The target list uses Stim's Pauli product syntax (e.g. `X0*Y1*Z2`). Maximum
-target count is 64 qubits per instruction.
-
-### Compilation Path
-
-All rotation gates are reduced by the front-end to a single HIR type
-(`PHASE_ROTATION`) via Clifford absorption. The front-end maps each rotation
-to the virtual basis via the Heisenberg mapping, factors out the global phase
-`e^{-i*alpha*pi/2}` into `global_weight`, and passes the relative diagonal
-phase `diag(1, e^{i*alpha*pi})` to the back-end.
-
-The peephole optimizer fuses adjacent `PHASE_ROTATION` ops on the same Pauli
-and demotes rotations at Clifford/T angles back to their exact discrete
-counterparts (e.g. `R_Z(0.5)` becomes `S`, `R_Z(0.25)` becomes `T`).
 
 ## Not Yet Supported
 

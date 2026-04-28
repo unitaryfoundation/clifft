@@ -44,6 +44,8 @@ ChatGPT, etc.) to help write code:
 - The human author remains the commit author. The AI tool is credited via the
   trailer, not `Co-authored-by`.
 
+Users that do not follow these steps, and in particular fail to do a human pre-review of any AI generated content including issues and pull requests, may be subject to a ban from the repo.
+
 ## Code Quality
 
 We use pre-commit hooks to enforce formatting and linting:

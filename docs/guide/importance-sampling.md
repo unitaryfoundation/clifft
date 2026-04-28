@@ -27,6 +27,8 @@ T-gate and S-gate circuits distributed with Riling Li et al., "SOFT: A
 High-Performance Simulator for Universal Fault-Tolerant Quantum
 Circuits" ([arXiv:2512.23037](https://arxiv.org/abs/2512.23037)).
 
+This is an advanced tutorial. It assumes familiarity with detector-based QEC circuits, post-selection, and logical error-rate estimation.
+
 ## Overview
 
 The workflow has four steps:
@@ -180,7 +182,7 @@ for k in range(max_k + 1):
     })
 ```
 
-This completes in about 18 seconds on a modest machine -- simulating
+This should run quickly on most machines, simulating
 12.75 million shots across 17 strata.
 
 ### Combining with the Stratified Estimator

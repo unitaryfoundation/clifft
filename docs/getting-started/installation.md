@@ -19,8 +19,6 @@ pip install clifft
 | Linux `aarch64` | :white_check_mark: Supported |
 | macOS `arm64` | :white_check_mark: Supported |
 | Windows `amd64` | :white_check_mark: Supported |
-| macOS `x86_64` | :x: Not supported |
-| Other CPU families | :x: Not supported |
 
 All other platforms and CPU families should build from source. See
 [Building from Source](../development/building.md).
@@ -41,7 +39,7 @@ uv pip install -e .
 uv run python -c "import clifft; print(clifft.version())"
 ```
 
-OpenMP is optional. Linux source builds usually find it automatically with GCC or Clang. On macOS with Apple clang, install Homebrew `libomp` before building if you want multi-core statevector execution:
+OpenMP is optional. Linux source builds usually find it automatically with GCC or Clang. On macOS with Apple clang, install Homebrew `libomp` before building if you want multi-core state vector execution:
 
 ```bash
 brew install libomp
@@ -64,6 +62,6 @@ SKBUILD_CMAKE_ARGS="-DOpenMP_ROOT=$(brew --prefix libomp)" uv pip install -e .
 - **C++ compiler** with C++20 support (GCC 10+, Clang 12+, or Xcode CLT)
 - **Python** 3.12+
 - **uv** (recommended) — `curl -LsSf https://astral.sh/uv/install.sh | sh`
-- **macOS OpenMP runtime** (optional, enables multi-core statevector kernels) — `brew install libomp`
+- **macOS OpenMP runtime** (optional, enables multi-core state vector kernels) — `brew install libomp`
 
 See [Building from Source](../development/building.md) for the full development setup.

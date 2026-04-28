@@ -19,7 +19,7 @@ circuit = """
 program = clifft.compile(circuit)
 
 # Sample 1000 shots
-result = clifft.sample(program, shots=1000, seed=42)
+result = clifft.sample(program, shots=1000)
 print(result.measurements[:5])  # First 5 shots
 ```
 
@@ -39,16 +39,16 @@ program = clifft.compile("""
     M 0
 """)
 
-result = clifft.sample(program, shots=10000, seed=42)
+result = clifft.sample(program, shots=10000)
 
 # Count outcomes
 ones = result.measurements[:, 0].sum()
 print(f"|1> probability: {ones / len(result.measurements):.3f}")  # ~0.146
 ```
 
-## Statevector Access
+## State Vector Access
 
-For debugging or verification, you can extract the full statevector:
+For debugging or verification, you can extract the full state vector:
 
 ```python
 import clifft
@@ -59,7 +59,7 @@ program = clifft.compile("""
     CNOT 0 1
 """)
 
-# Create state, execute, and extract statevector
+# Create state, execute, and extract state vector
 state = clifft.State(
     peak_rank=program.peak_rank,
     num_measurements=program.num_measurements,
@@ -89,6 +89,6 @@ result = clifft.sample(program, shots=10000, seed=42)
 
 ## Next Steps
 
-- [Compiling Circuits](../guide/compiling.md) — the compilation pipeline in detail
-- [Simulation](../guide/simulation.md) — sampling, statevectors, and detectors
+- [Compiling Circuits](../guide/compilation.md) — the compilation pipeline in detail
+- [Simulation](../guide/simulation.md) — sampling, state vectors, and detectors
 - [Supported Gates](../reference/gates.md) — full gate reference
