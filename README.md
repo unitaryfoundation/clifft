@@ -1,4 +1,9 @@
-# Clifft
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/logos/clifft-logo-dark.png">
+    <img src="docs/assets/logos/clifft-logo-light.png" alt="Clifft" width="420">
+  </picture>
+</p>
 
 [![PyPI version](https://img.shields.io/pypi/v/clifft.svg?color=blue)](https://pypi.org/project/clifft/)
 [![Python versions](https://img.shields.io/pypi/pyversions/clifft.svg)](https://pypi.org/project/clifft/)
@@ -9,6 +14,8 @@
 [![Discord](https://img.shields.io/badge/Discord-Unitary%20Foundation-orange.svg)](http://discord.unitary.foundation)
 
 **Clifft** is a fast exact simulator for near-Clifford quantum circuits.
+
+Built and maintained by the [Unitary Foundation](https://unitary.foundation).
 
 Clifft accepts Stim-format circuits, extends them with non-Clifford gates, and
 compiles them into bytecode executed by a high-performance Schrödinger Virtual

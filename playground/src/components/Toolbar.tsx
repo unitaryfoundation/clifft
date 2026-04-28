@@ -16,6 +16,8 @@ import {
   X,
 } from "lucide-react";
 import LZString from "lz-string";
+import markLight from "@docs/assets/logos/clifft-mark-light.png";
+import markDark from "@docs/assets/logos/clifft-mark-dark.png";
 import type { WasmStatus, PassConfig } from "../hooks/useClifftWasm";
 import type { Theme } from "../hooks/useTheme";
 import type { PassInfo, SourceOrigin } from "../types";
@@ -205,7 +207,23 @@ export function Toolbar({
   return (
     <div className="toolbar">
       <div className="toolbar-left">
-        <span className="toolbar-title">Clifft Playground</span>
+        <img
+          src={theme === "dark" ? markDark : markLight}
+          alt=""
+          className="toolbar-mark"
+          aria-hidden="true"
+        />
+        <div className="toolbar-brand">
+          <span className="toolbar-title">Clifft Playground</span>
+          <a
+            className="toolbar-attribution"
+            href="https://unitary.foundation"
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            by Unitary Foundation
+          </a>
+        </div>
         <button
           className="toolbar-btn toolbar-btn-tour"
           onClick={onTourOpen}

@@ -2,22 +2,25 @@ site_name: Clifft
 site_url: https://unitaryfoundation.github.io/clifft/
 repo_url: https://github.com/unitaryfoundation/clifft
 repo_name: unitaryfoundation/clifft
+copyright: Copyright &copy; 2026 <a href="https://unitary.foundation" target="_blank">Unitary Foundation</a>
 
 theme:
   name: material
   custom_dir: docs/overrides
+  logo: assets/logos/clifft-mark-light.png
+  favicon: assets/logos/favicon.png
   palette:
     - media: "(prefers-color-scheme: light)"
       scheme: default
-      primary: deep purple
-      accent: amber
+      primary: white
+      accent: custom
       toggle:
         icon: material/brightness-7
         name: Switch to dark mode
     - media: "(prefers-color-scheme: dark)"
       scheme: slate
-      primary: deep purple
-      accent: amber
+      primary: black
+      accent: custom
       toggle:
         icon: material/brightness-4
         name: Switch to light mode
@@ -53,6 +56,7 @@ extra_javascript:
 
 extra_css:
   - https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css
+  - stylesheets/extra.css
 
 plugins:
   - search
