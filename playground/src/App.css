@@ -73,16 +73,34 @@ html, body, #root {
 }
 
 .toolbar-mark {
-  width: 18px;
-  height: 18px;
+  width: 22px;
+  height: 22px;
   display: block;
   flex-shrink: 0;
+}
+
+.toolbar-brand {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.1;
+  gap: 1px;
 }
 
 .toolbar-title {
   font-weight: 600;
   font-size: 14px;
   color: var(--accent);
+}
+
+.toolbar-attribution {
+  font-size: 10px;
+  color: var(--text-dim);
+  text-decoration: none;
+}
+
+.toolbar-attribution:hover {
+  color: var(--accent);
+  text-decoration: underline;
 }
 
 .toolbar-right {

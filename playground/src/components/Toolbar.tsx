@@ -213,7 +213,17 @@ export function Toolbar({
           className="toolbar-mark"
           aria-hidden="true"
         />
-        <span className="toolbar-title">Clifft Playground</span>
+        <div className="toolbar-brand">
+          <span className="toolbar-title">Clifft Playground</span>
+          <a
+            className="toolbar-attribution"
+            href="https://unitary.foundation"
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            by Unitary Foundation
+          </a>
+        </div>
         <button
           className="toolbar-btn toolbar-btn-tour"
           onClick={onTourOpen}

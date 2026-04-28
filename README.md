@@ -15,6 +15,8 @@
 
 **Clifft** is a fast exact simulator for near-Clifford quantum circuits.
 
+Built and maintained by the [Unitary Foundation](https://unitary.foundation).
+
 Clifft accepts Stim-format circuits, extends them with non-Clifford gates, and
 compiles them into bytecode executed by a high-performance Schrödinger Virtual
 Machine. It is designed for circuits whose dominant structure is Clifford, but
