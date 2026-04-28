@@ -4,6 +4,8 @@ Validates that bidirectional bubble sort of HIR operations reduces peak_rank
 by compacting qubit lifetimes, while preserving circuit semantics.
 """
 
+from typing import Any
+
 import numpy as np
 import pytest
 from conftest import assert_statevectors_equal, cross_binomial_tolerance
@@ -19,7 +21,7 @@ def _squeeze_only_pass_manager() -> clifft.HirPassManager:
     return pm
 
 
-def _clifft_statevector(circuit_str: str, **compile_kwargs: object) -> np.ndarray:
+def _clifft_statevector(circuit_str: str, **compile_kwargs: Any) -> np.ndarray:
     """Compile and execute a noiseless circuit, return dense statevector."""
     prog = clifft.compile(circuit_str, **compile_kwargs)
     state = clifft.State(peak_rank=prog.peak_rank, num_measurements=prog.num_measurements)

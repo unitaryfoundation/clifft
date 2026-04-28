@@ -83,9 +83,7 @@ def test_compile_hir_only_matches_manual() -> None:
     """compile() with only hir_passes matches manual trace + optimize + lower."""
     text = "H 0\nT 0\nT_DAG 0\nM 0"  # T/T_DAG cancel
 
-    prog = clifft.compile(
-        text, hir_passes=clifft.default_hir_pass_manager(), bytecode_passes=None
-    )
+    prog = clifft.compile(text, hir_passes=clifft.default_hir_pass_manager(), bytecode_passes=None)
 
     circuit = clifft.parse(text)
     hir = clifft.trace(circuit)
@@ -172,9 +170,7 @@ def test_postselection_without_passes_unchanged() -> None:
     text = "H 0\nM 0\nDETECTOR rec[-1]"
     mask = [1]
 
-    prog_base = clifft.compile(
-        text, postselection_mask=mask, hir_passes=None, bytecode_passes=None
-    )
+    prog_base = clifft.compile(text, postselection_mask=mask, hir_passes=None, bytecode_passes=None)
     prog_opt = clifft.compile(text, postselection_mask=mask)
 
     assert prog_base.num_detectors == prog_opt.num_detectors

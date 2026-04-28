@@ -71,7 +71,6 @@ from clifft._clifft_core import (
     StatevectorSqueezePass,
     SwapMeasPass,
     Target,
-    compile as _compile_core,
     compute_reference_syndrome,
     default_bytecode_pass_manager,
     default_hir_pass_manager,
@@ -90,6 +89,9 @@ from clifft._clifft_core import (
     svm_backend,
     trace,
     version,
+)
+from clifft._clifft_core import (
+    compile as _compile_core,
 )
 from clifft._sample_result import SampleResult
 
@@ -152,6 +154,7 @@ def compile(
         hir_passes,
         bytecode_passes,
     )
+
 
 __all__ = [
     "AstNode",
