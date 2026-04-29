@@ -867,7 +867,7 @@ NB_MODULE(_clifft_core, m) {
         "Run a compiled program and return a SampleResult.\n\n"
         "Raises ValueError for post-selected programs because fixed-row output\n"
         "cannot represent discarded shots. Use sample_survivors() instead.\n\n"
-        "If seed is None (default), uses 256-bit OS hardware entropy.\n\n"
+        "If seed is None (default), uses hardware entropy.\n\n"
         "Returns a SampleResult with .measurements, .detectors, .observables attributes.\n"
         "Supports tuple unpacking: m, d, o = clifft.sample(prog, shots)");
 
@@ -984,7 +984,7 @@ NB_MODULE(_clifft_core, m) {
         nb::arg("program"), nb::arg("shots"), nb::arg("seed") = nb::none(),
         nb::arg("keep_records") = false,
         "Sample shots and return results only for surviving (non-discarded) shots.\n\n"
-        "If seed is None (default), uses 256-bit OS hardware entropy.\n\n"
+        "If seed is None (default), uses hardware entropy.\n\n"
         "Returns a SampleResult. Survivor metadata is always populated via\n"
         ".total_shots, .passed_shots, .discards, .logical_errors, and\n"
         ".observable_ones. Per-shot record arrays\n"
