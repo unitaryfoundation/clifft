@@ -1,7 +1,7 @@
 <p align="center">
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/logos/clifft-logo-dark.png">
-    <img src="docs/assets/logos/clifft-logo-light.png" alt="Clifft" width="420">
+    <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/unitaryfoundation/clifft/main/docs/assets/logos/clifft-logo-dark.png">
+    <img src="https://raw.githubusercontent.com/unitaryfoundation/clifft/main/docs/assets/logos/clifft-logo-light.png" alt="Clifft" width="420">
   </picture>
 </p>
 
@@ -9,7 +9,7 @@
 [![Python versions](https://img.shields.io/pypi/pyversions/clifft.svg)](https://pypi.org/project/clifft/)
 [![CI](https://github.com/unitaryfoundation/clifft/actions/workflows/ci.yml/badge.svg)](https://github.com/unitaryfoundation/clifft/actions/workflows/ci.yml)
 [![codecov](https://codecov.io/gh/unitaryfoundation/clifft/graph/badge.svg)](https://codecov.io/gh/unitaryfoundation/clifft)
-[![License](https://img.shields.io/github/license/unitaryfoundation/clifft.svg)](LICENSE)
+[![License](https://img.shields.io/github/license/unitaryfoundation/clifft.svg)](https://github.com/unitaryfoundation/clifft/blob/main/LICENSE)
 [![Docs](https://img.shields.io/badge/docs-online-blue.svg)](https://unitaryfoundation.github.io/clifft/)
 [![Discord](https://img.shields.io/badge/Discord-Unitary%20Foundation-orange.svg)](http://discord.unitary.foundation)
 
@@ -54,7 +54,7 @@ pip install clifft
 | Windows `amd64` | Supported |
 
 All other platforms and CPU families should build from source. See the
-[installation docs](docs/getting-started/installation.md#from-source).
+[installation docs](https://unitaryfoundation.github.io/clifft/getting-started/installation/#from-source).
 
 ## Quick Start
 
@@ -86,7 +86,7 @@ Citation information coming soon.
 
 ## Development
 
-See the [building from source](docs/development/building.md) guide for build
+See the [building from source](https://unitaryfoundation.github.io/clifft/development/building/) guide for build
 instructions.
 
 ## AI Acknowledgement
