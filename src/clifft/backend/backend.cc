@@ -450,7 +450,6 @@ CompressionResult compress_pauli(CompilerContext& ctx, const stim::PauliString<k
     bool sign = pauli.sign;
 
     // Gates are pushed to the pending queue (no transpose needed).
-    // Sign is tracked algebraically using Aaronson-Gottesman rules.
 
     uint32_t k = ctx.reg_manager.active_k();
 
