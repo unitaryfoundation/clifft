@@ -80,7 +80,7 @@ def random_dense_clifford_t_circuit(
 
     Higher 2-qubit gate probability and includes CY/CZ alongside CX.
     Produces circuits with heavy multi-qubit interference that stress
-    the compiler's Pauli compression and virtual axis allocation.
+    the compiler's Pauli localization and virtual axis allocation.
 
     Args:
         num_qubits: Number of qubits.

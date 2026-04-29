@@ -294,25 +294,25 @@ struct CompilerContext {
 };
 
 // =============================================================================
-// Result of compress_pauli: identifies what the Pauli was compressed to.
+// Result of localize_pauli: identifies what the Pauli was localized to.
 // =============================================================================
 
-enum class CompressedBasis : uint8_t {
-    Z_BASIS,  // Compressed to Z_v
-    X_BASIS,  // Compressed to X_v
+enum class LocalizedBasis : uint8_t {
+    Z_BASIS,  // Localized to Z_v
+    X_BASIS,  // Localized to X_v
 };
 
-struct CompressionResult {
-    uint16_t pivot;         // The virtual qubit the Pauli was compressed onto
-    CompressedBasis basis;  // Whether it ended up as X_v or Z_v
-    bool sign;              // Accumulated sign (true = negative)
+struct LocalizationResult {
+    uint16_t pivot;        // The virtual qubit the Pauli was localized onto
+    LocalizedBasis basis;  // Whether it ended up as X_v or Z_v
+    bool sign;             // Accumulated sign (true = negative)
 };
 
 // =============================================================================
-// Core Compression Algorithm
+// Core Localization Algorithm
 // =============================================================================
 
-/// Compress an arbitrary multi-qubit Pauli string onto a single virtual qubit.
+/// Localize an arbitrary multi-qubit Pauli string onto a single virtual qubit.
 ///
 /// Given a PauliString P, computes a sequence V of virtual Clifford gates
 /// such that V P V^dag = (+/-)P_v where P_v in {X_v, Z_v}.
@@ -323,8 +323,8 @@ struct CompressionResult {
 ///   - Does NOT modify ctx.reg_manager (activation is the caller's job)
 ///
 /// The input PauliString must be non-identity (at least one qubit set).
-[[nodiscard]] CompressionResult compress_pauli(CompilerContext& ctx,
-                                               const stim::PauliString<kStimWidth>& pauli);
+[[nodiscard]] LocalizationResult localize_pauli(CompilerContext& ctx,
+                                                const stim::PauliString<kStimWidth>& pauli);
 
 }  // namespace internal
 }  // namespace clifft

@@ -13,8 +13,8 @@
 namespace clifft {
 
 using internal::CompilerContext;
-using internal::CompressedBasis;
-using internal::CompressionResult;
+using internal::LocalizationResult;
+using internal::LocalizedBasis;
 
 constexpr double kInvSqrt2 = std::numbers::sqrt2 / 2.0;
 
@@ -352,16 +352,16 @@ stim::PauliString<kStimWidth> map_to_virtual(CompilerContext& ctx, const PauliBi
     return ctx.virtual_frame.map_pauli(destab_mask, stab_mask, sign, n);
 }
 
-// Route a compressed Pauli to the Z basis on an active axis.
+// Route a localized Pauli to the Z basis on an active axis.
 // Handles three cases:
 //   - Dormant Z: no-op (already diagonal in dormant frame)
 //   - Dormant X: swap to next active slot, H into Z, expand
 //   - Active X: H into Z on the array
 // Mutates result.pivot if a swap is needed.
-void route_to_active_z(CompilerContext& ctx, CompressionResult& result) {
+void route_to_active_z(CompilerContext& ctx, LocalizationResult& result) {
     bool is_dormant = result.pivot >= ctx.reg_manager.active_k();
 
-    if (is_dormant && result.basis == CompressedBasis::Z_BASIS) {
+    if (is_dormant && result.basis == LocalizedBasis::Z_BASIS) {
         return;
     }
 
@@ -381,7 +381,7 @@ void route_to_active_z(CompilerContext& ctx, CompressionResult& result) {
         return;
     }
 
-    if (result.basis == CompressedBasis::X_BASIS) {
+    if (result.basis == LocalizedBasis::X_BASIS) {
         ctx.virtual_frame.append_gate({internal::PendingGateType::H, result.pivot, 0});
         ctx.emit(make_array_h(result.pivot));
     }
@@ -392,10 +392,10 @@ void route_to_active_z(CompilerContext& ctx, CompressionResult& result) {
 namespace internal {
 
 // =========================================================================
-// compress_pauli: Greedy O(n) Pauli reduction
+// localize_pauli: Greedy O(n) Pauli reduction
 // =========================================================================
 //
-// Implements the constructive proof from Lemma (Pauli Compression).
+// Implements the constructive proof from Lemma (Pauli Localization).
 // Given a non-identity PauliString P = X^x Z^z, computes virtual Clifford V
 // such that V P V^dag = (+/-)P_v where P_v in {X_v, Z_v}.
 
@@ -433,7 +433,8 @@ static uint16_t find_active_pivot(const PauliBitMask& bits, uint32_t k) {
     return static_cast<uint16_t>(bits.lowest_bit());
 }
 
-CompressionResult compress_pauli(CompilerContext& ctx, const stim::PauliString<kStimWidth>& pauli) {
+LocalizationResult localize_pauli(CompilerContext& ctx,
+                                  const stim::PauliString<kStimWidth>& pauli) {
     const uint32_t n = ctx.reg_manager.num_qubits();
     const uint32_t words = (n + 63) / 64;
 
@@ -443,10 +444,10 @@ CompressionResult compress_pauli(CompilerContext& ctx, const stim::PauliString<k
         z_bits.w[w] = pauli.zs.u64[w];
     }
 
-    assert(!(x_bits | z_bits).is_zero() && "Cannot compress identity Pauli");
+    assert(!(x_bits | z_bits).is_zero() && "Cannot localize identity Pauli");
 
     uint16_t pivot;
-    CompressedBasis basis;
+    LocalizedBasis basis;
     bool sign = pauli.sign;
 
     // Gates are pushed to the pending queue (no transpose needed).
@@ -462,7 +463,7 @@ CompressionResult compress_pauli(CompilerContext& ctx, const stim::PauliString<k
         pivot = find_dormant_pivot(x_bits, k);
         bool z_pivot = z_bits.bit_get(pivot);
 
-        // X-compression: CNOT(pivot -> q) annihilates X_q.
+        // X-localization: CNOT(pivot -> q) annihilates X_q.
         // Z propagation: Z_t -> Z_c Z_t, so z_pivot ^= z_q.
         // Sign rule: CNOT(c,t) flips sign iff x_c & z_t & (x_t ^ z_c ^ 1).
         // Here x_pivot=1, x_q=1, so: sign ^= z_q & z_pivot.
@@ -479,7 +480,7 @@ CompressionResult compress_pauli(CompilerContext& ctx, const stim::PauliString<k
             to_clear_x.clear_lowest_bit();
         }
 
-        // Z-compression: CZ(pivot, q) clears residual Z_q.
+        // Z-localization: CZ(pivot, q) clears residual Z_q.
         // Sign rule: CZ(a,b) flips sign iff x_a & x_b & (z_a ^ z_b).
         // Here x_q=0 (already cleared), so sign NEVER flips.
         PauliBitMask to_clear_z = z_bits;
@@ -497,7 +498,7 @@ CompressionResult compress_pauli(CompilerContext& ctx, const stim::PauliString<k
             sign ^= true;
         }
 
-        basis = CompressedBasis::X_BASIS;
+        basis = LocalizedBasis::X_BASIS;
 
     } else {
         // =============================================================
@@ -507,7 +508,7 @@ CompressionResult compress_pauli(CompilerContext& ctx, const stim::PauliString<k
         // Pick pivot from Z-support, preferring active axes (< k).
         pivot = find_active_pivot(z_bits, k);
 
-        // Z-compression: CNOT(q -> pivot) folds Z_q onto pivot.
+        // Z-localization: CNOT(q -> pivot) folds Z_q onto pivot.
         // Sign rule: CNOT(c,t) flips sign iff x_c & z_t & (x_t ^ z_c ^ 1).
         // Here x_c=x_q=0, so sign NEVER flips.
         PauliBitMask to_clear_z = z_bits;
@@ -518,7 +519,7 @@ CompressionResult compress_pauli(CompilerContext& ctx, const stim::PauliString<k
             to_clear_z.clear_lowest_bit();
         }
 
-        basis = CompressedBasis::Z_BASIS;
+        basis = LocalizedBasis::Z_BASIS;
     }
 
     return {pivot, basis, sign};
@@ -534,8 +535,8 @@ CompiledModule lower(const HirModule& hir, std::span<const uint8_t> postselectio
                      std::span<const uint8_t> expected_detectors,
                      std::span<const uint8_t> expected_observables) {
     using internal::CompilerContext;
-    using internal::compress_pauli;
-    using internal::CompressedBasis;
+    using internal::localize_pauli;
+    using internal::LocalizedBasis;
 
     const uint32_t n = hir.num_qubits;
     CompilerContext ctx(n);
@@ -552,11 +553,11 @@ CompiledModule lower(const HirModule& hir, std::span<const uint8_t> postselectio
         switch (op.op_type()) {
             case OpType::T_GATE: {
                 auto p_v = map_to_virtual(ctx, op.destab_mask(), op.stab_mask(), op.sign(), n);
-                auto result = compress_pauli(ctx, p_v);
+                auto result = localize_pauli(ctx, p_v);
 
                 route_to_active_z(ctx, result);
 
-                // Global phase correction when compression inverted the Pauli (-Z).
+                // Global phase correction when localization inverted the Pauli (-Z).
                 // T on -Z = e^{i*pi/4} T^dag; T^dag on -Z = e^{-i*pi/4} T.
                 if (result.sign) {
                     if (!op.is_dagger()) {
@@ -581,12 +582,12 @@ CompiledModule lower(const HirModule& hir, std::span<const uint8_t> postselectio
             case OpType::PHASE_ROTATION: {
                 double alpha = op.alpha();
                 auto p_v = map_to_virtual(ctx, op.destab_mask(), op.stab_mask(), op.sign(), n);
-                auto result = compress_pauli(ctx, p_v);
+                auto result = localize_pauli(ctx, p_v);
 
                 route_to_active_z(ctx, result);
 
                 // The Front-End unconditionally extracted the physical global phase.
-                // If compress_pauli dynamically flipped the geometric sign
+                // If localize_pauli dynamically flipped the geometric sign
                 // (result.sign != op.sign()), correct the global phase artifact
                 // left behind by the VM's diagonal factorization.
                 if (result.sign != op.sign()) {
@@ -596,7 +597,7 @@ CompiledModule lower(const HirModule& hir, std::span<const uint8_t> postselectio
                 }
 
                 // result.sign absorbs both the original op.sign() and any
-                // compression flips.
+                // localization flips.
                 if (result.sign)
                     alpha = -alpha;
 
@@ -630,12 +631,12 @@ CompiledModule lower(const HirModule& hir, std::span<const uint8_t> postselectio
                     break;
                 }
 
-                auto result = compress_pauli(ctx, p_v);
+                auto result = localize_pauli(ctx, p_v);
                 bool is_active = result.pivot < ctx.reg_manager.active_k();
 
                 if (!is_active) {
                     // Dormant pivot
-                    if (result.basis == CompressedBasis::Z_BASIS) {
+                    if (result.basis == LocalizedBasis::Z_BASIS) {
                         ctx.emit(make_meas(Opcode::OP_MEAS_DORMANT_STATIC, result.pivot,
                                            classical_idx, result.sign));
                     } else {
@@ -643,7 +644,7 @@ CompiledModule lower(const HirModule& hir, std::span<const uint8_t> postselectio
                                            classical_idx, result.sign));
                     }
                     // X_BASIS post-measurement: append virtual H to align coordinate system
-                    if (result.basis == CompressedBasis::X_BASIS) {
+                    if (result.basis == LocalizedBasis::X_BASIS) {
                         ctx.virtual_frame.append_gate(
                             {internal::PendingGateType::H, result.pivot, 0});
                     }
@@ -656,7 +657,7 @@ CompiledModule lower(const HirModule& hir, std::span<const uint8_t> postselectio
                         result.pivot = top;
                     }
 
-                    if (result.basis == CompressedBasis::Z_BASIS) {
+                    if (result.basis == LocalizedBasis::Z_BASIS) {
                         ctx.emit(make_meas(Opcode::OP_MEAS_ACTIVE_DIAGONAL, result.pivot,
                                            classical_idx, result.sign));
                     } else {
@@ -664,7 +665,7 @@ CompiledModule lower(const HirModule& hir, std::span<const uint8_t> postselectio
                                            classical_idx, result.sign));
                     }
 
-                    if (result.basis == CompressedBasis::X_BASIS) {
+                    if (result.basis == LocalizedBasis::X_BASIS) {
                         ctx.virtual_frame.append_gate(
                             {internal::PendingGateType::H, result.pivot, 0});
                     }

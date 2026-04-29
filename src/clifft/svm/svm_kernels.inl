@@ -1560,7 +1560,7 @@ static inline void exec_meas_dormant_random(SchrodingerState& state, uint16_t v,
     bit_set(state.p_x, v, m_abs);
     bit_set(state.p_z, v, false);
 
-    // Physical outcome includes the compression sign
+    // Physical outcome includes the localization sign
     state.meas_record[classical_idx] = m_abs ^ static_cast<uint8_t>(sign);
 }
 
@@ -1594,7 +1594,7 @@ static inline void exec_meas_active_diagonal(SchrodingerState& state, uint16_t v
 
     // Abstract outcome (determines array branch + frame state)
     uint8_t m_abs = b ^ static_cast<uint8_t>(px_v);
-    // Physical outcome (classical record includes compression sign)
+    // Physical outcome (classical record includes localization sign)
     uint8_t m_phys = m_abs ^ static_cast<uint8_t>(sign);
 
     // Phase extraction: (-1)^(p_z[v] * b) when b=1
@@ -1659,7 +1659,7 @@ static inline void exec_meas_active_interfere(SchrodingerState& state, uint16_t 
 
     // Abstract outcome (determines array fold + frame state)
     uint8_t m_abs = b_x ^ static_cast<uint8_t>(pz_v);
-    // Physical outcome (classical record includes compression sign)
+    // Physical outcome (classical record includes localization sign)
     uint8_t m_phys = m_abs ^ static_cast<uint8_t>(sign);
 
     // Fold array: v'[i] = (v[i] +/- v[i+half]) / sqrt(2)

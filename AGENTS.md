@@ -39,7 +39,7 @@ These constraints must not be violated:
 - **Deterministic RNG:** Do not use `std::uniform_real_distribution` (it is
   implementation-defined). Use `(rng() >> 11) * 0x1.0p-53` for `[0, 1)`.
 - **No Global Topology in the VM:** All multi-qubit Pauli interference must
-  be compressed into localized operations by the compiler, not evaluated at
+  be localized into local operations by the compiler, not evaluated at
   runtime.
 
 ## Git Workflow

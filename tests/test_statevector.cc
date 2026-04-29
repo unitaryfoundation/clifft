@@ -650,7 +650,7 @@ TEST_CASE("E2E: dense Clifford plus T on 4 qubits") {
 
 TEST_CASE("E2E: 5-qubit circuit with multiple T layers") {
     // Stress test: 5 qubits, deep entanglement, multiple non-Clifford layers.
-    // This exercises the virtual compressor on a non-trivial topology.
+    // This exercises the virtual localizer on a non-trivial topology.
     std::string circuit =
         "H 0\nH 1\nH 2\n"
         "CX 0 3\nCX 1 4\nCX 2 3\n"
