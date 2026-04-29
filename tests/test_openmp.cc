@@ -15,6 +15,7 @@
 #include "clifft/svm/svm_internal.h"
 
 #include <catch2/catch_test_macros.hpp>
+#include <catch2/matchers/catch_matchers_floating_point.hpp>
 #include <string>
 
 #ifdef _OPENMP
@@ -138,7 +139,10 @@ TEST_CASE("OpenMP: EXP_VAL determinism across thread counts at high rank", "[ope
     auto r2 = sample(mod, 1, uint64_t{77});
 
     REQUIRE(r1.exp_vals.size() == r2.exp_vals.size());
+    // Tolerance, not bit-equality: OpenMP reductions can sum partial results
+    // in different orders across thread counts, so the last bits of a float
+    // expectation value can differ even when the algorithm is deterministic.
     for (size_t i = 0; i < r1.exp_vals.size(); ++i) {
-        CHECK(r1.exp_vals[i] == r2.exp_vals[i]);
+        CHECK_THAT(r1.exp_vals[i], Catch::Matchers::WithinAbs(r2.exp_vals[i], 1e-12));
     }
 }
