@@ -223,8 +223,7 @@ TEST_CASE("U2 fusion: frame-only ops contribute to run but need array partner") 
     REQUIRE(mod.bytecode.size() == 1);
     CHECK(mod.bytecode[0].opcode == Opcode::OP_FRAME_S);
 
-    // FRAME_S(0) + ARRAY_H(0) -> 1 array op + 1 frame op = fuse (array_count >= 2? No, only 1).
-    // Actually: frame_s has 0 array ops, array_h has 1. Total array = 1. Not fused.
+    // FRAME_S(0) + ARRAY_H(0) -> only 1 array op total, below threshold of 2. Not fused.
     auto mod2 = make_program({make_frame_s(0), make_array_h(0)}, 1);
     SingleAxisFusionPass().run(mod2);
     REQUIRE(mod2.bytecode.size() == 2);
