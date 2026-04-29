@@ -52,10 +52,8 @@ nb::ndarray<nb::numpy, T, nb::c_contig> vec_to_numpy(std::vector<T> vec,
 NB_MODULE(_clifft_core, m) {
     m.doc() = "Clifft core C++ extension module";
 
-    // Register ParseError as a Python exception.
     nb::exception<clifft::ParseError>(m, "ParseError");
 
-    // Version info
     m.def("version", []() { return clifft::kVersion; }, "Return the Clifft version string");
 
     m.def(
@@ -292,7 +290,6 @@ NB_MODULE(_clifft_core, m) {
         nb::arg("path"), nb::arg("max_ops"),
         "Parse a quantum circuit from a file with an explicit AST node limit.");
 
-    // =========================================================================
     nb::enum_<clifft::OpType>(m, "OpType", "Heisenberg IR operation types")
         .value("T_GATE", clifft::OpType::T_GATE)
         .value("MEASURE", clifft::OpType::MEASURE)
@@ -427,7 +424,6 @@ NB_MODULE(_clifft_core, m) {
                    " qubits)";
         });
 
-    // Front-end: Circuit -> HIR
     m.def(
         "trace",
         [](const clifft::Circuit& circuit) {
@@ -505,8 +501,7 @@ NB_MODULE(_clifft_core, m) {
 
     m.def(
         "default_hir_pass_manager", []() { return clifft::default_hir_pass_manager(); },
-        nb::rv_policy::move,
-        "Return an HirPassManager pre-loaded with the standard optimization passes.");
+        nb::rv_policy::move, "Return an HirPassManager pre-loaded with the default passes.");
 
     nb::class_<clifft::BytecodePass>(m, "BytecodePass",
                                      "Abstract base class for bytecode optimization passes.\n\n"
@@ -568,10 +563,7 @@ NB_MODULE(_clifft_core, m) {
 
     m.def(
         "default_bytecode_pass_manager", []() { return clifft::default_bytecode_pass_manager(); },
-        nb::rv_policy::move,
-        "Return a BytecodePassManager pre-loaded with the default passes:\n"
-        "NoiseBlockPass, MultiGatePass, ExpandTPass, ExpandRotPass, SwapMeasPass,\n"
-        "SingleAxisFusionPass.");
+        nb::rv_policy::move, "Return a BytecodePassManager pre-loaded with the default passes.");
 
     nb::enum_<clifft::Opcode>(m, "Opcode", "Virtual Machine opcodes")
         .value("OP_FRAME_CNOT", clifft::Opcode::OP_FRAME_CNOT)
@@ -760,7 +752,6 @@ NB_MODULE(_clifft_core, m) {
                    std::to_string(p.num_measurements) + " measurements)";
         });
 
-    // Back-end: HIR -> Program (with optional postselection/normalization masks)
     m.def(
         "lower",
         [](const clifft::HirModule& hir, std::vector<uint8_t> postselection_mask,
@@ -784,7 +775,6 @@ NB_MODULE(_clifft_core, m) {
         "    expected_detectors: Optional noiseless reference parities for detectors.\n"
         "    expected_observables: Optional noiseless reference parities for observables.\n");
 
-    // Convenience: stim text -> Program (parse + trace + lower)
     m.def(
         "compile",
         [](const std::string& stim_text, std::vector<uint8_t> postselection_mask,
@@ -820,9 +810,9 @@ NB_MODULE(_clifft_core, m) {
         nb::arg("bytecode_passes") = nb::none(),
         "Compile a quantum circuit string to executable bytecode.\n\n"
         "Runs the full pipeline: parse -> trace -> [HIR optimize] ->\n"
-        "lower -> [bytecode optimize].  Pass manager arguments are\n"
+        "lower -> [bytecode optimize]. Pass manager arguments are\n"
         "optional; when None the corresponding optimization stage is\n"
-        "skipped (matching the previous default behavior).\n"
+        "skipped.\n"
         "\n"
         "When normalize_syndromes=True, a noiseless reference shot is\n"
         "executed internally to extract expected detector and observable\n"
@@ -841,7 +831,6 @@ NB_MODULE(_clifft_core, m) {
         "    hir_passes: Optional HirPassManager to run on the HIR before lowering.\n"
         "    bytecode_passes: Optional BytecodePassManager to run after lowering.\n");
 
-    // Sample: Program + shots -> SampleResult
     m.def(
         "sample",
         [](const clifft::CompiledModule& program, uint32_t shots, std::optional<uint64_t> seed) {
@@ -865,7 +854,6 @@ NB_MODULE(_clifft_core, m) {
                 vec_to_numpy(std::move(result.observables), {shots, program.num_observables});
             auto ev_arr = vec_to_numpy(std::move(result.exp_vals), {shots, program.num_exp_vals});
 
-            // Import the Python SampleResult class and construct it.
             nb::object mod = nb::module_::import_("clifft._sample_result");
             return mod.attr("SampleResult")(meas_arr, det_arr, obs_arr, nb::none(), nb::none(),
                                             nb::none(), nb::none(), ev_arr);
@@ -874,11 +862,10 @@ NB_MODULE(_clifft_core, m) {
         "Run a compiled program and return a SampleResult.\n\n"
         "Raises ValueError for post-selected programs because fixed-row output\n"
         "cannot represent discarded shots. Use sample_survivors() instead.\n\n"
-        "If seed is None (default), uses 256-bit OS hardware entropy.\n\n"
+        "If seed is None (default), uses hardware entropy.\n\n"
         "Returns a SampleResult with .measurements, .detectors, .observables attributes.\n"
         "Supports tuple unpacking: m, d, o = clifft.sample(prog, shots)");
 
-    // Sample with forced k-faults (importance sampling).
     m.def(
         "sample_k",
         [](const clifft::CompiledModule& program, uint32_t shots, uint32_t k,
@@ -924,7 +911,6 @@ NB_MODULE(_clifft_core, m) {
         "Returns a SampleResult with .measurements, .detectors, .observables attributes.\n"
         "Supports tuple unpacking: m, d, o = clifft.sample_k(prog, shots, k)");
 
-    // Helper lambda to populate a SampleResult Python object from C++ survivor data.
     auto make_survivor_result = [](clifft::SurvivorResult result,
                                    const clifft::CompiledModule& program,
                                    bool keep_records) -> nb::object {
@@ -953,7 +939,6 @@ NB_MODULE(_clifft_core, m) {
                    result.logical_errors, obs_ones_arr, ev_arr);
     };
 
-    // Sample survivors with forced k-faults.
     m.def(
         "sample_k_survivors",
         [make_survivor_result](const clifft::CompiledModule& program, uint32_t shots, uint32_t k,
@@ -974,12 +959,12 @@ NB_MODULE(_clifft_core, m) {
         "  p_fail = sum(P(K=k)*logical_errors_k/shots_k)\n"
         "         / sum(P(K=k)*passed_k/shots_k)\n\n"
         "Raises ValueError if the k-fault stratum has zero probability mass.\n\n"
-        "Returns a SampleResult whose measurements/detectors/observables arrays\n"
-        "contain only surviving shots. Survivor metadata is available via\n"
+        "Returns a SampleResult. Survivor metadata is always populated via\n"
         ".total_shots, .passed_shots, .discards, .logical_errors, and\n"
-        ".observable_ones.");
+        ".observable_ones. Per-shot record arrays\n"
+        "(.measurements, .detectors, .observables, .exp_vals) are only\n"
+        "filled when keep_records=True; otherwise they are empty (rows=0).");
 
-    // Sample survivors: only non-discarded shots contribute to output.
     m.def(
         "sample_survivors",
         [make_survivor_result](const clifft::CompiledModule& program, uint32_t shots,
@@ -994,11 +979,12 @@ NB_MODULE(_clifft_core, m) {
         nb::arg("program"), nb::arg("shots"), nb::arg("seed") = nb::none(),
         nb::arg("keep_records") = false,
         "Sample shots and return results only for surviving (non-discarded) shots.\n\n"
-        "If seed is None (default), uses 256-bit OS hardware entropy.\n\n"
-        "Returns a SampleResult whose measurements/detectors/observables arrays\n"
-        "contain only surviving shots. Survivor metadata is available via\n"
+        "If seed is None (default), uses hardware entropy.\n\n"
+        "Returns a SampleResult. Survivor metadata is always populated via\n"
         ".total_shots, .passed_shots, .discards, .logical_errors, and\n"
-        ".observable_ones.");
+        ".observable_ones. Per-shot record arrays\n"
+        "(.measurements, .detectors, .observables, .exp_vals) are only\n"
+        "filled when keep_records=True; otherwise they are empty (rows=0).");
 
     nb::class_<clifft::SchrodingerState>(m, "State", "Schrodinger VM execution state")
         .def(nb::new_([](uint32_t peak_rank, uint32_t num_measurements, uint32_t num_detectors,
@@ -1033,7 +1019,6 @@ NB_MODULE(_clifft_core, m) {
             return "State(array_size=" + std::to_string(s.array_size()) + ")";
         });
 
-    // Execute: Program + State -> mutates state
     m.def(
         "execute",
         [](const clifft::CompiledModule& program, clifft::SchrodingerState& state) {
@@ -1043,7 +1028,6 @@ NB_MODULE(_clifft_core, m) {
         nb::arg("program"), nb::arg("state"),
         "Execute a compiled program, updating the state in-place.");
 
-    // Get statevector: Program + State -> numpy array
     m.def(
         "get_statevector",
         [](const clifft::CompiledModule& program, const clifft::SchrodingerState& state) {
