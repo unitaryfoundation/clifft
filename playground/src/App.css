@@ -531,99 +531,84 @@ html, body, #root {
   color: var(--text-dim);
 }
 
-/* --- Guided Tour overlay --- */
-/* --- driver.js tour theme overrides --- */
-
-.tour-code {
-  font-family: var(--font-mono, "Roboto Mono", monospace);
-  font-size: 0.9em;
-  padding: 1px 5px;
-  border-radius: 3px;
-  background: rgba(0, 0, 0, 0.06);
-  color: var(--accent);
-}
-
-[data-theme="dark"] .tour-code {
-  background: rgba(255, 255, 255, 0.08);
-}
-
-.tour-list {
-  margin: 4px 0 8px 0;
-  padding-left: 18px;
-  list-style: disc;
-}
-
-.tour-list li {
-  margin-bottom: 3px;
-}
-
-.driver-popover {
-  background: var(--bg-surface);
-  color: var(--text);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  box-shadow: 0 8px 32px var(--shadow-color);
-}
+/* --- driver.js tour theme overrides ---
+   Popover stays light in both site themes — driver.js's white background
+   wins over CSS variables anyway, so the contents are pinned to fixed
+   colors that read well on white. */
 
 .driver-popover-title {
   font-size: 16px;
   font-weight: 600;
-  color: var(--accent);
+  color: #3c64b4;
 }
 
 .driver-popover-description {
   font-size: 13px;
   line-height: 1.6;
-  color: var(--text);
+  color: #1e1e1e;
+}
+
+.driver-popover-description p {
+  margin: 0 0 8px 0;
+}
+
+.driver-popover-description p:last-child {
+  margin-bottom: 0;
+}
+
+.driver-popover-description ul {
+  margin: 4px 0 8px 0;
+  padding-left: 18px;
+  list-style: disc;
+}
+
+.driver-popover-description li {
+  margin-bottom: 3px;
+}
+
+.driver-popover-description code {
+  font-family: var(--font-mono, "Roboto Mono", monospace);
+  font-size: 0.9em;
+  padding: 1px 5px;
+  border-radius: 3px;
+  background: rgba(60, 100, 180, 0.12);
+  color: #3c64b4;
 }
 
 .driver-popover-progress-text {
-  color: var(--text-dim);
+  color: #666;
   font-size: 11px;
   text-transform: uppercase;
   letter-spacing: 1px;
 }
 
 .driver-popover-close-btn {
-  color: var(--text-dim);
+  color: #666;
 }
 
 .driver-popover-close-btn:hover {
-  color: var(--text);
+  color: #1e1e1e;
 }
 
 .driver-popover-prev-btn,
 .driver-popover-next-btn {
-  background: var(--bg);
-  color: var(--text);
-  border: 1px solid var(--border);
+  background: #ffffff;
+  color: #1e1e1e;
+  border: 1px solid #d0d0d0;
   text-shadow: none;
   font-size: 12px;
 }
 
 .driver-popover-prev-btn:hover,
 .driver-popover-next-btn:hover {
-  background: var(--bg-hover);
-  border-color: var(--accent);
-  color: var(--text);
+  background: #f3f3f3;
+  border-color: #3c64b4;
+  color: #1e1e1e;
 }
 
 .driver-popover-next-btn {
-  border-color: var(--accent);
-  color: var(--accent);
-}
-
-.driver-popover-arrow-side-top.driver-popover-arrow {
-  border-top-color: var(--bg-surface);
-}
-.driver-popover-arrow-side-bottom.driver-popover-arrow {
-  border-bottom-color: var(--bg-surface);
-}
-.driver-popover-arrow-side-left.driver-popover-arrow {
-  border-left-color: var(--bg-surface);
-}
-.driver-popover-arrow-side-right.driver-popover-arrow {
-  border-right-color: var(--bg-surface);
+  border-color: #3c64b4;
+  color: #3c64b4;
 }
 
 /* --- Monaco decoration for source-map highlighting --- */
