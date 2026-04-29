@@ -989,12 +989,9 @@ TEST_CASE("VM Gamma: Frame S accumulates i phase") {
         make_program({make_frame_s(0), make_frame_s(0), make_frame_s(0), make_frame_s(0)}, 2);
     execute(prog, state);
 
-    // Four applications of S with X error: gamma *= i four times = i^4 = 1
-    // But S also updates p_z each time. Let's trace:
-    // Start: p_x=1, p_z=0. S: gamma*=i, p_z^=1 -> p_z=1
-    // p_x=1, p_z=1. S: gamma*=i (now -1), p_z^=1 -> p_z=0
-    // p_x=1, p_z=0. S: gamma*=i (now -i), p_z^=1 -> p_z=1
-    // p_x=1, p_z=1. S: gamma*=i (now 1), p_z^=1 -> p_z=0
+    // S on X-error qubit: gamma *= i, then p_z ^= 1 (toggles per call).
+    // Start p_x=1, p_z=0. Four calls cycle gamma through i, -1, -i, 1
+    // and p_z through 1, 0, 1, 0.
     check_complex(state.gamma(), {1.0, 0.0});
     CHECK(state.p_z == NONE);
 }
