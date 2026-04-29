@@ -501,9 +501,7 @@ NB_MODULE(_clifft_core, m) {
 
     m.def(
         "default_hir_pass_manager", []() { return clifft::default_hir_pass_manager(); },
-        nb::rv_policy::move,
-        "Return an HirPassManager pre-loaded with the default passes:\n"
-        "PeepholeFusionPass, StatevectorSqueezePass.");
+        nb::rv_policy::move, "Return an HirPassManager pre-loaded with the default passes.");
 
     nb::class_<clifft::BytecodePass>(m, "BytecodePass",
                                      "Abstract base class for bytecode optimization passes.\n\n"
@@ -565,10 +563,7 @@ NB_MODULE(_clifft_core, m) {
 
     m.def(
         "default_bytecode_pass_manager", []() { return clifft::default_bytecode_pass_manager(); },
-        nb::rv_policy::move,
-        "Return a BytecodePassManager pre-loaded with the default passes:\n"
-        "NoiseBlockPass, MultiGatePass, ExpandTPass, ExpandRotPass, SwapMeasPass,\n"
-        "TileAxisFusionPass, SingleAxisFusionPass.");
+        nb::rv_policy::move, "Return a BytecodePassManager pre-loaded with the default passes.");
 
     nb::enum_<clifft::Opcode>(m, "Opcode", "Virtual Machine opcodes")
         .value("OP_FRAME_CNOT", clifft::Opcode::OP_FRAME_CNOT)
