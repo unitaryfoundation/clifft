@@ -237,10 +237,7 @@ TEST_CASE("AVX512 axis01: U2 on axis 1 at rank 10") {
         orig[i] = state.v()[i];
     }
 
-    // Use a complex unitary to exercise real+imag paths:
-    // [[0.6+0.1i, -0.3+0.2i], [0.3+0.2i, 0.6-0.1i]] (approximately unitary)
-    // Actually use a proper unitary: e^{i*pi/4 * Y} = [[c, -s], [s, c]] with c,s complex
-    // Use T gate as the matrix: diag(1, e^{i*pi/4})
+    // T gate matrix diag(1, e^{i*pi/4}) -- complex m11 exercises real+imag paths.
     std::complex<double> m00 = {1.0, 0.0};
     std::complex<double> m01 = {0.0, 0.0};
     std::complex<double> m10 = {0.0, 0.0};
