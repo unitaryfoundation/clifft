@@ -324,7 +324,7 @@ struct LocalizationResult {
 ///
 /// The input PauliString must be non-identity (at least one qubit set).
 [[nodiscard]] LocalizationResult localize_pauli(CompilerContext& ctx,
-                                               const stim::PauliString<kStimWidth>& pauli);
+                                                const stim::PauliString<kStimWidth>& pauli);
 
 }  // namespace internal
 }  // namespace clifft

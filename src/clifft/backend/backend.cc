@@ -13,8 +13,8 @@
 namespace clifft {
 
 using internal::CompilerContext;
-using internal::LocalizedBasis;
 using internal::LocalizationResult;
+using internal::LocalizedBasis;
 
 constexpr double kInvSqrt2 = std::numbers::sqrt2 / 2.0;
 
@@ -433,7 +433,8 @@ static uint16_t find_active_pivot(const PauliBitMask& bits, uint32_t k) {
     return static_cast<uint16_t>(bits.lowest_bit());
 }
 
-LocalizationResult localize_pauli(CompilerContext& ctx, const stim::PauliString<kStimWidth>& pauli) {
+LocalizationResult localize_pauli(CompilerContext& ctx,
+                                  const stim::PauliString<kStimWidth>& pauli) {
     const uint32_t n = ctx.reg_manager.num_qubits();
     const uint32_t words = (n + 63) / 64;
 

@@ -90,8 +90,8 @@ static stim::Tableau<kStimWidth> bytecode_to_tableau(const std::vector<Instructi
 // Verify that V_cum P V_cum^dag is a single-qubit Pauli on the expected pivot.
 // Returns the localized PauliString for further inspection.
 static stim::PauliString<kStimWidth> verify_localization(CompilerContext& ctx,
-                                                        const stim::PauliString<kStimWidth>& input,
-                                                        const LocalizationResult& result) {
+                                                         const stim::PauliString<kStimWidth>& input,
+                                                         const LocalizationResult& result) {
     ctx.virtual_frame.flush();
     stim::PauliString<kStimWidth> localized = ctx.virtual_frame.materialized_tableau()(input);
     uint64_t cx = localized.xs.u64[0];
@@ -126,8 +126,8 @@ static stim::PauliString<kStimWidth> verify_localization(CompilerContext& ctx,
 // is updated correctly but the bytecode emission is wrong (e.g., swapped
 // control/target on a CNOT).
 static void verify_bytecode_localization(const CompilerContext& ctx,
-                                        const stim::PauliString<kStimWidth>& input,
-                                        const LocalizationResult& result) {
+                                         const stim::PauliString<kStimWidth>& input,
+                                         const LocalizationResult& result) {
     stim::Tableau<kStimWidth> tab =
         bytecode_to_tableau(ctx.bytecode, static_cast<uint32_t>(input.num_qubits));
     stim::PauliString<kStimWidth> localized = tab(input);
@@ -529,10 +529,10 @@ TEST_CASE("Localize: all-dormant heavy Pauli emits only frame opcodes") {
 // The local frame is: v_local = v_cum_before^{-1}.then(v_cum_after)
 // and v_local(input) should be the weight-1 localized Pauli.
 static void verify_sequential_localization(const CompilerContext& ctx,
-                                          const stim::Tableau<kStimWidth>& v_cum_before,
-                                          const stim::Tableau<kStimWidth>& v_cum_after,
-                                          const stim::PauliString<kStimWidth>& input,
-                                          const LocalizationResult& result, size_t bc_before) {
+                                           const stim::Tableau<kStimWidth>& v_cum_before,
+                                           const stim::Tableau<kStimWidth>& v_cum_after,
+                                           const stim::PauliString<kStimWidth>& input,
+                                           const LocalizationResult& result, size_t bc_before) {
     stim::Tableau<kStimWidth> v_local = v_cum_before.inverse().then(v_cum_after);
     stim::PauliString<kStimWidth> localized = v_local(input);
 
@@ -591,7 +591,7 @@ TEST_CASE("Localize: sequential localizations accumulate in V_cum") {
     auto r2 = localize_pauli(ctx, p2);
     ctx.virtual_frame.flush();
     verify_sequential_localization(ctx, snap1, ctx.virtual_frame.materialized_tableau(), p2, r2,
-                                  bc1);
+                                   bc1);
 
     // Snapshot v_cum before third localization.
     stim::Tableau<kStimWidth> snap2 = ctx.virtual_frame.materialized_tableau();
@@ -599,7 +599,7 @@ TEST_CASE("Localize: sequential localizations accumulate in V_cum") {
     auto r3 = localize_pauli(ctx, p3);
     ctx.virtual_frame.flush();
     verify_sequential_localization(ctx, snap2, ctx.virtual_frame.materialized_tableau(), p3, r3,
-                                  bc2);
+                                   bc2);
 
     // V_cum should be non-identity after multiple localizations.
     bool is_identity = true;
@@ -970,7 +970,7 @@ TEST_CASE("Localize sequential: 20 localizations on 20 qubits") {
         auto result = localize_pauli(ctx, pauli);
         ctx.virtual_frame.flush();
         verify_sequential_localization(ctx, snap, ctx.virtual_frame.materialized_tableau(), pauli,
-                                      result, bc_snap);
+                                       result, bc_snap);
     }
 }
 
@@ -999,7 +999,7 @@ TEST_CASE("Localize sequential: 30 localizations on 30 qubits all-active") {
         auto result = localize_pauli(ctx, pauli);
         ctx.virtual_frame.flush();
         verify_sequential_localization(ctx, snap, ctx.virtual_frame.materialized_tableau(), pauli,
-                                      result, bc_snap);
+                                       result, bc_snap);
     }
 }
 
@@ -1024,7 +1024,7 @@ TEST_CASE("Localize sequential: 30 localizations on 30 qubits all-dormant") {
         auto result = localize_pauli(ctx, pauli);
         ctx.virtual_frame.flush();
         verify_sequential_localization(ctx, snap, ctx.virtual_frame.materialized_tableau(), pauli,
-                                      result, bc_snap);
+                                       result, bc_snap);
 
         // All-dormant should only emit frame opcodes
         REQUIRE(all_frame_opcodes(ctx.bytecode));
