@@ -103,6 +103,10 @@ This work was supported by the U.S. Department of Energy, Office of Science,
 Office of Advanced Scientific Computing Research, Accelerated Research in
 Quantum Computing under Award Number DE-SC0025336.
 
+This material is also based upon work supported by the U.S. Department of
+Energy, Office of Science, National Quantum Information Science Research
+Centers, Quantum Science Center.
+
 ## License
 
 Apache-2.0
