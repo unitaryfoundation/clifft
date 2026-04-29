@@ -143,11 +143,10 @@ TEST_CASE("pauli_masks helper", "[hir][helper]") {
 }
 
 // =============================================================================
-// Stim Tableau Tests (AG Matrix)
+// stim::Tableau API used by the Front-End
 // =============================================================================
 
-TEST_CASE("stim::Tableau as AG matrix", "[hir]") {
-    // AG pivot matrices use stim::Tableau directly
+TEST_CASE("stim::Tableau identity and Hadamard", "[hir]") {
     stim::Tableau<kStimWidth> tab(4);  // 4 qubits
 
     // Default is identity: X_k -> X_k, Z_k -> Z_k
@@ -213,29 +212,27 @@ TEST_CASE("HirModule with noise sites", "[hir]") {
     REQUIRE(hir.ops[0].noise_site_idx() == NoiseSiteIdx{0});
 }
 
-TEST_CASE("Tableau composition for AG pivot computation", "[hir]") {
-    // AG pivots are computed as: fwd_after.then(inv_before)
-    // This test verifies the composition works correctly
-
+TEST_CASE("Tableau composition via then() and inverse()", "[hir]") {
+    // after.then(before.inverse()) extracts the operator inserted between
+    // `before` and `after`. Here `before = H` and `after = H; CNOT`, so the
+    // composition should equal CNOT alone.
     stim::Tableau<kStimWidth> before(2);
-    before.prepend_H_XZ(0);  // H on qubit 0
+    before.prepend_H_XZ(0);
 
     stim::Tableau<kStimWidth> after(2);
-    after.prepend_H_XZ(0);    // Same H
-    after.prepend_ZCX(0, 1);  // Then CNOT
+    after.prepend_H_XZ(0);
+    after.prepend_ZCX(0, 1);
 
-    // The AG pivot should be: after * before^{-1} = CNOT
     auto inv_before = before.inverse();
-    auto pivot = after.then(inv_before);
+    auto composed = after.then(inv_before);
 
-    // Verify pivot is just CNOT (since H cancels)
     // CNOT: X_0 -> X_0 X_1, Z_1 -> Z_0 Z_1, X_1 -> X_1, Z_0 -> Z_0
-    REQUIRE(pivot.xs[0].xs[0] == true);
-    REQUIRE(pivot.xs[0].xs[1] == true);  // X_0 -> X_0 X_1
-    REQUIRE(pivot.xs[1].xs[1] == true);
-    REQUIRE(pivot.xs[1].xs[0] == false);  // X_1 -> X_1 (no change)
-    REQUIRE(pivot.zs[0].zs[0] == true);
-    REQUIRE(pivot.zs[0].zs[1] == false);  // Z_0 -> Z_0 (no change)
-    REQUIRE(pivot.zs[1].zs[0] == true);
-    REQUIRE(pivot.zs[1].zs[1] == true);  // Z_1 -> Z_0 Z_1
+    REQUIRE(composed.xs[0].xs[0] == true);
+    REQUIRE(composed.xs[0].xs[1] == true);  // X_0 -> X_0 X_1
+    REQUIRE(composed.xs[1].xs[1] == true);
+    REQUIRE(composed.xs[1].xs[0] == false);  // X_1 -> X_1 (no change)
+    REQUIRE(composed.zs[0].zs[0] == true);
+    REQUIRE(composed.zs[0].zs[1] == false);  // Z_0 -> Z_0 (no change)
+    REQUIRE(composed.zs[1].zs[0] == true);
+    REQUIRE(composed.zs[1].zs[1] == true);  // Z_1 -> Z_0 Z_1
 }

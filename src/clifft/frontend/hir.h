@@ -9,9 +9,9 @@
 //
 // Key design decisions:
 // - Uses BitMask<N> for Pauli masks (compile-time width, N = CLIFFT_MAX_QUBITS)
-// - Uses stim::Tableau<W> for AG pivot matrices (SIMD-aligned)
 // - 32-byte HeisenbergOp for optimal cache alignment (2 ops per 64-byte L1 cache line)
-// - AG matrices and noise sites stored in side-tables to avoid bloating HIR
+// - Variable-sized payloads (noise channels, detector/observable target lists) live
+//   in side-tables on HirModule; HeisenbergOp stores only an index
 
 #include "clifft/util/bitmask.h"
 #include "clifft/util/config.h"
@@ -378,20 +378,10 @@ static_assert(sizeof(HeisenbergOp) == 32,
 
 // The complete HIR module - output of the Front-End.
 //
-// =============================================================================
-// HIR Module
-// =============================================================================
-//
-// AG pivot matrices use stim::Tableau<kStimWidth> directly. This provides:
-// - SIMD-aligned storage for efficient operations
-// - Built-in composition via then() and inverse()
-// - Template parameter for easy scaling beyond 64 qubits
-//
-// The Tableau represents the GF(2) change-of-basis transformation computed
-// when a measurement anti-commutes with the current stabilizer state.
-// Computed as: fwd_after.then(inv_before) where fwd_after is the tableau
-// after measurement collapse and inv_before is the inverse of the tableau
-// before collapse.
+// Holds the linear ops vector plus side-tables for variable-sized payloads
+// (noise channels, readout-noise entries, detector and observable target lists)
+// and circuit metadata. final_tableau is an optional debugging artifact used
+// by the statevector path to map GF(2) indices back to the physical basis.
 struct HirModule {
     // Operations in execution order
     std::vector<HeisenbergOp> ops;

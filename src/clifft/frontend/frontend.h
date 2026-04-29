@@ -11,7 +11,7 @@
 // 2. For each gate in the circuit:
 //    - Clifford: apply to simulator (absorbed into tableau)
 //    - T/T_DAG: extract rewound Z from inv_state.zs[q], emit HeisenbergOp
-//    - Measurement: extract rewound observable, handle AG pivot if needed
+//    - Measurement: extract rewound observable, emit MEASURE
 //    - Classical feedback: extract rewound Pauli, emit CONDITIONAL_PAULI
 // 3. Return HirModule with all emitted operations
 
