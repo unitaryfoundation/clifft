@@ -531,179 +531,84 @@ html, body, #root {
   color: var(--text-dim);
 }
 
-/* --- Guided Tour overlay --- */
-.tour-overlay {
-  position: fixed;
-  inset: 0;
-  z-index: 1000;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  outline: none;
-}
+/* --- driver.js tour theme overrides ---
+   Popover stays light in both site themes — driver.js's white background
+   wins over CSS variables anyway, so the contents are pinned to fixed
+   colors that read well on white. */
 
-.tour-backdrop {
-  position: absolute;
-  inset: 0;
-  background: var(--backdrop-bg);
-}
-
-.tour-card {
-  position: relative;
-  background: var(--bg-surface);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 24px;
-  max-width: 520px;
-  width: 90%;
-  box-shadow: 0 8px 32px var(--shadow-color);
-  animation: tour-in 0.2s ease-out;
-}
-
-@keyframes tour-in {
-  from { opacity: 0; transform: translateY(8px); }
-  to { opacity: 1; transform: translateY(0); }
-}
-
-.tour-close {
-  position: absolute;
-  top: 12px;
-  right: 12px;
-  background: none;
-  border: none;
-  color: var(--text-dim);
-  cursor: pointer;
-  padding: 4px;
-  border-radius: 4px;
-  transition: color 0.15s;
-}
-
-.tour-close:hover {
-  color: var(--text);
-}
-
-.tour-step-indicator {
-  font-size: 10px;
-  color: var(--text-dim);
-  text-transform: uppercase;
-  letter-spacing: 1px;
-  margin-bottom: 8px;
-}
-
-.tour-title {
+.driver-popover-title {
   font-size: 16px;
   font-weight: 600;
-  color: var(--accent);
-  margin-bottom: 12px;
+  color: #3c64b4;
 }
 
-.tour-content {
+.driver-popover-description {
   font-size: 13px;
   line-height: 1.6;
-  color: var(--text);
-  margin-bottom: 20px;
+  color: #1e1e1e;
 }
 
-.tour-content p {
-  margin-bottom: 8px;
+.driver-popover-description p {
+  margin: 0 0 8px 0;
 }
 
-.tour-content p:last-child,
-.tour-content ul:last-child {
+.driver-popover-description p:last-child {
   margin-bottom: 0;
 }
 
-.tour-code {
-  font-family: var(--font-mono, "Roboto Mono", monospace);
-  font-size: 0.9em;
-  padding: 1px 5px;
-  border-radius: 3px;
-  background: rgba(255, 255, 255, 0.08);
-  color: var(--accent);
-}
-
-[data-theme="light"] .tour-code {
-  background: rgba(0, 0, 0, 0.06);
-}
-
-.tour-list {
-  margin: 0 0 8px 0;
+.driver-popover-description ul {
+  margin: 4px 0 8px 0;
   padding-left: 18px;
   list-style: disc;
 }
 
-.tour-list li {
+.driver-popover-description li {
   margin-bottom: 3px;
 }
 
-.tour-list li:last-child {
-  margin-bottom: 0;
+.driver-popover-description code {
+  font-family: var(--font-mono, "Roboto Mono", monospace);
+  font-size: 0.9em;
+  padding: 1px 5px;
+  border-radius: 3px;
+  background: rgba(60, 100, 180, 0.12);
+  color: #3c64b4;
 }
 
-.tour-nav {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
+.driver-popover-progress-text {
+  color: #666;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
 }
 
-.tour-nav-btn {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  padding: 6px 12px;
-  background: var(--bg);
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  color: var(--text);
+.driver-popover-close-btn {
+  color: #666;
+}
+
+.driver-popover-close-btn:hover {
+  color: #1e1e1e;
+}
+
+.driver-popover-prev-btn,
+.driver-popover-next-btn {
+  background: #ffffff;
+  color: #1e1e1e;
+  border: 1px solid #d0d0d0;
+  text-shadow: none;
   font-size: 12px;
-  cursor: pointer;
-  transition: all 0.15s;
-  min-width: 70px;
-  justify-content: center;
 }
 
-.tour-nav-btn:hover:not(:disabled) {
-  border-color: var(--accent);
+.driver-popover-prev-btn:hover,
+.driver-popover-next-btn:hover {
+  background: #f3f3f3;
+  border-color: #3c64b4;
+  color: #1e1e1e;
 }
 
-.tour-nav-btn:disabled {
-  opacity: 0.3;
-  cursor: not-allowed;
-}
-
-.tour-nav-btn-primary {
-  border-color: var(--accent);
-  color: var(--accent);
-}
-
-.tour-nav-btn-primary:hover:not(:disabled) {
-  background: var(--tour-glow);
-}
-
-.tour-dots {
-  display: flex;
-  gap: 6px;
-  align-items: center;
-}
-
-.tour-dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--border);
-  cursor: pointer;
-  transition: background 0.15s;
-  border: none;
-  padding: 0;
-}
-
-.tour-dot:hover {
-  background: var(--text-dim);
-}
-
-.tour-dot-active {
-  background: var(--accent);
+.driver-popover-next-btn {
+  border-color: #3c64b4;
+  color: #3c64b4;
 }
 
 /* --- Monaco decoration for source-map highlighting --- */

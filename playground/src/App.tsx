@@ -500,7 +500,7 @@ export default function App() {
           <Allotment.Pane>
             <Allotment defaultSizes={[34, 33, 33]}>
               <Allotment.Pane>
-                <div className="editor-pane">
+                <div className="editor-pane" data-tour="source">
                   <div className="editor-label">Source (.stim)</div>
                   <Editor
                     defaultLanguage="stim"
@@ -521,7 +521,7 @@ export default function App() {
                 </div>
               </Allotment.Pane>
               <Allotment.Pane>
-                <div className="editor-pane">
+                <div className="editor-pane" data-tour="hir">
                   <div className="editor-label">
                     HIR (Heisenberg IR)
                     {diffView && <span className="editor-label-badge">DIFF</span>}
@@ -564,7 +564,7 @@ export default function App() {
                 </div>
               </Allotment.Pane>
               <Allotment.Pane>
-                <div className="editor-pane">
+                <div className="editor-pane" data-tour="bytecode">
                   <div className="editor-label">
                     VM Bytecode
                     {diffView && <span className="editor-label-badge">DIFF</span>}
@@ -614,7 +614,7 @@ export default function App() {
           <Allotment.Pane>
             <Allotment defaultSizes={[50, 50]}>
               <Allotment.Pane>
-                <div className="chart-pane">
+                <div className="chart-pane" data-tour="active-dim">
                   <div className="chart-label">Active Dimensions (k) Timeline</div>
                   <div className="chart-container">
                     <KHistoryChart
@@ -631,7 +631,7 @@ export default function App() {
                 </div>
               </Allotment.Pane>
               <Allotment.Pane>
-                <div className="chart-pane">
+                <div className="chart-pane" data-tour="histogram">
                   <div className="chart-label sim-tabs">
                     <button
                       className={`sim-tab${simTab === "measurements" ? " sim-tab-active" : ""}`}
