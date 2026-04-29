@@ -1,5 +1,5 @@
+#include "clifft/api/reference_syndrome.h"
 #include "clifft/backend/compiler_context.h"
-#include "clifft/backend/reference_syndrome.h"
 #include "clifft/circuit/parser.h"
 #include "clifft/frontend/frontend.h"
 #include "clifft/optimizer/peephole.h"
