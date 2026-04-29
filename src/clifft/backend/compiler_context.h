@@ -208,16 +208,6 @@ class VirtualFrame {
     }
 
   private:
-    static PauliBitMask stim_to_bitmask(const stim::simd_bits_range_ref<kStimWidth>& bits,
-                                        uint32_t n) {
-        PauliBitMask m;
-        uint32_t words = (n + 63) / 64;
-        for (uint32_t w = 0; w < words && w < kMaxInlineWords; ++w) {
-            m.w[w] = bits.u64[w];
-        }
-        return m;
-    }
-
     static void apply_gate_to_pauli(const PendingGate& g, PauliBitMask& x, PauliBitMask& z,
                                     bool& sign) {
         bool xa = x.bit_get(g.axis_1);
