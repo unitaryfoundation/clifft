@@ -369,7 +369,7 @@ TEST_CASE("MultiGatePass: empty bytecode is a no-op", "[bytecode-pass]") {
 
 TEST_CASE("MULTI_CNOT: equivalent to sequential CNOTs", "[bytecode-pass][svm]") {
     // T gates activate the qubits into the statevector array.
-    // The measurement MPP Z0*Z1*Z2*Z3 forces compress_pauli to handle a pure Z-string.
+    // The measurement MPP Z0*Z1*Z2*Z3 forces localize_pauli to handle a pure Z-string.
     // It emits CNOTs that fold all Z bits onto a single pivot, natively generating
     // a sequence of contiguous ARRAY_CNOTs sharing a target.
     auto circuit = clifft::parse(
@@ -406,7 +406,7 @@ TEST_CASE("MULTI_CNOT: equivalent to sequential CNOTs", "[bytecode-pass][svm]") 
 
 TEST_CASE("MULTI_CZ: equivalent to sequential CZs", "[bytecode-pass][svm]") {
     // T gates activate the qubits.
-    // The measurement MPP X0*Z1*Z2*Z3 forces compress_pauli to handle an X-pivot
+    // The measurement MPP X0*Z1*Z2*Z3 forces localize_pauli to handle an X-pivot
     // with Z-residues. It clears the Z-residues by natively emitting a burst
     // of contiguous ARRAY_CZs sharing a control.
     auto circuit = clifft::parse(

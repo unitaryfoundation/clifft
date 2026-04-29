@@ -9,7 +9,7 @@ namespace clifft {
 /// a control axis into a single OP_ARRAY_MULTI_CZ.
 ///
 /// These "star-graph" patterns arise from the backend's greedy Pauli
-/// compressor folding multi-qubit Pauli strings onto a single pivot.
+/// localizer folding multi-qubit Pauli strings onto a single pivot.
 /// Without fusion, each CNOT/CZ triggers a separate full O(2^k) array pass.
 /// The fused instruction processes all targets/controls in one pass using
 /// popcount-based parity checks.

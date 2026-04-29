@@ -18,7 +18,7 @@ namespace clifft {
 // =============================================================================
 //
 // The VM uses a localized instruction set. All multi-qubit global topology
-// is compressed into local 1-qubit and 2-qubit virtual axis operations by the
+// is localized into 1-qubit and 2-qubit virtual axis operations by the
 // Back-End AOT compiler. The VM never evaluates basis spans or commutations.
 
 enum class Opcode : uint8_t {
@@ -320,7 +320,7 @@ struct CompiledModule {
 // =============================================================================
 
 /// Lower HIR to executable VM bytecode.
-/// Tracks virtual frame V_cum, compresses multi-qubit Paulis to local ops.
+/// Tracks virtual frame V_cum, localizes multi-qubit Paulis to local ops.
 /// If postselection_mask is non-empty, detectors at indices where
 /// mask[det_idx] != 0 are emitted as OP_POSTSELECT instead of OP_DETECTOR.
 /// expected_detectors/expected_observables carry noiseless reference parities

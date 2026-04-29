@@ -139,7 +139,7 @@ class TestDenseCliffordTFuzzer:
     """Validate Clifft against Qiskit-Aer with dense entanglement circuits.
 
     Uses higher 2-qubit gate probability (50%) and all three 2-qubit gates
-    (CX, CY, CZ) to stress the compiler's Pauli compression pipeline.
+    (CX, CY, CZ) to stress the compiler's Pauli localization pipeline.
     """
 
     @pytest.mark.parametrize("num_qubits", [3, 4, 5])
