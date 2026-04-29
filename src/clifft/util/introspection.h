@@ -14,13 +14,10 @@ namespace clifft {
 // Example: "+X0*Z3" for destab bit 0 and stab bit 3.
 std::string format_pauli_mask(const HeisenbergOp& op);
 
-// Convert an OpType enum to its string name.
 std::string op_type_to_str(OpType type);
 
-// Format a complete HIR operation as a human-readable string.
 std::string format_hir_op(const HeisenbergOp& op);
 
-// Convert an Opcode enum to its string name.
 std::string opcode_to_str(Opcode op);
 
 // Opcode classification helpers.
@@ -45,7 +42,6 @@ std::string opcode_to_str(Opcode op);
            op == Opcode::OP_SWAP_MEAS_INTERFERE;
 }
 
-// Format a complete VM instruction as a human-readable string.
 std::string format_instruction(const Instruction& inst);
 
 }  // namespace clifft

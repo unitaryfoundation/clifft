@@ -1,13 +1,11 @@
 #pragma once
 
-// Clifft compile-time configuration
-// This header defines constants and limits used throughout the codebase.
+// Clifft compile-time configuration.
 
 #include <cstdint>
 
 namespace clifft {
 
-// Maximum number of qubits supported at compile-time.
 // Set via -DCLIFFT_MAX_QUBITS=N at CMake configure time (default 128).
 // Determines the width of BitMask<N> used in HIR Pauli masks and the
 // SVM Pauli frame. The VM Instruction struct stays 32 bytes regardless.
