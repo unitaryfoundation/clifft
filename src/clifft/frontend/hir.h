@@ -66,6 +66,16 @@ constexpr size_t kStimWidth = 64;
 // Inline Pauli mask type used throughout the HIR and SVM.
 using PauliBitMask = BitMask<kMaxInlineQubits>;
 
+// Copy a Stim PauliString row (xs or zs) into our fixed-width PauliBitMask.
+inline PauliBitMask stim_to_bitmask(const stim::simd_bits_range_ref<kStimWidth>& bits, uint32_t n) {
+    PauliBitMask m;
+    uint32_t words = (n + 63) / 64;
+    for (uint32_t w = 0; w < words && w < kMaxInlineWords; ++w) {
+        m.w[w] = bits.u64[w];
+    }
+    return m;
+}
+
 // =============================================================================
 // Noise Channel Structures
 // =============================================================================
