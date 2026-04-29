@@ -1,4 +1,4 @@
-#include "clifft/backend/reference_syndrome.h"
+#include "clifft/api/reference_syndrome.h"
 
 #include "clifft/backend/backend.h"
 #include "clifft/optimizer/remove_noise_pass.h"

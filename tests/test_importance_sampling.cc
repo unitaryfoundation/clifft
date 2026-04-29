@@ -1,7 +1,7 @@
 // Tests for importance sampling: DP table, subset sampling, and sample_k API.
 
+#include "clifft/api/reference_syndrome.h"
 #include "clifft/backend/backend.h"
-#include "clifft/backend/reference_syndrome.h"
 #include "clifft/circuit/parser.h"
 #include "clifft/frontend/frontend.h"
 #include "clifft/svm/svm.h"

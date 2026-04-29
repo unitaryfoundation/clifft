@@ -18,7 +18,7 @@ add_library(clifft_core STATIC
     optimizer/remove_noise_pass.cc
     optimizer/statevector_squeeze_pass.cc
     backend/backend.cc
-    backend/reference_syndrome.cc
+    api/reference_syndrome.cc
     svm/svm.cc
     svm/svm_scalar.cc
     svm/svm_state.cc
