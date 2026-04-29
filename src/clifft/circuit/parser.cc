@@ -62,19 +62,17 @@ std::string_view trim(std::string_view s) {
     return s;
 }
 
-// Parse an integer from string_view.
 bool parse_int(std::string_view s, int& out) {
     auto result = std::from_chars(s.data(), s.data() + s.size(), out);
     return result.ec == std::errc{} && result.ptr == s.data() + s.size();
 }
 
-// Parse an unsigned integer from string_view.
 bool parse_uint(std::string_view s, uint32_t& out) {
     auto result = std::from_chars(s.data(), s.data() + s.size(), out);
     return result.ec == std::errc{} && result.ptr == s.data() + s.size();
 }
 
-// Extract the next whitespace-delimited token from a string_view.
+// Returns the next whitespace-delimited token and advances `s` past it.
 std::string_view next_token(std::string_view& s) {
     auto start = s.find_first_not_of(" \t\r\n");
     if (start == std::string_view::npos) {
@@ -92,12 +90,10 @@ std::string_view next_token(std::string_view& s) {
     return tok;
 }
 
-// Check if character is valid for gate names.
 bool is_gate_char(char c) {
     return std::isalnum(static_cast<unsigned char>(c)) || c == '_';
 }
 
-// Parser state.
 class Parser {
   public:
     explicit Parser(std::string_view text, size_t max_ops) : text_(text), max_ops_(max_ops) {}
@@ -123,8 +119,7 @@ class Parser {
         return circuit;
     }
 
-    // Parse a block of text line-by-line into the circuit.
-    // `remaining` and `line_num` are advanced as text is consumed.
+    // Advances `remaining` and `line_num` as text is consumed.
     void parse_block(std::string_view& remaining, uint32_t& line_num, Circuit& circuit,
                      uint32_t depth) {
         while (!remaining.empty()) {
@@ -159,7 +154,6 @@ class Parser {
 
     void parse_line(std::string_view line, uint32_t& line_num, Circuit& circuit,
                     std::string_view& remaining, uint32_t depth) {
-        // Strip comments.
         auto comment_pos = line.find('#');
         if (comment_pos != std::string_view::npos) {
             line = line.substr(0, comment_pos);
@@ -479,7 +473,6 @@ class Parser {
             }
         }
 
-        // Expand based on arity.
         // Identity no-ops: validate syntax and update num_qubits, but never emit AST nodes.
         if (is_identity_noop(gate)) {
             if (arity == GateArity::PAIR && targets.size() % 2 != 0) {

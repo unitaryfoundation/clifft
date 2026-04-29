@@ -139,8 +139,7 @@ TEST_CASE("Stim contract: mask extraction for HIR", "[stim][contract]") {
 }
 
 TEST_CASE("Stim contract: Tableau composition", "[stim][contract]") {
-    // For AG pivot computation, we need to compose tableaux:
-    // t1.then(t2) applies t1 first, then t2
+    // t1.then(t2) applies t1 first, then t2.
 
     stim::Tableau<64> t1(2);
     stim::Tableau<64> t2(2);
@@ -165,7 +164,7 @@ TEST_CASE("Stim contract: Tableau composition", "[stim][contract]") {
 }
 
 TEST_CASE("Stim contract: Tableau inverse", "[stim][contract]") {
-    // Verify inverse computation works for AG pivot diffs
+    // Verify Tableau::inverse() round-trips: fwd.then(inv) = identity.
 
     std::mt19937_64 rng(42);
     stim::TableauSimulator<64> sim(std::move(rng), 2);

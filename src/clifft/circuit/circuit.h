@@ -43,16 +43,14 @@ struct AstNode {
 
 // A parsed circuit ready for compilation.
 struct Circuit {
-    // Flat list of operations in execution order.
     std::vector<AstNode> nodes;
 
     uint32_t num_qubits = 0;
 
-    // Number of visible measurements (M, MX, MY, MPP, MR, MRX).
-    // R and RX are resets without visible measurements.
+    // Number of visible measurements (entries in the measurement record).
+    // Resets without measurement (R, RX, RY) don't increment this.
     uint32_t num_measurements = 0;
 
-    // Number of DETECTOR declarations.
     uint32_t num_detectors = 0;
 
     // Number of observables (max observable index + 1).

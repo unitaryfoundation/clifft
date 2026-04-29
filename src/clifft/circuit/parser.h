@@ -10,8 +10,6 @@
 // - Annotations: TICK
 //
 // Parser transformations:
-// - R q  -> M q; CX rec[-1] q  (reset decomposition)
-// - RX q -> MX q; CZ rec[-1] q (reset decomposition)
 // - MPP X0*Z1 X2 -> two separate AstNodes (unrolling)
 //
 // REPEAT handling:
