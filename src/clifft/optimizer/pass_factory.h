@@ -22,7 +22,7 @@ HirPassManager default_hir_pass_manager();
 /// Build a BytecodePassManager with all default-enabled bytecode passes.
 BytecodePassManager default_bytecode_pass_manager();
 
-/// Serialize the pass registry to a JSON string (no nlohmann dependency).
+/// Serialize the pass registry to a JSON string.
 /// Format: [{"name":"...","kind":"hir"|"bytecode","default":true|false}, ...]
 std::string pass_registry_json();
 
