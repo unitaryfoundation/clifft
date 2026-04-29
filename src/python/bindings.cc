@@ -502,7 +502,8 @@ NB_MODULE(_clifft_core, m) {
     m.def(
         "default_hir_pass_manager", []() { return clifft::default_hir_pass_manager(); },
         nb::rv_policy::move,
-        "Return an HirPassManager pre-loaded with the standard optimization passes.");
+        "Return an HirPassManager pre-loaded with the default passes:\n"
+        "PeepholeFusionPass, StatevectorSqueezePass.");
 
     nb::class_<clifft::BytecodePass>(m, "BytecodePass",
                                      "Abstract base class for bytecode optimization passes.\n\n"
@@ -567,7 +568,7 @@ NB_MODULE(_clifft_core, m) {
         nb::rv_policy::move,
         "Return a BytecodePassManager pre-loaded with the default passes:\n"
         "NoiseBlockPass, MultiGatePass, ExpandTPass, ExpandRotPass, SwapMeasPass,\n"
-        "SingleAxisFusionPass.");
+        "TileAxisFusionPass, SingleAxisFusionPass.");
 
     nb::enum_<clifft::Opcode>(m, "Opcode", "Virtual Machine opcodes")
         .value("OP_FRAME_CNOT", clifft::Opcode::OP_FRAME_CNOT)
@@ -963,10 +964,11 @@ NB_MODULE(_clifft_core, m) {
         "  p_fail = sum(P(K=k)*logical_errors_k/shots_k)\n"
         "         / sum(P(K=k)*passed_k/shots_k)\n\n"
         "Raises ValueError if the k-fault stratum has zero probability mass.\n\n"
-        "Returns a SampleResult whose measurements/detectors/observables arrays\n"
-        "contain only surviving shots. Survivor metadata is available via\n"
+        "Returns a SampleResult. Survivor metadata is always populated via\n"
         ".total_shots, .passed_shots, .discards, .logical_errors, and\n"
-        ".observable_ones.");
+        ".observable_ones. Per-shot record arrays\n"
+        "(.measurements, .detectors, .observables, .exp_vals) are only\n"
+        "filled when keep_records=True; otherwise they are empty (rows=0).");
 
     m.def(
         "sample_survivors",
@@ -983,10 +985,11 @@ NB_MODULE(_clifft_core, m) {
         nb::arg("keep_records") = false,
         "Sample shots and return results only for surviving (non-discarded) shots.\n\n"
         "If seed is None (default), uses 256-bit OS hardware entropy.\n\n"
-        "Returns a SampleResult whose measurements/detectors/observables arrays\n"
-        "contain only surviving shots. Survivor metadata is available via\n"
+        "Returns a SampleResult. Survivor metadata is always populated via\n"
         ".total_shots, .passed_shots, .discards, .logical_errors, and\n"
-        ".observable_ones.");
+        ".observable_ones. Per-shot record arrays\n"
+        "(.measurements, .detectors, .observables, .exp_vals) are only\n"
+        "filled when keep_records=True; otherwise they are empty (rows=0).");
 
     nb::class_<clifft::SchrodingerState>(m, "State", "Schrodinger VM execution state")
         .def(nb::new_([](uint32_t peak_rank, uint32_t num_measurements, uint32_t num_detectors,
