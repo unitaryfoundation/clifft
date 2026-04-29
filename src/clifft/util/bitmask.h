@@ -89,7 +89,6 @@ struct BitMask {
 
     // -- Queries --
 
-    /// True if all bits are zero.
     [[nodiscard]] constexpr bool is_zero() const {
         for (size_t i = 0; i < kWords; ++i) {
             if (w[i] != 0)
@@ -98,7 +97,6 @@ struct BitMask {
         return true;
     }
 
-    /// Population count across all words.
     [[nodiscard]] constexpr int popcount() const {
         int c = 0;
         for (size_t i = 0; i < kWords; ++i)
@@ -106,25 +104,23 @@ struct BitMask {
         return c;
     }
 
-    /// Index of the lowest set bit. Returns N (sentinel) if is_zero().
+    /// Returns N as a sentinel when no bit is set.
     [[nodiscard]] constexpr uint32_t lowest_bit() const {
         for (size_t i = 0; i < kWords; ++i) {
             if (w[i] != 0) {
                 return static_cast<uint32_t>(i * 64 + std::countr_zero(w[i]));
             }
         }
-        return static_cast<uint32_t>(N);  // sentinel: no bit set
+        return static_cast<uint32_t>(N);
     }
 
     // -- Bit-level helpers --
 
-    /// Get bit at position idx (0-indexed). Requires idx < N.
     [[nodiscard]] constexpr bool bit_get(uint32_t idx) const {
         assert(idx < N && "bit_get: index out of range");
         return (w[idx / 64] >> (idx % 64)) & 1ULL;
     }
 
-    /// Set bit at position idx to val. Requires idx < N.
     constexpr void bit_set(uint32_t idx, bool val) {
         assert(idx < N && "bit_set: index out of range");
         uint64_t mask = 1ULL << (idx % 64);
@@ -134,13 +130,11 @@ struct BitMask {
             w[idx / 64] &= ~mask;
     }
 
-    /// Toggle (XOR) bit at position idx. Requires idx < N.
     constexpr void bit_xor(uint32_t idx) {
         assert(idx < N && "bit_xor: index out of range");
         w[idx / 64] ^= (1ULL << (idx % 64));
     }
 
-    /// Swap bits at positions i and j. Requires i < N and j < N.
     constexpr void bit_swap(uint32_t i, uint32_t j) {
         assert(i < N && "bit_swap: index i out of range");
         assert(j < N && "bit_swap: index j out of range");
@@ -152,7 +146,7 @@ struct BitMask {
         bit_set(j, a);
     }
 
-    /// Clear the lowest set bit (like x &= x - 1 but multi-word safe).
+    /// Multi-word analog of x &= x - 1.
     constexpr void clear_lowest_bit() {
         for (size_t i = 0; i < kWords; ++i) {
             if (w[i] != 0) {
