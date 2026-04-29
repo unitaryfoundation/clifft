@@ -39,15 +39,12 @@ struct Target {
     // Factory functions (the canonical way to create Targets)
     // -------------------------------------------------------------------------
 
-    /// Create a plain qubit target.
     static constexpr Target qubit(uint32_t q) { return Target{q & kValueMask}; }
 
-    /// Create a measurement record reference target.
-    /// The offset is the absolute index into the measurement record.
+    /// `offset` is the absolute index into the measurement record.
     static constexpr Target rec(uint32_t offset) { return Target{(offset & kValueMask) | kRecBit}; }
 
-    /// Create a Pauli-tagged qubit target for MPP.
-    /// pauli_flag should be one of kPauliX, kPauliY, kPauliZ.
+    /// `pauli_flag` must be one of kPauliX, kPauliY, kPauliZ.
     static constexpr Target pauli(uint32_t q, uint32_t pauli_flag) {
         return Target{(q & kValueMask) | pauli_flag};
     }
@@ -56,22 +53,19 @@ struct Target {
     // Accessors
     // -------------------------------------------------------------------------
 
-    /// Check if this is a measurement record reference.
     constexpr bool is_rec() const { return (bits & kRecBit) != 0; }
 
-    /// Check if this target has the inversion flag set.
     constexpr bool is_inverted() const { return (bits & kInvertBit) != 0; }
 
-    /// Get the qubit index or record offset (the 28-bit value).
+    /// Returns the 28-bit value (qubit index or record offset).
     constexpr uint32_t value() const { return bits & kValueMask; }
 
-    /// Get the Pauli tag bits (kPauliNone, kPauliX, kPauliY, or kPauliZ).
+    /// Returns one of kPauliNone, kPauliX, kPauliY, kPauliZ.
     constexpr uint32_t pauli() const { return bits & kPauliMask; }
 
-    /// Check if this target has a Pauli tag (for MPP targets).
     constexpr bool has_pauli() const { return pauli() != kPauliNone; }
 
-    /// Get Pauli character for display ('I', 'X', 'Y', 'Z').
+    /// Pauli letter for display ('I' when untagged, else 'X' / 'Y' / 'Z').
     constexpr char pauli_char() const {
         switch (pauli()) {
             case kPauliX:
@@ -89,7 +83,6 @@ struct Target {
     // Modifiers (return new Target)
     // -------------------------------------------------------------------------
 
-    /// Return a new Target with the inversion flag set.
     constexpr Target inverted() const { return Target{bits | kInvertBit}; }
 
     // -------------------------------------------------------------------------

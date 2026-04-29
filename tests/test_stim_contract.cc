@@ -139,8 +139,7 @@ TEST_CASE("Stim contract: mask extraction for HIR", "[stim][contract]") {
 }
 
 TEST_CASE("Stim contract: Tableau composition", "[stim][contract]") {
-    // For AG pivot computation, we need to compose tableaux:
-    // t1.then(t2) applies t1 first, then t2
+    // t1.then(t2) applies t1 first, then t2.
 
     stim::Tableau<64> t1(2);
     stim::Tableau<64> t2(2);
@@ -153,19 +152,16 @@ TEST_CASE("Stim contract: Tableau composition", "[stim][contract]") {
     auto composed = t1.then(t2);
     REQUIRE(composed.num_qubits == 2);
 
-    // t1.then(t2) represents U = S @ H (in matrix notation)
-    // The tableau stores the forward transformation: U P U_dag
-    // So composed.zs[0] = (SH) Z (SH)_dag = H_dag S_dag Z S H = H_dag Z H = X... wait
-    // Actually for forward tableau: (SH) Z (SH)_dag
-    // Let me verify: H Z H_dag = X, then S X S_dag = Y
-    // So (SH) Z (SH)_dag = S (H Z H_dag) S_dag = S X S_dag = Y
+    // t1.then(t2) means apply t1 first, then t2, so U = S * H.
+    // The forward tableau stores U P U_dag, so composed.zs[0] is
+    //   (SH) Z (SH)_dag = S (H Z H_dag) S_dag = S X S_dag = Y.
     auto z0 = composed.zs[0];
     REQUIRE(z0.xs[0] == true);  // Y has X component
     REQUIRE(z0.zs[0] == true);  // Y has Z component
 }
 
 TEST_CASE("Stim contract: Tableau inverse", "[stim][contract]") {
-    // Verify inverse computation works for AG pivot diffs
+    // Verify Tableau::inverse() round-trips: fwd.then(inv) = identity.
 
     std::mt19937_64 rng(42);
     stim::TableauSimulator<64> sim(std::move(rng), 2);
