@@ -1,7 +1,10 @@
 """Clifft.
 
-A multi-level AOT compiler and Schrodinger Virtual Machine for quantum circuits
-(Clifford + T and beyond).
+A fast exact simulator for near-Clifford quantum circuits. Accepts
+Stim-format circuits with non-Clifford extensions, compiles them through
+a multi-level pipeline (HIR + bytecode), and executes the bytecode on a
+Schrodinger Virtual Machine whose cost scales with the active dimension
+rather than the full Hilbert space.
 """
 
 # ruff: noqa: E402

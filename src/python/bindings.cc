@@ -814,9 +814,9 @@ NB_MODULE(_clifft_core, m) {
         nb::arg("bytecode_passes") = nb::none(),
         "Compile a quantum circuit string to executable bytecode.\n\n"
         "Runs the full pipeline: parse -> trace -> [HIR optimize] ->\n"
-        "lower -> [bytecode optimize].  Pass manager arguments are\n"
+        "lower -> [bytecode optimize]. Pass manager arguments are\n"
         "optional; when None the corresponding optimization stage is\n"
-        "skipped (matching the previous default behavior).\n"
+        "skipped.\n"
         "\n"
         "When normalize_syndromes=True, a noiseless reference shot is\n"
         "executed internally to extract expected detector and observable\n"
