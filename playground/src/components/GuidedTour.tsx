@@ -1,56 +1,11 @@
-import {
-  useState,
-  useCallback,
-  useRef,
-  useEffect,
-  type KeyboardEvent,
-  type ReactNode,
-} from "react";
-import { X, ChevronLeft, ChevronRight } from "lucide-react";
+import { useEffect } from "react";
+import { driver } from "driver.js";
+import "driver.js/dist/driver.css";
 
 interface TourStep {
   title: string;
   content: string;
-  target?: string; // CSS selector to highlight
-}
-
-/** Render inline `code` spans within a text string. */
-function renderInlineCode(text: string): ReactNode[] {
-  const parts = text.split(/(`[^`]+`)/);
-  return parts.map((part, i) => {
-    if (part.startsWith("`") && part.endsWith("`")) {
-      return (
-        <code key={i} className="tour-code">
-          {part.slice(1, -1)}
-        </code>
-      );
-    }
-    return part;
-  });
-}
-
-/**
- * Render tour content with basic markdown support:
- * - Paragraphs separated by blank lines
- * - Bullet lists (lines starting with "- ")
- * - Inline `code` spans
- */
-function renderTourContent(content: string): ReactNode[] {
-  const blocks = content.split("\n\n");
-  return blocks.map((block, bi) => {
-    const lines = block.split("\n");
-    const isList = lines.every((l) => l.startsWith("- "));
-    if (isList) {
-      return (
-        <ul key={bi} className="tour-list">
-          {lines.map((line, li) => (
-            <li key={li}>{renderInlineCode(line.slice(2))}</li>
-          ))}
-        </ul>
-      );
-    }
-    return <p key={bi}>{renderInlineCode(block)}</p>;
-  });
+  target?: string;
 }
 
 const STEPS: TourStep[] = [
@@ -68,7 +23,7 @@ const STEPS: TourStep[] = [
       "`T`, `S`, and `M`, followed by qubit indices.\n\n" +
       "The compiler updates automatically as you type. Try deleting a line or " +
       "adding a gate and watch the other panels change.",
-    target: ".editor-pane:nth-child(1)",
+    target: '[data-tour="source"]',
   },
   {
     title: "Heisenberg IR (middle)",
@@ -81,7 +36,7 @@ const STEPS: TourStep[] = [
       "as the effective Pauli observable being measured.\n\n" +
       "If the IR has fewer operations than the source circuit, the compiler is " +
       "doing useful work.",
-    target: ".editor-pane:nth-child(2)",
+    target: '[data-tour="hir"]',
   },
   {
     title: "VM Bytecode (right)",
@@ -97,7 +52,7 @@ const STEPS: TourStep[] = [
       "- `OP_EXPAND` grows the active subspace\n" +
       "- `OP_ARRAY_T` applies a T rotation\n" +
       "- `OP_MEAS_*` performs a measurement",
-    target: ".editor-pane:nth-child(3)",
+    target: '[data-tour="bytecode"]',
   },
   {
     title: "Source Map Highlighting",
@@ -117,7 +72,7 @@ const STEPS: TourStep[] = [
       "Measurements can reduce `k` again.\n\n" +
       "The red dashed line marks the browser memory limit. The yellow dashed line " +
       "follows your cursor position in the bytecode editor.",
-    target: ".chart-pane:nth-child(1)",
+    target: '[data-tour="active-dim"]',
   },
   {
     title: "Simulation",
@@ -127,7 +82,7 @@ const STEPS: TourStep[] = [
       "of shots.\n\n" +
       "The histogram shows measurement outcome probabilities. Hover over a bar " +
       "to see exact counts. Timing stats appear below the chart.",
-    target: ".chart-pane:nth-child(2)",
+    target: '[data-tour="histogram"]',
   },
   {
     title: "Sharing & Options",
@@ -141,84 +96,71 @@ const STEPS: TourStep[] = [
       "have saved.\n\n" +
       "`Passes` lets you toggle HIR and bytecode optimization passes. `Diff` shows " +
       "the unoptimized and optimized outputs side by side.",
+    target: '[data-tour="actions"]',
   },
 ];
+
+function escapeHtml(text: string): string {
+  return text
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+}
+
+function inlineCode(text: string): string {
+  return escapeHtml(text).replace(
+    /`([^`]+)`/g,
+    '<code class="tour-code">$1</code>',
+  );
+}
+
+function contentToHtml(content: string): string {
+  const blocks = content.split("\n\n");
+  return blocks
+    .map((block) => {
+      const lines = block.split("\n");
+      const isList = lines.every((l) => l.startsWith("- "));
+      if (isList) {
+        const items = lines
+          .map((l) => `<li>${inlineCode(l.slice(2))}</li>`)
+          .join("");
+        return `<ul class="tour-list">${items}</ul>`;
+      }
+      return `<p>${inlineCode(block)}</p>`;
+    })
+    .join("");
+}
+
 interface Props {
   onClose: () => void;
 }
 
 export function GuidedTour({ onClose }: Props) {
-  const [step, setStep] = useState(0);
-  const current = STEPS[step];
-
-  const handlePrev = useCallback(() => setStep((s) => Math.max(0, s - 1)), []);
-  const handleNext = useCallback(() => {
-    if (step < STEPS.length - 1) {
-      setStep((s) => s + 1);
-    } else {
-      onClose();
-    }
-  }, [step, onClose]);
-
-  const handleKeyDown = useCallback(
-    (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
-      if (e.key === "ArrowRight" || e.key === "Enter") handleNext();
-      if (e.key === "ArrowLeft") handlePrev();
-    },
-    [onClose, handleNext, handlePrev],
-  );
-
-  const overlayRef = useRef<HTMLDivElement>(null);
-
-  // Auto-focus on mount so keyboard events work immediately
   useEffect(() => {
-    overlayRef.current?.focus();
-  }, []);
+    const driverObj = driver({
+      showProgress: true,
+      progressText: "Step {{current}} of {{total}}",
+      nextBtnText: "Next →",
+      prevBtnText: "← Back",
+      doneBtnText: "Finish",
+      animate: true,
+      smoothScroll: true,
+      stagePadding: 6,
+      stageRadius: 6,
+      onDestroyed: onClose,
+      steps: STEPS.map((step) => ({
+        element: step.target,
+        popover: {
+          title: step.title,
+          description: contentToHtml(step.content),
+        },
+      })),
+    });
+    driverObj.drive();
+    return () => {
+      driverObj.destroy();
+    };
+  }, [onClose]);
 
-  return (
-    <div
-      className="tour-overlay"
-      onKeyDown={handleKeyDown}
-      tabIndex={-1}
-      role="dialog"
-      aria-modal="true"
-      aria-label="Guided tour"
-      ref={overlayRef}
-    >
-      <div className="tour-backdrop" onClick={onClose} />
-      <div className="tour-card">
-        <button className="tour-close" onClick={onClose} title="Close tour">
-          <X size={16} />
-        </button>
-        <div className="tour-step-indicator">
-          {step + 1} / {STEPS.length}
-        </div>
-        <h3 className="tour-title">{current.title}</h3>
-        <div className="tour-content">{renderTourContent(current.content)}</div>
-        <div className="tour-nav">
-          <button
-            className="tour-nav-btn"
-            onClick={handlePrev}
-            disabled={step === 0}
-          >
-            <ChevronLeft size={14} /> Back
-          </button>
-          <div className="tour-dots">
-            {STEPS.map((_, i) => (
-              <button
-                key={i}
-                className={`tour-dot ${i === step ? "tour-dot-active" : ""}`}
-                onClick={() => setStep(i)}
-                aria-label={`Go to step ${i + 1}`}
-              />
-            ))}
-          </div>
-          <button className="tour-nav-btn tour-nav-btn-primary" onClick={handleNext}>
-            {step === STEPS.length - 1 ? "Finish" : "Next"} <ChevronRight size={14} />
-          </button>
-        </div>
-      </div>
-    </div>
-  );
+  return null;
 }

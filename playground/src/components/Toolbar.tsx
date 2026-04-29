@@ -240,7 +240,7 @@ export function Toolbar({
           {wasmStatus === "error" && "Wasm failed to load"}
         </span>
       </div>
-      <div className="toolbar-right">
+      <div className="toolbar-right" data-tour="actions">
         {/* Configure Passes */}
         <div className="passes-group" ref={passesRef}>
           <button

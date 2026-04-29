@@ -532,102 +532,23 @@ html, body, #root {
 }
 
 /* --- Guided Tour overlay --- */
-.tour-overlay {
-  position: fixed;
-  inset: 0;
-  z-index: 1000;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  outline: none;
-}
-
-.tour-backdrop {
-  position: absolute;
-  inset: 0;
-  background: var(--backdrop-bg);
-}
-
-.tour-card {
-  position: relative;
-  background: var(--bg-surface);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 24px;
-  max-width: 520px;
-  width: 90%;
-  box-shadow: 0 8px 32px var(--shadow-color);
-  animation: tour-in 0.2s ease-out;
-}
-
-@keyframes tour-in {
-  from { opacity: 0; transform: translateY(8px); }
-  to { opacity: 1; transform: translateY(0); }
-}
-
-.tour-close {
-  position: absolute;
-  top: 12px;
-  right: 12px;
-  background: none;
-  border: none;
-  color: var(--text-dim);
-  cursor: pointer;
-  padding: 4px;
-  border-radius: 4px;
-  transition: color 0.15s;
-}
-
-.tour-close:hover {
-  color: var(--text);
-}
-
-.tour-step-indicator {
-  font-size: 10px;
-  color: var(--text-dim);
-  text-transform: uppercase;
-  letter-spacing: 1px;
-  margin-bottom: 8px;
-}
-
-.tour-title {
-  font-size: 16px;
-  font-weight: 600;
-  color: var(--accent);
-  margin-bottom: 12px;
-}
-
-.tour-content {
-  font-size: 13px;
-  line-height: 1.6;
-  color: var(--text);
-  margin-bottom: 20px;
-}
-
-.tour-content p {
-  margin-bottom: 8px;
-}
-
-.tour-content p:last-child,
-.tour-content ul:last-child {
-  margin-bottom: 0;
-}
+/* --- driver.js tour theme overrides --- */
 
 .tour-code {
   font-family: var(--font-mono, "Roboto Mono", monospace);
   font-size: 0.9em;
   padding: 1px 5px;
   border-radius: 3px;
-  background: rgba(255, 255, 255, 0.08);
+  background: rgba(0, 0, 0, 0.06);
   color: var(--accent);
 }
 
-[data-theme="light"] .tour-code {
-  background: rgba(0, 0, 0, 0.06);
+[data-theme="dark"] .tour-code {
+  background: rgba(255, 255, 255, 0.08);
 }
 
 .tour-list {
-  margin: 0 0 8px 0;
+  margin: 4px 0 8px 0;
   padding-left: 18px;
   list-style: disc;
 }
@@ -636,74 +557,73 @@ html, body, #root {
   margin-bottom: 3px;
 }
 
-.tour-list li:last-child {
-  margin-bottom: 0;
-}
-
-.tour-nav {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-}
-
-.tour-nav-btn {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  padding: 6px 12px;
-  background: var(--bg);
-  border: 1px solid var(--border);
-  border-radius: 4px;
+.driver-popover {
+  background: var(--bg-surface);
   color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 8px 32px var(--shadow-color);
+}
+
+.driver-popover-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--accent);
+}
+
+.driver-popover-description {
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--text);
+}
+
+.driver-popover-progress-text {
+  color: var(--text-dim);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
+
+.driver-popover-close-btn {
+  color: var(--text-dim);
+}
+
+.driver-popover-close-btn:hover {
+  color: var(--text);
+}
+
+.driver-popover-prev-btn,
+.driver-popover-next-btn {
+  background: var(--bg);
+  color: var(--text);
+  border: 1px solid var(--border);
+  text-shadow: none;
   font-size: 12px;
-  cursor: pointer;
-  transition: all 0.15s;
-  min-width: 70px;
-  justify-content: center;
 }
 
-.tour-nav-btn:hover:not(:disabled) {
+.driver-popover-prev-btn:hover,
+.driver-popover-next-btn:hover {
+  background: var(--bg-hover);
   border-color: var(--accent);
+  color: var(--text);
 }
 
-.tour-nav-btn:disabled {
-  opacity: 0.3;
-  cursor: not-allowed;
-}
-
-.tour-nav-btn-primary {
+.driver-popover-next-btn {
   border-color: var(--accent);
   color: var(--accent);
 }
 
-.tour-nav-btn-primary:hover:not(:disabled) {
-  background: var(--tour-glow);
+.driver-popover-arrow-side-top.driver-popover-arrow {
+  border-top-color: var(--bg-surface);
 }
-
-.tour-dots {
-  display: flex;
-  gap: 6px;
-  align-items: center;
+.driver-popover-arrow-side-bottom.driver-popover-arrow {
+  border-bottom-color: var(--bg-surface);
 }
-
-.tour-dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--border);
-  cursor: pointer;
-  transition: background 0.15s;
-  border: none;
-  padding: 0;
+.driver-popover-arrow-side-left.driver-popover-arrow {
+  border-left-color: var(--bg-surface);
 }
-
-.tour-dot:hover {
-  background: var(--text-dim);
-}
-
-.tour-dot-active {
-  background: var(--accent);
+.driver-popover-arrow-side-right.driver-popover-arrow {
+  border-right-color: var(--bg-surface);
 }
 
 /* --- Monaco decoration for source-map highlighting --- */
