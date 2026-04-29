@@ -81,16 +81,6 @@ void apply_two_qubit_clifford(stim::TableauSimulator<kStimWidth>& sim, GateType 
     sim.inv_state.inplace_scatter_prepend(inv_tab, {a, b});
 }
 
-// Copy Stim's dynamically-sized PauliString bits into our fixed-width BitMask.
-PauliBitMask stim_to_bitmask(const stim::simd_bits_range_ref<kStimWidth>& bits, uint32_t n) {
-    PauliBitMask m;
-    uint32_t words = (n + 63) / 64;
-    for (uint32_t w = 0; w < words && w < kMaxInlineWords; ++w) {
-        m.w[w] = bits.u64[w];
-    }
-    return m;
-}
-
 // Extract the rewound Z observable for a qubit as PauliBitMask masks
 void extract_rewound_z(const stim::TableauSimulator<kStimWidth>& sim, uint32_t qubit,
                        PauliBitMask& destab_mask, PauliBitMask& stab_mask, bool& sign) {

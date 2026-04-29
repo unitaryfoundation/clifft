@@ -18,15 +18,6 @@ using namespace clifft;
 using clifft::test::X;
 using clifft::test::Z;
 
-static PauliBitMask stim_to_bitmask(const stim::simd_bits_range_ref<kStimWidth>& bits, uint32_t n) {
-    PauliBitMask m;
-    uint32_t words = (n + 63) / 64;
-    for (uint32_t w = 0; w < words && w < kMaxInlineWords; ++w) {
-        m.w[w] = bits.u64[w];
-    }
-    return m;
-}
-
 static NoiseChannel rewind_single_pauli_reference(const stim::TableauSimulator<kStimWidth>& sim,
                                                   uint32_t qubit, int pauli_type, double prob) {
     stim::PauliString<kStimWidth> pauli(sim.inv_state.num_qubits);
