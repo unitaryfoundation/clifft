@@ -188,11 +188,11 @@ test-wasm:
 
 # Serve docs locally with live reload
 docs-serve:
-  uv run mkdocs serve -a 0.0.0.0:8000
+  uv run --only-group docs mkdocs serve -a 0.0.0.0:8000
 
 # Build docs to site/
 docs-build:
-  uv run mkdocs build --strict
+  uv run --only-group docs mkdocs build --strict
 
 # -------------------------
 # Playground
