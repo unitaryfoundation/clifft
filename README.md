@@ -142,7 +142,7 @@ Clifft is designed for near-Clifford circuits where non-Clifford activity remain
 
 _Throughput numbers above were measured on cloud instances; the links to the in-browser WASM playground will report lower throughput._
 
-For benchmark details, plots, hardware notes, and guidance on when Clifft is a good fit, see the [performance](https://unitaryfoundation.github.io/clifft/performance/) section of the documentation.
+For benchmark details, plots, hardware notes, and guidance on when Clifft is a good fit, see the [performance](https://unitaryfoundation.github.io/clifft/guide/performance/) section of the documentation.
 
 The full methodology and scientific results are described in the [Clifft paper](TODO_ARXIV_LINK).
 
