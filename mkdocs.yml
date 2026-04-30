@@ -1,5 +1,5 @@
 site_name: Clifft
-site_url: https://unitaryfoundation.github.io/clifft/
+site_url: !ENV [SITE_URL, "https://unitaryfoundation.github.io/clifft/"]
 repo_url: https://github.com/unitaryfoundation/clifft
 repo_name: unitaryfoundation/clifft
 copyright: Copyright &copy; 2026 <a href="https://unitary.foundation" target="_blank">Unitary Foundation</a>
