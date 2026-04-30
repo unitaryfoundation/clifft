@@ -20,7 +20,11 @@ jobs:
       CMAKE_GENERATOR: Ninja
       # TSan flags: compile and link with -fsanitize=thread.
       # Suppress known false positives from OpenMP runtime internals.
-      TSAN_OPTIONS: "suppressions=${{ github.workspace }}/tools/tsan/suppressions.txt second_deadlock_stack=1"
+      # ignore_noninstrumented_modules=1 silences races whose top frame is in
+      # an uninstrumented library (libomp here); the runner's libomp lacks
+      # resolvable symbols so the name-based race:__kmp_* suppressions in
+      # tools/tsan/suppressions.txt cannot match on their own.
+      TSAN_OPTIONS: "suppressions=${{ github.workspace }}/tools/tsan/suppressions.txt second_deadlock_stack=1 ignore_noninstrumented_modules=1"
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
