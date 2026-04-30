@@ -76,9 +76,75 @@ For more details and examples, check out the [documentation](https://unitaryfoun
 
 ## Performance
 
-Clifft is designed for near-Clifford circuits where non-Clifford activity
-remains localized. However, it is also quite performant as a standard dense statevector simulator, even outside this regime. Full application benchmarks
-and citation information will be linked here when the paper is public.
+Clifft is designed for near-Clifford circuits where non-Clifford activity remains localized. In this regime, the dominant cost scales with the peak active dimension `k`, not directly with the total number of physical qubits.
+
+<table>
+  <thead>
+    <tr>
+      <th>Regime</th>
+      <th>Representative benchmark</th>
+      <th>What the results show</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>Pure Clifford QEC</td>
+      <td>
+        Surface code d=7, r=7
+        <a
+          href="https://unitaryfoundation.github.io/clifft/playground/?url=https://raw.githubusercontent.com/unitaryfoundation/clifft-paper/main/qec_bench/circuits/surface_d7_r7.stim"
+          target="_blank"
+          rel="noopener noreferrer"
+          title="Open this circuit in the Clifft playground"
+          aria-label="Open Surface code d=7, r=7 in the Clifft playground">
+          ▶↗
+        </a>
+      </td>
+      <td>Stim remains the right tool; Clifft is roughly 10× slower while preserving the same sampling-oriented workflow.</td>
+    </tr>
+    <tr>
+      <td>Low-magic FT circuits</td>
+      <td>
+        MSC d=3 cultivation
+        <a
+          href="https://unitaryfoundation.github.io/clifft/playground/?url=https://raw.githubusercontent.com/unitaryfoundation/clifft-paper/main/qec_bench/circuits/cultivation_d3.stim"
+          target="_blank"
+          rel="noopener noreferrer"
+          title="Open this circuit in the Clifft playground"
+          aria-label="Open MSC d=3 cultivation in the Clifft playground">
+          ▶↗
+        </a>
+      </td>
+      <td>Clifft reaches 10.4M shots/s, about 370× faster than <a href="https://github.com/QuEraComputing/tsim" target="_blank" rel="noopener noreferrer">Tsim</a> on this benchmark.</td>
+    </tr>
+    <tr>
+      <td>Larger near-Clifford FT circuits</td>
+      <td>
+        MSC d=5 cultivation
+        <a
+          href="https://unitaryfoundation.github.io/clifft/playground/?url=https://raw.githubusercontent.com/unitaryfoundation/clifft-paper/main/qec_bench/circuits/cultivation_d5.stim"
+          target="_blank"
+          rel="noopener noreferrer"
+          title="Open this circuit in the Clifft playground"
+          aria-label="Open MSC d=5 cultivation in the Clifft playground">
+          ▶↗
+        </a>
+      </td>
+      <td>Clifft reaches ~135K shots/s on one CPU core, about 13× faster than <a href="https://github.com/haoliri0/SOFT" target="_blank" rel="noopener noreferrer">SOFT</a> at ~10.6K shots/s on one H800 GPU.</td>
+    </tr>
+    <tr>
+      <td>Dense universal circuits</td>
+      <td>Quantum Volume</td>
+      <td>In the worst-case dense limit, Clifft remains neck-and-neck with simulators like <a href="https://github.com/Qiskit/qiskit-aer" target="_blank" rel="noopener noreferrer">qiskit-aer</a> and <a href="https://github.com/quantumlib/qsim" target="_blank" rel="noopener noreferrer">qsim</a>.</td>
+    </tr>
+  </tbody>
+</table>
+
+_Throughput numbers above were measured on cloud instances; the links to the in-browser WASM playground will report lower throughput._
+
+For benchmark details, plots, hardware notes, and guidance on when Clifft is a good fit, see the [performance](https://unitaryfoundation.github.io/clifft/performance/) section of the documentation.
+
+The full methodology and scientific results are described in the [Clifft paper](TODO_ARXIV_LINK).
 
 ## Citation
 
