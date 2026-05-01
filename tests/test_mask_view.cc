@@ -1,3 +1,4 @@
+#include "clifft/backend/compiler_context.h"
 #include "clifft/util/bitmask.h"
 #include "clifft/util/mask_view.h"
 #include "clifft/util/pauli_arena.h"
@@ -5,30 +6,36 @@
 #include <array>
 #include <catch2/catch_test_macros.hpp>
 #include <cstdint>
-#include <vector>
+#include <span>
 
 using clifft::BitMask;
 using clifft::MaskView;
 using clifft::mut_view;
 using clifft::MutableMaskView;
+using clifft::MutablePauliMaskView;
 using clifft::PauliMaskArena;
+using clifft::PauliMaskHandle;
+using clifft::PauliMaskView;
 using clifft::view;
+using clifft::internal::find_active_pivot;
+using clifft::internal::find_dormant_pivot;
 
 // =========================================================================
 // MaskView: read-only access
 // =========================================================================
 
-TEST_CASE("MaskView: empty width reports zero") {
-    MaskView v{nullptr, 0};
+TEST_CASE("MaskView: empty view reports zero") {
+    MaskView v;
     REQUIRE(v.is_zero());
     REQUIRE(v.popcount() == 0);
     REQUIRE(v.lowest_bit() == 0);
+    REQUIRE(v.num_words() == 0);
 }
 
 TEST_CASE("MaskView: bit_get and is_zero across word boundaries") {
     std::array<uint64_t, 3> words{0, 0, 0};
-    MutableMaskView mv{words.data(), 3};
-    REQUIRE(MaskView{words.data(), 3}.is_zero());
+    MutableMaskView mv{std::span<uint64_t>(words)};
+    REQUIRE(MaskView{std::span<const uint64_t>(words)}.is_zero());
 
     mv.bit_set(0, true);
     mv.bit_set(63, true);
@@ -37,7 +44,7 @@ TEST_CASE("MaskView: bit_get and is_zero across word boundaries") {
     mv.bit_set(128, true);
     mv.bit_set(191, true);
 
-    MaskView cv{words.data(), 3};
+    MaskView cv{std::span<const uint64_t>(words)};
     REQUIRE(cv.bit_get(0));
     REQUIRE(cv.bit_get(63));
     REQUIRE(cv.bit_get(64));
@@ -52,14 +59,21 @@ TEST_CASE("MaskView: bit_get and is_zero across word boundaries") {
 
 TEST_CASE("MaskView: lowest_bit returns sentinel when empty") {
     std::array<uint64_t, 4> words{0, 0, 0, 0};
-    MaskView v{words.data(), 4};
+    MaskView v{std::span<const uint64_t>(words)};
     REQUIRE(v.lowest_bit() == 4 * 64);
 }
 
 TEST_CASE("MaskView: lowest_bit walks past zero words") {
     std::array<uint64_t, 4> words{0, 0, 0x1ULL << 5, 0};
-    MaskView v{words.data(), 4};
+    MaskView v{std::span<const uint64_t>(words)};
     REQUIRE(v.lowest_bit() == 2 * 64 + 5);
+}
+
+TEST_CASE("MaskView: implicit conversion from MutableMaskView") {
+    std::array<uint64_t, 2> words{0xFF, 0};
+    MutableMaskView mv{std::span<uint64_t>(words)};
+    MaskView cv = mv;
+    REQUIRE(cv.popcount() == 8);
 }
 
 // =========================================================================
@@ -68,7 +82,7 @@ TEST_CASE("MaskView: lowest_bit walks past zero words") {
 
 TEST_CASE("MutableMaskView: clear_lowest_bit walks through bits in order") {
     std::array<uint64_t, 2> words{0, 0};
-    MutableMaskView mv{words.data(), 2};
+    MutableMaskView mv{std::span<uint64_t>(words)};
     mv.bit_set(3, true);
     mv.bit_set(70, true);
     mv.bit_set(90, true);
@@ -84,7 +98,7 @@ TEST_CASE("MutableMaskView: clear_lowest_bit walks through bits in order") {
 
 TEST_CASE("MutableMaskView: bit_xor toggles individual bits") {
     std::array<uint64_t, 1> words{0};
-    MutableMaskView mv{words.data(), 1};
+    MutableMaskView mv{std::span<uint64_t>(words)};
     mv.bit_xor(7);
     REQUIRE(mv.bit_get(7));
     mv.bit_xor(7);
@@ -94,8 +108,8 @@ TEST_CASE("MutableMaskView: bit_xor toggles individual bits") {
 TEST_CASE("MutableMaskView: xor_with composes two views") {
     std::array<uint64_t, 2> a{0xAAAAAAAAAAAAAAAAULL, 0x1};
     std::array<uint64_t, 2> b{0x5555555555555555ULL, 0x3};
-    MutableMaskView ma{a.data(), 2};
-    MaskView mb{b.data(), 2};
+    MutableMaskView ma{std::span<uint64_t>(a)};
+    MaskView mb{std::span<const uint64_t>(b)};
     ma.xor_with(mb);
     REQUIRE(a[0] == 0xFFFFFFFFFFFFFFFFULL);
     REQUIRE(a[1] == 0x2);
@@ -104,19 +118,19 @@ TEST_CASE("MutableMaskView: xor_with composes two views") {
 TEST_CASE("MutableMaskView: and_with and or_with") {
     std::array<uint64_t, 1> a{0xF0F0};
     std::array<uint64_t, 1> b{0x0FF0};
-    MutableMaskView ma{a.data(), 1};
+    MutableMaskView ma{std::span<uint64_t>(a)};
 
-    ma.and_with(MaskView{b.data(), 1});
+    ma.and_with(MaskView{std::span<const uint64_t>(b)});
     REQUIRE(a[0] == 0x00F0);
 
     a[0] = 0xF0F0;
-    ma.or_with(MaskView{b.data(), 1});
+    ma.or_with(MaskView{std::span<const uint64_t>(b)});
     REQUIRE(a[0] == 0xFFF0);
 }
 
 TEST_CASE("MutableMaskView: zero_out clears all words") {
     std::array<uint64_t, 4> a{1, 2, 3, 4};
-    MutableMaskView ma{a.data(), 4};
+    MutableMaskView ma{std::span<uint64_t>(a)};
     ma.zero_out();
     REQUIRE(ma.is_zero());
 }
@@ -124,7 +138,7 @@ TEST_CASE("MutableMaskView: zero_out clears all words") {
 TEST_CASE("MutableMaskView: copy_from replaces contents") {
     std::array<uint64_t, 3> a{0, 0, 0};
     std::array<uint64_t, 3> b{1, 2, 3};
-    MutableMaskView{a.data(), 3}.copy_from(MaskView{b.data(), 3});
+    MutableMaskView{std::span<uint64_t>(a)}.copy_from(MaskView{std::span<const uint64_t>(b)});
     REQUIRE(a[0] == 1);
     REQUIRE(a[1] == 2);
     REQUIRE(a[2] == 3);
@@ -139,7 +153,7 @@ TEST_CASE("view adapter: read-only access to BitMask") {
     m.bit_set(0, true);
     m.bit_set(200, true);
     auto v = view(m);
-    REQUIRE(v.num_words == 4);
+    REQUIRE(v.num_words() == 4);
     REQUIRE(v.bit_get(0));
     REQUIRE(v.bit_get(200));
     REQUIRE_FALSE(v.bit_get(199));
@@ -161,64 +175,170 @@ TEST_CASE("mut_view adapter: writes through to BitMask") {
 // PauliMaskArena
 // =========================================================================
 
-TEST_CASE("PauliMaskArena: alloc_zero returns sequential handles") {
-    PauliMaskArena arena(128);
+TEST_CASE("PauliMaskArena: capacity and width are fixed at construction") {
+    PauliMaskArena arena(128, 5);
     REQUIRE(arena.num_words() == 2);
-    REQUIRE(arena.num_masks() == 0);
-
-    REQUIRE(arena.alloc_zero() == 0);
-    REQUIRE(arena.alloc_zero() == 1);
-    REQUIRE(arena.alloc_zero() == 2);
-    REQUIRE(arena.num_masks() == 3);
+    REQUIRE(arena.size() == 5);
 }
 
 TEST_CASE("PauliMaskArena: per-handle storage is independent") {
-    PauliMaskArena arena(256);
-    uint32_t h0 = arena.alloc_zero();
-    uint32_t h1 = arena.alloc_zero();
+    PauliMaskArena arena(256, 2);
+    auto m0 = arena.mut_at(PauliMaskHandle{0});
+    auto m1 = arena.mut_at(PauliMaskHandle{1});
 
-    auto m0 = arena.get(h0);
-    auto m1 = arena.get(h1);
-    m0.mut_x().bit_set(5, true);
-    m0.mut_z().bit_set(200, true);
-    *m0.sign = 1;
+    m0.x().bit_set(5, true);
+    m0.z().bit_set(200, true);
+    m0.set_sign(true);
 
-    REQUIRE(m0.view_x().bit_get(5));
-    REQUIRE(m0.view_z().bit_get(200));
-    REQUIRE(*m0.sign == 1);
+    REQUIRE(m0.x().bit_get(5));
+    REQUIRE(m0.z().bit_get(200));
+    REQUIRE(m0.sign());
 
-    REQUIRE(m1.view_x().is_zero());
-    REQUIRE(m1.view_z().is_zero());
-    REQUIRE(*m1.sign == 0);
+    REQUIRE(m1.x().is_zero());
+    REQUIRE(m1.z().is_zero());
+    REQUIRE_FALSE(m1.sign());
 }
 
-TEST_CASE("PauliMaskArena: const get returns read-only view") {
-    PauliMaskArena arena(64);
-    uint32_t h = arena.alloc_zero();
-    arena.get(h).mut_x().bit_set(3, true);
+TEST_CASE("PauliMaskArena: const at returns read-only view") {
+    PauliMaskArena arena(64, 1);
+    arena.mut_at(PauliMaskHandle{0}).x().bit_set(3, true);
+    arena.mut_at(PauliMaskHandle{0}).set_sign(true);
 
     const PauliMaskArena& carena = arena;
-    auto cm = carena.get(h);
-    REQUIRE(cm.view_x().bit_get(3));
-    REQUIRE(cm.view_z().is_zero());
+    auto cm = carena.at(PauliMaskHandle{0});
+    REQUIRE(cm.x().bit_get(3));
+    REQUIRE(cm.z().is_zero());
+    REQUIRE(cm.sign());
 }
 
 TEST_CASE("PauliMaskArena: width above old compile-time bound") {
     // BitMask<N> caps at CLIFFT_MAX_QUBITS at compile time. The arena
-    // must accept arbitrary widths and round up to whole words.
-    PauliMaskArena arena(1024);
+    // accepts arbitrary widths and rounds up to whole words.
+    PauliMaskArena arena(1024, 1);
     REQUIRE(arena.num_words() == 16);
-    uint32_t h = arena.alloc_zero();
-    arena.get(h).mut_x().bit_set(1023, true);
-    REQUIRE(arena.get(h).view_x().bit_get(1023));
-    REQUIRE(arena.get(h).view_x().lowest_bit() == 1023);
+    arena.mut_at(PauliMaskHandle{0}).x().bit_set(1023, true);
+    REQUIRE(arena.at(PauliMaskHandle{0}).x().bit_get(1023));
+    REQUIRE(arena.at(PauliMaskHandle{0}).x().lowest_bit() == 1023);
 }
 
 TEST_CASE("PauliMaskArena: zero-width arena is well-formed") {
-    PauliMaskArena arena(0);
+    PauliMaskArena arena(0, 3);
     REQUIRE(arena.num_words() == 0);
-    uint32_t h = arena.alloc_zero();
-    auto m = arena.get(h);
-    REQUIRE(m.num_words == 0);
-    REQUIRE(m.view_x().is_zero());
+    REQUIRE(arena.size() == 3);
+    auto m = arena.mut_at(PauliMaskHandle{1});
+    REQUIRE(m.x().num_words() == 0);
+    REQUIRE(m.x().is_zero());
+    m.set_sign(true);
+    REQUIRE(arena.at(PauliMaskHandle{1}).sign());
+}
+
+TEST_CASE("PauliMaskArena: zero-mask arena is well-formed") {
+    PauliMaskArena arena(64, 0);
+    REQUIRE(arena.size() == 0);
+}
+
+TEST_CASE("PauliMaskArena: mutable view converts implicitly to const view") {
+    PauliMaskArena arena(64, 1);
+    auto mv = arena.mut_at(PauliMaskHandle{0});
+    mv.x().bit_set(7, true);
+    PauliMaskView cv = mv;
+    REQUIRE(cv.x().bit_get(7));
+}
+
+// =========================================================================
+// find_dormant_pivot / find_active_pivot
+// =========================================================================
+//
+// Validate the pivot helpers against k values both within and beyond a
+// single 64-bit word so the migration to runtime widths does not silently
+// regress correctness for circuits with active rank that spans words.
+
+namespace {
+
+MaskView mv_from(const std::array<uint64_t, 4>& a) {
+    return MaskView{std::span<const uint64_t>(a)};
+}
+
+}  // namespace
+
+TEST_CASE("find_dormant_pivot: word 1 bit is dormant when k < 64") {
+    std::array<uint64_t, 4> a{0, 0x1ULL << 5, 0, 0};
+    REQUIRE(find_dormant_pivot(mv_from(a), 30) == 64 + 5);
+    REQUIRE(find_dormant_pivot(mv_from(a), 0) == 64 + 5);
+    REQUIRE(find_dormant_pivot(mv_from(a), 63) == 64 + 5);
+}
+
+TEST_CASE("find_dormant_pivot: bit 64 is active when k > 64") {
+    // Only bit 64 is set. With k=70, bit 64 is in the active region
+    // (active prefix is bits [0, 70)), so no dormant pivot exists.
+    std::array<uint64_t, 4> a{0, 1ULL, 0, 0};
+    REQUIRE(find_dormant_pivot(mv_from(a), 70) == 64);  // falls back to lowest_bit
+}
+
+TEST_CASE("find_dormant_pivot: chooses dormant bit past straddle word") {
+    // k=70: active prefix [0, 70). In word 1, bits [0, 6) active, [6, 64) dormant.
+    // Set bit 65 (active, bit 1 of word 1) and bit 75 (dormant, bit 11 of word 1).
+    std::array<uint64_t, 4> a{0, (1ULL << 1) | (1ULL << 11), 0, 0};
+    REQUIRE(find_dormant_pivot(mv_from(a), 70) == 64 + 11);
+}
+
+TEST_CASE("find_dormant_pivot: chooses bit in straddle word when no higher word has bits") {
+    // k=70: dormant bit 80 in word 1 (bit 16 of word 1).
+    std::array<uint64_t, 4> a{0xFF, 1ULL << 16, 0, 0};
+    REQUIRE(find_dormant_pivot(mv_from(a), 70) == 64 + 16);
+}
+
+TEST_CASE("find_dormant_pivot: chooses dormant bit in word 0 when k < 64") {
+    // k=30: bit 40 dormant in word 0.
+    std::array<uint64_t, 4> a{(1ULL << 5) | (1ULL << 40), 0, 0, 0};
+    REQUIRE(find_dormant_pivot(mv_from(a), 30) == 40);
+}
+
+TEST_CASE("find_dormant_pivot: prefers higher words over straddle word dormant bits") {
+    // k=30: bit 40 dormant in word 0, bit 100 dormant in word 1.
+    // Higher-word bit returned first (existing fast-path semantics).
+    std::array<uint64_t, 4> a{1ULL << 40, 1ULL << 36, 0, 0};
+    REQUIRE(find_dormant_pivot(mv_from(a), 30) == 64 + 36);
+}
+
+TEST_CASE("find_dormant_pivot: falls back to lowest_bit when nothing is dormant") {
+    // k=128: active prefix covers all of words 0 and 1. Bit 5 is active.
+    std::array<uint64_t, 4> a{1ULL << 5, 0, 0, 0};
+    REQUIRE(find_dormant_pivot(mv_from(a), 128) == 5);
+}
+
+TEST_CASE("find_dormant_pivot: handles k aligned to word boundary") {
+    // k=64: active prefix is exactly word 0. Bit 64 is dormant.
+    std::array<uint64_t, 4> a{0, 1ULL, 0, 0};
+    REQUIRE(find_dormant_pivot(mv_from(a), 64) == 64);
+}
+
+TEST_CASE("find_active_pivot: returns earliest bit below k") {
+    std::array<uint64_t, 4> a{(1ULL << 5) | (1ULL << 40), 0, 0, 0};
+    REQUIRE(find_active_pivot(mv_from(a), 64) == 5);
+}
+
+TEST_CASE("find_active_pivot: ignores bits at or above k") {
+    // k=10, only bit 20 set (dormant). Falls back to lowest_bit.
+    std::array<uint64_t, 4> a{1ULL << 20, 0, 0, 0};
+    REQUIRE(find_active_pivot(mv_from(a), 10) == 20);
+}
+
+TEST_CASE("find_active_pivot: scans full word below k when k > 64") {
+    // k=70: word 0 fully active. Bit 30 active in word 0, bit 65 active in word 1.
+    // Earliest active bit is 30.
+    std::array<uint64_t, 4> a{1ULL << 30, 1ULL << 1, 0, 0};
+    REQUIRE(find_active_pivot(mv_from(a), 70) == 30);
+}
+
+TEST_CASE("find_active_pivot: picks straddle-word active bit when word 0 empty") {
+    // k=70: word 0 empty, bit 65 active in word 1 (bit 1 of word 1).
+    std::array<uint64_t, 4> a{0, 1ULL << 1, 0, 0};
+    REQUIRE(find_active_pivot(mv_from(a), 70) == 64 + 1);
+}
+
+TEST_CASE("find_active_pivot: handles k aligned to word boundary") {
+    // k=64: only word 0 is active. Bit 100 is the only set bit (dormant).
+    std::array<uint64_t, 4> a{0, 1ULL << 36, 0, 0};
+    REQUIRE(find_active_pivot(mv_from(a), 64) == 64 + 36);  // fallback to lowest_bit
 }

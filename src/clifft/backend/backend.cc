@@ -400,38 +400,54 @@ namespace internal {
 // Given a non-identity PauliString P = X^x Z^z, computes virtual Clifford V
 // such that V P V^dag = (+/-)P_v where P_v in {X_v, Z_v}.
 
-// Find a dormant pivot, exploiting the active rank bound. Any set bit in
-// word index >= 1 is guaranteed dormant when k_max < 64, so the loop
-// returns immediately on the first such bit. For larger k, the active
-// region spans into higher words and the fallback to lowest_bit() applies.
-static uint32_t find_dormant_pivot(MaskView bits, uint32_t k) {
-    for (uint32_t wi = 1; wi < bits.num_words; ++wi) {
-        if (bits.w[wi] != 0) {
-            return wi * 64 + std::countr_zero(bits.w[wi]);
+uint32_t find_dormant_pivot(MaskView bits, uint32_t k) {
+    const uint32_t k_word = k / 64;
+    const uint32_t k_bit = k % 64;
+    const uint32_t n = bits.num_words();
+
+    // Words entirely above k (index > k_word, or index == k_word when
+    // k_bit == 0): every set bit is dormant. Return the earliest.
+    const uint32_t start = (k_bit == 0) ? k_word : k_word + 1;
+    for (uint32_t wi = start; wi < n; ++wi) {
+        if (bits.words[wi] != 0) {
+            return wi * 64 + std::countr_zero(bits.words[wi]);
         }
     }
-    // k < 64: mask off the active bits in word[0] to find dormant ones.
-    // k >= 64: all of word[0] is active, so no dormant bits there.
-    if (k < 64 && bits.num_words > 0) {
-        uint64_t active_mask = (k == 0) ? 0ULL : ((1ULL << k) - 1);
-        uint64_t dormant_w0 = bits.w[0] & ~active_mask;
-        if (dormant_w0 != 0) {
-            return std::countr_zero(dormant_w0);
+
+    // Word straddling k has active prefix [0, k_bit) and dormant suffix
+    // [k_bit, 64). Mask off the active prefix and pick the earliest dormant.
+    if (k_bit > 0 && k_word < n) {
+        uint64_t active_in_word = (1ULL << k_bit) - 1;
+        uint64_t dormant_in_word = bits.words[k_word] & ~active_in_word;
+        if (dormant_in_word != 0) {
+            return k_word * 64 + std::countr_zero(dormant_in_word);
         }
     }
+
     return bits.lowest_bit();
 }
 
-// Find an active pivot (prefer bits < k in word[0]).
-static uint32_t find_active_pivot(MaskView bits, uint32_t k) {
-    if (bits.num_words == 0)
-        return bits.lowest_bit();
-    // k < 64: mask to just the active region of word[0].
-    // k >= 64: all of word[0] is active, use it directly.
-    uint64_t active_w0 = (k == 0) ? 0ULL : (k >= 64) ? bits.w[0] : bits.w[0] & ((1ULL << k) - 1);
-    if (active_w0 != 0) {
-        return std::countr_zero(active_w0);
+uint32_t find_active_pivot(MaskView bits, uint32_t k) {
+    const uint32_t k_word = k / 64;
+    const uint32_t k_bit = k % 64;
+    const uint32_t n = bits.num_words();
+
+    // Words entirely below k: every set bit is active. Return the earliest.
+    const uint32_t full_active = std::min(k_word, n);
+    for (uint32_t wi = 0; wi < full_active; ++wi) {
+        if (bits.words[wi] != 0) {
+            return wi * 64 + std::countr_zero(bits.words[wi]);
+        }
     }
+
+    // Word straddling k has active prefix [0, k_bit). Pick the earliest active.
+    if (k_bit > 0 && k_word < n) {
+        uint64_t active_in_word = bits.words[k_word] & ((1ULL << k_bit) - 1);
+        if (active_in_word != 0) {
+            return k_word * 64 + std::countr_zero(active_in_word);
+        }
+    }
+
     return bits.lowest_bit();
 }
 
@@ -444,8 +460,8 @@ LocalizationResult localize_pauli(CompilerContext& ctx,
     MutableMaskView x_view = mut_view(x_bits);
     MutableMaskView z_view = mut_view(z_bits);
     for (uint32_t w = 0; w < words && w < kMaxInlineWords; ++w) {
-        x_view.w[w] = pauli.xs.u64[w];
-        z_view.w[w] = pauli.zs.u64[w];
+        x_view.words[w] = pauli.xs.u64[w];
+        z_view.words[w] = pauli.zs.u64[w];
     }
 
     assert((!x_view.is_zero() || !z_view.is_zero()) && "Cannot localize identity Pauli");

@@ -9,6 +9,7 @@
 #include "clifft/backend/backend.h"
 #include "clifft/backend/source_map.h"
 #include "clifft/frontend/hir.h"
+#include "clifft/util/mask_view.h"
 
 #include "stim.h"
 
@@ -325,6 +326,20 @@ struct LocalizationResult {
 /// The input PauliString must be non-identity (at least one qubit set).
 [[nodiscard]] LocalizationResult localize_pauli(CompilerContext& ctx,
                                                 const stim::PauliString<kStimWidth>& pauli);
+
+// =============================================================================
+// Pivot selection helpers (exposed for unit testing)
+// =============================================================================
+
+/// Find a virtual axis at index >= k that has a set bit in `bits`. Prefers
+/// dormant axes over active ones. Falls back to the lowest set bit if no
+/// dormant bit is set. Caller asserts `bits` is non-empty.
+[[nodiscard]] uint32_t find_dormant_pivot(MaskView bits, uint32_t k);
+
+/// Find a virtual axis at index < k that has a set bit in `bits`. Falls
+/// back to the lowest set bit if no active bit is set. Caller asserts
+/// `bits` is non-empty.
+[[nodiscard]] uint32_t find_active_pivot(MaskView bits, uint32_t k);
 
 }  // namespace internal
 }  // namespace clifft

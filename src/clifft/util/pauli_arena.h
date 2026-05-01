@@ -1,87 +1,99 @@
 #pragma once
 
-// PauliMaskArena: contiguous storage for runtime-width Pauli (X, Z, sign)
-// masks, indexed by a uint32_t handle.
+// PauliMaskArena: contiguous storage for fixed-width Pauli (X, Z, sign)
+// masks, indexed by an opaque PauliMaskHandle.
 //
-// All masks in an arena share the same `num_words` width, set at
-// construction from the circuit's physical qubit count. Masks are
-// allocated by handle and accessed via PauliMaskRef / PauliMaskConstRef
-// triples that hand out raw uint64_t pointers plus the shared width.
+// All masks share the same width set at construction. Capacity is fixed at
+// construction so view references (PauliMaskView, MutablePauliMaskView)
+// returned by at()/mut_at() remain valid for the arena's lifetime; the
+// arena does not resize.
 //
-// Each handle owns its own (X, Z, sign) slot -- no deduplication. This
-// matches the existing per-op mask ownership model in the HIR.
-//
-// Storage layout: parallel `x_` and `z_` vectors, each strided by
-// `num_words_`, plus a `signs_` byte vector. Parallel arrays (rather than
-// interleaved [x|z]) keep the hot APPLY_PAULI / NOISE kernel reading two
-// contiguous strides, which auto-vectorizes more cleanly than interleaved
-// layout when num_words is large.
-//
-// PR1 introduces the type alongside BitMask<N>. Callers (HirModule,
-// ConstantPool) migrate in a later PR.
+// Each handle owns its own (X, Z, sign) slot -- no deduplication. Storage
+// uses parallel x_/z_ word arrays plus a signs_ byte vector, which keeps
+// the read-mostly hot paths over either x or z alone reading a single
+// contiguous stride.
 
 #include "clifft/util/mask_view.h"
 
 #include <cassert>
 #include <cstdint>
+#include <span>
 #include <vector>
 
 namespace clifft {
 
-struct PauliMaskRef {
-    uint64_t* x;
-    uint64_t* z;
-    uint8_t* sign;
-    uint32_t num_words;
+/// Opaque handle into a PauliMaskArena.
+enum class PauliMaskHandle : uint32_t {};
 
-    [[nodiscard]] MutableMaskView mut_x() { return {x, num_words}; }
-    [[nodiscard]] MutableMaskView mut_z() { return {z, num_words}; }
-    [[nodiscard]] MaskView view_x() const { return {x, num_words}; }
-    [[nodiscard]] MaskView view_z() const { return {z, num_words}; }
+/// Read-only view of a single (X, Z, sign) entry in an arena.
+class PauliMaskView {
+  public:
+    constexpr PauliMaskView(MaskView x, MaskView z, bool sign) : x_(x), z_(z), sign_(sign) {}
+
+    [[nodiscard]] MaskView x() const { return x_; }
+    [[nodiscard]] MaskView z() const { return z_; }
+    [[nodiscard]] bool sign() const { return sign_; }
+
+  private:
+    MaskView x_;
+    MaskView z_;
+    bool sign_;
 };
 
-struct PauliMaskConstRef {
-    const uint64_t* x;
-    const uint64_t* z;
-    const uint8_t* sign;
-    uint32_t num_words;
+/// Mutable view of a single (X, Z, sign) entry in an arena. Implicitly
+/// converts to PauliMaskView for read-only call sites.
+class MutablePauliMaskView {
+  public:
+    MutablePauliMaskView(MutableMaskView x, MutableMaskView z, uint8_t* sign)
+        : x_(x), z_(z), sign_(sign) {}
 
-    [[nodiscard]] MaskView view_x() const { return {x, num_words}; }
-    [[nodiscard]] MaskView view_z() const { return {z, num_words}; }
+    [[nodiscard]] MutableMaskView x() const { return x_; }
+    [[nodiscard]] MutableMaskView z() const { return z_; }
+    [[nodiscard]] bool sign() const { return *sign_ != 0; }
+    void set_sign(bool s) { *sign_ = s ? 1 : 0; }
+
+    operator PauliMaskView() const { return PauliMaskView(x_, z_, sign()); }
+
+  private:
+    MutableMaskView x_;
+    MutableMaskView z_;
+    uint8_t* sign_;
 };
 
 class PauliMaskArena {
   public:
-    explicit PauliMaskArena(uint32_t num_qubits) : num_words_((num_qubits + 63) / 64) {
-        // num_words_ == 0 is allowed (empty circuits): alloc still hands
-        // out unique handles, but the per-mask slot has zero width.
-    }
+    /// Construct with fixed capacity. All masks initialized to zero.
+    PauliMaskArena(uint32_t num_qubits, size_t num_masks)
+        : num_words_((num_qubits + 63) / 64),
+          x_(num_masks * num_words_, 0),
+          z_(num_masks * num_words_, 0),
+          signs_(num_masks, 0) {}
 
     [[nodiscard]] uint32_t num_words() const { return num_words_; }
-    [[nodiscard]] size_t num_masks() const { return signs_.size(); }
+    [[nodiscard]] size_t size() const { return signs_.size(); }
 
-    /// Allocate a new zero-initialized mask. Returns its handle.
-    uint32_t alloc_zero() {
-        uint32_t handle = static_cast<uint32_t>(signs_.size());
-        x_.resize(x_.size() + num_words_, 0);
-        z_.resize(z_.size() + num_words_, 0);
-        signs_.push_back(0);
-        return handle;
+    [[nodiscard]] PauliMaskView at(PauliMaskHandle h) const {
+        size_t i = static_cast<size_t>(h);
+        assert(i < signs_.size());
+        return PauliMaskView(slice(x_, i), slice(z_, i), signs_[i] != 0);
     }
 
-    [[nodiscard]] PauliMaskRef get(uint32_t handle) {
-        assert(handle < signs_.size());
-        size_t off = static_cast<size_t>(handle) * num_words_;
-        return {x_.data() + off, z_.data() + off, &signs_[handle], num_words_};
-    }
-
-    [[nodiscard]] PauliMaskConstRef get(uint32_t handle) const {
-        assert(handle < signs_.size());
-        size_t off = static_cast<size_t>(handle) * num_words_;
-        return {x_.data() + off, z_.data() + off, &signs_[handle], num_words_};
+    [[nodiscard]] MutablePauliMaskView mut_at(PauliMaskHandle h) {
+        size_t i = static_cast<size_t>(h);
+        assert(i < signs_.size());
+        return MutablePauliMaskView(slice(x_, i), slice(z_, i), &signs_[i]);
     }
 
   private:
+    [[nodiscard]] std::span<uint64_t> slice(std::vector<uint64_t>& v, size_t i) {
+        // std::span from an iterator + size is well-formed when num_words_ == 0,
+        // even if v.data() is nullptr.
+        return std::span<uint64_t>{v.begin() + i * num_words_, num_words_};
+    }
+    [[nodiscard]] std::span<const uint64_t> slice(const std::vector<uint64_t>& v, size_t i) const {
+        return std::span<const uint64_t>{v.begin() + i * num_words_, num_words_};
+    }
+
     uint32_t num_words_;
     std::vector<uint64_t> x_;
     std::vector<uint64_t> z_;
