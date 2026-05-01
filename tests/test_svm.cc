@@ -848,9 +848,9 @@ TEST_CASE("VM ApplyPauli: X error flips p_x bit") {
     mod.num_measurements = 1;
     mod.peak_rank = 4;
 
-    PauliMask pm;
-    pm.x.bit_set(1, true);
-    mod.constant_pool.pauli_masks.push_back(pm);
+    mod.constant_pool.pauli_masks = clifft::PauliMaskArena(mod.peak_rank, 1);
+    auto pm = mod.constant_pool.pauli_masks.mut_at(clifft::PauliMaskHandle{0});
+    pm.x().bit_set(1, true);
 
     Instruction instr{};
     instr.opcode = Opcode::OP_APPLY_PAULI;
@@ -875,9 +875,9 @@ TEST_CASE("VM ApplyPauli: Z error flips p_z bit") {
     mod.num_measurements = 1;
     mod.peak_rank = 4;
 
-    PauliMask pm;
-    pm.z.bit_set(2, true);
-    mod.constant_pool.pauli_masks.push_back(pm);
+    mod.constant_pool.pauli_masks = clifft::PauliMaskArena(mod.peak_rank, 1);
+    auto pm = mod.constant_pool.pauli_masks.mut_at(clifft::PauliMaskHandle{0});
+    pm.z().bit_set(2, true);
 
     Instruction instr{};
     instr.opcode = Opcode::OP_APPLY_PAULI;
@@ -903,9 +903,9 @@ TEST_CASE("VM ApplyPauli: X error on Z frame has no anticommutation phase") {
     mod.num_measurements = 1;
     mod.peak_rank = 4;
 
-    PauliMask pm;
-    pm.x.bit_set(0, true);
-    mod.constant_pool.pauli_masks.push_back(pm);
+    mod.constant_pool.pauli_masks = clifft::PauliMaskArena(mod.peak_rank, 1);
+    auto pm = mod.constant_pool.pauli_masks.mut_at(clifft::PauliMaskHandle{0});
+    pm.x().bit_set(0, true);
 
     Instruction instr{};
     instr.opcode = Opcode::OP_APPLY_PAULI;
@@ -931,9 +931,9 @@ TEST_CASE("VM ApplyPauli: Z error on X frame negates gamma") {
     mod.num_measurements = 1;
     mod.peak_rank = 4;
 
-    PauliMask pm;
-    pm.z.bit_set(0, true);
-    mod.constant_pool.pauli_masks.push_back(pm);
+    mod.constant_pool.pauli_masks = clifft::PauliMaskArena(mod.peak_rank, 1);
+    auto pm = mod.constant_pool.pauli_masks.mut_at(clifft::PauliMaskHandle{0});
+    pm.z().bit_set(0, true);
 
     Instruction instr{};
     instr.opcode = Opcode::OP_APPLY_PAULI;
@@ -958,10 +958,10 @@ TEST_CASE("VM ApplyPauli: signed Pauli mask negates gamma") {
     mod.num_measurements = 1;
     mod.peak_rank = 4;
 
-    PauliMask pm;
-    pm.x.bit_set(0, true);
-    pm.sign = true;
-    mod.constant_pool.pauli_masks.push_back(pm);
+    mod.constant_pool.pauli_masks = clifft::PauliMaskArena(mod.peak_rank, 1);
+    auto pm = mod.constant_pool.pauli_masks.mut_at(clifft::PauliMaskHandle{0});
+    pm.x().bit_set(0, true);
+    pm.set_sign(true);
 
     Instruction instr{};
     instr.opcode = Opcode::OP_APPLY_PAULI;

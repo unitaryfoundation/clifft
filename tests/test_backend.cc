@@ -1422,10 +1422,10 @@ TEST_CASE("Lower: EXP_VAL constant pool mask is correct") {
     // Z0 after no Cliffords: virtual Pauli should be Z on axis 0
     auto mod = compile_circuit("EXP_VAL Z0");
     REQUIRE(mod.constant_pool.exp_val_masks.size() == 1);
-    const auto& pm = mod.constant_pool.exp_val_masks[0];
-    CHECK(pm.x.is_zero());  // No X support
-    CHECK(pm.z.w[0] == 1);  // Z on qubit 0
-    CHECK(!pm.sign);
+    auto pm = mod.constant_pool.exp_val_masks.at(clifft::PauliMaskHandle{0});
+    CHECK(pm.x().is_zero());      // No X support
+    CHECK(pm.z().words[0] == 1);  // Z on qubit 0
+    CHECK(!pm.sign());
 }
 
 TEST_CASE("Lower: EXP_VAL does not affect measurement count") {
@@ -1446,10 +1446,10 @@ TEST_CASE("Lower: queued virtual gates affect later EXP_VAL masks") {
     auto mod = lower(hir);
 
     REQUIRE(mod.constant_pool.exp_val_masks.size() == 1);
-    const auto& pm = mod.constant_pool.exp_val_masks[0];
-    CHECK(pm.x.is_zero());
-    CHECK(pm.z == Z(0));
-    CHECK(!pm.sign);
+    auto pm = mod.constant_pool.exp_val_masks.at(clifft::PauliMaskHandle{0});
+    CHECK(pm.x().is_zero());
+    CHECK(pm.z() == Z(0));
+    CHECK(!pm.sign());
 }
 
 TEST_CASE("Lower: queued virtual gates affect later measurements") {

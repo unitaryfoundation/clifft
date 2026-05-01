@@ -530,6 +530,21 @@ CompiledModule lower(const HirModule& hir, std::span<const uint8_t> postselectio
     uint32_t det_emit_idx = 0;
     uint32_t total_meas_slots = hir.num_measurements + hir.num_hidden_measurements;
 
+    // Pre-size ConstantPool arenas. CONDITIONAL_PAULI emits exactly one
+    // OP_APPLY_PAULI per op; EXP_VAL emits exactly one OP_EXP_VAL.
+    size_t num_apply_paulis = 0;
+    size_t num_exp_val_masks = 0;
+    for (const auto& op : hir.ops) {
+        if (op.op_type() == OpType::CONDITIONAL_PAULI)
+            ++num_apply_paulis;
+        else if (op.op_type() == OpType::EXP_VAL)
+            ++num_exp_val_masks;
+    }
+    ctx.constant_pool.pauli_masks = PauliMaskArena(n, num_apply_paulis);
+    ctx.constant_pool.exp_val_masks = PauliMaskArena(n, num_exp_val_masks);
+    size_t next_cp_pauli = 0;
+    size_t next_cp_exp_val = 0;
+
     bool has_source_map = hir.source_map.size() == hir.ops.size();
     bool has_postselection = false;
 
@@ -670,20 +685,15 @@ CompiledModule lower(const HirModule& hir, std::span<const uint8_t> postselectio
                 auto p_v =
                     map_to_virtual(ctx, hir.destab_mask(op), hir.stab_mask(op), hir.sign(op), n);
 
-                PauliMask pm;
-                uint32_t pm_words = (n + 63) / 64;
-                for (uint32_t w = 0; w < pm_words && w < kMaxInlineWords; ++w) {
-                    pm.x.w[w] = p_v.xs.u64[w];
-                    pm.z.w[w] = p_v.zs.u64[w];
-                }
-                pm.sign = p_v.sign;
-
-                uint32_t cp_idx = static_cast<uint32_t>(ctx.constant_pool.pauli_masks.size());
-                ctx.constant_pool.pauli_masks.push_back(pm);
+                auto cp_handle = static_cast<PauliMaskHandle>(next_cp_pauli++);
+                auto slot = ctx.constant_pool.pauli_masks.mut_at(cp_handle);
+                stim_to_mask_view(p_v.xs, n, slot.x());
+                stim_to_mask_view(p_v.zs, n, slot.z());
+                slot.set_sign(p_v.sign);
 
                 uint32_t cond_idx = static_cast<uint32_t>(op.controlling_meas());
 
-                ctx.emit(make_apply_pauli(cp_idx, cond_idx));
+                ctx.emit(make_apply_pauli(static_cast<uint32_t>(cp_handle), cond_idx));
                 break;
             }
 
@@ -771,18 +781,14 @@ CompiledModule lower(const HirModule& hir, std::span<const uint8_t> postselectio
                 auto p_v =
                     map_to_virtual(ctx, hir.destab_mask(op), hir.stab_mask(op), hir.sign(op), n);
 
-                PauliMask pm;
-                uint32_t pm_words = (n + 63) / 64;
-                for (uint32_t w = 0; w < pm_words && w < kMaxInlineWords; ++w) {
-                    pm.x.w[w] = p_v.xs.u64[w];
-                    pm.z.w[w] = p_v.zs.u64[w];
-                }
-                pm.sign = p_v.sign;
+                auto cp_handle = static_cast<PauliMaskHandle>(next_cp_exp_val++);
+                auto slot = ctx.constant_pool.exp_val_masks.mut_at(cp_handle);
+                stim_to_mask_view(p_v.xs, n, slot.x());
+                stim_to_mask_view(p_v.zs, n, slot.z());
+                slot.set_sign(p_v.sign);
 
-                uint32_t cp_idx = static_cast<uint32_t>(ctx.constant_pool.exp_val_masks.size());
-                ctx.constant_pool.exp_val_masks.push_back(pm);
-
-                ctx.emit(make_exp_val(cp_idx, static_cast<uint32_t>(op.exp_val_idx())));
+                ctx.emit(make_exp_val(static_cast<uint32_t>(cp_handle),
+                                      static_cast<uint32_t>(op.exp_val_idx())));
                 break;
             }
 
