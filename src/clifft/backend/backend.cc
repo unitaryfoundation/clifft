@@ -1,6 +1,7 @@
 #include "clifft/backend/backend.h"
 
 #include "clifft/backend/compiler_context.h"
+#include "clifft/util/mask_view.h"
 
 #include <algorithm>
 #include <bit>
@@ -399,38 +400,39 @@ namespace internal {
 // Given a non-identity PauliString P = X^x Z^z, computes virtual Clifford V
 // such that V P V^dag = (+/-)P_v where P_v in {X_v, Z_v}.
 
-// Find a dormant pivot in a BitMask, exploiting the active rank bound.
-// Since k_max <= 30, the active_mask only affects word[0]. Any set bit
-// in words 1..N is guaranteed dormant -- return it immediately.
-static uint16_t find_dormant_pivot(const PauliBitMask& bits, uint32_t k) {
-    assert(k <= kMaxInlineQubits);
-    for (uint32_t w = 1; w < kMaxInlineWords; ++w) {
-        if (bits.w[w] != 0) {
-            return static_cast<uint16_t>(w * 64 + std::countr_zero(bits.w[w]));
+// Find a dormant pivot, exploiting the active rank bound. Any set bit in
+// word index >= 1 is guaranteed dormant when k_max < 64, so the loop
+// returns immediately on the first such bit. For larger k, the active
+// region spans into higher words and the fallback to lowest_bit() applies.
+static uint32_t find_dormant_pivot(MaskView bits, uint32_t k) {
+    for (uint32_t wi = 1; wi < bits.num_words; ++wi) {
+        if (bits.w[wi] != 0) {
+            return wi * 64 + std::countr_zero(bits.w[wi]);
         }
     }
     // k < 64: mask off the active bits in word[0] to find dormant ones.
     // k >= 64: all of word[0] is active, so no dormant bits there.
-    if (k < 64) {
+    if (k < 64 && bits.num_words > 0) {
         uint64_t active_mask = (k == 0) ? 0ULL : ((1ULL << k) - 1);
         uint64_t dormant_w0 = bits.w[0] & ~active_mask;
         if (dormant_w0 != 0) {
-            return static_cast<uint16_t>(std::countr_zero(dormant_w0));
+            return std::countr_zero(dormant_w0);
         }
     }
-    return static_cast<uint16_t>(bits.lowest_bit());
+    return bits.lowest_bit();
 }
 
-// Find an active pivot in a BitMask (prefer bits < k in word[0]).
-static uint16_t find_active_pivot(const PauliBitMask& bits, uint32_t k) {
-    assert(k <= kMaxInlineQubits);
+// Find an active pivot (prefer bits < k in word[0]).
+static uint32_t find_active_pivot(MaskView bits, uint32_t k) {
+    if (bits.num_words == 0)
+        return bits.lowest_bit();
     // k < 64: mask to just the active region of word[0].
     // k >= 64: all of word[0] is active, use it directly.
     uint64_t active_w0 = (k == 0) ? 0ULL : (k >= 64) ? bits.w[0] : bits.w[0] & ((1ULL << k) - 1);
     if (active_w0 != 0) {
-        return static_cast<uint16_t>(std::countr_zero(active_w0));
+        return std::countr_zero(active_w0);
     }
-    return static_cast<uint16_t>(bits.lowest_bit());
+    return bits.lowest_bit();
 }
 
 LocalizationResult localize_pauli(CompilerContext& ctx,
@@ -439,14 +441,16 @@ LocalizationResult localize_pauli(CompilerContext& ctx,
     const uint32_t words = (n + 63) / 64;
 
     PauliBitMask x_bits, z_bits;
+    MutableMaskView x_view = mut_view(x_bits);
+    MutableMaskView z_view = mut_view(z_bits);
     for (uint32_t w = 0; w < words && w < kMaxInlineWords; ++w) {
-        x_bits.w[w] = pauli.xs.u64[w];
-        z_bits.w[w] = pauli.zs.u64[w];
+        x_view.w[w] = pauli.xs.u64[w];
+        z_view.w[w] = pauli.zs.u64[w];
     }
 
-    assert(!(x_bits | z_bits).is_zero() && "Cannot localize identity Pauli");
+    assert((!x_view.is_zero() || !z_view.is_zero()) && "Cannot localize identity Pauli");
 
-    uint16_t pivot;
+    uint32_t pivot;
     LocalizedBasis basis;
     bool sign = pauli.sign;
 
@@ -454,25 +458,26 @@ LocalizationResult localize_pauli(CompilerContext& ctx,
 
     uint32_t k = ctx.reg_manager.active_k();
 
-    if (!x_bits.is_zero()) {
+    if (!x_view.is_zero()) {
         // =============================================================
         // Case 1: X-support is non-empty.
         // =============================================================
 
         // Pick pivot from X-support, preferring dormant axes (>= k).
-        pivot = find_dormant_pivot(x_bits, k);
-        bool z_pivot = z_bits.bit_get(pivot);
+        pivot = find_dormant_pivot(x_view, k);
+        bool z_pivot = z_view.bit_get(pivot);
 
         // X-localization: CNOT(pivot -> q) annihilates X_q.
         // Z propagation: Z_t -> Z_c Z_t, so z_pivot ^= z_q.
         // Sign rule: CNOT(c,t) flips sign iff x_c & z_t & (x_t ^ z_c ^ 1).
         // Here x_pivot=1, x_q=1, so: sign ^= z_q & z_pivot.
-        PauliBitMask to_clear_x = x_bits;
+        PauliBitMask to_clear_x_buf = x_bits;
+        MutableMaskView to_clear_x = mut_view(to_clear_x_buf);
         to_clear_x.bit_set(pivot, false);
         while (!to_clear_x.is_zero()) {
-            uint16_t q = static_cast<uint16_t>(to_clear_x.lowest_bit());
-            emit_cnot(ctx, pivot, q);
-            if (z_bits.bit_get(q)) {
+            uint32_t q = to_clear_x.lowest_bit();
+            emit_cnot(ctx, static_cast<uint16_t>(pivot), static_cast<uint16_t>(q));
+            if (z_view.bit_get(q)) {
                 if (z_pivot)
                     sign ^= true;
                 z_pivot ^= true;
@@ -483,18 +488,19 @@ LocalizationResult localize_pauli(CompilerContext& ctx,
         // Z-localization: CZ(pivot, q) clears residual Z_q.
         // Sign rule: CZ(a,b) flips sign iff x_a & x_b & (z_a ^ z_b).
         // Here x_q=0 (already cleared), so sign NEVER flips.
-        PauliBitMask to_clear_z = z_bits;
+        PauliBitMask to_clear_z_buf = z_bits;
+        MutableMaskView to_clear_z = mut_view(to_clear_z_buf);
         to_clear_z.bit_set(pivot, false);
         while (!to_clear_z.is_zero()) {
-            uint16_t q = static_cast<uint16_t>(to_clear_z.lowest_bit());
-            emit_cz(ctx, pivot, q);
+            uint32_t q = to_clear_z.lowest_bit();
+            emit_cz(ctx, static_cast<uint16_t>(pivot), static_cast<uint16_t>(q));
             to_clear_z.clear_lowest_bit();
         }
 
         // Y_pivot -> S Y S^dag = -X. Emit S to resolve.
         // Sign rule: S(v) flips sign iff x_v & z_v. Both are 1 here.
         if (z_pivot) {
-            emit_s(ctx, pivot);
+            emit_s(ctx, static_cast<uint16_t>(pivot));
             sign ^= true;
         }
 
@@ -506,23 +512,24 @@ LocalizationResult localize_pauli(CompilerContext& ctx,
         // =============================================================
 
         // Pick pivot from Z-support, preferring active axes (< k).
-        pivot = find_active_pivot(z_bits, k);
+        pivot = find_active_pivot(z_view, k);
 
         // Z-localization: CNOT(q -> pivot) folds Z_q onto pivot.
         // Sign rule: CNOT(c,t) flips sign iff x_c & z_t & (x_t ^ z_c ^ 1).
         // Here x_c=x_q=0, so sign NEVER flips.
-        PauliBitMask to_clear_z = z_bits;
+        PauliBitMask to_clear_z_buf = z_bits;
+        MutableMaskView to_clear_z = mut_view(to_clear_z_buf);
         to_clear_z.bit_set(pivot, false);
         while (!to_clear_z.is_zero()) {
-            uint16_t q = static_cast<uint16_t>(to_clear_z.lowest_bit());
-            emit_cnot(ctx, q, pivot);
+            uint32_t q = to_clear_z.lowest_bit();
+            emit_cnot(ctx, static_cast<uint16_t>(q), static_cast<uint16_t>(pivot));
             to_clear_z.clear_lowest_bit();
         }
 
         basis = LocalizedBasis::Z_BASIS;
     }
 
-    return {pivot, basis, sign};
+    return {static_cast<uint16_t>(pivot), basis, sign};
 }
 
 }  // namespace internal
