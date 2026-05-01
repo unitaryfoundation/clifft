@@ -301,23 +301,38 @@ NB_MODULE(_clifft_core, m) {
         .value("OBSERVABLE", clifft::OpType::OBSERVABLE)
         .value("EXP_VAL", clifft::OpType::EXP_VAL);
 
-    nb::class_<clifft::HeisenbergOp>(m, "HeisenbergOp",
-                                     "A single abstract operation in the Heisenberg IR")
-        .def_prop_ro("op_type", [](const clifft::HeisenbergOp& op) { return op.op_type(); })
-        .def_prop_ro("is_dagger", [](const clifft::HeisenbergOp& op) { return op.is_dagger(); })
-        .def_prop_ro("is_hidden", [](const clifft::HeisenbergOp& op) { return op.is_hidden(); })
-        .def_prop_ro("sign", [](const clifft::HeisenbergOp& op) { return op.sign(); })
+    // Python view of a HeisenbergOp paired with the HirModule that owns its
+    // mask data. Holding the module reference lets the Python API expose
+    // sign / pauli_string without depending on (now-removed) per-op storage.
+    struct PyHeisenbergOp {
+        const clifft::HeisenbergOp* op;
+        const clifft::HirModule* hir;
+    };
+
+    nb::class_<PyHeisenbergOp>(m, "HeisenbergOp",
+                               "A single abstract operation in the Heisenberg IR")
+        .def_prop_ro("op_type", [](const PyHeisenbergOp& w) { return w.op->op_type(); })
+        .def_prop_ro("is_dagger", [](const PyHeisenbergOp& w) { return w.op->is_dagger(); })
+        .def_prop_ro("is_hidden", [](const PyHeisenbergOp& w) { return w.op->is_hidden(); })
+        .def_prop_ro(
+            "sign",
+            [](const PyHeisenbergOp& w) { return w.op->has_mask() ? w.hir->sign(*w.op) : false; })
         .def_prop_ro("pauli_string",
-                     [](const clifft::HeisenbergOp& op) { return clifft::format_pauli_mask(op); })
+                     [](const PyHeisenbergOp& w) {
+                         return w.op->has_mask() ? clifft::format_pauli_mask(*w.op, *w.hir)
+                                                 : std::string("+I");
+                     })
         .def(
             "as_dict",
-            [](const clifft::HeisenbergOp& op) {
+            [](const PyHeisenbergOp& w) {
+                const auto& op = *w.op;
                 nb::dict d;
                 d["op_type"] = clifft::op_type_to_str(op.op_type());
-                d["pauli_string"] = clifft::format_pauli_mask(op);
+                d["pauli_string"] =
+                    op.has_mask() ? clifft::format_pauli_mask(op, *w.hir) : std::string("+I");
                 d["is_dagger"] = op.is_dagger();
                 d["is_hidden"] = op.is_hidden();
-                d["sign"] = op.sign();
+                d["sign"] = op.has_mask() ? w.hir->sign(op) : false;
 
                 switch (op.op_type()) {
                     case clifft::OpType::MEASURE:
@@ -351,9 +366,10 @@ NB_MODULE(_clifft_core, m) {
                 return d;
             },
             "Return a JSON-friendly dictionary representation.")
-        .def("__str__", [](const clifft::HeisenbergOp& op) { return clifft::format_hir_op(op); })
-        .def("__repr__", [](const clifft::HeisenbergOp& op) {
-            return "<HeisenbergOp: " + clifft::format_hir_op(op) + ">";
+        .def("__str__",
+             [](const PyHeisenbergOp& w) { return clifft::format_hir_op(*w.op, *w.hir); })
+        .def("__repr__", [](const PyHeisenbergOp& w) {
+            return "<HeisenbergOp: " + clifft::format_hir_op(*w.op, *w.hir) + ">";
         });
 
     nb::class_<clifft::HirModule>(m, "HirModule", "Heisenberg Intermediate Representation")
@@ -380,22 +396,22 @@ NB_MODULE(_clifft_core, m) {
             "Return the number of HIR operations.")
         .def(
             "__getitem__",
-            [](const clifft::HirModule& h, int64_t idx) -> const clifft::HeisenbergOp& {
+            [](const clifft::HirModule& h, int64_t idx) {
                 int64_t size = static_cast<int64_t>(h.ops.size());
                 if (idx < 0)
                     idx += size;
                 if (idx < 0 || idx >= size)
                     throw nb::index_error();
-                return h.ops[static_cast<size_t>(idx)];
+                return PyHeisenbergOp{&h.ops[static_cast<size_t>(idx)], &h};
             },
-            nb::rv_policy::reference_internal, "Return the HIR operation at the given index.")
-        .def(
-            "__iter__",
-            [](const clifft::HirModule& h) {
-                return nb::make_iterator(nb::type<clifft::HirModule>(), "hir_iter", h.ops.begin(),
-                                         h.ops.end());
-            },
-            nb::keep_alive<0, 1>())
+            nb::keep_alive<0, 1>(), "Return the HIR operation at the given index.")
+        .def("__iter__",
+             [](const clifft::HirModule& h) {
+                 nb::list items;
+                 for (const auto& op : h.ops)
+                     items.append(nb::cast(PyHeisenbergOp{&op, &h}));
+                 return items.attr("__iter__")();
+             })
         .def(
             "as_dict",
             [](const clifft::HirModule& h) {
@@ -405,8 +421,10 @@ NB_MODULE(_clifft_core, m) {
                 d["num_detectors"] = h.num_detectors;
                 d["num_observables"] = h.num_observables;
                 nb::list ops;
-                for (const auto& op : h.ops)
-                    ops.append(nb::cast(op).attr("as_dict")());
+                for (const auto& op : h.ops) {
+                    PyHeisenbergOp w{&op, &h};
+                    ops.append(nb::cast(w).attr("as_dict")());
+                }
                 d["ops"] = ops;
                 return d;
             },
@@ -415,7 +433,7 @@ NB_MODULE(_clifft_core, m) {
              [](const clifft::HirModule& h) {
                  std::ostringstream ss;
                  for (size_t i = 0; i < h.ops.size(); ++i)
-                     ss << i << ": " << clifft::format_hir_op(h.ops[i]) << "\n";
+                     ss << i << ": " << clifft::format_hir_op(h.ops[i], h) << "\n";
                  return ss.str();
              })
         .def("__repr__", [](const clifft::HirModule& h) {

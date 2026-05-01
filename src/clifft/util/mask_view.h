@@ -128,12 +128,20 @@ struct BasicMaskView {
             words[i] |= other.words[i];
     }
 
+    /// Copy contents of `other` into this view. Sizes need not match: if
+    /// the source is smaller, trailing destination words are zeroed; if the
+    /// source is larger, its trailing words are required to be zero (any
+    /// non-zero data above the destination width would be silently lost).
     constexpr void copy_from(BasicMaskView<const uint64_t> other)
         requires(!std::is_const_v<Word>)
     {
-        assert(words.size() == other.words.size());
-        for (size_t i = 0; i < words.size(); ++i)
+        const size_t common = std::min(words.size(), other.words.size());
+        for (size_t i = 0; i < common; ++i)
             words[i] = other.words[i];
+        for (size_t i = common; i < words.size(); ++i)
+            words[i] = 0;
+        for (size_t i = common; i < other.words.size(); ++i)
+            assert(other.words[i] == 0 && "copy_from would lose bits above destination width");
     }
 };
 
