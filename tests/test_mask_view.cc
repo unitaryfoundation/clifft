@@ -244,6 +244,20 @@ TEST_CASE("PauliMaskArena: mutable view converts implicitly to const view") {
     REQUIRE(cv.x().bit_get(7));
 }
 
+TEST_CASE("PauliMaskArena: const view stays live after sign mutation through mutable view") {
+    // Regression: sign() must read through the arena slot, not capture
+    // the value at construction. If sign_ ever reverts to a copied bool,
+    // the const view here would miss the post-conversion update.
+    PauliMaskArena arena(64, 1);
+    auto mv = arena.mut_at(PauliMaskHandle{0});
+    PauliMaskView cv = mv;
+    REQUIRE_FALSE(cv.sign());
+    mv.set_sign(true);
+    REQUIRE(cv.sign());
+    mv.set_sign(false);
+    REQUIRE_FALSE(cv.sign());
+}
+
 // =========================================================================
 // lowest_bit_at_or_above / lowest_bit_below
 // =========================================================================
