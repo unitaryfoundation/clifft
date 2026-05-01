@@ -737,14 +737,14 @@ TEST_CASE("VirtualRegisterManager: peak tracking") {
 TEST_CASE("Backend: Gap sampling hazard array accumulation") {
     CompilerContext ctx(3);
 
+    HirModule hir(3, /*pauli_capacity=*/16, /*noise_channel_capacity=*/3);
     NoiseSite site1;
-    site1.channels.push_back({1, 0, 0.5});
+    site1.channels.push_back({hir.claim_noise_channel_mask(MaskBuf(1), MaskBuf(0)), 0.5});
     NoiseSite site2;
-    site2.channels.push_back({2, 0, 0.75});
+    site2.channels.push_back({hir.claim_noise_channel_mask(MaskBuf(2), MaskBuf(0)), 0.75});
     NoiseSite site3;
-    site3.channels.push_back({4, 0, 1.0});  // clamped to 1.0 - 2^-53
+    site3.channels.push_back({hir.claim_noise_channel_mask(MaskBuf(4), MaskBuf(0)), 1.0});
 
-    HirModule hir(3, /*pauli_capacity=*/16);
     hir.noise_sites.push_back(std::move(site1));
     hir.noise_sites.push_back(std::move(site2));
     hir.noise_sites.push_back(std::move(site3));
@@ -1469,10 +1469,10 @@ TEST_CASE("Lower: queued virtual gates affect later measurements") {
 }
 
 TEST_CASE("Lower: queued virtual gates affect later noise masks") {
-    HirModule hir(1, /*pauli_capacity=*/16);
+    HirModule hir(1, /*pauli_capacity=*/16, /*noise_channel_capacity=*/1);
 
     NoiseSite site;
-    site.channels.push_back({X(0), 0, 0.25});
+    site.channels.push_back({hir.claim_noise_channel_mask(MaskBuf(X(0)), MaskBuf(0)), 0.25});
     hir.noise_sites.push_back(site);
 
     // Leave a virtual H pending, then map an X-error noise site through it.
@@ -1484,7 +1484,8 @@ TEST_CASE("Lower: queued virtual gates affect later noise masks") {
     REQUIRE(mod.constant_pool.noise_sites.size() == 1);
     REQUIRE(mod.constant_pool.noise_sites[0].channels.size() == 1);
     const auto& ch = mod.constant_pool.noise_sites[0].channels[0];
-    CHECK(ch.destab_mask.is_zero());
-    CHECK(ch.stab_mask == Z(0));
+    auto cv = mod.constant_pool.noise_channel_masks.at(ch.mask);
+    CHECK(cv.x().is_zero());
+    CHECK(cv.z() == Z(0));
     CHECK_THAT(ch.prob, Catch::Matchers::WithinAbs(0.25, 1e-12));
 }

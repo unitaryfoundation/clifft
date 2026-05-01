@@ -96,11 +96,12 @@ inline void stim_to_mask_view(const stim::simd_bits_range_ref<kStimWidth>& bits,
 // Each channel has a rewound Pauli mask (at t=0) and a probability.
 // The Back-End will extract these into a noise schedule for gap sampling.
 
-/// A single Pauli error channel with its rewound masks and probability.
+/// A single Pauli error channel: a handle into the surrounding arena
+/// (HirModule::noise_channel_masks or ConstantPool::noise_channel_masks)
+/// and a firing probability. The channel sign byte is unused.
 struct NoiseChannel {
-    PauliBitMask destab_mask;  // X-bits of the rewound Pauli
-    PauliBitMask stab_mask;    // Z-bits of the rewound Pauli
-    double prob;               // Probability of this channel firing
+    PauliMaskHandle mask;
+    double prob;
 };
 
 /// A noise site: a collection of mutually exclusive Pauli channels.
@@ -377,13 +378,21 @@ static_assert(sizeof(HeisenbergOp) == 16, "HeisenbergOp must be exactly 16 bytes
 struct HirModule {
     HirModule() = default;
 
-    HirModule(uint32_t n_qubits, size_t num_pauli_masks) : pauli_masks(n_qubits, num_pauli_masks) {
+    HirModule(uint32_t n_qubits, size_t num_pauli_masks, size_t num_noise_channels = 0)
+        : pauli_masks(n_qubits, num_pauli_masks),
+          noise_channel_masks(n_qubits, num_noise_channels) {
         num_qubits = n_qubits;
     }
 
-    // Pauli mask arena (sized at construction). Slots are claimed by
-    // append_* builders in call order.
+    // Pauli mask arena for HIR ops (T_GATE, MEASURE, CONDITIONAL_PAULI,
+    // PHASE_ROTATION, EXP_VAL). Slots claimed by append_* builders in
+    // call order.
     PauliMaskArena pauli_masks;
+
+    // Pauli mask arena for noise channels. Each NoiseChannel inside a
+    // NoiseSite carries a handle into this arena. Slots are claimed via
+    // claim_noise_channel_mask() when noise sites are appended.
+    PauliMaskArena noise_channel_masks;
 
     // Operations in execution order
     std::vector<HeisenbergOp> ops;
@@ -557,6 +566,22 @@ struct HirModule {
     }
 
     size_t next_pauli_mask_ = 0;
+
+  public:
+    /// Claim the next noise_channel_masks slot, populate (X, Z) bits, and
+    /// return the handle. Sign is unused for noise channels.
+    PauliMaskHandle claim_noise_channel_mask(MaskView destab, MaskView stab) {
+        assert(next_noise_channel_mask_ < noise_channel_masks.size() &&
+               "HirModule noise_channel_masks arena exhausted");
+        auto h = static_cast<PauliMaskHandle>(next_noise_channel_mask_++);
+        auto slot = noise_channel_masks.mut_at(h);
+        slot.x().copy_from(destab);
+        slot.z().copy_from(stab);
+        return h;
+    }
+
+  private:
+    size_t next_noise_channel_mask_ = 0;
 };
 
 }  // namespace clifft

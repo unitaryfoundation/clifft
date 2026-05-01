@@ -1870,7 +1870,8 @@ static inline void exec_noise(SchrodingerState& state, const ConstantPool& pool,
     for (const auto& ch : site.channels) {
         cumulative += ch.prob;
         if (rand < cumulative) {
-            apply_pauli_to_frame(state, view(ch.destab_mask), view(ch.stab_mask), false);
+            auto m = pool.noise_channel_masks.at(ch.mask);
+            apply_pauli_to_frame(state, m.x(), m.z(), false);
             break;
         }
     }

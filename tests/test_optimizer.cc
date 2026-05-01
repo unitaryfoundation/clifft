@@ -416,8 +416,9 @@ TEST_CASE("Peephole: S absorption conjugates noise and conditional Pauli", "[opt
     // Check noise channel conjugation: X(0) -> Y(0)
     auto site_idx = static_cast<uint32_t>(hir.ops[0].noise_site_idx());
     const auto& ch = hir.noise_sites[site_idx].channels[0];
-    CHECK(ch.destab_mask.bit_get(0));  // X bit set
-    CHECK(ch.stab_mask.bit_get(0));    // Z bit set -> Y
+    auto ch_view = hir.noise_channel_masks.at(ch.mask);
+    CHECK(ch_view.x().bit_get(0));  // X bit set
+    CHECK(ch_view.z().bit_get(0));  // Z bit set -> Y
 
     // Check MEASURE conjugation: X(0) -> Y(0) with sign
     CHECK(hir.destab_mask(hir.ops[1]).bit_get(0));

@@ -81,6 +81,31 @@ inline void check_complex(std::complex<double> actual, std::complex<double> expe
 
 }  // namespace test
 
+/// Compare a MaskView to a fixed-width BitMask<N>. The two may have
+/// different word counts; trailing words of either side must be zero.
+template <size_t N>
+inline bool operator==(MaskView v, const BitMask<N>& m) {
+    auto vm = view(m);
+    uint32_t common = std::min(v.num_words(), vm.num_words());
+    for (uint32_t i = 0; i < common; ++i) {
+        if (v.words[i] != vm.words[i])
+            return false;
+    }
+    for (uint32_t i = common; i < v.num_words(); ++i) {
+        if (v.words[i] != 0)
+            return false;
+    }
+    for (uint32_t i = common; i < vm.num_words(); ++i) {
+        if (vm.words[i] != 0)
+            return false;
+    }
+    return true;
+}
+template <size_t N>
+inline bool operator==(const BitMask<N>& m, MaskView v) {
+    return v == m;
+}
+
 /// Compare a runtime-width MaskView to a uint64_t (interpreted as the lower
 /// 64 bits, with all higher words required to be zero). Lives in clifft
 /// namespace so ADL finds it for tests that compare against integer literals.

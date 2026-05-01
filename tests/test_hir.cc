@@ -206,10 +206,11 @@ TEST_CASE("HirModule construction and accessors", "[hir]") {
 }
 
 TEST_CASE("HirModule with noise sites", "[hir]") {
-    HirModule hir(2, 0);
+    HirModule hir(2, /*num_pauli_masks=*/0, /*num_noise_channels=*/1);
 
     NoiseSite site;
-    site.channels.push_back({PauliBitMask(X(0)), PauliBitMask{}, 0.1});
+    auto h = hir.claim_noise_channel_mask(MaskBuf(X(0)), MaskBuf(0));
+    site.channels.push_back({h, 0.1});
     hir.noise_sites.push_back(std::move(site));
 
     hir.append_noise(NoiseSiteIdx{0});

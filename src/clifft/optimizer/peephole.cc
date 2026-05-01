@@ -112,9 +112,9 @@ void apply_virtual_s_downstream(HirModule& hir, size_t start_idx, MaskView x_v, 
             case OpType::NOISE: {
                 auto site_idx = static_cast<uint32_t>(op.noise_site_idx());
                 for (auto& ch : hir.noise_sites[site_idx].channels) {
+                    auto m = hir.noise_channel_masks.mut_at(ch.mask);
                     bool dummy_sign = false;
-                    conjugate_pauli_by_S(x_v, z_v, sign_v, mut_view(ch.destab_mask),
-                                         mut_view(ch.stab_mask), dummy_sign, is_dagger);
+                    conjugate_pauli_by_S(x_v, z_v, sign_v, m.x(), m.z(), dummy_sign, is_dagger);
                 }
                 break;
             }
@@ -212,8 +212,8 @@ inline bool is_blocked(const HeisenbergOp& op_i, const HeisenbergOp& op_j, const
             auto site_idx = static_cast<uint32_t>(op_j.noise_site_idx());
             const auto& channels = hir.noise_sites[site_idx].channels;
             for (const auto& ch : channels) {
-                if (anti_commute(hir.destab_mask(op_i), hir.stab_mask(op_i), view(ch.destab_mask),
-                                 view(ch.stab_mask))) {
+                auto cv = hir.noise_channel_masks.at(ch.mask);
+                if (anti_commute(hir.destab_mask(op_i), hir.stab_mask(op_i), cv.x(), cv.z())) {
                     return true;
                 }
             }

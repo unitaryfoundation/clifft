@@ -531,7 +531,8 @@ CompiledModule lower(const HirModule& hir, std::span<const uint8_t> postselectio
     uint32_t total_meas_slots = hir.num_measurements + hir.num_hidden_measurements;
 
     // Pre-size ConstantPool arenas. CONDITIONAL_PAULI emits exactly one
-    // OP_APPLY_PAULI per op; EXP_VAL emits exactly one OP_EXP_VAL.
+    // OP_APPLY_PAULI per op; EXP_VAL emits exactly one OP_EXP_VAL. Each
+    // HIR noise channel maps into one ConstantPool channel slot.
     size_t num_apply_paulis = 0;
     size_t num_exp_val_masks = 0;
     for (const auto& op : hir.ops) {
@@ -540,10 +541,15 @@ CompiledModule lower(const HirModule& hir, std::span<const uint8_t> postselectio
         else if (op.op_type() == OpType::EXP_VAL)
             ++num_exp_val_masks;
     }
+    size_t num_noise_channels = 0;
+    for (const auto& site : hir.noise_sites)
+        num_noise_channels += site.channels.size();
     ctx.constant_pool.pauli_masks = PauliMaskArena(n, num_apply_paulis);
     ctx.constant_pool.exp_val_masks = PauliMaskArena(n, num_exp_val_masks);
+    ctx.constant_pool.noise_channel_masks = PauliMaskArena(n, num_noise_channels);
     size_t next_cp_pauli = 0;
     size_t next_cp_exp_val = 0;
+    size_t next_cp_noise = 0;
 
     bool has_source_map = hir.source_map.size() == hir.ops.size();
     bool has_postselection = false;
@@ -704,7 +710,12 @@ CompiledModule lower(const HirModule& hir, std::span<const uint8_t> postselectio
 
                 NoiseSite mapped_site;
                 for (const auto& ch : hir_site.channels) {
-                    mapped_site.channels.push_back(ctx.virtual_frame.map_noise_channel(ch, n));
+                    auto in_view = hir.noise_channel_masks.at(ch.mask);
+                    auto out_handle = static_cast<PauliMaskHandle>(next_cp_noise++);
+                    auto out_slot = ctx.constant_pool.noise_channel_masks.mut_at(out_handle);
+                    ctx.virtual_frame.map_noise_channel(in_view.x(), in_view.z(), out_slot.x(),
+                                                        out_slot.z(), n);
+                    mapped_site.channels.push_back(NoiseChannel{out_handle, ch.prob});
                 }
 
                 // Compute total channel probability for gap sampling

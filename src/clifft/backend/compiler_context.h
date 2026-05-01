@@ -170,18 +170,26 @@ class VirtualFrame {
         return mapped;
     }
 
-    [[nodiscard]] NoiseChannel map_noise_channel(const NoiseChannel& channel, uint32_t n) {
+    /// Map a noise channel's (X, Z) masks through the current virtual frame
+    /// and write the result into `out_x` and `out_z`. Sign is unused for
+    /// noise channels.
+    void map_noise_channel(MaskView in_x, MaskView in_z, MutableMaskView out_x,
+                           MutableMaskView out_z, uint32_t n) {
         maybe_flush();
 
         PauliBitMask mapped_x, mapped_z;
-        PauliBitMask x_bits = channel.destab_mask;
+        PauliBitMask x_bits;
+        for (uint32_t w = 0; w < in_x.num_words() && w < kMaxInlineWords; ++w)
+            x_bits.w[w] = in_x.words[w];
         while (!x_bits.is_zero()) {
             uint32_t q = x_bits.lowest_bit();
             mapped_x ^= stim_to_bitmask(materialized_.xs[q].xs, n);
             mapped_z ^= stim_to_bitmask(materialized_.xs[q].zs, n);
             x_bits.clear_lowest_bit();
         }
-        PauliBitMask z_bits = channel.stab_mask;
+        PauliBitMask z_bits;
+        for (uint32_t w = 0; w < in_z.num_words() && w < kMaxInlineWords; ++w)
+            z_bits.w[w] = in_z.words[w];
         while (!z_bits.is_zero()) {
             uint32_t q = z_bits.lowest_bit();
             mapped_x ^= stim_to_bitmask(materialized_.zs[q].xs, n);
@@ -193,7 +201,13 @@ class VirtualFrame {
             bool dummy_sign = false;
             apply_pending_to_pauli(mapped_x, mapped_z, dummy_sign);
         }
-        return {mapped_x, mapped_z, channel.prob};
+
+        out_x.zero_out();
+        out_z.zero_out();
+        for (uint32_t w = 0; w < out_x.num_words() && w < kMaxInlineWords; ++w) {
+            out_x.words[w] = mapped_x.w[w];
+            out_z.words[w] = mapped_z.w[w];
+        }
     }
 
     [[nodiscard]] const stim::Tableau<kStimWidth>& materialized_tableau() const {

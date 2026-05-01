@@ -255,8 +255,14 @@ struct ConstantPool {
     // read-only probing (EXP_VAL).
     PauliMaskArena exp_val_masks;
 
-    // Noise sites for OP_NOISE (virtual-frame-mapped channels)
+    // Noise sites for OP_NOISE (virtual-frame-mapped channels). Each
+    // NoiseChannel inside a NoiseSite carries a handle into
+    // noise_channel_masks below.
     std::vector<NoiseSite> noise_sites;
+
+    // Pauli mask arena for the (virtual-frame-mapped) noise channel
+    // masks referenced from noise_sites.
+    PauliMaskArena noise_channel_masks;
 
     // Readout noise entries for OP_READOUT_NOISE
     std::vector<ReadoutNoiseEntry> readout_noise;

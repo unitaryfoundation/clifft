@@ -18,8 +18,14 @@ using namespace clifft;
 using clifft::test::X;
 using clifft::test::Z;
 
-static NoiseChannel rewind_single_pauli_reference(const stim::TableauSimulator<kStimWidth>& sim,
-                                                  uint32_t qubit, int pauli_type, double prob) {
+struct NoiseChannelMasks {
+    PauliBitMask destab_mask;
+    PauliBitMask stab_mask;
+    double prob;
+};
+
+static NoiseChannelMasks rewind_single_pauli_reference(
+    const stim::TableauSimulator<kStimWidth>& sim, uint32_t qubit, int pauli_type, double prob) {
     stim::PauliString<kStimWidth> pauli(sim.inv_state.num_qubits);
     if (pauli_type == 1 || pauli_type == 2)
         pauli.xs[qubit] = true;
@@ -31,9 +37,9 @@ static NoiseChannel rewind_single_pauli_reference(const stim::TableauSimulator<k
     return {stim_to_bitmask(rewound.xs, n), stim_to_bitmask(rewound.zs, n), prob};
 }
 
-static NoiseChannel rewind_two_qubit_pauli_reference(const stim::TableauSimulator<kStimWidth>& sim,
-                                                     uint32_t q1, uint32_t q2, int pauli1,
-                                                     int pauli2, double prob) {
+static NoiseChannelMasks rewind_two_qubit_pauli_reference(
+    const stim::TableauSimulator<kStimWidth>& sim, uint32_t q1, uint32_t q2, int pauli1, int pauli2,
+    double prob) {
     stim::PauliString<kStimWidth> pauli(sim.inv_state.num_qubits);
 
     if (pauli1 == 1 || pauli1 == 2)
@@ -771,8 +777,8 @@ TEST_CASE("Frontend: X_ERROR produces single channel", "[frontend][noise]") {
     REQUIRE(site.channels[0].prob == Catch::Approx(0.001));
 
     // X on qubit 0 at t=0 (identity tableau): destab=1, stab=0
-    REQUIRE(site.channels[0].destab_mask == 1);
-    REQUIRE(site.channels[0].stab_mask == 0);
+    REQUIRE(hir.noise_channel_masks.at(site.channels[0].mask).x() == 1);
+    REQUIRE(hir.noise_channel_masks.at(site.channels[0].mask).z() == 0);
 }
 
 TEST_CASE("Frontend: Z_ERROR produces single channel", "[frontend][noise]") {
@@ -793,8 +799,8 @@ TEST_CASE("Frontend: Z_ERROR produces single channel", "[frontend][noise]") {
     REQUIRE(site.channels[0].prob == Catch::Approx(0.002));
 
     // Z on qubit 0 at t=0: destab=0, stab=1
-    REQUIRE(site.channels[0].destab_mask == 0);
-    REQUIRE(site.channels[0].stab_mask == 1);
+    REQUIRE(hir.noise_channel_masks.at(site.channels[0].mask).x() == 0);
+    REQUIRE(hir.noise_channel_masks.at(site.channels[0].mask).z() == 1);
 }
 
 TEST_CASE("Frontend: Y_ERROR produces single channel", "[frontend][noise]") {
@@ -815,8 +821,8 @@ TEST_CASE("Frontend: Y_ERROR produces single channel", "[frontend][noise]") {
     REQUIRE(site.channels[0].prob == Catch::Approx(0.003));
 
     // Y = iXZ on qubit 0 at t=0: destab=1, stab=1
-    REQUIRE(site.channels[0].destab_mask == 1);
-    REQUIRE(site.channels[0].stab_mask == 1);
+    REQUIRE(hir.noise_channel_masks.at(site.channels[0].mask).x() == 1);
+    REQUIRE(hir.noise_channel_masks.at(site.channels[0].mask).z() == 1);
 }
 
 TEST_CASE("Frontend: DEPOLARIZE2 produces 15 channels", "[frontend][noise]") {
@@ -869,8 +875,8 @@ TEST_CASE("Frontend: noise rewinding through H gate", "[frontend][noise]") {
     REQUIRE(site.channels.size() == 1);
 
     // X after H = Z at t=0: destab=0, stab=1
-    REQUIRE(site.channels[0].destab_mask == 0);
-    REQUIRE(site.channels[0].stab_mask == 1);
+    REQUIRE(hir.noise_channel_masks.at(site.channels[0].mask).x() == 0);
+    REQUIRE(hir.noise_channel_masks.at(site.channels[0].mask).z() == 1);
 }
 
 TEST_CASE("Frontend: Y_ERROR rewinds through entangling Cliffords", "[frontend][noise]") {
@@ -889,8 +895,8 @@ TEST_CASE("Frontend: Y_ERROR rewinds through entangling Cliffords", "[frontend][
     auto expected = rewind_single_pauli_reference(sim, 1, 2, 0.02);
 
     const auto& actual = hir.noise_sites[0].channels[0];
-    CHECK(actual.destab_mask == expected.destab_mask);
-    CHECK(actual.stab_mask == expected.stab_mask);
+    CHECK(hir.noise_channel_masks.at(actual.mask).x() == expected.destab_mask);
+    CHECK(hir.noise_channel_masks.at(actual.mask).z() == expected.stab_mask);
     CHECK(actual.prob == Catch::Approx(expected.prob));
 }
 
@@ -909,7 +915,7 @@ TEST_CASE("Frontend: DEPOLARIZE2 rewinds through entangling Cliffords", "[fronte
     sim.inv_state.prepend_ZCX(0, 1);
 
     double channel_prob = 0.15 / 15.0;
-    std::vector<NoiseChannel> expected;
+    std::vector<NoiseChannelMasks> expected;
     for (int p1 = 0; p1 <= 3; ++p1) {
         for (int p2 = 0; p2 <= 3; ++p2) {
             if (p1 == 0 && p2 == 0)
@@ -921,8 +927,9 @@ TEST_CASE("Frontend: DEPOLARIZE2 rewinds through entangling Cliffords", "[fronte
     const auto& actual_site = hir.noise_sites[0];
     REQUIRE(actual_site.channels.size() == expected.size());
     for (size_t i = 0; i < expected.size(); ++i) {
-        CHECK(actual_site.channels[i].destab_mask == expected[i].destab_mask);
-        CHECK(actual_site.channels[i].stab_mask == expected[i].stab_mask);
+        auto av = hir.noise_channel_masks.at(actual_site.channels[i].mask);
+        CHECK(av.x() == expected[i].destab_mask);
+        CHECK(av.z() == expected[i].stab_mask);
         CHECK(actual_site.channels[i].prob == Catch::Approx(expected[i].prob));
     }
 }
@@ -1088,9 +1095,9 @@ TEST_CASE("Frontend: noise broadcasting", "[frontend][noise]") {
 
     // Each site should have X error on its respective qubit
     // Qubit 0: destab=1, Qubit 1: destab=2, Qubit 2: destab=4
-    REQUIRE(hir.noise_sites[0].channels[0].destab_mask == 1);
-    REQUIRE(hir.noise_sites[1].channels[0].destab_mask == 2);
-    REQUIRE(hir.noise_sites[2].channels[0].destab_mask == 4);
+    REQUIRE(hir.noise_channel_masks.at(hir.noise_sites[0].channels[0].mask).x() == 1);
+    REQUIRE(hir.noise_channel_masks.at(hir.noise_sites[1].channels[0].mask).x() == 2);
+    REQUIRE(hir.noise_channel_masks.at(hir.noise_sites[2].channels[0].mask).x() == 4);
 }
 
 TEST_CASE("Frontend: DEPOLARIZE2 broadcasting", "[frontend][noise]") {
