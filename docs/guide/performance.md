@@ -114,5 +114,5 @@ dimension, and whether measurements collapse the active state.
 The full benchmark methodology, hardware details, circuits, and analysis scripts
 are described in the Clifft paper and companion benchmark repository.
 
-- Paper: [TODO_ARXIV_LINK](TODO)
+- Paper: [https://arxiv.org/abs/2604.27058](TODO)
 - Benchmark circuits and scripts: [clifft-paper](https://github.com/unitaryfoundation/clifft-paper)

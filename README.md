@@ -5,13 +5,19 @@
   </picture>
 </p>
 
+[![Unitary Foundation](https://img.shields.io/badge/Supported%20By-Unitary%20Foundation-FFFF00.svg)](https://unitary.foundation)
+[![Docs](https://img.shields.io/badge/docs-online-blue.svg)](https://unitaryfoundation.github.io/clifft/)
+[![arXiv](https://img.shields.io/badge/arXiv-1234.56789-b31b1b.svg)](https://arxiv.org/abs/2604.27058)
+[![License](https://img.shields.io/github/license/unitaryfoundation/clifft.svg)](https://github.com/unitaryfoundation/clifft/blob/main/LICENSE)
+[![Discord Chat](https://img.shields.io/badge/dynamic/json?color=orange&label=Discord&query=approximate_presence_count&suffix=%20online.&url=https%3A%2F%2Fdiscord.com%2Fapi%2Finvites%2FJqVGmpkP96%3Fwith_counts%3Dtrue)](http://discord.unitary.foundation)
+
+
 [![PyPI version](https://img.shields.io/pypi/v/clifft.svg?color=blue)](https://pypi.org/project/clifft/)
-[![Python versions](https://img.shields.io/pypi/pyversions/clifft.svg)](https://pypi.org/project/clifft/)
+[![Downloads](https://static.pepy.tech/badge/clifft)](https://pepy.tech/project/clifft)
 [![CI](https://github.com/unitaryfoundation/clifft/actions/workflows/ci.yml/badge.svg)](https://github.com/unitaryfoundation/clifft/actions/workflows/ci.yml)
 [![codecov](https://codecov.io/gh/unitaryfoundation/clifft/graph/badge.svg)](https://codecov.io/gh/unitaryfoundation/clifft)
-[![License](https://img.shields.io/github/license/unitaryfoundation/clifft.svg)](https://github.com/unitaryfoundation/clifft/blob/main/LICENSE)
-[![Docs](https://img.shields.io/badge/docs-online-blue.svg)](https://unitaryfoundation.github.io/clifft/)
-[![Discord](https://img.shields.io/badge/Discord-Unitary%20Foundation-orange.svg)](http://discord.unitary.foundation)
+[![Contributor Covenant](https://img.shields.io/badge/Contributor%20Covenant-2.1-4baaaa.svg)](https://github.com/unitaryfoundation/clifft/blob/main/CODE_OF_CONDUCT.md)
+
 
 **Clifft** is a fast exact simulator for near-Clifford quantum circuits.
 
@@ -144,11 +150,22 @@ _Throughput numbers above were measured on cloud instances; the links to the in-
 
 For benchmark details, plots, hardware notes, and guidance on when Clifft is a good fit, see the [performance](https://unitaryfoundation.github.io/clifft/guide/performance/) section of the documentation.
 
-The full methodology and scientific results are described in the [Clifft paper](TODO_ARXIV_LINK).
+The full methodology and scientific results are described in the [Clifft paper](https://arxiv.org/abs/2604.27058) and companion [clifft-paper repo](https://github.com/unitaryfoundation/clifft-paper).
 
 ## Citation
 
-Citation information coming soon.
+If you use Clifft in your work, please cite the arXiv [preprint](https://arxiv.org/abs/2604.27058) below.
+```
+@misc{chase2026clifftfastexactsimulation,
+      title={Clifft: Fast Exact Simulation of Near-Clifford Quantum Circuits},
+      author={Bradley A. Chase and Farrokh Labib},
+      year={2026},
+      eprint={2604.27058},
+      archivePrefix={arXiv},
+      primaryClass={quant-ph},
+      url={https://arxiv.org/abs/2604.27058},
+}
+```
 
 ## Development
 
