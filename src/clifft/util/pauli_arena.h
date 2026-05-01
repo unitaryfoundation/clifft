@@ -95,6 +95,12 @@ class PauliMaskArena {
     }
 
     uint32_t num_words_;
+    // Capacity is fixed at construction. Resizing these vectors after
+    // construction would invalidate any outstanding PauliMaskView /
+    // MutablePauliMaskView, since their span/pointer fields reference
+    // the underlying storage directly. Any future change that needs to
+    // grow an arena post-construction must move to a stable-handle
+    // representation (e.g. chunked storage) before doing so.
     std::vector<uint64_t> x_;
     std::vector<uint64_t> z_;
     std::vector<uint8_t> signs_;
