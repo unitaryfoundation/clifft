@@ -121,7 +121,8 @@ jobs:
             --build-config ${{ env.CMAKE_BUILD_TYPE }} \
             --output-on-failure \
             --parallel \
-            --timeout 300
+            --timeout 300 \
+            -E "Bench"
         shell: bash
 
       - name: Run C++ tests (scalar ISA)
