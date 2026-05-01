@@ -538,9 +538,11 @@ TEST_CASE("Frontend: accepts circuits above the old fixed mask width", "[fronten
 }
 
 TEST_CASE("Backend: rejects circuits above the VM axis ceiling", "[frontend]") {
-    Circuit circuit;
-    circuit.num_qubits = 65537;
-    auto hir = trace(circuit);
+    // Skip trace() because allocating a TableauSimulator for 65k+ qubits
+    // is itself prohibitively expensive. The ceiling lives in lower(),
+    // so feed it an empty HIR with the high qubit count directly.
+    HirModule hir;
+    hir.num_qubits = 65537;
     REQUIRE_THROWS_AS(lower(hir), std::runtime_error);
 }
 
