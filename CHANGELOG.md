@@ -47,5 +47,3 @@ Version 0.2.0 of clifft is primarily a cleanup release to coincide with the rele
 - set MACOSX_DEPLOYMENT_TARGET for macOS arm64 wheel (#5) by @bachase in [#5](https://github.com/unitaryfoundation/clifft/pull/5)
 - update playground links after docs page removal (#4) by @bachase in [#4](https://github.com/unitaryfoundation/clifft/pull/4)
 - playground link serves docs page instead of SPA (#3) by @bachase in [#3](https://github.com/unitaryfoundation/clifft/pull/3)
-
-
