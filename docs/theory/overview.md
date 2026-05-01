@@ -2,6 +2,8 @@
 
 Clifft is a multi-level compiler and execution engine for universal quantum circuits. It reduces the exponential part of exact simulation from the total qubit count to the dynamic active dimension for circuits where non-Clifford effects remain localized.
 
+More details on this approach are in our [arXiv preprint](https://arxiv.org/abs/2604.27058).
+
 ## The Factored State Representation
 
 Clifft represents the exact physical quantum state at time $t$ via a strict factorization:
