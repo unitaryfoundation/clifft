@@ -82,4 +82,4 @@ For QEC workflows, Clifft also supports detector-based post-selection, survivor 
 
 [Install Clifft](getting-started/installation.md){ .md-button .md-button--primary }
 
-[Try the Playground](playground/){ .md-button }
+[Try the Playground]({{ playground_url }}){ .md-button }
