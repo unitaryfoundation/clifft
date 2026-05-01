@@ -20,6 +20,7 @@
 namespace clifft {
 
 template <class Word>
+    requires std::same_as<std::remove_const_t<Word>, uint64_t>
 struct BasicMaskView {
     std::span<Word> words;
 
@@ -156,19 +157,20 @@ inline MutableMaskView mut_view(BitMask<N>& m) {
     const uint32_t k_bit = k % 64;
     const uint32_t n = bits.num_words();
 
-    // Words entirely above k: every set bit qualifies.
-    const uint32_t start = (k_bit == 0) ? k_word : k_word + 1;
-    for (uint32_t wi = start; wi < n; ++wi) {
-        if (bits.words[wi] != 0)
-            return wi * 64 + std::countr_zero(bits.words[wi]);
+    // Word containing k: mask off the prefix [0, k_bit) and pick the
+    // earliest qualifying bit. If k is word-aligned, the entire word
+    // qualifies.
+    if (k_word < n) {
+        uint64_t prefix = (k_bit == 0) ? 0ULL : ((1ULL << k_bit) - 1);
+        uint64_t qualifying = bits.words[k_word] & ~prefix;
+        if (qualifying != 0)
+            return k_word * 64 + std::countr_zero(qualifying);
     }
 
-    // Word straddling k: mask off the prefix [0, k_bit) and pick the earliest.
-    if (k_bit > 0 && k_word < n) {
-        uint64_t prefix = (1ULL << k_bit) - 1;
-        uint64_t suffix = bits.words[k_word] & ~prefix;
-        if (suffix != 0)
-            return k_word * 64 + std::countr_zero(suffix);
+    // Higher words: every set bit qualifies.
+    for (uint32_t wi = k_word + 1; wi < n; ++wi) {
+        if (bits.words[wi] != 0)
+            return wi * 64 + std::countr_zero(bits.words[wi]);
     }
 
     return n * 64;

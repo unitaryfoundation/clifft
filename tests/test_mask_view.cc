@@ -293,11 +293,25 @@ TEST_CASE("lowest_bit_at_or_above: returns earliest qualifying bit in word 0") {
     REQUIRE(lowest_bit_at_or_above(mv_from(a), 30) == 40);
 }
 
-TEST_CASE("lowest_bit_at_or_above: prefers higher words over straddle word") {
+TEST_CASE("lowest_bit_at_or_above: returns lowest bit even when higher words have bits") {
     // k=30: bit 40 in word 0 (qualifies), bit 100 in word 1 (qualifies).
-    // Returns the lower-indexed qualifying bit within higher words first.
+    // Lowest qualifying bit is 40, regardless of higher-word bits.
     std::array<uint64_t, 4> a{1ULL << 40, 1ULL << 36, 0, 0};
-    REQUIRE(lowest_bit_at_or_above(mv_from(a), 30) == 64 + 36);
+    REQUIRE(lowest_bit_at_or_above(mv_from(a), 30) == 40);
+}
+
+TEST_CASE("lowest_bit_at_or_above: skips empty intermediate words") {
+    // k=10: lowest qualifying bit is in word 3, with words 0..2 empty
+    // above k. Should still find it.
+    std::array<uint64_t, 4> a{0, 0, 0, 1ULL << 7};
+    REQUIRE(lowest_bit_at_or_above(mv_from(a), 10) == 3 * 64 + 7);
+}
+
+TEST_CASE("lowest_bit_at_or_above: returns straddle-word bit before higher-word bit") {
+    // k=30: bit 35 in word 0 qualifies; bit 64 in word 1 also qualifies.
+    // Lowest is 35.
+    std::array<uint64_t, 4> a{1ULL << 35, 1ULL, 0, 0};
+    REQUIRE(lowest_bit_at_or_above(mv_from(a), 30) == 35);
 }
 
 TEST_CASE("lowest_bit_at_or_above: returns sentinel when no bit qualifies") {
