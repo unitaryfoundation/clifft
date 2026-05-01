@@ -20,7 +20,6 @@
 namespace clifft {
 
 template <class Word>
-    requires std::same_as<std::remove_const_t<Word>, uint64_t>
 struct BasicMaskView {
     std::span<Word> words;
 
@@ -148,6 +147,55 @@ inline MaskView view(const BitMask<N>& m) {
 template <size_t N>
 inline MutableMaskView mut_view(BitMask<N>& m) {
     return MutableMaskView{std::span<uint64_t>(m.w)};
+}
+
+/// Lowest set bit at index >= k. Returns num_words()*64 as a sentinel
+/// when no such bit exists.
+[[nodiscard]] inline uint32_t lowest_bit_at_or_above(MaskView bits, uint32_t k) {
+    const uint32_t k_word = k / 64;
+    const uint32_t k_bit = k % 64;
+    const uint32_t n = bits.num_words();
+
+    // Words entirely above k: every set bit qualifies.
+    const uint32_t start = (k_bit == 0) ? k_word : k_word + 1;
+    for (uint32_t wi = start; wi < n; ++wi) {
+        if (bits.words[wi] != 0)
+            return wi * 64 + std::countr_zero(bits.words[wi]);
+    }
+
+    // Word straddling k: mask off the prefix [0, k_bit) and pick the earliest.
+    if (k_bit > 0 && k_word < n) {
+        uint64_t prefix = (1ULL << k_bit) - 1;
+        uint64_t suffix = bits.words[k_word] & ~prefix;
+        if (suffix != 0)
+            return k_word * 64 + std::countr_zero(suffix);
+    }
+
+    return n * 64;
+}
+
+/// Lowest set bit at index < k. Returns num_words()*64 as a sentinel
+/// when no such bit exists.
+[[nodiscard]] inline uint32_t lowest_bit_below(MaskView bits, uint32_t k) {
+    const uint32_t k_word = k / 64;
+    const uint32_t k_bit = k % 64;
+    const uint32_t n = bits.num_words();
+
+    // Words entirely below k: every set bit qualifies.
+    const uint32_t full = std::min(k_word, n);
+    for (uint32_t wi = 0; wi < full; ++wi) {
+        if (bits.words[wi] != 0)
+            return wi * 64 + std::countr_zero(bits.words[wi]);
+    }
+
+    // Word straddling k: mask to the prefix [0, k_bit) and pick the earliest.
+    if (k_bit > 0 && k_word < n) {
+        uint64_t prefix = bits.words[k_word] & ((1ULL << k_bit) - 1);
+        if (prefix != 0)
+            return k_word * 64 + std::countr_zero(prefix);
+    }
+
+    return n * 64;
 }
 
 }  // namespace clifft

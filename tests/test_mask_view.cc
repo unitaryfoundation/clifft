@@ -1,4 +1,3 @@
-#include "clifft/backend/compiler_context.h"
 #include "clifft/util/bitmask.h"
 #include "clifft/util/mask_view.h"
 #include "clifft/util/pauli_arena.h"
@@ -9,6 +8,8 @@
 #include <span>
 
 using clifft::BitMask;
+using clifft::lowest_bit_at_or_above;
+using clifft::lowest_bit_below;
 using clifft::MaskView;
 using clifft::mut_view;
 using clifft::MutableMaskView;
@@ -17,8 +18,6 @@ using clifft::PauliMaskArena;
 using clifft::PauliMaskHandle;
 using clifft::PauliMaskView;
 using clifft::view;
-using clifft::internal::find_active_pivot;
-using clifft::internal::find_dormant_pivot;
 
 // =========================================================================
 // MaskView: read-only access
@@ -246,12 +245,11 @@ TEST_CASE("PauliMaskArena: mutable view converts implicitly to const view") {
 }
 
 // =========================================================================
-// find_dormant_pivot / find_active_pivot
+// lowest_bit_at_or_above / lowest_bit_below
 // =========================================================================
 //
-// Validate the pivot helpers against k values both within and beyond a
-// single 64-bit word so the migration to runtime widths does not silently
-// regress correctness for circuits with active rank that spans words.
+// These primitives must correctly handle k values both within and beyond
+// a single 64-bit word, including word-aligned k.
 
 namespace {
 
@@ -259,86 +257,87 @@ MaskView mv_from(const std::array<uint64_t, 4>& a) {
     return MaskView{std::span<const uint64_t>(a)};
 }
 
+constexpr uint32_t kSentinel = 4 * 64;
+
 }  // namespace
 
-TEST_CASE("find_dormant_pivot: word 1 bit is dormant when k < 64") {
+TEST_CASE("lowest_bit_at_or_above: returns word 1 bit when k less than 64") {
     std::array<uint64_t, 4> a{0, 0x1ULL << 5, 0, 0};
-    REQUIRE(find_dormant_pivot(mv_from(a), 30) == 64 + 5);
-    REQUIRE(find_dormant_pivot(mv_from(a), 0) == 64 + 5);
-    REQUIRE(find_dormant_pivot(mv_from(a), 63) == 64 + 5);
+    REQUIRE(lowest_bit_at_or_above(mv_from(a), 30) == 64 + 5);
+    REQUIRE(lowest_bit_at_or_above(mv_from(a), 0) == 64 + 5);
+    REQUIRE(lowest_bit_at_or_above(mv_from(a), 63) == 64 + 5);
 }
 
-TEST_CASE("find_dormant_pivot: bit 64 is active when k > 64") {
-    // Only bit 64 is set. With k=70, bit 64 is in the active region
-    // (active prefix is bits [0, 70)), so no dormant pivot exists.
+TEST_CASE("lowest_bit_at_or_above: bit 64 is below k when k greater than 64") {
+    // Only bit 64 is set. With k=70, bit 64 is below the threshold,
+    // so no qualifying bit exists.
     std::array<uint64_t, 4> a{0, 1ULL, 0, 0};
-    REQUIRE(find_dormant_pivot(mv_from(a), 70) == 64);  // falls back to lowest_bit
+    REQUIRE(lowest_bit_at_or_above(mv_from(a), 70) == kSentinel);
 }
 
-TEST_CASE("find_dormant_pivot: chooses dormant bit past straddle word") {
-    // k=70: active prefix [0, 70). In word 1, bits [0, 6) active, [6, 64) dormant.
-    // Set bit 65 (active, bit 1 of word 1) and bit 75 (dormant, bit 11 of word 1).
+TEST_CASE("lowest_bit_at_or_above: chooses dormant bit past straddle word") {
+    // k=70: in word 1, bits [0, 6) below k, [6, 64) at or above.
+    // Set bit 65 (below) and bit 75 (at or above).
     std::array<uint64_t, 4> a{0, (1ULL << 1) | (1ULL << 11), 0, 0};
-    REQUIRE(find_dormant_pivot(mv_from(a), 70) == 64 + 11);
+    REQUIRE(lowest_bit_at_or_above(mv_from(a), 70) == 64 + 11);
 }
 
-TEST_CASE("find_dormant_pivot: chooses bit in straddle word when no higher word has bits") {
-    // k=70: dormant bit 80 in word 1 (bit 16 of word 1).
+TEST_CASE("lowest_bit_at_or_above: chooses bit in straddle word when no higher word has bits") {
     std::array<uint64_t, 4> a{0xFF, 1ULL << 16, 0, 0};
-    REQUIRE(find_dormant_pivot(mv_from(a), 70) == 64 + 16);
+    REQUIRE(lowest_bit_at_or_above(mv_from(a), 70) == 64 + 16);
 }
 
-TEST_CASE("find_dormant_pivot: chooses dormant bit in word 0 when k < 64") {
-    // k=30: bit 40 dormant in word 0.
+TEST_CASE("lowest_bit_at_or_above: returns earliest qualifying bit in word 0") {
+    // k=30: bit 40 in word 0 qualifies; bit 5 does not.
     std::array<uint64_t, 4> a{(1ULL << 5) | (1ULL << 40), 0, 0, 0};
-    REQUIRE(find_dormant_pivot(mv_from(a), 30) == 40);
+    REQUIRE(lowest_bit_at_or_above(mv_from(a), 30) == 40);
 }
 
-TEST_CASE("find_dormant_pivot: prefers higher words over straddle word dormant bits") {
-    // k=30: bit 40 dormant in word 0, bit 100 dormant in word 1.
-    // Higher-word bit returned first (existing fast-path semantics).
+TEST_CASE("lowest_bit_at_or_above: prefers higher words over straddle word") {
+    // k=30: bit 40 in word 0 (qualifies), bit 100 in word 1 (qualifies).
+    // Returns the lower-indexed qualifying bit within higher words first.
     std::array<uint64_t, 4> a{1ULL << 40, 1ULL << 36, 0, 0};
-    REQUIRE(find_dormant_pivot(mv_from(a), 30) == 64 + 36);
+    REQUIRE(lowest_bit_at_or_above(mv_from(a), 30) == 64 + 36);
 }
 
-TEST_CASE("find_dormant_pivot: falls back to lowest_bit when nothing is dormant") {
-    // k=128: active prefix covers all of words 0 and 1. Bit 5 is active.
+TEST_CASE("lowest_bit_at_or_above: returns sentinel when no bit qualifies") {
+    // k=128 covers all of words 0 and 1. Bit 5 does not qualify.
     std::array<uint64_t, 4> a{1ULL << 5, 0, 0, 0};
-    REQUIRE(find_dormant_pivot(mv_from(a), 128) == 5);
+    REQUIRE(lowest_bit_at_or_above(mv_from(a), 128) == kSentinel);
 }
 
-TEST_CASE("find_dormant_pivot: handles k aligned to word boundary") {
-    // k=64: active prefix is exactly word 0. Bit 64 is dormant.
+TEST_CASE("lowest_bit_at_or_above: handles k aligned to word boundary") {
+    // k=64: bit 64 is at the threshold and qualifies.
     std::array<uint64_t, 4> a{0, 1ULL, 0, 0};
-    REQUIRE(find_dormant_pivot(mv_from(a), 64) == 64);
+    REQUIRE(lowest_bit_at_or_above(mv_from(a), 64) == 64);
 }
 
-TEST_CASE("find_active_pivot: returns earliest bit below k") {
+TEST_CASE("lowest_bit_below: returns earliest bit when k spans word 0") {
     std::array<uint64_t, 4> a{(1ULL << 5) | (1ULL << 40), 0, 0, 0};
-    REQUIRE(find_active_pivot(mv_from(a), 64) == 5);
+    REQUIRE(lowest_bit_below(mv_from(a), 64) == 5);
 }
 
-TEST_CASE("find_active_pivot: ignores bits at or above k") {
-    // k=10, only bit 20 set (dormant). Falls back to lowest_bit.
+TEST_CASE("lowest_bit_below: returns sentinel when only higher bits are set") {
+    // k=10, only bit 20 set. No bit below 10.
     std::array<uint64_t, 4> a{1ULL << 20, 0, 0, 0};
-    REQUIRE(find_active_pivot(mv_from(a), 10) == 20);
+    REQUIRE(lowest_bit_below(mv_from(a), 10) == kSentinel);
 }
 
-TEST_CASE("find_active_pivot: scans full word below k when k > 64") {
-    // k=70: word 0 fully active. Bit 30 active in word 0, bit 65 active in word 1.
-    // Earliest active bit is 30.
+TEST_CASE("lowest_bit_below: scans full word below k when k greater than 64") {
+    // k=70: word 0 fully below k. Bit 30 in word 0, bit 65 in word 1
+    // (bit 1 of word 1, which is below k=70).
     std::array<uint64_t, 4> a{1ULL << 30, 1ULL << 1, 0, 0};
-    REQUIRE(find_active_pivot(mv_from(a), 70) == 30);
+    REQUIRE(lowest_bit_below(mv_from(a), 70) == 30);
 }
 
-TEST_CASE("find_active_pivot: picks straddle-word active bit when word 0 empty") {
-    // k=70: word 0 empty, bit 65 active in word 1 (bit 1 of word 1).
+TEST_CASE("lowest_bit_below: picks straddle-word bit when word 0 empty") {
+    // k=70: word 0 empty, bit 65 in word 1 (bit 1 of word 1, below k).
     std::array<uint64_t, 4> a{0, 1ULL << 1, 0, 0};
-    REQUIRE(find_active_pivot(mv_from(a), 70) == 64 + 1);
+    REQUIRE(lowest_bit_below(mv_from(a), 70) == 64 + 1);
 }
 
-TEST_CASE("find_active_pivot: handles k aligned to word boundary") {
-    // k=64: only word 0 is active. Bit 100 is the only set bit (dormant).
+TEST_CASE("lowest_bit_below: handles k aligned to word boundary") {
+    // k=64: word 0 fully below k. Bit 100 is in word 1, not below k.
     std::array<uint64_t, 4> a{0, 1ULL << 36, 0, 0};
-    REQUIRE(find_active_pivot(mv_from(a), 64) == 64 + 36);  // fallback to lowest_bit
+    REQUIRE(lowest_bit_below(mv_from(a), 64) == kSentinel);
 }

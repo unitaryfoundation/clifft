@@ -400,55 +400,19 @@ namespace internal {
 // Given a non-identity PauliString P = X^x Z^z, computes virtual Clifford V
 // such that V P V^dag = (+/-)P_v where P_v in {X_v, Z_v}.
 
-uint32_t find_dormant_pivot(MaskView bits, uint32_t k) {
-    const uint32_t k_word = k / 64;
-    const uint32_t k_bit = k % 64;
-    const uint32_t n = bits.num_words();
-
-    // Words entirely above k (index > k_word, or index == k_word when
-    // k_bit == 0): every set bit is dormant. Return the earliest.
-    const uint32_t start = (k_bit == 0) ? k_word : k_word + 1;
-    for (uint32_t wi = start; wi < n; ++wi) {
-        if (bits.words[wi] != 0) {
-            return wi * 64 + std::countr_zero(bits.words[wi]);
-        }
-    }
-
-    // Word straddling k has active prefix [0, k_bit) and dormant suffix
-    // [k_bit, 64). Mask off the active prefix and pick the earliest dormant.
-    if (k_bit > 0 && k_word < n) {
-        uint64_t active_in_word = (1ULL << k_bit) - 1;
-        uint64_t dormant_in_word = bits.words[k_word] & ~active_in_word;
-        if (dormant_in_word != 0) {
-            return k_word * 64 + std::countr_zero(dormant_in_word);
-        }
-    }
-
-    return bits.lowest_bit();
+// Pick a pivot from the dormant region (axes >= k), falling back to the
+// lowest set bit overall if every set bit is in the active region. Caller
+// asserts `bits` is non-empty so the fallback always finds a bit.
+static uint32_t pick_dormant_pivot(MaskView bits, uint32_t k) {
+    uint32_t r = lowest_bit_at_or_above(bits, k);
+    return (r < bits.num_words() * 64) ? r : bits.lowest_bit();
 }
 
-uint32_t find_active_pivot(MaskView bits, uint32_t k) {
-    const uint32_t k_word = k / 64;
-    const uint32_t k_bit = k % 64;
-    const uint32_t n = bits.num_words();
-
-    // Words entirely below k: every set bit is active. Return the earliest.
-    const uint32_t full_active = std::min(k_word, n);
-    for (uint32_t wi = 0; wi < full_active; ++wi) {
-        if (bits.words[wi] != 0) {
-            return wi * 64 + std::countr_zero(bits.words[wi]);
-        }
-    }
-
-    // Word straddling k has active prefix [0, k_bit). Pick the earliest active.
-    if (k_bit > 0 && k_word < n) {
-        uint64_t active_in_word = bits.words[k_word] & ((1ULL << k_bit) - 1);
-        if (active_in_word != 0) {
-            return k_word * 64 + std::countr_zero(active_in_word);
-        }
-    }
-
-    return bits.lowest_bit();
+// Pick a pivot from the active region (axes < k), falling back to the
+// lowest set bit overall.
+static uint32_t pick_active_pivot(MaskView bits, uint32_t k) {
+    uint32_t r = lowest_bit_below(bits, k);
+    return (r < bits.num_words() * 64) ? r : bits.lowest_bit();
 }
 
 LocalizationResult localize_pauli(CompilerContext& ctx,
@@ -480,7 +444,7 @@ LocalizationResult localize_pauli(CompilerContext& ctx,
         // =============================================================
 
         // Pick pivot from X-support, preferring dormant axes (>= k).
-        pivot = find_dormant_pivot(x_view, k);
+        pivot = pick_dormant_pivot(x_view, k);
         bool z_pivot = z_view.bit_get(pivot);
 
         // X-localization: CNOT(pivot -> q) annihilates X_q.
@@ -528,7 +492,7 @@ LocalizationResult localize_pauli(CompilerContext& ctx,
         // =============================================================
 
         // Pick pivot from Z-support, preferring active axes (< k).
-        pivot = find_active_pivot(z_view, k);
+        pivot = pick_active_pivot(z_view, k);
 
         // Z-localization: CNOT(q -> pivot) folds Z_q onto pivot.
         // Sign rule: CNOT(c,t) flips sign iff x_c & z_t & (x_t ^ z_c ^ 1).

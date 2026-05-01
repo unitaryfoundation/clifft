@@ -28,16 +28,16 @@ enum class PauliMaskHandle : uint32_t {};
 /// Read-only view of a single (X, Z, sign) entry in an arena.
 class PauliMaskView {
   public:
-    constexpr PauliMaskView(MaskView x, MaskView z, bool sign) : x_(x), z_(z), sign_(sign) {}
+    PauliMaskView(MaskView x, MaskView z, const uint8_t* sign) : x_(x), z_(z), sign_(sign) {}
 
     [[nodiscard]] MaskView x() const { return x_; }
     [[nodiscard]] MaskView z() const { return z_; }
-    [[nodiscard]] bool sign() const { return sign_; }
+    [[nodiscard]] bool sign() const { return *sign_ != 0; }
 
   private:
     MaskView x_;
     MaskView z_;
-    bool sign_;
+    const uint8_t* sign_;
 };
 
 /// Mutable view of a single (X, Z, sign) entry in an arena. Implicitly
@@ -52,7 +52,7 @@ class MutablePauliMaskView {
     [[nodiscard]] bool sign() const { return *sign_ != 0; }
     void set_sign(bool s) { *sign_ = s ? 1 : 0; }
 
-    operator PauliMaskView() const { return PauliMaskView(x_, z_, sign()); }
+    operator PauliMaskView() const { return PauliMaskView(x_, z_, sign_); }
 
   private:
     MutableMaskView x_;
@@ -75,7 +75,7 @@ class PauliMaskArena {
     [[nodiscard]] PauliMaskView at(PauliMaskHandle h) const {
         size_t i = static_cast<size_t>(h);
         assert(i < signs_.size());
-        return PauliMaskView(slice(x_, i), slice(z_, i), signs_[i] != 0);
+        return PauliMaskView(slice(x_, i), slice(z_, i), &signs_[i]);
     }
 
     [[nodiscard]] MutablePauliMaskView mut_at(PauliMaskHandle h) {
