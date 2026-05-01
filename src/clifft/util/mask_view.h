@@ -9,6 +9,7 @@
 
 #include "clifft/util/bitmask.h"
 
+#include <algorithm>
 #include <bit>
 #include <cassert>
 #include <concepts>
