@@ -140,6 +140,18 @@ struct BasicMaskView {
 using MaskView = BasicMaskView<const uint64_t>;
 using MutableMaskView = BasicMaskView<uint64_t>;
 
+/// Bitwise equality: same width and identical contents. Accepts mutable
+/// or const views on either side via the implicit conversion.
+[[nodiscard]] inline bool operator==(MaskView a, MaskView b) {
+    if (a.words.size() != b.words.size())
+        return false;
+    for (size_t i = 0; i < a.words.size(); ++i) {
+        if (a.words[i] != b.words[i])
+            return false;
+    }
+    return true;
+}
+
 // Adapters: expose a fixed-width BitMask<N> through the runtime view API.
 template <size_t N>
 inline MaskView view(const BitMask<N>& m) {

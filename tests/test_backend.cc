@@ -15,6 +15,7 @@
 #include <string>
 
 using namespace clifft;
+using clifft::test::MaskBuf;
 using namespace clifft::internal;
 using clifft::test::test_lcg;
 using clifft::test::X;
@@ -743,15 +744,14 @@ TEST_CASE("Backend: Gap sampling hazard array accumulation") {
     NoiseSite site3;
     site3.channels.push_back({4, 0, 1.0});  // clamped to 1.0 - 2^-53
 
-    HirModule hir;
-    hir.num_qubits = 3;
+    HirModule hir(3, /*pauli_capacity=*/16);
     hir.noise_sites.push_back(std::move(site1));
     hir.noise_sites.push_back(std::move(site2));
     hir.noise_sites.push_back(std::move(site3));
 
-    hir.ops.push_back(HeisenbergOp::make_noise(NoiseSiteIdx{0}));
-    hir.ops.push_back(HeisenbergOp::make_noise(NoiseSiteIdx{1}));
-    hir.ops.push_back(HeisenbergOp::make_noise(NoiseSiteIdx{2}));
+    hir.append_noise(NoiseSiteIdx{0});
+    hir.append_noise(NoiseSiteIdx{1});
+    hir.append_noise(NoiseSiteIdx{2});
 
     CompiledModule prog = lower(hir);
 
@@ -1242,16 +1242,15 @@ TEST_CASE("Lower: ARRAY_ROTATION geometric artifact correction", "[backend][rota
     // Manually construct a ARRAY_ROTATION with a +Y Pauli on qubit 0.
     // +Y localizes to -Z via the virtual frame, flipping result.sign.
     // The Back-End must correct global_weight for this geometric artifact.
-    HirModule hir;
-    hir.num_qubits = 1;
+    HirModule hir(1, /*pauli_capacity=*/16);
     hir.global_weight = {1.0, 0.0};
 
     // +Y on qubit 0: destab=X(0), stab=Z(0), sign=false
-    hir.ops.push_back(HeisenbergOp::make_phase_rotation(X(0), Z(0), false, 0.5));
+    hir.append_phase_rotation(MaskBuf(X(0)), MaskBuf(Z(0)), false, 0.5);
 
     auto mod = clifft::lower(hir);
 
-    // +Y localizes to -Z, so result.sign is true while op.sign() is false.
+    // +Y localizes to -Z, so result.sign is true while hir.sign(op) is false.
     // The Back-End should apply a phase correction of e^{i * 0.5 * pi} = +i.
     CHECK_THAT(mod.constant_pool.global_weight.real(), Catch::Matchers::WithinAbs(0.0, 1e-12));
     CHECK_THAT(mod.constant_pool.global_weight.imag(), Catch::Matchers::WithinAbs(1.0, 1e-12));
@@ -1436,14 +1435,13 @@ TEST_CASE("Lower: EXP_VAL does not affect measurement count") {
 }
 
 TEST_CASE("Lower: queued virtual gates affect later EXP_VAL masks") {
-    HirModule hir;
-    hir.num_qubits = 1;
+    HirModule hir(1, /*pauli_capacity=*/16);
     hir.num_exp_vals = 1;
 
     // T on an X-basis dormant axis queues a virtual H and EXPAND without
     // immediately materializing the H into v_cum.
-    hir.ops.push_back(HeisenbergOp::make_tgate(X(0), 0, false));
-    hir.ops.push_back(HeisenbergOp::make_exp_val(X(0), 0, false, ExpValIdx{0}));
+    hir.append_tgate(MaskBuf(X(0)), MaskBuf(0), false);
+    hir.append_exp_val(MaskBuf(X(0)), MaskBuf(0), false, ExpValIdx{0});
 
     auto mod = lower(hir);
 
@@ -1455,14 +1453,13 @@ TEST_CASE("Lower: queued virtual gates affect later EXP_VAL masks") {
 }
 
 TEST_CASE("Lower: queued virtual gates affect later measurements") {
-    HirModule hir;
-    hir.num_qubits = 1;
+    HirModule hir(1, /*pauli_capacity=*/16);
     hir.num_measurements = 1;
 
     // The queued virtual H from the T gate should map a later X probe to Z,
     // making the active measurement diagonal instead of interfering.
-    hir.ops.push_back(HeisenbergOp::make_tgate(X(0), 0, false));
-    hir.ops.push_back(HeisenbergOp::make_measure(X(0), 0, false, MeasRecordIdx{0}));
+    hir.append_tgate(MaskBuf(X(0)), MaskBuf(0), false);
+    hir.append_measure(MaskBuf(X(0)), MaskBuf(0), false, MeasRecordIdx{0});
 
     auto mod = lower(hir);
 
@@ -1472,16 +1469,15 @@ TEST_CASE("Lower: queued virtual gates affect later measurements") {
 }
 
 TEST_CASE("Lower: queued virtual gates affect later noise masks") {
-    HirModule hir;
-    hir.num_qubits = 1;
+    HirModule hir(1, /*pauli_capacity=*/16);
 
     NoiseSite site;
     site.channels.push_back({X(0), 0, 0.25});
     hir.noise_sites.push_back(site);
 
     // Leave a virtual H pending, then map an X-error noise site through it.
-    hir.ops.push_back(HeisenbergOp::make_tgate(X(0), 0, false));
-    hir.ops.push_back(HeisenbergOp::make_noise(NoiseSiteIdx{0}));
+    hir.append_tgate(MaskBuf(X(0)), MaskBuf(0), false);
+    hir.append_noise(NoiseSiteIdx{0});
 
     auto mod = lower(hir);
 

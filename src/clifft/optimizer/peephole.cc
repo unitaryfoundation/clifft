@@ -17,8 +17,7 @@ namespace {
 // Symplectic conjugation: absorb a virtual S gate into downstream ops
 // =========================================================================
 
-/// Conjugate Pauli Q by S_P: computes S_P^dag Q S_P (downstream direction)
-/// or S_P Q S_P^dag (tableau direction) depending on is_dagger.
+/// Conjugate Pauli Q by S_P in place.
 ///
 /// For S gate (is_dagger=false), c_phase=3 computes S^dag Q S.
 /// For S_dag gate (is_dagger=true), c_phase=1 computes S Q S^dag.
@@ -27,9 +26,8 @@ namespace {
 /// a phase i^{+1} when A*B advances cyclically (X->Y->Z->X) and i^{-1}
 /// when it retreats. The total phase from the commutator [P, Q] is
 /// i^{sum of per-qubit contributions}.
-inline void conjugate_pauli_by_S(const PauliBitMask& x_p, const PauliBitMask& z_p, bool sign_p,
-                                 PauliBitMask& x_q, PauliBitMask& z_q, bool& sign_q,
-                                 bool is_dagger) {
+inline void conjugate_pauli_by_S(MaskView x_p, MaskView z_p, bool sign_p, MutableMaskView x_q,
+                                 MutableMaskView z_q, bool& sign_q, bool is_dagger) {
     if (!anti_commute(x_p, z_p, x_q, z_q))
         return;
 
@@ -37,11 +35,11 @@ inline void conjugate_pauli_by_S(const PauliBitMask& x_p, const PauliBitMask& z_
     // Each qubit pair (A_i, B_i) contributes +1 or -1 to the total phase
     // exponent based on the cyclic ordering X->Y->Z->X.
     int phase = 0;
-    for (size_t w = 0; w < PauliBitMask::kWords; ++w) {
-        uint64_t X1 = x_p.w[w];
-        uint64_t Z1 = z_p.w[w];
-        uint64_t X2 = x_q.w[w];
-        uint64_t Z2 = z_q.w[w];
+    for (uint32_t w = 0; w < x_p.num_words(); ++w) {
+        uint64_t X1 = x_p.words[w];
+        uint64_t Z1 = z_p.words[w];
+        uint64_t X2 = x_q.words[w];
+        uint64_t Z2 = z_q.words[w];
 
         // +1 phase contributions: XY->Z, YZ->X, ZX->Y
         uint64_t mask_plus = (X1 & ~Z1 & X2 & Z2) | (X1 & Z1 & ~X2 & Z2) | (~X1 & Z1 & X2 & ~Z2);
@@ -64,15 +62,14 @@ inline void conjugate_pauli_by_S(const PauliBitMask& x_p, const PauliBitMask& z_
         total_phase = (total_phase + 2) % 4;
 
     sign_q = (total_phase == 2);
-    x_q ^= x_p;
-    z_q ^= z_p;
+    x_q.xor_with(x_p);
+    z_q.xor_with(z_p);
 }
 
 /// Absorb a virtual S gate on Pauli generator (x_v, z_v) into all
 /// downstream HIR operations and the final tableau.
-void apply_virtual_s_downstream(HirModule& hir, size_t start_idx, const PauliBitMask& x_v,
-                                const PauliBitMask& z_v, bool sign_v, bool is_dagger,
-                                const std::vector<uint8_t>& deleted) {
+void apply_virtual_s_downstream(HirModule& hir, size_t start_idx, MaskView x_v, MaskView z_v,
+                                bool sign_v, bool is_dagger, const std::vector<uint8_t>& deleted) {
     // 1. Conjugate all downstream ops
     for (size_t k = start_idx; k < hir.ops.size(); ++k) {
         if (deleted[k])
@@ -84,21 +81,18 @@ void apply_virtual_s_downstream(HirModule& hir, size_t start_idx, const PauliBit
             case OpType::MEASURE:
             case OpType::CONDITIONAL_PAULI:
             case OpType::EXP_VAL: {
-                PauliBitMask x_i = op.destab_mask();
-                PauliBitMask z_i = op.stab_mask();
-                bool sign_i = op.sign();
-
-                conjugate_pauli_by_S(x_v, z_v, sign_v, x_i, z_i, sign_i, is_dagger);
-                op.set_pauli(x_i, z_i, sign_i);
+                auto m = hir.mask_at(op);
+                bool sign_i = m.sign();
+                conjugate_pauli_by_S(x_v, z_v, sign_v, m.x(), m.z(), sign_i, is_dagger);
+                m.set_sign(sign_i);
                 break;
             }
 
             case OpType::PHASE_ROTATION: {
-                PauliBitMask x_i = op.destab_mask();
-                PauliBitMask z_i = op.stab_mask();
-                bool sign_i = op.sign();
-
-                conjugate_pauli_by_S(x_v, z_v, sign_v, x_i, z_i, sign_i, is_dagger);
+                auto m = hir.mask_at(op);
+                bool sign_before = m.sign();
+                bool sign_i = sign_before;
+                conjugate_pauli_by_S(x_v, z_v, sign_v, m.x(), m.z(), sign_i, is_dagger);
 
                 // If S-conjugation flipped the Pauli axis sign, do NOT
                 // negate alpha. The physical SU(2) rotation direction is
@@ -106,12 +100,12 @@ void apply_virtual_s_downstream(HirModule& hir, size_t start_idx, const PauliBit
                 // However, the front-end extracted the U(1) global phase
                 // using the OLD sign, and the backend expects global_weight
                 // to match the NEW sign. Patch the difference.
-                if (sign_i != op.sign()) {
-                    double corr = op.alpha() * std::numbers::pi * (op.sign() ? -1.0 : 1.0);
+                if (sign_i != sign_before) {
+                    double corr = op.alpha() * std::numbers::pi * (sign_before ? -1.0 : 1.0);
                     hir.global_weight *= std::complex<double>(std::cos(corr), std::sin(corr));
                 }
 
-                op.set_pauli(x_i, z_i, sign_i);
+                m.set_sign(sign_i);
                 break;
             }
 
@@ -119,8 +113,8 @@ void apply_virtual_s_downstream(HirModule& hir, size_t start_idx, const PauliBit
                 auto site_idx = static_cast<uint32_t>(op.noise_site_idx());
                 for (auto& ch : hir.noise_sites[site_idx].channels) {
                     bool dummy_sign = false;
-                    conjugate_pauli_by_S(x_v, z_v, sign_v, ch.destab_mask, ch.stab_mask, dummy_sign,
-                                         is_dagger);
+                    conjugate_pauli_by_S(x_v, z_v, sign_v, mut_view(ch.destab_mask),
+                                         mut_view(ch.stab_mask), dummy_sign, is_dagger);
                 }
                 break;
             }
@@ -139,20 +133,20 @@ void apply_virtual_s_downstream(HirModule& hir, size_t start_idx, const PauliBit
     if (hir.final_tableau.has_value()) {
         stim::Tableau<kStimWidth>& tab = *hir.final_tableau;
         size_t words = (tab.num_qubits + 63) / 64;
-        if (words > PauliBitMask::kWords)
-            words = PauliBitMask::kWords;
+        if (words > x_v.num_words())
+            words = x_v.num_words();
 
         stim::PauliString<kStimWidth> p_virt(tab.num_qubits);
         for (size_t w = 0; w < words; ++w) {
-            p_virt.xs.u64[w] = x_v.w[w];
-            p_virt.zs.u64[w] = z_v.w[w];
+            p_virt.xs.u64[w] = x_v.words[w];
+            p_virt.zs.u64[w] = z_v.words[w];
         }
         p_virt.sign = sign_v;
 
         stim::PauliString<kStimWidth> p_phys = tab(p_virt);
 
         PauliBitMask px_phys, pz_phys;
-        for (size_t w = 0; w < words; ++w) {
+        for (size_t w = 0; w < words && w < kMaxInlineWords; ++w) {
             px_phys.w[w] = p_phys.xs.u64[w];
             pz_phys.w[w] = p_phys.zs.u64[w];
         }
@@ -162,15 +156,16 @@ void apply_virtual_s_downstream(HirModule& hir, size_t start_idx, const PauliBit
         for (size_t q = 0; q < tab.num_qubits; ++q) {
             auto apply_to_ps = [&](stim::PauliStringRef<kStimWidth> row) {
                 PauliBitMask q_x, q_z;
-                for (size_t w = 0; w < words; ++w) {
+                for (size_t w = 0; w < words && w < kMaxInlineWords; ++w) {
                     q_x.w[w] = row.xs.u64[w];
                     q_z.w[w] = row.zs.u64[w];
                 }
                 bool q_sign = row.sign;
 
-                conjugate_pauli_by_S(px_phys, pz_phys, psign_phys, q_x, q_z, q_sign, !is_dagger);
+                conjugate_pauli_by_S(view(px_phys), view(pz_phys), psign_phys, mut_view(q_x),
+                                     mut_view(q_z), q_sign, !is_dagger);
 
-                for (size_t w = 0; w < words; ++w) {
+                for (size_t w = 0; w < words && w < kMaxInlineWords; ++w) {
                     row.xs.u64[w] = q_x.w[w];
                     row.zs.u64[w] = q_z.w[w];
                 }
@@ -193,11 +188,12 @@ void apply_virtual_s_downstream(HirModule& hir, size_t start_idx, const PauliBit
 ///   T_dag(-P) = exp(-i*pi/4) * T(+P)
 /// After normalization, all T gates have sign=false and the effective
 /// rotation direction is determined solely by the dagger flag.
-inline void normalize_t_sign(HeisenbergOp& op, std::complex<double>& global_weight) {
-    if (op.op_type() == OpType::T_GATE && op.sign()) {
+inline void normalize_t_sign(HirModule& hir, HeisenbergOp& op,
+                             std::complex<double>& global_weight) {
+    if (op.op_type() == OpType::T_GATE && hir.sign(op)) {
         global_weight *= op.is_dagger() ? kExpMinusIPiOver4 : kExpIPiOver4;
         op.set_dagger(!op.is_dagger());
-        op.set_pauli(op.destab_mask(), op.stab_mask(), false);
+        hir.set_sign(op, false);
     }
 }
 
@@ -209,15 +205,15 @@ inline bool is_blocked(const HeisenbergOp& op_i, const HeisenbergOp& op_j, const
         case OpType::PHASE_ROTATION:
         case OpType::MEASURE:
         case OpType::CONDITIONAL_PAULI:
-            return anti_commute(op_i.destab_mask(), op_i.stab_mask(), op_j.destab_mask(),
-                                op_j.stab_mask());
+            return anti_commute(hir.destab_mask(op_i), hir.stab_mask(op_i), hir.destab_mask(op_j),
+                                hir.stab_mask(op_j));
 
         case OpType::NOISE: {
             auto site_idx = static_cast<uint32_t>(op_j.noise_site_idx());
             const auto& channels = hir.noise_sites[site_idx].channels;
             for (const auto& ch : channels) {
-                if (anti_commute(op_i.destab_mask(), op_i.stab_mask(), ch.destab_mask,
-                                 ch.stab_mask)) {
+                if (anti_commute(hir.destab_mask(op_i), hir.stab_mask(op_i), view(ch.destab_mask),
+                                 view(ch.stab_mask))) {
                     return true;
                 }
             }
@@ -257,10 +253,11 @@ void PeepholeFusionPass::run(HirModule& hir) {
             if (hir.ops[i].op_type() != OpType::T_GATE)
                 continue;
 
-            normalize_t_sign(hir.ops[i], hir.global_weight);
-            auto& op_i = hir.ops[i];
-            auto destab_i = op_i.destab_mask();
-            auto stab_i = op_i.stab_mask();
+            normalize_t_sign(hir, hir.ops[i], hir.global_weight);
+            // After normalization the mask handle is unchanged; capture the
+            // arena-resident views once so we can compare against later ops.
+            auto destab_i = hir.destab_mask(hir.ops[i]);
+            auto stab_i = hir.stab_mask(hir.ops[i]);
 
             for (size_t j = i + 1; j < n; ++j) {
                 if (deleted[j])
@@ -269,15 +266,18 @@ void PeepholeFusionPass::run(HirModule& hir) {
                 // Normalize candidate T gates before comparison so that
                 // sign-induced dagger flips are accounted for in effective_angle.
                 if (hir.ops[j].op_type() == OpType::T_GATE)
-                    normalize_t_sign(hir.ops[j], hir.global_weight);
+                    normalize_t_sign(hir, hir.ops[j], hir.global_weight);
 
+                // Re-fetch op_i in case anything mutated it (it didn't, but
+                // be explicit since views must remain valid).
+                const auto& op_i = hir.ops[i];
                 const auto& op_j = hir.ops[j];
 
                 // Check if op_j is a matching T gate on the same axis.
                 // After normalization both ops have sign=false, so
                 // effective_angle depends only on the dagger flag.
-                if (op_j.op_type() == OpType::T_GATE && op_j.destab_mask() == destab_i &&
-                    op_j.stab_mask() == stab_i) {
+                if (op_j.op_type() == OpType::T_GATE && hir.destab_mask(op_j) == destab_i &&
+                    hir.stab_mask(op_j) == stab_i) {
                     int dir_i = op_i.is_dagger() ? -1 : 1;
                     int dir_j = op_j.is_dagger() ? -1 : 1;
                     int total = dir_i + dir_j;
@@ -316,21 +316,21 @@ void PeepholeFusionPass::run(HirModule& hir) {
             if (hir.ops[i].op_type() != OpType::PHASE_ROTATION)
                 continue;
 
-            const auto& op_i = hir.ops[i];
-            auto destab_i = op_i.destab_mask();
-            auto stab_i = op_i.stab_mask();
+            auto destab_i = hir.destab_mask(hir.ops[i]);
+            auto stab_i = hir.stab_mask(hir.ops[i]);
 
             for (size_t j = i + 1; j < n; ++j) {
                 if (deleted[j])
                     continue;
 
+                const auto& op_i = hir.ops[i];
                 const auto& op_j = hir.ops[j];
 
-                if (op_j.op_type() == OpType::PHASE_ROTATION && op_j.destab_mask() == destab_i &&
-                    op_j.stab_mask() == stab_i) {
+                if (op_j.op_type() == OpType::PHASE_ROTATION && hir.destab_mask(op_j) == destab_i &&
+                    hir.stab_mask(op_j) == stab_i) {
                     // Compute fused angle accounting for sign bits.
-                    double alpha_i = op_i.alpha() * (op_i.sign() ? -1.0 : 1.0);
-                    double alpha_j = op_j.alpha() * (op_j.sign() ? -1.0 : 1.0);
+                    double alpha_i = op_i.alpha() * (hir.sign(op_i) ? -1.0 : 1.0);
+                    double alpha_j = op_j.alpha() * (hir.sign(op_j) ? -1.0 : 1.0);
                     double fused = alpha_i + alpha_j;
 
                     // Normalize to [0, 2) relative phase range
@@ -356,7 +356,7 @@ void PeepholeFusionPass::run(HirModule& hir) {
                                                    deleted);
                         ++fusions_;
                     } else if (std::abs(fused - 0.25) < kDemoteEps) {
-                        hir.ops[i] = HeisenbergOp::make_tgate(destab_i, stab_i, false, false);
+                        hir.demote_to_tgate(hir.ops[i], false);
                         if (has_source_map) {
                             auto& dst = hir.source_map[i];
                             auto& src = hir.source_map[j];
@@ -365,8 +365,7 @@ void PeepholeFusionPass::run(HirModule& hir) {
                         deleted[j] = true;
                         ++fusions_;
                     } else if (std::abs(fused - 1.75) < kDemoteEps) {
-                        hir.ops[i] =
-                            HeisenbergOp::make_tgate(destab_i, stab_i, false, /*dagger=*/true);
+                        hir.demote_to_tgate(hir.ops[i], /*dagger=*/true);
                         if (has_source_map) {
                             auto& dst = hir.source_map[i];
                             auto& src = hir.source_map[j];
@@ -375,8 +374,7 @@ void PeepholeFusionPass::run(HirModule& hir) {
                         deleted[j] = true;
                         ++fusions_;
                     } else {
-                        hir.ops[i] = HeisenbergOp::make_phase_rotation(destab_i, stab_i,
-                                                                       /*sign=*/false, fused);
+                        hir.demote_to_phase_rotation(hir.ops[i], fused);
                         if (has_source_map) {
                             auto& dst = hir.source_map[i];
                             auto& src = hir.source_map[j];
@@ -403,7 +401,7 @@ void PeepholeFusionPass::run(HirModule& hir) {
             if (deleted[i] || hir.ops[i].op_type() != OpType::PHASE_ROTATION)
                 continue;
 
-            double alpha = hir.ops[i].alpha() * (hir.ops[i].sign() ? -1.0 : 1.0);
+            double alpha = hir.ops[i].alpha() * (hir.sign(hir.ops[i]) ? -1.0 : 1.0);
             double a_mod2 = alpha - 2.0 * std::floor(alpha / 2.0);
 
             constexpr double kDemoteEps = 1e-12;
@@ -413,26 +411,24 @@ void PeepholeFusionPass::run(HirModule& hir) {
                 changed = true;
             } else if (std::abs(a_mod2 - 0.5) < kDemoteEps) {
                 // S: absorb downstream (phase already in global_weight)
-                apply_virtual_s_downstream(hir, i + 1, hir.ops[i].destab_mask(),
-                                           hir.ops[i].stab_mask(), false, false, deleted);
+                apply_virtual_s_downstream(hir, i + 1, hir.destab_mask(hir.ops[i]),
+                                           hir.stab_mask(hir.ops[i]), false, false, deleted);
                 deleted[i] = true;
                 ++fusions_;
                 changed = true;
             } else if (std::abs(a_mod2 - 1.5) < kDemoteEps) {
                 // S_dag: absorb downstream (phase already in global_weight)
-                apply_virtual_s_downstream(hir, i + 1, hir.ops[i].destab_mask(),
-                                           hir.ops[i].stab_mask(), false, true, deleted);
+                apply_virtual_s_downstream(hir, i + 1, hir.destab_mask(hir.ops[i]),
+                                           hir.stab_mask(hir.ops[i]), false, true, deleted);
                 deleted[i] = true;
                 ++fusions_;
                 changed = true;
             } else if (std::abs(a_mod2 - 0.25) < kDemoteEps) {
-                hir.ops[i] = HeisenbergOp::make_tgate(hir.ops[i].destab_mask(),
-                                                      hir.ops[i].stab_mask(), false, false);
+                hir.demote_to_tgate(hir.ops[i], false);
                 ++fusions_;
                 changed = true;
             } else if (std::abs(a_mod2 - 1.75) < kDemoteEps) {
-                hir.ops[i] = HeisenbergOp::make_tgate(hir.ops[i].destab_mask(),
-                                                      hir.ops[i].stab_mask(), false, true);
+                hir.demote_to_tgate(hir.ops[i], /*dagger=*/true);
                 ++fusions_;
                 changed = true;
             }

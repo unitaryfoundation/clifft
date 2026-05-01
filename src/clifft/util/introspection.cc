@@ -4,17 +4,18 @@
 
 namespace clifft {
 
-std::string format_pauli_mask(const HeisenbergOp& op) {
-    const auto& x_mask = op.destab_mask();
-    const auto& z_mask = op.stab_mask();
-    bool sign = op.sign();
+std::string format_pauli_mask(const HeisenbergOp& op, const HirModule& hir) {
+    auto x_mask = hir.destab_mask(op);
+    auto z_mask = hir.stab_mask(op);
+    bool sign = hir.sign(op);
 
     if (x_mask.is_zero() && z_mask.is_zero())
         return sign ? "-I" : "+I";
 
     std::string result = sign ? "-" : "+";
     bool first = true;
-    for (uint32_t i = 0; i < kMaxInlineQubits; ++i) {
+    const uint32_t bits = x_mask.num_words() * 64;
+    for (uint32_t i = 0; i < bits; ++i) {
         bool x = x_mask.bit_get(i);
         bool z = z_mask.bit_get(i);
         if (x || z) {
@@ -57,21 +58,21 @@ std::string op_type_to_str(OpType type) {
     }
 }
 
-std::string format_hir_op(const HeisenbergOp& op) {
+std::string format_hir_op(const HeisenbergOp& op, const HirModule& hir) {
     std::ostringstream ss;
     switch (op.op_type()) {
         case OpType::T_GATE:
-            ss << (op.is_dagger() ? "T_DAG " : "T ") << format_pauli_mask(op);
+            ss << (op.is_dagger() ? "T_DAG " : "T ") << format_pauli_mask(op, hir);
             break;
         case OpType::MEASURE:
-            ss << "MEASURE " << format_pauli_mask(op) << " -> rec["
+            ss << "MEASURE " << format_pauli_mask(op, hir) << " -> rec["
                << static_cast<uint32_t>(op.meas_record_idx()) << "]";
             if (op.is_hidden())
                 ss << " (hidden)";
             break;
         case OpType::CONDITIONAL_PAULI:
             ss << "IF rec[" << static_cast<uint32_t>(op.controlling_meas()) << "] THEN "
-               << format_pauli_mask(op);
+               << format_pauli_mask(op, hir);
             break;
         case OpType::NOISE:
             ss << "NOISE site=" << static_cast<uint32_t>(op.noise_site_idx());
@@ -87,10 +88,10 @@ std::string format_hir_op(const HeisenbergOp& op) {
                << " target_list=" << op.observable_target_list_idx();
             break;
         case OpType::PHASE_ROTATION:
-            ss << "PHASE_ROTATION " << format_pauli_mask(op) << " alpha=" << op.alpha();
+            ss << "PHASE_ROTATION " << format_pauli_mask(op, hir) << " alpha=" << op.alpha();
             break;
         case OpType::EXP_VAL:
-            ss << "EXP_VAL " << format_pauli_mask(op) << " -> exp["
+            ss << "EXP_VAL " << format_pauli_mask(op, hir) << " -> exp["
                << static_cast<uint32_t>(op.exp_val_idx()) << "]";
             break;
         case OpType::NUM_OP_TYPES:

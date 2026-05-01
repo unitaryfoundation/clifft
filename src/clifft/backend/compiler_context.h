@@ -141,16 +141,15 @@ class VirtualFrame {
         pending_gates_.clear();
     }
 
-    [[nodiscard]] stim::PauliString<kStimWidth> map_pauli(const PauliBitMask& destab_mask,
-                                                          const PauliBitMask& stab_mask, bool sign,
-                                                          uint32_t n) {
+    [[nodiscard]] stim::PauliString<kStimWidth> map_pauli(MaskView destab_mask, MaskView stab_mask,
+                                                          bool sign, uint32_t n) {
         maybe_flush();
 
         stim::PauliString<kStimWidth> p(n);
         uint32_t words = (n + 63) / 64;
-        for (uint32_t w = 0; w < words && w < kMaxInlineWords; ++w) {
-            p.xs.u64[w] = destab_mask.w[w];
-            p.zs.u64[w] = stab_mask.w[w];
+        for (uint32_t w = 0; w < words && w < destab_mask.num_words(); ++w) {
+            p.xs.u64[w] = destab_mask.words[w];
+            p.zs.u64[w] = stab_mask.words[w];
         }
         p.sign = sign;
 

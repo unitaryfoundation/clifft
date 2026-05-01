@@ -2,6 +2,9 @@
 
 // Shared test helpers for Clifft Catch2 tests.
 
+#include "clifft/frontend/hir.h"
+#include "clifft/util/mask_view.h"
+
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/matchers/catch_matchers_floating_point.hpp>
 #include <complex>
@@ -24,6 +27,19 @@ inline uint64_t X(size_t qubit) {
 inline uint64_t Z(size_t qubit) {
     return 1ULL << qubit;
 }
+
+/// Owning buffer for a runtime-width Pauli mask, with implicit conversion to
+/// MaskView. Use as an rvalue argument when calling HirModule builders or
+/// comparing arena-resident views. Lives only as long as the call expression
+/// that creates it; the receiver must copy out of the view before this goes
+/// out of scope.
+struct MaskBuf {
+    PauliBitMask data;
+    MaskBuf() = default;
+    MaskBuf(uint64_t m) : data(m) {}                  // NOLINT
+    MaskBuf(const PauliBitMask& m) : data(m) {}       // NOLINT
+    operator MaskView() const { return view(data); }  // NOLINT
+};
 
 // Convert a Pauli string like "XYZ" to (destab_mask, stab_mask) pair.
 // Qubit 0 is the rightmost character: "XYZ" means X on q2, Y on q1, Z on q0.
@@ -64,4 +80,23 @@ inline void check_complex(std::complex<double> actual, std::complex<double> expe
 }
 
 }  // namespace test
+
+/// Compare a runtime-width MaskView to a uint64_t (interpreted as the lower
+/// 64 bits, with all higher words required to be zero). Lives in clifft
+/// namespace so ADL finds it for tests that compare against integer literals.
+inline bool operator==(MaskView v, uint64_t expected) {
+    if (v.num_words() == 0)
+        return expected == 0;
+    if (v.words[0] != expected)
+        return false;
+    for (uint32_t i = 1; i < v.num_words(); ++i) {
+        if (v.words[i] != 0)
+            return false;
+    }
+    return true;
+}
+inline bool operator==(uint64_t expected, MaskView v) {
+    return v == expected;
+}
+
 }  // namespace clifft

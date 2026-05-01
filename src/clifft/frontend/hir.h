@@ -7,14 +7,15 @@
 // with explicit masks and weights. Clifford gates are absorbed into the tableau and do not
 // appear in the HIR.
 //
-// Key design decisions:
-// - Uses BitMask<N> for Pauli masks (compile-time width, N = CLIFFT_MAX_QUBITS)
-// - 32-byte HeisenbergOp for optimal cache alignment (2 ops per 64-byte L1 cache line)
-// - Variable-sized payloads (noise channels, detector/observable target lists) live
-//   in side-tables on HirModule; HeisenbergOp stores only an index
+// Pauli masks are stored in a HirModule-owned arena and referenced from each
+// HeisenbergOp by an opaque PauliMaskHandle. Variable-sized payloads (noise
+// channels, detector/observable target lists) live in side-tables on
+// HirModule.
 
 #include "clifft/util/bitmask.h"
 #include "clifft/util/config.h"
+#include "clifft/util/mask_view.h"
+#include "clifft/util/pauli_arena.h"
 
 #include "stim.h"
 
@@ -63,7 +64,8 @@ enum class ExpValIdx : uint32_t {};
 // controls only the SIMD register width for internal bit operations.
 constexpr size_t kStimWidth = 64;
 
-// Inline Pauli mask type used throughout the HIR and SVM.
+// Inline Pauli mask type used in legacy paths that have not yet migrated
+// to runtime-width arena storage (e.g. NoiseChannel).
 using PauliBitMask = BitMask<kMaxInlineQubits>;
 
 // Copy a Stim PauliString row (xs or zs) into our fixed-width PauliBitMask.
@@ -74,6 +76,16 @@ inline PauliBitMask stim_to_bitmask(const stim::simd_bits_range_ref<kStimWidth>&
         m.w[w] = bits.u64[w];
     }
     return m;
+}
+
+// Copy a Stim PauliString row into the prefix of an existing arena slot.
+inline void stim_to_mask_view(const stim::simd_bits_range_ref<kStimWidth>& bits, uint32_t n,
+                              MutableMaskView dst) {
+    dst.zero_out();
+    uint32_t words = (n + 63) / 64;
+    for (uint32_t w = 0; w < words && w < dst.num_words(); ++w) {
+        dst.words[w] = bits.u64[w];
+    }
 }
 
 // =============================================================================
@@ -122,23 +134,25 @@ enum class OpType : uint8_t {
     NUM_OP_TYPES        // Sentinel: must remain last for binding completeness checks
 };
 
+// Sentinel handle value indicating that an op carries no Pauli mask.
+inline constexpr PauliMaskHandle kNoMask = static_cast<PauliMaskHandle>(~uint32_t{0});
+
 // A single operation in the Heisenberg IR.
 //
-// Layout optimized for 32-byte cache alignment (2 ops per 64-byte L1 cache line):
-// - Largest fields first (8-byte masks)
-// - Union payload (12 bytes)
-// - Small fields at end (type, sign, is_dagger + 1 byte padding)
+// Layout: 16 bytes, aligned to 8 (4 ops per 64-byte L1 cache line).
+//   offset 0: PauliMaskHandle mask_handle_  (4 bytes; kNoMask for non-mask ops)
+//   offset 4: OpType type_                  (1 byte)
+//   offset 5: uint8_t flags_                (1 byte)
+//   offset 6: padding                       (2 bytes)
+//   offset 8: union payload                 (8 bytes; double-aligned)
 //
-// The destab_mask and stab_mask encode the Pauli string in the computational basis:
-// - Bit i of destab_mask = 1 means X_i is present
-// - Bit i of stab_mask = 1 means Z_i is present
-// - Both bits set means Y_i is present (Y = iXZ)
+// For mask-carrying ops, mask_handle_ indexes into HirModule::pauli_masks.
+// The (X, Z, sign) triple is stored in the arena slot. The Pauli string is
+// encoded in the computational basis: X_i set means bit i of x; Z_i set
+// means bit i of z; both set means Y_i.
 //
-// Uses stim::bitword<64> instead of raw uint64_t for cleaner bitwise operations
-// (.popcount(), ^=, &) that align with Stim idioms. Zero memory overhead.
-//
-// All construction goes through static factory methods (make_tgate, make_measure,
-// make_conditional) to ensure type-safe initialization of the union payload.
+// Construct via HirModule::append_* builders, which allocate the mask slot
+// and populate the op atomically.
 struct HeisenbergOp {
     // Flag constants (matching Instruction flags)
     static constexpr uint8_t FLAG_IS_DAGGER = 1 << 0;
@@ -147,9 +161,8 @@ struct HeisenbergOp {
     // --- Accessors (common to all OpTypes) ---
 
     [[nodiscard]] OpType op_type() const { return type_; }
-    [[nodiscard]] const PauliBitMask& destab_mask() const { return destab_mask_; }
-    [[nodiscard]] const PauliBitMask& stab_mask() const { return stab_mask_; }
-    [[nodiscard]] bool sign() const { return sign_; }
+    [[nodiscard]] PauliMaskHandle mask_handle() const { return mask_handle_; }
+    [[nodiscard]] bool has_mask() const { return mask_handle_ != kNoMask; }
     [[nodiscard]] uint8_t flags() const { return flags_; }
 
     // --- Flag accessors and setters ---
@@ -234,99 +247,71 @@ struct HeisenbergOp {
         return phase_.alpha;
     }
 
-    // --- Factory Methods ---
+  private:
+    friend struct HirModule;
 
-    // Factory for T/T_dag gates
-    static HeisenbergOp make_tgate(PauliBitMask destab, PauliBitMask stab, bool s,
-                                   bool dagger = false) {
-        HeisenbergOp op(OpType::T_GATE, destab, stab, s);
+    // Internal factories: callers go through HirModule's append_* builders.
+    static HeisenbergOp make_tgate(PauliMaskHandle handle, bool dagger) {
+        HeisenbergOp op(OpType::T_GATE, handle);
         op.set_dagger(dagger);
         return op;
     }
-
-    // Factory for MEASURE
-    static HeisenbergOp make_measure(PauliBitMask destab, PauliBitMask stab, bool s,
-                                     MeasRecordIdx meas_idx) {
-        HeisenbergOp op(OpType::MEASURE, destab, stab, s);
+    static HeisenbergOp make_measure(PauliMaskHandle handle, MeasRecordIdx meas_idx) {
+        HeisenbergOp op(OpType::MEASURE, handle);
         op.measure_.meas_record_idx = static_cast<uint32_t>(meas_idx);
         return op;
     }
-
-    // Factory for CONDITIONAL_PAULI
-    static HeisenbergOp make_conditional(PauliBitMask destab, PauliBitMask stab, bool s,
+    static HeisenbergOp make_conditional(PauliMaskHandle handle,
                                          ControllingMeasIdx controlling_meas) {
-        HeisenbergOp op(OpType::CONDITIONAL_PAULI, destab, stab, s);
+        HeisenbergOp op(OpType::CONDITIONAL_PAULI, handle);
         op.conditional_.controlling_meas = static_cast<uint32_t>(controlling_meas);
         return op;
     }
-
-    // Factory for NOISE (quantum Pauli channel)
     static HeisenbergOp make_noise(NoiseSiteIdx site_idx) {
-        HeisenbergOp op(OpType::NOISE, 0, 0, false);
+        HeisenbergOp op(OpType::NOISE, kNoMask);
         op.noise_.site_idx = static_cast<uint32_t>(site_idx);
         return op;
     }
-
-    // Factory for READOUT_NOISE (classical bit-flip)
     static HeisenbergOp make_readout_noise(ReadoutNoiseIdx entry_idx) {
-        HeisenbergOp op(OpType::READOUT_NOISE, 0, 0, false);
+        HeisenbergOp op(OpType::READOUT_NOISE, kNoMask);
         op.readout_.entry_idx = static_cast<uint32_t>(entry_idx);
         return op;
     }
-
-    // Factory for DETECTOR
     static HeisenbergOp make_detector(DetectorIdx target_list_idx) {
-        HeisenbergOp op(OpType::DETECTOR, 0, 0, false);
+        HeisenbergOp op(OpType::DETECTOR, kNoMask);
         op.detector_.target_list_idx = static_cast<uint32_t>(target_list_idx);
         return op;
     }
-
-    // Factory for OBSERVABLE
     static HeisenbergOp make_observable(ObservableIdx obs_idx, uint32_t target_list_idx) {
-        HeisenbergOp op(OpType::OBSERVABLE, 0, 0, false);
+        HeisenbergOp op(OpType::OBSERVABLE, kNoMask);
         op.observable_.obs_idx = static_cast<uint32_t>(obs_idx);
         op.observable_.target_list_idx = target_list_idx;
         return op;
     }
-
-    // Factory for EXP_VAL (non-destructive expectation value probe)
-    static HeisenbergOp make_exp_val(PauliBitMask destab, PauliBitMask stab, bool s,
-                                     ExpValIdx idx) {
-        HeisenbergOp op(OpType::EXP_VAL, destab, stab, s);
+    static HeisenbergOp make_exp_val(PauliMaskHandle handle, ExpValIdx idx) {
+        HeisenbergOp op(OpType::EXP_VAL, handle);
         op.exp_val_.exp_val_idx = static_cast<uint32_t>(idx);
         return op;
     }
-
-    // Factory for PHASE_ROTATION (continuous Z-rotation)
-    static HeisenbergOp make_phase_rotation(PauliBitMask destab, PauliBitMask stab, bool s,
-                                            double alpha) {
-        HeisenbergOp op(OpType::PHASE_ROTATION, destab, stab, s);
+    static HeisenbergOp make_phase_rotation(PauliMaskHandle handle, double alpha) {
+        HeisenbergOp op(OpType::PHASE_ROTATION, handle);
         op.phase_.alpha = alpha;
         return op;
     }
 
-    // Replace the Pauli masks and sign in-place, preserving OpType and flags.
-    void set_pauli(PauliBitMask destab, PauliBitMask stab, bool sign) {
-        destab_mask_ = destab;
-        stab_mask_ = stab;
-        sign_ = sign;
-    }
-
-  private:
-    // Private constructor - use factory methods
-    HeisenbergOp(OpType t, PauliBitMask destab, PauliBitMask stab, bool s)
-        : destab_mask_(destab), stab_mask_(stab), type_(t), sign_(s), flags_(0) {
-        // Zero-initialize the union
+    HeisenbergOp(OpType t, PauliMaskHandle h) : mask_handle_(h), type_(t), flags_(0), pad_{0, 0} {
         measure_ = {0};
     }
 
     // --- Data Members ---
 
-    // The rewound Pauli string (topological geometry at t=0)
-    PauliBitMask destab_mask_;  // X-bits (destabilizer component)
-    PauliBitMask stab_mask_;    // Z-bits (stabilizer component)
+    PauliMaskHandle mask_handle_;  // 4 bytes (kNoMask for ops with no Pauli)
 
-    // Payload (interpretation depends on OpType) - 12 bytes
+    OpType type_;     // 1 byte
+    uint8_t flags_;   // 1 byte
+    uint8_t pad_[2];  // 2 bytes
+
+    // Payload (interpretation depends on OpType) - 8 bytes
     union {
         // T_GATE: no payload needed (weight is implicit: tan(pi/8))
         // is_dagger_ determines +/-i phase of spawned branch
@@ -372,32 +357,38 @@ struct HeisenbergOp {
             uint32_t exp_val_idx;
         } exp_val_;
     };
-
-    OpType type_;    // 1 byte
-    bool sign_;      // Phase sign: false = +, true = -  (1 byte)
-    uint8_t flags_;  // Bitfield flags (1 byte)
-    // 1 byte padding -> Total: 32 bytes
 };
 
-// At kMaxInlineQubits == 64 the HIR struct is exactly 32 bytes (2 per cache line).
-// At larger widths the struct grows (offline AOT data, not hot-path).
-#if CLIFFT_MAX_QUBITS == 64
-static_assert(sizeof(HeisenbergOp) == 32,
-              "HeisenbergOp must be exactly 32 bytes at 64-qubit width");
-#endif
+static_assert(sizeof(HeisenbergOp) == 16, "HeisenbergOp must be exactly 16 bytes");
 
 // The complete HIR module - output of the Front-End.
 //
 // Holds the linear ops vector plus side-tables for variable-sized payloads
 // (noise channels, readout-noise entries, detector and observable target lists)
-// and circuit metadata. final_tableau is an optional debugging artifact used
-// by the statevector path to map GF(2) indices back to the physical basis.
+// and circuit metadata.
+//
+// Pauli masks for mask-carrying ops live in `pauli_masks`, sized at
+// construction. Use the append_* builders to allocate a slot and append an
+// op atomically; use destab_mask(op) / stab_mask(op) / sign(op) (or
+// mask_at(op) for mutation) to read or modify a slot via the op's handle.
+//
+// final_tableau is an optional debugging artifact used by the statevector
+// path to map GF(2) indices back to the physical basis.
 struct HirModule {
+    HirModule() = default;
+
+    HirModule(uint32_t n_qubits, size_t num_pauli_masks) : pauli_masks(n_qubits, num_pauli_masks) {
+        num_qubits = n_qubits;
+    }
+
+    // Pauli mask arena (sized at construction). Slots are claimed by
+    // append_* builders in call order.
+    PauliMaskArena pauli_masks;
+
     // Operations in execution order
     std::vector<HeisenbergOp> ops;
 
     // Side-table for noise sites (indexed by HeisenbergOp::noise_.site_idx)
-    // Each NoiseSite contains the rewound Pauli channels for a quantum noise operation.
     std::vector<NoiseSite> noise_sites;
 
     // Side-table for readout noise entries (indexed by HeisenbergOp::readout_.entry_idx)
@@ -437,6 +428,109 @@ struct HirModule {
     // at t=end, needed to map GF(2) indices back to physical qubit basis.
     std::optional<stim::Tableau<kStimWidth>> final_tableau;
 
+    // --- Mask accessors (module-bound, by op) ---
+
+    [[nodiscard]] MaskView destab_mask(const HeisenbergOp& op) const {
+        assert(op.has_mask());
+        return pauli_masks.at(op.mask_handle()).x();
+    }
+    [[nodiscard]] MaskView stab_mask(const HeisenbergOp& op) const {
+        assert(op.has_mask());
+        return pauli_masks.at(op.mask_handle()).z();
+    }
+    [[nodiscard]] bool sign(const HeisenbergOp& op) const {
+        assert(op.has_mask());
+        return pauli_masks.at(op.mask_handle()).sign();
+    }
+    [[nodiscard]] PauliMaskView mask_view(const HeisenbergOp& op) const {
+        assert(op.has_mask());
+        return pauli_masks.at(op.mask_handle());
+    }
+    [[nodiscard]] MutablePauliMaskView mask_at(const HeisenbergOp& op) {
+        assert(op.has_mask());
+        return pauli_masks.mut_at(op.mask_handle());
+    }
+
+    // --- Builders (allocate a mask slot, populate, append op) ---
+
+    HeisenbergOp& append_tgate(MaskView destab, MaskView stab, bool s, bool dagger = false) {
+        auto h = claim_pauli_mask(destab, stab, s);
+        ops.push_back(HeisenbergOp::make_tgate(h, dagger));
+        return ops.back();
+    }
+    HeisenbergOp& append_measure(MaskView destab, MaskView stab, bool s, MeasRecordIdx idx) {
+        auto h = claim_pauli_mask(destab, stab, s);
+        ops.push_back(HeisenbergOp::make_measure(h, idx));
+        return ops.back();
+    }
+    HeisenbergOp& append_conditional(MaskView destab, MaskView stab, bool s,
+                                     ControllingMeasIdx idx) {
+        auto h = claim_pauli_mask(destab, stab, s);
+        ops.push_back(HeisenbergOp::make_conditional(h, idx));
+        return ops.back();
+    }
+    HeisenbergOp& append_phase_rotation(MaskView destab, MaskView stab, bool s, double alpha) {
+        auto h = claim_pauli_mask(destab, stab, s);
+        ops.push_back(HeisenbergOp::make_phase_rotation(h, alpha));
+        return ops.back();
+    }
+    HeisenbergOp& append_exp_val(MaskView destab, MaskView stab, bool s, ExpValIdx idx) {
+        auto h = claim_pauli_mask(destab, stab, s);
+        ops.push_back(HeisenbergOp::make_exp_val(h, idx));
+        return ops.back();
+    }
+    HeisenbergOp& append_noise(NoiseSiteIdx idx) {
+        ops.push_back(HeisenbergOp::make_noise(idx));
+        return ops.back();
+    }
+    HeisenbergOp& append_readout_noise(ReadoutNoiseIdx idx) {
+        ops.push_back(HeisenbergOp::make_readout_noise(idx));
+        return ops.back();
+    }
+    HeisenbergOp& append_detector(DetectorIdx idx) {
+        ops.push_back(HeisenbergOp::make_detector(idx));
+        return ops.back();
+    }
+    HeisenbergOp& append_observable(ObservableIdx obs_idx, uint32_t target_list_idx) {
+        ops.push_back(HeisenbergOp::make_observable(obs_idx, target_list_idx));
+        return ops.back();
+    }
+
+    // --- In-place mask mutation ---
+
+    /// Replace the (X, Z, sign) of an existing op's mask slot.
+    void set_pauli(const HeisenbergOp& op, MaskView destab, MaskView stab, bool s) {
+        auto m = mask_at(op);
+        m.x().copy_from(destab);
+        m.z().copy_from(stab);
+        m.set_sign(s);
+    }
+
+    /// Replace just the sign on an existing op's mask slot.
+    void set_sign(const HeisenbergOp& op, bool s) { mask_at(op).set_sign(s); }
+
+    /// Convert an existing mask-carrying op to a T_GATE while preserving
+    /// its mask handle. Resets the arena slot's sign to false to match
+    /// the peephole pass's normalization convention.
+    void demote_to_tgate(HeisenbergOp& op, bool dagger) {
+        assert(op.has_mask());
+        mask_at(op).set_sign(false);
+        op.type_ = OpType::T_GATE;
+        op.flags_ = 0;
+        op.set_dagger(dagger);
+        op.measure_ = {0};
+    }
+
+    /// Convert an existing mask-carrying op to a PHASE_ROTATION while
+    /// preserving its mask handle. Resets the arena slot's sign to false.
+    void demote_to_phase_rotation(HeisenbergOp& op, double alpha) {
+        assert(op.has_mask());
+        mask_at(op).set_sign(false);
+        op.type_ = OpType::PHASE_ROTATION;
+        op.flags_ = 0;
+        op.phase_.alpha = alpha;
+    }
+
     // Convenience accessors
     [[nodiscard]] size_t num_ops() const { return ops.size(); }
 
@@ -449,6 +543,20 @@ struct HirModule {
         }
         return count;
     }
+
+  private:
+    /// Claim the next pauli_masks slot, populate it, return the handle.
+    PauliMaskHandle claim_pauli_mask(MaskView destab, MaskView stab, bool s) {
+        assert(next_pauli_mask_ < pauli_masks.size() && "HirModule pauli_masks arena exhausted");
+        auto h = static_cast<PauliMaskHandle>(next_pauli_mask_++);
+        auto slot = pauli_masks.mut_at(h);
+        slot.x().copy_from(destab);
+        slot.z().copy_from(stab);
+        slot.set_sign(s);
+        return h;
+    }
+
+    size_t next_pauli_mask_ = 0;
 };
 
 }  // namespace clifft

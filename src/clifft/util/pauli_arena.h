@@ -62,6 +62,9 @@ class MutablePauliMaskView {
 
 class PauliMaskArena {
   public:
+    /// Default construction yields a zero-width, zero-capacity arena.
+    PauliMaskArena() : PauliMaskArena(0, 0) {}
+
     /// Construct with fixed capacity. All masks initialized to zero.
     PauliMaskArena(uint32_t num_qubits, size_t num_masks)
         : num_words_((num_qubits + 63) / 64),

@@ -348,8 +348,8 @@ void emit_swap(CompilerContext& ctx, uint16_t a, uint16_t b) {
 }
 
 // Map an HIR Pauli (at t=0) into the current virtual frame.
-stim::PauliString<kStimWidth> map_to_virtual(CompilerContext& ctx, const PauliBitMask& destab_mask,
-                                             const PauliBitMask& stab_mask, bool sign, uint32_t n) {
+stim::PauliString<kStimWidth> map_to_virtual(CompilerContext& ctx, MaskView destab_mask,
+                                             MaskView stab_mask, bool sign, uint32_t n) {
     return ctx.virtual_frame.map_pauli(destab_mask, stab_mask, sign, n);
 }
 
@@ -539,7 +539,8 @@ CompiledModule lower(const HirModule& hir, std::span<const uint8_t> postselectio
 
         switch (op.op_type()) {
             case OpType::T_GATE: {
-                auto p_v = map_to_virtual(ctx, op.destab_mask(), op.stab_mask(), op.sign(), n);
+                auto p_v =
+                    map_to_virtual(ctx, hir.destab_mask(op), hir.stab_mask(op), hir.sign(op), n);
                 auto result = localize_pauli(ctx, p_v);
 
                 route_to_active_z(ctx, result);
@@ -568,22 +569,23 @@ CompiledModule lower(const HirModule& hir, std::span<const uint8_t> postselectio
 
             case OpType::PHASE_ROTATION: {
                 double alpha = op.alpha();
-                auto p_v = map_to_virtual(ctx, op.destab_mask(), op.stab_mask(), op.sign(), n);
+                auto p_v =
+                    map_to_virtual(ctx, hir.destab_mask(op), hir.stab_mask(op), hir.sign(op), n);
                 auto result = localize_pauli(ctx, p_v);
 
                 route_to_active_z(ctx, result);
 
                 // The Front-End unconditionally extracted the physical global phase.
                 // If localize_pauli dynamically flipped the geometric sign
-                // (result.sign != op.sign()), correct the global phase artifact
+                // (result.sign != hir.sign(op)), correct the global phase artifact
                 // left behind by the VM's diagonal factorization.
-                if (result.sign != op.sign()) {
-                    double corr = op.alpha() * std::numbers::pi * (op.sign() ? -1.0 : 1.0);
+                if (result.sign != hir.sign(op)) {
+                    double corr = op.alpha() * std::numbers::pi * (hir.sign(op) ? -1.0 : 1.0);
                     ctx.constant_pool.global_weight *=
                         std::complex<double>(std::cos(corr), std::sin(corr));
                 }
 
-                // result.sign absorbs both the original op.sign() and any
+                // result.sign absorbs both the original hir.sign(op) and any
                 // localization flips.
                 if (result.sign)
                     alpha = -alpha;
@@ -601,7 +603,8 @@ CompiledModule lower(const HirModule& hir, std::span<const uint8_t> postselectio
             case OpType::MEASURE: {
                 uint32_t classical_idx = static_cast<uint32_t>(op.meas_record_idx());
 
-                auto p_v = map_to_virtual(ctx, op.destab_mask(), op.stab_mask(), op.sign(), n);
+                auto p_v =
+                    map_to_virtual(ctx, hir.destab_mask(op), hir.stab_mask(op), hir.sign(op), n);
 
                 PauliBitMask pv_x, pv_z;
                 uint32_t pv_words = (n + 63) / 64;
@@ -664,7 +667,8 @@ CompiledModule lower(const HirModule& hir, std::span<const uint8_t> postselectio
             }
 
             case OpType::CONDITIONAL_PAULI: {
-                auto p_v = map_to_virtual(ctx, op.destab_mask(), op.stab_mask(), op.sign(), n);
+                auto p_v =
+                    map_to_virtual(ctx, hir.destab_mask(op), hir.stab_mask(op), hir.sign(op), n);
 
                 PauliMask pm;
                 uint32_t pm_words = (n + 63) / 64;
@@ -764,7 +768,8 @@ CompiledModule lower(const HirModule& hir, std::span<const uint8_t> postselectio
             }
 
             case OpType::EXP_VAL: {
-                auto p_v = map_to_virtual(ctx, op.destab_mask(), op.stab_mask(), op.sign(), n);
+                auto p_v =
+                    map_to_virtual(ctx, hir.destab_mask(op), hir.stab_mask(op), hir.sign(op), n);
 
                 PauliMask pm;
                 uint32_t pm_words = (n + 63) / 64;
