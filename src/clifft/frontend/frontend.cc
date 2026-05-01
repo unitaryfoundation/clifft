@@ -327,12 +327,6 @@ size_t count_pauli_masks(const Circuit& circuit) {
 }  // namespace
 
 HirModule trace(const Circuit& circuit) {
-    if (circuit.num_qubits > kMaxInlineQubits) {
-        throw std::runtime_error(
-            "Circuit exceeds " + std::to_string(kMaxInlineQubits) +
-            "-qubit compile-time limit: " + std::to_string(circuit.num_qubits) + " qubits");
-    }
-
     HirModule hir(circuit.num_qubits, count_pauli_masks(circuit), count_noise_channels(circuit));
     hir.num_measurements = circuit.num_measurements;
     hir.num_detectors = circuit.num_detectors;

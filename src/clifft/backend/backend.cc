@@ -526,6 +526,12 @@ CompiledModule lower(const HirModule& hir, std::span<const uint8_t> postselectio
     using internal::LocalizedBasis;
 
     const uint32_t n = hir.num_qubits;
+    // Bytecode axis operands are uint16_t; reject anything that doesn't fit
+    // before any virtual gates are emitted with possibly-truncated indices.
+    if (n > 65536) {
+        throw std::runtime_error("Circuit exceeds 65536-qubit VM axis limit: " + std::to_string(n) +
+                                 " qubits");
+    }
     CompilerContext ctx(n);
     uint32_t det_emit_idx = 0;
     uint32_t total_meas_slots = hir.num_measurements + hir.num_hidden_measurements;

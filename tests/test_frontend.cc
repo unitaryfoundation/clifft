@@ -4,6 +4,7 @@
 // Key invariant: Clifford gates are absorbed, T gates emit HeisenbergOps
 // with correctly rewound Pauli masks.
 
+#include "clifft/backend/backend.h"
 #include "clifft/circuit/parser.h"
 #include "clifft/frontend/frontend.h"
 
@@ -527,11 +528,20 @@ TEST_CASE("Frontend: EXP_VAL inversion parity flips sign", "[frontend][exp_val]"
     REQUIRE(hir.sign(hir.ops[0]));
 }
 
-TEST_CASE("Frontend: exceeds max qubit limit", "[frontend]") {
+TEST_CASE("Frontend: accepts circuits above the old fixed mask width", "[frontend]") {
+    // Circuits above kMaxInlineQubits used to throw at trace(). With
+    // runtime-width Pauli mask storage, trace() now accepts any width;
+    // the bytecode-axis ceiling is enforced later by lower().
     Circuit circuit;
     circuit.num_qubits = kMaxInlineQubits + 1;
+    REQUIRE_NOTHROW(trace(circuit));
+}
 
-    REQUIRE_THROWS_AS(trace(circuit), std::runtime_error);
+TEST_CASE("Backend: rejects circuits above the VM axis ceiling", "[frontend]") {
+    Circuit circuit;
+    circuit.num_qubits = 65537;
+    auto hir = trace(circuit);
+    REQUIRE_THROWS_AS(lower(hir), std::runtime_error);
 }
 
 TEST_CASE("Frontend: T count tracking", "[frontend]") {
