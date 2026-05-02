@@ -331,6 +331,14 @@ size_t count_pauli_masks(const Circuit& circuit) {
 }  // namespace
 
 HirModule trace(const Circuit& circuit) {
+    // The downstream VM uses uint16_t axis operands, so anything above
+    // 65536 cannot be lowered. Reject early to avoid the cost of
+    // allocating a Stim TableauSimulator (~O(n^2) bits) we'll discard.
+    if (circuit.num_qubits > 65536) {
+        throw std::runtime_error("Circuit exceeds 65536-qubit VM axis limit: " +
+                                 std::to_string(circuit.num_qubits) + " qubits");
+    }
+
     HirModule hir(circuit.num_qubits, count_pauli_masks(circuit), count_noise_channels(circuit));
     hir.num_measurements = circuit.num_measurements;
     hir.num_detectors = circuit.num_detectors;
