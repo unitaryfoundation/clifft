@@ -46,9 +46,10 @@ bool accesses_classical_index(const HeisenbergOp& op, uint32_t target_idx, const
 }
 
 /// Check Pauli commutativity between an op's masks and a noise site's channels.
-bool anti_commutes_with_noise(const HeisenbergOp& op, const NoiseSite& site) {
+bool anti_commutes_with_noise(const HeisenbergOp& op, const NoiseSite& site, const HirModule& hir) {
     for (const auto& ch : site.channels) {
-        if (anti_commute(op.destab_mask(), op.stab_mask(), ch.destab_mask, ch.stab_mask)) {
+        auto ch_view = hir.noise_channel_masks.at(ch.mask);
+        if (anti_commute(hir.destab_mask(op), hir.stab_mask(op), ch_view.x(), ch_view.z())) {
             return true;
         }
     }
@@ -56,10 +57,12 @@ bool anti_commutes_with_noise(const HeisenbergOp& op, const NoiseSite& site) {
 }
 
 /// Check Pauli anti-commutativity between any channel pair of two noise sites.
-bool noise_sites_anti_commute(const NoiseSite& a, const NoiseSite& b) {
+bool noise_sites_anti_commute(const NoiseSite& a, const NoiseSite& b, const HirModule& hir) {
     for (const auto& ch_a : a.channels) {
+        auto va = hir.noise_channel_masks.at(ch_a.mask);
         for (const auto& ch_b : b.channels) {
-            if (anti_commute(ch_a.destab_mask, ch_a.stab_mask, ch_b.destab_mask, ch_b.stab_mask)) {
+            auto vb = hir.noise_channel_masks.at(ch_b.mask);
+            if (anti_commute(va.x(), va.z(), vb.x(), vb.z())) {
                 return true;
             }
         }
@@ -101,17 +104,17 @@ bool can_swap(const HeisenbergOp& left, const HeisenbergOp& right, const HirModu
     if (left_is_noise && right_is_noise) {
         auto li = static_cast<uint32_t>(left.noise_site_idx());
         auto ri = static_cast<uint32_t>(right.noise_site_idx());
-        return !noise_sites_anti_commute(hir.noise_sites[li], hir.noise_sites[ri]);
+        return !noise_sites_anti_commute(hir.noise_sites[li], hir.noise_sites[ri], hir);
     }
 
     if (left_is_noise) {
         auto li = static_cast<uint32_t>(left.noise_site_idx());
-        return !anti_commutes_with_noise(right, hir.noise_sites[li]);
+        return !anti_commutes_with_noise(right, hir.noise_sites[li], hir);
     }
 
     if (right_is_noise) {
         auto ri = static_cast<uint32_t>(right.noise_site_idx());
-        return !anti_commutes_with_noise(left, hir.noise_sites[ri]);
+        return !anti_commutes_with_noise(left, hir.noise_sites[ri], hir);
     }
 
     // DETECTOR, OBSERVABLE, READOUT_NOISE have no quantum Pauli footprint
@@ -126,8 +129,8 @@ bool can_swap(const HeisenbergOp& left, const HeisenbergOp& right, const HirModu
     }
 
     // Standard Pauli anti-commutation check
-    return !anti_commute(left.destab_mask(), left.stab_mask(), right.destab_mask(),
-                         right.stab_mask());
+    return !anti_commute(hir.destab_mask(left), hir.stab_mask(left), hir.destab_mask(right),
+                         hir.stab_mask(right));
 }
 
 }  // namespace clifft

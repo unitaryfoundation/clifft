@@ -12,11 +12,11 @@ namespace clifft {
 
 // Format a HeisenbergOp's Pauli mask as a human-readable string.
 // Example: "+X0*Z3" for destab bit 0 and stab bit 3.
-std::string format_pauli_mask(const HeisenbergOp& op);
+std::string format_pauli_mask(const HeisenbergOp& op, const HirModule& hir);
 
 std::string op_type_to_str(OpType type);
 
-std::string format_hir_op(const HeisenbergOp& op);
+std::string format_hir_op(const HeisenbergOp& op, const HirModule& hir);
 
 std::string opcode_to_str(Opcode op);
 

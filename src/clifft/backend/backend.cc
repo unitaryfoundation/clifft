@@ -348,8 +348,8 @@ void emit_swap(CompilerContext& ctx, uint16_t a, uint16_t b) {
 }
 
 // Map an HIR Pauli (at t=0) into the current virtual frame.
-stim::PauliString<kStimWidth> map_to_virtual(CompilerContext& ctx, const PauliBitMask& destab_mask,
-                                             const PauliBitMask& stab_mask, bool sign, uint32_t n) {
+stim::PauliString<kStimWidth> map_to_virtual(CompilerContext& ctx, MaskView destab_mask,
+                                             MaskView stab_mask, bool sign, uint32_t n) {
     return ctx.virtual_frame.map_pauli(destab_mask, stab_mask, sign, n);
 }
 
@@ -420,10 +420,15 @@ LocalizationResult localize_pauli(CompilerContext& ctx,
     const uint32_t n = ctx.reg_manager.num_qubits();
     const uint32_t words = (n + 63) / 64;
 
-    PauliBitMask x_bits, z_bits;
-    MutableMaskView x_view = mut_view(x_bits);
-    MutableMaskView z_view = mut_view(z_bits);
-    for (uint32_t w = 0; w < words && w < kMaxInlineWords; ++w) {
+    // Runtime-width scratch storage. PauliBitMask (BitMask<128>) would
+    // truncate the input for circuits with n > kMaxInlineQubits, hiding
+    // bits in qubits 128+ and producing a spuriously-empty Pauli that
+    // tripped the identity-Pauli assertion below.
+    std::vector<uint64_t> x_bits(words, 0);
+    std::vector<uint64_t> z_bits(words, 0);
+    MutableMaskView x_view{std::span<uint64_t>(x_bits)};
+    MutableMaskView z_view{std::span<uint64_t>(z_bits)};
+    for (uint32_t w = 0; w < words; ++w) {
         x_view.words[w] = pauli.xs.u64[w];
         z_view.words[w] = pauli.zs.u64[w];
     }
@@ -451,8 +456,8 @@ LocalizationResult localize_pauli(CompilerContext& ctx,
         // Z propagation: Z_t -> Z_c Z_t, so z_pivot ^= z_q.
         // Sign rule: CNOT(c,t) flips sign iff x_c & z_t & (x_t ^ z_c ^ 1).
         // Here x_pivot=1, x_q=1, so: sign ^= z_q & z_pivot.
-        PauliBitMask to_clear_x_buf = x_bits;
-        MutableMaskView to_clear_x = mut_view(to_clear_x_buf);
+        std::vector<uint64_t> to_clear_x_buf(x_bits);
+        MutableMaskView to_clear_x{std::span<uint64_t>(to_clear_x_buf)};
         to_clear_x.bit_set(pivot, false);
         while (!to_clear_x.is_zero()) {
             uint32_t q = to_clear_x.lowest_bit();
@@ -468,8 +473,8 @@ LocalizationResult localize_pauli(CompilerContext& ctx,
         // Z-localization: CZ(pivot, q) clears residual Z_q.
         // Sign rule: CZ(a,b) flips sign iff x_a & x_b & (z_a ^ z_b).
         // Here x_q=0 (already cleared), so sign NEVER flips.
-        PauliBitMask to_clear_z_buf = z_bits;
-        MutableMaskView to_clear_z = mut_view(to_clear_z_buf);
+        std::vector<uint64_t> to_clear_z_buf(z_bits);
+        MutableMaskView to_clear_z{std::span<uint64_t>(to_clear_z_buf)};
         to_clear_z.bit_set(pivot, false);
         while (!to_clear_z.is_zero()) {
             uint32_t q = to_clear_z.lowest_bit();
@@ -497,8 +502,8 @@ LocalizationResult localize_pauli(CompilerContext& ctx,
         // Z-localization: CNOT(q -> pivot) folds Z_q onto pivot.
         // Sign rule: CNOT(c,t) flips sign iff x_c & z_t & (x_t ^ z_c ^ 1).
         // Here x_c=x_q=0, so sign NEVER flips.
-        PauliBitMask to_clear_z_buf = z_bits;
-        MutableMaskView to_clear_z = mut_view(to_clear_z_buf);
+        std::vector<uint64_t> to_clear_z_buf(z_bits);
+        MutableMaskView to_clear_z{std::span<uint64_t>(to_clear_z_buf)};
         to_clear_z.bit_set(pivot, false);
         while (!to_clear_z.is_zero()) {
             uint32_t q = to_clear_z.lowest_bit();
@@ -526,9 +531,49 @@ CompiledModule lower(const HirModule& hir, std::span<const uint8_t> postselectio
     using internal::LocalizedBasis;
 
     const uint32_t n = hir.num_qubits;
+    // Two ceilings:
+    //   - kMaxInlineQubits: SVM frame storage (state.p_x / p_z) is still a
+    //     fixed-width BitMask<kMaxInlineQubits>, so any conditional Pauli
+    //     or noise channel touching higher qubits would be silently dropped
+    //     at execution time. Lifting this requires runtime-width SVM frame
+    //     storage (planned for the next migration PR).
+    //   - 65536: bytecode axis operands are uint16_t. trace() enforces
+    //     this; lower() repeats the check defensively.
+    if (n > kMaxInlineQubits) {
+        throw std::runtime_error(
+            "Circuit num_qubits (" + std::to_string(n) + ") exceeds the SVM frame width (" +
+            std::to_string(kMaxInlineQubits) +
+            "). The HIR supports wider circuits but the runtime frame does not yet; "
+            "lifting this gate is the subject of a follow-up migration PR.");
+    }
+    if (n > 65536) {
+        throw std::runtime_error("Circuit exceeds 65536-qubit VM axis limit: " + std::to_string(n) +
+                                 " qubits");
+    }
     CompilerContext ctx(n);
     uint32_t det_emit_idx = 0;
     uint32_t total_meas_slots = hir.num_measurements + hir.num_hidden_measurements;
+
+    // Pre-size ConstantPool arenas. CONDITIONAL_PAULI emits exactly one
+    // OP_APPLY_PAULI per op; EXP_VAL emits exactly one OP_EXP_VAL. Each
+    // HIR noise channel maps into one ConstantPool channel slot.
+    size_t num_apply_paulis = 0;
+    size_t num_exp_val_masks = 0;
+    for (const auto& op : hir.ops) {
+        if (op.op_type() == OpType::CONDITIONAL_PAULI)
+            ++num_apply_paulis;
+        else if (op.op_type() == OpType::EXP_VAL)
+            ++num_exp_val_masks;
+    }
+    size_t num_noise_channels = 0;
+    for (const auto& site : hir.noise_sites)
+        num_noise_channels += site.channels.size();
+    ctx.constant_pool.pauli_masks = PauliMaskArena(n, num_apply_paulis);
+    ctx.constant_pool.exp_val_masks = PauliMaskArena(n, num_exp_val_masks);
+    ctx.constant_pool.noise_channel_masks = PauliMaskArena(n, num_noise_channels);
+    size_t next_cp_pauli = 0;
+    size_t next_cp_exp_val = 0;
+    size_t next_cp_noise = 0;
 
     bool has_source_map = hir.source_map.size() == hir.ops.size();
     bool has_postselection = false;
@@ -539,7 +584,8 @@ CompiledModule lower(const HirModule& hir, std::span<const uint8_t> postselectio
 
         switch (op.op_type()) {
             case OpType::T_GATE: {
-                auto p_v = map_to_virtual(ctx, op.destab_mask(), op.stab_mask(), op.sign(), n);
+                auto p_v =
+                    map_to_virtual(ctx, hir.destab_mask(op), hir.stab_mask(op), hir.sign(op), n);
                 auto result = localize_pauli(ctx, p_v);
 
                 route_to_active_z(ctx, result);
@@ -568,22 +614,23 @@ CompiledModule lower(const HirModule& hir, std::span<const uint8_t> postselectio
 
             case OpType::PHASE_ROTATION: {
                 double alpha = op.alpha();
-                auto p_v = map_to_virtual(ctx, op.destab_mask(), op.stab_mask(), op.sign(), n);
+                auto p_v =
+                    map_to_virtual(ctx, hir.destab_mask(op), hir.stab_mask(op), hir.sign(op), n);
                 auto result = localize_pauli(ctx, p_v);
 
                 route_to_active_z(ctx, result);
 
                 // The Front-End unconditionally extracted the physical global phase.
                 // If localize_pauli dynamically flipped the geometric sign
-                // (result.sign != op.sign()), correct the global phase artifact
+                // (result.sign != hir.sign(op)), correct the global phase artifact
                 // left behind by the VM's diagonal factorization.
-                if (result.sign != op.sign()) {
-                    double corr = op.alpha() * std::numbers::pi * (op.sign() ? -1.0 : 1.0);
+                if (result.sign != hir.sign(op)) {
+                    double corr = op.alpha() * std::numbers::pi * (hir.sign(op) ? -1.0 : 1.0);
                     ctx.constant_pool.global_weight *=
                         std::complex<double>(std::cos(corr), std::sin(corr));
                 }
 
-                // result.sign absorbs both the original op.sign() and any
+                // result.sign absorbs both the original hir.sign(op) and any
                 // localization flips.
                 if (result.sign)
                     alpha = -alpha;
@@ -601,16 +648,23 @@ CompiledModule lower(const HirModule& hir, std::span<const uint8_t> postselectio
             case OpType::MEASURE: {
                 uint32_t classical_idx = static_cast<uint32_t>(op.meas_record_idx());
 
-                auto p_v = map_to_virtual(ctx, op.destab_mask(), op.stab_mask(), op.sign(), n);
+                auto p_v =
+                    map_to_virtual(ctx, hir.destab_mask(op), hir.stab_mask(op), hir.sign(op), n);
 
-                PauliBitMask pv_x, pv_z;
-                uint32_t pv_words = (n + 63) / 64;
-                for (uint32_t w = 0; w < pv_words && w < kMaxInlineWords; ++w) {
-                    pv_x.w[w] = p_v.xs.u64[w];
-                    pv_z.w[w] = p_v.zs.u64[w];
+                // Identity Pauli check: walk the full mapped width directly,
+                // not through a fixed-width PauliBitMask intermediate (which
+                // would silently treat any high-qubit-only support as zero
+                // and emit a deterministic measurement).
+                const uint32_t pv_words = (n + 63) / 64;
+                bool is_identity = true;
+                for (uint32_t w = 0; w < pv_words; ++w) {
+                    if (p_v.xs.u64[w] != 0 || p_v.zs.u64[w] != 0) {
+                        is_identity = false;
+                        break;
+                    }
                 }
-                if ((pv_x | pv_z).is_zero()) {
-                    // Identity Pauli: outcome is determined solely by the sign
+                if (is_identity) {
+                    // Identity Pauli: outcome is determined solely by the sign.
                     Instruction id_meas =
                         make_meas(Opcode::OP_MEAS_DORMANT_STATIC, 0, classical_idx, p_v.sign);
                     id_meas.flags |= Instruction::FLAG_IDENTITY;
@@ -664,22 +718,18 @@ CompiledModule lower(const HirModule& hir, std::span<const uint8_t> postselectio
             }
 
             case OpType::CONDITIONAL_PAULI: {
-                auto p_v = map_to_virtual(ctx, op.destab_mask(), op.stab_mask(), op.sign(), n);
+                auto p_v =
+                    map_to_virtual(ctx, hir.destab_mask(op), hir.stab_mask(op), hir.sign(op), n);
 
-                PauliMask pm;
-                uint32_t pm_words = (n + 63) / 64;
-                for (uint32_t w = 0; w < pm_words && w < kMaxInlineWords; ++w) {
-                    pm.x.w[w] = p_v.xs.u64[w];
-                    pm.z.w[w] = p_v.zs.u64[w];
-                }
-                pm.sign = p_v.sign;
-
-                uint32_t cp_idx = static_cast<uint32_t>(ctx.constant_pool.pauli_masks.size());
-                ctx.constant_pool.pauli_masks.push_back(pm);
+                auto cp_handle = static_cast<PauliMaskHandle>(next_cp_pauli++);
+                auto slot = ctx.constant_pool.pauli_masks.mut_at(cp_handle);
+                stim_to_mask_view(p_v.xs, n, slot.x());
+                stim_to_mask_view(p_v.zs, n, slot.z());
+                slot.set_sign(p_v.sign);
 
                 uint32_t cond_idx = static_cast<uint32_t>(op.controlling_meas());
 
-                ctx.emit(make_apply_pauli(cp_idx, cond_idx));
+                ctx.emit(make_apply_pauli(static_cast<uint32_t>(cp_handle), cond_idx));
                 break;
             }
 
@@ -690,7 +740,12 @@ CompiledModule lower(const HirModule& hir, std::span<const uint8_t> postselectio
 
                 NoiseSite mapped_site;
                 for (const auto& ch : hir_site.channels) {
-                    mapped_site.channels.push_back(ctx.virtual_frame.map_noise_channel(ch, n));
+                    auto in_view = hir.noise_channel_masks.at(ch.mask);
+                    auto out_handle = static_cast<PauliMaskHandle>(next_cp_noise++);
+                    auto out_slot = ctx.constant_pool.noise_channel_masks.mut_at(out_handle);
+                    ctx.virtual_frame.map_noise_channel(in_view.x(), in_view.z(), out_slot.x(),
+                                                        out_slot.z(), n);
+                    mapped_site.channels.push_back(NoiseChannel{out_handle, ch.prob});
                 }
 
                 // Compute total channel probability for gap sampling
@@ -764,20 +819,17 @@ CompiledModule lower(const HirModule& hir, std::span<const uint8_t> postselectio
             }
 
             case OpType::EXP_VAL: {
-                auto p_v = map_to_virtual(ctx, op.destab_mask(), op.stab_mask(), op.sign(), n);
+                auto p_v =
+                    map_to_virtual(ctx, hir.destab_mask(op), hir.stab_mask(op), hir.sign(op), n);
 
-                PauliMask pm;
-                uint32_t pm_words = (n + 63) / 64;
-                for (uint32_t w = 0; w < pm_words && w < kMaxInlineWords; ++w) {
-                    pm.x.w[w] = p_v.xs.u64[w];
-                    pm.z.w[w] = p_v.zs.u64[w];
-                }
-                pm.sign = p_v.sign;
+                auto cp_handle = static_cast<PauliMaskHandle>(next_cp_exp_val++);
+                auto slot = ctx.constant_pool.exp_val_masks.mut_at(cp_handle);
+                stim_to_mask_view(p_v.xs, n, slot.x());
+                stim_to_mask_view(p_v.zs, n, slot.z());
+                slot.set_sign(p_v.sign);
 
-                uint32_t cp_idx = static_cast<uint32_t>(ctx.constant_pool.exp_val_masks.size());
-                ctx.constant_pool.exp_val_masks.push_back(pm);
-
-                ctx.emit(make_exp_val(cp_idx, static_cast<uint32_t>(op.exp_val_idx())));
+                ctx.emit(make_exp_val(static_cast<uint32_t>(cp_handle),
+                                      static_cast<uint32_t>(op.exp_val_idx())));
                 break;
             }
 

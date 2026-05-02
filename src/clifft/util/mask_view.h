@@ -86,6 +86,17 @@ struct BasicMaskView {
         words[idx / 64] ^= (1ULL << (idx % 64));
     }
 
+    constexpr void bit_swap(uint32_t i, uint32_t j)
+        requires(!std::is_const_v<Word>)
+    {
+        if (i == j)
+            return;
+        bool a = bit_get(i);
+        bool b = bit_get(j);
+        bit_set(i, b);
+        bit_set(j, a);
+    }
+
     /// Multi-word analog of `x &= x - 1`. Clears the lowest set bit.
     constexpr void clear_lowest_bit()
         requires(!std::is_const_v<Word>)
@@ -152,6 +163,18 @@ struct BasicMaskView {
 
 using MaskView = BasicMaskView<const uint64_t>;
 using MutableMaskView = BasicMaskView<uint64_t>;
+
+/// Bitwise equality on runtime-width mask views: same width and identical
+/// contents. Mutable views convert implicitly so `mut == const` works.
+[[nodiscard]] inline bool operator==(MaskView a, MaskView b) {
+    if (a.words.size() != b.words.size())
+        return false;
+    for (size_t i = 0; i < a.words.size(); ++i) {
+        if (a.words[i] != b.words[i])
+            return false;
+    }
+    return true;
+}
 
 // Adapters: expose a fixed-width BitMask<N> through the runtime view API.
 template <size_t N>

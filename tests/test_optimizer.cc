@@ -13,6 +13,7 @@
 #include <catch2/catch_test_macros.hpp>
 
 using namespace clifft;
+using clifft::test::MaskBuf;
 using clifft::test::X;
 using clifft::test::Z;
 
@@ -225,8 +226,7 @@ TEST_CASE("Peephole: READOUT_NOISE is transparent", "[optimizer]") {
 }
 
 TEST_CASE("Peephole: empty HIR is a no-op", "[optimizer]") {
-    HirModule hir;
-    hir.num_qubits = 0;
+    HirModule hir(0, /*pauli_capacity=*/16);
 
     PeepholeFusionPass pass;
     pass.run(hir);
@@ -276,11 +276,10 @@ TEST_CASE("Peephole: three T gates produce one T after S absorption", "[optimize
 TEST_CASE("Peephole: sign inversion makes T behave as T_dag", "[optimizer]") {
     // T with negative sign has eff=-1, same as T_dag with positive sign
     // So T(sign=true) + T(sign=false) should cancel
-    HirModule hir;
-    hir.num_qubits = 1;
+    HirModule hir(1, /*pauli_capacity=*/16);
 
-    hir.ops.push_back(HeisenbergOp::make_tgate(0, Z(0), /*sign=*/true));
-    hir.ops.push_back(HeisenbergOp::make_tgate(0, Z(0), /*sign=*/false));
+    hir.append_tgate(MaskBuf(0), MaskBuf(Z(0)), /*sign=*/true);
+    hir.append_tgate(MaskBuf(0), MaskBuf(Z(0)), /*sign=*/false);
 
     PeepholeFusionPass pass;
     pass.run(hir);
@@ -292,11 +291,10 @@ TEST_CASE("Peephole: sign inversion makes T behave as T_dag", "[optimizer]") {
 TEST_CASE("Peephole: sign inversion makes same-direction absorb", "[optimizer]") {
     // T(sign=true) has eff=-1, T_dag(sign=false) has eff=-1
     // total = -2 -> fuse to S_dag (absorbed)
-    HirModule hir;
-    hir.num_qubits = 1;
+    HirModule hir(1, /*pauli_capacity=*/16);
 
-    hir.ops.push_back(HeisenbergOp::make_tgate(0, Z(0), /*sign=*/true));
-    hir.ops.push_back(HeisenbergOp::make_tgate(0, Z(0), /*sign=*/false, /*dagger=*/true));
+    hir.append_tgate(MaskBuf(0), MaskBuf(Z(0)), /*sign=*/true);
+    hir.append_tgate(MaskBuf(0), MaskBuf(Z(0)), /*sign=*/false, /*dagger=*/true);
 
     PeepholeFusionPass pass;
     pass.run(hir);
@@ -317,7 +315,7 @@ TEST_CASE("Peephole: S absorption propagates through downstream T", "[optimizer]
 
     REQUIRE(hir.ops.size() == 1);
     REQUIRE(hir.ops[0].op_type() == OpType::T_GATE);
-    REQUIRE(hir.ops[0].stab_mask() == Z(0));
+    REQUIRE(hir.stab_mask(hir.ops[0]) == Z(0));
 }
 
 TEST_CASE("Peephole: T plus T fusion leaves global_weight unchanged", "[optimizer]") {
@@ -391,8 +389,8 @@ TEST_CASE("Peephole: S absorption conjugates anti-commuting downstream measure",
     // After conjugation, X(0) -> Y(0): both X and Z bits set
     auto y_destab = X(0);
     auto y_stab = Z(0);
-    REQUIRE(hir.ops[0].destab_mask() == y_destab);
-    REQUIRE(hir.ops[0].stab_mask() == y_stab);
+    REQUIRE(hir.destab_mask(hir.ops[0]) == y_destab);
+    REQUIRE(hir.stab_mask(hir.ops[0]) == y_stab);
 }
 
 TEST_CASE("Peephole: S absorption conjugates noise and conditional Pauli", "[optimizer]") {
@@ -418,18 +416,19 @@ TEST_CASE("Peephole: S absorption conjugates noise and conditional Pauli", "[opt
     // Check noise channel conjugation: X(0) -> Y(0)
     auto site_idx = static_cast<uint32_t>(hir.ops[0].noise_site_idx());
     const auto& ch = hir.noise_sites[site_idx].channels[0];
-    CHECK(ch.destab_mask.bit_get(0));  // X bit set
-    CHECK(ch.stab_mask.bit_get(0));    // Z bit set -> Y
+    auto ch_view = hir.noise_channel_masks.at(ch.mask);
+    CHECK(ch_view.x().bit_get(0));  // X bit set
+    CHECK(ch_view.z().bit_get(0));  // Z bit set -> Y
 
     // Check MEASURE conjugation: X(0) -> Y(0) with sign
-    CHECK(hir.ops[1].destab_mask().bit_get(0));
-    CHECK(hir.ops[1].stab_mask().bit_get(0));
-    CHECK(hir.ops[1].sign() == true);  // -Y
+    CHECK(hir.destab_mask(hir.ops[1]).bit_get(0));
+    CHECK(hir.stab_mask(hir.ops[1]).bit_get(0));
+    CHECK(hir.sign(hir.ops[1]) == true);  // -Y
 
     // Check CONDITIONAL_PAULI conjugation: X(0) -> Y(0) with sign
-    CHECK(hir.ops[2].destab_mask().bit_get(0));
-    CHECK(hir.ops[2].stab_mask().bit_get(0));
-    CHECK(hir.ops[2].sign() == true);  // -Y
+    CHECK(hir.destab_mask(hir.ops[2]).bit_get(0));
+    CHECK(hir.stab_mask(hir.ops[2]).bit_get(0));
+    CHECK(hir.sign(hir.ops[2]) == true);  // -Y
 }
 
 // =============================================================================
@@ -445,11 +444,10 @@ TEST_CASE("Peephole: S absorption conjugates noise and conditional Pauli", "[opt
 TEST_CASE("Peephole: negative-sign T plus T preserves global phase", "[optimizer]") {
     // X conjugates Z -> -Z, so both T gates see -Z axis (sign=true).
     // T(-Z) = exp(i*pi/4) * T_dag(+Z), so T(-Z)+T(-Z) = exp(i*pi/2) * S_dag(+Z) = i * S_dag.
-    HirModule hir;
-    hir.num_qubits = 1;
+    HirModule hir(1, /*pauli_capacity=*/16);
 
-    hir.ops.push_back(HeisenbergOp::make_tgate(0, Z(0), /*sign=*/true));
-    hir.ops.push_back(HeisenbergOp::make_tgate(0, Z(0), /*sign=*/true));
+    hir.append_tgate(MaskBuf(0), MaskBuf(Z(0)), /*sign=*/true);
+    hir.append_tgate(MaskBuf(0), MaskBuf(Z(0)), /*sign=*/true);
     auto initial_weight = hir.global_weight;
 
     PeepholeFusionPass pass;
@@ -469,11 +467,10 @@ TEST_CASE("Peephole: negative-sign T plus T preserves global phase", "[optimizer
 
 TEST_CASE("Peephole: negative-sign T_dag plus T_dag preserves global phase", "[optimizer]") {
     // T_dag(-Z) = exp(-i*pi/4) * T(+Z), two of them: exp(-i*pi/2) * S(+Z) = -i * S.
-    HirModule hir;
-    hir.num_qubits = 1;
+    HirModule hir(1, /*pauli_capacity=*/16);
 
-    hir.ops.push_back(HeisenbergOp::make_tgate(0, Z(0), /*sign=*/true, /*dagger=*/true));
-    hir.ops.push_back(HeisenbergOp::make_tgate(0, Z(0), /*sign=*/true, /*dagger=*/true));
+    hir.append_tgate(MaskBuf(0), MaskBuf(Z(0)), /*sign=*/true, /*dagger=*/true);
+    hir.append_tgate(MaskBuf(0), MaskBuf(Z(0)), /*sign=*/true, /*dagger=*/true);
     auto initial_weight = hir.global_weight;
 
     PeepholeFusionPass pass;
@@ -492,11 +489,10 @@ TEST_CASE("Peephole: mixed-sign T cancellation preserves global phase", "[optimi
     // T(+Z) + T(-Z): effective_angles sum to 0 (cancellation), but
     // T(-Z) = exp(i*pi/4) * T_dag(+Z), so the physical result is
     // T(+Z) * exp(i*pi/4) * T_dag(+Z) = exp(i*pi/4) * I.
-    HirModule hir;
-    hir.num_qubits = 1;
+    HirModule hir(1, /*pauli_capacity=*/16);
 
-    hir.ops.push_back(HeisenbergOp::make_tgate(0, Z(0), /*sign=*/false));
-    hir.ops.push_back(HeisenbergOp::make_tgate(0, Z(0), /*sign=*/true));
+    hir.append_tgate(MaskBuf(0), MaskBuf(Z(0)), /*sign=*/false);
+    hir.append_tgate(MaskBuf(0), MaskBuf(Z(0)), /*sign=*/true);
     auto initial_weight = hir.global_weight;
 
     PeepholeFusionPass pass;
@@ -687,8 +683,8 @@ TEST_CASE("Peephole: virtual S conjugation updates EXP_VAL masks", "[optimizer][
     REQUIRE(pass.fusions() == 1);
 
     // S^dag X S = Y: both X and Z bits set on qubit 0
-    REQUIRE(hir.ops[0].destab_mask() == X(0));
-    REQUIRE(hir.ops[0].stab_mask() == Z(0));
+    REQUIRE(hir.destab_mask(hir.ops[0]) == X(0));
+    REQUIRE(hir.stab_mask(hir.ops[0]) == Z(0));
 }
 
 TEST_CASE("Peephole: commuting NOISE does not bypass EXP_VAL barrier", "[optimizer][exp_val]") {

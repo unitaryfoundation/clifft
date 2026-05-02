@@ -1807,16 +1807,23 @@ static inline void exec_swap_meas_interfere(SchrodingerState& state, uint16_t f,
 // =============================================================================
 
 // Apply a Pauli error to the Pauli frame (shared logic for APPLY_PAULI and NOISE).
-static inline void apply_pauli_to_frame(SchrodingerState& state, const PauliBitMask& err_x,
-                                        const PauliBitMask& err_z, bool sign) {
+static inline void apply_pauli_to_frame(SchrodingerState& state, MaskView err_x, MaskView err_z,
+                                        bool sign) {
     // Phase: (-1)^popcount(err_z & current_x)
     // When composing E*P, we commute Z^{e_z} past X^{p_x}, picking up (-1)^{e_z . p_x}.
-    if ((state.p_x & err_z).popcount() & 1) {
+    int parity = 0;
+    const uint32_t nw = err_x.num_words();
+    for (uint32_t i = 0; i < nw && i < kMaxInlineWords; ++i) {
+        parity += std::popcount(state.p_x.w[i] & err_z.words[i]);
+    }
+    if (parity & 1) {
         state.multiply_phase({-1.0, 0.0});
     }
 
-    state.p_x ^= err_x;
-    state.p_z ^= err_z;
+    for (uint32_t i = 0; i < nw && i < kMaxInlineWords; ++i) {
+        state.p_x.w[i] ^= err_x.words[i];
+        state.p_z.w[i] ^= err_z.words[i];
+    }
 
     if (sign) {
         state.multiply_phase({-1.0, 0.0});
@@ -1834,8 +1841,8 @@ static inline void exec_apply_pauli(SchrodingerState& state, const ConstantPool&
         return;
     }
 
-    const auto& pm = pool.pauli_masks[cp_mask_idx];
-    apply_pauli_to_frame(state, pm.x, pm.z, pm.sign);
+    auto pm = pool.pauli_masks.at(static_cast<PauliMaskHandle>(cp_mask_idx));
+    apply_pauli_to_frame(state, pm.x(), pm.z(), pm.sign());
 }
 
 // NOISE: stochastic Pauli channel with gap-based skip optimization.
@@ -1863,7 +1870,8 @@ static inline void exec_noise(SchrodingerState& state, const ConstantPool& pool,
     for (const auto& ch : site.channels) {
         cumulative += ch.prob;
         if (rand < cumulative) {
-            apply_pauli_to_frame(state, ch.destab_mask, ch.stab_mask, false);
+            auto m = pool.noise_channel_masks.at(ch.mask);
+            apply_pauli_to_frame(state, m.x(), m.z(), false);
             break;
         }
     }
@@ -1992,17 +2000,31 @@ exec_exp_val(SchrodingerState& state, const ConstantPool& pool, uint32_t cp_exp_
     assert(cp_exp_val_idx < pool.exp_val_masks.size());
     assert(exp_val_idx < state.exp_vals.size());
 
-    const auto& pm = pool.exp_val_masks[cp_exp_val_idx];
+    auto pm = pool.exp_val_masks.at(static_cast<PauliMaskHandle>(cp_exp_val_idx));
+    auto pm_x = pm.x();
+    auto pm_z = pm.z();
 
     // Step 1: Frame conjugation.
     // Compute symplectic anti-commutation parity between stored Pauli P
     // and the current runtime Pauli frame. If P anti-commutes with the
     // frame, the expectation sign flips.
-    bool frame_sign = pm.sign;
-    if ((pm.x & state.p_z).popcount() & 1)
-        frame_sign = !frame_sign;
-    if ((pm.z & state.p_x).popcount() & 1)
-        frame_sign = !frame_sign;
+    bool frame_sign = pm.sign();
+    {
+        int parity = 0;
+        const uint32_t nw = pm_x.num_words();
+        for (uint32_t w = 0; w < nw && w < kMaxInlineWords; ++w)
+            parity += std::popcount(pm_x.words[w] & state.p_z.w[w]);
+        if (parity & 1)
+            frame_sign = !frame_sign;
+    }
+    {
+        int parity = 0;
+        const uint32_t nw = pm_z.num_words();
+        for (uint32_t w = 0; w < nw && w < kMaxInlineWords; ++w)
+            parity += std::popcount(pm_z.words[w] & state.p_x.w[w]);
+        if (parity & 1)
+            frame_sign = !frame_sign;
+    }
 
     // Step 2: Dormant/active split.
     // Dormant qubits (axes >= active_k) are in |0> state.
@@ -2010,32 +2032,39 @@ exec_exp_val(SchrodingerState& state, const ConstantPool& pool, uint32_t cp_exp_
     // Z support on a dormant qubit contributes +1 (identity for Z|0>=|0>).
     uint32_t k = state.active_k;
 
-    // Check if any dormant qubit has X support by masking out the active bits.
-    // Any X bit set in the dormant range means the result is 0.
+    // Check if any dormant qubit has X support. Active region is [0, k);
+    // any bit in the suffix means the result is 0.
     {
-        PauliBitMask dormant_x = pm.x;
-        // Clear active bits [0, k)
-        uint32_t full_words = k / 64;
-        uint32_t remaining = k % 64;
-        for (uint32_t w = 0; w < full_words && w < kMaxInlineWords; ++w)
-            dormant_x.w[w] = 0;
-        if (remaining > 0 && full_words < kMaxInlineWords)
-            dormant_x.w[full_words] &= ~((uint64_t{1} << remaining) - 1);
-        if (!dormant_x.is_zero()) {
+        const uint32_t full_words = k / 64;
+        const uint32_t remaining = k % 64;
+        const uint32_t nw = pm_x.num_words();
+        bool any_dormant_x = false;
+        // Word straddling k: bits [remaining, 64) are dormant.
+        if (remaining > 0 && full_words < nw) {
+            uint64_t dormant_in_word = pm_x.words[full_words] & ~((uint64_t{1} << remaining) - 1);
+            if (dormant_in_word != 0)
+                any_dormant_x = true;
+        }
+        // Words entirely above k: any bit is dormant.
+        const uint32_t start = (remaining == 0) ? full_words : full_words + 1;
+        for (uint32_t w = start; w < nw && !any_dormant_x; ++w) {
+            if (pm_x.words[w] != 0)
+                any_dormant_x = true;
+        }
+        if (any_dormant_x) {
             state.exp_vals[exp_val_idx] = 0.0;
             return;
         }
     }
 
     // Step 3: Active-space evaluation.
-    // Extract active-space X and Z masks (bits 0..k-1).
+    // peak_rank < 63 invariant -> all active bits are in word[0].
     uint64_t x_active = 0;
     uint64_t z_active = 0;
-    for (uint32_t q = 0; q < k && q < 64; ++q) {
-        if (bit_get(pm.x, q))
-            x_active |= (uint64_t{1} << q);
-        if (bit_get(pm.z, q))
-            z_active |= (uint64_t{1} << q);
+    if (k > 0 && pm_x.num_words() > 0) {
+        uint64_t active_mask = (k == 64) ? ~uint64_t{0} : ((uint64_t{1} << k) - 1);
+        x_active = pm_x.words[0] & active_mask;
+        z_active = pm_z.words[0] & active_mask;
     }
 
     // Compute the constant phase factor: i^popcount(x_active & z_active)

@@ -203,15 +203,6 @@ enum class ExpectedParity : uint8_t { Zero = 0, One = 1 };
 // Heavy data referenced by index from Instructions. Kept separate to maintain
 // the 32-byte Instruction size constraint.
 
-/// Full Pauli mask stored in the ConstantPool for OP_APPLY_PAULI.
-/// Uses BitMask<kMaxInlineQubits> instead of stim::PauliString to avoid
-/// heap allocations on the VM execution hot path.
-struct PauliMask {
-    PauliBitMask x;
-    PauliBitMask z;
-    bool sign = false;
-};
-
 // Pre-computed 2x2 unitary for OP_ARRAY_U2 (single-axis CISC fusion).
 // For each of 4 possible incoming Pauli frame states on the target axis
 // ((p_z << 1) | p_x: 0=I, 1=X, 2=Z, 3=Y), stores the fused matrix,
@@ -255,16 +246,23 @@ struct ConstantPool {
     // Global scalar gamma accumulated during compilation
     std::complex<double> global_weight = {1.0, 0.0};
 
-    // Full N-bit Pauli masks for OP_APPLY_PAULI (indexed by cp_mask_idx)
-    std::vector<PauliMask> pauli_masks;
+    // Full N-bit Pauli masks for OP_APPLY_PAULI. Bytecode references slots
+    // by cp_mask_idx, treated as a PauliMaskHandle into this arena.
+    PauliMaskArena pauli_masks;
 
-    // Full N-bit Pauli masks for OP_EXP_VAL (indexed by cp_exp_val_idx).
-    // Separate from pauli_masks to avoid index collision between frame
-    // mutation (APPLY_PAULI) and read-only probing (EXP_VAL).
-    std::vector<PauliMask> exp_val_masks;
+    // Full N-bit Pauli masks for OP_EXP_VAL. Separate from pauli_masks to
+    // avoid index collision between frame mutation (APPLY_PAULI) and
+    // read-only probing (EXP_VAL).
+    PauliMaskArena exp_val_masks;
 
-    // Noise sites for OP_NOISE (virtual-frame-mapped channels)
+    // Noise sites for OP_NOISE (virtual-frame-mapped channels). Each
+    // NoiseChannel inside a NoiseSite carries a handle into
+    // noise_channel_masks below.
     std::vector<NoiseSite> noise_sites;
+
+    // Pauli mask arena for the (virtual-frame-mapped) noise channel
+    // masks referenced from noise_sites.
+    PauliMaskArena noise_channel_masks;
 
     // Readout noise entries for OP_READOUT_NOISE
     std::vector<ReadoutNoiseEntry> readout_noise;
