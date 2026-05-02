@@ -141,16 +141,15 @@ class VirtualFrame {
         pending_gates_.clear();
     }
 
-    [[nodiscard]] stim::PauliString<kStimWidth> map_pauli(const PauliBitMask& destab_mask,
-                                                          const PauliBitMask& stab_mask, bool sign,
-                                                          uint32_t n) {
+    [[nodiscard]] stim::PauliString<kStimWidth> map_pauli(MaskView destab_mask, MaskView stab_mask,
+                                                          bool sign, uint32_t n) {
         maybe_flush();
 
         stim::PauliString<kStimWidth> p(n);
         uint32_t words = (n + 63) / 64;
-        for (uint32_t w = 0; w < words && w < kMaxInlineWords; ++w) {
-            p.xs.u64[w] = destab_mask.w[w];
-            p.zs.u64[w] = stab_mask.w[w];
+        for (uint32_t w = 0; w < words && w < destab_mask.num_words(); ++w) {
+            p.xs.u64[w] = destab_mask.words[w];
+            p.zs.u64[w] = stab_mask.words[w];
         }
         p.sign = sign;
 
@@ -158,43 +157,55 @@ class VirtualFrame {
         if (pending_gates_.empty())
             return mapped;
 
-        PauliBitMask x_out = stim_to_bitmask(mapped.xs, n);
-        PauliBitMask z_out = stim_to_bitmask(mapped.zs, n);
+        // Apply pending gates directly on the stim::PauliString's u64
+        // storage as runtime-width MaskViews. Restrict to the live `words`
+        // prefix; stim's simd_bits may pad above that.
         bool s_out = mapped.sign;
-        apply_pending_to_pauli(x_out, z_out, s_out);
-
-        for (uint32_t w = 0; w < words && w < kMaxInlineWords; ++w) {
-            mapped.xs.u64[w] = x_out.w[w];
-            mapped.zs.u64[w] = z_out.w[w];
-        }
+        MutableMaskView x_view{std::span<uint64_t>(mapped.xs.u64, words)};
+        MutableMaskView z_view{std::span<uint64_t>(mapped.zs.u64, words)};
+        apply_pending_to_pauli(x_view, z_view, s_out);
         mapped.sign = s_out;
         return mapped;
     }
 
-    [[nodiscard]] NoiseChannel map_noise_channel(const NoiseChannel& channel, uint32_t n) {
+    /// Map a noise channel's (X, Z) masks through the current virtual frame
+    /// and write the result into `out_x` and `out_z`. Sign is unused for
+    /// noise channels.
+    void map_noise_channel(MaskView in_x, MaskView in_z, MutableMaskView out_x,
+                           MutableMaskView out_z, uint32_t n) {
         maybe_flush();
 
-        PauliBitMask mapped_x, mapped_z;
-        PauliBitMask x_bits = channel.destab_mask;
-        while (!x_bits.is_zero()) {
-            uint32_t q = x_bits.lowest_bit();
-            mapped_x ^= stim_to_bitmask(materialized_.xs[q].xs, n);
-            mapped_z ^= stim_to_bitmask(materialized_.xs[q].zs, n);
-            x_bits.clear_lowest_bit();
+        out_x.zero_out();
+        out_z.zero_out();
+        const uint32_t words = (n + 63) / 64;
+
+        auto xor_row = [&](const stim::PauliString<kStimWidth>& row) {
+            for (uint32_t w = 0; w < words && w < out_x.num_words(); ++w) {
+                out_x.words[w] ^= row.xs.u64[w];
+                out_z.words[w] ^= row.zs.u64[w];
+            }
+        };
+
+        // Iterate set X-bits via a local copy.
+        std::vector<uint64_t> x_scratch(in_x.words.begin(), in_x.words.end());
+        MutableMaskView x_iter{std::span<uint64_t>(x_scratch)};
+        while (!x_iter.is_zero()) {
+            uint32_t q = x_iter.lowest_bit();
+            xor_row(materialized_.xs[q]);
+            x_iter.clear_lowest_bit();
         }
-        PauliBitMask z_bits = channel.stab_mask;
-        while (!z_bits.is_zero()) {
-            uint32_t q = z_bits.lowest_bit();
-            mapped_x ^= stim_to_bitmask(materialized_.zs[q].xs, n);
-            mapped_z ^= stim_to_bitmask(materialized_.zs[q].zs, n);
-            z_bits.clear_lowest_bit();
+        std::vector<uint64_t> z_scratch(in_z.words.begin(), in_z.words.end());
+        MutableMaskView z_iter{std::span<uint64_t>(z_scratch)};
+        while (!z_iter.is_zero()) {
+            uint32_t q = z_iter.lowest_bit();
+            xor_row(materialized_.zs[q]);
+            z_iter.clear_lowest_bit();
         }
 
         if (!pending_gates_.empty()) {
             bool dummy_sign = false;
-            apply_pending_to_pauli(mapped_x, mapped_z, dummy_sign);
+            apply_pending_to_pauli(out_x, out_z, dummy_sign);
         }
-        return {mapped_x, mapped_z, channel.prob};
     }
 
     [[nodiscard]] const stim::Tableau<kStimWidth>& materialized_tableau() const {
@@ -208,7 +219,7 @@ class VirtualFrame {
     }
 
   private:
-    static void apply_gate_to_pauli(const PendingGate& g, PauliBitMask& x, PauliBitMask& z,
+    static void apply_gate_to_pauli(const PendingGate& g, MutableMaskView x, MutableMaskView z,
                                     bool& sign) {
         bool xa = x.bit_get(g.axis_1);
         bool za = z.bit_get(g.axis_1);
@@ -255,7 +266,7 @@ class VirtualFrame {
         }
     }
 
-    void apply_pending_to_pauli(PauliBitMask& x, PauliBitMask& z, bool& sign) const {
+    void apply_pending_to_pauli(MutableMaskView x, MutableMaskView z, bool& sign) const {
         for (const auto& g : pending_gates_) {
             apply_gate_to_pauli(g, x, z, sign);
         }

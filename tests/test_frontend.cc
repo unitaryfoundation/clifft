@@ -4,6 +4,7 @@
 // Key invariant: Clifford gates are absorbed, T gates emit HeisenbergOps
 // with correctly rewound Pauli masks.
 
+#include "clifft/backend/backend.h"
 #include "clifft/circuit/parser.h"
 #include "clifft/frontend/frontend.h"
 
@@ -18,8 +19,14 @@ using namespace clifft;
 using clifft::test::X;
 using clifft::test::Z;
 
-static NoiseChannel rewind_single_pauli_reference(const stim::TableauSimulator<kStimWidth>& sim,
-                                                  uint32_t qubit, int pauli_type, double prob) {
+struct NoiseChannelMasks {
+    PauliBitMask destab_mask;
+    PauliBitMask stab_mask;
+    double prob;
+};
+
+static NoiseChannelMasks rewind_single_pauli_reference(
+    const stim::TableauSimulator<kStimWidth>& sim, uint32_t qubit, int pauli_type, double prob) {
     stim::PauliString<kStimWidth> pauli(sim.inv_state.num_qubits);
     if (pauli_type == 1 || pauli_type == 2)
         pauli.xs[qubit] = true;
@@ -31,9 +38,9 @@ static NoiseChannel rewind_single_pauli_reference(const stim::TableauSimulator<k
     return {stim_to_bitmask(rewound.xs, n), stim_to_bitmask(rewound.zs, n), prob};
 }
 
-static NoiseChannel rewind_two_qubit_pauli_reference(const stim::TableauSimulator<kStimWidth>& sim,
-                                                     uint32_t q1, uint32_t q2, int pauli1,
-                                                     int pauli2, double prob) {
+static NoiseChannelMasks rewind_two_qubit_pauli_reference(
+    const stim::TableauSimulator<kStimWidth>& sim, uint32_t q1, uint32_t q2, int pauli1, int pauli2,
+    double prob) {
     stim::PauliString<kStimWidth> pauli(sim.inv_state.num_qubits);
 
     if (pauli1 == 1 || pauli1 == 2)
@@ -81,9 +88,9 @@ TEST_CASE("Frontend: single T gate on qubit 0", "[frontend]") {
     REQUIRE(hir.ops[0].op_type() == OpType::T_GATE);
 
     // Without any Cliffords, rewound Z0 is just Z0
-    REQUIRE(hir.ops[0].destab_mask() == 0);   // No X
-    REQUIRE(hir.ops[0].stab_mask() == Z(0));  // Z on qubit 0
-    REQUIRE(hir.ops[0].sign() == false);
+    REQUIRE(hir.destab_mask(hir.ops[0]) == 0);   // No X
+    REQUIRE(hir.stab_mask(hir.ops[0]) == Z(0));  // Z on qubit 0
+    REQUIRE(hir.sign(hir.ops[0]) == false);
 }
 
 TEST_CASE("Frontend: H then T - rewound Z becomes X", "[frontend]") {
@@ -99,9 +106,9 @@ TEST_CASE("Frontend: H then T - rewound Z becomes X", "[frontend]") {
 
     // After H, the Z observable is conjugated to X
     // So the T gate's rewound Z is X on qubit 0
-    REQUIRE(hir.ops[0].destab_mask() == X(0));  // X on qubit 0
-    REQUIRE(hir.ops[0].stab_mask() == 0);       // No Z
-    REQUIRE(hir.ops[0].sign() == false);
+    REQUIRE(hir.destab_mask(hir.ops[0]) == X(0));  // X on qubit 0
+    REQUIRE(hir.stab_mask(hir.ops[0]) == 0);       // No Z
+    REQUIRE(hir.sign(hir.ops[0]) == false);
 }
 
 TEST_CASE("Frontend: H; S; T - rewound Z is still X (S commutes with Z)", "[frontend]") {
@@ -116,8 +123,8 @@ TEST_CASE("Frontend: H; S; T - rewound Z is still X (S commutes with Z)", "[fron
     REQUIRE(hir.ops[0].op_type() == OpType::T_GATE);
 
     // S commutes with Z, so rewound Z after H;S is still X
-    REQUIRE(hir.ops[0].destab_mask() == X(0));  // X on qubit 0
-    REQUIRE(hir.ops[0].stab_mask() == 0);       // No Z
+    REQUIRE(hir.destab_mask(hir.ops[0]) == X(0));  // X on qubit 0
+    REQUIRE(hir.stab_mask(hir.ops[0]) == 0);       // No Z
 }
 
 TEST_CASE("Frontend: T_DAG gate", "[frontend]") {
@@ -129,8 +136,8 @@ TEST_CASE("Frontend: T_DAG gate", "[frontend]") {
 
     REQUIRE(hir.num_ops() == 1);
     REQUIRE(hir.ops[0].op_type() == OpType::T_GATE);
-    REQUIRE(hir.ops[0].is_dagger() == true);    // T_dag, not T
-    REQUIRE(hir.ops[0].destab_mask() == X(0));  // X on qubit 0
+    REQUIRE(hir.ops[0].is_dagger() == true);       // T_dag, not T
+    REQUIRE(hir.destab_mask(hir.ops[0]) == X(0));  // X on qubit 0
 }
 
 TEST_CASE("Frontend: multiple T gates on different qubits", "[frontend]") {
@@ -145,13 +152,13 @@ TEST_CASE("Frontend: multiple T gates on different qubits", "[frontend]") {
 
     // T on qubit 0: rewound Z is X0
     REQUIRE(hir.ops[0].op_type() == OpType::T_GATE);
-    REQUIRE(hir.ops[0].destab_mask() == X(0));  // X on qubit 0
-    REQUIRE(hir.ops[0].stab_mask() == 0);
+    REQUIRE(hir.destab_mask(hir.ops[0]) == X(0));  // X on qubit 0
+    REQUIRE(hir.stab_mask(hir.ops[0]) == 0);
 
     // T on qubit 1: rewound Z is X1
     REQUIRE(hir.ops[1].op_type() == OpType::T_GATE);
-    REQUIRE(hir.ops[1].destab_mask() == X(1));  // X on qubit 1
-    REQUIRE(hir.ops[1].stab_mask() == 0);
+    REQUIRE(hir.destab_mask(hir.ops[1]) == X(1));  // X on qubit 1
+    REQUIRE(hir.stab_mask(hir.ops[1]) == 0);
 }
 
 TEST_CASE("Frontend: CX entangles qubits - T sees multi-qubit Pauli", "[frontend]") {
@@ -167,8 +174,8 @@ TEST_CASE("Frontend: CX entangles qubits - T sees multi-qubit Pauli", "[frontend
 
     // After H 0; CX 0 1:
     // Z1 rewound = (CX H)_dag Z1 (CX H) = H_dag CX_dag Z1 CX H = H_dag (Z0 Z1) H = X0 Z1
-    REQUIRE(hir.ops[0].destab_mask() == X(0));  // X on qubit 0
-    REQUIRE(hir.ops[0].stab_mask() == Z(1));    // Z on qubit 1
+    REQUIRE(hir.destab_mask(hir.ops[0]) == X(0));  // X on qubit 0
+    REQUIRE(hir.stab_mask(hir.ops[0]) == Z(1));    // Z on qubit 1
 }
 
 TEST_CASE("Frontend: Z-basis measurement", "[frontend]") {
@@ -182,8 +189,8 @@ TEST_CASE("Frontend: Z-basis measurement", "[frontend]") {
     REQUIRE(hir.ops[0].op_type() == OpType::MEASURE);
 
     // After H, Z0 is conjugated to X0
-    REQUIRE(hir.ops[0].destab_mask() == X(0));  // X on qubit 0
-    REQUIRE(hir.ops[0].stab_mask() == 0);
+    REQUIRE(hir.destab_mask(hir.ops[0]) == X(0));  // X on qubit 0
+    REQUIRE(hir.stab_mask(hir.ops[0]) == 0);
     REQUIRE(hir.ops[0].meas_record_idx() == MeasRecordIdx{0});
 }
 
@@ -199,8 +206,8 @@ TEST_CASE("Frontend: X-basis measurement", "[frontend]") {
 
     // MX measures X observable
     // After H, X0 is conjugated to Z0
-    REQUIRE(hir.ops[0].destab_mask() == 0);
-    REQUIRE(hir.ops[0].stab_mask() == Z(0));  // Z on qubit 0
+    REQUIRE(hir.destab_mask(hir.ops[0]) == 0);
+    REQUIRE(hir.stab_mask(hir.ops[0]) == Z(0));  // Z on qubit 0
 }
 
 TEST_CASE("Frontend: reset R as first-class operation", "[frontend]") {
@@ -326,8 +333,8 @@ TEST_CASE("Frontend: MPP single Pauli product", "[frontend]") {
     // MPP X0*X1 measures the X0tensorX1 observable
     // After H on both qubits, X is conjugated to Z
     // So rewound X0*X1 = Z0*Z1
-    REQUIRE(hir.ops[0].destab_mask() == 0);            // No X
-    REQUIRE(hir.ops[0].stab_mask() == (Z(0) | Z(1)));  // Z on qubits 0 and 1
+    REQUIRE(hir.destab_mask(hir.ops[0]) == 0);            // No X
+    REQUIRE(hir.stab_mask(hir.ops[0]) == (Z(0) | Z(1)));  // Z on qubits 0 and 1
 }
 
 TEST_CASE("Frontend: MPP Z product", "[frontend]") {
@@ -344,8 +351,8 @@ TEST_CASE("Frontend: MPP Z product", "[frontend]") {
     // Z0 rewound = X0
     // Z1 rewound = X0 Z1
     // Product Z0*Z1 = X0 * (X0 Z1) = Z1 (X0 cancels)
-    REQUIRE(hir.ops[0].destab_mask() == 0);
-    REQUIRE(hir.ops[0].stab_mask() == Z(1));  // Just Z1
+    REQUIRE(hir.destab_mask(hir.ops[0]) == 0);
+    REQUIRE(hir.stab_mask(hir.ops[0]) == Z(1));  // Just Z1
 }
 
 // =============================================================================
@@ -359,8 +366,8 @@ TEST_CASE("Frontend: EXP_VAL single Z product - no Cliffords", "[frontend][exp_v
     REQUIRE(hir.num_ops() == 1);
     REQUIRE(hir.ops[0].op_type() == OpType::EXP_VAL);
     REQUIRE(hir.ops[0].exp_val_idx() == ExpValIdx{0});
-    REQUIRE(hir.ops[0].destab_mask() == 0);
-    REQUIRE(hir.ops[0].stab_mask() == Z(0));
+    REQUIRE(hir.destab_mask(hir.ops[0]) == 0);
+    REQUIRE(hir.stab_mask(hir.ops[0]) == Z(0));
     REQUIRE(hir.num_exp_vals == 1);
 }
 
@@ -374,8 +381,8 @@ TEST_CASE("Frontend: EXP_VAL X after Hadamard rewinds to Z", "[frontend][exp_val
     REQUIRE(hir.num_ops() == 1);
     REQUIRE(hir.ops[0].op_type() == OpType::EXP_VAL);
     // After H, X0 is conjugated to Z0
-    REQUIRE(hir.ops[0].destab_mask() == 0);
-    REQUIRE(hir.ops[0].stab_mask() == Z(0));
+    REQUIRE(hir.destab_mask(hir.ops[0]) == 0);
+    REQUIRE(hir.stab_mask(hir.ops[0]) == Z(0));
 }
 
 TEST_CASE("Frontend: EXP_VAL multi-qubit product with Cliffords", "[frontend][exp_val]") {
@@ -389,8 +396,8 @@ TEST_CASE("Frontend: EXP_VAL multi-qubit product with Cliffords", "[frontend][ex
     REQUIRE(hir.num_ops() == 1);
     REQUIRE(hir.ops[0].op_type() == OpType::EXP_VAL);
     // After H on both qubits, X is conjugated to Z
-    REQUIRE(hir.ops[0].destab_mask() == 0);
-    REQUIRE(hir.ops[0].stab_mask() == (Z(0) | Z(1)));
+    REQUIRE(hir.destab_mask(hir.ops[0]) == 0);
+    REQUIRE(hir.stab_mask(hir.ops[0]) == (Z(0) | Z(1)));
 }
 
 TEST_CASE("Frontend: EXP_VAL multiple products get consecutive indices", "[frontend][exp_val]") {
@@ -417,13 +424,13 @@ TEST_CASE("Frontend: EXP_VAL single instruction with multiple products", "[front
 
     REQUIRE(hir.ops[0].op_type() == OpType::EXP_VAL);
     REQUIRE(hir.ops[0].exp_val_idx() == ExpValIdx{0});
-    REQUIRE(hir.ops[0].destab_mask() == X(0));
-    REQUIRE(hir.ops[0].stab_mask() == 0);
+    REQUIRE(hir.destab_mask(hir.ops[0]) == X(0));
+    REQUIRE(hir.stab_mask(hir.ops[0]) == 0);
 
     REQUIRE(hir.ops[1].op_type() == OpType::EXP_VAL);
     REQUIRE(hir.ops[1].exp_val_idx() == ExpValIdx{1});
-    REQUIRE(hir.ops[1].destab_mask() == 0);
-    REQUIRE(hir.ops[1].stab_mask() == Z(1));
+    REQUIRE(hir.destab_mask(hir.ops[1]) == 0);
+    REQUIRE(hir.stab_mask(hir.ops[1]) == Z(1));
 }
 
 TEST_CASE("Frontend: EXP_VAL does not affect measurement indices", "[frontend][exp_val]") {
@@ -497,9 +504,9 @@ TEST_CASE("Frontend: EXP_VAL rewind matches MPP rewind", "[frontend][exp_val]") 
 
     REQUIRE(hir_mpp.num_ops() == 1);
     REQUIRE(hir_ev.num_ops() == 1);
-    REQUIRE(hir_mpp.ops[0].destab_mask() == hir_ev.ops[0].destab_mask());
-    REQUIRE(hir_mpp.ops[0].stab_mask() == hir_ev.ops[0].stab_mask());
-    REQUIRE(hir_mpp.ops[0].sign() == hir_ev.ops[0].sign());
+    REQUIRE(hir_mpp.destab_mask(hir_mpp.ops[0]) == hir_ev.destab_mask(hir_ev.ops[0]));
+    REQUIRE(hir_mpp.stab_mask(hir_mpp.ops[0]) == hir_ev.stab_mask(hir_ev.ops[0]));
+    REQUIRE(hir_mpp.sign(hir_mpp.ops[0]) == hir_ev.sign(hir_ev.ops[0]));
 }
 
 TEST_CASE("Frontend: EXP_VAL inversion parity flips sign", "[frontend][exp_val]") {
@@ -516,16 +523,136 @@ TEST_CASE("Frontend: EXP_VAL inversion parity flips sign", "[frontend][exp_val]"
 
     REQUIRE(hir.num_ops() == 1);
     REQUIRE(hir.ops[0].op_type() == OpType::EXP_VAL);
-    REQUIRE(hir.ops[0].destab_mask() == (X(0) | X(1)));
-    REQUIRE(hir.ops[0].stab_mask() == Z(1));
-    REQUIRE(hir.ops[0].sign());
+    REQUIRE(hir.destab_mask(hir.ops[0]) == (X(0) | X(1)));
+    REQUIRE(hir.stab_mask(hir.ops[0]) == Z(1));
+    REQUIRE(hir.sign(hir.ops[0]));
 }
 
-TEST_CASE("Frontend: exceeds max qubit limit", "[frontend]") {
+TEST_CASE("Frontend: accepts circuits above the old fixed mask width", "[frontend]") {
+    // Circuits above kMaxInlineQubits used to throw at trace(). With
+    // runtime-width Pauli mask storage, trace() now accepts any width;
+    // the bytecode-axis ceiling is enforced later by lower().
     Circuit circuit;
     circuit.num_qubits = kMaxInlineQubits + 1;
+    REQUIRE_NOTHROW(trace(circuit));
+}
 
-    REQUIRE_THROWS_AS(trace(circuit), std::runtime_error);
+TEST_CASE("Frontend: high-qubit Pauli bits survive the runtime-arena round trip",
+          "[frontend][high_qubit]") {
+    // Regression: with the old fixed-width PauliBitMask intermediate, any
+    // Pauli touching qubits >= kMaxInlineQubits was silently truncated by
+    // the frontend before reaching the arena. This test traces a circuit
+    // wider than that bound and asserts the high-qubit bits round-trip
+    // intact through trace(). lower() at this width is gated until the
+    // SVM frame migration; the gate is checked in a separate case below.
+
+    const uint32_t kHigh = 150;  // > kMaxInlineQubits (128)
+    REQUIRE(kHigh > kMaxInlineQubits);
+
+    auto circuit = parse(R"(
+        H 150
+        T 150
+        H 199
+        M 199
+    )");
+    circuit.num_qubits = 200;
+    circuit.num_measurements = 1;
+
+    auto hir = trace(circuit);
+
+    // T 150 after H 150: rewound Z on q150 becomes X on q150.
+    REQUIRE(hir.ops.size() == 2);
+    REQUIRE(hir.ops[0].op_type() == OpType::T_GATE);
+    REQUIRE(hir.destab_mask(hir.ops[0]).bit_get(kHigh));
+    REQUIRE(hir.destab_mask(hir.ops[0]).num_words() == 200 / 64 + 1);
+
+    // M 199 after H 199: rewound Z on q199 becomes X on q199.
+    REQUIRE(hir.ops[1].op_type() == OpType::MEASURE);
+    REQUIRE(hir.destab_mask(hir.ops[1]).bit_get(199));
+}
+
+TEST_CASE("Backend: rejects circuits above the SVM frame width", "[frontend]") {
+    // The SVM frame storage (state.p_x / p_z) is still BitMask<kMaxInlineQubits>.
+    // Until the SVM frame migrates to runtime-width storage, lower() must
+    // refuse circuits whose num_qubits exceeds that bound -- otherwise high-
+    // qubit conditional Paulis and noise channels would be silently dropped
+    // at execution time.
+    HirModule hir;
+    hir.num_qubits = kMaxInlineQubits + 1;
+    REQUIRE_THROWS_AS(lower(hir), std::runtime_error);
+}
+
+TEST_CASE("Backend: high-axis measurement is not silently demoted to identity",
+          "[frontend][high_qubit]") {
+    // Regression for the lower() identity-Pauli check that previously
+    // copied the mapped Pauli through PauliBitMask before testing
+    // is_zero(). At qubit positions in the upper half of word[1] (still
+    // within the kMaxInlineQubits gate, so lower() runs) this would
+    // have been correct, but the same pattern was wrong above the gate.
+    // The fix makes the check walk full mapped width directly; this
+    // test exercises a measurement at the high end of the supported
+    // range to lock down that the resulting opcode is *not* a static
+    // identity measurement.
+    auto circuit = parse(R"(
+        H 127
+        M 127
+    )");
+    circuit.num_qubits = 128;
+    circuit.num_measurements = 1;
+
+    auto hir = trace(circuit);
+    REQUIRE(hir.ops.size() == 1);
+    REQUIRE(hir.ops[0].op_type() == OpType::MEASURE);
+    REQUIRE(hir.destab_mask(hir.ops[0]).bit_get(127));
+
+    auto mod = lower(hir);
+    bool found_non_identity_measure = false;
+    for (const auto& instr : mod.bytecode) {
+        if (instr.opcode == Opcode::OP_MEAS_DORMANT_STATIC ||
+            instr.opcode == Opcode::OP_MEAS_DORMANT_RANDOM ||
+            instr.opcode == Opcode::OP_MEAS_ACTIVE_DIAGONAL ||
+            instr.opcode == Opcode::OP_MEAS_ACTIVE_INTERFERE) {
+            CHECK_FALSE(instr.flags & Instruction::FLAG_IDENTITY);
+            found_non_identity_measure = true;
+        }
+    }
+    REQUIRE(found_non_identity_measure);
+}
+
+TEST_CASE("Frontend: high-qubit Paulis preserved across width boundaries",
+          "[frontend][high_qubit]") {
+    // Walk a few values straddling word and the old kMaxInlineQubits limit.
+    auto check_at = [](uint32_t n, uint32_t high_q) {
+        Circuit circuit;
+        circuit.num_qubits = n;
+        AstNode h{};
+        h.gate = GateType::H;
+        h.targets.push_back(Target::qubit(high_q));
+        circuit.nodes.push_back(h);
+        AstNode t{};
+        t.gate = GateType::T;
+        t.targets.push_back(Target::qubit(high_q));
+        circuit.nodes.push_back(t);
+
+        auto hir = trace(circuit);
+        REQUIRE(hir.ops.size() == 1);
+        INFO("n=" << n << " high_q=" << high_q);
+        CHECK(hir.destab_mask(hir.ops[0]).bit_get(high_q));
+    };
+
+    check_at(70, 65);    // straddles word 0/1 boundary
+    check_at(150, 130);  // beyond old fixed mask width (128)
+    check_at(200, 199);  // last qubit at n=200
+    check_at(513, 512);  // bit 512 (word 8); 513 qubits => 9-word arena
+}
+
+TEST_CASE("Backend: rejects circuits above the VM axis ceiling", "[frontend]") {
+    // Skip trace() because allocating a TableauSimulator for 65k+ qubits
+    // is itself prohibitively expensive. The ceiling lives in lower(),
+    // so feed it an empty HIR with the high qubit count directly.
+    HirModule hir;
+    hir.num_qubits = 65537;
+    REQUIRE_THROWS_AS(lower(hir), std::runtime_error);
 }
 
 TEST_CASE("Frontend: T count tracking", "[frontend]") {
@@ -565,8 +692,8 @@ TEST_CASE("Frontend: classical feedback sees un-collapsed tableau", "[frontend][
     REQUIRE(hir.ops[1].controlling_meas() == ControllingMeasIdx{0});
 
     // Un-collapsed tableau after H: xs[0] = Z_0
-    REQUIRE(hir.ops[1].destab_mask() == 0);
-    REQUIRE(hir.ops[1].stab_mask() == Z(0));
+    REQUIRE(hir.destab_mask(hir.ops[1]) == 0);
+    REQUIRE(hir.stab_mask(hir.ops[1]) == Z(0));
 }
 
 TEST_CASE("Frontend: classical feedback on entangled qubits", "[frontend][classical]") {
@@ -586,8 +713,8 @@ TEST_CASE("Frontend: classical feedback on entangled qubits", "[frontend][classi
     REQUIRE(hir.ops[1].controlling_meas() == ControllingMeasIdx{0});
 
     // Un-collapsed: rewound Z_1 through H 0; CX 0 1 gives X_0 * Z_1
-    REQUIRE(hir.ops[1].destab_mask() == X(0));
-    REQUIRE(hir.ops[1].stab_mask() == Z(1));
+    REQUIRE(hir.destab_mask(hir.ops[1]) == X(0));
+    REQUIRE(hir.stab_mask(hir.ops[1]) == Z(1));
 }
 
 TEST_CASE("Frontend: multiple resets in sequence", "[frontend][classical]") {
@@ -614,10 +741,10 @@ TEST_CASE("Frontend: multiple resets in sequence", "[frontend][classical]") {
 
     // Without collapse, the tableau after H still maps Z_0 -> X_0, Z_1 -> X_1.
     // The T gates see the un-collapsed rewound Pauli.
-    REQUIRE(hir.ops[4].destab_mask() == X(0));
-    REQUIRE(hir.ops[4].stab_mask() == 0);
-    REQUIRE(hir.ops[5].destab_mask() == X(1));
-    REQUIRE(hir.ops[5].stab_mask() == 0);
+    REQUIRE(hir.destab_mask(hir.ops[4]) == X(0));
+    REQUIRE(hir.stab_mask(hir.ops[4]) == 0);
+    REQUIRE(hir.destab_mask(hir.ops[5]) == X(1));
+    REQUIRE(hir.stab_mask(hir.ops[5]) == 0);
 }
 
 // =============================================================================
@@ -771,8 +898,8 @@ TEST_CASE("Frontend: X_ERROR produces single channel", "[frontend][noise]") {
     REQUIRE(site.channels[0].prob == Catch::Approx(0.001));
 
     // X on qubit 0 at t=0 (identity tableau): destab=1, stab=0
-    REQUIRE(site.channels[0].destab_mask == 1);
-    REQUIRE(site.channels[0].stab_mask == 0);
+    REQUIRE(hir.noise_channel_masks.at(site.channels[0].mask).x() == 1);
+    REQUIRE(hir.noise_channel_masks.at(site.channels[0].mask).z() == 0);
 }
 
 TEST_CASE("Frontend: Z_ERROR produces single channel", "[frontend][noise]") {
@@ -793,8 +920,8 @@ TEST_CASE("Frontend: Z_ERROR produces single channel", "[frontend][noise]") {
     REQUIRE(site.channels[0].prob == Catch::Approx(0.002));
 
     // Z on qubit 0 at t=0: destab=0, stab=1
-    REQUIRE(site.channels[0].destab_mask == 0);
-    REQUIRE(site.channels[0].stab_mask == 1);
+    REQUIRE(hir.noise_channel_masks.at(site.channels[0].mask).x() == 0);
+    REQUIRE(hir.noise_channel_masks.at(site.channels[0].mask).z() == 1);
 }
 
 TEST_CASE("Frontend: Y_ERROR produces single channel", "[frontend][noise]") {
@@ -815,8 +942,8 @@ TEST_CASE("Frontend: Y_ERROR produces single channel", "[frontend][noise]") {
     REQUIRE(site.channels[0].prob == Catch::Approx(0.003));
 
     // Y = iXZ on qubit 0 at t=0: destab=1, stab=1
-    REQUIRE(site.channels[0].destab_mask == 1);
-    REQUIRE(site.channels[0].stab_mask == 1);
+    REQUIRE(hir.noise_channel_masks.at(site.channels[0].mask).x() == 1);
+    REQUIRE(hir.noise_channel_masks.at(site.channels[0].mask).z() == 1);
 }
 
 TEST_CASE("Frontend: DEPOLARIZE2 produces 15 channels", "[frontend][noise]") {
@@ -869,8 +996,8 @@ TEST_CASE("Frontend: noise rewinding through H gate", "[frontend][noise]") {
     REQUIRE(site.channels.size() == 1);
 
     // X after H = Z at t=0: destab=0, stab=1
-    REQUIRE(site.channels[0].destab_mask == 0);
-    REQUIRE(site.channels[0].stab_mask == 1);
+    REQUIRE(hir.noise_channel_masks.at(site.channels[0].mask).x() == 0);
+    REQUIRE(hir.noise_channel_masks.at(site.channels[0].mask).z() == 1);
 }
 
 TEST_CASE("Frontend: Y_ERROR rewinds through entangling Cliffords", "[frontend][noise]") {
@@ -889,8 +1016,8 @@ TEST_CASE("Frontend: Y_ERROR rewinds through entangling Cliffords", "[frontend][
     auto expected = rewind_single_pauli_reference(sim, 1, 2, 0.02);
 
     const auto& actual = hir.noise_sites[0].channels[0];
-    CHECK(actual.destab_mask == expected.destab_mask);
-    CHECK(actual.stab_mask == expected.stab_mask);
+    CHECK(hir.noise_channel_masks.at(actual.mask).x() == expected.destab_mask);
+    CHECK(hir.noise_channel_masks.at(actual.mask).z() == expected.stab_mask);
     CHECK(actual.prob == Catch::Approx(expected.prob));
 }
 
@@ -909,7 +1036,7 @@ TEST_CASE("Frontend: DEPOLARIZE2 rewinds through entangling Cliffords", "[fronte
     sim.inv_state.prepend_ZCX(0, 1);
 
     double channel_prob = 0.15 / 15.0;
-    std::vector<NoiseChannel> expected;
+    std::vector<NoiseChannelMasks> expected;
     for (int p1 = 0; p1 <= 3; ++p1) {
         for (int p2 = 0; p2 <= 3; ++p2) {
             if (p1 == 0 && p2 == 0)
@@ -921,8 +1048,9 @@ TEST_CASE("Frontend: DEPOLARIZE2 rewinds through entangling Cliffords", "[fronte
     const auto& actual_site = hir.noise_sites[0];
     REQUIRE(actual_site.channels.size() == expected.size());
     for (size_t i = 0; i < expected.size(); ++i) {
-        CHECK(actual_site.channels[i].destab_mask == expected[i].destab_mask);
-        CHECK(actual_site.channels[i].stab_mask == expected[i].stab_mask);
+        auto av = hir.noise_channel_masks.at(actual_site.channels[i].mask);
+        CHECK(av.x() == expected[i].destab_mask);
+        CHECK(av.z() == expected[i].stab_mask);
         CHECK(actual_site.channels[i].prob == Catch::Approx(expected[i].prob));
     }
 }
@@ -1088,9 +1216,9 @@ TEST_CASE("Frontend: noise broadcasting", "[frontend][noise]") {
 
     // Each site should have X error on its respective qubit
     // Qubit 0: destab=1, Qubit 1: destab=2, Qubit 2: destab=4
-    REQUIRE(hir.noise_sites[0].channels[0].destab_mask == 1);
-    REQUIRE(hir.noise_sites[1].channels[0].destab_mask == 2);
-    REQUIRE(hir.noise_sites[2].channels[0].destab_mask == 4);
+    REQUIRE(hir.noise_channel_masks.at(hir.noise_sites[0].channels[0].mask).x() == 1);
+    REQUIRE(hir.noise_channel_masks.at(hir.noise_sites[1].channels[0].mask).x() == 2);
+    REQUIRE(hir.noise_channel_masks.at(hir.noise_sites[2].channels[0].mask).x() == 4);
 }
 
 TEST_CASE("Frontend: DEPOLARIZE2 broadcasting", "[frontend][noise]") {
@@ -1212,12 +1340,12 @@ TEST_CASE("Frontend: MPAD emits zero-weight measurements", "[frontend]") {
     REQUIRE(hir.num_ops() == 3);
     for (size_t i = 0; i < 3; ++i) {
         CHECK(hir.ops[i].op_type() == OpType::MEASURE);
-        CHECK(hir.ops[i].destab_mask() == 0);
-        CHECK(hir.ops[i].stab_mask() == 0);
+        CHECK(hir.destab_mask(hir.ops[i]) == 0);
+        CHECK(hir.stab_mask(hir.ops[i]) == 0);
     }
-    CHECK(hir.ops[0].sign() == true);   // MPAD 1
-    CHECK(hir.ops[1].sign() == false);  // MPAD 0
-    CHECK(hir.ops[2].sign() == true);   // MPAD 1
+    CHECK(hir.sign(hir.ops[0]) == true);   // MPAD 1
+    CHECK(hir.sign(hir.ops[1]) == false);  // MPAD 0
+    CHECK(hir.sign(hir.ops[2]) == true);   // MPAD 1
 }
 
 TEST_CASE("Frontend: inverted M flips sign", "[frontend]") {
@@ -1228,7 +1356,7 @@ TEST_CASE("Frontend: inverted M flips sign", "[frontend]") {
 
     REQUIRE(hir.num_ops() == 1);
     CHECK(hir.ops[0].op_type() == OpType::MEASURE);
-    CHECK(hir.ops[0].sign() == true);
+    CHECK(hir.sign(hir.ops[0]) == true);
 }
 
 TEST_CASE("Frontend: non-inverted M has sign false on fresh qubit", "[frontend]") {
@@ -1237,7 +1365,7 @@ TEST_CASE("Frontend: non-inverted M has sign false on fresh qubit", "[frontend]"
 
     REQUIRE(hir.num_ops() == 1);
     CHECK(hir.ops[0].op_type() == OpType::MEASURE);
-    CHECK(hir.ops[0].sign() == false);
+    CHECK(hir.sign(hir.ops[0]) == false);
 }
 
 TEST_CASE("Frontend: alias ZCX produces same HIR as CX", "[frontend]") {
@@ -1247,8 +1375,8 @@ TEST_CASE("Frontend: alias ZCX produces same HIR as CX", "[frontend]") {
     REQUIRE(hir_cx.num_ops() > 0);
     REQUIRE(hir_cx.num_ops() == hir_zcx.num_ops());
     for (size_t i = 0; i < hir_cx.num_ops(); ++i) {
-        CHECK(hir_cx.ops[i].destab_mask() == hir_zcx.ops[i].destab_mask());
-        CHECK(hir_cx.ops[i].stab_mask() == hir_zcx.ops[i].stab_mask());
+        CHECK(hir_cx.destab_mask(hir_cx.ops[i]) == hir_zcx.destab_mask(hir_zcx.ops[i]));
+        CHECK(hir_cx.stab_mask(hir_cx.ops[i]) == hir_zcx.stab_mask(hir_zcx.ops[i]));
     }
 }
 
@@ -1366,9 +1494,9 @@ TEST_CASE("Frontend: R_ZZ emits PHASE_ROTATION on two-qubit Pauli", "[frontend][
     CHECK(hir.ops[0].op_type() == OpType::PHASE_ROTATION);
     CHECK(hir.ops[0].alpha() == Catch::Approx(0.3));
     // ZZ: stab_mask should have bits 0 and 1 set, destab should be zero
-    CHECK(hir.ops[0].stab_mask().bit_get(0));
-    CHECK(hir.ops[0].stab_mask().bit_get(1));
-    CHECK(hir.ops[0].destab_mask().is_zero());
+    CHECK(hir.stab_mask(hir.ops[0]).bit_get(0));
+    CHECK(hir.stab_mask(hir.ops[0]).bit_get(1));
+    CHECK(hir.destab_mask(hir.ops[0]).is_zero());
 }
 
 TEST_CASE("Frontend: R_XX emits PHASE_ROTATION with X masks", "[frontend][rotation]") {
@@ -1378,9 +1506,9 @@ TEST_CASE("Frontend: R_XX emits PHASE_ROTATION with X masks", "[frontend][rotati
     REQUIRE(hir.num_ops() == 1);
     CHECK(hir.ops[0].op_type() == OpType::PHASE_ROTATION);
     // XX: destab_mask should have bits 0 and 1 set
-    CHECK(hir.ops[0].destab_mask().bit_get(0));
-    CHECK(hir.ops[0].destab_mask().bit_get(1));
-    CHECK(hir.ops[0].stab_mask().is_zero());
+    CHECK(hir.destab_mask(hir.ops[0]).bit_get(0));
+    CHECK(hir.destab_mask(hir.ops[0]).bit_get(1));
+    CHECK(hir.stab_mask(hir.ops[0]).is_zero());
 }
 
 TEST_CASE("Frontend: R_PAULI emits PHASE_ROTATION on arbitrary Pauli", "[frontend][rotation]") {
@@ -1391,12 +1519,12 @@ TEST_CASE("Frontend: R_PAULI emits PHASE_ROTATION on arbitrary Pauli", "[fronten
     CHECK(hir.ops[0].op_type() == OpType::PHASE_ROTATION);
     CHECK(hir.ops[0].alpha() == Catch::Approx(0.1));
     // X0: destab bit 0, Y1: both bits 1, Z2: stab bit 2
-    CHECK(hir.ops[0].destab_mask().bit_get(0));
-    CHECK(hir.ops[0].destab_mask().bit_get(1));
-    CHECK(!hir.ops[0].destab_mask().bit_get(2));
-    CHECK(!hir.ops[0].stab_mask().bit_get(0));
-    CHECK(hir.ops[0].stab_mask().bit_get(1));
-    CHECK(hir.ops[0].stab_mask().bit_get(2));
+    CHECK(hir.destab_mask(hir.ops[0]).bit_get(0));
+    CHECK(hir.destab_mask(hir.ops[0]).bit_get(1));
+    CHECK(!hir.destab_mask(hir.ops[0]).bit_get(2));
+    CHECK(!hir.stab_mask(hir.ops[0]).bit_get(0));
+    CHECK(hir.stab_mask(hir.ops[0]).bit_get(1));
+    CHECK(hir.stab_mask(hir.ops[0]).bit_get(2));
 }
 
 TEST_CASE("Frontend: R_Z global phase accumulation", "[frontend][rotation]") {
