@@ -92,6 +92,44 @@ class TestHirIntrospection:
         assert parsed["num_qubits"] == 2
         assert len(parsed["ops"]) == len(hir)
 
+    def test_iter_wrapper_keeps_module_alive(self) -> None:
+        """Regression: HeisenbergOp wrappers from __iter__ must keep the
+        owning HirModule alive. If the module is collected first, accessing
+        the wrapper's mask data would dereference freed arena memory.
+        """
+        import gc
+
+        def make_op() -> Any:
+            hir = clifft.trace(clifft.parse("H 0\nT 0"))
+            it = iter(hir)
+            op = next(it)
+            # Drop local refs; the returned op must hold the HirModule
+            # alive on its own.
+            return op
+
+        op = make_op()
+        gc.collect()
+        # Mask access must still work -- if the module were collected,
+        # this would hit freed memory.
+        assert "X" in op.pauli_string
+        assert isinstance(op.sign, bool)
+        assert isinstance(op.as_dict(), dict)
+
+    def test_getitem_wrapper_keeps_module_alive(self) -> None:
+        """Same regression as test_iter_wrapper_keeps_module_alive but
+        through __getitem__ rather than __iter__.
+        """
+        import gc
+
+        def make_op() -> Any:
+            hir = clifft.trace(clifft.parse("H 0\nT 0"))
+            return hir[0]
+
+        op = make_op()
+        gc.collect()
+        assert "X" in op.pauli_string
+        assert isinstance(op.as_dict(), dict)
+
 
 class TestProgramIntrospection:
     """Program-level introspection: Instruction, Opcode, iteration."""

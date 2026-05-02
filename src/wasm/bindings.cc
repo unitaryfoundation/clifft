@@ -98,7 +98,7 @@ std::string compile_to_json(const std::string& source, const std::string& passes
     std::vector<std::string> hir_strs;
     hir_strs.reserve(hir.ops.size());
     for (const auto& op : hir.ops) {
-        hir_strs.push_back(clifft::format_hir_op(op));
+        hir_strs.push_back(clifft::format_hir_op(op, hir));
     }
 
     std::vector<std::string> bc_strs;
