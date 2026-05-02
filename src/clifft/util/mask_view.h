@@ -16,6 +16,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <span>
+#include <stdexcept>
 #include <type_traits>
 
 namespace clifft {
@@ -128,12 +129,24 @@ struct BasicMaskView {
             words[i] |= other.words[i];
     }
 
+    /// Copy `other` into this view. The source must fit within the
+    /// destination width: if `other` is narrower, trailing destination
+    /// words are zero-padded; if `other` is wider, the call throws unless
+    /// every excess word is already zero (so no information is lost).
+    /// Use `std::span` truncation at the call site if you genuinely want
+    /// to drop bits (e.g. `dst.copy_from({other.words.first(dst.num_words())})`).
     constexpr void copy_from(BasicMaskView<const uint64_t> other)
         requires(!std::is_const_v<Word>)
     {
-        assert(words.size() == other.words.size());
-        for (size_t i = 0; i < words.size(); ++i)
+        const size_t common = std::min(words.size(), other.words.size());
+        for (size_t i = common; i < other.words.size(); ++i) {
+            if (other.words[i] != 0)
+                throw std::runtime_error("copy_from: source has set bits above destination width");
+        }
+        for (size_t i = 0; i < common; ++i)
             words[i] = other.words[i];
+        for (size_t i = common; i < words.size(); ++i)
+            words[i] = 0;
     }
 };
 

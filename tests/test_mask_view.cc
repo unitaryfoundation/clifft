@@ -143,6 +143,31 @@ TEST_CASE("MutableMaskView: copy_from replaces contents") {
     REQUIRE(a[2] == 3);
 }
 
+TEST_CASE("MutableMaskView: copy_from zero-pads when source is narrower") {
+    std::array<uint64_t, 3> dst{0xFF, 0xFF, 0xFF};
+    std::array<uint64_t, 1> src{0x42};
+    MutableMaskView{std::span<uint64_t>(dst)}.copy_from(MaskView{std::span<const uint64_t>(src)});
+    REQUIRE(dst[0] == 0x42);
+    REQUIRE(dst[1] == 0);  // zero-padded
+    REQUIRE(dst[2] == 0);
+}
+
+TEST_CASE("MutableMaskView: copy_from accepts wider source when excess bits are zero") {
+    std::array<uint64_t, 1> dst{0};
+    std::array<uint64_t, 3> src{0x42, 0, 0};
+    REQUIRE_NOTHROW(MutableMaskView{std::span<uint64_t>(dst)}.copy_from(
+        MaskView{std::span<const uint64_t>(src)}));
+    REQUIRE(dst[0] == 0x42);
+}
+
+TEST_CASE("MutableMaskView: copy_from throws when wider source has set bits above destination") {
+    std::array<uint64_t, 1> dst{0};
+    std::array<uint64_t, 3> src{0x42, 0x1, 0};
+    REQUIRE_THROWS_AS(MutableMaskView{std::span<uint64_t>(dst)}.copy_from(
+                          MaskView{std::span<const uint64_t>(src)}),
+                      std::runtime_error);
+}
+
 // =========================================================================
 // BitMask<N> adapters
 // =========================================================================
