@@ -1353,6 +1353,8 @@ TEST_CASE("RemoveNoisePass strips noise ops and clears side-tables") {
     CHECK(hir.ops.size() < original_ops);
     CHECK(hir.noise_sites.empty());
     CHECK(hir.readout_noise.empty());
+    // Arena slots that backed the removed channels are released.
+    CHECK(hir.noise_channel_masks.size() == 0);
 
     // No NOISE ops remain
     for (const auto& op : hir.ops) {
