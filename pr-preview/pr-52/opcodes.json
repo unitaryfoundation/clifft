@@ -1,0 +1,296 @@
+{
+    "opcodes": {
+        "OP_FRAME_CNOT": {
+            "category": "Frame",
+            "summary": "CNOT update on the virtual Pauli frame.",
+            "detail": "Conjugates the virtual Pauli frame P by CNOT via bitwise XOR: propagates p_x from control to target and p_z from target to control.",
+            "operands": "axis_1 (control), axis_2 (target)"
+        },
+        "OP_FRAME_CZ": {
+            "category": "Frame",
+            "summary": "CZ update on the virtual Pauli frame.",
+            "detail": "Conjugates the virtual Pauli frame P by CZ via bitwise XOR: propagates p_x on each axis into p_z on the other. Any resulting phase is absorbed into gamma.",
+            "operands": "axis_1, axis_2"
+        },
+        "OP_FRAME_H": {
+            "category": "Frame",
+            "summary": "Hadamard update on the virtual Pauli frame.",
+            "detail": "Conjugates the virtual Pauli frame P by Hadamard on a single axis: swaps the p_x and p_z bits of that axis, absorbing any resulting phase into gamma.",
+            "operands": "axis_1"
+        },
+        "OP_FRAME_S": {
+            "category": "Frame",
+            "summary": "S-gate update on the virtual Pauli frame.",
+            "detail": "Conjugates the virtual Pauli frame P by S (pi/4 phase) on a single axis. Maps X -> Y by XOR-ing p_x into p_z, absorbing any resulting phase into gamma.",
+            "operands": "axis_1"
+        },
+        "OP_FRAME_S_DAG": {
+            "category": "Frame",
+            "summary": "S-dagger update on the virtual Pauli frame.",
+            "detail": "Conjugates the virtual Pauli frame P by S-dagger (inverse pi/4 phase) on a single axis. Maps X -> -Y by XOR-ing p_x into p_z, absorbing the resulting phase into gamma.",
+            "operands": "axis_1"
+        },
+        "OP_FRAME_SWAP": {
+            "category": "Frame",
+            "summary": "SWAP update on the virtual Pauli frame.",
+            "detail": "Swaps the p_x and p_z bits between two axes of the virtual Pauli frame P. Used by the compiler to route qubits for measurement or gate decomposition.",
+            "operands": "axis_1, axis_2"
+        },
+        "OP_ARRAY_CNOT": {
+            "category": "Array",
+            "summary": "CNOT gate on the active state vector.",
+            "detail": "Applies a controlled-X gate to two active virtual axes in the state vector. Pairs of amplitudes separated by the target axis stride are XOR-permuted.",
+            "operands": "axis_1 (control), axis_2 (target)"
+        },
+        "OP_ARRAY_CZ": {
+            "category": "Array",
+            "summary": "CZ gate on the active state vector.",
+            "detail": "Applies a controlled-Z gate to two active virtual axes. Negates amplitudes where both axes are in the |1> state.",
+            "operands": "axis_1, axis_2"
+        },
+        "OP_ARRAY_SWAP": {
+            "category": "Array",
+            "summary": "SWAP gate on the active state vector.",
+            "detail": "Swaps amplitudes between two active virtual axes. Used to route the measurement target to the highest axis before collapse.",
+            "operands": "axis_1, axis_2"
+        },
+        "OP_ARRAY_MULTI_CNOT": {
+            "category": "Array",
+            "summary": "Fused multi-control CNOT on the active state vector.",
+            "detail": "Applies a star-graph CNOT with multiple control axes and one target axis in a single fused pass over the state vector. The control axes are encoded as a 64-bit bitmask. Equivalent to a sequence of pairwise OP_ARRAY_CNOT instructions but faster.",
+            "operands": "axis_1 (target), multi_gate.mask (control bitmask)"
+        },
+        "OP_ARRAY_MULTI_CZ": {
+            "category": "Array",
+            "summary": "Fused multi-target CZ on the active state vector.",
+            "detail": "Applies a star-graph CZ with one control axis and multiple target axes in a single fused pass over the state vector. The target axes are encoded as a 64-bit bitmask. Equivalent to a sequence of pairwise OP_ARRAY_CZ instructions but faster.",
+            "operands": "axis_1 (control), multi_gate.mask (target bitmask)"
+        },
+        "OP_ARRAY_H": {
+            "category": "Array",
+            "summary": "Hadamard gate on the active state vector.",
+            "detail": "Applies a Hadamard (butterfly) transform to one active virtual axis. Each pair of amplitudes is replaced by their sum and difference, divided by sqrt(2).",
+            "operands": "axis_1"
+        },
+        "OP_ARRAY_S": {
+            "category": "Array",
+            "summary": "S-gate (phase) on the active state vector.",
+            "detail": "Applies diag(1, i) to one active virtual axis. Multiplies all amplitudes where that axis is |1> by i.",
+            "operands": "axis_1"
+        },
+        "OP_ARRAY_S_DAG": {
+            "category": "Array",
+            "summary": "S-dagger gate on the active state vector.",
+            "detail": "Applies diag(1, -i) to one active virtual axis. Multiplies all amplitudes where that axis is |1> by -i.",
+            "operands": "axis_1"
+        },
+        "OP_EXPAND": {
+            "category": "Subspace",
+            "summary": "Promote a dormant qubit to active, growing k by 1.",
+            "detail": "Doubles the state vector by applying a virtual Hadamard on a dormant axis: k -> k+1 and gamma is divided by sqrt(2). The new axis is initialized to equal superposition.",
+            "operands": "axis_1"
+        },
+        "OP_ARRAY_T": {
+            "category": "Array",
+            "summary": "T-gate (pi/8 phase rotation) on an active axis.",
+            "detail": "Applies diag(1, exp(i*pi/4)) to one active virtual axis.",
+            "operands": "axis_1"
+        },
+        "OP_ARRAY_T_DAG": {
+            "category": "Array",
+            "summary": "T-dagger (inverse pi/8 phase rotation) on an active axis.",
+            "detail": "Applies diag(1, exp(-i*pi/4)) to one active virtual axis. The conjugate of OP_ARRAY_T.",
+            "operands": "axis_1"
+        },
+        "OP_EXPAND_T": {
+            "category": "Subspace",
+            "summary": "Fused EXPAND + T-gate in one array pass.",
+            "detail": "Combines OP_EXPAND and OP_ARRAY_T into a single instruction. Promotes a dormant qubit to active (k -> k+1) and immediately applies the T phase rotation, saving one pass over the state vector.",
+            "operands": "axis_1"
+        },
+        "OP_EXPAND_T_DAG": {
+            "category": "Subspace",
+            "summary": "Fused EXPAND + T-dagger in one array pass.",
+            "detail": "Combines OP_EXPAND and OP_ARRAY_T_DAG into a single instruction. Promotes a dormant qubit to active (k -> k+1) and immediately applies the T-dagger phase rotation, saving one pass over the state vector.",
+            "operands": "axis_1"
+        },
+        "OP_MEAS_DORMANT_STATIC": {
+            "category": "Measurement",
+            "summary": "Deterministic measurement of a dormant qubit.",
+            "detail": "The measured Pauli observable has a fixed eigenvalue determined by the Pauli frame vector p_x. The outcome is known without any state vector work or randomness. k is unchanged.",
+            "operands": "axis_1 -> rec[classical_idx]"
+        },
+        "OP_MEAS_DORMANT_RANDOM": {
+            "category": "Measurement",
+            "summary": "Random measurement of a dormant qubit.",
+            "detail": "The qubit is in an equal superposition within the dormant subspace. The outcome is chosen by the RNG, and an algebraic phase is absorbed into gamma. No state vector work; k is unchanged.",
+            "operands": "axis_1 -> rec[classical_idx]"
+        },
+        "OP_MEAS_ACTIVE_DIAGONAL": {
+            "category": "Measurement",
+            "summary": "Z-basis measurement of an active qubit (diagonal collapse).",
+            "detail": "Collapses the state vector along one active axis by keeping only the half consistent with the measurement outcome. Halves the array: k -> k-1. The outcome probability is computed from the squared amplitudes of each half.",
+            "operands": "axis_1 -> rec[classical_idx]"
+        },
+        "OP_MEAS_ACTIVE_INTERFERE": {
+            "category": "Measurement",
+            "summary": "X-basis measurement of an active qubit (interference collapse).",
+            "detail": "Collapses the state vector by folding (adding or subtracting) two halves together, depending on the measurement outcome. Halves the array: k -> k-1. This handles the case where the measured Pauli has off-diagonal terms.",
+            "operands": "axis_1 -> rec[classical_idx]"
+        },
+        "OP_SWAP_MEAS_INTERFERE": {
+            "category": "Measurement",
+            "summary": "Fused SWAP + X-basis measurement in one array pass.",
+            "detail": "Combines OP_ARRAY_SWAP and OP_MEAS_ACTIVE_INTERFERE into a single instruction. Swaps the target axis to the highest active dimension and immediately performs the interference (fold) measurement, halving the array: k -> k-1.",
+            "operands": "axis_1 (swap_from), axis_2 (swap_to) -> rec[classical_idx]"
+        },
+        "OP_APPLY_PAULI": {
+            "category": "Meta",
+            "summary": "Apply a full N-bit Pauli mask to the frame (classical feedback).",
+            "detail": "XORs a precomputed N-qubit Pauli bitmask from the constant pool into the Pauli frame vector P, conditioned on a prior measurement result. Implements classical feedback (e.g. Pauli corrections after teleportation).",
+            "operands": "cp_mask (constant pool index), condition (measurement record index)"
+        },
+        "OP_NOISE": {
+            "category": "Meta",
+            "summary": "Stochastic Pauli noise channel.",
+            "detail": "Rolls the RNG against a probability table from the constant pool. If triggered, applies a random Pauli (X, Y, or Z) to the frame. Models depolarizing, dephasing, and other Pauli noise channels.",
+            "operands": "cp_site (constant pool noise site index)"
+        },
+        "OP_NOISE_BLOCK": {
+            "category": "Meta",
+            "summary": "Contiguous block of noise sites processed in a batch.",
+            "detail": "Processes a contiguous range [start, start+count) of noise sites from the constant pool in one instruction. When noise is disabled for a shot, the VM skips the entire block in O(1) instead of dispatching individual OP_NOISE instructions.",
+            "operands": "pauli.cp_mask_idx (start_site), pauli.condition_idx (count)"
+        },
+        "OP_READOUT_NOISE": {
+            "category": "Meta",
+            "summary": "Classical bit-flip noise on a measurement result.",
+            "detail": "Rolls the RNG against a readout error probability. If triggered, flips the classical measurement bit in the record. Models measurement readout errors separately from quantum noise.",
+            "operands": "cp_entry (constant pool readout noise entry index)"
+        },
+        "OP_DETECTOR": {
+            "category": "Meta",
+            "summary": "Detector: parity check over measurement records.",
+            "detail": "Computes the XOR parity of a set of measurement record entries (specified by a target list in the constant pool) and stores the result as a detector outcome. Used for quantum error correction syndrome extraction.",
+            "operands": "cp_targets (constant pool target list index) -> det[detector_idx]"
+        },
+        "OP_POSTSELECT": {
+            "category": "Meta",
+            "summary": "Post-selection: discard shot if parity check fails.",
+            "detail": "Same parity computation as OP_DETECTOR, but if the parity is nonzero the entire shot is discarded. Used for post-selected circuits where certain outcomes are conditioned upon.",
+            "operands": "cp_targets (constant pool target list index) -> det[detector_idx]"
+        },
+        "OP_OBSERVABLE": {
+            "category": "Meta",
+            "summary": "Logical observable accumulator.",
+            "detail": "Accumulates the XOR parity of measurement record entries into a logical observable. Used in error correction to track logical qubit values across multiple rounds of syndrome measurements.",
+            "operands": "cp_targets (constant pool target list index) -> obs[observable_idx]"
+        },
+        "OP_EXP_VAL": {
+            "category": "Measurement",
+            "summary": "Read-only expectation value probe.",
+            "detail": "Evaluates the expectation value <P> of a Pauli product on the current state without mutating anything. The full virtual Pauli mask is stored in the constant pool. Result is a float64 in [-1, 1] written to exp_vals[exp_val_idx].",
+            "operands": "cp_exp_val_idx (constant pool exp val mask index) -> exp[exp_val_idx]"
+        },
+        "OP_ARRAY_ROT": {
+            "category": "Array",
+            "summary": "Continuous Z-rotation on an active axis with arbitrary phase.",
+            "detail": "Applies diag(1, z) where z = e^{i*alpha*pi} is stored as (weight_re, weight_im) in the instruction math payload. If the Pauli frame has p_x set on this axis, the array receives z* and gamma absorbs z to preserve the factored state.",
+            "operands": "axis_1, math.weight_re, math.weight_im"
+        },
+        "OP_EXPAND_ROT": {
+            "category": "Subspace",
+            "summary": "Fused EXPAND + ARRAY_ROT in a single array pass.",
+            "detail": "Activates a dormant axis and applies diag(1, z) in one fused loop: arr[i+half] = arr[i] * phase. Avoids the two-pass penalty of separate EXPAND + ARRAY_ROT. The phase z is stored in the instruction math payload.",
+            "operands": "axis_1, math.weight_re, math.weight_im"
+        },
+        "OP_ARRAY_U2": {
+            "category": "Array",
+            "summary": "Fused single-axis 2x2 unitary gate from ConstantPool.",
+            "detail": "Applies a precomputed 2x2 unitary matrix to all amplitude pairs on one virtual axis in a single butterfly sweep. The pass precomputes 4 matrices (one per incoming Pauli frame state: I, X, Z, Y) to eliminate runtime branching. Replaces sequences of ARRAY_H, ARRAY_S, ARRAY_ROT, etc. on the same axis.",
+            "operands": "axis_1, u2.cp_idx"
+        },
+        "OP_ARRAY_U4": {
+            "category": "Array",
+            "summary": "Fused 2-axis 4x4 unitary gate from ConstantPool.",
+            "detail": "Applies a precomputed 4x4 unitary matrix to all blocks of 4 amplitudes spanning two virtual axes in a single array sweep. The pass precomputes 16 matrices (one per incoming Pauli frame state on the two axes) and the corresponding output frame states. Replaces entire tile runs of interleaved 1Q and 2Q operations on a fixed axis pair.",
+            "operands": "axis_1 (lo), axis_2 (hi), u4.cp_idx"
+        }
+    },
+    "hir_ops": {
+        "T_GATE": {
+            "category": "Non-Clifford",
+            "summary": "T or T-dagger gate: pi/8 phase rotation on a Pauli product.",
+            "detail": "The primary non-Clifford operation. Applies exp(i*pi/8 * P) where P is the Pauli product shown (e.g. +X0*Z1). T_DAG applies the conjugate rotation. These cannot be absorbed into the offline Clifford frame U_C and are passed through to the back-end.",
+            "display": [
+                "T",
+                "T_DAG"
+            ]
+        },
+        "MEASURE": {
+            "category": "Measurement",
+            "summary": "Destructive measurement of a Pauli observable.",
+            "detail": "Measures the Pauli product shown (e.g. +X0, -Z0*Z1) and stores the outcome in the measurement record. The Pauli is the effective observable after the Heisenberg mapping U_C^dag P U_C -- it may differ from the original circuit's measurement basis.",
+            "display": [
+                "MEASURE"
+            ]
+        },
+        "CONDITIONAL_PAULI": {
+            "category": "Feedback",
+            "summary": "Classical feedback: apply Pauli correction conditioned on a measurement.",
+            "detail": "If the referenced measurement record entry is 1, applies the shown Pauli product to the frame. Implements feed-forward operations like teleportation corrections and QEC feedback.",
+            "display": [
+                "IF",
+                "THEN"
+            ]
+        },
+        "NOISE": {
+            "category": "Noise",
+            "summary": "Stochastic Pauli noise channel.",
+            "detail": "Represents a noise process (depolarizing, dephasing, etc.) that may randomly apply a Pauli operator. References a NoiseSite side-table with the channel probabilities.",
+            "display": [
+                "NOISE"
+            ]
+        },
+        "READOUT_NOISE": {
+            "category": "Noise",
+            "summary": "Classical bit-flip noise on a measurement result.",
+            "detail": "Models measurement readout errors as a classical bit-flip probability applied to the measurement record after the quantum measurement.",
+            "display": [
+                "READOUT_NOISE"
+            ]
+        },
+        "DETECTOR": {
+            "category": "QEC",
+            "summary": "Detector: parity check over measurement records.",
+            "detail": "Defines a parity check (XOR) over a set of measurement record entries. In error correction, detectors flag syndrome changes between rounds.",
+            "display": [
+                "DETECTOR"
+            ]
+        },
+        "OBSERVABLE": {
+            "category": "QEC",
+            "summary": "Logical observable accumulator.",
+            "detail": "Accumulates measurement record parities into a logical observable for error correction tracking.",
+            "display": [
+                "OBSERVABLE"
+            ]
+        },
+        "PHASE_ROTATION": {
+            "category": "Non-Clifford",
+            "summary": "Continuous Z-rotation by angle alpha (half-turns) on a Pauli product.",
+            "detail": "Applies exp(-i*alpha*pi/2 * P) where P is the rewound Pauli product and alpha is in half-turn units. The front-end factors out the global phase e^{-i*alpha*pi/2} into global_weight, leaving only the relative phase diag(1, e^{i*alpha*pi}) for the VM. All single-qubit rotations (R_X, R_Y, R_Z, U3) and multi-qubit Pauli rotations (R_XX, R_YY, R_ZZ, R_PAULI) are reduced to this single HIR type via Clifford absorption.",
+            "display": [
+                "PHASE_ROTATION"
+            ]
+        },
+        "EXP_VAL": {
+            "category": "Measurement",
+            "summary": "Non-destructive expectation value of a rewound Pauli product.",
+            "detail": "Evaluates <P> for the rewound Pauli product P at the point in the circuit where the probe appears. Does not collapse the state, mutate the Pauli frame, or affect measurement/detector/observable records. Each probe produces one float64 result in [-1, 1] indexed by exp_val_idx.",
+            "display": [
+                "EXP_VAL"
+            ]
+        }
+    }
+}
