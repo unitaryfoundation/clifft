@@ -530,11 +530,18 @@ TEST_CASE("Frontend: EXP_VAL inversion parity flips sign", "[frontend][exp_val]"
 
 TEST_CASE("Frontend: accepts circuits above the old fixed mask width", "[frontend]") {
     // Circuits above kMaxInlineQubits used to throw at trace(). With
-    // runtime-width Pauli mask storage, trace() now accepts any width;
-    // the bytecode-axis ceiling is enforced later by lower().
+    // runtime-width Pauli mask storage, trace() accepts widths up to the
+    // VM axis ceiling (65536); the bytecode-axis check is shared between
+    // trace() and lower().
     Circuit circuit;
     circuit.num_qubits = kMaxInlineQubits + 1;
     REQUIRE_NOTHROW(trace(circuit));
+}
+
+TEST_CASE("Frontend: rejects circuits above the VM axis ceiling", "[frontend]") {
+    Circuit circuit;
+    circuit.num_qubits = 65537;
+    REQUIRE_THROWS_AS(trace(circuit), std::runtime_error);
 }
 
 TEST_CASE("Frontend: high-qubit Pauli bits survive the runtime-arena round trip",
