@@ -2,12 +2,16 @@
 
 // Shared test helpers for Clifft Catch2 tests.
 
+#include "clifft/util/mask_view.h"
+
+#include <array>
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/matchers/catch_matchers_floating_point.hpp>
 #include <complex>
 #include <cstddef>
 #include <cstdint>
 #include <numbers>
+#include <span>
 #include <string>
 #include <utility>
 
@@ -24,6 +28,17 @@ inline uint64_t X(size_t qubit) {
 inline uint64_t Z(size_t qubit) {
     return 1ULL << qubit;
 }
+
+/// Test-only single-word mask buffer with implicit conversion to MaskView.
+/// Use as an rvalue argument to HirModule builders: most tests construct
+/// single-bit Paulis like `MaskBuf(X(0))` or `MaskBuf(X(0) | Z(2))`, which
+/// fit in 64 bits. The buffer must outlive any view derived from it.
+struct MaskBuf {
+    std::array<uint64_t, 1> data;
+    constexpr MaskBuf() : data{0} {}
+    constexpr MaskBuf(uint64_t low) : data{low} {}                             // NOLINT
+    constexpr operator MaskView() const { return MaskView{std::span(data)}; }  // NOLINT
+};
 
 // Convert a Pauli string like "XYZ" to (destab_mask, stab_mask) pair.
 // Qubit 0 is the rightmost character: "XYZ" means X on q2, Y on q1, Z on q0.
@@ -64,4 +79,47 @@ inline void check_complex(std::complex<double> actual, std::complex<double> expe
 }
 
 }  // namespace test
+
+/// Compare a MaskView to a fixed-width BitMask<N>. The two may have
+/// different word counts; trailing words of either side must be zero.
+template <size_t N>
+inline bool operator==(MaskView v, const BitMask<N>& m) {
+    auto vm = view(m);
+    uint32_t common = std::min(v.num_words(), vm.num_words());
+    for (uint32_t i = 0; i < common; ++i) {
+        if (v.words[i] != vm.words[i])
+            return false;
+    }
+    for (uint32_t i = common; i < v.num_words(); ++i) {
+        if (v.words[i] != 0)
+            return false;
+    }
+    for (uint32_t i = common; i < vm.num_words(); ++i) {
+        if (vm.words[i] != 0)
+            return false;
+    }
+    return true;
+}
+template <size_t N>
+inline bool operator==(const BitMask<N>& m, MaskView v) {
+    return v == m;
+}
+
+/// Compare a runtime-width MaskView to a uint64_t (interpreted as the
+/// lower 64 bits, with all higher words required to be zero).
+inline bool operator==(MaskView v, uint64_t expected) {
+    if (v.num_words() == 0)
+        return expected == 0;
+    if (v.words[0] != expected)
+        return false;
+    for (uint32_t i = 1; i < v.num_words(); ++i) {
+        if (v.words[i] != 0)
+            return false;
+    }
+    return true;
+}
+inline bool operator==(uint64_t expected, MaskView v) {
+    return v == expected;
+}
+
 }  // namespace clifft
