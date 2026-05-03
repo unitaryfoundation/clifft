@@ -653,6 +653,94 @@ TEST_CASE("Frontend: high-qubit Paulis preserved across width boundaries",
     check_at(513, 512);  // bit 512 (word 8); 513 qubits => 9-word arena
 }
 
+// =============================================================================
+// Per-op-type rejection at the SVM-frame-width gate
+// =============================================================================
+//
+// Each test traces a minimal circuit that produces one op of a given type
+// touching qubits >= kMaxInlineQubits, asserts that trace() preserves the
+// high-qubit support in the HIR mask, and asserts that lower() refuses to
+// compile because the SVM frame can't yet hold high-qubit state. When PR3
+// migrates the SVM frame to runtime-width storage and lifts the gate, each
+// of these flips into a Stim-oracle equivalence check.
+//
+// Use num_qubits = kMaxInlineQubits + 1 so the high qubit (kMaxInlineQubits)
+// sits exactly at the boundary. q == kMaxInlineQubits = 128 lives in word 2
+// for arena num_words = 3, which is also the first word a fixed-width
+// PauliBitMask would have dropped.
+
+TEST_CASE("Backend: rejects MEASURE above SVM frame width", "[frontend][high_qubit]") {
+    auto circuit = parse("H 128\nM 128");
+    circuit.num_qubits = kMaxInlineQubits + 1;
+    circuit.num_measurements = 1;
+
+    auto hir = trace(circuit);
+    REQUIRE(hir.ops.size() == 1);
+    REQUIRE(hir.ops[0].op_type() == OpType::MEASURE);
+    REQUIRE(hir.destab_mask(hir.ops[0]).bit_get(128));  // X on q128 after H
+
+    REQUIRE_THROWS_AS(lower(hir), std::runtime_error);
+}
+
+TEST_CASE("Backend: rejects MPP above SVM frame width", "[frontend][high_qubit]") {
+    // MPP X63 * X128 spans words 0 and 2 -- exercises the cross-word
+    // build_pauli_string path that fixed-width intermediates would clip.
+    auto circuit = parse("MPP X63*X128");
+    circuit.num_qubits = kMaxInlineQubits + 1;
+    circuit.num_measurements = 1;
+
+    auto hir = trace(circuit);
+    REQUIRE(hir.ops.size() == 1);
+    REQUIRE(hir.ops[0].op_type() == OpType::MEASURE);
+    REQUIRE(hir.destab_mask(hir.ops[0]).bit_get(63));
+    REQUIRE(hir.destab_mask(hir.ops[0]).bit_get(128));
+
+    REQUIRE_THROWS_AS(lower(hir), std::runtime_error);
+}
+
+TEST_CASE("Backend: rejects CONDITIONAL_PAULI above SVM frame width", "[frontend][high_qubit]") {
+    // Classical feedback: M 128 ; CX rec[-1] 128 emits a CONDITIONAL_PAULI.
+    auto circuit = parse("M 128\nCX rec[-1] 128");
+    circuit.num_qubits = kMaxInlineQubits + 1;
+    circuit.num_measurements = 1;
+
+    auto hir = trace(circuit);
+    REQUIRE(hir.ops.size() == 2);
+    REQUIRE(hir.ops[1].op_type() == OpType::CONDITIONAL_PAULI);
+    REQUIRE(hir.destab_mask(hir.ops[1]).bit_get(128));
+
+    REQUIRE_THROWS_AS(lower(hir), std::runtime_error);
+}
+
+TEST_CASE("Backend: rejects NOISE above SVM frame width", "[frontend][high_qubit]") {
+    auto circuit = parse("X_ERROR(0.1) 128");
+    circuit.num_qubits = kMaxInlineQubits + 1;
+
+    auto hir = trace(circuit);
+    REQUIRE(hir.ops.size() == 1);
+    REQUIRE(hir.ops[0].op_type() == OpType::NOISE);
+    // Channel mask must reflect the high-qubit support.
+    REQUIRE(hir.noise_sites.size() == 1);
+    REQUIRE(hir.noise_sites[0].channels.size() == 1);
+    auto channel_view = hir.noise_channel_masks.at(hir.noise_sites[0].channels[0].mask);
+    REQUIRE(channel_view.x().bit_get(128));
+
+    REQUIRE_THROWS_AS(lower(hir), std::runtime_error);
+}
+
+TEST_CASE("Backend: rejects EXP_VAL above SVM frame width", "[frontend][high_qubit]") {
+    auto circuit = parse("EXP_VAL Z128");
+    circuit.num_qubits = kMaxInlineQubits + 1;
+    circuit.num_exp_vals = 1;
+
+    auto hir = trace(circuit);
+    REQUIRE(hir.ops.size() == 1);
+    REQUIRE(hir.ops[0].op_type() == OpType::EXP_VAL);
+    REQUIRE(hir.stab_mask(hir.ops[0]).bit_get(128));
+
+    REQUIRE_THROWS_AS(lower(hir), std::runtime_error);
+}
+
 TEST_CASE("Backend: rejects circuits above the VM axis ceiling", "[frontend]") {
     // Skip trace() because allocating a TableauSimulator for 65k+ qubits
     // is itself prohibitively expensive. The ceiling lives in lower(),
