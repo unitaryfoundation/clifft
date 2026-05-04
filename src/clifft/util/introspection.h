@@ -6,6 +6,7 @@
 #include "clifft/backend/backend.h"
 #include "clifft/frontend/hir.h"
 
+#include <optional>
 #include <string>
 
 namespace clifft {
@@ -16,7 +17,11 @@ std::string format_pauli_mask(PauliMaskView mask);
 
 std::string op_type_to_str(OpType type);
 
-std::string format_hir_op(const HeisenbergOp& op, const HirModule& hir);
+// Format a HIR op as a human-readable string. For mask-carrying ops the
+// caller passes the op's mask via `hir.mask_view(op)`; for non-mask ops
+// (NOISE, READOUT_NOISE, DETECTOR, OBSERVABLE) the caller passes
+// std::nullopt and the mask argument is unused.
+std::string format_hir_op(const HeisenbergOp& op, std::optional<PauliMaskView> mask);
 
 std::string opcode_to_str(Opcode op);
 

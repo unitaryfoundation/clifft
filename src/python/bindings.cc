@@ -370,9 +370,14 @@ NB_MODULE(_clifft_core, m) {
             },
             "Return a JSON-friendly dictionary representation.")
         .def("__str__",
-             [](const PyHeisenbergOp& w) { return clifft::format_hir_op(*w.op, *w.hir); })
+             [](const PyHeisenbergOp& w) {
+                 auto mask =
+                     w.op->has_mask() ? std::optional{w.hir->mask_view(*w.op)} : std::nullopt;
+                 return clifft::format_hir_op(*w.op, mask);
+             })
         .def("__repr__", [](const PyHeisenbergOp& w) {
-            return "<HeisenbergOp: " + clifft::format_hir_op(*w.op, *w.hir) + ">";
+            auto mask = w.op->has_mask() ? std::optional{w.hir->mask_view(*w.op)} : std::nullopt;
+            return "<HeisenbergOp: " + clifft::format_hir_op(*w.op, mask) + ">";
         });
 
     nb::class_<clifft::HirModule>(m, "HirModule", "Heisenberg Intermediate Representation")
@@ -438,8 +443,11 @@ NB_MODULE(_clifft_core, m) {
         .def("__str__",
              [](const clifft::HirModule& h) {
                  std::ostringstream ss;
-                 for (size_t i = 0; i < h.ops.size(); ++i)
-                     ss << i << ": " << clifft::format_hir_op(h.ops[i], h) << "\n";
+                 for (size_t i = 0; i < h.ops.size(); ++i) {
+                     const auto& op = h.ops[i];
+                     auto mask = op.has_mask() ? std::optional{h.mask_view(op)} : std::nullopt;
+                     ss << i << ": " << clifft::format_hir_op(op, mask) << "\n";
+                 }
                  return ss.str();
              })
         .def("__repr__", [](const clifft::HirModule& h) {

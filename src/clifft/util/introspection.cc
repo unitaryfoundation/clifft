@@ -58,21 +58,21 @@ std::string op_type_to_str(OpType type) {
     }
 }
 
-std::string format_hir_op(const HeisenbergOp& op, const HirModule& hir) {
+std::string format_hir_op(const HeisenbergOp& op, std::optional<PauliMaskView> mask) {
     std::ostringstream ss;
     switch (op.op_type()) {
         case OpType::T_GATE:
-            ss << (op.is_dagger() ? "T_DAG " : "T ") << format_pauli_mask(hir.mask_view(op));
+            ss << (op.is_dagger() ? "T_DAG " : "T ") << format_pauli_mask(*mask);
             break;
         case OpType::MEASURE:
-            ss << "MEASURE " << format_pauli_mask(hir.mask_view(op)) << " -> rec["
+            ss << "MEASURE " << format_pauli_mask(*mask) << " -> rec["
                << static_cast<uint32_t>(op.meas_record_idx()) << "]";
             if (op.is_hidden())
                 ss << " (hidden)";
             break;
         case OpType::CONDITIONAL_PAULI:
             ss << "IF rec[" << static_cast<uint32_t>(op.controlling_meas()) << "] THEN "
-               << format_pauli_mask(hir.mask_view(op));
+               << format_pauli_mask(*mask);
             break;
         case OpType::NOISE:
             ss << "NOISE site=" << static_cast<uint32_t>(op.noise_site_idx());
@@ -88,11 +88,10 @@ std::string format_hir_op(const HeisenbergOp& op, const HirModule& hir) {
                << " target_list=" << op.observable_target_list_idx();
             break;
         case OpType::PHASE_ROTATION:
-            ss << "PHASE_ROTATION " << format_pauli_mask(hir.mask_view(op))
-               << " alpha=" << op.alpha();
+            ss << "PHASE_ROTATION " << format_pauli_mask(*mask) << " alpha=" << op.alpha();
             break;
         case OpType::EXP_VAL:
-            ss << "EXP_VAL " << format_pauli_mask(hir.mask_view(op)) << " -> exp["
+            ss << "EXP_VAL " << format_pauli_mask(*mask) << " -> exp["
                << static_cast<uint32_t>(op.exp_val_idx()) << "]";
             break;
         case OpType::NUM_OP_TYPES:
