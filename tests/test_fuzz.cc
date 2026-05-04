@@ -2,9 +2,9 @@
 //
 // Sweeps n ∈ {32, 64, 100, 128} and touched qubits ∈ {0, 63, 64, n-1}
 // over deterministic patterns that exercise frontend → optimizer → backend
-// → SVM at word boundaries. Designed to catch the kind of word-boundary
-// truncation bugs PR2 found in PauliBitMask scratch buffers (frontend,
-// localize_pauli, lower() identity check, peephole final tableau).
+// → SVM at word boundaries. Catches the class of word-boundary bug where
+// a scratch buffer or scalar mask field clips bits at qubit 64+ -- the
+// runtime-width arena and Pauli frame must round-trip every set bit.
 //
 // Each pattern uses an outcome that is deterministic conditional on the
 // circuit, so we can assert exact equality across all shots without a
@@ -32,8 +32,9 @@ using namespace clifft;
 
 namespace {
 
-// Boundary widths the harness sweeps. 64 and 128 lie exactly on word /
-// kMaxInlineQubits boundaries; 32 and 100 are non-boundary controls.
+// Boundary widths the harness sweeps. 64 lies exactly on the 64-bit
+// word boundary, 128 on the 2-word boundary; 32 and 100 are non-boundary
+// controls.
 constexpr uint32_t kSweep[] = {32, 64, 100, 128};
 
 // Touched-qubit selection. Always include 0; add 63 (last bit of word 0),

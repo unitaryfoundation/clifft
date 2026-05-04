@@ -129,9 +129,7 @@ void apply_virtual_s_downstream(HirModule& hir, size_t start_idx, MaskView x_v, 
 
     // 2. Final Tableau: U_C' = U_C S (requires inverted dagger flag)
     // Map P_virt forward through U_C to get P_phys in O(n^2), then
-    // conjugate all physical rows by P_phys in O(n^2). All scratch is
-    // runtime-width to avoid the kMaxInlineQubits truncation bug that
-    // would silently miscompile S/S_dag fusions on high-qubit axes.
+    // conjugate all physical rows by P_phys in O(n^2).
     if (hir.final_tableau.has_value()) {
         stim::Tableau<kStimWidth>& tab = *hir.final_tableau;
         const size_t words = std::min<size_t>((tab.num_qubits + 63) / 64, x_v.num_words());

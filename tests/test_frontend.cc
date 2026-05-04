@@ -549,14 +549,11 @@ TEST_CASE("Frontend: rejects circuits above the VM axis ceiling", "[frontend]") 
 
 TEST_CASE("Frontend: high-qubit Pauli bits survive the runtime-arena round trip",
           "[frontend][high_qubit]") {
-    // Regression: with the old fixed-width PauliBitMask intermediate, any
-    // Pauli touching qubits >= 128 was silently truncated by
-    // the frontend before reaching the arena. This test traces a circuit
-    // wider than that bound and asserts the high-qubit bits round-trip
-    // intact through trace(). lower() at this width is gated until the
-    // SVM frame migration; the gate is checked in a separate case below.
+    // Trace a circuit with Paulis on qubits 150 and 199 -- a fixed-width
+    // 128-bit scratch buffer anywhere in the trace path would silently
+    // drop these bits before they reach the arena.
 
-    const uint32_t kHigh = 150;  // > 128 (128)
+    const uint32_t kHigh = 150;
     REQUIRE(kHigh > 128);
 
     auto circuit = parse(R"(
@@ -592,15 +589,12 @@ TEST_CASE("Backend: accepts circuits above the old 128 boundary", "[frontend][hi
 
 TEST_CASE("Backend: high-axis measurement is not silently demoted to identity",
           "[frontend][high_qubit]") {
-    // Regression for the lower() identity-Pauli check that previously
-    // copied the mapped Pauli through PauliBitMask before testing
-    // is_zero(). At qubit positions in the upper half of word[1] (still
-    // within the 128 gate, so lower() runs) this would
-    // have been correct, but the same pattern was wrong above the gate.
-    // The fix makes the check walk full mapped width directly; this
-    // test exercises a measurement at the high end of the supported
-    // range to lock down that the resulting opcode is *not* a static
-    // identity measurement.
+    // Lower a measurement on q127 (the high end of the first 128-qubit
+    // band) and verify the result is a real measurement, not a static
+    // identity. The identity check must walk the full mask width; if it
+    // ever reverted to a fixed-width scratch buffer it would treat any
+    // high-qubit-only support as zero and silently emit a deterministic
+    // measurement.
     auto circuit = parse(R"(
         H 127
         M 127
@@ -659,14 +653,12 @@ TEST_CASE("Frontend: high-qubit Paulis preserved across width boundaries",
 // =============================================================================
 //
 // Each test traces a minimal circuit that produces one op of a given type
-// touching qubit 128 (just past the old fixed-width gate), asserts trace()
-// preserves the high-qubit support in the HIR mask, lowers, and (for
-// deterministic patterns) samples to confirm the runtime path produces the
-// correct outcome -- not a silently-dropped bit.
+// touching qubit 128, asserts trace() preserves the high-qubit support in
+// the HIR mask, lowers, and (for deterministic patterns) samples to confirm
+// the runtime path produces the correct outcome.
 //
-// num_qubits = 129 = 129 so the high qubit lives in word 2
-// of the arena (num_words = 3), the first word a fixed-width PauliBitMask
-// would have dropped.
+// num_qubits = 129 puts q128 in word 2 of the arena (num_words = 3) -- a
+// fixed-width 128-bit scratch buffer anywhere in the path would drop it.
 
 TEST_CASE("Backend: MEASURE at qubit 128 round-trips through SVM", "[frontend][high_qubit]") {
     auto circuit = parse("H 128\nM 128");

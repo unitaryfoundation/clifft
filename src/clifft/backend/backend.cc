@@ -420,10 +420,6 @@ LocalizationResult localize_pauli(CompilerContext& ctx,
     const uint32_t n = ctx.reg_manager.num_qubits();
     const uint32_t words = (n + 63) / 64;
 
-    // Runtime-width scratch storage. PauliBitMask (BitMask<128>) would
-    // truncate the input for circuits with n > kMaxInlineQubits, hiding
-    // bits in qubits 128+ and producing a spuriously-empty Pauli that
-    // tripped the identity-Pauli assertion below.
     std::vector<uint64_t> x_bits(words, 0);
     std::vector<uint64_t> z_bits(words, 0);
     MutableMaskView x_view{std::span<uint64_t>(x_bits)};
@@ -639,10 +635,8 @@ CompiledModule lower(const HirModule& hir, std::span<const uint8_t> postselectio
                 auto p_v =
                     map_to_virtual(ctx, hir.destab_mask(op), hir.stab_mask(op), hir.sign(op), n);
 
-                // Identity Pauli check: walk the full mapped width directly,
-                // not through a fixed-width PauliBitMask intermediate (which
-                // would silently treat any high-qubit-only support as zero
-                // and emit a deterministic measurement).
+                // Identity check: any nonzero word in either x or z makes
+                // the Pauli non-identity. Word count is (n + 63) / 64.
                 const uint32_t pv_words = (n + 63) / 64;
                 bool is_identity = true;
                 for (uint32_t w = 0; w < pv_words; ++w) {

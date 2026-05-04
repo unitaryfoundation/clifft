@@ -156,10 +156,9 @@ TEST_CASE("Bench: surface d5 r5 high-noise APPLY_PAULI heavy", "[bench]") {
 }
 
 // ---------------------------------------------------------------------------
-// Surface code d=11 r=11 p=1e-3: above the old kMaxInlineQubits ceiling.
-// ~242 qubits force the runtime-width Pauli mask path; this bench proves
-// the migrated arenas + frame storage handle larger codes end-to-end and
-// gives a regression baseline for further perf work.
+// Surface code d=11 r=11 p=1e-3: ~242 qubits, two 64-bit Pauli mask
+// words. Sits above the single-word frame regime to give a regression
+// baseline for the runtime-width path.
 // ---------------------------------------------------------------------------
 TEST_CASE("Bench: surface d11 r11 p1e-3 sampling 1000 shots", "[bench]") {
     auto mod = compile_text(surface_code_text(11, 11, 1e-3));
