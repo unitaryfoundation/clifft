@@ -22,6 +22,7 @@
 #include "clifft/optimizer/peephole.h"
 #include "clifft/svm/svm.h"
 
+#include <algorithm>
 #include <catch2/catch_test_macros.hpp>
 #include <cstdint>
 #include <sstream>
@@ -32,30 +33,41 @@ using namespace clifft;
 
 namespace {
 
-// Boundary widths the harness sweeps. 64 lies exactly on the 64-bit
-// word boundary, 128 on the 2-word boundary; 32 and 100 are non-boundary
+// Boundary widths the harness sweeps. 64 lies on the 1-word boundary,
+// 128 on the 2-word boundary, and 129 / 200 / 300 / 500 / 1000 cover
+// the multi-word generic-fallback path; 32 and 100 are non-boundary
 // controls.
-constexpr uint32_t kSweep[] = {32, 64, 100, 128};
+constexpr uint32_t kSweep[] = {32, 64, 100, 128, 129, 150, 200, 300, 500, 1000};
 
-// Touched-qubit selection. Always include 0; add 63 (last bit of word 0),
-// 64 (first bit of word 1), and n-1 (last bit of the active region).
+// Touched-qubit selection. Always include 0; add the last bit of words
+// 0 (63), 1 (127), and any specific within-range word boundary that
+// fixed-width scratch buffers historically clipped (64, 128). Always
+// include n-1 to land on the last live qubit. Suppress duplicates.
 std::vector<uint32_t> touched_qubits(uint32_t n) {
-    std::vector<uint32_t> out{0};
-    if (n > 63 && 63u != 0)
-        out.push_back(63);
-    if (n > 64)
-        out.push_back(64);
-    if (n - 1 != 0 && n - 1 != 63 && n - 1 != 64)
-        out.push_back(n - 1);
+    std::vector<uint32_t> out;
+    auto push_unique = [&](uint32_t q) {
+        if (q < n && std::find(out.begin(), out.end(), q) == out.end())
+            out.push_back(q);
+    };
+    push_unique(0);
+    push_unique(63);
+    push_unique(64);
+    push_unique(127);
+    push_unique(128);
+    push_unique(n - 1);
     return out;
 }
 
-// Cross-word pairs that span words 0 and 1 on the chosen width.
+// Cross-word pairs that exercise inter-word interactions in the live
+// region. (63, 64) straddles the first word boundary, (127, 128)
+// straddles the second, and (0, n - 1) spans the live region.
 std::vector<std::pair<uint32_t, uint32_t>> cross_word_pairs(uint32_t n) {
     std::vector<std::pair<uint32_t, uint32_t>> out;
     if (n > 64)
         out.emplace_back(63, 64);
-    if (n > 64)
+    if (n > 128)
+        out.emplace_back(127, 128);
+    if (n > 1)
         out.emplace_back(0, n - 1);
     return out;
 }

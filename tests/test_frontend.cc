@@ -729,6 +729,16 @@ TEST_CASE("Backend: CONDITIONAL_PAULI at qubit 128 round-trips", "[frontend][hig
     REQUIRE(hir.stab_mask(*cond).bit_get(128));
 
     auto mod = lower(hir);
+    // The compiled APPLY_PAULI mask must still carry q128 in word 2.
+    // map_to_virtual applies V_cum to the rewound Pauli, so the bit
+    // may end up in either X or Z depending on the unflushed gate
+    // state -- both are valid. The point is that word 2 is non-zero;
+    // a fixed-width 128-bit scratch buffer would have dropped it.
+    REQUIRE(mod.constant_pool.pauli_masks.size() >= 1);
+    auto cp_mask = mod.constant_pool.pauli_masks.at(PauliMaskHandle{0});
+    REQUIRE(cp_mask.x().num_words() >= 3);
+    REQUIRE((cp_mask.x().bit_get(128) || cp_mask.z().bit_get(128)));
+
     auto result = sample(mod, 32, 0xC11FF7);
     REQUIRE(result.measurements.size() == 64);
     // Second measurement (offset 1 within each shot of 2) is always 0.
@@ -753,6 +763,14 @@ TEST_CASE("Backend: NOISE at qubit 128 round-trips", "[frontend][high_qubit]") {
     REQUIRE(channel_view.x().bit_get(128));
 
     auto mod = lower(hir);
+    // The compiled noise channel must still carry q128 in word 2.
+    REQUIRE(mod.constant_pool.noise_sites.size() == 1);
+    REQUIRE(mod.constant_pool.noise_sites[0].channels.size() == 1);
+    auto cp_channel =
+        mod.constant_pool.noise_channel_masks.at(mod.constant_pool.noise_sites[0].channels[0].mask);
+    REQUIRE(cp_channel.x().num_words() >= 3);
+    REQUIRE(cp_channel.x().bit_get(128));
+
     auto result = sample(mod, 32, 0xC11FF7);
     for (auto b : result.measurements) {
         REQUIRE(b == 1);
@@ -771,6 +789,12 @@ TEST_CASE("Backend: EXP_VAL at qubit 128 round-trips", "[frontend][high_qubit]")
     REQUIRE(hir.stab_mask(hir.ops[0]).bit_get(128));
 
     auto mod = lower(hir);
+    // The compiled EXP_VAL mask must still carry q128 in word 2.
+    REQUIRE(mod.constant_pool.exp_val_masks.size() >= 1);
+    auto cp_exp_mask = mod.constant_pool.exp_val_masks.at(PauliMaskHandle{0});
+    REQUIRE(cp_exp_mask.z().num_words() >= 3);
+    REQUIRE(cp_exp_mask.z().bit_get(128));
+
     auto result = sample(mod, 32, 0xC11FF7);
     REQUIRE(result.exp_vals.size() == 32);
     for (auto v : result.exp_vals) {
