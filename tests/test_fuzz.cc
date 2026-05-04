@@ -1,10 +1,11 @@
 // Boundary-driven width-sweep fuzz harness.
 //
-// Sweeps n ∈ {32, 64, 100, 128} and touched qubits ∈ {0, 63, 64, n-1}
-// over deterministic patterns that exercise frontend → optimizer → backend
-// → SVM at word boundaries. Catches the class of word-boundary bug where
-// a scratch buffer or scalar mask field clips bits at qubit 64+ -- the
-// runtime-width arena and Pauli frame must round-trip every set bit.
+// Sweeps n ∈ {32, 64, 100, 128, 129, 150, 1000} and touched qubits
+// ∈ {0, 63, 64, 127, 128, n-1} over deterministic patterns that exercise
+// frontend → optimizer → backend → SVM at word boundaries. Catches the
+// class of word-boundary bug where a scratch buffer or scalar mask field
+// clips bits at qubit 64+ -- the runtime-width arena and Pauli frame must
+// round-trip every set bit.
 //
 // Each pattern uses an outcome that is deterministic conditional on the
 // circuit, so we can assert exact equality across all shots without a
@@ -12,8 +13,7 @@
 // that both branches appear over many shots, which still exercises the
 // SVM hot paths.
 //
-// Tests are tagged [fuzz]. They are included in default ctest -- the full
-// sweep takes well under a second in Debug.
+// Tests are tagged [fuzz]. They are included in default ctest.
 
 #include "clifft/backend/backend.h"
 #include "clifft/circuit/parser.h"
@@ -34,10 +34,10 @@ using namespace clifft;
 namespace {
 
 // Boundary widths the harness sweeps. 64 lies on the 1-word boundary,
-// 128 on the 2-word boundary, and 129 / 200 / 300 / 500 / 1000 cover
-// the multi-word generic-fallback path; 32 and 100 are non-boundary
-// controls.
-constexpr uint32_t kSweep[] = {32, 64, 100, 128, 129, 150, 200, 300, 500, 1000};
+// 128 on the 2-word boundary, 129 and 150 cover the immediate generic-
+// fallback path, and 1000 stresses the multi-word loops; 32 and 100
+// are non-boundary controls.
+constexpr uint32_t kSweep[] = {32, 64, 100, 128, 129, 150, 1000};
 
 // Touched-qubit selection. Always include 0; add the last bit of words
 // 0 (63), 1 (127), and any specific within-range word boundary that

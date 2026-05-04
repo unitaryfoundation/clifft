@@ -57,13 +57,6 @@ NB_MODULE(_clifft_core, m) {
     m.def("version", []() { return clifft::kVersion; }, "Return the Clifft version string");
 
     m.def(
-        "max_sim_qubits", []() { return uint32_t{1u << 16}; },
-        "Return the maximum number of qubits supported by the simulator.\n\n"
-        "The downstream VM uses uint16_t axis operands, so circuits above 65536 "
-        "qubits cannot be lowered. Heisenberg IR storage and the Pauli frame are "
-        "now sized at runtime, so this is the only remaining hard ceiling.");
-
-    m.def(
         "svm_backend", []() { return clifft::svm_backend(); },
         "Return the active SVM dispatch backend: 'avx512', 'avx2', or 'scalar'.\n\n"
         "Reflects the resolved runtime kernel path or CLIFFT_FORCE_ISA environment override. "

@@ -18,12 +18,6 @@ def test_version() -> None:
     assert len(parts) >= 2, f"Expected semver-like version, got: {v}"
 
 
-def test_max_sim_qubits() -> None:
-    """The simulator's only hard ceiling is the 65,536-qubit VM-axis bound."""
-    max_qubits = clifft.max_sim_qubits()
-    assert max_qubits == 65_536
-
-
 def test_module_version_attribute() -> None:
     """Test that __version__ matches version()."""
     assert clifft.__version__ == clifft.version()

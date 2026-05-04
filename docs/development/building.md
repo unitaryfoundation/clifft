@@ -110,7 +110,7 @@ For optimized source builds, `Release` and `RelWithDebInfo` default to native CP
     Stim (a dependency) has many source files. Subsequent builds are incremental.
     If you hit memory pressure, reduce parallelism: `cmake --build build -j1`
 
-## Qubit ceiling
+## Qubit limit
 
 Clifft sizes Pauli mask storage and the SVM Pauli frame at runtime. The
 only remaining hard limit is the bytecode VM axis operand width: axes

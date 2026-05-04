@@ -38,7 +38,7 @@ The fixed instruction size ensures L1 cache alignment and predictable memory acc
 
 The VM allocates a single contiguous complex array of size $2^{k_{\text{max}}}$ at program start. This array is never resized during execution. When measurements reduce the active set, the array is logically compacted (the compiler emits SWAP instructions to route measured qubits to the top axis before measurement).
 
-The Pauli frame ($P$) is tracked as a pair of $n$-bit masks held in `std::vector<uint64_t>` sized at construction. Single-bit reads/writes at fixed indices generate the same machine code the inline arrays did, while `apply_pauli_to_frame` and `exec_exp_val` iterate `ceil(n/64)` 64-bit words.
+The Pauli frame ($P$) is tracked as a pair of $n$-bit masks held in 64-bit-word arrays sized to $\lceil n/64 \rceil$ words at state construction. Single-bit reads and writes at known indices compile to a single shifted load or AND/OR; bulk operations iterate the word array.
 
 ## Python Bindings
 
