@@ -24,6 +24,7 @@ add_executable(clifft_tests
     test_importance_sampling.cc
     test_exp_value.cc
     test_openmp.cc
+    test_fuzz.cc
 )
 
 target_link_libraries(clifft_tests PRIVATE
