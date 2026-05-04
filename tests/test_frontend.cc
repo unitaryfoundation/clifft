@@ -21,9 +21,12 @@ using namespace clifft;
 using clifft::test::X;
 using clifft::test::Z;
 
+// Reference channel masks for the noise tests. These are 2-qubit circuits,
+// so the low uint64_t word captures the full mask; comparisons go through
+// operator==(MaskView, uint64_t) in test_helpers.h.
 struct NoiseChannelMasks {
-    PauliBitMask destab_mask;
-    PauliBitMask stab_mask;
+    uint64_t destab_mask;
+    uint64_t stab_mask;
     double prob;
 };
 
@@ -36,8 +39,7 @@ static NoiseChannelMasks rewind_single_pauli_reference(
         pauli.zs[qubit] = true;
 
     auto rewound = sim.inv_state(pauli);
-    uint32_t n = sim.inv_state.num_qubits;
-    return {stim_to_bitmask(rewound.xs, n), stim_to_bitmask(rewound.zs, n), prob};
+    return {rewound.xs.u64[0], rewound.zs.u64[0], prob};
 }
 
 static NoiseChannelMasks rewind_two_qubit_pauli_reference(
@@ -56,8 +58,7 @@ static NoiseChannelMasks rewind_two_qubit_pauli_reference(
         pauli.zs[q2] = true;
 
     auto rewound = sim.inv_state(pauli);
-    uint32_t n = sim.inv_state.num_qubits;
-    return {stim_to_bitmask(rewound.xs, n), stim_to_bitmask(rewound.zs, n), prob};
+    return {rewound.xs.u64[0], rewound.zs.u64[0], prob};
 }
 
 TEST_CASE("Frontend: identity circuit produces empty HIR", "[frontend]") {
@@ -531,12 +532,12 @@ TEST_CASE("Frontend: EXP_VAL inversion parity flips sign", "[frontend][exp_val]"
 }
 
 TEST_CASE("Frontend: accepts circuits above the old fixed mask width", "[frontend]") {
-    // Circuits above kMaxInlineQubits used to throw at trace(). With
+    // Circuits above 128 used to throw at trace(). With
     // runtime-width Pauli mask storage, trace() accepts widths up to the
     // VM axis ceiling (65536); the bytecode-axis check is shared between
     // trace() and lower().
     Circuit circuit;
-    circuit.num_qubits = kMaxInlineQubits + 1;
+    circuit.num_qubits = 129;
     REQUIRE_NOTHROW(trace(circuit));
 }
 
@@ -549,14 +550,14 @@ TEST_CASE("Frontend: rejects circuits above the VM axis ceiling", "[frontend]") 
 TEST_CASE("Frontend: high-qubit Pauli bits survive the runtime-arena round trip",
           "[frontend][high_qubit]") {
     // Regression: with the old fixed-width PauliBitMask intermediate, any
-    // Pauli touching qubits >= kMaxInlineQubits was silently truncated by
+    // Pauli touching qubits >= 128 was silently truncated by
     // the frontend before reaching the arena. This test traces a circuit
     // wider than that bound and asserts the high-qubit bits round-trip
     // intact through trace(). lower() at this width is gated until the
     // SVM frame migration; the gate is checked in a separate case below.
 
-    const uint32_t kHigh = 150;  // > kMaxInlineQubits (128)
-    REQUIRE(kHigh > kMaxInlineQubits);
+    const uint32_t kHigh = 150;  // > 128 (128)
+    REQUIRE(kHigh > 128);
 
     auto circuit = parse(R"(
         H 150
@@ -580,13 +581,12 @@ TEST_CASE("Frontend: high-qubit Pauli bits survive the runtime-arena round trip"
     REQUIRE(hir.destab_mask(hir.ops[1]).bit_get(199));
 }
 
-TEST_CASE("Backend: accepts circuits above the old kMaxInlineQubits boundary",
-          "[frontend][high_qubit]") {
+TEST_CASE("Backend: accepts circuits above the old 128 boundary", "[frontend][high_qubit]") {
     // Smoke test that the SVM-frame-width gate has been lifted. The HIR is
     // empty so trace/lower don't even need to materialize ops; we just want
     // lower() to succeed at the boundary that previously rejected.
     HirModule hir;
-    hir.num_qubits = kMaxInlineQubits + 1;
+    hir.num_qubits = 129;
     REQUIRE_NOTHROW(lower(hir));
 }
 
@@ -595,7 +595,7 @@ TEST_CASE("Backend: high-axis measurement is not silently demoted to identity",
     // Regression for the lower() identity-Pauli check that previously
     // copied the mapped Pauli through PauliBitMask before testing
     // is_zero(). At qubit positions in the upper half of word[1] (still
-    // within the kMaxInlineQubits gate, so lower() runs) this would
+    // within the 128 gate, so lower() runs) this would
     // have been correct, but the same pattern was wrong above the gate.
     // The fix makes the check walk full mapped width directly; this
     // test exercises a measurement at the high end of the supported
@@ -629,7 +629,7 @@ TEST_CASE("Backend: high-axis measurement is not silently demoted to identity",
 
 TEST_CASE("Frontend: high-qubit Paulis preserved across width boundaries",
           "[frontend][high_qubit]") {
-    // Walk a few values straddling word and the old kMaxInlineQubits limit.
+    // Walk a few values straddling word and the old 128 limit.
     auto check_at = [](uint32_t n, uint32_t high_q) {
         Circuit circuit;
         circuit.num_qubits = n;
@@ -655,7 +655,7 @@ TEST_CASE("Frontend: high-qubit Paulis preserved across width boundaries",
 }
 
 // =============================================================================
-// Per-op-type end-to-end at qubit > kMaxInlineQubits
+// Per-op-type end-to-end at qubit > 128
 // =============================================================================
 //
 // Each test traces a minimal circuit that produces one op of a given type
@@ -664,14 +664,13 @@ TEST_CASE("Frontend: high-qubit Paulis preserved across width boundaries",
 // deterministic patterns) samples to confirm the runtime path produces the
 // correct outcome -- not a silently-dropped bit.
 //
-// num_qubits = kMaxInlineQubits + 1 = 129 so the high qubit lives in word 2
+// num_qubits = 129 = 129 so the high qubit lives in word 2
 // of the arena (num_words = 3), the first word a fixed-width PauliBitMask
 // would have dropped.
 
-TEST_CASE("Backend: MEASURE at qubit kMaxInlineQubits round-trips through SVM",
-          "[frontend][high_qubit]") {
+TEST_CASE("Backend: MEASURE at qubit 128 round-trips through SVM", "[frontend][high_qubit]") {
     auto circuit = parse("H 128\nM 128");
-    circuit.num_qubits = kMaxInlineQubits + 1;
+    circuit.num_qubits = 129;
     circuit.num_measurements = 1;
 
     auto hir = trace(circuit);
@@ -694,13 +693,13 @@ TEST_CASE("Backend: MEASURE at qubit kMaxInlineQubits round-trips through SVM",
     REQUIRE(ones > 0);
 }
 
-TEST_CASE("Backend: MPP across kMaxInlineQubits boundary round-trips", "[frontend][high_qubit]") {
+TEST_CASE("Backend: MPP across 128 boundary round-trips", "[frontend][high_qubit]") {
     // MPP X63 * X128 spans words 0 and 2 -- exercises the cross-word
     // build_pauli_string path that fixed-width intermediates would clip.
     // After H 63; H 128 the prepared state is |+>_63 |+>_128 and X*X
     // has eigenvalue +1, so the MPP outcome is deterministically 0.
     auto circuit = parse("H 63\nH 128\nMPP X63*X128");
-    circuit.num_qubits = kMaxInlineQubits + 1;
+    circuit.num_qubits = 129;
     circuit.num_measurements = 1;
 
     auto hir = trace(circuit);
@@ -720,13 +719,12 @@ TEST_CASE("Backend: MPP across kMaxInlineQubits boundary round-trips", "[fronten
     }
 }
 
-TEST_CASE("Backend: CONDITIONAL_PAULI at qubit kMaxInlineQubits round-trips",
-          "[frontend][high_qubit]") {
+TEST_CASE("Backend: CONDITIONAL_PAULI at qubit 128 round-trips", "[frontend][high_qubit]") {
     // H 128; M 128; CX rec[-1] 128; M 128 -- the second measurement is
     // deterministically 0 because the conditional CX uncomputes the random
     // first-measurement outcome.
     auto circuit = parse("H 128\nM 128\nCX rec[-1] 128\nM 128");
-    circuit.num_qubits = kMaxInlineQubits + 1;
+    circuit.num_qubits = 129;
     circuit.num_measurements = 2;
 
     auto hir = trace(circuit);
@@ -747,11 +745,11 @@ TEST_CASE("Backend: CONDITIONAL_PAULI at qubit kMaxInlineQubits round-trips",
     }
 }
 
-TEST_CASE("Backend: NOISE at qubit kMaxInlineQubits round-trips", "[frontend][high_qubit]") {
+TEST_CASE("Backend: NOISE at qubit 128 round-trips", "[frontend][high_qubit]") {
     // X_ERROR(1.0) 128 deterministically flips q128, so the subsequent
     // M 128 always reads 1.
     auto circuit = parse("X_ERROR(1.0) 128\nM 128");
-    circuit.num_qubits = kMaxInlineQubits + 1;
+    circuit.num_qubits = 129;
     circuit.num_measurements = 1;
 
     auto hir = trace(circuit);
@@ -769,10 +767,10 @@ TEST_CASE("Backend: NOISE at qubit kMaxInlineQubits round-trips", "[frontend][hi
     }
 }
 
-TEST_CASE("Backend: EXP_VAL at qubit kMaxInlineQubits round-trips", "[frontend][high_qubit]") {
+TEST_CASE("Backend: EXP_VAL at qubit 128 round-trips", "[frontend][high_qubit]") {
     // EXP_VAL Z128 on |0> always yields +1.
     auto circuit = parse("EXP_VAL Z128");
-    circuit.num_qubits = kMaxInlineQubits + 1;
+    circuit.num_qubits = 129;
     circuit.num_exp_vals = 1;
 
     auto hir = trace(circuit);

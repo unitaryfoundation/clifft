@@ -140,21 +140,6 @@ inline void check_complex(std::complex<double> actual, std::complex<double> expe
 
 }  // namespace test
 
-/// Truncating copy of a Stim PauliString row into a fixed-width
-/// BitMask<kMaxInlineQubits>. Bits beyond kMaxInlineQubits are dropped.
-/// Test-only helper for building expected reference masks alongside the
-/// runtime-width arena. Sits in `clifft::` (not `clifft::test`) so call
-/// sites can use it unqualified after `using namespace clifft;`.
-inline BitMask<kMaxInlineQubits> stim_to_bitmask(const stim::simd_bits_range_ref<kStimWidth>& bits,
-                                                 uint32_t n) {
-    BitMask<kMaxInlineQubits> m;
-    uint32_t words = (n + 63) / 64;
-    for (uint32_t w = 0; w < words && w < kMaxInlineWords; ++w) {
-        m.w[w] = bits.u64[w];
-    }
-    return m;
-}
-
 /// Compare a MaskView to a fixed-width BitMask<N>. The two may have
 /// different word counts; trailing words of either side must be zero.
 template <size_t N>

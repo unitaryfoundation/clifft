@@ -11,7 +11,6 @@
 // HeisenbergOp by an opaque PauliMaskHandle. Variable-sized payloads (noise
 // channels, detector/observable target lists) live in side-tables on HirModule.
 
-#include "clifft/util/bitmask.h"
 #include "clifft/util/config.h"
 #include "clifft/util/mask_view.h"
 #include "clifft/util/pauli_arena.h"
@@ -55,12 +54,6 @@ enum class ObservableIdx : uint32_t {};
 
 /// Index into the expectation value record (absolute position)
 enum class ExpValIdx : uint32_t {};
-
-// Fixed-width Pauli mask, sized to kMaxInlineQubits. Retained because the
-// SchrodingerState VM frame still uses it for state.p_x / state.p_z; that
-// migration is the next PR (#45 PR3) at which point this typedef and its
-// supporting BitMask machinery can go away.
-using PauliBitMask = BitMask<kMaxInlineQubits>;
 
 // =============================================================================
 // Noise Channel Structures

@@ -8,13 +8,6 @@
 
 namespace clifft {
 
-/// Symplectic inner product over fixed-width BitMask masks.
-/// Returns true if the two Pauli strings anti-commute.
-inline bool anti_commute(const PauliBitMask& x1, const PauliBitMask& z1, const PauliBitMask& x2,
-                         const PauliBitMask& z2) {
-    return (((x1 & z2) ^ (z1 & x2)).popcount() & 1) != 0;
-}
-
 /// Symplectic inner product over runtime-width mask views. Returns true if
 /// the two Pauli strings anti-commute. All four views must share num_words().
 inline bool anti_commute(MaskView x1, MaskView z1, MaskView x2, MaskView z2) {
