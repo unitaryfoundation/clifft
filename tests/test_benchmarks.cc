@@ -1,12 +1,16 @@
 // Clifft Performance Benchmarks
 //
-// Catch2 benchmark tests for regression tracking. Run with:
-//   ctest --test-dir build -R Bench
-// Or for detailed output:
-//   ./build/tests/clifft_tests "[bench]" --benchmark-samples 10
+// Opt-in performance regression checks. Excluded from the default
+// correctness/coverage CI; the cases below run Catch2's default sample
+// count (100) at multi-hundred-millisecond per-iteration cost, which
+// adds tens of minutes of wall-clock without contributing coverage
+// signal that the unit and integration suites do not already provide.
 //
-// Each benchmark targets ~100ms per iteration to keep CI fast while
-// providing meaningful measurements.
+// Run explicitly via ctest:
+//   ctest --test-dir build -R Bench
+//
+// Or directly through the test binary for detailed Catch2 output:
+//   ./build/tests/clifft_tests "[bench]" --benchmark-samples 10
 
 #include "clifft/backend/backend.h"
 #include "clifft/circuit/parser.h"

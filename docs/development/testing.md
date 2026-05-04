@@ -69,10 +69,14 @@ We use `pytest` for the Python oracles and `CTest` for the C++ units. You can ru
     ```bash
     cmake -B build -DCMAKE_BUILD_TYPE=Debug
     cmake --build build -j
-    ctest --test-dir build --output-on-failure
+    ctest --test-dir build -E Bench --output-on-failure
     # Or using just:
     just test
     ```
+
+    `-E Bench` skips the [bench] performance cases. Run them
+    explicitly with `ctest --test-dir build -R Bench` when collecting
+    timing data.
 
 To generate HTML coverage reports for both layers of the application to ensure new features are thoroughly exercised:
 

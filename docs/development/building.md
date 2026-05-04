@@ -78,7 +78,15 @@ For pure C++ development without Python:
 ```bash
 cmake -B build -DCMAKE_BUILD_TYPE=Debug
 cmake --build build -j
-ctest --test-dir build --output-on-failure
+ctest --test-dir build -E Bench --output-on-failure
+```
+
+`-E Bench` excludes the [bench] performance cases (which add minutes of
+wall-clock for no correctness signal). Run them explicitly when
+collecting timing data:
+
+```bash
+ctest --test-dir build -R Bench
 ```
 
 OpenMP is optional for standalone C++ builds too. Linux toolchains usually find it automatically. On macOS with Apple clang, install Homebrew `libomp` first:

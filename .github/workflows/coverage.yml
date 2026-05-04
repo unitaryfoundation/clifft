@@ -40,7 +40,11 @@ jobs:
         run: cmake --build build --parallel
 
       - name: Run C++ tests
-        run: ctest --test-dir build --output-on-failure
+        # Exclude [bench] cases: they re-exercise paths already covered by
+        # the unit and integration tests, but each runs Catch2's default
+        # sample count and would add tens of minutes of wall-clock for no
+        # extra coverage signal.
+        run: ctest --test-dir build --output-on-failure -E "Bench"
 
       - name: Capture C++ test coverage
         run: |

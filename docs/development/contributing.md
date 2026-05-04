@@ -84,8 +84,12 @@ uv run pre-commit run --all-files
     ```bash
     cmake -B build -DCMAKE_BUILD_TYPE=Debug
     cmake --build build -j
-    ctest --test-dir build --output-on-failure
+    ctest --test-dir build -E Bench --output-on-failure
     ```
+
+    `-E Bench` skips the [bench] performance cases. Run them
+    explicitly with `ctest --test-dir build -R Bench` when you want
+    timing data.
 
 === "Both"
 
