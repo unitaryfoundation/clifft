@@ -730,14 +730,16 @@ TEST_CASE("Backend: CONDITIONAL_PAULI at qubit 128 round-trips", "[frontend][hig
 
     auto mod = lower(hir);
     // The compiled APPLY_PAULI mask must still carry q128 in word 2.
-    // map_to_virtual applies V_cum to the rewound Pauli, so the bit
-    // may end up in either X or Z depending on the unflushed gate
-    // state -- both are valid. The point is that word 2 is non-zero;
-    // a fixed-width 128-bit scratch buffer would have dropped it.
+    // HIR encodes the conditional X on q128 with the H_128 already
+    // rewound (z[128] = 1); lower()'s map_to_virtual rotates it back
+    // through V_cum -- which still has H_128 unflushed -- so the
+    // physical Pauli is X on q128. A fixed-width 128-bit scratch
+    // anywhere in this path would zero word 2 silently.
     REQUIRE(mod.constant_pool.pauli_masks.size() >= 1);
     auto cp_mask = mod.constant_pool.pauli_masks.at(PauliMaskHandle{0});
     REQUIRE(cp_mask.x().num_words() >= 3);
-    REQUIRE((cp_mask.x().bit_get(128) || cp_mask.z().bit_get(128)));
+    REQUIRE(cp_mask.x().bit_get(128));
+    REQUIRE_FALSE(cp_mask.z().bit_get(128));
 
     auto result = sample(mod, 32, 0xC11FF7);
     REQUIRE(result.measurements.size() == 64);
