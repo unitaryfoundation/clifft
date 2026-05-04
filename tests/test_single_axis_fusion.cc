@@ -7,6 +7,7 @@
 #include "clifft/optimizer/expand_t_pass.h"
 #include "clifft/optimizer/single_axis_fusion_pass.h"
 #include "clifft/svm/svm.h"
+#include "clifft/svm/svm_math.h"
 #include "clifft/util/constants.h"
 
 #include "test_helpers.h"
@@ -46,8 +47,8 @@ SchrodingerState run_raw(CompiledModule& prog, uint8_t init_px = 0, uint8_t init
     SchrodingerState state(
         {.peak_rank = prog.peak_rank, .num_measurements = prog.num_measurements, .seed = seed});
     state.active_k = prog.peak_rank;
-    state.p_x.bit_set(0, init_px != 0);
-    state.p_z.bit_set(0, init_pz != 0);
+    bit_set(state.p_x, 0, init_px != 0);
+    bit_set(state.p_z, 0, init_pz != 0);
     execute(prog, state);
     return state;
 }
@@ -88,8 +89,8 @@ TEST_CASE("U2 fusion: 4-state oracle for H-T-S sequence") {
         check_complex(opt.gamma(), ref.gamma(), kTol);
 
         // Compare frame state
-        CHECK(opt.p_x.bit_get(0) == ref.p_x.bit_get(0));
-        CHECK(opt.p_z.bit_get(0) == ref.p_z.bit_get(0));
+        CHECK(bit_get(opt.p_x, 0) == bit_get(ref.p_x, 0));
+        CHECK(bit_get(opt.p_z, 0) == bit_get(ref.p_z, 0));
     }
 }
 
@@ -120,8 +121,8 @@ TEST_CASE("U2 fusion: 4-state oracle for Rz-H-Rz sequence") {
         check_complex(opt.v()[0], ref.v()[0], kTol);
         check_complex(opt.v()[1], ref.v()[1], kTol);
         check_complex(opt.gamma(), ref.gamma(), kTol);
-        CHECK(opt.p_x.bit_get(0) == ref.p_x.bit_get(0));
-        CHECK(opt.p_z.bit_get(0) == ref.p_z.bit_get(0));
+        CHECK(bit_get(opt.p_x, 0) == bit_get(ref.p_x, 0));
+        CHECK(bit_get(opt.p_z, 0) == bit_get(ref.p_z, 0));
     }
 }
 
@@ -152,8 +153,8 @@ TEST_CASE("U2 fusion: 4-state oracle for S-H-Rz-H-Rz sequence") {
         check_complex(opt.v()[0], ref.v()[0], kTol);
         check_complex(opt.v()[1], ref.v()[1], kTol);
         check_complex(opt.gamma(), ref.gamma(), kTol);
-        CHECK(opt.p_x.bit_get(0) == ref.p_x.bit_get(0));
-        CHECK(opt.p_z.bit_get(0) == ref.p_z.bit_get(0));
+        CHECK(bit_get(opt.p_x, 0) == bit_get(ref.p_x, 0));
+        CHECK(bit_get(opt.p_z, 0) == bit_get(ref.p_z, 0));
     }
 }
 

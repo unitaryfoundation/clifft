@@ -7,9 +7,11 @@
 #include "clifft/backend/backend.h"
 #include "clifft/circuit/parser.h"
 #include "clifft/frontend/frontend.h"
+#include "clifft/svm/svm.h"
 
 #include "test_helpers.h"
 
+#include <algorithm>
 #include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
 #include <random>
@@ -578,15 +580,14 @@ TEST_CASE("Frontend: high-qubit Pauli bits survive the runtime-arena round trip"
     REQUIRE(hir.destab_mask(hir.ops[1]).bit_get(199));
 }
 
-TEST_CASE("Backend: rejects circuits above the SVM frame width", "[frontend]") {
-    // The SVM frame storage (state.p_x / p_z) is still BitMask<kMaxInlineQubits>.
-    // Until the SVM frame migrates to runtime-width storage, lower() must
-    // refuse circuits whose num_qubits exceeds that bound -- otherwise high-
-    // qubit conditional Paulis and noise channels would be silently dropped
-    // at execution time.
+TEST_CASE("Backend: accepts circuits above the old kMaxInlineQubits boundary",
+          "[frontend][high_qubit]") {
+    // Smoke test that the SVM-frame-width gate has been lifted. The HIR is
+    // empty so trace/lower don't even need to materialize ops; we just want
+    // lower() to succeed at the boundary that previously rejected.
     HirModule hir;
     hir.num_qubits = kMaxInlineQubits + 1;
-    REQUIRE_THROWS_AS(lower(hir), std::runtime_error);
+    REQUIRE_NOTHROW(lower(hir));
 }
 
 TEST_CASE("Backend: high-axis measurement is not silently demoted to identity",
@@ -654,22 +655,21 @@ TEST_CASE("Frontend: high-qubit Paulis preserved across width boundaries",
 }
 
 // =============================================================================
-// Per-op-type rejection at the SVM-frame-width gate
+// Per-op-type end-to-end at qubit > kMaxInlineQubits
 // =============================================================================
 //
 // Each test traces a minimal circuit that produces one op of a given type
-// touching qubits >= kMaxInlineQubits, asserts that trace() preserves the
-// high-qubit support in the HIR mask, and asserts that lower() refuses to
-// compile because the SVM frame can't yet hold high-qubit state. When PR3
-// migrates the SVM frame to runtime-width storage and lifts the gate, each
-// of these flips into a Stim-oracle equivalence check.
+// touching qubit 128 (just past the old fixed-width gate), asserts trace()
+// preserves the high-qubit support in the HIR mask, lowers, and (for
+// deterministic patterns) samples to confirm the runtime path produces the
+// correct outcome -- not a silently-dropped bit.
 //
-// Use num_qubits = kMaxInlineQubits + 1 so the high qubit (kMaxInlineQubits)
-// sits exactly at the boundary. q == kMaxInlineQubits = 128 lives in word 2
-// for arena num_words = 3, which is also the first word a fixed-width
-// PauliBitMask would have dropped.
+// num_qubits = kMaxInlineQubits + 1 = 129 so the high qubit lives in word 2
+// of the arena (num_words = 3), the first word a fixed-width PauliBitMask
+// would have dropped.
 
-TEST_CASE("Backend: rejects MEASURE above SVM frame width", "[frontend][high_qubit]") {
+TEST_CASE("Backend: MEASURE at qubit kMaxInlineQubits round-trips through SVM",
+          "[frontend][high_qubit]") {
     auto circuit = parse("H 128\nM 128");
     circuit.num_qubits = kMaxInlineQubits + 1;
     circuit.num_measurements = 1;
@@ -679,56 +679,98 @@ TEST_CASE("Backend: rejects MEASURE above SVM frame width", "[frontend][high_qub
     REQUIRE(hir.ops[0].op_type() == OpType::MEASURE);
     REQUIRE(hir.destab_mask(hir.ops[0]).bit_get(128));  // X on q128 after H
 
-    REQUIRE_THROWS_AS(lower(hir), std::runtime_error);
+    auto mod = lower(hir);
+    auto result = sample(mod, 200, 0xC11FF7);
+    REQUIRE(result.measurements.size() == 200);
+    // H q128; M q128 is a random measurement: both branches must appear.
+    uint32_t zeros = 0, ones = 0;
+    for (auto b : result.measurements) {
+        if (b)
+            ++ones;
+        else
+            ++zeros;
+    }
+    REQUIRE(zeros > 0);
+    REQUIRE(ones > 0);
 }
 
-TEST_CASE("Backend: rejects MPP above SVM frame width", "[frontend][high_qubit]") {
+TEST_CASE("Backend: MPP across kMaxInlineQubits boundary round-trips", "[frontend][high_qubit]") {
     // MPP X63 * X128 spans words 0 and 2 -- exercises the cross-word
     // build_pauli_string path that fixed-width intermediates would clip.
-    auto circuit = parse("MPP X63*X128");
+    // After H 63; H 128 the prepared state is |+>_63 |+>_128 and X*X
+    // has eigenvalue +1, so the MPP outcome is deterministically 0.
+    auto circuit = parse("H 63\nH 128\nMPP X63*X128");
     circuit.num_qubits = kMaxInlineQubits + 1;
     circuit.num_measurements = 1;
 
     auto hir = trace(circuit);
-    REQUIRE(hir.ops.size() == 1);
-    REQUIRE(hir.ops[0].op_type() == OpType::MEASURE);
-    REQUIRE(hir.destab_mask(hir.ops[0]).bit_get(63));
-    REQUIRE(hir.destab_mask(hir.ops[0]).bit_get(128));
+    auto mpp_op = std::find_if(hir.ops.begin(), hir.ops.end(), [](const HeisenbergOp& op) {
+        return op.op_type() == OpType::MEASURE;
+    });
+    REQUIRE(mpp_op != hir.ops.end());
+    // After H_63 and H_128 the X*X observable rewinds to Z*Z on both qubits;
+    // the high-qubit support survives in stab_mask.
+    REQUIRE(hir.stab_mask(*mpp_op).bit_get(63));
+    REQUIRE(hir.stab_mask(*mpp_op).bit_get(128));
 
-    REQUIRE_THROWS_AS(lower(hir), std::runtime_error);
+    auto mod = lower(hir);
+    auto result = sample(mod, 32, 0xC11FF7);
+    for (auto b : result.measurements) {
+        REQUIRE(b == 0);
+    }
 }
 
-TEST_CASE("Backend: rejects CONDITIONAL_PAULI above SVM frame width", "[frontend][high_qubit]") {
-    // Classical feedback: M 128 ; CX rec[-1] 128 emits a CONDITIONAL_PAULI.
-    auto circuit = parse("M 128\nCX rec[-1] 128");
+TEST_CASE("Backend: CONDITIONAL_PAULI at qubit kMaxInlineQubits round-trips",
+          "[frontend][high_qubit]") {
+    // H 128; M 128; CX rec[-1] 128; M 128 -- the second measurement is
+    // deterministically 0 because the conditional CX uncomputes the random
+    // first-measurement outcome.
+    auto circuit = parse("H 128\nM 128\nCX rec[-1] 128\nM 128");
+    circuit.num_qubits = kMaxInlineQubits + 1;
+    circuit.num_measurements = 2;
+
+    auto hir = trace(circuit);
+    auto cond = std::find_if(hir.ops.begin(), hir.ops.end(), [](const HeisenbergOp& op) {
+        return op.op_type() == OpType::CONDITIONAL_PAULI;
+    });
+    REQUIRE(cond != hir.ops.end());
+    // The conditional X on q128 gets rewound through the H 128 already in
+    // the tableau, becoming Z; the high-qubit support survives in stab_mask.
+    REQUIRE(hir.stab_mask(*cond).bit_get(128));
+
+    auto mod = lower(hir);
+    auto result = sample(mod, 32, 0xC11FF7);
+    REQUIRE(result.measurements.size() == 64);
+    // Second measurement (offset 1 within each shot of 2) is always 0.
+    for (size_t shot = 0; shot < 32; ++shot) {
+        REQUIRE(result.measurements[shot * 2 + 1] == 0);
+    }
+}
+
+TEST_CASE("Backend: NOISE at qubit kMaxInlineQubits round-trips", "[frontend][high_qubit]") {
+    // X_ERROR(1.0) 128 deterministically flips q128, so the subsequent
+    // M 128 always reads 1.
+    auto circuit = parse("X_ERROR(1.0) 128\nM 128");
     circuit.num_qubits = kMaxInlineQubits + 1;
     circuit.num_measurements = 1;
 
     auto hir = trace(circuit);
-    REQUIRE(hir.ops.size() == 2);
-    REQUIRE(hir.ops[1].op_type() == OpType::CONDITIONAL_PAULI);
-    REQUIRE(hir.destab_mask(hir.ops[1]).bit_get(128));
-
-    REQUIRE_THROWS_AS(lower(hir), std::runtime_error);
-}
-
-TEST_CASE("Backend: rejects NOISE above SVM frame width", "[frontend][high_qubit]") {
-    auto circuit = parse("X_ERROR(0.1) 128");
-    circuit.num_qubits = kMaxInlineQubits + 1;
-
-    auto hir = trace(circuit);
-    REQUIRE(hir.ops.size() == 1);
-    REQUIRE(hir.ops[0].op_type() == OpType::NOISE);
-    // Channel mask must reflect the high-qubit support.
+    auto noise = std::find_if(hir.ops.begin(), hir.ops.end(),
+                              [](const HeisenbergOp& op) { return op.op_type() == OpType::NOISE; });
+    REQUIRE(noise != hir.ops.end());
     REQUIRE(hir.noise_sites.size() == 1);
-    REQUIRE(hir.noise_sites[0].channels.size() == 1);
     auto channel_view = hir.noise_channel_masks.at(hir.noise_sites[0].channels[0].mask);
     REQUIRE(channel_view.x().bit_get(128));
 
-    REQUIRE_THROWS_AS(lower(hir), std::runtime_error);
+    auto mod = lower(hir);
+    auto result = sample(mod, 32, 0xC11FF7);
+    for (auto b : result.measurements) {
+        REQUIRE(b == 1);
+    }
 }
 
-TEST_CASE("Backend: rejects EXP_VAL above SVM frame width", "[frontend][high_qubit]") {
+TEST_CASE("Backend: EXP_VAL at qubit kMaxInlineQubits round-trips", "[frontend][high_qubit]") {
+    // EXP_VAL Z128 on |0> always yields +1.
     auto circuit = parse("EXP_VAL Z128");
     circuit.num_qubits = kMaxInlineQubits + 1;
     circuit.num_exp_vals = 1;
@@ -738,7 +780,12 @@ TEST_CASE("Backend: rejects EXP_VAL above SVM frame width", "[frontend][high_qub
     REQUIRE(hir.ops[0].op_type() == OpType::EXP_VAL);
     REQUIRE(hir.stab_mask(hir.ops[0]).bit_get(128));
 
-    REQUIRE_THROWS_AS(lower(hir), std::runtime_error);
+    auto mod = lower(hir);
+    auto result = sample(mod, 32, 0xC11FF7);
+    REQUIRE(result.exp_vals.size() == 32);
+    for (auto v : result.exp_vals) {
+        REQUIRE(v == 1.0);
+    }
 }
 
 TEST_CASE("Backend: rejects circuits above the VM axis ceiling", "[frontend]") {

@@ -50,6 +50,15 @@ SchrodingerState::SchrodingerState(StateConfig cfg) : peak_rank_(cfg.peak_rank),
     exp_vals.resize(cfg.num_exp_vals, 0.0);
     has_exp_vals = (cfg.num_exp_vals > 0);
 
+    // Pauli frame is sized to ceil(num_qubits / 64) words. Fall back to the
+    // peak_rank-derived width when num_qubits is unspecified -- tests that
+    // construct SchrodingerState directly (without going through trace/lower)
+    // use axes within the active region, so peak_rank is a safe upper bound.
+    num_qubits = (cfg.num_qubits > 0) ? cfg.num_qubits : std::max(peak_rank, uint32_t{1});
+    const size_t num_words = (num_qubits + 63) / 64;
+    p_x.assign(num_words, 0);
+    p_z.assign(num_words, 0);
+
     array_size_ = 1ULL << peak_rank;
     size_t bytes = array_size_ * sizeof(std::complex<double>);
     // Round up to page boundary for mmap/aligned_alloc compatibility.
@@ -127,8 +136,9 @@ SchrodingerState::~SchrodingerState() {
 }
 
 SchrodingerState::SchrodingerState(SchrodingerState&& other) noexcept
-    : p_x(other.p_x),
-      p_z(other.p_z),
+    : p_x(std::move(other.p_x)),
+      p_z(std::move(other.p_z)),
+      num_qubits(other.num_qubits),
       active_k(other.active_k),
       discarded(other.discarded),
       has_exp_vals(other.has_exp_vals),
@@ -171,8 +181,9 @@ SchrodingerState& SchrodingerState::operator=(SchrodingerState&& other) noexcept
         v_is_mmap_ = other.v_is_mmap_;
         peak_rank_ = other.peak_rank_;
         rng_ = std::move(other.rng_);
-        p_x = other.p_x;
-        p_z = other.p_z;
+        p_x = std::move(other.p_x);
+        p_z = std::move(other.p_z);
+        num_qubits = other.num_qubits;
         gamma_ = other.gamma_;
         active_k = other.active_k;
         discarded = other.discarded;
@@ -208,8 +219,8 @@ void SchrodingerState::reset() {
         }
     }
     v_[0] = {1.0, 0.0};
-    p_x = 0;
-    p_z = 0;
+    std::fill(p_x.begin(), p_x.end(), 0);
+    std::fill(p_z.begin(), p_z.end(), 0);
     gamma_ = {1.0, 0.0};
     active_k = 0;
 

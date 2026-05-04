@@ -531,21 +531,9 @@ CompiledModule lower(const HirModule& hir, std::span<const uint8_t> postselectio
     using internal::LocalizedBasis;
 
     const uint32_t n = hir.num_qubits;
-    // Two ceilings:
-    //   - kMaxInlineQubits: SVM frame storage (state.p_x / p_z) is still a
-    //     fixed-width BitMask<kMaxInlineQubits>, so any conditional Pauli
-    //     or noise channel touching higher qubits would be silently dropped
-    //     at execution time. Lifting this requires runtime-width SVM frame
-    //     storage (planned for the next migration PR).
-    //   - 65536: bytecode axis operands are uint16_t. trace() enforces
-    //     this; lower() repeats the check defensively.
-    if (n > kMaxInlineQubits) {
-        throw std::runtime_error(
-            "Circuit num_qubits (" + std::to_string(n) + ") exceeds the SVM frame width (" +
-            std::to_string(kMaxInlineQubits) +
-            "). The HIR supports wider circuits but the runtime frame does not yet; "
-            "lifting this gate is the subject of a follow-up migration PR.");
-    }
+    // Bytecode axis operands are uint16_t, so circuits above 65536 qubits
+    // cannot be lowered. trace() enforces this; lower() repeats the check
+    // defensively.
     if (n > 65536) {
         throw std::runtime_error("Circuit exceeds 65536-qubit VM axis limit: " + std::to_string(n) +
                                  " qubits");

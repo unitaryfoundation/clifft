@@ -2,6 +2,7 @@
 #include "clifft/circuit/parser.h"
 #include "clifft/frontend/frontend.h"
 #include "clifft/svm/svm.h"
+#include "clifft/svm/svm_math.h"
 
 #include "test_helpers.h"
 
@@ -54,18 +55,15 @@ Instruction make_meas_active_interfere(uint16_t v, uint32_t classical_idx) {
 }  // namespace
 
 // Semantic helpers for constructing Pauli frame bitmasks.
-// SchrodingerState::p_x / p_z now use PauliBitMask (BitMask<kMaxInlineQubits>).
-static PauliBitMask X(uint16_t q) {
-    PauliBitMask m;
-    m.bit_set(q, true);
-    return m;
+// All single-qubit tests in this file touch q < 64, so a single uint64_t
+// covers the active region; assertions compare state.p_x[0] / state.p_z[0].
+static constexpr uint64_t X(uint16_t q) {
+    return 1ULL << q;
 }
-static PauliBitMask Z(uint16_t q) {
-    PauliBitMask m;
-    m.bit_set(q, true);
-    return m;
+static constexpr uint64_t Z(uint16_t q) {
+    return 1ULL << q;
 }
-static const PauliBitMask NONE{};
+static constexpr uint64_t NONE = 0;
 
 constexpr double kTol = 1e-12;
 
@@ -96,37 +94,37 @@ TEST_CASE("VM Frame: CNOT updates p_x and p_z") {
     SchrodingerState state(2, 0);
 
     // Set p_x[0] = 1 (X error on qubit 0)
-    state.p_x = X(0);
-    state.p_z = NONE;
+    state.p_x[0] = X(0);
+    state.p_z[0] = NONE;
 
     auto prog = make_program({make_frame_cnot(0, 1)}, 2);
     execute(prog, state);
 
     // CNOT(0,1): p_x[1] ^= p_x[0] -> p_x = 0b11
     // p_z[0] ^= p_z[1] -> unchanged
-    CHECK(state.p_x == (X(0) | X(1)));
-    CHECK(state.p_z == NONE);
+    CHECK(state.p_x[0] == (X(0) | X(1)));
+    CHECK(state.p_z[0] == NONE);
 }
 
 TEST_CASE("VM Frame: CNOT propagates Z backward") {
     SchrodingerState state(2, 0);
 
-    state.p_x = NONE;
-    state.p_z = Z(1);  // Z on qubit 1
+    state.p_x[0] = NONE;
+    state.p_z[0] = Z(1);  // Z on qubit 1
 
     auto prog = make_program({make_frame_cnot(0, 1)}, 2);
     execute(prog, state);
 
     // CNOT(0,1): p_z[0] ^= p_z[1] -> p_z = 0b11
-    CHECK(state.p_x == NONE);
-    CHECK(state.p_z == (Z(0) | Z(1)));
+    CHECK(state.p_x[0] == NONE);
+    CHECK(state.p_z[0] == (Z(0) | Z(1)));
 }
 
 TEST_CASE("VM Frame: CZ with both X errors negates gamma") {
     SchrodingerState state(2, 0);
 
-    state.p_x = X(0) | X(1);  // X on both
-    state.p_z = NONE;
+    state.p_x[0] = X(0) | X(1);  // X on both
+    state.p_z[0] = NONE;
 
     auto prog = make_program({make_frame_cz(0, 1)}, 2);
     execute(prog, state);
@@ -134,35 +132,35 @@ TEST_CASE("VM Frame: CZ with both X errors negates gamma") {
     // CZ: phase = -1 since both p_x bits are set
     check_complex(state.gamma(), {-1.0, 0.0});
     // p_z[1] ^= p_x[0] = 1, p_z[0] ^= p_x[1] = 1
-    CHECK(state.p_z == (Z(0) | Z(1)));
+    CHECK(state.p_z[0] == (Z(0) | Z(1)));
 }
 
 TEST_CASE("VM Frame: CZ with one X error - no phase") {
     SchrodingerState state(2, 0);
 
-    state.p_x = X(0);  // X on qubit 0 only
-    state.p_z = NONE;
+    state.p_x[0] = X(0);  // X on qubit 0 only
+    state.p_z[0] = NONE;
 
     auto prog = make_program({make_frame_cz(0, 1)}, 2);
     execute(prog, state);
 
     check_complex(state.gamma(), {1.0, 0.0});
     // p_z[1] ^= p_x[0] = 1, p_z[0] ^= p_x[1] = 0
-    CHECK(state.p_z == Z(1));
+    CHECK(state.p_z[0] == Z(1));
 }
 
 TEST_CASE("VM Frame: H swaps p_x and p_z") {
     SchrodingerState state(2, 0);
 
-    state.p_x = X(0);  // X on qubit 0
-    state.p_z = NONE;
+    state.p_x[0] = X(0);  // X on qubit 0
+    state.p_z[0] = NONE;
 
     auto prog = make_program({make_frame_h(0)}, 2);
     execute(prog, state);
 
     // H: swap p_x[0] <-> p_z[0], no phase (only one bit set)
-    CHECK(state.p_x == NONE);
-    CHECK(state.p_z == Z(0));
+    CHECK(state.p_x[0] == NONE);
+    CHECK(state.p_z[0] == Z(0));
     check_complex(state.gamma(), {1.0, 0.0});
 }
 
@@ -170,104 +168,104 @@ TEST_CASE("VM Frame: H on Y error negates gamma") {
     SchrodingerState state(2, 0);
 
     // Y = iXZ, so both bits set
-    state.p_x = X(0);
-    state.p_z = Z(0);
+    state.p_x[0] = X(0);
+    state.p_z[0] = Z(0);
 
     auto prog = make_program({make_frame_h(0)}, 2);
     execute(prog, state);
 
     // H(Y)H = -Y, so gamma negated. Bits stay the same (swap of 1,1 = 1,1)
-    CHECK(state.p_x == X(0));
-    CHECK(state.p_z == Z(0));
+    CHECK(state.p_x[0] == X(0));
+    CHECK(state.p_z[0] == Z(0));
     check_complex(state.gamma(), {-1.0, 0.0});
 }
 
 TEST_CASE("VM Frame: S on X error multiplies gamma by i") {
     SchrodingerState state(2, 0);
 
-    state.p_x = X(0);
-    state.p_z = NONE;
+    state.p_x[0] = X(0);
+    state.p_z[0] = NONE;
 
     auto prog = make_program({make_frame_s(0)}, 2);
     execute(prog, state);
 
     // S: p_x[0]=1 -> gamma *= i, p_z[0] ^= p_x[0] = 1
-    CHECK(state.p_x == X(0));
-    CHECK(state.p_z == Z(0));
+    CHECK(state.p_x[0] == X(0));
+    CHECK(state.p_z[0] == Z(0));
     check_complex(state.gamma(), {0.0, 1.0});
 }
 
 TEST_CASE("VM Frame: S on no X error - no phase change") {
     SchrodingerState state(2, 0);
 
-    state.p_x = NONE;
-    state.p_z = Z(0);
+    state.p_x[0] = NONE;
+    state.p_z[0] = Z(0);
 
     auto prog = make_program({make_frame_s(0)}, 2);
     execute(prog, state);
 
     // S: p_x[0]=0 -> no phase, p_z[0] ^= 0 = unchanged
-    CHECK(state.p_x == NONE);
-    CHECK(state.p_z == Z(0));
+    CHECK(state.p_x[0] == NONE);
+    CHECK(state.p_z[0] == Z(0));
     check_complex(state.gamma(), {1.0, 0.0});
 }
 
 TEST_CASE("VM Frame: S_DAG on X error multiplies gamma by -i") {
     SchrodingerState state(2, 0);
 
-    state.p_x = X(0);
-    state.p_z = NONE;
+    state.p_x[0] = X(0);
+    state.p_z[0] = NONE;
 
     auto prog = make_program({make_frame_s_dag(0)}, 2);
     execute(prog, state);
 
     // S_dag: p_x[0]=1 -> gamma *= -i, p_z[0] ^= p_x[0] = 1
-    CHECK(state.p_x == X(0));
-    CHECK(state.p_z == Z(0));
+    CHECK(state.p_x[0] == X(0));
+    CHECK(state.p_z[0] == Z(0));
     check_complex(state.gamma(), {0.0, -1.0});
 }
 
 TEST_CASE("VM Frame: S_DAG on no X error - no phase change") {
     SchrodingerState state(2, 0);
 
-    state.p_x = NONE;
-    state.p_z = Z(0);
+    state.p_x[0] = NONE;
+    state.p_z[0] = Z(0);
 
     auto prog = make_program({make_frame_s_dag(0)}, 2);
     execute(prog, state);
 
     // S_dag: p_x[0]=0 -> no phase, p_z[0] ^= 0 = unchanged
-    CHECK(state.p_x == NONE);
-    CHECK(state.p_z == Z(0));
+    CHECK(state.p_x[0] == NONE);
+    CHECK(state.p_z[0] == Z(0));
     check_complex(state.gamma(), {1.0, 0.0});
 }
 
 TEST_CASE("VM Frame: SWAP exchanges bits") {
     SchrodingerState state(3, 0);
 
-    state.p_x = X(0) | X(2);  // X on 0,2
-    state.p_z = Z(1);         // Z on 1
+    state.p_x[0] = X(0) | X(2);  // X on 0,2
+    state.p_z[0] = Z(1);         // Z on 1
 
     auto prog = make_program({make_frame_swap(0, 2)}, 3);
     execute(prog, state);
 
     // Swap bits 0 and 2: p_x stays 0b101 (symmetric), p_z unchanged
-    CHECK(state.p_x == (X(0) | X(2)));
-    CHECK(state.p_z == Z(1));
+    CHECK(state.p_x[0] == (X(0) | X(2)));
+    CHECK(state.p_z[0] == Z(1));
 }
 
 TEST_CASE("VM Frame: SWAP asymmetric case") {
     SchrodingerState state(3, 0);
 
-    state.p_x = X(0);  // X on 0
-    state.p_z = Z(2);  // Z on 2
+    state.p_x[0] = X(0);  // X on 0
+    state.p_z[0] = Z(2);  // Z on 2
 
     auto prog = make_program({make_frame_swap(0, 1)}, 3);
     execute(prog, state);
 
     // Swap bits 0 and 1 in both p_x and p_z
-    CHECK(state.p_x == X(1));  // X moved from 0 to 1
-    CHECK(state.p_z == Z(2));  // Z on 2 unchanged
+    CHECK(state.p_x[0] == X(1));  // X moved from 0 to 1
+    CHECK(state.p_z[0] == Z(2));  // Z on 2 unchanged
 }
 
 // =============================================================================
@@ -438,7 +436,7 @@ TEST_CASE("VM Phase: T on active axis - with X frame error") {
     state.active_k = 1;
     state.v()[0] = {1.0, 0.0};
     state.v()[1] = {1.0, 0.0};
-    state.p_x = X(0);  // X error on qubit 0
+    state.p_x[0] = X(0);  // X error on qubit 0
 
     auto prog = make_program({make_array_t(0)}, 2);
     execute(prog, state);
@@ -519,7 +517,7 @@ TEST_CASE("VM Meas: Dormant static - outcome from p_x") {
     SchrodingerState state(2, 2);
 
     // p_x[0] = 0, p_x[1] = 1
-    state.p_x = X(1);
+    state.p_x[0] = X(1);
 
     auto prog =
         make_program({make_meas_dormant_static(0, 0), make_meas_dormant_static(1, 1)}, 2, 2);
@@ -568,7 +566,7 @@ TEST_CASE("VM Meas: Active diagonal with p_x flips outcome") {
     state.active_k = 1;
     state.v()[0] = {1.0, 0.0};  // All amplitude in |0>
     state.v()[1] = {0.0, 0.0};
-    state.p_x = X(0);  // X error on qubit 0
+    state.p_x[0] = X(0);  // X error on qubit 0
 
     auto prog = make_program({make_meas_active_diagonal(0, 0)}, 2, 1);
     execute(prog, state);
@@ -743,8 +741,8 @@ TEST_CASE("VM Integration: Bell state via targeted initial state") {
         state.v()[2] = {0.0, 0.0};
         state.v()[3] = {1.0, 0.0};
         state.set_gamma({1.0 / std::sqrt(2.0), 0.0});
-        state.p_x = 0;
-        state.p_z = 0;
+        state.p_x[0] = 0;
+        state.p_z[0] = 0;
         state.meas_record[0] = 0;
         state.meas_record[1] = 0;
         // Reseed
@@ -772,16 +770,16 @@ TEST_CASE("VM Integration: Bell state via targeted initial state") {
 
 TEST_CASE("VM Meas: Dormant random resets frame correctly") {
     SchrodingerState state({.peak_rank = 2, .num_measurements = 1, .seed = 42});
-    state.p_x = X(0);  // X error on qubit 0
-    state.p_z = Z(0);  // Z error on qubit 0
+    state.p_x[0] = X(0);  // X error on qubit 0
+    state.p_z[0] = Z(0);  // Z error on qubit 0
 
     auto prog = make_program({make_meas_dormant_random(0, 0)}, 2, 1);
     execute(prog, state);
 
     // After measurement, p_z[0] must be 0, p_x[0] must equal the outcome
     uint8_t m = state.meas_record[0];
-    CHECK(state.p_x.bit_get(0) == bool(m));
-    CHECK(!state.p_z.bit_get(0));
+    CHECK(bit_get(state.p_x, 0) == bool(m));
+    CHECK(!bit_get(state.p_z, 0));
 }
 
 // =============================================================================
@@ -841,8 +839,8 @@ TEST_CASE("VM Detector: odd parity") {
 TEST_CASE("VM ApplyPauli: X error flips p_x bit") {
     SchrodingerState state(4, 1);
     state.meas_record[0] = 1;  // condition_idx=0 fires
-    state.p_x = NONE;
-    state.p_z = NONE;
+    state.p_x[0] = NONE;
+    state.p_z[0] = NONE;
 
     CompiledModule mod;
     mod.num_measurements = 1;
@@ -860,16 +858,16 @@ TEST_CASE("VM ApplyPauli: X error flips p_x bit") {
 
     execute(mod, state);
 
-    CHECK(state.p_x == X(1));
-    CHECK(state.p_z == NONE);
+    CHECK(state.p_x[0] == X(1));
+    CHECK(state.p_z[0] == NONE);
     check_complex(state.gamma(), {1.0, 0.0});
 }
 
 TEST_CASE("VM ApplyPauli: Z error flips p_z bit") {
     SchrodingerState state(4, 1);
     state.meas_record[0] = 1;
-    state.p_x = NONE;
-    state.p_z = NONE;
+    state.p_x[0] = NONE;
+    state.p_z[0] = NONE;
 
     CompiledModule mod;
     mod.num_measurements = 1;
@@ -887,8 +885,8 @@ TEST_CASE("VM ApplyPauli: Z error flips p_z bit") {
 
     execute(mod, state);
 
-    CHECK(state.p_x == NONE);
-    CHECK(state.p_z == Z(2));
+    CHECK(state.p_x[0] == NONE);
+    CHECK(state.p_z[0] == Z(2));
     check_complex(state.gamma(), {1.0, 0.0});
 }
 
@@ -896,8 +894,8 @@ TEST_CASE("VM ApplyPauli: X error on Z frame has no anticommutation phase") {
     // E=X_0 applied to P=Z_0: commutation phase is (-1)^{e_z . p_x} = (-1)^0 = +1
     SchrodingerState state(4, 1);
     state.meas_record[0] = 1;
-    state.p_x = NONE;
-    state.p_z = Z(0);
+    state.p_x[0] = NONE;
+    state.p_z[0] = Z(0);
 
     CompiledModule mod;
     mod.num_measurements = 1;
@@ -915,8 +913,8 @@ TEST_CASE("VM ApplyPauli: X error on Z frame has no anticommutation phase") {
 
     execute(mod, state);
 
-    CHECK(state.p_x == X(0));
-    CHECK(state.p_z == Z(0));
+    CHECK(state.p_x[0] == X(0));
+    CHECK(state.p_z[0] == Z(0));
     check_complex(state.gamma(), {1.0, 0.0});
 }
 
@@ -924,8 +922,8 @@ TEST_CASE("VM ApplyPauli: Z error on X frame negates gamma") {
     // E=Z_0 applied to P=X_0: commutation phase is (-1)^{e_z . p_x} = (-1)^1 = -1
     SchrodingerState state(4, 1);
     state.meas_record[0] = 1;
-    state.p_x = X(0);
-    state.p_z = NONE;
+    state.p_x[0] = X(0);
+    state.p_z[0] = NONE;
 
     CompiledModule mod;
     mod.num_measurements = 1;
@@ -943,16 +941,16 @@ TEST_CASE("VM ApplyPauli: Z error on X frame negates gamma") {
 
     execute(mod, state);
 
-    CHECK(state.p_x == X(0));
-    CHECK(state.p_z == Z(0));
+    CHECK(state.p_x[0] == X(0));
+    CHECK(state.p_z[0] == Z(0));
     check_complex(state.gamma(), {-1.0, 0.0});
 }
 
 TEST_CASE("VM ApplyPauli: signed Pauli mask negates gamma") {
     SchrodingerState state(4, 1);
     state.meas_record[0] = 1;
-    state.p_x = NONE;
-    state.p_z = NONE;
+    state.p_x[0] = NONE;
+    state.p_z[0] = NONE;
 
     CompiledModule mod;
     mod.num_measurements = 1;
@@ -971,8 +969,8 @@ TEST_CASE("VM ApplyPauli: signed Pauli mask negates gamma") {
 
     execute(mod, state);
 
-    CHECK(state.p_x == X(0));
-    CHECK(state.p_z == NONE);
+    CHECK(state.p_x[0] == X(0));
+    CHECK(state.p_z[0] == NONE);
     check_complex(state.gamma(), {-1.0, 0.0});
 }
 
@@ -982,7 +980,7 @@ TEST_CASE("VM ApplyPauli: signed Pauli mask negates gamma") {
 
 TEST_CASE("VM Gamma: Frame S accumulates i phase") {
     SchrodingerState state(2, 0);
-    state.p_x = X(0);  // X on qubit 0
+    state.p_x[0] = X(0);  // X on qubit 0
 
     // Apply S four times: gamma should cycle i -> -1 -> -i -> 1
     auto prog =
@@ -993,7 +991,7 @@ TEST_CASE("VM Gamma: Frame S accumulates i phase") {
     // Start p_x=1, p_z=0. Four calls cycle gamma through i, -1, -i, 1
     // and p_z through 1, 0, 1, 0.
     check_complex(state.gamma(), {1.0, 0.0});
-    CHECK(state.p_z == NONE);
+    CHECK(state.p_z[0] == NONE);
 }
 
 // =============================================================================
@@ -1064,7 +1062,7 @@ TEST_CASE("VM Reset: deterministic measurement overwrites previous shot") {
         {.peak_rank = mod.peak_rank, .num_measurements = mod.total_meas_slots, .seed = 0});
 
     // Shot 1: force p_x[0]=1 -> measurement yields 1
-    state.p_x = X(0);
+    state.p_x[0] = X(0);
     execute(mod, state);
     CHECK(state.meas_record[0] == 1);
 
@@ -1135,7 +1133,7 @@ TEST_CASE("Compaction fuzz: active diagonal preserves norm - k=4") {
         double gamma_mag_before = std::abs(state.gamma());
 
         // Save frame bit before execute (measurement overwrites p_x)
-        bool px_v_before = state.p_x.bit_get(3);
+        bool px_v_before = bit_get(state.p_x, 3);
 
         // Measure top axis (k-1 = 3) in Z-basis
         auto prog = make_program({make_meas_active_diagonal(3, 0)}, 4, 1);
@@ -1193,7 +1191,7 @@ TEST_CASE("Compaction fuzz: active interfere preserves norm - k=4") {
         double gamma_mag_before = std::abs(state.gamma());
 
         // Save frame bit before execute (measurement overwrites p_z)
-        bool pz_v_before = state.p_z.bit_get(3);
+        bool pz_v_before = bit_get(state.p_z, 3);
 
         auto prog = make_program({make_meas_active_interfere(3, 0)}, 4, 1);
         execute(prog, state);
@@ -1273,8 +1271,8 @@ TEST_CASE("Compaction fuzz: diagonal with pre-existing Pauli frame") {
         // Set random frame bits
         uint64_t px = test_lcg(seed) & 0xF;
         uint64_t pz = test_lcg(seed) & 0xF;
-        state.p_x = PauliBitMask(px);
-        state.p_z = PauliBitMask(pz);
+        state.p_x[0] = px;
+        state.p_z[0] = pz;
 
         // Calculate theoretical branch probabilities before measurement
         double prob_b0 = 0.0;
@@ -1288,7 +1286,7 @@ TEST_CASE("Compaction fuzz: diagonal with pre-existing Pauli frame") {
         double gamma_mag_before = std::abs(state.gamma());
 
         // Save frame bit before execute (measurement overwrites p_x)
-        bool px_v_before = state.p_x.bit_get(3);
+        bool px_v_before = bit_get(state.p_x, 3);
 
         auto prog = make_program({make_meas_active_diagonal(3, 0)}, 4, 1);
         execute(prog, state);
@@ -1329,8 +1327,8 @@ TEST_CASE("Compaction fuzz: interfere with pre-existing Pauli frame") {
 
         uint64_t px = test_lcg(seed) & 0xF;
         uint64_t pz = test_lcg(seed) & 0xF;
-        state.p_x = PauliBitMask(px);
-        state.p_z = PauliBitMask(pz);
+        state.p_x[0] = px;
+        state.p_z[0] = pz;
 
         // Calculate theoretical X-basis branch probabilities before measurement
         double prob_plus = 0.0;
@@ -1346,7 +1344,7 @@ TEST_CASE("Compaction fuzz: interfere with pre-existing Pauli frame") {
         double gamma_mag_before = std::abs(state.gamma());
 
         // Save frame bit before execute (measurement overwrites p_z)
-        bool pz_v_before = state.p_z.bit_get(3);
+        bool pz_v_before = bit_get(state.p_z, 3);
 
         auto prog = make_program({make_meas_active_interfere(3, 0)}, 4, 1);
         execute(prog, state);

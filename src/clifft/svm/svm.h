@@ -96,13 +96,14 @@ class Xoshiro256PlusPlus {
 //
 // Memory layout:
 //   - v_: 64-byte aligned array of 2^peak_rank complex amplitudes
-//   - p_x, p_z: Pauli frame P (stim::bitword for 512-qubit scalability)
+//   - p_x, p_z: Pauli frame P, runtime-sized to ceil(num_qubits / 64) words
 //   - gamma: global scalar (phase + deferred normalization)
 //   - active_k: current active dimension k
 
 struct StateConfig {
     uint32_t peak_rank;
     uint32_t num_measurements;
+    uint32_t num_qubits = 0;  // Sizes the p_x / p_z Pauli frame storage.
     uint32_t num_detectors = 0;
     uint32_t num_observables = 0;
     uint32_t num_exp_vals = 0;
@@ -112,9 +113,10 @@ struct StateConfig {
 class SchrodingerState {
   public:
     explicit SchrodingerState(StateConfig cfg);
-    SchrodingerState(uint32_t peak_rank, uint32_t num_measurements)
-        : SchrodingerState(
-              StateConfig{.peak_rank = peak_rank, .num_measurements = num_measurements}) {}
+    SchrodingerState(uint32_t peak_rank, uint32_t num_measurements, uint32_t num_qubits = 0)
+        : SchrodingerState(StateConfig{.peak_rank = peak_rank,
+                                       .num_measurements = num_measurements,
+                                       .num_qubits = num_qubits}) {}
 
     ~SchrodingerState();
 
@@ -148,9 +150,12 @@ class SchrodingerState {
     // --- Factored State Components ---
 
     // The Pauli Frame (P): tracks stochastic bit-flips and phase-flips.
-    // Uses BitMask<kMaxInlineQubits> for compile-time 512-qubit scalability.
-    PauliBitMask p_x;
-    PauliBitMask p_z;
+    // Sized to ceil(num_qubits / 64) 64-bit words at construction.
+    std::vector<uint64_t> p_x;
+    std::vector<uint64_t> p_z;
+
+    // Number of physical qubits the frame is sized for.
+    uint32_t num_qubits = 0;
 
     // Global Scalar (gamma): continuous global phase + deferred normalization
     [[nodiscard]] std::complex<double> gamma() const { return gamma_; }

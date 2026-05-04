@@ -14,6 +14,7 @@
 #include "clifft/optimizer/single_axis_fusion_pass.h"
 #include "clifft/optimizer/tile_axis_fusion_pass.h"
 #include "clifft/svm/svm.h"
+#include "clifft/svm/svm_math.h"
 #include "clifft/util/constants.h"
 
 #include "test_helpers.h"
@@ -111,10 +112,10 @@ std::vector<std::complex<double>> run_with_frame(const std::vector<Instruction>&
     SchrodingerState state({.peak_rank = rank, .num_measurements = 0, .seed = seed});
     state.active_k = rank;
     fill_pattern(state);
-    state.p_x.bit_set(axis_lo, px_lo != 0);
-    state.p_z.bit_set(axis_lo, pz_lo != 0);
-    state.p_x.bit_set(axis_hi, px_hi != 0);
-    state.p_z.bit_set(axis_hi, pz_hi != 0);
+    bit_set(state.p_x, axis_lo, px_lo != 0);
+    bit_set(state.p_z, axis_lo, pz_lo != 0);
+    bit_set(state.p_x, axis_hi, px_hi != 0);
+    bit_set(state.p_z, axis_hi, pz_hi != 0);
     execute(prog, state);
 
     uint64_t n = 1ULL << rank;
@@ -137,10 +138,10 @@ std::complex<double> run_and_get_gamma(const std::vector<Instruction>& bc, uint3
     SchrodingerState state({.peak_rank = rank, .num_measurements = 0, .seed = seed});
     state.active_k = rank;
     fill_pattern(state);
-    state.p_x.bit_set(axis_lo, px_lo != 0);
-    state.p_z.bit_set(axis_lo, pz_lo != 0);
-    state.p_x.bit_set(axis_hi, px_hi != 0);
-    state.p_z.bit_set(axis_hi, pz_hi != 0);
+    bit_set(state.p_x, axis_lo, px_lo != 0);
+    bit_set(state.p_z, axis_lo, pz_lo != 0);
+    bit_set(state.p_x, axis_hi, px_hi != 0);
+    bit_set(state.p_z, axis_hi, pz_hi != 0);
     execute(prog, state);
     return state.gamma();
 }
@@ -159,13 +160,13 @@ std::tuple<bool, bool, bool, bool> run_and_get_frame(const std::vector<Instructi
     SchrodingerState state({.peak_rank = rank, .num_measurements = 0, .seed = seed});
     state.active_k = rank;
     fill_pattern(state);
-    state.p_x.bit_set(axis_lo, px_lo != 0);
-    state.p_z.bit_set(axis_lo, pz_lo != 0);
-    state.p_x.bit_set(axis_hi, px_hi != 0);
-    state.p_z.bit_set(axis_hi, pz_hi != 0);
+    bit_set(state.p_x, axis_lo, px_lo != 0);
+    bit_set(state.p_z, axis_lo, pz_lo != 0);
+    bit_set(state.p_x, axis_hi, px_hi != 0);
+    bit_set(state.p_z, axis_hi, pz_hi != 0);
     execute(prog, state);
-    return {state.p_x.bit_get(axis_lo), state.p_z.bit_get(axis_lo), state.p_x.bit_get(axis_hi),
-            state.p_z.bit_get(axis_hi)};
+    return {bit_get(state.p_x, axis_lo), bit_get(state.p_z, axis_lo), bit_get(state.p_x, axis_hi),
+            bit_get(state.p_z, axis_hi)};
 }
 
 }  // namespace

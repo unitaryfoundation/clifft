@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <bit>
 #include <cstdint>
+#include <span>
 
 #if defined(__AVX2__) || defined(__x86_64__) || defined(_M_X64) || defined(__i386__) || \
     defined(_M_IX86)
@@ -14,30 +15,38 @@
 namespace clifft {
 
 // =============================================================================
-// Bit helpers for PauliBitMask (BitMask<kMaxInlineQubits>)
+// Bit helpers for the SchrodingerState Pauli frame.
+//
+// p_x and p_z are runtime-sized std::vector<uint64_t>; std::span gives a
+// uniform handle that accepts both vectors and arrays without copying.
 // These are pure bit-manipulation and have no ISA dependency.
 // =============================================================================
 
-inline bool bit_get(const PauliBitMask& m, uint16_t idx) {
-    return m.bit_get(idx);
+inline bool bit_get(std::span<const uint64_t> m, uint32_t idx) {
+    return (m[idx / 64] >> (idx % 64)) & 1ULL;
 }
 
-inline void bit_set(PauliBitMask& m, uint16_t idx, bool v) {
-    m.bit_set(idx, v);
-}
-
-inline void bit_xor(PauliBitMask& m, uint16_t idx, bool v) {
+inline void bit_set(std::span<uint64_t> m, uint32_t idx, bool v) {
+    const uint64_t mask = 1ULL << (idx % 64);
     if (v) {
-        m.bit_xor(idx);
+        m[idx / 64] |= mask;
+    } else {
+        m[idx / 64] &= ~mask;
     }
 }
 
-inline void bit_swap(PauliBitMask& m1, uint16_t i1, PauliBitMask& m2, uint16_t i2) {
-    bool b1 = m1.bit_get(i1);
-    bool b2 = m2.bit_get(i2);
+inline void bit_xor(std::span<uint64_t> m, uint32_t idx, bool v) {
+    if (v) {
+        m[idx / 64] ^= (1ULL << (idx % 64));
+    }
+}
+
+inline void bit_swap(std::span<uint64_t> m1, uint32_t i1, std::span<uint64_t> m2, uint32_t i2) {
+    bool b1 = (m1[i1 / 64] >> (i1 % 64)) & 1ULL;
+    bool b2 = (m2[i2 / 64] >> (i2 % 64)) & 1ULL;
     if (b1 != b2) {
-        m1.bit_xor(i1);
-        m2.bit_xor(i2);
+        m1[i1 / 64] ^= (1ULL << (i1 % 64));
+        m2[i2 / 64] ^= (1ULL << (i2 % 64));
     }
 }
 

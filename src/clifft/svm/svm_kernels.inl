@@ -1811,18 +1811,19 @@ static inline void apply_pauli_to_frame(SchrodingerState& state, MaskView err_x,
                                         bool sign) {
     // Phase: (-1)^popcount(err_z & current_x)
     // When composing E*P, we commute Z^{e_z} past X^{p_x}, picking up (-1)^{e_z . p_x}.
+    const uint32_t nw = static_cast<uint32_t>(state.p_x.size());
+    assert(err_x.num_words() == nw && err_z.num_words() == nw);
     int parity = 0;
-    const uint32_t nw = err_x.num_words();
-    for (uint32_t i = 0; i < nw && i < kMaxInlineWords; ++i) {
-        parity += std::popcount(state.p_x.w[i] & err_z.words[i]);
+    for (uint32_t i = 0; i < nw; ++i) {
+        parity += std::popcount(state.p_x[i] & err_z.words[i]);
     }
     if (parity & 1) {
         state.multiply_phase({-1.0, 0.0});
     }
 
-    for (uint32_t i = 0; i < nw && i < kMaxInlineWords; ++i) {
-        state.p_x.w[i] ^= err_x.words[i];
-        state.p_z.w[i] ^= err_z.words[i];
+    for (uint32_t i = 0; i < nw; ++i) {
+        state.p_x[i] ^= err_x.words[i];
+        state.p_z[i] ^= err_z.words[i];
     }
 
     if (sign) {
@@ -2009,19 +2010,19 @@ exec_exp_val(SchrodingerState& state, const ConstantPool& pool, uint32_t cp_exp_
     // and the current runtime Pauli frame. If P anti-commutes with the
     // frame, the expectation sign flips.
     bool frame_sign = pm.sign();
+    const uint32_t frame_words = static_cast<uint32_t>(state.p_x.size());
+    assert(pm_x.num_words() == frame_words && pm_z.num_words() == frame_words);
     {
         int parity = 0;
-        const uint32_t nw = pm_x.num_words();
-        for (uint32_t w = 0; w < nw && w < kMaxInlineWords; ++w)
-            parity += std::popcount(pm_x.words[w] & state.p_z.w[w]);
+        for (uint32_t w = 0; w < frame_words; ++w)
+            parity += std::popcount(pm_x.words[w] & state.p_z[w]);
         if (parity & 1)
             frame_sign = !frame_sign;
     }
     {
         int parity = 0;
-        const uint32_t nw = pm_z.num_words();
-        for (uint32_t w = 0; w < nw && w < kMaxInlineWords; ++w)
-            parity += std::popcount(pm_z.words[w] & state.p_x.w[w]);
+        for (uint32_t w = 0; w < frame_words; ++w)
+            parity += std::popcount(pm_z.words[w] & state.p_x[w]);
         if (parity & 1)
             frame_sign = !frame_sign;
     }
