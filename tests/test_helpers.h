@@ -2,6 +2,7 @@
 
 // Shared test helpers for Clifft Catch2 tests.
 
+#include "clifft/frontend/hir.h"
 #include "clifft/util/bitmask.h"
 #include "clifft/util/config.h"
 #include "clifft/util/mask_view.h"
@@ -34,16 +35,70 @@ inline uint64_t Z(size_t qubit) {
     return 1ULL << qubit;
 }
 
-/// Test-only single-word mask buffer with implicit conversion to MaskView.
-/// Use as an rvalue argument to HirModule builders: most tests construct
-/// single-bit Paulis like `MaskBuf(X(0))` or `MaskBuf(X(0) | Z(2))`, which
-/// fit in 64 bits. The buffer must outlive any view derived from it.
-struct MaskBuf {
-    std::array<uint64_t, 1> data;
-    constexpr MaskBuf() : data{0} {}
-    constexpr MaskBuf(uint64_t low) : data{low} {}                             // NOLINT
-    constexpr operator MaskView() const { return MaskView{std::span(data)}; }  // NOLINT
-};
+// HirModule append_* test helpers.
+//
+// All current tests build single-word Paulis (n <= 64). Wider patterns
+// can call HirModule::append_*(args, fill_lambda) directly.
+inline HeisenbergOp& append_tgate(HirModule& hir, uint64_t destab, uint64_t stab, bool sign,
+                                  bool dagger = false) {
+    return hir.append_tgate(dagger, [&](MutablePauliMaskView slot) {
+        slot.x().words[0] = destab;
+        slot.z().words[0] = stab;
+        slot.set_sign(sign);
+    });
+}
+
+inline HeisenbergOp& append_measure(HirModule& hir, uint64_t destab, uint64_t stab, bool sign,
+                                    MeasRecordIdx idx) {
+    return hir.append_measure(idx, [&](MutablePauliMaskView slot) {
+        slot.x().words[0] = destab;
+        slot.z().words[0] = stab;
+        slot.set_sign(sign);
+    });
+}
+
+inline HeisenbergOp& append_conditional(HirModule& hir, uint64_t destab, uint64_t stab, bool sign,
+                                        ControllingMeasIdx idx) {
+    return hir.append_conditional(idx, [&](MutablePauliMaskView slot) {
+        slot.x().words[0] = destab;
+        slot.z().words[0] = stab;
+        slot.set_sign(sign);
+    });
+}
+
+inline HeisenbergOp& append_phase_rotation(HirModule& hir, uint64_t destab, uint64_t stab,
+                                           bool sign, double alpha) {
+    return hir.append_phase_rotation(alpha, [&](MutablePauliMaskView slot) {
+        slot.x().words[0] = destab;
+        slot.z().words[0] = stab;
+        slot.set_sign(sign);
+    });
+}
+
+inline HeisenbergOp& append_exp_val(HirModule& hir, uint64_t destab, uint64_t stab, bool sign,
+                                    ExpValIdx idx) {
+    return hir.append_exp_val(idx, [&](MutablePauliMaskView slot) {
+        slot.x().words[0] = destab;
+        slot.z().words[0] = stab;
+        slot.set_sign(sign);
+    });
+}
+
+inline PauliMaskHandle claim_noise_channel_mask(HirModule& hir, uint64_t destab, uint64_t stab) {
+    auto h = hir.claim_empty_noise_channel_mask();
+    auto slot = hir.noise_channel_masks.mut_at(h);
+    slot.x().words[0] = destab;
+    slot.z().words[0] = stab;
+    return h;
+}
+
+inline void set_pauli(HirModule& hir, const HeisenbergOp& op, uint64_t destab, uint64_t stab,
+                      bool sign) {
+    auto slot = hir.mask_at(op);
+    slot.x().words[0] = destab;
+    slot.z().words[0] = stab;
+    slot.set_sign(sign);
+}
 
 // Convert a Pauli string like "XYZ" to (destab_mask, stab_mask) pair.
 // Qubit 0 is the rightmost character: "XYZ" means X on q2, Y on q1, Z on q0.

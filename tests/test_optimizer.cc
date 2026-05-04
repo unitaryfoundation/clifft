@@ -13,7 +13,6 @@
 #include <catch2/catch_test_macros.hpp>
 
 using namespace clifft;
-using clifft::test::MaskBuf;
 using clifft::test::X;
 using clifft::test::Z;
 
@@ -278,8 +277,8 @@ TEST_CASE("Peephole: sign inversion makes T behave as T_dag", "[optimizer]") {
     // So T(sign=true) + T(sign=false) should cancel
     HirModule hir(1, /*pauli_capacity=*/16);
 
-    hir.append_tgate(MaskBuf(0), MaskBuf(Z(0)), /*sign=*/true);
-    hir.append_tgate(MaskBuf(0), MaskBuf(Z(0)), /*sign=*/false);
+    clifft::test::append_tgate(hir, 0, Z(0), /*sign=*/true);
+    clifft::test::append_tgate(hir, 0, Z(0), /*sign=*/false);
 
     PeepholeFusionPass pass;
     pass.run(hir);
@@ -293,8 +292,8 @@ TEST_CASE("Peephole: sign inversion makes same-direction absorb", "[optimizer]")
     // total = -2 -> fuse to S_dag (absorbed)
     HirModule hir(1, /*pauli_capacity=*/16);
 
-    hir.append_tgate(MaskBuf(0), MaskBuf(Z(0)), /*sign=*/true);
-    hir.append_tgate(MaskBuf(0), MaskBuf(Z(0)), /*sign=*/false, /*dagger=*/true);
+    clifft::test::append_tgate(hir, 0, Z(0), /*sign=*/true);
+    clifft::test::append_tgate(hir, 0, Z(0), /*sign=*/false, /*dagger=*/true);
 
     PeepholeFusionPass pass;
     pass.run(hir);
@@ -446,8 +445,8 @@ TEST_CASE("Peephole: negative-sign T plus T preserves global phase", "[optimizer
     // T(-Z) = exp(i*pi/4) * T_dag(+Z), so T(-Z)+T(-Z) = exp(i*pi/2) * S_dag(+Z) = i * S_dag.
     HirModule hir(1, /*pauli_capacity=*/16);
 
-    hir.append_tgate(MaskBuf(0), MaskBuf(Z(0)), /*sign=*/true);
-    hir.append_tgate(MaskBuf(0), MaskBuf(Z(0)), /*sign=*/true);
+    clifft::test::append_tgate(hir, 0, Z(0), /*sign=*/true);
+    clifft::test::append_tgate(hir, 0, Z(0), /*sign=*/true);
     auto initial_weight = hir.global_weight;
 
     PeepholeFusionPass pass;
@@ -469,8 +468,8 @@ TEST_CASE("Peephole: negative-sign T_dag plus T_dag preserves global phase", "[o
     // T_dag(-Z) = exp(-i*pi/4) * T(+Z), two of them: exp(-i*pi/2) * S(+Z) = -i * S.
     HirModule hir(1, /*pauli_capacity=*/16);
 
-    hir.append_tgate(MaskBuf(0), MaskBuf(Z(0)), /*sign=*/true, /*dagger=*/true);
-    hir.append_tgate(MaskBuf(0), MaskBuf(Z(0)), /*sign=*/true, /*dagger=*/true);
+    clifft::test::append_tgate(hir, 0, Z(0), /*sign=*/true, /*dagger=*/true);
+    clifft::test::append_tgate(hir, 0, Z(0), /*sign=*/true, /*dagger=*/true);
     auto initial_weight = hir.global_weight;
 
     PeepholeFusionPass pass;
@@ -491,8 +490,8 @@ TEST_CASE("Peephole: mixed-sign T cancellation preserves global phase", "[optimi
     // T(+Z) * exp(i*pi/4) * T_dag(+Z) = exp(i*pi/4) * I.
     HirModule hir(1, /*pauli_capacity=*/16);
 
-    hir.append_tgate(MaskBuf(0), MaskBuf(Z(0)), /*sign=*/false);
-    hir.append_tgate(MaskBuf(0), MaskBuf(Z(0)), /*sign=*/true);
+    clifft::test::append_tgate(hir, 0, Z(0), /*sign=*/false);
+    clifft::test::append_tgate(hir, 0, Z(0), /*sign=*/true);
     auto initial_weight = hir.global_weight;
 
     PeepholeFusionPass pass;

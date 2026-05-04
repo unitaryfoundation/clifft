@@ -385,39 +385,6 @@ struct HirModule {
         return pauli_masks.mut_at(op.mask_handle());
     }
 
-    // --- Builders that take pre-built MaskViews ---
-    //
-    // Convenient for tests and any caller that already has the mask data
-    // in MaskView form. Fails (via copy_from's contract) if the source
-    // mask has set bits beyond the arena's width.
-
-    HeisenbergOp& append_tgate(MaskView destab, MaskView stab, bool s, bool dagger = false) {
-        auto h = claim_pauli_mask(destab, stab, s);
-        ops.push_back(HeisenbergOp::make_tgate(h, dagger));
-        return ops.back();
-    }
-    HeisenbergOp& append_measure(MaskView destab, MaskView stab, bool s, MeasRecordIdx idx) {
-        auto h = claim_pauli_mask(destab, stab, s);
-        ops.push_back(HeisenbergOp::make_measure(h, idx));
-        return ops.back();
-    }
-    HeisenbergOp& append_conditional(MaskView destab, MaskView stab, bool s,
-                                     ControllingMeasIdx idx) {
-        auto h = claim_pauli_mask(destab, stab, s);
-        ops.push_back(HeisenbergOp::make_conditional(h, idx));
-        return ops.back();
-    }
-    HeisenbergOp& append_phase_rotation(MaskView destab, MaskView stab, bool s, double alpha) {
-        auto h = claim_pauli_mask(destab, stab, s);
-        ops.push_back(HeisenbergOp::make_phase_rotation(h, alpha));
-        return ops.back();
-    }
-    HeisenbergOp& append_exp_val(MaskView destab, MaskView stab, bool s, ExpValIdx idx) {
-        auto h = claim_pauli_mask(destab, stab, s);
-        ops.push_back(HeisenbergOp::make_exp_val(h, idx));
-        return ops.back();
-    }
-
     // --- Lambda-fill builders ---
     //
     // The mask slot is claimed, the fill callable is invoked with a
@@ -493,15 +460,6 @@ struct HirModule {
 
     // --- Noise channel mask claims (analogous to pauli_masks) ---
 
-    /// Claim the next noise_channel_masks slot, populate (X, Z), return the handle.
-    PauliMaskHandle claim_noise_channel_mask(MaskView destab, MaskView stab) {
-        auto h = claim_empty_noise_channel_mask();
-        auto slot = noise_channel_masks.mut_at(h);
-        slot.x().copy_from(destab);
-        slot.z().copy_from(stab);
-        return h;
-    }
-
     /// Claim the next noise_channel_masks slot zero-initialized; caller
     /// fills via noise_channel_masks.mut_at(h). Throws (rather than
     /// asserting) so a stale count_noise_channels() upper bound is
@@ -515,13 +473,6 @@ struct HirModule {
     }
 
     // --- In-place mutation of existing op slots ---
-
-    void set_pauli(const HeisenbergOp& op, MaskView destab, MaskView stab, bool s) {
-        auto m = mask_at(op);
-        m.x().copy_from(destab);
-        m.z().copy_from(stab);
-        m.set_sign(s);
-    }
 
     void set_sign(const HeisenbergOp& op, bool s) { mask_at(op).set_sign(s); }
 
@@ -554,15 +505,6 @@ struct HirModule {
     }
 
   private:
-    PauliMaskHandle claim_pauli_mask(MaskView destab, MaskView stab, bool s) {
-        auto h = claim_empty_pauli_mask();
-        auto slot = pauli_masks.mut_at(h);
-        slot.x().copy_from(destab);
-        slot.z().copy_from(stab);
-        slot.set_sign(s);
-        return h;
-    }
-
     /// Throws (rather than asserting) so a stale count_pauli_masks() upper
     /// bound is caught in Release as well as Debug.
     PauliMaskHandle claim_empty_pauli_mask() {

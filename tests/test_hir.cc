@@ -10,7 +10,6 @@
 #include <utility>
 
 using namespace clifft;
-using clifft::test::MaskBuf;
 using clifft::test::pauli_masks;
 using clifft::test::X;
 using clifft::test::Z;
@@ -26,7 +25,7 @@ TEST_CASE("HirModule::append_tgate stores Pauli in arena", "[hir]") {
     SECTION("T gate with Z on qubit 0") {
         HirModule hir(64, 1);
         auto [destab, stab] = pauli_masks("Z");
-        auto& op = hir.append_tgate(MaskBuf(destab), MaskBuf(stab), /*sign=*/false);
+        auto& op = clifft::test::append_tgate(hir, destab, stab, /*sign=*/false);
 
         REQUIRE(op.op_type() == OpType::T_GATE);
         REQUIRE(hir.destab_mask(op) == 0);   // No X
@@ -37,7 +36,7 @@ TEST_CASE("HirModule::append_tgate stores Pauli in arena", "[hir]") {
 
     SECTION("T_dag gate with X on qubit 1, negative sign") {
         HirModule hir(64, 1);
-        auto& op = hir.append_tgate(MaskBuf(X(1)), MaskBuf(0), /*sign=*/true, /*dagger=*/true);
+        auto& op = clifft::test::append_tgate(hir, X(1), 0, /*sign=*/true, /*dagger=*/true);
 
         REQUIRE(op.op_type() == OpType::T_GATE);
         REQUIRE(hir.destab_mask(op) == X(1));
@@ -49,20 +48,20 @@ TEST_CASE("HirModule::append_tgate stores Pauli in arena", "[hir]") {
     SECTION("T gate with Y on qubit 2 (both X and Z bits set)") {
         HirModule hir(64, 1);
         auto [destab, stab] = pauli_masks("Y__");
-        auto& op = hir.append_tgate(MaskBuf(destab), MaskBuf(stab), false);
+        auto& op = clifft::test::append_tgate(hir, destab, stab, false);
 
         REQUIRE(hir.destab_mask(op) == X(2));
         REQUIRE(hir.stab_mask(op) == Z(2));
     }
 }
 
-TEST_CASE("HirModule::set_pauli replaces masks and sign", "[hir]") {
+TEST_CASE("set_pauli replaces masks and sign", "[hir]") {
     HirModule hir(64, 1);
-    auto& op = hir.append_tgate(MaskBuf(0), MaskBuf(Z(0)), /*sign=*/false);
+    auto& op = clifft::test::append_tgate(hir, 0, Z(0), /*sign=*/false);
     REQUIRE(hir.stab_mask(op) == Z(0));
     REQUIRE(hir.sign(op) == false);
 
-    hir.set_pauli(op, MaskBuf(X(1)), MaskBuf(Z(2)), true);
+    clifft::test::set_pauli(hir, op, X(1), Z(2), true);
     REQUIRE(hir.destab_mask(op) == X(1));
     REQUIRE(hir.stab_mask(op) == Z(2));
     REQUIRE(hir.sign(op) == true);
@@ -72,8 +71,8 @@ TEST_CASE("HirModule::set_pauli replaces masks and sign", "[hir]") {
 
 TEST_CASE("HirModule mask access supports bitwise inspection", "[hir]") {
     HirModule hir(64, 2);
-    hir.append_tgate(MaskBuf(X(1) | X(3)), MaskBuf(Z(0) | Z(2)), false);  // X1 X3 Z0 Z2
-    hir.append_tgate(MaskBuf(X(2) | X(3)), MaskBuf(Z(0) | Z(1)), false);  // X2 X3 Z0 Z1
+    clifft::test::append_tgate(hir, X(1) | X(3), Z(0) | Z(2), false);  // X1 X3 Z0 Z2
+    clifft::test::append_tgate(hir, X(2) | X(3), Z(0) | Z(1), false);  // X2 X3 Z0 Z1
 
     auto destab1 = hir.destab_mask(hir.ops[0]);
     auto stab1 = hir.stab_mask(hir.ops[0]);
@@ -101,7 +100,7 @@ TEST_CASE("HirModule mask access supports bitwise inspection", "[hir]") {
 TEST_CASE("HirModule::append_measure", "[hir]") {
     SECTION("Measurement with record index") {
         HirModule hir(64, 1);
-        auto& op = hir.append_measure(MaskBuf(X(0)), MaskBuf(0), /*sign=*/false, MeasRecordIdx{5});
+        auto& op = clifft::test::append_measure(hir, X(0), 0, /*sign=*/false, MeasRecordIdx{5});
 
         REQUIRE(op.op_type() == OpType::MEASURE);
         REQUIRE(hir.destab_mask(op) == X(0));
@@ -111,7 +110,7 @@ TEST_CASE("HirModule::append_measure", "[hir]") {
 
     SECTION("Multi-qubit measurement") {
         HirModule hir(64, 1);
-        auto& op = hir.append_measure(MaskBuf(X(0) | X(1)), MaskBuf(0), false, MeasRecordIdx{10});
+        auto& op = clifft::test::append_measure(hir, X(0) | X(1), 0, false, MeasRecordIdx{10});
         REQUIRE(op.meas_record_idx() == MeasRecordIdx{10});
     }
 }
@@ -119,7 +118,7 @@ TEST_CASE("HirModule::append_measure", "[hir]") {
 TEST_CASE("HirModule::append_conditional", "[hir]") {
     HirModule hir(64, 1);
     auto& op =
-        hir.append_conditional(MaskBuf(X(0)), MaskBuf(0), /*sign=*/false, ControllingMeasIdx{7});
+        clifft::test::append_conditional(hir, X(0), 0, /*sign=*/false, ControllingMeasIdx{7});
 
     REQUIRE(op.op_type() == OpType::CONDITIONAL_PAULI);
     REQUIRE(hir.destab_mask(op) == X(0));
@@ -196,10 +195,10 @@ TEST_CASE("HirModule construction and accessors", "[hir]") {
     REQUIRE(hir.num_t_gates() == 0);
     REQUIRE(hir.global_weight == std::complex<double>(1.0, 0.0));
 
-    hir.append_tgate(MaskBuf(X(0)), MaskBuf(0), false);        // T
-    hir.append_tgate(MaskBuf(X(1)), MaskBuf(0), false, true);  // T_dag
-    hir.append_measure(MaskBuf(X(0)), MaskBuf(Z(0)), false, MeasRecordIdx{0});
-    hir.append_tgate(MaskBuf(X(2)), MaskBuf(0), false);  // T
+    clifft::test::append_tgate(hir, X(0), 0, false);        // T
+    clifft::test::append_tgate(hir, X(1), 0, false, true);  // T_dag
+    clifft::test::append_measure(hir, X(0), Z(0), false, MeasRecordIdx{0});
+    clifft::test::append_tgate(hir, X(2), 0, false);  // T
 
     REQUIRE(hir.num_ops() == 4);
     REQUIRE(hir.num_t_gates() == 3);
@@ -209,7 +208,7 @@ TEST_CASE("HirModule with noise sites", "[hir]") {
     HirModule hir(2, /*num_pauli_masks=*/0, /*num_noise_channels=*/1);
 
     NoiseSite site;
-    auto h = hir.claim_noise_channel_mask(MaskBuf(X(0)), MaskBuf(0));
+    auto h = clifft::test::claim_noise_channel_mask(hir, X(0), 0);
     site.channels.push_back({h, 0.1});
     hir.noise_sites.push_back(std::move(site));
 

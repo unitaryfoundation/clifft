@@ -15,7 +15,6 @@
 #include <string>
 
 using namespace clifft;
-using clifft::test::MaskBuf;
 using namespace clifft::internal;
 using clifft::test::test_lcg;
 using clifft::test::X;
@@ -739,11 +738,11 @@ TEST_CASE("Backend: Gap sampling hazard array accumulation") {
 
     HirModule hir(3, /*pauli_capacity=*/16, /*noise_channel_capacity=*/3);
     NoiseSite site1;
-    site1.channels.push_back({hir.claim_noise_channel_mask(MaskBuf(1), MaskBuf(0)), 0.5});
+    site1.channels.push_back({clifft::test::claim_noise_channel_mask(hir, 1, 0), 0.5});
     NoiseSite site2;
-    site2.channels.push_back({hir.claim_noise_channel_mask(MaskBuf(2), MaskBuf(0)), 0.75});
+    site2.channels.push_back({clifft::test::claim_noise_channel_mask(hir, 2, 0), 0.75});
     NoiseSite site3;
-    site3.channels.push_back({hir.claim_noise_channel_mask(MaskBuf(4), MaskBuf(0)), 1.0});
+    site3.channels.push_back({clifft::test::claim_noise_channel_mask(hir, 4, 0), 1.0});
 
     hir.noise_sites.push_back(std::move(site1));
     hir.noise_sites.push_back(std::move(site2));
@@ -1246,7 +1245,7 @@ TEST_CASE("Lower: ARRAY_ROTATION geometric artifact correction", "[backend][rota
     hir.global_weight = {1.0, 0.0};
 
     // +Y on qubit 0: destab=X(0), stab=Z(0), sign=false
-    hir.append_phase_rotation(MaskBuf(X(0)), MaskBuf(Z(0)), false, 0.5);
+    clifft::test::append_phase_rotation(hir, X(0), Z(0), false, 0.5);
 
     auto mod = clifft::lower(hir);
 
@@ -1442,8 +1441,8 @@ TEST_CASE("Lower: queued virtual gates affect later EXP_VAL masks") {
 
     // T on an X-basis dormant axis queues a virtual H and EXPAND without
     // immediately materializing the H into v_cum.
-    hir.append_tgate(MaskBuf(X(0)), MaskBuf(0), false);
-    hir.append_exp_val(MaskBuf(X(0)), MaskBuf(0), false, ExpValIdx{0});
+    clifft::test::append_tgate(hir, X(0), 0, false);
+    clifft::test::append_exp_val(hir, X(0), 0, false, ExpValIdx{0});
 
     auto mod = lower(hir);
 
@@ -1460,8 +1459,8 @@ TEST_CASE("Lower: queued virtual gates affect later measurements") {
 
     // The queued virtual H from the T gate should map a later X probe to Z,
     // making the active measurement diagonal instead of interfering.
-    hir.append_tgate(MaskBuf(X(0)), MaskBuf(0), false);
-    hir.append_measure(MaskBuf(X(0)), MaskBuf(0), false, MeasRecordIdx{0});
+    clifft::test::append_tgate(hir, X(0), 0, false);
+    clifft::test::append_measure(hir, X(0), 0, false, MeasRecordIdx{0});
 
     auto mod = lower(hir);
 
@@ -1474,11 +1473,11 @@ TEST_CASE("Lower: queued virtual gates affect later noise masks") {
     HirModule hir(1, /*pauli_capacity=*/16, /*noise_channel_capacity=*/1);
 
     NoiseSite site;
-    site.channels.push_back({hir.claim_noise_channel_mask(MaskBuf(X(0)), MaskBuf(0)), 0.25});
+    site.channels.push_back({clifft::test::claim_noise_channel_mask(hir, X(0), 0), 0.25});
     hir.noise_sites.push_back(site);
 
     // Leave a virtual H pending, then map an X-error noise site through it.
-    hir.append_tgate(MaskBuf(X(0)), MaskBuf(0), false);
+    clifft::test::append_tgate(hir, X(0), 0, false);
     hir.append_noise(NoiseSiteIdx{0});
 
     auto mod = lower(hir);
