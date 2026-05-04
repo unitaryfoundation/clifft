@@ -201,9 +201,8 @@ TEST_CASE("PauliMaskArena: const at returns read-only view") {
     REQUIRE(cm.sign());
 }
 
-TEST_CASE("PauliMaskArena: width above old compile-time bound") {
-    // BitMask<N> caps at CLIFFT_MAX_QUBITS at compile time. The arena
-    // accepts arbitrary widths and rounds up to whole words.
+TEST_CASE("PauliMaskArena: 1024-qubit width with high-bit storage") {
+    // The arena accepts arbitrary widths and rounds up to whole words.
     PauliMaskArena arena(1024, 1);
     REQUIRE(arena.num_words() == 16);
     arena.mut_at(PauliMaskHandle{0}).x().bit_set(1023, true);

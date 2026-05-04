@@ -76,10 +76,6 @@ if(NOT EMSCRIPTEN)
     endif()
 endif()
 
-if(DEFINED CLIFFT_MAX_QUBITS)
-    target_compile_definitions(clifft_core PUBLIC CLIFFT_MAX_QUBITS=${CLIFFT_MAX_QUBITS})
-endif()
-
 target_compile_features(clifft_core PUBLIC cxx_std_20)
 
 # Code coverage instrumentation (only for Clifft code, not dependencies)

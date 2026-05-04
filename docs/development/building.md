@@ -33,8 +33,6 @@ uv run pytest tests/python/ -v
 
 The editable install (`-e .`) means you can re-run `uv pip install -e .` after modifying C++ code to rebuild.
 
-Note that this builds with the maximum number of qubits as set by `CLIFFT_MAX_QUBITS` in the `pyproject.toml`. If you modify, you will need to rebuild. See [CLIFFT_MAX_QUBITS](#clifft_max_qubits) below.
-
 OpenMP support is optional. Linux source builds usually pick it up automatically with GCC or Clang. On macOS with Apple clang, install Homebrew `libomp` before building if you want multi-core state vector execution:
 
 ```bash
@@ -112,40 +110,12 @@ For optimized source builds, `Release` and `RelWithDebInfo` default to native CP
     Stim (a dependency) has many source files. Subsequent builds are incremental.
     If you hit memory pressure, reduce parallelism: `cmake --build build -j1`
 
-## CLIFFT_MAX_QUBITS
+## Qubit ceiling
 
-Clifft's Pauli frame uses a compile-time-sized bitmask. The `CLIFFT_MAX_QUBITS` setting controls the maximum number of qubits the simulator can handle. It must be a multiple of 64.
-
-| Setting | Max Qubits | Use Case |
-|---------|-----------|----------|
-| 64 | 64 | Best small-circuit and QV performance |
-| 128 (default) | 128 | Distance-7 surface codes, 85-qubit distillation |
-| 256 | 256 | Large QEC experiments |
-| 512 | 512 | Production-scale circuits |
-
-**Python build:** Edit `CLIFFT_MAX_QUBITS` in `pyproject.toml` under `[tool.scikit-build.cmake.define]`, then rebuild:
-
-```bash
-uv pip install -e .
-```
-
-**C++ build:** Pass the value as a CMake variable:
-
-```bash
-cmake -B build -DCLIFFT_MAX_QUBITS=128
-cmake --build build -j
-```
-
-Or set the environment variable (checked at configure time):
-
-```bash
-export CLIFFT_MAX_QUBITS=128
-cmake -B build
-```
-
-!!! warning "Rebuild required"
-    Changing `CLIFFT_MAX_QUBITS` requires a full rebuild. The value is baked into
-    struct layouts at compile time.
+Clifft sizes Pauli mask storage and the SVM Pauli frame at runtime. The
+only remaining hard limit is the bytecode VM axis operand width: axes
+are uint16_t, so circuits beyond 65,536 qubits cannot be lowered. Below
+that ceiling, no rebuild is required for any circuit size.
 
 ## WebAssembly Build
 

@@ -19,9 +19,9 @@ def test_version() -> None:
 
 
 def test_max_sim_qubits() -> None:
-    """Test that max_sim_qubits() returns the expected value."""
+    """The simulator's only hard ceiling is the 65,536-qubit VM-axis bound."""
     max_qubits = clifft.max_sim_qubits()
-    assert max_qubits == 128
+    assert max_qubits == 65_536
 
 
 def test_module_version_attribute() -> None:

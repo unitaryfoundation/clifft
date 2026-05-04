@@ -117,31 +117,6 @@ if(CMAKE_BUILD_TYPE STREQUAL "Release" OR CMAKE_BUILD_TYPE STREQUAL "RelWithDebI
     endif()
 endif()
 
-# Maximum qubit count (compile-time). Determines the width of inline Pauli
-# masks (BitMask<N>) used by the HIR and SVM Pauli frame. The VM Instruction
-# struct stays 32 bytes regardless -- only compile-time structures grow.
-# Default 128 covers the paper-facing install experience (distance-7 surface
-# code and 85-qubit distillation). Rebuild with 64 for best small/QV
-# performance or 512 for larger cultivation circuits.
-# Can be set via -DCLIFFT_MAX_QUBITS=N or the CLIFFT_MAX_QUBITS env var.
-# The env var is checked every configure, so `export CLIFFT_MAX_QUBITS=512`
-# works with scikit-build-core editable installs that reconfigure each build.
-if(DEFINED ENV{CLIFFT_MAX_QUBITS})
-    set(CLIFFT_MAX_QUBITS "$ENV{CLIFFT_MAX_QUBITS}" CACHE STRING
-        "Maximum supported qubits (must be a multiple of 64, >= 64)" FORCE)
-else()
-    set(CLIFFT_MAX_QUBITS "128" CACHE STRING
-        "Maximum supported qubits (must be a multiple of 64, >= 64)")
-endif()
-if(CLIFFT_MAX_QUBITS LESS 64)
-    message(FATAL_ERROR "CLIFFT_MAX_QUBITS must be >= 64, got ${CLIFFT_MAX_QUBITS}")
-endif()
-math(EXPR _CLIFFT_MOD "${CLIFFT_MAX_QUBITS} % 64")
-if(NOT _CLIFFT_MOD EQUAL 0)
-    message(FATAL_ERROR "CLIFFT_MAX_QUBITS must be a multiple of 64, got ${CLIFFT_MAX_QUBITS}")
-endif()
-message(STATUS "CLIFFT_MAX_QUBITS = ${CLIFFT_MAX_QUBITS}")
-
 # Code coverage option (for use with gcov/lcov)
 # Note: Coverage flags are applied per-target in src/clifft/CMakeLists.txt to avoid
 # instrumenting external dependencies (Stim, Catch2) which would slow builds.
