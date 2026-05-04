@@ -845,11 +845,13 @@ CompiledModule lower(const HirModule& hir, std::span<const uint8_t> postselectio
 
     ctx.constant_pool.global_weight *= hir.global_weight;
 
-    uint16_t peak = ctx.reg_manager.peak_k();
-    if (peak >= 63) {
-        throw std::runtime_error("peak active rank (" + std::to_string(peak) +
-                                 ") >= 63: would cause undefined behavior in SVM 1ULL << k shifts");
-    }
+    // Keep peak as uint32_t through the validate-and-store path. A
+    // uint16_t narrowing here would wrap peak == 65536 (a circuit
+    // activating every VM axis) to 0, slip past validate_peak_rank,
+    // and ship a CompiledModule whose peak_rank under-allocates the
+    // SVM amplitude array.
+    uint32_t peak = ctx.reg_manager.peak_k();
+    internal::validate_peak_rank(peak);
 
     CompiledModule result;
     result.bytecode = std::move(ctx.bytecode);

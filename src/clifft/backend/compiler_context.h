@@ -13,6 +13,8 @@
 #include "stim.h"
 
 #include <cstdint>
+#include <stdexcept>
+#include <string>
 #include <vector>
 
 namespace clifft {
@@ -68,6 +70,20 @@ class VirtualRegisterManager {
     uint32_t active_k_;
     uint32_t peak_k_ = 0;
 };
+
+/// Validate that the peak active rank fits the SVM's `1ULL << k` shift.
+/// k >= 63 produces undefined behavior in the bytecode interpreter, so
+/// lower() must reject before shipping the CompiledModule. Pulled out
+/// of lower() so the guard can be unit-tested without spinning up a
+/// 65k-qubit Stim tableau -- and so the uint32_t input type is fixed
+/// at the boundary, preventing a regression where a uint16_t narrowing
+/// at the call site silently wraps a 65,536-axis peak to 0.
+inline void validate_peak_rank(uint32_t peak) {
+    if (peak >= 63) {
+        throw std::runtime_error("peak active rank (" + std::to_string(peak) +
+                                 ") >= 63: would cause undefined behavior in SVM 1ULL << k shifts");
+    }
+}
 
 // =============================================================================
 // CompilerContext
