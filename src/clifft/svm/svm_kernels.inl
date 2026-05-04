@@ -1806,6 +1806,24 @@ static inline void exec_swap_meas_interfere(SchrodingerState& state, uint16_t f,
 // Classical / Error Opcodes
 // =============================================================================
 
+// apply_pauli_to_frame inner loop, parameterized on word count so the
+// compiler unrolls the small-circuit cases (Nw = 1, 2) at compile time.
+template <uint32_t Nw>
+static inline void apply_pauli_to_frame_unrolled(SchrodingerState& state, MaskView err_x,
+                                                 MaskView err_z) {
+    int parity = 0;
+    for (uint32_t i = 0; i < Nw; ++i) {
+        parity += std::popcount(state.p_x[i] & err_z.words[i]);
+    }
+    if (parity & 1) {
+        state.multiply_phase({-1.0, 0.0});
+    }
+    for (uint32_t i = 0; i < Nw; ++i) {
+        state.p_x[i] ^= err_x.words[i];
+        state.p_z[i] ^= err_z.words[i];
+    }
+}
+
 // Apply a Pauli error to the Pauli frame (shared logic for APPLY_PAULI and NOISE).
 static inline void apply_pauli_to_frame(SchrodingerState& state, MaskView err_x, MaskView err_z,
                                         bool sign) {
@@ -1813,17 +1831,31 @@ static inline void apply_pauli_to_frame(SchrodingerState& state, MaskView err_x,
     // When composing E*P, we commute Z^{e_z} past X^{p_x}, picking up (-1)^{e_z . p_x}.
     const uint32_t nw = static_cast<uint32_t>(state.p_x.size());
     assert(err_x.num_words() == nw && err_z.num_words() == nw);
-    int parity = 0;
-    for (uint32_t i = 0; i < nw; ++i) {
-        parity += std::popcount(state.p_x[i] & err_z.words[i]);
-    }
-    if (parity & 1) {
-        state.multiply_phase({-1.0, 0.0});
-    }
 
-    for (uint32_t i = 0; i < nw; ++i) {
-        state.p_x[i] ^= err_x.words[i];
-        state.p_z[i] ^= err_z.words[i];
+    // Specialize on the small-n widths the bench fleet hits hardest.
+    // Nw = 1 covers anything with n <= 64 (QV, exp-val 20q, surface d5/d7);
+    // Nw = 2 covers n in (64, 128]. The runtime fallback handles n > 128.
+    switch (nw) {
+        case 1:
+            apply_pauli_to_frame_unrolled<1>(state, err_x, err_z);
+            break;
+        case 2:
+            apply_pauli_to_frame_unrolled<2>(state, err_x, err_z);
+            break;
+        default: {
+            int parity = 0;
+            for (uint32_t i = 0; i < nw; ++i) {
+                parity += std::popcount(state.p_x[i] & err_z.words[i]);
+            }
+            if (parity & 1) {
+                state.multiply_phase({-1.0, 0.0});
+            }
+            for (uint32_t i = 0; i < nw; ++i) {
+                state.p_x[i] ^= err_x.words[i];
+                state.p_z[i] ^= err_z.words[i];
+            }
+            break;
+        }
     }
 
     if (sign) {
@@ -2008,21 +2040,27 @@ exec_exp_val(SchrodingerState& state, const ConstantPool& pool, uint32_t cp_exp_
     // Step 1: Frame conjugation.
     // Compute symplectic anti-commutation parity between stored Pauli P
     // and the current runtime Pauli frame. If P anti-commutes with the
-    // frame, the expectation sign flips.
+    // frame, the expectation sign flips. Hot path for small n: peel out
+    // 1- and 2-word specializations so the compiler fully unrolls.
     bool frame_sign = pm.sign();
     const uint32_t frame_words = static_cast<uint32_t>(state.p_x.size());
     assert(pm_x.num_words() == frame_words && pm_z.num_words() == frame_words);
     {
         int parity = 0;
-        for (uint32_t w = 0; w < frame_words; ++w)
-            parity += std::popcount(pm_x.words[w] & state.p_z[w]);
-        if (parity & 1)
-            frame_sign = !frame_sign;
-    }
-    {
-        int parity = 0;
-        for (uint32_t w = 0; w < frame_words; ++w)
-            parity += std::popcount(pm_z.words[w] & state.p_x[w]);
+        if (frame_words == 1) {
+            parity = std::popcount(pm_x.words[0] & state.p_z[0]) +
+                     std::popcount(pm_z.words[0] & state.p_x[0]);
+        } else if (frame_words == 2) {
+            parity = std::popcount(pm_x.words[0] & state.p_z[0]) +
+                     std::popcount(pm_x.words[1] & state.p_z[1]) +
+                     std::popcount(pm_z.words[0] & state.p_x[0]) +
+                     std::popcount(pm_z.words[1] & state.p_x[1]);
+        } else {
+            for (uint32_t w = 0; w < frame_words; ++w) {
+                parity += std::popcount(pm_x.words[w] & state.p_z[w]);
+                parity += std::popcount(pm_z.words[w] & state.p_x[w]);
+            }
+        }
         if (parity & 1)
             frame_sign = !frame_sign;
     }
