@@ -5,6 +5,7 @@
 
 #include "stim.h"
 
+#include <cassert>
 #include <complex>
 #include <cstdint>
 #include <optional>
@@ -75,8 +76,7 @@ enum class Opcode : uint8_t {
 // =============================================================================
 //
 // Exactly 32 bytes ensures 2 instructions per 64-byte L1 cache line.
-// Uses uint16_t for axis indices, enabling 512-qubit scaling without
-// architectural changes.
+// Axis indices are uint16_t; the bytecode supports up to 65,536 qubits.
 
 struct alignas(32) Instruction {
     // Flag bits for measurement instructions
@@ -284,6 +284,22 @@ struct ConstantPool {
     // Fused 2-axis 4x4 unitary nodes for OP_ARRAY_U4.
     std::vector<FusedU4Node> fused_u4_nodes;
 };
+
+/// Debug-only check that every constant-pool Pauli arena was sized for
+/// the same `num_qubits` the rest of the module reports. lower() builds
+/// all three from the same n, so a mismatch would indicate a stale
+/// mismatched-width module produced by handwritten test bytecode or a
+/// future code path that built the arenas separately. Compiles to
+/// nothing in Release.
+inline void assert_arena_widths_match(uint32_t num_qubits, const ConstantPool& pool) {
+    [[maybe_unused]] const uint32_t expected = (num_qubits + 63) / 64;
+    assert(pool.pauli_masks.num_words() == expected &&
+           "pauli_masks arena width does not match num_qubits");
+    assert(pool.exp_val_masks.num_words() == expected &&
+           "exp_val_masks arena width does not match num_qubits");
+    assert(pool.noise_channel_masks.num_words() == expected &&
+           "noise_channel_masks arena width does not match num_qubits");
+}
 
 // =============================================================================
 // Compiled Module

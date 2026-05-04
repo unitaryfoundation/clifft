@@ -101,6 +101,8 @@ SampleResult sample(const CompiledModule& program, uint32_t shots, std::optional
         return result;
     }
 
+    assert_arena_widths_match(program.num_qubits, program.constant_pool);
+
     uint32_t num_vis = program.num_measurements;    // Visible measurements for output
     uint32_t num_total = program.total_meas_slots;  // Total slots for VM execution
     uint32_t num_det = program.num_detectors;
@@ -175,6 +177,8 @@ SurvivorResult sample_survivors(const CompiledModule& program, uint32_t shots,
     if (shots == 0) {
         return result;
     }
+
+    assert_arena_widths_match(program.num_qubits, program.constant_pool);
 
     uint32_t num_vis = program.num_measurements;
     uint32_t num_total = program.total_meas_slots;
@@ -455,6 +459,8 @@ SampleResult sample_k(const CompiledModule& program, uint32_t shots, uint32_t k,
     if (shots == 0)
         return result;
 
+    assert_arena_widths_match(program.num_qubits, program.constant_pool);
+
     uint32_t num_vis = program.num_measurements;
     uint32_t num_total = program.total_meas_slots;
     uint32_t num_det = program.num_detectors;
@@ -528,6 +534,8 @@ SurvivorResult sample_k_survivors(const CompiledModule& program, uint32_t shots,
     result.total_shots = shots;
     if (shots == 0)
         return result;
+
+    assert_arena_widths_match(program.num_qubits, program.constant_pool);
 
     uint32_t num_vis = program.num_measurements;
     uint32_t num_total = program.total_meas_slots;
