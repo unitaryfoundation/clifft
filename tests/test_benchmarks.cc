@@ -156,6 +156,22 @@ TEST_CASE("Bench: surface d5 r5 high-noise APPLY_PAULI heavy", "[bench]") {
 }
 
 // ---------------------------------------------------------------------------
+// Surface code d=11 r=11 p=1e-3: above the old kMaxInlineQubits ceiling.
+// ~242 qubits force the runtime-width Pauli mask path; this bench proves
+// the migrated arenas + frame storage handle larger codes end-to-end and
+// gives a regression baseline for further perf work.
+// ---------------------------------------------------------------------------
+TEST_CASE("Bench: surface d11 r11 p1e-3 sampling 1000 shots", "[bench]") {
+    auto mod = compile_text(surface_code_text(11, 11, 1e-3));
+    REQUIRE(mod.peak_rank == 0);
+    REQUIRE(mod.num_qubits > 128);
+
+    BENCHMARK("surface-d11-r11 p=1e-3 x1000 shots") {
+        return sample(mod, 1000, 0);
+    };
+}
+
+// ---------------------------------------------------------------------------
 // EXP_VAL heavy: 20 qubits, 200 weight-3 multi-Pauli probes per shot.
 // Exercises exec_exp_val (frame conjugation + dormant/active split). Each
 // probe walks the full mask twice (popcount of x & p_z, z & p_x).
