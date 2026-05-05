@@ -10,6 +10,11 @@ rather than the full Hilbert space.
 # ruff: noqa: E402
 from __future__ import annotations
 
+from typing import cast
+
+import numpy as np
+import numpy.typing as npt
+
 from clifft._build_config import CPU_BASELINE, REQUIRES_X86_64_V3_BASELINE
 from clifft._cpu_check import ensure_supported_cpu
 
@@ -75,7 +80,7 @@ from clifft._clifft_core import (
     StatevectorSqueezePass,
     SwapMeasPass,
     Target,
-    _probabilities_from_indices,
+    _probabilities_from_bitmasks,
     compute_reference_syndrome,
     default_bytecode_pass_manager,
     default_hir_pass_manager,
@@ -100,43 +105,43 @@ from clifft._clifft_core import (
 from clifft._sample_result import SampleResult
 
 
-def _basis_indices_from_bitstrings(
+def _basis_masks_from_bitstrings(
     program: Program,
     bitstrings: list[str] | tuple[str, ...] | str | object,
     bit_order: str,
-) -> list[int]:
+) -> list[list[int]]:
     if bit_order not in ("big", "little"):
         raise ValueError("bit_order must be 'big' or 'little'")
 
     num_qubits = program.num_qubits
-    if num_qubits >= 64:
-        raise ValueError("probabilities() currently supports programs with fewer than 64 qubits")
+    word_count = (num_qubits + 63) // 64
 
-    def index_from_string(bitstring: str, row: int) -> int:
+    def set_bit(words: list[int], qubit: int) -> None:
+        words[qubit // 64] |= 1 << (qubit % 64)
+
+    def mask_from_string(bitstring: str, row: int) -> list[int]:
         if len(bitstring) != num_qubits:
             raise ValueError(
                 f"bitstring at index {row} has length {len(bitstring)}, " f"expected {num_qubits}"
             )
-        index = 0
+        words = [0] * word_count
         for col, char in enumerate(bitstring):
             if char == "1":
                 qubit = col if bit_order == "big" else num_qubits - 1 - col
-                index |= 1 << qubit
+                set_bit(words, qubit)
             elif char != "0":
                 raise ValueError(
                     f"bitstring at index {row} contains {char!r}; expected only '0' and '1'"
                 )
-        return index
+        return words
 
     if isinstance(bitstrings, str):
-        return [index_from_string(bitstrings, 0)]
+        return [mask_from_string(bitstrings, 0)]
 
     if isinstance(bitstrings, (list, tuple)):
         if all(isinstance(bitstring, str) for bitstring in bitstrings):
-            return [index_from_string(bitstring, row) for row, bitstring in enumerate(bitstrings)]
+            return [mask_from_string(bitstring, row) for row, bitstring in enumerate(bitstrings)]
         raise TypeError("bitstrings must be strings or a 2D bool/uint8 NumPy array")
-
-    import numpy as np
 
     if not isinstance(bitstrings, np.ndarray):
         raise TypeError("bitstrings must be strings or a 2D bool/uint8 NumPy array")
@@ -151,15 +156,15 @@ def _basis_indices_from_bitstrings(
     if bitstrings.dtype == np.dtype("uint8") and np.any((bitstrings != 0) & (bitstrings != 1)):
         raise ValueError("uint8 bitstrings array must contain only 0 and 1")
 
-    indices: list[int] = []
+    masks: list[list[int]] = []
     for row_bits in bitstrings:
-        index = 0
+        words = [0] * word_count
         for col, bit in enumerate(row_bits):
             if bool(bit):
                 qubit = col if bit_order == "big" else num_qubits - 1 - col
-                index |= 1 << qubit
-        indices.append(index)
-    return indices
+                set_bit(words, qubit)
+        masks.append(words)
+    return masks
 
 
 def probabilities(
@@ -167,14 +172,17 @@ def probabilities(
     bitstrings: list[str] | tuple[str, ...] | str | object,
     *,
     bit_order: str = "big",
-) -> object:
+) -> npt.NDArray[np.float64]:
     """Return exact probabilities for full computational-basis bitstrings.
 
     ``bit_order="big"`` maps the first character or array column to qubit 0.
     ``bit_order="little"`` maps the last character or array column to qubit 0.
     """
-    return _probabilities_from_indices(
-        program, _basis_indices_from_bitstrings(program, bitstrings, bit_order)
+    return cast(
+        npt.NDArray[np.float64],
+        _probabilities_from_bitmasks(
+            program, _basis_masks_from_bitstrings(program, bitstrings, bit_order)
+        ),
     )
 
 

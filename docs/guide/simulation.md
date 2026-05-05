@@ -97,7 +97,9 @@ print(ps)  # [0.5, 0.0, 0.0, 0.5]
 Bitstrings must cover all `program.num_qubits` qubits. By default,
 `bit_order="big"` maps the first character, or first column of a 2D NumPy
 `bool`/`uint8` array, to qubit 0. With `bit_order="little"`, the last character
-or column maps to qubit 0.
+or column maps to qubit 0. Bitstrings can be longer than 64 qubits; the
+practical cost is driven by the number of queried bitstrings, the circuit size,
+and the final active rank rather than by dense state-vector expansion.
 
 `probabilities()` rejects programs containing measurements, feedback, noise,
 readout noise, detectors, post-selection, observables, or `EXP_VAL` probes.

@@ -1,5 +1,7 @@
 """Tests for exact computational-basis probability queries."""
 
+from typing import Any
+
 import numpy as np
 import pytest
 
@@ -57,6 +59,38 @@ def test_array_input_matches_string_input(dtype: np.dtype) -> None:
     )
 
 
+def test_probabilities_supports_high_qubit_string_bitstrings() -> None:
+    prog = clifft.compile("H 70")
+    zero = "0" * 71
+    one_q70_big = ("0" * 70) + "1"
+    one_q70_little = "1" + ("0" * 70)
+
+    np.testing.assert_allclose(
+        clifft.probabilities(prog, [zero, one_q70_big]),
+        [0.5, 0.5],
+        atol=1e-12,
+    )
+    np.testing.assert_allclose(
+        clifft.probabilities(prog, [zero, one_q70_little], bit_order="little"),
+        [0.5, 0.5],
+        atol=1e-12,
+    )
+
+
+@pytest.mark.parametrize("dtype", [np.bool_, np.uint8])
+def test_probabilities_supports_high_qubit_array_bitstrings(dtype: np.dtype) -> None:
+    prog = clifft.compile("X 70")
+    bits = np.zeros((2, 71), dtype=dtype)
+    bits[1, 70] = 1
+    little_bits = np.zeros((2, 71), dtype=dtype)
+    little_bits[1, 0] = 1
+
+    np.testing.assert_allclose(clifft.probabilities(prog, bits), [0.0, 1.0])
+    np.testing.assert_allclose(
+        clifft.probabilities(prog, little_bits, bit_order="little"), [0.0, 1.0]
+    )
+
+
 def test_probability_input_validation() -> None:
     prog = clifft.compile("H 0\nCX 0 1")
 
@@ -91,7 +125,7 @@ def test_probability_input_validation() -> None:
         ("M 0\nCX rec[-1] 1", {}),
     ],
 )
-def test_probabilities_rejects_non_unitary_programs(circuit: str, kwargs: dict[str, object]) -> None:
+def test_probabilities_rejects_non_unitary_programs(circuit: str, kwargs: dict[str, Any]) -> None:
     prog = clifft.compile(circuit, **kwargs)
 
     with pytest.raises(ValueError, match="requires a unitary program"):

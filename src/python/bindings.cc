@@ -1078,16 +1078,16 @@ NB_MODULE(_clifft_core, m) {
         nb::arg("program"), nb::arg("state"), "Expand the SVM state into a dense statevector.");
 
     m.def(
-        "_probabilities_from_indices",
-        [](const clifft::CompiledModule& program, const std::vector<uint64_t>& basis_indices) {
+        "_probabilities_from_bitmasks",
+        [](const clifft::CompiledModule& program,
+           const std::vector<std::vector<uint64_t>>& basis_masks) {
             std::vector<double> probs;
             {
                 nb::gil_scoped_release release;
-                probs = clifft::probabilities(program, basis_indices);
+                probs = clifft::probabilities(program, basis_masks);
             }
             size_t n = probs.size();
             return vec_to_numpy(std::move(probs), {n});
         },
-        nb::arg("program"), nb::arg("basis_indices"),
-        "Internal helper for clifft.probabilities().");
+        nb::arg("program"), nb::arg("basis_masks"), "Internal helper for clifft.probabilities().");
 }

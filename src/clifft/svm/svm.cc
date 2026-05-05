@@ -116,21 +116,48 @@ using StabilizerRow = stim::PauliString<kStimWidth>;
     }
 }
 
-[[nodiscard]] uint64_t pauli_x_mask(const StabilizerRow& p, uint32_t n) {
-    uint64_t mask = 0;
-    for (uint32_t q = 0; q < n; ++q) {
-        if (p.xs[q]) {
-            mask |= uint64_t{1} << q;
-        }
-    }
-    return mask;
+using BasisMask = std::vector<uint64_t>;
+
+[[nodiscard]] size_t basis_word_count(uint32_t n) {
+    return (static_cast<size_t>(n) + 63U) / 64U;
 }
 
-[[nodiscard]] uint64_t pauli_z_mask(const StabilizerRow& p, uint32_t n) {
-    uint64_t mask = 0;
+[[nodiscard]] BasisMask zero_basis_mask(uint32_t n) {
+    return BasisMask(basis_word_count(n), 0);
+}
+
+[[nodiscard]] bool mask_bit(const BasisMask& mask, uint32_t qubit) {
+    return ((mask[qubit / 64] >> (qubit % 64)) & 1ULL) != 0;
+}
+
+void mask_flip(BasisMask& mask, uint32_t qubit) {
+    mask[qubit / 64] ^= uint64_t{1} << (qubit % 64);
+}
+
+void mask_xor_with(BasisMask& dst, const BasisMask& src) {
+    for (size_t w = 0; w < dst.size(); ++w) {
+        dst[w] ^= src[w];
+    }
+}
+
+[[nodiscard]] bool mask_is_zero(const BasisMask& mask) {
+    return std::all_of(mask.begin(), mask.end(), [](uint64_t word) { return word == 0; });
+}
+
+[[nodiscard]] bool mask_has_only_qubit_bits(const BasisMask& mask, uint32_t n) {
+    const uint32_t used_bits = n % 64;
+    if (mask.empty() || used_bits == 0) {
+        return true;
+    }
+    const uint64_t used_mask = (uint64_t{1} << used_bits) - 1U;
+    return (mask.back() & ~used_mask) == 0;
+}
+
+[[nodiscard]] BasisMask pauli_x_mask(const StabilizerRow& p, uint32_t n) {
+    BasisMask mask = zero_basis_mask(n);
     for (uint32_t q = 0; q < n; ++q) {
-        if (p.zs[q]) {
-            mask |= uint64_t{1} << q;
+        if (p.xs[q]) {
+            mask_flip(mask, q);
         }
     }
     return mask;
@@ -150,11 +177,18 @@ using StabilizerRow = stim::PauliString<kStimWidth>;
 }
 
 [[nodiscard]] std::complex<double> pauli_action_phase(const StabilizerRow& p, uint32_t n,
-                                                      uint64_t basis) {
-    uint64_t x = pauli_x_mask(p, n);
-    uint64_t z = pauli_z_mask(p, n);
-    uint32_t phase_idx = ((bool)p.sign ? 2U : 0U) + (std::popcount(x & z) & 3U);
-    if (std::popcount(z & basis) & 1U) {
+                                                      const BasisMask& basis) {
+    uint32_t phase_idx = (bool)p.sign ? 2U : 0U;
+    bool z_basis_parity = false;
+    for (uint32_t q = 0; q < n; ++q) {
+        if (p.xs[q] && p.zs[q]) {
+            ++phase_idx;
+        }
+        if (p.zs[q] && mask_bit(basis, q)) {
+            z_basis_parity = !z_basis_parity;
+        }
+    }
+    if (z_basis_parity) {
         phase_idx += 2;
     }
     return i_pow(phase_idx);
@@ -166,27 +200,28 @@ void multiply_row_by(StabilizerRow& dst, const StabilizerRow& src) {
 
 struct StabilizerAmplitudeQuery {
     uint32_t n = 0;
-    uint64_t base = 0;
+    BasisMask base;
     double magnitude = 1.0;
     std::vector<StabilizerRow> x_rows;
     std::vector<uint32_t> pivot_cols;
-    std::vector<uint64_t> x_masks;
+    std::vector<BasisMask> x_masks;
 
-    [[nodiscard]] std::complex<double> amplitude(uint64_t basis) const {
-        uint64_t residual = basis ^ base;
-        uint64_t current = base;
+    [[nodiscard]] std::complex<double> amplitude(const BasisMask& basis) const {
+        BasisMask residual = basis;
+        mask_xor_with(residual, base);
+        BasisMask current = base;
         std::complex<double> amp{magnitude, 0.0};
 
         for (size_t i = 0; i < x_rows.size(); ++i) {
-            if (((residual >> pivot_cols[i]) & 1ULL) == 0) {
+            if (!mask_bit(residual, pivot_cols[i])) {
                 continue;
             }
             amp *= pauli_action_phase(x_rows[i], n, current);
-            current ^= x_masks[i];
-            residual ^= x_masks[i];
+            mask_xor_with(current, x_masks[i]);
+            mask_xor_with(residual, x_masks[i]);
         }
 
-        if (residual != 0) {
+        if (!mask_is_zero(residual)) {
             return {0.0, 0.0};
         }
         return amp;
@@ -204,7 +239,7 @@ struct StabilizerAmplitudeQuery {
 
 [[nodiscard]] StabilizerAmplitudeQuery make_stabilizer_amplitude_query(
     const CompiledModule& program, const std::optional<stim::Tableau<kStimWidth>>& inv_tableau,
-    uint64_t physical_basis) {
+    const BasisMask& physical_basis) {
     const uint32_t n = program.num_qubits;
     std::vector<StabilizerRow> rows;
     rows.reserve(n);
@@ -216,7 +251,7 @@ struct StabilizerAmplitudeQuery {
         } else {
             row.zs[q] = true;
         }
-        if ((physical_basis >> q) & 1ULL) {
+        if (mask_bit(physical_basis, q)) {
             row.sign ^= true;
         }
         rows.push_back(std::move(row));
@@ -248,7 +283,7 @@ struct StabilizerAmplitudeQuery {
 
     std::vector<StabilizerRow> z_rows(rows.begin() + static_cast<ptrdiff_t>(rank_x), rows.end());
     size_t rank_z = 0;
-    uint64_t base = 0;
+    BasisMask base = zero_basis_mask(n);
     for (uint32_t col = 0; col < n; ++col) {
         auto pivot = z_rows.end();
         for (auto it = z_rows.begin() + static_cast<ptrdiff_t>(rank_z); it != z_rows.end(); ++it) {
@@ -268,7 +303,7 @@ struct StabilizerAmplitudeQuery {
             }
         }
         if ((bool)z_rows[rank_z].sign) {
-            base |= uint64_t{1} << col;
+            mask_flip(base, col);
         }
         ++rank_z;
     }
@@ -292,16 +327,6 @@ struct StabilizerAmplitudeQuery {
     return query;
 }
 
-[[nodiscard]] uint64_t frame_mask(const std::vector<uint64_t>& words, uint32_t n) {
-    uint64_t mask = 0;
-    for (uint32_t q = 0; q < n; ++q) {
-        if (bit_get(words, q)) {
-            mask |= uint64_t{1} << q;
-        }
-    }
-    return mask;
-}
-
 void assert_probability_program_is_unitary(const CompiledModule& program) {
     for (const auto& instr : program.bytecode) {
         if (is_non_unitary_probability_opcode(instr.opcode)) {
@@ -317,12 +342,8 @@ void assert_probability_program_is_unitary(const CompiledModule& program) {
 }  // namespace
 
 std::vector<double> probabilities(const CompiledModule& program,
-                                  const std::vector<uint64_t>& basis_indices) {
+                                  const std::vector<std::vector<uint64_t>>& basis_masks) {
     assert_probability_program_is_unitary(program);
-    if (program.num_qubits >= 64) {
-        throw std::invalid_argument(
-            "probabilities() currently supports programs with fewer than 64 qubits");
-    }
 
     SchrodingerState state({.peak_rank = program.peak_rank,
                             .num_measurements = program.total_meas_slots,
@@ -339,24 +360,42 @@ std::vector<double> probabilities(const CompiledModule& program,
     }
 
     const uint32_t n = program.num_qubits;
+    const size_t expected_words = basis_word_count(n);
     const uint64_t active_size = state.v_size();
-    const uint64_t px_mask = frame_mask(state.p_x, n);
-    const uint64_t pz_mask = frame_mask(state.p_z, n);
     const std::complex<double> scale = state.gamma() * program.constant_pool.global_weight;
 
     std::vector<double> out;
-    out.reserve(basis_indices.size());
-    for (uint64_t basis_index : basis_indices) {
-        auto query = make_stabilizer_amplitude_query(program, inv_tableau, basis_index);
+    out.reserve(basis_masks.size());
+    for (const BasisMask& basis_mask : basis_masks) {
+        if (basis_mask.size() != expected_words) {
+            throw std::invalid_argument(
+                "probability basis masks must have ceil(num_qubits / 64) words");
+        }
+        if (!mask_has_only_qubit_bits(basis_mask, n)) {
+            throw std::invalid_argument("probability basis masks must not set unused high bits");
+        }
+
+        auto query = make_stabilizer_amplitude_query(program, inv_tableau, basis_mask);
 
         std::complex<double> amp{0.0, 0.0};
         for (uint64_t active_index = 0; active_index < active_size; ++active_index) {
-            uint64_t virtual_basis = active_index ^ px_mask;
+            BasisMask virtual_basis = state.p_x;
+            for (uint32_t q = 0; q < state.active_k; ++q) {
+                if ((active_index >> q) & 1ULL) {
+                    mask_flip(virtual_basis, q);
+                }
+            }
             auto coeff = query.amplitude(virtual_basis);
             if (coeff == std::complex<double>{0.0, 0.0}) {
                 continue;
             }
-            double sign = (std::popcount(active_index & pz_mask) & 1U) ? -1.0 : 1.0;
+            bool sign_bit = false;
+            for (uint32_t q = 0; q < state.active_k; ++q) {
+                if (((active_index >> q) & 1ULL) != 0 && bit_get(state.p_z, q)) {
+                    sign_bit = !sign_bit;
+                }
+            }
+            double sign = sign_bit ? -1.0 : 1.0;
             amp += state.v()[active_index] * sign * coeff;
         }
         out.push_back(std::norm(scale * amp));

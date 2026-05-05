@@ -340,9 +340,9 @@ SurvivorResult sample_k_survivors(const CompiledModule& program, uint32_t shots,
 std::vector<double> noise_site_probabilities(const CompiledModule& program);
 
 /// Return exact computational-basis probabilities for full-register basis states.
-/// Basis indices use the same little-endian convention as get_statevector().
+/// Each basis mask is word-packed little-endian by qubit index.
 std::vector<double> probabilities(const CompiledModule& program,
-                                  const std::vector<uint64_t>& basis_indices);
+                                  const std::vector<std::vector<uint64_t>>& basis_masks);
 
 // =============================================================================
 // Statevector Expansion
