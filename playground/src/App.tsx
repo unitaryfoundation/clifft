@@ -175,8 +175,7 @@ export default function App() {
   // once when an upstream pass merged provenance from fused / unrolled
   // ops (e.g. REPEAT-block expansion). Dedupe per entry via Set so the
   // reverse arrays don't grow with the duplication factor and Monaco's
-  // decoration set isn't fed redundant ranges -- exactly the fused /
-  // large cases this PR is meant to speed up.
+  // decoration set isn't fed redundant ranges.
   const reverseMaps = useMemo(() => {
     const empty = {
       hir: new Map<number, number[]>(),
