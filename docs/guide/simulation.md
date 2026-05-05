@@ -4,6 +4,7 @@ Clifft's Schrödinger Virtual Machine (SVM) executes compiled programs. The main
 
 - `sample()` for ordinary shot-based sampling
 - `sample_survivors()` for post-selected sampling
+- `probabilities()` for exact full-bitstring computational-basis probabilities
 - `execute()` and `get_statevector()` for inspecting small final states
 - `sample_k()` and `sample_k_survivors()` for stratified importance sampling
 
@@ -75,6 +76,46 @@ print(sv)  # [0.707+0j, 0+0j, 0+0j, 0.707+0j]
     `get_statevector()` expands Clifft's factored representation into a dense
     $2^n$ state vector over all physical qubits. This is useful for debugging
     and validation, but it is not the scalable simulation path.
+
+## Basis-State Probabilities
+
+For unitary circuits, `clifft.probabilities()` returns exact probabilities for
+full computational-basis bitstrings:
+
+```python
+import clifft
+
+program = clifft.compile("""
+    H 0
+    CNOT 0 1
+""")
+
+ps = clifft.probabilities(program, ["00", "01", "10", "11"])
+print(ps)  # [0.5, 0.0, 0.0, 0.5]
+```
+
+Bitstrings must cover all `program.num_qubits` qubits. By default,
+`bit_order="big"` maps the first character, or first column of a 2D NumPy
+`bool`/`uint8` array, to qubit 0. With `bit_order="little"`, the last character
+or column maps to qubit 0.
+
+`probabilities()` rejects programs containing measurements, feedback, noise,
+readout noise, detectors, post-selection, observables, or `EXP_VAL` probes.
+If you intentionally want to query the unitary skeleton of a mixed circuit,
+compile with a custom HIR pass manager:
+
+```python
+pm = clifft.HirPassManager()
+pm.add(clifft.MakeUnitaryPass())
+
+program = clifft.compile(circuit_text, hir_passes=pm)
+ps = clifft.probabilities(program, ["00", "11"])
+```
+
+!!! warning "MakeUnitaryPass changes circuit semantics"
+    `MakeUnitaryPass` drops non-unitary HIR operations. It is useful when a
+    user explicitly wants the unitary-only skeleton, but it is not equivalent
+    to sampling or marginalizing the original mixed circuit.
 
 ## Detectors, Observables, and Post-Selection
 
