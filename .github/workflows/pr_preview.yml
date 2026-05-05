@@ -44,7 +44,7 @@ jobs:
       - name: Build playground
         run: |
           cd playground && npm ci
-          VITE_BASE_PATH=/clifft/pr-preview/pr-${{ github.event.number }}/playground/ npm run build
+          VITE_BASE_PATH=/clifft/pr-preview/pr-${{ github.event.number }}/playground/ VITE_BUILD_SHA=${{ github.sha }} npm run build
 
       # --- Build MkDocs (docs group only, no C++ extension needed) ---
       - name: Install uv

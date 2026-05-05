@@ -11,18 +11,23 @@ export type WasmStatus = "loading" | "ready" | "error";
 // double-mounts and concurrent hook instances.
 let modulePromise: Promise<ClifftModule> | null = null;
 
+function wasmUrl(path: string): string {
+  const url = `${import.meta.env.BASE_URL}${path}`;
+  const version = import.meta.env.VITE_BUILD_SHA as string | undefined;
+  return version ? `${url}?v=${encodeURIComponent(version)}` : url;
+}
+
 function loadModule(): Promise<ClifftModule> {
   if (modulePromise) return modulePromise;
 
   modulePromise = new Promise<ClifftModule>((resolve, reject) => {
     const script = document.createElement("script");
-    script.src = `${import.meta.env.BASE_URL}clifft_wasm.js`;
+    script.src = wasmUrl("clifft_wasm.js");
     script.async = true;
     script.setAttribute("data-clifft-wasm", "true");
     script.onload = () => {
-      const base = import.meta.env.BASE_URL;
       createClifftModule({
-        locateFile: (path: string) => `${base}${path}`,
+        locateFile: wasmUrl,
       }).then(resolve, reject);
     };
     script.onerror = () => reject(new Error("Failed to load clifft_wasm.js"));
