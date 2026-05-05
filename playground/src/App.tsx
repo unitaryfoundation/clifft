@@ -170,6 +170,13 @@ export default function App() {
   // HIR/bytecode lines correspond to this source line" in O(1) instead
   // of scanning every output line on every click. firstBc is the first
   // bytecode index for a given source line, used by the k-history chart.
+  //
+  // A single forward entry can contain the same source line more than
+  // once when an upstream pass merged provenance from fused / unrolled
+  // ops (e.g. REPEAT-block expansion). Dedupe per entry via Set so the
+  // reverse arrays don't grow with the duplication factor and Monaco's
+  // decoration set isn't fed redundant ranges -- exactly the fused /
+  // large cases this PR is meant to speed up.
   const reverseMaps = useMemo(() => {
     const empty = {
       hir: new Map<number, number[]>(),
@@ -180,7 +187,8 @@ export default function App() {
     const hir = new Map<number, number[]>();
     compileResult.hir_source_map.forEach((lines: number[], i: number) => {
       const monacoLine = i + 1;
-      for (const ln of lines) {
+      const unique = lines.length > 1 ? new Set(lines) : lines;
+      for (const ln of unique) {
         const arr = hir.get(ln);
         if (arr) arr.push(monacoLine);
         else hir.set(ln, [monacoLine]);
@@ -190,7 +198,8 @@ export default function App() {
     const firstBc = new Map<number, number>();
     compileResult.bytecode_source_map.forEach((lines: number[], i: number) => {
       const monacoLine = i + 1;
-      for (const ln of lines) {
+      const unique = lines.length > 1 ? new Set(lines) : lines;
+      for (const ln of unique) {
         const arr = bc.get(ln);
         if (arr) arr.push(monacoLine);
         else bc.set(ln, [monacoLine]);
