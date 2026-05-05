@@ -32,6 +32,7 @@ add_library(clifft_core STATIC
     ${CMAKE_CURRENT_SOURCE_DIR}/../clifft/optimizer/multi_gate_pass.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/../clifft/optimizer/noise_block_pass.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/../clifft/optimizer/hir_pass_manager.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/../clifft/optimizer/make_unitary_pass.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/../clifft/optimizer/commutation.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/../clifft/optimizer/peephole.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/../clifft/optimizer/pass_factory.cc

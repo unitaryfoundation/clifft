@@ -107,11 +107,18 @@ If you intentionally want to query the unitary skeleton of a mixed circuit,
 compile with a custom HIR pass manager:
 
 ```python
+import clifft
+
+circuit_text = """
+H 0
+M 0
+"""
+
 pm = clifft.HirPassManager()
 pm.add(clifft.MakeUnitaryPass())
 
 program = clifft.compile(circuit_text, hir_passes=pm)
-ps = clifft.probabilities(program, ["00", "11"])
+ps = clifft.probabilities(program, ["0", "1"])
 ```
 
 !!! warning "MakeUnitaryPass changes circuit semantics"
