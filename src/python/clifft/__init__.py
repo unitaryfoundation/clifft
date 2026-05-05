@@ -61,6 +61,7 @@ from clifft._clifft_core import (
     HirPass,
     HirPassManager,
     Instruction,
+    MakeUnitaryPass,
     MultiGatePass,
     NoiseBlockPass,
     Opcode,
@@ -74,6 +75,7 @@ from clifft._clifft_core import (
     StatevectorSqueezePass,
     SwapMeasPass,
     Target,
+    _probabilities_from_indices,
     compute_reference_syndrome,
     default_bytecode_pass_manager,
     default_hir_pass_manager,
@@ -96,6 +98,84 @@ from clifft._clifft_core import (
     compile as _compile_core,
 )
 from clifft._sample_result import SampleResult
+
+
+def _basis_indices_from_bitstrings(
+    program: Program,
+    bitstrings: list[str] | tuple[str, ...] | str | object,
+    bit_order: str,
+) -> list[int]:
+    if bit_order not in ("big", "little"):
+        raise ValueError("bit_order must be 'big' or 'little'")
+
+    num_qubits = program.num_qubits
+    if num_qubits >= 64:
+        raise ValueError("probabilities() currently supports programs with fewer than 64 qubits")
+
+    def index_from_string(bitstring: str, row: int) -> int:
+        if len(bitstring) != num_qubits:
+            raise ValueError(
+                f"bitstring at index {row} has length {len(bitstring)}, " f"expected {num_qubits}"
+            )
+        index = 0
+        for col, char in enumerate(bitstring):
+            if char == "1":
+                qubit = col if bit_order == "big" else num_qubits - 1 - col
+                index |= 1 << qubit
+            elif char != "0":
+                raise ValueError(
+                    f"bitstring at index {row} contains {char!r}; expected only '0' and '1'"
+                )
+        return index
+
+    if isinstance(bitstrings, str):
+        return [index_from_string(bitstrings, 0)]
+
+    if isinstance(bitstrings, (list, tuple)):
+        if all(isinstance(bitstring, str) for bitstring in bitstrings):
+            return [index_from_string(bitstring, row) for row, bitstring in enumerate(bitstrings)]
+        raise TypeError("bitstrings must be strings or a 2D bool/uint8 NumPy array")
+
+    import numpy as np
+
+    if not isinstance(bitstrings, np.ndarray):
+        raise TypeError("bitstrings must be strings or a 2D bool/uint8 NumPy array")
+    if bitstrings.ndim != 2:
+        raise ValueError("bitstrings array must be 2D with shape (num_bitstrings, num_qubits)")
+    if bitstrings.shape[1] != num_qubits:
+        raise ValueError(
+            f"bitstrings array has {bitstrings.shape[1]} columns, expected {num_qubits}"
+        )
+    if bitstrings.dtype not in (np.dtype("bool"), np.dtype("uint8")):
+        raise TypeError("bitstrings array dtype must be bool or uint8")
+    if bitstrings.dtype == np.dtype("uint8") and np.any((bitstrings != 0) & (bitstrings != 1)):
+        raise ValueError("uint8 bitstrings array must contain only 0 and 1")
+
+    indices: list[int] = []
+    for row_bits in bitstrings:
+        index = 0
+        for col, bit in enumerate(row_bits):
+            if bool(bit):
+                qubit = col if bit_order == "big" else num_qubits - 1 - col
+                index |= 1 << qubit
+        indices.append(index)
+    return indices
+
+
+def probabilities(
+    program: Program,
+    bitstrings: list[str] | tuple[str, ...] | str | object,
+    *,
+    bit_order: str = "big",
+) -> object:
+    """Return exact probabilities for full computational-basis bitstrings.
+
+    ``bit_order="big"`` maps the first character or array column to qubit 0.
+    ``bit_order="little"`` maps the last character or array column to qubit 0.
+    """
+    return _probabilities_from_indices(
+        program, _basis_indices_from_bitstrings(program, bitstrings, bit_order)
+    )
 
 
 class _DefaultPasses:
@@ -171,6 +251,7 @@ __all__ = [
     "HirPass",
     "HirPassManager",
     "Instruction",
+    "MakeUnitaryPass",
     "MultiGatePass",
     "NoiseBlockPass",
     "Opcode",
@@ -195,6 +276,7 @@ __all__ = [
     "lower",
     "parse",
     "parse_file",
+    "probabilities",
     "sample",
     "sample_k",
     "sample_k_survivors",

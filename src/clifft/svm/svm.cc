@@ -91,6 +91,279 @@ const char* svm_backend() {
     return "scalar";
 }
 
+namespace {
+
+using StabilizerRow = stim::PauliString<kStimWidth>;
+
+[[nodiscard]] bool is_non_unitary_probability_opcode(Opcode opcode) {
+    switch (opcode) {
+        case Opcode::OP_MEAS_DORMANT_STATIC:
+        case Opcode::OP_MEAS_DORMANT_RANDOM:
+        case Opcode::OP_MEAS_ACTIVE_DIAGONAL:
+        case Opcode::OP_MEAS_ACTIVE_INTERFERE:
+        case Opcode::OP_SWAP_MEAS_INTERFERE:
+        case Opcode::OP_APPLY_PAULI:
+        case Opcode::OP_NOISE:
+        case Opcode::OP_NOISE_BLOCK:
+        case Opcode::OP_READOUT_NOISE:
+        case Opcode::OP_DETECTOR:
+        case Opcode::OP_POSTSELECT:
+        case Opcode::OP_OBSERVABLE:
+        case Opcode::OP_EXP_VAL:
+            return true;
+        default:
+            return false;
+    }
+}
+
+[[nodiscard]] uint64_t pauli_x_mask(const StabilizerRow& p, uint32_t n) {
+    uint64_t mask = 0;
+    for (uint32_t q = 0; q < n; ++q) {
+        if (p.xs[q]) {
+            mask |= uint64_t{1} << q;
+        }
+    }
+    return mask;
+}
+
+[[nodiscard]] uint64_t pauli_z_mask(const StabilizerRow& p, uint32_t n) {
+    uint64_t mask = 0;
+    for (uint32_t q = 0; q < n; ++q) {
+        if (p.zs[q]) {
+            mask |= uint64_t{1} << q;
+        }
+    }
+    return mask;
+}
+
+[[nodiscard]] std::complex<double> i_pow(uint32_t phase_idx) {
+    switch (phase_idx & 3U) {
+        case 0:
+            return {1.0, 0.0};
+        case 1:
+            return {0.0, 1.0};
+        case 2:
+            return {-1.0, 0.0};
+        default:
+            return {0.0, -1.0};
+    }
+}
+
+[[nodiscard]] std::complex<double> pauli_action_phase(const StabilizerRow& p, uint32_t n,
+                                                      uint64_t basis) {
+    uint64_t x = pauli_x_mask(p, n);
+    uint64_t z = pauli_z_mask(p, n);
+    uint32_t phase_idx = ((bool)p.sign ? 2U : 0U) + (std::popcount(x & z) & 3U);
+    if (std::popcount(z & basis) & 1U) {
+        phase_idx += 2;
+    }
+    return i_pow(phase_idx);
+}
+
+void multiply_row_by(StabilizerRow& dst, const StabilizerRow& src) {
+    dst.ref() *= src;
+}
+
+struct StabilizerAmplitudeQuery {
+    uint32_t n = 0;
+    uint64_t base = 0;
+    double magnitude = 1.0;
+    std::vector<StabilizerRow> x_rows;
+    std::vector<uint32_t> pivot_cols;
+    std::vector<uint64_t> x_masks;
+
+    [[nodiscard]] std::complex<double> amplitude(uint64_t basis) const {
+        uint64_t residual = basis ^ base;
+        uint64_t current = base;
+        std::complex<double> amp{magnitude, 0.0};
+
+        for (size_t i = 0; i < x_rows.size(); ++i) {
+            if (((residual >> pivot_cols[i]) & 1ULL) == 0) {
+                continue;
+            }
+            amp *= pauli_action_phase(x_rows[i], n, current);
+            current ^= x_masks[i];
+            residual ^= x_masks[i];
+        }
+
+        if (residual != 0) {
+            return {0.0, 0.0};
+        }
+        return amp;
+    }
+};
+
+[[nodiscard]] bool row_has_any_z(const StabilizerRow& p, uint32_t n) {
+    for (uint32_t q = 0; q < n; ++q) {
+        if (p.zs[q]) {
+            return true;
+        }
+    }
+    return false;
+}
+
+[[nodiscard]] StabilizerAmplitudeQuery make_stabilizer_amplitude_query(
+    const CompiledModule& program, const std::optional<stim::Tableau<kStimWidth>>& inv_tableau,
+    uint64_t physical_basis) {
+    const uint32_t n = program.num_qubits;
+    std::vector<StabilizerRow> rows;
+    rows.reserve(n);
+
+    for (uint32_t q = 0; q < n; ++q) {
+        StabilizerRow row(n);
+        if (inv_tableau.has_value()) {
+            row = StabilizerRow(inv_tableau->zs[q]);
+        } else {
+            row.zs[q] = true;
+        }
+        if ((physical_basis >> q) & 1ULL) {
+            row.sign ^= true;
+        }
+        rows.push_back(std::move(row));
+    }
+
+    size_t rank_x = 0;
+    std::vector<uint32_t> pivot_cols;
+    for (uint32_t col = 0; col < n; ++col) {
+        auto pivot = rows.end();
+        for (auto it = rows.begin() + static_cast<ptrdiff_t>(rank_x); it != rows.end(); ++it) {
+            if (it->xs[col]) {
+                pivot = it;
+                break;
+            }
+        }
+        if (pivot == rows.end()) {
+            continue;
+        }
+
+        std::iter_swap(rows.begin() + static_cast<ptrdiff_t>(rank_x), pivot);
+        for (size_t r = 0; r < rows.size(); ++r) {
+            if (r != rank_x && rows[r].xs[col]) {
+                multiply_row_by(rows[r], rows[rank_x]);
+            }
+        }
+        pivot_cols.push_back(col);
+        ++rank_x;
+    }
+
+    std::vector<StabilizerRow> z_rows(rows.begin() + static_cast<ptrdiff_t>(rank_x), rows.end());
+    size_t rank_z = 0;
+    uint64_t base = 0;
+    for (uint32_t col = 0; col < n; ++col) {
+        auto pivot = z_rows.end();
+        for (auto it = z_rows.begin() + static_cast<ptrdiff_t>(rank_z); it != z_rows.end(); ++it) {
+            if (it->zs[col]) {
+                pivot = it;
+                break;
+            }
+        }
+        if (pivot == z_rows.end()) {
+            continue;
+        }
+
+        std::iter_swap(z_rows.begin() + static_cast<ptrdiff_t>(rank_z), pivot);
+        for (size_t r = 0; r < z_rows.size(); ++r) {
+            if (r != rank_z && z_rows[r].zs[col]) {
+                multiply_row_by(z_rows[r], z_rows[rank_z]);
+            }
+        }
+        if ((bool)z_rows[rank_z].sign) {
+            base |= uint64_t{1} << col;
+        }
+        ++rank_z;
+    }
+
+    for (size_t r = rank_z; r < z_rows.size(); ++r) {
+        if (!row_has_any_z(z_rows[r], n) && (bool)z_rows[r].sign) {
+            throw std::runtime_error("invalid stabilizer constraints while evaluating probability");
+        }
+    }
+
+    StabilizerAmplitudeQuery query;
+    query.n = n;
+    query.base = base;
+    query.magnitude = std::pow(2.0, -0.5 * static_cast<double>(rank_x));
+    query.pivot_cols = std::move(pivot_cols);
+    query.x_rows.assign(rows.begin(), rows.begin() + static_cast<ptrdiff_t>(rank_x));
+    query.x_masks.reserve(rank_x);
+    for (const auto& row : query.x_rows) {
+        query.x_masks.push_back(pauli_x_mask(row, n));
+    }
+    return query;
+}
+
+[[nodiscard]] uint64_t frame_mask(const std::vector<uint64_t>& words, uint32_t n) {
+    uint64_t mask = 0;
+    for (uint32_t q = 0; q < n; ++q) {
+        if (bit_get(words, q)) {
+            mask |= uint64_t{1} << q;
+        }
+    }
+    return mask;
+}
+
+void assert_probability_program_is_unitary(const CompiledModule& program) {
+    for (const auto& instr : program.bytecode) {
+        if (is_non_unitary_probability_opcode(instr.opcode)) {
+            throw std::invalid_argument(
+                "probabilities() requires a unitary program; measurements, feedback, noise, "
+                "readout noise, detectors, postselection, observables, and EXP_VAL probes are "
+                "not supported. Use MakeUnitaryPass only if you intentionally want to query the "
+                "unitary skeleton of a mixed circuit.");
+        }
+    }
+}
+
+}  // namespace
+
+std::vector<double> probabilities(const CompiledModule& program,
+                                  const std::vector<uint64_t>& basis_indices) {
+    assert_probability_program_is_unitary(program);
+    if (program.num_qubits >= 64) {
+        throw std::invalid_argument(
+            "probabilities() currently supports programs with fewer than 64 qubits");
+    }
+
+    SchrodingerState state({.peak_rank = program.peak_rank,
+                            .num_measurements = program.total_meas_slots,
+                            .num_qubits = program.num_qubits,
+                            .num_detectors = program.num_detectors,
+                            .num_observables = program.num_observables,
+                            .num_exp_vals = program.num_exp_vals,
+                            .seed = uint64_t{0}});
+    execute(program, state);
+
+    std::optional<stim::Tableau<kStimWidth>> inv_tableau;
+    if (program.constant_pool.final_tableau.has_value()) {
+        inv_tableau = program.constant_pool.final_tableau->inverse(false);
+    }
+
+    const uint32_t n = program.num_qubits;
+    const uint64_t active_size = state.v_size();
+    const uint64_t px_mask = frame_mask(state.p_x, n);
+    const uint64_t pz_mask = frame_mask(state.p_z, n);
+    const std::complex<double> scale = state.gamma() * program.constant_pool.global_weight;
+
+    std::vector<double> out;
+    out.reserve(basis_indices.size());
+    for (uint64_t basis_index : basis_indices) {
+        auto query = make_stabilizer_amplitude_query(program, inv_tableau, basis_index);
+
+        std::complex<double> amp{0.0, 0.0};
+        for (uint64_t active_index = 0; active_index < active_size; ++active_index) {
+            uint64_t virtual_basis = active_index ^ px_mask;
+            auto coeff = query.amplitude(virtual_basis);
+            if (coeff == std::complex<double>{0.0, 0.0}) {
+                continue;
+            }
+            double sign = (std::popcount(active_index & pz_mask) & 1U) ? -1.0 : 1.0;
+            amp += state.v()[active_index] * sign * coeff;
+        }
+        out.push_back(std::norm(scale * amp));
+    }
+    return out;
+}
+
 // =============================================================================
 // Multi-Shot Sampling
 // =============================================================================

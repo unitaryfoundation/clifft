@@ -2,6 +2,7 @@
 #include "clifft/backend/compiler_context.h"
 #include "clifft/circuit/parser.h"
 #include "clifft/frontend/frontend.h"
+#include "clifft/optimizer/make_unitary_pass.h"
 #include "clifft/optimizer/peephole.h"
 #include "clifft/optimizer/remove_noise_pass.h"
 
@@ -1385,6 +1386,44 @@ TEST_CASE("RemoveNoisePass strips noise ops and clears side-tables") {
     for (const auto& op : hir.ops) {
         CHECK(op.op_type() != OpType::NOISE);
         CHECK(op.op_type() != OpType::READOUT_NOISE);
+    }
+}
+
+TEST_CASE("MakeUnitaryPass strips non-unitary ops and metadata") {
+    auto circuit = parse(
+        "H 0\n"
+        "T 0\n"
+        "M 0\n"
+        "CX rec[-1] 1\n"
+        "X_ERROR(0.1) 1\n"
+        "DETECTOR rec[-1]\n"
+        "OBSERVABLE_INCLUDE(0) rec[-1]\n"
+        "EXP_VAL Z0\n");
+    auto hir = clifft::trace(circuit);
+
+    REQUIRE(hir.num_measurements > 0);
+    REQUIRE(hir.num_detectors > 0);
+    REQUIRE(hir.num_observables > 0);
+    REQUIRE(hir.num_exp_vals > 0);
+    REQUIRE(!hir.noise_sites.empty());
+
+    MakeUnitaryPass pass;
+    pass.run(hir);
+
+    CHECK(hir.num_measurements == 0);
+    CHECK(hir.num_hidden_measurements == 0);
+    CHECK(hir.num_detectors == 0);
+    CHECK(hir.num_observables == 0);
+    CHECK(hir.num_exp_vals == 0);
+    CHECK(hir.noise_sites.empty());
+    CHECK(hir.readout_noise.empty());
+    CHECK(hir.detector_targets.empty());
+    CHECK(hir.observable_targets.empty());
+    CHECK(hir.noise_channel_masks.size() == 0);
+    CHECK(hir.source_map.empty());
+
+    for (const auto& op : hir.ops) {
+        CHECK((op.op_type() == OpType::T_GATE || op.op_type() == OpType::PHASE_ROTATION));
     }
 }
 

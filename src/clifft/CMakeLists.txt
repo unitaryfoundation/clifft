@@ -12,6 +12,7 @@ add_library(clifft_core STATIC
     optimizer/tile_axis_fusion_pass.cc
     optimizer/single_axis_fusion_pass.cc
     optimizer/hir_pass_manager.cc
+    optimizer/make_unitary_pass.cc
     optimizer/commutation.cc
     optimizer/peephole.cc
     optimizer/pass_factory.cc
