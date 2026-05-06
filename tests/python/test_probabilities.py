@@ -93,6 +93,22 @@ def test_probabilities_supports_high_qubit_array_bitstrings(dtype: np.dtype) -> 
     )
 
 
+def test_probabilities_supports_multiword_array_bitstrings() -> None:
+    prog = clifft.compile("H 199\nH 199")
+    bits = np.zeros((3, 200), dtype=np.uint8)
+    bits[1, 0] = 1
+    bits[2, 199] = 1
+    little_bits = np.zeros((3, 200), dtype=np.uint8)
+    little_bits[1, 199] = 1
+    little_bits[2, 0] = 1
+
+    np.testing.assert_allclose(clifft.probabilities(prog, bits), [1.0, 0.0, 0.0])
+    np.testing.assert_allclose(
+        clifft.probabilities(prog, little_bits, bit_order="little"),
+        [1.0, 0.0, 0.0],
+    )
+
+
 def test_probability_input_validation() -> None:
     prog = clifft.compile("H 0\nCX 0 1")
 

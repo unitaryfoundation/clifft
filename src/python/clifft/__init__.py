@@ -171,6 +171,8 @@ def _basis_masks_from_bitstrings(
         word_aligned = np.zeros((bit_array.shape[0], padded_bytes), dtype=np.uint8)
         word_aligned[:, : packed_bytes.shape[1]] = packed_bytes
         packed_bytes = word_aligned
+    # Native little-endian uint64 layout matches Clifft's supported CPU targets
+    # and the C++ mask representation.
     return np.ascontiguousarray(
         packed_bytes.view(np.uint64).reshape(bit_array.shape[0], word_count)
     )

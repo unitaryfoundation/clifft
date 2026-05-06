@@ -468,6 +468,8 @@ std::vector<double> probabilities(const CompiledModule& program,
     const std::complex<double> scale = state.gamma() * program.constant_pool.global_weight;
     const auto structure = make_stabilizer_amplitude_structure(program, inv_tableau);
     const auto state_px = MaskView{std::span<const uint64_t>(state.p_x)};
+    // validate_peak_rank() caps active_k below 63, so active bits fit in word 0
+    // and this shift never reaches 64.
     const uint64_t active_z_mask =
         state.active_k == 0 ? 0 : (state.p_z[0] & ((uint64_t{1} << state.active_k) - uint64_t{1}));
     BasisMask virtual_basis_storage(expected_words);
