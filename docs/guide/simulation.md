@@ -99,10 +99,13 @@ Bitstrings must cover all `program.num_qubits` qubits. By default,
 `bool`/`uint8` array, to qubit 0. With `bit_order="little"`, the last character
 or column maps to qubit 0. Bitstrings can be longer than 64 qubits; the
 practical cost is driven by the number of queried bitstrings, the circuit size,
-and the final active rank rather than by dense state-vector expansion.
+and the final active rank rather than by dense state-vector expansion. Each
+call re-executes the program once, so pass all bitstrings you want to query in
+one batch.
 
 `probabilities()` rejects programs containing measurements, feedback, noise,
-readout noise, detectors, post-selection, observables, or `EXP_VAL` probes.
+readout noise, detectors, post-selection, or observables. `EXP_VAL` probes are
+allowed, but their stored outputs are ignored by `probabilities()`.
 If you intentionally want to query the unitary skeleton of a mixed circuit,
 compile with a custom HIR pass manager:
 
@@ -115,16 +118,17 @@ M 0
 """
 
 pm = clifft.HirPassManager()
-pm.add(clifft.MakeUnitaryPass())
+pm.add(clifft.DropNonUnitaryPass())
 
 program = clifft.compile(circuit_text, hir_passes=pm)
 ps = clifft.probabilities(program, ["0", "1"])
 ```
 
-!!! warning "MakeUnitaryPass changes circuit semantics"
-    `MakeUnitaryPass` drops non-unitary HIR operations. It is useful when a
-    user explicitly wants the unitary-only skeleton, but it is not equivalent
-    to sampling or marginalizing the original mixed circuit.
+!!! warning "DropNonUnitaryPass changes circuit semantics"
+    `DropNonUnitaryPass` drops non-evolution HIR operations, including
+    measurements, feedback, noise, annotations, and read-only probes. It is
+    useful when a user explicitly wants the unitary-only skeleton, but it is
+    not equivalent to sampling or marginalizing the original mixed circuit.
 
 ## Detectors, Observables, and Post-Selection
 

@@ -121,20 +121,30 @@ def test_probability_input_validation() -> None:
         ("M 0\nDETECTOR rec[-1]", {}),
         ("M 0\nDETECTOR rec[-1]", {"postselection_mask": [1]}),
         ("M 0\nOBSERVABLE_INCLUDE(0) rec[-1]", {}),
-        ("EXP_VAL Z0", {}),
         ("M 0\nCX rec[-1] 1", {}),
     ],
 )
 def test_probabilities_rejects_non_unitary_programs(circuit: str, kwargs: dict[str, Any]) -> None:
     prog = clifft.compile(circuit, **kwargs)
 
-    with pytest.raises(ValueError, match="requires a unitary program"):
+    with pytest.raises(ValueError, match="requires pure-state evolution"):
         clifft.probabilities(prog, ["0" * prog.num_qubits])
 
 
-def test_make_unitary_pass_enables_querying_unitary_skeleton() -> None:
+def test_probabilities_allows_exp_val_probes() -> None:
+    with_probe = clifft.compile("H 0\nEXP_VAL X0")
+    without_probe = clifft.compile("H 0")
+
+    np.testing.assert_allclose(
+        clifft.probabilities(with_probe, ["0", "1"]),
+        clifft.probabilities(without_probe, ["0", "1"]),
+        atol=1e-12,
+    )
+
+
+def test_drop_non_unitary_pass_enables_querying_unitary_skeleton() -> None:
     passes = clifft.HirPassManager()
-    passes.add(clifft.MakeUnitaryPass())
+    passes.add(clifft.DropNonUnitaryPass())
     prog = clifft.compile(
         """
         H 0

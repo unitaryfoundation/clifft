@@ -32,7 +32,7 @@ add_library(clifft_core STATIC
     ${CMAKE_CURRENT_SOURCE_DIR}/../clifft/optimizer/multi_gate_pass.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/../clifft/optimizer/noise_block_pass.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/../clifft/optimizer/hir_pass_manager.cc
-    ${CMAKE_CURRENT_SOURCE_DIR}/../clifft/optimizer/make_unitary_pass.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/../clifft/optimizer/drop_non_unitary_pass.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/../clifft/optimizer/commutation.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/../clifft/optimizer/peephole.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/../clifft/optimizer/pass_factory.cc
@@ -42,6 +42,7 @@ add_library(clifft_core STATIC
     ${CMAKE_CURRENT_SOURCE_DIR}/../clifft/optimizer/single_axis_fusion_pass.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/../clifft/optimizer/statevector_squeeze_pass.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/../clifft/backend/backend.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/../clifft/api/probabilities.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/../clifft/svm/svm.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/../clifft/svm/svm_scalar.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/../clifft/svm/svm_state.cc

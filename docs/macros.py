@@ -106,11 +106,11 @@ def define_env(env: Any) -> None:
             ),
         },
         {
-            "name": "MakeUnitaryPass",
+            "name": "DropNonUnitaryPass",
             "kind": "HIR",
             "default_enabled": False,
-            "python_name": "MakeUnitaryPass",
-            "summary": "Drops non-unitary operations from the HIR.",
+            "python_name": "DropNonUnitaryPass",
+            "summary": "Drops non-evolution operations from the HIR.",
             "detail": (
                 "Removes MEASURE, CONDITIONAL_PAULI, NOISE, READOUT_NOISE, "
                 "DETECTOR, OBSERVABLE, and EXP_VAL ops and clears the matching "

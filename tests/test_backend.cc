@@ -2,7 +2,7 @@
 #include "clifft/backend/compiler_context.h"
 #include "clifft/circuit/parser.h"
 #include "clifft/frontend/frontend.h"
-#include "clifft/optimizer/make_unitary_pass.h"
+#include "clifft/optimizer/drop_non_unitary_pass.h"
 #include "clifft/optimizer/peephole.h"
 #include "clifft/optimizer/remove_noise_pass.h"
 
@@ -1389,7 +1389,7 @@ TEST_CASE("RemoveNoisePass strips noise ops and clears side-tables") {
     }
 }
 
-TEST_CASE("MakeUnitaryPass strips non-unitary ops and metadata") {
+TEST_CASE("DropNonUnitaryPass strips non-unitary ops and metadata") {
     auto circuit = parse(
         "H 0\n"
         "T 0\n"
@@ -1407,7 +1407,7 @@ TEST_CASE("MakeUnitaryPass strips non-unitary ops and metadata") {
     REQUIRE(hir.num_exp_vals > 0);
     REQUIRE(!hir.noise_sites.empty());
 
-    MakeUnitaryPass pass;
+    DropNonUnitaryPass pass;
     pass.run(hir);
 
     CHECK(hir.num_measurements == 0);

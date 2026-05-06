@@ -4,9 +4,9 @@
 
 namespace clifft {
 
-/// Drops non-unitary HIR operations so the remaining circuit can be queried
+/// Drops non-evolution HIR operations so the remaining circuit can be queried
 /// as a unitary skeleton. This is not semantics-preserving.
-class MakeUnitaryPass : public HirPass {
+class DropNonUnitaryPass : public HirPass {
   public:
     void run(HirModule& hir) override;
 };

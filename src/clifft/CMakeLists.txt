@@ -12,13 +12,14 @@ add_library(clifft_core STATIC
     optimizer/tile_axis_fusion_pass.cc
     optimizer/single_axis_fusion_pass.cc
     optimizer/hir_pass_manager.cc
-    optimizer/make_unitary_pass.cc
+    optimizer/drop_non_unitary_pass.cc
     optimizer/commutation.cc
     optimizer/peephole.cc
     optimizer/pass_factory.cc
     optimizer/remove_noise_pass.cc
     optimizer/statevector_squeeze_pass.cc
     backend/backend.cc
+    api/probabilities.cc
     api/reference_syndrome.cc
     svm/svm.cc
     svm/svm_scalar.cc

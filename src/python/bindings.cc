@@ -4,9 +4,9 @@
 #include "clifft/circuit/parser.h"
 #include "clifft/frontend/frontend.h"
 #include "clifft/optimizer/bytecode_pass.h"
+#include "clifft/optimizer/drop_non_unitary_pass.h"
 #include "clifft/optimizer/expand_t_pass.h"
 #include "clifft/optimizer/hir_pass_manager.h"
-#include "clifft/optimizer/make_unitary_pass.h"
 #include "clifft/optimizer/multi_gate_pass.h"
 #include "clifft/optimizer/noise_block_pass.h"
 #include "clifft/optimizer/pass_factory.h"
@@ -490,9 +490,9 @@ NB_MODULE(_clifft_core, m) {
         "compute_reference_syndrome() for noiseless reference shots.")
         .def(nb::init<>());
 
-    nb::class_<clifft::MakeUnitaryPass, clifft::HirPass>(
-        m, "MakeUnitaryPass",
-        "Drops non-unitary HIR ops so the remaining program is a unitary skeleton.\n"
+    nb::class_<clifft::DropNonUnitaryPass, clifft::HirPass>(
+        m, "DropNonUnitaryPass",
+        "Drops non-evolution HIR ops so the remaining program is a unitary skeleton.\n"
         "Not included in the default pass list and not semantics-preserving.")
         .def(nb::init<>());
 

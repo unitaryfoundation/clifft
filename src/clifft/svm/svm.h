@@ -339,8 +339,10 @@ SurvivorResult sample_k_survivors(const CompiledModule& program, uint32_t shots,
 /// (sum of channel probs), then the readout noise entries.
 std::vector<double> noise_site_probabilities(const CompiledModule& program);
 
-/// Return exact computational-basis probabilities for full-register basis states.
-/// Each basis mask is word-packed little-endian by qubit index.
+/// Return exact |<x|psi>|^2 computational-basis probabilities for unitary
+/// full-register basis states. EXP_VAL probes are ignored; measurement,
+/// feedback, noise, detector, postselection, and observable opcodes are
+/// rejected. Each basis mask is word-packed little-endian by qubit index.
 std::vector<double> probabilities(const CompiledModule& program,
                                   const std::vector<std::vector<uint64_t>>& basis_masks);
 

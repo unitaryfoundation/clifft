@@ -1,10 +1,10 @@
-#include "clifft/optimizer/make_unitary_pass.h"
+#include "clifft/optimizer/drop_non_unitary_pass.h"
 
 #include <algorithm>
 
 namespace clifft {
 
-void MakeUnitaryPass::run(HirModule& hir) {
+void DropNonUnitaryPass::run(HirModule& hir) {
     std::erase_if(hir.ops, [](const HeisenbergOp& op) {
         switch (op.op_type()) {
             case OpType::T_GATE:
