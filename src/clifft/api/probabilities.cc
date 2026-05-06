@@ -7,7 +7,6 @@
 #include <complex>
 #include <cstddef>
 #include <cstdint>
-#include <optional>
 #include <stdexcept>
 #include <vector>
 
@@ -202,7 +201,7 @@ std::complex<double> BoundStabilizerAmplitudeQuery::amplitude(const BasisMask& b
 }
 
 [[nodiscard]] StabilizerAmplitudeStructure make_stabilizer_amplitude_structure(
-    const CompiledModule& program, const std::optional<stim::Tableau<kStimWidth>>& inv_tableau) {
+    const CompiledModule& program, const stim::Tableau<kStimWidth>& inv_tableau) {
     const uint32_t n = program.num_qubits;
     std::vector<StabilizerRow> rows;
     std::vector<BasisMask> sign_masks;
@@ -210,12 +209,7 @@ std::complex<double> BoundStabilizerAmplitudeQuery::amplitude(const BasisMask& b
     sign_masks.reserve(n);
 
     for (uint32_t q = 0; q < n; ++q) {
-        if (inv_tableau.has_value()) {
-            rows.emplace_back(inv_tableau->zs[q]);
-        } else {
-            rows.emplace_back(n);
-            rows.back().zs[q] = true;
-        }
+        rows.emplace_back(inv_tableau.zs[q]);
         sign_masks.push_back(zero_basis_mask(n));
         bit_set(sign_masks.back(), q, true);
     }
@@ -373,6 +367,11 @@ void assert_probability_program_is_supported(const CompiledModule& program) {
 std::vector<double> probabilities(const CompiledModule& program,
                                   const std::vector<std::vector<uint64_t>>& basis_masks) {
     assert_probability_program_is_supported(program);
+    if (!program.constant_pool.final_tableau.has_value()) {
+        throw std::invalid_argument(
+            "probabilities() requires final Clifford tableau metadata; compile programs through "
+            "clifft.compile() or preserve ConstantPool::final_tableau.");
+    }
     assert_arena_widths_match(program.num_qubits, program.constant_pool);
 
     SchrodingerState state({.peak_rank = program.peak_rank,
@@ -384,10 +383,7 @@ std::vector<double> probabilities(const CompiledModule& program,
                             .seed = uint64_t{0}});
     execute(program, state);
 
-    std::optional<stim::Tableau<kStimWidth>> inv_tableau;
-    if (program.constant_pool.final_tableau.has_value()) {
-        inv_tableau = program.constant_pool.final_tableau->inverse(false);
-    }
+    stim::Tableau<kStimWidth> inv_tableau = program.constant_pool.final_tableau->inverse(false);
 
     const uint32_t n = program.num_qubits;
     const size_t expected_words = basis_word_count(n);
