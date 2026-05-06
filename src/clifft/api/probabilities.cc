@@ -16,6 +16,9 @@ namespace {
 using BasisMask = std::vector<uint64_t>;
 using StabilizerRow = stim::PauliString<kStimWidth>;
 
+// During Gaussian elimination the sign of a stabilizer row separates into a
+// static part plus a linear function of the queried physical bitstring x. The
+// mask stores that linear function; binding a particular x substitutes it.
 struct DynamicSignTerm {
     uint32_t bit = 0;
     bool static_sign = false;
@@ -68,6 +71,8 @@ void mask_xor_with(BasisMask& dst, const BasisMask& src) {
 }
 
 [[nodiscard]] uint64_t valid_word_mask(uint32_t n, size_t words, size_t word) {
+    // Stim simd_bits may contain padding above num_qubits. Word-level scans must
+    // mask those bits or they can create spurious Y phases and Z parities.
     const uint32_t used_bits = n % 64;
     if (word + 1 != words || used_bits == 0) {
         return ~uint64_t{0};
@@ -99,6 +104,8 @@ void mask_xor_with(BasisMask& dst, const BasisMask& src) {
 
 [[nodiscard]] std::complex<double> pauli_action_phase(const StabilizerRow& p, bool sign, uint32_t n,
                                                       const BasisMask& basis) {
+    // For P = (-1)^sign X^a Z^b, applying P to |basis> flips by a and
+    // contributes i for each Y plus the Z eigenvalue on the pre-flip basis.
     uint32_t phase_idx = sign ? 2U : 0U;
     bool z_basis_parity = false;
     const size_t words = basis_word_count(n);
@@ -150,6 +157,10 @@ struct StabilizerAmplitudeStructure {
     std::vector<IdentityConstraint> identity_constraints;
 
     [[nodiscard]] BoundStabilizerAmplitudeQuery bind(const BasisMask& physical_basis) const {
+        // The row-reduction structure is shared across the whole batch. Binding
+        // substitutes the queried physical bitstring x into the stored sign
+        // masks, producing the actual X-generator signs and affine base string
+        // for U_C^\dagger |x>.
         BoundStabilizerAmplitudeQuery query;
         query.structure = this;
         query.base = zero_basis_mask(n);
@@ -180,6 +191,10 @@ struct StabilizerAmplitudeStructure {
 };
 
 std::complex<double> BoundStabilizerAmplitudeQuery::amplitude(const BasisMask& basis) const {
+    // The X-pivot rows generate the support of the stabilizer state. Walk from
+    // the base string toward the requested virtual basis by applying the unique
+    // generator for each still-set pivot bit, accumulating the Pauli phases on
+    // the way. Any residual bit means the basis state is outside the support.
     BasisMask residual = basis;
     mask_xor_with(residual, base);
     BasisMask current = base;
@@ -208,6 +223,9 @@ std::complex<double> BoundStabilizerAmplitudeQuery::amplitude(const BasisMask& b
     rows.reserve(n);
     sign_masks.reserve(n);
 
+    // Start from stabilizers of U_C^\dagger |x>. Only the signs depend on the
+    // queried physical bitstring x: the q-th stabilizer has sign x_q. Store that
+    // dependence as a sign mask so the row-reduction structure can be reused.
     for (uint32_t q = 0; q < n; ++q) {
         rows.emplace_back(inv_tableau.zs[q]);
         sign_masks.push_back(zero_basis_mask(n));
@@ -216,6 +234,9 @@ std::complex<double> BoundStabilizerAmplitudeQuery::amplitude(const BasisMask& b
 
     size_t rank_x = 0;
     std::vector<uint32_t> pivot_cols;
+    // First eliminate the X block. Pivot rows with X support become generators
+    // that move around the nonzero support of U_C^\dagger |x>; non-pivot rows
+    // are purely Z-type constraints after this pass.
     for (uint32_t col = 0; col < n; ++col) {
         auto pivot = rows.end();
         auto pivot_sign = sign_masks.end();
@@ -249,6 +270,9 @@ std::complex<double> BoundStabilizerAmplitudeQuery::amplitude(const BasisMask& b
                                         sign_masks.end());
     size_t rank_z = 0;
     std::vector<DynamicSignTerm> base_terms;
+    // Pure Z constraints fix one base bit at a time. After binding x, each
+    // pivot equation says whether the corresponding bit of the affine base
+    // string is 0 or 1.
     for (uint32_t col = 0; col < n; ++col) {
         auto pivot = z_rows.end();
         auto pivot_sign = z_sign_masks.end();
@@ -279,6 +303,9 @@ std::complex<double> BoundStabilizerAmplitudeQuery::amplitude(const BasisMask& b
     }
 
     std::vector<IdentityConstraint> identity_constraints;
+    // A remaining row with no Z support is an identity constraint. For
+    // U_C^\dagger |x> it should always bind to +I; binding to -I would point to
+    // inconsistent tableau metadata or a reduction bug.
     for (size_t r = rank_z; r < z_rows.size(); ++r) {
         if (!row_has_any_z(z_rows[r], n)) {
             identity_constraints.push_back(
@@ -295,6 +322,9 @@ std::complex<double> BoundStabilizerAmplitudeQuery::amplitude(const BasisMask& b
     structure.x_sign_masks.assign(sign_masks.begin(),
                                   sign_masks.begin() + static_cast<std::ptrdiff_t>(rank_x));
     structure.x_masks.reserve(rank_x);
+    // Cache each X generator's bit flip separately from its full Pauli row. The
+    // amplitude walk needs both: the mask updates the basis string, while the
+    // row computes the phase contributed by that generator.
     for (const auto& row : structure.x_rows) {
         structure.x_masks.push_back(pauli_x_mask(row, n));
     }
@@ -350,6 +380,8 @@ std::complex<double> BoundStabilizerAmplitudeQuery::amplitude(const BasisMask& b
 }
 
 void assert_probability_program_is_supported(const CompiledModule& program) {
+    // Keep this bytecode-level list conceptually aligned with DropNonUnitaryPass,
+    // which performs the analogous filtering on HIR OpType values.
     for (const auto& instr : program.bytecode) {
         if (is_unsupported_probability_opcode(instr.opcode)) {
             throw std::invalid_argument(
@@ -383,6 +415,9 @@ std::vector<double> probabilities(const CompiledModule& program,
                             .seed = uint64_t{0}});
     execute(program, state);
 
+    // The VM gives the factored final state gamma * U_C * P *
+    // (|phi>_A x |0>_D). The inverse tableau lets the batch query evaluator use
+    // stabilizers of U_C^\dagger |x> for each requested physical bitstring x.
     stim::Tableau<kStimWidth> inv_tableau = program.constant_pool.final_tableau->inverse(false);
 
     const uint32_t n = program.num_qubits;
@@ -402,10 +437,15 @@ std::vector<double> probabilities(const CompiledModule& program,
             throw std::invalid_argument("probability basis masks must not set unused high bits");
         }
 
+        // Bind the shared stabilizer structure to this physical bitstring. This
+        // resolves row signs and the base string without redoing elimination.
         auto query = structure.bind(basis_mask);
 
         std::complex<double> amp{0.0, 0.0};
         for (uint64_t active_index = 0; active_index < active_size; ++active_index) {
+            // The dense SVM array indexes only active axes. Extend each active
+            // index to a full virtual basis string, then apply the runtime X
+            // frame. Dormant axes are fixed to |0> before the frame.
             BasisMask virtual_basis = state.p_x;
             for (uint32_t q = 0; q < state.active_k; ++q) {
                 bit_xor(virtual_basis, q, ((active_index >> q) & 1ULL) != 0);
@@ -415,6 +455,8 @@ std::vector<double> probabilities(const CompiledModule& program,
                 continue;
             }
             bool sign_bit = false;
+            // The runtime Z frame is diagonal on the active basis index. Dormant
+            // |0> axes do not contribute a Z-frame sign.
             for (uint32_t q = 0; q < state.active_k; ++q) {
                 if (((active_index >> q) & 1ULL) != 0 && bit_get(state.p_z, q)) {
                     sign_bit = !sign_bit;
