@@ -11,6 +11,7 @@
 #include <complex>
 #include <cstdint>
 #include <optional>
+#include <span>
 #include <string>
 #include <vector>
 
@@ -344,7 +345,8 @@ std::vector<double> noise_site_probabilities(const CompiledModule& program);
 /// feedback, noise, detector, postselection, and observable opcodes are
 /// rejected. Each basis mask is word-packed little-endian by qubit index.
 std::vector<double> probabilities(const CompiledModule& program,
-                                  const std::vector<std::vector<uint64_t>>& basis_masks);
+                                  std::span<const uint64_t> basis_masks, size_t num_basis_masks,
+                                  size_t words_per_basis_mask);
 
 // =============================================================================
 // Statevector Expansion

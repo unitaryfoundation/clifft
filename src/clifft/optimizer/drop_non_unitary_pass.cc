@@ -4,6 +4,9 @@
 
 namespace clifft {
 
+static_assert(static_cast<int>(OpType::NUM_OP_TYPES) == 9,
+              "Update DropNonUnitaryPass when adding a new HIR OpType");
+
 void DropNonUnitaryPass::run(HirModule& hir) {
     std::erase_if(hir.ops, [](const HeisenbergOp& op) {
         switch (op.op_type()) {

@@ -4,6 +4,8 @@ from typing import Any
 
 import numpy as np
 import pytest
+from conftest import random_dense_clifford_t_circuit
+from utils_qiskit import qiskit_statevector, stim_to_qiskit_noiseless
 
 import clifft
 
@@ -101,13 +103,15 @@ def test_probability_input_validation() -> None:
     with pytest.raises(ValueError, match="bit_order"):
         clifft.probabilities(prog, ["00"], bit_order="middle")
     with pytest.raises(TypeError, match="strings or a 2D"):
-        clifft.probabilities(prog, [[0, 0]])
+        invalid_sequence: Any = [[0, 0]]
+        clifft.probabilities(prog, invalid_sequence)
     with pytest.raises(ValueError, match="array must be 2D"):
         clifft.probabilities(prog, np.array([0, 1], dtype=np.uint8))
     with pytest.raises(ValueError, match="3 columns, expected 2"):
         clifft.probabilities(prog, np.array([[0, 1, 0]], dtype=np.uint8))
     with pytest.raises(TypeError, match="dtype must be bool or uint8"):
-        clifft.probabilities(prog, np.array([[0, 1]], dtype=np.int64))
+        invalid_dtype: Any = np.array([[0, 1]], dtype=np.int64)
+        clifft.probabilities(prog, invalid_dtype)
     with pytest.raises(ValueError, match="contain only 0 and 1"):
         clifft.probabilities(prog, np.array([[0, 2]], dtype=np.uint8))
 
@@ -180,6 +184,26 @@ def test_probabilities_match_dense_statevector_for_small_circuit() -> None:
     bitstrings = [format(i, f"0{prog.num_qubits}b")[::-1] for i in range(1 << prog.num_qubits)]
 
     np.testing.assert_allclose(clifft.probabilities(prog, bitstrings), expected, atol=1e-12)
+
+
+@pytest.mark.parametrize("num_qubits,seed", [(2, 101), (3, 202), (4, 303)])
+def test_probabilities_match_qiskit_for_random_small_circuits(num_qubits: int, seed: int) -> None:
+    circuit = random_dense_clifford_t_circuit(num_qubits, depth=18, seed=seed)
+    prog = clifft.compile(circuit)
+    qiskit_sv = qiskit_statevector(stim_to_qiskit_noiseless(circuit))
+    bitstrings = (
+        (
+            np.arange(1 << num_qubits, dtype=np.uint64)[:, None]
+            >> np.arange(num_qubits, dtype=np.uint64)
+        )
+        & np.uint64(1)
+    ).astype(np.uint8)
+
+    np.testing.assert_allclose(
+        clifft.probabilities(prog, bitstrings),
+        np.abs(qiskit_sv) ** 2,
+        atol=1e-12,
+    )
 
 
 def test_probabilities_supports_active_rank_beyond_dense_statevector_limit() -> None:

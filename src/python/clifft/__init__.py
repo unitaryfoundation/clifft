@@ -10,7 +10,8 @@ rather than the full Hilbert space.
 # ruff: noqa: E402
 from __future__ import annotations
 
-from typing import cast
+from collections.abc import Sequence
+from typing import TypeAlias, cast
 
 import numpy as np
 import numpy.typing as npt
@@ -104,72 +105,80 @@ from clifft._clifft_core import (
 )
 from clifft._sample_result import SampleResult
 
+BasisBitstrings: TypeAlias = str | Sequence[str] | npt.NDArray[np.bool_] | npt.NDArray[np.uint8]
+
 
 def _basis_masks_from_bitstrings(
     program: Program,
-    bitstrings: list[str] | tuple[str, ...] | str | object,
+    bitstrings: BasisBitstrings,
     bit_order: str,
-) -> list[list[int]]:
+) -> npt.NDArray[np.uint64]:
     if bit_order not in ("big", "little"):
         raise ValueError("bit_order must be 'big' or 'little'")
 
     num_qubits = program.num_qubits
     word_count = (num_qubits + 63) // 64
 
-    def set_bit(words: list[int], qubit: int) -> None:
-        words[qubit // 64] |= 1 << (qubit % 64)
+    def set_bit(masks: npt.NDArray[np.uint64], row: int, qubit: int) -> None:
+        masks[row, qubit // 64] |= np.uint64(1 << (qubit % 64))
 
-    def mask_from_string(bitstring: str, row: int) -> list[int]:
+    def fill_string_mask(masks: npt.NDArray[np.uint64], bitstring: str, row: int) -> None:
         if len(bitstring) != num_qubits:
             raise ValueError(
                 f"bitstring at index {row} has length {len(bitstring)}, " f"expected {num_qubits}"
             )
-        words = [0] * word_count
         for col, char in enumerate(bitstring):
             if char == "1":
                 qubit = col if bit_order == "big" else num_qubits - 1 - col
-                set_bit(words, qubit)
+                set_bit(masks, row, qubit)
             elif char != "0":
                 raise ValueError(
                     f"bitstring at index {row} contains {char!r}; expected only '0' and '1'"
                 )
-        return words
 
     if isinstance(bitstrings, str):
-        return [mask_from_string(bitstrings, 0)]
+        masks = np.zeros((1, word_count), dtype=np.uint64)
+        fill_string_mask(masks, bitstrings, 0)
+        return masks
 
-    if isinstance(bitstrings, (list, tuple)):
+    if isinstance(bitstrings, np.ndarray):
+        bit_array = bitstrings
+    elif isinstance(bitstrings, Sequence):
         if all(isinstance(bitstring, str) for bitstring in bitstrings):
-            return [mask_from_string(bitstring, row) for row, bitstring in enumerate(bitstrings)]
+            masks = np.zeros((len(bitstrings), word_count), dtype=np.uint64)
+            for row, bitstring in enumerate(bitstrings):
+                fill_string_mask(masks, bitstring, row)
+            return masks
+        raise TypeError("bitstrings must be strings or a 2D bool/uint8 NumPy array")
+    else:
         raise TypeError("bitstrings must be strings or a 2D bool/uint8 NumPy array")
 
-    if not isinstance(bitstrings, np.ndarray):
-        raise TypeError("bitstrings must be strings or a 2D bool/uint8 NumPy array")
-    if bitstrings.ndim != 2:
+    if bit_array.ndim != 2:
         raise ValueError("bitstrings array must be 2D with shape (num_bitstrings, num_qubits)")
-    if bitstrings.shape[1] != num_qubits:
+    if bit_array.shape[1] != num_qubits:
         raise ValueError(
-            f"bitstrings array has {bitstrings.shape[1]} columns, expected {num_qubits}"
+            f"bitstrings array has {bit_array.shape[1]} columns, expected {num_qubits}"
         )
-    if bitstrings.dtype not in (np.dtype("bool"), np.dtype("uint8")):
+    if bit_array.dtype not in (np.dtype("bool"), np.dtype("uint8")):
         raise TypeError("bitstrings array dtype must be bool or uint8")
-    if bitstrings.dtype == np.dtype("uint8") and np.any((bitstrings != 0) & (bitstrings != 1)):
+    if bit_array.dtype == np.dtype("uint8") and np.any((bit_array != 0) & (bit_array != 1)):
         raise ValueError("uint8 bitstrings array must contain only 0 and 1")
 
-    masks: list[list[int]] = []
-    for row_bits in bitstrings:
-        words = [0] * word_count
-        for col, bit in enumerate(row_bits):
-            if bool(bit):
-                qubit = col if bit_order == "big" else num_qubits - 1 - col
-                set_bit(words, qubit)
-        masks.append(words)
-    return masks
+    qubit_order_bits = bit_array if bit_order == "big" else bit_array[:, ::-1]
+    packed_bytes = np.packbits(qubit_order_bits, axis=1, bitorder="little")
+    padded_bytes = word_count * 8
+    if packed_bytes.shape[1] != padded_bytes:
+        word_aligned = np.zeros((bit_array.shape[0], padded_bytes), dtype=np.uint8)
+        word_aligned[:, : packed_bytes.shape[1]] = packed_bytes
+        packed_bytes = word_aligned
+    return np.ascontiguousarray(
+        packed_bytes.view(np.uint64).reshape(bit_array.shape[0], word_count)
+    )
 
 
 def probabilities(
     program: Program,
-    bitstrings: list[str] | tuple[str, ...] | str | object,
+    bitstrings: BasisBitstrings,
     *,
     bit_order: str = "big",
 ) -> npt.NDArray[np.float64]:
@@ -248,6 +257,7 @@ def compile(
 
 __all__ = [
     "AstNode",
+    "BasisBitstrings",
     "BytecodePass",
     "BytecodePassManager",
     "Circuit",

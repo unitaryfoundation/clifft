@@ -1,5 +1,6 @@
 #include "clifft/svm/svm.h"
 #include "clifft/svm/svm_math.h"
+#include "clifft/util/mask_view.h"
 
 #include <algorithm>
 #include <bit>
@@ -15,6 +16,21 @@ namespace {
 
 using BasisMask = std::vector<uint64_t>;
 using StabilizerRow = stim::PauliString<kStimWidth>;
+
+[[nodiscard]] MaskView basis_mask_view(const BasisMask& mask) {
+    return MaskView{std::span<const uint64_t>(mask)};
+}
+
+[[nodiscard]] MutableMaskView mutable_basis_mask_view(BasisMask& mask) {
+    return MutableMaskView{std::span<uint64_t>(mask)};
+}
+
+void mask_copy_to(MutableMaskView dst, MaskView src) {
+    if (dst.num_words() != src.num_words()) {
+        throw std::invalid_argument("internal probability mask width mismatch");
+    }
+    std::copy(src.words.begin(), src.words.end(), dst.words.begin());
+}
 
 // During Gaussian elimination the sign of a stabilizer row separates into a
 // static part plus a linear function of the queried physical bitstring x. The
@@ -39,34 +55,35 @@ struct IdentityConstraint {
 }
 
 void mask_xor_with(BasisMask& dst, const BasisMask& src) {
-    for (size_t w = 0; w < dst.size(); ++w) {
-        dst[w] ^= src[w];
-    }
+    mutable_basis_mask_view(dst).xor_with(basis_mask_view(src));
 }
 
-[[nodiscard]] bool mask_is_zero(const BasisMask& mask) {
-    return std::all_of(mask.begin(), mask.end(), [](uint64_t word) { return word == 0; });
+void mask_xor_with(MutableMaskView dst, MaskView src) {
+    dst.xor_with(src);
 }
 
-[[nodiscard]] bool mask_has_only_qubit_bits(const BasisMask& mask, uint32_t n) {
+[[nodiscard]] bool mask_is_zero(MaskView mask) {
+    return mask.is_zero();
+}
+
+[[nodiscard]] bool mask_has_only_qubit_bits(MaskView mask, uint32_t n) {
     const uint32_t used_bits = n % 64;
-    if (mask.empty() || used_bits == 0) {
+    if (mask.words.empty() || used_bits == 0) {
         return true;
     }
     const uint64_t used_mask = (uint64_t{1} << used_bits) - 1U;
-    return (mask.back() & ~used_mask) == 0;
+    return (mask.words.back() & ~used_mask) == 0;
 }
 
-[[nodiscard]] bool mask_parity(const BasisMask& lhs, const BasisMask& rhs) {
+[[nodiscard]] bool mask_parity(MaskView lhs, MaskView rhs) {
     bool parity = false;
-    for (size_t w = 0; w < lhs.size(); ++w) {
-        parity ^= (std::popcount(lhs[w] & rhs[w]) & 1U) != 0;
+    for (size_t w = 0; w < lhs.words.size(); ++w) {
+        parity ^= (std::popcount(lhs.words[w] & rhs.words[w]) & 1U) != 0;
     }
     return parity;
 }
 
-[[nodiscard]] bool dynamic_sign(bool static_sign, const BasisMask& sign_mask,
-                                const BasisMask& physical_basis) {
+[[nodiscard]] bool dynamic_sign(bool static_sign, MaskView sign_mask, MaskView physical_basis) {
     return static_sign ^ mask_parity(sign_mask, physical_basis);
 }
 
@@ -102,17 +119,25 @@ void mask_xor_with(BasisMask& dst, const BasisMask& src) {
     }
 }
 
+[[nodiscard]] uint32_t pauli_y_count(const StabilizerRow& p, uint32_t n) {
+    uint32_t count = 0;
+    const size_t words = basis_word_count(n);
+    for (size_t w = 0; w < words; ++w) {
+        count += std::popcount(p.xs.u64[w] & p.zs.u64[w] & valid_word_mask(n, words, w));
+    }
+    return count;
+}
+
 [[nodiscard]] std::complex<double> pauli_action_phase(const StabilizerRow& p, bool sign, uint32_t n,
-                                                      const BasisMask& basis) {
+                                                      uint32_t y_count, MaskView basis) {
     // For P = (-1)^sign X^a Z^b, applying P to |basis> flips by a and
     // contributes i for each Y plus the Z eigenvalue on the pre-flip basis.
-    uint32_t phase_idx = sign ? 2U : 0U;
+    uint32_t phase_idx = (sign ? 2U : 0U) + y_count;
     bool z_basis_parity = false;
     const size_t words = basis_word_count(n);
     for (size_t w = 0; w < words; ++w) {
         const uint64_t valid = valid_word_mask(n, words, w);
-        phase_idx += std::popcount(p.xs.u64[w] & p.zs.u64[w] & valid);
-        z_basis_parity ^= (std::popcount(p.zs.u64[w] & basis[w] & valid) & 1U) != 0;
+        z_basis_parity ^= (std::popcount(p.zs.u64[w] & basis.words[w] & valid) & 1U) != 0;
     }
     if (z_basis_parity) {
         phase_idx += 2;
@@ -143,7 +168,8 @@ struct BoundStabilizerAmplitudeQuery {
     BasisMask base;
     std::vector<uint8_t> x_signs;
 
-    [[nodiscard]] std::complex<double> amplitude(const BasisMask& basis) const;
+    [[nodiscard]] std::complex<double> amplitude(MaskView basis, MutableMaskView residual,
+                                                 MutableMaskView current) const;
 };
 
 struct StabilizerAmplitudeStructure {
@@ -153,10 +179,11 @@ struct StabilizerAmplitudeStructure {
     std::vector<BasisMask> x_sign_masks;
     std::vector<uint32_t> pivot_cols;
     std::vector<BasisMask> x_masks;
+    std::vector<uint32_t> x_y_counts;
     std::vector<DynamicSignTerm> base_terms;
     std::vector<IdentityConstraint> identity_constraints;
 
-    [[nodiscard]] BoundStabilizerAmplitudeQuery bind(const BasisMask& physical_basis) const {
+    [[nodiscard]] BoundStabilizerAmplitudeQuery bind(MaskView physical_basis) const {
         // The row-reduction structure is shared across the whole batch. Binding
         // substitutes the queried physical bitstring x into the stored sign
         // masks, producing the actual X-generator signs and affine base string
@@ -167,20 +194,21 @@ struct StabilizerAmplitudeStructure {
         query.x_signs.reserve(x_rows.size());
 
         for (size_t i = 0; i < x_rows.size(); ++i) {
-            query.x_signs.push_back(
-                dynamic_sign(static_cast<bool>(x_rows[i].sign), x_sign_masks[i], physical_basis)
-                    ? 1U
-                    : 0U);
+            query.x_signs.push_back(dynamic_sign(static_cast<bool>(x_rows[i].sign),
+                                                 basis_mask_view(x_sign_masks[i]), physical_basis)
+                                        ? 1U
+                                        : 0U);
         }
 
         for (const auto& term : base_terms) {
-            if (dynamic_sign(term.static_sign, term.sign_mask, physical_basis)) {
-                bit_set(query.base, term.bit, true);
+            if (dynamic_sign(term.static_sign, basis_mask_view(term.sign_mask), physical_basis)) {
+                mutable_basis_mask_view(query.base).bit_set(term.bit, true);
             }
         }
 
         for (const auto& constraint : identity_constraints) {
-            if (dynamic_sign(constraint.static_sign, constraint.sign_mask, physical_basis)) {
+            if (dynamic_sign(constraint.static_sign, basis_mask_view(constraint.sign_mask),
+                             physical_basis)) {
                 throw std::runtime_error(
                     "invalid stabilizer constraints while evaluating probability");
             }
@@ -190,23 +218,26 @@ struct StabilizerAmplitudeStructure {
     }
 };
 
-std::complex<double> BoundStabilizerAmplitudeQuery::amplitude(const BasisMask& basis) const {
+std::complex<double> BoundStabilizerAmplitudeQuery::amplitude(MaskView basis,
+                                                              MutableMaskView residual,
+                                                              MutableMaskView current) const {
     // The X-pivot rows generate the support of the stabilizer state. Walk from
     // the base string toward the requested virtual basis by applying the unique
     // generator for each still-set pivot bit, accumulating the Pauli phases on
     // the way. Any residual bit means the basis state is outside the support.
-    BasisMask residual = basis;
-    mask_xor_with(residual, base);
-    BasisMask current = base;
+    mask_copy_to(residual, basis);
+    mask_xor_with(residual, basis_mask_view(base));
+    mask_copy_to(current, basis_mask_view(base));
     std::complex<double> amp{structure->magnitude, 0.0};
 
     for (size_t i = 0; i < structure->x_rows.size(); ++i) {
-        if (!bit_get(residual, structure->pivot_cols[i])) {
+        if (!residual.bit_get(structure->pivot_cols[i])) {
             continue;
         }
-        amp *= pauli_action_phase(structure->x_rows[i], x_signs[i] != 0, structure->n, current);
-        mask_xor_with(current, structure->x_masks[i]);
-        mask_xor_with(residual, structure->x_masks[i]);
+        amp *= pauli_action_phase(structure->x_rows[i], x_signs[i] != 0, structure->n,
+                                  structure->x_y_counts[i], current);
+        mask_xor_with(current, basis_mask_view(structure->x_masks[i]));
+        mask_xor_with(residual, basis_mask_view(structure->x_masks[i]));
     }
 
     if (!mask_is_zero(residual)) {
@@ -229,7 +260,7 @@ std::complex<double> BoundStabilizerAmplitudeQuery::amplitude(const BasisMask& b
     for (uint32_t q = 0; q < n; ++q) {
         rows.emplace_back(inv_tableau.zs[q]);
         sign_masks.push_back(zero_basis_mask(n));
-        bit_set(sign_masks.back(), q, true);
+        mutable_basis_mask_view(sign_masks.back()).bit_set(q, true);
     }
 
     size_t rank_x = 0;
@@ -322,11 +353,13 @@ std::complex<double> BoundStabilizerAmplitudeQuery::amplitude(const BasisMask& b
     structure.x_sign_masks.assign(sign_masks.begin(),
                                   sign_masks.begin() + static_cast<std::ptrdiff_t>(rank_x));
     structure.x_masks.reserve(rank_x);
+    structure.x_y_counts.reserve(rank_x);
     // Cache each X generator's bit flip separately from its full Pauli row. The
     // amplitude walk needs both: the mask updates the basis string, while the
     // row computes the phase contributed by that generator.
     for (const auto& row : structure.x_rows) {
         structure.x_masks.push_back(pauli_x_mask(row, n));
+        structure.x_y_counts.push_back(pauli_y_count(row, n));
     }
     structure.base_terms = std::move(base_terms);
     structure.identity_constraints = std::move(identity_constraints);
@@ -397,7 +430,8 @@ void assert_probability_program_is_supported(const CompiledModule& program) {
 }  // namespace
 
 std::vector<double> probabilities(const CompiledModule& program,
-                                  const std::vector<std::vector<uint64_t>>& basis_masks) {
+                                  std::span<const uint64_t> basis_masks, size_t num_basis_masks,
+                                  size_t words_per_basis_mask) {
     assert_probability_program_is_supported(program);
     if (!program.constant_pool.final_tableau.has_value()) {
         throw std::invalid_argument(
@@ -422,17 +456,32 @@ std::vector<double> probabilities(const CompiledModule& program,
 
     const uint32_t n = program.num_qubits;
     const size_t expected_words = basis_word_count(n);
+    if (words_per_basis_mask != expected_words) {
+        throw std::invalid_argument(
+            "probability basis masks must have ceil(num_qubits / 64) words");
+    }
+    if (basis_masks.size() != num_basis_masks * words_per_basis_mask) {
+        throw std::invalid_argument("probability basis mask buffer has inconsistent shape");
+    }
+
     const uint64_t active_size = state.v_size();
     const std::complex<double> scale = state.gamma() * program.constant_pool.global_weight;
     const auto structure = make_stabilizer_amplitude_structure(program, inv_tableau);
+    const auto state_px = MaskView{std::span<const uint64_t>(state.p_x)};
+    const uint64_t active_z_mask =
+        state.active_k == 0 ? 0 : (state.p_z[0] & ((uint64_t{1} << state.active_k) - uint64_t{1}));
+    BasisMask virtual_basis_storage(expected_words);
+    BasisMask residual_storage(expected_words);
+    BasisMask current_storage(expected_words);
+    auto virtual_basis = mutable_basis_mask_view(virtual_basis_storage);
+    auto residual = mutable_basis_mask_view(residual_storage);
+    auto current = mutable_basis_mask_view(current_storage);
 
     std::vector<double> out;
-    out.reserve(basis_masks.size());
-    for (const BasisMask& basis_mask : basis_masks) {
-        if (basis_mask.size() != expected_words) {
-            throw std::invalid_argument(
-                "probability basis masks must have ceil(num_qubits / 64) words");
-        }
+    out.reserve(num_basis_masks);
+    for (size_t basis_idx = 0; basis_idx < num_basis_masks; ++basis_idx) {
+        const auto basis_mask =
+            MaskView{basis_masks.subspan(basis_idx * expected_words, expected_words)};
         if (!mask_has_only_qubit_bits(basis_mask, n)) {
             throw std::invalid_argument("probability basis masks must not set unused high bits");
         }
@@ -442,26 +491,27 @@ std::vector<double> probabilities(const CompiledModule& program,
         auto query = structure.bind(basis_mask);
 
         std::complex<double> amp{0.0, 0.0};
+        mask_copy_to(virtual_basis, state_px);
+        uint64_t previous_active_index = 0;
         for (uint64_t active_index = 0; active_index < active_size; ++active_index) {
             // The dense SVM array indexes only active axes. Extend each active
-            // index to a full virtual basis string, then apply the runtime X
-            // frame. Dormant axes are fixed to |0> before the frame.
-            BasisMask virtual_basis = state.p_x;
-            for (uint32_t q = 0; q < state.active_k; ++q) {
-                bit_xor(virtual_basis, q, ((active_index >> q) & 1ULL) != 0);
+            // index to a full virtual basis string. Moving sequentially lets us
+            // toggle only the active bits that changed from the previous index.
+            uint64_t changed_bits = active_index ^ previous_active_index;
+            while (changed_bits != 0) {
+                const auto q = static_cast<uint32_t>(std::countr_zero(changed_bits));
+                virtual_basis.bit_xor(q);
+                changed_bits &= changed_bits - 1;
             }
-            auto coeff = query.amplitude(virtual_basis);
+            previous_active_index = active_index;
+
+            auto coeff = query.amplitude(virtual_basis, residual, current);
             if (coeff == std::complex<double>{0.0, 0.0}) {
                 continue;
             }
-            bool sign_bit = false;
             // The runtime Z frame is diagonal on the active basis index. Dormant
             // |0> axes do not contribute a Z-frame sign.
-            for (uint32_t q = 0; q < state.active_k; ++q) {
-                if (((active_index >> q) & 1ULL) != 0 && bit_get(state.p_z, q)) {
-                    sign_bit = !sign_bit;
-                }
-            }
+            const bool sign_bit = (std::popcount(active_index & active_z_mask) & 1U) != 0;
             double sign = sign_bit ? -1.0 : 1.0;
             amp += state.v()[active_index] * sign * coeff;
         }

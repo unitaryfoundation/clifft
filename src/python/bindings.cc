@@ -32,6 +32,7 @@
 #include <nanobind/stl/string.h>
 #include <nanobind/stl/string_view.h>
 #include <nanobind/stl/vector.h>
+#include <span>
 #include <sstream>
 
 namespace nb = nanobind;
@@ -1080,11 +1081,13 @@ NB_MODULE(_clifft_core, m) {
     m.def(
         "_probabilities_from_bitmasks",
         [](const clifft::CompiledModule& program,
-           const std::vector<std::vector<uint64_t>>& basis_masks) {
+           nb::ndarray<nb::numpy, const uint64_t, nb::shape<-1, -1>, nb::c_contig> basis_masks) {
             std::vector<double> probs;
             {
                 nb::gil_scoped_release release;
-                probs = clifft::probabilities(program, basis_masks);
+                probs = clifft::probabilities(
+                    program, std::span<const uint64_t>(basis_masks.data(), basis_masks.size()),
+                    basis_masks.shape(0), basis_masks.shape(1));
             }
             size_t n = probs.size();
             return vec_to_numpy(std::move(probs), {n});
