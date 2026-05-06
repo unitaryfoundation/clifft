@@ -1,5 +1,6 @@
 """Tests for exact computational-basis probability queries."""
 
+import math
 from typing import Any
 
 import numpy as np
@@ -238,3 +239,65 @@ def test_probabilities_supports_active_rank_beyond_dense_statevector_limit() -> 
         [2**-12, 2**-12],
         atol=1e-15,
     )
+
+
+def test_probabilities_match_formula_for_continuous_z_rotation() -> None:
+    # H R_Z(alpha) H |0> -> cos(pi*alpha/2) |0> - i sin(pi*alpha/2) |1>.
+    # Exercises the OP_ARRAY_ROT / PHASE_ROTATION path the random Clifford+T
+    # circuits never touch.
+    alpha = 0.123
+    prog = clifft.compile(f"H 0\nR_Z({alpha}) 0\nH 0")
+    half_angle = math.pi * alpha / 2.0
+    np.testing.assert_allclose(
+        clifft.probabilities(prog, ["0", "1"]),
+        [math.cos(half_angle) ** 2, math.sin(half_angle) ** 2],
+        atol=1e-12,
+    )
+
+
+def test_probabilities_sum_to_one_at_high_active_rank() -> None:
+    # Unitarity invariant on a circuit whose peak_rank exceeds the
+    # statevector-expansion limit, so this catches normalization regressions
+    # that the small-circuit statevector cross-check cannot.
+    prog = clifft.compile("\n".join(f"H {q}\nT {q}" for q in range(12)))
+    assert prog.peak_rank > 10
+    n = prog.num_qubits
+    bitstrings = [format(i, f"0{n}b") for i in range(1 << n)]
+    np.testing.assert_allclose(clifft.probabilities(prog, bitstrings).sum(), 1.0, atol=1e-10)
+
+
+def test_probabilities_handles_empty_and_singleton_inputs() -> None:
+    prog = clifft.compile("H 0")
+
+    empty_list = clifft.probabilities(prog, [])
+    assert empty_list.shape == (0,)
+    assert empty_list.dtype == np.float64
+
+    empty_arr = clifft.probabilities(prog, np.zeros((0, 1), dtype=np.uint8))
+    assert empty_arr.shape == (0,)
+
+    single = clifft.probabilities(prog, "0")
+    assert single.shape == (1,)
+    np.testing.assert_allclose(single, [0.5], atol=1e-12)
+
+
+def test_probabilities_match_statevector_for_fused_unitaries() -> None:
+    # Construct a circuit that triggers both single-axis (OP_ARRAY_U2) and
+    # tile (OP_ARRAY_U4) fusion so the supported-opcode listing for those
+    # paths is actually exercised end-to-end.
+    src = (
+        "H 0\nT 0\nS 0\nH 0\nT 0\nS 0\nH 0\nT 0\nS 0\n"
+        "H 1\nT 1\nS 1\nH 1\nT 1\nS 1\nH 1\nT 1\nS 1\n"
+        "CX 0 1\nH 0\nT 0\nS 0"
+    )
+    prog = clifft.compile(src)
+    opcodes = {instr.opcode for instr in prog}
+    assert clifft.Opcode.OP_ARRAY_U2 in opcodes, "test circuit no longer triggers U2 fusion"
+    assert clifft.Opcode.OP_ARRAY_U4 in opcodes, "test circuit no longer triggers U4 fusion"
+
+    state = clifft.State(peak_rank=prog.peak_rank, num_measurements=prog.num_measurements)
+    clifft.execute(prog, state)
+    expected = np.abs(clifft.get_statevector(prog, state)) ** 2
+    n = prog.num_qubits
+    bitstrings = [format(i, f"0{n}b")[::-1] for i in range(1 << n)]
+    np.testing.assert_allclose(clifft.probabilities(prog, bitstrings), expected, atol=1e-12)
