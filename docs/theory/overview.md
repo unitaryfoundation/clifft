@@ -116,6 +116,6 @@ v_i
 \right|^2 .
 $$
 
-The sum still ranges only over the active basis states, so its cost scales as $O(2^k)$ rather than $O(2^n)$. The remaining matrix element $\langle x | U_C | y\rangle$ is a stabilizer amplitude: Clifft computes it from the stabilizers of $U_C^\dagger |x\rangle$. The Gaussian-elimination pivot structure depends on $U_C$ but not on the queried bitstring, so a batched call builds that structure once and then rebinds the row signs for each requested $x$.
+The sum still ranges only over the active basis states, so its cost scales as $O(2^k)$ rather than $O(2^n)$. The remaining matrix element $\langle x | U_C | y\rangle$ is a stabilizer amplitude: Clifft computes it from the stabilizers of $U_C^\dagger |x\rangle$. The Gaussian-elimination pivot structure depends on $U_C$ but not on the queried bitstring, so a batched call builds that structure once and then rebinds the row signs for each requested $x$. See [Basis-State Probabilities: Algorithm Derivation](probabilities.md) for the full derivation, the per-query GF(2) walk, and the complexity model.
 
 In the implementation, the scalar $\gamma$ above is split into a runtime factor, `state.gamma()`, and a compile-time factor, `program.constant_pool.global_weight`. They multiply back into the single theoretical $\gamma$ at query time. Keeping the compile-time factor in the constant pool avoids storing program-invariant phase corrections in each per-shot VM state.
