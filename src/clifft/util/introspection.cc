@@ -183,22 +183,12 @@ std::string format_instruction(const Instruction& inst) {
     std::ostringstream ss;
     ss << opcode_to_str(inst.opcode) << " ";
 
-    if (is_two_axis_opcode(inst.opcode)) {
-        ss << inst.axis_1 << ", " << inst.axis_2;
-    } else if (inst.opcode == Opcode::OP_ARRAY_ROT || inst.opcode == Opcode::OP_EXPAND_ROT) {
+    if (inst.opcode == Opcode::OP_ARRAY_ROT || inst.opcode == Opcode::OP_EXPAND_ROT) {
         ss << inst.axis_1 << " z=(" << inst.math.weight_re << ", " << inst.math.weight_im << ")";
     } else if (inst.opcode == Opcode::OP_ARRAY_U2) {
         ss << inst.axis_1 << " cp_idx=" << inst.u2.cp_idx;
     } else if (inst.opcode == Opcode::OP_ARRAY_U4) {
         ss << inst.axis_1 << ", " << inst.axis_2 << " cp_idx=" << inst.u4.cp_idx;
-    } else if (is_one_axis_opcode(inst.opcode)) {
-        ss << inst.axis_1;
-    } else if (is_meas_opcode(inst.opcode)) {
-        ss << inst.axis_1 << " -> rec[" << inst.classical.classical_idx << "]";
-        if (inst.flags & Instruction::FLAG_SIGN)
-            ss << " (invert)";
-        if (inst.flags & Instruction::FLAG_IDENTITY)
-            ss << " (identity)";
     } else if (inst.opcode == Opcode::OP_ARRAY_MULTI_CNOT) {
         ss << "target=" << inst.axis_1 << " ctrl_mask=0x" << std::hex << inst.multi_gate.mask
            << std::dec;
@@ -210,6 +200,16 @@ std::string format_instruction(const Instruction& inst) {
            << ") meas_idx=" << inst.classical.classical_idx;
         if (inst.flags & Instruction::FLAG_SIGN)
             ss << " (sign)";
+    } else if (is_two_axis_opcode(inst.opcode)) {
+        ss << inst.axis_1 << ", " << inst.axis_2;
+    } else if (is_one_axis_opcode(inst.opcode)) {
+        ss << inst.axis_1;
+    } else if (is_meas_opcode(inst.opcode)) {
+        ss << inst.axis_1 << " -> rec[" << inst.classical.classical_idx << "]";
+        if (inst.flags & Instruction::FLAG_SIGN)
+            ss << " (invert)";
+        if (inst.flags & Instruction::FLAG_IDENTITY)
+            ss << " (identity)";
     } else if (inst.opcode == Opcode::OP_APPLY_PAULI) {
         ss << "cp_mask=" << inst.pauli.cp_mask_idx << " if rec[" << inst.pauli.condition_idx << "]";
     } else if (inst.opcode == Opcode::OP_NOISE) {

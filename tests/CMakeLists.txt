@@ -22,6 +22,7 @@ add_executable(clifft_tests
     test_tile_axis_fusion.cc
     test_source_map.cc
     test_importance_sampling.cc
+    test_introspection.cc
     test_probabilities.cc
     test_exp_value.cc
     test_openmp.cc
