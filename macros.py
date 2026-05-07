@@ -106,6 +106,20 @@ def define_env(env: Any) -> None:
             ),
         },
         {
+            "name": "DropNonUnitaryPass",
+            "kind": "HIR",
+            "default_enabled": False,
+            "python_name": "DropNonUnitaryPass",
+            "summary": "Drops non-evolution operations from the HIR.",
+            "detail": (
+                "Removes MEASURE, CONDITIONAL_PAULI, NOISE, READOUT_NOISE, "
+                "DETECTOR, OBSERVABLE, and EXP_VAL ops and clears the matching "
+                "metadata. Not included in the default pipeline and not "
+                "semantics-preserving; use only when intentionally querying a "
+                "unitary-only circuit skeleton."
+            ),
+        },
+        {
             "name": "NoiseBlockPass",
             "kind": "Bytecode",
             "default_enabled": True,
