@@ -112,6 +112,39 @@ Clifft shares circuit-dependent stabilizer work across the batch. Repeated
 single-bitstring calls are correct, but they rebuild work that one batched call
 can reuse.
 
+## Programmatic Bitstring Arrays
+
+String bitstrings are convenient in examples and tests. For generated queries,
+pass a 2D NumPy array with one row per bitstring and one column per qubit:
+
+<!--pytest-codeblocks:cont-->
+
+```python
+import numpy as np
+
+query_bits = np.array(
+    [
+        [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+        [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+        [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+    ],
+    dtype=np.uint8,
+)
+
+ps = clifft.probabilities(program, query_bits)
+print(ps)
+```
+
+Output:
+
+```text
+[0.99901336 0.00098664 0.        ]
+```
+
+`bool` arrays are also accepted. As with strings, the default
+`bit_order="big"` maps the first column to qubit 0; use
+`bit_order="little"` if the last column should map to qubit 0.
+
 ## Compare with Sampling
 
 Sampling estimates probabilities from repeated shots. Exact probability queries
