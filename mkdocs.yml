@@ -74,6 +74,7 @@ nav:
     - Compiling Circuits: guide/compilation.md
     - Simulation: guide/simulation.md
     - Performance: guide/performance.md
+    - "Tutorial: Strong Simulation": guide/strong-simulation.md
     - "Tutorial: Surface Code": guide/surface-code.md
     - "Tutorial: Importance Sampling": guide/importance-sampling.md
     - "Benchmark: Clifft vs Qiskit": guide/benchmark.md

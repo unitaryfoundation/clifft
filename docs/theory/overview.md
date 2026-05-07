@@ -24,7 +24,7 @@ Each component serves a distinct purpose:
 
 ### Why This Matters
 
-For circuits where non-Clifford entanglement is bounded — such as magic state distillation, where     frequent syndrome measurements can collapse inactive degrees of freedom and keep non-Clifford effects localized — the peak active dimension $k_{\text{max}}$ remains small even as the total qubit count $n$ grows to hundreds. Clifft allocates $2^{k_{\text{max}}}$ complex amplitudes instead of $2^n$, yielding exponential memory savings.
+For circuits where non-Clifford entanglement is bounded, such as magic state distillation, frequent syndrome measurements can collapse inactive degrees of freedom and keep non-Clifford effects localized. The peak active dimension $k_{\text{max}}$ remains small even as the total qubit count $n$ grows to hundreds. Clifft allocates $2^{k_{\text{max}}}$ complex amplitudes instead of $2^n$, yielding exponential memory savings.
 
 ## The Five-Stage Pipeline
 
@@ -81,41 +81,18 @@ The back end lowers optimized HIR into SVM bytecode by localizing each relevant 
 
 After lowering, we apply another set of optimizations directly to the bytecode, targetting specific improvements to improve sampling time. These passes fuse sequences of instructions to eliminate redundant passes over the array and reduce dispatch overhead.
 
-### Stage 5: Schrödinger Virtual Machine
+### Stage 5: Schrodinger Virtual Machine
 
-The Schrödinger Virtual Machine executes the localized bytecode using the factored state representation. Because Clifford-coordinate updates and Pauli localization have already been performed at compile time, repeated sampling only updates the Pauli frame and the dense active state vector, with exponential cost confined to the current active dimension.
+The Schrodinger Virtual Machine executes the localized bytecode using the factored state representation. Because Clifford-coordinate updates and Pauli localization have already been performed at compile time, repeated sampling only updates the Pauli frame and the dense active state vector, with exponential cost confined to the current active dimension.
 
 ## Exact Basis-State Probabilities
 
-For unitary programs, `clifft.probabilities()` computes exact full-register computational-basis probabilities from the same factored state representation, without expanding the full $2^n$ statevector.
+For unitary programs, `clifft.probabilities()` computes exact full-register
+computational-basis probabilities from the same factored state representation,
+without expanding the full $2^n$ statevector. The exponential part still scales
+with the active dimension $k$, so the API is useful when you need exact
+probabilities for a sparse set of output bitstrings.
 
-Starting from
-
-$$
-|\psi\rangle = \gamma \, U_C \, P \, \Big( |\phi\rangle_A \otimes |0\rangle_D \Big),
-$$
-
-write the active state and Pauli frame as
-
-$$
-|\phi\rangle_A = \sum_{i \in \{0,1\}^k} v_i |i\rangle_A,
-\qquad
-P = X^{p_x} Z^{p_z}.
-$$
-
-For a queried physical bitstring $x$, Clifft evaluates
-
-$$
-\Pr[x] =
-\left|
-\gamma
-\sum_{i \in \{0,1\}^k}
-v_i
-(-1)^{\langle p_z[A], i\rangle}
-\langle x | U_C | p_x \oplus (i, 0_D) \rangle
-\right|^2 .
-$$
-
-The sum still ranges only over the active basis states, so its cost scales as $O(2^k)$ rather than $O(2^n)$. The remaining matrix element $\langle x | U_C | y\rangle$ is a stabilizer amplitude: Clifft computes it from the stabilizers of $U_C^\dagger |x\rangle$. The Gaussian-elimination pivot structure depends on $U_C$ but not on the queried bitstring, so a batched call builds that structure once and then rebinds the row signs for each requested $x$. See [Basis-State Probabilities: Algorithm Derivation](probabilities.md) for the full derivation, the per-query GF(2) walk, and the complexity model.
-
-In the implementation, the scalar $\gamma$ above is split into a runtime factor, `state.gamma()`, and a compile-time factor, `program.constant_pool.global_weight`. They multiply back into the single theoretical $\gamma$ at query time. Keeping the compile-time factor in the constant pool avoids storing program-invariant phase corrections in each per-shot VM state.
+See [Basis-State Probabilities](probabilities.md) for the algorithm and
+[Strong Simulation with Exact Probabilities](../guide/strong-simulation.md) for
+a practical tutorial.

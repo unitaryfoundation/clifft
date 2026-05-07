@@ -129,6 +129,9 @@ ps = clifft.probabilities(program, ["0", "1"])
     useful when a user explicitly wants the unitary-only skeleton, but it is
     not equivalent to sampling or marginalizing the original mixed circuit.
 
+See [Strong Simulation with Exact Probabilities](strong-simulation.md) for a
+walkthrough focused on sparse exact probability queries.
+
 ## Detectors, Observables, and Post-Selection
 
 Circuits with `DETECTOR` and `OBSERVABLE_INCLUDE` annotations automatically produce detector and observable results alongside measurements:
