@@ -220,5 +220,5 @@ changelog-preview version:
 
 # Generate CHANGELOG.md for the next release (pass version, e.g. just changelog v0.2.0)
 changelog version:
-  git cliff --tag {{version}} -o CHANGELOG.md
+  git cliff --unreleased --tag {{version}} --prepend CHANGELOG.md
   @echo "Updated CHANGELOG.md — review, edit, then commit."

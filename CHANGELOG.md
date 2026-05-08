@@ -5,6 +5,36 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.3.0] - 2026-05-08
+
+This release adds strong simulation for unitary circuits through exact computational-basis probability queries of the factored state. The new `clifft.probabilities()` API evaluates selected bitstrings without materializing the full $2^n$ statevector, so sparse output queries can scale with active rank rather than output-space size. See the [strong-simulation tutorial](https://unitaryfoundation.github.io/clifft/guide/strong-simulation/) for examples.
+
+Clifft 0.3.0 also removes the old compile-time qubit ceiling by moving Pauli mask storage to runtime-width arenas. That fixed-width limit kept the early implementation simple and fast; the new arena path keeps the overhead localized while supporting circuits above the former inline-width bound.
+
+The release also improves performance in the playground for larger circuits. The prior playground had some pauses when unnecessarily re-rendering the current program counter line in the active dimensions timeline.
+
+### Bug Fixes
+
+- version playground wasm assets (#57) to ensure users load the latest playground code by @bachase in [#57](https://github.com/unitaryfoundation/clifft/pull/57)
+
+
+### Features
+
+- add exact full-bitstring probabilities (#60) by @bachase in [#60](https://github.com/unitaryfoundation/clifft/pull/60)
+- runtime-width SVM Pauli frame, drop kMaxInlineQubits ceiling (#53) by @bachase in [#53](https://github.com/unitaryfoundation/clifft/pull/53)
+- migrate AOT-side Pauli mask storage to runtime-width arenas (#52) by @bachase in [#52](https://github.com/unitaryfoundation/clifft/pull/52)
+- add runtime-width Pauli mask views and arena (#49) by @bachase in [#49](https://github.com/unitaryfoundation/clifft/pull/49)
+
+### Performance
+
+- decouple K-history highlight via recharts hooks (#59) by @bachase in [#59](https://github.com/unitaryfoundation/clifft/pull/59)
+- O(1) cursor highlight via reverse source maps (#56) by @bachase in [#56](https://github.com/unitaryfoundation/clifft/pull/56)
+
+### Testing
+
+- cover introspection formatters (#61) by @bachase in [#61](https://github.com/unitaryfoundation/clifft/pull/61)
+- add baseline benchmarks for runtime-qubit migration (#47) by @bachase in [#47](https://github.com/unitaryfoundation/clifft/pull/47)
+
 ## [0.2.0] - 2026-05-01
 
 Version 0.2.0 of clifft is primarily a cleanup release to coincide with the release of the clifft [preprint](https://arxiv.org/abs/2604.27058) on the arXiv. There are no major functionality changes or fixes.

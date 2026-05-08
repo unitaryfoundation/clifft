@@ -83,3 +83,18 @@ For QEC workflows, Clifft also supports detector-based post-selection, survivor 
 [Install Clifft](getting-started/installation.md){ .md-button .md-button--primary }
 
 [Try the Playground](playground/){ .md-button }
+
+## What's New in 0.3.0
+
+Clifft 0.3.0 adds strong simulation for unitary circuits with
+`clifft.probabilities()`, which computes exact probabilities for selected
+full-register computational-basis bitstrings without materializing the full
+statevector.
+
+It also removes the old compile-time qubit ceiling by moving Pauli mask storage
+to runtime-width arenas, and improves playground responsiveness on larger
+circuits.
+
+[Strong Simulation Tutorial](guide/strong-simulation.md){ .md-button .md-button--primary }
+
+[Full Changelog](https://github.com/unitaryfoundation/clifft/blob/main/CHANGELOG.md){ .md-button }

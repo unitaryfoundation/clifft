@@ -35,27 +35,40 @@ Manual dispatch always publishes to TestPyPI only — it cannot publish to PyPI.
 
 ### 2. Update the changelog
 
-Generate the changelog using [git-cliff](https://git-cliff.org/):
+Generate the new release section using [git-cliff](https://git-cliff.org/):
 
 ```bash
-git cliff --tag v0.2.0 -o CHANGELOG.md
+git cliff --unreleased --tag v0.2.0 --prepend CHANGELOG.md
 ```
 
-Review, edit if needed (fix typos, clarify entries, remove noise), then commit:
+This prepends only the unreleased changes since the previous tag and preserves
+older hand-edited release sections. Do not use `-o CHANGELOG.md` for routine
+releases unless you intentionally want to regenerate the entire changelog.
+
+Review, edit if needed (add the release summary, fix typos, clarify entries,
+remove noise), then commit:
 
 ```bash
 git add CHANGELOG.md
 git commit -m "docs: update changelog for v0.2.0"
 ```
 
-### 3. Tag and push
+### 3. Update the docs home page
+
+Update the "What's New" section in `docs/index.md` with a short,
+editorial summary of the release. Keep this section user-facing and
+curated rather than generated directly from the changelog. Link to the
+most relevant new documentation or tutorial, and include a link to the
+full changelog.
+
+### 4. Tag and push
 
 ```bash
 git tag v0.2.0
 git push origin main v0.2.0
 ```
 
-### 4. CI runs automatically
+### 5. CI runs automatically
 
 The tag push triggers the release workflow:
 
@@ -66,7 +79,7 @@ The tag push triggers the release workflow:
 
 If any step fails, subsequent steps are skipped.
 
-### 5. Verify
+### 6. Verify
 
 ```bash
 pip install clifft==0.2.0
