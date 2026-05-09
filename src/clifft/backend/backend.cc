@@ -420,10 +420,13 @@ LocalizationResult localize_pauli(CompilerContext& ctx,
     const uint32_t n = ctx.reg_manager.num_qubits();
     const uint32_t words = (n + 63) / 64;
 
-    std::vector<uint64_t> x_bits(words, 0);
-    std::vector<uint64_t> z_bits(words, 0);
-    MutableMaskView x_view{std::span<uint64_t>(x_bits)};
-    MutableMaskView z_view{std::span<uint64_t>(z_bits)};
+    // Reuse context-owned scratch so this function does not allocate per
+    // call. localize_pauli runs hundreds of times per compile on QEC
+    // circuits.
+    ctx.localize_x_bits.assign(words, 0);
+    ctx.localize_z_bits.assign(words, 0);
+    MutableMaskView x_view{std::span<uint64_t>(ctx.localize_x_bits)};
+    MutableMaskView z_view{std::span<uint64_t>(ctx.localize_z_bits)};
     for (uint32_t w = 0; w < words; ++w) {
         x_view.words[w] = pauli.xs.u64[w];
         z_view.words[w] = pauli.zs.u64[w];
@@ -452,8 +455,8 @@ LocalizationResult localize_pauli(CompilerContext& ctx,
         // Z propagation: Z_t -> Z_c Z_t, so z_pivot ^= z_q.
         // Sign rule: CNOT(c,t) flips sign iff x_c & z_t & (x_t ^ z_c ^ 1).
         // Here x_pivot=1, x_q=1, so: sign ^= z_q & z_pivot.
-        std::vector<uint64_t> to_clear_x_buf(x_bits);
-        MutableMaskView to_clear_x{std::span<uint64_t>(to_clear_x_buf)};
+        ctx.localize_to_clear.assign(ctx.localize_x_bits.begin(), ctx.localize_x_bits.end());
+        MutableMaskView to_clear_x{std::span<uint64_t>(ctx.localize_to_clear)};
         to_clear_x.bit_set(pivot, false);
         while (!to_clear_x.is_zero()) {
             uint32_t q = to_clear_x.lowest_bit();
@@ -469,8 +472,8 @@ LocalizationResult localize_pauli(CompilerContext& ctx,
         // Z-localization: CZ(pivot, q) clears residual Z_q.
         // Sign rule: CZ(a,b) flips sign iff x_a & x_b & (z_a ^ z_b).
         // Here x_q=0 (already cleared), so sign NEVER flips.
-        std::vector<uint64_t> to_clear_z_buf(z_bits);
-        MutableMaskView to_clear_z{std::span<uint64_t>(to_clear_z_buf)};
+        ctx.localize_to_clear.assign(ctx.localize_z_bits.begin(), ctx.localize_z_bits.end());
+        MutableMaskView to_clear_z{std::span<uint64_t>(ctx.localize_to_clear)};
         to_clear_z.bit_set(pivot, false);
         while (!to_clear_z.is_zero()) {
             uint32_t q = to_clear_z.lowest_bit();
@@ -498,8 +501,8 @@ LocalizationResult localize_pauli(CompilerContext& ctx,
         // Z-localization: CNOT(q -> pivot) folds Z_q onto pivot.
         // Sign rule: CNOT(c,t) flips sign iff x_c & z_t & (x_t ^ z_c ^ 1).
         // Here x_c=x_q=0, so sign NEVER flips.
-        std::vector<uint64_t> to_clear_z_buf(z_bits);
-        MutableMaskView to_clear_z{std::span<uint64_t>(to_clear_z_buf)};
+        ctx.localize_to_clear.assign(ctx.localize_z_bits.begin(), ctx.localize_z_bits.end());
+        MutableMaskView to_clear_z{std::span<uint64_t>(ctx.localize_to_clear)};
         to_clear_z.bit_set(pivot, false);
         while (!to_clear_z.is_zero()) {
             uint32_t q = to_clear_z.lowest_bit();
