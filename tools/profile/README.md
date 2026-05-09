@@ -1,8 +1,14 @@
-# SVM Profiling Tool
+# SVM and Compile Profiling Tools
 
-A native C++ harness for profiling Clifft's Schrödinger Virtual Machine with
-`perf` (Linux) or other sampling profilers. It compiles a circuit and runs
-many shots so the hot loops accumulate enough samples for meaningful analysis.
+Two native C++ harnesses for profiling Clifft with `perf` (Linux) or other
+sampling profilers:
+
+- `profile_svm` compiles a circuit once and runs many shots, so the SVM hot
+  loops accumulate enough samples for meaningful analysis.
+- `profile_compile` loops parse → trace → lower → bytecode passes many
+  times with no shots, so a `perf record` run captures the compile path
+  rather than the sampling loop. Useful for workflows that recompile
+  often (e.g. stratified loss-topology sampling).
 
 ## Build
 
@@ -45,7 +51,30 @@ CLIFFT_CIRCUIT_FILE=tools/bench/fixtures/qv20_seed42.stim CLIFFT_SHOTS=10 ./buil
 | `CLIFFT_NUM_QUBITS` | 50 | Number of qubits for random circuit |
 | `CLIFFT_CLIFFORD_DEPTH` | 5000 | Number of random Clifford gates |
 | `CLIFFT_T_GATES` | 0 | Number of T-gates to append |
-| `CLIFFT_SHOTS` | 100000 | Number of shots to sample |
+| `CLIFFT_SHOTS` | 100000 | Number of shots to sample (`profile_svm`) |
+| `CLIFFT_COMPILE_ITERATIONS` | 20 | Number of compile iterations (`profile_compile`) |
+| `CLIFFT_POSTSELECT_ALL` | *(unset)* | If set, all detectors become postselects |
+
+## Compile-only profiling
+
+`profile_compile` re-runs the full compile pipeline `CLIFFT_COMPILE_ITERATIONS`
+times on the same circuit and reports per-stage min/median/mean/p95/max plus
+implied compiles-per-second. Uses the production
+`default_hir_pass_manager()` and `default_bytecode_pass_manager()`, so
+timings match what `clifft.compile()` would actually pay.
+
+```bash
+# Per-stage timings only
+CLIFFT_COMPILE_ITERATIONS=20 \
+  CLIFFT_CIRCUIT_FILE=tests/fixtures/target_qec.stim \
+  ./build/profile_compile
+
+# perf record on the compile path
+CLIFFT_COMPILE_ITERATIONS=200 \
+  CLIFFT_CIRCUIT_FILE=tests/fixtures/target_qec.stim \
+  perf record -F 9999 -g --call-graph dwarf -o perf-compile.data \
+  ./build/profile_compile
+```
 
 ## Profiling with `perf`
 

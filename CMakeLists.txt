@@ -155,5 +155,11 @@ else()
             ${CMAKE_CURRENT_SOURCE_DIR}/src
             ${CMAKE_CURRENT_BINARY_DIR}/generated
         )
+        add_executable(profile_compile tools/profile/profile_compile.cpp)
+        target_link_libraries(profile_compile PRIVATE clifft_core)
+        target_include_directories(profile_compile PRIVATE
+            ${CMAKE_CURRENT_SOURCE_DIR}/src
+            ${CMAKE_CURRENT_BINARY_DIR}/generated
+        )
     endif()
 endif()
