@@ -159,6 +159,12 @@ class VirtualFrame {
 
     [[nodiscard]] stim::PauliString<kStimWidth> map_pauli(MaskView destab_mask, MaskView stab_mask,
                                                           bool sign, uint32_t n) {
+        // Note: do not eager-flush here. map_pauli is called once per
+        // mask-carrying HIR op (T_GATE, MEASURE, etc.) and the queue
+        // between consecutive calls is short (the gates emitted by the
+        // previous localize_pauli). Replaying a short queue inline beats
+        // paying a fixed tableau-transpose-scope per op; eager flushing
+        // here regresses T-heavy circuits like QV-20 by ~40%.
         maybe_flush();
 
         stim::PauliString<kStimWidth> p(n);
@@ -189,7 +195,14 @@ class VirtualFrame {
     /// noise channels.
     void map_noise_channel(MaskView in_x, MaskView in_z, MutableMaskView out_x,
                            MutableMaskView out_z, uint32_t n) {
-        maybe_flush();
+        // Flush eagerly here. A noise op typically maps several channels
+        // back to back (e.g. DEPOLARIZE2 has 15) and the lower() loop
+        // visits thousands of noise sites on surface QEC circuits. Each
+        // channel mapping that runs against a non-empty pending queue pays
+        // O(queue_size * n_words) replay cost; flushing once amortizes
+        // that into one tableau update and lets all subsequent channel
+        // mappings see an empty queue (cheap early-out).
+        flush();
 
         out_x.zero_out();
         out_z.zero_out();
