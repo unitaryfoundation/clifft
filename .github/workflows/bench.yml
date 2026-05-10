@@ -49,17 +49,19 @@ jobs:
         run: cmake --build build --target clifft_tests --parallel
 
       - name: Run Catch2 benchmarks
+        # Action parser requires the console reporter (XML is not yet
+        # supported by benchmark-action/github-action-benchmark@v1).
         run: |
           build/tests/clifft_tests "[bench]" \
-            --reporter XML \
-            --out cpp-bench.xml
+            --reporter console \
+            --out cpp-bench.txt
 
       - name: Publish to bench-data
         uses: benchmark-action/github-action-benchmark@v1
         with:
           name: C++ Catch2 benchmarks
           tool: catch2
-          output-file-path: cpp-bench.xml
+          output-file-path: cpp-bench.txt
           github-token: ${{ secrets.GITHUB_TOKEN }}
           gh-pages-branch: bench-data
           benchmark-data-dir-path: dev/bench/cpp
@@ -105,7 +107,7 @@ jobs:
         uses: benchmark-action/github-action-benchmark@v1
         with:
           name: Python pytest-benchmark suite
-          tool: pytestbenchmark
+          tool: pytest
           output-file-path: python-bench.json
           github-token: ${{ secrets.GITHUB_TOKEN }}
           gh-pages-branch: bench-data
