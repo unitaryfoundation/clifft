@@ -13,9 +13,6 @@ on:
   workflow_dispatch:
   schedule:
     - cron: '17 6 * * *'
-  # TEMPORARY: pre-merge end-to-end test on this branch. Revert before merge.
-  push:
-    branches: [chore/bench-history-workflow]
 
 permissions:
   contents: write
