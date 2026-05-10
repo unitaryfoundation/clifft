@@ -1,0 +1,116 @@
+name: Benchmark history
+
+# Records benchmark results from the existing C++ Catch2 and Python
+# pytest-benchmark suites and appends them to the `bench-data` branch.
+# The branch hosts a Chart.js viewer rendered by
+# benchmark-action/github-action-benchmark.
+#
+# Triggers: daily at 06:17 UTC and on manual dispatch. Not run on PRs.
+# Scope is record-only — no alerts, no PR comments, no CI failures on
+# regression. See docs/development/benchmark-history.md.
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '17 6 * * *'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: false
+
+jobs:
+  bench-cpp:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    env:
+      CMAKE_BUILD_TYPE: Release
+      CMAKE_GENERATOR: Ninja
+      CMAKE_C_COMPILER_LAUNCHER: ccache
+      CMAKE_CXX_COMPILER_LAUNCHER: ccache
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install system dependencies
+        run: sudo apt-get update && sudo apt-get install -y ninja-build
+
+      - name: Setup ccache
+        uses: hendrikmuhs/ccache-action@v1.2
+        with:
+          key: ${{ runner.os }}-ccache-bench-${{ env.CMAKE_BUILD_TYPE }}
+
+      - name: Configure C++ build
+        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=${{ env.CMAKE_BUILD_TYPE }}
+
+      - name: Build benchmark binary
+        run: cmake --build build --target clifft_tests --parallel
+
+      - name: Run Catch2 benchmarks
+        run: |
+          build/tests/clifft_tests "[bench]" \
+            --reporter XML \
+            --out cpp-bench.xml
+
+      - name: Publish to bench-data
+        uses: benchmark-action/github-action-benchmark@v1
+        with:
+          name: C++ Catch2 benchmarks
+          tool: catch2
+          output-file-path: cpp-bench.xml
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          gh-pages-branch: bench-data
+          benchmark-data-dir-path: dev/bench/cpp
+          auto-push: true
+          # Record-only mode: alerts and comments are out of scope per #38.
+          alert-threshold: '200%'
+          fail-on-alert: false
+          comment-on-alert: false
+
+  bench-python:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install system dependencies
+        run: sudo apt-get update && sudo apt-get install -y ninja-build
+
+      - name: Setup ccache
+        uses: hendrikmuhs/ccache-action@v1.2
+        with:
+          key: ${{ runner.os }}-ccache-bench-python
+
+      - name: Setup uv and Python
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          python-version: "3.12"
+
+      - name: Install Python package
+        env:
+          SKBUILD_CMAKE_BUILD_TYPE: Release
+        run: uv pip install -e ".[dev]"
+
+      - name: Run pytest-benchmark suite
+        run: |
+          uv run pytest tools/bench/ \
+            --benchmark-only \
+            --benchmark-json=python-bench.json
+
+      - name: Publish to bench-data
+        uses: benchmark-action/github-action-benchmark@v1
+        with:
+          name: Python pytest-benchmark suite
+          tool: pytestbenchmark
+          output-file-path: python-bench.json
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          gh-pages-branch: bench-data
+          benchmark-data-dir-path: dev/bench/python
+          auto-push: true
+          alert-threshold: '200%'
+          fail-on-alert: false
+          comment-on-alert: false

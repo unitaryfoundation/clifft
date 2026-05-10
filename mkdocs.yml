@@ -95,4 +95,5 @@ nav:
     - Contributing: development/contributing.md
     - Building from Source: development/building.md
     - Testing Strategy: development/testing.md
+    - Benchmark History: development/benchmark-history.md
     - Releasing: development/releasing.md
