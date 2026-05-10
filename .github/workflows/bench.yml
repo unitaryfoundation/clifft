@@ -46,7 +46,15 @@ jobs:
           key: ${{ runner.os }}-ccache-bench-${{ env.CMAKE_BUILD_TYPE }}
 
       - name: Configure C++ build
-        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=${{ env.CMAKE_BUILD_TYPE }}
+        # Pin the CPU baseline to x86-64-v3 (AVX2/FMA, ~2015+) instead of
+        # the default `-march=native`. GitHub-hosted runners draw from a
+        # heterogeneous pool; native tuning on one host can emit
+        # instructions the next runner's CPU rejects (SIGILL). A fixed
+        # baseline also makes day-to-day timings more comparable.
+        run: |
+          cmake -S . -B build -G Ninja \
+            -DCMAKE_BUILD_TYPE=${{ env.CMAKE_BUILD_TYPE }} \
+            -DCLIFFT_CPU_BASELINE=x86-64-v3
 
       - name: Build benchmark binary
         run: cmake --build build --target clifft_tests --parallel
