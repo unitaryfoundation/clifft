@@ -210,6 +210,10 @@ jobs:
       - name: Build C++
         run: cmake --build build --config ${{ env.CMAKE_BUILD_TYPE }} --parallel
 
+      - name: Show ccache verbose stats
+        if: runner.os == 'Windows'
+        run: ccache -sv
+
       - name: Run C++ tests (skip benchmarks on cross-platform)
         run: |
           ctest --test-dir build \

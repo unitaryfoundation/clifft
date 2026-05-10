@@ -1,4 +1,12 @@
 cmake_minimum_required(VERSION 3.20)
+
+# Make MSVC Debug builds compatible with ccache. The default ProgramDatabase
+# format uses /Zi, which ccache treats as uncacheable; Embedded uses /Z7.
+if(POLICY CMP0141)
+    cmake_policy(SET CMP0141 NEW)
+    set(CMAKE_MSVC_DEBUG_INFORMATION_FORMAT "$<$<CONFIG:Debug,RelWithDebInfo>:Embedded>")
+endif()
+
 project(clifft LANGUAGES CXX)
 
 # Version: derived from git tags (or VERSION file in sdists)
