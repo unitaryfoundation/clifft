@@ -3,7 +3,7 @@
 // Generates or loads a unitary quantum circuit, compiles it, and calls
 // clifft::probabilities() on a batch of computational-basis bitstrings.
 // Used with Linux perf or other sampling profilers to investigate the
-// hot path of the basis-state probability query (issue #51).
+// hot path of the basis-state probability query.
 //
 // probabilities() rejects measurement/feedback/noise/detector/observable
 // opcodes, so this harness emits a unitary-only circuit (no trailing M).
@@ -37,8 +37,8 @@ constexpr uint32_t kDefaultQueries = 100;
 constexpr uint64_t kSeed = 42;
 
 // Build a small unitary Clifford+T circuit with no terminal measurements.
-// Defaults are tuned to the workload from clifft issue #51: 20 qubits with
-// a T layer, peak_rank around 9.
+// Generic generator: a random Clifford layer followed by a configurable
+// T-gate layer interleaved with Hadamards.
 std::string generate_circuit(int num_qubits, int clifford_depth, int t_gates, uint64_t seed) {
     std::mt19937_64 rng(seed);
     std::ostringstream ss;
@@ -117,20 +117,8 @@ int main() {
     int queries_raw = get_env_int("CLIFFT_QUERIES", static_cast<int>(kDefaultQueries));
     const char* circuit_file = std::getenv("CLIFFT_CIRCUIT_FILE");
 
-    // Validate env-var inputs up front so we exit with a clear message instead
-    // of hanging in generate_circuit() or dividing by zero in the timing math.
-    if (num_qubits < 1) {
-        std::cerr << "Error: CLIFFT_NUM_QUBITS must be >= 1 (got " << num_qubits << ")\n";
-        return 1;
-    }
-    if (clifford_depth < 0) {
-        std::cerr << "Error: CLIFFT_CLIFFORD_DEPTH must be >= 0 (got " << clifford_depth << ")\n";
-        return 1;
-    }
-    if (t_gates < 0) {
-        std::cerr << "Error: CLIFFT_T_GATES must be >= 0 (got " << t_gates << ")\n";
-        return 1;
-    }
+    // CLIFFT_QUERIES is always used; reject zero up front so the per-query
+    // timing math never divides by zero.
     if (queries_raw < 1) {
         std::cerr << "Error: CLIFFT_QUERIES must be >= 1 (got " << queries_raw << ")\n";
         return 1;
@@ -154,6 +142,23 @@ int main() {
         auto gen_ms = std::chrono::duration<double, std::milli>(t1 - t0).count();
         std::cout << " done (" << gen_ms << " ms, " << circuit_text.size() << " bytes)\n";
     } else {
+        // Random-generation inputs are only consumed when CLIFFT_CIRCUIT_FILE
+        // is unset; validate them here so loading a real file isn't blocked by
+        // unrelated env-var values.
+        if (num_qubits < 1) {
+            std::cerr << "Error: CLIFFT_NUM_QUBITS must be >= 1 (got " << num_qubits << ")\n";
+            return 1;
+        }
+        if (clifford_depth < 0) {
+            std::cerr << "Error: CLIFFT_CLIFFORD_DEPTH must be >= 0 (got " << clifford_depth
+                      << ")\n";
+            return 1;
+        }
+        if (t_gates < 0) {
+            std::cerr << "Error: CLIFFT_T_GATES must be >= 0 (got " << t_gates << ")\n";
+            return 1;
+        }
+
         std::cout << "Circuit: " << num_qubits << " qubits, " << clifford_depth
                   << " Clifford gates";
         if (t_gates > 0) {

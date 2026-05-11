@@ -12,8 +12,8 @@ sampling profilers:
 - `profile_probability` compiles a unitary circuit and calls
   `clifft::probabilities()` over a batch of bitstrings, so a `perf record`
   run captures the strong-simulation hot path (basis-state probability
-  query, issue #51). Measurement/feedback/noise opcodes are unsupported
-  by `probabilities()`, so this harness emits a unitary-only circuit.
+  query). Measurement/feedback/noise opcodes are unsupported by
+  `probabilities()`, so this harness emits a unitary-only circuit.
 
 ## Build
 
@@ -62,9 +62,8 @@ CLIFFT_CIRCUIT_FILE=tools/bench/fixtures/qv20_seed42.stim CLIFFT_SHOTS=10 ./buil
 | `CLIFFT_POSTSELECT_ALL` | *(unset)* | If set, all detectors become postselects |
 
 `profile_probability` uses different circuit defaults (`CLIFFT_NUM_QUBITS=20`,
-`CLIFFT_CLIFFORD_DEPTH=200`, `CLIFFT_T_GATES=20`) to roughly match the
-workload from issue #51, where peak active rank scales with the T count and
-the per-bitstring amplitude walk dominates.
+`CLIFFT_CLIFFORD_DEPTH=200`, `CLIFFT_T_GATES=20`) so the active rank scales
+with the T count and the per-bitstring amplitude walk dominates the workload.
 
 ## Compile-only profiling
 
