@@ -1,9 +1,10 @@
 """Tests for exact computational-basis probability queries."""
 
 import math
-from typing import Any
+from typing import Any, cast
 
 import numpy as np
+import numpy.typing as npt
 import pytest
 from conftest import random_dense_clifford_t_circuit
 from utils_qiskit import qiskit_statevector, stim_to_qiskit_noiseless
@@ -301,3 +302,106 @@ def test_probabilities_match_statevector_for_fused_unitaries() -> None:
     n = prog.num_qubits
     bitstrings = [format(i, f"0{n}b")[::-1] for i in range(1 << n)]
     np.testing.assert_allclose(clifft.probabilities(prog, bitstrings), expected, atol=1e-12)
+
+
+def _all_bitstrings(num_qubits: int) -> list[str]:
+    # After reversing format()'s MSB-first output, character i of the bitstring
+    # is bit i of the integer index. With bit_order="big" (the default),
+    # character i maps to qubit i, so qubit i = bit i of the index — matching
+    # get_statevector()'s LSB-first index convention.
+    return [format(i, f"0{num_qubits}b")[::-1] for i in range(1 << num_qubits)]
+
+
+def _statevector_probs(prog: clifft.Program) -> npt.NDArray[np.float64]:
+    state = clifft.State(peak_rank=prog.peak_rank, num_measurements=prog.num_measurements)
+    clifft.execute(prog, state)
+    return cast(npt.NDArray[np.float64], np.abs(clifft.get_statevector(prog, state)) ** 2)
+
+
+def test_probabilities_pure_clifford_zero_active_rank() -> None:
+    # Pure Clifford circuit: peak_rank == 0, so the Gray code walk degenerates
+    # to a single iteration (r_A = 0). The H-on-every-qubit prefix makes the
+    # inverse tableau's Z-block fully X-rotated, so every dormant column is a
+    # pivot and the fast path engages.
+    prog = clifft.compile("H 0\nH 1\nH 2\nCX 0 1\nCX 1 2\nS 0")
+    assert prog.peak_rank == 0
+
+    bitstrings = _all_bitstrings(prog.num_qubits)
+    np.testing.assert_allclose(
+        clifft.probabilities(prog, bitstrings), _statevector_probs(prog), atol=1e-12
+    )
+
+
+def test_probabilities_full_rank_clifford_t_matches_statevector() -> None:
+    # Every qubit is touched by Clifford+T, so the inverse tableau has full
+    # X-rank and every dormant column is a pivot. Exercises the Gray code
+    # fast path.
+    n = 6
+    lines = []
+    for q in range(n):
+        lines.append(f"H {q}")
+    for q in range(n - 1):
+        lines.append(f"CZ {q} {q + 1}")
+    for q in range(n):
+        lines.append(f"H {q}")
+    for q in range(n):
+        lines.append(f"T {q}")
+    for q in range(n):
+        lines.append(f"H {q}")
+    prog = clifft.compile("\n".join(lines))
+
+    bitstrings = _all_bitstrings(n)
+    np.testing.assert_allclose(
+        clifft.probabilities(prog, bitstrings), _statevector_probs(prog), atol=1e-12
+    )
+
+
+def test_probabilities_rank_deficient_fallback_matches_statevector() -> None:
+    # Untouched qubits leave the inverse tableau's Z-row at Z_q, which has no
+    # X support. With an active subspace formed by T-gates on other qubits,
+    # the X-rank restricted to dormant columns drops below (n - active_k),
+    # which forces the can_use_gray_code = false fallback in probabilities().
+    # If the fallback regresses we will see a mismatch here.
+    prog = clifft.compile("H 0\nT 0\nH 0\nH 2")
+    assert prog.num_qubits == 3
+    bitstrings = _all_bitstrings(3)
+    np.testing.assert_allclose(
+        clifft.probabilities(prog, bitstrings), _statevector_probs(prog), atol=1e-12
+    )
+
+
+@pytest.mark.parametrize("seed", [0, 1, 7, 42, 1234])
+def test_probabilities_random_clifford_t_matches_statevector(seed: int) -> None:
+    # Spot-check both paths against ground truth across several seeds. The
+    # random circuit generator typically yields full-rank tableaus, so this
+    # primarily exercises the Gray code path, but the assertion catches any
+    # bug in either branch.
+    circuit = random_dense_clifford_t_circuit(num_qubits=5, depth=20, seed=seed)
+    prog = clifft.compile(circuit)
+    bitstrings = _all_bitstrings(prog.num_qubits)
+    np.testing.assert_allclose(
+        clifft.probabilities(prog, bitstrings), _statevector_probs(prog), atol=1e-12
+    )
+
+
+def test_probabilities_fast_path_multiword_dormant_block() -> None:
+    # H on every qubit gives a uniform superposition (probability 2^-n for
+    # each basis state) and an inverse tableau with full X-rank, so the
+    # fast path engages. Pushing past 64 qubits forces the dormant-bit
+    # match and the running basis to cross word boundaries, which the
+    # other regression tests (all n <= 64) do not exercise.
+    n = 70
+    prog = clifft.compile("\n".join(f"H {q}" for q in range(n)))
+    assert prog.num_qubits == n
+
+    zero = "0" * n
+    one_q0 = "1" + "0" * (n - 1)
+    one_q63 = ("0" * 63) + "1" + ("0" * (n - 64))
+    one_q69 = "0" * (n - 1) + "1"
+    bitstrings = [zero, one_q0, one_q63, one_q69]
+
+    np.testing.assert_allclose(
+        clifft.probabilities(prog, bitstrings),
+        [2.0**-n] * len(bitstrings),
+        atol=1e-15,
+    )

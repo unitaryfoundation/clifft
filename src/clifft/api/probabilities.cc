@@ -8,6 +8,7 @@
 
 #include <algorithm>
 #include <bit>
+#include <cassert>
 #include <cmath>
 #include <complex>
 #include <cstddef>
@@ -178,6 +179,13 @@ struct BoundStabilizerAmplitudeQuery {
 
 struct StabilizerAmplitudeStructure {
     uint32_t n = 0;
+    // X-eliminate dormant columns first so the first num_dormant_generators
+    // pivots land in [active_k, n). When every dormant column is a pivot
+    // (can_use_gray_code), active generators have zero support on dormant
+    // bits and the inner sum can be walked as a Gray code over active
+    // generators instead of an O(2^k * r_X) per-active-index loop.
+    uint32_t num_dormant_generators = 0;
+    bool can_use_gray_code = false;
     double magnitude = 1.0;
     std::vector<StabilizerRow> x_rows;
     std::vector<BasisMask> x_sign_masks;
@@ -251,7 +259,8 @@ std::complex<double> BoundStabilizerAmplitudeQuery::amplitude(MaskView basis,
 }
 
 [[nodiscard]] StabilizerAmplitudeStructure make_stabilizer_amplitude_structure(
-    const CompiledModule& program, const stim::Tableau<kStimWidth>& inv_tableau) {
+    const CompiledModule& program, const stim::Tableau<kStimWidth>& inv_tableau,
+    uint32_t active_k) {
     const uint32_t n = program.num_qubits;
     std::vector<StabilizerRow> rows;
     std::vector<BasisMask> sign_masks;
@@ -267,12 +276,25 @@ std::complex<double> BoundStabilizerAmplitudeQuery::amplitude(MaskView basis,
         mutable_basis_mask_view(sign_masks.back()).bit_set(q, true);
     }
 
+    // Pivot dormant columns first so dormant pivots collect at the front of
+    // pivot_cols/x_rows. With Gauss-Jordan elimination this RREF order ensures
+    // that, when every dormant column ends up pivoted, the active generators
+    // have strictly zero X support on dormant columns.
+    std::vector<uint32_t> x_col_order;
+    x_col_order.reserve(n);
+    for (uint32_t col = active_k; col < n; ++col) {
+        x_col_order.push_back(col);
+    }
+    for (uint32_t col = 0; col < active_k; ++col) {
+        x_col_order.push_back(col);
+    }
+
     size_t rank_x = 0;
     std::vector<uint32_t> pivot_cols;
     // First eliminate the X block. Pivot rows with X support become generators
     // that move around the nonzero support of U_C^\dagger |x>; non-pivot rows
     // are purely Z-type constraints after this pass.
-    for (uint32_t col = 0; col < n; ++col) {
+    for (uint32_t col : x_col_order) {
         auto pivot = rows.end();
         auto pivot_sign = sign_masks.end();
         auto rank_row = rows.begin() + static_cast<std::ptrdiff_t>(rank_x);
@@ -367,6 +389,21 @@ std::complex<double> BoundStabilizerAmplitudeQuery::amplitude(MaskView basis,
     }
     structure.base_terms = std::move(base_terms);
     structure.identity_constraints = std::move(identity_constraints);
+
+    // Count how many pivots landed in the dormant range [active_k, n). With
+    // the dormant-first column order these are the first pivots of pivot_cols.
+    uint32_t dormant_pivots = 0;
+    for (uint32_t c : structure.pivot_cols) {
+        if (c >= active_k) {
+            ++dormant_pivots;
+        }
+    }
+    structure.num_dormant_generators = dormant_pivots;
+    // Fast path requires every dormant column to be a pivot. Otherwise some
+    // dormant column is free and active generators may have X support there,
+    // which would silently flip dormant bits during the Gray code walk.
+    structure.can_use_gray_code = (dormant_pivots == (n - active_k));
+
     return structure;
 }
 
@@ -470,7 +507,8 @@ std::vector<double> probabilities(const CompiledModule& program,
 
     const uint64_t active_size = state.v_size();
     const std::complex<double> scale = state.gamma() * program.constant_pool.global_weight;
-    const auto structure = make_stabilizer_amplitude_structure(program, inv_tableau);
+    const auto structure =
+        make_stabilizer_amplitude_structure(program, inv_tableau, state.active_k);
     const auto state_px = MaskView{std::span<const uint64_t>(state.p_x)};
     // validate_peak_rank() caps active_k below 63, so active bits fit in word 0
     // and this shift never reaches 64.
@@ -482,6 +520,11 @@ std::vector<double> probabilities(const CompiledModule& program,
     auto virtual_basis = mutable_basis_mask_view(virtual_basis_storage);
     auto residual = mutable_basis_mask_view(residual_storage);
     auto current = mutable_basis_mask_view(current_storage);
+
+    // Active bits live in [0, active_k). validate_peak_rank() caps active_k
+    // below 63, so the mask fits in one word and the shift never reaches 64.
+    const uint64_t active_mask =
+        state.active_k == 0 ? uint64_t{0} : (uint64_t{1} << state.active_k) - uint64_t{1};
 
     std::vector<double> out;
     out.reserve(num_basis_masks);
@@ -497,29 +540,102 @@ std::vector<double> probabilities(const CompiledModule& program,
         auto query = structure.bind(basis_mask);
 
         std::complex<double> amp{0.0, 0.0};
-        mask_copy_to(virtual_basis, state_px);
-        uint64_t previous_active_index = 0;
-        for (uint64_t active_index = 0; active_index < active_size; ++active_index) {
-            // The dense SVM array indexes only active axes. Extend each active
-            // index to a full virtual basis string. Moving sequentially lets us
-            // toggle only the active bits that changed from the previous index.
-            uint64_t changed_bits = active_index ^ previous_active_index;
-            while (changed_bits != 0) {
-                const auto q = static_cast<uint32_t>(std::countr_zero(changed_bits));
-                virtual_basis.bit_xor(q);
-                changed_bits &= changed_bits - 1;
-            }
-            previous_active_index = active_index;
 
-            auto coeff = query.amplitude(virtual_basis, residual, current);
-            if (coeff == std::complex<double>{0.0, 0.0}) {
-                continue;
+        if (!structure.can_use_gray_code) {
+            // Fallback: some dormant column is a free column, so active
+            // generators can flip dormant bits. Use the original O(2^k * r_X)
+            // walk that explicitly enumerates active_indices and validates
+            // each amplitude via residual mask.
+            mask_copy_to(virtual_basis, state_px);
+            uint64_t previous_active_index = 0;
+            for (uint64_t active_index = 0; active_index < active_size; ++active_index) {
+                uint64_t changed_bits = active_index ^ previous_active_index;
+                while (changed_bits != 0) {
+                    const auto q = static_cast<uint32_t>(std::countr_zero(changed_bits));
+                    virtual_basis.bit_xor(q);
+                    changed_bits &= changed_bits - 1;
+                }
+                previous_active_index = active_index;
+
+                auto coeff = query.amplitude(virtual_basis, residual, current);
+                if (coeff == std::complex<double>{0.0, 0.0}) {
+                    continue;
+                }
+                // The runtime Z frame is diagonal on the active basis index.
+                // Dormant |0> axes do not contribute a Z-frame sign.
+                const bool sign_bit = (std::popcount(active_index & active_z_mask) & 1U) != 0;
+                double sign = sign_bit ? -1.0 : 1.0;
+                amp += state.v()[active_index] * sign * coeff;
             }
-            // The runtime Z frame is diagonal on the active basis index. Dormant
-            // |0> axes do not contribute a Z-frame sign.
-            const bool sign_bit = (std::popcount(active_index & active_z_mask) & 1U) != 0;
-            double sign = sign_bit ? -1.0 : 1.0;
-            amp += state.v()[active_index] * sign * coeff;
+        } else {
+            // Fast path: every dormant column is a pivot, so dormant
+            // generators form the identity on the dormant block and active
+            // generators have strictly zero X on dormant columns. Two
+            // consequences:
+            //   1. Step 1 (clearing dormant bits of `current` to match
+            //      state_px) always succeeds; no prune check is needed.
+            //   2. Toggling active generators does not disturb dormant bits,
+            //      so the Gray code walk over the 2^r_A active subsets
+            //      enumerates exactly the basis states with nonzero
+            //      contribution.
+            mask_copy_to(current, basis_mask_view(query.base));
+            amp = std::complex<double>{structure.magnitude, 0.0};
+
+            // Step 1: match state_px on dormant pivot columns by conditionally
+            // applying each dormant generator. RREF guarantees each pivot
+            // column has X only in its pivot row, so generators applied in
+            // order do not disturb each other's pivot bits.
+            for (size_t i = 0; i < structure.num_dormant_generators; ++i) {
+                const uint32_t p = structure.pivot_cols[i];
+                const bool current_bit = (current.words[p / 64] >> (p % 64)) & 1U;
+                const bool target_bit = (state_px.words[p / 64] >> (p % 64)) & 1U;
+                if (current_bit != target_bit) {
+                    amp *= pauli_action_phase(structure.x_rows[i], query.x_signs[i] != 0, n,
+                                              structure.x_y_counts[i], current);
+                    mask_xor_with(current, basis_mask_view(structure.x_masks[i]));
+                }
+            }
+
+            // Debug invariant: every dormant bit of `current` now matches
+            // state_px. Checked only in debug builds.
+            assert([&]() {
+                for (uint32_t q = state.active_k; q < n; ++q) {
+                    const bool c = (current.words[q / 64] >> (q % 64)) & 1U;
+                    const bool t = (state_px.words[q / 64] >> (q % 64)) & 1U;
+                    if (c != t) {
+                        return false;
+                    }
+                }
+                return true;
+            }());
+
+            // Step 2: Gray code walk over the active generators. Each
+            // transition toggles exactly one generator (the bit that flips
+            // between successive Gray codes is countr_zero(i)).
+            const size_t r_a = structure.x_rows.size() - structure.num_dormant_generators;
+            const uint64_t num_active_states = uint64_t{1} << r_a;
+            std::complex<double> total{0.0, 0.0};
+
+            for (uint64_t i = 0; i < num_active_states; ++i) {
+                if (i > 0) {
+                    const uint32_t toggle_idx = static_cast<uint32_t>(std::countr_zero(i));
+                    const size_t gen_idx = structure.num_dormant_generators + toggle_idx;
+                    amp *=
+                        pauli_action_phase(structure.x_rows[gen_idx], query.x_signs[gen_idx] != 0,
+                                           n, structure.x_y_counts[gen_idx], current);
+                    mask_xor_with(current, basis_mask_view(structure.x_masks[gen_idx]));
+                }
+
+                // active_index = active bits of (current XOR state_px). All
+                // active bits fit in word 0 (active_k < 63).
+                const uint64_t active_index =
+                    state.active_k == 0 ? uint64_t{0}
+                                        : ((current.words[0] ^ state_px.words[0]) & active_mask);
+                const bool sign_bit = (std::popcount(active_index & active_z_mask) & 1U) != 0;
+                const double sign = sign_bit ? -1.0 : 1.0;
+                total += state.v()[active_index] * sign * amp;
+            }
+            amp = total;
         }
         out.push_back(std::norm(scale * amp));
     }
