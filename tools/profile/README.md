@@ -1,6 +1,6 @@
-# SVM and Compile Profiling Tools
+# SVM, Compile, and Probability Profiling Tools
 
-Two native C++ harnesses for profiling Clifft with `perf` (Linux) or other
+Three native C++ harnesses for profiling Clifft with `perf` (Linux) or other
 sampling profilers:
 
 - `profile_svm` compiles a circuit once and runs many shots, so the SVM hot
@@ -9,6 +9,11 @@ sampling profilers:
   times with no shots, so a `perf record` run captures the compile path
   rather than the sampling loop. Useful for workflows that recompile
   often (e.g. stratified loss-topology sampling).
+- `profile_probability` compiles a unitary circuit and calls
+  `clifft::probabilities()` over a batch of bitstrings, so a `perf record`
+  run captures the strong-simulation hot path (basis-state probability
+  query, issue #51). Measurement/feedback/noise opcodes are unsupported
+  by `probabilities()`, so this harness emits a unitary-only circuit.
 
 ## Build
 
@@ -53,7 +58,13 @@ CLIFFT_CIRCUIT_FILE=tools/bench/fixtures/qv20_seed42.stim CLIFFT_SHOTS=10 ./buil
 | `CLIFFT_T_GATES` | 0 | Number of T-gates to append |
 | `CLIFFT_SHOTS` | 100000 | Number of shots to sample (`profile_svm`) |
 | `CLIFFT_COMPILE_ITERATIONS` | 20 | Number of compile iterations (`profile_compile`) |
+| `CLIFFT_QUERIES` | 100 | Number of bitstring queries (`profile_probability`) |
 | `CLIFFT_POSTSELECT_ALL` | *(unset)* | If set, all detectors become postselects |
+
+`profile_probability` uses different circuit defaults (`CLIFFT_NUM_QUBITS=20`,
+`CLIFFT_CLIFFORD_DEPTH=200`, `CLIFFT_T_GATES=20`) to roughly match the
+workload from issue #51, where peak active rank scales with the T count and
+the per-bitstring amplitude walk dominates.
 
 ## Compile-only profiling
 
@@ -74,6 +85,22 @@ CLIFFT_COMPILE_ITERATIONS=200 \
   CLIFFT_CIRCUIT_FILE=tests/fixtures/target_qec.stim \
   perf record -F 9999 -g --call-graph dwarf -o perf-compile.data \
   ./build/profile_compile
+```
+
+## Probability-query profiling
+
+`profile_probability` compiles a unitary circuit (no terminal `M`) and calls
+`clifft::probabilities()` on `CLIFFT_QUERIES` random bitstrings. Use it to
+profile the strong-simulation path:
+
+```bash
+# Default: 20-qubit Clifford+T workload, 100 queries
+./build/profile_probability
+
+# Scale up the query count for `perf record`
+CLIFFT_QUERIES=2000 \
+  perf record -F 9999 -g --call-graph dwarf -o perf-prob.data \
+  ./build/profile_probability
 ```
 
 ## Profiling with `perf`

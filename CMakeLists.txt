@@ -169,5 +169,11 @@ else()
             ${CMAKE_CURRENT_SOURCE_DIR}/src
             ${CMAKE_CURRENT_BINARY_DIR}/generated
         )
+        add_executable(profile_probability tools/profile/profile_probability.cpp)
+        target_link_libraries(profile_probability PRIVATE clifft_core)
+        target_include_directories(profile_probability PRIVATE
+            ${CMAKE_CURRENT_SOURCE_DIR}/src
+            ${CMAKE_CURRENT_BINARY_DIR}/generated
+        )
     endif()
 endif()

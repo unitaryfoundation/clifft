@@ -125,10 +125,10 @@ lint:
 
 profile_build_dir := "build-profile"
 
-# Build the SVM profiling harness (RelWithDebInfo for perf-friendly symbols)
+# Build the SVM profiling harnesses (RelWithDebInfo for perf-friendly symbols)
 profile-build:
   cmake -B {{profile_build_dir}} -DCMAKE_BUILD_TYPE=RelWithDebInfo -DCLIFFT_BUILD_PROFILER=ON
-  cmake --build {{profile_build_dir}} --target profile_svm -j$(nproc)
+  cmake --build {{profile_build_dir}} --target profile_svm profile_compile profile_probability -j$(nproc)
 
 # Run the profiler with default settings (50-qubit Clifford, 100k shots)
 profile *args="":
