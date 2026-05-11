@@ -43,8 +43,11 @@ std::string generate_circuit(int num_qubits, int clifford_depth, int t_gates, ui
     std::mt19937_64 rng(seed);
     std::ostringstream ss;
 
+    // When num_qubits == 1 there is no second qubit for CX, so drop CX from
+    // the mix. Caller is expected to ensure num_qubits >= 1.
+    const int num_gate_types = num_qubits >= 2 ? 3 : 2;
     for (int i = 0; i < clifford_depth; ++i) {
-        int gate_type = rng() % 3;
+        int gate_type = rng() % num_gate_types;
 
         if (gate_type == 0) {
             ss << "H " << (rng() % num_qubits) << "\n";
@@ -111,8 +114,28 @@ int main() {
     int num_qubits = get_env_int("CLIFFT_NUM_QUBITS", kDefaultNumQubits);
     int clifford_depth = get_env_int("CLIFFT_CLIFFORD_DEPTH", kDefaultCliffordDepth);
     int t_gates = get_env_int("CLIFFT_T_GATES", kDefaultTGates);
-    uint32_t queries = static_cast<uint32_t>(get_env_int("CLIFFT_QUERIES", kDefaultQueries));
+    int queries_raw = get_env_int("CLIFFT_QUERIES", static_cast<int>(kDefaultQueries));
     const char* circuit_file = std::getenv("CLIFFT_CIRCUIT_FILE");
+
+    // Validate env-var inputs up front so we exit with a clear message instead
+    // of hanging in generate_circuit() or dividing by zero in the timing math.
+    if (num_qubits < 1) {
+        std::cerr << "Error: CLIFFT_NUM_QUBITS must be >= 1 (got " << num_qubits << ")\n";
+        return 1;
+    }
+    if (clifford_depth < 0) {
+        std::cerr << "Error: CLIFFT_CLIFFORD_DEPTH must be >= 0 (got " << clifford_depth << ")\n";
+        return 1;
+    }
+    if (t_gates < 0) {
+        std::cerr << "Error: CLIFFT_T_GATES must be >= 0 (got " << t_gates << ")\n";
+        return 1;
+    }
+    if (queries_raw < 1) {
+        std::cerr << "Error: CLIFFT_QUERIES must be >= 1 (got " << queries_raw << ")\n";
+        return 1;
+    }
+    const uint32_t queries = static_cast<uint32_t>(queries_raw);
 
     std::cout << "Clifft Probability Profiler\n";
     std::cout << "================\n";
@@ -157,7 +180,7 @@ int main() {
     auto parse_ms = std::chrono::duration<double, std::milli>(t1 - t0).count();
     std::cout << " done (" << parse_ms << " ms, " << circuit.nodes.size() << " ops)\n";
 
-    // Frontend (default HIR passes — matches clifft.compile() so we profile
+    // Frontend (default HIR passes -- matches clifft.compile() so we profile
     // the same hot path the user sees).
     std::cout << "Frontend (Clifford absorption)..." << std::flush;
     t0 = std::chrono::high_resolution_clock::now();
