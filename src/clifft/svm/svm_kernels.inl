@@ -8,6 +8,7 @@
 // Required before this file:
 //   #define CLIFFT_SIMD_NAMESPACE scalar  (or avx2, etc.)
 //   #include "clifft/svm/svm.h"
+//   #include "clifft/svm/svm_forced_kernels.h"
 //   #include "clifft/svm/svm_internal.h"
 //   #include "clifft/svm/svm_math.h"
 //   #include "clifft/util/constants.h"
@@ -2225,15 +2226,23 @@ void execute_internal(const CompiledModule& program, SchrodingerState& state) {
         [static_cast<uint8_t>(Opcode::OP_MEAS_ACTIVE_INTERFERE)] = &&L_OP_MEAS_ACTIVE_INTERFERE,
         [static_cast<uint8_t>(Opcode::OP_SWAP_MEAS_INTERFERE)] = &&L_OP_SWAP_MEAS_INTERFERE,
 
-        // Forced-measurement opcodes are synthesized only by probability_of()'s
-        // bytecode rewrite. They must never appear here; route to an explicit
-        // trap label so a hand-constructed bytecode that slips them past the
-        // pre-flight validator faults loudly instead of jumping to address 0.
-        [static_cast<uint8_t>(Opcode::OP_MEAS_DORMANT_STATIC_FORCED)] = &&L_OP_FORCED_TRAP,
-        [static_cast<uint8_t>(Opcode::OP_MEAS_DORMANT_RANDOM_FORCED)] = &&L_OP_FORCED_TRAP,
-        [static_cast<uint8_t>(Opcode::OP_MEAS_ACTIVE_DIAGONAL_FORCED)] = &&L_OP_FORCED_TRAP,
-        [static_cast<uint8_t>(Opcode::OP_MEAS_ACTIVE_INTERFERE_FORCED)] = &&L_OP_FORCED_TRAP,
-        [static_cast<uint8_t>(Opcode::OP_SWAP_MEAS_INTERFERE_FORCED)] = &&L_OP_FORCED_TRAP,
+        // Forced-measurement opcodes are synthesized by probability_of()'s
+        // bytecode rewrite. The kernels read each outcome from
+        // state.forced_record[classical_idx] and accumulate the log-
+        // probability into state.forced_log_probability. They return false
+        // (and set state.forced_reachable = false) when the forced outcome
+        // is unreachable; the dispatcher labels turn that into an early
+        // return so the rest of the bytecode is skipped.
+        [static_cast<uint8_t>(Opcode::OP_MEAS_DORMANT_STATIC_FORCED)] =
+            &&L_OP_MEAS_DORMANT_STATIC_FORCED,
+        [static_cast<uint8_t>(Opcode::OP_MEAS_DORMANT_RANDOM_FORCED)] =
+            &&L_OP_MEAS_DORMANT_RANDOM_FORCED,
+        [static_cast<uint8_t>(Opcode::OP_MEAS_ACTIVE_DIAGONAL_FORCED)] =
+            &&L_OP_MEAS_ACTIVE_DIAGONAL_FORCED,
+        [static_cast<uint8_t>(Opcode::OP_MEAS_ACTIVE_INTERFERE_FORCED)] =
+            &&L_OP_MEAS_ACTIVE_INTERFERE_FORCED,
+        [static_cast<uint8_t>(Opcode::OP_SWAP_MEAS_INTERFERE_FORCED)] =
+            &&L_OP_SWAP_MEAS_INTERFERE_FORCED,
 
         [static_cast<uint8_t>(Opcode::OP_APPLY_PAULI)] = &&L_OP_APPLY_PAULI,
         [static_cast<uint8_t>(Opcode::OP_NOISE)] = &&L_OP_NOISE,
@@ -2414,12 +2423,46 @@ L_OP_EXP_VAL:
     exec_exp_val(state, program.constant_pool, pc->exp_val.cp_exp_val_idx, pc->exp_val.exp_val_idx);
     DISPATCH();
 
-L_OP_FORCED_TRAP:
-    // Forced measurement opcodes are reserved for probability_of()'s
-    // bytecode rewrite. Reaching this label means a hand-built bytecode
-    // sent one through execute() directly; that's a programmer error.
-    assert(false && "forced measurement opcode reached sampling execute()");
-    throw std::logic_error("forced measurement opcode reached sampling execute()");
+L_OP_MEAS_DORMANT_STATIC_FORCED: {
+    const bool sign_flag = (pc->flags & Instruction::FLAG_SIGN) != 0;
+    const bool ok = (pc->flags & Instruction::FLAG_IDENTITY)
+                        ? exec_meas_dormant_static_identity_forced(
+                              state, pc->classical.classical_idx, sign_flag)
+                        : exec_meas_dormant_static_forced(state, pc->axis_1,
+                                                          pc->classical.classical_idx, sign_flag);
+    if (!ok) {
+        return;
+    }
+    DISPATCH();
+}
+
+L_OP_MEAS_DORMANT_RANDOM_FORCED:
+    if (!exec_meas_dormant_random_forced(state, pc->axis_1, pc->classical.classical_idx,
+                                         (pc->flags & Instruction::FLAG_SIGN) != 0)) {
+        return;
+    }
+    DISPATCH();
+
+L_OP_MEAS_ACTIVE_DIAGONAL_FORCED:
+    if (!exec_meas_active_diagonal_forced(state, pc->axis_1, pc->classical.classical_idx,
+                                          (pc->flags & Instruction::FLAG_SIGN) != 0)) {
+        return;
+    }
+    DISPATCH();
+
+L_OP_MEAS_ACTIVE_INTERFERE_FORCED:
+    if (!exec_meas_active_interfere_forced(state, pc->axis_1, pc->classical.classical_idx,
+                                           (pc->flags & Instruction::FLAG_SIGN) != 0)) {
+        return;
+    }
+    DISPATCH();
+
+L_OP_SWAP_MEAS_INTERFERE_FORCED:
+    if (!exec_swap_meas_interfere_forced(state, pc->axis_1, pc->axis_2, pc->classical.classical_idx,
+                                         (pc->flags & Instruction::FLAG_SIGN) != 0)) {
+        return;
+    }
+    DISPATCH();
 
 #pragma GCC diagnostic pop
 #undef DISPATCH
@@ -2523,16 +2566,47 @@ L_OP_FORCED_TRAP:
                                          instr.classical.classical_idx,
                                          (instr.flags & Instruction::FLAG_SIGN) != 0);
                 break;
-            // Forced measurement opcodes never reach sampling execute(); they're
-            // synthesized only by probability_of()'s rewrite. Fault loudly if
-            // a hand-built bytecode slipped one past the validator.
-            case Opcode::OP_MEAS_DORMANT_STATIC_FORCED:
+            case Opcode::OP_MEAS_DORMANT_STATIC_FORCED: {
+                const bool sign_flag = (instr.flags & Instruction::FLAG_SIGN) != 0;
+                const bool ok =
+                    (instr.flags & Instruction::FLAG_IDENTITY)
+                        ? exec_meas_dormant_static_identity_forced(
+                              state, instr.classical.classical_idx, sign_flag)
+                        : exec_meas_dormant_static_forced(state, instr.axis_1,
+                                                          instr.classical.classical_idx, sign_flag);
+                if (!ok) {
+                    return;
+                }
+                break;
+            }
             case Opcode::OP_MEAS_DORMANT_RANDOM_FORCED:
+                if (!exec_meas_dormant_random_forced(state, instr.axis_1,
+                                                     instr.classical.classical_idx,
+                                                     (instr.flags & Instruction::FLAG_SIGN) != 0)) {
+                    return;
+                }
+                break;
             case Opcode::OP_MEAS_ACTIVE_DIAGONAL_FORCED:
+                if (!exec_meas_active_diagonal_forced(
+                        state, instr.axis_1, instr.classical.classical_idx,
+                        (instr.flags & Instruction::FLAG_SIGN) != 0)) {
+                    return;
+                }
+                break;
             case Opcode::OP_MEAS_ACTIVE_INTERFERE_FORCED:
+                if (!exec_meas_active_interfere_forced(
+                        state, instr.axis_1, instr.classical.classical_idx,
+                        (instr.flags & Instruction::FLAG_SIGN) != 0)) {
+                    return;
+                }
+                break;
             case Opcode::OP_SWAP_MEAS_INTERFERE_FORCED:
-                assert(false && "forced measurement opcode reached sampling execute()");
-                throw std::logic_error("forced measurement opcode reached sampling execute()");
+                if (!exec_swap_meas_interfere_forced(state, instr.axis_1, instr.axis_2,
+                                                     instr.classical.classical_idx,
+                                                     (instr.flags & Instruction::FLAG_SIGN) != 0)) {
+                    return;
+                }
+                break;
             case Opcode::OP_APPLY_PAULI:
                 exec_apply_pauli(state, program.constant_pool, instr.pauli.cp_mask_idx,
                                  instr.pauli.condition_idx);

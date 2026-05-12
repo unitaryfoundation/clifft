@@ -33,6 +33,13 @@ namespace clifft {
 [[nodiscard]] bool exec_meas_dormant_static_forced(SchrodingerState& state, uint16_t v,
                                                    uint32_t classical_idx, bool sign);
 
+// FLAG_IDENTITY shortcut for OP_MEAS_DORMANT_STATIC_FORCED. Identity-Pauli
+// measurements bypass p_x: the deterministic outcome is just the sign bit.
+// The forced variant checks the requested outcome matches and marks the
+// state unreachable otherwise.
+[[nodiscard]] bool exec_meas_dormant_static_identity_forced(SchrodingerState& state,
+                                                            uint32_t classical_idx, bool sign);
+
 [[nodiscard]] bool exec_meas_dormant_random_forced(SchrodingerState& state, uint16_t v,
                                                    uint32_t classical_idx, bool sign);
 

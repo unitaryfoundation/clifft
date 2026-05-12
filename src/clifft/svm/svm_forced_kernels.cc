@@ -61,6 +61,18 @@ namespace {
 
 }  // namespace
 
+bool exec_meas_dormant_static_identity_forced(SchrodingerState& state, uint32_t classical_idx,
+                                              bool sign) {
+    // Sampling counterpart in the dispatcher writes meas_record[idx] = sign.
+    // Forced variant checks the record matches the deterministic sign bit.
+    uint8_t expected = sign ? 1U : 0U;
+    if (state.forced_record[classical_idx] != expected) {
+        return mark_unreachable(state);
+    }
+    state.meas_record[classical_idx] = expected;
+    return true;
+}
+
 bool exec_meas_dormant_static_forced(SchrodingerState& state, uint16_t v, uint32_t classical_idx,
                                      bool sign) {
     // Sampling counterpart: writes the deterministic outcome to meas_record.
