@@ -17,6 +17,8 @@
 
 #include <catch2/catch_test_macros.hpp>
 #include <complex>
+#include <cstdint>
+#include <span>
 #include <vector>
 
 using namespace clifft;
@@ -208,4 +210,93 @@ TEST_CASE("reset() preserves p_x / p_z buffer sizing") {
     REQUIRE(state.p_z.size() == pz_size);
     REQUIRE(state.p_x[0] == 0);
     REQUIRE(state.p_z[1] == 0);
+}
+
+// =============================================================================
+// Forced-mode field tests
+// =============================================================================
+//
+// SchrodingerState carries three fields used by the forced-execution path:
+//   - forced_record: span of outcome bytes the forced kernels read.
+//   - forced_log_probability: running sum of log(prob_b / total).
+//   - forced_reachable: false once a forced outcome hits exact-zero
+//     probability, short-circuiting the rest of the bytecode.
+// These fields are dormant in sampling mode (empty span / 0.0 / true).
+// reset() must clear them so reuse across records is safe.
+
+TEST_CASE("forced-mode fields default to empty / 0.0 / true on a fresh state") {
+    SchrodingerState state(/*peak_rank=*/2, /*num_measurements=*/0);
+    REQUIRE(state.forced_record.empty());
+    REQUIRE(state.forced_log_probability == 0.0);
+    REQUIRE(state.forced_reachable == true);
+}
+
+TEST_CASE("reset() clears the forced-mode fields") {
+    SchrodingerState state(/*peak_rank=*/2, /*num_measurements=*/2);
+    std::vector<uint8_t> record{1, 0};
+    state.forced_record = std::span<const uint8_t>{record};
+    state.forced_log_probability = -1.234;
+    state.forced_reachable = false;
+
+    state.reset();
+
+    REQUIRE(state.forced_record.empty());
+    REQUIRE(state.forced_log_probability == 0.0);
+    REQUIRE(state.forced_reachable == true);
+}
+
+TEST_CASE("move construction and move assignment transfer the forced-mode fields") {
+    // SchrodingerState's move operators are hand-written and list every
+    // field by name. When a new field is added (as the forced-mode trio
+    // was), it's easy to forget to update both operators. This test
+    // catches that regression class for the three forced-mode fields.
+    StateConfig cfg{.peak_rank = 2, .num_measurements = 1, .num_qubits = 2, .seed = 0};
+
+    std::vector<uint8_t> record{1};
+
+    SchrodingerState src(cfg);
+    src.forced_record = std::span<const uint8_t>{record};
+    src.forced_log_probability = -2.5;
+    src.forced_reachable = false;
+
+    SchrodingerState moved(std::move(src));
+    REQUIRE(moved.forced_record.data() == record.data());
+    REQUIRE(moved.forced_record.size() == record.size());
+    REQUIRE(moved.forced_log_probability == -2.5);
+    REQUIRE(moved.forced_reachable == false);
+
+    SchrodingerState src2(cfg);
+    src2.forced_record = std::span<const uint8_t>{record};
+    src2.forced_log_probability = -7.0;
+    src2.forced_reachable = false;
+
+    SchrodingerState dst(cfg);
+    dst = std::move(src2);
+    REQUIRE(dst.forced_record.data() == record.data());
+    REQUIRE(dst.forced_log_probability == -7.0);
+    REQUIRE(dst.forced_reachable == false);
+}
+
+TEST_CASE("setting forced-mode fields does not disturb the active state") {
+    // The forced fields are independent state. Mutating them must not
+    // touch v_, the Pauli frame, gamma, or active_k.
+    SchrodingerState state(/*peak_rank=*/2, /*num_measurements=*/1);
+    state.active_k = 1;
+    state.v()[0] = {0.5, 0.0};
+    state.v()[1] = {0.5, 0.0};
+    state.p_x[0] = 0b10;
+    state.p_z[0] = 0b01;
+    state.set_gamma({0.7071067811865476, 0.0});
+
+    std::vector<uint8_t> record{1};
+    state.forced_record = std::span<const uint8_t>{record};
+    state.forced_log_probability = -0.5;
+    state.forced_reachable = false;
+
+    REQUIRE(state.active_k == 1);
+    REQUIRE(state.v()[0] == std::complex<double>{0.5, 0.0});
+    REQUIRE(state.v()[1] == std::complex<double>{0.5, 0.0});
+    REQUIRE(state.p_x[0] == 0b10);
+    REQUIRE(state.p_z[0] == 0b01);
+    REQUIRE(state.gamma() == std::complex<double>{0.7071067811865476, 0.0});
 }

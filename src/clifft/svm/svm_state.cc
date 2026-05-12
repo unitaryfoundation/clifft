@@ -155,13 +155,19 @@ SchrodingerState::SchrodingerState(SchrodingerState&& other) noexcept
       peak_rank_(other.peak_rank_),
       v_is_mmap_(other.v_is_mmap_),
       rng_(std::move(other.rng_)),
-      exp_vals(std::move(other.exp_vals)) {
+      exp_vals(std::move(other.exp_vals)),
+      forced_record(other.forced_record),
+      forced_log_probability(other.forced_log_probability),
+      forced_reachable(other.forced_reachable) {
     other.v_ = nullptr;
     other.array_size_ = 0;
     other.v_alloc_bytes_ = 0;
     other.v_is_mmap_ = false;
     other.active_k = 0;
     other.peak_rank_ = 0;
+    other.forced_record = {};
+    other.forced_log_probability = 0.0;
+    other.forced_reachable = true;
 }
 
 SchrodingerState& SchrodingerState::operator=(SchrodingerState&& other) noexcept {
@@ -195,12 +201,18 @@ SchrodingerState& SchrodingerState::operator=(SchrodingerState&& other) noexcept
         det_record = std::move(other.det_record);
         obs_record = std::move(other.obs_record);
         exp_vals = std::move(other.exp_vals);
+        forced_record = other.forced_record;
+        forced_log_probability = other.forced_log_probability;
+        forced_reachable = other.forced_reachable;
         other.v_ = nullptr;
         other.array_size_ = 0;
         other.v_alloc_bytes_ = 0;
         other.v_is_mmap_ = false;
         other.active_k = 0;
         other.peak_rank_ = 0;
+        other.forced_record = {};
+        other.forced_log_probability = 0.0;
+        other.forced_reachable = true;
     }
     return *this;
 }
@@ -243,6 +255,13 @@ void SchrodingerState::reset() {
     // Reset forced-fault cursors (vectors are refilled per shot externally).
     forced_faults.noise_pos = 0;
     forced_faults.readout_pos = 0;
+
+    // Forced-execution state: span cleared, accumulator zeroed, reachable
+    // back to true. Dormant in sampling mode; the forced path sets these
+    // per record before calling execute().
+    forced_record = {};
+    forced_log_probability = 0.0;
+    forced_reachable = true;
 
     // PRNG is NOT reseeded -- it streams forward naturally across shots.
 }

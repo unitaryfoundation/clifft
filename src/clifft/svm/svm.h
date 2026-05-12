@@ -266,6 +266,20 @@ class SchrodingerState {
   public:
     // Expectation value record: one double per EXP_VAL probe per shot.
     std::vector<double> exp_vals;
+
+    // --- Forced-execution state ---
+    //
+    // Dormant in sampling mode. Set per record by the forced-execution
+    // path, where each measurement kernel reads its outcome from
+    // forced_record[classical_idx] instead of sampling, and accumulates
+    // log(prob_b / total) into forced_log_probability. A forced outcome
+    // with exact-zero branch probability sets forced_reachable=false
+    // and short-circuits the rest of the bytecode.
+    //
+    // reset() clears all three to their dormant defaults.
+    std::span<const uint8_t> forced_record;
+    double forced_log_probability = 0.0;
+    bool forced_reachable = true;
 };
 
 // =============================================================================
