@@ -22,6 +22,7 @@ add_library(clifft_core STATIC
     api/probabilities.cc
     api/reference_syndrome.cc
     svm/svm.cc
+    svm/svm_forced_kernels.cc
     svm/svm_scalar.cc
     svm/svm_state.cc
     util/introspection.cc

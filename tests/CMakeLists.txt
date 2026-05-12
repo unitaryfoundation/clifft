@@ -15,6 +15,7 @@ add_executable(clifft_tests
     test_backend.cc
     test_svm.cc
     test_state_reset.cc
+    test_forced_kernels.cc
     test_svm_avx512_axis01.cc
     test_statevector.cc
     test_optimizer.cc
