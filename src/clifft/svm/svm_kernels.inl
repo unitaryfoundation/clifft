@@ -2225,6 +2225,16 @@ void execute_internal(const CompiledModule& program, SchrodingerState& state) {
         [static_cast<uint8_t>(Opcode::OP_MEAS_ACTIVE_INTERFERE)] = &&L_OP_MEAS_ACTIVE_INTERFERE,
         [static_cast<uint8_t>(Opcode::OP_SWAP_MEAS_INTERFERE)] = &&L_OP_SWAP_MEAS_INTERFERE,
 
+        // Forced-measurement opcodes are synthesized only by probability_of()'s
+        // bytecode rewrite. They must never appear here; route to an explicit
+        // trap label so a hand-constructed bytecode that slips them past the
+        // pre-flight validator faults loudly instead of jumping to address 0.
+        [static_cast<uint8_t>(Opcode::OP_MEAS_DORMANT_STATIC_FORCED)] = &&L_OP_FORCED_TRAP,
+        [static_cast<uint8_t>(Opcode::OP_MEAS_DORMANT_RANDOM_FORCED)] = &&L_OP_FORCED_TRAP,
+        [static_cast<uint8_t>(Opcode::OP_MEAS_ACTIVE_DIAGONAL_FORCED)] = &&L_OP_FORCED_TRAP,
+        [static_cast<uint8_t>(Opcode::OP_MEAS_ACTIVE_INTERFERE_FORCED)] = &&L_OP_FORCED_TRAP,
+        [static_cast<uint8_t>(Opcode::OP_SWAP_MEAS_INTERFERE_FORCED)] = &&L_OP_FORCED_TRAP,
+
         [static_cast<uint8_t>(Opcode::OP_APPLY_PAULI)] = &&L_OP_APPLY_PAULI,
         [static_cast<uint8_t>(Opcode::OP_NOISE)] = &&L_OP_NOISE,
         [static_cast<uint8_t>(Opcode::OP_NOISE_BLOCK)] = &&L_OP_NOISE_BLOCK,
@@ -2404,6 +2414,13 @@ L_OP_EXP_VAL:
     exec_exp_val(state, program.constant_pool, pc->exp_val.cp_exp_val_idx, pc->exp_val.exp_val_idx);
     DISPATCH();
 
+L_OP_FORCED_TRAP:
+    // Forced measurement opcodes are reserved for probability_of()'s
+    // bytecode rewrite. Reaching this label means a hand-built bytecode
+    // sent one through execute() directly; that's a programmer error.
+    assert(false && "forced measurement opcode reached sampling execute()");
+    throw std::logic_error("forced measurement opcode reached sampling execute()");
+
 #pragma GCC diagnostic pop
 #undef DISPATCH
 #else
@@ -2506,6 +2523,16 @@ L_OP_EXP_VAL:
                                          instr.classical.classical_idx,
                                          (instr.flags & Instruction::FLAG_SIGN) != 0);
                 break;
+            // Forced measurement opcodes never reach sampling execute(); they're
+            // synthesized only by probability_of()'s rewrite. Fault loudly if
+            // a hand-built bytecode slipped one past the validator.
+            case Opcode::OP_MEAS_DORMANT_STATIC_FORCED:
+            case Opcode::OP_MEAS_DORMANT_RANDOM_FORCED:
+            case Opcode::OP_MEAS_ACTIVE_DIAGONAL_FORCED:
+            case Opcode::OP_MEAS_ACTIVE_INTERFERE_FORCED:
+            case Opcode::OP_SWAP_MEAS_INTERFERE_FORCED:
+                assert(false && "forced measurement opcode reached sampling execute()");
+                throw std::logic_error("forced measurement opcode reached sampling execute()");
             case Opcode::OP_APPLY_PAULI:
                 exec_apply_pauli(state, program.constant_pool, instr.pauli.cp_mask_idx,
                                  instr.pauli.condition_idx);

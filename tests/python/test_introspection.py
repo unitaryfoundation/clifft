@@ -239,6 +239,17 @@ class TestEnumBindings:
         assert clifft.Opcode.OP_POSTSELECT is not None
         assert clifft.Opcode.OP_EXP_VAL is not None
 
+    def test_forced_meas_opcodes_are_bound(self) -> None:
+        # Forced measurement opcodes are synthesized internally by the
+        # forced-execution path; they don't appear in user-compiled
+        # programs but must be reachable via the introspection enum so
+        # downstream tooling and tests can name them.
+        assert clifft.Opcode.OP_MEAS_DORMANT_STATIC_FORCED is not None
+        assert clifft.Opcode.OP_MEAS_DORMANT_RANDOM_FORCED is not None
+        assert clifft.Opcode.OP_MEAS_ACTIVE_DIAGONAL_FORCED is not None
+        assert clifft.Opcode.OP_MEAS_ACTIVE_INTERFERE_FORCED is not None
+        assert clifft.Opcode.OP_SWAP_MEAS_INTERFERE_FORCED is not None
+
 
 class TestEnumBindingCompleteness:
     """Tripwire: detect new C++ enum values not bound in Python.

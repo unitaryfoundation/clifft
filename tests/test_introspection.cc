@@ -129,6 +129,12 @@ TEST_CASE("introspection formats every VM opcode") {
     Instruction signed_meas = make_meas(Opcode::OP_MEAS_DORMANT_STATIC, 21, 22, true);
     signed_meas.flags |= Instruction::FLAG_IDENTITY;
 
+    // Forced-mode SWAP measurement: reuse the existing factory and patch
+    // the opcode. The forced variants are synthesized by probability_of()
+    // at runtime via the same rewrite, so this mirrors the production path.
+    Instruction forced_swap_meas = make_swap_meas_interfere(58, 59, 60, false);
+    forced_swap_meas.opcode = Opcode::OP_SWAP_MEAS_INTERFERE_FORCED;
+
     const std::vector<std::pair<Instruction, std::string>> cases = {
         {make_frame_cnot(1, 2), "OP_FRAME_CNOT 1, 2"},
         {make_frame_cz(2, 3), "OP_FRAME_CZ 2, 3"},
@@ -162,6 +168,15 @@ TEST_CASE("introspection formats every VM opcode") {
          "OP_MEAS_ACTIVE_INTERFERE 32 -> rec[33] (invert)"},
         {make_swap_meas_interfere(34, 35, 36, true),
          "OP_SWAP_MEAS_INTERFERE swap(34,35) meas_idx=36 (sign)"},
+        {make_meas(Opcode::OP_MEAS_DORMANT_STATIC_FORCED, 50, 51, false),
+         "OP_MEAS_DORMANT_STATIC_FORCED 50 -> rec[51]"},
+        {make_meas(Opcode::OP_MEAS_DORMANT_RANDOM_FORCED, 52, 53, false),
+         "OP_MEAS_DORMANT_RANDOM_FORCED 52 -> rec[53]"},
+        {make_meas(Opcode::OP_MEAS_ACTIVE_DIAGONAL_FORCED, 54, 55, true),
+         "OP_MEAS_ACTIVE_DIAGONAL_FORCED 54 -> rec[55] (invert)"},
+        {make_meas(Opcode::OP_MEAS_ACTIVE_INTERFERE_FORCED, 56, 57, false),
+         "OP_MEAS_ACTIVE_INTERFERE_FORCED 56 -> rec[57]"},
+        {forced_swap_meas, "OP_SWAP_MEAS_INTERFERE_FORCED swap(58,59) meas_idx=60"},
         {make_apply_pauli(37, 38), "OP_APPLY_PAULI cp_mask=37 if rec[38]"},
         {make_noise(39), "OP_NOISE cp_site=39"},
         {make_noise_block(40, 5), "OP_NOISE_BLOCK sites=[40..45)"},

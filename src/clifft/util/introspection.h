@@ -30,7 +30,8 @@ std::string opcode_to_str(Opcode op);
     return op == Opcode::OP_FRAME_CNOT || op == Opcode::OP_FRAME_CZ ||
            op == Opcode::OP_FRAME_SWAP || op == Opcode::OP_ARRAY_CNOT ||
            op == Opcode::OP_ARRAY_CZ || op == Opcode::OP_ARRAY_SWAP ||
-           op == Opcode::OP_SWAP_MEAS_INTERFERE || op == Opcode::OP_ARRAY_U4;
+           op == Opcode::OP_SWAP_MEAS_INTERFERE || op == Opcode::OP_SWAP_MEAS_INTERFERE_FORCED ||
+           op == Opcode::OP_ARRAY_U4;
 }
 
 [[nodiscard]] constexpr bool is_one_axis_opcode(Opcode op) noexcept {
@@ -44,7 +45,11 @@ std::string opcode_to_str(Opcode op);
 [[nodiscard]] constexpr bool is_meas_opcode(Opcode op) noexcept {
     return op == Opcode::OP_MEAS_DORMANT_STATIC || op == Opcode::OP_MEAS_DORMANT_RANDOM ||
            op == Opcode::OP_MEAS_ACTIVE_DIAGONAL || op == Opcode::OP_MEAS_ACTIVE_INTERFERE ||
-           op == Opcode::OP_SWAP_MEAS_INTERFERE;
+           op == Opcode::OP_SWAP_MEAS_INTERFERE || op == Opcode::OP_MEAS_DORMANT_STATIC_FORCED ||
+           op == Opcode::OP_MEAS_DORMANT_RANDOM_FORCED ||
+           op == Opcode::OP_MEAS_ACTIVE_DIAGONAL_FORCED ||
+           op == Opcode::OP_MEAS_ACTIVE_INTERFERE_FORCED ||
+           op == Opcode::OP_SWAP_MEAS_INTERFERE_FORCED;
 }
 
 std::string format_instruction(const Instruction& inst);

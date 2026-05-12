@@ -144,6 +144,36 @@
             "detail": "Combines OP_ARRAY_SWAP and OP_MEAS_ACTIVE_INTERFERE into a single instruction. Swaps the target axis to the highest active dimension and immediately performs the interference (fold) measurement, halving the array: k -> k-1.",
             "operands": "axis_1 (swap_from), axis_2 (swap_to) -> rec[classical_idx]"
         },
+        "OP_MEAS_DORMANT_STATIC_FORCED": {
+            "category": "Measurement",
+            "summary": "Forced-outcome variant of OP_MEAS_DORMANT_STATIC.",
+            "detail": "Synthesized internally by the forced-execution path; never emitted by the compiler. The desired outcome is read from a side buffer indexed by classical_idx; the branch probability of that outcome (1 if it matches the deterministic eigenvalue, 0 otherwise) is accumulated into a running log-probability scalar instead of sampling.",
+            "operands": "axis_1 -> rec[classical_idx]"
+        },
+        "OP_MEAS_DORMANT_RANDOM_FORCED": {
+            "category": "Measurement",
+            "summary": "Forced-outcome variant of OP_MEAS_DORMANT_RANDOM.",
+            "detail": "Synthesized internally by the forced-execution path; never emitted by the compiler. The desired outcome is read from a side buffer indexed by classical_idx; both outcomes have probability 1/2, so log(1/2) is added to the running log-probability and the frame is updated to anchor on the chosen outcome.",
+            "operands": "axis_1 -> rec[classical_idx]"
+        },
+        "OP_MEAS_ACTIVE_DIAGONAL_FORCED": {
+            "category": "Measurement",
+            "summary": "Forced-outcome variant of OP_MEAS_ACTIVE_DIAGONAL.",
+            "detail": "Synthesized internally by the forced-execution path; never emitted by the compiler. Computes the branch probability of the desired outcome (read from a side buffer indexed by classical_idx), folds the array to keep that branch, renormalizes, and accumulates log(prob_b / total) into a running log-probability scalar.",
+            "operands": "axis_1 -> rec[classical_idx]"
+        },
+        "OP_MEAS_ACTIVE_INTERFERE_FORCED": {
+            "category": "Measurement",
+            "summary": "Forced-outcome variant of OP_MEAS_ACTIVE_INTERFERE.",
+            "detail": "Synthesized internally by the forced-execution path; never emitted by the compiler. Computes the |+>/|-> branch probability for the desired outcome (read from a side buffer indexed by classical_idx), folds with the matching sign, renormalizes, and accumulates log(prob_b / total) into a running log-probability scalar.",
+            "operands": "axis_1 -> rec[classical_idx]"
+        },
+        "OP_SWAP_MEAS_INTERFERE_FORCED": {
+            "category": "Measurement",
+            "summary": "Forced-outcome variant of OP_SWAP_MEAS_INTERFERE.",
+            "detail": "Synthesized internally by the forced-execution path; never emitted by the compiler. Performs the fused SWAP + X-basis fold with the desired outcome (read from a side buffer indexed by classical_idx), renormalizes, and accumulates log(prob_b / total) into a running log-probability scalar.",
+            "operands": "axis_1 (swap_from), axis_2 (swap_to) -> rec[classical_idx]"
+        },
         "OP_APPLY_PAULI": {
             "category": "Meta",
             "summary": "Apply a full N-bit Pauli mask to the frame (classical feedback).",

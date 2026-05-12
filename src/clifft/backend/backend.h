@@ -59,6 +59,20 @@ enum class Opcode : uint8_t {
     OP_MEAS_ACTIVE_INTERFERE,  // X-basis fold, halves array (k -> k-1)
     OP_SWAP_MEAS_INTERFERE,    // Fused ARRAY_SWAP + MEAS_ACTIVE_INTERFERE
 
+    // Forced-outcome measurement variants. Synthesized at runtime by
+    // probability_of() via a bytecode rewrite; never emitted by the
+    // compiler. Each forced variant reads the desired outcome from a
+    // side buffer (one byte per record slot) instead of sampling from
+    // the PRNG, and accumulates the log-probability of that outcome
+    // into a running scalar. Renormalization is kept (same as the
+    // sampling variants) to prevent the state norm from underflowing
+    // float64 on deep trajectories.
+    OP_MEAS_DORMANT_STATIC_FORCED,
+    OP_MEAS_DORMANT_RANDOM_FORCED,
+    OP_MEAS_ACTIVE_DIAGONAL_FORCED,
+    OP_MEAS_ACTIVE_INTERFERE_FORCED,
+    OP_SWAP_MEAS_INTERFERE_FORCED,
+
     // Classical / Errors
     OP_APPLY_PAULI,    // XORs a full N-bit mask from ConstantPool into P
     OP_NOISE,          // Stochastic Pauli channel (rolls RNG, may apply Pauli)

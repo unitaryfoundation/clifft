@@ -158,6 +158,16 @@ std::string opcode_to_str(Opcode op) {
             return "OP_MEAS_ACTIVE_INTERFERE";
         case Opcode::OP_SWAP_MEAS_INTERFERE:
             return "OP_SWAP_MEAS_INTERFERE";
+        case Opcode::OP_MEAS_DORMANT_STATIC_FORCED:
+            return "OP_MEAS_DORMANT_STATIC_FORCED";
+        case Opcode::OP_MEAS_DORMANT_RANDOM_FORCED:
+            return "OP_MEAS_DORMANT_RANDOM_FORCED";
+        case Opcode::OP_MEAS_ACTIVE_DIAGONAL_FORCED:
+            return "OP_MEAS_ACTIVE_DIAGONAL_FORCED";
+        case Opcode::OP_MEAS_ACTIVE_INTERFERE_FORCED:
+            return "OP_MEAS_ACTIVE_INTERFERE_FORCED";
+        case Opcode::OP_SWAP_MEAS_INTERFERE_FORCED:
+            return "OP_SWAP_MEAS_INTERFERE_FORCED";
         case Opcode::OP_APPLY_PAULI:
             return "OP_APPLY_PAULI";
         case Opcode::OP_NOISE:
@@ -195,7 +205,8 @@ std::string format_instruction(const Instruction& inst) {
     } else if (inst.opcode == Opcode::OP_ARRAY_MULTI_CZ) {
         ss << "ctrl=" << inst.axis_1 << " target_mask=0x" << std::hex << inst.multi_gate.mask
            << std::dec;
-    } else if (inst.opcode == Opcode::OP_SWAP_MEAS_INTERFERE) {
+    } else if (inst.opcode == Opcode::OP_SWAP_MEAS_INTERFERE ||
+               inst.opcode == Opcode::OP_SWAP_MEAS_INTERFERE_FORCED) {
         ss << "swap(" << inst.axis_1 << "," << inst.axis_2
            << ") meas_idx=" << inst.classical.classical_idx;
         if (inst.flags & Instruction::FLAG_SIGN)
