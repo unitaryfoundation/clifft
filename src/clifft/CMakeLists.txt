@@ -20,6 +20,7 @@ add_library(clifft_core STATIC
     optimizer/statevector_squeeze_pass.cc
     backend/backend.cc
     api/probabilities.cc
+    api/probability_of.cc
     api/reference_syndrome.cc
     svm/svm.cc
     svm/svm_forced_kernels.cc

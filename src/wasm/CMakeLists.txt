@@ -43,6 +43,7 @@ add_library(clifft_core STATIC
     ${CMAKE_CURRENT_SOURCE_DIR}/../clifft/optimizer/statevector_squeeze_pass.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/../clifft/backend/backend.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/../clifft/api/probabilities.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/../clifft/api/probability_of.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/../clifft/svm/svm.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/../clifft/svm/svm_forced_kernels.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/../clifft/svm/svm_scalar.cc

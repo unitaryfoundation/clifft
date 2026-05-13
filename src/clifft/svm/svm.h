@@ -367,6 +367,20 @@ std::vector<double> probabilities(const CompiledModule& program,
                                   std::span<const uint64_t> basis_masks, size_t num_basis_masks,
                                   size_t words_per_basis_mask);
 
+/// Return exact log-probabilities for a batch of measurement records under
+/// the compiled program. Computes the probability that sample() would emit
+/// each record, modulo dust-clamping. The program must contain at least one
+/// measurement and may include any unitary gate, EXP_VAL probe, or
+/// classical feedback (OP_APPLY_PAULI); noise, detectors, observables, and
+/// post-selection are rejected.
+///
+/// `records` is a packed buffer of `num_records * program.num_measurements`
+/// bytes (0 or 1 per slot, in execution order -- the same order
+/// sample().measurements uses). Records the program cannot emit return
+/// `-infinity`; finite values are natural-log probabilities.
+std::vector<double> probability_of(const CompiledModule& program, std::span<const uint8_t> records,
+                                   size_t num_records);
+
 // =============================================================================
 // Statevector Expansion
 // =============================================================================
