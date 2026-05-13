@@ -1,6 +1,6 @@
 // Exact basis-state probability queries. The Gaussian elimination over the
 // inverse Clifford tableau and the per-bitstring amplitude lookup are the
-// implementation of the algorithm derived in docs/theory/probabilities.md.
+// implementation of the algorithm derived in docs/theory/basis_probabilities.md.
 
 #include "clifft/svm/svm.h"
 #include "clifft/svm/svm_math.h"

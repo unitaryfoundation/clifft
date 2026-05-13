@@ -23,12 +23,21 @@ even there the two strategies have meaningfully different execution costs.
 | Your circuit… | Use |
 |---|---|
 | has no measurements | `basis_probabilities()` |
-| ends in `M`-all and has no feedback or noise | either; see [performance](#performance-on-overlapping-circuits) |
-| has any measurement, intermediate or terminal | `record_probabilities()` |
+| has any measurement (terminal or intermediate) | `record_probabilities()` |
 | has classical feedback (`CX rec[-1] q`, etc.) | `record_probabilities()` |
 | has noise, detectors, observables, or post-selection | neither — use `sample()` |
 
-## `basis_probabilities()`: amplitudes of a unitary state
+Each program goes through exactly one API: `basis_probabilities()` rejects
+any measurement, and `record_probabilities()` requires at least one. If
+you have a unitary circuit that you'd also like to query as a measured
+circuit, compile two variants — unitary into `basis_probabilities()`,
+unitary + terminal `M`-all into `record_probabilities()`. The returned
+distributions match on the bitstrings the records encode, but the two
+compile flows can lower the program differently and the runtime cost can
+differ by 100× either way; see
+[Performance on overlapping circuits](#performance-on-overlapping-circuits).
+
+## `basis_probabilities()`: probabilities of a unitary state
 
 The smallest example is a Bell state. The circuit has four possible two-bit
 outputs, but only `00` and `11` have nonzero probability:

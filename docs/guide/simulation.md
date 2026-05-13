@@ -4,7 +4,7 @@ Clifft's Schrödinger Virtual Machine (SVM) executes compiled programs. The main
 
 - `sample()` for ordinary shot-based sampling
 - `sample_survivors()` for post-selected sampling
-- `basis_probabilities()` for exact computational-basis amplitudes of a unitary program
+- `basis_probabilities()` for exact computational-basis probabilities of a unitary program
 - `record_probabilities()` for exact joint probabilities of measurement records
 - `execute()` and `get_statevector()` for inspecting small final states
 - `sample_k()` and `sample_k_survivors()` for stratified importance sampling
@@ -104,10 +104,14 @@ qs = clifft.record_probabilities(measured, ["00", "01", "10", "11"])
 print(qs)  # [0.5, 0.0, 0.0, 0.5]
 ```
 
-On terminal `M`-all circuits the two return the same numbers, but their
-algorithms differ in important ways covered in
-[Strong Simulation: Exact Probabilities](strong-simulation.md), including
-when one is meaningfully faster than the other.
+Each program goes to exactly one API — `basis_probabilities()` rejects any
+measurement, including terminal `M`-all. To compare them on the same
+circuit, compile two variants (unitary into `basis_probabilities()`,
+unitary + terminal `M`-all into `record_probabilities()`); the returned
+distributions match on the bitstrings the records encode. Their execution
+costs can differ by 100× either way, depending on circuit structure; see
+[Strong Simulation: Exact Probabilities](strong-simulation.md) for the
+tradeoff and when one is meaningfully faster.
 
 If you intentionally want to query the unitary skeleton of a mixed circuit
 with `basis_probabilities()`, compile with a custom HIR pass manager:

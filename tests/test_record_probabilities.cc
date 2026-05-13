@@ -1,6 +1,6 @@
-// Tests for the C++ record_basis_probabilities() entry point.
+// Tests for the C++ record_probabilities() entry point.
 //
-// record_basis_probabilities() computes exact log-probabilities for a batch of
+// record_probabilities() computes exact log-probabilities for a batch of
 // measurement records against a compiled circuit. It mirrors what
 // sample() would emit, modulo dust-clamping, via a bytecode rewrite that
 // turns OP_MEAS_* into their OP_MEAS_*_FORCED siblings and replays each
@@ -11,7 +11,7 @@
 // records, EXP_VAL pass-through, and that the input CompiledModule is
 // not mutated. Deeper algorithmic correctness is covered by the
 // per-kernel and dispatcher tests in earlier steps, and Python-level
-// equivalence with basis_basis_probabilities() is covered separately.
+// equivalence with basis_probabilities() is covered separately.
 
 #include "clifft/backend/backend.h"
 #include "clifft/circuit/parser.h"
@@ -24,6 +24,7 @@
 #include <cmath>
 #include <cstdint>
 #include <cstring>
+#include <limits>
 #include <span>
 #include <stdexcept>
 #include <string>
@@ -150,6 +151,20 @@ TEST_CASE("record_probabilities: rejects record buffer with inconsistent length"
     REQUIRE_THROWS_AS(record_probabilities(mod, records, /*num_records=*/2), std::invalid_argument);
 }
 
+TEST_CASE("record_probabilities: rejects num_records that would overflow the buffer length") {
+    // num_records * num_measurements must not wrap size_t and silently match
+    // a small records.size(). The validation should compare via division so
+    // the overflowed product cannot bypass it.
+    auto mod = compile_circuit("M 0 1");
+    REQUIRE(mod.num_measurements == 2);
+
+    std::vector<uint8_t> records(4, 0);  // would match num_records=2 honestly
+    constexpr size_t kHuge = (std::numeric_limits<size_t>::max() / 2) + 1;
+    // With overflow, kHuge * 2 wraps to 0 and a naive length check passes;
+    // with the modulo/division check, this is rejected.
+    REQUIRE_THROWS_AS(record_probabilities(mod, records, kHuge), std::invalid_argument);
+}
+
 TEST_CASE("record_probabilities: rejects programs with hidden measurement slots") {
     // R q lowers to a hidden measurement + conditional Pauli. The forced
     // execution path doesn't currently marginalize over hidden outcomes,
@@ -180,7 +195,7 @@ TEST_CASE("record_probabilities: rejects postselection opcodes") {
 
 TEST_CASE("record_probabilities: rejects hand-built bytecode containing forced opcodes") {
     // The validator must reject user-supplied forced opcodes so the
-    // rewrite step in record_basis_probabilities() is the only source of them.
+    // rewrite step in record_probabilities() is the only source of them.
     auto mod = compile_circuit("M 0");
     // Hand-patch the user-visible bytecode to its FORCED variant.
     mod.bytecode[0].opcode = Opcode::OP_MEAS_DORMANT_STATIC_FORCED;
@@ -239,27 +254,27 @@ TEST_CASE("record_probabilities: does not mutate the input CompiledModule") {
 }
 
 // =============================================================================
-// Cross-check against basis_basis_probabilities() on terminal-M-all circuits.
+// Cross-check against basis_probabilities() on terminal-M-all circuits.
 // =============================================================================
 //
-// For a unitary circuit followed by M on every qubit, record_basis_probabilities()
-// computes the same value basis_basis_probabilities() does (the latter via the
+// For a unitary circuit followed by M on every qubit, record_probabilities()
+// computes the same value basis_probabilities() does (the latter via the
 // stabilizer-amplitude path on the unitary-stripped program). This is
 // the load-bearing equivalence: any drift between the two paths shows
 // up here.
 
-TEST_CASE("record_probabilities: matches basis_basis_probabilities() on a Clifford circuit") {
+TEST_CASE("record_probabilities: matches basis_probabilities() on a Clifford circuit") {
     auto unitary = compile_circuit("H 0\nCX 0 1");
     auto measured = compile_circuit("H 0\nCX 0 1\nM 0 1");
     REQUIRE(measured.num_measurements == 2);
 
-    // basis_basis_probabilities() takes word-packed bitmasks. For 2 qubits, each mask
+    // basis_probabilities() takes word-packed bitmasks. For 2 qubits, each mask
     // fits in one 64-bit word; bit i = qubit i.
     std::vector<uint64_t> masks{0b00, 0b01, 0b10, 0b11};
     auto probs = basis_probabilities(unitary, masks, /*num_basis_masks=*/4,
                                      /*words_per_basis_mask=*/1);
 
-    // record_basis_probabilities() takes byte-packed records in measurement order.
+    // record_probabilities() takes byte-packed records in measurement order.
     // M 0 1 records qubit 0 first, qubit 1 second, so record byte 0
     // corresponds to mask bit 0.
     std::vector<uint8_t> records{0, 0, 1, 0, 0, 1, 1, 1};
@@ -277,7 +292,7 @@ TEST_CASE("record_probabilities: matches basis_basis_probabilities() on a Cliffo
 }
 
 TEST_CASE(
-    "record_probabilities: matches basis_basis_probabilities() on a Clifford+T circuit (active "
+    "record_probabilities: matches basis_probabilities() on a Clifford+T circuit (active "
     "kernel)") {
     // H T H on |0> takes the qubit through a non-Clifford rotation that
     // forces the SVM to keep the qubit active at measurement time. The

@@ -137,7 +137,11 @@ std::vector<double> record_probabilities(const CompiledModule& program,
             "record_probabilities() does not yet support programs with hidden measurement slots "
             "(e.g. R / reset gates). Compile without resets, or use sample() to marginalize.");
     }
-    if (records.size() != num_records * program.num_measurements) {
+    // Validate buffer length without forming the product, which can wrap
+    // size_t when num_records is attacker-controlled at the C++ entry point.
+    // After the early-out above we know num_measurements > 0.
+    if (records.size() % program.num_measurements != 0 ||
+        records.size() / program.num_measurements != num_records) {
         throw std::invalid_argument(
             "record_probabilities() record buffer length must equal "
             "num_records * program.num_measurements");

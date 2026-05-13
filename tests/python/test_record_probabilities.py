@@ -1,9 +1,9 @@
-"""Tests for clifft.record_basis_probabilities(): exact measurement-record probabilities.
+"""Tests for clifft.record_probabilities(): exact measurement-record probabilities.
 
-record_basis_probabilities() returns the probability sample() would assign to each
+record_probabilities() returns the probability sample() would assign to each
 measurement record under a compiled program with measurements. This module
 covers the Python wrapper's contract: input polymorphism, return shapes,
-return_log behavior, cross-checks against basis_basis_probabilities() and qiskit,
+return_log behavior, cross-checks against basis_probabilities() and qiskit,
 sampling consistency, and rejection paths.
 """
 
@@ -104,7 +104,7 @@ def test_return_log_default_false() -> None:
 
 
 # =============================================================================
-# Cross-check against basis_basis_probabilities() on terminal-M-all circuits.
+# Cross-check against basis_probabilities() on terminal-M-all circuits.
 # =============================================================================
 
 

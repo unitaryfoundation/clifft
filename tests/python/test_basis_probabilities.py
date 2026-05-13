@@ -360,7 +360,7 @@ def test_probabilities_rank_deficient_fallback_matches_statevector() -> None:
     # Untouched qubits leave the inverse tableau's Z-row at Z_q, which has no
     # X support. With an active subspace formed by T-gates on other qubits,
     # the X-rank restricted to dormant columns drops below (n - active_k),
-    # which forces the can_use_gray_code = false fallback in basis_basis_probabilities().
+    # which forces the can_use_gray_code = false fallback in basis_probabilities().
     # If the fallback regresses we will see a mismatch here.
     prog = clifft.compile("H 0\nT 0\nH 0\nH 2")
     assert prog.num_qubits == 3
