@@ -118,6 +118,25 @@ TEST_CASE("probability_of: feedback circuit produces joint trajectory probabilit
 }
 
 // =============================================================================
+// measurement_qubits accessor on CompiledModule.
+// =============================================================================
+
+TEST_CASE("measurement_qubits records the qubit per visible measurement slot") {
+    auto mod = compile_circuit("H 0\nH 3\nM 3 0");
+    REQUIRE(mod.num_measurements == 2);
+    REQUIRE(mod.measurement_qubits.size() == 2);
+    // M 3 0 records qubit 3 first, qubit 0 second.
+    REQUIRE(mod.measurement_qubits[0] == 3);
+    REQUIRE(mod.measurement_qubits[1] == 0);
+}
+
+TEST_CASE("measurement_qubits is empty for unitary programs") {
+    auto mod = compile_circuit("H 0\nT 0");
+    REQUIRE(mod.num_measurements == 0);
+    REQUIRE(mod.measurement_qubits.empty());
+}
+
+// =============================================================================
 // Pre-flight validation.
 // =============================================================================
 

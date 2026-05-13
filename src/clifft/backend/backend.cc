@@ -864,6 +864,7 @@ CompiledModule lower(const HirModule& hir, std::span<const uint8_t> postselectio
     result.peak_rank = peak;
     result.num_measurements = hir.num_measurements;
     result.total_meas_slots = total_meas_slots;
+    result.measurement_qubits = hir.measurement_qubits;
     result.num_detectors = hir.num_detectors;
     result.num_observables = hir.num_observables;
     result.num_exp_vals = hir.num_exp_vals;

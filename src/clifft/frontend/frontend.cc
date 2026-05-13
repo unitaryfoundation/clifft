@@ -362,6 +362,10 @@ HirModule trace(const Circuit& circuit) {
     hir.num_detectors = circuit.num_detectors;
     hir.num_observables = circuit.num_observables;
     hir.num_exp_vals = circuit.num_exp_vals;
+    // Per-slot qubit assignment for visible measurements, filled in as each
+    // M target is traced. Hidden measurements (from R / reset) are not
+    // represented; their record slots are not user-visible.
+    hir.measurement_qubits.assign(circuit.num_measurements, 0);
 
     std::mt19937_64 rng(0);
     stim::TableauSimulator<kStimWidth> sim(std::move(rng), circuit.num_qubits);
@@ -559,6 +563,7 @@ HirModule trace(const Circuit& circuit) {
 
             case GateType::M: {
                 for (const auto& target : node.targets) {
+                    hir.measurement_qubits[static_cast<uint32_t>(meas_idx)] = target.value();
                     hir.append_measure(meas_idx, [&](MutablePauliMaskView slot) {
                         bool sign;
                         extract_rewound_z_into(sim, target.value(), slot.x(), slot.z(), sign);
@@ -571,6 +576,7 @@ HirModule trace(const Circuit& circuit) {
 
             case GateType::MX: {
                 for (const auto& target : node.targets) {
+                    hir.measurement_qubits[static_cast<uint32_t>(meas_idx)] = target.value();
                     hir.append_measure(meas_idx, [&](MutablePauliMaskView slot) {
                         bool sign;
                         extract_rewound_x_into(sim, target.value(), slot.x(), slot.z(), sign);
@@ -583,6 +589,7 @@ HirModule trace(const Circuit& circuit) {
 
             case GateType::MY: {
                 for (const auto& target : node.targets) {
+                    hir.measurement_qubits[static_cast<uint32_t>(meas_idx)] = target.value();
                     hir.append_measure(meas_idx, [&](MutablePauliMaskView slot) {
                         bool sign;
                         extract_rewound_y_into(sim, target.value(), slot.x(), slot.z(), sign);
@@ -676,6 +683,7 @@ HirModule trace(const Circuit& circuit) {
                             extract_meas(qubit, slot.x(), slot.z(), sign);
                             slot.set_sign(sign);
                         });
+                        hir.measurement_qubits[this_meas] = qubit;
                         ++meas_idx;
                     }
 

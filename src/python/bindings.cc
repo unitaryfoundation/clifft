@@ -715,6 +715,13 @@ NB_MODULE(_clifft_core, m) {
             "has_postselection",
             [](const clifft::CompiledModule& p) { return p.has_postselection; },
             "True if the program contains OP_POSTSELECT instructions.")
+        .def_prop_ro(
+            "measurement_qubits",
+            [](const clifft::CompiledModule& p) { return p.measurement_qubits; },
+            "Per visible measurement record slot, the qubit that was measured. "
+            "Indexed [0, num_measurements). Use to map a record entry back to a "
+            "physical qubit -- e.g. record_index = "
+            "list(program.measurement_qubits).index(qubit).")
         .def_prop_ro("num_instructions",
                      [](const clifft::CompiledModule& p) { return p.bytecode.size(); })
         .def_prop_ro(
@@ -1098,4 +1105,22 @@ NB_MODULE(_clifft_core, m) {
             return vec_to_numpy(std::move(probs), {n});
         },
         nb::arg("program"), nb::arg("basis_masks"), "Internal helper for clifft.probabilities().");
+
+    m.def(
+        "_probability_of_from_records",
+        [](const clifft::CompiledModule& program,
+           nb::ndarray<nb::numpy, const uint8_t, nb::shape<-1, -1>, nb::c_contig> records) {
+            std::vector<double> log_probs;
+            {
+                nb::gil_scoped_release release;
+                log_probs = clifft::probability_of(
+                    program, std::span<const uint8_t>(records.data(), records.size()),
+                    records.shape(0));
+            }
+            size_t n = log_probs.size();
+            return vec_to_numpy(std::move(log_probs), {n});
+        },
+        nb::arg("program"), nb::arg("records"),
+        "Internal helper for clifft.probability_of(). Returns log-probabilities; "
+        "the Python wrapper exponentiates to linear unless return_log=True.");
 }

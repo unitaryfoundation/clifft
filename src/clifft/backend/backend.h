@@ -333,6 +333,11 @@ struct CompiledModule {
     uint32_t num_exp_vals = 0;       // Total expectation value probes
     bool has_postselection = false;  // True if any detector uses OP_POSTSELECT
 
+    /// Per visible measurement record slot, the qubit that was measured.
+    /// Indexed by classical_idx for indices in [0, num_measurements). Lets
+    /// callers map a measurement record entry back to a physical qubit.
+    std::vector<uint32_t> measurement_qubits;
+
     // Expected noiseless observable parities for syndrome normalization.
     // When non-empty, sample()/sample_survivors() XOR obs_record[i] with
     // expected_observables[i] before writing output.

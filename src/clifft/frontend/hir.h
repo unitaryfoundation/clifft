@@ -345,6 +345,11 @@ struct HirModule {
     uint32_t num_observables = 0;
     uint32_t num_exp_vals = 0;
 
+    /// Per visible measurement record slot, the qubit that was measured.
+    /// Indexed by MeasRecordIdx for indices in [0, num_measurements).
+    /// Hidden measurements (from R / reset gates) are not represented.
+    std::vector<uint32_t> measurement_qubits;
+
     std::complex<double> global_weight = {1.0, 0.0};
 
     /// Parallel to ops: source_map[i] lists the source line(s) that
