@@ -19,8 +19,8 @@ add_library(clifft_core STATIC
     optimizer/remove_noise_pass.cc
     optimizer/statevector_squeeze_pass.cc
     backend/backend.cc
-    api/probabilities.cc
-    api/probability_of.cc
+    api/basis_probabilities.cc
+    api/record_probabilities.cc
     api/reference_syndrome.cc
     svm/svm.cc
     svm/svm_forced_kernels.cc

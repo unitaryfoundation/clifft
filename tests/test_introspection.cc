@@ -130,7 +130,7 @@ TEST_CASE("introspection formats every VM opcode") {
     signed_meas.flags |= Instruction::FLAG_IDENTITY;
 
     // Forced-mode SWAP measurement: reuse the existing factory and patch
-    // the opcode. The forced variants are synthesized by probability_of()
+    // the opcode. The forced variants are synthesized by record_probabilities()
     // at runtime via the same rewrite, so this mirrors the production path.
     Instruction forced_swap_meas = make_swap_meas_interfere(58, 59, 60, false);
     forced_swap_meas.opcode = Opcode::OP_SWAP_MEAS_INTERFERE_FORCED;

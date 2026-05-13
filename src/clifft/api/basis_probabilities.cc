@@ -455,7 +455,7 @@ std::complex<double> BoundStabilizerAmplitudeQuery::amplitude(MaskView basis,
         case Opcode::NUM_OPCODES:
             return true;
     }
-    throw std::invalid_argument("probabilities() encountered an unknown bytecode opcode");
+    throw std::invalid_argument("basis_probabilities() encountered an unknown bytecode opcode");
 }
 
 void assert_probability_program_is_supported(const CompiledModule& program) {
@@ -464,7 +464,8 @@ void assert_probability_program_is_supported(const CompiledModule& program) {
     for (const auto& instr : program.bytecode) {
         if (is_unsupported_probability_opcode(instr.opcode)) {
             throw std::invalid_argument(
-                "probabilities() requires pure-state evolution: measurements, feedback, noise, "
+                "basis_probabilities() requires pure-state evolution: measurements, feedback, "
+                "noise, "
                 "readout noise, detectors, postselection, and observables are not supported. "
                 "EXP_VAL probes are allowed but their outputs are ignored. Use "
                 "DropNonUnitaryPass only if you intentionally want to query the unitary "
@@ -475,13 +476,14 @@ void assert_probability_program_is_supported(const CompiledModule& program) {
 
 }  // namespace
 
-std::vector<double> probabilities(const CompiledModule& program,
-                                  std::span<const uint64_t> basis_masks, size_t num_basis_masks,
-                                  size_t words_per_basis_mask) {
+std::vector<double> basis_probabilities(const CompiledModule& program,
+                                        std::span<const uint64_t> basis_masks,
+                                        size_t num_basis_masks, size_t words_per_basis_mask) {
     assert_probability_program_is_supported(program);
     if (!program.constant_pool.final_tableau.has_value()) {
         throw std::invalid_argument(
-            "probabilities() requires final Clifford tableau metadata; compile programs through "
+            "basis_probabilities() requires final Clifford tableau metadata; compile programs "
+            "through "
             "clifft.compile() or preserve ConstantPool::final_tableau.");
     }
     assert_arena_widths_match(program.num_qubits, program.constant_pool);

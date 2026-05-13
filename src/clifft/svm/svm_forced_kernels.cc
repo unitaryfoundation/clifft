@@ -29,7 +29,7 @@ namespace {
 // log-probability of a forced outcome b in {0, 1}. The sampling path
 // treats any branch with prob <= kDustEpsilon * total as exactly zero,
 // so records containing such an outcome are never emitted by sample().
-// probability_of() must agree:
+// record_probabilities() must agree:
 //   - The dust branch is unreachable.
 //   - When the other branch is dust, the surviving branch is
 //     deterministic and its log-increment is 0 (not log(prob/total)).

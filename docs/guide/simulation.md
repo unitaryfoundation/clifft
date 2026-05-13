@@ -4,7 +4,8 @@ Clifft's Schrödinger Virtual Machine (SVM) executes compiled programs. The main
 
 - `sample()` for ordinary shot-based sampling
 - `sample_survivors()` for post-selected sampling
-- `probabilities()` for exact full-bitstring computational-basis probabilities
+- `basis_probabilities()` for exact computational-basis amplitudes of a unitary program
+- `record_probabilities()` for exact joint probabilities of measurement records
 - `execute()` and `get_statevector()` for inspecting small final states
 - `sample_k()` and `sample_k_survivors()` for stratified importance sampling
 
@@ -77,36 +78,39 @@ print(sv)  # [0.707+0j, 0+0j, 0+0j, 0.707+0j]
     $2^n$ state vector over all physical qubits. This is useful for debugging
     and validation, but it is not the scalable simulation path.
 
-## Basis-State Probabilities
+## Exact Probabilities
 
-For unitary circuits, `clifft.probabilities()` returns exact probabilities for
-full computational-basis bitstrings:
+Clifft offers two exact-probability APIs sitting on either side of one
+question: *is the final state pure?*
+
+- **`clifft.basis_probabilities(program, bitstrings)`** — for **unitary**
+  programs only. Returns $|\langle x | U | 0 \rangle|^2$ for each queried
+  bitstring. Rejects any measurement, feedback, noise, detector, observable,
+  or post-selection (`EXP_VAL` probes are allowed but ignored).
+
+- **`clifft.record_probabilities(program, records)`** — for programs **with
+  measurements** (and, optionally, classical feedback). Returns the exact
+  joint probability that `sample()` would assign to each measurement record.
 
 ```python
 import clifft
 
-program = clifft.compile("""
-    H 0
-    CNOT 0 1
-""")
-
-ps = clifft.probabilities(program, ["00", "01", "10", "11"])
+unitary = clifft.compile("H 0\nCNOT 0 1")
+ps = clifft.basis_probabilities(unitary, ["00", "01", "10", "11"])
 print(ps)  # [0.5, 0.0, 0.0, 0.5]
+
+measured = clifft.compile("H 0\nCNOT 0 1\nM 0 1")
+qs = clifft.record_probabilities(measured, ["00", "01", "10", "11"])
+print(qs)  # [0.5, 0.0, 0.0, 0.5]
 ```
 
-Bitstrings must cover all `program.num_qubits` qubits. By default,
-`bit_order="big"` maps the first character, or first column of a 2D NumPy
-`bool`/`uint8` array, to qubit 0. With `bit_order="little"`, the last character
-or column maps to qubit 0. The practical cost is driven by the number of queried
-bitstrings, the circuit size, and the final active rank rather than by dense
-state-vector expansion. Each call re-executes the program once, so pass all
-bitstrings you want to query in one batch.
+On terminal `M`-all circuits the two return the same numbers, but their
+algorithms differ in important ways covered in
+[Strong Simulation: Exact Probabilities](strong-simulation.md), including
+when one is meaningfully faster than the other.
 
-`probabilities()` rejects programs containing measurements, feedback, noise,
-readout noise, detectors, post-selection, or observables. `EXP_VAL` probes are
-allowed, but their stored outputs are ignored by `probabilities()`.
-If you intentionally want to query the unitary skeleton of a mixed circuit,
-compile with a custom HIR pass manager:
+If you intentionally want to query the unitary skeleton of a mixed circuit
+with `basis_probabilities()`, compile with a custom HIR pass manager:
 
 ```python
 import clifft
@@ -120,7 +124,7 @@ pm = clifft.HirPassManager()
 pm.add(clifft.DropNonUnitaryPass())
 
 program = clifft.compile(circuit_text, hir_passes=pm)
-ps = clifft.probabilities(program, ["0", "1"])
+ps = clifft.basis_probabilities(program, ["0", "1"])
 ```
 
 !!! warning "DropNonUnitaryPass changes circuit semantics"
@@ -128,9 +132,6 @@ ps = clifft.probabilities(program, ["0", "1"])
     measurements, feedback, noise, annotations, and read-only probes. It is
     useful when a user explicitly wants the unitary-only skeleton, but it is
     not equivalent to sampling or marginalizing the original mixed circuit.
-
-See [Strong Simulation with Exact Probabilities](strong-simulation.md) for a
-walkthrough focused on sparse exact probability queries.
 
 ## Detectors, Observables, and Post-Selection
 

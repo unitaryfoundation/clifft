@@ -26,8 +26,8 @@ add_executable(clifft_tests
     test_source_map.cc
     test_importance_sampling.cc
     test_introspection.cc
-    test_probabilities.cc
-    test_probability_of.cc
+    test_basis_probabilities.cc
+    test_record_probabilities.cc
     test_exp_value.cc
     test_openmp.cc
     test_fuzz.cc

@@ -1,6 +1,6 @@
 # Basis-State Probabilities
 
-For unitary programs, `clifft.probabilities()` computes exact probabilities for
+For unitary programs, `clifft.basis_probabilities()` computes exact probabilities for
 full-register computational-basis bitstrings without materializing the full
 $2^n$ statevector. This page summarizes the algorithm behind that API. For
 usage examples, see [Strong Simulation with Exact Probabilities](../guide/strong-simulation.md).
@@ -168,7 +168,7 @@ walk over the $2^k$ active basis states.
 
 ## Complexity
 
-Per `clifft.probabilities()` call, with $M$ queried bitstrings, $n$ qubits,
+Per `clifft.basis_probabilities()` call, with $M$ queried bitstrings, $n$ qubits,
 active rank $k$, and total X-rank $r_X$:
 
 | Step | Cost | Frequency |
@@ -201,7 +201,7 @@ speedup on Clifford+T workloads.
 For very small circuits ($n \lesssim 10$),
 [`clifft.get_statevector()`](../guide/simulation.md) returns the full
 $2^n$-amplitude vector and squaring its absolute value is the fastest
-path to a probability table. `probabilities()` shines when:
+path to a probability table. `basis_probabilities()` shines when:
 
 - $n$ is large enough that materializing the full $2^n$ statevector is
   impractical, but you only care about a sparse set of bitstrings.
@@ -210,8 +210,10 @@ path to a probability table. `probabilities()` shines when:
 - You want to query many bitstrings against the same circuit (the
   structure is shared across the batch).
 
-For mixed circuits, including measurements, noise, and observables,
-`probabilities()` is not applicable, since the state is no longer a single pure
-vector. Use [sampling](../guide/simulation.md#sampling) for those workflows, or
+For circuits ending in measurements (with or without classical feedback),
+[`clifft.record_probabilities()`](../guide/strong-simulation.md)
+returns the exact joint probability of a given measurement record. For
+broader workflows that include noise or post-selection, use
+[sampling](../guide/simulation.md#sampling), or
 [`DropNonUnitaryPass`](../reference/passes.md) if you intentionally want
 to query the unitary skeleton of a mixed circuit.

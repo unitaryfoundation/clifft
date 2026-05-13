@@ -1,6 +1,6 @@
 // Exact measurement-record probability queries.
 //
-// probability_of() runs the compiled program once per requested record,
+// record_probabilities() runs the compiled program once per requested record,
 // forcing each measurement to the user-supplied outcome and accumulating
 // log(prob_b / total) into state.forced_log_probability under the same
 // dust-clamping policy sample_branch() uses. A bytecode rewrite swaps
@@ -22,7 +22,7 @@
 namespace clifft {
 namespace {
 
-[[nodiscard]] bool is_unsupported_probability_of_opcode(Opcode opcode) {
+[[nodiscard]] bool is_unsupported_record_probabilities_opcode(Opcode opcode) {
     // Allowed: all gate / expand / array opcodes, EXP_VAL probes, feedback
     // (OP_APPLY_PAULI), and any sampling-mode measurement opcode (rewritten
     // to its FORCED sibling before execution). Forced opcodes shouldn't
@@ -75,14 +75,14 @@ namespace {
         case Opcode::NUM_OPCODES:
             return true;
     }
-    throw std::invalid_argument("probability_of() encountered an unknown bytecode opcode");
+    throw std::invalid_argument("record_probabilities() encountered an unknown bytecode opcode");
 }
 
-void assert_probability_of_program_is_supported(const CompiledModule& program) {
+void assert_record_probabilities_program_is_supported(const CompiledModule& program) {
     for (const auto& instr : program.bytecode) {
-        if (is_unsupported_probability_of_opcode(instr.opcode)) {
+        if (is_unsupported_record_probabilities_opcode(instr.opcode)) {
             throw std::invalid_argument(
-                "probability_of() requires pure-state evolution with measurements: noise, "
+                "record_probabilities() requires pure-state evolution with measurements: noise, "
                 "feedback-free detectors, observables, and post-selection are not supported. "
                 "Forced-measurement opcodes are reserved for the internal rewrite and must not "
                 "appear in user-compiled programs.");
@@ -119,13 +119,13 @@ void rewrite_for_forced_execution(std::vector<Instruction>& bytecode) {
 
 }  // namespace
 
-std::vector<double> probability_of(const CompiledModule& program, std::span<const uint8_t> records,
-                                   size_t num_records) {
-    assert_probability_of_program_is_supported(program);
+std::vector<double> record_probabilities(const CompiledModule& program,
+                                         std::span<const uint8_t> records, size_t num_records) {
+    assert_record_probabilities_program_is_supported(program);
     if (program.num_measurements == 0) {
         throw std::invalid_argument(
-            "probability_of() requires a program with at least one measurement; use "
-            "clifft::probabilities() for unitary circuits.");
+            "record_probabilities() requires a program with at least one measurement; use "
+            "clifft::basis_probabilities() for unitary circuits.");
     }
     // Hidden measurement slots (e.g. from R / reset gates lowered to
     // measure + classical-feedback Pauli) would be indexed past the
@@ -134,12 +134,12 @@ std::vector<double> probability_of(const CompiledModule& program, std::span<cons
     // now, so reject programs that have any.
     if (program.total_meas_slots != program.num_measurements) {
         throw std::invalid_argument(
-            "probability_of() does not yet support programs with hidden measurement slots "
+            "record_probabilities() does not yet support programs with hidden measurement slots "
             "(e.g. R / reset gates). Compile without resets, or use sample() to marginalize.");
     }
     if (records.size() != num_records * program.num_measurements) {
         throw std::invalid_argument(
-            "probability_of() record buffer length must equal "
+            "record_probabilities() record buffer length must equal "
             "num_records * program.num_measurements");
     }
     // Each record byte represents one measurement outcome and must be 0 or 1.
@@ -148,7 +148,7 @@ std::vector<double> probability_of(const CompiledModule& program, std::span<cons
     for (uint8_t byte : records) {
         if (byte != 0 && byte != 1) {
             throw std::invalid_argument(
-                "probability_of() record bytes must be 0 or 1; each represents one "
+                "record_probabilities() record bytes must be 0 or 1; each represents one "
                 "measurement outcome.");
         }
     }

@@ -1084,29 +1084,30 @@ NB_MODULE(_clifft_core, m) {
         nb::arg("program"), nb::arg("state"), "Expand the SVM state into a dense statevector.");
 
     m.def(
-        "_probabilities_from_bitmasks",
+        "_basis_probabilities_from_bitmasks",
         [](const clifft::CompiledModule& program,
            nb::ndarray<nb::numpy, const uint64_t, nb::shape<-1, -1>, nb::c_contig> basis_masks) {
             std::vector<double> probs;
             {
                 nb::gil_scoped_release release;
-                probs = clifft::probabilities(
+                probs = clifft::basis_probabilities(
                     program, std::span<const uint64_t>(basis_masks.data(), basis_masks.size()),
                     basis_masks.shape(0), basis_masks.shape(1));
             }
             size_t n = probs.size();
             return vec_to_numpy(std::move(probs), {n});
         },
-        nb::arg("program"), nb::arg("basis_masks"), "Internal helper for clifft.probabilities().");
+        nb::arg("program"), nb::arg("basis_masks"),
+        "Internal helper for clifft.basis_probabilities().");
 
     m.def(
-        "_probability_of_from_records",
+        "_record_probabilities_from_records",
         [](const clifft::CompiledModule& program,
            nb::ndarray<nb::numpy, const uint8_t, nb::shape<-1, -1>, nb::c_contig> records) {
             std::vector<double> log_probs;
             {
                 nb::gil_scoped_release release;
-                log_probs = clifft::probability_of(
+                log_probs = clifft::record_probabilities(
                     program, std::span<const uint8_t>(records.data(), records.size()),
                     records.shape(0));
             }
@@ -1114,6 +1115,6 @@ NB_MODULE(_clifft_core, m) {
             return vec_to_numpy(std::move(log_probs), {n});
         },
         nb::arg("program"), nb::arg("records"),
-        "Internal helper for clifft.probability_of(). Returns log-probabilities; "
+        "Internal helper for clifft.record_probabilities(). Returns log-probabilities; "
         "the Python wrapper exponentiates to linear unless return_log=True.");
 }

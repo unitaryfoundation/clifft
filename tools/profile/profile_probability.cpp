@@ -1,11 +1,11 @@
 // Clifft Strong-Simulation Profiling Tool
 //
 // Generates or loads a unitary quantum circuit, compiles it, and calls
-// clifft::probabilities() on a batch of computational-basis bitstrings.
+// clifft::basis_probabilities() on a batch of computational-basis bitstrings.
 // Used with Linux perf or other sampling profilers to investigate the
 // hot path of the basis-state probability query.
 //
-// probabilities() rejects measurement/feedback/noise/detector/observable
+// basis_probabilities() rejects measurement/feedback/noise/detector/observable
 // opcodes, so this harness emits a unitary-only circuit (no trailing M).
 //
 // See tools/profile/README.md for full usage instructions.
@@ -196,7 +196,7 @@ int main() {
     auto trace_ms = std::chrono::duration<double, std::milli>(t1 - t0).count();
     std::cout << " done (" << trace_ms << " ms)\n";
 
-    // Backend (no postselection - probabilities() requires pure-state evolution)
+    // Backend (no postselection - basis_probabilities() requires pure-state evolution)
     std::cout << "Backend (bytecode generation)..." << std::flush;
     t0 = std::chrono::high_resolution_clock::now();
     clifft::CompiledModule program = clifft::lower(hir, {});
@@ -231,11 +231,11 @@ int main() {
     auto masks_ms = std::chrono::duration<double, std::milli>(t1 - t0).count();
     std::cout << " done (" << masks_ms << " ms)\n";
 
-    // Run probabilities()
+    // Run basis_probabilities()
     std::cout << "Running " << queries << " probability queries..." << std::flush;
     t0 = std::chrono::high_resolution_clock::now();
-    std::vector<double> probs = clifft::probabilities(program, std::span<const uint64_t>(bitmasks),
-                                                      queries, words_per_mask);
+    std::vector<double> probs = clifft::basis_probabilities(
+        program, std::span<const uint64_t>(bitmasks), queries, words_per_mask);
     t1 = std::chrono::high_resolution_clock::now();
     auto prob_ms = std::chrono::duration<double, std::milli>(t1 - t0).count();
 

@@ -2226,7 +2226,7 @@ void execute_internal(const CompiledModule& program, SchrodingerState& state) {
         [static_cast<uint8_t>(Opcode::OP_MEAS_ACTIVE_INTERFERE)] = &&L_OP_MEAS_ACTIVE_INTERFERE,
         [static_cast<uint8_t>(Opcode::OP_SWAP_MEAS_INTERFERE)] = &&L_OP_SWAP_MEAS_INTERFERE,
 
-        // Forced-measurement opcodes are synthesized by probability_of()'s
+        // Forced-measurement opcodes are synthesized by record_probabilities()'s
         // bytecode rewrite. The kernels read each outcome from
         // state.forced_record[classical_idx] and accumulate the log-
         // probability into state.forced_log_probability. They return false

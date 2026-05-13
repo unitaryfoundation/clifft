@@ -364,13 +364,13 @@ std::vector<double> noise_site_probabilities(const CompiledModule& program);
 /// full-register basis states. EXP_VAL probes are ignored; measurement,
 /// feedback, noise, detector, postselection, and observable opcodes are
 /// rejected. Each basis mask is word-packed little-endian by qubit index.
-std::vector<double> probabilities(const CompiledModule& program,
-                                  std::span<const uint64_t> basis_masks, size_t num_basis_masks,
-                                  size_t words_per_basis_mask);
+std::vector<double> basis_probabilities(const CompiledModule& program,
+                                        std::span<const uint64_t> basis_masks,
+                                        size_t num_basis_masks, size_t words_per_basis_mask);
 
-/// Sentinel returned by `probability_of()` for records the program cannot
-/// emit. Equal to `std::numeric_limits<double>::lowest()` (-DBL_MAX). A
-/// finite value is used (rather than `-infinity`) so the contract survives
+/// Sentinel returned by `record_probabilities()` for records the program
+/// cannot emit. Equal to `std::numeric_limits<double>::lowest()` (-DBL_MAX).
+/// A finite value is used (rather than `-infinity`) so the contract survives
 /// `-ffast-math` builds, which assume infinities cannot occur and fold
 /// away `std::isinf`/`std::isfinite`. Exponentiating it underflows to 0.
 inline constexpr double kUnreachableLogProb = std::numeric_limits<double>::lowest();
@@ -386,8 +386,8 @@ inline constexpr double kUnreachableLogProb = std::numeric_limits<double>::lowes
 /// bytes (0 or 1 per slot, in execution order -- the same order
 /// sample().measurements uses). Records the program cannot emit return
 /// `kUnreachableLogProb`; other entries are natural-log probabilities.
-std::vector<double> probability_of(const CompiledModule& program, std::span<const uint8_t> records,
-                                   size_t num_records);
+std::vector<double> record_probabilities(const CompiledModule& program,
+                                         std::span<const uint8_t> records, size_t num_records);
 
 // =============================================================================
 // Statevector Expansion

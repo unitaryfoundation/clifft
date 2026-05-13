@@ -10,10 +10,10 @@ sampling profilers:
   rather than the sampling loop. Useful for workflows that recompile
   often (e.g. stratified loss-topology sampling).
 - `profile_probability` compiles a unitary circuit and calls
-  `clifft::probabilities()` over a batch of bitstrings, so a `perf record`
+  `clifft::basis_probabilities()` over a batch of bitstrings, so a `perf record`
   run captures the strong-simulation hot path (basis-state probability
   query). Measurement/feedback/noise opcodes are unsupported by
-  `probabilities()`, so this harness emits a unitary-only circuit.
+  `basis_probabilities()`, so this harness emits a unitary-only circuit.
 
 ## Build
 
@@ -89,7 +89,7 @@ CLIFFT_COMPILE_ITERATIONS=200 \
 ## Probability-query profiling
 
 `profile_probability` compiles a unitary circuit (no terminal `M`) and calls
-`clifft::probabilities()` on `CLIFFT_QUERIES` random bitstrings. Use it to
+`clifft::basis_probabilities()` on `CLIFFT_QUERIES` random bitstrings. Use it to
 profile the strong-simulation path:
 
 ```bash

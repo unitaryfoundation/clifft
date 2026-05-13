@@ -81,8 +81,8 @@ from clifft._clifft_core import (
     StatevectorSqueezePass,
     SwapMeasPass,
     Target,
-    _probabilities_from_bitmasks,
-    _probability_of_from_records,
+    _basis_probabilities_from_bitmasks,
+    _record_probabilities_from_records,
     compute_reference_syndrome,
     default_bytecode_pass_manager,
     default_hir_pass_manager,
@@ -180,20 +180,24 @@ def _basis_masks_from_bitstrings(
     )
 
 
-def probabilities(
+def basis_probabilities(
     program: Program,
     bitstrings: BasisBitstrings,
     *,
     bit_order: str = "big",
 ) -> npt.NDArray[np.float64]:
-    """Return exact probabilities for full computational-basis bitstrings.
+    """Exact Born probabilities of computational-basis bitstrings.
+
+    Requires a unitary program (no measurements, feedback, noise, detectors,
+    observables, or post-selection). For circuits with measurements, use
+    :func:`record_probabilities` instead.
 
     ``bit_order="big"`` maps the first character or array column to qubit 0.
     ``bit_order="little"`` maps the last character or array column to qubit 0.
     """
     return cast(
         npt.NDArray[np.float64],
-        _probabilities_from_bitmasks(
+        _basis_probabilities_from_bitmasks(
             program, _basis_masks_from_bitstrings(program, bitstrings, bit_order)
         ),
     )
@@ -252,13 +256,16 @@ def _records_from_outcomes(
     return np.ascontiguousarray(bit_array.astype(np.uint8, copy=False))
 
 
-def probability_of(
+def record_probabilities(
     program: Program,
     records: MeasurementRecords,
     *,
     return_log: bool = False,
 ) -> npt.NDArray[np.float64]:
-    """Return the exact probability sample() would assign to each record.
+    """Exact joint probabilities of measurement records under ``sample()``.
+
+    Requires at least one measurement. For a purely unitary program with no
+    measurements, use :func:`basis_probabilities` instead.
 
     ``records`` is one of: a single record string (e.g. ``"010"``), a
     sequence of record strings, or a 2D ``bool`` / ``uint8`` array of
@@ -274,7 +281,7 @@ def probability_of(
     record_array = _records_from_outcomes(program, records)
     log_probs = cast(
         npt.NDArray[np.float64],
-        _probability_of_from_records(program, record_array),
+        _record_probabilities_from_records(program, record_array),
     )
     # C++ marks unreachable records with the finite sentinel
     # numpy.finfo(float64).min (-DBL_MAX). Translate it back to the
@@ -375,6 +382,7 @@ __all__ = [
     "StatevectorSqueezePass",
     "SwapMeasPass",
     "Target",
+    "basis_probabilities",
     "compile",
     "compute_reference_syndrome",
     "default_bytecode_pass_manager",
@@ -385,8 +393,7 @@ __all__ = [
     "lower",
     "parse",
     "parse_file",
-    "probabilities",
-    "probability_of",
+    "record_probabilities",
     "sample",
     "sample_k",
     "sample_k_survivors",

@@ -20,7 +20,7 @@ TEST_CASE("Probabilities missing final tableau is rejected") {
     bool threw = false;
     try {
         std::vector<uint64_t> masks{0};
-        (void)probabilities(mod, masks, 1, 1);
+        (void)basis_probabilities(mod, masks, 1, 1);
     } catch (const std::invalid_argument& ex) {
         threw = true;
         REQUIRE(std::string(ex.what()).find("final Clifford tableau") != std::string::npos);

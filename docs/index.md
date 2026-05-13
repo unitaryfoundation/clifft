@@ -87,7 +87,7 @@ For QEC workflows, Clifft also supports detector-based post-selection, survivor 
 ## What's New in 0.3.0
 
 Clifft 0.3.0 adds strong simulation for unitary circuits with
-`clifft.probabilities()`, which computes exact probabilities for selected
+`clifft.basis_probabilities()`, which computes exact probabilities for selected
 full-register computational-basis bitstrings without materializing the full
 statevector.
 

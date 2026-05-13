@@ -81,7 +81,7 @@ nav:
   - Theory:
     - Overview: theory/overview.md
     - Architecture: theory/architecture.md
-    - Basis-State Probabilities: theory/probabilities.md
+    - Basis-State Probabilities: theory/basis_probabilities.md
   - Reference:
     - Supported Gates: reference/gates.md
     - Instruction Reference: reference/instructions.md

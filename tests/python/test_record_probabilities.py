@@ -1,9 +1,9 @@
-"""Tests for clifft.probability_of(): exact measurement-record probabilities.
+"""Tests for clifft.record_basis_probabilities(): exact measurement-record probabilities.
 
-probability_of() returns the probability sample() would assign to each
+record_basis_probabilities() returns the probability sample() would assign to each
 measurement record under a compiled program with measurements. This module
 covers the Python wrapper's contract: input polymorphism, return shapes,
-return_log behavior, cross-checks against probabilities() and qiskit,
+return_log behavior, cross-checks against basis_basis_probabilities() and qiskit,
 sampling consistency, and rejection paths.
 """
 
@@ -21,9 +21,9 @@ import clifft
 # =============================================================================
 
 
-def test_bell_state_probabilities() -> None:
+def test_bell_state_basis_probabilities() -> None:
     prog = clifft.compile("H 0\nCX 0 1\nM 0 1")
-    probs = clifft.probability_of(prog, ["00", "01", "10", "11"])
+    probs = clifft.record_probabilities(prog, ["00", "01", "10", "11"])
     np.testing.assert_allclose(probs, [0.5, 0.0, 0.0, 0.5], atol=1e-12)
     assert probs.dtype == np.float64
     assert probs.shape == (4,)
@@ -31,19 +31,19 @@ def test_bell_state_probabilities() -> None:
 
 def test_single_qubit_plus_state() -> None:
     prog = clifft.compile("H 0\nM 0")
-    probs = clifft.probability_of(prog, ["0", "1"])
+    probs = clifft.record_probabilities(prog, ["0", "1"])
     np.testing.assert_allclose(probs, [0.5, 0.5], atol=1e-12)
 
 
 def test_unreachable_records_are_zero() -> None:
     prog = clifft.compile("M 0")
-    probs = clifft.probability_of(prog, ["0", "1"])
+    probs = clifft.record_probabilities(prog, ["0", "1"])
     np.testing.assert_allclose(probs, [1.0, 0.0], atol=1e-12)
 
 
 def test_feedback_circuit_returns_joint_trajectory_probability() -> None:
     prog = clifft.compile("H 0\n" "M 0\n" "CX rec[-1] 1\n" "M 1\n")
-    probs = clifft.probability_of(prog, ["00", "01", "10", "11"])
+    probs = clifft.record_probabilities(prog, ["00", "01", "10", "11"])
     np.testing.assert_allclose(probs, [0.5, 0.0, 0.0, 0.5], atol=1e-12)
 
 
@@ -54,14 +54,14 @@ def test_feedback_circuit_returns_joint_trajectory_probability() -> None:
 
 def test_single_string_returns_length_one_array() -> None:
     prog = clifft.compile("H 0\nM 0")
-    probs = clifft.probability_of(prog, "0")
+    probs = clifft.record_probabilities(prog, "0")
     assert probs.shape == (1,)
     np.testing.assert_allclose(probs, [0.5], atol=1e-12)
 
 
 def test_sequence_of_strings() -> None:
     prog = clifft.compile("H 0\nM 0")
-    probs = clifft.probability_of(prog, ("0", "1"))
+    probs = clifft.record_probabilities(prog, ("0", "1"))
     np.testing.assert_allclose(probs, [0.5, 0.5], atol=1e-12)
 
 
@@ -70,14 +70,14 @@ def test_array_input_matches_string_input(dtype: np.dtype) -> None:
     prog = clifft.compile("H 0\nCX 0 1\nM 0 1")
     records = np.array([[0, 0], [1, 1]], dtype=dtype)
     np.testing.assert_allclose(
-        clifft.probability_of(prog, records),
-        clifft.probability_of(prog, ["00", "11"]),
+        clifft.record_probabilities(prog, records),
+        clifft.record_probabilities(prog, ["00", "11"]),
     )
 
 
 def test_empty_record_batch() -> None:
     prog = clifft.compile("H 0\nM 0")
-    probs = clifft.probability_of(prog, [])
+    probs = clifft.record_probabilities(prog, [])
     assert probs.shape == (0,)
     assert probs.dtype == np.float64
 
@@ -89,7 +89,7 @@ def test_empty_record_batch() -> None:
 
 def test_return_log_returns_natural_log() -> None:
     prog = clifft.compile("H 0\nCX 0 1\nM 0 1")
-    log_probs = clifft.probability_of(prog, ["00", "01", "10", "11"], return_log=True)
+    log_probs = clifft.record_probabilities(prog, ["00", "01", "10", "11"], return_log=True)
     assert np.isclose(log_probs[0], np.log(0.5))
     assert log_probs[1] == -np.inf
     assert log_probs[2] == -np.inf
@@ -98,13 +98,13 @@ def test_return_log_returns_natural_log() -> None:
 
 def test_return_log_default_false() -> None:
     prog = clifft.compile("H 0\nM 0")
-    probs = clifft.probability_of(prog, ["0"])
+    probs = clifft.record_probabilities(prog, ["0"])
     # 0.5 (linear), not log(0.5).
     np.testing.assert_allclose(probs, [0.5], atol=1e-12)
 
 
 # =============================================================================
-# Cross-check against probabilities() on terminal-M-all circuits.
+# Cross-check against basis_basis_probabilities() on terminal-M-all circuits.
 # =============================================================================
 
 
@@ -113,8 +113,8 @@ def test_matches_probabilities_on_clifford_circuit() -> None:
     unitary = clifft.compile("H 0\nCX 0 1")
     measured = clifft.compile("H 0\nCX 0 1\nM 0 1")
 
-    expected = clifft.probabilities(unitary, bitstrings)
-    actual = clifft.probability_of(measured, bitstrings)
+    expected = clifft.basis_probabilities(unitary, bitstrings)
+    actual = clifft.record_probabilities(measured, bitstrings)
     np.testing.assert_allclose(actual, expected, atol=1e-12)
 
 
@@ -123,8 +123,8 @@ def test_matches_probabilities_on_clifford_t_circuit() -> None:
     unitary = clifft.compile("H 0\nT 0\nH 0")
     measured = clifft.compile("H 0\nT 0\nH 0\nM 0")
 
-    expected = clifft.probabilities(unitary, bitstrings)
-    actual = clifft.probability_of(measured, bitstrings)
+    expected = clifft.basis_probabilities(unitary, bitstrings)
+    actual = clifft.record_probabilities(measured, bitstrings)
     np.testing.assert_allclose(actual, expected, atol=1e-12)
 
 
@@ -137,7 +137,7 @@ def test_matches_qiskit_for_random_small_circuits(num_qubits: int, seed: int) ->
     bitstrings = [
         "".join(str((i >> q) & 1) for q in range(num_qubits)) for i in range(1 << num_qubits)
     ]
-    actual = clifft.probability_of(measured, bitstrings)
+    actual = clifft.record_probabilities(measured, bitstrings)
     np.testing.assert_allclose(actual, np.abs(qiskit_sv) ** 2, atol=1e-12)
 
 
@@ -146,8 +146,8 @@ def test_matches_qiskit_for_random_small_circuits(num_qubits: int, seed: int) ->
 # =============================================================================
 
 
-def test_sample_frequencies_match_probability_of() -> None:
-    # Run sample() many shots, count frequencies, compare to probability_of().
+def test_sample_frequencies_match_record_probabilities() -> None:
+    # Run sample() many shots, count frequencies, compare to record_probabilities().
     # Chi-squared style sanity check; not a deep statistical test.
     prog = clifft.compile("H 0\nT 0\nH 0\nM 0")
 
@@ -156,7 +156,7 @@ def test_sample_frequencies_match_probability_of() -> None:
     freq_1 = float(measurements.sum()) / shots
     freq_0 = 1.0 - freq_1
 
-    probs = clifft.probability_of(prog, ["0", "1"])
+    probs = clifft.record_probabilities(prog, ["0", "1"])
     # 5 sigma binomial half-width on shots=2e5, p~0.85 is ~0.004.
     assert abs(freq_0 - probs[0]) < 0.01
     assert abs(freq_1 - probs[1]) < 0.01
@@ -170,75 +170,75 @@ def test_sample_frequencies_match_probability_of() -> None:
 def test_rejects_zero_measurement_program() -> None:
     prog = clifft.compile("H 0\nT 0")
     with pytest.raises(ValueError, match="at least one measurement"):
-        clifft.probability_of(prog, [])
+        clifft.record_probabilities(prog, [])
 
 
 def test_rejects_hidden_measurement_slots() -> None:
     prog = clifft.compile("M 0\nR 1\nM 1")
     assert prog.num_measurements == 2
     with pytest.raises(ValueError, match="hidden measurement slots"):
-        clifft.probability_of(prog, ["00", "11"])
+        clifft.record_probabilities(prog, ["00", "11"])
 
 
 def test_rejects_noise_opcodes() -> None:
     prog = clifft.compile("X_ERROR(0.1) 0\nM 0")
     with pytest.raises(ValueError, match="pure-state evolution"):
-        clifft.probability_of(prog, ["0"])
+        clifft.record_probabilities(prog, ["0"])
 
 
 def test_rejects_detector_opcodes() -> None:
     prog = clifft.compile("M 0\nDETECTOR rec[-1]")
     with pytest.raises(ValueError, match="pure-state evolution"):
-        clifft.probability_of(prog, ["0"])
+        clifft.record_probabilities(prog, ["0"])
 
 
 def test_rejects_observable_opcodes() -> None:
     prog = clifft.compile("M 0\nOBSERVABLE_INCLUDE(0) rec[-1]")
     with pytest.raises(ValueError, match="pure-state evolution"):
-        clifft.probability_of(prog, ["0"])
+        clifft.record_probabilities(prog, ["0"])
 
 
 def test_rejects_record_string_with_wrong_length() -> None:
     prog = clifft.compile("M 0 1")
     with pytest.raises(ValueError, match="length 1, expected 2"):
-        clifft.probability_of(prog, "0")
+        clifft.record_probabilities(prog, "0")
 
 
 def test_rejects_record_string_with_invalid_chars() -> None:
     prog = clifft.compile("M 0")
     with pytest.raises(ValueError, match="expected only '0' and '1'"):
-        clifft.probability_of(prog, ["x"])
+        clifft.record_probabilities(prog, ["x"])
 
 
 def test_rejects_array_with_wrong_columns() -> None:
     prog = clifft.compile("M 0 1")
     arr = np.array([[0, 0, 0]], dtype=np.uint8)
     with pytest.raises(ValueError, match="3 columns, expected 2"):
-        clifft.probability_of(prog, arr)
+        clifft.record_probabilities(prog, arr)
 
 
 def test_rejects_array_with_non_bit_values() -> None:
     prog = clifft.compile("M 0")
     arr = np.array([[2]], dtype=np.uint8)
     with pytest.raises(ValueError, match="contain only 0 and 1"):
-        clifft.probability_of(prog, arr)
+        clifft.record_probabilities(prog, arr)
 
 
 def test_rejects_invalid_array_dtype() -> None:
     prog = clifft.compile("M 0")
     invalid: Any = np.array([[0]], dtype=np.int64)
     with pytest.raises(TypeError, match="dtype must be bool or uint8"):
-        clifft.probability_of(prog, invalid)
+        clifft.record_probabilities(prog, invalid)
 
 
 def test_rejects_invalid_array_dim() -> None:
     prog = clifft.compile("M 0")
     with pytest.raises(ValueError, match="must be 2D"):
-        clifft.probability_of(prog, np.array([0, 1], dtype=np.uint8))
+        clifft.record_probabilities(prog, np.array([0, 1], dtype=np.uint8))
 
 
 def test_rejects_invalid_input_type() -> None:
     prog = clifft.compile("M 0")
     bad: Any = 42
     with pytest.raises(TypeError, match="strings or a 2D"):
-        clifft.probability_of(prog, bad)
+        clifft.record_probabilities(prog, bad)

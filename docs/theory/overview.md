@@ -87,12 +87,12 @@ The Schrodinger Virtual Machine executes the localized bytecode using the factor
 
 ## Exact Basis-State Probabilities
 
-For unitary programs, `clifft.probabilities()` computes exact full-register
+For unitary programs, `clifft.basis_probabilities()` computes exact full-register
 computational-basis probabilities from the same factored state representation,
 without expanding the full $2^n$ statevector. The exponential part still scales
 with the active dimension $k$, so the API is useful when you need exact
 probabilities for a sparse set of output bitstrings.
 
-See [Basis-State Probabilities](probabilities.md) for the algorithm and
+See [Basis-State Probabilities](basis_probabilities.md) for the algorithm and
 [Strong Simulation with Exact Probabilities](../guide/strong-simulation.md) for
 a practical tutorial.

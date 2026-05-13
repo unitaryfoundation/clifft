@@ -1,17 +1,34 @@
-# Strong Simulation with Exact Probabilities
+# Strong Simulation: Exact Probabilities
 
-Strong simulation asks for exact output probabilities, not sampled shots.
-For unitary circuits, `clifft.probabilities()` computes exact probabilities
-for selected full-register bitstrings without expanding the full statevector.
+Clifft provides two exact-probability APIs. They sit on opposite sides of a
+single question: *is the final state of the program a single pure state?*
 
-This is useful when:
+- **`clifft.basis_probabilities(unitary_program, bitstrings)`** — for
+  unitary programs. Returns the Born probability
+  $|\langle x | U | 0 \rangle|^2$ of each queried computational-basis
+  bitstring.
+- **`clifft.record_probabilities(measured_program, records)`** — for
+  programs that contain at least one measurement (with or without classical
+  feedback). Returns the exact joint probability that `sample()` would
+  assign to each measurement record.
 
-- You care about a sparse set of output bitstrings.
-- The circuit is wider than is convenient for dense statevector extraction.
-- The active rank stays small, so exact sparse queries are cheap.
-- You want deterministic checks for compiled circuits.
+Any measurement breaks the pure-state assumption, so the two APIs cover
+disjoint regions of program-space. They overlap mathematically when the
+circuit is a unitary prefix followed by terminal `M`-all — but, as the
+[performance section below](#performance-on-overlapping-circuits) explains,
+even there the two strategies have meaningfully different execution costs.
 
-## Warm-up: Bell State
+## When to use which
+
+| Your circuit… | Use |
+|---|---|
+| has no measurements | `basis_probabilities()` |
+| ends in `M`-all and has no feedback or noise | either; see [performance](#performance-on-overlapping-circuits) |
+| has any measurement, intermediate or terminal | `record_probabilities()` |
+| has classical feedback (`CX rec[-1] q`, etc.) | `record_probabilities()` |
+| has noise, detectors, observables, or post-selection | neither — use `sample()` |
+
+## `basis_probabilities()`: amplitudes of a unitary state
 
 The smallest example is a Bell state. The circuit has four possible two-bit
 outputs, but only `00` and `11` have nonzero probability:
@@ -25,7 +42,7 @@ program = clifft.compile("""
 """)
 
 bitstrings = ["00", "01", "10", "11"]
-ps = clifft.probabilities(program, bitstrings)
+ps = clifft.basis_probabilities(program, bitstrings)
 
 for bitstring, probability in zip(bitstrings, ps):
     print(f"{bitstring}: {probability:.1f}")
@@ -43,11 +60,11 @@ Output:
 By default, `bit_order="big"` maps the first bitstring character to qubit 0.
 Each queried bitstring must include every qubit in the program.
 
-## Sparse Queries on a Wider Circuit
+### Sparse queries on a wider circuit
 
-For small circuits, `get_statevector()` is often the simplest way to inspect a
-state. It returns all $2^n$ amplitudes, so it is not the right interface when
-you only need a few exact probabilities from a wider output space.
+For small circuits, `get_statevector()` is often the simplest way to inspect
+a state. It returns all $2^n$ amplitudes, so it is not the right interface
+when you only need a few exact probabilities from a wider output space.
 
 The following circuit creates a small rare branch on qubit 0, then fans that
 branch out across the rest of the register:
@@ -73,7 +90,7 @@ bitstrings = [
     "0" * (n - 1) + "1",
 ]
 
-ps = clifft.probabilities(program, bitstrings)
+ps = clifft.basis_probabilities(program, bitstrings)
 
 print(f"qubits: {program.num_qubits}")
 print(f"peak active rank: {program.peak_rank}")
@@ -95,27 +112,28 @@ peak active rank: 1
 The full output space has 4096 bitstrings, but the query asks for only four.
 The non-Clifford work is localized to one active qubit, so the exact query
 scales with the active rank rather than by constructing a 4096-entry
-statevector. The same pattern is useful at larger widths when the active rank
-remains small and the set of target outputs stays sparse.
+statevector. The same pattern is useful at larger widths when the active
+rank remains small and the set of target outputs stays sparse.
 
-## Batch Related Queries
+### Batch related queries
 
 Pass all target bitstrings in one call:
 
 <!--pytest-codeblocks:cont-->
 
 ```python
-ps = clifft.probabilities(program, bitstrings)
+ps = clifft.basis_probabilities(program, bitstrings)
 ```
 
 Clifft shares circuit-dependent stabilizer work across the batch. Repeated
-single-bitstring calls are correct, but they rebuild work that one batched call
-can reuse.
+single-bitstring calls are correct, but they rebuild work that one batched
+call can reuse.
 
-## Programmatic Bitstring Arrays
+### Programmatic bitstring arrays
 
-String bitstrings are convenient in examples and tests. For generated queries,
-pass a 2D NumPy array with one row per bitstring and one column per qubit:
+String bitstrings are convenient in examples and tests. For generated
+queries, pass a 2D NumPy array with one row per bitstring and one column per
+qubit:
 
 <!--pytest-codeblocks:cont-->
 
@@ -131,7 +149,7 @@ query_bits = np.array(
     dtype=np.uint8,
 )
 
-ps = clifft.probabilities(program, query_bits)
+ps = clifft.basis_probabilities(program, query_bits)
 print(ps)
 ```
 
@@ -145,44 +163,216 @@ Output:
 `bit_order="big"` maps the first column to qubit 0; use
 `bit_order="little"` if the last column should map to qubit 0.
 
-## Compare with Sampling
+## `record_probabilities()`: probabilities of measurement records
 
-Sampling estimates probabilities from repeated shots. Exact probability queries
-return deterministic values:
-
-<!--pytest-codeblocks:cont-->
+`record_probabilities()` is the analytical counterpart of `sample()`: same
+trajectory model, but exact rather than estimated. The smallest example
+again is a Bell measurement, this time with the measurement included:
 
 ```python
-measurement = "M " + " ".join(str(q) for q in range(n))
-sample_program = clifft.compile("\n".join([*lines, measurement]))
+import clifft
 
-samples = clifft.sample(sample_program, shots=1000, seed=5)
-rare_hits = samples.measurements.all(axis=1).sum()
-print(rare_hits)
+program = clifft.compile("""
+    H 0
+    CNOT 0 1
+    M 0 1
+""")
+
+records = ["00", "01", "10", "11"]
+ps = clifft.record_probabilities(program, records)
+
+for record, probability in zip(records, ps):
+    print(f"{record}: {probability:.1f}")
 ```
 
-For a branch with probability around $10^{-3}$, a 1000-shot sample may see the
-rare outcome zero, one, or a few times. `probabilities()` reports the exact
-value directly.
+Output:
+
+```text
+00: 0.5
+01: 0.0
+10: 0.0
+11: 0.5
+```
+
+Each record is interpreted in measurement order: position `i` is the `i`-th
+entry `sample().measurements` would emit for that shot. A single record
+string is also accepted and returns a length-one array.
+
+### Joint probabilities under feedback
+
+`record_probabilities()` handles classical feedback (`CX rec[-1] ...` and
+related conditional gates). For trajectories where later operations depend
+on earlier outcomes, it returns the exact joint probability of the full
+record:
+
+```python
+import clifft
+
+program = clifft.compile("""
+    H 0
+    M 0
+    CX rec[-1] 1
+    M 1
+""")
+
+records = ["00", "01", "10", "11"]
+ps = clifft.record_probabilities(program, records)
+
+for record, probability in zip(records, ps):
+    print(f"{record}: {probability:.2f}")
+```
+
+Output:
+
+```text
+00: 0.50
+01: 0.00
+10: 0.00
+11: 0.50
+```
+
+Qubit 1 is flipped exactly when the first measurement returned 1, so
+records `01` and `10` are unreachable.
+
+### Cross-check against sampling
+
+For circuits ending in `M ...`, `sample()` produces an empirical
+distribution and `record_probabilities()` produces the exact distribution
+they should converge to. The two should agree up to the usual binomial
+sampling error:
+
+```python
+import clifft
+
+program = clifft.compile("H 0\nT 0\nH 0\nM 0")
+
+probs = clifft.record_probabilities(program, ["0", "1"])
+
+shots = 200_000
+samples = clifft.sample(program, shots=shots, seed=42).measurements
+freq_1 = float(samples.sum()) / shots
+freq_0 = 1.0 - freq_1
+
+print(f"exact: {probs[0]:.4f} {probs[1]:.4f}")
+print(f"freq:  {freq_0:.4f} {freq_1:.4f}")
+```
+
+Probabilities here are around 0.85 and 0.15 (the
+$(2 \pm \sqrt{2})/4$ outcomes of an $HTH$ rotation), and 200,000 shots
+resolve them to within a few thousandths.
+
+### Log probabilities for deep circuits
+
+For circuits with many measurements, joint probabilities can underflow
+float64. Pass `return_log=True` to get natural-log values instead:
+
+```python
+import clifft
+
+program = clifft.compile("H 0\nM 0")
+
+log_ps = clifft.record_probabilities(program, ["0", "1"], return_log=True)
+print(log_ps)
+```
+
+Output:
+
+```text
+[-0.69314718 -0.69314718]
+```
+
+Unreachable records are reported as `0.0` in linear output and `-inf` in
+log output.
+
+## Performance on overlapping circuits
+
+When the circuit is a unitary prefix followed by terminal `M`-all, either
+API mathematically applies. They use very different execution strategies,
+though, and the difference can be 100×+ in either direction:
+
+- `basis_probabilities()` evolves the program once, then walks
+  active-state amplitudes per queried bitstring. The up-front cost is
+  amortized across the batch.
+- `record_probabilities()` rewrites measurement opcodes to force the
+  requested outcome and replays the bytecode once per record. No
+  amortization, but the compiler's `StatevectorSqueezePass` can reorder
+  measurements next to their non-Clifford gates to free active dimensions
+  early — which lowers the effective active rank.
+
+A practical way to choose: compile both forms and read off
+`program.peak_rank`. When the *measured* form has a noticeably lower peak
+rank than the unitary form, `record_probabilities()` is typically faster
+per query. When the two peak ranks match, `basis_probabilities()` wins
+because it amortizes the bytecode execution across queries.
+
+```python
+import clifft
+
+# A circuit with a final H sandwich on every qubit: the squeeze pass can
+# pair each terminal H-T-H with an M and free that qubit's active dim early.
+circuit = """
+H 0 1 2 3 4
+CX 0 1
+CX 2 3
+CX 1 4
+H 0 1 2 3 4
+T 0 1 2 3 4
+H 0 1 2 3 4
+"""
+
+unitary = clifft.compile(circuit)
+measured = clifft.compile(circuit + "\nM 0 1 2 3 4")
+
+print(f"basis_probabilities()  peak_rank: {unitary.peak_rank}")
+print(f"record_probabilities() peak_rank: {measured.peak_rank}")
+```
+
+A gap in `peak_rank` indicates roughly a
+$2^{(k_{\text{unitary}} - k_{\text{measured}})}$ speedup ceiling for
+`record_probabilities()` over `basis_probabilities()` on this circuit,
+independent of batch size. At equal peak rank,
+`basis_probabilities()` wins by roughly the bytecode-to-amplitude-walk
+cost ratio for any moderately sized batch.
+
+If neither performance regime dominates your workload, picking by the
+table at the top — does the circuit have measurements? — is the right
+default.
 
 ## Limitations
 
-`probabilities()` applies to unitary programs. It rejects programs containing
-measurements, feedback, noise, readout noise, detectors, observables, or
-post-selection. Use `sample()` or `sample_survivors()` for mixed-circuit
-workflows.
+Both APIs reject programs that include noise, readout noise, detectors,
+observables, or post-selection. These constructs make the trajectory
+multi-valued or signal-conditioned in a way neither API models. Use
+[`sample()`](simulation.md#sampling) or
+[`sample_survivors()`](simulation.md) for those workflows.
 
-If you intentionally want to query the unitary skeleton of a mixed circuit,
-compile with [`DropNonUnitaryPass`](../reference/passes.md). That changes the
-circuit semantics by dropping non-unitary operations; it is not equivalent to
-sampling or marginalizing the original circuit.
+`basis_probabilities()` additionally rejects programs that contain any
+measurement, including terminal `M`-all. The rejection criterion is sharp:
+any measurement breaks the single-pure-final-state assumption that the
+amplitude-walk algorithm relies on. If you intentionally want the unitary
+skeleton of a mixed circuit, compile with
+[`DropNonUnitaryPass`](../reference/passes.md) — but note that this
+changes the circuit's semantics; it is not equivalent to marginalizing the
+original circuit.
 
-## How It Works
+`record_probabilities()` requires at least one measurement. Programs with
+hidden measurement slots (from `R` / reset gates lowered to
+measure-then-feedback) are also rejected. Recompile without resets, or use
+`sample()` to marginalize over the hidden outcomes.
 
-Clifft combines the active state vector with the final Clifford frame. For each
-queried physical bitstring, it sums over the active basis states and evaluates
-the remaining Clifford matrix elements as stabilizer amplitudes. The result is
-an exact full-register probability without expanding the entire physical
-statevector.
+## How it works
 
-See [Basis-State Probabilities](../theory/probabilities.md) for the algorithm.
+`basis_probabilities()` combines the active state vector with the final
+Clifford frame. For each queried physical bitstring, it sums over the
+active basis states and evaluates the remaining Clifford matrix elements as
+stabilizer amplitudes. The result is an exact full-register probability
+without expanding the entire physical statevector. See
+[Basis-State Probabilities](../theory/basis_probabilities.md) for the
+algorithm.
+
+`record_probabilities()` rewrites each sampling measurement opcode to a
+forced-outcome sibling and runs the program once per record. The forced
+kernels replace the PRNG draw with the user-supplied outcome and accumulate
+the log-probability of that choice into a running scalar, using the same
+dust-clamping convention as the sampler. The original `CompiledModule` is
+not mutated; the rewrite runs on a private shallow copy.

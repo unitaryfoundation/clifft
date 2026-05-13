@@ -157,7 +157,7 @@ TEST_CASE("forced active_diagonal: non-trivial probabilities accumulate the righ
 TEST_CASE("forced active_diagonal: dust-clamped branch is treated as unreachable") {
     // The sampling kernel routes branch selection through sample_branch(),
     // which clamps any prob <= kDustEpsilon * total to zero so that
-    // sample() never emits the dust outcome. probability_of() must match:
+    // sample() never emits the dust outcome. record_probabilities() must match:
     // forcing the dust outcome is unreachable, and forcing the surviving
     // outcome is deterministic (log_inc = 0, not log(prob/total)).
     const double dust_amp = 1e-11;  // |amp|^2 = 1e-22 < kDustEpsilon (1e-18)
@@ -182,7 +182,7 @@ TEST_CASE("forced active_diagonal: dust-clamped branch is treated as unreachable
         state.v()[1] = {dust_amp, 0.0};
         bool ok = exec_meas_active_diagonal_forced(state, 0, 0, false);
         // outcome 1 has dust probability -- sample() never emits it, so
-        // probability_of() must report it as unreachable.
+        // record_probabilities() must report it as unreachable.
         REQUIRE(ok == false);
         REQUIRE(state.forced_reachable == false);
     }

@@ -60,7 +60,7 @@ enum class Opcode : uint8_t {
     OP_SWAP_MEAS_INTERFERE,    // Fused ARRAY_SWAP + MEAS_ACTIVE_INTERFERE
 
     // Forced-outcome measurement variants. Synthesized at runtime by
-    // probability_of() via a bytecode rewrite; never emitted by the
+    // record_probabilities() via a bytecode rewrite; never emitted by the
     // compiler. Each forced variant reads the desired outcome from a
     // side buffer (one byte per record slot) instead of sampling from
     // the PRNG, and accumulates the log-probability of that outcome
