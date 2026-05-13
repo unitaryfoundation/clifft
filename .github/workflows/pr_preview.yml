@@ -73,6 +73,9 @@ jobs:
     needs: build
     runs-on: ubuntu-24.04
     if: github.event.pull_request.head.repo.fork == false
+    concurrency:
+      group: docs-deploy
+      cancel-in-progress: false
     permissions:
       contents: write
       pull-requests: write
@@ -98,6 +101,9 @@ jobs:
   cleanup:
     runs-on: ubuntu-24.04
     if: github.event.action == 'closed'
+    concurrency:
+      group: docs-deploy
+      cancel-in-progress: false
     permissions:
       contents: write
       pull-requests: write
