@@ -5,6 +5,7 @@ Clifft's Schrödinger Virtual Machine (SVM) executes compiled programs. The main
 - `sample()` for ordinary shot-based sampling
 - `sample_survivors()` for post-selected sampling
 - `probabilities()` for exact full-bitstring computational-basis probabilities
+- `probability_of()` for the exact probability of a given measurement record
 - `execute()` and `get_statevector()` for inspecting small final states
 - `sample_k()` and `sample_k_survivors()` for stratified importance sampling
 

@@ -169,8 +169,11 @@ value directly.
 
 `probabilities()` applies to unitary programs. It rejects programs containing
 measurements, feedback, noise, readout noise, detectors, observables, or
-post-selection. Use `sample()` or `sample_survivors()` for mixed-circuit
-workflows.
+post-selection. For circuits that end in measurements, including those with
+classical feedback, use
+[`probability_of()`](probability_of.md) to query the exact probability of a
+specific measurement record. For broader mixed-circuit workflows, use
+`sample()` or `sample_survivors()`.
 
 If you intentionally want to query the unitary skeleton of a mixed circuit,
 compile with [`DropNonUnitaryPass`](../reference/passes.md). That changes the

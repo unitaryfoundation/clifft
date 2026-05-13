@@ -212,6 +212,10 @@ path to a probability table. `probabilities()` shines when:
 
 For mixed circuits, including measurements, noise, and observables,
 `probabilities()` is not applicable, since the state is no longer a single pure
-vector. Use [sampling](../guide/simulation.md#sampling) for those workflows, or
+vector. For circuits ending in measurements (with or without classical
+feedback), [`probability_of()`](../guide/probability_of.md) returns the exact
+joint probability of a given measurement record. For broader workflows that
+include noise or post-selection, use
+[sampling](../guide/simulation.md#sampling), or
 [`DropNonUnitaryPass`](../reference/passes.md) if you intentionally want
 to query the unitary skeleton of a mixed circuit.
