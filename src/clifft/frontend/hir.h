@@ -358,8 +358,7 @@ struct HirModule {
 
     /// Sentinel value in `measurement_qubits` for record slots that do
     /// not correspond to a single-qubit measurement (MPP, MPAD).
-    static constexpr uint32_t kNoSingleMeasurementQubit =
-        std::numeric_limits<uint32_t>::max();
+    static constexpr uint32_t kNoSingleMeasurementQubit = std::numeric_limits<uint32_t>::max();
 
     std::complex<double> global_weight = {1.0, 0.0};
 
