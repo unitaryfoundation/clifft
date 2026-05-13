@@ -15,7 +15,6 @@
 
 #include <cmath>
 #include <cstdint>
-#include <limits>
 #include <span>
 #include <stdexcept>
 #include <vector>
@@ -181,7 +180,7 @@ std::vector<double> probability_of(const CompiledModule& program, std::span<cons
         if (state.forced_reachable) {
             log_probs.push_back(state.forced_log_probability);
         } else {
-            log_probs.push_back(-std::numeric_limits<double>::infinity());
+            log_probs.push_back(kUnreachableLogProb);
         }
     }
     return log_probs;

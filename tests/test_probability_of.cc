@@ -57,10 +57,8 @@ TEST_CASE("probability_of: Bell state probabilities") {
 
     // Bell state: only 00 and 11 are emitted, each with probability 0.5.
     CHECK_THAT(std::exp(log_probs[0]), WithinAbs(0.5, 1e-12));
-    REQUIRE(std::isinf(log_probs[1]));
-    REQUIRE(log_probs[1] < 0);  // -inf for unreachable
-    REQUIRE(std::isinf(log_probs[2]));
-    REQUIRE(log_probs[2] < 0);
+    REQUIRE(log_probs[1] == kUnreachableLogProb);
+    REQUIRE(log_probs[2] == kUnreachableLogProb);
     CHECK_THAT(std::exp(log_probs[3]), WithinAbs(0.5, 1e-12));
 }
 
@@ -83,8 +81,7 @@ TEST_CASE("probability_of: |0> deterministic measurement") {
     auto log_probs = probability_of(mod, records, /*num_records=*/2);
     REQUIRE(log_probs.size() == 2);
     CHECK_THAT(log_probs[0], WithinAbs(0.0, 1e-12));  // log(1)
-    REQUIRE(std::isinf(log_probs[1]));
-    REQUIRE(log_probs[1] < 0);
+    REQUIRE(log_probs[1] == kUnreachableLogProb);
 }
 
 // =============================================================================
@@ -110,10 +107,8 @@ TEST_CASE("probability_of: feedback circuit produces joint trajectory probabilit
     REQUIRE(log_probs.size() == 4);
 
     CHECK_THAT(log_probs[0], WithinAbs(std::log(0.5), 1e-12));
-    REQUIRE(std::isinf(log_probs[1]));
-    REQUIRE(log_probs[1] < 0);
-    REQUIRE(std::isinf(log_probs[2]));
-    REQUIRE(log_probs[2] < 0);
+    REQUIRE(log_probs[1] == kUnreachableLogProb);
+    REQUIRE(log_probs[2] == kUnreachableLogProb);
     CHECK_THAT(log_probs[3], WithinAbs(std::log(0.5), 1e-12));
 }
 
@@ -273,10 +268,10 @@ TEST_CASE("probability_of: matches probabilities() on a Clifford circuit") {
     REQUIRE(probs.size() == 4);
     REQUIRE(log_probs.size() == 4);
     for (size_t i = 0; i < 4; ++i) {
-        if (std::isfinite(log_probs[i])) {
-            CHECK_THAT(std::exp(log_probs[i]), WithinAbs(probs[i], 1e-12));
-        } else {
+        if (log_probs[i] == kUnreachableLogProb) {
             CHECK_THAT(probs[i], WithinAbs(0.0, 1e-12));
+        } else {
+            CHECK_THAT(std::exp(log_probs[i]), WithinAbs(probs[i], 1e-12));
         }
     }
 }
@@ -302,7 +297,7 @@ TEST_CASE("probability_of: matches probabilities() on a Clifford+T circuit (acti
     REQUIRE(probs.size() == 2);
     REQUIRE(log_probs.size() == 2);
     for (size_t i = 0; i < 2; ++i) {
-        REQUIRE(std::isfinite(log_probs[i]));
+        REQUIRE(log_probs[i] != kUnreachableLogProb);
         CHECK_THAT(std::exp(log_probs[i]), WithinAbs(probs[i], 1e-12));
     }
 
@@ -323,7 +318,7 @@ TEST_CASE("probability_of: multi-record probabilities sum to 1 for a small circu
 
     double total = 0.0;
     for (double lp : log_probs) {
-        if (std::isfinite(lp)) {
+        if (lp != kUnreachableLogProb) {
             total += std::exp(lp);
         }
     }

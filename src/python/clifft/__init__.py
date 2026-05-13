@@ -82,6 +82,7 @@ from clifft._clifft_core import (
     SwapMeasPass,
     Target,
     _probabilities_from_bitmasks,
+    _probability_of_from_records,
     compute_reference_syndrome,
     default_bytecode_pass_manager,
     default_hir_pass_manager,
@@ -106,6 +107,7 @@ from clifft._clifft_core import (
 from clifft._sample_result import SampleResult
 
 BasisBitstrings: TypeAlias = str | Sequence[str] | npt.NDArray[np.bool_] | npt.NDArray[np.uint8]
+MeasurementRecords: TypeAlias = str | Sequence[str] | npt.NDArray[np.bool_] | npt.NDArray[np.uint8]
 
 
 def _basis_masks_from_bitstrings(
@@ -197,6 +199,92 @@ def probabilities(
     )
 
 
+def _records_from_outcomes(
+    program: Program,
+    records: MeasurementRecords,
+) -> npt.NDArray[np.uint8]:
+    """Convert string or array measurement records into a 2D uint8 array.
+
+    The output has shape ``(num_records, program.num_measurements)`` and
+    contains only 0/1 entries. Each row is a single measurement record in
+    record-position order (matching ``sample().measurements``).
+    """
+    num_meas = program.num_measurements
+
+    def fill_string_record(out: npt.NDArray[np.uint8], record: str, row: int) -> None:
+        if len(record) != num_meas:
+            raise ValueError(f"record at index {row} has length {len(record)}, expected {num_meas}")
+        for col, char in enumerate(record):
+            if char == "0":
+                out[row, col] = 0
+            elif char == "1":
+                out[row, col] = 1
+            else:
+                raise ValueError(
+                    f"record at index {row} contains {char!r}; expected only '0' and '1'"
+                )
+
+    if isinstance(records, str):
+        out = np.zeros((1, num_meas), dtype=np.uint8)
+        fill_string_record(out, records, 0)
+        return out
+
+    if isinstance(records, np.ndarray):
+        bit_array = records
+    elif isinstance(records, Sequence):
+        if all(isinstance(record, str) for record in records):
+            out = np.zeros((len(records), num_meas), dtype=np.uint8)
+            for row, record in enumerate(records):
+                fill_string_record(out, record, row)
+            return out
+        raise TypeError("records must be strings or a 2D bool/uint8 NumPy array")
+    else:
+        raise TypeError("records must be strings or a 2D bool/uint8 NumPy array")
+
+    if bit_array.ndim != 2:
+        raise ValueError("records array must be 2D with shape (num_records, num_measurements)")
+    if bit_array.shape[1] != num_meas:
+        raise ValueError(f"records array has {bit_array.shape[1]} columns, expected {num_meas}")
+    if bit_array.dtype not in (np.dtype("bool"), np.dtype("uint8")):
+        raise TypeError("records array dtype must be bool or uint8")
+    if bit_array.dtype == np.dtype("uint8") and np.any((bit_array != 0) & (bit_array != 1)):
+        raise ValueError("uint8 records array must contain only 0 and 1")
+    return np.ascontiguousarray(bit_array.astype(np.uint8, copy=False))
+
+
+def probability_of(
+    program: Program,
+    records: MeasurementRecords,
+    *,
+    return_log: bool = False,
+) -> npt.NDArray[np.float64]:
+    """Return the exact probability sample() would assign to each record.
+
+    ``records`` is one of: a single record string (e.g. ``"010"``), a
+    sequence of record strings, or a 2D ``bool`` / ``uint8`` array of
+    shape ``(num_records, program.num_measurements)``. Each record is
+    interpreted in measurement order -- position ``i`` is the i-th entry
+    sample().measurements would emit.
+
+    Records the program cannot emit are reported as ``0.0`` (or ``-inf``
+    when ``return_log=True``). For deep circuits whose probabilities
+    underflow float64, pass ``return_log=True`` so the log-domain values
+    survive.
+    """
+    record_array = _records_from_outcomes(program, records)
+    log_probs = cast(
+        npt.NDArray[np.float64],
+        _probability_of_from_records(program, record_array),
+    )
+    # C++ marks unreachable records with the finite sentinel
+    # numpy.finfo(float64).min (-DBL_MAX). Translate it back to the
+    # Pythonic -inf for log output, and rely on the natural underflow
+    # to 0.0 under np.exp for the linear case.
+    if return_log:
+        return np.where(log_probs == np.finfo(np.float64).min, -np.inf, log_probs)
+    return np.exp(log_probs)
+
+
 class _DefaultPasses:
     """Sentinel marker for compile()'s default optimization passes."""
 
@@ -260,6 +348,7 @@ def compile(
 __all__ = [
     "AstNode",
     "BasisBitstrings",
+    "MeasurementRecords",
     "BytecodePass",
     "BytecodePassManager",
     "Circuit",
@@ -297,6 +386,7 @@ __all__ = [
     "parse",
     "parse_file",
     "probabilities",
+    "probability_of",
     "sample",
     "sample_k",
     "sample_k_survivors",

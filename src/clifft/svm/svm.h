@@ -10,6 +10,7 @@
 #include <cmath>
 #include <complex>
 #include <cstdint>
+#include <limits>
 #include <optional>
 #include <span>
 #include <string>
@@ -367,6 +368,13 @@ std::vector<double> probabilities(const CompiledModule& program,
                                   std::span<const uint64_t> basis_masks, size_t num_basis_masks,
                                   size_t words_per_basis_mask);
 
+/// Sentinel returned by `probability_of()` for records the program cannot
+/// emit. Equal to `std::numeric_limits<double>::lowest()` (-DBL_MAX). A
+/// finite value is used (rather than `-infinity`) so the contract survives
+/// `-ffast-math` builds, which assume infinities cannot occur and fold
+/// away `std::isinf`/`std::isfinite`. Exponentiating it underflows to 0.
+inline constexpr double kUnreachableLogProb = std::numeric_limits<double>::lowest();
+
 /// Return exact log-probabilities for a batch of measurement records under
 /// the compiled program. Computes the probability that sample() would emit
 /// each record, modulo dust-clamping. The program must contain at least one
@@ -377,7 +385,7 @@ std::vector<double> probabilities(const CompiledModule& program,
 /// `records` is a packed buffer of `num_records * program.num_measurements`
 /// bytes (0 or 1 per slot, in execution order -- the same order
 /// sample().measurements uses). Records the program cannot emit return
-/// `-infinity`; finite values are natural-log probabilities.
+/// `kUnreachableLogProb`; other entries are natural-log probabilities.
 std::vector<double> probability_of(const CompiledModule& program, std::span<const uint8_t> records,
                                    size_t num_records);
 
