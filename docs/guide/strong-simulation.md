@@ -1,22 +1,18 @@
 # Strong Simulation: Exact Probabilities
 
-Clifft provides two exact-probability APIs. They sit on opposite sides of a
-single question: *is the final state of the program a single pure state?*
+Clifft provides two exact-probability APIs covering complementary regimes:
 
-- **`clifft.basis_probabilities(unitary_program, bitstrings)`** — for
-  unitary programs. Returns the Born probability
-  $|\langle x | U | 0 \rangle|^2$ of each queried computational-basis
-  bitstring.
-- **`clifft.record_probabilities(measured_program, records)`** — for
-  programs that contain at least one measurement (with or without classical
-  feedback). Returns the exact joint probability that `sample()` would
-  assign to each measurement record.
+- **`clifft.basis_probabilities(unitary_program, bitstrings)`** — exact
+  computational-basis probabilities for a unitary program.
+- **`clifft.record_probabilities(measured_program, records)`** — exact
+  joint probabilities of measurement records for a circuit that contains
+  measurements (with or without classical feedback).
 
-Any measurement breaks the pure-state assumption, so the two APIs cover
-disjoint regions of program-space. They overlap mathematically when the
-circuit is a unitary prefix followed by terminal `M`-all — but, as the
-[performance section below](#performance-on-overlapping-circuits) explains,
-even there the two strategies have meaningfully different execution costs.
+You can convert the former problem into the latter by adding explicit
+terminal measurements to a unitary program, and the two distributions match
+on the bitstrings the records encode. The runtime cost can differ
+substantially — see
+[Performance on overlapping circuits](#performance-on-overlapping-circuits).
 
 ## When to use which
 
@@ -26,16 +22,6 @@ even there the two strategies have meaningfully different execution costs.
 | has any measurement (terminal or intermediate) | `record_probabilities()` |
 | has classical feedback (`CX rec[-1] q`, etc.) | `record_probabilities()` |
 | has noise, detectors, observables, or post-selection | neither — use `sample()` |
-
-Each program goes through exactly one API: `basis_probabilities()` rejects
-any measurement, and `record_probabilities()` requires at least one. If
-you have a unitary circuit that you'd also like to query as a measured
-circuit, compile two variants — unitary into `basis_probabilities()`,
-unitary + terminal `M`-all into `record_probabilities()`. The returned
-distributions match on the bitstrings the records encode, but the two
-compile flows can lower the program differently and the runtime cost can
-differ by 100× either way; see
-[Performance on overlapping circuits](#performance-on-overlapping-circuits).
 
 ## `basis_probabilities()`: probabilities of a unitary state
 

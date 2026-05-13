@@ -405,3 +405,18 @@ def test_probabilities_fast_path_multiword_dormant_block() -> None:
         [2.0**-n] * len(bitstrings),
         atol=1e-15,
     )
+
+
+def test_basis_probabilities_return_log() -> None:
+    prog = clifft.compile("H 0\nCX 0 1")
+    log_probs = clifft.basis_probabilities(prog, ["00", "01", "10", "11"], return_log=True)
+    assert np.isclose(log_probs[0], np.log(0.5))
+    assert log_probs[1] == -np.inf
+    assert log_probs[2] == -np.inf
+    assert np.isclose(log_probs[3], np.log(0.5))
+
+
+def test_basis_probabilities_return_log_default_false() -> None:
+    prog = clifft.compile("H 0")
+    probs = clifft.basis_probabilities(prog, ["0"])
+    np.testing.assert_allclose(probs, [0.5], atol=1e-12)

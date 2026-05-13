@@ -185,6 +185,7 @@ def basis_probabilities(
     bitstrings: BasisBitstrings,
     *,
     bit_order: str = "big",
+    return_log: bool = False,
 ) -> npt.NDArray[np.float64]:
     """Exact Born probabilities of computational-basis bitstrings.
 
@@ -194,13 +195,20 @@ def basis_probabilities(
 
     ``bit_order="big"`` maps the first character or array column to qubit 0.
     ``bit_order="little"`` maps the last character or array column to qubit 0.
+
+    Pass ``return_log=True`` to get natural-log probabilities. Zero
+    probabilities map to ``-inf`` in log output.
     """
-    return cast(
+    probs = cast(
         npt.NDArray[np.float64],
         _basis_probabilities_from_bitmasks(
             program, _basis_masks_from_bitstrings(program, bitstrings, bit_order)
         ),
     )
+    if return_log:
+        with np.errstate(divide="ignore"):
+            return np.log(probs)
+    return probs
 
 
 def _records_from_outcomes(
@@ -278,6 +286,14 @@ def record_probabilities(
     underflow float64, pass ``return_log=True`` so the log-domain values
     survive.
     """
+    # Reject zero-measurement programs up front so a user who passes a real
+    # record string against a unitary program gets the right hint rather
+    # than the wrapper's record-length mismatch error.
+    if program.num_measurements == 0:
+        raise ValueError(
+            "record_probabilities() requires a program with at least one "
+            "measurement; use clifft.basis_probabilities() for unitary circuits."
+        )
     record_array = _records_from_outcomes(program, records)
     log_probs = cast(
         npt.NDArray[np.float64],

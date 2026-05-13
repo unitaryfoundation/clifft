@@ -80,17 +80,12 @@ print(sv)  # [0.707+0j, 0+0j, 0+0j, 0.707+0j]
 
 ## Exact Probabilities
 
-Clifft offers two exact-probability APIs sitting on either side of one
-question: *is the final state pure?*
+Clifft offers two exact-probability APIs:
 
-- **`clifft.basis_probabilities(program, bitstrings)`** — for **unitary**
-  programs only. Returns $|\langle x | U | 0 \rangle|^2$ for each queried
-  bitstring. Rejects any measurement, feedback, noise, detector, observable,
-  or post-selection (`EXP_VAL` probes are allowed but ignored).
-
-- **`clifft.record_probabilities(program, records)`** — for programs **with
-  measurements** (and, optionally, classical feedback). Returns the exact
-  joint probability that `sample()` would assign to each measurement record.
+- **`clifft.basis_probabilities(program, bitstrings)`** — computational-basis
+  probabilities for a unitary program.
+- **`clifft.record_probabilities(program, records)`** — joint probabilities
+  of measurement records for a circuit that has measurements.
 
 ```python
 import clifft
@@ -104,38 +99,9 @@ qs = clifft.record_probabilities(measured, ["00", "01", "10", "11"])
 print(qs)  # [0.5, 0.0, 0.0, 0.5]
 ```
 
-Each program goes to exactly one API — `basis_probabilities()` rejects any
-measurement, including terminal `M`-all. To compare them on the same
-circuit, compile two variants (unitary into `basis_probabilities()`,
-unitary + terminal `M`-all into `record_probabilities()`); the returned
-distributions match on the bitstrings the records encode. Their execution
-costs can differ by 100× either way, depending on circuit structure; see
-[Strong Simulation: Exact Probabilities](strong-simulation.md) for the
-tradeoff and when one is meaningfully faster.
-
-If you intentionally want to query the unitary skeleton of a mixed circuit
-with `basis_probabilities()`, compile with a custom HIR pass manager:
-
-```python
-import clifft
-
-circuit_text = """
-H 0
-M 0
-"""
-
-pm = clifft.HirPassManager()
-pm.add(clifft.DropNonUnitaryPass())
-
-program = clifft.compile(circuit_text, hir_passes=pm)
-ps = clifft.basis_probabilities(program, ["0", "1"])
-```
-
-!!! warning "DropNonUnitaryPass changes circuit semantics"
-    `DropNonUnitaryPass` drops non-evolution HIR operations, including
-    measurements, feedback, noise, annotations, and read-only probes. It is
-    useful when a user explicitly wants the unitary-only skeleton, but it is
-    not equivalent to sampling or marginalizing the original mixed circuit.
+See [Strong Simulation: Exact Probabilities](strong-simulation.md) for
+walkthroughs of both APIs, their limitations, and how their runtime cost
+depends on the circuit.
 
 ## Detectors, Observables, and Post-Selection
 

@@ -173,6 +173,16 @@ def test_rejects_zero_measurement_program() -> None:
         clifft.record_probabilities(prog, [])
 
 
+def test_rejects_zero_measurement_program_with_real_records() -> None:
+    # The wrapper formats records against program.num_measurements before
+    # calling into C++. Without an explicit zero-measurement guard, this
+    # surfaces as a confusing record-length mismatch ("expected 0") instead
+    # of pointing the user at basis_probabilities().
+    prog = clifft.compile("H 0")
+    with pytest.raises(ValueError, match="use clifft.basis_probabilities"):
+        clifft.record_probabilities(prog, ["0"])
+
+
 def test_rejects_hidden_measurement_slots() -> None:
     prog = clifft.compile("M 0\nR 1\nM 1")
     assert prog.num_measurements == 2
