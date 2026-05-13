@@ -206,6 +206,12 @@ def basis_probabilities(
         ),
     )
     if return_log:
+        # TODO: move logspace accumulation into the C++ amplitude walk so
+        # very-rare-bitstring queries don't lose precision through the
+        # linear->log conversion. Current path is symmetric with
+        # record_probabilities() at the API surface but does not give the
+        # precision benefit; that benefit only kicks in once the underlying
+        # |amplitude|^2 sum is itself tracked in logspace.
         with np.errstate(divide="ignore"):
             return np.log(probs)
     return probs

@@ -5,8 +5,9 @@ Clifft provides two exact-probability APIs covering complementary regimes:
 - **`clifft.basis_probabilities(unitary_program, bitstrings)`** — exact
   computational-basis probabilities for a unitary program.
 - **`clifft.record_probabilities(measured_program, records)`** — exact
-  joint probabilities of measurement records for a circuit that contains
-  measurements (with or without classical feedback).
+  joint probabilities of measurement records for a unitary circuit that
+  contains measurements (with or without classical feedback). Noise is
+  not supported.
 
 You can convert the former problem into the latter by adding explicit
 terminal measurements to a unitary program, and the two distributions match

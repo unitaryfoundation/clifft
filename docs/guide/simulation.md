@@ -85,7 +85,8 @@ Clifft offers two exact-probability APIs:
 - **`clifft.basis_probabilities(program, bitstrings)`** — computational-basis
   probabilities for a unitary program.
 - **`clifft.record_probabilities(program, records)`** — joint probabilities
-  of measurement records for a circuit that has measurements.
+  of measurement records for a unitary circuit that has measurements (no
+  noise).
 
 ```python
 import clifft
