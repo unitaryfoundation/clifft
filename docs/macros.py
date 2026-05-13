@@ -33,6 +33,9 @@ def define_env(env: Any) -> None:
         opcodes_by_category[cat].append(entry)
 
     env.variables["opcodes"] = opcodes
+    site_url = env.conf["site_url"].rstrip("/")
+    env.variables["playground_url"] = f"{site_url}/playground/"
+
     env.variables["opcode_categories"] = [
         c for c in opcode_categories_order if opcodes_by_category.get(c)
     ]

@@ -7,7 +7,7 @@ on:
 
 concurrency:
   group: docs-deploy
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 permissions:
   contents: write
@@ -18,6 +18,8 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Build Wasm module
         uses: ./.github/actions/build-wasm
@@ -38,27 +40,24 @@ jobs:
       - name: Build playground
         run: |
           cd playground && npm ci
-          VITE_BASE_PATH=/clifft/playground/ VITE_BUILD_SHA=${{ github.sha }} npm run build
+          VITE_BASE_PATH=/clifft/dev/playground/ VITE_BUILD_SHA=${{ github.sha }} npm run build
 
-      # --- Build MkDocs (docs group only, no C++ extension needed) ---
       - name: Install uv
         uses: astral-sh/setup-uv@v6
         with:
           enable-cache: true
 
-      - name: Build docs
-        run: uv run --only-group docs mkdocs build --strict
-
-      # --- Merge: copy playground SPA into mkdocs output ---
-      - name: Copy playground into site
+      - name: Stage playground inside docs tree
         run: |
-          rm -rf site/playground
-          cp -r playground/dist site/playground
+          rm -rf docs/playground
+          cp -r playground/dist docs/playground
 
-      # --- Deploy to gh-pages (preserving pr-preview/) ---
-      - name: Deploy to GitHub Pages
-        uses: peaceiris/actions-gh-pages@v4
-        with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          publish_dir: ./site
-          keep_files: true
+      - name: Configure git author
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Deploy dev docs
+        run: uv run --only-group docs mike deploy --push dev
+        env:
+          SITE_URL: https://unitaryfoundation.github.io/clifft/dev/

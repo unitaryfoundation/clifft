@@ -172,3 +172,127 @@ jobs:
           gh release create "${{ github.ref_name }}" \
             --title "${{ github.ref_name }}" \
             --notes-file RELEASE_NOTES.md
+
+  # -----------------------------------------------------------
+  # Publish versioned documentation and playground
+  # -----------------------------------------------------------
+  publish-docs:
+    needs: [github-release]
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-24.04
+    concurrency:
+      group: docs-deploy
+      cancel-in-progress: false
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Build Wasm module
+        uses: ./.github/actions/build-wasm
+
+      - name: Copy Wasm artifacts
+        run: |
+          mkdir -p playground/public
+          cp build-wasm/clifft_wasm.js playground/public/
+          cp build-wasm/clifft_wasm.wasm playground/public/
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: playground/package-lock.json
+
+      - name: Install playground dependencies
+        run: cd playground && npm ci
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
+      - name: Configure git author
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Build versioned playground
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          cd playground
+          VITE_BASE_PATH="/clifft/${VERSION}/playground/" VITE_BUILD_SHA="${GITHUB_SHA}" npm run build
+
+      - name: Stage playground inside docs tree
+        run: |
+          rm -rf docs/playground
+          cp -r playground/dist docs/playground
+
+      - name: Deploy versioned docs
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          SITE_URL="https://unitaryfoundation.github.io/clifft/${VERSION}/" \
+            uv run --only-group docs mike deploy --push "${VERSION}"
+
+      - name: Decide whether to update stable docs
+        id: stable
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          uv run --only-group docs mike list --json > /tmp/mike-list.json || echo '[]' > /tmp/mike-list.json
+          VERSION="${VERSION}" uv run --only-group docs python - <<'PY' >> "${GITHUB_OUTPUT}"
+          import json
+          import os
+          from pathlib import Path
+
+          from packaging.version import InvalidVersion, Version
+
+          current = Version(os.environ["VERSION"])
+          entries = json.loads(Path("/tmp/mike-list.json").read_text())
+          released = []
+          for entry in entries:
+              try:
+                  released.append(Version(entry["version"]))
+              except (InvalidVersion, KeyError):
+                  continue
+
+          highest = max(released, default=None)
+          should_update = highest is None or current >= highest
+          print(f"update={'true' if should_update else 'false'}")
+          print(f"highest={highest or ''}")
+          PY
+
+      - name: Build stable playground
+        if: steps.stable.outputs.update == 'true'
+        run: |
+          cd playground
+          VITE_BASE_PATH=/clifft/stable/playground/ VITE_BUILD_SHA="${GITHUB_SHA}" npm run build
+
+      - name: Stage stable playground inside docs tree
+        if: steps.stable.outputs.update == 'true'
+        run: |
+          rm -rf docs/playground
+          cp -r playground/dist docs/playground
+
+      - name: Deploy stable docs
+        if: steps.stable.outputs.update == 'true'
+        run: |
+          SITE_URL=https://unitaryfoundation.github.io/clifft/stable/ \
+            uv run --only-group docs mike deploy --push stable
+          uv run --only-group docs mike set-default --push stable
+
+      - name: Build root stable playground
+        if: steps.stable.outputs.update == 'true'
+        run: |
+          cd playground
+          VITE_BASE_PATH=/clifft/playground/ VITE_BUILD_SHA="${GITHUB_SHA}" npm run build
+
+      - name: Deploy root stable playground
+        if: steps.stable.outputs.update == 'true'
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./playground/dist
+          destination_dir: playground
+          keep_files: true

@@ -76,6 +76,8 @@ The tag push triggers the release workflow:
 2. **Publish to TestPyPI** — dry run on the test index
 3. **Publish to PyPI** — the real release (only on tag push)
 4. **Create GitHub Release** — extracts release notes from `CHANGELOG.md`
+5. **Publish versioned docs** — updates the exact version, `stable`, and the
+   root stable Playground
 
 If any step fails, subsequent steps are skipped.
 
@@ -88,6 +90,30 @@ python -c "import clifft; print(clifft.__version__)"
 
 Check that the [GitHub Release](https://github.com/unitaryfoundation/clifft/releases)
 was created.
+
+Then verify the hosted docs and Playground:
+
+- `https://unitaryfoundation.github.io/clifft/<version>/` exists.
+- For the newest release, `https://unitaryfoundation.github.io/clifft/stable/`
+  shows the new release docs.
+- `https://unitaryfoundation.github.io/clifft/playground/?url=<raw-stim-url>`
+  still loads a remote circuit.
+
+## Documentation versions
+
+Documentation is versioned separately from package builds. Pushes to `main`
+publish unreleased documentation to
+`https://unitaryfoundation.github.io/clifft/dev/`. Tagged releases publish the
+exact release version, update the `stable` docs copy, and refresh the root
+stable Playground at `https://unitaryfoundation.github.io/clifft/playground/`.
+If a lower SemVer patch line is released after a newer stable version, the
+workflow publishes the exact version docs but leaves `stable` and the root
+Playground unchanged.
+
+Each docs version includes its own Playground build, so examples and docs match
+the selected Clifft version. The root `/playground/` path is a stable
+compatibility URL for externally shared links. Dev Playground links are
+unreleased and should not be used as permanent public links.
 
 ## Changelog maintenance
 

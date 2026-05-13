@@ -127,7 +127,7 @@ that ceiling, no rebuild is required for any circuit size.
 
 ## WebAssembly Build
 
-For the browser-based [Playground](../playground/):
+For the browser-based [Playground]({{ playground_url }}):
 
 ```bash
 # Requires Docker
@@ -135,7 +135,11 @@ just build-wasm
 just test-wasm
 ```
 
-Outputs `playground/public/clifft_wasm.{js,wasm}`. See the [Playground](../playground/) page.
+Outputs `playground/public/clifft_wasm.{js,wasm}`. See the [Playground]({{ playground_url }}) page.
+
+The documentation link points to the deployed Playground for the selected docs
+version. To preview Playground changes locally, run `npm run dev` in the
+`playground/` directory and open the Vite development server directly.
 
 ## IDE Setup
 
