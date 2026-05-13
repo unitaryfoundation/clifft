@@ -43,6 +43,17 @@ target_compile_definitions(clifft_tests PRIVATE
     CLIFFT_FIXTURES_DIR="${CMAKE_CURRENT_SOURCE_DIR}/fixtures"
 )
 
+# probability_of() returns -inf for unreachable records. Under the Release-
+# only -ffast-math (which implies -ffinite-math-only), std::isinf and
+# std::isfinite are constant-folded to false because the compiler assumes
+# infinities cannot occur. Compile this test in finite-math-aware mode so
+# the predicates exercise the API contract.
+if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+    set_source_files_properties(test_probability_of.cc
+        PROPERTIES COMPILE_OPTIONS "-fno-fast-math"
+    )
+endif()
+
 # Code coverage instrumentation for test executable
 if(CLIFFT_COVERAGE)
     target_compile_options(clifft_tests PRIVATE --coverage)

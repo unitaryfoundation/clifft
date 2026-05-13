@@ -721,7 +721,10 @@ NB_MODULE(_clifft_core, m) {
             "Per visible measurement record slot, the qubit that was measured. "
             "Indexed [0, num_measurements). Use to map a record entry back to a "
             "physical qubit -- e.g. record_index = "
-            "list(program.measurement_qubits).index(qubit).")
+            "list(program.measurement_qubits).index(qubit). "
+            "Slots for measurements that do not target a single qubit -- MPP "
+            "(joint Pauli) and MPAD (deterministic padding) -- hold UINT32_MAX "
+            "(2**32 - 1) as a sentinel.")
         .def_prop_ro("num_instructions",
                      [](const clifft::CompiledModule& p) { return p.bytecode.size(); })
         .def_prop_ro(

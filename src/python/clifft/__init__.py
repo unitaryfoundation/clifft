@@ -109,6 +109,11 @@ from clifft._sample_result import SampleResult
 BasisBitstrings: TypeAlias = str | Sequence[str] | npt.NDArray[np.bool_] | npt.NDArray[np.uint8]
 MeasurementRecords: TypeAlias = str | Sequence[str] | npt.NDArray[np.bool_] | npt.NDArray[np.uint8]
 
+#: Sentinel stored in :attr:`Program.measurement_qubits` for record slots
+#: that do not correspond to a single-qubit measurement (MPP joint Pauli,
+#: MPAD deterministic padding). Equal to ``2**32 - 1``.
+NO_SINGLE_MEASUREMENT_QUBIT: int = (1 << 32) - 1
+
 
 def _basis_masks_from_bitstrings(
     program: Program,
@@ -359,6 +364,7 @@ __all__ = [
     "Instruction",
     "DropNonUnitaryPass",
     "MultiGatePass",
+    "NO_SINGLE_MEASUREMENT_QUBIT",
     "NoiseBlockPass",
     "Opcode",
     "OpType",

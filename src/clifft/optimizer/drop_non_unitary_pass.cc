@@ -38,6 +38,7 @@ void DropNonUnitaryPass::run(HirModule& hir) {
     hir.num_detectors = 0;
     hir.num_observables = 0;
     hir.num_exp_vals = 0;
+    hir.measurement_qubits.clear();
     hir.source_map.clear();
 }
 

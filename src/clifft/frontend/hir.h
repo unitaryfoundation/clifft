@@ -21,6 +21,7 @@
 #include <cassert>
 #include <complex>
 #include <cstdint>
+#include <limits>
 #include <optional>
 #include <stdexcept>
 #include <vector>
@@ -348,7 +349,17 @@ struct HirModule {
     /// Per visible measurement record slot, the qubit that was measured.
     /// Indexed by MeasRecordIdx for indices in [0, num_measurements).
     /// Hidden measurements (from R / reset gates) are not represented.
+    ///
+    /// For measurements that do not target a single qubit -- MPP (joint
+    /// Pauli) and MPAD (deterministic padding) -- the slot is set to
+    /// `kNoSingleMeasurementQubit` (UINT32_MAX). Callers that need a
+    /// single qubit index must check for this sentinel.
     std::vector<uint32_t> measurement_qubits;
+
+    /// Sentinel value in `measurement_qubits` for record slots that do
+    /// not correspond to a single-qubit measurement (MPP, MPAD).
+    static constexpr uint32_t kNoSingleMeasurementQubit =
+        std::numeric_limits<uint32_t>::max();
 
     std::complex<double> global_weight = {1.0, 0.0};
 

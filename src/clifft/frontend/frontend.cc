@@ -364,8 +364,11 @@ HirModule trace(const Circuit& circuit) {
     hir.num_exp_vals = circuit.num_exp_vals;
     // Per-slot qubit assignment for visible measurements, filled in as each
     // M target is traced. Hidden measurements (from R / reset) are not
-    // represented; their record slots are not user-visible.
-    hir.measurement_qubits.assign(circuit.num_measurements, 0);
+    // represented; their record slots are not user-visible. Slots default
+    // to kNoSingleMeasurementQubit; MPP and MPAD leave the sentinel since
+    // they do not target a single qubit.
+    hir.measurement_qubits.assign(circuit.num_measurements,
+                                  HirModule::kNoSingleMeasurementQubit);
 
     std::mt19937_64 rng(0);
     stim::TableauSimulator<kStimWidth> sim(std::move(rng), circuit.num_qubits);

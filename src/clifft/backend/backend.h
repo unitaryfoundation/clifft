@@ -336,6 +336,10 @@ struct CompiledModule {
     /// Per visible measurement record slot, the qubit that was measured.
     /// Indexed by classical_idx for indices in [0, num_measurements). Lets
     /// callers map a measurement record entry back to a physical qubit.
+    ///
+    /// Slots for measurements that do not target a single qubit -- MPP
+    /// (joint Pauli) and MPAD (deterministic padding) -- are set to
+    /// `HirModule::kNoSingleMeasurementQubit` (UINT32_MAX).
     std::vector<uint32_t> measurement_qubits;
 
     // Expected noiseless observable parities for syndrome normalization.

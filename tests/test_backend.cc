@@ -1406,6 +1406,7 @@ TEST_CASE("DropNonUnitaryPass strips non-unitary ops and metadata") {
     REQUIRE(hir.num_observables > 0);
     REQUIRE(hir.num_exp_vals > 0);
     REQUIRE(!hir.noise_sites.empty());
+    REQUIRE(!hir.measurement_qubits.empty());
 
     DropNonUnitaryPass pass;
     pass.run(hir);
@@ -1421,6 +1422,10 @@ TEST_CASE("DropNonUnitaryPass strips non-unitary ops and metadata") {
     CHECK(hir.observable_targets.empty());
     CHECK(hir.noise_channel_masks.size() == 0);
     CHECK(hir.source_map.empty());
+    // After dropping measurements, the per-slot qubit metadata must be
+    // cleared so a follow-on lower() does not surface stale entries with
+    // num_measurements == 0.
+    CHECK(hir.measurement_qubits.empty());
 
     for (const auto& op : hir.ops) {
         CHECK((op.op_type() == OpType::T_GATE || op.op_type() == OpType::PHASE_ROTATION));

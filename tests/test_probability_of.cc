@@ -136,6 +136,30 @@ TEST_CASE("measurement_qubits is empty for unitary programs") {
     REQUIRE(mod.measurement_qubits.empty());
 }
 
+TEST_CASE("measurement_qubits uses sentinel for MPP joint-Pauli measurements") {
+    auto mod = compile_circuit("MPP X0*X1");
+    REQUIRE(mod.num_measurements == 1);
+    REQUIRE(mod.measurement_qubits.size() == 1);
+    REQUIRE(mod.measurement_qubits[0] == HirModule::kNoSingleMeasurementQubit);
+}
+
+TEST_CASE("measurement_qubits uses sentinel for MPAD padding records") {
+    auto mod = compile_circuit("MPAD 1");
+    REQUIRE(mod.num_measurements == 1);
+    REQUIRE(mod.measurement_qubits.size() == 1);
+    REQUIRE(mod.measurement_qubits[0] == HirModule::kNoSingleMeasurementQubit);
+}
+
+TEST_CASE("measurement_qubits mixes per-slot qubits with sentinels across gate types") {
+    auto mod = compile_circuit("M 2\nMPP X0*X1\nMPAD 0\nM 1");
+    REQUIRE(mod.num_measurements == 4);
+    REQUIRE(mod.measurement_qubits.size() == 4);
+    REQUIRE(mod.measurement_qubits[0] == 2);
+    REQUIRE(mod.measurement_qubits[1] == HirModule::kNoSingleMeasurementQubit);
+    REQUIRE(mod.measurement_qubits[2] == HirModule::kNoSingleMeasurementQubit);
+    REQUIRE(mod.measurement_qubits[3] == 1);
+}
+
 // =============================================================================
 // Pre-flight validation.
 // =============================================================================

@@ -33,6 +33,24 @@ def test_measurement_qubits_is_empty_for_unitary_circuit() -> None:
     assert list(prog.measurement_qubits) == []
 
 
+def test_measurement_qubits_uses_sentinel_for_mpp() -> None:
+    prog = clifft.compile("MPP X0*X1")
+    assert prog.num_measurements == 1
+    assert list(prog.measurement_qubits) == [clifft.NO_SINGLE_MEASUREMENT_QUBIT]
+
+
+def test_measurement_qubits_uses_sentinel_for_mpad() -> None:
+    prog = clifft.compile("MPAD 1")
+    assert prog.num_measurements == 1
+    assert list(prog.measurement_qubits) == [clifft.NO_SINGLE_MEASUREMENT_QUBIT]
+
+
+def test_measurement_qubits_mixes_qubits_and_sentinels() -> None:
+    prog = clifft.compile("M 2\nMPP X0*X1\nMPAD 0\nM 1")
+    sentinel = clifft.NO_SINGLE_MEASUREMENT_QUBIT
+    assert list(prog.measurement_qubits) == [2, sentinel, sentinel, 1]
+
+
 # =============================================================================
 # Basic correctness: closed-form probabilities.
 # =============================================================================

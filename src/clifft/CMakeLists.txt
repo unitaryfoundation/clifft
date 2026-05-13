@@ -29,6 +29,17 @@ add_library(clifft_core STATIC
     util/introspection.cc
 )
 
+# probability_of() uses -inf as an in-band sentinel for unreachable records
+# and surfaces it through the Python API. The Release-only -ffast-math (set
+# in the top-level CMakeLists.txt) implies -ffinite-math-only, which lets
+# the compiler assume infinities never occur and folds away the sentinel.
+# Undo fast-math for just this TU to preserve the contract.
+if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+    set_source_files_properties(api/probability_of.cc
+        PROPERTIES COMPILE_OPTIONS "-fno-fast-math"
+    )
+endif()
+
 # x86-64 runtime dispatch: compile AVX2 and AVX-512 TUs with SIMD flags.
 if((CMAKE_SYSTEM_PROCESSOR MATCHES "(x86_64|AMD64|amd64)") AND NOT MSVC)
     target_sources(clifft_core PRIVATE svm/svm_avx2.cc svm/svm_avx512.cc)
