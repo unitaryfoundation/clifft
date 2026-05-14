@@ -82,6 +82,14 @@ jobs:
           comment-on-alert: false
 
   bench-python:
+    # Wait for bench-cpp before pushing so the two jobs don't race each
+    # other on gh-pages. `always() && !cancelled()` keeps the "a C++
+    # failure doesn't gate Python history" property intact (Python runs
+    # even if bench-cpp failed) while honoring explicit workflow
+    # cancellation -- a bare `always()` would publish data even on a
+    # cancelled run.
+    needs: bench-cpp
+    if: ${{ always() && !cancelled() }}
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     steps:
