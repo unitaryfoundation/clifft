@@ -33,7 +33,7 @@ It does not run on pull requests or pushes to `main`.
 A few caveats worth keeping in mind when interpreting the chart:
 
 - **Runner noise.** The workflow uses GitHub-hosted `ubuntu-24.04` runners, which share hardware with other tenants. Expect roughly 5–10% variance run-to-run, more on the smaller fixtures. Trends across many days are meaningful; isolated spikes generally are not.
-- **Two charts, two units.** C++ measurements are in nanoseconds (Catch2's units); Python measurements are reported by pytest-benchmark in seconds. They are not directly comparable.
+- **Two charts, two units.** The C++ chart plots elapsed time per benchmark in whatever unit Catch2's console reporter chose (ns/us/ms/s, picked per case to keep the printed mean readable). The Python chart plots throughput in iterations per second, the default `pytest-benchmark` metric the action records. Lower is better on the C++ chart; higher is better on the Python chart. The two are not directly comparable.
 - **No alerts.** The workflow records data and stops. If you suspect a regression, run the relevant suite locally against `main` and the suspect commit (`just bench` for Python, `ctest -R Bench` for C++).
 
 ## Adding new benchmarks

@@ -184,7 +184,7 @@ TEST_CASE("Bench: EXP_VAL 20q 200 probes", "[bench]") {
     REQUIRE(mod.num_exp_vals == 200);
 
     // BENCHMARK names must fit in Catch2's console-reporter name column
-    // (~35 chars) — longer names wrap onto two lines and break the
+    // (~35 chars). Longer names wrap onto two lines and break the
     // bench-history workflow's parser (.github/workflows/bench.yml).
     BENCHMARK("exp-val 20q 200 probes x100k") {
         return sample(mod, 100000, 0);
