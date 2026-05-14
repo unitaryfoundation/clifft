@@ -1,8 +1,8 @@
 name: Benchmark history
 
 # Records benchmark results from the existing C++ Catch2 and Python
-# pytest-benchmark suites and appends them to the `bench-data` branch.
-# The branch hosts a Chart.js viewer rendered by
+# pytest-benchmark suites and appends them to gh-pages under bench/cpp
+# and bench/python. Each path hosts a Chart.js viewer rendered by
 # benchmark-action/github-action-benchmark.
 #
 # Triggers: daily at 06:17 UTC and on manual dispatch. Not run on PRs.
@@ -18,7 +18,9 @@ permissions:
   contents: write
 
 concurrency:
-  group: ${{ github.workflow }}
+  # Share the gh-pages-writer group with docs.yml, release.yml, and the
+  # PR preview workflow so scheduled bench runs cannot race a mike push.
+  group: docs-deploy
   cancel-in-progress: false
 
 jobs:
@@ -64,15 +66,15 @@ jobs:
             --reporter console \
             --out cpp-bench.txt
 
-      - name: Publish to bench-data
+      - name: Publish to gh-pages
         uses: benchmark-action/github-action-benchmark@v1
         with:
           name: C++ Catch2 benchmarks
           tool: catch2
           output-file-path: cpp-bench.txt
           github-token: ${{ secrets.GITHUB_TOKEN }}
-          gh-pages-branch: bench-data
-          benchmark-data-dir-path: dev/bench/cpp
+          gh-pages-branch: gh-pages
+          benchmark-data-dir-path: bench/cpp
           auto-push: true
           # Record-only mode: alerts and comments are out of scope per #38.
           alert-threshold: '200%'
@@ -111,15 +113,15 @@ jobs:
             --benchmark-only \
             --benchmark-json=python-bench.json
 
-      - name: Publish to bench-data
+      - name: Publish to gh-pages
         uses: benchmark-action/github-action-benchmark@v1
         with:
           name: Python pytest-benchmark suite
           tool: pytest
           output-file-path: python-bench.json
           github-token: ${{ secrets.GITHUB_TOKEN }}
-          gh-pages-branch: bench-data
-          benchmark-data-dir-path: dev/bench/python
+          gh-pages-branch: gh-pages
+          benchmark-data-dir-path: bench/python
           auto-push: true
           alert-threshold: '200%'
           fail-on-alert: false
