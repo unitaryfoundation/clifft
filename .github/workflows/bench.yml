@@ -39,7 +39,37 @@ jobs:
       - name: Install system dependencies
         run: sudo apt-get update && sudo apt-get install -y ninja-build
 
+      - name: Print runner CPU info
+        # GitHub-hosted runners draw from a heterogeneous pool. Surface
+        # the actual CPU and feature flags before the build so nightly
+        # failures are diagnosable from the log alone.
+        run: |
+          echo "--- lscpu ---"
+          lscpu
+          echo "--- /proc/cpuinfo flags ---"
+          grep -m1 ^flags /proc/cpuinfo | tr ' ' '\n' | sort -u | tr '\n' ' '
+          echo
+
+      - name: Verify runner CPU meets x86-64-v3 baseline
+        # The build pins -march=x86-64-v3 (AVX2 + BMI2 + FMA + SSE4.2).
+        # If the runner CPU lacks any of those, GCC emits instructions
+        # the loader can't execute and the freshly-linked binary SIGILLs
+        # during catch_discover_tests, producing an opaque "Illegal
+        # instruction" error. Detect that up front and skip the rest of
+        # the job (with a warning annotation) instead of failing red.
+        id: cpu_check
+        run: |
+          missing=()
+          for flag in avx2 bmi2 fma sse4_2; do
+            grep -qw "$flag" /proc/cpuinfo || missing+=("$flag")
+          done
+          if [ ${#missing[@]} -ne 0 ]; then
+            echo "::warning::Runner CPU lacks x86-64-v3 feature(s): ${missing[*]}. Skipping bench-cpp."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Setup ccache
+        if: steps.cpu_check.outputs.skip != 'true'
         uses: hendrikmuhs/ccache-action@v1.2
         with:
           key: ${{ runner.os }}-ccache-bench-${{ env.CMAKE_BUILD_TYPE }}
@@ -50,23 +80,27 @@ jobs:
         # heterogeneous pool; native tuning on one host can emit
         # instructions the next runner's CPU rejects (SIGILL). A fixed
         # baseline also makes day-to-day timings more comparable.
+        if: steps.cpu_check.outputs.skip != 'true'
         run: |
           cmake -S . -B build -G Ninja \
             -DCMAKE_BUILD_TYPE=${{ env.CMAKE_BUILD_TYPE }} \
             -DCLIFFT_CPU_BASELINE=x86-64-v3
 
       - name: Build benchmark binary
+        if: steps.cpu_check.outputs.skip != 'true'
         run: cmake --build build --target clifft_tests --parallel
 
       - name: Run Catch2 benchmarks
         # Action parser requires the console reporter (XML is not yet
         # supported by benchmark-action/github-action-benchmark@v1).
+        if: steps.cpu_check.outputs.skip != 'true'
         run: |
           build/tests/clifft_tests "[bench]" \
             --reporter console \
             --out cpp-bench.txt
 
       - name: Publish to gh-pages
+        if: steps.cpu_check.outputs.skip != 'true'
         uses: benchmark-action/github-action-benchmark@v1
         with:
           name: C++ Catch2 benchmarks
