@@ -39,7 +39,31 @@ jobs:
       - name: Install system dependencies
         run: sudo apt-get update && sudo apt-get install -y ninja-build
 
+      - name: Print runner CPU info
+        run: |
+          echo "--- lscpu ---"
+          lscpu
+          echo "--- /proc/cpuinfo flags ---"
+          grep -m1 '^flags' /proc/cpuinfo | cut -d: -f2- | tr ' ' '\n' | sed '/^$/d' | sort -u | tr '\n' ' '
+          echo
+
+      - name: Check x86-64-v3 benchmark CPU flags
+        id: cpu_check
+        run: |
+          flags="$(grep -m1 '^flags' /proc/cpuinfo || true)"
+          missing=()
+          for flag in avx avx2 bmi1 bmi2 f16c fma lzcnt movbe sse4_2 xsave; do
+            if [[ " ${flags} " != *" ${flag} "* ]]; then
+              missing+=("${flag}")
+            fi
+          done
+          if [ ${#missing[@]} -ne 0 ]; then
+            echo "::warning::Runner CPU lacks expected x86-64-v3 benchmark flag(s): ${missing[*]}. Skipping bench-cpp."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Setup ccache
+        if: steps.cpu_check.outputs.skip != 'true'
         uses: hendrikmuhs/ccache-action@v1.2
         with:
           key: ${{ runner.os }}-ccache-bench-${{ env.CMAKE_BUILD_TYPE }}
@@ -50,23 +74,27 @@ jobs:
         # heterogeneous pool; native tuning on one host can emit
         # instructions the next runner's CPU rejects (SIGILL). A fixed
         # baseline also makes day-to-day timings more comparable.
+        if: steps.cpu_check.outputs.skip != 'true'
         run: |
           cmake -S . -B build -G Ninja \
             -DCMAKE_BUILD_TYPE=${{ env.CMAKE_BUILD_TYPE }} \
             -DCLIFFT_CPU_BASELINE=x86-64-v3
 
       - name: Build benchmark binary
+        if: steps.cpu_check.outputs.skip != 'true'
         run: cmake --build build --target clifft_tests --parallel
 
       - name: Run Catch2 benchmarks
         # Action parser requires the console reporter (XML is not yet
         # supported by benchmark-action/github-action-benchmark@v1).
+        if: steps.cpu_check.outputs.skip != 'true'
         run: |
           build/tests/clifft_tests "[bench]" \
             --reporter console \
             --out cpp-bench.txt
 
       - name: Publish to gh-pages
+        if: steps.cpu_check.outputs.skip != 'true'
         uses: benchmark-action/github-action-benchmark@v1
         with:
           name: C++ Catch2 benchmarks
