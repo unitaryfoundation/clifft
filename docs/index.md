@@ -84,17 +84,13 @@ For QEC workflows, Clifft also supports detector-based post-selection, survivor 
 
 [Try the Playground]({{ playground_url }}){ .md-button }
 
-## What's New in 0.3.0
+## What's New in 0.4.0
 
-Clifft 0.3.0 adds strong simulation for unitary circuits with
-`clifft.probabilities()`, which computes exact probabilities for selected
-full-register computational-basis bitstrings without materializing the full
-statevector. (This API is renamed to `clifft.basis_probabilities()` in the
-next release.)
+Clifft 0.4.0 expands strong simulation with `clifft.record_probabilities()`, the deterministic-record counterpart to `sample()` — it returns the joint probability of a given measurement record for circuits with measurements and classical feedback. The complementary unitary-circuit query, formerly `clifft.probabilities()`, is now `clifft.basis_probabilities()`. There are no compatibility aliases; existing callers must rename.
 
-It also removes the old compile-time qubit ceiling by moving Pauli mask storage
-to runtime-width arenas, and improves playground responsiveness on larger
-circuits.
+`basis_probabilities()` is also roughly 17× faster on representative inputs.
+
+Looking for GPU acceleration? An early proof-of-concept CUDA backend lives at [haoliri0/clifft-cuda](https://github.com/haoliri0/clifft-cuda). It is a separate, community-maintained experiment; integration into upstream Clifft is being tracked in [issue #64](https://github.com/unitaryfoundation/clifft/issues/64).
 
 [Strong Simulation Tutorial](guide/strong-simulation.md){ .md-button .md-button--primary }
 

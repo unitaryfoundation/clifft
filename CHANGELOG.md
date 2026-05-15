@@ -5,6 +5,49 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.4.0] - 2026-05-15
+
+This release expands strong simulation with a new `clifft.record_probabilities()` API that returns the joint probability `sample()` would assign to a given measurement record (or batch of records). Combined with the existing basis-probability path, Clifft now answers two complementary "what's the exact probability of …" questions: bitstring outcomes for unitary circuits, and measurement-record outcomes for circuits that contain measurements with or without classical feedback. See the [strong-simulation tutorial](https://unitaryfoundation.github.io/clifft/guide/strong-simulation/) for both APIs side-by-side and more detail on when to choose one versus anothr.
+
+The probability surface is also faster and clearer. `basis_probabilities()` is roughly 17× faster on representative inputs via a Gray-code walk over X-generators when the dormant block reduces cleanly during RREF. As part of unifying the docs, the two queries were renamed to make the queried object explicit:
+
+  - `clifft.probabilities()` → `clifft.basis_probabilities()`
+  - the newly-added `clifft.record_probabilities()`
+
+There are no backward-compatibility aliases; callers must rename `basis_probabilities()`.
+
+Beyond the probability work, 0.4.0 lands a scheduled benchmark-history workflow that records Catch2 and pytest-benchmark results daily ([charts](https://unitaryfoundation.github.io/clifft/bench/cpp/)), versioned docs deployments via `mike`, and a compile-time speedup on QEC circuits.
+
+### CI
+
+- add scheduled benchmark history workflow (#38) (#70) by @bachase in [#70](https://github.com/unitaryfoundation/clifft/pull/70)
+- serialize docs preview deployments (#86) by @bachase in [#86](https://github.com/unitaryfoundation/clifft/pull/86)
+- make MSVC debug builds ccache-friendly (#68) by @bachase in [#68](https://github.com/unitaryfoundation/clifft/pull/68)
+
+### Documentation
+
+- add versioned docs deployment (#85) by @bachase in [#85](https://github.com/unitaryfoundation/clifft/pull/85)
+
+### Features
+
+- rename probability APIs and unify strong-simulation docs (#84) by @bachase in [#84](https://github.com/unitaryfoundation/clifft/pull/84)
+- add probability_of Python API (#82) by @bachase in [#82](https://github.com/unitaryfoundation/clifft/pull/82)
+- add probability_of C++ entry point (#80) by @bachase in [#80](https://github.com/unitaryfoundation/clifft/pull/80)
+- wire forced measurement opcodes into the SVM dispatcher (#79) by @bachase in [#79](https://github.com/unitaryfoundation/clifft/pull/79)
+- add forced-outcome measurement kernels (#78) by @bachase in [#78](https://github.com/unitaryfoundation/clifft/pull/78)
+- add forced-execution state fields to SchrodingerState (#77) by @bachase in [#77](https://github.com/unitaryfoundation/clifft/pull/77)
+- add forced-measurement opcodes to the Opcode enum (#76) by @bachase in [#76](https://github.com/unitaryfoundation/clifft/pull/76)
+
+### Performance
+
+- ~17x faster probabilities() via gray-code walk over X-generators (#73) by @bachase in [#73](https://github.com/unitaryfoundation/clifft/pull/73)
+- add profile_probability harness for strong-simulation profiling (#72) by @bachase in [#72](https://github.com/unitaryfoundation/clifft/pull/72)
+- cut compile time on QEC circuits via heap-alloc fix and eager V_cum flush (#67) by @bachase in [#67](https://github.com/unitaryfoundation/clifft/pull/67)
+
+### Testing
+
+- cover SchrodingerState::reset() reuse semantics (#75) by @bachase in [#75](https://github.com/unitaryfoundation/clifft/pull/75)
+
 ## [0.3.0] - 2026-05-08
 
 This release adds strong simulation for unitary circuits through exact computational-basis probability queries of the factored state. The new `clifft.probabilities()` API evaluates selected bitstrings without materializing the full $2^n$ statevector, so sparse output queries can scale with active rank rather than output-space size. See the [strong-simulation tutorial](https://unitaryfoundation.github.io/clifft/guide/strong-simulation/) for examples.
