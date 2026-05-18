@@ -60,9 +60,14 @@ NB_MODULE(_clifft_core, m) {
 
     m.def(
         "svm_backend", []() { return clifft::svm_backend(); },
-        "Return the active SVM dispatch backend: 'avx512', 'avx2', or 'scalar'.\n\n"
-        "Reflects the resolved runtime kernel path or CLIFFT_FORCE_ISA environment override. "
-        "'scalar' names the generic/base SVM path.");
+        "Return the active SVM dispatch backend.\n\n"
+        "Reflects the resolved runtime kernel path or the CLIFFT_FORCE_ISA environment "
+        "override. In normal operation returns one of 'avx512', 'avx2', or 'scalar' "
+        "('scalar' names the generic/base SVM path).\n\n"
+        "If CLIFFT_FORCE_ISA names an ISA the host CPU cannot execute, or is set to "
+        "an unrecognized value, the backend instead reports one of 'trap:avx512', "
+        "'trap:avx2', or 'trap:unknown'. The next execute() call throws RuntimeError "
+        "with a message naming the missing features or accepted values.");
 
     m.def(
         "set_num_threads",

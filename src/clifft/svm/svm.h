@@ -295,8 +295,24 @@ class SchrodingerState {
 /// Execute a compiled program for one shot, populating state with results.
 void execute(const CompiledModule& program, SchrodingerState& state);
 
-/// Return the name of the active SVM dispatch backend ("avx512", "avx2", or "scalar").
-/// Reflects the resolved CPUID path or CLIFFT_FORCE_ISA override.
+/// Return the name of the active SVM dispatch backend. Reflects the
+/// resolved CPUID path or the CLIFFT_FORCE_ISA environment override.
+///
+/// In normal operation returns one of:
+///   - "avx512" — the AVX-512 kernel is active.
+///   - "avx2"   — the AVX-2 kernel is active.
+///   - "scalar" — the portable scalar fallback is active.
+///
+/// If CLIFFT_FORCE_ISA names an ISA the host CPU cannot execute, or is
+/// set to an unrecognized value, the backend reports one of:
+///   - "trap:avx512"  — CLIFFT_FORCE_ISA=avx512 but host lacks
+///                      avx2/bmi2/fma/avx512f/avx512dq.
+///   - "trap:avx2"    — CLIFFT_FORCE_ISA=avx2 but host lacks
+///                      avx2/bmi2/fma.
+///   - "trap:unknown" — CLIFFT_FORCE_ISA is set to a value other than
+///                      avx512/avx2/scalar (case-insensitive).
+/// In each trap case the next execute() call throws std::runtime_error
+/// with a message naming the missing features or accepted values.
 const char* svm_backend();
 
 /// Results from sampling a circuit.

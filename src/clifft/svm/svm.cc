@@ -5,9 +5,11 @@
 
 #include <algorithm>
 #include <bit>
+#include <cctype>
 #include <cstdlib>
 #include <numeric>
 #include <stdexcept>
+#include <string>
 
 namespace clifft {
 
@@ -36,28 +38,109 @@ using DispatchFn = void (*)(const CompiledModule&, SchrodingerState&);
 
 #if defined(CLIFFT_ENABLE_RUNTIME_DISPATCH)
 
+// Each per-ISA kernel TU is compiled with a specific set of -m flags
+// (see src/clifft/CMakeLists.txt). The runtime dispatcher must match
+// that exact set or risk emitting an instruction the host CPU cannot
+// execute. The helpers below are the one place where each kernel's
+// compile-time feature requirements are declared, so the auto-detect
+// path and the CLIFFT_FORCE_ISA override path stay in sync.
+
+static bool host_supports_avx2_kernel() {
+#if (defined(__GNUC__) || defined(__clang__)) && \
+    (defined(__x86_64__) || defined(__i386__) || defined(_M_X64))
+    // svm_avx2.cc is compiled with -mavx2 -mbmi2 -mfma. All three must
+    // be present at runtime, not just avx2+bmi2 -- a CPU with AVX2+BMI2
+    // but no FMA (Excavator-gen AMD, some VIA Eden-X4) will SIGILL on
+    // an FMA instruction otherwise.
+    return __builtin_cpu_supports("avx2") && __builtin_cpu_supports("bmi2") &&
+           __builtin_cpu_supports("fma");
+#else
+    return false;
+#endif
+}
+
+static bool host_supports_avx512_kernel() {
+#if (defined(__GNUC__) || defined(__clang__)) && \
+    (defined(__x86_64__) || defined(__i386__) || defined(_M_X64))
+    // svm_avx512.cc is compiled with -mavx2 -mbmi2 -mfma -mavx512f
+    // -mavx512dq, so all five features must be present at runtime.
+    return host_supports_avx2_kernel() && __builtin_cpu_supports("avx512f") &&
+           __builtin_cpu_supports("avx512dq");
+#else
+    return false;
+#endif
+}
+
+// Trap functions installed when the user explicitly requests an ISA via
+// CLIFFT_FORCE_ISA that the host CPU cannot actually execute. We install
+// these at static-initialization time and let the throw fire on the
+// first execute() call -- throwing during static init would terminate
+// the entire process (no Python catch is in scope yet) and turn a clear
+// runtime error into a hard crash at import.
+[[noreturn]] static void trap_force_isa_avx2(const CompiledModule&, SchrodingerState&) {
+    throw std::runtime_error(
+        "CLIFFT_FORCE_ISA=avx2 requested but host CPU lacks one or more required "
+        "features (avx2, bmi2, fma). Unset CLIFFT_FORCE_ISA to use the auto-detected "
+        "fallback, or set it to 'scalar' explicitly.");
+}
+
+[[noreturn]] static void trap_force_isa_avx512(const CompiledModule&, SchrodingerState&) {
+    throw std::runtime_error(
+        "CLIFFT_FORCE_ISA=avx512 requested but host CPU lacks one or more required "
+        "features (avx2, bmi2, fma, avx512f, avx512dq). Unset CLIFFT_FORCE_ISA to use "
+        "the auto-detected fallback, or set it to 'avx2' or 'scalar' explicitly.");
+}
+
+[[noreturn]] static void trap_force_isa_unknown(const CompiledModule&, SchrodingerState&) {
+    throw std::runtime_error(
+        "CLIFFT_FORCE_ISA is set to an unrecognized value. Accepted values are "
+        "'avx512', 'avx2', 'scalar' (case-insensitive). Unset CLIFFT_FORCE_ISA to "
+        "use the auto-detected fallback.");
+}
+
+// Lowercase a copy of the env var and strip surrounding whitespace so the
+// parser stays case-insensitive without mutating the host environment.
+static std::string normalize_force_isa(const char* env) {
+    std::string s(env);
+    auto not_space = [](unsigned char c) { return !std::isspace(c); };
+    s.erase(s.begin(), std::find_if(s.begin(), s.end(), not_space));
+    s.erase(std::find_if(s.rbegin(), s.rend(), not_space).base(), s.end());
+    std::transform(s.begin(), s.end(), s.begin(), [](unsigned char c) { return std::tolower(c); });
+    return s;
+}
+
 static DispatchFn resolve_dispatcher() {
     // Allow environment override for testing.
     if (const char* env = std::getenv("CLIFFT_FORCE_ISA")) {
-        if (env[0] == '5' || (env[0] == 'a' && env[3] == '5')) {
-            // "avx512" or "512"
-            return avx512::execute_internal;
+        std::string name = normalize_force_isa(env);
+        if (name == "avx512") {
+            return host_supports_avx512_kernel() ? avx512::execute_internal : trap_force_isa_avx512;
         }
-        if (env[0] == 'a' || env[0] == 'A') {
-            return avx2::execute_internal;
+        if (name == "avx2") {
+            return host_supports_avx2_kernel() ? avx2::execute_internal : trap_force_isa_avx2;
         }
-        return scalar::execute_internal;
+        if (name == "scalar") {
+            return scalar::execute_internal;
+        }
+        // An empty CLIFFT_FORCE_ISA (e.g. `CLIFFT_FORCE_ISA= python ...`)
+        // falls back to auto-detect rather than reporting an error: bash
+        // sets the var to empty when written that way, and the previous
+        // dispatcher treated empty as scalar. Allow it to behave like
+        // "unset" so callers don't have to special-case shell quirks.
+        if (name.empty()) {
+            // Fall through to auto-detect below.
+        } else {
+            return trap_force_isa_unknown;
+        }
     }
 
-#if (defined(__GNUC__) || defined(__clang__)) && \
-    (defined(__x86_64__) || defined(__i386__) || defined(_M_X64))
-    if (__builtin_cpu_supports("avx512f") && __builtin_cpu_supports("avx512dq")) {
+    // Auto-detect: walk down to the highest kernel the host can run.
+    if (host_supports_avx512_kernel()) {
         return avx512::execute_internal;
     }
-    if (__builtin_cpu_supports("avx2") && __builtin_cpu_supports("bmi2")) {
+    if (host_supports_avx2_kernel()) {
         return avx2::execute_internal;
     }
-#endif
     return scalar::execute_internal;
 }
 
@@ -86,6 +169,17 @@ const char* svm_backend() {
         return "avx512";
     if (resolved_fn == avx2::execute_internal)
         return "avx2";
+    // Trap states surface a CLIFFT_FORCE_ISA misconfig: the user asked
+    // for an ISA the host can't run, or set the variable to a value the
+    // dispatcher doesn't recognize. Reporting these distinctly (rather
+    // than masquerading as "scalar") lets tests and tooling notice the
+    // misconfig before execute() actually throws.
+    if (resolved_fn == trap_force_isa_avx512)
+        return "trap:avx512";
+    if (resolved_fn == trap_force_isa_avx2)
+        return "trap:avx2";
+    if (resolved_fn == trap_force_isa_unknown)
+        return "trap:unknown";
 #endif
     return "scalar";
 }
