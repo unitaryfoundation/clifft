@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1779130388643,
+  "lastUpdate": 1779176185461,
   "repoUrl": "https://github.com/unitaryfoundation/clifft",
   "entries": {
     "Python pytest-benchmark suite": [
@@ -594,6 +594,105 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.010379663107994088",
             "extra": "mean: 1.7405711182000005 sec\nrounds: 5"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Brad Chase",
+            "username": "bachase",
+            "email": "14430+bachase@users.noreply.github.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "609e10d203ca797befcc7645148529801f330c17",
+          "message": "fix(svm): tighten AVX-2 dispatch and trap CLIFFT_FORCE_ISA misconfig (#94)\n\nfix(svm): tighten AVX-2 dispatch and trap CLIFFT_FORCE_ISA misconfig\n\n* AVX-2 dispatch now requires fma in addition to avx2 + bmi2, matching\n  what svm_avx2.cc is compiled with.\n* CLIFFT_FORCE_ISA verifies the host can execute the requested ISA and\n  installs a trap function that throws std::runtime_error on first\n  execute() if not. Parser is exact, case-insensitive, and rejects\n  unknown values via the same trap mechanism.\n* svm_backend() reports trap:avx2 / trap:avx512 / trap:unknown when a\n  trap is installed; C++ header and Python docstring updated.\n\nCloses #93.\n\nAssisted-by: Claude (Opus 4.7) <noreply@anthropic.com>",
+          "timestamp": "2026-05-18T16:45:49Z",
+          "url": "https://github.com/unitaryfoundation/clifft/commit/609e10d203ca797befcc7645148529801f330c17"
+        },
+        "date": 1779176183919,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "tools/bench/test_bench_deep_clifford.py::test_compile_stim_deep",
+            "value": 1435.0712310450606,
+            "unit": "iter/sec",
+            "range": "stddev: 0.000055021701867502045",
+            "extra": "mean: 696.8295220243324 usec\nrounds: 1067"
+          },
+          {
+            "name": "tools/bench/test_bench_deep_clifford.py::test_compile_clifft_deep",
+            "value": 628.317370766796,
+            "unit": "iter/sec",
+            "range": "stddev: 0.00003311531973663367",
+            "extra": "mean: 1.591552369114997 msec\nrounds: 531"
+          },
+          {
+            "name": "tools/bench/test_bench_deep_clifford.py::test_sample_stim_deep",
+            "value": 54.11993596095474,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0005471804497649833",
+            "extra": "mean: 18.477479365856198 msec\nrounds: 41"
+          },
+          {
+            "name": "tools/bench/test_bench_deep_clifford.py::test_sample_clifft_deep",
+            "value": 1.2035252858718843,
+            "unit": "iter/sec",
+            "range": "stddev: 0.00108681162491539",
+            "extra": "mean: 830.8923890000017 msec\nrounds: 5"
+          },
+          {
+            "name": "tools/bench/test_bench_qec.py::test_compile_stim",
+            "value": 18423.179623781645,
+            "unit": "iter/sec",
+            "range": "stddev: 0.000003785267343003754",
+            "extra": "mean: 54.2794468935832 usec\nrounds: 6261"
+          },
+          {
+            "name": "tools/bench/test_bench_qec.py::test_compile_clifft",
+            "value": 1546.5522215875915,
+            "unit": "iter/sec",
+            "range": "stddev: 0.00006439323045432338",
+            "extra": "mean: 646.5995690552654 usec\nrounds: 1144"
+          },
+          {
+            "name": "tools/bench/test_bench_qec.py::test_sample_stim",
+            "value": 103.39226228851011,
+            "unit": "iter/sec",
+            "range": "stddev: 0.000045477522686533695",
+            "extra": "mean: 9.6719036595752 msec\nrounds: 94"
+          },
+          {
+            "name": "tools/bench/test_bench_qec.py::test_sample_clifft",
+            "value": 11.48416033166034,
+            "unit": "iter/sec",
+            "range": "stddev: 0.005712526275290765",
+            "extra": "mean: 87.07645758333153 msec\nrounds: 12"
+          },
+          {
+            "name": "tools/bench/test_bench_qv.py::test_compile_qv20",
+            "value": 73.22602638785479,
+            "unit": "iter/sec",
+            "range": "stddev: 0.00037159641882229843",
+            "extra": "mean: 13.656346647888835 msec\nrounds: 71"
+          },
+          {
+            "name": "tools/bench/test_bench_qv.py::test_sample_qv20_1shot",
+            "value": 5.348142387142381,
+            "unit": "iter/sec",
+            "range": "stddev: 0.00268921580989938",
+            "extra": "mean: 186.98081083333307 msec\nrounds: 6"
+          },
+          {
+            "name": "tools/bench/test_bench_qv.py::test_sample_qv20_10shots",
+            "value": 0.5389856532269532,
+            "unit": "iter/sec",
+            "range": "stddev: 0.006263676325121646",
+            "extra": "mean: 1.8553369538000026 sec\nrounds: 5"
           }
         ]
       }
