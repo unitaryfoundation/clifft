@@ -119,11 +119,10 @@ jobs:
       - name: Build C++
         run: cmake --build build --config ${{ env.CMAKE_BUILD_TYPE }} --parallel
 
-      - name: Audit C++ build
+      - name: Audit build flags
         run: |
-          python3 tools/ci/audit_x86_build.py \
-            --compile-commands build/compile_commands.json \
-            --binary build/tests/clifft_tests
+          python3 tools/ci/audit_build_flags.py \
+            --compile-commands build/compile_commands.json
 
       - name: Check AVX2 kernel CPU flags
         id: avx2_check
@@ -226,11 +225,10 @@ jobs:
       - name: Build C++ tests
         run: cmake --build build --target clifft_tests --parallel
 
-      - name: Audit release-like C++ build
+      - name: Audit release-like build flags
         run: |
-          python3 tools/ci/audit_x86_build.py \
-            --compile-commands build/compile_commands.json \
-            --binary build/tests/clifft_tests
+          python3 tools/ci/audit_build_flags.py \
+            --compile-commands build/compile_commands.json
 
       - name: Run C++ smoke tests
         run: |
@@ -241,6 +239,37 @@ jobs:
             --timeout 300 \
             -E "Bench"
         shell: bash
+
+      - name: Setup uv and Python
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          python-version: "3.12"
+
+      - name: Install Python package (release baseline)
+        env:
+          SKBUILD_CMAKE_BUILD_TYPE: Release
+        run: |
+          uv venv .smoke-venv
+          uv pip install --python .smoke-venv -e ".[dev]"
+
+      - name: Install qemu-user
+        run: sudo apt-get install -y qemu-user
+
+      # Run a small QEMU-emulated CPU matrix against the release-baseline
+      # Python install. Catches AVX-512 leakage into the AVX-2 dispatch
+      # path (would SIGILL the emulated CPU) and validates that
+      # CLIFFT_FORCE_ISA traps fire cleanly on incompatible hosts.
+      - name: QEMU smoke -- Haswell (auto-detect)
+        run: PYTHON=$(pwd)/.smoke-venv/bin/python .github/scripts/wheel_smoke.sh Haswell auto pass
+      - name: QEMU smoke -- Haswell + FORCE_ISA=avx2
+        run: PYTHON=$(pwd)/.smoke-venv/bin/python .github/scripts/wheel_smoke.sh Haswell avx2 pass
+      - name: QEMU smoke -- Haswell + FORCE_ISA=avx512 (clean trap)
+        run: PYTHON=$(pwd)/.smoke-venv/bin/python .github/scripts/wheel_smoke.sh Haswell avx512 fail
+      - name: QEMU smoke -- Nehalem (auto-detect)
+        run: PYTHON=$(pwd)/.smoke-venv/bin/python .github/scripts/wheel_smoke.sh Nehalem auto pass
+      - name: QEMU smoke -- Nehalem + FORCE_ISA=avx2 (clean trap)
+        run: PYTHON=$(pwd)/.smoke-venv/bin/python .github/scripts/wheel_smoke.sh Nehalem avx2 fail
 
   cross-platform:
     if: github.event_name == 'push'

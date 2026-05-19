@@ -91,11 +91,10 @@ jobs:
       - name: Build benchmark binary
         run: cmake --build build --target clifft_tests --parallel
 
-      - name: Audit benchmark build
+      - name: Audit benchmark build flags
         run: |
-          python3 tools/ci/audit_x86_build.py \
-            --compile-commands build/compile_commands.json \
-            --binary build/tests/clifft_tests
+          python3 tools/ci/audit_build_flags.py \
+            --compile-commands build/compile_commands.json
 
       - name: Run Catch2 benchmarks (scalar)
         # Action parser requires the console reporter (XML is not yet

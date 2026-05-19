@@ -94,6 +94,39 @@ jobs:
           # Smoke-test: import the built package
           CIBW_TEST_COMMAND: python -c "import clifft; print(clifft.__version__); print(clifft.CPU_BASELINE); print(clifft.svm_backend())"
 
+      # QEMU smoke against the just-built Linux x86_64 wheel. Catches
+      # AVX-512 leakage into the AVX-2 dispatch path (would SIGILL the
+      # emulated sub-AVX-512 CPU) and validates CLIFFT_FORCE_ISA traps
+      # on the wheel that will actually be published. Skipped on other
+      # arches/OSes since QEMU user-mode is x86_64-specific and the
+      # other matrix entries use the generic baseline.
+      - name: Install qemu-user (Linux x86_64 wheel only)
+        if: matrix.os == 'ubuntu-24.04' && matrix.arch == 'x86_64'
+        run: sudo apt-get update && sudo apt-get install -y qemu-user
+
+      - name: Smoke-install the built wheel
+        if: matrix.os == 'ubuntu-24.04' && matrix.arch == 'x86_64'
+        run: |
+          python3 -m venv .smoke-venv
+          .smoke-venv/bin/python -m pip install -U pip
+          .smoke-venv/bin/python -m pip install wheelhouse/*.whl
+
+      - name: QEMU smoke -- Haswell (auto-detect)
+        if: matrix.os == 'ubuntu-24.04' && matrix.arch == 'x86_64'
+        run: PYTHON=$(pwd)/.smoke-venv/bin/python .github/scripts/wheel_smoke.sh Haswell auto pass
+      - name: QEMU smoke -- Haswell + FORCE_ISA=avx2
+        if: matrix.os == 'ubuntu-24.04' && matrix.arch == 'x86_64'
+        run: PYTHON=$(pwd)/.smoke-venv/bin/python .github/scripts/wheel_smoke.sh Haswell avx2 pass
+      - name: QEMU smoke -- Haswell + FORCE_ISA=avx512 (clean trap)
+        if: matrix.os == 'ubuntu-24.04' && matrix.arch == 'x86_64'
+        run: PYTHON=$(pwd)/.smoke-venv/bin/python .github/scripts/wheel_smoke.sh Haswell avx512 fail
+      - name: QEMU smoke -- Nehalem (auto-detect)
+        if: matrix.os == 'ubuntu-24.04' && matrix.arch == 'x86_64'
+        run: PYTHON=$(pwd)/.smoke-venv/bin/python .github/scripts/wheel_smoke.sh Nehalem auto pass
+      - name: QEMU smoke -- Nehalem + FORCE_ISA=avx2 (clean trap)
+        if: matrix.os == 'ubuntu-24.04' && matrix.arch == 'x86_64'
+        run: PYTHON=$(pwd)/.smoke-venv/bin/python .github/scripts/wheel_smoke.sh Nehalem avx2 fail
+
       - uses: actions/upload-artifact@v4
         with:
           name: wheel-${{ matrix.os }}-${{ matrix.arch }}
