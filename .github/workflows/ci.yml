@@ -285,10 +285,7 @@ jobs:
         uses: ilammy/msvc-dev-cmd@v1
 
       - name: Configure C++ build
-        run: |
-          cmake -S . -B build -G Ninja \
-            -DCMAKE_BUILD_TYPE=${{ env.CMAKE_BUILD_TYPE }} \
-            -DCLIFFT_CPU_BASELINE=${{ env.CLIFFT_CPU_BASELINE }}
+        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=${{ env.CMAKE_BUILD_TYPE }} -DCLIFFT_CPU_BASELINE=${{ env.CLIFFT_CPU_BASELINE }}
 
       - name: Build C++
         run: cmake --build build --config ${{ env.CMAKE_BUILD_TYPE }} --parallel
