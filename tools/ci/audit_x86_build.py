@@ -31,7 +31,9 @@ def audit_compile_commands(path: Path) -> None:
 
     if native_commands:
         files = "\n  ".join(native_commands[:20])
-        extra = "" if len(native_commands) <= 20 else f"\n  ... and {len(native_commands) - 20} more"
+        extra = (
+            "" if len(native_commands) <= 20 else f"\n  ... and {len(native_commands) - 20} more"
+        )
         fail(f"found native CPU tuning in compile_commands.json:\n  {files}{extra}")
 
 
