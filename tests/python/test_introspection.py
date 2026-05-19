@@ -215,7 +215,14 @@ class TestSvmBackend:
 
     def test_svm_backend_returns_valid_isa(self) -> None:
         backend = clifft.svm_backend()
-        assert backend in ("avx512", "avx2", "scalar")
+        assert backend in (
+            "avx512",
+            "avx2",
+            "scalar",
+            "trap:avx512",
+            "trap:avx2",
+            "trap:unknown",
+        )
 
     def test_svm_backend_respects_force_env(self) -> None:
         """CLIFFT_FORCE_ISA is read at first call; just verify the return is stable."""

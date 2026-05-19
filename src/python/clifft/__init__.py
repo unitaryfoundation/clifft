@@ -16,10 +16,10 @@ from typing import TypeAlias, cast
 import numpy as np
 import numpy.typing as npt
 
-from clifft._build_config import CPU_BASELINE, REQUIRES_X86_64_V3_BASELINE
+from clifft._build_config import CPU_BASELINE
 from clifft._cpu_check import ensure_supported_cpu
 
-ensure_supported_cpu(CPU_BASELINE, REQUIRES_X86_64_V3_BASELINE)
+ensure_supported_cpu(CPU_BASELINE)
 
 
 # Warn when imported inside a multiprocessing worker (e.g. sinter) with

@@ -1,4 +1,3 @@
 """Build-time configuration for the installed Clifft package."""
 
 CPU_BASELINE = "@CLIFFT_CPU_BASELINE@"
-REQUIRES_X86_64_V3_BASELINE = @CLIFFT_PY_REQUIRES_X86_64_V3@

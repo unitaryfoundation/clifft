@@ -5,4 +5,3 @@ the actual wheel or source-build CPU baseline.
 """
 
 CPU_BASELINE = "native"
-REQUIRES_X86_64_V3_BASELINE = False

@@ -29,6 +29,8 @@ jobs:
     timeout-minutes: 60
     env:
       CMAKE_BUILD_TYPE: Release
+      CLIFFT_CPU_BASELINE: x86-64-v2
+      CLIFFT_STIM_SIMD_WIDTH: 128
       CMAKE_GENERATOR: Ninja
       CMAKE_C_COMPILER_LAUNCHER: ccache
       CMAKE_CXX_COMPILER_LAUNCHER: ccache
@@ -47,14 +49,8 @@ jobs:
           grep -m1 '^flags' /proc/cpuinfo | cut -d: -f2- | tr ' ' '\n' | sed '/^$/d' | sort -u | tr '\n' ' '
           echo
 
-      - name: Check x86-64-v3 benchmark CPU flags
-        id: cpu_check
-        # The required-feature list has one vendor split: LZCNT is reported
-        # as `lzcnt` on Intel but as `abm` (Advanced Bit Manipulation) on
-        # AMD even though both provide the same instruction. Express each
-        # feature as a set of acceptable flag names so AMD runners (e.g.
-        # AMD EPYC 7763, which GitHub's hosted pool routinely assigns)
-        # don't get spuriously skipped.
+      - name: Check benchmark CPU mode flags
+        id: cpu_modes
         run: |
           python3 - <<'PY'
           import os
@@ -66,65 +62,111 @@ jobs:
                   flags = set(line.split(":", 1)[1].split())
                   break
 
-          required = [
-              {"avx"}, {"avx2"}, {"bmi1"}, {"bmi2"}, {"f16c"}, {"fma"},
-              {"lzcnt", "abm"},
-              {"movbe"}, {"sse4_2"}, {"xsave"},
-          ]
-          missing = ["|".join(sorted(g)) for g in required if not (g & flags)]
-          if missing:
-              names = " ".join(missing)
-              print(
-                  f"::warning::Runner CPU lacks expected x86-64-v3 benchmark "
-                  f"flag(s): {names}. Skipping bench-cpp."
-              )
-              with open(os.environ["GITHUB_OUTPUT"], "a") as fh:
-                  fh.write("skip=true\n")
+          modes = {
+              "avx2": [{"avx2"}, {"bmi2"}, {"fma"}],
+              "avx512": [{"avx2"}, {"bmi2"}, {"fma"}, {"avx512f"}, {"avx512dq"}],
+          }
+          with open(os.environ["GITHUB_OUTPUT"], "a") as fh:
+              for mode, required in modes.items():
+                  missing = ["|".join(sorted(g)) for g in required if not (g & flags)]
+                  supported = not missing
+                  if missing:
+                      print(f"::notice::Skipping {mode} benchmarks; missing CPU flags: {' '.join(missing)}")
+                  fh.write(f"{mode}={str(supported).lower()}\n")
           PY
 
       - name: Setup ccache
-        if: steps.cpu_check.outputs.skip != 'true'
         uses: hendrikmuhs/ccache-action@v1.2
         with:
-          key: ${{ runner.os }}-ccache-bench-${{ env.CMAKE_BUILD_TYPE }}
+          key: ${{ runner.os }}-ccache-bench-${{ env.CMAKE_BUILD_TYPE }}-${{ env.CLIFFT_CPU_BASELINE }}-stim${{ env.CLIFFT_STIM_SIMD_WIDTH }}
 
       - name: Configure C++ build
-        # Pin the CPU baseline to x86-64-v3 (AVX2/FMA, ~2015+) instead of
-        # the default `-march=native`. GitHub-hosted runners draw from a
-        # heterogeneous pool; native tuning on one host can emit
-        # instructions the next runner's CPU rejects (SIGILL). A fixed
-        # baseline also makes day-to-day timings more comparable.
-        if: steps.cpu_check.outputs.skip != 'true'
+        # Pin the global baseline to match Linux x86_64 release wheels. The
+        # high-ISA SVM kernels are still benchmarked explicitly below when
+        # the runner CPU supports them.
         run: |
           cmake -S . -B build -G Ninja \
             -DCMAKE_BUILD_TYPE=${{ env.CMAKE_BUILD_TYPE }} \
-            -DCLIFFT_CPU_BASELINE=x86-64-v3
+            -DCLIFFT_CPU_BASELINE=${{ env.CLIFFT_CPU_BASELINE }}
 
       - name: Build benchmark binary
-        if: steps.cpu_check.outputs.skip != 'true'
         run: cmake --build build --target clifft_tests --parallel
 
-      - name: Run Catch2 benchmarks
+      - name: Audit benchmark build
+        run: |
+          python3 tools/ci/audit_x86_build.py \
+            --compile-commands build/compile_commands.json \
+            --binary build/tests/clifft_tests
+
+      - name: Run Catch2 benchmarks (scalar)
         # Action parser requires the console reporter (XML is not yet
         # supported by benchmark-action/github-action-benchmark@v1).
-        if: steps.cpu_check.outputs.skip != 'true'
+        env:
+          CLIFFT_FORCE_ISA: scalar
         run: |
           build/tests/clifft_tests "[bench]" \
             --reporter console \
-            --out cpp-bench.txt
+            --out cpp-bench-scalar.txt
 
-      - name: Publish to gh-pages
-        if: steps.cpu_check.outputs.skip != 'true'
+      - name: Publish scalar C++ benchmarks to gh-pages
         uses: benchmark-action/github-action-benchmark@v1
         with:
-          name: C++ Catch2 benchmarks
+          name: C++ Catch2 benchmarks (scalar)
           tool: catch2
-          output-file-path: cpp-bench.txt
+          output-file-path: cpp-bench-scalar.txt
           github-token: ${{ secrets.GITHUB_TOKEN }}
           gh-pages-branch: gh-pages
-          benchmark-data-dir-path: bench/cpp
+          benchmark-data-dir-path: bench/cpp-scalar
           auto-push: true
           # Record-only mode: alerts and comments are out of scope per #38.
+          alert-threshold: '200%'
+          fail-on-alert: false
+          comment-on-alert: false
+
+      - name: Run Catch2 benchmarks (AVX2)
+        if: steps.cpu_modes.outputs.avx2 == 'true'
+        env:
+          CLIFFT_FORCE_ISA: avx2
+        run: |
+          build/tests/clifft_tests "[bench]" \
+            --reporter console \
+            --out cpp-bench-avx2.txt
+
+      - name: Publish AVX2 C++ benchmarks to gh-pages
+        if: steps.cpu_modes.outputs.avx2 == 'true'
+        uses: benchmark-action/github-action-benchmark@v1
+        with:
+          name: C++ Catch2 benchmarks (AVX2)
+          tool: catch2
+          output-file-path: cpp-bench-avx2.txt
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          gh-pages-branch: gh-pages
+          benchmark-data-dir-path: bench/cpp-avx2
+          auto-push: true
+          alert-threshold: '200%'
+          fail-on-alert: false
+          comment-on-alert: false
+
+      - name: Run Catch2 benchmarks (AVX-512)
+        if: steps.cpu_modes.outputs.avx512 == 'true'
+        env:
+          CLIFFT_FORCE_ISA: avx512
+        run: |
+          build/tests/clifft_tests "[bench]" \
+            --reporter console \
+            --out cpp-bench-avx512.txt
+
+      - name: Publish AVX-512 C++ benchmarks to gh-pages
+        if: steps.cpu_modes.outputs.avx512 == 'true'
+        uses: benchmark-action/github-action-benchmark@v1
+        with:
+          name: C++ Catch2 benchmarks (AVX-512)
+          tool: catch2
+          output-file-path: cpp-bench-avx512.txt
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          gh-pages-branch: gh-pages
+          benchmark-data-dir-path: bench/cpp-avx512
+          auto-push: true
           alert-threshold: '200%'
           fail-on-alert: false
           comment-on-alert: false
@@ -140,6 +182,9 @@ jobs:
     if: ${{ always() && !cancelled() }}
     runs-on: ubuntu-24.04
     timeout-minutes: 60
+    env:
+      CLIFFT_CPU_BASELINE: x86-64-v2
+      CLIFFT_STIM_SIMD_WIDTH: 128
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -150,7 +195,7 @@ jobs:
       - name: Setup ccache
         uses: hendrikmuhs/ccache-action@v1.2
         with:
-          key: ${{ runner.os }}-ccache-bench-python
+          key: ${{ runner.os }}-ccache-bench-python-${{ env.CLIFFT_CPU_BASELINE }}-stim${{ env.CLIFFT_STIM_SIMD_WIDTH }}
 
       - name: Setup uv and Python
         uses: astral-sh/setup-uv@v5

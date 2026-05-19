@@ -88,6 +88,8 @@ jobs:
     env:
       CMAKE_BUILD_TYPE: Debug
       SKBUILD_CMAKE_BUILD_TYPE: Debug
+      CLIFFT_CPU_BASELINE: x86-64-v2
+      CLIFFT_STIM_SIMD_WIDTH: 128
       CMAKE_GENERATOR: Ninja
       CMAKE_C_COMPILER_LAUNCHER: ccache
       CMAKE_CXX_COMPILER_LAUNCHER: ccache
@@ -101,7 +103,7 @@ jobs:
       - name: Setup ccache
         uses: hendrikmuhs/ccache-action@v1.2
         with:
-          key: ${{ runner.os }}-ccache-${{ env.CMAKE_BUILD_TYPE }}
+          key: ${{ runner.os }}-ccache-${{ env.CMAKE_BUILD_TYPE }}-${{ env.CLIFFT_CPU_BASELINE }}-stim${{ env.CLIFFT_STIM_SIMD_WIDTH }}
 
       - name: Setup uv and Python
         uses: astral-sh/setup-uv@v5
@@ -110,10 +112,41 @@ jobs:
           python-version: "3.12"
 
       - name: Configure C++ build
-        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=${{ env.CMAKE_BUILD_TYPE }}
+        run: |
+          cmake -S . -B build -G Ninja \
+            -DCMAKE_BUILD_TYPE=${{ env.CMAKE_BUILD_TYPE }} \
+            -DCLIFFT_CPU_BASELINE=${{ env.CLIFFT_CPU_BASELINE }}
 
       - name: Build C++
         run: cmake --build build --config ${{ env.CMAKE_BUILD_TYPE }} --parallel
+
+      - name: Audit C++ build
+        run: |
+          python3 tools/ci/audit_x86_build.py \
+            --compile-commands build/compile_commands.json \
+            --binary build/tests/clifft_tests
+
+      - name: Check AVX2 kernel CPU flags
+        id: avx2_check
+        run: |
+          python3 - <<'PY'
+          import os
+          from pathlib import Path
+
+          flags = set()
+          for line in Path("/proc/cpuinfo").read_text().splitlines():
+              if line.startswith("flags"):
+                  flags = set(line.split(":", 1)[1].split())
+                  break
+
+          required = [{"avx2"}, {"bmi2"}, {"fma"}]
+          missing = ["|".join(sorted(g)) for g in required if not (g & flags)]
+          supported = not missing
+          if missing:
+              print(f"::notice::Skipping forced AVX2 tests; missing CPU flags: {' '.join(missing)}")
+          with open(os.environ["GITHUB_OUTPUT"], "a") as fh:
+              fh.write(f"supported={str(supported).lower()}\n")
+          PY
 
       - name: Run C++ tests (default ISA)
         run: |
@@ -138,6 +171,7 @@ jobs:
         shell: bash
 
       - name: Run C++ tests (avx2 ISA)
+        if: steps.avx2_check.outputs.supported == 'true'
         env:
           CLIFFT_FORCE_ISA: avx2
         run: |
@@ -163,6 +197,53 @@ jobs:
       - name: Test documentation code examples
         run: uv run pytest --codeblocks docs/ README.md -v
 
+  release-cpp-smoke:
+    needs: lint
+    runs-on: ubuntu-24.04
+    env:
+      CMAKE_BUILD_TYPE: Release
+      CLIFFT_CPU_BASELINE: x86-64-v2
+      CLIFFT_STIM_SIMD_WIDTH: 128
+      CMAKE_GENERATOR: Ninja
+      CMAKE_C_COMPILER_LAUNCHER: ccache
+      CMAKE_CXX_COMPILER_LAUNCHER: ccache
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install system dependencies
+        run: sudo apt-get update && sudo apt-get install -y ninja-build
+
+      - name: Setup ccache
+        uses: hendrikmuhs/ccache-action@v1.2
+        with:
+          key: ${{ runner.os }}-ccache-${{ env.CMAKE_BUILD_TYPE }}-${{ env.CLIFFT_CPU_BASELINE }}-stim${{ env.CLIFFT_STIM_SIMD_WIDTH }}
+
+      - name: Configure C++ build
+        run: |
+          cmake -S . -B build -G Ninja \
+            -DCMAKE_BUILD_TYPE=${{ env.CMAKE_BUILD_TYPE }} \
+            -DCLIFFT_CPU_BASELINE=${{ env.CLIFFT_CPU_BASELINE }}
+
+      - name: Build C++ tests
+        run: cmake --build build --target clifft_tests --parallel
+
+      - name: Audit release-like C++ build
+        run: |
+          python3 tools/ci/audit_x86_build.py \
+            --compile-commands build/compile_commands.json \
+            --binary build/tests/clifft_tests
+
+      - name: Run C++ smoke tests
+        run: |
+          ctest --test-dir build \
+            --build-config ${{ env.CMAKE_BUILD_TYPE }} \
+            --output-on-failure \
+            --parallel \
+            --timeout 300 \
+            -E "Bench"
+        shell: bash
+
   cross-platform:
     if: github.event_name == 'push'
     needs: lint
@@ -178,6 +259,8 @@ jobs:
     env:
       CMAKE_BUILD_TYPE: Debug
       SKBUILD_CMAKE_BUILD_TYPE: Debug
+      CLIFFT_CPU_BASELINE: generic
+      CLIFFT_STIM_SIMD_WIDTH: 128
       CMAKE_GENERATOR: Ninja
       CMAKE_C_COMPILER_LAUNCHER: ccache
       CMAKE_CXX_COMPILER_LAUNCHER: ccache
@@ -192,7 +275,7 @@ jobs:
       - name: Setup ccache
         uses: hendrikmuhs/ccache-action@v1.2
         with:
-          key: ${{ runner.os }}-ccache-${{ env.CMAKE_BUILD_TYPE }}
+          key: ${{ runner.os }}-ccache-${{ env.CMAKE_BUILD_TYPE }}-${{ env.CLIFFT_CPU_BASELINE }}-stim${{ env.CLIFFT_STIM_SIMD_WIDTH }}
 
       - name: Setup uv and Python
         uses: astral-sh/setup-uv@v5
@@ -205,7 +288,10 @@ jobs:
         uses: ilammy/msvc-dev-cmd@v1
 
       - name: Configure C++ build
-        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=${{ env.CMAKE_BUILD_TYPE }}
+        run: |
+          cmake -S . -B build -G Ninja \
+            -DCMAKE_BUILD_TYPE=${{ env.CMAKE_BUILD_TYPE }} \
+            -DCLIFFT_CPU_BASELINE=${{ env.CLIFFT_CPU_BASELINE }}
 
       - name: Build C++
         run: cmake --build build --config ${{ env.CMAKE_BUILD_TYPE }} --parallel

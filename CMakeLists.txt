@@ -50,14 +50,15 @@ endif()
 # Local source builds default to native tuning. Release wheel CI should set an
 # explicit portable baseline via CLIFFT_CPU_BASELINE.
 set(CLIFFT_CPU_BASELINE "native" CACHE STRING
-    "CPU baseline for optimized builds: native, generic, or x86-64-v3")
-set_property(CACHE CLIFFT_CPU_BASELINE PROPERTY STRINGS native generic x86-64-v3)
+    "CPU baseline for optimized builds: native, generic, x86-64-v2, or x86-64-v3")
+set_property(CACHE CLIFFT_CPU_BASELINE PROPERTY STRINGS native generic x86-64-v2 x86-64-v3)
 
 if(NOT CLIFFT_CPU_BASELINE STREQUAL "native" AND
    NOT CLIFFT_CPU_BASELINE STREQUAL "generic" AND
+   NOT CLIFFT_CPU_BASELINE STREQUAL "x86-64-v2" AND
    NOT CLIFFT_CPU_BASELINE STREQUAL "x86-64-v3")
     message(FATAL_ERROR
-        "CLIFFT_CPU_BASELINE must be one of: native, generic, x86-64-v3. "
+        "CLIFFT_CPU_BASELINE must be one of: native, generic, x86-64-v2, x86-64-v3. "
         "Got '${CLIFFT_CPU_BASELINE}'.")
 endif()
 
@@ -101,10 +102,13 @@ if(CMAKE_BUILD_TYPE STREQUAL "Release" OR CMAKE_BUILD_TYPE STREQUAL "RelWithDebI
                 message(STATUS "Using portable ARM baseline with -ffast-math")
             else()
                 message(FATAL_ERROR
-                    "CLIFFT_CPU_BASELINE=x86-64-v3 is only valid on x86-64 builds")
+                    "CLIFFT_CPU_BASELINE=${CLIFFT_CPU_BASELINE} is only valid on x86-64 builds")
             endif()
         elseif(CMAKE_SYSTEM_PROCESSOR MATCHES "(x86_64|AMD64|amd64)")
-            if(CLIFFT_CPU_BASELINE STREQUAL "x86-64-v3")
+            if(CLIFFT_CPU_BASELINE STREQUAL "x86-64-v2")
+                add_compile_options(-march=x86-64-v2)
+                message(STATUS "Using x86-64-v2 CPU baseline: -march=x86-64-v2 -ffast-math")
+            elseif(CLIFFT_CPU_BASELINE STREQUAL "x86-64-v3")
                 # x86-64-v3 baseline: AVX2 + BMI2 + FMA (~2015 CPUs and later)
                 add_compile_options(-march=x86-64-v3)
                 message(STATUS "Using x86-64-v3 CPU baseline: -march=x86-64-v3 -ffast-math")
@@ -114,9 +118,10 @@ if(CMAKE_BUILD_TYPE STREQUAL "Release" OR CMAKE_BUILD_TYPE STREQUAL "RelWithDebI
             else()
                 message(STATUS "Using generic x86-64 baseline with -ffast-math")
             endif()
-        elseif(CLIFFT_CPU_BASELINE STREQUAL "x86-64-v3")
+        elseif(CLIFFT_CPU_BASELINE STREQUAL "x86-64-v2" OR
+               CLIFFT_CPU_BASELINE STREQUAL "x86-64-v3")
             message(FATAL_ERROR
-                "CLIFFT_CPU_BASELINE=x86-64-v3 is only valid on x86-64 builds")
+                "CLIFFT_CPU_BASELINE=${CLIFFT_CPU_BASELINE} is only valid on x86-64 builds")
         elseif(CLIFFT_CPU_BASELINE STREQUAL "native")
             message(STATUS
                 "No architecture-specific native tuning configured for "

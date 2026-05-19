@@ -50,8 +50,8 @@ SKBUILD_CMAKE_ARGS="-DOpenMP_ROOT=$(brew --prefix libomp)" uv pip install -e .
 
 | Platform / CPU family | PyPI wheel | Source build | Notes |
 |---|---|---|---|
-| Linux `x86_64` with AVX2/BMI2/FMA | Supported | Supported | Wheel uses an `x86-64-v3` baseline and can dispatch to the AVX-512 SVM path on capable CPUs. |
-| Linux `x86_64` without AVX2 | Not supported | Supported | Use `pip install --no-binary clifft clifft` or build from a checkout. |
+| Linux `x86_64` with x86-64-v2 support | Supported | Supported | Wheel uses an `x86-64-v2` baseline and can dispatch to AVX2/BMI2/FMA or AVX-512 SVM paths on capable CPUs. |
+| Linux `x86_64` without x86-64-v2 support | Not supported | Supported | Use `pip install --no-binary clifft clifft` or build from a checkout. |
 | Linux `aarch64` | Supported | Supported | Wheels use a portable ARM baseline; local optimized builds default to native CPU tuning. |
 | macOS `arm64` | Supported | Supported | Wheels use a portable Apple Silicon baseline; local optimized builds are supported. |
 | Windows `amd64` | Supported | Supported | Wheels use the base SVM path on MSVC; Linux x86 wheels expose the hand-tuned AVX2/AVX-512 paths. |
@@ -62,8 +62,8 @@ SKBUILD_CMAKE_ARGS="-DOpenMP_ROOT=$(brew --prefix libomp)" uv pip install -e .
 
 - Published wheels use explicit portable baselines chosen in CI.
 - Local Python source builds and standalone C++ Release builds default to `CLIFFT_CPU_BASELINE=native`.
-- Supported values are `native`, `generic`, and `x86-64-v3`.
-- `x86-64-v3` is intended for Linux `x86_64` wheels and requires AVX2, BMI2, and FMA.
+- Supported values are `native`, `generic`, `x86-64-v2`, and `x86-64-v3`.
+- Linux `x86_64` wheels use `x86-64-v2` as the global baseline. Higher-ISA SVM paths are compiled separately and selected at runtime when the host supports them.
 
 Override the default when needed:
 

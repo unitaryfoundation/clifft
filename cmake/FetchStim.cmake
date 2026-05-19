@@ -25,7 +25,7 @@ set(STIM_BUILD_TESTS OFF CACHE BOOL "" FORCE)
 #
 # Stim's CMakeLists maps SIMD_WIDTH:
 #   256 -> -mavx2 -msse2    (matches x86-64-v3 baseline)
-#   128 -> -mno-avx2 -msse2 (matches SSE2-only "generic" baseline)
+#   128 -> -mno-avx2 -msse2 (matches x86-64-v2 and "generic" baselines)
 #    64 -> -mno-avx2 -mno-sse2
 # Unset on x86 -> -march=native (the bug we are avoiding).
 #
@@ -38,6 +38,9 @@ if(NOT DEFINED CACHE{SIMD_WIDTH})
         if(CLIFFT_CPU_BASELINE STREQUAL "x86-64-v3")
             set(SIMD_WIDTH 256 CACHE STRING
                 "Pinned by Clifft for x86-64-v3: libstim uses -mavx2 -msse2.")
+        elseif(CLIFFT_CPU_BASELINE STREQUAL "x86-64-v2")
+            set(SIMD_WIDTH 128 CACHE STRING
+                "Pinned by Clifft for x86-64-v2: libstim uses -msse2 only.")
         elseif(CLIFFT_CPU_BASELINE STREQUAL "generic")
             set(SIMD_WIDTH 128 CACHE STRING
                 "Pinned by Clifft for generic baseline: libstim uses -msse2 only.")

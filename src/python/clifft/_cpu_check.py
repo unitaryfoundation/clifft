@@ -14,10 +14,44 @@ def _linux_cpu_flags() -> set[str]:
     return set()
 
 
-def ensure_supported_cpu(cpu_baseline: str, requires_x86_64_v3_baseline: bool) -> None:
-    """Raise ImportError early if this wheel requires x86-64-v3 on Linux."""
+def _missing_flag_groups(flags: set[str], required: list[set[str]]) -> list[str]:
+    return ["|".join(sorted(group)) for group in required if not (group & flags)]
 
-    if not requires_x86_64_v3_baseline or cpu_baseline != "x86-64-v3":
+
+def ensure_supported_cpu(cpu_baseline: str) -> None:
+    """Raise ImportError early if an x86_64 wheel baseline is unsupported."""
+
+    required_by_baseline = {
+        "x86-64-v2": [
+            {"cx16"},
+            {"lahf_lm"},
+            {"popcnt"},
+            {"pni", "sse3"},
+            {"ssse3"},
+            {"sse4_1"},
+            {"sse4_2"},
+        ],
+        "x86-64-v3": [
+            {"cx16"},
+            {"lahf_lm"},
+            {"popcnt"},
+            {"pni", "sse3"},
+            {"ssse3"},
+            {"sse4_1"},
+            {"sse4_2"},
+            {"avx"},
+            {"avx2"},
+            {"bmi1"},
+            {"bmi2"},
+            {"f16c"},
+            {"fma"},
+            {"lzcnt", "abm"},
+            {"movbe"},
+            {"xsave"},
+        ],
+    }
+    required = required_by_baseline.get(cpu_baseline)
+    if required is None:
         return
     if platform.system() != "Linux":
         return
@@ -25,14 +59,13 @@ def ensure_supported_cpu(cpu_baseline: str, requires_x86_64_v3_baseline: bool) -
         return
 
     flags = _linux_cpu_flags()
-    required = {"avx2", "bmi2", "fma"}
-    missing = sorted(required - flags)
+    missing = _missing_flag_groups(flags, required)
     if not missing:
         return
 
     missing_str = ", ".join(missing)
     raise ImportError(
-        "This Clifft wheel requires an x86-64-v3 CPU baseline (AVX2, BMI2, FMA). "
+        f"This Clifft wheel requires an {cpu_baseline} CPU baseline. "
         f"Missing CPU flags: {missing_str}. Install from source with "
         "'pip install --no-binary clifft clifft' on older x86_64 machines."
     )
