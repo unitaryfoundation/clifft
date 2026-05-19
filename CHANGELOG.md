@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.4.1] - 2026-05-19
+
+This patch makes Linux wheel CPU targeting consistent and portable across Clifft and its dependencies. It fixes a build configuration issue where host-specific CPU settings could leak into binaries, potentially producing unsupported instructions on some Linux x86_64 systems.
+
+### Bug Fixes
+
+- pin stim's SIMD_WIDTH so libstim respects the wheel baseline (#95) by @bachase in [#95](https://github.com/unitaryfoundation/clifft/pull/95)
+- tighten AVX-2 dispatch and trap CLIFFT_FORCE_ISA misconfig (#94) by @bachase in [#94](https://github.com/unitaryfoundation/clifft/pull/94)
+
+### CI
+
+- fix Windows configure command (#98) by @bachase in [#98](https://github.com/unitaryfoundation/clifft/pull/98)
+- align x86 wheel baseline with runtime dispatch (#97) by @bachase in [#97](https://github.com/unitaryfoundation/clifft/pull/97)
+
 ## [0.4.0] - 2026-05-15
 
 This release expands strong simulation with a new `clifft.record_probabilities()` API that returns the joint probability `sample()` would assign to a given measurement record (or batch of records). Combined with the existing basis-probability path, Clifft now answers two complementary "what's the exact probability of …" questions: bitstring outcomes for unitary circuits, and measurement-record outcomes for circuits that contain measurements with or without classical feedback. See the [strong-simulation tutorial](https://unitaryfoundation.github.io/clifft/guide/strong-simulation/) for both APIs side-by-side and more detail on when to choose one versus anothr.
