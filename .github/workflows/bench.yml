@@ -30,7 +30,6 @@ jobs:
     env:
       CMAKE_BUILD_TYPE: Release
       CLIFFT_CPU_BASELINE: x86-64-v2
-      CLIFFT_STIM_SIMD_WIDTH: 128
       CMAKE_GENERATOR: Ninja
       CMAKE_C_COMPILER_LAUNCHER: ccache
       CMAKE_CXX_COMPILER_LAUNCHER: ccache
@@ -78,7 +77,7 @@ jobs:
       - name: Setup ccache
         uses: hendrikmuhs/ccache-action@v1.2
         with:
-          key: ${{ runner.os }}-ccache-bench-${{ env.CMAKE_BUILD_TYPE }}-${{ env.CLIFFT_CPU_BASELINE }}-stim${{ env.CLIFFT_STIM_SIMD_WIDTH }}
+          key: ${{ runner.os }}-ccache-bench-${{ env.CMAKE_BUILD_TYPE }}-${{ env.CLIFFT_CPU_BASELINE }}
 
       - name: Configure C++ build
         # Pin the global baseline to match Linux x86_64 release wheels. The
@@ -184,7 +183,6 @@ jobs:
     timeout-minutes: 60
     env:
       CLIFFT_CPU_BASELINE: x86-64-v2
-      CLIFFT_STIM_SIMD_WIDTH: 128
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -195,7 +193,7 @@ jobs:
       - name: Setup ccache
         uses: hendrikmuhs/ccache-action@v1.2
         with:
-          key: ${{ runner.os }}-ccache-bench-python-${{ env.CLIFFT_CPU_BASELINE }}-stim${{ env.CLIFFT_STIM_SIMD_WIDTH }}
+          key: ${{ runner.os }}-ccache-bench-python-${{ env.CLIFFT_CPU_BASELINE }}
 
       - name: Setup uv and Python
         uses: astral-sh/setup-uv@v5
