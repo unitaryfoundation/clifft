@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1779176185461,
+  "lastUpdate": 1779262844647,
   "repoUrl": "https://github.com/unitaryfoundation/clifft",
   "entries": {
     "Python pytest-benchmark suite": [
@@ -693,6 +693,105 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.006263676325121646",
             "extra": "mean: 1.8553369538000026 sec\nrounds: 5"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Brad Chase",
+            "username": "bachase",
+            "email": "14430+bachase@users.noreply.github.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "687944d50e517e5c1bdaee3748f4d93cf1af2919",
+          "message": "ci: replace stripped-binary audit with QEMU wheel smoke (#100)\n\nThe audit's AVX-512 scan never ran on the published wheel and produced\nfalse positives on stripped binaries. Replace it with a qemu-x86_64\nsmoke against Haswell + Nehalem that asserts both pass paths and clean\nCLIFFT_FORCE_ISA traps. Runs on every PR (~70s) and against the\ncibuildwheel artifact in release.yml. The compile-flag check is\nretained as audit_build_flags.py.\n\nAssisted-by: Claude (Opus 4.7) <noreply@anthropic.com>",
+          "timestamp": "2026-05-19T16:45:30Z",
+          "url": "https://github.com/unitaryfoundation/clifft/commit/687944d50e517e5c1bdaee3748f4d93cf1af2919"
+        },
+        "date": 1779262841938,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "tools/bench/test_bench_deep_clifford.py::test_compile_stim_deep",
+            "value": 1412.024846642714,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0001086540718120113",
+            "extra": "mean: 708.2028353662752 usec\nrounds: 1148"
+          },
+          {
+            "name": "tools/bench/test_bench_deep_clifford.py::test_compile_clifft_deep",
+            "value": 629.7836176382696,
+            "unit": "iter/sec",
+            "range": "stddev: 0.000020128795156946534",
+            "extra": "mean: 1.5878469556735477 msec\nrounds: 564"
+          },
+          {
+            "name": "tools/bench/test_bench_deep_clifford.py::test_sample_stim_deep",
+            "value": 56.19592940064878,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0012684582290606306",
+            "extra": "mean: 17.79488320000016 msec\nrounds: 45"
+          },
+          {
+            "name": "tools/bench/test_bench_deep_clifford.py::test_sample_clifft_deep",
+            "value": 1.0202712489020564,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0018528598278371568",
+            "extra": "mean: 980.1315101999876 msec\nrounds: 5"
+          },
+          {
+            "name": "tools/bench/test_bench_qec.py::test_compile_stim",
+            "value": 17518.566613516603,
+            "unit": "iter/sec",
+            "range": "stddev: 0.000004032220409818009",
+            "extra": "mean: 57.08229571867148 usec\nrounds: 7825"
+          },
+          {
+            "name": "tools/bench/test_bench_qec.py::test_compile_clifft",
+            "value": 1465.4484174369,
+            "unit": "iter/sec",
+            "range": "stddev: 0.000019538098840829735",
+            "extra": "mean: 682.3849874900551 usec\nrounds: 1199"
+          },
+          {
+            "name": "tools/bench/test_bench_qec.py::test_sample_stim",
+            "value": 110.8655904621751,
+            "unit": "iter/sec",
+            "range": "stddev: 0.00011170935913482612",
+            "extra": "mean: 9.019931214285807 msec\nrounds: 98"
+          },
+          {
+            "name": "tools/bench/test_bench_qec.py::test_sample_clifft",
+            "value": 7.391249021515524,
+            "unit": "iter/sec",
+            "range": "stddev: 0.001414576164916692",
+            "extra": "mean: 135.2951303749954 msec\nrounds: 8"
+          },
+          {
+            "name": "tools/bench/test_bench_qv.py::test_compile_qv20",
+            "value": 53.79817293446854,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0002284458996671748",
+            "extra": "mean: 18.587991849055882 msec\nrounds: 53"
+          },
+          {
+            "name": "tools/bench/test_bench_qv.py::test_sample_qv20_1shot",
+            "value": 6.396266679696725,
+            "unit": "iter/sec",
+            "range": "stddev: 0.00028142158241372",
+            "extra": "mean: 156.341198714281 msec\nrounds: 7"
+          },
+          {
+            "name": "tools/bench/test_bench_qv.py::test_sample_qv20_10shots",
+            "value": 0.6346902127948162,
+            "unit": "iter/sec",
+            "range": "stddev: 0.03286887028399888",
+            "extra": "mean: 1.5755717983999886 sec\nrounds: 5"
           }
         ]
       }
