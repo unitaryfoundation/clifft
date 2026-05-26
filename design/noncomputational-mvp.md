@@ -87,20 +87,33 @@ set, but the default ships unchanged.
 ### 2.3 Per-trajectory site state
 
 ```cpp
-struct SiteStatus {
-    uint8_t level_id;   // index into model.levels
-    uint8_t known : 1;  // only meaningful when category == Computational
-    uint8_t reserved : 7;
-};
+// One byte per site: bit 7 carries `known`, bits 0-6 carry `level_id`.
+// (A `: 1` / `: 7` bitfield struct is not guaranteed by the standard
+// to pack into one byte; explicit masking guarantees the layout.)
+using SiteStatus = uint8_t;
+
+constexpr uint8_t kSiteStatusKnownBit  = 0x80;
+constexpr uint8_t kSiteStatusLevelMask = 0x7F;  // supports up to 128 levels
+
+inline uint8_t site_level(SiteStatus s)        { return s & kSiteStatusLevelMask; }
+inline bool    site_known(SiteStatus s)        { return (s & kSiteStatusKnownBit) != 0; }
+inline SiteStatus make_site_status(uint8_t level_id, bool known) {
+    return static_cast<SiteStatus>(level_id | (known ? kSiteStatusKnownBit : 0));
+}
 ```
 
 Trajectory state during history sampling is `std::vector<SiteStatus>
 statuses;` — one byte per site, allocated once per history. The
 runtime-effective category at site `i` is:
 
-- `model.levels[statuses[i].level_id].intrinsic_category`, *unless*
-- the intrinsic category is `Computational` and `statuses[i].known == 1`,
-  in which case the effective category is `KnownComputational`.
+- `model.levels[site_level(statuses[i])].intrinsic_category`, *unless*
+- the intrinsic category is `Computational` and `site_known(statuses[i])`
+  is true, in which case the effective category is
+  `KnownComputational`.
+
+"Known" here means known *in the energy basis* (`g`/`e`) — the basis
+in which transition matrices are indexed. X- and Y-basis measurements
+or resets do not produce `known=1`; see §5.2.1.
 
 ## 3. `NonComputationalModel` API
 
@@ -132,10 +145,15 @@ model = clifft.NonComputationalModel(
     },
 
     # Level -> visible-symbol classifier applied at measurement.
+    # Row-stochastic `symbols x levels` matrix using
+    # matrix[symbol_idx, level_id] = P(symbol | level).
     # Optional; default is identity-on-computational + reject on
     # leaked/lost (i.e. policy must say what M of a noncomputational
     # site returns).
-    classifier=clifft.TransitionInstrument(matrix=[...]),
+    classifier=clifft.MeasurementClassifier(
+        symbols=["0", "1"],     # 2-symbol binary record by default
+        matrix=[[...], [...]],  # shape (len(symbols), len(levels))
+    ),
 
     # Policy hooks for downstream operations on noncomputational
     # sites. See §5 for the default table.
@@ -147,12 +165,15 @@ model = clifft.NonComputationalModel(
 ```
 
 `clifft.Level`, `clifft.TransitionInstrument`,
-`clifft.NonComputationalPolicy`, and `clifft.NonComputationalModel` are
-all nanobind-bound C++ classes. Python provides keyword constructors
-and `__repr__`. No pydantic; light shape checks (e.g.,
-`isinstance(matrix, list)`) on the Python side, semantic validation
-(column sums, source-independence, unknown-gate rejection,
-intrinsic-category consistency) on the C++ side at model construction.
+`clifft.MeasurementClassifier`, `clifft.NonComputationalPolicy`, and
+`clifft.NonComputationalModel` are all nanobind-bound C++ classes.
+Python provides keyword constructors and `__repr__`. No pydantic;
+light shape checks (e.g., `isinstance(matrix, list)`) on the Python
+side, semantic validation (column sums, unknown-gate rejection,
+intrinsic-category consistency, classifier shape) on the C++ side at
+model construction. Source-independence is *cached* on each
+`TransitionInstrument` at construction but is not a construction-time
+invariant; the runtime sampler uses it as the §4.2 gate.
 
 ### 3.2 C++ side
 
@@ -162,18 +183,34 @@ namespace clifft {
 struct Level {
     std::string label;
     LevelCategory intrinsic_category;
+    std::optional<uint8_t> basis_bit;  // required if intrinsic_category == Computational
 };
 
 class TransitionInstrument {
 public:
     // Construct from a square matrix using T[to, from] convention.
-    // Validates column sums in [0, 1] and source-independence
-    // (every column on Computational sources must have the same
-    // probability vector); throws on failure.
+    // Validates matrix shape and that every column sum lies in [0, 1].
+    // Computes the cached flag `is_source_independent_on_computational`
+    // but does NOT reject source-dependent matrices here; whether a
+    // source-dependent matrix is applicable is checked at sample time
+    // (see section 4.2).
     static TransitionInstrument from_matrix(
         std::vector<std::vector<double>> matrix);
 
-    // ... accessors for branches, no-jump weight per source, etc.
+    bool is_source_independent_on_computational() const;
+    // ... accessors for per-source branches, no-jump weight per source, etc.
+};
+
+// Distinct from TransitionInstrument: rectangular row-stochastic map
+// from levels to reported user-facing symbols. No no-jump branch, no
+// concept of source-independence on Computational levels.
+class MeasurementClassifier {
+public:
+    static MeasurementClassifier from_matrix(
+        std::vector<std::string> symbols,
+        std::vector<std::vector<double>> matrix);  // shape (symbols, levels)
+
+    // ... accessors
 };
 
 class NonComputationalModel {
@@ -182,10 +219,12 @@ public:
         std::vector<Level> levels,
         std::vector<double> initial_state,
         std::map<std::string, TransitionInstrument> transitions,
-        std::optional<TransitionInstrument> classifier,
+        std::optional<MeasurementClassifier> classifier,
         NonComputationalPolicy policy);
 
-    // Throws at construction if any invariant violates pre-sampleability.
+    // Throws at construction on shape/probability/key validation
+    // failures (section 4.1). Source-context validity is enforced at
+    // sample time (section 4.2).
     // ... accessors
 };
 
@@ -210,7 +249,10 @@ representable in the MVP.
    in `[0, 1]`.
 4. **Column sums in [0, 1].** Implied no-jump weight per source is
    `1 - sum(col)`.
-5. **Classifier sources cover the full level set** if provided.
+5. **Classifier matrix shape and rows.** If a `MeasurementClassifier`
+   is provided, its matrix has shape `(len(symbols), len(levels))`,
+   every entry is in `[0, 1]`, and every column (per-level row over
+   symbols) sums to 1 within tolerance.
 6. **Policy values are well-formed** (enum values, not free strings on
    the C++ side; Python sugar translates).
 7. **Transition keys reference known gate names** in clifft's circuit
@@ -302,8 +344,10 @@ unchanged but the site's `known` bit is set to 0 afterward (per §5.2.1).
 | Single-qubit Pauli noise | apply                 | apply, clear known                  | drop                                    | drop                                              |
 | Two-qubit gate           | apply                 | apply, clear known on both           | reject                                  | reject (policy override: drop)                    |
 | MPP / multi-target meas  | apply                 | apply, clear known on all            | reject                                  | reject                                            |
-| Visible single-q meas    | apply                 | apply, outcome = sampled known value | classifier → visible bit; default reject | policy: random / zero / one / reject              |
-| Reset `R` (or `RX`/`RY`) | apply                 | apply                                | restore to known computational          | reject unless `policy.reset_restores_lost` is set |
+| Visible Z-basis meas (`M`/`MR`) | apply, set known after | apply, outcome = sampled known value | classifier → visible bit; default reject | policy: random / zero / one / reject |
+| Visible X/Y-basis meas (`MX`/`MY`/`MRX`/`MRY`) | apply, **clear known** | apply, **clear known** | classifier → visible bit; default reject | policy: random / zero / one / reject |
+| Z-basis reset `R`        | apply, set known after | apply, set known after | restore to known computational          | reject unless `policy.reset_restores_lost` is set |
+| X/Y-basis reset `RX`/`RY` | apply, **clear known** | apply, **clear known** | restore to coherent computational (known = 0) | reject unless `policy.reset_restores_lost` is set |
 | Detector / Observable    | unchanged             | unchanged                            | unchanged                               | unchanged                                         |
 
 Notes:
@@ -333,10 +377,21 @@ A site's `known` bit transitions as follows during history sampling:
 |--------------------------------------------------|---------------------------------------------------------|
 | Initial-state sample (any level)                 | `known = 1`                                             |
 | Any quantum gate touching site (single or multi) | `known = 0` on every touched site                       |
-| Visible measurement                              | `known = 1` after sampling the outcome                  |
-| Reset `R`/`RX`/`RY`                              | `known = 1` (reset is to a known computational state)   |
-| Reload via `policy.reset_restores_lost`          | `known = 1`                                             |
-| Transition jump to a new level                   | `known = 1` if destination level is `KnownComputational` after the transition; otherwise the bit is moot |
+| Z-basis measurement (`M`/`MR`)                   | `known = 1`, level updated to `g` or `e` per outcome    |
+| X- or Y-basis measurement (`MX`/`MY`/`MRX`/`MRY`)| `known = 0` (post-state is in X- or Y-basis, not energy basis) |
+| Z-basis reset `R`                                | `known = 1` (reset is to a known energy-basis state)    |
+| X- or Y-basis reset `RX`/`RY`                    | `known = 0` (reset is to a known X/Y-basis state, but `known` is energy-basis) |
+| Reload via `policy.reset_restores_lost` (Z-basis) | `known = 1`                                            |
+| Transition jump to a new computational-intrinsic level | `known = 1` (destination level is the known value)      |
+| Transition jump to a noncomputational level      | `known` bit moot; site category becomes Leaked or Lost   |
+
+The "known" bit means *known in the energy basis* (`g`/`e`) — the
+basis transition matrices are indexed in. A site that is in a known
+X-basis or Y-basis state after `RX`/`MY`/etc. is still coherent in
+the energy basis (a superposition of `g` and `e`), so its category
+remains `Computational`. Source-dependent transitions on it will hit
+the §4.2 sample-time rejection unless the instrument is
+source-independent on Computational sources.
 
 ### 5.3 Hidden trace-out at structural loss
 
@@ -367,10 +422,14 @@ single `R` op on that site in the rewritten circuit. Concretely:
 3. **No output stripping pass is needed.** The SVM does not emit
    hidden-measurement slots into the user-facing measurement array;
    `compile()` / `sample()` already enforce that.
-4. **The trace-out outcome can still be surfaced for debugging** by
-   reading the SVM's hidden-record buffer after sampling. Whether to
-   expose it in the noncomputational sidecar is an open knob (see §8);
-   for MVP correctness it is not required.
+4. **The trace-out outcome is consumed internally and not exposed.**
+   The frontend's hidden-measurement slot drives the corrective Pauli
+   on the residual state, but `sample()` sizes `result.measurements`
+   to `program.num_measurements` (visible only) and never propagates
+   hidden slots out (see `src/clifft/svm/svm.cc:199-205`). Surfacing
+   the outcome would require extending the SVM result struct; that is
+   out of scope for MVP. The noncomputational sidecar therefore does
+   not include trace-out outcomes in v1.
 
 After the inserted `R`, the rewriter marks the site `Lost` in the
 trajectory and drops every subsequent op on that site per the policy
@@ -390,29 +449,33 @@ Proposed layout under `src/clifft/noncomp/` (new directory):
 
 1. `level.h` — `LevelCategory` enum, `Level` struct. Zero deps.
 2. `transition_instrument.h/.cc` — `TransitionInstrument`,
-   matrix-to-branch expansion, source-independence check. Depends on
-   `level.h`.
-3. `policy.h` — `NonComputationalPolicy` struct with enums for the
+   matrix-to-branch expansion, derived
+   `is_source_independent_on_computational` flag. Depends on `level.h`.
+3. `classifier.h/.cc` — `MeasurementClassifier`, row-stochastic
+   `(symbols, levels)` map. Depends on `level.h`.
+4. `policy.h` — `NonComputationalPolicy` struct with enums for the
    ambiguous-case overrides. Zero deps.
-4. `model.h/.cc` — `NonComputationalModel`, all semantic validation.
-   Depends on (1)-(3).
-5. `history.h` — `SiteStatus`, `NonComputationalHistory` (sequence of
-   (op-index, site, branch, status-update, herald)). Depends on (1).
-6. `sampler.h/.cc` — history sampler that walks the parsed circuit and
-   updates `SiteStatus` per shot. Depends on (1)-(5), `clifft::Circuit`,
+5. `model.h/.cc` — `NonComputationalModel`, all construction-time
+   validation per §4.1. Depends on (1)-(4).
+6. `history.h` — `SiteStatus` (the packed byte from §2.3),
+   `NonComputationalHistory` (sequence of (op-index, site, branch,
+   status-update, herald)). Depends on (1).
+7. `sampler.h/.cc` — history sampler that walks the parsed circuit,
+   updates `SiteStatus` per shot, and enforces the §4.2 sample-time
+   source-context check. Depends on (1)-(6), `clifft::Circuit`,
    `clifft::AstNode`.
-7. `rewriter.h/.cc` — produces a new `clifft::Circuit` from
-   `(original, history, model)` and computes the
-   `hidden_slot_indices` sidecar. Depends on (1)-(6) and
-   `clifft::Circuit`.
-8. `orchestrator.h/.cc` — top-level `sample_noncomputational` entry
-   point that runs the full pipeline. Depends on (1)-(7), the existing
+8. `rewriter.h/.cc` — produces a new `clifft::Circuit` from
+   `(original, history, model)`, inserting `R` at coherent-site loss
+   points and `X` prep for `basis_bit==1` initial samples. Depends on
+   (1)-(7) and `clifft::Circuit`.
+9. `orchestrator.h/.cc` — top-level `sample_noncomputational` entry
+   point that runs the full pipeline. Depends on (1)-(8), the existing
    compile pipeline, and the SVM.
 
 Python bindings in `src/python/bindings.cc` expose:
-`Level`, `TransitionInstrument`, `NonComputationalPolicy`,
-`NonComputationalModel`, `sample_noncomputational(circuit_text, model,
-shots, seed=None)`.
+`Level`, `TransitionInstrument`, `MeasurementClassifier`,
+`NonComputationalPolicy`, `NonComputationalModel`,
+`sample_noncomputational(circuit_text, model, shots, seed=None)`.
 
 ## 7. Test plan (dependency order)
 
@@ -420,35 +483,56 @@ Each test category lands once the headers it needs are in place. C++
 tests under `tests/test_noncomp_*.cc`; Python tests under
 `tests/python/test_noncomputational.py`.
 
-1. **`level` and `transition_instrument` unit tests.**
-   - Default level set roundtrips.
+1. **`level`, `transition_instrument`, `classifier` unit tests.**
+   - Default level set roundtrips; `basis_bit` required iff
+     intrinsic category is Computational.
    - Matrix orientation: `T[to, from]` matches a known per-column
      no-jump weight.
-   - Source-independence check rejects a hand-crafted Computational
-     pair of differing columns; accepts identical columns.
+   - `is_source_independent_on_computational` is true for identical
+     `g`/`e` columns, false when they differ. Construction does *not*
+     throw on differing-column instruments — both must build cleanly.
+   - `MeasurementClassifier` matrix shape and per-level column sums
+     enforced; mismatched (symbols, levels) dimensions rejected.
 2. **`model` validation tests.**
    - Initial-state sum, unknown-gate keys, classifier shape, policy
-     enum values.
+     enum values all reject at construction with a named field.
+   - Source-dependent transitions in `model.transitions` build fine;
+     no rejection at construction.
 3. **`history` sampler tests.**
    - Deterministic seed → fixed history.
    - Initial-state-only sampling produces marginal frequencies within
      a binomial bound at large N.
+   - Sample-time §4.2 rejection: applying a source-dependent
+     transition to an unknown-coherent Computational site raises an
+     error naming the op, site, and instrument. Applying the same
+     transition to a `KnownComputational` site (post Z-basis `M`)
+     succeeds.
 4. **`rewriter` unit tests.**
+   - Initial `e` sample on a site emits a leading `X` prep; initial
+     `g` does not.
    - Lost-site single-q gate dropped; two-q gate rejected by default.
-   - Reset on lost rejected; `RL` (or its config-flag analog) restores.
-   - Hidden M insertion at coherent-site loss, with `rec[-k]`
-     renumbering verified on a circuit that has detectors before *and*
-     after the loss point.
+   - Reset on lost rejected by default; `policy.reset_restores_lost`
+     enables restoration.
+   - **Trace-out via inserted `R`**: at a structural-loss event on a
+     previously-coherent site, an `R` is emitted on that site. The
+     compiled rewritten circuit's
+     `hir.num_hidden_measurements` increments by one, and the
+     visible-record layout (and `rec[-k]` references in detectors and
+     observables) is unchanged. Verified on a circuit that has
+     detectors before *and* after the loss point.
+   - Z-basis vs X/Y-basis measurement/reset: a `KnownComputational`
+     site produced by `M` retains `known=1`; the same site after `MX`
+     has `known=0`. (Single-site assertions on the sampler output.)
    - Lost visible-measurement policy `"random"` and `"zero"` each
      produce the configured output.
 5. **End-to-end `sample_noncomputational` Python tests.**
-   - Visible measurement record layout unchanged vs. lossless run with
-     `LOSS=0`.
+   - Visible measurement record layout unchanged vs. a lossless run
+     where the model is configured with zero loss probability.
    - Survivor statistics on a small (3-qubit) entangled circuit with
      forced loss match a Python brute-force enumerator within shot
      noise.
-   - `LOSS=1` (every site lost initially) returns a trivial output and
-     a full noncomp sidecar.
+   - "Everything lost initially" (initial_state concentrates on
+     `lost`) returns a trivial output and a full noncomp sidecar.
 6. **Regression / smoke.**
    - Existing `compile()` / `sample()` paths unchanged. Run the
      current C++ and Python suites; both stay green.
