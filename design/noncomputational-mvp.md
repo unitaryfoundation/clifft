@@ -64,15 +64,22 @@ a freshly-sampled site holding that level. A `Computational` level can
 be promoted to `KnownComputational` at runtime (via a sampled
 Z-collapse); the reverse promotion (re-coherence) is not in MVP scope.
 
+A `Computational`-intrinsic level must also declare a `basis_bit`
+(0 or 1) identifying which computational basis state it represents.
+The rewriter uses this to prepend a preparation gate when an initial
+sample places the site in a `Computational` level whose `basis_bit`
+is not 0 (the SVM default initialization). `Leaked` and `Lost` levels
+have no `basis_bit`.
+
 Default level set for the MVP (sqale-aligned):
 
-| id | label    | intrinsic category | notes                          |
-|----|----------|--------------------|--------------------------------|
-| 0  | `g`      | Computational      | logical 0                      |
-| 1  | `e`      | Computational      | logical 1                      |
-| 2  | `leak_g` | Leaked             | metastable / Rydberg "leak g"  |
-| 3  | `leak_e` | Leaked             | metastable / Rydberg "leak e"  |
-| 4  | `lost`   | Lost               | empty trap / vacuum            |
+| id | label    | intrinsic category | basis_bit | notes                          |
+|----|----------|--------------------|-----------|--------------------------------|
+| 0  | `g`      | Computational      | 0         | logical 0                      |
+| 1  | `e`      | Computational      | 1         | logical 1                      |
+| 2  | `leak_g` | Leaked             | —         | metastable / Rydberg "leak g"  |
+| 3  | `leak_e` | Leaked             | —         | metastable / Rydberg "leak e"  |
+| 4  | `lost`   | Lost               | —         | empty trap / vacuum            |
 
 Users may construct a `NonComputationalModel` with a different level
 set, but the default ships unchanged.
@@ -105,8 +112,8 @@ import clifft
 model = clifft.NonComputationalModel(
     # Optional; defaults to the sqale-aligned 5-level set above.
     levels=[
-        clifft.Level("g",      category="computational"),
-        clifft.Level("e",      category="computational"),
+        clifft.Level("g",      category="computational", basis_bit=0),
+        clifft.Level("e",      category="computational", basis_bit=1),
         clifft.Level("leak_g", category="leaked"),
         clifft.Level("leak_e", category="leaked"),
         clifft.Level("lost",   category="lost"),
@@ -185,34 +192,64 @@ public:
 }  // namespace clifft
 ```
 
-## 4. Pre-sampleability validation
+## 4. Validation: construction-time vs. sample-time
 
-Validation runs once at `NonComputationalModel` construction. Failures
-throw with a message naming the offending field. Checks:
+Validation is split: model construction checks shape and self-consistency;
+the runtime sampler checks whether each transition's source-context is
+representable in the MVP.
+
+### 4.1 Construction-time checks (always run, throw on failure)
 
 1. **Level set well-formed.** Every level id in `[0, len(levels))`,
-   intrinsic categories all in the enum.
+   intrinsic categories all in the enum. Every `Computational`-intrinsic
+   level declares a `basis_bit` in `{0, 1}`; non-`Computational` levels
+   omit it.
 2. **Initial state is a probability vector** over `levels`. Sums to 1
    within tolerance.
 3. **Transition matrices are square**, of size `len(levels)`, entries
    in `[0, 1]`.
 4. **Column sums in [0, 1].** Implied no-jump weight per source is
    `1 - sum(col)`.
-5. **Source-independence for Computational sources.** For every
-   transition, every column whose source is a `Computational` level
-   must be identical. This is the "pre-sampleable" condition: no two
-   Computational source levels have distinguishable jump rates. If
-   violated, raise with a message naming the operation and the
-   differing columns. (This is exactly the cut between the MVP and the
-   later diagonal-filter work.)
-6. **Classifier sources cover the full level set** if provided.
-7. **Policy values are well-formed** (enum values, not free strings on
+5. **Classifier sources cover the full level set** if provided.
+6. **Policy values are well-formed** (enum values, not free strings on
    the C++ side; Python sugar translates).
-8. **Transition keys reference known gate names** in clifft's circuit
+7. **Transition keys reference known gate names** in clifft's circuit
    vocabulary; unknown keys reject.
 
-Sources that are intrinsic `Leaked` or `Lost` are not subject to (5) —
-their transitions are classical Markov updates by definition.
+Each `TransitionInstrument` also computes and caches a derived flag
+at construction:
+
+- `is_source_independent_on_computational`: true iff every column whose
+  source level is intrinsic `Computational` is bit-identical (within
+  tolerance) to the others.
+
+This flag is *not* a validation gate — source-dependent matrices are
+fine to declare. Whether they are applicable depends on the source
+context at sample time. The sqale-aligned `cz_transition_matrix` and
+`rz_transition_matrix` in §1's prior art have distinct `g` and `e`
+columns; they are valid `TransitionInstrument`s and will be accepted
+here.
+
+### 4.2 Sample-time check (per (transition, target-site) firing)
+
+When a transition fires on a target site at category `c`:
+
+- `c == KnownComputational`: use the column matching the known level
+  directly. Always allowed.
+- `c == Leaked` or `c == Lost`: use the column matching the level
+  directly. Classical Markov update. Always allowed.
+- `c == Computational` (coherent, unknown): require
+  `is_source_independent_on_computational` on this instrument. If
+  false, reject with an error naming the op index, the site, and the
+  instrument — pointing the user at the cut between MVP and the later
+  diagonal-filter extension. If true, the no-jump branch is scalar on
+  `H_C` and the jump branches are source-independent; sample without
+  consulting amplitudes.
+
+This is the "pre-sampleable" boundary, enforced where it actually
+matters (at the unknown-coherent-source point) rather than at model
+construction. It also means a model with a source-dependent instrument
+that only ever fires on known-or-classical sources runs fine in MVP.
 
 ## 5. Sampling, rewrite, and policy table
 
@@ -221,83 +258,131 @@ their transitions are classical Markov updates by definition.
 For each shot:
 
 1. **Sample initial statuses.** One draw from `initial_state` per
-   site. Initial `known` bit is 1 (the sampled level is, by
-   construction, a classical fact).
-2. **Walk the circuit ops in order, sampling transitions and updating
+   site. The sampled level is a classical fact, so the initial
+   `known` bit is 1 for every site (it is moot on `Leaked`/`Lost`).
+2. **Translate known computational initial levels into prep gates.**
+   For every site sampled to a `Computational` level whose
+   `basis_bit == 1`, the rewriter prepends an `X` on that site so the
+   SVM's `|0...0>` initial state matches the sampled known level.
+   `basis_bit == 0` requires no prep. `Leaked`/`Lost` initial sites
+   need no quantum prep (their computational amplitude is irrelevant);
+   the lost/leaked policy gates downstream ops on them from op 0.
+3. **Walk the circuit ops in order, sampling transitions and updating
    statuses.** For each op, consult the model's transitions and the
-   site statuses. Sample any per-target branches. Record the resulting
+   site statuses. Apply the §4.2 sample-time check on the source
+   context. Sample any per-target branches. Record the resulting
    `NonComputationalHistory` (sequence of (op-index, site, sampled
-   branch, status-update, optional herald)).
-3. **Rewrite the original circuit using the history.** Produce a new
+   branch, status-update, optional herald)). Update the `known` bit
+   per §5.2.1 below.
+4. **Rewrite the original circuit using the history.** Produce a new
    ordinary clifft circuit (no new instructions). Drop, keep, or
-   replace ops per the policy table. Insert hidden trace-out
-   measurements at structural loss points where the lost site was
-   coherent (see §5.3).
-4. **Compile the rewritten circuit** through the ordinary
+   replace ops per the policy table. Insert an `R` op at structural
+   loss points where the lost site was previously coherent (see §5.3).
+5. **Compile the rewritten circuit** through the ordinary
    trace/lower/bytecode pipeline.
-5. **Sample one shot** on the SVM.
-6. **Strip hidden record positions** from the measurement array (see
-   §5.3) and return the user-facing `(measurements, detectors,
-   observables)` plus the noncomputational metadata sidecar:
-   `(history, per-site final status, classifier output, herald bits)`.
+6. **Sample one shot** on the SVM.
+7. **Return** the user-facing `(measurements, detectors, observables)`
+   unchanged from the existing API, plus the noncomputational metadata
+   sidecar: `(history, per-site final status, classifier output, herald
+   bits)`.
 
-The C++ orchestrator owns steps 1-6. Caching of step 4 across shots is
-deferred (see §1, "Out").
+The C++ orchestrator owns steps 1-7. Caching of step 5 across shots
+is deferred (see §1, "Out").
 
 ### 5.2 Default rewrite-policy table
 
 Rows are (operation kind, site category at op time). "Reject" means
 the C++ rewrite raises with a clear message naming the op index and
-site; no silent approximation.
+site; no silent approximation. "Apply, clear known" means the op runs
+unchanged but the site's `known` bit is set to 0 afterward (per §5.2.1).
 
-| Operation                | Computational     | KnownComputational            | Leaked                          | Lost                            |
-|--------------------------|-------------------|-------------------------------|---------------------------------|---------------------------------|
-| Single-qubit gate        | apply             | apply (rehydrates known state) | reject (policy override allowed) | drop                            |
-| Single-qubit Pauli noise | apply             | apply                          | drop                            | drop                            |
-| Two-qubit gate           | apply             | apply                          | reject                          | reject (policy override: drop)  |
-| MPP / multi-target meas  | apply             | apply                          | reject                          | reject                          |
-| Visible single-q meas    | apply             | apply (sampled-known outcome)  | classifier → visible bit; default reject | policy: random / zero / one / reject |
-| Reset `R`                | apply             | apply                          | restore to known computational  | reject (use `RL` for reload)    |
-| Reload `RL`              | apply             | apply                          | restore                         | restore                         |
-| Detector / Observable    | unchanged         | unchanged                      | unchanged                       | unchanged                       |
+| Operation                | Computational         | KnownComputational                  | Leaked                                  | Lost                                              |
+|--------------------------|-----------------------|--------------------------------------|------------------------------------------|---------------------------------------------------|
+| Single-qubit gate        | apply                 | apply, clear known                  | reject (policy override allowed)        | drop                                              |
+| Single-qubit Pauli noise | apply                 | apply, clear known                  | drop                                    | drop                                              |
+| Two-qubit gate           | apply                 | apply, clear known on both           | reject                                  | reject (policy override: drop)                    |
+| MPP / multi-target meas  | apply                 | apply, clear known on all            | reject                                  | reject                                            |
+| Visible single-q meas    | apply                 | apply, outcome = sampled known value | classifier → visible bit; default reject | policy: random / zero / one / reject              |
+| Reset `R` (or `RX`/`RY`) | apply                 | apply                                | restore to known computational          | reject unless `policy.reset_restores_lost` is set |
+| Detector / Observable    | unchanged             | unchanged                            | unchanged                               | unchanged                                         |
 
 Notes:
 
 - "Policy override allowed" means the cell rejects by default but the
   user may set a `NonComputationalPolicy` field to flip it to a
   specific behavior. The MVP exposes overrides only where listed.
-- `RL` (reload) is the loss-restoration operation analog from the
-  prior LOSS design notes; it differs from `R` (computational reset)
-  in that it can promote a `Lost` site back to a known computational
-  state. If we do not want to add `RL` as a new HIR-level op in this
-  MVP, `RL` collapses to a model-config flag on existing `R` ops; that
-  decision is open (see §8).
+- There is no separate `RL` op in MVP. Lost-site reset rejects by
+  default; the `policy.reset_restores_lost` flag turns it into a
+  reload that restores the site to a known computational state. See
+  §8 for the rationale.
+- "Apply, clear known" is the conservative default: we drop knownness
+  on any quantum gate touching a `KnownComputational` site. This loses
+  some optimization opportunity (X on a known site could keep
+  knownness with a flipped value; Z/S/T preserve it as a phase), but
+  the conservative rule sidesteps gate-by-gate classification in MVP.
+  Refinement is a later pass once the trajectory infrastructure is in
+  place. The reviewer's framing applies: knownness is produced by
+  initial sampling, measurement/collapse, and reset/reload; ordinary
+  quantum gates clear it unless explicitly handled.
+
+### 5.2.1 Knownness transitions
+
+A site's `known` bit transitions as follows during history sampling:
+
+| Cause                                            | Effect                                                  |
+|--------------------------------------------------|---------------------------------------------------------|
+| Initial-state sample (any level)                 | `known = 1`                                             |
+| Any quantum gate touching site (single or multi) | `known = 0` on every touched site                       |
+| Visible measurement                              | `known = 1` after sampling the outcome                  |
+| Reset `R`/`RX`/`RY`                              | `known = 1` (reset is to a known computational state)   |
+| Reload via `policy.reset_restores_lost`          | `known = 1`                                             |
+| Transition jump to a new level                   | `known = 1` if destination level is `KnownComputational` after the transition; otherwise the bit is moot |
 
 ### 5.3 Hidden trace-out at structural loss
 
 When a site that is currently `Computational` (coherent) transitions
 to `Lost`, theory requires a hidden Z-basis measurement to unravel the
-partial trace. The rewriter inserts an ordinary `M` op at that point.
-Two consequences:
+partial trace. clifft already has the infrastructure for this: the
+`R`/`RX`/`RY` reset ops are lowered by the frontend
+(`src/clifft/frontend/frontend.cc:618-694`) to a *hidden* measurement
+slot — tracked on a separate `hidden_meas_idx` counter, marked with
+`meas_op.set_hidden(true)`, never exposed to the user-facing record,
+followed by a conditional Pauli correction so the residual state on
+survivors is the correct conditional state. This is exactly the
+trace-out unraveling the loss event needs.
 
-1. **The hidden M consumes a measurement slot** in the rewritten
-   circuit. The rewriter tracks the slot offset and **renumbers every
-   subsequent `rec[-k]` reference** in detectors, observables, and
-   classical feedback so visible record layout is unchanged. This is a
-   straightforward pre-compile pass over the rewritten ops.
-2. **The hidden slot is stripped from user output.** The orchestrator
-   carries a `std::vector<uint64_t> hidden_slot_indices` per
-   rewritten-circuit instance; after the SVM returns the full
-   measurement array it removes those indices before exposing the
-   `measurements` array. The hidden outcome is *not* discarded
-   internally — it becomes part of the noncomputational metadata
-   sidecar (under "trace-out outcomes") for debugging and validation.
+The MVP rewriter takes advantage of this directly. At a structural
+loss event on a previously-coherent site, the rewriter inserts a
+single `R` op on that site in the rewritten circuit. Concretely:
 
-This keeps the rewriter's output in ordinary clifft syntax (no new HIR
-op required) and isolates the hidden-record handling to two small
-helpers on the orchestrator path. It does mean every history pays one
-extra M per coherent-site loss in compile work; for the MVP that is
-acceptable.
+1. **No new HIR op or circuit instruction is introduced.** The
+   rewriter emits an existing `R` op; the existing frontend lowering
+   handles the hidden measurement, the corrective Pauli, and the
+   hidden-slot accounting.
+2. **No `rec[-k]` renumbering is needed.** Visible measurement counts
+   only advance on visible `M` slots; hidden-measurement slots live on
+   their own counter and never shift the user-facing record. Detectors,
+   observables, and feedback continue to reference the original
+   visible-record indices unchanged.
+3. **No output stripping pass is needed.** The SVM does not emit
+   hidden-measurement slots into the user-facing measurement array;
+   `compile()` / `sample()` already enforce that.
+4. **The trace-out outcome can still be surfaced for debugging** by
+   reading the SVM's hidden-record buffer after sampling. Whether to
+   expose it in the noncomputational sidecar is an open knob (see §8);
+   for MVP correctness it is not required.
+
+After the inserted `R`, the rewriter marks the site `Lost` in the
+trajectory and drops every subsequent op on that site per the policy
+table. Note that `R` semantically leaves the site in `|0>` known
+computational — that residual state is immediately reinterpreted as
+`Lost` by the trajectory; the SVM's own post-`R` state on that qubit
+is irrelevant because no later op reads from it.
+
+If a site transitions to `Lost` while it is already `KnownComputational`
+or already noncomputational (`Leaked` or starting `Lost`), no quantum
+trace-out is needed — the destination is purely a status update with
+no `R` insertion required.
 
 ## 6. New C++ headers and dependency order
 
@@ -379,24 +464,34 @@ MVP.
 These do not block the design note but should be settled before the
 rewriter PR:
 
-- **`RL` as a new HIR op vs. a config flag on existing `R`.** A new op
-  adds a parser/lower change (which we said we would not do in MVP),
-  but folding it into `R` via a policy flag makes the semantics
-  context-sensitive (same circuit text means different things
-  depending on the model). Provisional: config flag on the model
-  (`policy.reset_restores_lost = bool`), no new circuit op. If we
-  later add `LOSS(p)` syntax, `RL` rides with it.
+- **Surfacing trace-out outcomes in the sidecar.** Hidden-measurement
+  outcomes are available from the SVM's hidden-record buffer; whether
+  to expose them as part of the noncomputational metadata sidecar is
+  not load-bearing for correctness. Provisional: do not expose them in
+  MVP. Re-enable later if a decoder or debugging workflow needs them.
 - **Herald metadata transport.** The orchestrator sidecar shape is
   written above as "per-site final status + classifier output + herald
   bits". We may want a more structured sidecar (e.g., numpy structured
   array) for performance / decoder integration. Provisional: keep the
   sidecar a typed dict in Python for the MVP; convert to a structured
   array if/when a decoder consumer demands it.
-- **Initial-state correlation across sites.** §3 makes
-  `initial_state` an independent per-site distribution. sqale-sim
-  matches this. If a hardware model needs correlated initial states,
-  that is a separate feature; reject correlated initial-state config
-  in this MVP.
+
+### Resolved during note revision
+
+- **`RL` (loss reload).** Closed: no new circuit op in MVP. Lost-site
+  reset rejects unless `policy.reset_restores_lost` is set, in which
+  case existing `R`/`RX`/`RY` ops restore the site to a known
+  computational state. The table in §5.2 reflects this.
+- **Initial-state correlation across sites.** Closed: out of scope.
+  `initial_state` is an independent per-site distribution; a future
+  feature can add correlated initial states without breaking this
+  schema.
+- **Source-independence enforcement point.** Closed: not a
+  construction-time invariant. Source-dependent matrices construct
+  fine; the runtime sampler rejects only when a transition fires on a
+  site whose source category is unknown-coherent `Computational` and
+  the instrument is not source-independent on `Computational` levels.
+  See §4.
 
 ## 9. Out of scope but planned-for
 
