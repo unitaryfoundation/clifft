@@ -60,9 +60,20 @@ not extend it.
 
 A `Level` is a model-defined tag with a stable integer id, a label, and
 an *intrinsic* category. Intrinsic category is the default category for
-a freshly-sampled site holding that level. A `Computational` level can
-be promoted to `KnownComputational` at runtime (via a sampled
-Z-collapse); the reverse promotion (re-coherence) is not in MVP scope.
+a freshly-sampled site holding that level. A site whose level is
+intrinsically `Computational` may toggle between the runtime categories
+`Computational` and `KnownComputational` freely during simulation — a
+Z-basis measurement or Z-basis reset promotes it to `KnownComputational`
+(`known = 1`), and any subsequent quantum gate clears `known` back to 0
+(Hadamard on `|0>` is the canonical example).
+
+What is *not* in MVP scope is re-entering the computational subspace
+from a noncomputational level. Once a site is `Leaked` or `Lost`, it
+returns to a computational category only via reset/reload — and only
+when the policy explicitly allows it (`Leaked` → Computational via
+`R`/`RX`/`RY`; `Lost` → Computational only when
+`policy.reset_restores_lost` is set). There is no spontaneous coherent
+return from a leaked level back into a superposition with `g`/`e`.
 
 A `Computational`-intrinsic level must also declare a `basis_bit`
 (0 or 1) identifying which computational basis state it represents.
