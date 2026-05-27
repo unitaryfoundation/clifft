@@ -103,11 +103,17 @@ simulation:
   `g`/`e`.
 
 A `Computational`-category level must also declare a `basis_bit`
-(0 or 1) identifying which computational basis state it represents.
-The rewriter uses this to prepend a preparation gate when an initial
-sample places the qubit in `ComputationalKnown` with a level whose
-`basis_bit` is not 0 (the SVM default initialization). `Leaked` and
-`Lost` levels have no `basis_bit`.
+(`Zero` or `One`, exposed as a `BasisBit` enum) identifying which
+computational basis state it represents. The rewriter uses this to
+prepend a preparation gate when an initial sample places the qubit
+in `ComputationalKnown` with a level whose `basis_bit` is `One`
+(the SVM default initialization is `|0...0>`).
+
+`Leaked`-category levels may optionally carry a `basis_bit` as
+origin metadata (e.g., to record that the atom leaked from `|1>`).
+No current code path consumes it; consumers that want to integrate
+classifier or decoder metadata can read it directly. `Lost`-category
+levels by convention should leave `basis_bit` empty.
 
 Default level set for the MVP (sqale-aligned):
 
@@ -130,6 +136,11 @@ constexpr uint8_t kInvalidLevel = 0xFF;
 struct QubitStatus {
     QubitStatusKind kind;
     uint8_t level_id;  // meaning depends on `kind` (see invariants)
+
+    static QubitStatus computational_unknown();
+    bool is_unknown_computational() const;
+    std::optional<uint8_t> known_source_level() const;
+    uint8_t require_classical_source_level() const;  // throws on Unknown
 };
 ```
 
@@ -137,8 +148,7 @@ The two fields together carry the runtime status of one qubit during
 history sampling. Trajectory state is `std::vector<QubitStatus>
 statuses;`, two bytes per qubit.
 
-**Invariants (enforced by constructors and helpers, not by ad-hoc
-reads):**
+**Invariants:**
 
 | `kind`                  | `level_id` constraint                          |
 |-------------------------|------------------------------------------------|
@@ -147,28 +157,30 @@ reads):**
 | `Leaked`                | must be a `Leaked`-category level id           |
 | `Lost`                  | must be a `Lost`-category level id             |
 
-Callers go through named accessors that enforce these:
+The canonical construction path is through `LevelSet` (see §3.2),
+which validates the (kind, level_id) pair against its table:
 
 ```cpp
-bool is_unknown_computational(const QubitStatus& s);
-
-// Returns level_id when kind is ComputationalKnown / Leaked / Lost;
-// nullopt when kind is ComputationalUnknown.
-std::optional<uint8_t> known_source_level(const QubitStatus& s);
-
-// Asserts/throws if called on ComputationalUnknown.
-uint8_t require_classical_source_level(const QubitStatus& s);
+QubitStatus s = level_set.computational_known(g_id);
+QubitStatus t = level_set.leaked(leak_g_id);
+QubitStatus u = level_set.lost(lost_id);
+QubitStatus v = QubitStatus::computational_unknown();  // no level id needed
 ```
 
-Most rewrite-policy entries only need `s.kind`; only source-dependent
-transitions need to read the level id, and they go through
-`known_source_level` or `require_classical_source_level` so the
-"unknown coherent" rejection path is structurally enforced.
+Direct aggregate construction `QubitStatus{kind, level_id}` compiles
+but bypasses validation; reserved for tests or interior code where
+the invariant is already established.
 
-"Known" here means known *in the energy basis* (`g`/`e`) — the basis
-in which transition matrices are indexed. X- and Y-basis measurements
-or resets do not produce `ComputationalKnown`; they leave the qubit in
-`ComputationalUnknown` (see §5.2.1).
+Source-dependent transitions must call `known_source_level()` or
+`require_classical_source_level()` so the "unknown coherent"
+rejection path stays consistent: most rewrite-policy entries only
+need `s.kind`; only the source-dependent column lookup needs the
+level id, and the accessors are the only safe way to read it.
+
+"Known" here means known in the computational basis (`|0>` or `|1>`)
+— the basis in which transition matrices are indexed. X- and Y-basis
+measurements or resets do not produce `ComputationalKnown`; they
+leave the qubit in `ComputationalUnknown` (see §5.2.1).
 
 ## 3. `NonComputationalModel` API
 
@@ -259,10 +271,29 @@ invariant; the runtime sampler uses it as the §4.2 gate.
 ```cpp
 namespace clifft {
 
+enum class BasisBit : uint8_t { Zero = 0, One = 1 };
+
 struct Level {
     std::string label;
     LevelCategory category;
-    std::optional<uint8_t> basis_bit;  // required iff category == Computational
+    std::optional<BasisBit> basis_bit;
+};
+
+// Validated level table. Construction runs the section 4.1 level-set
+// checks and throws std::invalid_argument on failure. Owns the
+// QubitStatus factories so that level ids and tables stay paired.
+class LevelSet {
+public:
+    explicit LevelSet(std::vector<Level> levels);
+    static LevelSet default_set();
+
+    std::span<const Level> levels() const;
+    const Level& at(uint8_t level_id) const;
+    size_t size() const;
+
+    QubitStatus computational_known(uint8_t level_id) const;
+    QubitStatus leaked(uint8_t level_id) const;
+    QubitStatus lost(uint8_t level_id) const;
 };
 
 class TransitionInstrument {
@@ -300,7 +331,7 @@ public:
 class NonComputationalModel {
 public:
     NonComputationalModel(
-        std::vector<Level> levels,
+        LevelSet levels,
         std::vector<double> initial_state,
         std::map<std::string, TransitionInstrument> transitions,
         std::optional<MeasurementClassifier> classifier,
@@ -324,9 +355,12 @@ representable in the MVP.
 ### 4.1 Construction-time checks (always run, throw on failure)
 
 1. **Level set well-formed.** Every level id in `[0, len(levels))`,
-   categories all in `LevelCategory`. Every `Computational`-category
-   level declares a `basis_bit` in `{0, 1}`; non-`Computational` levels
-   omit it.
+   categories all in `LevelCategory` (unrecognized enum values reject).
+   Every `Computational`-category level declares a `basis_bit` (the
+   `BasisBit` enum restricts the value to `Zero` or `One`
+   structurally). Non-`Computational` levels may carry a `basis_bit`
+   as metadata; for `Lost`-category levels the convention is to
+   leave it empty.
 2. **Initial state is a probability vector** over `levels`. Sums to 1
    within tolerance.
 3. **Transition matrices are square**, of size `len(levels)`, entries
@@ -560,37 +594,40 @@ and destination kind is `Leaked` or `Lost`.
 
 Proposed layout under `src/clifft/noncomp/` (new directory):
 
-1. `level.h` — `LevelCategory` enum, `Level` struct. Zero deps.
-2. `transition_instrument.h/.cc` — `TransitionInstrument`,
+1. `qubit_status.h` — `QubitStatusKind` enum, `QubitStatus` aggregate
+   with `computational_unknown()` factory and accessors
+   (`is_unknown_computational`, `known_source_level`,
+   `require_classical_source_level`). Zero clifft-internal deps.
+2. `level.h` — `LevelCategory` enum, `BasisBit` enum, `Level` struct,
+   `LevelSet` (validated table that owns the `QubitStatus` factories
+   `computational_known` / `leaked` / `lost`). Depends on (1).
+3. `transition_instrument.h/.cc` — `TransitionInstrument`,
    matrix-to-branch expansion, derived
-   `is_source_independent_on_computational` flag. Depends on `level.h`.
-3. `classifier.h/.cc` — `MeasurementClassifier`, column-substochastic
+   `is_source_independent_on_computational` flag. Depends on (2).
+4. `classifier.h/.cc` — `MeasurementClassifier`, column-substochastic
    `(symbols, levels)` map with derived `reject_probability(level_id)`.
-   Depends on `level.h`.
-4. `policy.h` — `NonComputationalPolicy` struct with enums for the
-   ambiguous-case overrides (`reset_restores_lost`, etc.). Zero deps.
-5. `model.h/.cc` — `NonComputationalModel`, all construction-time
-   validation per §4.1. Depends on (1)-(4).
-6. `qubit_status.h` — `QubitStatusKind` enum, `QubitStatus` struct,
-   invariant-enforcing accessors (`known_source_level`,
-   `require_classical_source_level`, `is_unknown_computational`).
-   `NonComputationalHistory` (sequence of (op-index, qubit, branch,
-   status-update, herald)). Depends on (1).
-7. `sampler.h/.cc` — history sampler that walks the parsed circuit,
+   Depends on (2).
+5. `policy.h` — `NonComputationalPolicy` struct. Zero deps.
+6. `model.h/.cc` — `NonComputationalModel`, all construction-time
+   validation per §4.1. Depends on (1)-(5).
+7. `history.h` — `NonComputationalHistory` (sequence of (op-index,
+   qubit, branch, status-update, herald)). Depends on (1).
+8. `sampler.h/.cc` — history sampler that walks the parsed circuit,
    updates `QubitStatus` per shot, and enforces the §4.2 sample-time
    source-context check via the qubit_status accessors. Depends on
-   (1)-(6), `clifft::Circuit`, `clifft::AstNode`.
-8. `rewriter.h/.cc` — produces a new `clifft::Circuit` from
+   (1)-(7), `clifft::Circuit`, `clifft::AstNode`.
+9. `rewriter.h/.cc` — produces a new `clifft::Circuit` from
    `(original, history, model)`, inserting `R` at coherent-qubit loss
-   points and `X` prep for `basis_bit==1` initial samples. Depends on
-   (1)-(7) and `clifft::Circuit`.
-9. `orchestrator.h/.cc` — top-level `sample_noncomputational` entry
-   point that runs the full pipeline. Depends on (1)-(8), the existing
-   compile pipeline, and the SVM.
+   points and `X` prep for `basis_bit == One` initial samples.
+   Depends on (1)-(8) and `clifft::Circuit`.
+10. `orchestrator.h/.cc` — top-level `sample_noncomputational` entry
+    point that runs the full pipeline. Depends on (1)-(9), the
+    existing compile pipeline, and the SVM.
 
-Python bindings in `src/python/bindings.cc` expose:
-`Level`, `TransitionInstrument`, `MeasurementClassifier`,
-`NonComputationalPolicy`, `NonComputationalModel`,
+Python bindings in `src/python/bindings.cc` expose: `Level`,
+`BasisBit`, `LevelSet`, `TransitionInstrument`,
+`MeasurementClassifier`, `NonComputationalPolicy`,
+`NonComputationalModel`,
 `sample_noncomputational(circuit_text, model, shots, seed=None)`.
 
 ## 7. Test plan (dependency order)
@@ -599,10 +636,12 @@ Each test category lands once the headers it needs are in place. C++
 tests under `tests/test_noncomp_*.cc`; Python tests under
 `tests/python/test_noncomputational.py`.
 
-1. **`level`, `transition_instrument`, `classifier`,
-   `qubit_status` unit tests.**
-   - Default level set roundtrips; `basis_bit` required iff
-     `LevelCategory::Computational`.
+1. **`qubit_status`, `level`, `transition_instrument`, `classifier`
+   unit tests.**
+   - `LevelSet::default_set()` validates; missing `basis_bit` on a
+     Computational level rejects; unrecognized `LevelCategory` enum
+     value rejects; oversized level set rejects. Leaked-with-`basis_bit`
+     is accepted as optional metadata.
    - Matrix orientation: `T[to, from]` matches a known per-column
      no-jump weight.
    - `is_source_independent_on_computational` is true for identical
@@ -612,10 +651,10 @@ tests under `tests/test_noncomp_*.cc`; Python tests under
      enforced; column-sum > 1 rejected; mismatched (symbols, levels)
      dimensions rejected. `reject_probability(level_id)` matches
      `1 - sum(column)` for several hand-built matrices.
-   - `QubitStatus` invariants: `make_computational_known(g_id)` builds
-     fine; `make_computational_known(leak_g_id)` rejects;
-     `require_classical_source_level` on a `ComputationalUnknown`
-     status asserts/throws; `known_source_level` returns `nullopt` on
+   - `LevelSet` status factories: `computational_known(g_id)` builds
+     fine; `computational_known(leak_g_id)` rejects;
+     `require_classical_source_level()` on a `ComputationalUnknown`
+     status throws; `known_source_level()` returns `nullopt` on
      `ComputationalUnknown` and the carried level id otherwise.
 2. **`model` validation tests.**
    - Initial-state sum, unknown-gate keys, classifier shape, policy
