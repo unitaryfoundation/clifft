@@ -105,15 +105,22 @@ TEST_CASE("TransitionInstrument: entry validation has no tolerance slack") {
 TEST_CASE("TransitionInstrument: column sum within tolerance above 1 is clamped") {
     LevelSet levels = LevelSet::default_set();
     std::vector<std::vector<double>> m = zero5();
-    // Three entries near 1/3 that sum to 1.0 + a few ULPs of floating drift.
-    // Each entry must individually pass the strict [0, 1] check.
-    m[0][0] = 1.0 / 3.0;
-    m[1][0] = 1.0 / 3.0;
-    m[2][0] = 1.0 / 3.0;
+    // Two entries whose sum is the next representable double above 1.0
+    // (1.0 + 2^-52, ~2.22e-16). Each entry passes the strict [0, 1]
+    // entry check, the sum is strictly > 1.0 yet well within
+    // kProbTolerance, and the addition is exact (no rounding) so the
+    // test behaves identically in Debug and Release.
+    const double a = std::nextafter(std::nextafter(0.5, 1.0), 1.0);  // 0.5 + 2^-52
+    const double b = 0.5;
+    REQUIRE(a + b > 1.0);  // guards against the test going stale if the inputs change
+    REQUIRE(a + b < 1.0 + 1e-12);
+    m[0][0] = a;
+    m[1][0] = b;
+
     auto instr = TransitionInstrument::from_matrix(std::move(m), levels);
     // column_sum is clamped to [0, 1] so no_jump_weight is non-negative.
-    REQUIRE(instr.column_sum(0) <= 1.0);
-    REQUIRE(instr.no_jump_weight(0) >= 0.0);
+    REQUIRE(instr.column_sum(0) == 1.0);
+    REQUIRE(instr.no_jump_weight(0) == 0.0);
 }
 
 // =========================================================================

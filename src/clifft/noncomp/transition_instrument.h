@@ -45,7 +45,7 @@ class TransitionInstrument {
     //   - every column sum lies in [0, 1].
     // Computes and caches is_source_independent_on_computational (true
     // iff every column whose source level has category Computational
-    // is bit-identical within tolerance to the others).
+    // is equal within tolerance to the others).
     static TransitionInstrument from_matrix(std::vector<std::vector<double>> matrix,
                                             const LevelSet& levels);
 

@@ -3,11 +3,17 @@
 #include <cmath>
 #include <cstdint>
 #include <cstring>
+#include <limits>
 #include <stdexcept>
 #include <string>
 #include <utility>
 
 namespace clifft {
+
+// is_finite_robust below assumes IEEE 754 doubles (every Clifft
+// target satisfies this). Make the assumption explicit.
+static_assert(std::numeric_limits<double>::is_iec559,
+              "TransitionInstrument requires IEEE 754 doubles");
 
 namespace {
 
