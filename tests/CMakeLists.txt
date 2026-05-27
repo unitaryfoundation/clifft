@@ -31,6 +31,7 @@ add_executable(clifft_tests
     test_exp_value.cc
     test_openmp.cc
     test_fuzz.cc
+    test_noncomp_value_types.cc
 )
 
 target_link_libraries(clifft_tests PRIVATE
