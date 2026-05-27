@@ -41,6 +41,7 @@ TEST_CASE("LevelSet: rejects empty level set") {
 TEST_CASE("LevelSet: rejects Computational level missing basis_bit") {
     std::vector<Level> levels = {
         Level{"g", LevelCategory::Computational, std::nullopt},
+        Level{"e", LevelCategory::Computational, BasisBit::One},
     };
     REQUIRE_THROWS_WITH(LevelSet(std::move(levels)),
                         ContainsSubstring("Computational") && ContainsSubstring("basis_bit"));
@@ -55,6 +56,16 @@ TEST_CASE("LevelSet: accepts Leaked level carrying optional basis_bit metadata")
         Level{"lost", LevelCategory::Lost, std::nullopt},
     };
     REQUIRE_NOTHROW(LevelSet(std::move(levels)));
+}
+
+TEST_CASE("LevelSet: rejects Lost level carrying basis_bit") {
+    std::vector<Level> levels = {
+        Level{"g", LevelCategory::Computational, BasisBit::Zero},
+        Level{"e", LevelCategory::Computational, BasisBit::One},
+        Level{"lost", LevelCategory::Lost, BasisBit::One},
+    };
+    REQUIRE_THROWS_WITH(LevelSet(std::move(levels)),
+                        ContainsSubstring("Lost") && ContainsSubstring("basis_bit"));
 }
 
 TEST_CASE("LevelSet: rejects level set above the 128-entry cap") {
@@ -75,6 +86,42 @@ TEST_CASE("LevelSet: rejects unrecognized LevelCategory enum value") {
                         ContainsSubstring("unrecognized LevelCategory"));
 }
 
+TEST_CASE("LevelSet: rejects two Computational/Zero levels") {
+    std::vector<Level> levels = {
+        Level{"g1", LevelCategory::Computational, BasisBit::Zero},
+        Level{"g2", LevelCategory::Computational, BasisBit::Zero},
+        Level{"e", LevelCategory::Computational, BasisBit::One},
+    };
+    REQUIRE_THROWS_WITH(LevelSet(std::move(levels)),
+                        ContainsSubstring("Zero") && ContainsSubstring("got 2"));
+}
+
+TEST_CASE("LevelSet: rejects missing Computational/Zero level") {
+    std::vector<Level> levels = {
+        Level{"e", LevelCategory::Computational, BasisBit::One},
+    };
+    REQUIRE_THROWS_WITH(LevelSet(std::move(levels)),
+                        ContainsSubstring("Zero") && ContainsSubstring("got 0"));
+}
+
+TEST_CASE("LevelSet: rejects two Computational/One levels") {
+    std::vector<Level> levels = {
+        Level{"g", LevelCategory::Computational, BasisBit::Zero},
+        Level{"e1", LevelCategory::Computational, BasisBit::One},
+        Level{"e2", LevelCategory::Computational, BasisBit::One},
+    };
+    REQUIRE_THROWS_WITH(LevelSet(std::move(levels)),
+                        ContainsSubstring("One") && ContainsSubstring("got 2"));
+}
+
+TEST_CASE("LevelSet: rejects missing Computational/One level") {
+    std::vector<Level> levels = {
+        Level{"g", LevelCategory::Computational, BasisBit::Zero},
+    };
+    REQUIRE_THROWS_WITH(LevelSet(std::move(levels)),
+                        ContainsSubstring("One") && ContainsSubstring("got 0"));
+}
+
 // =========================================================================
 // LevelSet status factories
 // =========================================================================
@@ -82,12 +129,12 @@ TEST_CASE("LevelSet: rejects unrecognized LevelCategory enum value") {
 TEST_CASE("LevelSet::computational_known accepts a Computational level id") {
     LevelSet set = LevelSet::default_set();
     QubitStatus s = set.computational_known(0);
-    REQUIRE(s.kind == QubitStatusKind::ComputationalKnown);
-    REQUIRE(s.level_id == 0);
+    REQUIRE(s.kind() == QubitStatusKind::ComputationalKnown);
+    REQUIRE(s.level_id() == 0);
 
     QubitStatus t = set.computational_known(1);
-    REQUIRE(t.kind == QubitStatusKind::ComputationalKnown);
-    REQUIRE(t.level_id == 1);
+    REQUIRE(t.kind() == QubitStatusKind::ComputationalKnown);
+    REQUIRE(t.level_id() == 1);
 }
 
 TEST_CASE("LevelSet::computational_known rejects non-Computational ids") {
@@ -128,8 +175,8 @@ TEST_CASE("LevelSet::lost accepts a Lost level id, rejects others") {
 
 TEST_CASE("QubitStatus::computational_unknown carries kInvalidLevel") {
     QubitStatus s = QubitStatus::computational_unknown();
-    REQUIRE(s.kind == QubitStatusKind::ComputationalUnknown);
-    REQUIRE(s.level_id == kInvalidLevel);
+    REQUIRE(s.kind() == QubitStatusKind::ComputationalUnknown);
+    REQUIRE(s.level_id() == kInvalidLevel);
 }
 
 TEST_CASE("QubitStatus::is_unknown_computational is true only for Unknown") {
@@ -167,6 +214,22 @@ TEST_CASE("QubitStatus::require_classical_source_level throws on Unknown") {
     REQUIRE(set.computational_known(0).require_classical_source_level() == 0);
     REQUIRE(set.leaked(3).require_classical_source_level() == 3);
     REQUIRE(set.lost(4).require_classical_source_level() == 4);
+}
+
+TEST_CASE("QubitStatus _unchecked factories build without table validation") {
+    // These are the only paths that don't require a LevelSet. Useful
+    // for interior code and tests; the name flags the responsibility.
+    QubitStatus s = QubitStatus::computational_known_unchecked(7);
+    REQUIRE(s.kind() == QubitStatusKind::ComputationalKnown);
+    REQUIRE(s.level_id() == 7);
+
+    QubitStatus t = QubitStatus::leaked_unchecked(9);
+    REQUIRE(t.kind() == QubitStatusKind::Leaked);
+    REQUIRE(t.level_id() == 9);
+
+    QubitStatus u = QubitStatus::lost_unchecked(11);
+    REQUIRE(u.kind() == QubitStatusKind::Lost);
+    REQUIRE(u.level_id() == 11);
 }
 
 // =========================================================================

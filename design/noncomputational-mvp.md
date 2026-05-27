@@ -113,7 +113,16 @@ in `ComputationalKnown` with a level whose `basis_bit` is `One`
 origin metadata (e.g., to record that the atom leaked from `|1>`).
 No current code path consumes it; consumers that want to integrate
 classifier or decoder metadata can read it directly. `Lost`-category
-levels by convention should leave `basis_bit` empty.
+levels must leave `basis_bit` empty — "lost from `|1>`" provenance,
+if ever needed, belongs in an event record or in distinct lost
+levels, not in the default lost level.
+
+`LevelSet` validation also requires the level table to contain
+exactly one `Computational` level with `basis_bit == Zero` and
+exactly one with `basis_bit == One`. Downstream paths (visible
+Z-basis measurement, Z-basis reset, initial prep, classifier
+defaults) need unambiguous `g`/`e` ids; duplicates or missing
+canonical levels reject at `LevelSet` construction.
 
 Default level set for the MVP (sqale-aligned):
 
@@ -133,14 +142,27 @@ set, but the default ships unchanged.
 ```cpp
 constexpr uint8_t kInvalidLevel = 0xFF;
 
-struct QubitStatus {
-    QubitStatusKind kind;
-    uint8_t level_id;  // meaning depends on `kind` (see invariants)
-
+class QubitStatus {
+public:
     static QubitStatus computational_unknown();
+
+    // Build a known-source status without validating level_id against
+    // a table. Reserved for tests and interior code; user code should
+    // go through LevelSet's validated factories.
+    static QubitStatus computational_known_unchecked(uint8_t level_id);
+    static QubitStatus leaked_unchecked(uint8_t level_id);
+    static QubitStatus lost_unchecked(uint8_t level_id);
+
+    QubitStatusKind kind() const;
+    uint8_t level_id() const;
     bool is_unknown_computational() const;
     std::optional<uint8_t> known_source_level() const;
     uint8_t require_classical_source_level() const;  // throws on Unknown
+
+private:
+    QubitStatus(QubitStatusKind kind, uint8_t level_id);
+    QubitStatusKind kind_;
+    uint8_t level_id_;
 };
 ```
 
@@ -167,9 +189,10 @@ QubitStatus u = level_set.lost(lost_id);
 QubitStatus v = QubitStatus::computational_unknown();  // no level id needed
 ```
 
-Direct aggregate construction `QubitStatus{kind, level_id}` compiles
-but bypasses validation; reserved for tests or interior code where
-the invariant is already established.
+`QubitStatus` is non-aggregate; its constructor is private. The
+`_unchecked` static factories exist for tests and for interior code
+where the invariant is already established (the name is the
+warning); user code goes through `LevelSet`.
 
 Source-dependent transitions must call `known_source_level()` or
 `require_classical_source_level()` so the "unknown coherent"
@@ -358,9 +381,11 @@ representable in the MVP.
    categories all in `LevelCategory` (unrecognized enum values reject).
    Every `Computational`-category level declares a `basis_bit` (the
    `BasisBit` enum restricts the value to `Zero` or `One`
-   structurally). Non-`Computational` levels may carry a `basis_bit`
-   as metadata; for `Lost`-category levels the convention is to
-   leave it empty.
+   structurally). `Leaked` levels may carry a `basis_bit` as
+   optional metadata; `Lost` levels must not. The table must contain
+   exactly one Computational level with `basis_bit == Zero` and
+   exactly one with `basis_bit == One` (downstream code needs
+   unambiguous `g`/`e` ids).
 2. **Initial state is a probability vector** over `levels`. Sums to 1
    within tolerance.
 3. **Transition matrices are square**, of size `len(levels)`, entries

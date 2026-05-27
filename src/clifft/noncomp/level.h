@@ -12,8 +12,16 @@
 //     for basis_bit == One initial samples.
 //   - For LevelCategory::Leaked, basis_bit is optional metadata
 //     (origin / classifier hint). No current code path consumes it.
-//   - For LevelCategory::Lost, basis_bit should be left empty by
-//     convention. A vacated trap carries no useful state.
+//   - For LevelCategory::Lost, basis_bit MUST be empty. "Lost from
+//     |1>" provenance, if ever needed, belongs in an event record or
+//     in distinct lost levels — not the default lost level.
+//
+// LevelSet validation also enforces that the level table contains
+// exactly one Computational level with basis_bit == Zero and exactly
+// one with basis_bit == One. Downstream paths (visible Z-basis
+// measurement, Z-basis reset, initial prep, classifier defaults)
+// need unambiguous g/e ids; duplicates or missing canonical levels
+// reject at LevelSet construction.
 //
 // LevelSet wraps a std::vector<Level>, runs validation in its ctor,
 // and owns the QubitStatus factories that bind a level id to this
@@ -81,17 +89,17 @@ class LevelSet {
     // of the matching category in this table.
     QubitStatus computational_known(uint8_t level_id) const {
         check_kind(level_id, LevelCategory::Computational, "computational_known");
-        return QubitStatus{QubitStatusKind::ComputationalKnown, level_id};
+        return QubitStatus::computational_known_unchecked(level_id);
     }
 
     QubitStatus leaked(uint8_t level_id) const {
         check_kind(level_id, LevelCategory::Leaked, "leaked");
-        return QubitStatus{QubitStatusKind::Leaked, level_id};
+        return QubitStatus::leaked_unchecked(level_id);
     }
 
     QubitStatus lost(uint8_t level_id) const {
         check_kind(level_id, LevelCategory::Lost, "lost");
-        return QubitStatus{QubitStatusKind::Lost, level_id};
+        return QubitStatus::lost_unchecked(level_id);
     }
 
   private:
@@ -106,6 +114,8 @@ class LevelSet {
                                         std::to_string(levels_.size()) +
                                         " entries; max supported is 128");
         }
+        size_t computational_zero_count = 0;
+        size_t computational_one_count = 0;
         for (size_t i = 0; i < levels_.size(); ++i) {
             const Level& lv = levels_[i];
             switch (lv.category) {
@@ -115,18 +125,39 @@ class LevelSet {
                                                     std::to_string(i) +
                                                     ") is Computational but has no basis_bit");
                     }
+                    if (*lv.basis_bit == BasisBit::Zero) {
+                        ++computational_zero_count;
+                    } else {
+                        ++computational_one_count;
+                    }
                     break;
                 case LevelCategory::Leaked:
+                    // basis_bit allowed as optional origin metadata.
+                    break;
                 case LevelCategory::Lost:
-                    // Leaked: basis_bit allowed as optional metadata.
-                    // Lost: basis_bit should be empty by convention but
-                    // is not structurally enforced.
+                    if (lv.basis_bit.has_value()) {
+                        throw std::invalid_argument("LevelSet: level '" + lv.label + "' (id " +
+                                                    std::to_string(i) +
+                                                    ") is Lost and must not carry basis_bit");
+                    }
                     break;
                 default:
                     throw std::invalid_argument("LevelSet: level '" + lv.label + "' (id " +
                                                 std::to_string(i) +
                                                 ") has an unrecognized LevelCategory value");
             }
+        }
+        if (computational_zero_count != 1) {
+            throw std::invalid_argument(
+                "LevelSet: expected exactly one Computational level with basis_bit == Zero, "
+                "got " +
+                std::to_string(computational_zero_count));
+        }
+        if (computational_one_count != 1) {
+            throw std::invalid_argument(
+                "LevelSet: expected exactly one Computational level with basis_bit == One, "
+                "got " +
+                std::to_string(computational_one_count));
         }
     }
 

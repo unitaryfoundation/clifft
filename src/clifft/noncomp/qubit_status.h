@@ -17,18 +17,13 @@
 //                          the Lost level (typically a single
 //                          "lost" level).
 //
-// QubitStatus is a plain aggregate so callers may construct it via
-// designated initializers when convenient, but the canonical builders
-// live on LevelSet (see level.h):
-//
-//   LevelSet::computational_known(level_id)
-//   LevelSet::leaked(level_id)
-//   LevelSet::lost(level_id)
-//
-// Those factories validate that the level id refers to a level of
-// the matching category in the LevelSet's table. Direct aggregate
-// construction bypasses that check and should be reserved for tests
-// or interior code where the invariant is already established.
+// QubitStatus is non-aggregate; the only construction paths are the
+// public static factories. The canonical validated builders live on
+// LevelSet (see level.h), which calls the _unchecked factories here
+// after checking the level id matches the requested kind in its
+// table. The _unchecked factories are public for use by tests and
+// by interior code where the invariant is already established; their
+// name is the warning.
 
 #include <cstdint>
 #include <optional>
@@ -47,25 +42,38 @@ enum class QubitStatusKind : uint8_t {
 // Valid only with kind == ComputationalUnknown.
 constexpr uint8_t kInvalidLevel = 0xFF;
 
-struct QubitStatus {
-    QubitStatusKind kind;
-    uint8_t level_id;
-
-    // The no-resolved-source case has no level id to record.
+class QubitStatus {
+  public:
     static QubitStatus computational_unknown() {
-        return QubitStatus{QubitStatusKind::ComputationalUnknown, kInvalidLevel};
+        return QubitStatus(QubitStatusKind::ComputationalUnknown, kInvalidLevel);
     }
 
-    bool is_unknown_computational() const { return kind == QubitStatusKind::ComputationalUnknown; }
+    // Construct a known-source status without checking level_id against
+    // a level table. Tests and interior code may call these; user code
+    // should prefer LevelSet::computational_known / leaked / lost.
+    static QubitStatus computational_known_unchecked(uint8_t level_id) {
+        return QubitStatus(QubitStatusKind::ComputationalKnown, level_id);
+    }
+    static QubitStatus leaked_unchecked(uint8_t level_id) {
+        return QubitStatus(QubitStatusKind::Leaked, level_id);
+    }
+    static QubitStatus lost_unchecked(uint8_t level_id) {
+        return QubitStatus(QubitStatusKind::Lost, level_id);
+    }
 
-    // Returns the resolved level id when the qubit has a known
-    // source (ComputationalKnown, Leaked, or Lost); nullopt when the
-    // source is unresolved (ComputationalUnknown).
+    QubitStatusKind kind() const { return kind_; }
+    uint8_t level_id() const { return level_id_; }
+
+    bool is_unknown_computational() const { return kind_ == QubitStatusKind::ComputationalUnknown; }
+
+    // Returns the resolved level id when the qubit has a known source
+    // (ComputationalKnown, Leaked, or Lost); nullopt when the source
+    // is unresolved (ComputationalUnknown).
     std::optional<uint8_t> known_source_level() const {
-        if (kind == QubitStatusKind::ComputationalUnknown) {
+        if (kind_ == QubitStatusKind::ComputationalUnknown) {
             return std::nullopt;
         }
-        return level_id;
+        return level_id_;
     }
 
     // Like known_source_level but throws on ComputationalUnknown. Use
@@ -73,13 +81,19 @@ struct QubitStatus {
     // (classical Markov transitions; selecting a transition-matrix
     // column for a known-coherent source).
     uint8_t require_classical_source_level() const {
-        if (kind == QubitStatusKind::ComputationalUnknown) {
+        if (kind_ == QubitStatusKind::ComputationalUnknown) {
             throw std::invalid_argument(
                 "require_classical_source_level: qubit kind is "
                 "ComputationalUnknown; no resolved level id");
         }
-        return level_id;
+        return level_id_;
     }
+
+  private:
+    QubitStatus(QubitStatusKind kind, uint8_t level_id) : kind_(kind), level_id_(level_id) {}
+
+    QubitStatusKind kind_;
+    uint8_t level_id_;
 };
 
 }  // namespace clifft
