@@ -49,7 +49,7 @@ class TransitionInstrument {
     static TransitionInstrument from_matrix(std::vector<std::vector<double>> matrix,
                                             const LevelSet& levels);
 
-    size_t num_levels() const { return matrix_.size(); }
+    size_t num_levels() const { return column_sums_.size(); }
 
     // T[to, from]. Throws on out-of-range indices.
     double prob(uint8_t to, uint8_t from) const;
@@ -67,10 +67,13 @@ class TransitionInstrument {
     }
 
   private:
-    TransitionInstrument(std::vector<std::vector<double>> matrix, std::vector<double> column_sums,
+    TransitionInstrument(std::vector<double> matrix_flat, std::vector<double> column_sums,
                          bool is_source_independent_on_computational);
 
-    std::vector<std::vector<double>> matrix_;
+    // Row-major flat storage: matrix_flat_[to * num_levels() + from].
+    // One allocation, contiguous memory; column-traversal accessors
+    // walk a single buffer instead of dereferencing per-row vectors.
+    std::vector<double> matrix_flat_;
     std::vector<double> column_sums_;
     bool is_source_independent_on_computational_;
 };

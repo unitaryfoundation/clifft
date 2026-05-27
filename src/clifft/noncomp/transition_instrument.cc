@@ -29,15 +29,6 @@ bool is_finite_robust(double v) {
     return (bits & kExpMask) != kExpMask;
 }
 
-bool columns_equal(const std::vector<std::vector<double>>& matrix, uint8_t j1, uint8_t j2) {
-    for (size_t to = 0; to < matrix.size(); ++to) {
-        if (std::abs(matrix[to][j1] - matrix[to][j2]) > kProbTolerance) {
-            return false;
-        }
-    }
-    return true;
-}
-
 }  // namespace
 
 TransitionInstrument TransitionInstrument::from_matrix(std::vector<std::vector<double>> matrix,
@@ -49,6 +40,10 @@ TransitionInstrument TransitionInstrument::from_matrix(std::vector<std::vector<d
                                     std::to_string(matrix.size()) + " rows; expected " +
                                     std::to_string(n) + " (one per level)");
     }
+
+    // Single pass: validate row width and entry bounds while copying
+    // into the flat row-major buffer.
+    std::vector<double> flat(n * n);
     for (size_t to = 0; to < n; ++to) {
         if (matrix[to].size() != n) {
             throw std::invalid_argument(
@@ -67,6 +62,7 @@ TransitionInstrument TransitionInstrument::from_matrix(std::vector<std::vector<d
                                             ") = " + std::to_string(v) +
                                             " is not finite or is out of [0, 1]");
             }
+            flat[to * n + from] = v;
         }
     }
 
@@ -74,7 +70,7 @@ TransitionInstrument TransitionInstrument::from_matrix(std::vector<std::vector<d
     for (size_t from = 0; from < n; ++from) {
         double sum = 0.0;
         for (size_t to = 0; to < n; ++to) {
-            sum += matrix[to][from];
+            sum += flat[to * n + from];
         }
         // Reject sums that exceed 1 by more than floating drift.
         // Within tolerance, clamp so prob() and no_jump_weight()
@@ -96,33 +92,42 @@ TransitionInstrument TransitionInstrument::from_matrix(std::vector<std::vector<d
     const auto levels_span = levels.levels();
     uint8_t first_comp = 0xFF;
     for (size_t from = 0; from < n; ++from) {
-        if (levels_span[from].category == LevelCategory::Computational) {
-            if (first_comp == 0xFF) {
-                first_comp = static_cast<uint8_t>(from);
-            } else if (!columns_equal(matrix, first_comp, static_cast<uint8_t>(from))) {
+        if (levels_span[from].category != LevelCategory::Computational) {
+            continue;
+        }
+        if (first_comp == 0xFF) {
+            first_comp = static_cast<uint8_t>(from);
+            continue;
+        }
+        for (size_t to = 0; to < n; ++to) {
+            if (std::abs(flat[to * n + first_comp] - flat[to * n + from]) > kProbTolerance) {
                 flag = false;
                 break;
             }
         }
+        if (!flag) {
+            break;
+        }
     }
 
-    return TransitionInstrument(std::move(matrix), std::move(column_sums), flag);
+    return TransitionInstrument(std::move(flat), std::move(column_sums), flag);
 }
 
-TransitionInstrument::TransitionInstrument(std::vector<std::vector<double>> matrix,
+TransitionInstrument::TransitionInstrument(std::vector<double> matrix_flat,
                                            std::vector<double> column_sums,
                                            bool is_source_independent_on_computational)
-    : matrix_(std::move(matrix)),
+    : matrix_flat_(std::move(matrix_flat)),
       column_sums_(std::move(column_sums)),
       is_source_independent_on_computational_(is_source_independent_on_computational) {}
 
 double TransitionInstrument::prob(uint8_t to, uint8_t from) const {
-    if (to >= matrix_.size() || from >= matrix_.size()) {
+    const size_t n = column_sums_.size();
+    if (to >= n || from >= n) {
         throw std::invalid_argument("TransitionInstrument::prob: index (" + std::to_string(to) +
                                     ", " + std::to_string(from) + ") out of range (num_levels " +
-                                    std::to_string(matrix_.size()) + ")");
+                                    std::to_string(n) + ")");
     }
-    return matrix_[to][from];
+    return matrix_flat_[static_cast<size_t>(to) * n + static_cast<size_t>(from)];
 }
 
 double TransitionInstrument::column_sum(uint8_t from) const {
