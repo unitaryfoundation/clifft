@@ -1,6 +1,8 @@
 #include "clifft/noncomp/transition_instrument.h"
 
 #include <cmath>
+#include <cstdint>
+#include <cstring>
 #include <stdexcept>
 #include <string>
 #include <utility>
@@ -14,6 +16,18 @@ namespace {
 // floating-point error in user-supplied matrices; we want to admit
 // hand-written tables that sum to 1.0 - epsilon.
 constexpr double kProbTolerance = 1e-12;
+
+// Release builds use -ffast-math, which implies -ffinite-math-only.
+// That lets the compiler assume operands are finite, folding away
+// std::isfinite() and turning `v >= 0.0 && v <= 1.0` into something
+// that passes NaN through. Inspect the IEEE 754 bit pattern
+// instead: a non-finite double has all exponent bits set.
+bool is_finite_robust(double v) {
+    uint64_t bits;
+    std::memcpy(&bits, &v, sizeof(bits));
+    constexpr uint64_t kExpMask = 0x7FF0000000000000ULL;
+    return (bits & kExpMask) != kExpMask;
+}
 
 bool columns_equal(const std::vector<std::vector<double>>& matrix, uint8_t j1, uint8_t j2) {
     for (size_t to = 0; to < matrix.size(); ++to) {
@@ -45,9 +59,9 @@ TransitionInstrument TransitionInstrument::from_matrix(std::vector<std::vector<d
             const double v = matrix[to][from];
             // Raw user entries must be finite and lie strictly in [0, 1]:
             // tolerance applies only to derived column sums below.
-            // !(v >= 0.0 && v <= 1.0) also catches NaN, since any
-            // NaN comparison is false.
-            if (!(v >= 0.0 && v <= 1.0)) {
+            // is_finite_robust runs first because -ffast-math folds
+            // std::isfinite() / NaN-aware comparisons away.
+            if (!is_finite_robust(v) || v < 0.0 || v > 1.0) {
                 throw std::invalid_argument("TransitionInstrument::from_matrix: entry (" +
                                             std::to_string(to) + ", " + std::to_string(from) +
                                             ") = " + std::to_string(v) +
