@@ -9,6 +9,18 @@
 // gives the total jump probability out of that source, and the
 // deficit `1 - column_sum` is the implicit no-jump weight.
 //
+// Convention: every matrix entry, diagonal included, represents a
+// discrete *transition event*. A non-zero matrix[a][a] is NOT the
+// probability that source `a` stays at level `a`; it is the
+// probability of a transition event that happens to land back at
+// the source level (e.g., a depolarizing error that ends in the
+// same level). The "nothing happened" branch ("no-jump") lives in
+// the column deficit, not the diagonal. This mirrors the Kraus
+// structure in which each jump is its own Kraus operator and
+// no-jump is the complement; it also makes the no-jump back-action
+// under unknown-coherent sources (the aI + bZ filter) a single
+// special case rather than something carved out of the diagonal.
+//
 // Construction binds the instrument to a LevelSet so the matrix
 // shape can be checked against the level table and the
 // is_source_independent_on_computational flag can be computed.
