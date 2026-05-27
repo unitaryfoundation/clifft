@@ -5,6 +5,8 @@
 #include <catch2/matchers/catch_matchers.hpp>
 #include <catch2/matchers/catch_matchers_floating_point.hpp>
 #include <catch2/matchers/catch_matchers_string.hpp>
+#include <cmath>
+#include <limits>
 #include <stdexcept>
 #include <vector>
 
@@ -72,7 +74,46 @@ TEST_CASE("TransitionInstrument: rejects column sum above 1") {
     m[2][0] = 0.6;
     m[3][0] = 0.6;  // column 0 sums to 1.2
     REQUIRE_THROWS_WITH(TransitionInstrument::from_matrix(std::move(m), levels),
-                        ContainsSubstring("column 0") && ContainsSubstring("sum"));
+                        ContainsSubstring("column 0") && ContainsSubstring("exceeds 1"));
+}
+
+TEST_CASE("TransitionInstrument: rejects NaN entry") {
+    LevelSet levels = LevelSet::default_set();
+    std::vector<std::vector<double>> m = zero5();
+    m[1][0] = std::numeric_limits<double>::quiet_NaN();
+    REQUIRE_THROWS_WITH(TransitionInstrument::from_matrix(std::move(m), levels),
+                        ContainsSubstring("not finite") || ContainsSubstring("out of [0, 1]"));
+}
+
+TEST_CASE("TransitionInstrument: rejects positive infinity entry") {
+    LevelSet levels = LevelSet::default_set();
+    std::vector<std::vector<double>> m = zero5();
+    m[1][0] = std::numeric_limits<double>::infinity();
+    REQUIRE_THROWS_AS(TransitionInstrument::from_matrix(std::move(m), levels),
+                      std::invalid_argument);
+}
+
+TEST_CASE("TransitionInstrument: entry validation has no tolerance slack") {
+    LevelSet levels = LevelSet::default_set();
+    std::vector<std::vector<double>> m = zero5();
+    // Just barely above 1: with no tolerance on entries, this must reject.
+    m[1][0] = std::nextafter(1.0, 2.0);
+    REQUIRE_THROWS_AS(TransitionInstrument::from_matrix(std::move(m), levels),
+                      std::invalid_argument);
+}
+
+TEST_CASE("TransitionInstrument: column sum within tolerance above 1 is clamped") {
+    LevelSet levels = LevelSet::default_set();
+    std::vector<std::vector<double>> m = zero5();
+    // Three entries near 1/3 that sum to 1.0 + a few ULPs of floating drift.
+    // Each entry must individually pass the strict [0, 1] check.
+    m[0][0] = 1.0 / 3.0;
+    m[1][0] = 1.0 / 3.0;
+    m[2][0] = 1.0 / 3.0;
+    auto instr = TransitionInstrument::from_matrix(std::move(m), levels);
+    // column_sum is clamped to [0, 1] so no_jump_weight is non-negative.
+    REQUIRE(instr.column_sum(0) <= 1.0);
+    REQUIRE(instr.no_jump_weight(0) >= 0.0);
 }
 
 // =========================================================================
@@ -164,7 +205,7 @@ TEST_CASE("TransitionInstrument: only Computational-source columns affect the fl
     REQUIRE(instr.is_source_independent_on_computational());
 }
 
-TEST_CASE("TransitionInstrument: tolerance — sub-1e-12 column difference still independent") {
+TEST_CASE("TransitionInstrument: tolerance - sub-1e-12 column difference still independent") {
     LevelSet levels = LevelSet::default_set();
     std::vector<std::vector<double>> m = zero5();
     m[2][0] = 0.3;
@@ -173,7 +214,7 @@ TEST_CASE("TransitionInstrument: tolerance — sub-1e-12 column difference still
     REQUIRE(instr.is_source_independent_on_computational());
 }
 
-TEST_CASE("TransitionInstrument: tolerance — 1e-9 column difference is not independent") {
+TEST_CASE("TransitionInstrument: tolerance - 1e-9 column difference is not independent") {
     LevelSet levels = LevelSet::default_set();
     std::vector<std::vector<double>> m = zero5();
     m[2][0] = 0.3;

@@ -43,10 +43,15 @@ TransitionInstrument TransitionInstrument::from_matrix(std::vector<std::vector<d
         }
         for (size_t from = 0; from < n; ++from) {
             const double v = matrix[to][from];
-            if (v < 0.0 - kProbTolerance || v > 1.0 + kProbTolerance) {
+            // Raw user entries must be finite and lie strictly in [0, 1]:
+            // tolerance applies only to derived column sums below.
+            // !(v >= 0.0 && v <= 1.0) also catches NaN, since any
+            // NaN comparison is false.
+            if (!(v >= 0.0 && v <= 1.0)) {
                 throw std::invalid_argument("TransitionInstrument::from_matrix: entry (" +
                                             std::to_string(to) + ", " + std::to_string(from) +
-                                            ") = " + std::to_string(v) + " out of [0, 1]");
+                                            ") = " + std::to_string(v) +
+                                            " is not finite or is out of [0, 1]");
             }
         }
     }
@@ -57,12 +62,15 @@ TransitionInstrument TransitionInstrument::from_matrix(std::vector<std::vector<d
         for (size_t to = 0; to < n; ++to) {
             sum += matrix[to][from];
         }
-        if (sum < 0.0 - kProbTolerance || sum > 1.0 + kProbTolerance) {
+        // Reject sums that exceed 1 by more than floating drift.
+        // Within tolerance, clamp so prob() and no_jump_weight()
+        // never report values outside [0, 1].
+        if (sum > 1.0 + kProbTolerance) {
             throw std::invalid_argument("TransitionInstrument::from_matrix: column " +
                                         std::to_string(from) + " sum = " + std::to_string(sum) +
-                                        " out of [0, 1]");
+                                        " exceeds 1");
         }
-        column_sums[from] = sum;
+        column_sums[from] = sum > 1.0 ? 1.0 : sum;
     }
 
     // is_source_independent_on_computational: every column whose source
