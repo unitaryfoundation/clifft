@@ -48,6 +48,34 @@ TEST_CASE("MeasurementClassifier: rejects empty symbols list") {
         ContainsSubstring("symbols list is empty"));
 }
 
+TEST_CASE("MeasurementClassifier: accepts the 256-symbol boundary (uint8_t addressable)") {
+    LevelSet levels = LevelSet::default_set();
+    std::vector<std::string> symbols;
+    symbols.reserve(256);
+    for (size_t i = 0; i < 256; ++i) {
+        symbols.push_back("s" + std::to_string(i));
+    }
+    // All-zero matrix passes shape and column-sum checks trivially.
+    std::vector<std::vector<double>> m(256, std::vector<double>(5, 0.0));
+    auto classifier = MeasurementClassifier::from_matrix(std::move(symbols), std::move(m), levels);
+    REQUIRE(classifier.num_symbols() == 256);
+    // Highest index is addressable through the uint8_t API.
+    REQUIRE(classifier.symbol_label(255) == "s255");
+}
+
+TEST_CASE("MeasurementClassifier: rejects 257 symbols (above uint8_t addressability)") {
+    LevelSet levels = LevelSet::default_set();
+    std::vector<std::string> symbols;
+    symbols.reserve(257);
+    for (size_t i = 0; i < 257; ++i) {
+        symbols.push_back("s" + std::to_string(i));
+    }
+    std::vector<std::vector<double>> m(257, std::vector<double>(5, 0.0));
+    REQUIRE_THROWS_WITH(
+        MeasurementClassifier::from_matrix(std::move(symbols), std::move(m), levels),
+        ContainsSubstring("257") && ContainsSubstring("256"));
+}
+
 TEST_CASE("MeasurementClassifier: rejects duplicate symbol labels") {
     LevelSet levels = LevelSet::default_set();
     std::vector<std::vector<double>> m = {

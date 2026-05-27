@@ -41,6 +41,14 @@ MeasurementClassifier MeasurementClassifier::from_matrix(std::vector<std::string
     if (symbols.empty()) {
         throw std::invalid_argument("MeasurementClassifier::from_matrix: symbols list is empty");
     }
+    if (symbols.size() > 256) {
+        // The public symbol index APIs use uint8_t. Allowing more than
+        // 256 symbols would make indices >= 256 unaddressable through
+        // prob() / symbol_label() and silently wrap on conversion.
+        throw std::invalid_argument("MeasurementClassifier::from_matrix: symbols list has " +
+                                    std::to_string(symbols.size()) +
+                                    " entries; max supported is 256");
+    }
     {
         std::unordered_set<std::string> seen;
         seen.reserve(symbols.size());
