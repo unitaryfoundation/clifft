@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1780125737654,
+  "lastUpdate": 1780213003835,
   "repoUrl": "https://github.com/unitaryfoundation/clifft",
   "entries": {
     "C++ Catch2 benchmarks (scalar)": [
@@ -702,6 +702,70 @@ window.BENCHMARK_DATA = {
             "name": "exp-val 20q 200 probes x100k",
             "value": 139.016,
             "range": "± 963.496",
+            "unit": "ms",
+            "extra": "100 samples\n1 iterations"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Puneet Dixit",
+            "username": "puneetdixit200",
+            "email": "puneetdixit4321@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "2655e48c6133f0c29b72cdd8be4bc0ecf176c6e8",
+          "message": "test: add optimization pass docs drift test (#101)\n\nAssisted-by: OpenAI Codex (GPT-5) <noreply@openai.com>\nSigned-off-by: Puneet Dixit <236133619+puneetdixit200@users.noreply.github.com>",
+          "timestamp": "2026-05-20T14:00:11Z",
+          "url": "https://github.com/unitaryfoundation/clifft/commit/2655e48c6133f0c29b72cdd8be4bc0ecf176c6e8"
+        },
+        "date": 1780213002298,
+        "tool": "catch2",
+        "benches": [
+          {
+            "name": "QV-10 x100 shots",
+            "value": 72.1761,
+            "range": "± 1.01032",
+            "unit": "ms",
+            "extra": "100 samples\n1 iterations"
+          },
+          {
+            "name": "cultivation-d5 x1000 shots",
+            "value": 76.9651,
+            "range": "± 280.945",
+            "unit": "ms",
+            "extra": "100 samples\n1 iterations"
+          },
+          {
+            "name": "surface-d7-r7 p=1e-3 x10000 shots",
+            "value": 100.705,
+            "range": "± 416.212",
+            "unit": "ms",
+            "extra": "100 samples\n1 iterations"
+          },
+          {
+            "name": "surface-d5-r5 p=0.05 x10000 shots",
+            "value": 110.362,
+            "range": "± 1.13825",
+            "unit": "ms",
+            "extra": "100 samples\n1 iterations"
+          },
+          {
+            "name": "surface-d11-r11 p=1e-3 x1000 shots",
+            "value": 39.6297,
+            "range": "± 1.92268",
+            "unit": "ms",
+            "extra": "100 samples\n1 iterations"
+          },
+          {
+            "name": "exp-val 20q 200 probes x100k",
+            "value": 140.323,
+            "range": "± 2.45259",
             "unit": "ms",
             "extra": "100 samples\n1 iterations"
           }
