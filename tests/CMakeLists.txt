@@ -33,6 +33,7 @@ add_executable(clifft_tests
     test_fuzz.cc
     test_noncomp_value_types.cc
     test_noncomp_transition_instrument.cc
+    test_noncomp_classifier.cc
 )
 
 target_link_libraries(clifft_tests PRIVATE
