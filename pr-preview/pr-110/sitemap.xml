@@ -1,55 +1,87 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
     <url>
-         <loc>https://unitaryfoundation.github.io/ucc-next/</loc>
-         <lastmod>2026-03-10</lastmod>
+         <loc>https://unitaryfoundation.github.io/clifft/pr-preview/pr-110/</loc>
+         <lastmod>2026-06-01</lastmod>
     </url>
     <url>
-         <loc>https://unitaryfoundation.github.io/ucc-next/explorer/</loc>
-         <lastmod>2026-03-10</lastmod>
+         <loc>https://unitaryfoundation.github.io/clifft/pr-preview/pr-110/development/benchmark-history/</loc>
+         <lastmod>2026-06-01</lastmod>
     </url>
     <url>
-         <loc>https://unitaryfoundation.github.io/ucc-next/development/building/</loc>
-         <lastmod>2026-03-10</lastmod>
+         <loc>https://unitaryfoundation.github.io/clifft/pr-preview/pr-110/development/building/</loc>
+         <lastmod>2026-06-01</lastmod>
     </url>
     <url>
-         <loc>https://unitaryfoundation.github.io/ucc-next/development/contributing/</loc>
-         <lastmod>2026-03-10</lastmod>
+         <loc>https://unitaryfoundation.github.io/clifft/pr-preview/pr-110/development/contributing/</loc>
+         <lastmod>2026-06-01</lastmod>
     </url>
     <url>
-         <loc>https://unitaryfoundation.github.io/ucc-next/getting-started/installation/</loc>
-         <lastmod>2026-03-10</lastmod>
+         <loc>https://unitaryfoundation.github.io/clifft/pr-preview/pr-110/development/releasing/</loc>
+         <lastmod>2026-06-01</lastmod>
     </url>
     <url>
-         <loc>https://unitaryfoundation.github.io/ucc-next/getting-started/quickstart/</loc>
-         <lastmod>2026-03-10</lastmod>
+         <loc>https://unitaryfoundation.github.io/clifft/pr-preview/pr-110/development/testing/</loc>
+         <lastmod>2026-06-01</lastmod>
     </url>
     <url>
-         <loc>https://unitaryfoundation.github.io/ucc-next/guide/compiling/</loc>
-         <lastmod>2026-03-10</lastmod>
+         <loc>https://unitaryfoundation.github.io/clifft/pr-preview/pr-110/getting-started/installation/</loc>
+         <lastmod>2026-06-01</lastmod>
     </url>
     <url>
-         <loc>https://unitaryfoundation.github.io/ucc-next/guide/gates/</loc>
-         <lastmod>2026-03-10</lastmod>
+         <loc>https://unitaryfoundation.github.io/clifft/pr-preview/pr-110/getting-started/quickstart/</loc>
+         <lastmod>2026-06-01</lastmod>
     </url>
     <url>
-         <loc>https://unitaryfoundation.github.io/ucc-next/guide/simulation/</loc>
-         <lastmod>2026-03-10</lastmod>
+         <loc>https://unitaryfoundation.github.io/clifft/pr-preview/pr-110/guide/benchmark/</loc>
+         <lastmod>2026-06-01</lastmod>
     </url>
     <url>
-         <loc>https://unitaryfoundation.github.io/ucc-next/guide/surface-code/</loc>
-         <lastmod>2026-03-10</lastmod>
+         <loc>https://unitaryfoundation.github.io/clifft/pr-preview/pr-110/guide/compilation/</loc>
+         <lastmod>2026-06-01</lastmod>
     </url>
     <url>
-         <loc>https://unitaryfoundation.github.io/ucc-next/reference/opcodes/</loc>
-         <lastmod>2026-03-10</lastmod>
+         <loc>https://unitaryfoundation.github.io/clifft/pr-preview/pr-110/guide/importance-sampling/</loc>
+         <lastmod>2026-06-01</lastmod>
     </url>
     <url>
-         <loc>https://unitaryfoundation.github.io/ucc-next/theory/architecture/</loc>
-         <lastmod>2026-03-10</lastmod>
+         <loc>https://unitaryfoundation.github.io/clifft/pr-preview/pr-110/guide/performance/</loc>
+         <lastmod>2026-06-01</lastmod>
     </url>
     <url>
-         <loc>https://unitaryfoundation.github.io/ucc-next/theory/overview/</loc>
-         <lastmod>2026-03-10</lastmod>
+         <loc>https://unitaryfoundation.github.io/clifft/pr-preview/pr-110/guide/simulation/</loc>
+         <lastmod>2026-06-01</lastmod>
+    </url>
+    <url>
+         <loc>https://unitaryfoundation.github.io/clifft/pr-preview/pr-110/guide/strong-simulation/</loc>
+         <lastmod>2026-06-01</lastmod>
+    </url>
+    <url>
+         <loc>https://unitaryfoundation.github.io/clifft/pr-preview/pr-110/guide/surface-code/</loc>
+         <lastmod>2026-06-01</lastmod>
+    </url>
+    <url>
+         <loc>https://unitaryfoundation.github.io/clifft/pr-preview/pr-110/reference/gates/</loc>
+         <lastmod>2026-06-01</lastmod>
+    </url>
+    <url>
+         <loc>https://unitaryfoundation.github.io/clifft/pr-preview/pr-110/reference/instructions/</loc>
+         <lastmod>2026-06-01</lastmod>
+    </url>
+    <url>
+         <loc>https://unitaryfoundation.github.io/clifft/pr-preview/pr-110/reference/passes/</loc>
+         <lastmod>2026-06-01</lastmod>
+    </url>
+    <url>
+         <loc>https://unitaryfoundation.github.io/clifft/pr-preview/pr-110/theory/architecture/</loc>
+         <lastmod>2026-06-01</lastmod>
+    </url>
+    <url>
+         <loc>https://unitaryfoundation.github.io/clifft/pr-preview/pr-110/theory/basis_probabilities/</loc>
+         <lastmod>2026-06-01</lastmod>
+    </url>
+    <url>
+         <loc>https://unitaryfoundation.github.io/clifft/pr-preview/pr-110/theory/overview/</loc>
+         <lastmod>2026-06-01</lastmod>
     </url>
 </urlset>

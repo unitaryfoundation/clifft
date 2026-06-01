@@ -3,12 +3,12 @@
 {% block styles %}
   {{ super() }}
   <style>
-    .md-header__explorer {
+    .md-header__playground {
       display: flex;
       align-items: center;
       margin-left: 0.2rem;
     }
-    .md-header__explorer a {
+    .md-header__playground a {
       display: flex;
       align-items: center;
       gap: 0.3rem;
@@ -24,10 +24,10 @@
       transition: opacity 200ms;
       white-space: nowrap;
     }
-    .md-header__explorer a:hover {
+    .md-header__playground a:hover {
       opacity: 0.85;
     }
-    .md-header__explorer svg {
+    .md-header__playground svg {
       width: 0.9rem;
       height: 0.9rem;
       fill: currentColor;
@@ -38,7 +38,7 @@
 {% block header %}
   {{ super() }}
   <script>
-    // Inject Explorer pill button into the header bar
+    // Inject Playground pill button into the header bar
     document.addEventListener('DOMContentLoaded', function() {
       var container = document.querySelector('.md-header__inner');
       if (!container) return;
@@ -48,13 +48,13 @@
 
       var source = container.querySelector('.md-header__source');
       var btn = document.createElement('div');
-      btn.className = 'md-header__explorer';
+      btn.className = 'md-header__playground';
       btn.innerHTML =
-        '<a href="' + url + '" target="_blank" title="Open Explorer">' +
+        '<a href="' + url + '" target="_blank" title="Open Playground">' +
         '  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">' +
         '    <path d="M8 5v14l11-7z"/>' +
         '  </svg>' +
-        '  Explorer' +
+        '  Playground' +
         '</a>';
       if (source) {
         container.insertBefore(btn, source);
