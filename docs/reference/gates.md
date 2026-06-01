@@ -23,7 +23,7 @@ All Pauli gates are single-qubit Cliffords absorbed at compile time (zero VM cos
 | `SQRT_Y`, `SQRT_Y_DAG` | Square root of Y and inverse |
 | `H_XY`, `H_NXY` | Hadamard variants in X,Y plane |
 | `H_YZ`, `H_NYZ` | Hadamard variants in Y,Z plane |
-| `H_NXZ` | Negated Hadamard |
+| `H_NXZ` | Hadamard variant swapping -X and +Z axes |
 | `C_XYZ`, `C_ZYX`, `C_NXYZ`, `C_NZYX`, `C_XNYZ`, `C_XYNZ`, `C_ZNYX`, `C_ZYNX` | Period-3 Clifford rotations |
 
 All single-qubit Cliffords are absorbed AOT — they update the Clifford frame $U_C$ at compile time and have zero cost at runtime.
@@ -152,11 +152,18 @@ These are accepted for compatibility with Stim circuits but have no effect.
 |-------------|-------|
 | `REPEAT N { ... }` | Loop (unrolled at parse time) |
 | `DETECTOR` | QEC detector declaration |
-| `OBSERVABLE_INCLUDE` | Observable accumulator |
-| `MPAD` | Deterministic measurement padding |
+| `OBSERVABLE_INCLUDE` | Observable accumulator over measurement records |
+| `MPAD` | Measurement-record padding with literal 0/1 bits |
 | `TICK` | Timing layer marker |
 | `QUBIT_COORDS` | Coordinate annotation (discarded) |
 | `SHIFT_COORDS` | Coordinate shift (discarded) |
+
+`OBSERVABLE_INCLUDE` currently supports `rec[-k]` measurement-record targets.
+Stim also permits Pauli-term targets on `OBSERVABLE_INCLUDE`, which Clifft does
+not currently parse.
+
+`MPAD(p)` is accepted; the optional probability noisily flips the padded
+measurement-record bits.
 
 ## Expectation Value Probes
 
@@ -187,4 +194,4 @@ Results are available via `SampleResult.exp_vals` (shape `(shots, num_exp_vals)`
 | `ELSE_CORRELATED_ERROR` | Noise | Depends on `CORRELATED_ERROR` |
 | `HERALDED_ERASE` | Noise | Heralded erasure not modeled |
 | `HERALDED_PAULI_CHANNEL_1` | Noise | Heralded channel not modeled |
-| `SPP`, `SPP_DAG` | Pauli product | Stochastic Pauli product gate |
+| `SPP`, `SPP_DAG` | Pauli product phase | Generalized S/S_DAG gate over Pauli products |
