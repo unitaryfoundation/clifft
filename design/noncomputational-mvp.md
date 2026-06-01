@@ -369,6 +369,35 @@ public:
 }  // namespace clifft
 ```
 
+### 3.3 Construction paths (compositional now, spec-based later)
+
+The C++ constructor above is *compositional*: the caller builds each
+`TransitionInstrument` / `MeasurementClassifier` against a `LevelSet`,
+then hands the pre-built objects to the model. This keeps instruments
+independently constructible and testable, but it admits a misuse a
+level-count check cannot catch — a component built against a
+different but same-sized `LevelSet` would bind its columns to the
+wrong level ids. To close that, each instrument and classifier records
+a deterministic `LevelSet::fingerprint()` (over each level's label,
+category, and basis_bit, in order) at construction, and the model
+rejects any component whose fingerprint does not match its own table.
+
+The fingerprint exists *only* to guard the compositional path. The
+intended **primary, Python-facing** construction is spec-based: the
+model receives raw matrices and symbols and constructs every bound
+component against its single `LevelSet` internally, so there is only
+one level table in scope and no fingerprint is needed or surfaced.
+
+Plan: add a spec-based `NonComputationalModel` builder (raw
+`transition` matrices + classifier spec, built against the model's
+`LevelSet`) when bindings land (§6 step 9/10), and bind *that* shape
+in Python. At that point decide whether the compositional constructor
+stays public or becomes an internal/test-only entry. Fingerprints
+must not leak into the Python API or user docs. Transition keys are
+accepted as gate-name strings but canonicalized to `GateType`
+internally; only hookable physical gates are allowed (no annotations,
+identity no-ops, `MPAD`, `EXP_VAL`, or noise channels in the MVP).
+
 ## 4. Validation: construction-time vs. sample-time
 
 Validation is split: model construction checks shape and self-consistency;
@@ -654,6 +683,12 @@ Python bindings in `src/python/bindings.cc` expose: `Level`,
 `MeasurementClassifier`, `NonComputationalPolicy`,
 `NonComputationalModel`,
 `sample_noncomputational(circuit_text, model, shots, seed=None)`.
+
+When step 10 lands, add the spec-based `NonComputationalModel`
+construction path described in §3.3 (raw transition matrices +
+classifier spec built against the model's own `LevelSet`) and bind
+that shape in Python, rather than exposing the compositional
+constructor and its `LevelSet`-fingerprint mechanics to users.
 
 ## 7. Test plan (dependency order)
 
