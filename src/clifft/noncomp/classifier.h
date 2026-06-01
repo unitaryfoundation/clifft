@@ -53,8 +53,6 @@ class MeasurementClassifier {
 
     std::vector<std::string> symbols_;
     // Row-major flat storage: matrix_flat_[symbol * num_levels() + level_id].
-    // Single allocation, contiguous; mirrors TransitionInstrument's
-    // arena-friendly layout.
     std::vector<double> matrix_flat_;
     std::vector<double> reject_probs_;
 };
