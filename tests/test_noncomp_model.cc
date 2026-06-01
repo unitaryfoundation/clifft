@@ -196,7 +196,8 @@ TEST_CASE("NonComputationalModel: rejects a non-hookable noise-channel transitio
     REQUIRE_THROWS_WITH(
         NonComputationalModel(LevelSet::default_set(), default_initial_state(),
                               std::move(transitions), std::nullopt, NonComputationalPolicy{}),
-        ContainsSubstring("DEPOLARIZE1") && ContainsSubstring("not a hookable physical gate"));
+        ContainsSubstring("DEPOLARIZE1") &&
+            ContainsSubstring("does not support a transition instrument"));
 }
 
 TEST_CASE("NonComputationalModel: rejects a non-hookable annotation transition key") {
@@ -206,7 +207,7 @@ TEST_CASE("NonComputationalModel: rejects a non-hookable annotation transition k
     REQUIRE_THROWS_WITH(
         NonComputationalModel(LevelSet::default_set(), default_initial_state(),
                               std::move(transitions), std::nullopt, NonComputationalPolicy{}),
-        ContainsSubstring("not a hookable physical gate"));
+        ContainsSubstring("does not support a transition instrument"));
 }
 
 TEST_CASE("NonComputationalModel: rejects two keys resolving to the same gate") {

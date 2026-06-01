@@ -1,41 +1,14 @@
 #include "clifft/noncomp/transition_instrument.h"
 
+#include "clifft/noncomp/numeric.h"
+
 #include <cmath>
 #include <cstdint>
-#include <cstring>
-#include <limits>
 #include <stdexcept>
 #include <string>
 #include <utility>
 
 namespace clifft {
-
-// is_finite_robust below assumes IEEE 754 doubles (every Clifft
-// target satisfies this). Make the assumption explicit.
-static_assert(std::numeric_limits<double>::is_iec559,
-              "TransitionInstrument requires IEEE 754 doubles");
-
-namespace {
-
-// Tolerance for entry / column-sum bounds and for the
-// source-independence equality check. Generous compared to typical
-// floating-point error in user-supplied matrices; we want to admit
-// hand-written tables that sum to 1.0 - epsilon.
-constexpr double kProbTolerance = 1e-12;
-
-// Release builds use -ffast-math, which implies -ffinite-math-only.
-// That lets the compiler assume operands are finite, folding away
-// std::isfinite() and turning `v >= 0.0 && v <= 1.0` into something
-// that passes NaN through. Inspect the IEEE 754 bit pattern
-// instead: a non-finite double has all exponent bits set.
-bool is_finite_robust(double v) {
-    uint64_t bits;
-    std::memcpy(&bits, &v, sizeof(bits));
-    constexpr uint64_t kExpMask = 0x7FF0000000000000ULL;
-    return (bits & kExpMask) != kExpMask;
-}
-
-}  // namespace
 
 TransitionInstrument TransitionInstrument::from_matrix(std::vector<std::vector<double>> matrix,
                                                        const LevelSet& levels) {

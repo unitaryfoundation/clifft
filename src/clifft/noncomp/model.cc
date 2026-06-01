@@ -1,10 +1,9 @@
 #include "clifft/noncomp/model.h"
 
 #include "clifft/circuit/gate_data.h"
+#include "clifft/noncomp/numeric.h"
 
 #include <cstdint>
-#include <cstring>
-#include <limits>
 #include <map>
 #include <stdexcept>
 #include <string>
@@ -12,50 +11,43 @@
 
 namespace clifft {
 
-// is_finite_robust below assumes IEEE 754 doubles (every Clifft
-// target satisfies this). Make the assumption explicit.
-static_assert(std::numeric_limits<double>::is_iec559,
-              "NonComputationalModel requires IEEE 754 doubles");
-
 namespace {
 
-// Tolerance for the initial-state sum-to-one check. Matches the
-// derived-quantity tolerance used by TransitionInstrument and
-// MeasurementClassifier: raw entries are strict, the derived sum
-// tolerates floating drift.
-constexpr double kProbTolerance = 1e-12;
-
-// Release builds use -ffast-math, which implies -ffinite-math-only.
-// That folds away std::isfinite() and lets `v >= 0.0 && v <= 1.0`
-// pass NaN through. Inspect the IEEE 754 bit pattern instead: a
-// non-finite double has all exponent bits set.
-bool is_finite_robust(double v) {
-    uint64_t bits;
-    std::memcpy(&bits, &v, sizeof(bits));
-    constexpr uint64_t kExpMask = 0x7FF0000000000000ULL;
-    return (bits & kExpMask) != kExpMask;
-}
-
 // A transition instrument models the noncomputational side effects of a
-// physical qubit operation, so it may only key a gate that represents
-// one. Annotations, identity no-ops, the classical measurement pad, the
-// expectation-value probe, and noise channels (whose composition with a
-// level transition is deliberately left undefined in the MVP) are not
-// hookable.
-bool is_hookable_transition_gate(GateType g) {
-    if (g == GateType::UNKNOWN) {
-        return false;
+// physical qubit operation, so it may key only a gate that represents
+// one. This allowlist defaults to false: a newly added GateType is
+// rejected until it is deliberately classified here, rather than being
+// silently accepted. Excludes annotations, identity no-ops, the
+// classical measurement pad (MPAD), the expectation-value probe, and
+// noise channels (whose composition with a level transition is
+// deliberately left undefined in the MVP).
+bool supports_transition(GateType g) {
+    if (is_clifford(g)) {
+        return true;  // single- and two-qubit Clifford gates
     }
-    if (gate_arity(g) == GateArity::ANNOTATION) {
-        return false;
+    if (is_reset(g)) {
+        return true;  // R, RX, RY
     }
-    if (is_identity_noop(g) || is_noise_gate(g) || is_exp_val(g)) {
-        return false;
+    if (is_measurement(g) && g != GateType::MPAD) {
+        return true;  // M, MX, MY, MR, MRX, MRY, MPP, MXX, MYY, MZZ
     }
-    if (g == GateType::MPAD) {
-        return false;
+    switch (g) {
+        // Non-Clifford unitaries: no trait flag distinguishes these, so
+        // they are named explicitly.
+        case GateType::T:
+        case GateType::T_DAG:
+        case GateType::R_X:
+        case GateType::R_Y:
+        case GateType::R_Z:
+        case GateType::U3:
+        case GateType::R_XX:
+        case GateType::R_YY:
+        case GateType::R_ZZ:
+        case GateType::R_PAULI:
+            return true;
+        default:
+            return false;
     }
-    return true;
 }
 
 }  // namespace
@@ -110,10 +102,10 @@ NonComputationalModel::NonComputationalModel(
             throw std::invalid_argument("NonComputationalModel: transition key '" + name +
                                         "' is not a recognized gate name");
         }
-        if (!is_hookable_transition_gate(gate)) {
+        if (!supports_transition(gate)) {
             throw std::invalid_argument("NonComputationalModel: transition key '" + name + "' (" +
                                         std::string(gate_name(gate)) +
-                                        ") is not a hookable physical gate");
+                                        ") does not support a transition instrument");
         }
         if (instrument.num_levels() != n) {
             throw std::invalid_argument("NonComputationalModel: transition '" + name + "' spans " +
