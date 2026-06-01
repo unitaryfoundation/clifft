@@ -63,7 +63,10 @@ class LevelSet {
   public:
     // Validates the level table; throws std::invalid_argument with a
     // named field on failure.
-    explicit LevelSet(std::vector<Level> levels) : levels_(std::move(levels)) { validate(); }
+    explicit LevelSet(std::vector<Level> levels) : levels_(std::move(levels)) {
+        validate();
+        fingerprint_ = compute_fingerprint();
+    }
 
     // Default level set: g, e, leak_g, leak_e, lost.
     // Stable order; the integer ids are positional.
@@ -79,6 +82,14 @@ class LevelSet {
 
     std::span<const Level> levels() const { return levels_; }
     size_t size() const { return levels_.size(); }
+
+    // Deterministic schema signature over (label, category, basis_bit)
+    // per level, in order. Two tables that agree on every level's
+    // identity share a fingerprint; any difference in labels, order,
+    // categories, or basis bits changes it. Instruments and classifiers
+    // record the fingerprint of the table they were built against so a
+    // model can reject a component bound to a different table.
+    uint64_t fingerprint() const { return fingerprint_; }
 
     const Level& at(uint8_t level_id) const {
         require_in_range(level_id, "at");
@@ -104,6 +115,34 @@ class LevelSet {
 
   private:
     std::vector<Level> levels_;
+    uint64_t fingerprint_ = 0;
+
+    // FNV-1a over a canonical byte serialization of each level. The
+    // label is length-prefixed so that, e.g., {"ab", "c"} and {"a",
+    // "bc"} do not collide; the basis_bit absence is encoded with a
+    // sentinel distinct from its Zero/One values. Hand-rolled (not
+    // std::hash) so the value is stable across platforms and runs.
+    uint64_t compute_fingerprint() const {
+        constexpr uint64_t kOffsetBasis = 1469598103934665603ULL;
+        constexpr uint64_t kPrime = 1099511628211ULL;
+        uint64_t h = kOffsetBasis;
+        const auto mix = [&h](uint8_t byte) {
+            h ^= byte;
+            h *= kPrime;
+        };
+        for (const Level& lv : levels_) {
+            const uint64_t len = lv.label.size();
+            for (int i = 0; i < 8; ++i) {
+                mix(static_cast<uint8_t>((len >> (8 * i)) & 0xFFu));
+            }
+            for (const char c : lv.label) {
+                mix(static_cast<uint8_t>(c));
+            }
+            mix(static_cast<uint8_t>(lv.category));
+            mix(lv.basis_bit.has_value() ? static_cast<uint8_t>(*lv.basis_bit) : 0xFFu);
+        }
+        return h;
+    }
 
     void validate() const {
         if (levels_.empty()) {
