@@ -76,7 +76,7 @@ HistorySample sample_history(const Circuit& circuit, const NonComputationalModel
             // Feedback corrections are virtual: they never fire a
             // transition. Physical operands consult the instrument (if
             // any) for this gate.
-            if (operand.role == OperandRole::Feedback || instrument == nullptr) {
+            if (operand.role != OperandRole::Physical || instrument == nullptr) {
                 status[qubit] = normal_post_op_status(s_in, gate, operand.role, policy, levels);
                 continue;
             }

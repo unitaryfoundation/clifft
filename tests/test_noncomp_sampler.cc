@@ -171,6 +171,20 @@ TEST_CASE("sample_history: classical feedback fires no transition and demotes th
     REQUIRE(s.final_status[1].kind() == QubitStatusKind::ComputationalUnknown);
 }
 
+TEST_CASE("sample_history: conditional-Z feedback preserves a known target and fires nothing") {
+    Circuit c = parse("M 0\nCZ rec[-1] 1\n");
+    std::map<std::string, TransitionInstrument> transitions;
+    transitions.emplace("CZ", lose_from_g(LevelSet::default_set()));  // would jump g->lost
+    NonComputationalModel model = make_model(all_g(), std::move(transitions));
+
+    HistorySample s = sample_history(c, model, 1);
+    // Conditional Z is phase-only: qubit 1 stays Known(g), and no
+    // transition is consulted on the virtual correction.
+    REQUIRE(s.history.transitions.empty());
+    REQUIRE(s.final_status[1].kind() == QubitStatusKind::ComputationalKnown);
+    REQUIRE(s.final_status[1].level_id() == 0);  // g
+}
+
 TEST_CASE("sample_history: M on Unknown then a source-dependent transition rejects") {
     Circuit c = parse("H 0\nM 0\nCZ 0 1\n");  // H -> Unknown; M keeps Unknown
     std::map<std::string, TransitionInstrument> transitions;

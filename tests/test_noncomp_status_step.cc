@@ -25,7 +25,8 @@ constexpr uint8_t kLeakG = 2;
 constexpr uint8_t kLost = 4;
 
 constexpr OperandRole kPhysical = OperandRole::Physical;
-constexpr OperandRole kFeedback = OperandRole::Feedback;
+constexpr OperandRole kFeedbackX = OperandRole::FeedbackX;
+constexpr OperandRole kFeedbackZ = OperandRole::FeedbackZ;
 
 }  // namespace
 
@@ -100,20 +101,30 @@ TEST_CASE("normal_post_op_status: leaked reset restores; lost reset is policy-ga
     REQUIRE(lost_restored.level_id() == kG);
 }
 
-TEST_CASE("normal_post_op_status: feedback demotes a known qubit and never restores") {
+TEST_CASE("normal_post_op_status: FeedbackX demotes a known qubit and never restores") {
     LevelSet levels = LevelSet::default_set();
     NonComputationalPolicy policy;
-    // A conditional Pauli on a known qubit may flip g<->e unknowably, so
-    // it demotes -- even for a gate (CX) that would otherwise act.
+    // A conditional X on a known qubit may flip g<->e unknowably, so it
+    // demotes -- even though CX as a gate would otherwise act physically.
     QubitStatus known = normal_post_op_status(levels.computational_known(kG), GateType::CX,
-                                              kFeedback, policy, levels);
+                                              kFeedbackX, policy, levels);
     REQUIRE(known.kind() == QubitStatusKind::ComputationalUnknown);
     // Noncomputational qubits are untouched by a virtual correction (no
     // reset-restore on feedback).
     QubitStatus leaked =
-        normal_post_op_status(levels.leaked(kLeakG), GateType::CX, kFeedback, policy, levels);
+        normal_post_op_status(levels.leaked(kLeakG), GateType::CX, kFeedbackX, policy, levels);
     REQUIRE(leaked.kind() == QubitStatusKind::Leaked);
     REQUIRE(leaked.level_id() == kLeakG);
+}
+
+TEST_CASE("normal_post_op_status: FeedbackZ preserves a known qubit") {
+    LevelSet levels = LevelSet::default_set();
+    NonComputationalPolicy policy;
+    // A conditional Z is phase-only, so it cannot change the energy level.
+    QubitStatus known = normal_post_op_status(levels.computational_known(kE), GateType::CZ,
+                                              kFeedbackZ, policy, levels);
+    REQUIRE(known.kind() == QubitStatusKind::ComputationalKnown);
+    REQUIRE(known.level_id() == kE);
 }
 
 TEST_CASE("step_status: a jump destination wins over the normal post-op status") {

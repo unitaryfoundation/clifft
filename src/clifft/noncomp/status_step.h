@@ -21,10 +21,13 @@ namespace clifft {
 // mean physically different things: a CX with two qubit operands is a
 // physical entangler, but a CX with a record control is a virtual,
 // frame-level Pauli correction. The role, not the gate alone, drives the
-// noncomputational status effect.
+// noncomputational status effect. The two feedback roles split on the
+// correction's basis: a conditional X can flip the energy level, a
+// conditional Z is phase-only and leaves it intact.
 enum class OperandRole {
-    Physical,  // a real qubit operand of a physical operation
-    Feedback,  // qubit target of a classically-controlled Pauli (CX/CZ rec q)
+    Physical,   // a real qubit operand of a physical operation
+    FeedbackX,  // target of a classically-controlled X (CX rec q)
+    FeedbackZ,  // target of a classically-controlled Z (CZ rec q)
 };
 
 // Outcome of consulting one transition instrument for a single
@@ -40,10 +43,10 @@ struct TransitionOutcome {
 // preserves the pre-SVM-known status; non-destructive probes preserve
 // status; every other quantum operation demotes a computational qubit to
 // Unknown; a Leaked/Lost qubit is only changed by a reset that restores
-// it. For a Feedback operand: the correction is virtual (no leakage), but
-// a conditional X may flip g<->e on a control bit unknown before SVM
-// execution, so a known computational qubit demotes to Unknown while
-// noncomputational and already-unknown qubits are left as they are.
+// it. A feedback operand never leaks (the correction is virtual): a
+// FeedbackX may flip g<->e on a control bit unknown before SVM execution,
+// so it demotes a known computational qubit; a FeedbackZ is phase-only and
+// leaves the status untouched.
 QubitStatus normal_post_op_status(const QubitStatus& entry, GateType gate, OperandRole role,
                                   const NonComputationalPolicy& policy, const LevelSet& levels);
 

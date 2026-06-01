@@ -6,16 +6,19 @@ QubitStatus normal_post_op_status(const QubitStatus& entry, GateType gate, Opera
                                   const NonComputationalPolicy& policy, const LevelSet& levels) {
     const QubitStatusKind kind = entry.kind();
 
-    if (role == OperandRole::Feedback) {
-        // A classically-controlled Pauli frame correction (CX/CZ with a
-        // record control) is virtual, so it cannot leak or lose a qubit.
-        // A conditional X may flip g<->e on a control bit that is unknown
-        // before SVM execution, so a known computational qubit demotes to
-        // unknown; noncomputational and already-unknown qubits are left as
-        // they are.
+    if (role == OperandRole::FeedbackX) {
+        // A classically-controlled X is virtual (no leakage), but may flip
+        // g<->e on a control bit unknown before SVM execution, so a known
+        // computational qubit demotes; noncomputational and already-unknown
+        // qubits are left as they are.
         if (kind == QubitStatusKind::ComputationalKnown) {
             return QubitStatus::computational_unknown();
         }
+        return entry;
+    }
+    if (role == OperandRole::FeedbackZ) {
+        // A classically-controlled Z is phase-only: it cannot change the
+        // energy level, so the status is unchanged.
         return entry;
     }
 
