@@ -582,6 +582,44 @@ basis (a superposition of `g` and `e`), so its kind is
 the §4.2 sample-time rejection unless the instrument is
 source-independent on Computational sources.
 
+### 5.2.2 History status is *pre-SVM-known*, not trajectory-physical
+
+The status the history sampler tracks is what is **classically known
+before SVM execution**, which is narrower than the physically-collapsed
+trajectory state. The sampler runs entirely before the SVM (§5.1 steps
+3 vs 6), so it cannot consult a measurement outcome that only exists
+inside the SVM.
+
+The consequences, which override the naive reading of the §5.2.1 table:
+
+- **`M` on `ComputationalKnown(g/e)`**: status stays known. The value
+  was already classically known, so a later source-dependent
+  transition may use it.
+- **`M` on `ComputationalUnknown`**: the history status stays
+  `ComputationalUnknown`. It does **not** promote to
+  `ComputationalKnown`, because the outcome is produced by the SVM, not
+  the history sampler. (The SVM still performs the real quantum
+  measurement and collapse; that is independent of the history layer.)
+  A source-dependent transition fired on this qubit afterward rejects
+  per §4.2 unless the instrument is source-independent on Computational
+  sources.
+- **`R` / `MR` (Z-basis)**: produce `ComputationalKnown(g)` — the value
+  comes from the instruction, not an SVM outcome, so it is pre-SVM
+  known.
+- **`RX` / `RY` / `MRX` / `MRY`**: produce `ComputationalUnknown` (not a
+  `g`/`e` energy eigenstate), as in §5.2.1.
+
+The §5.2.1 row "`M` → `ComputationalKnown(g)` or `(e)` per outcome"
+describes the *physical* trajectory inside a single shot; it is **not**
+the precompile history status unless the value was already known before
+SVM execution. "Measure, then use the measured value to drive a later
+noncomputational transition" requires a segmented runtime / replan and
+is out of scope for the pre-sampled MVP (§9). The history layer must
+not pre-sample measurement outcomes: doing so would either skip the
+measurement back-action on the computational state or force a
+branch-and-continue boundary, which is exactly the dynamic/JIT path
+deferred in §1.
+
 ### 5.3 Hidden trace-out at noncomputational transitions
 
 Whenever a qubit whose status is `ComputationalUnknown` transitions
