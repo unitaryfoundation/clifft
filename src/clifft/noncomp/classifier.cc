@@ -2,6 +2,7 @@
 
 #include <cstdint>
 #include <cstring>
+#include <format>
 #include <limits>
 #include <stdexcept>
 #include <string>
@@ -45,9 +46,10 @@ MeasurementClassifier MeasurementClassifier::from_matrix(std::vector<std::string
         // The public symbol index APIs use uint8_t. Allowing more than
         // 256 symbols would make indices >= 256 unaddressable through
         // prob() / symbol_label() and silently wrap on conversion.
-        throw std::invalid_argument("MeasurementClassifier::from_matrix: symbols list has " +
-                                    std::to_string(symbols.size()) +
-                                    " entries; max supported is 256");
+        throw std::invalid_argument(
+            std::format("MeasurementClassifier::from_matrix: symbols list has {} entries; "
+                        "max supported is 256",
+                        symbols.size()));
     }
     {
         std::unordered_set<std::string> seen;
@@ -55,7 +57,7 @@ MeasurementClassifier MeasurementClassifier::from_matrix(std::vector<std::string
         for (const auto& s : symbols) {
             if (!seen.insert(s).second) {
                 throw std::invalid_argument(
-                    "MeasurementClassifier::from_matrix: duplicate symbol '" + s + "'");
+                    std::format("MeasurementClassifier::from_matrix: duplicate symbol '{}'", s));
             }
         }
     }
@@ -64,9 +66,10 @@ MeasurementClassifier MeasurementClassifier::from_matrix(std::vector<std::string
     const size_t l_n = levels.size();
 
     if (matrix.size() != s_n) {
-        throw std::invalid_argument("MeasurementClassifier::from_matrix: matrix has " +
-                                    std::to_string(matrix.size()) + " rows; expected " +
-                                    std::to_string(s_n) + " (one per symbol)");
+        throw std::invalid_argument(
+            std::format("MeasurementClassifier::from_matrix: matrix has {} rows; expected {} "
+                        "(one per symbol)",
+                        matrix.size(), s_n));
     }
 
     // Single pass: validate row width and entry bounds while copying
@@ -74,20 +77,20 @@ MeasurementClassifier MeasurementClassifier::from_matrix(std::vector<std::string
     std::vector<double> flat(s_n * l_n);
     for (size_t s = 0; s < s_n; ++s) {
         if (matrix[s].size() != l_n) {
-            throw std::invalid_argument("MeasurementClassifier::from_matrix: row " +
-                                        std::to_string(s) + " has " +
-                                        std::to_string(matrix[s].size()) + " columns; expected " +
-                                        std::to_string(l_n) + " (one per level)");
+            throw std::invalid_argument(
+                std::format("MeasurementClassifier::from_matrix: row {} has {} columns; "
+                            "expected {} (one per level)",
+                            s, matrix[s].size(), l_n));
         }
         for (size_t l = 0; l < l_n; ++l) {
             const double v = matrix[s][l];
             // is_finite_robust runs first because -ffast-math folds
             // std::isfinite() / NaN-aware comparisons away.
             if (!is_finite_robust(v) || v < 0.0 || v > 1.0) {
-                throw std::invalid_argument("MeasurementClassifier::from_matrix: entry (" +
-                                            std::to_string(s) + ", " + std::to_string(l) +
-                                            ") = " + std::to_string(v) +
-                                            " is not finite or is out of [0, 1]");
+                throw std::invalid_argument(
+                    std::format("MeasurementClassifier::from_matrix: entry ({}, {}) = {} "
+                                "is not finite or is out of [0, 1]",
+                                s, l, v));
             }
             flat[s * l_n + l] = v;
         }
@@ -100,9 +103,8 @@ MeasurementClassifier MeasurementClassifier::from_matrix(std::vector<std::string
             sum += flat[s * l_n + l];
         }
         if (sum > 1.0 + kProbTolerance) {
-            throw std::invalid_argument("MeasurementClassifier::from_matrix: column " +
-                                        std::to_string(l) + " sum = " + std::to_string(sum) +
-                                        " exceeds 1");
+            throw std::invalid_argument(std::format(
+                "MeasurementClassifier::from_matrix: column {} sum = {} exceeds 1", l, sum));
         }
         // Deficit is the implicit reject probability, clamped to [0, 1]
         // so accessors never report a negative number under floating
@@ -123,9 +125,10 @@ MeasurementClassifier::MeasurementClassifier(std::vector<std::string> symbols,
 
 const std::string& MeasurementClassifier::symbol_label(uint8_t symbol_idx) const {
     if (symbol_idx >= symbols_.size()) {
-        throw std::invalid_argument("MeasurementClassifier::symbol_label: index " +
-                                    std::to_string(symbol_idx) + " out of range (num_symbols " +
-                                    std::to_string(symbols_.size()) + ")");
+        throw std::invalid_argument(
+            std::format("MeasurementClassifier::symbol_label: index {} out of range "
+                        "(num_symbols {})",
+                        static_cast<unsigned>(symbol_idx), symbols_.size()));
     }
     return symbols_[symbol_idx];
 }
@@ -134,19 +137,20 @@ double MeasurementClassifier::prob(uint8_t symbol_idx, uint8_t level_id) const {
     const size_t s_n = symbols_.size();
     const size_t l_n = reject_probs_.size();
     if (symbol_idx >= s_n || level_id >= l_n) {
-        throw std::invalid_argument("MeasurementClassifier::prob: index (" +
-                                    std::to_string(symbol_idx) + ", " + std::to_string(level_id) +
-                                    ") out of range (num_symbols " + std::to_string(s_n) +
-                                    ", num_levels " + std::to_string(l_n) + ")");
+        throw std::invalid_argument(std::format(
+            "MeasurementClassifier::prob: index ({}, {}) out of range "
+            "(num_symbols {}, num_levels {})",
+            static_cast<unsigned>(symbol_idx), static_cast<unsigned>(level_id), s_n, l_n));
     }
     return matrix_flat_[static_cast<size_t>(symbol_idx) * l_n + static_cast<size_t>(level_id)];
 }
 
 double MeasurementClassifier::reject_probability(uint8_t level_id) const {
     if (level_id >= reject_probs_.size()) {
-        throw std::invalid_argument("MeasurementClassifier::reject_probability: index " +
-                                    std::to_string(level_id) + " out of range (num_levels " +
-                                    std::to_string(reject_probs_.size()) + ")");
+        throw std::invalid_argument(
+            std::format("MeasurementClassifier::reject_probability: index {} out of range "
+                        "(num_levels {})",
+                        static_cast<unsigned>(level_id), reject_probs_.size()));
     }
     return reject_probs_[level_id];
 }

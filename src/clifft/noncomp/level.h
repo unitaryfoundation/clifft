@@ -33,6 +33,7 @@
 #include "clifft/noncomp/qubit_status.h"
 
 #include <cstdint>
+#include <format>
 #include <optional>
 #include <span>
 #include <stdexcept>
@@ -110,9 +111,8 @@ class LevelSet {
             throw std::invalid_argument("LevelSet: level set is empty");
         }
         if (levels_.size() > 128) {
-            throw std::invalid_argument("LevelSet: level set has " +
-                                        std::to_string(levels_.size()) +
-                                        " entries; max supported is 128");
+            throw std::invalid_argument(std::format(
+                "LevelSet: level set has {} entries; max supported is 128", levels_.size()));
         }
         size_t computational_zero_count = 0;
         size_t computational_one_count = 0;
@@ -121,9 +121,9 @@ class LevelSet {
             switch (lv.category) {
                 case LevelCategory::Computational:
                     if (!lv.basis_bit.has_value()) {
-                        throw std::invalid_argument("LevelSet: level '" + lv.label + "' (id " +
-                                                    std::to_string(i) +
-                                                    ") is Computational but has no basis_bit");
+                        throw std::invalid_argument(std::format(
+                            "LevelSet: level '{}' (id {}) is Computational but has no basis_bit",
+                            lv.label, i));
                     }
                     if (*lv.basis_bit == BasisBit::Zero) {
                         ++computational_zero_count;
@@ -136,45 +136,45 @@ class LevelSet {
                     break;
                 case LevelCategory::Lost:
                     if (lv.basis_bit.has_value()) {
-                        throw std::invalid_argument("LevelSet: level '" + lv.label + "' (id " +
-                                                    std::to_string(i) +
-                                                    ") is Lost and must not carry basis_bit");
+                        throw std::invalid_argument(std::format(
+                            "LevelSet: level '{}' (id {}) is Lost and must not carry basis_bit",
+                            lv.label, i));
                     }
                     break;
                 default:
-                    throw std::invalid_argument("LevelSet: level '" + lv.label + "' (id " +
-                                                std::to_string(i) +
-                                                ") has an unrecognized LevelCategory value");
+                    throw std::invalid_argument(std::format(
+                        "LevelSet: level '{}' (id {}) has an unrecognized LevelCategory value",
+                        lv.label, i));
             }
         }
         if (computational_zero_count != 1) {
-            throw std::invalid_argument(
+            throw std::invalid_argument(std::format(
                 "LevelSet: expected exactly one Computational level with basis_bit == Zero, "
-                "got " +
-                std::to_string(computational_zero_count));
+                "got {}",
+                computational_zero_count));
         }
         if (computational_one_count != 1) {
-            throw std::invalid_argument(
+            throw std::invalid_argument(std::format(
                 "LevelSet: expected exactly one Computational level with basis_bit == One, "
-                "got " +
-                std::to_string(computational_one_count));
+                "got {}",
+                computational_one_count));
         }
     }
 
     void require_in_range(uint8_t level_id, const char* fn) const {
         if (level_id >= levels_.size()) {
-            throw std::invalid_argument(std::string("LevelSet::") + fn + ": level_id " +
-                                        std::to_string(level_id) + " out of range (size " +
-                                        std::to_string(levels_.size()) + ")");
+            throw std::invalid_argument(
+                std::format("LevelSet::{}: level_id {} out of range (size {})", fn,
+                            static_cast<unsigned>(level_id), levels_.size()));
         }
     }
 
     void check_kind(uint8_t level_id, LevelCategory expected, const char* fn) const {
         require_in_range(level_id, fn);
         if (levels_[level_id].category != expected) {
-            throw std::invalid_argument(std::string("LevelSet::") + fn + ": level '" +
-                                        levels_[level_id].label +
-                                        "' has category that does not match the requested kind");
+            throw std::invalid_argument(std::format(
+                "LevelSet::{}: level '{}' has category that does not match the requested kind", fn,
+                levels_[level_id].label));
         }
     }
 };
