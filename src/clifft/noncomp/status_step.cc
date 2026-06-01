@@ -2,9 +2,22 @@
 
 namespace clifft {
 
-QubitStatus normal_post_op_status(const QubitStatus& entry, GateType gate,
+QubitStatus normal_post_op_status(const QubitStatus& entry, GateType gate, OperandRole role,
                                   const NonComputationalPolicy& policy, const LevelSet& levels) {
     const QubitStatusKind kind = entry.kind();
+
+    if (role == OperandRole::Feedback) {
+        // A classically-controlled Pauli frame correction (CX/CZ with a
+        // record control) is virtual, so it cannot leak or lose a qubit.
+        // A conditional X may flip g<->e on a control bit that is unknown
+        // before SVM execution, so a known computational qubit demotes to
+        // unknown; noncomputational and already-unknown qubits are left as
+        // they are.
+        if (kind == QubitStatusKind::ComputationalKnown) {
+            return QubitStatus::computational_unknown();
+        }
+        return entry;
+    }
 
     const bool z_reset = gate == GateType::R || gate == GateType::MR;
     const bool xy_reset = gate == GateType::RX || gate == GateType::RY || gate == GateType::MRX ||
@@ -48,12 +61,13 @@ QubitStatus normal_post_op_status(const QubitStatus& entry, GateType gate,
     return QubitStatus::computational_unknown();
 }
 
-QubitStatus step_status(const QubitStatus& entry, GateType gate, const TransitionOutcome& outcome,
-                        const NonComputationalPolicy& policy, const LevelSet& levels) {
+QubitStatus step_status(const QubitStatus& entry, GateType gate, OperandRole role,
+                        const TransitionOutcome& outcome, const NonComputationalPolicy& policy,
+                        const LevelSet& levels) {
     if (outcome.jumped) {
         return levels.status_for(outcome.destination_level);
     }
-    return normal_post_op_status(entry, gate, policy, levels);
+    return normal_post_op_status(entry, gate, role, policy, levels);
 }
 
 }  // namespace clifft

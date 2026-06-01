@@ -31,6 +31,7 @@ add_library(clifft_core STATIC
     noncomp/classifier.cc
     noncomp/model.cc
     noncomp/status_step.cc
+    noncomp/op_role.cc
     noncomp/sampler.cc
 )
 

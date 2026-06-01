@@ -1,7 +1,7 @@
 #include "clifft/noncomp/sampler.h"
 
 #include "clifft/circuit/gate_data.h"
-#include "clifft/circuit/target.h"
+#include "clifft/noncomp/op_role.h"
 #include "clifft/noncomp/status_step.h"
 #include "clifft/noncomp/transition_instrument.h"
 
@@ -62,19 +62,22 @@ HistorySample sample_history(const Circuit& circuit, const NonComputationalModel
         const GateType gate = node.gate;
         const TransitionInstrument* instrument = model.transition_for(gate);
 
-        for (const Target& target : node.targets) {
-            if (target.is_rec()) {
-                continue;  // classical record reference, not a qubit operand
-            }
-            const uint32_t qubit = target.value();
+        for (const QubitOperand& operand : qubit_operands(node)) {
+            const uint32_t qubit = operand.qubit;
             if (qubit >= status.size()) {
-                continue;  // operand outside the sampled qubit range
+                throw std::invalid_argument(
+                    "sample_history: operand qubit " + std::to_string(qubit) +
+                    " is out of range (circuit declares " + std::to_string(status.size()) +
+                    " qubits) at op " + std::to_string(op_index));
             }
 
             const QubitStatus s_in = status[qubit];
 
-            if (instrument == nullptr) {
-                status[qubit] = normal_post_op_status(s_in, gate, policy, levels);
+            // Feedback corrections are virtual: they never fire a
+            // transition. Physical operands consult the instrument (if
+            // any) for this gate.
+            if (operand.role == OperandRole::Feedback || instrument == nullptr) {
+                status[qubit] = normal_post_op_status(s_in, gate, operand.role, policy, levels);
                 continue;
             }
 
@@ -126,7 +129,7 @@ HistorySample sample_history(const Circuit& circuit, const NonComputationalModel
                 TransitionRecord{op_index, qubit, outcome.jumped,
                                  outcome.jumped ? outcome.destination_level : kInvalidLevel});
 
-            status[qubit] = step_status(s_in, gate, outcome, policy, levels);
+            status[qubit] = step_status(s_in, gate, OperandRole::Physical, outcome, policy, levels);
         }
     }
 

@@ -1,5 +1,6 @@
 #include "clifft/circuit/circuit.h"
 #include "clifft/circuit/gate_data.h"
+#include "clifft/circuit/parser.h"
 #include "clifft/circuit/target.h"
 #include "clifft/noncomp/level.h"
 #include "clifft/noncomp/model.h"
@@ -24,6 +25,7 @@ using clifft::HistorySample;
 using clifft::LevelSet;
 using clifft::NonComputationalModel;
 using clifft::NonComputationalPolicy;
+using clifft::parse;
 using clifft::QubitStatusKind;
 using clifft::sample_history;
 using clifft::Target;
@@ -50,6 +52,14 @@ TransitionInstrument lose_from_g(const LevelSet& levels) {
 // Source-independent: never jumps (all-zero columns are equal).
 TransitionInstrument never_jumps(const LevelSet& levels) {
     return TransitionInstrument::from_matrix(zeros5(), levels);
+}
+
+// Source-dependent: g jumps to lost with probability 0.3. T[lost][g] is
+// the g-source -> lost-destination entry, so this also pins orientation.
+TransitionInstrument lose_from_g_30pct(const LevelSet& levels) {
+    auto m = zeros5();
+    m[kLost][0] = 0.3;
+    return TransitionInstrument::from_matrix(std::move(m), levels);
 }
 
 NonComputationalModel make_model(std::vector<double> initial_state,
@@ -135,9 +145,91 @@ TEST_CASE("sample_history: source-dependent transition on a known qubit is allow
     NonComputationalModel model = make_model(all_g(), std::move(transitions));
 
     HistorySample s = sample_history(c, model, 1);
+    // One record per operand, in target order.
     REQUIRE(s.history.transitions.size() == 2);
+    REQUIRE(s.history.transitions[0].op_index == 0);
+    REQUIRE(s.history.transitions[0].qubit == 0);
+    REQUIRE(s.history.transitions[1].op_index == 0);
+    REQUIRE(s.history.transitions[1].qubit == 1);
     REQUIRE(s.final_status[0].kind() == QubitStatusKind::Lost);
     REQUIRE(s.final_status[1].kind() == QubitStatusKind::Lost);
+}
+
+TEST_CASE("sample_history: classical feedback fires no transition and demotes the target") {
+    // Parsed so the rec-target encoding is exercised: M then a conditional
+    // X on qubit 1 controlled by the measurement record.
+    Circuit c = parse("M 0\nCX rec[-1] 1\n");
+    std::map<std::string, TransitionInstrument> transitions;
+    transitions.emplace("CX", lose_from_g(LevelSet::default_set()));  // would jump g->lost
+    NonComputationalModel model = make_model(all_g(), std::move(transitions));
+
+    HistorySample s = sample_history(c, model, 1);
+    // The CX is virtual feedback, so no transition is consulted; qubit 1 is
+    // demoted, not lost. (M has no transition; qubit 0 stays Known(g).)
+    REQUIRE(s.history.transitions.empty());
+    REQUIRE(s.final_status[0].kind() == QubitStatusKind::ComputationalKnown);
+    REQUIRE(s.final_status[1].kind() == QubitStatusKind::ComputationalUnknown);
+}
+
+TEST_CASE("sample_history: M on Unknown then a source-dependent transition rejects") {
+    Circuit c = parse("H 0\nM 0\nCZ 0 1\n");  // H -> Unknown; M keeps Unknown
+    std::map<std::string, TransitionInstrument> transitions;
+    transitions.emplace("CZ", lose_from_g(LevelSet::default_set()));
+    NonComputationalModel model = make_model(all_g(), std::move(transitions));
+
+    REQUIRE_THROWS_WITH(sample_history(c, model, 1),
+                        ContainsSubstring("CZ") && ContainsSubstring("ComputationalUnknown"));
+}
+
+TEST_CASE("sample_history: reset before a source-dependent transition is allowed") {
+    Circuit c = parse("H 0\nR 0\nCZ 0 1\n");  // R restores qubit 0 to Known(g)
+    std::map<std::string, TransitionInstrument> transitions;
+    transitions.emplace("CZ", lose_from_g(LevelSet::default_set()));
+    NonComputationalModel model = make_model(all_g(), std::move(transitions));
+
+    HistorySample s = sample_history(c, model, 1);               // no throw: source is Known(g)
+    REQUIRE(s.final_status[0].kind() == QubitStatusKind::Lost);  // g -> lost
+}
+
+TEST_CASE("sample_history: a partial jump probability matches its frequency") {
+    // 2000 independent qubits, each a single H carrying a g->lost(0.3)
+    // transition; all start Known(g). Tests probabilistic sampling and the
+    // T[to, from] orientation (a transposed matrix would never fire).
+    Circuit c;
+    c.num_qubits = 2000;
+    for (uint32_t q = 0; q < c.num_qubits; ++q) {
+        c.nodes.push_back(op(GateType::H, {q}));
+    }
+    std::map<std::string, TransitionInstrument> transitions;
+    transitions.emplace("H", lose_from_g_30pct(LevelSet::default_set()));
+    NonComputationalModel model = make_model(all_g(), std::move(transitions));
+
+    HistorySample s = sample_history(c, model, 99);
+    size_t lost = 0;
+    for (const auto& status : s.final_status) {
+        if (status.kind() == QubitStatusKind::Lost) {
+            ++lost;
+        }
+    }
+    // Expected 600; +/-120 is ~7 sigma, so this never flakes for the seed.
+    REQUIRE(lost > 480);
+    REQUIRE(lost < 720);
+}
+
+TEST_CASE("sample_history: lost-qubit reset restoration is policy-gated") {
+    Circuit c = parse("R 0\n");
+    const std::vector<double> all_lost = {0.0, 0.0, 0.0, 0.0, 1.0};
+
+    // Default: a lost qubit's reset does not restore it.
+    NonComputationalModel keep = make_model(all_lost, {});
+    REQUIRE(sample_history(c, keep, 1).final_status[0].kind() == QubitStatusKind::Lost);
+
+    // With the policy set, the reset restores it to Known(g).
+    NonComputationalPolicy restore;
+    restore.reset_restores_lost = true;
+    NonComputationalModel reload = make_model(all_lost, {}, restore);
+    HistorySample s = sample_history(c, reload, 1);
+    REQUIRE(s.final_status[0].kind() == QubitStatusKind::ComputationalKnown);
 }
 
 TEST_CASE("sample_history: source-dependent transition on an unknown qubit rejects") {
