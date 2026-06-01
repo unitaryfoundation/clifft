@@ -116,15 +116,18 @@ TransitionInstrument TransitionInstrument::from_matrix(std::vector<std::vector<d
         }
     }
 
-    return TransitionInstrument(std::move(flat), std::move(column_sums), flag);
+    return TransitionInstrument(std::move(flat), std::move(column_sums), flag,
+                                levels.fingerprint());
 }
 
 TransitionInstrument::TransitionInstrument(std::vector<double> matrix_flat,
                                            std::vector<double> column_sums,
-                                           bool is_source_independent_on_computational)
+                                           bool is_source_independent_on_computational,
+                                           uint64_t level_fingerprint)
     : matrix_flat_(std::move(matrix_flat)),
       column_sums_(std::move(column_sums)),
-      is_source_independent_on_computational_(is_source_independent_on_computational) {}
+      is_source_independent_on_computational_(is_source_independent_on_computational),
+      level_fingerprint_(level_fingerprint) {}
 
 double TransitionInstrument::prob(uint8_t to, uint8_t from) const {
     const size_t n = column_sums_.size();

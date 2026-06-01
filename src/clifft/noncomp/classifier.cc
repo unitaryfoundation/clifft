@@ -111,15 +111,18 @@ MeasurementClassifier MeasurementClassifier::from_matrix(std::vector<std::string
         reject_probs[l] = 1.0 - clamped;
     }
 
-    return MeasurementClassifier(std::move(symbols), std::move(flat), std::move(reject_probs));
+    return MeasurementClassifier(std::move(symbols), std::move(flat), std::move(reject_probs),
+                                 levels.fingerprint());
 }
 
 MeasurementClassifier::MeasurementClassifier(std::vector<std::string> symbols,
                                              std::vector<double> matrix_flat,
-                                             std::vector<double> reject_probs)
+                                             std::vector<double> reject_probs,
+                                             uint64_t level_fingerprint)
     : symbols_(std::move(symbols)),
       matrix_flat_(std::move(matrix_flat)),
-      reject_probs_(std::move(reject_probs)) {}
+      reject_probs_(std::move(reject_probs)),
+      level_fingerprint_(level_fingerprint) {}
 
 const std::string& MeasurementClassifier::symbol_label(uint8_t symbol_idx) const {
     if (symbol_idx >= symbols_.size()) {

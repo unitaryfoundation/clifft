@@ -66,9 +66,14 @@ class TransitionInstrument {
         return is_source_independent_on_computational_;
     }
 
+    // Fingerprint of the LevelSet this instrument was built against.
+    // A model rejects an instrument whose fingerprint does not match
+    // its own level table.
+    uint64_t level_fingerprint() const { return level_fingerprint_; }
+
   private:
     TransitionInstrument(std::vector<double> matrix_flat, std::vector<double> column_sums,
-                         bool is_source_independent_on_computational);
+                         bool is_source_independent_on_computational, uint64_t level_fingerprint);
 
     // Row-major flat storage: matrix_flat_[to * num_levels() + from].
     // One allocation, contiguous memory; column-traversal accessors
@@ -76,6 +81,7 @@ class TransitionInstrument {
     std::vector<double> matrix_flat_;
     std::vector<double> column_sums_;
     bool is_source_independent_on_computational_;
+    uint64_t level_fingerprint_;
 };
 
 }  // namespace clifft
