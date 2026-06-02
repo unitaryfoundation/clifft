@@ -36,6 +36,18 @@ TEST_CASE("qubit_operands: physical gate yields Physical operands in target orde
     REQUIRE(ops[1].role == OperandRole::Physical);
 }
 
+TEST_CASE("qubit_operands: MPP yields its Pauli-tagged qubits in target order as Physical") {
+    Circuit c = parse("MPP X0*Z1*Y2");
+    std::vector<QubitOperand> ops = qubit_operands(c.nodes.back());
+    REQUIRE(ops.size() == 3);
+    REQUIRE(ops[0].qubit == 0);
+    REQUIRE(ops[1].qubit == 1);
+    REQUIRE(ops[2].qubit == 2);
+    REQUIRE(ops[0].role == OperandRole::Physical);
+    REQUIRE(ops[1].role == OperandRole::Physical);
+    REQUIRE(ops[2].role == OperandRole::Physical);
+}
+
 TEST_CASE("qubit_operands: CX feedback yields a single FeedbackX operand") {
     std::vector<QubitOperand> ops =
         qubit_operands(node(GateType::CX, {Target::rec(0), Target::qubit(1)}));

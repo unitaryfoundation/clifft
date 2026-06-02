@@ -185,6 +185,18 @@ TEST_CASE("sample_history: conditional-Z feedback preserves a known target and f
     REQUIRE(s.final_status[1].level_id() == 0);  // g
 }
 
+TEST_CASE("sample_history: MPP demotes each measured known qubit to Unknown") {
+    Circuit c = parse("MPP X0*Z1");  // multi-qubit measurement on two Known(g) qubits
+    NonComputationalModel model = make_model(all_g(), {});  // no MPP transition attached
+
+    HistorySample s = sample_history(c, model, 1);
+    // A multi-qubit measurement collapses each operand's definite level, so
+    // both qubits demote; with no instrument attached, nothing fires.
+    REQUIRE(s.history.transitions.empty());
+    REQUIRE(s.final_status[0].kind() == QubitStatusKind::ComputationalUnknown);
+    REQUIRE(s.final_status[1].kind() == QubitStatusKind::ComputationalUnknown);
+}
+
 TEST_CASE("sample_history: M on Unknown then a source-dependent transition rejects") {
     Circuit c = parse("H 0\nM 0\nCZ 0 1\n");  // H -> Unknown; M keeps Unknown
     std::map<std::string, TransitionInstrument> transitions;
