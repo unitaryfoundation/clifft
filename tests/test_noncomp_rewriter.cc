@@ -185,6 +185,9 @@ TEST_CASE("rewrite: an inserted R does not shift visible measurements or detecto
 
     REQUIRE(hir.num_measurements == base.num_measurements);  // visible record unchanged
     REQUIRE(hir.num_detectors == base.num_detectors);
+    // The detectors resolve to the same measurement-record indices: the
+    // inserted hidden R renumbered nothing they point at.
+    REQUIRE(hir.detector_targets == base.detector_targets);
     REQUIRE(hir.num_hidden_measurements == base.num_hidden_measurements + 1);
 }
 

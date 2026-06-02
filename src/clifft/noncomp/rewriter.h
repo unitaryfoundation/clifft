@@ -40,6 +40,12 @@ namespace clifft {
 // operation (naming the operation index, qubit, gate, and status) or when
 // `history` does not describe `original` (qubit count or transition count
 // mismatch).
+//
+// Precondition: `original` is a parser-normalized circuit -- each
+// single-qubit operation is a single-target node and each two-qubit
+// operation is a single pair. The keep / drop / reject decision is made per
+// node, so a hand-built node that packs several single-qubit operands would
+// be dropped or rejected as a whole rather than per operand.
 Circuit rewrite(const Circuit& original, const NonComputationalHistory& history,
                 const NonComputationalModel& model);
 
