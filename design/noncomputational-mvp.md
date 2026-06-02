@@ -674,13 +674,28 @@ reinterpreted as the noncomputational kind by the trajectory; the
 SVM's own post-`R` state on that qubit is irrelevant because no
 later op reads computational amplitude from it.
 
-If the source kind at the transition is already
-`ComputationalKnown`, `Leaked`, or `Lost`, no quantum trace-out is
-needed: there is no entangled computational amplitude to unravel.
-The transition is a pure status update with no `R` insertion.
+The decision to insert `R` is made on the **computational carrier
+state immediately before the jump destination is installed**, not on
+the qubit's status at op entry. The base operation can make a qubit
+coherent before the after-gate transition fires: a qubit can enter an
+op as `ComputationalKnown(g/e)` and be demoted to `ComputationalUnknown`
+by the gate, after which a jump to `Leaked`/`Lost` still has entangled
+computational amplitude to trace out. Conversely, a qubit that is still
+a definite `ComputationalKnown` atom at jump time (the base op did not
+make it coherent) carries no entanglement to unravel, so no `R` is
+needed. The relevant carrier state is therefore
+`normal_post_op_status(entry, op)` — the status the base operation
+would leave if no jump fired — evaluated with the *entry* status still
+used for transition source-column selection.
 
-Summary rule: insert `R` iff source kind is `ComputationalUnknown`
-and destination kind is `Leaked` or `Lost`.
+Summary rule, per qubit operand of an op:
+
+    pre             = status entering the op
+    post_if_no_jump = normal_post_op_status(pre, op)
+    outcome         = sampled/replayed transition branch (source column from pre)
+    insert R iff outcome jumps to a Leaked/Lost level
+                 AND post_if_no_jump is ComputationalUnknown
+    final status    = outcome destination (jump wins)
 
 ## 6. New C++ headers and dependency order
 
