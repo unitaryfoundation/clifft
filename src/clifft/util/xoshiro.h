@@ -65,6 +65,15 @@ class Xoshiro256PlusPlus {
         return result;
     }
 
+    // Uniform draw in [0, 1): the top 53 bits of a 64-bit word scaled to
+    // the unit interval. The fixed bitwise generator and this extraction
+    // (rather than std::uniform_real_distribution, whose algorithm varies
+    // across standard libraries) keep a seeded sequence reproducible across
+    // compilers.
+    [[nodiscard]] inline double next_double() {
+        return static_cast<double>((*this)() >> 11) * 0x1.0p-53;
+    }
+
   private:
     uint64_t s_[4];
 

@@ -74,10 +74,11 @@ class SchrodingerState {
     [[nodiscard]] uint64_t v_size() const { return 1ULL << active_k; }
     [[nodiscard]] uint64_t array_size() const { return array_size_; }
 
-    // Generate random double in [0, 1) using deterministic bit manipulation.
-    // CRITICAL: Do NOT use std::uniform_real_distribution -- its output is
-    // implementation-defined and varies across compilers (GCC vs Clang vs MSVC).
-    [[nodiscard]] double random_double() { return static_cast<double>(rng_() >> 11) * 0x1.0p-53; }
+    // Generate random double in [0, 1). The extraction lives on the
+    // generator so the SVM and the noncomp sampler draw it identically;
+    // it deliberately avoids std::uniform_real_distribution, whose output
+    // varies across compilers.
+    [[nodiscard]] double random_double() { return rng_.next_double(); }
 
     // --- Factored State Components ---
 

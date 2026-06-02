@@ -27,6 +27,7 @@ add_library(clifft_core STATIC
     svm/svm_scalar.cc
     svm/svm_state.cc
     util/introspection.cc
+    util/xoshiro.cc
     noncomp/transition_instrument.cc
     noncomp/classifier.cc
     noncomp/model.cc

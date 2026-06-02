@@ -12,19 +12,6 @@
 
 namespace clifft {
 
-namespace {
-
-// Portable [0, 1) draw: the top 53 bits of a 64-bit word scaled to the
-// unit interval. Xoshiro256PlusPlus (the same generator the SVM uses)
-// produces an identical sequence across compilers, and this extraction
-// avoids std::uniform_real_distribution, whose algorithm varies across
-// standard libraries -- together they keep a fixed seed reproducible.
-double next_unit(Xoshiro256PlusPlus& rng) {
-    return static_cast<double>(rng() >> 11) * 0x1.0p-53;
-}
-
-}  // namespace
-
 HistorySample sample_history(const Circuit& circuit, const NonComputationalModel& model,
                              uint64_t seed) {
     const LevelSet& levels = model.levels();
@@ -40,7 +27,7 @@ HistorySample sample_history(const Circuit& circuit, const NonComputationalModel
     // initial-state distribution. The last level catches any
     // floating-point tail so a draw always resolves to a level.
     for (uint32_t q = 0; q < circuit.num_qubits; ++q) {
-        const double u = next_unit(rng);
+        const double u = rng.next_double();
         double acc = 0.0;
         uint8_t chosen = static_cast<uint8_t>(num_levels - 1);
         for (uint8_t l = 0; l < num_levels; ++l) {
@@ -104,7 +91,7 @@ HistorySample sample_history(const Circuit& circuit, const NonComputationalModel
             // Sample the outcome: the no-jump weight occupies [0, w), the
             // jump targets partition [w, 1). last_positive catches a
             // floating-point tail so u >= w always resolves to a jump.
-            const double u = next_unit(rng);
+            const double u = rng.next_double();
             const double no_jump = instrument->no_jump_weight(source_col);
             TransitionOutcome outcome;
             if (u >= no_jump) {
