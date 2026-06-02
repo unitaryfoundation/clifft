@@ -4,9 +4,9 @@
 #include "clifft/noncomp/op_role.h"
 #include "clifft/noncomp/status_step.h"
 #include "clifft/noncomp/transition_instrument.h"
+#include "clifft/util/xoshiro.h"
 
 #include <cstdint>
-#include <random>
 #include <stdexcept>
 #include <string>
 
@@ -15,11 +15,11 @@ namespace clifft {
 namespace {
 
 // Portable [0, 1) draw: the top 53 bits of a 64-bit word scaled to the
-// unit interval. std::mt19937_64's sequence is standardized and this
-// extraction avoids std::uniform_real_distribution, whose algorithm
-// varies across standard libraries -- both together keep "fixed seed ->
-// fixed history" stable across platforms.
-double next_unit(std::mt19937_64& rng) {
+// unit interval. Xoshiro256PlusPlus (the same generator the SVM uses)
+// produces an identical sequence across compilers, and this extraction
+// avoids std::uniform_real_distribution, whose algorithm varies across
+// standard libraries -- together they keep a fixed seed reproducible.
+double next_unit(Xoshiro256PlusPlus& rng) {
     return static_cast<double>(rng() >> 11) * 0x1.0p-53;
 }
 
@@ -31,13 +31,13 @@ HistorySample sample_history(const Circuit& circuit, const NonComputationalModel
     const NonComputationalPolicy& policy = model.policy();
     const size_t num_levels = levels.size();
 
-    std::mt19937_64 rng(seed);
+    Xoshiro256PlusPlus rng(seed);
 
     HistorySample result;
     result.history.initial_status.reserve(circuit.num_qubits);
 
-    // Step 1: sample each qubit's initial level independently from the
-    // shared initial-state distribution. The last level catches any
+    // Sample each qubit's initial level independently from the shared
+    // initial-state distribution. The last level catches any
     // floating-point tail so a draw always resolves to a level.
     for (uint32_t q = 0; q < circuit.num_qubits; ++q) {
         const double u = next_unit(rng);
@@ -55,8 +55,8 @@ HistorySample sample_history(const Circuit& circuit, const NonComputationalModel
 
     std::vector<QubitStatus> status = result.history.initial_status;
 
-    // Step 3: walk the operations, sampling attached transitions per
-    // qubit operand and advancing each qubit's status.
+    // Walk the operations, sampling attached transitions per qubit
+    // operand and advancing each qubit's status.
     for (uint32_t op_index = 0; op_index < circuit.nodes.size(); ++op_index) {
         const AstNode& node = circuit.nodes[op_index];
         const GateType gate = node.gate;
@@ -81,7 +81,9 @@ HistorySample sample_history(const Circuit& circuit, const NonComputationalModel
                 continue;
             }
 
-            // Section 4.2 source-context check and column selection.
+            // Source-context check and column selection: an unknown
+            // computational source has no definite level, so a
+            // source-dependent instrument cannot pick a column for it.
             uint8_t source_col;
             if (s_in.kind() == QubitStatusKind::ComputationalUnknown) {
                 if (!instrument->is_source_independent_on_computational()) {
@@ -89,7 +91,8 @@ HistorySample sample_history(const Circuit& circuit, const NonComputationalModel
                         "sample_history: source-dependent transition on gate '" +
                         std::string(gate_name(gate)) + "' fired on ComputationalUnknown qubit " +
                         std::to_string(qubit) + " at op " + std::to_string(op_index) +
-                        "; not representable in the MVP");
+                        "; a source-dependent instrument cannot be applied to a qubit whose "
+                        "computational state is unknown");
                 }
                 // Computational columns are identical here, so any one
                 // serves; use g.

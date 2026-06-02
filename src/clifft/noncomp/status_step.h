@@ -5,8 +5,9 @@
 // Both the history sampler (which samples a transition outcome) and the
 // rewriter (which replays a recorded one) advance a qubit's status the
 // same way; that logic lives here, in one place, so the two stay in
-// sync. It implements the section 5.2.1 / 5.2.2 status-transition rules
-// plus the section 5.2 reset-restore behavior.
+// sync. It covers gate demotion, the measurement and reset effects
+// (including the pre-SVM-known measurement rule), reset-restore of
+// leaked/lost qubits, and the feedback rules.
 
 #include "clifft/circuit/gate_data.h"
 #include "clifft/noncomp/level.h"
@@ -51,8 +52,7 @@ QubitStatus normal_post_op_status(const QubitStatus& entry, GateType gate, Opera
                                   const NonComputationalPolicy& policy, const LevelSet& levels);
 
 // Full per-target step: a sampled jump destination wins; otherwise the
-// operation's normal status effect applies (section 5.2 per-target order
-// steps 4-5).
+// operation's normal status effect applies.
 QubitStatus step_status(const QubitStatus& entry, GateType gate, OperandRole role,
                         const TransitionOutcome& outcome, const NonComputationalPolicy& policy,
                         const LevelSet& levels);

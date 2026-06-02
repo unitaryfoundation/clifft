@@ -28,9 +28,10 @@ QubitStatus normal_post_op_status(const QubitStatus& entry, GateType gate, Opera
 
     if (kind == QubitStatusKind::Leaked || kind == QubitStatusKind::Lost) {
         // A noncomputational qubit's status changes only when a reset
-        // restores it; every other operation leaves it untouched (the
-        // rewriter's policy table decides drop vs. reject). Lost is only
-        // restorable when the policy opts in; Leaked always restores.
+        // restores it; every other operation leaves it untouched (whether
+        // that operation is dropped or rejected is decided later by the
+        // rewriter). Lost is only restorable when the policy opts in;
+        // Leaked always restores.
         const bool restorable = kind == QubitStatusKind::Leaked || policy.reset_restores_lost;
         if (z_reset && restorable) {
             return levels.computational_known(levels.computational_zero_id());
