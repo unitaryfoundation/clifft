@@ -38,6 +38,7 @@ add_executable(clifft_tests
     test_noncomp_status_step.cc
     test_noncomp_op_role.cc
     test_noncomp_sampler.cc
+    test_noncomp_rewriter.cc
 )
 
 target_link_libraries(clifft_tests PRIVATE
