@@ -66,6 +66,8 @@ class LevelSet {
     explicit LevelSet(std::vector<Level> levels) : levels_(std::move(levels)) {
         validate();
         fingerprint_ = compute_fingerprint();
+        computational_zero_id_ = find_computational_id(BasisBit::Zero);
+        computational_one_id_ = find_computational_id(BasisBit::One);
     }
 
     // Default level set: g, e, leak_g, leak_e, lost.
@@ -113,9 +115,44 @@ class LevelSet {
         return QubitStatus::lost_unchecked(level_id);
     }
 
+    // Ids of the unique Computational levels with basis_bit == Zero (g)
+    // and == One (e). Validation guarantees exactly one of each, so
+    // these always refer to real levels in this table.
+    uint8_t computational_zero_id() const { return computational_zero_id_; }
+    uint8_t computational_one_id() const { return computational_one_id_; }
+
+    // QubitStatus for a level id, dispatched on the level's category:
+    // Computational -> ComputationalKnown, Leaked -> Leaked, Lost -> Lost.
+    // Used by the history stepper to turn a sampled transition
+    // destination into the resulting qubit status.
+    QubitStatus status_for(uint8_t level_id) const {
+        require_in_range(level_id, "status_for");
+        switch (levels_[level_id].category) {
+            case LevelCategory::Computational:
+                return QubitStatus::computational_known_unchecked(level_id);
+            case LevelCategory::Leaked:
+                return QubitStatus::leaked_unchecked(level_id);
+            case LevelCategory::Lost:
+                return QubitStatus::lost_unchecked(level_id);
+        }
+        throw std::invalid_argument("LevelSet::status_for: unrecognized category");
+    }
+
   private:
     std::vector<Level> levels_;
     uint64_t fingerprint_ = 0;
+    uint8_t computational_zero_id_ = kInvalidLevel;
+    uint8_t computational_one_id_ = kInvalidLevel;
+
+    uint8_t find_computational_id(BasisBit bit) const {
+        for (size_t i = 0; i < levels_.size(); ++i) {
+            if (levels_[i].category == LevelCategory::Computational &&
+                levels_[i].basis_bit == bit) {
+                return static_cast<uint8_t>(i);
+            }
+        }
+        return kInvalidLevel;  // unreachable: validate() guarantees one of each
+    }
 
     // FNV-1a over a canonical byte serialization of each level. The
     // label is length-prefixed so that, e.g., {"ab", "c"} and {"a",

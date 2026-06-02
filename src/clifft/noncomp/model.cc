@@ -20,7 +20,7 @@ namespace {
 // silently accepted. Excludes annotations, identity no-ops, the
 // classical measurement pad (MPAD), the expectation-value probe, and
 // noise channels (whose composition with a level transition is
-// deliberately left undefined in the MVP).
+// deliberately left unmodeled).
 bool supports_transition(GateType g) {
     if (is_clifford(g)) {
         return true;  // single- and two-qubit Clifford gates
