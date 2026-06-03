@@ -35,10 +35,21 @@ OpAction operand_action(GateType gate, QubitStatusKind kind, const NonComputatio
     if (is_identity_noop(gate)) {
         return OpAction::Apply;
     }
-    // Measurements are kept so the visible record and its rec[-k] references
-    // do not shift; the leaked/lost outcome is reinterpreted downstream.
+    // A measure-and-reset both records an outcome and restores the site, so it
+    // is gated like a reset: a leaked qubit always restores, a lost qubit only
+    // when the policy opts in. The recorded outcome is supplied by the model's
+    // classifier downstream.
+    if (is_measure_reset(gate)) {
+        return (!lost || policy.reset_restores_lost) ? OpAction::Apply : OpAction::Reject;
+    }
+    // A plain measurement keeps its visible record slot so the record and its
+    // rec[-k] references do not shift; on a leaked/lost qubit the outcome is
+    // supplied by the model's classifier downstream. That substitution is a
+    // single record bit, faithful only for a Z-basis M. An X/Y-basis (MX/MY)
+    // or multi-qubit-parity (MPP) measurement has no faithful single-bit form
+    // on a noncomputational operand, so it is not representable and rejects.
     if (is_measurement(gate)) {
-        return OpAction::Apply;
+        return gate == GateType::M ? OpAction::Apply : OpAction::Reject;
     }
     // A reset restores a leaked qubit always, a lost qubit only by policy;
     // a lost-qubit reset otherwise rejects.
@@ -57,9 +68,9 @@ OpAction operand_action(GateType gate, QubitStatusKind kind, const NonComputatio
         // A single-qubit gate on a leaked qubit rejects by default.
         return OpAction::Reject;
     }
-    // Anything else touching a leaked or lost operand -- a two-qubit gate,
-    // a multi-qubit measurement-class op, classical feedback onto a vacated
-    // site -- is ambiguous and rejects by default.
+    // Anything else touching a leaked or lost operand -- a two-qubit gate, a
+    // two-qubit noise channel, or classical feedback onto a vacated site -- is
+    // ambiguous and rejects by default.
     return OpAction::Reject;
 }
 
