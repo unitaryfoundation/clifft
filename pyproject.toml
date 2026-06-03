@@ -47,6 +47,7 @@ docs = [
     "mkdocs-macros-plugin>=1.0",
     "mkdocs-minify-plugin>=0.8",
     "mike>=2.1",
+    "mkdocstrings[python]>=0.25",
     "pymdown-extensions>=10.7",
 ]
 

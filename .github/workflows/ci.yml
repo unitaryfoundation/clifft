@@ -195,6 +195,9 @@ jobs:
       - name: Test documentation code examples
         run: uv run pytest --codeblocks docs/ README.md -v
 
+      - name: Build docs
+        run: uv run --group docs mkdocs build --strict
+
   release-cpp-smoke:
     needs: lint
     runs-on: ubuntu-24.04
@@ -252,6 +255,11 @@ jobs:
         run: |
           uv venv .smoke-venv
           uv pip install --python .smoke-venv -e ".[dev]"
+
+      - name: Build docs
+        run: |
+          uv pip install --python .smoke-venv --group docs
+          .smoke-venv/bin/mkdocs build --strict
 
       - name: Install qemu-user
         run: sudo apt-get install -y qemu-user
@@ -338,3 +346,6 @@ jobs:
 
       - name: Run Python tests
         run: uv run pytest tests/python/ -v
+
+      - name: Build docs
+        run: uv run --group docs mkdocs build --strict

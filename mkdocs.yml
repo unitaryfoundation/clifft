@@ -69,6 +69,33 @@ plugins:
       module_name: docs/macros
   - minify:
       minify_html: true
+  - mkdocstrings:
+      handlers:
+        python:
+          options:
+            show_source: false
+            show_root_heading: true
+            heading_level: 3
+            members_order: source
+            separate_signature: true
+            docstring_style: numpy
+            docstring_section_style: spacy
+            filters:
+              - "!^__doc__$"
+              - "!^__module__$"
+              - "!^__doc__$"
+              - "!^__module__$"
+              - "!^__new__$"
+              - "!^__repr__$"
+              - "!^__init__$"
+            # --- Visual grouping ---
+            group_by_category: true
+            show_category_heading: true
+            show_symbol_type_toc: true
+            # --- Clean base class display ---
+            show_bases: false
+            # --- Hide internal module paths ---
+            show_root_full_path: false
 
 nav:
   - Home: index.md
@@ -91,6 +118,7 @@ nav:
     - Supported Gates: reference/gates.md
     - Instruction Reference: reference/instructions.md
     - Optimization Passes: reference/passes.md
+    - Python API: reference/python-api.md
   - Development:
     - Contributing: development/contributing.md
     - Building from Source: development/building.md
