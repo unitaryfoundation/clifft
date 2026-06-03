@@ -67,6 +67,23 @@ plugins:
   - search
   - macros:
       module_name: docs/macros
+  - mkdocstrings:
+      handlers:
+        python:
+          options:
+            show_source: true
+            show_root_heading: true
+            show_root_full_path: false
+            show_category_heading: true
+            show_symbol_type_heading: true
+            show_symbol_type_toc: true
+            members_order: source
+            separate_signatures: true
+            docstring_section_fmt: at_least_one
+            merge_init_into_class: true
+            show_signature_annotations: true
+            signature_crossrefs: true
+            docstring_line_length: 100
   - minify:
       minify_html: true
 
@@ -91,6 +108,7 @@ nav:
     - Supported Gates: reference/gates.md
     - Instruction Reference: reference/instructions.md
     - Optimization Passes: reference/passes.md
+    - Python API: reference/python-api.md
   - Development:
     - Contributing: development/contributing.md
     - Building from Source: development/building.md

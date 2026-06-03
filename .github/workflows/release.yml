@@ -248,6 +248,9 @@ jobs:
         with:
           enable-cache: true
 
+      - name: Install clifft
+        run: uv pip install -e .
+
       - name: Configure git author
         run: |
           git config user.name "github-actions[bot]"
@@ -268,13 +271,13 @@ jobs:
         run: |
           VERSION="${GITHUB_REF_NAME#v}"
           SITE_URL="https://unitaryfoundation.github.io/clifft/${VERSION}/" \
-            uv run --only-group docs mike deploy --push "${VERSION}"
+            uv pip install --only-group docs && uv run --only-group docs mike deploy --push "${VERSION}"
 
       - name: Decide whether to update stable docs
         id: stable
         run: |
           VERSION="${GITHUB_REF_NAME#v}"
-          uv run --only-group docs mike list --json > /tmp/mike-list.json || echo '[]' > /tmp/mike-list.json
+          uv pip install --only-group docs && uv run --only-group docs mike list --json > /tmp/mike-list.json || echo '[]' > /tmp/mike-list.json
           VERSION="${VERSION}" uv run --only-group docs python - <<'PY' >> "${GITHUB_OUTPUT}"
           import json
           import os
@@ -313,8 +316,8 @@ jobs:
         if: steps.stable.outputs.update == 'true'
         run: |
           SITE_URL=https://unitaryfoundation.github.io/clifft/stable/ \
-            uv run --only-group docs mike deploy --push stable
-          uv run --only-group docs mike set-default --push stable
+            uv pip install --only-group docs && uv run --only-group docs mike deploy --push stable
+          uv pip install --only-group docs && uv run --only-group docs mike set-default --push stable
 
       - name: Build root stable playground
         if: steps.stable.outputs.update == 'true'
