@@ -38,6 +38,21 @@ enum class QubitStatusKind : uint8_t {
     Lost = 3,
 };
 
+// Human-readable name of a status kind, for diagnostics.
+inline const char* kind_name(QubitStatusKind kind) {
+    switch (kind) {
+        case QubitStatusKind::ComputationalUnknown:
+            return "ComputationalUnknown";
+        case QubitStatusKind::ComputationalKnown:
+            return "ComputationalKnown";
+        case QubitStatusKind::Leaked:
+            return "Leaked";
+        case QubitStatusKind::Lost:
+            return "Lost";
+    }
+    return "unknown";
+}
+
 // Sentinel for the level_id field when no specific level is resolved.
 // Valid only with kind == ComputationalUnknown.
 constexpr uint8_t kInvalidLevel = 0xFF;
