@@ -18,20 +18,6 @@ namespace {
 // How the base operation is handled for one qubit operand.
 enum class OpAction { Apply, Drop, Reject };
 
-const char* kind_name(QubitStatusKind k) {
-    switch (k) {
-        case QubitStatusKind::ComputationalUnknown:
-            return "ComputationalUnknown";
-        case QubitStatusKind::ComputationalKnown:
-            return "ComputationalKnown";
-        case QubitStatusKind::Leaked:
-            return "Leaked";
-        case QubitStatusKind::Lost:
-            return "Lost";
-    }
-    return "unknown";
-}
-
 // Trajectory policy for one operand, keyed on the operand's status at op
 // entry. A computational qubit (known or unknown) runs every operation; the
 // table below only governs leaked and lost operands. Aggregated across an
@@ -95,14 +81,12 @@ Circuit rewrite(const Circuit& original, const NonComputationalHistory& history,
                                     std::to_string(original.num_qubits) + " qubits");
     }
 
-    Circuit out;
-    out.num_qubits = original.num_qubits;
-    // Only X-prep and trace-out R ops are inserted, neither of which is a
-    // visible measurement, so the record-layout counts carry over unchanged.
-    out.num_measurements = original.num_measurements;
-    out.num_detectors = original.num_detectors;
-    out.num_observables = original.num_observables;
-    out.num_exp_vals = original.num_exp_vals;
+    // Copy so every circuit-level field carries over (and any field added to
+    // Circuit later is not silently dropped); only the node list is rebuilt.
+    // The inserted X-prep and trace-out R ops are not visible measurements, so
+    // the record-layout counts stay valid.
+    Circuit out = original;
+    out.nodes.clear();
     out.nodes.reserve(original.nodes.size() + original.num_qubits);
 
     std::vector<QubitStatus> status = history.initial_status;
