@@ -52,8 +52,8 @@ jobs:
         with:
           enable-cache: true
 
-      - name: Install clifft
-        run: uv pip install --system -e .
+      - name: Install clifft and docs deps
+        run: uv sync --group docs
 
       - name: Build docs
         run: uv run --group docs mkdocs build --strict

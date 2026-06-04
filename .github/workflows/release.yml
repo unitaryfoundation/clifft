@@ -253,8 +253,8 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
-      - name: Install clifft
-        run: uv pip install --system -e .
+      - name: Install clifft and docs deps
+        run: uv sync --group docs
 
       - name: Build versioned playground
         run: |
