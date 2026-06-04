@@ -14,10 +14,12 @@ import {
   Columns2,
   Download,
   X,
+  BookOpen,
 } from "lucide-react";
 import LZString from "lz-string";
 import markLight from "@docs/assets/logos/clifft-mark-light.png";
 import markDark from "@docs/assets/logos/clifft-mark-dark.png";
+import { STARTER_CIRCUITS } from "../examples";
 import type { WasmStatus, PassConfig } from "../hooks/useClifftWasm";
 import type { Theme } from "../hooks/useTheme";
 import type { PassInfo, SourceOrigin } from "../types";
@@ -74,6 +76,7 @@ export function Toolbar({
   const [copied, setCopied] = useState(false);
   const [shotsOpen, setShotsOpen] = useState(false);
   const [passesOpen, setPassesOpen] = useState(false);
+  const [examplesOpen, setExamplesOpen] = useState(false);
   const [recentsOpen, setRecentsOpen] = useState(false);
   const [loadOpen, setLoadOpen] = useState(false);
   const [loadUrl, setLoadUrl] = useState("");
@@ -82,6 +85,7 @@ export function Toolbar({
   const [loadHelpOpen, setLoadHelpOpen] = useState(false);
   const shotsRef = useRef<HTMLDivElement>(null);
   const passesRef = useRef<HTMLDivElement>(null);
+  const examplesRef = useRef<HTMLDivElement>(null);
   const recentsRef = useRef<HTMLDivElement>(null);
   const loadInputRef = useRef<HTMLInputElement>(null);
 
@@ -116,7 +120,7 @@ export function Toolbar({
 
   // Close dropdowns on outside click
   useEffect(() => {
-    if (!shotsOpen && !passesOpen && !recentsOpen) return;
+    if (!shotsOpen && !passesOpen && !examplesOpen && !recentsOpen) return;
     const handleClick = (e: MouseEvent) => {
       if (shotsOpen && shotsRef.current && !shotsRef.current.contains(e.target as Node)) {
         setShotsOpen(false);
@@ -124,13 +128,16 @@ export function Toolbar({
       if (passesOpen && passesRef.current && !passesRef.current.contains(e.target as Node)) {
         setPassesOpen(false);
       }
+      if (examplesOpen && examplesRef.current && !examplesRef.current.contains(e.target as Node)) {
+        setExamplesOpen(false);
+      }
       if (recentsOpen && recentsRef.current && !recentsRef.current.contains(e.target as Node)) {
         setRecentsOpen(false);
       }
     };
     document.addEventListener("mousedown", handleClick);
     return () => document.removeEventListener("mousedown", handleClick);
-  }, [shotsOpen, passesOpen, recentsOpen]);
+  }, [shotsOpen, passesOpen, examplesOpen, recentsOpen]);
 
   const togglePass = (name: string, kind: "hir" | "bytecode") => {
     const key = kind === "hir" ? "hir" : "bc";
@@ -357,6 +364,36 @@ export function Toolbar({
                   </button>
                 ))}
               </div>
+            </div>
+          )}
+        </div>
+
+        {/* Starter examples */}
+        <div className="examples-group" ref={examplesRef}>
+          <button
+            className="toolbar-btn"
+            onClick={() => setExamplesOpen((v) => !v)}
+            title="Load a starter circuit"
+          >
+            <BookOpen size={14} />
+            Examples
+            <ChevronDown size={12} />
+          </button>
+          {examplesOpen && (
+            <div className="examples-dropdown">
+              {STARTER_CIRCUITS.map((example) => (
+                <button
+                  key={example.id}
+                  className="examples-item"
+                  onClick={() => {
+                    onLoadCircuit(example.source);
+                    setExamplesOpen(false);
+                  }}
+                >
+                  <span className="examples-item-title">{example.title}</span>
+                  <span className="examples-item-desc">{example.description}</span>
+                </button>
+              ))}
             </div>
           )}
         </div>
