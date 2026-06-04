@@ -10,7 +10,7 @@ suggesting the caller transpile first.
 from __future__ import annotations
 
 import math
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from qiskit.circuit import QuantumCircuit
@@ -66,12 +66,10 @@ def circuit_to_stim(qc: QuantumCircuit, *, clbit_order: str = "little") -> str:
 
     lines: list[str] = []
     qubit_indices = {bit: i for i, bit in enumerate(qc.qubits)}
-    clbit_indices = {bit: i for i, bit in enumerate(qc.clbits)}
 
     for instruction in qc.data:
         op = instruction.operation
         qargs = instruction.qubits
-        cargs = instruction.clbits
         name = op.name
         q = [qubit_indices[b] for b in qargs]
 
@@ -141,23 +139,22 @@ def circuit_to_stim(qc: QuantumCircuit, *, clbit_order: str = "little") -> str:
         # --- Unitary (arbitrary matrix): not expressible in Stim directly ---
         if name == "unitary":
             raise UnsupportedGateError(
-                f"Gate 'unitary' cannot be converted to Stim automatically. "
-                f"Transpile to the Clifford+T basis first using "
-                f"qiskit.compiler.transpile(circuit, basis_gates=['h','s','t','cx','measure','reset'])."
+                "Gate 'unitary' cannot be converted to Stim automatically. "
+                "Transpile to the Clifford+T basis first: "
+                "qiskit.transpile(circuit, backend=backend)."
             )
 
         raise UnsupportedGateError(
             f"Gate '{name}' is not supported by the Clifft Qiskit provider. "
-            f"Transpile to the Clifford+T basis first:\n"
-            f"  from qiskit import transpile\n"
-            f"  transpile(circuit, basis_gates=['h','s','sdg','t','tdg','cx','x','y','z','measure','reset'])"
+            f"Transpile to the Clifford+T basis first: "
+            f"qiskit.transpile(circuit, backend=backend)."
         )
 
     return "\n".join(lines) if lines else "# empty circuit"
 
 
 def counts_from_measurements(
-    measurements: "import numpy; numpy.ndarray",  # type: ignore[type-arg]
+    measurements: Any,
     num_clbits: int,
     *,
     clbit_order: str = "little",

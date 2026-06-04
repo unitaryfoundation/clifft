@@ -13,7 +13,6 @@ from __future__ import annotations
 
 import math
 
-import numpy as np
 import pytest
 from qiskit import QuantumCircuit, transpile
 from qiskit.providers.jobstatus import JobStatus
@@ -26,10 +25,10 @@ from clifft.qiskit_provider import (
     circuit_to_stim,
 )
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _bell() -> QuantumCircuit:
     qc = QuantumCircuit(2, 2)
@@ -56,6 +55,7 @@ def _counts_close(a: dict[str, int], b: dict[str, int], shots: int, sigma: int =
 # Provider / backend API
 # ---------------------------------------------------------------------------
 
+
 class TestProviderAPI:
     def test_get_backend_returns_clifft_backend(self) -> None:
         backend = ClifftProvider().get_backend("clifft")
@@ -81,6 +81,7 @@ class TestProviderAPI:
 # Converter unit tests
 # ---------------------------------------------------------------------------
 
+
 class TestConverter:
     def test_bell_stim_text(self) -> None:
         qc = QuantumCircuit(2, 2)
@@ -95,6 +96,7 @@ class TestConverter:
 
     def test_unsupported_gate_raises(self) -> None:
         from qiskit.circuit.library import CCXGate
+
         qc = QuantumCircuit(3, 1)
         qc.append(CCXGate(), [0, 1, 2])
         with pytest.raises(UnsupportedGateError):
@@ -137,6 +139,7 @@ class TestConverter:
 # Functional tests
 # ---------------------------------------------------------------------------
 
+
 class TestBellCircuit:
     SHOTS = 4096
 
@@ -174,11 +177,11 @@ class TestStatisticalEquivalence:
     def _aer_counts(self, qc: QuantumCircuit) -> dict[str, int]:
         sim = AerSimulator()
         result = sim.run(qc, shots=self.SHOTS).result()
-        return result.get_counts()
+        return dict(result.get_counts())
 
     def _clifft_counts(self, qc: QuantumCircuit) -> dict[str, int]:
         backend = ClifftProvider().get_backend("clifft")
-        return backend.run(qc, shots=self.SHOTS).result().get_counts()
+        return dict(backend.run(qc, shots=self.SHOTS).result().get_counts())
 
     def test_bell_matches_aer(self) -> None:
         qc = _bell()

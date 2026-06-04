@@ -12,16 +12,27 @@ from qiskit.transpiler import Target
 
 import clifft
 
-from .converter import UnsupportedGateError, circuit_to_stim, counts_from_measurements
+from .converter import circuit_to_stim, counts_from_measurements
 from .job import ClifftJob
 
 # Basis gates the backend natively accepts without transpilation
 _BASIS_GATES = [
-    "h", "s", "sdg", "t", "tdg",
-    "x", "y", "z",
-    "cx", "cy", "cz",
-    "rx", "ry", "rz",
-    "measure", "reset",
+    "h",
+    "s",
+    "sdg",
+    "t",
+    "tdg",
+    "x",
+    "y",
+    "z",
+    "cx",
+    "cy",
+    "cz",
+    "rx",
+    "ry",
+    "rz",
+    "measure",
+    "reset",
 ]
 
 
@@ -92,9 +103,7 @@ class ClifftBackend(BackendV2):
         if isinstance(circuits, QuantumCircuit):
             circuits = [circuits]
 
-        experiment_results = [
-            self._run_one(qc, shots=shots) for qc in circuits
-        ]
+        experiment_results = [self._run_one(qc, shots=shots) for qc in circuits]
 
         result = Result(
             backend_name=self.name,
@@ -131,23 +140,47 @@ class ClifftBackend(BackendV2):
     @staticmethod
     def _build_target() -> Target:
         """Build a minimal all-to-all Target for transpilation hints."""
+        from qiskit.circuit import Parameter
         from qiskit.circuit.library import (
-            CXGate, CYGate, CZGate,
-            HGate, IGate, RXGate, RYGate, RZGate,
-            Reset, SGate, SdgGate, TGate, TdgGate,
-            XGate, YGate, ZGate,
+            CXGate,
+            CYGate,
+            CZGate,
+            HGate,
+            IGate,
+            Reset,
+            RXGate,
+            RYGate,
+            RZGate,
+            SdgGate,
+            SGate,
+            TdgGate,
+            TGate,
+            XGate,
+            YGate,
+            ZGate,
         )
         from qiskit.circuit.measure import Measure
-        from qiskit.circuit import Parameter
 
         theta = Parameter("θ")
         target = Target(num_qubits=30)
         for gate in [
-            HGate(), SGate(), SdgGate(), TGate(), TdgGate(),
-            XGate(), YGate(), ZGate(), IGate(),
-            RXGate(theta), RYGate(theta), RZGate(theta),
-            CXGate(), CYGate(), CZGate(),
-            Measure(), Reset(),
+            HGate(),
+            SGate(),
+            SdgGate(),
+            TGate(),
+            TdgGate(),
+            XGate(),
+            YGate(),
+            ZGate(),
+            IGate(),
+            RXGate(theta),
+            RYGate(theta),
+            RZGate(theta),
+            CXGate(),
+            CYGate(),
+            CZGate(),
+            Measure(),
+            Reset(),
         ]:
             target.add_instruction(gate)
         return target
@@ -161,5 +194,5 @@ class _CircuitHeader:
         self.creg_sizes = [["c", n_clbits]]
         self.memory_slots = n_clbits
 
-    def items(self):
+    def items(self) -> object:
         return self.__dict__.items()
