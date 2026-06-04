@@ -84,6 +84,27 @@ def test_list_of_circuits(backend):
     assert res.get_counts(1) == {"1": SHOTS}
 
 
+def test_native_rotations(backend):
+    # rx/ry/rz are in the basis and map directly to Clifft's R_X/R_Y/R_Z.
+    qc = QuantumCircuit(1, 1)
+    qc.h(0)
+    qc.rz(0.7, 0)
+    qc.rx(0.4, 0)
+    qc.ry(1.1, 0)
+    qc.measure(0, 0)
+    _assert_close(backend.run(qc, shots=SHOTS).result().get_counts(), _aer_counts(qc))
+
+
+def test_u_and_controlled_rotation(backend):
+    # u and controlled rotations are decomposed exactly into rx/ry/rz/cx.
+    qc = QuantumCircuit(2, 2)
+    qc.h(0)
+    qc.u(0.3, 0.5, 0.7, 0)
+    qc.crz(0.9, 0, 1)
+    qc.measure([0, 1], [0, 1])
+    _assert_close(backend.run(qc, shots=SHOTS).result().get_counts(), _aer_counts(qc))
+
+
 def test_unsupported_operation_raises(backend):
     qc = QuantumCircuit(1, 1)
     qc.reset(0)

@@ -30,14 +30,16 @@ with Clifft, and returns Qiskit-style counts.
 
 ## Supported basis
 
-The native basis is **Clifford+T**:
+The native basis is **Clifford+T plus single-qubit rotations**:
 
-`h, s, sdg, x, y, z, cx, cy, cz, t, tdg` plus `measure`.
+`h, s, sdg, x, y, z, cx, cy, cz, t, tdg, rx, ry, rz` plus `measure`.
 
-Higher-level gates are decomposed into this basis by the Qiskit transpiler
-before execution. For example `ccx`/`ccz` decompose exactly, and arbitrary
-rotations (`rx`, `ry`, `rz`, `u`, ...) are *approximated* into Clifford+T via
-the transpiler's Solovay-Kitaev synthesis.
+`rx`/`ry`/`rz` map directly to Clifft's `R_X`/`R_Y`/`R_Z` (angles converted from
+radians to Clifft's half-turn units). Higher-level gates are decomposed into
+this basis by the Qiskit transpiler before execution — `ccx`/`ccz` into
+Clifford+T, and any single-qubit unitary (`u`, `p`, ...) or controlled rotation
+exactly into `rx`/`ry`/`rz`. Because rotations are part of the basis, no
+approximate (Solovay-Kitaev) synthesis is involved.
 
 ## Limitations
 

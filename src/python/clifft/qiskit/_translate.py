@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import math
+
 from qiskit import QuantumCircuit
 from qiskit.exceptions import QiskitError
 
-# Qiskit gate name -> Stim gate name (Clifford+T basis).
+# Qiskit gate name -> Stim gate name (non-parameterized Clifford+T gates).
 _GATE_MAP = {
     "h": "H",
     "x": "X",
@@ -20,8 +22,19 @@ _GATE_MAP = {
     "cz": "CZ",
 }
 
+# Single-qubit parameterized rotations: Qiskit name -> Stim name. Clifft uses
+# half-turn angle units, so a Qiskit angle in radians is divided by pi.
+_PARAM_GATE_MAP = {
+    "rx": "R_X",
+    "ry": "R_Y",
+    "rz": "R_Z",
+}
+
 # Gates we transpile into (measure is handled separately, not a basis gate).
-CLIFFT_BASIS = ["h", "s", "sdg", "x", "y", "z", "cx", "cy", "cz", "t", "tdg"]
+# With rx/ry/rz in the basis, the transpiler lowers any single-qubit unitary
+# (u, p, ...) and controlled rotations exactly into this set -- no approximate
+# (Solovay-Kitaev) synthesis is needed.
+CLIFFT_BASIS = ["h", "s", "sdg", "x", "y", "z", "cx", "cy", "cz", "t", "tdg", "rx", "ry", "rz"]
 
 
 def qiskit_to_stim(circuit: QuantumCircuit) -> tuple[str, list[int]]:
@@ -50,10 +63,15 @@ def qiskit_to_stim(circuit: QuantumCircuit) -> tuple[str, list[int]]:
             continue
         elif name in _GATE_MAP:
             lines.append(f"{_GATE_MAP[name]} " + " ".join(str(q) for q in qubits))
+        elif name in _PARAM_GATE_MAP:
+            # radians -> Clifft half-turn units
+            angle = float(instruction.operation.params[0]) / math.pi
+            lines.append(f"{_PARAM_GATE_MAP[name]}({angle}) {qubits[0]}")
         else:
+            supported = ", ".join([*_GATE_MAP, *_PARAM_GATE_MAP])
             raise QiskitError(
                 f"clifft backend does not support operation '{name}'. "
-                "Supported basis: " + ", ".join(_GATE_MAP) + ", measure."
+                f"Supported basis: {supported}, measure."
             )
 
     return "\n".join(lines), measured_clbits
