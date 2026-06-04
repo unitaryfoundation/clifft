@@ -47,17 +47,19 @@ jobs:
           cd playground && npm ci
           VITE_BASE_PATH=/clifft/pr-preview/pr-${{ github.event.number }}/playground/ VITE_BUILD_SHA=${{ github.sha }} npm run build
 
-      # --- Build MkDocs (docs group only, no C++ extension needed) ---
+      # --- Build MkDocs (clifft package required for mkdocstrings import) ---
       - name: Install uv
         uses: astral-sh/setup-uv@v6
         with:
           enable-cache: true
 
-      - name: Install clifft
-        run: uv pip install -e .
+      - name: Create venv and install clifft
+        run: |
+          uv venv
+          uv pip install -e .
 
       - name: Build docs
-        run: uv pip install --only-group docs && uv run --only-group docs mkdocs build --strict
+        run: uv pip install --only-group docs && uv run --no-project mkdocs build --strict
         env:
           SITE_URL: https://unitaryfoundation.github.io/clifft/pr-preview/pr-${{ github.event.number }}/
 

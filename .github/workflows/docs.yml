@@ -47,8 +47,10 @@ jobs:
         with:
           enable-cache: true
 
-      - name: Install clifft
-        run: uv pip install -e .
+      - name: Create venv and install clifft
+        run: |
+          uv venv
+          uv pip install -e .
 
       - name: Stage playground inside docs tree
         run: |
@@ -61,6 +63,6 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
       - name: Deploy dev docs
-        run: uv pip install --only-group docs && uv run --only-group docs mike deploy --push dev
+        run: uv pip install --only-group docs && uv run --no-project mike deploy --push dev
         env:
           SITE_URL: https://unitaryfoundation.github.io/clifft/dev/
