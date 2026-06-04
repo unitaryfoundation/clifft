@@ -58,7 +58,7 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
       - name: Install clifft and docs deps
-        run: uv sync --group docs
+        run: uv sync --frozen --group docs
 
       - name: Deploy dev docs
         run: uv run --group docs mike deploy --push dev

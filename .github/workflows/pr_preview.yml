@@ -53,7 +53,7 @@ jobs:
           enable-cache: true
 
       - name: Install clifft and docs deps
-        run: uv sync --group docs
+        run: uv sync --frozen --group docs
 
       - name: Build docs
         run: uv run --group docs mkdocs build --strict
