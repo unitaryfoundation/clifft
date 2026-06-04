@@ -3,6 +3,7 @@
 Run Qiskit circuits on Clifft through a minimal `BackendV2` provider. Install
 the optional dependency:
 
+<!--pytest.mark.skip-->
 ```bash
 pip install clifft[qiskit]
 ```
