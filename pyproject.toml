@@ -26,6 +26,9 @@ dependencies = [
     "numpy>=1.26",
 ]
 
+[project.optional-dependencies]
+qiskit = ["qiskit>=1.0"]
+
 [dependency-groups]
 dev = [
     "pytest>=8.0",

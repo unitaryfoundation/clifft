@@ -78,6 +78,7 @@ nav:
   - User Guide:
     - Compiling Circuits: guide/compilation.md
     - Simulation: guide/simulation.md
+    - Qiskit provider: guide/qiskit.md
     - Performance: guide/performance.md
     - "Tutorial: Strong Simulation": guide/strong-simulation.md
     - "Tutorial: Surface Code": guide/surface-code.md
