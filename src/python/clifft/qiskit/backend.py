@@ -36,11 +36,6 @@ from clifft.qiskit._translate import (
     qiskit_to_stim,
 )
 
-# clifft is a simulator with all-to-all connectivity and no fixed qubit count;
-# the Target needs a concrete width for qiskit.transpile(qc, backend=backend) to
-# work, so we advertise a generous default that callers can raise if needed.
-DEFAULT_NUM_QUBITS = 64
-
 
 class ClifftJob(JobV1):
     """Synchronous job holding an already-computed Result."""
@@ -66,15 +61,17 @@ class ClifftBackend(BackendV2):
         self,
         provider: ClifftProvider | None = None,
         name: str = "clifft",
-        num_qubits: int = DEFAULT_NUM_QUBITS,
+        num_qubits: int | None = None,
     ):
         super().__init__(provider=provider, name=name, backend_version="0.1.0")
         self._target = self._build_target(num_qubits)
 
     @staticmethod
-    def _build_target(num_qubits: int) -> Target:
+    def _build_target(num_qubits: int | None) -> Target:
         # all-to-all ideal target advertising the full supported basis, so
         # qiskit.transpile(qc, backend=backend) decomposes into clifft's basis.
+        # num_qubits=None leaves the width unbounded (clifft has no fixed size);
+        # callers may pass an int to advertise a specific qubit count.
         target = Target(num_qubits=num_qubits)
         theta = Parameter("theta")
         for gate in (

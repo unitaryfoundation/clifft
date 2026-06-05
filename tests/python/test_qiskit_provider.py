@@ -150,15 +150,19 @@ def test_permuted_clbit_mapping_matches_aer(backend):
 
 
 def test_transpile_with_backend(backend):
-    # qiskit.transpile(qc, backend=backend) must work: the Target exposes a
-    # concrete num_qubits and the full basis (incl. rotations).
-    assert backend.target.num_qubits >= 1
+    # qiskit.transpile(qc, backend=backend) must work for an arbitrary width:
+    # the Target advertises the full basis (incl. rotations) and an unbounded
+    # num_qubits (None), so circuit width is preserved rather than capped.
+    assert backend.target.num_qubits is None
     assert {"rx", "ry", "rz"}.issubset(backend.target.operation_names)
 
-    qc = QuantumCircuit(1, 1)
+    qc = QuantumCircuit(5, 5)
     qc.h(0)
-    qc.measure(0, 0)
+    for i in range(4):
+        qc.cx(i, i + 1)
+    qc.measure(range(5), range(5))
     transpiled = transpile(qc, backend=backend)
+    assert transpiled.num_qubits == 5
     _assert_close(backend.run(transpiled, shots=SHOTS).result().get_counts(), _aer_counts(qc))
 
 
