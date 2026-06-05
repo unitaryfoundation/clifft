@@ -16,7 +16,12 @@ Quick start::
 """
 
 from .backend import ClifftBackend
-from .converter import UnsupportedGateError, circuit_to_stim, counts_from_measurements
+from .converter import (
+    UnsupportedGateError,
+    build_meas_map,
+    circuit_to_stim,
+    counts_from_measurements,
+)
 from .job import ClifftJob
 from .provider import ClifftProvider
 
@@ -25,6 +30,7 @@ __all__ = [
     "ClifftJob",
     "ClifftProvider",
     "UnsupportedGateError",
+    "build_meas_map",
     "circuit_to_stim",
     "counts_from_measurements",
 ]

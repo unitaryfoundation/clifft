@@ -153,11 +153,25 @@ def circuit_to_stim(qc: QuantumCircuit, *, clbit_order: str = "little") -> str:
     return "\n".join(lines) if lines else "# empty circuit"
 
 
+def build_meas_map(qc: "QuantumCircuit") -> list[int]:
+    """Return a list mapping Stim measurement index → classical bit index.
+
+    The i-th entry is the cbit index that the i-th ``measure`` instruction
+    in the circuit writes to, preserving the circuit's ``measure(q, c)``
+    intent even when classical bit indices are not sequential.
+    """
+    clbit_indices = {bit: i for i, bit in enumerate(qc.clbits)}
+    return [
+        clbit_indices[instr.clbits[0]] for instr in qc.data if instr.operation.name == "measure"
+    ]
+
+
 def counts_from_measurements(
     measurements: Any,
     num_clbits: int,
     *,
     clbit_order: str = "little",
+    meas_map: list[int] | None = None,
 ) -> dict[str, int]:
     """Convert a Clifft measurement array to a Qiskit-style counts dict.
 
@@ -166,13 +180,24 @@ def counts_from_measurements(
         num_clbits: Number of classical bits in the original circuit.
         clbit_order: ``"little"`` produces Qiskit's default little-endian
             bitstrings (rightmost bit = clbit 0).
+        meas_map: Mapping from Stim measurement index to classical bit index,
+            as returned by ``build_meas_map``.  When supplied, each
+            measurement result is placed at the correct cbit position rather
+            than filling slots sequentially.
 
     Returns:
         Dict mapping bitstring → count, e.g. ``{"00": 512, "11": 512}``.
     """
     counts: dict[str, int] = {}
     for row in measurements:
-        bits = row[:num_clbits]
+        bits = [0] * num_clbits
+        for meas_idx, bit_val in enumerate(row):
+            if meas_map is not None:
+                if meas_idx < len(meas_map):
+                    bits[meas_map[meas_idx]] = int(bit_val)
+            else:
+                if meas_idx < num_clbits:
+                    bits[meas_idx] = int(bit_val)
         if clbit_order == "little":
             bitstr = "".join(str(b) for b in reversed(bits))
         else:

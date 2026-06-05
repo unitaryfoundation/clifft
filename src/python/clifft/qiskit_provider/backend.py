@@ -12,7 +12,7 @@ from qiskit.transpiler import Target
 
 import clifft
 
-from .converter import circuit_to_stim, counts_from_measurements
+from .converter import build_meas_map, circuit_to_stim, counts_from_measurements
 from .job import ClifftJob
 
 # Basis gates the backend natively accepts without transpilation
@@ -126,7 +126,8 @@ class ClifftBackend(BackendV2):
         result = clifft.sample(prog, shots)
 
         num_clbits = qc.num_clbits
-        counts = counts_from_measurements(result.measurements, num_clbits)
+        meas_map = build_meas_map(qc)
+        counts = counts_from_measurements(result.measurements, num_clbits, meas_map=meas_map)
 
         data = ExperimentResultData(counts={hex(int(k, 2)): v for k, v in counts.items()})
         return ExperimentResult(

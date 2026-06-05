@@ -245,6 +245,42 @@ class TestToffoliTranspiled:
         assert sum(counts.values()) == self.SHOTS
 
 
+class TestClbitOrdering:
+    """Classical bit ordering must respect measure(qubit, cbit) targets."""
+
+    SHOTS = 200
+
+    def _aer_counts(self, qc: QuantumCircuit) -> dict[str, int]:
+        sim = AerSimulator()
+        return dict(sim.run(qc, shots=self.SHOTS).result().get_counts())
+
+    def _clifft_counts(self, qc: QuantumCircuit) -> dict[str, int]:
+        backend = ClifftProvider().get_backend("clifft")
+        return dict(backend.run(qc, shots=self.SHOTS).result().get_counts())
+
+    def test_permuted_clbit_mapping_matches_aer(self) -> None:
+        # qubit 0 → cbit 2, qubit 1 → cbit 0; qubit 2 unmeasured
+        # Expected: cbit2=1, cbit1=0, cbit0=0 → "100"
+        qc = QuantumCircuit(3, 3)
+        qc.x(0)
+        qc.measure(0, 2)
+        qc.measure(1, 0)
+        clifft_counts = self._clifft_counts(qc)
+        aer_counts = self._aer_counts(qc)
+        assert clifft_counts == aer_counts, f"Clifft {clifft_counts} != Aer {aer_counts}"
+
+    def test_reversed_two_qubit_mapping(self) -> None:
+        # measure qubit 0 → cbit 1, qubit 1 → cbit 0 (reversed vs natural)
+        # qubit 0 = |1>, qubit 1 = |0> → expected "01" (cbit1=1, cbit0=0)
+        qc = QuantumCircuit(2, 2)
+        qc.x(0)
+        qc.measure(0, 1)
+        qc.measure(1, 0)
+        clifft_counts = self._clifft_counts(qc)
+        aer_counts = self._aer_counts(qc)
+        assert clifft_counts == aer_counts, f"Clifft {clifft_counts} != Aer {aer_counts}"
+
+
 class TestMultiCircuit:
     def test_batch_two_circuits(self) -> None:
         backend = ClifftProvider().get_backend("clifft")
