@@ -152,6 +152,47 @@ TEST_CASE("sample_noncomputational: a measurement on a leaked qubit without a cl
                         ContainsSubstring("requires a classifier"));
 }
 
+TEST_CASE("sample_noncomputational: a non-binary classifier rejects on injection") {
+    Circuit c = parse("H 0\nS 0\nM 0\n");
+    std::map<std::string, TransitionInstrument> transitions;
+    transitions.emplace("S", always_leaked(LevelSet::default_set()));
+
+    // Three symbols: no defined symbol-to-record-bit mapping for the binary record.
+    std::vector<std::vector<double>> m(3, std::vector<double>(5, 0.0));
+    for (size_t level = 0; level < 5; ++level) {
+        m[0][level] = 1.0;
+    }
+    m[0][kLeakG] = 0.5;
+    m[1][kLeakG] = 0.3;
+    m[2][kLeakG] = 0.2;
+    MeasurementClassifier three =
+        MeasurementClassifier::from_matrix({"0", "1", "2"}, std::move(m), LevelSet::default_set());
+    NonComputationalModel model = make_model(all_g(), std::move(transitions), std::move(three));
+
+    REQUIRE_THROWS_WITH(sample_noncomputational(c, model, 16, 1),
+                        ContainsSubstring("two-symbol classifier"));
+}
+
+TEST_CASE("sample_noncomputational: a circuit with EXP_VAL probes rejects") {
+    Circuit c;
+    c.num_qubits = 1;
+    c.num_exp_vals = 1;  // EXP_VAL output is not carried by the noncomp sidecar
+    NonComputationalModel model = make_model(all_g(), {});
+    REQUIRE_THROWS_WITH(sample_noncomputational(c, model, 4, 1), ContainsSubstring("EXP_VAL"));
+}
+
+TEST_CASE("sample_noncomputational: zero shots still reports the record shape") {
+    Circuit c = parse("H 0\nM 0\nDETECTOR rec[-1]\n");
+    NonComputationalModel model = make_model(all_g(), {});
+
+    NonComputationalSample s = sample_noncomputational(c, model, 0, 1);
+    REQUIRE(s.shots == 0);
+    REQUIRE(s.num_measurements == 1);  // record widths hold even with no shots
+    REQUIRE(s.num_detectors == 1);
+    REQUIRE(s.measurements.empty());
+    REQUIRE(s.detectors.empty());
+}
+
 TEST_CASE("sample_noncomputational: a measure-and-reset on a leaked qubit injects and restores") {
     // MR on the leaked qubit records the classifier bit AND resets the site to
     // |0>; the following M then deterministically reads 0 -- proving the reset

@@ -43,12 +43,23 @@ uint64_t derive_seed(uint64_t global, uint64_t shot, uint64_t domain) {
 // a draw there raises. Symbol index maps to the record bit as zero/non-zero.
 uint8_t classifier_bit(const MeasurementClassifier& classifier, uint8_t level,
                        Xoshiro256PlusPlus& rng, GateType gate, uint32_t op_index, uint32_t qubit) {
+    // Binary record injection maps the sampled symbol index directly to the
+    // record bit, which is faithful only for a two-symbol classifier. A richer
+    // alphabet has no defined symbol-to-bit mapping and is not representable.
+    if (classifier.num_symbols() != 2) {
+        throw std::invalid_argument(
+            "sample_noncomputational: injecting a measurement on a noncomputational qubit "
+            "requires a two-symbol classifier, but the model's has " +
+            std::to_string(classifier.num_symbols()) + " symbols (measurement '" +
+            std::string(gate_name(gate)) + "' on qubit " + std::to_string(qubit) + " at op " +
+            std::to_string(op_index) + ")");
+    }
     const double u = rng.next_double();
     double acc = 0.0;
     for (uint8_t s = 0; s < classifier.num_symbols(); ++s) {
         acc += classifier.prob(s, level);
         if (u < acc) {
-            return s != 0 ? 1 : 0;
+            return s;  // symbol index 0 or 1 is the record bit
         }
     }
     throw std::invalid_argument("sample_noncomputational: classifier rejected the measurement '" +
@@ -166,6 +177,18 @@ NonComputationalSample sample_noncomputational(const Circuit& circuit,
     NonComputationalSample result;
     result.shots = shots;
     result.num_qubits = circuit.num_qubits;
+    // The visible record layout is invariant under rewriting and injection, so
+    // the record widths come straight from the circuit and hold even for zero
+    // shots.
+    result.num_measurements = circuit.num_measurements;
+    result.num_detectors = circuit.num_detectors;
+    result.num_observables = circuit.num_observables;
+
+    if (circuit.num_exp_vals != 0) {
+        throw std::invalid_argument(
+            "sample_noncomputational: EXP_VAL probes are not supported in noncomputational "
+            "sampling");
+    }
     if (shots == 0) {
         return result;
     }
@@ -179,7 +202,6 @@ NonComputationalSample sample_noncomputational(const Circuit& circuit,
         global_seed = entropy();
     }
 
-    bool counts_set = false;
     for (uint32_t shot = 0; shot < shots; ++shot) {
         HistorySample hs =
             sample_history(circuit, model, derive_seed(global_seed, shot, kHistoryDomain));
@@ -190,12 +212,6 @@ NonComputationalSample sample_noncomputational(const Circuit& circuit,
         CompiledModule program = compile_circuit(injected);
         SampleResult sr = sample(program, 1, derive_seed(global_seed, shot, kSvmDomain));
 
-        if (!counts_set) {
-            result.num_measurements = program.num_measurements;
-            result.num_detectors = program.num_detectors;
-            result.num_observables = program.num_observables;
-            counts_set = true;
-        }
         result.measurements.insert(result.measurements.end(), sr.measurements.begin(),
                                    sr.measurements.end());
         result.detectors.insert(result.detectors.end(), sr.detectors.begin(), sr.detectors.end());
