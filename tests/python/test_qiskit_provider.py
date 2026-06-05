@@ -3,8 +3,9 @@
 import pytest
 
 try:
-    from qiskit import QuantumCircuit
+    from qiskit import QuantumCircuit, transpile
     from qiskit.exceptions import QiskitError
+    from qiskit.providers.exceptions import QiskitBackendNotFoundError
     from qiskit_aer import AerSimulator
 
     from clifft.qiskit import ClifftProvider
@@ -112,3 +113,56 @@ def test_unsupported_operation_raises(backend):
     qc.measure(0, 0)
     with pytest.raises(QiskitError):
         backend.run(qc, shots=SHOTS).result()
+
+
+def test_ghz_3q_matches_aer(backend):
+    qc = QuantumCircuit(3, 3)
+    qc.h(0)
+    qc.cx(0, 1)
+    qc.cx(1, 2)
+    qc.measure([0, 1, 2], [0, 1, 2])
+    _assert_close(backend.run(qc, shots=SHOTS).result().get_counts(), _aer_counts(qc))
+
+
+def test_4qubit_clifford_t_matches_aer(backend):
+    qc = QuantumCircuit(4, 4)
+    qc.h([0, 1, 2, 3])
+    qc.cx(0, 1)
+    qc.cz(1, 2)
+    qc.t(2)
+    qc.cx(2, 3)
+    qc.s(3)
+    qc.measure(range(4), range(4))
+    _assert_close(backend.run(qc, shots=SHOTS).result().get_counts(), _aer_counts(qc))
+
+
+def test_permuted_clbit_mapping_matches_aer(backend):
+    # measure qubits into a permuted set of clbits; counts must match Aer's
+    # clbit-indexed ordering rather than qubit order.
+    qc = QuantumCircuit(3, 3)
+    qc.x(0)
+    qc.h(1)
+    qc.cx(1, 2)
+    qc.measure(0, 2)
+    qc.measure(1, 0)
+    qc.measure(2, 1)
+    _assert_close(backend.run(qc, shots=SHOTS).result().get_counts(), _aer_counts(qc))
+
+
+def test_transpile_with_backend(backend):
+    # qiskit.transpile(qc, backend=backend) must work: the Target exposes a
+    # concrete num_qubits and the full basis (incl. rotations).
+    assert backend.target.num_qubits >= 1
+    assert {"rx", "ry", "rz"}.issubset(backend.target.operation_names)
+
+    qc = QuantumCircuit(1, 1)
+    qc.h(0)
+    qc.measure(0, 0)
+    transpiled = transpile(qc, backend=backend)
+    _assert_close(backend.run(transpiled, shots=SHOTS).result().get_counts(), _aer_counts(qc))
+
+
+def test_get_backend_unknown_name_raises():
+    with pytest.raises(QiskitBackendNotFoundError):
+        ClifftProvider().get_backend("not-clifft")
+    assert ClifftProvider().backends("not-clifft") == []

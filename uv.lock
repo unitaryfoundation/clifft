@@ -119,6 +119,11 @@ dependencies = [
     { name = "numpy" },
 ]
 
+[package.optional-dependencies]
+qiskit = [
+    { name = "qiskit" },
+]
+
 [package.dev-dependencies]
 dev = [
     { name = "mypy" },
@@ -144,7 +149,11 @@ docs = [
 ]
 
 [package.metadata]
-requires-dist = [{ name = "numpy", specifier = ">=1.26" }]
+requires-dist = [
+    { name = "numpy", specifier = ">=1.26" },
+    { name = "qiskit", marker = "extra == 'qiskit'", specifier = ">=1.0" },
+]
+provides-extras = ["qiskit"]
 
 [package.metadata.requires-dev]
 dev = [

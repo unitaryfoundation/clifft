@@ -5,12 +5,15 @@ from __future__ import annotations
 from typing import Any
 
 from qiskit import QuantumCircuit, transpile
-from qiskit.circuit import Measure
+from qiskit.circuit import Measure, Parameter
 from qiskit.circuit.library import (
     CXGate,
     CYGate,
     CZGate,
     HGate,
+    RXGate,
+    RYGate,
+    RZGate,
     SdgGate,
     SGate,
     TdgGate,
@@ -21,6 +24,7 @@ from qiskit.circuit.library import (
 )
 from qiskit.exceptions import QiskitError
 from qiskit.providers import BackendV2, JobStatus, JobV1, Options
+from qiskit.providers.exceptions import QiskitBackendNotFoundError
 from qiskit.result import Result
 from qiskit.result.models import ExperimentResult, ExperimentResultData
 from qiskit.transpiler import Target
@@ -31,6 +35,11 @@ from clifft.qiskit._translate import (
     counts_from_measurements,
     qiskit_to_stim,
 )
+
+# clifft is a simulator with all-to-all connectivity and no fixed qubit count;
+# the Target needs a concrete width for qiskit.transpile(qc, backend=backend) to
+# work, so we advertise a generous default that callers can raise if needed.
+DEFAULT_NUM_QUBITS = 64
 
 
 class ClifftJob(JobV1):
@@ -53,13 +62,21 @@ class ClifftJob(JobV1):
 class ClifftBackend(BackendV2):
     """Run Qiskit circuits on the Clifft near-Clifford simulator."""
 
-    def __init__(self, provider: ClifftProvider | None = None, name: str = "clifft"):
+    def __init__(
+        self,
+        provider: ClifftProvider | None = None,
+        name: str = "clifft",
+        num_qubits: int = DEFAULT_NUM_QUBITS,
+    ):
         super().__init__(provider=provider, name=name, backend_version="0.1.0")
-        self._target = self._build_target()
+        self._target = self._build_target(num_qubits)
 
     @staticmethod
-    def _build_target() -> Target:
-        target = Target()
+    def _build_target(num_qubits: int) -> Target:
+        # all-to-all ideal target advertising the full supported basis, so
+        # qiskit.transpile(qc, backend=backend) decomposes into clifft's basis.
+        target = Target(num_qubits=num_qubits)
+        theta = Parameter("theta")
         for gate in (
             HGate(),
             XGate(),
@@ -72,6 +89,9 @@ class ClifftBackend(BackendV2):
             CXGate(),
             CYGate(),
             CZGate(),
+            RXGate(theta),
+            RYGate(theta),
+            RZGate(theta),
             Measure(),
         ):
             target.add_instruction(gate, name=gate.name)
@@ -135,6 +155,8 @@ class ClifftProvider:
     """Entry point: ``ClifftProvider().get_backend("clifft")``."""
 
     def get_backend(self, name: str = "clifft") -> ClifftBackend:
+        if name != "clifft":
+            raise QiskitBackendNotFoundError(f"No backend matches the name '{name}'.")
         return ClifftBackend(provider=self, name=name)
 
     def backends(self, name: str | None = None) -> list[ClifftBackend]:
