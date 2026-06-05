@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 from qiskit import QuantumCircuit, transpile
 from qiskit.circuit import Measure
 from qiskit.circuit.library import (
@@ -34,7 +36,7 @@ from clifft.qiskit._translate import (
 class ClifftJob(JobV1):
     """Synchronous job holding an already-computed Result."""
 
-    def __init__(self, backend, job_id: str, result: Result):
+    def __init__(self, backend: BackendV2, job_id: str, result: Result):
         super().__init__(backend, job_id)
         self._result = result
 
@@ -51,7 +53,7 @@ class ClifftJob(JobV1):
 class ClifftBackend(BackendV2):
     """Run Qiskit circuits on the Clifft near-Clifford simulator."""
 
-    def __init__(self, provider=None, name: str = "clifft"):
+    def __init__(self, provider: ClifftProvider | None = None, name: str = "clifft"):
         super().__init__(provider=provider, name=name, backend_version="0.1.0")
         self._target = self._build_target()
 
@@ -87,7 +89,7 @@ class ClifftBackend(BackendV2):
     def _default_options(cls) -> Options:
         return Options(shots=1024, seed=None)
 
-    def run(self, run_input, **options) -> ClifftJob:
+    def run(self, run_input: QuantumCircuit | list[QuantumCircuit], **options: Any) -> ClifftJob:
         shots = options.get("shots", self.options.shots)
         seed = options.get("seed", self.options.seed)
 
@@ -135,7 +137,7 @@ class ClifftProvider:
     def get_backend(self, name: str = "clifft") -> ClifftBackend:
         return ClifftBackend(provider=self, name=name)
 
-    def backends(self, name: str | None = None):
+    def backends(self, name: str | None = None) -> list[ClifftBackend]:
         backend = ClifftBackend(provider=self)
         if name in (None, "clifft"):
             return [backend]

@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import math
 
+import numpy as np
+import numpy.typing as npt
 from qiskit import QuantumCircuit
 from qiskit.exceptions import QiskitError
 
@@ -78,7 +80,7 @@ def qiskit_to_stim(circuit: QuantumCircuit) -> tuple[str, list[int]]:
 
 
 def counts_from_measurements(
-    measurements, measured_clbits: list[int], num_clbits: int
+    measurements: npt.NDArray[np.uint8], measured_clbits: list[int], num_clbits: int
 ) -> dict[str, int]:
     """Convert clifft's (shots, num_meas) array to a Qiskit counts dict.
 
