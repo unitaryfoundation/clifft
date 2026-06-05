@@ -10,7 +10,7 @@ class _SuppressNanobindAnnotationWarnings(logging.Filter):
     def filter(self, record: logging.LogRecord) -> bool:
         if record.levelno > logging.WARNING:
             return True
-        if not record.name.startswith(("griffe", "mkdocs.plugins.mkdocstrings")):
+        if not record.name.startswith(("griffe", "mkdocs.plugins.griffe", "mkdocs.plugins.mkdocstrings")):
             return True
         return "No type or annotation for parameter" not in record.getMessage()
 
