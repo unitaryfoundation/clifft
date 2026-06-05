@@ -27,8 +27,8 @@ M 0 1 2
   },
   {
     id: "t-gate-probability",
-    title: "T-gate probability",
-    description: "Small non-Clifford circuit that activates Clifft's VM.",
+    title: "T-gate interference",
+    description: "T between Hadamards changes the final Z-basis probability.",
     source: `H 0
 T 0
 H 0
@@ -36,13 +36,12 @@ M 0
 `,
   },
   {
-    id: "noisy-bell",
-    title: "Noisy Bell",
-    description: "Bell circuit with depolarizing noise before measurement.",
+    id: "zz-rotation",
+    title: "ZZ rotation",
+    description: "Arbitrary-angle two-qubit rotation outside the Clifford gate set.",
     source: `H 0
-DEPOLARIZE1(0.01) 0
-CNOT 0 1
-DEPOLARIZE2(0.01) 0 1
+H 1
+R_ZZ(0.25) 0 1
 M 0 1
 `,
   },
