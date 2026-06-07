@@ -244,7 +244,7 @@ TEST_CASE("rewrite: a lost-qubit reset rejects by default and restores under pol
     REQUIRE(count_gate(rw, GateType::R) == 2);
 }
 
-TEST_CASE("rewrite: a measurement on a lost qubit is kept") {
+TEST_CASE("rewrite: a plain Z measurement on a lost qubit is kept") {
     Circuit c = parse("H 0\nS 0\nM 0\n");
     std::map<std::string, TransitionInstrument> transitions;
     transitions.emplace("S", always_lost(LevelSet::default_set()));
@@ -253,4 +253,49 @@ TEST_CASE("rewrite: a measurement on a lost qubit is kept") {
     Circuit rw = rewritten(c, model, 1);
     REQUIRE(count_gate(rw, GateType::M) == 1);
     REQUIRE(rw.num_measurements == 1);  // visible record preserved
+}
+
+TEST_CASE("rewrite: an X/Y-basis or multi-qubit measurement on a lost qubit rejects") {
+    std::map<std::string, TransitionInstrument> mx;
+    mx.emplace("S", always_lost(LevelSet::default_set()));
+    NonComputationalModel m_mx = make_model(all_g(), std::move(mx));
+    Circuit cx = parse("H 0\nS 0\nMX 0\n");
+    HistorySample sx = sample_history(cx, m_mx, 1);
+    REQUIRE_THROWS_WITH(rewrite(cx, sx.history, m_mx),
+                        ContainsSubstring("MX") && ContainsSubstring("Lost"));
+
+    std::map<std::string, TransitionInstrument> mp;
+    mp.emplace("S", always_lost(LevelSet::default_set()));
+    NonComputationalModel m_mp = make_model(all_g(), std::move(mp));
+    Circuit cp = parse("H 0\nS 0\nMPP X0\n");
+    HistorySample sp = sample_history(cp, m_mp, 1);
+    REQUIRE_THROWS_WITH(rewrite(cp, sp.history, m_mp),
+                        ContainsSubstring("MPP") && ContainsSubstring("Lost"));
+}
+
+TEST_CASE("rewrite: a measure-and-reset on a lost qubit rejects by default, kept under policy") {
+    Circuit c = parse("H 0\nS 0\nMR 0\n");
+    std::map<std::string, TransitionInstrument> transitions;
+    transitions.emplace("S", always_lost(LevelSet::default_set()));
+
+    NonComputationalModel reject = make_model(all_g(), transitions);
+    HistorySample s = sample_history(c, reject, 1);
+    REQUIRE_THROWS_WITH(rewrite(c, s.history, reject),
+                        ContainsSubstring("MR") && ContainsSubstring("Lost"));
+
+    NonComputationalPolicy restore;
+    restore.reset_restores_lost = true;
+    NonComputationalModel reload = make_model(all_g(), std::move(transitions), restore);
+    Circuit rw = rewritten(c, reload, 1);
+    REQUIRE(count_gate(rw, GateType::MR) == 1);  // kept; orchestrator injects later
+}
+
+TEST_CASE("rewrite: a measure-and-reset on a leaked qubit is kept") {
+    Circuit c = parse("H 0\nS 0\nMR 0\n");
+    std::map<std::string, TransitionInstrument> transitions;
+    transitions.emplace("S", always_leaked(LevelSet::default_set()));
+    NonComputationalModel model = make_model(all_g(), std::move(transitions));
+
+    Circuit rw = rewritten(c, model, 1);
+    REQUIRE(count_gate(rw, GateType::MR) == 1);
 }
