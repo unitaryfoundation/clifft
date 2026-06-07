@@ -34,6 +34,11 @@ add_library(clifft_core STATIC
     ${CMAKE_CURRENT_SOURCE_DIR}/../clifft/optimizer/hir_pass_manager.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/../clifft/optimizer/drop_non_unitary_pass.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/../clifft/optimizer/commutation.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/../clifft/optimizer/virtual_clifford.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/../clifft/optimizer/pauli_axis.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/../clifft/optimizer/mcr_tcount.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/../clifft/optimizer/todd_gf2.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/../clifft/optimizer/phase_poly_tcount_pass.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/../clifft/optimizer/peephole.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/../clifft/optimizer/pass_factory.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/../clifft/optimizer/remove_noise_pass.cc
