@@ -6,6 +6,7 @@
 #include "clifft/optimizer/bytecode_pass.h"
 #include "clifft/optimizer/drop_non_unitary_pass.h"
 #include "clifft/optimizer/expand_t_pass.h"
+#include "clifft/optimizer/experimental_mcr_t_count_pass.h"
 #include "clifft/optimizer/hir_pass_manager.h"
 #include "clifft/optimizer/multi_gate_pass.h"
 #include "clifft/optimizer/noise_block_pass.h"
@@ -501,6 +502,27 @@ NB_MODULE(_clifft_core, m) {
         "Drops non-evolution HIR ops so the remaining program is a unitary skeleton.\n"
         "Not included in the default pass list and not semantics-preserving.")
         .def(nb::init<>());
+
+    nb::class_<clifft::ExperimentalMcrTCountPass, clifft::HirPass>(
+        m, "ExperimentalMcrTCountPass",
+        "Experimental bounded MCR search that swaps commuting T-pairs to expose\n"
+        "same-axis T cancellations and Clifford fusions. Disabled by default.")
+        .def(nb::init<>())
+        .def_prop_ro("lookahead_cap", &clifft::ExperimentalMcrTCountPass::lookahead_cap)
+        .def_prop_ro("window_scans", &clifft::ExperimentalMcrTCountPass::window_scans)
+        .def_prop_ro("window_scans_over_lookahead_cap",
+                     &clifft::ExperimentalMcrTCountPass::window_scans_over_lookahead_cap)
+        .def_prop_ro("quadruples_found", &clifft::ExperimentalMcrTCountPass::quadruples_found)
+        .def_prop_ro("swaps_applied", &clifft::ExperimentalMcrTCountPass::swaps_applied)
+        .def_prop_ro("merges", &clifft::ExperimentalMcrTCountPass::merges)
+        .def_prop_ro("t_removed", &clifft::ExperimentalMcrTCountPass::t_removed)
+        .def("__repr__", [](const clifft::ExperimentalMcrTCountPass& p) {
+            return "ExperimentalMcrTCountPass(window_scans=" + std::to_string(p.window_scans()) +
+                   ", quadruples_found=" + std::to_string(p.quadruples_found()) +
+                   ", swaps_applied=" + std::to_string(p.swaps_applied()) +
+                   ", merges=" + std::to_string(p.merges()) +
+                   ", t_removed=" + std::to_string(p.t_removed()) + ")";
+        });
 
     m.def(
         "compute_reference_syndrome",

@@ -19,6 +19,7 @@ add_executable(clifft_tests
     test_execute_forced.cc
     test_svm_avx512_axis01.cc
     test_statevector.cc
+    test_mcr_t_count_pass.cc
     test_optimizer.cc
     test_bytecode_passes.cc
     test_single_axis_fusion.cc

@@ -14,6 +14,7 @@ add_library(clifft_core STATIC
     optimizer/hir_pass_manager.cc
     optimizer/drop_non_unitary_pass.cc
     optimizer/commutation.cc
+    optimizer/experimental_mcr_t_count_pass.cc
     optimizer/peephole.cc
     optimizer/pass_factory.cc
     optimizer/remove_noise_pass.cc

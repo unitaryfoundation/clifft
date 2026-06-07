@@ -559,6 +559,7 @@ TEST_CASE("Pass registry: JSON round-trip is valid") {
     REQUIRE(json.find("SingleAxisFusionPass") != std::string::npos);
     REQUIRE(json.find("RemoveNoisePass") != std::string::npos);
     REQUIRE(json.find("DropNonUnitaryPass") != std::string::npos);
+    REQUIRE(json.find("ExperimentalMcrTCountPass") != std::string::npos);
 }
 
 // =============================================================================

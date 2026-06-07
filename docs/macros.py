@@ -123,6 +123,21 @@ def define_env(env: Any) -> None:
             ),
         },
         {
+            "name": "ExperimentalMcrTCountPass",
+            "kind": "HIR",
+            "default_enabled": False,
+            "python_name": "ExperimentalMcrTCountPass",
+            "summary": "Experimental bounded MCR reordering for T-count reduction.",
+            "detail": (
+                "Searches bounded contiguous T-gate windows for the multi-product "
+                "commutation relation on four Pauli rotations. When it finds a valid "
+                "MCR quadruple, it swaps the two commuting pairs as a unit and only "
+                "keeps the rewrite if a newly exposed same-axis T pair cancels or "
+                "fuses to a Clifford via downstream virtual-S absorption. Disabled "
+                "by default and intended for evaluation, not production use yet."
+            ),
+        },
+        {
             "name": "NoiseBlockPass",
             "kind": "Bytecode",
             "default_enabled": True,

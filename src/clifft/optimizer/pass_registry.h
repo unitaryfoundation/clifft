@@ -3,6 +3,7 @@
 #include "clifft/optimizer/bytecode_pass.h"
 #include "clifft/optimizer/drop_non_unitary_pass.h"
 #include "clifft/optimizer/expand_t_pass.h"
+#include "clifft/optimizer/experimental_mcr_t_count_pass.h"
 #include "clifft/optimizer/hir_pass.h"
 #include "clifft/optimizer/multi_gate_pass.h"
 #include "clifft/optimizer/noise_block_pass.h"
@@ -63,6 +64,10 @@ inline const PassInfo kRegisteredPasses[] = {
      .kind = PassKind::HIR,
      .default_enabled = false,
      .make_hir = make_hir<DropNonUnitaryPass>},
+    {.name = "ExperimentalMcrTCountPass",
+     .kind = PassKind::HIR,
+     .default_enabled = false,
+     .make_hir = make_hir<ExperimentalMcrTCountPass>},
     // Bytecode passes
     {.name = "NoiseBlockPass",
      .kind = PassKind::Bytecode,
