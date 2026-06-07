@@ -55,7 +55,7 @@ def _t_after_peephole(circuit: str) -> int:
     pm = clifft.HirPassManager()
     pm.add(clifft.PeepholeFusionPass())
     pm.run(hir)
-    return hir.num_t_gates
+    return int(hir.num_t_gates)
 
 
 def _t_after_global(circuit: str) -> tuple[int, clifft.ExperimentalGlobalTcountPass]:
@@ -66,7 +66,7 @@ def _t_after_global(circuit: str) -> tuple[int, clifft.ExperimentalGlobalTcountP
     pm.add(global_pass)
     pm.add(clifft.PeepholeFusionPass())
     pm.run(hir)
-    return hir.num_t_gates, global_pass
+    return int(hir.num_t_gates), global_pass
 
 
 def main() -> None:

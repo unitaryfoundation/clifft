@@ -435,7 +435,8 @@ void run_mcr_tcount(HirModule& hir, McrTcountStats& stats) {
             if (window.t_positions.size() > kLookaheadCap)
                 ++stats.window_scans_over_lookahead_cap;
 
-            for (size_t anchor_t_idx = 0; anchor_t_idx < window.t_positions.size(); ++anchor_t_idx) {
+            for (size_t anchor_t_idx = 0; anchor_t_idx < window.t_positions.size();
+                 ++anchor_t_idx) {
                 auto cand = find_candidate_from_anchor(hir, window, anchor_t_idx);
                 if (!cand.has_value())
                     continue;

@@ -127,8 +127,7 @@ HeisenbergOp& append_t_from_axis(HirModule& hir, const PauliAxis& axis, bool dag
     });
 }
 
-bool optimize_commuting_cluster(HirModule& hir, const std::vector<size_t>& cluster,
-                                size_t& saved) {
+bool optimize_commuting_cluster(HirModule& hir, const std::vector<size_t>& cluster, size_t& saved) {
     if (cluster.size() < 3) {
         return false;
     }

@@ -529,8 +529,8 @@ NB_MODULE(_clifft_core, m) {
             "Statistics from the bounded MCR reordering phase.")
         .def("__repr__", [](const clifft::ExperimentalGlobalTcountPass& p) {
             return "ExperimentalGlobalTcountPass(t_gates_before=" +
-                   std::to_string(p.t_gates_before()) + ", t_gates_after=" +
-                   std::to_string(p.t_gates_after()) + ")";
+                   std::to_string(p.t_gates_before()) +
+                   ", t_gates_after=" + std::to_string(p.t_gates_after()) + ")";
         });
 
     m.def(

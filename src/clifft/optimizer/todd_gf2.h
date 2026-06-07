@@ -15,9 +15,7 @@ struct Gf2Matrix {
     uint32_t num_words = 0;
     std::vector<uint64_t> cols;  // flat [m * num_words]
 
-    [[nodiscard]] size_t num_cols() const {
-        return num_words == 0 ? 0 : cols.size() / num_words;
-    }
+    [[nodiscard]] size_t num_cols() const { return num_words == 0 ? 0 : cols.size() / num_words; }
 
     [[nodiscard]] const uint64_t* col(size_t j) const { return &cols[j * num_words]; }
 
