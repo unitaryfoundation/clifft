@@ -186,8 +186,12 @@ def execute_internal(tool: str, qasm_path: str, stim_path: str) -> None:
     if resource is not None and sys.platform.startswith("linux"):
         mem_str = os.environ.get("CLIFFT_BENCH_MEM_LIMIT_GB")
         if mem_str:
+            setrlimit = getattr(resource, "setrlimit", None)
+            rlimit_as = getattr(resource, "RLIMIT_AS", None)
+            if setrlimit is None or rlimit_as is None:
+                raise RuntimeError("Linux resource module missing setrlimit support")
             limit = int(float(mem_str) * 1024**3)
-            resource.setrlimit(resource.RLIMIT_AS, (limit, limit))
+            setrlimit(rlimit_as, (limit, limit))
 
     start = time.perf_counter()
 
@@ -213,8 +217,15 @@ def execute_internal(tool: str, qasm_path: str, stim_path: str) -> None:
     elapsed = time.perf_counter() - start
 
     if resource is not None:
-        peak_kb = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
-        peak_mb = peak_kb / 1024 if sys.platform.startswith("linux") else peak_kb / (1024 * 1024)
+        getrusage = getattr(resource, "getrusage", None)
+        rusage_self = getattr(resource, "RUSAGE_SELF", None)
+        if getrusage is not None and rusage_self is not None:
+            peak_kb = getrusage(rusage_self).ru_maxrss
+            peak_mb = (
+                peak_kb / 1024 if sys.platform.startswith("linux") else peak_kb / (1024 * 1024)
+            )
+        else:
+            peak_mb = 0.0
     else:
         peak_mb = 0.0
 
