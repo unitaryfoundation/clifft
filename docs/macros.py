@@ -123,6 +123,21 @@ def define_env(env: Any) -> None:
             ),
         },
         {
+            "name": "ExperimentalGlobalTcountPass",
+            "kind": "HIR",
+            "default_enabled": False,
+            "python_name": "ExperimentalGlobalTcountPass",
+            "summary": "Experimental global T-count reduction via MCR and TODD.",
+            "detail": (
+                "Two-phase opt-in pass for issue #40. Phase 1 applies bounded "
+                "multiplicative-commutator-relation (MCR) reordering on contiguous "
+                "T-gate windows to expose same-axis peephole fusion. Phase 2 applies "
+                "size-capped TODD on commuting phase-polynomial clusters within T "
+                "windows. Clifford residuals fold into the Heisenberg frame. Disabled "
+                "by default; run after PeepholeFusionPass."
+            ),
+        },
+        {
             "name": "NoiseBlockPass",
             "kind": "Bytecode",
             "default_enabled": True,

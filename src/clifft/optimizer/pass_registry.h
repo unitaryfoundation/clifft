@@ -7,6 +7,7 @@
 #include "clifft/optimizer/multi_gate_pass.h"
 #include "clifft/optimizer/noise_block_pass.h"
 #include "clifft/optimizer/peephole.h"
+#include "clifft/optimizer/phase_poly_tcount_pass.h"
 #include "clifft/optimizer/remove_noise_pass.h"
 #include "clifft/optimizer/single_axis_fusion_pass.h"
 #include "clifft/optimizer/statevector_squeeze_pass.h"
@@ -63,6 +64,10 @@ inline const PassInfo kRegisteredPasses[] = {
      .kind = PassKind::HIR,
      .default_enabled = false,
      .make_hir = make_hir<DropNonUnitaryPass>},
+    {.name = "ExperimentalGlobalTcountPass",
+     .kind = PassKind::HIR,
+     .default_enabled = false,
+     .make_hir = make_hir<ExperimentalGlobalTcountPass>},
     // Bytecode passes
     {.name = "NoiseBlockPass",
      .kind = PassKind::Bytecode,
