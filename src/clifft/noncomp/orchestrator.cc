@@ -5,6 +5,7 @@
 #include "clifft/circuit/target.h"
 #include "clifft/frontend/frontend.h"
 #include "clifft/frontend/hir.h"
+#include "clifft/noncomp/numeric.h"
 #include "clifft/noncomp/op_role.h"
 #include "clifft/noncomp/rewriter.h"
 #include "clifft/noncomp/sampler.h"
@@ -39,8 +40,9 @@ uint64_t derive_seed(uint64_t global, uint64_t shot, uint64_t domain) {
 }
 
 // Sample a measurement-record bit from the classifier for a qubit at `level`.
-// Symbols partition [0, sum-of-column); the deficit is the reject region, and
-// a draw there raises. Symbol index maps to the record bit as zero/non-zero.
+// The classifier must be two-symbol with a stochastic column for this level
+// (symbol 0 owns [0, prob0), symbol 1 owns the rest); the symbol index is the
+// injected record bit. A substochastic (reject) column is unsupported here.
 uint8_t classifier_bit(const MeasurementClassifier& classifier, uint8_t level,
                        Xoshiro256PlusPlus& rng, GateType gate, uint32_t op_index, uint32_t qubit) {
     // Binary record injection maps the sampled symbol index directly to the
@@ -54,18 +56,27 @@ uint8_t classifier_bit(const MeasurementClassifier& classifier, uint8_t level,
             std::string(gate_name(gate)) + "' on qubit " + std::to_string(qubit) + " at op " +
             std::to_string(op_index) + ")");
     }
-    const double u = rng.next_double();
-    double acc = 0.0;
-    for (uint8_t s = 0; s < classifier.num_symbols(); ++s) {
-        acc += classifier.prob(s, level);
-        if (u < acc) {
-            return s;  // symbol index 0 or 1 is the record bit
-        }
+    // A substochastic column reserves probability for a reject (heralded abort)
+    // outcome that has no binary record bit. That path is not wired through this
+    // entry point yet, so the column must sum to one within tolerance; a reject
+    // column is an explicit error rather than a silently dropped or aborted shot.
+    const double reject = classifier.reject_probability(level);
+    if (reject > kProbTolerance) {
+        throw std::invalid_argument(
+            "sample_noncomputational: classifier reject columns are not supported yet; the column "
+            "for level " +
+            std::to_string(level) + " sums to less than one (reject probability " +
+            std::to_string(reject) + ", measurement '" + std::string(gate_name(gate)) +
+            "' on qubit " + std::to_string(qubit) + " at op " + std::to_string(op_index) + ")");
     }
-    throw std::invalid_argument("sample_noncomputational: classifier rejected the measurement '" +
-                                std::string(gate_name(gate)) + "' on qubit " +
-                                std::to_string(qubit) + " at op " + std::to_string(op_index) +
-                                " (level " + std::to_string(level) + ")");
+    const double u = rng.next_double();
+    // Two symbols and a column summing to one (both checked above): symbol 0
+    // owns [0, prob0) and symbol 1 owns the remainder, so the symbol index is
+    // the record bit. Any tolerance-sized rounding residual falls to symbol 1.
+    if (u < classifier.prob(0, level)) {
+        return 0;
+    }
+    return 1;
 }
 
 GateType reset_for(GateType measure_reset) {

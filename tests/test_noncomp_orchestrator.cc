@@ -31,6 +31,7 @@ namespace {
 
 // Default-set ids: g=0, e=1, leak_g=2, leak_e=3, lost=4.
 constexpr uint8_t kLeakG = 2;
+constexpr uint8_t kLost = 4;
 
 std::vector<std::vector<double>> zeros5() {
     return std::vector<std::vector<double>>(5, std::vector<double>(5, 0.0));
@@ -44,17 +45,31 @@ TransitionInstrument always_leaked(const LevelSet& levels) {
     return TransitionInstrument::from_matrix(std::move(m), levels);
 }
 
-// Two-symbol classifier. The leak_g column gets `leakg`; every other level is
-// a deterministic symbol 0, which is never consulted (only noncomputational
-// qubits are classified, and these tests only leak to leak_g).
-MeasurementClassifier make_classifier(const LevelSet& levels, std::vector<double> leakg) {
+// Source-independent: g and e both jump to lost with certainty.
+TransitionInstrument always_lost(const LevelSet& levels) {
+    auto m = zeros5();
+    m[kLost][0] = 1.0;
+    m[kLost][1] = 1.0;
+    return TransitionInstrument::from_matrix(std::move(m), levels);
+}
+
+// Two-symbol classifier whose column for `level` is `col`; every other level
+// is a deterministic symbol 0. Only noncomputational qubits are classified, so
+// the computational columns are never consulted in these tests.
+MeasurementClassifier classifier_with(const LevelSet& levels, uint8_t level,
+                                      std::vector<double> col) {
     std::vector<std::vector<double>> m(2, std::vector<double>(5, 0.0));
-    for (size_t level = 0; level < 5; ++level) {
-        m[0][level] = 1.0;  // symbol "0"
+    for (size_t l = 0; l < 5; ++l) {
+        m[0][l] = 1.0;  // symbol "0"
     }
-    m[0][kLeakG] = leakg[0];
-    m[1][kLeakG] = leakg[1];
+    m[0][level] = col[0];
+    m[1][level] = col[1];
     return MeasurementClassifier::from_matrix({"0", "1"}, std::move(m), levels);
+}
+
+// The common case: classify the leak_g column.
+MeasurementClassifier make_classifier(const LevelSet& levels, std::vector<double> leakg) {
+    return classifier_with(levels, kLeakG, std::move(leakg));
 }
 
 NonComputationalModel make_model(std::vector<double> initial_state,
@@ -130,16 +145,25 @@ TEST_CASE("sample_noncomputational: a partial classifier bit matches its frequen
     REQUIRE(ones < 1150);
 }
 
-TEST_CASE("sample_noncomputational: a rejecting classifier raises") {
+TEST_CASE("sample_noncomputational: a substochastic classifier column is unsupported and raises") {
     Circuit c = parse("H 0\nS 0\nM 0\n");
-    std::map<std::string, TransitionInstrument> transitions;
-    transitions.emplace("S", always_leaked(LevelSet::default_set()));
-    // leak_g column sums to 0 -> reject probability 1.
-    NonComputationalModel model = make_model(all_g(), std::move(transitions),
-                                             make_classifier(LevelSet::default_set(), {0.0, 0.0}));
 
-    REQUIRE_THROWS_WITH(sample_noncomputational(c, model, 16, 1),
-                        ContainsSubstring("classifier rejected"));
+    // A partially substochastic leak_g column (sums to 0.8) reserves reject
+    // probability, which this entry point does not support.
+    std::map<std::string, TransitionInstrument> partial;
+    partial.emplace("S", always_leaked(LevelSet::default_set()));
+    NonComputationalModel partial_model = make_model(
+        all_g(), std::move(partial), make_classifier(LevelSet::default_set(), {0.5, 0.3}));
+    REQUIRE_THROWS_WITH(sample_noncomputational(c, partial_model, 16, 1),
+                        ContainsSubstring("classifier reject columns are not supported"));
+
+    // A fully reject column (sums to 0) is refused the same way, not sampled.
+    std::map<std::string, TransitionInstrument> empty;
+    empty.emplace("S", always_leaked(LevelSet::default_set()));
+    NonComputationalModel empty_model =
+        make_model(all_g(), std::move(empty), make_classifier(LevelSet::default_set(), {0.0, 0.0}));
+    REQUIRE_THROWS_WITH(sample_noncomputational(c, empty_model, 16, 1),
+                        ContainsSubstring("classifier reject columns are not supported"));
 }
 
 TEST_CASE("sample_noncomputational: a measurement on a leaked qubit without a classifier raises") {
@@ -222,4 +246,41 @@ TEST_CASE("sample_noncomputational: deterministic in the seed") {
     NonComputationalSample b = sample_noncomputational(c, model, 128, 42);
     REQUIRE(a.measurements == b.measurements);
     REQUIRE(a.detectors == b.detectors);
+}
+
+TEST_CASE(
+    "sample_noncomputational: a lost-qubit measurement feeds the detector the classifier bit") {
+    // A lost qubit (vacated site) is still measured; the classifier supplies
+    // the record bit just as for a leaked qubit, so the detector reads it.
+    Circuit c = parse("H 0\nS 0\nM 0\nDETECTOR rec[-1]\n");
+    std::map<std::string, TransitionInstrument> transitions;
+    transitions.emplace("S", always_lost(LevelSet::default_set()));
+
+    // Force the lost column -> symbol 1 -> record bit 1.
+    NonComputationalModel model =
+        make_model(all_g(), std::move(transitions),
+                   classifier_with(LevelSet::default_set(), kLost, {0.0, 1.0}));
+    NonComputationalSample s = sample_noncomputational(c, model, 200, 9);
+    REQUIRE(s.num_detectors == 1);
+    REQUIRE(s.detectors.size() == 200);
+    for (uint8_t d : s.detectors) {
+        REQUIRE(d == 1);  // detector saw the lost-column classifier bit
+    }
+}
+
+TEST_CASE("sample_noncomputational: a leaked measurement feeds the observable the classifier bit") {
+    Circuit c = parse("H 0\nS 0\nM 0\nOBSERVABLE_INCLUDE(0) rec[-1]\n");
+    std::map<std::string, TransitionInstrument> transitions;
+    transitions.emplace("S", always_leaked(LevelSet::default_set()));
+
+    // Force leak_g -> symbol 1 -> record bit 1; the observable must see it,
+    // not the residual |0>.
+    NonComputationalModel model = make_model(all_g(), std::move(transitions),
+                                             make_classifier(LevelSet::default_set(), {0.0, 1.0}));
+    NonComputationalSample s = sample_noncomputational(c, model, 200, 11);
+    REQUIRE(s.num_observables == 1);
+    REQUIRE(s.observables.size() == 200);
+    for (uint8_t o : s.observables) {
+        REQUIRE(o == 1);
+    }
 }

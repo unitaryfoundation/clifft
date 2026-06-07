@@ -47,7 +47,9 @@ struct NonComputationalSample {
 
 // Throws std::invalid_argument when the trajectory policy rejects an
 // operation, when a measurement on a leaked/lost qubit needs a classifier the
-// model does not provide, or when the classifier rejects an outcome.
+// model does not provide, or when such a classifier column is not a two-symbol
+// stochastic column. Reject (substochastic) classifier columns model a
+// heralded abort outcome and are not supported by this entry point yet.
 NonComputationalSample sample_noncomputational(const Circuit& circuit,
                                                const NonComputationalModel& model, uint32_t shots,
                                                std::optional<uint64_t> seed = std::nullopt);
