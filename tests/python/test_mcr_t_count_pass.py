@@ -25,7 +25,11 @@ def _mcr_pipeline_pm(
 
 
 def _statevector(text: str, pm: clifft.HirPassManager) -> np.ndarray:
-    prog = clifft.compile(text, hir_passes=pm, bytecode_passes=clifft.default_bytecode_pass_manager())
+    prog = clifft.compile(
+        text,
+        hir_passes=pm,
+        bytecode_passes=clifft.default_bytecode_pass_manager(),
+    )
     state = clifft.State(peak_rank=prog.peak_rank, num_measurements=prog.num_measurements)
     clifft.execute(prog, state)
     return np.asarray(clifft.get_statevector(prog, state))
@@ -86,9 +90,7 @@ KICKED_XY_BLOCK = "\n".join(
 
 NEGATIVE_SIGN_BLOCK = "\n".join(["X 0", KICKED_XY_BLOCK])
 
-LATE_WINDOW_BLOCK = "\n".join(
-    [*(f"R_Z(0.25) {q}" for q in range(10, 28)), KICKED_XY_BLOCK]
-)
+LATE_WINDOW_BLOCK = "\n".join([*(f"R_Z(0.25) {q}" for q in range(10, 28)), KICKED_XY_BLOCK])
 DISJOINT_PAIRS_4 = _disjoint_pair_blocks(4, 1)
 THREE_DISJOINT_PAIR_BLOCKS = "\n".join(_pair_block(0, 1) + _pair_block(2, 3) + _pair_block(4, 5))
 TWO_DISJOINT_PAIRS_X2 = "\n".join(

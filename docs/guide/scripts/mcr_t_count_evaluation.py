@@ -103,9 +103,13 @@ def _after_mcr(text: str) -> tuple[int, clifft.ExperimentalMcrTCountPass]:
 
 
 def main() -> None:
-    print(
-        "| example | source T-like ops | after peephole | after ExperimentalMcrTCountPass + peephole | window scans | over-cap scans | quadruples | swaps | merges | T removed |"
+    header = (
+        "| example | source T-like ops | after peephole | "
+        "after ExperimentalMcrTCountPass + peephole | "
+        "window scans | over-cap scans | quadruples | swaps | merges | "
+        "T removed |"
     )
+    print(header)
     print("|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|")
 
     for name, text in EXAMPLES.items():
