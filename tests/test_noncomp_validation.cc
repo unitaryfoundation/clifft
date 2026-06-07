@@ -1,27 +1,36 @@
-// Physics validation for the noncomputational pipeline: a Bell pair with one
-// qubit lost. This is the headline check that the rewriter's hidden trace-out
-// (Z-basis unraveling + reset) reproduces a partial trace over the lost qubit.
+// Validation for the noncomputational lost-measurement path, on a Bell pair.
 //
-// A Bell pair (|00> + |11>)/sqrt(2) has perfectly Z-correlated halves. Tracing
-// out one half must leave the survivor maximally mixed and destroy that
-// correlation. These tests drive sample_noncomputational end to end and compare
-// the lossless control (correlated) against the lossy run (decorrelated, 50/50
-// survivor).
+// Two different things are checked, because statistics and structure validate
+// different claims:
 //
-// Scope: this validates the observable statistics on the accessible qubits --
-// correlation present without loss, gone with it, survivor maximally mixed. A
-// single survivor's reduced state is I/2 in either case, so survivor marginals
-// alone cannot distinguish a correct trace-out from a hypothetical no-op; the
-// correlation contrast is what carries the signal here.
+//   * Statistics (lossless correlation, lost-record independence, survivor
+//     marginal) exercise classifier injection and the end-to-end pipeline.
+//     They do NOT, on their own, validate the hidden trace-out: once a lost
+//     qubit's record is replaced by MPAD(classifier_bit) and the qubit never
+//     re-enters the circuit, a ghost-entangled carrier is observationally
+//     identical to a traced-out one on the surviving qubit (a Bell-pair half is
+//     I/2 either way). Distinguishing the two would need the carrier to
+//     re-enter -- out of scope here.
+//   * Structure: rewriting the Bell loss circuit inserts exactly one hidden
+//     trace-out R at the loss site, lowering to one surviving hidden
+//     measurement. This is the check that the partial-trace unraveling is
+//     actually emitted.
 
 #include "clifft/circuit/circuit.h"
+#include "clifft/circuit/gate_data.h"
 #include "clifft/circuit/parser.h"
+#include "clifft/frontend/frontend.h"
+#include "clifft/frontend/hir.h"
 #include "clifft/noncomp/classifier.h"
 #include "clifft/noncomp/level.h"
 #include "clifft/noncomp/model.h"
 #include "clifft/noncomp/orchestrator.h"
 #include "clifft/noncomp/policy.h"
+#include "clifft/noncomp/rewriter.h"
+#include "clifft/noncomp/sampler.h"
 #include "clifft/noncomp/transition_instrument.h"
+#include "clifft/optimizer/hir_pass_manager.h"
+#include "clifft/optimizer/pass_factory.h"
 
 #include <array>
 #include <catch2/catch_test_macros.hpp>
@@ -32,13 +41,20 @@
 #include <vector>
 
 using clifft::Circuit;
+using clifft::default_hir_pass_manager;
+using clifft::GateType;
+using clifft::HirModule;
+using clifft::HistorySample;
 using clifft::LevelSet;
 using clifft::MeasurementClassifier;
 using clifft::NonComputationalModel;
 using clifft::NonComputationalPolicy;
 using clifft::NonComputationalSample;
 using clifft::parse;
+using clifft::rewrite;
+using clifft::sample_history;
 using clifft::sample_noncomputational;
+using clifft::trace;
 using clifft::TransitionInstrument;
 
 namespace {
@@ -78,6 +94,16 @@ NonComputationalModel make_model(std::map<std::string, TransitionInstrument> tra
                                  NonComputationalPolicy{});
 }
 
+size_t count_gate(const Circuit& c, GateType gate) {
+    size_t n = 0;
+    for (const auto& node : c.nodes) {
+        if (node.gate == gate) {
+            ++n;
+        }
+    }
+    return n;
+}
+
 }  // namespace
 
 TEST_CASE("validation: a lossless Bell pair measures as perfectly Z-correlated halves") {
@@ -100,11 +126,12 @@ TEST_CASE("validation: a lossless Bell pair measures as perfectly Z-correlated h
     REQUIRE(ones0 < 624);
 }
 
-TEST_CASE("validation: losing one Bell-pair qubit leaves the survivor maximally mixed") {
-    // S 0 is the carrier of the loss event: its transition sends the (now
-    // entangled, ComputationalUnknown) qubit 0 to the lost level, which makes
-    // the rewriter insert the hidden trace-out R. The classifier's lost column
-    // is 50/50, so the lost qubit's own record bit is an independent coin.
+TEST_CASE("validation: a lost Bell-pair qubit's classifier record is independent of the survivor") {
+    // This exercises classifier injection, NOT the trace-out: the lost qubit's
+    // record is supplied by the classifier (a 50/50 coin here), and the
+    // survivor's record is an independent 50/50. The decorrelation is a
+    // consequence of the M0 -> MPAD(classifier_bit) substitution, not of the
+    // hidden R (see the file header and the structural test below).
     Circuit c = parse("H 0\nCX 0 1\nS 0\nM 0\nM 1\n");
     std::map<std::string, TransitionInstrument> transitions;
     transitions.emplace("S", always_lost(LevelSet::default_set()));
@@ -126,15 +153,15 @@ TEST_CASE("validation: losing one Bell-pair qubit leaves the survivor maximally 
         mismatches += (m0 != m1) ? 1 : 0;
     }
 
-    // Survivor (qubit 1) is maximally mixed: ~50/50. Expected 2048; ~6 sigma.
+    // Survivor (qubit 1) record is ~50/50. Expected 2048; ~6 sigma band.
     REQUIRE(ones1 > 1843);
     REQUIRE(ones1 < 2253);
-    // Correlation is destroyed: the halves disagree ~half the time (the
+    // The two records are independent: they disagree ~half the time (the
     // lossless run above never disagrees). Expected 2048.
     REQUIRE(mismatches > 1843);
     REQUIRE(mismatches < 2253);
     // All four (m0, m1) combinations occur with comparable weight (expected
-    // 1024 each), i.e. the two records are independent. Generous band.
+    // 1024 each). Generous band.
     for (size_t cell = 0; cell < 4; ++cell) {
         REQUIRE(joint[cell] > 800);
         REQUIRE(joint[cell] < 1248);
@@ -160,7 +187,35 @@ TEST_CASE(
         REQUIRE(s.measurements[shot * 2 + 0] == 0);  // classifier pins the lost record
         ones1 += s.measurements[shot * 2 + 1];
     }
-    // Survivor unaffected: still ~50/50. Expected 1024; ~6 sigma.
+    // Survivor unaffected: still ~50/50. Expected 1024; ~6 sigma band.
     REQUIRE(ones1 > 879);
     REQUIRE(ones1 < 1169);
+}
+
+TEST_CASE("validation: losing a Bell-pair qubit inserts the hidden trace-out R at the loss site") {
+    // The actual trace-out check: structurally, the loss rewrite must emit the
+    // hidden Z-basis unraveling for the coherent (entangled) carrier that jumps
+    // to lost. Statistics cannot see this; gate counts and the lowered HIR can.
+    Circuit c = parse("H 0\nCX 0 1\nS 0\nM 0\nM 1\n");
+    std::map<std::string, TransitionInstrument> transitions;
+    transitions.emplace("S", always_lost(LevelSet::default_set()));
+    NonComputationalModel model = make_model(std::move(transitions));  // rewrite ignores classifier
+
+    HistorySample hs =
+        sample_history(c, model, 1);  // always_lost: qubit 0 is deterministically lost
+    Circuit rw = rewrite(c, hs.history, model);
+
+    // The original circuit has no reset; the loss rewrite adds exactly one
+    // trace-out R (and no X-prep, since both halves start in |0>).
+    REQUIRE(count_gate(c, GateType::R) == 0);
+    REQUIRE(count_gate(rw, GateType::R) == 1);
+
+    // The trace-out R lowers to exactly one hidden measurement that survives
+    // the default HIR passes -- the partial-trace unraveling reaching the SVM.
+    // The visible measurement count is unchanged (the record layout is stable).
+    HirModule base = trace(c);
+    HirModule hir = trace(rw);
+    default_hir_pass_manager().run(hir);
+    REQUIRE(hir.num_hidden_measurements == base.num_hidden_measurements + 1);
+    REQUIRE(hir.num_measurements == base.num_measurements);
 }
