@@ -3,6 +3,11 @@
 #include "clifft/circuit/circuit.h"
 #include "clifft/circuit/parser.h"
 #include "clifft/frontend/frontend.h"
+#include "clifft/noncomp/level.h"
+#include "clifft/noncomp/model.h"
+#include "clifft/noncomp/orchestrator.h"
+#include "clifft/noncomp/policy.h"
+#include "clifft/noncomp/qubit_status.h"
 #include "clifft/optimizer/bytecode_pass.h"
 #include "clifft/optimizer/drop_non_unitary_pass.h"
 #include "clifft/optimizer/expand_t_pass.h"
@@ -28,6 +33,7 @@
 #include <nanobind/make_iterator.h>
 #include <nanobind/nanobind.h>
 #include <nanobind/ndarray.h>
+#include <nanobind/stl/map.h>
 #include <nanobind/stl/optional.h>
 #include <nanobind/stl/string.h>
 #include <nanobind/stl/string_view.h>
@@ -51,12 +57,88 @@ nb::ndarray<nb::numpy, T, nb::c_contig> vec_to_numpy(std::vector<T> vec,
     return nb::ndarray<nb::numpy, T, nb::c_contig>(data, shape, owner);
 }
 
+// Noncomputational (leakage/loss) bindings. Raw spec-builder + sampler entry
+// points; the ergonomic surface (Model, Classifier, sample) lives in the
+// clifft.noncomp Python wrapper. The model is an opaque handle.
+void register_noncomp(nb::module_& m) {
+    nb::class_<clifft::NonComputationalModel>(m, "_NonComputationalModel");
+
+    m.def(
+        "_build_noncomp_model",
+        [](std::vector<double> initial_state,
+           std::map<std::string, std::vector<std::vector<double>>> transitions,
+           std::optional<std::vector<std::string>> classifier_symbols,
+           std::optional<std::vector<std::vector<double>>> classifier_matrix,
+           bool reset_restores_lost) {
+            clifft::NonComputationalPolicy policy;
+            policy.reset_restores_lost = reset_restores_lost;
+
+            std::optional<clifft::ClassifierSpec> spec;
+            if (classifier_symbols.has_value() || classifier_matrix.has_value()) {
+                if (!classifier_symbols.has_value() || !classifier_matrix.has_value()) {
+                    throw std::invalid_argument(
+                        "noncomp model: a classifier needs both symbols and a matrix");
+                }
+                spec = clifft::ClassifierSpec{std::move(*classifier_symbols),
+                                              std::move(*classifier_matrix)};
+            }
+
+            return clifft::NonComputationalModel::from_spec(clifft::LevelSet::default_set(),
+                                                            std::move(initial_state), transitions,
+                                                            std::move(spec), policy);
+        },
+        nb::arg("initial_state"), nb::arg("transitions"),
+        nb::arg("classifier_symbols") = nb::none(), nb::arg("classifier_matrix") = nb::none(),
+        nb::arg("reset_restores_lost") = false,
+        "Build a default 5-level NonComputationalModel from raw matrices. See "
+        "clifft.noncomp.Model.");
+
+    m.def(
+        "_sample_noncomputational",
+        [](const clifft::Circuit& circuit, const clifft::NonComputationalModel& model,
+           uint32_t shots, std::optional<uint64_t> seed) {
+            clifft::NonComputationalSample r;
+            {
+                nb::gil_scoped_release release;
+                r = clifft::sample_noncomputational(circuit, model, shots, seed);
+            }
+            // Collapse per-qubit final status to {0 computational, 1 leaked,
+            // 2 lost}; the internal known/unknown computational split is not
+            // surfaced in the Python sidecar.
+            std::vector<uint8_t> status(r.final_status.size());
+            for (size_t i = 0; i < r.final_status.size(); ++i) {
+                switch (r.final_status[i].kind()) {
+                    case clifft::QubitStatusKind::Leaked:
+                        status[i] = 1;
+                        break;
+                    case clifft::QubitStatusKind::Lost:
+                        status[i] = 2;
+                        break;
+                    default:
+                        status[i] = 0;
+                        break;
+                }
+            }
+            auto meas = vec_to_numpy(std::move(r.measurements), {shots, r.num_measurements});
+            auto det = vec_to_numpy(std::move(r.detectors), {shots, r.num_detectors});
+            auto obs = vec_to_numpy(std::move(r.observables), {shots, r.num_observables});
+            auto fs = vec_to_numpy(std::move(status), {shots, r.num_qubits});
+            return nb::make_tuple(meas, det, obs, fs, r.num_qubits, r.num_measurements,
+                                  r.num_detectors, r.num_observables);
+        },
+        nb::arg("circuit"), nb::arg("model"), nb::arg("shots"), nb::arg("seed") = nb::none(),
+        "Sample a noncomputational model. Returns (measurements, detectors, observables, "
+        "final_status, num_qubits, num_measurements, num_detectors, num_observables).");
+}
+
 NB_MODULE(_clifft_core, m) {
     m.doc() = "Clifft core C++ extension module";
 
     nb::exception<clifft::ParseError>(m, "ParseError");
 
     m.def("version", []() { return clifft::kVersion; }, "Return the Clifft version string");
+
+    register_noncomp(m);
 
     m.def(
         "svm_backend", []() { return clifft::svm_backend(); },

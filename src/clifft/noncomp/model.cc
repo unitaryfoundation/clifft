@@ -151,6 +151,28 @@ NonComputationalModel::NonComputationalModel(
     }
 }
 
+NonComputationalModel NonComputationalModel::from_spec(
+    LevelSet levels, std::vector<double> initial_state,
+    const std::map<std::string, std::vector<std::vector<double>>>& transition_matrices,
+    std::optional<ClassifierSpec> classifier_spec, NonComputationalPolicy policy) {
+    // Build each component against the single `levels` table, so every
+    // fingerprint matches by construction and the constructor's cross-object
+    // checks pass without the caller ever touching a fingerprint or level id.
+    std::map<std::string, TransitionInstrument> transitions;
+    for (const auto& [gate, matrix] : transition_matrices) {
+        transitions.emplace(gate, TransitionInstrument::from_matrix(matrix, levels));
+    }
+
+    std::optional<MeasurementClassifier> classifier;
+    if (classifier_spec.has_value()) {
+        classifier = MeasurementClassifier::from_matrix(std::move(classifier_spec->symbols),
+                                                        std::move(classifier_spec->matrix), levels);
+    }
+
+    return NonComputationalModel(std::move(levels), std::move(initial_state),
+                                 std::move(transitions), std::move(classifier), policy);
+}
+
 double NonComputationalModel::initial_probability(uint8_t level_id) const {
     if (level_id >= initial_state_.size()) {
         throw std::invalid_argument("NonComputationalModel::initial_probability: index " +
