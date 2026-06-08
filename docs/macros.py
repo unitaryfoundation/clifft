@@ -123,6 +123,23 @@ def define_env(env: Any) -> None:
             ),
         },
         {
+            "name": "PhasePolynomialPass",
+            "kind": "HIR",
+            "default_enabled": False,
+            "python_name": "PhasePolynomialPass",
+            "summary": "Experimental global T-count reduction via MCR and TOHPE.",
+            "detail": (
+                "Two-phase opt-in pass. Phase 1 applies bounded "
+                "multiplicative-commutator-relation (MCR) reordering on contiguous "
+                "T-gate windows to expose same-axis peephole fusion. Phase 2 "
+                "segments commuting T_GATE blocks, extracts the GF(2) parity table "
+                "from Pauli masks, and applies a size-capped TOHPE duplicate-and-destroy "
+                "step (Vandaele 2024). Clifford residuals fold into the Heisenberg "
+                "frame via apply_virtual_s_downstream. Disabled by default; run "
+                "between PeepholeFusionPass sweeps."
+            ),
+        },
+        {
             "name": "NoiseBlockPass",
             "kind": "Bytecode",
             "default_enabled": True,

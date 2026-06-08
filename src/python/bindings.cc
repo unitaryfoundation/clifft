@@ -11,6 +11,7 @@
 #include "clifft/optimizer/noise_block_pass.h"
 #include "clifft/optimizer/pass_factory.h"
 #include "clifft/optimizer/peephole.h"
+#include "clifft/optimizer/phase_poly_pass.h"
 #include "clifft/optimizer/remove_noise_pass.h"
 #include "clifft/optimizer/single_axis_fusion_pass.h"
 #include "clifft/optimizer/statevector_squeeze_pass.h"
@@ -501,6 +502,36 @@ NB_MODULE(_clifft_core, m) {
         "Drops non-evolution HIR ops so the remaining program is a unitary skeleton.\n"
         "Not included in the default pass list and not semantics-preserving.")
         .def(nb::init<>());
+
+    nb::class_<clifft::PhasePolynomialPass, clifft::HirPass>(
+        m, "PhasePolynomialPass",
+        "Experimental global T-count reduction: bounded MCR reordering plus TOHPE\n"
+        "on commuting T-gate blocks. Opt-in only; run between PeepholeFusionPass sweeps.")
+        .def(nb::init<>())
+        .def_prop_ro("t_reductions", &clifft::PhasePolynomialPass::t_reductions)
+        .def_prop_ro("blocks_optimized", &clifft::PhasePolynomialPass::blocks_optimized)
+        .def_prop_ro("t_gates_before", &clifft::PhasePolynomialPass::t_gates_before)
+        .def_prop_ro("t_gates_after", &clifft::PhasePolynomialPass::t_gates_after)
+        .def(
+            "mcr_stats",
+            [](const clifft::PhasePolynomialPass& p) {
+                nb::dict d;
+                const auto& s = p.mcr_stats();
+                d["window_scans"] = s.window_scans;
+                d["window_scans_over_lookahead_cap"] = s.window_scans_over_lookahead_cap;
+                d["quadruples_found"] = s.quadruples_found;
+                d["swaps_applied"] = s.swaps_applied;
+                d["merges"] = s.merges;
+                d["t_removed"] = s.t_removed;
+                return d;
+            },
+            "Statistics from the bounded MCR reordering phase.")
+        .def("__repr__", [](const clifft::PhasePolynomialPass& p) {
+            return "PhasePolynomialPass(t_gates_before=" +
+                   std::to_string(p.t_gates_before()) + ", t_gates_after=" +
+                   std::to_string(p.t_gates_after()) + ", t_reductions=" +
+                   std::to_string(p.t_reductions()) + ")";
+        });
 
     m.def(
         "compute_reference_syndrome",
