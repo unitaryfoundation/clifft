@@ -35,6 +35,14 @@
 
 namespace clifft {
 
+// Raw classifier spec for the spec-based builder: the symbol labels and the
+// column-substochastic matrix P[symbol][level]. Bundled so the builder takes an
+// optional classifier without a separate presence flag.
+struct ClassifierSpec {
+    std::vector<std::string> symbols;
+    std::vector<std::vector<double>> matrix;
+};
+
 class NonComputationalModel {
   public:
     // Validates that:
@@ -56,6 +64,18 @@ class NonComputationalModel {
                           std::map<std::string, TransitionInstrument> transitions,
                           std::optional<MeasurementClassifier> classifier,
                           NonComputationalPolicy policy);
+
+    // Spec-based construction (the binding-facing path, design 3.3): build
+    // every TransitionInstrument and the classifier against `levels` from raw
+    // matrices, then assemble. Because all components are built against the one
+    // LevelSet, callers never construct those objects or deal with level
+    // fingerprints. `transition_matrices` maps a gate-name string to its
+    // T[to][from] matrix; `classifier_spec` is optional. Validation and
+    // throwing match the component from_matrix factories and the constructor.
+    static NonComputationalModel from_spec(
+        LevelSet levels, std::vector<double> initial_state,
+        const std::map<std::string, std::vector<std::vector<double>>>& transition_matrices,
+        std::optional<ClassifierSpec> classifier_spec, NonComputationalPolicy policy);
 
     const LevelSet& levels() const { return levels_; }
     size_t num_levels() const { return levels_.size(); }
