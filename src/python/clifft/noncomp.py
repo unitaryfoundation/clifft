@@ -1,7 +1,7 @@
 """Noncomputational (leakage/loss) sampling.
 
-Prototype API on the noncomputational feature branch. It drives a structural
-leakage/loss trajectory model on top of the ordinary Clifft sampler:
+Drives a structural leakage/loss trajectory model on top of the ordinary Clifft
+sampler:
 
     import clifft
     from clifft import noncomp
@@ -16,9 +16,10 @@ leakage/loss trajectory model on top of the ordinary Clifft sampler:
     r.measurements   # np.uint8 [shots, num_measurements]
     r.final_status   # np.uint8 [shots, num_qubits], values in QubitStatusKind
 
-The model uses the default five-level set (g, e, leak_g, leak_e, lost). Only a
-two-symbol classifier with stochastic columns is supported; substochastic
-(reject) columns and non-binary classifiers raise.
+This API supports exactly the built-in five-level set, named by ``Level`` and
+``LEVELS`` (g, e, leak_g, leak_e, lost); matrix rows and columns are indexed by
+``Level``. Only a two-symbol classifier with stochastic columns is supported;
+substochastic (reject) columns and non-binary classifiers raise.
 """
 
 from __future__ import annotations
@@ -32,7 +33,15 @@ import numpy.typing as npt
 
 from clifft import _clifft_core
 
-__all__ = ["Classifier", "Model", "NonComputationalSample", "QubitStatusKind", "sample"]
+__all__ = [
+    "LEVELS",
+    "Classifier",
+    "Level",
+    "Model",
+    "NonComputationalSample",
+    "QubitStatusKind",
+    "sample",
+]
 
 Matrix = Sequence[Sequence[float]]
 
@@ -45,6 +54,19 @@ class QubitStatusKind(IntEnum):
     LOST = 2
 
 
+class Level(IntEnum):
+    """Indices of the built-in five-level model, for naming matrix rows/columns."""
+
+    G = 0
+    E = 1
+    LEAK_G = 2
+    LEAK_E = 3
+    LOST = 4
+
+
+LEVELS = ("g", "e", "leak_g", "leak_e", "lost")
+
+
 def _as_matrix(matrix: Matrix) -> list[list[float]]:
     """Normalize a nested sequence or 2-D array to list-of-lists of float."""
     return [[float(x) for x in row] for row in matrix]
@@ -53,8 +75,8 @@ def _as_matrix(matrix: Matrix) -> list[list[float]]:
 class Classifier:
     """A measurement classifier: symbol labels and ``P[symbol][level]``.
 
-    For the MVP this must be binary (two symbols), and each level's column must
-    sum to one; substochastic (reject) columns are not supported yet.
+    This must be binary (two symbols), and each level's column must sum to one;
+    substochastic (reject) columns are not supported.
     """
 
     __slots__ = ("symbols", "matrix")
@@ -65,7 +87,7 @@ class Classifier:
 
 
 class Model:
-    """A noncomputational trajectory model over the default five-level set.
+    """A noncomputational trajectory model over the built-in five-level set.
 
     Args:
         initial_state: probability per level, ``P(level)``, summing to one.
@@ -106,6 +128,8 @@ class NonComputationalSample:
     Attributes:
         measurements, detectors, observables: uint8 arrays, shape (shots, width).
         final_status: uint8 array (shots, num_qubits) of :class:`QubitStatusKind`.
+            Coarse: it reports computational/leaked/lost, not the specific leaked
+            or lost level.
         shots, num_qubits, num_measurements, num_detectors, num_observables: ints.
     """
 

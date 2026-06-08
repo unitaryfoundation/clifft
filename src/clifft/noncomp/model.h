@@ -65,13 +65,13 @@ class NonComputationalModel {
                           std::optional<MeasurementClassifier> classifier,
                           NonComputationalPolicy policy);
 
-    // Spec-based construction (the binding-facing path, design 3.3): build
-    // every TransitionInstrument and the classifier against `levels` from raw
-    // matrices, then assemble. Because all components are built against the one
-    // LevelSet, callers never construct those objects or deal with level
-    // fingerprints. `transition_matrices` maps a gate-name string to its
-    // T[to][from] matrix; `classifier_spec` is optional. Validation and
-    // throwing match the component from_matrix factories and the constructor.
+    // Spec-based construction: build every TransitionInstrument and the
+    // classifier against `levels` from raw matrices, then assemble. Because all
+    // components are built against the one LevelSet, callers never construct
+    // those objects or deal with level fingerprints. `transition_matrices` maps
+    // a gate-name string to its T[to][from] matrix; `classifier_spec` is
+    // optional. Validation and throwing match the component from_matrix
+    // factories and the constructor.
     static NonComputationalModel from_spec(
         LevelSet levels, std::vector<double> initial_state,
         const std::map<std::string, std::vector<std::vector<double>>>& transition_matrices,

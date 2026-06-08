@@ -13,7 +13,7 @@ import pytest
 
 from clifft import noncomp
 
-LEAK_G, LEAK_E, LOST = 2, 3, 4
+LEAK_G, LEAK_E, LOST = noncomp.Level.LEAK_G, noncomp.Level.LEAK_E, noncomp.Level.LOST
 ALL_G = [1.0, 0.0, 0.0, 0.0, 0.0]
 ALL_E = [0.0, 1.0, 0.0, 0.0, 0.0]
 COMPUTATIONAL = noncomp.QubitStatusKind.COMPUTATIONAL
@@ -28,8 +28,8 @@ def _zeros(rows: int, cols: int) -> list[list[float]]:
 def transition_to(level: int) -> list[list[float]]:
     """T[to][from]: g and e both jump to `level` (source-independent)."""
     m = _zeros(5, 5)
-    m[level][0] = 1.0
-    m[level][1] = 1.0
+    m[level][noncomp.Level.G] = 1.0
+    m[level][noncomp.Level.E] = 1.0
     return m
 
 
@@ -52,7 +52,12 @@ def leak_model(classifier: noncomp.Classifier | None = None) -> noncomp.Model:
 # --- 1. Model construction -------------------------------------------------
 
 
-def test_build_default_model_needs_no_level_ids():
+def test_level_names_and_indices():
+    assert noncomp.LEVELS == ("g", "e", "leak_g", "leak_e", "lost")
+    assert (int(noncomp.Level.G), int(noncomp.Level.LEAK_G), int(noncomp.Level.LOST)) == (0, 2, 4)
+
+
+def test_build_model_needs_no_level_ids():
     # A full model is described by matrices + initial probabilities alone.
     model = noncomp.Model(
         initial_state=ALL_G,
