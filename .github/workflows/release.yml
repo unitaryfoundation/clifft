@@ -91,8 +91,11 @@ jobs:
           CIBW_BEFORE_BUILD: pip install setuptools-scm
           # Install libomp on macOS for OpenMP support in wheels
           CIBW_BEFORE_ALL_MACOS: brew install libomp
-          # Smoke-test: import the built package
-          CIBW_TEST_COMMAND: python -c "import clifft; print(clifft.__version__); print(clifft.CPU_BASELINE); print(clifft.svm_backend())"
+          # Smoke-test: import the built package and audit exported symbols
+          CIBW_TEST_COMMAND: >-
+            python -c "import clifft; print(clifft.__version__); print(clifft.CPU_BASELINE); print(clifft.svm_backend())"
+            &&
+            python {project}/tools/ci/audit_python_exports.py
 
       # QEMU smoke against the just-built Linux x86_64 wheel. Catches
       # AVX-512 leakage into the AVX-2 dispatch path (would SIGILL the

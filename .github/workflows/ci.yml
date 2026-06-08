@@ -184,6 +184,9 @@ jobs:
       - name: Install Python package
         run: uv pip install -e ".[dev]"
 
+      - name: Audit Python extension exports
+        run: uv run python tools/ci/audit_python_exports.py
+
       - name: Run Python tests (default ISA)
         run: uv run pytest tests/python/ -v
 
@@ -252,6 +255,9 @@ jobs:
         run: |
           uv venv .smoke-venv
           uv pip install --python .smoke-venv -e ".[dev]"
+
+      - name: Audit Python extension exports
+        run: .smoke-venv/bin/python tools/ci/audit_python_exports.py
 
       - name: Install qemu-user
         run: sudo apt-get install -y qemu-user
@@ -335,6 +341,9 @@ jobs:
 
       - name: Install Python package
         run: uv pip install -e ".[dev]"
+
+      - name: Audit Python extension exports
+        run: uv run python tools/ci/audit_python_exports.py
 
       - name: Run Python tests
         run: uv run pytest tests/python/ -v
