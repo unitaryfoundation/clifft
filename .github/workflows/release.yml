@@ -254,7 +254,7 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
       - name: Install clifft and docs deps
-        run: uv sync --frozen --group docs
+        run: uv sync --locked --group docs
 
       - name: Build versioned playground
         run: |
@@ -271,14 +271,14 @@ jobs:
         run: |
           VERSION="${GITHUB_REF_NAME#v}"
           SITE_URL="https://unitaryfoundation.github.io/clifft/${VERSION}/" \
-            uv run --group docs mike deploy --push "${VERSION}"
+            uv run --locked --group docs mike deploy --push "${VERSION}"
 
       - name: Decide whether to update stable docs
         id: stable
         run: |
           VERSION="${GITHUB_REF_NAME#v}"
-          uv run --group docs mike list --json > /tmp/mike-list.json || echo '[]' > /tmp/mike-list.json
-          VERSION="${VERSION}" uv run --group docs python - <<'PY' >> "${GITHUB_OUTPUT}"
+          uv run --locked --group docs mike list --json > /tmp/mike-list.json || echo '[]' > /tmp/mike-list.json
+          VERSION="${VERSION}" uv run --locked --group docs python - <<'PY' >> "${GITHUB_OUTPUT}"
           import json
           import os
           from pathlib import Path
@@ -316,8 +316,8 @@ jobs:
         if: steps.stable.outputs.update == 'true'
         run: |
           SITE_URL=https://unitaryfoundation.github.io/clifft/stable/ \
-            uv run --group docs mike deploy --push stable
-          uv run --group docs mike set-default --push stable
+            uv run --locked --group docs mike deploy --push stable
+          uv run --locked --group docs mike set-default --push stable
 
       - name: Build root stable playground
         if: steps.stable.outputs.update == 'true'

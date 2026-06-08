@@ -53,10 +53,10 @@ jobs:
           enable-cache: true
 
       - name: Install clifft and docs deps
-        run: uv sync --frozen --group docs
+        run: uv sync --locked --group docs
 
       - name: Build docs
-        run: uv run --group docs mkdocs build --strict
+        run: uv run --locked --group docs mkdocs build --strict
         env:
           SITE_URL: https://unitaryfoundation.github.io/clifft/pr-preview/pr-${{ github.event.number }}/
 

@@ -49,6 +49,9 @@ jobs:
           enable-cache: true
           python-version: "3.12"
 
+      - name: Check uv lockfile
+        run: uv lock --check
+
       - name: Cache pre-commit
         uses: actions/cache@v4
         with:
@@ -182,18 +185,18 @@ jobs:
         shell: bash
 
       - name: Install Python package
-        run: uv pip install -e ".[dev]"
+        run: uv sync --locked
 
       - name: Run Python tests (default ISA)
-        run: uv run pytest tests/python/ -v
+        run: uv run --locked pytest tests/python/ -v
 
       - name: Run Python tests (scalar ISA)
         env:
           CLIFFT_FORCE_ISA: scalar
-        run: uv run pytest tests/python/ -v
+        run: uv run --locked pytest tests/python/ -v
 
       - name: Test documentation code examples
-        run: uv run pytest --codeblocks docs/ README.md -v
+        run: uv run --locked pytest --codeblocks docs/ README.md -v
 
   release-cpp-smoke:
     needs: lint
@@ -251,7 +254,8 @@ jobs:
           SKBUILD_CMAKE_BUILD_TYPE: Release
         run: |
           uv venv .smoke-venv
-          uv pip install --python .smoke-venv -e ".[dev]"
+          . .smoke-venv/bin/activate
+          uv sync --locked --active --no-dev
 
       - name: Install qemu-user
         run: sudo apt-get install -y qemu-user
@@ -334,7 +338,7 @@ jobs:
         shell: bash
 
       - name: Install Python package
-        run: uv pip install -e ".[dev]"
+        run: uv sync --locked
 
       - name: Run Python tests
-        run: uv run pytest tests/python/ -v
+        run: uv run --locked pytest tests/python/ -v
