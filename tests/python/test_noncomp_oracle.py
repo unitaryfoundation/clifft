@@ -133,3 +133,4 @@ def test_survivor_marginal_equals_partial_trace():
     bell = oracle.apply_cx(oracle.apply_1q(oracle.zero_state(2), "H", 0, 2), 0, 1, 2)
     expected_survivor = oracle.marginal_one_after_trace_out(bell, lost=0, survivor=1, n=2)
     assert abs(_p1(r, 1) - expected_survivor) < BAND  # survivor (M 1) == partial trace
+    assert abs(_p1(r, 0) - 0.5) < BAND  # lost record (M 0) follows the [0.5, 0.5] classifier

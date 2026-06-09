@@ -86,9 +86,14 @@ def reduced_density(
 def marginal_one_after_trace_out(
     state: npt.NDArray[np.complex128], lost: int, survivor: int, n: int
 ) -> float:
-    """P(survivor Z = 1) after tracing out the `lost` qubit (a partial trace)."""
-    # Tracing out one qubit then reading another reduces to the survivor's own
-    # reduced density matrix (the trace is linear and the lost qubit factors out
-    # of the survivor marginal), so reuse reduced_density on the survivor.
+    """P(survivor Z = 1) after the `lost` qubit is traced out.
+
+    The survivor's single-qubit marginal is its reduced density matrix, which
+    traces out every other qubit regardless, so the result does not depend on
+    which other qubit is named `lost`. The parameter documents the scenario
+    (lose `lost`, read `survivor`) and must differ from `survivor`.
+    """
+    if lost == survivor:
+        raise ValueError("lost and survivor must be different qubits")
     rho = reduced_density(state, survivor, n)
     return float(np.real(rho[1, 1]))
