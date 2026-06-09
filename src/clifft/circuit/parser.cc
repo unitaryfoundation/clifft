@@ -317,6 +317,12 @@ class Parser {
             case GateType::ELSE_CORRELATED_ERROR:
                 parse_correlated_error(gate, rest, line_num, circuit, args);
                 break;
+            case GateType::SPP:
+            case GateType::SPP_DAG:
+            case GateType::TPP:
+            case GateType::TPP_DAG:
+                parse_pauli_product_gate(gate, rest, line_num, circuit);
+                break;
             case GateType::DETECTOR:
                 parse_detector(rest, line_num, circuit);
                 break;
@@ -1141,6 +1147,128 @@ class Parser {
         auto pauli_targets = parse_pauli_product(product_str, "R_PAULI", line_num, circuit);
 
         circuit.nodes.push_back({GateType::R_PAULI, std::move(pauli_targets), args, line_num});
+    }
+
+    // Parse SPP/SPP_DAG/TPP/TPP_DAG with Pauli products.
+    // Each whitespace-separated product is like "X0*Z1" or "!X0*Y1".
+    // The '!' prefix on a product inverts the gate type (SPP -> SPP_DAG, TPP -> TPP_DAG).
+    void parse_pauli_product_gate(GateType base_gate, std::string_view targets_str,
+                                  uint32_t line_num, Circuit& circuit) {
+        std::string_view remaining = targets_str;
+        uint32_t product_count = 0;
+
+        while (true) {
+            std::string_view product_str = next_token(remaining);
+            if (product_str.empty())
+                break;
+
+            if (product_count >= kMaxTargetsPerInstruction) {
+                throw ParseError("Too many products (limit: " +
+                                     std::to_string(kMaxTargetsPerInstruction) + ")",
+                                 line_num);
+            }
+            product_count++;
+
+            // Check for '!' prefix to invert gate type.
+            GateType gate = base_gate;
+            if (!product_str.empty() && product_str[0] == '!') {
+                product_str.remove_prefix(1);
+                switch (base_gate) {
+                    case GateType::SPP:
+                        gate = GateType::SPP_DAG;
+                        break;
+                    case GateType::SPP_DAG:
+                        gate = GateType::SPP;
+                        break;
+                    case GateType::TPP:
+                        gate = GateType::TPP_DAG;
+                        break;
+                    case GateType::TPP_DAG:
+                        gate = GateType::TPP;
+                        break;
+                    default:
+                        break;
+                }
+            }
+
+            // Parse Pauli product like "X0*Z1".
+            std::vector<Target> pauli_targets;
+            std::unordered_set<uint32_t> seen_qubits;
+
+            size_t pos = 0;
+            while (pos < product_str.size()) {
+                if (product_str[pos] == '*') {
+                    if (pos == 0 || pos + 1 >= product_str.size() || product_str[pos + 1] == '*') {
+                        throw ParseError("Malformed Pauli product: misplaced '*'", line_num);
+                    }
+                    pos++;
+                    continue;
+                }
+
+                char pauli_char = product_str[pos];
+                uint32_t pauli_flag;
+                switch (pauli_char) {
+                    case 'X':
+                        pauli_flag = Target::kPauliX;
+                        break;
+                    case 'Y':
+                        pauli_flag = Target::kPauliY;
+                        break;
+                    case 'Z':
+                        pauli_flag = Target::kPauliZ;
+                        break;
+                    default:
+                        throw ParseError("Invalid Pauli in " + std::string(gate_name(gate)) +
+                                             ": " + std::string(1, pauli_char),
+                                         line_num);
+                }
+                pos++;
+
+                size_t num_start = pos;
+                while (pos < product_str.size() && std::isdigit(product_str[pos])) {
+                    pos++;
+                }
+
+                if (num_start == pos) {
+                    throw ParseError("Expected qubit index after Pauli letter", line_num);
+                }
+
+                uint32_t qubit;
+                if (!parse_uint(
+                        std::string_view(product_str).substr(num_start, pos - num_start), qubit)) {
+                    throw ParseError("Invalid qubit index in Pauli product", line_num);
+                }
+
+                if (qubit >= (1u << 28)) {
+                    throw ParseError("Qubit index too large (must be < 2^28)", line_num);
+                }
+
+                if (!seen_qubits.insert(qubit).second) {
+                    throw ParseError("Duplicate qubit in Pauli product", line_num);
+                }
+
+                if (pauli_targets.size() >= kMaxTargetsPerInstruction) {
+                    throw ParseError("Too many Pauli terms in product (limit: " +
+                                         std::to_string(kMaxTargetsPerInstruction) + ")",
+                                     line_num);
+                }
+
+                pauli_targets.push_back(Target::pauli(qubit, pauli_flag));
+                circuit.num_qubits = std::max(circuit.num_qubits, qubit + 1);
+            }
+
+            if (pauli_targets.empty()) {
+                throw ParseError("Empty Pauli product", line_num);
+            }
+
+            // Emit one AstNode per product.
+            circuit.nodes.push_back({gate, std::move(pauli_targets), {}, line_num});
+        }
+
+        if (product_count == 0) {
+            throw ParseError(std::string(gate_name(base_gate)) + " requires at least one Pauli product",
+                             line_num);
+        }
     }
 
     // Parse DETECTOR with rec[-k] targets.

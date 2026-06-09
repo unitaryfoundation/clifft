@@ -131,6 +131,12 @@ enum class GateType : uint16_t {
     // Annotations
     TICK,  // Timing layer marker (no-op)
 
+    // Pauli-product phase gates
+    SPP,      // Pauli product phase (Clifford, like S on a Pauli product)
+    SPP_DAG,  // Inverse Pauli product phase (Clifford)
+    TPP,      // Pauli product pi/8 gate (non-Clifford, like T on a Pauli product)
+    TPP_DAG,  // Inverse Pauli product pi/8 gate (non-Clifford)
+
     // Simulation-only probes
     EXP_VAL,  // Non-destructive expectation value
 
@@ -267,6 +273,11 @@ inline constexpr GateTraits kGateTraitsData[] = {
     {.arity = A, .name = "DETECTOR"},
     {.arity = A, .name = "OBSERVABLE_INCLUDE"},
     {.arity = A, .name = "TICK"},
+    // Pauli-product phase gates
+    {.arity = ML, .clifford = true, .name = "SPP"},
+    {.arity = ML, .clifford = true, .name = "SPP_DAG"},
+    {.arity = ML, .name = "TPP"},
+    {.arity = ML, .name = "TPP_DAG"},
     // Simulation-only probes
     {.arity = ML, .name = "EXP_VAL"},
     // Sentinel

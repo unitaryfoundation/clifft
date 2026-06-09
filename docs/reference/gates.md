@@ -225,4 +225,3 @@ Results are available via `SampleResult.exp_vals` (shape `(shots, num_exp_vals)`
 |------|----------|--------|
 | `HERALDED_ERASE` | Noise | Heralded erasure not modeled |
 | `HERALDED_PAULI_CHANNEL_1` | Noise | Heralded channel not modeled |
-| `SPP`, `SPP_DAG` | Pauli product phase | Generalized S/S_DAG gate over Pauli products |
