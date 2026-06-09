@@ -123,6 +123,45 @@ def define_env(env: Any) -> None:
             ),
         },
         {
+            "name": "McrReorderPass",
+            "kind": "HIR",
+            "default_enabled": False,
+            "python_name": "McrReorderPass",
+            "summary": "Experimental MCR reordering for global T-count reduction.",
+            "detail": (
+                "Bounded multiplicative-commutator-relation reordering on "
+                "contiguous T-gate windows to expose same-axis fusion that "
+                "PeepholeFusionPass cannot reach locally. Opt-in prototype "
+                "for issue #40; not in the default pipeline."
+            ),
+        },
+        {
+            "name": "ToddPhasePass",
+            "kind": "HIR",
+            "default_enabled": False,
+            "python_name": "ToddPhasePass",
+            "summary": "Experimental size-capped TODD on commuting T clusters.",
+            "detail": (
+                "Extracts commuting phase-polynomial clusters within T windows, "
+                "builds a GF(2) gate-synthesis matrix from HIR Pauli masks, and "
+                "applies a size-capped TODD subset to reduce odd-parity T count. "
+                "Opt-in prototype for issue #40; not in the default pipeline."
+            ),
+        },
+        {
+            "name": "GlobalTcountPass",
+            "kind": "HIR",
+            "default_enabled": False,
+            "python_name": "GlobalTcountPass",
+            "summary": "Experimental global T-count pass (MCR + TODD).",
+            "detail": (
+                "Runs McrReorderPass then ToddPhasePass in one opt-in pass. "
+                "Intended usage: PeepholeFusionPass, GlobalTcountPass, "
+                "PeepholeFusionPass. Prototype for issue #40; not in the "
+                "default pipeline."
+            ),
+        },
+        {
             "name": "NoiseBlockPass",
             "kind": "Bytecode",
             "default_enabled": True,

@@ -14,7 +14,13 @@ add_library(clifft_core STATIC
     optimizer/hir_pass_manager.cc
     optimizer/drop_non_unitary_pass.cc
     optimizer/commutation.cc
+    optimizer/gf2_phase.cc
+    optimizer/global_tcount_pass.cc
+    optimizer/mcr_reorder.cc
+    optimizer/pauli_axis.cc
     optimizer/peephole.cc
+    optimizer/todd_phase_pass.cc
+    optimizer/virtual_clifford.cc
     optimizer/pass_factory.cc
     optimizer/remove_noise_pass.cc
     optimizer/statevector_squeeze_pass.cc

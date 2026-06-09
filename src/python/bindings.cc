@@ -6,6 +6,9 @@
 #include "clifft/optimizer/bytecode_pass.h"
 #include "clifft/optimizer/drop_non_unitary_pass.h"
 #include "clifft/optimizer/expand_t_pass.h"
+#include "clifft/optimizer/global_tcount_pass.h"
+#include "clifft/optimizer/mcr_reorder.h"
+#include "clifft/optimizer/todd_phase_pass.h"
 #include "clifft/optimizer/hir_pass_manager.h"
 #include "clifft/optimizer/multi_gate_pass.h"
 #include "clifft/optimizer/noise_block_pass.h"
@@ -501,6 +504,48 @@ NB_MODULE(_clifft_core, m) {
         "Drops non-evolution HIR ops so the remaining program is a unitary skeleton.\n"
         "Not included in the default pass list and not semantics-preserving.")
         .def(nb::init<>());
+
+    nb::class_<clifft::McrReorderPass, clifft::HirPass>(
+        m, "McrReorderPass",
+        "Experimental MCR reordering for global T-count reduction (issue #40).\n"
+        "Not included in the default pass list.")
+        .def(nb::init<>())
+        .def_prop_ro("window_scans", [](const clifft::McrReorderPass& p) {
+            return p.stats().window_scans;
+        })
+        .def_prop_ro("quadruples_found", [](const clifft::McrReorderPass& p) {
+            return p.stats().quadruples_found;
+        })
+        .def_prop_ro("swaps_applied", [](const clifft::McrReorderPass& p) {
+            return p.stats().swaps_applied;
+        })
+        .def_prop_ro("merges", [](const clifft::McrReorderPass& p) { return p.stats().merges; })
+        .def_prop_ro("t_removed", [](const clifft::McrReorderPass& p) {
+            return p.stats().t_removed;
+        });
+
+    nb::class_<clifft::ToddPhasePass, clifft::HirPass>(
+        m, "ToddPhasePass",
+        "Experimental size-capped TODD on commuting T clusters (issue #40).\n"
+        "Not included in the default pass list.")
+        .def(nb::init<>())
+        .def_prop_ro("blocks_optimized", &clifft::ToddPhasePass::blocks_optimized)
+        .def_prop_ro("t_removed", &clifft::ToddPhasePass::t_removed);
+
+    nb::class_<clifft::GlobalTcountPass, clifft::HirPass>(
+        m, "GlobalTcountPass",
+        "Experimental global T-count pass: MCR reordering then TODD (issue #40).\n"
+        "Not included in the default pass list. Intended pipeline:\n"
+        "PeepholeFusionPass -> GlobalTcountPass -> PeepholeFusionPass.")
+        .def(nb::init<>())
+        .def_prop_ro("t_gates_before", &clifft::GlobalTcountPass::t_gates_before)
+        .def_prop_ro("t_gates_after", &clifft::GlobalTcountPass::t_gates_after)
+        .def_prop_ro("mcr_swaps_applied",
+                     [](const clifft::GlobalTcountPass& p) { return p.mcr_stats().swaps_applied; })
+        .def_prop_ro("mcr_t_removed",
+                     [](const clifft::GlobalTcountPass& p) { return p.mcr_stats().t_removed; })
+        .def_prop_ro("todd_blocks", &clifft::GlobalTcountPass::todd_blocks)
+        .def_prop_ro("todd_t_removed", &clifft::GlobalTcountPass::todd_t_removed);
 
     m.def(
         "compute_reference_syndrome",
