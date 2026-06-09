@@ -1,5 +1,6 @@
 #include "clifft/optimizer/global_tcount_pass.h"
 #include "clifft/optimizer/mcr_reorder.h"
+#include "clifft/optimizer/pass_factory.h"
 #include "clifft/optimizer/pass_registry.h"
 #include "clifft/optimizer/peephole.h"
 #include "clifft/optimizer/todd_phase_pass.h"
