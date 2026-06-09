@@ -7,7 +7,7 @@ import pytest
 from conftest import assert_statevectors_equal, random_clifford_t_circuit
 
 import clifft
-from tools.eval.global_tcount_benchmarks import BENCHMARKS
+from tools.eval.global_tcount_benchmarks import BENCHMARKS, BenchmarkCircuit
 
 
 def _compile_with_passes(circuit: str, *extra: clifft.HirPass) -> clifft.Program:
@@ -28,14 +28,14 @@ def _statevector(prog: clifft.Program) -> np.ndarray:
 
 
 @pytest.mark.parametrize("bench", BENCHMARKS[:5], ids=lambda b: b.name)
-def test_global_pass_preserves_statevector(bench) -> None:
+def test_global_pass_preserves_statevector(bench: BenchmarkCircuit) -> None:
     ref = _statevector(_compile_with_passes(bench.circuit))
     opt = _statevector(_compile_with_passes(bench.circuit, clifft.GlobalTcountPass()))
     assert_statevectors_equal(opt, ref, msg=bench.name)
 
 
 @pytest.mark.parametrize("bench", BENCHMARKS[:5], ids=lambda b: b.name)
-def test_mcr_only_preserves_statevector(bench) -> None:
+def test_mcr_only_preserves_statevector(bench: BenchmarkCircuit) -> None:
     ref = _statevector(_compile_with_passes(bench.circuit))
     opt = _statevector(_compile_with_passes(bench.circuit, clifft.McrReorderPass()))
     assert_statevectors_equal(opt, ref, msg=f"mcr:{bench.name}")

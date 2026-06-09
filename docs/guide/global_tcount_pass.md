@@ -1,3 +1,5 @@
+<!--pytest-codeblocks:skipfile-->
+
 # Experimental Global T-Count Pass (Issue #40)
 
 Prototype opt-in HIR passes exploring whether **global** T-count reduction is
@@ -55,8 +57,8 @@ pm.add(clifft.ToddPhasePass())    # TODD only
 ## Evaluation
 
 ```bash
-uv run python tools/eval/run_global_tcount_eval.py
-uv run python tools/eval/run_global_tcount_eval.py --check-equivalence
+python tools/eval/run_global_tcount_eval.py
+python tools/eval/run_global_tcount_eval.py --check-equivalence
 ```
 
 The harness reports baseline, peephole-only, MCR-only, TODD-only, and full-pass

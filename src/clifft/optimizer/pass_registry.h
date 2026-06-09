@@ -6,7 +6,6 @@
 #include "clifft/optimizer/global_tcount_pass.h"
 #include "clifft/optimizer/hir_pass.h"
 #include "clifft/optimizer/mcr_reorder.h"
-#include "clifft/optimizer/todd_phase_pass.h"
 #include "clifft/optimizer/multi_gate_pass.h"
 #include "clifft/optimizer/noise_block_pass.h"
 #include "clifft/optimizer/peephole.h"
@@ -15,6 +14,7 @@
 #include "clifft/optimizer/statevector_squeeze_pass.h"
 #include "clifft/optimizer/swap_meas_pass.h"
 #include "clifft/optimizer/tile_axis_fusion_pass.h"
+#include "clifft/optimizer/todd_phase_pass.h"
 
 #include <cstddef>
 #include <cstdint>

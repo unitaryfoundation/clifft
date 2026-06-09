@@ -7,9 +7,8 @@
 #include "clifft/optimizer/drop_non_unitary_pass.h"
 #include "clifft/optimizer/expand_t_pass.h"
 #include "clifft/optimizer/global_tcount_pass.h"
-#include "clifft/optimizer/mcr_reorder.h"
-#include "clifft/optimizer/todd_phase_pass.h"
 #include "clifft/optimizer/hir_pass_manager.h"
+#include "clifft/optimizer/mcr_reorder.h"
 #include "clifft/optimizer/multi_gate_pass.h"
 #include "clifft/optimizer/noise_block_pass.h"
 #include "clifft/optimizer/pass_factory.h"
@@ -19,6 +18,7 @@
 #include "clifft/optimizer/statevector_squeeze_pass.h"
 #include "clifft/optimizer/swap_meas_pass.h"
 #include "clifft/optimizer/tile_axis_fusion_pass.h"
+#include "clifft/optimizer/todd_phase_pass.h"
 #include "clifft/svm/svm.h"
 #include "clifft/util/config.h"
 #include "clifft/util/introspection.h"
@@ -510,19 +510,15 @@ NB_MODULE(_clifft_core, m) {
         "Experimental MCR reordering for global T-count reduction (issue #40).\n"
         "Not included in the default pass list.")
         .def(nb::init<>())
-        .def_prop_ro("window_scans", [](const clifft::McrReorderPass& p) {
-            return p.stats().window_scans;
-        })
-        .def_prop_ro("quadruples_found", [](const clifft::McrReorderPass& p) {
-            return p.stats().quadruples_found;
-        })
-        .def_prop_ro("swaps_applied", [](const clifft::McrReorderPass& p) {
-            return p.stats().swaps_applied;
-        })
+        .def_prop_ro("window_scans",
+                     [](const clifft::McrReorderPass& p) { return p.stats().window_scans; })
+        .def_prop_ro("quadruples_found",
+                     [](const clifft::McrReorderPass& p) { return p.stats().quadruples_found; })
+        .def_prop_ro("swaps_applied",
+                     [](const clifft::McrReorderPass& p) { return p.stats().swaps_applied; })
         .def_prop_ro("merges", [](const clifft::McrReorderPass& p) { return p.stats().merges; })
-        .def_prop_ro("t_removed", [](const clifft::McrReorderPass& p) {
-            return p.stats().t_removed;
-        });
+        .def_prop_ro("t_removed",
+                     [](const clifft::McrReorderPass& p) { return p.stats().t_removed; });
 
     nb::class_<clifft::ToddPhasePass, clifft::HirPass>(
         m, "ToddPhasePass",

@@ -22,7 +22,6 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 import clifft  # noqa: E402
-
 from tools.eval.global_tcount_benchmarks import BENCHMARKS, BenchmarkCircuit  # noqa: E402
 
 
