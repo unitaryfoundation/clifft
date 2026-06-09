@@ -123,6 +123,32 @@ def define_env(env: Any) -> None:
             ),
         },
         {
+            "name": "McrTcountPass",
+            "kind": "HIR",
+            "default_enabled": False,
+            "python_name": "McrTcountPass",
+            "summary": "Bounded MCR reordering on contiguous T-gate windows.",
+            "detail": (
+                "Opt-in phase-1 pass for issue #40 evaluation. Applies bounded "
+                "multiplicative-commutator-relation reordering to expose same-axis "
+                "peephole fusion. Disabled by default; run between PeepholeFusionPass "
+                "sweeps."
+            ),
+        },
+        {
+            "name": "TohpePhasePass",
+            "kind": "HIR",
+            "default_enabled": False,
+            "python_name": "TohpePhasePass",
+            "summary": "Size-capped TOHPE on commuting T-gate blocks.",
+            "detail": (
+                "Opt-in phase-2 pass for issue #40 evaluation. Segments commuting "
+                "T_GATE blocks, builds the GF(2) parity table from Pauli masks, and "
+                "applies TOHPE duplicate-and-destroy (Vandaele 2024). Disabled by "
+                "default; run between PeepholeFusionPass sweeps."
+            ),
+        },
+        {
             "name": "PhasePolynomialPass",
             "kind": "HIR",
             "default_enabled": False,

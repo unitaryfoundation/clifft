@@ -4,7 +4,6 @@
 #include "clifft/util/mask_view.h"
 
 #include <bit>
-
 #include <cassert>
 #include <cstdint>
 #include <vector>
@@ -48,7 +47,6 @@ bool can_swap(const HeisenbergOp& left, const HeisenbergOp& right, const HirModu
 /// is_dagger=false means S; is_dagger=true means S_dag.
 /// deleted[k] skips ops that have already been removed from this pass's sweep.
 void apply_virtual_s_downstream(HirModule& hir, size_t start_idx, MaskView x_v, MaskView z_v,
-                                 bool sign_v, bool is_dagger,
-                                 const std::vector<uint8_t>& deleted);
+                                bool sign_v, bool is_dagger, const std::vector<uint8_t>& deleted);
 
 }  // namespace clifft

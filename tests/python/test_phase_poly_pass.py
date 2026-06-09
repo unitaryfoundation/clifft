@@ -6,11 +6,21 @@ increases T count and preserves statevectors on small Clifford+T circuits.
 
 from __future__ import annotations
 
+import sys
+from collections.abc import Callable
+from pathlib import Path
+
 import numpy as np
 import pytest
 from conftest import assert_statevectors_equal, random_clifford_t_circuit
 
 import clifft
+
+_EVAL_SCRIPTS = Path(__file__).resolve().parents[2] / "docs" / "guide" / "scripts"
+if str(_EVAL_SCRIPTS) not in sys.path:
+    sys.path.insert(0, str(_EVAL_SCRIPTS))
+
+from phase_poly_evaluation import _build_real_world_examples  # noqa: E402
 
 
 def _pair_block(q0: int, q1: int) -> list[str]:
@@ -80,6 +90,40 @@ class TestPhasePolyStatevectorEquivalence:
         )
 
 
+class TestPhasePolyPerPhasePasses:
+    def test_mcr_pass_reduces_toggle_sandwich(self) -> None:
+        circuit = EVAL_EXAMPLES["toggle_sandwich"]
+        hir = clifft.trace(clifft.parse(circuit))
+        pm = clifft.HirPassManager()
+        pm.add(clifft.PeepholeFusionPass())
+        pm.add(clifft.McrTcountPass())
+        pm.add(clifft.PeepholeFusionPass())
+        pm.run(hir)
+        assert int(hir.num_t_gates) == 2
+
+    def test_tohpe_pass_reduces_surface_d3_t_gate(self) -> None:
+        stim_path = (
+            Path(__file__).resolve().parents[2]
+            / "docs"
+            / "guide"
+            / "circuits"
+            / "circuit_d3_t_gate_p0.001.stim"
+        )
+        circuit = stim_path.read_text()
+        hir_peep = clifft.trace(clifft.parse(circuit))
+        pm_peep = clifft.HirPassManager()
+        pm_peep.add(clifft.PeepholeFusionPass())
+        pm_peep.run(hir_peep)
+
+        hir = clifft.trace(clifft.parse(circuit))
+        pm = clifft.HirPassManager()
+        pm.add(clifft.PeepholeFusionPass())
+        pm.add(clifft.TohpePhasePass())
+        pm.add(clifft.PeepholeFusionPass())
+        pm.run(hir)
+        assert int(hir.num_t_gates) < int(hir_peep.num_t_gates)
+
+
 class TestPhasePolyMcrReduction:
     def test_toggle_sandwich_reduces_t_count(self) -> None:
         circuit = EVAL_EXAMPLES["toggle_sandwich"]
@@ -100,9 +144,31 @@ class TestPhasePolyTcountMonotonicity:
     @pytest.mark.parametrize("name,circuit", list(EVAL_EXAMPLES.items()))
     def test_never_increases_t_count(self, name: str, circuit: str) -> None:
         hir_peep = clifft.trace(clifft.parse(circuit))
-        clifft.HirPassManager().add(clifft.PeepholeFusionPass()).run(hir_peep)
+        pm_peep = clifft.HirPassManager()
+        pm_peep.add(clifft.PeepholeFusionPass())
+        pm_peep.run(hir_peep)
 
         hir_opt = clifft.trace(clifft.parse(circuit))
         _pass_manager().run(hir_opt)
 
         assert int(hir_opt.num_t_gates) <= int(hir_peep.num_t_gates), name
+
+
+REAL_WORLD_CASES = list(_build_real_world_examples())
+
+
+class TestPhasePolyRealWorldMonotonicity:
+    @pytest.mark.parametrize("name,category,builder", REAL_WORLD_CASES)
+    def test_never_increases_t_count(
+        self, name: str, category: str, builder: Callable[[], str]
+    ) -> None:
+        circuit = builder()
+        hir_peep = clifft.trace(clifft.parse(circuit))
+        pm_peep = clifft.HirPassManager()
+        pm_peep.add(clifft.PeepholeFusionPass())
+        pm_peep.run(hir_peep)
+
+        hir_opt = clifft.trace(clifft.parse(circuit))
+        _pass_manager().run(hir_opt)
+
+        assert int(hir_opt.num_t_gates) <= int(hir_peep.num_t_gates), f"{name} ({category})"

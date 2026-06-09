@@ -68,7 +68,7 @@ static bool gf2_rref(std::vector<uint64_t>& rows, int m) {
 // RHS = 1 appended to A_aug. Solving the augmented system by RREF then
 // reading off the pivot values (free variables set to 0) yields y.
 static bool tohpe_try_pair(const std::vector<uint64_t>& a_aug_base, int m, int a, int b,
-                            uint64_t& sol) {
+                           uint64_t& sol) {
     auto rows = a_aug_base;
     // Pair row: (e_a XOR e_b) * y = 1
     rows.push_back(((1ULL << a) ^ (1ULL << b)) | (1ULL << m));
@@ -184,8 +184,8 @@ static std::vector<CommutingBlock> find_commuting_blocks(const HirModule& hir,
 
         bool fits = true;
         for (size_t j : cur) {
-            if (anti_commute(hir.destab_mask(op), hir.stab_mask(op),
-                             hir.destab_mask(hir.ops[j]), hir.stab_mask(hir.ops[j]))) {
+            if (anti_commute(hir.destab_mask(op), hir.stab_mask(op), hir.destab_mask(hir.ops[j]),
+                             hir.stab_mask(hir.ops[j]))) {
                 fits = false;
                 break;
             }
@@ -205,22 +205,15 @@ static std::vector<CommutingBlock> find_commuting_blocks(const HirModule& hir,
 }  // namespace
 
 // =============================================================================
-// PhasePolynomialPass::run
+// TOHPE phase
 // =============================================================================
 
-void PhasePolynomialPass::run(HirModule& hir) {
-    t_reductions_ = 0;
-    blocks_optimized_ = 0;
-    mcr_stats_ = McrTcountStats{};
-    t_gates_before_ = hir.num_t_gates();
-
-    run_mcr_tcount(hir, mcr_stats_);
+void run_tohpe_phase(HirModule& hir, TohpePhaseStats& stats) {
+    stats = TohpePhaseStats{};
 
     // Single 64-bit column requires 2*nq <= 64.
-    if (hir.num_qubits > 32) {
-        t_gates_after_ = hir.num_t_gates();
+    if (hir.num_qubits > 32)
         return;
-    }
 
     const int n_bits = static_cast<int>(2 * hir.num_qubits);
     const uint32_t nq = hir.num_qubits;
@@ -302,7 +295,7 @@ void PhasePolynomialPass::run(HirModule& hir) {
             if (destroyed.empty())
                 continue;
             changed = true;
-            ++blocks_optimized_;
+            ++stats.blocks_optimized;
 
             // Apply S-gate residuals for each destroyed pair and mark deletions.
             for (auto [pa, pb] : destroyed) {
@@ -314,7 +307,7 @@ void PhasePolynomialPass::run(HirModule& hir) {
 
                 deleted[pos_a] = true;
                 deleted[pos_b] = true;
-                t_reductions_ += 2;
+                stats.t_reductions += 2;
 
                 // T+T_dag or T_dag+T cancel to identity: no Clifford residual.
                 int dir = (dag_a ? -1 : 1) + (dag_b ? -1 : 1);
@@ -358,7 +351,29 @@ void PhasePolynomialPass::run(HirModule& hir) {
         if (changed)
             compact_deleted_ops(hir, deleted);
     }
+}
 
+void TohpePhasePass::run(HirModule& hir) {
+    stats_ = TohpePhaseStats{};
+    run_tohpe_phase(hir, stats_);
+}
+
+// =============================================================================
+// PhasePolynomialPass::run
+// =============================================================================
+
+void PhasePolynomialPass::run(HirModule& hir) {
+    t_reductions_ = 0;
+    blocks_optimized_ = 0;
+    mcr_stats_ = McrTcountStats{};
+    t_gates_before_ = hir.num_t_gates();
+
+    run_mcr_tcount(hir, mcr_stats_);
+
+    TohpePhaseStats tohpe;
+    run_tohpe_phase(hir, tohpe);
+    t_reductions_ = tohpe.t_reductions;
+    blocks_optimized_ = tohpe.blocks_optimized;
     t_gates_after_ = hir.num_t_gates();
 }
 

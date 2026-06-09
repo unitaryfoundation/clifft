@@ -7,6 +7,7 @@
 #include "clifft/optimizer/drop_non_unitary_pass.h"
 #include "clifft/optimizer/expand_t_pass.h"
 #include "clifft/optimizer/hir_pass_manager.h"
+#include "clifft/optimizer/mcr_tcount.h"
 #include "clifft/optimizer/multi_gate_pass.h"
 #include "clifft/optimizer/noise_block_pass.h"
 #include "clifft/optimizer/pass_factory.h"
@@ -503,6 +504,34 @@ NB_MODULE(_clifft_core, m) {
         "Not included in the default pass list and not semantics-preserving.")
         .def(nb::init<>());
 
+    nb::class_<clifft::McrTcountPass, clifft::HirPass>(
+        m, "McrTcountPass",
+        "Bounded MCR reordering on contiguous T-gate windows. Opt-in only;\n"
+        "run between PeepholeFusionPass sweeps for per-phase evaluation.")
+        .def(nb::init<>())
+        .def(
+            "stats",
+            [](const clifft::McrTcountPass& p) {
+                nb::dict d;
+                const auto& s = p.stats();
+                d["window_scans"] = s.window_scans;
+                d["window_scans_over_lookahead_cap"] = s.window_scans_over_lookahead_cap;
+                d["quadruples_found"] = s.quadruples_found;
+                d["swaps_applied"] = s.swaps_applied;
+                d["merges"] = s.merges;
+                d["t_removed"] = s.t_removed;
+                return d;
+            },
+            "Statistics from the bounded MCR reordering phase.");
+
+    nb::class_<clifft::TohpePhasePass, clifft::HirPass>(
+        m, "TohpePhasePass",
+        "Size-capped TOHPE duplicate-and-destroy on commuting T-gate blocks.\n"
+        "Opt-in only; run between PeepholeFusionPass sweeps for per-phase evaluation.")
+        .def(nb::init<>())
+        .def_prop_ro("t_reductions", &clifft::TohpePhasePass::t_reductions)
+        .def_prop_ro("blocks_optimized", &clifft::TohpePhasePass::blocks_optimized);
+
     nb::class_<clifft::PhasePolynomialPass, clifft::HirPass>(
         m, "PhasePolynomialPass",
         "Experimental global T-count reduction: bounded MCR reordering plus TOHPE\n"
@@ -527,10 +556,9 @@ NB_MODULE(_clifft_core, m) {
             },
             "Statistics from the bounded MCR reordering phase.")
         .def("__repr__", [](const clifft::PhasePolynomialPass& p) {
-            return "PhasePolynomialPass(t_gates_before=" +
-                   std::to_string(p.t_gates_before()) + ", t_gates_after=" +
-                   std::to_string(p.t_gates_after()) + ", t_reductions=" +
-                   std::to_string(p.t_reductions()) + ")";
+            return "PhasePolynomialPass(t_gates_before=" + std::to_string(p.t_gates_before()) +
+                   ", t_gates_after=" + std::to_string(p.t_gates_after()) +
+                   ", t_reductions=" + std::to_string(p.t_reductions()) + ")";
         });
 
     m.def(

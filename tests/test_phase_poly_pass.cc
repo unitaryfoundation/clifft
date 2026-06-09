@@ -60,8 +60,8 @@ static void check_statevectors_equal(const std::vector<std::complex<double>>& a,
 }
 
 static void check_statevectors_equal_up_to_global_phase(
-    const std::vector<std::complex<double>>& opt,
-    const std::vector<std::complex<double>>& ref, double fidelity_tol = 1e-8) {
+    const std::vector<std::complex<double>>& opt, const std::vector<std::complex<double>>& ref,
+    double fidelity_tol = 1e-8) {
     REQUIRE(opt.size() == ref.size());
     std::complex<double> inner{0.0, 0.0};
     for (size_t i = 0; i < ref.size(); ++i)
@@ -205,7 +205,8 @@ TEST_CASE("PhasePolyPass: 32-qubit limit enforced", "[phase_poly]") {
     REQUIRE(pass.t_reductions() == 0);
 }
 
-TEST_CASE("PhasePolyPass: evaluation table on representative circuits", "[phase_poly][evaluation]") {
+TEST_CASE("PhasePolyPass: evaluation table on representative circuits",
+          "[phase_poly][evaluation]") {
     struct Row {
         const char* name;
         const char* circuit;
@@ -240,10 +241,13 @@ TEST_CASE("PhasePolyPass: evaluation table on representative circuits", "[phase_
 
 TEST_CASE("PhasePolyPass: registered as opt-in in pass registry", "[phase_poly]") {
     std::string json = clifft::pass_registry_json();
+    REQUIRE(json.find("McrTcountPass") != std::string::npos);
+    REQUIRE(json.find("TohpePhasePass") != std::string::npos);
     REQUIRE(json.find("PhasePolynomialPass") != std::string::npos);
 
-    auto pass = make_hir_pass("PhasePolynomialPass");
-    REQUIRE(pass != nullptr);
+    REQUIRE(make_hir_pass("McrTcountPass") != nullptr);
+    REQUIRE(make_hir_pass("TohpePhasePass") != nullptr);
+    REQUIRE(make_hir_pass("PhasePolynomialPass") != nullptr);
 }
 
 TEST_CASE("PhasePolyPass: MCR reduces toggle sandwich", "[phase_poly][mcr]") {
@@ -373,7 +377,7 @@ TEST_CASE("PhasePolyPass: randomized Clifford+T statevector oracle", "[phase_pol
                 if (q2 >= q1)
                     ++q2;
                 circuit += std::string(gates_2q[r2 / 3 % 3]) + " " + std::to_string(q1) + " " +
-                            std::to_string(q2) + "\n";
+                           std::to_string(q2) + "\n";
             } else {
                 uint64_t r2 = clifft::test::test_lcg(lcg);
                 int q = static_cast<int>(r2 % kNumQubits);

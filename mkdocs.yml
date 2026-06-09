@@ -101,6 +101,7 @@ nav:
     - "Tutorial: Surface Code": guide/surface-code.md
     - "Tutorial: Importance Sampling": guide/importance-sampling.md
     - "Benchmark: Clifft vs Qiskit": guide/benchmark.md
+    - "Global T-Count Optimization": guide/phase_polynomial_pass.md
   - Theory:
     - Overview: theory/overview.md
     - Architecture: theory/architecture.md

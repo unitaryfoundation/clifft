@@ -96,6 +96,9 @@ pm.add(clifft.PeepholeFusionPass())
 pm.run(hir)
 ```
 
+For experimental global T-count reduction see
+[Global T-Count Optimization](phase_polynomial_pass.md).
+
 ### 4. Back-End: Lowering to Bytecode
 
 `clifft.lower()` converts optimized HIR into an executable SVM program:

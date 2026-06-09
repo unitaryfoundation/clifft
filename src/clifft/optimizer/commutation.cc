@@ -37,8 +37,7 @@ inline void conjugate_pauli_by_S(MaskView x_p, MaskView z_p, bool sign_p, Mutabl
 }  // namespace
 
 void apply_virtual_s_downstream(HirModule& hir, size_t start_idx, MaskView x_v, MaskView z_v,
-                                 bool sign_v, bool is_dagger,
-                                 const std::vector<uint8_t>& deleted) {
+                                bool sign_v, bool is_dagger, const std::vector<uint8_t>& deleted) {
     for (size_t k = start_idx; k < hir.ops.size(); ++k) {
         if (deleted[k])
             continue;
