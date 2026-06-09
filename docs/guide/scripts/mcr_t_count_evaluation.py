@@ -23,6 +23,85 @@ def _pair_block(q0: int, q1: int) -> list[str]:
     ]
 
 
+def _fermionic_swap_network(num_qubits: int, layers: int) -> str:
+    lines: list[str] = []
+    for layer in range(layers):
+        start = layer % 2
+        for q in range(start, num_qubits - 1, 2):
+            lines.extend(_pair_block(q, q + 1))
+    return "\n".join(lines)
+
+
+def _fermionic_swap_network_onsite(num_qubits: int, layers: int) -> str:
+    lines: list[str] = []
+    for layer in range(layers):
+        for q in range(num_qubits):
+            lines.append(f"R_X(0.25) {q}")
+        start = layer % 2
+        for q in range(start, num_qubits - 1, 2):
+            lines.extend(_pair_block(q, q + 1))
+    return "\n".join(lines)
+
+
+def _fermionic_swap_network_hubbard(num_qubits: int, layers: int) -> str:
+    lines: list[str] = []
+    for layer in range(layers):
+        start = layer % 2
+        for q in range(start, num_qubits - 1, 2):
+            lines.extend(_pair_block(q, q + 1))
+            lines.append(f"R_ZZ(0.25) {q} {q + 1}")
+        for q in range(num_qubits):
+            lines.append(f"R_Z(0.25) {q}")
+    return "\n".join(lines)
+
+
+def _star_hub_entangler(num_qubits: int, rounds: int) -> str:
+    lines: list[str] = []
+    for _ in range(rounds):
+        for q in range(1, num_qubits):
+            lines.extend(_pair_block(0, q))
+    return "\n".join(lines)
+
+
+def _bell_pumping(rounds: int) -> str:
+    lines: list[str] = []
+    for _ in range(rounds):
+        lines.extend(_pair_block(0, 1))
+        lines.extend(_pair_block(2, 3))
+        lines.append("R_ZZ(0.25) 0 2")
+        lines.append("R_ZZ(0.25) 1 3")
+        lines.append("M 2")
+        lines.append("M 3")
+        lines.append("R 2")
+        lines.append("R 3")
+    return "\n".join(lines)
+
+
+def _inject_entangle_measure(rounds: int) -> str:
+    lines: list[str] = []
+    for _ in range(rounds):
+        lines.extend(_pair_block(3, 0))
+        lines.extend(_pair_block(3, 1))
+        lines.extend(_pair_block(3, 2))
+        lines.append("M 3")
+        lines.append("R 3")
+    return "\n".join(lines)
+
+
+def _inject_bell_cultivate(rounds: int) -> str:
+    lines: list[str] = []
+    for _ in range(rounds):
+        lines.extend(_pair_block(2, 3))
+        lines.extend(_pair_block(2, 0))
+        lines.extend(_pair_block(3, 1))
+        lines.append("R_ZZ(0.25) 0 1")
+        lines.append("M 2")
+        lines.append("M 3")
+        lines.append("R 2")
+        lines.append("R 3")
+    return "\n".join(lines)
+
+
 EXAMPLES = {
     "toggle_sandwich": "\n".join(
         [
@@ -70,6 +149,14 @@ EXAMPLES = {
     "two_disjoint_pairs_x2": "\n".join(
         _pair_block(0, 1) + _pair_block(2, 3) + _pair_block(0, 1) + _pair_block(2, 3)
     ),
+    "fermionic_swap_net_6_l3": _fermionic_swap_network(6, 3),
+    "fermionic_swap_net_8_l3": _fermionic_swap_network(8, 3),
+    "fermionic_swap_net_onsite_6_l3": _fermionic_swap_network_onsite(6, 3),
+    "fermionic_swap_net_hubbard_6_l3": _fermionic_swap_network_hubbard(6, 3),
+    "star_hub_4_l1": _star_hub_entangler(4, 1),
+    "bell_pumping_r2": _bell_pumping(2),
+    "inject_entangle_measure_r2": _inject_entangle_measure(2),
+    "inject_bell_cultivate_r2": _inject_bell_cultivate(2),
 }
 
 

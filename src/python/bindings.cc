@@ -505,19 +505,31 @@ NB_MODULE(_clifft_core, m) {
 
     nb::class_<clifft::ExperimentalMcrTCountPass, clifft::HirPass>(
         m, "ExperimentalMcrTCountPass",
-        "Experimental bounded MCR search that swaps commuting T-pairs to expose\n"
-        "same-axis T cancellations and Clifford fusions. Disabled by default.")
+        "Experimental bounded T-window search that tries exact four-gate block\n"
+        "swaps, then keeps only rewrites that lower the post-peephole T count.\n"
+        "Disabled by default.")
         .def(nb::init<>())
         .def_prop_ro("lookahead_cap", &clifft::ExperimentalMcrTCountPass::lookahead_cap)
         .def_prop_ro("window_scans", &clifft::ExperimentalMcrTCountPass::window_scans)
         .def_prop_ro("window_scans_over_lookahead_cap",
                      &clifft::ExperimentalMcrTCountPass::window_scans_over_lookahead_cap)
+        .def_prop_ro("candidates_considered",
+                     &clifft::ExperimentalMcrTCountPass::candidates_considered)
+        .def_prop_ro("merge_potential_rejects",
+                     &clifft::ExperimentalMcrTCountPass::merge_potential_rejects)
+        .def_prop_ro("equivalence_checks", &clifft::ExperimentalMcrTCountPass::equivalence_checks)
+        .def_prop_ro("equivalence_cache_hits",
+                     &clifft::ExperimentalMcrTCountPass::equivalence_cache_hits)
         .def_prop_ro("quadruples_found", &clifft::ExperimentalMcrTCountPass::quadruples_found)
         .def_prop_ro("swaps_applied", &clifft::ExperimentalMcrTCountPass::swaps_applied)
         .def_prop_ro("merges", &clifft::ExperimentalMcrTCountPass::merges)
         .def_prop_ro("t_removed", &clifft::ExperimentalMcrTCountPass::t_removed)
         .def("__repr__", [](const clifft::ExperimentalMcrTCountPass& p) {
             return "ExperimentalMcrTCountPass(window_scans=" + std::to_string(p.window_scans()) +
+                   ", candidates_considered=" + std::to_string(p.candidates_considered()) +
+                   ", merge_potential_rejects=" + std::to_string(p.merge_potential_rejects()) +
+                   ", equivalence_checks=" + std::to_string(p.equivalence_checks()) +
+                   ", equivalence_cache_hits=" + std::to_string(p.equivalence_cache_hits()) +
                    ", quadruples_found=" + std::to_string(p.quadruples_found()) +
                    ", swaps_applied=" + std::to_string(p.swaps_applied()) +
                    ", merges=" + std::to_string(p.merges()) +

@@ -1,6 +1,7 @@
 #include "clifft/optimizer/experimental_mcr_t_count_pass.h"
 
 #include "clifft/optimizer/commutation.h"
+#include "clifft/optimizer/peephole.h"
 #include "clifft/util/constants.h"
 
 #include <algorithm>
@@ -12,6 +13,7 @@
 #include <numbers>
 #include <optional>
 #include <unordered_map>
+#include <unordered_set>
 #include <utility>
 #include <vector>
 
@@ -212,6 +214,17 @@ struct AxisKey {
     }
 };
 
+struct TGateKey {
+    std::vector<uint64_t> x_words;
+    std::vector<uint64_t> z_words;
+    bool effective_dagger = false;
+
+    bool operator==(const TGateKey& other) const {
+        return x_words == other.x_words && z_words == other.z_words &&
+               effective_dagger == other.effective_dagger;
+    }
+};
+
 struct AxisKeyHash {
     size_t operator()(const AxisKey& key) const {
         auto mix = [](size_t seed, uint64_t word) {
@@ -228,11 +241,31 @@ struct AxisKeyHash {
     }
 };
 
+struct TGateKeyHash {
+    size_t operator()(const TGateKey& key) const {
+        auto mix = [](size_t seed, uint64_t word) {
+            seed ^= std::hash<uint64_t>{}(word) + 0x9e3779b97f4a7c15ULL + (seed << 6) + (seed >> 2);
+            return seed;
+        };
+
+        size_t seed = key.x_words.size();
+        for (uint64_t word : key.x_words)
+            seed = mix(seed, word);
+        for (uint64_t word : key.z_words)
+            seed = mix(seed, word);
+        return mix(seed, static_cast<uint64_t>(key.effective_dagger));
+    }
+};
+
 struct McrCandidate {
     size_t a;
     size_t b;
     size_t c;
     size_t d;
+    size_t anchor_t_idx;
+    size_t b_t_idx;
+    size_t c_t_idx;
+    size_t d_t_idx;
     size_t window_start;
     size_t window_end;
 };
@@ -241,7 +274,6 @@ struct WindowInfo {
     size_t start;
     size_t end;
     std::vector<size_t> t_positions;
-    std::unordered_map<AxisKey, std::vector<size_t>, AxisKeyHash> t_indices_by_axis;
 };
 
 struct LocalFusionStats {
@@ -249,7 +281,49 @@ struct LocalFusionStats {
     size_t t_removed = 0;
 };
 
+struct SpanSwapKey {
+    std::vector<TGateKey> span;
+    size_t b_rel = 0;
+    size_t c_rel = 0;
+    size_t d_rel = 0;
+
+    bool operator==(const SpanSwapKey& other) const {
+        return b_rel == other.b_rel && c_rel == other.c_rel && d_rel == other.d_rel &&
+               span == other.span;
+    }
+};
+
+using SymbolicUnitary = std::unordered_map<AxisKey, std::complex<double>, AxisKeyHash>;
+using EquivalenceCache = std::unordered_map<SpanSwapKey, bool>;
+
 constexpr size_t kWindowSpanCap = 64;
+
+struct SpanSwapKeyHash {
+    size_t operator()(const SpanSwapKey& key) const {
+        auto mix = [](size_t seed, uint64_t word) {
+            seed ^= std::hash<uint64_t>{}(word) + 0x9e3779b97f4a7c15ULL + (seed << 6) + (seed >> 2);
+            return seed;
+        };
+
+        TGateKeyHash gate_hash;
+        size_t seed = key.span.size();
+        seed = mix(seed, key.b_rel);
+        seed = mix(seed, key.c_rel);
+        seed = mix(seed, key.d_rel);
+        for (const auto& gate : key.span)
+            seed = mix(seed, gate_hash(gate));
+        return seed;
+    }
+};
+
+struct MergePairHash {
+    size_t operator()(const std::pair<size_t, size_t>& pair) const {
+        size_t seed = std::hash<size_t>{}(pair.first);
+        seed ^=
+            std::hash<size_t>{}(pair.second) + 0x9e3779b97f4a7c15ULL + (seed << 6) + (seed >> 2);
+        return seed;
+    }
+};
 
 bool is_window_barrier(const HeisenbergOp& op) {
     switch (op.op_type()) {
@@ -267,29 +341,6 @@ bool is_window_barrier(const HeisenbergOp& op) {
             return true;
     }
     return true;
-}
-
-AxisKey make_axis_key(MaskView x, MaskView z) {
-    AxisKey key;
-    key.x_words.assign(x.words.begin(), x.words.end());
-    key.z_words.assign(z.words.begin(), z.words.end());
-    return key;
-}
-
-AxisKey xor_axis_key(const HirModule& hir, const HeisenbergOp& a, const HeisenbergOp& b,
-                     const HeisenbergOp& c) {
-    AxisKey key;
-    size_t words = hir.destab_mask(a).num_words();
-    key.x_words.resize(words);
-    key.z_words.resize(words);
-
-    for (size_t i = 0; i < words; ++i) {
-        key.x_words[i] =
-            hir.destab_mask(a).words[i] ^ hir.destab_mask(b).words[i] ^ hir.destab_mask(c).words[i];
-        key.z_words[i] =
-            hir.stab_mask(a).words[i] ^ hir.stab_mask(b).words[i] ^ hir.stab_mask(c).words[i];
-    }
-    return key;
 }
 
 int mul_phase_mod4(MaskView x1, MaskView z1, MaskView x2, MaskView z2) {
@@ -310,9 +361,44 @@ int mul_phase_mod4(MaskView x1, MaskView z1, MaskView x2, MaskView z2) {
     return ((phase % 4) + 4) % 4;
 }
 
-bool commute(const HirModule& hir, const HeisenbergOp& lhs, const HeisenbergOp& rhs) {
-    return !anti_commute(hir.destab_mask(lhs), hir.stab_mask(lhs), hir.destab_mask(rhs),
-                         hir.stab_mask(rhs));
+AxisKey identity_axis_key(size_t words) {
+    AxisKey key;
+    key.x_words.assign(words, 0);
+    key.z_words.assign(words, 0);
+    return key;
+}
+
+MaskView axis_x_view(const AxisKey& key) {
+    return MaskView{std::span<const uint64_t>(key.x_words)};
+}
+
+MaskView axis_z_view(const AxisKey& key) {
+    return MaskView{std::span<const uint64_t>(key.z_words)};
+}
+
+AxisKey xor_axis_key(const AxisKey& lhs, MaskView rhs_x, MaskView rhs_z) {
+    AxisKey key;
+    key.x_words.resize(lhs.x_words.size());
+    key.z_words.resize(lhs.z_words.size());
+
+    for (size_t i = 0; i < lhs.x_words.size(); ++i) {
+        key.x_words[i] = lhs.x_words[i] ^ rhs_x.words[i];
+        key.z_words[i] = lhs.z_words[i] ^ rhs_z.words[i];
+    }
+    return key;
+}
+
+std::complex<double> phase_factor_mod4(int phase_mod4) {
+    switch (phase_mod4 & 3) {
+        case 0:
+            return {1.0, 0.0};
+        case 1:
+            return {0.0, 1.0};
+        case 2:
+            return {-1.0, 0.0};
+        default:
+            return {0.0, -1.0};
+    }
 }
 
 bool distinct_axes(const HirModule& hir, const std::array<size_t, 4>& idxs) {
@@ -327,132 +413,188 @@ bool distinct_axes(const HirModule& hir, const std::array<size_t, 4>& idxs) {
     return true;
 }
 
-/// This prototype only rewrites uniform-direction quarter turns.
-bool same_t_direction(const HirModule& hir, const std::array<size_t, 4>& idxs) {
-    bool is_dagger = hir.ops[idxs[0]].is_dagger();
-    for (size_t i = 1; i < idxs.size(); ++i) {
-        if (hir.ops[idxs[i]].is_dagger() != is_dagger)
-            return false;
-    }
-    return true;
-}
+SymbolicUnitary expand_t_product_signature(const HirModule& hir, std::span<const size_t> idxs) {
+    constexpr double kQuarterTurn = std::numbers::pi / 8.0;
+    const std::complex<double> identity_coeff{std::cos(kQuarterTurn), 0.0};
+    const std::complex<double> t_coeff{0.0, -std::sin(kQuarterTurn)};
+    const std::complex<double> t_dag_coeff{0.0, std::sin(kQuarterTurn)};
 
-bool exact_mcr_product_relation(const HirModule& hir, const std::array<size_t, 4>& idxs) {
-    const auto& first_op = hir.ops[idxs[0]];
-    MaskView first_x = hir.destab_mask(first_op);
-    MaskView first_z = hir.stab_mask(first_op);
+    size_t words = hir.destab_mask(hir.ops[idxs[0]]).num_words();
+    SymbolicUnitary terms;
+    terms.emplace(identity_axis_key(words), std::complex<double>{1.0, 0.0});
 
-    std::vector<uint64_t> acc_x(first_x.words.begin(), first_x.words.end());
-    std::vector<uint64_t> acc_z(first_z.words.begin(), first_z.words.end());
-    MaskView acc_x_view{std::span<const uint64_t>(acc_x)};
-    MaskView acc_z_view{std::span<const uint64_t>(acc_z)};
+    for (size_t idx : idxs) {
+        const auto& op = hir.ops[idx];
+        MaskView x = hir.destab_mask(op);
+        MaskView z = hir.stab_mask(op);
+        bool effective_dagger = op.is_dagger() != hir.sign(op);
+        std::complex<double> axis_coeff = effective_dagger ? t_dag_coeff : t_coeff;
 
-    int phase_mod4 = hir.sign(first_op) ? 2 : 0;
-    for (size_t i = 1; i < idxs.size(); ++i) {
-        const auto& op = hir.ops[idxs[i]];
-        MaskView rhs_x = hir.destab_mask(op);
-        MaskView rhs_z = hir.stab_mask(op);
-        phase_mod4 = (phase_mod4 + (hir.sign(op) ? 2 : 0) +
-                      mul_phase_mod4(acc_x_view, acc_z_view, rhs_x, rhs_z)) %
-                     4;
-        for (size_t w = 0; w < acc_x.size(); ++w) {
-            acc_x[w] ^= rhs_x.words[w];
-            acc_z[w] ^= rhs_z.words[w];
+        SymbolicUnitary next_terms;
+        for (const auto& [axis, coeff] : terms) {
+            next_terms[axis] += coeff * identity_coeff;
+
+            int phase_mod4 = mul_phase_mod4(axis_x_view(axis), axis_z_view(axis), x, z);
+            AxisKey next_axis = xor_axis_key(axis, x, z);
+            next_terms[next_axis] += coeff * axis_coeff * phase_factor_mod4(phase_mod4);
         }
+
+        terms = std::move(next_terms);
     }
 
-    for (size_t w = 0; w < acc_x.size(); ++w) {
-        if (acc_x[w] != 0 || acc_z[w] != 0)
-            return false;
-    }
-    return phase_mod4 == 2;
+    return terms;
 }
 
-/// Bubble a candidate op left through commuting neighbors only.
-bool bubble_left(HirModule& hir, size_t from, size_t to, bool has_source_map) {
-    if (from < to)
+TGateKey t_gate_key(const HirModule& hir, const HeisenbergOp& op) {
+    TGateKey key;
+    MaskView x = hir.destab_mask(op);
+    MaskView z = hir.stab_mask(op);
+    key.x_words.assign(x.words.begin(), x.words.end());
+    key.z_words.assign(z.words.begin(), z.words.end());
+    key.effective_dagger = op.is_dagger() != hir.sign(op);
+    return key;
+}
+
+SpanSwapKey make_span_swap_key(const HirModule& hir, const WindowInfo& window, size_t anchor_t_idx,
+                               size_t d_t_idx, const McrCandidate& cand) {
+    SpanSwapKey key;
+    key.b_rel = cand.b_t_idx - anchor_t_idx;
+    key.c_rel = cand.c_t_idx - anchor_t_idx;
+    key.d_rel = cand.d_t_idx - anchor_t_idx;
+    key.span.reserve(d_t_idx - anchor_t_idx + 1);
+
+    for (size_t t_idx = anchor_t_idx; t_idx <= d_t_idx; ++t_idx) {
+        key.span.push_back(t_gate_key(hir, hir.ops[window.t_positions[t_idx]]));
+    }
+    return key;
+}
+
+bool equal_up_to_global_phase(const SymbolicUnitary& lhs, const SymbolicUnitary& rhs) {
+    constexpr double kEps = 1e-9;
+    std::complex<double> phase = {0.0, 0.0};
+    double best_mag = 0.0;
+
+    for (const auto& [axis, coeff_lhs] : lhs) {
+        auto it = rhs.find(axis);
+        if (it == rhs.end())
+            continue;
+        double mag_lhs = std::abs(coeff_lhs);
+        double mag_rhs = std::abs(it->second);
+        double mag = std::min(mag_lhs, mag_rhs);
+        if (mag <= std::max(best_mag, kEps))
+            continue;
+        phase = coeff_lhs / it->second;
+        best_mag = mag;
+    }
+
+    if (best_mag <= kEps)
         return false;
-    for (size_t k = from; k > to; --k) {
-        if (!can_swap(hir.ops[k - 1], hir.ops[k], hir))
-            return false;
-        std::swap(hir.ops[k - 1], hir.ops[k]);
-        if (has_source_map)
-            std::swap(hir.source_map[k - 1], hir.source_map[k]);
-    }
-    return true;
+    phase /= std::abs(phase);
+
+    auto compare_side = [&](const SymbolicUnitary& a, const SymbolicUnitary& b) {
+        for (const auto& [axis, coeff_a] : a) {
+            auto it = b.find(axis);
+            std::complex<double> coeff_b =
+                it == b.end() ? std::complex<double>{0.0, 0.0} : it->second;
+
+            if (std::abs(coeff_a) < kEps && std::abs(coeff_b) < kEps)
+                continue;
+            if (std::abs(coeff_a) < kEps || std::abs(coeff_b) < kEps)
+                return false;
+
+            if (std::abs(coeff_a - phase * coeff_b) > kEps)
+                return false;
+        }
+        return true;
+    };
+
+    return compare_side(lhs, rhs) && compare_side(rhs, lhs);
 }
 
-void fuse_same_axis_t_window(HirModule& hir, size_t window_start, size_t window_end,
-                             LocalFusionStats& stats) {
-    bool has_source_map = hir.source_map.size() == hir.ops.size();
-    bool changed = true;
+std::vector<size_t> swapped_span_indices(const WindowInfo& window, size_t anchor_t_idx,
+                                         size_t d_t_idx, const McrCandidate& cand) {
+    std::vector<size_t> span(window.t_positions.begin() + static_cast<std::ptrdiff_t>(anchor_t_idx),
+                             window.t_positions.begin() + static_cast<std::ptrdiff_t>(d_t_idx + 1));
+    size_t a_rel = 0;
+    size_t b_rel = cand.b_t_idx - cand.anchor_t_idx;
+    size_t c_rel = cand.c_t_idx - cand.anchor_t_idx;
+    size_t d_rel = cand.d_t_idx - cand.anchor_t_idx;
 
-    while (changed) {
-        changed = false;
-        size_t n = hir.ops.size();
-        std::vector<uint8_t> deleted(n, 0);
+    std::array<size_t, 4> orig{
+        span[a_rel],
+        span[b_rel],
+        span[c_rel],
+        span[d_rel],
+    };
+    span[a_rel] = orig[2];
+    span[b_rel] = orig[3];
+    span[c_rel] = orig[0];
+    span[d_rel] = orig[1];
+    return span;
+}
 
-        for (size_t i = window_start; i < window_end; ++i) {
-            if (deleted[i] || hir.ops[i].op_type() != OpType::T_GATE)
-                continue;
+bool exact_span_swap_rewrite_is_valid(const HirModule& hir, const WindowInfo& window,
+                                      size_t anchor_t_idx, size_t d_t_idx,
+                                      const McrCandidate& cand) {
+    std::vector<size_t> original(
+        window.t_positions.begin() + static_cast<std::ptrdiff_t>(anchor_t_idx),
+        window.t_positions.begin() + static_cast<std::ptrdiff_t>(d_t_idx + 1));
+    std::vector<size_t> swapped = swapped_span_indices(window, anchor_t_idx, d_t_idx, cand);
+    return equal_up_to_global_phase(expand_t_product_signature(hir, original),
+                                    expand_t_product_signature(hir, swapped));
+}
 
-            normalize_t_sign(hir, hir.ops[i], hir.global_weight);
-            auto destab_i = hir.destab_mask(hir.ops[i]);
-            auto stab_i = hir.stab_mask(hir.ops[i]);
+bool is_moved_op(size_t op_idx, const std::array<size_t, 4>& moved_ops) {
+    return std::find(moved_ops.begin(), moved_ops.end(), op_idx) != moved_ops.end();
+}
 
-            for (size_t j = i + 1; j < window_end; ++j) {
-                if (deleted[j])
-                    continue;
-                if (hir.ops[j].op_type() == OpType::T_GATE)
-                    normalize_t_sign(hir, hir.ops[j], hir.global_weight);
+std::unordered_set<std::pair<size_t, size_t>, MergePairHash> collect_reachable_merge_pairs(
+    const HirModule& hir, const std::vector<size_t>& order,
+    const std::array<size_t, 4>& moved_ops) {
+    std::unordered_set<std::pair<size_t, size_t>, MergePairHash> pairs;
 
-                const auto& op_i = hir.ops[i];
-                const auto& op_j = hir.ops[j];
+    for (size_t i = 0; i < order.size(); ++i) {
+        const auto& op_i = hir.ops[order[i]];
+        MaskView x_i = hir.destab_mask(op_i);
+        MaskView z_i = hir.stab_mask(op_i);
 
-                if (op_j.op_type() == OpType::T_GATE && hir.destab_mask(op_j) == destab_i &&
-                    hir.stab_mask(op_j) == stab_i) {
-                    int dir_i = op_i.is_dagger() ? -1 : 1;
-                    int dir_j = op_j.is_dagger() ? -1 : 1;
-                    int total = dir_i + dir_j;
-
-                    deleted[i] = true;
-                    deleted[j] = true;
-                    stats.t_removed += 2;
-                    ++stats.merges;
-
-                    if (total != 0) {
-                        bool s_is_dagger = (total == -2);
-                        apply_virtual_s_downstream(hir, j + 1, destab_i, stab_i, false, s_is_dagger,
-                                                   deleted);
-                    }
-
-                    changed = true;
-                    break;
-                }
-
-                if (is_t_gate_blocked(op_i, op_j, hir))
-                    break;
+        for (size_t j = i + 1; j < order.size(); ++j) {
+            const auto& op_j = hir.ops[order[j]];
+            if (hir.destab_mask(op_j) == x_i && hir.stab_mask(op_j) == z_i) {
+                if (is_moved_op(order[i], moved_ops) || is_moved_op(order[j], moved_ops))
+                    pairs.emplace(order[i], order[j]);
+                break;
             }
-        }
-
-        if (changed) {
-            size_t write = 0;
-            for (size_t read = 0; read < n; ++read) {
-                if (!deleted[read]) {
-                    if (write != read) {
-                        hir.ops[write] = hir.ops[read];
-                        if (has_source_map)
-                            hir.source_map[write] = std::move(hir.source_map[read]);
-                    }
-                    ++write;
-                }
-            }
-            hir.ops.erase(hir.ops.begin() + static_cast<std::ptrdiff_t>(write), hir.ops.end());
-            if (has_source_map)
-                hir.source_map.resize(write);
-            window_end = std::min(window_end, write);
+            if (anti_commute(x_i, z_i, hir.destab_mask(op_j), hir.stab_mask(op_j)))
+                break;
         }
     }
+
+    return pairs;
+}
+
+bool window_swap_has_merge_potential(const HirModule& hir, const WindowInfo& window,
+                                     const McrCandidate& cand) {
+    std::array<size_t, 4> orig{
+        window.t_positions[cand.anchor_t_idx],
+        window.t_positions[cand.b_t_idx],
+        window.t_positions[cand.c_t_idx],
+        window.t_positions[cand.d_t_idx],
+    };
+    auto original_pairs = collect_reachable_merge_pairs(hir, window.t_positions, orig);
+
+    std::vector<size_t> order = window.t_positions;
+    order[cand.anchor_t_idx] = orig[2];
+    order[cand.b_t_idx] = orig[3];
+    order[cand.c_t_idx] = orig[0];
+    order[cand.d_t_idx] = orig[1];
+
+    auto swapped_pairs = collect_reachable_merge_pairs(hir, order, orig);
+    for (const auto& pair : swapped_pairs) {
+        if (!original_pairs.contains(pair))
+            return true;
+    }
+    return false;
 }
 
 std::vector<WindowInfo> collect_windows(HirModule& hir) {
@@ -473,10 +615,6 @@ std::vector<WindowInfo> collect_windows(HirModule& hir) {
                 normalize_t_sign(hir, hir.ops[i], hir.global_weight);
                 size_t t_index = window.t_positions.size();
                 window.t_positions.push_back(i);
-                window
-                    .t_indices_by_axis[make_axis_key(hir.destab_mask(hir.ops[i]),
-                                                     hir.stab_mask(hir.ops[i]))]
-                    .push_back(t_index);
             }
             ++i;
         }
@@ -499,9 +637,11 @@ size_t anchor_horizon_end(const WindowInfo& window, size_t anchor_t_idx, size_t 
     return end;
 }
 
-std::optional<McrCandidate> find_candidate_from_anchor(const HirModule& hir,
-                                                       const WindowInfo& window,
-                                                       size_t anchor_t_idx, size_t lookahead_cap) {
+std::optional<McrCandidate> find_candidate_from_anchor(
+    const HirModule& hir, const WindowInfo& window, size_t anchor_t_idx, size_t lookahead_cap,
+    size_t& candidates_considered, size_t& merge_potential_rejects, size_t& equivalence_checks,
+    size_t& equivalence_cache_hits,
+    std::unordered_map<SpanSwapKey, bool, SpanSwapKeyHash>& equivalence_cache) {
     size_t horizon_end = anchor_horizon_end(window, anchor_t_idx, lookahead_cap);
     if (horizon_end - anchor_t_idx < 4)
         return std::nullopt;
@@ -510,44 +650,47 @@ std::optional<McrCandidate> find_candidate_from_anchor(const HirModule& hir,
 
     for (size_t b_t = anchor_t_idx + 1; b_t + 2 < horizon_end; ++b_t) {
         size_t b = window.t_positions[b_t];
-        if (!commute(hir, hir.ops[a], hir.ops[b]))
-            continue;
-
         for (size_t c_t = b_t + 1; c_t + 1 < horizon_end; ++c_t) {
             size_t c = window.t_positions[c_t];
-            if (commute(hir, hir.ops[a], hir.ops[c]) || commute(hir, hir.ops[b], hir.ops[c]))
-                continue;
-
-            AxisKey target_d = xor_axis_key(hir, hir.ops[a], hir.ops[b], hir.ops[c]);
-            auto it = window.t_indices_by_axis.find(target_d);
-            if (it == window.t_indices_by_axis.end())
-                continue;
-
-            auto d_begin = std::lower_bound(it->second.begin(), it->second.end(), c_t + 1);
-            for (auto d_it = d_begin; d_it != it->second.end() && *d_it < horizon_end; ++d_it) {
-                size_t d_t = *d_it;
-
+            for (size_t d_t = c_t + 1; d_t < horizon_end; ++d_t) {
                 size_t d = window.t_positions[d_t];
-                if (!commute(hir, hir.ops[c], hir.ops[d]))
-                    continue;
-                if (commute(hir, hir.ops[a], hir.ops[d]) || commute(hir, hir.ops[b], hir.ops[d]))
-                    continue;
                 std::array<size_t, 4> idxs{a, b, c, d};
                 if (!distinct_axes(hir, idxs))
                     continue;
-                if (!same_t_direction(hir, idxs))
-                    continue;
-                if (!exact_mcr_product_relation(hir, idxs))
-                    continue;
-
-                return McrCandidate{
+                ++candidates_considered;
+                McrCandidate cand{
                     .a = a,
                     .b = b,
                     .c = c,
                     .d = d,
+                    .anchor_t_idx = anchor_t_idx,
+                    .b_t_idx = b_t,
+                    .c_t_idx = c_t,
+                    .d_t_idx = d_t,
                     .window_start = window.start,
                     .window_end = window.end,
                 };
+                if (!window_swap_has_merge_potential(hir, window, cand)) {
+                    ++merge_potential_rejects;
+                    continue;
+                }
+                SpanSwapKey key = make_span_swap_key(hir, window, anchor_t_idx, d_t, cand);
+                auto cache_it = equivalence_cache.find(key);
+                if (cache_it != equivalence_cache.end()) {
+                    ++equivalence_cache_hits;
+                    if (!cache_it->second)
+                        continue;
+                    return cand;
+                }
+
+                ++equivalence_checks;
+                bool is_valid =
+                    exact_span_swap_rewrite_is_valid(hir, window, anchor_t_idx, d_t, cand);
+                equivalence_cache.emplace(std::move(key), is_valid);
+                if (!is_valid)
+                    continue;
+
+                return cand;
             }
         }
     }
@@ -559,32 +702,33 @@ std::optional<McrCandidate> find_candidate_from_anchor(const HirModule& hir,
 /// decide whether the rewrite is worthwhile.
 bool apply_candidate(HirModule& hir, const McrCandidate& cand, LocalFusionStats& stats) {
     bool has_source_map = hir.source_map.size() == hir.ops.size();
+    size_t before_t = hir.num_t_gates();
 
-    size_t a = cand.a;
-    size_t b = cand.b;
-    size_t c = cand.c;
-    size_t d = cand.d;
-
-    if (!bubble_left(hir, b, a + 1, has_source_map))
-        return false;
-
-    if (!bubble_left(hir, c, a + 2, has_source_map))
-        return false;
-
-    if (!bubble_left(hir, d, a + 3, has_source_map))
-        return false;
-
-    std::rotate(hir.ops.begin() + static_cast<std::ptrdiff_t>(a),
-                hir.ops.begin() + static_cast<std::ptrdiff_t>(a + 2),
-                hir.ops.begin() + static_cast<std::ptrdiff_t>(a + 4));
+    auto op_a = hir.ops[cand.a];
+    auto op_b = hir.ops[cand.b];
+    auto op_c = hir.ops[cand.c];
+    auto op_d = hir.ops[cand.d];
+    hir.ops[cand.a] = op_c;
+    hir.ops[cand.b] = op_d;
+    hir.ops[cand.c] = op_a;
+    hir.ops[cand.d] = op_b;
     if (has_source_map) {
-        std::rotate(hir.source_map.begin() + static_cast<std::ptrdiff_t>(a),
-                    hir.source_map.begin() + static_cast<std::ptrdiff_t>(a + 2),
-                    hir.source_map.begin() + static_cast<std::ptrdiff_t>(a + 4));
+        auto src_a = hir.source_map[cand.a];
+        auto src_b = hir.source_map[cand.b];
+        auto src_c = hir.source_map[cand.c];
+        auto src_d = hir.source_map[cand.d];
+        hir.source_map[cand.a] = std::move(src_c);
+        hir.source_map[cand.b] = std::move(src_d);
+        hir.source_map[cand.c] = std::move(src_a);
+        hir.source_map[cand.d] = std::move(src_b);
     }
 
-    fuse_same_axis_t_window(hir, cand.window_start, cand.window_end, stats);
-    return stats.t_removed > 0;
+    PeepholeFusionPass peephole;
+    peephole.run(hir);
+    size_t after_t = hir.num_t_gates();
+    stats.merges = peephole.cancellations() + peephole.fusions();
+    stats.t_removed = before_t - after_t;
+    return after_t < before_t;
 }
 
 }  // namespace
@@ -592,10 +736,15 @@ bool apply_candidate(HirModule& hir, const McrCandidate& cand, LocalFusionStats&
 void ExperimentalMcrTCountPass::run(HirModule& hir) {
     window_scans_ = 0;
     window_scans_over_lookahead_cap_ = 0;
+    candidates_considered_ = 0;
+    merge_potential_rejects_ = 0;
+    equivalence_checks_ = 0;
+    equivalence_cache_hits_ = 0;
     quadruples_found_ = 0;
     swaps_applied_ = 0;
     merges_ = 0;
     t_removed_ = 0;
+    std::unordered_map<SpanSwapKey, bool, SpanSwapKeyHash> equivalence_cache;
 
     bool changed = true;
     while (changed) {
@@ -608,7 +757,10 @@ void ExperimentalMcrTCountPass::run(HirModule& hir) {
 
             for (size_t anchor_t_idx = 0; anchor_t_idx < window.t_positions.size();
                  ++anchor_t_idx) {
-                auto cand = find_candidate_from_anchor(hir, window, anchor_t_idx, kLookaheadCap);
+                auto cand = find_candidate_from_anchor(
+                    hir, window, anchor_t_idx, kLookaheadCap, candidates_considered_,
+                    merge_potential_rejects_, equivalence_checks_, equivalence_cache_hits_,
+                    equivalence_cache);
                 if (!cand.has_value())
                     continue;
 
