@@ -33,6 +33,16 @@ nanobind_add_module(
 # Link against our core library
 target_link_libraries(_clifft_core PRIVATE clifft_core)
 
+# The Python module should not expose symbols from static vendored
+# dependencies such as Stim as part of Clifft's dynamic ABI.
+if(UNIX AND NOT APPLE)
+    target_link_options(_clifft_core PRIVATE
+        "LINKER:--version-script=${CMAKE_CURRENT_SOURCE_DIR}/clifft_core.lds")
+elseif(APPLE)
+    target_link_options(_clifft_core PRIVATE
+        "LINKER:-exported_symbols_list,${CMAKE_CURRENT_SOURCE_DIR}/clifft_core.exp")
+endif()
+
 # OpenMP for set_num_threads / get_num_threads bindings.
 # The Homebrew libomp hint may already be set by src/clifft/CMakeLists.txt,
 # but scikit-build-core may invoke this file in a separate configure.
