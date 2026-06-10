@@ -357,6 +357,131 @@ TEST_CASE("PhasePolyPass: statevector equivalence on controlled-S decomposition"
     check_statevectors_equal(opt, ref, 1e-8);
 }
 
+TEST_CASE("PhasePolyPass: statevector equivalence with phase rotation between T gates",
+          "[phase_poly][statevector]") {
+    const char* circuit =
+        "T 0\n"
+        "R_X(0.125) 0\n"
+        "T 1\n"
+        "T 2\n"
+        "T 0\n";
+
+    auto ref = statevector_for(circuit, false);
+    auto opt = statevector_for(circuit, true);
+    check_statevectors_equal(opt, ref, 1e-8);
+}
+
+TEST_CASE("PhasePolyPass: barrier edge cases preserve statevectors",
+          "[phase_poly][statevector][barrier]") {
+    struct Case {
+        const char* name;
+        const char* circuit;
+    };
+    const Case cases[] = {
+        {"t_split_by_rx",
+         "T 0\n"
+         "R_X(0.125) 0\n"
+         "T 1\n"
+         "T 2\n"
+         "T 0\n"},
+        {"same_qubit_both_sides", "T 0\nR_X(0.125) 0\nT 0\n"},
+        {"t_split_by_rz", "T 0\nR_Z(0.125) 0\nT 1\nT 0\n"},
+        {"t_split_by_rxx", "T 0\nT 1\nR_XX(0.25) 0 1\nT 0\nT 1\n"},
+        {"t_split_by_rpauli", "T 0\nR_PAULI(0.125) X0\nT 1\nT 0\n"},
+        {"double_phase_barrier", "T 0\nR_X(0.125) 0\nR_Z(0.125) 0\nT 1\nT 0\n"},
+        {"barrier_leading", "R_X(0.125) 0\nT 0\nT 1\nT 2\n"},
+        {"barrier_trailing", "T 0\nT 1\nR_X(0.125) 0\n"},
+        {"t_dag_split_by_rx", "T 0\nR_X(0.125) 0\nT_DAG 1\nT 0\nT_DAG 2\n"},
+        {"alternating_single_t_blocks", "T 0\nR_Z(0.0625) 0\nT 0\nR_Z(0.0625) 0\nT 0\n"},
+    };
+
+    for (const auto& row : cases) {
+        CAPTURE(row.name);
+        auto ref = statevector_for(row.circuit, false);
+        auto opt = statevector_for(row.circuit, true);
+        check_statevectors_equal(opt, ref, 1e-8);
+    }
+}
+
+TEST_CASE("PhasePolyPass: global barriers prevent spurious TOHPE T reduction",
+          "[phase_poly][barrier]") {
+    struct Case {
+        const char* name;
+        const char* circuit;
+        size_t expected_t;
+    };
+    const Case cases[] = {
+        {"t_split_by_rx",
+         "T 0\n"
+         "R_X(0.125) 0\n"
+         "T 1\n"
+         "T 2\n"
+         "T 0\n",
+         4},
+        {"same_qubit_both_sides", "T 0\nR_X(0.125) 0\nT 0\n", 2},
+        {"noise_barrier",
+         "T 0\n"
+         "X_ERROR(0.001) 0\n"
+         "T 1\n"
+         "T 2\n"
+         "T 0\n",
+         4},
+    };
+
+    for (const auto& row : cases) {
+        CAPTURE(row.name);
+        auto hir_peep = hir_from(row.circuit);
+        PeepholeFusionPass peep;
+        peep.run(hir_peep);
+        REQUIRE(hir_peep.num_t_gates() == row.expected_t);
+
+        auto hir_opt = hir_from(row.circuit);
+        run_phase_poly_pipeline(hir_opt);
+        REQUIRE(hir_opt.num_t_gates() == row.expected_t);
+    }
+}
+
+TEST_CASE("PhasePolyPass: surface-code fragments preserve T count across noise barriers",
+          "[phase_poly][barrier][surface]") {
+    struct Case {
+        const char* name;
+        const char* circuit;
+        size_t expected_t;
+    };
+    const Case cases[] = {
+        {"two_t_bursts_depolarize",
+         "T 0 3 7 9 10 12 13\n"
+         "DEPOLARIZE1(0.001) 0 3 7 9 10 12 13 1 2 4 5 6 8 11 14\n"
+         "T 0 3 7 9 10 12 13\n",
+         14},
+        {"tdag_t_split_by_depolarize",
+         "T_DAG 0 3 7 9 10 12 13\n"
+         "DEPOLARIZE1(0.001) 0 3 7 9 10 12 13 1 2 4 5 6 8 11 14\n"
+         "CX 1 0 2 3 6 7 8 9 11 10 14 13\n"
+         "T 0 3 7 9 10 12 13\n",
+         14},
+        {"tdag3_noise_cx",
+         "CX 2 3\n"
+         "DEPOLARIZE2(0.001) 2 3\n"
+         "T_DAG 3\n"
+         "DEPOLARIZE1(0.001) 3 0 1 2 4 5 6 7 8 9 10 11 12 13 14\n"
+         "CX 2 3\n",
+         1},
+    };
+
+    for (const auto& row : cases) {
+        CAPTURE(row.name);
+        auto hir_peep = hir_from(row.circuit);
+        PeepholeFusionPass peep;
+        peep.run(hir_peep);
+        REQUIRE(hir_peep.num_t_gates() == row.expected_t);
+
+        auto hir_opt = hir_from(row.circuit);
+        run_phase_poly_pipeline(hir_opt);
+        REQUIRE(hir_opt.num_t_gates() == row.expected_t);
+    }
+}
+
 TEST_CASE("PhasePolyPass: randomized Clifford+T statevector oracle", "[phase_poly][statevector]") {
     constexpr int kNumQubits = 4;
     constexpr int kDepth = 30;

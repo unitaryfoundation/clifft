@@ -42,6 +42,25 @@ inline int pauli_product_phase_mod4(MaskView x1, MaskView z1, MaskView x2, MaskV
 /// ops vector without changing program semantics or PRNG trajectory.
 bool can_swap(const HeisenbergOp& left, const HeisenbergOp& right, const HirModule& hir);
 
+/// True when op ends a contiguous T window for global T-count passes (MCR, TOHPE).
+inline bool is_global_tcount_barrier(const HeisenbergOp& op) {
+    switch (op.op_type()) {
+        case OpType::T_GATE:
+            return false;
+        case OpType::MEASURE:
+        case OpType::CONDITIONAL_PAULI:
+        case OpType::NOISE:
+        case OpType::READOUT_NOISE:
+        case OpType::PHASE_ROTATION:
+        case OpType::DETECTOR:
+        case OpType::OBSERVABLE:
+        case OpType::EXP_VAL:
+        case OpType::NUM_OP_TYPES:
+            return true;
+    }
+    return true;
+}
+
 /// Absorb a virtual S gate on Pauli generator (x_v, z_v, sign_v) into all
 /// downstream HIR operations starting at start_idx and into the final tableau.
 /// is_dagger=false means S; is_dagger=true means S_dag.

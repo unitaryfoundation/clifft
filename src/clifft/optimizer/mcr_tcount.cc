@@ -60,21 +60,7 @@ struct WindowInfo {
 };
 
 bool is_window_barrier(const HeisenbergOp& op) {
-    switch (op.op_type()) {
-        case OpType::T_GATE:
-            return false;
-        case OpType::MEASURE:
-        case OpType::CONDITIONAL_PAULI:
-        case OpType::NOISE:
-        case OpType::READOUT_NOISE:
-        case OpType::PHASE_ROTATION:
-        case OpType::DETECTOR:
-        case OpType::OBSERVABLE:
-        case OpType::EXP_VAL:
-        case OpType::NUM_OP_TYPES:
-            return true;
-    }
-    return true;
+    return is_global_tcount_barrier(op);
 }
 
 AxisKey make_axis_key(MaskView x, MaskView z) {

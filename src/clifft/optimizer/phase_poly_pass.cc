@@ -179,8 +179,11 @@ static std::vector<CommutingBlock> find_commuting_blocks(const HirModule& hir,
         if (deleted[i])
             continue;
         const auto& op = hir.ops[i];
-        if (op.op_type() != OpType::T_GATE)
+        if (op.op_type() != OpType::T_GATE) {
+            if (is_global_tcount_barrier(op))
+                flush();
             continue;
+        }
 
         bool fits = true;
         for (size_t j : cur) {

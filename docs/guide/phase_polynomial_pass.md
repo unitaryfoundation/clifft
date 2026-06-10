@@ -161,7 +161,7 @@ circuits that summarize the pattern.
 | `rc_adder_vbe_4bit` | Arithmetic | 32 | 32 | 0 | 0 | 0 |
 | `ccz_mcx_3q` | Algorithm | 7 | 7 | 0 | 0 | 0 |
 | `random_ct_6q_d150` | Random Clifford+T | 12 | 12 | 0 | 0 | 0 |
-| `surface_d3_t_gate` | Surface code | 29 | 1 | 28 | 0 | 28 |
+| `surface_d3_t_gate` | Surface code | 29 | 29 | 0 | 0 | 0 |
 
 How to read one row:
 
@@ -172,39 +172,37 @@ How to read one row:
 - `tohpe_saved` — T removed by `TohpePhasePass` alone vs baseline.
 
 On the sandwich rows, `saved == mcr_saved` and `tohpe_saved == 0`: MCR reorders
-T gates so peephole can fuse them; TOHPE adds nothing. On the adder and random
-rows, all three savings are zero: peephole already optimal. On `surface_d3_t_gate`,
-`tohpe_saved == saved`: a large commuting T cluster is collapsed by TOHPE alone.
+T gates so peephole can fuse them; TOHPE adds nothing. On the adder, random, and
+surface-code rows, all three savings are zero: peephole already optimal in this
+prototype.
 
-### Real-world example: magic-state cultivation
+### Real-world example: magic-state cultivation (in corpus, no extra gain)
 
-The clearest real-world win in the corpus is the distance-3 T-gate magic-state
-cultivation circuit vendored from the SOFT benchmark suite
-([`circuit_d3_t_gate_p0.001.stim`](circuits/circuit_d3_t_gate_p0.001.stim)).
-It models T-state injection and escape in a fault-tolerant protocol on 15 qubits
-with 29 T/T_DAG gates, detectors, and physical noise — the kind of near-Clifford
-circuit Clifft is built to simulate (see the
-[importance-sampling tutorial](importance-sampling.md) for the full simulation
-workflow).
+The distance-3 T-gate magic-state cultivation circuit from the SOFT benchmark suite
+([`circuit_d3_t_gate_p0.001.stim`](circuits/circuit_d3_t_gate_p0.001.stim)) is
+included as a realistic near-Clifford fault-tolerant workload (15 qubits, 29 T
+gates, noise, detectors — see the
+[importance-sampling tutorial](importance-sampling.md)).
 
 | Stage | T count | What happened |
 |---|---:|---|
-| After peephole only | 29 | Local fusion cannot see duplicate parities across the commuting T layer |
-| After `TohpePhasePass` | 1 | TOHPE merges and cancels commuting-block duplicates |
-| After full `PhasePolynomialPass` | 1 | MCR adds nothing here; TOHPE already finished the job |
+| After peephole only | 29 | Baseline after local fusion |
+| After `TohpePhasePass` | 29 | No additional reduction |
+| After full `PhasePolynomialPass` | 29 | MCR also inactive on this input |
 
-This is the workload case the pass is aimed at: mostly Clifford structure with a
-localized non-Clifford layer where phase-polynomial reasoning beats forward-only
-peephole. It does **not** mean the pass helps on every Clifft circuit — the adder
-and chemistry rows in the table above still show zero gain.
+TOHPE only runs on contiguous commuting T blocks separated by HIR barriers
+(measurements, noise, phase rotations, etc.). On this circuit the surviving
+blocks do not expose duplicate parities under the current size caps, so the pass
+matches peephole. Including it shows the evaluation covers real FTQC inputs even
+when the prototype does not beat the baseline.
 
 ### Full corpus totals
 
 | Corpus | Circuits | T (peephole) | MCR saved | TOHPE saved | Full saved |
 |---|---:|--:|--:|--:|--:|
 | MCR regression | 9 | 60 | 16 (26.7%) | 0 | 16 (26.7%) |
-| Real-world / algorithmic | 25 | 69,300 | 0 | 28 (0.04%) | 28 (0.04%) |
-| Combined | 34 | 69,360 | 16 (0.02%) | 28 (0.04%) | 44 (0.06%) |
+| Real-world / algorithmic | 25 | 69,300 | 0 | 0 | 0 |
+| Combined | 34 | 69,360 | 16 (0.02%) | 0 | 16 (0.02%) |
 
 These totals aggregate every circuit in the harness. They are benchmark points
 from the current prototype limits, not universal guarantees.
@@ -216,25 +214,26 @@ from the current prototype limits, not universal guarantees.
 **MCR regression circuits** (`toggle_sandwich`, `kicked_xy_block`, pair blocks):
 peephole scans forward only; T gates sit on different Pauli axes behind Clifford
 sandwiches. MCR swaps quadruples that satisfy the commutator relation so
-same-axis pairs become adjacent and fuse.
-
-**Commuting-heavy near-Clifford layers** (`surface_d3_t_gate`): 15 qubits, 29 T
-gates at baseline. TOHPE finds duplicate parity columns inside commuting blocks
-and cancels them. This is the most relevant win for Clifft's fault-tolerant
-simulation target.
+same-axis pairs become adjacent and fuse. This is the only regime where the
+prototype currently beats peephole on the evaluation corpus.
 
 ### Where the pass does not help (in this prototype)
 
 Transpiled arithmetic, chemistry Trotter steps, factored Clifford+T circuits,
-and dense random Clifford+T tests all show zero additional savings. Peephole plus
-Clifft's front-end already reach the minimum T count within the current MCR
-window and TOHPE size caps.
+dense random Clifford+T tests, and the surface-code magic-state circuit all
+show zero additional savings. Peephole plus Clifft's front-end already reach
+the minimum T count within the current MCR window and TOHPE size caps.
+
+TOHPE blocks are bounded by the same HIR barriers as MCR windows (measurements,
+noise, phase rotations, etc.). Optimizations never merge T gates across those
+seams.
 
 ### Prototype verdict
 
 The pass is semantically sound and worth keeping as an opt-in optimizer for
-structured compilation artifacts and specific commuting-heavy layers. It is **not**
-yet justified as a default pipeline pass for typical transpiled workloads.
+structured MCR-family compilation artifacts. It is **not** yet justified as a
+default pipeline pass: real-world benchmarks show no gain beyond peephole in this
+prototype, and TOHPE must respect HIR barriers to preserve unitary semantics.
 Follow-up work would lift the 32-qubit TOHPE cap, widen MCR windows, and compare
 against standalone T-optimizer baselines on larger benchmark suites.
 
