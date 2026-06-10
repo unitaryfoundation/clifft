@@ -1163,9 +1163,9 @@ class Parser {
                 break;
 
             if (product_count >= kMaxTargetsPerInstruction) {
-                throw ParseError("Too many products (limit: " +
-                                     std::to_string(kMaxTargetsPerInstruction) + ")",
-                                 line_num);
+                throw ParseError(
+                    "Too many products (limit: " + std::to_string(kMaxTargetsPerInstruction) + ")",
+                    line_num);
             }
             product_count++;
 
@@ -1218,8 +1218,8 @@ class Parser {
                         pauli_flag = Target::kPauliZ;
                         break;
                     default:
-                        throw ParseError("Invalid Pauli in " + std::string(gate_name(gate)) +
-                                             ": " + std::string(1, pauli_char),
+                        throw ParseError("Invalid Pauli in " + std::string(gate_name(gate)) + ": " +
+                                             std::string(1, pauli_char),
                                          line_num);
                 }
                 pos++;
@@ -1234,8 +1234,8 @@ class Parser {
                 }
 
                 uint32_t qubit;
-                if (!parse_uint(
-                        std::string_view(product_str).substr(num_start, pos - num_start), qubit)) {
+                if (!parse_uint(std::string_view(product_str).substr(num_start, pos - num_start),
+                                qubit)) {
                     throw ParseError("Invalid qubit index in Pauli product", line_num);
                 }
 
@@ -1266,8 +1266,9 @@ class Parser {
         }
 
         if (product_count == 0) {
-            throw ParseError(std::string(gate_name(base_gate)) + " requires at least one Pauli product",
-                             line_num);
+            throw ParseError(
+                std::string(gate_name(base_gate)) + " requires at least one Pauli product",
+                line_num);
         }
     }
 

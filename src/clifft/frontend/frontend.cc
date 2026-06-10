@@ -611,7 +611,7 @@ HirModule trace(const Circuit& circuit) {
                 // onto an accumulator, apply S/S_DAG, unfold, un-diagonalize.
                 // Since S is Clifford, the entire decomposition is absorbed into
                 // the tableau by prepending the inverse (right-multiplying inv_state).
-                
+
                 // Collect non-identity targets with their Pauli types.
                 struct PauliQubit {
                     uint32_t qubit;
