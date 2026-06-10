@@ -456,13 +456,35 @@ When a transition fires on a target qubit with `QubitStatus s`:
   directly. Always allowed.
 - `s.kind == Leaked` or `s.kind == Lost`: use the column for
   `s.level_id` directly. Classical Markov update. Always allowed.
-- `s.kind == ComputationalUnknown`: require
-  `is_source_independent_on_computational` on this instrument. If
-  false, reject with an error naming the op index, the qubit, and the
-  instrument — pointing the user at the cut between MVP and the later
-  diagonal-filter extension. If true, the no-jump branch is scalar on
-  `H_C` and the jump branches are source-independent; sample without
-  consulting amplitudes.
+- `s.kind == ComputationalUnknown`: if
+  `is_source_independent_on_computational` is true, the no-jump branch
+  is scalar on `H_C` and the jump branches are source-independent;
+  sample without consulting amplitudes. Otherwise the behavior is
+  selected by `policy.unknown_source_policy`:
+  - `Reject` (default): reject with an error naming the op index, the
+    qubit, and the instrument — pointing the user at the cut between
+    the exact path and the approximation below (and the later
+    diagonal-filter extension, §9).
+  - `EqualizeRates` (opt-in): the equalized-rates approximation. Every
+    computational column is padded with a diagonal pseudo-jump so each
+    sums to the maximum computational jump rate `p_max`; firing is then
+    source-independent and pre-sampleable at rate `p_max`. On fire the
+    source is drawn uniformly over the computational levels and the
+    destination from that padded, renormalized column. A pseudo-jump
+    lands on the source level itself: a transition event whose only
+    effect is the carrier collapse the rewriter materializes (§5.3.1),
+    i.e. pure dephasing. This is the equalize-and-collapse
+    approximation used by fast-path stabilizer leakage simulators
+    (sqale-sim's sampler among them). Its accuracy envelope: a
+    stabilizer-state source is either tableau-deterministic or exactly
+    unbiased, so every per-qubit marginal is reproduced exactly; but
+    (a) the destination is drawn independently of the simulator's
+    internal collapse, discarding destination-collapse correlations
+    with entangled partners, and (b) a qubit whose state is determined
+    by gate algebra but not by instruction (status is pre-SVM-known,
+    §5.2.2) takes this approximate path where a tableau-tracking
+    simulator would take the exact one. Closing either gap requires
+    runtime branching, which stays out of scope (§9).
 
 This is the "pre-sampleable" boundary, enforced where it actually
 matters (at the unknown-coherent-source point) rather than at model
@@ -619,6 +641,32 @@ not pre-sample measurement outcomes: doing so would either skip the
 measurement back-action on the computational state or force a
 branch-and-continue boundary, which is exactly the dynamic/JIT path
 deferred in §1.
+
+### 5.2.3 Opt-in drop policy for leaked/lost operands
+
+`policy.lost_leaked_ops` selects how the reject cells above behave.
+`Reject` (default) keeps the table exactly as written. `Drop` opts into
+excising each such operation whole — identity on the surviving operands
+— modeling the physical reading that an interaction with a vacated or
+leaked site does not happen:
+
+- single-qubit gate on Leaked: drop (was reject);
+- two-qubit gate, multi-qubit noise channel, or classical feedback with
+  a Leaked or Lost operand: drop whole (was reject);
+- non-restoring lost-qubit reset: drop (was reject);
+- non-restoring lost-qubit measure-and-reset: kept — the visible record
+  slot must survive, the classifier supplies the bit, and the site
+  simply stays lost (was reject);
+- X/Y-basis and multi-target measurements still reject: dropping a
+  measurement would shift the record, and no single-bit substitution is
+  faithful.
+
+A dropped operation has no physical effect, so a surviving operand's
+status keeps its entry value (it is not demoted), and attached
+transitions still fire on every operand from its entry-status column —
+the noise process is not gated by whether the intended gate could act.
+The sampler, the rewriter, and classifier injection all advance
+statuses through this same rule.
 
 ### 5.3 Hidden carrier edits at transition jumps
 
@@ -888,13 +936,6 @@ contract:
 - `LOSS(p) targets...` Stim instruction as syntactic sugar.
 - Diagonal `aI + bZ` filter for state-dependent no-jump (the natural
   next exact-mode extension).
-- Sqale-compat **equalized-rates** approximation mode for
-  unknown-coherent sources hitting source-dependent transitions —
-  surfaced as an opt-in policy knob (e.g.,
-  `policy.unknown_source_policy = "equalize_rates" | "reject"`),
-  defaulting to `"reject"` even after this lands. The exact diagonal
-  filter is the load-bearing path; the equalized-rates mode exists for
-  comparison against sqale-sim outputs.
 - Joint / correlated multi-qubit `TransitionInstrument` (instead of
   per-qubit marginal): a different type with shape
   `len(levels)^k x len(levels)^k` for `k` operands. Out of scope for

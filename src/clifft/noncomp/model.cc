@@ -144,10 +144,19 @@ NonComputationalModel::NonComputationalModel(
     // Policy must hold recognized enum values.
     switch (policy_.unknown_source_policy) {
         case UnknownSourcePolicy::Reject:
+        case UnknownSourcePolicy::EqualizeRates:
             break;
         default:
             throw std::invalid_argument(
                 "NonComputationalModel: unrecognized unknown_source_policy value");
+    }
+    switch (policy_.lost_leaked_ops) {
+        case LostLeakedOpsPolicy::Reject:
+        case LostLeakedOpsPolicy::Drop:
+            break;
+        default:
+            throw std::invalid_argument(
+                "NonComputationalModel: unrecognized lost_leaked_ops value");
     }
 }
 

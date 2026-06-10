@@ -410,3 +410,101 @@ TEST_CASE("rewrite: recapturing a lost qubit rezeros its stale residual") {
     REQUIRE(count_gate(rw, GateType::X) == 0);  // base X dropped, no |1> prep
     REQUIRE(count_gate(rw, GateType::R) == 2);  // trace-out, then materialization
 }
+
+TEST_CASE("rewrite: drop policy excises a two-qubit gate on a lost operand whole") {
+    Circuit c = parse("H 0\nS 0\nCZ 0 1\nM 1\n");
+    std::map<std::string, TransitionInstrument> transitions;
+    transitions.emplace("S", always_lost(LevelSet::default_set()));
+    NonComputationalPolicy policy;
+    policy.lost_leaked_ops = clifft::LostLeakedOpsPolicy::Drop;
+    NonComputationalModel model = make_model(all_g(), std::move(transitions), policy);
+
+    Circuit rw = rewritten(c, model, 1);
+    REQUIRE(count_gate(rw, GateType::CZ) == 0);  // identity on the survivor
+    REQUIRE(count_gate(rw, GateType::M) == 1);   // record slot preserved
+    REQUIRE(count_gate(rw, GateType::R) == 1);   // trace-out of the lost qubit
+}
+
+TEST_CASE("rewrite: a dropped gate leaves the surviving operand's status untouched") {
+    // Qubit 0 is lost, so the CZ drops whole and qubit 1 keeps its
+    // instruction-known g status. The later source-dependent consult on
+    // qubit 1 then picks its exact column; had the dropped CZ demoted the
+    // survivor to unknown, the default unknown-source policy would throw.
+    Circuit c = parse("H 0\nS 0\nCZ 0 1\nS_DAG 1\n");
+    std::map<std::string, TransitionInstrument> transitions;
+    transitions.emplace("S", always_lost(LevelSet::default_set()));
+    transitions.emplace("S_DAG", lose_from_g(LevelSet::default_set()));
+    NonComputationalPolicy policy;
+    policy.lost_leaked_ops = clifft::LostLeakedOpsPolicy::Drop;
+    NonComputationalModel model = make_model(all_g(), std::move(transitions), policy);
+
+    HistorySample s = sample_history(c, model, 1);
+    REQUIRE(s.final_status[1].kind() == clifft::QubitStatusKind::Lost);
+    Circuit rw = rewrite(c, s.history, model);
+    REQUIRE(count_gate(rw, GateType::CZ) == 0);
+}
+
+TEST_CASE("rewrite: drop policy drops a single-qubit gate on a leaked qubit") {
+    Circuit c = parse("H 0\nS 0\nX 0\n");
+    std::map<std::string, TransitionInstrument> transitions;
+    transitions.emplace("S", always_leaked(LevelSet::default_set()));
+    NonComputationalPolicy policy;
+    policy.lost_leaked_ops = clifft::LostLeakedOpsPolicy::Drop;
+    NonComputationalModel model = make_model(all_g(), std::move(transitions), policy);
+
+    Circuit rw = rewritten(c, model, 1);
+    REQUIRE(count_gate(rw, GateType::X) == 0);
+    REQUIRE(count_gate(rw, GateType::R) == 1);  // trace-out of the leaked qubit
+}
+
+TEST_CASE("rewrite: drop policy drops classical feedback onto a lost qubit") {
+    Circuit c = parse("H 1\nM 1\nH 0\nS 0\nCX rec[-1] 0\n");
+    std::map<std::string, TransitionInstrument> transitions;
+    transitions.emplace("S", always_lost(LevelSet::default_set()));
+    NonComputationalPolicy policy;
+    policy.lost_leaked_ops = clifft::LostLeakedOpsPolicy::Drop;
+    NonComputationalModel model = make_model(all_g(), std::move(transitions), policy);
+
+    Circuit rw = rewritten(c, model, 1);
+    REQUIRE(count_gate(rw, GateType::CX) == 0);
+}
+
+TEST_CASE("rewrite: drop policy drops a two-qubit noise channel on a lost operand") {
+    Circuit c = parse("H 0\nS 0\nDEPOLARIZE2(0.1) 0 1\n");
+    std::map<std::string, TransitionInstrument> transitions;
+    transitions.emplace("S", always_lost(LevelSet::default_set()));
+    NonComputationalPolicy policy;
+    policy.lost_leaked_ops = clifft::LostLeakedOpsPolicy::Drop;
+    NonComputationalModel model = make_model(all_g(), std::move(transitions), policy);
+
+    Circuit rw = rewritten(c, model, 1);
+    REQUIRE(count_gate(rw, GateType::DEPOLARIZE2) == 0);
+}
+
+TEST_CASE("rewrite: drop policy drops a non-restoring lost reset") {
+    Circuit c = parse("H 0\nS 0\nR 0\n");
+    std::map<std::string, TransitionInstrument> transitions;
+    transitions.emplace("S", always_lost(LevelSet::default_set()));
+    NonComputationalPolicy policy;
+    policy.lost_leaked_ops = clifft::LostLeakedOpsPolicy::Drop;
+    NonComputationalModel model = make_model(all_g(), std::move(transitions), policy);
+
+    HistorySample s = sample_history(c, model, 1);
+    REQUIRE(s.final_status[0].kind() == clifft::QubitStatusKind::Lost);  // not restored
+    Circuit rw = rewrite(c, s.history, model);
+    REQUIRE(count_gate(rw, GateType::R) == 1);  // the trace-out only
+}
+
+TEST_CASE("rewrite: drop policy keeps a measure-and-reset on a non-restoring lost qubit") {
+    Circuit c = parse("H 0\nS 0\nMR 0\n");
+    std::map<std::string, TransitionInstrument> transitions;
+    transitions.emplace("S", always_lost(LevelSet::default_set()));
+    NonComputationalPolicy policy;
+    policy.lost_leaked_ops = clifft::LostLeakedOpsPolicy::Drop;
+    NonComputationalModel model = make_model(all_g(), std::move(transitions), policy);
+
+    HistorySample s = sample_history(c, model, 1);
+    REQUIRE(s.final_status[0].kind() == clifft::QubitStatusKind::Lost);  // not restored
+    Circuit rw = rewrite(c, s.history, model);
+    REQUIRE(count_gate(rw, GateType::MR) == 1);  // record slot preserved
+}

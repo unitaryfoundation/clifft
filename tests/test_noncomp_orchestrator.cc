@@ -405,3 +405,34 @@ TEST_CASE("sample_noncomputational: recapturing a lost qubit clears the stale re
         REQUIRE(s.measurements[shot * 3 + 2] == 0);  // recaptured |0>, residual cleared
     }
 }
+
+TEST_CASE("sample_noncomputational: drop policy runs a multi-round circuit through loss") {
+    // The data qubit is lost up front; both syndrome CXs drop (identity on
+    // the ancilla, which keeps reading 0) and the final data measurement
+    // reads the classifier's lost bit. The default policy rejects the same
+    // circuit at the first CX.
+    Circuit c = parse("H 0\nS 0\nCX 0 1\nMR 1\nCX 0 1\nMR 1\nM 0\n");
+    std::map<std::string, TransitionInstrument> transitions;
+    transitions.emplace("S", always_lost(LevelSet::default_set()));
+    MeasurementClassifier cl = classifier_with(LevelSet::default_set(), kLost, {0.0, 1.0});
+
+    NonComputationalPolicy drop_policy;
+    drop_policy.lost_leaked_ops = clifft::LostLeakedOpsPolicy::Drop;
+    {
+        std::map<std::string, TransitionInstrument> t2;
+        t2.emplace("S", always_lost(LevelSet::default_set()));
+        NonComputationalModel model = make_model(all_g(), std::move(t2), cl, drop_policy);
+        NonComputationalSample r = sample_noncomputational(c, model, 16, 3);
+        REQUIRE(r.num_measurements == 3);
+        for (uint32_t shot = 0; shot < 16; ++shot) {
+            REQUIRE(r.measurements[shot * 3 + 0] == 0);  // ancilla round 1
+            REQUIRE(r.measurements[shot * 3 + 1] == 0);  // ancilla round 2
+            REQUIRE(r.measurements[shot * 3 + 2] == 1);  // lost data, classifier bit
+            REQUIRE(r.final_status[shot * 2 + 0].kind() == QubitStatusKind::Lost);
+        }
+    }
+
+    NonComputationalModel reject_model = make_model(all_g(), std::move(transitions), cl);
+    REQUIRE_THROWS_WITH(sample_noncomputational(c, reject_model, 1, 3),
+                        ContainsSubstring("CX") && ContainsSubstring("Lost"));
+}

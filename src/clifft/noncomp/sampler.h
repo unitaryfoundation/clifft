@@ -29,9 +29,11 @@ struct HistorySample {
 };
 
 // Sample one trajectory over `circuit` under `model`, deterministic in
-// `seed`. Throws std::invalid_argument on a source-context violation: a
-// source-dependent transition firing on a ComputationalUnknown qubit,
-// naming the operation, qubit, and gate.
+// `seed`. Under UnknownSourcePolicy::Reject (the default), throws
+// std::invalid_argument on a source-context violation: a source-dependent
+// transition firing on a ComputationalUnknown qubit, naming the operation,
+// qubit, and gate. Under EqualizeRates that case is sampled with the
+// equalized-rates approximation instead (see policy.h).
 HistorySample sample_history(const Circuit& circuit, const NonComputationalModel& model,
                              uint64_t seed);
 

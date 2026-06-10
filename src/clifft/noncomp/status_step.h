@@ -38,6 +38,21 @@ struct TransitionOutcome {
     uint8_t destination_level = kInvalidLevel;  // valid iff jumped
 };
 
+// How the trajectory policy handles the base operation for one operand,
+// keyed on the operand's status at op entry. Computational operands always
+// apply; the table only governs leaked and lost operands. Aggregated
+// across an operation's operands by the caller: any Reject rejects the
+// whole operation, otherwise any Drop drops it whole (identity on the
+// surviving operands). A dropped operation has no physical effect, so a
+// surviving operand's status keeps its entry value unless a sampled jump
+// overrides it; attached transitions still fire on every operand (the
+// noise process is not gated by whether the intended gate could act).
+// Measurements are never dropped: their visible record slot must survive
+// so rec[-k] references do not shift.
+enum class OperandAction { Apply, Drop, Reject };
+OperandAction operand_action(GateType gate, QubitStatusKind kind,
+                             const NonComputationalPolicy& policy);
+
 // The qubit's status after an operation given only the operation's
 // normal status effect (no transition fired). For a Physical operand:
 // Z-basis reset -> Known(g); X/Y reset -> Unknown; Z-basis measurement
@@ -56,5 +71,10 @@ QubitStatus normal_post_op_status(const QubitStatus& entry, GateType gate, Opera
 QubitStatus step_status(const QubitStatus& entry, GateType gate, OperandRole role,
                         const TransitionOutcome& outcome, const NonComputationalPolicy& policy,
                         const LevelSet& levels);
+
+// Per-target step when the base operation is dropped: the operation has
+// no physical effect, so only a sampled jump changes the status.
+QubitStatus step_status_dropped(const QubitStatus& entry, const TransitionOutcome& outcome,
+                                const LevelSet& levels);
 
 }  // namespace clifft

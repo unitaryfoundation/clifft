@@ -16,65 +16,6 @@ namespace clifft {
 
 namespace {
 
-// How the base operation is handled for one qubit operand.
-enum class OpAction { Apply, Drop, Reject };
-
-// Trajectory policy for one operand, keyed on the operand's status at op
-// entry. A computational qubit (known or unknown) runs every operation; the
-// table below only governs leaked and lost operands. Aggregated across an
-// operation's operands by the caller: any Reject rejects the whole op, and
-// Drop only ever arises for a single-operand op.
-OpAction operand_action(GateType gate, QubitStatusKind kind, const NonComputationalPolicy& policy) {
-    if (kind == QubitStatusKind::ComputationalKnown ||
-        kind == QubitStatusKind::ComputationalUnknown) {
-        return OpAction::Apply;
-    }
-
-    const bool lost = kind == QubitStatusKind::Lost;
-
-    // An identity no-op is harmless to keep on any qubit.
-    if (is_identity_noop(gate)) {
-        return OpAction::Apply;
-    }
-    // A measure-and-reset both records an outcome and restores the site, so it
-    // is gated like a reset: a leaked qubit always restores, a lost qubit only
-    // when the policy opts in. The recorded outcome is supplied by the model's
-    // classifier downstream.
-    if (is_measure_reset(gate)) {
-        return (!lost || policy.reset_restores_lost) ? OpAction::Apply : OpAction::Reject;
-    }
-    // A plain measurement keeps its visible record slot so the record and its
-    // rec[-k] references do not shift; on a leaked/lost qubit the outcome is
-    // supplied by the model's classifier downstream. That substitution is a
-    // single record bit, faithful only for a Z-basis M. An X/Y-basis (MX/MY)
-    // or multi-qubit-parity (MPP) measurement has no faithful single-bit form
-    // on a noncomputational operand, so it is not representable and rejects.
-    if (is_measurement(gate)) {
-        return gate == GateType::M ? OpAction::Apply : OpAction::Reject;
-    }
-    // A reset restores a leaked qubit always, a lost qubit only by policy;
-    // a lost-qubit reset otherwise rejects.
-    if (is_reset(gate)) {
-        return (!lost || policy.reset_restores_lost) ? OpAction::Apply : OpAction::Reject;
-    }
-    // A single-qubit Pauli noise channel drops on a leaked or lost qubit; a
-    // single-qubit unitary gate drops on a lost qubit (no carrier remains).
-    if (gate_arity(gate) == GateArity::SINGLE) {
-        if (is_noise_gate(gate)) {
-            return OpAction::Drop;
-        }
-        if (lost) {
-            return OpAction::Drop;
-        }
-        // A single-qubit gate on a leaked qubit rejects by default.
-        return OpAction::Reject;
-    }
-    // Anything else touching a leaked or lost operand -- a two-qubit gate, a
-    // two-qubit noise channel, or classical feedback onto a vacated site -- is
-    // ambiguous and rejects by default.
-    return OpAction::Reject;
-}
-
 AstNode single_qubit_op(GateType gate, uint32_t qubit) {
     return AstNode{gate, {Target::qubit(qubit)}, {}, 0};
 }
@@ -128,15 +69,36 @@ Circuit rewrite(const Circuit& original, const NonComputationalHistory& history,
         const GateType gate = node.gate;
         const TransitionInstrument* instrument = model.transition_for(gate);
 
+        // Policy pre-scan over entry statuses: any rejecting operand rejects
+        // the whole operation; otherwise any dropping operand drops it whole
+        // (identity on the surviving operands). The scan precedes the
+        // transition replay so a surviving operand's stepping can know the
+        // base operation is gone.
         bool drop_op = false;
-        std::vector<CarrierEdit> carrier_edits;  // hidden edits appended after this op
-
         for (const QubitOperand& operand : qubit_operands(node)) {
             const uint32_t qubit = operand.qubit;
             if (qubit >= status.size()) {
                 throw std::invalid_argument("rewrite: operand qubit " + std::to_string(qubit) +
                                             " is out of range at op " + std::to_string(op_index));
             }
+            switch (operand_action(gate, status[qubit].kind(), policy)) {
+                case OperandAction::Reject:
+                    throw std::invalid_argument(
+                        "rewrite: operation '" + std::string(gate_name(gate)) + "' on a " +
+                        kind_name(status[qubit].kind()) + " qubit " + std::to_string(qubit) +
+                        " at op " + std::to_string(op_index) + " is not representable; rejecting");
+                case OperandAction::Drop:
+                    drop_op = true;
+                    break;
+                case OperandAction::Apply:
+                    break;
+            }
+        }
+
+        std::vector<CarrierEdit> carrier_edits;  // hidden edits appended after this op
+
+        for (const QubitOperand& operand : qubit_operands(node)) {
+            const uint32_t qubit = operand.qubit;
             const QubitStatus pre = status[qubit];
 
             // Replay the recorded transition for this operand, if the sampler
@@ -161,19 +123,6 @@ Circuit rewrite(const Circuit& original, const NonComputationalHistory& history,
                 outcome.destination_level = record.destination_level;
             }
 
-            switch (operand_action(gate, pre.kind(), policy)) {
-                case OpAction::Reject:
-                    throw std::invalid_argument(
-                        "rewrite: operation '" + std::string(gate_name(gate)) + "' on a " +
-                        kind_name(pre.kind()) + " qubit " + std::to_string(qubit) + " at op " +
-                        std::to_string(op_index) + " is not representable; rejecting");
-                case OpAction::Drop:
-                    drop_op = true;  // single-operand op
-                    break;
-                case OpAction::Apply:
-                    break;
-            }
-
             // Carrier-edit decision for a jump. A jump into the computational
             // subspace materializes the carrier at the destination level: the
             // R collapses whatever the base op left -- a coherent
@@ -182,21 +131,23 @@ Circuit rewrite(const Circuit& original, const NonComputationalHistory& history,
             // a One-level destination. A jump out of the computational
             // subspace needs a hidden Z-basis unraveling (trace-out) only
             // when the carrier the base op would leave with no jump is
-            // coherent.
+            // coherent; a dropped operation leaves the entry carrier.
             if (outcome.jumped) {
                 const Level& dest = levels.at(outcome.destination_level);
                 if (dest.category == LevelCategory::Computational) {
                     carrier_edits.push_back({qubit, dest.basis_bit == BasisBit::One});
                 } else {
                     const QubitStatus post_if_no_jump =
-                        normal_post_op_status(pre, gate, operand.role, policy, levels);
+                        drop_op ? pre
+                                : normal_post_op_status(pre, gate, operand.role, policy, levels);
                     if (post_if_no_jump.kind() == QubitStatusKind::ComputationalUnknown) {
                         carrier_edits.push_back({qubit, false});
                     }
                 }
             }
 
-            status[qubit] = step_status(pre, gate, operand.role, outcome, policy, levels);
+            status[qubit] = drop_op ? step_status_dropped(pre, outcome, levels)
+                                    : step_status(pre, gate, operand.role, outcome, policy, levels);
         }
 
         if (!drop_op) {
