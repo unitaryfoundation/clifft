@@ -16,6 +16,7 @@ import pytest
 from clifft import noncomp
 
 Level = noncomp.Level
+COMPUTATIONAL = noncomp.QubitStatusKind.COMPUTATIONAL
 LEAKED = noncomp.QubitStatusKind.LEAKED
 LOST = noncomp.QubitStatusKind.LOST
 SHOTS = 8000
@@ -74,6 +75,18 @@ def test_example_after_gate_leakage_with_classifier():
     r = noncomp.sample("H 0\nS 0\nM 0\n", model, shots=SHOTS, seed=3)
     assert (np.asarray(r.measurements)[:, 0] == 1).all()
     assert (np.asarray(r.final_status) == LEAKED).all()
+
+
+def test_example_relaxation_to_ground_on_known_qubit():
+    # A known |1> qubit relaxes to g at the S gate; the M must read the
+    # relaxed 0, not the stale |1>, and the qubit stays computational.
+    model = noncomp.Model(
+        initial_state=[0.0, 1.0, 0.0, 0.0, 0.0],
+        transitions={"S": _transition({(Level.G, Level.E): 1.0})},
+    )
+    r = noncomp.sample("S 0\nM 0\n", model, shots=64, seed=6)
+    assert (np.asarray(r.measurements)[:, 0] == 0).all()
+    assert (np.asarray(r.final_status) == COMPUTATIONAL).all()
 
 
 # --- Intentionally unsupported -----------------------------------------------

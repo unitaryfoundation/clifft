@@ -2,6 +2,7 @@
 
 #include "clifft/circuit/gate_data.h"
 #include "clifft/circuit/target.h"
+#include "clifft/noncomp/level.h"
 #include "clifft/noncomp/op_role.h"
 #include "clifft/noncomp/status_step.h"
 #include "clifft/noncomp/transition_instrument.h"
@@ -78,6 +79,14 @@ AstNode single_qubit_op(GateType gate, uint32_t qubit) {
     return AstNode{gate, {Target::qubit(qubit)}, {}, 0};
 }
 
+// A hidden carrier edit appended after an op for one operand's jump: an R
+// collapses and rezeros the carrier, and an X then prepares |1> when the
+// jump lands on the basis_bit == One computational level.
+struct CarrierEdit {
+    uint32_t qubit;
+    bool prepare_one;
+};
+
 }  // namespace
 
 Circuit rewrite(const Circuit& original, const NonComputationalHistory& history,
@@ -94,8 +103,8 @@ Circuit rewrite(const Circuit& original, const NonComputationalHistory& history,
 
     // Copy so every circuit-level field carries over (and any field added to
     // Circuit later is not silently dropped); only the node list is rebuilt.
-    // The inserted X-prep and trace-out R ops are not visible measurements, so
-    // the record-layout counts stay valid.
+    // The inserted X-prep, hidden R, and destination-prep X ops are not
+    // visible measurements, so the record-layout counts stay valid.
     Circuit out = original;
     out.nodes.clear();
     out.nodes.reserve(original.nodes.size() + original.num_qubits);
@@ -120,7 +129,7 @@ Circuit rewrite(const Circuit& original, const NonComputationalHistory& history,
         const TransitionInstrument* instrument = model.transition_for(gate);
 
         bool drop_op = false;
-        std::vector<uint32_t> trace_out;  // qubits needing a trace-out R after this op
+        std::vector<CarrierEdit> carrier_edits;  // hidden edits appended after this op
 
         for (const QubitOperand& operand : qubit_operands(node)) {
             const uint32_t qubit = operand.qubit;
@@ -165,16 +174,25 @@ Circuit rewrite(const Circuit& original, const NonComputationalHistory& history,
                     break;
             }
 
-            // Trace-out decision: the carrier state the base op would leave
-            // with no jump. A jump to a noncomputational level from a coherent
-            // carrier needs a hidden Z-basis unraveling.
+            // Carrier-edit decision for a jump. A jump into the computational
+            // subspace materializes the carrier at the destination level: the
+            // R collapses whatever the base op left -- a coherent
+            // superposition, a definite level, or a stale residual on a
+            // recaptured leaked/lost qubit -- and the X then prepares |1> for
+            // a One-level destination. A jump out of the computational
+            // subspace needs a hidden Z-basis unraveling (trace-out) only
+            // when the carrier the base op would leave with no jump is
+            // coherent.
             if (outcome.jumped) {
-                const QubitStatus post_if_no_jump =
-                    normal_post_op_status(pre, gate, operand.role, policy, levels);
-                const QubitStatusKind dest = levels.status_for(outcome.destination_level).kind();
-                if ((dest == QubitStatusKind::Leaked || dest == QubitStatusKind::Lost) &&
-                    post_if_no_jump.kind() == QubitStatusKind::ComputationalUnknown) {
-                    trace_out.push_back(qubit);
+                const Level& dest = levels.at(outcome.destination_level);
+                if (dest.category == LevelCategory::Computational) {
+                    carrier_edits.push_back({qubit, dest.basis_bit == BasisBit::One});
+                } else {
+                    const QubitStatus post_if_no_jump =
+                        normal_post_op_status(pre, gate, operand.role, policy, levels);
+                    if (post_if_no_jump.kind() == QubitStatusKind::ComputationalUnknown) {
+                        carrier_edits.push_back({qubit, false});
+                    }
                 }
             }
 
@@ -184,8 +202,11 @@ Circuit rewrite(const Circuit& original, const NonComputationalHistory& history,
         if (!drop_op) {
             out.nodes.push_back(node);
         }
-        for (uint32_t qubit : trace_out) {
-            out.nodes.push_back(single_qubit_op(GateType::R, qubit));
+        for (const CarrierEdit& edit : carrier_edits) {
+            out.nodes.push_back(single_qubit_op(GateType::R, edit.qubit));
+            if (edit.prepare_one) {
+                out.nodes.push_back(single_qubit_op(GateType::X, edit.qubit));
+            }
         }
     }
 

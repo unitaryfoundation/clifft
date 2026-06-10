@@ -24,6 +24,7 @@ using clifft::NonComputationalModel;
 using clifft::NonComputationalPolicy;
 using clifft::NonComputationalSample;
 using clifft::parse;
+using clifft::QubitStatusKind;
 using clifft::sample_noncomputational;
 using clifft::TransitionInstrument;
 
@@ -50,6 +51,22 @@ TransitionInstrument always_lost(const LevelSet& levels) {
     auto m = zeros5();
     m[kLost][0] = 1.0;
     m[kLost][1] = 1.0;
+    return TransitionInstrument::from_matrix(std::move(m), levels);
+}
+
+// Source-independent: g and e both jump to the computational g level.
+TransitionInstrument always_to_g(const LevelSet& levels) {
+    auto m = zeros5();
+    m[0][0] = 1.0;
+    m[0][1] = 1.0;
+    return TransitionInstrument::from_matrix(std::move(m), levels);
+}
+
+// Source-independent: g and e both jump to the computational e level.
+TransitionInstrument always_to_e(const LevelSet& levels) {
+    auto m = zeros5();
+    m[1][0] = 1.0;
+    m[1][1] = 1.0;
     return TransitionInstrument::from_matrix(std::move(m), levels);
 }
 
@@ -82,6 +99,9 @@ NonComputationalModel make_model(std::vector<double> initial_state,
 
 std::vector<double> all_g() {
     return {1.0, 0.0, 0.0, 0.0, 0.0};
+}
+std::vector<double> all_e() {
+    return {0.0, 1.0, 0.0, 0.0, 0.0};
 }
 
 }  // namespace
@@ -282,5 +302,106 @@ TEST_CASE("sample_noncomputational: a leaked measurement feeds the observable th
     REQUIRE(s.observables.size() == 200);
     for (uint8_t o : s.observables) {
         REQUIRE(o == 1);
+    }
+}
+
+TEST_CASE("sample_noncomputational: a jump to the ground level forces the measurement to 0") {
+    // The S transition collapses the H-prepared |+> to the g level; without
+    // the materializing carrier edit the M would read 1 on ~half the shots.
+    Circuit c = parse("H 0\nS 0\nM 0\n");
+    std::map<std::string, TransitionInstrument> transitions;
+    transitions.emplace("S", always_to_g(LevelSet::default_set()));
+    NonComputationalModel model = make_model(all_g(), std::move(transitions));
+
+    NonComputationalSample s = sample_noncomputational(c, model, 200, 1);
+    for (uint8_t bit : s.measurements) {
+        REQUIRE(bit == 0);
+    }
+    for (uint32_t shot = 0; shot < s.shots; ++shot) {
+        REQUIRE(s.final_status[shot].kind() == QubitStatusKind::ComputationalKnown);
+        REQUIRE(s.final_status[shot].level_id() == 0);
+    }
+}
+
+TEST_CASE("sample_noncomputational: a jump to the excited level forces the measurement to 1") {
+    Circuit c = parse("H 0\nS 0\nM 0\n");
+    std::map<std::string, TransitionInstrument> transitions;
+    transitions.emplace("S", always_to_e(LevelSet::default_set()));
+    NonComputationalModel model = make_model(all_g(), std::move(transitions));
+
+    NonComputationalSample s = sample_noncomputational(c, model, 200, 1);
+    for (uint8_t bit : s.measurements) {
+        REQUIRE(bit == 1);
+    }
+    for (uint32_t shot = 0; shot < s.shots; ++shot) {
+        REQUIRE(s.final_status[shot].kind() == QubitStatusKind::ComputationalKnown);
+        REQUIRE(s.final_status[shot].level_id() == 1);
+    }
+}
+
+TEST_CASE("sample_noncomputational: a partial jump to ground matches the analytic mixture") {
+    // With probability p the S transition collapses the H-prepared |+> to g;
+    // otherwise the carrier stays coherent. P(M = 1) = (1 - p) / 2 = 0.35.
+    Circuit c = parse("H 0\nS 0\nM 0\n");
+    auto m = zeros5();
+    m[0][0] = 0.3;
+    m[0][1] = 0.3;
+    std::map<std::string, TransitionInstrument> transitions;
+    transitions.emplace("S",
+                        TransitionInstrument::from_matrix(std::move(m), LevelSet::default_set()));
+    NonComputationalModel model = make_model(all_g(), std::move(transitions));
+
+    NonComputationalSample s = sample_noncomputational(c, model, 4000, 3);
+    size_t ones = 0;
+    for (uint8_t bit : s.measurements) {
+        ones += bit;
+    }
+    REQUIRE(ones > 1220);  // expected 1400; generous band
+    REQUIRE(ones < 1580);
+}
+
+TEST_CASE("sample_noncomputational: a measurement records the pre-relaxation bit") {
+    // The transition's source column is read at op entry and its jump applies
+    // after the base op: the first M reads the original |1>, the relaxation
+    // then materializes g, and the second M reads the relaxed 0.
+    Circuit c = parse("M 0\nM 0\n");
+    auto m = zeros5();
+    m[0][1] = 1.0;  // e relaxes to g with certainty; g stays
+    std::map<std::string, TransitionInstrument> transitions;
+    transitions.emplace("M",
+                        TransitionInstrument::from_matrix(std::move(m), LevelSet::default_set()));
+    NonComputationalModel model = make_model(all_e(), std::move(transitions));
+
+    NonComputationalSample s = sample_noncomputational(c, model, 64, 5);
+    REQUIRE(s.num_measurements == 2);
+    for (uint32_t shot = 0; shot < s.shots; ++shot) {
+        REQUIRE(s.measurements[shot * 2 + 0] == 1);  // pre-relaxation bit
+        REQUIRE(s.measurements[shot * 2 + 1] == 0);  // relaxed |0>
+    }
+}
+
+TEST_CASE("sample_noncomputational: recapturing a lost qubit clears the stale residual") {
+    // The first M loses the known |1> qubit with no trace-out R (a definite
+    // atom needs no unraveling), so a stale |1> residual stays in the SVM.
+    // The second M is classified (lost at entry) and its attached recapture
+    // jump materializes g; the third M must read the recaptured 0, not the
+    // residual.
+    Circuit c = parse("M 0\nM 0\nM 0\n");
+    auto m = zeros5();
+    m[kLost][1] = 1.0;  // e is lost with certainty
+    m[0][kLost] = 1.0;  // a lost qubit is recaptured at g with certainty
+    std::map<std::string, TransitionInstrument> transitions;
+    transitions.emplace("M",
+                        TransitionInstrument::from_matrix(std::move(m), LevelSet::default_set()));
+    NonComputationalModel model =
+        make_model(all_e(), std::move(transitions),
+                   classifier_with(LevelSet::default_set(), kLost, {1.0, 0.0}));
+
+    NonComputationalSample s = sample_noncomputational(c, model, 64, 7);
+    REQUIRE(s.num_measurements == 3);
+    for (uint32_t shot = 0; shot < s.shots; ++shot) {
+        REQUIRE(s.measurements[shot * 3 + 0] == 1);  // real pre-loss bit
+        REQUIRE(s.measurements[shot * 3 + 1] == 0);  // classifier bit for the lost site
+        REQUIRE(s.measurements[shot * 3 + 2] == 0);  // recaptured |0>, residual cleared
     }
 }
