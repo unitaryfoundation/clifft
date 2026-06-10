@@ -120,6 +120,20 @@ def test_classifier_replacement_distribution(col, expected):
     assert abs(_p1(r, 0) - expected) < BAND
 
 
+def test_partial_relaxation_matches_analytic_mixture():
+    # With probability p the S transition collapses the H-prepared |+> to g;
+    # otherwise the carrier stays coherent. P(M=1) = (1 - p) * P(1 | H|0>).
+    p = 0.3
+    model = noncomp.Model(
+        initial_state=[1.0, 0.0, 0.0, 0.0, 0.0],
+        transitions={"S": _transition({(Level.G, Level.G): p, (Level.G, Level.E): p})},
+    )
+    r = noncomp.sample("H 0\nS 0\nM 0\n", model, shots=SHOTS, seed=6)
+    h = oracle.apply_1q(oracle.zero_state(1), "H", 0, 1)
+    expected = (1 - p) * oracle.prob_one(h, 0, 1)
+    assert abs(_p1(r, 0) - expected) < BAND
+
+
 def test_survivor_marginal_equals_partial_trace():
     # Bell pair, lose qubit 0. The survivor's record marginal must equal the
     # reference partial trace (0.5), and the lost record follows the classifier.

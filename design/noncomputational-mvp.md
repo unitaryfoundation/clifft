@@ -620,7 +620,7 @@ measurement back-action on the computational state or force a
 branch-and-continue boundary, which is exactly the dynamic/JIT path
 deferred in §1.
 
-### 5.3 Hidden trace-out at noncomputational transitions
+### 5.3 Hidden carrier edits at transition jumps
 
 Whenever a qubit whose status is `ComputationalUnknown` transitions
 to a noncomputational kind (either `Leaked` or `Lost`), theory
@@ -688,13 +688,63 @@ needed. The relevant carrier state is therefore
 would leave if no jump fired — evaluated with the *entry* status still
 used for transition source-column selection.
 
+#### 5.3.1 Carrier materialization at computational destinations
+
+A jump can also land *inside* the computational subspace (§5.2.1 row
+"jump to a Computational-category level →
+`ComputationalKnown(destination_level_id)`"): a relaxation entry such
+as `T[g][e]`, or a recapture entry such as `T[g][lost]`. Updating the
+trajectory status alone is not enough there — the SVM carrier must be
+*materialized* at the destination level, or the bookkeeping silently
+diverges from the quantum state (a `Known(e)` qubit whose matrix says
+it relaxed to `g` would keep measuring 1).
+
+Conditional on the jump branch, the destination state is the definite
+level `|d>` regardless of what the base op left behind, i.e. the
+channel `rho -> |d><d| (x) Tr_q(rho)`. The reset lowering implements
+exactly that: a hidden Z-basis measurement plus a corrective Pauli
+collapses and rezeros the carrier to `|0>`. So the rewriter inserts,
+immediately after the base op:
+
+- an `R` on the qubit, always; and
+- an `X` after it when the destination is the `basis_bit == One`
+  computational level.
+
+The edit is deliberately uniform over the carrier state the base op
+would leave:
+
+- **Coherent / entangled** (`ComputationalUnknown`): the hidden
+  measurement is the correct unraveling of the collapse, exactly as in
+  the trace-out case above.
+- **Definite** (`ComputationalKnown(k)`): the hidden measurement is
+  deterministic (no branch, no rank growth); the `R`(+`X`) prepares
+  `|d>` whether or not `k == d`.
+- **Stale noncomputational residual** (`Leaked`/`Lost` source whose
+  carrier was never traced out because it was a definite atom at
+  departure time): the `R` rezeros the leftover amplitude before the
+  destination is prepared, so a recapture never resurrects a stale
+  bit.
+
+Both inserted ops are invisible to the record: `R` lowers to a hidden
+measurement slot and `X` is a unitary, so points 1-4 above apply
+unchanged and no `rec[-k]` index moves.
+
+Timing convention: the transition's source column is selected from the
+**op-entry** status, but the jump branch is applied **after** the base
+operation. A measurement whose instrument relaxes `e -> g` therefore
+records the pre-relaxation bit, and the qubit is prepared at `g` after
+the readout.
+
 Summary rule, per qubit operand of an op:
 
     pre             = status entering the op
     post_if_no_jump = normal_post_op_status(pre, op)
     outcome         = sampled/replayed transition branch (source column from pre)
-    insert R iff outcome jumps to a Leaked/Lost level
-                 AND post_if_no_jump is ComputationalUnknown
+    if outcome jumps to a Computational level d:
+        insert R, then X if d is the One level   (materialize the carrier)
+    else if outcome jumps to a Leaked/Lost level
+                 AND post_if_no_jump is ComputationalUnknown:
+        insert R                                  (hidden trace-out)
     final status    = outcome destination (jump wins)
 
 ## 6. New C++ headers and dependency order

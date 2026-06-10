@@ -68,6 +68,37 @@ TransitionInstrument always_leaked(const LevelSet& levels) {
     return TransitionInstrument::from_matrix(std::move(m), levels);
 }
 
+// Source-independent: g and e both jump to the computational g level.
+TransitionInstrument always_to_g(const LevelSet& levels) {
+    auto m = zeros5();
+    m[0][0] = 1.0;
+    m[0][1] = 1.0;
+    return TransitionInstrument::from_matrix(std::move(m), levels);
+}
+
+// Source-independent: g and e both jump to the computational e level.
+TransitionInstrument always_to_e(const LevelSet& levels) {
+    auto m = zeros5();
+    m[1][0] = 1.0;
+    m[1][1] = 1.0;
+    return TransitionInstrument::from_matrix(std::move(m), levels);
+}
+
+// Source-dependent relaxation: e decays to g with certainty, g stays.
+TransitionInstrument relax_e_to_g(const LevelSet& levels) {
+    auto m = zeros5();
+    m[0][1] = 1.0;
+    return TransitionInstrument::from_matrix(std::move(m), levels);
+}
+
+// Source-independent on computational (both columns zero): only a lost
+// qubit jumps, back to the computational g level (recapture).
+TransitionInstrument recapture_lost_to_g(const LevelSet& levels) {
+    auto m = zeros5();
+    m[0][kLost] = 1.0;
+    return TransitionInstrument::from_matrix(std::move(m), levels);
+}
+
 NonComputationalModel make_model(std::vector<double> initial_state,
                                  std::map<std::string, TransitionInstrument> transitions,
                                  NonComputationalPolicy policy = {}) {
@@ -298,4 +329,84 @@ TEST_CASE("rewrite: a measure-and-reset on a leaked qubit is kept") {
 
     Circuit rw = rewritten(c, model, 1);
     REQUIRE(count_gate(rw, GateType::MR) == 1);
+}
+
+TEST_CASE("rewrite: a jump to the |0> computational level inserts an R, no X") {
+    Circuit c = parse("H 0\nS 0\n");  // H makes qubit 0 coherent at the jump
+    std::map<std::string, TransitionInstrument> transitions;
+    transitions.emplace("S", always_to_g(LevelSet::default_set()));
+    NonComputationalModel model = make_model(all_g(), std::move(transitions));
+
+    Circuit rw = rewritten(c, model, 1);
+    // H, S kept; one materializing R appended after S, no destination-prep X.
+    REQUIRE(rw.nodes.size() == 3);
+    REQUIRE(rw.nodes[2].gate == GateType::R);
+    REQUIRE(rw.nodes[2].targets[0].value() == 0);
+    REQUIRE(count_gate(rw, GateType::X) == 0);
+}
+
+TEST_CASE("rewrite: a jump to the |1> computational level inserts an R then an X") {
+    Circuit c = parse("H 0\nS 0\n");
+    std::map<std::string, TransitionInstrument> transitions;
+    transitions.emplace("S", always_to_e(LevelSet::default_set()));
+    NonComputationalModel model = make_model(all_g(), std::move(transitions));
+
+    Circuit rw = rewritten(c, model, 1);
+    REQUIRE(rw.nodes.size() == 4);
+    REQUIRE(rw.nodes[2].gate == GateType::R);
+    REQUIRE(rw.nodes[2].targets[0].value() == 0);
+    REQUIRE(rw.nodes[3].gate == GateType::X);
+    REQUIRE(rw.nodes[3].targets[0].value() == 0);
+}
+
+TEST_CASE("rewrite: a known carrier that relaxes is re-prepared at the destination") {
+    // Qubit 0 enters S as Known(e) (initial X-prep), and the attached
+    // relaxation sends it to g. Even though the carrier is definite, the
+    // materializing R is inserted so the SVM state is re-prepared at |0>.
+    Circuit c = parse("S 0\n");
+    std::map<std::string, TransitionInstrument> transitions;
+    transitions.emplace("S", relax_e_to_g(LevelSet::default_set()));
+    NonComputationalModel model = make_model(all_e(), std::move(transitions));
+
+    Circuit rw = rewritten(c, model, 1);
+    // X (initial |1> prep), S, R (materialize at g).
+    REQUIRE(rw.nodes.size() == 3);
+    REQUIRE(rw.nodes[0].gate == GateType::X);
+    REQUIRE(rw.nodes[1].gate == GateType::S);
+    REQUIRE(rw.nodes[2].gate == GateType::R);
+}
+
+TEST_CASE("rewrite: a materializing R/X does not shift visible measurements or detectors") {
+    Circuit c = parse("M 0\nDETECTOR rec[-1]\nH 1\nS 1\nM 0\nDETECTOR rec[-1]\n");
+    std::map<std::string, TransitionInstrument> transitions;
+    transitions.emplace("S", always_to_e(LevelSet::default_set()));
+    NonComputationalModel model = make_model(all_g(), std::move(transitions));
+
+    Circuit rw = rewritten(c, model, 1);
+
+    HirModule base = trace(c);
+    HirModule hir = trace(rw);
+    default_hir_pass_manager().run(hir);
+
+    REQUIRE(hir.num_measurements == base.num_measurements);  // visible record unchanged
+    REQUIRE(hir.num_detectors == base.num_detectors);
+    REQUIRE(hir.detector_targets == base.detector_targets);
+    REQUIRE(hir.num_hidden_measurements == base.num_hidden_measurements + 1);
+}
+
+TEST_CASE("rewrite: recapturing a lost qubit rezeros its stale residual") {
+    // H entangles nothing here but leaves qubit 0 coherent; S loses it (with a
+    // trace-out R that may collapse to |1>), and the X's attached transition
+    // recaptures it at g. The X itself is dropped (lost operand at entry) but
+    // the recapture still materializes the carrier with a second R, clearing
+    // whatever residual the trace-out left behind.
+    Circuit c = parse("H 0\nS 0\nX 0\n");
+    std::map<std::string, TransitionInstrument> transitions;
+    transitions.emplace("S", always_lost(LevelSet::default_set()));
+    transitions.emplace("X", recapture_lost_to_g(LevelSet::default_set()));
+    NonComputationalModel model = make_model(all_g(), std::move(transitions));
+
+    Circuit rw = rewritten(c, model, 1);
+    REQUIRE(count_gate(rw, GateType::X) == 0);  // base X dropped, no |1> prep
+    REQUIRE(count_gate(rw, GateType::R) == 2);  // trace-out, then materialization
 }
