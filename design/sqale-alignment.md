@@ -135,6 +135,13 @@ cost, far above plain sampling), but clifft is far enough ahead that this is not
 a competitive bottleneck. Caching the rewrite/compile would buy roughly another
 order of magnitude; it is an optimization, not a requirement for parity.
 
+These are local spike results: produced by the uncommitted scripts described
+under Methodology, on a Release build, on the repetition-code family described
+there. The checkpoint plan below replaces them with auditable numbers: a
+committed, optional benchmark script whose clifft-side ladder always runs and
+whose sqale comparison column activates only when cirq-superstaq is installed
+locally (mirroring the optional differential test), never in CI.
+
 ## Gap analysis
 
 Matches today (clifft equals sqale's dense truth): initial population, binary
@@ -170,10 +177,13 @@ Gap B plus the drop policy; Gap A is already done.
 
 ## Checkpoint plan
 
-Goal: run sqale-sim's full default noise model (the 2LQ-paper neutral-atom
-parameter set) end to end on clifft, matching its fast path within shot noise
-on all marginal statistics, with every residual approximation named, bounded,
-and measured.
+Goal: run a sqale fast-path-compatible default profile (the 2LQ-paper
+neutral-atom parameter set, as translated into the supported circuit family)
+end to end on clifft, agreeing with sqale's fast path within shot noise on
+marginal statistics, with every residual approximation named, bounded, and
+measured. "Compatible profile" is deliberate: the doc's own divergence and
+out-of-scope sections bound what this checkpoint covers, so it does not claim
+the full model.
 
 ### Constraint envelope
 
@@ -196,14 +206,20 @@ Two architectural principles bound this checkpoint:
 | `classifier_errors` (g/e confusion) | exact today |
 | Transition matrices: pure leak, known-source or source-independent | exact today |
 | Transition matrices: computational destinations (relaxation/recapture) | exact today (carrier materialization) |
-| Transition matrices: source-dependent on an indeterminate qubit | build: equalized-rates approximation; marginals exact on Clifford circuits, two documented divergences (below) |
-| Downstream ops on leaked/lost qubits | build: drop policy profile (identity on survivors, equals sqale's lazy skip) |
+| Transition matrices: source-dependent on an indeterminate qubit | build: equalized-rates approximation (opt-in; default remains reject); designed to match fast-path marginals on Clifford circuits, two documented divergences (below) |
+| Downstream ops on leaked/lost qubits | build: opt-in drop policy (identity on survivors, equals sqale's lazy skip; default remains reject) |
 | Lost level at readout (ternary symbol "2") | build: three-symbol classifier; herald delivered in the sidecar, visible record stays binary |
 | `cz_phase_error`, `movement_phase_error` (stochastic Z) | expressible as `Z_ERROR` instructions; verify passthrough on the noncomputational path |
 | `gr_*` / `rz_relative_overrotation` (coherent) | build: twirl-to-Pauli conversion helper, channels inserted ahead of time |
 | Exact state-dependent jumps; movement/atom-site semantics; correlated two-qubit leakage; `oversample` | out of scope (see successor architecture; `oversample` is inapplicable to multi-round QEC circuits anyway) |
 
 ### Work items
+
+The notebook comes last on purpose: it reports measured evidence, so the
+features and the divergence probes must exist first. The twirl helper lands
+before the final differential because the default parameter set includes
+coherent terms; running the full-profile comparison earlier would either zero
+them or require a second pass.
 
 1. **Equalized rates plus drop policy (one unit; they are only useful
    together).** Sampler policy `unknown_source_policy = equalize_rates`: pad
@@ -213,26 +229,43 @@ Two architectural principles bound this checkpoint:
    destination from that renormalized column. The collapse reuses existing
    machinery: trace-out reset for leaked/lost destinations, carrier
    materialization for computational destinations (for the pseudo self-jump
-   the inserted reset is the dephasing itself). Alongside it, a policy profile
-   that drops operations on leaked/lost operands (two-qubit gates, noise,
-   classical feedback) instead of rejecting, matching sqale's skip. The drop
-   is statistically equivalent to their lazy skip because both are samplings
-   of the same Markov branch process, early versus late, with downstream
-   treatment depending only on the branch. Also folds in the sampler
-   initial-draw floating-point-tail fix.
-2. **Ternary loss herald.** Three-symbol classifier columns where the third
+   the inserted reset is the dephasing itself). Alongside it, a policy that
+   drops operations on leaked/lost operands (two-qubit gates, noise,
+   classical feedback) instead of rejecting. Both policies are **explicitly
+   opt-in**: the defaults remain `reject`, which stays the honest exact mode.
+   The knob names are neutral and descriptive (for example
+   `lost_leaked_ops = "reject" | "drop"`), with this document, not the API,
+   recording that drop matches sqale's skip. The drop is statistically
+   equivalent to their lazy skip because both are samplings of the same
+   Markov branch process, early versus late, with downstream treatment
+   depending only on the branch. Also folds in the sampler initial-draw
+   floating-point-tail fix.
+2. **Divergence probes.** Tests for the two documented divergences below,
+   before any narrative depends on them. The in-tree density-matrix oracle
+   can model both destination semantics as explicit CPTP maps, the
+   collapse-conditioned destination (sqale's) and the independent draw
+   (clifft's), so a committed CI test can quantify divergence 1 with no
+   external dependency; the local differential then confirms that bound
+   against sqale's real sampler. Divergence 2 gets a
+   deterministic-but-untracked micro-case (consecutive H gates before the
+   jump site).
+3. **Ternary loss herald.** Three-symbol classifier columns where the third
    symbol heralds loss. The visible record stays binary (record-layout
    invariance is load-bearing); the herald symbol is returned per measurement
    in the sidecar. An in-record herald bit is deferred until decoder work
    needs it. Includes the base-3 adapter for comparing against sqale records.
-3. **Coherent-error compatibility.** Verify Pauli/`Z_ERROR` channels pass
+4. **Coherent-error compatibility.** Verify Pauli/`Z_ERROR` channels pass
    through the noncomputational path on alive operands (and drop on
    leaked/lost ones), then add a helper converting over-rotation and phase
    parameters to Pauli channel probabilities via the standard twirl formula
    `p_P = |tr(U P)|^2 / 4`. Kept out of the noncomputational model surface:
    these are explicit noise instructions in the circuit.
-4. **Validation campaign.** See below.
-5. **Demonstration notebook.** A plain `examples/*.ipynb` walking from the
+5. **Differential and performance rerun, with auditable artifacts.** Rerun
+   the differential and the performance ladder on the full translated default
+   profile, commit the optional benchmark script described under Performance
+   results, and replace the spike numbers in this document with reproducible
+   ones (circuit family, shot counts, build type recorded alongside).
+6. **Demonstration notebook.** A plain `examples/*.ipynb` walking from the
    physics (extended Hilbert space, loss versus leakage, transition matrices
    as quantum instruments, state-dependent versus state-independent
    transitions, why equalized rates is the honest classical-sampling
@@ -247,12 +280,13 @@ Two architectural principles bound this checkpoint:
 
 ### Known divergences from sqale's fast path
 
-The equalized-rates feature matches sqale's fast path exactly in all marginal
-statistics on Clifford circuits. This is structural, not luck: in a stabilizer
-state a qubit at a jump site is either deterministic in Z (both simulators
-take an exact path) or its measurement is exactly 50/50, so drawing the source
-bit uniformly ahead of time reproduces the Born marginal identically. Two
-joint-statistics divergences remain:
+The equalized-rates feature is intended to match sqale's fast path on marginal
+statistics on Clifford circuits; the divergence probes verify this rather than
+assume it. The design argument is structural: in a stabilizer state a qubit at
+a jump site is either deterministic in Z (both simulators take an exact path)
+or its measurement is exactly 50/50, so drawing the source bit uniformly ahead
+of time reproduces the Born marginal. Two joint-statistics divergences remain
+by design:
 
 1. **Destination-partner correlations.** sqale Born-measures the qubit at the
    jump and conditions the destination on that bit, so the destination level
@@ -285,17 +319,17 @@ joint-statistics divergences remain:
 
 Confidence comes from a campaign, not just unit tests:
 
-- **Differential on the full default model.** Run the local differential on
-  the complete 2LQ-paper parameter set on repetition-code circuits: clifft
-  versus sqale's fast sampler (expect shot-noise agreement on marginals), and
-  both versus `simulate_true_distribution` on tiny circuits (quantifies the
-  approximation error the two fast paths share). Results land in this
-  document.
-- **Divergence probes.** Two targeted differentials: a Bell pair with a
-  source-dependent leak comparing the joint distribution of the leaked
-  qubit's symbol and the partner's record (measures divergence 1), and a
-  deterministic-but-untracked micro-case with consecutive H gates before the
-  jump site (bounds divergence 2).
+- **Differential on the translated default profile.** Run the local
+  differential on the 2LQ-paper parameter set, as translated, on
+  repetition-code circuits: clifft versus sqale's fast sampler (expect
+  shot-noise agreement on marginals), and both versus
+  `simulate_true_distribution` on tiny circuits (quantifies the approximation
+  error the two fast paths share). Results land in this document.
+- **Divergence probes** (work item 2): a Bell pair with a source-dependent
+  leak comparing the joint distribution of the leaked qubit's symbol and the
+  partner's record (measures divergence 1, with the oracle's two-semantics
+  CPTP bound committed in CI), and a deterministic-but-untracked micro-case
+  with consecutive H gates before the jump site (bounds divergence 2).
 - **Committed oracle extensions.** Extend the in-tree density-matrix oracle
   with the equalized channel as an explicit CPTP map and with the ternary
   classifier, so the new features are cross-checked in CI without any
@@ -306,10 +340,10 @@ Confidence comes from a campaign, not just unit tests:
 
 ### Success criterion
 
-Full default-parameter repetition-code circuits run end to end on clifft with
-no rejects, matching sqale's fast path within shot noise on all marginal
-statistics, with the residual joint-statistics divergence quantified in this
-document.
+Repetition-code circuits under the translated default profile run end to end
+on clifft with no rejects (compatibility policies enabled), agreeing with
+sqale's fast path within shot noise on marginal statistics, with the residual
+joint-statistics divergences quantified in this document by the probes.
 
 ## Successor architecture (out of scope, named)
 
