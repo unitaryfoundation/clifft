@@ -214,7 +214,11 @@ def _qiskit_case(family: str, name: str, qc: QuantumCircuit) -> CorpusCase:
         optimization_level=0,
     )
     unsupported = sorted(
-        {inst.operation.name for inst in tqc.data if inst.operation.name not in _ALLOWED_QISKIT_GATES}
+        {
+            inst.operation.name
+            for inst in tqc.data
+            if inst.operation.name not in _ALLOWED_QISKIT_GATES
+        }
     )
     if unsupported:
         raise ValueError(f"{family}/{name} transpiled to unsupported gates: {unsupported}")
@@ -261,12 +265,8 @@ def _corpus() -> list[CorpusCase]:
         [
             CorpusCase("fermionic_swap_net", "n6_l3", _fermionic_swap_network(6, 3)),
             CorpusCase("fermionic_swap_net", "n8_l3", _fermionic_swap_network(8, 3)),
-            CorpusCase(
-                "fermionic_swap_net_onsite", "n6_l3", _fermionic_swap_network_onsite(6, 3)
-            ),
-            CorpusCase(
-                "fermionic_swap_net_onsite", "n8_l3", _fermionic_swap_network_onsite(8, 3)
-            ),
+            CorpusCase("fermionic_swap_net_onsite", "n6_l3", _fermionic_swap_network_onsite(6, 3)),
+            CorpusCase("fermionic_swap_net_onsite", "n8_l3", _fermionic_swap_network_onsite(8, 3)),
             CorpusCase(
                 "fermionic_swap_net_hubbard", "n6_l3", _fermionic_swap_network_hubbard(6, 3)
             ),
