@@ -95,7 +95,7 @@ TEST_CASE("ExperimentalMcr: rejects blocked gather that changes semantics", "[op
 
     REQUIRE(hir.num_t_gates() == 6);
     REQUIRE(pass.candidates_considered() >= 1);
-    REQUIRE(pass.merge_potential_rejects() >= 1);
+    REQUIRE(pass.equivalence_checks() >= 1);
     REQUIRE(pass.swaps_applied() == 0);
     REQUIRE(pass.t_removed() == 0);
 }

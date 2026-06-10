@@ -518,8 +518,6 @@ NB_MODULE(_clifft_core, m) {
         .def_prop_ro("merge_potential_rejects",
                      &clifft::ExperimentalMcrTCountPass::merge_potential_rejects)
         .def_prop_ro("equivalence_checks", &clifft::ExperimentalMcrTCountPass::equivalence_checks)
-        .def_prop_ro("equivalence_cache_hits",
-                     &clifft::ExperimentalMcrTCountPass::equivalence_cache_hits)
         .def_prop_ro("quadruples_found", &clifft::ExperimentalMcrTCountPass::quadruples_found)
         .def_prop_ro("swaps_applied", &clifft::ExperimentalMcrTCountPass::swaps_applied)
         .def_prop_ro("merges", &clifft::ExperimentalMcrTCountPass::merges)
@@ -529,7 +527,6 @@ NB_MODULE(_clifft_core, m) {
                    ", candidates_considered=" + std::to_string(p.candidates_considered()) +
                    ", merge_potential_rejects=" + std::to_string(p.merge_potential_rejects()) +
                    ", equivalence_checks=" + std::to_string(p.equivalence_checks()) +
-                   ", equivalence_cache_hits=" + std::to_string(p.equivalence_cache_hits()) +
                    ", quadruples_found=" + std::to_string(p.quadruples_found()) +
                    ", swaps_applied=" + std::to_string(p.swaps_applied()) +
                    ", merges=" + std::to_string(p.merges()) +

@@ -214,17 +214,6 @@ struct AxisKey {
     }
 };
 
-struct TGateKey {
-    std::vector<uint64_t> x_words;
-    std::vector<uint64_t> z_words;
-    bool effective_dagger = false;
-
-    bool operator==(const TGateKey& other) const {
-        return x_words == other.x_words && z_words == other.z_words &&
-               effective_dagger == other.effective_dagger;
-    }
-};
-
 struct AxisKeyHash {
     size_t operator()(const AxisKey& key) const {
         auto mix = [](size_t seed, uint64_t word) {
@@ -238,22 +227,6 @@ struct AxisKeyHash {
         for (uint64_t word : key.z_words)
             seed = mix(seed, word);
         return seed;
-    }
-};
-
-struct TGateKeyHash {
-    size_t operator()(const TGateKey& key) const {
-        auto mix = [](size_t seed, uint64_t word) {
-            seed ^= std::hash<uint64_t>{}(word) + 0x9e3779b97f4a7c15ULL + (seed << 6) + (seed >> 2);
-            return seed;
-        };
-
-        size_t seed = key.x_words.size();
-        for (uint64_t word : key.x_words)
-            seed = mix(seed, word);
-        for (uint64_t word : key.z_words)
-            seed = mix(seed, word);
-        return mix(seed, static_cast<uint64_t>(key.effective_dagger));
     }
 };
 
@@ -281,40 +254,16 @@ struct LocalFusionStats {
     size_t t_removed = 0;
 };
 
-struct SpanSwapKey {
-    std::vector<TGateKey> span;
-    size_t b_rel = 0;
-    size_t c_rel = 0;
-    size_t d_rel = 0;
-
-    bool operator==(const SpanSwapKey& other) const {
-        return b_rel == other.b_rel && c_rel == other.c_rel && d_rel == other.d_rel &&
-               span == other.span;
-    }
+struct TGateInfo {
+    MaskView x;
+    MaskView z;
+    bool effective_dagger = false;
 };
 
 using SymbolicUnitary = std::unordered_map<AxisKey, std::complex<double>, AxisKeyHash>;
-using EquivalenceCache = std::unordered_map<SpanSwapKey, bool>;
+using OriginalSpanSignatureCache = std::unordered_map<uint64_t, SymbolicUnitary>;
 
 constexpr size_t kWindowSpanCap = 64;
-
-struct SpanSwapKeyHash {
-    size_t operator()(const SpanSwapKey& key) const {
-        auto mix = [](size_t seed, uint64_t word) {
-            seed ^= std::hash<uint64_t>{}(word) + 0x9e3779b97f4a7c15ULL + (seed << 6) + (seed >> 2);
-            return seed;
-        };
-
-        TGateKeyHash gate_hash;
-        size_t seed = key.span.size();
-        seed = mix(seed, key.b_rel);
-        seed = mix(seed, key.c_rel);
-        seed = mix(seed, key.d_rel);
-        for (const auto& gate : key.span)
-            seed = mix(seed, gate_hash(gate));
-        return seed;
-    }
-};
 
 struct MergePairHash {
     size_t operator()(const std::pair<size_t, size_t>& pair) const {
@@ -413,29 +362,42 @@ bool distinct_axes(const HirModule& hir, const std::array<size_t, 4>& idxs) {
     return true;
 }
 
-SymbolicUnitary expand_t_product_signature(const HirModule& hir, std::span<const size_t> idxs) {
+bool matches_mcr_commutation_pattern(const TGateInfo& a, const TGateInfo& b, const TGateInfo& c,
+                                     const TGateInfo& d) {
+    bool ab = anti_commute(a.x, a.z, b.x, b.z);
+    bool ac = anti_commute(a.x, a.z, c.x, c.z);
+    bool ad = anti_commute(a.x, a.z, d.x, d.z);
+    bool bc = anti_commute(b.x, b.z, c.x, c.z);
+    bool bd = anti_commute(b.x, b.z, d.x, d.z);
+    bool cd = anti_commute(c.x, c.z, d.x, d.z);
+
+    return (!ab && !cd && ac && ad && bc && bd) || (!ac && !bd && ab && ad && bc && cd) ||
+           (!ad && !bc && ab && ac && bd && cd);
+}
+
+template <typename GetGateFn>
+SymbolicUnitary expand_t_product_signature(size_t gate_count, GetGateFn&& get_gate) {
     constexpr double kQuarterTurn = std::numbers::pi / 8.0;
     const std::complex<double> identity_coeff{std::cos(kQuarterTurn), 0.0};
     const std::complex<double> t_coeff{0.0, -std::sin(kQuarterTurn)};
     const std::complex<double> t_dag_coeff{0.0, std::sin(kQuarterTurn)};
 
-    size_t words = hir.destab_mask(hir.ops[idxs[0]]).num_words();
+    const TGateInfo& first_gate = get_gate(0);
+    size_t words = first_gate.x.num_words();
     SymbolicUnitary terms;
     terms.emplace(identity_axis_key(words), std::complex<double>{1.0, 0.0});
 
-    for (size_t idx : idxs) {
-        const auto& op = hir.ops[idx];
-        MaskView x = hir.destab_mask(op);
-        MaskView z = hir.stab_mask(op);
-        bool effective_dagger = op.is_dagger() != hir.sign(op);
-        std::complex<double> axis_coeff = effective_dagger ? t_dag_coeff : t_coeff;
+    for (size_t gate_idx = 0; gate_idx < gate_count; ++gate_idx) {
+        const TGateInfo& gate = get_gate(gate_idx);
+        std::complex<double> axis_coeff = gate.effective_dagger ? t_dag_coeff : t_coeff;
 
         SymbolicUnitary next_terms;
+        next_terms.reserve(terms.size() * 2);
         for (const auto& [axis, coeff] : terms) {
             next_terms[axis] += coeff * identity_coeff;
 
-            int phase_mod4 = mul_phase_mod4(axis_x_view(axis), axis_z_view(axis), x, z);
-            AxisKey next_axis = xor_axis_key(axis, x, z);
+            int phase_mod4 = mul_phase_mod4(axis_x_view(axis), axis_z_view(axis), gate.x, gate.z);
+            AxisKey next_axis = xor_axis_key(axis, gate.x, gate.z);
             next_terms[next_axis] += coeff * axis_coeff * phase_factor_mod4(phase_mod4);
         }
 
@@ -443,30 +405,6 @@ SymbolicUnitary expand_t_product_signature(const HirModule& hir, std::span<const
     }
 
     return terms;
-}
-
-TGateKey t_gate_key(const HirModule& hir, const HeisenbergOp& op) {
-    TGateKey key;
-    MaskView x = hir.destab_mask(op);
-    MaskView z = hir.stab_mask(op);
-    key.x_words.assign(x.words.begin(), x.words.end());
-    key.z_words.assign(z.words.begin(), z.words.end());
-    key.effective_dagger = op.is_dagger() != hir.sign(op);
-    return key;
-}
-
-SpanSwapKey make_span_swap_key(const HirModule& hir, const WindowInfo& window, size_t anchor_t_idx,
-                               size_t d_t_idx, const McrCandidate& cand) {
-    SpanSwapKey key;
-    key.b_rel = cand.b_t_idx - anchor_t_idx;
-    key.c_rel = cand.c_t_idx - anchor_t_idx;
-    key.d_rel = cand.d_t_idx - anchor_t_idx;
-    key.span.reserve(d_t_idx - anchor_t_idx + 1);
-
-    for (size_t t_idx = anchor_t_idx; t_idx <= d_t_idx; ++t_idx) {
-        key.span.push_back(t_gate_key(hir, hir.ops[window.t_positions[t_idx]]));
-    }
-    return key;
 }
 
 bool equal_up_to_global_phase(const SymbolicUnitary& lhs, const SymbolicUnitary& rhs) {
@@ -511,37 +449,55 @@ bool equal_up_to_global_phase(const SymbolicUnitary& lhs, const SymbolicUnitary&
     return compare_side(lhs, rhs) && compare_side(rhs, lhs);
 }
 
-std::vector<size_t> swapped_span_indices(const WindowInfo& window, size_t anchor_t_idx,
-                                         size_t d_t_idx, const McrCandidate& cand) {
-    std::vector<size_t> span(window.t_positions.begin() + static_cast<std::ptrdiff_t>(anchor_t_idx),
-                             window.t_positions.begin() + static_cast<std::ptrdiff_t>(d_t_idx + 1));
-    size_t a_rel = 0;
+size_t swapped_rel_to_t_idx(size_t rel_idx, size_t anchor_t_idx, const McrCandidate& cand) {
     size_t b_rel = cand.b_t_idx - cand.anchor_t_idx;
     size_t c_rel = cand.c_t_idx - cand.anchor_t_idx;
     size_t d_rel = cand.d_t_idx - cand.anchor_t_idx;
 
-    std::array<size_t, 4> orig{
-        span[a_rel],
-        span[b_rel],
-        span[c_rel],
-        span[d_rel],
-    };
-    span[a_rel] = orig[2];
-    span[b_rel] = orig[3];
-    span[c_rel] = orig[0];
-    span[d_rel] = orig[1];
-    return span;
+    if (rel_idx == 0)
+        return cand.c_t_idx;
+    if (rel_idx == b_rel)
+        return cand.d_t_idx;
+    if (rel_idx == c_rel)
+        return anchor_t_idx;
+    if (rel_idx == d_rel)
+        return cand.b_t_idx;
+    return anchor_t_idx + rel_idx;
 }
 
-bool exact_span_swap_rewrite_is_valid(const HirModule& hir, const WindowInfo& window,
-                                      size_t anchor_t_idx, size_t d_t_idx,
-                                      const McrCandidate& cand) {
-    std::vector<size_t> original(
-        window.t_positions.begin() + static_cast<std::ptrdiff_t>(anchor_t_idx),
-        window.t_positions.begin() + static_cast<std::ptrdiff_t>(d_t_idx + 1));
-    std::vector<size_t> swapped = swapped_span_indices(window, anchor_t_idx, d_t_idx, cand);
-    return equal_up_to_global_phase(expand_t_product_signature(hir, original),
-                                    expand_t_product_signature(hir, swapped));
+uint64_t pack_span_key(size_t anchor_t_idx, size_t d_t_idx) {
+    return (static_cast<uint64_t>(anchor_t_idx) << 32) | static_cast<uint64_t>(d_t_idx);
+}
+
+std::vector<TGateInfo> build_window_t_gate_infos(const HirModule& hir, const WindowInfo& window) {
+    std::vector<TGateInfo> infos;
+    infos.reserve(window.t_positions.size());
+    for (size_t op_idx : window.t_positions) {
+        const auto& op = hir.ops[op_idx];
+        infos.push_back(TGateInfo{
+            .x = hir.destab_mask(op),
+            .z = hir.stab_mask(op),
+            .effective_dagger = op.is_dagger() != hir.sign(op),
+        });
+    }
+    return infos;
+}
+
+bool exact_span_swap_rewrite_is_valid(std::span<const TGateInfo> gate_infos, size_t anchor_t_idx,
+                                      size_t d_t_idx, const McrCandidate& cand,
+                                      OriginalSpanSignatureCache& original_span_cache) {
+    size_t span_len = d_t_idx - anchor_t_idx + 1;
+    uint64_t cache_key = pack_span_key(anchor_t_idx, d_t_idx);
+    auto [original_it, inserted] = original_span_cache.try_emplace(cache_key);
+    if (inserted) {
+        original_it->second = expand_t_product_signature(
+            span_len, [&](size_t rel_idx) { return gate_infos[anchor_t_idx + rel_idx]; });
+    }
+
+    SymbolicUnitary swapped = expand_t_product_signature(span_len, [&](size_t rel_idx) {
+        return gate_infos[swapped_rel_to_t_idx(rel_idx, anchor_t_idx, cand)];
+    });
+    return equal_up_to_global_phase(original_it->second, swapped);
 }
 
 bool is_moved_op(size_t op_idx, const std::array<size_t, 4>& moved_ops) {
@@ -613,7 +569,6 @@ std::vector<WindowInfo> collect_windows(HirModule& hir) {
         while (i < hir.ops.size() && !is_window_barrier(hir.ops[i])) {
             if (hir.ops[i].op_type() == OpType::T_GATE) {
                 normalize_t_sign(hir, hir.ops[i], hir.global_weight);
-                size_t t_index = window.t_positions.size();
                 window.t_positions.push_back(i);
             }
             ++i;
@@ -640,8 +595,7 @@ size_t anchor_horizon_end(const WindowInfo& window, size_t anchor_t_idx, size_t 
 std::optional<McrCandidate> find_candidate_from_anchor(
     const HirModule& hir, const WindowInfo& window, size_t anchor_t_idx, size_t lookahead_cap,
     size_t& candidates_considered, size_t& merge_potential_rejects, size_t& equivalence_checks,
-    size_t& equivalence_cache_hits,
-    std::unordered_map<SpanSwapKey, bool, SpanSwapKeyHash>& equivalence_cache) {
+    std::span<const TGateInfo> gate_infos, OriginalSpanSignatureCache& original_span_cache) {
     size_t horizon_end = anchor_horizon_end(window, anchor_t_idx, lookahead_cap);
     if (horizon_end - anchor_t_idx < 4)
         return std::nullopt;
@@ -657,6 +611,10 @@ std::optional<McrCandidate> find_candidate_from_anchor(
                 std::array<size_t, 4> idxs{a, b, c, d};
                 if (!distinct_axes(hir, idxs))
                     continue;
+                if (!matches_mcr_commutation_pattern(gate_infos[anchor_t_idx], gate_infos[b_t],
+                                                     gate_infos[c_t], gate_infos[d_t])) {
+                    continue;
+                }
                 ++candidates_considered;
                 McrCandidate cand{
                     .a = a,
@@ -674,19 +632,9 @@ std::optional<McrCandidate> find_candidate_from_anchor(
                     ++merge_potential_rejects;
                     continue;
                 }
-                SpanSwapKey key = make_span_swap_key(hir, window, anchor_t_idx, d_t, cand);
-                auto cache_it = equivalence_cache.find(key);
-                if (cache_it != equivalence_cache.end()) {
-                    ++equivalence_cache_hits;
-                    if (!cache_it->second)
-                        continue;
-                    return cand;
-                }
-
                 ++equivalence_checks;
-                bool is_valid =
-                    exact_span_swap_rewrite_is_valid(hir, window, anchor_t_idx, d_t, cand);
-                equivalence_cache.emplace(std::move(key), is_valid);
+                bool is_valid = exact_span_swap_rewrite_is_valid(gate_infos, anchor_t_idx, d_t,
+                                                                 cand, original_span_cache);
                 if (!is_valid)
                     continue;
 
@@ -739,18 +687,18 @@ void ExperimentalMcrTCountPass::run(HirModule& hir) {
     candidates_considered_ = 0;
     merge_potential_rejects_ = 0;
     equivalence_checks_ = 0;
-    equivalence_cache_hits_ = 0;
     quadruples_found_ = 0;
     swaps_applied_ = 0;
     merges_ = 0;
     t_removed_ = 0;
-    std::unordered_map<SpanSwapKey, bool, SpanSwapKeyHash> equivalence_cache;
 
     bool changed = true;
     while (changed) {
         changed = false;
 
         for (const auto& window : collect_windows(hir)) {
+            std::vector<TGateInfo> gate_infos = build_window_t_gate_infos(hir, window);
+            OriginalSpanSignatureCache original_span_cache;
             ++window_scans_;
             if (window.t_positions.size() > kLookaheadCap)
                 ++window_scans_over_lookahead_cap_;
@@ -759,8 +707,7 @@ void ExperimentalMcrTCountPass::run(HirModule& hir) {
                  ++anchor_t_idx) {
                 auto cand = find_candidate_from_anchor(
                     hir, window, anchor_t_idx, kLookaheadCap, candidates_considered_,
-                    merge_potential_rejects_, equivalence_checks_, equivalence_cache_hits_,
-                    equivalence_cache);
+                    merge_potential_rejects_, equivalence_checks_, gate_infos, original_span_cache);
                 if (!cand.has_value())
                     continue;
 

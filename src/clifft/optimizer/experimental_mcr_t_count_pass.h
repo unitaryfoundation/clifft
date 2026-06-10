@@ -28,7 +28,6 @@ class ExperimentalMcrTCountPass : public HirPass {
     [[nodiscard]] size_t candidates_considered() const { return candidates_considered_; }
     [[nodiscard]] size_t merge_potential_rejects() const { return merge_potential_rejects_; }
     [[nodiscard]] size_t equivalence_checks() const { return equivalence_checks_; }
-    [[nodiscard]] size_t equivalence_cache_hits() const { return equivalence_cache_hits_; }
     [[nodiscard]] size_t quadruples_found() const { return quadruples_found_; }
     [[nodiscard]] size_t swaps_applied() const { return swaps_applied_; }
     [[nodiscard]] size_t merges() const { return merges_; }
@@ -42,7 +41,6 @@ class ExperimentalMcrTCountPass : public HirPass {
     size_t candidates_considered_ = 0;
     size_t merge_potential_rejects_ = 0;
     size_t equivalence_checks_ = 0;
-    size_t equivalence_cache_hits_ = 0;
     size_t quadruples_found_ = 0;
     size_t swaps_applied_ = 0;
     size_t merges_ = 0;
