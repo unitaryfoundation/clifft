@@ -101,7 +101,6 @@ using ChoiIndex = std::vector<uint64_t>;
 /// in descending-pivot order plus the minimum-integer support index, which
 /// stim's matrix canonicalization anchors at a positive real amplitude.
 struct ChoiSupport {
-    uint32_t num_index_words = 0;
     std::vector<ChoiRow> x_rows;
     std::vector<uint32_t> pivots;
     std::vector<ChoiIndex> x_masks;
@@ -150,6 +149,8 @@ void index_xor(ChoiIndex& dst, const ChoiIndex& src) {
     }
 }
 
+constexpr std::complex<double> kIPow[4] = {{1, 0}, {0, 1}, {-1, 0}, {0, -1}};
+
 /// Phase of P|j> = i^{2*sign + #Y + 2*parity(j & z)} |j ^ x| for a
 /// Hermitian signed Pauli P = (-1)^sign X^x Z^z (Y contributing i each).
 [[nodiscard]] std::complex<double> pauli_ket_phase(const ChoiRow& p, const ChoiIndex& j) {
@@ -158,7 +159,6 @@ void index_xor(ChoiIndex& dst, const ChoiIndex& src) {
         phase_idx += static_cast<uint32_t>(std::popcount(p.xs.u64[w] & p.zs.u64[w]));
         phase_idx += 2U * (static_cast<uint32_t>(std::popcount(p.zs.u64[w] & j[w])) & 1U);
     }
-    constexpr std::complex<double> kIPow[4] = {{1, 0}, {0, 1}, {-1, 0}, {0, -1}};
     return kIPow[phase_idx & 3U];
 }
 
@@ -171,7 +171,6 @@ void index_xor(ChoiIndex& dst, const ChoiIndex& src) {
     const uint32_t words = (m + 63U) / 64U;
 
     ChoiSupport s;
-    s.num_index_words = words;
 
     size_t rank_x = 0;
     for (uint32_t col = m; col-- > 0;) {
@@ -362,7 +361,6 @@ std::complex<double> s_absorption_phase(const stim::Tableau<kStimWidth>& origina
         alpha_idx += 2U * (static_cast<uint32_t>(std::popcount(z_v.words[w] & anchor[w])) & 1U);
         x_is_zero &= (x_v.words[w] == 0);
     }
-    constexpr std::complex<double> kIPow[4] = {{1, 0}, {0, 1}, {-1, 0}, {0, -1}};
     const std::complex<double> alpha = kIPow[alpha_idx & 3U];
 
     std::complex<double> w_entry;

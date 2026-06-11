@@ -842,13 +842,16 @@ TEST_CASE("Peephole: S absorption phase matches dense canonical oracle", "[optim
 TEST_CASE("Peephole: pass preserves dense HIR value on random circuits", "[optimizer]") {
     // Value-preservation fuzz: the pass must keep
     // global_weight * canonical(final_tableau) * (op stream) exact as a
-    // matrix, componentwise with no global-phase alignment. This covers all
-    // S absorption call sites: T+T fusion, rotation fusion to S/S_dag, and
-    // standalone S-angle demotion, plus their interaction with sign
-    // normalization and downstream conjugation.
+    // matrix, componentwise with no global-phase alignment. The gate mix is
+    // chosen so the trials collectively reach every S absorption call site
+    // (T+T fusion, rotation fusion to S/S_dag, standalone S-angle demotion)
+    // and their interaction with sign normalization and downstream
+    // conjugation; the aggregate fusion count below keeps that property
+    // from silently eroding if the grammar or seed changes.
     std::mt19937_64 rng(2026);
     const char* single_qubit[] = {"H", "S", "S_DAG", "X", "Y", "Z", "T", "T_DAG"};
     const double angles[] = {0.25, 0.25, 0.5, 1.5, 0.75, 1.75, 0.1};
+    size_t total_fusions = 0;
 
     for (int trial = 0; trial < 200; ++trial) {
         CAPTURE(trial);
@@ -877,6 +880,7 @@ TEST_CASE("Peephole: pass preserves dense HIR value on random circuits", "[optim
         PeepholeFusionPass pass;
         pass.run(hir);
         const DenseMatrix after = dense_hir_value(hir);
+        total_fusions += pass.fusions();
 
         for (size_t i = 0; i < before.size(); ++i) {
             CAPTURE(i);
@@ -884,6 +888,9 @@ TEST_CASE("Peephole: pass preserves dense HIR value on random circuits", "[optim
             REQUIRE_THAT(after[i].imag(), Catch::Matchers::WithinAbs(before[i].imag(), 1e-5));
         }
     }
+
+    // Vacuity guard: the fuzz only validates S absorption if fusions occur.
+    REQUIRE(total_fusions > 50);
 }
 
 TEST_CASE("Peephole: S absorption on wide multi-word Pauli axes", "[optimizer]") {
