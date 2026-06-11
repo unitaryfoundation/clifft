@@ -26,6 +26,7 @@ add_library(clifft_core STATIC
     svm/svm_forced_kernels.cc
     svm/svm_scalar.cc
     svm/svm_state.cc
+    util/canonical_phase.cc
     util/introspection.cc
 )
 

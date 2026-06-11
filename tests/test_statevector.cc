@@ -1008,6 +1008,12 @@ TEST_CASE("Peephole statevector: optimized equals unoptimized componentwise") {
         "H 0\nCX 0 1\nS 1\nT 1\nT 1\nH 1\nT 1\nT 1",
         "Y 0\nH 0\nT 0\nT 0\nT 0\nT 0",
         "H 1\nCX 1 0\nR_Z(0.75) 0\nR_Z(0.75) 0\nH 0",
+        // Absorptions that leave rotations needing virtual-frame routing at
+        // lowering; these exercise the frame composition phase tracking.
+        "H 0\nT 0\nT 0\nT 0\nH 0\nT 0",
+        "CX 0 1\nY 1\nH 0\nR_Z(0.5) 0\nX 0",
+        "CX 0 1\nY 1\nH 0\nT_DAG 0\nT_DAG 0\nX 0",
+        "S_DAG 0\nH 0\nCX 2 3\nT 0\nCX 3 1\nT 0\nH 1\nT 1",
     };
 
     for (const char* circuit : circuits) {

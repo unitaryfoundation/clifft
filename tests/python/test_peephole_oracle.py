@@ -196,6 +196,12 @@ class TestPeepholeExactGlobalPhase:
         "H 0\nCX 0 1\nS 1\nT 1\nT 1\nH 1\nT 1\nT 1",
         "Y 0\nH 0\nT 0\nT 0\nT 0\nT 0",
         "H 1\nCX 1 0\nR_Z(0.75) 0\nR_Z(0.75) 0\nH 0",
+        # Absorptions that leave rotations needing virtual-frame routing at
+        # lowering; these exercise the frame composition phase tracking.
+        "H 0\nT 0\nT 0\nT 0\nH 0\nT 0",
+        "CX 0 1\nY 1\nH 0\nR_Z(0.5) 0\nX 0",
+        "CX 0 1\nY 1\nH 0\nT_DAG 0\nT_DAG 0\nX 0",
+        "S_DAG 0\nH 0\nCX 2 3\nT 0\nCX 3 1\nT 0\nH 1\nT 1",
     ]
 
     def test_h_t_t_h_exact_amplitudes(self) -> None:
@@ -212,6 +218,19 @@ class TestPeepholeExactGlobalPhase:
         sv_baseline = _clifft_statevector(circuit)
         sv_optimized = _clifft_statevector(circuit, optimize=True)
         np.testing.assert_allclose(sv_optimized, sv_baseline, atol=1e-6)
+
+    @pytest.mark.parametrize("seed", range(20))
+    def test_random_circuits_componentwise(self, seed: int) -> None:
+        """Random Clifford+T circuits agree componentwise, no phase alignment.
+
+        Unlike the fidelity-based equivalence tests above, this catches
+        global-phase drift from S absorption and from the virtual-frame
+        tableau composition at lowering.
+        """
+        circuit = random_clifford_t_circuit(5, depth=30, seed=seed)
+        sv_baseline = _clifft_statevector(circuit)
+        sv_optimized = _clifft_statevector(circuit, optimize=True)
+        np.testing.assert_allclose(sv_optimized, sv_baseline, atol=1e-5)
 
 
 # ---------------------------------------------------------------------------
