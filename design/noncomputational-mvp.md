@@ -475,16 +475,20 @@ When a transition fires on a target qubit with `QubitStatus s`:
     effect is the carrier collapse the rewriter materializes (§5.3.1),
     i.e. pure dephasing. This is the equalize-and-collapse
     approximation used by fast-path stabilizer leakage simulators
-    (sqale-sim's sampler among them). Its accuracy envelope: a
-    stabilizer-state source is either tableau-deterministic or exactly
-    unbiased, so every per-qubit marginal is reproduced exactly; but
-    (a) the destination is drawn independently of the simulator's
-    internal collapse, discarding destination-collapse correlations
-    with entangled partners, and (b) a qubit whose state is determined
-    by gate algebra but not by instruction (status is pre-SVM-known,
-    §5.2.2) takes this approximate path where a tableau-tracking
-    simulator would take the exact one. Closing either gap requires
-    runtime branching, which stays out of scope (§9).
+    (sqale-sim's sampler among them). Its accuracy envelope: an
+    unbiased unknown source is matched exactly in every per-qubit
+    marginal (a genuinely indeterminate stabilizer-state qubit is
+    exactly unbiased, so this covers it); but (a) the destination is
+    drawn independently of the simulator's internal collapse,
+    discarding destination-collapse correlations with entangled
+    partners, and (b) the sampler never queries tableau determinism --
+    status is pre-SVM-known (§5.2.2) -- so a qubit whose state is
+    determined by gate algebra but not by instruction takes this
+    approximate path, and its marginals remain approximate where a
+    tableau-tracking simulator is exact. Closing (a) requires runtime
+    branching (out of scope, §9); (b) could be closed ahead of time by
+    tracking a tableau in the sampler, deferred until measured to
+    matter.
 
 This is the "pre-sampleable" boundary, enforced where it actually
 matters (at the unknown-coherent-source point) rather than at model

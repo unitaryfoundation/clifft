@@ -100,10 +100,10 @@ class Model:
             approximation that pads every computational column with a
             diagonal pseudo-jump up to the maximum computational jump rate,
             draws the source uniformly, and collapses the carrier on every
-            jump. The approximation reproduces per-qubit marginals for
-            stabilizer-state sources; it discards destination-collapse
-            correlations and treats gate-determined (but not
-            instruction-determined) states as unknown.
+            jump. The approximation matches unbiased unknown-source
+            marginals; deterministic-but-untracked states remain
+            approximate, and destination-collapse correlations are
+            discarded.
         lost_leaked_ops: how an operation with no representable effect on a
             leaked or lost operand is handled. ``"reject"`` (the default)
             raises; ``"drop"`` opts into excising the whole operation,

@@ -13,11 +13,11 @@ namespace clifft {
 // so all columns share the maximum computational jump rate, the source is
 // drawn uniformly over the computational levels, and the destination from
 // that padded column. The pseudo-jump collapses the carrier without
-// changing its level (pure dephasing). The approximation reproduces the
-// per-qubit marginals of a stabilizer-state source exactly; it discards
+// changing its level (pure dephasing). The approximation matches
+// unbiased unknown-source computational marginals exactly; it discards
 // the correlation between the destination and the collapse outcome, and
-// it treats a qubit whose state is determined by gate algebra (but not by
-// instruction) as unknown.
+// a state that is gate-determined but tracked as unknown remains
+// approximate (the source is still drawn uniformly).
 enum class UnknownSourcePolicy : uint8_t {
     Reject = 0,
     EqualizeRates = 1,
