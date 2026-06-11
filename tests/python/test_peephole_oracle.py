@@ -158,6 +158,53 @@ class TestPeepholeAlgebraicIdentities:
 
 
 # ---------------------------------------------------------------------------
+# Componentwise global-phase preservation of S absorption
+# ---------------------------------------------------------------------------
+
+
+class TestPeepholeExactGlobalPhase:
+    """S absorption must not shift the API-visible global phase.
+
+    When the peephole pass fuses two T gates (or S-angle phase rotations)
+    and absorbs the resulting S/S_dag into the Clifford frame, the tableau
+    fixes the frame only up to global phase. The pass compensates
+    global_weight for stim's matrix canonicalization, so optimized and
+    unoptimized statevectors must agree componentwise -- fidelity checks
+    alone cannot see this.
+    """
+
+    # Each circuit triggers at least one S absorption: T+T fusion,
+    # T_DAG+T_DAG fusion, rotation fusion to S/S_dag, standalone S-angle
+    # demotion, and absorptions on signed, Y-type, and multi-qubit axes.
+    S_ABSORPTION_CIRCUITS = [
+        "H 0\nT 0\nT 0\nH 0",
+        "H 0\nT_DAG 0\nT_DAG 0\nH 0",
+        "H 0\nR_Z(0.25) 0\nR_Z(0.25) 0\nH 0",
+        "H 0\nR_Z(0.5) 0\nH 0",
+        "H 0\nR_Z(1.5) 0\nH 0",
+        "S_DAG 0\nH 0\nT 0\nT 0",
+        "S_DAG 0\nH 0\nCX 2 3\nT 0\nCX 3 1\nT 0",
+        "H 0\nCX 0 1\nT 1\nT 1\nCX 0 1\nH 0",
+        "H 0\nCX 0 1\nT 1\nT 1",
+        "H 0\nCX 0 1\nS 1\nT 1\nT 1\nH 1\nT 1\nT 1",
+        "Y 0\nH 0\nT 0\nT 0\nT 0\nT 0",
+        "H 1\nCX 1 0\nR_Z(0.75) 0\nR_Z(0.75) 0\nH 0",
+    ]
+
+    def test_h_t_t_h_exact_amplitudes(self) -> None:
+        """H T T H |0> = [0.5+0.5j, 0.5-0.5j] with the default pipeline."""
+        sv = _clifft_statevector("H 0\nT 0\nT 0\nH 0", optimize=True)
+        np.testing.assert_allclose(sv, [0.5 + 0.5j, 0.5 - 0.5j], atol=1e-6)
+
+    @pytest.mark.parametrize("circuit", S_ABSORPTION_CIRCUITS)
+    def test_componentwise_match(self, circuit: str) -> None:
+        """Optimized amplitudes equal unoptimized ones with no phase alignment."""
+        sv_baseline = _clifft_statevector(circuit)
+        sv_optimized = _clifft_statevector(circuit, optimize=True)
+        np.testing.assert_allclose(sv_optimized, sv_baseline, atol=1e-6)
+
+
+# ---------------------------------------------------------------------------
 # Mirror Circuit T-gate Annihilation
 # ---------------------------------------------------------------------------
 

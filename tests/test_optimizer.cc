@@ -10,7 +10,17 @@
 
 #include "test_helpers.h"
 
+#include <bit>
 #include <catch2/catch_test_macros.hpp>
+#include <catch2/matchers/catch_matchers_floating_point.hpp>
+#include <cmath>
+#include <complex>
+#include <cstdint>
+#include <numbers>
+#include <random>
+#include <span>
+#include <string>
+#include <vector>
 
 using namespace clifft;
 using clifft::test::X;
@@ -702,4 +712,195 @@ TEST_CASE("Peephole: commuting NOISE does not bypass EXP_VAL barrier", "[optimiz
     REQUIRE(hir.ops[3].op_type() == OpType::T_GATE);
     REQUIRE(pass.cancellations() == 0);
     REQUIRE(pass.fusions() == 0);
+}
+
+// =============================================================================
+// Canonical phase of S absorption -- dense stim oracle
+// =============================================================================
+
+namespace {
+
+using DenseMatrix = std::vector<std::complex<double>>;
+
+// Dense matrix of the projector-form rotation Pi_+ + e^{i*alpha*pi} Pi_- on
+// the signed Pauli (x, z, sign) over n qubits, little-endian basis order.
+// The fused S/S_dag the peephole absorbs is alpha = 0.5 / 1.5.
+DenseMatrix dense_axis_rotation(uint64_t x, uint64_t z, bool sign, double alpha, size_t n) {
+    const uint64_t dim = uint64_t{1} << n;
+    constexpr std::complex<double> kIPow[4] = {{1, 0}, {0, 1}, {-1, 0}, {0, -1}};
+    const std::complex<double> eig{std::cos(alpha * std::numbers::pi),
+                                   std::sin(alpha * std::numbers::pi)};
+    const std::complex<double> a = (1.0 + eig) / 2.0;
+    const std::complex<double> b = (1.0 - eig) / 2.0;
+
+    DenseMatrix r(dim * dim, {0.0, 0.0});
+    for (uint64_t c = 0; c < dim; ++c) {
+        r[c * dim + c] += a;
+        uint32_t phase_idx = (sign ? 2U : 0U) + static_cast<uint32_t>(std::popcount(x & z)) +
+                             2U * (static_cast<uint32_t>(std::popcount(c & z)) & 1U);
+        r[(c ^ x) * dim + c] += b * kIPow[phase_idx & 3U];
+    }
+    return r;
+}
+
+DenseMatrix dense_tableau_matrix(const stim::Tableau<kStimWidth>& tab) {
+    auto flat = tab.to_flat_unitary_matrix(true);
+    DenseMatrix m(flat.size());
+    for (size_t i = 0; i < flat.size(); ++i) {
+        m[i] = {flat[i].real(), flat[i].imag()};
+    }
+    return m;
+}
+
+DenseMatrix dense_matmul(const DenseMatrix& a, const DenseMatrix& b, uint64_t dim) {
+    DenseMatrix r(dim * dim, {0.0, 0.0});
+    for (uint64_t i = 0; i < dim; ++i) {
+        for (uint64_t k = 0; k < dim; ++k) {
+            for (uint64_t j = 0; j < dim; ++j) {
+                r[i * dim + j] += a[i * dim + k] * b[k * dim + j];
+            }
+        }
+    }
+    return r;
+}
+
+// Dense value of an HIR module: global_weight * canonical(final_tableau)
+// applied after the op stream. T_GATE is projector-form on the signed axis;
+// PHASE_ROTATION means D(P, (-1)^sign * alpha) because the front-end already
+// extracted the sign-adjusted global phase.
+DenseMatrix dense_hir_value(const HirModule& hir) {
+    const size_t n = hir.num_qubits;
+    const uint64_t dim = uint64_t{1} << n;
+    DenseMatrix value = dense_tableau_matrix(*hir.final_tableau);
+    for (size_t i = hir.ops.size(); i-- > 0;) {
+        const auto& op = hir.ops[i];
+        const uint64_t x = hir.destab_mask(op).words[0];
+        const uint64_t z = hir.stab_mask(op).words[0];
+        const bool sign = hir.sign(op);
+        REQUIRE((op.op_type() == OpType::T_GATE || op.op_type() == OpType::PHASE_ROTATION));
+        if (op.op_type() == OpType::T_GATE) {
+            value = dense_matmul(
+                value, dense_axis_rotation(x, z, sign, op.is_dagger() ? 1.75 : 0.25, n), dim);
+        } else {
+            value = dense_matmul(
+                value, dense_axis_rotation(x, z, false, sign ? -op.alpha() : op.alpha(), n), dim);
+        }
+    }
+    for (auto& v : value) {
+        v *= hir.global_weight;
+    }
+    return value;
+}
+
+}  // namespace
+
+TEST_CASE("Peephole: S absorption phase matches dense canonical oracle", "[optimizer]") {
+    // Fuzz s_absorption_phase against stim's to_flat_unitary_matrix: for a
+    // random frame U_C and random signed Pauli P, the exact rotation R must
+    // satisfy canonical(U_C) * R == phase * canonical(U_C * S_P)
+    // componentwise, where phase is the value folded into global_weight.
+    std::mt19937_64 rng(0x139);
+
+    for (int trial = 0; trial < 256; ++trial) {
+        CAPTURE(trial);
+        const size_t n = 1 + static_cast<size_t>(trial % 4);
+        const uint64_t qubit_mask = (uint64_t{1} << n) - 1;
+        auto tab = stim::Tableau<kStimWidth>::random(n, rng);
+
+        uint64_t x = 0;
+        uint64_t z = 0;
+        while (x == 0 && z == 0) {
+            x = rng() & qubit_mask;
+            z = rng() & qubit_mask;
+        }
+        const bool sign = (rng() & 1) != 0;
+        const bool is_dagger = (rng() & 1) != 0;
+
+        const uint64_t x_words[1] = {x};
+        const uint64_t z_words[1] = {z};
+        MaskView x_v{std::span<const uint64_t>(x_words)};
+        MaskView z_v{std::span<const uint64_t>(z_words)};
+
+        auto updated = tab;
+        internal::apply_s_to_tableau(updated, x_v, z_v, sign, is_dagger);
+        const auto phase = internal::s_absorption_phase(tab, updated, x_v, z_v, sign, is_dagger);
+
+        const uint64_t dim = uint64_t{1} << n;
+        const auto lhs =
+            dense_matmul(dense_tableau_matrix(tab),
+                         dense_axis_rotation(x, z, sign, is_dagger ? 1.5 : 0.5, n), dim);
+        const auto m_new = dense_tableau_matrix(updated);
+        for (uint64_t i = 0; i < dim * dim; ++i) {
+            const auto rhs = phase * m_new[i];
+            CAPTURE(i);
+            REQUIRE_THAT(lhs[i].real(), Catch::Matchers::WithinAbs(rhs.real(), 1e-5));
+            REQUIRE_THAT(lhs[i].imag(), Catch::Matchers::WithinAbs(rhs.imag(), 1e-5));
+        }
+    }
+}
+
+TEST_CASE("Peephole: pass preserves dense HIR value on random circuits", "[optimizer]") {
+    // Value-preservation fuzz: the pass must keep
+    // global_weight * canonical(final_tableau) * (op stream) exact as a
+    // matrix, componentwise with no global-phase alignment. This covers all
+    // S absorption call sites: T+T fusion, rotation fusion to S/S_dag, and
+    // standalone S-angle demotion, plus their interaction with sign
+    // normalization and downstream conjugation.
+    std::mt19937_64 rng(2026);
+    const char* single_qubit[] = {"H", "S", "S_DAG", "X", "Y", "Z", "T", "T_DAG"};
+    const double angles[] = {0.25, 0.25, 0.5, 1.5, 0.75, 1.75, 0.1};
+
+    for (int trial = 0; trial < 200; ++trial) {
+        CAPTURE(trial);
+        const size_t n = 2 + static_cast<size_t>(trial % 2);
+        std::string src;
+        for (int depth = 0; depth < 25; ++depth) {
+            const int kind = static_cast<int>(rng() % 4);
+            const int q = static_cast<int>(rng() % n);
+            if (kind == 0) {
+                src += std::string(single_qubit[rng() % 8]) + " " + std::to_string(q) + "\n";
+            } else if (kind == 1) {
+                const int q2 = static_cast<int>(rng() % n);
+                if (q2 == q)
+                    continue;
+                src += "CX " + std::to_string(q) + " " + std::to_string(q2) + "\n";
+            } else if (kind == 2) {
+                src += "R_Z(" + std::to_string(angles[rng() % 7]) + ") " + std::to_string(q) + "\n";
+            } else {
+                src += std::string((rng() & 1) ? "T " : "T_DAG ") + std::to_string(q) + "\n";
+            }
+        }
+        CAPTURE(src);
+
+        auto hir = hir_from(src.c_str());
+        const DenseMatrix before = dense_hir_value(hir);
+        PeepholeFusionPass pass;
+        pass.run(hir);
+        const DenseMatrix after = dense_hir_value(hir);
+
+        for (size_t i = 0; i < before.size(); ++i) {
+            CAPTURE(i);
+            REQUIRE_THAT(after[i].real(), Catch::Matchers::WithinAbs(before[i].real(), 1e-5));
+            REQUIRE_THAT(after[i].imag(), Catch::Matchers::WithinAbs(before[i].imag(), 1e-5));
+        }
+    }
+}
+
+TEST_CASE("Peephole: S absorption on wide multi-word Pauli axes", "[optimizer]") {
+    // Exercise the canonical phase machinery across 64-bit word boundaries
+    // (Choi indices span 2n bits). Debug asserts inside s_absorption_phase
+    // validate the canonical anchor against the old support.
+    std::string src;
+    for (int q = 0; q < 70; q += 7) {
+        src += "H " + std::to_string(q) + "\nCX " + std::to_string(q) + " " +
+               std::to_string(q + 1) + "\n";
+    }
+    src += "T 69\nT 69\nS_DAG 68\nH 68\nT 68\nT 68\n";
+
+    auto hir = hir_from(src.c_str());
+    PeepholeFusionPass pass;
+    pass.run(hir);
+
+    REQUIRE(pass.fusions() == 2);
+    REQUIRE(hir.ops.empty());
 }

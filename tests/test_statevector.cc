@@ -1,6 +1,7 @@
 #include "clifft/backend/backend.h"
 #include "clifft/circuit/parser.h"
 #include "clifft/frontend/frontend.h"
+#include "clifft/optimizer/peephole.h"
 #include "clifft/svm/svm.h"
 
 #include "test_helpers.h"
@@ -958,4 +959,65 @@ TEST_CASE("E2E: H_XY maps Z to -Z so flips zero to one") {
     CHECK_THAT(std::abs(sv[0]), Catch::Matchers::WithinAbs(0.0, kFloatTol));
     CHECK_THAT(std::abs(sv[1]), Catch::Matchers::WithinAbs(1.0, kFloatTol));
     check_normalized(sv, kFloatTol);
+}
+
+// =============================================================================
+// Peephole S absorption preserves the statevector componentwise
+// =============================================================================
+//
+// PeepholeFusionPass replaces fused S/S_dag rotations with a final-tableau
+// update, which is only defined up to global phase; the pass compensates
+// global_weight for stim's matrix canonicalization. These checks compare
+// optimized against unoptimized amplitudes with NO global-phase alignment.
+
+static std::vector<std::complex<double>> peephole_statevector(const std::string& circuit_text) {
+    auto hir = clifft::trace(clifft::parse(circuit_text));
+    PeepholeFusionPass pass;
+    pass.run(hir);
+    auto mod = clifft::lower(hir);
+    SchrodingerState state({.peak_rank = mod.peak_rank,
+                            .num_measurements = mod.total_meas_slots,
+                            .num_detectors = mod.num_detectors,
+                            .num_observables = mod.num_observables,
+                            .num_exp_vals = mod.num_exp_vals,
+                            .seed = 0});
+    execute(mod, state);
+    return get_statevector(mod, state);
+}
+
+TEST_CASE("Peephole statevector: H T T H absorbs S exactly") {
+    // Unoptimized reference: H T T H |0> = e^{i*pi/4} exp(-i*pi/4 X) |0>
+    //                                    = [0.5 + 0.5i, 0.5 - 0.5i]
+    auto sv = peephole_statevector("H 0\nT 0\nT 0\nH 0");
+    REQUIRE(sv.size() == 2);
+    check_complex(sv[0], {0.5, 0.5}, kFloatTol);
+    check_complex(sv[1], {0.5, -0.5}, kFloatTol);
+}
+
+TEST_CASE("Peephole statevector: optimized equals unoptimized componentwise") {
+    const char* circuits[] = {
+        "H 0\nT 0\nT 0\nH 0",
+        "H 0\nT_DAG 0\nT_DAG 0\nH 0",
+        "H 0\nR_Z(0.25) 0\nR_Z(0.25) 0\nH 0",
+        "H 0\nR_Z(0.5) 0\nH 0",
+        "H 0\nR_Z(1.5) 0\nH 0",
+        "S_DAG 0\nH 0\nT 0\nT 0",
+        "S_DAG 0\nH 0\nCX 2 3\nT 0\nCX 3 1\nT 0",
+        "H 0\nCX 0 1\nT 1\nT 1\nCX 0 1\nH 0",
+        "H 0\nCX 0 1\nT 1\nT 1",
+        "H 0\nCX 0 1\nS 1\nT 1\nT 1\nH 1\nT 1\nT 1",
+        "Y 0\nH 0\nT 0\nT 0\nT 0\nT 0",
+        "H 1\nCX 1 0\nR_Z(0.75) 0\nR_Z(0.75) 0\nH 0",
+    };
+
+    for (const char* circuit : circuits) {
+        CAPTURE(circuit);
+        auto reference = pipeline_statevector(circuit);
+        auto optimized = peephole_statevector(circuit);
+        REQUIRE(optimized.size() == reference.size());
+        for (size_t i = 0; i < reference.size(); ++i) {
+            CAPTURE(i);
+            check_complex(optimized[i], reference[i], kFloatTol);
+        }
+    }
 }
