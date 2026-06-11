@@ -69,9 +69,29 @@ void register_noncomp(nb::module_& m) {
            std::map<std::string, std::vector<std::vector<double>>> transitions,
            std::optional<std::vector<std::string>> classifier_symbols,
            std::optional<std::vector<std::vector<double>>> classifier_matrix,
-           bool reset_restores_lost) {
+           bool reset_restores_lost, const std::string& unknown_source_policy,
+           const std::string& lost_leaked_ops) {
             clifft::NonComputationalPolicy policy;
             policy.reset_restores_lost = reset_restores_lost;
+            if (unknown_source_policy == "reject") {
+                policy.unknown_source_policy = clifft::UnknownSourcePolicy::Reject;
+            } else if (unknown_source_policy == "equalize_rates") {
+                policy.unknown_source_policy = clifft::UnknownSourcePolicy::EqualizeRates;
+            } else {
+                throw std::invalid_argument(
+                    "noncomp model: unknown_source_policy must be 'reject' or 'equalize_rates', "
+                    "got '" +
+                    unknown_source_policy + "'");
+            }
+            if (lost_leaked_ops == "reject") {
+                policy.lost_leaked_ops = clifft::LostLeakedOpsPolicy::Reject;
+            } else if (lost_leaked_ops == "drop") {
+                policy.lost_leaked_ops = clifft::LostLeakedOpsPolicy::Drop;
+            } else {
+                throw std::invalid_argument(
+                    "noncomp model: lost_leaked_ops must be 'reject' or 'drop', got '" +
+                    lost_leaked_ops + "'");
+            }
 
             std::optional<clifft::ClassifierSpec> spec;
             if (classifier_symbols.has_value() || classifier_matrix.has_value()) {
@@ -89,7 +109,8 @@ void register_noncomp(nb::module_& m) {
         },
         nb::arg("initial_state"), nb::arg("transitions"),
         nb::arg("classifier_symbols") = nb::none(), nb::arg("classifier_matrix") = nb::none(),
-        nb::arg("reset_restores_lost") = false,
+        nb::arg("reset_restores_lost") = false, nb::arg("unknown_source_policy") = "reject",
+        nb::arg("lost_leaked_ops") = "reject",
         "Build a default 5-level NonComputationalModel from raw matrices. See "
         "clifft.noncomp.Model.");
 

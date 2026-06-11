@@ -15,7 +15,9 @@
 //      every rec[-k] reference into it) is preserved; reinterpreting a
 //      measurement's outcome for a leaked or lost qubit is a sampling /
 //      sidecar concern for the orchestrator, not a circuit edit. An
-//      ambiguous operation on a leaked or lost operand rejects by default.
+//      ambiguous operation on a leaked or lost operand rejects by default;
+//      under LostLeakedOpsPolicy::Drop it is excised whole (identity on the
+//      surviving operands), whose statuses then keep their entry values.
 //   3. Hidden trace-out: when a coherent qubit jumps to a Leaked or Lost
 //      level, insert an R on that qubit immediately after the operation.
 //      The existing reset lowering turns it into a hidden measurement plus a

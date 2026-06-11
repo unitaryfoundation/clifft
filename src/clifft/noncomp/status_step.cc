@@ -2,6 +2,73 @@
 
 namespace clifft {
 
+OperandAction operand_action(GateType gate, QubitStatusKind kind,
+                             const NonComputationalPolicy& policy) {
+    if (kind == QubitStatusKind::ComputationalKnown ||
+        kind == QubitStatusKind::ComputationalUnknown) {
+        return OperandAction::Apply;
+    }
+
+    const bool lost = kind == QubitStatusKind::Lost;
+    const bool drop = policy.lost_leaked_ops == LostLeakedOpsPolicy::Drop;
+
+    // An identity no-op is harmless to keep on any qubit.
+    if (is_identity_noop(gate)) {
+        return OperandAction::Apply;
+    }
+    // A measure-and-reset both records an outcome and restores the site. The
+    // recorded outcome is supplied by the model's classifier downstream, so
+    // the operation is kept whenever the record slot must exist. A leaked
+    // qubit always restores; a lost qubit restores only when the policy opts
+    // in. A non-restoring lost site still keeps the operation under Drop --
+    // the record slot survives and the site simply stays lost -- and rejects
+    // otherwise.
+    if (is_measure_reset(gate)) {
+        if (!lost || policy.reset_restores_lost) {
+            return OperandAction::Apply;
+        }
+        return drop ? OperandAction::Apply : OperandAction::Reject;
+    }
+    // A plain measurement keeps its visible record slot so the record and its
+    // rec[-k] references do not shift; on a leaked/lost qubit the outcome is
+    // supplied by the model's classifier downstream. That substitution is a
+    // single record bit, faithful only for a Z-basis M. An X/Y-basis (MX/MY)
+    // or multi-qubit-parity (MPP) measurement has no faithful single-bit form
+    // on a noncomputational operand, so it is not representable and rejects
+    // under either policy.
+    if (is_measurement(gate)) {
+        return gate == GateType::M ? OperandAction::Apply : OperandAction::Reject;
+    }
+    // A reset restores a leaked qubit always, a lost qubit only by policy. A
+    // non-restoring lost-qubit reset acts on a vacated site, so it drops
+    // under Drop and rejects otherwise.
+    if (is_reset(gate)) {
+        if (!lost || policy.reset_restores_lost) {
+            return OperandAction::Apply;
+        }
+        return drop ? OperandAction::Drop : OperandAction::Reject;
+    }
+    // A single-qubit Pauli noise channel drops on a leaked or lost qubit; a
+    // single-qubit unitary gate drops on a lost qubit (no carrier remains).
+    if (gate_arity(gate) == GateArity::SINGLE) {
+        if (is_noise_gate(gate)) {
+            return OperandAction::Drop;
+        }
+        if (lost) {
+            return OperandAction::Drop;
+        }
+        // A single-qubit gate on a leaked qubit: the pulse addresses a
+        // carrier outside the computational subspace, so it has no effect
+        // there and drops under Drop; it rejects by default.
+        return drop ? OperandAction::Drop : OperandAction::Reject;
+    }
+    // Anything else touching a leaked or lost operand -- a two-qubit gate, a
+    // two-qubit noise channel, or classical feedback onto a vacated site --
+    // is the interaction that physically cannot happen, so it drops whole
+    // (identity on the surviving operands) under Drop and rejects by default.
+    return drop ? OperandAction::Drop : OperandAction::Reject;
+}
+
 QubitStatus normal_post_op_status(const QubitStatus& entry, GateType gate, OperandRole role,
                                   const NonComputationalPolicy& policy, const LevelSet& levels) {
     const QubitStatusKind kind = entry.kind();
@@ -72,6 +139,14 @@ QubitStatus step_status(const QubitStatus& entry, GateType gate, OperandRole rol
         return levels.status_for(outcome.destination_level);
     }
     return normal_post_op_status(entry, gate, role, policy, levels);
+}
+
+QubitStatus step_status_dropped(const QubitStatus& entry, const TransitionOutcome& outcome,
+                                const LevelSet& levels) {
+    if (outcome.jumped) {
+        return levels.status_for(outcome.destination_level);
+    }
+    return entry;
 }
 
 }  // namespace clifft

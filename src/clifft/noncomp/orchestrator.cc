@@ -115,6 +115,14 @@ Circuit inject_classifier(const Circuit& original, const Circuit& rewritten,
         const GateType gate = node.gate;
         const TransitionInstrument* instrument = model.transition_for(gate);
         const bool measurement = is_measurement(gate);
+        // Mirror the sampler/rewriter policy pre-scan so all three trajectory
+        // replays advance statuses identically when an operation is dropped.
+        bool drop_op = false;
+        for (const QubitOperand& operand : qubit_operands(node)) {
+            if (operand_action(gate, status[operand.qubit].kind(), policy) == OperandAction::Drop) {
+                drop_op = true;
+            }
+        }
         for (const QubitOperand& operand : qubit_operands(node)) {
             const uint32_t qubit = operand.qubit;
             const QubitStatus pre = status[qubit];
@@ -136,7 +144,8 @@ Circuit inject_classifier(const Circuit& original, const Circuit& rewritten,
                 slot_to_bit[slot] =
                     classifier_bit(*classifier, pre.level_id(), rng, gate, op_index, qubit);
             }
-            status[qubit] = step_status(pre, gate, operand.role, outcome, policy, levels);
+            status[qubit] = drop_op ? step_status_dropped(pre, outcome, levels)
+                                    : step_status(pre, gate, operand.role, outcome, policy, levels);
         }
         if (measurement) {
             ++slot;

@@ -256,3 +256,72 @@ def test_deterministic_in_seed():
     assert np.array_equal(a.measurements, b.measurements)
     assert np.array_equal(a.detectors, b.detectors)
     assert np.array_equal(a.final_status, b.final_status)
+
+
+# --- 8. Policy knobs --------------------------------------------------------
+
+
+def test_policy_knob_strings_validate():
+    noncomp.Model(
+        initial_state=ALL_G,
+        unknown_source_policy="equalize_rates",
+        lost_leaked_ops="drop",
+    )
+    with pytest.raises(ValueError, match="unknown_source_policy"):
+        noncomp.Model(initial_state=ALL_G, unknown_source_policy="bogus")
+    with pytest.raises(ValueError, match="lost_leaked_ops"):
+        noncomp.Model(initial_state=ALL_G, lost_leaked_ops="bogus")
+
+
+def test_equalize_rates_matches_the_analytic_plus_state_mixture():
+    """|+> under a source-dependent leak (only g leaks, p = 0.4), equalized.
+
+    Fires with probability p; on fire the uniform source draw either leaks
+    (g column, classifier reads 1) or pseudo-jumps onto e (carrier collapses
+    to |1>, reads 1); otherwise the |+> reads 1 half the time. So
+    P(M=1) = p/2 + p/2 + (1-p)/2 = 0.5 + p/2 and P(leaked) = p/2.
+    """
+    leak_from_g_only = _zeros(5, 5)
+    leak_from_g_only[LEAK_G][noncomp.Level.G] = 0.4
+    circuit = "H 0\nS 0\nM 0\n"
+    classifier = classifier_for(LEAK_G, [0.0, 1.0])
+
+    reject_model = noncomp.Model(
+        initial_state=ALL_G, transitions={"S": leak_from_g_only}, classifier=classifier
+    )
+    with pytest.raises(ValueError, match="source-dependent"):
+        noncomp.sample(circuit, reject_model, shots=4, seed=1)
+
+    model = noncomp.Model(
+        initial_state=ALL_G,
+        transitions={"S": leak_from_g_only},
+        classifier=classifier,
+        unknown_source_policy="equalize_rates",
+    )
+    r = noncomp.sample(circuit, model, shots=4000, seed=5)
+    assert abs(r.measurements[:, 0].mean() - 0.7) < 0.04
+    assert abs((r.final_status[:, 0] == LEAKED).mean() - 0.2) < 0.035
+
+
+def test_drop_policy_runs_a_multi_round_circuit_through_loss():
+    """A lost data qubit drops its syndrome CXs (identity on the ancilla)."""
+    circuit = "H 0\nS 0\nCX 0 1\nMR 1\nCX 0 1\nMR 1\nM 0\n"
+    transitions = {"S": transition_to(LOST)}
+    classifier = classifier_for(LOST, [0.0, 1.0])
+
+    reject_model = noncomp.Model(
+        initial_state=ALL_G, transitions=transitions, classifier=classifier
+    )
+    with pytest.raises(ValueError, match="CX"):
+        noncomp.sample(circuit, reject_model, shots=4, seed=2)
+
+    model = noncomp.Model(
+        initial_state=ALL_G,
+        transitions=transitions,
+        classifier=classifier,
+        lost_leaked_ops="drop",
+    )
+    r = noncomp.sample(circuit, model, shots=16, seed=2)
+    assert r.num_measurements == 3
+    assert np.array_equal(r.measurements, np.tile([0, 0, 1], (16, 1)))
+    assert np.all(r.final_status[:, 0] == LOST_KIND)

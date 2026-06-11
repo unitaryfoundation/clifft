@@ -287,3 +287,142 @@ TEST_CASE("sample_history: source-independent transition on an unknown qubit is 
     REQUIRE_FALSE(s.history.transitions[1].jumped);
     REQUIRE(s.final_status[0].kind() == QubitStatusKind::ComputationalUnknown);
 }
+
+TEST_CASE("sample_history: equalize_rates samples an unknown source instead of throwing") {
+    // 200 independent H'd qubits each consult a source-dependent instrument
+    // (g jumps to lost with certainty, e never). Equalized, every consult
+    // fires at p_max = 1; the uniform source draw sends about half to lost
+    // (the g column) and half to a pseudo-jump landing as a known
+    // computational e (the padded e diagonal).
+    constexpr uint32_t kN = 200;
+    Circuit c;
+    c.num_qubits = kN;
+    for (uint32_t q = 0; q < kN; ++q) {
+        c.nodes.push_back(op(GateType::H, {q}));
+    }
+    for (uint32_t q = 0; q < kN; ++q) {
+        c.nodes.push_back(op(GateType::S, {q}));
+    }
+    std::map<std::string, TransitionInstrument> transitions;
+    transitions.emplace("S", lose_from_g(LevelSet::default_set()));
+    NonComputationalPolicy policy;
+    policy.unknown_source_policy = clifft::UnknownSourcePolicy::EqualizeRates;
+    NonComputationalModel model = make_model(all_g(), std::move(transitions), policy);
+
+    HistorySample s = sample_history(c, model, 7);
+
+    size_t lost = 0;
+    size_t known_e = 0;
+    for (const auto& st : s.final_status) {
+        if (st.kind() == QubitStatusKind::Lost) {
+            ++lost;
+        } else if (st.kind() == QubitStatusKind::ComputationalKnown && st.level_id() == kE) {
+            ++known_e;
+        }
+    }
+    REQUIRE(lost + known_e == kN);  // p_max = 1: every consult fired
+    REQUIRE(lost > kN * 35 / 100);
+    REQUIRE(lost < kN * 65 / 100);
+    REQUIRE(s.history.transitions.size() == kN);
+    for (const auto& rec : s.history.transitions) {
+        REQUIRE(rec.jumped);
+        REQUIRE((rec.destination_level == kE || rec.destination_level == kLost));
+    }
+}
+
+TEST_CASE("sample_history: equalize_rates fires at the maximum computational rate") {
+    // g jumps to lost with probability 0.3 and e never, so p_max = 0.3.
+    // About 30% of unknown-source consults fire; fired consults split evenly
+    // between the lost destination (g column) and the pseudo-jump onto e.
+    constexpr uint32_t kN = 1000;
+    Circuit c;
+    c.num_qubits = kN;
+    for (uint32_t q = 0; q < kN; ++q) {
+        c.nodes.push_back(op(GateType::H, {q}));
+    }
+    for (uint32_t q = 0; q < kN; ++q) {
+        c.nodes.push_back(op(GateType::S, {q}));
+    }
+    std::map<std::string, TransitionInstrument> transitions;
+    transitions.emplace("S", lose_from_g_30pct(LevelSet::default_set()));
+    NonComputationalPolicy policy;
+    policy.unknown_source_policy = clifft::UnknownSourcePolicy::EqualizeRates;
+    NonComputationalModel model = make_model(all_g(), std::move(transitions), policy);
+
+    HistorySample s = sample_history(c, model, 11);
+
+    size_t fired = 0;
+    for (const auto& rec : s.history.transitions) {
+        if (rec.jumped) {
+            ++fired;
+        }
+    }
+    size_t lost = 0;
+    for (const auto& st : s.final_status) {
+        if (st.kind() == QubitStatusKind::Lost) {
+            ++lost;
+        }
+    }
+    REQUIRE(fired > 230);
+    REQUIRE(fired < 370);
+    REQUIRE(lost > 90);
+    REQUIRE(lost < 210);
+}
+
+TEST_CASE("sample_history: equalize_rates keeps a known source exact") {
+    // The policy only governs unknown sources: a known g qubit keeps its
+    // exact column, which here jumps to lost with certainty.
+    Circuit c;
+    c.num_qubits = 1;
+    c.nodes.push_back(op(GateType::S, {0}));
+    for (uint64_t seed = 0; seed < 10; ++seed) {
+        std::map<std::string, TransitionInstrument> transitions;
+        transitions.emplace("S", lose_from_g(LevelSet::default_set()));
+        NonComputationalPolicy policy;
+        policy.unknown_source_policy = clifft::UnknownSourcePolicy::EqualizeRates;
+        NonComputationalModel model = make_model(all_g(), std::move(transitions), policy);
+        HistorySample s = sample_history(c, model, seed);
+        REQUIRE(s.final_status[0].kind() == QubitStatusKind::Lost);
+    }
+}
+
+TEST_CASE("sample_history: equalize_rates known divergence on a gate-determined state") {
+    // H then H returns each qubit to |g> deterministically, but status
+    // tracking is instruction-known, so the qubit is ComputationalUnknown at
+    // the consult. The exact channel (leaking only from e) could never fire
+    // on |g>; the equalized draw still fires at p_max = 1 and the uniform
+    // source draw loses about half the qubits. This pins the documented
+    // approximation boundary: if status tracking ever starts promoting
+    // gate-determined states, these expectations must change with it.
+    constexpr uint32_t kN = 200;
+    Circuit c;
+    c.num_qubits = kN;
+    for (uint32_t q = 0; q < kN; ++q) {
+        c.nodes.push_back(op(GateType::H, {q}));
+    }
+    for (uint32_t q = 0; q < kN; ++q) {
+        c.nodes.push_back(op(GateType::H, {q}));
+    }
+    for (uint32_t q = 0; q < kN; ++q) {
+        c.nodes.push_back(op(GateType::S, {q}));
+    }
+    auto m = zeros5();
+    m[kLost][kE] = 1.0;  // leaks only from e: exact on |g> would never fire
+    std::map<std::string, TransitionInstrument> transitions;
+    transitions.emplace("S",
+                        TransitionInstrument::from_matrix(std::move(m), LevelSet::default_set()));
+    NonComputationalPolicy policy;
+    policy.unknown_source_policy = clifft::UnknownSourcePolicy::EqualizeRates;
+    NonComputationalModel model = make_model(all_g(), std::move(transitions), policy);
+
+    HistorySample s = sample_history(c, model, 13);
+
+    size_t lost = 0;
+    for (const auto& st : s.final_status) {
+        if (st.kind() == QubitStatusKind::Lost) {
+            ++lost;
+        }
+    }
+    REQUIRE(lost > kN * 35 / 100);
+    REQUIRE(lost < kN * 65 / 100);
+}

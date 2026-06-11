@@ -94,9 +94,26 @@ class Model:
         transitions: maps a gate-name string to its ``T[to][from]`` matrix.
         classifier: optional :class:`Classifier` for leaked/lost measurements.
         reset_restores_lost: if true, a reset on a lost qubit restores it.
+        unknown_source_policy: how a source-dependent transition on a qubit
+            whose computational state is unknown is handled. ``"reject"``
+            (the default) raises; ``"equalize_rates"`` opts into an
+            approximation that pads every computational column with a
+            diagonal pseudo-jump up to the maximum computational jump rate,
+            draws the source uniformly, and collapses the carrier on every
+            jump. The approximation matches unbiased unknown-source
+            marginals; deterministic-but-untracked states remain
+            approximate, and destination-collapse correlations are
+            discarded.
+        lost_leaked_ops: how an operation with no representable effect on a
+            leaked or lost operand is handled. ``"reject"`` (the default)
+            raises; ``"drop"`` opts into excising the whole operation,
+            acting as the identity on the surviving operands. Measurements
+            are never dropped; their record slot is kept and the classifier
+            supplies the outcome.
 
-    Construction validates shapes, probabilities, gate keys, and level table
-    consistency in C++, raising ``ValueError`` on any problem.
+    Construction validates shapes, probabilities, gate keys, policy values,
+    and level table consistency in C++, raising ``ValueError`` on any
+    problem.
     """
 
     __slots__ = ("_handle",)
@@ -107,6 +124,8 @@ class Model:
         transitions: Mapping[str, Matrix] | None = None,
         classifier: Classifier | None = None,
         reset_restores_lost: bool = False,
+        unknown_source_policy: str = "reject",
+        lost_leaked_ops: str = "reject",
     ) -> None:
         transition_matrices = {
             str(gate): _as_matrix(matrix) for gate, matrix in (transitions or {}).items()
@@ -119,6 +138,8 @@ class Model:
             symbols,
             matrix,
             bool(reset_restores_lost),
+            str(unknown_source_policy),
+            str(lost_leaked_ops),
         )
 
 
