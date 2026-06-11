@@ -20,6 +20,12 @@ These helpers only compute probabilities. Insert them into circuits as
 ordinary noise instructions (``Z_ERROR(p)``, ``PAULI_CHANNEL_1(px, py, pz)``),
 which both the plain sampler and the noncomputational path treat like any
 other Pauli noise.
+
+This module is experimental. It operates on one unitary at a time and leaves
+the circuit editing to the caller; a more robust interface -- a circuit
+annotated with the sites to twirl, with the noise nodes substituted
+internally -- may supersede these free functions, changing or removing this
+surface.
 """
 
 from __future__ import annotations
