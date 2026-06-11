@@ -571,7 +571,14 @@ Notes:
 - **Lost-qubit measurement is fully specified by the classifier
   matrix's `lost` column.** There is no separate `lost_measurement`
   policy knob: random-bit is `[0.5, 0.5]`, deterministic-0 is
-  `[1, 0]`, reject is `[0, 0]`.
+  `[1, 0]`, reject is `[0, 0]`. A classifier may carry a third
+  symbol that *heralds* the slot — `[0, 0, 1]` is a deterministic
+  loss herald. The herald is reported per measurement in the result
+  sidecar; the visible record keeps a uniformly drawn bit (a heralded
+  outcome carries no preferred computational value, and a pinned bit
+  would silently bias detectors), so the record layout and every
+  `rec[-k]` reference are unchanged. Alphabets beyond three symbols
+  have no defined mapping onto (bit, herald) and reject at injection.
 - "Apply, demote to Unknown" is the conservative default: we drop
   knownness on any quantum gate touching a `ComputationalKnown`
   qubit. This loses some optimization opportunity (X on a known qubit

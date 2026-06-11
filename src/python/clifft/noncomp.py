@@ -18,8 +18,11 @@ sampler:
 
 This API supports exactly the built-in five-level set, named by ``Level`` and
 ``LEVELS`` (g, e, leak_g, leak_e, lost); matrix rows and columns are indexed by
-``Level``. Only a two-symbol classifier with stochastic columns is supported;
-substochastic (reject) columns and non-binary classifiers raise.
+``Level``. A classifier has two or three symbols with stochastic columns: the
+first two symbols are the record bit, an optional third symbol heralds the
+measurement (reported per slot in ``heralds``; the visible record stays binary
+with a uniformly drawn bit). Substochastic (reject) columns and richer
+alphabets raise.
 """
 
 from __future__ import annotations
@@ -75,8 +78,12 @@ def _as_matrix(matrix: Matrix) -> list[list[float]]:
 class Classifier:
     """A measurement classifier: symbol labels and ``P[symbol][level]``.
 
-    This must be binary (two symbols), and each level's column must sum to one;
-    substochastic (reject) columns are not supported.
+    Two or three symbols; each level's column must sum to one (substochastic
+    reject columns are not supported). The first two symbols map directly to
+    the measurement record bit. An optional third symbol heralds the
+    measurement -- typically the loss outcome -- reported per record slot in
+    :attr:`NonComputationalSample.heralds` while the visible record keeps a
+    uniformly drawn bit, so the record layout is unchanged.
     """
 
     __slots__ = ("symbols", "matrix")
@@ -151,6 +158,8 @@ class NonComputationalSample:
         final_status: uint8 array (shots, num_qubits) of :class:`QubitStatusKind`.
             Coarse: it reports computational/leaked/lost, not the specific leaked
             or lost level.
+        heralds: uint8 array (shots, num_measurements); 1 where the classifier
+            sampled the herald (third) symbol for that slot, else 0.
         shots, num_qubits, num_measurements, num_detectors, num_observables: ints.
     """
 
@@ -159,6 +168,7 @@ class NonComputationalSample:
         "detectors",
         "observables",
         "final_status",
+        "heralds",
         "shots",
         "num_qubits",
         "num_measurements",
@@ -172,6 +182,7 @@ class NonComputationalSample:
         detectors: npt.NDArray[np.uint8],
         observables: npt.NDArray[np.uint8],
         final_status: npt.NDArray[np.uint8],
+        heralds: npt.NDArray[np.uint8],
         num_qubits: int,
         num_measurements: int,
         num_detectors: int,
@@ -181,11 +192,22 @@ class NonComputationalSample:
         self.detectors = detectors
         self.observables = observables
         self.final_status = final_status
+        self.heralds = heralds
         self.shots = int(measurements.shape[0])
         self.num_qubits = int(num_qubits)
         self.num_measurements = int(num_measurements)
         self.num_detectors = int(num_detectors)
         self.num_observables = int(num_observables)
+
+    def symbols(self) -> npt.NDArray[np.uint8]:
+        """Per-slot classifier symbols: the record bit, or 2 where heralded.
+
+        A ternary view of the record for comparing against simulators whose
+        measurement outcomes carry the herald in-band as a third value.
+        """
+        out = self.measurements.copy()
+        out[self.heralds != 0] = 2
+        return out
 
     def __iter__(self) -> Iterator[npt.NDArray[np.uint8]]:
         """Yield (measurements, detectors, observables) for tuple unpacking."""
@@ -216,7 +238,9 @@ def sample(
     """
     if isinstance(circuit, str):
         circuit = _clifft_core.parse(circuit)
-    meas, det, obs, status, num_qubits, num_meas, num_det, num_obs = (
+    meas, det, obs, status, heralds, num_qubits, num_meas, num_det, num_obs = (
         _clifft_core._sample_noncomputational(circuit, model._handle, shots, seed)
     )
-    return NonComputationalSample(meas, det, obs, status, num_qubits, num_meas, num_det, num_obs)
+    return NonComputationalSample(
+        meas, det, obs, status, heralds, num_qubits, num_meas, num_det, num_obs
+    )

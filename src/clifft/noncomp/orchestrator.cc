@@ -39,19 +39,31 @@ uint64_t derive_seed(uint64_t global, uint64_t shot, uint64_t domain) {
     return z ^ (z >> 31);
 }
 
-// Sample a measurement-record bit from the classifier for a qubit at `level`.
-// The classifier must be two-symbol with a stochastic column for this level
-// (symbol 0 owns [0, prob0), symbol 1 owns the rest); the symbol index is the
-// injected record bit. A substochastic (reject) column is unsupported here.
-uint8_t classifier_bit(const MeasurementClassifier& classifier, uint8_t level,
-                       Xoshiro256PlusPlus& rng, GateType gate, uint32_t op_index, uint32_t qubit) {
-    // Binary record injection maps the sampled symbol index directly to the
-    // record bit, which is faithful only for a two-symbol classifier. A richer
-    // alphabet has no defined symbol-to-bit mapping and is not representable.
-    if (classifier.num_symbols() != 2) {
+// One sampled classifier outcome for a measurement on a noncomputational
+// qubit: the injected record bit, and whether the herald symbol fired.
+struct ClassifierDraw {
+    uint8_t bit;
+    bool herald;
+};
+
+// Sample a classifier outcome for a qubit at `level`. The classifier must
+// have two or three symbols and a stochastic column for this level. Symbols
+// 0 and 1 map directly to the record bit. A third symbol heralds the
+// measurement: the herald flag is reported in the sidecar and the record bit
+// is drawn uniformly -- the slot still feeds detectors, and a heralded
+// outcome carries no preferred computational value, so a uniform bit keeps
+// downstream detector statistics unbiased rather than silently pinning them.
+// A substochastic (reject) column is unsupported here.
+ClassifierDraw classifier_draw(const MeasurementClassifier& classifier, uint8_t level,
+                               Xoshiro256PlusPlus& rng, GateType gate, uint32_t op_index,
+                               uint32_t qubit) {
+    // Record injection writes one visible bit. Symbols 0/1 are that bit; a
+    // third symbol is the herald. A still-richer alphabet has no defined
+    // mapping onto (bit, herald) and is not representable.
+    if (classifier.num_symbols() != 2 && classifier.num_symbols() != 3) {
         throw std::invalid_argument(
             "sample_noncomputational: injecting a measurement on a noncomputational qubit "
-            "requires a two-symbol classifier, but the model's has " +
+            "requires a two- or three-symbol classifier, but the model's has " +
             std::to_string(classifier.num_symbols()) + " symbols (measurement '" +
             std::string(gate_name(gate)) + "' on qubit " + std::to_string(qubit) + " at op " +
             std::to_string(op_index) + ")");
@@ -70,13 +82,19 @@ uint8_t classifier_bit(const MeasurementClassifier& classifier, uint8_t level,
             "' on qubit " + std::to_string(qubit) + " at op " + std::to_string(op_index) + ")");
     }
     const double u = rng.next_double();
-    // Two symbols and a column summing to one (both checked above): symbol 0
-    // owns [0, prob0) and symbol 1 owns the remainder, so the symbol index is
-    // the record bit. Any tolerance-sized rounding residual falls to symbol 1.
+    // The column sums to one (checked above): symbol 0 owns [0, prob0),
+    // symbol 1 the next interval, and the herald symbol (if any) the
+    // remainder. Any tolerance-sized rounding residual falls to the last
+    // symbol. A two-symbol draw consumes exactly one random number, so
+    // existing two-symbol seeds reproduce.
     if (u < classifier.prob(0, level)) {
-        return 0;
+        return {0, false};
     }
-    return 1;
+    if (classifier.num_symbols() == 2 ||
+        u < classifier.prob(0, level) + classifier.prob(1, level)) {
+        return {1, false};
+    }
+    return {static_cast<uint8_t>(rng.next_double() < 0.5 ? 0 : 1), true};
 }
 
 GateType reset_for(GateType measure_reset) {
@@ -95,18 +113,21 @@ AstNode single_target(GateType gate, uint32_t value) {
 }
 
 // Replay `original` + `history` to find each leaked/lost measurement's visible
-// record slot and its sampled classifier bit, then swap those slots in
+// record slot and its sampled classifier outcome, then swap those slots in
 // `rewritten`: M -> MPAD(bit); a measure-and-reset -> MPAD(bit) plus the
-// matching reset. The rewriter has already guaranteed only M / measure-reset
-// measurements reach a noncomputational operand.
+// matching reset. Herald flags are written into `heralds` (pre-sized to the
+// visible measurement count, zero-filled) at the same slot indices. The
+// rewriter has already guaranteed only M / measure-reset measurements reach a
+// noncomputational operand.
 Circuit inject_classifier(const Circuit& original, const Circuit& rewritten,
                           const NonComputationalHistory& history,
-                          const NonComputationalModel& model, Xoshiro256PlusPlus& rng) {
+                          const NonComputationalModel& model, Xoshiro256PlusPlus& rng,
+                          std::vector<uint8_t>& heralds) {
     const LevelSet& levels = model.levels();
     const NonComputationalPolicy& policy = model.policy();
     const MeasurementClassifier* classifier = model.classifier();
 
-    std::map<uint32_t, uint8_t> slot_to_bit;
+    std::map<uint32_t, ClassifierDraw> slot_to_bit;
     std::vector<QubitStatus> status = history.initial_status;
     size_t trans_cursor = 0;
     uint32_t slot = 0;
@@ -141,8 +162,10 @@ Circuit inject_classifier(const Circuit& original, const Circuit& rewritten,
                         std::to_string(op_index) +
                         " requires a classifier, but the model has none");
                 }
-                slot_to_bit[slot] =
-                    classifier_bit(*classifier, pre.level_id(), rng, gate, op_index, qubit);
+                const ClassifierDraw draw =
+                    classifier_draw(*classifier, pre.level_id(), rng, gate, op_index, qubit);
+                slot_to_bit[slot] = draw;
+                heralds[slot] = draw.herald ? 1 : 0;
             }
             status[qubit] = drop_op ? step_status_dropped(pre, outcome, levels)
                                     : step_status(pre, gate, operand.role, outcome, policy, levels);
@@ -171,7 +194,7 @@ Circuit inject_classifier(const Circuit& original, const Circuit& rewritten,
             out.nodes.push_back(node);  // computational measurement, kept as-is
             continue;
         }
-        const uint8_t bit = it->second;
+        const uint8_t bit = it->second.bit;
         const uint32_t qubit = qubit_operands(node).front().qubit;
         out.nodes.push_back(single_target(GateType::MPAD, bit));
         if (is_measure_reset(node.gate)) {
@@ -227,7 +250,9 @@ NonComputationalSample sample_noncomputational(const Circuit& circuit,
             sample_history(circuit, model, derive_seed(global_seed, shot, kHistoryDomain));
         Circuit rw = rewrite(circuit, hs.history, model);
         Xoshiro256PlusPlus classifier_rng(derive_seed(global_seed, shot, kClassifierDomain));
-        Circuit injected = inject_classifier(circuit, rw, hs.history, model, classifier_rng);
+        std::vector<uint8_t> shot_heralds(circuit.num_measurements, 0);
+        Circuit injected =
+            inject_classifier(circuit, rw, hs.history, model, classifier_rng, shot_heralds);
 
         CompiledModule program = compile_circuit(injected);
         SampleResult sr = sample(program, 1, derive_seed(global_seed, shot, kSvmDomain));
@@ -239,6 +264,7 @@ NonComputationalSample sample_noncomputational(const Circuit& circuit,
                                   sr.observables.end());
         result.final_status.insert(result.final_status.end(), hs.final_status.begin(),
                                    hs.final_status.end());
+        result.heralds.insert(result.heralds.end(), shot_heralds.begin(), shot_heralds.end());
     }
 
     return result;
