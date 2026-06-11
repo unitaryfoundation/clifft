@@ -30,8 +30,15 @@ def _compile_optimized(circuit_str: str) -> clifft.Program:
 
 
 def _clifft_statevector(circuit_str: str, *, optimize: bool = False) -> np.ndarray:
-    """Compile and execute circuit in Clifft, return dense statevector."""
-    prog = _compile_optimized(circuit_str) if optimize else clifft.compile(circuit_str)
+    """Compile and execute circuit in Clifft, return dense statevector.
+
+    The optimize=False baseline disables both optimization stages; the
+    default-argument clifft.compile() would run the very passes under test.
+    """
+    if optimize:
+        prog = _compile_optimized(circuit_str)
+    else:
+        prog = clifft.compile(circuit_str, hir_passes=None, bytecode_passes=None)
     state = clifft.State(peak_rank=prog.peak_rank, num_measurements=prog.num_measurements)
     clifft.execute(prog, state)
     sv: np.ndarray = clifft.get_statevector(prog, state)
@@ -193,7 +200,10 @@ class TestPeepholeExactGlobalPhase:
 
     def test_h_t_t_h_exact_amplitudes(self) -> None:
         """H T T H |0> = [0.5+0.5j, 0.5-0.5j] with the default pipeline."""
-        sv = _clifft_statevector("H 0\nT 0\nT 0\nH 0", optimize=True)
+        prog = clifft.compile("H 0\nT 0\nT 0\nH 0")
+        state = clifft.State(peak_rank=prog.peak_rank, num_measurements=prog.num_measurements)
+        clifft.execute(prog, state)
+        sv = clifft.get_statevector(prog, state)
         np.testing.assert_allclose(sv, [0.5 + 0.5j, 0.5 - 0.5j], atol=1e-6)
 
     @pytest.mark.parametrize("circuit", S_ABSORPTION_CIRCUITS)

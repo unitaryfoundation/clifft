@@ -904,3 +904,81 @@ TEST_CASE("Peephole: S absorption on wide multi-word Pauli axes", "[optimizer]")
     REQUIRE(pass.fusions() == 2);
     REQUIRE(hir.ops.empty());
 }
+
+TEST_CASE("Peephole: S absorption phase is invariant under qubit embedding", "[optimizer]") {
+    // Multi-word phase oracle. The canonical phase delta factorizes over
+    // tensor products with identity: the Choi stabilizer group, its
+    // minimum-integer support index, and the amplitude walk all decompose
+    // over disjoint qubit sets, so embedding the frame and the Pauli at a
+    // qubit offset must leave s_absorption_phase unchanged. Offsets
+    // straddling bit 64 of a 72-qubit frame drive the 144-bit Choi indices
+    // across word boundaries, pinning the multi-word arithmetic to the
+    // dense-validated small-frame value.
+    std::mt19937_64 rng(0xC0FFEE);
+    constexpr size_t k = 3;
+    constexpr size_t n_wide = 72;
+
+    for (int trial = 0; trial < 64; ++trial) {
+        CAPTURE(trial);
+        const size_t offset = 60 + static_cast<size_t>(trial % 8);
+        CAPTURE(offset);
+        auto small_tab = stim::Tableau<kStimWidth>::random(k, rng);
+
+        uint64_t x = 0;
+        uint64_t z = 0;
+        while (x == 0 && z == 0) {
+            x = rng() & 7;
+            z = rng() & 7;
+        }
+        const bool sign = (rng() & 1) != 0;
+        const bool is_dagger = (rng() & 1) != 0;
+
+        auto wide_tab = stim::Tableau<kStimWidth>::identity(n_wide);
+        for (size_t a = 0; a < k; ++a) {
+            auto wx = wide_tab.xs[offset + a];
+            auto wz = wide_tab.zs[offset + a];
+            wx.xs[offset + a] = false;
+            wz.zs[offset + a] = false;
+            for (size_t b = 0; b < k; ++b) {
+                wx.xs[offset + b] = small_tab.xs[a].xs[b];
+                wx.zs[offset + b] = small_tab.xs[a].zs[b];
+                wz.xs[offset + b] = small_tab.zs[a].xs[b];
+                wz.zs[offset + b] = small_tab.zs[a].zs[b];
+            }
+            wx.sign = static_cast<bool>(small_tab.xs[a].sign);
+            wz.sign = static_cast<bool>(small_tab.zs[a].sign);
+        }
+
+        const uint64_t x_small_words[1] = {x};
+        const uint64_t z_small_words[1] = {z};
+        MaskView x_small{std::span<const uint64_t>(x_small_words)};
+        MaskView z_small{std::span<const uint64_t>(z_small_words)};
+
+        uint64_t x_wide_words[2] = {0, 0};
+        uint64_t z_wide_words[2] = {0, 0};
+        for (size_t b = 0; b < k; ++b) {
+            const size_t bit = offset + b;
+            if ((x >> b) & 1) {
+                x_wide_words[bit / 64] |= uint64_t{1} << (bit % 64);
+            }
+            if ((z >> b) & 1) {
+                z_wide_words[bit / 64] |= uint64_t{1} << (bit % 64);
+            }
+        }
+        MaskView x_wide{std::span<const uint64_t>(x_wide_words)};
+        MaskView z_wide{std::span<const uint64_t>(z_wide_words)};
+
+        auto small_updated = small_tab;
+        internal::apply_s_to_tableau(small_updated, x_small, z_small, sign, is_dagger);
+        const auto phase_small = internal::s_absorption_phase(small_tab, small_updated, x_small,
+                                                              z_small, sign, is_dagger);
+
+        auto wide_updated = wide_tab;
+        internal::apply_s_to_tableau(wide_updated, x_wide, z_wide, sign, is_dagger);
+        const auto phase_wide =
+            internal::s_absorption_phase(wide_tab, wide_updated, x_wide, z_wide, sign, is_dagger);
+
+        REQUIRE_THAT(phase_wide.real(), Catch::Matchers::WithinAbs(phase_small.real(), 1e-9));
+        REQUIRE_THAT(phase_wide.imag(), Catch::Matchers::WithinAbs(phase_small.imag(), 1e-9));
+    }
+}
