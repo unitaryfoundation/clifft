@@ -11,8 +11,10 @@
 #include "stim.h"
 
 #include <array>
+#include <bit>
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/matchers/catch_matchers_floating_point.hpp>
+#include <cmath>
 #include <complex>
 #include <cstddef>
 #include <cstdint>
@@ -160,6 +162,27 @@ inline DenseMatrix dense_matmul(const DenseMatrix& a, const DenseMatrix& b, uint
                 r[i * dim + j] += a[i * dim + k] * b[k * dim + j];
             }
         }
+    }
+    return r;
+}
+
+// Dense matrix of the projector-form rotation Pi_+ + e^{i*alpha*pi} Pi_- on
+// the signed Pauli (x, z, sign) over n qubits, little-endian basis order.
+// The fused S/S_dag the peephole absorbs is alpha = 0.5 / 1.5.
+inline DenseMatrix dense_axis_rotation(uint64_t x, uint64_t z, bool sign, double alpha, size_t n) {
+    const uint64_t dim = uint64_t{1} << n;
+    constexpr std::complex<double> kIPow[4] = {{1, 0}, {0, 1}, {-1, 0}, {0, -1}};
+    const std::complex<double> eig{std::cos(alpha * std::numbers::pi),
+                                   std::sin(alpha * std::numbers::pi)};
+    const std::complex<double> a = (1.0 + eig) / 2.0;
+    const std::complex<double> b = (1.0 - eig) / 2.0;
+
+    DenseMatrix r(dim * dim, {0.0, 0.0});
+    for (uint64_t c = 0; c < dim; ++c) {
+        r[c * dim + c] += a;
+        uint32_t phase_idx = (sign ? 2U : 0U) + static_cast<uint32_t>(std::popcount(x & z)) +
+                             2U * (static_cast<uint32_t>(std::popcount(c & z)) & 1U);
+        r[(c ^ x) * dim + c] += b * kIPow[phase_idx & 3U];
     }
     return r;
 }

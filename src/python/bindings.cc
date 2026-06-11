@@ -1086,7 +1086,14 @@ NB_MODULE(_clifft_core, m) {
             size_t n = sv.size();
             return vec_to_numpy(std::move(sv), {n});
         },
-        nb::arg("program"), nb::arg("state"), "Expand the SVM state into a dense statevector.");
+        nb::arg("program"), nb::arg("state"),
+        "Expand the SVM state into a dense statevector.\n\n"
+        "For programs without measurements or noise the result is exact,\n"
+        "including its global phase, independent of compilation passes.\n"
+        "After measurements or noise the state is exact only up to a global\n"
+        "phase (which a collapsed state does not physically carry): relative\n"
+        "amplitudes and all probabilities remain exact, but the overall\n"
+        "phase may differ between compilations of the same circuit.");
 
     m.def(
         "_basis_probabilities_from_bitmasks",

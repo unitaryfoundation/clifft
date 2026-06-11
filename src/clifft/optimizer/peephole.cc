@@ -13,6 +13,7 @@
 #include <cstdint>
 #include <iterator>
 #include <span>
+#include <stdexcept>
 #include <utility>
 #include <vector>
 
@@ -173,8 +174,13 @@ std::complex<double> s_absorption_phase(const stim::Tableau<kStimWidth>& origina
     const std::complex<double> w_entry =
         a * choi_amplitude(old_support, anchor) + b * alpha * choi_amplitude(old_support, partner);
 
+    // Hard check rather than an assert: a zero entry here means the tableau
+    // pair is not related by this S rewrite, and dividing through would
+    // silently poison global_weight with NaN in release builds.
     const double mag = std::abs(w_entry);
-    assert(mag > 0.25 && "canonical anchor outside expected support");
+    if (mag < 0.25) {
+        throw std::logic_error("S absorption phase: canonical anchor outside prior support");
+    }
     return w_entry / mag;
 }
 

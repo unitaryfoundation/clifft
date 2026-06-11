@@ -11,6 +11,7 @@
 #include <cmath>
 #include <numbers>
 #include <span>
+#include <stdexcept>
 
 namespace clifft {
 
@@ -579,8 +580,14 @@ std::complex<double> gate_compose_phase(const ChoiSupport& old_support,
         }
     }
 
+    // Hard check rather than an assert: a zero entry here means the gate
+    // column did not land in the prior support -- possible only through an
+    // unhandled gate kind or a corrupted log -- and dividing through would
+    // silently poison global_weight with NaN in release builds.
     const double mag = std::abs(w);
-    assert(mag > 0.25 && "canonical anchor outside expected support");
+    if (mag < 0.25) {
+        throw std::logic_error("frame composition phase: canonical anchor outside prior support");
+    }
     return w / mag;
 }
 
@@ -618,8 +625,9 @@ std::complex<double> frame_composition_phase(stim::Tableau<kStimWidth> composed,
         old_support = std::move(new_support);
     }
 
-    assert(composed == target && "frame gate log does not reproduce the HIR tableau");
-    (void)target;
+    if (!(composed == target)) {
+        throw std::logic_error("frame composition phase: gate log does not reproduce the tableau");
+    }
     return total;
 }
 
@@ -956,20 +964,12 @@ CompiledModule lower(const HirModule& hir, std::span<const uint8_t> postselectio
         // but the composed tableau realizes those gates only up to stim's
         // canonical matrix phase. Fold the per-gate canonical deltas into
         // global_weight so the API-visible global phase survives the
-        // composition. Programs with measurements or noise skip this: their
-        // observable outputs are insensitive to a global phase, and their
-        // frame gate logs grow with every localized measurement.
+        // composition. Stochastic programs skip this: their sampled outputs
+        // are insensitive to a global phase (a post-measurement state is
+        // only defined up to one), and their frame gate logs grow with
+        // every localized measurement.
         const auto& gate_log = ctx.virtual_frame.gate_log();
-        bool deterministic = true;
-        for (const auto& op : hir.ops) {
-            const OpType type = op.op_type();
-            if (type == OpType::MEASURE || type == OpType::NOISE || type == OpType::READOUT_NOISE ||
-                type == OpType::CONDITIONAL_PAULI) {
-                deterministic = false;
-                break;
-            }
-        }
-        if (deterministic && !gate_log.empty()) {
+        if (!gate_log.empty() && hir.is_deterministic()) {
             ctx.constant_pool.global_weight *= std::conj(
                 internal::frame_composition_phase(composed, gate_log, *hir.final_tableau));
         }

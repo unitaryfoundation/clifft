@@ -412,6 +412,13 @@ std::vector<double> record_probabilities(const CompiledModule& program,
 /// Expand the factored state |psi> = gamma * U_C * P * (|phi>_A (x) |0>_D)
 /// into a dense 2^n statevector for validation.
 /// Capped at n <= 10 qubits (8 MB unitary matrix) to prevent OOM.
+///
+/// For programs without measurements or noise the result is exact,
+/// including its global phase, independent of compilation passes. After
+/// measurements or noise the state is exact only up to a global phase
+/// (which a collapsed state does not physically carry): relative
+/// amplitudes and all probabilities remain exact, but the overall phase
+/// may differ between compilations of the same circuit.
 std::vector<std::complex<double>> get_statevector(const CompiledModule& program,
                                                   const SchrodingerState& state);
 

@@ -48,7 +48,7 @@ The Pauli frame ($P$) is tracked as a pair of $n$-bit masks held in 64-bit-word 
 Clifft uses [nanobind](https://github.com/wjakob/nanobind) to expose the C++ core to Python. The Python layer provides:
 
 - `clifft.compile()` and `clifft.sample()` as the primary interface
-- `clifft.execute()` and `clifft.get_statevector()` for exact state inspection
+- `clifft.execute()` and `clifft.get_statevector()` for exact state inspection (after measurements or noise, exact up to a global phase)
 - `clifft.trace()` for compilation pipeline debugging
 
 See the [User Guide](../guide/compilation.md) for API details.
