@@ -158,25 +158,20 @@ std::complex<double> s_absorption_phase(const stim::Tableau<kStimWidth>& origina
     // phase(P|c>) for c = low half of the anchor. Mask words beyond the
     // input half never overlap z_v, whose bits above n are zero.
     uint32_t alpha_idx = sign_v ? 2U : 0U;
-    bool x_is_zero = true;
     for (uint32_t w = 0; w < mask_words; ++w) {
         alpha_idx += static_cast<uint32_t>(std::popcount(x_v.words[w] & z_v.words[w]));
         alpha_idx += 2U * (static_cast<uint32_t>(std::popcount(z_v.words[w] & anchor[w])) & 1U);
-        x_is_zero &= (x_v.words[w] == 0);
     }
     const std::complex<double> alpha = kImagPow[alpha_idx & 3U];
 
-    std::complex<double> w_entry;
-    if (x_is_zero) {
-        w_entry = (a + b * alpha) * choi_amplitude(old_support, anchor);
-    } else {
-        ChoiIndex partner = anchor;
-        for (uint32_t w = 0; w < mask_words; ++w) {
-            partner[w] ^= x_v.words[w];
-        }
-        w_entry = a * choi_amplitude(old_support, anchor) +
-                  b * alpha * choi_amplitude(old_support, partner);
+    // For a pure-Z Pauli the partner coincides with the anchor and the two
+    // terms add up to the diagonal entry (a + b * alpha).
+    ChoiIndex partner = anchor;
+    for (uint32_t w = 0; w < mask_words; ++w) {
+        partner[w] ^= x_v.words[w];
     }
+    const std::complex<double> w_entry =
+        a * choi_amplitude(old_support, anchor) + b * alpha * choi_amplitude(old_support, partner);
 
     const double mag = std::abs(w_entry);
     assert(mag > 0.25 && "canonical anchor outside expected support");

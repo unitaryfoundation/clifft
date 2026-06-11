@@ -720,7 +720,9 @@ TEST_CASE("Peephole: commuting NOISE does not bypass EXP_VAL barrier", "[optimiz
 
 namespace {
 
-using DenseMatrix = std::vector<std::complex<double>>;
+using clifft::test::dense_matmul;
+using clifft::test::dense_tableau_matrix;
+using clifft::test::DenseMatrix;
 
 // Dense matrix of the projector-form rotation Pi_+ + e^{i*alpha*pi} Pi_- on
 // the signed Pauli (x, z, sign) over n qubits, little-endian basis order.
@@ -739,27 +741,6 @@ DenseMatrix dense_axis_rotation(uint64_t x, uint64_t z, bool sign, double alpha,
         uint32_t phase_idx = (sign ? 2U : 0U) + static_cast<uint32_t>(std::popcount(x & z)) +
                              2U * (static_cast<uint32_t>(std::popcount(c & z)) & 1U);
         r[(c ^ x) * dim + c] += b * kIPow[phase_idx & 3U];
-    }
-    return r;
-}
-
-DenseMatrix dense_tableau_matrix(const stim::Tableau<kStimWidth>& tab) {
-    auto flat = tab.to_flat_unitary_matrix(true);
-    DenseMatrix m(flat.size());
-    for (size_t i = 0; i < flat.size(); ++i) {
-        m[i] = {flat[i].real(), flat[i].imag()};
-    }
-    return m;
-}
-
-DenseMatrix dense_matmul(const DenseMatrix& a, const DenseMatrix& b, uint64_t dim) {
-    DenseMatrix r(dim * dim, {0.0, 0.0});
-    for (uint64_t i = 0; i < dim; ++i) {
-        for (uint64_t k = 0; k < dim; ++k) {
-            for (uint64_t j = 0; j < dim; ++j) {
-                r[i * dim + j] += a[i * dim + k] * b[k * dim + j];
-            }
-        }
     }
     return r;
 }

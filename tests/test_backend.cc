@@ -1565,16 +1565,9 @@ TEST_CASE("Lower: queued virtual gates affect later noise masks") {
 
 namespace {
 
-using DenseMatrix = std::vector<std::complex<double>>;
-
-DenseMatrix dense_tableau(const stim::Tableau<kStimWidth>& tab) {
-    auto flat = tab.to_flat_unitary_matrix(true);
-    DenseMatrix m(flat.size());
-    for (size_t i = 0; i < flat.size(); ++i) {
-        m[i] = {flat[i].real(), flat[i].imag()};
-    }
-    return m;
-}
+using clifft::test::dense_matmul;
+using clifft::test::dense_tableau_matrix;
+using clifft::test::DenseMatrix;
 
 // Canonical matrix of a single pending frame gate, little-endian basis.
 DenseMatrix dense_pending_gate(const PendingGate& g, size_t n) {
@@ -1614,18 +1607,6 @@ DenseMatrix dense_pending_gate(const PendingGate& g, size_t n) {
         }
     }
     return m;
-}
-
-DenseMatrix dense_mul(const DenseMatrix& a, const DenseMatrix& b, uint64_t dim) {
-    DenseMatrix r(dim * dim, {0.0, 0.0});
-    for (uint64_t i = 0; i < dim; ++i) {
-        for (uint64_t k = 0; k < dim; ++k) {
-            for (uint64_t j = 0; j < dim; ++j) {
-                r[i * dim + j] += a[i * dim + k] * b[k * dim + j];
-            }
-        }
-    }
-    return r;
 }
 
 }  // namespace
@@ -1669,11 +1650,11 @@ TEST_CASE("Backend: frame composition phase matches dense canonical oracle") {
         const auto phase = frame_composition_phase(composed, log, target);
 
         const uint64_t dim = uint64_t{1} << n;
-        DenseMatrix lhs = dense_tableau(composed);
+        DenseMatrix lhs = dense_tableau_matrix(composed);
         for (auto it = log.rbegin(); it != log.rend(); ++it) {
-            lhs = dense_mul(lhs, dense_pending_gate(*it, n), dim);
+            lhs = dense_matmul(lhs, dense_pending_gate(*it, n), dim);
         }
-        const DenseMatrix rhs = dense_tableau(target);
+        const DenseMatrix rhs = dense_tableau_matrix(target);
         for (uint64_t i = 0; i < dim * dim; ++i) {
             CAPTURE(i);
             const auto expected = phase * rhs[i];

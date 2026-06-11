@@ -20,6 +20,7 @@
 #include <span>
 #include <string>
 #include <utility>
+#include <vector>
 
 namespace clifft {
 namespace test {
@@ -136,6 +137,31 @@ inline void check_complex(std::complex<double> actual, std::complex<double> expe
                           double tol = kDefaultTol) {
     CHECK_THAT(actual.real(), Catch::Matchers::WithinAbs(expected.real(), tol));
     CHECK_THAT(actual.imag(), Catch::Matchers::WithinAbs(expected.imag(), tol));
+}
+
+// Dense-matrix oracle helpers for canonical-phase tests. Row-major
+// dim x dim complex matrices in little-endian basis order.
+using DenseMatrix = std::vector<std::complex<double>>;
+
+inline DenseMatrix dense_tableau_matrix(const stim::Tableau<kStimWidth>& tab) {
+    auto flat = tab.to_flat_unitary_matrix(true);
+    DenseMatrix m(flat.size());
+    for (size_t i = 0; i < flat.size(); ++i) {
+        m[i] = {flat[i].real(), flat[i].imag()};
+    }
+    return m;
+}
+
+inline DenseMatrix dense_matmul(const DenseMatrix& a, const DenseMatrix& b, uint64_t dim) {
+    DenseMatrix r(dim * dim, {0.0, 0.0});
+    for (uint64_t i = 0; i < dim; ++i) {
+        for (uint64_t k = 0; k < dim; ++k) {
+            for (uint64_t j = 0; j < dim; ++j) {
+                r[i * dim + j] += a[i * dim + k] * b[k * dim + j];
+            }
+        }
+    }
+    return r;
 }
 
 }  // namespace test
