@@ -8,9 +8,13 @@ channel whose probabilities are
 
     p_P = |tr(U P)|^2 / 4,    P in {I, X, Y, Z}.
 
-A single twirled error reproduces the exact computational-basis statistics of
-one application; errors that interfere across several gates (echo sequences,
-coherent accumulation) do not twirl faithfully -- that is the approximation.
+The twirled channel preserves the diagonal of ``U``'s Pauli transfer matrix
+and discards the coherences between Pauli components. That is an
+approximation, not an equivalence: circuit statistics under the twirled
+channel generally differ from the exact unitary even for a single
+application (twirling one Hadamard turns a deterministic H-H identity into a
+coin flip), and they coincide only in selected configurations where the
+discarded coherences never reach a measurement.
 
 These helpers only compute probabilities. Insert them into circuits as
 ordinary noise instructions (``Z_ERROR(p)``, ``PAULI_CHANNEL_1(px, py, pz)``),
