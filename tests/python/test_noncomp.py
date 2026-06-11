@@ -204,14 +204,63 @@ def test_substochastic_classifier_column_unsupported():
         noncomp.sample("H 0\nS 0\nM 0\n", model, shots=8, seed=14)
 
 
-def test_non_binary_classifier_unsupported():
-    mat = _zeros(3, 5)
+def test_four_symbol_classifier_unsupported():
+    mat = _zeros(4, 5)
     for lvl in range(5):
         mat[0][lvl] = 1.0
-    mat[0][LEAK_G], mat[1][LEAK_G], mat[2][LEAK_G] = 0.5, 0.3, 0.2
-    model = leak_model(noncomp.Classifier(["0", "1", "2"], mat))
-    with pytest.raises(ValueError, match="two-symbol"):
+    mat[0][LEAK_G], mat[1][LEAK_G], mat[2][LEAK_G], mat[3][LEAK_G] = 0.4, 0.3, 0.2, 0.1
+    model = leak_model(noncomp.Classifier(["0", "1", "2", "3"], mat))
+    with pytest.raises(ValueError, match="two- or three-symbol"):
         noncomp.sample("H 0\nS 0\nM 0\n", model, shots=8, seed=15)
+
+
+def _ternary_classifier(level: int, col: list[float]) -> noncomp.Classifier:
+    """Three-symbol classifier; `level`'s column is `col`, others read symbol 0."""
+    m = _zeros(3, 5)
+    for lvl in range(5):
+        m[0][lvl] = 1.0
+    m[0][level], m[1][level], m[2][level] = col
+    return noncomp.Classifier(["0", "1", "2"], m)
+
+
+def test_ternary_herald_rides_the_sidecar():
+    """A lost qubit's measurement heralds; the visible record stays binary."""
+    model = noncomp.Model(
+        initial_state=ALL_G,
+        transitions={"S": transition_to(LOST)},
+        classifier=_ternary_classifier(LOST, [0.0, 0.0, 1.0]),
+    )
+    r = noncomp.sample("H 0\nCX 0 1\nS 0\nM 0\nM 1\n", model, shots=4000, seed=21)
+    assert r.heralds.shape == (4000, 2)
+    assert np.all(r.heralds[:, 0] == 1)  # the lost qubit's slot heralds
+    assert np.all(r.heralds[:, 1] == 0)  # the survivor's does not
+    # The heralded slot's record bit is a uniform draw, not a pinned value.
+    assert abs(r.measurements[:, 0].mean() - 0.5) < 0.04
+    # symbols() folds the herald back in as a third value.
+    sym = r.symbols()
+    assert np.all(sym[:, 0] == 2)
+    assert np.array_equal(sym[:, 1], r.measurements[:, 1])
+
+
+def test_two_symbol_classifier_heralds_nothing():
+    model = leak_model(classifier_for(LEAK_G, [0.5, 0.5]))
+    r = noncomp.sample("H 0\nS 0\nM 0\n", model, shots=64, seed=22)
+    assert r.heralds.shape == (64, 1)
+    assert not r.heralds.any()
+    assert np.array_equal(r.symbols(), r.measurements)
+
+
+def test_herald_deterministic_in_seed():
+    model = noncomp.Model(
+        initial_state=ALL_G,
+        transitions={"S": transition_to(LOST)},
+        classifier=_ternary_classifier(LOST, [0.2, 0.1, 0.7]),
+    )
+    a = noncomp.sample("H 0\nS 0\nM 0\n", model, shots=128, seed=23)
+    b = noncomp.sample("H 0\nS 0\nM 0\n", model, shots=128, seed=23)
+    assert np.array_equal(a.heralds, b.heralds)
+    assert np.array_equal(a.measurements, b.measurements)
+    assert abs(a.heralds[:, 0].mean() - 0.7) < 0.15
 
 
 # --- 4. Record layout invariants -------------------------------------------

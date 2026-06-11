@@ -196,25 +196,102 @@ TEST_CASE("sample_noncomputational: a measurement on a leaked qubit without a cl
                         ContainsSubstring("requires a classifier"));
 }
 
-TEST_CASE("sample_noncomputational: a non-binary classifier rejects on injection") {
+TEST_CASE("sample_noncomputational: a four-symbol classifier rejects on injection") {
     Circuit c = parse("H 0\nS 0\nM 0\n");
     std::map<std::string, TransitionInstrument> transitions;
     transitions.emplace("S", always_leaked(LevelSet::default_set()));
 
-    // Three symbols: no defined symbol-to-record-bit mapping for the binary record.
-    std::vector<std::vector<double>> m(3, std::vector<double>(5, 0.0));
+    // Four symbols: beyond bit-plus-herald there is no defined mapping onto
+    // the binary record and its herald sidecar.
+    std::vector<std::vector<double>> m(4, std::vector<double>(5, 0.0));
     for (size_t level = 0; level < 5; ++level) {
         m[0][level] = 1.0;
     }
-    m[0][kLeakG] = 0.5;
+    m[0][kLeakG] = 0.4;
     m[1][kLeakG] = 0.3;
     m[2][kLeakG] = 0.2;
-    MeasurementClassifier three =
-        MeasurementClassifier::from_matrix({"0", "1", "2"}, std::move(m), LevelSet::default_set());
-    NonComputationalModel model = make_model(all_g(), std::move(transitions), std::move(three));
+    m[3][kLeakG] = 0.1;
+    MeasurementClassifier four = MeasurementClassifier::from_matrix(
+        {"0", "1", "2", "3"}, std::move(m), LevelSet::default_set());
+    NonComputationalModel model = make_model(all_g(), std::move(transitions), std::move(four));
 
     REQUIRE_THROWS_WITH(sample_noncomputational(c, model, 16, 1),
-                        ContainsSubstring("two-symbol classifier"));
+                        ContainsSubstring("two- or three-symbol classifier"));
+}
+
+namespace {
+
+// Three-symbol classifier whose column for `level` is `col`; every other
+// level is a deterministic symbol 0.
+MeasurementClassifier ternary_classifier_with(const LevelSet& levels, uint8_t level,
+                                              std::vector<double> col) {
+    std::vector<std::vector<double>> m(3, std::vector<double>(5, 0.0));
+    for (size_t l = 0; l < 5; ++l) {
+        m[0][l] = 1.0;
+    }
+    m[0][level] = col[0];
+    m[1][level] = col[1];
+    m[2][level] = col[2];
+    return MeasurementClassifier::from_matrix({"0", "1", "2"}, std::move(m), levels);
+}
+
+}  // namespace
+
+TEST_CASE("sample_noncomputational: the herald symbol fills the sidecar, not the record") {
+    // Qubit 1 leaks and its column always heralds; qubit 0 stays
+    // computational. The heralded slot's visible record bit is a uniform
+    // draw, so the record layout is unchanged and both values occur.
+    Circuit c = parse("H 1\nS 1\nM 1\nM 0\n");
+    std::map<std::string, TransitionInstrument> transitions;
+    transitions.emplace("S", always_leaked(LevelSet::default_set()));
+    MeasurementClassifier cl =
+        ternary_classifier_with(LevelSet::default_set(), kLeakG, {0.0, 0.0, 1.0});
+    NonComputationalModel model = make_model(all_g(), std::move(transitions), std::move(cl));
+
+    constexpr uint32_t kShots = 256;
+    NonComputationalSample r = sample_noncomputational(c, model, kShots, 5);
+    REQUIRE(r.heralds.size() == kShots * 2);
+    size_t ones = 0;
+    for (uint32_t shot = 0; shot < kShots; ++shot) {
+        REQUIRE(r.heralds[shot * 2 + 0] == 1);  // leaked slot heralds
+        REQUIRE(r.heralds[shot * 2 + 1] == 0);  // computational slot does not
+        ones += r.measurements[shot * 2 + 0];
+    }
+    REQUIRE(ones > kShots * 30 / 100);  // heralded record bit is uniform
+    REQUIRE(ones < kShots * 70 / 100);
+}
+
+TEST_CASE("sample_noncomputational: a partial herald column matches its frequency") {
+    Circuit c = parse("H 0\nS 0\nM 0\n");
+    std::map<std::string, TransitionInstrument> transitions;
+    transitions.emplace("S", always_leaked(LevelSet::default_set()));
+    MeasurementClassifier cl =
+        ternary_classifier_with(LevelSet::default_set(), kLeakG, {0.3, 0.0, 0.7});
+    NonComputationalModel model = make_model(all_g(), std::move(transitions), std::move(cl));
+
+    constexpr uint32_t kShots = 1000;
+    NonComputationalSample r = sample_noncomputational(c, model, kShots, 6);
+    size_t heralded = 0;
+    for (uint32_t shot = 0; shot < kShots; ++shot) {
+        heralded += r.heralds[shot];
+    }
+    REQUIRE(heralded > 630);
+    REQUIRE(heralded < 770);
+}
+
+TEST_CASE("sample_noncomputational: a two-symbol classifier leaves the herald sidecar zero") {
+    Circuit c = parse("H 0\nS 0\nM 0\n");
+    std::map<std::string, TransitionInstrument> transitions;
+    transitions.emplace("S", always_leaked(LevelSet::default_set()));
+    MeasurementClassifier cl = make_classifier(LevelSet::default_set(), {0.5, 0.5});
+    NonComputationalModel model = make_model(all_g(), std::move(transitions), std::move(cl));
+
+    constexpr uint32_t kShots = 64;
+    NonComputationalSample r = sample_noncomputational(c, model, kShots, 7);
+    REQUIRE(r.heralds.size() == kShots);
+    for (uint8_t h : r.heralds) {
+        REQUIRE(h == 0);
+    }
 }
 
 TEST_CASE("sample_noncomputational: a circuit with EXP_VAL probes rejects") {

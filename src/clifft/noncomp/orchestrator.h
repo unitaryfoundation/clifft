@@ -43,13 +43,21 @@ struct NonComputationalSample {
 
     // Sidecar: each qubit's final status per shot, row-major [shot, qubit].
     std::vector<QubitStatus> final_status;
+
+    // Sidecar: 1 where the classifier sampled the herald (third) symbol for
+    // that visible measurement, row-major [shot, slot]. The visible record
+    // stays binary -- a heralded slot carries a uniformly drawn bit -- so the
+    // record layout and every rec[-k] reference are unchanged; the herald
+    // rides here. All zeros for a two-symbol classifier or none at all.
+    std::vector<uint8_t> heralds;
 };
 
 // Throws std::invalid_argument when the trajectory policy rejects an
 // operation, when a measurement on a leaked/lost qubit needs a classifier the
-// model does not provide, or when such a classifier column is not a two-symbol
-// stochastic column. Reject (substochastic) classifier columns model a
-// heralded abort outcome and are not supported by this entry point yet.
+// model does not provide, or when such a classifier column is not a two- or
+// three-symbol stochastic column (a third symbol heralds the measurement).
+// Reject (substochastic) classifier columns model a heralded abort outcome
+// and are not supported by this entry point yet.
 NonComputationalSample sample_noncomputational(const Circuit& circuit,
                                                const NonComputationalModel& model, uint32_t shots,
                                                std::optional<uint64_t> seed = std::nullopt);

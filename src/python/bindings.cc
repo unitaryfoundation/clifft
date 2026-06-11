@@ -144,12 +144,13 @@ void register_noncomp(nb::module_& m) {
             auto det = vec_to_numpy(std::move(r.detectors), {shots, r.num_detectors});
             auto obs = vec_to_numpy(std::move(r.observables), {shots, r.num_observables});
             auto fs = vec_to_numpy(std::move(status), {shots, r.num_qubits});
-            return nb::make_tuple(meas, det, obs, fs, r.num_qubits, r.num_measurements,
+            auto her = vec_to_numpy(std::move(r.heralds), {shots, r.num_measurements});
+            return nb::make_tuple(meas, det, obs, fs, her, r.num_qubits, r.num_measurements,
                                   r.num_detectors, r.num_observables);
         },
         nb::arg("circuit"), nb::arg("model"), nb::arg("shots"), nb::arg("seed") = nb::none(),
         "Sample a noncomputational model. Returns (measurements, detectors, observables, "
-        "final_status, num_qubits, num_measurements, num_detectors, num_observables).");
+        "final_status, heralds, num_qubits, num_measurements, num_detectors, num_observables).");
 }
 
 NB_MODULE(_clifft_core, m) {
