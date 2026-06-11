@@ -1895,7 +1895,7 @@ TEST_CASE("Frontend: SPP with H entangling then T - multi-qubit mask", "[fronten
     //   SPP^†: exp(+i*pi/4*X0*Z1) X1 exp(-i*pi/4*X0*Z1) = -X0*Z1 * X1 * X0*Z1 = -X0*Z1*X1*X0*Z1
     // Actually this is complex. Let's just verify the HIR has 1 op and check structure.
     // The key test is that SPP is fully absorbed (no T_GATE from SPP itself).
-    REQUIRE(hir.destab_mask(hir.ops[0]) != 0 || hir.stab_mask(hir.ops[0]) != 0);
+    REQUIRE((hir.destab_mask(hir.ops[0]) != 0 || hir.stab_mask(hir.ops[0]) != 0));
 }
 
 // -----------------------------------------------------------------------------
