@@ -219,7 +219,7 @@ class TestPeepholeExactGlobalPhase:
         sv_optimized = _clifft_statevector(circuit, optimize=True)
         np.testing.assert_allclose(sv_optimized, sv_baseline, atol=1e-6)
 
-    @pytest.mark.parametrize("seed", range(20))
+    @pytest.mark.parametrize("seed", range(100))
     def test_random_circuits_componentwise(self, seed: int) -> None:
         """Random Clifford+T circuits agree componentwise, no phase alignment.
 
@@ -228,6 +228,15 @@ class TestPeepholeExactGlobalPhase:
         tableau composition at lowering.
         """
         circuit = random_clifford_t_circuit(5, depth=30, seed=seed)
+        sv_baseline = _clifft_statevector(circuit)
+        sv_optimized = _clifft_statevector(circuit, optimize=True)
+        np.testing.assert_allclose(sv_optimized, sv_baseline, atol=1e-5)
+
+    @pytest.mark.parametrize("seed", range(20))
+    def test_random_deep_8q_componentwise(self, seed: int) -> None:
+        """Deeper 8-qubit circuits accumulate long virtual-frame gate logs,
+        stressing the chained composition phase across many links."""
+        circuit = random_clifford_t_circuit(8, depth=60, seed=seed)
         sv_baseline = _clifft_statevector(circuit)
         sv_optimized = _clifft_statevector(circuit, optimize=True)
         np.testing.assert_allclose(sv_optimized, sv_baseline, atol=1e-5)
