@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1781165304985,
+  "lastUpdate": 1781251425798,
   "repoUrl": "https://github.com/unitaryfoundation/clifft",
   "entries": {
     "Python pytest-benchmark suite": [
@@ -2772,6 +2772,105 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.007933702717279752",
             "extra": "mean: 1.5700397732000055 sec\nrounds: 5"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Brad Chase",
+            "username": "bachase",
+            "email": "14430+bachase@users.noreply.github.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "aaa2d3bbd351e599a95d2eb27da7046edbbfb0e2",
+          "message": "test: widen componentwise global-phase coverage (#145)\n\nRaise the random componentwise sweep from 20 to 100 seeds and add a\n20-seed 8-qubit depth-60 set whose longer virtual-frame gate logs\nstress the chained composition phase across many links. The end-to-end\ncomponentwise comparison is the only model-free check on the canonical\nphase tracking, so breadth here is what future changes to frame routing\nor the phase machinery get caught by. Adds about four seconds to the\nPython suite.\n\nAssisted-by: Claude (Fable 5) <noreply@anthropic.com>",
+          "timestamp": "2026-06-11T21:08:47Z",
+          "url": "https://github.com/unitaryfoundation/clifft/commit/aaa2d3bbd351e599a95d2eb27da7046edbbfb0e2"
+        },
+        "date": 1781251423364,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "tools/bench/test_bench_deep_clifford.py::test_compile_stim_deep",
+            "value": 1873.630926233443,
+            "unit": "iter/sec",
+            "range": "stddev: 0.000012398317267944708",
+            "extra": "mean: 533.7230433158456 usec\nrounds: 1339"
+          },
+          {
+            "name": "tools/bench/test_bench_deep_clifford.py::test_compile_clifft_deep",
+            "value": 802.8912267566635,
+            "unit": "iter/sec",
+            "range": "stddev: 0.000016644370121567213",
+            "extra": "mean: 1.2454987259476873 msec\nrounds: 686"
+          },
+          {
+            "name": "tools/bench/test_bench_deep_clifford.py::test_sample_stim_deep",
+            "value": 70.5273711591059,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0003588711924524869",
+            "extra": "mean: 14.178892301884535 msec\nrounds: 53"
+          },
+          {
+            "name": "tools/bench/test_bench_deep_clifford.py::test_sample_clifft_deep",
+            "value": 1.4566268681917414,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0032044071869616253",
+            "extra": "mean: 686.5176125999938 msec\nrounds: 5"
+          },
+          {
+            "name": "tools/bench/test_bench_qec.py::test_compile_stim",
+            "value": 23660.448575436294,
+            "unit": "iter/sec",
+            "range": "stddev: 0.000002182341053157127",
+            "extra": "mean: 42.264625575957 usec\nrounds: 8250"
+          },
+          {
+            "name": "tools/bench/test_bench_qec.py::test_compile_clifft",
+            "value": 1973.5452962829183,
+            "unit": "iter/sec",
+            "range": "stddev: 0.000011404999176954657",
+            "extra": "mean: 506.70233000653894 usec\nrounds: 1503"
+          },
+          {
+            "name": "tools/bench/test_bench_qec.py::test_sample_stim",
+            "value": 133.548497769714,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0000710155739343508",
+            "extra": "mean: 7.4879164999995895 msec\nrounds: 122"
+          },
+          {
+            "name": "tools/bench/test_bench_qec.py::test_sample_clifft",
+            "value": 17.745951548539725,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0002553731520747257",
+            "extra": "mean: 56.350880777778734 msec\nrounds: 18"
+          },
+          {
+            "name": "tools/bench/test_bench_qv.py::test_compile_qv20",
+            "value": 80.2554730741477,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0000778249829178041",
+            "extra": "mean: 12.460209400000721 msec\nrounds: 80"
+          },
+          {
+            "name": "tools/bench/test_bench_qv.py::test_sample_qv20_1shot",
+            "value": 9.30901302914293,
+            "unit": "iter/sec",
+            "range": "stddev: 0.001429784919243567",
+            "extra": "mean: 107.42277370000295 msec\nrounds: 10"
+          },
+          {
+            "name": "tools/bench/test_bench_qv.py::test_sample_qv20_10shots",
+            "value": 0.9283802504094772,
+            "unit": "iter/sec",
+            "range": "stddev: 0.01811114393740523",
+            "extra": "mean: 1.0771448440000029 sec\nrounds: 5"
           }
         ]
       }
