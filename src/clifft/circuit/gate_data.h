@@ -112,10 +112,12 @@ enum class GateType : uint16_t {
     Z_ERROR,      // Single-qubit Z error
     DEPOLARIZE1,  // Single-qubit depolarizing channel
     DEPOLARIZE2,  // Two-qubit depolarizing channel
+    DEPOLARIZE3,  // Three-qubit depolarizing channel
 
     // Multi-parameter noise channels
     PAULI_CHANNEL_1,  // 3-arg: P(X), P(Y), P(Z)
     PAULI_CHANNEL_2,  // 15-arg: P(IX), P(IY), ..., P(ZZ)
+    PAULI_CHANNEL_3,  // 63-arg: P(IIX), P(IIY), ..., P(ZZZ)
 
     // Synthetic gates (emitted by parser, not in input syntax)
     READOUT_NOISE,  // Classical bit-flip on measurement result
@@ -138,6 +140,7 @@ enum class GateType : uint16_t {
 enum class GateArity : uint8_t {
     SINGLE,      // Single qubit (H, S, X, T, M, etc.)
     PAIR,        // Two qubits consumed in pairs (CX, CY, CZ)
+    TRIPLE,      // Three qubits consumed in triples (3-qubit noise channels)
     MULTI,       // Variable targets (MPP)
     ANNOTATION,  // No qubit targets (TICK)
 };
@@ -159,6 +162,7 @@ namespace detail {
 
 constexpr auto S = GateArity::SINGLE;
 constexpr auto P = GateArity::PAIR;
+constexpr auto T = GateArity::TRIPLE;
 constexpr auto ML = GateArity::MULTI;
 constexpr auto A = GateArity::ANNOTATION;
 
@@ -250,8 +254,10 @@ inline constexpr GateTraits kGateTraitsData[] = {
     {.arity = S, .noise = true, .name = "Z_ERROR"},
     {.arity = S, .noise = true, .name = "DEPOLARIZE1"},
     {.arity = P, .noise = true, .name = "DEPOLARIZE2"},
+    {.arity = T, .noise = true, .name = "DEPOLARIZE3"},
     {.arity = S, .noise = true, .name = "PAULI_CHANNEL_1"},
     {.arity = P, .noise = true, .name = "PAULI_CHANNEL_2"},
+    {.arity = T, .noise = true, .name = "PAULI_CHANNEL_3"},
     {.arity = S, .noise = true, .name = "READOUT_NOISE"},
     // QEC annotations
     {.arity = A, .name = "DETECTOR"},

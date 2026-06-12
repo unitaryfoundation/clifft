@@ -125,15 +125,23 @@ Two-qubit Cliffords are also absorbed at compile time.
 |-------------|-------|
 | `DEPOLARIZE1(p)` | Single-qubit depolarizing noise |
 | `DEPOLARIZE2(p)` | Two-qubit depolarizing noise |
+| `DEPOLARIZE3(p)` | Three-qubit depolarizing noise over triples of targets |
 | `X_ERROR(p)` | Single-qubit X error |
 | `Y_ERROR(p)` | Single-qubit Y error |
 | `Z_ERROR(p)` | Single-qubit Z error |
 | `PAULI_CHANNEL_1(px,py,pz)` | General single-qubit Pauli channel |
 | `PAULI_CHANNEL_2(...)` | General two-qubit Pauli channel (15 params) |
+| `PAULI_CHANNEL_3(...)` | General three-qubit Pauli channel (63 params) |
 
 Noisy measurements (e.g., `M(0.01) 0`) are decomposed by the parser into a
 clean measurement followed by an internal `READOUT_NOISE` instruction that
 models classical bit-flip errors on the measurement result.
+
+`DEPOLARIZE3(p) a b c` applies one of the 63 non-identity Pauli products on
+`a,b,c` with probability `p/63` each, and identity with probability `1-p`.
+`PAULI_CHANNEL_3` uses the same lexicographic Pauli order as
+`PAULI_CHANNEL_2`, extended to three qubits: `IIX`, `IIY`, `IIZ`, `IXI`,
+`IXX`, ..., `ZZZ`.
 
 ## Identity Gates
 

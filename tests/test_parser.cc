@@ -15,8 +15,20 @@
 
 #include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
+#include <string>
 
 using namespace clifft;
+
+static std::string make_pauli_channel3_args(double default_prob = 0.0) {
+    std::string args;
+    for (size_t k = 0; k < 63; ++k) {
+        if (!args.empty()) {
+            args += ", ";
+        }
+        args += std::to_string(default_prob);
+    }
+    return args;
+}
 
 TEST_CASE("Parse empty circuit", "[parser]") {
     auto circuit = parse("");
@@ -785,6 +797,26 @@ TEST_CASE("Parse noise gates: DEPOLARIZE1 DEPOLARIZE2", "[parser][noise]") {
     REQUIRE(circuit.nodes[2].targets[1].value() == 3);
 }
 
+TEST_CASE("Parse noise gates: DEPOLARIZE3 consumes triples", "[parser][noise]") {
+    auto circuit = parse("DEPOLARIZE3(0.03) 0 1 2 3 4 5");
+
+    REQUIRE(circuit.nodes.size() == 2);
+    REQUIRE(circuit.num_qubits == 6);
+    REQUIRE(circuit.nodes[0].gate == GateType::DEPOLARIZE3);
+    REQUIRE(circuit.nodes[0].args[0] == Catch::Approx(0.03));
+    REQUIRE(circuit.nodes[0].targets.size() == 3);
+    CHECK(circuit.nodes[0].targets[0].value() == 0);
+    CHECK(circuit.nodes[0].targets[1].value() == 1);
+    CHECK(circuit.nodes[0].targets[2].value() == 2);
+    CHECK(circuit.nodes[1].targets[0].value() == 3);
+    CHECK(circuit.nodes[1].targets[1].value() == 4);
+    CHECK(circuit.nodes[1].targets[2].value() == 5);
+}
+
+TEST_CASE("DEPOLARIZE3 rejects incomplete triples", "[parser][noise]") {
+    REQUIRE_THROWS_AS(parse("DEPOLARIZE3(0.03) 0 1 2 3"), ParseError);
+}
+
 TEST_CASE("Parse noisy measurement: M with readout noise decomposes", "[parser][noise]") {
     auto circuit = parse("M(0.001) 0");
 
@@ -1231,6 +1263,35 @@ TEST_CASE("Parse PAULI_CHANNEL_2 with 15 args", "[parser]") {
     CHECK(circuit.num_qubits == 2);
 }
 
+TEST_CASE("Parse PAULI_CHANNEL_3 with 63 args", "[parser]") {
+    auto circuit = parse("PAULI_CHANNEL_3(" + make_pauli_channel3_args(0.0) + ") 0 1 2");
+    REQUIRE(circuit.nodes.size() == 1);
+    CHECK(circuit.nodes[0].gate == GateType::PAULI_CHANNEL_3);
+    REQUIRE(circuit.nodes[0].args.size() == 63);
+    CHECK(circuit.num_qubits == 3);
+}
+
+TEST_CASE("Parse PAULI_CHANNEL_3 broadcasts over triples", "[parser]") {
+    auto circuit = parse("PAULI_CHANNEL_3(" + make_pauli_channel3_args(0.01) + ") 0 1 2 3 4 5");
+    REQUIRE(circuit.nodes.size() == 2);
+    CHECK(circuit.num_qubits == 6);
+
+    for (const auto& node : circuit.nodes) {
+        CHECK(node.gate == GateType::PAULI_CHANNEL_3);
+        REQUIRE(node.targets.size() == 3);
+        REQUIRE(node.args.size() == 63);
+        CHECK(node.args[0] == Catch::Approx(0.01));
+        CHECK(node.args[62] == Catch::Approx(0.01));
+    }
+
+    CHECK(circuit.nodes[0].targets[0].value() == 0);
+    CHECK(circuit.nodes[0].targets[1].value() == 1);
+    CHECK(circuit.nodes[0].targets[2].value() == 2);
+    CHECK(circuit.nodes[1].targets[0].value() == 3);
+    CHECK(circuit.nodes[1].targets[1].value() == 4);
+    CHECK(circuit.nodes[1].targets[2].value() == 5);
+}
+
 TEST_CASE("Parse PAULI_CHANNEL_1 broadcasts to multiple targets", "[parser]") {
     auto circuit = parse("PAULI_CHANNEL_1(0.1, 0.2, 0.3) 0 1 2");
     REQUIRE(circuit.nodes.size() == 3);
@@ -1286,6 +1347,10 @@ TEST_CASE("PAULI_CHANNEL_1 rejects wrong arg count", "[parser]") {
 
 TEST_CASE("PAULI_CHANNEL_2 rejects wrong arg count", "[parser]") {
     REQUIRE_THROWS_AS(parse("PAULI_CHANNEL_2(0.01, 0.02, 0.03) 0 1"), ParseError);
+}
+
+TEST_CASE("PAULI_CHANNEL_3 rejects wrong arg count", "[parser]") {
+    REQUIRE_THROWS_AS(parse("PAULI_CHANNEL_3(0.01, 0.02, 0.03) 0 1 2"), ParseError);
 }
 
 // =============================================================================
@@ -1461,12 +1526,16 @@ TEST_CASE("GateTraits: noise channels", "[gate_data]") {
     CHECK(is_noise_gate(GateType::Z_ERROR));
     CHECK(is_noise_gate(GateType::DEPOLARIZE1));
     CHECK(is_noise_gate(GateType::DEPOLARIZE2));
+    CHECK(is_noise_gate(GateType::DEPOLARIZE3));
     CHECK(is_noise_gate(GateType::PAULI_CHANNEL_1));
     CHECK(is_noise_gate(GateType::PAULI_CHANNEL_2));
+    CHECK(is_noise_gate(GateType::PAULI_CHANNEL_3));
     CHECK(is_noise_gate(GateType::READOUT_NOISE));
     CHECK(!is_noise_gate(GateType::M));
     CHECK(gate_arity(GateType::DEPOLARIZE2) == GateArity::PAIR);
     CHECK(gate_arity(GateType::PAULI_CHANNEL_2) == GateArity::PAIR);
+    CHECK(gate_arity(GateType::DEPOLARIZE3) == GateArity::TRIPLE);
+    CHECK(gate_arity(GateType::PAULI_CHANNEL_3) == GateArity::TRIPLE);
 }
 
 TEST_CASE("GateTraits: annotations are ANNOTATION arity", "[gate_data]") {

@@ -16,6 +16,7 @@
 #include <catch2/catch_test_macros.hpp>
 #include <random>
 #include <stdexcept>
+#include <string>
 
 using namespace clifft;
 using clifft::test::X;
@@ -29,6 +30,17 @@ struct NoiseChannelMasks {
     uint64_t stab_mask;
     double prob;
 };
+
+static std::string make_pauli_channel3_args(size_t nonzero_idx, double prob) {
+    std::string args;
+    for (size_t k = 0; k < 63; ++k) {
+        if (!args.empty()) {
+            args += ", ";
+        }
+        args += std::to_string(k == nonzero_idx ? prob : 0.0);
+    }
+    return args;
+}
 
 static NoiseChannelMasks rewind_single_pauli_reference(
     const stim::TableauSimulator<kStimWidth>& sim, uint32_t qubit, int pauli_type, double prob) {
@@ -1130,6 +1142,29 @@ TEST_CASE("Frontend: DEPOLARIZE2 produces 15 channels", "[frontend][noise]") {
     }
 }
 
+TEST_CASE("Frontend: DEPOLARIZE3 produces 63 channels", "[frontend][noise]") {
+    auto circuit = parse("DEPOLARIZE3(0.63) 0 1 2");
+    auto hir = trace(circuit);
+
+    REQUIRE(hir.num_ops() == 1);
+    CHECK(hir.ops[0].op_type() == OpType::NOISE);
+    REQUIRE(hir.noise_sites.size() == 1);
+    const auto& site = hir.noise_sites[0];
+    REQUIRE(site.channels.size() == 63);
+
+    for (const auto& ch : site.channels) {
+        CHECK(ch.prob == Catch::Approx(0.01));
+    }
+
+    auto first = hir.noise_channel_masks.at(site.channels[0].mask);
+    CHECK(first.x() == 4);
+    CHECK(first.z() == 0);
+
+    auto last = hir.noise_channel_masks.at(site.channels.back().mask);
+    CHECK(last.x() == 0);
+    CHECK(last.z() == 7);
+}
+
 TEST_CASE("Frontend: noise rewinding through H gate", "[frontend][noise]") {
     // H 0, X_ERROR 0
     // X after H becomes Z (at t=0, the error manifests as Z)
@@ -1596,6 +1631,20 @@ TEST_CASE("Frontend: PAULI_CHANNEL_2 emits noise with up to 15 channels", "[fron
     REQUIRE(hir.noise_sites.size() == 1);
     // 4 nonzero channels: IX(0.01), XI(0.02), ZI(0.03), ZZ(0.04)
     CHECK(hir.noise_sites[0].channels.size() == 4);
+}
+
+TEST_CASE("Frontend: PAULI_CHANNEL_3 emits selected channels", "[frontend]") {
+    auto circuit = parse("PAULI_CHANNEL_3(" + make_pauli_channel3_args(62, 0.07) + ") 0 1 2");
+    auto hir = trace(circuit);
+
+    REQUIRE(hir.num_ops() == 1);
+    REQUIRE(hir.noise_sites.size() == 1);
+    REQUIRE(hir.noise_sites[0].channels.size() == 1);
+    CHECK(hir.noise_sites[0].channels[0].prob == Catch::Approx(0.07));
+
+    auto mask = hir.noise_channel_masks.at(hir.noise_sites[0].channels[0].mask);
+    CHECK(mask.x() == 0);
+    CHECK(mask.z() == 7);
 }
 
 // =============================================================================

@@ -194,8 +194,10 @@ NB_MODULE(_clifft_core, m) {
         .value("Z_ERROR", clifft::GateType::Z_ERROR)
         .value("DEPOLARIZE1", clifft::GateType::DEPOLARIZE1)
         .value("DEPOLARIZE2", clifft::GateType::DEPOLARIZE2)
+        .value("DEPOLARIZE3", clifft::GateType::DEPOLARIZE3)
         .value("PAULI_CHANNEL_1", clifft::GateType::PAULI_CHANNEL_1)
         .value("PAULI_CHANNEL_2", clifft::GateType::PAULI_CHANNEL_2)
+        .value("PAULI_CHANNEL_3", clifft::GateType::PAULI_CHANNEL_3)
         .value("READOUT_NOISE", clifft::GateType::READOUT_NOISE)
         // Annotations
         .value("DETECTOR", clifft::GateType::DETECTOR)

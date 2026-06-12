@@ -235,6 +235,9 @@ class Parser {
         if (gate == GateType::PAULI_CHANNEL_2 && args.size() != 15) {
             throw ParseError("PAULI_CHANNEL_2 requires exactly 15 arguments", line_num);
         }
+        if (gate == GateType::PAULI_CHANNEL_3 && args.size() != 63) {
+            throw ParseError("PAULI_CHANNEL_3 requires exactly 63 arguments", line_num);
+        }
 
         // Validate argument counts for parameterized rotations.
         if ((gate == GateType::R_X || gate == GateType::R_Y || gate == GateType::R_Z ||
@@ -576,6 +579,20 @@ class Parser {
                     }
 
                     AstNode node{gate, {t0, t1}, args, line_num};
+                    update_circuit_stats(node, circuit);
+                    circuit.nodes.push_back(std::move(node));
+                }
+                break;
+
+            case GateArity::TRIPLE:
+                if (targets.size() % 3 != 0) {
+                    throw ParseError(
+                        "Gate " + std::string(gate_name(gate)) + " requires triples of targets",
+                        line_num);
+                }
+                for (size_t i = 0; i < targets.size(); i += 3) {
+                    AstNode node{
+                        gate, {targets[i], targets[i + 1], targets[i + 2]}, args, line_num};
                     update_circuit_stats(node, circuit);
                     circuit.nodes.push_back(std::move(node));
                 }
