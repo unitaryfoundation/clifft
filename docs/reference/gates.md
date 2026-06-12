@@ -39,6 +39,18 @@ Clifft extends Stim with discrete and arbitrary-angle non-Clifford gates. These 
 | `T` | $\pi/8$ gate |
 | `T_DAG` | Inverse $\pi/8$ gate |
 
+### Rewrite Gates
+
+These gate names are accepted by the parser as fixed rewrite rules into
+Clifft-native gates. They are rewritten during parsing and do not appear as
+distinct frontend, backend, or VM gate types.
+
+| Gate | Syntax | Notes |
+|------|--------|-------|
+| `CH` | `CH c t` | Controlled-Hadamard; rewritten to `R_Y(0.25) t; CX c t; R_Y(-0.25) t` |
+| `CCZ` | `CCZ a b c` | Controlled-controlled-Z; rewritten to 7 `T`/`T_DAG` gates and 6 `CX` gates |
+| `CCX` | `CCX a b t` | Toffoli gate; rewritten as `H t; CCZ a b t; H t` |
+
 ### Continuous Rotations
 
 Clifft extends the Stim gate set with arbitrary-angle rotation gates. All angle

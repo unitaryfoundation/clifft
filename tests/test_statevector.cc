@@ -631,6 +631,50 @@ TEST_CASE("E2E: GHZ state on 3 qubits") {
     check_normalized(sv, kFloatTol);
 }
 
+TEST_CASE("E2E: CH applies Hadamard only when control is one") {
+    auto sv = pipeline_statevector("X 0\nCH 0 1");
+    REQUIRE(sv.size() == 4);
+
+    check_complex(sv[0], {0.0, 0.0}, kFloatTol);
+    check_complex(sv[1], {kInvSqrt2, 0.0}, kFloatTol);
+    check_complex(sv[2], {0.0, 0.0}, kFloatTol);
+    check_complex(sv[3], {kInvSqrt2, 0.0}, kFloatTol);
+    check_normalized(sv, kFloatTol);
+
+    auto sv_control_off = pipeline_statevector("X 1\nCH 0 1");
+    REQUIRE(sv_control_off.size() == 4);
+    check_complex(sv_control_off[0], {0.0, 0.0}, kFloatTol);
+    check_complex(sv_control_off[1], {0.0, 0.0}, kFloatTol);
+    check_complex(sv_control_off[2], {1.0, 0.0}, kFloatTol);
+    check_complex(sv_control_off[3], {0.0, 0.0}, kFloatTol);
+    check_normalized(sv_control_off, kFloatTol);
+}
+
+TEST_CASE("E2E: CCZ flips only all ones phase") {
+    auto sv = pipeline_statevector("H 0\nH 1\nH 2\nCCZ 0 1 2");
+    REQUIRE(sv.size() == 8);
+
+    double amp = 1.0 / std::sqrt(8.0);
+    for (size_t i = 0; i < sv.size(); ++i) {
+        check_complex(sv[i],
+                      i == 7 ? std::complex<double>{-amp, 0.0} : std::complex<double>{amp, 0.0},
+                      kFloatTol);
+    }
+    check_normalized(sv, kFloatTol);
+}
+
+TEST_CASE("E2E: CCX flips target when both controls are one") {
+    auto sv = pipeline_statevector("X 0\nX 1\nCCX 0 1 2");
+    REQUIRE(sv.size() == 8);
+
+    for (size_t i = 0; i < sv.size(); ++i) {
+        check_complex(sv[i],
+                      i == 7 ? std::complex<double>{1.0, 0.0} : std::complex<double>{0.0, 0.0},
+                      kFloatTol);
+    }
+    check_normalized(sv, kFloatTol);
+}
+
 TEST_CASE("E2E: dense Clifford plus T on 4 qubits") {
     // A non-trivial 4-qubit circuit with entanglement and T gates.
     // We verify normalization and that the state is non-trivial (not all-zero

@@ -4,8 +4,9 @@ Translates noiseless Clifford+T circuits from .stim text format into
 Qiskit QuantumCircuit objects. Used as an independent oracle for
 statevector validation against Clifft.
 
-Supported gates: H, S, S_DAG, T, T_DAG, X, Y, Z, CX, CY, CZ, M, MX, MY, R, RX, MR, MRX,
-R_X, R_Y, R_Z, U3, R_XX, R_YY, R_ZZ, R_PAULI.
+Supported gates: H, S, S_DAG, T, T_DAG, X, Y, Z, CX, CY, CZ, CH, CCZ, CCX,
+M, MX, MY, R, RX, MR, MRX, R_X, R_Y, R_Z, U3, R_XX, R_YY, R_ZZ,
+R_PAULI.
 All rotation angles use half-turn units (alpha * pi = radians).
 Noise instructions and annotations (TICK, DETECTOR, etc.) are skipped.
 """
@@ -278,6 +279,33 @@ def _apply_gate(
             raise ValueError(f"CZ requires even number of targets, got {len(targets)}")
         for i in range(0, len(targets), 2):
             qc.cz(targets[i], targets[i + 1])
+    elif gate == "CH":
+        if len(targets) % 2 != 0:
+            raise ValueError(f"CH requires even number of targets, got {len(targets)}")
+        for i in range(0, len(targets), 2):
+            control = targets[i]
+            target = targets[i + 1]
+            # Aer does not assemble opaque CH instructions in all supported
+            # versions, so use Qiskit's CHGate definition in basis gates.
+            qc.s(target)
+            qc.h(target)
+            qc.t(target)
+            qc.cx(control, target)
+            qc.tdg(target)
+            qc.h(target)
+            qc.sdg(target)
+    elif gate == "CCZ":
+        if len(targets) % 3 != 0:
+            raise ValueError(f"CCZ requires multiple of 3 targets, got {len(targets)}")
+        for i in range(0, len(targets), 3):
+            qc.h(targets[i + 2])
+            qc.ccx(targets[i], targets[i + 1], targets[i + 2])
+            qc.h(targets[i + 2])
+    elif gate == "CCX":
+        if len(targets) % 3 != 0:
+            raise ValueError(f"CCX requires multiple of 3 targets, got {len(targets)}")
+        for i in range(0, len(targets), 3):
+            qc.ccx(targets[i], targets[i + 1], targets[i + 2])
     elif gate == "M":
         for q in targets:
             qc.measure(q, clbit_idx)

@@ -16,6 +16,7 @@
 #include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
 #include <string>
+#include <vector>
 
 using namespace clifft;
 
@@ -136,6 +137,138 @@ TEST_CASE("Parse CNOT alias", "[parser]") {
 
     REQUIRE(circuit.nodes.size() == 1);
     REQUIRE(circuit.nodes[0].gate == GateType::CX);
+}
+
+TEST_CASE("Parse CH rewrites to RY CX RY sequence", "[parser]") {
+    auto circuit = parse("CH 0 1");
+
+    REQUIRE(circuit.nodes.size() == 3);
+    CHECK(circuit.num_qubits == 2);
+    CHECK(circuit.num_measurements == 0);
+
+    CHECK(circuit.nodes[0].gate == GateType::R_Y);
+    REQUIRE(circuit.nodes[0].args.size() == 1);
+    CHECK(circuit.nodes[0].args[0] == Catch::Approx(0.25));
+    CHECK(circuit.nodes[0].targets[0].value() == 1);
+
+    CHECK(circuit.nodes[1].gate == GateType::CX);
+    CHECK(circuit.nodes[1].targets[0].value() == 0);
+    CHECK(circuit.nodes[1].targets[1].value() == 1);
+
+    CHECK(circuit.nodes[2].gate == GateType::R_Y);
+    REQUIRE(circuit.nodes[2].args.size() == 1);
+    CHECK(circuit.nodes[2].args[0] == Catch::Approx(-0.25));
+    CHECK(circuit.nodes[2].targets[0].value() == 1);
+
+    for (const auto& node : circuit.nodes) {
+        CHECK(node.source_line == 1);
+    }
+}
+
+TEST_CASE("Parse CH supports multiple pairs", "[parser]") {
+    auto circuit = parse("CH 0 1 2 3");
+
+    REQUIRE(circuit.nodes.size() == 6);
+    CHECK(circuit.num_qubits == 4);
+    CHECK(circuit.nodes[0].targets[0].value() == 1);
+    CHECK(circuit.nodes[3].targets[0].value() == 3);
+}
+
+TEST_CASE("Parse CH rejects malformed targets", "[parser]") {
+    CHECK_THROWS_AS(parse("CH 0"), ParseError);
+    CHECK_THROWS_AS(parse("CH(0.1) 0 1"), ParseError);
+    CHECK_THROWS_AS(parse("M 0\nCH rec[-1] 1"), ParseError);
+    CHECK_THROWS_AS(parse("CH !0 1"), ParseError);
+    CHECK_THROWS_AS(parse("CH 0 0"), ParseError);
+    CHECK_THROWS_AS(parse("CH 0 1", 2), ParseError);
+}
+
+TEST_CASE("Parse CCZ rewrites to Clifford T sequence", "[parser]") {
+    auto circuit = parse("CCZ 0 1 2");
+
+    struct ExpectedNode {
+        GateType gate;
+        std::vector<uint32_t> targets;
+    };
+
+    const std::vector<ExpectedNode> expected = {
+        {GateType::T, {0}},     {GateType::T, {1}},     {GateType::T, {2}},
+        {GateType::CX, {0, 1}}, {GateType::T_DAG, {1}}, {GateType::CX, {0, 1}},
+        {GateType::CX, {0, 2}}, {GateType::T_DAG, {2}}, {GateType::CX, {1, 2}},
+        {GateType::T, {2}},     {GateType::CX, {0, 2}}, {GateType::T_DAG, {2}},
+        {GateType::CX, {1, 2}},
+    };
+
+    REQUIRE(circuit.nodes.size() == expected.size());
+    CHECK(circuit.num_qubits == 3);
+    CHECK(circuit.num_measurements == 0);
+
+    for (size_t i = 0; i < expected.size(); ++i) {
+        const auto& node = circuit.nodes[i];
+        CHECK(node.gate == expected[i].gate);
+        REQUIRE(node.targets.size() == expected[i].targets.size());
+        for (size_t j = 0; j < expected[i].targets.size(); ++j) {
+            CHECK(node.targets[j].value() == expected[i].targets[j]);
+        }
+        CHECK(node.args.empty());
+        CHECK(node.source_line == 1);
+    }
+}
+
+TEST_CASE("Parse CCX wraps CCZ rewrite in H gates", "[parser]") {
+    auto circuit = parse("CCX 0 1 2");
+
+    REQUIRE(circuit.nodes.size() == 15);
+    CHECK(circuit.num_qubits == 3);
+    CHECK(circuit.num_measurements == 0);
+
+    CHECK(circuit.nodes.front().gate == GateType::H);
+    CHECK(circuit.nodes.front().targets[0].value() == 2);
+    CHECK(circuit.nodes.back().gate == GateType::H);
+    CHECK(circuit.nodes.back().targets[0].value() == 2);
+
+    size_t h_count = 0;
+    size_t t_count = 0;
+    size_t t_dag_count = 0;
+    size_t cx_count = 0;
+    for (const auto& node : circuit.nodes) {
+        if (node.gate == GateType::H)
+            h_count++;
+        if (node.gate == GateType::T)
+            t_count++;
+        if (node.gate == GateType::T_DAG)
+            t_dag_count++;
+        if (node.gate == GateType::CX)
+            cx_count++;
+        CHECK(node.source_line == 1);
+    }
+
+    CHECK(h_count == 2);
+    CHECK(t_count == 4);
+    CHECK(t_dag_count == 3);
+    CHECK(cx_count == 6);
+}
+
+TEST_CASE("Parse CCZ supports multiple triples", "[parser]") {
+    auto circuit = parse("CCZ 0 1 2 3 4 5");
+
+    REQUIRE(circuit.nodes.size() == 26);
+    CHECK(circuit.num_qubits == 6);
+    CHECK(circuit.nodes[0].gate == GateType::T);
+    CHECK(circuit.nodes[0].targets[0].value() == 0);
+    CHECK(circuit.nodes[13].gate == GateType::T);
+    CHECK(circuit.nodes[13].targets[0].value() == 3);
+}
+
+TEST_CASE("Parse CCZ and CCX reject malformed targets", "[parser]") {
+    CHECK_THROWS_AS(parse("CCZ 0 1"), ParseError);
+    CHECK_THROWS_AS(parse("CCX 0 1 2 3"), ParseError);
+    CHECK_THROWS_AS(parse("CCZ(0.1) 0 1 2"), ParseError);
+    CHECK_THROWS_AS(parse("M 0\nCCZ rec[-1] 1 2"), ParseError);
+    CHECK_THROWS_AS(parse("CCX !0 1 2"), ParseError);
+    CHECK_THROWS_AS(parse("CCZ 0 0 1"), ParseError);
+    CHECK_THROWS_AS(parse("CCX 0 1 1"), ParseError);
+    CHECK_THROWS_AS(parse("CCZ 0 1 2", 12), ParseError);
 }
 
 TEST_CASE("Parse measurements", "[parser]") {

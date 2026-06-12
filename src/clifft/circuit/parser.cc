@@ -222,6 +222,23 @@ class Parser {
             return;
         }
 
+        // Parser-only rewrite gates. They are lowered immediately so the
+        // AST never contains frontend/backend-visible CH, CCZ, or CCX nodes.
+        if (gate_name == "CH") {
+            if (!args.empty()) {
+                throw ParseError("CH takes no arguments", line_num);
+            }
+            parse_ch_rewrite(rest, line_num, circuit);
+            return;
+        }
+        if (gate_name == "CCZ" || gate_name == "CCX") {
+            if (!args.empty()) {
+                throw ParseError(std::string(gate_name) + " takes no arguments", line_num);
+            }
+            parse_three_qubit_rewrite(gate_name, rest, line_num, circuit);
+            return;
+        }
+
         // Look up gate type.
         GateType gate = find_gate(gate_name);
         if (gate == GateType::UNKNOWN) {
@@ -281,6 +298,122 @@ class Parser {
             default:
                 parse_standard_gate(gate, rest, line_num, circuit, arg, args);
                 break;
+        }
+    }
+
+    void append_rewrite_single(GateType gate, uint32_t qubit, uint32_t line_num, Circuit& circuit,
+                               std::vector<double> args = {}) {
+        AstNode node{gate, {Target::qubit(qubit)}, std::move(args), line_num};
+        update_circuit_stats(node, circuit);
+        circuit.nodes.push_back(std::move(node));
+    }
+
+    void append_rewrite_pair(GateType gate, uint32_t q0, uint32_t q1, uint32_t line_num,
+                             Circuit& circuit) {
+        AstNode node{gate, {Target::qubit(q0), Target::qubit(q1)}, {}, line_num};
+        update_circuit_stats(node, circuit);
+        circuit.nodes.push_back(std::move(node));
+    }
+
+    void append_ccz_decomposition(uint32_t a, uint32_t b, uint32_t c, uint32_t line_num,
+                                  Circuit& circuit) {
+        // Phase polynomial:
+        // 4abc = a + b + c - (a^b) - (a^c) - (b^c) + (a^b^c).
+        append_rewrite_single(GateType::T, a, line_num, circuit);
+        append_rewrite_single(GateType::T, b, line_num, circuit);
+        append_rewrite_single(GateType::T, c, line_num, circuit);
+        append_rewrite_pair(GateType::CX, a, b, line_num, circuit);
+        append_rewrite_single(GateType::T_DAG, b, line_num, circuit);
+        append_rewrite_pair(GateType::CX, a, b, line_num, circuit);
+        append_rewrite_pair(GateType::CX, a, c, line_num, circuit);
+        append_rewrite_single(GateType::T_DAG, c, line_num, circuit);
+        append_rewrite_pair(GateType::CX, b, c, line_num, circuit);
+        append_rewrite_single(GateType::T, c, line_num, circuit);
+        append_rewrite_pair(GateType::CX, a, c, line_num, circuit);
+        append_rewrite_single(GateType::T_DAG, c, line_num, circuit);
+        append_rewrite_pair(GateType::CX, b, c, line_num, circuit);
+    }
+
+    std::vector<Target> parse_plain_qubit_targets(std::string_view gate_name,
+                                                  std::string_view targets_str, uint32_t line_num,
+                                                  Circuit& circuit) {
+        std::vector<Target> targets;
+        std::string_view remaining = targets_str;
+
+        while (true) {
+            std::string_view token = next_token(remaining);
+            if (token.empty())
+                break;
+
+            if (targets.size() >= kMaxTargetsPerInstruction) {
+                throw ParseError(
+                    "Too many targets (limit: " + std::to_string(kMaxTargetsPerInstruction) + ")",
+                    line_num);
+            }
+
+            Target target = parse_target(token, line_num, circuit);
+            if (target.is_rec()) {
+                throw ParseError("Gate " + std::string(gate_name) + " does not accept rec targets",
+                                 line_num);
+            }
+            if (target.is_inverted()) {
+                throw ParseError(
+                    "Gate " + std::string(gate_name) + " does not accept inverted targets",
+                    line_num);
+            }
+            targets.push_back(target);
+        }
+        return targets;
+    }
+
+    void parse_ch_rewrite(std::string_view targets_str, uint32_t line_num, Circuit& circuit) {
+        std::vector<Target> targets =
+            parse_plain_qubit_targets("CH", targets_str, line_num, circuit);
+
+        if (targets.empty() || targets.size() % 2 != 0) {
+            throw ParseError("Gate CH requires pairs of targets", line_num);
+        }
+
+        for (size_t i = 0; i < targets.size(); i += 2) {
+            uint32_t control = targets[i].value();
+            uint32_t target = targets[i + 1].value();
+            if (control == target) {
+                throw ParseError("Gate CH requires distinct qubit targets", line_num);
+            }
+
+            append_rewrite_single(GateType::R_Y, target, line_num, circuit, {0.25});
+            append_rewrite_pair(GateType::CX, control, target, line_num, circuit);
+            append_rewrite_single(GateType::R_Y, target, line_num, circuit, {-0.25});
+        }
+    }
+
+    void parse_three_qubit_rewrite(std::string_view gate_name, std::string_view targets_str,
+                                   uint32_t line_num, Circuit& circuit) {
+        std::vector<Target> targets =
+            parse_plain_qubit_targets(gate_name, targets_str, line_num, circuit);
+
+        if (targets.empty() || targets.size() % 3 != 0) {
+            throw ParseError("Gate " + std::string(gate_name) + " requires triples of targets",
+                             line_num);
+        }
+
+        for (size_t i = 0; i < targets.size(); i += 3) {
+            uint32_t a = targets[i].value();
+            uint32_t b = targets[i + 1].value();
+            uint32_t c = targets[i + 2].value();
+            if (a == b || a == c || b == c) {
+                throw ParseError(
+                    "Gate " + std::string(gate_name) + " requires distinct qubit targets",
+                    line_num);
+            }
+
+            if (gate_name == "CCX") {
+                append_rewrite_single(GateType::H, c, line_num, circuit);
+            }
+            append_ccz_decomposition(a, b, c, line_num, circuit);
+            if (gate_name == "CCX") {
+                append_rewrite_single(GateType::H, c, line_num, circuit);
+            }
         }
     }
 

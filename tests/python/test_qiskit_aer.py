@@ -122,6 +122,30 @@ class TestQiskitStatevectorOracle:
         qiskit_sv = qiskit_statevector(qc)
         assert_statevectors_equal(clifft_sv, qiskit_sv)
 
+    def test_ch_gate(self) -> None:
+        """CH parser rewrite matches Qiskit."""
+        circuit = "H 0\nCH 0 1"
+        clifft_sv = _clifft_statevector(circuit)
+        qc = stim_to_qiskit_noiseless(circuit)
+        qiskit_sv = qiskit_statevector(qc)
+        assert_statevectors_equal(clifft_sv, qiskit_sv)
+
+    def test_ccz_gate(self) -> None:
+        """CCZ parser rewrite matches Qiskit."""
+        circuit = "H 0\nH 1\nH 2\nCCZ 0 1 2"
+        clifft_sv = _clifft_statevector(circuit)
+        qc = stim_to_qiskit_noiseless(circuit)
+        qiskit_sv = qiskit_statevector(qc)
+        assert_statevectors_equal(clifft_sv, qiskit_sv)
+
+    def test_ccx_gate(self) -> None:
+        """CCX parser rewrite matches Qiskit."""
+        circuit = "H 0\nH 1\nCCX 0 1 2"
+        clifft_sv = _clifft_statevector(circuit)
+        qc = stim_to_qiskit_noiseless(circuit)
+        qiskit_sv = qiskit_statevector(qc)
+        assert_statevectors_equal(clifft_sv, qiskit_sv)
+
     def test_deep_t_circuit(self) -> None:
         """Deep circuit with many T gates tests accumulation accuracy."""
         lines = ["H 0", "H 1"]
