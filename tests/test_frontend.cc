@@ -1888,13 +1888,7 @@ TEST_CASE("Frontend: SPP with H entangling then T - multi-qubit mask", "[fronten
     REQUIRE(hir.num_ops() == 1);
     REQUIRE(hir.ops[0].op_type() == OpType::T_GATE);
 
-    // After SPP X0*Z1 and H 1:
-    // SPP^† = exp(+i*pi/4 * X0*Z1) acts on qubits 0 and 1
-    // Z1 rewound through H then SPP^†:
-    //   H on q1: Z1 -> X1
-    //   SPP^†: exp(+i*pi/4*X0*Z1) X1 exp(-i*pi/4*X0*Z1) = -X0*Z1 * X1 * X0*Z1 = -X0*Z1*X1*X0*Z1
-    // Actually this is complex. Let's just verify the HIR has 1 op and check structure.
-    // The key test is that SPP is fully absorbed (no T_GATE from SPP itself).
+    // SPP is fully absorbed; T 1 sees the rewound Pauli through H and SPP.
     REQUIRE((hir.destab_mask(hir.ops[0]) != 0 || hir.stab_mask(hir.ops[0]) != 0));
 }
 
