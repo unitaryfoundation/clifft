@@ -1,16 +1,14 @@
 """Independent Qiskit-Aer validation of Clifft statevector correctness.
 
-Proves that Clifft's Clifford+T amplitude interference matches Qiskit-Aer's
-statevector simulator exactly (complex amplitude equality, not just fidelity).
-This provides a third-party oracle independent of both Stim and Clifft's own
-numpy oracle.  Exact amplitude comparison catches global phase drift bugs
-that fidelity-based tests would miss.
+These tests compare Clifft statevectors to Qiskit-Aer by fidelity, so they
+validate the same state ray up to global phase. Componentwise global-phase
+checks live in the peephole/canonical-phase suites.
 """
 
 import numpy as np
 import pytest
 from conftest import (
-    assert_statevectors_equal,
+    assert_same_state_ray,
     random_clifford_t_circuit,
     random_dense_clifford_t_circuit,
 )
@@ -37,7 +35,7 @@ class TestQiskitStatevectorOracle:
         clifft_sv = _clifft_statevector(circuit)
         qc = stim_to_qiskit_noiseless(circuit)
         qiskit_sv = qiskit_statevector(qc)
-        assert_statevectors_equal(clifft_sv, qiskit_sv)
+        assert_same_state_ray(clifft_sv, qiskit_sv)
 
     def test_single_t(self) -> None:
         """H-T circuit matches Qiskit."""
@@ -45,7 +43,7 @@ class TestQiskitStatevectorOracle:
         clifft_sv = _clifft_statevector(circuit)
         qc = stim_to_qiskit_noiseless(circuit)
         qiskit_sv = qiskit_statevector(qc)
-        assert_statevectors_equal(clifft_sv, qiskit_sv)
+        assert_same_state_ray(clifft_sv, qiskit_sv)
 
     def test_t_dagger(self) -> None:
         """H-T_DAG circuit matches Qiskit."""
@@ -53,7 +51,7 @@ class TestQiskitStatevectorOracle:
         clifft_sv = _clifft_statevector(circuit)
         qc = stim_to_qiskit_noiseless(circuit)
         qiskit_sv = qiskit_statevector(qc)
-        assert_statevectors_equal(clifft_sv, qiskit_sv)
+        assert_same_state_ray(clifft_sv, qiskit_sv)
 
     def test_bell_plus_t(self) -> None:
         """Bell state + T gate matches Qiskit."""
@@ -61,7 +59,7 @@ class TestQiskitStatevectorOracle:
         clifft_sv = _clifft_statevector(circuit)
         qc = stim_to_qiskit_noiseless(circuit)
         qiskit_sv = qiskit_statevector(qc)
-        assert_statevectors_equal(clifft_sv, qiskit_sv)
+        assert_same_state_ray(clifft_sv, qiskit_sv)
 
     def test_two_t_equals_s(self) -> None:
         """T*T = S identity matches Qiskit."""
@@ -69,7 +67,7 @@ class TestQiskitStatevectorOracle:
         clifft_sv = _clifft_statevector(circuit)
         qc = stim_to_qiskit_noiseless(circuit)
         qiskit_sv = qiskit_statevector(qc)
-        assert_statevectors_equal(clifft_sv, qiskit_sv)
+        assert_same_state_ray(clifft_sv, qiskit_sv)
 
     def test_four_t_equals_z(self) -> None:
         """T^4 = Z identity matches Qiskit."""
@@ -77,7 +75,7 @@ class TestQiskitStatevectorOracle:
         clifft_sv = _clifft_statevector(circuit)
         qc = stim_to_qiskit_noiseless(circuit)
         qiskit_sv = qiskit_statevector(qc)
-        assert_statevectors_equal(clifft_sv, qiskit_sv)
+        assert_same_state_ray(clifft_sv, qiskit_sv)
 
     @pytest.mark.parametrize("num_qubits", [2, 3, 4, 5])
     @pytest.mark.parametrize("seed", range(5))
@@ -87,7 +85,7 @@ class TestQiskitStatevectorOracle:
         clifft_sv = _clifft_statevector(circuit)
         qc = stim_to_qiskit_noiseless(circuit)
         qiskit_sv = qiskit_statevector(qc)
-        assert_statevectors_equal(clifft_sv, qiskit_sv, msg=f"{num_qubits}q seed={seed}\n{circuit}")
+        assert_same_state_ray(clifft_sv, qiskit_sv, msg=f"{num_qubits}q seed={seed}\n{circuit}")
 
     @pytest.mark.parametrize("seed", range(3))
     def test_random_clifford_t_medium(self, seed: int) -> None:
@@ -97,9 +95,7 @@ class TestQiskitStatevectorOracle:
             clifft_sv = _clifft_statevector(circuit)
             qc = stim_to_qiskit_noiseless(circuit)
             qiskit_sv = qiskit_statevector(qc)
-            assert_statevectors_equal(
-                clifft_sv, qiskit_sv, msg=f"{num_qubits}q seed={seed}\n{circuit}"
-            )
+            assert_same_state_ray(clifft_sv, qiskit_sv, msg=f"{num_qubits}q seed={seed}\n{circuit}")
 
     def test_multi_qubit_entangled_t(self) -> None:
         """Entangled circuit with T gates on multiple qubits matches Qiskit."""
@@ -120,7 +116,7 @@ class TestQiskitStatevectorOracle:
         clifft_sv = _clifft_statevector(circuit)
         qc = stim_to_qiskit_noiseless(circuit)
         qiskit_sv = qiskit_statevector(qc)
-        assert_statevectors_equal(clifft_sv, qiskit_sv)
+        assert_same_state_ray(clifft_sv, qiskit_sv)
 
     def test_ch_gate(self) -> None:
         """CH parser rewrite matches Qiskit."""
@@ -128,7 +124,7 @@ class TestQiskitStatevectorOracle:
         clifft_sv = _clifft_statevector(circuit)
         qc = stim_to_qiskit_noiseless(circuit)
         qiskit_sv = qiskit_statevector(qc)
-        assert_statevectors_equal(clifft_sv, qiskit_sv)
+        assert_same_state_ray(clifft_sv, qiskit_sv)
 
     def test_ccz_gate(self) -> None:
         """CCZ parser rewrite matches Qiskit."""
@@ -136,7 +132,7 @@ class TestQiskitStatevectorOracle:
         clifft_sv = _clifft_statevector(circuit)
         qc = stim_to_qiskit_noiseless(circuit)
         qiskit_sv = qiskit_statevector(qc)
-        assert_statevectors_equal(clifft_sv, qiskit_sv)
+        assert_same_state_ray(clifft_sv, qiskit_sv)
 
     def test_ccx_gate(self) -> None:
         """CCX parser rewrite matches Qiskit."""
@@ -144,7 +140,7 @@ class TestQiskitStatevectorOracle:
         clifft_sv = _clifft_statevector(circuit)
         qc = stim_to_qiskit_noiseless(circuit)
         qiskit_sv = qiskit_statevector(qc)
-        assert_statevectors_equal(clifft_sv, qiskit_sv)
+        assert_same_state_ray(clifft_sv, qiskit_sv)
 
     def test_deep_t_circuit(self) -> None:
         """Deep circuit with many T gates tests accumulation accuracy."""
@@ -156,7 +152,7 @@ class TestQiskitStatevectorOracle:
         clifft_sv = _clifft_statevector(circuit)
         qc = stim_to_qiskit_noiseless(circuit)
         qiskit_sv = qiskit_statevector(qc)
-        assert_statevectors_equal(clifft_sv, qiskit_sv)
+        assert_same_state_ray(clifft_sv, qiskit_sv)
 
 
 class TestDenseCliffordTFuzzer:
@@ -174,7 +170,7 @@ class TestDenseCliffordTFuzzer:
         clifft_sv = _clifft_statevector(circuit)
         qc = stim_to_qiskit_noiseless(circuit)
         qiskit_sv = qiskit_statevector(qc)
-        assert_statevectors_equal(
+        assert_same_state_ray(
             clifft_sv, qiskit_sv, msg=f"dense {num_qubits}q seed={seed}\n{circuit}"
         )
 
@@ -185,7 +181,7 @@ class TestDenseCliffordTFuzzer:
         clifft_sv = _clifft_statevector(circuit)
         qc = stim_to_qiskit_noiseless(circuit)
         qiskit_sv = qiskit_statevector(qc)
-        assert_statevectors_equal(clifft_sv, qiskit_sv, msg=f"dense 6q seed={seed}")
+        assert_same_state_ray(clifft_sv, qiskit_sv, msg=f"dense 6q seed={seed}")
 
     @pytest.mark.parametrize("seed", range(3))
     def test_deep_phase_accumulation(self, seed: int) -> None:
@@ -194,20 +190,20 @@ class TestDenseCliffordTFuzzer:
         clifft_sv = _clifft_statevector(circuit)
         qc = stim_to_qiskit_noiseless(circuit)
         qiskit_sv = qiskit_statevector(qc)
-        assert_statevectors_equal(clifft_sv, qiskit_sv, msg=f"deep 4q seed={seed}")
+        assert_same_state_ray(clifft_sv, qiskit_sv, msg=f"deep 4q seed={seed}")
 
 
 class TestArbitraryRotations:
     """Validate continuous rotation gates against Qiskit Aer."""
 
     def _check_amplitudes(self, stim_text: str, atol: float = 1e-6) -> None:
-        """Compile+execute with Clifft, compare exact amplitudes against Qiskit.
+        """Compile+execute with Clifft, compare relative amplitudes against Qiskit.
 
         Because Stim's to_flat_unitary_matrix (used in the get_statevector
         oracle) canonicalizes global phase, the oracle U_C matrix may differ
-        from the true physical global phase by a scalar.  We project out
+        from Qiskit's convention by a scalar. We project out
         this single global scalar and then enforce strict equality across
-        all relative amplitudes to catch any true phase drift.
+        all relative amplitudes.
         """
         import clifft
 

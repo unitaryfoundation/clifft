@@ -192,11 +192,11 @@ def test_postselection_without_passes_unchanged() -> None:
         (6, 100, 5004),
     ],
 )
-def test_statevector_identical_with_passes(num_qubits: int, depth: int, seed: int) -> None:
-    """Statevectors from optimized compile must match unoptimized exactly.
+def test_statevector_equivalent_with_passes(num_qubits: int, depth: int, seed: int) -> None:
+    """Statevectors from optimized compile must match unoptimized up to global phase.
 
     Uses measurement-free circuits so the statevector is deterministic
-    and we can compare fidelity directly.
+    and we can compare state-ray fidelity directly.
     """
     stim_text = random_dense_clifford_t_circuit(num_qubits, depth, seed)
 

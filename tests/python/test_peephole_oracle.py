@@ -3,8 +3,8 @@
 Validates that the symplectic peephole fusion pass preserves quantum
 semantics. Two independent verification strategies:
 
-1. Self-consistency: compile with optimizer on vs off, assert identical
-   statevectors (fidelity > 0.9999).
+1. Self-consistency: compile with optimizer on vs off, assert equivalent
+   state rays (fidelity > 0.9999).
 2. Mirror cancellation: U U-dag mirror circuits must achieve peak_rank=0
    when the optimizer is enabled, proving complete T/T-dag annihilation.
 """
@@ -12,7 +12,8 @@ semantics. Two independent verification strategies:
 import numpy as np
 import pytest
 from conftest import (
-    assert_statevectors_equal,
+    assert_same_state_ray,
+    assert_statevectors_componentwise_equal,
     random_clifford_t_circuit,
     random_dense_clifford_t_circuit,
 )
@@ -51,11 +52,11 @@ def _clifft_statevector(circuit_str: str, *, optimize: bool = False) -> np.ndarr
 
 
 class TestPeepholeStatevectorEquivalence:
-    """Assert optimizer preserves exact quantum amplitudes.
+    """Assert optimizer preserves the final state up to global phase.
 
     Compiles random Clifford+T circuits with and without the peephole
     pass, then checks fidelity between the two resulting statevectors.
-    Any deviation indicates the optimizer corrupted the phase polynomial.
+    Componentwise phase-sensitive checks are below.
     """
 
     @pytest.mark.parametrize("seed", range(10))
@@ -64,7 +65,7 @@ class TestPeepholeStatevectorEquivalence:
         circuit = random_clifford_t_circuit(8, depth=30, seed=seed)
         sv_baseline = _clifft_statevector(circuit)
         sv_optimized = _clifft_statevector(circuit, optimize=True)
-        assert_statevectors_equal(
+        assert_same_state_ray(
             sv_optimized,
             sv_baseline,
             msg=f"8q depth=30 seed={seed}",
@@ -76,7 +77,7 @@ class TestPeepholeStatevectorEquivalence:
         circuit = random_clifford_t_circuit(8, depth=60, seed=seed)
         sv_baseline = _clifft_statevector(circuit)
         sv_optimized = _clifft_statevector(circuit, optimize=True)
-        assert_statevectors_equal(
+        assert_same_state_ray(
             sv_optimized,
             sv_baseline,
             msg=f"8q depth=60 seed={seed}",
@@ -89,7 +90,7 @@ class TestPeepholeStatevectorEquivalence:
         circuit = random_clifford_t_circuit(num_qubits, depth=20, seed=seed)
         sv_baseline = _clifft_statevector(circuit)
         sv_optimized = _clifft_statevector(circuit, optimize=True)
-        assert_statevectors_equal(
+        assert_same_state_ray(
             sv_optimized,
             sv_baseline,
             msg=f"{num_qubits}q depth=20 seed={seed}",
@@ -101,7 +102,7 @@ class TestPeepholeStatevectorEquivalence:
         circuit = random_dense_clifford_t_circuit(5, depth=40, seed=seed)
         sv_baseline = _clifft_statevector(circuit)
         sv_optimized = _clifft_statevector(circuit, optimize=True)
-        assert_statevectors_equal(
+        assert_same_state_ray(
             sv_optimized,
             sv_baseline,
             msg=f"dense 5q depth=40 seed={seed}",
@@ -113,7 +114,7 @@ class TestPeepholeStatevectorEquivalence:
         circuit = random_dense_clifford_t_circuit(4, depth=100, seed=seed, two_qubit_prob=0.3)
         sv_baseline = _clifft_statevector(circuit)
         sv_optimized = _clifft_statevector(circuit, optimize=True)
-        assert_statevectors_equal(
+        assert_same_state_ray(
             sv_optimized,
             sv_baseline,
             msg=f"deep 4q depth=100 seed={seed}",
@@ -133,35 +134,35 @@ class TestPeepholeAlgebraicIdentities:
         circuit = "H 0\nT 0\nT_DAG 0"
         sv_baseline = _clifft_statevector(circuit)
         sv_optimized = _clifft_statevector(circuit, optimize=True)
-        assert_statevectors_equal(sv_optimized, sv_baseline)
+        assert_same_state_ray(sv_optimized, sv_baseline)
 
     def test_two_t_fuse_to_s(self) -> None:
         """T T = S preserves amplitudes."""
         circuit = "H 0\nT 0\nT 0"
         sv_baseline = _clifft_statevector(circuit)
         sv_optimized = _clifft_statevector(circuit, optimize=True)
-        assert_statevectors_equal(sv_optimized, sv_baseline)
+        assert_same_state_ray(sv_optimized, sv_baseline)
 
     def test_four_t_equals_z(self) -> None:
         """T^4 = Z identity preserved through optimizer."""
         circuit = "H 0\nT 0\nT 0\nT 0\nT 0"
         sv_baseline = _clifft_statevector(circuit)
         sv_optimized = _clifft_statevector(circuit, optimize=True)
-        assert_statevectors_equal(sv_optimized, sv_baseline)
+        assert_same_state_ray(sv_optimized, sv_baseline)
 
     def test_separated_t_gates_fuse(self) -> None:
         """T gates separated by commuting Cliffords still fuse."""
         circuit = "H 0\nH 1\nT 0\nS 1\nH 1\nT 0"
         sv_baseline = _clifft_statevector(circuit)
         sv_optimized = _clifft_statevector(circuit, optimize=True)
-        assert_statevectors_equal(sv_optimized, sv_baseline)
+        assert_same_state_ray(sv_optimized, sv_baseline)
 
     def test_entangled_t_fusion(self) -> None:
         """T gates on entangled qubits preserve interference."""
         circuit = "H 0\nCX 0 1\nT 0\nT 1\nT_DAG 0"
         sv_baseline = _clifft_statevector(circuit)
         sv_optimized = _clifft_statevector(circuit, optimize=True)
-        assert_statevectors_equal(sv_optimized, sv_baseline)
+        assert_same_state_ray(sv_optimized, sv_baseline)
 
 
 # ---------------------------------------------------------------------------
@@ -210,14 +211,14 @@ class TestPeepholeExactGlobalPhase:
         state = clifft.State(peak_rank=prog.peak_rank, num_measurements=prog.num_measurements)
         clifft.execute(prog, state)
         sv = clifft.get_statevector(prog, state)
-        np.testing.assert_allclose(sv, [0.5 + 0.5j, 0.5 - 0.5j], atol=1e-6)
+        assert_statevectors_componentwise_equal(sv, [0.5 + 0.5j, 0.5 - 0.5j], atol=1e-6)
 
     @pytest.mark.parametrize("circuit", S_ABSORPTION_CIRCUITS)
     def test_componentwise_match(self, circuit: str) -> None:
         """Optimized amplitudes equal unoptimized ones with no phase alignment."""
         sv_baseline = _clifft_statevector(circuit)
         sv_optimized = _clifft_statevector(circuit, optimize=True)
-        np.testing.assert_allclose(sv_optimized, sv_baseline, atol=1e-6)
+        assert_statevectors_componentwise_equal(sv_optimized, sv_baseline, atol=1e-6)
 
     @pytest.mark.parametrize("seed", range(100))
     def test_random_circuits_componentwise(self, seed: int) -> None:
@@ -230,7 +231,7 @@ class TestPeepholeExactGlobalPhase:
         circuit = random_clifford_t_circuit(5, depth=30, seed=seed)
         sv_baseline = _clifft_statevector(circuit)
         sv_optimized = _clifft_statevector(circuit, optimize=True)
-        np.testing.assert_allclose(sv_optimized, sv_baseline, atol=1e-5)
+        assert_statevectors_componentwise_equal(sv_optimized, sv_baseline, atol=1e-5)
 
     @pytest.mark.parametrize("seed", range(20))
     def test_random_deep_8q_componentwise(self, seed: int) -> None:
@@ -239,7 +240,7 @@ class TestPeepholeExactGlobalPhase:
         circuit = random_clifford_t_circuit(8, depth=60, seed=seed)
         sv_baseline = _clifft_statevector(circuit)
         sv_optimized = _clifft_statevector(circuit, optimize=True)
-        np.testing.assert_allclose(sv_optimized, sv_baseline, atol=1e-5)
+        assert_statevectors_componentwise_equal(sv_optimized, sv_baseline, atol=1e-5)
 
 
 # ---------------------------------------------------------------------------

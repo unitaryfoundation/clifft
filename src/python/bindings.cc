@@ -1090,11 +1090,14 @@ NB_MODULE(_clifft_core, m) {
         },
         nb::arg("program"), nb::arg("state"),
         "Expand the SVM state into a dense statevector.\n\n"
-        "For programs without measurements or noise the result is exact,\n"
-        "including its global phase, independent of compilation passes.\n"
-        "After measurements or noise the state is exact only up to a global\n"
+        "For programs without measurements or noise, compilation preserves\n"
+        "the API-visible global phase independent of optimization passes.\n"
+        "Dense expansion applies the retained final tableau through Stim's\n"
+        "complex<float> matrix path, so amplitudes involving a nontrivial\n"
+        "final tableau are limited to float-scale precision. After\n"
+        "measurements or noise the state is defined only up to a global\n"
         "phase (which a collapsed state does not physically carry): relative\n"
-        "amplitudes and all probabilities remain exact, but the overall\n"
+        "amplitudes and all probabilities remain meaningful, but the overall\n"
         "phase may differ between compilations of the same circuit.");
 
     m.def(
