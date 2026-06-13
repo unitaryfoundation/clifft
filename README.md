@@ -48,6 +48,8 @@ sampling, and stratified importance sampling for rare-event estimation.
 
 ## Installation
 
+<!--pytest.mark.skip-->
+
 ```bash
 pip install clifft
 ```
