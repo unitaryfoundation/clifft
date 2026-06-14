@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1781336566834,
+  "lastUpdate": 1781424019008,
   "repoUrl": "https://github.com/unitaryfoundation/clifft",
   "entries": {
     "Python pytest-benchmark suite": [
@@ -2970,6 +2970,105 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.012815984836486946",
             "extra": "mean: 1.3708754448000036 sec\nrounds: 5"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Brad Chase",
+            "username": "bachase",
+            "email": "14430+bachase@users.noreply.github.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "255aac95efeef93b34c5cadfe4c0d3aa8ce70b72",
+          "message": "feat: add parser rewrites for controlled gates (#151)\n\nAdds parser-only rewrite gates for controlled gates using existing\nClifft gate support:\n\n- `CH c t` rewrites to `R_Y(0.25) t; CX c t; R_Y(-0.25) t`.\n- `CCZ a b c` rewrites to the textbook 7-T / 6-CX sequence.\n- `CCX a b t` rewrites to `H t; CCZ a b t; H t`.\n\nCloses #150.\n\nAssisted-by: Claude (Opus 4.6) <noreply@anthropic.com>",
+          "timestamp": "2026-06-13T12:22:28Z",
+          "url": "https://github.com/unitaryfoundation/clifft/commit/255aac95efeef93b34c5cadfe4c0d3aa8ce70b72"
+        },
+        "date": 1781424017044,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "tools/bench/test_bench_deep_clifford.py::test_compile_stim_deep",
+            "value": 1452.2533716249532,
+            "unit": "iter/sec",
+            "range": "stddev: 0.00001163612295511002",
+            "extra": "mean: 688.5850771901336 usec\nrounds: 1153"
+          },
+          {
+            "name": "tools/bench/test_bench_deep_clifford.py::test_compile_clifft_deep",
+            "value": 588.5254912487007,
+            "unit": "iter/sec",
+            "range": "stddev: 0.000016519652083049987",
+            "extra": "mean: 1.699161743832464 msec\nrounds: 527"
+          },
+          {
+            "name": "tools/bench/test_bench_deep_clifford.py::test_sample_stim_deep",
+            "value": 57.6636738340108,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0006025321189916276",
+            "extra": "mean: 17.341940488886898 msec\nrounds: 45"
+          },
+          {
+            "name": "tools/bench/test_bench_deep_clifford.py::test_sample_clifft_deep",
+            "value": 1.0240193755344942,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0021713832190980308",
+            "extra": "mean: 976.5440224000088 msec\nrounds: 5"
+          },
+          {
+            "name": "tools/bench/test_bench_qec.py::test_compile_stim",
+            "value": 17586.044324138285,
+            "unit": "iter/sec",
+            "range": "stddev: 0.000003872081446846848",
+            "extra": "mean: 56.86327075995243 usec\nrounds: 7394"
+          },
+          {
+            "name": "tools/bench/test_bench_qec.py::test_compile_clifft",
+            "value": 1481.251218424435,
+            "unit": "iter/sec",
+            "range": "stddev: 0.000011071546526536185",
+            "extra": "mean: 675.1049299143677 usec\nrounds: 1170"
+          },
+          {
+            "name": "tools/bench/test_bench_qec.py::test_sample_stim",
+            "value": 109.8961268493329,
+            "unit": "iter/sec",
+            "range": "stddev: 0.00012531102056615665",
+            "extra": "mean: 9.099501762887382 msec\nrounds: 97"
+          },
+          {
+            "name": "tools/bench/test_bench_qec.py::test_sample_clifft",
+            "value": 7.710899887886951,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0005150038922283288",
+            "extra": "mean: 129.68654950000058 msec\nrounds: 8"
+          },
+          {
+            "name": "tools/bench/test_bench_qv.py::test_compile_qv20",
+            "value": 53.64620599626352,
+            "unit": "iter/sec",
+            "range": "stddev: 0.00007701317376547978",
+            "extra": "mean: 18.640647207551837 msec\nrounds: 53"
+          },
+          {
+            "name": "tools/bench/test_bench_qv.py::test_sample_qv20_1shot",
+            "value": 6.413308105394458,
+            "unit": "iter/sec",
+            "range": "stddev: 0.00038440303815650027",
+            "extra": "mean: 155.92576928572402 msec\nrounds: 7"
+          },
+          {
+            "name": "tools/bench/test_bench_qv.py::test_sample_qv20_10shots",
+            "value": 0.642479117249402,
+            "unit": "iter/sec",
+            "range": "stddev: 0.003043136869738321",
+            "extra": "mean: 1.5564708223999957 sec\nrounds: 5"
           }
         ]
       }
