@@ -5,6 +5,43 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.5.0] - 2026-06-15
+
+Clifft 0.5.0 broadens the circuits users can write directly and makes the project easier to try from both the playground and Python docs. The parser now accepts common controlled gates (`CCZ`, `CCX`, `CH`) through exact Clifford+T rewrites, the simulator supports three-qubit Pauli noise channels (`DEPOLARIZE3`), and phase-sensitive statevector behavior is better tested and documented.
+
+This release also includes several [unitaryHACK 2026](https://unitaryhack.dev/) contributions: @Samfresh-ai added starter circuits to the playground, @manasa-manoj-nbr added an auto-generated Python API reference, and @ashmitjsg completed the Qiskit backend bounty as the companion [unitaryfoundation/clifft-qiskit](https://github.com/unitaryfoundation/clifft-qiskit) package, so Qiskit users can run supported circuits on Clifft without hand-writing Stim.
+
+### Bug Fixes
+
+- preserve global phase across tableau rewrites (#140) by @bachase in [#140](https://github.com/unitaryfoundation/clifft/pull/140)
+
+### Build
+
+- hide vendored Stim symbols (#131) by @bachase in [#131](https://github.com/unitaryfoundation/clifft/pull/131)
+
+### CI
+
+- enforce uv lockfile in workflows (#128) by @bachase in [#128](https://github.com/unitaryfoundation/clifft/pull/128)
+- skip PR preview cleanup for forks (#122) by @bachase in [#122](https://github.com/unitaryfoundation/clifft/pull/122)
+- replace stripped-binary audit with QEMU wheel smoke (#100) by @bachase in [#100](https://github.com/unitaryfoundation/clifft/pull/100)
+
+### Documentation
+
+- clarify statevector phase checks (#153) by @bachase in [#153](https://github.com/unitaryfoundation/clifft/pull/153)
+- auto-generate Python API reference via mkdocstrings (#121) by @manasa-manoj-nbr in [#121](https://github.com/unitaryfoundation/clifft/pull/121)
+- clarify Stim gate descriptions (#110) by @bachase in [#110](https://github.com/unitaryfoundation/clifft/pull/110)
+
+### Features
+
+- add parser rewrites for controlled gates (#151) by @bachase in [#151](https://github.com/unitaryfoundation/clifft/pull/151)
+- add DEPOLARIZE3 and PAULI_CHANNEL_3 support (#149) by @bachase in [#149](https://github.com/unitaryfoundation/clifft/pull/149)
+- add starter circuit catalog (#118) by @Samfresh-ai in [#118](https://github.com/unitaryfoundation/clifft/pull/118)
+
+### Testing
+
+- widen componentwise global-phase coverage (#145) by @bachase in [#145](https://github.com/unitaryfoundation/clifft/pull/145)
+- add optimization pass docs drift test (#101) by @puneetdixit200 in [#101](https://github.com/unitaryfoundation/clifft/pull/101)
+
 ## [0.4.1] - 2026-05-19
 
 This patch makes Linux wheel CPU targeting consistent and portable across Clifft and its dependencies. It fixes a build configuration issue where host-specific CPU settings could leak into binaries, potentially producing unsupported instructions on some Linux x86_64 systems.
