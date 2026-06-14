@@ -7,9 +7,9 @@ mathematically sound.
 Bytecode passes: must preserve PRNG trajectory exactly (bit-for-bit
 identical classical arrays given the same seed).
 
-HIR passes: validated via statevector oracle (state-ray preservation)
-and statistical distribution matching (marginal probabilities agree
-within binomial tolerance on noisy circuits).
+HIR passes: validated via statevector equivalence and statistical
+distribution matching (marginal probabilities agree within binomial
+tolerance on noisy circuits).
 """
 
 from typing import Any
@@ -17,7 +17,7 @@ from typing import Any
 import numpy as np
 import pytest
 from conftest import (
-    assert_same_state_ray,
+    assert_statevectors_equiv,
     cross_binomial_tolerance,
     random_clifford_t_circuit,
     random_dense_clifford_t_circuit,
@@ -261,21 +261,21 @@ class TestHirPeepholeStatevectorOracle:
         circuit = random_clifford_t_circuit(5, 40, seed=seed)
         base_sv = _clifft_statevector(circuit, hir_passes=None, bytecode_passes=None)
         opt_sv = _clifft_statevector(circuit, hir_passes=clifft.default_hir_pass_manager())
-        assert_same_state_ray(opt_sv, base_sv)
+        assert_statevectors_equiv(opt_sv, base_sv)
 
     @pytest.mark.parametrize("seed", _SEEDS)
     def test_dense_clifford_t_4q(self, seed: int) -> None:
         circuit = random_dense_clifford_t_circuit(4, 50, seed=seed)
         base_sv = _clifft_statevector(circuit, hir_passes=None, bytecode_passes=None)
         opt_sv = _clifft_statevector(circuit, hir_passes=clifft.default_hir_pass_manager())
-        assert_same_state_ray(opt_sv, base_sv)
+        assert_statevectors_equiv(opt_sv, base_sv)
 
     @pytest.mark.parametrize("seed", _SEEDS)
     def test_dense_clifford_t_8q(self, seed: int) -> None:
         circuit = random_dense_clifford_t_circuit(8, 60, seed=seed)
         base_sv = _clifft_statevector(circuit, hir_passes=None, bytecode_passes=None)
         opt_sv = _clifft_statevector(circuit, hir_passes=clifft.default_hir_pass_manager())
-        assert_same_state_ray(opt_sv, base_sv)
+        assert_statevectors_equiv(opt_sv, base_sv)
 
 
 # ---------------------------------------------------------------------------

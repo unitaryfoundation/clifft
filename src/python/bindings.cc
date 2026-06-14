@@ -1090,15 +1090,12 @@ NB_MODULE(_clifft_core, m) {
         },
         nb::arg("program"), nb::arg("state"),
         "Expand the SVM state into a dense statevector.\n\n"
-        "For programs without measurements or noise, compilation preserves\n"
-        "the API-visible global phase independent of optimization passes.\n"
-        "Dense expansion applies the retained final tableau through Stim's\n"
-        "complex<float> matrix path, so amplitudes involving a nontrivial\n"
-        "final tableau are limited to float-scale precision. After\n"
-        "measurements or noise the state is defined only up to a global\n"
-        "phase (which a collapsed state does not physically carry): relative\n"
-        "amplitudes and all probabilities remain meaningful, but the overall\n"
-        "phase may differ between compilations of the same circuit.");
+        "For unitary programs, compilation preserves the API-visible global\n"
+        "phase across optimization passes. Retained final-tableau expansion\n"
+        "uses Stim's complex<float> unitary path, so those amplitudes have\n"
+        "float-scale precision. After measurements or noise, only relative\n"
+        "amplitudes and probabilities are meaningful; overall phase may\n"
+        "differ between compilations.");
 
     m.def(
         "_basis_probabilities_from_bitmasks",

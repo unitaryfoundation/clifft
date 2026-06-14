@@ -30,7 +30,7 @@ def compile_optimized(stim_text: str) -> clifft.Program:
 
 
 # ---------------------------------------------------------------------------
-# Statevector Oracle: optimized vs unoptimized produce equivalent state rays
+# Statevector Oracle: optimized vs unoptimized are equivalent up to global phase
 # ---------------------------------------------------------------------------
 
 

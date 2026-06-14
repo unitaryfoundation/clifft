@@ -413,15 +413,12 @@ std::vector<double> record_probabilities(const CompiledModule& program,
 /// into a dense 2^n statevector for validation.
 /// Capped at n <= 10 qubits (8 MB unitary matrix) to prevent OOM.
 ///
-/// For programs without measurements or noise, compilation preserves the
-/// API-visible global phase independent of optimization passes. Dense
-/// expansion applies the retained final tableau through Stim's
-/// complex<float> matrix path, so amplitudes involving a nontrivial final
-/// tableau are limited to float-scale precision. After measurements or
-/// noise the state is defined only up to a global phase (which a collapsed
-/// state does not physically carry): relative amplitudes and all
-/// probabilities remain meaningful, but the overall phase may differ
-/// between compilations of the same circuit.
+/// For unitary programs, compilation preserves the API-visible global phase
+/// across optimization passes. Retained final-tableau expansion uses Stim's
+/// complex<float> unitary path, so those amplitudes have float-scale
+/// precision. After measurements or noise, only relative amplitudes and
+/// probabilities are meaningful; overall phase may differ between
+/// compilations.
 std::vector<std::complex<double>> get_statevector(const CompiledModule& program,
                                                   const SchrodingerState& state);
 

@@ -4,7 +4,7 @@ import numpy as np
 import numpy.typing as npt
 
 
-def assert_same_state_ray(
+def assert_statevectors_equiv(
     actual: np.ndarray, expected: np.ndarray, *, rtol: float = 1e-4, msg: str = ""
 ) -> None:
     """Assert two statevectors are equivalent up to global phase.
