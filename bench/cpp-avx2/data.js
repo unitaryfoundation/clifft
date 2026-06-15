@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1781423858495,
+  "lastUpdate": 1781512409845,
   "repoUrl": "https://github.com/unitaryfoundation/clifft",
   "entries": {
     "C++ Catch2 benchmarks (AVX2)": [
@@ -1662,6 +1662,70 @@ window.BENCHMARK_DATA = {
             "name": "exp-val 20q 200 probes x100k",
             "value": 144.106,
             "range": "± 352.318",
+            "unit": "ms",
+            "extra": "100 samples\n1 iterations"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Brad Chase",
+            "username": "bachase",
+            "email": "14430+bachase@users.noreply.github.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "75a855f48f1a4d36f3355597ab00135a3c346cf9",
+          "message": "docs: clarify statevector phase checks (#153)\n\nFixes #152.\n\nAssisted-by: OpenAI Codex (GPT-5) <noreply@openai.com>",
+          "timestamp": "2026-06-14T12:08:20Z",
+          "url": "https://github.com/unitaryfoundation/clifft/commit/75a855f48f1a4d36f3355597ab00135a3c346cf9"
+        },
+        "date": 1781512408880,
+        "tool": "catch2",
+        "benches": [
+          {
+            "name": "QV-10 x100 shots",
+            "value": 41.3307,
+            "range": "± 540.146",
+            "unit": "ms",
+            "extra": "100 samples\n1 iterations"
+          },
+          {
+            "name": "cultivation-d5 x1000 shots",
+            "value": 68.9467,
+            "range": "± 998.008",
+            "unit": "ms",
+            "extra": "100 samples\n1 iterations"
+          },
+          {
+            "name": "surface-d7-r7 p=1e-3 x10000 shots",
+            "value": 114.604,
+            "range": "± 1.45103",
+            "unit": "ms",
+            "extra": "100 samples\n1 iterations"
+          },
+          {
+            "name": "surface-d5-r5 p=0.05 x10000 shots",
+            "value": 109.899,
+            "range": "± 691.767",
+            "unit": "ms",
+            "extra": "100 samples\n1 iterations"
+          },
+          {
+            "name": "surface-d11-r11 p=1e-3 x1000 shots",
+            "value": 45.8926,
+            "range": "± 960.989",
+            "unit": "ms",
+            "extra": "100 samples\n1 iterations"
+          },
+          {
+            "name": "exp-val 20q 200 probes x100k",
+            "value": 173.267,
+            "range": "± 3.21905",
             "unit": "ms",
             "extra": "100 samples\n1 iterations"
           }
