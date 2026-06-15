@@ -809,238 +809,9 @@ class Parser {
         return inverted ? result.inverted() : result;
     }
 
-    // Parse MPP instruction with multiple Pauli products.
-    void parse_mpp(std::string_view targets_str, uint32_t line_num, Circuit& circuit, double arg) {
-        std::string_view remaining = targets_str;
-        uint32_t product_count = 0;
-
-        while (true) {
-            std::string_view product_str = next_token(remaining);
-            if (product_str.empty())
-                break;
-
-            if (product_count >= kMaxTargetsPerInstruction) {
-                throw ParseError("Too many MPP products (limit: " +
-                                     std::to_string(kMaxTargetsPerInstruction) + ")",
-                                 line_num);
-            }
-            product_count++;
-
-            // Each product is like "X0*Z1*Y2".
-            std::vector<Target> pauli_targets;
-            std::unordered_set<uint32_t> seen_qubits;
-
-            size_t pos = 0;
-            while (pos < product_str.size()) {
-                // Handle '*' separator with validation.
-                if (product_str[pos] == '*') {
-                    // Disallow leading, trailing, or consecutive '*' characters.
-                    if (pos == 0 || pos + 1 >= product_str.size() || product_str[pos + 1] == '*') {
-                        throw ParseError("Malformed Pauli product in MPP: misplaced '*'", line_num);
-                    }
-                    pos++;
-                    continue;
-                }
-
-                // Parse Pauli letter.
-                char pauli_char = product_str[pos];
-                uint32_t pauli_flag;
-                switch (pauli_char) {
-                    case 'X':
-                        pauli_flag = Target::kPauliX;
-                        break;
-                    case 'Y':
-                        pauli_flag = Target::kPauliY;
-                        break;
-                    case 'Z':
-                        pauli_flag = Target::kPauliZ;
-                        break;
-                    default:
-                        throw ParseError("Invalid Pauli in MPP: " + std::string(1, pauli_char),
-                                         line_num);
-                }
-                pos++;
-
-                // Parse qubit index.
-                size_t num_start = pos;
-                while (pos < product_str.size() && std::isdigit(product_str[pos])) {
-                    pos++;
-                }
-
-                if (num_start == pos) {
-                    throw ParseError("Expected qubit index after Pauli letter", line_num);
-                }
-
-                uint32_t qubit;
-                if (!parse_uint(std::string_view(product_str).substr(num_start, pos - num_start),
-                                qubit)) {
-                    throw ParseError("Invalid qubit index in MPP", line_num);
-                }
-
-                // Validate qubit index fits in 28-bit encoding.
-                if (qubit >= (1u << 28)) {
-                    throw ParseError("Qubit index too large (must be < 2^28)", line_num);
-                }
-
-                if (!seen_qubits.insert(qubit).second) {
-                    throw ParseError("Duplicate qubit in MPP product", line_num);
-                }
-
-                if (pauli_targets.size() >= kMaxTargetsPerInstruction) {
-                    throw ParseError("Too many Pauli terms in product (limit: " +
-                                         std::to_string(kMaxTargetsPerInstruction) + ")",
-                                     line_num);
-                }
-
-                pauli_targets.push_back(Target::pauli(qubit, pauli_flag));
-
-                // Update max qubit.
-                circuit.num_qubits = std::max(circuit.num_qubits, qubit + 1);
-            }
-
-            if (pauli_targets.empty()) {
-                throw ParseError("Empty Pauli product in MPP", line_num);
-            }
-
-            // Decompose noisy MPP: MPP(p) -> MPP + READOUT_NOISE
-            bool is_noisy_meas = arg > 0.0;
-
-            // Emit one AstNode per product.
-            // MPP is a visible measurement.
-            AstNode node{GateType::MPP, std::move(pauli_targets), {}, line_num};
-            circuit.num_measurements++;
-            circuit.nodes.push_back(std::move(node));
-
-            if (is_noisy_meas) {
-                uint32_t meas_idx = circuit.num_measurements - 1;
-                circuit.nodes.push_back(
-                    {GateType::READOUT_NOISE, {Target::rec(meas_idx)}, {arg}, line_num});
-            }
-        }
-
-        if (product_count == 0) {
-            throw ParseError("MPP requires at least one Pauli product", line_num);
-        }
-    }
-
-    // Parse EXP_VAL instruction with multiple Pauli products.
-    // Same Pauli product syntax as MPP but no noise argument.
-    // Increments num_exp_vals (not num_measurements).
-    void parse_exp_val(std::string_view targets_str, uint32_t line_num, Circuit& circuit) {
-        std::string_view remaining = targets_str;
-        uint32_t product_count = 0;
-
-        while (true) {
-            std::string_view product_str = next_token(remaining);
-            if (product_str.empty())
-                break;
-
-            if (product_count >= kMaxTargetsPerInstruction) {
-                throw ParseError("Too many EXP_VAL products (limit: " +
-                                     std::to_string(kMaxTargetsPerInstruction) + ")",
-                                 line_num);
-            }
-            product_count++;
-
-            // Each product is like "X0*Z1*Y2".
-            std::vector<Target> pauli_targets;
-            std::unordered_set<uint32_t> seen_qubits;
-
-            size_t pos = 0;
-            while (pos < product_str.size()) {
-                // Handle '*' separator with validation.
-                if (product_str[pos] == '*') {
-                    if (pos == 0 || pos + 1 >= product_str.size() || product_str[pos + 1] == '*') {
-                        throw ParseError("Malformed Pauli product in EXP_VAL: misplaced '*'",
-                                         line_num);
-                    }
-                    pos++;
-                    continue;
-                }
-
-                // Parse Pauli letter.
-                char pauli_char = product_str[pos];
-                uint32_t pauli_flag;
-                switch (pauli_char) {
-                    case 'X':
-                        pauli_flag = Target::kPauliX;
-                        break;
-                    case 'Y':
-                        pauli_flag = Target::kPauliY;
-                        break;
-                    case 'Z':
-                        pauli_flag = Target::kPauliZ;
-                        break;
-                    default:
-                        throw ParseError("Invalid Pauli in EXP_VAL: " + std::string(1, pauli_char),
-                                         line_num);
-                }
-                pos++;
-
-                // Parse qubit index.
-                size_t num_start = pos;
-                while (pos < product_str.size() && std::isdigit(product_str[pos])) {
-                    pos++;
-                }
-
-                if (num_start == pos) {
-                    throw ParseError("Expected qubit index after Pauli letter", line_num);
-                }
-
-                uint32_t qubit;
-                if (!parse_uint(std::string_view(product_str).substr(num_start, pos - num_start),
-                                qubit)) {
-                    throw ParseError("Invalid qubit index in EXP_VAL", line_num);
-                }
-
-                if (qubit >= (1u << 28)) {
-                    throw ParseError("Qubit index too large (must be < 2^28)", line_num);
-                }
-
-                if (!seen_qubits.insert(qubit).second) {
-                    throw ParseError("Duplicate qubit in EXP_VAL product", line_num);
-                }
-
-                if (pauli_targets.size() >= kMaxTargetsPerInstruction) {
-                    throw ParseError("Too many Pauli terms in product (limit: " +
-                                         std::to_string(kMaxTargetsPerInstruction) + ")",
-                                     line_num);
-                }
-
-                pauli_targets.push_back(Target::pauli(qubit, pauli_flag));
-                circuit.num_qubits = std::max(circuit.num_qubits, qubit + 1);
-            }
-
-            if (pauli_targets.empty()) {
-                throw ParseError("Empty Pauli product in EXP_VAL", line_num);
-            }
-
-            // Emit one AstNode per product.
-            AstNode node{GateType::EXP_VAL, std::move(pauli_targets), {}, line_num};
-            circuit.num_exp_vals++;
-            circuit.nodes.push_back(std::move(node));
-        }
-
-        if (product_count == 0) {
-            throw ParseError("EXP_VAL requires at least one Pauli product", line_num);
-        }
-    }
-
-    // Parse R_PAULI instruction: R_PAULI(alpha) X0*Y1*Z2
-    // Exactly one Pauli product with the rotation angle from args[0].
-    void parse_r_pauli(std::string_view targets_str, uint32_t line_num, Circuit& circuit,
-                       const std::vector<double>& args) {
-        std::string_view product_str = next_token(targets_str);
-        if (product_str.empty()) {
-            throw ParseError("R_PAULI requires a Pauli product (e.g. X0*Y1*Z2)", line_num);
-        }
-
-        // Check no extra tokens.
-        std::string_view extra = next_token(targets_str);
-        if (!extra.empty()) {
-            throw ParseError("R_PAULI takes exactly one Pauli product", line_num);
-        }
-
+    std::vector<Target> parse_pauli_product(std::string_view product_str,
+                                            std::string_view gate_name, uint32_t line_num,
+                                            Circuit& circuit) {
         std::vector<Target> pauli_targets;
         std::unordered_set<uint32_t> seen_qubits;
 
@@ -1048,7 +819,9 @@ class Parser {
         while (pos < product_str.size()) {
             if (product_str[pos] == '*') {
                 if (pos == 0 || pos + 1 >= product_str.size() || product_str[pos + 1] == '*') {
-                    throw ParseError("Malformed Pauli product in R_PAULI: misplaced '*'", line_num);
+                    throw ParseError(
+                        "Malformed Pauli product in " + std::string(gate_name) + ": misplaced '*'",
+                        line_num);
                 }
                 pos++;
                 continue;
@@ -1067,24 +840,30 @@ class Parser {
                     pauli_flag = Target::kPauliZ;
                     break;
                 default:
-                    throw ParseError("Invalid Pauli in R_PAULI: " + std::string(1, pauli_char),
+                    throw ParseError("Invalid Pauli in " + std::string(gate_name) + ": " +
+                                         std::string(1, pauli_char),
                                      line_num);
             }
             pos++;
 
             size_t num_start = pos;
-            while (pos < product_str.size() && std::isdigit(product_str[pos])) {
+            while (pos < product_str.size() &&
+                   std::isdigit(static_cast<unsigned char>(product_str[pos]))) {
                 pos++;
             }
 
             if (num_start == pos) {
-                throw ParseError("Expected qubit index after Pauli letter in R_PAULI", line_num);
+                std::string msg = "Expected qubit index after Pauli letter";
+                if (gate_name == "R_PAULI") {
+                    msg += " in R_PAULI";
+                }
+                throw ParseError(msg, line_num);
             }
 
             uint32_t qubit;
             if (!parse_uint(std::string_view(product_str).substr(num_start, pos - num_start),
                             qubit)) {
-                throw ParseError("Invalid qubit index in R_PAULI", line_num);
+                throw ParseError("Invalid qubit index in " + std::string(gate_name), line_num);
             }
 
             if (qubit >= (1u << 28)) {
@@ -1092,19 +871,108 @@ class Parser {
             }
 
             if (!seen_qubits.insert(qubit).second) {
-                throw ParseError("Duplicate qubit in R_PAULI product", line_num);
+                throw ParseError("Duplicate qubit in " + std::string(gate_name) + " product",
+                                 line_num);
             }
 
             if (pauli_targets.size() >= kMaxTargetsPerInstruction) {
-                throw ParseError("Too many Pauli terms in R_PAULI product", line_num);
+                if (gate_name == "R_PAULI") {
+                    throw ParseError("Too many Pauli terms in R_PAULI product", line_num);
+                }
+                throw ParseError("Too many Pauli terms in product (limit: " +
+                                     std::to_string(kMaxTargetsPerInstruction) + ")",
+                                 line_num);
             }
+
             pauli_targets.push_back(Target::pauli(qubit, pauli_flag));
             circuit.num_qubits = std::max(circuit.num_qubits, qubit + 1);
         }
 
         if (pauli_targets.empty()) {
-            throw ParseError("Empty Pauli product in R_PAULI", line_num);
+            throw ParseError("Empty Pauli product in " + std::string(gate_name), line_num);
         }
+
+        return pauli_targets;
+    }
+
+    std::vector<std::vector<Target>> parse_pauli_products(std::string_view targets_str,
+                                                          std::string_view gate_name,
+                                                          uint32_t line_num, Circuit& circuit) {
+        std::vector<std::vector<Target>> products;
+        std::string_view remaining = targets_str;
+
+        while (true) {
+            std::string_view product_str = next_token(remaining);
+            if (product_str.empty())
+                break;
+
+            if (products.size() >= kMaxTargetsPerInstruction) {
+                throw ParseError("Too many " + std::string(gate_name) + " products (limit: " +
+                                     std::to_string(kMaxTargetsPerInstruction) + ")",
+                                 line_num);
+            }
+
+            products.push_back(parse_pauli_product(product_str, gate_name, line_num, circuit));
+        }
+
+        if (products.empty()) {
+            throw ParseError(std::string(gate_name) + " requires at least one Pauli product",
+                             line_num);
+        }
+
+        return products;
+    }
+
+    // Parse MPP instruction with multiple Pauli products.
+    void parse_mpp(std::string_view targets_str, uint32_t line_num, Circuit& circuit, double arg) {
+        auto products = parse_pauli_products(targets_str, "MPP", line_num, circuit);
+        for (auto& pauli_targets : products) {
+            // Decompose noisy MPP: MPP(p) -> MPP + READOUT_NOISE
+            bool is_noisy_meas = arg > 0.0;
+
+            // Emit one AstNode per product.
+            // MPP is a visible measurement.
+            AstNode node{GateType::MPP, std::move(pauli_targets), {}, line_num};
+            circuit.num_measurements++;
+            circuit.nodes.push_back(std::move(node));
+
+            if (is_noisy_meas) {
+                uint32_t meas_idx = circuit.num_measurements - 1;
+                circuit.nodes.push_back(
+                    {GateType::READOUT_NOISE, {Target::rec(meas_idx)}, {arg}, line_num});
+            }
+        }
+    }
+
+    // Parse EXP_VAL instruction with multiple Pauli products.
+    // Same Pauli product syntax as MPP but no noise argument.
+    // Increments num_exp_vals (not num_measurements).
+    void parse_exp_val(std::string_view targets_str, uint32_t line_num, Circuit& circuit) {
+        auto products = parse_pauli_products(targets_str, "EXP_VAL", line_num, circuit);
+        for (auto& pauli_targets : products) {
+            // Emit one AstNode per product.
+            AstNode node{GateType::EXP_VAL, std::move(pauli_targets), {}, line_num};
+            circuit.num_exp_vals++;
+            circuit.nodes.push_back(std::move(node));
+        }
+    }
+
+    // Parse R_PAULI instruction: R_PAULI(alpha) X0*Y1*Z2
+    // Exactly one Pauli product with the rotation angle from args[0].
+    void parse_r_pauli(std::string_view targets_str, uint32_t line_num, Circuit& circuit,
+                       const std::vector<double>& args) {
+        std::string_view product_str = next_token(targets_str);
+        if (product_str.empty()) {
+            throw ParseError("R_PAULI requires a Pauli product (e.g. X0*Y1*Z2)", line_num);
+        }
+
+        // Check no extra tokens.
+        std::string_view extra = next_token(targets_str);
+        if (!extra.empty()) {
+            throw ParseError("R_PAULI takes exactly one Pauli product", line_num);
+        }
+
+        auto pauli_targets = parse_pauli_product(product_str, "R_PAULI", line_num, circuit);
 
         circuit.nodes.push_back({GateType::R_PAULI, std::move(pauli_targets), args, line_num});
     }
