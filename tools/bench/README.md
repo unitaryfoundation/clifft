@@ -22,6 +22,39 @@ uv run pytest tools/bench/ --benchmark-sort=name --benchmark-columns=Mean,StdDev
 | `test_bench_deep_clifford.py` | 50-qubit, 5000 random Cliffords | Pure Clifford compile/sample throughput |
 | `test_bench_qv.py` | 20-qubit Quantum Volume (`fixtures/qv20_seed42.stim`) | Large statevector (peak rank 20) per-shot throughput |
 
+## T-count evaluation
+
+`exact_phasepoly_tcount.py` reports T-count changes from:
+
+```text
+trace -> PeepholeFusionPass -> ExactPhasePolynomialTCountPass
+```
+
+Run it from an environment where the local `clifft` package is importable:
+
+```bash
+python tools/bench/exact_phasepoly_tcount.py
+```
+
+It includes generated source-level `CCZ` / `CCX` families and existing repo
+fixtures. To evaluate common `.qc` or Clifford+T OpenQASM 2.0 benchmark files,
+pass individual files or a directory:
+
+```bash
+python tools/bench/exact_phasepoly_tcount.py --qc-dir path/to/qc_corpus
+python tools/bench/exact_phasepoly_tcount.py --qasm-dir path/to/qasm_corpus \
+    --skip-unsupported --max-imported-gates 5000
+```
+
+The `.qc` importer supports Clifford+T primitives and one-, two-, and
+three-argument `tof` / `toffoli` gates. Wider multi-control Toffoli gates are
+rejected instead of silently decomposed with implicit ancillas.
+
+The QASM importer supports declarations plus common Clifford+T gate names
+(`h`, `s`, `sdg`, `t`, `tdg`, `cx`, `cz`, `ccx`, `ccz`, etc.). It ignores
+barriers and measurements for T-count evaluation, and rejects custom or
+parameterized gates instead of attempting synthesis.
+
 ## Fixtures
 
 Pre-generated circuit files live in `fixtures/`:

@@ -86,6 +86,8 @@
 
 ::: clifft.DropNonUnitaryPass
 
+::: clifft.ExactPhasePolynomialTCountPass
+
 ## Bytecode Passes
 
 ::: clifft.NoiseBlockPass

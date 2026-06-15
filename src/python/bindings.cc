@@ -5,6 +5,7 @@
 #include "clifft/frontend/frontend.h"
 #include "clifft/optimizer/bytecode_pass.h"
 #include "clifft/optimizer/drop_non_unitary_pass.h"
+#include "clifft/optimizer/exact_phase_polynomial_t_count_pass.h"
 #include "clifft/optimizer/expand_t_pass.h"
 #include "clifft/optimizer/hir_pass_manager.h"
 #include "clifft/optimizer/multi_gate_pass.h"
@@ -503,6 +504,25 @@ NB_MODULE(_clifft_core, m) {
         "Drops non-evolution HIR ops so the remaining program is a unitary skeleton.\n"
         "Not included in the default pass list and not semantics-preserving.")
         .def(nb::init<>());
+
+    nb::class_<clifft::ExactPhasePolynomialTCountPass, clifft::HirPass>(
+        m, "ExactPhasePolynomialTCountPass",
+        "Experimental opt-in exact T-count minimization for small commuting "
+        "phase-polynomial HIR blocks.")
+        .def(nb::init<>())
+        .def(nb::init<uint8_t>(), nb::arg("max_rank"))
+        .def_prop_ro("max_rank", &clifft::ExactPhasePolynomialTCountPass::max_rank)
+        .def_prop_ro("blocks_considered",
+                     &clifft::ExactPhasePolynomialTCountPass::blocks_considered)
+        .def_prop_ro("blocks_optimized",
+                     &clifft::ExactPhasePolynomialTCountPass::blocks_optimized)
+        .def_prop_ro("t_removed", &clifft::ExactPhasePolynomialTCountPass::t_removed)
+        .def("__repr__", [](const clifft::ExactPhasePolynomialTCountPass& p) {
+            return "ExactPhasePolynomialTCountPass(max_rank=" +
+                   std::to_string(p.max_rank()) + ", blocks_optimized=" +
+                   std::to_string(p.blocks_optimized()) + ", t_removed=" +
+                   std::to_string(p.t_removed()) + ")";
+        });
 
     m.def(
         "compute_reference_syndrome",

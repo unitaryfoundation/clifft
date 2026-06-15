@@ -123,6 +123,20 @@ def define_env(env: Any) -> None:
             ),
         },
         {
+            "name": "ExactPhasePolynomialTCountPass",
+            "kind": "HIR",
+            "default_enabled": False,
+            "python_name": "ExactPhasePolynomialTCountPass",
+            "summary": "Exact bounded T-count minimization for small commuting T blocks.",
+            "detail": (
+                "Experimental opt-in pass for contiguous commuting T-gate blocks. "
+                "For blocks with Pauli-axis rank at most four, it exhaustively "
+                "searches lower odd-parity representatives and accepts a rewrite "
+                "only when the residual phase is Clifford. It is not included in "
+                "the default pipeline."
+            ),
+        },
+        {
             "name": "NoiseBlockPass",
             "kind": "Bytecode",
             "default_enabled": True,

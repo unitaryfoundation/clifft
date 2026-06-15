@@ -105,6 +105,7 @@ nav:
     - Overview: theory/overview.md
     - Architecture: theory/architecture.md
     - Basis-State Probabilities: theory/basis_probabilities.md
+    - Exact Phase-Polynomial T-Count: theory/exact_phase_polynomial_t_count.md
   - Reference:
     - Supported Gates: reference/gates.md
     - Instruction Reference: reference/instructions.md

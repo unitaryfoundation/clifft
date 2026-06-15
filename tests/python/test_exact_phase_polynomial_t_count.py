@@ -1,0 +1,24 @@
+"""Python binding coverage for the exact phase-polynomial T-count pass."""
+
+import clifft
+
+
+def test_exact_phase_polynomial_pass_binding_and_stats() -> None:
+    hir = clifft.trace(clifft.parse("T 0\nT_DAG 0"))
+    exact = clifft.ExactPhasePolynomialTCountPass()
+
+    pm = clifft.HirPassManager()
+    pm.add(exact)
+    pm.run(hir)
+
+    assert hir.num_t_gates == 0
+    assert len(hir) == 0
+    assert exact.max_rank == 4
+    assert exact.blocks_considered == 1
+    assert exact.blocks_optimized == 1
+    assert exact.t_removed == 2
+    assert "ExactPhasePolynomialTCountPass" in repr(exact)
+
+
+def test_exact_phase_polynomial_pass_rank_cap_is_clamped() -> None:
+    assert clifft.ExactPhasePolynomialTCountPass(99).max_rank == 4
