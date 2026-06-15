@@ -156,6 +156,24 @@ NoiseChannel rewind_pauli_terms(HirModule& hir, const stim::TableauSimulator<kSt
     return NoiseChannel{h, prob};
 }
 
+/// Rewind a Pauli product stored as Pauli-tagged targets into a fresh noise slot.
+NoiseChannel rewind_pauli_targets(HirModule& hir, const stim::TableauSimulator<kStimWidth>& sim,
+                                  const std::vector<Target>& targets, double prob) {
+    auto h = hir.claim_empty_noise_channel_mask();
+    auto slot = hir.noise_channel_masks.mut_at(h);
+    slot.x().zero_out();
+    slot.z().zero_out();
+    uint32_t n = sim.inv_state.num_qubits;
+    for (const auto& target : targets) {
+        if (!target.has_pauli()) {
+            throw std::runtime_error("Expected Pauli target");
+        }
+        auto pauli_type = static_cast<int>(target.pauli() >> Target::kPauliShift);
+        accumulate_pauli_row(sim.inv_state, target.value(), pauli_type, n, slot.x(), slot.z());
+    }
+    return NoiseChannel{h, prob};
+}
+
 void append_noise_site(HirModule& hir, NoiseSite site) {
     NoiseSiteIdx idx{static_cast<uint32_t>(hir.noise_sites.size())};
     hir.noise_sites.push_back(std::move(site));
@@ -308,6 +326,10 @@ size_t count_noise_channels(const Circuit& circuit) {
             case GateType::PAULI_CHANNEL_3:
                 count += 63 * (n_targets / 3);
                 break;
+            case GateType::CORRELATED_ERROR:
+            case GateType::ELSE_CORRELATED_ERROR:
+                count += 1;
+                break;
             default:
                 break;
         }
@@ -392,7 +414,8 @@ HirModule trace(const Circuit& circuit) {
     uint32_t hidden_meas_idx = circuit.num_measurements;
     ExpValIdx exp_val_idx{0};
 
-    for (const auto& node : circuit.nodes) {
+    for (size_t node_index = 0; node_index < circuit.nodes.size(); ++node_index) {
+        const auto& node = circuit.nodes[node_index];
         const size_t ops_before = hir.ops.size();
 
         switch (node.gate) {
@@ -819,6 +842,40 @@ HirModule trace(const Circuit& circuit) {
                 }
                 break;
             }
+
+            case GateType::CORRELATED_ERROR: {
+                NoiseSite site;
+                double remaining = 1.0;
+                size_t chain_end = node_index;
+                while (true) {
+                    const auto& link = circuit.nodes[chain_end];
+                    if (link.args.empty()) {
+                        throw std::runtime_error(
+                            "CORRELATED_ERROR requires a probability argument");
+                    }
+
+                    double abs_prob = link.args[0] * remaining;
+                    if (abs_prob > 0.0 && !link.targets.empty()) {
+                        site.channels.push_back(
+                            rewind_pauli_targets(hir, sim, link.targets, abs_prob));
+                    }
+                    remaining *= 1.0 - link.args[0];
+
+                    size_t next = chain_end + 1;
+                    if (next >= circuit.nodes.size() ||
+                        circuit.nodes[next].gate != GateType::ELSE_CORRELATED_ERROR) {
+                        break;
+                    }
+                    chain_end = next;
+                }
+                append_noise_site(hir, std::move(site));
+                node_index = chain_end;
+                break;
+            }
+
+            case GateType::ELSE_CORRELATED_ERROR:
+                throw std::runtime_error(
+                    "ELSE_CORRELATED_ERROR must follow CORRELATED_ERROR in the same chain");
 
             case GateType::DEPOLARIZE2: {
                 double prob = node.args.empty() ? 0.0 : node.args[0];

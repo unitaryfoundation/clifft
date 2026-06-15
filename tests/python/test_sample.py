@@ -596,6 +596,35 @@ class TestNoiseAndQEC:
         # X flips |0> to |1>
         assert np.all(result.measurements == 1)
 
+    def test_correlated_error_else_branch(self) -> None:
+        """ELSE_CORRELATED_ERROR fires when the earlier link does not."""
+        prog = clifft.compile("""
+            E(0.0) X0
+            ELSE_CORRELATED_ERROR(1.0) X1
+            M 0 1
+        """)
+        result = clifft.sample(prog, 100, seed=42)
+        assert np.all(result.measurements[:, 0] == 0)
+        assert np.all(result.measurements[:, 1] == 1)
+
+    def test_correlated_error_chain_probabilistic(self) -> None:
+        """Correlated-error chains convert conditional probabilities correctly."""
+        prog = clifft.compile("""
+            E(0.5) X0
+            ELSE_CORRELATED_ERROR(0.5) X1
+            M 0 1
+        """)
+        shots = 5000
+        result = clifft.sample(prog, shots, seed=42)
+        q0 = result.measurements[:, 0]
+        q1 = result.measurements[:, 1]
+
+        q0_rate = float(np.mean(q0))
+        q1_rate = float(np.mean(q1))
+        assert abs(q0_rate - 0.5) < binomial_tolerance(0.5, shots)
+        assert abs(q1_rate - 0.25) < binomial_tolerance(0.25, shots)
+        assert not np.any(q0 & q1)
+
     def test_pauli_noise_z_error(self) -> None:
         """Z_ERROR doesn't affect computational basis measurement."""
         prog = clifft.compile("""

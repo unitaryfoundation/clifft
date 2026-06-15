@@ -1434,6 +1434,100 @@ TEST_CASE("Parse PAULI_CHANNEL_1 broadcasts to multiple targets", "[parser]") {
     }
 }
 
+TEST_CASE("Parse correlated error product", "[parser][noise]") {
+    auto circuit = parse("CORRELATED_ERROR(0.1) X0 Y2 Z5");
+    REQUIRE(circuit.nodes.size() == 1);
+    CHECK(circuit.nodes[0].gate == GateType::CORRELATED_ERROR);
+    REQUIRE(circuit.nodes[0].args.size() == 1);
+    CHECK(circuit.nodes[0].args[0] == Catch::Approx(0.1));
+    REQUIRE(circuit.nodes[0].targets.size() == 3);
+    CHECK(circuit.nodes[0].targets[0].pauli() == Target::kPauliX);
+    CHECK(circuit.nodes[0].targets[0].value() == 0);
+    CHECK(circuit.nodes[0].targets[1].pauli() == Target::kPauliY);
+    CHECK(circuit.nodes[0].targets[1].value() == 2);
+    CHECK(circuit.nodes[0].targets[2].pauli() == Target::kPauliZ);
+    CHECK(circuit.nodes[0].targets[2].value() == 5);
+    CHECK(circuit.num_qubits == 6);
+    CHECK(circuit.num_measurements == 0);
+}
+
+TEST_CASE("Parse correlated error alias and combiner", "[parser][noise]") {
+    auto circuit = parse("E(0.25) X0*Z1");
+    REQUIRE(circuit.nodes.size() == 1);
+    CHECK(circuit.nodes[0].gate == GateType::CORRELATED_ERROR);
+    REQUIRE(circuit.nodes[0].targets.size() == 2);
+    CHECK(circuit.nodes[0].targets[0].pauli() == Target::kPauliX);
+    CHECK(circuit.nodes[0].targets[1].pauli() == Target::kPauliZ);
+}
+
+TEST_CASE("Parse correlated error chain", "[parser][noise]") {
+    auto circuit = parse(
+        "E(0.1) X0\n"
+        "ELSE_CORRELATED_ERROR(0.2) Z1\n"
+        "ELSE_CORRELATED_ERROR(0.3) X2");
+    REQUIRE(circuit.nodes.size() == 3);
+    CHECK(circuit.nodes[0].gate == GateType::CORRELATED_ERROR);
+    CHECK(circuit.nodes[1].gate == GateType::ELSE_CORRELATED_ERROR);
+    CHECK(circuit.nodes[2].gate == GateType::ELSE_CORRELATED_ERROR);
+}
+
+TEST_CASE("Parse correlated error chain permits blank and comment lines", "[parser][noise]") {
+    auto circuit = parse(R"(
+        E(0.1) X0
+        # This line is ignored.
+
+        ELSE_CORRELATED_ERROR(0.2) Z1
+        # This line is also ignored.
+        ELSE_CORRELATED_ERROR(0.3) X2
+    )");
+
+    REQUIRE(circuit.nodes.size() == 3);
+    CHECK(circuit.nodes[0].gate == GateType::CORRELATED_ERROR);
+    CHECK(circuit.nodes[1].gate == GateType::ELSE_CORRELATED_ERROR);
+    CHECK(circuit.nodes[2].gate == GateType::ELSE_CORRELATED_ERROR);
+}
+
+TEST_CASE("Parse correlated error folds duplicate terms", "[parser][noise]") {
+    auto circuit = parse("E(1) X0 Z0 X1 X1 !Z2");
+    REQUIRE(circuit.nodes.size() == 1);
+    REQUIRE(circuit.nodes[0].targets.size() == 2);
+    CHECK(circuit.nodes[0].targets[0].pauli() == Target::kPauliY);
+    CHECK(circuit.nodes[0].targets[0].value() == 0);
+    CHECK(circuit.nodes[0].targets[1].pauli() == Target::kPauliZ);
+    CHECK(circuit.nodes[0].targets[1].value() == 2);
+    CHECK(circuit.nodes[0].targets[1].is_inverted());
+}
+
+TEST_CASE("Parse correlated error accepts empty product", "[parser][noise]") {
+    auto circuit = parse("E(0.1)\nELSE_CORRELATED_ERROR(0.2) X0");
+    REQUIRE(circuit.nodes.size() == 2);
+    CHECK(circuit.nodes[0].targets.empty());
+    REQUIRE(circuit.nodes[1].targets.size() == 1);
+}
+
+TEST_CASE("Parse correlated error rejects stray else", "[parser][noise]") {
+    REQUIRE_THROWS_AS(parse("ELSE_CORRELATED_ERROR(0.1) X0"), ParseError);
+}
+
+TEST_CASE("Parse correlated error requires contiguous else", "[parser][noise]") {
+    REQUIRE_THROWS_AS(parse("E(0.1) X0\nTICK\nELSE_CORRELATED_ERROR(0.2) Z0"), ParseError);
+    REQUIRE_THROWS_AS(parse("E(0.1) X0\nQUBIT_COORDS(0, 0) 0\nELSE_CORRELATED_ERROR(0.2) Z0"),
+                      ParseError);
+    REQUIRE_THROWS_AS(parse("E(0.1) X0\nI 0\nELSE_CORRELATED_ERROR(0.2) Z0"), ParseError);
+    REQUIRE_THROWS_AS(parse("E(0.1) X0\nREPEAT 1 {\nELSE_CORRELATED_ERROR(0.2) Z0\n}"), ParseError);
+}
+
+TEST_CASE("Parse correlated error rejects malformed targets", "[parser][noise]") {
+    REQUIRE_THROWS_AS(parse("E(0.1) X0Y1"), ParseError);
+    REQUIRE_THROWS_AS(parse("E(0.1) rec[-1]"), ParseError);
+}
+
+TEST_CASE("Parse correlated error rejects wrong arg count", "[parser][noise]") {
+    REQUIRE_THROWS_AS(parse("E X0"), ParseError);
+    REQUIRE_THROWS_AS(parse("E(0.1, 0.2) X0"), ParseError);
+    REQUIRE_THROWS_AS(parse("E(0.1) X0\nELSE_CORRELATED_ERROR(0.1, 0.2) X0"), ParseError);
+}
+
 // --- Review Round 2 edge cases ---
 
 TEST_CASE("REPEAT opening brace in comment is ignored", "[parser]") {
@@ -1663,12 +1757,16 @@ TEST_CASE("GateTraits: noise channels", "[gate_data]") {
     CHECK(is_noise_gate(GateType::PAULI_CHANNEL_1));
     CHECK(is_noise_gate(GateType::PAULI_CHANNEL_2));
     CHECK(is_noise_gate(GateType::PAULI_CHANNEL_3));
+    CHECK(is_noise_gate(GateType::CORRELATED_ERROR));
+    CHECK(is_noise_gate(GateType::ELSE_CORRELATED_ERROR));
     CHECK(is_noise_gate(GateType::READOUT_NOISE));
     CHECK(!is_noise_gate(GateType::M));
     CHECK(gate_arity(GateType::DEPOLARIZE2) == GateArity::PAIR);
     CHECK(gate_arity(GateType::PAULI_CHANNEL_2) == GateArity::PAIR);
     CHECK(gate_arity(GateType::DEPOLARIZE3) == GateArity::TRIPLE);
     CHECK(gate_arity(GateType::PAULI_CHANNEL_3) == GateArity::TRIPLE);
+    CHECK(gate_arity(GateType::CORRELATED_ERROR) == GateArity::MULTI);
+    CHECK(gate_arity(GateType::ELSE_CORRELATED_ERROR) == GateArity::MULTI);
 }
 
 TEST_CASE("GateTraits: annotations are ANNOTATION arity", "[gate_data]") {
