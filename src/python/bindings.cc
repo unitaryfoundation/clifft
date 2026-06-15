@@ -198,6 +198,8 @@ NB_MODULE(_clifft_core, m) {
         .value("PAULI_CHANNEL_1", clifft::GateType::PAULI_CHANNEL_1)
         .value("PAULI_CHANNEL_2", clifft::GateType::PAULI_CHANNEL_2)
         .value("PAULI_CHANNEL_3", clifft::GateType::PAULI_CHANNEL_3)
+        .value("CORRELATED_ERROR", clifft::GateType::CORRELATED_ERROR)
+        .value("ELSE_CORRELATED_ERROR", clifft::GateType::ELSE_CORRELATED_ERROR)
         .value("READOUT_NOISE", clifft::GateType::READOUT_NOISE)
         // Annotations
         .value("DETECTOR", clifft::GateType::DETECTOR)

@@ -12,6 +12,7 @@
 #include <stdexcept>
 #include <string>
 #include <string_view>
+#include <unordered_map>
 #include <unordered_set>
 #include <utility>
 
@@ -22,13 +23,21 @@ namespace {
 // Alternate gate names (Stim compatibility, shorthand, Z-basis synonyms).
 // Only aliases live here; canonical names come from kGateTraitsData in gate_data.h.
 constexpr std::pair<std::string_view, GateType> kGateAliases[] = {
-    {"CNOT", GateType::CX},       {"H_XZ", GateType::H},
-    {"MRZ", GateType::MR},        {"MZ", GateType::M},
-    {"RXX", GateType::R_XX},      {"RYY", GateType::R_YY},
-    {"RZ", GateType::R},          {"RZZ", GateType::R_ZZ},
-    {"SQRT_Z", GateType::S},      {"SQRT_Z_DAG", GateType::S_DAG},
-    {"SWAPCZ", GateType::CZSWAP}, {"U", GateType::U3},
-    {"ZCX", GateType::CX},        {"ZCY", GateType::CY},
+    {"CNOT", GateType::CX},
+    {"H_XZ", GateType::H},
+    {"E", GateType::CORRELATED_ERROR},
+    {"MRZ", GateType::MR},
+    {"MZ", GateType::M},
+    {"RXX", GateType::R_XX},
+    {"RYY", GateType::R_YY},
+    {"RZ", GateType::R},
+    {"RZZ", GateType::R_ZZ},
+    {"SQRT_Z", GateType::S},
+    {"SQRT_Z_DAG", GateType::S_DAG},
+    {"SWAPCZ", GateType::CZSWAP},
+    {"U", GateType::U3},
+    {"ZCX", GateType::CX},
+    {"ZCY", GateType::CY},
     {"ZCZ", GateType::CZ},
 };
 
@@ -151,6 +160,7 @@ class Parser {
     static constexpr uint32_t kMaxRecursionDepth = 100;
     std::string_view text_;
     size_t max_ops_;
+    bool previous_correlated_error_link_ = false;
 
     void parse_line(std::string_view line, uint32_t& line_num, Circuit& circuit,
                     std::string_view& remaining, uint32_t depth) {
@@ -171,7 +181,9 @@ class Parser {
 
         // Handle REPEAT N { ... } blocks.
         if (line.starts_with("REPEAT") && (line.size() == 6 || !is_gate_char(line[6]))) {
+            previous_correlated_error_link_ = false;
             parse_repeat(line, line_num, circuit, remaining, depth);
+            previous_correlated_error_link_ = false;
             return;
         }
 
@@ -219,6 +231,7 @@ class Parser {
 
         // Silently discard coordinate annotations (no AST nodes emitted).
         if (is_discarded_annotation(gate_name)) {
+            previous_correlated_error_link_ = false;
             return;
         }
 
@@ -228,6 +241,7 @@ class Parser {
             if (!args.empty()) {
                 throw ParseError("CH takes no arguments", line_num);
             }
+            previous_correlated_error_link_ = false;
             parse_ch_rewrite(rest, line_num, circuit);
             return;
         }
@@ -235,6 +249,7 @@ class Parser {
             if (!args.empty()) {
                 throw ParseError(std::string(gate_name) + " takes no arguments", line_num);
             }
+            previous_correlated_error_link_ = false;
             parse_three_qubit_rewrite(gate_name, rest, line_num, circuit);
             return;
         }
@@ -245,6 +260,15 @@ class Parser {
             throw ParseError("Unknown gate: " + std::string(gate_name), line_num);
         }
 
+        if (gate == GateType::ELSE_CORRELATED_ERROR && !previous_correlated_error_link_) {
+            throw ParseError(
+                "ELSE_CORRELATED_ERROR must immediately follow CORRELATED_ERROR or "
+                "ELSE_CORRELATED_ERROR",
+                line_num);
+        }
+        previous_correlated_error_link_ =
+            gate == GateType::CORRELATED_ERROR || gate == GateType::ELSE_CORRELATED_ERROR;
+
         // Validate argument counts for multi-probability channels.
         if (gate == GateType::PAULI_CHANNEL_1 && args.size() != 3) {
             throw ParseError("PAULI_CHANNEL_1 requires exactly 3 arguments", line_num);
@@ -254,6 +278,12 @@ class Parser {
         }
         if (gate == GateType::PAULI_CHANNEL_3 && args.size() != 63) {
             throw ParseError("PAULI_CHANNEL_3 requires exactly 63 arguments", line_num);
+        }
+        if ((gate == GateType::CORRELATED_ERROR || gate == GateType::ELSE_CORRELATED_ERROR) &&
+            args.size() != 1) {
+            throw ParseError(
+                std::string(clifft::gate_name(gate)) + " requires exactly 1 probability argument",
+                line_num);
         }
 
         // Validate argument counts for parameterized rotations.
@@ -282,6 +312,10 @@ class Parser {
                 break;
             case GateType::R_PAULI:
                 parse_r_pauli(rest, line_num, circuit, args);
+                break;
+            case GateType::CORRELATED_ERROR:
+            case GateType::ELSE_CORRELATED_ERROR:
+                parse_correlated_error(gate, rest, line_num, circuit, args);
                 break;
             case GateType::DETECTOR:
                 parse_detector(rest, line_num, circuit);
@@ -921,6 +955,138 @@ class Parser {
         }
 
         return products;
+    }
+
+    std::vector<Target> parse_correlated_pauli_targets(std::string_view targets_str,
+                                                       std::string_view gate_name,
+                                                       uint32_t line_num, Circuit& circuit) {
+        struct FoldedTerm {
+            uint32_t qubit;
+            uint8_t xz_bits;
+            bool inverted;
+        };
+
+        std::vector<FoldedTerm> terms;
+        std::unordered_map<uint32_t, size_t> term_index;
+
+        size_t pos = 0;
+        while (pos < targets_str.size()) {
+            while (pos < targets_str.size() &&
+                   std::isspace(static_cast<unsigned char>(targets_str[pos]))) {
+                ++pos;
+            }
+            while (pos < targets_str.size() && targets_str[pos] == '*') {
+                ++pos;
+                while (pos < targets_str.size() &&
+                       std::isspace(static_cast<unsigned char>(targets_str[pos]))) {
+                    ++pos;
+                }
+            }
+            if (pos >= targets_str.size()) {
+                break;
+            }
+
+            bool inverted = false;
+            if (targets_str[pos] == '!') {
+                inverted = true;
+                ++pos;
+                if (pos >= targets_str.size()) {
+                    throw ParseError("Expected Pauli target after '!'", line_num);
+                }
+            }
+
+            char pauli_char = targets_str[pos];
+            uint8_t xz_bits;
+            switch (pauli_char) {
+                case 'X':
+                    xz_bits = 1;
+                    break;
+                case 'Y':
+                    xz_bits = 3;
+                    break;
+                case 'Z':
+                    xz_bits = 2;
+                    break;
+                default:
+                    throw ParseError(
+                        "Gate " + std::string(gate_name) + " only accepts Pauli targets", line_num);
+            }
+            ++pos;
+
+            size_t num_start = pos;
+            while (pos < targets_str.size() &&
+                   std::isdigit(static_cast<unsigned char>(targets_str[pos]))) {
+                ++pos;
+            }
+            if (num_start == pos) {
+                throw ParseError(
+                    "Expected qubit index after Pauli letter in " + std::string(gate_name),
+                    line_num);
+            }
+
+            uint32_t qubit;
+            if (!parse_uint(targets_str.substr(num_start, pos - num_start), qubit)) {
+                throw ParseError("Invalid qubit index in " + std::string(gate_name), line_num);
+            }
+            if (qubit >= (1u << 28)) {
+                throw ParseError("Qubit index too large (must be < 2^28)", line_num);
+            }
+
+            if (pos < targets_str.size() &&
+                !std::isspace(static_cast<unsigned char>(targets_str[pos])) &&
+                targets_str[pos] != '*') {
+                throw ParseError("Targets in " + std::string(gate_name) +
+                                     " must be separated by whitespace or '*'",
+                                 line_num);
+            }
+
+            auto [it, inserted] = term_index.emplace(qubit, terms.size());
+            if (inserted) {
+                if (terms.size() >= kMaxTargetsPerInstruction) {
+                    throw ParseError(
+                        "Too many Pauli terms in " + std::string(gate_name) + " product", line_num);
+                }
+                terms.push_back({qubit, 0, false});
+            }
+            FoldedTerm& term = terms[it->second];
+            term.xz_bits ^= xz_bits;
+            term.inverted ^= inverted;
+            circuit.num_qubits = std::max(circuit.num_qubits, qubit + 1);
+        }
+
+        std::vector<Target> targets;
+        targets.reserve(terms.size());
+        for (const auto& term : terms) {
+            uint32_t pauli_flag;
+            switch (term.xz_bits) {
+                case 1:
+                    pauli_flag = Target::kPauliX;
+                    break;
+                case 2:
+                    pauli_flag = Target::kPauliZ;
+                    break;
+                case 3:
+                    pauli_flag = Target::kPauliY;
+                    break;
+                default:
+                    continue;
+            }
+
+            Target target = Target::pauli(term.qubit, pauli_flag);
+            if (term.inverted) {
+                target = target.inverted();
+            }
+            targets.push_back(target);
+        }
+
+        return targets;
+    }
+
+    void parse_correlated_error(GateType gate, std::string_view targets_str, uint32_t line_num,
+                                Circuit& circuit, const std::vector<double>& args) {
+        auto targets =
+            parse_correlated_pauli_targets(targets_str, clifft::gate_name(gate), line_num, circuit);
+        circuit.nodes.push_back({gate, std::move(targets), args, line_num});
     }
 
     // Parse MPP instruction with multiple Pauli products.

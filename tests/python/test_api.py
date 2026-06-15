@@ -74,6 +74,16 @@ def test_parse_mpp() -> None:
     assert t1.value == 1
 
 
+def test_parse_correlated_error() -> None:
+    """Test parsing correlated Pauli noise."""
+    circuit = clifft.parse("E(0.1) X0*Z1\nELSE_CORRELATED_ERROR(0.25) Y2")
+    assert len(circuit) == 2
+    assert circuit.nodes[0].gate == clifft.GateType.CORRELATED_ERROR
+    assert circuit.nodes[1].gate == clifft.GateType.ELSE_CORRELATED_ERROR
+    assert circuit.nodes[0].args == [0.1]
+    assert [t.pauli_char for t in circuit.nodes[0].targets] == ["X", "Z"]
+
+
 def test_parse_feedback() -> None:
     """Test parsing classical feedback with rec targets."""
     circuit = clifft.parse("M 0\nCX rec[-1] 1")

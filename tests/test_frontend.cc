@@ -1647,6 +1647,77 @@ TEST_CASE("Frontend: PAULI_CHANNEL_3 emits selected channels", "[frontend]") {
     CHECK(mask.z() == 7);
 }
 
+TEST_CASE("Frontend: correlated error emits one noise channel", "[frontend][noise]") {
+    auto circuit = parse("E(0.25) X0 Z1");
+    auto hir = trace(circuit);
+
+    REQUIRE(hir.num_ops() == 1);
+    CHECK(hir.ops[0].op_type() == OpType::NOISE);
+    REQUIRE(hir.noise_sites.size() == 1);
+
+    const auto& site = hir.noise_sites[0];
+    REQUIRE(site.channels.size() == 1);
+    CHECK(site.channels[0].prob == Catch::Approx(0.25));
+
+    auto mask = hir.noise_channel_masks.at(site.channels[0].mask);
+    CHECK(mask.x() == 1);
+    CHECK(mask.z() == 2);
+}
+
+TEST_CASE("Frontend: correlated error chain is one noise site", "[frontend][noise]") {
+    auto circuit = parse(
+        "E(0.2) X0\n"
+        "ELSE_CORRELATED_ERROR(0.25) Z1\n"
+        "ELSE_CORRELATED_ERROR(0.3333333333333333) X0 Z1");
+    auto hir = trace(circuit);
+
+    REQUIRE(hir.num_ops() == 1);
+    CHECK(hir.ops[0].op_type() == OpType::NOISE);
+    REQUIRE(hir.noise_sites.size() == 1);
+
+    const auto& site = hir.noise_sites[0];
+    REQUIRE(site.channels.size() == 3);
+    CHECK(site.channels[0].prob == Catch::Approx(0.2));
+    CHECK(site.channels[1].prob == Catch::Approx(0.2));
+    CHECK(site.channels[2].prob == Catch::Approx(0.2));
+
+    auto first = hir.noise_channel_masks.at(site.channels[0].mask);
+    CHECK(first.x() == 1);
+    CHECK(first.z() == 0);
+
+    auto second = hir.noise_channel_masks.at(site.channels[1].mask);
+    CHECK(second.x() == 0);
+    CHECK(second.z() == 2);
+
+    auto third = hir.noise_channel_masks.at(site.channels[2].mask);
+    CHECK(third.x() == 1);
+    CHECK(third.z() == 2);
+}
+
+TEST_CASE("Frontend: correlated identity link consumes chain probability", "[frontend][noise]") {
+    auto circuit = parse("E(0.5) X0 X0\nELSE_CORRELATED_ERROR(1.0) X0");
+    auto hir = trace(circuit);
+
+    REQUIRE(hir.num_ops() == 1);
+    REQUIRE(hir.noise_sites.size() == 1);
+    const auto& site = hir.noise_sites[0];
+    REQUIRE(site.channels.size() == 1);
+    CHECK(site.channels[0].prob == Catch::Approx(0.5));
+
+    auto mask = hir.noise_channel_masks.at(site.channels[0].mask);
+    CHECK(mask.x() == 1);
+    CHECK(mask.z() == 0);
+}
+
+TEST_CASE("Frontend: stray else correlated error is rejected", "[frontend][noise]") {
+    Circuit circuit;
+    circuit.num_qubits = 1;
+    circuit.nodes.push_back(
+        {GateType::ELSE_CORRELATED_ERROR, {Target::pauli(0, Target::kPauliX)}, {0.1}, 1});
+
+    REQUIRE_THROWS_AS(trace(circuit), std::runtime_error);
+}
+
 // =============================================================================
 // Phase rotation tracing tests
 // =============================================================================

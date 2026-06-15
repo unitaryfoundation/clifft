@@ -126,6 +126,7 @@ _SKIP_GATES = frozenset(
         "Z_ERROR",
         "DEPOLARIZE1",
         "DEPOLARIZE2",
+        "CORRELATED_ERROR",
         "E",
         "ELSE_CORRELATED_ERROR",
         "MPP",  # Pauli product measurements need special handling

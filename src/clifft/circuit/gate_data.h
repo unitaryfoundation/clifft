@@ -115,9 +115,11 @@ enum class GateType : uint16_t {
     DEPOLARIZE3,  // Three-qubit depolarizing channel
 
     // Multi-parameter noise channels
-    PAULI_CHANNEL_1,  // 3-arg: P(X), P(Y), P(Z)
-    PAULI_CHANNEL_2,  // 15-arg: P(IX), P(IY), ..., P(ZZ)
-    PAULI_CHANNEL_3,  // 63-arg: P(IIX), P(IIY), ..., P(ZZZ)
+    PAULI_CHANNEL_1,        // 3-arg: P(X), P(Y), P(Z)
+    PAULI_CHANNEL_2,        // 15-arg: P(IX), P(IY), ..., P(ZZ)
+    PAULI_CHANNEL_3,        // 63-arg: P(IIX), P(IIY), ..., P(ZZZ)
+    CORRELATED_ERROR,       // E(p): correlated Pauli product error
+    ELSE_CORRELATED_ERROR,  // Else-branch in a correlated error chain
 
     // Synthetic gates (emitted by parser, not in input syntax)
     READOUT_NOISE,  // Classical bit-flip on measurement result
@@ -258,6 +260,8 @@ inline constexpr GateTraits kGateTraitsData[] = {
     {.arity = S, .noise = true, .name = "PAULI_CHANNEL_1"},
     {.arity = P, .noise = true, .name = "PAULI_CHANNEL_2"},
     {.arity = T, .noise = true, .name = "PAULI_CHANNEL_3"},
+    {.arity = ML, .noise = true, .name = "CORRELATED_ERROR"},
+    {.arity = ML, .noise = true, .name = "ELSE_CORRELATED_ERROR"},
     {.arity = S, .noise = true, .name = "READOUT_NOISE"},
     // QEC annotations
     {.arity = A, .name = "DETECTOR"},

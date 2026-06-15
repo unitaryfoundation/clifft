@@ -144,6 +144,8 @@ Two-qubit Cliffords are also absorbed at compile time.
 | `PAULI_CHANNEL_1(px,py,pz)` | General single-qubit Pauli channel |
 | `PAULI_CHANNEL_2(...)` | General two-qubit Pauli channel (15 params) |
 | `PAULI_CHANNEL_3(...)` | General three-qubit Pauli channel (63 params) |
+| `CORRELATED_ERROR(p)` / `E(p)` | Correlated Pauli product error |
+| `ELSE_CORRELATED_ERROR(p)` | Else-branch in a correlated-error chain |
 
 Noisy measurements (e.g., `M(0.01) 0`) are decomposed by the parser into a
 clean measurement followed by an internal `READOUT_NOISE` instruction that
@@ -154,6 +156,17 @@ models classical bit-flip errors on the measurement result.
 `PAULI_CHANNEL_3` uses the same lexicographic Pauli order as
 `PAULI_CHANNEL_2`, extended to three qubits: `IIX`, `IIY`, `IIZ`, `IXI`,
 `IXX`, ..., `ZZZ`.
+
+`CORRELATED_ERROR(p) X0 Z1` applies the listed Pauli product with probability
+`p`. Pauli terms may be whitespace-separated or combined with `*`; all Pauli
+targets on the instruction form one product. Repeated terms on the same qubit
+multiply modulo Pauli phase, so `E(1) X0 Z0` is equivalent to a Y error and
+`E(1) X0 X0` is an identity event.
+
+`ELSE_CORRELATED_ERROR(p)` must immediately follow `CORRELATED_ERROR` or another
+`ELSE_CORRELATED_ERROR`. Its `p` is conditional on no earlier link in the chain
+firing. Clifft lowers each contiguous chain to one noise site with absolute
+channel probabilities.
 
 ## Identity Gates
 
@@ -210,8 +223,6 @@ Results are available via `SampleResult.exp_vals` (shape `(shots, num_exp_vals)`
 
 | Gate | Category | Reason |
 |------|----------|--------|
-| `CORRELATED_ERROR` / `E` | Noise | Correlated multi-qubit error model |
-| `ELSE_CORRELATED_ERROR` | Noise | Depends on `CORRELATED_ERROR` |
 | `HERALDED_ERASE` | Noise | Heralded erasure not modeled |
 | `HERALDED_PAULI_CHANNEL_1` | Noise | Heralded channel not modeled |
 | `SPP`, `SPP_DAG` | Pauli product phase | Generalized S/S_DAG gate over Pauli products |
