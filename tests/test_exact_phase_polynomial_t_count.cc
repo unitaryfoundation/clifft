@@ -1,8 +1,8 @@
-#include "clifft/optimizer/exact_phase_polynomial_t_count_pass.h"
-
 #include "clifft/circuit/parser.h"
 #include "clifft/frontend/frontend.h"
+#include "clifft/optimizer/exact_phase_polynomial_t_count_pass.h"
 #include "clifft/optimizer/peephole.h"
+
 #include "test_helpers.h"
 
 #include <catch2/catch_test_macros.hpp>
@@ -11,10 +11,10 @@
 #include <utility>
 
 using namespace clifft;
-using clifft::test::DenseMatrix;
 using clifft::test::append_tgate;
 using clifft::test::dense_axis_rotation;
 using clifft::test::dense_matmul;
+using clifft::test::DenseMatrix;
 
 namespace {
 
@@ -73,8 +73,8 @@ DenseMatrix dense_hir_ops_value(const HirModule& hir) {
         const bool sign = hir.sign(op);
         DenseMatrix rotation;
         if (op.op_type() == OpType::T_GATE) {
-            rotation = dense_axis_rotation(x, z, sign, op.is_dagger() ? 1.75 : 0.25,
-                                           hir.num_qubits);
+            rotation =
+                dense_axis_rotation(x, z, sign, op.is_dagger() ? 1.75 : 0.25, hir.num_qubits);
         } else {
             rotation =
                 dense_axis_rotation(x, z, false, sign ? -op.alpha() : op.alpha(), hir.num_qubits);

@@ -514,14 +514,12 @@ NB_MODULE(_clifft_core, m) {
         .def_prop_ro("max_rank", &clifft::ExactPhasePolynomialTCountPass::max_rank)
         .def_prop_ro("blocks_considered",
                      &clifft::ExactPhasePolynomialTCountPass::blocks_considered)
-        .def_prop_ro("blocks_optimized",
-                     &clifft::ExactPhasePolynomialTCountPass::blocks_optimized)
+        .def_prop_ro("blocks_optimized", &clifft::ExactPhasePolynomialTCountPass::blocks_optimized)
         .def_prop_ro("t_removed", &clifft::ExactPhasePolynomialTCountPass::t_removed)
         .def("__repr__", [](const clifft::ExactPhasePolynomialTCountPass& p) {
-            return "ExactPhasePolynomialTCountPass(max_rank=" +
-                   std::to_string(p.max_rank()) + ", blocks_optimized=" +
-                   std::to_string(p.blocks_optimized()) + ", t_removed=" +
-                   std::to_string(p.t_removed()) + ")";
+            return "ExactPhasePolynomialTCountPass(max_rank=" + std::to_string(p.max_rank()) +
+                   ", blocks_optimized=" + std::to_string(p.blocks_optimized()) +
+                   ", t_removed=" + std::to_string(p.t_removed()) + ")";
         });
 
     m.def(

@@ -410,8 +410,8 @@ void search_signs_for_combination(const std::vector<uint32_t>& coords, size_t id
 
 void search_combinations(uint32_t next_coord, uint32_t limit, size_t remaining,
                          std::vector<uint32_t>& coords,
-                         const std::array<uint8_t, 1u << kMaxSupportedRank>& original,
-                         uint8_t rank, size_t block_len, Candidate& best) {
+                         const std::array<uint8_t, 1u << kMaxSupportedRank>& original, uint8_t rank,
+                         size_t block_len, Candidate& best) {
     if (remaining == 0) {
         std::vector<Emission> odd_terms;
         search_signs_for_combination(coords, 0, odd_terms, original, rank, block_len, best);
