@@ -6,6 +6,11 @@ boundary fixed by running:
 
     trace -> PeepholeFusionPass -> ExactPhasePolynomialTCountPass
 
+or, with --collect-t-blocks:
+
+    trace -> PeepholeFusionPass -> TGateBlockCollectionPass
+        -> ExactPhasePolynomialTCountPass
+
 and reporting T-count deltas plus pass statistics.
 """
 
@@ -33,7 +38,11 @@ class Result:
     source: str
     traced_t: int
     after_peephole_t: int
+    after_collect_t: int | None
     after_exact_t: int
+    blocks_collected: int
+    t_gates_moved: int
+    adjacent_swaps: int
     blocks_considered: int
     blocks_optimized: int
     t_removed: int
@@ -301,7 +310,9 @@ def qasm_cases(paths: Iterable[Path], skip_unsupported: bool = False) -> list[Ci
     return cases
 
 
-def evaluate(case: CircuitCase, max_rank: int) -> Result:
+def evaluate(
+    case: CircuitCase, max_rank: int, collect_t_blocks: bool, collect_window: int
+) -> Result:
     import clifft
 
     hir = clifft.trace(clifft.parse(case.text))
@@ -313,6 +324,20 @@ def evaluate(case: CircuitCase, max_rank: int) -> Result:
     pm.run(hir)
     after_peephole = int(hir.num_t_gates)
 
+    after_collect: int | None = None
+    blocks_collected = 0
+    t_gates_moved = 0
+    adjacent_swaps = 0
+    if collect_t_blocks:
+        collect = clifft.TGateBlockCollectionPass(collect_window)
+        pm = clifft.HirPassManager()
+        pm.add(collect)
+        pm.run(hir)
+        after_collect = int(hir.num_t_gates)
+        blocks_collected = int(collect.blocks_collected)
+        t_gates_moved = int(collect.t_gates_moved)
+        adjacent_swaps = int(collect.adjacent_swaps)
+
     exact = clifft.ExactPhasePolynomialTCountPass(max_rank)
     pm = clifft.HirPassManager()
     pm.add(exact)
@@ -323,7 +348,11 @@ def evaluate(case: CircuitCase, max_rank: int) -> Result:
         source=case.source,
         traced_t=traced_t,
         after_peephole_t=after_peephole,
+        after_collect_t=after_collect,
         after_exact_t=int(hir.num_t_gates),
+        blocks_collected=blocks_collected,
+        t_gates_moved=t_gates_moved,
+        adjacent_swaps=adjacent_swaps,
         blocks_considered=int(exact.blocks_considered),
         blocks_optimized=int(exact.blocks_optimized),
         t_removed=int(exact.t_removed),
@@ -334,18 +363,38 @@ def markdown_escape(text: str) -> str:
     return text.replace("|", "\\|")
 
 
-def print_markdown(results: list[Result]) -> None:
+def print_markdown(results: list[Result], include_collection: bool) -> None:
+    if include_collection:
+        print(
+            "| Circuit | Source | Traced T | After peephole | After collect | After exact | "
+            "Delta vs peephole | Collected blocks | T gates moved | Adjacent swaps | "
+            "Exact blocks considered | Exact blocks optimized |"
+        )
+        print("|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|")
+        for result in results:
+            delta = result.after_peephole_t - result.after_exact_t
+            after_collect = result.after_collect_t
+            assert after_collect is not None
+            print(
+                f"| {markdown_escape(result.name)} | {markdown_escape(result.source)} | "
+                f"{result.traced_t} | {result.after_peephole_t} | {after_collect} | "
+                f"{result.after_exact_t} | {delta} | {result.blocks_collected} | "
+                f"{result.t_gates_moved} | {result.adjacent_swaps} | "
+                f"{result.blocks_considered} | {result.blocks_optimized} |"
+            )
+        return
+
     print(
         "| Circuit | Source | Traced T | After peephole | After exact | "
-        "Delta vs peephole | Blocks optimized |"
+        "Delta vs peephole | Exact blocks considered | Exact blocks optimized |"
     )
-    print("|---|---|---:|---:|---:|---:|---:|")
+    print("|---|---|---:|---:|---:|---:|---:|---:|")
     for result in results:
         delta = result.after_peephole_t - result.after_exact_t
         print(
             f"| {markdown_escape(result.name)} | {markdown_escape(result.source)} | "
             f"{result.traced_t} | {result.after_peephole_t} | {result.after_exact_t} | "
-            f"{delta} | {result.blocks_optimized} |"
+            f"{delta} | {result.blocks_considered} | {result.blocks_optimized} |"
         )
 
 
@@ -357,6 +406,17 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--repo-root", type=Path, default=Path(__file__).resolve().parents[2])
     parser.add_argument("--max-rank", type=int, default=4)
+    parser.add_argument(
+        "--collect-t-blocks",
+        action="store_true",
+        help="Run the opt-in T-gate block collection pass before the exact decoder",
+    )
+    parser.add_argument(
+        "--collect-window",
+        type=int,
+        default=64,
+        help="Maximum consecutive non-T ops scanned while finding each next T candidate",
+    )
     parser.add_argument("--no-builtins", action="store_true", help="Skip generated and repo cases")
     parser.add_argument("--qc", type=Path, action="append", default=[], help="Import a .qc file")
     parser.add_argument(
@@ -407,8 +467,10 @@ def main() -> int:
             filtered_cases.append(case)
         cases = filtered_cases
 
-    results = [evaluate(case, args.max_rank) for case in cases]
-    print_markdown(results)
+    results = [
+        evaluate(case, args.max_rank, args.collect_t_blocks, args.collect_window) for case in cases
+    ]
+    print_markdown(results, args.collect_t_blocks)
     return 0
 
 

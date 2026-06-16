@@ -12,6 +12,7 @@
 #include "clifft/optimizer/single_axis_fusion_pass.h"
 #include "clifft/optimizer/statevector_squeeze_pass.h"
 #include "clifft/optimizer/swap_meas_pass.h"
+#include "clifft/optimizer/t_gate_block_collection_pass.h"
 #include "clifft/optimizer/tile_axis_fusion_pass.h"
 
 #include <cstddef>
@@ -68,6 +69,10 @@ inline const PassInfo kRegisteredPasses[] = {
      .kind = PassKind::HIR,
      .default_enabled = false,
      .make_hir = make_hir<ExactPhasePolynomialTCountPass>},
+    {.name = "TGateBlockCollectionPass",
+     .kind = PassKind::HIR,
+     .default_enabled = false,
+     .make_hir = make_hir<TGateBlockCollectionPass>},
     // Bytecode passes
     {.name = "NoiseBlockPass",
      .kind = PassKind::Bytecode,

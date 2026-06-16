@@ -98,6 +98,21 @@ python tools/bench/exact_phasepoly_tcount.py --qc-dir path/to/qc_corpus
 python tools/bench/exact_phasepoly_tcount.py --qasm-dir path/to/qasm_corpus --skip-unsupported
 ```
 
+The evaluator also has an explicit exposure mode:
+
+```bash
+python tools/bench/exact_phasepoly_tcount.py --collect-t-blocks
+```
+
+That inserts `TGateBlockCollectionPass` between peephole fusion and the exact
+decoder. The collection pass is also opt-in and default-disabled. It only uses
+adjacent swaps approved by Clifft's HIR commutation checker, and only pulls a T
+gate into a block when it commutes with every T gate already in that block. It
+does not change T count by itself; its purpose is to test whether useful
+rank-capped blocks are hidden behind safely movable operations. On the current
+built-in fixture set, this mode reports zero collected blocks and zero moved T
+gates, so it does not change the real-world fixture results below.
+
 The QASM importer accepts declarations and common Clifford+T gate names, ignores
 barriers, and rejects measurements, custom gates, and parameterized gates instead
 of silently changing circuit semantics.
@@ -111,6 +126,7 @@ the intended phase-polynomial structure is unambiguous.
 | Rank-4 zero word plus one repeated T parity | 16 | 1 | Removes the 15-term zero word. |
 | Rank-4 unsigned product word with affine Pauli signs | 15 | 0 | Emits six Clifford residual rotations and preserves global phase; checked by dense matrix equivalence. |
 | Rank-4 signed product zero word plus one signed odd term | 16 | 1 | Normalizes the signed odd term to an unsigned `T_DAG` plus `exp(i*pi/4)` global phase; checked by dense matrix equivalence. |
+| Rank-4 zero word separated by commuting phase rotations | 15 | 0 | `TGateBlockCollectionPass` first exposes the block using safe adjacent swaps; the exact pass then removes it; checked by statevector equivalence. |
 | Rank-5 all nonzero Z parities | 31 | 31 | Skipped by the rank cap. |
 | Noncommuting T block | 3 | 3 | Skipped by the commuting-block guard. |
 
@@ -132,13 +148,13 @@ Related source-level families show the pass boundary:
 The pass was also run after `PeepholeFusionPass` on the repository fixture and
 tutorial circuits:
 
-| Circuit | Traced T | After peephole | After exact pass | Blocks optimized |
-|---|---:|---:|---:|---:|
-| `tests/fixtures/cultivation_d5.stim` | 72 | 72 | 72 | 0 |
-| `tests/fixtures/qv10.stim` | 0 | 0 | 0 | 0 |
-| `tests/fixtures/target_qec.stim` | 0 | 0 | 0 | 0 |
-| `docs/guide/circuits/circuit_d3_s_gate_p0.001.stim` | 0 | 0 | 0 | 0 |
-| `docs/guide/circuits/circuit_d3_t_gate_p0.001.stim` | 29 | 29 | 29 | 0 |
+| Circuit | Traced T | After peephole | After exact pass | Blocks considered | Blocks optimized |
+|---|---:|---:|---:|---:|---:|
+| `tests/fixtures/cultivation_d5.stim` | 72 | 72 | 72 | 5 | 0 |
+| `tests/fixtures/qv10.stim` | 0 | 0 | 0 | 0 | 0 |
+| `tests/fixtures/target_qec.stim` | 0 | 0 | 0 | 0 | 0 |
+| `docs/guide/circuits/circuit_d3_s_gate_p0.001.stim` | 0 | 0 | 0 | 0 | 0 |
+| `docs/guide/circuits/circuit_d3_t_gate_p0.001.stim` | 29 | 29 | 29 | 4 | 0 |
 
 As an external smoke benchmark, the QASM importer was also run on a local
 checkout of Qiskit's `test/benchmarks/qasm` fixtures with unsupported
@@ -184,12 +200,15 @@ after tracing and local peephole fusion.
 - [x] Explicitly different from MCR, TODD, and TOHPE PRs: this is a bounded
   exhaustive decoder for already-commuting blocks.
 - [x] Tests cover exact rewrites, skipped blocks, rank cap, noncommuting guard,
-  source-level `CCZ_4`, affine Pauli signs, and global phase preservation.
+  source-level `CCZ_4`, affine Pauli signs, global phase preservation, and
+  conservative T-block collection.
 - [x] Evaluation includes existing repository fixtures and documents null
   results.
 - [x] Reproducible benchmark harness can evaluate built-in source families,
   existing fixtures, supported external `.qc` files, and supported Clifford+T
   QASM files.
+- [x] Optional benchmark mode can evaluate whether safe T-block collection
+  exposes additional exact-decoder opportunities.
 - [x] Bounded external Qiskit QASM smoke results are included, with unsupported
   files and the oversized `hwb12.qasm` case documented.
 - [ ] Broader real-world benchmark improvements are not demonstrated here. The
@@ -205,8 +224,10 @@ changes. It is not broad enough to be a production optimizer or a complete
 bounty solution by itself.
 
 The most natural follow-up is to keep this exact decoder as a verifier or
-small-block cleanup and add a separate importer/evaluation path for standard
-op-T-mize-style circuits, whose benchmark role is summarized in PennyLane's
+small-block cleanup, run the optional collection mode over standard
+op-T-mize-style circuits, and compare the resulting table against broader
+phase-polynomial reducers. The role of those circuits as benchmarks is
+summarized in PennyLane's
 [op-T-mize dataset history](https://pennylane.ai/blog/2025/01/optimizing-with-op-t-mize-dataset).
 
 

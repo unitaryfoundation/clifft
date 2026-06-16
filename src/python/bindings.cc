@@ -16,6 +16,7 @@
 #include "clifft/optimizer/single_axis_fusion_pass.h"
 #include "clifft/optimizer/statevector_squeeze_pass.h"
 #include "clifft/optimizer/swap_meas_pass.h"
+#include "clifft/optimizer/t_gate_block_collection_pass.h"
 #include "clifft/optimizer/tile_axis_fusion_pass.h"
 #include "clifft/svm/svm.h"
 #include "clifft/util/config.h"
@@ -520,6 +521,22 @@ NB_MODULE(_clifft_core, m) {
             return "ExactPhasePolynomialTCountPass(max_rank=" + std::to_string(p.max_rank()) +
                    ", blocks_optimized=" + std::to_string(p.blocks_optimized()) +
                    ", t_removed=" + std::to_string(p.t_removed()) + ")";
+        });
+
+    nb::class_<clifft::TGateBlockCollectionPass, clifft::HirPass>(
+        m, "TGateBlockCollectionPass",
+        "Experimental opt-in pass that uses safe adjacent swaps to collect "
+        "commuting T gates into contiguous blocks.")
+        .def(nb::init<>())
+        .def(nb::init<size_t>(), nb::arg("max_scan"))
+        .def_prop_ro("max_scan", &clifft::TGateBlockCollectionPass::max_scan)
+        .def_prop_ro("blocks_collected", &clifft::TGateBlockCollectionPass::blocks_collected)
+        .def_prop_ro("t_gates_moved", &clifft::TGateBlockCollectionPass::t_gates_moved)
+        .def_prop_ro("adjacent_swaps", &clifft::TGateBlockCollectionPass::adjacent_swaps)
+        .def("__repr__", [](const clifft::TGateBlockCollectionPass& p) {
+            return "TGateBlockCollectionPass(max_scan=" + std::to_string(p.max_scan()) +
+                   ", blocks_collected=" + std::to_string(p.blocks_collected()) +
+                   ", t_gates_moved=" + std::to_string(p.t_gates_moved()) + ")";
         });
 
     m.def(

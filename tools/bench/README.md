@@ -46,6 +46,20 @@ python tools/bench/exact_phasepoly_tcount.py --qasm-dir path/to/qasm_corpus \
     --skip-unsupported --max-imported-gates 5000
 ```
 
+To test whether conservative T-block exposure helps a corpus, add the opt-in
+collector before the exact decoder:
+
+```bash
+python tools/bench/exact_phasepoly_tcount.py --collect-t-blocks
+python tools/bench/exact_phasepoly_tcount.py --qasm-dir path/to/qasm_corpus \
+    --skip-unsupported --max-imported-gates 5000 --collect-t-blocks
+```
+
+`TGateBlockCollectionPass` only performs adjacent HIR swaps approved by the
+commutation checker. It does not change T count by itself; it reports collected
+blocks, moved T gates, adjacent swaps, and exact-decoder candidate blocks so the
+benchmark can show whether it exposed anything for the exact decoder.
+
 The `.qc` importer supports Clifford+T primitives and one-, two-, and
 three-argument `tof` / `toffoli` gates. Wider multi-control Toffoli gates are
 rejected instead of silently decomposed with implicit ancillas.

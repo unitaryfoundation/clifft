@@ -137,6 +137,21 @@ def define_env(env: Any) -> None:
             ),
         },
         {
+            "name": "TGateBlockCollectionPass",
+            "kind": "HIR",
+            "default_enabled": False,
+            "python_name": "TGateBlockCollectionPass",
+            "summary": "Collects commuting T gates into contiguous blocks.",
+            "detail": (
+                "Experimental opt-in pre-pass for exact phase-polynomial "
+                "T-count reduction. It uses only adjacent swaps approved by "
+                "the HIR commutation checker and only pulls a T gate into a "
+                "block when it commutes with every T gate already in that "
+                "block. It does not change T count by itself and is not "
+                "included in the default pipeline."
+            ),
+        },
+        {
             "name": "NoiseBlockPass",
             "kind": "Bytecode",
             "default_enabled": True,
