@@ -38,6 +38,16 @@ Clifft extends Stim with discrete and arbitrary-angle non-Clifford gates. These 
 |------|-------|
 | `T` | $\pi/8$ gate |
 | `T_DAG` | Inverse $\pi/8$ gate |
+| `TPP` | Non-Clifford; $\exp(-i\pi/8 \cdot P)$, rewound via inverse tableau, emitted as `T_GATE` |
+| `TPP_DAG` | Non-Clifford; $\exp(+i\pi/8 \cdot P$), inverse TPP |
+
+`TPP` and `TPP_DAG` use the same Pauli product syntax as `SPP`. Odd `!` count
+flips the gate direction:
+```
+TPP X0*Z1         # exp(-i*pi/8 * X0*Z1), emitted as a single T_GATE
+TPP !Y1           # = TPP_DAG Y1
+TPP !X0*!Z1       # = TPP X0*Z1 (double ! cancels)
+```
 
 ### Rewrite Gates
 
@@ -108,6 +118,25 @@ target count is 64 qubits per instruction.
 
 Two-qubit Cliffords are also absorbed at compile time.
 
+### Multi-Qubit Pauli-Product Phase Gates
+
+| Gate | Cost | Notes |
+|------|------|-------|
+| `SPP` | Clifford (absorbed) | $\exp(-i\pi/4 \cdot P)$ where $P$ is a Pauli product |
+| `SPP_DAG` | Clifford (absorbed) | $\exp(+i\pi/4 \cdot P)$ (inverse SPP) |
+
+The target list uses Stim's Pauli product syntax, same as `MPP`:
+```
+SPP X0*Z1 Y2*Z3
+```
+
+The `!` prefix on a Pauli term inverts its sign in the product; odd `!` count flips
+the gate direction:
+```
+SPP !X0*Z1       # = SPP_DAG X0*Z1  (one !, gate flips)
+SPP !X0*!Z1      # = SPP X0*Z1      (two !, gate stays)
+```
+
 ## Measurements and Resets
 
 | Instruction | Notes |
@@ -127,9 +156,9 @@ Two-qubit Cliffords are also absorbed at compile time.
 | Instruction | Notes |
 |-------------|-------|
 | `MPP` | Multi-Pauli product measurement |
-| `MXX` | Pair XX measurement (desugared to MPP) |
-| `MYY` | Pair YY measurement (desugared to MPP) |
-| `MZZ` | Pair ZZ measurement (desugared to MPP) |
+| `MXX` | Pair XX measurement (rewritten to MPP) |
+| `MYY` | Pair YY measurement (rewritten to MPP) |
+| `MZZ` | Pair ZZ measurement (rewritten to MPP) |
 
 ## Noise Channels
 

@@ -87,9 +87,9 @@ enum class GateType : uint16_t {
     MR,   // Measure + reset (Z-basis) - result visible
     MRX,  // Measure + reset (X-basis) - result visible
     MPP,  // Multi-Pauli measurement
-    MXX,  // Pair measurement in XX basis (desugars to MPP)
-    MYY,  // Pair measurement in YY basis (desugars to MPP)
-    MZZ,  // Pair measurement in ZZ basis (desugars to MPP)
+    MXX,  // Pair measurement in XX basis (rewritten to MPP)
+    MYY,  // Pair measurement in YY basis (rewritten to MPP)
+    MZZ,  // Pair measurement in ZZ basis (rewritten to MPP)
 
     // Resets (no visible measurement)
     R,    // Reset to |0> (Z-basis)

@@ -699,7 +699,7 @@ class Parser {
                         line_num);
                 }
 
-                // MXX/MYY/MZZ: desugar into MPP with Pauli-tagged targets.
+                // MXX/MYY/MZZ: rewrite to MPP with Pauli-tagged targets.
                 if (gate == GateType::MXX || gate == GateType::MYY || gate == GateType::MZZ) {
                     uint32_t pauli_flag = (gate == GateType::MXX)   ? Target::kPauliX
                                           : (gate == GateType::MYY) ? Target::kPauliY
@@ -1150,8 +1150,9 @@ class Parser {
     }
 
     // Parse SPP/SPP_DAG/TPP/TPP_DAG with Pauli products.
-    // Each whitespace-separated product is like "X0*Z1" or "!X0*Y1".
-    // The '!' prefix on a product inverts the gate type (SPP -> SPP_DAG, TPP -> TPP_DAG).
+    // Each whitespace-separated product is like "X0*Z1" or "!X0*Z1".
+    // The '!' prefix before a Pauli term inverts that term's sign in the product.
+    // Odd count of '!' across all terms flips the gate type (SPP <-> SPP_DAG, TPP <-> TPP_DAG).
     void parse_pauli_product_gate(GateType base_gate, std::string_view targets_str,
                                   uint32_t line_num, Circuit& circuit) {
         std::string_view remaining = targets_str;
@@ -1169,31 +1170,9 @@ class Parser {
             }
             product_count++;
 
-            // Check for '!' prefix to invert gate type.
-            GateType gate = base_gate;
-            if (!product_str.empty() && product_str[0] == '!') {
-                product_str.remove_prefix(1);
-                switch (base_gate) {
-                    case GateType::SPP:
-                        gate = GateType::SPP_DAG;
-                        break;
-                    case GateType::SPP_DAG:
-                        gate = GateType::SPP;
-                        break;
-                    case GateType::TPP:
-                        gate = GateType::TPP_DAG;
-                        break;
-                    case GateType::TPP_DAG:
-                        gate = GateType::TPP;
-                        break;
-                    default:
-                        break;
-                }
-            }
-
-            // Parse Pauli product like "X0*Z1".
             std::vector<Target> pauli_targets;
             std::unordered_set<uint32_t> seen_qubits;
+            int inversion_count = 0;
 
             size_t pos = 0;
             while (pos < product_str.size()) {
@@ -1203,6 +1182,16 @@ class Parser {
                     }
                     pos++;
                     continue;
+                }
+
+                if (product_str[pos] == '!') {
+                    inversion_count++;
+                    pos++;
+                    if (pos >= product_str.size() ||
+                        (product_str[pos] != 'X' && product_str[pos] != 'Y' &&
+                         product_str[pos] != 'Z')) {
+                        throw ParseError("Expected Pauli letter after '!'", line_num);
+                    }
                 }
 
                 char pauli_char = product_str[pos];
@@ -1218,8 +1207,8 @@ class Parser {
                         pauli_flag = Target::kPauliZ;
                         break;
                     default:
-                        throw ParseError("Invalid Pauli in " + std::string(gate_name(gate)) + ": " +
-                                             std::string(1, pauli_char),
+                        throw ParseError("Invalid Pauli in " + std::string(gate_name(base_gate)) +
+                                             ": " + std::string(1, pauli_char),
                                          line_num);
                 }
                 pos++;
@@ -1261,7 +1250,29 @@ class Parser {
                 throw ParseError("Empty Pauli product", line_num);
             }
 
-            // Emit one AstNode per product.
+            GateType gate;
+            if (inversion_count % 2 == 0) {
+                gate = base_gate;
+            } else {
+                switch (base_gate) {
+                    case GateType::SPP:
+                        gate = GateType::SPP_DAG;
+                        break;
+                    case GateType::SPP_DAG:
+                        gate = GateType::SPP;
+                        break;
+                    case GateType::TPP:
+                        gate = GateType::TPP_DAG;
+                        break;
+                    case GateType::TPP_DAG:
+                        gate = GateType::TPP;
+                        break;
+                    default:
+                        gate = base_gate;
+                        break;
+                }
+            }
+
             circuit.nodes.push_back({gate, std::move(pauli_targets), {}, line_num});
         }
 

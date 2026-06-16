@@ -1071,3 +1071,116 @@ TEST_CASE("Peephole statevector: optimized equals unoptimized componentwise") {
         }
     }
 }
+
+// =============================================================================
+// SPP/TPP pipeline statevector equivalence tests
+// =============================================================================
+
+TEST_CASE("SPP Z0 on |0> produces normalized |0> state") {
+    auto sv = pipeline_statevector("SPP Z0");
+    REQUIRE(sv.size() == 2);
+    check_normalized(sv, kFloatTol);
+}
+
+TEST_CASE("SPP_DAG Z0 on |0> produces normalized |0> state") {
+    auto sv = pipeline_statevector("SPP_DAG Z0");
+    REQUIRE(sv.size() == 2);
+    check_normalized(sv, kFloatTol);
+}
+
+TEST_CASE("TPP Z0 on |0> produces normalized |0> state") {
+    auto sv = pipeline_statevector("TPP Z0");
+    REQUIRE(sv.size() == 2);
+    check_normalized(sv, kFloatTol);
+}
+
+TEST_CASE("TPP_DAG Z0 on |0> produces normalized |0> state") {
+    auto sv = pipeline_statevector("TPP_DAG Z0");
+    REQUIRE(sv.size() == 2);
+    check_normalized(sv, kFloatTol);
+}
+
+TEST_CASE("SPP X0 on |0> produces equal superposition of |0> and |1>") {
+    auto sv = pipeline_statevector("SPP X0");
+    REQUIRE(sv.size() == 2);
+    check_normalized(sv, kFloatTol);
+    CHECK_THAT(std::abs(sv[0]), Catch::Matchers::WithinAbs(kInvSqrt2, kFloatTol));
+    CHECK_THAT(std::abs(sv[1]), Catch::Matchers::WithinAbs(kInvSqrt2, kFloatTol));
+}
+
+TEST_CASE("TPP X0 on |0> produces equal superposition of |0> and |1>") {
+    auto sv = pipeline_statevector("TPP X0");
+    REQUIRE(sv.size() == 2);
+    check_normalized(sv, kFloatTol);
+    CHECK_THAT(std::abs(sv[0]), Catch::Matchers::WithinAbs(kInvSqrt2, kFloatTol));
+    CHECK_THAT(std::abs(sv[1]), Catch::Matchers::WithinAbs(kInvSqrt2, kFloatTol));
+}
+
+TEST_CASE("SPP multi-qubit product matches sequential single-qubit SPP") {
+    auto sv_multi = pipeline_statevector("SPP X0*Z1");
+    auto sv_seq = pipeline_statevector("SPP Z1\nSPP X0");
+    REQUIRE(sv_multi.size() == 4);
+    REQUIRE(sv_seq.size() == 4);
+    for (size_t i = 0; i < 4; ++i) {
+        check_complex(sv_multi[i], sv_seq[i], kFloatTol);
+    }
+}
+
+TEST_CASE("SPP bang parity: ! applied twice cancels") {
+    auto sv_ref = pipeline_statevector("SPP X0");
+    auto sv_invert = pipeline_statevector("SPP !X0*!Z1\nSPP Z1");
+    REQUIRE(sv_ref.size() == 2);
+    REQUIRE(sv_invert.size() == 4);
+    check_complex(sv_invert[0], sv_ref[0], kFloatTol);
+    check_complex(sv_invert[1], sv_ref[1], kFloatTol);
+}
+
+TEST_CASE("TPP Y0*Y1 matches product of single-qubit TPP Y") {
+    auto sv_multi = pipeline_statevector("TPP Y0*Y1");
+    auto sv_seq = pipeline_statevector("TPP Y1\nTPP Y0");
+    REQUIRE(sv_multi.size() == 4);
+    REQUIRE(sv_seq.size() == 4);
+    for (size_t i = 0; i < 4; ++i) {
+        check_complex(sv_multi[i], sv_seq[i], kFloatTol);
+    }
+}
+
+TEST_CASE("SPP then Clifford then TPP produces normalized state") {
+    auto sv = pipeline_statevector(R"(
+        SPP X0*Z1
+        H 1
+        TPP Z1
+    )");
+    REQUIRE(sv.size() == 4);
+    check_normalized(sv, kFloatTol);
+}
+
+TEST_CASE("SPP Z0 and S 0 produce same statevector") {
+    auto sv_spp = pipeline_statevector("SPP Z0");
+    auto sv_s = pipeline_statevector("S 0");
+    REQUIRE(sv_spp.size() == sv_s.size());
+    for (size_t i = 0; i < sv_spp.size(); ++i) {
+        check_complex(sv_spp[i], sv_s[i], kFloatTol);
+    }
+}
+
+TEST_CASE("TPP Z0 and T 0 produce same statevector") {
+    auto sv_tpp = pipeline_statevector("TPP Z0");
+    auto sv_t = pipeline_statevector("T 0");
+    REQUIRE(sv_tpp.size() == sv_t.size());
+    for (size_t i = 0; i < sv_tpp.size(); ++i) {
+        check_complex(sv_tpp[i], sv_t[i], kFloatTol);
+    }
+}
+
+TEST_CASE("SPP bang parity inverts gate") {
+    auto sv_no_bang = pipeline_statevector("SPP Z0");
+    auto sv_bang = pipeline_statevector("SPP !Z0");
+    auto sv_dag = pipeline_statevector("SPP_DAG Z0");
+    REQUIRE(sv_no_bang.size() == sv_bang.size());
+    REQUIRE(sv_dag.size() == sv_bang.size());
+    // SPP !Z0 should equal SPP_DAG Z0
+    for (size_t i = 0; i < sv_bang.size(); ++i) {
+        check_complex(sv_bang[i], sv_dag[i], kFloatTol);
+    }
+}

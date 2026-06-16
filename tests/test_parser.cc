@@ -2003,6 +2003,28 @@ TEST_CASE("Parse SPP rejects duplicate qubit in product", "[parser][spp]") {
     CHECK_NOTHROW(parse("TPP X0 Z0"));
 }
 
+TEST_CASE("Parse SPP with per-term bang parity", "[parser][spp]") {
+    auto circuit = parse("SPP !X0*!Z1");
+
+    REQUIRE(circuit.nodes.size() == 1);
+    // Two ! invert twice -> no net inversion
+    REQUIRE(circuit.nodes[0].gate == GateType::SPP);
+    REQUIRE(circuit.nodes[0].targets.size() == 2);
+    REQUIRE(circuit.nodes[0].targets[0].pauli() == Target::kPauliX);
+    REQUIRE(circuit.nodes[0].targets[1].pauli() == Target::kPauliZ);
+}
+
+TEST_CASE("Parse TPP with per-term bang on second target", "[parser][tpp]") {
+    auto circuit = parse("TPP X0*!Y1");
+
+    REQUIRE(circuit.nodes.size() == 1);
+    // One ! on second term -> odd count -> invert
+    REQUIRE(circuit.nodes[0].gate == GateType::TPP_DAG);
+    REQUIRE(circuit.nodes[0].targets.size() == 2);
+    REQUIRE(circuit.nodes[0].targets[0].pauli() == Target::kPauliX);
+    REQUIRE(circuit.nodes[0].targets[1].pauli() == Target::kPauliY);
+}
+
 TEST_CASE("GateTraits: SPP/TPP arities and clifford flags", "[gate_data]") {
     CHECK(gate_arity(GateType::SPP) == GateArity::MULTI);
     CHECK(gate_arity(GateType::SPP_DAG) == GateArity::MULTI);

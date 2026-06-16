@@ -1888,8 +1888,10 @@ TEST_CASE("Frontend: SPP with H entangling then T - multi-qubit mask", "[fronten
     REQUIRE(hir.num_ops() == 1);
     REQUIRE(hir.ops[0].op_type() == OpType::T_GATE);
 
-    // SPP is fully absorbed; T 1 sees the rewound Pauli through H and SPP.
-    REQUIRE((hir.destab_mask(hir.ops[0]) != 0 || hir.stab_mask(hir.ops[0]) != 0));
+    // SPP absorbed X0*Z1 then H 1. Rewound Z1 through H1 -> X1; SPP X0*Z1
+    // does not affect qubit 1, so T 1 sees X1: destab[1]=1, stab[1]=0.
+    REQUIRE(hir.destab_mask(hir.ops[0]) == X(1));
+    REQUIRE(hir.stab_mask(hir.ops[0]) == 0);
 }
 
 // -----------------------------------------------------------------------------
