@@ -12,8 +12,8 @@ namespace {
     return op.op_type() == OpType::T_GATE;
 }
 
-[[nodiscard]] bool t_gate_commutes_with_block(const HirModule& hir, size_t candidate,
-                                              size_t begin, size_t end) {
+[[nodiscard]] bool t_gate_commutes_with_block(const HirModule& hir, size_t candidate, size_t begin,
+                                              size_t end) {
     for (size_t i = begin; i < end; ++i) {
         if (!is_t_gate(hir.ops[i])) {
             continue;
