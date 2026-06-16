@@ -41,6 +41,16 @@ chosen coordinate basis. If the original axis is the negative of the basis
 product, it adds the coefficient to the tracked global phase and flips the
 coordinate coefficient. This is necessary for exact `global_weight` preservation.
 
+Concretely, take generators `g0 = XX` and `g1 = ZZ`. Their coordinate product
+`g0 * g1` is `-YY`. If the input term is instead `T(+YY)` with coefficient one,
+then `bit(+YY) = 1 - bit(-YY)`. The phase contribution is therefore `1 -
+bit(-YY)`: the pass records `1` in `constant_phase` and stores coefficient `-1`
+on the coordinate parity. The same normalization is applied in reverse when the
+pass emits an operation whose coordinate product is negative: it emits the
+unsigned Pauli with the flipped coefficient and adds the emitted constant. At
+the end, `global_weight` is multiplied by the eighth root for the input affine
+constant, any residual constant, and any emitted-axis normalization constant.
+
 ## Search And Acceptance
 
 For rank `r <= 4`, the pass builds the exact truth table of the original phase
@@ -61,6 +71,20 @@ absorbed into `global_weight`. If the total emitted HIR operation count would
 exceed the original block length, the pass skips the rewrite. The pass is
 registered with `default_enabled = false`.
 
+The quadratic residual lowering uses only identities over the coordinate bits of
+the commuting Pauli basis, so it is not specific to Z-basis parities. For bits
+`x_i` and `x_j`,
+
+```text
+4*x_i*x_j = 2*(x_i xor x_j) - 2*x_i - 2*x_j   (mod 8).
+```
+
+The implementation therefore emits coefficient `2` on the parity coordinate
+`x_i xor x_j` and subtracts `2` from the two linear coefficients. The parity
+coordinate maps back to the product Pauli for the two commuting generators; if
+that product is signed, the affine sign normalization described above accounts
+for the constant shift and coefficient flip.
+
 ## Evaluation
 
 The reproducible evaluator is `tools/bench/exact_phasepoly_tcount.py`. It runs
@@ -75,8 +99,8 @@ python tools/bench/exact_phasepoly_tcount.py --qasm-dir path/to/qasm_corpus --sk
 ```
 
 The QASM importer accepts declarations and common Clifford+T gate names, ignores
-barriers and measurements for T-count evaluation, and rejects custom or
-parameterized gates instead of attempting synthesis.
+barriers, and rejects measurements, custom gates, and parameterized gates instead
+of silently changing circuit semantics.
 
 The positive cases below are unit-test fixtures built directly in HIR so that
 the intended phase-polynomial structure is unambiguous.

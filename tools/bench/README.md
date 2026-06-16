@@ -52,8 +52,8 @@ rejected instead of silently decomposed with implicit ancillas.
 
 The QASM importer supports declarations plus common Clifford+T gate names
 (`h`, `s`, `sdg`, `t`, `tdg`, `cx`, `cz`, `ccx`, `ccz`, etc.). It ignores
-barriers and measurements for T-count evaluation, and rejects custom or
-parameterized gates instead of attempting synthesis.
+barriers and rejects measurements, custom gates, and parameterized gates instead
+of silently changing circuit semantics.
 
 ## Fixtures
 

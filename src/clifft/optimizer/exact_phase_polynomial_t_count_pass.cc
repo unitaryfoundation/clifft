@@ -25,8 +25,35 @@ struct Axis {
     bool sign = false;
 };
 
+struct ScratchBits {
+    std::vector<uint64_t> words;
+
+    [[nodiscard]] bool is_zero() const {
+        return std::all_of(words.begin(), words.end(), [](uint64_t word) { return word == 0; });
+    }
+
+    [[nodiscard]] uint32_t lowest_bit() const {
+        for (uint32_t w = 0; w < words.size(); ++w) {
+            if (words[w] != 0) {
+                return 64U * w + static_cast<uint32_t>(std::countr_zero(words[w]));
+            }
+        }
+        throw std::logic_error("lowest_bit called on zero vector");
+    }
+
+    void xor_with(const ScratchBits& other) {
+        for (size_t i = 0; i < words.size(); ++i) {
+            words[i] ^= other.words[i];
+        }
+    }
+
+    [[nodiscard]] bool bit_get(uint32_t bit) const {
+        return ((words[bit / 64] >> (bit % 64)) & 1ULL) != 0;
+    }
+};
+
 struct BasisRow {
-    std::vector<uint64_t> bits;
+    ScratchBits bits;
     uint32_t coord = 0;
     uint32_t pivot = 0;
 };
@@ -80,50 +107,27 @@ struct Candidate {
     return a.x == b.x && a.z == b.z;
 }
 
-[[nodiscard]] std::vector<uint64_t> combined_bits(const Axis& axis) {
-    std::vector<uint64_t> bits;
-    bits.reserve(axis.x.size() + axis.z.size());
-    bits.insert(bits.end(), axis.x.begin(), axis.x.end());
-    bits.insert(bits.end(), axis.z.begin(), axis.z.end());
+[[nodiscard]] ScratchBits combined_bits(const Axis& axis) {
+    ScratchBits bits;
+    bits.words.reserve(axis.x.size() + axis.z.size());
+    bits.words.insert(bits.words.end(), axis.x.begin(), axis.x.end());
+    bits.words.insert(bits.words.end(), axis.z.begin(), axis.z.end());
     return bits;
-}
-
-[[nodiscard]] bool is_zero_bits(const std::vector<uint64_t>& bits) {
-    return std::all_of(bits.begin(), bits.end(), [](uint64_t word) { return word == 0; });
-}
-
-[[nodiscard]] uint32_t first_set_bit(const std::vector<uint64_t>& bits) {
-    for (uint32_t w = 0; w < bits.size(); ++w) {
-        if (bits[w] != 0) {
-            return 64U * w + static_cast<uint32_t>(std::countr_zero(bits[w]));
-        }
-    }
-    throw std::logic_error("first_set_bit called on zero vector");
-}
-
-void xor_bits(std::vector<uint64_t>& dst, const std::vector<uint64_t>& src) {
-    for (size_t i = 0; i < dst.size(); ++i) {
-        dst[i] ^= src[i];
-    }
-}
-
-[[nodiscard]] bool has_bit(const std::vector<uint64_t>& bits, uint32_t bit) {
-    return ((bits[bit / 64] >> (bit % 64)) & 1ULL) != 0;
 }
 
 [[nodiscard]] uint32_t reduce_to_coord(std::vector<BasisRow>& basis, const Axis& axis,
                                        uint8_t& rank, uint8_t max_rank, bool& ok) {
-    std::vector<uint64_t> bits = combined_bits(axis);
+    ScratchBits bits = combined_bits(axis);
     uint32_t coord = 0;
 
     for (const auto& row : basis) {
-        if (has_bit(bits, row.pivot)) {
-            xor_bits(bits, row.bits);
+        if (bits.bit_get(row.pivot)) {
+            bits.xor_with(row.bits);
             coord ^= row.coord;
         }
     }
 
-    if (is_zero_bits(bits)) {
+    if (bits.is_zero()) {
         ok = true;
         return coord;
     }
@@ -133,7 +137,7 @@ void xor_bits(std::vector<uint64_t>& dst, const std::vector<uint64_t>& src) {
         return 0;
     }
 
-    const uint32_t pivot = first_set_bit(bits);
+    const uint32_t pivot = bits.lowest_bit();
     const uint32_t row_coord = coord ^ (1u << rank);
     basis.push_back(BasisRow{std::move(bits), row_coord, pivot});
     std::sort(basis.begin(), basis.end(),
@@ -492,6 +496,10 @@ void rewrite_block(HirModule& hir, size_t begin, size_t end, const BlockModel& m
 
     const bool has_source_map = hir.source_map.size() == hir.ops.size();
     if (has_source_map) {
+        // Emitted operations are synthesized from the whole decoded block, not
+        // one input operation. Future work could retain an aggregate source
+        // range for these synthetic ops; for now we avoid a misleading one-to-one
+        // source mapping.
         for (size_t i = begin; i < write; ++i) {
             hir.source_map[i].clear();
         }

@@ -230,8 +230,10 @@ def parse_qasm_text(text: str, name: str) -> str:
             continue
         if lowered.startswith("gate ") or lowered.startswith("opaque "):
             raise ValueError(f"{name}:{lineno}: custom QASM gates are not imported")
-        if lowered.startswith("measure ") or lowered.startswith("barrier "):
+        if lowered.startswith("barrier "):
             continue
+        if lowered.startswith("measure "):
+            raise ValueError(f"{name}:{lineno}: measurements are not imported")
         if lowered.startswith("reset ") or lowered.startswith("if("):
             raise ValueError(f"{name}:{lineno}: unsupported QASM statement: {raw_line}")
 
