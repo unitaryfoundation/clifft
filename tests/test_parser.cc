@@ -1898,3 +1898,142 @@ TEST_CASE("GateTraits: rotation gate arities", "[gate_data][rotation]") {
     CHECK(!is_clifford(GateType::R_Z));
     CHECK(!is_measurement(GateType::R_Z));
 }
+
+TEST_CASE("Parse SPP single product", "[parser][spp]") {
+    auto circuit = parse("SPP X0*Z1*Y2");
+
+    REQUIRE(circuit.nodes.size() == 1);
+    REQUIRE(circuit.nodes[0].gate == GateType::SPP);
+    REQUIRE(circuit.nodes[0].targets.size() == 3);
+
+    REQUIRE(circuit.nodes[0].targets[0].pauli() == Target::kPauliX);
+    REQUIRE(circuit.nodes[0].targets[0].value() == 0);
+
+    REQUIRE(circuit.nodes[0].targets[1].pauli() == Target::kPauliZ);
+    REQUIRE(circuit.nodes[0].targets[1].value() == 1);
+
+    REQUIRE(circuit.nodes[0].targets[2].pauli() == Target::kPauliY);
+    REQUIRE(circuit.nodes[0].targets[2].value() == 2);
+}
+
+TEST_CASE("Parse SPP multiple products", "[parser][spp]") {
+    auto circuit = parse("SPP X0*Z1 Y2");
+
+    REQUIRE(circuit.nodes.size() == 2);
+
+    REQUIRE(circuit.nodes[0].gate == GateType::SPP);
+    REQUIRE(circuit.nodes[0].targets.size() == 2);
+    REQUIRE(circuit.nodes[0].targets[0].pauli() == Target::kPauliX);
+    REQUIRE(circuit.nodes[0].targets[1].pauli() == Target::kPauliZ);
+
+    REQUIRE(circuit.nodes[1].gate == GateType::SPP);
+    REQUIRE(circuit.nodes[1].targets.size() == 1);
+    REQUIRE(circuit.nodes[1].targets[0].pauli() == Target::kPauliY);
+    REQUIRE(circuit.nodes[1].targets[0].value() == 2);
+}
+
+TEST_CASE("Parse SPP with bang inversion", "[parser][spp]") {
+    auto circuit = parse("SPP !X0*Z1");
+
+    REQUIRE(circuit.nodes.size() == 1);
+    // ! inverts SPP -> SPP_DAG
+    REQUIRE(circuit.nodes[0].gate == GateType::SPP_DAG);
+    REQUIRE(circuit.nodes[0].targets.size() == 2);
+    REQUIRE(circuit.nodes[0].targets[0].pauli() == Target::kPauliX);
+    REQUIRE(circuit.nodes[0].targets[1].pauli() == Target::kPauliZ);
+}
+
+TEST_CASE("Parse SPP_DAG with bang inversion", "[parser][spp]") {
+    auto circuit = parse("SPP_DAG !X0*Z1");
+
+    REQUIRE(circuit.nodes.size() == 1);
+    // ! inverts SPP_DAG -> SPP
+    REQUIRE(circuit.nodes[0].gate == GateType::SPP);
+    REQUIRE(circuit.nodes[0].targets.size() == 2);
+}
+
+TEST_CASE("Parse TPP single product", "[parser][tpp]") {
+    auto circuit = parse("TPP X0*Y1");
+
+    REQUIRE(circuit.nodes.size() == 1);
+    REQUIRE(circuit.nodes[0].gate == GateType::TPP);
+    REQUIRE(circuit.nodes[0].targets.size() == 2);
+    REQUIRE(circuit.nodes[0].targets[0].pauli() == Target::kPauliX);
+    REQUIRE(circuit.nodes[0].targets[0].value() == 0);
+    REQUIRE(circuit.nodes[0].targets[1].pauli() == Target::kPauliY);
+    REQUIRE(circuit.nodes[0].targets[1].value() == 1);
+}
+
+TEST_CASE("Parse TPP with bang inversion", "[parser][tpp]") {
+    auto circuit = parse("TPP !Z0");
+
+    REQUIRE(circuit.nodes.size() == 1);
+    // ! inverts TPP -> TPP_DAG
+    REQUIRE(circuit.nodes[0].gate == GateType::TPP_DAG);
+    REQUIRE(circuit.nodes[0].targets.size() == 1);
+    REQUIRE(circuit.nodes[0].targets[0].pauli() == Target::kPauliZ);
+    REQUIRE(circuit.nodes[0].targets[0].value() == 0);
+}
+
+TEST_CASE("Parse TPP_DAG with bang inversion", "[parser][tpp]") {
+    auto circuit = parse("TPP_DAG !Y1");
+
+    REQUIRE(circuit.nodes.size() == 1);
+    // ! inverts TPP_DAG -> TPP
+    REQUIRE(circuit.nodes[0].gate == GateType::TPP);
+    REQUIRE(circuit.nodes[0].targets.size() == 1);
+    REQUIRE(circuit.nodes[0].targets[0].pauli() == Target::kPauliY);
+    REQUIRE(circuit.nodes[0].targets[0].value() == 1);
+}
+
+TEST_CASE("Parse SPP rejects no products", "[parser][spp]") {
+    CHECK_THROWS_AS(parse("SPP"), ParseError);
+    CHECK_THROWS_AS(parse("SPP_DAG"), ParseError);
+    CHECK_THROWS_AS(parse("TPP"), ParseError);
+    CHECK_THROWS_AS(parse("TPP_DAG"), ParseError);
+}
+
+TEST_CASE("Parse SPP rejects duplicate qubit in product", "[parser][spp]") {
+    CHECK_THROWS_AS(parse("SPP X0*Z0"), ParseError);
+    CHECK_THROWS_AS(parse("TPP Y1*X1"), ParseError);
+    // Different qubits in same product is fine
+    CHECK_NOTHROW(parse("SPP X0*Z1"));
+    // Same qubit in different products is fine
+    CHECK_NOTHROW(parse("SPP X0 Z0"));
+    CHECK_NOTHROW(parse("TPP X0 Z0"));
+}
+
+TEST_CASE("Parse SPP with per-term bang parity", "[parser][spp]") {
+    auto circuit = parse("SPP !X0*!Z1");
+
+    REQUIRE(circuit.nodes.size() == 1);
+    // Two ! invert twice -> no net inversion
+    REQUIRE(circuit.nodes[0].gate == GateType::SPP);
+    REQUIRE(circuit.nodes[0].targets.size() == 2);
+    REQUIRE(circuit.nodes[0].targets[0].pauli() == Target::kPauliX);
+    REQUIRE(circuit.nodes[0].targets[1].pauli() == Target::kPauliZ);
+}
+
+TEST_CASE("Parse TPP with per-term bang on second target", "[parser][tpp]") {
+    auto circuit = parse("TPP X0*!Y1");
+
+    REQUIRE(circuit.nodes.size() == 1);
+    // One ! on second term -> odd count -> invert
+    REQUIRE(circuit.nodes[0].gate == GateType::TPP_DAG);
+    REQUIRE(circuit.nodes[0].targets.size() == 2);
+    REQUIRE(circuit.nodes[0].targets[0].pauli() == Target::kPauliX);
+    REQUIRE(circuit.nodes[0].targets[1].pauli() == Target::kPauliY);
+}
+
+TEST_CASE("GateTraits: SPP/TPP arities and clifford flags", "[gate_data]") {
+    CHECK(gate_arity(GateType::SPP) == GateArity::MULTI);
+    CHECK(gate_arity(GateType::SPP_DAG) == GateArity::MULTI);
+    CHECK(gate_arity(GateType::TPP) == GateArity::MULTI);
+    CHECK(gate_arity(GateType::TPP_DAG) == GateArity::MULTI);
+    CHECK(is_clifford(GateType::SPP));
+    CHECK(is_clifford(GateType::SPP_DAG));
+    CHECK(!is_clifford(GateType::TPP));
+    CHECK(!is_clifford(GateType::TPP_DAG));
+    CHECK(!is_measurement(GateType::SPP));
+    CHECK(!is_measurement(GateType::TPP));
+}

@@ -1815,3 +1815,202 @@ TEST_CASE("Frontend: R_Z global phase accumulation", "[frontend][rotation]") {
     CHECK(hir.global_weight.real() == Catch::Approx(expected_re).epsilon(1e-12));
     CHECK(hir.global_weight.imag() == Catch::Approx(expected_im).epsilon(1e-12));
 }
+
+// -----------------------------------------------------------------------------
+// SPP / SPP_DAG front-end tests (Clifford, absorbed into tableau)
+// -----------------------------------------------------------------------------
+
+TEST_CASE("Frontend: SPP on Z is absorbed - no HIR ops", "[frontend][spp]") {
+    auto circuit = parse("SPP Z0");
+    auto hir = trace(circuit);
+    // SPP on Z is just S, all Clifford, absorbed
+    REQUIRE(hir.num_ops() == 0);
+}
+
+TEST_CASE("Frontend: SPP on multi-qubit product absorbed", "[frontend][spp]") {
+    auto circuit = parse("SPP X0*Z1 Y2");
+    auto hir = trace(circuit);
+    // All Cliffords absorbed, no HIR ops
+    REQUIRE(hir.num_ops() == 0);
+}
+
+TEST_CASE("Frontend: SPP_DAG absorbed", "[frontend][spp]") {
+    auto circuit = parse("SPP_DAG X0*Y1");
+    auto hir = trace(circuit);
+    REQUIRE(hir.num_ops() == 0);
+}
+
+TEST_CASE("Frontend: SPP followed by T - T sees rotated basis", "[frontend][spp]") {
+    // SPP X0 rotates the Z axis to Y on qubit 0
+    // So T 0 after SPP X0 should have mask Y0
+    auto circuit = parse(R"(
+        SPP X0
+        T 0
+    )");
+    auto hir = trace(circuit);
+
+    REQUIRE(hir.num_ops() == 1);
+    REQUIRE(hir.ops[0].op_type() == OpType::T_GATE);
+
+    // After SPP X0, Z0 is conjugated to Y0: destab=X0, stab=Z0
+    REQUIRE(hir.destab_mask(hir.ops[0]) == X(0));
+    REQUIRE(hir.stab_mask(hir.ops[0]) == Z(0));
+    REQUIRE(hir.sign(hir.ops[0]) == false);
+}
+
+TEST_CASE("Frontend: SPP_DAG followed by T - T sees opposite rotated basis", "[frontend][spp]") {
+    // SPP_DAG X0 rotates the Z axis to -Y on qubit 0
+    auto circuit = parse(R"(
+        SPP_DAG X0
+        T 0
+    )");
+    auto hir = trace(circuit);
+
+    REQUIRE(hir.num_ops() == 1);
+    REQUIRE(hir.ops[0].op_type() == OpType::T_GATE);
+
+    // After SPP_DAG X0, Z0 is conjugated to -Y0: destab=X0, stab=Z0, sign=true
+    REQUIRE(hir.destab_mask(hir.ops[0]) == X(0));
+    REQUIRE(hir.stab_mask(hir.ops[0]) == Z(0));
+    REQUIRE(hir.sign(hir.ops[0]) == true);
+}
+
+TEST_CASE("Frontend: SPP with H entangling then T - multi-qubit mask", "[frontend][spp]") {
+    // SPP X0*Z1 then H 1 then T 1
+    // SPP absorbed, then H, then T sees Z1 rewound through SPP and H
+    auto circuit = parse(R"(
+        SPP X0*Z1
+        H 1
+        T 1
+    )");
+    auto hir = trace(circuit);
+
+    REQUIRE(hir.num_ops() == 1);
+    REQUIRE(hir.ops[0].op_type() == OpType::T_GATE);
+
+    // SPP absorbed X0*Z1 then H 1. Rewound Z1 through H1 -> X1; SPP X0*Z1
+    // does not affect qubit 1, so T 1 sees X1: destab[1]=1, stab[1]=0.
+    REQUIRE(hir.destab_mask(hir.ops[0]) == X(1));
+    REQUIRE(hir.stab_mask(hir.ops[0]) == 0);
+}
+
+// -----------------------------------------------------------------------------
+// TPP / TPP_DAG front-end tests (non-Clifford, emit T_GATE)
+// -----------------------------------------------------------------------------
+
+TEST_CASE("Frontend: TPP Z0 emits T_GATE with Z mask", "[frontend][tpp]") {
+    // TPP Z0 = exp(-i*pi/8 * Z0) = T 0
+    auto circuit = parse("TPP Z0");
+    auto hir = trace(circuit);
+
+    REQUIRE(hir.num_ops() == 1);
+    REQUIRE(hir.ops[0].op_type() == OpType::T_GATE);
+    REQUIRE(hir.ops[0].is_dagger() == false);
+
+    // Rewound Z0 is just Z0
+    REQUIRE(hir.destab_mask(hir.ops[0]) == 0);
+    REQUIRE(hir.stab_mask(hir.ops[0]) == Z(0));
+    REQUIRE(hir.sign(hir.ops[0]) == false);
+}
+
+TEST_CASE("Frontend: TPP X0 emits T_GATE with X mask", "[frontend][tpp]") {
+    // TPP X0 = exp(-i*pi/8 * X0)
+    auto circuit = parse("TPP X0");
+    auto hir = trace(circuit);
+
+    REQUIRE(hir.num_ops() == 1);
+    REQUIRE(hir.ops[0].op_type() == OpType::T_GATE);
+    REQUIRE(hir.ops[0].is_dagger() == false);
+
+    // Rewound X0 is X0 (no Cliffords to rewind through)
+    REQUIRE(hir.destab_mask(hir.ops[0]) == X(0));
+    REQUIRE(hir.stab_mask(hir.ops[0]) == 0);
+}
+
+TEST_CASE("Frontend: H then TPP X0 - mask reflects rewound X through H", "[frontend][tpp]") {
+    // H 0 maps Z0 <-> X0, so TPP X0 after H sees Z0
+    auto circuit = parse(R"(
+        H 0
+        TPP X0
+    )");
+    auto hir = trace(circuit);
+
+    REQUIRE(hir.num_ops() == 1);
+    REQUIRE(hir.ops[0].op_type() == OpType::T_GATE);
+    REQUIRE(hir.ops[0].is_dagger() == false);
+
+    // H maps X0 -> Z0
+    REQUIRE(hir.destab_mask(hir.ops[0]) == 0);
+    REQUIRE(hir.stab_mask(hir.ops[0]) == Z(0));
+}
+
+TEST_CASE("Frontend: TPP_DAG Z0 emits dagger T_GATE", "[frontend][tpp]") {
+    auto circuit = parse("TPP_DAG Z0");
+    auto hir = trace(circuit);
+
+    REQUIRE(hir.num_ops() == 1);
+    REQUIRE(hir.ops[0].op_type() == OpType::T_GATE);
+    REQUIRE(hir.ops[0].is_dagger() == true);
+    REQUIRE(hir.destab_mask(hir.ops[0]) == 0);
+    REQUIRE(hir.stab_mask(hir.ops[0]) == Z(0));
+}
+
+TEST_CASE("Frontend: TPP multi-qubit product emits multi-qubit mask", "[frontend][tpp]") {
+    auto circuit = parse("TPP X0*Z1");
+    auto hir = trace(circuit);
+
+    REQUIRE(hir.num_ops() == 1);
+    REQUIRE(hir.ops[0].op_type() == OpType::T_GATE);
+    REQUIRE(hir.ops[0].is_dagger() == false);
+
+    // Rewound X0*Z1 is X0*Z1 (no Cliffords)
+    REQUIRE(hir.destab_mask(hir.ops[0]) == X(0));
+    REQUIRE(hir.stab_mask(hir.ops[0]) == Z(1));
+}
+
+TEST_CASE("Frontend: TPP on Y product emits multi-qubit mask", "[frontend][tpp]") {
+    auto circuit = parse("TPP Y0*Y1");
+    auto hir = trace(circuit);
+
+    REQUIRE(hir.num_ops() == 1);
+    REQUIRE(hir.ops[0].op_type() == OpType::T_GATE);
+
+    // Y has both X and Z bits: Y0*Y1 = X0*Z0*X1*Z1
+    REQUIRE(hir.destab_mask(hir.ops[0]) == (X(0) | X(1)));
+    REQUIRE(hir.stab_mask(hir.ops[0]) == (Z(0) | Z(1)));
+}
+
+TEST_CASE("Frontend: SPP X0 then TPP Z0 - TPP sees rotated basis", "[frontend][mixed]") {
+    // SPP X0 absorbs (rotates Z to Y), then TPP Z0 emits T_GATE with Y mask
+    auto circuit = parse(R"(
+        SPP X0
+        TPP Z0
+    )");
+    auto hir = trace(circuit);
+
+    REQUIRE(hir.num_ops() == 1);
+    REQUIRE(hir.ops[0].op_type() == OpType::T_GATE);
+    REQUIRE(hir.ops[0].is_dagger() == false);
+
+    // After SPP X0, Z0 is conjugated to Y0: destab=X0, stab=Z0
+    REQUIRE(hir.destab_mask(hir.ops[0]) == X(0));
+    REQUIRE(hir.stab_mask(hir.ops[0]) == Z(0));
+    REQUIRE(hir.sign(hir.ops[0]) == false);
+}
+
+TEST_CASE("Frontend: CX entangles then TPP - multi-qubit mask", "[frontend][tpp]") {
+    auto circuit = parse(R"(
+        H 0
+        CX 0 1
+        TPP Z1
+    )");
+    auto hir = trace(circuit);
+
+    REQUIRE(hir.num_ops() == 1);
+    REQUIRE(hir.ops[0].op_type() == OpType::T_GATE);
+
+    // After H 0; CX 0 1:
+    // Z1 rewound = H_dag CX_dag Z1 CX H = H_dag (Z0 Z1) H = X0 Z1
+    REQUIRE(hir.destab_mask(hir.ops[0]) == X(0));
+    REQUIRE(hir.stab_mask(hir.ops[0]) == Z(1));
+}

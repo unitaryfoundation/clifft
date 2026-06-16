@@ -363,6 +363,8 @@ size_t count_pauli_masks(const Circuit& circuit) {
             case GateType::R_ZZ:
                 count += n_targets / 2;
                 break;
+            case GateType::TPP:
+            case GateType::TPP_DAG:
             case GateType::R_PAULI:
             case GateType::EXP_VAL:
             case GateType::MPP:
@@ -599,6 +601,105 @@ HirModule trace(const Circuit& circuit) {
                 bool _;
                 auto obs = build_pauli_string(node.targets, circuit.num_qubits, _);
                 trace_pauli_rotation(sim, hir, obs, alpha);
+                break;
+            }
+
+            case GateType::SPP:
+            case GateType::SPP_DAG: {
+                // SPP = exp(-i*pi/4 * P) where P is a Pauli product.
+                // Decomposition: diagonalize each Pauli to Z, fold with CX
+                // onto an accumulator, apply S/S_DAG, unfold, un-diagonalize.
+                // Since S is Clifford, the entire decomposition is absorbed into
+                // the tableau by prepending the inverse (right-multiplying inv_state).
+
+                // Collect non-identity targets with their Pauli types.
+                struct PauliQubit {
+                    uint32_t qubit;
+                    uint32_t pauli_type;
+                };
+                std::vector<PauliQubit> pauli_qubits;
+                for (const auto& target : node.targets) {
+                    uint32_t q = target.value();
+                    uint32_t p = target.pauli();
+                    if (p != Target::kPauliNone) {
+                        pauli_qubits.push_back({q, p});
+                    }
+                }
+                if (pauli_qubits.empty()) {
+                    throw std::runtime_error(
+                        "SPP/SPP_DAG requires at least one non-identity Pauli");
+                }
+
+                // Step 1: Diagonalize non-Z Paulis to Z
+                for (const auto& pq : pauli_qubits) {
+                    size_t q = static_cast<size_t>(pq.qubit);
+                    switch (pq.pauli_type) {
+                        case Target::kPauliX:
+                            sim.inv_state.prepend_H_XZ(q);
+                            break;
+                        case Target::kPauliY:
+                            sim.inv_state.prepend_H_YZ(q);
+                            break;
+                        default:
+                            break;
+                    }
+                }
+
+                // Step 2: Fold onto accumulator using CX gates
+                uint32_t accumulator = pauli_qubits.back().qubit;
+                for (size_t i = 0; i + 1 < pauli_qubits.size(); i++) {
+                    uint32_t q = pauli_qubits[i].qubit;
+                    if (q != accumulator) {
+                        sim.inv_state.prepend_ZCX(static_cast<size_t>(q),
+                                                  static_cast<size_t>(accumulator));
+                    }
+                }
+
+                // Step 3: Apply S (SPP_DAG) or S^† (SPP) on accumulator
+                if (node.gate == GateType::SPP_DAG) {
+                    sim.inv_state.prepend_SQRT_Z(static_cast<size_t>(accumulator));
+                } else {
+                    sim.inv_state.prepend_SQRT_Z_DAG(static_cast<size_t>(accumulator));
+                }
+
+                // Step 4: Unfold (same CX gates)
+                for (size_t i = 0; i + 1 < pauli_qubits.size(); i++) {
+                    uint32_t q = pauli_qubits[i].qubit;
+                    if (q != accumulator) {
+                        sim.inv_state.prepend_ZCX(static_cast<size_t>(q),
+                                                  static_cast<size_t>(accumulator));
+                    }
+                }
+
+                // Step 5: Undo diagonalization
+                for (const auto& pq : pauli_qubits) {
+                    size_t q = static_cast<size_t>(pq.qubit);
+                    switch (pq.pauli_type) {
+                        case Target::kPauliX:
+                            sim.inv_state.prepend_H_XZ(q);
+                            break;
+                        case Target::kPauliY:
+                            sim.inv_state.prepend_H_YZ(q);
+                            break;
+                        default:
+                            break;
+                    }
+                }
+                break;
+            }
+
+            case GateType::TPP:
+            case GateType::TPP_DAG: {
+                // TPP = exp(-i*pi/8 * P). Rewind through inv_state, emit T_GATE.
+                bool dagger = (node.gate == GateType::TPP_DAG);
+                bool inversion_parity;
+                auto obs = build_pauli_string(node.targets, circuit.num_qubits, inversion_parity);
+                stim::PauliString<kStimWidth> rewound = sim.inv_state(obs);
+                uint32_t n = sim.inv_state.num_qubits;
+                hir.append_tgate(dagger, [&](MutablePauliMaskView slot) {
+                    copy_rewound_into(rewound, n, slot.x(), slot.z());
+                    slot.set_sign(rewound.sign ^ inversion_parity);
+                });
                 break;
             }
 
