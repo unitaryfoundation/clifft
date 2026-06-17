@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1781598472168,
+  "lastUpdate": 1781684338769,
   "repoUrl": "https://github.com/unitaryfoundation/clifft",
   "entries": {
     "Python pytest-benchmark suite": [
@@ -3267,6 +3267,105 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.024433069972116445",
             "extra": "mean: 1.581091091799999 sec\nrounds: 5"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Brad Chase",
+            "username": "bachase",
+            "email": "14430+bachase@users.noreply.github.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "a4e3031b510374aba387f525f8391ee44a2112ff",
+          "message": "feat: add correlated Pauli noise channels (#158)\n\nAdd Stim-compatible CORRELATED_ERROR/E and ELSE_CORRELATED_ERROR noise support.\n\nAssisted-by: Codex (GPT-5) <noreply@openai.com>",
+          "timestamp": "2026-06-15T22:19:40Z",
+          "url": "https://github.com/unitaryfoundation/clifft/commit/a4e3031b510374aba387f525f8391ee44a2112ff"
+        },
+        "date": 1781684337069,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "tools/bench/test_bench_deep_clifford.py::test_compile_stim_deep",
+            "value": 1453.8995540574076,
+            "unit": "iter/sec",
+            "range": "stddev: 0.000012448207160299177",
+            "extra": "mean: 687.8054245283265 usec\nrounds: 1060"
+          },
+          {
+            "name": "tools/bench/test_bench_deep_clifford.py::test_compile_clifft_deep",
+            "value": 589.9105852820846,
+            "unit": "iter/sec",
+            "range": "stddev: 0.000020106799045673344",
+            "extra": "mean: 1.6951721582039725 msec\nrounds: 512"
+          },
+          {
+            "name": "tools/bench/test_bench_deep_clifford.py::test_sample_stim_deep",
+            "value": 54.43831181225298,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0006891719698590513",
+            "extra": "mean: 18.36941607316559 msec\nrounds: 41"
+          },
+          {
+            "name": "tools/bench/test_bench_deep_clifford.py::test_sample_clifft_deep",
+            "value": 1.0702407188228844,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0003343758477458024",
+            "extra": "mean: 934.3692333999968 msec\nrounds: 5"
+          },
+          {
+            "name": "tools/bench/test_bench_qec.py::test_compile_stim",
+            "value": 18215.73210161281,
+            "unit": "iter/sec",
+            "range": "stddev: 0.000002855255346013551",
+            "extra": "mean: 54.89760139321881 usec\nrounds: 6603"
+          },
+          {
+            "name": "tools/bench/test_bench_qec.py::test_compile_clifft",
+            "value": 1509.3815293947303,
+            "unit": "iter/sec",
+            "range": "stddev: 0.000010421555918710975",
+            "extra": "mean: 662.5230139135234 usec\nrounds: 1150"
+          },
+          {
+            "name": "tools/bench/test_bench_qec.py::test_sample_stim",
+            "value": 104.45278414529996,
+            "unit": "iter/sec",
+            "range": "stddev: 0.00006213485997209901",
+            "extra": "mean: 9.573703642106286 msec\nrounds: 95"
+          },
+          {
+            "name": "tools/bench/test_bench_qec.py::test_sample_clifft",
+            "value": 10.659593213856699,
+            "unit": "iter/sec",
+            "range": "stddev: 0.00032183520550586154",
+            "extra": "mean: 93.81221027272152 msec\nrounds: 11"
+          },
+          {
+            "name": "tools/bench/test_bench_qv.py::test_compile_qv20",
+            "value": 62.726753034718875,
+            "unit": "iter/sec",
+            "range": "stddev: 0.000053497173801565275",
+            "extra": "mean: 15.942161065574462 msec\nrounds: 61"
+          },
+          {
+            "name": "tools/bench/test_bench_qv.py::test_sample_qv20_1shot",
+            "value": 5.978620053267894,
+            "unit": "iter/sec",
+            "range": "stddev: 0.00157493076326506",
+            "extra": "mean: 167.2626778571425 msec\nrounds: 7"
+          },
+          {
+            "name": "tools/bench/test_bench_qv.py::test_sample_qv20_10shots",
+            "value": 0.6017442498450462,
+            "unit": "iter/sec",
+            "range": "stddev: 0.002899357597281717",
+            "extra": "mean: 1.6618355726000005 sec\nrounds: 5"
           }
         ]
       }
