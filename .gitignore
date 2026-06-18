@@ -48,6 +48,7 @@ __pycache__/
 dist/
 .eggs/
 .venv/
+.venv-research/
 venv/
 .mypy_cache/
 .pytest_cache/
@@ -67,3 +68,6 @@ venv/
 *digest.txt
 *.patch
 results/
+
+# Research reference PDFs (kept locally, not committed)
+research/refs/*.pdf
