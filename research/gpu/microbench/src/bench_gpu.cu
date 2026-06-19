@@ -1,0 +1,482 @@
+// bench_gpu.cu -- CUDA (complex128) counterpart to bench_cpu.cpp.
+//
+// Implements clifft's active-block ops as hand-written CUDA kernels in double
+// precision and measures:
+//   (1) single-statevector per-op throughput swept over rank k
+//   (2) batched-across-shots throughput at fixed small k  <- key hypothesis
+//   (3) host<->device transfer cost (quantifies PCIe vs NVLink-C2C on GH200)
+// plus a CPU-vs-GPU correctness check on the single-statevector schedule.
+//
+// Build for the GH200 Hopper GPU: -arch=sm_90 (set via CMake CUDA_ARCH).
+//
+// Usage: bench_gpu [kmin kmax] [bk1,bk2,...] [layers]
+#include <algorithm>
+#include <cstdio>
+#include <cstdlib>
+#include <string>
+#include <vector>
+
+#include "bench_common.hpp"
+#include "cpu_kernels.hpp"  // for validation only (host code)
+
+using namespace mb;
+
+#define CHECK(x)                                                                          \
+    do {                                                                                  \
+        cudaError_t e = (x);                                                              \
+        if (e != cudaSuccess) {                                                           \
+            fprintf(stderr, "CUDA error %s at %s:%d\n", cudaGetErrorString(e), __FILE__,  \
+                    __LINE__);                                                            \
+            std::exit(1);                                                                 \
+        }                                                                                 \
+    } while (0)
+
+// --- device complex128 ------------------------------------------------------
+struct dc {
+    double r, i;
+};
+__host__ __device__ inline dc operator+(dc a, dc b) { return {a.r + b.r, a.i + b.i}; }
+__host__ __device__ inline dc operator-(dc a, dc b) { return {a.r - b.r, a.i - b.i}; }
+__host__ __device__ inline dc operator*(dc a, double s) { return {a.r * s, a.i * s}; }
+__host__ __device__ inline dc cmul(dc a, dc b) {
+    return {a.r * b.r - a.i * b.i, a.r * b.i + a.i * b.r};
+}
+__host__ __device__ inline double cnorm(dc a) { return a.r * a.r + a.i * a.i; }
+
+__device__ inline uint64_t dev_insert_zero_bit(uint64_t x, unsigned p) {
+    uint64_t mask = (uint64_t(1) << p) - 1;
+    return (x & mask) | ((x & ~mask) << 1);
+}
+__device__ inline uint64_t dev_insert_two(uint64_t x, unsigned a, unsigned b) {
+    return dev_insert_zero_bit(dev_insert_zero_bit(x, a), b);
+}
+
+constexpr double kPhaseRe = 0.7071067811865476;
+constexpr double kPhaseIm = 0.7071067811865476;
+
+// =============================================================================
+// Single-statevector kernels (dimension d = 2^k). nThreads as noted.
+// =============================================================================
+__global__ void k_h(dc* a, uint64_t half, unsigned v) {  // nThreads=half
+    uint64_t tid = blockIdx.x * (uint64_t)blockDim.x + threadIdx.x;
+    if (tid >= half) return;
+    uint64_t i0 = dev_insert_zero_bit(tid, v);
+    uint64_t i1 = i0 | (uint64_t(1) << v);
+    dc x = a[i0], y = a[i1];
+    a[i0] = (x + y) * mb::kInvSqrt2;
+    a[i1] = (x - y) * mb::kInvSqrt2;
+}
+__global__ void k_t(dc* a, uint64_t half, unsigned v) {  // nThreads=half
+    uint64_t tid = blockIdx.x * (uint64_t)blockDim.x + threadIdx.x;
+    if (tid >= half) return;
+    uint64_t idx = dev_insert_zero_bit(tid, v) | (uint64_t(1) << v);
+    a[idx] = cmul(a[idx], {kPhaseRe, kPhaseIm});
+}
+__global__ void k_cz(dc* a, uint64_t quarter, unsigned lo, unsigned hi, unsigned c, unsigned t) {
+    uint64_t tid = blockIdx.x * (uint64_t)blockDim.x + threadIdx.x;
+    if (tid >= quarter) return;
+    uint64_t idx = dev_insert_two(tid, lo, hi) | (uint64_t(1) << c) | (uint64_t(1) << t);
+    a[idx] = a[idx] * -1.0;
+}
+__global__ void k_cnot(dc* a, uint64_t quarter, unsigned lo, unsigned hi, unsigned c, unsigned t) {
+    uint64_t tid = blockIdx.x * (uint64_t)blockDim.x + threadIdx.x;
+    if (tid >= quarter) return;
+    uint64_t base0 = dev_insert_two(tid, lo, hi) | (uint64_t(1) << c);
+    uint64_t base1 = base0 | (uint64_t(1) << t);
+    dc tmp = a[base0];
+    a[base0] = a[base1];
+    a[base1] = tmp;
+}
+__global__ void k_expand(dc* a, uint64_t half) {  // nThreads=half
+    uint64_t tid = blockIdx.x * (uint64_t)blockDim.x + threadIdx.x;
+    if (tid >= half) return;
+    a[half + tid] = a[tid];
+}
+__global__ void k_expand_t(dc* a, uint64_t half) {  // nThreads=half
+    uint64_t tid = blockIdx.x * (uint64_t)blockDim.x + threadIdx.x;
+    if (tid >= half) return;
+    a[half + tid] = cmul(a[tid], {kPhaseRe, kPhaseIm});
+}
+
+// Block-reduced probability sums for measurement.
+__global__ void k_reduce_diag(const dc* a, uint64_t half, double* part0, double* part1) {
+    extern __shared__ double sh[];  // 2*blockDim
+    double* s0 = sh;
+    double* s1 = sh + blockDim.x;
+    uint64_t tid = blockIdx.x * (uint64_t)blockDim.x + threadIdx.x;
+    uint64_t stride = (uint64_t)gridDim.x * blockDim.x;
+    double l0 = 0, l1 = 0;
+    for (uint64_t i = tid; i < half; i += stride) {
+        l0 += cnorm(a[i]);
+        l1 += cnorm(a[i + half]);
+    }
+    s0[threadIdx.x] = l0;
+    s1[threadIdx.x] = l1;
+    __syncthreads();
+    for (unsigned s = blockDim.x / 2; s > 0; s >>= 1) {
+        if (threadIdx.x < s) {
+            s0[threadIdx.x] += s0[threadIdx.x + s];
+            s1[threadIdx.x] += s1[threadIdx.x + s];
+        }
+        __syncthreads();
+    }
+    if (threadIdx.x == 0) {
+        part0[blockIdx.x] = s0[0];
+        part1[blockIdx.x] = s1[0];
+    }
+}
+__global__ void k_reduce_interfere(const dc* a, uint64_t half, double* partp, double* partm) {
+    extern __shared__ double sh[];
+    double* sp = sh;
+    double* sm = sh + blockDim.x;
+    uint64_t tid = blockIdx.x * (uint64_t)blockDim.x + threadIdx.x;
+    uint64_t stride = (uint64_t)gridDim.x * blockDim.x;
+    double lp = 0, lm = 0;
+    for (uint64_t i = tid; i < half; i += stride) {
+        lp += cnorm(a[i] + a[i + half]);
+        lm += cnorm(a[i] - a[i + half]);
+    }
+    sp[threadIdx.x] = lp;
+    sm[threadIdx.x] = lm;
+    __syncthreads();
+    for (unsigned s = blockDim.x / 2; s > 0; s >>= 1) {
+        if (threadIdx.x < s) {
+            sp[threadIdx.x] += sp[threadIdx.x + s];
+            sm[threadIdx.x] += sm[threadIdx.x + s];
+        }
+        __syncthreads();
+    }
+    if (threadIdx.x == 0) {
+        partp[blockIdx.x] = sp[0];
+        partm[blockIdx.x] = sm[0];
+    }
+}
+__global__ void k_compact_upper(dc* a, uint64_t half) {  // diag b==1
+    uint64_t tid = blockIdx.x * (uint64_t)blockDim.x + threadIdx.x;
+    if (tid >= half) return;
+    a[tid] = a[tid + half];
+}
+__global__ void k_fold(dc* a, uint64_t half, int sign) {  // interfere
+    uint64_t tid = blockIdx.x * (uint64_t)blockDim.x + threadIdx.x;
+    if (tid >= half) return;
+    dc x = a[tid], y = a[tid + half];
+    a[tid] = (sign >= 0 ? (x + y) : (x - y)) * mb::kInvSqrt2;
+}
+
+// =============================================================================
+// Batched kernels: B states of dimension d laid out contiguously (stride d).
+// Thread g maps to (shot, work-index). Only H/T/CZ/CNOT are batched (the
+// fixed-rank layer schedule; honors cuStateVec's uniform-qubit-count rule).
+// =============================================================================
+__global__ void kb_h(dc* a, uint64_t d, uint64_t half, unsigned v, uint64_t total) {
+    uint64_t g = blockIdx.x * (uint64_t)blockDim.x + threadIdx.x;  // total = B*half
+    if (g >= total) return;
+    uint64_t b = g / half, j = g % half;
+    dc* s = a + b * d;
+    uint64_t i0 = dev_insert_zero_bit(j, v), i1 = i0 | (uint64_t(1) << v);
+    dc x = s[i0], y = s[i1];
+    s[i0] = (x + y) * mb::kInvSqrt2;
+    s[i1] = (x - y) * mb::kInvSqrt2;
+}
+__global__ void kb_t(dc* a, uint64_t d, uint64_t half, unsigned v, uint64_t total) {
+    uint64_t g = blockIdx.x * (uint64_t)blockDim.x + threadIdx.x;
+    if (g >= total) return;
+    uint64_t b = g / half, j = g % half;
+    dc* s = a + b * d;
+    uint64_t idx = dev_insert_zero_bit(j, v) | (uint64_t(1) << v);
+    s[idx] = cmul(s[idx], {kPhaseRe, kPhaseIm});
+}
+__global__ void kb_cz(dc* a, uint64_t d, uint64_t quarter, unsigned lo, unsigned hi, unsigned c,
+                      unsigned t, uint64_t total) {
+    uint64_t g = blockIdx.x * (uint64_t)blockDim.x + threadIdx.x;  // total = B*quarter
+    if (g >= total) return;
+    uint64_t b = g / quarter, j = g % quarter;
+    dc* s = a + b * d;
+    uint64_t idx = dev_insert_two(j, lo, hi) | (uint64_t(1) << c) | (uint64_t(1) << t);
+    s[idx] = s[idx] * -1.0;
+}
+__global__ void kb_cnot(dc* a, uint64_t d, uint64_t quarter, unsigned lo, unsigned hi, unsigned c,
+                        unsigned t, uint64_t total) {
+    uint64_t g = blockIdx.x * (uint64_t)blockDim.x + threadIdx.x;
+    if (g >= total) return;
+    uint64_t b = g / quarter, j = g % quarter;
+    dc* s = a + b * d;
+    uint64_t base0 = dev_insert_two(j, lo, hi) | (uint64_t(1) << c);
+    uint64_t base1 = base0 | (uint64_t(1) << t);
+    dc tmp = s[base0];
+    s[base0] = s[base1];
+    s[base1] = tmp;
+}
+
+// --- launch helpers ---------------------------------------------------------
+static const int kTPB = 256;
+static inline unsigned grid(uint64_t n) { return (unsigned)((n + kTPB - 1) / kTPB); }
+
+struct GpuTimer {
+    cudaEvent_t a, b;
+    GpuTimer() {
+        cudaEventCreate(&a);
+        cudaEventCreate(&b);
+    }
+    ~GpuTimer() {
+        cudaEventDestroy(a);
+        cudaEventDestroy(b);
+    }
+    void start() { cudaEventRecord(a); }
+    double stop_ms() {
+        cudaEventRecord(b);
+        cudaEventSynchronize(b);
+        float ms = 0;
+        cudaEventElapsedTime(&ms, a, b);
+        return ms;
+    }
+};
+
+// time a launch lambda adaptively (>= ~30ms total), return sec/call
+template <class F>
+static double time_kernel(F launch) {
+    launch();
+    CHECK(cudaDeviceSynchronize());
+    long reps = 1;
+    GpuTimer tm;
+    for (;;) {
+        tm.start();
+        for (long i = 0; i < reps; ++i) launch();
+        double ms = tm.stop_ms();
+        if (ms > 30.0 || reps > (1L << 22)) return (ms / 1e3) / reps;
+        reps *= 2;
+    }
+}
+
+static void init_host(std::vector<dc>& h, uint64_t dim, Rng& rng) {
+    double n = 0;
+    for (uint64_t i = 0; i < dim; ++i) {
+        double re = rng.next_unit() * 2 - 1, im = rng.next_unit() * 2 - 1;
+        h[i] = {re, im};
+        n += re * re + im * im;
+    }
+    double inv = 1.0 / std::sqrt(n);
+    for (uint64_t i = 0; i < dim; ++i) h[i] = h[i] * inv;
+}
+
+// Initialize shot b's slice [b*dim, b*dim+dim) of a batched host buffer.
+static void init_host_slice(std::vector<dc>& h, unsigned b, uint64_t dim, Rng& rng) {
+    dc* p = h.data() + (size_t)b * dim;
+    double n = 0;
+    for (uint64_t i = 0; i < dim; ++i) {
+        double re = rng.next_unit() * 2 - 1, im = rng.next_unit() * 2 - 1;
+        p[i] = {re, im};
+        n += re * re + im * im;
+    }
+    double inv = 1.0 / std::sqrt(n);
+    for (uint64_t i = 0; i < dim; ++i) p[i] = p[i] * inv;
+}
+
+static void validate(unsigned k) {
+    uint64_t dim = uint64_t(1) << k;
+    std::vector<dc> h(dim);
+    Rng rng(2024);
+    init_host(h, dim, rng);
+    std::vector<cd> hc(dim);
+    for (uint64_t i = 0; i < dim; ++i) hc[i] = cd(h[i].r, h[i].i);
+
+    dc* d = nullptr;
+    CHECK(cudaMalloc(&d, dim * sizeof(dc)));
+    CHECK(cudaMemcpy(d, h.data(), dim * sizeof(dc), cudaMemcpyHostToDevice));
+
+    auto sched = make_layer_schedule(k, 2);
+    for (auto& s : sched) {
+        unsigned lo = s.a < s.b ? s.a : s.b, hi = s.a < s.b ? s.b : s.a;
+        switch (s.op) {
+            case Op::H: k_h<<<grid(dim / 2), kTPB>>>(d, dim / 2, s.a); break;
+            case Op::T: k_t<<<grid(dim / 2), kTPB>>>(d, dim / 2, s.a); break;
+            case Op::CZ: k_cz<<<grid(dim / 4), kTPB>>>(d, dim / 4, lo, hi, s.a, s.b); break;
+            case Op::CNOT: k_cnot<<<grid(dim / 4), kTPB>>>(d, dim / 4, lo, hi, s.a, s.b); break;
+            default: break;
+        }
+    }
+    CHECK(cudaDeviceSynchronize());
+    Rng crng(0);
+    for (auto& s : sched) {
+        switch (s.op) {
+            case Op::H: op_h(hc.data(), k, s.a); break;
+            case Op::T: op_t(hc.data(), k, s.a); break;
+            case Op::CZ: op_cz(hc.data(), k, s.a, s.b); break;
+            case Op::CNOT: op_cnot(hc.data(), k, s.a, s.b); break;
+            default: break;
+        }
+    }
+    CHECK(cudaMemcpy(h.data(), d, dim * sizeof(dc), cudaMemcpyDeviceToHost));
+    double maxerr = 0;
+    for (uint64_t i = 0; i < dim; ++i) {
+        maxerr = std::max(maxerr, std::abs(h[i].r - hc[i].real()));
+        maxerr = std::max(maxerr, std::abs(h[i].i - hc[i].imag()));
+    }
+    cudaFree(d);
+    fprintf(stderr, "[validate] k=%u  max|cpu-gpu| = %.3e  %s\n", k, maxerr,
+            maxerr < 1e-9 ? "OK" : "FAIL");
+}
+
+static void transfer_cost(unsigned k) {
+    uint64_t dim = uint64_t(1) << k;
+    size_t bytes = dim * sizeof(dc);
+    std::vector<dc> h(dim);
+    Rng rng(1);
+    init_host(h, dim, rng);
+    dc* d = nullptr;
+    CHECK(cudaMalloc(&d, bytes));
+    GpuTimer tm;
+    int reps = 20;
+    tm.start();
+    for (int i = 0; i < reps; ++i)
+        cudaMemcpy(d, h.data(), bytes, cudaMemcpyHostToDevice);
+    double h2d = tm.stop_ms() / reps / 1e3;
+    tm.start();
+    for (int i = 0; i < reps; ++i)
+        cudaMemcpy(h.data(), d, bytes, cudaMemcpyDeviceToHost);
+    double d2h = tm.stop_ms() / reps / 1e3;
+    cudaFree(d);
+    printf("transfer,%u,%llu,%.3f,%.3f\n", k, (unsigned long long)bytes, bytes / h2d / 1e9,
+           bytes / d2h / 1e9);
+    fprintf(stderr, "[transfer] k=%u  %.1f MB  H2D %.1f GB/s  D2H %.1f GB/s\n", k,
+            bytes / 1e6, bytes / h2d / 1e9, bytes / d2h / 1e9);
+}
+
+static void bench_single(unsigned kmin, unsigned kmax) {
+    fprintf(stderr, "\n=== Single-statevector per-op throughput (GPU, FP64) ===\n");
+    fprintf(stderr, "%-4s %-15s %-12s %-12s %-10s\n", "k", "op", "dim", "ns/op", "Gamp/s");
+    uint64_t cap = uint64_t(1) << (kmax + 1);
+    dc* d = nullptr;
+    CHECK(cudaMalloc(&d, cap * sizeof(dc)));
+    {
+        std::vector<dc> h(cap);
+        Rng rng(99);
+        init_host(h, cap, rng);
+        CHECK(cudaMemcpy(d, h.data(), cap * sizeof(dc), cudaMemcpyHostToDevice));
+    }
+    double* part0 = nullptr;
+    double* part1 = nullptr;
+    int maxblocks = 4096;
+    CHECK(cudaMalloc(&part0, maxblocks * sizeof(double)));
+    CHECK(cudaMalloc(&part1, maxblocks * sizeof(double)));
+    std::vector<double> hpart0(maxblocks), hpart1(maxblocks);
+
+    for (unsigned k = kmin; k <= kmax; ++k) {
+        uint64_t dim = uint64_t(1) << k, half = dim / 2, quarter = dim / 4;
+        unsigned v = k / 2, c = 0, t = (k >= 2) ? 1u : 0u;
+        unsigned lo = c < t ? c : t, hi = c < t ? t : c;
+
+        struct Row { Op op; double spc; };
+        std::vector<Row> rows;
+        rows.push_back({Op::H, time_kernel([&] { k_h<<<grid(half), kTPB>>>(d, half, v); })});
+        rows.push_back({Op::T, time_kernel([&] { k_t<<<grid(half), kTPB>>>(d, half, v); })});
+        if (k >= 2) {
+            rows.push_back({Op::CZ, time_kernel([&] {
+                                k_cz<<<grid(quarter), kTPB>>>(d, quarter, lo, hi, c, t);
+                            })});
+            rows.push_back({Op::CNOT, time_kernel([&] {
+                                k_cnot<<<grid(quarter), kTPB>>>(d, quarter, lo, hi, c, t);
+                            })});
+        }
+        rows.push_back({Op::EXPAND, time_kernel([&] { k_expand<<<grid(dim), kTPB>>>(d, dim); })});
+        rows.push_back(
+            {Op::EXPAND_T, time_kernel([&] { k_expand_t<<<grid(dim), kTPB>>>(d, dim); })});
+        unsigned nb = (unsigned)std::min<uint64_t>(maxblocks, grid(half));
+        size_t shmem = 2 * kTPB * sizeof(double);
+        rows.push_back({Op::MEAS_DIAG, time_kernel([&] {
+                            k_reduce_diag<<<nb, kTPB, shmem>>>(d, half, part0, part1);
+                            k_compact_upper<<<grid(half), kTPB>>>(d, half);
+                        })});
+        rows.push_back({Op::MEAS_INTERFERE, time_kernel([&] {
+                            k_reduce_interfere<<<nb, kTPB, shmem>>>(d, half, part0, part1);
+                            k_fold<<<grid(half), kTPB>>>(d, half, +1);
+                        })});
+
+        for (auto& r : rows) {
+            double gamps = (double)dim / r.spc / 1e9;
+            printf("singlegpu,%u,%s,%llu,%.1f,%.3f\n", k, op_name(r.op),
+                   (unsigned long long)dim, r.spc * 1e9, gamps);
+            fprintf(stderr, "%-4u %-15s %-12llu %-12.1f %-10.3f\n", k, op_name(r.op),
+                    (unsigned long long)dim, r.spc * 1e9, gamps);
+        }
+    }
+    cudaFree(part0);
+    cudaFree(part1);
+    cudaFree(d);
+}
+
+static void bench_batched(const std::vector<unsigned>& ks, unsigned layers) {
+    fprintf(stderr, "\n=== Batched-across-shots throughput (GPU, FP64) ===\n");
+    fprintf(stderr, "%-4s %-8s %-14s %-12s\n", "k", "B", "shots/s", "Mshot-lyr/s");
+    std::vector<unsigned> Bs = {256, 1024, 4096, 16384, 65536};
+    for (unsigned k : ks) {
+        uint64_t dim = uint64_t(1) << k, half = dim / 2, quarter = dim / 4;
+        auto sched = make_layer_schedule(k, layers);
+        for (unsigned B : Bs) {
+            size_t bytes = (size_t)B * dim * sizeof(dc);
+            if (bytes > 16.0e9) continue;  // keep within GH200 HBM headroom
+            dc* d = nullptr;
+            if (cudaMalloc(&d, bytes) != cudaSuccess) continue;
+            {
+                std::vector<dc> h((size_t)B * dim);
+                Rng rng(31 + k);
+                for (unsigned b = 0; b < B; ++b) init_host_slice(h, b, dim, rng);
+                CHECK(cudaMemcpy(d, h.data(), bytes, cudaMemcpyHostToDevice));
+            }
+            uint64_t totH = (uint64_t)B * half, totQ = (uint64_t)B * quarter;
+            double spc = time_kernel([&] {
+                for (auto& s : sched) {
+                    unsigned lo = s.a < s.b ? s.a : s.b, hi = s.a < s.b ? s.b : s.a;
+                    switch (s.op) {
+                        case Op::H: kb_h<<<grid(totH), kTPB>>>(d, dim, half, s.a, totH); break;
+                        case Op::T: kb_t<<<grid(totH), kTPB>>>(d, dim, half, s.a, totH); break;
+                        case Op::CZ:
+                            kb_cz<<<grid(totQ), kTPB>>>(d, dim, quarter, lo, hi, s.a, s.b, totQ);
+                            break;
+                        case Op::CNOT:
+                            kb_cnot<<<grid(totQ), kTPB>>>(d, dim, quarter, lo, hi, s.a, s.b, totQ);
+                            break;
+                        default: break;
+                    }
+                }
+            });
+            cudaFree(d);
+            double shots_per_s = B / spc;
+            double mshot_layer = shots_per_s * layers / 1e6;
+            printf("batchedgpu,%u,%u,%u,%.1f,%.3f\n", k, B, B, shots_per_s, mshot_layer);
+            fprintf(stderr, "%-4u %-8u %-14.1f %-12.3f\n", k, B, shots_per_s, mshot_layer);
+        }
+    }
+}
+
+int main(int argc, char** argv) {
+    unsigned kmin = 10, kmax = 26, layers = 4;
+    std::vector<unsigned> bks = {12, 16, 18, 20};
+    if (argc >= 3) { kmin = atoi(argv[1]); kmax = atoi(argv[2]); }
+    if (argc >= 4) {
+        bks.clear();
+        std::string s = argv[3];
+        size_t pos = 0;
+        while (pos < s.size()) {
+            size_t comma = s.find(',', pos);
+            bks.push_back((unsigned)atoi(s.substr(pos, comma - pos).c_str()));
+            if (comma == std::string::npos) break;
+            pos = comma + 1;
+        }
+    }
+    if (argc >= 5) layers = atoi(argv[4]);
+
+    int dev = 0;
+    cudaDeviceProp prop{};
+    CHECK(cudaGetDeviceProperties(&prop, dev));
+    fprintf(stderr, "GPU: %s  sm_%d%d  %.1f GB HBM\n", prop.name, prop.major, prop.minor,
+            prop.totalGlobalMem / 1e9);
+
+    printf("# tag,k,op_or_B,dim_or_shots_or_bytes,metric1,metric2\n");
+    validate(12);
+    validate(18);
+    for (unsigned k = kmin; k <= kmax; k += 4) transfer_cost(k);
+    bench_single(kmin, kmax);
+    bench_batched(bks, layers);
+    return 0;
+}
