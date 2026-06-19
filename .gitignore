@@ -71,3 +71,8 @@ results/
 
 # Research reference PDFs (kept locally, not committed)
 research/refs/*.pdf
+
+# LaTeX build artifacts (findings.pdf is committed; intermediates are not)
+research/*.aux
+research/*.log
+research/*.out

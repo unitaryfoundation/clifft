@@ -15,6 +15,7 @@
 
 #include <chrono>
 #include <cstdio>
+#include <cstdlib>
 #include <fstream>
 #include <random>
 #include <vector>
@@ -38,7 +39,8 @@ int main(int argc, char** argv) {
     std::vector<uint64_t> targets(nt);
     for (int i = 0; i < nt; ++i) in >> targets[i];
 
-    std::mt19937_64 rng(12345);
+    uint64_t seed = (argc > 2) ? std::strtoull(argv[2], nullptr, 10) : 12345;
+    std::mt19937_64 rng(seed);
     auto t0 = std::chrono::steady_clock::now();
     // base |+>^n
     CHForm base(n);
