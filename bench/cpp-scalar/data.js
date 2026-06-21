@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1781941173710,
+  "lastUpdate": 1782028864555,
   "repoUrl": "https://github.com/unitaryfoundation/clifft",
   "entries": {
     "C++ Catch2 benchmarks (scalar)": [
@@ -2046,6 +2046,70 @@ window.BENCHMARK_DATA = {
             "name": "exp-val 20q 200 probes x100k",
             "value": 164.296,
             "range": "± 3.56537",
+            "unit": "ms",
+            "extra": "100 samples\n1 iterations"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Brad Chase",
+            "username": "bachase",
+            "email": "14430+bachase@users.noreply.github.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "a4e3031b510374aba387f525f8391ee44a2112ff",
+          "message": "feat: add correlated Pauli noise channels (#158)\n\nAdd Stim-compatible CORRELATED_ERROR/E and ELSE_CORRELATED_ERROR noise support.\n\nAssisted-by: Codex (GPT-5) <noreply@openai.com>",
+          "timestamp": "2026-06-15T22:19:40Z",
+          "url": "https://github.com/unitaryfoundation/clifft/commit/a4e3031b510374aba387f525f8391ee44a2112ff"
+        },
+        "date": 1782028862861,
+        "tool": "catch2",
+        "benches": [
+          {
+            "name": "QV-10 x100 shots",
+            "value": 72.026,
+            "range": "± 241.461",
+            "unit": "ms",
+            "extra": "100 samples\n1 iterations"
+          },
+          {
+            "name": "cultivation-d5 x1000 shots",
+            "value": 77.2042,
+            "range": "± 1.35454",
+            "unit": "ms",
+            "extra": "100 samples\n1 iterations"
+          },
+          {
+            "name": "surface-d7-r7 p=1e-3 x10000 shots",
+            "value": 93.6584,
+            "range": "± 2.67588",
+            "unit": "ms",
+            "extra": "100 samples\n1 iterations"
+          },
+          {
+            "name": "surface-d5-r5 p=0.05 x10000 shots",
+            "value": 109.875,
+            "range": "± 463.352",
+            "unit": "ms",
+            "extra": "100 samples\n1 iterations"
+          },
+          {
+            "name": "surface-d11-r11 p=1e-3 x1000 shots",
+            "value": 38.1842,
+            "range": "± 725.874",
+            "unit": "ms",
+            "extra": "100 samples\n1 iterations"
+          },
+          {
+            "name": "exp-val 20q 200 probes x100k",
+            "value": 163.61,
+            "range": "± 2.66367",
             "unit": "ms",
             "extra": "100 samples\n1 iterations"
           }
