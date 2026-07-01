@@ -65,8 +65,7 @@ TransitionInstrument TransitionInstrument::from_matrix(std::vector<std::vector<d
     // is_source_independent_on_computational: every column whose source
     // level has category Computational must equal the first such column
     // within tolerance. Vacuously true if there are fewer than two
-    // Computational levels (LevelSet validation guarantees exactly two:
-    // basis_bit == Zero and basis_bit == One).
+    // Computational levels (LevelSet validation guarantees exactly two).
     bool flag = true;
     const auto levels_span = levels.levels();
     uint8_t first_comp = 0xFF;

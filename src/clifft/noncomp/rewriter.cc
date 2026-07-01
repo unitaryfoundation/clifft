@@ -22,7 +22,7 @@ AstNode single_qubit_op(GateType gate, uint32_t qubit) {
 
 // A hidden carrier edit appended after an op for one operand's jump: an R
 // collapses and rezeros the carrier, and an X then prepares |1> when the
-// jump lands on the basis_bit == One computational level.
+// jump lands on the |1> computational level.
 struct CarrierEdit {
     uint32_t qubit;
     bool prepare_one;
@@ -57,7 +57,7 @@ Circuit rewrite(const Circuit& original, const NonComputationalHistory& history,
     for (uint32_t q = 0; q < original.num_qubits; ++q) {
         const QubitStatus& s = status[q];
         if (s.kind() == QubitStatusKind::ComputationalKnown &&
-            levels.at(s.level_id()).basis_bit == BasisBit::One) {
+            s.level_id() == levels.computational_one_id()) {
             out.nodes.push_back(single_qubit_op(GateType::X, q));
         }
     }
@@ -135,7 +135,8 @@ Circuit rewrite(const Circuit& original, const NonComputationalHistory& history,
             if (outcome.jumped) {
                 const Level& dest = levels.at(outcome.destination_level);
                 if (dest.category == LevelCategory::Computational) {
-                    carrier_edits.push_back({qubit, dest.basis_bit == BasisBit::One});
+                    carrier_edits.push_back(
+                        {qubit, outcome.destination_level == levels.computational_one_id()});
                 } else {
                     const QubitStatus post_if_no_jump =
                         drop_op ? pre

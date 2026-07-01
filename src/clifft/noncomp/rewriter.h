@@ -7,7 +7,7 @@
 // pipeline -- it introduces no new instruction kinds. It does three things:
 //
 //   1. Initial-state prep: prepend an X on each qubit whose sampled initial
-//      status is ComputationalKnown with a basis_bit == One level, so the
+//      status is ComputationalKnown with the |1> level, so the
 //      SVM's |0...0> initial state matches the sampled known level.
 //   2. Per-op policy: replay each operation's per-qubit status through the
 //      shared status stepper and keep, drop, or reject the operation. A
@@ -26,7 +26,7 @@
 //      leave with no jump is ComputationalUnknown -- a qubit a gate has just
 //      made coherent still needs trace-out even if it entered known.
 //   4. Carrier materialization: when a jump lands on a computational level,
-//      insert an R (plus an X for the basis_bit == One level) immediately
+//      insert an R (plus an X for the |1> level) immediately
 //      after the operation, so the SVM carrier is prepared at the definite
 //      destination level. This is done for every carrier state: it is the
 //      collapse unraveling for a coherent carrier, a deterministic re-prep

@@ -111,37 +111,28 @@ simulation:
   coherent return from a leaked level back into a superposition with
   `g`/`e`.
 
-A `Computational`-category level must also declare a `basis_bit`
-(`Zero` or `One`, exposed as a `BasisBit` enum) identifying which
-computational basis state it represents. The rewriter uses this to
-prepend a preparation gate when an initial sample places the qubit
-in `ComputationalKnown` with a level whose `basis_bit` is `One`
-(the SVM default initialization is `|0...0>`).
+A level table must contain exactly two `Computational` levels; in table
+order the first is the `|0>` state and the second is `|1>`. The rewriter
+uses `computational_one_id()` to prepend a preparation gate when an
+initial sample places the qubit in `ComputationalKnown` with the `|1>`
+level, or when a transition materializes the carrier at the `|1>` level
+(the SVM default initialization is `|0...0>`). `Leaked` and `Lost` levels
+carry no basis information — "lost from `|1>`" provenance, if ever needed,
+belongs in an event record or in distinct levels, not in the level tag.
 
-`Leaked`-category levels may optionally carry a `basis_bit` as
-origin metadata (e.g., to record that the atom leaked from `|1>`).
-No current code path consumes it; consumers that want to integrate
-classifier or decoder metadata can read it directly. `Lost`-category
-levels must leave `basis_bit` empty — "lost from `|1>`" provenance,
-if ever needed, belongs in an event record or in distinct lost
-levels, not in the default lost level.
+`LevelSet` validation rejects any table without exactly two `Computational`
+levels; downstream paths (visible Z-basis measurement, Z-basis reset,
+initial prep, classifier defaults) need unambiguous `g`/`e` ids.
 
-`LevelSet` validation also requires the level table to contain
-exactly one `Computational` level with `basis_bit == Zero` and
-exactly one with `basis_bit == One`. Downstream paths (visible
-Z-basis measurement, Z-basis reset, initial prep, classifier
-defaults) need unambiguous `g`/`e` ids; duplicates or missing
-canonical levels reject at `LevelSet` construction.
+Default level set for the MVP:
 
-Default level set for the MVP (sqale-aligned):
-
-| id | label    | category      | basis_bit | notes                          |
-|----|----------|---------------|-----------|--------------------------------|
-| 0  | `g`      | Computational | 0         | logical 0                      |
-| 1  | `e`      | Computational | 1         | logical 1                      |
-| 2  | `leak_g` | Leaked        | —         | metastable / Rydberg "leak g"  |
-| 3  | `leak_e` | Leaked        | —         | metastable / Rydberg "leak e"  |
-| 4  | `lost`   | Lost          | —         | empty trap / vacuum            |
+| id | label    | category      | notes                          |
+|----|----------|---------------|--------------------------------|
+| 0  | `g`      | Computational | logical 0                      |
+| 1  | `e`      | Computational | logical 1                      |
+| 2  | `leak_g` | Leaked        | metastable / Rydberg "leak g"  |
+| 3  | `leak_e` | Leaked        | metastable / Rydberg "leak e"  |
+| 4  | `lost`   | Lost          | empty trap / vacuum            |
 
 Users may construct a `NonComputationalModel` with a different level
 set, but the default ships unchanged.
@@ -224,8 +215,8 @@ import clifft
 model = clifft.NonComputationalModel(
     # Optional; defaults to the sqale-aligned 5-level set above.
     levels=[
-        clifft.Level("g",      category="computational", basis_bit=0),
-        clifft.Level("e",      category="computational", basis_bit=1),
+        clifft.Level("g",      category="computational"),
+        clifft.Level("e",      category="computational"),
         clifft.Level("leak_g", category="leaked"),
         clifft.Level("leak_e", category="leaked"),
         clifft.Level("lost",   category="lost"),
@@ -303,12 +294,9 @@ invariant; the runtime sampler uses it as the §4.2 gate.
 ```cpp
 namespace clifft {
 
-enum class BasisBit : uint8_t { Zero = 0, One = 1 };
-
 struct Level {
     std::string label;
     LevelCategory category;
-    std::optional<BasisBit> basis_bit;
 };
 
 // Validated level table. Construction runs the section 4.1 level-set
@@ -387,8 +375,8 @@ independently constructible and testable, but it admits a misuse a
 level-count check cannot catch — a component built against a
 different but same-sized `LevelSet` would bind its columns to the
 wrong level ids. To close that, each instrument and classifier records
-a deterministic `LevelSet::fingerprint()` (over each level's label,
-category, and basis_bit, in order) at construction, and the model
+a deterministic `LevelSet::fingerprint()` (over each level's label
+and category, in order) at construction, and the model
 rejects any component whose fingerprint does not match its own table.
 
 The fingerprint exists *only* to guard the compositional path. The
@@ -417,13 +405,9 @@ representable in the MVP.
 
 1. **Level set well-formed.** Every level id in `[0, len(levels))`,
    categories all in `LevelCategory` (unrecognized enum values reject).
-   Every `Computational`-category level declares a `basis_bit` (the
-   `BasisBit` enum restricts the value to `Zero` or `One`
-   structurally). `Leaked` levels may carry a `basis_bit` as
-   optional metadata; `Lost` levels must not. The table must contain
-   exactly one Computational level with `basis_bit == Zero` and
-   exactly one with `basis_bit == One` (downstream code needs
-   unambiguous `g`/`e` ids).
+   The table must contain exactly two `Computational` levels; in table
+   order the first is the `|0>` (g) state and the second is `|1>` (e).
+   Downstream code needs unambiguous `g`/`e` ids.
 2. **Initial state is a probability vector** over `levels`. Sums to 1
    within tolerance.
 3. **Transition matrices are square**, of size `len(levels)`, entries
@@ -516,10 +500,10 @@ For each shot:
    if the level's category is `Computational`, else `Leaked` or
    `Lost` (with the sampled level id) per the level's category.
 2. **Translate known computational initial levels into prep gates.**
-   For every qubit whose initial sample is `ComputationalKnown` with
-   a level whose `basis_bit == 1`, the rewriter prepends an `X` on
-   that qubit so the SVM's `|0...0>` initial state matches the
-   sampled known level. `basis_bit == 0` requires no prep.
+   For every qubit whose initial sample is `ComputationalKnown` at
+   the `|1>` level, the rewriter prepends an `X` on that qubit so the
+   SVM's `|0...0>` initial state matches the sampled known level. The
+   `|0>` level requires no prep.
    `Leaked`/`Lost` initial qubits need no quantum prep (their
    computational amplitude is irrelevant); the lost/leaked policy
    gates downstream ops on them from op 0.
@@ -775,8 +759,8 @@ collapses and rezeros the carrier to `|0>`. So the rewriter inserts,
 immediately after the base op:
 
 - an `R` on the qubit, always; and
-- an `X` after it when the destination is the `basis_bit == One`
-  computational level.
+- an `X` after it when the destination is the `|1>` computational
+  level.
 
 The edit is deliberately uniform over the carrier state the base op
 would leave:
@@ -823,7 +807,7 @@ Proposed layout under `src/clifft/noncomp/` (new directory):
    with `computational_unknown()` factory and accessors
    (`is_unknown_computational`, `known_source_level`,
    `require_classical_source_level`). Zero clifft-internal deps.
-2. `level.h` — `LevelCategory` enum, `BasisBit` enum, `Level` struct,
+2. `level.h` — `LevelCategory` enum, `Level` struct,
    `LevelSet` (validated table that owns the `QubitStatus` factories
    `computational_known` / `leaked` / `lost`). Depends on (1).
 3. `transition_instrument.h/.cc` — `TransitionInstrument`,
@@ -843,14 +827,14 @@ Proposed layout under `src/clifft/noncomp/` (new directory):
    (1)-(7), `clifft::Circuit`, `clifft::AstNode`.
 9. `rewriter.h/.cc` — produces a new `clifft::Circuit` from
    `(original, history, model)`, inserting `R` at coherent-qubit loss
-   points and `X` prep for `basis_bit == One` initial samples.
+   points and `X` prep for known-|1> initial samples.
    Depends on (1)-(8) and `clifft::Circuit`.
 10. `orchestrator.h/.cc` — top-level `sample_noncomputational` entry
     point that runs the full pipeline. Depends on (1)-(9), the
     existing compile pipeline, and the SVM.
 
 Python bindings in `src/python/bindings.cc` expose: `Level`,
-`BasisBit`, `LevelSet`, `TransitionInstrument`,
+`LevelSet`, `TransitionInstrument`,
 `MeasurementClassifier`, `NonComputationalPolicy`,
 `NonComputationalModel`,
 `sample_noncomputational(circuit_text, model, shots, seed=None)`.
@@ -869,10 +853,9 @@ tests under `tests/test_noncomp_*.cc`; Python tests under
 
 1. **`qubit_status`, `level`, `transition_instrument`, `classifier`
    unit tests.**
-   - `LevelSet::default_set()` validates; missing `basis_bit` on a
-     Computational level rejects; unrecognized `LevelCategory` enum
-     value rejects; oversized level set rejects. Leaked-with-`basis_bit`
-     is accepted as optional metadata.
+   - `LevelSet::default_set()` validates; a table without exactly two
+     Computational levels rejects; unrecognized `LevelCategory` enum
+     value rejects; oversized level set rejects.
    - Matrix orientation: `T[to, from]` matches a known per-column
      no-jump weight.
    - `is_source_independent_on_computational` is true for identical
