@@ -81,6 +81,15 @@ encode "computational but unknown" as a kind that *cannot* carry a
 specific level id, enforcing the source-resolved invariant
 structurally rather than by convention. See §2.3.
 
+`ComputationalKnown` earns its place as a kind distinct from an opaque
+`Computational`: three code paths branch on it. The sampler takes the
+*exact* known-source column for a state-dependent transition on a
+`ComputationalKnown` qubit and only rejects (or approximates) on
+`ComputationalUnknown` (§4.2); the rewriter prepends an `X` prep for a
+qubit whose sampled initial level is the known `|1>` state; and a
+classically-controlled `X` demotes `Known → Unknown` while leaving an
+already-`Unknown` qubit untouched (§5.2.1).
+
 ### 2.2 Levels (model-defined)
 
 A `Level` is a model-defined tag with a stable integer id, a label, and
