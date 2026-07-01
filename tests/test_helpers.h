@@ -11,8 +11,10 @@
 #include "stim.h"
 
 #include <array>
+#include <bit>
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/matchers/catch_matchers_floating_point.hpp>
+#include <cmath>
 #include <complex>
 #include <cstddef>
 #include <cstdint>
@@ -20,6 +22,7 @@
 #include <span>
 #include <string>
 #include <utility>
+#include <vector>
 
 namespace clifft {
 namespace test {
@@ -136,6 +139,52 @@ inline void check_complex(std::complex<double> actual, std::complex<double> expe
                           double tol = kDefaultTol) {
     CHECK_THAT(actual.real(), Catch::Matchers::WithinAbs(expected.real(), tol));
     CHECK_THAT(actual.imag(), Catch::Matchers::WithinAbs(expected.imag(), tol));
+}
+
+// Dense-matrix oracle helpers for canonical-phase tests. Row-major
+// dim x dim complex matrices in little-endian basis order.
+using DenseMatrix = std::vector<std::complex<double>>;
+
+inline DenseMatrix dense_tableau_matrix(const stim::Tableau<kStimWidth>& tab) {
+    auto flat = tab.to_flat_unitary_matrix(true);
+    DenseMatrix m(flat.size());
+    for (size_t i = 0; i < flat.size(); ++i) {
+        m[i] = {flat[i].real(), flat[i].imag()};
+    }
+    return m;
+}
+
+inline DenseMatrix dense_matmul(const DenseMatrix& a, const DenseMatrix& b, uint64_t dim) {
+    DenseMatrix r(dim * dim, {0.0, 0.0});
+    for (uint64_t i = 0; i < dim; ++i) {
+        for (uint64_t k = 0; k < dim; ++k) {
+            for (uint64_t j = 0; j < dim; ++j) {
+                r[i * dim + j] += a[i * dim + k] * b[k * dim + j];
+            }
+        }
+    }
+    return r;
+}
+
+// Dense matrix of the projector-form rotation Pi_+ + e^{i*alpha*pi} Pi_- on
+// the signed Pauli (x, z, sign) over n qubits, little-endian basis order.
+// The fused S/S_dag the peephole absorbs is alpha = 0.5 / 1.5.
+inline DenseMatrix dense_axis_rotation(uint64_t x, uint64_t z, bool sign, double alpha, size_t n) {
+    const uint64_t dim = uint64_t{1} << n;
+    constexpr std::complex<double> kIPow[4] = {{1, 0}, {0, 1}, {-1, 0}, {0, -1}};
+    const std::complex<double> eig{std::cos(alpha * std::numbers::pi),
+                                   std::sin(alpha * std::numbers::pi)};
+    const std::complex<double> a = (1.0 + eig) / 2.0;
+    const std::complex<double> b = (1.0 - eig) / 2.0;
+
+    DenseMatrix r(dim * dim, {0.0, 0.0});
+    for (uint64_t c = 0; c < dim; ++c) {
+        r[c * dim + c] += a;
+        uint32_t phase_idx = (sign ? 2U : 0U) + static_cast<uint32_t>(std::popcount(x & z)) +
+                             2U * (static_cast<uint32_t>(std::popcount(c & z)) & 1U);
+        r[(c ^ x) * dim + c] += b * kIPow[phase_idx & 3U];
+    }
+    return r;
 }
 
 }  // namespace test

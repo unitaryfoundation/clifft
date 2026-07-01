@@ -192,8 +192,8 @@ def test_postselection_without_passes_unchanged() -> None:
         (6, 100, 5004),
     ],
 )
-def test_statevector_identical_with_passes(num_qubits: int, depth: int, seed: int) -> None:
-    """Statevectors from optimized compile must match unoptimized exactly.
+def test_statevector_equiv_with_passes(num_qubits: int, depth: int, seed: int) -> None:
+    """Statevectors from optimized compile must match unoptimized up to global phase.
 
     Uses measurement-free circuits so the statevector is deterministic
     and we can compare fidelity directly.

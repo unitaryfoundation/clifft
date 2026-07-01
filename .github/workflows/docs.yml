@@ -57,7 +57,10 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
+      - name: Install clifft and docs deps
+        run: uv sync --locked --group docs
+
       - name: Deploy dev docs
-        run: uv run --only-group docs mike deploy --push dev
+        run: uv run --locked --group docs mike deploy --push dev
         env:
           SITE_URL: https://unitaryfoundation.github.io/clifft/dev/

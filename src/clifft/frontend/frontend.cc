@@ -3,6 +3,7 @@
 #include "stim.h"
 
 #include <cmath>
+#include <initializer_list>
 #include <numbers>
 #include <random>
 #include <stdexcept>
@@ -134,32 +135,49 @@ void accumulate_pauli_row(const stim::Tableau<kStimWidth>& tab, uint32_t qubit, 
     }
 }
 
-/// Rewind a single-qubit Pauli (X, Y, or Z) through the tableau into a
-/// freshly claimed noise_channel_masks slot. Returns the channel.
-NoiseChannel rewind_single_pauli(HirModule& hir, const stim::TableauSimulator<kStimWidth>& sim,
-                                 uint32_t qubit, int pauli_type, double prob) {
-    auto h = hir.claim_empty_noise_channel_mask();
-    auto slot = hir.noise_channel_masks.mut_at(h);
-    slot.x().zero_out();
-    slot.z().zero_out();
-    accumulate_pauli_row(sim.inv_state, qubit, pauli_type, sim.inv_state.num_qubits, slot.x(),
-                         slot.z());
-    return NoiseChannel{h, prob};
-}
+struct PauliTerm {
+    uint32_t qubit;
+    int pauli_type;
+};
 
-/// Rewind a two-qubit Pauli through the tableau into a freshly claimed slot.
-NoiseChannel rewind_two_qubit_pauli(HirModule& hir, const stim::TableauSimulator<kStimWidth>& sim,
-                                    uint32_t q1, uint32_t q2, int pauli1, int pauli2, double prob) {
+/// Rewind a Pauli product through the tableau into a fresh noise-channel slot.
+NoiseChannel rewind_pauli_terms(HirModule& hir, const stim::TableauSimulator<kStimWidth>& sim,
+                                std::initializer_list<PauliTerm> terms, double prob) {
     auto h = hir.claim_empty_noise_channel_mask();
     auto slot = hir.noise_channel_masks.mut_at(h);
     slot.x().zero_out();
     slot.z().zero_out();
     uint32_t n = sim.inv_state.num_qubits;
-    if (pauli1 != 0)
-        accumulate_pauli_row(sim.inv_state, q1, pauli1, n, slot.x(), slot.z());
-    if (pauli2 != 0)
-        accumulate_pauli_row(sim.inv_state, q2, pauli2, n, slot.x(), slot.z());
+    for (const auto& term : terms) {
+        if (term.pauli_type != 0) {
+            accumulate_pauli_row(sim.inv_state, term.qubit, term.pauli_type, n, slot.x(), slot.z());
+        }
+    }
     return NoiseChannel{h, prob};
+}
+
+/// Rewind a Pauli product stored as Pauli-tagged targets into a fresh noise slot.
+NoiseChannel rewind_pauli_targets(HirModule& hir, const stim::TableauSimulator<kStimWidth>& sim,
+                                  const std::vector<Target>& targets, double prob) {
+    auto h = hir.claim_empty_noise_channel_mask();
+    auto slot = hir.noise_channel_masks.mut_at(h);
+    slot.x().zero_out();
+    slot.z().zero_out();
+    uint32_t n = sim.inv_state.num_qubits;
+    for (const auto& target : targets) {
+        if (!target.has_pauli()) {
+            throw std::runtime_error("Expected Pauli target");
+        }
+        auto pauli_type = static_cast<int>(target.pauli() >> Target::kPauliShift);
+        accumulate_pauli_row(sim.inv_state, target.value(), pauli_type, n, slot.x(), slot.z());
+    }
+    return NoiseChannel{h, prob};
+}
+
+void append_noise_site(HirModule& hir, NoiseSite site) {
+    NoiseSiteIdx idx{static_cast<uint32_t>(hir.noise_sites.size())};
+    hir.noise_sites.push_back(std::move(site));
+    hir.append_noise(idx);
 }
 
 NoiseSite make_single_qubit_noise_site(HirModule& hir,
@@ -168,18 +186,18 @@ NoiseSite make_single_qubit_noise_site(HirModule& hir,
     NoiseSite site;
     switch (gate) {
         case GateType::X_ERROR:
-            site.channels.push_back(rewind_single_pauli(hir, sim, qubit, 1, prob));
+            site.channels.push_back(rewind_pauli_terms(hir, sim, {{qubit, 1}}, prob));
             break;
         case GateType::Y_ERROR:
-            site.channels.push_back(rewind_single_pauli(hir, sim, qubit, 2, prob));
+            site.channels.push_back(rewind_pauli_terms(hir, sim, {{qubit, 2}}, prob));
             break;
         case GateType::Z_ERROR:
-            site.channels.push_back(rewind_single_pauli(hir, sim, qubit, 3, prob));
+            site.channels.push_back(rewind_pauli_terms(hir, sim, {{qubit, 3}}, prob));
             break;
         case GateType::DEPOLARIZE1:
-            site.channels.push_back(rewind_single_pauli(hir, sim, qubit, 1, prob / 3.0));
-            site.channels.push_back(rewind_single_pauli(hir, sim, qubit, 2, prob / 3.0));
-            site.channels.push_back(rewind_single_pauli(hir, sim, qubit, 3, prob / 3.0));
+            site.channels.push_back(rewind_pauli_terms(hir, sim, {{qubit, 1}}, prob / 3.0));
+            site.channels.push_back(rewind_pauli_terms(hir, sim, {{qubit, 2}}, prob / 3.0));
+            site.channels.push_back(rewind_pauli_terms(hir, sim, {{qubit, 3}}, prob / 3.0));
             break;
         default:
             throw std::runtime_error("Not a single-qubit noise gate");
@@ -195,7 +213,25 @@ NoiseSite make_depolarize2_noise_site(HirModule& hir, const stim::TableauSimulat
         for (int p2 = 0; p2 <= 3; ++p2) {
             if (p1 == 0 && p2 == 0)
                 continue;
-            site.channels.push_back(rewind_two_qubit_pauli(hir, sim, q1, q2, p1, p2, channel_prob));
+            site.channels.push_back(
+                rewind_pauli_terms(hir, sim, {{q1, p1}, {q2, p2}}, channel_prob));
+        }
+    }
+    return site;
+}
+
+NoiseSite make_depolarize3_noise_site(HirModule& hir, const stim::TableauSimulator<kStimWidth>& sim,
+                                      uint32_t q1, uint32_t q2, uint32_t q3, double prob) {
+    NoiseSite site;
+    double channel_prob = prob / 63.0;
+    for (int p1 = 0; p1 <= 3; ++p1) {
+        for (int p2 = 0; p2 <= 3; ++p2) {
+            for (int p3 = 0; p3 <= 3; ++p3) {
+                if (p1 == 0 && p2 == 0 && p3 == 0)
+                    continue;
+                site.channels.push_back(
+                    rewind_pauli_terms(hir, sim, {{q1, p1}, {q2, p2}, {q3, p3}}, channel_prob));
+            }
         }
     }
     return site;
@@ -286,6 +322,14 @@ size_t count_noise_channels(const Circuit& circuit) {
             case GateType::PAULI_CHANNEL_2:
                 count += 15 * (n_targets / 2);
                 break;
+            case GateType::DEPOLARIZE3:
+            case GateType::PAULI_CHANNEL_3:
+                count += 63 * (n_targets / 3);
+                break;
+            case GateType::CORRELATED_ERROR:
+            case GateType::ELSE_CORRELATED_ERROR:
+                count += 1;
+                break;
             default:
                 break;
         }
@@ -370,7 +414,8 @@ HirModule trace(const Circuit& circuit) {
     uint32_t hidden_meas_idx = circuit.num_measurements;
     ExpValIdx exp_val_idx{0};
 
-    for (const auto& node : circuit.nodes) {
+    for (size_t node_index = 0; node_index < circuit.nodes.size(); ++node_index) {
+        const auto& node = circuit.nodes[node_index];
         const size_t ops_before = hir.ops.size();
 
         switch (node.gate) {
@@ -718,9 +763,7 @@ HirModule trace(const Circuit& circuit) {
                 for (const auto& target : node.targets) {
                     NoiseSite site =
                         make_single_qubit_noise_site(hir, sim, node.gate, target.value(), prob);
-                    NoiseSiteIdx idx{static_cast<uint32_t>(hir.noise_sites.size())};
-                    hir.noise_sites.push_back(std::move(site));
-                    hir.append_noise(idx);
+                    append_noise_site(hir, std::move(site));
                 }
                 break;
             }
@@ -737,12 +780,10 @@ HirModule trace(const Circuit& circuit) {
                         double prob = node.args[static_cast<size_t>(p)];
                         if (prob > 0.0) {
                             site.channels.push_back(
-                                rewind_single_pauli(hir, sim, qubit, p + 1, prob));
+                                rewind_pauli_terms(hir, sim, {{qubit, p + 1}}, prob));
                         }
                     }
-                    NoiseSiteIdx idx{static_cast<uint32_t>(hir.noise_sites.size())};
-                    hir.noise_sites.push_back(std::move(site));
-                    hir.append_noise(idx);
+                    append_noise_site(hir, std::move(site));
                 }
                 break;
             }
@@ -763,17 +804,78 @@ HirModule trace(const Circuit& circuit) {
                             double prob = node.args[arg_idx];
                             if (prob > 0.0) {
                                 site.channels.push_back(
-                                    rewind_two_qubit_pauli(hir, sim, q1, q2, p1, p2, prob));
+                                    rewind_pauli_terms(hir, sim, {{q1, p1}, {q2, p2}}, prob));
                             }
                             ++arg_idx;
                         }
                     }
-                    NoiseSiteIdx idx{static_cast<uint32_t>(hir.noise_sites.size())};
-                    hir.noise_sites.push_back(std::move(site));
-                    hir.append_noise(idx);
+                    append_noise_site(hir, std::move(site));
                 }
                 break;
             }
+
+            case GateType::PAULI_CHANNEL_3: {
+                if (node.args.size() < 63) {
+                    throw std::runtime_error("PAULI_CHANNEL_3 requires 63 arguments");
+                }
+                for (size_t i = 0; i + 2 < node.targets.size(); i += 3) {
+                    uint32_t q1 = node.targets[i].value();
+                    uint32_t q2 = node.targets[i + 1].value();
+                    uint32_t q3 = node.targets[i + 2].value();
+                    NoiseSite site;
+                    size_t arg_idx = 0;
+                    for (int p1 = 0; p1 <= 3; ++p1) {
+                        for (int p2 = 0; p2 <= 3; ++p2) {
+                            for (int p3 = 0; p3 <= 3; ++p3) {
+                                if (p1 == 0 && p2 == 0 && p3 == 0)
+                                    continue;
+                                double prob = node.args[arg_idx];
+                                if (prob > 0.0) {
+                                    site.channels.push_back(rewind_pauli_terms(
+                                        hir, sim, {{q1, p1}, {q2, p2}, {q3, p3}}, prob));
+                                }
+                                ++arg_idx;
+                            }
+                        }
+                    }
+                    append_noise_site(hir, std::move(site));
+                }
+                break;
+            }
+
+            case GateType::CORRELATED_ERROR: {
+                NoiseSite site;
+                double remaining = 1.0;
+                size_t chain_end = node_index;
+                while (true) {
+                    const auto& link = circuit.nodes[chain_end];
+                    if (link.args.empty()) {
+                        throw std::runtime_error(
+                            "CORRELATED_ERROR requires a probability argument");
+                    }
+
+                    double abs_prob = link.args[0] * remaining;
+                    if (abs_prob > 0.0 && !link.targets.empty()) {
+                        site.channels.push_back(
+                            rewind_pauli_targets(hir, sim, link.targets, abs_prob));
+                    }
+                    remaining *= 1.0 - link.args[0];
+
+                    size_t next = chain_end + 1;
+                    if (next >= circuit.nodes.size() ||
+                        circuit.nodes[next].gate != GateType::ELSE_CORRELATED_ERROR) {
+                        break;
+                    }
+                    chain_end = next;
+                }
+                append_noise_site(hir, std::move(site));
+                node_index = chain_end;
+                break;
+            }
+
+            case GateType::ELSE_CORRELATED_ERROR:
+                throw std::runtime_error(
+                    "ELSE_CORRELATED_ERROR must follow CORRELATED_ERROR in the same chain");
 
             case GateType::DEPOLARIZE2: {
                 double prob = node.args.empty() ? 0.0 : node.args[0];
@@ -781,9 +883,19 @@ HirModule trace(const Circuit& circuit) {
                     uint32_t q1 = node.targets[i].value();
                     uint32_t q2 = node.targets[i + 1].value();
                     NoiseSite site = make_depolarize2_noise_site(hir, sim, q1, q2, prob);
-                    NoiseSiteIdx idx{static_cast<uint32_t>(hir.noise_sites.size())};
-                    hir.noise_sites.push_back(std::move(site));
-                    hir.append_noise(idx);
+                    append_noise_site(hir, std::move(site));
+                }
+                break;
+            }
+
+            case GateType::DEPOLARIZE3: {
+                double prob = node.args.empty() ? 0.0 : node.args[0];
+                for (size_t i = 0; i + 2 < node.targets.size(); i += 3) {
+                    uint32_t q1 = node.targets[i].value();
+                    uint32_t q2 = node.targets[i + 1].value();
+                    uint32_t q3 = node.targets[i + 2].value();
+                    NoiseSite site = make_depolarize3_noise_site(hir, sim, q1, q2, q3, prob);
+                    append_noise_site(hir, std::move(site));
                 }
                 break;
             }

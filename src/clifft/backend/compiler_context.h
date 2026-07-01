@@ -12,7 +12,9 @@
 
 #include "stim.h"
 
+#include <complex>
 #include <cstdint>
+#include <span>
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -122,7 +124,16 @@ class VirtualFrame {
     [[nodiscard]] bool has_pending() const { return !pending_gates_.empty(); }
     [[nodiscard]] size_t pending_size() const { return pending_gates_.size(); }
 
-    void append_gate(PendingGate gate) { pending_gates_.push_back(gate); }
+    void append_gate(PendingGate gate) {
+        pending_gates_.push_back(gate);
+        gate_log_.push_back(gate);
+    }
+
+    /// Every gate ever appended, in application order. Flushing materializes
+    /// gates into the tableau but the log survives: the final tableau
+    /// composition needs the concrete gate sequence to track the canonical
+    /// global phase, which the materialized tableau alone cannot supply.
+    [[nodiscard]] const std::vector<PendingGate>& gate_log() const { return gate_log_; }
 
     // Flush all pending gates into the materialized tableau in a single
     // transposed scope. Call before operations that require direct tableau
@@ -316,6 +327,7 @@ class VirtualFrame {
 
     stim::Tableau<kStimWidth> materialized_;
     std::vector<PendingGate> pending_gates_;
+    std::vector<PendingGate> gate_log_;
     size_t flush_threshold_;
 
     // Per-instance scratch buffers reused across calls to map_noise_channel.
@@ -352,6 +364,15 @@ struct CompilerContext {
         emit_k_history.push_back(reg_manager.active_k());
     }
 };
+
+/// Phase factor relating stim's canonical unitaries across the deferred
+/// virtual-frame composition. With gates u_1..u_J taken from `gate_log` in
+/// application order and `composed` the tableau of target * (u_J...u_1)^{-1}:
+///   canonical(composed) * u_J * ... * u_1 == phase * canonical(target).
+/// `target` only validates the reconstruction in debug builds.
+[[nodiscard]] std::complex<double> frame_composition_phase(stim::Tableau<kStimWidth> composed,
+                                                           std::span<const PendingGate> gate_log,
+                                                           const stim::Tableau<kStimWidth>& target);
 
 // =============================================================================
 // Result of localize_pauli: identifies what the Pauli was localized to.

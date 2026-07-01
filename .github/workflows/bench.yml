@@ -203,11 +203,11 @@ jobs:
       - name: Install Python package
         env:
           SKBUILD_CMAKE_BUILD_TYPE: Release
-        run: uv pip install -e ".[dev]"
+        run: uv sync --locked
 
       - name: Run pytest-benchmark suite
         run: |
-          uv run pytest tools/bench/ \
+          uv run --locked pytest tools/bench/ \
             --benchmark-only \
             --benchmark-json=python-bench.json
 

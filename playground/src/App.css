@@ -706,6 +706,69 @@ html, body, #root {
   cursor: pointer;
 }
 
+/* --- Examples dropdown --- */
+.examples-group {
+  position: relative;
+}
+
+.examples-dropdown {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  margin-top: 4px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  box-shadow: 0 4px 12px var(--shadow-color);
+  z-index: 100;
+  min-width: 300px;
+  padding: 4px 0;
+}
+
+.examples-item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  width: 100%;
+  padding: 8px 12px;
+  background: none;
+  border: none;
+  border-bottom: 1px solid var(--border);
+  color: var(--text);
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.1s;
+}
+
+.examples-item:last-child {
+  border-bottom: none;
+}
+
+.examples-item:hover {
+  background: var(--bg-hover);
+}
+
+.examples-item-title {
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.examples-item-desc {
+  font-size: 11px;
+  color: var(--text-dim);
+  line-height: 1.35;
+}
+
+@media (max-width: 640px) {
+  .examples-dropdown {
+    position: fixed;
+    top: 48px;
+    left: 12px;
+    right: 12px;
+    min-width: 0;
+  }
+}
+
 /* --- Recents dropdown --- */
 .recents-group {
   position: relative;

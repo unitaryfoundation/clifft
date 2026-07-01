@@ -343,6 +343,13 @@ std::vector<double> record_probabilities(const CompiledModule& program,
 /// Expand the factored state |psi> = gamma * U_C * P * (|phi>_A (x) |0>_D)
 /// into a dense 2^n statevector for validation.
 /// Capped at n <= 10 qubits (8 MB unitary matrix) to prevent OOM.
+///
+/// For unitary programs, compilation preserves the API-visible global phase
+/// across optimization passes. Retained final-tableau expansion uses Stim's
+/// complex<float> unitary path, so those amplitudes have float-scale
+/// precision. After measurements or noise, only relative amplitudes and
+/// probabilities are meaningful; overall phase may differ between
+/// compilations.
 std::vector<std::complex<double>> get_statevector(const CompiledModule& program,
                                                   const SchrodingerState& state);
 

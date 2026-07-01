@@ -15,8 +15,21 @@
 
 #include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
+#include <string>
+#include <vector>
 
 using namespace clifft;
+
+static std::string make_pauli_channel3_args(double default_prob = 0.0) {
+    std::string args;
+    for (size_t k = 0; k < 63; ++k) {
+        if (!args.empty()) {
+            args += ", ";
+        }
+        args += std::to_string(default_prob);
+    }
+    return args;
+}
 
 TEST_CASE("Parse empty circuit", "[parser]") {
     auto circuit = parse("");
@@ -124,6 +137,138 @@ TEST_CASE("Parse CNOT alias", "[parser]") {
 
     REQUIRE(circuit.nodes.size() == 1);
     REQUIRE(circuit.nodes[0].gate == GateType::CX);
+}
+
+TEST_CASE("Parse CH rewrites to RY CX RY sequence", "[parser]") {
+    auto circuit = parse("CH 0 1");
+
+    REQUIRE(circuit.nodes.size() == 3);
+    CHECK(circuit.num_qubits == 2);
+    CHECK(circuit.num_measurements == 0);
+
+    CHECK(circuit.nodes[0].gate == GateType::R_Y);
+    REQUIRE(circuit.nodes[0].args.size() == 1);
+    CHECK(circuit.nodes[0].args[0] == Catch::Approx(0.25));
+    CHECK(circuit.nodes[0].targets[0].value() == 1);
+
+    CHECK(circuit.nodes[1].gate == GateType::CX);
+    CHECK(circuit.nodes[1].targets[0].value() == 0);
+    CHECK(circuit.nodes[1].targets[1].value() == 1);
+
+    CHECK(circuit.nodes[2].gate == GateType::R_Y);
+    REQUIRE(circuit.nodes[2].args.size() == 1);
+    CHECK(circuit.nodes[2].args[0] == Catch::Approx(-0.25));
+    CHECK(circuit.nodes[2].targets[0].value() == 1);
+
+    for (const auto& node : circuit.nodes) {
+        CHECK(node.source_line == 1);
+    }
+}
+
+TEST_CASE("Parse CH supports multiple pairs", "[parser]") {
+    auto circuit = parse("CH 0 1 2 3");
+
+    REQUIRE(circuit.nodes.size() == 6);
+    CHECK(circuit.num_qubits == 4);
+    CHECK(circuit.nodes[0].targets[0].value() == 1);
+    CHECK(circuit.nodes[3].targets[0].value() == 3);
+}
+
+TEST_CASE("Parse CH rejects malformed targets", "[parser]") {
+    CHECK_THROWS_AS(parse("CH 0"), ParseError);
+    CHECK_THROWS_AS(parse("CH(0.1) 0 1"), ParseError);
+    CHECK_THROWS_AS(parse("M 0\nCH rec[-1] 1"), ParseError);
+    CHECK_THROWS_AS(parse("CH !0 1"), ParseError);
+    CHECK_THROWS_AS(parse("CH 0 0"), ParseError);
+    CHECK_THROWS_AS(parse("CH 0 1", 2), ParseError);
+}
+
+TEST_CASE("Parse CCZ rewrites to Clifford T sequence", "[parser]") {
+    auto circuit = parse("CCZ 0 1 2");
+
+    struct ExpectedNode {
+        GateType gate;
+        std::vector<uint32_t> targets;
+    };
+
+    const std::vector<ExpectedNode> expected = {
+        {GateType::T, {0}},     {GateType::T, {1}},     {GateType::T, {2}},
+        {GateType::CX, {0, 1}}, {GateType::T_DAG, {1}}, {GateType::CX, {0, 1}},
+        {GateType::CX, {0, 2}}, {GateType::T_DAG, {2}}, {GateType::CX, {1, 2}},
+        {GateType::T, {2}},     {GateType::CX, {0, 2}}, {GateType::T_DAG, {2}},
+        {GateType::CX, {1, 2}},
+    };
+
+    REQUIRE(circuit.nodes.size() == expected.size());
+    CHECK(circuit.num_qubits == 3);
+    CHECK(circuit.num_measurements == 0);
+
+    for (size_t i = 0; i < expected.size(); ++i) {
+        const auto& node = circuit.nodes[i];
+        CHECK(node.gate == expected[i].gate);
+        REQUIRE(node.targets.size() == expected[i].targets.size());
+        for (size_t j = 0; j < expected[i].targets.size(); ++j) {
+            CHECK(node.targets[j].value() == expected[i].targets[j]);
+        }
+        CHECK(node.args.empty());
+        CHECK(node.source_line == 1);
+    }
+}
+
+TEST_CASE("Parse CCX wraps CCZ rewrite in H gates", "[parser]") {
+    auto circuit = parse("CCX 0 1 2");
+
+    REQUIRE(circuit.nodes.size() == 15);
+    CHECK(circuit.num_qubits == 3);
+    CHECK(circuit.num_measurements == 0);
+
+    CHECK(circuit.nodes.front().gate == GateType::H);
+    CHECK(circuit.nodes.front().targets[0].value() == 2);
+    CHECK(circuit.nodes.back().gate == GateType::H);
+    CHECK(circuit.nodes.back().targets[0].value() == 2);
+
+    size_t h_count = 0;
+    size_t t_count = 0;
+    size_t t_dag_count = 0;
+    size_t cx_count = 0;
+    for (const auto& node : circuit.nodes) {
+        if (node.gate == GateType::H)
+            h_count++;
+        if (node.gate == GateType::T)
+            t_count++;
+        if (node.gate == GateType::T_DAG)
+            t_dag_count++;
+        if (node.gate == GateType::CX)
+            cx_count++;
+        CHECK(node.source_line == 1);
+    }
+
+    CHECK(h_count == 2);
+    CHECK(t_count == 4);
+    CHECK(t_dag_count == 3);
+    CHECK(cx_count == 6);
+}
+
+TEST_CASE("Parse CCZ supports multiple triples", "[parser]") {
+    auto circuit = parse("CCZ 0 1 2 3 4 5");
+
+    REQUIRE(circuit.nodes.size() == 26);
+    CHECK(circuit.num_qubits == 6);
+    CHECK(circuit.nodes[0].gate == GateType::T);
+    CHECK(circuit.nodes[0].targets[0].value() == 0);
+    CHECK(circuit.nodes[13].gate == GateType::T);
+    CHECK(circuit.nodes[13].targets[0].value() == 3);
+}
+
+TEST_CASE("Parse CCZ and CCX reject malformed targets", "[parser]") {
+    CHECK_THROWS_AS(parse("CCZ 0 1"), ParseError);
+    CHECK_THROWS_AS(parse("CCX 0 1 2 3"), ParseError);
+    CHECK_THROWS_AS(parse("CCZ(0.1) 0 1 2"), ParseError);
+    CHECK_THROWS_AS(parse("M 0\nCCZ rec[-1] 1 2"), ParseError);
+    CHECK_THROWS_AS(parse("CCX !0 1 2"), ParseError);
+    CHECK_THROWS_AS(parse("CCZ 0 0 1"), ParseError);
+    CHECK_THROWS_AS(parse("CCX 0 1 1"), ParseError);
+    CHECK_THROWS_AS(parse("CCZ 0 1 2", 12), ParseError);
 }
 
 TEST_CASE("Parse measurements", "[parser]") {
@@ -785,6 +930,26 @@ TEST_CASE("Parse noise gates: DEPOLARIZE1 DEPOLARIZE2", "[parser][noise]") {
     REQUIRE(circuit.nodes[2].targets[1].value() == 3);
 }
 
+TEST_CASE("Parse noise gates: DEPOLARIZE3 consumes triples", "[parser][noise]") {
+    auto circuit = parse("DEPOLARIZE3(0.03) 0 1 2 3 4 5");
+
+    REQUIRE(circuit.nodes.size() == 2);
+    REQUIRE(circuit.num_qubits == 6);
+    REQUIRE(circuit.nodes[0].gate == GateType::DEPOLARIZE3);
+    REQUIRE(circuit.nodes[0].args[0] == Catch::Approx(0.03));
+    REQUIRE(circuit.nodes[0].targets.size() == 3);
+    CHECK(circuit.nodes[0].targets[0].value() == 0);
+    CHECK(circuit.nodes[0].targets[1].value() == 1);
+    CHECK(circuit.nodes[0].targets[2].value() == 2);
+    CHECK(circuit.nodes[1].targets[0].value() == 3);
+    CHECK(circuit.nodes[1].targets[1].value() == 4);
+    CHECK(circuit.nodes[1].targets[2].value() == 5);
+}
+
+TEST_CASE("DEPOLARIZE3 rejects incomplete triples", "[parser][noise]") {
+    REQUIRE_THROWS_AS(parse("DEPOLARIZE3(0.03) 0 1 2 3"), ParseError);
+}
+
 TEST_CASE("Parse noisy measurement: M with readout noise decomposes", "[parser][noise]") {
     auto circuit = parse("M(0.001) 0");
 
@@ -1231,6 +1396,35 @@ TEST_CASE("Parse PAULI_CHANNEL_2 with 15 args", "[parser]") {
     CHECK(circuit.num_qubits == 2);
 }
 
+TEST_CASE("Parse PAULI_CHANNEL_3 with 63 args", "[parser]") {
+    auto circuit = parse("PAULI_CHANNEL_3(" + make_pauli_channel3_args(0.0) + ") 0 1 2");
+    REQUIRE(circuit.nodes.size() == 1);
+    CHECK(circuit.nodes[0].gate == GateType::PAULI_CHANNEL_3);
+    REQUIRE(circuit.nodes[0].args.size() == 63);
+    CHECK(circuit.num_qubits == 3);
+}
+
+TEST_CASE("Parse PAULI_CHANNEL_3 broadcasts over triples", "[parser]") {
+    auto circuit = parse("PAULI_CHANNEL_3(" + make_pauli_channel3_args(0.01) + ") 0 1 2 3 4 5");
+    REQUIRE(circuit.nodes.size() == 2);
+    CHECK(circuit.num_qubits == 6);
+
+    for (const auto& node : circuit.nodes) {
+        CHECK(node.gate == GateType::PAULI_CHANNEL_3);
+        REQUIRE(node.targets.size() == 3);
+        REQUIRE(node.args.size() == 63);
+        CHECK(node.args[0] == Catch::Approx(0.01));
+        CHECK(node.args[62] == Catch::Approx(0.01));
+    }
+
+    CHECK(circuit.nodes[0].targets[0].value() == 0);
+    CHECK(circuit.nodes[0].targets[1].value() == 1);
+    CHECK(circuit.nodes[0].targets[2].value() == 2);
+    CHECK(circuit.nodes[1].targets[0].value() == 3);
+    CHECK(circuit.nodes[1].targets[1].value() == 4);
+    CHECK(circuit.nodes[1].targets[2].value() == 5);
+}
+
 TEST_CASE("Parse PAULI_CHANNEL_1 broadcasts to multiple targets", "[parser]") {
     auto circuit = parse("PAULI_CHANNEL_1(0.1, 0.2, 0.3) 0 1 2");
     REQUIRE(circuit.nodes.size() == 3);
@@ -1238,6 +1432,100 @@ TEST_CASE("Parse PAULI_CHANNEL_1 broadcasts to multiple targets", "[parser]") {
         REQUIRE(circuit.nodes[i].args.size() == 3);
         CHECK(circuit.nodes[i].args[0] == Catch::Approx(0.1));
     }
+}
+
+TEST_CASE("Parse correlated error product", "[parser][noise]") {
+    auto circuit = parse("CORRELATED_ERROR(0.1) X0 Y2 Z5");
+    REQUIRE(circuit.nodes.size() == 1);
+    CHECK(circuit.nodes[0].gate == GateType::CORRELATED_ERROR);
+    REQUIRE(circuit.nodes[0].args.size() == 1);
+    CHECK(circuit.nodes[0].args[0] == Catch::Approx(0.1));
+    REQUIRE(circuit.nodes[0].targets.size() == 3);
+    CHECK(circuit.nodes[0].targets[0].pauli() == Target::kPauliX);
+    CHECK(circuit.nodes[0].targets[0].value() == 0);
+    CHECK(circuit.nodes[0].targets[1].pauli() == Target::kPauliY);
+    CHECK(circuit.nodes[0].targets[1].value() == 2);
+    CHECK(circuit.nodes[0].targets[2].pauli() == Target::kPauliZ);
+    CHECK(circuit.nodes[0].targets[2].value() == 5);
+    CHECK(circuit.num_qubits == 6);
+    CHECK(circuit.num_measurements == 0);
+}
+
+TEST_CASE("Parse correlated error alias and combiner", "[parser][noise]") {
+    auto circuit = parse("E(0.25) X0*Z1");
+    REQUIRE(circuit.nodes.size() == 1);
+    CHECK(circuit.nodes[0].gate == GateType::CORRELATED_ERROR);
+    REQUIRE(circuit.nodes[0].targets.size() == 2);
+    CHECK(circuit.nodes[0].targets[0].pauli() == Target::kPauliX);
+    CHECK(circuit.nodes[0].targets[1].pauli() == Target::kPauliZ);
+}
+
+TEST_CASE("Parse correlated error chain", "[parser][noise]") {
+    auto circuit = parse(
+        "E(0.1) X0\n"
+        "ELSE_CORRELATED_ERROR(0.2) Z1\n"
+        "ELSE_CORRELATED_ERROR(0.3) X2");
+    REQUIRE(circuit.nodes.size() == 3);
+    CHECK(circuit.nodes[0].gate == GateType::CORRELATED_ERROR);
+    CHECK(circuit.nodes[1].gate == GateType::ELSE_CORRELATED_ERROR);
+    CHECK(circuit.nodes[2].gate == GateType::ELSE_CORRELATED_ERROR);
+}
+
+TEST_CASE("Parse correlated error chain permits blank and comment lines", "[parser][noise]") {
+    auto circuit = parse(R"(
+        E(0.1) X0
+        # This line is ignored.
+
+        ELSE_CORRELATED_ERROR(0.2) Z1
+        # This line is also ignored.
+        ELSE_CORRELATED_ERROR(0.3) X2
+    )");
+
+    REQUIRE(circuit.nodes.size() == 3);
+    CHECK(circuit.nodes[0].gate == GateType::CORRELATED_ERROR);
+    CHECK(circuit.nodes[1].gate == GateType::ELSE_CORRELATED_ERROR);
+    CHECK(circuit.nodes[2].gate == GateType::ELSE_CORRELATED_ERROR);
+}
+
+TEST_CASE("Parse correlated error folds duplicate terms", "[parser][noise]") {
+    auto circuit = parse("E(1) X0 Z0 X1 X1 !Z2");
+    REQUIRE(circuit.nodes.size() == 1);
+    REQUIRE(circuit.nodes[0].targets.size() == 2);
+    CHECK(circuit.nodes[0].targets[0].pauli() == Target::kPauliY);
+    CHECK(circuit.nodes[0].targets[0].value() == 0);
+    CHECK(circuit.nodes[0].targets[1].pauli() == Target::kPauliZ);
+    CHECK(circuit.nodes[0].targets[1].value() == 2);
+    CHECK(circuit.nodes[0].targets[1].is_inverted());
+}
+
+TEST_CASE("Parse correlated error accepts empty product", "[parser][noise]") {
+    auto circuit = parse("E(0.1)\nELSE_CORRELATED_ERROR(0.2) X0");
+    REQUIRE(circuit.nodes.size() == 2);
+    CHECK(circuit.nodes[0].targets.empty());
+    REQUIRE(circuit.nodes[1].targets.size() == 1);
+}
+
+TEST_CASE("Parse correlated error rejects stray else", "[parser][noise]") {
+    REQUIRE_THROWS_AS(parse("ELSE_CORRELATED_ERROR(0.1) X0"), ParseError);
+}
+
+TEST_CASE("Parse correlated error requires contiguous else", "[parser][noise]") {
+    REQUIRE_THROWS_AS(parse("E(0.1) X0\nTICK\nELSE_CORRELATED_ERROR(0.2) Z0"), ParseError);
+    REQUIRE_THROWS_AS(parse("E(0.1) X0\nQUBIT_COORDS(0, 0) 0\nELSE_CORRELATED_ERROR(0.2) Z0"),
+                      ParseError);
+    REQUIRE_THROWS_AS(parse("E(0.1) X0\nI 0\nELSE_CORRELATED_ERROR(0.2) Z0"), ParseError);
+    REQUIRE_THROWS_AS(parse("E(0.1) X0\nREPEAT 1 {\nELSE_CORRELATED_ERROR(0.2) Z0\n}"), ParseError);
+}
+
+TEST_CASE("Parse correlated error rejects malformed targets", "[parser][noise]") {
+    REQUIRE_THROWS_AS(parse("E(0.1) X0Y1"), ParseError);
+    REQUIRE_THROWS_AS(parse("E(0.1) rec[-1]"), ParseError);
+}
+
+TEST_CASE("Parse correlated error rejects wrong arg count", "[parser][noise]") {
+    REQUIRE_THROWS_AS(parse("E X0"), ParseError);
+    REQUIRE_THROWS_AS(parse("E(0.1, 0.2) X0"), ParseError);
+    REQUIRE_THROWS_AS(parse("E(0.1) X0\nELSE_CORRELATED_ERROR(0.1, 0.2) X0"), ParseError);
 }
 
 // --- Review Round 2 edge cases ---
@@ -1286,6 +1574,10 @@ TEST_CASE("PAULI_CHANNEL_1 rejects wrong arg count", "[parser]") {
 
 TEST_CASE("PAULI_CHANNEL_2 rejects wrong arg count", "[parser]") {
     REQUIRE_THROWS_AS(parse("PAULI_CHANNEL_2(0.01, 0.02, 0.03) 0 1"), ParseError);
+}
+
+TEST_CASE("PAULI_CHANNEL_3 rejects wrong arg count", "[parser]") {
+    REQUIRE_THROWS_AS(parse("PAULI_CHANNEL_3(0.01, 0.02, 0.03) 0 1 2"), ParseError);
 }
 
 // =============================================================================
@@ -1461,12 +1753,20 @@ TEST_CASE("GateTraits: noise channels", "[gate_data]") {
     CHECK(is_noise_gate(GateType::Z_ERROR));
     CHECK(is_noise_gate(GateType::DEPOLARIZE1));
     CHECK(is_noise_gate(GateType::DEPOLARIZE2));
+    CHECK(is_noise_gate(GateType::DEPOLARIZE3));
     CHECK(is_noise_gate(GateType::PAULI_CHANNEL_1));
     CHECK(is_noise_gate(GateType::PAULI_CHANNEL_2));
+    CHECK(is_noise_gate(GateType::PAULI_CHANNEL_3));
+    CHECK(is_noise_gate(GateType::CORRELATED_ERROR));
+    CHECK(is_noise_gate(GateType::ELSE_CORRELATED_ERROR));
     CHECK(is_noise_gate(GateType::READOUT_NOISE));
     CHECK(!is_noise_gate(GateType::M));
     CHECK(gate_arity(GateType::DEPOLARIZE2) == GateArity::PAIR);
     CHECK(gate_arity(GateType::PAULI_CHANNEL_2) == GateArity::PAIR);
+    CHECK(gate_arity(GateType::DEPOLARIZE3) == GateArity::TRIPLE);
+    CHECK(gate_arity(GateType::PAULI_CHANNEL_3) == GateArity::TRIPLE);
+    CHECK(gate_arity(GateType::CORRELATED_ERROR) == GateArity::MULTI);
+    CHECK(gate_arity(GateType::ELSE_CORRELATED_ERROR) == GateArity::MULTI);
 }
 
 TEST_CASE("GateTraits: annotations are ANNOTATION arity", "[gate_data]") {

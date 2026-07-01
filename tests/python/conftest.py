@@ -1,12 +1,13 @@
 """Shared test fixtures and utilities for Clifft Python tests."""
 
 import numpy as np
+import numpy.typing as npt
 
 
-def assert_statevectors_equal(
+def assert_statevectors_equiv(
     actual: np.ndarray, expected: np.ndarray, *, rtol: float = 1e-4, msg: str = ""
 ) -> None:
-    """Assert two statevectors are equal up to global phase.
+    """Assert two statevectors are equivalent up to global phase.
 
     Uses fidelity: abs(|<psi|phi>|^2 - 1) <= rtol.
     Catches both underflow (imperfect overlap) and overflow (numerical error).
@@ -14,6 +15,24 @@ def assert_statevectors_equal(
     fidelity = float(np.abs(np.vdot(expected, actual)) ** 2)
     if abs(fidelity - 1.0) > rtol:
         raise AssertionError(f"Fidelity {fidelity:.6f}, expected ~1.0 (rtol={rtol}). {msg}")
+
+
+def assert_statevectors_componentwise_equal(
+    actual: npt.ArrayLike,
+    expected: npt.ArrayLike,
+    *,
+    atol: float = 1e-6,
+    rtol: float = 0.0,
+    msg: str = "",
+) -> None:
+    """Assert amplitudes match componentwise, including global phase."""
+    np.testing.assert_allclose(
+        np.asarray(actual),
+        np.asarray(expected),
+        atol=atol,
+        rtol=rtol,
+        err_msg=msg,
+    )
 
 
 def binomial_tolerance(p: float, n: int, *, sigma: float = 5.0) -> float:

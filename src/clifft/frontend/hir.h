@@ -354,6 +354,21 @@ struct HirModule {
 
     std::optional<stim::Tableau<kStimWidth>> final_tableau;
 
+    /// True when the evolution is a fixed unitary: no measurements, noise,
+    /// readout noise, or measurement-conditioned Paulis. Deterministic
+    /// modules have a well-defined final statevector including its global
+    /// phase; stochastic ones are only defined per shot.
+    [[nodiscard]] bool is_deterministic() const {
+        for (const auto& op : ops) {
+            const OpType type = op.op_type();
+            if (type == OpType::MEASURE || type == OpType::NOISE || type == OpType::READOUT_NOISE ||
+                type == OpType::CONDITIONAL_PAULI) {
+                return false;
+            }
+        }
+        return true;
+    }
+
     // --- Mask accessors ---
 
     [[nodiscard]] MaskView destab_mask(const HeisenbergOp& op) const {

@@ -1,6 +1,7 @@
 #include "clifft/backend/backend.h"
 
 #include "clifft/backend/compiler_context.h"
+#include "clifft/util/canonical_phase.h"
 #include "clifft/util/mask_view.h"
 
 #include <algorithm>
@@ -10,6 +11,7 @@
 #include <cmath>
 #include <numbers>
 #include <span>
+#include <stdexcept>
 
 namespace clifft {
 
@@ -516,6 +518,119 @@ LocalizationResult localize_pauli(CompilerContext& ctx,
     return {static_cast<uint16_t>(pivot), basis, sign};
 }
 
+namespace {
+
+/// Column-sparse evaluation of canonical(B) * u at the canonical anchor of
+/// tableau(B * u): every pending-gate canonical matrix has at most two
+/// nonzero entries per column. The anchor packs (row << n) | col, and the
+/// gate axes index column bits, so all reads stay in the low half.
+std::complex<double> gate_compose_phase(const ChoiSupport& old_support,
+                                        const ChoiSupport& new_support, const PendingGate& g) {
+    const ChoiIndex& anchor = new_support.anchor;
+    std::complex<double> w{0.0, 0.0};
+
+    switch (g.type) {
+        case PendingGateType::S:
+            // S[c, c] = i^{c_q}
+            w = kImagPow[choi_index_bit(anchor, g.axis_1) ? 1 : 0] *
+                choi_amplitude(old_support, anchor);
+            break;
+
+        case PendingGateType::CZ: {
+            // CZ[c, c] = (-1)^{c_a * c_b}
+            const bool minus = choi_index_bit(anchor, g.axis_1) && choi_index_bit(anchor, g.axis_2);
+            w = (minus ? -1.0 : 1.0) * choi_amplitude(old_support, anchor);
+            break;
+        }
+
+        case PendingGateType::CNOT: {
+            // Permutation: column c has its single 1 at row c ^ (c_a ? e_b : 0).
+            ChoiIndex idx = anchor;
+            if (choi_index_bit(idx, g.axis_1)) {
+                choi_index_flip_bit(idx, g.axis_2);
+            }
+            w = choi_amplitude(old_support, idx);
+            break;
+        }
+
+        case PendingGateType::SWAP: {
+            ChoiIndex idx = anchor;
+            if (choi_index_bit(idx, g.axis_1) != choi_index_bit(idx, g.axis_2)) {
+                choi_index_flip_bit(idx, g.axis_1);
+                choi_index_flip_bit(idx, g.axis_2);
+            }
+            w = choi_amplitude(old_support, idx);
+            break;
+        }
+
+        case PendingGateType::H: {
+            // H[k, c] = (-1)^{k_q * c_q} / sqrt(2) over the two rows
+            // differing at qubit q.
+            ChoiIndex k0 = anchor;
+            ChoiIndex k1 = anchor;
+            if (choi_index_bit(anchor, g.axis_1)) {
+                choi_index_flip_bit(k0, g.axis_1);
+            } else {
+                choi_index_flip_bit(k1, g.axis_1);
+            }
+            const double s1 = choi_index_bit(anchor, g.axis_1) ? -1.0 : 1.0;
+            w = (choi_amplitude(old_support, k0) + s1 * choi_amplitude(old_support, k1)) *
+                kInvSqrt2;
+            break;
+        }
+    }
+
+    // Hard check rather than an assert: a zero entry here means the gate
+    // column did not land in the prior support -- possible only through an
+    // unhandled gate kind or a corrupted log -- and dividing through would
+    // silently poison global_weight with NaN in release builds.
+    const double mag = std::abs(w);
+    if (mag < 0.25) {
+        throw std::logic_error("frame composition phase: canonical anchor outside prior support");
+    }
+    return w / mag;
+}
+
+}  // namespace
+
+std::complex<double> frame_composition_phase(stim::Tableau<kStimWidth> composed,
+                                             std::span<const PendingGate> gate_log,
+                                             const stim::Tableau<kStimWidth>& target) {
+    ChoiSupport old_support = build_choi_support(composed);
+    std::complex<double> total{1.0, 0.0};
+
+    // Peel gates from the left factor adjacent to canonical(composed):
+    // composed * u_J * ... * u_1 reconstructs the target tableau, so walk
+    // the log in reverse application order, prepending each gate.
+    for (auto it = gate_log.rbegin(); it != gate_log.rend(); ++it) {
+        switch (it->type) {
+            case PendingGateType::CNOT:
+                composed.prepend_ZCX(it->axis_1, it->axis_2);
+                break;
+            case PendingGateType::CZ:
+                composed.prepend_ZCZ(it->axis_1, it->axis_2);
+                break;
+            case PendingGateType::S:
+                composed.prepend_SQRT_Z(it->axis_1);
+                break;
+            case PendingGateType::H:
+                composed.prepend_H_XZ(it->axis_1);
+                break;
+            case PendingGateType::SWAP:
+                composed.prepend_SWAP(it->axis_1, it->axis_2);
+                break;
+        }
+        ChoiSupport new_support = build_choi_support(composed);
+        total *= gate_compose_phase(old_support, new_support, *it);
+        old_support = std::move(new_support);
+    }
+
+    if (!(composed == target)) {
+        throw std::logic_error("frame composition phase: gate log does not reproduce the tableau");
+    }
+    return total;
+}
+
 }  // namespace internal
 
 // =========================================================================
@@ -843,7 +958,23 @@ CompiledModule lower(const HirModule& hir, std::span<const uint8_t> postselectio
     auto& final_v_cum = ctx.virtual_frame.mutable_materialized_tableau();
     if (hir.final_tableau.has_value()) {
         stim::Tableau<kStimWidth> v_cum_inv = final_v_cum.inverse();
-        ctx.constant_pool.final_tableau = v_cum_inv.then(*hir.final_tableau);
+        stim::Tableau<kStimWidth> composed = v_cum_inv.then(*hir.final_tableau);
+
+        // The runtime ops were rewritten through the virtual frame gates,
+        // but the composed tableau realizes those gates only up to stim's
+        // canonical matrix phase. Fold the per-gate canonical deltas into
+        // global_weight so the API-visible global phase survives the
+        // composition. Stochastic programs skip this: their sampled outputs
+        // are insensitive to a global phase (a post-measurement state is
+        // only defined up to one), and their frame gate logs grow with
+        // every localized measurement.
+        const auto& gate_log = ctx.virtual_frame.gate_log();
+        if (!gate_log.empty() && hir.is_deterministic()) {
+            ctx.constant_pool.global_weight *= std::conj(
+                internal::frame_composition_phase(composed, gate_log, *hir.final_tableau));
+        }
+
+        ctx.constant_pool.final_tableau = std::move(composed);
     }
 
     ctx.constant_pool.global_weight *= hir.global_weight;

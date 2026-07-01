@@ -23,7 +23,7 @@ All Pauli gates are single-qubit Cliffords absorbed at compile time (zero VM cos
 | `SQRT_Y`, `SQRT_Y_DAG` | Square root of Y and inverse |
 | `H_XY`, `H_NXY` | Hadamard variants in X,Y plane |
 | `H_YZ`, `H_NYZ` | Hadamard variants in Y,Z plane |
-| `H_NXZ` | Negated Hadamard |
+| `H_NXZ` | Hadamard variant swapping -X and +Z axes |
 | `C_XYZ`, `C_ZYX`, `C_NXYZ`, `C_NZYX`, `C_XNYZ`, `C_XYNZ`, `C_ZNYX`, `C_ZYNX` | Period-3 Clifford rotations |
 
 All single-qubit Cliffords are absorbed AOT — they update the Clifford frame $U_C$ at compile time and have zero cost at runtime.
@@ -38,6 +38,18 @@ Clifft extends Stim with discrete and arbitrary-angle non-Clifford gates. These 
 |------|-------|
 | `T` | $\pi/8$ gate |
 | `T_DAG` | Inverse $\pi/8$ gate |
+
+### Rewrite Gates
+
+These gate names are accepted by the parser as fixed rewrite rules into
+Clifft-native gates. They are rewritten during parsing and do not appear as
+distinct frontend, backend, or VM gate types.
+
+| Gate | Syntax | Notes |
+|------|--------|-------|
+| `CH` | `CH c t` | Controlled-Hadamard; rewritten to `R_Y(0.25) t; CX c t; R_Y(-0.25) t` |
+| `CCZ` | `CCZ a b c` | Controlled-controlled-Z; rewritten to 7 `T`/`T_DAG` gates and 6 `CX` gates |
+| `CCX` | `CCX a b t` | Toffoli gate; rewritten as `H t; CCZ a b t; H t` |
 
 ### Continuous Rotations
 
@@ -125,15 +137,36 @@ Two-qubit Cliffords are also absorbed at compile time.
 |-------------|-------|
 | `DEPOLARIZE1(p)` | Single-qubit depolarizing noise |
 | `DEPOLARIZE2(p)` | Two-qubit depolarizing noise |
+| `DEPOLARIZE3(p)` | Three-qubit depolarizing noise over triples of targets |
 | `X_ERROR(p)` | Single-qubit X error |
 | `Y_ERROR(p)` | Single-qubit Y error |
 | `Z_ERROR(p)` | Single-qubit Z error |
 | `PAULI_CHANNEL_1(px,py,pz)` | General single-qubit Pauli channel |
 | `PAULI_CHANNEL_2(...)` | General two-qubit Pauli channel (15 params) |
+| `PAULI_CHANNEL_3(...)` | General three-qubit Pauli channel (63 params) |
+| `CORRELATED_ERROR(p)` / `E(p)` | Correlated Pauli product error |
+| `ELSE_CORRELATED_ERROR(p)` | Else-branch in a correlated-error chain |
 
 Noisy measurements (e.g., `M(0.01) 0`) are decomposed by the parser into a
 clean measurement followed by an internal `READOUT_NOISE` instruction that
 models classical bit-flip errors on the measurement result.
+
+`DEPOLARIZE3(p) a b c` applies one of the 63 non-identity Pauli products on
+`a,b,c` with probability `p/63` each, and identity with probability `1-p`.
+`PAULI_CHANNEL_3` uses the same lexicographic Pauli order as
+`PAULI_CHANNEL_2`, extended to three qubits: `IIX`, `IIY`, `IIZ`, `IXI`,
+`IXX`, ..., `ZZZ`.
+
+`CORRELATED_ERROR(p) X0 Z1` applies the listed Pauli product with probability
+`p`. Pauli terms may be whitespace-separated or combined with `*`; all Pauli
+targets on the instruction form one product. Repeated terms on the same qubit
+multiply modulo Pauli phase, so `E(1) X0 Z0` is equivalent to a Y error and
+`E(1) X0 X0` is an identity event.
+
+`ELSE_CORRELATED_ERROR(p)` must immediately follow `CORRELATED_ERROR` or another
+`ELSE_CORRELATED_ERROR`. Its `p` is conditional on no earlier link in the chain
+firing. Clifft lowers each contiguous chain to one noise site with absolute
+channel probabilities.
 
 ## Identity Gates
 
@@ -152,11 +185,18 @@ These are accepted for compatibility with Stim circuits but have no effect.
 |-------------|-------|
 | `REPEAT N { ... }` | Loop (unrolled at parse time) |
 | `DETECTOR` | QEC detector declaration |
-| `OBSERVABLE_INCLUDE` | Observable accumulator |
-| `MPAD` | Deterministic measurement padding |
+| `OBSERVABLE_INCLUDE` | Observable accumulator over measurement records |
+| `MPAD` | Measurement-record padding with literal 0/1 bits |
 | `TICK` | Timing layer marker |
 | `QUBIT_COORDS` | Coordinate annotation (discarded) |
 | `SHIFT_COORDS` | Coordinate shift (discarded) |
+
+`OBSERVABLE_INCLUDE` currently supports `rec[-k]` measurement-record targets.
+Stim also permits Pauli-term targets on `OBSERVABLE_INCLUDE`, which Clifft does
+not currently parse.
+
+`MPAD(p)` is accepted; the optional probability noisily flips the padded
+measurement-record bits.
 
 ## Expectation Value Probes
 
@@ -183,8 +223,6 @@ Results are available via `SampleResult.exp_vals` (shape `(shots, num_exp_vals)`
 
 | Gate | Category | Reason |
 |------|----------|--------|
-| `CORRELATED_ERROR` / `E` | Noise | Correlated multi-qubit error model |
-| `ELSE_CORRELATED_ERROR` | Noise | Depends on `CORRELATED_ERROR` |
 | `HERALDED_ERASE` | Noise | Heralded erasure not modeled |
 | `HERALDED_PAULI_CHANNEL_1` | Noise | Heralded channel not modeled |
-| `SPP`, `SPP_DAG` | Pauli product | Stochastic Pauli product gate |
+| `SPP`, `SPP_DAG` | Pauli product phase | Generalized S/S_DAG gate over Pauli products |

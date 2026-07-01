@@ -8,7 +8,7 @@ from typing import Any
 
 import numpy as np
 import pytest
-from conftest import assert_statevectors_equal, cross_binomial_tolerance
+from conftest import assert_statevectors_equiv, cross_binomial_tolerance
 from utils_fuzzing import generate_uncomputation_ladder
 
 import clifft
@@ -314,7 +314,7 @@ class TestSqueezeStatevectorOracle:
         circuit = random_clifford_t_circuit(5, 40, seed=seed)
         base_sv = _clifft_statevector(circuit, hir_passes=None, bytecode_passes=None)
         squeezed_sv = _clifft_statevector(circuit, hir_passes=_squeeze_only_pass_manager())
-        assert_statevectors_equal(squeezed_sv, base_sv)
+        assert_statevectors_equiv(squeezed_sv, base_sv)
 
 
 class TestSqueezeStatisticalEquivalence:

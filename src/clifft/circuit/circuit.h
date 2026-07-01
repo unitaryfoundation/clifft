@@ -33,7 +33,8 @@ struct AstNode {
 
     // Gate arguments (e.g., noise probabilities).
     // Most gates use args[0] for a single parameter.
-    // PAULI_CHANNEL_1 uses 3 args, PAULI_CHANNEL_2 uses 15 args.
+    // PAULI_CHANNEL_1 uses 3 args, PAULI_CHANNEL_2 uses 15 args,
+    // PAULI_CHANNEL_3 uses 63 args.
     std::vector<double> args;
 
     // Source line number in the original input text (1-based).

@@ -12,6 +12,7 @@
 #include <stdexcept>
 #include <string>
 #include <string_view>
+#include <unordered_map>
 #include <unordered_set>
 #include <utility>
 
@@ -22,13 +23,21 @@ namespace {
 // Alternate gate names (Stim compatibility, shorthand, Z-basis synonyms).
 // Only aliases live here; canonical names come from kGateTraitsData in gate_data.h.
 constexpr std::pair<std::string_view, GateType> kGateAliases[] = {
-    {"CNOT", GateType::CX},       {"H_XZ", GateType::H},
-    {"MRZ", GateType::MR},        {"MZ", GateType::M},
-    {"RXX", GateType::R_XX},      {"RYY", GateType::R_YY},
-    {"RZ", GateType::R},          {"RZZ", GateType::R_ZZ},
-    {"SQRT_Z", GateType::S},      {"SQRT_Z_DAG", GateType::S_DAG},
-    {"SWAPCZ", GateType::CZSWAP}, {"U", GateType::U3},
-    {"ZCX", GateType::CX},        {"ZCY", GateType::CY},
+    {"CNOT", GateType::CX},
+    {"H_XZ", GateType::H},
+    {"E", GateType::CORRELATED_ERROR},
+    {"MRZ", GateType::MR},
+    {"MZ", GateType::M},
+    {"RXX", GateType::R_XX},
+    {"RYY", GateType::R_YY},
+    {"RZ", GateType::R},
+    {"RZZ", GateType::R_ZZ},
+    {"SQRT_Z", GateType::S},
+    {"SQRT_Z_DAG", GateType::S_DAG},
+    {"SWAPCZ", GateType::CZSWAP},
+    {"U", GateType::U3},
+    {"ZCX", GateType::CX},
+    {"ZCY", GateType::CY},
     {"ZCZ", GateType::CZ},
 };
 
@@ -151,6 +160,7 @@ class Parser {
     static constexpr uint32_t kMaxRecursionDepth = 100;
     std::string_view text_;
     size_t max_ops_;
+    bool previous_correlated_error_link_ = false;
 
     void parse_line(std::string_view line, uint32_t& line_num, Circuit& circuit,
                     std::string_view& remaining, uint32_t depth) {
@@ -171,7 +181,9 @@ class Parser {
 
         // Handle REPEAT N { ... } blocks.
         if (line.starts_with("REPEAT") && (line.size() == 6 || !is_gate_char(line[6]))) {
+            previous_correlated_error_link_ = false;
             parse_repeat(line, line_num, circuit, remaining, depth);
+            previous_correlated_error_link_ = false;
             return;
         }
 
@@ -219,6 +231,26 @@ class Parser {
 
         // Silently discard coordinate annotations (no AST nodes emitted).
         if (is_discarded_annotation(gate_name)) {
+            previous_correlated_error_link_ = false;
+            return;
+        }
+
+        // Parser-only rewrite gates. They are lowered immediately so the
+        // AST never contains frontend/backend-visible CH, CCZ, or CCX nodes.
+        if (gate_name == "CH") {
+            if (!args.empty()) {
+                throw ParseError("CH takes no arguments", line_num);
+            }
+            previous_correlated_error_link_ = false;
+            parse_ch_rewrite(rest, line_num, circuit);
+            return;
+        }
+        if (gate_name == "CCZ" || gate_name == "CCX") {
+            if (!args.empty()) {
+                throw ParseError(std::string(gate_name) + " takes no arguments", line_num);
+            }
+            previous_correlated_error_link_ = false;
+            parse_three_qubit_rewrite(gate_name, rest, line_num, circuit);
             return;
         }
 
@@ -228,12 +260,30 @@ class Parser {
             throw ParseError("Unknown gate: " + std::string(gate_name), line_num);
         }
 
+        if (gate == GateType::ELSE_CORRELATED_ERROR && !previous_correlated_error_link_) {
+            throw ParseError(
+                "ELSE_CORRELATED_ERROR must immediately follow CORRELATED_ERROR or "
+                "ELSE_CORRELATED_ERROR",
+                line_num);
+        }
+        previous_correlated_error_link_ =
+            gate == GateType::CORRELATED_ERROR || gate == GateType::ELSE_CORRELATED_ERROR;
+
         // Validate argument counts for multi-probability channels.
         if (gate == GateType::PAULI_CHANNEL_1 && args.size() != 3) {
             throw ParseError("PAULI_CHANNEL_1 requires exactly 3 arguments", line_num);
         }
         if (gate == GateType::PAULI_CHANNEL_2 && args.size() != 15) {
             throw ParseError("PAULI_CHANNEL_2 requires exactly 15 arguments", line_num);
+        }
+        if (gate == GateType::PAULI_CHANNEL_3 && args.size() != 63) {
+            throw ParseError("PAULI_CHANNEL_3 requires exactly 63 arguments", line_num);
+        }
+        if ((gate == GateType::CORRELATED_ERROR || gate == GateType::ELSE_CORRELATED_ERROR) &&
+            args.size() != 1) {
+            throw ParseError(
+                std::string(clifft::gate_name(gate)) + " requires exactly 1 probability argument",
+                line_num);
         }
 
         // Validate argument counts for parameterized rotations.
@@ -263,6 +313,10 @@ class Parser {
             case GateType::R_PAULI:
                 parse_r_pauli(rest, line_num, circuit, args);
                 break;
+            case GateType::CORRELATED_ERROR:
+            case GateType::ELSE_CORRELATED_ERROR:
+                parse_correlated_error(gate, rest, line_num, circuit, args);
+                break;
             case GateType::DETECTOR:
                 parse_detector(rest, line_num, circuit);
                 break;
@@ -278,6 +332,122 @@ class Parser {
             default:
                 parse_standard_gate(gate, rest, line_num, circuit, arg, args);
                 break;
+        }
+    }
+
+    void append_rewrite_single(GateType gate, uint32_t qubit, uint32_t line_num, Circuit& circuit,
+                               std::vector<double> args = {}) {
+        AstNode node{gate, {Target::qubit(qubit)}, std::move(args), line_num};
+        update_circuit_stats(node, circuit);
+        circuit.nodes.push_back(std::move(node));
+    }
+
+    void append_rewrite_pair(GateType gate, uint32_t q0, uint32_t q1, uint32_t line_num,
+                             Circuit& circuit) {
+        AstNode node{gate, {Target::qubit(q0), Target::qubit(q1)}, {}, line_num};
+        update_circuit_stats(node, circuit);
+        circuit.nodes.push_back(std::move(node));
+    }
+
+    void append_ccz_decomposition(uint32_t a, uint32_t b, uint32_t c, uint32_t line_num,
+                                  Circuit& circuit) {
+        // Phase polynomial:
+        // 4abc = a + b + c - (a^b) - (a^c) - (b^c) + (a^b^c).
+        append_rewrite_single(GateType::T, a, line_num, circuit);
+        append_rewrite_single(GateType::T, b, line_num, circuit);
+        append_rewrite_single(GateType::T, c, line_num, circuit);
+        append_rewrite_pair(GateType::CX, a, b, line_num, circuit);
+        append_rewrite_single(GateType::T_DAG, b, line_num, circuit);
+        append_rewrite_pair(GateType::CX, a, b, line_num, circuit);
+        append_rewrite_pair(GateType::CX, a, c, line_num, circuit);
+        append_rewrite_single(GateType::T_DAG, c, line_num, circuit);
+        append_rewrite_pair(GateType::CX, b, c, line_num, circuit);
+        append_rewrite_single(GateType::T, c, line_num, circuit);
+        append_rewrite_pair(GateType::CX, a, c, line_num, circuit);
+        append_rewrite_single(GateType::T_DAG, c, line_num, circuit);
+        append_rewrite_pair(GateType::CX, b, c, line_num, circuit);
+    }
+
+    std::vector<Target> parse_plain_qubit_targets(std::string_view gate_name,
+                                                  std::string_view targets_str, uint32_t line_num,
+                                                  Circuit& circuit) {
+        std::vector<Target> targets;
+        std::string_view remaining = targets_str;
+
+        while (true) {
+            std::string_view token = next_token(remaining);
+            if (token.empty())
+                break;
+
+            if (targets.size() >= kMaxTargetsPerInstruction) {
+                throw ParseError(
+                    "Too many targets (limit: " + std::to_string(kMaxTargetsPerInstruction) + ")",
+                    line_num);
+            }
+
+            Target target = parse_target(token, line_num, circuit);
+            if (target.is_rec()) {
+                throw ParseError("Gate " + std::string(gate_name) + " does not accept rec targets",
+                                 line_num);
+            }
+            if (target.is_inverted()) {
+                throw ParseError(
+                    "Gate " + std::string(gate_name) + " does not accept inverted targets",
+                    line_num);
+            }
+            targets.push_back(target);
+        }
+        return targets;
+    }
+
+    void parse_ch_rewrite(std::string_view targets_str, uint32_t line_num, Circuit& circuit) {
+        std::vector<Target> targets =
+            parse_plain_qubit_targets("CH", targets_str, line_num, circuit);
+
+        if (targets.empty() || targets.size() % 2 != 0) {
+            throw ParseError("Gate CH requires pairs of targets", line_num);
+        }
+
+        for (size_t i = 0; i < targets.size(); i += 2) {
+            uint32_t control = targets[i].value();
+            uint32_t target = targets[i + 1].value();
+            if (control == target) {
+                throw ParseError("Gate CH requires distinct qubit targets", line_num);
+            }
+
+            append_rewrite_single(GateType::R_Y, target, line_num, circuit, {0.25});
+            append_rewrite_pair(GateType::CX, control, target, line_num, circuit);
+            append_rewrite_single(GateType::R_Y, target, line_num, circuit, {-0.25});
+        }
+    }
+
+    void parse_three_qubit_rewrite(std::string_view gate_name, std::string_view targets_str,
+                                   uint32_t line_num, Circuit& circuit) {
+        std::vector<Target> targets =
+            parse_plain_qubit_targets(gate_name, targets_str, line_num, circuit);
+
+        if (targets.empty() || targets.size() % 3 != 0) {
+            throw ParseError("Gate " + std::string(gate_name) + " requires triples of targets",
+                             line_num);
+        }
+
+        for (size_t i = 0; i < targets.size(); i += 3) {
+            uint32_t a = targets[i].value();
+            uint32_t b = targets[i + 1].value();
+            uint32_t c = targets[i + 2].value();
+            if (a == b || a == c || b == c) {
+                throw ParseError(
+                    "Gate " + std::string(gate_name) + " requires distinct qubit targets",
+                    line_num);
+            }
+
+            if (gate_name == "CCX") {
+                append_rewrite_single(GateType::H, c, line_num, circuit);
+            }
+            append_ccz_decomposition(a, b, c, line_num, circuit);
+            if (gate_name == "CCX") {
+                append_rewrite_single(GateType::H, c, line_num, circuit);
+            }
         }
     }
 
@@ -581,6 +751,20 @@ class Parser {
                 }
                 break;
 
+            case GateArity::TRIPLE:
+                if (targets.size() % 3 != 0) {
+                    throw ParseError(
+                        "Gate " + std::string(gate_name(gate)) + " requires triples of targets",
+                        line_num);
+                }
+                for (size_t i = 0; i < targets.size(); i += 3) {
+                    AstNode node{
+                        gate, {targets[i], targets[i + 1], targets[i + 2]}, args, line_num};
+                    update_circuit_stats(node, circuit);
+                    circuit.nodes.push_back(std::move(node));
+                }
+                break;
+
             case GateArity::ANNOTATION:
                 circuit.nodes.push_back({gate, targets, args, line_num});
                 break;
@@ -659,238 +843,9 @@ class Parser {
         return inverted ? result.inverted() : result;
     }
 
-    // Parse MPP instruction with multiple Pauli products.
-    void parse_mpp(std::string_view targets_str, uint32_t line_num, Circuit& circuit, double arg) {
-        std::string_view remaining = targets_str;
-        uint32_t product_count = 0;
-
-        while (true) {
-            std::string_view product_str = next_token(remaining);
-            if (product_str.empty())
-                break;
-
-            if (product_count >= kMaxTargetsPerInstruction) {
-                throw ParseError("Too many MPP products (limit: " +
-                                     std::to_string(kMaxTargetsPerInstruction) + ")",
-                                 line_num);
-            }
-            product_count++;
-
-            // Each product is like "X0*Z1*Y2".
-            std::vector<Target> pauli_targets;
-            std::unordered_set<uint32_t> seen_qubits;
-
-            size_t pos = 0;
-            while (pos < product_str.size()) {
-                // Handle '*' separator with validation.
-                if (product_str[pos] == '*') {
-                    // Disallow leading, trailing, or consecutive '*' characters.
-                    if (pos == 0 || pos + 1 >= product_str.size() || product_str[pos + 1] == '*') {
-                        throw ParseError("Malformed Pauli product in MPP: misplaced '*'", line_num);
-                    }
-                    pos++;
-                    continue;
-                }
-
-                // Parse Pauli letter.
-                char pauli_char = product_str[pos];
-                uint32_t pauli_flag;
-                switch (pauli_char) {
-                    case 'X':
-                        pauli_flag = Target::kPauliX;
-                        break;
-                    case 'Y':
-                        pauli_flag = Target::kPauliY;
-                        break;
-                    case 'Z':
-                        pauli_flag = Target::kPauliZ;
-                        break;
-                    default:
-                        throw ParseError("Invalid Pauli in MPP: " + std::string(1, pauli_char),
-                                         line_num);
-                }
-                pos++;
-
-                // Parse qubit index.
-                size_t num_start = pos;
-                while (pos < product_str.size() && std::isdigit(product_str[pos])) {
-                    pos++;
-                }
-
-                if (num_start == pos) {
-                    throw ParseError("Expected qubit index after Pauli letter", line_num);
-                }
-
-                uint32_t qubit;
-                if (!parse_uint(std::string_view(product_str).substr(num_start, pos - num_start),
-                                qubit)) {
-                    throw ParseError("Invalid qubit index in MPP", line_num);
-                }
-
-                // Validate qubit index fits in 28-bit encoding.
-                if (qubit >= (1u << 28)) {
-                    throw ParseError("Qubit index too large (must be < 2^28)", line_num);
-                }
-
-                if (!seen_qubits.insert(qubit).second) {
-                    throw ParseError("Duplicate qubit in MPP product", line_num);
-                }
-
-                if (pauli_targets.size() >= kMaxTargetsPerInstruction) {
-                    throw ParseError("Too many Pauli terms in product (limit: " +
-                                         std::to_string(kMaxTargetsPerInstruction) + ")",
-                                     line_num);
-                }
-
-                pauli_targets.push_back(Target::pauli(qubit, pauli_flag));
-
-                // Update max qubit.
-                circuit.num_qubits = std::max(circuit.num_qubits, qubit + 1);
-            }
-
-            if (pauli_targets.empty()) {
-                throw ParseError("Empty Pauli product in MPP", line_num);
-            }
-
-            // Decompose noisy MPP: MPP(p) -> MPP + READOUT_NOISE
-            bool is_noisy_meas = arg > 0.0;
-
-            // Emit one AstNode per product.
-            // MPP is a visible measurement.
-            AstNode node{GateType::MPP, std::move(pauli_targets), {}, line_num};
-            circuit.num_measurements++;
-            circuit.nodes.push_back(std::move(node));
-
-            if (is_noisy_meas) {
-                uint32_t meas_idx = circuit.num_measurements - 1;
-                circuit.nodes.push_back(
-                    {GateType::READOUT_NOISE, {Target::rec(meas_idx)}, {arg}, line_num});
-            }
-        }
-
-        if (product_count == 0) {
-            throw ParseError("MPP requires at least one Pauli product", line_num);
-        }
-    }
-
-    // Parse EXP_VAL instruction with multiple Pauli products.
-    // Same Pauli product syntax as MPP but no noise argument.
-    // Increments num_exp_vals (not num_measurements).
-    void parse_exp_val(std::string_view targets_str, uint32_t line_num, Circuit& circuit) {
-        std::string_view remaining = targets_str;
-        uint32_t product_count = 0;
-
-        while (true) {
-            std::string_view product_str = next_token(remaining);
-            if (product_str.empty())
-                break;
-
-            if (product_count >= kMaxTargetsPerInstruction) {
-                throw ParseError("Too many EXP_VAL products (limit: " +
-                                     std::to_string(kMaxTargetsPerInstruction) + ")",
-                                 line_num);
-            }
-            product_count++;
-
-            // Each product is like "X0*Z1*Y2".
-            std::vector<Target> pauli_targets;
-            std::unordered_set<uint32_t> seen_qubits;
-
-            size_t pos = 0;
-            while (pos < product_str.size()) {
-                // Handle '*' separator with validation.
-                if (product_str[pos] == '*') {
-                    if (pos == 0 || pos + 1 >= product_str.size() || product_str[pos + 1] == '*') {
-                        throw ParseError("Malformed Pauli product in EXP_VAL: misplaced '*'",
-                                         line_num);
-                    }
-                    pos++;
-                    continue;
-                }
-
-                // Parse Pauli letter.
-                char pauli_char = product_str[pos];
-                uint32_t pauli_flag;
-                switch (pauli_char) {
-                    case 'X':
-                        pauli_flag = Target::kPauliX;
-                        break;
-                    case 'Y':
-                        pauli_flag = Target::kPauliY;
-                        break;
-                    case 'Z':
-                        pauli_flag = Target::kPauliZ;
-                        break;
-                    default:
-                        throw ParseError("Invalid Pauli in EXP_VAL: " + std::string(1, pauli_char),
-                                         line_num);
-                }
-                pos++;
-
-                // Parse qubit index.
-                size_t num_start = pos;
-                while (pos < product_str.size() && std::isdigit(product_str[pos])) {
-                    pos++;
-                }
-
-                if (num_start == pos) {
-                    throw ParseError("Expected qubit index after Pauli letter", line_num);
-                }
-
-                uint32_t qubit;
-                if (!parse_uint(std::string_view(product_str).substr(num_start, pos - num_start),
-                                qubit)) {
-                    throw ParseError("Invalid qubit index in EXP_VAL", line_num);
-                }
-
-                if (qubit >= (1u << 28)) {
-                    throw ParseError("Qubit index too large (must be < 2^28)", line_num);
-                }
-
-                if (!seen_qubits.insert(qubit).second) {
-                    throw ParseError("Duplicate qubit in EXP_VAL product", line_num);
-                }
-
-                if (pauli_targets.size() >= kMaxTargetsPerInstruction) {
-                    throw ParseError("Too many Pauli terms in product (limit: " +
-                                         std::to_string(kMaxTargetsPerInstruction) + ")",
-                                     line_num);
-                }
-
-                pauli_targets.push_back(Target::pauli(qubit, pauli_flag));
-                circuit.num_qubits = std::max(circuit.num_qubits, qubit + 1);
-            }
-
-            if (pauli_targets.empty()) {
-                throw ParseError("Empty Pauli product in EXP_VAL", line_num);
-            }
-
-            // Emit one AstNode per product.
-            AstNode node{GateType::EXP_VAL, std::move(pauli_targets), {}, line_num};
-            circuit.num_exp_vals++;
-            circuit.nodes.push_back(std::move(node));
-        }
-
-        if (product_count == 0) {
-            throw ParseError("EXP_VAL requires at least one Pauli product", line_num);
-        }
-    }
-
-    // Parse R_PAULI instruction: R_PAULI(alpha) X0*Y1*Z2
-    // Exactly one Pauli product with the rotation angle from args[0].
-    void parse_r_pauli(std::string_view targets_str, uint32_t line_num, Circuit& circuit,
-                       const std::vector<double>& args) {
-        std::string_view product_str = next_token(targets_str);
-        if (product_str.empty()) {
-            throw ParseError("R_PAULI requires a Pauli product (e.g. X0*Y1*Z2)", line_num);
-        }
-
-        // Check no extra tokens.
-        std::string_view extra = next_token(targets_str);
-        if (!extra.empty()) {
-            throw ParseError("R_PAULI takes exactly one Pauli product", line_num);
-        }
-
+    std::vector<Target> parse_pauli_product(std::string_view product_str,
+                                            std::string_view gate_name, uint32_t line_num,
+                                            Circuit& circuit) {
         std::vector<Target> pauli_targets;
         std::unordered_set<uint32_t> seen_qubits;
 
@@ -898,7 +853,9 @@ class Parser {
         while (pos < product_str.size()) {
             if (product_str[pos] == '*') {
                 if (pos == 0 || pos + 1 >= product_str.size() || product_str[pos + 1] == '*') {
-                    throw ParseError("Malformed Pauli product in R_PAULI: misplaced '*'", line_num);
+                    throw ParseError(
+                        "Malformed Pauli product in " + std::string(gate_name) + ": misplaced '*'",
+                        line_num);
                 }
                 pos++;
                 continue;
@@ -917,24 +874,30 @@ class Parser {
                     pauli_flag = Target::kPauliZ;
                     break;
                 default:
-                    throw ParseError("Invalid Pauli in R_PAULI: " + std::string(1, pauli_char),
+                    throw ParseError("Invalid Pauli in " + std::string(gate_name) + ": " +
+                                         std::string(1, pauli_char),
                                      line_num);
             }
             pos++;
 
             size_t num_start = pos;
-            while (pos < product_str.size() && std::isdigit(product_str[pos])) {
+            while (pos < product_str.size() &&
+                   std::isdigit(static_cast<unsigned char>(product_str[pos]))) {
                 pos++;
             }
 
             if (num_start == pos) {
-                throw ParseError("Expected qubit index after Pauli letter in R_PAULI", line_num);
+                std::string msg = "Expected qubit index after Pauli letter";
+                if (gate_name == "R_PAULI") {
+                    msg += " in R_PAULI";
+                }
+                throw ParseError(msg, line_num);
             }
 
             uint32_t qubit;
             if (!parse_uint(std::string_view(product_str).substr(num_start, pos - num_start),
                             qubit)) {
-                throw ParseError("Invalid qubit index in R_PAULI", line_num);
+                throw ParseError("Invalid qubit index in " + std::string(gate_name), line_num);
             }
 
             if (qubit >= (1u << 28)) {
@@ -942,19 +905,240 @@ class Parser {
             }
 
             if (!seen_qubits.insert(qubit).second) {
-                throw ParseError("Duplicate qubit in R_PAULI product", line_num);
+                throw ParseError("Duplicate qubit in " + std::string(gate_name) + " product",
+                                 line_num);
             }
 
             if (pauli_targets.size() >= kMaxTargetsPerInstruction) {
-                throw ParseError("Too many Pauli terms in R_PAULI product", line_num);
+                if (gate_name == "R_PAULI") {
+                    throw ParseError("Too many Pauli terms in R_PAULI product", line_num);
+                }
+                throw ParseError("Too many Pauli terms in product (limit: " +
+                                     std::to_string(kMaxTargetsPerInstruction) + ")",
+                                 line_num);
             }
+
             pauli_targets.push_back(Target::pauli(qubit, pauli_flag));
             circuit.num_qubits = std::max(circuit.num_qubits, qubit + 1);
         }
 
         if (pauli_targets.empty()) {
-            throw ParseError("Empty Pauli product in R_PAULI", line_num);
+            throw ParseError("Empty Pauli product in " + std::string(gate_name), line_num);
         }
+
+        return pauli_targets;
+    }
+
+    std::vector<std::vector<Target>> parse_pauli_products(std::string_view targets_str,
+                                                          std::string_view gate_name,
+                                                          uint32_t line_num, Circuit& circuit) {
+        std::vector<std::vector<Target>> products;
+        std::string_view remaining = targets_str;
+
+        while (true) {
+            std::string_view product_str = next_token(remaining);
+            if (product_str.empty())
+                break;
+
+            if (products.size() >= kMaxTargetsPerInstruction) {
+                throw ParseError("Too many " + std::string(gate_name) + " products (limit: " +
+                                     std::to_string(kMaxTargetsPerInstruction) + ")",
+                                 line_num);
+            }
+
+            products.push_back(parse_pauli_product(product_str, gate_name, line_num, circuit));
+        }
+
+        if (products.empty()) {
+            throw ParseError(std::string(gate_name) + " requires at least one Pauli product",
+                             line_num);
+        }
+
+        return products;
+    }
+
+    std::vector<Target> parse_correlated_pauli_targets(std::string_view targets_str,
+                                                       std::string_view gate_name,
+                                                       uint32_t line_num, Circuit& circuit) {
+        struct FoldedTerm {
+            uint32_t qubit;
+            uint8_t xz_bits;
+            bool inverted;
+        };
+
+        std::vector<FoldedTerm> terms;
+        std::unordered_map<uint32_t, size_t> term_index;
+
+        size_t pos = 0;
+        while (pos < targets_str.size()) {
+            while (pos < targets_str.size() &&
+                   std::isspace(static_cast<unsigned char>(targets_str[pos]))) {
+                ++pos;
+            }
+            while (pos < targets_str.size() && targets_str[pos] == '*') {
+                ++pos;
+                while (pos < targets_str.size() &&
+                       std::isspace(static_cast<unsigned char>(targets_str[pos]))) {
+                    ++pos;
+                }
+            }
+            if (pos >= targets_str.size()) {
+                break;
+            }
+
+            bool inverted = false;
+            if (targets_str[pos] == '!') {
+                inverted = true;
+                ++pos;
+                if (pos >= targets_str.size()) {
+                    throw ParseError("Expected Pauli target after '!'", line_num);
+                }
+            }
+
+            char pauli_char = targets_str[pos];
+            uint8_t xz_bits;
+            switch (pauli_char) {
+                case 'X':
+                    xz_bits = 1;
+                    break;
+                case 'Y':
+                    xz_bits = 3;
+                    break;
+                case 'Z':
+                    xz_bits = 2;
+                    break;
+                default:
+                    throw ParseError(
+                        "Gate " + std::string(gate_name) + " only accepts Pauli targets", line_num);
+            }
+            ++pos;
+
+            size_t num_start = pos;
+            while (pos < targets_str.size() &&
+                   std::isdigit(static_cast<unsigned char>(targets_str[pos]))) {
+                ++pos;
+            }
+            if (num_start == pos) {
+                throw ParseError(
+                    "Expected qubit index after Pauli letter in " + std::string(gate_name),
+                    line_num);
+            }
+
+            uint32_t qubit;
+            if (!parse_uint(targets_str.substr(num_start, pos - num_start), qubit)) {
+                throw ParseError("Invalid qubit index in " + std::string(gate_name), line_num);
+            }
+            if (qubit >= (1u << 28)) {
+                throw ParseError("Qubit index too large (must be < 2^28)", line_num);
+            }
+
+            if (pos < targets_str.size() &&
+                !std::isspace(static_cast<unsigned char>(targets_str[pos])) &&
+                targets_str[pos] != '*') {
+                throw ParseError("Targets in " + std::string(gate_name) +
+                                     " must be separated by whitespace or '*'",
+                                 line_num);
+            }
+
+            auto [it, inserted] = term_index.emplace(qubit, terms.size());
+            if (inserted) {
+                if (terms.size() >= kMaxTargetsPerInstruction) {
+                    throw ParseError(
+                        "Too many Pauli terms in " + std::string(gate_name) + " product", line_num);
+                }
+                terms.push_back({qubit, 0, false});
+            }
+            FoldedTerm& term = terms[it->second];
+            term.xz_bits ^= xz_bits;
+            term.inverted ^= inverted;
+            circuit.num_qubits = std::max(circuit.num_qubits, qubit + 1);
+        }
+
+        std::vector<Target> targets;
+        targets.reserve(terms.size());
+        for (const auto& term : terms) {
+            uint32_t pauli_flag;
+            switch (term.xz_bits) {
+                case 1:
+                    pauli_flag = Target::kPauliX;
+                    break;
+                case 2:
+                    pauli_flag = Target::kPauliZ;
+                    break;
+                case 3:
+                    pauli_flag = Target::kPauliY;
+                    break;
+                default:
+                    continue;
+            }
+
+            Target target = Target::pauli(term.qubit, pauli_flag);
+            if (term.inverted) {
+                target = target.inverted();
+            }
+            targets.push_back(target);
+        }
+
+        return targets;
+    }
+
+    void parse_correlated_error(GateType gate, std::string_view targets_str, uint32_t line_num,
+                                Circuit& circuit, const std::vector<double>& args) {
+        auto targets =
+            parse_correlated_pauli_targets(targets_str, clifft::gate_name(gate), line_num, circuit);
+        circuit.nodes.push_back({gate, std::move(targets), args, line_num});
+    }
+
+    // Parse MPP instruction with multiple Pauli products.
+    void parse_mpp(std::string_view targets_str, uint32_t line_num, Circuit& circuit, double arg) {
+        auto products = parse_pauli_products(targets_str, "MPP", line_num, circuit);
+        for (auto& pauli_targets : products) {
+            // Decompose noisy MPP: MPP(p) -> MPP + READOUT_NOISE
+            bool is_noisy_meas = arg > 0.0;
+
+            // Emit one AstNode per product.
+            // MPP is a visible measurement.
+            AstNode node{GateType::MPP, std::move(pauli_targets), {}, line_num};
+            circuit.num_measurements++;
+            circuit.nodes.push_back(std::move(node));
+
+            if (is_noisy_meas) {
+                uint32_t meas_idx = circuit.num_measurements - 1;
+                circuit.nodes.push_back(
+                    {GateType::READOUT_NOISE, {Target::rec(meas_idx)}, {arg}, line_num});
+            }
+        }
+    }
+
+    // Parse EXP_VAL instruction with multiple Pauli products.
+    // Same Pauli product syntax as MPP but no noise argument.
+    // Increments num_exp_vals (not num_measurements).
+    void parse_exp_val(std::string_view targets_str, uint32_t line_num, Circuit& circuit) {
+        auto products = parse_pauli_products(targets_str, "EXP_VAL", line_num, circuit);
+        for (auto& pauli_targets : products) {
+            // Emit one AstNode per product.
+            AstNode node{GateType::EXP_VAL, std::move(pauli_targets), {}, line_num};
+            circuit.num_exp_vals++;
+            circuit.nodes.push_back(std::move(node));
+        }
+    }
+
+    // Parse R_PAULI instruction: R_PAULI(alpha) X0*Y1*Z2
+    // Exactly one Pauli product with the rotation angle from args[0].
+    void parse_r_pauli(std::string_view targets_str, uint32_t line_num, Circuit& circuit,
+                       const std::vector<double>& args) {
+        std::string_view product_str = next_token(targets_str);
+        if (product_str.empty()) {
+            throw ParseError("R_PAULI requires a Pauli product (e.g. X0*Y1*Z2)", line_num);
+        }
+
+        // Check no extra tokens.
+        std::string_view extra = next_token(targets_str);
+        if (!extra.empty()) {
+            throw ParseError("R_PAULI takes exactly one Pauli product", line_num);
+        }
+
+        auto pauli_targets = parse_pauli_product(product_str, "R_PAULI", line_num, circuit);
 
         circuit.nodes.push_back({GateType::R_PAULI, std::move(pauli_targets), args, line_num});
     }

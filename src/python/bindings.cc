@@ -298,8 +298,12 @@ NB_MODULE(_clifft_core, m) {
         .value("Z_ERROR", clifft::GateType::Z_ERROR)
         .value("DEPOLARIZE1", clifft::GateType::DEPOLARIZE1)
         .value("DEPOLARIZE2", clifft::GateType::DEPOLARIZE2)
+        .value("DEPOLARIZE3", clifft::GateType::DEPOLARIZE3)
         .value("PAULI_CHANNEL_1", clifft::GateType::PAULI_CHANNEL_1)
         .value("PAULI_CHANNEL_2", clifft::GateType::PAULI_CHANNEL_2)
+        .value("PAULI_CHANNEL_3", clifft::GateType::PAULI_CHANNEL_3)
+        .value("CORRELATED_ERROR", clifft::GateType::CORRELATED_ERROR)
+        .value("ELSE_CORRELATED_ERROR", clifft::GateType::ELSE_CORRELATED_ERROR)
         .value("READOUT_NOISE", clifft::GateType::READOUT_NOISE)
         // Annotations
         .value("DETECTOR", clifft::GateType::DETECTOR)
@@ -1190,7 +1194,14 @@ NB_MODULE(_clifft_core, m) {
             size_t n = sv.size();
             return vec_to_numpy(std::move(sv), {n});
         },
-        nb::arg("program"), nb::arg("state"), "Expand the SVM state into a dense statevector.");
+        nb::arg("program"), nb::arg("state"),
+        "Expand the SVM state into a dense statevector.\n\n"
+        "For unitary programs, compilation preserves the API-visible global\n"
+        "phase across optimization passes. Retained final-tableau expansion\n"
+        "uses Stim's complex<float> unitary path, so those amplitudes have\n"
+        "float-scale precision. After measurements or noise, only relative\n"
+        "amplitudes and probabilities are meaningful; overall phase may\n"
+        "differ between compilations.");
 
     m.def(
         "_basis_probabilities_from_bitmasks",

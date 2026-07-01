@@ -1,12 +1,12 @@
 """Tests for the SingleAxisFusionPass and OP_ARRAY_U2.
 
 Verifies that fusing consecutive single-axis operations into precomputed
-2x2 unitary sweeps produces identical statevectors and sampling results.
+2x2 unitary sweeps preserves statevector equivalence and sampling results.
 """
 
 import numpy as np
 import pytest
-from conftest import assert_statevectors_equal, random_dense_clifford_t_circuit
+from conftest import assert_statevectors_equiv, random_dense_clifford_t_circuit
 
 import clifft
 
@@ -66,7 +66,7 @@ def test_u3_single_gate_fusion() -> None:
 
     sv_ref = _get_sv(prog_no_fuse)
     sv_opt = _get_sv(prog_fused)
-    assert_statevectors_equal(sv_opt, sv_ref, rtol=1e-10)
+    assert_statevectors_equiv(sv_opt, sv_ref, rtol=1e-10)
 
 
 def test_u3_two_qubits_with_entanglement() -> None:
@@ -82,7 +82,7 @@ def test_u3_two_qubits_with_entanglement() -> None:
     sv_opt = _get_sv(prog_fused)
     # The fused and unfused paths accumulate floating-point error differently
     # due to S-absorption changing the virtual coordinate decomposition.
-    assert_statevectors_equal(sv_opt, sv_ref, rtol=1e-6)
+    assert_statevectors_equiv(sv_opt, sv_ref, rtol=1e-6)
 
 
 # ---------------------------------------------------------------------------
@@ -134,7 +134,7 @@ def test_random_dense_clifford_t_fusion_equivalence(num_qubits: int, seed: int) 
 
     sv_ref = _get_sv(prog_no_fuse)
     sv_opt = _get_sv(prog_fused)
-    assert_statevectors_equal(sv_opt, sv_ref, rtol=1e-6)
+    assert_statevectors_equiv(sv_opt, sv_ref, rtol=1e-6)
 
 
 # ---------------------------------------------------------------------------

@@ -63,12 +63,30 @@ extra:
     provider: mike
     default: stable
 
+hooks:
+  - docs/hooks.py
+
 plugins:
   - search
   - macros:
       module_name: docs/macros
   - minify:
       minify_html: true
+  - mkdocstrings:
+      handlers:
+        python:
+          options:
+            docstring_style: google
+            docstring_options:
+              warn_unknown_params: false
+            show_root_heading: true
+            show_symbol_type_heading: true
+            show_symbol_type_toc: true
+            show_signature_annotations: true
+            separate_signature: true
+            merge_init_into_class: true
+            filters:
+              - "!^__"
 
 nav:
   - Home: index.md
@@ -91,6 +109,7 @@ nav:
     - Supported Gates: reference/gates.md
     - Instruction Reference: reference/instructions.md
     - Optimization Passes: reference/passes.md
+    - Python API: reference/python-api.md
   - Development:
     - Contributing: development/contributing.md
     - Building from Source: development/building.md

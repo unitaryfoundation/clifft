@@ -11,6 +11,9 @@
 //
 // Parser transformations:
 // - MPP X0*Z1 X2 -> two separate AstNodes (unrolling)
+// - CH c t -> R_Y(0.25) t, CX c t, R_Y(-0.25) t
+// - CCZ a b c -> 7 T/T_DAG gates + 6 CX gates
+// - CCX a b t -> H t, CCZ a b t, H t
 //
 // REPEAT handling:
 // - REPEAT N { ... } blocks are unrolled at parse time via text-level replay.

@@ -1,12 +1,20 @@
 #include "clifft/optimizer/peephole.h"
 
 #include "clifft/optimizer/commutation.h"
+#include "clifft/util/canonical_phase.h"
 #include "clifft/util/constants.h"
 
+#include <algorithm>
 #include <bit>
+#include <cassert>
 #include <cmath>
+#include <complex>
 #include <cstddef>
 #include <cstdint>
+#include <iterator>
+#include <span>
+#include <stdexcept>
+#include <utility>
 #include <vector>
 
 namespace clifft {
@@ -65,6 +73,120 @@ inline void conjugate_pauli_by_S(MaskView x_p, MaskView z_p, bool sign_p, Mutabl
     x_q.xor_with(x_p);
     z_q.xor_with(z_p);
 }
+
+}  // namespace
+
+namespace internal {
+
+void apply_s_to_tableau(stim::Tableau<kStimWidth>& tab, MaskView x_v, MaskView z_v, bool sign_v,
+                        bool is_dagger) {
+    // Map P_virt forward through U_C to get P_phys in O(n^2), then
+    // conjugate all physical rows by P_phys in O(n^2).
+    const size_t words = std::min<size_t>((tab.num_qubits + 63) / 64, x_v.num_words());
+
+    stim::PauliString<kStimWidth> p_virt(tab.num_qubits);
+    for (size_t w = 0; w < words; ++w) {
+        p_virt.xs.u64[w] = x_v.words[w];
+        p_virt.zs.u64[w] = z_v.words[w];
+    }
+    p_virt.sign = sign_v;
+
+    stim::PauliString<kStimWidth> p_phys = tab(p_virt);
+
+    std::vector<uint64_t> px_phys(words, 0);
+    std::vector<uint64_t> pz_phys(words, 0);
+    for (size_t w = 0; w < words; ++w) {
+        px_phys[w] = p_phys.xs.u64[w];
+        pz_phys[w] = p_phys.zs.u64[w];
+    }
+    bool psign_phys = p_phys.sign;
+    MaskView px_view{std::span<const uint64_t>(px_phys)};
+    MaskView pz_view{std::span<const uint64_t>(pz_phys)};
+
+    std::vector<uint64_t> q_x(words, 0);
+    std::vector<uint64_t> q_z(words, 0);
+    MutableMaskView qx_view{std::span<uint64_t>(q_x)};
+    MutableMaskView qz_view{std::span<uint64_t>(q_z)};
+
+    // Tableau generators: S_P X_q S_P^dag, so pass !is_dagger
+    for (size_t q = 0; q < tab.num_qubits; ++q) {
+        auto apply_to_ps = [&](stim::PauliStringRef<kStimWidth> row) {
+            for (size_t w = 0; w < words; ++w) {
+                q_x[w] = row.xs.u64[w];
+                q_z[w] = row.zs.u64[w];
+            }
+            bool q_sign = row.sign;
+
+            conjugate_pauli_by_S(px_view, pz_view, psign_phys, qx_view, qz_view, q_sign,
+                                 !is_dagger);
+
+            for (size_t w = 0; w < words; ++w) {
+                row.xs.u64[w] = q_x[w];
+                row.zs.u64[w] = q_z[w];
+            }
+            row.sign = q_sign;
+        };
+
+        apply_to_ps(tab.xs[q]);
+        apply_to_ps(tab.zs[q]);
+    }
+}
+
+// The fused rotation R = Pi_+ + (+-i) Pi_- (projector form, including its
+// intrinsic e^{+-i*pi/4} relative to the SU(2) rotation) was replaced by
+// the tableau update U_C' = U_C * S_P, so canonical(U_C') matches
+// canonical(U_C) * R only up to an eighth root of unity. Evaluate
+// canonical(U_C) * R at the new canonical anchor to recover that root.
+std::complex<double> s_absorption_phase(const stim::Tableau<kStimWidth>& original,
+                                        const stim::Tableau<kStimWidth>& updated, MaskView x_v,
+                                        MaskView z_v, bool sign_v, bool is_dagger) {
+    const ChoiSupport old_support = build_choi_support(original);
+    const ChoiSupport new_support = build_choi_support(updated);
+
+    // R = a*I + b*P in matrix form, so column c of R has entries a at row c
+    // and b * phase(P|c>) at row c ^ x. The new canonical anchor packs
+    // (row << n) | col, with col in the low half, so the partner flat index
+    // is anchor ^ x_v.
+    const std::complex<double> a =
+        is_dagger ? std::complex<double>{0.5, -0.5} : std::complex<double>{0.5, 0.5};
+    const std::complex<double> b =
+        is_dagger ? std::complex<double>{0.5, 0.5} : std::complex<double>{0.5, -0.5};
+
+    const ChoiIndex& anchor = new_support.anchor;
+    const uint32_t mask_words =
+        std::min<uint32_t>(x_v.num_words(), static_cast<uint32_t>(anchor.size()));
+
+    // phase(P|c>) for c = low half of the anchor. Mask words beyond the
+    // input half never overlap z_v, whose bits above n are zero.
+    uint32_t alpha_idx = sign_v ? 2U : 0U;
+    for (uint32_t w = 0; w < mask_words; ++w) {
+        alpha_idx += static_cast<uint32_t>(std::popcount(x_v.words[w] & z_v.words[w]));
+        alpha_idx += 2U * (static_cast<uint32_t>(std::popcount(z_v.words[w] & anchor[w])) & 1U);
+    }
+    const std::complex<double> alpha = kImagPow[alpha_idx & 3U];
+
+    // For a pure-Z Pauli the partner coincides with the anchor and the two
+    // terms add up to the diagonal entry (a + b * alpha).
+    ChoiIndex partner = anchor;
+    for (uint32_t w = 0; w < mask_words; ++w) {
+        partner[w] ^= x_v.words[w];
+    }
+    const std::complex<double> w_entry =
+        a * choi_amplitude(old_support, anchor) + b * alpha * choi_amplitude(old_support, partner);
+
+    // Hard check rather than an assert: a zero entry here means the tableau
+    // pair is not related by this S rewrite, and dividing through would
+    // silently poison global_weight with NaN in release builds.
+    const double mag = std::abs(w_entry);
+    if (mag < 0.25) {
+        throw std::logic_error("S absorption phase: canonical anchor outside prior support");
+    }
+    return w_entry / mag;
+}
+
+}  // namespace internal
+
+namespace {
 
 /// Absorb a virtual S gate on Pauli generator (x_v, z_v) into all
 /// downstream HIR operations and the final tableau.
@@ -128,58 +250,14 @@ void apply_virtual_s_downstream(HirModule& hir, size_t start_idx, MaskView x_v, 
     }
 
     // 2. Final Tableau: U_C' = U_C S (requires inverted dagger flag)
-    // Map P_virt forward through U_C to get P_phys in O(n^2), then
-    // conjugate all physical rows by P_phys in O(n^2).
     if (hir.final_tableau.has_value()) {
-        stim::Tableau<kStimWidth>& tab = *hir.final_tableau;
-        const size_t words = std::min<size_t>((tab.num_qubits + 63) / 64, x_v.num_words());
+        const stim::Tableau<kStimWidth> original = *hir.final_tableau;
+        internal::apply_s_to_tableau(*hir.final_tableau, x_v, z_v, sign_v, is_dagger);
 
-        stim::PauliString<kStimWidth> p_virt(tab.num_qubits);
-        for (size_t w = 0; w < words; ++w) {
-            p_virt.xs.u64[w] = x_v.words[w];
-            p_virt.zs.u64[w] = z_v.words[w];
-        }
-        p_virt.sign = sign_v;
-
-        stim::PauliString<kStimWidth> p_phys = tab(p_virt);
-
-        std::vector<uint64_t> px_phys(words, 0);
-        std::vector<uint64_t> pz_phys(words, 0);
-        for (size_t w = 0; w < words; ++w) {
-            px_phys[w] = p_phys.xs.u64[w];
-            pz_phys[w] = p_phys.zs.u64[w];
-        }
-        bool psign_phys = p_phys.sign;
-        MaskView px_view{std::span<const uint64_t>(px_phys)};
-        MaskView pz_view{std::span<const uint64_t>(pz_phys)};
-
-        std::vector<uint64_t> q_x(words, 0);
-        std::vector<uint64_t> q_z(words, 0);
-        MutableMaskView qx_view{std::span<uint64_t>(q_x)};
-        MutableMaskView qz_view{std::span<uint64_t>(q_z)};
-
-        // Tableau generators: S_P X_q S_P^dag, so pass !is_dagger
-        for (size_t q = 0; q < tab.num_qubits; ++q) {
-            auto apply_to_ps = [&](stim::PauliStringRef<kStimWidth> row) {
-                for (size_t w = 0; w < words; ++w) {
-                    q_x[w] = row.xs.u64[w];
-                    q_z[w] = row.zs.u64[w];
-                }
-                bool q_sign = row.sign;
-
-                conjugate_pauli_by_S(px_view, pz_view, psign_phys, qx_view, qz_view, q_sign,
-                                     !is_dagger);
-
-                for (size_t w = 0; w < words; ++w) {
-                    row.xs.u64[w] = q_x[w];
-                    row.zs.u64[w] = q_z[w];
-                }
-                row.sign = q_sign;
-            };
-
-            apply_to_ps(tab.xs[q]);
-            apply_to_ps(tab.zs[q]);
-        }
+        // The op stream lost the exact rotation R but the tableau only
+        // gained its symplectic action; restore the dropped global phase.
+        hir.global_weight *=
+            internal::s_absorption_phase(original, *hir.final_tableau, x_v, z_v, sign_v, is_dagger);
     }
 }
 

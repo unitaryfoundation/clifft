@@ -8,6 +8,7 @@ on:
       - 'docs/**'
       - 'playground/**'
       - 'src/wasm/**'
+      - 'src/python/**'
       - 'mkdocs.yml'
       - '.github/workflows/pr_preview.yml'
 
@@ -46,14 +47,16 @@ jobs:
           cd playground && npm ci
           VITE_BASE_PATH=/clifft/pr-preview/pr-${{ github.event.number }}/playground/ VITE_BUILD_SHA=${{ github.sha }} npm run build
 
-      # --- Build MkDocs (docs group only, no C++ extension needed) ---
       - name: Install uv
         uses: astral-sh/setup-uv@v6
         with:
           enable-cache: true
 
+      - name: Install clifft and docs deps
+        run: uv sync --locked --group docs
+
       - name: Build docs
-        run: uv run --only-group docs mkdocs build --strict
+        run: uv run --locked --group docs mkdocs build --strict
         env:
           SITE_URL: https://unitaryfoundation.github.io/clifft/pr-preview/pr-${{ github.event.number }}/
 
@@ -100,7 +103,7 @@ jobs:
 
   cleanup:
     runs-on: ubuntu-24.04
-    if: github.event.action == 'closed'
+    if: github.event.action == 'closed' && github.event.pull_request.head.repo.fork == false
     concurrency:
       group: docs-deploy
       cancel-in-progress: false

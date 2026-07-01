@@ -3,7 +3,7 @@
 import numpy as np
 import pytest
 from conftest import (
-    assert_statevectors_equal,
+    assert_statevectors_equiv,
     binomial_tolerance,
     random_clifford_circuit,
 )
@@ -194,7 +194,7 @@ class TestStatevector:
         sv = clifft.get_statevector(prog, state)
 
         expected = np.array([1 / np.sqrt(2), 1 / np.sqrt(2)], dtype=complex)
-        assert_statevectors_equal(sv, expected)
+        assert_statevectors_equiv(sv, expected)
 
     def test_statevector_bell_state(self) -> None:
         """Bell state matches expected statevector."""
@@ -205,7 +205,7 @@ class TestStatevector:
 
         # |Phi+> = (|00> + |11>)/sqrt(2)
         expected = np.array([1 / np.sqrt(2), 0, 0, 1 / np.sqrt(2)], dtype=complex)
-        assert_statevectors_equal(sv, expected)
+        assert_statevectors_equiv(sv, expected)
 
     def test_statevector_single_t_gate(self) -> None:
         """H-T circuit: [1/sqrt(2), e^{ipi/4}/sqrt(2)]."""
@@ -215,7 +215,7 @@ class TestStatevector:
         sv = clifft.get_statevector(prog, state)
 
         expected = np.array([1 / np.sqrt(2), np.exp(1j * np.pi / 4) / np.sqrt(2)], dtype=complex)
-        assert_statevectors_equal(sv, expected)
+        assert_statevectors_equiv(sv, expected)
 
     def test_statevector_t_dagger(self) -> None:
         """H-T_dag circuit: [1/sqrt(2), e^{-ipi/4}/sqrt(2)]."""
@@ -225,7 +225,7 @@ class TestStatevector:
         sv = clifft.get_statevector(prog, state)
 
         expected = np.array([1 / np.sqrt(2), np.exp(-1j * np.pi / 4) / np.sqrt(2)], dtype=complex)
-        assert_statevectors_equal(sv, expected)
+        assert_statevectors_equiv(sv, expected)
 
     def test_statevector_two_t_equals_s(self) -> None:
         """T-T = S: H-T-T should equal H-S."""
@@ -236,7 +236,7 @@ class TestStatevector:
 
         # H-S: [1/sqrt(2), i/sqrt(2)]
         expected = np.array([1 / np.sqrt(2), 1j / np.sqrt(2)], dtype=complex)
-        assert_statevectors_equal(sv, expected)
+        assert_statevectors_equiv(sv, expected)
 
     def test_statevector_four_t_equals_z(self) -> None:
         """T^4 = Z: H-T-T-T-T should equal H-Z."""
@@ -247,7 +247,7 @@ class TestStatevector:
 
         # H-Z: [1/sqrt(2), -1/sqrt(2)]
         expected = np.array([1 / np.sqrt(2), -1 / np.sqrt(2)], dtype=complex)
-        assert_statevectors_equal(sv, expected)
+        assert_statevectors_equiv(sv, expected)
 
     def test_statevector_t_on_zero(self) -> None:
         """T|0> = |0> (global phase only)."""
@@ -258,7 +258,7 @@ class TestStatevector:
 
         # T|0> = |0> up to global phase
         expected = np.array([1, 0], dtype=complex)
-        assert_statevectors_equal(sv, expected)
+        assert_statevectors_equiv(sv, expected)
 
     def test_statevector_two_qubit_t(self) -> None:
         """Two-qubit circuit with T on qubit 0."""
@@ -270,7 +270,7 @@ class TestStatevector:
         # T on q0 affects indices where bit 0 is set (indices 1, 3)
         phase = np.exp(1j * np.pi / 4)
         expected = np.array([0.5, 0.5 * phase, 0.5, 0.5 * phase], dtype=complex)
-        assert_statevectors_equal(sv, expected)
+        assert_statevectors_equiv(sv, expected)
 
     def test_statevector_bell_plus_t(self) -> None:
         """Bell state with T on control qubit."""
@@ -283,7 +283,7 @@ class TestStatevector:
         # T on q0: |00>->|00>, |11>->e^{ipi/4}|11>
         phase = np.exp(1j * np.pi / 4)
         expected = np.array([1 / np.sqrt(2), 0, 0, phase / np.sqrt(2)], dtype=complex)
-        assert_statevectors_equal(sv, expected)
+        assert_statevectors_equiv(sv, expected)
 
     def test_statevector_normalized(self) -> None:
         """Statevector is always normalized."""
@@ -351,7 +351,7 @@ class TestCliffordValidation:
             sim.do_circuit(stim_circuit)
             stim_sv = sim.state_vector(endian="little")
 
-            assert_statevectors_equal(clifft_sv, stim_sv, msg=f"circuit:\n{circuit_str}")
+            assert_statevectors_equiv(clifft_sv, stim_sv, msg=f"circuit:\n{circuit_str}")
 
     def test_random_clifford_multi_qubit(self) -> None:
         """Random 2-4 qubit Clifford circuits match Stim."""
@@ -375,7 +375,7 @@ class TestCliffordValidation:
                 sim.do_circuit(stim_circuit)
                 stim_sv = sim.state_vector(endian="little")
 
-                assert_statevectors_equal(
+                assert_statevectors_equiv(
                     clifft_sv, stim_sv, msg=f"{num_qubits}q circuit:\n{circuit_str}"
                 )
 
@@ -595,6 +595,35 @@ class TestNoiseAndQEC:
         result = clifft.sample(prog, 100, seed=42)
         # X flips |0> to |1>
         assert np.all(result.measurements == 1)
+
+    def test_correlated_error_else_branch(self) -> None:
+        """ELSE_CORRELATED_ERROR fires when the earlier link does not."""
+        prog = clifft.compile("""
+            E(0.0) X0
+            ELSE_CORRELATED_ERROR(1.0) X1
+            M 0 1
+        """)
+        result = clifft.sample(prog, 100, seed=42)
+        assert np.all(result.measurements[:, 0] == 0)
+        assert np.all(result.measurements[:, 1] == 1)
+
+    def test_correlated_error_chain_probabilistic(self) -> None:
+        """Correlated-error chains convert conditional probabilities correctly."""
+        prog = clifft.compile("""
+            E(0.5) X0
+            ELSE_CORRELATED_ERROR(0.5) X1
+            M 0 1
+        """)
+        shots = 5000
+        result = clifft.sample(prog, shots, seed=42)
+        q0 = result.measurements[:, 0]
+        q1 = result.measurements[:, 1]
+
+        q0_rate = float(np.mean(q0))
+        q1_rate = float(np.mean(q1))
+        assert abs(q0_rate - 0.5) < binomial_tolerance(0.5, shots)
+        assert abs(q1_rate - 0.25) < binomial_tolerance(0.25, shots)
+        assert not np.any(q0 & q1)
 
     def test_pauli_noise_z_error(self) -> None:
         """Z_ERROR doesn't affect computational basis measurement."""

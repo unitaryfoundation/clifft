@@ -30,7 +30,7 @@ def compile_optimized(stim_text: str) -> clifft.Program:
 
 
 # ---------------------------------------------------------------------------
-# Statevector Oracle: optimized vs unoptimized produce identical statevectors
+# Statevector Oracle: optimized vs unoptimized are equivalent up to global phase
 # ---------------------------------------------------------------------------
 
 
@@ -50,7 +50,7 @@ def compile_optimized(stim_text: str) -> clifft.Program:
     ],
 )
 def test_statevector_oracle(num_qubits: int, depth: int, seed: int) -> None:
-    """Statevectors must be perfectly identical for optimized vs baseline."""
+    """Statevectors must be equivalent up to global phase for optimized vs baseline."""
     stim_text = random_dense_clifford_t_circuit(num_qubits, depth, seed)
 
     prog_base = compile_unoptimized(stim_text)
