@@ -24,6 +24,7 @@ add_library(clifft_core STATIC
     api/reference_syndrome.cc
     svm/svm.cc
     svm/svm_forced_kernels.cc
+    svm/svm_instrument_kernels.cc
     svm/svm_scalar.cc
     svm/svm_state.cc
     util/canonical_phase.cc
