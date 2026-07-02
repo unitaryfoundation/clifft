@@ -1948,6 +1948,11 @@ TEST_CASE("TRANSITION rejects malformed tags, args, and targets") {
 TEST_CASE("Tags are rejected on instructions other than TRANSITION") {
     CHECK_THROWS_AS(parse("H[t] 0\n"), ParseError);
     CHECK_THROWS_AS(parse("X_ERROR[t](0.1) 0\n"), ParseError);
+    // Including instructions handled before the main gate dispatch: the
+    // discarded coordinate annotations and the parser-rewrite gates.
+    CHECK_THROWS_AS(parse("QUBIT_COORDS[t](0, 0) 0\n"), ParseError);
+    CHECK_THROWS_AS(parse("CH[t] 0 1\n"), ParseError);
+    CHECK_THROWS_AS(parse("CCZ[t] 0 1 2\n"), ParseError);
 }
 
 TEST_CASE("LOSS parses its probability and rejects bad forms") {

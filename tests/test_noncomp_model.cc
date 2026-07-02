@@ -198,25 +198,21 @@ TEST_CASE("NonComputationalModel: rejects a transition key a TRANSITION tag cann
         ContainsSubstring("bad]key") && ContainsSubstring("cannot be referenced"));
 }
 
-TEST_CASE("NonComputationalModel: rejects a non-hookable noise-channel transition key") {
+TEST_CASE("NonComputationalModel: a non-hookable gate-named key is a named-only transition") {
+    // Keys naming non-hookable instructions (noise channels, annotations,
+    // LOSS itself) register no hook, but stay referenceable from a
+    // TRANSITION[key] annotation like any other name.
     LevelSet levels = LevelSet::default_set();
     std::map<std::string, TransitionInstrument> transitions;
     transitions.emplace("DEPOLARIZE1", zero_transition(levels));
-    REQUIRE_THROWS_WITH(
-        NonComputationalModel(LevelSet::default_set(), default_initial_state(),
-                              std::move(transitions), std::nullopt, NonComputationalPolicy{}),
-        ContainsSubstring("DEPOLARIZE1") &&
-            ContainsSubstring("does not support a transition instrument"));
-}
-
-TEST_CASE("NonComputationalModel: rejects a non-hookable annotation transition key") {
-    LevelSet levels = LevelSet::default_set();
-    std::map<std::string, TransitionInstrument> transitions;
     transitions.emplace("TICK", zero_transition(levels));
-    REQUIRE_THROWS_WITH(
-        NonComputationalModel(LevelSet::default_set(), default_initial_state(),
-                              std::move(transitions), std::nullopt, NonComputationalPolicy{}),
-        ContainsSubstring("does not support a transition instrument"));
+    transitions.emplace("LOSS", zero_transition(levels));
+    NonComputationalModel model(LevelSet::default_set(), default_initial_state(),
+                                std::move(transitions), std::nullopt, NonComputationalPolicy{});
+    REQUIRE(model.transition_named("DEPOLARIZE1") != nullptr);
+    REQUIRE(model.transition_named("TICK") != nullptr);
+    REQUIRE(model.transition_named("LOSS") != nullptr);
+    REQUIRE(model.transition_hooks().empty());
 }
 
 TEST_CASE("NonComputationalModel: rejects two keys resolving to the same gate") {

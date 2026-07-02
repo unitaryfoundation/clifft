@@ -106,13 +106,13 @@ NonComputationalModel::NonComputationalModel(
                 "NonComputationalModel: transition key '" + name +
                 "' contains ']' or a newline and cannot be referenced by a TRANSITION tag");
         }
+        // Only a key naming a hookable physical gate registers a hook. Any
+        // other key -- an arbitrary name, or one naming a non-hookable
+        // instruction such as LOSS or a noise channel -- is a named-only
+        // transition: referenceable from TRANSITION[key], expanded onto
+        // nothing.
         const GateType gate = parse_gate_name(name);
-        if (gate != GateType::UNKNOWN) {
-            if (!supports_transition(gate)) {
-                throw std::invalid_argument("NonComputationalModel: transition key '" + name +
-                                            "' (" + std::string(gate_name(gate)) +
-                                            ") does not support a transition instrument");
-            }
+        if (gate != GateType::UNKNOWN && supports_transition(gate)) {
             auto [it, inserted] = hooks_.emplace(gate, name);
             if (!inserted) {
                 throw std::invalid_argument(

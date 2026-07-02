@@ -520,3 +520,13 @@ TEST_CASE("sample_history: LOSS frequency matches its probability") {
     REQUIRE(lost > 480);  // expected 600; ~7 sigma band
     REQUIRE(lost < 720);
 }
+
+TEST_CASE("sample_history: a gate-named but non-hookable key is referenceable") {
+    Circuit c = parse("TRANSITION[LOSS] 0\n");
+    std::map<std::string, TransitionInstrument> transitions;
+    transitions.emplace("LOSS", lose_from_g(LevelSet::default_set()));
+    NonComputationalModel model = make_model(all_g(), std::move(transitions));
+
+    HistorySample s = sample_history(c, model, 1);
+    REQUIRE(s.final_status[0].kind() == QubitStatusKind::Lost);
+}

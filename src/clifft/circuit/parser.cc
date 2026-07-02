@@ -212,6 +212,11 @@ class Parser {
             }
             rest = trim(rest.substr(close_bracket + 1));
         }
+        // Restricted here, before the discarded-annotation and parser-rewrite
+        // paths return, so no instruction can silently drop a tag.
+        if (!tag.empty() && gate_name != "TRANSITION") {
+            throw ParseError("Tags are only supported on TRANSITION", line_num);
+        }
 
         // Parse optional parenthesized arguments (comma-separated floats).
         std::vector<double> args;
@@ -324,8 +329,6 @@ class Parser {
                 throw ParseError("TRANSITION takes no arguments (the tag names the matrix)",
                                  line_num);
             }
-        } else if (!tag.empty()) {
-            throw ParseError("Tags are only supported on TRANSITION", line_num);
         }
         if (gate == GateType::LOSS) {
             if (args.size() != 1) {
