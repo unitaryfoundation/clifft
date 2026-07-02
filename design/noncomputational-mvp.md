@@ -586,12 +586,11 @@ Notes:
   no confusion. Identity computational columns add nothing, and a
   computational column must place all its probability on the two
   record symbols.
-- "Apply, demote to Unknown" is the conservative default: we drop
-  knownness on any quantum gate touching a `ComputationalKnown`
-  qubit. This loses some optimization opportunity (X on a known qubit
-  could keep knownness with a flipped value; Z/S/T preserve it as a
-  phase), but the conservative rule sidesteps gate-by-gate
-  classification in MVP. Refinement is a later pass.
+- "Apply, demote to Unknown" is the conservative default for
+  basis-mixing gates. Z-diagonal gates preserve a known level and
+  X-type gates flip it (the gate classification lives in the status
+  stepper and defaults to demotion for anything unclassified), so the
+  exact known-source path survives diagonal circuits.
 
 ### 5.2.1 QubitStatusKind transitions
 
@@ -603,7 +602,9 @@ sampling:
 | Initial-state sample (Computational level)       | `ComputationalKnown(level_id)`                                          |
 | Initial-state sample (Leaked level)              | `Leaked(level_id)`                                                      |
 | Initial-state sample (Lost level)                | `Lost(level_id)`                                                        |
-| Any quantum gate touching qubit, kind == Known   | demote to `ComputationalUnknown`                                        |
+| Z-diagonal gate (`Z`/`S`/`T`/`CZ`/`R_Z`...), kind == Known | level preserved: `ComputationalKnown(level)`                  |
+| X-type gate (`X`/`Y`), kind == Known             | level flipped: `ComputationalKnown(other level)`                        |
+| Any other quantum gate touching qubit, kind == Known | demote to `ComputationalUnknown`                                    |
 | Z-basis measurement `M`                          | `ComputationalKnown(g)` or `ComputationalKnown(e)` per outcome          |
 | Z-basis measurement-and-reset `MR`               | `ComputationalKnown(g)` (post-op state is reset, regardless of outcome) |
 | X- or Y-basis measurement (`MX`/`MY`/`MRX`/`MRY`)| post-state is in X/Y basis, not energy basis: `ComputationalUnknown`    |

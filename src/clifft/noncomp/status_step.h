@@ -57,12 +57,13 @@ OperandAction operand_action(GateType gate, QubitStatusKind kind,
 // normal status effect (no transition fired). For a Physical operand:
 // Z-basis reset -> Known(g); X/Y reset -> Unknown; Z-basis measurement
 // preserves the pre-SVM-known status; non-destructive probes preserve
-// status; every other quantum operation demotes a computational qubit to
-// Unknown; a Leaked/Lost qubit is only changed by a reset that restores
-// it. A feedback operand never leaks (the correction is virtual): a
-// FeedbackX may flip g<->e on a control bit unknown before SVM execution,
-// so it demotes a known computational qubit; a FeedbackZ is phase-only and
-// leaves the status untouched.
+// status; a Z-diagonal gate (Z/S/T/CZ...) preserves a known level and an
+// X-type gate (X/Y) flips it to the other known level; every other
+// quantum operation demotes a computational qubit to Unknown; a
+// Leaked/Lost qubit is only changed by a reset that restores it. A feedback operand never leaks
+// (the correction is virtual): a FeedbackX may flip g<->e on a control bit unknown before SVM
+// execution, so it demotes a known computational qubit; a FeedbackZ is phase-only and leaves the
+// status untouched.
 QubitStatus normal_post_op_status(const QubitStatus& entry, GateType gate, OperandRole role,
                                   const NonComputationalPolicy& policy, const LevelSet& levels);
 
