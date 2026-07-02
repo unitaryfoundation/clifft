@@ -382,24 +382,37 @@ Validation plan (extends the existing oracle/probe suite):
 
 ## 6. Implementation plan
 
-Ordered, each step a reviewable PR; the riskiest measurement lands second,
-before the machinery that depends on it.
+Ordered, each step a reviewable PR. Two steps are deliberately pulled to the
+front: the classifier-injection conversion, because it is a standalone
+improvement the existing AOT modes benefit from immediately, and the
+fence-overhead measurement, because it is the one result that could force a
+redesign. Steps 1–3 are mutually independent and can proceed in parallel
+with unrelated roadmap work.
 
-1. **SVM kernels.** Damp/evaluate (fused active-axis pass), expand+damp,
+1. **Runtime-stochastic classifier injection.** Replace the injector's
+   per-shot pre-drawn `MPAD` bit with `MPAD(0)` + `READOUT_NOISE` in all
+   modes (§4.5). Statistically identical, retires the injector's replay of
+   the transition record wholesale (and with it that replay's validation
+   gap), and is a prerequisite for sharing compiled modules across shots.
+   Independently landable and testable.
+2. **Fence de-risk spike.** Pass-manager segmentation plus inert fence ops
+   inserted at realistic site densities; measure compile-time and runtime
+   deltas on the standard benchmarks. **Go/no-go for the fencing approach**,
+   before any of the machinery below is built.
+3. **SVM kernels.** Damp/evaluate (fused active-axis pass), expand+damp,
    forced-source collapse variants, renormalization. Standalone,
    oracle-tested against dense results. No user surface.
-2. **HIR `INSTRUMENT` + fences + lowering + offset table.** Inert until the
-   orchestrator uses it. **Carries the go/no-go benchmark**: pass-fencing
-   overhead on the standard compile/runtime benchmarks with instruments
-   inserted at realistic densities, measured before steps 3–4 are built.
-3. **Trap/resume.** Trap return path from `execute()`, `resume(offset)`,
+4. **HIR `INSTRUMENT` + fences + lowering + offset table.** Inert until the
+   orchestrator uses it; instrument-form emission validated against the
+   spike's segmentation.
+5. **Trap/resume.** Trap return path from `execute()`, `resume(offset)`,
    state persistence across module switches (records buffer sized to the
    max slot count across a chain; noise-gap cursor re-anchored at the entry
    offset — exact by memorylessness).
-4. **Orchestrator driver + continuation cache + runtime-stochastic
-   classifier injection + frame-preload initial states + seeding.** Exact
-   mode becomes usable here; includes the debug prefix-identity assertion.
-5. **Validation campaign, docs, default flip.** Oracle extension, probe
+6. **Orchestrator driver + continuation cache + frame-preload initial
+   states + seeding.** Exact mode becomes usable here; includes the debug
+   prefix-identity assertion.
+7. **Validation campaign, docs, default flip.** Oracle extension, probe
    flips, rep-code TVD runs, performance table; then flip the default
    `unknown_source_policy` to `"exact"`.
 
