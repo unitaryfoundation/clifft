@@ -243,7 +243,8 @@ TEST_CASE("fences: an absorbed virtual S conjugates the instrument mask like a m
     // T 0; T 0 fuses to a virtual S along Z(0). The H makes the site's
     // rewound projector X(0), which anti-commutes with the S axis, so the
     // absorption must rotate it to Y(0) -- the same conjugation measures
-    // and probes receive.
+    // and probes receive. The site's fixup (rewound X = Z(0) here)
+    // commutes with the S axis and must stay put.
     auto hir = hir_with_instruments("T 0\nT 0\nH 0\nLEVEL_TRANSITION[jump] 0", options);
     REQUIRE(hir.ops.size() == 3);
     REQUIRE(mask_is(hir, hir.ops[2], 0, /*x=*/true, /*z=*/false, false));
@@ -259,4 +260,33 @@ TEST_CASE("fences: an absorbed virtual S conjugates the instrument mask like a m
     auto stab = hir.stab_mask(hir.ops[0]);
     REQUIRE(destab.bit_get(0));
     REQUIRE(stab.bit_get(0));
+
+    auto fixup = hir.pauli_masks.at(hir.instrument_sites[0].fixup_mask);
+    REQUIRE(!fixup.x().bit_get(0));
+    REQUIRE(fixup.z().bit_get(0));
+}
+
+TEST_CASE("fences: an absorbed virtual S conjugates the side-table fixup mask too") {
+    const auto options = demo_options();
+    // With the T pair after the H, the virtual S runs along X(0): now the
+    // site's own mask (X-like) commutes and stays put, while the fixup
+    // (rewound X = Z(0)) anti-commutes and must rotate to Y(0). A sweep
+    // that only conjugates op-attached masks misses it -- the side-table
+    // twin of the C2 fixup bug.
+    auto hir = hir_with_instruments("H 0\nT 0\nT 0\nLEVEL_TRANSITION[jump] 0", options);
+    REQUIRE(hir.ops.size() == 3);
+
+    PeepholeFusionPass pass;
+    pass.run(hir);
+
+    REQUIRE(pass.fusions() == 1);
+    REQUIRE(hir.ops.size() == 1);
+    REQUIRE(hir.ops[0].op_type() == OpType::INSTRUMENT);
+    // Op mask: still X-like.
+    REQUIRE(hir.destab_mask(hir.ops[0]).bit_get(0));
+    REQUIRE(!hir.stab_mask(hir.ops[0]).bit_get(0));
+    // Fixup: rotated to Y-like.
+    auto fixup = hir.pauli_masks.at(hir.instrument_sites[0].fixup_mask);
+    REQUIRE(fixup.x().bit_get(0));
+    REQUIRE(fixup.z().bit_get(0));
 }

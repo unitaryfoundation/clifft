@@ -7,14 +7,18 @@
 #include "clifft/circuit/parser.h"
 #include "clifft/frontend/frontend.h"
 #include "clifft/optimizer/pass_factory.h"
+#include "clifft/svm/svm.h"
 
 #include <catch2/catch_test_macros.hpp>
+#include <catch2/matchers/catch_matchers.hpp>
 #include <catch2/matchers/catch_matchers_floating_point.hpp>
+#include <catch2/matchers/catch_matchers_string.hpp>
 #include <cstring>
 #include <string>
 #include <vector>
 
 using namespace clifft;
+using Catch::Matchers::ContainsSubstring;
 using Catch::Matchers::WithinAbs;
 
 namespace {
@@ -196,6 +200,39 @@ TEST_CASE("lowering: offsets stay valid through the default bytecode passes") {
     const uint32_t offset = module.instrument_offsets[0];
     REQUIRE(offset < module.bytecode.size());
     REQUIRE(is_instrument_opcode(module.bytecode[offset].opcode));
+}
+
+TEST_CASE("fences: noise blocks never coalesce across an instrument") {
+    // The adjacency-driven bytecode passes stop at unrecognized opcodes
+    // by construction; pin it for the pass that matters most (noise-block
+    // coalescing drove the atomized-fence cost in the spike): noise on
+    // both sides of a site stays on both sides, in separate runs.
+    auto module = compile_full(
+        "X_ERROR(0.01) 0\nX_ERROR(0.01) 1\nLEVEL_TRANSITION[jump] 2\n"
+        "X_ERROR(0.01) 0\nX_ERROR(0.01) 1\nM 0",
+        demo_options());
+
+    const size_t at = sole_instrument_index(module);
+    bool noise_before = false;
+    bool noise_after = false;
+    for (size_t i = 0; i < module.bytecode.size(); ++i) {
+        const Instruction& instr = module.bytecode[i];
+        if (instr.opcode == Opcode::OP_NOISE || instr.opcode == Opcode::OP_NOISE_BLOCK) {
+            (i < at ? noise_before : noise_after) = true;
+            if (instr.opcode == Opcode::OP_NOISE_BLOCK) {
+                REQUIRE(instr.pauli.condition_idx < 4);  // never one run of all four
+            }
+        }
+    }
+    REQUIRE(noise_before);
+    REQUIRE(noise_after);
+}
+
+TEST_CASE("exact record and basis probabilities reject instrument programs") {
+    auto module = compile_raw("LEVEL_TRANSITION[jump] 0\nM 0", demo_options());
+    const std::vector<uint8_t> record{0};
+    REQUIRE_THROWS_WITH(record_probabilities(module, record, 1),
+                        ContainsSubstring("record_probabilities()"));
 }
 
 TEST_CASE("fences: prefix compilation is bit-identical across different suffixes") {
