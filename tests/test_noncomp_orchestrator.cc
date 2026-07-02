@@ -279,6 +279,37 @@ TEST_CASE("sample_noncomputational: a partial herald column matches its frequenc
     REQUIRE(heralded < 770);
 }
 
+TEST_CASE("sample_noncomputational: the record bit is uniform given a herald, pinned without") {
+    // Column {0.5, 0, 0.5}: a non-heralded draw is always symbol 0, while a
+    // heralded slot's bit is uniform. This pins the (herald, bit) joint: if
+    // heralded slots kept the not-heralded flip probability (0), their bits
+    // would all read 0.
+    Circuit c = parse("H 0\nS 0\nM 0\n");
+    std::map<std::string, TransitionInstrument> transitions;
+    transitions.emplace("S", always_leaked(LevelSet::default_set()));
+    MeasurementClassifier cl =
+        ternary_classifier_with(LevelSet::default_set(), kLeakG, {0.5, 0.0, 0.5});
+    NonComputationalModel model = make_model(all_g(), std::move(transitions), std::move(cl));
+
+    constexpr uint32_t kShots = 2000;
+    NonComputationalSample r = sample_noncomputational(c, model, kShots, 13);
+    size_t heralded = 0;
+    size_t heralded_ones = 0;
+    for (uint32_t shot = 0; shot < kShots; ++shot) {
+        if (r.heralds[shot]) {
+            ++heralded;
+            heralded_ones += r.measurements[shot];
+        } else {
+            REQUIRE(r.measurements[shot] == 0);  // not-heralded bit is symbol 0
+        }
+    }
+    REQUIRE(heralded > 850);  // expected 1000; generous band
+    REQUIRE(heralded < 1150);
+    // Heralded bits are uniform: expected heralded/2, ~6 sigma band.
+    REQUIRE(heralded_ones > heralded * 35 / 100);
+    REQUIRE(heralded_ones < heralded * 65 / 100);
+}
+
 TEST_CASE("sample_noncomputational: a two-symbol classifier leaves the herald sidecar zero") {
     Circuit c = parse("H 0\nS 0\nM 0\n");
     std::map<std::string, TransitionInstrument> transitions;
