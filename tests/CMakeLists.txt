@@ -13,6 +13,7 @@ add_executable(clifft_tests
     test_hir.cc
     test_frontend.cc
     test_frontend_instruments.cc
+    test_backend_instruments.cc
     test_backend.cc
     test_svm.cc
     test_state_reset.cc

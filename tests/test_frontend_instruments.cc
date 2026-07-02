@@ -260,9 +260,3 @@ TEST_CASE("fences: an absorbed virtual S conjugates the instrument mask like a m
     REQUIRE(destab.bit_get(0));
     REQUIRE(stab.bit_get(0));
 }
-
-TEST_CASE("backend: lowering an instrument is not implemented yet") {
-    const auto options = demo_options();
-    auto hir = hir_with_instruments("LEVEL_TRANSITION[jump] 0", options);
-    REQUIRE_THROWS_WITH(lower(hir), ContainsSubstring("INSTRUMENT lowering"));
-}

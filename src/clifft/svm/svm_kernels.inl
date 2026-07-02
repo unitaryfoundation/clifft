@@ -2248,6 +2248,11 @@ void execute_internal(const CompiledModule& program, SchrodingerState& state) {
         [static_cast<uint8_t>(Opcode::OP_SWAP_MEAS_INTERFERE_FORCED)] =
             &&L_OP_SWAP_MEAS_INTERFERE_FORCED,
 
+        [static_cast<uint8_t>(Opcode::OP_INSTRUMENT_ACTIVE)] = &&L_OP_INSTRUMENT,
+        [static_cast<uint8_t>(Opcode::OP_INSTRUMENT_DORMANT_STATIC)] = &&L_OP_INSTRUMENT,
+        [static_cast<uint8_t>(Opcode::OP_INSTRUMENT_EXPAND)] = &&L_OP_INSTRUMENT,
+        [static_cast<uint8_t>(Opcode::OP_INSTRUMENT_DORMANT_NEGLECT)] = &&L_OP_INSTRUMENT,
+
         [static_cast<uint8_t>(Opcode::OP_APPLY_PAULI)] = &&L_OP_APPLY_PAULI,
         [static_cast<uint8_t>(Opcode::OP_NOISE)] = &&L_OP_NOISE,
         [static_cast<uint8_t>(Opcode::OP_NOISE_BLOCK)] = &&L_OP_NOISE_BLOCK,
@@ -2426,6 +2431,11 @@ L_OP_OBSERVABLE:
 L_OP_EXP_VAL:
     exec_exp_val(state, program.constant_pool, pc->exp_val.cp_exp_val_idx, pc->exp_val.exp_val_idx);
     DISPATCH();
+
+L_OP_INSTRUMENT:
+    throw std::runtime_error(
+        "instrument dispatch is not implemented yet; execute() cannot run exact-mode "
+        "instrument programs");
 
 L_OP_MEAS_DORMANT_STATIC_FORCED: {
     const bool sign_flag = (pc->flags & Instruction::FLAG_SIGN) != 0;
@@ -2644,6 +2654,14 @@ L_OP_SWAP_MEAS_INTERFERE_FORCED:
                 exec_exp_val(state, program.constant_pool, instr.exp_val.cp_exp_val_idx,
                              instr.exp_val.exp_val_idx);
                 break;
+
+            case Opcode::OP_INSTRUMENT_ACTIVE:
+            case Opcode::OP_INSTRUMENT_DORMANT_STATIC:
+            case Opcode::OP_INSTRUMENT_EXPAND:
+            case Opcode::OP_INSTRUMENT_DORMANT_NEGLECT:
+                throw std::runtime_error(
+                    "instrument dispatch is not implemented yet; execute() cannot run "
+                    "exact-mode instrument programs");
         }
     }
 #endif

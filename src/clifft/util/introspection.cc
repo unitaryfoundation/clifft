@@ -174,6 +174,14 @@ std::string opcode_to_str(Opcode op) {
             return "OP_MEAS_ACTIVE_INTERFERE_FORCED";
         case Opcode::OP_SWAP_MEAS_INTERFERE_FORCED:
             return "OP_SWAP_MEAS_INTERFERE_FORCED";
+        case Opcode::OP_INSTRUMENT_ACTIVE:
+            return "OP_INSTRUMENT_ACTIVE";
+        case Opcode::OP_INSTRUMENT_DORMANT_STATIC:
+            return "OP_INSTRUMENT_DORMANT_STATIC";
+        case Opcode::OP_INSTRUMENT_EXPAND:
+            return "OP_INSTRUMENT_EXPAND";
+        case Opcode::OP_INSTRUMENT_DORMANT_NEGLECT:
+            return "OP_INSTRUMENT_DORMANT_NEGLECT";
         case Opcode::OP_APPLY_PAULI:
             return "OP_APPLY_PAULI";
         case Opcode::OP_NOISE:
@@ -215,6 +223,14 @@ std::string format_instruction(const Instruction& inst) {
                inst.opcode == Opcode::OP_SWAP_MEAS_INTERFERE_FORCED) {
         ss << "swap(" << inst.axis_1 << "," << inst.axis_2
            << ") meas_idx=" << inst.classical.classical_idx;
+        if (inst.flags & Instruction::FLAG_SIGN)
+            ss << " (sign)";
+    } else if (inst.opcode == Opcode::OP_INSTRUMENT_ACTIVE ||
+               inst.opcode == Opcode::OP_INSTRUMENT_DORMANT_STATIC ||
+               inst.opcode == Opcode::OP_INSTRUMENT_EXPAND ||
+               inst.opcode == Opcode::OP_INSTRUMENT_DORMANT_NEGLECT) {
+        ss << inst.axis_1 << " site=" << inst.instrument.cp_site_idx << " r=("
+           << inst.instrument.r_g << ", " << inst.instrument.r_e << ")";
         if (inst.flags & Instruction::FLAG_SIGN)
             ss << " (sign)";
     } else if (is_two_axis_opcode(inst.opcode)) {
