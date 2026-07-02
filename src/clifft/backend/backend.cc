@@ -999,18 +999,15 @@ CompiledModule lower(const HirModule& hir, std::span<const uint8_t> postselectio
                     opcode = Opcode::OP_INSTRUMENT_EXPAND;
                 }
 
-                // Destination fixup: X_q virtualized through the frame as
-                // it stands after the localization and basis emissions, so
-                // XORing it into the runtime Pauli frame is correct at the
-                // instrument instruction's position.
+                // Destination fixup: the site's rewound X observable,
+                // virtualized through the frame as it stands after the
+                // localization and basis emissions, so XORing it into the
+                // runtime Pauli frame is correct at the instrument
+                // instruction's position.
                 {
-                    const uint32_t words = (n + 63) / 64;
-                    std::vector<uint64_t> fx_x(words, 0);
-                    std::vector<uint64_t> fx_z(words, 0);
-                    MutableMaskView{std::span<uint64_t>(fx_x)}.bit_set(site.qubit, true);
-                    auto fixup_v = map_to_virtual(ctx, MaskView{std::span<const uint64_t>(fx_x)},
-                                                  MaskView{std::span<const uint64_t>(fx_z)},
-                                                  /*sign=*/false, n);
+                    auto hir_fixup = hir.pauli_masks.at(site.fixup_mask);
+                    auto fixup_v =
+                        map_to_virtual(ctx, hir_fixup.x(), hir_fixup.z(), hir_fixup.sign(), n);
                     auto slot = ctx.constant_pool.instrument_fixup_masks.mut_at(
                         static_cast<PauliMaskHandle>(hir_site_idx));
                     stim_to_mask_view(fixup_v.xs, n, slot.x());

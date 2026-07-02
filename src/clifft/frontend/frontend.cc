@@ -370,11 +370,12 @@ size_t count_pauli_masks(const Circuit& circuit) {
                 break;
             case GateType::LEVEL_TRANSITION:
             case GateType::LOSS:
-                // One rewound source-projector mask per materialized
-                // instrument site. Counted unconditionally: without
+                // Two masks per materialized instrument site: the rewound
+                // source projector on the op, and the rewound X fixup in
+                // the side-table. Counted unconditionally: without
                 // instrument options these gates reject before claiming,
                 // and an over-sized arena is harmless.
-                count += n_targets;
+                count += 2 * n_targets;
                 break;
             case GateType::R:
             case GateType::RX:
@@ -789,6 +790,15 @@ HirModule trace(const Circuit& circuit, const InstrumentTraceOptions* instrument
                     }
                     site.damp[0] = std::sqrt(1.0 - site.p_total[0]);
                     site.damp[1] = std::sqrt(1.0 - site.p_total[1]);
+
+                    // Destination fixup: the rewound X observable, stored
+                    // in the arena so downstream mask conjugation can
+                    // reach it through the side-table handle.
+                    site.fixup_mask = hir.claim_side_mask([&](MutablePauliMaskView slot) {
+                        bool sign;
+                        extract_rewound_x_into(sim, qubit, slot.x(), slot.z(), sign);
+                        slot.set_sign(sign);
+                    });
 
                     const InstrumentSiteIdx site_idx{
                         static_cast<uint32_t>(hir.instrument_sites.size())};

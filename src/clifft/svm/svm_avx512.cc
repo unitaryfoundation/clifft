@@ -10,6 +10,7 @@
 
 #include "clifft/svm/svm.h"
 #include "clifft/svm/svm_forced_kernels.h"
+#include "clifft/svm/svm_instrument_kernels.h"
 #include "clifft/svm/svm_internal.h"
 #include "clifft/svm/svm_math.h"
 #include "clifft/util/constants.h"

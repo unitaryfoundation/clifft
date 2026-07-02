@@ -95,6 +95,9 @@ enum class ReadoutNoiseIdx : uint32_t {};
 /// offset table is keyed by this index.
 enum class InstrumentSiteIdx : uint32_t {};
 
+/// Sentinel handle value indicating that an op carries no Pauli mask.
+inline constexpr PauliMaskHandle kNoMask = static_cast<PauliMaskHandle>(~uint32_t{0});
+
 // =============================================================================
 // Instrument Sites
 // =============================================================================
@@ -109,6 +112,13 @@ enum class InstrumentSiteIdx : uint32_t {};
 struct InstrumentSite {
     uint32_t qubit = 0;        // Physical qubit, for suffix rewrites + diagnostics
     uint32_t source_line = 0;  // Circuit line, for k-cap and trap diagnostics
+
+    // The rewound X observable of the qubit at the site (same tableau
+    // conjugation as the op's Z-projector mask): the destination fixup a
+    // computational fire applies when its destination differs from its
+    // source. Handle into HirModule::pauli_masks. Passes that conjugate
+    // the op's mask must conjugate this slot identically.
+    PauliMaskHandle fixup_mask = kNoMask;
 
     // Total fire probability per computational source s.
     double p_total[2] = {0.0, 0.0};
@@ -149,9 +159,6 @@ enum class OpType : uint8_t {
     INSTRUMENT,         // State-dependent jump site (references InstrumentSite side-table)
     NUM_OP_TYPES        // Sentinel: must remain last for binding completeness checks
 };
-
-/// Sentinel handle value indicating that an op carries no Pauli mask.
-inline constexpr PauliMaskHandle kNoMask = static_cast<PauliMaskHandle>(~uint32_t{0});
 
 // A single operation in the Heisenberg IR.
 //
@@ -516,6 +523,16 @@ struct HirModule {
         fill(pauli_masks.mut_at(h));
         ops.push_back(HeisenbergOp::make_instrument(h, idx));
         return ops.back();
+    }
+
+    /// Claim a pauli_masks slot referenced from a side-table entry rather
+    /// than an op (e.g. an instrument's destination fixup), filled via the
+    /// callable like the append_* builders.
+    template <typename Fill>
+    PauliMaskHandle claim_side_mask(Fill&& fill) {
+        auto h = claim_empty_pauli_mask();
+        fill(pauli_masks.mut_at(h));
+        return h;
     }
 
     // --- Builders for ops that don't carry a Pauli mask ---

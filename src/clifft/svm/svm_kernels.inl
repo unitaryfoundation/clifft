@@ -19,6 +19,8 @@
 #include <cmath>
 #include <cstring>
 #include <numbers>
+#include <stdexcept>
+#include <string>
 #include <utility>
 
 namespace clifft {
@@ -1962,6 +1964,166 @@ static inline void exec_readout_noise(SchrodingerState& state, const ConstantPoo
     }
 }
 
+// =============================================================================
+// Instrument Dispatch (state-dependent jumps)
+// =============================================================================
+//
+// One shared handler serves the four OP_INSTRUMENT_* opcodes, composing
+// the draw-free kernels from svm_instrument_kernels.h with the fire draws.
+// Physical source/destination indices (0 = |0> level) map to localized
+// levels through FLAG_SIGN here; the kernels handle p_x[v] themselves. A
+// leaked/lost destination is a resumable trap -- until the trap protocol
+// lands, it throws.
+
+// Destination of a fire from physical source s: computational level d
+// with probability p_dest[s][d] / p_total[s], else -1 for the trap
+// remainder.
+static inline int draw_instrument_destination(SchrodingerState& state,
+                                              const CompiledInstrumentSite& site, uint8_t source) {
+    const double u = state.random_double() * site.p_total[source];
+    if (u < site.p_dest[source][0]) {
+        return 0;
+    }
+    if (u < site.p_dest[source][0] + site.p_dest[source][1]) {
+        return 1;
+    }
+    return -1;
+}
+
+[[noreturn]] static inline void instrument_trap(const CompiledInstrumentSite& site,
+                                                uint8_t source) {
+    throw std::runtime_error("instrument site " + std::to_string(site.site_id) + " (circuit line " +
+                             std::to_string(site.source_line) + ") fired from source " +
+                             std::to_string(source) +
+                             " to a leaked/lost destination; resumable traps are not "
+                             "implemented yet");
+}
+
+// Destination fixup for an in-line computational fire whose destination
+// differs from its source: XOR the site's virtualized X_q into the frame.
+static inline void apply_instrument_fixup(SchrodingerState& state, const ConstantPool& pool,
+                                          const CompiledInstrumentSite& site) {
+    auto mask = pool.instrument_fixup_masks.at(site.fixup_mask);
+    apply_pauli_to_frame(state, mask.x(), mask.z(), mask.sign());
+}
+
+static inline void exec_instrument(SchrodingerState& state, const ConstantPool& pool,
+                                   const Instruction& instr) {
+    const CompiledInstrumentSite& site = pool.instrument_sites[instr.instrument.cp_site_idx];
+    const bool sign = (instr.flags & Instruction::FLAG_SIGN) != 0;
+    const uint16_t v = instr.axis_1;
+
+    if (instr.opcode == Opcode::OP_INSTRUMENT_DORMANT_STATIC) {
+        const auto source = static_cast<uint8_t>(static_cast<uint8_t>(bit_get(state.p_x, v)) ^
+                                                 static_cast<uint8_t>(sign));
+        if (state.random_double() >= site.p_total[source]) {
+            return;  // no fire; the definite-source damp is a scalar
+        }
+        const int dest = draw_instrument_destination(state, site, source);
+        if (dest < 0) {
+            instrument_trap(site, source);
+        }
+        if (dest != source) {
+            apply_instrument_fixup(state, pool, site);
+        }
+        return;
+    }
+
+    if (instr.opcode == Opcode::OP_INSTRUMENT_DORMANT_NEGLECT) {
+        // A dormant-random qubit's fire probability is exactly
+        // (p_g + p_e) / 2. No fire means no action at all -- neglect's
+        // defining approximation is omitting the no-fire back-action.
+        // Every fire traps: an in-line collapse would re-anchor the frame
+        // conditionally, which compiled downstream code cannot account
+        // for; the source draw (weights p_g : p_e) rides along.
+        const double mass = site.p_total[0] + site.p_total[1];
+        if (state.random_double() * 2.0 >= mass) {
+            return;
+        }
+        const double w = state.random_double() * mass;
+        instrument_trap(site, w < site.p_total[0] ? 0 : 1);
+    }
+
+    // Active-array forms. The instruction's damp coefficients are
+    // physical; the kernels map physical levels through p_x[v], so the
+    // localization sign is one extra swap applied here. A p = 1 source
+    // has r = 0, which the fused form cannot represent (the damp would
+    // destroy the ray a fire must renormalize): those sites take the
+    // eval-only route with a collapse on every branch.
+    const double r_g = instr.instrument.r_g;
+    const double r_e = instr.instrument.r_e;
+    const double c_g = sign ? r_e : r_g;
+    const double c_e = sign ? r_g : r_e;
+    const bool fused = r_g > 0.0 && r_e > 0.0;
+
+    if (instr.opcode == Opcode::OP_INSTRUMENT_EXPAND) {
+        // Populations of a dormant-random qubit are exactly half-half, so
+        // the branch is drawn before anything is materialized.
+        const InstrumentBranch branch =
+            instrument_fire_branch(InstrumentPopulations{1.0, 1.0}, site.p_total[0],
+                                   site.p_total[1], state.random_double());
+        if (!branch.fired) {
+            if (fused) {
+                exec_instrument_expand_damp(state, v, c_g, c_e);
+                state.scale_magnitude(std::sqrt(2.0 / (r_g * r_g + r_e * r_e)));
+            } else {
+                // No-fire with a certain-fire source: the posterior
+                // excludes it. Materialize, then collapse onto the
+                // surviving level.
+                const uint8_t survivor = site.p_total[0] >= 1.0 ? 1 : 0;
+                exec_instrument_expand_damp(state, v, 1.0, 1.0);
+                const InstrumentPopulations pops = exec_instrument_damp_eval(state, v, 1.0, 1.0);
+                exec_instrument_collapse_active(state, v, static_cast<uint8_t>(survivor ^ sign),
+                                                pops.pop_g + pops.pop_e);
+            }
+            return;
+        }
+        const int dest = draw_instrument_destination(state, site, branch.source);
+        if (dest < 0) {
+            instrument_trap(site, branch.source);
+        }
+        // Materialize the expansion the compiled layout expects, then
+        // collapse onto the source: the eval-only-plus-collapse recipe,
+        // exact for every rate.
+        exec_instrument_expand_damp(state, v, 1.0, 1.0);
+        const InstrumentPopulations pops = exec_instrument_damp_eval(state, v, 1.0, 1.0);
+        exec_instrument_collapse_active(state, v, static_cast<uint8_t>(branch.source ^ sign),
+                                        pops.pop_g + pops.pop_e);
+        if (dest != branch.source) {
+            apply_instrument_fixup(state, pool, site);
+        }
+        return;
+    }
+
+    // OP_INSTRUMENT_ACTIVE
+    InstrumentPopulations pops = fused ? exec_instrument_damp_eval(state, v, c_g, c_e)
+                                       : exec_instrument_damp_eval(state, v, 1.0, 1.0);
+    if (sign) {
+        std::swap(pops.pop_g, pops.pop_e);
+    }
+    const double total = pops.pop_g + pops.pop_e;
+    const InstrumentBranch branch =
+        instrument_fire_branch(pops, site.p_total[0], site.p_total[1], state.random_double());
+    if (!branch.fired) {
+        if (fused) {
+            state.scale_magnitude(
+                std::sqrt(total / (r_g * r_g * pops.pop_g + r_e * r_e * pops.pop_e)));
+        } else {
+            const uint8_t survivor = site.p_total[0] >= 1.0 ? 1 : 0;
+            exec_instrument_collapse_active(state, v, static_cast<uint8_t>(survivor ^ sign), total);
+        }
+        return;
+    }
+    const int dest = draw_instrument_destination(state, site, branch.source);
+    if (dest < 0) {
+        instrument_trap(site, branch.source);
+    }
+    exec_instrument_collapse_active(state, v, static_cast<uint8_t>(branch.source ^ sign), total);
+    if (dest != branch.source) {
+        apply_instrument_fixup(state, pool, site);
+    }
+}
+
 // DETECTOR: computes the XOR parity of a list of measurement record entries.
 // When expected_one is true, the parity is initialized to 1 so that the
 // noiseless reference outcome (which would also be 1) normalizes to 0.
@@ -2433,9 +2595,8 @@ L_OP_EXP_VAL:
     DISPATCH();
 
 L_OP_INSTRUMENT:
-    throw std::runtime_error(
-        "instrument dispatch is not implemented yet; execute() cannot run exact-mode "
-        "instrument programs");
+    exec_instrument(state, program.constant_pool, *pc);
+    DISPATCH();
 
 L_OP_MEAS_DORMANT_STATIC_FORCED: {
     const bool sign_flag = (pc->flags & Instruction::FLAG_SIGN) != 0;
@@ -2659,9 +2820,8 @@ L_OP_SWAP_MEAS_INTERFERE_FORCED:
             case Opcode::OP_INSTRUMENT_DORMANT_STATIC:
             case Opcode::OP_INSTRUMENT_EXPAND:
             case Opcode::OP_INSTRUMENT_DORMANT_NEGLECT:
-                throw std::runtime_error(
-                    "instrument dispatch is not implemented yet; execute() cannot run "
-                    "exact-mode instrument programs");
+                exec_instrument(state, program.constant_pool, instr);
+                break;
         }
     }
 #endif
