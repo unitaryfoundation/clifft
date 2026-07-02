@@ -129,7 +129,7 @@ TEST_CASE("NonComputationalModel: normalizes the stored initial state") {
     REQUIRE_THAT(sum(model.initial_state()), WithinAbs(1.0, 1e-15));
 }
 
-TEST_CASE("NonComputationalModel: canonicalizes alias transition keys to GateType") {
+TEST_CASE("NonComputationalModel: alias key is stored verbatim and hooks the canonical gate") {
     LevelSet levels = LevelSet::default_set();
     std::map<std::string, TransitionInstrument> transitions;
     transitions.emplace("CNOT", zero_transition(levels));  // alias for CX

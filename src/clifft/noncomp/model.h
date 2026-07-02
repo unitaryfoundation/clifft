@@ -3,21 +3,24 @@
 // NonComputationalModel: the assembled, validated trajectory model.
 //
 // Ties together a LevelSet, a per-level initial-state distribution, a
-// gate-keyed table of TransitionInstruments, an optional
+// name-keyed table of TransitionInstruments, an optional
 // MeasurementClassifier, and the NonComputationalPolicy knobs.
 //
 // Construction runs the model-wide consistency checks (initial state is
 // a probability vector over the levels; every instrument and the
 // classifier were built against this model's level table; transition
-// keys name hookable physical gates; policy values are recognized) and
-// throws std::invalid_argument on failure. Whether a transition's
-// source context is representable is a sample-time concern enforced by
-// the sampler against the target qubit's QubitStatusKind, not here.
+// keys survive the LEVEL_TRANSITION tag syntax; policy values are
+// recognized) and throws std::invalid_argument on failure. Whether a
+// transition's source context is representable is a sample-time concern
+// enforced by the sampler against the target qubit's QubitStatusKind,
+// not here.
 //
-// Transition keys are supplied as gate-name strings (Stim aliases such
-// as "CNOT" are accepted) but stored canonicalized to GateType, so the
-// sampler resolves them against the parsed circuit's GateType directly
-// and two spellings of the same gate cannot silently shadow each other.
+// Transition keys are arbitrary names, stored verbatim; a circuit
+// references any of them by exact key with a LEVEL_TRANSITION[key]
+// annotation. A key that names a hookable physical gate (Stim aliases
+// such as "CNOT" are accepted) additionally registers a gate hook,
+// keyed by GateType so two spellings of one gate cannot register
+// competing hooks.
 
 #include "clifft/circuit/gate_data.h"
 #include "clifft/noncomp/classifier.h"
@@ -49,9 +52,9 @@ class NonComputationalModel {
     //   - initial_state has one entry per level, each finite and in
     //     [0, 1]; the distribution is normalized to sum to exactly 1
     //     after checking it sums to 1 within tolerance;
-    //   - every transition key names a hookable physical gate (no
-    //     annotations, identity no-ops, noise channels, or synthetic
-    //     gates), and no two keys canonicalize to the same gate;
+    //   - every transition key is nonempty and free of ']' and newline
+    //     (so a LEVEL_TRANSITION[key] tag can reference it), and no two
+    //     hook-registering keys resolve to the same gate;
     //   - every TransitionInstrument and the classifier, if present,
     //     were built against this model's level table (fingerprint
     //     match);
@@ -69,7 +72,7 @@ class NonComputationalModel {
     // classifier against `levels` from raw matrices, then assemble. Because all
     // components are built against the one LevelSet, callers never construct
     // those objects or deal with level fingerprints. `transition_matrices` maps
-    // a gate-name string to its T[to][from] matrix; `classifier_spec` is
+    // a transition key to its T[to][from] matrix; `classifier_spec` is
     // optional. Validation and throwing match the component from_matrix
     // factories and the constructor.
     static NonComputationalModel from_spec(

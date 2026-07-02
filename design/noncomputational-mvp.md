@@ -391,9 +391,9 @@ Plan: add a spec-based `NonComputationalModel` builder (raw
 in Python. At that point decide whether the compositional constructor
 stays public or becomes an internal/test-only entry. Fingerprints
 must not leak into the Python API or user docs. Transition keys are
-accepted as gate-name strings but canonicalized to `GateType`
-internally; only hookable physical gates are allowed (no annotations,
-identity no-ops, `MPAD`, `EXP_VAL`, or noise channels in the MVP).
+arbitrary names, stored verbatim and resolved by exact key from
+`LEVEL_TRANSITION[key]` annotations; a key that names a hookable
+physical gate additionally registers a gate hook (§5.0).
 
 ## 4. Validation: construction-time vs. sample-time
 
@@ -424,8 +424,11 @@ representable in the MVP.
    `P(reject | level)`.
 6. **Policy values are well-formed** (enum values, not free strings on
    the C++ side; Python sugar translates).
-7. **Transition keys reference known gate names** in clifft's circuit
-   vocabulary; unknown keys reject.
+7. **Transition keys are tag-safe names**: nonempty, with no `]` or
+   newline, so a `LEVEL_TRANSITION[key]` annotation can reference them.
+   A key that names a hookable gate registers a gate hook, and two keys
+   resolving to the same gate reject; any other key is a named-only
+   reference, not an error.
 
 Each `TransitionInstrument` also computes and caches a derived flag
 at construction:
