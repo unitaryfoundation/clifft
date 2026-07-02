@@ -54,27 +54,25 @@ std::vector<double> default_initial_state() {
 
 // A two-level set (g, e), distinct in size from the default 5-level set.
 LevelSet two_level_set() {
-    using clifft::BasisBit;
     using clifft::Level;
     using clifft::LevelCategory;
     return LevelSet({
-        Level{"g", LevelCategory::Computational, BasisBit::Zero},
-        Level{"e", LevelCategory::Computational, BasisBit::One},
+        Level{"g", LevelCategory::Computational},
+        Level{"e", LevelCategory::Computational},
     });
 }
 
 // A second valid 5-level set with different labels: same size as
 // default_set but a distinct fingerprint.
 LevelSet relabeled_five_level_set() {
-    using clifft::BasisBit;
     using clifft::Level;
     using clifft::LevelCategory;
     return LevelSet({
-        Level{"zero", LevelCategory::Computational, BasisBit::Zero},
-        Level{"one", LevelCategory::Computational, BasisBit::One},
-        Level{"leak0", LevelCategory::Leaked, std::nullopt},
-        Level{"leak1", LevelCategory::Leaked, std::nullopt},
-        Level{"gone", LevelCategory::Lost, std::nullopt},
+        Level{"zero", LevelCategory::Computational},
+        Level{"one", LevelCategory::Computational},
+        Level{"leak0", LevelCategory::Leaked},
+        Level{"leak1", LevelCategory::Leaked},
+        Level{"gone", LevelCategory::Lost},
     });
 }
 

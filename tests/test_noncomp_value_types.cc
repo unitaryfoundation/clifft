@@ -9,7 +9,6 @@
 #include <vector>
 
 using Catch::Matchers::ContainsSubstring;
-using clifft::BasisBit;
 using clifft::kInvalidLevel;
 using clifft::Level;
 using clifft::LevelCategory;
@@ -27,9 +26,9 @@ TEST_CASE("LevelSet: default_set validates and exposes the expected levels") {
     LevelSet set = LevelSet::default_set();
     REQUIRE(set.size() == 5);
     REQUIRE(set.at(0).category == LevelCategory::Computational);
-    REQUIRE(set.at(0).basis_bit == BasisBit::Zero);
+    REQUIRE(set.computational_zero_id() == 0);
     REQUIRE(set.at(1).category == LevelCategory::Computational);
-    REQUIRE(set.at(1).basis_bit == BasisBit::One);
+    REQUIRE(set.computational_one_id() == 1);
     REQUIRE(set.at(2).category == LevelCategory::Leaked);
     REQUIRE(set.at(4).category == LevelCategory::Lost);
 }
@@ -38,88 +37,52 @@ TEST_CASE("LevelSet: rejects empty level set") {
     REQUIRE_THROWS_AS(LevelSet(std::vector<Level>{}), std::invalid_argument);
 }
 
-TEST_CASE("LevelSet: rejects Computational level missing basis_bit") {
+TEST_CASE("LevelSet: accepts a custom set with exactly two Computational levels") {
     std::vector<Level> levels = {
-        Level{"g", LevelCategory::Computational, std::nullopt},
-        Level{"e", LevelCategory::Computational, BasisBit::One},
+        Level{"g", LevelCategory::Computational},
+        Level{"e", LevelCategory::Computational},
+        Level{"leak", LevelCategory::Leaked},
+        Level{"lost", LevelCategory::Lost},
     };
-    REQUIRE_THROWS_WITH(LevelSet(std::move(levels)),
-                        ContainsSubstring("Computational") && ContainsSubstring("basis_bit"));
-}
-
-TEST_CASE("LevelSet: accepts Leaked level carrying optional basis_bit metadata") {
-    std::vector<Level> levels = {
-        Level{"g", LevelCategory::Computational, BasisBit::Zero},
-        Level{"e", LevelCategory::Computational, BasisBit::One},
-        // Single Leaked level with origin metadata.
-        Level{"leak", LevelCategory::Leaked, BasisBit::One},
-        Level{"lost", LevelCategory::Lost, std::nullopt},
-    };
-    REQUIRE_NOTHROW(LevelSet(std::move(levels)));
-}
-
-TEST_CASE("LevelSet: rejects Lost level carrying basis_bit") {
-    std::vector<Level> levels = {
-        Level{"g", LevelCategory::Computational, BasisBit::Zero},
-        Level{"e", LevelCategory::Computational, BasisBit::One},
-        Level{"lost", LevelCategory::Lost, BasisBit::One},
-    };
-    REQUIRE_THROWS_WITH(LevelSet(std::move(levels)),
-                        ContainsSubstring("Lost") && ContainsSubstring("basis_bit"));
+    LevelSet set(std::move(levels));
+    REQUIRE(set.computational_zero_id() == 0);
+    REQUIRE(set.computational_one_id() == 1);
 }
 
 TEST_CASE("LevelSet: rejects level set above the 128-entry cap") {
     std::vector<Level> levels;
     levels.reserve(129);
     for (size_t i = 0; i < 129; ++i) {
-        levels.push_back(
-            Level{"L" + std::to_string(i), LevelCategory::Computational, BasisBit::Zero});
+        levels.push_back(Level{"L" + std::to_string(i), LevelCategory::Computational});
     }
     REQUIRE_THROWS_WITH(LevelSet(std::move(levels)), ContainsSubstring("128"));
 }
 
 TEST_CASE("LevelSet: rejects unrecognized LevelCategory enum value") {
     std::vector<Level> levels = {
-        Level{"weird", static_cast<LevelCategory>(99), std::nullopt},
+        Level{"weird", static_cast<LevelCategory>(99)},
     };
     REQUIRE_THROWS_WITH(LevelSet(std::move(levels)),
                         ContainsSubstring("unrecognized LevelCategory"));
 }
 
-TEST_CASE("LevelSet: rejects two Computational/Zero levels") {
+TEST_CASE("LevelSet: rejects more than two Computational levels") {
     std::vector<Level> levels = {
-        Level{"g1", LevelCategory::Computational, BasisBit::Zero},
-        Level{"g2", LevelCategory::Computational, BasisBit::Zero},
-        Level{"e", LevelCategory::Computational, BasisBit::One},
+        Level{"g", LevelCategory::Computational},
+        Level{"e", LevelCategory::Computational},
+        Level{"x", LevelCategory::Computational},
     };
     REQUIRE_THROWS_WITH(LevelSet(std::move(levels)),
-                        ContainsSubstring("Zero") && ContainsSubstring("got 2"));
+                        ContainsSubstring("two Computational") && ContainsSubstring("got 3"));
 }
 
-TEST_CASE("LevelSet: rejects missing Computational/Zero level") {
+TEST_CASE("LevelSet: rejects fewer than two Computational levels") {
     std::vector<Level> levels = {
-        Level{"e", LevelCategory::Computational, BasisBit::One},
+        Level{"g", LevelCategory::Computational},
+        Level{"lost", LevelCategory::Lost},
     };
     REQUIRE_THROWS_WITH(LevelSet(std::move(levels)),
-                        ContainsSubstring("Zero") && ContainsSubstring("got 0"));
-}
-
-TEST_CASE("LevelSet: rejects two Computational/One levels") {
-    std::vector<Level> levels = {
-        Level{"g", LevelCategory::Computational, BasisBit::Zero},
-        Level{"e1", LevelCategory::Computational, BasisBit::One},
-        Level{"e2", LevelCategory::Computational, BasisBit::One},
-    };
-    REQUIRE_THROWS_WITH(LevelSet(std::move(levels)),
-                        ContainsSubstring("One") && ContainsSubstring("got 2"));
-}
-
-TEST_CASE("LevelSet: rejects missing Computational/One level") {
-    std::vector<Level> levels = {
-        Level{"g", LevelCategory::Computational, BasisBit::Zero},
-    };
-    REQUIRE_THROWS_WITH(LevelSet(std::move(levels)),
-                        ContainsSubstring("One") && ContainsSubstring("got 0"));
+                        ContainsSubstring("two Computational") && ContainsSubstring("got 1"));
 }
 
 // =========================================================================
