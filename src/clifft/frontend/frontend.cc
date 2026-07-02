@@ -902,6 +902,11 @@ HirModule trace(const Circuit& circuit) {
 
             case GateType::READOUT_NOISE: {
                 for (const auto& target : node.targets) {
+                    if (target.is_inverted()) {
+                        throw std::runtime_error(
+                            "READOUT_NOISE does not support inverted record targets; swap the "
+                            "two flip probabilities instead");
+                    }
                     uint32_t abs_meas_idx = target.value();
                     // One argument is a symmetric flip; a second argument
                     // splits it into (0->1, 1->0) conditioned on the bit.

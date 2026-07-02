@@ -14,6 +14,8 @@
 #include <algorithm>
 #include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
+#include <catch2/matchers/catch_matchers.hpp>
+#include <catch2/matchers/catch_matchers_string.hpp>
 #include <random>
 #include <stdexcept>
 #include <string>
@@ -1815,6 +1817,14 @@ TEST_CASE("Frontend: R_Z global phase accumulation", "[frontend][rotation]") {
     double expected_im = std::sin(-0.5 * std::numbers::pi / 2.0);
     CHECK(hir.global_weight.real() == Catch::Approx(expected_re).epsilon(1e-12));
     CHECK(hir.global_weight.imag() == Catch::Approx(expected_im).epsilon(1e-12));
+}
+
+TEST_CASE("Trace rejects a programmatic inverted READOUT_NOISE target") {
+    // The parser refuses inverted rec targets; a hand-built AST node must
+    // not slip past lowering with the inversion silently ignored.
+    Circuit c = parse("M 0\n");
+    c.nodes.push_back({GateType::READOUT_NOISE, {Target::rec(0).inverted()}, {0.1, 0.2}, 0});
+    REQUIRE_THROWS_WITH(trace(c), Catch::Matchers::ContainsSubstring("inverted record targets"));
 }
 
 TEST_CASE("Standalone READOUT_NOISE lowers one- and two-argument forms") {

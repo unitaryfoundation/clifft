@@ -636,6 +636,12 @@ class Parser {
             if (!is_rec_token && gate == GateType::READOUT_NOISE) {
                 throw ParseError("READOUT_NOISE targets must be rec references", line_num);
             }
+            if (is_rec_token && gate == GateType::READOUT_NOISE && token[0] == '!') {
+                throw ParseError(
+                    "READOUT_NOISE targets do not support inversion; swap the two flip "
+                    "probabilities instead",
+                    line_num);
+            }
 
             Target target = parse_target(token, line_num, circuit);
             targets.push_back(target);
