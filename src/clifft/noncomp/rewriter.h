@@ -35,25 +35,27 @@
 //      its slot -- the misreport probabilities P(1 | zero level) and
 //      P(0 | one level) -- when those columns are not the identity.
 //   4. Hidden trace-out: when a coherent qubit jumps to a Leaked or Lost
-//      level, insert an R on that qubit immediately after the operation.
+//      level, insert an R on that qubit at the annotation's position.
 //      The existing reset lowering turns it into a hidden measurement plus a
 //      corrective Pauli; it adds no visible measurement and shifts no record
-//      index. "Coherent" means the carrier state the base operation would
-//      leave with no jump is ComputationalUnknown -- a qubit a gate has just
-//      made coherent still needs trace-out even if it entered known.
+//      index. "Coherent" means the qubit's status at the annotation's
+//      position is ComputationalUnknown; a definite atom needs no
+//      unraveling.
 //   5. Carrier materialization: when a jump lands on a computational level,
-//      insert an R (plus an X for the |1> level) immediately
-//      after the operation, so the SVM carrier is prepared at the definite
+//      insert an R (plus an X for the |1> level) at the annotation's
+//      position, so the SVM carrier is prepared at the definite
 //      destination level. This is done for every carrier state: it is the
 //      collapse unraveling for a coherent carrier, a deterministic re-prep
 //      for a known one, and it rezeros a stale residual when a leaked or
 //      lost qubit is recaptured. Like the trace-out, it shifts no record
 //      index.
 //
-// Transition outcomes are consumed from history.transitions in the same
-// order the sampler produced them (one record per Physical operand of a gate
-// that declares a transition). The rewriter does not sample, compile, or run
-// the SVM.
+// Transition consults happen only at LEVEL_TRANSITION and LOSS annotations
+// (gate hooks are expanded by annotate() before sampling and rewriting).
+// The rewriter consumes those annotations -- replaying outcomes from
+// history.transitions in sampler order, one record per annotation target --
+// and emits only their carrier edits; annotation nodes never reach the
+// rewritten circuit. It does not sample, compile, or run the SVM.
 
 #include "clifft/circuit/circuit.h"
 #include "clifft/noncomp/history.h"

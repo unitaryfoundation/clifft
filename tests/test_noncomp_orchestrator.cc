@@ -599,3 +599,33 @@ TEST_CASE("sample_noncomputational: asymmetric confusion matches its rates") {
     REQUIRE(zeros > 650);  // expected 800; ~6 sigma band
     REQUIRE(zeros < 950);
 }
+
+TEST_CASE("sample_noncomputational: hand-written LOSS and LEVEL_TRANSITION run end to end") {
+    // Qubit 0 is lost by a local LOSS; its measurement takes the classifier's
+    // lost bit. Qubit 1 leaks via a local named LEVEL_TRANSITION; its measurement
+    // takes the leak_g bit.
+    Circuit c = parse("H 0\nH 1\nLOSS(1) 0\nLEVEL_TRANSITION[leak] 1\nM 0\nM 1\n");
+    auto leak = zeros5();
+    leak[kLeakG][0] = 1.0;
+    leak[kLeakG][1] = 1.0;
+    std::map<std::string, TransitionInstrument> transitions;
+    transitions.emplace(
+        "leak", TransitionInstrument::from_matrix(std::move(leak), LevelSet::default_set()));
+    std::vector<std::vector<double>> m(2, std::vector<double>(5, 0.0));
+    m[0][0] = 1.0;
+    m[1][1] = 1.0;
+    m[1][kLeakG] = 1.0;  // leaked reads 1
+    m[0][kLost] = 1.0;   // lost reads 0
+    m[0][3] = 1.0;
+    MeasurementClassifier cl =
+        MeasurementClassifier::from_matrix({"0", "1"}, std::move(m), LevelSet::default_set());
+    NonComputationalModel model = make_model(all_g(), std::move(transitions), std::move(cl));
+
+    NonComputationalSample s = sample_noncomputational(c, model, 64, 5);
+    for (uint32_t shot = 0; shot < s.shots; ++shot) {
+        REQUIRE(s.measurements[shot * 2 + 0] == 0);  // lost slot: classifier bit 0
+        REQUIRE(s.measurements[shot * 2 + 1] == 1);  // leaked slot: classifier bit 1
+        REQUIRE(s.final_status[shot * 2 + 0].kind() == QubitStatusKind::Lost);
+        REQUIRE(s.final_status[shot * 2 + 1].kind() == QubitStatusKind::Leaked);
+    }
+}

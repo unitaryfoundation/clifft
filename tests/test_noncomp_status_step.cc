@@ -38,6 +38,42 @@ TEST_CASE("normal_post_op_status: a quantum gate demotes a known computational q
     REQUIRE(out.kind() == QubitStatusKind::ComputationalUnknown);
 }
 
+TEST_CASE("normal_post_op_status: a Z-diagonal gate preserves a known level") {
+    LevelSet levels = LevelSet::default_set();
+    NonComputationalPolicy policy;
+    for (GateType gate : {GateType::Z, GateType::S, GateType::S_DAG, GateType::T, GateType::T_DAG,
+                          GateType::R_Z, GateType::CZ, GateType::R_ZZ}) {
+        QubitStatus out =
+            normal_post_op_status(levels.computational_known(kE), gate, kPhysical, policy, levels);
+        REQUIRE(out.kind() == QubitStatusKind::ComputationalKnown);
+        REQUIRE(out.level_id() == kE);
+    }
+}
+
+TEST_CASE("normal_post_op_status: an X-type gate flips a known level") {
+    LevelSet levels = LevelSet::default_set();
+    NonComputationalPolicy policy;
+    for (GateType gate : {GateType::X, GateType::Y}) {
+        QubitStatus from_g =
+            normal_post_op_status(levels.computational_known(kG), gate, kPhysical, policy, levels);
+        REQUIRE(from_g.kind() == QubitStatusKind::ComputationalKnown);
+        REQUIRE(from_g.level_id() == kE);
+        QubitStatus from_e =
+            normal_post_op_status(levels.computational_known(kE), gate, kPhysical, policy, levels);
+        REQUIRE(from_e.level_id() == kG);
+    }
+}
+
+TEST_CASE("normal_post_op_status: diagonal and flip gates leave Unknown unknown") {
+    LevelSet levels = LevelSet::default_set();
+    NonComputationalPolicy policy;
+    for (GateType gate : {GateType::Z, GateType::X, GateType::CZ}) {
+        QubitStatus out = normal_post_op_status(QubitStatus::computational_unknown(), gate,
+                                                kPhysical, policy, levels);
+        REQUIRE(out.kind() == QubitStatusKind::ComputationalUnknown);
+    }
+}
+
 TEST_CASE("normal_post_op_status: a Z-basis M preserves the pre-SVM-known status") {
     LevelSet levels = LevelSet::default_set();
     NonComputationalPolicy policy;

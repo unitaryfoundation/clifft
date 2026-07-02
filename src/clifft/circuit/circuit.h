@@ -15,6 +15,7 @@
 #include "clifft/circuit/target.h"
 
 #include <cstdint>
+#include <string>
 #include <vector>
 
 namespace clifft {
@@ -40,6 +41,11 @@ struct AstNode {
     // Source line number in the original input text (1-based).
     // 0 means no source line information available.
     uint32_t source_line = 0;
+
+    // Bracket tag from `NAME[tag] targets` syntax. LEVEL_TRANSITION uses it to
+    // reference a model transition matrix by name; no other instruction
+    // accepts one. Empty when absent.
+    std::string tag;
 };
 
 // A parsed circuit ready for compilation.

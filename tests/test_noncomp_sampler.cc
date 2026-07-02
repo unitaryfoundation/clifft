@@ -2,6 +2,7 @@
 #include "clifft/circuit/gate_data.h"
 #include "clifft/circuit/parser.h"
 #include "clifft/circuit/target.h"
+#include "clifft/noncomp/annotate.h"
 #include "clifft/noncomp/level.h"
 #include "clifft/noncomp/model.h"
 #include "clifft/noncomp/policy.h"
@@ -18,6 +19,7 @@
 #include <vector>
 
 using Catch::Matchers::ContainsSubstring;
+using clifft::annotate;
 using clifft::AstNode;
 using clifft::Circuit;
 using clifft::GateType;
@@ -82,6 +84,12 @@ AstNode op(GateType gate, std::vector<uint32_t> qubits) {
     return AstNode{gate, std::move(targets), {}, 0};
 }
 
+// Expand the model's gate hooks and sample: the pipeline the orchestrator
+// runs, for tests written against gate-hooked models.
+HistorySample sample_hooked(const Circuit& c, const NonComputationalModel& model, uint64_t seed) {
+    return sample_history(annotate(c, model), model, seed);
+}
+
 }  // namespace
 
 TEST_CASE("sample_history: a fixed seed produces an identical history") {
@@ -118,6 +126,30 @@ TEST_CASE("sample_history: initial-state marginals match the distribution") {
 }
 
 TEST_CASE("sample_history: a transition on a known source fires and updates the status") {
+    // The hooked S is Z-diagonal, so the qubit is still Known(g) where the
+    // expanded annotation consults it; the g column jumps to lost with
+    // certainty. The record's op index names the annotation node.
+    Circuit c;
+    c.num_qubits = 1;
+    c.nodes.push_back(op(GateType::S, {0}));
+    std::map<std::string, TransitionInstrument> transitions;
+    transitions.emplace("S", lose_from_g(LevelSet::default_set()));
+    NonComputationalModel model = make_model(all_g(), std::move(transitions));
+
+    HistorySample s = sample_hooked(c, model, 1);
+    REQUIRE(s.history.transitions.size() == 1);
+    REQUIRE(s.history.transitions[0].op_index == 1);  // the LEVEL_TRANSITION annotation
+    REQUIRE(s.history.transitions[0].qubit == 0);
+    REQUIRE(s.history.transitions[0].jumped);
+    REQUIRE(s.history.transitions[0].destination_level == kLost);
+    REQUIRE(s.final_status[0].kind() == QubitStatusKind::Lost);
+}
+
+TEST_CASE("sample_history: a hooked basis-mixing gate leaves an unknown source") {
+    // H demotes its qubit before the expanded annotation consults it, so a
+    // source-dependent hook on H is an unknown-source consult and rejects
+    // under the default policy. The transition fires where it is positioned,
+    // on the state there -- not on the hooked gate's entry state.
     Circuit c;
     c.num_qubits = 1;
     c.nodes.push_back(op(GateType::H, {0}));
@@ -125,15 +157,7 @@ TEST_CASE("sample_history: a transition on a known source fires and updates the 
     transitions.emplace("H", lose_from_g(LevelSet::default_set()));
     NonComputationalModel model = make_model(all_g(), std::move(transitions));
 
-    HistorySample s = sample_history(c, model, 1);
-    // g jumps to lost with certainty, so the jump destination wins over
-    // H's normal demotion.
-    REQUIRE(s.history.transitions.size() == 1);
-    REQUIRE(s.history.transitions[0].op_index == 0);
-    REQUIRE(s.history.transitions[0].qubit == 0);
-    REQUIRE(s.history.transitions[0].jumped);
-    REQUIRE(s.history.transitions[0].destination_level == kLost);
-    REQUIRE(s.final_status[0].kind() == QubitStatusKind::Lost);
+    REQUIRE_THROWS_WITH(sample_hooked(c, model, 1), ContainsSubstring("ComputationalUnknown"));
 }
 
 TEST_CASE("sample_history: source-dependent transition on a known qubit is allowed") {
@@ -144,12 +168,12 @@ TEST_CASE("sample_history: source-dependent transition on a known qubit is allow
     transitions.emplace("CZ", lose_from_g(LevelSet::default_set()));
     NonComputationalModel model = make_model(all_g(), std::move(transitions));
 
-    HistorySample s = sample_history(c, model, 1);
-    // One record per operand, in target order.
+    HistorySample s = sample_hooked(c, model, 1);
+    // One annotation (and record) per operand, in operand order.
     REQUIRE(s.history.transitions.size() == 2);
-    REQUIRE(s.history.transitions[0].op_index == 0);
+    REQUIRE(s.history.transitions[0].op_index == 1);
     REQUIRE(s.history.transitions[0].qubit == 0);
-    REQUIRE(s.history.transitions[1].op_index == 0);
+    REQUIRE(s.history.transitions[1].op_index == 2);
     REQUIRE(s.history.transitions[1].qubit == 1);
     REQUIRE(s.final_status[0].kind() == QubitStatusKind::Lost);
     REQUIRE(s.final_status[1].kind() == QubitStatusKind::Lost);
@@ -163,7 +187,7 @@ TEST_CASE("sample_history: classical feedback fires no transition and demotes th
     transitions.emplace("CX", lose_from_g(LevelSet::default_set()));  // would jump g->lost
     NonComputationalModel model = make_model(all_g(), std::move(transitions));
 
-    HistorySample s = sample_history(c, model, 1);
+    HistorySample s = sample_hooked(c, model, 1);
     // The CX is virtual feedback, so no transition is consulted; qubit 1 is
     // demoted, not lost. (M has no transition; qubit 0 stays Known(g).)
     REQUIRE(s.history.transitions.empty());
@@ -177,7 +201,7 @@ TEST_CASE("sample_history: conditional-Z feedback preserves a known target and f
     transitions.emplace("CZ", lose_from_g(LevelSet::default_set()));  // would jump g->lost
     NonComputationalModel model = make_model(all_g(), std::move(transitions));
 
-    HistorySample s = sample_history(c, model, 1);
+    HistorySample s = sample_hooked(c, model, 1);
     // Conditional Z is phase-only: qubit 1 stays Known(g), and no
     // transition is consulted on the virtual correction.
     REQUIRE(s.history.transitions.empty());
@@ -203,7 +227,7 @@ TEST_CASE("sample_history: M on Unknown then a source-dependent transition rejec
     transitions.emplace("CZ", lose_from_g(LevelSet::default_set()));
     NonComputationalModel model = make_model(all_g(), std::move(transitions));
 
-    REQUIRE_THROWS_WITH(sample_history(c, model, 1),
+    REQUIRE_THROWS_WITH(sample_hooked(c, model, 1),
                         ContainsSubstring("CZ") && ContainsSubstring("ComputationalUnknown"));
 }
 
@@ -213,24 +237,25 @@ TEST_CASE("sample_history: reset before a source-dependent transition is allowed
     transitions.emplace("CZ", lose_from_g(LevelSet::default_set()));
     NonComputationalModel model = make_model(all_g(), std::move(transitions));
 
-    HistorySample s = sample_history(c, model, 1);               // no throw: source is Known(g)
+    HistorySample s = sample_hooked(c, model, 1);                // no throw: source is Known(g)
     REQUIRE(s.final_status[0].kind() == QubitStatusKind::Lost);  // g -> lost
 }
 
 TEST_CASE("sample_history: a partial jump probability matches its frequency") {
-    // 2000 independent qubits, each a single H carrying a g->lost(0.3)
-    // transition; all start Known(g). Tests probabilistic sampling and the
-    // T[to, from] orientation (a transposed matrix would never fire).
+    // 2000 independent qubits, each a single S carrying a g->lost(0.3)
+    // transition; S is Z-diagonal so every qubit is still Known(g) at its
+    // annotation. Tests probabilistic sampling and the T[to, from]
+    // orientation (a transposed matrix would never fire).
     Circuit c;
     c.num_qubits = 2000;
     for (uint32_t q = 0; q < c.num_qubits; ++q) {
-        c.nodes.push_back(op(GateType::H, {q}));
+        c.nodes.push_back(op(GateType::S, {q}));
     }
     std::map<std::string, TransitionInstrument> transitions;
-    transitions.emplace("H", lose_from_g_30pct(LevelSet::default_set()));
+    transitions.emplace("S", lose_from_g_30pct(LevelSet::default_set()));
     NonComputationalModel model = make_model(all_g(), std::move(transitions));
 
-    HistorySample s = sample_history(c, model, 99);
+    HistorySample s = sample_hooked(c, model, 99);
     size_t lost = 0;
     for (const auto& status : s.final_status) {
         if (status.kind() == QubitStatusKind::Lost) {
@@ -267,9 +292,11 @@ TEST_CASE("sample_history: source-dependent transition on an unknown qubit rejec
     transitions.emplace("CZ", lose_from_g(LevelSet::default_set()));
     NonComputationalModel model = make_model(all_g(), std::move(transitions));
 
-    REQUIRE_THROWS_WITH(sample_history(c, model, 1),
+    // The annotated circuit is [H, CZ, LEVEL_TRANSITION(0), LEVEL_TRANSITION(1)]; the
+    // failing consult is the qubit-0 annotation at op 2.
+    REQUIRE_THROWS_WITH(sample_hooked(c, model, 1),
                         ContainsSubstring("CZ") && ContainsSubstring("qubit 0") &&
-                            ContainsSubstring("op 1") && ContainsSubstring("ComputationalUnknown"));
+                            ContainsSubstring("op 2") && ContainsSubstring("ComputationalUnknown"));
 }
 
 TEST_CASE("sample_history: source-independent transition on an unknown qubit is allowed") {
@@ -281,7 +308,7 @@ TEST_CASE("sample_history: source-independent transition on an unknown qubit is 
     transitions.emplace("H", never_jumps(LevelSet::default_set()));
     NonComputationalModel model = make_model(all_g(), std::move(transitions));
 
-    HistorySample s = sample_history(c, model, 1);
+    HistorySample s = sample_hooked(c, model, 1);
     REQUIRE(s.history.transitions.size() == 2);
     REQUIRE_FALSE(s.history.transitions[0].jumped);
     REQUIRE_FALSE(s.history.transitions[1].jumped);
@@ -309,7 +336,7 @@ TEST_CASE("sample_history: equalize_rates samples an unknown source instead of t
     policy.unknown_source_policy = clifft::UnknownSourcePolicy::EqualizeRates;
     NonComputationalModel model = make_model(all_g(), std::move(transitions), policy);
 
-    HistorySample s = sample_history(c, model, 7);
+    HistorySample s = sample_hooked(c, model, 7);
 
     size_t lost = 0;
     size_t known_e = 0;
@@ -349,7 +376,7 @@ TEST_CASE("sample_history: equalize_rates fires at the maximum computational rat
     policy.unknown_source_policy = clifft::UnknownSourcePolicy::EqualizeRates;
     NonComputationalModel model = make_model(all_g(), std::move(transitions), policy);
 
-    HistorySample s = sample_history(c, model, 11);
+    HistorySample s = sample_hooked(c, model, 11);
 
     size_t fired = 0;
     for (const auto& rec : s.history.transitions) {
@@ -381,7 +408,7 @@ TEST_CASE("sample_history: equalize_rates keeps a known source exact") {
         NonComputationalPolicy policy;
         policy.unknown_source_policy = clifft::UnknownSourcePolicy::EqualizeRates;
         NonComputationalModel model = make_model(all_g(), std::move(transitions), policy);
-        HistorySample s = sample_history(c, model, seed);
+        HistorySample s = sample_hooked(c, model, seed);
         REQUIRE(s.final_status[0].kind() == QubitStatusKind::Lost);
     }
 }
@@ -415,7 +442,7 @@ TEST_CASE("sample_history: equalize_rates known divergence on a gate-determined 
     policy.unknown_source_policy = clifft::UnknownSourcePolicy::EqualizeRates;
     NonComputationalModel model = make_model(all_g(), std::move(transitions), policy);
 
-    HistorySample s = sample_history(c, model, 13);
+    HistorySample s = sample_hooked(c, model, 13);
 
     size_t lost = 0;
     for (const auto& st : s.final_status) {
@@ -425,4 +452,81 @@ TEST_CASE("sample_history: equalize_rates known divergence on a gate-determined 
     }
     REQUIRE(lost > kN * 35 / 100);
     REQUIRE(lost < kN * 65 / 100);
+}
+
+TEST_CASE("sample_history: a hand-written LEVEL_TRANSITION consults the named matrix") {
+    Circuit c = parse("S 0\nLEVEL_TRANSITION[my_leak] 0\n");
+    std::map<std::string, TransitionInstrument> transitions;
+    transitions.emplace("my_leak", lose_from_g(LevelSet::default_set()));
+    NonComputationalModel model = make_model(all_g(), std::move(transitions));
+
+    HistorySample s = sample_history(c, model, 1);
+    REQUIRE(s.history.transitions.size() == 1);
+    REQUIRE(s.history.transitions[0].op_index == 1);
+    REQUIRE(s.history.transitions[0].jumped);
+    REQUIRE(s.final_status[0].kind() == QubitStatusKind::Lost);
+}
+
+TEST_CASE("sample_history: an unknown LEVEL_TRANSITION tag rejects") {
+    Circuit c = parse("LEVEL_TRANSITION[nope] 0\n");
+    NonComputationalModel model = make_model(all_g(), {});
+    REQUIRE_THROWS_WITH(sample_history(c, model, 1),
+                        ContainsSubstring("nope") && ContainsSubstring("does not name"));
+}
+
+TEST_CASE("sample_history: LEVEL_TRANSITION placement selects the source state") {
+    // Before the H the qubit is Known(g): the g column fires. After the H
+    // it is unknown: the same source-dependent matrix rejects. The consult
+    // is positional, not attached to any gate.
+    std::map<std::string, TransitionInstrument> t1;
+    t1.emplace("jump", lose_from_g(LevelSet::default_set()));
+    NonComputationalModel model = make_model(all_g(), std::move(t1));
+
+    Circuit before = parse("LEVEL_TRANSITION[jump] 0\nH 0\n");
+    HistorySample s = sample_history(before, model, 1);
+    REQUIRE(s.final_status[0].kind() == QubitStatusKind::Lost);
+
+    Circuit after = parse("H 0\nLEVEL_TRANSITION[jump] 0\n");
+    REQUIRE_THROWS_WITH(sample_history(after, model, 1), ContainsSubstring("ComputationalUnknown"));
+}
+
+TEST_CASE("sample_history: LOSS fires at its probability") {
+    Circuit certain = parse("LOSS(1) 0\n");
+    NonComputationalModel model = make_model(all_g(), {});
+    HistorySample s = sample_history(certain, model, 1);
+    REQUIRE(s.history.transitions.size() == 1);
+    REQUIRE(s.history.transitions[0].jumped);
+    REQUIRE(s.final_status[0].kind() == QubitStatusKind::Lost);
+
+    Circuit never = parse("LOSS(0) 0\n");
+    HistorySample n = sample_history(never, model, 2);
+    REQUIRE_FALSE(n.history.transitions[0].jumped);
+    REQUIRE(n.final_status[0].kind() == QubitStatusKind::ComputationalKnown);
+}
+
+TEST_CASE("sample_history: LOSS frequency matches its probability") {
+    Circuit c;
+    c.num_qubits = 2000;
+    for (uint32_t q = 0; q < c.num_qubits; ++q) {
+        c.nodes.push_back(op(GateType::LOSS, {q}));
+        c.nodes.back().args = {0.3};
+    }
+    NonComputationalModel model = make_model(all_g(), {});
+    HistorySample s = sample_history(c, model, 21);
+    size_t lost = 0;
+    for (const auto& st : s.final_status) {
+        lost += st.kind() == QubitStatusKind::Lost ? 1 : 0;
+    }
+    REQUIRE(lost > 480);  // expected 600; ~7 sigma band
+    REQUIRE(lost < 720);
+}
+
+TEST_CASE("sample_history: a gate-named but non-hookable key is referenceable") {
+    Circuit c = parse("LEVEL_TRANSITION[LOSS] 0\n");
+    std::map<std::string, TransitionInstrument> transitions;
+    transitions.emplace("LOSS", lose_from_g(LevelSet::default_set()));
+    NonComputationalModel model = make_model(all_g(), std::move(transitions));
+
+    HistorySample s = sample_history(c, model, 1);
+    REQUIRE(s.final_status[0].kind() == QubitStatusKind::Lost);
 }

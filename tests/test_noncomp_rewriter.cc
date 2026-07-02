@@ -3,6 +3,7 @@
 #include "clifft/circuit/parser.h"
 #include "clifft/frontend/frontend.h"
 #include "clifft/frontend/hir.h"
+#include "clifft/noncomp/annotate.h"
 #include "clifft/noncomp/classifier.h"
 #include "clifft/noncomp/level.h"
 #include "clifft/noncomp/model.h"
@@ -23,6 +24,7 @@
 #include <vector>
 
 using Catch::Matchers::ContainsSubstring;
+using clifft::annotate;
 using clifft::AstNode;
 using clifft::Circuit;
 using clifft::default_hir_pass_manager;
@@ -97,6 +99,11 @@ TransitionInstrument relax_e_to_g(const LevelSet& levels) {
     return TransitionInstrument::from_matrix(std::move(m), levels);
 }
 
+// Source-independent: all columns zero, so a consult never fires.
+TransitionInstrument never_fires(const LevelSet& levels) {
+    return TransitionInstrument::from_matrix(zeros5(), levels);
+}
+
 // Source-independent on computational (both columns zero): only a lost
 // qubit jumps, back to the computational g level (recapture).
 TransitionInstrument recapture_lost_to_g(const LevelSet& levels) {
@@ -157,15 +164,19 @@ size_t count_gate(const Circuit& c, GateType gate) {
     return n;
 }
 
+// Expand the model's gate hooks, sample, and rewrite: the pipeline the
+// orchestrator runs, for tests written against gate-hooked models.
 Circuit rewritten(const Circuit& c, const NonComputationalModel& model, uint64_t seed) {
-    HistorySample s = sample_history(c, model, seed);
-    return rewrite(c, s.history, model).circuit;
+    Circuit annotated = annotate(c, model);
+    HistorySample s = sample_history(annotated, model, seed);
+    return rewrite(annotated, s.history, model).circuit;
 }
 
 RewriteResult rewritten_result(const Circuit& c, const NonComputationalModel& model,
                                uint64_t seed) {
-    HistorySample s = sample_history(c, model, seed);
-    return rewrite(c, s.history, model);
+    Circuit annotated = annotate(c, model);
+    HistorySample s = sample_history(annotated, model, seed);
+    return rewrite(annotated, s.history, model);
 }
 
 }  // namespace
@@ -196,19 +207,31 @@ TEST_CASE("rewrite: a coherent qubit that jumps to lost gets a trace-out R") {
     REQUIRE(rw.nodes[2].targets[0].value() == 0);
 }
 
-TEST_CASE("rewrite: an op that demotes a known qubit before a jump still inserts the R") {
-    // Qubit 0 enters H as Known(g); H demotes it to coherent Unknown and the
-    // attached transition then leaks it. The carrier is coherent at jump time,
-    // so a trace-out R is required even though the entry status was Known.
+TEST_CASE("rewrite: a source-dependent hook on a just-demoted qubit rejects") {
+    // Qubit 0 enters H as Known(g), but the expanded annotation consults the
+    // state at its own position -- after the H -- where the qubit is an
+    // unknown superposition. A source-dependent matrix therefore rejects
+    // under the default policy: the hooked gate's entry status no longer
+    // selects the column.
     Circuit c = parse("H 0\n");
     std::map<std::string, TransitionInstrument> transitions;
     transitions.emplace("H", lose_from_g(LevelSet::default_set()));
     NonComputationalModel model = make_model(all_g(), std::move(transitions));
 
+    REQUIRE_THROWS_WITH(rewritten(c, model, 1), ContainsSubstring("ComputationalUnknown"));
+}
+
+TEST_CASE("rewrite: a definite atom lost at a diagonal gate needs no trace-out") {
+    // S preserves Known(g), so the qubit is a definite atom where the
+    // annotation loses it: no entanglement to unravel, no hidden R.
+    Circuit c = parse("S 0\n");
+    std::map<std::string, TransitionInstrument> transitions;
+    transitions.emplace("S", always_lost(LevelSet::default_set()));
+    NonComputationalModel model = make_model(all_g(), std::move(transitions));
+
     Circuit rw = rewritten(c, model, 1);
-    REQUIRE(rw.nodes.size() == 2);
-    REQUIRE(rw.nodes[1].gate == GateType::R);
-    REQUIRE(rw.nodes[1].targets[0].value() == 0);
+    REQUIRE(count_gate(rw, GateType::R) == 0);
+    REQUIRE(count_gate(rw, GateType::S) == 1);
 }
 
 TEST_CASE("rewrite: a still-known atom that is lost gets no trace-out R") {
@@ -268,10 +291,11 @@ TEST_CASE("rewrite: a two-qubit gate on a lost qubit rejects by default") {
     transitions.emplace("S", always_lost(LevelSet::default_set()));
     NonComputationalModel model = make_model(all_g(), std::move(transitions));
 
-    HistorySample s = sample_history(c, model, 1);  // sampler does not enforce policy
-    REQUIRE_THROWS_WITH(rewrite(c, s.history, model), ContainsSubstring("CZ") &&
-                                                          ContainsSubstring("Lost") &&
-                                                          ContainsSubstring("qubit 0"));
+    Circuit c_ann = annotate(c, model);
+    HistorySample s = sample_history(c_ann, model, 1);  // sampler does not enforce policy
+    REQUIRE_THROWS_WITH(rewrite(c_ann, s.history, model), ContainsSubstring("CZ") &&
+                                                              ContainsSubstring("Lost") &&
+                                                              ContainsSubstring("qubit 0"));
 }
 
 TEST_CASE("rewrite: a single-qubit gate on a leaked qubit rejects by default") {
@@ -280,8 +304,9 @@ TEST_CASE("rewrite: a single-qubit gate on a leaked qubit rejects by default") {
     transitions.emplace("S", always_leaked(LevelSet::default_set()));
     NonComputationalModel model = make_model(all_g(), std::move(transitions));
 
-    HistorySample s = sample_history(c, model, 1);
-    REQUIRE_THROWS_WITH(rewrite(c, s.history, model),
+    Circuit c_ann = annotate(c, model);
+    HistorySample s = sample_history(c_ann, model, 1);
+    REQUIRE_THROWS_WITH(rewrite(c_ann, s.history, model),
                         ContainsSubstring("Leaked") && ContainsSubstring("qubit 0"));
 }
 
@@ -303,8 +328,9 @@ TEST_CASE("rewrite: a lost-qubit reset rejects by default and restores under pol
     transitions.emplace("S", always_lost(LevelSet::default_set()));
 
     NonComputationalModel reject = make_model(all_g(), transitions);
-    HistorySample s = sample_history(c, reject, 1);
-    REQUIRE_THROWS_WITH(rewrite(c, s.history, reject),
+    Circuit c_ann = annotate(c, reject);
+    HistorySample s = sample_history(c_ann, reject, 1);
+    REQUIRE_THROWS_WITH(rewrite(c_ann, s.history, reject),
                         ContainsSubstring("Lost") && ContainsSubstring("qubit 0"));
 
     NonComputationalPolicy restore;
@@ -415,8 +441,10 @@ TEST_CASE("rewrite: a noncomputational measurement without a classifier rejects"
     transitions.emplace("S", always_lost(LevelSet::default_set()));
     NonComputationalModel model = make_model(all_g(), std::move(transitions));
 
-    HistorySample s = sample_history(c, model, 1);
-    REQUIRE_THROWS_WITH(rewrite(c, s.history, model), ContainsSubstring("requires a classifier"));
+    Circuit c_ann = annotate(c, model);
+    HistorySample s = sample_history(c_ann, model, 1);
+    REQUIRE_THROWS_WITH(rewrite(c_ann, s.history, model),
+                        ContainsSubstring("requires a classifier"));
 }
 
 TEST_CASE("rewrite: an X/Y-basis or multi-qubit measurement on a lost qubit rejects") {
@@ -424,16 +452,18 @@ TEST_CASE("rewrite: an X/Y-basis or multi-qubit measurement on a lost qubit reje
     mx.emplace("S", always_lost(LevelSet::default_set()));
     NonComputationalModel m_mx = make_model(all_g(), std::move(mx));
     Circuit cx = parse("H 0\nS 0\nMX 0\n");
-    HistorySample sx = sample_history(cx, m_mx, 1);
-    REQUIRE_THROWS_WITH(rewrite(cx, sx.history, m_mx),
+    Circuit cx_ann = annotate(cx, m_mx);
+    HistorySample sx = sample_history(cx_ann, m_mx, 1);
+    REQUIRE_THROWS_WITH(rewrite(cx_ann, sx.history, m_mx),
                         ContainsSubstring("MX") && ContainsSubstring("Lost"));
 
     std::map<std::string, TransitionInstrument> mp;
     mp.emplace("S", always_lost(LevelSet::default_set()));
     NonComputationalModel m_mp = make_model(all_g(), std::move(mp));
     Circuit cp = parse("H 0\nS 0\nMPP X0\n");
-    HistorySample sp = sample_history(cp, m_mp, 1);
-    REQUIRE_THROWS_WITH(rewrite(cp, sp.history, m_mp),
+    Circuit cp_ann = annotate(cp, m_mp);
+    HistorySample sp = sample_history(cp_ann, m_mp, 1);
+    REQUIRE_THROWS_WITH(rewrite(cp_ann, sp.history, m_mp),
                         ContainsSubstring("MPP") && ContainsSubstring("Lost"));
 }
 
@@ -443,8 +473,9 @@ TEST_CASE("rewrite: a measure-and-reset on a lost qubit rejects by default, kept
     transitions.emplace("S", always_lost(LevelSet::default_set()));
 
     NonComputationalModel reject = make_model(all_g(), transitions);
-    HistorySample s = sample_history(c, reject, 1);
-    REQUIRE_THROWS_WITH(rewrite(c, s.history, reject),
+    Circuit c_ann = annotate(c, reject);
+    HistorySample s = sample_history(c_ann, reject, 1);
+    REQUIRE_THROWS_WITH(rewrite(c_ann, s.history, reject),
                         ContainsSubstring("MR") && ContainsSubstring("Lost"));
 
     NonComputationalPolicy restore;
@@ -581,9 +612,10 @@ TEST_CASE("rewrite: a dropped gate leaves the surviving operand's status untouch
     policy.lost_leaked_ops = clifft::LostLeakedOpsPolicy::Drop;
     NonComputationalModel model = make_model(all_g(), std::move(transitions), policy);
 
-    HistorySample s = sample_history(c, model, 1);
+    Circuit c_ann = annotate(c, model);
+    HistorySample s = sample_history(c_ann, model, 1);
     REQUIRE(s.final_status[1].kind() == clifft::QubitStatusKind::Lost);
-    Circuit rw = rewrite(c, s.history, model).circuit;
+    Circuit rw = rewrite(c_ann, s.history, model).circuit;
     REQUIRE(count_gate(rw, GateType::CZ) == 0);
 }
 
@@ -632,9 +664,10 @@ TEST_CASE("rewrite: drop policy drops a non-restoring lost reset") {
     policy.lost_leaked_ops = clifft::LostLeakedOpsPolicy::Drop;
     NonComputationalModel model = make_model(all_g(), std::move(transitions), policy);
 
-    HistorySample s = sample_history(c, model, 1);
+    Circuit c_ann = annotate(c, model);
+    HistorySample s = sample_history(c_ann, model, 1);
     REQUIRE(s.final_status[0].kind() == clifft::QubitStatusKind::Lost);  // not restored
-    Circuit rw = rewrite(c, s.history, model).circuit;
+    Circuit rw = rewrite(c_ann, s.history, model).circuit;
     REQUIRE(count_gate(rw, GateType::R) == 1);  // the trace-out only
 }
 
@@ -647,9 +680,10 @@ TEST_CASE("rewrite: drop policy keeps a measure-and-reset on a non-restoring los
     NonComputationalModel model = make_model_with_classifier(
         all_g(), std::move(transitions), classifier_with(kLost, {1.0, 0.0}), policy);
 
-    HistorySample s = sample_history(c, model, 1);
+    Circuit c_ann = annotate(c, model);
+    HistorySample s = sample_history(c_ann, model, 1);
     REQUIRE(s.final_status[0].kind() == clifft::QubitStatusKind::Lost);  // not restored
-    RewriteResult rw = rewrite(c, s.history, model);
+    RewriteResult rw = rewrite(c_ann, s.history, model);
     REQUIRE(count_gate(rw.circuit, GateType::MR) == 0);
     REQUIRE(count_gate(rw.circuit, GateType::MPAD) == 1);  // record slot preserved
     REQUIRE(rw.circuit.num_measurements == 1);
@@ -743,8 +777,9 @@ TEST_CASE("rewrite: a substochastic computational column rejects") {
     NonComputationalModel model = make_model_with_classifier(all_g(), {}, std::move(cl));
 
     Circuit c = parse("M 0\n");
-    HistorySample s = sample_history(c, model, 1);
-    REQUIRE_THROWS_WITH(rewrite(c, s.history, model), ContainsSubstring("computational level"));
+    Circuit c_ann = annotate(c, model);
+    HistorySample s = sample_history(c_ann, model, 1);
+    REQUIRE_THROWS_WITH(rewrite(c_ann, s.history, model), ContainsSubstring("computational level"));
 }
 
 TEST_CASE("rewrite: a computational column with herald mass rejects") {
@@ -761,6 +796,94 @@ TEST_CASE("rewrite: a computational column with herald mass rejects") {
     NonComputationalModel model = make_model_with_classifier(all_g(), {}, std::move(cl));
 
     Circuit c = parse("M 0\n");
+    Circuit c_ann = annotate(c, model);
+    HistorySample s = sample_history(c_ann, model, 1);
+    REQUIRE_THROWS_WITH(rewrite(c_ann, s.history, model), ContainsSubstring("beyond the bit"));
+}
+
+TEST_CASE("annotate: gate hooks expand to per-operand LEVEL_TRANSITION annotations") {
+    Circuit c = parse("H 0\nCZ 0 1\nM 0\n");
+    std::map<std::string, TransitionInstrument> transitions;
+    transitions.emplace("CZ", always_lost(LevelSet::default_set()));
+    NonComputationalModel model = make_model(all_g(), std::move(transitions));
+
+    Circuit ann = annotate(c, model);
+    // H, CZ, LEVEL_TRANSITION(0), LEVEL_TRANSITION(1), M.
+    REQUIRE(ann.nodes.size() == 5);
+    REQUIRE(ann.nodes[2].gate == GateType::LEVEL_TRANSITION);
+    REQUIRE(ann.nodes[2].tag == "CZ");
+    REQUIRE(ann.nodes[2].targets[0].value() == 0);
+    REQUIRE(ann.nodes[3].gate == GateType::LEVEL_TRANSITION);
+    REQUIRE(ann.nodes[3].targets[0].value() == 1);
+    REQUIRE(ann.num_measurements == c.num_measurements);  // layout untouched
+}
+
+TEST_CASE("annotate: feedback operands get no annotation") {
+    Circuit c = parse("M 0\nCX rec[-1] 1\n");
+    std::map<std::string, TransitionInstrument> transitions;
+    transitions.emplace("CX", always_lost(LevelSet::default_set()));
+    NonComputationalModel model = make_model(all_g(), std::move(transitions));
+
+    Circuit ann = annotate(c, model);
+    REQUIRE(ann.nodes.size() == c.nodes.size());  // virtual correction: no consult point
+}
+
+TEST_CASE("annotate: an unhooked model leaves the circuit unchanged") {
+    Circuit c = parse("H 0\nM 0\n");
+    std::map<std::string, TransitionInstrument> transitions;
+    transitions.emplace("my_leak", always_lost(LevelSet::default_set()));  // named, no hook
+    NonComputationalModel model = make_model(all_g(), std::move(transitions));
+
+    Circuit ann = annotate(c, model);
+    REQUIRE(ann.nodes.size() == c.nodes.size());
+}
+
+TEST_CASE("rewrite: annotations are consumed, not emitted") {
+    Circuit c = parse("S 0\nLEVEL_TRANSITION[jump] 0\nM 0\n");
+    std::map<std::string, TransitionInstrument> transitions;
+    transitions.emplace("jump", never_fires(LevelSet::default_set()));
+    NonComputationalModel model = make_model(all_g(), std::move(transitions));
+
     HistorySample s = sample_history(c, model, 1);
-    REQUIRE_THROWS_WITH(rewrite(c, s.history, model), ContainsSubstring("beyond the bit"));
+    Circuit rw = rewrite(c, s.history, model).circuit;
+    REQUIRE(count_gate(rw, GateType::LEVEL_TRANSITION) == 0);
+    REQUIRE(count_gate(rw, GateType::S) == 1);
+    REQUIRE(count_gate(rw, GateType::M) == 1);
+}
+
+TEST_CASE("rewrite: a LOSS jump on a coherent carrier inserts the trace-out R") {
+    Circuit c = parse("H 0\nLOSS(1) 0\n");
+    NonComputationalModel model = make_model(all_g(), {});
+
+    HistorySample s = sample_history(c, model, 1);
+    Circuit rw = rewrite(c, s.history, model).circuit;
+    REQUIRE(count_gate(rw, GateType::LOSS) == 0);  // consumed
+    REQUIRE(count_gate(rw, GateType::R) == 1);     // coherent carrier traced out
+}
+
+TEST_CASE("rewrite: a LOSS jump on a definite atom needs no trace-out") {
+    Circuit c = parse("LOSS(1) 0\n");  // Known(g) at the annotation
+    NonComputationalModel model = make_model(all_g(), {});
+
+    HistorySample s = sample_history(c, model, 1);
+    Circuit rw = rewrite(c, s.history, model).circuit;
+    REQUIRE(count_gate(rw, GateType::R) == 0);
+    REQUIRE(s.final_status[0].kind() == clifft::QubitStatusKind::Lost);
+}
+
+TEST_CASE("rewrite: a LEVEL_TRANSITION jump to a computational level materializes the carrier") {
+    // Recapture a lost qubit at e: R rezeros the stale carrier, X prepares |1>.
+    Circuit c = parse("LOSS(1) 0\nLEVEL_TRANSITION[recapture] 0\n");
+    auto m = zeros5();
+    m[1][4] = 1.0;  // lost -> e with certainty
+    std::map<std::string, TransitionInstrument> transitions;
+    transitions.emplace("recapture",
+                        TransitionInstrument::from_matrix(std::move(m), LevelSet::default_set()));
+    NonComputationalModel model = make_model(all_g(), std::move(transitions));
+
+    HistorySample s = sample_history(c, model, 1);
+    REQUIRE(s.final_status[0].kind() == clifft::QubitStatusKind::ComputationalKnown);
+    Circuit rw = rewrite(c, s.history, model).circuit;
+    REQUIRE(count_gate(rw, GateType::R) == 1);
+    REQUIRE(count_gate(rw, GateType::X) == 1);
 }

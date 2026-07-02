@@ -91,21 +91,34 @@ NonComputationalModel::NonComputationalModel(
         p /= sum;
     }
 
-    // Transition keys must name hookable physical gates, canonicalized to
-    // GateType so the sampler resolves them against the parsed circuit
-    // and no two spellings of one gate shadow each other. Each instrument
-    // must have been built against this model's level table.
-    std::map<GateType, std::string> first_spelling;
+    // A transition key is referenced from circuits by LEVEL_TRANSITION[key]
+    // annotations, so it must survive the tag syntax; a key that names a
+    // hookable physical gate additionally registers a gate hook,
+    // canonicalized to GateType so no two spellings of one gate shadow
+    // each other. Each instrument must have been built against this
+    // model's level table.
     for (auto& [name, instrument] : transitions) {
-        const GateType gate = parse_gate_name(name);
-        if (gate == GateType::UNKNOWN) {
-            throw std::invalid_argument("NonComputationalModel: transition key '" + name +
-                                        "' is not a recognized gate name");
+        if (name.empty()) {
+            throw std::invalid_argument("NonComputationalModel: transition keys must be nonempty");
         }
-        if (!supports_transition(gate)) {
-            throw std::invalid_argument("NonComputationalModel: transition key '" + name + "' (" +
-                                        std::string(gate_name(gate)) +
-                                        ") does not support a transition instrument");
+        if (name.find(']') != std::string::npos || name.find('\n') != std::string::npos) {
+            throw std::invalid_argument(
+                "NonComputationalModel: transition key '" + name +
+                "' contains ']' or a newline and cannot be referenced by a LEVEL_TRANSITION tag");
+        }
+        // Only a key naming a hookable physical gate registers a hook. Any
+        // other key -- an arbitrary name, or one naming a non-hookable
+        // instruction such as LOSS or a noise channel -- is a named-only
+        // transition: referenceable from LEVEL_TRANSITION[key], expanded onto
+        // nothing.
+        const GateType gate = parse_gate_name(name);
+        if (gate != GateType::UNKNOWN && supports_transition(gate)) {
+            auto [it, inserted] = hooks_.emplace(gate, name);
+            if (!inserted) {
+                throw std::invalid_argument(
+                    "NonComputationalModel: transition keys '" + it->second + "' and '" + name +
+                    "' both resolve to gate '" + std::string(gate_name(gate)) + "'");
+            }
         }
         if (instrument.num_levels() != n) {
             throw std::invalid_argument("NonComputationalModel: transition '" + name + "' spans " +
@@ -117,13 +130,7 @@ NonComputationalModel::NonComputationalModel(
             throw std::invalid_argument("NonComputationalModel: transition '" + name +
                                         "' was built against a different level table");
         }
-        auto [it, inserted] = transitions_.emplace(gate, std::move(instrument));
-        if (!inserted) {
-            throw std::invalid_argument(
-                "NonComputationalModel: transition keys '" + first_spelling.at(gate) + "' and '" +
-                name + "' both resolve to gate '" + std::string(gate_name(gate)) + "'");
-        }
-        first_spelling.emplace(gate, name);
+        transitions_.emplace(name, std::move(instrument));
     }
 
     // The classifier, if present, must have been built against the same
@@ -192,16 +199,13 @@ double NonComputationalModel::initial_probability(uint8_t level_id) const {
 }
 
 const TransitionInstrument* NonComputationalModel::transition_for(GateType gate) const {
-    const auto it = transitions_.find(gate);
-    return it == transitions_.end() ? nullptr : &it->second;
+    const auto it = hooks_.find(gate);
+    return it == hooks_.end() ? nullptr : transition_named(it->second);
 }
 
-const TransitionInstrument* NonComputationalModel::transition_for(std::string_view gate) const {
-    const GateType type = parse_gate_name(gate);
-    if (type == GateType::UNKNOWN) {
-        return nullptr;
-    }
-    return transition_for(type);
+const TransitionInstrument* NonComputationalModel::transition_named(std::string_view name) const {
+    const auto it = transitions_.find(name);
+    return it == transitions_.end() ? nullptr : &it->second;
 }
 
 }  // namespace clifft

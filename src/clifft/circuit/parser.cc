@@ -199,6 +199,25 @@ class Parser {
         std::string_view gate_name = line.substr(0, name_end);
         std::string_view rest = trim(line.substr(name_end));
 
+        // Parse an optional bracket tag: NAME[tag](args) targets.
+        std::string tag;
+        if (!rest.empty() && rest[0] == '[') {
+            auto close_bracket = rest.find(']');
+            if (close_bracket == std::string_view::npos) {
+                throw ParseError("Unclosed tag bracket", line_num);
+            }
+            tag = std::string(trim(rest.substr(1, close_bracket - 1)));
+            if (tag.empty()) {
+                throw ParseError("Empty tag", line_num);
+            }
+            rest = trim(rest.substr(close_bracket + 1));
+        }
+        // Restricted here, before the discarded-annotation and parser-rewrite
+        // paths return, so no instruction can silently drop a tag.
+        if (!tag.empty() && gate_name != "LEVEL_TRANSITION") {
+            throw ParseError("Tags are only supported on LEVEL_TRANSITION", line_num);
+        }
+
         // Parse optional parenthesized arguments (comma-separated floats).
         std::vector<double> args;
         if (!rest.empty() && rest[0] == '(') {
@@ -301,6 +320,25 @@ class Parser {
         if (gate == GateType::EXP_VAL && !args.empty()) {
             throw ParseError("EXP_VAL takes no arguments", line_num);
         }
+        if (gate == GateType::LEVEL_TRANSITION) {
+            if (tag.empty()) {
+                throw ParseError(
+                    "LEVEL_TRANSITION requires a [tag] naming a transition in the model", line_num);
+            }
+            if (!args.empty()) {
+                throw ParseError("LEVEL_TRANSITION takes no arguments (the tag names the matrix)",
+                                 line_num);
+            }
+        }
+        if (gate == GateType::LOSS) {
+            if (args.size() != 1) {
+                throw ParseError("LOSS requires exactly 1 argument (the loss probability)",
+                                 line_num);
+            }
+            if (!(args[0] >= 0.0 && args[0] <= 1.0)) {
+                throw ParseError("LOSS probability must lie in [0, 1]", line_num);
+            }
+        }
         if (gate == GateType::READOUT_NOISE && args.size() != 1 && args.size() != 2) {
             throw ParseError(
                 "READOUT_NOISE requires 1 argument (symmetric flip probability) or 2 "
@@ -336,7 +374,7 @@ class Parser {
                 circuit.nodes.push_back({GateType::TICK, {}, args, line_num});
                 break;
             default:
-                parse_standard_gate(gate, rest, line_num, circuit, arg, args);
+                parse_standard_gate(gate, rest, line_num, circuit, arg, args, tag);
                 break;
         }
     }
@@ -600,7 +638,8 @@ class Parser {
 
     // Parse a standard gate with qubit targets (possibly with rec references).
     void parse_standard_gate(GateType gate, std::string_view targets_str, uint32_t line_num,
-                             Circuit& circuit, double arg, const std::vector<double>& args) {
+                             Circuit& circuit, double arg, const std::vector<double>& args,
+                             const std::string& tag = {}) {
         // Resets (R, RX) don't accept noise arguments.
         if (is_reset(gate) && arg != 0.0) {
             throw ParseError("Reset gates do not accept arguments", line_num);
@@ -635,6 +674,12 @@ class Parser {
             }
             if (!is_rec_token && gate == GateType::READOUT_NOISE) {
                 throw ParseError("READOUT_NOISE targets must be rec references", line_num);
+            }
+            if ((gate == GateType::LEVEL_TRANSITION || gate == GateType::LOSS) &&
+                (is_rec_token || token[0] == '!')) {
+                throw ParseError(
+                    std::string(clifft::gate_name(gate)) + " targets must be plain qubit indices",
+                    line_num);
             }
             if (is_rec_token && gate == GateType::READOUT_NOISE && token[0] == '!') {
                 throw ParseError(
@@ -691,6 +736,7 @@ class Parser {
                     }
 
                     AstNode node{gate, {t}, std::move(node_args), line_num};
+                    node.tag = tag;
                     update_circuit_stats(node, circuit);
                     circuit.nodes.push_back(std::move(node));
 

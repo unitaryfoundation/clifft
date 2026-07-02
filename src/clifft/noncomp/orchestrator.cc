@@ -3,6 +3,7 @@
 #include "clifft/backend/backend.h"
 #include "clifft/frontend/frontend.h"
 #include "clifft/frontend/hir.h"
+#include "clifft/noncomp/annotate.h"
 #include "clifft/noncomp/classifier.h"
 #include "clifft/noncomp/rewriter.h"
 #include "clifft/noncomp/sampler.h"
@@ -96,10 +97,14 @@ NonComputationalSample sample_noncomputational(const Circuit& circuit,
 
     const MeasurementClassifier* classifier = model.classifier();
 
+    // Expand the model's gate hooks into explicit LEVEL_TRANSITION annotations
+    // once: the per-shot layers below consume only annotations.
+    const Circuit annotated = annotate(circuit, model);
+
     for (uint32_t shot = 0; shot < shots; ++shot) {
         HistorySample hs =
-            sample_history(circuit, model, derive_seed(global_seed, shot, kHistoryDomain));
-        RewriteResult rw = rewrite(circuit, hs.history, model);
+            sample_history(annotated, model, derive_seed(global_seed, shot, kHistoryDomain));
+        RewriteResult rw = rewrite(annotated, hs.history, model);
         std::vector<uint8_t> shot_heralds(circuit.num_measurements, 0);
         if (classifier != nullptr && classifier->num_symbols() == 3 &&
             !rw.classified_measurements.empty()) {

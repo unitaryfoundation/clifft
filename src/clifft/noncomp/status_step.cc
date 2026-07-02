@@ -2,6 +2,48 @@
 
 namespace clifft {
 
+std::optional<uint8_t> sole_lost_level(const LevelSet& levels) {
+    std::optional<uint8_t> found;
+    for (uint8_t l = 0; l < levels.size(); ++l) {
+        if (levels.at(l).category == LevelCategory::Lost) {
+            if (found.has_value()) {
+                return std::nullopt;
+            }
+            found = l;
+        }
+    }
+    return found;
+}
+
+namespace {
+
+// Z-diagonal operations preserve computational-basis populations, so a
+// known energy level survives them unchanged; X-type operations flip the
+// populations, mapping each known level to the other one. Everything
+// else mixes the basis and demotes knownness. Conservative by default: a
+// newly added gate demotes until it is deliberately classified here.
+bool preserves_known_level(GateType g) {
+    switch (g) {
+        case GateType::Z:
+        case GateType::S:
+        case GateType::S_DAG:
+        case GateType::T:
+        case GateType::T_DAG:
+        case GateType::R_Z:
+        case GateType::CZ:
+        case GateType::R_ZZ:
+            return true;
+        default:
+            return false;
+    }
+}
+
+bool flips_known_level(GateType g) {
+    return g == GateType::X || g == GateType::Y;
+}
+
+}  // namespace
+
 OperandAction operand_action(GateType gate, QubitStatusKind kind,
                              const NonComputationalPolicy& policy) {
     if (kind == QubitStatusKind::ComputationalKnown ||
@@ -126,9 +168,22 @@ QubitStatus normal_post_op_status(const QubitStatus& entry, GateType gate, Opera
     if (gate == GateType::EXP_VAL || gate == GateType::MPAD) {
         return entry;  // non-destructive probe / classical measurement pad
     }
-    // Any other quantum operation -- a gate, Pauli noise, or an X/Y or
-    // multi-qubit measurement -- collapses a definite energy level, so a
-    // known computational qubit demotes to unknown.
+    if (kind == QubitStatusKind::ComputationalKnown) {
+        // Z-diagonal gates leave a definite energy level definite; X-type
+        // gates map it to the other level, still definite.
+        if (preserves_known_level(gate)) {
+            return entry;
+        }
+        if (flips_known_level(gate)) {
+            const uint8_t flipped = entry.level_id() == levels.computational_zero_id()
+                                        ? levels.computational_one_id()
+                                        : levels.computational_zero_id();
+            return levels.computational_known(flipped);
+        }
+    }
+    // Any other quantum operation -- a basis-mixing gate, Pauli noise, or
+    // an X/Y or multi-qubit measurement -- makes the energy level
+    // indefinite, so a known computational qubit demotes to unknown.
     return QubitStatus::computational_unknown();
 }
 

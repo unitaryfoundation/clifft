@@ -129,17 +129,18 @@ TEST_CASE("NonComputationalModel: normalizes the stored initial state") {
     REQUIRE_THAT(sum(model.initial_state()), WithinAbs(1.0, 1e-15));
 }
 
-TEST_CASE("NonComputationalModel: canonicalizes alias transition keys to GateType") {
+TEST_CASE("NonComputationalModel: alias key is stored verbatim and hooks the canonical gate") {
     LevelSet levels = LevelSet::default_set();
     std::map<std::string, TransitionInstrument> transitions;
     transitions.emplace("CNOT", zero_transition(levels));  // alias for CX
     NonComputationalModel model(LevelSet::default_set(), default_initial_state(),
                                 std::move(transitions), std::nullopt, NonComputationalPolicy{});
-    // Stored and resolvable under the canonical gate, not the alias spelling.
-    REQUIRE(model.transitions().count(GateType::CX) == 1);
+    // Stored under the original key; the hook resolves the canonical gate.
+    REQUIRE(model.transitions().count("CNOT") == 1);
     REQUIRE(model.transition_for(GateType::CX) != nullptr);
-    REQUIRE(model.transition_for("CX") != nullptr);
-    REQUIRE(model.transition_for("CNOT") != nullptr);
+    REQUIRE(model.transition_named("CNOT") != nullptr);
+    // Named lookup is exact-key: the canonical spelling is not a key here.
+    REQUIRE(model.transition_named("CX") == nullptr);
 }
 
 // =========================================================================
@@ -177,35 +178,42 @@ TEST_CASE("NonComputationalModel: rejects initial state that does not sum to 1")
 // Construction: transition validation
 // =========================================================================
 
-TEST_CASE("NonComputationalModel: rejects an unknown transition gate key") {
+TEST_CASE("NonComputationalModel: a non-gate transition key is a named transition, not a hook") {
     LevelSet levels = LevelSet::default_set();
     std::map<std::string, TransitionInstrument> transitions;
-    transitions.emplace("NOT_A_GATE", zero_transition(levels));
+    transitions.emplace("my_leak", zero_transition(levels));
+    NonComputationalModel model(LevelSet::default_set(), default_initial_state(),
+                                std::move(transitions), std::nullopt, NonComputationalPolicy{});
+    REQUIRE(model.transition_named("my_leak") != nullptr);
+    REQUIRE(model.transition_hooks().empty());
+}
+
+TEST_CASE(
+    "NonComputationalModel: rejects a transition key a LEVEL_TRANSITION tag cannot reference") {
+    LevelSet levels = LevelSet::default_set();
+    std::map<std::string, TransitionInstrument> transitions;
+    transitions.emplace("bad]key", zero_transition(levels));
     REQUIRE_THROWS_WITH(
         NonComputationalModel(LevelSet::default_set(), default_initial_state(),
                               std::move(transitions), std::nullopt, NonComputationalPolicy{}),
-        ContainsSubstring("NOT_A_GATE") && ContainsSubstring("not a recognized gate name"));
+        ContainsSubstring("bad]key") && ContainsSubstring("cannot be referenced"));
 }
 
-TEST_CASE("NonComputationalModel: rejects a non-hookable noise-channel transition key") {
+TEST_CASE("NonComputationalModel: a non-hookable gate-named key is a named-only transition") {
+    // Keys naming non-hookable instructions (noise channels, annotations,
+    // LOSS itself) register no hook, but stay referenceable from a
+    // LEVEL_TRANSITION[key] annotation like any other name.
     LevelSet levels = LevelSet::default_set();
     std::map<std::string, TransitionInstrument> transitions;
     transitions.emplace("DEPOLARIZE1", zero_transition(levels));
-    REQUIRE_THROWS_WITH(
-        NonComputationalModel(LevelSet::default_set(), default_initial_state(),
-                              std::move(transitions), std::nullopt, NonComputationalPolicy{}),
-        ContainsSubstring("DEPOLARIZE1") &&
-            ContainsSubstring("does not support a transition instrument"));
-}
-
-TEST_CASE("NonComputationalModel: rejects a non-hookable annotation transition key") {
-    LevelSet levels = LevelSet::default_set();
-    std::map<std::string, TransitionInstrument> transitions;
     transitions.emplace("TICK", zero_transition(levels));
-    REQUIRE_THROWS_WITH(
-        NonComputationalModel(LevelSet::default_set(), default_initial_state(),
-                              std::move(transitions), std::nullopt, NonComputationalPolicy{}),
-        ContainsSubstring("does not support a transition instrument"));
+    transitions.emplace("LOSS", zero_transition(levels));
+    NonComputationalModel model(LevelSet::default_set(), default_initial_state(),
+                                std::move(transitions), std::nullopt, NonComputationalPolicy{});
+    REQUIRE(model.transition_named("DEPOLARIZE1") != nullptr);
+    REQUIRE(model.transition_named("TICK") != nullptr);
+    REQUIRE(model.transition_named("LOSS") != nullptr);
+    REQUIRE(model.transition_hooks().empty());
 }
 
 TEST_CASE("NonComputationalModel: rejects two keys resolving to the same gate") {
@@ -292,11 +300,10 @@ TEST_CASE("NonComputationalModel: transition_for resolves known gates and misses
     NonComputationalModel model(LevelSet::default_set(), default_initial_state(),
                                 std::move(transitions), std::nullopt, NonComputationalPolicy{});
     REQUIRE(model.transition_for(GateType::H) != nullptr);
-    REQUIRE(model.transition_for("H") != nullptr);
+    REQUIRE(model.transition_named("H") != nullptr);
     REQUIRE(model.transition_for(GateType::CX) == nullptr);
-    REQUIRE(model.transition_for("CX") == nullptr);
-    // An unrecognized name canonicalizes to nothing rather than throwing.
-    REQUIRE(model.transition_for("NOT_A_GATE") == nullptr);
+    // Named lookup misses absent keys rather than throwing.
+    REQUIRE(model.transition_named("NOT_A_KEY") == nullptr);
 }
 
 TEST_CASE("NonComputationalModel: policy accessor reflects the constructed policy") {

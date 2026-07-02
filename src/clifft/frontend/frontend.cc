@@ -740,6 +740,13 @@ HirModule trace(const Circuit& circuit) {
                 break;
             }
 
+            case GateType::LEVEL_TRANSITION:
+            case GateType::LOSS:
+                throw std::runtime_error(
+                    std::string(gate_name(node.gate)) +
+                    " is a noncomputational annotation; run the circuit through "
+                    "sample_noncomputational instead of compiling it directly");
+
             case GateType::MPAD: {
                 for (const auto& target : node.targets) {
                     bool sign = (target.value() != 0) ^ target.is_inverted();

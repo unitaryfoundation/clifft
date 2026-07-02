@@ -21,6 +21,7 @@
 #include "clifft/circuit/parser.h"
 #include "clifft/frontend/frontend.h"
 #include "clifft/frontend/hir.h"
+#include "clifft/noncomp/annotate.h"
 #include "clifft/noncomp/classifier.h"
 #include "clifft/noncomp/level.h"
 #include "clifft/noncomp/model.h"
@@ -40,6 +41,7 @@
 #include <string>
 #include <vector>
 
+using clifft::annotate;
 using clifft::Circuit;
 using clifft::default_hir_pass_manager;
 using clifft::GateType;
@@ -207,9 +209,10 @@ TEST_CASE("validation: losing a Bell-pair qubit inserts the hidden trace-out R a
     NonComputationalModel model =
         make_model(std::move(transitions), lost_classifier(LevelSet::default_set(), {1.0, 0.0}));
 
+    Circuit annotated = annotate(c, model);
     HistorySample hs =
-        sample_history(c, model, 1);  // always_lost: qubit 0 is deterministically lost
-    Circuit rw = rewrite(c, hs.history, model).circuit;
+        sample_history(annotated, model, 1);  // always_lost: qubit 0 is deterministically lost
+    Circuit rw = rewrite(annotated, hs.history, model).circuit;
 
     // The original circuit has no reset; the loss rewrite adds exactly one
     // trace-out R (and no X-prep, since both halves start in |0>).
