@@ -97,7 +97,7 @@ NonComputationalSample sample_noncomputational(const Circuit& circuit,
 
     const MeasurementClassifier* classifier = model.classifier();
 
-    // Expand the model's gate hooks into explicit TRANSITION annotations
+    // Expand the model's gate hooks into explicit LEVEL_TRANSITION annotations
     // once: the per-shot layers below consume only annotations.
     const Circuit annotated = annotate(circuit, model);
 

@@ -214,8 +214,8 @@ class Parser {
         }
         // Restricted here, before the discarded-annotation and parser-rewrite
         // paths return, so no instruction can silently drop a tag.
-        if (!tag.empty() && gate_name != "TRANSITION") {
-            throw ParseError("Tags are only supported on TRANSITION", line_num);
+        if (!tag.empty() && gate_name != "LEVEL_TRANSITION") {
+            throw ParseError("Tags are only supported on LEVEL_TRANSITION", line_num);
         }
 
         // Parse optional parenthesized arguments (comma-separated floats).
@@ -320,13 +320,13 @@ class Parser {
         if (gate == GateType::EXP_VAL && !args.empty()) {
             throw ParseError("EXP_VAL takes no arguments", line_num);
         }
-        if (gate == GateType::TRANSITION) {
+        if (gate == GateType::LEVEL_TRANSITION) {
             if (tag.empty()) {
-                throw ParseError("TRANSITION requires a [tag] naming a transition in the model",
-                                 line_num);
+                throw ParseError(
+                    "LEVEL_TRANSITION requires a [tag] naming a transition in the model", line_num);
             }
             if (!args.empty()) {
-                throw ParseError("TRANSITION takes no arguments (the tag names the matrix)",
+                throw ParseError("LEVEL_TRANSITION takes no arguments (the tag names the matrix)",
                                  line_num);
             }
         }
@@ -675,7 +675,7 @@ class Parser {
             if (!is_rec_token && gate == GateType::READOUT_NOISE) {
                 throw ParseError("READOUT_NOISE targets must be rec references", line_num);
             }
-            if ((gate == GateType::TRANSITION || gate == GateType::LOSS) &&
+            if ((gate == GateType::LEVEL_TRANSITION || gate == GateType::LOSS) &&
                 (is_rec_token || token[0] == '!')) {
                 throw ParseError(
                     std::string(clifft::gate_name(gate)) + " targets must be plain qubit indices",

@@ -185,7 +185,7 @@ HistorySample sample_history(const Circuit& circuit, const NonComputationalModel
         }
     };
 
-    // Walk the operations. Transition consults happen only at TRANSITION
+    // Walk the operations. Transition consults happen only at LEVEL_TRANSITION
     // and LOSS annotations -- positioned where they fire, with the source
     // taken from the qubit's status there -- while every other operation
     // just advances statuses through its normal effect.
@@ -193,11 +193,11 @@ HistorySample sample_history(const Circuit& circuit, const NonComputationalModel
         const AstNode& node = circuit.nodes[op_index];
         const GateType gate = node.gate;
 
-        if (gate == GateType::TRANSITION) {
+        if (gate == GateType::LEVEL_TRANSITION) {
             const TransitionInstrument* instrument = model.transition_named(node.tag);
             if (instrument == nullptr) {
-                throw std::invalid_argument("sample_history: TRANSITION[" + node.tag + "] at op " +
-                                            std::to_string(op_index) +
+                throw std::invalid_argument("sample_history: LEVEL_TRANSITION[" + node.tag +
+                                            "] at op " + std::to_string(op_index) +
                                             " does not name a transition in the model");
             }
             for (const Target& target : node.targets) {

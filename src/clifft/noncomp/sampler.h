@@ -5,7 +5,7 @@
 //
 // It performs the sampling pass only: sample initial statuses, walk the
 // operations advancing each qubit's status, and sample an outcome at each
-// TRANSITION or LOSS annotation -- the only transition consult points.
+// LEVEL_TRANSITION or LOSS annotation -- the only transition consult points.
 // A consult is positional: the source is the qubit's status at the
 // annotation's place in the circuit (gate hooks are expanded to
 // annotations by annotate() before sampling). It does not rewrite,

@@ -494,11 +494,11 @@ that only ever fires on known-or-classical sources runs fine in MVP.
 
 Transition consult points are first-class circuit instructions:
 
-- `TRANSITION[name] q...` applies the model transition matrix stored
+- `LEVEL_TRANSITION[name] q...` applies the model transition matrix stored
   under `name` to each target independently. Any key in the model's
   `transitions` map is referenceable; a key that names a gate (e.g.
   `"CZ"`) additionally acts as a *hook*, expanded by the annotation
-  layer into a `TRANSITION[key]` annotation after every occurrence of
+  layer into a `LEVEL_TRANSITION[key]` annotation after every occurrence of
   that gate (one single-target annotation per Physical operand, in
   operand order). Feedback operands are virtual and get none.
 - `LOSS(p) q...` applies a uniform loss with probability `p` inline; it
@@ -521,7 +521,7 @@ attaching transitions to gates with entry-status sources:
   choice was an artifact of attachment, not physics.
 - A hook on a measure-and-reset consults the post-reset state. A
   transition acting on the pre-reset level -- readout-induced loss --
-  is written explicitly as `M q`, `TRANSITION[name] q`, `R q`.
+  is written explicitly as `M q`, `LEVEL_TRANSITION[name] q`, `R q`.
 
 Annotations are consumed by the trajectory layer: the sampler draws one
 outcome per annotation target, and the rewriter replays those outcomes
@@ -546,10 +546,10 @@ For each shot:
    computational amplitude is irrelevant); the lost/leaked policy
    gates downstream ops on them from op 0.
 3. **Expand gate hooks and walk the annotated circuit.** The
-   annotation layer inserts a `TRANSITION[key]` after each hooked
+   annotation layer inserts a `LEVEL_TRANSITION[key]` after each hooked
    operation (once per sampling call); the sampler then walks the
    operations, advancing statuses, and samples an outcome at each
-   TRANSITION/LOSS annotation target with the source taken from the
+   LEVEL_TRANSITION/LOSS annotation target with the source taken from the
    qubit's status at the annotation (§5.0). Apply the §4.2 sample-time
    check on that source context. Record the resulting
    `NonComputationalHistory` (sequence of (op-index, qubit, sampled

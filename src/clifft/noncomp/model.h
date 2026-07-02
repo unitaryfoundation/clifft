@@ -88,21 +88,21 @@ class NonComputationalModel {
     // Every declared transition by its original key. A key that names a
     // hookable gate additionally registers a gate hook (see
     // transition_hooks); any key can be referenced from a circuit by a
-    // TRANSITION[key] annotation.
+    // LEVEL_TRANSITION[key] annotation.
     const std::map<std::string, TransitionInstrument, std::less<>>& transitions() const {
         return transitions_;
     }
 
     // Gate hooks: the gate-named subset of the transition keys, mapping
     // each hooked gate to its key. The annotation layer expands these
-    // into explicit TRANSITION annotations after each hooked operation.
+    // into explicit LEVEL_TRANSITION annotations after each hooked operation.
     const std::map<GateType, std::string>& transition_hooks() const { return hooks_; }
 
     // Transition instrument hooked on a gate, or nullptr if none.
     const TransitionInstrument* transition_for(GateType gate) const;
 
     // Transition instrument by exact key, or nullptr if none. This is the
-    // lookup a TRANSITION[name] annotation resolves through.
+    // lookup a LEVEL_TRANSITION[name] annotation resolves through.
     const TransitionInstrument* transition_named(std::string_view name) const;
 
     // The classifier, or nullptr if the model has none.

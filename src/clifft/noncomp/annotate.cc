@@ -25,7 +25,7 @@ Circuit annotate(const Circuit& circuit, const NonComputationalModel& model) {
             if (operand.role != OperandRole::Physical) {
                 continue;
             }
-            out.nodes.push_back(AstNode{GateType::TRANSITION,
+            out.nodes.push_back(AstNode{GateType::LEVEL_TRANSITION,
                                         {Target::qubit(operand.qubit)},
                                         {},
                                         node.source_line,

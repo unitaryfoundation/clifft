@@ -188,7 +188,8 @@ TEST_CASE("NonComputationalModel: a non-gate transition key is a named transitio
     REQUIRE(model.transition_hooks().empty());
 }
 
-TEST_CASE("NonComputationalModel: rejects a transition key a TRANSITION tag cannot reference") {
+TEST_CASE(
+    "NonComputationalModel: rejects a transition key a LEVEL_TRANSITION tag cannot reference") {
     LevelSet levels = LevelSet::default_set();
     std::map<std::string, TransitionInstrument> transitions;
     transitions.emplace("bad]key", zero_transition(levels));
@@ -201,7 +202,7 @@ TEST_CASE("NonComputationalModel: rejects a transition key a TRANSITION tag cann
 TEST_CASE("NonComputationalModel: a non-hookable gate-named key is a named-only transition") {
     // Keys naming non-hookable instructions (noise channels, annotations,
     // LOSS itself) register no hook, but stay referenceable from a
-    // TRANSITION[key] annotation like any other name.
+    // LEVEL_TRANSITION[key] annotation like any other name.
     LevelSet levels = LevelSet::default_set();
     std::map<std::string, TransitionInstrument> transitions;
     transitions.emplace("DEPOLARIZE1", zero_transition(levels));

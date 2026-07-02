@@ -91,7 +91,7 @@ NonComputationalModel::NonComputationalModel(
         p /= sum;
     }
 
-    // A transition key is referenced from circuits by TRANSITION[key]
+    // A transition key is referenced from circuits by LEVEL_TRANSITION[key]
     // annotations, so it must survive the tag syntax; a key that names a
     // hookable physical gate additionally registers a gate hook,
     // canonicalized to GateType so no two spellings of one gate shadow
@@ -104,12 +104,12 @@ NonComputationalModel::NonComputationalModel(
         if (name.find(']') != std::string::npos || name.find('\n') != std::string::npos) {
             throw std::invalid_argument(
                 "NonComputationalModel: transition key '" + name +
-                "' contains ']' or a newline and cannot be referenced by a TRANSITION tag");
+                "' contains ']' or a newline and cannot be referenced by a LEVEL_TRANSITION tag");
         }
         // Only a key naming a hookable physical gate registers a hook. Any
         // other key -- an arbitrary name, or one naming a non-hookable
         // instruction such as LOSS or a noise channel -- is a named-only
-        // transition: referenceable from TRANSITION[key], expanded onto
+        // transition: referenceable from LEVEL_TRANSITION[key], expanded onto
         // nothing.
         const GateType gate = parse_gate_name(name);
         if (gate != GateType::UNKNOWN && supports_transition(gate)) {

@@ -740,7 +740,7 @@ HirModule trace(const Circuit& circuit) {
                 break;
             }
 
-            case GateType::TRANSITION:
+            case GateType::LEVEL_TRANSITION:
             case GateType::LOSS:
                 throw std::runtime_error(
                     std::string(gate_name(node.gate)) +

@@ -801,19 +801,19 @@ TEST_CASE("rewrite: a computational column with herald mass rejects") {
     REQUIRE_THROWS_WITH(rewrite(c_ann, s.history, model), ContainsSubstring("beyond the bit"));
 }
 
-TEST_CASE("annotate: gate hooks expand to per-operand TRANSITION annotations") {
+TEST_CASE("annotate: gate hooks expand to per-operand LEVEL_TRANSITION annotations") {
     Circuit c = parse("H 0\nCZ 0 1\nM 0\n");
     std::map<std::string, TransitionInstrument> transitions;
     transitions.emplace("CZ", always_lost(LevelSet::default_set()));
     NonComputationalModel model = make_model(all_g(), std::move(transitions));
 
     Circuit ann = annotate(c, model);
-    // H, CZ, TRANSITION(0), TRANSITION(1), M.
+    // H, CZ, LEVEL_TRANSITION(0), LEVEL_TRANSITION(1), M.
     REQUIRE(ann.nodes.size() == 5);
-    REQUIRE(ann.nodes[2].gate == GateType::TRANSITION);
+    REQUIRE(ann.nodes[2].gate == GateType::LEVEL_TRANSITION);
     REQUIRE(ann.nodes[2].tag == "CZ");
     REQUIRE(ann.nodes[2].targets[0].value() == 0);
-    REQUIRE(ann.nodes[3].gate == GateType::TRANSITION);
+    REQUIRE(ann.nodes[3].gate == GateType::LEVEL_TRANSITION);
     REQUIRE(ann.nodes[3].targets[0].value() == 1);
     REQUIRE(ann.num_measurements == c.num_measurements);  // layout untouched
 }
@@ -839,14 +839,14 @@ TEST_CASE("annotate: an unhooked model leaves the circuit unchanged") {
 }
 
 TEST_CASE("rewrite: annotations are consumed, not emitted") {
-    Circuit c = parse("S 0\nTRANSITION[jump] 0\nM 0\n");
+    Circuit c = parse("S 0\nLEVEL_TRANSITION[jump] 0\nM 0\n");
     std::map<std::string, TransitionInstrument> transitions;
     transitions.emplace("jump", never_fires(LevelSet::default_set()));
     NonComputationalModel model = make_model(all_g(), std::move(transitions));
 
     HistorySample s = sample_history(c, model, 1);
     Circuit rw = rewrite(c, s.history, model).circuit;
-    REQUIRE(count_gate(rw, GateType::TRANSITION) == 0);
+    REQUIRE(count_gate(rw, GateType::LEVEL_TRANSITION) == 0);
     REQUIRE(count_gate(rw, GateType::S) == 1);
     REQUIRE(count_gate(rw, GateType::M) == 1);
 }
@@ -871,9 +871,9 @@ TEST_CASE("rewrite: a LOSS jump on a definite atom needs no trace-out") {
     REQUIRE(s.final_status[0].kind() == clifft::QubitStatusKind::Lost);
 }
 
-TEST_CASE("rewrite: a TRANSITION jump to a computational level materializes the carrier") {
+TEST_CASE("rewrite: a LEVEL_TRANSITION jump to a computational level materializes the carrier") {
     // Recapture a lost qubit at e: R rezeros the stale carrier, X prepares |1>.
-    Circuit c = parse("LOSS(1) 0\nTRANSITION[recapture] 0\n");
+    Circuit c = parse("LOSS(1) 0\nLEVEL_TRANSITION[recapture] 0\n");
     auto m = zeros5();
     m[1][4] = 1.0;  // lost -> e with certainty
     std::map<std::string, TransitionInstrument> transitions;

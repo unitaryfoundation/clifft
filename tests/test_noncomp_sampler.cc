@@ -138,7 +138,7 @@ TEST_CASE("sample_history: a transition on a known source fires and updates the 
 
     HistorySample s = sample_hooked(c, model, 1);
     REQUIRE(s.history.transitions.size() == 1);
-    REQUIRE(s.history.transitions[0].op_index == 1);  // the TRANSITION annotation
+    REQUIRE(s.history.transitions[0].op_index == 1);  // the LEVEL_TRANSITION annotation
     REQUIRE(s.history.transitions[0].qubit == 0);
     REQUIRE(s.history.transitions[0].jumped);
     REQUIRE(s.history.transitions[0].destination_level == kLost);
@@ -292,7 +292,7 @@ TEST_CASE("sample_history: source-dependent transition on an unknown qubit rejec
     transitions.emplace("CZ", lose_from_g(LevelSet::default_set()));
     NonComputationalModel model = make_model(all_g(), std::move(transitions));
 
-    // The annotated circuit is [H, CZ, TRANSITION(0), TRANSITION(1)]; the
+    // The annotated circuit is [H, CZ, LEVEL_TRANSITION(0), LEVEL_TRANSITION(1)]; the
     // failing consult is the qubit-0 annotation at op 2.
     REQUIRE_THROWS_WITH(sample_hooked(c, model, 1),
                         ContainsSubstring("CZ") && ContainsSubstring("qubit 0") &&
@@ -454,8 +454,8 @@ TEST_CASE("sample_history: equalize_rates known divergence on a gate-determined 
     REQUIRE(lost < kN * 65 / 100);
 }
 
-TEST_CASE("sample_history: a hand-written TRANSITION consults the named matrix") {
-    Circuit c = parse("S 0\nTRANSITION[my_leak] 0\n");
+TEST_CASE("sample_history: a hand-written LEVEL_TRANSITION consults the named matrix") {
+    Circuit c = parse("S 0\nLEVEL_TRANSITION[my_leak] 0\n");
     std::map<std::string, TransitionInstrument> transitions;
     transitions.emplace("my_leak", lose_from_g(LevelSet::default_set()));
     NonComputationalModel model = make_model(all_g(), std::move(transitions));
@@ -467,14 +467,14 @@ TEST_CASE("sample_history: a hand-written TRANSITION consults the named matrix")
     REQUIRE(s.final_status[0].kind() == QubitStatusKind::Lost);
 }
 
-TEST_CASE("sample_history: an unknown TRANSITION tag rejects") {
-    Circuit c = parse("TRANSITION[nope] 0\n");
+TEST_CASE("sample_history: an unknown LEVEL_TRANSITION tag rejects") {
+    Circuit c = parse("LEVEL_TRANSITION[nope] 0\n");
     NonComputationalModel model = make_model(all_g(), {});
     REQUIRE_THROWS_WITH(sample_history(c, model, 1),
                         ContainsSubstring("nope") && ContainsSubstring("does not name"));
 }
 
-TEST_CASE("sample_history: TRANSITION placement selects the source state") {
+TEST_CASE("sample_history: LEVEL_TRANSITION placement selects the source state") {
     // Before the H the qubit is Known(g): the g column fires. After the H
     // it is unknown: the same source-dependent matrix rejects. The consult
     // is positional, not attached to any gate.
@@ -482,11 +482,11 @@ TEST_CASE("sample_history: TRANSITION placement selects the source state") {
     t1.emplace("jump", lose_from_g(LevelSet::default_set()));
     NonComputationalModel model = make_model(all_g(), std::move(t1));
 
-    Circuit before = parse("TRANSITION[jump] 0\nH 0\n");
+    Circuit before = parse("LEVEL_TRANSITION[jump] 0\nH 0\n");
     HistorySample s = sample_history(before, model, 1);
     REQUIRE(s.final_status[0].kind() == QubitStatusKind::Lost);
 
-    Circuit after = parse("H 0\nTRANSITION[jump] 0\n");
+    Circuit after = parse("H 0\nLEVEL_TRANSITION[jump] 0\n");
     REQUIRE_THROWS_WITH(sample_history(after, model, 1), ContainsSubstring("ComputationalUnknown"));
 }
 
@@ -522,7 +522,7 @@ TEST_CASE("sample_history: LOSS frequency matches its probability") {
 }
 
 TEST_CASE("sample_history: a gate-named but non-hookable key is referenceable") {
-    Circuit c = parse("TRANSITION[LOSS] 0\n");
+    Circuit c = parse("LEVEL_TRANSITION[LOSS] 0\n");
     std::map<std::string, TransitionInstrument> transitions;
     transitions.emplace("LOSS", lose_from_g(LevelSet::default_set()));
     NonComputationalModel model = make_model(all_g(), std::move(transitions));

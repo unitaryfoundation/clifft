@@ -50,7 +50,7 @@
 //      lost qubit is recaptured. Like the trace-out, it shifts no record
 //      index.
 //
-// Transition consults happen only at TRANSITION and LOSS annotations
+// Transition consults happen only at LEVEL_TRANSITION and LOSS annotations
 // (gate hooks are expanded by annotate() before sampling and rewriting).
 // The rewriter consumes those annotations -- replaying outcomes from
 // history.transitions in sampler order, one record per annotation target --

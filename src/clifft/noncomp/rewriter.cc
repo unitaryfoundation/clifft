@@ -205,14 +205,14 @@ RewriteResult rewrite(const Circuit& original, const NonComputationalHistory& hi
         const AstNode& node = original.nodes[op_index];
         const GateType gate = node.gate;
 
-        // TRANSITION and LOSS annotations are the transition consult
+        // LEVEL_TRANSITION and LOSS annotations are the transition consult
         // points. They are consumed here -- the rewritten circuit carries
         // only their carrier edits -- with the same jump semantics an
         // operation-attached transition had: a jump into the computational
         // subspace materializes the carrier at the destination, and a jump
         // out of it needs the hidden trace-out exactly when the carrier at
         // the annotation's position is coherent.
-        if (gate == GateType::TRANSITION || gate == GateType::LOSS) {
+        if (gate == GateType::LEVEL_TRANSITION || gate == GateType::LOSS) {
             for (const Target& target : node.targets) {
                 const uint32_t qubit = target.value();
                 if (qubit >= status.size()) {

@@ -133,8 +133,8 @@ enum class GateType : uint16_t {
 
     // Noncomputational trajectory annotations (consumed by the
     // noncomputational sampling layer; trace() rejects them)
-    TRANSITION,  // Per-site level transition; the tag names a model matrix
-    LOSS,        // Per-site uniform loss with an inline probability
+    LEVEL_TRANSITION,  // Per-site level transition; the tag names a model matrix
+    LOSS,              // Per-site uniform loss with an inline probability
 
     // Simulation-only probes
     EXP_VAL,  // Non-destructive expectation value
@@ -273,7 +273,7 @@ inline constexpr GateTraits kGateTraitsData[] = {
     {.arity = A, .name = "OBSERVABLE_INCLUDE"},
     {.arity = A, .name = "TICK"},
     // Noncomputational trajectory annotations
-    {.arity = S, .name = "TRANSITION"},
+    {.arity = S, .name = "LEVEL_TRANSITION"},
     {.arity = S, .name = "LOSS"},
     // Simulation-only probes
     {.arity = ML, .name = "EXP_VAL"},

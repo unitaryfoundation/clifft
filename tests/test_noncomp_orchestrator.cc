@@ -600,11 +600,11 @@ TEST_CASE("sample_noncomputational: asymmetric confusion matches its rates") {
     REQUIRE(zeros < 950);
 }
 
-TEST_CASE("sample_noncomputational: hand-written LOSS and TRANSITION run end to end") {
+TEST_CASE("sample_noncomputational: hand-written LOSS and LEVEL_TRANSITION run end to end") {
     // Qubit 0 is lost by a local LOSS; its measurement takes the classifier's
-    // lost bit. Qubit 1 leaks via a local named TRANSITION; its measurement
+    // lost bit. Qubit 1 leaks via a local named LEVEL_TRANSITION; its measurement
     // takes the leak_g bit.
-    Circuit c = parse("H 0\nH 1\nLOSS(1) 0\nTRANSITION[leak] 1\nM 0\nM 1\n");
+    Circuit c = parse("H 0\nH 1\nLOSS(1) 0\nLEVEL_TRANSITION[leak] 1\nM 0\nM 1\n");
     auto leak = zeros5();
     leak[kLeakG][0] = 1.0;
     leak[kLeakG][1] = 1.0;
