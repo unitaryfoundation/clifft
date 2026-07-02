@@ -2,6 +2,7 @@
 
 #include "clifft/optimizer/hir_pass.h"
 
+#include <functional>
 #include <memory>
 #include <vector>
 
@@ -21,6 +22,16 @@ class HirPassManager {
 
     void add_pass(std::unique_ptr<HirPass> pass);
     void run(HirModule& hir);
+
+    /// Run the pass sequence per fence-delimited segment. Ops for which
+    /// `is_fence` returns true are structural optimization barriers: they
+    /// are never handed to a pass, and no pass can observe, fuse, or move
+    /// operations across one, because each maximal fence-free segment is
+    /// presented to the passes as if it were the module's entire op stream.
+    /// Module-level state (arenas, side tables, counters, global weight)
+    /// stays in place, so mask handles and side-table indices remain valid.
+    /// Equivalent to run() when no op is a fence.
+    void run_segmented(HirModule& hir, const std::function<bool(const HeisenbergOp&)>& is_fence);
 
   private:
     std::vector<std::unique_ptr<HirPass>> passes_;

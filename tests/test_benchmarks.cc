@@ -20,6 +20,7 @@
 #include "clifft/optimizer/hir_pass_manager.h"
 #include "clifft/optimizer/multi_gate_pass.h"
 #include "clifft/optimizer/noise_block_pass.h"
+#include "clifft/optimizer/pass_factory.h"
 #include "clifft/optimizer/peephole.h"
 #include "clifft/optimizer/single_axis_fusion_pass.h"
 #include "clifft/optimizer/swap_meas_pass.h"
@@ -29,6 +30,7 @@
 
 #include <catch2/benchmark/catch_benchmark.hpp>
 #include <catch2/catch_test_macros.hpp>
+#include <cstdio>
 #include <sstream>
 #include <string>
 
@@ -188,5 +190,153 @@ TEST_CASE("Bench: EXP_VAL 20q 200 probes", "[bench]") {
     // bench-history workflow's parser (.github/workflows/bench.yml).
     BENCHMARK("exp-val 20q 200 probes x100k") {
         return sample(mod, 100000, 0);
+    };
+}
+
+// ---------------------------------------------------------------------------
+// Fence spike: cost of segmenting the default pass pipelines at every noise
+// site -- the realistic fence density for per-site instrument fences, where
+// no pass may observe, fuse, or move operations across a site. Each workload
+// compares compile time and sampling throughput, fenced vs unfenced, and
+// prints the module-shape deltas (instruction count, noise coalescing,
+// peak rank).
+// ---------------------------------------------------------------------------
+
+// Fence density proxies for the spike. Instruments attach per (annotated
+// operation, operand), so the truth for a layered circuit lies between:
+//   EveryNoise    -- a fence at every noise site (atomized; hard upper bound:
+//                    even layer-internal noise runs stop coalescing).
+//   NoiseRunStarts -- a fence at the first site of each contiguous noise run
+//                    (per-layer; run-internal coalescing survives, matching
+//                    instruments clustered at the gates before the layer).
+enum class FenceDensity { Unfenced, EveryNoise, NoiseRunStarts };
+
+static CompiledModule compile_default_pipeline(const Circuit& circuit, FenceDensity density) {
+    HirModule hir = trace(circuit);
+    HirPassManager pm = default_hir_pass_manager();
+    switch (density) {
+        case FenceDensity::Unfenced:
+            pm.run(hir);
+            break;
+        case FenceDensity::EveryNoise:
+            pm.run_segmented(hir,
+                             [](const HeisenbergOp& op) { return op.op_type() == OpType::NOISE; });
+            break;
+        case FenceDensity::NoiseRunStarts:
+            pm.run_segmented(hir, [prev = false](const HeisenbergOp& op) mutable {
+                const bool is_noise = op.op_type() == OpType::NOISE;
+                const bool fence = is_noise && !prev;
+                prev = is_noise;
+                return fence;
+            });
+            break;
+    }
+    CompiledModule mod = lower(hir);
+    BytecodePassManager bpm = default_bytecode_pass_manager();
+    switch (density) {
+        case FenceDensity::Unfenced:
+            bpm.run(mod);
+            break;
+        case FenceDensity::EveryNoise:
+            bpm.run_segmented(mod,
+                              [](const Instruction& in) { return in.opcode == Opcode::OP_NOISE; });
+            break;
+        case FenceDensity::NoiseRunStarts:
+            bpm.run_segmented(mod, [prev = false](const Instruction& in) mutable {
+                const bool is_noise = in.opcode == Opcode::OP_NOISE;
+                const bool fence = is_noise && !prev;
+                prev = is_noise;
+                return fence;
+            });
+            break;
+    }
+    return mod;
+}
+
+static size_t count_opcode(const CompiledModule& m, Opcode op) {
+    size_t n = 0;
+    for (const Instruction& in : m.bytecode) {
+        if (in.opcode == op)
+            ++n;
+    }
+    return n;
+}
+
+static void print_fence_shape(const char* name, const CompiledModule& plain,
+                              const CompiledModule& fenced) {
+    std::printf(
+        "fence-spike %s: bytecode %zu -> %zu, noise %zu -> %zu, "
+        "noise-block %zu -> %zu, peak_rank %u -> %u\n",
+        name, plain.bytecode.size(), fenced.bytecode.size(), count_opcode(plain, Opcode::OP_NOISE),
+        count_opcode(fenced, Opcode::OP_NOISE), count_opcode(plain, Opcode::OP_NOISE_BLOCK),
+        count_opcode(fenced, Opcode::OP_NOISE_BLOCK), plain.peak_rank, fenced.peak_rank);
+}
+
+TEST_CASE("Bench: fence spike surface d7 r7", "[bench]") {
+    Circuit c = parse(surface_code_text(7, 7, 1e-3));
+    auto plain = compile_default_pipeline(c, FenceDensity::Unfenced);
+    auto fenced = compile_default_pipeline(c, FenceDensity::EveryNoise);
+    auto layered = compile_default_pipeline(c, FenceDensity::NoiseRunStarts);
+    print_fence_shape("surface-d7-r7 p=1e-3 atomized", plain, fenced);
+    print_fence_shape("surface-d7-r7 p=1e-3 run-start", plain, layered);
+
+    BENCHMARK("d7r7 compile unfenced") {
+        return compile_default_pipeline(c, FenceDensity::Unfenced);
+    };
+    BENCHMARK("d7r7 compile fenced") {
+        return compile_default_pipeline(c, FenceDensity::EveryNoise);
+    };
+    BENCHMARK("d7r7 x2000 shots unfenced") {
+        return sample(plain, 2000, 0);
+    };
+    BENCHMARK("d7r7 x2000 shots fenced") {
+        return sample(fenced, 2000, 0);
+    };
+    BENCHMARK("d7r7 x2000 shots run-fenced") {
+        return sample(layered, 2000, 0);
+    };
+}
+
+TEST_CASE("Bench: fence spike surface d5 r5 high noise", "[bench]") {
+    Circuit c = parse(surface_code_text(5, 5, 0.05));
+    auto plain = compile_default_pipeline(c, FenceDensity::Unfenced);
+    auto fenced = compile_default_pipeline(c, FenceDensity::EveryNoise);
+    auto layered = compile_default_pipeline(c, FenceDensity::NoiseRunStarts);
+    print_fence_shape("surface-d5-r5 p=0.05 atomized", plain, fenced);
+    print_fence_shape("surface-d5-r5 p=0.05 run-start", plain, layered);
+
+    BENCHMARK("d5r5 hi-noise x5000 unfenced") {
+        return sample(plain, 5000, 0);
+    };
+    BENCHMARK("d5r5 hi-noise x5000 fenced") {
+        return sample(fenced, 5000, 0);
+    };
+    BENCHMARK("d5r5 hi-noise x5000 run-fenced") {
+        return sample(layered, 5000, 0);
+    };
+}
+
+TEST_CASE("Bench: fence spike cultivation d5", "[bench]") {
+    Circuit c = parse_file(fixture("cultivation_d5.stim"));
+    auto plain = compile_default_pipeline(c, FenceDensity::Unfenced);
+    auto fenced = compile_default_pipeline(c, FenceDensity::EveryNoise);
+    auto layered = compile_default_pipeline(c, FenceDensity::NoiseRunStarts);
+    print_fence_shape("cultivation-d5 atomized", plain, fenced);
+    print_fence_shape("cultivation-d5 run-start", plain, layered);
+
+    BENCHMARK("cultivation compile unfenced") {
+        return compile_default_pipeline(c, FenceDensity::Unfenced);
+    };
+    BENCHMARK("cultivation compile fenced") {
+        return compile_default_pipeline(c, FenceDensity::EveryNoise);
+    };
+    BENCHMARK("cultivation x1000 unfenced") {
+        return sample_survivors(plain, 1000, 0, false);
+    };
+    BENCHMARK("cultivation x1000 fenced") {
+        return sample_survivors(fenced, 1000, 0, false);
+    };
+    BENCHMARK("cultivation x1000 run-fenced") {
+        return sample_survivors(layered, 1000, 0, false);
     };
 }

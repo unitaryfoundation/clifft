@@ -2,6 +2,7 @@
 
 #include "clifft/backend/backend.h"
 
+#include <functional>
 #include <memory>
 #include <vector>
 
@@ -32,6 +33,17 @@ class BytecodePassManager {
 
     void add_pass(std::unique_ptr<BytecodePass> pass);
     void run(CompiledModule& module);
+
+    /// Run the pass sequence per fence-delimited segment. Instructions for
+    /// which `is_fence` returns true are structural optimization barriers:
+    /// they are never handed to a pass, and no pass can observe, fuse, or
+    /// move instructions across one, because each maximal fence-free segment
+    /// is presented to the passes as if it were the module's entire bytecode.
+    /// The constant pool and counts stay in place, so pool indices remain
+    /// valid and pool appends (fusion nodes) accumulate across segments.
+    /// Equivalent to run() when no instruction is a fence.
+    void run_segmented(CompiledModule& module,
+                       const std::function<bool(const Instruction&)>& is_fence);
 
   private:
     std::vector<std::unique_ptr<BytecodePass>> passes_;

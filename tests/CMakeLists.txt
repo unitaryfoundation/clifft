@@ -22,6 +22,7 @@ add_executable(clifft_tests
     test_optimizer.cc
     test_canonical_phase.cc
     test_bytecode_passes.cc
+    test_segmented_passes.cc
     test_single_axis_fusion.cc
     test_tile_axis_fusion.cc
     test_source_map.cc

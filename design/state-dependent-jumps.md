@@ -202,7 +202,14 @@ considerations:
    recompiled continuation's prefix is bit-identical to the code that already
    executed (§4.3).
 
-The performance cost of fencing is measured before the rest is built (§6).
+The fencing cost was measured (§6 step 2) by segmenting the default
+pipelines on representative workloads (surface d7r7 at p=1e-3, d5r5 at
+p=0.05, cultivation d5). At the realistic density — fences clustered at
+gate positions, modeled as noise-run starts — compile time, sampling
+throughput, and peak rank are unchanged within measurement noise. At the
+atomized upper bound (a fence at every noise site) sampling slows 7-25%,
+dominated by lost noise-block coalescing; that is the regime instrument
+hazard-pooling (§4.4) is designed to recover. Verdict: go.
 
 ### 4.3 Backend: lowering, and frame composition across the trap boundary
 
