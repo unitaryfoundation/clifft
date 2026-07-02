@@ -46,6 +46,7 @@ add_library(clifft_core STATIC
     ${CMAKE_CURRENT_SOURCE_DIR}/../clifft/api/record_probabilities.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/../clifft/svm/svm.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/../clifft/svm/svm_forced_kernels.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/../clifft/svm/svm_instrument_kernels.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/../clifft/svm/svm_scalar.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/../clifft/svm/svm_state.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/../clifft/util/canonical_phase.cc
