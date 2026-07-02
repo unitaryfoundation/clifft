@@ -32,6 +32,7 @@ add_library(clifft_core STATIC
     util/xoshiro.cc
     noncomp/transition_instrument.cc
     noncomp/annotate.cc
+    noncomp/instrument_options.cc
     noncomp/classifier.cc
     noncomp/model.cc
     noncomp/status_step.cc

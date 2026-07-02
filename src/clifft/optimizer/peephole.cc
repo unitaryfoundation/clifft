@@ -202,7 +202,8 @@ void apply_virtual_s_downstream(HirModule& hir, size_t start_idx, MaskView x_v, 
             case OpType::T_GATE:
             case OpType::MEASURE:
             case OpType::CONDITIONAL_PAULI:
-            case OpType::EXP_VAL: {
+            case OpType::EXP_VAL:
+            case OpType::INSTRUMENT: {
                 auto m = hir.mask_at(op);
                 bool sign_i = m.sign();
                 conjugate_pauli_by_S(x_v, z_v, sign_v, m.x(), m.z(), sign_i, is_dagger);
@@ -304,6 +305,11 @@ inline bool is_blocked(const HeisenbergOp& op_i, const HeisenbergOp& op_j, const
         }
 
         case OpType::EXP_VAL:
+            return true;
+
+        // Positional barrier: nothing commutes past an instrument site
+        // regardless of mask commutation (see can_swap).
+        case OpType::INSTRUMENT:
             return true;
 
         case OpType::DETECTOR:

@@ -410,7 +410,8 @@ NB_MODULE(_clifft_core, m) {
         .value("PHASE_ROTATION", clifft::OpType::PHASE_ROTATION)
         .value("DETECTOR", clifft::OpType::DETECTOR)
         .value("OBSERVABLE", clifft::OpType::OBSERVABLE)
-        .value("EXP_VAL", clifft::OpType::EXP_VAL);
+        .value("EXP_VAL", clifft::OpType::EXP_VAL)
+        .value("INSTRUMENT", clifft::OpType::INSTRUMENT);
 
     // Python view of a HeisenbergOp paired with the HirModule that owns its
     // mask data. Holds an nb::object ref to the module so the Python

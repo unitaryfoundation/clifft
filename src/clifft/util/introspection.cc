@@ -53,6 +53,8 @@ std::string op_type_to_str(OpType type) {
             return "OBSERVABLE";
         case OpType::EXP_VAL:
             return "EXP_VAL";
+        case OpType::INSTRUMENT:
+            return "INSTRUMENT";
         default:
             return "UNKNOWN";
     }
@@ -93,6 +95,10 @@ std::string format_hir_op(const HeisenbergOp& op, std::optional<PauliMaskView> m
         case OpType::EXP_VAL:
             ss << "EXP_VAL " << format_pauli_mask(*mask) << " -> exp["
                << static_cast<uint32_t>(op.exp_val_idx()) << "]";
+            break;
+        case OpType::INSTRUMENT:
+            ss << "INSTRUMENT " << format_pauli_mask(*mask)
+               << " site=" << static_cast<uint32_t>(op.instrument_site_idx());
             break;
         case OpType::NUM_OP_TYPES:
             break;

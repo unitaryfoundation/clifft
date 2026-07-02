@@ -933,6 +933,11 @@ CompiledModule lower(const HirModule& hir, std::span<const uint8_t> postselectio
                 break;
             }
 
+            case OpType::INSTRUMENT:
+                throw std::runtime_error(
+                    "INSTRUMENT lowering is not implemented yet; exact-mode compilation of "
+                    "annotated circuits is not available");
+
             case OpType::NUM_OP_TYPES:
 #if defined(__GNUC__) || defined(__clang__)
                 __builtin_unreachable();

@@ -12,6 +12,7 @@ add_executable(clifft_tests
     test_stim_contract.cc
     test_hir.cc
     test_frontend.cc
+    test_frontend_instruments.cc
     test_backend.cc
     test_svm.cc
     test_state_reset.cc
