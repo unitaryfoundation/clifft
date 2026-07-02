@@ -51,6 +51,8 @@ def _leak_classifier() -> noncomp.Classifier:
     m = [[0.0] * 5 for _ in range(2)]
     for lvl in range(5):
         m[0][lvl] = 1.0
+    # Computational levels read out faithfully (no readout confusion).
+    m[0][Level.E], m[1][Level.E] = 0.0, 1.0
     m[0][Level.LEAK_E], m[1][Level.LEAK_E] = 0.0, 1.0
     return noncomp.Classifier(["0", "1"], m)
 

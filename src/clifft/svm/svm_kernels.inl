@@ -1931,13 +1931,16 @@ static inline void exec_noise_block(SchrodingerState& state, const ConstantPool&
     }
 }
 
-// READOUT_NOISE: classical bit-flip on a measurement result.
+// READOUT_NOISE: classical bit-flip on a measurement result, with the flip
+// probability conditioned on the recorded bit (asymmetric confusion).
 // In forced-fault mode, a two-pointer comparison replaces the PRNG roll:
-// the bit flips iff entry_idx matches the next forced readout index.
+// the bit flips iff entry_idx matches the next forced readout index
+// (asymmetric entries are rejected up front by the k-fault entry points).
 static inline void exec_readout_noise(SchrodingerState& state, const ConstantPool& pool,
                                       uint32_t entry_idx) {
     assert(entry_idx < pool.readout_noise.size());
     const auto& entry = pool.readout_noise[entry_idx];
+    assert(entry.meas_idx < state.meas_record.size());
 
     bool fire = false;
     if (state.forced_faults.active) {
@@ -1950,10 +1953,11 @@ static inline void exec_readout_noise(SchrodingerState& state, const ConstantPoo
             ff.readout_pos++;
         }
     } else {
-        fire = (state.random_double() < entry.prob);
+        const double prob =
+            state.meas_record[entry.meas_idx] ? entry.prob_one_to_zero : entry.prob_zero_to_one;
+        fire = (state.random_double() < prob);
     }
     if (fire) {
-        assert(entry.meas_idx < state.meas_record.size());
         state.meas_record[entry.meas_idx] ^= 1;
     }
 }

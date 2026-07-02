@@ -42,6 +42,8 @@ def _classifier(level: int, col: list[float]) -> noncomp.Classifier:
     m = [[0.0] * 5 for _ in range(2)]  # P[symbol][level], two symbols
     for lvl in range(5):
         m[0][lvl] = 1.0
+    # Computational levels read out faithfully (no readout confusion).
+    m[0][noncomp.Level.E], m[1][noncomp.Level.E] = 0.0, 1.0
     m[0][level], m[1][level] = col[0], col[1]
     return noncomp.Classifier(["0", "1"], m)
 

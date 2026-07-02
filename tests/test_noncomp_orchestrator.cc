@@ -70,15 +70,19 @@ TransitionInstrument always_to_e(const LevelSet& levels) {
     return TransitionInstrument::from_matrix(std::move(m), levels);
 }
 
-// Two-symbol classifier whose column for `level` is `col`; every other level
-// is a deterministic symbol 0. Only noncomputational qubits are classified, so
-// the computational columns are never consulted in these tests.
+// Two-symbol classifier whose column for `level` is `col`; computational
+// levels read out faithfully (no readout confusion) and leaked/lost levels
+// default to a deterministic symbol 0.
 MeasurementClassifier classifier_with(const LevelSet& levels, uint8_t level,
                                       std::vector<double> col) {
     std::vector<std::vector<double>> m(2, std::vector<double>(5, 0.0));
     for (size_t l = 0; l < 5; ++l) {
         m[0][l] = 1.0;  // symbol "0"
     }
+    // Computational levels read out faithfully (identity columns) so the
+    // classifier adds no readout confusion here.
+    m[0][1] = 0.0;
+    m[1][1] = 1.0;
     m[0][level] = col[0];
     m[1][level] = col[1];
     return MeasurementClassifier::from_matrix({"0", "1"}, std::move(m), levels);
@@ -221,14 +225,18 @@ TEST_CASE("sample_noncomputational: a four-symbol classifier rejects on injectio
 
 namespace {
 
-// Three-symbol classifier whose column for `level` is `col`; every other
-// level is a deterministic symbol 0.
+// Three-symbol classifier whose column for `level` is `col`; computational
+// levels read out faithfully and other levels default to symbol 0.
 MeasurementClassifier ternary_classifier_with(const LevelSet& levels, uint8_t level,
                                               std::vector<double> col) {
     std::vector<std::vector<double>> m(3, std::vector<double>(5, 0.0));
     for (size_t l = 0; l < 5; ++l) {
         m[0][l] = 1.0;
     }
+    // Computational levels read out faithfully (identity columns) so the
+    // classifier adds no readout confusion here.
+    m[0][1] = 0.0;
+    m[1][1] = 1.0;
     m[0][level] = col[0];
     m[1][level] = col[1];
     m[2][level] = col[2];
@@ -543,4 +551,51 @@ TEST_CASE("sample_noncomputational: drop policy runs a multi-round circuit throu
     NonComputationalModel reject_model = make_model(all_g(), std::move(transitions), cl);
     REQUIRE_THROWS_WITH(sample_noncomputational(c, reject_model, 1, 3),
                         ContainsSubstring("CX") && ContainsSubstring("Lost"));
+}
+
+namespace {
+
+// Classifier with confused computational columns; noncomputational levels
+// deterministically read symbol 0.
+MeasurementClassifier comp_confusion(double p01, double p10) {
+    std::vector<std::vector<double>> m(2, std::vector<double>(5, 0.0));
+    for (size_t l = 0; l < 5; ++l) {
+        m[0][l] = 1.0;
+    }
+    m[0][0] = 1.0 - p01;
+    m[1][0] = p01;
+    m[0][1] = p10;
+    m[1][1] = 1.0 - p10;
+    return MeasurementClassifier::from_matrix({"0", "1"}, std::move(m), LevelSet::default_set());
+}
+
+}  // namespace
+
+TEST_CASE("sample_noncomputational: computational confusion misreports into the detector") {
+    // A certain 0->1 misreport: the record and the detector read 1 on every
+    // shot even though the qubit is |0> -- the flip is in-circuit, not
+    // postprocessing.
+    Circuit c = parse("M 0\nDETECTOR rec[-1]\n");
+    NonComputationalModel model = make_model(all_g(), {}, comp_confusion(1.0, 0.0));
+
+    NonComputationalSample s = sample_noncomputational(c, model, 64, 3);
+    for (uint32_t shot = 0; shot < s.shots; ++shot) {
+        REQUIRE(s.measurements[shot] == 1);
+        REQUIRE(s.detectors[shot] == 1);
+    }
+}
+
+TEST_CASE("sample_noncomputational: asymmetric confusion matches its rates") {
+    // True bit is 1 (X-prepared); it is misread as 0 with probability 0.2.
+    Circuit c = parse("X 0\nM 0\n");
+    NonComputationalModel model = make_model(all_g(), {}, comp_confusion(0.0, 0.2));
+
+    constexpr uint32_t kShots = 4000;
+    NonComputationalSample s = sample_noncomputational(c, model, kShots, 9);
+    size_t zeros = 0;
+    for (uint8_t bit : s.measurements) {
+        zeros += bit == 0 ? 1 : 0;
+    }
+    REQUIRE(zeros > 650);  // expected 800; ~6 sigma band
+    REQUIRE(zeros < 950);
 }

@@ -86,6 +86,59 @@ const MeasurementClassifier& classifier_for(const NonComputationalModel& model, 
     return *classifier;
 }
 
+// Classifier readout confusion for a kept computational Z-basis measurement.
+// The classifier's computational columns give the probability of misreporting
+// each true outcome, so the record bit gets an asymmetric flip conditioned on
+// its value: p01 = P(symbol 1 | zero level), p10 = P(symbol 0 | one level).
+// Real readout error is a misreport -- the qubit still collapses to its true
+// state -- so only the record slot is touched and the layout is unchanged.
+// Identity columns emit nothing. An inverted measurement target reports the
+// complement bit, and confusion physically precedes the reporting convention,
+// so the emitted probabilities are swapped for it.
+void append_computational_confusion(Circuit& out, const NonComputationalModel& model, GateType gate,
+                                    bool inverted, uint32_t slot, uint32_t op_index,
+                                    uint32_t qubit) {
+    const MeasurementClassifier* classifier = model.classifier();
+    if (classifier == nullptr) {
+        return;
+    }
+    const LevelSet& levels = model.levels();
+    const uint8_t zero_id = levels.computational_zero_id();
+    const uint8_t one_id = levels.computational_one_id();
+    for (uint8_t level : {zero_id, one_id}) {
+        const double reject = classifier->reject_probability(level);
+        if (reject > kProbTolerance) {
+            throw std::invalid_argument(
+                "rewrite: classifier reject columns are not supported yet; the column for "
+                "computational level " +
+                std::to_string(level) + " sums to less than one (reject probability " +
+                std::to_string(reject) + ", measurement '" + std::string(gate_name(gate)) +
+                "' on qubit " + std::to_string(qubit) + " at op " + std::to_string(op_index) + ")");
+        }
+        double beyond_bit = 0.0;
+        for (size_t symbol = 2; symbol < classifier->num_symbols(); ++symbol) {
+            beyond_bit += classifier->prob(static_cast<uint8_t>(symbol), level);
+        }
+        if (beyond_bit > kProbTolerance) {
+            throw std::invalid_argument(
+                "rewrite: a computational measurement's classifier column must place all its "
+                "probability on the record symbols 0 and 1; the column for level " +
+                std::to_string(level) + " puts " + std::to_string(beyond_bit) +
+                " beyond the bit (measurement '" + std::string(gate_name(gate)) + "' on qubit " +
+                std::to_string(qubit) + " at op " + std::to_string(op_index) + ")");
+        }
+    }
+    double p01 = classifier->prob(1, zero_id);  // true 0 misread as 1
+    double p10 = classifier->prob(0, one_id);   // true 1 misread as 0
+    if (inverted) {
+        std::swap(p01, p10);
+    }
+    if (p01 == 0.0 && p10 == 0.0) {
+        return;  // identity columns: no draw, no node
+    }
+    out.nodes.push_back(AstNode{GateType::READOUT_NOISE, {Target::rec(slot)}, {p01, p10}, 0});
+}
+
 // A hidden carrier edit appended after an op for one operand's jump: an R
 // collapses and rezeros the carrier, and an X then prepares |1> when the
 // jump lands on the |1> computational level.
@@ -273,6 +326,14 @@ RewriteResult rewrite(const Circuit& original, const NonComputationalHistory& hi
                 result.classified_measurements.push_back({slot, *classified_level, noise_node});
             } else {
                 out.nodes.push_back(node);
+                // The classifier's computational columns apply to Z-basis
+                // level readouts (M, MR); other measurement bases are not
+                // level readouts and carry no confusion.
+                if (gate == GateType::M || gate == GateType::MR) {
+                    append_computational_confusion(out, model, gate,
+                                                   node.targets.front().is_inverted(), slot,
+                                                   op_index, qubit_operands(node).front().qubit);
+                }
             }
         }
         for (const CarrierEdit& edit : carrier_edits) {

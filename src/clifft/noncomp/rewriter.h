@@ -29,7 +29,11 @@
 //      classifiers, which re-points a heralded slot's flip probability at
 //      one half. For a three-symbol column the emitted probability is the
 //      bit's not-heralded conditional, and a READOUT_NOISE node is always
-//      emitted so a heralded slot has a node to patch.
+//      emitted so a heralded slot has a node to patch. A kept computational
+//      Z-basis measurement (M, MR) additionally receives the classifier's
+//      computational readout confusion as an asymmetric READOUT_NOISE on
+//      its slot -- the misreport probabilities P(1 | zero level) and
+//      P(0 | one level) -- when those columns are not the identity.
 //   4. Hidden trace-out: when a coherent qubit jumps to a Leaked or Lost
 //      level, insert an R on that qubit immediately after the operation.
 //      The existing reset lowering turns it into a hidden measurement plus a

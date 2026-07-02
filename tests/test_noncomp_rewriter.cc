@@ -113,13 +113,18 @@ NonComputationalModel make_model(std::vector<double> initial_state,
 }
 
 // Classifier whose column for `level` is `col` (two or three symbols by
-// col's length); every other level is a deterministic symbol 0.
+// col's length); computational levels read out faithfully and other levels
+// default to a deterministic symbol 0.
 MeasurementClassifier classifier_with(uint8_t level, std::vector<double> col) {
     std::vector<std::vector<double>> m(col.size(), std::vector<double>(5, 0.0));
     std::vector<std::string> symbols;
     for (size_t l = 0; l < 5; ++l) {
         m[0][l] = 1.0;
     }
+    // Computational levels read out faithfully (identity columns) so the
+    // classifier adds no readout confusion here.
+    m[0][1] = 0.0;
+    m[1][1] = 1.0;
     for (size_t s = 0; s < col.size(); ++s) {
         m[s][level] = col[s];
         symbols.push_back(std::to_string(s));
@@ -648,4 +653,114 @@ TEST_CASE("rewrite: drop policy keeps a measure-and-reset on a non-restoring los
     REQUIRE(count_gate(rw.circuit, GateType::MR) == 0);
     REQUIRE(count_gate(rw.circuit, GateType::MPAD) == 1);  // record slot preserved
     REQUIRE(rw.circuit.num_measurements == 1);
+}
+
+namespace {
+
+// Classifier with confused computational columns: a true 0 is misread as 1
+// with probability p01, a true 1 as 0 with probability p10; noncomputational
+// levels deterministically read symbol 0.
+MeasurementClassifier confused_classifier(double p01, double p10) {
+    std::vector<std::vector<double>> m(2, std::vector<double>(5, 0.0));
+    for (size_t l = 0; l < 5; ++l) {
+        m[0][l] = 1.0;
+    }
+    m[0][0] = 1.0 - p01;
+    m[1][0] = p01;
+    m[0][1] = p10;
+    m[1][1] = 1.0 - p10;
+    return MeasurementClassifier::from_matrix({"0", "1"}, std::move(m), LevelSet::default_set());
+}
+
+}  // namespace
+
+TEST_CASE("rewrite: computational readout confusion appends an asymmetric flip") {
+    Circuit c = parse("H 0\nM 0\n");
+    NonComputationalModel model =
+        make_model_with_classifier(all_g(), {}, confused_classifier(0.1, 0.2));
+
+    RewriteResult rw = rewritten_result(c, model, 1);
+    REQUIRE(count_gate(rw.circuit, GateType::M) == 1);  // measurement kept
+    REQUIRE(count_gate(rw.circuit, GateType::READOUT_NOISE) == 1);
+    const AstNode& noise = rw.circuit.nodes.back();
+    REQUIRE(noise.gate == GateType::READOUT_NOISE);
+    REQUIRE(noise.targets[0].is_rec());
+    REQUIRE(noise.targets[0].value() == 0);
+    REQUIRE(noise.args.size() == 2);
+    REQUIRE(noise.args[0] == 0.1);                // P(symbol 1 | zero level)
+    REQUIRE(noise.args[1] == 0.2);                // P(symbol 0 | one level)
+    REQUIRE(rw.classified_measurements.empty());  // not a noncomp record write
+}
+
+TEST_CASE("rewrite: identity computational columns add no readout confusion") {
+    Circuit c = parse("H 0\nM 0\n");
+    NonComputationalModel model =
+        make_model_with_classifier(all_g(), {}, classifier_with(kLost, {0.5, 0.5}));
+
+    RewriteResult rw = rewritten_result(c, model, 1);
+    REQUIRE(count_gate(rw.circuit, GateType::READOUT_NOISE) == 0);
+}
+
+TEST_CASE("rewrite: an inverted measurement swaps the confusion probabilities") {
+    // Confusion physically precedes the reporting convention, and
+    // invert-after-flip(p01, p10) equals flip(p10, p01)-after-invert.
+    Circuit c = parse("H 0\nM !0\n");
+    NonComputationalModel model =
+        make_model_with_classifier(all_g(), {}, confused_classifier(0.1, 0.2));
+
+    RewriteResult rw = rewritten_result(c, model, 1);
+    const AstNode& noise = rw.circuit.nodes.back();
+    REQUIRE(noise.gate == GateType::READOUT_NOISE);
+    REQUIRE(noise.args[0] == 0.2);
+    REQUIRE(noise.args[1] == 0.1);
+}
+
+TEST_CASE("rewrite: confusion applies to MR but not X-basis measurements") {
+    Circuit c = parse("MR 0\nMX 0\n");
+    NonComputationalModel model =
+        make_model_with_classifier(all_g(), {}, confused_classifier(0.1, 0.2));
+
+    RewriteResult rw = rewritten_result(c, model, 1);
+    REQUIRE(count_gate(rw.circuit, GateType::READOUT_NOISE) == 1);
+    for (const AstNode& node : rw.circuit.nodes) {
+        if (node.gate == GateType::READOUT_NOISE) {
+            REQUIRE(node.targets[0].value() == 0);  // the MR slot, not the MX slot
+        }
+    }
+}
+
+TEST_CASE("rewrite: a substochastic computational column rejects") {
+    std::vector<std::vector<double>> m(2, std::vector<double>(5, 0.0));
+    for (size_t l = 0; l < 5; ++l) {
+        m[0][l] = 1.0;
+    }
+    m[0][0] = 0.6;  // g column sums to 0.8: reject mass on a computational level
+    m[1][0] = 0.2;
+    m[0][1] = 0.0;
+    m[1][1] = 1.0;
+    MeasurementClassifier cl =
+        MeasurementClassifier::from_matrix({"0", "1"}, std::move(m), LevelSet::default_set());
+    NonComputationalModel model = make_model_with_classifier(all_g(), {}, std::move(cl));
+
+    Circuit c = parse("M 0\n");
+    HistorySample s = sample_history(c, model, 1);
+    REQUIRE_THROWS_WITH(rewrite(c, s.history, model), ContainsSubstring("computational level"));
+}
+
+TEST_CASE("rewrite: a computational column with herald mass rejects") {
+    std::vector<std::vector<double>> m(3, std::vector<double>(5, 0.0));
+    for (size_t l = 0; l < 5; ++l) {
+        m[0][l] = 1.0;
+    }
+    m[0][0] = 0.9;  // g column puts 0.1 on the herald symbol
+    m[2][0] = 0.1;
+    m[0][1] = 0.0;
+    m[1][1] = 1.0;
+    MeasurementClassifier cl =
+        MeasurementClassifier::from_matrix({"0", "1", "2"}, std::move(m), LevelSet::default_set());
+    NonComputationalModel model = make_model_with_classifier(all_g(), {}, std::move(cl));
+
+    Circuit c = parse("M 0\n");
+    HistorySample s = sample_history(c, model, 1);
+    REQUIRE_THROWS_WITH(rewrite(c, s.history, model), ContainsSubstring("beyond the bit"));
 }

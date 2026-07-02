@@ -9,6 +9,7 @@
 #include <algorithm>
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/matchers/catch_matchers_floating_point.hpp>
+#include <catch2/matchers/catch_matchers_string.hpp>
 #include <cmath>
 #include <numeric>
 #include <vector>
@@ -389,4 +390,12 @@ TEST_CASE("sample_k - deterministic with same seed") {
     CHECK(r1.measurements == r2.measurements);
     CHECK(r1.detectors == r2.detectors);
     CHECK(r1.observables == r2.observables);
+}
+
+TEST_CASE("k-fault conditioning rejects asymmetric readout noise") {
+    auto prog = compile_circuit("M 0\nREADOUT_NOISE(0.1, 0.2) rec[-1]\n");
+    CHECK_THROWS_WITH(clifft::noise_site_probabilities(prog),
+                      Catch::Matchers::ContainsSubstring("asymmetric"));
+    CHECK_THROWS_WITH(clifft::sample_k(prog, 8, 1, 0),
+                      Catch::Matchers::ContainsSubstring("asymmetric"));
 }

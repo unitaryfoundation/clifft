@@ -364,7 +364,18 @@ std::vector<double> noise_site_probabilities(const CompiledModule& program) {
         probs.push_back(p);
     }
     for (const auto& entry : pool.readout_noise) {
-        probs.push_back(entry.prob);
+        // A bit-conditioned (asymmetric) flip has no single site probability:
+        // whether it can fire depends on the record value at runtime, which
+        // the static Poisson-Binomial conditioning cannot represent.
+        if (!entry.is_symmetric()) {
+            throw std::invalid_argument(
+                "k-fault conditioning does not support asymmetric readout noise; "
+                "measurement record index " +
+                std::to_string(entry.meas_idx) + " has probabilities (" +
+                std::to_string(entry.prob_zero_to_one) + ", " +
+                std::to_string(entry.prob_one_to_zero) + ")");
+        }
+        probs.push_back(entry.prob_zero_to_one);
     }
     return probs;
 }

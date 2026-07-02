@@ -34,10 +34,13 @@ def transition_to(level: int) -> list[list[float]]:
 
 
 def classifier_for(level: int, col: list[float]) -> noncomp.Classifier:
-    """Binary classifier; `level`'s column is `col`, every other column is symbol 0."""
+    """Binary classifier; `level`'s column is `col`, computational levels read
+    out faithfully (no readout confusion), other columns are symbol 0."""
     m = _zeros(2, 5)
     for lvl in range(5):
         m[0][lvl] = 1.0
+    m[0][noncomp.Level.E] = 0.0
+    m[1][noncomp.Level.E] = 1.0
     m[0][level] = col[0]
     m[1][level] = col[1]
     return noncomp.Classifier(["0", "1"], m)
@@ -374,3 +377,27 @@ def test_drop_policy_runs_a_multi_round_circuit_through_loss():
     assert r.num_measurements == 3
     assert np.array_equal(r.measurements, np.tile([0, 0, 1], (16, 1)))
     assert np.all(r.final_status[:, 0] == LOST_KIND)
+
+
+def test_computational_readout_confusion_misreports_the_record():
+    """The classifier's computational columns act as asymmetric readout
+    confusion on Z measurements: the qubit collapses to its true state but
+    the record bit is misreported at the column's off-diagonal rate."""
+    m = _zeros(2, 5)
+    m[0][noncomp.Level.G] = 0.7  # true 0 misread as 1 with probability 0.3
+    m[1][noncomp.Level.G] = 0.3
+    m[0][noncomp.Level.E] = 0.2  # true 1 misread as 0 with probability 0.2
+    m[1][noncomp.Level.E] = 0.8
+    for lvl in (LEAK_G, LEAK_E, LOST):
+        m[0][lvl] = 1.0
+    model = noncomp.Model(
+        initial_state=ALL_G, transitions={}, classifier=noncomp.Classifier(["0", "1"], m)
+    )
+
+    zero = noncomp.sample("M 0", model, shots=4000, seed=11)
+    ones = int(zero.measurements[:, 0].sum())
+    assert 1020 <= ones <= 1380  # expected 1200; ~6 sigma band
+
+    one = noncomp.sample("X 0\nM 0", model, shots=4000, seed=12)
+    zeros = int((1 - one.measurements[:, 0]).sum())
+    assert 650 <= zeros <= 950  # expected 800; ~6 sigma band

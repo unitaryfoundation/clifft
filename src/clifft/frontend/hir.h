@@ -74,10 +74,16 @@ struct NoiseSite {
     std::vector<NoiseChannel> channels;
 };
 
-/// Readout noise entry: classical bit-flip on a measurement result.
+/// Readout noise entry: classical bit-flip on a measurement result. The
+/// flip probability conditions on the recorded bit's value, so asymmetric
+/// readout confusion (0->1 vs 1->0 at different rates) is expressible;
+/// symmetric noise sets both probabilities equal.
 struct ReadoutNoiseEntry {
-    uint32_t meas_idx;  // Absolute measurement index to potentially flip
-    double prob;        // Flip probability
+    uint32_t meas_idx;        // Absolute measurement index to potentially flip
+    double prob_zero_to_one;  // Flip probability when the recorded bit is 0
+    double prob_one_to_zero;  // Flip probability when the recorded bit is 1
+
+    [[nodiscard]] bool is_symmetric() const { return prob_zero_to_one == prob_one_to_zero; }
 };
 
 /// Index into HirModule::readout_noise side-table
