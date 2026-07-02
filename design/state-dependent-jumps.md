@@ -186,9 +186,20 @@ Compile-time specialization and elision:
 ### 4.2 Instrument sites are optimization fences
 
 Instrument sites are **optimization barriers in the original program**: no
-HIR or bytecode pass may move any operation across one. This is enforced
-structurally, not by per-pass discipline — the pass managers split the op
-stream into instrument-delimited segments and run passes per segment.
+HIR or bytecode pass may move any operation across one, and no pass
+decision about operations before an instrument may depend on anything
+after it. The enforcement mechanism is the positional-barrier treatment
+the pipeline already gives `EXP_VAL` ("a positional probe: never reorder
+anything across it"): `INSTRUMENT` joins that clause in the two places
+motion happens — the reordering pass's commutation gate and the
+peephole's commute-past check. The addition must be explicit, because
+both otherwise decide by Pauli-mask commutation and an instrument
+carries a mask; the adjacency-driven bytecode passes need nothing, since
+an unrecognized opcode already ends their fusion runs. Two pinned tests
+guard the contract: a barrier test (no fusion or motion across an
+instrument) and a prefix-identity test — compile the same prefix against
+two different suffixes and assert the bytecode is bit-identical up to
+the instrument's offset — which also guards passes written later.
 
 Fences are required for correctness independent of performance
 considerations:
@@ -202,7 +213,18 @@ considerations:
    recompiled continuation's prefix is bit-identical to the code that already
    executed (§4.3).
 
-The performance cost of fencing is measured before the rest is built (§6).
+The fencing cost was measured before building the machinery (§6 step 2)
+by running the default pass pipelines per fence-delimited segment on
+representative workloads (surface d7r7 at p=1e-3, d5r5 at p=0.05,
+cultivation d5) — segmentation being a mechanism-independent way to
+produce the barrier effects before the op type existed; the lost-fusion
+costs are identical under the positional-barrier treatment. At the
+realistic density (fences clustered at gate positions, modeled as
+noise-run starts) compile time, sampling throughput, and peak rank were
+unchanged within measurement noise. At the atomized upper bound (a fence
+at every noise site) sampling slowed 7-25%, dominated by lost
+noise-block coalescing — the regime instrument hazard-pooling (§4.4) is
+designed to recover. Verdict: go.
 
 ### 4.3 Backend: lowering, and frame composition across the trap boundary
 
@@ -411,16 +433,19 @@ with unrelated roadmap work.
    the transition record wholesale (and with it that replay's validation
    gap), and is a prerequisite for sharing compiled modules across shots.
    Independently landable and testable.
-2. **Fence de-risk spike.** Pass-manager segmentation plus inert fence ops
-   inserted at realistic site densities; measure compile-time and runtime
-   deltas on the standard benchmarks. **Go/no-go for the fencing approach**,
-   before any of the machinery below is built.
+2. **Fence de-risk spike (done — go).** Measured by running the default
+   pipelines per fence-delimited segment at two densities; numbers and
+   verdict in §4.2. The segmented-run mechanism was measurement
+   scaffolding, not part of the shipped design: fences are the §4.2
+   positional-barrier clauses. The spike's barrier tests, exact
+   record-probability equivalence test, and benchmark harness are
+   rebuilt against the real op type in step 4.
 3. **SVM kernels.** Damp/evaluate (fused active-axis pass), expand+damp,
    forced-source collapse variants, renormalization. Standalone,
    oracle-tested against dense results. No user surface.
 4. **HIR `INSTRUMENT` + fences + lowering + offset table.** Inert until the
-   orchestrator uses it; instrument-form emission validated against the
-   spike's segmentation.
+   orchestrator uses it. Fences land as the §4.2 positional-barrier
+   clauses, with the pinned barrier and prefix-identity tests.
 5. **Trap/resume.** Trap return path from `execute()`, `resume(offset)`,
    state persistence across module switches (records buffer sized to the
    max slot count across a chain; noise-gap cursor re-anchored at the entry
