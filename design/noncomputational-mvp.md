@@ -936,6 +936,10 @@ contract:
 
 ## 9. Out of scope but planned-for
 
+Exact state-dependent jumps — the diagonal no-jump filter and the
+replan/resume machinery listed below — are designed in
+[state-dependent-jumps.md](state-dependent-jumps.md).
+
 - `LOSS(p) targets...` Stim instruction as syntactic sugar.
 - Diagonal `aI + bZ` filter for state-dependent no-jump (the natural
   next exact-mode extension).
