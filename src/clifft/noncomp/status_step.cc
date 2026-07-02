@@ -2,6 +2,19 @@
 
 namespace clifft {
 
+std::optional<uint8_t> sole_lost_level(const LevelSet& levels) {
+    std::optional<uint8_t> found;
+    for (uint8_t l = 0; l < levels.size(); ++l) {
+        if (levels.at(l).category == LevelCategory::Lost) {
+            if (found.has_value()) {
+                return std::nullopt;
+            }
+            found = l;
+        }
+    }
+    return found;
+}
+
 namespace {
 
 // Z-diagonal operations preserve computational-basis populations, so a

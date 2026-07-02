@@ -105,7 +105,14 @@ class Model:
 
     Args:
         initial_state: probability per level, ``P(level)``, summing to one.
-        transitions: maps a gate-name string to its ``T[to][from]`` matrix.
+        transitions: maps a name to its ``T[to][from]`` matrix. A key that
+            names a gate (e.g. ``"CZ"``) is a *hook*: it expands to a
+            ``TRANSITION[key]`` annotation after every occurrence of that
+            gate. Any key -- gate-named or not -- can be referenced
+            directly from the circuit with ``TRANSITION[key] q``, and
+            ``LOSS(p) q`` applies a uniform loss inline. A transition
+            fires at its circuit position, with the source taken from the
+            qubit's state there.
         classifier: optional :class:`Classifier` supplying leaked/lost
             measurement outcomes and computational readout confusion.
         reset_restores_lost: if true, a reset on a lost qubit restores it.

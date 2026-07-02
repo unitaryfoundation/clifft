@@ -3,13 +3,16 @@
 // History sampler: walks a parsed circuit once and samples a single
 // noncomputational trajectory under a model.
 //
-// It performs the sampling pass only: sample initial statuses, then per
-// operation sample any attached transition and advance each qubit's
-// status. It does not rewrite, compile, or run the SVM, and it never
-// consults a measurement outcome -- the status it tracks is what is
-// classically known before the simulation runs (a Z-basis measurement on
-// an unknown qubit does not pin a value here). Sampling is deterministic
-// in the seed.
+// It performs the sampling pass only: sample initial statuses, walk the
+// operations advancing each qubit's status, and sample an outcome at each
+// TRANSITION or LOSS annotation -- the only transition consult points.
+// A consult is positional: the source is the qubit's status at the
+// annotation's place in the circuit (gate hooks are expanded to
+// annotations by annotate() before sampling). It does not rewrite,
+// compile, or run the SVM, and it never consults a measurement outcome --
+// the status it tracks is what is classically known before the simulation
+// runs (a Z-basis measurement on an unknown qubit does not pin a value
+// here). Sampling is deterministic in the seed.
 
 #include "clifft/circuit/circuit.h"
 #include "clifft/noncomp/history.h"

@@ -15,8 +15,14 @@
 #include "clifft/noncomp/qubit_status.h"
 
 #include <cstdint>
+#include <optional>
 
 namespace clifft {
+
+// The unique Lost-category level id, if the table has exactly one. The
+// LOSS annotation resolves its destination through this; a table with no
+// or several Lost levels cannot host it.
+std::optional<uint8_t> sole_lost_level(const LevelSet& levels);
 
 // The role a qubit operand plays in an operation. The same GateType can
 // mean physically different things: a CX with two qubit operands is a

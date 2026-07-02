@@ -1840,3 +1840,10 @@ TEST_CASE("Standalone READOUT_NOISE lowers one- and two-argument forms") {
     REQUIRE(hir2.readout_noise[0].prob_one_to_zero == Catch::Approx(0.5));
     REQUIRE_FALSE(hir2.readout_noise[0].is_symmetric());
 }
+
+TEST_CASE("Trace rejects noncomputational annotations with a pointer to the entry point") {
+    REQUIRE_THROWS_WITH(trace(parse("TRANSITION[t] 0\n")),
+                        Catch::Matchers::ContainsSubstring("sample_noncomputational"));
+    REQUIRE_THROWS_WITH(trace(parse("LOSS(0.1) 0\n")),
+                        Catch::Matchers::ContainsSubstring("sample_noncomputational"));
+}

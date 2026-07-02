@@ -86,9 +86,29 @@ def test_initial_state_out_of_range_probability_raises():
         noncomp.Model(initial_state=[2.0, -1.0, 0.0, 0.0, 0.0])
 
 
-def test_unknown_gate_key_raises():
-    with pytest.raises(ValueError, match="transition key"):
-        noncomp.Model(initial_state=ALL_G, transitions={"NOTAGATE": transition_to(LEAK_G)})
+def test_non_gate_key_is_a_named_transition():
+    """A key that names no gate is a named transition: referenceable from a
+    TRANSITION[key] annotation, hooked on nothing."""
+    model = noncomp.Model(initial_state=ALL_G, transitions={"my_leak": transition_to(LEAK_G)})
+    r = noncomp.sample("H 0\nS 0\nM 0", model, shots=8, seed=1)
+    assert r.final_status.shape == (8, 1)  # no hook fired; plain sampling ran
+
+
+def test_local_annotations_run_end_to_end():
+    """Hand-written LOSS and TRANSITION annotations drive the trajectory."""
+    model = noncomp.Model(
+        initial_state=ALL_G,
+        transitions={"leak": transition_to(LEAK_G)},
+        classifier=classifier_for(LEAK_G, [0.0, 1.0]),
+    )
+    r = noncomp.sample("H 0\nTRANSITION[leak] 0\nM 0", model, shots=32, seed=2)
+    assert np.all(r.measurements[:, 0] == 1)  # leaked slot takes the classifier bit
+
+    lossy = noncomp.Model(
+        initial_state=ALL_G, transitions={}, classifier=classifier_for(LOST, [1.0, 0.0])
+    )
+    s = noncomp.sample("H 0\nLOSS(1) 0\nM 0", lossy, shots=32, seed=3)
+    assert np.all(s.measurements[:, 0] == 0)  # lost slot pinned by the classifier
 
 
 def test_transition_wrong_shape_raises():

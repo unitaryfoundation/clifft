@@ -2,10 +2,12 @@
 
 // Orchestrator: the top-level noncomputational sampling entry point.
 //
-// sample_noncomputational(circuit, model, shots, seed) runs the full per-shot
-// pipeline and returns the user-facing records plus a noncomputational
-// sidecar. For each shot it:
-//   1. samples a structural history (initial statuses + transition outcomes);
+// sample_noncomputational(circuit, model, shots, seed) expands the model's
+// gate hooks into explicit TRANSITION annotations once, then runs the full
+// per-shot pipeline and returns the user-facing records plus a
+// noncomputational sidecar. For each shot it:
+//   1. samples a structural history (initial statuses + an outcome per
+//      TRANSITION/LOSS annotation target);
 //   2. rewrites the circuit for that history (X-prep, trace-out R, policy,
 //      and the classifier record write for each measurement on a leaked/lost
 //      qubit: MPAD plus a READOUT_NOISE for a stochastic column, so the bit

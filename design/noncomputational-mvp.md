@@ -490,6 +490,44 @@ that only ever fires on known-or-classical sources runs fine in MVP.
 
 ## 5. Sampling, rewrite, and policy table
 
+### 5.0 Transitions are circuit annotations
+
+Transition consult points are first-class circuit instructions:
+
+- `TRANSITION[name] q...` applies the model transition matrix stored
+  under `name` to each target independently. Any key in the model's
+  `transitions` map is referenceable; a key that names a gate (e.g.
+  `"CZ"`) additionally acts as a *hook*, expanded by the annotation
+  layer into a `TRANSITION[key]` annotation after every occurrence of
+  that gate (one single-target annotation per Physical operand, in
+  operand order). Feedback operands are virtual and get none.
+- `LOSS(p) q...` applies a uniform loss with probability `p` inline; it
+  requires a level table with exactly one Lost-category level.
+
+**A transition fires at its circuit position, and the source column is
+the qubit's status there.** This is the standard noise-follows-the-
+ideal-operation convention; the annotation carries no reference to any
+gate, and placement is meaning: putting an annotation before or after
+an operation selects which state it consults. Consequences relative to
+attaching transitions to gates with entry-status sources:
+
+- A hook on a Z-diagonal gate (`CZ`, `S`, ...) consults the same
+  definite level the gate entered with (the status stepper tracks
+  knownness through diagonal and X-type gates), so the exact
+  known-source path survives where it physically should.
+- A hook on a basis-mixing gate (`H`, ...) consults a genuine
+  superposition: a source-dependent matrix there is an unknown-source
+  consult (reject or equalize per policy). The old entry-status column
+  choice was an artifact of attachment, not physics.
+- A hook on a measure-and-reset consults the post-reset state. A
+  transition acting on the pre-reset level -- readout-induced loss --
+  is written explicitly as `M q`, `TRANSITION[name] q`, `R q`.
+
+Annotations are consumed by the trajectory layer: the sampler draws one
+outcome per annotation target, and the rewriter replays those outcomes
+and emits only the carrier edits. `clifft.compile()` rejects circuits
+containing them.
+
 ### 5.1 Pipeline
 
 For each shot:
@@ -507,14 +545,15 @@ For each shot:
    `Leaked`/`Lost` initial qubits need no quantum prep (their
    computational amplitude is irrelevant); the lost/leaked policy
    gates downstream ops on them from op 0.
-3. **Walk the circuit ops in order, sampling transitions and updating
-   statuses.** For each op, consult the model's transitions and the
-   per-qubit statuses. Apply the §4.2 sample-time check on the source
-   context (per qubit operand, since transitions are per-qubit
-   marginals). Sample any per-qubit branches. Record the resulting
+3. **Expand gate hooks and walk the annotated circuit.** The
+   annotation layer inserts a `TRANSITION[key]` after each hooked
+   operation (once per sampling call); the sampler then walks the
+   operations, advancing statuses, and samples an outcome at each
+   TRANSITION/LOSS annotation target with the source taken from the
+   qubit's status at the annotation (§5.0). Apply the §4.2 sample-time
+   check on that source context. Record the resulting
    `NonComputationalHistory` (sequence of (op-index, qubit, sampled
-   branch, status-update, optional herald)). Update the status `kind`
-   per §5.2.1 below.
+   branch)). Update the status `kind` per §5.2.1 below.
 4. **Rewrite the original circuit using the history.** Produce a new
    ordinary clifft circuit (no new instructions). Drop, keep, or
    replace ops per the policy table. Insert an `R` op at structural
@@ -681,11 +720,10 @@ leaked site does not happen:
   faithful.
 
 A dropped operation has no physical effect, so a surviving operand's
-status keeps its entry value (it is not demoted), and attached
-transitions still fire on every operand from its entry-status column —
-the noise process is not gated by whether the intended gate could act.
-The sampler and the rewriter advance statuses through this same
-rule.
+status keeps its entry value (it is not demoted). Transition
+annotations are separate instructions and are never policy-gated: the
+noise process fires whether or not the intended gate could act. The
+sampler and the rewriter advance statuses through this same rule.
 
 ### 5.3 Hidden carrier edits at transition jumps
 

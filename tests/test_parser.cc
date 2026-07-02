@@ -1923,3 +1923,39 @@ TEST_CASE("READOUT_NOISE rejects inverted rec targets") {
     // rather than silently ignored.
     CHECK_THROWS_AS(parse("M 0\nREADOUT_NOISE(1, 0) !rec[-1]\n"), ParseError);
 }
+
+TEST_CASE("TRANSITION parses a tag and plain qubit targets") {
+    auto c = parse("TRANSITION[cz_leak] 0 1\n");
+    REQUIRE(c.nodes.size() == 2);  // single-arity: one node per target
+    for (size_t i = 0; i < 2; ++i) {
+        REQUIRE(c.nodes[i].gate == GateType::TRANSITION);
+        REQUIRE(c.nodes[i].tag == "cz_leak");
+        REQUIRE(c.nodes[i].targets[0].value() == i);
+    }
+    REQUIRE(c.num_qubits == 2);
+    REQUIRE(c.num_measurements == 0);
+}
+
+TEST_CASE("TRANSITION rejects malformed tags, args, and targets") {
+    CHECK_THROWS_AS(parse("TRANSITION 0\n"), ParseError);                // missing tag
+    CHECK_THROWS_AS(parse("TRANSITION[] 0\n"), ParseError);              // empty tag
+    CHECK_THROWS_AS(parse("TRANSITION[open 0\n"), ParseError);           // unclosed bracket
+    CHECK_THROWS_AS(parse("TRANSITION[t](0.1) 0\n"), ParseError);        // args not allowed
+    CHECK_THROWS_AS(parse("M 0\nTRANSITION[t] rec[-1]\n"), ParseError);  // rec target
+    CHECK_THROWS_AS(parse("TRANSITION[t] !0\n"), ParseError);            // inverted target
+}
+
+TEST_CASE("Tags are rejected on instructions other than TRANSITION") {
+    CHECK_THROWS_AS(parse("H[t] 0\n"), ParseError);
+    CHECK_THROWS_AS(parse("X_ERROR[t](0.1) 0\n"), ParseError);
+}
+
+TEST_CASE("LOSS parses its probability and rejects bad forms") {
+    auto c = parse("LOSS(0.25) 0 1\n");
+    REQUIRE(c.nodes.size() == 2);
+    REQUIRE(c.nodes[0].gate == GateType::LOSS);
+    REQUIRE(c.nodes[0].args == std::vector<double>{0.25});
+    CHECK_THROWS_AS(parse("LOSS 0\n"), ParseError);       // missing probability
+    CHECK_THROWS_AS(parse("LOSS(1.5) 0\n"), ParseError);  // out of range
+    CHECK_THROWS_AS(parse("LOSS(0.1, 0.2) 0\n"), ParseError);
+}

@@ -139,14 +139,6 @@ void append_computational_confusion(Circuit& out, const NonComputationalModel& m
     out.nodes.push_back(AstNode{GateType::READOUT_NOISE, {Target::rec(slot)}, {p01, p10}, 0});
 }
 
-// A hidden carrier edit appended after an op for one operand's jump: an R
-// collapses and rezeros the carrier, and an X then prepares |1> when the
-// jump lands on the |1> computational level.
-struct CarrierEdit {
-    uint32_t qubit;
-    bool prepare_one;
-};
-
 }  // namespace
 
 RewriteResult rewrite(const Circuit& original, const NonComputationalHistory& history,
@@ -187,10 +179,65 @@ RewriteResult rewrite(const Circuit& original, const NonComputationalHistory& hi
     size_t trans_cursor = 0;
     uint32_t slot = 0;  // visible measurement record index
 
+    // Consume one recorded transition outcome for (op_index, qubit),
+    // validating that the record stream describes this circuit.
+    auto replay_transition = [&](uint32_t op_index, uint32_t qubit) -> TransitionOutcome {
+        if (trans_cursor >= history.transitions.size()) {
+            throw std::invalid_argument(
+                "rewrite: circuit consults more transitions than the history records; "
+                "history does not describe this circuit");
+        }
+        const TransitionRecord& record = history.transitions[trans_cursor++];
+        if (record.op_index != op_index || record.qubit != qubit) {
+            throw std::invalid_argument(
+                "rewrite: transition record (op " + std::to_string(record.op_index) + ", qubit " +
+                std::to_string(record.qubit) + ") does not match consult (op " +
+                std::to_string(op_index) + ", qubit " + std::to_string(qubit) +
+                "); history does not describe this circuit");
+        }
+        TransitionOutcome outcome;
+        outcome.jumped = record.jumped;
+        outcome.destination_level = record.destination_level;
+        return outcome;
+    };
+
     for (uint32_t op_index = 0; op_index < original.nodes.size(); ++op_index) {
         const AstNode& node = original.nodes[op_index];
         const GateType gate = node.gate;
-        const TransitionInstrument* instrument = model.transition_for(gate);
+
+        // TRANSITION and LOSS annotations are the transition consult
+        // points. They are consumed here -- the rewritten circuit carries
+        // only their carrier edits -- with the same jump semantics an
+        // operation-attached transition had: a jump into the computational
+        // subspace materializes the carrier at the destination, and a jump
+        // out of it needs the hidden trace-out exactly when the carrier at
+        // the annotation's position is coherent.
+        if (gate == GateType::TRANSITION || gate == GateType::LOSS) {
+            for (const Target& target : node.targets) {
+                const uint32_t qubit = target.value();
+                if (qubit >= status.size()) {
+                    throw std::invalid_argument("rewrite: operand qubit " + std::to_string(qubit) +
+                                                " is out of range at op " +
+                                                std::to_string(op_index));
+                }
+                const QubitStatus pre = status[qubit];
+                const TransitionOutcome outcome = replay_transition(op_index, qubit);
+                if (!outcome.jumped) {
+                    continue;
+                }
+                const Level& dest = levels.at(outcome.destination_level);
+                if (dest.category == LevelCategory::Computational) {
+                    out.nodes.push_back(single_qubit_op(GateType::R, qubit));
+                    if (outcome.destination_level == levels.computational_one_id()) {
+                        out.nodes.push_back(single_qubit_op(GateType::X, qubit));
+                    }
+                } else if (pre.kind() == QubitStatusKind::ComputationalUnknown) {
+                    out.nodes.push_back(single_qubit_op(GateType::R, qubit));
+                }
+                status[qubit] = levels.status_for(outcome.destination_level);
+            }
+            continue;
+        }
 
         // Policy pre-scan over entry statuses: any rejecting operand rejects
         // the whole operation; otherwise any dropping operand drops it whole
@@ -218,8 +265,6 @@ RewriteResult rewrite(const Circuit& original, const NonComputationalHistory& hi
             }
         }
 
-        std::vector<CarrierEdit> carrier_edits;  // hidden edits appended after this op
-
         // Set when this (single-qubit Z-basis) measurement reads a leaked or
         // lost qubit: the classifier, not the SVM, defines its record bit.
         std::optional<uint8_t> classified_level;
@@ -233,54 +278,8 @@ RewriteResult rewrite(const Circuit& original, const NonComputationalHistory& hi
                 classified_level = pre.level_id();
             }
 
-            // Replay the recorded transition for this operand, if the sampler
-            // consulted one (a Physical operand of a gate declaring a
-            // transition). Records are consumed in sampler order.
-            TransitionOutcome outcome;
-            if (operand.role == OperandRole::Physical && instrument != nullptr) {
-                if (trans_cursor >= history.transitions.size()) {
-                    throw std::invalid_argument(
-                        "rewrite: circuit consults more transitions than the history records; "
-                        "history does not describe this circuit");
-                }
-                const TransitionRecord& record = history.transitions[trans_cursor++];
-                if (record.op_index != op_index || record.qubit != qubit) {
-                    throw std::invalid_argument(
-                        "rewrite: transition record (op " + std::to_string(record.op_index) +
-                        ", qubit " + std::to_string(record.qubit) +
-                        ") does not match consult (op " + std::to_string(op_index) + ", qubit " +
-                        std::to_string(qubit) + "); history does not describe this circuit");
-                }
-                outcome.jumped = record.jumped;
-                outcome.destination_level = record.destination_level;
-            }
-
-            // Carrier-edit decision for a jump. A jump into the computational
-            // subspace materializes the carrier at the destination level: the
-            // R collapses whatever the base op left -- a coherent
-            // superposition, a definite level, or a stale residual on a
-            // recaptured leaked/lost qubit -- and the X then prepares |1> for
-            // a One-level destination. A jump out of the computational
-            // subspace needs a hidden Z-basis unraveling (trace-out) only
-            // when the carrier the base op would leave with no jump is
-            // coherent; a dropped operation leaves the entry carrier.
-            if (outcome.jumped) {
-                const Level& dest = levels.at(outcome.destination_level);
-                if (dest.category == LevelCategory::Computational) {
-                    carrier_edits.push_back(
-                        {qubit, outcome.destination_level == levels.computational_one_id()});
-                } else {
-                    const QubitStatus post_if_no_jump =
-                        drop_op ? pre
-                                : normal_post_op_status(pre, gate, operand.role, policy, levels);
-                    if (post_if_no_jump.kind() == QubitStatusKind::ComputationalUnknown) {
-                        carrier_edits.push_back({qubit, false});
-                    }
-                }
-            }
-
-            status[qubit] = drop_op ? step_status_dropped(pre, outcome, levels)
-                                    : step_status(pre, gate, operand.role, outcome, policy, levels);
+            status[qubit] =
+                drop_op ? pre : normal_post_op_status(pre, gate, operand.role, policy, levels);
         }
 
         if (!drop_op) {
@@ -334,12 +333,6 @@ RewriteResult rewrite(const Circuit& original, const NonComputationalHistory& hi
                                                    node.targets.front().is_inverted(), slot,
                                                    op_index, qubit_operands(node).front().qubit);
                 }
-            }
-        }
-        for (const CarrierEdit& edit : carrier_edits) {
-            out.nodes.push_back(single_qubit_op(GateType::R, edit.qubit));
-            if (edit.prepare_one) {
-                out.nodes.push_back(single_qubit_op(GateType::X, edit.qubit));
             }
         }
         if (is_measurement(gate)) {

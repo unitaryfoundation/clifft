@@ -85,15 +85,25 @@ class NonComputationalModel {
     double initial_probability(uint8_t level_id) const;
     const std::vector<double>& initial_state() const { return initial_state_; }
 
-    const std::map<GateType, TransitionInstrument>& transitions() const { return transitions_; }
+    // Every declared transition by its original key. A key that names a
+    // hookable gate additionally registers a gate hook (see
+    // transition_hooks); any key can be referenced from a circuit by a
+    // TRANSITION[key] annotation.
+    const std::map<std::string, TransitionInstrument, std::less<>>& transitions() const {
+        return transitions_;
+    }
 
-    // Transition instrument declared for a gate, or nullptr if the model
-    // declares none. The GateType overload is what the sampler uses; the
-    // string overload canonicalizes the name first (returning nullptr
-    // for an unrecognized name) and is a convenience for callers holding
-    // a gate-name string.
+    // Gate hooks: the gate-named subset of the transition keys, mapping
+    // each hooked gate to its key. The annotation layer expands these
+    // into explicit TRANSITION annotations after each hooked operation.
+    const std::map<GateType, std::string>& transition_hooks() const { return hooks_; }
+
+    // Transition instrument hooked on a gate, or nullptr if none.
     const TransitionInstrument* transition_for(GateType gate) const;
-    const TransitionInstrument* transition_for(std::string_view gate) const;
+
+    // Transition instrument by exact key, or nullptr if none. This is the
+    // lookup a TRANSITION[name] annotation resolves through.
+    const TransitionInstrument* transition_named(std::string_view name) const;
 
     // The classifier, or nullptr if the model has none.
     const MeasurementClassifier* classifier() const {
@@ -105,7 +115,8 @@ class NonComputationalModel {
   private:
     LevelSet levels_;
     std::vector<double> initial_state_;
-    std::map<GateType, TransitionInstrument> transitions_;
+    std::map<std::string, TransitionInstrument, std::less<>> transitions_;
+    std::map<GateType, std::string> hooks_;
     std::optional<MeasurementClassifier> classifier_;
     NonComputationalPolicy policy_;
 };

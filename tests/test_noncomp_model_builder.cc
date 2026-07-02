@@ -80,11 +80,12 @@ TEST_CASE("from_spec: a Stim gate alias resolves to the canonical transition key
     REQUIRE(model.transition_for(GateType::CX) != nullptr);
 }
 
-TEST_CASE("from_spec: an unknown gate key raises") {
-    REQUIRE_THROWS_WITH(
+TEST_CASE("from_spec: a non-gate key builds a named transition without a hook") {
+    NonComputationalModel model =
         NonComputationalModel::from_spec(LevelSet::default_set(), all_g(), lost_on("NOTAGATE"),
-                                         std::nullopt, NonComputationalPolicy{}),
-        ContainsSubstring("transition key"));
+                                         std::nullopt, NonComputationalPolicy{});
+    REQUIRE(model.transition_named("NOTAGATE") != nullptr);
+    REQUIRE(model.transition_hooks().empty());
 }
 
 TEST_CASE("from_spec: a classifier matrix with the wrong level count raises") {
