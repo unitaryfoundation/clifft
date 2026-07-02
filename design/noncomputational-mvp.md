@@ -571,7 +571,12 @@ Notes:
   outcome carries no preferred computational value, and a pinned bit
   would silently bias detectors), so the record layout and every
   `rec[-k]` reference are unchanged. Alphabets beyond three symbols
-  have no defined mapping onto (bit, herald) and reject at injection.
+  have no defined mapping onto (bit, herald) and reject at rewrite.
+  Mechanically, the rewrite replaces the measurement with an `MPAD`
+  padding its visible slot; a stochastic column adds a
+  `READOUT_NOISE` on that slot so the bit is drawn at sample time
+  inside the VM, while a deterministic column pads the literal bit
+  with no draw.
 - "Apply, demote to Unknown" is the conservative default: we drop
   knownness on any quantum gate touching a `ComputationalKnown`
   qubit. This loses some optimization opportunity (X on a known qubit
@@ -669,8 +674,8 @@ A dropped operation has no physical effect, so a surviving operand's
 status keeps its entry value (it is not demoted), and attached
 transitions still fire on every operand from its entry-status column —
 the noise process is not gated by whether the intended gate could act.
-The sampler, the rewriter, and classifier injection all advance
-statuses through this same rule.
+The sampler and the rewriter advance statuses through this same
+rule.
 
 ### 5.3 Hidden carrier edits at transition jumps
 

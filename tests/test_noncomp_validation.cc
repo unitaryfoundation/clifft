@@ -199,11 +199,13 @@ TEST_CASE("validation: losing a Bell-pair qubit inserts the hidden trace-out R a
     Circuit c = parse("H 0\nCX 0 1\nS 0\nM 0\nM 1\n");
     std::map<std::string, TransitionInstrument> transitions;
     transitions.emplace("S", always_lost(LevelSet::default_set()));
-    NonComputationalModel model = make_model(std::move(transitions));  // rewrite ignores classifier
+    // The lost qubit's later M needs a classifier column for its record bit.
+    NonComputationalModel model =
+        make_model(std::move(transitions), lost_classifier(LevelSet::default_set(), {1.0, 0.0}));
 
     HistorySample hs =
         sample_history(c, model, 1);  // always_lost: qubit 0 is deterministically lost
-    Circuit rw = rewrite(c, hs.history, model);
+    Circuit rw = rewrite(c, hs.history, model).circuit;
 
     // The original circuit has no reset; the loss rewrite adds exactly one
     // trace-out R (and no X-prep, since both halves start in |0>).

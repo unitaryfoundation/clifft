@@ -6,17 +6,20 @@
 // pipeline and returns the user-facing records plus a noncomputational
 // sidecar. For each shot it:
 //   1. samples a structural history (initial statuses + transition outcomes);
-//   2. rewrites the circuit for that history (X-prep, trace-out R, policy);
-//   3. injects the model classifier's outcome for each measurement on a
-//      leaked/lost qubit -- swapping M for MPAD(bit), and a measure-and-reset
-//      for MPAD(bit) plus the matching reset -- so the forced bit reaches the
-//      SVM's detector/observable evaluation, not just postprocessing;
+//   2. rewrites the circuit for that history (X-prep, trace-out R, policy,
+//      and the classifier record write for each measurement on a leaked/lost
+//      qubit: MPAD plus a READOUT_NOISE for a stochastic column, so the bit
+//      is drawn at sample time inside the VM and reaches its
+//      detector/observable evaluation, not just postprocessing);
+//   3. for a three-symbol classifier, draws each classified slot's herald
+//      flag and re-points heralded slots' record flip at one half;
 //   4. compiles the result through the ordinary pipeline and samples one shot.
 //
 // Randomness is deterministic in `seed`: each shot draws domain-separated
-// sub-seeds for the history sampler, the classifier, and the SVM, so the
-// three streams never coincide. With no seed, a global seed is drawn from OS
-// entropy and the run is non-reproducible.
+// sub-seeds for the history sampler, the herald pass, and the SVM, so the
+// three streams never coincide. Stochastic classifier bits are drawn by the
+// SVM's own stream at the injected READOUT_NOISE sites. With no seed, a
+// global seed is drawn from OS entropy and the run is non-reproducible.
 
 #include "clifft/circuit/circuit.h"
 #include "clifft/noncomp/model.h"
