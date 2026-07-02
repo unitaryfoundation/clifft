@@ -32,11 +32,13 @@ documented residual approximations:
 3. **Equalization dephasing** — the diagonal padding that equalizes per-source
    rates adds dephasing the physical channel does not have.
 
-This design adds a third policy value, `unknown_source_policy="exact"`, that
+This design adds a new policy value, `unknown_source_policy="exact"`, that
 removes all three at once by evaluating jumps against the live simulator
-state. Once validated, `exact` becomes the default. `reject` and
-`equalize_rates` remain available (strictness and compatibility/performance
-modes respectively).
+state. Once validated, `exact` becomes the default. `reject` remains as the
+strict guard (refuse any state-dependent transition on an unknown source);
+`equalize_rates` is **retired** at the end of this work — with no public
+release there is no compatibility obligation, and its accuracy envelope is
+strictly dominated by the fallback this design ships (§4.6, FAQ).
 
 A large side benefit falls out of the architecture: in `exact` mode the
 common no-jump execution path is compiled **once per model** instead of once
@@ -87,7 +89,12 @@ that selects measurement opcodes today):
 | ------------------------------- | ------------------------------------ | ------------------------------- | ---- |
 | dormant, outcome deterministic  | scalar — normalizes away             | frame-bit-conditioned Bernoulli | ~free; poolable in the noise hazard table |
 | active axis                     | `diag(1, r)` in place + renormalize  | fused into the same `O(2^k)` pass | one array pass, like a T-gate site |
-| dormant, outcome random         | genuinely non-Clifford               | requires expansion first        | **+1 to k** (see §4.6 policy) |
+| dormant, outcome random         | genuinely non-Clifford — needs expansion, or the `neglect` fallback (§4.6) | exactly `(p_g+p_e)/2` — state-independent, poolable | **+1 to k** exact, ~free under `neglect` |
+
+(The dormant-random fire probability is exactly `(p_g+p_e)/2` because such a
+qubit's source populations are exactly half–half — the same stabilizer
+property that makes its measurement a fair coin. Only the damp filter is
+ever non-Clifford there.)
 
 This generalizes clifft's core contract honestly: runtime cost is exponential
 in *(T-count + number of damped coherent sites)*. Small circuits (Bell pairs,
@@ -267,8 +274,11 @@ Per instrument instruction:
 Dormant-random sites are handled per the damping policy (§4.6): under
 `exact`, the compiler emits an expansion before the instrument (the fused
 expand-plus-diagonal pattern already exists for rotations), raising `k` by
-one at compile time; under `collapse`, it emits a frame-based collapse (k
-stable) followed by the deterministic-qubit form.
+one at compile time; under `neglect`, the site keeps only its exact
+ingredients — the state-independent Bernoulli fire draw at `(p_g+p_e)/2`
+(pooled into the noise hazard table) and, on fire, a forced frame collapse
+onto the source with weights `p_g : p_e` (`k` stable) — and applies no
+no-fire back-action.
 
 New opcodes land in the shared kernel include and are compiled per-ISA like
 every other opcode; the instruction's 24-byte payload carries the axis, the
@@ -328,26 +338,31 @@ Notes:
 ```python
 model = noncomp.Model(
     ...,
-    unknown_source_policy="exact",   # new value; joins "reject" (default today,
-                                     # "exact" becomes default after validation)
-                                     # and "equalize_rates"
-    damping="exact",                 # exact-mode only: "exact" (default) |
-                                     # "collapse"
+    unknown_source_policy="exact",   # new value; joins "reject" (default today;
+                                     # "exact" becomes the default after validation)
+    damping="exact",                 # exact-mode only: "exact" (default) | "neglect"
 )
 ```
 
-- `unknown_source_policy="exact"` — the mode this note adds.
+- `unknown_source_policy="exact"` — the mode this note adds. `"reject"`
+  remains as the strict guard. The `"equalize_rates"` approximation is
+  retired at the end of this work (§6 step 8): it is strictly dominated by
+  `damping="neglect"` below (see FAQ), and pre-release there is no
+  compatibility obligation.
 - `damping` controls the no-jump filter at sites where the qubit is coherent
-  but dormant (§2.2 row 3):
+  but dormant (§2.2 row 3) — the only place exactness ever costs `k` growth:
   - `"exact"` (default): expand and apply the filter exactly. `k` grows by
     one per such site; if the compile exceeds the rank cap, it fails with an
     error **naming the site and qubit**, so the cost is visible and
     attributable rather than silently approximated.
-  - `"collapse"`: collapse the qubit (frame-based measurement, `k` stable)
-    and fire on the outcome. Populations and fire statistics stay exact;
-    `g`/`e` coherence at that site is destroyed. This is the approximation
-    fast-path stabilizer simulators commonly make at *every* jump site;
-    here it is opt-in, per-model, and machine-visible.
+  - `"neglect"`: omit the no-fire back-action; everything else stays exact —
+    the fire probability (exactly `(p_g+p_e)/2` at such sites,
+    state-independent, so it pools into the hazard table at no marginal
+    cost) and the on-fire Born collapse onto the source. The omission is a
+    pure amplitude tilt of the surviving state toward the lower-rate level:
+    an `O(|p_g−p_e|)` effect per no-fire site, exactly zero for
+    source-independent rates, with no dephasing added. Uniform per model,
+    machine-visible. The FAQ explains why this fallback and not others.
 - Restrictions in v1 (explicit errors, all lift-able later): instrumented
   programs do not support `get_statevector` (the final tableau is
   per-continuation), `EXP_VAL` (already rejected by the noncomputational
@@ -370,9 +385,10 @@ Validation plan (extends the existing oracle/probe suite):
    divergence test is *expected* to change, consciously. The Bell-pair joint
    probe flips from TVD 0.5 to 0.
 3. New discriminating probe: prepare `|+⟩`, pass one no-fire
-   leak-from-`e` site, measure X. Exact coherence is `sqrt(1-p)`; the
-   current AOT mode gives 1; per-site collapse gives 0. Only the exact mode
-   lands on the dense reference.
+   leak-from-`e` site, measure X. Exact coherence is `sqrt(1-p)`;
+   `damping="neglect"` gives 1 — this probe is the direct measurement of
+   the fallback's omission and pins the boundary between the two damping
+   modes. Only the exact mode lands on the dense reference.
 4. Repetition-code circuits at published parameter magnitudes: total
    variation distance to the dense reference should reach shot noise.
 5. Performance gates: fence overhead on the standard compile benchmarks
@@ -415,6 +431,11 @@ with unrelated roadmap work.
 7. **Validation campaign, docs, default flip.** Oracle extension, probe
    flips, rep-code TVD runs, performance table; then flip the default
    `unknown_source_policy` to `"exact"`.
+8. **Retire `equalize_rates`.** With `exact` validated and the default
+   flipped, remove the equalized mode: its sampler/rewriter code paths,
+   tests, notebook coverage, and the base design note's policy text for it.
+   Pre-release, no deprecation cycle is required; `reject` | `exact` (plus
+   the `damping` knob) is the final policy surface.
 
 Mechanics: new core `.cc` files must be added to both `src/clifft/` and
 `src/wasm/` source lists; new opcodes/op types must be reflected in the
@@ -437,10 +458,12 @@ is no Clifford-friendly unraveling to switch to. Hence: damp everywhere, and
 in return the fire test may run everywhere at the full physical rate with no
 AOT thinning at all.
 
-**Why not importance weights instead of damping?** Weighted trajectories can
-correct branch *probabilities*, not a wrong post-branch *state*; skipping the
-damp leaves the state wrong at `O(p)` per site. It would also change the
-product semantics — `sample()` returns unweighted records.
+**Why not importance weights to get exactness without the damp?** Weighted
+trajectories can correct branch *probabilities*, not a wrong post-branch
+*state*: with the damp omitted, the surviving state itself is wrong (that
+omission, made explicit, is the `neglect` fallback), and no reweighting fixes
+a state. Weights would also change the product semantics — `sample()`
+returns unweighted records.
 
 **Why do source-independent sites move to runtime too? The AOT path was
 already exact for them.** Statistically nothing changes (a memoryless
@@ -481,9 +504,45 @@ instructions buy nothing here (§3.1).
 **What if `k` hits the rank cap under `damping="exact"`?** Compilation fails
 with an error naming the site and qubit. That is the honest answer: the
 requested physics is exponentially expensive at that density of coherent
-lossy sites. Options, in order: annotate fewer sites, set
-`damping="collapse"`, or use `equalize_rates` for large-scale runs and
-reserve `exact` for the smaller circuits that validate them.
+lossy sites. Options, in order: annotate fewer sites, or set
+`damping="neglect"` for the large-scale runs and reserve full exactness for
+the smaller circuits that validate them.
+
+**Which fallbacks were considered for the no-fire back-action, and why
+`neglect`?** First, the scope of the question: the only thing that ever
+needs approximating is the no-fire damp at coherent-but-dormant sites. The
+fire probability there is exactly `(p_g+p_e)/2` (§2.2), and the on-fire
+collapse is a real physical projection — both stay exact in every mode. And
+the exact no-fire back-action, *conditioned on surviving*, is a pure filter:
+it tilts the surviving amplitudes toward the lower-rate level by
+`O(|p_g−p_e|)` and adds no dephasing. The candidates for replacing it:
+
+- **Neglect it** (chosen). The error is exactly and only the missed
+  survivorship tilt: `O(|p_g−p_e|)` per no-fire site, zero for
+  source-independent rates, no dephasing introduced. The tilt is non-unital,
+  so no Pauli/dephasing channel can reproduce it — the only exact
+  representation is the filter itself (expansion), which is what
+  `damping="exact"` does.
+- **Collapse at the site** (measure `Z_q`, then fire on the outcome).
+  Locally exact populations, but it fully dephases the qubit at *every*
+  site, fired or not — an `O(1)` error wherever downstream interference
+  matters. Concretely, in `H; site; H; M(Z)` with leak-from-`e` at rate `p`:
+  exact gives `P(M=1, no leak) ≈ p²/16`; `neglect` gives 0 (error `O(p²)`);
+  collapse gives **1/2** (error `O(1)`). In a stabilizer-code circuit it
+  Z-projects data qubits mid-round, randomizing the opposite-basis checks.
+  Note the superficially similar prior art in fast-path simulators collapses
+  *on fire* — which is exact, and which this design already does — not on
+  the no-fire path. Rejected.
+- **Rate equalization** (the retired AOT approximation). Its no-fire branch
+  is also the identity, so it misses the same tilt — and then adds source
+  misattribution, padding dephasing, and gate-determined misfires on top,
+  with no cost advantage over `neglect`. Strictly dominated; hence §6
+  step 8.
+- **Importance weights** — see the previous answer.
+- **A hybrid budget policy** (exact until a `k` budget, then neglect).
+  Declined for now: it makes the approximation depend on where in the shot
+  the budget ran out, which is miserable to reason about. Revisit only if
+  real profiles demand it.
 
 **Two-qubit gates with transitions on both operands?** Two instruments, one
 per operand, in operand order — matching the existing per-operand AOT
@@ -513,8 +572,11 @@ strategy can later be swapped for suffix-only compilation from a frame
 snapshot (the gate log already supports replaying `V_cum` to any site)
 without changing any semantics.
 
-**Why is `equalize_rates` kept at all?** As the explicit, documented
-approximation for workloads that cannot afford exactness — and as the
-compatibility reference for fast-path comparisons. The refuse-by-default
-principle stands: nothing silently degrades; every approximation is a named
-knob.
+**Why retire `equalize_rates` rather than keep it as the cheap mode?**
+Because `damping="neglect"` is the better cheap mode on every axis (previous
+answer) at the same or lower cost, and there is no released user base
+creating a compatibility obligation. Keeping two approximations that differ
+only in which extra errors they add works against the model's legibility.
+The refuse-by-default principle is unchanged: `reject` guards models that
+should never need approximation, and the one approximation that remains is a
+named, machine-visible knob.
