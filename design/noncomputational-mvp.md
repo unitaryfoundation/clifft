@@ -577,6 +577,15 @@ Notes:
   `READOUT_NOISE` on that slot so the bit is drawn at sample time
   inside the VM, while a deterministic column pads the literal bit
   with no draw.
+- **Computational-qubit Z measurements (`M`, `MR`) receive the
+  classifier's computational columns as readout confusion**: the true
+  outcome is misreported at the column's off-diagonal rate via an
+  asymmetric in-record flip (`READOUT_NOISE(p01, p10)` on the slot).
+  The qubit still collapses to its true state -- real readout error is
+  a misreport. X/Y-basis measurements are not level readouts and carry
+  no confusion. Identity computational columns add nothing, and a
+  computational column must place all its probability on the two
+  record symbols.
 - "Apply, demote to Unknown" is the conservative default: we drop
   knownness on any quantum gate touching a `ComputationalKnown`
   qubit. This loses some optimization opportunity (X on a known qubit

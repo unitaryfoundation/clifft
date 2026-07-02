@@ -84,6 +84,13 @@ class Classifier:
     measurement -- typically the loss outcome -- reported per record slot in
     :attr:`NonComputationalSample.heralds` while the visible record keeps a
     uniformly drawn bit, so the record layout is unchanged.
+
+    The computational columns define readout confusion for Z-basis
+    measurements of computational qubits: the true outcome is misreported
+    with the column's off-diagonal probability, an asymmetric in-record
+    flip (the qubit still collapses to its true state). Identity
+    computational columns add nothing, and a computational column may not
+    place probability beyond the two record symbols.
     """
 
     __slots__ = ("symbols", "matrix")
@@ -99,7 +106,8 @@ class Model:
     Args:
         initial_state: probability per level, ``P(level)``, summing to one.
         transitions: maps a gate-name string to its ``T[to][from]`` matrix.
-        classifier: optional :class:`Classifier` for leaked/lost measurements.
+        classifier: optional :class:`Classifier` supplying leaked/lost
+            measurement outcomes and computational readout confusion.
         reset_restores_lost: if true, a reset on a lost qubit restores it.
         unknown_source_policy: how a source-dependent transition on a qubit
             whose computational state is unknown is handled. ``"reject"``

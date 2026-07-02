@@ -733,7 +733,7 @@ HirModule trace(const Circuit& circuit) {
 
                     if (!hidden && target.is_inverted()) {
                         ReadoutNoiseIdx idx{static_cast<uint32_t>(hir.readout_noise.size())};
-                        hir.readout_noise.push_back({this_meas, 1.0});
+                        hir.readout_noise.push_back({this_meas, 1.0, 1.0});
                         hir.append_readout_noise(idx);
                     }
                 }
@@ -902,10 +902,18 @@ HirModule trace(const Circuit& circuit) {
 
             case GateType::READOUT_NOISE: {
                 for (const auto& target : node.targets) {
+                    if (target.is_inverted()) {
+                        throw std::runtime_error(
+                            "READOUT_NOISE does not support inverted record targets; swap the "
+                            "two flip probabilities instead");
+                    }
                     uint32_t abs_meas_idx = target.value();
-                    double prob = node.args.empty() ? 0.0 : node.args[0];
+                    // One argument is a symmetric flip; a second argument
+                    // splits it into (0->1, 1->0) conditioned on the bit.
+                    double p01 = node.args.empty() ? 0.0 : node.args[0];
+                    double p10 = node.args.size() > 1 ? node.args[1] : p01;
                     ReadoutNoiseIdx idx{static_cast<uint32_t>(hir.readout_noise.size())};
-                    hir.readout_noise.push_back({abs_meas_idx, prob});
+                    hir.readout_noise.push_back({abs_meas_idx, p01, p10});
                     hir.append_readout_noise(idx);
                 }
                 break;

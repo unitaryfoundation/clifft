@@ -301,6 +301,12 @@ class Parser {
         if (gate == GateType::EXP_VAL && !args.empty()) {
             throw ParseError("EXP_VAL takes no arguments", line_num);
         }
+        if (gate == GateType::READOUT_NOISE && args.size() != 1 && args.size() != 2) {
+            throw ParseError(
+                "READOUT_NOISE requires 1 argument (symmetric flip probability) or 2 "
+                "arguments (0->1, 1->0 flip probabilities)",
+                line_num);
+        }
 
         // Parse based on gate type.
         switch (gate) {
@@ -616,12 +622,24 @@ class Parser {
                     line_num);
             }
 
-            // Validate rec targets are only used for CX/CZ feedback forms.
+            // Validate rec targets are only used for CX/CZ feedback forms
+            // and READOUT_NOISE record flips.
             bool is_rec_token = token.starts_with("rec[") || (token.size() > 1 && token[0] == '!' &&
                                                               token.substr(1).starts_with("rec["));
-            if (is_rec_token && gate != GateType::CX && gate != GateType::CZ) {
+            if (is_rec_token && gate != GateType::CX && gate != GateType::CZ &&
+                gate != GateType::READOUT_NOISE) {
                 throw ParseError(
-                    "rec targets are only supported as feedback controls for CX/CZ gates",
+                    "rec targets are only supported as feedback controls for CX/CZ gates "
+                    "and as READOUT_NOISE targets",
+                    line_num);
+            }
+            if (!is_rec_token && gate == GateType::READOUT_NOISE) {
+                throw ParseError("READOUT_NOISE targets must be rec references", line_num);
+            }
+            if (is_rec_token && gate == GateType::READOUT_NOISE && token[0] == '!') {
+                throw ParseError(
+                    "READOUT_NOISE targets do not support inversion; swap the two flip "
+                    "probabilities instead",
                     line_num);
             }
 

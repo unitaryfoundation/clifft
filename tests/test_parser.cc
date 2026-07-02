@@ -1898,3 +1898,28 @@ TEST_CASE("GateTraits: rotation gate arities", "[gate_data][rotation]") {
     CHECK(!is_clifford(GateType::R_Z));
     CHECK(!is_measurement(GateType::R_Z));
 }
+
+TEST_CASE("READOUT_NOISE parses one- and two-argument forms on rec targets") {
+    auto one = parse("M 0\nREADOUT_NOISE(0.1) rec[-1]\n");
+    REQUIRE(one.nodes.size() == 2);
+    REQUIRE(one.nodes[1].gate == GateType::READOUT_NOISE);
+    REQUIRE(one.nodes[1].args == std::vector<double>{0.1});
+    REQUIRE(one.nodes[1].targets[0].is_rec());
+    REQUIRE(one.nodes[1].targets[0].value() == 0);
+
+    auto two = parse("M 0\nREADOUT_NOISE(0.1, 0.2) rec[-1]\n");
+    REQUIRE(two.nodes[1].args == (std::vector<double>{0.1, 0.2}));
+}
+
+TEST_CASE("READOUT_NOISE rejects bad argument counts and non-rec targets") {
+    CHECK_THROWS_AS(parse("M 0\nREADOUT_NOISE rec[-1]\n"), ParseError);
+    CHECK_THROWS_AS(parse("M 0\nREADOUT_NOISE(0.1, 0.2, 0.3) rec[-1]\n"), ParseError);
+    CHECK_THROWS_AS(parse("M 0\nREADOUT_NOISE(0.1) 0\n"), ParseError);
+}
+
+TEST_CASE("READOUT_NOISE rejects inverted rec targets") {
+    // An inverted record target has no distinct meaning for a conditional
+    // flip (it would only swap the two probabilities), so it is refused
+    // rather than silently ignored.
+    CHECK_THROWS_AS(parse("M 0\nREADOUT_NOISE(1, 0) !rec[-1]\n"), ParseError);
+}

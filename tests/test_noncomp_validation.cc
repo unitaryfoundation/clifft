@@ -74,13 +74,17 @@ TransitionInstrument always_lost(const LevelSet& levels) {
     return TransitionInstrument::from_matrix(std::move(m), levels);
 }
 
-// Two-symbol classifier whose lost column is `col` (the only column a lost
-// qubit consults here); every other level deterministically reads symbol 0.
+// Two-symbol classifier whose lost column is `col`; computational levels
+// read out faithfully and leaked levels deterministically read symbol 0.
 MeasurementClassifier lost_classifier(const LevelSet& levels, std::vector<double> col) {
     std::vector<std::vector<double>> m(2, std::vector<double>(5, 0.0));
     for (size_t l = 0; l < 5; ++l) {
         m[0][l] = 1.0;
     }
+    // Computational levels read out faithfully (identity columns) so the
+    // classifier adds no readout confusion here.
+    m[0][1] = 0.0;
+    m[1][1] = 1.0;
     m[0][kLost] = col[0];
     m[1][kLost] = col[1];
     return MeasurementClassifier::from_matrix({"0", "1"}, std::move(m), levels);
