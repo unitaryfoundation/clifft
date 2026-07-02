@@ -6,10 +6,16 @@
 // A transition instrument attached to one qubit carries per-source jump
 // probabilities (p_g, p_e). The exact channel is the Kraus set
 //
-//   K_jump,s = sqrt(p_s) |dest_s><s|              (one per source s)
+//   K_jump,s = sqrt(p_s) |dest[s]><s|             (one per source s)
 //   K_stay   = r_g P_g + r_e P_e,  r_s = sqrt(1 - p_s)
 //
-// so the fire probability p_g<P_g> + p_e<P_e> is runtime state and the
+// where dest[s] is the destination level that source s's transition
+// column assigns -- any level, possibly several: a column spread over
+// multiple destinations changes nothing at this layer, because the
+// carrier physics depends only on the column sums p_s and picking the
+// destination is the caller's classical draw.
+//
+// So the fire probability p_g<P_g> + p_e<P_e> is runtime state and the
 // no-fire branch applies the weak damping filter diag(r_g, r_e). These
 // kernels realize that channel per site classification -- the same
 // active/dormant, diagonal-basis classification that selects measurement

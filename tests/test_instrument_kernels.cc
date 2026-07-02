@@ -13,14 +13,18 @@
 // (which is wired up in a separate step).
 
 #include "clifft/svm/svm.h"
+#include "clifft/svm/svm_forced_kernels.h"
 #include "clifft/svm/svm_instrument_kernels.h"
+#include "clifft/svm/svm_internal.h"
 #include "clifft/util/xoshiro.h"
 
+#include <algorithm>
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/matchers/catch_matchers_floating_point.hpp>
 #include <cmath>
 #include <complex>
 #include <cstdint>
+#include <span>
 #include <vector>
 
 using namespace clifft;
@@ -375,6 +379,126 @@ TEST_CASE("instrument collapse_dormant: anchors the frame and extracts the phase
             REQUIRE(get_frame_bit(state.p_x, v) == (level != 0));
             REQUIRE(get_frame_bit(state.p_z, v) == false);
         }
+    }
+}
+
+// =============================================================================
+// Cross-checks against production machinery and mid-shot state shapes
+// =============================================================================
+
+TEST_CASE(
+    "instrument damp_eval: populations match the forced measurement kernel's "
+    "branch probabilities") {
+    // The dense reference in this file shares its author's reading of the
+    // frame convention; the forced measurement kernel does not -- it is
+    // the production machinery behind exact record probabilities. An
+    // eval-only pass and a forced Z-measurement on the same axis must
+    // assign the same probability to each level.
+    for (int px = 0; px <= 1; ++px) {
+        for (uint8_t outcome = 0; outcome <= 1; ++outcome) {
+            auto state = make_active_state(/*peak_rank=*/3, /*k=*/3, /*seed=*/97 + px);
+            const uint16_t v = 2;  // the forced measurement requires the top axis
+            set_frame_bit(state.p_x, v, px != 0);
+
+            const InstrumentPopulations pops = exec_instrument_damp_eval(state, v, 1.0, 1.0);
+            const double total = pops.pop_g + pops.pop_e;
+            const double want = (outcome == 0 ? pops.pop_g : pops.pop_e) / total;
+
+            const std::vector<uint8_t> record{outcome};
+            state.forced_record = record;
+            REQUIRE(exec_meas_active_diagonal_forced(state, v, /*classical_idx=*/0,
+                                                     /*sign=*/false));
+            REQUIRE_THAT(std::exp(state.forced_log_probability), WithinAbs(want, kTol));
+        }
+    }
+}
+
+TEST_CASE("instrument kernels: fused pass and collapse above the OpenMP rank threshold") {
+    // The fused pass mutates the array inside parallel_reduce -- a pattern
+    // the pre-existing kernels do not use -- so exercise it and the
+    // collapse at the rank where the threaded path activates, on an
+    // interior (strided) axis. Comparisons aggregate to keep the
+    // assertion count independent of the array size.
+    const uint32_t k = kMinRankForThreads;
+    const double r_g = std::sqrt(1.0 - 0.3), r_e = std::sqrt(1.0 - 0.05);
+    const uint16_t v = 7;
+
+    auto state = make_active_state(/*peak_rank=*/k, k, /*seed=*/113);
+    set_frame_bit(state.p_x, v, true);
+    const Amps before = physical(state);
+
+    const InstrumentPopulations pops = exec_instrument_damp_eval(state, v, r_g, r_e);
+    REQUIRE_THAT(pops.pop_g, WithinAbs(ref_population(before, v, true, 0), 1e-9));
+    REQUIRE_THAT(pops.pop_e, WithinAbs(ref_population(before, v, true, 1), 1e-9));
+
+    Amps want = before;
+    ref_damp(want, v, true, r_g, r_e);
+    Amps got = physical(state);
+    double max_diff = 0.0;
+    for (uint64_t i = 0; i < got.size(); ++i) {
+        max_diff = std::max(max_diff, std::abs(got[i] - want[i]));
+    }
+    REQUIRE_THAT(max_diff, WithinAbs(0.0, 1e-10));
+
+    exec_instrument_collapse_active(state, v, /*source=*/1, pops.pop_g + pops.pop_e);
+    want = before;
+    ref_project(want, v, true, 1);
+    ref_rescale_to(want, pops.pop_g + pops.pop_e);
+    got = physical(state);
+    max_diff = 0.0;
+    for (uint64_t i = 0; i < got.size(); ++i) {
+        max_diff = std::max(max_diff, std::abs(got[i] - want[i]));
+    }
+    REQUIRE_THAT(max_diff, WithinAbs(0.0, 1e-10));
+}
+
+TEST_CASE("instrument kernels: unnormalized array and nonunit gamma") {
+    // Mid-shot states carry deferred normalization: the raw array norm
+    // and gamma both sit away from one. Populations are raw-array
+    // quantities, and both branch post-states must come out right through
+    // the gamma-carried rescales.
+    const double r_g = std::sqrt(1.0 - 0.25), r_e = std::sqrt(1.0 - 0.6);
+    const double array_scale = 0.35;
+    const std::complex<double> gamma{1.6, -0.9};
+
+    auto make_scaled = [&] {
+        auto state = make_active_state(/*peak_rank=*/3, /*k=*/2, /*seed=*/131);
+        for (uint64_t i = 0; i < state.v_size(); ++i) {
+            state.v()[i] *= array_scale;
+        }
+        state.set_gamma(gamma);
+        return state;
+    };
+
+    {  // No-fire branch: normalized K_stay at unchanged physical norm.
+        auto state = make_scaled();
+        const Amps before = physical(state);
+
+        const InstrumentPopulations pops = exec_instrument_damp_eval(state, /*v=*/0, r_g, r_e);
+        // Populations are raw array quantities, not gamma-scaled ones.
+        REQUIRE_THAT(pops.pop_g + pops.pop_e, WithinAbs(array_scale * array_scale, kTol));
+
+        const double total = pops.pop_g + pops.pop_e;
+        const double no_fire = r_g * r_g * pops.pop_g + r_e * r_e * pops.pop_e;
+        state.scale_magnitude(std::sqrt(total / no_fire));
+
+        Amps want = before;
+        ref_damp(want, /*v=*/0, false, r_g, r_e);
+        ref_rescale_to(want, norm2(before));
+        require_amps_match(physical(state), want);
+    }
+
+    {  // Fire branch: pre-damp projection at unchanged physical norm.
+        auto state = make_scaled();
+        const Amps before = physical(state);
+
+        const InstrumentPopulations pops = exec_instrument_damp_eval(state, /*v=*/0, r_g, r_e);
+        exec_instrument_collapse_active(state, /*v=*/0, /*source=*/0, pops.pop_g + pops.pop_e);
+
+        Amps want = before;
+        ref_project(want, /*v=*/0, false, 0);
+        ref_rescale_to(want, norm2(before));
+        require_amps_match(physical(state), want);
     }
 }
 
