@@ -165,6 +165,11 @@ void execute(const CompiledModule& program, SchrodingerState& state) {
 
 void resume(const CompiledModule& program, SchrodingerState& state, uint32_t offset) {
     assert_arena_widths_match(program.num_qubits, program.constant_pool);
+    if (!state.pending_trap.has_value()) {
+        throw std::invalid_argument(
+            "resume(): the state has no pending trap; resume() only continues a shot that "
+            "execute() halted at an instrument trap");
+    }
     if (program.num_qubits != state.num_qubits) {
         throw std::invalid_argument(
             "resume(): continuation module declares " + std::to_string(program.num_qubits) +
@@ -182,7 +187,7 @@ void resume(const CompiledModule& program, SchrodingerState& state, uint32_t off
     // hidden-measurement count beyond what the original module needed;
     // visible slots are layout-stable, so growth never disturbs written
     // records.
-    state.ensure_array_capacity(program.peak_rank);
+    state.grow_for_continuation(program.peak_rank);
     if (state.meas_record.size() < program.total_meas_slots) {
         state.meas_record.resize(program.total_meas_slots, 0);
     }
@@ -235,9 +240,8 @@ const char* svm_backend() {
 static void throw_on_pending_trap(const SchrodingerState& state) {
     if (state.pending_trap.has_value()) {
         throw std::runtime_error(
-            "a shot fired an instrument to a leaked/lost destination; instrument programs "
-            "require the exact-mode driver (execute/resume), not the plain sampling entry "
-            "points");
+            "a shot halted at a resumable instrument trap; instrument programs require the "
+            "exact-mode driver (execute/resume), not the plain sampling entry points");
     }
 }
 

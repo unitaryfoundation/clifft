@@ -125,7 +125,9 @@ void SchrodingerState::free_array() noexcept {
     aligned_free_portable(v_);
 }
 
-void SchrodingerState::ensure_array_capacity(uint32_t peak_rank) {
+void SchrodingerState::grow_for_continuation(uint32_t peak_rank) {
+    assert(pending_trap.has_value() &&
+           "the amplitude array may grow only at the trap boundary, under a pending trap");
     if (peak_rank >= 63) {
         throw std::invalid_argument(
             "peak_rank >= 63 would cause undefined behavior in 1ULL << peak_rank");

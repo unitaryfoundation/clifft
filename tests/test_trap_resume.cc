@@ -75,11 +75,42 @@ TEST_CASE("trap+resume: a spectator loss resumes in the same module and complete
 
         REQUIRE(state.pending_trap.has_value());
         REQUIRE(state.pending_trap->site_id == 0);
+        // The destination class is already drawn (leaked/lost); only the
+        // level within the trap remainder is the host's to pick.
+        REQUIRE(!state.pending_trap->destination_pending);
 
         resume_past_trap(module, state);
         REQUIRE(!state.pending_trap.has_value());
         REQUIRE(state.meas_record == std::vector<uint8_t>{0});
     }
+}
+
+TEST_CASE("trap+resume: a neglect-form trap reports its destination as pending") {
+    InstrumentTraceOptions options;
+    options.transitions.emplace("jump", [] {
+        InstrumentSpec spec;
+        spec.p_total[0] = 1.0;
+        spec.p_total[1] = 1.0;
+        spec.p_dest[0][1] = 0.5;  // half the column is computational:
+        spec.p_dest[1][0] = 0.5;  // the host must draw over all of it
+        return spec;
+    }());
+    options.neglect_damping = true;
+
+    auto module = compile_raw("H 0\nLEVEL_TRANSITION[jump] 0\nM 0", options);
+    auto state = make_shot_state(module, /*seed=*/6);
+    execute(module, state);
+
+    REQUIRE(state.pending_trap.has_value());
+    REQUIRE(state.pending_trap->destination_pending);
+    REQUIRE(state.active_k == 0);  // no expansion, carrier untouched
+}
+
+TEST_CASE("trap+resume: resume refuses a state with no pending trap") {
+    InstrumentTraceOptions options;
+    auto module = compile_raw("LOSS(1.0) 0\nM 0", options);
+    auto state = make_shot_state(module, /*seed=*/8);
+    REQUIRE_THROWS_WITH(resume(module, state, 1), ContainsSubstring("no pending trap"));
 }
 
 TEST_CASE("trap+resume: the continuation's suffix governs the outcome") {

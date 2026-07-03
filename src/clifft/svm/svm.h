@@ -189,6 +189,15 @@ class SchrodingerState {
     void allocate_array(uint32_t peak_rank);
     void free_array() noexcept;
 
+    /// Grow the amplitude array to hold 2^peak_rank entries, preserving
+    /// the live 2^active_k amplitudes (the region above stays zero); no-op
+    /// when the allocation already suffices. This is the single sanctioned
+    /// exception to the allocate-once invariant, so it is reachable only
+    /// from resume(), only between dispatch entries, and only while a trap
+    /// is pending (asserted). Never shrinks.
+    void grow_for_continuation(uint32_t peak_rank);
+    friend void resume(const CompiledModule& program, SchrodingerState& state, uint32_t offset);
+
     std::complex<double> gamma_ = {1.0, 0.0};
     std::complex<double>* v_ = nullptr;  // page-aligned
     uint64_t array_size_ = 0;            // 2^peak_rank (allocated capacity)
@@ -206,7 +215,9 @@ class SchrodingerState {
 
     // --- Resumable trap state ---
     //
-    // Set when an instrument fires to a leaked or lost destination:
+    // Set when an instrument fire cannot be resolved in-line: any form
+    // firing to a leaked/lost destination, or any fire at a neglect-mode
+    // dormant-random site (whose collapse belongs to the continuation).
     // execute() halts at the site with the state intact (the carrier
     // already collapsed onto the drawn source where the form allows it)
     // and the host continues via resume() in a recompiled module. Dormant
@@ -214,15 +225,16 @@ class SchrodingerState {
     struct InstrumentTrap {
         uint32_t site_id = 0;  // CompiledInstrumentSite::site_id
         uint8_t source = 0;    // Drawn physical source level (0 = |0>)
+
+        // True at a neglect-form site: no destination has been drawn at
+        // all, so the host draws from the site's full column --
+        // computational destinations included -- and the continuation
+        // performs the collapse. False elsewhere: the destination class
+        // is already drawn as leaked/lost, and the host draws only which
+        // noncomputational level from the trap remainder.
+        bool destination_pending = false;
     };
     std::optional<InstrumentTrap> pending_trap;
-
-    /// Grow the amplitude array to hold 2^peak_rank entries, preserving
-    /// the live 2^active_k amplitudes (the region above stays zero). No-op
-    /// when the current allocation already suffices. Used by resume() when
-    /// a continuation module was compiled with a larger peak rank than the
-    /// module this state was built for.
-    void ensure_array_capacity(uint32_t peak_rank);
 
     // --- Forced-execution state ---
     //
@@ -249,20 +261,25 @@ class SchrodingerState {
 // =============================================================================
 
 /// Execute a compiled program for one shot, populating state with results.
-/// If an instrument fires to a leaked/lost destination, execution halts at
-/// the site with state.pending_trap set; continue via resume().
+/// If an instrument fire cannot be resolved in-line (a leaked/lost
+/// destination on any form, or any fire at a neglect-form site),
+/// execution halts at the site with state.pending_trap set; continue via
+/// resume().
 void execute(const CompiledModule& program, SchrodingerState& state);
 
 /// Continue a trapped shot in `program` starting at bytecode index
 /// `offset` (for a trap at site s, program.instrument_offsets[s] + 1).
-/// The program's bytecode before `offset` must be bit-identical to the
-/// code the state already executed -- the compiler's determinism plus the
-/// instrument barrier contract guarantee this for a recompiled
-/// continuation of the same circuit prefix. Clears pending_trap, grows
-/// the amplitude array and measurement-record buffer if the continuation
-/// needs more than the state was built with, and re-anchors the noise-gap
-/// cursor at the entry offset (exact, because exponential gaps are
-/// memoryless). May itself halt on a later trap.
+/// Requires state.pending_trap to be set and clears it. The program's
+/// bytecode before `offset` must be bit-identical to the code the state
+/// already executed -- the compiler's determinism plus the instrument
+/// barrier contract guarantee this for a recompiled continuation of the
+/// same circuit prefix. Grows the amplitude array and measurement-record
+/// buffer if the continuation needs more than the state was built with
+/// (the sanctioned trap-boundary exception to the allocate-once
+/// invariant; a driver reusing one state across shots amortizes growth to
+/// the chain maximum), and re-anchors the noise-gap cursor at the entry
+/// offset (exact, because exponential gaps are memoryless). May itself
+/// halt on a later trap.
 void resume(const CompiledModule& program, SchrodingerState& state, uint32_t offset);
 
 /// Return the name of the active SVM dispatch backend. Reflects the

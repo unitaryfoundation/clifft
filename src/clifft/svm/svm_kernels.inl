@@ -1996,8 +1996,9 @@ static inline int draw_instrument_destination(SchrodingerState& state,
 // circuit at source level under the now-known status, recompiles, and
 // resume()s past the site.
 static inline bool instrument_trap(SchrodingerState& state, const CompiledInstrumentSite& site,
-                                   uint8_t source) {
-    state.pending_trap = SchrodingerState::InstrumentTrap{site.site_id, source};
+                                   uint8_t source, bool destination_pending) {
+    state.pending_trap =
+        SchrodingerState::InstrumentTrap{site.site_id, source, destination_pending};
     return false;
 }
 
@@ -2010,11 +2011,12 @@ static inline void apply_instrument_fixup(SchrodingerState& state, const Constan
     apply_pauli_to_frame(state, mask.x(), mask.z(), mask.sign());
 }
 
-// Returns false when the shot halts at a resumable trap. On a fire to a
-// leaked/lost destination the carrier is collapsed onto the drawn source
-// *before* trapping wherever the form allows it, so the continuation's
-// trace-out measures an already-definite carrier and the unraveling stays
-// correlated with the reported source.
+// Returns false when the shot halts at a resumable trap: a fire to a
+// leaked/lost destination on any form, or any fire at a neglect-form
+// site. The carrier is collapsed onto the drawn source *before* trapping
+// wherever the form allows it, so the continuation's trace-out measures
+// an already-definite carrier and the unraveling stays correlated with
+// the reported source.
 static inline bool exec_instrument(SchrodingerState& state, const ConstantPool& pool,
                                    const Instruction& instr) {
     const CompiledInstrumentSite& site = pool.instrument_sites[instr.instrument.cp_site_idx];
@@ -2031,7 +2033,7 @@ static inline bool exec_instrument(SchrodingerState& state, const ConstantPool& 
         if (dest < 0) {
             // The carrier is already definite at the source; no collapse
             // is needed before handing over.
-            return instrument_trap(state, site, source);
+            return instrument_trap(state, site, source, /*destination_pending=*/false);
         }
         if (dest != source) {
             apply_instrument_fixup(state, pool, site);
@@ -2055,7 +2057,8 @@ static inline bool exec_instrument(SchrodingerState& state, const ConstantPool& 
             return true;
         }
         const double w = state.random_double() * mass;
-        return instrument_trap(state, site, w < site.p_total[0] ? 0 : 1);
+        return instrument_trap(state, site, w < site.p_total[0] ? 0 : 1,
+                               /*destination_pending=*/true);
     }
 
     // Active-array forms. The instruction's damp coefficients are
@@ -2102,7 +2105,8 @@ static inline bool exec_instrument(SchrodingerState& state, const ConstantPool& 
         exec_instrument_collapse_active(state, v, static_cast<uint8_t>(branch.source ^ sign),
                                         pops.pop_g + pops.pop_e);
         if (dest < 0) {
-            return instrument_trap(state, site, branch.source);
+            return instrument_trap(state, site, branch.source,
+                                   /*destination_pending=*/false);
         }
         if (dest != branch.source) {
             apply_instrument_fixup(state, pool, site);
@@ -2132,7 +2136,7 @@ static inline bool exec_instrument(SchrodingerState& state, const ConstantPool& 
     const int dest = draw_instrument_destination(state, site, branch.source);
     exec_instrument_collapse_active(state, v, static_cast<uint8_t>(branch.source ^ sign), total);
     if (dest < 0) {
-        return instrument_trap(state, site, branch.source);
+        return instrument_trap(state, site, branch.source, /*destination_pending=*/false);
     }
     if (dest != branch.source) {
         apply_instrument_fixup(state, pool, site);

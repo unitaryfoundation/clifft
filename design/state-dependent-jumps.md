@@ -291,7 +291,11 @@ Per instrument instruction:
   with the `SchrodingerState` intact. A new `resume(module, state, offset)`
   entry point continues execution; measurement records, detector/observable
   records, frame bits, gamma, and the RNG all already live in the state
-  object and survive the module switch.
+  object and survive the module switch. A continuation compiled with a
+  larger peak rank grows the state's amplitude array at that boundary —
+  the single sanctioned exception to the VM's allocate-once invariant,
+  host-side between dispatch entries, never inside a kernel; a driver
+  reusing one state across shots amortizes growth to the chain maximum.
 
 Dormant-random sites are handled per the damping policy (§4.6): under
 `exact`, the compiler emits an expansion before the instrument (the fused
