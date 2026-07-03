@@ -354,6 +354,113 @@ TEST_CASE("exact: a neglect fire onto a computational destination stays correlat
     REQUIRE(saw_one);
 }
 
+TEST_CASE("exact: herald flags drawn in one continuation are reused by the next") {
+    // The reuse invariant, made observable: with p_herald = 0.5 and a
+    // deterministic not-heralded bit (P(1 | leak, not heralded) = 1), a
+    // slot whose sidecar flag says not-heralded must always record 1 --
+    // the record was drawn under the same flag that the sidecar reports.
+    // If the second continuation redrew the flag independently, its patch
+    // could disagree with the sidecar and break the invariant half the
+    // time. The two-trap chain makes slot 0's flag be drawn while
+    // compiling continuation one and reused by continuation two, where
+    // the measurement actually executes.
+    LevelSet levels = LevelSet::default_set();
+    std::vector<std::vector<double>> leak(5, std::vector<double>(5, 0.0));
+    leak[kLeak][1] = 1.0;  // certain leak from e
+
+    ClassifierSpec classifier;
+    classifier.symbols = {"0", "1", "herald"};
+    classifier.matrix = {
+        {1.0, 0.0, 1.0, 0.0, 1.0}, {0.0, 1.0, 0.0, 0.5, 0.0}, {0.0, 0.0, 0.0, 0.5, 0.0}};
+
+    NonComputationalPolicy policy;
+    policy.unknown_source_policy = UnknownSourcePolicy::Exact;
+    policy.lost_leaked_ops = LostLeakedOpsPolicy::Drop;
+    auto model = NonComputationalModel::from_spec(levels, {1.0, 0.0, 0.0, 0.0, 0.0},
+                                                  {{"leak", leak}}, classifier, policy);
+
+    auto circuit = parse("X 0\nX 1\nLEVEL_TRANSITION[leak] 0\nLEVEL_TRANSITION[leak] 1\nM 0\nM 1");
+    auto result = sample_noncomputational(circuit, model, 200, 53);
+
+    int heralded = 0;
+    for (uint32_t shot = 0; shot < 200; ++shot) {
+        for (uint32_t slot = 0; slot < 2; ++slot) {
+            const uint8_t herald = result.heralds[shot * 2 + slot];
+            const uint8_t bit = result.measurements[shot * 2 + slot];
+            if (herald == 0) {
+                REQUIRE(bit == 1);  // the not-heralded conditional is deterministic
+            }
+            heralded += herald;
+        }
+    }
+    REQUIRE(heralded > 120);  // p_herald = 0.5 over 400 slots
+    REQUIRE(heralded < 280);
+}
+
+TEST_CASE("exact: spectator noise between two traps fires exactly once") {
+    // Certain X errors on a spectator qubit, one between the two traps
+    // and one after: the noise-gap cursor must fire each exactly once
+    // across the two re-anchors, flipping the spectator twice back to 0.
+    // A cursor that refires or skips across either resume flips the
+    // deterministic record.
+    ModelSpec spec;
+    spec.leak_from_e = 1.0;
+    auto model = make_model(spec);
+    auto circuit = parse(
+        "X 0\nX 1\n"
+        "LEVEL_TRANSITION[leak] 0\nX_ERROR(1) 2\nLEVEL_TRANSITION[leak] 1\nX_ERROR(1) 2\n"
+        "M 2");
+
+    auto result = sample_noncomputational(circuit, model, 20, 59);
+    for (uint32_t shot = 0; shot < 20; ++shot) {
+        REQUIRE(result.measurements[shot] == 0);
+        REQUIRE(result.final_status[shot * 3].kind() == QubitStatusKind::Leaked);
+        REQUIRE(result.final_status[shot * 3 + 1].kind() == QubitStatusKind::Leaked);
+    }
+}
+
+TEST_CASE("exact: a detector and observable span the trap boundary") {
+    // The detector compares a pre-trap measurement (executed on the main
+    // line) with a post-trap classified one (written by the
+    // continuation): both read 1, so the parity is 0 on every shot, and
+    // the observable carries the classified bit.
+    ModelSpec spec;
+    spec.leak_from_e = 1.0;
+    auto model = make_model(spec);
+    auto circuit = parse(
+        "X 0\nM 0\nLEVEL_TRANSITION[leak] 0\nM 0\n"
+        "DETECTOR rec[-1] rec[-2]\nOBSERVABLE_INCLUDE(0) rec[-1]");
+
+    auto result = sample_noncomputational(circuit, model, 20, 61);
+    REQUIRE(result.num_detectors == 1);
+    REQUIRE(result.num_observables == 1);
+    for (uint32_t shot = 0; shot < 20; ++shot) {
+        REQUIRE(result.measurements[shot * 2] == 1);      // pre-trap Born measurement
+        REQUIRE(result.measurements[shot * 2 + 1] == 1);  // post-trap classified bit
+        REQUIRE(result.detectors[shot] == 0);             // equal bits: parity 0
+        REQUIRE(result.observables[shot] == 1);
+    }
+}
+
+TEST_CASE("exact: a hand-written multi-target annotation traps on one target") {
+    // A single LEVEL_TRANSITION node with two targets materializes one
+    // site per target; the trap maps back through site_targets to the
+    // right (op, qubit), and the continuation's split keeps the sibling
+    // target's instrument live.
+    ModelSpec spec;
+    spec.leak_from_e = 1.0;  // fires from e only
+    auto model = make_model(spec);
+    auto circuit = parse("X 0\nLEVEL_TRANSITION[leak] 0 1\nM 0\nM 1");
+
+    auto result = sample_noncomputational(circuit, model, 20, 67);
+    for (uint32_t shot = 0; shot < 20; ++shot) {
+        REQUIRE(result.measurements[shot * 2] == 1);      // q0 leaked, classified
+        REQUIRE(result.measurements[shot * 2 + 1] == 0);  // q1 in g: never fires
+        REQUIRE(result.final_status[shot * 2].kind() == QubitStatusKind::Leaked);
+        REQUIRE(result.final_status[shot * 2 + 1].kind() == QubitStatusKind::ComputationalKnown);
+    }
+}
+
 TEST_CASE("exact: neglect keeps rank flat while the exact default expands") {
     ModelSpec spec;
     spec.leak_from_e = 0.3;  // source-dependent: the damp is non-scalar
