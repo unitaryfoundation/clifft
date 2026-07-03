@@ -74,9 +74,8 @@ std::vector<uint8_t> run_shot(const CompiledModule& module, uint64_t seed) {
 // probe, a trapped shot returns nullopt.
 std::optional<double> run_shot_exp_val(const CompiledModule& module, uint64_t seed) {
     auto state = make_shot_state(module, seed);
-    try {
-        execute(module, state);
-    } catch (const std::runtime_error&) {
+    execute(module, state);
+    if (state.pending_trap.has_value()) {
         return std::nullopt;
     }
     return state.exp_vals.at(0);
@@ -156,18 +155,17 @@ TEST_CASE("execute: the no-fire path of a weak site leaves a definite carrier al
     REQUIRE(ones > 30);  // p = 0.05: overwhelmingly no-fire
 }
 
-TEST_CASE("execute: a leaked/lost fire names the site and line in the trap error") {
+TEST_CASE("execute: a leaked/lost fire halts with the trap recorded") {
     InstrumentTraceOptions options;  // LOSS needs no spec
     auto module = compile_raw("H 1\nLOSS(1.0) 0\nM 0", options);
 
-    SchrodingerState state(StateConfig{.peak_rank = module.peak_rank,
-                                       .num_measurements = module.total_meas_slots,
-                                       .num_qubits = module.num_qubits,
-                                       .seed = 7});
-    REQUIRE_THROWS_WITH(execute(module, state),
-                        ContainsSubstring("instrument site 0") &&
-                            ContainsSubstring("circuit line 2") &&
-                            ContainsSubstring("resumable traps are not implemented yet"));
+    auto state = make_shot_state(module, /*seed=*/7);
+    execute(module, state);
+
+    REQUIRE(state.pending_trap.has_value());
+    REQUIRE(state.pending_trap->site_id == 0);
+    // The measurement after the site never ran.
+    REQUIRE(state.meas_record == std::vector<uint8_t>{0});
 }
 
 TEST_CASE("execute: the no-fire back-action matches its closed form through the pipeline") {
@@ -295,15 +293,12 @@ TEST_CASE("execute: a neglect-mode dormant-random site is silent until it fires"
     int traps = 0;
     int completed = 0;
     for (uint64_t seed = 1; seed <= 40; ++seed) {
-        SchrodingerState state(StateConfig{.peak_rank = module.peak_rank,
-                                           .num_measurements = module.total_meas_slots,
-                                           .num_qubits = module.num_qubits,
-                                           .seed = seed});
-        try {
-            execute(module, state);
-            ++completed;
-        } catch (const std::runtime_error&) {
+        auto state = make_shot_state(module, seed);
+        execute(module, state);
+        if (state.pending_trap.has_value()) {
             ++traps;
+        } else {
+            ++completed;
         }
     }
     REQUIRE(traps > 0);

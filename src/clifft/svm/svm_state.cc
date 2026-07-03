@@ -42,6 +42,14 @@ SchrodingerState::SchrodingerState(StateConfig cfg) : peak_rank_(cfg.peak_rank),
     p_x.assign(num_words, 0);
     p_z.assign(num_words, 0);
 
+    allocate_array(peak_rank);
+    v_[0] = {1.0, 0.0};
+}
+
+void SchrodingerState::allocate_array(uint32_t peak_rank) {
+    peak_rank_ = peak_rank;
+    v_ = nullptr;
+    v_is_mmap_ = false;
     array_size_ = 1ULL << peak_rank;
     size_t bytes = array_size_ * sizeof(std::complex<double>);
     // Round up to page boundary for mmap/aligned_alloc compatibility.
@@ -105,10 +113,9 @@ SchrodingerState::SchrodingerState(StateConfig cfg) : peak_rank_(cfg.peak_rank),
             }
         }
     }
-    v_[0] = {1.0, 0.0};
 }
 
-SchrodingerState::~SchrodingerState() {
+void SchrodingerState::free_array() noexcept {
 #if defined(__linux__)
     if (v_is_mmap_) {
         munmap(v_, v_alloc_bytes_);
@@ -116,6 +123,41 @@ SchrodingerState::~SchrodingerState() {
     }
 #endif
     aligned_free_portable(v_);
+}
+
+void SchrodingerState::grow_for_continuation(uint32_t peak_rank) {
+    assert(pending_trap.has_value() &&
+           "the amplitude array may grow only at the trap boundary, under a pending trap");
+    if (peak_rank >= 63) {
+        throw std::invalid_argument(
+            "peak_rank >= 63 would cause undefined behavior in 1ULL << peak_rank");
+    }
+    if ((1ULL << peak_rank) <= array_size_) {
+        return;
+    }
+
+    std::complex<double>* old_v = v_;
+    const size_t old_bytes = v_alloc_bytes_;
+    const bool old_mmap = v_is_mmap_;
+    const uint64_t live = v_size();
+
+    allocate_array(peak_rank);
+    std::memcpy(v_, old_v, live * sizeof(std::complex<double>));
+
+#if defined(__linux__)
+    if (old_mmap) {
+        munmap(old_v, old_bytes);
+    } else {
+        aligned_free_portable(old_v);
+    }
+#else
+    (void)old_bytes;
+    aligned_free_portable(old_v);
+#endif
+}
+
+SchrodingerState::~SchrodingerState() {
+    free_array();
 }
 
 SchrodingerState::SchrodingerState(SchrodingerState&& other) noexcept
@@ -139,6 +181,7 @@ SchrodingerState::SchrodingerState(SchrodingerState&& other) noexcept
       v_is_mmap_(other.v_is_mmap_),
       rng_(std::move(other.rng_)),
       exp_vals(std::move(other.exp_vals)),
+      pending_trap(other.pending_trap),
       forced_record(other.forced_record),
       forced_log_probability(other.forced_log_probability),
       forced_reachable(other.forced_reachable) {
@@ -148,6 +191,7 @@ SchrodingerState::SchrodingerState(SchrodingerState&& other) noexcept
     other.v_is_mmap_ = false;
     other.active_k = 0;
     other.peak_rank_ = 0;
+    other.pending_trap.reset();
     other.forced_record = {};
     other.forced_log_probability = 0.0;
     other.forced_reachable = true;
@@ -184,6 +228,7 @@ SchrodingerState& SchrodingerState::operator=(SchrodingerState&& other) noexcept
         det_record = std::move(other.det_record);
         obs_record = std::move(other.obs_record);
         exp_vals = std::move(other.exp_vals);
+        pending_trap = other.pending_trap;
         forced_record = other.forced_record;
         forced_log_probability = other.forced_log_probability;
         forced_reachable = other.forced_reachable;
@@ -193,6 +238,7 @@ SchrodingerState& SchrodingerState::operator=(SchrodingerState&& other) noexcept
         other.v_is_mmap_ = false;
         other.active_k = 0;
         other.peak_rank_ = 0;
+        other.pending_trap.reset();
         other.forced_record = {};
         other.forced_log_probability = 0.0;
         other.forced_reachable = true;
@@ -219,14 +265,16 @@ void SchrodingerState::reset() {
     gamma_ = {1.0, 0.0};
     active_k = 0;
 
-    // If the previous shot was discarded by OP_POSTSELECT, the bytecode
-    // loop exited early, leaving meas_record and det_record with stale
-    // data from the aborted shot. Zero them out to avoid garbage.
-    if (discarded) {
+    // If the previous shot was discarded by OP_POSTSELECT or halted at a
+    // resumable trap, the bytecode loop exited early, leaving meas_record
+    // and det_record with stale data from the aborted shot. Zero them out
+    // to avoid garbage.
+    if (discarded || pending_trap.has_value()) {
         std::fill(meas_record.begin(), meas_record.end(), 0);
         std::fill(det_record.begin(), det_record.end(), 0);
     }
     discarded = false;
+    pending_trap.reset();
 
     // obs_record uses ^= accumulation and must always be cleared.
     std::fill(obs_record.begin(), obs_record.end(), 0);

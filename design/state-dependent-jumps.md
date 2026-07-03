@@ -291,7 +291,11 @@ Per instrument instruction:
   with the `SchrodingerState` intact. A new `resume(module, state, offset)`
   entry point continues execution; measurement records, detector/observable
   records, frame bits, gamma, and the RNG all already live in the state
-  object and survive the module switch.
+  object and survive the module switch. A continuation compiled with a
+  larger peak rank grows the state's amplitude array at that boundary —
+  the single sanctioned exception to the VM's allocate-once invariant,
+  host-side between dispatch entries, never inside a kernel; a driver
+  reusing one state across shots amortizes growth to the chain maximum.
 
 Dormant-random sites are handled per the damping policy (§4.6): under
 `exact`, the compiler emits an expansion before the instrument (the fused
@@ -308,6 +312,21 @@ runtime-conditional branch (a measurement's anchor is unconditional, so
 its compile-time alignment is sound). The trap's suffix rewrite handles
 the collapse at source level instead; fires are rare, so the cost is a
 cached continuation, not a hot path.
+
+The uncollapsed handover costs no correlation, because past the trap
+the continuation is fire-branch-only and the conditional convention
+shift becomes unconditional there: the driver's suffix rewrite emits
+the leaked qubit's trace-out as a hidden measurement **forced to the
+reported source**, so entangled partners collapse consistently with the
+destination-side effects. (A bare frame anchor at trap time would be
+wrong — after `H 0`, anchoring the dormant representation to `|s⟩`
+yields the physical state `H|s⟩`, not `|s⟩`; the collapse must execute
+inside compiled code that carries the basis alignment.) With that,
+`neglect`'s only approximation is the omitted no-fire back-action.
+Everywhere the collapse *can* happen in-line (active, expand, and
+dormant-deterministic forms), the runtime collapses onto the drawn
+source *before* trapping, which makes the continuation's trace-out
+deterministic and keeps the correlation exact with no forcing needed.
 
 New opcodes land in the shared kernel include and are compiled per-ISA like
 every other opcode; the instruction's 24-byte payload carries the axis, the

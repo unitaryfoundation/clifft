@@ -1972,8 +1972,9 @@ static inline void exec_readout_noise(SchrodingerState& state, const ConstantPoo
 // the draw-free kernels from svm_instrument_kernels.h with the fire draws.
 // Physical source/destination indices (0 = |0> level) map to localized
 // levels through FLAG_SIGN here; the kernels handle p_x[v] themselves. A
-// leaked/lost destination is a resumable trap -- until the trap protocol
-// lands, it throws.
+// fire that cannot resolve in-line -- a leaked/lost destination on any
+// form, or any fire at a neglect-form site -- is a resumable trap: the
+// dispatch halts with state.pending_trap set.
 
 // Destination of a fire from physical source s: a computational level d
 // in {0, 1} with probability p_dest[s][d] / p_total[s] -- d != s is a
@@ -1991,13 +1992,15 @@ static inline int draw_instrument_destination(SchrodingerState& state,
     return -1;
 }
 
-[[noreturn]] static inline void instrument_trap(const CompiledInstrumentSite& site,
-                                                uint8_t source) {
-    throw std::runtime_error("instrument site " + std::to_string(site.site_id) + " (circuit line " +
-                             std::to_string(site.source_line) + ") fired from source " +
-                             std::to_string(source) +
-                             " to a leaked/lost destination; resumable traps are not "
-                             "implemented yet");
+// Halt at a resumable trap: record the site and drawn source on the
+// state and stop the dispatch loop. The host rewrites the remaining
+// circuit at source level under the now-known status, recompiles, and
+// resume()s past the site.
+static inline bool instrument_trap(SchrodingerState& state, const CompiledInstrumentSite& site,
+                                   uint8_t source, bool destination_pending) {
+    state.pending_trap =
+        SchrodingerState::InstrumentTrap{site.site_id, source, destination_pending};
+    return false;
 }
 
 // Destination fixup for an in-line computational fire whose destination
@@ -2009,7 +2012,13 @@ static inline void apply_instrument_fixup(SchrodingerState& state, const Constan
     apply_pauli_to_frame(state, mask.x(), mask.z(), mask.sign());
 }
 
-static inline void exec_instrument(SchrodingerState& state, const ConstantPool& pool,
+// Returns false when the shot halts at a resumable trap: a fire to a
+// leaked/lost destination on any form, or any fire at a neglect-form
+// site. The carrier is collapsed onto the drawn source *before* trapping
+// wherever the form allows it, so the continuation's trace-out measures
+// an already-definite carrier and the unraveling stays correlated with
+// the reported source.
+static inline bool exec_instrument(SchrodingerState& state, const ConstantPool& pool,
                                    const Instruction& instr) {
     const CompiledInstrumentSite& site = pool.instrument_sites[instr.instrument.cp_site_idx];
     const bool sign = (instr.flags & Instruction::FLAG_SIGN) != 0;
@@ -2019,16 +2028,18 @@ static inline void exec_instrument(SchrodingerState& state, const ConstantPool& 
         const auto source = static_cast<uint8_t>(static_cast<uint8_t>(bit_get(state.p_x, v)) ^
                                                  static_cast<uint8_t>(sign));
         if (state.random_double() >= site.p_total[source]) {
-            return;  // no fire; the definite-source damp is a scalar
+            return true;  // no fire; the definite-source damp is a scalar
         }
         const int dest = draw_instrument_destination(state, site, source);
         if (dest < 0) {
-            instrument_trap(site, source);
+            // The carrier is already definite at the source; no collapse
+            // is needed before handing over.
+            return instrument_trap(state, site, source, /*destination_pending=*/false);
         }
         if (dest != source) {
             apply_instrument_fixup(state, pool, site);
         }
-        return;
+        return true;
     }
 
     if (instr.opcode == Opcode::OP_INSTRUMENT_DORMANT_NEGLECT) {
@@ -2037,13 +2048,18 @@ static inline void exec_instrument(SchrodingerState& state, const ConstantPool& 
         // defining approximation is omitting the no-fire back-action.
         // Every fire traps: an in-line collapse would re-anchor the frame
         // conditionally, which compiled downstream code cannot account
-        // for; the source draw (weights p_g : p_e) rides along.
+        // for. The carrier hands over uncollapsed with the drawn source
+        // recorded; the exact-mode driver's continuation performs the
+        // collapse as a trace-out forced to that source, keeping the
+        // fire-side correlations exact (see DampingPolicy in
+        // noncomp/policy.h).
         const double mass = site.p_total[0] + site.p_total[1];
         if (state.random_double() * 2.0 >= mass) {
-            return;
+            return true;
         }
         const double w = state.random_double() * mass;
-        instrument_trap(site, w < site.p_total[0] ? 0 : 1);
+        return instrument_trap(state, site, w < site.p_total[0] ? 0 : 1,
+                               /*destination_pending=*/true);
     }
 
     // Active-array forms. The instruction's damp coefficients are
@@ -2078,23 +2094,25 @@ static inline void exec_instrument(SchrodingerState& state, const ConstantPool& 
                 exec_instrument_collapse_active(state, v, static_cast<uint8_t>(survivor ^ sign),
                                                 pops.pop_g + pops.pop_e);
             }
-            return;
+            return true;
         }
         const int dest = draw_instrument_destination(state, site, branch.source);
-        if (dest < 0) {
-            instrument_trap(site, branch.source);
-        }
         // Materialize the expansion the compiled layout expects, then
         // collapse onto the source: the eval-only-plus-collapse recipe,
-        // exact for every rate.
+        // exact for every rate, on the trap path as much as the in-line
+        // one.
         exec_instrument_expand_damp(state, v, 1.0, 1.0);
         const InstrumentPopulations pops = exec_instrument_damp_eval(state, v, 1.0, 1.0);
         exec_instrument_collapse_active(state, v, static_cast<uint8_t>(branch.source ^ sign),
                                         pops.pop_g + pops.pop_e);
+        if (dest < 0) {
+            return instrument_trap(state, site, branch.source,
+                                   /*destination_pending=*/false);
+        }
         if (dest != branch.source) {
             apply_instrument_fixup(state, pool, site);
         }
-        return;
+        return true;
     }
 
     // OP_INSTRUMENT_ACTIVE
@@ -2114,16 +2132,17 @@ static inline void exec_instrument(SchrodingerState& state, const ConstantPool& 
             const uint8_t survivor = site.p_total[0] >= 1.0 ? 1 : 0;
             exec_instrument_collapse_active(state, v, static_cast<uint8_t>(survivor ^ sign), total);
         }
-        return;
+        return true;
     }
     const int dest = draw_instrument_destination(state, site, branch.source);
-    if (dest < 0) {
-        instrument_trap(site, branch.source);
-    }
     exec_instrument_collapse_active(state, v, static_cast<uint8_t>(branch.source ^ sign), total);
+    if (dest < 0) {
+        return instrument_trap(state, site, branch.source, /*destination_pending=*/false);
+    }
     if (dest != branch.source) {
         apply_instrument_fixup(state, pool, site);
     }
+    return true;
 }
 
 // DETECTOR: computes the XOR parity of a list of measurement record entries.
@@ -2346,12 +2365,12 @@ exec_exp_val(SchrodingerState& state, const ConstantPool& pool, uint32_t cp_exp_
 // SVM Execution
 // =============================================================================
 
-void execute_internal(const CompiledModule& program, SchrodingerState& state);
+void execute_internal(const CompiledModule& program, SchrodingerState& state, size_t start_offset);
 
-void execute_internal(const CompiledModule& program, SchrodingerState& state) {
+void execute_internal(const CompiledModule& program, SchrodingerState& state, size_t start_offset) {
     assert(program.peak_rank < 64 && "peak_rank >= 64 would cause UB in bit shifts");
 
-    if (program.bytecode.empty()) {
+    if (start_offset >= program.bytecode.size()) {
         return;
     }
 
@@ -2427,8 +2446,8 @@ void execute_internal(const CompiledModule& program, SchrodingerState& state) {
         [static_cast<uint8_t>(Opcode::OP_EXP_VAL)] = &&L_OP_EXP_VAL,
     };
 
-    const Instruction* pc = program.bytecode.data();
-    const Instruction* end = pc + program.bytecode.size();
+    const Instruction* pc = program.bytecode.data() + start_offset;
+    const Instruction* end = program.bytecode.data() + program.bytecode.size();
 
 #define DISPATCH()                                              \
     do {                                                        \
@@ -2597,7 +2616,9 @@ L_OP_EXP_VAL:
     DISPATCH();
 
 L_OP_INSTRUMENT:
-    exec_instrument(state, program.constant_pool, *pc);
+    if (!exec_instrument(state, program.constant_pool, *pc)) {
+        return;  // resumable trap: state.pending_trap is set
+    }
     DISPATCH();
 
 L_OP_MEAS_DORMANT_STATIC_FORCED: {
@@ -2645,7 +2666,8 @@ L_OP_SWAP_MEAS_INTERFERE_FORCED:
 #undef DISPATCH
 #else
     // Fallback standard C++ switch loop for MSVC and non-GNU compilers
-    for (const auto& instr : program.bytecode) {
+    for (size_t instr_idx = start_offset; instr_idx < program.bytecode.size(); ++instr_idx) {
+        const auto& instr = program.bytecode[instr_idx];
         switch (instr.opcode) {
             case Opcode::OP_FRAME_CNOT:
                 exec_frame_cnot(state, instr.axis_1, instr.axis_2);
@@ -2822,7 +2844,9 @@ L_OP_SWAP_MEAS_INTERFERE_FORCED:
             case Opcode::OP_INSTRUMENT_DORMANT_STATIC:
             case Opcode::OP_INSTRUMENT_EXPAND:
             case Opcode::OP_INSTRUMENT_DORMANT_NEGLECT:
-                exec_instrument(state, program.constant_pool, instr);
+                if (!exec_instrument(state, program.constant_pool, instr)) {
+                    return;  // resumable trap: state.pending_trap is set
+                }
                 break;
         }
     }
