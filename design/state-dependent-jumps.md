@@ -339,16 +339,21 @@ main = cache.main_line(model)                 # compiled once per model
 for shot:
     state = init(shot_seed)
     preload initial computational levels       # Pauli-frame preload, no recompile
-    result = execute(main, state)
-    while result is Trap(site, source):
-        dest    = draw destination from column(source)          # host RNG
+    execute(main, state)
+    while state.pending_trap is Trap(site, source, destination_pending):
+        if destination_pending:                # neglect-form site: the VM drew
+            dest = draw from column(source)    #   nothing; full column, computational
+        else:                                  #   destinations included (host RNG)
+            dest = draw from trap remainder    # class already drawn leaked/lost; only
+                   of column(source)           #   the level remains (host RNG)
         events  = sample classical-source follow-ons (seepage,  # host RNG,
                   restore) over the remaining ops               # existing sampler
         key     = (site, dest, events)
         module, offset = cache.get_or_compile(key)
             # rewrite(circuit, statuses) on ops after site  — existing rewriter:
-            # drops, trace-out R, carrier materialization, classifier handling
-        result = resume(module, state, offset)
+            # drops, trace-out R (forced to `source` at a neglect-form site),
+            # carrier materialization, classifier handling
+        resume(module, state, offset)          # offset follows the trapped site
     emit records + status sidecar (from the trap chain)
 ```
 
