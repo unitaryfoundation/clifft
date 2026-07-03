@@ -10,6 +10,7 @@
 #include "clifft/noncomp/status_step.h"
 #include "clifft/noncomp/transition_instrument.h"
 #include "clifft/optimizer/pass_factory.h"
+#include "clifft/optimizer/pass_registry.h"
 #include "clifft/svm/svm.h"
 #include "clifft/svm/svm_math.h"
 #include "clifft/util/xoshiro.h"
@@ -21,6 +22,7 @@
 #include <optional>
 #include <stdexcept>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace clifft {
@@ -267,6 +269,83 @@ void check_max_rank(const CompiledModule& module, std::optional<uint32_t> max_ra
         "; consider damping=\"neglect\" for high-rate sites or a larger max_rank");
 }
 
+// The exact-mode HIR pipeline: the defaults minus the statevector
+// squeeze. Squeeze reorders commuting measurements, which is
+// exchangeable under sampling semantics but not once a continuation's
+// trace-out is forced -- an entangled partner must not measure before
+// the forced collapse it is correlated with. One pipeline serves every
+// module in the mode, so prefix identity is preserved; the squeezed
+// rank compaction is a performance loss the validation campaign's
+// table will quantify.
+HirPassManager exact_hir_pass_manager() {
+    HirPassManager pm;
+    for (const auto& info : kRegisteredPasses) {
+        if (info.kind == PassKind::HIR && info.default_enabled &&
+            std::string_view(info.name) != "StatevectorSqueezePass") {
+            pm.add_pass(info.make_hir());
+        }
+    }
+    return pm;
+}
+
+// The forced-outcome twin of a sampling measurement opcode, or
+// NUM_OPCODES when the opcode is not a sampling measurement.
+Opcode forced_twin(Opcode op) {
+    switch (op) {
+        case Opcode::OP_MEAS_DORMANT_STATIC:
+            return Opcode::OP_MEAS_DORMANT_STATIC_FORCED;
+        case Opcode::OP_MEAS_DORMANT_RANDOM:
+            return Opcode::OP_MEAS_DORMANT_RANDOM_FORCED;
+        case Opcode::OP_MEAS_ACTIVE_DIAGONAL:
+            return Opcode::OP_MEAS_ACTIVE_DIAGONAL_FORCED;
+        case Opcode::OP_MEAS_ACTIVE_INTERFERE:
+            return Opcode::OP_MEAS_ACTIVE_INTERFERE_FORCED;
+        case Opcode::OP_SWAP_MEAS_INTERFERE:
+            return Opcode::OP_SWAP_MEAS_INTERFERE_FORCED;
+        default:
+            return Opcode::NUM_OPCODES;
+    }
+}
+
+// Swap the trace-out's hidden measurement at `slot` to its forced twin,
+// so resume() collapses the trapped carrier to the source the trap
+// reported (read from state.forced_record[slot]) instead of redrawing.
+// Slot indices ride inside instruction payloads and are never renumbered
+// by bytecode passes, so the slot is the durable identity here.
+void swap_traceout_to_forced(CompiledModule& module, size_t slot) {
+    size_t found = 0;
+    for (Instruction& instr : module.bytecode) {
+        const Opcode twin = forced_twin(instr.opcode);
+        if (twin == Opcode::NUM_OPCODES) {
+            continue;
+        }
+        if (instr.classical.classical_idx == slot) {
+            instr.opcode = twin;
+            ++found;
+        }
+    }
+    if (found != 1) {
+        throw std::logic_error("sample_noncomputational: the forced trace-out slot matched " +
+                               std::to_string(found) +
+                               " measurement instructions; expected exactly one");
+    }
+}
+
+// Instructions equal up to the sampling <-> forced opcode swap: the one
+// sanctioned prefix difference between a continuation's fresh compile and
+// the executed module it must otherwise match byte for byte.
+bool equal_modulo_forced_swap(const Instruction& fresh, const Instruction& executed) {
+    if (std::memcmp(&fresh, &executed, sizeof(Instruction)) == 0) {
+        return true;
+    }
+    if (forced_twin(fresh.opcode) != executed.opcode) {
+        return false;
+    }
+    Instruction swapped = fresh;
+    swapped.opcode = executed.opcode;
+    return std::memcmp(&swapped, &executed, sizeof(Instruction)) == 0;
+}
+
 }  // namespace
 
 NonComputationalSample sample_noncomputational_exact(const Circuit& circuit,
@@ -326,10 +405,13 @@ NonComputationalSample sample_noncomputational_exact(const Circuit& circuit,
                 }
             }
             HirModule hir = trace(patched, &instrument_options);
-            default_hir_pass_manager().run(hir);
+            exact_hir_pass_manager().run(hir);
             CompiledModule module = lower(hir);
             default_bytecode_pass_manager().run(module);
             check_max_rank(module, max_rank);
+            if (entry.rw.forced_traceout_slot != SIZE_MAX) {
+                swap_traceout_to_forced(module, entry.rw.forced_traceout_slot);
+            }
 #ifndef NDEBUG
             // Re-entry contract: the continuation's prefix must be
             // bit-identical to the code the shot already executed. A
@@ -339,8 +421,8 @@ NonComputationalSample sample_noncomputational_exact(const Circuit& circuit,
                 assert(prefix_end <= module.bytecode.size() &&
                        prefix_end <= executed_prefix_module->bytecode.size());
                 for (uint32_t i = 0; i < prefix_end; ++i) {
-                    assert(std::memcmp(&module.bytecode[i], &executed_prefix_module->bytecode[i],
-                                       sizeof(Instruction)) == 0 &&
+                    assert(equal_modulo_forced_swap(module.bytecode[i],
+                                                    executed_prefix_module->bytecode[i]) &&
                            "continuation prefix diverged from the executed module");
                 }
             }
@@ -390,6 +472,11 @@ NonComputationalSample sample_noncomputational_exact(const Circuit& circuit,
             const QubitStatusKind kind = events.initial_status.back().kind();
             any_noncomp_initial |= kind == QubitStatusKind::Leaked || kind == QubitStatusKind::Lost;
         }
+
+        // Forced-outcome buffer for neglect-form trace-outs, one entry
+        // per hidden slot the chain forces; reset() clears the state's
+        // span each shot.
+        std::vector<uint8_t> forced_buffer;
 
         // Herald flags accumulate per visible slot across the shot's
         // trap chain: a slot's flag is drawn once, when its classified
@@ -459,22 +546,19 @@ NonComputationalSample sample_noncomputational_exact(const Circuit& circuit,
             const AstNode& node = annotated.nodes[op_index];
             const AnnotationChannel channel = resolve_annotation(node, model, op_index);
 
-            // The correlated continuation for a neglect-form trap (the
-            // forced-to-source trace-out) is not wired yet; the guard
-            // keeps the decorrelated behavior from running silently.
-            if (trap.destination_pending) {
-                throw std::invalid_argument(
-                    "sample_noncomputational: a neglect-form site fired; the correlated "
-                    "continuation for damping=\"neglect\" is not wired yet -- use "
-                    "damping=\"exact\" (the default)");
-            }
-
-            // Destination: the class is already drawn as leaked/lost, so
-            // only the level within the trap remainder remains. (A
-            // pending destination would draw over the full column.)
+            // Destination: at a neglect-form site nothing was drawn, so
+            // the host draws over the full column (computational
+            // destinations included); elsewhere the class is already
+            // leaked/lost and only the level within the trap remainder
+            // remains.
             uint8_t dest;
             if (channel.instrument == nullptr) {
                 dest = channel.lost_level;
+            } else if (trap.destination_pending) {
+                const double total = channel.instrument->column_sum(trap.source);
+                dest = draw_from_column(
+                    *channel.instrument, trap.source, total, host_rng, [](uint8_t) { return true; },
+                    levels.size());
             } else {
                 double remainder = 0.0;
                 for (uint8_t to = 0; to < levels.size(); ++to) {
@@ -493,10 +577,26 @@ NonComputationalSample sample_noncomputational_exact(const Circuit& circuit,
             events.jumps.push_back({op_index, qubit, dest});
             final_status = extend_classical_outcomes(annotated, events, model, host_rng);
 
+            // A neglect-form trap hands its carrier over uncollapsed; the
+            // continuation's trace-out is forced to the reported source,
+            // read from forced_record at the slot the rewrite names. The
+            // forced value is per-shot runtime state, so the module stays
+            // source-independent.
+            const bool force = trap.destination_pending;
             const uint32_t prefix_end = module->instrument_offsets[trap.site_id] + 1;
-            ContinuationEntry& next_entry = get_entry(events, false);
+            ContinuationEntry& next_entry = get_entry(events, force);
             CompiledModule* next_module =
                 get_module(next_entry, flags_for(next_entry.rw), module, prefix_end);
+
+            if (force) {
+                const size_t slot = next_entry.rw.forced_traceout_slot;
+                if (forced_buffer.size() <= slot) {
+                    forced_buffer.resize(slot + 1, 0);
+                }
+                forced_buffer[slot] = trap.source;
+                // The span must be re-pointed after any resize.
+                state.forced_record = forced_buffer;
+            }
 
             entry = &next_entry;
             module = next_module;

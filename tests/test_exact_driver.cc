@@ -213,16 +213,64 @@ TEST_CASE("exact: max_rank rejects an over-budget compile naming the line") {
         ContainsSubstring("exceeds max_rank 2") && ContainsSubstring("circuit line"));
 }
 
-TEST_CASE("exact: a neglect-form trap is guarded until the correlated continuation lands") {
+TEST_CASE("exact: a neglect-form trap keeps the fire-side correlation") {
+    // The decisive pin for the forced trace-out. Qubit 0 is Bell-entangled
+    // with qubit 1 and dormant-random at the site; under neglect the fire
+    // traps with the carrier uncollapsed. The channel is certain but
+    // source-dependent in its destination (g -> leak_g, e -> leak_e), and
+    // the classifier maps those levels to 0 and 1 -- so the classified
+    // M 0 *is* the reported source, and the partner's M 1 must equal it
+    // on every shot, because the continuation's trace-out is forced to
+    // that same source. Independent redraw would mismatch half the time.
+    LevelSet levels = LevelSet::default_set();
+    std::vector<std::vector<double>> leak(5, std::vector<double>(5, 0.0));
+    leak[kLeakG][0] = 1.0;  // from g: leak_g, certainly
+    leak[kLeak][1] = 1.0;   // from e: leak_e, certainly
+
+    ClassifierSpec classifier;
+    classifier.symbols = {"0", "1"};
+    classifier.matrix = {{1.0, 0.0, 1.0, 0.0, 1.0},   // leak_g reads 0
+                         {0.0, 1.0, 0.0, 1.0, 0.0}};  // leak_e reads 1
+
+    NonComputationalPolicy policy;
+    policy.unknown_source_policy = UnknownSourcePolicy::Exact;
+    policy.lost_leaked_ops = LostLeakedOpsPolicy::Drop;
+    policy.damping = DampingPolicy::Neglect;
+    auto model = NonComputationalModel::from_spec(levels, {1.0, 0.0, 0.0, 0.0, 0.0},
+                                                  {{"leak", leak}}, classifier, policy);
+
+    auto circuit = parse("H 0\nCX 0 1\nLEVEL_TRANSITION[leak] 0\nM 0\nM 1");
+    auto result = sample_noncomputational(circuit, model, 100, 29);
+
+    bool saw_zero = false;
+    bool saw_one = false;
+    for (uint32_t shot = 0; shot < 100; ++shot) {
+        const uint8_t classified = result.measurements[shot * 2];
+        const uint8_t partner = result.measurements[shot * 2 + 1];
+        REQUIRE(classified == partner);
+        (classified == 0 ? saw_zero : saw_one) = true;
+    }
+    REQUIRE(saw_zero);
+    REQUIRE(saw_one);
+}
+
+TEST_CASE("exact: neglect keeps rank flat while the exact default expands") {
     ModelSpec spec;
-    spec.leak_from_e = 1.0;
-    spec.leak_from_g = 0.5;
+    spec.leak_from_e = 0.3;  // source-dependent: the damp is non-scalar
     spec.damping = DampingPolicy::Neglect;
     auto model = make_model(spec);
-    auto circuit = parse("H 0\nLEVEL_TRANSITION[leak] 0\nM 0");
+    auto circuit = parse("H 0\nLEVEL_TRANSITION[leak] 0\nH 0\nM 0");
 
-    REQUIRE_THROWS_WITH(sample_noncomputational(circuit, model, 20, 29),
-                        ContainsSubstring("neglect-form site fired"));
+    // max_rank 0 admits the neglect compile (no expansion) and would
+    // reject the exact-damping one (which adds one at the site).
+    auto result = sample_noncomputational(circuit, model, 50, 37, /*max_rank=*/0);
+    REQUIRE(result.measurements.size() == 50);
+
+    ModelSpec exact_spec = spec;
+    exact_spec.damping = DampingPolicy::Exact;
+    REQUIRE_THROWS_WITH(
+        sample_noncomputational(circuit, make_model(exact_spec), 50, 37, /*max_rank=*/0),
+        ContainsSubstring("exceeds max_rank 0"));
 }
 
 TEST_CASE("exact: ternary heralds ride the cache key") {
