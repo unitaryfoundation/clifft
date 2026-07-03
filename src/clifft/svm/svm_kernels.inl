@@ -1975,9 +1975,10 @@ static inline void exec_readout_noise(SchrodingerState& state, const ConstantPoo
 // leaked/lost destination is a resumable trap -- until the trap protocol
 // lands, it throws.
 
-// Destination of a fire from physical source s: computational level d
-// with probability p_dest[s][d] / p_total[s], else -1 for the trap
-// remainder.
+// Destination of a fire from physical source s: a computational level d
+// in {0, 1} with probability p_dest[s][d] / p_total[s] -- d != s is a
+// |0> <-> |1> jump, d == s a jump onto the source's own level (pure
+// collapse, no fixup) -- else -1 for the leaked/lost trap remainder.
 static inline int draw_instrument_destination(SchrodingerState& state,
                                               const CompiledInstrumentSite& site, uint8_t source) {
     const double u = state.random_double() * site.p_total[source];
@@ -2000,7 +2001,8 @@ static inline int draw_instrument_destination(SchrodingerState& state,
 }
 
 // Destination fixup for an in-line computational fire whose destination
-// differs from its source: XOR the site's virtualized X_q into the frame.
+// differs from its source (a |0> <-> |1> jump): XOR the site's
+// virtualized X_q into the frame.
 static inline void apply_instrument_fixup(SchrodingerState& state, const ConstantPool& pool,
                                           const CompiledInstrumentSite& site) {
     auto mask = pool.instrument_fixup_masks.at(site.fixup_mask);

@@ -90,7 +90,7 @@ struct ReadoutNoiseEntry {
 enum class ReadoutNoiseIdx : uint32_t {};
 
 /// Index into HirModule::instrument_sites side-table. The index doubles as
-/// the site's stable id: instruments are optimization fences, so no pass
+/// the site's stable id: instruments are optimization barriers, so no pass
 /// reorders or renumbers them, and the compiled module's site -> bytecode
 /// offset table is keyed by this index.
 enum class InstrumentSiteIdx : uint32_t {};
@@ -102,8 +102,10 @@ inline constexpr PauliMaskHandle kNoMask = static_cast<PauliMaskHandle>(~uint32_
 // Instrument Sites
 // =============================================================================
 //
-// An InstrumentSite is one state-dependent jump site on one qubit: the
-// per-computational-source fire probabilities of a transition instrument,
+// An InstrumentSite is one state-dependent jump site on one qubit: a
+// transition from the noncomputational trajectory model (leakage, loss,
+// relaxation) whose firing probability depends on the qubit's
+// computational level. It carries the per-source fire probabilities,
 // split into computational-destination jumps (resolved in-line by the VM)
 // and the leaked/lost remainder (a resumable trap). The op's Pauli mask is
 // the source projector Z_q rewound through the trace tableau, exactly like
@@ -132,8 +134,9 @@ struct InstrumentSite {
     double damp[2] = {1.0, 1.0};
 
     // Under damping="neglect", a dormant-random site skips the expansion
-    // and applies no no-fire back-action (design/state-dependent-jumps.md
-    // section 4.6). Baked in at materialization from the model policy.
+    // and applies no no-fire back-action (see DampingPolicy in
+    // noncomp/policy.h). Baked in at materialization from the model
+    // policy.
     bool neglect_damping = false;
 
     // Source-independent total rate: the no-fire damp is a scalar and the

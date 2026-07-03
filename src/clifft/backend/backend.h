@@ -73,11 +73,15 @@ enum class Opcode : uint8_t {
     OP_MEAS_ACTIVE_INTERFERE_FORCED,
     OP_SWAP_MEAS_INTERFERE_FORCED,
 
-    // Instrument sites (state-dependent jumps). Each variant evaluates the
-    // site's fire branch at runtime against the live state; the payload
-    // carries the axis, the ConstantPool::instrument_sites index, and (for
-    // the damping variants) the damp coefficients. Selected by the same
-    // localized-basis classification that picks measurement opcodes.
+    // Instrument sites: state-dependent jump channels from the
+    // noncomputational trajectory model -- transitions such as leakage,
+    // loss, or relaxation whose firing probability depends on which
+    // computational level (|0> or |1>) the qubit occupies, so the fire
+    // branch must be evaluated at runtime against the live state. The
+    // payload carries the axis, the ConstantPool::instrument_sites index,
+    // and (for the damping variants) the damp coefficients. Selected by
+    // the same localized-basis classification that picks measurement
+    // opcodes.
     OP_INSTRUMENT_ACTIVE,           // Fused damp+eval on an active axis (any axis)
     OP_INSTRUMENT_DORMANT_STATIC,   // Frame-deterministic source: Bernoulli fire
     OP_INSTRUMENT_EXPAND,           // Fused expand+damp (k -> k+1), damping="exact"
