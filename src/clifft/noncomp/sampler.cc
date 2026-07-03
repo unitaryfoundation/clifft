@@ -137,6 +137,24 @@ TransitionOutcome consult_transition(const TransitionInstrument& instrument,
 
 }  // namespace
 
+uint8_t draw_initial_level(const NonComputationalModel& model, Xoshiro256PlusPlus& rng) {
+    const size_t num_levels = model.levels().size();
+    const double u = rng.next_double();
+    double acc = 0.0;
+    int last_positive = 0;
+    for (uint8_t l = 0; l < num_levels; ++l) {
+        const double p = model.initial_probability(l);
+        if (p > 0.0) {
+            last_positive = l;
+        }
+        acc += p;
+        if (u < acc) {
+            return l;
+        }
+    }
+    return static_cast<uint8_t>(last_positive);
+}
+
 HistorySample sample_history(const Circuit& circuit, const NonComputationalModel& model,
                              uint64_t seed) {
     const LevelSet& levels = model.levels();
@@ -149,29 +167,9 @@ HistorySample sample_history(const Circuit& circuit, const NonComputationalModel
     result.history.initial_status.reserve(circuit.num_qubits);
 
     // Sample each qubit's initial level independently from the shared
-    // initial-state distribution. The last level with positive probability
-    // catches any floating-point tail so a draw always resolves to a level
-    // the distribution can actually produce.
+    // initial-state distribution.
     for (uint32_t q = 0; q < circuit.num_qubits; ++q) {
-        const double u = rng.next_double();
-        double acc = 0.0;
-        int last_positive = 0;
-        int chosen = -1;
-        for (uint8_t l = 0; l < num_levels; ++l) {
-            const double p = model.initial_probability(l);
-            if (p > 0.0) {
-                last_positive = l;
-            }
-            acc += p;
-            if (u < acc) {
-                chosen = l;
-                break;
-            }
-        }
-        if (chosen < 0) {
-            chosen = last_positive;
-        }
-        result.history.initial_status.push_back(levels.status_for(static_cast<uint8_t>(chosen)));
+        result.history.initial_status.push_back(levels.status_for(draw_initial_level(model, rng)));
     }
 
     std::vector<QubitStatus> status = result.history.initial_status;

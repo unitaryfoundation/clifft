@@ -21,6 +21,15 @@ namespace clifft {
 enum class UnknownSourcePolicy : uint8_t {
     Reject = 0,
     EqualizeRates = 1,
+
+    // Exact: transition firing moves to runtime. The circuit compiles
+    // once with every annotation materialized as an instrument site; fire
+    // probabilities are evaluated on the live state, and a fire that
+    // cannot resolve in-line traps to the driver, which recompiles the
+    // remaining circuit under the now-known status and resumes. Exact for
+    // every source context; see DampingPolicy for the one knob that
+    // trades exactness for rank at dormant-random sites.
+    Exact = 2,
 };
 
 // Policy for operations touching a leaked or lost operand that have no

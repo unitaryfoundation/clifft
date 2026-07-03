@@ -5,6 +5,7 @@
 #include "clifft/frontend/hir.h"
 #include "clifft/noncomp/annotate.h"
 #include "clifft/noncomp/classifier.h"
+#include "clifft/noncomp/exact_driver.h"
 #include "clifft/noncomp/rewriter.h"
 #include "clifft/noncomp/sampler.h"
 #include "clifft/optimizer/pass_factory.h"
@@ -67,7 +68,8 @@ CompiledModule compile_circuit(const Circuit& circuit) {
 
 NonComputationalSample sample_noncomputational(const Circuit& circuit,
                                                const NonComputationalModel& model, uint32_t shots,
-                                               std::optional<uint64_t> seed) {
+                                               std::optional<uint64_t> seed,
+                                               std::optional<uint32_t> max_rank) {
     NonComputationalSample result;
     result.shots = shots;
     result.num_qubits = circuit.num_qubits;
@@ -93,6 +95,10 @@ NonComputationalSample sample_noncomputational(const Circuit& circuit,
         Xoshiro256PlusPlus entropy;
         entropy.seed_from_entropy();
         global_seed = entropy();
+    }
+
+    if (model.policy().unknown_source_policy == UnknownSourcePolicy::Exact) {
+        return sample_noncomputational_exact(circuit, model, shots, global_seed, max_rank);
     }
 
     const MeasurementClassifier* classifier = model.classifier();

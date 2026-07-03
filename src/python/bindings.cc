@@ -70,17 +70,19 @@ void register_noncomp(nb::module_& m) {
            std::optional<std::vector<std::string>> classifier_symbols,
            std::optional<std::vector<std::vector<double>>> classifier_matrix,
            bool reset_restores_lost, const std::string& unknown_source_policy,
-           const std::string& lost_leaked_ops) {
+           const std::string& lost_leaked_ops, const std::string& damping) {
             clifft::NonComputationalPolicy policy;
             policy.reset_restores_lost = reset_restores_lost;
             if (unknown_source_policy == "reject") {
                 policy.unknown_source_policy = clifft::UnknownSourcePolicy::Reject;
             } else if (unknown_source_policy == "equalize_rates") {
                 policy.unknown_source_policy = clifft::UnknownSourcePolicy::EqualizeRates;
+            } else if (unknown_source_policy == "exact") {
+                policy.unknown_source_policy = clifft::UnknownSourcePolicy::Exact;
             } else {
                 throw std::invalid_argument(
-                    "noncomp model: unknown_source_policy must be 'reject' or 'equalize_rates', "
-                    "got '" +
+                    "noncomp model: unknown_source_policy must be 'reject', 'equalize_rates', "
+                    "or 'exact', got '" +
                     unknown_source_policy + "'");
             }
             if (lost_leaked_ops == "reject") {
@@ -91,6 +93,14 @@ void register_noncomp(nb::module_& m) {
                 throw std::invalid_argument(
                     "noncomp model: lost_leaked_ops must be 'reject' or 'drop', got '" +
                     lost_leaked_ops + "'");
+            }
+            if (damping == "exact") {
+                policy.damping = clifft::DampingPolicy::Exact;
+            } else if (damping == "neglect") {
+                policy.damping = clifft::DampingPolicy::Neglect;
+            } else {
+                throw std::invalid_argument(
+                    "noncomp model: damping must be 'exact' or 'neglect', got '" + damping + "'");
             }
 
             std::optional<clifft::ClassifierSpec> spec;
@@ -110,18 +120,18 @@ void register_noncomp(nb::module_& m) {
         nb::arg("initial_state"), nb::arg("transitions"),
         nb::arg("classifier_symbols") = nb::none(), nb::arg("classifier_matrix") = nb::none(),
         nb::arg("reset_restores_lost") = false, nb::arg("unknown_source_policy") = "reject",
-        nb::arg("lost_leaked_ops") = "reject",
+        nb::arg("lost_leaked_ops") = "reject", nb::arg("damping") = "exact",
         "Build a default 5-level NonComputationalModel from raw matrices. See "
         "clifft.noncomp.Model.");
 
     m.def(
         "_sample_noncomputational",
         [](const clifft::Circuit& circuit, const clifft::NonComputationalModel& model,
-           uint32_t shots, std::optional<uint64_t> seed) {
+           uint32_t shots, std::optional<uint64_t> seed, std::optional<uint32_t> max_rank) {
             clifft::NonComputationalSample r;
             {
                 nb::gil_scoped_release release;
-                r = clifft::sample_noncomputational(circuit, model, shots, seed);
+                r = clifft::sample_noncomputational(circuit, model, shots, seed, max_rank);
             }
             // Collapse per-qubit final status to {0 computational, 1 leaked,
             // 2 lost}; the internal known/unknown computational split is not
@@ -149,6 +159,7 @@ void register_noncomp(nb::module_& m) {
                                   r.num_detectors, r.num_observables);
         },
         nb::arg("circuit"), nb::arg("model"), nb::arg("shots"), nb::arg("seed") = nb::none(),
+        nb::arg("max_rank") = nb::none(),
         "Sample a noncomputational model. Returns (measurements, detectors, observables, "
         "final_status, heralds, num_qubits, num_measurements, num_detectors, num_observables).");
 }

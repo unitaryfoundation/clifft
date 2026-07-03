@@ -152,6 +152,7 @@ NonComputationalModel::NonComputationalModel(
     switch (policy_.unknown_source_policy) {
         case UnknownSourcePolicy::Reject:
         case UnknownSourcePolicy::EqualizeRates:
+        case UnknownSourcePolicy::Exact:
             break;
         default:
             throw std::invalid_argument(

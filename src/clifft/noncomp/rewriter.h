@@ -63,6 +63,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <utility>
 #include <vector>
 
 namespace clifft {
@@ -164,6 +165,16 @@ struct ContinuationRewrite {
     // no forcing is needed (the runtime already collapsed the carrier, or
     // the jump landed computationally).
     size_t forced_traceout_slot = SIZE_MAX;
+
+    // Annotation target of each kept (runtime-instrument) site, in
+    // emission order -- which is trace()'s materialization order, so the
+    // vector maps a trap's site_id to its (op_index, qubit) in the
+    // annotated circuit's coordinates.
+    std::vector<std::pair<uint32_t, uint32_t>> site_targets;
+
+    // Every qubit's status at the end of the walk: the shot's final
+    // statuses once execution reaches the end of this continuation.
+    std::vector<QubitStatus> final_status;
 };
 
 // Rewrite `annotated` (the hook-expanded circuit the main line was

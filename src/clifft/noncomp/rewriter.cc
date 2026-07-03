@@ -466,6 +466,7 @@ ContinuationRewrite rewrite_continuation(const Circuit& annotated, const ExactSh
                 // Quantum source: the annotation stays a runtime instrument.
                 // Split multi-target nodes so a sibling target with a
                 // classical status is not re-materialized.
+                result.site_targets.emplace_back(op_index, qubit);
                 out.nodes.push_back(
                     AstNode{gate, {Target::qubit(qubit)}, node.args, node.source_line, node.tag});
 
@@ -532,6 +533,7 @@ ContinuationRewrite rewrite_continuation(const Circuit& annotated, const ExactSh
         result.forced_traceout_slot = annotated.num_measurements + hidden_before;
     }
 
+    result.final_status = std::move(status);
     return result;
 }
 

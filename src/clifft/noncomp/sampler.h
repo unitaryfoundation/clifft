@@ -18,6 +18,7 @@
 #include "clifft/noncomp/history.h"
 #include "clifft/noncomp/model.h"
 #include "clifft/noncomp/qubit_status.h"
+#include "clifft/util/xoshiro.h"
 
 #include <cstdint>
 #include <vector>
@@ -37,6 +38,13 @@ struct HistorySample {
 // transition firing on a ComputationalUnknown qubit, naming the operation,
 // qubit, and gate. Under EqualizeRates that case is sampled with the
 // equalized-rates approximation instead (see policy.h).
+// Draw one qubit's initial level from the model's shared initial-state
+// distribution, with the last positive level catching the floating-point
+// tail so a draw always resolves to a level the distribution can produce.
+// Shared by the AOT history sampler and the exact-mode driver so the two
+// paths sample initials identically.
+uint8_t draw_initial_level(const NonComputationalModel& model, Xoshiro256PlusPlus& rng);
+
 HistorySample sample_history(const Circuit& circuit, const NonComputationalModel& model,
                              uint64_t seed);
 
