@@ -1,12 +1,13 @@
 #include "clifft/noncomp/classifier.h"
 #include "clifft/noncomp/level.h"
 
+#include "test_helpers.h"
+
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/matchers/catch_matchers.hpp>
 #include <catch2/matchers/catch_matchers_floating_point.hpp>
 #include <catch2/matchers/catch_matchers_string.hpp>
 #include <cmath>
-#include <limits>
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -15,6 +16,8 @@ using Catch::Matchers::ContainsSubstring;
 using Catch::Matchers::WithinAbs;
 using clifft::LevelSet;
 using clifft::MeasurementClassifier;
+using clifft::test::opaque_infinity;
+using clifft::test::opaque_nan;
 
 namespace {
 
@@ -124,7 +127,7 @@ TEST_CASE("MeasurementClassifier: rejects entry above 1") {
 TEST_CASE("MeasurementClassifier: rejects NaN entry") {
     LevelSet levels = LevelSet::default_set();
     std::vector<std::vector<double>> m = default_identity_matrix();
-    m[0][0] = std::numeric_limits<double>::quiet_NaN();
+    m[0][0] = opaque_nan();
     REQUIRE_THROWS_WITH(MeasurementClassifier::from_matrix({"0", "1"}, std::move(m), levels),
                         ContainsSubstring("not finite") || ContainsSubstring("out of [0, 1]"));
 }
@@ -132,7 +135,7 @@ TEST_CASE("MeasurementClassifier: rejects NaN entry") {
 TEST_CASE("MeasurementClassifier: rejects infinity entry") {
     LevelSet levels = LevelSet::default_set();
     std::vector<std::vector<double>> m = default_identity_matrix();
-    m[0][0] = std::numeric_limits<double>::infinity();
+    m[0][0] = opaque_infinity();
     REQUIRE_THROWS_AS(MeasurementClassifier::from_matrix({"0", "1"}, std::move(m), levels),
                       std::invalid_argument);
 }

@@ -18,6 +18,8 @@
 #include <complex>
 #include <cstddef>
 #include <cstdint>
+#include <cstring>
+#include <limits>
 #include <numbers>
 #include <span>
 #include <string>
@@ -131,6 +133,30 @@ inline std::pair<uint64_t, uint64_t> pauli_masks(const std::string& pauli) {
 inline uint64_t test_lcg(uint64_t& seed) {
     seed = seed * 6364136223846793005ULL + 1442695040888963407ULL;
     return seed;
+}
+
+// Nonfinite test inputs. Release builds use -ffast-math, under which a
+// nonfinite floating-point *constant* in an expression is undefined
+// behavior (Clang's -Wnan-infinity-disabled) and optimizers really do
+// fold such constants to arbitrary values. Assemble the IEEE 754 bit
+// pattern behind a volatile instead, so a genuine NaN or infinity
+// reaches the code under test at runtime.
+static_assert(std::numeric_limits<double>::is_iec559,
+              "nonfinite test helpers require IEEE 754 doubles");
+inline double opaque_nonfinite(uint64_t bits) {
+    volatile uint64_t opaque_bits = bits;
+    const uint64_t materialized = opaque_bits;
+    double value;
+    std::memcpy(&value, &materialized, sizeof(value));
+    return value;
+}
+
+inline double opaque_nan() {
+    return opaque_nonfinite(0x7FF8000000000000ULL);
+}
+
+inline double opaque_infinity() {
+    return opaque_nonfinite(0x7FF0000000000000ULL);
 }
 
 // Check if two complex numbers are close (uses Catch2 CHECK_THAT).

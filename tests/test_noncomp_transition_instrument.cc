@@ -1,12 +1,13 @@
 #include "clifft/noncomp/level.h"
 #include "clifft/noncomp/transition_instrument.h"
 
+#include "test_helpers.h"
+
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/matchers/catch_matchers.hpp>
 #include <catch2/matchers/catch_matchers_floating_point.hpp>
 #include <catch2/matchers/catch_matchers_string.hpp>
 #include <cmath>
-#include <limits>
 #include <stdexcept>
 #include <vector>
 
@@ -14,6 +15,8 @@ using Catch::Matchers::ContainsSubstring;
 using Catch::Matchers::WithinAbs;
 using clifft::LevelSet;
 using clifft::TransitionInstrument;
+using clifft::test::opaque_infinity;
+using clifft::test::opaque_nan;
 
 namespace {
 
@@ -80,7 +83,7 @@ TEST_CASE("TransitionInstrument: rejects column sum above 1") {
 TEST_CASE("TransitionInstrument: rejects NaN entry") {
     LevelSet levels = LevelSet::default_set();
     std::vector<std::vector<double>> m = zero5();
-    m[1][0] = std::numeric_limits<double>::quiet_NaN();
+    m[1][0] = opaque_nan();
     REQUIRE_THROWS_WITH(TransitionInstrument::from_matrix(std::move(m), levels),
                         ContainsSubstring("not finite") || ContainsSubstring("out of [0, 1]"));
 }
@@ -88,7 +91,7 @@ TEST_CASE("TransitionInstrument: rejects NaN entry") {
 TEST_CASE("TransitionInstrument: rejects positive infinity entry") {
     LevelSet levels = LevelSet::default_set();
     std::vector<std::vector<double>> m = zero5();
-    m[1][0] = std::numeric_limits<double>::infinity();
+    m[1][0] = opaque_infinity();
     REQUIRE_THROWS_AS(TransitionInstrument::from_matrix(std::move(m), levels),
                       std::invalid_argument);
 }

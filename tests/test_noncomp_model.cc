@@ -5,12 +5,13 @@
 #include "clifft/noncomp/policy.h"
 #include "clifft/noncomp/transition_instrument.h"
 
+#include "test_helpers.h"
+
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/matchers/catch_matchers.hpp>
 #include <catch2/matchers/catch_matchers_floating_point.hpp>
 #include <catch2/matchers/catch_matchers_string.hpp>
 #include <cmath>
-#include <limits>
 #include <map>
 #include <optional>
 #include <stdexcept>
@@ -26,6 +27,7 @@ using clifft::NonComputationalModel;
 using clifft::NonComputationalPolicy;
 using clifft::TransitionInstrument;
 using clifft::UnknownSourcePolicy;
+using clifft::test::opaque_nan;
 
 namespace {
 
@@ -162,7 +164,7 @@ TEST_CASE("NonComputationalModel: rejects initial state entry out of [0, 1]") {
 }
 
 TEST_CASE("NonComputationalModel: rejects NaN initial state entry") {
-    const double nan = std::numeric_limits<double>::quiet_NaN();
+    const double nan = opaque_nan();
     REQUIRE_THROWS_WITH(NonComputationalModel(two_level_set(), {nan, 1.0}, {}, std::nullopt,
                                               NonComputationalPolicy{}),
                         ContainsSubstring("not finite"));
