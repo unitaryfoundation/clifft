@@ -368,6 +368,15 @@ size_t count_pauli_masks(const Circuit& circuit) {
             case GateType::MPP:
                 count += 1;
                 break;
+            case GateType::LEVEL_TRANSITION:
+            case GateType::LOSS:
+                // Two masks per materialized instrument site: the rewound
+                // source projector on the op, and the rewound X fixup in
+                // the side-table. Counted unconditionally: without
+                // instrument options these gates reject before claiming,
+                // and an over-sized arena is harmless.
+                count += 2 * n_targets;
+                break;
             case GateType::R:
             case GateType::RX:
             case GateType::RY:
@@ -392,7 +401,7 @@ size_t count_pauli_masks(const Circuit& circuit) {
 
 }  // namespace
 
-HirModule trace(const Circuit& circuit) {
+HirModule trace(const Circuit& circuit, const InstrumentTraceOptions* instruments) {
     // The downstream VM uses uint16_t axis operands, so anything above
     // 65536 cannot be lowered. Reject early to avoid the cost of
     // allocating a Stim TableauSimulator (~O(n^2) bits) we'll discard.
@@ -741,11 +750,67 @@ HirModule trace(const Circuit& circuit) {
             }
 
             case GateType::LEVEL_TRANSITION:
-            case GateType::LOSS:
-                throw std::runtime_error(
-                    std::string(gate_name(node.gate)) +
-                    " is a noncomputational annotation; run the circuit through "
-                    "sample_noncomputational instead of compiling it directly");
+            case GateType::LOSS: {
+                if (instruments == nullptr) {
+                    throw std::runtime_error(
+                        std::string(gate_name(node.gate)) +
+                        " is a noncomputational annotation; run the circuit through "
+                        "sample_noncomputational instead of compiling it directly");
+                }
+                for (const auto& target : node.targets) {
+                    const uint32_t qubit = target.value();
+                    InstrumentSite site;
+                    site.qubit = qubit;
+                    site.source_line = node.source_line;
+                    site.neglect_damping = instruments->neglect_damping;
+                    if (node.gate == GateType::LOSS) {
+                        // Uniform loss: source-independent rate, destination
+                        // entirely the trap remainder.
+                        const double p = node.args.empty() ? 0.0 : node.args[0];
+                        site.p_total[0] = p;
+                        site.p_total[1] = p;
+                    } else {
+                        const auto it = instruments->transitions.find(node.tag);
+                        if (it == instruments->transitions.end()) {
+                            throw std::runtime_error(
+                                "trace: LEVEL_TRANSITION[" + node.tag + "] at line " +
+                                std::to_string(node.source_line) +
+                                " does not name a transition in the instrument options");
+                        }
+                        const InstrumentSpec& spec = it->second;
+                        for (int s = 0; s < 2; ++s) {
+                            site.p_total[s] = spec.p_total[s];
+                            site.p_dest[s][0] = spec.p_dest[s][0];
+                            site.p_dest[s][1] = spec.p_dest[s][1];
+                        }
+                    }
+                    // A site that can never fire is the identity channel.
+                    if (site.p_total[0] == 0.0 && site.p_total[1] == 0.0) {
+                        continue;
+                    }
+                    site.damp[0] = std::sqrt(1.0 - site.p_total[0]);
+                    site.damp[1] = std::sqrt(1.0 - site.p_total[1]);
+
+                    // Destination fixup: the rewound X observable, stored
+                    // in the arena so downstream mask conjugation can
+                    // reach it through the side-table handle.
+                    site.fixup_mask = hir.claim_side_mask([&](MutablePauliMaskView slot) {
+                        bool sign;
+                        extract_rewound_x_into(sim, qubit, slot.x(), slot.z(), sign);
+                        slot.set_sign(sign);
+                    });
+
+                    const InstrumentSiteIdx site_idx{
+                        static_cast<uint32_t>(hir.instrument_sites.size())};
+                    hir.instrument_sites.push_back(site);
+                    hir.append_instrument(site_idx, [&](MutablePauliMaskView slot) {
+                        bool sign;
+                        extract_rewound_z_into(sim, qubit, slot.x(), slot.z(), sign);
+                        slot.set_sign(sign);
+                    });
+                }
+                break;
+            }
 
             case GateType::MPAD: {
                 for (const auto& target : node.targets) {

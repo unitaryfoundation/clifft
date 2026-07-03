@@ -34,6 +34,20 @@ enum class LostLeakedOpsPolicy : uint8_t {
     Drop = 1,
 };
 
+// Damping policy for exact-mode compilation at sites where the no-fire
+// back-action is genuinely non-Clifford (a source-dependent transition on
+// a dormant qubit with a random outcome). Exact expands the qubit into
+// the amplitude array (+1 to the circuit's k at that site) and applies
+// the damp there. Neglect keeps only the site's exact ingredients -- the
+// state-independent fire draw and the on-fire collapse -- and omits the
+// no-fire back-action, a pure survivorship tilt of order |p_g - p_e|
+// with no effect at all on source-independent sites. Sites where the
+// qubit is active or deterministic are exact under both settings.
+enum class DampingPolicy : uint8_t {
+    Exact = 0,
+    Neglect = 1,
+};
+
 struct NonComputationalPolicy {
     // When true, lost-qubit reset (R/RX/RY) restores the qubit to a
     // computational state. When false (default), lost-qubit reset
@@ -43,6 +57,8 @@ struct NonComputationalPolicy {
     UnknownSourcePolicy unknown_source_policy = UnknownSourcePolicy::Reject;
 
     LostLeakedOpsPolicy lost_leaked_ops = LostLeakedOpsPolicy::Reject;
+
+    DampingPolicy damping = DampingPolicy::Exact;
 };
 
 }  // namespace clifft

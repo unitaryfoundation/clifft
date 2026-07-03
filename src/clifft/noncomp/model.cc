@@ -165,6 +165,13 @@ NonComputationalModel::NonComputationalModel(
             throw std::invalid_argument(
                 "NonComputationalModel: unrecognized lost_leaked_ops value");
     }
+    switch (policy_.damping) {
+        case DampingPolicy::Exact:
+        case DampingPolicy::Neglect:
+            break;
+        default:
+            throw std::invalid_argument("NonComputationalModel: unrecognized damping value");
+    }
 }
 
 NonComputationalModel NonComputationalModel::from_spec(

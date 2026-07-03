@@ -410,7 +410,8 @@ NB_MODULE(_clifft_core, m) {
         .value("PHASE_ROTATION", clifft::OpType::PHASE_ROTATION)
         .value("DETECTOR", clifft::OpType::DETECTOR)
         .value("OBSERVABLE", clifft::OpType::OBSERVABLE)
-        .value("EXP_VAL", clifft::OpType::EXP_VAL);
+        .value("EXP_VAL", clifft::OpType::EXP_VAL)
+        .value("INSTRUMENT", clifft::OpType::INSTRUMENT);
 
     // Python view of a HeisenbergOp paired with the HirModule that owns its
     // mask data. Holds an nb::object ref to the module so the Python
@@ -748,6 +749,10 @@ NB_MODULE(_clifft_core, m) {
         .value("OP_MEAS_ACTIVE_DIAGONAL_FORCED", clifft::Opcode::OP_MEAS_ACTIVE_DIAGONAL_FORCED)
         .value("OP_MEAS_ACTIVE_INTERFERE_FORCED", clifft::Opcode::OP_MEAS_ACTIVE_INTERFERE_FORCED)
         .value("OP_SWAP_MEAS_INTERFERE_FORCED", clifft::Opcode::OP_SWAP_MEAS_INTERFERE_FORCED)
+        .value("OP_INSTRUMENT_ACTIVE", clifft::Opcode::OP_INSTRUMENT_ACTIVE)
+        .value("OP_INSTRUMENT_DORMANT_STATIC", clifft::Opcode::OP_INSTRUMENT_DORMANT_STATIC)
+        .value("OP_INSTRUMENT_EXPAND", clifft::Opcode::OP_INSTRUMENT_EXPAND)
+        .value("OP_INSTRUMENT_DORMANT_NEGLECT", clifft::Opcode::OP_INSTRUMENT_DORMANT_NEGLECT)
         .value("OP_APPLY_PAULI", clifft::Opcode::OP_APPLY_PAULI)
         .value("OP_NOISE", clifft::Opcode::OP_NOISE)
         .value("OP_NOISE_BLOCK", clifft::Opcode::OP_NOISE_BLOCK)

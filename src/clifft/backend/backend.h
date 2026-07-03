@@ -73,6 +73,20 @@ enum class Opcode : uint8_t {
     OP_MEAS_ACTIVE_INTERFERE_FORCED,
     OP_SWAP_MEAS_INTERFERE_FORCED,
 
+    // Instrument sites: state-dependent jump channels from the
+    // noncomputational trajectory model -- transitions such as leakage,
+    // loss, or relaxation whose firing probability depends on which
+    // computational level (|0> or |1>) the qubit occupies, so the fire
+    // branch must be evaluated at runtime against the live state. The
+    // payload carries the axis, the ConstantPool::instrument_sites index,
+    // and (for the damping variants) the damp coefficients. Selected by
+    // the same localized-basis classification that picks measurement
+    // opcodes.
+    OP_INSTRUMENT_ACTIVE,           // Fused damp+eval on an active axis (any axis)
+    OP_INSTRUMENT_DORMANT_STATIC,   // Frame-deterministic source: Bernoulli fire
+    OP_INSTRUMENT_EXPAND,           // Fused expand+damp (k -> k+1), damping="exact"
+    OP_INSTRUMENT_DORMANT_NEGLECT,  // Dormant-random, damping="neglect": every fire traps
+
     // Classical / Errors
     OP_APPLY_PAULI,    // XORs a full N-bit mask from ConstantPool into P
     OP_NOISE,          // Stochastic Pauli channel (rolls RNG, may apply Pauli)
@@ -156,6 +170,17 @@ struct alignas(32) Instruction {
             uint8_t _pad_g[16];       // Offset 16
         } exp_val;
 
+        // Variant H: Instrument site (OP_INSTRUMENT_*). r_g/r_e are the
+        // no-fire damp coefficients sqrt(1 - p_total[s]), physical order
+        // (the localization sign rides in FLAG_SIGN); unused by the
+        // dormant variants.
+        struct {
+            uint32_t cp_site_idx;  // Offset 8 (Index into ConstantPool::instrument_sites)
+            uint32_t _pad_h;       // Offset 12
+            double r_g;            // Offset 16
+            double r_e;            // Offset 24
+        } instrument;
+
         uint8_t raw[24];  // Full payload access
     };
 };
@@ -203,6 +228,8 @@ static_assert(sizeof(Instruction) == 32, "Instruction must be exactly 32 bytes")
 /// Strongly-typed flag for detector/postselect expected noiseless parity.
 enum class ExpectedParity : uint8_t { Zero = 0, One = 1 };
 
+[[nodiscard]] Instruction make_instrument(Opcode instrument_opcode, uint16_t axis,
+                                          uint32_t cp_site_idx, bool sign, double r_g, double r_e);
 [[nodiscard]] Instruction make_detector(uint32_t det_list_idx, uint32_t classical_idx,
                                         ExpectedParity expected);
 [[nodiscard]] Instruction make_postselect(uint32_t det_list_idx, uint32_t classical_idx,
@@ -252,6 +279,31 @@ struct FusedU4Node {
     Entry entries[16];  // Indexed by 4-bit incoming frame state
 };
 
+// Compiled instrument site: the fire-branch data the dispatcher reads only
+// when a fire is drawn (the hot no-fire path reads just the instruction
+// payload). Probabilities are physical (source/destination index 0 is the
+// |0> level); the localization sign lives on the instruction. site_id is
+// the HirModule::instrument_sites index and keys the compiled module's
+// instrument_offsets table and the trap protocol.
+struct CompiledInstrumentSite {
+    uint32_t site_id = 0;
+    uint32_t source_line = 0;
+    double p_total[2] = {0.0, 0.0};
+    double p_dest[2][2] = {{0.0, 0.0}, {0.0, 0.0}};
+
+    // Virtualized X_q at the site (handle into
+    // ConstantPool::instrument_fixup_masks): the destination fixup for an
+    // in-line computational fire whose destination differs from its
+    // source, XORed into the Pauli frame.
+    PauliMaskHandle fixup_mask{};
+
+    bool neglect_damping = false;
+
+    [[nodiscard]] double trap_remainder(int s) const {
+        return p_total[s] - p_dest[s][0] - p_dest[s][1];
+    }
+};
+
 struct ConstantPool {
     // Forward Clifford tableau at circuit end (for statevector expansion).
     // Computed as U_C = U_phys * V_cum^dag at end of compilation.
@@ -280,6 +332,11 @@ struct ConstantPool {
 
     // Readout noise entries for OP_READOUT_NOISE
     std::vector<ReadoutNoiseEntry> readout_noise;
+
+    // Instrument sites for OP_INSTRUMENT_*, and the arena holding their
+    // virtualized destination-fixup masks.
+    std::vector<CompiledInstrumentSite> instrument_sites;
+    PauliMaskArena instrument_fixup_masks;
 
     // Target lists for detector parity checks
     std::vector<std::vector<uint32_t>> detector_targets;
@@ -313,6 +370,8 @@ inline void assert_arena_widths_match(uint32_t num_qubits, const ConstantPool& p
            "exp_val_masks arena width does not match num_qubits");
     assert(pool.noise_channel_masks.num_words() == expected &&
            "noise_channel_masks arena width does not match num_qubits");
+    assert(pool.instrument_fixup_masks.num_words() == expected &&
+           "instrument_fixup_masks arena width does not match num_qubits");
 }
 
 // =============================================================================
@@ -338,6 +397,12 @@ struct CompiledModule {
     // expected_observables[i] before writing output.
     std::vector<uint8_t> expected_observables;
 
+    // Instrument site id -> bytecode index of that site's OP_INSTRUMENT_*
+    // instruction. A resumed continuation re-enters at the following
+    // instruction. Sized to the HIR's instrument site count; every entry
+    // is filled at emission.
+    std::vector<uint32_t> instrument_offsets;
+
     // Source line mapping and per-instruction active_k history.
     // Empty if the HIR had no source map.
     SourceMap source_map;
@@ -346,6 +411,12 @@ struct CompiledModule {
 // =============================================================================
 // Back-End API
 // =============================================================================
+
+/// Rebuild module.instrument_offsets by scanning the bytecode for
+/// OP_INSTRUMENT_* instructions. Bytecode passes fuse and delete
+/// instructions, so the offsets recorded at lowering go stale; the
+/// bytecode pass manager re-runs this after its pipeline.
+void rebuild_instrument_offsets(CompiledModule& module);
 
 /// Lower HIR to executable VM bytecode.
 /// Tracks virtual frame V_cum, localizes multi-qubit Paulis to local ops.

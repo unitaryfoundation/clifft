@@ -445,6 +445,10 @@ std::complex<double> BoundStabilizerAmplitudeQuery::amplitude(MaskView basis,
         case Opcode::OP_MEAS_ACTIVE_DIAGONAL_FORCED:
         case Opcode::OP_MEAS_ACTIVE_INTERFERE_FORCED:
         case Opcode::OP_SWAP_MEAS_INTERFERE_FORCED:
+        case Opcode::OP_INSTRUMENT_ACTIVE:
+        case Opcode::OP_INSTRUMENT_DORMANT_STATIC:
+        case Opcode::OP_INSTRUMENT_EXPAND:
+        case Opcode::OP_INSTRUMENT_DORMANT_NEGLECT:
         case Opcode::OP_APPLY_PAULI:
         case Opcode::OP_NOISE:
         case Opcode::OP_NOISE_BLOCK:

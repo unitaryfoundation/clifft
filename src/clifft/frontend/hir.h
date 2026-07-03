@@ -89,6 +89,65 @@ struct ReadoutNoiseEntry {
 /// Index into HirModule::readout_noise side-table
 enum class ReadoutNoiseIdx : uint32_t {};
 
+/// Index into HirModule::instrument_sites side-table. The index doubles as
+/// the site's stable id: instruments are optimization barriers, so no pass
+/// reorders or renumbers them, and the compiled module's site -> bytecode
+/// offset table is keyed by this index.
+enum class InstrumentSiteIdx : uint32_t {};
+
+/// Sentinel handle value indicating that an op carries no Pauli mask.
+inline constexpr PauliMaskHandle kNoMask = static_cast<PauliMaskHandle>(~uint32_t{0});
+
+// =============================================================================
+// Instrument Sites
+// =============================================================================
+//
+// An InstrumentSite is one state-dependent jump site on one qubit: a
+// transition from the noncomputational trajectory model (leakage, loss,
+// relaxation) whose firing probability depends on the qubit's
+// computational level. It carries the per-source fire probabilities,
+// split into computational-destination jumps (resolved in-line by the VM)
+// and the leaked/lost remainder (a resumable trap). The op's Pauli mask is
+// the source projector Z_q rewound through the trace tableau, exactly like
+// a measurement mask. Source index 0 is the |0> (g) level, 1 is |1> (e).
+
+struct InstrumentSite {
+    uint32_t qubit = 0;        // Physical qubit, for suffix rewrites + diagnostics
+    uint32_t source_line = 0;  // Circuit line, for k-cap and trap diagnostics
+
+    // The rewound X observable of the qubit at the site (same tableau
+    // conjugation as the op's Z-projector mask): the destination fixup a
+    // computational fire applies when its destination differs from its
+    // source. Handle into HirModule::pauli_masks. Passes that conjugate
+    // the op's mask must conjugate this slot identically.
+    PauliMaskHandle fixup_mask = kNoMask;
+
+    // Total fire probability per computational source s.
+    double p_total[2] = {0.0, 0.0};
+
+    // p_dest[s][d]: probability that a fire from source s lands on
+    // computational level d. The trap (Leaked/Lost) remainder per source
+    // is p_total[s] - p_dest[s][0] - p_dest[s][1].
+    double p_dest[2][2] = {{0.0, 0.0}, {0.0, 0.0}};
+
+    // No-fire damp coefficients sqrt(1 - p_total[s]).
+    double damp[2] = {1.0, 1.0};
+
+    // Under damping="neglect", a dormant-random site skips the expansion
+    // and applies no no-fire back-action (see DampingPolicy in
+    // noncomp/policy.h). Baked in at materialization from the model
+    // policy.
+    bool neglect_damping = false;
+
+    // Source-independent total rate: the no-fire damp is a scalar and the
+    // fire draw is state-independent.
+    [[nodiscard]] bool source_independent() const { return p_total[0] == p_total[1]; }
+
+    [[nodiscard]] double trap_remainder(int s) const {
+        return p_total[s] - p_dest[s][0] - p_dest[s][1];
+    }
+};
+
 // Operation types in the HIR
 enum class OpType : uint8_t {
     T_GATE,             // T or T_dag gate (pi/8 phase) - FLAG_IS_DAGGER distinguishes
@@ -100,11 +159,9 @@ enum class OpType : uint8_t {
     DETECTOR,           // Parity check over measurement records
     OBSERVABLE,         // Logical observable accumulator
     EXP_VAL,            // Non-destructive expectation value probe
+    INSTRUMENT,         // State-dependent jump site (references InstrumentSite side-table)
     NUM_OP_TYPES        // Sentinel: must remain last for binding completeness checks
 };
-
-/// Sentinel handle value indicating that an op carries no Pauli mask.
-inline constexpr PauliMaskHandle kNoMask = static_cast<PauliMaskHandle>(~uint32_t{0});
 
 // A single operation in the Heisenberg IR.
 //
@@ -191,6 +248,11 @@ struct HeisenbergOp {
         return static_cast<ExpValIdx>(exp_val_.exp_val_idx);
     }
 
+    [[nodiscard]] InstrumentSiteIdx instrument_site_idx() const {
+        assert(type_ == OpType::INSTRUMENT && "instrument_site_idx called on non-INSTRUMENT op");
+        return static_cast<InstrumentSiteIdx>(instrument_.site_idx);
+    }
+
     [[nodiscard]] double alpha() const {
         assert(type_ == OpType::PHASE_ROTATION && "alpha called on non-PHASE_ROTATION op");
         return phase_.alpha;
@@ -246,6 +308,11 @@ struct HeisenbergOp {
     static HeisenbergOp make_phase_rotation(PauliMaskHandle handle, double alpha) {
         HeisenbergOp op(OpType::PHASE_ROTATION, handle);
         op.phase_.alpha = alpha;
+        return op;
+    }
+    static HeisenbergOp make_instrument(PauliMaskHandle handle, InstrumentSiteIdx site_idx) {
+        HeisenbergOp op(OpType::INSTRUMENT, handle);
+        op.instrument_.site_idx = static_cast<uint32_t>(site_idx);
         return op;
     }
 
@@ -307,6 +374,9 @@ struct HeisenbergOp {
     struct ExpValPayload {
         uint32_t exp_val_idx;
     };
+    struct InstrumentPayload {
+        uint32_t site_idx;
+    };
 
     union {
         MeasurePayload measure_;
@@ -317,6 +387,7 @@ struct HeisenbergOp {
         ObservablePayload observable_;
         PhasePayload phase_;
         ExpValPayload exp_val_;
+        InstrumentPayload instrument_;
     };
 };
 
@@ -341,6 +412,7 @@ struct HirModule {
     std::vector<HeisenbergOp> ops;
     std::vector<NoiseSite> noise_sites;
     std::vector<ReadoutNoiseEntry> readout_noise;
+    std::vector<InstrumentSite> instrument_sites;
     std::vector<std::vector<uint32_t>> detector_targets;
     std::vector<std::vector<uint32_t>> observable_targets;
 
@@ -368,7 +440,7 @@ struct HirModule {
         for (const auto& op : ops) {
             const OpType type = op.op_type();
             if (type == OpType::MEASURE || type == OpType::NOISE || type == OpType::READOUT_NOISE ||
-                type == OpType::CONDITIONAL_PAULI) {
+                type == OpType::CONDITIONAL_PAULI || type == OpType::INSTRUMENT) {
                 return false;
             }
         }
@@ -447,6 +519,23 @@ struct HirModule {
         fill(pauli_masks.mut_at(h));
         ops.push_back(HeisenbergOp::make_exp_val(h, idx));
         return ops.back();
+    }
+    template <typename Fill>
+    HeisenbergOp& append_instrument(InstrumentSiteIdx idx, Fill&& fill) {
+        auto h = claim_empty_pauli_mask();
+        fill(pauli_masks.mut_at(h));
+        ops.push_back(HeisenbergOp::make_instrument(h, idx));
+        return ops.back();
+    }
+
+    /// Claim a pauli_masks slot referenced from a side-table entry rather
+    /// than an op (e.g. an instrument's destination fixup), filled via the
+    /// callable like the append_* builders.
+    template <typename Fill>
+    PauliMaskHandle claim_side_mask(Fill&& fill) {
+        auto h = claim_empty_pauli_mask();
+        fill(pauli_masks.mut_at(h));
+        return h;
     }
 
     // --- Builders for ops that don't carry a Pauli mask ---

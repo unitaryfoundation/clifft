@@ -18,7 +18,33 @@
 #include "clifft/circuit/circuit.h"
 #include "clifft/frontend/hir.h"
 
+#include <map>
+#include <string>
+
 namespace clifft {
+
+// Per-transition probabilities for materializing LEVEL_TRANSITION
+// annotations into INSTRUMENT ops, in the InstrumentSite convention
+// (source/destination index 0 is the |0> level, 1 the |1> level; the
+// per-source trap remainder is p_total[s] - p_dest[s][0] - p_dest[s][1]).
+// The front-end knows nothing of level tables or transition matrices:
+// the noncomputational layer resolves a model into these plain numbers
+// (instrument_trace_options() in noncomp/instrument_options.h).
+struct InstrumentSpec {
+    double p_total[2] = {0.0, 0.0};
+    double p_dest[2][2] = {{0.0, 0.0}, {0.0, 0.0}};
+};
+
+// Opt-in instrument materialization for trace(). `transitions` maps a
+// LEVEL_TRANSITION tag to its spec; LOSS needs no entry (its probability
+// is inline and its destination is entirely the trap remainder).
+struct InstrumentTraceOptions {
+    std::map<std::string, InstrumentSpec, std::less<>> transitions;
+
+    // damping="neglect": dormant-random sites skip the expansion and the
+    // no-fire back-action. Copied onto every materialized site.
+    bool neglect_damping = false;
+};
 
 // Trace a circuit through the Front-End, producing a HirModule.
 //
@@ -27,10 +53,15 @@ namespace clifft {
 // - Emits HeisenbergOps for T/T_DAG gates with rewound Pauli masks
 // - Emits HeisenbergOps for measurements
 // - Emits HeisenbergOps for classical feedback (CX/CZ with rec targets)
+// - With `instruments` supplied, materializes LEVEL_TRANSITION and LOSS
+//   annotations into INSTRUMENT ops (one per target, at their circuit
+//   positions, mask = the rewound source projector Z_q); without it,
+//   annotations reject with a pointer to sample_noncomputational.
 //
 // Throws std::runtime_error if the circuit exceeds the 65536-qubit VM
 // axis ceiling (the only remaining hard upper bound; Pauli mask storage
 // is sized at runtime).
-[[nodiscard]] HirModule trace(const Circuit& circuit);
+[[nodiscard]] HirModule trace(const Circuit& circuit,
+                              const InstrumentTraceOptions* instruments = nullptr);
 
 }  // namespace clifft

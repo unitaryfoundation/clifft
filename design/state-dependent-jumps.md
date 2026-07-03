@@ -298,9 +298,16 @@ Dormant-random sites are handled per the damping policy (§4.6): under
 expand-plus-diagonal pattern already exists for rotations), raising `k` by
 one at compile time; under `neglect`, the site keeps only its exact
 ingredients — the state-independent Bernoulli fire draw at `(p_g+p_e)/2`
-(pooled into the noise hazard table) and, on fire, a forced frame collapse
-onto the source with weights `p_g : p_e` (`k` stable) — and applies no
-no-fire back-action.
+(pooled into the noise hazard table) — and applies no no-fire back-action
+(`k` stable). One implementation refinement over the sketch above: at a
+neglect-mode dormant-random site *every* fire traps, including
+computational destinations. The in-line collapse of a dormant-random
+qubit re-anchors the Pauli frame, and the compiler cannot append the
+coordinate-aligning virtual Hadamard for an anchor that only happens on a
+runtime-conditional branch (a measurement's anchor is unconditional, so
+its compile-time alignment is sound). The trap's suffix rewrite handles
+the collapse at source level instead; fires are rare, so the cost is a
+cached continuation, not a hot path.
 
 New opcodes land in the shared kernel include and are compiled per-ISA like
 every other opcode; the instruction's 24-byte payload carries the axis, the
