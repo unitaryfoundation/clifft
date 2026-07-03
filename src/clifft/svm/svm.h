@@ -184,6 +184,11 @@ class SchrodingerState {
     uint64_t dust_clamps = 0;
 
   private:
+    /// Allocate a zero-filled amplitude array for 2^peak_rank entries,
+    /// setting v_, array_size_, v_alloc_bytes_, v_is_mmap_, peak_rank_.
+    void allocate_array(uint32_t peak_rank);
+    void free_array() noexcept;
+
     std::complex<double> gamma_ = {1.0, 0.0};
     std::complex<double>* v_ = nullptr;  // page-aligned
     uint64_t array_size_ = 0;            // 2^peak_rank (allocated capacity)
@@ -198,6 +203,26 @@ class SchrodingerState {
   public:
     // Expectation value record: one double per EXP_VAL probe per shot.
     std::vector<double> exp_vals;
+
+    // --- Resumable trap state ---
+    //
+    // Set when an instrument fires to a leaked or lost destination:
+    // execute() halts at the site with the state intact (the carrier
+    // already collapsed onto the drawn source where the form allows it)
+    // and the host continues via resume() in a recompiled module. Dormant
+    // in ordinary sampling; reset() clears it.
+    struct InstrumentTrap {
+        uint32_t site_id = 0;  // CompiledInstrumentSite::site_id
+        uint8_t source = 0;    // Drawn physical source level (0 = |0>)
+    };
+    std::optional<InstrumentTrap> pending_trap;
+
+    /// Grow the amplitude array to hold 2^peak_rank entries, preserving
+    /// the live 2^active_k amplitudes (the region above stays zero). No-op
+    /// when the current allocation already suffices. Used by resume() when
+    /// a continuation module was compiled with a larger peak rank than the
+    /// module this state was built for.
+    void ensure_array_capacity(uint32_t peak_rank);
 
     // --- Forced-execution state ---
     //
@@ -224,7 +249,21 @@ class SchrodingerState {
 // =============================================================================
 
 /// Execute a compiled program for one shot, populating state with results.
+/// If an instrument fires to a leaked/lost destination, execution halts at
+/// the site with state.pending_trap set; continue via resume().
 void execute(const CompiledModule& program, SchrodingerState& state);
+
+/// Continue a trapped shot in `program` starting at bytecode index
+/// `offset` (for a trap at site s, program.instrument_offsets[s] + 1).
+/// The program's bytecode before `offset` must be bit-identical to the
+/// code the state already executed -- the compiler's determinism plus the
+/// instrument barrier contract guarantee this for a recompiled
+/// continuation of the same circuit prefix. Clears pending_trap, grows
+/// the amplitude array and measurement-record buffer if the continuation
+/// needs more than the state was built with, and re-anchors the noise-gap
+/// cursor at the entry offset (exact, because exponential gaps are
+/// memoryless). May itself halt on a later trap.
+void resume(const CompiledModule& program, SchrodingerState& state, uint32_t offset);
 
 /// Return the name of the active SVM dispatch backend. Reflects the
 /// resolved CPUID path or the CLIFFT_FORCE_ISA environment override.

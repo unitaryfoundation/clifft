@@ -15,6 +15,7 @@ add_executable(clifft_tests
     test_frontend_instruments.cc
     test_backend_instruments.cc
     test_execute_instruments.cc
+    test_trap_resume.cc
     test_backend.cc
     test_svm.cc
     test_state_reset.cc
