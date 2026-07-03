@@ -41,11 +41,13 @@ enum class LostLeakedOpsPolicy : uint8_t {
 // the damp there. Neglect keeps k stable by omitting the no-fire
 // back-action -- a pure survivorship tilt of order |p_g - p_e|, with no
 // effect at all on source-independent rates -- and that omission is its
-// only approximation. A leaked/lost fire at such a site traps with the
-// drawn source recorded, and the exact-mode driver's continuation
-// collapses the carrier onto that source (a trace-out forced to the
-// reported outcome), keeping fire-side correlations exact. Sites where
-// the qubit is active or deterministic are exact under both settings.
+// only approximation. Every fire at such a site traps with the drawn
+// source recorded and its destination still undrawn, and the exact-mode
+// driver's continuation collapses the carrier onto that source (a
+// trace-out forced to the reported outcome) before applying the drawn
+// destination's effects, keeping fire-side correlations exact. Sites
+// where the qubit is active or deterministic are exact under both
+// settings.
 enum class DampingPolicy : uint8_t {
     Exact = 0,
     Neglect = 1,

@@ -7,6 +7,7 @@
 #include <bit>
 #include <cctype>
 #include <cstdlib>
+#include <limits>
 #include <numeric>
 #include <stdexcept>
 #include <string>
@@ -181,6 +182,24 @@ void resume(const CompiledModule& program, SchrodingerState& state, uint32_t off
         throw std::invalid_argument(
             "resume(): continuation module's detector/observable/exp-val counts do not match "
             "the state; the visible structure of a continuation must equal the original's");
+    }
+
+    // The only valid re-entry point is the instruction after the trapped
+    // site. A stale or miscomputed driver offset would silently skip or
+    // re-run bytecode, so it is rejected against the continuation's own
+    // offset table.
+    const uint32_t site_id = state.pending_trap->site_id;
+    if (site_id >= program.instrument_offsets.size() ||
+        program.instrument_offsets[site_id] == std::numeric_limits<uint32_t>::max()) {
+        throw std::invalid_argument(
+            "resume(): the continuation module has no instrument at the trapped site id " +
+            std::to_string(site_id) + "; its prefix does not match the executed module");
+    }
+    if (offset != program.instrument_offsets[site_id] + 1) {
+        throw std::invalid_argument("resume(): offset " + std::to_string(offset) +
+                                    " does not follow the trapped site (expected " +
+                                    std::to_string(program.instrument_offsets[site_id] + 1) +
+                                    " for site " + std::to_string(site_id) + ")");
     }
 
     // A suffix rewrite can raise the continuation's peak rank and its

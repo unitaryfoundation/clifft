@@ -113,6 +113,27 @@ TEST_CASE("trap+resume: resume refuses a state with no pending trap") {
     REQUIRE_THROWS_WITH(resume(module, state, 1), ContainsSubstring("no pending trap"));
 }
 
+TEST_CASE("trap+resume: resume rejects an offset that does not follow the trapped site") {
+    // A stale or miscomputed driver offset must not silently skip or
+    // re-run bytecode; only the instruction after the trapped site is a
+    // valid entry. Rejected attempts leave the trap pending, so the
+    // correct offset still works afterward.
+    InstrumentTraceOptions options;
+    auto module = compile_raw("LOSS(1.0) 0\nX 0\nM 0", options);
+    auto state = make_shot_state(module, /*seed=*/12);
+    execute(module, state);
+    REQUIRE(state.pending_trap.has_value());
+
+    const uint32_t good = module.instrument_offsets.at(0) + 1;
+    REQUIRE_THROWS_WITH(resume(module, state, good + 1), ContainsSubstring("does not follow"));
+    REQUIRE_THROWS_WITH(resume(module, state, good - 1), ContainsSubstring("does not follow"));
+    REQUIRE(state.pending_trap.has_value());
+
+    resume(module, state, good);
+    REQUIRE(!state.pending_trap.has_value());
+    REQUIRE(state.meas_record == std::vector<uint8_t>{1});
+}
+
 TEST_CASE("trap+resume: the continuation's suffix governs the outcome") {
     // Two modules share the trapping prefix bit-for-bit (the barrier
     // contract); their suffixes differ. Resuming the same trapped state
