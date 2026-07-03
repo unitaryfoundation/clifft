@@ -254,6 +254,106 @@ TEST_CASE("exact: a neglect-form trap keeps the fire-side correlation") {
     REQUIRE(saw_one);
 }
 
+TEST_CASE("exact: a trap may insert a classical consult between pre-drawn ones") {
+    // Both qubits start leaked; R 0; X 0 recaptures q0 to a definite |1>,
+    // so q0's first annotation is quantum and traps (certain leak from
+    // e), while q1's later annotation was already pre-drawn as a
+    // classical consult. The trap turns q0's *second* annotation
+    // classical at a position before q1's recorded outcome -- the shape
+    // that breaks an append-only outcome stream. Post-fix: both
+    // measurements classify as leaked (reads 1) on every shot.
+    ModelSpec spec;
+    spec.leak_from_e = 1.0;
+    spec.initial = {0.0, 0.0, 0.0, 1.0, 0.0};  // all mass on the leaked level
+    auto model = make_model(spec);
+    auto circuit = parse(
+        "R 0\nX 0\n"
+        "LEVEL_TRANSITION[leak] 0\nLEVEL_TRANSITION[leak] 0\nLEVEL_TRANSITION[leak] 1\n"
+        "M 0\nM 1");
+
+    auto result = sample_noncomputational(circuit, model, 25, 41);
+    for (uint32_t shot = 0; shot < 25; ++shot) {
+        REQUIRE(result.measurements[shot * 2] == 1);
+        REQUIRE(result.measurements[shot * 2 + 1] == 1);
+        REQUIRE(result.final_status[shot * 2].kind() == QubitStatusKind::Leaked);
+        REQUIRE(result.final_status[shot * 2 + 1].kind() == QubitStatusKind::Leaked);
+    }
+}
+
+TEST_CASE("exact: a chain of two forced traps keeps both correlations") {
+    // Two independent Bell pairs, each with a certain source-dependent
+    // leak under neglect: every shot traps twice, forcing two trace-outs
+    // at two different hidden slots, and the second continuation's prefix
+    // contains the first's forced instruction (exercising the
+    // sampling/forced mask in the debug prefix comparison). Both
+    // partner correlations must survive.
+    LevelSet levels = LevelSet::default_set();
+    std::vector<std::vector<double>> leak(5, std::vector<double>(5, 0.0));
+    leak[kLeakG][0] = 1.0;
+    leak[kLeak][1] = 1.0;
+
+    ClassifierSpec classifier;
+    classifier.symbols = {"0", "1"};
+    classifier.matrix = {{1.0, 0.0, 1.0, 0.0, 1.0}, {0.0, 1.0, 0.0, 1.0, 0.0}};
+
+    NonComputationalPolicy policy;
+    policy.unknown_source_policy = UnknownSourcePolicy::Exact;
+    policy.lost_leaked_ops = LostLeakedOpsPolicy::Drop;
+    policy.damping = DampingPolicy::Neglect;
+    auto model = NonComputationalModel::from_spec(levels, {1.0, 0.0, 0.0, 0.0, 0.0},
+                                                  {{"leak", leak}}, classifier, policy);
+
+    auto circuit = parse(
+        "H 0\nCX 0 1\nH 2\nCX 2 3\n"
+        "LEVEL_TRANSITION[leak] 0\nLEVEL_TRANSITION[leak] 2\n"
+        "M 0\nM 1\nM 2\nM 3");
+    auto result = sample_noncomputational(circuit, model, 60, 43);
+
+    for (uint32_t shot = 0; shot < 60; ++shot) {
+        const uint8_t* m = result.measurements.data() + shot * 4;
+        REQUIRE(m[0] == m[1]);
+        REQUIRE(m[2] == m[3]);
+    }
+}
+
+TEST_CASE("exact: a neglect fire onto a computational destination stays correlated") {
+    // Under neglect every fire traps, including computational
+    // destinations. A certain source-swap channel (g -> e, e -> g) on a
+    // Bell-entangled dormant-random qubit: the continuation's forced
+    // materialization collapses the partner to the source while the
+    // trapped qubit re-preps at the destination, so the two measurements
+    // must anti-correlate on every shot.
+    LevelSet levels = LevelSet::default_set();
+    std::vector<std::vector<double>> swap_ge(5, std::vector<double>(5, 0.0));
+    swap_ge[1][0] = 1.0;  // g -> e, certainly
+    swap_ge[0][1] = 1.0;  // e -> g, certainly
+
+    ClassifierSpec classifier;
+    classifier.symbols = {"0", "1"};
+    classifier.matrix = {{1.0, 0.0, 1.0, 0.0, 1.0}, {0.0, 1.0, 0.0, 1.0, 0.0}};
+
+    NonComputationalPolicy policy;
+    policy.unknown_source_policy = UnknownSourcePolicy::Exact;
+    policy.lost_leaked_ops = LostLeakedOpsPolicy::Drop;
+    policy.damping = DampingPolicy::Neglect;
+    auto model = NonComputationalModel::from_spec(levels, {1.0, 0.0, 0.0, 0.0, 0.0},
+                                                  {{"swap", swap_ge}}, classifier, policy);
+
+    auto circuit = parse("H 0\nCX 0 1\nLEVEL_TRANSITION[swap] 0\nM 0\nM 1");
+    auto result = sample_noncomputational(circuit, model, 60, 47);
+
+    bool saw_zero = false;
+    bool saw_one = false;
+    for (uint32_t shot = 0; shot < 60; ++shot) {
+        const uint8_t trapped = result.measurements[shot * 2];
+        const uint8_t partner = result.measurements[shot * 2 + 1];
+        REQUIRE(trapped == 1 - partner);
+        (partner == 0 ? saw_zero : saw_one) = true;
+    }
+    REQUIRE(saw_zero);
+    REQUIRE(saw_one);
+}
+
 TEST_CASE("exact: neglect keeps rank flat while the exact default expands") {
     ModelSpec spec;
     spec.leak_from_e = 0.3;  // source-dependent: the damp is non-scalar

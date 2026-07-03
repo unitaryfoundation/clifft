@@ -101,12 +101,19 @@ uint8_t draw_from_column(const TransitionInstrument& instrument, uint8_t source,
     return static_cast<uint8_t>(last_positive);
 }
 
-// Walk the annotated circuit's statuses under `events`, drawing and
-// appending any classical-source consult beyond the ones already
-// recorded. Returns the walk's final statuses (computed from the real,
-// uncanonicalized initials). The walk is the single source of truth for
-// which consults are classical, so the events stream always matches what
-// rewrite_continuation will validate.
+// Walk the annotated circuit's statuses under `events` and rebuild the
+// classical-outcome stream in the walk's own (circuit) order: outcomes
+// already drawn for a consult are reused by annotation target, and
+// consults seen for the first time are drawn. Rebuilding rather than
+// appending matters after a trap, which turns the trapped qubit's later
+// consults classical *between* previously recorded ones -- an
+// append-only stream would replay old outcomes at the wrong targets.
+// Reused outcomes keep the executed prefix's compilation stable;
+// first-seen consults live only in the not-yet-executed suffix, so a
+// fresh draw is unbiased. Returns the walk's final statuses (computed
+// from the real, uncanonicalized initials). The walk is the single
+// source of truth for which consults are classical, so the events
+// stream always matches what rewrite_continuation will validate.
 std::vector<QubitStatus> extend_classical_outcomes(const Circuit& annotated,
                                                    ExactShotEvents& events,
                                                    const NonComputationalModel& model,
@@ -117,8 +124,14 @@ std::vector<QubitStatus> extend_classical_outcomes(const Circuit& annotated,
         jump_dest.emplace(std::make_pair(jump.op_index, jump.qubit), jump.destination_level);
     }
 
+    std::map<std::pair<uint32_t, uint32_t>, ClassicalOutcome> drawn;
+    for (const ClassicalOutcome& outcome : events.classical_outcomes) {
+        drawn.emplace(std::make_pair(outcome.op_index, outcome.qubit), outcome);
+    }
+    std::vector<ClassicalOutcome> ordered;
+    ordered.reserve(events.classical_outcomes.size());
+
     std::vector<QubitStatus> status = events.initial_status;
-    size_t cursor = 0;
 
     for (uint32_t op_index = 0; op_index < annotated.nodes.size(); ++op_index) {
         const AstNode& node = annotated.nodes[op_index];
@@ -136,14 +149,11 @@ std::vector<QubitStatus> extend_classical_outcomes(const Circuit& annotated,
                     }
                     continue;
                 }
-                if (cursor < events.classical_outcomes.size()) {
-                    // Already drawn when an earlier trap extended the
-                    // stream; replay it.
-                    const ClassicalOutcome& outcome = events.classical_outcomes[cursor++];
-                    assert(outcome.op_index == op_index && outcome.qubit == qubit &&
-                           "recorded classical outcomes drifted from the status walk");
-                    if (outcome.jumped) {
-                        status[qubit] = levels.status_for(outcome.destination_level);
+                const auto seen = drawn.find({op_index, qubit});
+                if (seen != drawn.end()) {
+                    ordered.push_back(seen->second);
+                    if (seen->second.jumped) {
+                        status[qubit] = levels.status_for(seen->second.destination_level);
                     }
                     continue;
                 }
@@ -166,8 +176,7 @@ std::vector<QubitStatus> extend_classical_outcomes(const Circuit& annotated,
                     outcome.jumped = true;
                     outcome.destination_level = channel.lost_level;
                 }
-                ++cursor;
-                events.classical_outcomes.push_back(outcome);
+                ordered.push_back(outcome);
                 if (outcome.jumped) {
                     status[qubit] = levels.status_for(outcome.destination_level);
                 }
@@ -191,6 +200,7 @@ std::vector<QubitStatus> extend_classical_outcomes(const Circuit& annotated,
                         : normal_post_op_status(pre, gate, operand.role, model.policy(), levels);
         }
     }
+    events.classical_outcomes = std::move(ordered);
     return status;
 }
 
