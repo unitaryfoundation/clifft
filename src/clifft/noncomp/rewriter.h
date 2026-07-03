@@ -155,15 +155,17 @@ struct ExactShotEvents {
 // A compiled-continuation rewrite: the circuit, the classifier record
 // writes in its suffix, and -- when the *last* jump in the chain traps at
 // a site whose collapse could not happen in-line (a neglect-form site on
-// a coherent carrier) -- the hidden measurement slot of that jump's
-// trace-out, which the driver forces to the trap's reported source.
+// a coherent carrier) -- the hidden record slot of that jump's carrier
+// reset, which the driver forces to the trap's reported source.
 struct ContinuationRewrite {
     Circuit circuit;
     std::vector<ClassifiedMeasurement> classified_measurements;
 
-    // Hidden record slot of the last jump's trace-out, or SIZE_MAX when
-    // no forcing is needed (the runtime already collapsed the carrier, or
-    // the jump landed computationally).
+    // Hidden record slot of the reset that collapses the last jump's
+    // carrier -- the trace-out R of a noncomputational destination, or
+    // the materializing R of a computational one -- or SIZE_MAX when the
+    // caller did not request forcing. Requesting forcing for a jump that
+    // emits no reset (the carrier's level was already definite) throws.
     size_t forced_traceout_slot = SIZE_MAX;
 
     // Annotation target of each kept (runtime-instrument) site, in
