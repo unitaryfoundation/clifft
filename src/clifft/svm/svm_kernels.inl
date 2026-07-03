@@ -2045,10 +2045,11 @@ static inline bool exec_instrument(SchrodingerState& state, const ConstantPool& 
         // defining approximation is omitting the no-fire back-action.
         // Every fire traps: an in-line collapse would re-anchor the frame
         // conditionally, which compiled downstream code cannot account
-        // for. The carrier therefore hands over uncollapsed, and the
-        // continuation's trace-out draws its unraveling independently of
-        // the source reported here -- neglect's second approximation
-        // clause (see DampingPolicy in noncomp/policy.h).
+        // for. The carrier hands over uncollapsed with the drawn source
+        // recorded; the exact-mode driver's continuation performs the
+        // collapse as a trace-out forced to that source, keeping the
+        // fire-side correlations exact (see DampingPolicy in
+        // noncomp/policy.h).
         const double mass = site.p_total[0] + site.p_total[1];
         if (state.random_double() * 2.0 >= mass) {
             return true;

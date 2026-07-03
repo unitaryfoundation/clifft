@@ -307,15 +307,22 @@ coordinate-aligning virtual Hadamard for an anchor that only happens on a
 runtime-conditional branch (a measurement's anchor is unconditional, so
 its compile-time alignment is sound). The trap's suffix rewrite handles
 the collapse at source level instead; fires are rare, so the cost is a
-cached continuation, not a hot path. The same obstruction gives
-`neglect` a second approximation clause on the *fire* side: the carrier
-hands over uncollapsed, so the continuation's trace-out draws its
-unraveling independently of the reported source, decorrelating the
-fired qubit's entangled partners from its source-dependent downstream
-effects. Everywhere the collapse *can* happen in-line (active, expand,
-and dormant-deterministic forms), the runtime collapses onto the drawn
+cached continuation, not a hot path.
+
+The uncollapsed handover costs no correlation, because past the trap
+the continuation is fire-branch-only and the conditional convention
+shift becomes unconditional there: the driver's suffix rewrite emits
+the leaked qubit's trace-out as a hidden measurement **forced to the
+reported source**, so entangled partners collapse consistently with the
+destination-side effects. (A bare frame anchor at trap time would be
+wrong — after `H 0`, anchoring the dormant representation to `|s⟩`
+yields the physical state `H|s⟩`, not `|s⟩`; the collapse must execute
+inside compiled code that carries the basis alignment.) With that,
+`neglect`'s only approximation is the omitted no-fire back-action.
+Everywhere the collapse *can* happen in-line (active, expand, and
+dormant-deterministic forms), the runtime collapses onto the drawn
 source *before* trapping, which makes the continuation's trace-out
-deterministic and keeps the correlation exact.
+deterministic and keeps the correlation exact with no forcing needed.
 
 New opcodes land in the shared kernel include and are compiled per-ISA like
 every other opcode; the instruction's 24-byte payload carries the axis, the
