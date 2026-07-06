@@ -63,6 +63,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <utility>
 #include <vector>
 
 namespace clifft {
@@ -103,5 +104,102 @@ struct RewriteResult {
 // be dropped or rejected as a whole rather than per operand.
 RewriteResult rewrite(const Circuit& original, const NonComputationalHistory& history,
                       const NonComputationalModel& model);
+
+// =============================================================================
+// Exact-mode continuation rewrite
+// =============================================================================
+//
+// In exact mode, transition firing happens at runtime and a fire that
+// cannot resolve in-line halts execution at its instrument site. The
+// continuation is the full circuit recompiled under the now-known status
+// outcomes: its prefix (everything up to and including the trapped
+// annotation) is emitted verbatim so it compiles bit-identically to the
+// code that already ran, and only the suffix is rewritten. Unlike the AOT
+// rewrite above, annotation nodes are kept wherever their qubit is still
+// computational -- they stay runtime instruments, including on a
+// recaptured qubit -- and are consumed only where the source is a
+// classical (leaked/lost) status, using outcomes the host pre-drew.
+
+// One resolved jump in a shot's trap chain, in circuit order. `op_index`
+// and `qubit` name the annotation target that trapped; the destination
+// level is the host's draw from the transition column.
+struct ResolvedJump {
+    uint32_t op_index = 0;
+    uint32_t qubit = 0;
+    uint8_t destination_level = 0;
+};
+
+// One pre-drawn outcome for an annotation target whose source status is
+// classical at that point (seepage, restore, lost-stays-lost). Records
+// no-jump outcomes too: the stream must cover every classical-source
+// consult after the last trap, in circuit order, so the rewrite can
+// validate it describes this circuit.
+struct ClassicalOutcome {
+    uint32_t op_index = 0;
+    uint32_t qubit = 0;
+    bool jumped = false;
+    uint8_t destination_level = 0;
+    // The level the qubit held when the outcome was drawn. The emitted
+    // nodes do not depend on it; it exists so every reuse and
+    // consumption can check the outcome is not being replayed against a
+    // different source. Today a qubit's noncomputational level moves
+    // only through its own consults, so a mismatch is unreachable --
+    // this check is what keeps that invariant explicit, and loud if a
+    // future cross-qubit transition breaks it.
+    uint8_t source_level = 0;
+};
+
+// The status-outcome delta a continuation is compiled under: the shot's
+// initial statuses, the trap chain so far, and the pre-drawn
+// classical-source outcomes for the remaining annotations. This struct is
+// also the continuation cache key's content: two shots with equal events
+// share one compiled module. The one field the key omits is
+// ClassicalOutcome::source_level -- it is derived from everything else
+// in the events and exists only to validate replays, so it cannot vary
+// within a key.
+struct ExactShotEvents {
+    std::vector<QubitStatus> initial_status;
+    std::vector<ResolvedJump> jumps;
+    std::vector<ClassicalOutcome> classical_outcomes;
+};
+
+// A compiled-continuation rewrite: the circuit, the classifier record
+// writes in its suffix, and -- when the *last* jump in the chain traps at
+// a site whose collapse could not happen in-line (a neglect-form site on
+// a coherent carrier) -- the hidden record slot of that jump's carrier
+// reset, which the driver forces to the trap's reported source.
+struct ContinuationRewrite {
+    Circuit circuit;
+    std::vector<ClassifiedMeasurement> classified_measurements;
+
+    // Hidden record slot of the reset that collapses the last jump's
+    // carrier -- the trace-out R of a noncomputational destination, or
+    // the materializing R of a computational one -- or SIZE_MAX when the
+    // caller did not request forcing. Requesting forcing for a jump that
+    // emits no reset (the carrier's level was already definite) throws.
+    size_t forced_traceout_slot = SIZE_MAX;
+
+    // Annotation target of each kept (runtime-instrument) site, in
+    // emission order -- which is trace()'s materialization order, so the
+    // vector maps a trap's site_id to its (op_index, qubit) in the
+    // annotated circuit's coordinates.
+    std::vector<std::pair<uint32_t, uint32_t>> site_targets;
+
+    // Every qubit's status at the end of the walk: the shot's final
+    // statuses once execution reaches the end of this continuation.
+    std::vector<QubitStatus> final_status;
+};
+
+// Rewrite `annotated` (the hook-expanded circuit the main line was
+// compiled from) into the continuation for `events`. Every annotation
+// target before or at the last jump must be covered by the walk (no-fire
+// for targets not in `jumps`); classical_outcomes must list, in circuit
+// order, exactly the classical-source consults after the last jump.
+// `force_last_traceout` marks the last jump as a neglect-form trap whose
+// carrier arrives uncollapsed. Throws std::invalid_argument on policy
+// rejects and on events that do not describe this circuit.
+ContinuationRewrite rewrite_continuation(const Circuit& annotated, const ExactShotEvents& events,
+                                         bool force_last_traceout,
+                                         const NonComputationalModel& model);
 
 }  // namespace clifft

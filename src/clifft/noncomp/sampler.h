@@ -18,6 +18,7 @@
 #include "clifft/noncomp/history.h"
 #include "clifft/noncomp/model.h"
 #include "clifft/noncomp/qubit_status.h"
+#include "clifft/util/xoshiro.h"
 
 #include <cstdint>
 #include <vector>
@@ -30,6 +31,13 @@ struct HistorySample {
     // Derived convenience: each qubit's status after the full walk.
     std::vector<QubitStatus> final_status;
 };
+
+// Draw one qubit's initial level from the model's shared initial-state
+// distribution, with the last positive level catching the floating-point
+// tail so a draw always resolves to a level the distribution can produce.
+// Shared by the AOT history sampler and the exact-mode driver so the two
+// paths sample initials identically.
+uint8_t draw_initial_level(const NonComputationalModel& model, Xoshiro256PlusPlus& rng);
 
 // Sample one trajectory over `circuit` under `model`, deterministic in
 // `seed`. Under UnknownSourcePolicy::Reject (the default), throws

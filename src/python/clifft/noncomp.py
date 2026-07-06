@@ -118,13 +118,18 @@ class Model:
         reset_restores_lost: if true, a reset on a lost qubit restores it.
         unknown_source_policy: how a source-dependent transition on a qubit
             whose computational state is unknown is handled. ``"reject"``
-            (the default) raises; ``"equalize_rates"`` opts into an
-            approximation that pads every computational column with a
-            diagonal pseudo-jump up to the maximum computational jump rate,
-            draws the source uniformly, and collapses the carrier on every
-            jump. The approximation matches unbiased unknown-source
-            marginals; deterministic-but-untracked states remain
-            approximate, and destination-collapse correlations are
+            (the default) raises; ``"exact"`` moves transition firing into
+            the runtime -- the circuit compiles once with every annotation
+            as an instrument site, fire probabilities are evaluated on the
+            live state, and rare fires recompile-and-resume -- exact for
+            every source context, at a cost exponential in the number of
+            expanded sites (see ``damping``); ``"equalize_rates"`` opts
+            into an approximation that pads every computational column
+            with a diagonal pseudo-jump up to the maximum computational
+            jump rate, draws the source uniformly, and collapses the
+            carrier on every jump. The approximation matches unbiased
+            unknown-source marginals; deterministic-but-untracked states
+            remain approximate, and destination-collapse correlations are
             discarded.
         lost_leaked_ops: how an operation with no representable effect on a
             leaked or lost operand is handled. ``"reject"`` (the default)
@@ -132,6 +137,14 @@ class Model:
             acting as the identity on the surviving operands. Measurements
             are never dropped; their record slot is kept and the classifier
             supplies the outcome.
+        damping: exact-mode handling of sites whose no-fire back-action is
+            genuinely non-Clifford (a source-dependent transition on a
+            coherent qubit outside the amplitude array). ``"exact"`` (the
+            default) expands the qubit into the array, adding one to the
+            circuit's rank at that site; ``"neglect"`` keeps the rank and
+            omits the no-fire back-action, a survivorship tilt of order
+            ``|p_g - p_e|`` with no effect on source-independent rates.
+            Only meaningful under ``unknown_source_policy="exact"``.
 
     Construction validates shapes, probabilities, gate keys, policy values,
     and level table consistency in C++, raising ``ValueError`` on any
@@ -148,6 +161,7 @@ class Model:
         reset_restores_lost: bool = False,
         unknown_source_policy: str = "reject",
         lost_leaked_ops: str = "reject",
+        damping: str = "exact",
     ) -> None:
         transition_matrices = {
             str(gate): _as_matrix(matrix) for gate, matrix in (transitions or {}).items()
@@ -162,6 +176,7 @@ class Model:
             bool(reset_restores_lost),
             str(unknown_source_policy),
             str(lost_leaked_ops),
+            str(damping),
         )
 
 
@@ -243,6 +258,7 @@ def sample(
     model: Model,
     shots: int,
     seed: int | None = None,
+    max_rank: int | None = None,
 ) -> NonComputationalSample:
     """Sample ``circuit`` under ``model`` for ``shots`` shots.
 
@@ -250,11 +266,16 @@ def sample(
     :class:`NonComputationalSample`. Raises ``ValueError`` when the trajectory
     policy rejects an operation, when a leaked/lost measurement needs a
     classifier the model lacks, or when a classifier column is unsupported.
+
+    ``max_rank`` caps the compiled peak rank under
+    ``unknown_source_policy="exact"``: compilation fails with the offending
+    circuit line named, before any state allocation, instead of attempting
+    a ``2**k`` allocation. Unlimited when ``None``.
     """
     if isinstance(circuit, str):
         circuit = _clifft_core.parse(circuit)
     meas, det, obs, status, heralds, num_qubits, num_meas, num_det, num_obs = (
-        _clifft_core._sample_noncomputational(circuit, model._handle, shots, seed)
+        _clifft_core._sample_noncomputational(circuit, model._handle, shots, seed, max_rank)
     )
     return NonComputationalSample(
         meas, det, obs, status, heralds, num_qubits, num_meas, num_det, num_obs

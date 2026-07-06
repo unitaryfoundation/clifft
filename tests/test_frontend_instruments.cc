@@ -290,3 +290,13 @@ TEST_CASE("fences: an absorbed virtual S conjugates the side-table fixup mask to
     REQUIRE(fixup.x().bit_get(0));
     REQUIRE(fixup.z().bit_get(0));
 }
+
+TEST_CASE("trace: a hand-built LOSS without its argument rejects") {
+    // The parser guarantees LOSS(p); a programmatically built node with
+    // no argument must reject here rather than trace as a silent
+    // zero-probability site.
+    const InstrumentTraceOptions options;
+    Circuit c = parse("H 0");
+    c.nodes.push_back(AstNode{GateType::LOSS, {Target::qubit(0)}, {}, 0});
+    REQUIRE_THROWS_WITH(trace(c, &options), ContainsSubstring("exactly one argument"));
+}

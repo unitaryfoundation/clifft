@@ -530,3 +530,21 @@ TEST_CASE("sample_history: a gate-named but non-hookable key is referenceable") 
     HistorySample s = sample_history(c, model, 1);
     REQUIRE(s.final_status[0].kind() == QubitStatusKind::Lost);
 }
+
+TEST_CASE("sample_history: a hand-built LOSS node without its argument rejects") {
+    // The parser guarantees LOSS(p); a programmatically built node with no
+    // argument is invalid input, not a zero-probability loss.
+    NonComputationalModel model = make_model(all_g(), {});
+    Circuit c = parse("R 0");
+    c.nodes.push_back(op(GateType::LOSS, {0}));
+    REQUIRE_THROWS_WITH(sample_history(c, model, 1), ContainsSubstring("exactly one argument"));
+}
+
+TEST_CASE("sample_history: a hand-built LOSS probability outside [0, 1] rejects") {
+    NonComputationalModel model = make_model(all_g(), {});
+    Circuit c = parse("R 0");
+    AstNode loss = op(GateType::LOSS, {0});
+    loss.args = {7.0};
+    c.nodes.push_back(loss);
+    REQUIRE_THROWS_WITH(sample_history(c, model, 1), ContainsSubstring("out of [0, 1]"));
+}

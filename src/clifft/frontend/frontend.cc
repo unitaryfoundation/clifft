@@ -765,8 +765,14 @@ HirModule trace(const Circuit& circuit, const InstrumentTraceOptions* instrument
                     site.neglect_damping = instruments->neglect_damping;
                     if (node.gate == GateType::LOSS) {
                         // Uniform loss: source-independent rate, destination
-                        // entirely the trap remainder.
-                        const double p = node.args.empty() ? 0.0 : node.args[0];
+                        // entirely the trap remainder. A missing argument is
+                        // a malformed node, not a zero-probability loss.
+                        if (node.args.size() != 1) {
+                            throw std::runtime_error(
+                                "trace: LOSS at line " + std::to_string(node.source_line) +
+                                " requires exactly one argument (the loss probability)");
+                        }
+                        const double p = node.args[0];
                         site.p_total[0] = p;
                         site.p_total[1] = p;
                     } else {

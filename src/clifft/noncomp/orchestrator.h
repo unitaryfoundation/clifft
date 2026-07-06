@@ -63,8 +63,15 @@ struct NonComputationalSample {
 // three-symbol stochastic column (a third symbol heralds the measurement).
 // Reject (substochastic) classifier columns model a heralded abort outcome
 // and are not supported by this entry point yet.
+// `max_rank` caps the compiled peak rank in exact mode
+// (unknown_source_policy = Exact): compilation fails with the first
+// offending circuit line named, before any state is allocated, instead
+// of attempting a 2^k allocation. Unlimited when unset; ignored by the
+// AOT policies, whose per-shot modules never exceed the annotated
+// circuit's own rank.
 NonComputationalSample sample_noncomputational(const Circuit& circuit,
                                                const NonComputationalModel& model, uint32_t shots,
-                                               std::optional<uint64_t> seed = std::nullopt);
+                                               std::optional<uint64_t> seed = std::nullopt,
+                                               std::optional<uint32_t> max_rank = std::nullopt);
 
 }  // namespace clifft

@@ -16,6 +16,8 @@
 
 #include <cstdint>
 #include <optional>
+#include <string_view>
+#include <vector>
 
 namespace clifft {
 
@@ -23,6 +25,14 @@ namespace clifft {
 // LOSS annotation resolves its destination through this; a table with no
 // or several Lost levels cannot host it.
 std::optional<uint8_t> sole_lost_level(const LevelSet& levels);
+
+// The validated loss probability of a LOSS annotation node's argument
+// list: exactly one argument, finite, in [0, 1]. The parser guarantees
+// this shape for parsed circuits; a hand-built node that violates it is
+// rejected here rather than silently defaulting to a no-op. `caller`
+// prefixes the error message.
+double loss_probability(const std::vector<double>& args, uint32_t op_index,
+                        std::string_view caller);
 
 // The role a qubit operand plays in an operation. The same GateType can
 // mean physically different things: a CX with two qubit operands is a
