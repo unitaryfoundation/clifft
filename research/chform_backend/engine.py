@@ -529,6 +529,114 @@ class LowRankState:
         self.recompress_dedup()
         return outcome
 
+    def collapse_to_rank1(self) -> None:
+        """Collapse chi parallel terms onto one representative -- VALID ONLY
+        when the state is provably rank 1 (e.g. every register qubit has just
+        been measured, so the state is a single stabilizer state; the caller
+        owns that argument). Non-materialising: finds a support point x* of the
+        first surviving term by scanning amplitudes (O(2^n) worst case but
+        each query is O(n^2) and generic states hit support immediately), then
+        sums the coefficient ratios t_i(x*)/t_0(x*) -- exact because all terms
+        are scalar multiples of one stabilizer state.
+
+        This replaces the tableau-key dedup at round boundaries, where terms
+        proportional to the same state generically have DIFFERENT tableaux
+        (merge_key cannot see it) and chi would otherwise compound per round."""
+        live = [t for t in self.terms if t.norm2() > _ZERO_TOL]
+        if len(live) <= 1:
+            self.terms = live or self.terms[:1]
+            return
+        t0 = live[0]
+        a0 = 0.0 + 0.0j
+        xstar = -1
+        for x in range(2 ** self.n):
+            a0 = t0.amplitude(x)
+            if abs(a0) > 1e-12:
+                xstar = x
+                break
+        if xstar < 0:  # t0 numerically null after all; fall back untouched
+            return
+        ratio = sum(t.amplitude(xstar) for t in live) / a0
+        t0.scale(complex(ratio))
+        self.terms = [t0]
+        self._record("collapse_rank1")
+
+    def measure_z_forced_fast(self, q: int, outcome: int,
+                              flip_if_dead: bool = False) -> int:
+        """Forced-outcome Z measurement with NO dense materialization anywhere:
+        project every term, drop zero-support terms, merge exact duplicates by
+        tableau key (merge_key, O(n^2)); no outcome probability, no
+        renormalization (all downstream operations are linear, so the state
+        stays a consistent unnormalized trajectory -- frame and plain engines
+        skip the same normalization, keeping wall-clock comparisons fair).
+
+        This is the scale path for the adaptive-workload benchmark
+        (bench_adaptive.py); sampling-mode measurement still uses measure_z,
+        whose probability computation materializes 2^n (validation scale) --
+        replacing that with norm estimation is the known remaining step."""
+        outcome = int(outcome)
+
+        def project_all(bit: int) -> list[Term]:
+            if self.frame is not None:
+                pp, ax, az = self.frame.conj_Z(q)
+                gates, j, sign = _reduce_pauli_to_Z(self.n, pp, ax, az)
+                bit_j = bit ^ (1 if sign < 0 else 0)
+                wdag = [(_GATE_DAG[nm], qs) for nm, qs in reversed(gates)]
+                out: list[Term] = []
+                for term in self.terms:
+                    ft = term.copy()
+                    for nm, qs in gates:
+                        _apply_gate_to_term(ft, nm, qs)
+                    pj = ft.project(j, bit_j)
+                    if pj is not None and pj.norm2() > _ZERO_TOL:
+                        for nm, qs in wdag:
+                            _apply_gate_to_term(pj, nm, qs)
+                        out.append(pj)
+                return out
+            out = []
+            for term in self.terms:
+                pj = term.project(q, bit)
+                if pj is not None and pj.norm2() > _ZERO_TOL:
+                    out.append(pj)
+            return out
+
+        new_terms = project_all(outcome)
+        if not new_terms and flip_if_dead:
+            # The forced branch has zero support; the complementary outcome
+            # is then certain (P(0)+P(1) = ||psi||^2 > 0). Used by benchmark
+            # drivers that force pseudo-random trajectories.
+            outcome ^= 1
+            new_terms = project_all(outcome)
+        if not new_terms:
+            zero = _new_term(self.n, self.backend)
+            zero.scale(0.0)
+            new_terms = [zero]
+        # exact duplicate merge on the tableau key (non-materialising)
+        merged: dict[bytes, Term] = {}
+        order: list[bytes] = []
+        for t in new_terms:
+            key = t.merge_key()
+            if key in merged:
+                merged[key].merge_add(t)
+            else:
+                merged[key] = t
+                order.append(key)
+        self.terms = [merged[k] for k in order
+                      if merged[k].norm2() > _ZERO_TOL] or new_terms[:1]
+        # Common rescale so the largest term stays O(1): the unnormalized
+        # trajectory otherwise decays ~2x per measurement and healthy terms
+        # eventually sink below the absolute _ZERO_TOL and get misclassified
+        # as dead. A shared factor is correctness-neutral (state is
+        # unnormalized by contract) and O(chi) scalar work.
+        m = max((t.norm2() for t in self.terms), default=0.0)
+        if m > 0.0:
+            f = 1.0 / np.sqrt(m)
+            for t in self.terms:
+                t.scale(f)
+        self.ctr.measurements += 1
+        self._record(f"Mfast({q})->{outcome}")
+        return outcome
+
     def _measure_z_frame(self, q: int, rng: np.random.Generator,
                          force: int | None = None) -> int:
         """Measure Z_q on F.(sum term) = a Pauli measurement of P' = F^-1 Z_q F on

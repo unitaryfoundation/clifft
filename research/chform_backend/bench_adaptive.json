@@ -1,0 +1,109 @@
+{
+ "correctness_err": 2.580747449744961e-16,
+ "rows": [
+  {
+   "w": 4,
+   "chi_peak_plain": 16,
+   "chi_peak_frame": 16,
+   "plain_s": 0.0959620475769043,
+   "frame_s": 0.12773466110229492,
+   "plain_cliff_s": 0.08185291290283203,
+   "frame_cliff_s": 0.0008254051208496094
+  },
+  {
+   "w": 6,
+   "chi_peak_plain": 64,
+   "chi_peak_frame": 64,
+   "plain_s": 0.6320488452911377,
+   "frame_s": 0.8924376964569092,
+   "plain_cliff_s": 0.5770168304443359,
+   "frame_cliff_s": 0.0012226104736328125
+  },
+  {
+   "w": 8,
+   "chi_peak_plain": 256,
+   "chi_peak_frame": 256,
+   "plain_s": 3.096336841583252,
+   "frame_s": 7.4528656005859375,
+   "plain_cliff_s": 2.7608718872070312,
+   "frame_cliff_s": 0.0016896724700927734
+  },
+  {
+   "w": 10,
+   "chi_peak_plain": 1024,
+   "chi_peak_frame": 1024,
+   "plain_s": 18.0541570186615,
+   "frame_s": 50.16189694404602,
+   "plain_cliff_s": 16.235090970993042,
+   "frame_cliff_s": 0.002124309539794922
+  },
+  {
+   "w": 12,
+   "chi_peak_plain": 4096,
+   "chi_peak_frame": 4096,
+   "plain_s": 76.24998497962952,
+   "frame_s": 216.90639424324036,
+   "plain_cliff_s": 67.63157081604004,
+   "frame_cliff_s": 0.0025517940521240234
+  }
+ ],
+ "depth": [
+  {
+   "D": 4,
+   "plain_s": 3.0910491943359375,
+   "frame_s": 7.320326328277588
+  },
+  {
+   "D": 8,
+   "plain_s": 6.3358190059661865,
+   "frame_s": 7.196474075317383
+  },
+  {
+   "D": 16,
+   "plain_s": 11.161828756332397,
+   "frame_s": 7.127353191375732
+  },
+  {
+   "D": 32,
+   "plain_s": 21.256903886795044,
+   "frame_s": 6.8416101932525635
+  },
+  {
+   "D": 64,
+   "plain_s": 43.62398386001587,
+   "frame_s": 7.391981840133667
+  },
+  {
+   "D": 96,
+   "plain_s": 64.54282331466675,
+   "frame_s": 7.852997779846191
+  }
+ ],
+ "aer": {
+  "4": {
+   "success": false,
+   "time_s": 0.006673097610473633,
+   "error": "ERROR:  [Experiment 0] Circuit circuit-46 contains invalid instructions {\"instructions\": {mark, jump}} for \"extended_stabilizer\" method.Circuit circuit-46 contains invalid parameters  for \"extended_stabilizer\" method."
+  },
+  "6": {
+   "success": false,
+   "time_s": 0.0038747787475585938,
+   "error": "ERROR:  [Experiment 0] Circuit circuit-60 contains invalid instructions {\"instructions\": {mark, jump}} for \"extended_stabilizer\" method.Circuit circuit-60 contains invalid parameters  for \"extended_stabilizer\" method."
+  },
+  "8": {
+   "success": false,
+   "time_s": 0.005012989044189453,
+   "error": "ERROR:  [Experiment 0] Circuit circuit-80 contains invalid instructions {\"instructions\": {mark, jump}} for \"extended_stabilizer\" method.Circuit circuit-80 contains invalid parameters  for \"extended_stabilizer\" method."
+  },
+  "10": {
+   "success": false,
+   "time_s": 0.006268024444580078,
+   "error": "ERROR:  [Experiment 0] Circuit circuit-106 contains invalid instructions {\"instructions\": {mark, jump}} for \"extended_stabilizer\" method.Circuit circuit-106 contains invalid parameters  for \"extended_stabilizer\" method."
+  },
+  "12": {
+   "success": false,
+   "time_s": 0.007300138473510742,
+   "error": "ERROR:  [Experiment 0] Circuit circuit-138 contains invalid instructions {\"instructions\": {mark, jump}} for \"extended_stabilizer\" method.Circuit circuit-138 contains invalid parameters  for \"extended_stabilizer\" method."
+  }
+ }
+}

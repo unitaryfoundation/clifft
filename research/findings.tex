@@ -344,6 +344,78 @@ three-way split stands: \texttt{clifft} owns exact work while $2^{n/2}$ fits;
 this backend owns approximate $P(x)$ beyond; \texttt{extended\_stabilizer}
 (sampling-only, maintenance-frozen upstream) is dominated on both tasks.
 
+\subsection{External baselines: QuiZX (and Quokka\#)}\label{sec:external}
+QuiZX~\cite{kissinger2022} (v0.3.0, PyPI wheel) computes each Born probability
+\emph{exactly}, one ZX-simplify$+$decompose run per target, validated here
+against MitM to $10^{-6}$ relative on every instance. On the SAME dense-IQP
+instances and targets as \S\ref{sec:overlap} (\texttt{bench\_external.py}),
+its per-amplitude cost grows as the exact-rank rate $2^{0.396n}$ (measured
+term counts $301\to1.9\times10^6$ over $n{=}24\to56$, $\times9.0$ per 8
+qubits: ZX simplification does \emph{not} compress dense T$+$CZ IQP), giving
+for 96 targets: $0.5$\,s ($n{=}24$), $251$\,s ($n{=}48$), $2188$\,s
+($n{=}56$) --- vs this backend's $0.3/17/89$\,s at $\mathrm{TV}\approx0.08$.
+Two honest qualifiers. (1) QuiZX answers a \emph{harder} question (exact vs
+additive-approximate); the comparison shows complementary regimes, not
+dominance. (2) Our own MitM evaluator is the strongest \emph{exact} method on
+this family --- $0.4/4.7/84.5$\,s for the same queries, i.e.\ it \emph{ties
+the approximate backend through $n\!\approx\!56$} --- so on pure T$+$CZ IQP
+the approximate backend's real niche over \emph{all} known exact methods only
+opens past the $2^{n/2}$ memory wall ($n\gtrsim60$), or on circuit families
+without MitM structure. Quokka\#~\cite{mei2024} (pip package installed) needs
+the external GPMC model-counter binary, which we did not build in this pass;
+the committed script runs it automatically when \texttt{gpmc} is on
+\texttt{PATH}.
+
+\subsection{The adaptive workload: where the composition pays off ---
+and where it does not}\label{sec:adaptive}
+The composition's defensible novelty is \emph{online} operation: mid-circuit
+measurement with classical feedforward. We benchmark an adaptive family
+(\texttt{bench\_adaptive.py}): a width-$w$ register, $R{=}4$ rounds of
+$H$-layer, feedforward-$X$ conditioned on the previous round's outcomes, a
+$T^{\pm}$ layer, $D$ global Clifford scrambling layers applied \emph{while}
+$\chi=2^w$, a CZ chain, $H$-layer, then measurement of all $w$ qubits.
+Trajectories are sampled once (dense reference), then \emph{replayed} by both
+engines --- identical circuits, identical outcomes, identical CH-form term
+stores and measurement code; the only difference is who pays for Cliffords
+(plain: per-term, the verified architecture of Aer's
+\texttt{extended\_stabilizer}; frame: $O(n)$ absorption). All engine variants
+agree to $3\times10^{-16}$.
+
+Three findings, two of them not in the composition's favor:
+\begin{enumerate}
+\item \textbf{The incumbent cannot enter.} qiskit-aer
+\texttt{extended\_stabilizer} \emph{rejects} the workload outright at every
+size (dynamic-circuit \texttt{mark}/\texttt{jump} instructions unsupported).
+Online adaptive simulation at the CH-form representation is territory the
+flagship open-source implementation does not serve at all.
+\item \textbf{Free Cliffords are real but not free lunch.} At $w{=}12$,
+$D{=}4$: the plain engine spends $68$\,s applying Cliffords per-term where the
+frame spends $3$\,ms --- but the frame engine \emph{loses overall} ($217$\,s
+vs $77$\,s), because frame-conjugated magic and measurement act through
+$P'=F^{-1}Z_qF$ of weight $\sim w$, costing $O(w)$ per-term gate applications
+per $T$ and per measurement. The frame does not eliminate per-term work; it
+\emph{moves} it from Cliffords onto magic and measurement.
+\item \textbf{The measured phase boundary.} Sweeping $D$ at $w{=}8$: frame
+time is \emph{flat} ($6.9$--$7.9$\,s from $D{=}4$ to $96$) while plain grows
+linearly ($3.1\to65.9$\,s); the crossover sits at $D^*\!\approx\!10\approx1.2w$,
+and at $D{=}96$ the frame is $8.4\times$ faster and the gap grows linearly in
+$D$. \textbf{The online composition pays off precisely when the adaptive
+circuit is Clifford-dominated} ($\gtrsim w$ Clifford layers per magic/measure
+round --- syndrome-extraction-like traffic), and costs $\sim2\times$ overhead
+when it is not.
+\end{enumerate}
+
+\begin{figure}[h]\centering
+\includegraphics[width=\linewidth]{chform_cpp/external_adaptive.png}
+\caption{\emph{Left:} external head-to-head on shared dense-IQP instances:
+QuiZX (exact, per-target) vs the MitM evaluator (exact) vs this backend
+(approximate, $\mathrm{TV}\approx0.08$), seconds for 96 probabilities.
+\emph{Right:} the adaptive-workload phase boundary at $w{=}8$: plain
+(per-term Cliffords) grows linearly in Clifford depth $D$; the frame
+composition is flat; crossover at $D^*\!\approx\!1.2w$.}
+\label{fig:extadapt}
+\end{figure}
+
 \section{Limitations}
 \begin{itemize}
 \item \textbf{Approximate}, with the guarantee of \S\ref{sec:guarantee}
@@ -355,20 +427,23 @@ speed advantage at moderate accuracy starts near $n\!\approx\!34$--$48$.
 \item \textbf{Norm estimation} is the pipeline's accuracy-cost bottleneck for
 generic circuits ($\chi L\sim1/\delta^4$); the clean results here lean on
 analytic normalization, valid for unitary product magic only.
-\item \textbf{The composition's unique value is still undemonstrated on a
-natural workload.} The free-Clifford factor is real (op-counts) but
-constant/poly with substantial static prior
-art~\cite{bravyi2016,qassim2019,garcia2015,pashayan2022}; the defensible
-novelty --- online frame $+$ dynamic measurement-driven collapse with
-mid-circuit/adaptive measurement --- needs an adaptive-circuit benchmark
-none of this note's IQP families exercises.
-\item \textbf{Prototype gaps:} the Python engine's plain measurement path and
-dedup materialize $2^n$ (validation-scale only); streaming sparsification is
-implemented but untested/unbenchmarked; the C\texttt{++} engine has no
-measurement path (build-and-query only).
-\item External baselines (QuiZX, Quokka\#) not yet run; both do exact $P(x)$
-at $t$ well beyond this note's $t{=}n$ and must appear in any publication
-comparison.
+\item \textbf{The composition's value is now measured, and two-sided}
+(\S\ref{sec:adaptive}): the online frame wins on adaptive circuits only when
+they are Clifford-dominated ($D\gtrsim1.2w$ Clifford layers per round), and
+costs $\sim2\times$ otherwise --- the conjugation of magic and measurement
+through the frame ($O(\mathrm{weight}(P'))$ per term) is the price of free
+Cliffords. Prior art for the static forms
+remains~\cite{bravyi2016,qassim2019,garcia2015,pashayan2022}.
+\item \textbf{Prototype gaps:} the Python engine's sampling measurement path
+and canonical dedup materialize $2^n$ (validation-scale; the forced-replay
+path, \texttt{measure\_z\_forced\_fast} $+$ \texttt{collapse\_to\_rank1}, is
+non-materialising); streaming sparsification is implemented but
+untested/unbenchmarked; the C\texttt{++} engine has no measurement path
+(build-and-query only). The adaptive wall-clock numbers are Python-vs-Python
+(fair internally, absolute constants not comparable to C\texttt{++} tools).
+\item \textbf{Quokka\# not yet run} (external GPMC solver not built);
+\texttt{quEStab} (ACM ICS 2026, multi-GPU extended stabilizer) still needs a
+manual literature check.
 \end{itemize}
 
 \section{Conclusion}
@@ -383,10 +458,23 @@ $\sim\!1$\,TB. The accuracy dial is clean and predictable
 this note deliberately no longer claims: a crossover at $n\!\approx\!22$
 (baseline artifact), $2^n$-scale frontier contrasts ($2^{n/2}$ is the honest
 exact scale), sub-$10\%$ accuracy at budgets whose norm error exceeded that
-(metric artifact), and novelty for free Cliffords as an idea (prior art). The
-next experiments that would change the picture: an adaptive/mid-circuit
-workload where the online composition is structurally unavailable to static
-pipelines, and head-to-heads against QuiZX and Quokka\# on shared instances.
+(metric artifact), and novelty for free Cliffords as an idea (prior art).
+
+The two follow-up experiments are now done, each with a two-sided answer.
+\emph{External baselines} (\S\ref{sec:external}): the backend beats QuiZX's
+exact per-target cost by growing margins ($2188$\,s vs $89$\,s at $n{=}56$ for
+96 targets, exact vs $\mathrm{TV}\approx0.08$), but our own exact MitM
+evaluator ties the backend through $n\!\approx\!56$ --- on pure T$+$CZ IQP the
+approximate niche opens only past the $2^{n/2}$ wall or off the IQP structure.
+\emph{The adaptive workload} (\S\ref{sec:adaptive}): the incumbent CH-form
+implementation cannot run adaptive circuits at all; the online frame
+composition is flat in Clifford depth where per-term simulation grows
+linearly, winning beyond a measured phase boundary $D^*\!\approx\!1.2w$
+($8.4\times$ at $D{=}96$ and growing) --- and losing $\sim2\times$ below it,
+because frame conjugation shifts per-term cost onto magic and measurement.
+The composition is a real, now-quantified engineering advantage for
+Clifford-dominated adaptive circuits --- syndrome-extraction-like workloads
+--- and honestly not otherwise.
 
 \begin{thebibliography}{9}
 \bibitem{bravyi2019} S.~Bravyi, D.~Browne, P.~Calpin, E.~Campbell, D.~Gosset,
@@ -420,6 +508,8 @@ Sci.\ Technol.\ \textbf{7}, 044001 (2022), arXiv:2109.01076.
 \emph{Average-case complexity versus approximate simulation of commuting
 quantum computations}, Phys.\ Rev.\ Lett.\ \textbf{117}, 080501 (2016),
 arXiv:1504.07999.
+\bibitem{mei2024} J.~Mei, M.~Bonsangue, A.~Laarman, \emph{Simulating quantum
+circuits by model counting}, CAV 2024, arXiv:2403.07197 (Quokka\#).
 \end{thebibliography}
 
 \end{document}

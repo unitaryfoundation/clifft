@@ -35,6 +35,33 @@
 > lemmas, frame engine, unbiased single-shot sampler, 2^{0.228t} extent) was
 > confirmed correct by the review and stands unchanged below.
 
+> **UPDATE 2026-07-06 (second pass): external baselines + adaptive workload.**
+>
+> - **QuiZX head-to-head** (`bench_external.py`, shared dense-IQP instances,
+>   validated vs MitM to 1e-6): QuiZX's exact per-amplitude cost grows at the
+>   exact-rank rate 2^{0.396n} (ZX simplification does not compress dense
+>   T+CZ IQP); for 96 targets at n=56 it needs 2188 s vs our 89 s at TV~0.08.
+>   Honest qualifier: our exact MitM evaluator does the same queries in 84.5 s
+>   — on pure T+CZ IQP the approximate backend only pulls ahead of ALL exact
+>   methods past the 2^{n/2} wall (n >~ 60). Quokka# runs automatically if a
+>   `gpmc` binary is on PATH (not built here).
+> - **Adaptive workload** (`bench_adaptive.py`): mid-circuit measurement +
+>   feedforward, trajectories sampled once and replayed by both engines.
+>   (i) qiskit-aer extended_stabilizer REJECTS dynamic circuits (mark/jump
+>   unsupported) — the incumbent cannot enter this workload. (ii) The frame's
+>   free Cliffords are real (68 s -> 3 ms on the Clifford block at w=12) but
+>   NOT free lunch: frame-conjugated magic/measurement costs O(weight(P'))
+>   per term, and at low Clifford depth the frame engine loses ~2x overall.
+>   (iii) Measured phase boundary: at w=8 the frame is flat in Clifford depth
+>   D while plain grows linearly; crossover D* ~ 1.2w, 8.2x at D=96. The
+>   online composition pays off iff the adaptive circuit is Clifford-dominated
+>   (syndrome-extraction-like traffic).
+> - Engine additions for this: `measure_z_forced_fast` (non-materialising
+>   forced measurement + tableau-key dedup + common rescale),
+>   `collapse_to_rank1` (exact amplitude-ratio collapse at provably-rank-1
+>   round boundaries). All four engine variants (plain/frame x fast/slow)
+>   agree to 3e-16.
+
 
 A working, validated prototype of the "stab-rank back-end" that would replace
 clifft's dense active block, plus the demonstration that the **composition**
