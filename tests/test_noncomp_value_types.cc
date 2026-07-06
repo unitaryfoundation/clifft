@@ -9,6 +9,7 @@
 #include <vector>
 
 using Catch::Matchers::ContainsSubstring;
+using clifft::DampingPolicy;
 using clifft::kInvalidLevel;
 using clifft::Level;
 using clifft::LevelCategory;
@@ -199,10 +200,11 @@ TEST_CASE("QubitStatus _unchecked factories build without table validation") {
 // NonComputationalPolicy
 // =========================================================================
 
-TEST_CASE("NonComputationalPolicy: defaults are conservative") {
+TEST_CASE("NonComputationalPolicy: defaults are exact and conservative") {
     NonComputationalPolicy policy;
     REQUIRE(policy.reset_restores_lost == false);
-    REQUIRE(policy.unknown_source_policy == UnknownSourcePolicy::Reject);
+    REQUIRE(policy.unknown_source_policy == UnknownSourcePolicy::Exact);
+    REQUIRE(policy.damping == DampingPolicy::Exact);
 }
 
 TEST_CASE("NonComputationalPolicy: explicit overrides round-trip") {

@@ -35,8 +35,9 @@ approximations:
 
 This design adds a new policy value, `unknown_source_policy="exact"`, that
 removes all three at once by evaluating jumps against the live simulator
-state. Once validated, `exact` becomes the default. `reject` remains as the
-strict guard (refuse any state-dependent transition on an unknown source);
+state. Validated by the step-7 campaign, `exact` is now the default.
+`reject` remains as the opt-in strict guard (refuse any state-dependent
+transition on an unknown source);
 `equalize_rates` is **retired** — with no public release there was no
 compatibility obligation, and its accuracy envelope is strictly dominated by
 the fallback this design ships (§4.6, FAQ).
@@ -392,8 +393,9 @@ Notes:
 ```python
 model = noncomp.Model(
     ...,
-    unknown_source_policy="exact",   # new value; joins "reject" (default today;
-                                     # "exact" becomes the default after validation)
+    unknown_source_policy="exact",   # the default (flipped after the step-7
+                                     # validation campaign); "reject" is the
+                                     # opt-in strict guard
     damping="exact",                 # exact-mode only: "exact" (default) | "neglect"
 )
 ```
@@ -450,6 +452,43 @@ Validation plan (extends the existing oracle/probe suite):
    expected end-to-end speedup from the shared main line vs. today's
    per-shot compile.
 
+### Step-7 results
+
+Items 1-4 above are implemented in `tests/python` (the oracle's per-site
+Kraus channel and its self-checks, the `utils_noncomp_enumerator`
+reference, the closed-form probe suite, and the repetition-code TVD runs
+under both damping modes). The campaign also caught a real driver bug --
+cross-shot state reuse sized rebuilds to the triggering module instead of
+the running maxima, an out-of-bounds write in Release -- which is its own
+argument for keeping it.
+
+Performance (item 5), measured on a Linux VM with a GCC 13 Release build
+via `tools/bench/test_bench_noncomp.py` and small ad-hoc sweeps; informal
+best-of-run magnitudes, not microbenchmark-grade:
+
+| Measurement | Result |
+| --- | --- |
+| Lossless noncomp end-to-end, per-shot AOT (`reject`) vs shared main line (`exact`) | d3-r3: 5.09 ms vs 0.39 ms per 200 shots (**13x**); d17-r5: 32.0 ms vs 2.24 ms per 100 shots (**14x**) |
+| Exact-mode overhead over plain sampling (lossless model) | ~22 us/shot at d17-r5 (vs ~1 us plain), dominated by the per-shot classical status walk -- optimization headroom, not a blocker |
+| Main-line cost per instrument site per shot (8-site micro circuits, non-firing rates) | dormant-static 23 ns; dormant-random `damping="exact"` 23 ns; `"neglect"` 7 ns; active 22 ns; known source 8 ns |
+| Realistic leak+loss (p = 0.01 hooked S layer, traps live) | d3-r3: 0.68 ms per 200 shots; d17-r5: 40.7 ms per 100 shots -- trap-chain compiles dominate at low shot counts and amortize per unique outcome, as designed |
+| Main-line peak rank, 11-site d3 repetition round | `damping="exact"`: k = 3 (one expansion per data qubit; MR compaction bounds the growth); `"neglect"`: k = 0 |
+
+The statevector-squeeze exclusion (§6 step 6) is free for the
+Clifford-plus-instrument workloads that exist today: instrument fences
+already forbid motion across sites, and rank growth happens at the
+fences themselves, so there is nothing squeeze could compact that the
+exclusion loses (the peak-rank probe above confirms rank equals the
+per-qubit expansion count). A measurable cost requires non-Clifford
+segments between sites; restoring squeeze behind a pinned-measurement
+barrier stays a parked follow-up until such workloads exist.
+
+Deferred-optimization arbitration on these numbers: hazard pooling,
+suffix-only compilation, LRU capping of the continuation cache, and
+trapped-shot batching all stay deferred -- nothing is dramatically
+slower, the shared main line already beats the old per-shot pipeline by
+an order of magnitude, and trap costs amortize with shots.
+
 ## 6. Implementation plan
 
 Ordered, each step a reviewable PR. Two steps are deliberately pulled to the
@@ -485,9 +524,11 @@ with unrelated roadmap work.
 6. **Orchestrator driver + continuation cache + frame-preload initial
    states + seeding.** Exact mode becomes usable here; includes the debug
    prefix-identity assertion.
-7. **Validation campaign, docs, default flip.** Oracle extension, probe
-   flips, rep-code TVD runs, performance table; then flip the default
-   `unknown_source_policy` to `"exact"`.
+7. **Validation campaign, docs, default flip (done).** The campaign landed
+   as the dense oracle's per-site Kraus channel, the first-principles
+   enumerator, and the closed-form probes, with rep-code TVD runs under
+   both damping modes; the performance results live at the end of §5; the
+   default `unknown_source_policy` is `"exact"`.
 8. **Retire `equalize_rates` (done — executed before step 7).** Removed
    the equalized mode: its sampler code path, policy value, tests, notebook
    coverage, and the base design note's policy text for it. Pre-release,
@@ -636,6 +677,7 @@ Because `damping="neglect"` is the better cheap mode on every axis (previous
 answer) at the same or lower cost, and there is no released user base
 creating a compatibility obligation. Keeping two approximations that differ
 only in which extra errors they add works against the model's legibility.
-The refuse-by-default principle is unchanged: `reject` guards models that
-should never need approximation, and the one approximation that remains is a
-named, machine-visible knob.
+The nothing-inexact-by-default principle is unchanged: the default pipeline
+is exact end to end, `reject` remains the opt-in guard for models that
+should never need runtime resolution, and the one approximation that
+remains is a named, machine-visible knob.

@@ -314,5 +314,5 @@ TEST_CASE("NonComputationalModel: policy accessor reflects the constructed polic
     NonComputationalModel model(LevelSet::default_set(), default_initial_state(), {}, std::nullopt,
                                 policy);
     REQUIRE(model.policy().reset_restores_lost == true);
-    REQUIRE(model.policy().unknown_source_policy == UnknownSourcePolicy::Reject);
+    REQUIRE(model.policy().unknown_source_policy == UnknownSourcePolicy::Exact);
 }

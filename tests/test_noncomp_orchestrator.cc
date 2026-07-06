@@ -27,6 +27,7 @@ using clifft::parse;
 using clifft::QubitStatusKind;
 using clifft::sample_noncomputational;
 using clifft::TransitionInstrument;
+using clifft::UnknownSourcePolicy;
 
 namespace {
 
@@ -423,19 +424,41 @@ TEST_CASE("sample_noncomputational: a leaked measurement feeds the observable th
 
 TEST_CASE("sample_noncomputational: a jump to the ground level forces the measurement to 0") {
     // The S transition collapses the H-prepared |+> to the g level; without
-    // the materializing carrier edit the M would read 1 on ~half the shots.
+    // the materializing collapse the M would read 1 on ~half the shots. The
+    // record is identical under both policies; the reported final status
+    // differs by design. Ahead-of-time sampling drew the fire itself, so
+    // its ledger knows the destination; the exact mode resolves a
+    // computational-destination fire entirely inside the VM, so its ledger
+    // honestly reports ComputationalUnknown -- the refinement to a known
+    // level is ledger knowledge, not a physics claim (both kinds map to
+    // "computational" at the Python surface).
     Circuit c = parse("H 0\nS 0\nM 0\n");
     std::map<std::string, TransitionInstrument> transitions;
     transitions.emplace("S", always_to_g(LevelSet::default_set()));
-    NonComputationalModel model = make_model(all_g(), std::move(transitions));
 
-    NonComputationalSample s = sample_noncomputational(c, model, 200, 1);
-    for (uint8_t bit : s.measurements) {
-        REQUIRE(bit == 0);
+    SECTION("exact (default): record forced, ledger stays unknown") {
+        NonComputationalModel model = make_model(all_g(), std::move(transitions));
+        NonComputationalSample s = sample_noncomputational(c, model, 200, 1);
+        for (uint8_t bit : s.measurements) {
+            REQUIRE(bit == 0);
+        }
+        for (uint32_t shot = 0; shot < s.shots; ++shot) {
+            REQUIRE(s.final_status[shot].kind() == QubitStatusKind::ComputationalUnknown);
+        }
     }
-    for (uint32_t shot = 0; shot < s.shots; ++shot) {
-        REQUIRE(s.final_status[shot].kind() == QubitStatusKind::ComputationalKnown);
-        REQUIRE(s.final_status[shot].level_id() == 0);
+    SECTION("strict guard (AOT): record forced, ledger knows the level") {
+        NonComputationalPolicy policy;
+        policy.unknown_source_policy = UnknownSourcePolicy::Reject;
+        NonComputationalModel model =
+            make_model(all_g(), std::move(transitions), std::nullopt, policy);
+        NonComputationalSample s = sample_noncomputational(c, model, 200, 1);
+        for (uint8_t bit : s.measurements) {
+            REQUIRE(bit == 0);
+        }
+        for (uint32_t shot = 0; shot < s.shots; ++shot) {
+            REQUIRE(s.final_status[shot].kind() == QubitStatusKind::ComputationalKnown);
+            REQUIRE(s.final_status[shot].level_id() == 0);
+        }
     }
 }
 
@@ -450,8 +473,7 @@ TEST_CASE("sample_noncomputational: a jump to the excited level forces the measu
         REQUIRE(bit == 1);
     }
     for (uint32_t shot = 0; shot < s.shots; ++shot) {
-        REQUIRE(s.final_status[shot].kind() == QubitStatusKind::ComputationalKnown);
-        REQUIRE(s.final_status[shot].level_id() == 1);
+        REQUIRE(s.final_status[shot].kind() == QubitStatusKind::ComputationalUnknown);
     }
 }
 

@@ -152,11 +152,11 @@ def test_known_source_dependent_transition_accepted():
     assert (r.final_status == LEAKED).all()
 
 
-def test_unknown_source_dependent_transition_rejected():
+def test_unknown_source_dependent_transition_rejected_under_strict_guard():
     t = _zeros(5, 5)
     t[LEAK_G][0] = 1.0
     t[LEAK_E][1] = 1.0
-    model = noncomp.Model(initial_state=ALL_G, transitions={"S": t})
+    model = noncomp.Model(initial_state=ALL_G, transitions={"S": t}, unknown_source_policy="reject")
     with pytest.raises(ValueError, match="source-dependent"):
         noncomp.sample("H 0\nS 0\n", model, shots=8, seed=6)
 

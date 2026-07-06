@@ -460,11 +460,11 @@ When a transition fires on a target qubit with `QubitStatus s`:
   is scalar on `H_C` and the jump branches are source-independent;
   sample without consulting amplitudes. Otherwise the behavior is
   selected by `policy.unknown_source_policy`:
-  - `Reject` (default): reject with an error naming the op index, the
-    qubit, and the instrument — pointing the user at the cut between
-    what is pre-sampleable and what needs the runtime resolution the
-    `Exact` policy below provides.
-  - `Exact` (opt-in): route the run to the exact-mode driver
+  - `Reject` (opt-in strict guard): reject with an error naming the op
+    index, the qubit, and the instrument — pointing the user at the cut
+    between what is pre-sampleable and what needs the runtime resolution
+    the `Exact` policy below provides.
+  - `Exact` (the default): route the run to the exact-mode driver
     (design/state-dependent-jumps.md). The circuit compiles once with
     every annotation kept as a runtime instrument site, fire
     probabilities are evaluated on the live state, and a fire that
