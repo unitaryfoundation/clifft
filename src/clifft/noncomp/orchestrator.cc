@@ -32,7 +32,7 @@ namespace {
 void apply_heralds(RewriteResult& rw, const MeasurementClassifier& classifier,
                    Xoshiro256PlusPlus& rng, std::vector<uint8_t>& heralds) {
     for (const ClassifiedMeasurement& m : rw.classified_measurements) {
-        const double p_herald = classifier.prob(2, m.level);
+        const double p_herald = classifier.prob(MeasurementClassifier::kHeraldSymbol, m.level);
         if (rng.next_double() < p_herald) {
             heralds[m.slot] = 1;
             // The rewriter always emits a READOUT_NOISE node for a ternary
@@ -99,7 +99,7 @@ NonComputationalSample sample_noncomputational(const Circuit& circuit,
             sample_history(annotated, model, derive_seed(global_seed, shot, kHistoryDomain));
         RewriteResult rw = rewrite(annotated, hs.history, model);
         std::vector<uint8_t> shot_heralds(circuit.num_measurements, 0);
-        if (classifier != nullptr && classifier->num_symbols() == 3 &&
+        if (classifier != nullptr && classifier->has_herald() &&
             !rw.classified_measurements.empty()) {
             Xoshiro256PlusPlus classifier_rng(derive_seed(global_seed, shot, kClassifierDomain));
             apply_heralds(rw, *classifier, classifier_rng, shot_heralds);

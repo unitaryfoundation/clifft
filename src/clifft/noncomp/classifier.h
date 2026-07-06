@@ -10,6 +10,12 @@
 // a qubit at this level should produce, and the sampler raises
 // instead of silently picking a bit.
 //
+// Symbol indices are positional: index 0 and 1 are the recorded
+// measurement bit, and an optional third symbol (kHeraldSymbol) is the
+// herald -- "this readout is ambiguous", reported in the per-shot
+// herald sidecar rather than the record. The sampling paths accept
+// exactly two or three symbols and always read index 2 as the herald.
+//
 // Construction binds the classifier to a LevelSet so the per-level
 // column count matches the level table.
 
@@ -35,8 +41,15 @@ class MeasurementClassifier {
                                              std::vector<std::vector<double>> matrix,
                                              const LevelSet& levels);
 
+    // The positional index of the herald symbol, when one is present.
+    static constexpr uint8_t kHeraldSymbol = 2;
+
     size_t num_symbols() const { return symbols_.size(); }
     size_t num_levels() const { return reject_probs_.size(); }
+
+    // True when a third, herald symbol is present (see kHeraldSymbol).
+    bool has_herald() const { return symbols_.size() == 3; }
+
     const std::string& symbol_label(uint8_t symbol_idx) const;
 
     // P(symbol | level). Throws on out-of-range indices.
