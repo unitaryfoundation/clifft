@@ -49,7 +49,6 @@
 #include "clifft/noncomp/instrument_options.h"
 #include "clifft/noncomp/op_role.h"
 #include "clifft/noncomp/rewriter.h"
-#include "clifft/noncomp/sampler.h"
 #include "clifft/noncomp/seed.h"
 #include "clifft/noncomp/status_step.h"
 #include "clifft/noncomp/transition_instrument.h"
@@ -101,6 +100,28 @@ AnnotationChannel resolve_annotation(const AstNode& node, const NonComputational
                                     " does not name a transition in the model");
     }
     return channel;
+}
+
+// Draw one qubit's initial level from the model's shared initial-state
+// distribution, with the last positive level catching the floating-point
+// tail so a draw always resolves to a level the distribution can produce.
+uint8_t draw_initial_level(const NonComputationalModel& model, Xoshiro256PlusPlus& rng) {
+    const size_t num_levels = model.levels().size();
+    const double u = rng.next_double();
+    double acc = 0.0;
+    int last_positive = -1;
+    for (uint8_t l = 0; l < num_levels; ++l) {
+        const double p = model.initial_probability(l);
+        if (p > 0.0) {
+            last_positive = l;
+        }
+        acc += p;
+        if (u < acc) {
+            return l;
+        }
+    }
+    assert(last_positive >= 0 && "initial-state draw over an empty distribution");
+    return static_cast<uint8_t>(last_positive);
 }
 
 // Draw a destination level from `source`'s column of the instrument,

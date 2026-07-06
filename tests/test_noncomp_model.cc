@@ -26,7 +26,6 @@ using clifft::MeasurementClassifier;
 using clifft::NonComputationalModel;
 using clifft::NonComputationalPolicy;
 using clifft::TransitionInstrument;
-using clifft::UnknownSourcePolicy;
 using clifft::test::opaque_nan;
 
 namespace {
@@ -314,5 +313,4 @@ TEST_CASE("NonComputationalModel: policy accessor reflects the constructed polic
     NonComputationalModel model(LevelSet::default_set(), default_initial_state(), {}, std::nullopt,
                                 policy);
     REQUIRE(model.policy().reset_restores_lost == true);
-    REQUIRE(model.policy().unknown_source_policy == UnknownSourcePolicy::Exact);
 }

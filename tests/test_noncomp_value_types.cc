@@ -17,7 +17,6 @@ using clifft::LevelSet;
 using clifft::NonComputationalPolicy;
 using clifft::QubitStatus;
 using clifft::QubitStatusKind;
-using clifft::UnknownSourcePolicy;
 
 // =========================================================================
 // LevelSet construction / validation
@@ -203,7 +202,6 @@ TEST_CASE("QubitStatus _unchecked factories build without table validation") {
 TEST_CASE("NonComputationalPolicy: defaults are exact and conservative") {
     NonComputationalPolicy policy;
     REQUIRE(policy.reset_restores_lost == false);
-    REQUIRE(policy.unknown_source_policy == UnknownSourcePolicy::Exact);
     REQUIRE(policy.damping == DampingPolicy::Exact);
 }
 

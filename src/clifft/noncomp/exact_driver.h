@@ -5,8 +5,8 @@
 //
 // A transition whose outcome depends on a qubit's quantum state -- a
 // jump out of superposition, where which level the qubit leaves from is
-// not yet decided -- cannot be drawn before that state exists. Under
-// UnknownSourcePolicy::Exact the annotated circuit therefore compiles
+// not yet decided -- cannot be drawn before that state exists. The
+// annotated circuit therefore compiles
 // once with every annotation kept as a runtime instrument site; each
 // shot preloads its sampled initial levels and executes; a fire the VM
 // cannot resolve in-line traps back to this driver, which draws the

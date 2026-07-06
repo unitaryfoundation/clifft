@@ -141,12 +141,10 @@ void append_computational_confusion(Circuit& out, const NonComputationalModel& m
     out.nodes.push_back(AstNode{GateType::READOUT_NOISE, {Target::rec(slot)}, {p01, p10}, 0});
 }
 
-// Shared per-node processing for every non-annotation operation: the
-// policy scan (drop/reject), classifier record writes for measurements on
+// Per-node processing for every non-annotation operation: the policy
+// scan (drop/reject), classifier record writes for measurements on
 // leaked/lost qubits, computational readout confusion for kept Z-basis
-// measurements, status stepping, and the visible-slot cursor. Both the
-// AOT rewrite and the exact-mode continuation rewrite go through this, so
-// the two paths cannot drift.
+// measurements, status stepping, and the visible-slot cursor.
 void process_ordinary_node(const AstNode& node, uint32_t op_index,
                            const NonComputationalModel& model, std::vector<QubitStatus>& status,
                            Circuit& out, uint32_t& slot,
@@ -256,117 +254,6 @@ void process_ordinary_node(const AstNode& node, uint32_t op_index,
 
 }  // namespace
 
-RewriteResult rewrite(const Circuit& original, const NonComputationalHistory& history,
-                      const NonComputationalModel& model) {
-    const LevelSet& levels = model.levels();
-    const NonComputationalPolicy& policy = model.policy();
-
-    if (history.initial_status.size() != original.num_qubits) {
-        throw std::invalid_argument("rewrite: history has " +
-                                    std::to_string(history.initial_status.size()) +
-                                    " initial statuses but circuit declares " +
-                                    std::to_string(original.num_qubits) + " qubits");
-    }
-
-    // Copy so every circuit-level field carries over (and any field added to
-    // Circuit later is not silently dropped); only the node list is rebuilt.
-    // The inserted X-prep, hidden R, and destination-prep X ops are not
-    // visible measurements, and a classifier record write pads the same slot
-    // its measurement occupied, so the record-layout counts stay valid.
-    RewriteResult result;
-    Circuit& out = result.circuit;
-    out = original;
-    out.nodes.clear();
-    out.nodes.reserve(original.nodes.size() + original.num_qubits);
-
-    std::vector<QubitStatus> status = history.initial_status;
-
-    // Initial-state prep: a sampled known |1> initial level needs a leading X
-    // so the SVM's |0> matches it.
-    for (uint32_t q = 0; q < original.num_qubits; ++q) {
-        const QubitStatus& s = status[q];
-        if (s.kind() == QubitStatusKind::ComputationalKnown &&
-            s.level_id() == levels.computational_one_id()) {
-            out.nodes.push_back(single_qubit_op(GateType::X, q));
-        }
-    }
-
-    size_t trans_cursor = 0;
-    uint32_t slot = 0;  // visible measurement record index
-
-    // Consume one recorded transition outcome for (op_index, qubit),
-    // validating that the record stream describes this circuit.
-    auto replay_transition = [&](uint32_t op_index, uint32_t qubit) -> TransitionOutcome {
-        if (trans_cursor >= history.transitions.size()) {
-            throw std::invalid_argument(
-                "rewrite: circuit consults more transitions than the history records; "
-                "history does not describe this circuit");
-        }
-        const TransitionRecord& record = history.transitions[trans_cursor++];
-        if (record.op_index != op_index || record.qubit != qubit) {
-            throw std::invalid_argument(
-                "rewrite: transition record (op " + std::to_string(record.op_index) + ", qubit " +
-                std::to_string(record.qubit) + ") does not match consult (op " +
-                std::to_string(op_index) + ", qubit " + std::to_string(qubit) +
-                "); history does not describe this circuit");
-        }
-        TransitionOutcome outcome;
-        outcome.jumped = record.jumped;
-        outcome.destination_level = record.destination_level;
-        return outcome;
-    };
-
-    for (uint32_t op_index = 0; op_index < original.nodes.size(); ++op_index) {
-        const AstNode& node = original.nodes[op_index];
-        const GateType gate = node.gate;
-
-        // LEVEL_TRANSITION and LOSS annotations are the transition consult
-        // points. They are consumed here -- the rewritten circuit carries
-        // only their carrier edits -- with the same jump semantics an
-        // operation-attached transition had: a jump into the computational
-        // subspace materializes the carrier at the destination, and a jump
-        // out of it needs the hidden trace-out exactly when the carrier at
-        // the annotation's position is coherent.
-        if (gate == GateType::LEVEL_TRANSITION || gate == GateType::LOSS) {
-            for (const Target& target : node.targets) {
-                const uint32_t qubit = target.value();
-                if (qubit >= status.size()) {
-                    throw std::invalid_argument("rewrite: operand qubit " + std::to_string(qubit) +
-                                                " is out of range at op " +
-                                                std::to_string(op_index));
-                }
-                const QubitStatus pre = status[qubit];
-                const TransitionOutcome outcome = replay_transition(op_index, qubit);
-                if (!outcome.jumped) {
-                    continue;
-                }
-                const Level& dest = levels.at(outcome.destination_level);
-                if (dest.category == LevelCategory::Computational) {
-                    out.nodes.push_back(single_qubit_op(GateType::R, qubit));
-                    if (outcome.destination_level == levels.computational_one_id()) {
-                        out.nodes.push_back(single_qubit_op(GateType::X, qubit));
-                    }
-                } else if (pre.kind() == QubitStatusKind::ComputationalUnknown) {
-                    out.nodes.push_back(single_qubit_op(GateType::R, qubit));
-                }
-                status[qubit] = levels.status_for(outcome.destination_level);
-            }
-            continue;
-        }
-
-        process_ordinary_node(node, op_index, model, status, out, slot,
-                              result.classified_measurements);
-    }
-
-    if (trans_cursor != history.transitions.size()) {
-        throw std::invalid_argument(
-            "rewrite: history records more transitions than the circuit consults; "
-            "history does not describe this circuit");
-    }
-
-    return result;
-}
-
 ContinuationRewrite rewrite_continuation(const Circuit& annotated, const ExactShotEvents& events,
                                          bool force_last_traceout,
                                          const NonComputationalModel& model) {
@@ -432,8 +319,8 @@ ContinuationRewrite rewrite_continuation(const Circuit& annotated, const ExactSh
 
                 if (classical_source) {
                     // Classical-source consult: no runtime instrument; the
-                    // host pre-drew the outcome. The annotation node is
-                    // consumed, exactly as in the AOT rewrite.
+                    // driver pre-drew the outcome and the annotation node
+                    // is consumed.
                     if (classical_cursor >= events.classical_outcomes.size()) {
                         throw std::invalid_argument(
                             "rewrite_continuation: circuit consults more classical-source "

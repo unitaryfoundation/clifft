@@ -458,20 +458,18 @@ When a transition fires on a target qubit with `QubitStatus s`:
 - `s.kind == ComputationalUnknown`: if
   `is_source_independent_on_computational` is true, the no-jump branch
   is scalar on `H_C` and the jump branches are source-independent;
-  sample without consulting amplitudes. Otherwise the behavior is
-  selected by `policy.unknown_source_policy`:
-  - `Reject` (opt-in strict guard): reject with an error naming the op
-    index, the qubit, and the instrument — pointing the user at the cut
-    between what is pre-sampleable and what needs the runtime resolution
-    the `Exact` policy below provides.
-  - `Exact` (the default): route the run to the exact-mode driver
-    (design/state-dependent-jumps.md). The circuit compiles once with
-    every annotation kept as a runtime instrument site, fire
-    probabilities are evaluated on the live state, and a fire that
-    cannot resolve in-line traps to the driver, which recompiles the
-    remaining circuit under the now-known status and resumes. Exact
-    for every source context, at a cost exponential in the number of
-    damping-expanded sites (see the `damping` policy there).
+  sample without consulting amplitudes. Otherwise the fire is resolved
+  at runtime by the exact-mode driver
+  (design/state-dependent-jumps.md): the circuit compiles once with
+  every annotation kept as a runtime instrument site, fire
+  probabilities are evaluated on the live state, and a fire that
+  cannot resolve in-line traps to the driver, which recompiles the
+  remaining circuit under the now-known status and resumes. Exact for
+  every source context, at a cost exponential in the number of
+  damping-expanded sites (see the `damping` policy there). This is the
+  only sampling path; a "reject if my model needs runtime resolution"
+  contract check is a future validator's job
+  (`noncomp.validate_static`), not a sampling policy.
 
 This is the "pre-sampleable" boundary, enforced where it actually
 matters (at the unknown-coherent-source point) rather than at model
@@ -514,51 +512,34 @@ attaching transitions to gates with entry-status sources:
   transition acting on the pre-reset level -- readout-induced loss --
   is written explicitly as `M q`, `LEVEL_TRANSITION[name] q`, `R q`.
 
-Annotations are consumed by the trajectory layer: the sampler draws one
-outcome per annotation target, and the rewriter replays those outcomes
-and emits only the carrier edits. `clifft.compile()` rejects circuits
+Annotations whose qubit has a definite (leaked/lost) level are consumed
+by the rewriter against pre-drawn outcomes, leaving only their carrier
+edits; annotations on computational qubits stay runtime instrument
+sites, consulted by the VM. `clifft.compile()` rejects circuits
 containing them.
 
 ### 5.1 Pipeline
 
-For each shot:
+The sampling pipeline is the exact-mode driver
+([state-dependent-jumps.md](state-dependent-jumps.md)): the annotated
+circuit compiles once as a shared main line with every annotation kept as
+a runtime instrument site; each shot draws its initial levels (known |1>
+levels become per-shot Pauli-frame preloads, leaked/lost levels compile
+their own from-the-top continuation), executes, and resolves transition
+fires against the live state -- in-line where possible, by trap,
+continuation recompile, and resume where not. The driver returns the
+user-facing `(measurements, detectors, observables)` unchanged from the
+existing API plus the noncomputational sidecar (per-qubit final status
+and herald bits).
 
-1. **Sample initial statuses.** One draw from `initial_state` per
-   qubit. The sampled level is a classical fact: the resulting
-   `QubitStatus` is `ComputationalKnown` (with the sampled level id)
-   if the level's category is `Computational`, else `Leaked` or
-   `Lost` (with the sampled level id) per the level's category.
-2. **Translate known computational initial levels into prep gates.**
-   For every qubit whose initial sample is `ComputationalKnown` at
-   the `|1>` level, the rewriter prepends an `X` on that qubit so the
-   SVM's `|0...0>` initial state matches the sampled known level. The
-   `|0>` level requires no prep.
-   `Leaked`/`Lost` initial qubits need no quantum prep (their
-   computational amplitude is irrelevant); the lost/leaked policy
-   gates downstream ops on them from op 0.
-3. **Expand gate hooks and walk the annotated circuit.** The
-   annotation layer inserts a `LEVEL_TRANSITION[key]` after each hooked
-   operation (once per sampling call); the sampler then walks the
-   operations, advancing statuses, and samples an outcome at each
-   LEVEL_TRANSITION/LOSS annotation target with the source taken from the
-   qubit's status at the annotation (§5.0). Apply the §4.2 sample-time
-   check on that source context. Record the resulting
-   `NonComputationalHistory` (sequence of (op-index, qubit, sampled
-   branch)). Update the status `kind` per §5.2.1 below.
-4. **Rewrite the original circuit using the history.** Produce a new
-   ordinary clifft circuit (no new instructions). Drop, keep, or
-   replace ops per the policy table. Insert an `R` op at structural
-   loss points where the lost qubit was previously coherent (see §5.3).
-5. **Compile the rewritten circuit** through the ordinary
-   trace/lower/bytecode pipeline.
-6. **Sample one shot** on the SVM.
-7. **Return** the user-facing `(measurements, detectors, observables)`
-   unchanged from the existing API, plus the noncomputational metadata
-   sidecar: `(history, per-qubit final status, classifier output,
-   herald bits)`.
-
-The C++ orchestrator owns steps 1-7. Caching of step 5 across shots
-is deferred (see §1, "Out").
+An earlier revision of this note specified a per-shot ahead-of-time
+pipeline here (sample a trajectory, rewrite, compile, run -- one compile
+per shot); it shipped as the MVP and was retired once exact runtime
+resolution was validated, together with its `equalize_rates` and
+`reject` policies (state-dependent-jumps.md §6, post-plan note). The
+rewrite-policy table below survives it unchanged: the per-node
+semantics live in the shared rewriter walk the continuation rewrite
+runs on.
 
 ### 5.2 Default rewrite-policy table
 
@@ -653,12 +634,12 @@ basis (a superposition of `g` and `e`), so its kind is
 the §4.2 sample-time rejection unless the instrument is
 source-independent on Computational sources.
 
-### 5.2.2 History status is *pre-SVM-known*, not trajectory-physical
+### 5.2.2 Ledger status is *pre-SVM-known*, not trajectory-physical
 
-The status the history sampler tracks is what is **classically known
+The status the classical walk tracks is what is **classically known
 before SVM execution**, which is narrower than the physically-collapsed
-trajectory state. The sampler runs entirely before the SVM (§5.1 steps
-3 vs 6), so it cannot consult a measurement outcome that only exists
+trajectory state: the walk compiles circuits and pre-draws classical
+consults, so it cannot consult a measurement outcome that only exists
 inside the SVM.
 
 The consequences, which override the naive reading of the §5.2.1 table:
@@ -666,14 +647,13 @@ The consequences, which override the naive reading of the §5.2.1 table:
 - **`M` on `ComputationalKnown(g/e)`**: status stays known. The value
   was already classically known, so a later source-dependent
   transition may use it.
-- **`M` on `ComputationalUnknown`**: the history status stays
+- **`M` on `ComputationalUnknown`**: the ledger status stays
   `ComputationalUnknown`. It does **not** promote to
   `ComputationalKnown`, because the outcome is produced by the SVM, not
-  the history sampler. (The SVM still performs the real quantum
-  measurement and collapse; that is independent of the history layer.)
-  A source-dependent transition fired on this qubit afterward rejects
-  per §4.2 unless the instrument is source-independent on Computational
-  sources.
+  the classical walk. (The SVM still performs the real quantum
+  measurement and collapse; that is independent of the ledger.) A
+  source-dependent transition fired on this qubit afterward is resolved
+  at runtime per §4.2.
 - **`R` / `MR` (Z-basis)**: produce `ComputationalKnown(g)` — the value
   comes from the instruction, not an SVM outcome, so it is pre-SVM
   known.
@@ -863,19 +843,21 @@ Proposed layout under `src/clifft/noncomp/` (new directory):
 5. `policy.h` — `NonComputationalPolicy` struct. Zero deps.
 6. `model.h/.cc` — `NonComputationalModel`, all construction-time
    validation per §4.1. Depends on (1)-(5).
-7. `history.h` — `NonComputationalHistory` (sequence of (op-index,
-   qubit, branch, status-update, herald)). Depends on (1).
-8. `sampler.h/.cc` — history sampler that walks the parsed circuit,
-   updates `QubitStatus` per shot, and enforces the §4.2 sample-time
-   source-context check via the qubit_status accessors. Depends on
-   (1)-(7), `clifft::Circuit`, `clifft::AstNode`.
-9. `rewriter.h/.cc` — produces a new `clifft::Circuit` from
-   `(original, history, model)`, inserting `R` at coherent-qubit loss
-   points and `X` prep for known-|1> initial samples.
-   Depends on (1)-(8) and `clifft::Circuit`.
+7. `history.h`, `sampler.h/.cc` — retired with the ahead-of-time
+   pipeline (the trajectory record and its per-shot sampler); the
+   initial-level draw lives in the driver.
+8. `rewriter.h/.cc` — produces a new `clifft::Circuit` from
+   `(annotated, events, model)` via `rewrite_continuation`: the shared
+   per-node walk (policy table, classifier record writes, confusion),
+   carrier edits for recorded jumps, and live instrument sites for
+   coherent qubits. Depends on (1)-(6) and `clifft::Circuit`.
+9. `exact_driver.h/.cc`, `seed.h` — the runtime driver: shared main
+   line, trap resolution, continuation cache, forced trace-outs, and
+   per-shot seed derivation. Depends on (1)-(8), the compile pipeline,
+   and the SVM.
 10. `orchestrator.h/.cc` — top-level `sample_noncomputational` entry
-    point that runs the full pipeline. Depends on (1)-(9), the
-    existing compile pipeline, and the SVM.
+    point: validation and seed resolution, then the driver. Depends on
+    (9).
 
 Python bindings in `src/python/bindings.cc` expose: `Level`,
 `LevelSet`, `TransitionInstrument`,

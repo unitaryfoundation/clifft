@@ -23,12 +23,12 @@
 #include "clifft/frontend/hir.h"
 #include "clifft/noncomp/annotate.h"
 #include "clifft/noncomp/classifier.h"
+#include "clifft/noncomp/instrument_options.h"
 #include "clifft/noncomp/level.h"
 #include "clifft/noncomp/model.h"
 #include "clifft/noncomp/orchestrator.h"
 #include "clifft/noncomp/policy.h"
 #include "clifft/noncomp/rewriter.h"
-#include "clifft/noncomp/sampler.h"
 #include "clifft/noncomp/transition_instrument.h"
 #include "clifft/optimizer/hir_pass_manager.h"
 #include "clifft/optimizer/pass_factory.h"
@@ -46,15 +46,13 @@ using clifft::Circuit;
 using clifft::default_hir_pass_manager;
 using clifft::GateType;
 using clifft::HirModule;
-using clifft::HistorySample;
 using clifft::LevelSet;
 using clifft::MeasurementClassifier;
 using clifft::NonComputationalModel;
 using clifft::NonComputationalPolicy;
 using clifft::NonComputationalSample;
 using clifft::parse;
-using clifft::rewrite;
-using clifft::sample_history;
+using clifft::rewrite_continuation;
 using clifft::sample_noncomputational;
 using clifft::trace;
 using clifft::TransitionInstrument;
@@ -210,20 +208,29 @@ TEST_CASE("validation: losing a Bell-pair qubit inserts the hidden trace-out R a
         make_model(std::move(transitions), lost_classifier(LevelSet::default_set(), {1.0, 0.0}));
 
     Circuit annotated = annotate(c, model);
-    HistorySample hs =
-        sample_history(annotated, model, 1);  // always_lost: qubit 0 is deterministically lost
-    Circuit rw = rewrite(annotated, hs.history, model).circuit;
+    // The recorded jump is what the driver stores when the site traps: the
+    // deterministic always_lost fire on qubit 0 at the expanded annotation.
+    clifft::ExactShotEvents events;
+    events.initial_status.assign(2, LevelSet::default_set().status_for(0));
+    events.jumps.push_back({/*op_index=*/3, /*qubit=*/0, /*destination_level=*/4});
+    Circuit rw = rewrite_continuation(annotated, events, false, model).circuit;
 
     // The original circuit has no reset; the loss rewrite adds exactly one
-    // trace-out R (and no X-prep, since both halves start in |0>).
+    // trace-out R.
     REQUIRE(count_gate(c, GateType::R) == 0);
     REQUIRE(count_gate(rw, GateType::R) == 1);
 
     // The trace-out R lowers to exactly one hidden measurement that survives
     // the default HIR passes -- the partial-trace unraveling reaching the SVM.
-    // The visible measurement count is unchanged (the record layout is stable).
-    HirModule base = trace(c);
-    HirModule hir = trace(rw);
+    // The visible measurement count is unchanged (the record layout is
+    // stable). The baseline is the same rewrite with no jump recorded, so
+    // both sides carry the identical live instrument site.
+    clifft::ExactShotEvents no_events;
+    no_events.initial_status = events.initial_status;
+    Circuit base_c = rewrite_continuation(annotated, no_events, false, model).circuit;
+    clifft::InstrumentTraceOptions options = clifft::instrument_trace_options(model);
+    HirModule base = trace(base_c, &options);
+    HirModule hir = trace(rw, &options);
     default_hir_pass_manager().run(hir);
     REQUIRE(hir.num_hidden_measurements == base.num_hidden_measurements + 1);
     REQUIRE(hir.num_measurements == base.num_measurements);

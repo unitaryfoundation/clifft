@@ -1,13 +1,12 @@
 #pragma once
 
-// Shared qubit-status stepper for the noncomputational history layer.
+// Shared qubit-status stepper for the noncomputational layer.
 //
-// Both the history sampler (which samples a transition outcome) and the
-// rewriter (which replays a recorded one) advance a qubit's status the
-// same way; that logic lives here, in one place, so the two stay in
-// sync. It covers gate demotion, the measurement and reset effects
-// (including the pre-SVM-known measurement rule), reset-restore of
-// leaked/lost qubits, and the feedback rules.
+// The rewriter's circuit walk and the exact driver's classical-outcome
+// walk advance a qubit's status the same way; that logic lives here, in
+// one place, so the two stay in sync. It covers gate demotion, the
+// measurement and reset effects (including the pre-SVM-known measurement
+// rule), reset-restore of leaked/lost qubits, and the feedback rules.
 
 #include "clifft/circuit/gate_data.h"
 #include "clifft/noncomp/level.h"
