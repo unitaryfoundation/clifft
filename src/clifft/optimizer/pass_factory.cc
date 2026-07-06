@@ -57,6 +57,8 @@ std::string pass_registry_json() {
         out += (p.kind == PassKind::HIR) ? "hir" : "bytecode";
         out += "\",\"default\":";
         out += p.default_enabled ? "true" : "false";
+        out += ",\"preserves_record_order\":";
+        out += p.record_order.preserved ? "true" : "false";
         out += "}";
     }
     out += ']';
