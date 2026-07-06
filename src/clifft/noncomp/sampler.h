@@ -32,12 +32,6 @@ struct HistorySample {
     std::vector<QubitStatus> final_status;
 };
 
-// Sample one trajectory over `circuit` under `model`, deterministic in
-// `seed`. Under UnknownSourcePolicy::Reject (the default), throws
-// std::invalid_argument on a source-context violation: a source-dependent
-// transition firing on a ComputationalUnknown qubit, naming the operation,
-// qubit, and gate. Under EqualizeRates that case is sampled with the
-// equalized-rates approximation instead (see policy.h).
 // Draw one qubit's initial level from the model's shared initial-state
 // distribution, with the last positive level catching the floating-point
 // tail so a draw always resolves to a level the distribution can produce.
@@ -45,6 +39,12 @@ struct HistorySample {
 // paths sample initials identically.
 uint8_t draw_initial_level(const NonComputationalModel& model, Xoshiro256PlusPlus& rng);
 
+// Sample one trajectory over `circuit` under `model`, deterministic in
+// `seed`. Under UnknownSourcePolicy::Reject (the default), throws
+// std::invalid_argument on a source-context violation: a source-dependent
+// transition firing on a ComputationalUnknown qubit, naming the operation,
+// qubit, and gate. Under EqualizeRates that case is sampled with the
+// equalized-rates approximation instead (see policy.h).
 HistorySample sample_history(const Circuit& circuit, const NonComputationalModel& model,
                              uint64_t seed);
 

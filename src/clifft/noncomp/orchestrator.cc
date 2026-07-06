@@ -8,6 +8,7 @@
 #include "clifft/noncomp/exact_driver.h"
 #include "clifft/noncomp/rewriter.h"
 #include "clifft/noncomp/sampler.h"
+#include "clifft/noncomp/seed.h"
 #include "clifft/optimizer/pass_factory.h"
 #include "clifft/svm/svm.h"
 #include "clifft/util/xoshiro.h"
@@ -20,20 +21,6 @@
 namespace clifft {
 
 namespace {
-
-// Distinct domain tags so per-shot sub-seeds for the three RNG consumers
-// never coincide (seeding all from the same value would correlate them).
-constexpr uint64_t kHistoryDomain = 0x1;
-constexpr uint64_t kClassifierDomain = 0x2;
-constexpr uint64_t kSvmDomain = 0x3;
-
-// SplitMix64 finalizer over a mix of the global seed, shot, and domain.
-uint64_t derive_seed(uint64_t global, uint64_t shot, uint64_t domain) {
-    uint64_t z = global ^ (shot * 0x9E3779B97F4A7C15ULL) ^ (domain * 0xBF58476D1CE4E5B9ULL);
-    z = (z ^ (z >> 30)) * 0xBF58476D1CE4E5B9ULL;
-    z = (z ^ (z >> 27)) * 0x94D049BB133111EBULL;
-    return z ^ (z >> 31);
-}
 
 // Herald pass for a three-symbol classifier: draw each classified slot's
 // herald flag and re-point the heralded slots' record-flip probability at one

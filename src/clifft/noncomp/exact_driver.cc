@@ -1,3 +1,49 @@
+// Exact-mode driver implementation. exact_driver.h is the entry point;
+// design/state-dependent-jumps.md holds the full design. The vocabulary
+// used throughout this file:
+//
+//   annotation   A LEVEL_TRANSITION[name] or LOSS(p) node in the user's
+//                circuit: the level-transition channel a physical
+//                operation applies to each of its qubits.
+//   target       One (op_index, qubit) pair of an annotation; a node
+//                with n qubit operands is n targets.
+//   consult      One target's per-shot draw against its channel: did it
+//                fire, and to which destination level. A *classical*
+//                consult is one whose qubit's level is definite at that
+//                point (known computational, leaked, or lost), so the
+//                driver draws it without touching quantum state.
+//   fire / jump  A consult that moved the qubit to another level.
+//   site         A target kept as a runtime INSTRUMENT barrier in the
+//                compiled module, consulted in-line by the VM;
+//                trace()'s materialization order assigns site ids.
+//   trap         A fire the VM cannot resolve in-line -- the qubit's
+//                level is not definite there -- so execution stops at
+//                the site and control returns to the driver.
+//   carrier      The simulated qubit cell that keeps holding a
+//                noncomputational population's correlations while the
+//                status ledger tracks its level classically.
+//   continuation The circuit rewritten under a shot's events (initial
+//                statuses, jumps so far, pre-drawn classical outcomes)
+//                and recompiled whole; execution resumes past the
+//                trapped site, the prefix guaranteed identical to what
+//                the shot already ran.
+//   main line    The continuation of "nothing happened": every shot
+//                starts in it unless an initial level is
+//                noncomputational.
+//   forced twin  The forced-outcome variant of a sampling measurement
+//                opcode: same record slot, outcome read from
+//                state.forced_record instead of drawn. Collapses a
+//                neglect-form trap's carrier to the source the trap
+//                reported.
+//   sidecar      The per-shot herald record: one flag per visible
+//                measurement slot, set when a ternary classifier drew
+//                its "ambiguous" symbol for that slot.
+//   driver draw  Randomness this file consumes between VM runs
+//                (initial levels, trap destinations, classical
+//                consults, herald flags): one stream per shot, every
+//                draw ordered before any cache lookup. The VM's own
+//                Born randomness is the separate SVM stream (seed.h).
+
 #include "clifft/noncomp/exact_driver.h"
 
 #include "clifft/backend/backend.h"
@@ -7,9 +53,10 @@
 #include "clifft/noncomp/op_role.h"
 #include "clifft/noncomp/rewriter.h"
 #include "clifft/noncomp/sampler.h"
+#include "clifft/noncomp/seed.h"
 #include "clifft/noncomp/status_step.h"
 #include "clifft/noncomp/transition_instrument.h"
-#include "clifft/optimizer/pass_factory.h"
+#include "clifft/optimizer/hir_pass_manager.h"
 #include "clifft/optimizer/pass_registry.h"
 #include "clifft/svm/svm.h"
 #include "clifft/svm/svm_math.h"
@@ -22,27 +69,11 @@
 #include <optional>
 #include <stdexcept>
 #include <string>
-#include <string_view>
 #include <vector>
 
 namespace clifft {
 
 namespace {
-
-// Domain tags for the per-shot sub-seeds, disjoint from the AOT
-// orchestrator's history/classifier/SVM tags so the two modes never
-// correlate. One host stream serves every host-side draw in a shot
-// (initial levels, trap destinations, classical follow-ons, herald
-// flags), in a deterministic order that never depends on cache state.
-constexpr uint64_t kExactHostDomain = 0x11;
-constexpr uint64_t kExactSvmDomain = 0x12;
-
-uint64_t derive_exact_seed(uint64_t global, uint64_t shot, uint64_t domain) {
-    uint64_t z = global ^ (shot * 0x9E3779B97F4A7C15ULL) ^ (domain * 0xBF58476D1CE4E5B9ULL);
-    z = (z ^ (z >> 30)) * 0xBF58476D1CE4E5B9ULL;
-    z = (z ^ (z >> 27)) * 0x94D049BB133111EBULL;
-    return z ^ (z >> 31);
-}
 
 // The transition consulted by one annotation node: a named instrument for
 // LEVEL_TRANSITION, a uniform all-lost rate for LOSS.
@@ -75,12 +106,22 @@ AnnotationChannel resolve_annotation(const AstNode& node, const NonComputational
     return channel;
 }
 
-// Draw a destination level from `column` restricted to `mass` (the sum of
-// the admitted entries), with the measurement kernels' last-positive
-// fallback for the floating-point tail. `admit` filters levels.
+// Draw a destination level from `source`'s column of the instrument,
+// restricted to the levels `admit` accepts. `admit` is a pure
+// level_id -> bool predicate naming which destinations participate; the
+// draw normalizes over the admitted entries' own mass, summed here so a
+// caller cannot supply a mismatched normalizer (which would silently
+// bias the draw). Uses the measurement kernels' last-positive fallback
+// for the floating-point tail, and consumes exactly one RNG draw.
 template <typename Admit>
-uint8_t draw_from_column(const TransitionInstrument& instrument, uint8_t source, double mass,
+uint8_t draw_from_column(const TransitionInstrument& instrument, uint8_t source,
                          Xoshiro256PlusPlus& rng, Admit&& admit, size_t num_levels) {
+    double mass = 0.0;
+    for (uint8_t to = 0; to < num_levels; ++to) {
+        if (admit(to)) {
+            mass += instrument.prob(to, source);
+        }
+    }
     const double u = rng.next_double() * mass;
     double acc = 0.0;
     int last_positive = -1;
@@ -165,7 +206,7 @@ std::vector<QubitStatus> extend_classical_outcomes(const Circuit& annotated,
                     if (rng.next_double() < total) {
                         outcome.jumped = true;
                         outcome.destination_level = draw_from_column(
-                            *channel.instrument, source, total, rng, [](uint8_t) { return true; },
+                            *channel.instrument, source, rng, [](uint8_t) { return true; },
                             levels.size());
                     }
                 } else if (pre.kind() != QubitStatusKind::Lost &&
@@ -279,24 +320,56 @@ void check_max_rank(const CompiledModule& module, std::optional<uint32_t> max_ra
         "; consider damping=\"neglect\" for high-rate sites or a larger max_rank");
 }
 
-// The exact-mode HIR pipeline: the defaults minus the statevector
-// squeeze. Squeeze reorders commuting measurements, which is
-// exchangeable under sampling semantics but not once a continuation's
+// The exact-mode pipelines: the default-enabled passes that declare
+// record-order preservation (pass_registry.h). Forced-outcome execution
+// is why the property matters: reordering commuting measurements is
+// exchangeable under sampling semantics but wrong once a continuation's
 // trace-out is forced -- an entangled partner must not measure before
-// the forced collapse it is correlated with. One pipeline serves every
-// module in the mode, so prefix identity is preserved; the squeezed
-// rank compaction is a performance loss the validation campaign's
-// table will quantify.
+// the forced collapse it is correlated with. Today the filter excludes
+// exactly the statevector squeeze, whose rank compaction is a
+// performance loss to quantify; a future pass joins these pipelines
+// only by declaring itself order-preserving. One pipeline serves every
+// module in the mode, so prefix identity is preserved.
 HirPassManager exact_hir_pass_manager() {
     HirPassManager pm;
     for (const auto& info : kRegisteredPasses) {
-        if (info.kind == PassKind::HIR && info.default_enabled &&
-            std::string_view(info.name) != "StatevectorSqueezePass") {
+        if (info.kind == PassKind::HIR && info.default_enabled && info.record_order.preserved) {
             pm.add_pass(info.make_hir());
         }
     }
     return pm;
 }
+
+// Bytecode counterpart. Every current default bytecode pass preserves
+// the record sequence (they fuse contiguous instructions, and record
+// slots ride inside instruction payloads), so today this matches the
+// default pipeline; the filter is the standing contract.
+BytecodePassManager exact_bytecode_pass_manager() {
+    BytecodePassManager pm;
+    for (const auto& info : kRegisteredPasses) {
+        if (info.kind == PassKind::Bytecode && info.default_enabled &&
+            info.record_order.preserved) {
+            pm.add_pass(info.make_bc());
+        }
+    }
+    return pm;
+}
+
+#ifndef NDEBUG
+// The sequence the exact pipelines must preserve: every measurement
+// record index, visible and hidden alike, in program order. Audited
+// around each module compile so a pass misdeclared as order-preserving
+// fails loudly here instead of corrupting correlations.
+std::vector<uint32_t> record_sequence(const HirModule& hir) {
+    std::vector<uint32_t> seq;
+    for (const HeisenbergOp& op : hir.ops) {
+        if (op.op_type() == OpType::MEASURE) {
+            seq.push_back(static_cast<uint32_t>(op.meas_record_idx()));
+        }
+    }
+    return seq;
+}
+#endif
 
 // The forced-outcome twin of a sampling measurement opcode, or
 // NUM_OPCODES when the opcode is not a sampling measurement.
@@ -397,7 +470,7 @@ NonComputationalSample sample_noncomputational_exact(const Circuit& circuit,
     };
 
     // Level two: the compiled module for one herald-flag assignment (one
-    // flag per classified slot, in slot order). Every host draw feeding
+    // flag per classified slot, in slot order). Every driver draw feeding
     // this call happens before it, so cache hits and misses sample
     // identically.
     auto get_module = [&](ContinuationEntry& entry, const std::vector<uint8_t>& flags,
@@ -415,9 +488,16 @@ NonComputationalSample sample_noncomputational_exact(const Circuit& circuit,
                 }
             }
             HirModule hir = trace(patched, &instrument_options);
+#ifndef NDEBUG
+            const std::vector<uint32_t> pre_pass_records = record_sequence(hir);
+#endif
             exact_hir_pass_manager().run(hir);
+#ifndef NDEBUG
+            assert(record_sequence(hir) == pre_pass_records &&
+                   "an exact-pipeline HIR pass reordered or removed a record op");
+#endif
             CompiledModule module = lower(hir);
-            default_bytecode_pass_manager().run(module);
+            exact_bytecode_pass_manager().run(module);
             check_max_rank(module, max_rank);
             if (entry.rw.forced_traceout_slot != SIZE_MAX) {
                 swap_traceout_to_forced(module, entry.rw.forced_traceout_slot);
@@ -471,13 +551,13 @@ NonComputationalSample sample_noncomputational_exact(const Circuit& circuit,
     uint32_t state_slots = main_module->total_meas_slots;
 
     for (uint32_t shot = 0; shot < shots; ++shot) {
-        Xoshiro256PlusPlus host_rng(derive_exact_seed(global_seed, shot, kExactHostDomain));
+        Xoshiro256PlusPlus driver_rng(derive_seed(global_seed, shot, kExactDriverDomain));
 
         ExactShotEvents events;
         events.initial_status.reserve(circuit.num_qubits);
         bool any_noncomp_initial = false;
         for (uint32_t q = 0; q < circuit.num_qubits; ++q) {
-            const uint8_t level = draw_initial_level(model, host_rng);
+            const uint8_t level = draw_initial_level(model, driver_rng);
             events.initial_status.push_back(levels.status_for(level));
             const QubitStatusKind kind = events.initial_status.back().kind();
             any_noncomp_initial |= kind == QubitStatusKind::Leaked || kind == QubitStatusKind::Lost;
@@ -499,7 +579,7 @@ NonComputationalSample sample_noncomputational_exact(const Circuit& circuit,
                 auto [it, inserted] = herald_flags.try_emplace(m.slot, 0);
                 if (inserted && ternary) {
                     const double p_herald = classifier->prob(2, m.level);
-                    it->second = host_rng.next_double() < p_herald ? 1 : 0;
+                    it->second = driver_rng.next_double() < p_herald ? 1 : 0;
                 }
                 flags.push_back(it->second);
             }
@@ -510,11 +590,11 @@ NonComputationalSample sample_noncomputational_exact(const Circuit& circuit,
         // (rare) compiles its own continuation-from-the-top; classical
         // consults over the whole circuit are pre-drawn for it. The
         // rewrite fetch consumes no randomness, so drawing the herald
-        // flags after it keeps every host draw ahead of module lookup.
+        // flags after it keeps every driver draw ahead of module lookup.
         ContinuationEntry* entry = &main_entry;
         CompiledModule* module = main_module;
         std::vector<QubitStatus> final_status =
-            extend_classical_outcomes(annotated, events, model, host_rng);
+            extend_classical_outcomes(annotated, events, model, driver_rng);
         if (any_noncomp_initial) {
             entry = &get_entry(events, false);
             module = get_module(*entry, flags_for(entry->rw), nullptr, 0);
@@ -528,7 +608,7 @@ NonComputationalSample sample_noncomputational_exact(const Circuit& circuit,
             state_slots = std::max(state_slots, module->total_meas_slots);
             state = make_state(*module);
         }
-        state.reseed(derive_exact_seed(global_seed, shot, kExactSvmDomain));
+        state.reseed(derive_seed(global_seed, shot, kExactSvmDomain));
         if (state.meas_record.size() < module->total_meas_slots) {
             state.meas_record.resize(module->total_meas_slots, 0);
         }
@@ -557,7 +637,7 @@ NonComputationalSample sample_noncomputational_exact(const Circuit& circuit,
             const AnnotationChannel channel = resolve_annotation(node, model, op_index);
 
             // Destination: at a neglect-form site nothing was drawn, so
-            // the host draws over the full column (computational
+            // the driver draws over the full column (computational
             // destinations included); elsewhere the class is already
             // leaked/lost and only the level within the trap remainder
             // remains.
@@ -565,19 +645,12 @@ NonComputationalSample sample_noncomputational_exact(const Circuit& circuit,
             if (channel.instrument == nullptr) {
                 dest = channel.lost_level;
             } else if (trap.destination_pending) {
-                const double total = channel.instrument->column_sum(trap.source);
                 dest = draw_from_column(
-                    *channel.instrument, trap.source, total, host_rng, [](uint8_t) { return true; },
+                    *channel.instrument, trap.source, driver_rng, [](uint8_t) { return true; },
                     levels.size());
             } else {
-                double remainder = 0.0;
-                for (uint8_t to = 0; to < levels.size(); ++to) {
-                    if (levels.at(to).category != LevelCategory::Computational) {
-                        remainder += channel.instrument->prob(to, trap.source);
-                    }
-                }
                 dest = draw_from_column(
-                    *channel.instrument, trap.source, remainder, host_rng,
+                    *channel.instrument, trap.source, driver_rng,
                     [&](uint8_t to) {
                         return levels.at(to).category != LevelCategory::Computational;
                     },
@@ -585,7 +658,7 @@ NonComputationalSample sample_noncomputational_exact(const Circuit& circuit,
             }
 
             events.jumps.push_back({op_index, qubit, dest});
-            final_status = extend_classical_outcomes(annotated, events, model, host_rng);
+            final_status = extend_classical_outcomes(annotated, events, model, driver_rng);
 
             // A neglect-form trap hands its carrier over uncollapsed; the
             // continuation's trace-out is forced to the reported source,
