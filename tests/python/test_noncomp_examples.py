@@ -92,14 +92,16 @@ def test_example_relaxation_to_ground_on_known_qubit():
 # --- Intentionally unsupported -----------------------------------------------
 
 
-def test_reject_unknown_coherent_source_dependent_transition():
+def test_strict_guard_rejects_unknown_coherent_source_dependent_transition():
     # Source-dependent (g->leak_g, e->leak_e) fired on a coherent (post-H) qubit:
-    # the source level is unknown, so the trajectory cannot pick a column.
+    # ahead-of-time sampling cannot pick a column, so the opt-in strict
+    # guard raises where the default exact policy resolves at runtime.
     model = noncomp.Model(
         initial_state=[1.0, 0.0, 0.0, 0.0, 0.0],
         transitions={
             "S": _transition({(Level.LEAK_G, Level.G): 1.0, (Level.LEAK_E, Level.E): 1.0})
         },
+        unknown_source_policy="reject",
     )
     with pytest.raises(ValueError, match="source-dependent"):
         noncomp.sample("H 0\nS 0\n", model, shots=8, seed=4)

@@ -2,10 +2,12 @@
 
 A ladder per repetition-code memory circuit (d data qubits, r rounds,
 n = 2d-1 qubits; a hooked S layer on the data each round): plain sampling,
-the noncomputational pipeline with a lossless model (isolating the per-shot
-rewrite/recompile overhead), and a representative low-probability
-leakage-plus-loss model with the compatibility policies enabled (equalized
-rates, drop on leaked/lost operands, ternary herald classifier).
+the noncomputational pipeline with a lossless model under each policy --
+"reject" isolates the ahead-of-time per-shot rewrite/recompile overhead,
+"exact" isolates the shared-main-line overhead, and their ratio is the
+compile-once speedup -- and a representative low-probability
+leakage-plus-loss model under the exact runtime policy (drop on
+leaked/lost operands, ternary herald classifier).
 
 A final cross-simulator rung runs the same circuit and noise model on the
 cirq-superstaq leakage simulator. That package is not a committed dependency
@@ -65,12 +67,12 @@ def ternary_classifier() -> noncomp.Classifier:
     return noncomp.Classifier(["0", "1", "2"], m)
 
 
-def noncomp_model(p: float) -> noncomp.Model:
+def noncomp_model(p: float, policy: str = "exact") -> noncomp.Model:
     return noncomp.Model(
         initial_state=[1.0, 0.0, 0.0, 0.0, 0.0],
         transitions={"S": leak_loss_matrix(p)} if p > 0 else {},
         classifier=ternary_classifier(),
-        unknown_source_policy="equalize_rates",
+        unknown_source_policy=policy,
         lost_leaked_ops="drop",
     )
 
@@ -84,7 +86,16 @@ def test_bench_noncomp_plain(benchmark: Any, d: int, r: int, shots: int) -> None
 
 
 @pytest.mark.parametrize("d,r,shots", CONFIGS)
-def test_bench_noncomp_lossless(benchmark: Any, d: int, r: int, shots: int) -> None:
+def test_bench_noncomp_lossless_aot(benchmark: Any, d: int, r: int, shots: int) -> None:
+    circuit = clifft.parse(rep_code_text(d, r))
+    model = noncomp_model(0.0, policy="reject")
+    noncomp.sample(circuit, model, shots=2, seed=1)  # warm
+    benchmark.extra_info["shots"] = shots
+    benchmark(noncomp.sample, circuit, model, shots=shots, seed=1)
+
+
+@pytest.mark.parametrize("d,r,shots", CONFIGS)
+def test_bench_noncomp_lossless_exact(benchmark: Any, d: int, r: int, shots: int) -> None:
     circuit = clifft.parse(rep_code_text(d, r))
     model = noncomp_model(0.0)
     noncomp.sample(circuit, model, shots=2, seed=1)  # warm
