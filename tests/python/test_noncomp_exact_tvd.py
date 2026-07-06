@@ -155,9 +155,9 @@ def _shot_noise_band(probs: dict, shots: int, draws: int = 300) -> float:
     return 1.3 * float(np.max(tvds))
 
 
-def _status_kind_fractions(status_probs: dict[int, float]) -> tuple[float, float]:
-    leaked = status_probs.get(Level.LEAK_G, 0.0) + status_probs.get(Level.LEAK_E, 0.0)
-    lost = status_probs.get(Level.LOST, 0.0)
+def _status_kind_fractions(noncomp_probs: dict[int, float]) -> tuple[float, float]:
+    leaked = noncomp_probs.get(Level.LEAK_G, 0.0) + noncomp_probs.get(Level.LEAK_E, 0.0)
+    lost = noncomp_probs.get(Level.LOST, 0.0)
     return leaked, lost
 
 
@@ -184,7 +184,7 @@ def _run_and_compare(damping: str, seed: int) -> None:
     # Final-status marginals: leaked/lost fractions per qubit.
     status = np.asarray(r.final_status)
     for q in range(5):
-        want_leaked, want_lost = _status_kind_fractions(reference.status_probs[q])
+        want_leaked, want_lost = _status_kind_fractions(reference.noncomp_level_probs[q])
         got_leaked = float((status[:, q] == noncomp.QubitStatusKind.LEAKED).mean())
         got_lost = float((status[:, q] == noncomp.QubitStatusKind.LOST).mean())
         assert abs(got_leaked - want_leaked) < binomial_tolerance(max(want_leaked, 1e-4), SHOTS)

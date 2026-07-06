@@ -96,19 +96,32 @@ class _Branch:
 
 
 class ExactDistribution:
-    """The enumeration result: record joint, status marginals, dropped mass."""
+    """The enumeration result: record joint, noncomputational-level
+    marginals per qubit, and truncated mass.
+
+    Only noncomputational levels appear in ``noncomp_level_probs``: for a
+    computational qubit the classical ledger tracks the *category* (which
+    is all the branching semantics need), while the level itself is
+    quantum information living in the state -- so per-level computational
+    marginals are not representable here by design. The computational
+    mass per qubit is one minus the noncomputational sum.
+    """
 
     def __init__(self) -> None:
         self.record_probs: dict[tuple[int, ...], float] = {}
-        self.status_probs: list[dict[int, float]] = []
+        self.noncomp_level_probs: list[dict[int, float]] = []
         self.dropped_mass = 0.0
 
     def _absorb(self, branch: _Branch, num_qubits: int) -> None:
-        if not self.status_probs:
-            self.status_probs = [{} for _ in range(num_qubits)]
+        if not self.noncomp_level_probs:
+            self.noncomp_level_probs = [{} for _ in range(num_qubits)]
         self.record_probs[branch.record] = self.record_probs.get(branch.record, 0.0) + branch.weight
         for q, level in enumerate(branch.status):
-            self.status_probs[q][level] = self.status_probs[q].get(level, 0.0) + branch.weight
+            if level in _COMPUTATIONAL:
+                continue
+            self.noncomp_level_probs[q][level] = (
+                self.noncomp_level_probs[q].get(level, 0.0) + branch.weight
+            )
 
 
 def _hidden_collapse(branch: _Branch, q: int, n: int) -> list[tuple[float, np.ndarray, int]]:
