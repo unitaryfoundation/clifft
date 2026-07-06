@@ -1,17 +1,24 @@
 """Tiny dense reference for cross-checking noncomputational sampling.
 
-Test-only. A minimal density-matrix simulator over the computational subspace
-(<= 3 qubits), built from first principles -- statevector unitaries, Born-rule
-Z measurement, and partial trace -- and deliberately independent of clifft's
-sampler, rewriter, and SVM. Combined with explicit classical probabilities for
-initial levels, transitions, and the classifier, it yields expected output
-distributions to compare against ``clifft.noncomp.sample`` within shot noise.
+Test-only. A minimal quantum core over the computational subspace (<= 5
+qubits), built from first principles -- statevector unitaries, Born-rule
+Z measurement, partial trace, and the per-site exact transition channel
+(source-conditioned collapse plus the sqrt(1 - p) no-fire damping filter)
+-- and deliberately independent of clifft's sampler, rewriter, driver, and
+SVM. Combined with explicit classical probabilities for initial levels,
+transitions, and the classifier, it yields expected output distributions
+to compare against ``clifft.noncomp.sample`` within shot noise.
 
-Scope: the exact supported subset only -- small Clifford circuits, a Z-basis
-binary classifier, and state-independent loss handled as a true partial trace.
-This is not a general simulator and must not grow into one; the lossless
-self-check tests guard that its quantum core is correct before it is trusted to
-judge the noncomputational pipeline.
+The channel here is the *physical* Kraus map, applied uniformly to any
+computational qubit: it knows nothing of clifft's known/unknown status
+tracking, dormant/active instrument forms, traps, or continuations --
+every one of those implementation strategies must reproduce it.
+
+Scope: the exact supported subset only -- small Clifford circuits, a
+Z-basis binary classifier, loss as a true partial trace, and the exact
+per-site channel above. This is not a general simulator and must not grow
+into one; the lossless self-check tests guard that its quantum core is
+correct before it is trusted to judge the noncomputational pipeline.
 
 Qubit/bit convention: qubit 0 is the most significant factor in the Kronecker
 product, matching how the self-check compares against clifft's records.
@@ -97,3 +104,52 @@ def marginal_one_after_trace_out(
         raise ValueError("lost and survivor must be different qubits")
     rho = reduced_density(state, survivor, n)
     return float(np.real(rho[1, 1]))
+
+
+# --- Exact per-site transition channel ---------------------------------------
+#
+# The physical channel of one annotation target on a computational qubit,
+# as Kraus operators on that qubit's factor:
+#
+#   fire, source s, destination d:  K = sqrt(p[d][s]) |after_d><s|
+#   no fire:                        K0 = diag(sqrt(1 - ptot_g), sqrt(1 - ptot_e))
+#
+# where ptot_s is column s's total jump probability. A fire collapses the
+# qubit onto its source; a noncomputational destination then removes the
+# (now factored) qubit from the quantum register, a computational one
+# re-prepares it at |d>. The branch helpers below return (weight, state)
+# pairs with the state renormalized, so callers assemble the mixture with
+# explicit weights.
+
+
+def collapse(
+    state: npt.NDArray[np.complex128], q: int, bit: int, n: int
+) -> tuple[float, npt.NDArray[np.complex128]]:
+    """Project qubit q onto |bit> and renormalize: (Born weight, post state)."""
+    proj = _embed(_P1 if bit else _P0, q, n)
+    post = proj @ state
+    weight = float(np.real(post.conj() @ post))
+    if weight <= 0.0:
+        return 0.0, post
+    return weight, post / np.sqrt(weight)
+
+
+def damp_no_fire(
+    state: npt.NDArray[np.complex128], q: int, ptot_g: float, ptot_e: float, n: int
+) -> tuple[float, npt.NDArray[np.complex128]]:
+    """Apply the no-fire filter K0 on qubit q: (branch weight, post state)."""
+    k0 = np.array([[np.sqrt(1.0 - ptot_g), 0.0], [0.0, np.sqrt(1.0 - ptot_e)]], dtype=complex)
+    post = _embed(k0, q, n) @ state
+    weight = float(np.real(post.conj() @ post))
+    if weight <= 0.0:
+        return 0.0, post
+    return weight, post / np.sqrt(weight)
+
+
+def set_collapsed_qubit(
+    state: npt.NDArray[np.complex128], q: int, source: int, dest: int, n: int
+) -> npt.NDArray[np.complex128]:
+    """Re-prepare a just-collapsed (factored) qubit from |source> to |dest>."""
+    if source == dest:
+        return state
+    return _embed(GATES_1Q["X"], q, n) @ state

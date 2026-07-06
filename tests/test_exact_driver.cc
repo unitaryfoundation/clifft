@@ -534,3 +534,22 @@ TEST_CASE("exact: a hand-built malformed LOSS rejects up front") {
                             ContainsSubstring("out of [0, 1]"));
     }
 }
+
+TEST_CASE("exact: a smaller starting module must not shrink the reused state") {
+    // A leaked initial compiles a from-the-top continuation with more
+    // hidden record slots (the MR restore) but a smaller peak rank than
+    // the main line, whose expand_damp site needs the array. A shot
+    // sequence interleaving both starting modules used to rebuild the
+    // state to the smaller module's rank while the tracker kept the
+    // maximum; the next main-line shot then overran its allocation --
+    // caught by the Debug kernel assert, an out-of-bounds write in
+    // Release.
+    ModelSpec spec;
+    spec.leak_from_e = 3e-3;  // source-dependent: the dormant site damp-expands
+    spec.leak_from_g = 3e-4;
+    spec.initial = {0.5, 0.0, 0.5, 0.0, 0.0};  // both starting modules occur
+    auto model = make_model(spec);
+    Circuit circuit = parse("H 0\nLEVEL_TRANSITION[leak] 0\nMR 0\nM 0");
+    auto result = sample_noncomputational(circuit, model, 64, 5);
+    REQUIRE(result.shots == 64);
+}

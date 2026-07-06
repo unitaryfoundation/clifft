@@ -150,3 +150,44 @@ def test_survivor_marginal_equals_partial_trace():
     expected_survivor = oracle.marginal_one_after_trace_out(bell, lost=0, survivor=1, n=2)
     assert abs(_p1(r, 1) - expected_survivor) < BAND  # survivor (M 1) == partial trace
     assert abs(_p1(r, 0) - 0.5) < BAND  # lost record (M 0) follows the [0.5, 0.5] classifier
+
+
+# --- Self-check: the exact-channel primitives ---------------------------------
+
+
+def test_channel_kraus_set_is_complete():
+    # Fire weights plus the no-fire weight must sum to 1 on any state:
+    # sum_s ptot_s * <P_s> + <K0' K0> = 1. Random states, random columns.
+    rng = np.random.default_rng(9)
+    for _ in range(20):
+        state = rng.normal(size=4) + 1j * rng.normal(size=4)
+        state = state / np.linalg.norm(state)
+        ptot_g, ptot_e = rng.uniform(0.0, 1.0, size=2)
+        for q in (0, 1):
+            pop_g, _ = oracle.collapse(state, q, 0, 2)
+            pop_e, _ = oracle.collapse(state, q, 1, 2)
+            w0, _ = oracle.damp_no_fire(state, q, ptot_g, ptot_e, 2)
+            total = ptot_g * pop_g + ptot_e * pop_e + w0
+            assert abs(total - 1.0) < 1e-12
+
+
+def test_damp_with_zero_rates_is_identity():
+    h = oracle.apply_1q(oracle.zero_state(1), "H", 0, 1)
+    w, post = oracle.damp_no_fire(h, 0, 0.0, 0.0, 1)
+    assert abs(w - 1.0) < 1e-12
+    assert np.allclose(post, h)
+
+
+def test_collapse_reproduces_born_weights():
+    h = oracle.apply_1q(oracle.zero_state(1), "H", 0, 1)
+    w0, post0 = oracle.collapse(h, 0, 0, 1)
+    w1, post1 = oracle.collapse(h, 0, 1, 1)
+    assert abs(w0 - 0.5) < 1e-12 and abs(w1 - 0.5) < 1e-12
+    assert abs(abs(post0[0]) - 1.0) < 1e-12  # renormalized |0>
+    assert abs(abs(post1[1]) - 1.0) < 1e-12  # renormalized |1>
+
+
+def test_set_collapsed_qubit_reprepares_destination():
+    _, at_e = oracle.collapse(oracle.apply_1q(oracle.zero_state(1), "X", 0, 1), 0, 1, 1)
+    moved = oracle.set_collapsed_qubit(at_e, 0, 1, 0, 1)
+    assert abs(abs(moved[0]) - 1.0) < 1e-12
