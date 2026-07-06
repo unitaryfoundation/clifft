@@ -219,7 +219,7 @@ HistorySample sample_history(const Circuit& circuit, const NonComputationalModel
                     "sample_history: LOSS at op " + std::to_string(op_index) +
                     " requires a level table with exactly one Lost-category level");
             }
-            const double p = node.args.empty() ? 0.0 : node.args[0];
+            const double p = loss_probability(node.args, op_index, "sample_history");
             for (const Target& target : node.targets) {
                 const uint32_t qubit = target.value();
                 check_qubit(qubit, op_index);

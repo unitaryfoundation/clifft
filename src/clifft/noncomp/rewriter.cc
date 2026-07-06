@@ -205,7 +205,7 @@ void process_ordinary_node(const AstNode& node, uint32_t op_index,
             const uint32_t qubit = qubit_operands(node).front().qubit;
             const MeasurementClassifier& classifier =
                 classifier_for(model, *classified_level, gate, op_index, qubit);
-            const bool ternary = classifier.num_symbols() == 3;
+            const bool ternary = classifier.has_herald();
 
             // The record bit's flip probability on top of MPAD 0:
             // P(symbol 1 | level) for a two-symbol column; for a ternary
@@ -215,7 +215,8 @@ void process_ordinary_node(const AstNode& node, uint32_t op_index,
             // (every draw heralds, so the pass always overwrites it).
             double flip;
             if (ternary) {
-                const double p_herald = classifier.prob(2, *classified_level);
+                const double p_herald =
+                    classifier.prob(MeasurementClassifier::kHeraldSymbol, *classified_level);
                 const double denom = 1.0 - p_herald;
                 flip = denom > 0.0 ? classifier.prob(1, *classified_level) / denom : 0.5;
                 flip = std::min(1.0, std::max(0.0, flip));
@@ -446,6 +447,13 @@ ContinuationRewrite rewrite_continuation(const Circuit& annotated, const ExactSh
                             std::to_string(outcome.op_index) + ", qubit " +
                             std::to_string(outcome.qubit) + ") does not match consult (op " +
                             std::to_string(op_index) + ", qubit " + std::to_string(qubit) + ")");
+                    }
+                    if (outcome.source_level != pre.level_id()) {
+                        throw std::invalid_argument(
+                            "rewrite_continuation: classical outcome at op " +
+                            std::to_string(op_index) + ", qubit " + std::to_string(qubit) +
+                            " was drawn at level " + std::to_string(outcome.source_level) +
+                            " but the walk holds level " + std::to_string(pre.level_id()));
                     }
                     if (!outcome.jumped) {
                         continue;

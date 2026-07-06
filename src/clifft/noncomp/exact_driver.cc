@@ -93,7 +93,7 @@ AnnotationChannel resolve_annotation(const AstNode& node, const NonComputational
                 "sample_noncomputational: LOSS at op " + std::to_string(op_index) +
                 " requires a level table with exactly one Lost-category level");
         }
-        channel.loss_p = node.args.empty() ? 0.0 : node.args[0];
+        channel.loss_p = loss_probability(node.args, op_index, "sample_noncomputational");
         channel.lost_level = *lost;
         return channel;
     }
@@ -121,6 +121,14 @@ uint8_t draw_from_column(const TransitionInstrument& instrument, uint8_t source,
         if (admit(to)) {
             mass += instrument.prob(to, source);
         }
+    }
+    if (!(mass > 0.0)) {
+        // Unreachable through the current call sites, all of which fire
+        // only when the column's admitted mass is positive; a real error
+        // beats a Release-mode draw of level 255 surfacing downstream.
+        throw std::logic_error(
+            "sample_noncomputational: destination draw over an empty column (source level " +
+            std::to_string(source) + ")");
     }
     const double u = rng.next_double() * mass;
     double acc = 0.0;
@@ -192,6 +200,14 @@ std::vector<QubitStatus> extend_classical_outcomes(const Circuit& annotated,
                 }
                 const auto seen = drawn.find({op_index, qubit});
                 if (seen != drawn.end()) {
+                    if (seen->second.source_level != pre.level_id()) {
+                        throw std::logic_error(
+                            "sample_noncomputational: classical outcome reuse at op " +
+                            std::to_string(op_index) + ", qubit " + std::to_string(qubit) +
+                            " crossed a source-level change (drawn at level " +
+                            std::to_string(seen->second.source_level) + ", walk holds level " +
+                            std::to_string(pre.level_id()) + ")");
+                    }
                     ordered.push_back(seen->second);
                     if (seen->second.jumped) {
                         status[qubit] = levels.status_for(seen->second.destination_level);
@@ -199,7 +215,7 @@ std::vector<QubitStatus> extend_classical_outcomes(const Circuit& annotated,
                     continue;
                 }
                 const AnnotationChannel channel = resolve_annotation(node, model, op_index);
-                ClassicalOutcome outcome{op_index, qubit, false, 0};
+                ClassicalOutcome outcome{op_index, qubit, false, 0, pre.level_id()};
                 if (channel.instrument != nullptr) {
                     const uint8_t source = pre.level_id();
                     const double total = channel.instrument->column_sum(source);
@@ -252,7 +268,7 @@ std::vector<QubitStatus> extend_classical_outcomes(const Circuit& annotated,
 // share one module.
 std::string cache_key(const ExactShotEvents& events, const LevelSet& levels) {
     std::string key;
-    key.reserve(events.initial_status.size() + events.jumps.size() * 9 +
+    key.reserve(events.initial_status.size() * 2 + 10 + events.jumps.size() * 9 +
                 events.classical_outcomes.size() * 10);
     for (const QubitStatus& s : events.initial_status) {
         key.push_back(static_cast<char>(s.kind()));
@@ -266,13 +282,18 @@ std::string cache_key(const ExactShotEvents& events, const LevelSet& levels) {
             key.push_back(static_cast<char>((v >> (8 * b)) & 0xFF));
         }
     };
+    // Each variable-length section is count-prefixed, so equal keys mean
+    // equal events by construction: the fixed-size records cannot be
+    // reparsed across a section boundary. The markers are readability.
     key.push_back('J');
+    push32(static_cast<uint32_t>(events.jumps.size()));
     for (const ResolvedJump& jump : events.jumps) {
         push32(jump.op_index);
         push32(jump.qubit);
         key.push_back(static_cast<char>(jump.destination_level));
     }
     key.push_back('C');
+    push32(static_cast<uint32_t>(events.classical_outcomes.size()));
     for (const ClassicalOutcome& outcome : events.classical_outcomes) {
         push32(outcome.op_index);
         push32(outcome.qubit);
@@ -447,7 +468,7 @@ NonComputationalSample sample_noncomputational_exact(const Circuit& circuit,
 
     const LevelSet& levels = model.levels();
     const MeasurementClassifier* classifier = model.classifier();
-    const bool ternary = classifier != nullptr && classifier->num_symbols() == 3;
+    const bool ternary = classifier != nullptr && classifier->has_herald();
 
     const Circuit annotated = annotate(circuit, model);
     const InstrumentTraceOptions instrument_options = instrument_trace_options(model);
@@ -578,7 +599,8 @@ NonComputationalSample sample_noncomputational_exact(const Circuit& circuit,
             for (const ClassifiedMeasurement& m : rw.classified_measurements) {
                 auto [it, inserted] = herald_flags.try_emplace(m.slot, 0);
                 if (inserted && ternary) {
-                    const double p_herald = classifier->prob(2, m.level);
+                    const double p_herald =
+                        classifier->prob(MeasurementClassifier::kHeraldSymbol, m.level);
                     it->second = driver_rng.next_double() < p_herald ? 1 : 0;
                 }
                 flags.push_back(it->second);

@@ -136,7 +136,7 @@ TEST_CASE("continuation: classical-source consults consume pre-drawn outcomes") 
     events.jumps.push_back({0, 0, kLeak});
     events.classical_outcomes.push_back(
         {/*op_index=*/1, /*qubit=*/0, /*jumped=*/true,
-         /*destination_level=*/model.levels().computational_one_id()});
+         /*destination_level=*/model.levels().computational_one_id(), /*source_level=*/kLeak});
 
     auto result = rewrite_continuation(annotated, events, false, model);
     const std::vector<GateType> want = {
@@ -185,6 +185,17 @@ TEST_CASE("continuation: events that do not describe the circuit reject") {
         events.classical_outcomes.push_back({0, 0, false, 0});
         REQUIRE_THROWS_WITH(rewrite_continuation(annotated, events, false, model),
                             ContainsSubstring("more classical outcomes"));
+    }
+    SECTION("a classical outcome drawn at a different source level") {
+        // A leaked initial makes op 0 a classical consult; the recorded
+        // outcome claims it was drawn at a computational level.
+        ExactShotEvents events = base;
+        events.initial_status[0] = model.levels().status_for(kLeak);
+        events.classical_outcomes.push_back(
+            {/*op_index=*/0, /*qubit=*/0, /*jumped=*/false, /*destination_level=*/0,
+             /*source_level=*/model.levels().computational_zero_id()});
+        REQUIRE_THROWS_WITH(rewrite_continuation(annotated, events, false, model),
+                            ContainsSubstring("was drawn at level"));
     }
     SECTION("forcing a trace-out the jump does not emit") {
         // A jump landing computationally from a *known* level emits R+X,

@@ -1,6 +1,29 @@
 #include "clifft/noncomp/status_step.h"
 
+#include "clifft/noncomp/numeric.h"
+
+#include <stdexcept>
+#include <string>
+
 namespace clifft {
+
+double loss_probability(const std::vector<double>& args, uint32_t op_index,
+                        std::string_view caller) {
+    if (args.size() != 1) {
+        throw std::invalid_argument(std::string(caller) + ": LOSS at op " +
+                                    std::to_string(op_index) +
+                                    " requires exactly one argument (the loss probability)");
+    }
+    const double p = args[0];
+    // is_finite_robust runs first because -ffast-math folds
+    // std::isfinite() / NaN-aware comparisons away.
+    if (!is_finite_robust(p) || p < 0.0 || p > 1.0) {
+        throw std::invalid_argument(std::string(caller) + ": LOSS probability at op " +
+                                    std::to_string(op_index) + " = " + std::to_string(p) +
+                                    " is not finite or is out of [0, 1]");
+    }
+    return p;
+}
 
 std::optional<uint8_t> sole_lost_level(const LevelSet& levels) {
     std::optional<uint8_t> found;

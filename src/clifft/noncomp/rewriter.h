@@ -139,6 +139,14 @@ struct ClassicalOutcome {
     uint32_t qubit = 0;
     bool jumped = false;
     uint8_t destination_level = 0;
+    // The level the qubit held when the outcome was drawn. The emitted
+    // nodes do not depend on it; it exists so every reuse and
+    // consumption can check the outcome is not being replayed against a
+    // different source. Today a qubit's noncomputational level moves
+    // only through its own consults, so a mismatch is unreachable --
+    // this check is what keeps that invariant explicit, and loud if a
+    // future cross-qubit transition breaks it.
+    uint8_t source_level = 0;
 };
 
 // The status-outcome delta a continuation is compiled under: the shot's
