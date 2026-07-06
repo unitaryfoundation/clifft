@@ -69,19 +69,9 @@ void register_noncomp(nb::module_& m) {
            std::map<std::string, std::vector<std::vector<double>>> transitions,
            std::optional<std::vector<std::string>> classifier_symbols,
            std::optional<std::vector<std::vector<double>>> classifier_matrix,
-           bool reset_restores_lost, const std::string& lost_leaked_ops,
-           const std::string& damping) {
+           bool reset_restores_lost, const std::string& damping) {
             clifft::NonComputationalPolicy policy;
             policy.reset_restores_lost = reset_restores_lost;
-            if (lost_leaked_ops == "reject") {
-                policy.lost_leaked_ops = clifft::LostLeakedOpsPolicy::Reject;
-            } else if (lost_leaked_ops == "drop") {
-                policy.lost_leaked_ops = clifft::LostLeakedOpsPolicy::Drop;
-            } else {
-                throw std::invalid_argument(
-                    "noncomp model: lost_leaked_ops must be 'reject' or 'drop', got '" +
-                    lost_leaked_ops + "'");
-            }
             if (damping == "exact") {
                 policy.damping = clifft::DampingPolicy::Exact;
             } else if (damping == "neglect") {
@@ -107,8 +97,7 @@ void register_noncomp(nb::module_& m) {
         },
         nb::arg("initial_state"), nb::arg("transitions"),
         nb::arg("classifier_symbols") = nb::none(), nb::arg("classifier_matrix") = nb::none(),
-        nb::arg("reset_restores_lost") = false, nb::arg("lost_leaked_ops") = "reject",
-        nb::arg("damping") = "exact",
+        nb::arg("reset_restores_lost") = false, nb::arg("damping") = "exact",
         "Build a default 5-level NonComputationalModel from raw matrices. See "
         "clifft.noncomp.Model.");
 

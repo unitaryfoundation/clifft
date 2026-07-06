@@ -877,7 +877,8 @@ static inline void exec_array_s_dag(SchrodingerState& state, uint16_t v) {
 // gamma /= sqrt(2) to maintain normalization.
 static inline void exec_expand(SchrodingerState& state, uint16_t v) {
     assert(v == state.active_k && "EXPAND must target the next dormant axis");
-    assert(state.v_size() <= state.array_size() / 2 && "EXPAND exceeded AOT peak_rank allocation!");
+    assert(state.v_size() <= state.array_size() / 2 &&
+           "EXPAND exceeded the compiled peak_rank allocation!");
     (void)v;
     uint64_t half = 1ULL << state.active_k;
     auto* __restrict arr = state.v();

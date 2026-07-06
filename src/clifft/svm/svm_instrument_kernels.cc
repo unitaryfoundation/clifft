@@ -94,7 +94,7 @@ void exec_instrument_collapse_active(SchrodingerState& state, uint16_t v, uint8_
 void exec_instrument_expand_damp(SchrodingerState& state, uint16_t v, double r_g, double r_e) {
     assert(v == state.active_k && "instrument expand_damp must target the next dormant axis");
     assert(state.v_size() <= state.array_size() / 2 &&
-           "instrument expand_damp exceeded AOT peak_rank allocation");
+           "instrument expand_damp exceeded the compiled peak_rank allocation");
     assert(r_g > 0.0 && r_g <= 1.0 && r_e > 0.0 && r_e <= 1.0 &&
            "instrument expand_damp: coefficients must be in (0, 1]; a p = 1 site lowers as "
            "plain expansion plus per-branch collapse");

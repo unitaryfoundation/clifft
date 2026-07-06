@@ -149,14 +149,6 @@ NonComputationalModel::NonComputationalModel(
     }
 
     // Policy must hold recognized enum values.
-    switch (policy_.lost_leaked_ops) {
-        case LostLeakedOpsPolicy::Reject:
-        case LostLeakedOpsPolicy::Drop:
-            break;
-        default:
-            throw std::invalid_argument(
-                "NonComputationalModel: unrecognized lost_leaked_ops value");
-    }
     switch (policy_.damping) {
         case DampingPolicy::Exact:
         case DampingPolicy::Neglect:
