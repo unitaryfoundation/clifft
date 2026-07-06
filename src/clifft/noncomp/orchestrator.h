@@ -64,7 +64,7 @@ struct NonComputationalSample {
 // Reject (substochastic) classifier columns model a heralded abort outcome
 // and are not supported by this entry point yet.
 // `max_rank` caps the compiled peak rank in exact mode
-// (unknown_source_policy = Exact): compilation fails with the first
+// compilation: it fails with the first
 // offending circuit line named, before any state is allocated, instead
 // of attempting a 2^k allocation. Unlimited when unset; ignored by the
 // AOT policies, whose per-shot modules never exceed the annotated

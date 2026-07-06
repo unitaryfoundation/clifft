@@ -116,16 +116,6 @@ class Model:
         classifier: optional :class:`Classifier` supplying leaked/lost
             measurement outcomes and computational readout confusion.
         reset_restores_lost: if true, a reset on a lost qubit restores it.
-        unknown_source_policy: how a source-dependent transition on a qubit
-            whose computational state is unknown is handled. ``"exact"``
-            (the default) moves transition firing into the runtime -- the
-            circuit compiles once with every annotation as an instrument
-            site, fire probabilities are evaluated on the live state, and
-            rare fires recompile-and-resume -- exact for every source
-            context, at a cost exponential in the number of expanded
-            sites (see ``damping``). ``"reject"`` is the strict guard: it
-            raises instead, for models that should never need runtime
-            resolution.
         lost_leaked_ops: how an operation with no representable effect on a
             leaked or lost operand is handled. ``"reject"`` (the default)
             raises; ``"drop"`` opts into excising the whole operation,
@@ -139,7 +129,7 @@ class Model:
             circuit's rank at that site; ``"neglect"`` keeps the rank and
             omits the no-fire back-action, a survivorship tilt of order
             ``|p_g - p_e|`` with no effect on source-independent rates.
-            Only meaningful under ``unknown_source_policy="exact"``.
+            Only meaningful at coherent dormant sites (see the design note).
 
     Construction validates shapes, probabilities, gate keys, policy values,
     and level table consistency in C++, raising ``ValueError`` on any
@@ -154,7 +144,6 @@ class Model:
         transitions: Mapping[str, Matrix] | None = None,
         classifier: Classifier | None = None,
         reset_restores_lost: bool = False,
-        unknown_source_policy: str = "exact",
         lost_leaked_ops: str = "reject",
         damping: str = "exact",
     ) -> None:
@@ -169,7 +158,6 @@ class Model:
             symbols,
             matrix,
             bool(reset_restores_lost),
-            str(unknown_source_policy),
             str(lost_leaked_ops),
             str(damping),
         )
@@ -183,9 +171,9 @@ class NonComputationalSample:
         final_status: uint8 array (shots, num_qubits) of :class:`QubitStatusKind`.
             Reports the classical ledger's knowledge: leaked/lost statuses are
             per-shot truth, while a transition resolved entirely inside the
-            simulator (a computational destination on a coherent qubit under
-            the exact policy) leaves the qubit reported as computational
-            without refining which level it landed on.
+            simulator (a computational destination on a coherent qubit)
+            leaves the qubit reported as computational without refining
+            which level it landed on.
             Coarse: it reports computational/leaked/lost, not the specific leaked
             or lost level.
         heralds: uint8 array (shots, num_measurements); 1 where the classifier
@@ -268,7 +256,7 @@ def sample(
     classifier the model lacks, or when a classifier column is unsupported.
 
     ``max_rank`` caps the compiled peak rank under
-    ``unknown_source_policy="exact"``: compilation fails with the offending
+    exact-mode compilation: it fails with the offending
     circuit line named, before any state allocation, instead of attempting
     a ``2**k`` allocation. Unlimited when ``None``.
     """

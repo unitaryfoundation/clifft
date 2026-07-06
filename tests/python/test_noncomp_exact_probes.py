@@ -41,7 +41,6 @@ def _model(transitions: dict, damping: str = "exact") -> noncomp.Model:
         initial_state=[1.0, 0.0, 0.0, 0.0, 0.0],
         transitions=transitions,
         classifier=_faithful_classifier(),
-        unknown_source_policy="exact",
         lost_leaked_ops="drop",  # a fired branch's later gates drop, not reject
         damping=damping,
     )

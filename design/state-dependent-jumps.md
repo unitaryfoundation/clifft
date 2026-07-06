@@ -33,14 +33,14 @@ approximations:
 3. **Equalization dephasing** — the diagonal padding that equalizes per-source
    rates adds dephasing the physical channel does not have.
 
-This design adds a new policy value, `unknown_source_policy="exact"`, that
-removes all three at once by evaluating jumps against the live simulator
-state. Validated by the step-7 campaign, `exact` is now the default.
-`reject` remains as the opt-in strict guard (refuse any state-dependent
-transition on an unknown source);
-`equalize_rates` is **retired** — with no public release there was no
-compatibility obligation, and its accuracy envelope is strictly dominated by
-the fallback this design ships (§4.6, FAQ).
+This design adds exact runtime resolution that removes all three at once by
+evaluating jumps against the live simulator state. Validated by the step-7
+campaign, it is now the **only** sampling path: pre-release, both
+alternatives were removed rather than carried — `equalize_rates` for its
+approximations (strictly dominated by `damping="neglect"`, §4.6, FAQ), and
+the `reject` strict guard because a contract check does not need to be a
+sampling policy (a future `noncomp.validate_static(circuit, model)` is the
+named home for "this model should be statically resolvable").
 
 A large side benefit falls out of the architecture: in `exact` mode the
 common no-jump execution path is compiled **once per model** instead of once
@@ -393,18 +393,18 @@ Notes:
 ```python
 model = noncomp.Model(
     ...,
-    unknown_source_policy="exact",   # the default (flipped after the step-7
-                                     # validation campaign); "reject" is the
-                                     # opt-in strict guard
-    damping="exact",                 # exact-mode only: "exact" (default) | "neglect"
+    damping="exact",                 # "exact" (default) | "neglect"
 )
 ```
 
-- `unknown_source_policy="exact"` — the mode this note adds. `"reject"`
-  remains as the strict guard. The `"equalize_rates"` approximation is
-  retired (§6 step 8, executed early): it is strictly dominated by
-  `damping="neglect"` below (see FAQ), and pre-release there is no
-  compatibility obligation.
+- Exact runtime resolution is the only sampling path; there is no
+  unknown-source policy knob. The `"equalize_rates"` approximation and the
+  `"reject"` strict guard were both removed pre-release (§6 step 8 and the
+  post-plan note): the former is strictly dominated by `damping="neglect"`
+  below (see FAQ), and the latter's contract check — "this model should
+  never need runtime resolution" — is a validator's job, not a sampling
+  mode's, with `noncomp.validate_static(circuit, model)` as its named
+  future home.
 - `damping` controls the no-jump filter at sites where the qubit is coherent
   but dormant (§2.2 row 3) — the only place exactness ever costs `k` growth:
   - `"exact"` (default): expand and apply the filter exactly. `k` grows by
@@ -527,15 +527,26 @@ with unrelated roadmap work.
 7. **Validation campaign, docs, default flip (done).** The campaign landed
    as the dense oracle's per-site Kraus channel, the first-principles
    enumerator, and the closed-form probes, with rep-code TVD runs under
-   both damping modes; the performance results live at the end of §5; the
-   default `unknown_source_policy` is `"exact"`.
+   both damping modes; the performance results live at the end of §5;
+   exact runtime resolution became the default (and, per the post-plan
+   note below, then the only path).
 8. **Retire `equalize_rates` (done — executed before step 7).** Removed
    the equalized mode: its sampler code path, policy value, tests, notebook
    coverage, and the base design note's policy text for it. Pre-release,
    nothing depended on the mode and `damping="neglect"` is the designated
-   fallback, so retiring first lets the validation campaign judge the final
-   `reject` | `exact` surface (plus the `damping` knob) in one pass instead
-   of validating a doomed mode's pins alongside new ones.
+   fallback, so retiring first let the validation campaign judge the final
+   surface in one pass instead of validating a doomed mode's pins alongside
+   new ones.
+
+Post-plan (pre-release): with the campaign green and the default flipped,
+the `reject` strict guard and the ahead-of-time trajectory pipeline behind
+it were removed as well — exact runtime resolution is the only sampling
+path, and the final policy surface is `damping` plus `lost_leaked_ops` and
+`reset_restores_lost`. The AOT pipeline's differential-oracle role passed
+to the first-principles enumerator (`tests/python`), its per-shot-compile
+baseline is recorded in the step-7 results above, and the strict guard's
+contract check is a future validator's job. Every future feature targets
+one pipeline.
 
 Mechanics: new core `.cc` files must be added to both `src/clifft/` and
 `src/wasm/` source lists; new opcodes/op types must be reflected in the
@@ -677,7 +688,6 @@ Because `damping="neglect"` is the better cheap mode on every axis (previous
 answer) at the same or lower cost, and there is no released user base
 creating a compatibility obligation. Keeping two approximations that differ
 only in which extra errors they add works against the model's legibility.
-The nothing-inexact-by-default principle is unchanged: the default pipeline
-is exact end to end, `reject` remains the opt-in guard for models that
-should never need runtime resolution, and the one approximation that
-remains is a named, machine-visible knob.
+The nothing-inexact-by-default principle is unchanged: the pipeline is
+exact end to end, and the one approximation that remains is a named,
+machine-visible knob (`damping="neglect"`).

@@ -1,20 +1,16 @@
 #pragma once
 
-// Circuit rewriter for the noncomputational history layer.
+// Circuit rewriter for the noncomputational layer: turns an annotated
+// circuit plus a shot's resolved events into an ordinary clifft::Circuit
+// for the existing compile pipeline -- it introduces no new instruction
+// kinds. The per-node semantics:
 //
-// rewrite(original, history, model) replays one sampled trajectory and
-// produces a new ordinary clifft::Circuit ready for the existing compile
-// pipeline -- it introduces no new instruction kinds. It does five things:
-//
-//   1. Initial-state prep: prepend an X on each qubit whose sampled initial
-//      status is ComputationalKnown with the |1> level, so the
-//      SVM's |0...0> initial state matches the sampled known level.
-//   2. Per-op policy: replay each operation's per-qubit status through the
+//   1. Per-op policy: replay each operation's per-qubit status through the
 //      shared status stepper and keep, drop, or reject the operation. An
 //      ambiguous operation on a leaked or lost operand rejects by default;
 //      under LostLeakedOpsPolicy::Drop it is excised whole (identity on the
 //      surviving operands), whose statuses then keep their entry values.
-//   3. Classifier record write: a measurement on a leaked or lost qubit is
+//   2. Classifier record write: a measurement on a leaked or lost qubit is
 //      not a physical Born measurement -- the model's classifier defines its
 //      record bit. The measurement node is replaced by an MPAD writing the
 //      same visible record slot, so the record layout and every rec[-k]
@@ -23,25 +19,25 @@
 //      READOUT_NOISE on that slot so the bit is drawn at sample time inside
 //      the VM; a deterministic column pads the literal bit with no draw. A
 //      measure-and-reset additionally keeps its reset as a separate node.
-//      Each such replacement is reported in the result's
-//      classified_measurements (in slot order) so callers can post-process
-//      per-slot classifier behavior -- e.g. the herald pass for three-symbol
-//      classifiers, which re-points a heralded slot's flip probability at
-//      one half. For a three-symbol column the emitted probability is the
-//      bit's not-heralded conditional, and a READOUT_NOISE node is always
-//      emitted so a heralded slot has a node to patch. A kept computational
-//      Z-basis measurement (M, MR) additionally receives the classifier's
+//      Each such replacement is reported in classified_measurements (in
+//      slot order) so callers can post-process per-slot classifier behavior
+//      -- e.g. the driver's herald patching for three-symbol classifiers,
+//      which re-points a heralded slot's flip probability at one half. For
+//      a three-symbol column the emitted probability is the bit's
+//      not-heralded conditional, and a READOUT_NOISE node is always emitted
+//      so a heralded slot has a node to patch. A kept computational Z-basis
+//      measurement (M, MR) additionally receives the classifier's
 //      computational readout confusion as an asymmetric READOUT_NOISE on
 //      its slot -- the misreport probabilities P(1 | zero level) and
 //      P(0 | one level) -- when those columns are not the identity.
-//   4. Hidden trace-out: when a coherent qubit jumps to a Leaked or Lost
+//   3. Hidden trace-out: when a coherent qubit jumps to a Leaked or Lost
 //      level, insert an R on that qubit at the annotation's position.
 //      The existing reset lowering turns it into a hidden measurement plus a
 //      corrective Pauli; it adds no visible measurement and shifts no record
 //      index. "Coherent" means the qubit's status at the annotation's
 //      position is ComputationalUnknown; a definite atom needs no
 //      unraveling.
-//   5. Carrier materialization: when a jump lands on a computational level,
+//   4. Carrier materialization: when a jump lands on a computational level,
 //      insert an R (plus an X for the |1> level) at the annotation's
 //      position, so the SVM carrier is prepared at the definite
 //      destination level. This is done for every carrier state: it is the
@@ -51,14 +47,12 @@
 //      index.
 //
 // Transition consults happen only at LEVEL_TRANSITION and LOSS annotations
-// (gate hooks are expanded by annotate() before sampling and rewriting).
-// The rewriter consumes those annotations -- replaying outcomes from
-// history.transitions in sampler order, one record per annotation target --
-// and emits only their carrier edits; annotation nodes never reach the
-// rewritten circuit. It does not sample, compile, or run the SVM.
+// (gate hooks are expanded by annotate() before rewriting). A consult whose
+// qubit's level is definite is consumed against its pre-drawn outcome; one
+// whose qubit is coherent stays a runtime instrument site. The rewriter
+// does not sample, compile, or run the SVM.
 
 #include "clifft/circuit/circuit.h"
-#include "clifft/noncomp/history.h"
 #include "clifft/noncomp/model.h"
 
 #include <cstddef>
@@ -81,29 +75,6 @@ struct ClassifiedMeasurement {
     // and the bit is the MPAD literal itself.
     size_t noise_node = SIZE_MAX;
 };
-
-// Result of a rewrite: the circuit plus the classifier record writes it
-// contains, in ascending slot order.
-struct RewriteResult {
-    Circuit circuit;
-    std::vector<ClassifiedMeasurement> classified_measurements;
-};
-
-// Produce the rewritten circuit for `original` under `history` and `model`.
-// Throws std::invalid_argument when the trajectory policy rejects an
-// operation (naming the operation index, qubit, gate, and status), when a
-// measurement on a leaked/lost qubit needs a classifier the model does not
-// provide (or one that is not a two- or three-symbol stochastic column), or
-// when `history` does not describe `original` (qubit count or transition
-// count mismatch).
-//
-// Precondition: `original` is a parser-normalized circuit -- each
-// single-qubit operation is a single-target node and each two-qubit
-// operation is a single pair. The keep / drop / reject decision is made per
-// node, so a hand-built node that packs several single-qubit operands would
-// be dropped or rejected as a whole rather than per operand.
-RewriteResult rewrite(const Circuit& original, const NonComputationalHistory& history,
-                      const NonComputationalModel& model);
 
 // =============================================================================
 // Exact-mode continuation rewrite

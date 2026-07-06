@@ -6,25 +6,6 @@
 
 namespace clifft {
 
-// Policy for source-dependent transitions that fire on a
-// ComputationalUnknown qubit.
-enum class UnknownSourcePolicy : uint8_t {
-    // Reject refuses them: ahead-of-time sampling cannot pick a source
-    // column for a qubit with no definite level, so the run throws. The
-    // strict guard for models that should never need runtime resolution.
-    Reject = 0,
-
-    // Exact (the default): transition firing moves to runtime. The
-    // circuit compiles once with every annotation materialized as an
-    // instrument site; fire probabilities are evaluated on the live
-    // state, and a fire that cannot resolve in-line traps to the driver,
-    // which recompiles the remaining circuit under the now-known status
-    // and resumes. Exact for every source context; see DampingPolicy for
-    // the one knob that trades exactness for rank at dormant-random
-    // sites.
-    Exact = 1,
-};
-
 // Policy for operations touching a leaked or lost operand that have no
 // representable effect there. Reject refuses them. Drop excises the whole
 // operation (identity on the surviving operands): the physical
@@ -60,8 +41,6 @@ struct NonComputationalPolicy {
     // computational state. When false (default), lost-qubit reset
     // rejects (or drops, under LostLeakedOpsPolicy::Drop).
     bool reset_restores_lost = false;
-
-    UnknownSourcePolicy unknown_source_policy = UnknownSourcePolicy::Exact;
 
     LostLeakedOpsPolicy lost_leaked_ops = LostLeakedOpsPolicy::Reject;
 

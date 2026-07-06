@@ -458,20 +458,18 @@ When a transition fires on a target qubit with `QubitStatus s`:
 - `s.kind == ComputationalUnknown`: if
   `is_source_independent_on_computational` is true, the no-jump branch
   is scalar on `H_C` and the jump branches are source-independent;
-  sample without consulting amplitudes. Otherwise the behavior is
-  selected by `policy.unknown_source_policy`:
-  - `Reject` (opt-in strict guard): reject with an error naming the op
-    index, the qubit, and the instrument — pointing the user at the cut
-    between what is pre-sampleable and what needs the runtime resolution
-    the `Exact` policy below provides.
-  - `Exact` (the default): route the run to the exact-mode driver
-    (design/state-dependent-jumps.md). The circuit compiles once with
-    every annotation kept as a runtime instrument site, fire
-    probabilities are evaluated on the live state, and a fire that
-    cannot resolve in-line traps to the driver, which recompiles the
-    remaining circuit under the now-known status and resumes. Exact
-    for every source context, at a cost exponential in the number of
-    damping-expanded sites (see the `damping` policy there).
+  sample without consulting amplitudes. Otherwise the fire is resolved
+  at runtime by the exact-mode driver
+  (design/state-dependent-jumps.md): the circuit compiles once with
+  every annotation kept as a runtime instrument site, fire
+  probabilities are evaluated on the live state, and a fire that
+  cannot resolve in-line traps to the driver, which recompiles the
+  remaining circuit under the now-known status and resumes. Exact for
+  every source context, at a cost exponential in the number of
+  damping-expanded sites (see the `damping` policy there). This is the
+  only sampling path; a "reject if my model needs runtime resolution"
+  contract check is a future validator's job
+  (`noncomp.validate_static`), not a sampling policy.
 
 This is the "pre-sampleable" boundary, enforced where it actually
 matters (at the unknown-coherent-source point) rather than at model

@@ -1,11 +1,11 @@
 // End-to-end tests for exact-mode sampling: the driver loop, continuation
 // cache, frame-preloaded initials, and trap resolution behind
-// sample_noncomputational with unknown_source_policy = Exact.
+// sample_noncomputational.
 //
-// Deterministic pins use certain (p = 1) channels; the exact-vs-AOT
-// agreement checks use source-independent rates, where both paths are
-// exact, with generous statistical margins (the full distributional
-// campaign is a later step).
+// Deterministic pins use certain (p = 1) channels; statistical checks
+// use source-independent rates with closed forms and generous margins
+// (the full distributional campaign lives in the Python enumerator
+// suite).
 
 #include "clifft/circuit/parser.h"
 #include "clifft/noncomp/model.h"
@@ -34,7 +34,6 @@ struct ModelSpec {
     double seep_to_e = 0.0;
     std::vector<double> initial = {1.0, 0.0, 0.0, 0.0, 0.0};
     DampingPolicy damping = DampingPolicy::Exact;
-    UnknownSourcePolicy source_policy = UnknownSourcePolicy::Exact;
 };
 
 NonComputationalModel make_model(const ModelSpec& spec) {
@@ -49,7 +48,6 @@ NonComputationalModel make_model(const ModelSpec& spec) {
     classifier.matrix = {{1.0, 0.0, 1.0, 0.0, 1.0}, {0.0, 1.0, 0.0, 1.0, 0.0}};
 
     NonComputationalPolicy policy;
-    policy.unknown_source_policy = spec.source_policy;
     policy.lost_leaked_ops = LostLeakedOpsPolicy::Drop;
     policy.damping = spec.damping;
     return NonComputationalModel::from_spec(levels, spec.initial, {{"leak", leak}}, classifier,
@@ -156,29 +154,22 @@ TEST_CASE("exact: seepage after a trap recaptures through a classical consult") 
     }
 }
 
-TEST_CASE("exact: agreement with the AOT path where both are exact") {
-    // A source-independent rate (p_g = p_e) is exact under the AOT
-    // sampler too. Compare the leaked-measurement marginal over many
-    // shots with a generous margin: p(leak) = 0.3, and a leaked qubit
-    // reads 1 while a computational |0> reads 0.
+TEST_CASE("exact: a source-independent rate matches its closed form") {
+    // A source-independent rate (p_g = p_e) has the closed form
+    // p(leak) = 0.3 regardless of the carrier state; a leaked qubit
+    // reads 1 while a computational |0> reads 0. (The distributional
+    // reference for richer scenarios is the Python enumerator suite.)
     const uint32_t shots = 4000;
     auto circuit = parse("LEVEL_TRANSITION[leak] 0\nM 0");
 
-    ModelSpec exact_spec;
-    exact_spec.leak_from_g = 0.3;
-    exact_spec.leak_from_e = 0.3;
-    auto exact_result = sample_noncomputational(circuit, make_model(exact_spec), shots, 17);
+    ModelSpec spec;
+    spec.leak_from_g = 0.3;
+    spec.leak_from_e = 0.3;
+    auto result = sample_noncomputational(circuit, make_model(spec), shots, 17);
 
-    ModelSpec aot_spec = exact_spec;
-    aot_spec.source_policy = UnknownSourcePolicy::Reject;  // AOT path, exact here
-    auto aot_result = sample_noncomputational(circuit, make_model(aot_spec), shots, 17);
-
-    const double exact_mean = mean_of(exact_result.measurements, 1, 0);
-    const double aot_mean = mean_of(aot_result.measurements, 1, 0);
-    // Binomial std at p = 0.3 over 4000 shots is ~0.007; allow 5 sigma
-    // between each mean and the true rate.
-    REQUIRE(std::abs(exact_mean - 0.3) < 0.04);
-    REQUIRE(std::abs(aot_mean - 0.3) < 0.04);
+    const double mean = mean_of(result.measurements, 1, 0);
+    // Binomial std at p = 0.3 over 4000 shots is ~0.007; allow 5 sigma.
+    REQUIRE(std::abs(mean - 0.3) < 0.04);
 }
 
 TEST_CASE("exact: same seed reproduces identical runs") {
@@ -233,7 +224,6 @@ TEST_CASE("exact: a neglect-form trap keeps the fire-side correlation") {
                          {0.0, 1.0, 0.0, 1.0, 0.0}};  // leak_e reads 1
 
     NonComputationalPolicy policy;
-    policy.unknown_source_policy = UnknownSourcePolicy::Exact;
     policy.lost_leaked_ops = LostLeakedOpsPolicy::Drop;
     policy.damping = DampingPolicy::Neglect;
     auto model = NonComputationalModel::from_spec(levels, {1.0, 0.0, 0.0, 0.0, 0.0},
@@ -297,7 +287,6 @@ TEST_CASE("exact: a chain of two forced traps keeps both correlations") {
     classifier.matrix = {{1.0, 0.0, 1.0, 0.0, 1.0}, {0.0, 1.0, 0.0, 1.0, 0.0}};
 
     NonComputationalPolicy policy;
-    policy.unknown_source_policy = UnknownSourcePolicy::Exact;
     policy.lost_leaked_ops = LostLeakedOpsPolicy::Drop;
     policy.damping = DampingPolicy::Neglect;
     auto model = NonComputationalModel::from_spec(levels, {1.0, 0.0, 0.0, 0.0, 0.0},
@@ -333,7 +322,6 @@ TEST_CASE("exact: a neglect fire onto a computational destination stays correlat
     classifier.matrix = {{1.0, 0.0, 1.0, 0.0, 1.0}, {0.0, 1.0, 0.0, 1.0, 0.0}};
 
     NonComputationalPolicy policy;
-    policy.unknown_source_policy = UnknownSourcePolicy::Exact;
     policy.lost_leaked_ops = LostLeakedOpsPolicy::Drop;
     policy.damping = DampingPolicy::Neglect;
     auto model = NonComputationalModel::from_spec(levels, {1.0, 0.0, 0.0, 0.0, 0.0},
@@ -374,7 +362,6 @@ TEST_CASE("exact: herald flags drawn in one continuation are reused by the next"
         {1.0, 0.0, 1.0, 0.0, 1.0}, {0.0, 1.0, 0.0, 0.5, 0.0}, {0.0, 0.0, 0.0, 0.5, 0.0}};
 
     NonComputationalPolicy policy;
-    policy.unknown_source_policy = UnknownSourcePolicy::Exact;
     policy.lost_leaked_ops = LostLeakedOpsPolicy::Drop;
     auto model = NonComputationalModel::from_spec(levels, {1.0, 0.0, 0.0, 0.0, 0.0},
                                                   {{"leak", leak}}, classifier, policy);
@@ -494,7 +481,6 @@ TEST_CASE("exact: ternary heralds ride the cache key") {
         {1.0, 0.0, 1.0, 0.0, 1.0}, {0.0, 1.0, 0.0, 0.0, 0.0}, {0.0, 0.0, 0.0, 1.0, 0.0}};
 
     NonComputationalPolicy policy;
-    policy.unknown_source_policy = UnknownSourcePolicy::Exact;
     policy.lost_leaked_ops = LostLeakedOpsPolicy::Drop;
     auto model = NonComputationalModel::from_spec(levels, {0.0, 1.0, 0.0, 0.0, 0.0},
                                                   {{"leak", leak}}, classifier, policy);
