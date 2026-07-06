@@ -2,47 +2,44 @@
 // design/state-dependent-jumps.md holds the full design. The vocabulary
 // used throughout this file:
 //
-//   annotation   A LEVEL_TRANSITION[name] or LOSS(p) node in the user's
-//                circuit: the level-transition channel a physical
-//                operation applies to each of its qubits.
-//   target       One (op_index, qubit) pair of an annotation; a node
-//                with n qubit operands is n targets.
-//   consult      One target's per-shot draw against its channel: did it
-//                fire, and to which destination level. A *classical*
-//                consult is one whose qubit's level is definite at that
-//                point (known computational, leaked, or lost), so the
-//                driver draws it without touching quantum state.
-//   fire / jump  A consult that moved the qubit to another level.
-//   site         A target kept as a runtime INSTRUMENT barrier in the
-//                compiled module, consulted in-line by the VM;
-//                trace()'s materialization order assigns site ids.
-//   trap         A fire the VM cannot resolve in-line -- the qubit's
-//                level is not definite there -- so execution stops at
-//                the site and control returns to the driver.
-//   carrier      The simulated qubit cell that keeps holding a
-//                noncomputational population's correlations while the
-//                status ledger tracks its level classically.
-//   continuation The circuit rewritten under a shot's events (initial
-//                statuses, jumps so far, pre-drawn classical outcomes)
-//                and recompiled whole; execution resumes past the
-//                trapped site, the prefix guaranteed identical to what
-//                the shot already ran.
-//   main line    The continuation of "nothing happened": every shot
-//                starts in it unless an initial level is
-//                noncomputational.
-//   forced twin  The forced-outcome variant of a sampling measurement
-//                opcode: same record slot, outcome read from
-//                state.forced_record instead of drawn. Collapses a
-//                neglect-form trap's carrier to the source the trap
-//                reported.
-//   sidecar      The per-shot herald record: one flag per visible
-//                measurement slot, set when a ternary classifier drew
-//                its "ambiguous" symbol for that slot.
-//   driver draw  Randomness this file consumes between VM runs
-//                (initial levels, trap destinations, classical
-//                consults, herald flags): one stream per shot, every
-//                draw ordered before any cache lookup. The VM's own
-//                Born randomness is the separate SVM stream (seed.h).
+//   annotation         A LEVEL_TRANSITION[name] or LOSS(p) node in the
+//                      user's circuit: the level-transition channel a
+//                      physical operation applies to each of its qubits.
+//   annotation target  One (op_index, qubit) pair of an annotation; a
+//                      node with n qubit operands is n annotation
+//                      targets. (Bare "Target" is the AST operand type.)
+//   consult            One annotation target's per-shot draw against its
+//                      channel: did it fire, and to which destination
+//                      level. A *classical* consult is one whose qubit's
+//                      level is definite at that point (known
+//                      computational, leaked, or lost), so the driver
+//                      draws it without touching quantum state.
+//   fire               A consult that moves the qubit to another level:
+//                      the stochastic event itself.
+//   jump               A recorded fire -- the ResolvedJump entry in a
+//                      shot's events.
+//   site               An annotation target kept as a runtime INSTRUMENT
+//                      barrier in the compiled module, consulted in-line
+//                      by the VM; trace()'s materialization order
+//                      assigns site ids.
+//   trap               A fire the VM cannot resolve in-line -- the
+//                      qubit's level is not definite there -- so
+//                      execution stops at the site and control returns
+//                      to the driver.
+//   carrier            The simulated qubit cell that keeps holding a
+//                      noncomputational population's correlations while
+//                      the status ledger tracks its level classically.
+//   continuation       The circuit rewritten under a shot's events
+//                      (initial statuses, jumps so far, pre-drawn
+//                      classical outcomes) and recompiled whole;
+//                      execution resumes past the trapped site, the
+//                      prefix guaranteed identical to what the shot
+//                      already ran.
+//
+// The driver's own randomness (initial levels, trap destinations,
+// classical consults, herald flags) is one per-shot stream, every draw
+// ordered before any cache lookup; the VM's Born randomness is the
+// separate SVM stream (seed.h).
 
 #include "clifft/noncomp/exact_driver.h"
 
@@ -392,9 +389,10 @@ std::vector<uint32_t> record_sequence(const HirModule& hir) {
 }
 #endif
 
-// The forced-outcome twin of a sampling measurement opcode, or
-// NUM_OPCODES when the opcode is not a sampling measurement.
-Opcode forced_twin(Opcode op) {
+// The forced-outcome variant of a sampling measurement opcode -- same
+// record slot, outcome read from state.forced_record instead of drawn
+// -- or NUM_OPCODES when the opcode is not a sampling measurement.
+Opcode forced_opcode(Opcode op) {
     switch (op) {
         case Opcode::OP_MEAS_DORMANT_STATIC:
             return Opcode::OP_MEAS_DORMANT_STATIC_FORCED;
@@ -411,7 +409,8 @@ Opcode forced_twin(Opcode op) {
     }
 }
 
-// Swap the trace-out's hidden measurement at `slot` to its forced twin,
+// Swap the trace-out's hidden measurement at `slot` to its forced
+// opcode,
 // so resume() collapses the trapped carrier to the source the trap
 // reported (read from state.forced_record[slot]) instead of redrawing.
 // Slot indices ride inside instruction payloads and are never renumbered
@@ -419,12 +418,12 @@ Opcode forced_twin(Opcode op) {
 void swap_traceout_to_forced(CompiledModule& module, size_t slot) {
     size_t found = 0;
     for (Instruction& instr : module.bytecode) {
-        const Opcode twin = forced_twin(instr.opcode);
-        if (twin == Opcode::NUM_OPCODES) {
+        const Opcode forced = forced_opcode(instr.opcode);
+        if (forced == Opcode::NUM_OPCODES) {
             continue;
         }
         if (instr.classical.classical_idx == slot) {
-            instr.opcode = twin;
+            instr.opcode = forced;
             ++found;
         }
     }
@@ -442,7 +441,7 @@ bool equal_modulo_forced_swap(const Instruction& fresh, const Instruction& execu
     if (std::memcmp(&fresh, &executed, sizeof(Instruction)) == 0) {
         return true;
     }
-    if (forced_twin(fresh.opcode) != executed.opcode) {
+    if (forced_opcode(fresh.opcode) != executed.opcode) {
         return false;
     }
     Instruction swapped = fresh;
@@ -471,6 +470,20 @@ NonComputationalSample sample_noncomputational_exact(const Circuit& circuit,
     const bool ternary = classifier != nullptr && classifier->has_herald();
 
     const Circuit annotated = annotate(circuit, model);
+
+    // Validate every annotation up front -- tag resolution, LOSS shape --
+    // so a malformed node fails here, deterministically, rather than on
+    // whichever shot first traps or consults it classically: a live site
+    // rides through the rewrite verbatim, and trace() must never be the
+    // first to look at its arguments.
+    for (uint32_t op_index = 0; op_index < static_cast<uint32_t>(annotated.nodes.size());
+         ++op_index) {
+        const AstNode& node = annotated.nodes[op_index];
+        if (node.gate == GateType::LEVEL_TRANSITION || node.gate == GateType::LOSS) {
+            resolve_annotation(node, model, op_index);
+        }
+    }
+
     const InstrumentTraceOptions instrument_options = instrument_trace_options(model);
 
     std::map<std::string, ContinuationEntry> cache;

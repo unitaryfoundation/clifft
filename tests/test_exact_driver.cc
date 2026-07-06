@@ -511,3 +511,26 @@ TEST_CASE("exact: ternary heralds ride the cache key") {
     REQUIRE(ones > 60);
     REQUIRE(ones < 140);
 }
+
+TEST_CASE("exact: a hand-built malformed LOSS rejects up front") {
+    // A live LOSS site rides through the continuation rewrite verbatim,
+    // and trace() must never be the first to look at its arguments (a
+    // missing one would read as probability zero). Every annotation
+    // validates before the first compile instead. The parser guarantees
+    // LOSS(p) for parsed circuits; these are programmatically built.
+    ModelSpec spec;
+    auto model = make_model(spec);
+    Circuit circuit = parse("H 0\nM 0");
+    SECTION("missing the probability argument") {
+        circuit.nodes.insert(circuit.nodes.begin() + 1,
+                             AstNode{GateType::LOSS, {Target::qubit(0)}, {}, 0});
+        REQUIRE_THROWS_WITH(sample_noncomputational(circuit, model, 4, 1),
+                            ContainsSubstring("exactly one argument"));
+    }
+    SECTION("probability outside [0, 1]") {
+        circuit.nodes.insert(circuit.nodes.begin() + 1,
+                             AstNode{GateType::LOSS, {Target::qubit(0)}, {7.0}, 0});
+        REQUIRE_THROWS_WITH(sample_noncomputational(circuit, model, 4, 1),
+                            ContainsSubstring("out of [0, 1]"));
+    }
+}

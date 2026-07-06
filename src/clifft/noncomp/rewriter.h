@@ -153,7 +153,10 @@ struct ClassicalOutcome {
 // initial statuses, the trap chain so far, and the pre-drawn
 // classical-source outcomes for the remaining annotations. This struct is
 // also the continuation cache key's content: two shots with equal events
-// share one compiled module.
+// share one compiled module. The one field the key omits is
+// ClassicalOutcome::source_level -- it is derived from everything else
+// in the events and exists only to validate replays, so it cannot vary
+// within a key.
 struct ExactShotEvents {
     std::vector<QubitStatus> initial_status;
     std::vector<ResolvedJump> jumps;
