@@ -73,6 +73,10 @@ def test_bell_joint_correlation_has_tvd_zero():
         "H 0\nCX 0 1\nLEVEL_TRANSITION[leak] 0\nM 0\nM 1\n", model, shots=SHOTS, seed=12
     )
     m = np.asarray(r.measurements)
+    status = np.asarray(r.final_status)
+    # The certain fire really happened: an accidentally skipped transition
+    # would also show perfect agreement (a plain Bell pair does).
+    assert (status[:, 0] == noncomp.QubitStatusKind.LEAKED).all()
     assert (m[:, 0] == m[:, 1]).all()  # off-diagonal mass is exactly 0
     assert abs(m[:, 0].mean() - 0.5) < binomial_tolerance(0.5, SHOTS)
 
