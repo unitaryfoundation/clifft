@@ -26,17 +26,15 @@ TransitionOutcome consult_transition(const TransitionInstrument& instrument,
 
     // Source-context check and column selection: an unknown computational
     // source has no definite level, so a source-dependent instrument
-    // cannot pick a column for it exactly. The policy chooses between
-    // rejecting and the equalized-rates approximation.
-    bool equalize = false;
+    // cannot pick a column for it here. Ahead-of-time sampling rejects
+    // the case; resolving it exactly is what routes a model to the
+    // runtime driver instead (UnknownSourcePolicy::Exact).
     uint8_t source_col = 0;
     if (s_in.kind() == QubitStatusKind::ComputationalUnknown) {
         if (instrument.is_source_independent_on_computational()) {
             // Computational columns are identical here, so any one
             // serves; use g.
             source_col = levels.computational_zero_id();
-        } else if (policy.unknown_source_policy == UnknownSourcePolicy::EqualizeRates) {
-            equalize = true;
         } else {
             throw std::invalid_argument(
                 "sample_history: source-dependent transition '" + site +
@@ -49,87 +47,30 @@ TransitionOutcome consult_transition(const TransitionInstrument& instrument,
         source_col = s_in.level_id();
     }
 
+    // Sample the outcome: the no-jump weight occupies [0, w), the
+    // jump targets partition [w, 1). last_positive catches a
+    // floating-point tail so u >= w always resolves to a jump.
     TransitionOutcome outcome;
-    if (equalize) {
-        // Equalized-rates draw: every computational column is padded
-        // with a diagonal pseudo-jump up to the maximum computational
-        // jump rate p_max, so firing is source-independent and can be
-        // drawn here. On fire the source is drawn uniformly over the
-        // computational levels and the destination from that padded,
-        // renormalized column. A pseudo-jump lands on the source
-        // level itself: a transition event whose only effect is the
-        // carrier collapse the rewriter materializes.
-        double p_max = 0.0;
-        uint8_t num_comp = 0;
-        for (uint8_t l = 0; l < num_levels; ++l) {
-            if (levels.at(l).category == LevelCategory::Computational) {
-                ++num_comp;
-                const double s = instrument.column_sum(l);
-                if (s > p_max) {
-                    p_max = s;
-                }
+    const double u = rng.next_double();
+    const double no_jump = instrument.no_jump_weight(source_col);
+    if (u >= no_jump) {
+        double acc = no_jump;
+        int last_positive = -1;
+        for (uint8_t to = 0; to < num_levels; ++to) {
+            const double p = instrument.prob(to, source_col);
+            if (p > 0.0) {
+                last_positive = to;
+            }
+            acc += p;
+            if (u < acc) {
+                outcome.jumped = true;
+                outcome.destination_level = to;
+                break;
             }
         }
-        const double u = rng.next_double();
-        if (u >= 1.0 - p_max) {
-            uint8_t source = levels.computational_zero_id();
-            uint8_t seen = 0;
-            const double pick = rng.next_double() * num_comp;
-            for (uint8_t l = 0; l < num_levels; ++l) {
-                if (levels.at(l).category != LevelCategory::Computational) {
-                    continue;
-                }
-                source = l;
-                if (pick < ++seen) {
-                    break;
-                }
-            }
-            const double deficit = p_max - instrument.column_sum(source);
-            const double v = rng.next_double() * p_max;
-            double acc = 0.0;
-            int last_positive = -1;
-            for (uint8_t to = 0; to < num_levels; ++to) {
-                const double p = instrument.prob(to, source) + (to == source ? deficit : 0.0);
-                if (p > 0.0) {
-                    last_positive = to;
-                }
-                acc += p;
-                if (v < acc) {
-                    outcome.jumped = true;
-                    outcome.destination_level = to;
-                    break;
-                }
-            }
-            if (!outcome.jumped && last_positive >= 0) {
-                outcome.jumped = true;
-                outcome.destination_level = static_cast<uint8_t>(last_positive);
-            }
-        }
-    } else {
-        // Sample the outcome: the no-jump weight occupies [0, w), the
-        // jump targets partition [w, 1). last_positive catches a
-        // floating-point tail so u >= w always resolves to a jump.
-        const double u = rng.next_double();
-        const double no_jump = instrument.no_jump_weight(source_col);
-        if (u >= no_jump) {
-            double acc = no_jump;
-            int last_positive = -1;
-            for (uint8_t to = 0; to < num_levels; ++to) {
-                const double p = instrument.prob(to, source_col);
-                if (p > 0.0) {
-                    last_positive = to;
-                }
-                acc += p;
-                if (u < acc) {
-                    outcome.jumped = true;
-                    outcome.destination_level = to;
-                    break;
-                }
-            }
-            if (!outcome.jumped && last_positive >= 0) {
-                outcome.jumped = true;
-                outcome.destination_level = static_cast<uint8_t>(last_positive);
-            }
+        if (!outcome.jumped && last_positive >= 0) {
+            outcome.jumped = true;
+            outcome.destination_level = static_cast<uint8_t>(last_positive);
         }
     }
     return outcome;

@@ -461,30 +461,14 @@ When a transition fires on a target qubit with `QubitStatus s`:
     qubit, and the instrument — pointing the user at the cut between
     the exact path and the approximation below (and the later
     diagonal-filter extension, §9).
-  - `EqualizeRates` (opt-in): the equalized-rates approximation. Every
-    computational column is padded with a diagonal pseudo-jump so each
-    sums to the maximum computational jump rate `p_max`; firing is then
-    source-independent and pre-sampleable at rate `p_max`. On fire the
-    source is drawn uniformly over the computational levels and the
-    destination from that padded, renormalized column. A pseudo-jump
-    lands on the source level itself: a transition event whose only
-    effect is the carrier collapse the rewriter materializes (§5.3.1),
-    i.e. pure dephasing. This is the equalize-and-collapse
-    approximation used by fast-path stabilizer leakage simulators
-    (sqale-sim's sampler among them). Its accuracy envelope: an
-    unbiased unknown source is matched exactly in every per-qubit
-    marginal (a genuinely indeterminate stabilizer-state qubit is
-    exactly unbiased, so this covers it); but (a) the destination is
-    drawn independently of the simulator's internal collapse,
-    discarding destination-collapse correlations with entangled
-    partners, and (b) the sampler never queries tableau determinism --
-    status is pre-SVM-known (§5.2.2) -- so a qubit whose state is
-    determined by gate algebra but not by instruction takes this
-    approximate path, and its marginals remain approximate where a
-    tableau-tracking simulator is exact. Closing (a) requires runtime
-    branching (out of scope, §9); (b) could be closed ahead of time by
-    tracking a tableau in the sampler, deferred until measured to
-    matter.
+  - `Exact` (opt-in): route the run to the exact-mode driver
+    (design/state-dependent-jumps.md). The circuit compiles once with
+    every annotation kept as a runtime instrument site, fire
+    probabilities are evaluated on the live state, and a fire that
+    cannot resolve in-line traps to the driver, which recompiles the
+    remaining circuit under the now-known status and resumes. Exact
+    for every source context, at a cost exponential in the number of
+    damping-expanded sites (see the `damping` policy there).
 
 This is the "pre-sampleable" boundary, enforced where it actually
 matters (at the unknown-coherent-source point) rather than at model
@@ -520,7 +504,8 @@ attaching transitions to gates with entry-status sources:
   known-source path survives where it physically should.
 - A hook on a basis-mixing gate (`H`, ...) consults a genuine
   superposition: a source-dependent matrix there is an unknown-source
-  consult (reject or equalize per policy). The old entry-status column
+  consult (rejected, or runtime-resolved under the exact policy). The
+  old entry-status column
   choice was an artifact of attachment, not physics.
 - A hook on a measure-and-reset consults the post-reset state. A
   transition acting on the pre-reset level -- readout-induced loss --

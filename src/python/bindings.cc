@@ -75,14 +75,11 @@ void register_noncomp(nb::module_& m) {
             policy.reset_restores_lost = reset_restores_lost;
             if (unknown_source_policy == "reject") {
                 policy.unknown_source_policy = clifft::UnknownSourcePolicy::Reject;
-            } else if (unknown_source_policy == "equalize_rates") {
-                policy.unknown_source_policy = clifft::UnknownSourcePolicy::EqualizeRates;
             } else if (unknown_source_policy == "exact") {
                 policy.unknown_source_policy = clifft::UnknownSourcePolicy::Exact;
             } else {
                 throw std::invalid_argument(
-                    "noncomp model: unknown_source_policy must be 'reject', 'equalize_rates', "
-                    "or 'exact', got '" +
+                    "noncomp model: unknown_source_policy must be 'reject' or 'exact', got '" +
                     unknown_source_policy + "'");
             }
             if (lost_leaked_ops == "reject") {

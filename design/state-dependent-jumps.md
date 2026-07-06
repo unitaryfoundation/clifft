@@ -20,9 +20,10 @@ Today `sample_noncomputational` resolves all transitions ahead of time (AOT):
 the history sampler draws jump outcomes per shot before compilation, and the
 rewriter edits the circuit accordingly. This is *exact* when the source is
 classical — a known level, or a transition whose rate is the same from every
-computational level — and otherwise either rejects (default) or approximates
-(`unknown_source_policy="equalize_rates"`). The equalized mode has three
-documented residual approximations:
+computational level — and otherwise rejects (default). Before this design, an
+`unknown_source_policy="equalize_rates"` mode approximated the case instead
+(retired — §6 step 8, executed early); it had three documented residual
+approximations:
 
 1. **Joint correlations** — the AOT source draw is independent of entangled
    partners and measurement outcomes.
@@ -36,9 +37,9 @@ This design adds a new policy value, `unknown_source_policy="exact"`, that
 removes all three at once by evaluating jumps against the live simulator
 state. Once validated, `exact` becomes the default. `reject` remains as the
 strict guard (refuse any state-dependent transition on an unknown source);
-`equalize_rates` is **retired** at the end of this work — with no public
-release there is no compatibility obligation, and its accuracy envelope is
-strictly dominated by the fallback this design ships (§4.6, FAQ).
+`equalize_rates` is **retired** — with no public release there was no
+compatibility obligation, and its accuracy envelope is strictly dominated by
+the fallback this design ships (§4.6, FAQ).
 
 A large side benefit falls out of the architecture: in `exact` mode the
 common no-jump execution path is compiled **once per model** instead of once
@@ -399,7 +400,7 @@ model = noncomp.Model(
 
 - `unknown_source_policy="exact"` — the mode this note adds. `"reject"`
   remains as the strict guard. The `"equalize_rates"` approximation is
-  retired at the end of this work (§6 step 8): it is strictly dominated by
+  retired (§6 step 8, executed early): it is strictly dominated by
   `damping="neglect"` below (see FAQ), and pre-release there is no
   compatibility obligation.
 - `damping` controls the no-jump filter at sites where the qubit is coherent
@@ -433,10 +434,10 @@ Validation plan (extends the existing oracle/probe suite):
 
 1. Add the exact per-site channel to the density-matrix test oracle and
    cross-check every supported scenario end-to-end.
-2. Micro-probes, closed form: the gate-determined probe flips from
-   "equalized fires ~p/2" to "fires exactly 0" — the existing pinned
-   divergence test is *expected* to change, consciously. The Bell-pair joint
-   probe flips from TVD 0.5 to 0.
+2. Micro-probes, closed form: the gate-determined probe pins "fires
+   exactly 0" and the Bell-pair joint probe pins TVD 0. (The equalized
+   mode's counterpart pins — fires ~p/2, TVD 0.5 — were removed with the
+   mode itself in step 8, executed early.)
 3. New discriminating probe: prepare `|+⟩`, pass one no-fire
    leak-from-`e` site, measure X. Exact coherence is `sqrt(1-p)`;
    `damping="neglect"` gives 1 — this probe is the direct measurement of
@@ -487,11 +488,13 @@ with unrelated roadmap work.
 7. **Validation campaign, docs, default flip.** Oracle extension, probe
    flips, rep-code TVD runs, performance table; then flip the default
    `unknown_source_policy` to `"exact"`.
-8. **Retire `equalize_rates`.** With `exact` validated and the default
-   flipped, remove the equalized mode: its sampler/rewriter code paths,
-   tests, notebook coverage, and the base design note's policy text for it.
-   Pre-release, no deprecation cycle is required; `reject` | `exact` (plus
-   the `damping` knob) is the final policy surface.
+8. **Retire `equalize_rates` (done — executed before step 7).** Removed
+   the equalized mode: its sampler code path, policy value, tests, notebook
+   coverage, and the base design note's policy text for it. Pre-release,
+   nothing depended on the mode and `damping="neglect"` is the designated
+   fallback, so retiring first lets the validation campaign judge the final
+   `reject` | `exact` surface (plus the `damping` knob) in one pass instead
+   of validating a doomed mode's pins alongside new ones.
 
 Mechanics: new core `.cc` files must be added to both `src/clifft/` and
 `src/wasm/` source lists; new opcodes/op types must be reflected in the

@@ -151,7 +151,6 @@ NonComputationalModel::NonComputationalModel(
     // Policy must hold recognized enum values.
     switch (policy_.unknown_source_policy) {
         case UnknownSourcePolicy::Reject:
-        case UnknownSourcePolicy::EqualizeRates:
         case UnknownSourcePolicy::Exact:
             break;
         default:
