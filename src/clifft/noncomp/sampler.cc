@@ -16,12 +16,13 @@ namespace {
 
 // Consult one transition instrument for one qubit at an annotation site:
 // pick the source column from the qubit's status at the site (the
-// positional convention), apply the unknown-source policy, and sample the
-// outcome. `site` names the annotation in error messages.
+// positional convention) and sample the outcome; a source-dependent
+// consult on an unknown source throws. `site` names the annotation in
+// error messages.
 TransitionOutcome consult_transition(const TransitionInstrument& instrument,
                                      const QubitStatus& s_in, const LevelSet& levels,
-                                     const NonComputationalPolicy& policy, Xoshiro256PlusPlus& rng,
-                                     const std::string& site, uint32_t qubit, uint32_t op_index) {
+                                     Xoshiro256PlusPlus& rng, const std::string& site,
+                                     uint32_t qubit, uint32_t op_index) {
     const size_t num_levels = levels.size();
 
     // Source-context check and column selection: an unknown computational
@@ -100,7 +101,6 @@ HistorySample sample_history(const Circuit& circuit, const NonComputationalModel
                              uint64_t seed) {
     const LevelSet& levels = model.levels();
     const NonComputationalPolicy& policy = model.policy();
-    const size_t num_levels = levels.size();
 
     Xoshiro256PlusPlus rng(seed);
 
@@ -143,7 +143,7 @@ HistorySample sample_history(const Circuit& circuit, const NonComputationalModel
                 const uint32_t qubit = target.value();
                 check_qubit(qubit, op_index);
                 const TransitionOutcome outcome = consult_transition(
-                    *instrument, status[qubit], levels, policy, rng, node.tag, qubit, op_index);
+                    *instrument, status[qubit], levels, rng, node.tag, qubit, op_index);
                 result.history.transitions.push_back(
                     TransitionRecord{op_index, qubit, outcome.jumped,
                                      outcome.jumped ? outcome.destination_level : kInvalidLevel});

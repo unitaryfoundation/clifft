@@ -27,11 +27,14 @@ restoring a qubit when the policy allows it; per-trajectory concrete
 statuses; per-trajectory initial-state sampling; semantic validation
 that the configured instrument set is pre-sampleable.
 
-**Out:** unknown coherent state-dependent transitions; exact diagonal
-no-jump filters; segmented JIT replan/resume; dynamic control-flow IR
-above HIR; per-qubit classical distributions; full qudit simulation;
-new circuit-level instructions (no `LOSS(p)`, no
-`TRANSITION_INSTRUMENT`, no parser changes); compile cache.
+**Out:** dynamic control-flow IR above HIR; per-qubit classical
+distributions; full qudit simulation. (Several items originally out of
+the MVP have since shipped: unknown coherent state-dependent
+transitions, the exact no-jump filter, trap-and-resume execution, and
+the continuation cache landed via
+[state-dependent-jumps.md](state-dependent-jumps.md), and the
+`LOSS(p)` / `LEVEL_TRANSITION[name]` circuit annotations landed with
+the annotation layer, §5.0.)
 
 **Status of `LOSS(p)` syntax:** deferred. A later PR may add it as
 syntactic sugar over this model. The prior LOSS design notes (`R` vs
@@ -459,8 +462,8 @@ When a transition fires on a target qubit with `QubitStatus s`:
   selected by `policy.unknown_source_policy`:
   - `Reject` (default): reject with an error naming the op index, the
     qubit, and the instrument — pointing the user at the cut between
-    the exact path and the approximation below (and the later
-    diagonal-filter extension, §9).
+    what is pre-sampleable and what needs the runtime resolution the
+    `Exact` policy below provides.
   - `Exact` (opt-in): route the run to the exact-mode driver
     (design/state-dependent-jumps.md). The circuit compiles once with
     every annotation kept as a runtime instrument site, fire
@@ -978,12 +981,10 @@ contract:
 ## 9. Out of scope but planned-for
 
 Exact state-dependent jumps — the diagonal no-jump filter and the
-replan/resume machinery listed below — are designed in
-[state-dependent-jumps.md](state-dependent-jumps.md).
+trap-and-resume machinery — **have since shipped**, designed and
+implemented in [state-dependent-jumps.md](state-dependent-jumps.md);
+the `LOSS(p)` annotation shipped with them. Still open:
 
-- `LOSS(p) targets...` Stim instruction as syntactic sugar.
-- Diagonal `aI + bZ` filter for state-dependent no-jump (the natural
-  next exact-mode extension).
 - Joint / correlated multi-qubit `TransitionInstrument` (instead of
   per-qubit marginal): a different type with shape
   `len(levels)^k x len(levels)^k` for `k` operands. Out of scope for
