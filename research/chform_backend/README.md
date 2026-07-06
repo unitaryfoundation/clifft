@@ -1,5 +1,41 @@
 # Low-rank stabilizer-decomposition backend (residual-backend prototype)
 
+> **REVISION 2026-07-06 (honest re-benchmark).** An adversarial review found the
+> original headline benchmark unfair, and everything below marked *superseded*
+> is replaced by `bench_honest.py` + `research/findings.tex` (revised):
+>
+> - **Old claim: crossover vs clifft at n~22, 18x at n=26 — WITHDRAWN.** It
+>   timed clifft's *unitary* `basis_probabilities` path (peak_rank = n). The
+>   fair baseline — `record_probabilities` on the *measured* program — answers
+>   the same queries exactly at peak_rank = 1 on that chain-CZ family
+>   (~0.2 ms at n=26, ~1e5x faster than charged) and at peak_rank = n/2 on
+>   dense random IQP. **Honest crossover on dense IQP: n~34 at TV~0.17,
+>   n~48 at TV~0.08** (bench_honest.py; exact meet-in-the-middle ground truth,
+>   full-pipeline error metric).
+> - **Old "norm-free TV" metric — WITHDRAWN.** It cancelled the norm-estimation
+>   error (11-22% relative at the budgets used). The honest dial is
+>   TV = 0.50*delta with *analytic* normalization (valid for unitary product
+>   magic); with the old L=30 estimated norm, same-budget TV degrades up to 2x.
+> - **Old "clifft needs 16 TB..64 ZB" frontier contrast — WITHDRAWN.** Every
+>   exact method on this family (clifft-measured, meet-in-the-middle) costs
+>   2^{n/2}, not 2^n. Honest frontier: exact is feasible to n~60-62 (16 GB);
+>   at n=72 the backend needs 267 s / 1.9 GB vs ~1.1 TB exact. No exact
+>   accuracy check exists at n=66-72 — frontier accuracy is an extrapolation
+>   of the delta-law, stated as such.
+> - The C++ amplitude had undefined behavior for n>64 (uint64 shifts) — fixed
+>   (`amplitude_words`), with new W=2 tests (n=80 embedded circuits vs dense,
+>   6e-15; n=68 unit-norm norm-estimation check).
+> - The qiskit-aer comparison is now reproducible: `bench_aer.py` (committed;
+>   ratios and 0-hit strong-sim result confirmed at auditable scale).
+> - New tools: `bench_honest.py` (the honest head-to-head + accuracy dial,
+>   writes bench_honest.json), `../chform_cpp/mitm_iqp.cpp` (exact O(n 2^{n/2})
+>   IQP ground truth, validated to 6e-16), `validate_mitm.py`, `plot_honest.py`.
+>
+> Component-level validation (CH-form gates/projection/amplitude, norm-est
+> lemmas, frame engine, unbiased single-shot sampler, 2^{0.228t} extent) was
+> confirmed correct by the review and stands unchanged below.
+
+
 A working, validated prototype of the "stab-rank back-end" that would replace
 clifft's dense active block, plus the demonstration that the **composition**
 (clifft's measurement-driven reduction → low-rank stabilizer decomposition of the
@@ -152,7 +188,7 @@ clifft's genuine edge).
    mid-circuit sparsify steps — that's what made the earlier streaming run coarse,
    `‖ω‖²≈2`). For product magic this is strictly better *and* faster.
 
-### The past-clifft benchmark (`bench_vs_clifft.py`) — magic-sparse IQP
+### *(superseded — see revision note)* The past-clifft benchmark (`bench_vs_clifft.py`)
 
 `H^n ; T^{±} on each qubit ; CZ chain ; H^n`, single-shot magic injection.
 clifft must hold the `2^k` active block (`k = peak_rank = n` here, no

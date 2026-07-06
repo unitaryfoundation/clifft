@@ -191,16 +191,23 @@ struct CHForm {
     }
 
     // ---- amplitude <x|phi> (Eq. 56), Pauli-product accumulation ----
-    cd amplitude(uint64_t x) const {
+    // Core: target given as W packed words (bit p of xw = bit p of x); bits >= n
+    // must be zero. Set bits are visited in ascending order (matches the Python
+    // reference loop). This is the only amplitude path valid for n > 64.
+    cd amplitude_words(const uint64_t* xw) const {
         std::vector<uint64_t> ux(W, 0);
         int mu = 0;
-        for (int p = 0; p < n; ++p) {
-            if (!((x >> p) & 1)) continue;
-            const uint64_t* Fp = Fr(p); const uint64_t* Mp = Mr(p);
-            // mu += g_p + 2 * ((ux ^ Fp) . Mp)
-            int acc = 0; for (int i = 0; i < W; ++i) acc ^= (std::popcount((ux[i] ^ Fp[i]) & Mp[i]) & 1);
-            mu = (mu + g[p] + 2 * (acc & 1)) & 3;
-            for (int i = 0; i < W; ++i) ux[i] ^= Fp[i];
+        for (int wi = 0; wi < W; ++wi) {
+            uint64_t bb = xw[wi];
+            while (bb) {
+                int p = wi * 64 + std::countr_zero(bb);
+                bb &= bb - 1;
+                const uint64_t* Fp = Fr(p); const uint64_t* Mp = Mr(p);
+                // mu += g_p + 2 * ((ux ^ Fp) . Mp)
+                int acc = 0; for (int i = 0; i < W; ++i) acc ^= (std::popcount((ux[i] ^ Fp[i]) & Mp[i]) & 1);
+                mu = (mu + g[p] + 2 * (acc & 1)) & 3;
+                for (int i = 0; i < W; ++i) ux[i] ^= Fp[i];
+            }
         }
         int vcount = 0;
         for (int j = 0; j < n; ++j) {
@@ -214,7 +221,19 @@ struct CHForm {
         return hsign ? -amp : amp;
     }
 
+    // Convenience overload for a uint64 target. For n > 64 this addresses only
+    // targets whose bits >= 64 are zero (previously this path shifted x >> p
+    // with p >= 64 -- undefined behavior; it happened to work for x = 0).
+    cd amplitude(uint64_t x) const {
+        std::vector<uint64_t> xw(W, 0);
+        xw[0] = (n < 64) ? (x & ((1ULL << n) - 1)) : x;
+        return amplitude_words(xw.data());
+    }
+
     std::vector<cd> statevector() const {
+        // Materializes 2^n amplitudes -- validation-scale only (and 1ULL << n
+        // is undefined for n >= 64).
+        if (n >= 60) return {};
         std::vector<cd> out((size_t)1 << n);
         for (uint64_t x = 0; x < (1ULL << n); ++x) out[x] = amplitude(x);
         return out;

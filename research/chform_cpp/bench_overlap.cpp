@@ -63,16 +63,29 @@ int main(int argc, char** argv) {
         terms.push_back(std::move(t));
     }
     auto t1 = std::chrono::steady_clock::now();
-    double norm = estimate_norm2(terms, n, samples, rng);
+    // samples == 0: analytic normalization, valid for this benchmark's unitary
+    // product-magic circuits only -- ||psi|| = 1 exactly and the single-shot
+    // estimator has E||omega||^2 = 1 + (||c||_1^2 - 1)/k, so no norm estimation
+    // is needed. Generic circuits (projections / non-product magic) must
+    // estimate (samples > 0).
+    double norm = (samples == 0) ? 1.0 + (l1 * l1 - 1.0) / k
+                                 : estimate_norm2(terms, n, samples, rng);
     auto t2 = std::chrono::steady_clock::now();
+
+    std::vector<double> probs(targets.size());
+    for (size_t i = 0; i < targets.size(); ++i) {
+        cd a(0, 0); for (auto& t : terms) a += t.amplitude(targets[i]);
+        probs[i] = std::norm(a) / norm;
+    }
+    auto t3 = std::chrono::steady_clock::now();
 
     printf("build_s %.6f\n", std::chrono::duration<double>(t1 - t0).count());
     printf("norm_s %.6f\n", std::chrono::duration<double>(t2 - t1).count());
+    printf("amps_s %.6f\n", std::chrono::duration<double>(t3 - t2).count());
+    printf("total_s %.6f\n", std::chrono::duration<double>(t3 - t0).count());
     printf("chi %zu\n", terms.size());
     printf("norm2 %.10f\n", norm);
-    for (uint64_t x : targets) {
-        cd a(0, 0); for (auto& t : terms) a += t.amplitude(x);
-        printf("P %llu %.12e\n", (unsigned long long)x, std::norm(a) / norm);
-    }
+    for (size_t i = 0; i < targets.size(); ++i)
+        printf("P %llu %.12e\n", (unsigned long long)targets[i], probs[i]);
     return 0;
 }

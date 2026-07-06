@@ -574,4 +574,3 @@ class LowRankState:
         self._record(f"Mframe({q})->{outcome}")
         self.recompress_dedup()
         return outcome
-        return outcome

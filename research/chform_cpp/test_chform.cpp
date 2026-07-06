@@ -108,7 +108,57 @@ int main() {
     printf("[%s] projection vs dense (max abs err %.2e, %d zero-support, %d projected)\n",
            pworst < 1e-9 ? "OK" : "FAIL", pworst, none_ok, nproj);
 
-    // 3) wall-clock: Clifford gates on a single bit-packed term
+    // 3) W=2 (n>64) code paths: random Clifford circuits embedded on qubits
+    //    straddling the 64-bit word boundary of an n=80 register, amplitudes
+    //    (via amplitude_words) and projection vs an m-qubit dense oracle.
+    //    Inactive qubits stay |0>, so <x_embed|phi> == <y|dense> whenever the
+    //    inactive bits of the target are 0.
+    {
+        double w4 = 0;
+        const int N = 80;
+        const std::vector<std::vector<int>> placements = {
+            {0, 1, 2, 3, 4, 5},        // low word only
+            {61, 62, 63, 64, 65, 66},  // straddles the word boundary
+            {30, 47, 63, 64, 71, 79},  // scattered across both words
+        };
+        int nzero = 0, nproj4 = 0;
+        for (auto& act : placements) {
+            int m = (int)act.size();
+            for (int trial = 0; trial < 300; ++trial) {
+                CHForm c(N);
+                std::vector<cd> v((size_t)1 << m, cd(0, 0)); v[0] = 1;
+                int depth = ri(2, 6);
+                for (int d = 0; d < depth; ++d) {
+                    for (int i = 0; i < m; ++i) { int gn = ri(0, 6); c.clifford_1q(gn, act[i]); d1q(v, m, i, GATES[gn]); }
+                    for (int i = 0; i + 1 < m; i += 2) {
+                        int kind = ri(0, 3);
+                        if (kind == 0) { c.cx(act[i], act[i + 1]); dcx(v, m, i, i + 1); }
+                        else if (kind == 1) { c.cz(act[i], act[i + 1]); dcz(v, m, i, i + 1); }
+                        else { c.swap(act[i], act[i + 1]); dswap(v, m, i, i + 1); }
+                    }
+                }
+                if (trial & 1) {  // exercise projection on the multi-word path too
+                    int i = ri(0, m), bit = ri(0, 2);
+                    std::vector<cd> dv = v;
+                    for (uint64_t y = 0; y < (1ULL << m); ++y) if ((int)((y >> i) & 1) != bit) dv[y] = 0;
+                    double dn = 0; for (auto& z : dv) dn += std::norm(z);
+                    bool ok = c.project(act[i], bit);
+                    if (dn < 1e-12) { if (ok) w4 = 1e9; ++nzero; continue; }
+                    ++nproj4;
+                    v = dv;
+                }
+                for (uint64_t y = 0; y < (1ULL << m); ++y) {
+                    std::vector<uint64_t> xw((N + 63) / 64, 0);
+                    for (int i = 0; i < m; ++i) if ((y >> i) & 1) xw[act[i] >> 6] |= (1ULL << (act[i] & 63));
+                    w4 = std::max(w4, std::abs(c.amplitude_words(xw.data()) - v[y]));
+                }
+            }
+        }
+        printf("[%s] W=2 (n=80) embedded circuits vs dense, 3 placements x 300 (max abs err %.2e, %d zero-support, %d projected)\n",
+               w4 < 1e-9 ? "OK" : "FAIL", w4, nzero, nproj4);
+    }
+
+    // 4) wall-clock: Clifford gates on a single bit-packed term
     for (int n : {30, 60, 120}) {
         CHForm c(n);
         for (int q = 0; q < n; ++q) c.h(q);

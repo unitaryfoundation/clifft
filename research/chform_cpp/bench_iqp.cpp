@@ -33,7 +33,20 @@ static IQP make_iqp(int n, uint64_t seed) {
     std::mt19937_64 rg(seed);
     IQP c{n, std::vector<uint8_t>(n), {}};
     for (int q = 0; q < n; ++q) c.dag[q] = rg() & 1;
-    for (int q = 0; q + 1 < n; ++q) if ((rg() & 1000003) % 10 < 6) c.czs.push_back({q, q + 1});
+    for (int q = 0; q + 1 < n; ++q) if (rg() % 10 < 6) c.czs.push_back({q, q + 1});
+    return c;
+}
+
+// Dense random IQP (CZ on each pair w.p. 1/2): the frontier family. On the
+// nearest-neighbour chain above, the MEASURED program compiles to
+// peak_rank ~ 1 (lightcone sweep) and exact P(x) is trivial for clifft; the
+// dense ensemble is where the exact baselines genuinely pay 2^{n/2}.
+static IQP make_dense_iqp(int n, uint64_t seed) {
+    std::mt19937_64 rg(seed);
+    IQP c{n, std::vector<uint8_t>(n), {}};
+    for (int q = 0; q < n; ++q) c.dag[q] = rg() & 1;
+    for (int a = 0; a < n; ++a)
+        for (int b = a + 1; b < n; ++b) if (rg() & 1) c.czs.push_back({a, b});
     return c;
 }
 
@@ -124,12 +137,15 @@ int main() {
     printf("[%s] exact engine (full enumeration) == dense IQP, n<=10 (max abs err %.2e)\n",
            worst < 1e-9 ? "OK" : "FAIL", worst);
 
-    // 2) single-shot wall-clock at past-clifft sizes + the C++ frontier.
-    //    clifft needs the 2^n dense block; the CH-form backend needs chi terms of
-    //    O(n^2) bits each, and the per-gate C++ cost makes the accurate budget
-    //    k ~ 2^{0.228 n}/delta^2 reachable in seconds (Python: minutes-hours).
-    printf("  %3s %9s %9s %11s %10s %12s\n", "n", "budget k", "chi", "build (s)",
-           "CH mem", "clifft 2^n");
+    // 2) single-shot wall-clock at the frontier (DENSE IQP): the CH-form
+    //    backend holds chi terms of O(n^2) bits each; the accurate budget
+    //    k ~ 2^{0.228 n}/delta^2 is reachable in seconds.
+    // Honest exact-baseline column: on the MEASURED dense-IQP program clifft
+    // compiles to peak_rank = n/2 (and exact meet-in-the-middle, mitm_iqp.cpp,
+    // costs the same 2^{n/2}) -- so the frontier contrast is 16B * 2^{ceil(n/2)},
+    // NOT 16B * 2^n (the unitary-path framing the review struck down).
+    printf("  %3s %9s %9s %11s %10s %14s\n", "n", "budget k", "chi", "build (s)",
+           "CH mem", "exact 2^{n/2}");
     std::mt19937_64 rng(7);
     const char* units[] = {"B", "KB", "MB", "GB", "TB", "PB", "EB", "ZB"};
     auto human = [&](double b) { int u = 0; while (b >= 1024 && u < 7) { b /= 1024; ++u; }
@@ -137,19 +153,20 @@ int main() {
     for (int n : {40, 46, 50, 54, 60, 66, 72}) {
         double delta = 0.4;
         int k = (int)std::max(2000.0, std::pow(2.0, 0.228 * n) / (delta * delta));
-        IQP c = make_iqp(n, 100 + n);
+        IQP c = make_dense_iqp(n, 100 + n);
         auto t0 = std::chrono::steady_clock::now();
         auto terms = build_single_shot(c, k, rng);
         volatile double a0 = std::abs(amp(terms, 0)); (void)a0;
         auto t1 = std::chrono::steady_clock::now();
         int Wn = (n + 63) / 64;
         double mem = terms.size() * (double)(3 * n * Wn * 8 + 3 * n + 16);
-        printf("  %3d %9d %9zu %11.2f %10s %12s\n", n, k, terms.size(),
+        printf("  %3d %9d %9zu %11.2f %10s %14s\n", n, k, terms.size(),
                std::chrono::duration<double>(t1 - t0).count(),
-               human(mem).c_str(), human(std::pow(2.0, n) * 16).c_str());
+               human(mem).c_str(), human(std::pow(2.0, (n + 1) / 2) * 16).c_str());
     }
-    printf("  (Python reached only n<=50: 15/40/86 s; clifft's 2^n block is the wall,\n");
-    printf("   and clifft cannot even compile the IQP at n>=63 [k>=63 hard wall].)\n");
+    printf("  (Exact baselines -- clifft record_probabilities on the measured program\n");
+    printf("   and meet-in-the-middle -- both scale as 2^{n/2}: feasible to n ~ 60-62\n");
+    printf("   on a 36 GB workstation, infeasible at n = 66 [137 GB] and 72 [1.1 TB].)\n");
 
     // 3) full non-materialising pipeline: ||omega||^2 via norm estimation
     //    (~1 + delta^2 = the accuracy check, the part Python couldn't time).
@@ -157,7 +174,7 @@ int main() {
     for (int n : {40, 46}) {
         double delta = 0.4;
         int k = (int)std::max(2000.0, std::pow(2.0, 0.228 * n) / (delta * delta));
-        IQP c = make_iqp(n, 100 + n);
+        IQP c = make_dense_iqp(n, 100 + n);
         auto terms = build_single_shot(c, k, rng);
         auto t0 = std::chrono::steady_clock::now();
         double nm = chf::estimate_norm2(terms, n, 15, rng);

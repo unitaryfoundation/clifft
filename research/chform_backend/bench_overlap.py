@@ -1,15 +1,20 @@
-"""Overlapping-regime head-to-head vs clifft (k=10-20) -- the first SAME-TASK
-comparison: clifft's EXACT Born probabilities vs our APPROXIMATE ones, on the
-identical magic-sparse IQP circuits, with wall-clock for clifft, the Python
-backend, and the C++ backend. Produces a plot.
+"""SUPERSEDED by bench_honest.py -- kept for the record. Two flaws (review,
+2026-07-06):
 
-Run: python -u -m research.chform_backend.bench_overlap
+  1. It times clifft's `basis_probabilities` on the UNITARY program
+     (peak_rank = n). The fair baseline for "compute P(x)" is
+     `record_probabilities` on the MEASURED program, which on this
+     nearest-neighbour-CZ family compiles to peak_rank = 1 and answers the
+     same 96 exact probabilities in ~0.2 ms at n=26 (vs the ~23 s this
+     benchmark charged clifft). The "crossover at n~22" this script measured
+     is an artifact of that baseline choice.
+  2. Its "norm-free TV" renormalizes our P over the target subset, exactly
+     cancelling the norm-estimation error (11-18% relative at the budgets
+     used here).
 
-In this regime clifft's 2^k active block is tiny (16 KB - 16 MB), so clifft is
-fast AND exact -- our approximate backend has no speed edge here (its niche is
-large k, where clifft cannot run). This benchmark shows exactly that boundary,
-and validates our P(x) against clifft's exact P(x) beyond the n<=10 statevector
-cap (basis_probabilities works at any n).
+bench_honest.py redoes the comparison on dense random IQP (measured
+peak_rank = n/2) against record_probabilities, with exact meet-in-the-middle
+ground truth and the full-pipeline error metric.
 """
 
 from __future__ import annotations

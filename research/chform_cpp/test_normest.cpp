@@ -80,5 +80,35 @@ int main() {
     }
     printf("[%s] Lemma 2 norm estimate vs exact on 20 low-rank states (worst rel err %.3f, L=6000)\n",
            worst_rel < 0.2 ? "OK" : "FAIL", worst_rel);
+
+    // 4) W=2 (n>64): exact 16-term {I,S} magic decomposition with T-qubits
+    //    straddling the word boundary of an n=68 register. The 16 terms sum to
+    //    a unitary image of |0>, so ||psi||^2 = 1 exactly -- the estimator must
+    //    land near 1. This is the only norm-estimation accuracy check on
+    //    multi-word tableaux (the frontier n=66/72 runs use these code paths).
+    {
+        const int N = 68;
+        const int TQ[4] = {62, 63, 64, 65};
+        const cd ALPHA = cd(0.5, (std::sqrt(2.0) - 1) / 2);
+        const cd BETA = std::conj(ALPHA);
+        CHForm base(N);
+        for (int q = 0; q < N; ++q) base.h(q);
+        std::vector<CHForm> terms;
+        for (int b = 0; b < 16; ++b) {
+            CHForm t = base;
+            cd coeff(1, 0);
+            for (int i = 0; i < 4; ++i) {
+                if ((b >> i) & 1) { t.s_gate(TQ[i]); coeff *= BETA; }
+                else coeff *= ALPHA;
+            }
+            t.scale(coeff);
+            for (int q = 0; q + 1 < N; q += 3) t.cz(q, q + 1);
+            for (int q = 0; q < N; ++q) t.h(q);
+            terms.push_back(std::move(t));
+        }
+        double est = estimate_norm2(terms, N, 600, rng);
+        printf("[%s] W=2 (n=68) norm estimate on exact unit-norm 16-term state: %.4f (target 1, L=600)\n",
+               std::abs(est - 1.0) < 0.25 ? "OK" : "FAIL", est);
+    }
     return 0;
 }
