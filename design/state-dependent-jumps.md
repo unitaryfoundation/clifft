@@ -16,11 +16,11 @@ population out of `e` at rate `p` fires with probability `p · ⟨P_e⟩`, where
 `⟨P_e⟩` is the population of `e` at that point in the circuit, including
 through superposition and entanglement.
 
-Today `sample_noncomputational` resolves all transitions ahead of time (AOT):
-the history sampler draws jump outcomes per shot before compilation, and the
-rewriter edits the circuit accordingly. This is *exact* when the source is
-classical — a known level, or a transition whose rate is the same from every
-computational level — and otherwise rejects (default). Before this design, an
+Before this design, `sample_noncomputational` resolved all transitions ahead
+of time (AOT): a history sampler drew jump outcomes per shot before
+compilation, and the rewriter edited the circuit accordingly. That was
+*exact* when the source was classical — a known level, or a transition whose
+rate is the same from every computational level — and otherwise rejected. An
 `unknown_source_policy="equalize_rates"` mode approximated the case instead
 (retired — §6 step 8, executed early); it had three documented residual
 approximations:
@@ -364,9 +364,9 @@ Notes:
 - **In exact mode, all transition firing moves to runtime** — including
   source-independent sites (as hazard-pooled Bernoulli instruments). This is
   what makes the main line shot-invariant; statistically it is identical to
-  the AOT draw (memoryless Bernoulli either way). The AOT history sampler's
-  remaining jobs are initial statuses and, at trap time, transitions whose
-  source is a classical status.
+  an ahead-of-time draw (memoryless Bernoulli either way). The driver's own
+  draws are initial statuses and, at trap time, transitions whose source is
+  a classical status.
 - **Classifier injection becomes runtime-stochastic.** Today's injector
   pre-draws a per-shot bit and bakes it into `MPAD`; that is incompatible
   with sharing modules across shots. Instead the rewrite emits `MPAD(0)`

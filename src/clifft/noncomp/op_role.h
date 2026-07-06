@@ -3,8 +3,8 @@
 // Classify an operation's targets into the qubit operands that carry
 // noncomputational semantics, with the role each plays.
 //
-// The same GateType can be physically different things, so the history
-// sampler and the rewriter must not key behavior on GateType alone: a
+// The same GateType can be physically different things, so the status
+// walks must not key behavior on GateType alone: a
 // CX/CZ with a record control is a virtual frame correction (Feedback),
 // not a physical entangler; MPAD targets are classical literals, not
 // qubits; detector/observable targets are record references. This shared

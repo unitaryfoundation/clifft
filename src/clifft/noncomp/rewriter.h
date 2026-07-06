@@ -80,16 +80,16 @@ struct ClassifiedMeasurement {
 // Exact-mode continuation rewrite
 // =============================================================================
 //
-// In exact mode, transition firing happens at runtime and a fire that
-// cannot resolve in-line halts execution at its instrument site. The
-// continuation is the full circuit recompiled under the now-known status
-// outcomes: its prefix (everything up to and including the trapped
-// annotation) is emitted verbatim so it compiles bit-identically to the
-// code that already ran, and only the suffix is rewritten. Unlike the AOT
-// rewrite above, annotation nodes are kept wherever their qubit is still
-// computational -- they stay runtime instruments, including on a
-// recaptured qubit -- and are consumed only where the source is a
-// classical (leaked/lost) status, using outcomes the host pre-drew.
+// Transition firing happens at runtime, and a fire that cannot resolve
+// in-line halts execution at its instrument site. The continuation is
+// the full circuit recompiled under the now-known status outcomes: its
+// prefix (everything up to and including the trapped annotation) is
+// emitted verbatim so it compiles bit-identically to the code that
+// already ran, and only the suffix is rewritten. Annotation nodes are
+// kept wherever their qubit is still computational -- they stay runtime
+// instruments, including on a recaptured qubit -- and are consumed only
+// where the source is a classical (leaked/lost) status, using outcomes
+// the driver pre-drew.
 
 // One resolved jump in a shot's trap chain, in circuit order. `op_index`
 // and `qubit` name the annotation target that trapped; the destination

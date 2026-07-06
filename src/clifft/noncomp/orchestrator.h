@@ -2,26 +2,19 @@
 
 // Orchestrator: the top-level noncomputational sampling entry point.
 //
-// sample_noncomputational(circuit, model, shots, seed) expands the model's
-// gate hooks into explicit LEVEL_TRANSITION annotations once, then runs the full
-// per-shot pipeline and returns the user-facing records plus a
-// noncomputational sidecar. For each shot it:
-//   1. samples a structural history (initial statuses + an outcome per
-//      LEVEL_TRANSITION/LOSS annotation target);
-//   2. rewrites the circuit for that history (X-prep, trace-out R, policy,
-//      and the classifier record write for each measurement on a leaked/lost
-//      qubit: MPAD plus a READOUT_NOISE for a stochastic column, so the bit
-//      is drawn at sample time inside the VM and reaches its
-//      detector/observable evaluation, not just postprocessing);
-//   3. for a three-symbol classifier, draws each classified slot's herald
-//      flag and re-points heralded slots' record flip at one half;
-//   4. compiles the result through the ordinary pipeline and samples one shot.
+// sample_noncomputational(circuit, model, shots, seed) validates the
+// circuit, resolves the global seed, and hands the run to the exact-mode
+// driver (exact_driver.h) -- the one sampling path: the annotated circuit
+// compiles once as a shared main line, transition fires resolve at
+// runtime against the live state, and the driver returns the user-facing
+// records plus the noncomputational sidecar (final statuses and herald
+// flags).
 //
-// Randomness is deterministic in `seed`: each shot draws domain-separated
-// sub-seeds for the history sampler, the herald pass, and the SVM, so the
-// three streams never coincide. Stochastic classifier bits are drawn by the
-// SVM's own stream at the injected READOUT_NOISE sites. With no seed, a
-// global seed is drawn from OS entropy and the run is non-reproducible.
+// Randomness is deterministic in `seed`: per-shot driver and SVM streams
+// derive from domain-separated sub-seeds (seed.h). Stochastic classifier
+// bits are drawn by the SVM's own stream at the rewriter's READOUT_NOISE
+// sites. With no seed, a global seed is drawn from OS entropy and the
+// run is non-reproducible.
 
 #include "clifft/circuit/circuit.h"
 #include "clifft/noncomp/model.h"
@@ -63,12 +56,9 @@ struct NonComputationalSample {
 // three-symbol stochastic column (a third symbol heralds the measurement).
 // Reject (substochastic) classifier columns model a heralded abort outcome
 // and are not supported by this entry point yet.
-// `max_rank` caps the compiled peak rank in exact mode
-// compilation: it fails with the first
-// offending circuit line named, before any state is allocated, instead
-// of attempting a 2^k allocation. Unlimited when unset; ignored by the
-// AOT policies, whose per-shot modules never exceed the annotated
-// circuit's own rank.
+// `max_rank` caps the compiled peak rank: compilation fails with the
+// first offending circuit line named, before any state is allocated,
+// instead of attempting a 2^k allocation. Unlimited when unset.
 NonComputationalSample sample_noncomputational(const Circuit& circuit,
                                                const NonComputationalModel& model, uint32_t shots,
                                                std::optional<uint64_t> seed = std::nullopt,

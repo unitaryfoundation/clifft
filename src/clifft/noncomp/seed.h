@@ -1,19 +1,14 @@
 #pragma once
 
-// Per-shot seed derivation shared by the noncomputational sampling
-// paths. One global seed fans out into independent sub-streams, one per
-// (shot, domain) pair; every domain tag lives here so their pairwise
-// distinctness is visible in one place.
+// Per-shot seed derivation for noncomputational sampling. One global
+// seed fans out into independent sub-streams, one per (shot, domain)
+// pair; every domain tag lives here so their pairwise distinctness is
+// visible in one place. (Tags 0x1-0x3 belonged to the retired
+// ahead-of-time pipeline and stay unassigned.)
 
 #include <cstdint>
 
 namespace clifft {
-
-// AOT orchestrator streams: trajectory pre-sampling, classifier draws,
-// and the in-VM measurement randomness of the compiled module.
-inline constexpr uint64_t kHistoryDomain = 0x1;
-inline constexpr uint64_t kClassifierDomain = 0x2;
-inline constexpr uint64_t kSvmDomain = 0x3;
 
 // Exact-driver streams: the driver's own draws between VM runs (initial
 // levels, trap destinations, classical consults, herald flags) and the

@@ -105,8 +105,8 @@ class LevelSet {
 
     // QubitStatus for a level id, dispatched on the level's category:
     // Computational -> ComputationalKnown, Leaked -> Leaked, Lost -> Lost.
-    // Used by the history stepper to turn a sampled transition
-    // destination into the resulting qubit status.
+    // Used by the status walks to turn a transition destination into
+    // the resulting qubit status.
     QubitStatus status_for(uint8_t level_id) const {
         require_in_range(level_id, "status_for");
         switch (levels_[level_id].category) {

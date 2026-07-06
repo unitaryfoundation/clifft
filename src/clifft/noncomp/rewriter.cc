@@ -141,12 +141,10 @@ void append_computational_confusion(Circuit& out, const NonComputationalModel& m
     out.nodes.push_back(AstNode{GateType::READOUT_NOISE, {Target::rec(slot)}, {p01, p10}, 0});
 }
 
-// Shared per-node processing for every non-annotation operation: the
-// policy scan (drop/reject), classifier record writes for measurements on
+// Per-node processing for every non-annotation operation: the policy
+// scan (drop/reject), classifier record writes for measurements on
 // leaked/lost qubits, computational readout confusion for kept Z-basis
-// measurements, status stepping, and the visible-slot cursor. Both the
-// AOT rewrite and the exact-mode continuation rewrite go through this, so
-// the two paths cannot drift.
+// measurements, status stepping, and the visible-slot cursor.
 void process_ordinary_node(const AstNode& node, uint32_t op_index,
                            const NonComputationalModel& model, std::vector<QubitStatus>& status,
                            Circuit& out, uint32_t& slot,
@@ -321,8 +319,8 @@ ContinuationRewrite rewrite_continuation(const Circuit& annotated, const ExactSh
 
                 if (classical_source) {
                     // Classical-source consult: no runtime instrument; the
-                    // host pre-drew the outcome. The annotation node is
-                    // consumed, exactly as in the AOT rewrite.
+                    // driver pre-drew the outcome and the annotation node
+                    // is consumed.
                     if (classical_cursor >= events.classical_outcomes.size()) {
                         throw std::invalid_argument(
                             "rewrite_continuation: circuit consults more classical-source "
