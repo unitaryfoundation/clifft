@@ -27,11 +27,14 @@ restoring a qubit when the policy allows it; per-trajectory concrete
 statuses; per-trajectory initial-state sampling; semantic validation
 that the configured instrument set is pre-sampleable.
 
-**Out:** unknown coherent state-dependent transitions; exact diagonal
-no-jump filters; segmented JIT replan/resume; dynamic control-flow IR
-above HIR; per-qubit classical distributions; full qudit simulation;
-new circuit-level instructions (no `LOSS(p)`, no
-`TRANSITION_INSTRUMENT`, no parser changes); compile cache.
+**Out:** dynamic control-flow IR above HIR; per-qubit classical
+distributions; full qudit simulation. (Several items originally out of
+the MVP have since shipped: unknown coherent state-dependent
+transitions, the exact no-jump filter, trap-and-resume execution, and
+the continuation cache landed via
+[state-dependent-jumps.md](state-dependent-jumps.md), and the
+`LOSS(p)` / `LEVEL_TRANSITION[name]` circuit annotations landed with
+the annotation layer, §5.0.)
 
 **Status of `LOSS(p)` syntax:** deferred. A later PR may add it as
 syntactic sugar over this model. The prior LOSS design notes (`R` vs
@@ -459,32 +462,16 @@ When a transition fires on a target qubit with `QubitStatus s`:
   selected by `policy.unknown_source_policy`:
   - `Reject` (default): reject with an error naming the op index, the
     qubit, and the instrument — pointing the user at the cut between
-    the exact path and the approximation below (and the later
-    diagonal-filter extension, §9).
-  - `EqualizeRates` (opt-in): the equalized-rates approximation. Every
-    computational column is padded with a diagonal pseudo-jump so each
-    sums to the maximum computational jump rate `p_max`; firing is then
-    source-independent and pre-sampleable at rate `p_max`. On fire the
-    source is drawn uniformly over the computational levels and the
-    destination from that padded, renormalized column. A pseudo-jump
-    lands on the source level itself: a transition event whose only
-    effect is the carrier collapse the rewriter materializes (§5.3.1),
-    i.e. pure dephasing. This is the equalize-and-collapse
-    approximation used by fast-path stabilizer leakage simulators
-    (sqale-sim's sampler among them). Its accuracy envelope: an
-    unbiased unknown source is matched exactly in every per-qubit
-    marginal (a genuinely indeterminate stabilizer-state qubit is
-    exactly unbiased, so this covers it); but (a) the destination is
-    drawn independently of the simulator's internal collapse,
-    discarding destination-collapse correlations with entangled
-    partners, and (b) the sampler never queries tableau determinism --
-    status is pre-SVM-known (§5.2.2) -- so a qubit whose state is
-    determined by gate algebra but not by instruction takes this
-    approximate path, and its marginals remain approximate where a
-    tableau-tracking simulator is exact. Closing (a) requires runtime
-    branching (out of scope, §9); (b) could be closed ahead of time by
-    tracking a tableau in the sampler, deferred until measured to
-    matter.
+    what is pre-sampleable and what needs the runtime resolution the
+    `Exact` policy below provides.
+  - `Exact` (opt-in): route the run to the exact-mode driver
+    (design/state-dependent-jumps.md). The circuit compiles once with
+    every annotation kept as a runtime instrument site, fire
+    probabilities are evaluated on the live state, and a fire that
+    cannot resolve in-line traps to the driver, which recompiles the
+    remaining circuit under the now-known status and resumes. Exact
+    for every source context, at a cost exponential in the number of
+    damping-expanded sites (see the `damping` policy there).
 
 This is the "pre-sampleable" boundary, enforced where it actually
 matters (at the unknown-coherent-source point) rather than at model
@@ -520,7 +507,8 @@ attaching transitions to gates with entry-status sources:
   known-source path survives where it physically should.
 - A hook on a basis-mixing gate (`H`, ...) consults a genuine
   superposition: a source-dependent matrix there is an unknown-source
-  consult (reject or equalize per policy). The old entry-status column
+  consult (rejected, or runtime-resolved under the exact policy). The
+  old entry-status column
   choice was an artifact of attachment, not physics.
 - A hook on a measure-and-reset consults the post-reset state. A
   transition acting on the pre-reset level -- readout-induced loss --
@@ -993,12 +981,10 @@ contract:
 ## 9. Out of scope but planned-for
 
 Exact state-dependent jumps — the diagonal no-jump filter and the
-replan/resume machinery listed below — are designed in
-[state-dependent-jumps.md](state-dependent-jumps.md).
+trap-and-resume machinery — **have since shipped**, designed and
+implemented in [state-dependent-jumps.md](state-dependent-jumps.md);
+the `LOSS(p)` annotation shipped with them. Still open:
 
-- `LOSS(p) targets...` Stim instruction as syntactic sugar.
-- Diagonal `aI + bZ` filter for state-dependent no-jump (the natural
-  next exact-mode extension).
 - Joint / correlated multi-qubit `TransitionInstrument` (instead of
   per-qubit marginal): a different type with shape
   `len(levels)^k x len(levels)^k` for `k` operands. Out of scope for

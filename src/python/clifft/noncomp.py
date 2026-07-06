@@ -123,14 +123,7 @@ class Model:
             as an instrument site, fire probabilities are evaluated on the
             live state, and rare fires recompile-and-resume -- exact for
             every source context, at a cost exponential in the number of
-            expanded sites (see ``damping``); ``"equalize_rates"`` opts
-            into an approximation that pads every computational column
-            with a diagonal pseudo-jump up to the maximum computational
-            jump rate, draws the source uniformly, and collapses the
-            carrier on every jump. The approximation matches unbiased
-            unknown-source marginals; deterministic-but-untracked states
-            remain approximate, and destination-collapse correlations are
-            discarded.
+            expanded sites (see ``damping``).
         lost_leaked_ops: how an operation with no representable effect on a
             leaked or lost operand is handled. ``"reject"`` (the default)
             raises; ``"drop"`` opts into excising the whole operation,
