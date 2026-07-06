@@ -571,18 +571,21 @@ NonComputationalSample sample_noncomputational_exact(const Circuit& circuit,
     // The state is reused across shots (growth from trap continuations
     // amortizes to the chain maximum); a starting module that outgrows it
     // -- a rare noncomputational-initial shot -- rebuilds it instead,
-    // since grow_for_continuation is trap-gated by design.
-    auto make_state = [&](const CompiledModule& module) {
-        return SchrodingerState(StateConfig{.peak_rank = module.peak_rank,
-                                            .num_measurements = module.total_meas_slots,
-                                            .num_qubits = module.num_qubits,
-                                            .num_detectors = module.num_detectors,
-                                            .num_observables = module.num_observables,
+    // since grow_for_continuation is trap-gated by design. Rebuilds size
+    // to the running maxima, never to the triggering module: a starting
+    // module can exceed on one axis (say, hidden record slots) while
+    // being smaller on the other, and later shots reuse the state.
+    auto make_state = [&](uint32_t peak_rank, uint32_t total_meas_slots) {
+        return SchrodingerState(StateConfig{.peak_rank = peak_rank,
+                                            .num_measurements = total_meas_slots,
+                                            .num_qubits = main_module->num_qubits,
+                                            .num_detectors = main_module->num_detectors,
+                                            .num_observables = main_module->num_observables,
                                             .seed = 0});
     };
-    SchrodingerState state = make_state(*main_module);
     uint32_t state_rank = main_module->peak_rank;
     uint32_t state_slots = main_module->total_meas_slots;
+    SchrodingerState state = make_state(state_rank, state_slots);
 
     for (uint32_t shot = 0; shot < shots; ++shot) {
         Xoshiro256PlusPlus driver_rng(derive_seed(global_seed, shot, kExactDriverDomain));
@@ -641,7 +644,7 @@ NonComputationalSample sample_noncomputational_exact(const Circuit& circuit,
         if (module->peak_rank > state_rank || module->total_meas_slots > state_slots) {
             state_rank = std::max(state_rank, module->peak_rank);
             state_slots = std::max(state_slots, module->total_meas_slots);
-            state = make_state(*module);
+            state = make_state(state_rank, state_slots);
         }
         state.reseed(derive_seed(global_seed, shot, kExactSvmDomain));
         if (state.meas_record.size() < module->total_meas_slots) {
