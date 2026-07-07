@@ -154,9 +154,8 @@ inline void op_expand_t(cd* __restrict arr, unsigned k) {
 // compact surviving half. Returns sampled bit. Touches 2^k amplitudes.
 // force_bit >= 0 pins the outcome: used (a) by validation so CPU and GPU
 // follow the same trajectory and (b) by the per-op benchmark rows with
-// force_bit=1 so the compact always runs -- matching the GPU row, which
-// always compacts (review fix: the two rows previously measured different
-// work, CPU compacting only ~50% of calls).
+// force_bit=1 so the compact always runs -- the GPU row always compacts, and
+// the two rows must measure identical work.
 inline int op_meas_diag(cd* __restrict arr, unsigned k, Rng& rng, int force_bit = -1) {
     const uint64_t half = uint64_t(1) << (k - 1);
     double p0 = 0.0, p1 = 0.0;

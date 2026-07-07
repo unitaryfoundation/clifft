@@ -30,11 +30,10 @@ dense-statevector GPU literature leaves open for clifft (see
 
 ## Ops benchmarked
 
-`H` (butterfly), `T` (phase waterfall), `CZ`, `CNOT` (permutation), **`U2`,
-`U4`** (fused dense 1q/2q matrices — clifft's `OP_ARRAY_U2`/`OP_ARRAY_U4`, the
-opcodes the optimizer's fusion passes actually emit; added after review found
-the original mix measured an op set clifft's compiler would never leave),
-`EXPAND`, `EXPAND_T` (fused expand+phase), `MEAS_DIAG` (Z-basis:
+`H` (butterfly), `T` (phase waterfall), `CZ`, `CNOT` (permutation), `U2`, `U4`
+(fused dense 1q/2q matrices — clifft's `OP_ARRAY_U2`/`OP_ARRAY_U4`, the opcodes
+the optimizer's fusion passes actually emit, so the mix matches compiled
+programs), `EXPAND`, `EXPAND_T` (fused expand+phase), `MEAS_DIAG` (Z-basis:
 reduce+sample+compact), `MEAS_INTERFERE` (X-basis fold).
 
 Two batched workloads:
@@ -57,9 +56,8 @@ code paths) — the same shape a production batched backend would use.
 
 `Gamp/s` counts **amplitudes actually touched** per op (H: `2^k`, T: `2^k/2`,
 CZ: `2^k/4`, EXPAND/MEAS: `2·2^k`, …; see `amps_touched()` in
-`bench_common.hpp`). Review fix: the original metric divided every op by
-`2^k`, making per-op comparisons partly a normalization artifact. CPU and GPU
-use the same definition, so crossovers are unaffected.
+`bench_common.hpp`), so per-op comparisons are meaningful. CPU and GPU use the
+same definition, so crossovers are unaffected by the normalization.
 
 ## Build & run
 
@@ -86,10 +84,8 @@ cmake --build build -j
 MEAS_INTERFERE, with the GPU reduce sums cross-checked against CPU
 probabilities) and `[validate-batched]` (all `kb_*` kernels plus a completed
 batched measurement round with alternating forced outcomes, so both arms of
-the outcome-predicated collapse are exercised). Both expect `< 1e-9`. Review
-fix: previously only the four plain gate kernels were validated, and no GPU
-measurement was ever completed. Then transfer-bandwidth, single-op, batched,
-and batched-with-measurement sweeps.
+the outcome-predicated collapse are exercised). Both expect `< 1e-9`. Then
+transfer-bandwidth, single-op, batched, and batched-with-measurement sweeps.
 
 ## Output
 
@@ -125,7 +121,7 @@ CSV on stdout, human-readable table on stderr.
 - **Transfer**: H2D/D2H GB/s ≈ PCIe (~25 GB/s) vs NVLink-C2C (hundreds of GB/s)
   tells you how cheap it is to keep clifft's CPU-side branch control in the loop.
 
-## Quoting rules (review)
+## Quoting rules
 
 Do **not** quote `batchedgpu ÷ batched` as "the GPU speedup for clifft" — it is
 a gates-only, sync-free ceiling. Quote `batchedmeasgpu ÷ batchedmeas` (same

@@ -1,18 +1,17 @@
 # Microbenchmark results
 
-## Run 1b — local CPU baseline, upgraded harness (2026-07-07)
+## Run 1 — local CPU baseline (2026-07-07)
 
-Supersedes Run 1 (2026-06-19): the harness now includes the fused `U2`/`U4`
-opcodes, the completed-measurement batched workload (`batchedmeas`), and the
-corrected `Gamp/s` metric (amplitudes actually touched — old per-op numbers
-are not comparable). Raw CSV: `cpu.csv` (`./build/bench_cpu 10 26 12,16,18 4`).
+Harness coverage: the fused `U2`/`U4` opcodes, the completed-measurement
+batched workload (`batchedmeas`), and the amplitudes-actually-touched `Gamp/s`
+metric. Raw CSV: `cpu.csv` (`./build/bench_cpu 10 26 12,16,18 4`).
 
 **Machine:** Apple Silicon (this Mac), 38 GB RAM, **single-threaded** (no libomp
 → `OpenMP: DISABLED`). complex128, `-O3 -march=native` (NEON). Note this is a
 *per-core model baseline*; the installed clifft wheel itself runs 11 threads
 via its own pool.
 
-### Cross-check against real clifft (review, 2026-07-06)
+### Cross-check against real clifft (2026-07-06)
 
 The model was validated against the actual installed clifft on this machine:
 real clifft runs `R_PAULI(θ) Z` rotation sweeps at k=20 (unoptimized compile;

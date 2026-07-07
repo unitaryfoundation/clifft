@@ -261,7 +261,7 @@ __global__ void kb_u4(dc* a, uint64_t d, uint64_t quarter, unsigned lo, unsigned
     s[i3] = cmul(u.m[12], in0) + cmul(u.m[13], in1) + cmul(u.m[14], in2) + cmul(u.m[15], in3);
 }
 
-// --- Batched measurement round (the review's decisive missing piece) --------
+// --- Batched measurement round ----------------------------------------------
 // One BLOCK per shot: reduce that shot's two branch-probability sums.
 __global__ void kb_reduce_diag(const dc* a, uint64_t d, uint64_t half, double* p0, double* p1) {
     extern __shared__ double sh[];
@@ -454,8 +454,7 @@ static double host_sum(const double* p, unsigned n) {
 }
 
 static void validate(unsigned k) {
-    // Extended coverage (review fix: only H/T/CZ/CNOT were validated before):
-    // gate layers incl. U2/U4, EXPAND_T (rank k -> k+1), forced MEAS_DIAG
+    // Coverage: gate layers incl. U2/U4, EXPAND_T (rank k -> k+1), forced MEAS_DIAG
     // (k+1 -> k) and forced MEAS_INTERFERE (k -> k-1), with the GPU reduce
     // sums cross-checked against the CPU probabilities at both measurements.
     uint64_t dim = uint64_t(1) << k;
@@ -787,7 +786,7 @@ static void bench_batched(const std::vector<unsigned>& ks, unsigned layers) {
     }
 }
 
-// The review's decisive missing number: batched throughput with one COMPLETED
+// The decisive go/no-go number: batched throughput with one COMPLETED
 // measurement per layer -- reduce, D2H of per-shot probabilities, host
 // sampling, H2D of outcomes, outcome-selected compact, per-shot expand (rank
 // restored each layer, mirroring clifft's static k trajectory). Timed with

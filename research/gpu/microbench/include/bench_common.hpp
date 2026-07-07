@@ -71,19 +71,18 @@ double median(std::vector<double> xs);
 // ---------------------------------------------------------------------------
 // Op codes for the synthetic workload. U2/U4 are clifft's fused dense 1q/2q
 // matrix opcodes (OP_ARRAY_U2 / OP_ARRAY_U4) -- the hot path the optimizer's
-// tile/single-axis fusion passes actually emit, with ~4-8x the arithmetic
-// intensity of H/T at the same memory traffic (review finding: without them
-// the benchmark measures an op mix clifft's compiler would never leave).
+// tile/single-axis fusion passes emit, with ~4-8x the arithmetic intensity of
+// H/T at the same memory traffic; without them the op mix would not match
+// what clifft's compiler actually leaves in a program.
 // ---------------------------------------------------------------------------
 enum class Op { H, T, CZ, CNOT, U2, U4, EXPAND, EXPAND_T, MEAS_DIAG, MEAS_INTERFERE };
 
 const char* op_name(Op op);
 
 // Amplitudes actually touched by one application of `op` on a rank-k block of
-// dimension dim = 2^k. (Review fix: the old metric divided every op by dim,
-// so per-op Gamp/s comparisons were partly a normalization artifact -- e.g.
-// CZ touches dim/4, EXPAND reads dim and writes dim.) CPU/GPU halves must
-// both use this so cross-op AND cross-device comparisons are meaningful.
+// dimension dim = 2^k (e.g. CZ touches dim/4, EXPAND reads dim and writes
+// dim). CPU/GPU halves must both use this so cross-op AND cross-device
+// Gamp/s comparisons are meaningful.
 inline uint64_t amps_touched(Op op, uint64_t dim) {
     switch (op) {
         case Op::H: return dim;                 // butterfly rw on all
@@ -127,10 +126,10 @@ struct ScheduledOp {
 };
 std::vector<ScheduledOp> make_layer_schedule(unsigned k, unsigned layers);
 
-// The "real shot shape" schedule (review fix: the gates-only batched workload
-// is an idealized upper bound -- real clifft shots interleave measurements,
-// whose reduce -> host-sample -> per-shot-conditional collapse is the
-// dominant unknown at k < 20). One layer = the gate layer above + one
+// The "real shot shape" schedule: the gates-only batched workload is an
+// idealized upper bound -- real clifft shots interleave measurements, whose
+// reduce -> host-sample -> per-shot-conditional collapse is the dominant
+// unknown at k < 20. One layer = the gate layer above + one
 // completed MEAS_DIAG (rank k -> k-1) + one EXPAND (k-1 -> k), so the rank --
 // and therefore the batch shape -- is identical every layer (this mirrors
 // clifft's static, shot-invariant k trajectory).
