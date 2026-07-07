@@ -231,6 +231,16 @@ def test_four_symbol_classifier_rejects_at_construction():
         leak_model(noncomp.Classifier(["0", "1", "2", "3"], mat))
 
 
+def test_duplicate_classifier_symbols_reject_in_python():
+    mat = _zeros(2, 5)
+    for lvl in range(5):
+        mat[0][lvl] = 1.0
+    mat[0][noncomp.Level.E] = 0.0
+    mat[1][noncomp.Level.E] = 1.0
+    with pytest.raises(ValueError, match="duplicate symbol"):
+        noncomp.Classifier(["0", "0"], mat)
+
+
 def _ternary_classifier(level: int, col: list[float]) -> noncomp.Classifier:
     """Three-symbol classifier; `level`'s column is `col`, others read symbol 0."""
     m = _zeros(3, 5)

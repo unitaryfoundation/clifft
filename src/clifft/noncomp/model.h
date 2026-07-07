@@ -24,6 +24,7 @@
 #include "clifft/noncomp/policy.h"
 #include "clifft/noncomp/transition_instrument.h"
 
+#include <cstddef>
 #include <map>
 #include <optional>
 #include <string>
@@ -32,11 +33,13 @@
 
 namespace clifft {
 
-// Raw classifier spec: the symbol labels and the stochastic matrix
-// P[symbol][level]. Bundled so the model builder takes an optional
-// classifier without a separate presence flag.
+// Raw classifier spec: symbol count and the stochastic matrix
+// P[symbol][level]. Symbol labels belong to the Python-facing API; C++
+// only needs the positional record/herald convention. Bundled so the
+// model builder takes an optional classifier without a separate presence
+// flag.
 struct ClassifierSpec {
-    std::vector<std::string> symbols;
+    size_t num_symbols;
     std::vector<std::vector<double>> matrix;
 };
 
@@ -61,8 +64,6 @@ class NonComputationalModel {
     double initial_probability(Level level) const {
         return initial_state_[static_cast<size_t>(level)];
     }
-    const std::vector<double>& initial_state() const { return initial_state_; }
-
     // Every declared transition by its original key. A key that names a
     // hookable gate additionally registers a gate hook (see
     // transition_hooks); any key can be referenced from a circuit by a
@@ -75,9 +76,6 @@ class NonComputationalModel {
     // each hooked gate to its key. The annotation layer expands these
     // into explicit LEVEL_TRANSITION annotations after each hooked operation.
     const std::map<GateType, std::string>& transition_hooks() const { return hooks_; }
-
-    // Transition instrument hooked on a gate, or nullptr if none.
-    const TransitionInstrument* transition_for(GateType gate) const;
 
     // Transition instrument by exact key, or nullptr if none. This is the
     // lookup a LEVEL_TRANSITION[name] annotation resolves through.

@@ -36,7 +36,7 @@ NonComputationalModel demo_model() {
     leak[1][kLeak] = 0.2;  // seepage: leaked -> e
 
     ClassifierSpec classifier;
-    classifier.symbols = {"0", "1"};
+    classifier.num_symbols = 2;
     classifier.matrix = {{1.0, 0.0, 1.0, 0.0, 1.0}, {0.0, 1.0, 0.0, 1.0, 0.0}};
 
     return NonComputationalModel::from_spec({1.0, 0.0, 0.0, 0.0, 0.0}, {{"leak", leak}}, classifier,

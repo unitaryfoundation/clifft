@@ -87,7 +87,7 @@ ClassifierSpec lost_classifier(std::vector<double> col) {
     m[1][1] = 1.0;
     m[0][kLost] = col[0];
     m[1][kLost] = col[1];
-    return ClassifierSpec{{"0", "1"}, std::move(m)};
+    return ClassifierSpec{2, std::move(m)};
 }
 
 NonComputationalModel make_model(

@@ -81,7 +81,7 @@ ClassifierSpec classifier_with(uint8_t level, std::vector<double> col) {
     m[1][1] = 1.0;
     m[0][level] = col[0];
     m[1][level] = col[1];
-    return ClassifierSpec{{"0", "1"}, std::move(m)};
+    return ClassifierSpec{2, std::move(m)};
 }
 
 // The common case: classify the leak_g column.
@@ -203,9 +203,9 @@ TEST_CASE("sample_noncomputational: a four-symbol classifier rejects at construc
     m[3][kLeakG] = 0.1;
     std::map<std::string, std::vector<std::vector<double>>> transitions;
     transitions.emplace("S", always_leaked());
-    REQUIRE_THROWS_WITH(make_model(all_g(), std::move(transitions),
-                                   ClassifierSpec{{"0", "1", "2", "3"}, std::move(m)}),
-                        ContainsSubstring("two record symbols") && ContainsSubstring("got 4"));
+    REQUIRE_THROWS_WITH(
+        make_model(all_g(), std::move(transitions), ClassifierSpec{4, std::move(m)}),
+        ContainsSubstring("two record symbols") && ContainsSubstring("got 4"));
 }
 
 namespace {
@@ -224,7 +224,7 @@ ClassifierSpec ternary_classifier_with(uint8_t level, std::vector<double> col) {
     m[0][level] = col[0];
     m[1][level] = col[1];
     m[2][level] = col[2];
-    return ClassifierSpec{{"0", "1", "2"}, std::move(m)};
+    return ClassifierSpec{3, std::move(m)};
 }
 
 }  // namespace
@@ -530,7 +530,7 @@ ClassifierSpec comp_confusion(double p01, double p10) {
     m[1][0] = p01;
     m[0][1] = p10;
     m[1][1] = 1.0 - p10;
-    return ClassifierSpec{{"0", "1"}, std::move(m)};
+    return ClassifierSpec{2, std::move(m)};
 }
 
 }  // namespace
@@ -581,7 +581,7 @@ TEST_CASE("sample_noncomputational: hand-written LOSS and LEVEL_TRANSITION run e
     m[0][kLost] = 1.0;   // lost reads 0
     m[0][3] = 1.0;
     NonComputationalModel model =
-        make_model(all_g(), std::move(transitions), ClassifierSpec{{"0", "1"}, std::move(m)});
+        make_model(all_g(), std::move(transitions), ClassifierSpec{2, std::move(m)});
 
     NonComputationalSample s = sample_noncomputational(c, model, 64, 5);
     for (uint32_t shot = 0; shot < s.shots; ++shot) {

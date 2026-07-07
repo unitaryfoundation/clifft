@@ -23,7 +23,6 @@
 #include <array>
 #include <cstdint>
 #include <stdexcept>
-#include <string>
 
 namespace clifft {
 
@@ -77,16 +76,6 @@ constexpr const char* level_name(Level level) {
             return "lost";
     }
     return "?";
-}
-
-// Validated conversion from a raw index (user matrices, event records).
-inline Level level_from_index(uint8_t index, const char* caller) {
-    if (index >= kNumLevels) {
-        throw std::invalid_argument(std::string(caller) + ": level id " + std::to_string(index) +
-                                    " out of range (num_levels " + std::to_string(kNumLevels) +
-                                    ")");
-    }
-    return static_cast<Level>(index);
 }
 
 // Per-qubit ledger status: computational, or the definite

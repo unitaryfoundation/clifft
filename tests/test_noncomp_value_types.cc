@@ -2,21 +2,16 @@
 #include "clifft/noncomp/policy.h"
 
 #include <catch2/catch_test_macros.hpp>
-#include <catch2/matchers/catch_matchers.hpp>
-#include <catch2/matchers/catch_matchers_string.hpp>
 #include <stdexcept>
 #include <string>
 
-using Catch::Matchers::ContainsSubstring;
 using clifft::category;
 using clifft::DampingPolicy;
 using clifft::is_computational;
 using clifft::is_leaked;
 using clifft::is_lost;
-using clifft::kAllLevels;
 using clifft::kNumLevels;
 using clifft::Level;
-using clifft::level_from_index;
 using clifft::level_name;
 using clifft::LevelCategory;
 using clifft::noncomp_level;
@@ -38,14 +33,6 @@ TEST_CASE("Level: the five levels carry the expected categories and names") {
     REQUIRE(std::string(level_name(Level::G)) == "g");
     REQUIRE(std::string(level_name(Level::LeakE)) == "leak_e");
     REQUIRE(std::string(level_name(Level::Lost)) == "lost");
-}
-
-TEST_CASE("Level: level_from_index validates the raw index") {
-    for (uint8_t i = 0; i < kNumLevels; ++i) {
-        REQUIRE(level_from_index(i, "test") == kAllLevels[i]);
-    }
-    REQUIRE_THROWS_WITH(level_from_index(5, "test"), ContainsSubstring("out of range"));
-    REQUIRE_THROWS_WITH(level_from_index(255, "test"), ContainsSubstring("out of range"));
 }
 
 // =========================================================================

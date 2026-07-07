@@ -97,6 +97,9 @@ class Classifier:
 
     def __init__(self, symbols: Sequence[str], matrix: Matrix) -> None:
         self.symbols = [str(s) for s in symbols]
+        if len(self.symbols) != len(set(self.symbols)):
+            duplicates = sorted({s for s in self.symbols if self.symbols.count(s) > 1})
+            raise ValueError(f"noncomp classifier: duplicate symbol label(s): {duplicates}")
         self.matrix = _as_matrix(matrix)
 
 
@@ -154,12 +157,12 @@ class Model:
         transition_matrices = {
             str(gate): _as_matrix(matrix) for gate, matrix in (transitions or {}).items()
         }
-        symbols = None if classifier is None else classifier.symbols
+        num_symbols = None if classifier is None else len(classifier.symbols)
         matrix = None if classifier is None else classifier.matrix
         self._handle = _clifft_core._build_noncomp_model(
             [float(p) for p in initial_state],
             transition_matrices,
-            symbols,
+            num_symbols,
             matrix,
             bool(reset_restores_lost),
             str(damping),

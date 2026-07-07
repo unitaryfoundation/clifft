@@ -138,17 +138,12 @@ NonComputationalModel NonComputationalModel::from_spec(
 
     std::optional<MeasurementClassifier> classifier;
     if (classifier_spec.has_value()) {
-        classifier = MeasurementClassifier::from_matrix(std::move(classifier_spec->symbols),
+        classifier = MeasurementClassifier::from_matrix(classifier_spec->num_symbols,
                                                         classifier_spec->matrix);
     }
 
     return NonComputationalModel(std::move(initial_state), std::move(transitions),
                                  std::move(classifier), policy);
-}
-
-const TransitionInstrument* NonComputationalModel::transition_for(GateType gate) const {
-    const auto it = hooks_.find(gate);
-    return it == hooks_.end() ? nullptr : transition_named(it->second);
 }
 
 const TransitionInstrument* NonComputationalModel::transition_named(std::string_view name) const {

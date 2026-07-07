@@ -82,7 +82,6 @@ NonComputationalModel make_model(
 // default to a deterministic symbol 0.
 ClassifierSpec classifier_with(uint8_t level, std::vector<double> col) {
     std::vector<std::vector<double>> m(col.size(), std::vector<double>(5, 0.0));
-    std::vector<std::string> symbols;
     for (size_t l = 0; l < 5; ++l) {
         m[0][l] = 1.0;
     }
@@ -90,9 +89,8 @@ ClassifierSpec classifier_with(uint8_t level, std::vector<double> col) {
     m[1][1] = 1.0;
     for (size_t s = 0; s < col.size(); ++s) {
         m[s][level] = col[s];
-        symbols.push_back(std::to_string(s));
     }
-    return ClassifierSpec{std::move(symbols), std::move(m)};
+    return ClassifierSpec{col.size(), std::move(m)};
 }
 
 NonComputationalModel make_model_with_classifier(
@@ -107,7 +105,7 @@ std::vector<QubitStatus> initials(const std::vector<uint8_t>& levels) {
     std::vector<QubitStatus> out;
     out.reserve(levels.size());
     for (uint8_t l : levels) {
-        out.push_back(clifft::status_for(clifft::level_from_index(l, "initials")));
+        out.push_back(clifft::status_for(clifft::kAllLevels[l]));
     }
     return out;
 }
@@ -446,7 +444,7 @@ ClassifierSpec confused_classifier(double p01, double p10) {
     m[1][0] = p01;
     m[0][1] = p10;
     m[1][1] = 1.0 - p10;
-    return ClassifierSpec{{"0", "1"}, std::move(m)};
+    return ClassifierSpec{2, std::move(m)};
 }
 
 }  // namespace
@@ -513,7 +511,7 @@ TEST_CASE("rewrite: a substochastic computational column rejects") {
     m[0][1] = 0.0;
     m[1][1] = 1.0;
     REQUIRE_THROWS_WITH(
-        make_model_with_classifier({}, ClassifierSpec{{"0", "1"}, std::move(m)}),
+        make_model_with_classifier({}, ClassifierSpec{2, std::move(m)}),
         ContainsSubstring("reject columns are not supported") && ContainsSubstring("'g'"));
 }
 
@@ -526,9 +524,8 @@ TEST_CASE("rewrite: a computational column with herald mass rejects") {
     m[2][0] = 0.1;
     m[0][1] = 0.0;
     m[1][1] = 1.0;
-    REQUIRE_THROWS_WITH(
-        make_model_with_classifier({}, ClassifierSpec{{"0", "1", "2"}, std::move(m)}),
-        ContainsSubstring("record symbols 0 and 1") && ContainsSubstring("'g'"));
+    REQUIRE_THROWS_WITH(make_model_with_classifier({}, ClassifierSpec{3, std::move(m)}),
+                        ContainsSubstring("record symbols 0 and 1") && ContainsSubstring("'g'"));
 }
 
 // =========================================================================
