@@ -15,6 +15,8 @@
 \usepackage{amsmath,amssymb}
 \usepackage{graphicx}
 \usepackage{booktabs}
+\usepackage{tikz}
+\usetikzlibrary{positioning}
 \usepackage{xcolor}
 \usepackage[colorlinks=true,linkcolor=blue,urlcolor=blue,citecolor=blue]{hyperref}
 
@@ -495,6 +497,71 @@ composition is flat; crossover at $D^*\!\approx\!1.2w$.}
 \label{fig:extadapt}
 \end{figure}
 
+\section{The conceptual frame: one compiler, two executors}\label{sec:arch}
+The results above assemble into a single architecture, and it is worth
+stating plainly, because it also settles what this backend \emph{is} relative
+to \texttt{clifft}.
+
+\paragraph{What comes from where.} The backend borrows \texttt{clifft}'s two
+architectural ideas --- the global symbolic Clifford frame (absorb Cliffords
+in $O(n)$, keep the non-Clifford core small) and measurement-driven collapse
+of that core --- and re-instantiates them over a different core: BGH's
+low-rank CH-form sum instead of a dense $2^k$ array. The simulation
+mathematics (CH-form, minimal-extent decomposition, sparsification, norm
+estimation, gadgetization) is BGH/Bravyi--Gosset throughout; none of
+\texttt{clifft}'s runtime is used. \texttt{clifft} appears in three
+supporting roles: validation oracle (every component is checked against it
+to machine precision), the honest benchmark opponent, and --- the role that
+matters going forward --- the \emph{compiler front-end}.
+
+\paragraph{Compile once, dispatch per program.} Both executors' cost
+exponents are known from the compiled artifact before anything runs:
+\texttt{clifft}'s dense engine pays $2^{\mathrm{peak\_rank}}$ (the
+$k$-schedule is compile-time static), and the CH-form backend pays
+$\sim 2^{0.228\,t}/\delta^2$ (the live $T$-count survives the same
+compilation). Dispatch is a one-line comparison:
+
+\begin{center}
+\begin{tikzpicture}[
+  box/.style={draw, rounded corners=1pt, inner sep=6pt, font=\small},
+  sub/.style={font=\scriptsize, color=black!60},
+  lbl/.style={font=\scriptsize\itshape}]
+  \node[box] (circ) at (0,0) {circuit};
+  \node[box] (comp) at (3.0,0) {\texttt{clifft} compiler};
+  \node[box] (meta) at (6.6,0) {compiled program};
+  \node[sub] at (6.6,-0.55) {$\mathrm{peak\_rank}$, $t$};
+  \node[box] (dense) at (12.0,1.35) {dense engine};
+  \node[sub] at (12.0,0.80) {exact, $2^{\mathrm{peak\_rank}}$};
+  \node[box] (chf) at (12.0,-1.35) {CH-form backend};
+  \node[sub] at (12.0,-1.90) {$\delta$-approx., $2^{0.228 t}/\delta^2$};
+  \draw[->] (circ) -- (comp);
+  \draw[->] (comp) -- (meta);
+  \draw[->] (meta.east) to[out=25,in=180] (dense.west);
+  \draw[->] (meta.east) to[out=-25,in=180] (chf.west);
+  \node[lbl] at (9.35,0.95) {$0.228\,t \ge \mathrm{peak\_rank}$};
+  \node[lbl] at (9.35,-0.95) {$0.228\,t < \mathrm{peak\_rank}$ (opt-in $\delta$)};
+\end{tikzpicture}
+\end{center}
+
+Three design consequences. \emph{(i) Both executors want the same compiled
+stream.} Every compiler improvement ($T$-count reduction, fusion, measurement
+reordering) lowers both engines' costs; the benchmarks in this note fed the
+backend \emph{raw} circuits, so its numbers are conservative. \emph{(ii) The
+dispatcher must respect the exactness contract.} The backend is a different
+guarantee ($\delta$-approximate, additive/typical --- \S\ref{sec:guarantee}),
+so it is an opt-in path (an explicit $\delta$), never a silent substitute:
+when the user demands exactness past the memory wall, the honest answer is
+``infeasible''. \emph{(iii) A finer-grained dispatch exists in principle.}
+Compiled programs have episode structure ($k$ rising and collapsing); a
+future dispatcher could choose per-episode --- dense for magic-saturated
+stretches, low-rank for magic-sparse ones. The per-program rule is the one
+measured and ready today.
+
+In one sentence: \texttt{clifft}'s architecture is the blueprint, BGH's
+mathematics is the material, and \texttt{clifft} itself is the compiler
+front-end that decides --- per program, before execution --- whether the
+dense exact engine or the low-rank approximate backend runs.
+
 \section{Limitations}
 \begin{itemize}
 \item \textbf{Approximate}, with the guarantee of \S\ref{sec:guarantee}
@@ -559,7 +626,9 @@ the winning side (Table~\ref{tab:natural}): cultivation-style patches with
 logical Clifford traffic win $4$--$16\times$, teleported-$T$ gadgets
 $\sim\!2\times$, and only bare syndrome extraction sits at the boundary. The
 composition is a real, now-quantified advantage precisely for the
-fault-tolerance-shaped circuits it was designed for.
+fault-tolerance-shaped circuits it was designed for. Architecturally, the
+pieces assemble into one compiler with two executors chosen at compile time
+(\S\ref{sec:arch}).
 
 \begin{thebibliography}{9}
 \bibitem{bravyi2019} S.~Bravyi, D.~Browne, P.~Calpin, E.~Campbell, D.~Gosset,
