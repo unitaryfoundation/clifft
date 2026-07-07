@@ -40,7 +40,6 @@ def _model(initial: list, transitions: dict, damping: str = "exact") -> noncomp.
         initial_state=initial,
         transitions=transitions,
         classifier=noncomp.Classifier(["0", "1"], _classifier_matrix()),
-        lost_leaked_ops="drop",
         damping=damping,
     )
 

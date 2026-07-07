@@ -213,49 +213,9 @@ TEST_CASE("rewrite: an inserted R does not shift visible measurements or detecto
 // Policy scan: keep / drop / reject
 // =========================================================================
 
-TEST_CASE("rewrite: a two-qubit gate on a lost qubit rejects by default") {
-    Circuit c = parse("CZ 0 1\n");
-    NonComputationalModel model = make_model({});
-    REQUIRE_THROWS_WITH(rewritten(c, model, {kLost, kG}), ContainsSubstring("CZ") &&
-                                                              ContainsSubstring("Lost") &&
-                                                              ContainsSubstring("qubit 0"));
-}
-
-TEST_CASE("rewrite: a single-qubit gate on a leaked qubit rejects by default") {
-    Circuit c = parse("X 0\n");
-    NonComputationalModel model = make_model({});
-    REQUIRE_THROWS_WITH(rewritten(c, model, {kLeakG}),
-                        ContainsSubstring("Leaked") && ContainsSubstring("qubit 0"));
-}
-
-TEST_CASE("rewrite: drop policy drops a single-qubit gate on a lost qubit") {
-    Circuit c = parse("X 0\n");
-    NonComputationalPolicy policy;
-    policy.lost_leaked_ops = clifft::LostLeakedOpsPolicy::Drop;
-    NonComputationalModel model = make_model({}, policy);
-    ContinuationRewrite rw = rewritten(c, model, {kLost});
-    REQUIRE(count_gate(rw.circuit, GateType::X) == 0);
-}
-
-TEST_CASE("rewrite: a lost-qubit reset rejects by default and restores under policy") {
-    Circuit c = parse("R 0\n");
-    NonComputationalModel reject = make_model({});
-    REQUIRE_THROWS_WITH(rewritten(c, reject, {kLost}),
-                        ContainsSubstring("Lost") && ContainsSubstring("qubit 0"));
-
-    NonComputationalPolicy restore;
-    restore.reset_restores_lost = true;
-    NonComputationalModel reload = make_model({}, restore);
-    ContinuationRewrite rw = rewritten(c, reload, {kLost});
-    REQUIRE(count_gate(rw.circuit, GateType::R) == 1);
-    REQUIRE(rw.final_status[0].kind() == clifft::QubitStatusKind::ComputationalKnown);
-}
-
-TEST_CASE("rewrite: drop policy excises a two-qubit gate on a lost operand whole") {
+TEST_CASE("rewrite: a two-qubit gate on a lost operand drops whole") {
     Circuit c = parse("CZ 0 1\nM 1\n");
-    NonComputationalPolicy policy;
-    policy.lost_leaked_ops = clifft::LostLeakedOpsPolicy::Drop;
-    NonComputationalModel model = make_model({}, policy);
+    NonComputationalModel model = make_model({});
     ContinuationRewrite rw = rewritten(c, model, {kLost, kG});
     REQUIRE(count_gate(rw.circuit, GateType::CZ) == 0);  // identity on the survivor
     REQUIRE(count_gate(rw.circuit, GateType::M) == 1);   // record slot preserved
@@ -265,40 +225,64 @@ TEST_CASE("rewrite: a dropped gate leaves the surviving operand's status untouch
     // The CZ drops whole (lost operand), so qubit 1 keeps its
     // instruction-known g status through to the end of the walk.
     Circuit c = parse("CZ 0 1\n");
-    NonComputationalPolicy policy;
-    policy.lost_leaked_ops = clifft::LostLeakedOpsPolicy::Drop;
-    NonComputationalModel model = make_model({}, policy);
+    NonComputationalModel model = make_model({});
     ContinuationRewrite rw = rewritten(c, model, {kLost, kG});
     REQUIRE(rw.final_status[1].kind() == clifft::QubitStatusKind::ComputationalKnown);
     REQUIRE(rw.final_status[1].level_id() == kG);
 }
 
-TEST_CASE("rewrite: drop policy drops classical feedback onto a lost qubit") {
+TEST_CASE("rewrite: a single-qubit gate on a leaked qubit drops") {
+    Circuit c = parse("X 0\n");
+    NonComputationalModel model = make_model({});
+    ContinuationRewrite rw = rewritten(c, model, {kLeakG});
+    REQUIRE(count_gate(rw.circuit, GateType::X) == 0);
+}
+
+TEST_CASE("rewrite: a single-qubit gate on a lost qubit drops") {
+    Circuit c = parse("X 0\n");
+    NonComputationalModel model = make_model({});
+    ContinuationRewrite rw = rewritten(c, model, {kLost});
+    REQUIRE(count_gate(rw.circuit, GateType::X) == 0);
+}
+
+TEST_CASE("rewrite: classical feedback onto a lost qubit drops") {
     Circuit c = parse("H 1\nM 1\nCX rec[-1] 0\n");
-    NonComputationalPolicy policy;
-    policy.lost_leaked_ops = clifft::LostLeakedOpsPolicy::Drop;
-    NonComputationalModel model = make_model({}, policy);
+    NonComputationalModel model = make_model({});
     ContinuationRewrite rw = rewritten(c, model, {kLost, kG});
     REQUIRE(count_gate(rw.circuit, GateType::CX) == 0);
 }
 
-TEST_CASE("rewrite: drop policy drops a two-qubit noise channel on a lost operand") {
+TEST_CASE("rewrite: a two-qubit noise channel on a lost operand drops") {
     Circuit c = parse("DEPOLARIZE2(0.1) 0 1\n");
-    NonComputationalPolicy policy;
-    policy.lost_leaked_ops = clifft::LostLeakedOpsPolicy::Drop;
-    NonComputationalModel model = make_model({}, policy);
+    NonComputationalModel model = make_model({});
     ContinuationRewrite rw = rewritten(c, model, {kLost, kG});
     REQUIRE(count_gate(rw.circuit, GateType::DEPOLARIZE2) == 0);
 }
 
-TEST_CASE("rewrite: drop policy drops a non-restoring lost reset") {
+TEST_CASE("rewrite: a non-restoring lost reset drops; reset_restores_lost keeps it") {
     Circuit c = parse("R 0\n");
-    NonComputationalPolicy policy;
-    policy.lost_leaked_ops = clifft::LostLeakedOpsPolicy::Drop;
-    NonComputationalModel model = make_model({}, policy);
-    ContinuationRewrite rw = rewritten(c, model, {kLost});
-    REQUIRE(count_gate(rw.circuit, GateType::R) == 0);
-    REQUIRE(rw.final_status[0].kind() == clifft::QubitStatusKind::Lost);  // not restored
+
+    NonComputationalModel dropped = make_model({});
+    ContinuationRewrite rw_drop = rewritten(c, dropped, {kLost});
+    REQUIRE(count_gate(rw_drop.circuit, GateType::R) == 0);
+    REQUIRE(rw_drop.final_status[0].kind() == clifft::QubitStatusKind::Lost);  // not restored
+
+    NonComputationalPolicy restore;
+    restore.reset_restores_lost = true;
+    NonComputationalModel reload = make_model({}, restore);
+    ContinuationRewrite rw_keep = rewritten(c, reload, {kLost});
+    REQUIRE(count_gate(rw_keep.circuit, GateType::R) == 1);
+    REQUIRE(rw_keep.final_status[0].kind() == clifft::QubitStatusKind::ComputationalKnown);
+}
+
+TEST_CASE("rewrite: an X/Y-basis measurement of a noncomputational qubit rejects") {
+    // No faithful single-bit form on a leaked/lost operand: a
+    // representability limit, not a policy choice, so it rejects even though
+    // drop is the only op policy.
+    Circuit c = parse("MX 0\n");
+    NonComputationalModel model = make_model({});
+    REQUIRE_THROWS_WITH(rewritten(c, model, {kLeakG}),
+                        ContainsSubstring("MX") && ContainsSubstring("representable"));
 }
 
 // =========================================================================
@@ -401,12 +385,11 @@ TEST_CASE("rewrite: an X/Y-basis or multi-qubit measurement on a lost qubit reje
                         ContainsSubstring("MPP") && ContainsSubstring("Lost"));
 }
 
-TEST_CASE("rewrite: a measure-and-reset on a lost qubit rejects by default, kept under policy") {
+TEST_CASE("rewrite: reset_restores_lost restores a measure-and-reset's lost qubit") {
+    // MR on a lost qubit is kept: the classifier supplies the record bit and
+    // the reset runs. With reset_restores_lost the reset returns the qubit to
+    // a computational state.
     Circuit c = parse("MR 0\n");
-    NonComputationalModel reject = make_model({});
-    REQUIRE_THROWS_WITH(rewritten(c, reject, {kLost}),
-                        ContainsSubstring("MR") && ContainsSubstring("Lost"));
-
     NonComputationalPolicy restore;
     restore.reset_restores_lost = true;
     NonComputationalModel reload =
@@ -417,6 +400,7 @@ TEST_CASE("rewrite: a measure-and-reset on a lost qubit rejects by default, kept
     REQUIRE(count_gate(rw.circuit, GateType::MPAD) == 1);
     REQUIRE(count_gate(rw.circuit, GateType::R) == 1);
     REQUIRE(rw.circuit.num_measurements == 1);  // visible record preserved
+    REQUIRE(rw.final_status[0].kind() == clifft::QubitStatusKind::ComputationalKnown);
 }
 
 TEST_CASE("rewrite: a measure-and-reset on a leaked qubit records and resets") {
@@ -432,12 +416,10 @@ TEST_CASE("rewrite: a measure-and-reset on a leaked qubit records and resets") {
     REQUIRE(rw.final_status[0].kind() == clifft::QubitStatusKind::ComputationalKnown);
 }
 
-TEST_CASE("rewrite: drop policy keeps a measure-and-reset on a non-restoring lost qubit") {
+TEST_CASE("rewrite: a measure-and-reset on a non-restoring lost qubit is kept") {
     Circuit c = parse("MR 0\n");
-    NonComputationalPolicy policy;
-    policy.lost_leaked_ops = clifft::LostLeakedOpsPolicy::Drop;
     NonComputationalModel model =
-        make_model_with_classifier({}, classifier_with(kLost, {1.0, 0.0}), policy);
+        make_model_with_classifier({}, classifier_with(kLost, {1.0, 0.0}));
 
     ContinuationRewrite rw = rewritten(c, model, {kLost});
     REQUIRE(count_gate(rw.circuit, GateType::MR) == 0);

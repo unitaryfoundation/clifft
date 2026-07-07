@@ -153,10 +153,12 @@ def test_known_source_dependent_transition_accepted():
 
 
 def test_reset_reload_policy_changes_lost_site():
+    # A reset on a lost qubit drops by default (the site stays lost); with
+    # reset_restores_lost it reloads the qubit to a computational state.
     circuit = "H 0\nS 0\nR 0\n"
-    reject = noncomp.Model(initial_state=ALL_G, transitions={"S": transition_to(LOST)})
-    with pytest.raises(ValueError, match="not representable"):
-        noncomp.sample(circuit, reject, shots=8, seed=7)
+    dropped = noncomp.Model(initial_state=ALL_G, transitions={"S": transition_to(LOST)})
+    r = noncomp.sample(circuit, dropped, shots=8, seed=7)
+    assert (r.final_status == LOST_KIND).all()  # reset dropped; the site stays lost
 
     restore = noncomp.Model(
         initial_state=ALL_G, transitions={"S": transition_to(LOST)}, reset_restores_lost=True
@@ -321,39 +323,83 @@ def test_deterministic_in_seed():
     assert np.array_equal(a.final_status, b.final_status)
 
 
+def test_different_seeds_differ():
+    # The companion to the determinism pin: a different seed must actually
+    # change the draws, so a fixed-sequence regression cannot masquerade as
+    # "deterministic". 128 coin-flip measurements collide with probability
+    # 2**-128.
+    model = leak_model(classifier_for(LEAK_G, [0.5, 0.5]))
+    circuit = "H 0\nS 0\nM 0\nDETECTOR rec[-1]\n"
+    a = noncomp.sample(circuit, model, shots=128, seed=42)
+    b = noncomp.sample(circuit, model, shots=128, seed=43)
+    assert not np.array_equal(a.measurements, b.measurements)
+
+
 # --- 8. Policy knobs --------------------------------------------------------
 
 
 def test_policy_knob_strings_validate():
-    noncomp.Model(initial_state=ALL_G, lost_leaked_ops="drop", damping="neglect")
-    with pytest.raises(ValueError, match="lost_leaked_ops"):
-        noncomp.Model(initial_state=ALL_G, lost_leaked_ops="bogus")
+    noncomp.Model(initial_state=ALL_G, damping="neglect")
     with pytest.raises(ValueError, match="damping"):
         noncomp.Model(initial_state=ALL_G, damping="bogus")
 
 
-def test_drop_policy_runs_a_multi_round_circuit_through_loss():
-    """A lost data qubit drops its syndrome CXs (identity on the ancilla)."""
+def test_max_rank_rejects_over_budget_exact_but_neglect_fits():
+    # A source-dependent leak (only out of e) on a coherent dormant qubit is
+    # genuinely non-Clifford: damping="exact" expands it into the amplitude
+    # array, adding one to the compiled rank per site. Three H-prefixed sites
+    # push the peak to 3, over a cap of 2, so exact rejects (naming the
+    # offending line); damping="neglect" keeps the rank flat and fits.
+    leak_from_e = _zeros(5, 5)
+    leak_from_e[LEAK_E][noncomp.Level.E] = 0.2  # T[to][from]; nothing out of g
+    circuit = (
+        "H 0\nH 1\nH 2\n"
+        "LEVEL_TRANSITION[leak] 0\nLEVEL_TRANSITION[leak] 1\nLEVEL_TRANSITION[leak] 2\n"
+        "M 0\nM 1\nM 2\n"
+    )
+
+    def model(damping: str) -> noncomp.Model:
+        return noncomp.Model(
+            initial_state=ALL_G,
+            transitions={"leak": leak_from_e},
+            classifier=classifier_for(LEAK_E, [0.0, 1.0]),
+            damping=damping,
+        )
+
+    with pytest.raises(ValueError, match="max_rank"):
+        noncomp.sample(circuit, model("exact"), shots=4, seed=1, max_rank=2)
+
+    r = noncomp.sample(circuit, model("neglect"), shots=4, seed=1, max_rank=2)
+    assert r.num_measurements == 3
+
+
+def test_a_multi_round_circuit_runs_through_loss():
+    """A lost data qubit drops its syndrome CXs (identity on the ancilla).
+
+    Dropping an operation with no representable effect on a vacated site is
+    the only op policy -- there is no reject mode to opt out of.
+    """
     circuit = "H 0\nS 0\nCX 0 1\nMR 1\nCX 0 1\nMR 1\nM 0\n"
     transitions = {"S": transition_to(LOST)}
     classifier = classifier_for(LOST, [0.0, 1.0])
 
-    reject_model = noncomp.Model(
-        initial_state=ALL_G, transitions=transitions, classifier=classifier
-    )
-    with pytest.raises(ValueError, match="CX"):
-        noncomp.sample(circuit, reject_model, shots=4, seed=2)
-
-    model = noncomp.Model(
-        initial_state=ALL_G,
-        transitions=transitions,
-        classifier=classifier,
-        lost_leaked_ops="drop",
-    )
+    model = noncomp.Model(initial_state=ALL_G, transitions=transitions, classifier=classifier)
     r = noncomp.sample(circuit, model, shots=16, seed=2)
     assert r.num_measurements == 3
     assert np.array_equal(r.measurements, np.tile([0, 0, 1], (16, 1)))
     assert np.all(r.final_status[:, 0] == LOST_KIND)
+
+
+def test_xy_basis_measurement_of_a_lost_qubit_raises():
+    """An X/Y-basis or parity measurement of a leaked or lost qubit has no
+    faithful single-bit form, so it raises -- a representability limit, not a
+    policy the caller can turn off."""
+    circuit = "S 0\nMX 0\n"
+    transitions = {"S": transition_to(LOST)}
+    classifier = classifier_for(LOST, [0.0, 1.0])
+    model = noncomp.Model(initial_state=ALL_G, transitions=transitions, classifier=classifier)
+    with pytest.raises(ValueError, match="representable"):
+        noncomp.sample(circuit, model, shots=4, seed=2)
 
 
 def test_computational_readout_confusion_misreports_the_record():

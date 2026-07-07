@@ -115,13 +115,9 @@ class Model:
             qubit's state there.
         classifier: optional :class:`Classifier` supplying leaked/lost
             measurement outcomes and computational readout confusion.
-        reset_restores_lost: if true, a reset on a lost qubit restores it.
-        lost_leaked_ops: how an operation with no representable effect on a
-            leaked or lost operand is handled. ``"reject"`` (the default)
-            raises; ``"drop"`` opts into excising the whole operation,
-            acting as the identity on the surviving operands. Measurements
-            are never dropped; their record slot is kept and the classifier
-            supplies the outcome.
+        reset_restores_lost: if true, a reset on a lost qubit restores it to
+            a computational state; if false (default), the reset acts on the
+            vacated site and is dropped.
         damping: exact-mode handling of sites whose no-fire back-action is
             genuinely non-Clifford (a source-dependent transition on a
             coherent qubit outside the amplitude array). ``"exact"`` (the
@@ -130,6 +126,15 @@ class Model:
             omits the no-fire back-action, a survivorship tilt of order
             ``|p_g - p_e|`` with no effect on source-independent rates.
             Only meaningful at coherent dormant sites (see the design note).
+
+    An operation with no representable effect on a leaked or lost operand --
+    e.g. a two-qubit gate onto a vacated site -- is dropped, acting as the
+    identity on the surviving operands. Measurements keep their record slot
+    (the classifier supplies the bit); a non-reset X/Y-basis measurement
+    (``MX``/``MY``) or a multi-qubit-parity measurement (``MPP``) of a leaked
+    or lost qubit has no faithful single-bit form and raises. A
+    measure-and-reset (``MR``/``MRX``/``MRY``) is kept instead -- its reset
+    re-prepares the site and the classifier supplies its record bit.
 
     Construction validates shapes, probabilities, gate keys, policy values,
     and level table consistency in C++, raising ``ValueError`` on any
@@ -144,7 +149,6 @@ class Model:
         transitions: Mapping[str, Matrix] | None = None,
         classifier: Classifier | None = None,
         reset_restores_lost: bool = False,
-        lost_leaked_ops: str = "reject",
         damping: str = "exact",
     ) -> None:
         transition_matrices = {
@@ -158,7 +162,6 @@ class Model:
             symbols,
             matrix,
             bool(reset_restores_lost),
-            str(lost_leaked_ops),
             str(damping),
         )
 

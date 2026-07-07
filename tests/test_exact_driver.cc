@@ -10,6 +10,8 @@
 #include "clifft/circuit/parser.h"
 #include "clifft/noncomp/model.h"
 #include "clifft/noncomp/orchestrator.h"
+#include "clifft/noncomp/seed.h"
+#include "clifft/util/xoshiro.h"
 
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/matchers/catch_matchers.hpp>
@@ -48,7 +50,6 @@ NonComputationalModel make_model(const ModelSpec& spec) {
     classifier.matrix = {{1.0, 0.0, 1.0, 0.0, 1.0}, {0.0, 1.0, 0.0, 1.0, 0.0}};
 
     NonComputationalPolicy policy;
-    policy.lost_leaked_ops = LostLeakedOpsPolicy::Drop;
     policy.damping = spec.damping;
     return NonComputationalModel::from_spec(levels, spec.initial, {{"leak", leak}}, classifier,
                                             policy);
@@ -188,6 +189,25 @@ TEST_CASE("exact: same seed reproduces identical runs") {
     }
 }
 
+TEST_CASE("exact: the driver and SVM seed streams are domain-separated") {
+    // The host draws (initial levels, trap destinations, classifier consults)
+    // and the in-VM Born draws run on independent streams; handing the same
+    // per-shot seed to both would correlate them. Guard the documented domain
+    // split at its source: for every shot, the same (global, shot) with
+    // different domains yields unrelated seeds, and the streams they start
+    // diverge on the very first draw.
+    for (uint64_t global : {0ULL, 1ULL, 0x9E3779B97F4A7C15ULL}) {
+        for (uint64_t shot = 0; shot < 16; ++shot) {
+            const uint64_t host = derive_seed(global, shot, kExactDriverDomain);
+            const uint64_t svm = derive_seed(global, shot, kExactSvmDomain);
+            REQUIRE(host != svm);
+            Xoshiro256PlusPlus host_rng(host);
+            Xoshiro256PlusPlus svm_rng(svm);
+            REQUIRE(host_rng.next_double() != svm_rng.next_double());
+        }
+    }
+}
+
 TEST_CASE("exact: max_rank rejects an over-budget compile naming the line") {
     // Each dormant-random exact site adds one to k: three H-prefixed
     // sites push the peak to 3, over a cap of 2.
@@ -224,7 +244,6 @@ TEST_CASE("exact: a neglect-form trap keeps the fire-side correlation") {
                          {0.0, 1.0, 0.0, 1.0, 0.0}};  // leak_e reads 1
 
     NonComputationalPolicy policy;
-    policy.lost_leaked_ops = LostLeakedOpsPolicy::Drop;
     policy.damping = DampingPolicy::Neglect;
     auto model = NonComputationalModel::from_spec(levels, {1.0, 0.0, 0.0, 0.0, 0.0},
                                                   {{"leak", leak}}, classifier, policy);
@@ -287,7 +306,6 @@ TEST_CASE("exact: a chain of two forced traps keeps both correlations") {
     classifier.matrix = {{1.0, 0.0, 1.0, 0.0, 1.0}, {0.0, 1.0, 0.0, 1.0, 0.0}};
 
     NonComputationalPolicy policy;
-    policy.lost_leaked_ops = LostLeakedOpsPolicy::Drop;
     policy.damping = DampingPolicy::Neglect;
     auto model = NonComputationalModel::from_spec(levels, {1.0, 0.0, 0.0, 0.0, 0.0},
                                                   {{"leak", leak}}, classifier, policy);
@@ -322,7 +340,6 @@ TEST_CASE("exact: a neglect fire onto a computational destination stays correlat
     classifier.matrix = {{1.0, 0.0, 1.0, 0.0, 1.0}, {0.0, 1.0, 0.0, 1.0, 0.0}};
 
     NonComputationalPolicy policy;
-    policy.lost_leaked_ops = LostLeakedOpsPolicy::Drop;
     policy.damping = DampingPolicy::Neglect;
     auto model = NonComputationalModel::from_spec(levels, {1.0, 0.0, 0.0, 0.0, 0.0},
                                                   {{"swap", swap_ge}}, classifier, policy);
@@ -362,7 +379,6 @@ TEST_CASE("exact: herald flags drawn in one continuation are reused by the next"
         {1.0, 0.0, 1.0, 0.0, 1.0}, {0.0, 1.0, 0.0, 0.5, 0.0}, {0.0, 0.0, 0.0, 0.5, 0.0}};
 
     NonComputationalPolicy policy;
-    policy.lost_leaked_ops = LostLeakedOpsPolicy::Drop;
     auto model = NonComputationalModel::from_spec(levels, {1.0, 0.0, 0.0, 0.0, 0.0},
                                                   {{"leak", leak}}, classifier, policy);
 
@@ -481,7 +497,6 @@ TEST_CASE("exact: ternary heralds ride the cache key") {
         {1.0, 0.0, 1.0, 0.0, 1.0}, {0.0, 1.0, 0.0, 0.0, 0.0}, {0.0, 0.0, 0.0, 1.0, 0.0}};
 
     NonComputationalPolicy policy;
-    policy.lost_leaked_ops = LostLeakedOpsPolicy::Drop;
     auto model = NonComputationalModel::from_spec(levels, {0.0, 1.0, 0.0, 0.0, 0.0},
                                                   {{"leak", leak}}, classifier, policy);
 

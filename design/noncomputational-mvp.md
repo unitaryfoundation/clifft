@@ -264,11 +264,11 @@ model = clifft.NonComputationalModel(
                 [0, 1, 0, 0, 0]],
     ),
 
-    # Policy hooks for downstream operations on noncomputational
-    # qubits. See section 5 for the default table.
+    # Policy for downstream operations on noncomputational qubits.
+    # See section 5 for the per-op table (ops with no representable
+    # effect on a vacated site are dropped).
     policy=clifft.NonComputationalPolicy(
         reset_restores_lost=False,
-        # ... other knobs, default-reject for ambiguous cases.
     ),
 )
 ```
@@ -551,27 +551,33 @@ the op runs unchanged but the qubit's status transitions
 
 | Operation                | ComputationalUnknown | ComputationalKnown                  | Leaked                                  | Lost                                              |
 |--------------------------|-----------------------|--------------------------------------|------------------------------------------|---------------------------------------------------|
-| Single-qubit gate        | apply                 | apply, demote to Unknown            | reject (policy override allowed)        | drop                                              |
+| Single-qubit gate        | apply                 | apply, demote to Unknown            | drop                                    | drop                                              |
 | Single-qubit Pauli noise | apply                 | apply, demote to Unknown            | drop                                    | drop                                              |
-| Two-qubit gate           | apply                 | apply, demote to Unknown on both    | reject                                  | reject (policy override: drop)                    |
+| Two-qubit gate           | apply                 | apply, demote to Unknown on both    | drop                                    | drop                                              |
 | MPP / multi-target meas  | apply                 | apply, demote to Unknown on all     | reject                                  | reject                                            |
 | Visible Z-basis meas `M`              | apply, promote to `ComputationalKnown(outcome)` | apply, visible outcome = current `level_id` (status unchanged) | classifier; reject probability per `leak_*` column | classifier; reject probability per `lost` column |
-| Visible Z-basis meas-and-reset `MR`   | apply, **post-op `ComputationalKnown(g)`**; visible outcome reflects sampled value | apply, visible outcome = current `level_id`; **post-op `ComputationalKnown(g)`** | classifier; post-op `ComputationalKnown(g)` if `reset_restores_lost` applies, else status preserved | classifier; reject unless `policy.reset_restores_lost`, then post-op `ComputationalKnown(g)` |
-| Visible X/Y-basis meas (`MX`/`MY`)    | apply, stays `ComputationalUnknown`  | apply, demote to Unknown | classifier; as above | classifier; as above |
-| Visible X/Y-basis meas-and-reset (`MRX`/`MRY`) | apply, stays `ComputationalUnknown`; **post-op also `ComputationalUnknown`** | apply, demote to Unknown | classifier; post-op `ComputationalUnknown` if `reset_restores_lost` applies, else preserved | classifier; reject unless `policy.reset_restores_lost`, then post-op `ComputationalUnknown` |
-| Z-basis reset `R`        | apply, promote to Known (`g`) | apply, set `level_id = g` | restore to ComputationalKnown (`g`) | reject unless `policy.reset_restores_lost` is set; then restore to ComputationalKnown (`g`) |
-| X/Y-basis reset `RX`/`RY` | apply, stays Unknown | apply, demote to Unknown | restore to ComputationalUnknown      | reject unless `policy.reset_restores_lost` is set; then restore to ComputationalUnknown |
+| Visible Z-basis meas-and-reset `MR`   | apply, **post-op `ComputationalKnown(g)`**; visible outcome reflects sampled value | apply, visible outcome = current `level_id`; **post-op `ComputationalKnown(g)`** | classifier; post-op `ComputationalKnown(g)` if `reset_restores_lost` applies, else status preserved | classifier; post-op `ComputationalKnown(g)` if `reset_restores_lost`, else the site stays lost |
+| Visible X/Y-basis meas (`MX`/`MY`)    | apply, stays `ComputationalUnknown`  | apply, demote to Unknown | reject | reject |
+| Visible X/Y-basis meas-and-reset (`MRX`/`MRY`) | apply, stays `ComputationalUnknown`; **post-op also `ComputationalUnknown`** | apply, demote to Unknown | classifier; post-op `ComputationalUnknown` if `reset_restores_lost` applies, else preserved | classifier; post-op `ComputationalUnknown` if `reset_restores_lost`, else the site stays lost |
+| Z-basis reset `R`        | apply, promote to Known (`g`) | apply, set `level_id = g` | restore to ComputationalKnown (`g`) | drop unless `policy.reset_restores_lost` is set; then restore to ComputationalKnown (`g`) |
+| X/Y-basis reset `RX`/`RY` | apply, stays Unknown | apply, demote to Unknown | restore to ComputationalUnknown      | drop unless `policy.reset_restores_lost` is set; then restore to ComputationalUnknown |
 | Detector / Observable    | unchanged             | unchanged                            | unchanged                               | unchanged                                         |
 
 Notes:
 
-- "Policy override allowed" means the cell rejects by default but the
-  user may set a `NonComputationalPolicy` field to flip it to a
-  specific behavior. The MVP exposes overrides only where listed.
-- There is no separate `RL` op in MVP. Lost-qubit reset rejects by
-  default; the `policy.reset_restores_lost` flag turns it into a
-  reload that restores the qubit to a `ComputationalKnown` status.
-  See §8 for the rationale.
+- An operation with no representable effect on a leaked or lost operand
+  is dropped whole (identity on the surviving operands). This is the
+  only behavior, not a policy the caller selects. The exception is a
+  non-reset X/Y-basis measurement (`MX`/`MY`) or a multi-target/parity
+  measurement (`MPP`): it rejects, because the classifier defines a
+  single Z-basis-like record bit that is not a faithful X/Y or parity
+  outcome. A measure-and-reset (`MR`/`MRX`/`MRY`) is kept instead — its
+  record is the classifier bit and its reset re-prepares the site, so
+  the readout basis is incidental on a vacated carrier.
+- There is no separate `RL` op in MVP. Lost-qubit reset drops by default
+  (the vacated site is unaffected); the `policy.reset_restores_lost`
+  flag turns it into a reload that restores the qubit to a
+  `ComputationalKnown` status. See §8 for the rationale.
 - **Lost-qubit measurement is fully specified by the classifier
   matrix's `lost` column.** There is no separate `lost_measurement`
   policy knob: random-bit is `[0.5, 0.5]`, deterministic-0 is
@@ -671,24 +677,30 @@ measurement back-action on the computational state or force a
 branch-and-continue boundary, which is exactly the dynamic/JIT path
 deferred in §1.
 
-### 5.2.3 Opt-in drop policy for leaked/lost operands
+### 5.2.3 Operations with no representable effect on leaked/lost operands
 
-`policy.lost_leaked_ops` selects how the reject cells above behave.
-`Reject` (default) keeps the table exactly as written. `Drop` opts into
-excising each such operation whole — identity on the surviving operands
-— modeling the physical reading that an interaction with a vacated or
-leaked site does not happen:
+An operation whose physical effect on a leaked or lost operand is not
+representable is excised whole — identity on the surviving operands —
+modeling the reading that an interaction with a vacated or leaked site
+does not happen. This is the only behavior; there is no policy knob to
+turn it off. Concretely:
 
-- single-qubit gate on Leaked: drop (was reject);
+- single-qubit gate on a Leaked operand: drop;
 - two-qubit gate, multi-qubit noise channel, or classical feedback with
-  a Leaked or Lost operand: drop whole (was reject);
-- non-restoring lost-qubit reset: drop (was reject);
+  a Leaked or Lost operand: drop whole;
+- non-restoring lost-qubit reset: drop;
 - non-restoring lost-qubit measure-and-reset: kept — the visible record
   slot must survive, the classifier supplies the bit, and the site
-  simply stays lost (was reject);
-- X/Y-basis and multi-target measurements still reject: dropping a
-  measurement would shift the record, and no single-bit substitution is
-  faithful.
+  simply stays lost;
+- a non-reset X/Y-basis or multi-target measurement (`MX`/`MY`/`MPP`)
+  rejects: dropping a measurement would shift the record, and no
+  single-bit substitution is a faithful X/Y or parity outcome.
+
+A "does this model ever drive a dead qubit" contract check — distinct
+from these per-op representability limits — is a static validator's job
+(a future `noncomp.validate_static`), not a sampling policy: as a
+sampling-time reject it would fire seed-dependently, since whether a
+qubit is vacated before a given op is a per-shot draw.
 
 A dropped operation has no physical effect, so a surviving operand's
 status keeps its entry value (it is not demoted). Transition

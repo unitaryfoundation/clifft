@@ -6,17 +6,6 @@
 
 namespace clifft {
 
-// Policy for operations touching a leaked or lost operand that have no
-// representable effect there. Reject refuses them. Drop excises the whole
-// operation (identity on the surviving operands): the physical
-// interaction cannot happen at a vacated or leaked site. Measurements are
-// never dropped -- their visible record slot is preserved and the
-// classifier supplies the outcome.
-enum class LostLeakedOpsPolicy : uint8_t {
-    Reject = 0,
-    Drop = 1,
-};
-
 // Damping policy for exact-mode compilation at sites where the no-fire
 // back-action is genuinely non-Clifford (a source-dependent transition on
 // a dormant qubit with a random outcome). Exact expands the qubit into
@@ -37,12 +26,10 @@ enum class DampingPolicy : uint8_t {
 };
 
 struct NonComputationalPolicy {
-    // When true, lost-qubit reset (R/RX/RY) restores the qubit to a
-    // computational state. When false (default), lost-qubit reset
-    // rejects (or drops, under LostLeakedOpsPolicy::Drop).
+    // When true, a reset (R/RX/RY) on a lost qubit restores it to a
+    // computational state. When false (default), the reset acts on a
+    // vacated site and is dropped (identity on the surviving operands).
     bool reset_restores_lost = false;
-
-    LostLeakedOpsPolicy lost_leaked_ops = LostLeakedOpsPolicy::Reject;
 
     DampingPolicy damping = DampingPolicy::Exact;
 };

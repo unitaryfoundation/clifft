@@ -29,7 +29,7 @@ constexpr uint8_t kLeak = 3;
 // A model with one named leak transition (e leaks at 0.4, g at 0.1),
 // seepage back from the leaked level (0.2 to e), and a faithful
 // two-symbol classifier whose leaked column reads 1.
-NonComputationalModel demo_model(LostLeakedOpsPolicy lost_leaked = LostLeakedOpsPolicy::Drop) {
+NonComputationalModel demo_model() {
     LevelSet levels = LevelSet::default_set();
     std::vector<std::vector<double>> leak(5, std::vector<double>(5, 0.0));
     leak[kLeak][0] = 0.1;
@@ -40,10 +40,8 @@ NonComputationalModel demo_model(LostLeakedOpsPolicy lost_leaked = LostLeakedOps
     classifier.symbols = {"0", "1"};
     classifier.matrix = {{1.0, 0.0, 1.0, 0.0, 1.0}, {0.0, 1.0, 0.0, 1.0, 0.0}};
 
-    NonComputationalPolicy policy;
-    policy.lost_leaked_ops = lost_leaked;
     return NonComputationalModel::from_spec(levels, {1.0, 0.0, 0.0, 0.0, 0.0}, {{"leak", leak}},
-                                            classifier, policy);
+                                            classifier, NonComputationalPolicy{});
 }
 
 std::vector<QubitStatus> computational_initials(const NonComputationalModel& model, uint32_t n) {
@@ -165,6 +163,23 @@ TEST_CASE("continuation: the forced trace-out slot mirrors trace's hidden number
 
     auto result = rewrite_continuation(annotated, events, /*force_last_traceout=*/true, model);
     REQUIRE(result.forced_traceout_slot == 2);  // 1 visible + 1 hidden before it
+}
+
+TEST_CASE("continuation: the forced trace-out slot counts every prior reset") {
+    // The slot derivation accumulates one hidden slot per prior reset target,
+    // so it must sum across resets, not stop at the first. With one visible
+    // measurement and two resets ahead of the trace-out, the trace-out owns
+    // hidden slot 3 (1 visible + 2 hidden).
+    auto model = demo_model();
+    auto circuit = parse("R 1\nR 2\nH 0\nLEVEL_TRANSITION[leak] 0\nM 0");
+    auto annotated = annotate(circuit, model);
+
+    ExactShotEvents events;
+    events.initial_status = computational_initials(model, 3);
+    events.jumps.push_back({3, 0, kLeak});  // the annotation is node 3
+
+    auto result = rewrite_continuation(annotated, events, /*force_last_traceout=*/true, model);
+    REQUIRE(result.forced_traceout_slot == 3);  // 1 visible + 2 hidden (R 1, R 2) before it
 }
 
 TEST_CASE("continuation: events that do not describe the circuit reject") {

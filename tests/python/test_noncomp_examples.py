@@ -92,8 +92,10 @@ def test_example_relaxation_to_ground_on_known_qubit():
 # --- Intentionally unsupported -----------------------------------------------
 
 
-def test_reject_two_qubit_gate_on_leaked_qubit():
-    # Once qubit 0 is leaked, a following entangling gate on it is ambiguous.
+def test_reject_xy_measurement_on_noncomputational_qubit():
+    # Once qubit 0 is leaked, its downstream gates drop, but an X/Y-basis (or
+    # parity) measurement of it has no faithful single-bit form and is refused
+    # -- a representability limit, not a policy the caller can turn off.
     model = noncomp.Model(
         initial_state=[1.0, 0.0, 0.0, 0.0, 0.0],
         transitions={
@@ -101,4 +103,4 @@ def test_reject_two_qubit_gate_on_leaked_qubit():
         },
     )
     with pytest.raises(ValueError, match="not representable"):
-        noncomp.sample("H 0\nS 0\nCX 0 1\n", model, shots=8, seed=5)
+        noncomp.sample("H 0\nS 0\nMX 0\n", model, shots=8, seed=5)

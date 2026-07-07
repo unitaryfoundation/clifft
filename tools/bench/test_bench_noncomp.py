@@ -72,7 +72,6 @@ def noncomp_model(p: float) -> noncomp.Model:
         initial_state=[1.0, 0.0, 0.0, 0.0, 0.0],
         transitions={"S": leak_loss_matrix(p)} if p > 0 else {},
         classifier=ternary_classifier(),
-        lost_leaked_ops="drop",
     )
 
 
