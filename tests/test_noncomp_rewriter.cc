@@ -611,3 +611,60 @@ TEST_CASE("annotate: an unhooked model leaves the circuit unchanged") {
     Circuit ann = annotate(c, model);
     REQUIRE(ann.nodes.size() == c.nodes.size());
 }
+
+// =========================================================================
+// Zero-fire site elision: site_targets / trace() alignment
+// =========================================================================
+
+TEST_CASE("rewrite: a zero-fire annotation is omitted from the node stream and site table") {
+    // One LEVEL_TRANSITION[zero] (column_sum(G) = column_sum(E) = 0) before
+    // one LEVEL_TRANSITION[fire] (fires certainly from any level). The
+    // rewriter must skip the zero-fire node and its site_targets entry; the
+    // site table must hold exactly one entry pointing at the firing
+    // annotation's (op_index, qubit), matching trace()'s elision.
+    std::map<std::string, std::vector<std::vector<double>>> transitions;
+    transitions.emplace("zero", zeros5());
+    transitions.emplace("fire", always_lost());
+    NonComputationalModel model = make_model(std::move(transitions));
+
+    Circuit c = parse("LEVEL_TRANSITION[zero] 0\nLEVEL_TRANSITION[fire] 0\n");
+    ContinuationRewrite rw = rewritten(c, model, {kG});
+
+    // The zero-fire node must not appear in the rewritten stream.
+    for (const AstNode& node : rw.circuit.nodes) {
+        if (node.gate == GateType::LEVEL_TRANSITION) {
+            REQUIRE(node.tag == "fire");
+        }
+    }
+
+    // Exactly one site entry; it names qubit 0.
+    REQUIRE(rw.site_targets.size() == 1);
+    REQUIRE(rw.site_targets[0].second == 0);
+}
+
+TEST_CASE("rewrite: a malformed LOSS annotation rejects instead of reading past its args") {
+    // rewrite_continuation is callable without the driver's up-front
+    // validation, so its own LOSS reads must validate the argument shape
+    // rather than index into it.
+    NonComputationalModel model = make_model({});
+    Circuit c = parse("LOSS(0.5) 0\nM 0\n");
+    ExactShotEvents events;
+    events.initial_status = initials({kG});
+
+    SECTION("no arguments") {
+        c.nodes[0].args.clear();
+        Circuit annotated = annotate(c, model);
+        REQUIRE_THROWS_WITH(rewrite_continuation(annotated, events, false, model),
+                            ContainsSubstring("rewrite_continuation") &&
+                                ContainsSubstring("LOSS") &&
+                                ContainsSubstring("exactly one argument"));
+    }
+
+    SECTION("two arguments with a zero first must not silently elide") {
+        c.nodes[0].args = {0.0, 0.3};
+        Circuit annotated = annotate(c, model);
+        REQUIRE_THROWS_WITH(
+            rewrite_continuation(annotated, events, false, model),
+            ContainsSubstring("rewrite_continuation") && ContainsSubstring("exactly one argument"));
+    }
+}

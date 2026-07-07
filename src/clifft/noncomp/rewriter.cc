@@ -326,7 +326,27 @@ ContinuationRewrite rewrite_continuation(const Circuit& annotated, const ExactSh
                     continue;
                 }
 
-                // Quantum source: the annotation stays a runtime instrument.
+                // Quantum source: if the channel can never fire from any
+                // computational level, the site is the identity on this qubit
+                // and trace() will elide it. The site table and trace()'s
+                // materialization must elide identically, so skip both the
+                // node emission and the site_targets entry.
+                // LOSS(p): fires iff p != 0. LEVEL_TRANSITION[tag]: fires iff
+                // column_sum(G) != 0 or column_sum(E) != 0. These predicates
+                // are exact 0.0 comparisons, matching frontend.cc.
+                if (gate == GateType::LOSS) {
+                    if (loss_probability(node.args, op_index, "rewrite_continuation") == 0.0) {
+                        continue;
+                    }
+                } else {
+                    const TransitionInstrument* instr = model.transition_named(node.tag);
+                    if (instr != nullptr && instr->column_sum(Level::G) == 0.0 &&
+                        instr->column_sum(Level::E) == 0.0) {
+                        continue;
+                    }
+                }
+
+                // The annotation stays a runtime instrument.
                 // Split multi-target nodes so a sibling target with a
                 // classical status is not re-materialized.
                 result.site_targets.emplace_back(op_index, qubit);
