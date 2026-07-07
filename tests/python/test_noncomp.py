@@ -142,8 +142,9 @@ def test_state_independent_loss_changes_final_status():
 
 
 def test_known_source_dependent_transition_accepted():
-    # Source-dependent (g->leak_g, e->leak_e). At S entry the qubit is
-    # ComputationalKnown(g) -- no scrambling yet -- so the source is pinned.
+    # Source-dependent (g->leak_g, e->leak_e). At S entry the qubit sits
+    # in |g> -- no scrambling yet -- so the fire collapses onto g and the
+    # destination is pinned to leak_g.
     t = _zeros(5, 5)
     t[LEAK_G][0] = 1.0
     t[LEAK_E][1] = 1.0

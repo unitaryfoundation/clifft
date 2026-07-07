@@ -67,31 +67,30 @@ enum class LevelCategory : uint8_t {
 ```
 
 `QubitStatusKind` is a per-qubit *runtime* tag carried in the
-trajectory. It splits the computational case by whether the
-energy-basis value has been resolved:
+trajectory. It tags the category a qubit occupies; which basis state a
+computational qubit holds -- if either definitely -- is SVM runtime
+information the classical ledger never tracks:
 
 ```cpp
 enum class QubitStatusKind : uint8_t {
-    ComputationalUnknown = 0,  // in H_C, energy-basis value unresolved
-    ComputationalKnown   = 1,  // in H_C with a known g/e value
-    Leaked               = 2,
-    Lost                 = 3,
+    Computational = 0,  // in H_C (any state on the g/e subspace)
+    Leaked        = 1,
+    Lost          = 2,
 };
 ```
 
-Splitting the runtime tag from the level-property enum lets us
-encode "computational but unknown" as a kind that *cannot* carry a
-specific level id, enforcing the source-resolved invariant
-structurally rather than by convention. See §2.3.
+Splitting the runtime tag from the level-property enum lets us encode
+"computational" as a kind that *cannot* carry a specific level id,
+enforcing that invariant structurally rather than by convention. See
+§2.3.
 
-`ComputationalKnown` earns its place as a kind distinct from an opaque
-`Computational`: three code paths branch on it. The sampler takes the
-*exact* known-source column for a state-dependent transition on a
-`ComputationalKnown` qubit and only rejects (or approximates) on
-`ComputationalUnknown` (§4.2); the rewriter prepends an `X` prep for a
-qubit whose sampled initial level is the known `|1>` state; and a
-classically-controlled `X` demotes `Known → Unknown` while leaving an
-already-`Unknown` qubit untouched (§5.2.1).
+An earlier revision split the computational kind into
+`ComputationalKnown`/`ComputationalUnknown` so the ahead-of-time
+sampler could resolve state-dependent transitions classically on
+definite carriers. That consumer retired with the AOT pipeline: fires
+now resolve inside the VM against the live state, so a ledger-side
+level claim for a computational qubit is not per-shot truth, and the
+split was removed with the pipeline.
 
 ### 2.2 Levels (model-defined)
 
@@ -99,27 +98,20 @@ A `Level` is a model-defined tag with a stable integer id, a label, and
 a `LevelCategory`. Qubits transition between status kinds during
 simulation:
 
-- `ComputationalUnknown ↔ ComputationalKnown`: a Z-basis measurement
-  or Z-basis reset promotes `Unknown → Known` with the sampled level
-  id (`g` or `e`). Any subsequent quantum gate that does not preserve
-  the energy basis demotes `Known → Unknown`, discarding the level id
-  (Hadamard on `|0>` is the canonical example).
-- `(anything) → Leaked` or `Lost`: via a transition jump.
+- `Computational → Leaked` or `Lost`: via a transition jump.
 - `Leaked / Lost → Computational`: only via reset/reload, gated by
-  policy. Z-basis reset (`R`) lands in `ComputationalKnown(g)`;
-  X/Y-basis reset (`RX`/`RY`) lands in `ComputationalUnknown` (the
-  post-reset state is in a non-energy basis). `Leaked → Computational`
-  via any of these is allowed; `Lost → Computational` only when
+  policy. Any reset flavor restores the category. `Leaked →
+  Computational` is always allowed; `Lost → Computational` only when
   `policy.reset_restores_lost` is set. There is no spontaneous
   coherent return from a leaked level back into a superposition with
   `g`/`e`.
 
 A level table must contain exactly two `Computational` levels; in table
-order the first is the `|0>` state and the second is `|1>`. The rewriter
-uses `computational_one_id()` to prepend a preparation gate when an
-initial sample places the qubit in `ComputationalKnown` with the `|1>`
-level, or when a transition materializes the carrier at the `|1>` level
-(the SVM default initialization is `|0...0>`). `Leaked` and `Lost` levels
+order the first is the `|0>` state and the second is `|1>`. The driver
+uses `computational_one_id()` to preload the Pauli frame when an
+initial draw places a qubit at `|1>`, and the rewriter uses it to
+append the `X` when a recorded jump materializes the carrier at the
+`|1>` level (the SVM default initialization is `|0...0>`). `Leaked` and `Lost` levels
 carry no basis information — "lost from `|1>`" provenance, if ever needed,
 belongs in an event record or in distinct levels, not in the level tag.
 
@@ -147,20 +139,17 @@ constexpr uint8_t kInvalidLevel = 0xFF;
 
 class QubitStatus {
 public:
-    static QubitStatus computational_unknown();
+    static QubitStatus computational();
 
-    // Build a known-source status without validating level_id against
-    // a table. Reserved for tests and interior code; user code should
-    // go through LevelSet's validated factories.
-    static QubitStatus computational_known_unchecked(uint8_t level_id);
+    // Build a noncomputational status without validating level_id
+    // against a table. Reserved for tests and interior code; user code
+    // should go through LevelSet's validated factories.
     static QubitStatus leaked_unchecked(uint8_t level_id);
     static QubitStatus lost_unchecked(uint8_t level_id);
 
     QubitStatusKind kind() const;
     uint8_t level_id() const;
-    bool is_unknown_computational() const;
-    std::optional<uint8_t> known_source_level() const;
-    uint8_t require_classical_source_level() const;  // throws on Unknown
+    bool is_computational() const;
 
 private:
     QubitStatus(QubitStatusKind kind, uint8_t level_id);
@@ -169,44 +158,31 @@ private:
 };
 ```
 
-The two fields together carry the runtime status of one qubit during
-history sampling. Trajectory state is `std::vector<QubitStatus>
+The two fields together carry the runtime status of one qubit through
+the status walks. Trajectory state is `std::vector<QubitStatus>
 statuses;`, two bytes per qubit.
 
 **Invariants:**
 
-| `kind`                  | `level_id` constraint                          |
-|-------------------------|------------------------------------------------|
-| `ComputationalUnknown`  | `kInvalidLevel` (no source level is resolved)  |
-| `ComputationalKnown`    | must be a `Computational`-category level id    |
-| `Leaked`                | must be a `Leaked`-category level id           |
-| `Lost`                  | must be a `Lost`-category level id             |
+| `kind`          | `level_id` constraint                        |
+|-----------------|----------------------------------------------|
+| `Computational` | `kInvalidLevel` (no level is carried)        |
+| `Leaked`        | must be a `Leaked`-category level id         |
+| `Lost`          | must be a `Lost`-category level id           |
 
 The canonical construction path is through `LevelSet` (see §3.2),
 which validates the (kind, level_id) pair against its table:
 
 ```cpp
-QubitStatus s = level_set.computational_known(g_id);
 QubitStatus t = level_set.leaked(leak_g_id);
 QubitStatus u = level_set.lost(lost_id);
-QubitStatus v = QubitStatus::computational_unknown();  // no level id needed
+QubitStatus v = QubitStatus::computational();  // no level id needed
 ```
 
 `QubitStatus` is non-aggregate; its constructor is private. The
 `_unchecked` static factories exist for tests and for interior code
 where the invariant is already established (the name is the
 warning); user code goes through `LevelSet`.
-
-Source-dependent transitions must call `known_source_level()` or
-`require_classical_source_level()` so the "unknown coherent"
-rejection path stays consistent: most rewrite-policy entries only
-need `s.kind`; only the source-dependent column lookup needs the
-level id, and the accessors are the only safe way to read it.
-
-"Known" here means known in the computational basis (`|0>` or `|1>`)
-— the basis in which transition matrices are indexed. X- and Y-basis
-measurements or resets do not produce `ComputationalKnown`; they
-leave the qubit in `ComputationalUnknown` (see §5.2.1).
 
 ## 3. `NonComputationalModel` API
 
@@ -314,23 +290,20 @@ public:
     const Level& at(uint8_t level_id) const;
     size_t size() const;
 
-    QubitStatus computational_known(uint8_t level_id) const;
     QubitStatus leaked(uint8_t level_id) const;
     QubitStatus lost(uint8_t level_id) const;
+    QubitStatus status_for(uint8_t level_id) const;  // category dispatch
 };
 
 class TransitionInstrument {
 public:
     // Construct from a square matrix using T[to, from] convention.
     // Validates matrix shape and that every column sum lies in [0, 1].
-    // Computes the cached flag `is_source_independent_on_computational`
-    // but does NOT reject source-dependent matrices here; whether a
-    // source-dependent matrix is applicable is checked at sample time
-    // (see section 4.2).
+    // Source-dependent matrices are fully supported; the source level
+    // is resolved at sample time (see section 4.2).
     static TransitionInstrument from_matrix(
         std::vector<std::vector<double>> matrix);
 
-    bool is_source_independent_on_computational() const;
     // ... accessors for per-source branches, no-jump weight per source, etc.
 };
 
@@ -433,48 +406,30 @@ representable in the MVP.
    resolving to the same gate reject; any other key is a named-only
    reference, not an error.
 
-Each `TransitionInstrument` also computes and caches a derived flag
-at construction:
-
-- `is_source_independent_on_computational`: true iff every column whose
-  source level has category `Computational` is bit-identical (within
-  tolerance) to the others.
-
-This flag is *not* a validation gate — source-dependent matrices are
-fine to declare. Whether they are applicable depends on the source
-context at sample time. The sqale-aligned `cz_transition_matrix` and
+Source-dependent matrices are fine to declare; the source level is
+resolved at sample time. The sqale-aligned `cz_transition_matrix` and
 `rz_transition_matrix` in §1's prior art have distinct `g` and `e`
-columns; they are valid `TransitionInstrument`s and will be accepted
+columns; they are valid `TransitionInstrument`s and are accepted
 here.
 
 ### 4.2 Sample-time check (per (transition, target-qubit) firing)
 
 When a transition fires on a target qubit with `QubitStatus s`:
 
-- `s.kind == ComputationalKnown`: use the column for `s.level_id`
-  directly. Always allowed.
 - `s.kind == Leaked` or `s.kind == Lost`: use the column for
-  `s.level_id` directly. Classical Markov update. Always allowed.
-- `s.kind == ComputationalUnknown`: if
-  `is_source_independent_on_computational` is true, the no-jump branch
-  is scalar on `H_C` and the jump branches are source-independent;
-  sample without consulting amplitudes. Otherwise the fire is resolved
-  at runtime by the exact-mode driver
+  `s.level_id` directly. Classical Markov update, consumed by the
+  status walk without touching the SVM.
+- `s.kind == Computational`: the annotation stays a runtime instrument
+  site, resolved by the exact-mode driver
   (design/state-dependent-jumps.md): the circuit compiles once with
-  every annotation kept as a runtime instrument site, fire
-  probabilities are evaluated on the live state, and a fire that
-  cannot resolve in-line traps to the driver, which recompiles the
-  remaining circuit under the now-known status and resumes. Exact for
-  every source context, at a cost exponential in the number of
-  damping-expanded sites (see the `damping` policy there). This is the
-  only sampling path; a "reject if my model needs runtime resolution"
-  contract check is a future validator's job
-  (`noncomp.validate_static`), not a sampling policy.
-
-This is the "pre-sampleable" boundary, enforced where it actually
-matters (at the unknown-coherent-source point) rather than at model
-construction. It also means a model with a source-dependent instrument
-that only ever fires on known-or-classical sources runs fine in MVP.
+  every such site kept live, fire probabilities are evaluated on the
+  live state, and a fire that cannot resolve in-line traps to the
+  driver, which recompiles the remaining circuit under the now-known
+  status and resumes. Exact for every source context, at a cost
+  exponential in the number of damping-expanded sites (see the
+  `damping` policy there). This is the only sampling path; a "reject
+  if my model needs runtime resolution" contract check is a future
+  validator's job (`noncomp.validate_static`), not a sampling policy.
 
 ## 5. Sampling, rewrite, and policy table
 
@@ -530,7 +485,11 @@ fires against the live state -- in-line where possible, by trap,
 continuation recompile, and resume where not. The driver returns the
 user-facing `(measurements, detectors, observables)` unchanged from the
 existing API plus the noncomputational sidecar (per-qubit final status
-and herald bits).
+and herald bits). The final status reports leaked/lost per-shot truth
+(the driver drew those jumps itself); computational qubits report as a
+bare category on both the C++ and Python surfaces, because fires with
+computational destinations resolve inside the VM and no final level is
+knowable outside it.
 
 An earlier revision of this note specified a per-shot ahead-of-time
 pipeline here (sample a trajectory, rewrite, compile, run -- one compile
@@ -545,23 +504,20 @@ runs on.
 
 Rows are (operation kind, `QubitStatusKind` at op time). "Reject"
 means the C++ rewrite raises with a clear message naming the op index
-and qubit; no silent approximation. "Apply, demote to Unknown" means
-the op runs unchanged but the qubit's status transitions
-`ComputationalKnown → ComputationalUnknown` afterward (per §5.2.1).
+and qubit; no silent approximation.
 
-| Operation                | ComputationalUnknown | ComputationalKnown                  | Leaked                                  | Lost                                              |
-|--------------------------|-----------------------|--------------------------------------|------------------------------------------|---------------------------------------------------|
-| Single-qubit gate        | apply                 | apply, demote to Unknown            | drop                                    | drop                                              |
-| Single-qubit Pauli noise | apply                 | apply, demote to Unknown            | drop                                    | drop                                              |
-| Two-qubit gate           | apply                 | apply, demote to Unknown on both    | drop                                    | drop                                              |
-| MPP / multi-target meas  | apply                 | apply, demote to Unknown on all     | reject                                  | reject                                            |
-| Visible Z-basis meas `M`              | apply, promote to `ComputationalKnown(outcome)` | apply, visible outcome = current `level_id` (status unchanged) | classifier; reject probability per `leak_*` column | classifier; reject probability per `lost` column |
-| Visible Z-basis meas-and-reset `MR`   | apply, **post-op `ComputationalKnown(g)`**; visible outcome reflects sampled value | apply, visible outcome = current `level_id`; **post-op `ComputationalKnown(g)`** | classifier; post-op `ComputationalKnown(g)` if `reset_restores_lost` applies, else status preserved | classifier; post-op `ComputationalKnown(g)` if `reset_restores_lost`, else the site stays lost |
-| Visible X/Y-basis meas (`MX`/`MY`)    | apply, stays `ComputationalUnknown`  | apply, demote to Unknown | reject | reject |
-| Visible X/Y-basis meas-and-reset (`MRX`/`MRY`) | apply, stays `ComputationalUnknown`; **post-op also `ComputationalUnknown`** | apply, demote to Unknown | classifier; post-op `ComputationalUnknown` if `reset_restores_lost` applies, else preserved | classifier; post-op `ComputationalUnknown` if `reset_restores_lost`, else the site stays lost |
-| Z-basis reset `R`        | apply, promote to Known (`g`) | apply, set `level_id = g` | restore to ComputationalKnown (`g`) | drop unless `policy.reset_restores_lost` is set; then restore to ComputationalKnown (`g`) |
-| X/Y-basis reset `RX`/`RY` | apply, stays Unknown | apply, demote to Unknown | restore to ComputationalUnknown      | drop unless `policy.reset_restores_lost` is set; then restore to ComputationalUnknown |
-| Detector / Observable    | unchanged             | unchanged                            | unchanged                               | unchanged                                         |
+| Operation                | Computational | Leaked                                  | Lost                                              |
+|--------------------------|---------------|------------------------------------------|---------------------------------------------------|
+| Single-qubit gate        | apply         | drop                                    | drop                                              |
+| Single-qubit Pauli noise | apply         | drop                                    | drop                                              |
+| Two-qubit gate           | apply         | drop                                    | drop                                              |
+| MPP / multi-target meas  | apply         | reject                                  | reject                                            |
+| Visible Z-basis meas `M`              | apply; visible outcome from the SVM | classifier; reject probability per `leak_*` column | classifier; reject probability per `lost` column |
+| Visible Z-basis meas-and-reset `MR`   | apply; visible outcome from the SVM, reset re-prepares the site | classifier; restores if `reset_restores_lost` would allow it (leaked always restores) | classifier; restores if `reset_restores_lost`, else the site stays lost |
+| Visible X/Y-basis meas (`MX`/`MY`)    | apply | reject | reject |
+| Visible X/Y-basis meas-and-reset (`MRX`/`MRY`) | apply | classifier; restores (leaked always restores) | classifier; restores if `reset_restores_lost`, else the site stays lost |
+| Reset `R`/`RX`/`RY`      | apply         | restore to `Computational` | drop unless `policy.reset_restores_lost` is set; then restore to `Computational` |
+| Detector / Observable    | unchanged     | unchanged                               | unchanged                                         |
 
 Notes:
 
@@ -577,7 +533,7 @@ Notes:
 - There is no separate `RL` op in MVP. Lost-qubit reset drops by default
   (the vacated site is unaffected); the `policy.reset_restores_lost`
   flag turns it into a reload that restores the qubit to a
-  `ComputationalKnown` status. See §8 for the rationale.
+  computational status. See §8 for the rationale.
 - **Lost-qubit measurement is fully specified by the classifier
   matrix's `lost` column.** There is no separate `lost_measurement`
   policy knob: random-bit is `[0.5, 0.5]`, deterministic-0 is
@@ -603,42 +559,23 @@ Notes:
   no confusion. Identity computational columns add nothing, and a
   computational column must place all its probability on the two
   record symbols.
-- "Apply, demote to Unknown" is the conservative default for
-  basis-mixing gates. Z-diagonal gates preserve a known level and
-  X-type gates flip it (the gate classification lives in the status
-  stepper and defaults to demotion for anything unclassified), so the
-  exact known-source path survives diagonal circuits.
 
 ### 5.2.1 QubitStatusKind transitions
 
-A qubit's `QubitStatusKind` transitions as follows during history
-sampling:
+A qubit's `QubitStatusKind` transitions as follows during the status
+walk:
 
-| Cause                                            | Effect                                                                  |
-|--------------------------------------------------|-------------------------------------------------------------------------|
-| Initial-state sample (Computational level)       | `ComputationalKnown(level_id)`                                          |
-| Initial-state sample (Leaked level)              | `Leaked(level_id)`                                                      |
-| Initial-state sample (Lost level)                | `Lost(level_id)`                                                        |
-| Z-diagonal gate (`Z`/`S`/`T`/`CZ`/`R_Z`...), kind == Known | level preserved: `ComputationalKnown(level)`                  |
-| X-type gate (`X`/`Y`), kind == Known             | level flipped: `ComputationalKnown(other level)`                        |
-| Any other quantum gate touching qubit, kind == Known | demote to `ComputationalUnknown`                                    |
-| Z-basis measurement `M`                          | `ComputationalKnown(g)` or `ComputationalKnown(e)` per outcome          |
-| Z-basis measurement-and-reset `MR`               | `ComputationalKnown(g)` (post-op state is reset, regardless of outcome) |
-| X- or Y-basis measurement (`MX`/`MY`/`MRX`/`MRY`)| post-state is in X/Y basis, not energy basis: `ComputationalUnknown`    |
-| Z-basis reset `R`                                | `ComputationalKnown(g)`                                                 |
-| X- or Y-basis reset `RX`/`RY`                    | `ComputationalUnknown`                                                  |
-| Reload via `policy.reset_restores_lost` (Z-basis) | `ComputationalKnown(g)`                                                |
-| Transition jump to a Computational-category level | `ComputationalKnown(destination_level_id)`                             |
-| Transition jump to a Leaked-category level        | `Leaked(destination_level_id)`                                         |
-| Transition jump to a Lost-category level          | `Lost(destination_level_id)`                                           |
+| Cause                                              | Effect                            |
+|----------------------------------------------------|-----------------------------------|
+| Initial-state draw                                 | the drawn level's category        |
+| Transition jump                                    | the destination level's category  |
+| Reset (any flavor) on `Leaked`                     | `Computational`                   |
+| Reset on `Lost` with `policy.reset_restores_lost`  | `Computational`                   |
+| Every other operation                              | unchanged                         |
 
-"Known" here means known *in the energy basis* (`g`/`e`) — the basis
-transition matrices are indexed in. A qubit that is in a known X- or
-Y-basis state after `RX`/`MY`/etc. is still coherent in the energy
-basis (a superposition of `g` and `e`), so its kind is
-`ComputationalUnknown`. Source-dependent transitions on it will hit
-the §4.2 sample-time rejection unless the instrument is
-source-independent on Computational sources.
+No gate, measurement, or reset moves a computational qubit out of its
+category, and which basis state it holds is SVM runtime information
+the ledger never tracks.
 
 ### 5.2.2 Ledger status is *pre-SVM-known*, not trajectory-physical
 
@@ -648,34 +585,15 @@ trajectory state: the walk compiles circuits and pre-draws classical
 consults, so it cannot consult a measurement outcome that only exists
 inside the SVM.
 
-The consequences, which override the naive reading of the §5.2.1 table:
-
-- **`M` on `ComputationalKnown(g/e)`**: status stays known. The value
-  was already classically known, so a later source-dependent
-  transition may use it.
-- **`M` on `ComputationalUnknown`**: the ledger status stays
-  `ComputationalUnknown`. It does **not** promote to
-  `ComputationalKnown`, because the outcome is produced by the SVM, not
-  the classical walk. (The SVM still performs the real quantum
-  measurement and collapse; that is independent of the ledger.) A
-  source-dependent transition fired on this qubit afterward is resolved
-  at runtime per §4.2.
-- **`R` / `MR` (Z-basis)**: produce `ComputationalKnown(g)` — the value
-  comes from the instruction, not an SVM outcome, so it is pre-SVM
-  known.
-- **`RX` / `RY` / `MRX` / `MRY`**: produce `ComputationalUnknown` (not a
-  `g`/`e` energy eigenstate), as in §5.2.1.
-
-The §5.2.1 row "`M` → `ComputationalKnown(g)` or `(e)` per outcome"
-describes the *physical* trajectory inside a single shot; it is **not**
-the precompile history status unless the value was already known before
-SVM execution. "Measure, then use the measured value to drive a later
-noncomputational transition" requires a segmented runtime / replan and
-is out of scope for the pre-sampled MVP (§9). The history layer must
-not pre-sample measurement outcomes: doing so would either skip the
-measurement back-action on the computational state or force a
-branch-and-continue boundary, which is exactly the dynamic/JIT path
-deferred in §1.
+That is why a computational status carries no basis information: an
+outcome-dependent refinement would mean reading the SVM's records
+mid-walk. The SVM still performs every real quantum measurement and
+collapse; that is independent of the ledger. "Measure, then let the
+measured state drive a later noncomputational transition" is exactly
+what the runtime instrument sites provide: the fire probability is
+evaluated on the live (post-measurement) state, and an unresolvable
+fire traps to the driver (§4.2). The classical walk itself never
+pre-samples measurement outcomes.
 
 ### 5.2.3 Operations with no representable effect on leaked/lost operands
 
@@ -710,9 +628,9 @@ sampler and the rewriter advance statuses through this same rule.
 
 ### 5.3 Hidden carrier edits at transition jumps
 
-Whenever a qubit whose status is `ComputationalUnknown` transitions
-to a noncomputational kind (either `Leaked` or `Lost`), theory
-requires a hidden Z-basis measurement to unravel the partial trace.
+Whenever a computational qubit transitions to a noncomputational kind
+(either `Leaked` or `Lost`), theory requires a hidden Z-basis
+measurement to unravel the partial trace.
 The qubit's computational amplitude is entangled with the rest of the
 state, and "removing" it from the coherent subspace — whether by
 hardware loss or by escape to a noncomputational level — must trace
@@ -728,9 +646,9 @@ followed by a conditional Pauli correction so the residual state on
 survivors is the correct conditional state. This is exactly the
 trace-out unraveling the noncomputational transition needs.
 
-The MVP rewriter takes advantage of this directly. At a transition
-`ComputationalUnknown → (Leaked or Lost)`, the rewriter inserts a
-single `R` op on that qubit in the rewritten circuit. Concretely:
+The rewriter takes advantage of this directly. At a recorded jump
+`Computational → (Leaked or Lost)`, it inserts a single `R` op on that
+qubit in the rewritten circuit. Concretely:
 
 1. **No new HIR op or circuit instruction is introduced.** The
    rewriter emits an existing `R` op; the existing frontend lowering
@@ -756,36 +674,30 @@ single `R` op on that qubit in the rewritten circuit. Concretely:
 After the inserted `R`, the rewriter sets the qubit's status to the
 destination noncomputational kind (`Leaked(level)` or `Lost(level)`)
 in the trajectory and dispatches every subsequent op per the policy
-table. Note that `R` semantically leaves the qubit in `|0>`
-`ComputationalKnown` — that residual state is immediately
+table. Note that `R` semantically leaves the qubit in `|0>` — that
+residual state is immediately
 reinterpreted as the noncomputational kind by the trajectory; the
 SVM's own post-`R` state on that qubit is irrelevant because no
 later op reads computational amplitude from it.
 
-The decision to insert `R` is made on the **computational carrier
-state immediately before the jump destination is installed**, not on
-the qubit's status at op entry. The base operation can make a qubit
-coherent before the after-gate transition fires: a qubit can enter an
-op as `ComputationalKnown(g/e)` and be demoted to `ComputationalUnknown`
-by the gate, after which a jump to `Leaked`/`Lost` still has entangled
-computational amplitude to trace out. Conversely, a qubit that is still
-a definite `ComputationalKnown` atom at jump time (the base op did not
-make it coherent) carries no entanglement to unravel, so no `R` is
-needed. The relevant carrier state is therefore
-`normal_post_op_status(entry, op)` — the status the base operation
-would leave if no jump fired — evaluated with the *entry* status still
-used for transition source-column selection.
+The `R` is inserted for **every** recorded jump, deliberately uniform
+over the carrier state: on an entangled carrier the hidden measurement
+is the trace-out unraveling itself, and on a definite carrier — one
+the site collapsed before trapping, or one prepared by a deterministic
+chain — the same hidden measurement is deterministic (no branch, no
+rank growth) and the reset merely rezeros the vacated slot. Eliding
+the reset for provably-definite carriers would require the ledger to
+track basis information the SVM owns; the uniform edit costs one
+deterministic hidden measurement instead.
 
 #### 5.3.1 Carrier materialization at computational destinations
 
-A jump can also land *inside* the computational subspace (§5.2.1 row
-"jump to a Computational-category level →
-`ComputationalKnown(destination_level_id)`"): a relaxation entry such
-as `T[g][e]`, or a recapture entry such as `T[g][lost]`. Updating the
-trajectory status alone is not enough there — the SVM carrier must be
-*materialized* at the destination level, or the bookkeeping silently
-diverges from the quantum state (a `Known(e)` qubit whose matrix says
-it relaxed to `g` would keep measuring 1).
+A jump can also land *inside* the computational subspace: a relaxation
+entry such as `T[g][e]`, or a recapture entry such as `T[g][lost]`.
+Updating the trajectory status alone is not enough there — the SVM
+carrier must be *materialized* at the destination level, or the
+bookkeeping silently diverges from the quantum state (a qubit sitting
+in `|e>` whose matrix says it relaxed to `g` would keep measuring 1).
 
 Conditional on the jump branch, the destination state is the definite
 level `|d>` regardless of what the base op left behind, i.e. the
@@ -801,15 +713,14 @@ immediately after the base op:
 The edit is deliberately uniform over the carrier state the base op
 would leave:
 
-- **Coherent / entangled** (`ComputationalUnknown`): the hidden
-  measurement is the correct unraveling of the collapse, exactly as in
-  the trace-out case above.
-- **Definite** (`ComputationalKnown(k)`): the hidden measurement is
+- **Coherent / entangled carrier**: the hidden measurement is the
+  correct unraveling of the collapse, exactly as in the trace-out case
+  above.
+- **Definite carrier** (in some `|k>`): the hidden measurement is
   deterministic (no branch, no rank growth); the `R`(+`X`) prepares
   `|d>` whether or not `k == d`.
-- **Stale noncomputational residual** (`Leaked`/`Lost` source whose
-  carrier was never traced out because it was a definite atom at
-  departure time): the `R` rezeros the leftover amplitude before the
+- **Noncomputational residual** (a `Leaked`/`Lost` source being
+  recaptured): the `R` rezeros whatever the carrier holds before the
   destination is prepared, so a recapture never resurrects a stale
   bit.
 
@@ -826,29 +737,27 @@ the readout.
 Summary rule, per qubit operand of an op:
 
     pre             = status entering the op
-    post_if_no_jump = normal_post_op_status(pre, op)
-    outcome         = sampled/replayed transition branch (source column from pre)
-    if outcome jumps to a Computational level d:
-        insert R, then X if d is the One level   (materialize the carrier)
-    else if outcome jumps to a Leaked/Lost level
-                 AND post_if_no_jump is ComputationalUnknown:
-        insert R                                  (hidden trace-out)
+    outcome         = recorded/replayed transition branch (source column from pre)
+    if outcome jumps to level d:
+        insert R, then X if d is the One level
+        (trace-out for a noncomputational d, carrier materialization
+         for a computational one)
     final status    = outcome destination (jump wins)
 
 ## 6. New C++ headers and dependency order
 
 Proposed layout under `src/clifft/noncomp/` (new directory):
 
-1. `qubit_status.h` — `QubitStatusKind` enum, `QubitStatus` aggregate
-   with `computational_unknown()` factory and accessors
-   (`is_unknown_computational`, `known_source_level`,
-   `require_classical_source_level`). Zero clifft-internal deps.
+1. `qubit_status.h` — `QubitStatusKind` enum, `QubitStatus` value type
+   with the `computational()` factory (level-less by construction) and
+   the noncomputational `_unchecked` factories. Zero clifft-internal
+   deps.
 2. `level.h` — `LevelCategory` enum, `Level` struct,
    `LevelSet` (validated table that owns the `QubitStatus` factories
-   `computational_known` / `leaked` / `lost`). Depends on (1).
-3. `transition_instrument.h/.cc` — `TransitionInstrument`,
-   matrix-to-branch expansion, derived
-   `is_source_independent_on_computational` flag. Depends on (2).
+   `leaked` / `lost` and the `status_for` category dispatch). Depends
+   on (1).
+3. `transition_instrument.h/.cc` — `TransitionInstrument`: validated
+   `T[to, from]` matrix with cached column sums. Depends on (2).
 4. `classifier.h/.cc` — `MeasurementClassifier`, column-substochastic
    `(symbols, levels)` map with derived `reject_probability(level_id)`.
    Depends on (2).
@@ -885,9 +794,12 @@ constructor and its `LevelSet`-fingerprint mechanics to users.
 
 ## 7. Test plan (dependency order)
 
-Each test category lands once the headers it needs are in place. C++
-tests under `tests/test_noncomp_*.cc`; Python tests under
-`tests/python/test_noncomputational.py`.
+This is the original MVP test plan, kept as a record of what each
+layer had to demonstrate. The suites evolved with the pipeline -- the
+AOT-era items (the history sampler, the known/unknown status split and
+its accessors, the source-independence flag) retired with their code,
+and the current shape is what `tests/test_noncomp_*.cc` and
+`tests/python/` contain.
 
 1. **`qubit_status`, `level`, `transition_instrument`, `classifier`
    unit tests.**

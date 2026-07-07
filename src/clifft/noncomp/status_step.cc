@@ -38,39 +38,9 @@ std::optional<uint8_t> sole_lost_level(const LevelSet& levels) {
     return found;
 }
 
-namespace {
-
-// Z-diagonal operations preserve computational-basis populations, so a
-// known energy level survives them unchanged; X-type operations flip the
-// populations, mapping each known level to the other one. Everything
-// else mixes the basis and demotes knownness. Conservative by default: a
-// newly added gate demotes until it is deliberately classified here.
-bool preserves_known_level(GateType g) {
-    switch (g) {
-        case GateType::Z:
-        case GateType::S:
-        case GateType::S_DAG:
-        case GateType::T:
-        case GateType::T_DAG:
-        case GateType::R_Z:
-        case GateType::CZ:
-        case GateType::R_ZZ:
-            return true;
-        default:
-            return false;
-    }
-}
-
-bool flips_known_level(GateType g) {
-    return g == GateType::X || g == GateType::Y;
-}
-
-}  // namespace
-
 OperandAction operand_action(GateType gate, QubitStatusKind kind,
                              const NonComputationalPolicy& policy) {
-    if (kind == QubitStatusKind::ComputationalKnown ||
-        kind == QubitStatusKind::ComputationalUnknown) {
+    if (kind == QubitStatusKind::Computational) {
         return OperandAction::Apply;
     }
 
@@ -118,28 +88,15 @@ OperandAction operand_action(GateType gate, QubitStatusKind kind,
 }
 
 QubitStatus normal_post_op_status(const QubitStatus& entry, GateType gate, OperandRole role,
-                                  const NonComputationalPolicy& policy, const LevelSet& levels) {
+                                  const NonComputationalPolicy& policy) {
     const QubitStatusKind kind = entry.kind();
 
-    if (role == OperandRole::FeedbackX) {
-        // A classically-controlled X is virtual (no leakage), but may flip
-        // g<->e on a control bit unknown before SVM execution, so a known
-        // computational qubit demotes; noncomputational and already-unknown
-        // qubits are left as they are.
-        if (kind == QubitStatusKind::ComputationalKnown) {
-            return QubitStatus::computational_unknown();
-        }
+    if (role == OperandRole::FeedbackX || role == OperandRole::FeedbackZ) {
+        // A classically-controlled correction is virtual (no physical
+        // pulse): it may act within H_C but cannot move a qubit between
+        // categories.
         return entry;
     }
-    if (role == OperandRole::FeedbackZ) {
-        // A classically-controlled Z is phase-only: it cannot change the
-        // energy level, so the status is unchanged.
-        return entry;
-    }
-
-    const bool z_reset = gate == GateType::R || gate == GateType::MR;
-    const bool xy_reset = gate == GateType::RX || gate == GateType::RY || gate == GateType::MRX ||
-                          gate == GateType::MRY;
 
     if (kind == QubitStatusKind::Leaked || kind == QubitStatusKind::Lost) {
         // A noncomputational qubit's status changes only when a reset
@@ -147,50 +104,20 @@ QubitStatus normal_post_op_status(const QubitStatus& entry, GateType gate, Opera
         // that operation is dropped or rejected is decided later by the
         // rewriter). Lost is only restorable when the policy opts in;
         // Leaked always restores.
+        const bool reset = gate == GateType::R || gate == GateType::MR || gate == GateType::RX ||
+                           gate == GateType::RY || gate == GateType::MRX || gate == GateType::MRY;
         const bool restorable = kind == QubitStatusKind::Leaked || policy.reset_restores_lost;
-        if (z_reset && restorable) {
-            return levels.computational_known(levels.computational_zero_id());
-        }
-        if (xy_reset && restorable) {
-            return QubitStatus::computational_unknown();
+        if (reset && restorable) {
+            return QubitStatus::computational();
         }
         return entry;
     }
 
-    // Computational source (Known or Unknown).
-    if (z_reset) {
-        return levels.computational_known(levels.computational_zero_id());
-    }
-    if (xy_reset) {
-        return QubitStatus::computational_unknown();
-    }
-    if (gate == GateType::M) {
-        // Pre-SVM-known semantics: a Z-basis measurement does not pin a
-        // value the history layer can use. Known stays Known (its value
-        // was already known); Unknown stays Unknown (the outcome lives in
-        // the SVM, not here).
-        return entry;
-    }
-    if (gate == GateType::EXP_VAL || gate == GateType::MPAD) {
-        return entry;  // non-destructive probe / classical measurement pad
-    }
-    if (kind == QubitStatusKind::ComputationalKnown) {
-        // Z-diagonal gates leave a definite energy level definite; X-type
-        // gates map it to the other level, still definite.
-        if (preserves_known_level(gate)) {
-            return entry;
-        }
-        if (flips_known_level(gate)) {
-            const uint8_t flipped = entry.level_id() == levels.computational_zero_id()
-                                        ? levels.computational_one_id()
-                                        : levels.computational_zero_id();
-            return levels.computational_known(flipped);
-        }
-    }
-    // Any other quantum operation -- a basis-mixing gate, Pauli noise, or
-    // an X/Y or multi-qubit measurement -- makes the energy level
-    // indefinite, so a known computational qubit demotes to unknown.
-    return QubitStatus::computational_unknown();
+    // A computational qubit stays computational under every normal
+    // operation: no gate, measurement, or reset moves it between
+    // categories, and which basis state it holds is SVM runtime
+    // information the ledger never tracks.
+    return entry;
 }
 
 QubitStatus step_status(const QubitStatus& entry, GateType gate, OperandRole role,
@@ -199,7 +126,7 @@ QubitStatus step_status(const QubitStatus& entry, GateType gate, OperandRole rol
     if (outcome.jumped) {
         return levels.status_for(outcome.destination_level);
     }
-    return normal_post_op_status(entry, gate, role, policy, levels);
+    return normal_post_op_status(entry, gate, role, policy);
 }
 
 QubitStatus step_status_dropped(const QubitStatus& entry, const TransitionOutcome& outcome,

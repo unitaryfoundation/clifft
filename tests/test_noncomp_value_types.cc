@@ -89,30 +89,6 @@ TEST_CASE("LevelSet: rejects fewer than two Computational levels") {
 // LevelSet status factories
 // =========================================================================
 
-TEST_CASE("LevelSet::computational_known accepts a Computational level id") {
-    LevelSet set = LevelSet::default_set();
-    QubitStatus s = set.computational_known(0);
-    REQUIRE(s.kind() == QubitStatusKind::ComputationalKnown);
-    REQUIRE(s.level_id() == 0);
-
-    QubitStatus t = set.computational_known(1);
-    REQUIRE(t.kind() == QubitStatusKind::ComputationalKnown);
-    REQUIRE(t.level_id() == 1);
-}
-
-TEST_CASE("LevelSet::computational_known rejects non-Computational ids") {
-    LevelSet set = LevelSet::default_set();
-    REQUIRE_THROWS_AS(set.computational_known(2),  // leak_g
-                      std::invalid_argument);
-    REQUIRE_THROWS_AS(set.computational_known(4),  // lost
-                      std::invalid_argument);
-}
-
-TEST_CASE("LevelSet::computational_known rejects out-of-range id") {
-    LevelSet set = LevelSet::default_set();
-    REQUIRE_THROWS_WITH(set.computational_known(99), ContainsSubstring("out of range"));
-}
-
 TEST_CASE("LevelSet::leaked accepts a Leaked level id, rejects others") {
     LevelSet set = LevelSet::default_set();
     REQUIRE_NOTHROW(set.leaked(2));   // leak_g
@@ -136,56 +112,22 @@ TEST_CASE("LevelSet::lost accepts a Lost level id, rejects others") {
 // QubitStatus
 // =========================================================================
 
-TEST_CASE("QubitStatus::computational_unknown carries kInvalidLevel") {
-    QubitStatus s = QubitStatus::computational_unknown();
-    REQUIRE(s.kind() == QubitStatusKind::ComputationalUnknown);
+TEST_CASE("QubitStatus::computational carries kInvalidLevel") {
+    QubitStatus s = QubitStatus::computational();
+    REQUIRE(s.kind() == QubitStatusKind::Computational);
     REQUIRE(s.level_id() == kInvalidLevel);
 }
 
-TEST_CASE("QubitStatus::is_unknown_computational is true only for Unknown") {
+TEST_CASE("QubitStatus::is_computational is true only for the computational kind") {
     LevelSet set = LevelSet::default_set();
-    REQUIRE(QubitStatus::computational_unknown().is_unknown_computational());
-    REQUIRE_FALSE(set.computational_known(0).is_unknown_computational());
-    REQUIRE_FALSE(set.leaked(2).is_unknown_computational());
-    REQUIRE_FALSE(set.lost(4).is_unknown_computational());
-}
-
-TEST_CASE("QubitStatus::known_source_level returns nullopt on Unknown, id otherwise") {
-    LevelSet set = LevelSet::default_set();
-
-    REQUIRE_FALSE(QubitStatus::computational_unknown().known_source_level().has_value());
-
-    auto k = set.computational_known(1).known_source_level();
-    REQUIRE(k.has_value());
-    REQUIRE(*k == 1);
-
-    auto leaked = set.leaked(2).known_source_level();
-    REQUIRE(leaked.has_value());
-    REQUIRE(*leaked == 2);
-
-    auto lost = set.lost(4).known_source_level();
-    REQUIRE(lost.has_value());
-    REQUIRE(*lost == 4);
-}
-
-TEST_CASE("QubitStatus::require_classical_source_level throws on Unknown") {
-    LevelSet set = LevelSet::default_set();
-
-    REQUIRE_THROWS_AS(QubitStatus::computational_unknown().require_classical_source_level(),
-                      std::invalid_argument);
-
-    REQUIRE(set.computational_known(0).require_classical_source_level() == 0);
-    REQUIRE(set.leaked(3).require_classical_source_level() == 3);
-    REQUIRE(set.lost(4).require_classical_source_level() == 4);
+    REQUIRE(QubitStatus::computational().is_computational());
+    REQUIRE_FALSE(set.leaked(2).is_computational());
+    REQUIRE_FALSE(set.lost(4).is_computational());
 }
 
 TEST_CASE("QubitStatus _unchecked factories build without table validation") {
     // These are the only paths that don't require a LevelSet. Useful
     // for interior code and tests; the name flags the responsibility.
-    QubitStatus s = QubitStatus::computational_known_unchecked(7);
-    REQUIRE(s.kind() == QubitStatusKind::ComputationalKnown);
-    REQUIRE(s.level_id() == 7);
-
     QubitStatus t = QubitStatus::leaked_unchecked(9);
     REQUIRE(t.kind() == QubitStatusKind::Leaked);
     REQUIRE(t.level_id() == 9);

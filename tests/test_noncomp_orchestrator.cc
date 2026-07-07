@@ -424,10 +424,8 @@ TEST_CASE("sample_noncomputational: a leaked measurement feeds the observable th
 TEST_CASE("sample_noncomputational: a jump to the ground level forces the measurement to 0") {
     // The S transition collapses the H-prepared |+> to the g level; without
     // the materializing collapse the M would read 1 on ~half the shots. The
-    // fire resolves entirely inside the VM, so the ledger honestly reports
-    // ComputationalUnknown -- the refinement to a known level is ledger
-    // knowledge, not a physics claim (both kinds map to "computational" at
-    // the Python surface).
+    // fire resolves entirely inside the VM; the sidecar reports the bare
+    // computational kind, never a level claim.
     Circuit c = parse("H 0\nS 0\nM 0\n");
     std::map<std::string, TransitionInstrument> transitions;
     transitions.emplace("S", always_to_g(LevelSet::default_set()));
@@ -437,7 +435,7 @@ TEST_CASE("sample_noncomputational: a jump to the ground level forces the measur
         REQUIRE(bit == 0);
     }
     for (uint32_t shot = 0; shot < s.shots; ++shot) {
-        REQUIRE(s.final_status[shot].kind() == QubitStatusKind::ComputationalUnknown);
+        REQUIRE(s.final_status[shot].kind() == QubitStatusKind::Computational);
     }
 }
 
@@ -452,7 +450,7 @@ TEST_CASE("sample_noncomputational: a jump to the excited level forces the measu
         REQUIRE(bit == 1);
     }
     for (uint32_t shot = 0; shot < s.shots; ++shot) {
-        REQUIRE(s.final_status[shot].kind() == QubitStatusKind::ComputationalUnknown);
+        REQUIRE(s.final_status[shot].kind() == QubitStatusKind::Computational);
     }
 }
 

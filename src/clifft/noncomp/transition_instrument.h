@@ -22,12 +22,9 @@
 // special case rather than something carved out of the diagonal.
 //
 // Construction binds the instrument to a LevelSet so the matrix
-// shape can be checked against the level table and the
-// is_source_independent_on_computational flag can be computed.
-// Source-dependent matrices (where Computational-category columns
-// differ) are valid here; whether they are applicable to a given
-// qubit is enforced at sample time against the QubitStatusKind of
-// the target qubit.
+// shape can be checked against the level table. Source-dependent
+// matrices (where Computational-category columns differ) are fully
+// supported: the source level is resolved at sample time.
 
 #include "clifft/noncomp/level.h"
 
@@ -43,9 +40,6 @@ class TransitionInstrument {
     //   - matrix is square with dimension equal to levels.size();
     //   - every entry lies in [0, 1];
     //   - every column sum lies in [0, 1].
-    // Computes and caches is_source_independent_on_computational (true
-    // iff every column whose source level has category Computational
-    // is equal within tolerance to the others).
     static TransitionInstrument from_matrix(std::vector<std::vector<double>> matrix,
                                             const LevelSet& levels);
 
@@ -62,10 +56,6 @@ class TransitionInstrument {
     // source level.
     double no_jump_weight(uint8_t from) const;
 
-    bool is_source_independent_on_computational() const {
-        return is_source_independent_on_computational_;
-    }
-
     // Fingerprint of the LevelSet this instrument was built against.
     // A model rejects an instrument whose fingerprint does not match
     // its own level table.
@@ -73,14 +63,13 @@ class TransitionInstrument {
 
   private:
     TransitionInstrument(std::vector<double> matrix_flat, std::vector<double> column_sums,
-                         bool is_source_independent_on_computational, uint64_t level_fingerprint);
+                         uint64_t level_fingerprint);
 
     // Row-major flat storage: matrix_flat_[to * num_levels() + from].
     // One allocation, contiguous memory; column-traversal accessors
     // walk a single buffer instead of dereferencing per-row vectors.
     std::vector<double> matrix_flat_;
     std::vector<double> column_sums_;
-    bool is_source_independent_on_computational_;
     uint64_t level_fingerprint_;
 };
 

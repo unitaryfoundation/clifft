@@ -177,8 +177,8 @@ uint8_t draw_from_column(const TransitionInstrument& instrument, uint8_t source,
 // append-only stream would replay old outcomes at the wrong targets.
 // Reused outcomes keep the executed prefix's compilation stable;
 // first-seen consults live only in the not-yet-executed suffix, so a
-// fresh draw is unbiased. Returns the walk's final statuses (computed
-// from the real, uncanonicalized initials). The walk is the single
+// fresh draw is unbiased. Returns the walk's final statuses. The walk
+// is the single
 // source of truth for which consults are classical, so the events
 // stream always matches what rewrite_continuation will validate.
 std::vector<QubitStatus> extend_classical_outcomes(const Circuit& annotated,
@@ -271,29 +271,25 @@ std::vector<QubitStatus> extend_classical_outcomes(const Circuit& annotated,
         for (const QubitOperand& operand : qubit_operands(node)) {
             const QubitStatus pre = status[operand.qubit];
             status[operand.qubit] =
-                drop_op ? pre
-                        : normal_post_op_status(pre, gate, operand.role, model.policy(), levels);
+                drop_op ? pre : normal_post_op_status(pre, gate, operand.role, model.policy());
         }
     }
     events.classical_outcomes = std::move(ordered);
     return status;
 }
 
-// Cache key: the canonicalized status-outcome delta. Computational
-// initial levels canonicalize to the zero level -- the rewrite provably
-// depends on initial statuses only through their kinds (plus levels for
-// noncomputational initials) -- so shots differing only in |1> preloads
-// share one module.
-std::string cache_key(const ExactShotEvents& events, const LevelSet& levels) {
+// Cache key: the status-outcome delta. A computational initial status
+// carries no level (the |1> preload is a per-shot frame bit, not a
+// module property), so shots differing only in computational initials
+// share one module by construction; leaked/lost initials contribute
+// their level.
+std::string cache_key(const ExactShotEvents& events) {
     std::string key;
     key.reserve(events.initial_status.size() * 2 + 10 + events.jumps.size() * 9 +
                 events.classical_outcomes.size() * 10);
     for (const QubitStatus& s : events.initial_status) {
         key.push_back(static_cast<char>(s.kind()));
-        const bool classical =
-            s.kind() == QubitStatusKind::Leaked || s.kind() == QubitStatusKind::Lost;
-        key.push_back(classical ? static_cast<char>(s.level_id())
-                                : static_cast<char>(levels.computational_zero_id()));
+        key.push_back(static_cast<char>(s.level_id()));
     }
     auto push32 = [&key](uint32_t v) {
         for (int b = 0; b < 4; ++b) {
@@ -319,16 +315,6 @@ std::string cache_key(const ExactShotEvents& events, const LevelSet& levels) {
         key.push_back(static_cast<char>(outcome.destination_level));
     }
     return key;
-}
-
-ExactShotEvents canonicalize(const ExactShotEvents& events, const LevelSet& levels) {
-    ExactShotEvents canonical = events;
-    for (QubitStatus& s : canonical.initial_status) {
-        if (s.kind() == QubitStatusKind::ComputationalKnown) {
-            s = levels.status_for(levels.computational_zero_id());
-        }
-    }
-    return canonical;
 }
 
 // One rewritten continuation plus its per-herald-flag compiled modules.
@@ -513,13 +499,11 @@ NonComputationalSample sample_noncomputational_exact(const Circuit& circuit,
     // deterministic in the events and consumes no randomness, so a fetch
     // never perturbs sampling.
     auto get_entry = [&](const ExactShotEvents& events, bool force_last) -> ContinuationEntry& {
-        const std::string key =
-            cache_key(events, levels) + static_cast<char>(force_last ? 'F' : 'f');
+        const std::string key = cache_key(events) + static_cast<char>(force_last ? 'F' : 'f');
         auto [it, inserted] = cache.try_emplace(key);
         ContinuationEntry& entry = it->second;
         if (inserted) {
-            entry.rw =
-                rewrite_continuation(annotated, canonicalize(events, levels), force_last, model);
+            entry.rw = rewrite_continuation(annotated, events, force_last, model);
         }
         return entry;
     };
@@ -582,8 +566,7 @@ NonComputationalSample sample_noncomputational_exact(const Circuit& circuit,
 
     // The shared main line: the continuation of "nothing happened".
     ExactShotEvents no_events;
-    no_events.initial_status.assign(circuit.num_qubits,
-                                    levels.status_for(levels.computational_zero_id()));
+    no_events.initial_status.assign(circuit.num_qubits, QubitStatus::computational());
     ContinuationEntry& main_entry = get_entry(no_events, false);
     CompiledModule* main_module = get_module(
         main_entry, std::vector<uint8_t>(main_entry.rw.classified_measurements.size(), 0), nullptr,
@@ -613,9 +596,15 @@ NonComputationalSample sample_noncomputational_exact(const Circuit& circuit,
 
         ExactShotEvents events;
         events.initial_status.reserve(circuit.num_qubits);
+        // The drawn levels stay driver-local: the status ledger carries no
+        // level for computational qubits, and the only consumer of a
+        // computational initial's identity is the |1> frame preload below.
+        std::vector<uint8_t> initial_levels;
+        initial_levels.reserve(circuit.num_qubits);
         bool any_noncomp_initial = false;
         for (uint32_t q = 0; q < circuit.num_qubits; ++q) {
             const uint8_t level = draw_initial_level(model, driver_rng);
+            initial_levels.push_back(level);
             events.initial_status.push_back(levels.status_for(level));
             const QubitStatusKind kind = events.initial_status.back().kind();
             any_noncomp_initial |= kind == QubitStatusKind::Leaked || kind == QubitStatusKind::Lost;
@@ -671,12 +660,10 @@ NonComputationalSample sample_noncomputational_exact(const Circuit& circuit,
         if (state.meas_record.size() < module->total_meas_slots) {
             state.meas_record.resize(module->total_meas_slots, 0);
         }
-        // Known |1> initial levels are an X at time zero: a Pauli, so a
+        // A |1> initial level is an X at time zero: a Pauli, so a
         // per-shot frame preload rather than a distinct module.
         for (uint32_t q = 0; q < circuit.num_qubits; ++q) {
-            const QubitStatus& s = events.initial_status[q];
-            if (s.kind() == QubitStatusKind::ComputationalKnown &&
-                s.level_id() == levels.computational_one_id()) {
+            if (initial_levels[q] == levels.computational_one_id()) {
                 bit_set(state.p_x, q, true);
             }
         }

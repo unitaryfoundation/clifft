@@ -190,8 +190,7 @@ void process_ordinary_node(const AstNode& node, uint32_t op_index,
             classified_level = pre.level_id();
         }
 
-        status[qubit] =
-            drop_op ? pre : normal_post_op_status(pre, gate, operand.role, policy, levels);
+        status[qubit] = drop_op ? pre : normal_post_op_status(pre, gate, operand.role, policy);
     }
 
     if (!drop_op) {
@@ -395,25 +394,20 @@ ContinuationRewrite rewrite_continuation(const Circuit& annotated, const ExactSh
                                      op_index == events.jumps.back().op_index &&
                                      qubit == events.jumps.back().qubit;
 
-                const Level& dest = levels.at(jump->second);
-                size_t r_node = SIZE_MAX;
-                if (dest.category == LevelCategory::Computational) {
-                    r_node = out.nodes.size();
-                    out.nodes.push_back(single_qubit_op(GateType::R, qubit));
-                    if (jump->second == levels.computational_one_id()) {
-                        out.nodes.push_back(single_qubit_op(GateType::X, qubit));
-                    }
-                } else if (pre.kind() == QubitStatusKind::ComputationalUnknown) {
-                    r_node = out.nodes.size();
-                    out.nodes.push_back(single_qubit_op(GateType::R, qubit));
+                // Every jump resets its carrier at the site. For a
+                // noncomputational destination the R is the trace-out
+                // unraveling (a hidden measurement plus corrective Pauli
+                // under reset lowering -- deterministic here, because the
+                // site collapsed the carrier before trapping); for a
+                // computational destination it re-prepares the carrier at
+                // the destination level, with an X appended for |1>. A
+                // forced neglect trace-out points at the same reset.
+                const size_t r_node = out.nodes.size();
+                out.nodes.push_back(single_qubit_op(GateType::R, qubit));
+                if (jump->second == levels.computational_one_id()) {
+                    out.nodes.push_back(single_qubit_op(GateType::X, qubit));
                 }
                 if (is_last && force_last_traceout) {
-                    if (r_node == SIZE_MAX) {
-                        throw std::invalid_argument(
-                            "rewrite_continuation: force_last_traceout on a jump that emits no "
-                            "carrier reset (the qubit's level is already definite at op " +
-                            std::to_string(op_index) + ")");
-                    }
                     traceout_node = r_node;
                 }
                 status[qubit] = levels.status_for(jump->second);

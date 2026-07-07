@@ -2,7 +2,6 @@
 
 #include "clifft/noncomp/numeric.h"
 
-#include <cmath>
 #include <cstdint>
 #include <stdexcept>
 #include <string>
@@ -62,43 +61,14 @@ TransitionInstrument TransitionInstrument::from_matrix(std::vector<std::vector<d
         column_sums[from] = sum > 1.0 ? 1.0 : sum;
     }
 
-    // is_source_independent_on_computational: every column whose source
-    // level has category Computational must equal the first such column
-    // within tolerance. Vacuously true if there are fewer than two
-    // Computational levels (LevelSet validation guarantees exactly two).
-    bool flag = true;
-    const auto levels_span = levels.levels();
-    uint8_t first_comp = 0xFF;
-    for (size_t from = 0; from < n; ++from) {
-        if (levels_span[from].category != LevelCategory::Computational) {
-            continue;
-        }
-        if (first_comp == 0xFF) {
-            first_comp = static_cast<uint8_t>(from);
-            continue;
-        }
-        for (size_t to = 0; to < n; ++to) {
-            if (std::abs(flat[to * n + first_comp] - flat[to * n + from]) > kProbTolerance) {
-                flag = false;
-                break;
-            }
-        }
-        if (!flag) {
-            break;
-        }
-    }
-
-    return TransitionInstrument(std::move(flat), std::move(column_sums), flag,
-                                levels.fingerprint());
+    return TransitionInstrument(std::move(flat), std::move(column_sums), levels.fingerprint());
 }
 
 TransitionInstrument::TransitionInstrument(std::vector<double> matrix_flat,
                                            std::vector<double> column_sums,
-                                           bool is_source_independent_on_computational,
                                            uint64_t level_fingerprint)
     : matrix_flat_(std::move(matrix_flat)),
       column_sums_(std::move(column_sums)),
-      is_source_independent_on_computational_(is_source_independent_on_computational),
       level_fingerprint_(level_fingerprint) {}
 
 double TransitionInstrument::prob(uint8_t to, uint8_t from) const {

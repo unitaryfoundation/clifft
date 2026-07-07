@@ -18,6 +18,7 @@
 #include <catch2/matchers/catch_matchers_string.hpp>
 #include <cmath>
 #include <cstdint>
+#include <map>
 #include <string>
 #include <vector>
 
@@ -34,6 +35,7 @@ struct ModelSpec {
     double leak_from_g = 0.0;
     double leak_from_e = 0.0;
     double seep_to_e = 0.0;
+    double flip_g_to_e = 0.0;
     std::vector<double> initial = {1.0, 0.0, 0.0, 0.0, 0.0};
     DampingPolicy damping = DampingPolicy::Exact;
 };
@@ -44,6 +46,14 @@ NonComputationalModel make_model(const ModelSpec& spec) {
     leak[kLeak][0] = spec.leak_from_g;
     leak[kLeak][1] = spec.leak_from_e;
     leak[1][kLeak] = spec.seep_to_e;
+    std::map<std::string, std::vector<std::vector<double>>> transitions{{"leak", leak}};
+    if (spec.flip_g_to_e > 0.0) {
+        // A purely computational g -> e transition: its fires resolve
+        // in-line inside the VM and never trap.
+        std::vector<std::vector<double>> flip(5, std::vector<double>(5, 0.0));
+        flip[1][0] = spec.flip_g_to_e;
+        transitions.emplace("flip", std::move(flip));
+    }
 
     ClassifierSpec classifier;
     classifier.symbols = {"0", "1"};
@@ -51,8 +61,7 @@ NonComputationalModel make_model(const ModelSpec& spec) {
 
     NonComputationalPolicy policy;
     policy.damping = spec.damping;
-    return NonComputationalModel::from_spec(levels, spec.initial, {{"leak", leak}}, classifier,
-                                            policy);
+    return NonComputationalModel::from_spec(levels, spec.initial, transitions, classifier, policy);
 }
 
 double mean_of(const std::vector<uint8_t>& bits, uint32_t stride, uint32_t index) {
@@ -103,7 +112,7 @@ TEST_CASE("exact: a certain leak traps, classifies, and reports the status") {
         REQUIRE(result.measurements[shot * 2] == 1);      // classifier: leaked reads 1
         REQUIRE(result.measurements[shot * 2 + 1] == 0);  // spectator
         REQUIRE(result.final_status[shot * 2].kind() == QubitStatusKind::Leaked);
-        REQUIRE(result.final_status[shot * 2 + 1].kind() == QubitStatusKind::ComputationalKnown);
+        REQUIRE(result.final_status[shot * 2 + 1].kind() == QubitStatusKind::Computational);
     }
 }
 
@@ -151,8 +160,55 @@ TEST_CASE("exact: seepage after a trap recaptures through a classical consult") 
     auto result = sample_noncomputational(circuit, model, 20, 13);
     for (uint32_t shot = 0; shot < 20; ++shot) {
         REQUIRE(result.measurements[shot] == 1);
-        REQUIRE(result.final_status[shot].kind() == QubitStatusKind::ComputationalKnown);
+        REQUIRE(result.final_status[shot].kind() == QubitStatusKind::Computational);
     }
+}
+
+TEST_CASE("exact: an in-line computational fire is never reported as a known level") {
+    // From g, the flip site fires g -> e inside the VM on ~half the
+    // shots; the driver never learns which shots fired, so the sidecar
+    // must not claim a known level for either population. The
+    // measurement mixture pins that the fire really happens.
+    ModelSpec spec;
+    spec.flip_g_to_e = 0.5;
+    auto model = make_model(spec);
+    auto circuit = parse("LEVEL_TRANSITION[flip] 0\nM 0");
+
+    auto result = sample_noncomputational(circuit, model, 200, 17);
+    int ones = 0;
+    for (uint32_t shot = 0; shot < 200; ++shot) {
+        ones += result.measurements[shot];
+        REQUIRE(result.final_status[shot].kind() == QubitStatusKind::Computational);
+    }
+    REQUIRE(ones > 60);
+    REQUIRE(ones < 140);
+}
+
+TEST_CASE("exact: a later trap composes with an earlier in-line fire") {
+    // The flip site fires g -> e inside the VM; the leak site then fires
+    // only from e (p = 1), so exactly the flipped shots trap. Per shot, a
+    // leaked status must coincide with a classified 1 and a computational
+    // status with a quantum 0: the trap resolves against the state's true
+    // level, not the status walk's pre-fire bookkeeping.
+    ModelSpec spec;
+    spec.flip_g_to_e = 0.5;
+    spec.leak_from_e = 1.0;
+    auto model = make_model(spec);
+    auto circuit = parse("LEVEL_TRANSITION[flip] 0\nLEVEL_TRANSITION[leak] 0\nM 0");
+
+    auto result = sample_noncomputational(circuit, model, 200, 19);
+    int leaked = 0;
+    for (uint32_t shot = 0; shot < 200; ++shot) {
+        if (result.final_status[shot].kind() == QubitStatusKind::Leaked) {
+            ++leaked;
+            REQUIRE(result.measurements[shot] == 1);
+        } else {
+            REQUIRE(result.final_status[shot].kind() == QubitStatusKind::Computational);
+            REQUIRE(result.measurements[shot] == 0);
+        }
+    }
+    REQUIRE(leaked > 60);
+    REQUIRE(leaked < 140);
 }
 
 TEST_CASE("exact: a source-independent rate matches its closed form") {
@@ -460,7 +516,7 @@ TEST_CASE("exact: a hand-written multi-target annotation traps on one target") {
         REQUIRE(result.measurements[shot * 2] == 1);      // q0 leaked, classified
         REQUIRE(result.measurements[shot * 2 + 1] == 0);  // q1 in g: never fires
         REQUIRE(result.final_status[shot * 2].kind() == QubitStatusKind::Leaked);
-        REQUIRE(result.final_status[shot * 2 + 1].kind() == QubitStatusKind::ComputationalKnown);
+        REQUIRE(result.final_status[shot * 2 + 1].kind() == QubitStatusKind::Computational);
     }
 }
 

@@ -33,27 +33,23 @@
 //      computational readout confusion as an asymmetric READOUT_NOISE on
 //      its slot -- the misreport probabilities P(1 | zero level) and
 //      P(0 | one level) -- when those columns are not the identity.
-//   3. Hidden trace-out: when a coherent qubit jumps to a Leaked or Lost
-//      level, insert an R on that qubit at the annotation's position.
-//      The existing reset lowering turns it into a hidden measurement plus a
-//      corrective Pauli; it adds no visible measurement and shifts no record
-//      index. "Coherent" means the qubit's status at the annotation's
-//      position is ComputationalUnknown; a definite atom needs no
-//      unraveling.
-//   4. Carrier materialization: when a jump lands on a computational level,
-//      insert an R (plus an X for the |1> level) at the annotation's
-//      position, so the SVM carrier is prepared at the definite
-//      destination level. This is done for every carrier state: it is the
-//      collapse unraveling for a coherent carrier, a deterministic re-prep
-//      for a known one, and it rezeros a stale residual when a leaked or
-//      lost qubit is recaptured. Like the trace-out, it shifts no record
-//      index.
+//   3. Carrier trace-out / re-prep: every recorded jump inserts an R on
+//      its qubit at the annotation's position, plus an X when the
+//      destination is the |1> level. For a Leaked or Lost destination the
+//      reset is the trace-out unraveling: the existing reset lowering
+//      turns it into a hidden measurement plus a corrective Pauli, adding
+//      no visible measurement and shifting no record index, and the
+//      site's collapse-before-trap makes that hidden measurement
+//      deterministic. For a computational destination the same reset
+//      prepares the SVM carrier at the definite destination level -- the
+//      collapse unraveling for a coherent carrier, and a rezero of stale
+//      residual when a leaked or lost qubit is recaptured.
 //
 // Transition consults happen only at LEVEL_TRANSITION and LOSS annotations
-// (gate hooks are expanded by annotate() before rewriting). A consult whose
-// qubit's level is definite is consumed against its pre-drawn outcome; one
-// whose qubit is coherent stays a runtime instrument site. The rewriter
-// does not sample, compile, or run the SVM.
+// (gate hooks are expanded by annotate() before rewriting). A consult on a
+// leaked or lost qubit is consumed against its pre-drawn outcome; one on a
+// computational qubit stays a runtime instrument site. The rewriter does
+// not sample, compile, or run the SVM.
 
 #include "clifft/circuit/circuit.h"
 #include "clifft/noncomp/model.h"

@@ -40,6 +40,10 @@ struct NonComputationalSample {
     std::vector<uint8_t> observables;
 
     // Sidecar: each qubit's final status per shot, row-major [shot, qubit].
+    // Leaked/lost statuses carry their driver-drawn per-shot level.
+    // Computational statuses carry no level: fires with computational
+    // destinations resolve inside the VM without reaching the driver, so
+    // no final level is knowable here.
     std::vector<QubitStatus> final_status;
 
     // Sidecar: 1 where the classifier sampled the herald (third) symbol for

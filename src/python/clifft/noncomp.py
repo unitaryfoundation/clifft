@@ -172,11 +172,10 @@ class NonComputationalSample:
     Attributes:
         measurements, detectors, observables: uint8 arrays, shape (shots, width).
         final_status: uint8 array (shots, num_qubits) of :class:`QubitStatusKind`.
-            Reports the classical ledger's knowledge: leaked/lost statuses are
-            per-shot truth, while a transition resolved entirely inside the
-            simulator (a computational destination on a coherent qubit)
-            leaves the qubit reported as computational without refining
-            which level it landed on.
+            Leaked/lost statuses are per-shot truth. Computational qubits
+            report as a single category: transitions with computational
+            destinations resolve entirely inside the simulator, so no
+            final level is claimed.
             Coarse: it reports computational/leaked/lost, not the specific leaked
             or lost level.
         heralds: uint8 array (shots, num_measurements); 1 where the classifier
