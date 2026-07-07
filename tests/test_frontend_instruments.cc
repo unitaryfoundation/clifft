@@ -295,3 +295,42 @@ TEST_CASE("trace: a hand-built LOSS without its argument rejects") {
     c.nodes.push_back(AstNode{GateType::LOSS, {Target::qubit(0)}, {}, 0});
     REQUIRE_THROWS_WITH(trace(c, &options), ContainsSubstring("exactly one argument"));
 }
+
+// =============================================================================
+// forced_traceout_node / forced_traceout_slot
+// =============================================================================
+
+TEST_CASE("trace: forced_traceout_node reports the hidden slot of the requested reset") {
+    // The SINGLE-arity parser emits one node per target, so "R 2 3" becomes
+    // two nodes. Parsed circuit: M 0 (n0), M 1 (n1), R 2 (n2), R 3 (n3),
+    // R 4 (n4), M 5 (n5). num_visible = 3; hidden_meas_idx starts at 3.
+    //   node 2 (R 2): hidden slot 3
+    //   node 3 (R 3): hidden slot 4  <- forced_traceout_node = 3
+    //   node 4 (R 4): hidden slot 5
+    // forced_traceout_slot = 4 (third hidden slot, index 1 in hidden slots)
+    InstrumentTraceOptions options;
+    options.forced_traceout_node = 3;  // R 3 (second of the two split resets)
+    auto hir = trace(parse("M 0\nM 1\nR 2 3\nR 4\nM 5"), &options);
+    REQUIRE(hir.forced_traceout_slot == 4);
+}
+
+TEST_CASE("trace: forced_traceout_node on the first reset yields slot == num_visible") {
+    // Circuit: R 0  M 1  M 2
+    //   node 0: R 0 -> hidden slot 2 (num_visible = 2)
+    //   node 1: M 1 -> visible slot 0
+    //   node 2: M 2 -> visible slot 1
+    // hidden before node 0 = 0
+    // forced_traceout_slot = 2 + 0 = 2
+    InstrumentTraceOptions options;
+    options.forced_traceout_node = 0;  // R 0, the first and only reset
+    auto hir = trace(parse("R 0\nM 1\nM 2"), &options);
+    REQUIRE(hir.forced_traceout_slot == 2);
+}
+
+TEST_CASE("trace: forced_traceout_node unset leaves forced_traceout_slot empty") {
+    // No forced_traceout_node set: the output slot stays at its default.
+    InstrumentTraceOptions options;
+    // forced_traceout_node defaults to nullopt -- no request
+    auto hir = trace(parse("M 0\nR 1\nM 2"), &options);
+    REQUIRE(!hir.forced_traceout_slot.has_value());
+}

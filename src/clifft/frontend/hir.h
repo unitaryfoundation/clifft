@@ -20,6 +20,7 @@
 
 #include <cassert>
 #include <complex>
+#include <cstddef>
 #include <cstdint>
 #include <optional>
 #include <stdexcept>
@@ -427,6 +428,12 @@ struct HirModule {
     std::vector<std::vector<uint32_t>> source_map;
 
     std::optional<stim::Tableau<kStimWidth>> final_tableau;
+
+    // Hidden measurement slot trace() assigned to the requested node's
+    // reset (set when InstrumentTraceOptions::forced_traceout_node names a
+    // node index whose hidden-branch target trace() processes; nullopt
+    // when no slot was requested or the node was not encountered).
+    std::optional<size_t> forced_traceout_slot;
 
     /// True when the evolution is a fixed unitary: no measurements, noise,
     /// readout noise, or measurement-conditioned Paulis. Deterministic

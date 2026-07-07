@@ -723,6 +723,18 @@ HirModule trace(const Circuit& circuit, const InstrumentTraceOptions* instrument
                                 slot.set_sign(sign);
                             });
                         meas_op.set_hidden(true);
+                        // Report the hidden slot to the caller when this node
+                        // is the one it requested. The slot is reported through
+                        // hir.forced_traceout_slot; the assert guards against a
+                        // multi-target reset being supplied as the request (the
+                        // rewriter only ever names single-target Rs).
+                        if (instruments != nullptr &&
+                            instruments->forced_traceout_node.has_value() &&
+                            node_index == *instruments->forced_traceout_node) {
+                            assert(!hir.forced_traceout_slot.has_value() &&
+                                   "forced_traceout_node named a multi-target reset");
+                            hir.forced_traceout_slot = this_meas;
+                        }
                     } else {
                         this_meas = static_cast<uint32_t>(meas_idx);
                         hir.append_measure(meas_idx, [&](MutablePauliMaskView slot) {

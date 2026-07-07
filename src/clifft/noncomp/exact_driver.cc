@@ -303,6 +303,10 @@ std::string cache_key(const ExactShotEvents& events) {
 struct ContinuationEntry {
     ContinuationRewrite rw;
     std::map<std::vector<uint8_t>, CompiledModule> modules;
+    // Hidden measurement slot trace() assigned to the forced trace-out reset
+    // named by rw.forced_traceout_node. Populated on first compile;
+    // subsequent flag-variant compiles assert it is consistent.
+    std::optional<size_t> forced_traceout_slot;
 };
 
 void check_max_rank(const CompiledModule& module, std::optional<uint32_t> max_rank) {
@@ -507,7 +511,34 @@ NonComputationalSample sample_noncomputational_exact(const Circuit& circuit,
                     patched.nodes[m.noise_node].args[0] = 0.5;
                 }
             }
-            HirModule hir = trace(patched, &instrument_options);
+            // When the rewrite names a forced trace-out node, ask trace()
+            // to report the hidden slot it assigns to that reset.
+            HirModule hir = [&]() -> HirModule {
+                if (entry.rw.forced_traceout_node.has_value()) {
+                    InstrumentTraceOptions opts = instrument_options;
+                    opts.forced_traceout_node = entry.rw.forced_traceout_node;
+                    return trace(patched, &opts);
+                }
+                return trace(patched, &instrument_options);
+            }();
+            if (entry.rw.forced_traceout_node.has_value()) {
+                if (!hir.forced_traceout_slot.has_value()) {
+                    throw std::logic_error(
+                        "sample_noncomputational: trace() did not encounter the forced "
+                        "trace-out reset at node " +
+                        std::to_string(*entry.rw.forced_traceout_node) +
+                        "; the rewrite and trace() must walk the same stream");
+                }
+                // First compile: record the slot. Later flag-variant
+                // compiles: assert it is consistent (same circuit, same R
+                // node, same hidden numbering -- the slot cannot differ).
+                if (!entry.forced_traceout_slot.has_value()) {
+                    entry.forced_traceout_slot = hir.forced_traceout_slot;
+                } else {
+                    assert(entry.forced_traceout_slot == hir.forced_traceout_slot &&
+                           "flag-variant compile yielded a different forced_traceout_slot");
+                }
+            }
 #ifndef NDEBUG
             const std::vector<uint32_t> pre_pass_records = record_sequence(hir);
 #endif
@@ -527,8 +558,8 @@ NonComputationalSample sample_noncomputational_exact(const Circuit& circuit,
                     std::to_string(entry.rw.site_targets.size()) +
                     "; the rewriter and trace() must elide zero-fire sites identically");
             }
-            if (entry.rw.forced_traceout_slot != SIZE_MAX) {
-                swap_traceout_to_forced(module, entry.rw.forced_traceout_slot);
+            if (entry.rw.forced_traceout_node.has_value()) {
+                swap_traceout_to_forced(module, *entry.forced_traceout_slot);
             }
 #ifndef NDEBUG
             // Re-entry contract: the continuation's prefix must be
@@ -701,9 +732,9 @@ NonComputationalSample sample_noncomputational_exact(const Circuit& circuit,
 
             // A neglect-form trap hands its carrier over uncollapsed; the
             // continuation's trace-out is forced to the reported source,
-            // read from forced_record at the slot the rewrite names. The
-            // forced value is per-shot runtime state, so the module stays
-            // source-independent.
+            // read from forced_record at the slot trace() assigned to the
+            // rewrite's named reset node. The forced value is per-shot
+            // runtime state, so the module stays source-independent.
             const bool force = trap.destination_pending;
             const uint32_t prefix_end = module->instrument_offsets[trap.site_id] + 1;
             ContinuationEntry& next_entry = get_entry(events, force);
@@ -711,7 +742,11 @@ NonComputationalSample sample_noncomputational_exact(const Circuit& circuit,
                 get_module(next_entry, flags_for(next_entry.rw), module, prefix_end);
 
             if (force) {
-                const size_t slot = next_entry.rw.forced_traceout_slot;
+                // get_module always populates forced_traceout_slot before
+                // returning when forced_traceout_node is set.
+                assert(next_entry.forced_traceout_slot.has_value() &&
+                       "forced trace-out slot not populated by get_module");
+                const size_t slot = *next_entry.forced_traceout_slot;
                 if (forced_buffer.size() <= slot) {
                     forced_buffer.resize(slot + 1, 0);
                 }

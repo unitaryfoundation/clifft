@@ -137,18 +137,20 @@ struct ExactShotEvents {
 // A compiled-continuation rewrite: the circuit, the classifier record
 // writes in its suffix, and -- when the *last* jump in the chain traps at
 // a site whose collapse could not happen in-line (a neglect-form site on
-// a coherent carrier) -- the hidden record slot of that jump's carrier
-// reset, which the driver forces to the trap's reported source.
+// a coherent carrier) -- the node index (in the rewritten stream) of the
+// last recorded jump's trace-out reset, which the driver hands to trace()
+// to obtain the hidden slot. Every jump emits a reset, so the forced form
+// always has one to point at.
 struct ContinuationRewrite {
     Circuit circuit;
     std::vector<ClassifiedMeasurement> classified_measurements;
 
-    // Hidden record slot of the reset that collapses the last jump's
-    // carrier -- the trace-out R of a noncomputational destination, or
-    // the materializing R of a computational one -- or SIZE_MAX when the
-    // caller did not request forcing. Every jump emits a reset, so the
-    // forced form always has one to point at.
-    size_t forced_traceout_slot = SIZE_MAX;
+    // Node index (in the rewritten stream) of the last recorded jump's
+    // trace-out reset, or nullopt when the caller did not request forcing.
+    // The driver hands this to trace() via
+    // InstrumentTraceOptions::forced_traceout_node; trace() reports the
+    // hidden slot it assigns through HirModule::forced_traceout_slot.
+    std::optional<size_t> forced_traceout_node;
 
     // Annotation target of each kept (runtime-instrument) site, in
     // emission order -- which is trace()'s materialization order, so the

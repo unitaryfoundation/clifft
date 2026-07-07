@@ -18,7 +18,9 @@
 #include "clifft/circuit/circuit.h"
 #include "clifft/frontend/hir.h"
 
+#include <cstddef>
 #include <map>
+#include <optional>
 #include <string>
 
 namespace clifft {
@@ -44,6 +46,14 @@ struct InstrumentTraceOptions {
     // damping="neglect": dormant-random sites skip the expansion and the
     // no-fire back-action. Copied onto every materialized site.
     bool neglect_damping = false;
+
+    // When set, trace() reports the hidden measurement slot it assigns to
+    // the reset at this node index (in the circuit being traced) through
+    // HirModule::forced_traceout_slot. The caller is responsible for
+    // ensuring the named node is a single-target pure reset (R/RX/RY);
+    // trace() sets the output field when it processes that node's
+    // hidden-branch target. nullopt means no slot is requested.
+    std::optional<size_t> forced_traceout_node;
 };
 
 // Trace a circuit through the Front-End, producing a HirModule.
