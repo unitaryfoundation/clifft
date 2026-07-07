@@ -18,9 +18,11 @@ namespace clifft {
 
 SchrodingerState::SchrodingerState(StateConfig cfg) : peak_rank_(cfg.peak_rank), rng_(0) {
     uint32_t peak_rank = cfg.peak_rank;
-    if (peak_rank >= 63) {
+    if (peak_rank >= 60) {
         throw std::invalid_argument(
-            "peak_rank >= 63 would cause undefined behavior in 1ULL << peak_rank");
+            "peak_rank >= 60 would overflow the amplitude array's byte size (2^peak_rank * 16 "
+            "must fit in size_t); peak_rank " +
+            std::to_string(peak_rank) + " is too large");
     }
     if (cfg.seed.has_value()) {
         rng_.seed(*cfg.seed);
@@ -46,55 +48,77 @@ SchrodingerState::SchrodingerState(StateConfig cfg) : peak_rank_(cfg.peak_rank),
     v_[0] = {1.0, 0.0};
 }
 
-void SchrodingerState::allocate_array(uint32_t peak_rank) {
-    peak_rank_ = peak_rank;
-    v_ = nullptr;
-    v_is_mmap_ = false;
-    array_size_ = 1ULL << peak_rank;
-    size_t bytes = array_size_ * sizeof(std::complex<double>);
+// Allocate a new amplitude array for `peak_rank` without touching any member.
+// Returns the raw pointer, the actual allocated byte count, and whether the
+// allocation used mmap (true) or aligned_alloc (false). The mmap path arrives
+// zero-filled from the kernel; the aligned_alloc path must be zeroed by the
+// caller. Throws std::bad_alloc on OOM; throws nothing else. Members are
+// committed only by the two callers (allocate_array and grow_for_continuation).
+struct AllocResult {
+    std::complex<double>* ptr;
+    size_t alloc_bytes;
+    bool is_mmap;
+};
+
+static AllocResult alloc_amplitude_array(uint32_t peak_rank) {
+    const uint64_t array_size = 1ULL << peak_rank;
+    const size_t bytes = array_size * sizeof(std::complex<double>);
     // Round up to page boundary for mmap/aligned_alloc compatibility.
-    size_t aligned_bytes = (bytes + 4095) & ~4095ULL;
-    v_alloc_bytes_ = aligned_bytes;
+    const size_t aligned_bytes = (bytes + 4095) & ~4095ULL;
+
+    AllocResult result{nullptr, aligned_bytes, false};
 
 #if defined(__linux__)
     // Try MAP_HUGETLB for 2MB huge pages (works without THP kernel support).
     // Only worthwhile for allocations >= 2MB.
     static constexpr size_t kHugePageSize = 2 * 1024 * 1024;
     if (aligned_bytes >= kHugePageSize) {
-        size_t huge_aligned = (aligned_bytes + kHugePageSize - 1) & ~(kHugePageSize - 1);
+        const size_t huge_aligned = (aligned_bytes + kHugePageSize - 1) & ~(kHugePageSize - 1);
         void* p = mmap(nullptr, huge_aligned, PROT_READ | PROT_WRITE,
                        MAP_PRIVATE | MAP_ANONYMOUS | MAP_HUGETLB, -1, 0);
         if (p != MAP_FAILED) {
-            v_ = static_cast<std::complex<double>*>(p);
-            v_alloc_bytes_ = huge_aligned;
-            v_is_mmap_ = true;
+            result.ptr = static_cast<std::complex<double>*>(p);
+            result.alloc_bytes = huge_aligned;
+            result.is_mmap = true;
         }
     }
 
-    if (!v_) {
+    if (!result.ptr) {
         // Align to huge page boundary so madvise(MADV_HUGEPAGE) works on any
         // architecture (ARM64 may use 16KB or 64KB base pages).
-        size_t alloc_bytes = (aligned_bytes >= kHugePageSize)
-                                 ? ((aligned_bytes + kHugePageSize - 1) & ~(kHugePageSize - 1))
-                                 : aligned_bytes;
-        size_t alloc_align = (aligned_bytes >= kHugePageSize) ? kHugePageSize : 4096;
-        v_ = static_cast<std::complex<double>*>(aligned_alloc_portable(alloc_align, alloc_bytes));
-        if (!v_) {
+        const size_t alloc_bytes =
+            (aligned_bytes >= kHugePageSize)
+                ? ((aligned_bytes + kHugePageSize - 1) & ~(kHugePageSize - 1))
+                : aligned_bytes;
+        const size_t alloc_align = (aligned_bytes >= kHugePageSize) ? kHugePageSize : 4096;
+        result.ptr =
+            static_cast<std::complex<double>*>(aligned_alloc_portable(alloc_align, alloc_bytes));
+        if (!result.ptr) {
             throw std::bad_alloc();
         }
         if (aligned_bytes >= kHugePageSize) {
-            madvise(v_, alloc_bytes, MADV_HUGEPAGE);
+            madvise(result.ptr, alloc_bytes, MADV_HUGEPAGE);
         }
-        v_alloc_bytes_ = alloc_bytes;
+        result.alloc_bytes = alloc_bytes;
     }
 #else
-    if (!v_) {
-        v_ = static_cast<std::complex<double>*>(aligned_alloc_portable(4096, aligned_bytes));
-        if (!v_) {
-            throw std::bad_alloc();
-        }
+    result.ptr = static_cast<std::complex<double>*>(aligned_alloc_portable(4096, aligned_bytes));
+    if (!result.ptr) {
+        throw std::bad_alloc();
     }
 #endif
+
+    return result;
+}
+
+void SchrodingerState::allocate_array(uint32_t peak_rank) {
+    const AllocResult alloc = alloc_amplitude_array(peak_rank);
+
+    peak_rank_ = peak_rank;
+    v_ = alloc.ptr;
+    v_is_mmap_ = alloc.is_mmap;
+    array_size_ = 1ULL << peak_rank;
+    v_alloc_bytes_ = alloc.alloc_bytes;
 
     // mmap(MAP_ANONYMOUS) guarantees zero-filled pages from the kernel.
     // Only aligned_alloc needs explicit zeroing. Parallelizing the fill
@@ -128,21 +152,56 @@ void SchrodingerState::free_array() noexcept {
 void SchrodingerState::grow_for_continuation(uint32_t peak_rank) {
     assert(pending_trap.has_value() &&
            "the amplitude array may grow only at the trap boundary, under a pending trap");
-    if (peak_rank >= 63) {
+    if (peak_rank >= 60) {
         throw std::invalid_argument(
-            "peak_rank >= 63 would cause undefined behavior in 1ULL << peak_rank");
+            "peak_rank >= 60 would overflow the amplitude array's byte size (2^peak_rank * 16 "
+            "must fit in size_t); peak_rank " +
+            std::to_string(peak_rank) + " is too large");
     }
     if ((1ULL << peak_rank) <= array_size_) {
         return;
     }
 
+    // Snapshot the live prefix size before any mutation so the memcpy below
+    // copies exactly the active amplitudes from the old buffer.
+    const uint64_t live = v_size();
+
+    // Allocate the new buffer into locals; on OOM alloc_amplitude_array throws
+    // before any member is touched, leaving the state completely valid.
+    const AllocResult alloc = alloc_amplitude_array(peak_rank);
+
+    // Zero the non-mmap allocation (mmap pages arrive zero-filled from the
+    // kernel). The full array_size entries must be zeroed, not only the live
+    // prefix, because the continuation will write into the upper half.
+    if (!alloc.is_mmap) {
+        const uint64_t new_array_size = 1ULL << peak_rank;
+        int64_t n = static_cast<int64_t>(new_array_size);
+        if (peak_rank >= kMinRankForThreads) {
+#pragma omp parallel for schedule(static)
+            for (int64_t i = 0; i < n; ++i) {
+                alloc.ptr[i] = {0.0, 0.0};
+            }
+        } else {
+            for (int64_t i = 0; i < n; ++i) {
+                alloc.ptr[i] = {0.0, 0.0};
+            }
+        }
+    }
+
+    // Copy the live prefix from the old buffer into the new one.
+    std::memcpy(alloc.ptr, v_, live * sizeof(std::complex<double>));
+
+    // Free the old buffer.
     std::complex<double>* old_v = v_;
     const size_t old_bytes = v_alloc_bytes_;
     const bool old_mmap = v_is_mmap_;
-    const uint64_t live = v_size();
 
-    allocate_array(peak_rank);
-    std::memcpy(v_, old_v, live * sizeof(std::complex<double>));
+    // Commit all members only after the new allocation and copy have succeeded.
+    v_ = alloc.ptr;
+    v_alloc_bytes_ = alloc.alloc_bytes;
+    v_is_mmap_ = alloc.is_mmap;
+    array_size_ = 1ULL << peak_rank;
+    peak_rank_ = peak_rank;
 
 #if defined(__linux__)
     if (old_mmap) {
@@ -152,6 +211,7 @@ void SchrodingerState::grow_for_continuation(uint32_t peak_rank) {
     }
 #else
     (void)old_bytes;
+    (void)old_mmap;
     aligned_free_portable(old_v);
 #endif
 }

@@ -8,11 +8,14 @@
 
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/matchers/catch_matchers_floating_point.hpp>
+#include <catch2/matchers/catch_matchers_string.hpp>
 #include <cmath>
 #include <complex>
+#include <stdexcept>
 #include <vector>
 
 using namespace clifft;
+using Catch::Matchers::ContainsSubstring;
 using Catch::Matchers::WithinAbs;
 using Catch::Matchers::WithinRel;
 using clifft::test::check_complex;
@@ -84,6 +87,15 @@ TEST_CASE("SchrodingerState config initializes optional buffers and seed") {
     CHECK(a.obs_record.size() == 3);
     CHECK(a.exp_vals.size() == 4);
     CHECK(a.random_double() == b.random_double());
+}
+
+TEST_CASE("SchrodingerState rejects peak_rank >= 60") {
+    // 2^60 * 16 bytes == 2^64 bytes, which wraps to 0 in size_t on a 64-bit
+    // platform. The guard fires before any allocation attempt.
+    REQUIRE_THROWS_AS(SchrodingerState(StateConfig{.peak_rank = 60}), std::invalid_argument);
+    REQUIRE_THROWS_WITH(SchrodingerState(StateConfig{.peak_rank = 60}),
+                        ContainsSubstring("peak_rank >= 60 would overflow the amplitude array's "
+                                          "byte size"));
 }
 
 // =============================================================================

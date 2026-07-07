@@ -629,11 +629,17 @@ NonComputationalSample sample_noncomputational_exact(const Circuit& circuit,
         // flags after it keeps every driver draw ahead of module lookup.
         ContinuationEntry* entry = &main_entry;
         CompiledModule* module = main_module;
-        std::vector<QubitStatus> final_status =
-            extend_classical_outcomes(annotated, events, model, driver_rng);
+        // An all-computational, no-jump walk consumes no randomness and
+        // moves no status: statuses leave Computational only via jumps or
+        // noncomputational initials, and classical consults happen only for
+        // noncomputational statuses.
+        std::vector<QubitStatus> final_status;
         if (any_noncomp_initial) {
+            final_status = extend_classical_outcomes(annotated, events, model, driver_rng);
             entry = &get_entry(events, false);
             module = get_module(*entry, flags_for(entry->rw), nullptr, 0);
+        } else {
+            final_status.assign(circuit.num_qubits, QubitStatus::Computational);
         }
 
         if (shot > 0) {
@@ -645,9 +651,9 @@ NonComputationalSample sample_noncomputational_exact(const Circuit& circuit,
             state = make_state(state_rank, state_slots);
         }
         state.reseed(derive_seed(global_seed, shot, kExactSvmDomain));
-        if (state.meas_record.size() < module->total_meas_slots) {
-            state.meas_record.resize(module->total_meas_slots, 0);
-        }
+        assert(state.meas_record.size() >= module->total_meas_slots &&
+               "the rebuild block above guarantees meas_record capacity; "
+               "meas_record never shrinks");
         // A |1> initial level is an X at time zero: a Pauli, so a
         // per-shot frame preload rather than a distinct module.
         for (uint32_t q = 0; q < circuit.num_qubits; ++q) {
@@ -677,6 +683,8 @@ NonComputationalSample sample_noncomputational_exact(const Circuit& circuit,
             // remains. The VM reports the collapsed source as its
             // computational axis index, which is the level index by
             // construction (G = 0, E = 1).
+            assert(trap.source <= 1 &&
+                   "the VM reports the collapsed source as a computational axis index");
             const Level source = static_cast<Level>(trap.source);
             Level dest = Level::Lost;
             if (channel.instrument != nullptr && trap.destination_pending) {
