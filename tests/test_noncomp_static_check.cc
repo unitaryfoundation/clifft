@@ -180,3 +180,40 @@ TEST_CASE("static_check: a leak on qubit 0 does not affect qubit 1's reachable s
     REQUIRE(result.shots == 8);
     REQUIRE(result.measurements.size() == 8);
 }
+
+TEST_CASE("static check: a certain recapture retires the noncomputational member") {
+    // The qubit starts entirely on leak_e; the S hook's leak_e column
+    // recaptures to g with certainty, so MX always meets a computational
+    // qubit. The no-event branch of the leak_e source is unreachable, so
+    // the member must not survive the transition in the abstract walk.
+    auto m = zeros5();
+    m[kLeakE][kG] = 0.1;
+    m[kLeakE][kE] = 0.1;
+    m[kG][kLeakE] = 1.0;
+    auto model = NonComputationalModel::from_spec({0.0, 0.0, 0.0, 1.0, 0.0}, {{"S", m}},
+                                                  std::nullopt, NonComputationalPolicy{});
+    auto circuit = parse("S 0\nMX 0");
+
+    auto result = sample_noncomputational(circuit, model, 4, 1);
+    REQUIRE(result.shots == 4);
+    for (uint32_t shot = 0; shot < 4; ++shot) {
+        REQUIRE(result.final_status[shot] == QubitStatus::Computational);
+    }
+}
+
+TEST_CASE("static check: a re-leak after the certain recapture still rejects") {
+    // Same model, but a second S: after the certain recapture the
+    // computational columns leak again (rate 0.1), so at MX the leaked
+    // status is genuinely reachable and the pair must reject.
+    auto m = zeros5();
+    m[kLeakE][kG] = 0.1;
+    m[kLeakE][kE] = 0.1;
+    m[kG][kLeakE] = 1.0;
+    auto model = NonComputationalModel::from_spec({0.0, 0.0, 0.0, 1.0, 0.0}, {{"S", m}},
+                                                  std::nullopt, NonComputationalPolicy{});
+    auto circuit = parse("S 0\nS 0\nMX 0");
+
+    REQUIRE_THROWS_WITH(sample_noncomputational(circuit, model, 1, 1),
+                        ContainsSubstring("MX") && ContainsSubstring("not representable") &&
+                            ContainsSubstring("before sampling"));
+}

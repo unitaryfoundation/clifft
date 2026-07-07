@@ -609,3 +609,29 @@ def test_static_check_r_restores_leak_before_mx():
     result = noncomp.sample("S 0\nR 0\nMX 0", model, shots=8, seed=1)
     assert result.shots == 8
     assert result.measurements.shape == (8, 1)
+
+
+def test_static_check_certain_recapture_accepts_mx():
+    """A qubit starting on leak_e whose S hook recaptures to g with
+    certainty always meets MX computationally; the no-event branch of the
+    leak_e source is unreachable, so the reachability walk must retire it."""
+    m = _zeros(5, 5)
+    m[LEAK_E][noncomp.Level.G] = 0.1
+    m[LEAK_E][noncomp.Level.E] = 0.1
+    m[noncomp.Level.G][LEAK_E] = 1.0
+    model = noncomp.Model(initial_state=[0.0, 0.0, 0.0, 1.0, 0.0], transitions={"S": m})
+    result = noncomp.sample("S 0\nMX 0", model, shots=4, seed=1)
+    assert result.measurements.shape == (4, 1)
+    assert (result.final_status[:, 0] == COMPUTATIONAL).all()
+
+
+def test_static_check_re_leak_after_recapture_rejects():
+    """After the certain recapture, a second S can leak again from the
+    computational columns, so MX genuinely can meet a leaked qubit."""
+    m = _zeros(5, 5)
+    m[LEAK_E][noncomp.Level.G] = 0.1
+    m[LEAK_E][noncomp.Level.E] = 0.1
+    m[noncomp.Level.G][LEAK_E] = 1.0
+    model = noncomp.Model(initial_state=[0.0, 0.0, 0.0, 1.0, 0.0], transitions={"S": m})
+    with pytest.raises(ValueError, match="representable"):
+        noncomp.sample("S 0\nS 0\nMX 0", model, shots=1, seed=1)

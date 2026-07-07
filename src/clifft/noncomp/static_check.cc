@@ -3,9 +3,11 @@
 // Runs an abstract interpretation over per-qubit sets of reachable
 // QubitStatus values (a uint8_t bitmask), calling the same policy
 // primitives the rewriter calls on concrete statuses.  A set bit at
-// position s means QubitStatus(s) is reachable for that qubit.  Members
-// are only ever added, never removed: transitions are stochastic, so any
-// reachable status stays reachable even if the transition fires.
+// position s means QubitStatus(s) is reachable for that qubit.  The
+// governing rule for stochastic channels: a member survives a channel
+// only when its no-event branch is reachable -- a source whose jump
+// away is certain is replaced by its destinations, exactly as the
+// concrete draw can never keep it.
 //
 // Node kinds and how the abstract walk handles each:
 //
@@ -14,12 +16,15 @@
 //                          members.  For Computational members, the sources
 //                          are G and E; for a noncomp member s, the source
 //                          is noncomp_level(s).  Every destination level
-//                          with prob > 0 adds status_for(dest) to the set.
-//                          No member is removed (the fire is probabilistic).
+//                          with prob > 0 adds status_for(dest); the member
+//                          itself survives only when some source column
+//                          leaves no-fire mass (column_sum < 1).
 //
 //   LOSS(p)                p > 0 adds QubitStatus::Lost to each target's
-//                          set.  p == 0 is a no-op (mirrors trace()'s
-//                          zero-fire elision).
+//                          set; computational and leaked members survive
+//                          only when p < 1 (an already-lost member is a
+//                          no-op).  p == 0 is a no-op entirely (mirrors
+//                          trace()'s zero-fire elision).
 //
 //   All other nodes        For each qubit operand and each member status s:
 //                          * operand_action(gate, s, policy) == Reject  →
@@ -68,11 +73,12 @@ inline bool has_status(StatusSet set, QubitStatus s) {
     return (set & set_of(s)) != 0;
 }
 
-// Initial status set for one qubit: Computational is always reachable.
-// Any noncomputational level with model.initial_probability > 0 also
-// contributes its corresponding QubitStatus.
+// Initial status set for one qubit: every level with initial mass
+// contributes its corresponding QubitStatus (status_for collapses g and
+// e onto Computational). A model whose initial state carries no
+// computational mass starts with no Computational member.
 StatusSet initial_set(const NonComputationalModel& model) {
-    StatusSet s = set_of(QubitStatus::Computational);
+    StatusSet s = 0;
     for (const Level l : kAllLevels) {
         if (model.initial_probability(l) > 0.0) {
             add_status(s, status_for(l));
@@ -82,14 +88,16 @@ StatusSet initial_set(const NonComputationalModel& model) {
 }
 
 // Advance `set` through a LEVEL_TRANSITION node's transition matrix.
-// For each member status s in the current set, iterate the source
-// levels that correspond to s and add status_for(dest) for every dest
-// with instrument.prob(dest, source) > 0.  Members are never removed.
+// Each member is replaced by the image of its source levels: every
+// destination with prob > 0 contributes status_for(dest), and the
+// member itself survives only when some source column leaves no-fire
+// mass (column_sum < 1 -- from_matrix clamps in-tolerance sums to
+// exactly 1, so the comparison is exact for certain columns).
 void advance_transition(StatusSet& set, const TransitionInstrument& instrument) {
-    const StatusSet entry_set = set;  // snapshot: iterate the entry, extend the result
+    StatusSet next = 0;
     for (uint8_t si = 0; si < 4; ++si) {
         const QubitStatus member = static_cast<QubitStatus>(si);
-        if (!has_status(entry_set, member)) {
+        if (!has_status(set, member)) {
             continue;
         }
         // Determine the source levels that correspond to this status.
@@ -99,19 +107,26 @@ void advance_transition(StatusSet& set, const TransitionInstrument& instrument) 
             for (const Level src : {Level::G, Level::E}) {
                 for (const Level dest : kAllLevels) {
                     if (instrument.prob(dest, src) > 0.0) {
-                        add_status(set, status_for(dest));
+                        add_status(next, status_for(dest));
                     }
+                }
+                if (instrument.column_sum(src) < 1.0) {
+                    add_status(next, QubitStatus::Computational);
                 }
             }
         } else {
             const Level src = noncomp_level(member);
             for (const Level dest : kAllLevels) {
                 if (instrument.prob(dest, src) > 0.0) {
-                    add_status(set, status_for(dest));
+                    add_status(next, status_for(dest));
                 }
+            }
+            if (instrument.column_sum(src) < 1.0) {
+                add_status(next, member);
             }
         }
     }
+    set = next;
 }
 
 // Advance `set` through an ordinary (non-annotation) node for one
@@ -195,9 +210,24 @@ void validate_static(const Circuit& annotated, const NonComputationalModel& mode
                         continue;
                     }
                     const uint32_t q = t.value();
-                    if (q < nq) {
-                        add_status(sets[q], QubitStatus::Lost);
+                    if (q >= nq) {
+                        continue;
                     }
+                    // Computational and leaked members can vacate; they
+                    // survive only when the no-fire branch is reachable
+                    // (p < 1). An already-lost member is a no-op.
+                    StatusSet next = 0;
+                    for (uint8_t si = 0; si < 4; ++si) {
+                        const QubitStatus s = static_cast<QubitStatus>(si);
+                        if (!has_status(sets[q], s)) {
+                            continue;
+                        }
+                        add_status(next, QubitStatus::Lost);
+                        if (s == QubitStatus::Lost || p < 1.0) {
+                            add_status(next, s);
+                        }
+                    }
+                    sets[q] = next;
                 }
             }
             // p == 0 is a no-op: the channel can never fire, so Lost is
