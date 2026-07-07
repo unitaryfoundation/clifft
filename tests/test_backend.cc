@@ -225,14 +225,15 @@ static bool all_frame_opcodes(const std::vector<Instruction>& bytecode) {
 // validate_peak_rank guard
 // =============================================================================
 
-TEST_CASE("validate_peak_rank accepts ranks below 63") {
+TEST_CASE("validate_peak_rank accepts ranks below 60") {
     REQUIRE_NOTHROW(validate_peak_rank(0));
     REQUIRE_NOTHROW(validate_peak_rank(1));
     REQUIRE_NOTHROW(validate_peak_rank(31));
-    REQUIRE_NOTHROW(validate_peak_rank(62));
+    REQUIRE_NOTHROW(validate_peak_rank(59));
 }
 
-TEST_CASE("validate_peak_rank rejects ranks at or above 63") {
+TEST_CASE("validate_peak_rank rejects ranks at or above 60") {
+    REQUIRE_THROWS_AS(validate_peak_rank(60), std::runtime_error);
     REQUIRE_THROWS_AS(validate_peak_rank(63), std::runtime_error);
     REQUIRE_THROWS_AS(validate_peak_rank(64), std::runtime_error);
     REQUIRE_THROWS_AS(validate_peak_rank(100), std::runtime_error);
@@ -240,7 +241,7 @@ TEST_CASE("validate_peak_rank rejects ranks at or above 63") {
 
 TEST_CASE("validate_peak_rank rejects 65536 without uint16 wrap") {
     // Regression: an earlier version narrowed the input to uint16_t
-    // before checking >= 63, which silently wrapped a 65,536-axis peak
+    // before checking >= 60, which silently wrapped a 65,536-axis peak
     // (the program activates every axis at the VM ceiling) to 0 and
     // slipped past the guard. Pass the value through as uint32_t and
     // assert the helper rejects.

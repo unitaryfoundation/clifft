@@ -2286,7 +2286,7 @@ exec_exp_val(SchrodingerState& state, const ConstantPool& pool, uint32_t cp_exp_
     }
 
     // Step 3: Active-space evaluation.
-    // peak_rank < 63 invariant -> all active bits are in word[0].
+    // peak_rank < 60 invariant -> all active bits are in word[0].
     uint64_t x_active = 0;
     uint64_t z_active = 0;
     if (k > 0 && pm_x.num_words() > 0) {
