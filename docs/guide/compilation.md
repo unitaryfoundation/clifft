@@ -2,6 +2,14 @@
 
 Clifft compiles Stim-format circuit text into an executable SVM program. For most users, `clifft.compile()` is the only compilation API needed. Lower-level APIs are available when you want to inspect intermediate representations, customize optimization passes, or build your own compilation flow.
 
+!!! tip "Using Qiskit or Cirq?"
+    The core compiler consumes Clifft's Stim-compatible text format. If your
+    circuits start in Qiskit or Cirq, use the companion
+    [`clifft-qiskit`](https://github.com/unitaryfoundation/clifft-qiskit) or
+    [`clifft-cirq`](https://github.com/unitaryfoundation/clifft-cirq) packages
+    to route supported circuits to Clifft. See
+    [Front-End Integrations](../getting-started/integrations.md).
+
 ## One-Step Compilation
 
 For most use cases, `clifft.compile()` parses the circuit, traces Clifford operations into the Heisenberg IR, applies the default HIR and bytecode optimization passes, and returns a simulatable program:

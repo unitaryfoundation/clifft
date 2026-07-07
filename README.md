@@ -82,6 +82,22 @@ print(result.measurements[:5])
 
 For more details and examples, check out the [documentation](https://unitaryfoundation.github.io/clifft) or take Clifft for a spin in the web-based [interactive playground](https://unitaryfoundation.github.io/clifft/playground/).
 
+## Front-End Integrations
+
+Clifft's native API accepts Stim-compatible circuit text. If your workflow
+starts in another circuit framework, companion packages make the supported path
+discoverable:
+
+- **Qiskit**: [`clifft-qiskit`](https://github.com/unitaryfoundation/clifft-qiskit)
+  provides a Qiskit `BackendV2` provider for running supported
+  `QuantumCircuit` instances on Clifft.
+- **Cirq**: [`clifft-cirq`](https://github.com/unitaryfoundation/clifft-cirq)
+  converts parameter-resolved `cirq.Circuit` instances to Clifft text and
+  provides a Cirq-style sampler backed by Clifft.
+
+See the [front-end integrations guide](https://unitaryfoundation.github.io/clifft/getting-started/integrations/)
+for installation commands, minimal examples, and current limitations.
+
 ## Performance
 
 Clifft is designed for near-Clifford circuits where non-Clifford activity remains localized. In this regime, the dominant cost scales with the peak active dimension `k`, not directly with the total number of physical qubits.
