@@ -20,6 +20,7 @@ using Catch::Matchers::ContainsSubstring;
 using Catch::Matchers::WithinAbs;
 using clifft::ClassifierSpec;
 using clifft::GateType;
+using clifft::kAllLevels;
 using clifft::Level;
 using clifft::NonComputationalModel;
 using clifft::NonComputationalPolicy;
@@ -35,7 +36,7 @@ std::vector<std::vector<double>> zero_matrix() {
 
 // Identity readout on g/e; leak_g/lost read "0", leak_e reads "1".
 ClassifierSpec identity_classifier() {
-    return ClassifierSpec{{"0", "1"},
+    return ClassifierSpec{2,
                           {
                               {1, 0, 1, 0, 1},
                               {0, 1, 0, 1, 0},
@@ -90,7 +91,11 @@ TEST_CASE("NonComputationalModel: normalizes the stored initial state") {
     const std::vector<double> raw = {0.5 + 1e-13, 0.5, 0.0, 0.0, 0.0};
     REQUIRE(sum(raw) > 1.0 + 1e-15);  // guard: raw input is not already normalized
     auto model = NonComputationalModel::from_spec(raw, {}, std::nullopt, NonComputationalPolicy{});
-    REQUIRE_THAT(sum(model.initial_state()), WithinAbs(1.0, 1e-15));
+    double stored_sum = 0.0;
+    for (Level level : kAllLevels) {
+        stored_sum += model.initial_probability(level);
+    }
+    REQUIRE_THAT(stored_sum, WithinAbs(1.0, 1e-15));
 }
 
 TEST_CASE("NonComputationalModel: alias key is stored verbatim and hooks the canonical gate") {
@@ -98,7 +103,7 @@ TEST_CASE("NonComputationalModel: alias key is stored verbatim and hooks the can
         default_initial_state(), {{"CNOT", zero_matrix()}}, std::nullopt, NonComputationalPolicy{});
     // Stored under the original key; the hook resolves the canonical gate.
     REQUIRE(model.transitions().count("CNOT") == 1);
-    REQUIRE(model.transition_for(GateType::CX) != nullptr);
+    REQUIRE(model.transition_hooks().at(GateType::CX) == "CNOT");
     REQUIRE(model.transition_named("CNOT") != nullptr);
     // Named lookup is exact-key: the canonical spelling is not a key here.
     REQUIRE(model.transition_named("CX") == nullptr);
@@ -196,12 +201,12 @@ TEST_CASE("NonComputationalModel: initial_probability returns per-level values")
     REQUIRE_THAT(model.initial_probability(Level::Lost), WithinAbs(0.05, 1e-12));
 }
 
-TEST_CASE("NonComputationalModel: transition_for resolves known gates and misses absent ones") {
+TEST_CASE("NonComputationalModel: transition hooks resolve known gates and miss absent ones") {
     auto model = NonComputationalModel::from_spec(default_initial_state(), {{"H", zero_matrix()}},
                                                   std::nullopt, NonComputationalPolicy{});
-    REQUIRE(model.transition_for(GateType::H) != nullptr);
+    REQUIRE(model.transition_hooks().at(GateType::H) == "H");
     REQUIRE(model.transition_named("H") != nullptr);
-    REQUIRE(model.transition_for(GateType::CX) == nullptr);
+    REQUIRE(model.transition_hooks().count(GateType::CX) == 0);
     // Named lookup misses absent keys rather than throwing.
     REQUIRE(model.transition_named("NOT_A_KEY") == nullptr);
 }

@@ -54,7 +54,7 @@ def _check_multiprocessing_omp() -> None:
 _check_multiprocessing_omp()
 del _check_multiprocessing_omp
 
-from clifft import noncomp, twirl
+from clifft import noncomp
 from clifft._clifft_core import (
     AstNode,
     BytecodePass,
@@ -425,7 +425,6 @@ __all__ = [
     "set_num_threads",
     "svm_backend",
     "trace",
-    "twirl",
     "version",
 ]
 

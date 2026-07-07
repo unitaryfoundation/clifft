@@ -6,31 +6,19 @@
 #include <cstdint>
 #include <stdexcept>
 #include <string>
-#include <unordered_set>
-#include <utility>
 
 namespace clifft {
 
 MeasurementClassifier MeasurementClassifier::from_matrix(
-    std::vector<std::string> symbols, const std::vector<std::vector<double>>& matrix) {
-    if (symbols.size() != 2 && symbols.size() != 3) {
+    size_t num_symbols, const std::vector<std::vector<double>>& matrix) {
+    if (num_symbols != 2 && num_symbols != 3) {
         throw std::invalid_argument(
             "MeasurementClassifier::from_matrix: a classifier has two record symbols and an "
             "optional third herald symbol; got " +
-            std::to_string(symbols.size()) + " symbols");
-    }
-    {
-        std::unordered_set<std::string> seen;
-        seen.reserve(symbols.size());
-        for (const auto& s : symbols) {
-            if (!seen.insert(s).second) {
-                throw std::invalid_argument(
-                    "MeasurementClassifier::from_matrix: duplicate symbol '" + s + "'");
-            }
-        }
+            std::to_string(num_symbols) + " symbols");
     }
 
-    const size_t s_n = symbols.size();
+    const size_t s_n = num_symbols;
     if (matrix.size() != s_n) {
         throw std::invalid_argument("MeasurementClassifier::from_matrix: matrix has " +
                                     std::to_string(matrix.size()) + " rows; expected " +
@@ -88,23 +76,14 @@ MeasurementClassifier MeasurementClassifier::from_matrix(
         }
     }
 
-    return MeasurementClassifier(std::move(symbols), std::move(flat));
-}
-
-const std::string& MeasurementClassifier::symbol_label(uint8_t symbol_idx) const {
-    if (symbol_idx >= symbols_.size()) {
-        throw std::invalid_argument("MeasurementClassifier::symbol_label: index " +
-                                    std::to_string(symbol_idx) + " out of range (num_symbols " +
-                                    std::to_string(symbols_.size()) + ")");
-    }
-    return symbols_[symbol_idx];
+    return MeasurementClassifier(num_symbols, std::move(flat));
 }
 
 double MeasurementClassifier::prob(uint8_t symbol_idx, Level level) const {
-    if (symbol_idx >= symbols_.size()) {
+    if (symbol_idx >= num_symbols_) {
         throw std::invalid_argument("MeasurementClassifier::prob: symbol index " +
                                     std::to_string(symbol_idx) + " out of range (num_symbols " +
-                                    std::to_string(symbols_.size()) + ")");
+                                    std::to_string(num_symbols_) + ")");
     }
     return matrix_flat_[static_cast<size_t>(symbol_idx) * kNumLevels + static_cast<size_t>(level)];
 }

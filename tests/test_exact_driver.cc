@@ -55,7 +55,7 @@ NonComputationalModel make_model(const ModelSpec& spec) {
     }
 
     ClassifierSpec classifier;
-    classifier.symbols = {"0", "1"};
+    classifier.num_symbols = 2;
     classifier.matrix = {{1.0, 0.0, 1.0, 0.0, 1.0}, {0.0, 1.0, 0.0, 1.0, 0.0}};
 
     NonComputationalPolicy policy;
@@ -292,7 +292,7 @@ TEST_CASE("exact: a neglect-form trap keeps the fire-side correlation") {
     leak[kLeak][1] = 1.0;   // from e: leak_e, certainly
 
     ClassifierSpec classifier;
-    classifier.symbols = {"0", "1"};
+    classifier.num_symbols = 2;
     classifier.matrix = {{1.0, 0.0, 1.0, 0.0, 1.0},   // leak_g reads 0
                          {0.0, 1.0, 0.0, 1.0, 0.0}};  // leak_e reads 1
 
@@ -354,7 +354,7 @@ TEST_CASE("exact: a chain of two forced traps keeps both correlations") {
     leak[kLeak][1] = 1.0;
 
     ClassifierSpec classifier;
-    classifier.symbols = {"0", "1"};
+    classifier.num_symbols = 2;
     classifier.matrix = {{1.0, 0.0, 1.0, 0.0, 1.0}, {0.0, 1.0, 0.0, 1.0, 0.0}};
 
     NonComputationalPolicy policy;
@@ -387,7 +387,7 @@ TEST_CASE("exact: a neglect fire onto a computational destination stays correlat
     swap_ge[0][1] = 1.0;  // e -> g, certainly
 
     ClassifierSpec classifier;
-    classifier.symbols = {"0", "1"};
+    classifier.num_symbols = 2;
     classifier.matrix = {{1.0, 0.0, 1.0, 0.0, 1.0}, {0.0, 1.0, 0.0, 1.0, 0.0}};
 
     NonComputationalPolicy policy;
@@ -424,7 +424,7 @@ TEST_CASE("exact: herald flags drawn in one continuation are reused by the next"
     leak[kLeak][1] = 1.0;  // certain leak from e
 
     ClassifierSpec classifier;
-    classifier.symbols = {"0", "1", "herald"};
+    classifier.num_symbols = 3;
     classifier.matrix = {
         {1.0, 0.0, 1.0, 0.0, 1.0}, {0.0, 1.0, 0.0, 0.5, 0.0}, {0.0, 0.0, 0.0, 0.5, 0.0}};
 
@@ -541,7 +541,7 @@ TEST_CASE("exact: ternary heralds ride the cache key") {
     leak[kLeak][1] = 1.0;
 
     ClassifierSpec classifier;
-    classifier.symbols = {"0", "1", "herald"};
+    classifier.num_symbols = 3;
     classifier.matrix = {
         {1.0, 0.0, 1.0, 0.0, 1.0}, {0.0, 1.0, 0.0, 0.0, 0.0}, {0.0, 0.0, 0.0, 1.0, 0.0}};
 

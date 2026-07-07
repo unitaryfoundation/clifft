@@ -66,7 +66,7 @@ void register_noncomp(nb::module_& m) {
         "_build_noncomp_model",
         [](std::vector<double> initial_state,
            std::map<std::string, std::vector<std::vector<double>>> transitions,
-           std::optional<std::vector<std::string>> classifier_symbols,
+           std::optional<size_t> classifier_num_symbols,
            std::optional<std::vector<std::vector<double>>> classifier_matrix,
            bool reset_restores_lost, const std::string& damping) {
             clifft::NonComputationalPolicy policy;
@@ -81,20 +81,20 @@ void register_noncomp(nb::module_& m) {
             }
 
             std::optional<clifft::ClassifierSpec> spec;
-            if (classifier_symbols.has_value() || classifier_matrix.has_value()) {
-                if (!classifier_symbols.has_value() || !classifier_matrix.has_value()) {
+            if (classifier_num_symbols.has_value() || classifier_matrix.has_value()) {
+                if (!classifier_num_symbols.has_value() || !classifier_matrix.has_value()) {
                     throw std::invalid_argument(
-                        "noncomp model: a classifier needs both symbols and a matrix");
+                        "noncomp model: a classifier needs both a symbol count and a matrix");
                 }
-                spec = clifft::ClassifierSpec{std::move(*classifier_symbols),
-                                              std::move(*classifier_matrix)};
+                spec =
+                    clifft::ClassifierSpec{*classifier_num_symbols, std::move(*classifier_matrix)};
             }
 
             return clifft::NonComputationalModel::from_spec(std::move(initial_state), transitions,
                                                             std::move(spec), policy);
         },
         nb::arg("initial_state"), nb::arg("transitions"),
-        nb::arg("classifier_symbols") = nb::none(), nb::arg("classifier_matrix") = nb::none(),
+        nb::arg("classifier_num_symbols") = nb::none(), nb::arg("classifier_matrix") = nb::none(),
         nb::arg("reset_restores_lost") = false, nb::arg("damping") = "exact",
         "Build a default 5-level NonComputationalModel from raw matrices. See "
         "clifft.noncomp.Model.");
