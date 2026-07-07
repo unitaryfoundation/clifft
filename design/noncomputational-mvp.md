@@ -453,6 +453,7 @@ and qubit; no silent approximation.
 |--------------------------|---------------|------------------------------------------|---------------------------------------------------|
 | Single-qubit gate        | apply         | drop                                    | drop                                              |
 | Single-qubit Pauli noise | apply         | drop                                    | drop                                              |
+| Correlated-error chain (`E`/`ELSE_CORRELATED_ERROR`) | apply | apply | apply |
 | Two-qubit gate           | apply         | drop                                    | drop                                              |
 | MPP / multi-target meas  | apply         | reject                                  | reject                                            |
 | Visible Z-basis meas `M`              | apply; visible outcome from the SVM | classifier; reject probability per `leak_*` column | classifier; reject probability per `lost` column |
@@ -473,6 +474,18 @@ Notes:
   outcome. A measure-and-reset (`MR`/`MRX`/`MRY`) is kept instead — its
   record is the classifier bit and its reset re-prepares the site, so
   the readout basis is incidental on a vacated carrier.
+- A correlated-error chain is never dropped, whatever its operands'
+  statuses: each member must keep its slot in the else-conditioning
+  (dropping the head would orphan the later members; dropping a middle
+  member would hand its firing probability to them), and a mixed-operand
+  member must keep its surviving qubits' Pauli components. Separable
+  noise needs no such care because the parser splits it one node per
+  target. Applying a chain member to a vacated carrier is sound because
+  **vacated carriers are unobservable** — the one contract this whole
+  table implements: records come from the classifier, gates on
+  noncomputational operands drop, every restoration begins with a
+  reset, and expectation probes are rejected. A Pauli frame flip parked
+  on such a carrier is therefore never read.
 - There is no separate `RL` op in MVP. Lost-qubit reset drops by default
   (the vacated site is unaffected); the `policy.reset_restores_lost`
   flag turns it into a reload that restores the qubit to a

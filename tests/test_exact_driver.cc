@@ -73,6 +73,24 @@ double mean_of(const std::vector<uint8_t>& bits, uint32_t stride, uint32_t index
     return n > 0 ? sum / static_cast<double>(n) : 0.0;
 }
 
+// Source-independent: g and e both jump to lost with certainty.
+// The classifier is faithful on the computational columns (g reads 0,
+// e reads 1); the noncomputational columns read the parked-carrier
+// convention (leak_g/lost read 0, leak_e reads 1).
+NonComputationalModel make_lose_model() {
+    std::vector<std::vector<double>> lose(5, std::vector<double>(5, 0.0));
+    lose[kLost][0] = 1.0;  // g -> lost, certainly
+    lose[kLost][1] = 1.0;  // e -> lost, certainly
+
+    ClassifierSpec classifier;
+    classifier.num_symbols = 2;
+    classifier.matrix = {{1.0, 0.0, 1.0, 0.0, 1.0}, {0.0, 1.0, 0.0, 1.0, 0.0}};
+
+    NonComputationalPolicy policy;
+    return NonComputationalModel::from_spec({1.0, 0.0, 0.0, 0.0, 0.0}, {{"lose", lose}}, classifier,
+                                            policy);
+}
+
 }  // namespace
 
 TEST_CASE("exact: an untrapped run reproduces plain sampling behavior") {
@@ -698,5 +716,79 @@ TEST_CASE("exact: a seepage-only transition still seeps a noncomputational qubit
     for (uint32_t shot = 0; shot < 20; ++shot) {
         REQUIRE(result.measurements[shot] == 1);  // recaptured to |e>=|1>, M reads 1
         REQUIRE(result.final_status[shot] == QubitStatus::Computational);
+    }
+}
+
+// =========================================================================
+// Correlated-chain passthrough on noncomputational operands
+// =========================================================================
+
+TEST_CASE("exact: a correlated-chain head with a lost operand does not orphan the ELSE") {
+    // q0 is lost before the E node: the head must keep its slot in the
+    // else-conditioning rather than being dropped. E(1) fires with
+    // certainty, so the ELSE never fires. q0 final status is Lost; its
+    // record reads 0 (identity classifier). q1 record reads 1 (X1 from the
+    // fired head).
+    auto model = make_lose_model();
+    auto circuit = parse(
+        "LEVEL_TRANSITION[lose] 0\n"
+        "E(1) X0 X1\n"
+        "ELSE_CORRELATED_ERROR(1) X1\n"
+        "M 0 1\n");
+
+    auto result = sample_noncomputational(circuit, model, 25, 71);
+    for (uint32_t shot = 0; shot < 25; ++shot) {
+        REQUIRE(result.measurements[shot * 2] == 0);      // lost reads 0
+        REQUIRE(result.measurements[shot * 2 + 1] == 1);  // X1 from fired head
+        REQUIRE(result.final_status[shot * 2] == QubitStatus::Lost);
+        REQUIRE(result.final_status[shot * 2 + 1] == QubitStatus::Computational);
+    }
+}
+
+TEST_CASE("exact: a fired head with a lost operand prevents the ELSE from firing") {
+    // Conditioning pin: E(1) fires (head always fires, operating on the
+    // vacated q0 carrier), so the ELSE must NOT fire -- if the head were
+    // dropped the ELSE would become the new head and fire, flipping q1.
+    // q1 record must read 0 every shot.
+    auto model = make_lose_model();
+    auto circuit = parse(
+        "LEVEL_TRANSITION[lose] 0\n"
+        "E(1) X0\n"
+        "ELSE_CORRELATED_ERROR(1) X1\n"
+        "M 0 1\n");
+
+    auto result = sample_noncomputational(circuit, model, 25, 73);
+    for (uint32_t shot = 0; shot < 25; ++shot) {
+        REQUIRE(result.measurements[shot * 2 + 1] == 0);  // ELSE did not fire
+    }
+}
+
+TEST_CASE("exact: a mixed-operand chain member keeps the healthy qubit's Pauli") {
+    // E(1) X0 X1 with only q1 lost: q0 is computational and its X must
+    // land; dropping the mixed-operand node whole would suppress the X on q0.
+    // q0 record reads 1 (X flipped it); q1 record reads 0 (identity classifier).
+    auto model = make_lose_model();
+    auto circuit = parse(
+        "LEVEL_TRANSITION[lose] 1\n"
+        "E(1) X0 X1\n"
+        "M 0 1\n");
+
+    auto result = sample_noncomputational(circuit, model, 25, 79);
+    for (uint32_t shot = 0; shot < 25; ++shot) {
+        REQUIRE(result.measurements[shot * 2] == 1);      // X landed on q0
+        REQUIRE(result.measurements[shot * 2 + 1] == 0);  // lost reads 0
+    }
+}
+
+TEST_CASE("exact: E(1) X0 X1 with no loss applies X to both qubits") {
+    // Baseline: all computational, E(1) fires with certainty applying X0 X1.
+    // Both qubits start at |0> so both measure 1 after X.
+    ModelSpec spec;  // all computational, no loss
+    auto model = make_model(spec);
+    auto circuit = parse("E(1) X0 X1\nM 0\nM 1\n");
+    auto result = sample_noncomputational(circuit, model, 5, 99);
+    for (uint32_t shot = 0; shot < 5; ++shot) {
+        REQUIRE(result.measurements[shot * 2] == 1);      // X0 applied
+        REQUIRE(result.measurements[shot * 2 + 1] == 1);  // X1 applied
     }
 }

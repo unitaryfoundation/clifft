@@ -498,3 +498,75 @@ def test_computational_readout_confusion_misreports_the_record():
     one = noncomp.sample("X 0\nM 0", model, shots=4000, seed=12)
     zeros = int((1 - one.measurements[:, 0]).sum())
     assert 650 <= zeros <= 950  # expected 800; ~6 sigma band
+
+
+# --- 9. Correlated-chain passthrough on noncomputational operands ----------
+
+
+def _lose_model() -> noncomp.Model:
+    """S loses its qubit with certainty; the classifier reads out
+    faithfully on g/e and reads 0 on the lost column."""
+    return noncomp.Model(
+        initial_state=ALL_G,
+        transitions={"S": transition_to(LOST)},
+        classifier=classifier_for(LOST, [1.0, 0.0]),
+    )
+
+
+def test_correlated_chain_on_lost_qubit_does_not_crash():
+    """A correlated-error chain whose head operand is lost must pass through
+    the noncomp layers without an exception. Dropping the head would orphan
+    the ELSE and produce a dangling-chain error at trace time."""
+    model = _lose_model()
+    circuit = "S 0\nE(0.5) X0 X1\nELSE_CORRELATED_ERROR(0.5) X1\nM 0 1\n"
+    result = noncomp.sample(circuit, model, shots=32, seed=83)
+    # The loss really happened, and the lost column reads 0 every shot.
+    assert (result.final_status[:, 0] == LOST_KIND).all()
+    assert np.all(result.measurements[:, 0] == 0)
+
+
+def test_fired_chain_head_on_lost_operand_blocks_else():
+    """Conditioning pin: E(1) fires (the head always fires, operating on the
+    vacated q0 carrier), so the ELSE must not fire. q1 records must all be 0
+    because the ELSE's X1 was never applied; a dropped head would promote the
+    ELSE to fire unconditionally and flip q1."""
+    model = _lose_model()
+    circuit = "S 0\nE(1) X0\nELSE_CORRELATED_ERROR(1) X1\nM 0 1\n"
+    result = noncomp.sample(circuit, model, shots=32, seed=89)
+    assert (result.final_status[:, 0] == LOST_KIND).all()
+    assert np.all(result.measurements[:, 1] == 0)
+
+
+def test_chain_flip_on_parked_carrier_is_destroyed_by_restoring_reset():
+    """The passthrough is sound because a vacated carrier is unobservable;
+    this pins the restoration leg: a chain flip parked on a lost carrier is
+    overwritten by the restoring reset, so the restored qubit reads a clean
+    |0>. Had the qubit never been lost, the same X would flip a live qubit
+    and the record would read 1, so a passing 0 proves the loss happened."""
+    model = noncomp.Model(
+        initial_state=ALL_G,
+        transitions={"S": transition_to(LOST)},
+        reset_restores_lost=True,
+    )
+    result = noncomp.sample("S 0\nE(1) X0\nR 0\nM 0", model, shots=16, seed=11)
+    assert (result.final_status[:, 0] == COMPUTATIONAL).all()
+    assert np.all(result.measurements[:, 0] == 0)
+
+
+def test_chain_flip_on_parked_carrier_is_destroyed_by_recapture():
+    """The recapture leg of the same contract: a chain flip parked on a
+    leaked carrier neither disturbs the classified record (first M reads the
+    leak_g column, proving the leak happened) nor survives the recapture,
+    which materializes the drawn destination exactly (second M reads 1)."""
+    seep = _zeros(5, 5)
+    seep[noncomp.Level.E][LEAK_G] = 1.0  # leak_g -> e, certainly
+    model = noncomp.Model(
+        initial_state=ALL_G,
+        transitions={"S": transition_to(LEAK_G), "seep": seep},
+        classifier=classifier_for(LEAK_G, [1.0, 0.0]),
+    )
+    circuit = "S 0\nE(1) X0\nM 0\nLEVEL_TRANSITION[seep] 0\nM 0\n"
+    result = noncomp.sample(circuit, model, shots=16, seed=13)
+    assert np.all(result.measurements[:, 0] == 0)  # classified while leaked
+    assert np.all(result.measurements[:, 1] == 1)  # recaptured to e
+    assert (result.final_status[:, 0] == COMPUTATIONAL).all()

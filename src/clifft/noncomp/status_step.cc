@@ -66,6 +66,17 @@ OperandAction operand_action(GateType gate, QubitStatus status,
         }
         return OperandAction::Drop;
     }
+    // A correlated-error chain member must keep its slot in the
+    // else-conditioning regardless of its operands' levels: dropping the
+    // head would orphan the ELSE members and silently change each member's
+    // firing probability. The effect of the chain on a vacated carrier is a
+    // Pauli frame flip that nothing ever reads -- a noncomputational qubit's
+    // records come from the classifier, and any restoration begins with a
+    // reset -- so the operation is physically harmless and the chain's
+    // else-conditioning structure is preserved.
+    if (gate == GateType::CORRELATED_ERROR || gate == GateType::ELSE_CORRELATED_ERROR) {
+        return OperandAction::Apply;
+    }
     // Any other operation on a leaked or lost operand -- a single-qubit gate
     // or noise channel, a two-qubit gate or noise channel, or classical
     // feedback onto a vacated site -- addresses a carrier outside the
