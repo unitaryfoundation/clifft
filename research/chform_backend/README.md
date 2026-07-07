@@ -72,6 +72,19 @@
 >   code-preserving (no bare H on data) or the syndrome rounds measure the
 >   magic away -- true of the real protocols too. All engine variants agree
 >   to 1e-16 on sampled trajectories.
+> - **Generalization beyond product magic (2026-07-07, `gadgetize.py` +
+>   `bench_gadget.cpp` + `bench_general.py`): arbitrary Clifford+T circuits
+>   via T-gadgetization.** Teleport each in-line T onto an ancilla, force the
+>   gadget outcome to 0 (each contributes exactly T/sqrt2): all magic becomes
+>   one product layer, so the single-shot sampler applies with NO streaming
+>   t-factor and the normalization stays analytic. Validated: 7T-CCZ network
+>   exact; gadgetized == dense == clifft to 1e-14 on interleaved circuits;
+>   streaming `sparsify` now also exercised (unbiased). At scale: hidden
+>   shift (built-in ground truth P(s)=1) at n=16..40, t=28..56, up to 96
+>   total qubits: P(s) = 0.90-0.99 at delta=0.3 in 0.1-8 s. Honest finding:
+>   clifft's reduction compiles the tested general families to peak_rank <=
+>   10 and wins there; the comparison collapses to a COMPILE-TIME decision
+>   rule (backend iff 0.228 t < peak_rank) -- a per-program hybrid dispatch.
 
 
 A working, validated prototype of the "stab-rank back-end" that would replace

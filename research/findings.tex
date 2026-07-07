@@ -330,6 +330,46 @@ and (iii) the $n{>}64$ code paths now being tested ($W{=}2$ rows of
 Table~\ref{tab:valid}) --- an extrapolation, stated as such, not a
 measurement.
 
+\subsection{Beyond product magic: gadgetized general circuits}\label{sec:gadget}
+Every scaled result above uses the single-shot sampler, which needs all magic
+in one product layer. The generalization to \emph{arbitrary} Clifford$+T$
+circuits (\texttt{gadgetize.py}, C\texttt{++} arm
+\texttt{bench\_gadget.cpp}): teleport each in-line $T$ onto its own ancilla
+and force the gadget outcome to $0$ --- since the gadget's
+classically-controlled correction makes all outcome branches equivalent, each
+forced-$0$ gadget contributes exactly $T/\sqrt2$, so
+$P(x) = 2^{t}\,|\bra{x,0^t} C_{\rm gadget} (\ket{0^n}\!\otimes\!\ket{T}^{\otimes t})|^2$
+with $C_{\rm gadget}$ entirely Clifford. All magic is again one product
+layer: the single-shot sampler applies with \textbf{no streaming $t$-factor},
+and the normalization stays \emph{analytic} --- the norm-estimation
+bottleneck of \S\ref{sec:norm} never enters. Validated: the $7T$ CCZ network
+and exact gadgetized $=$ dense $=$ \texttt{clifft} to $10^{-14}$ on random
+interleaved circuits; sparsified TV scales with $\delta$; the streaming
+\texttt{sparsify} path is now also exercised (unbiased), closing that
+coverage gap.
+
+At scale, the hidden-shift family (bent-function construction, CCZ oracles,
+$14$ $T$'s per CCZ) provides \emph{built-in exact ground truth}: the output
+is the shift $s$ deterministically, so $P(s)=1$ at any size. Measured at
+$\delta=0.3$: $n{=}16/24/32/40$ ($t=28$--$56$, up to $96$ total qubits)
+give $\hat P(s) = 0.99/0.94/0.90/0.92$ in $0.1$--$8$\,s, with
+$\hat P(x\!\neq\!s)=0$ --- interleaved magic handled at the product-magic
+price.
+
+Two honest observations. First, \texttt{clifft}'s measurement-driven
+reduction compiles \emph{both} tested general families to tiny blocks
+(hidden shift: $\mathrm{peak\_rank}\le10$; our random interleaved
+Clifford$+T$: $\le6$) and answers exactly in microseconds --- these families
+validate the backend's generality, they do not exhibit a regime where it
+wins. Second, this sharpens into a \textbf{compile-time decision rule}: the
+backend's exponent is $0.228\,t$, \texttt{clifft}'s is
+$\mathrm{peak\_rank}$, and both are known \emph{before executing anything}
+--- a hybrid dispatcher can route each program to the cheaper engine
+($0.228\,t < \mathrm{peak\_rank}$: backend; otherwise \texttt{clifft}).
+Dense IQP ($t=n$, $\mathrm{peak\_rank}=n/2$) sits on the backend's side, as
+\S\ref{sec:overlap} measured; magic-dense or reduction-friendly circuits sit
+on \texttt{clifft}'s.
+
 \subsection{qiskit-aer \texttt{extended\_stabilizer}}\label{sec:aer}
 Now reproduced by a committed script (\texttt{bench\_aer.py}; aer $0.17.2$,
 settings inline --- the old draft's numbers were unauditable). Sampling
@@ -479,10 +519,11 @@ remains~\cite{bravyi2016,qassim2019,garcia2015,pashayan2022}.
 \item \textbf{Prototype gaps:} the Python engine's sampling measurement path
 and canonical dedup materialize $2^n$ (validation-scale; the forced-replay
 path, \texttt{measure\_z\_forced\_fast} $+$ \texttt{collapse\_to\_rank1}, is
-non-materialising); streaming sparsification is implemented but
-untested/unbenchmarked; the C\texttt{++} engine has no measurement path
-(build-and-query only). The adaptive wall-clock numbers are Python-vs-Python
-(fair internally, absolute constants not comparable to C\texttt{++} tools).
+non-materialising); the C\texttt{++} engine has no measurement path
+(build-and-query only; the gadgetized route, \S\ref{sec:gadget}, removes the
+need for mid-circuit measurement in strong simulation). The adaptive
+wall-clock numbers are Python-vs-Python (fair internally, absolute constants
+not comparable to C\texttt{++} tools).
 \item \textbf{Quokka\# not yet run} (external GPMC solver not built);
 \texttt{quEStab} (ACM ICS 2026, multi-GPU extended stabilizer) still needs a
 manual literature check.
