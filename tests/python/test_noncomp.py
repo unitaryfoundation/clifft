@@ -645,3 +645,11 @@ def test_memory_x_smoke():
     assert r.measurements.shape == (16, 2)
     # All computational (no loss here); X-basis reset then MX reads 0.
     assert (r.measurements == 0).all()
+
+
+def test_contract_validated_for_zero_shots():
+    """Validation is shot-count independent: shots=0 still rejects a
+    leak-capable model that measures without a classifier."""
+    model = noncomp.Model(initial_state=ALL_G, transitions={"S": transition_to(LOST)})
+    with pytest.raises(ValueError, match="classifier is required"):
+        noncomp.sample("S 0\nM 0", model, shots=0, seed=1)

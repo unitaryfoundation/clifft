@@ -442,21 +442,12 @@ bool equal_modulo_forced_swap(const Instruction& fresh, const Instruction& execu
     return std::memcmp(&swapped, &executed, sizeof(Instruction)) == 0;
 }
 
-// Up-front capability contract for the annotated circuit and model.
+// Validate that the circuit is compatible with the model's leak/loss
+// semantics. When the model can produce noncomputational qubits at all
+// (no per-qubit tracking), the current restrictions are:
 //
-// This is a capability boundary, not a reachability analysis: a model that
-// can leak or lose qubits triggers both gate checks regardless of whether
-// any vacated qubit actually reaches a measurement in a given circuit. The
-// deliberate bluntness is a feature — it catches mismatches early and keeps
-// the contract independent of per-shot randomness.
-//
-// Gate A: parity measurements (MPP — MXX/MYY/MZZ desugar to MPP at parse
-// time) span multiple qubits and have no faithful single-bit classifier
-// substitution, so they are rejected up front when the model is capable.
-//
-// Gate B: a model that can leak or lose qubits requires a classifier when
-// the circuit has any measurements, because the classifier is the only
-// defined mapping from a noncomputational level to a record bit.
+// - parity measurements (MPP) are not supported; the circuit is rejected.
+// - a classifier is required if the circuit has any measurements.
 void validate_model_contract(const Circuit& annotated, const NonComputationalModel& model) {
     // Determine whether the model can ever produce a noncomputational qubit.
     bool noncomp_capable = false;
@@ -544,10 +535,6 @@ NonComputationalSample sample_noncomputational_exact(const Circuit& circuit,
     result.num_measurements = circuit.num_measurements;
     result.num_detectors = circuit.num_detectors;
     result.num_observables = circuit.num_observables;
-    if (shots == 0) {
-        return result;
-    }
-
     const MeasurementClassifier* classifier = model.classifier();
     const bool ternary = classifier != nullptr && classifier->has_herald();
 
@@ -571,6 +558,12 @@ NonComputationalSample sample_noncomputational_exact(const Circuit& circuit,
     // is capable and the circuit measures). Runs after annotation resolution
     // so LEVEL_TRANSITION tags are already validated.
     validate_model_contract(annotated, model);
+
+    // Validation is shot-count independent: a zero-shot call checks the
+    // circuit/model contract and returns empty results.
+    if (shots == 0) {
+        return result;
+    }
 
     const InstrumentTraceOptions instrument_options = instrument_trace_options(model);
 

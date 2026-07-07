@@ -1005,3 +1005,20 @@ TEST_CASE(
     REQUIRE_THROWS_WITH(sample_noncomputational(circuit, model, 4, 1),
                         ContainsSubstring("classifier is required"));
 }
+
+TEST_CASE("exact: the model contract is validated even for zero shots") {
+    // Validation is shot-count independent: a zero-shot call still checks
+    // the circuit/model contract, and a valid pair returns empty results.
+    std::vector<std::vector<double>> lose(5, std::vector<double>(5, 0.0));
+    lose[kLost][0] = 1.0;
+    lose[kLost][1] = 1.0;
+    auto no_classifier = NonComputationalModel::from_spec({1.0, 0.0, 0.0, 0.0, 0.0}, {{"S", lose}},
+                                                          std::nullopt, NonComputationalPolicy{});
+    REQUIRE_THROWS_WITH(sample_noncomputational(parse("S 0\nM 0"), no_classifier, 0, 1),
+                        ContainsSubstring("classifier is required"));
+
+    auto valid = make_lose_model();
+    auto result = sample_noncomputational(parse("S 0\nM 0"), valid, 0, 1);
+    REQUIRE(result.shots == 0);
+    REQUIRE(result.measurements.empty());
+}
