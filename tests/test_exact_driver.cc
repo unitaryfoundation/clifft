@@ -792,3 +792,216 @@ TEST_CASE("exact: E(1) X0 X1 with no loss applies X to both qubits") {
         REQUIRE(result.measurements[shot * 2 + 1] == 1);  // X1 applied
     }
 }
+
+// =========================================================================
+// MX / MY classify on vacated carriers
+// =========================================================================
+
+namespace {
+
+// Classifier whose lost column is col (binary), g=0, e=1 faithful,
+// leak columns deterministic symbol 0.
+NonComputationalModel make_classify_lost_model(std::vector<double> lost_col,
+                                               bool with_hook = false) {
+    std::vector<std::vector<double>> lose(5, std::vector<double>(5, 0.0));
+    lose[kLost][0] = 1.0;
+    lose[kLost][1] = 1.0;
+    std::map<std::string, std::vector<std::vector<double>>> transitions;
+    transitions.emplace("lose", lose);
+
+    ClassifierSpec classifier;
+    classifier.num_symbols = 2;
+    // g=0, e=1, leak_g=0, leak_e=0, lost=lost_col
+    classifier.matrix = {{1.0, 0.0, 1.0, 1.0, lost_col[0]}, {0.0, 1.0, 0.0, 0.0, lost_col[1]}};
+    (void)with_hook;
+    NonComputationalPolicy policy;
+    return NonComputationalModel::from_spec({1.0, 0.0, 0.0, 0.0, 0.0}, transitions, classifier,
+                                            policy);
+}
+
+}  // namespace
+
+TEST_CASE("exact: MX on a certainly-lost qubit reads the classifier bit") {
+    // lose column [0, 1]: the lost qubit reads 1 every shot; final status Lost.
+    auto model = make_classify_lost_model({0.0, 1.0});
+    auto circuit = parse("LEVEL_TRANSITION[lose] 0\nMX 0");
+    auto result = sample_noncomputational(circuit, model, 20, 101);
+    for (uint32_t shot = 0; shot < 20; ++shot) {
+        REQUIRE(result.measurements[shot] == 1);
+        REQUIRE(result.final_status[shot] == QubitStatus::Lost);
+    }
+}
+
+TEST_CASE("exact: MY on a certainly-lost qubit reads the classifier bit") {
+    // Identical semantics to MX: the readout basis is incidental on a vacated carrier.
+    auto model = make_classify_lost_model({0.0, 1.0});
+    auto circuit = parse("LEVEL_TRANSITION[lose] 0\nMY 0");
+    auto result = sample_noncomputational(circuit, model, 20, 103);
+    for (uint32_t shot = 0; shot < 20; ++shot) {
+        REQUIRE(result.measurements[shot] == 1);
+        REQUIRE(result.final_status[shot] == QubitStatus::Lost);
+    }
+}
+
+TEST_CASE("exact: inverted MX !0 on a lost qubit complements the classifier bit") {
+    // lose column [0, 1]: classifier says 1; inversion flips to 0 every shot.
+    auto model = make_classify_lost_model({0.0, 1.0});
+    auto circuit = parse("LEVEL_TRANSITION[lose] 0\nMX !0");
+    auto result = sample_noncomputational(circuit, model, 20, 105);
+    for (uint32_t shot = 0; shot < 20; ++shot) {
+        REQUIRE(result.measurements[shot] == 0);  // inverted: 1 -> 0
+        REQUIRE(result.final_status[shot] == QubitStatus::Lost);
+    }
+}
+
+TEST_CASE("exact: ternary herald column on MX sets sidecar flag and patches record") {
+    // Three-symbol classifier for the lost level: {0, 0, 1} always heralds.
+    // The herald flag must be 1 on every shot; the record carries an
+    // unbiased bit (matches the existing M-herald test in make_lose_model).
+    std::vector<std::vector<double>> lose(5, std::vector<double>(5, 0.0));
+    lose[kLost][0] = 1.0;
+    lose[kLost][1] = 1.0;
+
+    ClassifierSpec classifier;
+    classifier.num_symbols = 3;
+    // lost column = {0, 0, 1}: always heralds. g/e/leak columns symbol 0.
+    classifier.matrix = {
+        {1.0, 0.0, 1.0, 1.0, 0.0}, {0.0, 1.0, 0.0, 0.0, 0.0}, {0.0, 0.0, 0.0, 0.0, 1.0}};
+
+    NonComputationalPolicy policy;
+    auto model = NonComputationalModel::from_spec({1.0, 0.0, 0.0, 0.0, 0.0}, {{"lose", lose}},
+                                                  classifier, policy);
+    auto circuit = parse("LEVEL_TRANSITION[lose] 0\nMX 0");
+    auto result = sample_noncomputational(circuit, model, 40, 107);
+    for (uint32_t shot = 0; shot < 40; ++shot) {
+        REQUIRE(result.heralds[shot] == 1);
+        REQUIRE(result.final_status[shot] == QubitStatus::Lost);
+    }
+}
+
+TEST_CASE("exact: computational X-basis behavior is untouched by MX classify change") {
+    // RX prepares |+>; MX measures in the X basis and records 0 deterministically.
+    // No noncomputational model capability: the classifier path must never fire.
+    ModelSpec spec;  // all computational
+    auto model = make_model(spec);
+    auto circuit = parse("RX 0\nMX 0");
+    auto result = sample_noncomputational(circuit, model, 20, 109);
+    for (uint32_t shot = 0; shot < 20; ++shot) {
+        REQUIRE(result.measurements[shot] == 0);
+        REQUIRE(result.final_status[shot] == QubitStatus::Computational);
+    }
+}
+
+TEST_CASE("exact: memory-X smoke: two qubits, low-rate leak hook, MX measures both") {
+    // The motivating use case: a stim-style memory-X circuit that ends in MX
+    // on data qubits runs cleanly under a leakage model.
+    std::vector<std::vector<double>> leak(5, std::vector<double>(5, 0.0));
+    leak[kLost][0] = 0.01;  // low-rate loss from g
+    leak[kLost][1] = 0.01;
+
+    ClassifierSpec classifier;
+    classifier.num_symbols = 2;
+    classifier.matrix = {{1.0, 0.0, 1.0, 1.0, 1.0}, {0.0, 1.0, 0.0, 0.0, 0.0}};
+
+    NonComputationalPolicy policy;
+    auto model = NonComputationalModel::from_spec({1.0, 0.0, 0.0, 0.0, 0.0}, {{"leak", leak}},
+                                                  classifier, policy);
+    auto circuit = parse("RX 0 1\nLEVEL_TRANSITION[leak] 0 1\nMX 0 1");
+    auto result = sample_noncomputational(circuit, model, 50, 111);
+    REQUIRE(result.shots == 50);
+    REQUIRE(result.num_measurements == 2);
+    // Shape check: result exists with the right dimensions.
+    REQUIRE(result.measurements.size() == 100u);
+    REQUIRE(result.final_status.size() == 100u);
+}
+
+// =========================================================================
+// Up-front capability contract (gate A and gate B)
+// =========================================================================
+
+TEST_CASE("exact: gate A: capable model + MPP rejects before sampling") {
+    // A capable model (non-zero loss) plus an MPP measurement must throw
+    // before any shots are drawn, with a message naming 'MPP', 'not supported',
+    // and 'ancilla'.
+    auto model = make_classify_lost_model({0.5, 0.5});
+    auto circuit = parse("LEVEL_TRANSITION[lose] 0\nMPP X0*X1");
+    REQUIRE_THROWS_WITH(sample_noncomputational(circuit, model, 4, 1),
+                        ContainsSubstring("MPP") && ContainsSubstring("not supported") &&
+                            ContainsSubstring("ancilla"));
+}
+
+TEST_CASE("exact: gate A: non-capable model + MPP samples fine") {
+    // A model with no capability (initial all-g, no leak/loss transitions)
+    // does not trigger gate A, so MPP is accepted.
+    ModelSpec spec;  // all computational
+    auto model = make_model(spec);
+    auto circuit = parse("H 0\nCX 0 1\nMPP Z0*Z1");
+    auto result = sample_noncomputational(circuit, model, 10, 1);
+    REQUIRE(result.shots == 10);
+    // ZZ stabilizer on Bell state: all 0.
+    for (uint32_t shot = 0; shot < 10; ++shot) {
+        REQUIRE(result.measurements[shot] == 0);
+    }
+}
+
+TEST_CASE("exact: gate B: capable model + measurement + no classifier throws") {
+    // A model with a LEVEL_TRANSITION annotation that can fire into a
+    // noncomputational level, paired with a measurement, must throw when
+    // no classifier is present.
+    std::vector<std::vector<double>> lose(5, std::vector<double>(5, 0.0));
+    lose[kLost][0] = 1.0;
+    lose[kLost][1] = 1.0;
+    NonComputationalPolicy policy;
+    auto model = NonComputationalModel::from_spec({1.0, 0.0, 0.0, 0.0, 0.0}, {{"lose", lose}},
+                                                  std::nullopt, policy);
+    // The annotation makes the circuit capable.
+    auto circuit = parse("LEVEL_TRANSITION[lose] 0\nM 0");
+    REQUIRE_THROWS_WITH(sample_noncomputational(circuit, model, 4, 1),
+                        ContainsSubstring("classifier is required"));
+}
+
+TEST_CASE("exact: gate B: capable model + measurement-free circuit + no classifier samples") {
+    // A capable model without a classifier is fine if the circuit has no measurements.
+    std::vector<std::vector<double>> lose(5, std::vector<double>(5, 0.0));
+    lose[kLost][0] = 1.0;
+    lose[kLost][1] = 1.0;
+    NonComputationalPolicy policy;
+    auto model = NonComputationalModel::from_spec({1.0, 0.0, 0.0, 0.0, 0.0}, {{"lose", lose}},
+                                                  std::nullopt, policy);
+    // Circuit has no measurement nodes.
+    auto circuit = parse("H 0\nLEVEL_TRANSITION[lose] 0");
+    auto result = sample_noncomputational(circuit, model, 10, 1);
+    REQUIRE(result.shots == 10);
+}
+
+TEST_CASE("exact: gate B: non-capable model + MX + no classifier samples") {
+    // A non-capable model (no loss/leak transitions, all-g initial) plus
+    // MX requires no classifier: gate B does not fire.
+    ModelSpec spec;  // all computational, no loss
+    auto model = make_model(spec);
+    auto circuit = parse("RX 0\nMX 0");
+    auto result = sample_noncomputational(circuit, model, 10, 1);
+    REQUIRE(result.shots == 10);
+    for (uint32_t shot = 0; shot < 10; ++shot) {
+        REQUIRE(result.measurements[shot] == 0);
+    }
+}
+
+TEST_CASE(
+    "exact: bluntness pin -- model leaks only q0 via annotation, circuit measures only q1, "
+    "no classifier throws") {
+    // The contract is a capability boundary, not per-qubit reachability.
+    // The annotation on q0 makes the model capable; q1 is measured but
+    // never touches a vacated carrier in any reachable shot. Gate B still
+    // fires because the capability boundary is coarse: capable model +
+    // any measurement = classifier required.
+    std::vector<std::vector<double>> lose(5, std::vector<double>(5, 0.0));
+    lose[kLost][0] = 1.0;  // q0 loses certainly from g
+    lose[kLost][1] = 1.0;
+    NonComputationalPolicy policy;
+    auto model = NonComputationalModel::from_spec({1.0, 0.0, 0.0, 0.0, 0.0}, {{"lose", lose}},
+                                                  std::nullopt, policy);
+    auto circuit = parse("LEVEL_TRANSITION[lose] 0\nM 1");
+    REQUIRE_THROWS_WITH(sample_noncomputational(circuit, model, 4, 1),
+                        ContainsSubstring("classifier is required"));
+}

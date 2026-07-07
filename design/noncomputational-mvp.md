@@ -455,10 +455,10 @@ and qubit; no silent approximation.
 | Single-qubit Pauli noise | apply         | drop                                    | drop                                              |
 | Correlated-error chain (`E`/`ELSE_CORRELATED_ERROR`) | apply | apply | apply |
 | Two-qubit gate           | apply         | drop                                    | drop                                              |
-| MPP / multi-target meas  | apply         | reject                                  | reject                                            |
+| MPP / multi-target meas  | apply         | reject (up-front gate A)                | reject (up-front gate A)                         |
 | Visible Z-basis meas `M`              | apply; visible outcome from the SVM | classifier; reject probability per `leak_*` column | classifier; reject probability per `lost` column |
 | Visible Z-basis meas-and-reset `MR`   | apply; visible outcome from the SVM, reset re-prepares the site | classifier; restores if `reset_restores_lost` would allow it (leaked always restores) | classifier; restores if `reset_restores_lost`, else the site stays lost |
-| Visible X/Y-basis meas (`MX`/`MY`)    | apply | reject | reject |
+| Visible X/Y-basis meas (`MX`/`MY`)    | apply | classifier; same cell as `M` — readout basis is incidental on a vacated carrier | classifier; same cell as `M` |
 | Visible X/Y-basis meas-and-reset (`MRX`/`MRY`) | apply | classifier; restores (leaked always restores) | classifier; restores if `reset_restores_lost`, else the site stays lost |
 | Reset `R`/`RX`/`RY`      | apply         | restore to `Computational` | drop unless `policy.reset_restores_lost` is set; then restore to `Computational` |
 | Detector / Observable    | unchanged     | unchanged                               | unchanged                                         |
@@ -467,13 +467,20 @@ Notes:
 
 - An operation with no representable effect on a leaked or lost operand
   is dropped whole (identity on the surviving operands). This is the
-  only behavior, not a policy the caller selects. The exception is a
-  non-reset X/Y-basis measurement (`MX`/`MY`) or a multi-target/parity
-  measurement (`MPP`): it rejects, because the classifier defines a
-  single Z-basis-like record bit that is not a faithful X/Y or parity
-  outcome. A measure-and-reset (`MR`/`MRX`/`MRY`) is kept instead — its
-  record is the classifier bit and its reset re-prepares the site, so
-  the readout basis is incidental on a vacated carrier.
+  only behavior, not a policy the caller selects. Single-qubit
+  measurements (`M`, `MX`, `MY`) classify: on a vacated carrier the
+  readout basis is incidental, so the classifier's single record bit is
+  equally valid for Z-, X-, or Y-basis forms. A measure-and-reset
+  (`MR`/`MRX`/`MRY`) is kept the same way, with the reset additionally
+  re-preparing the site. The exception is a multi-qubit parity
+  measurement (`MPP`): it spans more than one qubit and has no faithful
+  single-bit substitution, so it is rejected before sampling begins
+  when the model is capable (gate A). The supported workaround is an
+  explicit ancilla circuit — the ancilla ladder gates drop on the
+  vacated operand, yielding the survivors' parity. A model that can
+  leak or lose qubits also requires a classifier when the circuit
+  measures (gate B); both checks are capability boundaries, not
+  per-qubit reachability analyses.
 - A correlated-error chain is never dropped, whatever its operands'
   statuses: each member must keep its slot in the else-conditioning
   (dropping the head would orphan the later members; dropping a middle
@@ -566,15 +573,17 @@ turn it off. Concretely:
 - non-restoring lost-qubit measure-and-reset: kept — the visible record
   slot must survive, the classifier supplies the bit, and the site
   simply stays lost;
-- a non-reset X/Y-basis or multi-target measurement (`MX`/`MY`/`MPP`)
-  rejects: dropping a measurement would shift the record, and no
-  single-bit substitution is a faithful X/Y or parity outcome.
+- single-qubit measurement (`M`, `MX`, `MY`) on a Leaked or Lost
+  operand: classifies — the readout basis is incidental on a vacated
+  carrier; all three forms map to the same classifier record bit;
+- multi-qubit parity measurement (`MPP`) with any Leaked or Lost
+  operand: rejected up front (gate A) before sampling begins, because
+  no single-bit substitution faithfully represents a parity outcome;
+  the supported workaround is an explicit ancilla expansion.
 
-A "does this model ever drive a dead qubit" contract check — distinct
-from these per-op representability limits — is a static validator's job
-(a future `noncomp.validate_static`), not a sampling policy: as a
-sampling-time reject it would fire seed-dependently, since whether a
-qubit is vacated before a given op is a per-shot draw.
+Capability contract checks (gate A — parity under capable model; gate
+B — no classifier when capable and measuring) run up front, before the
+first shot, as a capability boundary rather than per-qubit reachability.
 
 A dropped operation has no physical effect, so a surviving operand's
 status keeps its entry value (it is not demoted). Transition

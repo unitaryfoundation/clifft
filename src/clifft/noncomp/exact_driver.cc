@@ -442,6 +442,96 @@ bool equal_modulo_forced_swap(const Instruction& fresh, const Instruction& execu
     return std::memcmp(&swapped, &executed, sizeof(Instruction)) == 0;
 }
 
+// Up-front capability contract for the annotated circuit and model.
+//
+// This is a capability boundary, not a reachability analysis: a model that
+// can leak or lose qubits triggers both gate checks regardless of whether
+// any vacated qubit actually reaches a measurement in a given circuit. The
+// deliberate bluntness is a feature — it catches mismatches early and keeps
+// the contract independent of per-shot randomness.
+//
+// Gate A: parity measurements (MPP — MXX/MYY/MZZ desugar to MPP at parse
+// time) span multiple qubits and have no faithful single-bit classifier
+// substitution, so they are rejected up front when the model is capable.
+//
+// Gate B: a model that can leak or lose qubits requires a classifier when
+// the circuit has any measurements, because the classifier is the only
+// defined mapping from a noncomputational level to a record bit.
+void validate_model_contract(const Circuit& annotated, const NonComputationalModel& model) {
+    // Determine whether the model can ever produce a noncomputational qubit.
+    bool noncomp_capable = false;
+    for (const Level l : kAllLevels) {
+        if (category(l) != LevelCategory::Computational && model.initial_probability(l) > 0.0) {
+            noncomp_capable = true;
+            break;
+        }
+    }
+    if (!noncomp_capable) {
+        for (uint32_t i = 0; i < static_cast<uint32_t>(annotated.nodes.size()); ++i) {
+            const AstNode& node = annotated.nodes[i];
+            if (node.gate == GateType::LOSS && !node.args.empty() && node.args[0] > 0.0) {
+                noncomp_capable = true;
+                break;
+            }
+            if (node.gate == GateType::LEVEL_TRANSITION) {
+                const TransitionInstrument* instr = model.transition_named(node.tag);
+                if (instr == nullptr) {
+                    // Unresolvable tags were rejected by the annotation
+                    // validation loop that runs before this helper; the
+                    // null check is defensive for direct callers.
+                    continue;
+                }
+                for (const Level src : kAllLevels) {
+                    if (category(src) != LevelCategory::Computational) {
+                        continue;
+                    }
+                    for (const Level dst : kAllLevels) {
+                        if (category(dst) != LevelCategory::Computational &&
+                            instr->prob(dst, src) > 0.0) {
+                            noncomp_capable = true;
+                            break;
+                        }
+                    }
+                    if (noncomp_capable) {
+                        break;
+                    }
+                }
+            }
+            if (noncomp_capable) {
+                break;
+            }
+        }
+    }
+
+    if (!noncomp_capable) {
+        return;
+    }
+
+    // Gate A: parity measurements are not supported under a capable model.
+    for (uint32_t i = 0; i < static_cast<uint32_t>(annotated.nodes.size()); ++i) {
+        const AstNode& node = annotated.nodes[i];
+        // MPP has MULTI arity; MXX/MYY/MZZ desugar to MPP at parse time.
+        if (node.gate == GateType::MPP) {
+            throw std::invalid_argument(
+                "sample_noncomputational: parity measurement 'MPP' at op " + std::to_string(i) +
+                " is not supported under a model that can leak or lose qubits;"
+                " expand the parity readout into an explicit ancilla circuit");
+        }
+    }
+
+    // Gate B: a classifier is required when the circuit has any measurements.
+    if (model.classifier() == nullptr) {
+        for (const AstNode& node : annotated.nodes) {
+            if (is_measurement(node.gate)) {
+                throw std::invalid_argument(
+                    "sample_noncomputational: this model can leak or lose qubits and the circuit"
+                    " measures; a classifier is required to define what a measurement of a leaked"
+                    " or lost qubit reads");
+            }
+        }
+    }
+}
+
 }  // namespace
 
 NonComputationalSample sample_noncomputational_exact(const Circuit& circuit,
@@ -475,6 +565,12 @@ NonComputationalSample sample_noncomputational_exact(const Circuit& circuit,
             resolve_annotation(node, model, op_index);
         }
     }
+
+    // Capability contract: check gate A (parity measurements unsupported
+    // with a capable model) and gate B (classifier required when the model
+    // is capable and the circuit measures). Runs after annotation resolution
+    // so LEVEL_TRANSITION tags are already validated.
+    validate_model_contract(annotated, model);
 
     const InstrumentTraceOptions instrument_options = instrument_trace_options(model);
 

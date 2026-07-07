@@ -41,22 +41,26 @@ OperandAction operand_action(GateType gate, QubitStatus status,
     // recorded outcome is supplied by the model's classifier downstream, so
     // the operation is kept: the record slot survives, and the site either
     // restores (leaked always; lost when the policy opts in) or simply stays
-    // lost. This admits the X/Y-basis forms (MRX/MRY) too: on a vacated
-    // carrier the classifier readout is basis-agnostic and the reset -- not
-    // the readout -- is the operation's effect. A non-reset X/Y measurement
-    // has no such reset and no faithful record bit, and rejects.
+    // lost. This admits the X/Y-basis forms (MRX/MRY): on a vacated carrier
+    // the classifier readout is basis-agnostic — the reset, not the readout,
+    // is the operation's effect.
     if (is_measure_reset(gate)) {
         return OperandAction::Apply;
     }
     // A plain measurement keeps its visible record slot so the record and its
     // rec[-k] references do not shift; on a leaked/lost qubit the outcome is
-    // supplied by the model's classifier downstream. That substitution is a
-    // single record bit, faithful only for a Z-basis M. An X/Y-basis (MX/MY)
-    // or multi-qubit-parity (MPP) measurement has no faithful single-bit form
-    // on a noncomputational operand, so it is not representable and rejects.
-    // This is a representability limit, not a policy choice.
+    // supplied by the model's classifier downstream. The classifier substitutes
+    // a single record bit — the readout basis is incidental on a vacated
+    // carrier, so Z-basis M, X-basis MX, and Y-basis MY are all equivalent
+    // from the model's perspective and all classify. A multi-qubit parity
+    // measurement (MPP, MXX, MYY, MZZ) spans more than one qubit and has no
+    // faithful single-bit substitution on a noncomputational operand; it
+    // rejects. MXX/MYY/MZZ desugar to MPP at parse time, so only MPP can
+    // appear here.
     if (is_measurement(gate)) {
-        return gate == GateType::M ? OperandAction::Apply : OperandAction::Reject;
+        return (gate == GateType::M || gate == GateType::MX || gate == GateType::MY)
+                   ? OperandAction::Apply
+                   : OperandAction::Reject;
     }
     // A reset restores a leaked qubit always, a lost qubit only by policy. A
     // non-restoring lost-qubit reset acts on a vacated site, so it drops.
