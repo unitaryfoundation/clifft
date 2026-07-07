@@ -6,17 +6,19 @@
 // into the level table), a human-readable label, and a LevelCategory.
 //
 // A level table must contain exactly two Computational levels; in table
-// order the first is the |0> state and the second is |1>. The rewriter
-// uses computational_one_id() to prepend an X prep for a sampled known-|1>
-// initial level, or when a transition materializes the carrier at the |1>
-// level (the SVM default initialization is |0...0>). Leaked and Lost levels
-// carry no basis information -- "lost from |1>" provenance, if ever needed,
-// belongs in an event record or in distinct levels, not in the level tag.
+// order the first is the |0> state and the second is |1>. The driver
+// uses computational_one_id() to preload the Pauli frame when an
+// initial draw places a qubit at |1>, and the rewriter uses it to
+// append the X when a recorded jump materializes the carrier at the
+// |1> level (the SVM default initialization is |0...0>). Leaked and
+// Lost levels carry no basis information -- "lost from |1>" provenance,
+// if ever needed, belongs in an event record or in distinct levels,
+// not in the level tag.
 //
 // LevelSet wraps a std::vector<Level>, runs validation in its ctor,
 // and owns the QubitStatus factories that bind a level id to this
-// specific table. Construction of QubitStatus values for non-Unknown
-// kinds should go through LevelSet so the (kind, level_id) pair is
+// specific table. Construction of noncomputational QubitStatus values
+// should go through LevelSet so the (kind, level_id) pair is
 // guaranteed to refer to a real level of the matching category in a
 // known table.
 

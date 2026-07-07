@@ -454,14 +454,13 @@ gate, and placement is meaning: putting an annotation before or after
 an operation selects which state it consults. Consequences relative to
 attaching transitions to gates with entry-status sources:
 
-- A hook on a Z-diagonal gate (`CZ`, `S`, ...) consults the same
-  definite level the gate entered with (the status stepper tracks
-  knownness through diagonal and X-type gates), so the exact
-  known-source path survives where it physically should.
+- A hook on a Z-diagonal gate (`CZ`, `S`, ...) consults a state with
+  the same level populations the gate entered with (diagonal gates do
+  not mix the basis), and a leaked/lost level is untouched by the
+  dropped gate -- post-op placement changes nothing there.
 - A hook on a basis-mixing gate (`H`, ...) consults a genuine
-  superposition: a source-dependent matrix there is an unknown-source
-  consult (rejected, or runtime-resolved under the exact policy). The
-  old entry-status column
+  superposition: the site is a runtime instrument and the fire is
+  evaluated on the live post-gate state. The old entry-status column
   choice was an artifact of attachment, not physics.
 - A hook on a measure-and-reset consults the post-reset state. A
   transition acting on the pre-reset level -- readout-induced loss --
