@@ -84,7 +84,10 @@ OperandAction operand_action(GateType gate, QubitStatusKind kind,
     // recorded outcome is supplied by the model's classifier downstream, so
     // the operation is kept: the record slot survives, and the site either
     // restores (leaked always; lost when the policy opts in) or simply stays
-    // lost.
+    // lost. This admits the X/Y-basis forms (MRX/MRY) too: on a vacated
+    // carrier the classifier readout is basis-agnostic and the reset -- not
+    // the readout -- is the operation's effect. A non-reset X/Y measurement
+    // has no such reset and no faithful record bit, and rejects.
     if (is_measure_reset(gate)) {
         return OperandAction::Apply;
     }

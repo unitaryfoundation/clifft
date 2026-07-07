@@ -130,9 +130,11 @@ class Model:
     An operation with no representable effect on a leaked or lost operand --
     e.g. a two-qubit gate onto a vacated site -- is dropped, acting as the
     identity on the surviving operands. Measurements keep their record slot
-    (the classifier supplies the bit); an X/Y-basis or multi-qubit-parity
-    measurement of a leaked or lost qubit has no faithful single-bit form and
-    raises.
+    (the classifier supplies the bit); a non-reset X/Y-basis measurement
+    (``MX``/``MY``) or a multi-qubit-parity measurement (``MPP``) of a leaked
+    or lost qubit has no faithful single-bit form and raises. A
+    measure-and-reset (``MR``/``MRX``/``MRY``) is kept instead -- its reset
+    re-prepares the site and the classifier supplies its record bit.
 
     Construction validates shapes, probabilities, gate keys, policy values,
     and level table consistency in C++, raising ``ValueError`` on any

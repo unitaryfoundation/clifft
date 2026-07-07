@@ -541,8 +541,11 @@ with unrelated roadmap work.
 Post-plan (pre-release): with the campaign green and the default flipped,
 the `reject` strict guard and the ahead-of-time trajectory pipeline behind
 it were removed as well — exact runtime resolution is the only sampling
-path, and the final policy surface is `damping` plus `lost_leaked_ops` and
-`reset_restores_lost`. The AOT pipeline's differential-oracle role passed
+path, and the final policy surface is `damping` plus `reset_restores_lost`.
+(The `lost_leaked_ops` reject/drop knob was later removed too: dropping an
+op with no representable effect on a vacated site is the only behavior, so
+it needs no policy — see noncomputational-mvp.md §5.2.3.) The AOT
+pipeline's differential-oracle role passed
 to the first-principles enumerator (`tests/python`), its per-shot-compile
 baseline is recorded in the step-7 results above, and the strict guard's
 contract check is a future validator's job. Every future feature targets
