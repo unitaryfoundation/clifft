@@ -325,6 +325,36 @@ TEST_CASE("rewrite: a deterministic classifier column pads the literal bit, no d
     REQUIRE(rw.classified_measurements[0].noise_node == SIZE_MAX);
 }
 
+TEST_CASE("rewrite: an inverted noncomputational classifier flips a deterministic bit") {
+    Circuit c = parse("M !0\n");
+    NonComputationalModel model =
+        make_model_with_classifier({}, classifier_with(kLost, {1.0, 0.0}));
+
+    ContinuationRewrite rw = rewritten(c, model, {kLost});
+    REQUIRE(count_gate(rw.circuit, GateType::READOUT_NOISE) == 0);
+    REQUIRE(count_gate(rw.circuit, GateType::MPAD) == 1);
+    for (const AstNode& node : rw.circuit.nodes) {
+        if (node.gate == GateType::MPAD) {
+            REQUIRE(node.targets[0].value() == 1);
+        }
+    }
+    REQUIRE(rw.classified_measurements.size() == 1);
+    REQUIRE(rw.classified_measurements[0].noise_node == SIZE_MAX);
+}
+
+TEST_CASE("rewrite: an inverted noncomputational classifier complements stochastic flips") {
+    Circuit c = parse("M !0\n");
+    NonComputationalModel model =
+        make_model_with_classifier({}, classifier_with(kLost, {0.7, 0.3}));
+
+    ContinuationRewrite rw = rewritten(c, model, {kLost});
+    REQUIRE(rw.classified_measurements.size() == 1);
+    const AstNode& noise = rw.circuit.nodes[rw.classified_measurements[0].noise_node];
+    REQUIRE(noise.gate == GateType::READOUT_NOISE);
+    REQUIRE(noise.targets[0].value() == 0);
+    REQUIRE(noise.args[0] == Catch::Approx(0.7));
+}
+
 TEST_CASE("rewrite: the record write flips its own slot, not an earlier one") {
     // Slot 0 is a computational measurement on qubit 1; the lost qubit's
     // measurement is slot 1 and its READOUT_NOISE must target slot 1.
@@ -353,6 +383,19 @@ TEST_CASE("rewrite: a ternary column emits the not-heralded conditional flip") {
     const AstNode& noise = rw.circuit.nodes[rw.classified_measurements[0].noise_node];
     REQUIRE(noise.gate == GateType::READOUT_NOISE);
     REQUIRE(noise.args[0] == Catch::Approx(0.25));
+}
+
+TEST_CASE("rewrite: an inverted ternary column complements the not-heralded flip") {
+    // Non-heralded P(bit=1) is 0.1 / (1 - 0.6) = 0.25 before inversion.
+    Circuit c = parse("M !0\n");
+    NonComputationalModel model =
+        make_model_with_classifier({}, classifier_with(kLeakG, {0.3, 0.1, 0.6}));
+
+    ContinuationRewrite rw = rewritten(c, model, {kLeakG});
+    REQUIRE(rw.classified_measurements.size() == 1);
+    const AstNode& noise = rw.circuit.nodes[rw.classified_measurements[0].noise_node];
+    REQUIRE(noise.gate == GateType::READOUT_NOISE);
+    REQUIRE(noise.args[0] == Catch::Approx(0.75));
 }
 
 TEST_CASE("rewrite: an always-herald ternary column still emits a patchable node") {

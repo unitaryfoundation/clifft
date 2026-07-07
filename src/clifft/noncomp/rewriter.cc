@@ -150,13 +150,15 @@ void process_ordinary_node(const AstNode& node, uint32_t op_index,
             const uint32_t qubit = qubit_operands(node).front().qubit;
             const MeasurementClassifier& classifier = classifier_for(model, gate, op_index, qubit);
             const bool ternary = classifier.has_herald();
+            const bool inverted = node.targets.front().is_inverted();
 
-            // The record bit's flip probability on top of MPAD 0:
-            // P(symbol 1 | level) for a two-symbol column; for a ternary
-            // column, the bit's not-heralded conditional -- the herald
-            // pass re-points heralded slots at one half. An always-herald
-            // column has no not-heralded conditional; one half stands in
-            // (every draw heralds, so the pass always overwrites it).
+            // MPAD starts the visible record at 0, then READOUT_NOISE flips it
+            // with probability `flip`. Binary classifiers use P(symbol 1 |
+            // level). Ternary classifiers use P(symbol 1 | level, no herald),
+            // because heralded slots are later patched to an unbiased bit.
+            // Target inversion complements only this visible bit; the herald
+            // flag still means the classifier's third symbol. If every draw
+            // heralds, the placeholder flip is irrelevant and 0.5 is used.
             double flip;
             if (ternary) {
                 const double p_herald =
@@ -166,6 +168,9 @@ void process_ordinary_node(const AstNode& node, uint32_t op_index,
                 flip = std::min(1.0, std::max(0.0, flip));
             } else {
                 flip = classifier.prob(1, *classified_level);
+            }
+            if (inverted) {
+                flip = 1.0 - flip;
             }
 
             size_t noise_node = SIZE_MAX;

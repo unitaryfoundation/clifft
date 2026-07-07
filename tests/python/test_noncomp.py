@@ -191,6 +191,19 @@ def test_classifier_bit_feeds_observable():
     assert (r.observables == 1).all()
 
 
+def test_inverted_classifier_bit_feeds_records_detectors_and_observables():
+    model = leak_model(classifier_for(LEAK_G, [1.0, 0.0]))
+    r = noncomp.sample(
+        "H 0\nS 0\nM !0\nDETECTOR rec[-1]\nOBSERVABLE_INCLUDE(0) rec[-1]\n",
+        model,
+        shots=64,
+        seed=101,
+    )
+    assert (r.measurements[:, 0] == 1).all()
+    assert (r.detectors[:, 0] == 1).all()
+    assert (r.observables[:, 0] == 1).all()
+
+
 def test_lost_measurement_classifier_bit():
     model = noncomp.Model(
         initial_state=ALL_G,
@@ -207,6 +220,14 @@ def test_measure_reset_on_leaked_preserves_slot_and_resets():
     assert r.num_measurements == 2
     assert (r.measurements[:, 0] == 1).all()  # MR slot: classifier bit
     assert (r.measurements[:, 1] == 0).all()  # reset, then M reads 0
+
+
+def test_inverted_measure_reset_classifier_preserves_slot_and_resets():
+    model = leak_model(classifier_for(LEAK_G, [1.0, 0.0]))
+    r = noncomp.sample("H 0\nS 0\nMR !0\nM 0\n", model, shots=64, seed=102)
+    assert r.num_measurements == 2
+    assert (r.measurements[:, 0] == 1).all()
+    assert (r.measurements[:, 1] == 0).all()
 
 
 def test_missing_classifier_on_leaked_measurement_raises():
