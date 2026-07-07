@@ -668,3 +668,17 @@ TEST_CASE("rewrite: a malformed LOSS annotation rejects instead of reading past 
             ContainsSubstring("rewrite_continuation") && ContainsSubstring("exactly one argument"));
     }
 }
+
+// =========================================================================
+// Correlated-chain passthrough
+// =========================================================================
+
+TEST_CASE("rewrite: a correlated chain whose head operand is lost survives the rewrite intact") {
+    // Both the CORRELATED_ERROR head and its ELSE_CORRELATED_ERROR member
+    // must appear in the rewritten stream when q0 enters lost.
+    Circuit c = parse("E(1) X0 X1\nELSE_CORRELATED_ERROR(1) X1\n");
+    NonComputationalModel model = make_model({});
+    ContinuationRewrite rw = rewritten(c, model, {kLost, kG});
+    REQUIRE(count_gate(rw.circuit, GateType::CORRELATED_ERROR) == 1);
+    REQUIRE(count_gate(rw.circuit, GateType::ELSE_CORRELATED_ERROR) == 1);
+}
