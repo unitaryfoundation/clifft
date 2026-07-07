@@ -110,20 +110,21 @@ void register_noncomp(nb::module_& m) {
                 nb::gil_scoped_release release;
                 r = clifft::sample_noncomputational(circuit, model, shots, seed, max_rank);
             }
-            // Collapse per-qubit final status to {0 computational, 1 leaked,
-            // 2 lost}; the internal known/unknown computational split is not
-            // surfaced in the Python sidecar.
+            // Map each qubit's final status onto the sidecar's stable code
+            // {0 computational, 1 leaked, 2 lost}, shared with Python's
+            // QubitStatusKind enum. Exhaustive on purpose: a new kind must
+            // decide its code here.
             std::vector<uint8_t> status(r.final_status.size());
             for (size_t i = 0; i < r.final_status.size(); ++i) {
                 switch (r.final_status[i].kind()) {
+                    case clifft::QubitStatusKind::Computational:
+                        status[i] = 0;
+                        break;
                     case clifft::QubitStatusKind::Leaked:
                         status[i] = 1;
                         break;
                     case clifft::QubitStatusKind::Lost:
                         status[i] = 2;
-                        break;
-                    default:
-                        status[i] = 0;
                         break;
                 }
             }

@@ -2,20 +2,22 @@
 
 // Per-qubit runtime status carried by a sampled trajectory.
 //
-// QubitStatusKind tags how much we know about the qubit's state:
+// QubitStatusKind tags the category a qubit occupies:
 //
-//   ComputationalUnknown : in an arbitrary quantum state on H_C
-//                          (a superposition of |0> and |1>). The
-//                          level_id field is not meaningful.
-//   ComputationalKnown   : in a known computational basis state
-//                          (|0> or |1>). level_id identifies which
-//                          Computational level the qubit holds.
-//   Leaked               : outside the computational subspace.
-//                          level_id identifies which Leaked level
-//                          the qubit holds.
-//   Lost                 : absent / vacuum. level_id identifies
-//                          the Lost level (typically a single
-//                          "lost" level).
+//   Computational : in H_C (any state on the |0>/|1> subspace). The
+//                   level_id field is not meaningful: which basis
+//                   state -- if either definitely -- the qubit holds
+//                   is runtime information living in the SVM, never
+//                   in this classical ledger.
+//   Leaked        : outside the computational subspace.
+//                   level_id identifies which Leaked level
+//                   the qubit holds.
+//   Lost          : absent / vacuum. level_id identifies
+//                   the Lost level (typically a single
+//                   "lost" level).
+//
+// The enum values are the sidecar code the Python surface exposes
+// ({0 computational, 1 leaked, 2 lost}); keep them aligned.
 //
 // QubitStatus is non-aggregate; the only construction paths are the
 // public static factories. The canonical validated builders live on
@@ -26,25 +28,20 @@
 // name is the warning.
 
 #include <cstdint>
-#include <optional>
-#include <stdexcept>
 
 namespace clifft {
 
 enum class QubitStatusKind : uint8_t {
-    ComputationalUnknown = 0,
-    ComputationalKnown = 1,
-    Leaked = 2,
-    Lost = 3,
+    Computational = 0,
+    Leaked = 1,
+    Lost = 2,
 };
 
 // Human-readable name of a status kind, for diagnostics.
 inline const char* kind_name(QubitStatusKind kind) {
     switch (kind) {
-        case QubitStatusKind::ComputationalUnknown:
-            return "ComputationalUnknown";
-        case QubitStatusKind::ComputationalKnown:
-            return "ComputationalKnown";
+        case QubitStatusKind::Computational:
+            return "Computational";
         case QubitStatusKind::Leaked:
             return "Leaked";
         case QubitStatusKind::Lost:
@@ -53,22 +50,19 @@ inline const char* kind_name(QubitStatusKind kind) {
     return "unknown";
 }
 
-// Sentinel for the level_id field when no specific level is resolved.
-// Valid only with kind == ComputationalUnknown.
+// Sentinel for the level_id field when no specific level is carried.
+// Every Computational status holds it.
 constexpr uint8_t kInvalidLevel = 0xFF;
 
 class QubitStatus {
   public:
-    static QubitStatus computational_unknown() {
-        return QubitStatus(QubitStatusKind::ComputationalUnknown, kInvalidLevel);
+    static QubitStatus computational() {
+        return QubitStatus(QubitStatusKind::Computational, kInvalidLevel);
     }
 
-    // Construct a known-source status without checking level_id against
-    // a level table. Tests and interior code may call these; user code
-    // should prefer LevelSet::computational_known / leaked / lost.
-    static QubitStatus computational_known_unchecked(uint8_t level_id) {
-        return QubitStatus(QubitStatusKind::ComputationalKnown, level_id);
-    }
+    // Construct a noncomputational status without checking level_id
+    // against a level table. Tests and interior code may call these;
+    // user code should prefer LevelSet::leaked / lost.
     static QubitStatus leaked_unchecked(uint8_t level_id) {
         return QubitStatus(QubitStatusKind::Leaked, level_id);
     }
@@ -79,30 +73,7 @@ class QubitStatus {
     QubitStatusKind kind() const { return kind_; }
     uint8_t level_id() const { return level_id_; }
 
-    bool is_unknown_computational() const { return kind_ == QubitStatusKind::ComputationalUnknown; }
-
-    // Returns the resolved level id when the qubit has a known source
-    // (ComputationalKnown, Leaked, or Lost); nullopt when the source
-    // is unresolved (ComputationalUnknown).
-    std::optional<uint8_t> known_source_level() const {
-        if (kind_ == QubitStatusKind::ComputationalUnknown) {
-            return std::nullopt;
-        }
-        return level_id_;
-    }
-
-    // Like known_source_level but throws on ComputationalUnknown. Use
-    // in code paths where the caller must consult a definite level id
-    // (classical Markov transitions; selecting a transition-matrix
-    // column for a known-coherent source).
-    uint8_t require_classical_source_level() const {
-        if (kind_ == QubitStatusKind::ComputationalUnknown) {
-            throw std::invalid_argument(
-                "require_classical_source_level: qubit kind is "
-                "ComputationalUnknown; no resolved level id");
-        }
-        return level_id_;
-    }
+    bool is_computational() const { return kind_ == QubitStatusKind::Computational; }
 
   private:
     QubitStatus(QubitStatusKind kind, uint8_t level_id) : kind_(kind), level_id_(level_id) {}

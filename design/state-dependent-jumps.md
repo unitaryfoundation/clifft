@@ -297,7 +297,13 @@ Per instrument instruction:
   larger peak rank grows the state's amplitude array at that boundary —
   the single sanctioned exception to the VM's allocate-once invariant,
   host-side between dispatch entries, never inside a kernel; a driver
-  reusing one state across shots amortizes growth to the chain maximum.
+  reusing one state across shots amortizes growth to the chain maximum,
+  and its between-shot rebuilds size to the running maxima, never down
+  to the triggering module. Preallocating instead of growing would mean
+  bounding the continuation family ahead of time — the §3.1 dead end.
+  When memory must be capped, `max_rank` is the hard bound: any module
+  beyond it fails compilation loudly, so growth never exceeds
+  `2^max_rank` amplitudes.
 
 Dormant-random sites are handled per the damping policy (§4.6): under
 `exact`, the compiler emits an expansion before the instrument (the fused

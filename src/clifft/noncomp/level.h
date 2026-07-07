@@ -6,17 +6,19 @@
 // into the level table), a human-readable label, and a LevelCategory.
 //
 // A level table must contain exactly two Computational levels; in table
-// order the first is the |0> state and the second is |1>. The rewriter
-// uses computational_one_id() to prepend an X prep for a sampled known-|1>
-// initial level, or when a transition materializes the carrier at the |1>
-// level (the SVM default initialization is |0...0>). Leaked and Lost levels
-// carry no basis information -- "lost from |1>" provenance, if ever needed,
-// belongs in an event record or in distinct levels, not in the level tag.
+// order the first is the |0> state and the second is |1>. The driver
+// uses computational_one_id() to preload the Pauli frame when an
+// initial draw places a qubit at |1>, and the rewriter uses it to
+// append the X when a recorded jump materializes the carrier at the
+// |1> level (the SVM default initialization is |0...0>). Leaked and
+// Lost levels carry no basis information -- "lost from |1>" provenance,
+// if ever needed, belongs in an event record or in distinct levels,
+// not in the level tag.
 //
 // LevelSet wraps a std::vector<Level>, runs validation in its ctor,
 // and owns the QubitStatus factories that bind a level id to this
-// specific table. Construction of QubitStatus values for non-Unknown
-// kinds should go through LevelSet so the (kind, level_id) pair is
+// specific table. Construction of noncomputational QubitStatus values
+// should go through LevelSet so the (kind, level_id) pair is
 // guaranteed to refer to a real level of the matching category in a
 // known table.
 
@@ -82,11 +84,6 @@ class LevelSet {
 
     // QubitStatus factories: validate that level_id refers to a level
     // of the matching category in this table.
-    QubitStatus computational_known(uint8_t level_id) const {
-        check_kind(level_id, LevelCategory::Computational, "computational_known");
-        return QubitStatus::computational_known_unchecked(level_id);
-    }
-
     QubitStatus leaked(uint8_t level_id) const {
         check_kind(level_id, LevelCategory::Leaked, "leaked");
         return QubitStatus::leaked_unchecked(level_id);
@@ -104,14 +101,16 @@ class LevelSet {
     uint8_t computational_one_id() const { return computational_one_id_; }
 
     // QubitStatus for a level id, dispatched on the level's category:
-    // Computational -> ComputationalKnown, Leaked -> Leaked, Lost -> Lost.
-    // Used by the status walks to turn a transition destination into
-    // the resulting qubit status.
+    // Computational -> Computational (the level is not carried: which
+    // basis state a computational qubit holds is SVM runtime
+    // information), Leaked -> Leaked, Lost -> Lost. Used by the status
+    // walks to turn a transition destination into the resulting qubit
+    // status.
     QubitStatus status_for(uint8_t level_id) const {
         require_in_range(level_id, "status_for");
         switch (levels_[level_id].category) {
             case LevelCategory::Computational:
-                return QubitStatus::computational_known_unchecked(level_id);
+                return QubitStatus::computational();
             case LevelCategory::Leaked:
                 return QubitStatus::leaked_unchecked(level_id);
             case LevelCategory::Lost:

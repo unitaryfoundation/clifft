@@ -273,7 +273,12 @@ void execute(const CompiledModule& program, SchrodingerState& state);
 /// bytecode before `offset` must be bit-identical to the code the state
 /// already executed -- the compiler's determinism plus the instrument
 /// barrier contract guarantee this for a recompiled continuation of the
-/// same circuit prefix. Grows the amplitude array and measurement-record
+/// same circuit prefix. Prefix identity is also what keeps written
+/// visible records meaningful: the checks below cover only the counts
+/// that anchor records (qubits, detectors, observables, exp-vals) and
+/// cannot establish visible measurement layout from counts alone, so
+/// preserving the executed prefix's visible slots is the caller's
+/// obligation. Grows the amplitude array and measurement-record
 /// buffer if the continuation needs more than the state was built with
 /// (the sanctioned trap-boundary exception to the allocate-once
 /// invariant; a driver reusing one state across shots amortizes growth to

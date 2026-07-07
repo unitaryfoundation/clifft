@@ -4,9 +4,8 @@
 //
 // The rewriter's circuit walk and the exact driver's classical-outcome
 // walk advance a qubit's status the same way; that logic lives here, in
-// one place, so the two stay in sync. It covers gate demotion, the
-// measurement and reset effects (including the pre-SVM-known measurement
-// rule), reset-restore of leaked/lost qubits, and the feedback rules.
+// one place, so the two stay in sync. It covers the per-operand policy
+// actions, reset-restore of leaked/lost qubits, and the feedback rules.
 
 #include "clifft/circuit/gate_data.h"
 #include "clifft/noncomp/level.h"
@@ -37,9 +36,10 @@ double loss_probability(const std::vector<double>& args, uint32_t op_index,
 // mean physically different things: a CX with two qubit operands is a
 // physical entangler, but a CX with a record control is a virtual,
 // frame-level Pauli correction. The role, not the gate alone, drives the
-// noncomputational status effect. The two feedback roles split on the
-// correction's basis: a conditional X can flip the energy level, a
-// conditional Z is phase-only and leaves it intact.
+// noncomputational status effect. The two feedback roles are named for
+// the correction's basis; both are virtual and status-preserving, but
+// the policy scan still needs to tell them apart from physical operands
+// on a vacated site.
 enum class OperandRole {
     Physical,   // a real qubit operand of a physical operation
     FeedbackX,  // target of a classically-controlled X (CX rec q)
@@ -69,18 +69,13 @@ OperandAction operand_action(GateType gate, QubitStatusKind kind,
                              const NonComputationalPolicy& policy);
 
 // The qubit's status after an operation given only the operation's
-// normal status effect (no transition fired). For a Physical operand:
-// Z-basis reset -> Known(g); X/Y reset -> Unknown; Z-basis measurement
-// preserves the pre-SVM-known status; non-destructive probes preserve
-// status; a Z-diagonal gate (Z/S/T/CZ...) preserves a known level and an
-// X-type gate (X/Y) flips it to the other known level; every other
-// quantum operation demotes a computational qubit to Unknown; a
-// Leaked/Lost qubit is only changed by a reset that restores it. A feedback operand never leaks
-// (the correction is virtual): a FeedbackX may flip g<->e on a control bit unknown before SVM
-// execution, so it demotes a known computational qubit; a FeedbackZ is phase-only and leaves the
-// status untouched.
+// normal status effect (no transition fired). No normal operation moves
+// a computational qubit between categories, so its status is unchanged;
+// a Leaked/Lost qubit is changed only by a reset (any flavor) that
+// restores it to computational. Feedback operands are virtual and never
+// change a status.
 QubitStatus normal_post_op_status(const QubitStatus& entry, GateType gate, OperandRole role,
-                                  const NonComputationalPolicy& policy, const LevelSet& levels);
+                                  const NonComputationalPolicy& policy);
 
 // Full per-target step: a sampled jump destination wins; otherwise the
 // operation's normal status effect applies.

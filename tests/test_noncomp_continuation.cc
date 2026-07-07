@@ -138,8 +138,8 @@ TEST_CASE("continuation: classical-source consults consume pre-drawn outcomes") 
 
     auto result = rewrite_continuation(annotated, events, false, model);
     const std::vector<GateType> want = {
-        GateType::LEVEL_TRANSITION,  // trapped site, kept; the carrier is
-                                     // Known |0> here, so no trace-out
+        GateType::LEVEL_TRANSITION,  // trapped site, kept
+        GateType::R,                 // trace-out of the trapped carrier
         // second annotation consumed (classical source), outcome: recapture
         GateType::R,  // carrier materialization at |1>
         GateType::X,
@@ -212,16 +212,12 @@ TEST_CASE("continuation: events that do not describe the circuit reject") {
         REQUIRE_THROWS_WITH(rewrite_continuation(annotated, events, false, model),
                             ContainsSubstring("was drawn at level"));
     }
-    SECTION("forcing a trace-out the jump does not emit") {
-        // A jump landing computationally from a *known* level emits R+X,
-        // so build the definite-carrier case: initial |0> is Known, and
-        // the jump lands on the leaked level -- Known carriers need no
-        // trace-out, so forcing must reject.
+    SECTION("forcing the trace-out any jump emits") {
+        // Every recorded jump emits a carrier reset, so the forced form
+        // always has one to point at.
         ExactShotEvents events = base;
-        events.initial_status[0] =
-            model.levels().status_for(model.levels().computational_zero_id());
         events.jumps.push_back({0, 0, kLeak});
-        REQUIRE_THROWS_WITH(rewrite_continuation(annotated, events, true, model),
-                            ContainsSubstring("no carrier reset"));
+        auto result = rewrite_continuation(annotated, events, true, model);
+        REQUIRE(result.forced_traceout_slot == 1);  // 1 visible slot before it
     }
 }

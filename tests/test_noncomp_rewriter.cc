@@ -222,13 +222,12 @@ TEST_CASE("rewrite: a two-qubit gate on a lost operand drops whole") {
 }
 
 TEST_CASE("rewrite: a dropped gate leaves the surviving operand's status untouched") {
-    // The CZ drops whole (lost operand), so qubit 1 keeps its
-    // instruction-known g status through to the end of the walk.
+    // The CZ drops whole (lost operand); qubit 1 stays computational
+    // through to the end of the walk.
     Circuit c = parse("CZ 0 1\n");
     NonComputationalModel model = make_model({});
     ContinuationRewrite rw = rewritten(c, model, {kLost, kG});
-    REQUIRE(rw.final_status[1].kind() == clifft::QubitStatusKind::ComputationalKnown);
-    REQUIRE(rw.final_status[1].level_id() == kG);
+    REQUIRE(rw.final_status[1].kind() == clifft::QubitStatusKind::Computational);
 }
 
 TEST_CASE("rewrite: a single-qubit gate on a leaked qubit drops") {
@@ -272,7 +271,7 @@ TEST_CASE("rewrite: a non-restoring lost reset drops; reset_restores_lost keeps 
     NonComputationalModel reload = make_model({}, restore);
     ContinuationRewrite rw_keep = rewritten(c, reload, {kLost});
     REQUIRE(count_gate(rw_keep.circuit, GateType::R) == 1);
-    REQUIRE(rw_keep.final_status[0].kind() == clifft::QubitStatusKind::ComputationalKnown);
+    REQUIRE(rw_keep.final_status[0].kind() == clifft::QubitStatusKind::Computational);
 }
 
 TEST_CASE("rewrite: an X/Y-basis measurement of a noncomputational qubit rejects") {
@@ -400,7 +399,7 @@ TEST_CASE("rewrite: reset_restores_lost restores a measure-and-reset's lost qubi
     REQUIRE(count_gate(rw.circuit, GateType::MPAD) == 1);
     REQUIRE(count_gate(rw.circuit, GateType::R) == 1);
     REQUIRE(rw.circuit.num_measurements == 1);  // visible record preserved
-    REQUIRE(rw.final_status[0].kind() == clifft::QubitStatusKind::ComputationalKnown);
+    REQUIRE(rw.final_status[0].kind() == clifft::QubitStatusKind::Computational);
 }
 
 TEST_CASE("rewrite: a measure-and-reset on a leaked qubit records and resets") {
@@ -413,7 +412,7 @@ TEST_CASE("rewrite: a measure-and-reset on a leaked qubit records and resets") {
     REQUIRE(count_gate(rw.circuit, GateType::MPAD) == 1);
     REQUIRE(count_gate(rw.circuit, GateType::READOUT_NOISE) == 1);
     REQUIRE(count_gate(rw.circuit, GateType::R) == 1);  // the MR's kept reset
-    REQUIRE(rw.final_status[0].kind() == clifft::QubitStatusKind::ComputationalKnown);
+    REQUIRE(rw.final_status[0].kind() == clifft::QubitStatusKind::Computational);
 }
 
 TEST_CASE("rewrite: a measure-and-reset on a non-restoring lost qubit is kept") {
