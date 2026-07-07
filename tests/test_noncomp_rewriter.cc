@@ -641,3 +641,30 @@ TEST_CASE("rewrite: a zero-fire annotation is omitted from the node stream and s
     REQUIRE(rw.site_targets.size() == 1);
     REQUIRE(rw.site_targets[0].second == 0);
 }
+
+TEST_CASE("rewrite: a malformed LOSS annotation rejects instead of reading past its args") {
+    // rewrite_continuation is callable without the driver's up-front
+    // validation, so its own LOSS reads must validate the argument shape
+    // rather than index into it.
+    NonComputationalModel model = make_model({});
+    Circuit c = parse("LOSS(0.5) 0\nM 0\n");
+    ExactShotEvents events;
+    events.initial_status = initials({kG});
+
+    SECTION("no arguments") {
+        c.nodes[0].args.clear();
+        Circuit annotated = annotate(c, model);
+        REQUIRE_THROWS_WITH(rewrite_continuation(annotated, events, false, model),
+                            ContainsSubstring("rewrite_continuation") &&
+                                ContainsSubstring("LOSS") &&
+                                ContainsSubstring("exactly one argument"));
+    }
+
+    SECTION("two arguments with a zero first must not silently elide") {
+        c.nodes[0].args = {0.0, 0.3};
+        Circuit annotated = annotate(c, model);
+        REQUIRE_THROWS_WITH(
+            rewrite_continuation(annotated, events, false, model),
+            ContainsSubstring("rewrite_continuation") && ContainsSubstring("exactly one argument"));
+    }
+}

@@ -335,7 +335,7 @@ ContinuationRewrite rewrite_continuation(const Circuit& annotated, const ExactSh
                 // column_sum(G) != 0 or column_sum(E) != 0. These predicates
                 // are exact 0.0 comparisons, matching frontend.cc.
                 if (gate == GateType::LOSS) {
-                    if (node.args[0] == 0.0) {
+                    if (loss_probability(node.args, op_index, "rewrite_continuation") == 0.0) {
                         continue;
                     }
                 } else {
