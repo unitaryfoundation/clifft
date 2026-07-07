@@ -30,11 +30,36 @@ dense-statevector GPU literature leaves open for clifft (see
 
 ## Ops benchmarked
 
-`H` (butterfly), `T` (phase waterfall), `CZ`, `CNOT` (permutation), `EXPAND`,
-`EXPAND_T` (fused expand+phase), `MEAS_DIAG` (Z-basis: reduce+sample+compact),
-`MEAS_INTERFERE` (X-basis fold). The batched workload uses only the
-rank-preserving ops (H/T/CZ/CNOT) so every shot stays at the same *k* — honoring
-cuStateVec's uniform-qubit-count constraint and isolating raw batched throughput.
+`H` (butterfly), `T` (phase waterfall), `CZ`, `CNOT` (permutation), **`U2`,
+`U4`** (fused dense 1q/2q matrices — clifft's `OP_ARRAY_U2`/`OP_ARRAY_U4`, the
+opcodes the optimizer's fusion passes actually emit; added after review found
+the original mix measured an op set clifft's compiler would never leave),
+`EXPAND`, `EXPAND_T` (fused expand+phase), `MEAS_DIAG` (Z-basis:
+reduce+sample+compact), `MEAS_INTERFERE` (X-basis fold).
+
+Two batched workloads:
+- **gates-only** (`batched`/`batchedgpu`): rank-preserving ops so every shot
+  stays at the same *k* — the idealized upper bound on batched throughput.
+- **real shot shape** (`batchedmeas`/`batchedmeasgpu`): each layer additionally
+  runs one **completed measurement** — on GPU that is per-shot reduce → D2H of
+  branch probabilities → host sampling → H2D of outcomes → outcome-selected
+  collapse — followed by a per-shot expand that restores the rank (mirroring
+  clifft's static, shot-invariant k trajectory, where all shots move through
+  the same k schedule in lockstep). **The gap between the two workloads is the
+  decisive go/no-go number**: it prices the host round-trip that real
+  mid-circuit-measurement shots pay and that the literature never measures.
+  The `measround` tag times one gate-free measurement round alone (latency of
+  the reduce→D2H→sample→H2D→collapse chain).
+
+Per-shot measurement outcomes differ across the batch; the collapse kernels
+take the outcome/sign as a **per-shot scalar** (predicated lanes, no divergent
+code paths) — the same shape a production batched backend would use.
+
+`Gamp/s` counts **amplitudes actually touched** per op (H: `2^k`, T: `2^k/2`,
+CZ: `2^k/4`, EXPAND/MEAS: `2·2^k`, …; see `amps_touched()` in
+`bench_common.hpp`). Review fix: the original metric divided every op by
+`2^k`, making per-op comparisons partly a normalization artifact. CPU and GPU
+use the same definition, so crossovers are unaffected.
 
 ## Build & run
 
@@ -56,20 +81,30 @@ cmake --build build -j
 ./build/bench_cpu 10 30 12,16,18,20 4 > cpu.csv
 ./build/bench_gpu 10 30 12,16,18,20 4 > gpu.csv
 ```
-`bench_gpu` first runs a **CPU-vs-GPU correctness check** (`[validate]`, expects
-`max|cpu-gpu| < 1e-9`), then transfer-bandwidth, single-op, and batched sweeps.
+`bench_gpu` first runs the **CPU-vs-GPU correctness checks** — `[validate]`
+(single-state: gate layers incl. U2/U4, EXPAND_T, forced MEAS_DIAG and
+MEAS_INTERFERE, with the GPU reduce sums cross-checked against CPU
+probabilities) and `[validate-batched]` (all `kb_*` kernels plus a completed
+batched measurement round with alternating forced outcomes, so both arms of
+the outcome-predicated collapse are exercised). Both expect `< 1e-9`. Review
+fix: previously only the four plain gate kernels were validated, and no GPU
+measurement was ever completed. Then transfer-bandwidth, single-op, batched,
+and batched-with-measurement sweeps.
 
 ## Output
 
 CSV on stdout, human-readable table on stderr.
 
-| tag           | columns                                                    |
-|---------------|------------------------------------------------------------|
-| `single`      | `k, op, dim, ns/op, Gamp/s`           (CPU single-state)   |
-| `singlegpu`   | `k, op, dim, ns/op, Gamp/s`           (GPU single-state)   |
-| `batched`     | `k, B, shots, shots/s, Mshot-layer/s` (CPU batched)        |
-| `batchedgpu`  | `k, B, shots, shots/s, Mshot-layer/s` (GPU batched)        |
-| `transfer`    | `k, bytes, H2D GB/s, D2H GB/s`        (GPU only)           |
+| tag              | columns                                                        |
+|------------------|----------------------------------------------------------------|
+| `single`         | `k, op, dim, ns/op, Gamp/s`           (CPU single-state)       |
+| `singlegpu`      | `k, op, dim, ns/op, Gamp/s`           (GPU single-state)       |
+| `batched`        | `k, B, shots, shots/s, Mshot-layer/s` (CPU batched, gates-only)|
+| `batchedgpu`     | `k, B, shots, shots/s, Mshot-layer/s` (GPU batched, gates-only)|
+| `batchedmeas`    | `k, B, shots, shots/s, Mshot-layer/s` (CPU, + completed meas)  |
+| `batchedmeasgpu` | `k, B, shots, shots/s, us/meas-round` (GPU, + completed meas)  |
+| `measround`      | `k, B, shots, us/round, us/round/shot` (GPU meas round alone)  |
+| `transfer`       | `k, bytes, H2D GB/s, D2H GB/s`        (GPU only)               |
 
 ## How to read the results
 
@@ -80,8 +115,25 @@ CSV on stdout, human-readable table on stderr.
   (e.g. 16). If the GPU's shots/s keeps climbing with B while CPU saturates, the
   batch-across-shots hypothesis holds. Watch for the B where GPU shots/s plateaus
   (full occupancy).
+- **The decisive number**: `batchedmeasgpu` vs `batchedgpu` shots/s at the same
+  (k, B). If completed measurements erase most of the batched win, the whole
+  GPU route needs on-device sampling or CUDA-graphs work before it is viable;
+  if the gap is modest (NVLink-C2C should make the D2H/H2D legs cheap on
+  GH200), the go case is strong. Compare `batchedmeas` (CPU) the same way —
+  on CPU the measurement adds only a few percent (no round-trip), so the GPU
+  delta isolates the round-trip cost.
 - **Transfer**: H2D/D2H GB/s ≈ PCIe (~25 GB/s) vs NVLink-C2C (hundreds of GB/s)
   tells you how cheap it is to keep clifft's CPU-side branch control in the loop.
+
+## Quoting rules (review)
+
+Do **not** quote `batchedgpu ÷ batched` as "the GPU speedup for clifft" — it is
+a gates-only, sync-free ceiling. Quote `batchedmeasgpu ÷ batchedmeas` (same
+schedule, both sides pay a completed measurement per layer) as the honest
+batched comparison, and report the gates-only figure as the ceiling. Known
+remaining gaps even after a GH200 run: no `SWAP_MEAS_INTERFERE`, CZ/CNOT/U4
+axes fixed at (0,1)-adjacent (most coalescing-friendly), no per-shot noise-op
+modeling, no x86/AVX-512 CPU baseline (Grace/NEON only).
 
 Save `cpu.csv` / `gpu.csv` next to this README and summarize findings back into
 `../README.md`.

@@ -69,14 +69,55 @@ inline double seconds_since(Clock::time_point t0) {
 double median(std::vector<double> xs);
 
 // ---------------------------------------------------------------------------
-// Op codes for the synthetic workload.
+// Op codes for the synthetic workload. U2/U4 are clifft's fused dense 1q/2q
+// matrix opcodes (OP_ARRAY_U2 / OP_ARRAY_U4) -- the hot path the optimizer's
+// tile/single-axis fusion passes actually emit, with ~4-8x the arithmetic
+// intensity of H/T at the same memory traffic (review finding: without them
+// the benchmark measures an op mix clifft's compiler would never leave).
 // ---------------------------------------------------------------------------
-enum class Op { H, T, CZ, CNOT, EXPAND, EXPAND_T, MEAS_DIAG, MEAS_INTERFERE };
+enum class Op { H, T, CZ, CNOT, U2, U4, EXPAND, EXPAND_T, MEAS_DIAG, MEAS_INTERFERE };
 
 const char* op_name(Op op);
 
+// Amplitudes actually touched by one application of `op` on a rank-k block of
+// dimension dim = 2^k. (Review fix: the old metric divided every op by dim,
+// so per-op Gamp/s comparisons were partly a normalization artifact -- e.g.
+// CZ touches dim/4, EXPAND reads dim and writes dim.) CPU/GPU halves must
+// both use this so cross-op AND cross-device comparisons are meaningful.
+inline uint64_t amps_touched(Op op, uint64_t dim) {
+    switch (op) {
+        case Op::H: return dim;                 // butterfly rw on all
+        case Op::T: return dim / 2;             // phases the v-set half
+        case Op::CZ: return dim / 4;            // negates the both-set quarter
+        case Op::CNOT: return dim / 2;          // swaps 2 amps per quarter-block
+        case Op::U2: return dim;                // dense 2x2 on all pairs
+        case Op::U4: return dim;                // dense 4x4 on all blocks
+        case Op::EXPAND: return 2 * dim;        // reads dim, writes dim
+        case Op::EXPAND_T: return 2 * dim;      // reads dim, writes dim (phased)
+        case Op::MEAS_DIAG: return 2 * dim;     // reduce reads dim + compact r/w dim
+        case Op::MEAS_INTERFERE: return 2 * dim;  // reduce reads dim + fold r/w dim
+    }
+    return dim;
+}
+
+// Fixed generic unitaries for the U2/U4 model ops and validation (interleaved
+// re,im; row-major). kU2 = u3(0.6, 0.35, 0.8); kU4 = kron(kU2, u3(1.1,-0.4,0.25)).
+inline constexpr double kU2[8] = {
+    0.9553364891256060, 0.0000000000000000, -0.2058909107286161, -0.2119932202323976,
+    0.2776036182326806, 0.1013332309229552, 0.3902429576261744, 0.8719966980889404};
+inline constexpr double kU4[32] = {
+    0.8144477837978134, 0.0000000000000000, -0.4838188430151684, -0.1235392328984321,
+    -0.1755270502653098, -0.1807294187584803, 0.0768571317485036, 0.1339862144585600,
+    0.4599246066823143, -0.1944530048360987, 0.8053024131083846, -0.1217095558080070,
+    -0.1422713529342881, -0.0601513632413207, -0.2005639375200707, -0.1524695876103295,
+    0.2366638919558055, 0.0863890642613379, -0.1274851669135874, -0.0872172952031696,
+    0.3326916909373423, 0.7433985682757410, -0.0848717640376650, -0.4920766186182839,
+    0.1542715973372545, -0.0077200142845794, 0.2469162319870369, 0.0500523981537599,
+    0.3653631164730068, 0.3403709859003868, 0.4400480155951548, 0.6853341787069546};
+
 // A fixed "active-block layer" replayed L times at active rank k. One layer:
-//   H on every axis, then T on every axis, then a CNOT chain, then one CZ.
+//   H on every axis, T on every axis, a CNOT chain, one CZ, one fused U2, and
+//   one fused U4 (the post-optimizer opcodes).
 // Returns the op/axis schedule for a given k. Used by both CPU (loop over
 // shots) and GPU (one kernel launch per scheduled op across the whole batch).
 struct ScheduledOp {
@@ -85,5 +126,14 @@ struct ScheduledOp {
     unsigned b;  // secondary axis (target for 2q); ignored otherwise
 };
 std::vector<ScheduledOp> make_layer_schedule(unsigned k, unsigned layers);
+
+// The "real shot shape" schedule (review fix: the gates-only batched workload
+// is an idealized upper bound -- real clifft shots interleave measurements,
+// whose reduce -> host-sample -> per-shot-conditional collapse is the
+// dominant unknown at k < 20). One layer = the gate layer above + one
+// completed MEAS_DIAG (rank k -> k-1) + one EXPAND (k-1 -> k), so the rank --
+// and therefore the batch shape -- is identical every layer (this mirrors
+// clifft's static, shot-invariant k trajectory).
+std::vector<ScheduledOp> make_layer_schedule_meas(unsigned k, unsigned layers);
 
 }  // namespace mb

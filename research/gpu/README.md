@@ -1,5 +1,93 @@
 # GPU acceleration of clifft's dense active block — scoping research
 
+> **REVIEW UPDATE 2026-07-07.** An adversarial review (three parallel passes:
+> microbench code review, clifft shot-loop analysis, landscape verification
+> with primary sources) confirmed this report's strategic call — batch across
+> shots, skepticism about the single-large-statevector route — and corrected
+> several specifics. Summary of durable changes:
+>
+> **1. The "central engineering problem" (bucketing shots by k) does not
+> exist.** clifft's active-k trajectory is a *compile-time-static schedule,
+> identical for every shot of a program*: every k-moving opcode
+> (`OP_EXPAND*`, `OP_MEAS_ACTIVE_*`) moves k unconditionally, and the compiler
+> already materializes the per-instruction k history (`SourceMap`,
+> `backend/source_map.h`). Noise ops (incl. the correlated Pauli channels of
+> #158) mutate only the symbolic frame — never k. So all shots of one program
+> stay in **lockstep k**: a batch is a dense `B x 2^k` tensor throughout, and
+> per-shot divergence (measurement outcomes, noise draws, feedforward) is
+> expressible as per-shot *scalars* parameterizing shared kernels — no
+> divergent code paths, no re-bucketing. Post-selection is a per-shot mask.
+> Integration estimate drops to **medium** (~30 kernels to SoA-batched form,
+> batched segmented reductions, per-shot RNG streams — xoshiro's 256-bit state
+> makes those cheap).
+>
+> **2. Physics ceiling, stated plainly.** These kernels are memory-bound:
+> measured locally, real clifft runs rotation sweeps at k=20 at 3.64 Gamp/s
+> single-thread and only 9.6 Gamp/s on all 11 cores (2.6x — bandwidth-bound,
+> exactly as the microbench model predicts; the model's per-op numbers match
+> real clifft within ~10%). The GPU/CPU ratio is therefore bounded by the
+> memory-bandwidth ratio (~3.3 TB/s HBM3 vs ~0.5 TB/s Grace ≈ **6-8x** once
+> both sides saturate; NVIDIA's own best apples-to-apples figure is 5.9x vs
+> qsim-CPU). **Batching's job is to reach saturation at small k, not to
+> exceed that ceiling** (plus cache-residency effects for small-k batches).
+> Restate the prior as "~5-10x vs tuned CPU at 28-32q FP64, single node".
+>
+> **3. Landscape corrections (July 2026, verified against primary sources):**
+> - **CUDA-Q: resolved — NOT an integration layer.** It is a kernel DSL /
+>   platform; its extension interface points the opposite direction (plug a
+>   simulator *into* CUDA-Q via `nvqir::CircuitSimulatorBase`), state access
+>   is read/init-only, fp32 default (fp64 via `--target-option fp64`).
+>   **Direct cuStateVec + custom CUDA is the layer.** (Open question 3: closed.)
+> - The batched API family lives in the **classic** cuStateVec API only — the
+>   Ex API has **no batched equivalents** (adjust the "hybrid via Ex" framing:
+>   classic batched calls over self-managed buffers is the core; Ex optional).
+>   Ex is no longer marked experimental, and Ex v1.14 (SDK 26.06) added
+>   `custatevecExStateVectorAddWires()` — resizable statevectors, directly
+>   relevant to OP_EXPAND. Correct interop function name:
+>   `custatevecExStateVectorGetResourcesFromDeviceSubSV` (the name below was
+>   wrong). Blackwell requires 128-byte-aligned batched SVs.
+> - **Qiskit Aer entered reduced maintenance via PR #2427, merged 2026-05-21**
+>   (latest release 0.17.2, Sep 2025). Its `batched_shots_gpu` (default cap 16
+>   qubits) batches *stochastic* divergence (measure/reset/noise/legacy c_if)
+>   but **not dynamic control flow** (jump/mark excluded), and is mutually
+>   exclusive with cuStateVec (it validates the pattern with its own Thrust
+>   kernels). Using it as prior art (not a dependency) remains sound.
+> - **CUDA-Q ships batched trajectories** (`CUDAQ_BATCHED_SIM_MAX_QUBITS`,
+>   default 20 — clifft's exact regime) but **deactivates batching for
+>   mid-circuit measurement + conditional branching** (sequential fallback).
+>   Combined with Aer's exclusion above: **the niche this report targets —
+>   batched small statevectors under per-shot-divergent mid-circuit
+>   measurement — is demonstrably unoccupied**, and clifft's lockstep-k
+>   structure (point 1) is unusually well-suited to it.
+> - New entrants to position against (none obsolete the plan): **QuEra Tsim**
+>   (arXiv:2604.01059 — GPU stabilizer-rank QEC *sampler*, FP32-only/complex64
+>   hard-coded, T-count-exponential; clifft differentiates on exact FP64 and
+>   k-exponential scaling), **NVIDIA cuStabilizer** (cuQuantum SDK 25.11 —
+>   Clifford-only GPU Pauli frames, ~1000x vs Stim; watch item if it grows
+>   T support), **quEStab** (ICS '26 — multi-GPU extended-stabilizer,
+>   parallelizes over decomposition *terms*, not shots; orthogonal; details
+>   paywalled, no preprint).
+> - **GH200 access is unblocked**: Lambda $2.29/GPU/hr, Vultr $1.99/hr,
+>   CoreWeave $6.50/hr, self-serve (mid-2026). H200 SXM is a valid FP64
+>   stand-in (identical 34/67/67 TFLOPS) except for NVLink-C2C behavior.
+>   **The microbenchmark run is ~$20 of compute; there is no access excuse.**
+>
+> **4. Microbench upgraded before the money run** (see `microbench/README.md`):
+> validation now covers all batched kernels and both measurement paths; a
+> **completed batched measurement** benchmark (reduce → D2H → host sample →
+> H2D → outcome-selected collapse; tags `batchedmeas*`, `measround`) provides
+> the decisive go/no-go number the review found missing; fused `U2`/`U4`
+> opcodes (the real post-optimizer hot path) are benchmarked; the Gamp/s
+> metric counts amplitudes actually touched. Quoting rule: the honest batched
+> comparison is `batchedmeasgpu / batchedmeas`, never the gates-only ceiling.
+>
+> **5. Cross-branch product tie-in** (from the stabilizer-rank review): forced
+> replays (`record_probabilities`) have *zero* per-shot host divergence — no
+> sampling round-trips at all — and are embarrassingly parallel across
+> records. **Batched GPU forced-replay is the cleanest first integration
+> target**, ahead of noisy sampling (also confirmed to batch cleanly).
+
+
 **Date:** 2026-06-19
 **Branch:** `research/gpu-cudaq-custatevec`
 **Question:** Can NVIDIA cuStateVec / CUDA-Q accelerate clifft's dense active block `|φ⟩_A`, and what is the most promising GPU approach overall?
@@ -36,7 +124,7 @@ Three structural mismatches between clifft and the GPU-statevector literature:
 - **Standard gates: yes, directly.** `custatevecApplyMatrix()` applies arbitrary user unitaries; CNOT/CZ via the `controls` parameter; dense / diagonal / generalized-permutation / Pauli-matrix-exponential forms all documented. *(high confidence)*
 - **Batched primitives: yes, a full family.** `custatevecApplyMatrixBatched`, `MeasureBatched`, `abs2sum...Batched`, `collapseByBitStringBatched`, `computeExpectationBatched`. Statevectors live in one device buffer addressed by `nSVs` + `svStride`; `mapType` (BROADCAST vs INDEXED) allows shared or per-SV matrices. Docs explicitly recommend this "when computing with many small state vectors." *(high confidence)*
 - **Non-standard ops: no native primitive.** cuStateVec operates on a fixed-dimension statevector — there is no resize/grow API (`OP_EXPAND`) and no user-defined element-wise kernel API (X-basis fold). These **must drop to raw CUDA.** *(high confidence)*
-- **Escape hatch: cuStateVec Ex interop.** `custatevecExGetResourcesFromDeviceSubSV/...View` expose underlying device pointers, CUDA streams, and handles, so custom kernels run on the resident state vector alongside library calls (NVIDIA ships a cuBLAS-on-resident-SV example). **This is what makes a hybrid design viable.** *(high confidence)*
+- **Escape hatch: cuStateVec Ex interop.** `custatevecExStateVectorGetResourcesFromDeviceSubSV/...View` expose underlying device pointers, CUDA streams, and handles, so custom kernels run on the resident state vector alongside library calls (NVIDIA ships a cuBLAS-on-resident-SV example). **This is what makes a hybrid design viable.** *(high confidence)*
 
 ### 2. Single-statevector crossover (complex128)
 - General band: GPU advantageous ~16–24 qubits, recommended 24–32; below 16, CPU (e.g. Qulacs CPU) wins. clifft's k=22–30 sits in/above this band. *(medium-high; arXiv:2412.20518)*
@@ -49,7 +137,7 @@ Three structural mismatches between clifft and the GPU-statevector literature:
 
 ### 4. Batching across shots — the most promising route
 - cuStateVec batched APIs (see #1) support it natively. **Independently validated:** Qiskit Aer's `batched_shots_gpu` "can greatly accelerate" statevector sims **with intermediate (mid-circuit) measurements** — exactly clifft's case — and defaults to ≤16 qubits/shot (`batched_shots_gpu_max_qubits=16`). *(high confidence)*
-- **Hard structural constraint:** all statevectors in a cuStateVec batch must share the same qubit count. clifft's `OP_EXPAND` changes k mid-shot and k varies per shot ⇒ **shots must be grouped/re-bucketed by current k.** This is the central engineering problem of the batched design.
+- **Hard structural constraint:** all statevectors in a cuStateVec batch must share the same qubit count. ~~clifft's `OP_EXPAND` changes k mid-shot and k varies per shot ⇒ shots must be grouped/re-bucketed by current k. This is the central engineering problem of the batched design.~~ **REVIEW CORRECTION: the k trajectory is compile-time static and shot-invariant (see banner, point 1) — same-program shots stay in lockstep k and the constraint is satisfied automatically.**
 - Memory: K-way batching needs ~K × one statevector. For k<20 that's cheap; this is why batching pairs naturally with clifft's *small* active block.
 
 ### 5. CUDA-Q (cudaq)
