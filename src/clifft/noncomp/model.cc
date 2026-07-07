@@ -3,7 +3,7 @@
 #include "clifft/circuit/gate_data.h"
 #include "clifft/noncomp/numeric.h"
 
-#include <cstdint>
+#include <cstddef>
 #include <map>
 #include <stdexcept>
 #include <string>
@@ -53,24 +53,19 @@ bool supports_transition(GateType g) {
 }  // namespace
 
 NonComputationalModel::NonComputationalModel(
-    LevelSet levels, std::vector<double> initial_state,
-    std::map<std::string, TransitionInstrument> transitions,
+    std::vector<double> initial_state, std::map<std::string, TransitionInstrument> transitions,
     std::optional<MeasurementClassifier> classifier, NonComputationalPolicy policy)
-    : levels_(std::move(levels)),
-      initial_state_(std::move(initial_state)),
+    : initial_state_(std::move(initial_state)),
       classifier_(std::move(classifier)),
       policy_(policy) {
-    const size_t n = levels_.size();
-    const uint64_t fingerprint = levels_.fingerprint();
-
     // Initial state must be a probability vector over the levels.
-    if (initial_state_.size() != n) {
+    if (initial_state_.size() != kNumLevels) {
         throw std::invalid_argument("NonComputationalModel: initial_state has " +
                                     std::to_string(initial_state_.size()) + " entries; expected " +
-                                    std::to_string(n) + " (one per level)");
+                                    std::to_string(kNumLevels) + " (one per level)");
     }
     double sum = 0.0;
-    for (size_t i = 0; i < n; ++i) {
+    for (size_t i = 0; i < kNumLevels; ++i) {
         const double p = initial_state_[i];
         // is_finite_robust runs first because -ffast-math folds
         // std::isfinite() / NaN-aware comparisons away.
@@ -95,8 +90,7 @@ NonComputationalModel::NonComputationalModel(
     // annotations, so it must survive the tag syntax; a key that names a
     // hookable physical gate additionally registers a gate hook,
     // canonicalized to GateType so no two spellings of one gate shadow
-    // each other. Each instrument must have been built against this
-    // model's level table.
+    // each other.
     for (auto& [name, instrument] : transitions) {
         if (name.empty()) {
             throw std::invalid_argument("NonComputationalModel: transition keys must be nonempty");
@@ -120,32 +114,7 @@ NonComputationalModel::NonComputationalModel(
                     "' both resolve to gate '" + std::string(gate_name(gate)) + "'");
             }
         }
-        if (instrument.num_levels() != n) {
-            throw std::invalid_argument("NonComputationalModel: transition '" + name + "' spans " +
-                                        std::to_string(instrument.num_levels()) +
-                                        " levels; expected " + std::to_string(n) +
-                                        " to match the level table");
-        }
-        if (instrument.level_fingerprint() != fingerprint) {
-            throw std::invalid_argument("NonComputationalModel: transition '" + name +
-                                        "' was built against a different level table");
-        }
         transitions_.emplace(name, std::move(instrument));
-    }
-
-    // The classifier, if present, must have been built against the same
-    // level table.
-    if (classifier_.has_value()) {
-        if (classifier_->num_levels() != n) {
-            throw std::invalid_argument("NonComputationalModel: classifier spans " +
-                                        std::to_string(classifier_->num_levels()) +
-                                        " levels; expected " + std::to_string(n) +
-                                        " to match the level table");
-        }
-        if (classifier_->level_fingerprint() != fingerprint) {
-            throw std::invalid_argument(
-                "NonComputationalModel: classifier was built against a different level table");
-        }
     }
 
     // Policy must hold recognized enum values.
@@ -159,34 +128,22 @@ NonComputationalModel::NonComputationalModel(
 }
 
 NonComputationalModel NonComputationalModel::from_spec(
-    LevelSet levels, std::vector<double> initial_state,
+    std::vector<double> initial_state,
     const std::map<std::string, std::vector<std::vector<double>>>& transition_matrices,
     std::optional<ClassifierSpec> classifier_spec, NonComputationalPolicy policy) {
-    // Build each component against the single `levels` table, so every
-    // fingerprint matches by construction and the constructor's cross-object
-    // checks pass without the caller ever touching a fingerprint or level id.
     std::map<std::string, TransitionInstrument> transitions;
     for (const auto& [gate, matrix] : transition_matrices) {
-        transitions.emplace(gate, TransitionInstrument::from_matrix(matrix, levels));
+        transitions.emplace(gate, TransitionInstrument::from_matrix(matrix));
     }
 
     std::optional<MeasurementClassifier> classifier;
     if (classifier_spec.has_value()) {
         classifier = MeasurementClassifier::from_matrix(std::move(classifier_spec->symbols),
-                                                        std::move(classifier_spec->matrix), levels);
+                                                        classifier_spec->matrix);
     }
 
-    return NonComputationalModel(std::move(levels), std::move(initial_state),
-                                 std::move(transitions), std::move(classifier), policy);
-}
-
-double NonComputationalModel::initial_probability(uint8_t level_id) const {
-    if (level_id >= initial_state_.size()) {
-        throw std::invalid_argument("NonComputationalModel::initial_probability: index " +
-                                    std::to_string(level_id) + " out of range (num_levels " +
-                                    std::to_string(initial_state_.size()) + ")");
-    }
-    return initial_state_[level_id];
+    return NonComputationalModel(std::move(initial_state), std::move(transitions),
+                                 std::move(classifier), policy);
 }
 
 const TransitionInstrument* NonComputationalModel::transition_for(GateType gate) const {

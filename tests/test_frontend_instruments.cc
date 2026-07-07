@@ -100,7 +100,6 @@ TEST_CASE("trace: LEVEL_TRANSITION materializes an INSTRUMENT with its spec") {
     REQUIRE_THAT(site.trap_remainder(1), WithinAbs(0.4, kTol));
     REQUIRE_THAT(site.damp[0], WithinAbs(std::sqrt(0.9), kTol));
     REQUIRE_THAT(site.damp[1], WithinAbs(std::sqrt(0.6), kTol));
-    REQUIRE(!site.source_independent());
 
     // Identity tableau at the site: the mask is plain Z on qubit 0.
     REQUIRE(hir.ops[0].instrument_site_idx() == InstrumentSiteIdx{0});
@@ -130,8 +129,8 @@ TEST_CASE("trace: LOSS materializes a source-independent all-trap site per targe
     for (int i = 0; i < 2; ++i) {
         const InstrumentSite& site = hir.instrument_sites[static_cast<size_t>(i)];
         REQUIRE(site.qubit == static_cast<uint32_t>(i));
-        REQUIRE(site.source_independent());
         REQUIRE_THAT(site.p_total[0], WithinAbs(0.25, kTol));
+        REQUIRE_THAT(site.p_total[1], WithinAbs(0.25, kTol));
         REQUIRE_THAT(site.trap_remainder(0), WithinAbs(0.25, kTol));
         REQUIRE_THAT(site.trap_remainder(1), WithinAbs(0.25, kTol));
         REQUIRE_THAT(site.damp[0], WithinAbs(std::sqrt(0.75), kTol));
@@ -171,18 +170,14 @@ TEST_CASE("trace: the damping policy is copied onto every site") {
 // =============================================================================
 
 TEST_CASE("instrument_trace_options: resolves model transitions and policy") {
-    LevelSet levels = LevelSet::default_set();
-    const uint8_t g = levels.computational_zero_id();
-    const uint8_t e = levels.computational_one_id();
-
     // T[to][from]: from e, 0.1 relaxes to g and 0.3 leaks; from g, nothing.
     std::vector<std::vector<double>> matrix(5, std::vector<double>(5, 0.0));
-    matrix[g][e] = 0.1;
-    matrix[3][e] = 0.3;  // default-set level 3 is noncomputational
+    matrix[0][1] = 0.1;  // e -> g
+    matrix[3][1] = 0.3;  // e -> leak_e
 
     NonComputationalPolicy policy;
     policy.damping = DampingPolicy::Neglect;
-    const auto model = NonComputationalModel::from_spec(levels, {1.0, 0.0, 0.0, 0.0, 0.0},
+    const auto model = NonComputationalModel::from_spec({1.0, 0.0, 0.0, 0.0, 0.0},
                                                         {{"relax", matrix}}, std::nullopt, policy);
 
     const InstrumentTraceOptions options = instrument_trace_options(model);

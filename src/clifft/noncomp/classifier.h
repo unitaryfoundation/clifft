@@ -1,23 +1,21 @@
 #pragma once
 
-// MeasurementClassifier: column-substochastic map from levels to
-// user-facing measurement symbols.
+// MeasurementClassifier: stochastic map from levels to user-facing
+// measurement symbols.
 //
-// matrix[symbol_index][level_id] = P(symbol | level). For each level,
-// the column (taken across symbols) sums to at most 1; the deficit
-// per column is the implicit P(reject | level). A reject outcome
-// means the model has no opinion about what symbol a measurement on
-// a qubit at this level should produce, and the sampler raises
-// instead of silently picking a bit.
+// matrix[symbol_index][level] = P(symbol | level). Symbol indices are
+// positional: index 0 and 1 are the recorded measurement bit, and an
+// optional third symbol (kHeraldSymbol) is the herald -- "this readout
+// is ambiguous", reported in the per-shot herald sidecar rather than
+// the record.
 //
-// Symbol indices are positional: index 0 and 1 are the recorded
-// measurement bit, and an optional third symbol (kHeraldSymbol) is the
-// herald -- "this readout is ambiguous", reported in the per-shot
-// herald sidecar rather than the record. The sampling paths accept
-// exactly two or three symbols and always read index 2 as the herald.
-//
-// Construction binds the classifier to a LevelSet so the per-level
-// column count matches the level table.
+// Every column must sum to 1: a measurement always produces a symbol.
+// A substochastic column would reserve probability for a reject
+// (heralded-abort) outcome no sampling path represents, so it is
+// rejected here at construction rather than at first use. The
+// computational columns must also place no mass on the herald symbol:
+// a computational readout is a real Born measurement whose record can
+// at most be misreported (readout confusion), not heralded away.
 
 #include "clifft/noncomp/level.h"
 
@@ -31,49 +29,34 @@ namespace clifft {
 class MeasurementClassifier {
   public:
     // Validates that:
-    //   - symbols is non-empty and has no duplicate labels;
-    //   - matrix has shape (symbols.size(), levels.size());
+    //   - symbols has two or three entries, with no duplicate labels;
+    //   - matrix has shape (symbols.size(), kNumLevels);
     //   - every entry is finite and lies in [0, 1] (strict);
-    //   - every column sum lies in [0, 1] (the per-level deficit is
-    //     the cached P(reject | level), clamped to 0 on overshoot
-    //     within floating tolerance).
+    //   - every column sums to 1 within tolerance;
+    //   - the computational columns place no mass on the herald symbol.
     static MeasurementClassifier from_matrix(std::vector<std::string> symbols,
-                                             std::vector<std::vector<double>> matrix,
-                                             const LevelSet& levels);
+                                             const std::vector<std::vector<double>>& matrix);
 
     // The positional index of the herald symbol, when one is present.
     static constexpr uint8_t kHeraldSymbol = 2;
 
     size_t num_symbols() const { return symbols_.size(); }
-    size_t num_levels() const { return reject_probs_.size(); }
 
     // True when a third, herald symbol is present (see kHeraldSymbol).
     bool has_herald() const { return symbols_.size() == 3; }
 
     const std::string& symbol_label(uint8_t symbol_idx) const;
 
-    // P(symbol | level). Throws on out-of-range indices.
-    double prob(uint8_t symbol_idx, uint8_t level_id) const;
-
-    // 1 - sum_s prob(s, level_id). Cached at construction and
-    // clamped to [0, 1] so it never reports a negative value under
-    // floating drift in the column sum.
-    double reject_probability(uint8_t level_id) const;
-
-    // Fingerprint of the LevelSet this classifier was built against.
-    // A model rejects a classifier whose fingerprint does not match
-    // its own level table.
-    uint64_t level_fingerprint() const { return level_fingerprint_; }
+    // P(symbol | level). Throws on an out-of-range symbol index.
+    double prob(uint8_t symbol_idx, Level level) const;
 
   private:
-    MeasurementClassifier(std::vector<std::string> symbols, std::vector<double> matrix_flat,
-                          std::vector<double> reject_probs, uint64_t level_fingerprint);
+    MeasurementClassifier(std::vector<std::string> symbols, std::vector<double> matrix_flat)
+        : symbols_(std::move(symbols)), matrix_flat_(std::move(matrix_flat)) {}
 
     std::vector<std::string> symbols_;
-    // Row-major flat storage: matrix_flat_[symbol * num_levels() + level_id].
+    // Row-major flat storage: matrix_flat_[symbol * kNumLevels + level].
     std::vector<double> matrix_flat_;
-    std::vector<double> reject_probs_;
-    uint64_t level_fingerprint_;
 };
 
 }  // namespace clifft

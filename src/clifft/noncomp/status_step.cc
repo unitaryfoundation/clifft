@@ -25,26 +25,13 @@ double loss_probability(const std::vector<double>& args, uint32_t op_index,
     return p;
 }
 
-std::optional<uint8_t> sole_lost_level(const LevelSet& levels) {
-    std::optional<uint8_t> found;
-    for (uint8_t l = 0; l < levels.size(); ++l) {
-        if (levels.at(l).category == LevelCategory::Lost) {
-            if (found.has_value()) {
-                return std::nullopt;
-            }
-            found = l;
-        }
-    }
-    return found;
-}
-
-OperandAction operand_action(GateType gate, QubitStatusKind kind,
+OperandAction operand_action(GateType gate, QubitStatus status,
                              const NonComputationalPolicy& policy) {
-    if (kind == QubitStatusKind::Computational) {
+    if (is_computational(status)) {
         return OperandAction::Apply;
     }
 
-    const bool lost = kind == QubitStatusKind::Lost;
+    const bool lost = is_lost(status);
 
     // An identity no-op is harmless to keep on any qubit.
     if (is_identity_noop(gate)) {
@@ -87,10 +74,8 @@ OperandAction operand_action(GateType gate, QubitStatusKind kind,
     return OperandAction::Drop;
 }
 
-QubitStatus normal_post_op_status(const QubitStatus& entry, GateType gate, OperandRole role,
+QubitStatus normal_post_op_status(QubitStatus entry, GateType gate, OperandRole role,
                                   const NonComputationalPolicy& policy) {
-    const QubitStatusKind kind = entry.kind();
-
     if (role == OperandRole::FeedbackX || role == OperandRole::FeedbackZ) {
         // A classically-controlled correction is virtual (no physical
         // pulse): it may act within H_C but cannot move a qubit between
@@ -98,7 +83,7 @@ QubitStatus normal_post_op_status(const QubitStatus& entry, GateType gate, Opera
         return entry;
     }
 
-    if (kind == QubitStatusKind::Leaked || kind == QubitStatusKind::Lost) {
+    if (is_leaked(entry) || is_lost(entry)) {
         // A noncomputational qubit's status changes only when a reset
         // restores it; every other operation leaves it untouched (whether
         // that operation is dropped or rejected is decided later by the
@@ -106,9 +91,9 @@ QubitStatus normal_post_op_status(const QubitStatus& entry, GateType gate, Opera
         // Leaked always restores.
         const bool reset = gate == GateType::R || gate == GateType::MR || gate == GateType::RX ||
                            gate == GateType::RY || gate == GateType::MRX || gate == GateType::MRY;
-        const bool restorable = kind == QubitStatusKind::Leaked || policy.reset_restores_lost;
+        const bool restorable = is_leaked(entry) || policy.reset_restores_lost;
         if (reset && restorable) {
-            return QubitStatus::computational();
+            return QubitStatus::Computational;
         }
         return entry;
     }
@@ -117,23 +102,6 @@ QubitStatus normal_post_op_status(const QubitStatus& entry, GateType gate, Opera
     // operation: no gate, measurement, or reset moves it between
     // categories, and which basis state it holds is SVM runtime
     // information the ledger never tracks.
-    return entry;
-}
-
-QubitStatus step_status(const QubitStatus& entry, GateType gate, OperandRole role,
-                        const TransitionOutcome& outcome, const NonComputationalPolicy& policy,
-                        const LevelSet& levels) {
-    if (outcome.jumped) {
-        return levels.status_for(outcome.destination_level);
-    }
-    return normal_post_op_status(entry, gate, role, policy);
-}
-
-QubitStatus step_status_dropped(const QubitStatus& entry, const TransitionOutcome& outcome,
-                                const LevelSet& levels) {
-    if (outcome.jumped) {
-        return levels.status_for(outcome.destination_level);
-    }
     return entry;
 }
 

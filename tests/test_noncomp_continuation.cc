@@ -23,14 +23,13 @@ using Catch::Matchers::ContainsSubstring;
 
 namespace {
 
-// Default 5-level set: two computational, then leak_g, leak_e, lost.
+// Matrix index of the leak_e level the demo model leaks to.
 constexpr uint8_t kLeak = 3;
 
 // A model with one named leak transition (e leaks at 0.4, g at 0.1),
 // seepage back from the leaked level (0.2 to e), and a faithful
 // two-symbol classifier whose leaked column reads 1.
 NonComputationalModel demo_model() {
-    LevelSet levels = LevelSet::default_set();
     std::vector<std::vector<double>> leak(5, std::vector<double>(5, 0.0));
     leak[kLeak][0] = 0.1;
     leak[kLeak][1] = 0.4;
@@ -40,12 +39,12 @@ NonComputationalModel demo_model() {
     classifier.symbols = {"0", "1"};
     classifier.matrix = {{1.0, 0.0, 1.0, 0.0, 1.0}, {0.0, 1.0, 0.0, 1.0, 0.0}};
 
-    return NonComputationalModel::from_spec(levels, {1.0, 0.0, 0.0, 0.0, 0.0}, {{"leak", leak}},
-                                            classifier, NonComputationalPolicy{});
+    return NonComputationalModel::from_spec({1.0, 0.0, 0.0, 0.0, 0.0}, {{"leak", leak}}, classifier,
+                                            NonComputationalPolicy{});
 }
 
-std::vector<QubitStatus> computational_initials(const NonComputationalModel& model, uint32_t n) {
-    return std::vector<QubitStatus>(n, model.levels().status_for(0));
+std::vector<QubitStatus> computational_initials(uint32_t n) {
+    return std::vector<QubitStatus>(n, QubitStatus::Computational);
 }
 
 std::vector<GateType> gate_sequence(const Circuit& circuit) {
@@ -67,27 +66,12 @@ TEST_CASE("continuation: empty events reproduce the annotated circuit verbatim")
     auto annotated = annotate(parse("H 0\nLEVEL_TRANSITION[leak] 0\nCX 0 1\nM 0\nM 1"), model);
 
     ExactShotEvents events;
-    events.initial_status = computational_initials(model, 2);
+    events.initial_status = computational_initials(2);
 
     auto result = rewrite_continuation(annotated, events, /*force_last_traceout=*/false, model);
     REQUIRE(gate_sequence(result.circuit) == gate_sequence(annotated));
     REQUIRE(result.forced_traceout_slot == SIZE_MAX);
     REQUIRE(result.classified_measurements.empty());
-}
-
-TEST_CASE("continuation: a known |1> initial adds no X prep") {
-    // Exact mode preloads known initials into the Pauli frame per shot;
-    // the compiled node stream must not depend on them, or modules could
-    // not be shared across shots.
-    auto model = demo_model();
-    auto annotated = annotate(parse("LEVEL_TRANSITION[leak] 0\nM 0"), model);
-
-    ExactShotEvents events;
-    events.initial_status = computational_initials(model, 1);
-    events.initial_status[0] = model.levels().status_for(model.levels().computational_one_id());
-
-    auto result = rewrite_continuation(annotated, events, false, model);
-    REQUIRE(gate_sequence(result.circuit) == gate_sequence(annotated));
 }
 
 TEST_CASE("continuation: a trapped jump keeps its annotation and inserts the trace-out") {
@@ -100,9 +84,9 @@ TEST_CASE("continuation: a trapped jump keeps its annotation and inserts the tra
     auto annotated = annotate(circuit, model);
 
     ExactShotEvents events;
-    events.initial_status = computational_initials(model, 2);
+    events.initial_status = computational_initials(2);
     // The annotation is node 1 in the source; annotate() keeps positions.
-    events.jumps.push_back({/*op_index=*/1, /*qubit=*/0, /*destination_level=*/kLeak});
+    events.jumps.push_back({/*op_index=*/1, /*qubit=*/0, /*destination_level=*/Level::LeakE});
 
     auto result = rewrite_continuation(annotated, events, false, model);
     const auto gates = gate_sequence(result.circuit);
@@ -117,7 +101,7 @@ TEST_CASE("continuation: a trapped jump keeps its annotation and inserts the tra
     REQUIRE(gates == want);
     REQUIRE(result.classified_measurements.size() == 1);
     REQUIRE(result.classified_measurements[0].slot == 0);
-    REQUIRE(result.classified_measurements[0].level == kLeak);
+    REQUIRE(result.classified_measurements[0].level == Level::LeakE);
 }
 
 TEST_CASE("continuation: classical-source consults consume pre-drawn outcomes") {
@@ -130,11 +114,10 @@ TEST_CASE("continuation: classical-source consults consume pre-drawn outcomes") 
     auto annotated = annotate(circuit, model);
 
     ExactShotEvents events;
-    events.initial_status = computational_initials(model, 1);
-    events.jumps.push_back({0, 0, kLeak});
+    events.initial_status = computational_initials(1);
+    events.jumps.push_back({0, 0, Level::LeakE});
     events.classical_outcomes.push_back(
-        {/*op_index=*/1, /*qubit=*/0, /*jumped=*/true,
-         /*destination_level=*/model.levels().computational_one_id(), /*source_level=*/kLeak});
+        {/*op_index=*/1, /*qubit=*/0, /*destination=*/Level::E, /*source_level=*/Level::LeakE});
 
     auto result = rewrite_continuation(annotated, events, false, model);
     const std::vector<GateType> want = {
@@ -158,8 +141,8 @@ TEST_CASE("continuation: the forced trace-out slot mirrors trace's hidden number
     auto annotated = annotate(circuit, model);
 
     ExactShotEvents events;
-    events.initial_status = computational_initials(model, 2);
-    events.jumps.push_back({2, 0, kLeak});
+    events.initial_status = computational_initials(2);
+    events.jumps.push_back({2, 0, Level::LeakE});
 
     auto result = rewrite_continuation(annotated, events, /*force_last_traceout=*/true, model);
     REQUIRE(result.forced_traceout_slot == 2);  // 1 visible + 1 hidden before it
@@ -175,8 +158,8 @@ TEST_CASE("continuation: the forced trace-out slot counts every prior reset") {
     auto annotated = annotate(circuit, model);
 
     ExactShotEvents events;
-    events.initial_status = computational_initials(model, 3);
-    events.jumps.push_back({3, 0, kLeak});  // the annotation is node 3
+    events.initial_status = computational_initials(3);
+    events.jumps.push_back({3, 0, Level::LeakE});  // the annotation is node 3
 
     auto result = rewrite_continuation(annotated, events, /*force_last_traceout=*/true, model);
     REQUIRE(result.forced_traceout_slot == 3);  // 1 visible + 2 hidden (R 1, R 2) before it
@@ -187,17 +170,17 @@ TEST_CASE("continuation: events that do not describe the circuit reject") {
     auto annotated = annotate(parse("LEVEL_TRANSITION[leak] 0\nM 0"), model);
 
     ExactShotEvents base;
-    base.initial_status = computational_initials(model, 1);
+    base.initial_status = computational_initials(1);
 
     SECTION("a jump at an op the circuit never consults") {
         ExactShotEvents events = base;
-        events.jumps.push_back({5, 0, kLeak});
+        events.jumps.push_back({5, 0, Level::LeakE});
         REQUIRE_THROWS_WITH(rewrite_continuation(annotated, events, false, model),
                             ContainsSubstring("never consults"));
     }
     SECTION("a classical outcome with no classical-source consult") {
         ExactShotEvents events = base;
-        events.classical_outcomes.push_back({0, 0, false, 0});
+        events.classical_outcomes.push_back({0, 0, std::nullopt, Level::G});
         REQUIRE_THROWS_WITH(rewrite_continuation(annotated, events, false, model),
                             ContainsSubstring("more classical outcomes"));
     }
@@ -205,10 +188,10 @@ TEST_CASE("continuation: events that do not describe the circuit reject") {
         // A leaked initial makes op 0 a classical consult; the recorded
         // outcome claims it was drawn at a computational level.
         ExactShotEvents events = base;
-        events.initial_status[0] = model.levels().status_for(kLeak);
-        events.classical_outcomes.push_back(
-            {/*op_index=*/0, /*qubit=*/0, /*jumped=*/false, /*destination_level=*/0,
-             /*source_level=*/model.levels().computational_zero_id()});
+        events.initial_status[0] = QubitStatus::LeakE;
+        events.classical_outcomes.push_back({/*op_index=*/0, /*qubit=*/0,
+                                             /*destination=*/std::nullopt,
+                                             /*source_level=*/Level::G});
         REQUIRE_THROWS_WITH(rewrite_continuation(annotated, events, false, model),
                             ContainsSubstring("was drawn at level"));
     }
@@ -216,7 +199,7 @@ TEST_CASE("continuation: events that do not describe the circuit reject") {
         // Every recorded jump emits a carrier reset, so the forced form
         // always has one to point at.
         ExactShotEvents events = base;
-        events.jumps.push_back({0, 0, kLeak});
+        events.jumps.push_back({0, 0, Level::LeakE});
         auto result = rewrite_continuation(annotated, events, true, model);
         REQUIRE(result.forced_traceout_slot == 1);  // 1 visible slot before it
     }

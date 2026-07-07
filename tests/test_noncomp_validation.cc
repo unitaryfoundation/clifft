@@ -43,10 +43,10 @@
 
 using clifft::annotate;
 using clifft::Circuit;
+using clifft::ClassifierSpec;
 using clifft::default_hir_pass_manager;
 using clifft::GateType;
 using clifft::HirModule;
-using clifft::LevelSet;
 using clifft::MeasurementClassifier;
 using clifft::NonComputationalModel;
 using clifft::NonComputationalPolicy;
@@ -67,16 +67,16 @@ std::vector<std::vector<double>> zeros5() {
 }
 
 // Source-independent: g and e both jump to lost with certainty.
-TransitionInstrument always_lost(const LevelSet& levels) {
+std::vector<std::vector<double>> always_lost() {
     auto m = zeros5();
     m[kLost][0] = 1.0;
     m[kLost][1] = 1.0;
-    return TransitionInstrument::from_matrix(std::move(m), levels);
+    return m;
 }
 
 // Two-symbol classifier whose lost column is `col`; computational levels
 // read out faithfully and leaked levels deterministically read symbol 0.
-MeasurementClassifier lost_classifier(const LevelSet& levels, std::vector<double> col) {
+ClassifierSpec lost_classifier(std::vector<double> col) {
     std::vector<std::vector<double>> m(2, std::vector<double>(5, 0.0));
     for (size_t l = 0; l < 5; ++l) {
         m[0][l] = 1.0;
@@ -87,15 +87,15 @@ MeasurementClassifier lost_classifier(const LevelSet& levels, std::vector<double
     m[1][1] = 1.0;
     m[0][kLost] = col[0];
     m[1][kLost] = col[1];
-    return MeasurementClassifier::from_matrix({"0", "1"}, std::move(m), levels);
+    return ClassifierSpec{{"0", "1"}, std::move(m)};
 }
 
-NonComputationalModel make_model(std::map<std::string, TransitionInstrument> transitions,
-                                 std::optional<MeasurementClassifier> classifier = std::nullopt) {
+NonComputationalModel make_model(
+    std::map<std::string, std::vector<std::vector<double>>> transitions,
+    std::optional<ClassifierSpec> classifier = std::nullopt) {
     // Both halves start in g (|0>); no leading X-prep is needed.
-    return NonComputationalModel(LevelSet::default_set(), {1.0, 0.0, 0.0, 0.0, 0.0},
-                                 std::move(transitions), std::move(classifier),
-                                 NonComputationalPolicy{});
+    return NonComputationalModel::from_spec({1.0, 0.0, 0.0, 0.0, 0.0}, transitions,
+                                            std::move(classifier), NonComputationalPolicy{});
 }
 
 size_t count_gate(const Circuit& c, GateType gate) {
@@ -137,10 +137,9 @@ TEST_CASE("validation: a lost Bell-pair qubit's classifier record is independent
     // consequence of the M0 -> MPAD(classifier_bit) substitution, not of the
     // hidden R (see the file header and the structural test below).
     Circuit c = parse("H 0\nCX 0 1\nS 0\nM 0\nM 1\n");
-    std::map<std::string, TransitionInstrument> transitions;
-    transitions.emplace("S", always_lost(LevelSet::default_set()));
-    NonComputationalModel model =
-        make_model(std::move(transitions), lost_classifier(LevelSet::default_set(), {0.5, 0.5}));
+    std::map<std::string, std::vector<std::vector<double>>> transitions;
+    transitions.emplace("S", always_lost());
+    NonComputationalModel model = make_model(std::move(transitions), lost_classifier({0.5, 0.5}));
 
     const uint32_t shots = 4096;
     NonComputationalSample s = sample_noncomputational(c, model, shots, 7);
@@ -178,10 +177,9 @@ TEST_CASE(
     // the survivor is still an independent 50/50 -- the classifier governs the
     // vacated site's bit, not the surviving qubit.
     Circuit c = parse("H 0\nCX 0 1\nS 0\nM 0\nM 1\n");
-    std::map<std::string, TransitionInstrument> transitions;
-    transitions.emplace("S", always_lost(LevelSet::default_set()));
-    NonComputationalModel model =
-        make_model(std::move(transitions), lost_classifier(LevelSet::default_set(), {1.0, 0.0}));
+    std::map<std::string, std::vector<std::vector<double>>> transitions;
+    transitions.emplace("S", always_lost());
+    NonComputationalModel model = make_model(std::move(transitions), lost_classifier({1.0, 0.0}));
 
     const uint32_t shots = 2048;
     NonComputationalSample s = sample_noncomputational(c, model, shots, 5);
@@ -201,18 +199,18 @@ TEST_CASE("validation: losing a Bell-pair qubit inserts the hidden trace-out R a
     // hidden Z-basis unraveling for the coherent (entangled) carrier that jumps
     // to lost. Statistics cannot see this; gate counts and the lowered HIR can.
     Circuit c = parse("H 0\nCX 0 1\nS 0\nM 0\nM 1\n");
-    std::map<std::string, TransitionInstrument> transitions;
-    transitions.emplace("S", always_lost(LevelSet::default_set()));
+    std::map<std::string, std::vector<std::vector<double>>> transitions;
+    transitions.emplace("S", always_lost());
     // The lost qubit's later M needs a classifier column for its record bit.
-    NonComputationalModel model =
-        make_model(std::move(transitions), lost_classifier(LevelSet::default_set(), {1.0, 0.0}));
+    NonComputationalModel model = make_model(std::move(transitions), lost_classifier({1.0, 0.0}));
 
     Circuit annotated = annotate(c, model);
     // The recorded jump is what the driver stores when the site traps: the
     // deterministic always_lost fire on qubit 0 at the expanded annotation.
     clifft::ExactShotEvents events;
-    events.initial_status.assign(2, LevelSet::default_set().status_for(0));
-    events.jumps.push_back({/*op_index=*/3, /*qubit=*/0, /*destination_level=*/4});
+    events.initial_status.assign(2, clifft::QubitStatus::Computational);
+    events.jumps.push_back(
+        {/*op_index=*/3, /*qubit=*/0, /*destination_level=*/clifft::Level::Lost});
     Circuit rw = rewrite_continuation(annotated, events, false, model).circuit;
 
     // The original circuit has no reset; the loss rewrite adds exactly one

@@ -1,37 +1,46 @@
 #pragma once
 
-// Level definitions and the validated level table.
+// The noncomputational model's level structure, fixed at compile time.
 //
-// A Level is a model-defined tag with a stable integer id (its index
-// into the level table), a human-readable label, and a LevelCategory.
+// clifft models one noncomputational scenario: a two-level computational
+// qubit (g = |0>, e = |1>), two leaked levels (a carrier present but
+// outside the computational subspace, one reading out like each
+// computational level), and one lost level (empty trap / vacuum).
+// Transition matrices are T[to][from] over the five levels in enum
+// order; classifier columns are indexed the same way. The structure is
+// deliberately not configurable: the known use cases fit it, every
+// layer above and below assumes it, and a future level would be added
+// here explicitly -- one enum value and one matrix row/column -- rather
+// than through a runtime table.
 //
-// A level table must contain exactly two Computational levels; in table
-// order the first is the |0> state and the second is |1>. The driver
-// uses computational_one_id() to preload the Pauli frame when an
-// initial draw places a qubit at |1>, and the rewriter uses it to
-// append the X when a recorded jump materializes the carrier at the
-// |1> level (the SVM default initialization is |0...0>). Leaked and
-// Lost levels carry no basis information -- "lost from |1>" provenance,
-// if ever needed, belongs in an event record or in distinct levels,
-// not in the level tag.
-//
-// LevelSet wraps a std::vector<Level>, runs validation in its ctor,
-// and owns the QubitStatus factories that bind a level id to this
-// specific table. Construction of noncomputational QubitStatus values
-// should go through LevelSet so the (kind, level_id) pair is
-// guaranteed to refer to a real level of the matching category in a
-// known table.
+// QubitStatus is the per-qubit ledger entry: computational, or the
+// definite noncomputational level the qubit holds. Which basis state a
+// computational qubit holds -- if either definitely -- is runtime
+// information living in the SVM, never in this classical ledger, so g
+// and e collapse to the one Computational status and a status needs no
+// auxiliary level field.
 
-#include "clifft/noncomp/qubit_status.h"
-
+#include <array>
 #include <cstdint>
-#include <span>
 #include <stdexcept>
 #include <string>
-#include <utility>
-#include <vector>
 
 namespace clifft {
+
+// The five levels, in matrix index order.
+enum class Level : uint8_t {
+    G = 0,      // computational |0>
+    E = 1,      // computational |1>
+    LeakG = 2,  // leaked, reads out like g
+    LeakE = 3,  // leaked, reads out like e
+    Lost = 4,   // empty trap / vacuum
+};
+
+inline constexpr uint8_t kNumLevels = 5;
+
+inline constexpr std::array<Level, kNumLevels> kAllLevels = {
+    Level::G, Level::E, Level::LeakG, Level::LeakE, Level::Lost,
+};
 
 enum class LevelCategory : uint8_t {
     Computational = 0,
@@ -39,184 +48,120 @@ enum class LevelCategory : uint8_t {
     Lost = 2,
 };
 
-struct Level {
-    std::string label;
-    LevelCategory category;
+constexpr LevelCategory category(Level level) {
+    switch (level) {
+        case Level::G:
+        case Level::E:
+            return LevelCategory::Computational;
+        case Level::LeakG:
+        case Level::LeakE:
+            return LevelCategory::Leaked;
+        case Level::Lost:
+            return LevelCategory::Lost;
+    }
+    return LevelCategory::Lost;  // unreachable for a valid Level
+}
+
+// Human-readable level name, for diagnostics.
+constexpr const char* level_name(Level level) {
+    switch (level) {
+        case Level::G:
+            return "g";
+        case Level::E:
+            return "e";
+        case Level::LeakG:
+            return "leak_g";
+        case Level::LeakE:
+            return "leak_e";
+        case Level::Lost:
+            return "lost";
+    }
+    return "?";
+}
+
+// Validated conversion from a raw index (user matrices, event records).
+inline Level level_from_index(uint8_t index, const char* caller) {
+    if (index >= kNumLevels) {
+        throw std::invalid_argument(std::string(caller) + ": level id " + std::to_string(index) +
+                                    " out of range (num_levels " + std::to_string(kNumLevels) +
+                                    ")");
+    }
+    return static_cast<Level>(index);
+}
+
+// Per-qubit ledger status: computational, or the definite
+// noncomputational level the qubit holds.
+enum class QubitStatus : uint8_t {
+    Computational = 0,
+    LeakG = 1,
+    LeakE = 2,
+    Lost = 3,
 };
 
-class LevelSet {
-  public:
-    // Validates the level table; throws std::invalid_argument with a
-    // named field on failure.
-    explicit LevelSet(std::vector<Level> levels) : levels_(std::move(levels)) {
-        validate();
-        fingerprint_ = compute_fingerprint();
-        assign_computational_ids();
+// Human-readable status name, for diagnostics.
+constexpr const char* status_name(QubitStatus status) {
+    switch (status) {
+        case QubitStatus::Computational:
+            return "Computational";
+        case QubitStatus::LeakG:
+            return "LeakG";
+        case QubitStatus::LeakE:
+            return "LeakE";
+        case QubitStatus::Lost:
+            return "Lost";
     }
+    return "unknown";
+}
 
-    // Default level set: g, e, leak_g, leak_e, lost.
-    // Stable order; the integer ids are positional (g = |0>, e = |1>).
-    static LevelSet default_set() {
-        return LevelSet({
-            Level{"g", LevelCategory::Computational},
-            Level{"e", LevelCategory::Computational},
-            Level{"leak_g", LevelCategory::Leaked},
-            Level{"leak_e", LevelCategory::Leaked},
-            Level{"lost", LevelCategory::Lost},
-        });
+constexpr bool is_computational(QubitStatus status) {
+    return status == QubitStatus::Computational;
+}
+
+constexpr bool is_leaked(QubitStatus status) {
+    return status == QubitStatus::LeakG || status == QubitStatus::LeakE;
+}
+
+constexpr bool is_lost(QubitStatus status) {
+    return status == QubitStatus::Lost;
+}
+
+// The status a qubit holds after landing on `level`: the computational
+// levels collapse to the one Computational status (which basis state
+// the qubit holds is SVM runtime information), the noncomputational
+// levels carry through.
+constexpr QubitStatus status_for(Level level) {
+    switch (level) {
+        case Level::G:
+        case Level::E:
+            return QubitStatus::Computational;
+        case Level::LeakG:
+            return QubitStatus::LeakG;
+        case Level::LeakE:
+            return QubitStatus::LeakE;
+        case Level::Lost:
+            return QubitStatus::Lost;
     }
+    return QubitStatus::Lost;  // unreachable for a valid Level
+}
 
-    std::span<const Level> levels() const { return levels_; }
-    size_t size() const { return levels_.size(); }
-
-    // Deterministic schema signature over (label, category) per level, in
-    // order. Two tables that agree on every level's identity share a
-    // fingerprint; any difference in labels, order, or categories changes
-    // it. Instruments and classifiers record the fingerprint of the table
-    // they were built against so a model can reject a component bound to a
-    // different table.
-    uint64_t fingerprint() const { return fingerprint_; }
-
-    const Level& at(uint8_t level_id) const {
-        require_in_range(level_id, "at");
-        return levels_[level_id];
+// The definite level of a noncomputational status -- the transition
+// source column and classifier column a classical consult reads.
+// A computational status has no definite level; asking for one is a
+// logic error in the caller, which must branch on the category first.
+inline Level noncomp_level(QubitStatus status) {
+    switch (status) {
+        case QubitStatus::LeakG:
+            return Level::LeakG;
+        case QubitStatus::LeakE:
+            return Level::LeakE;
+        case QubitStatus::Lost:
+            return Level::Lost;
+        case QubitStatus::Computational:
+            break;
     }
-
-    // QubitStatus factories: validate that level_id refers to a level
-    // of the matching category in this table.
-    QubitStatus leaked(uint8_t level_id) const {
-        check_kind(level_id, LevelCategory::Leaked, "leaked");
-        return QubitStatus::leaked_unchecked(level_id);
-    }
-
-    QubitStatus lost(uint8_t level_id) const {
-        check_kind(level_id, LevelCategory::Lost, "lost");
-        return QubitStatus::lost_unchecked(level_id);
-    }
-
-    // Ids of the two Computational levels in table order: the first is the
-    // |0> state (g), the second is |1> (e). Validation guarantees exactly
-    // two Computational levels, so these always refer to real levels.
-    uint8_t computational_zero_id() const { return computational_zero_id_; }
-    uint8_t computational_one_id() const { return computational_one_id_; }
-
-    // QubitStatus for a level id, dispatched on the level's category:
-    // Computational -> Computational (the level is not carried: which
-    // basis state a computational qubit holds is SVM runtime
-    // information), Leaked -> Leaked, Lost -> Lost. Used by the status
-    // walks to turn a transition destination into the resulting qubit
-    // status.
-    QubitStatus status_for(uint8_t level_id) const {
-        require_in_range(level_id, "status_for");
-        switch (levels_[level_id].category) {
-            case LevelCategory::Computational:
-                return QubitStatus::computational();
-            case LevelCategory::Leaked:
-                return QubitStatus::leaked_unchecked(level_id);
-            case LevelCategory::Lost:
-                return QubitStatus::lost_unchecked(level_id);
-        }
-        throw std::invalid_argument("LevelSet::status_for: unrecognized category");
-    }
-
-  private:
-    std::vector<Level> levels_;
-    uint64_t fingerprint_ = 0;
-    uint8_t computational_zero_id_ = kInvalidLevel;
-    uint8_t computational_one_id_ = kInvalidLevel;
-
-    // validate() guarantees exactly two Computational levels; the first in
-    // table order is |0>, the second is |1>.
-    void assign_computational_ids() {
-        bool have_zero = false;
-        for (size_t i = 0; i < levels_.size(); ++i) {
-            if (levels_[i].category != LevelCategory::Computational) {
-                continue;
-            }
-            if (!have_zero) {
-                computational_zero_id_ = static_cast<uint8_t>(i);
-                have_zero = true;
-            } else {
-                computational_one_id_ = static_cast<uint8_t>(i);
-                return;
-            }
-        }
-    }
-
-    // FNV-1a over a canonical byte serialization of each level. The
-    // label is length-prefixed so that, e.g., {"ab", "c"} and {"a",
-    // "bc"} do not collide. Hand-rolled (not std::hash) so the value is
-    // stable across platforms and runs.
-    uint64_t compute_fingerprint() const {
-        constexpr uint64_t kOffsetBasis = 1469598103934665603ULL;
-        constexpr uint64_t kPrime = 1099511628211ULL;
-        uint64_t h = kOffsetBasis;
-        const auto mix = [&h](uint8_t byte) {
-            h ^= byte;
-            h *= kPrime;
-        };
-        for (const Level& lv : levels_) {
-            const uint64_t len = lv.label.size();
-            for (int i = 0; i < 8; ++i) {
-                mix(static_cast<uint8_t>((len >> (8 * i)) & 0xFFu));
-            }
-            for (const char c : lv.label) {
-                mix(static_cast<uint8_t>(c));
-            }
-            mix(static_cast<uint8_t>(lv.category));
-        }
-        return h;
-    }
-
-    void validate() const {
-        if (levels_.empty()) {
-            throw std::invalid_argument("LevelSet: level set is empty");
-        }
-        if (levels_.size() > 128) {
-            throw std::invalid_argument("LevelSet: level set has " +
-                                        std::to_string(levels_.size()) +
-                                        " entries; max supported is 128");
-        }
-        size_t computational_count = 0;
-        for (size_t i = 0; i < levels_.size(); ++i) {
-            const Level& lv = levels_[i];
-            switch (lv.category) {
-                case LevelCategory::Computational:
-                    ++computational_count;
-                    break;
-                case LevelCategory::Leaked:
-                case LevelCategory::Lost:
-                    break;
-                default:
-                    throw std::invalid_argument("LevelSet: level '" + lv.label + "' (id " +
-                                                std::to_string(i) +
-                                                ") has an unrecognized LevelCategory value");
-            }
-        }
-        if (computational_count != 2) {
-            throw std::invalid_argument(
-                "LevelSet: expected exactly two Computational levels (the first is |0>, the "
-                "second |1>), got " +
-                std::to_string(computational_count));
-        }
-    }
-
-    void require_in_range(uint8_t level_id, const char* fn) const {
-        if (level_id >= levels_.size()) {
-            throw std::invalid_argument(std::string("LevelSet::") + fn + ": level_id " +
-                                        std::to_string(level_id) + " out of range (size " +
-                                        std::to_string(levels_.size()) + ")");
-        }
-    }
-
-    void check_kind(uint8_t level_id, LevelCategory expected, const char* fn) const {
-        require_in_range(level_id, fn);
-        if (levels_[level_id].category != expected) {
-            throw std::invalid_argument(std::string("LevelSet::") + fn + ": level '" +
-                                        levels_[level_id].label +
-                                        "' has category that does not match the requested kind");
-        }
-    }
-};
+    throw std::logic_error(
+        "noncomp_level: a computational status holds no definite level; the caller must branch "
+        "on the status category first");
+}
 
 }  // namespace clifft

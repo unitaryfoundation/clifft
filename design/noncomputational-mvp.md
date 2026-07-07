@@ -52,13 +52,17 @@ internals (`Target::qubit`, `num_qubits`). It does not yet model atom
 identity or trap site separately; a later movement-aware extension can
 distinguish atom, trap site, and circuit qubit.
 
-### 2.1 Level categories vs. qubit status kinds
+### 2.1 Levels vs. qubit statuses
 
-The model has two related-but-distinct enums.
+The model has two related-but-distinct enums, both fixed at compile
+time.
 
-`LevelCategory` is a property of a *level* in the model:
+`Level` names the five levels, in matrix index order, and
+`LevelCategory` groups them:
 
 ```cpp
+enum class Level : uint8_t { G, E, LeakG, LeakE, Lost };
+
 enum class LevelCategory : uint8_t {
     Computational = 0,  // coherent, in superposition by default
     Leaked        = 1,  // present, outside computational subspace
@@ -66,23 +70,13 @@ enum class LevelCategory : uint8_t {
 };
 ```
 
-`QubitStatusKind` is a per-qubit *runtime* tag carried in the
-trajectory. It tags the category a qubit occupies; which basis state a
-computational qubit holds -- if either definitely -- is SVM runtime
-information the classical ledger never tracks:
-
-```cpp
-enum class QubitStatusKind : uint8_t {
-    Computational = 0,  // in H_C (any state on the g/e subspace)
-    Leaked        = 1,
-    Lost          = 2,
-};
-```
-
-Splitting the runtime tag from the level-property enum lets us encode
-"computational" as a kind that *cannot* carry a specific level id,
-enforcing that invariant structurally rather than by convention. See
-§2.3.
+`QubitStatus` is the per-qubit *runtime* ledger entry: computational,
+or the definite noncomputational level the qubit holds. Which basis
+state a computational qubit holds -- if either definitely -- is SVM
+runtime information the classical ledger never tracks, so `G` and `E`
+collapse to one `Computational` status and a status carries no
+auxiliary level field at all -- an invalid (status, level) pairing is
+unrepresentable rather than validated.
 
 An earlier revision split the computational kind into
 `ComputationalKnown`/`ComputationalUnknown` so the ahead-of-time
@@ -92,11 +86,9 @@ now resolve inside the VM against the live state, so a ledger-side
 level claim for a computational qubit is not per-shot truth, and the
 split was removed with the pipeline.
 
-### 2.2 Levels (model-defined)
+### 2.2 Level structure
 
-A `Level` is a model-defined tag with a stable integer id, a label, and
-a `LevelCategory`. Qubits transition between status kinds during
-simulation:
+Qubits transition between statuses during simulation:
 
 - `Computational → Leaked` or `Lost`: via a transition jump.
 - `Leaked / Lost → Computational`: only via reset/reload, gated by
@@ -115,11 +107,7 @@ append the `X` when a recorded jump materializes the carrier at the
 carry no basis information — "lost from `|1>`" provenance, if ever needed,
 belongs in an event record or in distinct levels, not in the level tag.
 
-`LevelSet` validation rejects any table without exactly two `Computational`
-levels; downstream paths (visible Z-basis measurement, Z-basis reset,
-initial prep, classifier defaults) need unambiguous `g`/`e` ids.
-
-Default level set for the MVP:
+The level table is fixed at compile time:
 
 | id | label    | category      | notes                          |
 |----|----------|---------------|--------------------------------|
@@ -129,60 +117,39 @@ Default level set for the MVP:
 | 3  | `leak_e` | Leaked        | metastable / Rydberg "leak e"  |
 | 4  | `lost`   | Lost          | empty trap / vacuum            |
 
-Users may construct a `NonComputationalModel` with a different level
-set, but the default ships unchanged.
+The structure is deliberately not configurable: the known use cases
+fit it, the Python surface has only ever exposed this table, and a
+future level would be added explicitly -- one enum value and one
+matrix row/column -- rather than through a runtime table. (An earlier
+revision carried a runtime `LevelSet` with per-component fingerprint
+validation to guard user-defined tables; it was removed once it was
+clear no public path could reach a non-default table.)
 
 ### 2.3 Per-trajectory qubit state
 
 ```cpp
-constexpr uint8_t kInvalidLevel = 0xFF;
-
-class QubitStatus {
-public:
-    static QubitStatus computational();
-
-    // Build a noncomputational status without validating level_id
-    // against a table. Reserved for tests and interior code; user code
-    // should go through LevelSet's validated factories.
-    static QubitStatus leaked_unchecked(uint8_t level_id);
-    static QubitStatus lost_unchecked(uint8_t level_id);
-
-    QubitStatusKind kind() const;
-    uint8_t level_id() const;
-    bool is_computational() const;
-
-private:
-    QubitStatus(QubitStatusKind kind, uint8_t level_id);
-    QubitStatusKind kind_;
-    uint8_t level_id_;
+// Per-qubit ledger status: computational, or the definite
+// noncomputational level the qubit holds.
+enum class QubitStatus : uint8_t {
+    Computational = 0,
+    LeakG = 1,
+    LeakE = 2,
+    Lost = 3,
 };
+
+constexpr QubitStatus status_for(Level level);
+Level noncomp_level(QubitStatus status);  // logic error on Computational
 ```
 
-The two fields together carry the runtime status of one qubit through
-the status walks. Trajectory state is `std::vector<QubitStatus>
-statuses;`, two bytes per qubit.
+Trajectory state is `std::vector<QubitStatus> statuses;`, one byte per
+qubit.
 
-**Invariants:**
-
-| `kind`          | `level_id` constraint                        |
-|-----------------|----------------------------------------------|
-| `Computational` | `kInvalidLevel` (no level is carried)        |
-| `Leaked`        | must be a `Leaked`-category level id         |
-| `Lost`          | must be a `Lost`-category level id           |
-
-The canonical construction path is through `LevelSet` (see §3.2),
-which validates the (kind, level_id) pair against its table:
-
-```cpp
-QubitStatus t = level_set.leaked(leak_g_id);
-QubitStatus u = level_set.lost(lost_id);
-QubitStatus v = QubitStatus::computational();  // no level id needed
-```
-
-`QubitStatus` is non-aggregate; its constructor is private. The
-`_unchecked` static factories exist for tests and for interior code
-where the invariant is already established (the name is the
-warning); user code goes through `LevelSet`.
+`QubitStatus` and `Level` are plain enums: a status either is the one
+computational value or *is* its definite noncomputational level, so no
+(kind, level_id) pair exists to validate. `status_for(Level)` collapses
+the computational levels; `noncomp_level(QubitStatus)` recovers the
+definite level of a noncomputational status and is a logic error on the
+computational one -- callers branch on the category first.
 
 ## 3. `NonComputationalModel` API
 
@@ -278,22 +245,13 @@ struct Level {
     LevelCategory category;
 };
 
-// Validated level table. Construction runs the section 4.1 level-set
-// checks and throws std::invalid_argument on failure. Owns the
-// QubitStatus factories so that level ids and tables stay paired.
-class LevelSet {
-public:
-    explicit LevelSet(std::vector<Level> levels);
-    static LevelSet default_set();
+// The five levels, fixed at compile time (matrix index order).
+enum class Level : uint8_t { G, E, LeakG, LeakE, Lost };
+inline constexpr uint8_t kNumLevels = 5;
 
-    std::span<const Level> levels() const;
-    const Level& at(uint8_t level_id) const;
-    size_t size() const;
-
-    QubitStatus leaked(uint8_t level_id) const;
-    QubitStatus lost(uint8_t level_id) const;
-    QubitStatus status_for(uint8_t level_id) const;  // category dispatch
-};
+constexpr LevelCategory category(Level level);
+constexpr const char* level_name(Level level);
+constexpr QubitStatus status_for(Level level);
 
 class TransitionInstrument {
 public:
@@ -326,47 +284,33 @@ public:
 
 class NonComputationalModel {
 public:
-    NonComputationalModel(
-        LevelSet levels,
+    // The one construction path: raw matrices in, validated model out.
+    // Throws at construction on shape/probability/key validation
+    // failures (section 4.1).
+    static NonComputationalModel from_spec(
         std::vector<double> initial_state,
-        std::map<std::string, TransitionInstrument> transitions,
-        std::optional<MeasurementClassifier> classifier,
+        const std::map<std::string,
+                       std::vector<std::vector<double>>>& transition_matrices,
+        std::optional<ClassifierSpec> classifier_spec,
         NonComputationalPolicy policy);
 
-    // Throws at construction on shape/probability/key validation
-    // failures (section 4.1). Source-context validity is enforced at
-    // sample time (section 4.2).
     // ... accessors
 };
 
 }  // namespace clifft
 ```
 
-### 3.3 Construction paths (compositional now, spec-based later)
+### 3.3 Construction path
 
-The C++ constructor above is *compositional*: the caller builds each
-`TransitionInstrument` / `MeasurementClassifier` against a `LevelSet`,
-then hands the pre-built objects to the model. This keeps instruments
-independently constructible and testable, but it admits a misuse a
-level-count check cannot catch — a component built against a
-different but same-sized `LevelSet` would bind its columns to the
-wrong level ids. To close that, each instrument and classifier records
-a deterministic `LevelSet::fingerprint()` (over each level's label
-and category, in order) at construction, and the model
-rejects any component whose fingerprint does not match its own table.
-
-The fingerprint exists *only* to guard the compositional path. The
-intended **primary, Python-facing** construction is spec-based: the
-model receives raw matrices and symbols and constructs every bound
-component against its single `LevelSet` internally, so there is only
-one level table in scope and no fingerprint is needed or surfaced.
-
-Plan: add a spec-based `NonComputationalModel` builder (raw
-`transition` matrices + classifier spec, built against the model's
-`LevelSet`) when bindings land (§6 step 9/10), and bind *that* shape
-in Python. At that point decide whether the compositional constructor
-stays public or becomes an internal/test-only entry. Fingerprints
-must not leak into the Python API or user docs. Transition keys are
+Construction is spec-based and there is one public path: `from_spec`
+receives raw matrices and symbols and builds every component against
+the fixed level structure, validating each and naming the offending
+component on failure. (An earlier revision also had a *compositional*
+constructor taking pre-built `TransitionInstrument` /
+`MeasurementClassifier` objects, guarded by per-component `LevelSet`
+fingerprints against mixing tables; both the second path and the
+fingerprint machinery retired with the runtime level table.)
+Transition keys are
 arbitrary names, stored verbatim and resolved by exact key from
 `LEVEL_TRANSITION[key]` annotations; a key that names a hookable
 physical gate additionally registers a gate hook (§5.0).
@@ -501,7 +445,7 @@ runs on.
 
 ### 5.2 Default rewrite-policy table
 
-Rows are (operation kind, `QubitStatusKind` at op time). "Reject"
+Rows are (operation kind, status category at op time). "Reject"
 means the C++ rewrite raises with a clear message naming the op index
 and qubit; no silent approximation.
 
@@ -559,9 +503,9 @@ Notes:
   computational column must place all its probability on the two
   record symbols.
 
-### 5.2.1 QubitStatusKind transitions
+### 5.2.1 QubitStatus transitions
 
-A qubit's `QubitStatusKind` transitions as follows during the status
+A qubit's `QubitStatus` transitions as follows during the status
 walk:
 
 | Cause                                              | Effect                            |
@@ -747,18 +691,15 @@ Summary rule, per qubit operand of an op:
 
 Proposed layout under `src/clifft/noncomp/` (new directory):
 
-1. `qubit_status.h` — `QubitStatusKind` enum, `QubitStatus` value type
-   with the `computational()` factory (level-less by construction) and
-   the noncomputational `_unchecked` factories. Zero clifft-internal
-   deps.
-2. `level.h` — `LevelCategory` enum, `Level` struct,
-   `LevelSet` (validated table that owns the `QubitStatus` factories
-   `leaked` / `lost` and the `status_for` category dispatch). Depends
-   on (1).
+1. `level.h` — the fixed level structure: the `Level` and `QubitStatus`
+   enums, `LevelCategory` with the constexpr `category` / `status_for` /
+   `noncomp_level` dispatchers, and the diagnostic name tables. Zero
+   clifft-internal deps. (`qubit_status.h` merged into it when the
+   status became an enum.)
 3. `transition_instrument.h/.cc` — `TransitionInstrument`: validated
-   `T[to, from]` matrix with cached column sums. Depends on (2).
-4. `classifier.h/.cc` — `MeasurementClassifier`, column-substochastic
-   `(symbols, levels)` map with derived `reject_probability(level_id)`.
+   `T[to, from]` matrix with cached column sums. Depends on (1).
+4. `classifier.h/.cc` — `MeasurementClassifier`: stochastic
+   `(symbols, levels)` map, shape-validated at construction.
    Depends on (2).
 5. `policy.h` — `NonComputationalPolicy` struct. Zero deps.
 6. `model.h/.cc` — `NonComputationalModel`, all construction-time
@@ -779,17 +720,10 @@ Proposed layout under `src/clifft/noncomp/` (new directory):
     point: validation and seed resolution, then the driver. Depends on
     (9).
 
-Python bindings in `src/python/bindings.cc` expose: `Level`,
-`LevelSet`, `TransitionInstrument`,
-`MeasurementClassifier`, `NonComputationalPolicy`,
-`NonComputationalModel`,
-`sample_noncomputational(circuit_text, model, shots, seed=None)`.
-
-When step 10 lands, add the spec-based `NonComputationalModel`
-construction path described in §3.3 (raw transition matrices +
-classifier spec built against the model's own `LevelSet`) and bind
-that shape in Python, rather than exposing the compositional
-constructor and its `LevelSet`-fingerprint mechanics to users.
+Python bindings in `src/python/bindings.cc` expose the spec-based
+model builder (raw matrices in) and
+`sample_noncomputational(circuit_text, model, shots, seed=None)`; the
+C++ value types never cross the boundary.
 
 ## 7. Test plan (dependency order)
 

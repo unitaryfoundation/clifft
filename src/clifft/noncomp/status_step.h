@@ -10,19 +10,12 @@
 #include "clifft/circuit/gate_data.h"
 #include "clifft/noncomp/level.h"
 #include "clifft/noncomp/policy.h"
-#include "clifft/noncomp/qubit_status.h"
 
 #include <cstdint>
-#include <optional>
 #include <string_view>
 #include <vector>
 
 namespace clifft {
-
-// The unique Lost-category level id, if the table has exactly one. The
-// LOSS annotation resolves its destination through this; a table with no
-// or several Lost levels cannot host it.
-std::optional<uint8_t> sole_lost_level(const LevelSet& levels);
 
 // The validated loss probability of a LOSS annotation node's argument
 // list: exactly one argument, finite, in [0, 1]. The parser guarantees
@@ -46,26 +39,19 @@ enum class OperandRole {
     FeedbackZ,  // target of a classically-controlled Z (CZ rec q)
 };
 
-// Outcome of consulting one transition instrument for a single
-// (operation, qubit operand).
-struct TransitionOutcome {
-    bool jumped = false;
-    uint8_t destination_level = kInvalidLevel;  // valid iff jumped
-};
-
 // How the trajectory policy handles the base operation for one operand,
 // keyed on the operand's status at op entry. Computational operands always
 // apply; the table only governs leaked and lost operands. Aggregated
 // across an operation's operands by the caller: any Reject rejects the
 // whole operation, otherwise any Drop drops it whole (identity on the
 // surviving operands). A dropped operation has no physical effect, so a
-// surviving operand's status keeps its entry value unless a sampled jump
+// surviving operand's status keeps its entry value unless a recorded jump
 // overrides it; attached transitions still fire on every operand (the
 // noise process is not gated by whether the intended gate could act).
 // Measurements are never dropped: their visible record slot must survive
 // so rec[-k] references do not shift.
 enum class OperandAction { Apply, Drop, Reject };
-OperandAction operand_action(GateType gate, QubitStatusKind kind,
+OperandAction operand_action(GateType gate, QubitStatus status,
                              const NonComputationalPolicy& policy);
 
 // The qubit's status after an operation given only the operation's
@@ -74,18 +60,7 @@ OperandAction operand_action(GateType gate, QubitStatusKind kind,
 // a Leaked/Lost qubit is changed only by a reset (any flavor) that
 // restores it to computational. Feedback operands are virtual and never
 // change a status.
-QubitStatus normal_post_op_status(const QubitStatus& entry, GateType gate, OperandRole role,
+QubitStatus normal_post_op_status(QubitStatus entry, GateType gate, OperandRole role,
                                   const NonComputationalPolicy& policy);
-
-// Full per-target step: a sampled jump destination wins; otherwise the
-// operation's normal status effect applies.
-QubitStatus step_status(const QubitStatus& entry, GateType gate, OperandRole role,
-                        const TransitionOutcome& outcome, const NonComputationalPolicy& policy,
-                        const LevelSet& levels);
-
-// Per-target step when the base operation is dropped: the operation has
-// no physical effect, so only a sampled jump changes the status.
-QubitStatus step_status_dropped(const QubitStatus& entry, const TransitionOutcome& outcome,
-                                const LevelSet& levels);
 
 }  // namespace clifft

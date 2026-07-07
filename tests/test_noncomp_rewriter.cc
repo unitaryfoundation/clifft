@@ -35,12 +35,13 @@ using Catch::Matchers::ContainsSubstring;
 using clifft::annotate;
 using clifft::AstNode;
 using clifft::Circuit;
+using clifft::ClassifierSpec;
 using clifft::ContinuationRewrite;
 using clifft::default_hir_pass_manager;
 using clifft::ExactShotEvents;
 using clifft::GateType;
 using clifft::HirModule;
-using clifft::LevelSet;
+using clifft::Level;
 using clifft::MeasurementClassifier;
 using clifft::NonComputationalModel;
 using clifft::NonComputationalPolicy;
@@ -62,23 +63,24 @@ std::vector<std::vector<double>> zeros5() {
 }
 
 // Source-independent: always jumps to lost.
-TransitionInstrument always_lost(const LevelSet& levels) {
+std::vector<std::vector<double>> always_lost() {
     auto m = zeros5();
     m[kLost][0] = 1.0;
     m[kLost][1] = 1.0;
-    return TransitionInstrument::from_matrix(std::move(m), levels);
+    return m;
 }
 
-NonComputationalModel make_model(std::map<std::string, TransitionInstrument> transitions,
-                                 NonComputationalPolicy policy = {}) {
-    return NonComputationalModel(LevelSet::default_set(), {1.0, 0.0, 0.0, 0.0, 0.0},
-                                 std::move(transitions), std::nullopt, policy);
+NonComputationalModel make_model(
+    std::map<std::string, std::vector<std::vector<double>>> transitions,
+    NonComputationalPolicy policy = {}) {
+    return NonComputationalModel::from_spec({1.0, 0.0, 0.0, 0.0, 0.0}, transitions, std::nullopt,
+                                            policy);
 }
 
 // Classifier whose column for `level` is `col` (two or three symbols by
 // col's length); computational levels read out faithfully and other levels
 // default to a deterministic symbol 0.
-MeasurementClassifier classifier_with(uint8_t level, std::vector<double> col) {
+ClassifierSpec classifier_with(uint8_t level, std::vector<double> col) {
     std::vector<std::vector<double>> m(col.size(), std::vector<double>(5, 0.0));
     std::vector<std::string> symbols;
     for (size_t l = 0; l < 5; ++l) {
@@ -90,23 +92,22 @@ MeasurementClassifier classifier_with(uint8_t level, std::vector<double> col) {
         m[s][level] = col[s];
         symbols.push_back(std::to_string(s));
     }
-    return MeasurementClassifier::from_matrix(std::move(symbols), std::move(m),
-                                              LevelSet::default_set());
+    return ClassifierSpec{std::move(symbols), std::move(m)};
 }
 
 NonComputationalModel make_model_with_classifier(
-    std::map<std::string, TransitionInstrument> transitions, MeasurementClassifier classifier,
+    std::map<std::string, std::vector<std::vector<double>>> transitions, ClassifierSpec classifier,
     NonComputationalPolicy policy = {}) {
-    return NonComputationalModel(LevelSet::default_set(), {1.0, 0.0, 0.0, 0.0, 0.0},
-                                 std::move(transitions), std::move(classifier), policy);
+    return NonComputationalModel::from_spec({1.0, 0.0, 0.0, 0.0, 0.0}, transitions,
+                                            std::move(classifier), policy);
 }
 
-// Per-qubit initial statuses from level ids.
+// Per-qubit initial statuses from level indices.
 std::vector<QubitStatus> initials(const std::vector<uint8_t>& levels) {
     std::vector<QubitStatus> out;
     out.reserve(levels.size());
     for (uint8_t l : levels) {
-        out.push_back(LevelSet::default_set().status_for(l));
+        out.push_back(clifft::status_for(clifft::level_from_index(l, "initials")));
     }
     return out;
 }
@@ -138,12 +139,12 @@ ContinuationRewrite rewritten(const Circuit& c, const NonComputationalModel& mod
 
 TEST_CASE("rewrite: a coherent qubit's recorded jump to lost gets a trace-out R") {
     Circuit c = parse("H 0\nLEVEL_TRANSITION[lk] 0\n");
-    std::map<std::string, TransitionInstrument> transitions;
-    transitions.emplace("lk", always_lost(LevelSet::default_set()));
+    std::map<std::string, std::vector<std::vector<double>>> transitions;
+    transitions.emplace("lk", always_lost());
     NonComputationalModel model = make_model(std::move(transitions));
 
     ExactShotEvents events;
-    events.jumps.push_back({/*op_index=*/1, /*qubit=*/0, /*destination_level=*/kLost});
+    events.jumps.push_back({/*op_index=*/1, /*qubit=*/0, /*destination_level=*/Level::Lost});
     ContinuationRewrite rw = rewritten(c, model, {kG}, events);
     // H and the site kept; one trace-out R follows the site.
     REQUIRE(rw.circuit.nodes.size() == 3);
@@ -154,12 +155,12 @@ TEST_CASE("rewrite: a coherent qubit's recorded jump to lost gets a trace-out R"
 
 TEST_CASE("rewrite: a recorded jump to the |0> level inserts an R, no X") {
     Circuit c = parse("H 0\nLEVEL_TRANSITION[lk] 0\n");
-    std::map<std::string, TransitionInstrument> transitions;
-    transitions.emplace("lk", always_lost(LevelSet::default_set()));
+    std::map<std::string, std::vector<std::vector<double>>> transitions;
+    transitions.emplace("lk", always_lost());
     NonComputationalModel model = make_model(std::move(transitions));
 
     ExactShotEvents events;
-    events.jumps.push_back({1, 0, /*destination_level=*/kG});
+    events.jumps.push_back({1, 0, /*destination_level=*/Level::G});
     ContinuationRewrite rw = rewritten(c, model, {kG}, events);
     REQUIRE(count_gate(rw.circuit, GateType::R) == 1);  // materialize at |0>
     REQUIRE(count_gate(rw.circuit, GateType::X) == 0);
@@ -167,12 +168,12 @@ TEST_CASE("rewrite: a recorded jump to the |0> level inserts an R, no X") {
 
 TEST_CASE("rewrite: an inserted trace-out R survives compilation as one hidden measurement") {
     Circuit c = parse("H 0\nLEVEL_TRANSITION[lk] 0\n");
-    std::map<std::string, TransitionInstrument> transitions;
-    transitions.emplace("lk", always_lost(LevelSet::default_set()));
+    std::map<std::string, std::vector<std::vector<double>>> transitions;
+    transitions.emplace("lk", always_lost());
     NonComputationalModel model = make_model(std::move(transitions));
 
     ExactShotEvents events;
-    events.jumps.push_back({1, 0, kLost});
+    events.jumps.push_back({1, 0, Level::Lost});
     ContinuationRewrite rw = rewritten(c, model, {kG}, events);
 
     // Baseline: the same rewrite with no jump recorded (the site runs live).
@@ -189,12 +190,12 @@ TEST_CASE("rewrite: an inserted trace-out R survives compilation as one hidden m
 TEST_CASE("rewrite: an inserted R does not shift visible measurements or detectors") {
     Circuit c =
         parse("M 0\nDETECTOR rec[-1]\nH 1\nLEVEL_TRANSITION[lk] 1\nM 0\nDETECTOR rec[-1]\n");
-    std::map<std::string, TransitionInstrument> transitions;
-    transitions.emplace("lk", always_lost(LevelSet::default_set()));
+    std::map<std::string, std::vector<std::vector<double>>> transitions;
+    transitions.emplace("lk", always_lost());
     NonComputationalModel model = make_model(std::move(transitions));
 
     ExactShotEvents events;
-    events.jumps.push_back({3, 1, kLost});
+    events.jumps.push_back({3, 1, Level::Lost});
     ContinuationRewrite rw = rewritten(c, model, {kG, kG}, events);
     ContinuationRewrite base = rewritten(c, model, {kG, kG});
 
@@ -227,7 +228,7 @@ TEST_CASE("rewrite: a dropped gate leaves the surviving operand's status untouch
     Circuit c = parse("CZ 0 1\n");
     NonComputationalModel model = make_model({});
     ContinuationRewrite rw = rewritten(c, model, {kLost, kG});
-    REQUIRE(rw.final_status[1].kind() == clifft::QubitStatusKind::Computational);
+    REQUIRE(rw.final_status[1] == clifft::QubitStatus::Computational);
 }
 
 TEST_CASE("rewrite: a single-qubit gate on a leaked qubit drops") {
@@ -264,14 +265,14 @@ TEST_CASE("rewrite: a non-restoring lost reset drops; reset_restores_lost keeps 
     NonComputationalModel dropped = make_model({});
     ContinuationRewrite rw_drop = rewritten(c, dropped, {kLost});
     REQUIRE(count_gate(rw_drop.circuit, GateType::R) == 0);
-    REQUIRE(rw_drop.final_status[0].kind() == clifft::QubitStatusKind::Lost);  // not restored
+    REQUIRE(rw_drop.final_status[0] == clifft::QubitStatus::Lost);  // not restored
 
     NonComputationalPolicy restore;
     restore.reset_restores_lost = true;
     NonComputationalModel reload = make_model({}, restore);
     ContinuationRewrite rw_keep = rewritten(c, reload, {kLost});
     REQUIRE(count_gate(rw_keep.circuit, GateType::R) == 1);
-    REQUIRE(rw_keep.final_status[0].kind() == clifft::QubitStatusKind::Computational);
+    REQUIRE(rw_keep.final_status[0] == clifft::QubitStatus::Computational);
 }
 
 TEST_CASE("rewrite: an X/Y-basis measurement of a noncomputational qubit rejects") {
@@ -301,7 +302,7 @@ TEST_CASE("rewrite: a lost-qubit measurement becomes a classifier record write")
 
     REQUIRE(rw.classified_measurements.size() == 1);
     REQUIRE(rw.classified_measurements[0].slot == 0);
-    REQUIRE(rw.classified_measurements[0].level == kLost);
+    REQUIRE(rw.classified_measurements[0].level == Level::Lost);
     const AstNode& noise = rw.circuit.nodes[rw.classified_measurements[0].noise_node];
     REQUIRE(noise.gate == GateType::READOUT_NOISE);
     REQUIRE(noise.targets[0].is_rec());
@@ -399,7 +400,7 @@ TEST_CASE("rewrite: reset_restores_lost restores a measure-and-reset's lost qubi
     REQUIRE(count_gate(rw.circuit, GateType::MPAD) == 1);
     REQUIRE(count_gate(rw.circuit, GateType::R) == 1);
     REQUIRE(rw.circuit.num_measurements == 1);  // visible record preserved
-    REQUIRE(rw.final_status[0].kind() == clifft::QubitStatusKind::Computational);
+    REQUIRE(rw.final_status[0] == clifft::QubitStatus::Computational);
 }
 
 TEST_CASE("rewrite: a measure-and-reset on a leaked qubit records and resets") {
@@ -412,7 +413,7 @@ TEST_CASE("rewrite: a measure-and-reset on a leaked qubit records and resets") {
     REQUIRE(count_gate(rw.circuit, GateType::MPAD) == 1);
     REQUIRE(count_gate(rw.circuit, GateType::READOUT_NOISE) == 1);
     REQUIRE(count_gate(rw.circuit, GateType::R) == 1);  // the MR's kept reset
-    REQUIRE(rw.final_status[0].kind() == clifft::QubitStatusKind::Computational);
+    REQUIRE(rw.final_status[0] == clifft::QubitStatus::Computational);
 }
 
 TEST_CASE("rewrite: a measure-and-reset on a non-restoring lost qubit is kept") {
@@ -424,7 +425,7 @@ TEST_CASE("rewrite: a measure-and-reset on a non-restoring lost qubit is kept") 
     REQUIRE(count_gate(rw.circuit, GateType::MR) == 0);
     REQUIRE(count_gate(rw.circuit, GateType::MPAD) == 1);  // record slot preserved
     REQUIRE(rw.circuit.num_measurements == 1);
-    REQUIRE(rw.final_status[0].kind() == clifft::QubitStatusKind::Lost);  // not restored
+    REQUIRE(rw.final_status[0] == clifft::QubitStatus::Lost);  // not restored
 }
 
 // =========================================================================
@@ -436,7 +437,7 @@ namespace {
 // Classifier with confused computational columns: a true 0 is misread as 1
 // with probability p01, a true 1 as 0 with probability p10; noncomputational
 // levels deterministically read symbol 0.
-MeasurementClassifier confused_classifier(double p01, double p10) {
+ClassifierSpec confused_classifier(double p01, double p10) {
     std::vector<std::vector<double>> m(2, std::vector<double>(5, 0.0));
     for (size_t l = 0; l < 5; ++l) {
         m[0][l] = 1.0;
@@ -445,7 +446,7 @@ MeasurementClassifier confused_classifier(double p01, double p10) {
     m[1][0] = p01;
     m[0][1] = p10;
     m[1][1] = 1.0 - p10;
-    return MeasurementClassifier::from_matrix({"0", "1"}, std::move(m), LevelSet::default_set());
+    return ClassifierSpec{{"0", "1"}, std::move(m)};
 }
 
 }  // namespace
@@ -511,12 +512,9 @@ TEST_CASE("rewrite: a substochastic computational column rejects") {
     m[1][0] = 0.2;
     m[0][1] = 0.0;
     m[1][1] = 1.0;
-    MeasurementClassifier cl =
-        MeasurementClassifier::from_matrix({"0", "1"}, std::move(m), LevelSet::default_set());
-    NonComputationalModel model = make_model_with_classifier({}, std::move(cl));
-
-    REQUIRE_THROWS_WITH(rewritten(parse("M 0\n"), model, {kG}),
-                        ContainsSubstring("computational level"));
+    REQUIRE_THROWS_WITH(
+        make_model_with_classifier({}, ClassifierSpec{{"0", "1"}, std::move(m)}),
+        ContainsSubstring("reject columns are not supported") && ContainsSubstring("'g'"));
 }
 
 TEST_CASE("rewrite: a computational column with herald mass rejects") {
@@ -528,12 +526,9 @@ TEST_CASE("rewrite: a computational column with herald mass rejects") {
     m[2][0] = 0.1;
     m[0][1] = 0.0;
     m[1][1] = 1.0;
-    MeasurementClassifier cl =
-        MeasurementClassifier::from_matrix({"0", "1", "2"}, std::move(m), LevelSet::default_set());
-    NonComputationalModel model = make_model_with_classifier({}, std::move(cl));
-
-    REQUIRE_THROWS_WITH(rewritten(parse("M 0\n"), model, {kG}),
-                        ContainsSubstring("beyond the bit"));
+    REQUIRE_THROWS_WITH(
+        make_model_with_classifier({}, ClassifierSpec{{"0", "1", "2"}, std::move(m)}),
+        ContainsSubstring("record symbols 0 and 1") && ContainsSubstring("'g'"));
 }
 
 // =========================================================================
@@ -542,8 +537,8 @@ TEST_CASE("rewrite: a computational column with herald mass rejects") {
 
 TEST_CASE("annotate: gate hooks expand to per-operand LEVEL_TRANSITION annotations") {
     Circuit c = parse("H 0\nCZ 0 1\nM 0\n");
-    std::map<std::string, TransitionInstrument> transitions;
-    transitions.emplace("CZ", always_lost(LevelSet::default_set()));
+    std::map<std::string, std::vector<std::vector<double>>> transitions;
+    transitions.emplace("CZ", always_lost());
     NonComputationalModel model = make_model(std::move(transitions));
 
     Circuit ann = annotate(c, model);
@@ -559,8 +554,8 @@ TEST_CASE("annotate: gate hooks expand to per-operand LEVEL_TRANSITION annotatio
 
 TEST_CASE("annotate: feedback operands get no annotation") {
     Circuit c = parse("M 0\nCX rec[-1] 1\n");
-    std::map<std::string, TransitionInstrument> transitions;
-    transitions.emplace("CX", always_lost(LevelSet::default_set()));
+    std::map<std::string, std::vector<std::vector<double>>> transitions;
+    transitions.emplace("CX", always_lost());
     NonComputationalModel model = make_model(std::move(transitions));
 
     Circuit ann = annotate(c, model);
@@ -569,8 +564,8 @@ TEST_CASE("annotate: feedback operands get no annotation") {
 
 TEST_CASE("annotate: an unhooked model leaves the circuit unchanged") {
     Circuit c = parse("H 0\nM 0\n");
-    std::map<std::string, TransitionInstrument> transitions;
-    transitions.emplace("my_leak", always_lost(LevelSet::default_set()));  // named, no hook
+    std::map<std::string, std::vector<std::vector<double>>> transitions;
+    transitions.emplace("my_leak", always_lost());  // named, no hook
     NonComputationalModel model = make_model(std::move(transitions));
 
     Circuit ann = annotate(c, model);

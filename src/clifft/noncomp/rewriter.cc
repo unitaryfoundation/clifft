@@ -48,42 +48,19 @@ GateType reset_for(GateType measure_reset) {
     }
 }
 
-// Validate that the model's classifier can supply the record bit for a
-// measurement on a noncomputational qubit at `level`: it must exist, have
-// two or three symbols, and offer a stochastic (non-reject) column for the
-// level. Returns the classifier on success.
-const MeasurementClassifier& classifier_for(const NonComputationalModel& model, uint8_t level,
-                                            GateType gate, uint32_t op_index, uint32_t qubit) {
+// The model's classifier, which supplies the record bit for a measurement
+// on a noncomputational qubit. Everything about the classifier's shape
+// (symbol count, stochastic columns) is validated at its construction;
+// only its presence is checked here, where the op context makes a good
+// error message.
+const MeasurementClassifier& classifier_for(const NonComputationalModel& model, GateType gate,
+                                            uint32_t op_index, uint32_t qubit) {
     const MeasurementClassifier* classifier = model.classifier();
     if (classifier == nullptr) {
         throw std::invalid_argument("rewrite: measurement '" + std::string(gate_name(gate)) +
                                     "' on a noncomputational qubit " + std::to_string(qubit) +
                                     " at op " + std::to_string(op_index) +
                                     " requires a classifier, but the model has none");
-    }
-    // The record write is one visible bit. Symbols 0/1 are that bit; a third
-    // symbol is the herald. A still-richer alphabet has no defined mapping
-    // onto (bit, herald) and is not representable.
-    if (classifier->num_symbols() != 2 && classifier->num_symbols() != 3) {
-        throw std::invalid_argument(
-            "rewrite: a measurement on a noncomputational qubit requires a two- or three-symbol "
-            "classifier, but the model's has " +
-            std::to_string(classifier->num_symbols()) + " symbols (measurement '" +
-            std::string(gate_name(gate)) + "' on qubit " + std::to_string(qubit) + " at op " +
-            std::to_string(op_index) + ")");
-    }
-    // A substochastic column reserves probability for a reject (heralded
-    // abort) outcome that has no binary record bit. That path is not wired
-    // through this entry point yet, so the column must sum to one within
-    // tolerance; a reject column is an explicit error rather than a silently
-    // dropped or aborted shot.
-    const double reject = classifier->reject_probability(level);
-    if (reject > kProbTolerance) {
-        throw std::invalid_argument(
-            "rewrite: classifier reject columns are not supported yet; the column for level " +
-            std::to_string(level) + " sums to less than one (reject probability " +
-            std::to_string(reject) + ", measurement '" + std::string(gate_name(gate)) +
-            "' on qubit " + std::to_string(qubit) + " at op " + std::to_string(op_index) + ")");
     }
     return *classifier;
 }
@@ -97,41 +74,14 @@ const MeasurementClassifier& classifier_for(const NonComputationalModel& model, 
 // Identity columns emit nothing. An inverted measurement target reports the
 // complement bit, and confusion physically precedes the reporting convention,
 // so the emitted probabilities are swapped for it.
-void append_computational_confusion(Circuit& out, const NonComputationalModel& model, GateType gate,
-                                    bool inverted, uint32_t slot, uint32_t op_index,
-                                    uint32_t qubit) {
+void append_computational_confusion(Circuit& out, const NonComputationalModel& model, bool inverted,
+                                    uint32_t slot) {
     const MeasurementClassifier* classifier = model.classifier();
     if (classifier == nullptr) {
         return;
     }
-    const LevelSet& levels = model.levels();
-    const uint8_t zero_id = levels.computational_zero_id();
-    const uint8_t one_id = levels.computational_one_id();
-    for (uint8_t level : {zero_id, one_id}) {
-        const double reject = classifier->reject_probability(level);
-        if (reject > kProbTolerance) {
-            throw std::invalid_argument(
-                "rewrite: classifier reject columns are not supported yet; the column for "
-                "computational level " +
-                std::to_string(level) + " sums to less than one (reject probability " +
-                std::to_string(reject) + ", measurement '" + std::string(gate_name(gate)) +
-                "' on qubit " + std::to_string(qubit) + " at op " + std::to_string(op_index) + ")");
-        }
-        double beyond_bit = 0.0;
-        for (size_t symbol = 2; symbol < classifier->num_symbols(); ++symbol) {
-            beyond_bit += classifier->prob(static_cast<uint8_t>(symbol), level);
-        }
-        if (beyond_bit > kProbTolerance) {
-            throw std::invalid_argument(
-                "rewrite: a computational measurement's classifier column must place all its "
-                "probability on the record symbols 0 and 1; the column for level " +
-                std::to_string(level) + " puts " + std::to_string(beyond_bit) +
-                " beyond the bit (measurement '" + std::string(gate_name(gate)) + "' on qubit " +
-                std::to_string(qubit) + " at op " + std::to_string(op_index) + ")");
-        }
-    }
-    double p01 = classifier->prob(1, zero_id);  // true 0 misread as 1
-    double p10 = classifier->prob(0, one_id);   // true 1 misread as 0
+    double p01 = classifier->prob(1, Level::G);  // true 0 misread as 1
+    double p10 = classifier->prob(0, Level::E);  // true 1 misread as 0
     if (inverted) {
         std::swap(p01, p10);
     }
@@ -149,7 +99,6 @@ void process_ordinary_node(const AstNode& node, uint32_t op_index,
                            const NonComputationalModel& model, std::vector<QubitStatus>& status,
                            Circuit& out, uint32_t& slot,
                            std::vector<ClassifiedMeasurement>& classified) {
-    const LevelSet& levels = model.levels();
     const NonComputationalPolicy& policy = model.policy();
     const GateType gate = node.gate;
 
@@ -163,12 +112,12 @@ void process_ordinary_node(const AstNode& node, uint32_t op_index,
             throw std::invalid_argument("rewrite: operand qubit " + std::to_string(qubit) +
                                         " is out of range at op " + std::to_string(op_index));
         }
-        switch (operand_action(gate, status[qubit].kind(), policy)) {
+        switch (operand_action(gate, status[qubit], policy)) {
             case OperandAction::Reject:
                 throw std::invalid_argument(
                     "rewrite: operation '" + std::string(gate_name(gate)) + "' on a " +
-                    kind_name(status[qubit].kind()) + " qubit " + std::to_string(qubit) +
-                    " at op " + std::to_string(op_index) + " is not representable; rejecting");
+                    status_name(status[qubit]) + " qubit " + std::to_string(qubit) + " at op " +
+                    std::to_string(op_index) + " is not representable; rejecting");
             case OperandAction::Drop:
                 drop_op = true;
                 break;
@@ -179,15 +128,14 @@ void process_ordinary_node(const AstNode& node, uint32_t op_index,
 
     // Set when this (single-qubit Z-basis) measurement reads a leaked or
     // lost qubit: the classifier, not the SVM, defines its record bit.
-    std::optional<uint8_t> classified_level;
+    std::optional<Level> classified_level;
 
     for (const QubitOperand& operand : qubit_operands(node)) {
         const uint32_t qubit = operand.qubit;
         const QubitStatus pre = status[qubit];
 
-        if (is_measurement(gate) &&
-            (pre.kind() == QubitStatusKind::Leaked || pre.kind() == QubitStatusKind::Lost)) {
-            classified_level = pre.level_id();
+        if (is_measurement(gate) && !is_computational(pre)) {
+            classified_level = noncomp_level(pre);
         }
 
         status[qubit] = drop_op ? pre : normal_post_op_status(pre, gate, operand.role, policy);
@@ -200,8 +148,7 @@ void process_ordinary_node(const AstNode& node, uint32_t op_index,
             // X/Y-basis and multi-target measurements on a
             // noncomputational operand reject above.
             const uint32_t qubit = qubit_operands(node).front().qubit;
-            const MeasurementClassifier& classifier =
-                classifier_for(model, *classified_level, gate, op_index, qubit);
+            const MeasurementClassifier& classifier = classifier_for(model, gate, op_index, qubit);
             const bool ternary = classifier.has_herald();
 
             // The record bit's flip probability on top of MPAD 0:
@@ -241,8 +188,8 @@ void process_ordinary_node(const AstNode& node, uint32_t op_index,
             // level readouts (M, MR); other measurement bases are not
             // level readouts and carry no confusion.
             if (gate == GateType::M || gate == GateType::MR) {
-                append_computational_confusion(out, model, gate, node.targets.front().is_inverted(),
-                                               slot, op_index, qubit_operands(node).front().qubit);
+                append_computational_confusion(out, model, node.targets.front().is_inverted(),
+                                               slot);
             }
         }
     }
@@ -277,8 +224,6 @@ size_t forced_reset_hidden_slot(const Circuit& rewritten, size_t reset_node,
 ContinuationRewrite rewrite_continuation(const Circuit& annotated, const ExactShotEvents& events,
                                          bool force_last_traceout,
                                          const NonComputationalModel& model) {
-    const LevelSet& levels = model.levels();
-
     if (events.initial_status.size() != annotated.num_qubits) {
         throw std::invalid_argument("rewrite_continuation: events carry " +
                                     std::to_string(events.initial_status.size()) +
@@ -292,7 +237,7 @@ ContinuationRewrite rewrite_continuation(const Circuit& annotated, const ExactSh
 
     // Jumps index by their annotation target. The chain arrives in trap
     // order, which is circuit order; visitation below validates coverage.
-    std::map<std::pair<uint32_t, uint32_t>, uint8_t> jump_dest;
+    std::map<std::pair<uint32_t, uint32_t>, Level> jump_dest;
     for (const ResolvedJump& jump : events.jumps) {
         if (!jump_dest.emplace(std::make_pair(jump.op_index, jump.qubit), jump.destination_level)
                  .second) {
@@ -334,10 +279,8 @@ ContinuationRewrite rewrite_continuation(const Circuit& annotated, const ExactSh
                                                 std::to_string(op_index));
                 }
                 const QubitStatus pre = status[qubit];
-                const bool classical_source =
-                    pre.kind() == QubitStatusKind::Leaked || pre.kind() == QubitStatusKind::Lost;
 
-                if (classical_source) {
+                if (!is_computational(pre)) {
                     // Classical-source consult: no runtime instrument; the
                     // driver pre-drew the outcome and the annotation node
                     // is consumed.
@@ -355,26 +298,26 @@ ContinuationRewrite rewrite_continuation(const Circuit& annotated, const ExactSh
                             std::to_string(outcome.qubit) + ") does not match consult (op " +
                             std::to_string(op_index) + ", qubit " + std::to_string(qubit) + ")");
                     }
-                    if (outcome.source_level != pre.level_id()) {
+                    if (outcome.source_level != noncomp_level(pre)) {
                         throw std::invalid_argument(
                             "rewrite_continuation: classical outcome at op " +
                             std::to_string(op_index) + ", qubit " + std::to_string(qubit) +
-                            " was drawn at level " + std::to_string(outcome.source_level) +
-                            " but the walk holds level " + std::to_string(pre.level_id()));
+                            " was drawn at level '" + level_name(outcome.source_level) +
+                            "' but the walk holds level '" + level_name(noncomp_level(pre)) + "'");
                     }
-                    if (!outcome.jumped) {
+                    if (!outcome.destination.has_value()) {
                         continue;
                     }
-                    const Level& dest = levels.at(outcome.destination_level);
-                    if (dest.category == LevelCategory::Computational) {
+                    const Level dest = *outcome.destination;
+                    if (category(dest) == LevelCategory::Computational) {
                         // Recapture: materialize the carrier at the definite
                         // destination level.
                         out.nodes.push_back(single_qubit_op(GateType::R, qubit));
-                        if (outcome.destination_level == levels.computational_one_id()) {
+                        if (dest == Level::E) {
                             out.nodes.push_back(single_qubit_op(GateType::X, qubit));
                         }
                     }
-                    status[qubit] = levels.status_for(outcome.destination_level);
+                    status[qubit] = status_for(dest);
                     continue;
                 }
 
@@ -404,13 +347,13 @@ ContinuationRewrite rewrite_continuation(const Circuit& annotated, const ExactSh
                 // forced neglect trace-out points at the same reset.
                 const size_t r_node = out.nodes.size();
                 out.nodes.push_back(single_qubit_op(GateType::R, qubit));
-                if (jump->second == levels.computational_one_id()) {
+                if (jump->second == Level::E) {
                     out.nodes.push_back(single_qubit_op(GateType::X, qubit));
                 }
                 if (is_last && force_last_traceout) {
                     traceout_node = r_node;
                 }
-                status[qubit] = levels.status_for(jump->second);
+                status[qubit] = status_for(jump->second);
             }
             continue;
         }
