@@ -570,3 +570,42 @@ def test_chain_flip_on_parked_carrier_is_destroyed_by_recapture():
     assert np.all(result.measurements[:, 0] == 0)  # classified while leaked
     assert np.all(result.measurements[:, 1] == 1)  # recaptured to e
     assert (result.final_status[:, 0] == COMPUTATIONAL).all()
+
+
+# =========================================================================
+# Static pre-sampling validation tests
+# =========================================================================
+
+
+def test_static_check_low_rate_mx_raises_deterministically():
+    """A low-rate leak to leak_e makes MX not representable.
+
+    Before the static check, this circuit sampled cleanly on most seeds
+    because the 0.01 rate rarely fired on the first shot.  The static
+    check rejects the pair deterministically before any shot is drawn.
+    """
+    m = _zeros(5, 5)
+    m[LEAK_E][noncomp.Level.G] = 0.01
+    m[LEAK_E][noncomp.Level.E] = 0.01
+    transitions = {"S": m}
+    classifier = classifier_for(LEAK_E, [0.0, 1.0])
+    model = noncomp.Model(initial_state=ALL_G, transitions=transitions, classifier=classifier)
+    with pytest.raises(ValueError, match="representable"):
+        noncomp.sample("S 0\nMX 0", model, shots=1, seed=1)
+
+
+def test_static_check_r_restores_leak_before_mx():
+    """R always restores a leaked qubit; MX after R meets only a computational qubit.
+
+    This is a false-positive guard: the static check must not reject a
+    circuit where the leak is provably gone before the unsupported gate.
+    """
+    m = _zeros(5, 5)
+    m[LEAK_E][noncomp.Level.G] = 0.01
+    m[LEAK_E][noncomp.Level.E] = 0.01
+    transitions = {"S": m}
+    classifier = classifier_for(LEAK_E, [0.0, 1.0])
+    model = noncomp.Model(initial_state=ALL_G, transitions=transitions, classifier=classifier)
+    result = noncomp.sample("S 0\nR 0\nMX 0", model, shots=8, seed=1)
+    assert result.shots == 8
+    assert result.measurements.shape == (8, 1)

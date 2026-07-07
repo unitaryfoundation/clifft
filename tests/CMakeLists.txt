@@ -48,6 +48,7 @@ add_executable(clifft_tests
     test_exact_driver.cc
     test_noncomp_orchestrator.cc
     test_noncomp_validation.cc
+    test_noncomp_static_check.cc
 )
 
 target_link_libraries(clifft_tests PRIVATE

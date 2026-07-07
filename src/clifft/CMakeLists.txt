@@ -38,6 +38,7 @@ add_library(clifft_core STATIC
     noncomp/status_step.cc
     noncomp/op_role.cc
     noncomp/rewriter.cc
+    noncomp/static_check.cc
     noncomp/exact_driver.cc
     noncomp/orchestrator.cc
 )

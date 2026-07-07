@@ -50,6 +50,7 @@
 #include "clifft/noncomp/op_role.h"
 #include "clifft/noncomp/rewriter.h"
 #include "clifft/noncomp/seed.h"
+#include "clifft/noncomp/static_check.h"
 #include "clifft/noncomp/status_step.h"
 #include "clifft/noncomp/transition_instrument.h"
 #include "clifft/optimizer/hir_pass_manager.h"
@@ -475,6 +476,13 @@ NonComputationalSample sample_noncomputational_exact(const Circuit& circuit,
             resolve_annotation(node, model, op_index);
         }
     }
+
+    // Static pre-scan: reject circuit/model pairs that can never sample
+    // successfully because some reachable qubit status meets an
+    // unrepresentable operation.  This turns seed-dependent mid-sampling
+    // failures (only the shot that first hits the bad status raises) into
+    // a deterministic up-front rejection.
+    validate_static(annotated, model);
 
     const InstrumentTraceOptions instrument_options = instrument_trace_options(model);
 

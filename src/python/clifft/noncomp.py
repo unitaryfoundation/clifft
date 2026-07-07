@@ -259,11 +259,15 @@ def sample(
     :class:`NonComputationalSample`. Raises ``ValueError`` when the trajectory
     policy rejects an operation, when a leaked/lost measurement needs a
     classifier the model lacks, or when a classifier column is unsupported.
+    Circuit/model contract violations — an X/Y-basis or parity measurement
+    that can meet a leaked or lost qubit under the model's reachable status
+    sets, or a measurement of a noncomputational qubit without a classifier —
+    are detected before sampling begins and raise ``ValueError``.
 
-    ``max_rank`` caps the compiled peak rank under
-    exact-mode compilation: it fails with the offending
-    circuit line named, before any state allocation, instead of attempting
-    a ``2**k`` allocation. Unlimited when ``None``.
+    ``max_rank`` caps the compiled peak rank under exact-mode compilation:
+    it is enforced per continuation compile and raises ``ValueError`` naming
+    the offending circuit line when the limit is exceeded.
+    Unlimited when ``None``.
     """
     if isinstance(circuit, str):
         circuit = _clifft_core.parse(circuit)
