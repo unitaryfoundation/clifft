@@ -70,7 +70,7 @@ TEST_CASE("continuation: empty events reproduce the annotated circuit verbatim")
 
     auto result = rewrite_continuation(annotated, events, /*force_last_traceout=*/false, model);
     REQUIRE(gate_sequence(result.circuit) == gate_sequence(annotated));
-    REQUIRE(result.forced_traceout_slot == SIZE_MAX);
+    REQUIRE(result.forced_traceout_node == SIZE_MAX);
     REQUIRE(result.classified_measurements.empty());
 }
 
@@ -132,10 +132,9 @@ TEST_CASE("continuation: classical-source consults consume pre-drawn outcomes") 
     REQUIRE(gate_sequence(result.circuit) == want);
 }
 
-TEST_CASE("continuation: the forced trace-out slot mirrors trace's hidden numbering") {
-    // Hidden slots are assigned per pure-reset target in circuit order,
-    // after the visible slots. With one visible measurement and one reset
-    // ahead of the trace-out, the trace-out owns hidden slot 2.
+TEST_CASE("continuation: the forced trace-out node names the trace-out R in the rewritten stream") {
+    // The rewrite emits: [R 1, H 0, LEVEL_TRANSITION 0, R 0 (trace-out), MPAD].
+    // The trace-out R lands at node index 3 in the rewritten stream.
     auto model = demo_model();
     auto circuit = parse("R 1\nH 0\nLEVEL_TRANSITION[leak] 0\nM 0");
     auto annotated = annotate(circuit, model);
@@ -145,14 +144,12 @@ TEST_CASE("continuation: the forced trace-out slot mirrors trace's hidden number
     events.jumps.push_back({2, 0, Level::LeakE});
 
     auto result = rewrite_continuation(annotated, events, /*force_last_traceout=*/true, model);
-    REQUIRE(result.forced_traceout_slot == 2);  // 1 visible + 1 hidden before it
+    REQUIRE(result.forced_traceout_node == 3);  // index in the rewritten stream
 }
 
-TEST_CASE("continuation: the forced trace-out slot counts every prior reset") {
-    // The slot derivation accumulates one hidden slot per prior reset target,
-    // so it must sum across resets, not stop at the first. With one visible
-    // measurement and two resets ahead of the trace-out, the trace-out owns
-    // hidden slot 3 (1 visible + 2 hidden).
+TEST_CASE("continuation: the forced trace-out node is correct with multiple prior resets") {
+    // The rewrite emits: [R 1, R 2, H 0, LEVEL_TRANSITION 0, R 0 (trace-out), MPAD].
+    // The trace-out R lands at node index 4 in the rewritten stream.
     auto model = demo_model();
     auto circuit = parse("R 1\nR 2\nH 0\nLEVEL_TRANSITION[leak] 0\nM 0");
     auto annotated = annotate(circuit, model);
@@ -162,7 +159,7 @@ TEST_CASE("continuation: the forced trace-out slot counts every prior reset") {
     events.jumps.push_back({3, 0, Level::LeakE});  // the annotation is node 3
 
     auto result = rewrite_continuation(annotated, events, /*force_last_traceout=*/true, model);
-    REQUIRE(result.forced_traceout_slot == 3);  // 1 visible + 2 hidden (R 1, R 2) before it
+    REQUIRE(result.forced_traceout_node == 4);  // index in the rewritten stream
 }
 
 TEST_CASE("continuation: events that do not describe the circuit reject") {
@@ -197,10 +194,11 @@ TEST_CASE("continuation: events that do not describe the circuit reject") {
     }
     SECTION("forcing the trace-out any jump emits") {
         // Every recorded jump emits a carrier reset, so the forced form
-        // always has one to point at.
+        // always has one to point at. Rewritten stream: [LEVEL_TRANSITION,
+        // R (trace-out), MPAD], so the trace-out R is at node index 1.
         ExactShotEvents events = base;
         events.jumps.push_back({0, 0, Level::LeakE});
         auto result = rewrite_continuation(annotated, events, true, model);
-        REQUIRE(result.forced_traceout_slot == 1);  // 1 visible slot before it
+        REQUIRE(result.forced_traceout_node == 1);  // index in the rewritten stream
     }
 }

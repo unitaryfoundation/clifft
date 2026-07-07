@@ -203,27 +203,6 @@ void process_ordinary_node(const AstNode& node, uint32_t op_index,
     }
 }
 
-// The hidden measurement-record slot trace() assigns to the reset at
-// `reset_node` in the rewritten stream. This mirrors trace()'s hidden
-// numbering (frontend.cc: hidden_meas_idx starts at the visible-measurement
-// count and increments by one per pure-reset target, in circuit order).
-// The two counts must agree -- the driver forces exactly this slot -- so
-// the contract is stated in both places and cross-checked at runtime by
-// swap_traceout_to_forced, which fails loudly if the slot names anything
-// other than exactly one forced-capable measurement. Threading the slot out
-// of trace() directly (so it is assigned in one place) is a worthwhile
-// follow-up; it needs the HIR measure op to carry its source node.
-size_t forced_reset_hidden_slot(const Circuit& rewritten, size_t reset_node,
-                                uint32_t num_visible_measurements) {
-    uint32_t hidden_before = 0;
-    for (size_t i = 0; i < reset_node; ++i) {
-        if (is_reset(rewritten.nodes[i].gate)) {
-            hidden_before += static_cast<uint32_t>(rewritten.nodes[i].targets.size());
-        }
-    }
-    return static_cast<size_t>(num_visible_measurements) + hidden_before;
-}
-
 }  // namespace
 
 ContinuationRewrite rewrite_continuation(const Circuit& annotated, const ExactShotEvents& events,
@@ -398,8 +377,7 @@ ContinuationRewrite rewrite_continuation(const Circuit& annotated, const ExactSh
     }
 
     if (traceout_node != SIZE_MAX) {
-        result.forced_traceout_slot =
-            forced_reset_hidden_slot(out, traceout_node, annotated.num_measurements);
+        result.forced_traceout_node = traceout_node;
     }
 
     result.final_status = std::move(status);
