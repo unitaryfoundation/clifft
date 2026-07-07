@@ -61,6 +61,17 @@
 >   `collapse_to_rank1` (exact amplitude-ratio collapse at provably-rank-1
 >   round boundaries). All four engine variants (plain/frame x fast/slow)
 >   agree to 3e-16.
+> - **Natural workloads (2026-07-07, `bench_natural.py`): the composition's
+>   value is demonstrated on recognizable protocols.** Cultivation-style
+>   patches (data register accumulates injected T's; every round = syndrome
+>   extraction + feedforward corrections + ancilla reuse + L layers of
+>   code-preserving logical Clifford traffic): bare extraction (L=0) sits
+>   exactly at the phase boundary (0.8-1.0x); any logical traffic pushes the
+>   frame to 3.7-16x. Teleported-T injection (the textbook adaptive magic
+>   gadget): 1.7-2.8x. Physical subtlety: logical traffic must be
+>   code-preserving (no bare H on data) or the syndrome rounds measure the
+>   magic away -- true of the real protocols too. All engine variants agree
+>   to 1e-16 on sampled trajectories.
 
 
 A working, validated prototype of the "stab-rank back-end" that would replace

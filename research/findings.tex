@@ -405,6 +405,45 @@ round --- syndrome-extraction-like traffic), and costs $\sim2\times$ overhead
 when it is not.
 \end{enumerate}
 
+\paragraph{Natural workloads land on the winning side.}
+The synthetic sweep leaves one question: do \emph{recognizable} protocols sit
+above or below $D^*$? Two natural adaptive families
+(\texttt{bench\_natural.py}; trajectories sampled once on a dense reference,
+replayed identically by both engines; all variants agree to $10^{-16}$):
+\emph{(i) cultivation-style patches} --- a data register accumulates injected
+$T$'s (never measured away) while every round runs syndrome extraction
+(ancilla CX fans, measurements, classically-controlled corrections, ancilla
+reuse) plus $L$ layers of code-preserving logical Clifford traffic
+(deformation/surgery); \emph{(ii) teleported-$T$ injection} --- the textbook
+adaptive magic gadget (ancilla $\ket T$, CX, measure, classically-controlled
+$S$ correction), the minimal-Clifford contrast point. Measured (8 data
+qubits, 7 checks, up to 10 injected $T$'s, $\chi$ up to $\sim$$10^3$):
+
+\begin{table}[h]\centering
+\caption{Natural adaptive workloads: plain (per-term Cliffords) vs frame,
+identical trajectories.}\label{tab:natural}
+\begin{tabular}{lrr}
+\toprule
+workload & Cliffords/round & frame speedup \\
+\midrule
+bare syndrome extraction ($L{=}0$) & $\sim$14 & $0.8$--$1.0\times$ (at the boundary) \\
+$+$ 1 logical-traffic layer & $\sim$32 & $3.7$--$6.7\times$ \\
+$+$ 4 layers & $\sim$68 & $7$--$16\times$ \\
+teleported-$T$ gadget & $\sim$4/gadget & $1.7$--$2.8\times$ \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Bare syndrome extraction sits \emph{exactly at} the measured boundary, and
+any logical Clifford traffic at all pushes the composition into clear wins ---
+the plain engine's per-term Clifford work is the entire gap (e.g.\ $11.8$\,s
+of a $12.0$\,s round set vs the frame's $7$\,ms). Even the minimal teleported
+gadget benefits, because the frame absorbs its H/CX while $\chi$ is large.
+One physical subtlety the experiment surfaced: the logical traffic must be
+\emph{code-preserving} (diagonal $+$ CNOT-type; no bare $H$ on data), else
+the syndrome round measures the accumulated magic away --- true of the toy
+and of the real protocols it models.
+
 \begin{figure}[h]\centering
 \includegraphics[width=\linewidth]{chform_cpp/external_adaptive.png}
 \caption{\emph{Left:} external head-to-head on shared dense-IQP instances:
@@ -427,12 +466,15 @@ speed advantage at moderate accuracy starts near $n\!\approx\!34$--$48$.
 \item \textbf{Norm estimation} is the pipeline's accuracy-cost bottleneck for
 generic circuits ($\chi L\sim1/\delta^4$); the clean results here lean on
 analytic normalization, valid for unitary product magic only.
-\item \textbf{The composition's value is now measured, and two-sided}
-(\S\ref{sec:adaptive}): the online frame wins on adaptive circuits only when
-they are Clifford-dominated ($D\gtrsim1.2w$ Clifford layers per round), and
-costs $\sim2\times$ otherwise --- the conjugation of magic and measurement
-through the frame ($O(\mathrm{weight}(P'))$ per term) is the price of free
-Cliffords. Prior art for the static forms
+\item \textbf{The composition's value is measured and two-sided, and natural
+protocols land on the winning side} (\S\ref{sec:adaptive},
+Table~\ref{tab:natural}): the frame wins iff the circuit is
+Clifford-dominated while $\chi$ is large ($D^*\!\approx\!1.2w$ on the
+synthetic sweep); bare syndrome extraction sits at the boundary, and
+cultivation-style workloads with any logical Clifford traffic win
+$4$--$16\times$ (teleported-$T$ gadgets $\sim\!2\times$). The conjugation of
+magic and measurement through the frame remains the price of free Cliffords.
+Prior art for the static forms
 remains~\cite{bravyi2016,qassim2019,garcia2015,pashayan2022}.
 \item \textbf{Prototype gaps:} the Python engine's sampling measurement path
 and canonical dedup materialize $2^n$ (validation-scale; the forced-replay
@@ -460,7 +502,7 @@ this note deliberately no longer claims: a crossover at $n\!\approx\!22$
 exact scale), sub-$10\%$ accuracy at budgets whose norm error exceeded that
 (metric artifact), and novelty for free Cliffords as an idea (prior art).
 
-The two follow-up experiments are now done, each with a two-sided answer.
+The follow-up experiments are now done, each with a two-sided answer.
 \emph{External baselines} (\S\ref{sec:external}): the backend beats QuiZX's
 exact per-target cost by growing margins ($2188$\,s vs $89$\,s at $n{=}56$ for
 96 targets, exact vs $\mathrm{TV}\approx0.08$), but our own exact MitM
@@ -469,12 +511,14 @@ approximate niche opens only past the $2^{n/2}$ wall or off the IQP structure.
 \emph{The adaptive workload} (\S\ref{sec:adaptive}): the incumbent CH-form
 implementation cannot run adaptive circuits at all; the online frame
 composition is flat in Clifford depth where per-term simulation grows
-linearly, winning beyond a measured phase boundary $D^*\!\approx\!1.2w$
-($8.4\times$ at $D{=}96$ and growing) --- and losing $\sim2\times$ below it,
-because frame conjugation shifts per-term cost onto magic and measurement.
-The composition is a real, now-quantified engineering advantage for
-Clifford-dominated adaptive circuits --- syndrome-extraction-like workloads
---- and honestly not otherwise.
+linearly, winning beyond a measured phase boundary $D^*\!\approx\!1.2w$ ---
+and losing $\sim2\times$ below it, because frame conjugation shifts per-term
+cost onto magic and measurement. Crucially, \emph{natural} protocols land on
+the winning side (Table~\ref{tab:natural}): cultivation-style patches with
+logical Clifford traffic win $4$--$16\times$, teleported-$T$ gadgets
+$\sim\!2\times$, and only bare syndrome extraction sits at the boundary. The
+composition is a real, now-quantified advantage precisely for the
+fault-tolerance-shaped circuits it was designed for.
 
 \begin{thebibliography}{9}
 \bibitem{bravyi2019} S.~Bravyi, D.~Browne, P.~Calpin, E.~Campbell, D.~Gosset,
