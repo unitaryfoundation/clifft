@@ -2,18 +2,14 @@
 
 // NonComputationalModel: the assembled, validated trajectory model.
 //
-// Ties together a LevelSet, a per-level initial-state distribution, a
-// name-keyed table of TransitionInstruments, an optional
-// MeasurementClassifier, and the NonComputationalPolicy knobs.
+// Ties together a per-level initial-state distribution, a name-keyed
+// table of TransitionInstruments, an optional MeasurementClassifier,
+// and the NonComputationalPolicy knobs.
 //
 // Construction runs the model-wide consistency checks (initial state is
-// a probability vector over the levels; every instrument and the
-// classifier were built against this model's level table; transition
-// keys survive the LEVEL_TRANSITION tag syntax; policy values are
-// recognized) and throws std::invalid_argument on failure. Whether a
-// transition's source context is representable is a sample-time concern
-// enforced by the sampler against the target qubit's QubitStatusKind,
-// not here.
+// a probability vector over the levels; transition keys survive the
+// LEVEL_TRANSITION tag syntax; policy values are recognized) and throws
+// std::invalid_argument on failure.
 //
 // Transition keys are arbitrary names, stored verbatim; a circuit
 // references any of them by exact key with a LEVEL_TRANSITION[key]
@@ -28,8 +24,6 @@
 #include "clifft/noncomp/policy.h"
 #include "clifft/noncomp/transition_instrument.h"
 
-#include <cstddef>
-#include <cstdint>
 #include <map>
 #include <optional>
 #include <string>
@@ -38,9 +32,9 @@
 
 namespace clifft {
 
-// Raw classifier spec for the spec-based builder: the symbol labels and the
-// column-substochastic matrix P[symbol][level]. Bundled so the builder takes an
-// optional classifier without a separate presence flag.
+// Raw classifier spec: the symbol labels and the stochastic matrix
+// P[symbol][level]. Bundled so the model builder takes an optional
+// classifier without a separate presence flag.
 struct ClassifierSpec {
     std::vector<std::string> symbols;
     std::vector<std::vector<double>> matrix;
@@ -48,44 +42,25 @@ struct ClassifierSpec {
 
 class NonComputationalModel {
   public:
-    // Validates that:
-    //   - initial_state has one entry per level, each finite and in
-    //     [0, 1]; the distribution is normalized to sum to exactly 1
-    //     after checking it sums to 1 within tolerance;
-    //   - every transition key is nonempty and free of ']' and newline
-    //     (so a LEVEL_TRANSITION[key] tag can reference it), and no two
-    //     hook-registering keys resolve to the same gate;
-    //   - every TransitionInstrument and the classifier, if present,
-    //     were built against this model's level table (fingerprint
-    //     match);
-    //   - the policy holds recognized enum values.
-    // The level table itself is already validated by LevelSet, and each
-    // instrument's entry / column-sum bounds are validated at its own
-    // construction; this constructor checks only the cross-object
-    // consistency that no single component can see on its own.
-    NonComputationalModel(LevelSet levels, std::vector<double> initial_state,
-                          std::map<std::string, TransitionInstrument> transitions,
-                          std::optional<MeasurementClassifier> classifier,
-                          NonComputationalPolicy policy);
-
-    // Spec-based construction: build every TransitionInstrument and the
-    // classifier against `levels` from raw matrices, then assemble. Because all
-    // components are built against the one LevelSet, callers never construct
-    // those objects or deal with level fingerprints. `transition_matrices` maps
-    // a transition key to its T[to][from] matrix; `classifier_spec` is
-    // optional. Validation and throwing match the component from_matrix
-    // factories and the constructor.
+    // The one construction path: build every TransitionInstrument and
+    // the classifier from raw matrices, then assemble and validate.
+    // `transition_matrices` maps a transition key to its T[to][from]
+    // matrix; `classifier_spec` is optional. Throws
+    // std::invalid_argument, naming the offending component, when a
+    // matrix is malformed, the initial state is not a probability
+    // vector over the five levels, a transition key cannot be
+    // referenced by a LEVEL_TRANSITION tag, two hook-registering keys
+    // resolve to the same gate, or the policy holds an unrecognized
+    // value.
     static NonComputationalModel from_spec(
-        LevelSet levels, std::vector<double> initial_state,
+        std::vector<double> initial_state,
         const std::map<std::string, std::vector<std::vector<double>>>& transition_matrices,
         std::optional<ClassifierSpec> classifier_spec, NonComputationalPolicy policy);
 
-    const LevelSet& levels() const { return levels_; }
-    size_t num_levels() const { return levels_.size(); }
-
     // P(initial level). The stored distribution sums to exactly 1.
-    // Throws on an out-of-range level id.
-    double initial_probability(uint8_t level_id) const;
+    double initial_probability(Level level) const {
+        return initial_state_[static_cast<size_t>(level)];
+    }
     const std::vector<double>& initial_state() const { return initial_state_; }
 
     // Every declared transition by its original key. A key that names a
@@ -116,7 +91,11 @@ class NonComputationalModel {
     const NonComputationalPolicy& policy() const { return policy_; }
 
   private:
-    LevelSet levels_;
+    NonComputationalModel(std::vector<double> initial_state,
+                          std::map<std::string, TransitionInstrument> transitions,
+                          std::optional<MeasurementClassifier> classifier,
+                          NonComputationalPolicy policy);
+
     std::vector<double> initial_state_;
     std::map<std::string, TransitionInstrument, std::less<>> transitions_;
     std::map<GateType, std::string> hooks_;

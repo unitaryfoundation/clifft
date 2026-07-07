@@ -7,7 +7,6 @@
 #include "clifft/noncomp/model.h"
 #include "clifft/noncomp/orchestrator.h"
 #include "clifft/noncomp/policy.h"
-#include "clifft/noncomp/qubit_status.h"
 #include "clifft/optimizer/bytecode_pass.h"
 #include "clifft/optimizer/drop_non_unitary_pass.h"
 #include "clifft/optimizer/expand_t_pass.h"
@@ -91,8 +90,7 @@ void register_noncomp(nb::module_& m) {
                                               std::move(*classifier_matrix)};
             }
 
-            return clifft::NonComputationalModel::from_spec(clifft::LevelSet::default_set(),
-                                                            std::move(initial_state), transitions,
+            return clifft::NonComputationalModel::from_spec(std::move(initial_state), transitions,
                                                             std::move(spec), policy);
         },
         nb::arg("initial_state"), nb::arg("transitions"),
@@ -112,18 +110,19 @@ void register_noncomp(nb::module_& m) {
             }
             // Map each qubit's final status onto the sidecar's stable code
             // {0 computational, 1 leaked, 2 lost}, shared with Python's
-            // QubitStatusKind enum. Exhaustive on purpose: a new kind must
-            // decide its code here.
+            // QubitStatusKind enum. Exhaustive on purpose: a new status
+            // must decide its code here.
             std::vector<uint8_t> status(r.final_status.size());
             for (size_t i = 0; i < r.final_status.size(); ++i) {
-                switch (r.final_status[i].kind()) {
-                    case clifft::QubitStatusKind::Computational:
+                switch (r.final_status[i]) {
+                    case clifft::QubitStatus::Computational:
                         status[i] = 0;
                         break;
-                    case clifft::QubitStatusKind::Leaked:
+                    case clifft::QubitStatus::LeakG:
+                    case clifft::QubitStatus::LeakE:
                         status[i] = 1;
                         break;
-                    case clifft::QubitStatusKind::Lost:
+                    case clifft::QubitStatus::Lost:
                         status[i] = 2;
                         break;
                 }

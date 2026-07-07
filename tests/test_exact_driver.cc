@@ -41,7 +41,6 @@ struct ModelSpec {
 };
 
 NonComputationalModel make_model(const ModelSpec& spec) {
-    LevelSet levels = LevelSet::default_set();
     std::vector<std::vector<double>> leak(5, std::vector<double>(5, 0.0));
     leak[kLeak][0] = spec.leak_from_g;
     leak[kLeak][1] = spec.leak_from_e;
@@ -61,7 +60,7 @@ NonComputationalModel make_model(const ModelSpec& spec) {
 
     NonComputationalPolicy policy;
     policy.damping = spec.damping;
-    return NonComputationalModel::from_spec(levels, spec.initial, transitions, classifier, policy);
+    return NonComputationalModel::from_spec(spec.initial, transitions, classifier, policy);
 }
 
 double mean_of(const std::vector<uint8_t>& bits, uint32_t stride, uint32_t index) {
@@ -92,9 +91,8 @@ TEST_CASE("exact: an untrapped run reproduces plain sampling behavior") {
     }
     REQUIRE(ones > 50);
     REQUIRE(ones < 150);
-    for (const QubitStatus& s : result.final_status) {
-        REQUIRE(s.kind() != QubitStatusKind::Leaked);
-        REQUIRE(s.kind() != QubitStatusKind::Lost);
+    for (const QubitStatus s : result.final_status) {
+        REQUIRE(s == QubitStatus::Computational);
     }
 }
 
@@ -111,8 +109,8 @@ TEST_CASE("exact: a certain leak traps, classifies, and reports the status") {
     for (uint32_t shot = 0; shot < 25; ++shot) {
         REQUIRE(result.measurements[shot * 2] == 1);      // classifier: leaked reads 1
         REQUIRE(result.measurements[shot * 2 + 1] == 0);  // spectator
-        REQUIRE(result.final_status[shot * 2].kind() == QubitStatusKind::Leaked);
-        REQUIRE(result.final_status[shot * 2 + 1].kind() == QubitStatusKind::Computational);
+        REQUIRE(is_leaked(result.final_status[shot * 2]));
+        REQUIRE(result.final_status[shot * 2 + 1] == QubitStatus::Computational);
     }
 }
 
@@ -142,7 +140,7 @@ TEST_CASE("exact: a noncomputational initial compiles its own continuation") {
     auto result = sample_noncomputational(circuit, model, 10, 5);
     for (uint32_t shot = 0; shot < 10; ++shot) {
         REQUIRE(result.measurements[shot] == 0);  // the fixture's lost column reads 0
-        REQUIRE(result.final_status[shot].kind() == QubitStatusKind::Lost);
+        REQUIRE(result.final_status[shot] == QubitStatus::Lost);
     }
 }
 
@@ -160,7 +158,7 @@ TEST_CASE("exact: seepage after a trap recaptures through a classical consult") 
     auto result = sample_noncomputational(circuit, model, 20, 13);
     for (uint32_t shot = 0; shot < 20; ++shot) {
         REQUIRE(result.measurements[shot] == 1);
-        REQUIRE(result.final_status[shot].kind() == QubitStatusKind::Computational);
+        REQUIRE(result.final_status[shot] == QubitStatus::Computational);
     }
 }
 
@@ -178,7 +176,7 @@ TEST_CASE("exact: an in-line computational fire is never reported as a known lev
     int ones = 0;
     for (uint32_t shot = 0; shot < 200; ++shot) {
         ones += result.measurements[shot];
-        REQUIRE(result.final_status[shot].kind() == QubitStatusKind::Computational);
+        REQUIRE(result.final_status[shot] == QubitStatus::Computational);
     }
     REQUIRE(ones > 60);
     REQUIRE(ones < 140);
@@ -199,11 +197,11 @@ TEST_CASE("exact: a later trap composes with an earlier in-line fire") {
     auto result = sample_noncomputational(circuit, model, 200, 19);
     int leaked = 0;
     for (uint32_t shot = 0; shot < 200; ++shot) {
-        if (result.final_status[shot].kind() == QubitStatusKind::Leaked) {
+        if (is_leaked(result.final_status[shot])) {
             ++leaked;
             REQUIRE(result.measurements[shot] == 1);
         } else {
-            REQUIRE(result.final_status[shot].kind() == QubitStatusKind::Computational);
+            REQUIRE(result.final_status[shot] == QubitStatus::Computational);
             REQUIRE(result.measurements[shot] == 0);
         }
     }
@@ -241,7 +239,7 @@ TEST_CASE("exact: same seed reproduces identical runs") {
     REQUIRE(a.measurements == b.measurements);
     REQUIRE(a.heralds == b.heralds);
     for (size_t i = 0; i < a.final_status.size(); ++i) {
-        REQUIRE(a.final_status[i].kind() == b.final_status[i].kind());
+        REQUIRE(a.final_status[i] == b.final_status[i]);
     }
 }
 
@@ -289,7 +287,6 @@ TEST_CASE("exact: a neglect-form trap keeps the fire-side correlation") {
     // M 0 *is* the reported source, and the partner's M 1 must equal it
     // on every shot, because the continuation's trace-out is forced to
     // that same source. Independent redraw would mismatch half the time.
-    LevelSet levels = LevelSet::default_set();
     std::vector<std::vector<double>> leak(5, std::vector<double>(5, 0.0));
     leak[kLeakG][0] = 1.0;  // from g: leak_g, certainly
     leak[kLeak][1] = 1.0;   // from e: leak_e, certainly
@@ -301,8 +298,8 @@ TEST_CASE("exact: a neglect-form trap keeps the fire-side correlation") {
 
     NonComputationalPolicy policy;
     policy.damping = DampingPolicy::Neglect;
-    auto model = NonComputationalModel::from_spec(levels, {1.0, 0.0, 0.0, 0.0, 0.0},
-                                                  {{"leak", leak}}, classifier, policy);
+    auto model = NonComputationalModel::from_spec({1.0, 0.0, 0.0, 0.0, 0.0}, {{"leak", leak}},
+                                                  classifier, policy);
 
     auto circuit = parse("H 0\nCX 0 1\nLEVEL_TRANSITION[leak] 0\nM 0\nM 1");
     auto result = sample_noncomputational(circuit, model, 100, 29);
@@ -340,8 +337,8 @@ TEST_CASE("exact: a trap may insert a classical consult between pre-drawn ones")
     for (uint32_t shot = 0; shot < 25; ++shot) {
         REQUIRE(result.measurements[shot * 2] == 1);
         REQUIRE(result.measurements[shot * 2 + 1] == 1);
-        REQUIRE(result.final_status[shot * 2].kind() == QubitStatusKind::Leaked);
-        REQUIRE(result.final_status[shot * 2 + 1].kind() == QubitStatusKind::Leaked);
+        REQUIRE(is_leaked(result.final_status[shot * 2]));
+        REQUIRE(is_leaked(result.final_status[shot * 2 + 1]));
     }
 }
 
@@ -352,7 +349,6 @@ TEST_CASE("exact: a chain of two forced traps keeps both correlations") {
     // contains the first's forced instruction (exercising the
     // sampling/forced mask in the debug prefix comparison). Both
     // partner correlations must survive.
-    LevelSet levels = LevelSet::default_set();
     std::vector<std::vector<double>> leak(5, std::vector<double>(5, 0.0));
     leak[kLeakG][0] = 1.0;
     leak[kLeak][1] = 1.0;
@@ -363,8 +359,8 @@ TEST_CASE("exact: a chain of two forced traps keeps both correlations") {
 
     NonComputationalPolicy policy;
     policy.damping = DampingPolicy::Neglect;
-    auto model = NonComputationalModel::from_spec(levels, {1.0, 0.0, 0.0, 0.0, 0.0},
-                                                  {{"leak", leak}}, classifier, policy);
+    auto model = NonComputationalModel::from_spec({1.0, 0.0, 0.0, 0.0, 0.0}, {{"leak", leak}},
+                                                  classifier, policy);
 
     auto circuit = parse(
         "H 0\nCX 0 1\nH 2\nCX 2 3\n"
@@ -386,7 +382,6 @@ TEST_CASE("exact: a neglect fire onto a computational destination stays correlat
     // materialization collapses the partner to the source while the
     // trapped qubit re-preps at the destination, so the two measurements
     // must anti-correlate on every shot.
-    LevelSet levels = LevelSet::default_set();
     std::vector<std::vector<double>> swap_ge(5, std::vector<double>(5, 0.0));
     swap_ge[1][0] = 1.0;  // g -> e, certainly
     swap_ge[0][1] = 1.0;  // e -> g, certainly
@@ -397,8 +392,8 @@ TEST_CASE("exact: a neglect fire onto a computational destination stays correlat
 
     NonComputationalPolicy policy;
     policy.damping = DampingPolicy::Neglect;
-    auto model = NonComputationalModel::from_spec(levels, {1.0, 0.0, 0.0, 0.0, 0.0},
-                                                  {{"swap", swap_ge}}, classifier, policy);
+    auto model = NonComputationalModel::from_spec({1.0, 0.0, 0.0, 0.0, 0.0}, {{"swap", swap_ge}},
+                                                  classifier, policy);
 
     auto circuit = parse("H 0\nCX 0 1\nLEVEL_TRANSITION[swap] 0\nM 0\nM 1");
     auto result = sample_noncomputational(circuit, model, 60, 47);
@@ -425,7 +420,6 @@ TEST_CASE("exact: herald flags drawn in one continuation are reused by the next"
     // time. The two-trap chain makes slot 0's flag be drawn while
     // compiling continuation one and reused by continuation two, where
     // the measurement actually executes.
-    LevelSet levels = LevelSet::default_set();
     std::vector<std::vector<double>> leak(5, std::vector<double>(5, 0.0));
     leak[kLeak][1] = 1.0;  // certain leak from e
 
@@ -435,8 +429,8 @@ TEST_CASE("exact: herald flags drawn in one continuation are reused by the next"
         {1.0, 0.0, 1.0, 0.0, 1.0}, {0.0, 1.0, 0.0, 0.5, 0.0}, {0.0, 0.0, 0.0, 0.5, 0.0}};
 
     NonComputationalPolicy policy;
-    auto model = NonComputationalModel::from_spec(levels, {1.0, 0.0, 0.0, 0.0, 0.0},
-                                                  {{"leak", leak}}, classifier, policy);
+    auto model = NonComputationalModel::from_spec({1.0, 0.0, 0.0, 0.0, 0.0}, {{"leak", leak}},
+                                                  classifier, policy);
 
     auto circuit = parse("X 0\nX 1\nLEVEL_TRANSITION[leak] 0\nLEVEL_TRANSITION[leak] 1\nM 0\nM 1");
     auto result = sample_noncomputational(circuit, model, 200, 53);
@@ -473,8 +467,8 @@ TEST_CASE("exact: spectator noise between two traps fires exactly once") {
     auto result = sample_noncomputational(circuit, model, 20, 59);
     for (uint32_t shot = 0; shot < 20; ++shot) {
         REQUIRE(result.measurements[shot] == 0);
-        REQUIRE(result.final_status[shot * 3].kind() == QubitStatusKind::Leaked);
-        REQUIRE(result.final_status[shot * 3 + 1].kind() == QubitStatusKind::Leaked);
+        REQUIRE(is_leaked(result.final_status[shot * 3]));
+        REQUIRE(is_leaked(result.final_status[shot * 3 + 1]));
     }
 }
 
@@ -515,8 +509,8 @@ TEST_CASE("exact: a hand-written multi-target annotation traps on one target") {
     for (uint32_t shot = 0; shot < 20; ++shot) {
         REQUIRE(result.measurements[shot * 2] == 1);      // q0 leaked, classified
         REQUIRE(result.measurements[shot * 2 + 1] == 0);  // q1 in g: never fires
-        REQUIRE(result.final_status[shot * 2].kind() == QubitStatusKind::Leaked);
-        REQUIRE(result.final_status[shot * 2 + 1].kind() == QubitStatusKind::Computational);
+        REQUIRE(is_leaked(result.final_status[shot * 2]));
+        REQUIRE(result.final_status[shot * 2 + 1] == QubitStatus::Computational);
     }
 }
 
@@ -543,7 +537,6 @@ TEST_CASE("exact: ternary heralds ride the cache key") {
     // A three-symbol classifier whose leaked column always heralds: every
     // trapped shot's classified slot reports a herald, and the record bit
     // stays roughly fair across shots.
-    LevelSet levels = LevelSet::default_set();
     std::vector<std::vector<double>> leak(5, std::vector<double>(5, 0.0));
     leak[kLeak][1] = 1.0;
 
@@ -553,8 +546,8 @@ TEST_CASE("exact: ternary heralds ride the cache key") {
         {1.0, 0.0, 1.0, 0.0, 1.0}, {0.0, 1.0, 0.0, 0.0, 0.0}, {0.0, 0.0, 0.0, 1.0, 0.0}};
 
     NonComputationalPolicy policy;
-    auto model = NonComputationalModel::from_spec(levels, {0.0, 1.0, 0.0, 0.0, 0.0},
-                                                  {{"leak", leak}}, classifier, policy);
+    auto model = NonComputationalModel::from_spec({0.0, 1.0, 0.0, 0.0, 0.0}, {{"leak", leak}},
+                                                  classifier, policy);
 
     auto circuit = parse("LEVEL_TRANSITION[leak] 0\nM 0");
     auto result = sample_noncomputational(circuit, model, 200, 31);

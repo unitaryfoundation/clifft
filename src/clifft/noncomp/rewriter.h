@@ -56,6 +56,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <optional>
 #include <utility>
 #include <vector>
 
@@ -66,8 +67,8 @@ struct ClassifiedMeasurement {
     // Visible measurement record index of the replaced measurement.
     uint32_t slot = 0;
 
-    // The measured qubit's level id at the measurement.
-    uint8_t level = 0;
+    // The measured qubit's level at the measurement.
+    Level level = Level::G;
 
     // Index into the rewritten circuit's nodes of the READOUT_NOISE node
     // drawing this slot's bit, or SIZE_MAX when the column is deterministic
@@ -96,7 +97,7 @@ struct ClassifiedMeasurement {
 struct ResolvedJump {
     uint32_t op_index = 0;
     uint32_t qubit = 0;
-    uint8_t destination_level = 0;
+    Level destination_level = Level::G;
 };
 
 // One pre-drawn outcome for an annotation target whose source status is
@@ -107,8 +108,8 @@ struct ResolvedJump {
 struct ClassicalOutcome {
     uint32_t op_index = 0;
     uint32_t qubit = 0;
-    bool jumped = false;
-    uint8_t destination_level = 0;
+    // The jump destination; nullopt records a no-jump outcome.
+    std::optional<Level> destination;
     // The level the qubit held when the outcome was drawn. The emitted
     // nodes do not depend on it; it exists so every reuse and
     // consumption can check the outcome is not being replayed against a
@@ -116,7 +117,7 @@ struct ClassicalOutcome {
     // only through its own consults, so a mismatch is unreachable --
     // this check is what keeps that invariant explicit, and loud if a
     // future cross-qubit transition breaks it.
-    uint8_t source_level = 0;
+    Level source_level = Level::G;
 };
 
 // The status-outcome delta a continuation is compiled under: the shot's
@@ -145,8 +146,8 @@ struct ContinuationRewrite {
     // Hidden record slot of the reset that collapses the last jump's
     // carrier -- the trace-out R of a noncomputational destination, or
     // the materializing R of a computational one -- or SIZE_MAX when the
-    // caller did not request forcing. Requesting forcing for a jump that
-    // emits no reset (the carrier's level was already definite) throws.
+    // caller did not request forcing. Every jump emits a reset, so the
+    // forced form always has one to point at.
     size_t forced_traceout_slot = SIZE_MAX;
 
     // Annotation target of each kept (runtime-instrument) site, in

@@ -17,8 +17,8 @@
 // run is non-reproducible.
 
 #include "clifft/circuit/circuit.h"
+#include "clifft/noncomp/level.h"
 #include "clifft/noncomp/model.h"
-#include "clifft/noncomp/qubit_status.h"
 
 #include <cstdint>
 #include <optional>
@@ -55,11 +55,10 @@ struct NonComputationalSample {
 };
 
 // Throws std::invalid_argument when the trajectory policy rejects an
-// operation, when a measurement on a leaked/lost qubit needs a classifier the
-// model does not provide, or when such a classifier column is not a two- or
-// three-symbol stochastic column (a third symbol heralds the measurement).
-// Reject (substochastic) classifier columns model a heralded abort outcome
-// and are not supported by this entry point yet.
+// operation, or when a measurement on a leaked/lost qubit needs a
+// classifier the model does not provide. (Classifier shape -- two or
+// three symbols, stochastic columns -- is the model's own construction
+// contract, enforced before a circuit ever meets it.)
 // `max_rank` caps the compiled peak rank: compilation fails with the
 // first offending circuit line named, before any state is allocated,
 // instead of attempting a 2^k allocation. Unlimited when unset.

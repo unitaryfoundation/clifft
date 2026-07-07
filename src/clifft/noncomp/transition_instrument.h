@@ -1,7 +1,7 @@
 #pragma once
 
-// TransitionInstrument: a per-qubit transition matrix with cached
-// derived properties.
+// TransitionInstrument: a per-qubit transition matrix over the five
+// levels, with cached column sums.
 //
 // The matrix uses T[to, from] convention: matrix[to][from] is the
 // probability of the qubit transitioning from level `from` to level
@@ -21,13 +21,12 @@
 // under unknown-coherent sources (the aI + bZ filter) a single
 // special case rather than something carved out of the diagonal.
 //
-// Construction binds the instrument to a LevelSet so the matrix
-// shape can be checked against the level table. Source-dependent
-// matrices (where Computational-category columns differ) are fully
-// supported: the source level is resolved at sample time.
+// Source-dependent matrices (where the g and e columns differ) are
+// fully supported: the source level is resolved at sample time.
 
 #include "clifft/noncomp/level.h"
 
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <vector>
@@ -37,40 +36,28 @@ namespace clifft {
 class TransitionInstrument {
   public:
     // Validates that:
-    //   - matrix is square with dimension equal to levels.size();
+    //   - matrix is square with dimension kNumLevels;
     //   - every entry lies in [0, 1];
     //   - every column sum lies in [0, 1].
-    static TransitionInstrument from_matrix(std::vector<std::vector<double>> matrix,
-                                            const LevelSet& levels);
+    static TransitionInstrument from_matrix(const std::vector<std::vector<double>>& matrix);
 
-    size_t num_levels() const { return column_sums_.size(); }
-
-    // T[to, from]. Throws on out-of-range indices.
-    double prob(uint8_t to, uint8_t from) const;
+    // T[to, from].
+    double prob(Level to, Level from) const {
+        return matrix_[static_cast<size_t>(to) * kNumLevels + static_cast<size_t>(from)];
+    }
 
     // Sum of column `from`, the total jump probability out of that
     // source level. Cached at construction.
-    double column_sum(uint8_t from) const;
-
-    // 1 - column_sum(from): the implicit no-jump weight for that
-    // source level.
-    double no_jump_weight(uint8_t from) const;
-
-    // Fingerprint of the LevelSet this instrument was built against.
-    // A model rejects an instrument whose fingerprint does not match
-    // its own level table.
-    uint64_t level_fingerprint() const { return level_fingerprint_; }
+    double column_sum(Level from) const { return column_sums_[static_cast<size_t>(from)]; }
 
   private:
-    TransitionInstrument(std::vector<double> matrix_flat, std::vector<double> column_sums,
-                         uint64_t level_fingerprint);
+    TransitionInstrument(std::array<double, kNumLevels * kNumLevels> matrix,
+                         std::array<double, kNumLevels> column_sums)
+        : matrix_(matrix), column_sums_(column_sums) {}
 
-    // Row-major flat storage: matrix_flat_[to * num_levels() + from].
-    // One allocation, contiguous memory; column-traversal accessors
-    // walk a single buffer instead of dereferencing per-row vectors.
-    std::vector<double> matrix_flat_;
-    std::vector<double> column_sums_;
-    uint64_t level_fingerprint_;
+    // Row-major flat storage: matrix_[to * kNumLevels + from].
+    std::array<double, kNumLevels * kNumLevels> matrix_;
+    std::array<double, kNumLevels> column_sums_;
 };
 
 }  // namespace clifft

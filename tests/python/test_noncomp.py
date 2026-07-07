@@ -215,20 +215,20 @@ def test_missing_classifier_on_leaked_measurement_raises():
         noncomp.sample("H 0\nS 0\nM 0\n", model, shots=8, seed=13)
 
 
-def test_substochastic_classifier_column_unsupported():
-    model = leak_model(classifier_for(LEAK_G, [0.3, 0.3]))  # column sums to 0.6
+def test_substochastic_classifier_column_rejects_at_construction():
+    # Column sums to 0.6: the reserved reject mass has no sampling path,
+    # so the model refuses to build.
     with pytest.raises(ValueError, match="reject columns are not supported"):
-        noncomp.sample("H 0\nS 0\nM 0\n", model, shots=8, seed=14)
+        leak_model(classifier_for(LEAK_G, [0.3, 0.3]))
 
 
-def test_four_symbol_classifier_unsupported():
+def test_four_symbol_classifier_rejects_at_construction():
     mat = _zeros(4, 5)
     for lvl in range(5):
         mat[0][lvl] = 1.0
     mat[0][LEAK_G], mat[1][LEAK_G], mat[2][LEAK_G], mat[3][LEAK_G] = 0.4, 0.3, 0.2, 0.1
-    model = leak_model(noncomp.Classifier(["0", "1", "2", "3"], mat))
-    with pytest.raises(ValueError, match="two- or three-symbol"):
-        noncomp.sample("H 0\nS 0\nM 0\n", model, shots=8, seed=15)
+    with pytest.raises(ValueError, match="two record symbols"):
+        leak_model(noncomp.Classifier(["0", "1", "2", "3"], mat))
 
 
 def _ternary_classifier(level: int, col: list[float]) -> noncomp.Classifier:

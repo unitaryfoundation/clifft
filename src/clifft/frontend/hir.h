@@ -139,10 +139,6 @@ struct InstrumentSite {
     // policy.
     bool neglect_damping = false;
 
-    // Source-independent total rate: the no-fire damp is a scalar and the
-    // fire draw is state-independent.
-    [[nodiscard]] bool source_independent() const { return p_total[0] == p_total[1]; }
-
     [[nodiscard]] double trap_remainder(int s) const {
         return p_total[s] - p_dest[s][0] - p_dest[s][1];
     }

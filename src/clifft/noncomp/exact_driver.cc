@@ -72,25 +72,17 @@ namespace clifft {
 namespace {
 
 // The transition consulted by one annotation node: a named instrument for
-// LEVEL_TRANSITION, a uniform all-lost rate for LOSS.
+// LEVEL_TRANSITION, a uniform loss rate for LOSS.
 struct AnnotationChannel {
     const TransitionInstrument* instrument = nullptr;  // null for LOSS
     double loss_p = 0.0;
-    uint8_t lost_level = 0;
 };
 
 AnnotationChannel resolve_annotation(const AstNode& node, const NonComputationalModel& model,
                                      uint32_t op_index) {
     AnnotationChannel channel;
     if (node.gate == GateType::LOSS) {
-        const std::optional<uint8_t> lost = sole_lost_level(model.levels());
-        if (!lost.has_value()) {
-            throw std::invalid_argument(
-                "sample_noncomputational: LOSS at op " + std::to_string(op_index) +
-                " requires a level table with exactly one Lost-category level");
-        }
         channel.loss_p = loss_probability(node.args, op_index, "sample_noncomputational");
-        channel.lost_level = *lost;
         return channel;
     }
     channel.instrument = model.transition_named(node.tag);
@@ -105,12 +97,11 @@ AnnotationChannel resolve_annotation(const AstNode& node, const NonComputational
 // Draw one qubit's initial level from the model's shared initial-state
 // distribution, with the last positive level catching the floating-point
 // tail so a draw always resolves to a level the distribution can produce.
-uint8_t draw_initial_level(const NonComputationalModel& model, Xoshiro256PlusPlus& rng) {
-    const size_t num_levels = model.levels().size();
+Level draw_initial_level(const NonComputationalModel& model, Xoshiro256PlusPlus& rng) {
     const double u = rng.next_double();
     double acc = 0.0;
-    int last_positive = -1;
-    for (uint8_t l = 0; l < num_levels; ++l) {
+    Level last_positive = Level::G;
+    for (const Level l : kAllLevels) {
         const double p = model.initial_probability(l);
         if (p > 0.0) {
             last_positive = l;
@@ -120,22 +111,21 @@ uint8_t draw_initial_level(const NonComputationalModel& model, Xoshiro256PlusPlu
             return l;
         }
     }
-    assert(last_positive >= 0 && "initial-state draw over an empty distribution");
-    return static_cast<uint8_t>(last_positive);
+    return last_positive;
 }
 
 // Draw a destination level from `source`'s column of the instrument,
 // restricted to the levels `admit` accepts. `admit` is a pure
-// level_id -> bool predicate naming which destinations participate; the
+// Level -> bool predicate naming which destinations participate; the
 // draw normalizes over the admitted entries' own mass, summed here so a
 // caller cannot supply a mismatched normalizer (which would silently
 // bias the draw). Uses the measurement kernels' last-positive fallback
 // for the floating-point tail, and consumes exactly one RNG draw.
 template <typename Admit>
-uint8_t draw_from_column(const TransitionInstrument& instrument, uint8_t source,
-                         Xoshiro256PlusPlus& rng, Admit&& admit, size_t num_levels) {
+Level draw_from_column(const TransitionInstrument& instrument, Level source,
+                       Xoshiro256PlusPlus& rng, Admit&& admit) {
     double mass = 0.0;
-    for (uint8_t to = 0; to < num_levels; ++to) {
+    for (const Level to : kAllLevels) {
         if (admit(to)) {
             mass += instrument.prob(to, source);
         }
@@ -143,15 +133,15 @@ uint8_t draw_from_column(const TransitionInstrument& instrument, uint8_t source,
     if (!(mass > 0.0)) {
         // Unreachable through the current call sites, all of which fire
         // only when the column's admitted mass is positive; a real error
-        // beats a Release-mode draw of level 255 surfacing downstream.
+        // beats a Release-mode draw of a bogus level surfacing downstream.
         throw std::logic_error(
-            "sample_noncomputational: destination draw over an empty column (source level " +
-            std::to_string(source) + ")");
+            "sample_noncomputational: destination draw over an empty column (source level '" +
+            std::string(level_name(source)) + "')");
     }
     const double u = rng.next_double() * mass;
     double acc = 0.0;
-    int last_positive = -1;
-    for (uint8_t to = 0; to < num_levels; ++to) {
+    std::optional<Level> last_positive;
+    for (const Level to : kAllLevels) {
         if (!admit(to)) {
             continue;
         }
@@ -164,8 +154,8 @@ uint8_t draw_from_column(const TransitionInstrument& instrument, uint8_t source,
             return to;
         }
     }
-    assert(last_positive >= 0 && "destination draw over an empty column");
-    return static_cast<uint8_t>(last_positive);
+    assert(last_positive.has_value() && "destination draw over an empty column");
+    return *last_positive;
 }
 
 // Walk the annotated circuit's statuses under `events` and rebuild the
@@ -185,8 +175,7 @@ std::vector<QubitStatus> extend_classical_outcomes(const Circuit& annotated,
                                                    ExactShotEvents& events,
                                                    const NonComputationalModel& model,
                                                    Xoshiro256PlusPlus& rng) {
-    const LevelSet& levels = model.levels();
-    std::map<std::pair<uint32_t, uint32_t>, uint8_t> jump_dest;
+    std::map<std::pair<uint32_t, uint32_t>, Level> jump_dest;
     for (const ResolvedJump& jump : events.jumps) {
         jump_dest.emplace(std::make_pair(jump.op_index, jump.qubit), jump.destination_level);
     }
@@ -207,53 +196,47 @@ std::vector<QubitStatus> extend_classical_outcomes(const Circuit& annotated,
             for (const Target& target : node.targets) {
                 const uint32_t qubit = target.value();
                 const QubitStatus pre = status[qubit];
-                const bool classical =
-                    pre.kind() == QubitStatusKind::Leaked || pre.kind() == QubitStatusKind::Lost;
-                if (!classical) {
+                if (is_computational(pre)) {
                     const auto jump = jump_dest.find({op_index, qubit});
                     if (jump != jump_dest.end()) {
-                        status[qubit] = levels.status_for(jump->second);
+                        status[qubit] = status_for(jump->second);
                     }
                     continue;
                 }
+                const Level source = noncomp_level(pre);
                 const auto seen = drawn.find({op_index, qubit});
                 if (seen != drawn.end()) {
-                    if (seen->second.source_level != pre.level_id()) {
+                    if (seen->second.source_level != source) {
                         throw std::logic_error(
                             "sample_noncomputational: classical outcome reuse at op " +
                             std::to_string(op_index) + ", qubit " + std::to_string(qubit) +
-                            " crossed a source-level change (drawn at level " +
-                            std::to_string(seen->second.source_level) + ", walk holds level " +
-                            std::to_string(pre.level_id()) + ")");
+                            " crossed a source-level change (drawn at level '" +
+                            level_name(seen->second.source_level) + "', walk holds level '" +
+                            level_name(source) + "')");
                     }
                     ordered.push_back(seen->second);
-                    if (seen->second.jumped) {
-                        status[qubit] = levels.status_for(seen->second.destination_level);
+                    if (seen->second.destination.has_value()) {
+                        status[qubit] = status_for(*seen->second.destination);
                     }
                     continue;
                 }
                 const AnnotationChannel channel = resolve_annotation(node, model, op_index);
-                ClassicalOutcome outcome{op_index, qubit, false, 0, pre.level_id()};
+                ClassicalOutcome outcome{op_index, qubit, std::nullopt, source};
                 if (channel.instrument != nullptr) {
-                    const uint8_t source = pre.level_id();
                     const double total = channel.instrument->column_sum(source);
                     if (rng.next_double() < total) {
-                        outcome.jumped = true;
-                        outcome.destination_level = draw_from_column(
-                            *channel.instrument, source, rng, [](uint8_t) { return true; },
-                            levels.size());
+                        outcome.destination = draw_from_column(*channel.instrument, source, rng,
+                                                               [](Level) { return true; });
                     }
-                } else if (pre.kind() != QubitStatusKind::Lost &&
-                           rng.next_double() < channel.loss_p) {
+                } else if (!is_lost(pre) && rng.next_double() < channel.loss_p) {
                     // LOSS on a leaked (not lost) qubit can still vacate
                     // it; an already-lost qubit records a no-op outcome
                     // without spending a draw.
-                    outcome.jumped = true;
-                    outcome.destination_level = channel.lost_level;
+                    outcome.destination = Level::Lost;
                 }
                 ordered.push_back(outcome);
-                if (outcome.jumped) {
-                    status[qubit] = levels.status_for(outcome.destination_level);
+                if (outcome.destination.has_value()) {
+                    status[qubit] = status_for(*outcome.destination);
                 }
             }
             continue;
@@ -263,7 +246,7 @@ std::vector<QubitStatus> extend_classical_outcomes(const Circuit& annotated,
         // the shared policy scan semantics.
         bool drop_op = false;
         for (const QubitOperand& operand : qubit_operands(node)) {
-            if (operand_action(gate, status[operand.qubit].kind(), model.policy()) ==
+            if (operand_action(gate, status[operand.qubit], model.policy()) ==
                 OperandAction::Drop) {
                 drop_op = true;
             }
@@ -287,9 +270,8 @@ std::string cache_key(const ExactShotEvents& events) {
     std::string key;
     key.reserve(events.initial_status.size() * 2 + 10 + events.jumps.size() * 9 +
                 events.classical_outcomes.size() * 10);
-    for (const QubitStatus& s : events.initial_status) {
-        key.push_back(static_cast<char>(s.kind()));
-        key.push_back(static_cast<char>(s.level_id()));
+    for (const QubitStatus s : events.initial_status) {
+        key.push_back(static_cast<char>(s));
     }
     auto push32 = [&key](uint32_t v) {
         for (int b = 0; b < 4; ++b) {
@@ -311,8 +293,8 @@ std::string cache_key(const ExactShotEvents& events) {
     for (const ClassicalOutcome& outcome : events.classical_outcomes) {
         push32(outcome.op_index);
         push32(outcome.qubit);
-        key.push_back(outcome.jumped ? 1 : 0);
-        key.push_back(static_cast<char>(outcome.destination_level));
+        key.push_back(outcome.destination.has_value() ? 1 : 0);
+        key.push_back(static_cast<char>(outcome.destination.value_or(Level::G)));
     }
     return key;
 }
@@ -472,7 +454,6 @@ NonComputationalSample sample_noncomputational_exact(const Circuit& circuit,
         return result;
     }
 
-    const LevelSet& levels = model.levels();
     const MeasurementClassifier* classifier = model.classifier();
     const bool ternary = classifier != nullptr && classifier->has_herald();
 
@@ -566,7 +547,7 @@ NonComputationalSample sample_noncomputational_exact(const Circuit& circuit,
 
     // The shared main line: the continuation of "nothing happened".
     ExactShotEvents no_events;
-    no_events.initial_status.assign(circuit.num_qubits, QubitStatus::computational());
+    no_events.initial_status.assign(circuit.num_qubits, QubitStatus::Computational);
     ContinuationEntry& main_entry = get_entry(no_events, false);
     CompiledModule* main_module = get_module(
         main_entry, std::vector<uint8_t>(main_entry.rw.classified_measurements.size(), 0), nullptr,
@@ -599,15 +580,14 @@ NonComputationalSample sample_noncomputational_exact(const Circuit& circuit,
         // The drawn levels stay driver-local: the status ledger carries no
         // level for computational qubits, and the only consumer of a
         // computational initial's identity is the |1> frame preload below.
-        std::vector<uint8_t> initial_levels;
+        std::vector<Level> initial_levels;
         initial_levels.reserve(circuit.num_qubits);
         bool any_noncomp_initial = false;
         for (uint32_t q = 0; q < circuit.num_qubits; ++q) {
-            const uint8_t level = draw_initial_level(model, driver_rng);
+            const Level level = draw_initial_level(model, driver_rng);
             initial_levels.push_back(level);
-            events.initial_status.push_back(levels.status_for(level));
-            const QubitStatusKind kind = events.initial_status.back().kind();
-            any_noncomp_initial |= kind == QubitStatusKind::Leaked || kind == QubitStatusKind::Lost;
+            events.initial_status.push_back(status_for(level));
+            any_noncomp_initial |= !is_computational(events.initial_status.back());
         }
 
         // Forced-outcome buffer for neglect-form trace-outs, one entry
@@ -663,7 +643,7 @@ NonComputationalSample sample_noncomputational_exact(const Circuit& circuit,
         // A |1> initial level is an X at time zero: a Pauli, so a
         // per-shot frame preload rather than a distinct module.
         for (uint32_t q = 0; q < circuit.num_qubits; ++q) {
-            if (initial_levels[q] == levels.computational_one_id()) {
+            if (initial_levels[q] == Level::E) {
                 bit_set(state.p_x, q, true);
             }
         }
@@ -686,21 +666,18 @@ NonComputationalSample sample_noncomputational_exact(const Circuit& circuit,
             // the driver draws over the full column (computational
             // destinations included); elsewhere the class is already
             // leaked/lost and only the level within the trap remainder
-            // remains.
-            uint8_t dest;
-            if (channel.instrument == nullptr) {
-                dest = channel.lost_level;
-            } else if (trap.destination_pending) {
-                dest = draw_from_column(
-                    *channel.instrument, trap.source, driver_rng, [](uint8_t) { return true; },
-                    levels.size());
-            } else {
-                dest = draw_from_column(
-                    *channel.instrument, trap.source, driver_rng,
-                    [&](uint8_t to) {
-                        return levels.at(to).category != LevelCategory::Computational;
-                    },
-                    levels.size());
+            // remains. The VM reports the collapsed source as its
+            // computational axis index, which is the level index by
+            // construction (G = 0, E = 1).
+            const Level source = static_cast<Level>(trap.source);
+            Level dest = Level::Lost;
+            if (channel.instrument != nullptr && trap.destination_pending) {
+                dest = draw_from_column(*channel.instrument, source, driver_rng,
+                                        [](Level) { return true; });
+            } else if (channel.instrument != nullptr) {
+                dest = draw_from_column(*channel.instrument, source, driver_rng, [](Level to) {
+                    return category(to) != LevelCategory::Computational;
+                });
             }
 
             events.jumps.push_back({op_index, qubit, dest});

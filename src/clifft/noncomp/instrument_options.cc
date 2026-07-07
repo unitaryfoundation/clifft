@@ -3,8 +3,7 @@
 namespace clifft {
 
 InstrumentTraceOptions instrument_trace_options(const NonComputationalModel& model) {
-    const LevelSet& levels = model.levels();
-    const uint8_t level_id[2] = {levels.computational_zero_id(), levels.computational_one_id()};
+    constexpr Level computational[2] = {Level::G, Level::E};
 
     InstrumentTraceOptions options;
     options.neglect_damping = model.policy().damping == DampingPolicy::Neglect;
@@ -12,9 +11,9 @@ InstrumentTraceOptions instrument_trace_options(const NonComputationalModel& mod
     for (const auto& [name, instrument] : model.transitions()) {
         InstrumentSpec spec;
         for (int s = 0; s < 2; ++s) {
-            spec.p_total[s] = instrument.column_sum(level_id[s]);
+            spec.p_total[s] = instrument.column_sum(computational[s]);
             for (int d = 0; d < 2; ++d) {
-                spec.p_dest[s][d] = instrument.prob(level_id[d], level_id[s]);
+                spec.p_dest[s][d] = instrument.prob(computational[d], computational[s]);
             }
         }
         options.transitions.emplace(name, spec);

@@ -1,140 +1,80 @@
 #include "clifft/noncomp/level.h"
 #include "clifft/noncomp/policy.h"
-#include "clifft/noncomp/qubit_status.h"
 
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/matchers/catch_matchers.hpp>
 #include <catch2/matchers/catch_matchers_string.hpp>
 #include <stdexcept>
-#include <vector>
+#include <string>
 
 using Catch::Matchers::ContainsSubstring;
+using clifft::category;
 using clifft::DampingPolicy;
-using clifft::kInvalidLevel;
+using clifft::is_computational;
+using clifft::is_leaked;
+using clifft::is_lost;
+using clifft::kAllLevels;
+using clifft::kNumLevels;
 using clifft::Level;
+using clifft::level_from_index;
+using clifft::level_name;
 using clifft::LevelCategory;
-using clifft::LevelSet;
+using clifft::noncomp_level;
 using clifft::NonComputationalPolicy;
 using clifft::QubitStatus;
-using clifft::QubitStatusKind;
+using clifft::status_for;
 
 // =========================================================================
-// LevelSet construction / validation
+// Level structure
 // =========================================================================
 
-TEST_CASE("LevelSet: default_set validates and exposes the expected levels") {
-    LevelSet set = LevelSet::default_set();
-    REQUIRE(set.size() == 5);
-    REQUIRE(set.at(0).category == LevelCategory::Computational);
-    REQUIRE(set.computational_zero_id() == 0);
-    REQUIRE(set.at(1).category == LevelCategory::Computational);
-    REQUIRE(set.computational_one_id() == 1);
-    REQUIRE(set.at(2).category == LevelCategory::Leaked);
-    REQUIRE(set.at(4).category == LevelCategory::Lost);
+TEST_CASE("Level: the five levels carry the expected categories and names") {
+    REQUIRE(kNumLevels == 5);
+    REQUIRE(category(Level::G) == LevelCategory::Computational);
+    REQUIRE(category(Level::E) == LevelCategory::Computational);
+    REQUIRE(category(Level::LeakG) == LevelCategory::Leaked);
+    REQUIRE(category(Level::LeakE) == LevelCategory::Leaked);
+    REQUIRE(category(Level::Lost) == LevelCategory::Lost);
+    REQUIRE(std::string(level_name(Level::G)) == "g");
+    REQUIRE(std::string(level_name(Level::LeakE)) == "leak_e");
+    REQUIRE(std::string(level_name(Level::Lost)) == "lost");
 }
 
-TEST_CASE("LevelSet: rejects empty level set") {
-    REQUIRE_THROWS_AS(LevelSet(std::vector<Level>{}), std::invalid_argument);
-}
-
-TEST_CASE("LevelSet: accepts a custom set with exactly two Computational levels") {
-    std::vector<Level> levels = {
-        Level{"g", LevelCategory::Computational},
-        Level{"e", LevelCategory::Computational},
-        Level{"leak", LevelCategory::Leaked},
-        Level{"lost", LevelCategory::Lost},
-    };
-    LevelSet set(std::move(levels));
-    REQUIRE(set.computational_zero_id() == 0);
-    REQUIRE(set.computational_one_id() == 1);
-}
-
-TEST_CASE("LevelSet: rejects level set above the 128-entry cap") {
-    std::vector<Level> levels;
-    levels.reserve(129);
-    for (size_t i = 0; i < 129; ++i) {
-        levels.push_back(Level{"L" + std::to_string(i), LevelCategory::Computational});
+TEST_CASE("Level: level_from_index validates the raw index") {
+    for (uint8_t i = 0; i < kNumLevels; ++i) {
+        REQUIRE(level_from_index(i, "test") == kAllLevels[i]);
     }
-    REQUIRE_THROWS_WITH(LevelSet(std::move(levels)), ContainsSubstring("128"));
-}
-
-TEST_CASE("LevelSet: rejects unrecognized LevelCategory enum value") {
-    std::vector<Level> levels = {
-        Level{"weird", static_cast<LevelCategory>(99)},
-    };
-    REQUIRE_THROWS_WITH(LevelSet(std::move(levels)),
-                        ContainsSubstring("unrecognized LevelCategory"));
-}
-
-TEST_CASE("LevelSet: rejects more than two Computational levels") {
-    std::vector<Level> levels = {
-        Level{"g", LevelCategory::Computational},
-        Level{"e", LevelCategory::Computational},
-        Level{"x", LevelCategory::Computational},
-    };
-    REQUIRE_THROWS_WITH(LevelSet(std::move(levels)),
-                        ContainsSubstring("two Computational") && ContainsSubstring("got 3"));
-}
-
-TEST_CASE("LevelSet: rejects fewer than two Computational levels") {
-    std::vector<Level> levels = {
-        Level{"g", LevelCategory::Computational},
-        Level{"lost", LevelCategory::Lost},
-    };
-    REQUIRE_THROWS_WITH(LevelSet(std::move(levels)),
-                        ContainsSubstring("two Computational") && ContainsSubstring("got 1"));
-}
-
-// =========================================================================
-// LevelSet status factories
-// =========================================================================
-
-TEST_CASE("LevelSet::leaked accepts a Leaked level id, rejects others") {
-    LevelSet set = LevelSet::default_set();
-    REQUIRE_NOTHROW(set.leaked(2));   // leak_g
-    REQUIRE_NOTHROW(set.leaked(3));   // leak_e
-    REQUIRE_THROWS_AS(set.leaked(0),  // g
-                      std::invalid_argument);
-    REQUIRE_THROWS_AS(set.leaked(4),  // lost
-                      std::invalid_argument);
-}
-
-TEST_CASE("LevelSet::lost accepts a Lost level id, rejects others") {
-    LevelSet set = LevelSet::default_set();
-    REQUIRE_NOTHROW(set.lost(4));   // lost
-    REQUIRE_THROWS_AS(set.lost(0),  // g
-                      std::invalid_argument);
-    REQUIRE_THROWS_AS(set.lost(2),  // leak_g
-                      std::invalid_argument);
+    REQUIRE_THROWS_WITH(level_from_index(5, "test"), ContainsSubstring("out of range"));
+    REQUIRE_THROWS_WITH(level_from_index(255, "test"), ContainsSubstring("out of range"));
 }
 
 // =========================================================================
 // QubitStatus
 // =========================================================================
 
-TEST_CASE("QubitStatus::computational carries kInvalidLevel") {
-    QubitStatus s = QubitStatus::computational();
-    REQUIRE(s.kind() == QubitStatusKind::Computational);
-    REQUIRE(s.level_id() == kInvalidLevel);
+TEST_CASE("QubitStatus: status_for collapses the computational levels") {
+    REQUIRE(status_for(Level::G) == QubitStatus::Computational);
+    REQUIRE(status_for(Level::E) == QubitStatus::Computational);
+    REQUIRE(status_for(Level::LeakG) == QubitStatus::LeakG);
+    REQUIRE(status_for(Level::LeakE) == QubitStatus::LeakE);
+    REQUIRE(status_for(Level::Lost) == QubitStatus::Lost);
 }
 
-TEST_CASE("QubitStatus::is_computational is true only for the computational kind") {
-    LevelSet set = LevelSet::default_set();
-    REQUIRE(QubitStatus::computational().is_computational());
-    REQUIRE_FALSE(set.leaked(2).is_computational());
-    REQUIRE_FALSE(set.lost(4).is_computational());
+TEST_CASE("QubitStatus: category predicates partition the statuses") {
+    REQUIRE(is_computational(QubitStatus::Computational));
+    REQUIRE_FALSE(is_leaked(QubitStatus::Computational));
+    REQUIRE_FALSE(is_lost(QubitStatus::Computational));
+    REQUIRE(is_leaked(QubitStatus::LeakG));
+    REQUIRE(is_leaked(QubitStatus::LeakE));
+    REQUIRE(is_lost(QubitStatus::Lost));
+    REQUIRE_FALSE(is_leaked(QubitStatus::Lost));
 }
 
-TEST_CASE("QubitStatus _unchecked factories build without table validation") {
-    // These are the only paths that don't require a LevelSet. Useful
-    // for interior code and tests; the name flags the responsibility.
-    QubitStatus t = QubitStatus::leaked_unchecked(9);
-    REQUIRE(t.kind() == QubitStatusKind::Leaked);
-    REQUIRE(t.level_id() == 9);
-
-    QubitStatus u = QubitStatus::lost_unchecked(11);
-    REQUIRE(u.kind() == QubitStatusKind::Lost);
-    REQUIRE(u.level_id() == 11);
+TEST_CASE("QubitStatus: noncomp_level names the definite level, throws on computational") {
+    REQUIRE(noncomp_level(QubitStatus::LeakG) == Level::LeakG);
+    REQUIRE(noncomp_level(QubitStatus::LeakE) == Level::LeakE);
+    REQUIRE(noncomp_level(QubitStatus::Lost) == Level::Lost);
+    REQUIRE_THROWS_AS(noncomp_level(QubitStatus::Computational), std::logic_error);
 }
 
 // =========================================================================

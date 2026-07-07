@@ -2,6 +2,7 @@
 
 #include "clifft/noncomp/numeric.h"
 
+#include <cmath>
 #include <cstdint>
 #include <stdexcept>
 #include <string>
@@ -10,19 +11,13 @@
 
 namespace clifft {
 
-MeasurementClassifier MeasurementClassifier::from_matrix(std::vector<std::string> symbols,
-                                                         std::vector<std::vector<double>> matrix,
-                                                         const LevelSet& levels) {
-    if (symbols.empty()) {
-        throw std::invalid_argument("MeasurementClassifier::from_matrix: symbols list is empty");
-    }
-    if (symbols.size() > 256) {
-        // The public symbol index APIs use uint8_t. Allowing more than
-        // 256 symbols would make indices >= 256 unaddressable through
-        // prob() / symbol_label() and silently wrap on conversion.
-        throw std::invalid_argument("MeasurementClassifier::from_matrix: symbols list has " +
-                                    std::to_string(symbols.size()) +
-                                    " entries; max supported is 256");
+MeasurementClassifier MeasurementClassifier::from_matrix(
+    std::vector<std::string> symbols, const std::vector<std::vector<double>>& matrix) {
+    if (symbols.size() != 2 && symbols.size() != 3) {
+        throw std::invalid_argument(
+            "MeasurementClassifier::from_matrix: a classifier has two record symbols and an "
+            "optional third herald symbol; got " +
+            std::to_string(symbols.size()) + " symbols");
     }
     {
         std::unordered_set<std::string> seen;
@@ -36,8 +31,6 @@ MeasurementClassifier MeasurementClassifier::from_matrix(std::vector<std::string
     }
 
     const size_t s_n = symbols.size();
-    const size_t l_n = levels.size();
-
     if (matrix.size() != s_n) {
         throw std::invalid_argument("MeasurementClassifier::from_matrix: matrix has " +
                                     std::to_string(matrix.size()) + " rows; expected " +
@@ -46,15 +39,15 @@ MeasurementClassifier MeasurementClassifier::from_matrix(std::vector<std::string
 
     // Single pass: validate row width and entry bounds while copying
     // into the flat row-major buffer.
-    std::vector<double> flat(s_n * l_n);
+    std::vector<double> flat(s_n * kNumLevels);
     for (size_t s = 0; s < s_n; ++s) {
-        if (matrix[s].size() != l_n) {
+        if (matrix[s].size() != kNumLevels) {
             throw std::invalid_argument("MeasurementClassifier::from_matrix: row " +
                                         std::to_string(s) + " has " +
                                         std::to_string(matrix[s].size()) + " columns; expected " +
-                                        std::to_string(l_n) + " (one per level)");
+                                        std::to_string(kNumLevels) + " (one per level)");
         }
-        for (size_t l = 0; l < l_n; ++l) {
+        for (size_t l = 0; l < kNumLevels; ++l) {
             const double v = matrix[s][l];
             // is_finite_robust runs first because -ffast-math folds
             // std::isfinite() / NaN-aware comparisons away.
@@ -64,40 +57,39 @@ MeasurementClassifier MeasurementClassifier::from_matrix(std::vector<std::string
                                             ") = " + std::to_string(v) +
                                             " is not finite or is out of [0, 1]");
             }
-            flat[s * l_n + l] = v;
+            flat[s * kNumLevels + l] = v;
         }
     }
 
-    std::vector<double> reject_probs(l_n, 0.0);
-    for (size_t l = 0; l < l_n; ++l) {
+    for (const Level level : kAllLevels) {
+        const size_t l = static_cast<size_t>(level);
         double sum = 0.0;
         for (size_t s = 0; s < s_n; ++s) {
-            sum += flat[s * l_n + l];
+            sum += flat[s * kNumLevels + l];
         }
-        if (sum > 1.0 + kProbTolerance) {
-            throw std::invalid_argument("MeasurementClassifier::from_matrix: column " +
-                                        std::to_string(l) + " sum = " + std::to_string(sum) +
-                                        " exceeds 1");
+        // A measurement always produces a symbol: classifier reject
+        // columns are not supported, so the column must sum to 1.
+        if (std::abs(sum - 1.0) > kProbTolerance) {
+            throw std::invalid_argument(
+                "MeasurementClassifier::from_matrix: classifier reject columns are not "
+                "supported; the column for level '" +
+                std::string(level_name(level)) + "' sums to " + std::to_string(sum) +
+                " (must sum to 1)");
         }
-        // Deficit is the implicit reject probability, clamped to [0, 1]
-        // so accessors never report a negative number under floating
-        // drift in the column sum.
-        const double clamped = sum > 1.0 ? 1.0 : sum;
-        reject_probs[l] = 1.0 - clamped;
+        if (category(level) == LevelCategory::Computational && s_n == 3) {
+            const double herald_mass = flat[kHeraldSymbol * kNumLevels + l];
+            if (herald_mass > kProbTolerance) {
+                throw std::invalid_argument(
+                    "MeasurementClassifier::from_matrix: a computational column must place all "
+                    "its probability on the record symbols 0 and 1; the column for level '" +
+                    std::string(level_name(level)) + "' puts " + std::to_string(herald_mass) +
+                    " on the herald symbol");
+            }
+        }
     }
 
-    return MeasurementClassifier(std::move(symbols), std::move(flat), std::move(reject_probs),
-                                 levels.fingerprint());
+    return MeasurementClassifier(std::move(symbols), std::move(flat));
 }
-
-MeasurementClassifier::MeasurementClassifier(std::vector<std::string> symbols,
-                                             std::vector<double> matrix_flat,
-                                             std::vector<double> reject_probs,
-                                             uint64_t level_fingerprint)
-    : symbols_(std::move(symbols)),
-      matrix_flat_(std::move(matrix_flat)),
-      reject_probs_(std::move(reject_probs)),
-      level_fingerprint_(level_fingerprint) {}
 
 const std::string& MeasurementClassifier::symbol_label(uint8_t symbol_idx) const {
     if (symbol_idx >= symbols_.size()) {
@@ -108,25 +100,13 @@ const std::string& MeasurementClassifier::symbol_label(uint8_t symbol_idx) const
     return symbols_[symbol_idx];
 }
 
-double MeasurementClassifier::prob(uint8_t symbol_idx, uint8_t level_id) const {
-    const size_t s_n = symbols_.size();
-    const size_t l_n = reject_probs_.size();
-    if (symbol_idx >= s_n || level_id >= l_n) {
-        throw std::invalid_argument("MeasurementClassifier::prob: index (" +
-                                    std::to_string(symbol_idx) + ", " + std::to_string(level_id) +
-                                    ") out of range (num_symbols " + std::to_string(s_n) +
-                                    ", num_levels " + std::to_string(l_n) + ")");
+double MeasurementClassifier::prob(uint8_t symbol_idx, Level level) const {
+    if (symbol_idx >= symbols_.size()) {
+        throw std::invalid_argument("MeasurementClassifier::prob: symbol index " +
+                                    std::to_string(symbol_idx) + " out of range (num_symbols " +
+                                    std::to_string(symbols_.size()) + ")");
     }
-    return matrix_flat_[static_cast<size_t>(symbol_idx) * l_n + static_cast<size_t>(level_id)];
-}
-
-double MeasurementClassifier::reject_probability(uint8_t level_id) const {
-    if (level_id >= reject_probs_.size()) {
-        throw std::invalid_argument("MeasurementClassifier::reject_probability: index " +
-                                    std::to_string(level_id) + " out of range (num_levels " +
-                                    std::to_string(reject_probs_.size()) + ")");
-    }
-    return reject_probs_[level_id];
+    return matrix_flat_[static_cast<size_t>(symbol_idx) * kNumLevels + static_cast<size_t>(level)];
 }
 
 }  // namespace clifft
