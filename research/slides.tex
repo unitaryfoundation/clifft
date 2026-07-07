@@ -1,0 +1,343 @@
+% Two ways past the wall -- research overview slides (both directions).
+% Compile from research/:  pdflatex slides.tex  (twice)
+% Non-technical by design: each direction gets "the idea", "why it should
+% work", "the evidence", and "status". Numbers come from the committed
+% benchmarks (findings.tex, gpu/README.md).
+\documentclass[aspectratio=169,11pt]{beamer}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage{tikz}
+\usetikzlibrary{positioning}
+\usepackage{booktabs}
+
+% ---------- palette (validated for accessibility, light surface) ----------
+\definecolor{ink}{HTML}{22262E}        % near-black, blue-biased
+\definecolor{paper}{HTML}{FCFCFB}
+\definecolor{mutedink}{HTML}{5C6470}
+\definecolor{copper}{HTML}{B76F28}     % direction A: stabilizer rank
+\definecolor{teal}{HTML}{2B8FB2}       % direction B: GPU batching
+\definecolor{violet}{HTML}{5B50B5}     % "clifft today" in comparisons
+\definecolor{faint}{HTML}{E9E8E3}
+
+% ---------- quiet beamer ----------
+\setbeamertemplate{navigation symbols}{}
+\setbeamercolor{background canvas}{bg=paper}
+\setbeamercolor{normal text}{fg=ink}
+\setbeamercolor{structure}{fg=ink}
+\setbeamercolor{frametitle}{fg=ink,bg=paper}
+\setbeamerfont{frametitle}{series=\bfseries,size=\Large}
+\setbeamertemplate{frametitle}{%
+  \vspace{1.1em}{\usebeamerfont{frametitle}\insertframetitle}\\[-0.35em]
+  {\color{framerule}\rule{0.14\textwidth}{2.2pt}}\vspace{0.2em}}
+\setbeamertemplate{itemize item}{\raisebox{0.12em}{\color{framerule}\rule{0.5em}{0.14em}}}
+\setbeamertemplate{itemize subitem}{\raisebox{0.12em}{\color{mutedink}\rule{0.35em}{0.12em}}}
+\setbeamertemplate{footline}{%
+  \hfill{\color{mutedink}\scriptsize\insertframenumber\,/\,\inserttotalframenumber}\hspace{1em}\vspace{0.6em}}
+\setlength{\leftmargini}{1.1em}
+
+% per-section accent for the title underline
+\colorlet{framerule}{ink}
+\newcommand{\accentA}{\colorlet{framerule}{copper}}
+\newcommand{\accentB}{\colorlet{framerule}{teal}}
+\newcommand{\accentO}{\colorlet{framerule}{ink}}
+
+\newcommand{\punch}[1]{{\color{framerule}\bfseries #1}}
+\newcommand{\takeaway}[1]{%
+  \vfill{\color{framerule}\rule{\textwidth}{0.6pt}}\\[0.35em]
+  {\small\itshape #1}}
+
+\title{Two ways past the wall}
+\author{}
+\date{}
+
+\begin{document}
+
+% ================================================================ title
+\begin{frame}
+  \vspace{1.6em}
+  {\color{mutedink}\scriptsize CLIFFT RESEARCH \,\textperiodcentered\, JULY 2026}\\[0.8em]
+  {\Huge\bfseries Two ways past the wall}\\[0.5em]
+  {\large Extending clifft beyond its $2^k$ limit}\\[2.2em]
+  \begin{columns}[T]
+    \begin{column}{0.46\textwidth}
+      {\color{copper}\rule{0.5\textwidth}{2.2pt}}\\[0.3em]
+      {\bfseries A \,\textperiodcentered\, Stabilizer-rank backend}\\
+      {\small\color{mutedink} change the \emph{representation}:\\ pay for magic, not for dimensions}
+    \end{column}
+    \begin{column}{0.46\textwidth}
+      {\color{teal}\rule{0.5\textwidth}{2.2pt}}\\[0.3em]
+      {\bfseries B \,\textperiodcentered\, GPU shot batching}\\
+      {\small\color{mutedink} change the \emph{hardware use}:\\ run thousands of shots abreast}
+    \end{column}
+  \end{columns}
+\end{frame}
+
+% ================================================================ clifft in 30s
+\accentO
+\begin{frame}{clifft in thirty seconds}
+  \begin{columns}[T]
+    \begin{column}{0.52\textwidth}
+      \begin{itemize}
+        \item Clifford gates are ``easy'': clifft tracks them \punch{symbolically}, almost for free, however many qubits.
+        \item Only genuine \emph{magic} ($T$ gates) forces it to hold real amplitudes: a dense array of $2^k$ complex numbers, the \punch{active block}.
+        \item $k$ counts how much magic is live at once --- usually far smaller than the qubit count. That is why clifft is fast.
+      \end{itemize}
+    \end{column}
+    \begin{column}{0.44\textwidth}
+      \centering
+      \begin{tikzpicture}[scale=0.9]
+        % frame band
+        \fill[faint] (0,2.2) rectangle (5.2,3.0);
+        \node[color=mutedink,font=\scriptsize] at (2.6,2.6) {symbolic Clifford frame \, ($\sim$free, all qubits)};
+        % active block
+        \fill[violet!22] (0.8,0.2) rectangle (4.4,1.7);
+        \draw[violet,thick] (0.8,0.2) rectangle (4.4,1.7);
+        \node[color=ink,font=\scriptsize] at (2.6,1.15) {dense active block};
+        \node[color=violet,font=\scriptsize\bfseries] at (2.6,0.62) {$2^k$ amplitudes};
+        \draw[->,mutedink] (2.6,2.15) -- (2.6,1.8);
+        \node[color=mutedink,font=\tiny] at (4.35,1.95) {magic only};
+      \end{tikzpicture}
+    \end{column}
+  \end{columns}
+  \takeaway{One engine, two tiers: symbolic where physics allows it, dense only where it must be.}
+\end{frame}
+
+% ================================================================ the wall
+\begin{frame}{The wall: $2^k$ doubles with every step}
+  \begin{columns}[T]
+    \begin{column}{0.5\textwidth}
+      \vspace{0.4em}
+      \begin{itemize}
+        \item Memory doubles per unit of $k$: \punch{$k=30 \Rightarrow 16$ GB}, $k=40 \Rightarrow 16$ TB.
+        \item clifft's compiler already fights hard for small $k$ (measurement-driven reduction) --- circuits that still land at large $k$ are \emph{genuinely} dense.
+        \item So the remaining question is not ``compile better'' but: \punch{what do we do when $2^k$ itself is the cost?}
+      \end{itemize}
+    \end{column}
+    \begin{column}{0.46\textwidth}
+      \centering
+      \begin{tikzpicture}[scale=0.88]
+        \foreach \i/\h/\lab in {0/0.12/{$k{=}10$},1/0.5/{$k{=}20$},2/1.6/{$k{=}25$},3/2.9/{$k{=}30$}}{
+          \fill[violet!30] (\i*1.28,0) rectangle (\i*1.28+0.95,\h);
+          \draw[violet] (\i*1.28,0) rectangle (\i*1.28+0.95,\h);
+          \node[font=\tiny,color=mutedink] at (\i*1.28+0.475,-0.28) {\lab};}
+        \node[font=\tiny,color=ink] at (0.475,0.4) {16 KB};
+        \node[font=\tiny,color=ink] at (1.755,0.78) {16 MB};
+        \node[font=\tiny,color=ink] at (3.035,1.88) {0.5 GB};
+        \node[font=\tiny,color=ink] at (4.315,3.18) {16 GB};
+        \draw[ink,dashed] (-0.2,3.35) -- (5.4,3.35);
+        \node[font=\scriptsize\bfseries,color=ink,anchor=west] at (-0.2,3.62) {workstation memory};
+      \end{tikzpicture}
+    \end{column}
+  \end{columns}
+  \takeaway{Two independent bets on what to do about it --- one mathematical, one architectural.}
+\end{frame}
+
+% ================================================================ A: idea
+\accentA
+\begin{frame}{A \,\textperiodcentered\, The idea: pay for magic, not for dimensions}
+  \begin{columns}[T]
+    \begin{column}{0.52\textwidth}
+      \begin{itemize}
+        \item States with \emph{little} magic are secretly simple: they are a \punch{short sum of ``free'' stabilizer states} --- the states Clifford simulators handle natively.
+        \item Store $\chi$ small recipes (a few KB each) instead of $2^k$ raw numbers. Like describing an image as a few overlapping patterns instead of listing every pixel.
+        \item Clifford gates update all recipes cheaply; only $T$ gates grow their number; \punch{measurements shrink it back}.
+      \end{itemize}
+    \end{column}
+    \begin{column}{0.44\textwidth}
+      \centering
+      \begin{tikzpicture}[scale=0.85]
+        \fill[violet!22] (0,1.9) rectangle (4.6,3.1);
+        \draw[violet] (0,1.9) rectangle (4.6,3.1);
+        \node[font=\scriptsize,color=ink] at (2.3,2.5) {$2^k$ amplitudes};
+        \node[font=\small] at (2.3,1.55) {$=$};
+        \foreach \i/\c in {0/1.0,1/0.62,2/0.3}{
+          \fill[copper!35] (\i*1.15+0.35,0.15) rectangle (\i*1.15+1.3,1.05);
+          \draw[copper] (\i*1.15+0.35,0.15) rectangle (\i*1.15+1.3,1.05);}
+        \node[font=\small,color=copper] at (4.05,0.6) {$+\ \cdots$};
+        \node[font=\scriptsize,color=mutedink] at (2.3,-0.28) {$\chi$ cheap stabilizer ``recipes''};
+      \end{tikzpicture}
+    \end{column}
+  \end{columns}
+  \takeaway{The cost driver becomes the amount of magic $t$, not the dimension $2^k$.}
+\end{frame}
+
+% ================================================================ A: why it works
+\begin{frame}{A \,\textperiodcentered\, Why it should work}
+  \begin{columns}[T]
+    \begin{column}{0.52\textwidth}
+      \begin{itemize}
+        \item There is an optimal way to split a $T$ gate so the number of recipes grows only as \punch{$2^{0.228\,t}$} --- far slower than $2^k$ when magic is sparse.
+        \item Accepting a small, \punch{tunable} error $\delta$ lets you keep only a random sample of recipes ($\sim 1/\delta^2$ of them). Measured accuracy is \emph{predictable}: error $= 0.50\,\delta$, on the nose.
+        \item Everything stays in the language clifft already speaks: same frame idea, same measurement collapse.
+      \end{itemize}
+    \end{column}
+    \begin{column}{0.44\textwidth}
+      \centering
+      \begin{tikzpicture}[scale=0.82]
+        \draw[->,mutedink] (0,0) -- (5.4,0) node[below left,font=\tiny,color=mutedink]{circuit size};
+        \draw[->,mutedink] (0,0) -- (0,3.4) node[rotate=90,anchor=south east,font=\tiny,color=mutedink,yshift=2pt]{cost (log)};
+        \draw[violet,very thick] (0.2,0.15) -- (4.6,3.30) node[anchor=south east,font=\scriptsize,color=violet,pos=0.88,yshift=6pt]{exact $2^{k}$};
+        \draw[copper,very thick] (0.2,0.75) -- (5.0,1.90) node[anchor=north west,font=\scriptsize,color=copper,pos=0.72,yshift=-2pt]{recipes $2^{0.228 t}$};
+        \fill[ink] (1.46,1.05) circle (1.8pt);
+        \node[font=\tiny,color=ink,anchor=west] at (1.60,0.95) {crossover};
+      \end{tikzpicture}
+    \end{column}
+  \end{columns}
+  \takeaway{Trade exactness you can measure for reach you cannot otherwise have.}
+\end{frame}
+
+% ================================================================ A: evidence
+\begin{frame}{A \,\textperiodcentered\, Evidence (measured, against clifft's real fast path)}
+  \begin{columns}[T]
+    \begin{column}{0.55\textwidth}
+      \begin{itemize}
+        \item Every component validated to \punch{machine precision}; results checked against an exact independent method we built for the purpose.
+        \item Head-to-head on hard dense circuits: the backend overtakes exact clifft at \punch{$n\!\approx\!34$} (coarse accuracy) and $n\!\approx\!48$ (8\% error).
+        \item Past $n\!\approx\!62$ it is the \punch{only method that runs at all}.
+      \end{itemize}
+    \end{column}
+    \begin{column}{0.42\textwidth}
+      \small
+      \begin{tabular}{@{}lrr@{}}
+        \toprule
+        $n=72$ & memory & time \\
+        \midrule
+        any exact method & $\sim$1 TB & --- \\
+        \textcolor{copper}{\textbf{rank backend}} & \textcolor{copper}{\textbf{1.9 GB}} & \textcolor{copper}{\textbf{267 s}} \\
+        \bottomrule
+      \end{tabular}\\[1.0em]
+      {\scriptsize\color{mutedink} Accuracy dial, measured:\\ error $=0.50\,\delta$ across the whole sweep\\ (halve the error $\Rightarrow$ $4\times$ the work).}
+    \end{column}
+  \end{columns}
+  \takeaway{The niche is real --- and honestly bounded: below the crossover, exact clifft stays the right tool.}
+\end{frame}
+
+% ================================================================ A: map
+\begin{frame}{A \,\textperiodcentered\, Where it wins, where it doesn't}
+  \centering
+  \small
+  \begin{tabular}{@{}p{0.30\textwidth}p{0.30\textwidth}p{0.30\textwidth}@{}}
+    \toprule
+    \textbf{Small circuits} & \textbf{Large, magic-sparse} & \textbf{Adaptive, Clifford-heavy} \\
+    \midrule
+    clifft exact is faster \emph{and} exact --- keep it. &
+    \textcolor{copper}{\textbf{The niche.}} Only feasible method past the memory wall (approximate, dial-controlled). &
+    \textcolor{copper}{\textbf{Frame pays off}} once Clifford depth $\gtrsim$ block width ($8\times$ and growing past the boundary); the standard open-source tool cannot run these circuits at all. \\
+    \bottomrule
+  \end{tabular}
+  \vspace{0.8em}
+  \begin{itemize}
+    \item Also measured where it \emph{loses}: at low Clifford depth the frame's bookkeeping costs $\sim\!2\times$ --- the advantage is a measured phase boundary, not a slogan.
+  \end{itemize}
+  \takeaway{Status: validated prototype (Python + C++), honest benchmark note; next --- one more external baseline and a natural adaptive workload, then a methods paper.}
+\end{frame}
+
+% ================================================================ B: idea
+\accentB
+\begin{frame}{B \,\textperiodcentered\, The idea: don't run one shot faster --- run 4{,}096 abreast}
+  \begin{columns}[T]
+    \begin{column}{0.52\textwidth}
+      \begin{itemize}
+        \item A clifft gate just \emph{streams} a small array (16 KB--16 MB). One such array cannot keep a GPU busy: \punch{a stadium choir asked to sing one sentence}.
+        \item But clifft's workloads are Monte-Carlo: \punch{thousands of shots of the same program}, today run one after another.
+        \item Put $B{=}4{,}096$ shots' arrays on the GPU side by side and apply every gate to \emph{all of them} in one launch.
+      \end{itemize}
+    \end{column}
+    \begin{column}{0.44\textwidth}
+      \centering
+      \begin{tikzpicture}[scale=0.8]
+        % sequential CPU
+        \node[font=\scriptsize\bfseries,color=violet,anchor=west] at (0,3.3) {CPU today: single file};
+        \foreach \i in {0,1,2,3,4}{\fill[violet!30] (\i*0.62,2.55) rectangle (\i*0.62+0.5,2.95);}
+        \draw[->,mutedink] (3.25,2.75) -- (3.9,2.75);
+        % batched GPU
+        \node[font=\scriptsize\bfseries,color=teal,anchor=west] at (0,1.9) {GPU: all at once};
+        \foreach \i in {0,...,7}{\foreach \j in {0,1,2}{
+          \fill[teal!32] (\i*0.62,1.5-\j*0.5) rectangle (\i*0.62+0.5,1.5-\j*0.5-0.4);}}
+        \node[font=\tiny,color=mutedink,anchor=west] at (0,-0.35) {one instruction, $B$ statevectors};
+      \end{tikzpicture}
+    \end{column}
+  \end{columns}
+  \takeaway{Batching doesn't make the GPU faster --- it makes the problem big enough for the GPU to be fast.}
+\end{frame}
+
+% ================================================================ B: why 1
+\begin{frame}{B \,\textperiodcentered\, Why it should work (1): shots march in lockstep}
+  \begin{itemize}
+    \item The shape of a shot --- which operation runs when, and how big the array is at every step --- is \punch{fixed at compile time and identical for every shot}. clifft's compiler already writes this schedule down.
+    \item What differs per shot (measurement outcomes, noise) is just \punch{a few numbers}, which enter the shared computation as per-shot parameters --- like SIMD lanes, one lane per shot.
+    \item So the classic objection to batching --- ``shots diverge'' --- \emph{does not apply to clifft}. Its structure is unusually batchable.
+    \item And nobody serves this niche: the two existing batched-GPU simulators both \punch{fall back to one-shot-at-a-time} exactly when circuits measure mid-flight --- clifft's home turf.
+  \end{itemize}
+  \takeaway{The hardest architectural question resolves in the design's favor before any GPU code is written.}
+\end{frame}
+
+% ================================================================ B: why 2
+\begin{frame}{B \,\textperiodcentered\, Why it should work (2): the speed limit is bandwidth --- and GPUs have $7\times$ more}
+  \begin{columns}[T]
+    \begin{column}{0.52\textwidth}
+      \begin{itemize}
+        \item These operations do almost no arithmetic per byte: on \emph{any} machine they run at the speed of memory.
+        \item Measured: clifft on 11 CPU cores is only $2.6\times$ one core --- \punch{the bus is the limit, not the cores}.
+        \item A GH200's memory is $\sim\!7\times$ wider than a server CPU's. Once the batch saturates it: \punch{5--10$\times$ more shots per second}, honestly bounded.
+      \end{itemize}
+    \end{column}
+    \begin{column}{0.44\textwidth}
+      \centering
+      \begin{tikzpicture}[scale=0.8]
+        \node[font=\scriptsize,color=ink,anchor=west] at (0,2.9) {memory bandwidth (TB/s)};
+        \fill[violet!30] (0,1.9) rectangle (0.75,2.3);
+        \node[font=\scriptsize,color=ink,anchor=west] at (0.9,2.1) {server CPU \,$\sim$0.5};
+        \fill[teal!40] (0,0.9) rectangle (5.0,1.3);
+        \node[font=\scriptsize,color=ink,anchor=west] at (0.35,1.1) {GH200 GPU \,$\sim$3.5};
+        \node[font=\tiny,color=mutedink,anchor=west] at (0,0.35) {big published ``100$\times$'' numbers use weak baselines ---};
+        \node[font=\tiny,color=mutedink,anchor=west] at (0,0.05) {we keep a refuted-claims list and quote the physics.};
+      \end{tikzpicture}
+    \end{column}
+  \end{columns}
+  \takeaway{The claim is deliberately modest --- which is why we can trust it.}
+\end{frame}
+
+% ================================================================ B: risk + test
+\begin{frame}{B \,\textperiodcentered\, The one risk, and the \$20 experiment that settles it}
+  \begin{itemize}
+    \item Mid-circuit measurements need a decision from the CPU: results cross to the host, outcomes cross back. Each crossing costs microseconds --- \punch{the same scale as the small kernels themselves}.
+    \item Two reasons it should survive: the crossing is paid \punch{once per batch} (nanoseconds per shot at $B{=}4{,}096$), and the GH200's CPU--GPU link is built precisely to make it cheap.
+    \item A microbenchmark faithful to clifft's kernels --- \emph{including complete measurements with the round-trip} --- is built, validated, and waiting. GH200 time: \$2/hour, self-serve.
+  \end{itemize}
+  \centering
+  {\small
+  \begin{tabular}{@{}p{0.28\textwidth}p{0.64\textwidth}@{}}
+    \toprule
+    round-trip measured cheap & \textcolor{teal}{\textbf{go}}: batched backend; first target = replay-style queries (no round-trips at all) \\
+    round-trip eats the win & \textbf{no-go}, cleanly --- or on-device sampling is the follow-up \\
+    \bottomrule
+  \end{tabular}}
+  \takeaway{Either answer is cheap, quantitative, and final --- that is what the microbenchmark is for.}
+\end{frame}
+
+% ================================================================ closing
+\accentO
+\begin{frame}{How the two bets fit together}
+  \begin{columns}[T]
+    \begin{column}{0.46\textwidth}
+      {\color{copper}\rule{0.5\textwidth}{2.2pt}}\\[0.3em]
+      {\bfseries A \,\textperiodcentered\, Stabilizer rank extends \emph{reach}}\\[0.3em]
+      {\small circuits clifft cannot hold at all today ---\\ approximate, with a measured accuracy dial}
+    \end{column}
+    \begin{column}{0.46\textwidth}
+      {\color{teal}\rule{0.5\textwidth}{2.2pt}}\\[0.3em]
+      {\bfseries B \,\textperiodcentered\, GPU batching extends \emph{throughput}}\\[0.3em]
+      {\small the circuits clifft already runs ---\\ many more shots per second, exact as ever}
+    \end{column}
+  \end{columns}
+  \vspace{1.2em}
+  \begin{itemize}
+    \item Both work \emph{because of} clifft's structure, not despite it: the symbolic frame, the small active block, and the compile-time shot schedule are exactly what decompositions and batching need.
+    \item Both were reviewed adversarially; every headline number above survived a fair baseline.
+  \end{itemize}
+  \vspace{0.4em}
+  {\small\color{mutedink}\textbf{Next:} A --- external baseline (Quokka\#) + a natural adaptive workload, then a methods paper. \quad B --- the GH200 run, then batched replay queries.}
+\end{frame}
+
+\end{document}
