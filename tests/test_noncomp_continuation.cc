@@ -70,7 +70,7 @@ TEST_CASE("continuation: empty events reproduce the annotated circuit verbatim")
 
     auto result = rewrite_continuation(annotated, events, /*force_last_traceout=*/false, model);
     REQUIRE(gate_sequence(result.circuit) == gate_sequence(annotated));
-    REQUIRE(result.forced_traceout_node == SIZE_MAX);
+    REQUIRE(!result.forced_traceout_node.has_value());
     REQUIRE(result.classified_measurements.empty());
 }
 

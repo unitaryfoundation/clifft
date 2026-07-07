@@ -327,10 +327,10 @@ TEST_CASE("trace: forced_traceout_node on the first reset yields slot == num_vis
     REQUIRE(hir.forced_traceout_slot == 2);
 }
 
-TEST_CASE("trace: forced_traceout_node unset leaves forced_traceout_slot at SIZE_MAX") {
+TEST_CASE("trace: forced_traceout_node unset leaves forced_traceout_slot empty") {
     // No forced_traceout_node set: the output slot stays at its default.
     InstrumentTraceOptions options;
-    // forced_traceout_node defaults to SIZE_MAX -- no request
+    // forced_traceout_node defaults to nullopt -- no request
     auto hir = trace(parse("M 0\nR 1\nM 2"), &options);
-    REQUIRE(hir.forced_traceout_slot == SIZE_MAX);
+    REQUIRE(!hir.forced_traceout_slot.has_value());
 }

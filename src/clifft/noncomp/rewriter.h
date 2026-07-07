@@ -146,11 +146,11 @@ struct ContinuationRewrite {
     std::vector<ClassifiedMeasurement> classified_measurements;
 
     // Node index (in the rewritten stream) of the last recorded jump's
-    // trace-out reset, or SIZE_MAX when the caller did not request forcing.
+    // trace-out reset, or nullopt when the caller did not request forcing.
     // The driver hands this to trace() via
     // InstrumentTraceOptions::forced_traceout_node; trace() reports the
     // hidden slot it assigns through HirModule::forced_traceout_slot.
-    size_t forced_traceout_node = SIZE_MAX;
+    std::optional<size_t> forced_traceout_node;
 
     // Annotation target of each kept (runtime-instrument) site, in
     // emission order -- which is trace()'s materialization order, so the

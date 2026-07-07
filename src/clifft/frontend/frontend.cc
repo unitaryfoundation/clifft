@@ -729,8 +729,9 @@ HirModule trace(const Circuit& circuit, const InstrumentTraceOptions* instrument
                         // multi-target reset being supplied as the request (the
                         // rewriter only ever names single-target Rs).
                         if (instruments != nullptr &&
-                            node_index == instruments->forced_traceout_node) {
-                            assert(hir.forced_traceout_slot == SIZE_MAX &&
+                            instruments->forced_traceout_node.has_value() &&
+                            node_index == *instruments->forced_traceout_node) {
+                            assert(!hir.forced_traceout_slot.has_value() &&
                                    "forced_traceout_node named a multi-target reset");
                             hir.forced_traceout_slot = this_meas;
                         }
