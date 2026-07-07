@@ -603,3 +603,100 @@ TEST_CASE("exact: a smaller starting module must not shrink the reused state") {
     auto result = sample_noncomputational(circuit, model, 64, 5);
     REQUIRE(result.shots == 64);
 }
+
+TEST_CASE("exact: a zero-fire LOSS(0) before a firing LOSS does not shift site ids") {
+    // LOSS(0) can never fire from a computational qubit; trace() skips it.
+    // The rewriter must skip it too, so LOSS(1) gets site id 0 and the
+    // driver maps the trap correctly.
+    ClassifierSpec classifier;
+    classifier.num_symbols = 2;
+    classifier.matrix = {{1.0, 0.0, 1.0, 0.0, 0.0}, {0.0, 1.0, 0.0, 1.0, 1.0}};
+
+    NonComputationalPolicy policy;
+    auto model =
+        NonComputationalModel::from_spec({1.0, 0.0, 0.0, 0.0, 0.0}, {}, classifier, policy);
+    auto circuit = parse("LOSS(0) 0\nLOSS(1) 0\nM 0");
+
+    auto result = sample_noncomputational(circuit, model, 20, 71);
+    for (uint32_t shot = 0; shot < 20; ++shot) {
+        REQUIRE(result.measurements[shot] == 1);  // lost: classifier's lost column reads 1
+        REQUIRE(result.final_status[shot] == QubitStatus::Lost);
+    }
+}
+
+TEST_CASE("exact: a seepage-only transition before a firing site does not shift site ids") {
+    // A LEVEL_TRANSITION whose computational columns are both zero (seepage
+    // from leak_e to e only) cannot fire on a computational qubit; trace()
+    // skips it. The rewriter must skip it too so the firing LOSS(1) that
+    // follows gets site id 0 and the driver maps the trap correctly.
+    std::vector<std::vector<double>> seep(5, std::vector<double>(5, 0.0));
+    seep[1][kLeak] = 1.0;  // leak_e -> e, prob 1; computational columns zero
+
+    ClassifierSpec classifier;
+    classifier.num_symbols = 2;
+    classifier.matrix = {{1.0, 0.0, 1.0, 0.0, 0.0}, {0.0, 1.0, 0.0, 1.0, 1.0}};
+
+    NonComputationalPolicy policy;
+    auto model = NonComputationalModel::from_spec({1.0, 0.0, 0.0, 0.0, 0.0}, {{"seep", seep}},
+                                                  classifier, policy);
+    auto circuit = parse("LEVEL_TRANSITION[seep] 0\nLOSS(1) 0\nM 0");
+
+    auto result = sample_noncomputational(circuit, model, 20, 73);
+    for (uint32_t shot = 0; shot < 20; ++shot) {
+        REQUIRE(result.measurements[shot] == 1);  // lost: classifier's lost column reads 1
+        REQUIRE(result.final_status[shot] == QubitStatus::Lost);
+    }
+}
+
+TEST_CASE("exact: a seepage-only transition on q0 does not corrupt q1's site id") {
+    // Cross-qubit arrangement: the seepage-only LEVEL_TRANSITION on q0 must
+    // not occupy a site slot, so the firing LOSS(1) on q1 keeps site id 0.
+    // In Release, a stale site id would read the wrong trap record and
+    // silently produce wrong results; in Debug, the site-table lookup
+    // overruns or mismatches.
+    std::vector<std::vector<double>> seep(5, std::vector<double>(5, 0.0));
+    seep[1][kLeak] = 1.0;  // leak_e -> e, prob 1; computational columns zero
+
+    ClassifierSpec classifier;
+    classifier.num_symbols = 2;
+    // q0: stays computational (no loss); q1: lost reads 1.
+    classifier.matrix = {{1.0, 0.0, 1.0, 0.0, 0.0}, {0.0, 1.0, 0.0, 1.0, 1.0}};
+
+    NonComputationalPolicy policy;
+    auto model = NonComputationalModel::from_spec({1.0, 0.0, 0.0, 0.0, 0.0}, {{"seep", seep}},
+                                                  classifier, policy);
+    auto circuit = parse("LEVEL_TRANSITION[seep] 0\nLOSS(1) 1\nM 0\nM 1");
+
+    auto result = sample_noncomputational(circuit, model, 20, 79);
+    for (uint32_t shot = 0; shot < 20; ++shot) {
+        REQUIRE(result.measurements[shot * 2] == 0);      // q0: computational, M reads 0
+        REQUIRE(result.measurements[shot * 2 + 1] == 1);  // q1: lost, classifier reads 1
+        REQUIRE(result.final_status[shot * 2] == QubitStatus::Computational);
+        REQUIRE(result.final_status[shot * 2 + 1] == QubitStatus::Lost);
+    }
+}
+
+TEST_CASE("exact: a seepage-only transition still seeps a noncomputational qubit") {
+    // A zero-fire annotation is skipped for a computational pre-status, but
+    // must still execute its classical consult for a noncomputational qubit.
+    // Here leak_e is the starting level; the seep fires (classical consult
+    // with destination e) and the qubit recaptures to |1>, so M reads 1.
+    std::vector<std::vector<double>> seep(5, std::vector<double>(5, 0.0));
+    seep[1][kLeak] = 1.0;  // leak_e -> e, prob 1; computational columns zero
+
+    ClassifierSpec classifier;
+    classifier.num_symbols = 2;
+    classifier.matrix = {{1.0, 0.0, 1.0, 0.0, 1.0}, {0.0, 1.0, 0.0, 1.0, 0.0}};
+
+    NonComputationalPolicy policy;
+    // All initial mass on leak_e (index 3).
+    auto model = NonComputationalModel::from_spec({0.0, 0.0, 0.0, 1.0, 0.0}, {{"seep", seep}},
+                                                  classifier, policy);
+    auto circuit = parse("LEVEL_TRANSITION[seep] 0\nM 0");
+
+    auto result = sample_noncomputational(circuit, model, 20, 83);
+    for (uint32_t shot = 0; shot < 20; ++shot) {
+        REQUIRE(result.measurements[shot] == 1);  // recaptured to |e>=|1>, M reads 1
+        REQUIRE(result.final_status[shot] == QubitStatus::Computational);
+    }
+}

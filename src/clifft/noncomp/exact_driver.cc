@@ -519,6 +519,14 @@ NonComputationalSample sample_noncomputational_exact(const Circuit& circuit,
             CompiledModule module = lower(hir);
             exact_bytecode_pass_manager().run(module);
             check_max_rank(module, max_rank);
+            if (module.instrument_offsets.size() != entry.rw.site_targets.size()) {
+                throw std::logic_error(
+                    "sample_noncomputational: compiled module has " +
+                    std::to_string(module.instrument_offsets.size()) +
+                    " instrument site(s) but the rewrite's site table has " +
+                    std::to_string(entry.rw.site_targets.size()) +
+                    "; the rewriter and trace() must elide zero-fire sites identically");
+            }
             if (entry.rw.forced_traceout_slot != SIZE_MAX) {
                 swap_traceout_to_forced(module, entry.rw.forced_traceout_slot);
             }

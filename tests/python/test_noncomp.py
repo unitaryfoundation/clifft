@@ -434,6 +434,48 @@ def test_xy_basis_measurement_of_a_lost_qubit_raises():
         noncomp.sample(circuit, model, shots=4, seed=2)
 
 
+def test_zero_fire_loss_before_firing_loss_samples_cleanly():
+    """LOSS(0) before LOSS(0.5) must not shift site ids or abort.
+
+    Before the fix, LOSS(0) was incorrectly kept in the site table while
+    trace() elided it, causing a site-id mismatch that aborted in Debug or
+    segfaulted in Release.
+    """
+    classifier = noncomp.Classifier(
+        ["0", "1"], [[1.0, 0.0, 1.0, 0.0, 0.0], [0.0, 1.0, 0.0, 1.0, 1.0]]
+    )
+    model = noncomp.Model(initial_state=ALL_G, classifier=classifier)
+    r = noncomp.sample("LOSS(0) 0\nLOSS(0.5) 0\nM 0\n", model, shots=64, seed=90)
+    assert r.shots == 64
+    # Every shot ends Lost or Computational (no assertion failures).
+    assert r.final_status.shape == (64, 1)
+    # Lost shots read 1 (classifier's lost column), computational shots read 0.
+    for i in range(64):
+        if r.final_status[i, 0] == LOST_KIND:
+            assert r.measurements[i, 0] == 1
+        else:
+            assert r.final_status[i, 0] == COMPUTATIONAL
+
+
+def test_seepage_only_before_firing_site_samples_cleanly():
+    """A seepage-only LEVEL_TRANSITION before a firing site must not shift site ids.
+
+    A transition with column_sum(G)=column_sum(E)=0 is elided by trace() but
+    was previously kept in the site table, producing a site-id mismatch.
+    """
+    seep = _zeros(5, 5)
+    seep[LEAK_E][LEAK_E] = 1.0  # leak_e -> leak_e, only noncomp columns
+
+    classifier = noncomp.Classifier(
+        ["0", "1"], [[1.0, 0.0, 1.0, 0.0, 0.0], [0.0, 1.0, 0.0, 1.0, 1.0]]
+    )
+    model = noncomp.Model(initial_state=ALL_G, transitions={"seep": seep}, classifier=classifier)
+    r = noncomp.sample("LEVEL_TRANSITION[seep] 0\nLOSS(1) 0\nM 0\n", model, shots=32, seed=91)
+    assert r.shots == 32
+    assert (r.final_status == LOST_KIND).all()
+    assert (r.measurements[:, 0] == 1).all()
+
+
 def test_computational_readout_confusion_misreports_the_record():
     """The classifier's computational columns act as asymmetric readout
     confusion on Z measurements: the qubit collapses to its true state but
