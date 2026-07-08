@@ -39,7 +39,7 @@ def _model(initial: list, transitions: dict, damping: str = "exact") -> noncomp.
     return noncomp.Model(
         initial_state=initial,
         transitions=transitions,
-        classifier=noncomp.Classifier(["0", "1"], _classifier_matrix()),
+        classifier=noncomp.Classifier(_classifier_matrix()),
         damping=damping,
     )
 
@@ -183,8 +183,10 @@ def _run_and_compare(damping: str, seed: int) -> None:
     status = np.asarray(r.final_status)
     for q in range(5):
         want_leaked, want_lost = _status_kind_fractions(reference.noncomp_level_probs[q])
-        got_leaked = float((status[:, q] == noncomp.QubitStatusKind.LEAKED).mean())
-        got_lost = float((status[:, q] == noncomp.QubitStatusKind.LOST).mean())
+        got_leaked = float(
+            np.isin(status[:, q], (noncomp.QubitStatus.LEAK_G, noncomp.QubitStatus.LEAK_E)).mean()
+        )
+        got_lost = float((status[:, q] == noncomp.QubitStatus.LOST).mean())
         assert abs(got_leaked - want_leaked) < binomial_tolerance(max(want_leaked, 1e-4), SHOTS)
         assert abs(got_lost - want_lost) < binomial_tolerance(max(want_lost, 1e-4), SHOTS)
 

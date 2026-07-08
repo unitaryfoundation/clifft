@@ -170,6 +170,7 @@ model = clifft.NonComputationalModel(
 
     # Independent per-qubit initial level distribution.
     # Indices into levels[]; sums to 1 per qubit (validated in C++).
+    # Optional; defaults to [1.0, 0.0, 0.0, 0.0, 0.0] (all qubits in g).
     initial_state=[0.0065, 0.96, 0.0065, 0.027, 0.0],
 
     # Per-gate transition instruments. Matrix shorthand uses T[to, from]
@@ -202,7 +203,6 @@ model = clifft.NonComputationalModel(
     # which has column sums [1, 1, 0, 0, 0] — leaked/lost reject
     # with probability 1.
     classifier=clifft.MeasurementClassifier(
-        symbols=["0", "1"],
         matrix=[[1, 0, 0, 0, 0],
                 [0, 1, 0, 0, 0]],
     ),

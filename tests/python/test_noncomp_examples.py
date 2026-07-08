@@ -16,9 +16,8 @@ import pytest
 from clifft import noncomp
 
 Level = noncomp.Level
-COMPUTATIONAL = noncomp.QubitStatusKind.COMPUTATIONAL
-LEAKED = noncomp.QubitStatusKind.LEAKED
-LOST = noncomp.QubitStatusKind.LOST
+COMPUTATIONAL = noncomp.QubitStatus.COMPUTATIONAL
+LOST = noncomp.QubitStatus.LOST
 SHOTS = 8000
 BAND = 0.04
 
@@ -28,7 +27,7 @@ def _classifier(level: int, col: list[float]) -> noncomp.Classifier:
     for lvl in range(5):
         m[0][lvl] = 1.0
     m[0][level], m[1][level] = col[0], col[1]
-    return noncomp.Classifier(["0", "1"], m)
+    return noncomp.Classifier(m)
 
 
 def _transition(entries: dict[tuple[int, int], float]) -> list[list[float]]:
@@ -50,7 +49,7 @@ def test_example_initial_leaked_population():
     )
     r = noncomp.sample("M 0\n", model, shots=SHOTS, seed=1)
     assert abs(np.asarray(r.measurements)[:, 0].mean() - 0.3) < BAND
-    assert abs((np.asarray(r.final_status) == LEAKED).mean() - 0.3) < BAND
+    assert abs((np.asarray(r.final_status) == noncomp.QubitStatus.LEAK_G).mean() - 0.3) < BAND
 
 
 def test_example_initial_lost_population():
@@ -74,7 +73,7 @@ def test_example_after_gate_leakage_with_classifier():
     )
     r = noncomp.sample("H 0\nS 0\nM 0\n", model, shots=SHOTS, seed=3)
     assert (np.asarray(r.measurements)[:, 0] == 1).all()
-    assert (np.asarray(r.final_status) == LEAKED).all()
+    assert (np.asarray(r.final_status) == noncomp.QubitStatus.LEAK_G).all()
 
 
 def test_example_relaxation_to_ground_on_known_qubit():
@@ -100,7 +99,7 @@ def test_reject_parity_measurement_under_capable_model():
         transitions={
             "S": _transition({(Level.LEAK_G, Level.G): 1.0, (Level.LEAK_G, Level.E): 1.0})
         },
-        classifier=noncomp.Classifier(["0", "1"], [[1.0] * 5, [0.0] * 5]),
+        classifier=noncomp.Classifier([[1.0] * 5, [0.0] * 5]),
     )
     with pytest.raises(ValueError, match="not supported"):
         noncomp.sample("H 0\nS 0\nMPP Z0*Z1\n", model, shots=8, seed=5)

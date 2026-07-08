@@ -45,7 +45,7 @@ def _classifier(level: int, col: list[float]) -> noncomp.Classifier:
     # Computational levels read out faithfully (no readout confusion).
     m[0][noncomp.Level.E], m[1][noncomp.Level.E] = 0.0, 1.0
     m[0][level], m[1][level] = col[0], col[1]
-    return noncomp.Classifier(["0", "1"], m)
+    return noncomp.Classifier(m)
 
 
 def _p1(result: noncomp.NonComputationalSample, slot: int) -> float:
@@ -104,7 +104,9 @@ def test_transition_probability_on_known_source():
         transitions={"S": _transition({(Level.LEAK_G, Level.G): 0.4})},
     )
     r = noncomp.sample("S 0\n", model, shots=SHOTS, seed=3)
-    leaked = (np.asarray(r.final_status) == noncomp.QubitStatusKind.LEAKED).mean()
+    leaked = np.isin(
+        np.asarray(r.final_status), (noncomp.QubitStatus.LEAK_G, noncomp.QubitStatus.LEAK_E)
+    ).mean()
     assert abs(leaked - 0.4) < BAND
 
 

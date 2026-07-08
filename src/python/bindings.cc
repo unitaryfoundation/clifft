@@ -108,24 +108,12 @@ void register_noncomp(nb::module_& m) {
                 nb::gil_scoped_release release;
                 r = clifft::sample_noncomputational(circuit, model, shots, seed, max_rank);
             }
-            // Map each qubit's final status onto the sidecar's stable code
-            // {0 computational, 1 leaked, 2 lost}, shared with Python's
-            // QubitStatusKind enum. Exhaustive on purpose: a new status
-            // must decide its code here.
+            // Pass the raw status bytes through: QubitStatus is uint8_t with values
+            // Computational=0, LeakG=1, LeakE=2, Lost=3, matching Python's QubitStatus
+            // enum exactly. No coarsening: leaked substates are individually preserved.
             std::vector<uint8_t> status(r.final_status.size());
             for (size_t i = 0; i < r.final_status.size(); ++i) {
-                switch (r.final_status[i]) {
-                    case clifft::QubitStatus::Computational:
-                        status[i] = 0;
-                        break;
-                    case clifft::QubitStatus::LeakG:
-                    case clifft::QubitStatus::LeakE:
-                        status[i] = 1;
-                        break;
-                    case clifft::QubitStatus::Lost:
-                        status[i] = 2;
-                        break;
-                }
+                status[i] = static_cast<uint8_t>(r.final_status[i]);
             }
             auto meas = vec_to_numpy(std::move(r.measurements), {shots, r.num_measurements});
             auto det = vec_to_numpy(std::move(r.detectors), {shots, r.num_detectors});

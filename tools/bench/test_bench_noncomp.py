@@ -64,7 +64,7 @@ def ternary_classifier() -> noncomp.Classifier:
     m[1][noncomp.Level.E] = 1.0
     m[1][noncomp.Level.LEAK_E] = 1.0
     m[2][noncomp.Level.LOST] = 1.0
-    return noncomp.Classifier(["0", "1", "2"], m)
+    return noncomp.Classifier(m)
 
 
 def noncomp_model(p: float) -> noncomp.Model:
