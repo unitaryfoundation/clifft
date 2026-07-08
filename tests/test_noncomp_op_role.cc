@@ -48,20 +48,20 @@ TEST_CASE("qubit_operands: MPP yields its Pauli-tagged qubits in target order as
     REQUIRE(ops[2].role == OperandRole::Physical);
 }
 
-TEST_CASE("qubit_operands: CX feedback yields a single FeedbackX operand") {
+TEST_CASE("qubit_operands: CX feedback yields a single Feedback operand") {
     std::vector<QubitOperand> ops =
         qubit_operands(node(GateType::CX, {Target::rec(0), Target::qubit(1)}));
     REQUIRE(ops.size() == 1);
     REQUIRE(ops[0].qubit == 1);
-    REQUIRE(ops[0].role == OperandRole::FeedbackX);
+    REQUIRE(ops[0].role == OperandRole::Feedback);
 }
 
-TEST_CASE("qubit_operands: CZ feedback yields a single FeedbackZ operand") {
+TEST_CASE("qubit_operands: CZ feedback yields a single Feedback operand") {
     std::vector<QubitOperand> ops =
         qubit_operands(node(GateType::CZ, {Target::rec(0), Target::qubit(1)}));
     REQUIRE(ops.size() == 1);
     REQUIRE(ops[0].qubit == 1);
-    REQUIRE(ops[0].role == OperandRole::FeedbackZ);
+    REQUIRE(ops[0].role == OperandRole::Feedback);
 }
 
 TEST_CASE("qubit_operands: parsed feedback matches the hand-built classification") {
@@ -69,7 +69,7 @@ TEST_CASE("qubit_operands: parsed feedback matches the hand-built classification
     std::vector<QubitOperand> ops = qubit_operands(c.nodes.back());
     REQUIRE(ops.size() == 1);
     REQUIRE(ops[0].qubit == 1);
-    REQUIRE(ops[0].role == OperandRole::FeedbackX);
+    REQUIRE(ops[0].role == OperandRole::Feedback);
 }
 
 TEST_CASE("qubit_operands: non-qubit operations produce no operands") {

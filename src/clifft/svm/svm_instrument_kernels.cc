@@ -116,16 +116,6 @@ void exec_instrument_expand_damp(SchrodingerState& state, uint16_t v, double r_g
     state.scale_magnitude(1.0 / std::sqrt(2.0));
 }
 
-void exec_instrument_collapse_dormant(SchrodingerState& state, uint16_t v, uint8_t level) {
-    // Phase extraction and frame anchor, mirroring the dormant-random
-    // measurement kernel with the outcome forced and no record written.
-    if (bit_get(state.p_x, v) && level) {
-        state.multiply_phase({-1.0, 0.0});
-    }
-    bit_set(state.p_x, v, level != 0);
-    bit_set(state.p_z, v, false);
-}
-
 InstrumentBranch instrument_fire_branch(InstrumentPopulations pops, double p_g, double p_e,
                                         double u) {
     assert(u >= 0.0 && u < 1.0 && "instrument fire draw: variate out of [0, 1)");

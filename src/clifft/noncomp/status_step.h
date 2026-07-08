@@ -29,14 +29,11 @@ double loss_probability(const std::vector<double>& args, uint32_t op_index,
 // mean physically different things: a CX with two qubit operands is a
 // physical entangler, but a CX with a record control is a virtual,
 // frame-level Pauli correction. The role, not the gate alone, drives the
-// noncomputational status effect. The two feedback roles are named for
-// the correction's basis; both are virtual and status-preserving, but
-// the policy scan still needs to tell them apart from physical operands
-// on a vacated site.
+// noncomputational status effect.
 enum class OperandRole {
-    Physical,   // a real qubit operand of a physical operation
-    FeedbackX,  // target of a classically-controlled X (CX rec q)
-    FeedbackZ,  // target of a classically-controlled Z (CZ rec q)
+    Physical,  // a real qubit operand of a physical operation
+    Feedback,  // target of a classically-controlled correction (CX/CZ rec q):
+               // virtual (no physical pulse), cannot move a qubit between categories
 };
 
 // How the trajectory policy handles the base operation for one operand,

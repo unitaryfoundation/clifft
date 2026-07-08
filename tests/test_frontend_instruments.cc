@@ -88,7 +88,6 @@ TEST_CASE("trace: LEVEL_TRANSITION materializes an INSTRUMENT with its spec") {
     REQUIRE(hir.instrument_sites.size() == 1);
     const InstrumentSite& site = hir.instrument_sites[0];
     REQUIRE(site.qubit == 0);
-    REQUIRE(site.source_line == 2);
     REQUIRE(site.neglect_damping == false);
     REQUIRE_THAT(site.p_total[0], WithinAbs(0.1, kTol));
     REQUIRE_THAT(site.p_total[1], WithinAbs(0.4, kTol));
@@ -96,8 +95,8 @@ TEST_CASE("trace: LEVEL_TRANSITION materializes an INSTRUMENT with its spec") {
     REQUIRE_THAT(site.p_dest[0][1], WithinAbs(0.03, kTol));
     REQUIRE_THAT(site.p_dest[1][0], WithinAbs(0.0, kTol));
     REQUIRE_THAT(site.p_dest[1][1], WithinAbs(0.0, kTol));
-    REQUIRE_THAT(site.trap_remainder(0), WithinAbs(0.05, kTol));
-    REQUIRE_THAT(site.trap_remainder(1), WithinAbs(0.4, kTol));
+    REQUIRE_THAT(site.p_total[0] - site.p_dest[0][0] - site.p_dest[0][1], WithinAbs(0.05, kTol));
+    REQUIRE_THAT(site.p_total[1] - site.p_dest[1][0] - site.p_dest[1][1], WithinAbs(0.4, kTol));
     REQUIRE_THAT(site.damp[0], WithinAbs(std::sqrt(0.9), kTol));
     REQUIRE_THAT(site.damp[1], WithinAbs(std::sqrt(0.6), kTol));
 
@@ -131,8 +130,10 @@ TEST_CASE("trace: LOSS materializes a source-independent all-trap site per targe
         REQUIRE(site.qubit == static_cast<uint32_t>(i));
         REQUIRE_THAT(site.p_total[0], WithinAbs(0.25, kTol));
         REQUIRE_THAT(site.p_total[1], WithinAbs(0.25, kTol));
-        REQUIRE_THAT(site.trap_remainder(0), WithinAbs(0.25, kTol));
-        REQUIRE_THAT(site.trap_remainder(1), WithinAbs(0.25, kTol));
+        REQUIRE_THAT(site.p_total[0] - site.p_dest[0][0] - site.p_dest[0][1],
+                     WithinAbs(0.25, kTol));
+        REQUIRE_THAT(site.p_total[1] - site.p_dest[1][0] - site.p_dest[1][1],
+                     WithinAbs(0.25, kTol));
         REQUIRE_THAT(site.damp[0], WithinAbs(std::sqrt(0.75), kTol));
         REQUIRE(mask_is(hir, hir.ops[static_cast<size_t>(i)], static_cast<uint32_t>(i), false, true,
                         false));

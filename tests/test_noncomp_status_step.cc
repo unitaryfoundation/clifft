@@ -14,8 +14,7 @@ using clifft::QubitStatus;
 namespace {
 
 constexpr OperandRole kPhysical = OperandRole::Physical;
-constexpr OperandRole kFeedbackX = OperandRole::FeedbackX;
-constexpr OperandRole kFeedbackZ = OperandRole::FeedbackZ;
+constexpr OperandRole kFeedback = OperandRole::Feedback;
 
 }  // namespace
 
@@ -61,11 +60,10 @@ TEST_CASE("normal_post_op_status: feedback corrections change no status") {
     // A virtual correction acts within H_C at most; in particular a
     // conditional X is not a reset, so it never restores a vacated site.
     QubitStatus comp =
-        normal_post_op_status(QubitStatus::Computational, GateType::CX, kFeedbackX, policy);
+        normal_post_op_status(QubitStatus::Computational, GateType::CX, kFeedback, policy);
     REQUIRE(comp == QubitStatus::Computational);
-    QubitStatus leaked =
-        normal_post_op_status(QubitStatus::LeakG, GateType::CX, kFeedbackX, policy);
+    QubitStatus leaked = normal_post_op_status(QubitStatus::LeakG, GateType::CX, kFeedback, policy);
     REQUIRE(leaked == QubitStatus::LeakG);
-    QubitStatus z = normal_post_op_status(QubitStatus::LeakG, GateType::CZ, kFeedbackZ, policy);
+    QubitStatus z = normal_post_op_status(QubitStatus::LeakG, GateType::CZ, kFeedback, policy);
     REQUIRE(z == QubitStatus::LeakG);
 }

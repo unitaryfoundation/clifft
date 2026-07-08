@@ -5,9 +5,7 @@ n = 2d-1 qubits; a hooked S layer on the data each round): plain sampling,
 the noncomputational pipeline with a lossless model (isolating the shared
 main line's overhead over plain sampling), and a representative
 low-probability leakage-plus-loss model (drop on leaked/lost operands,
-ternary herald classifier). The retired ahead-of-time pipeline's baseline
--- 13-14x slower on the lossless rung -- is recorded in the design note's
-step-7 results.
+ternary herald classifier).
 
 A final cross-simulator rung runs the same circuit and noise model on the
 cirq-superstaq leakage simulator. That package is not a committed dependency
@@ -128,7 +126,7 @@ def test_bench_noncomp_sqale_comparison(benchmark: Any, d: int, r: int, shots: i
     benchmark.pedantic(
         leakage_sim.sample_circuit,
         args=(noisy,),
-        kwargs={"repetitions": sq_shots, "max_workers": 0, "progrcssbar": False},
+        kwargs={"repetitions": sq_shots, "max_workers": 0, "progressbar": False},
         rounds=2,
         iterations=1,
     )

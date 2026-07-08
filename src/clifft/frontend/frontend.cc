@@ -773,7 +773,6 @@ HirModule trace(const Circuit& circuit, const InstrumentTraceOptions* instrument
                     const uint32_t qubit = target.value();
                     InstrumentSite site;
                     site.qubit = qubit;
-                    site.source_line = node.source_line;
                     site.neglect_damping = instruments->neglect_damping;
                     if (node.gate == GateType::LOSS) {
                         // Uniform loss: source-independent rate, destination

@@ -33,10 +33,8 @@ std::vector<QubitOperand> qubit_operands(const AstNode& node) {
         // OBSERVABLE_INCLUDE, READOUT_NOISE -- which has no qubit operands.
         // A record alongside a qubit on any other gate is a shape this
         // layer does not model.
-        if (node.gate == GateType::CX) {
-            role = OperandRole::FeedbackX;
-        } else if (node.gate == GateType::CZ) {
-            role = OperandRole::FeedbackZ;
+        if (node.gate == GateType::CX || node.gate == GateType::CZ) {
+            role = OperandRole::Feedback;
         } else {
             for (const Target& target : node.targets) {
                 if (!target.is_rec()) {
