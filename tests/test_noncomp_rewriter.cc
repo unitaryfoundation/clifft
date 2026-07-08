@@ -28,6 +28,7 @@
 #include <catch2/matchers/catch_matchers_string.hpp>
 #include <cstdint>
 #include <map>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -35,7 +36,6 @@ using Catch::Matchers::ContainsSubstring;
 using clifft::annotate;
 using clifft::AstNode;
 using clifft::Circuit;
-using clifft::ClassifierSpec;
 using clifft::ContinuationRewrite;
 using clifft::default_hir_pass_manager;
 using clifft::ExactShotEvents;
@@ -80,7 +80,7 @@ NonComputationalModel make_model(
 // Classifier whose column for `level` is `col` (two or three symbols by
 // col's length); computational levels read out faithfully and other levels
 // default to a deterministic symbol 0.
-ClassifierSpec classifier_with(uint8_t level, std::vector<double> col) {
+std::vector<std::vector<double>> classifier_with(uint8_t level, std::vector<double> col) {
     std::vector<std::vector<double>> m(col.size(), std::vector<double>(5, 0.0));
     for (size_t l = 0; l < 5; ++l) {
         m[0][l] = 1.0;
@@ -90,14 +90,14 @@ ClassifierSpec classifier_with(uint8_t level, std::vector<double> col) {
     for (size_t s = 0; s < col.size(); ++s) {
         m[s][level] = col[s];
     }
-    return ClassifierSpec{col.size(), std::move(m)};
+    return m;
 }
 
 NonComputationalModel make_model_with_classifier(
-    std::map<std::string, std::vector<std::vector<double>>> transitions, ClassifierSpec classifier,
-    NonComputationalPolicy policy = {}) {
+    std::map<std::string, std::vector<std::vector<double>>> transitions,
+    std::vector<std::vector<double>> classifier, NonComputationalPolicy policy = {}) {
     return NonComputationalModel::from_spec({1.0, 0.0, 0.0, 0.0, 0.0}, transitions,
-                                            std::move(classifier), policy);
+                                            std::make_optional(std::move(classifier)), policy);
 }
 
 // Per-qubit initial statuses from level indices.
@@ -307,7 +307,7 @@ TEST_CASE("rewrite: a lost-qubit measurement becomes a classifier record write")
     REQUIRE(rw.classified_measurements.size() == 1);
     REQUIRE(rw.classified_measurements[0].slot == 0);
     REQUIRE(rw.classified_measurements[0].level == Level::Lost);
-    const AstNode& noise = rw.circuit.nodes[rw.classified_measurements[0].noise_node];
+    const AstNode& noise = rw.circuit.nodes[*rw.classified_measurements[0].noise_node];
     REQUIRE(noise.gate == GateType::READOUT_NOISE);
     REQUIRE(noise.targets[0].is_rec());
     REQUIRE(noise.targets[0].value() == 0);
@@ -328,7 +328,7 @@ TEST_CASE("rewrite: a deterministic classifier column pads the literal bit, no d
         }
     }
     REQUIRE(rw.classified_measurements.size() == 1);
-    REQUIRE(rw.classified_measurements[0].noise_node == SIZE_MAX);
+    REQUIRE(rw.classified_measurements[0].noise_node == std::nullopt);
 }
 
 TEST_CASE("rewrite: an inverted noncomputational classifier flips a deterministic bit") {
@@ -345,7 +345,7 @@ TEST_CASE("rewrite: an inverted noncomputational classifier flips a deterministi
         }
     }
     REQUIRE(rw.classified_measurements.size() == 1);
-    REQUIRE(rw.classified_measurements[0].noise_node == SIZE_MAX);
+    REQUIRE(rw.classified_measurements[0].noise_node == std::nullopt);
 }
 
 TEST_CASE("rewrite: an inverted noncomputational classifier complements stochastic flips") {
@@ -355,7 +355,7 @@ TEST_CASE("rewrite: an inverted noncomputational classifier complements stochast
 
     ContinuationRewrite rw = rewritten(c, model, {kLost});
     REQUIRE(rw.classified_measurements.size() == 1);
-    const AstNode& noise = rw.circuit.nodes[rw.classified_measurements[0].noise_node];
+    const AstNode& noise = rw.circuit.nodes[*rw.classified_measurements[0].noise_node];
     REQUIRE(noise.gate == GateType::READOUT_NOISE);
     REQUIRE(noise.targets[0].value() == 0);
     REQUIRE(noise.args[0] == Catch::Approx(0.7));
@@ -372,7 +372,7 @@ TEST_CASE("rewrite: the record write flips its own slot, not an earlier one") {
     REQUIRE(count_gate(rw.circuit, GateType::M) == 1);  // the computational one
     REQUIRE(rw.classified_measurements.size() == 1);
     REQUIRE(rw.classified_measurements[0].slot == 1);
-    const AstNode& noise = rw.circuit.nodes[rw.classified_measurements[0].noise_node];
+    const AstNode& noise = rw.circuit.nodes[*rw.classified_measurements[0].noise_node];
     REQUIRE(noise.targets[0].value() == 1);
 }
 
@@ -386,7 +386,7 @@ TEST_CASE("rewrite: a ternary column emits the not-heralded conditional flip") {
 
     ContinuationRewrite rw = rewritten(c, model, {kLeakG});
     REQUIRE(rw.classified_measurements.size() == 1);
-    const AstNode& noise = rw.circuit.nodes[rw.classified_measurements[0].noise_node];
+    const AstNode& noise = rw.circuit.nodes[*rw.classified_measurements[0].noise_node];
     REQUIRE(noise.gate == GateType::READOUT_NOISE);
     REQUIRE(noise.args[0] == Catch::Approx(0.25));
 }
@@ -399,7 +399,7 @@ TEST_CASE("rewrite: an inverted ternary column complements the not-heralded flip
 
     ContinuationRewrite rw = rewritten(c, model, {kLeakG});
     REQUIRE(rw.classified_measurements.size() == 1);
-    const AstNode& noise = rw.circuit.nodes[rw.classified_measurements[0].noise_node];
+    const AstNode& noise = rw.circuit.nodes[*rw.classified_measurements[0].noise_node];
     REQUIRE(noise.gate == GateType::READOUT_NOISE);
     REQUIRE(noise.args[0] == Catch::Approx(0.75));
 }
@@ -413,8 +413,8 @@ TEST_CASE("rewrite: an always-herald ternary column still emits a patchable node
 
     ContinuationRewrite rw = rewritten(c, model, {kLeakG});
     REQUIRE(rw.classified_measurements.size() == 1);
-    REQUIRE(rw.classified_measurements[0].noise_node != SIZE_MAX);
-    const AstNode& noise = rw.circuit.nodes[rw.classified_measurements[0].noise_node];
+    REQUIRE(rw.classified_measurements[0].noise_node.has_value());
+    const AstNode& noise = rw.circuit.nodes[*rw.classified_measurements[0].noise_node];
     REQUIRE(noise.args[0] == 0.5);
 }
 
@@ -484,7 +484,7 @@ namespace {
 // Classifier with confused computational columns: a true 0 is misread as 1
 // with probability p01, a true 1 as 0 with probability p10; noncomputational
 // levels deterministically read symbol 0.
-ClassifierSpec confused_classifier(double p01, double p10) {
+std::vector<std::vector<double>> confused_classifier(double p01, double p10) {
     std::vector<std::vector<double>> m(2, std::vector<double>(5, 0.0));
     for (size_t l = 0; l < 5; ++l) {
         m[0][l] = 1.0;
@@ -493,7 +493,7 @@ ClassifierSpec confused_classifier(double p01, double p10) {
     m[1][0] = p01;
     m[0][1] = p10;
     m[1][1] = 1.0 - p10;
-    return ClassifierSpec{2, std::move(m)};
+    return m;
 }
 
 }  // namespace
@@ -560,7 +560,7 @@ TEST_CASE("rewrite: a substochastic computational column rejects") {
     m[0][1] = 0.0;
     m[1][1] = 1.0;
     REQUIRE_THROWS_WITH(
-        make_model_with_classifier({}, ClassifierSpec{2, std::move(m)}),
+        make_model_with_classifier({}, std::move(m)),
         ContainsSubstring("reject columns are not supported") && ContainsSubstring("'g'"));
 }
 
@@ -573,7 +573,7 @@ TEST_CASE("rewrite: a computational column with herald mass rejects") {
     m[2][0] = 0.1;
     m[0][1] = 0.0;
     m[1][1] = 1.0;
-    REQUIRE_THROWS_WITH(make_model_with_classifier({}, ClassifierSpec{3, std::move(m)}),
+    REQUIRE_THROWS_WITH(make_model_with_classifier({}, std::move(m)),
                         ContainsSubstring("record symbols 0 and 1") && ContainsSubstring("'g'"));
 }
 
@@ -687,4 +687,14 @@ TEST_CASE("rewrite: a correlated chain whose head operand is lost survives the r
     ContinuationRewrite rw = rewritten(c, model, {kLost, kG});
     REQUIRE(count_gate(rw.circuit, GateType::CORRELATED_ERROR) == 1);
     REQUIRE(count_gate(rw.circuit, GateType::ELSE_CORRELATED_ERROR) == 1);
+}
+
+TEST_CASE("rewrite_continuation: unknown transition tag throws") {
+    Circuit c = parse("LEVEL_TRANSITION[nosuch] 0\n");
+    NonComputationalModel model = make_model({});
+    ExactShotEvents events;
+    events.initial_status = {QubitStatus::Computational};
+    Circuit annotated = annotate(c, model);
+    REQUIRE_THROWS_WITH(rewrite_continuation(annotated, events, false, model),
+                        ContainsSubstring("unknown transition tag 'nosuch'"));
 }

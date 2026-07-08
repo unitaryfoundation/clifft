@@ -239,21 +239,10 @@ void extend_classical_outcomes(const Circuit& annotated, ExactShotEvents& events
             }
             continue;
         }
-        // Ordinary operations advance statuses exactly as the rewrite
-        // does; drops keep entry statuses, which the stepper handles via
-        // the shared policy scan semantics.
-        bool drop_op = false;
-        for (const QubitOperand& operand : qubit_operands(node)) {
-            if (operand_action(gate, status[operand.qubit], model.policy()) ==
-                OperandAction::Drop) {
-                drop_op = true;
-            }
-        }
-        for (const QubitOperand& operand : qubit_operands(node)) {
-            const QubitStatus pre = status[operand.qubit];
-            status[operand.qubit] =
-                drop_op ? pre : normal_post_op_status(pre, gate, operand.role, model.policy());
-        }
+        // Ordinary operations advance statuses through the shared walk --
+        // the same walk the rewriter uses, now via a single helper.
+        advance_ordinary_node(annotated.nodes[op_index], op_index, status, model.policy(),
+                              "sample_noncomputational");
     }
     events.classical_outcomes = std::move(ordered);
 }
@@ -604,8 +593,10 @@ NonComputationalSample sample_noncomputational_exact(const Circuit& circuit,
             for (size_t i = 0; i < flags.size(); ++i) {
                 if (flags[i] != 0) {
                     const ClassifiedMeasurement& m = entry.rw.classified_measurements[i];
-                    assert(m.noise_node != SIZE_MAX);
-                    patched.nodes[m.noise_node].args[0] = 0.5;
+                    assert(m.noise_node.has_value() &&
+                           "classified measurement must have a READOUT_NOISE node to patch for "
+                           "herald");
+                    patched.nodes[*m.noise_node].args[0] = 0.5;
                 }
             }
             // When the rewrite names a forced trace-out node, ask trace()
@@ -684,10 +675,6 @@ NonComputationalSample sample_noncomputational_exact(const Circuit& circuit,
     // The shared main line: the continuation of "nothing happened".
     ExactShotEvents no_events;
     no_events.initial_status.assign(circuit.num_qubits, QubitStatus::Computational);
-    ContinuationEntry& main_entry = get_entry(no_events, false);
-    CompiledModule* main_module = get_module(
-        main_entry, std::vector<uint8_t>(main_entry.rw.classified_measurements.size(), 0), nullptr,
-        0);
 
     // The state is reused across shots (growth from trap continuations
     // amortizes to the chain maximum); a starting module that outgrows it
@@ -696,17 +683,18 @@ NonComputationalSample sample_noncomputational_exact(const Circuit& circuit,
     // to the running maxima, never to the triggering module: a starting
     // module can exceed on one axis (say, hidden record slots) while
     // being smaller on the other, and later shots reuse the state.
-    auto make_state = [&](uint32_t peak_rank, uint32_t total_meas_slots) {
-        return SchrodingerState(StateConfig{.peak_rank = peak_rank,
-                                            .num_measurements = total_meas_slots,
-                                            .num_qubits = main_module->num_qubits,
-                                            .num_detectors = main_module->num_detectors,
-                                            .num_observables = main_module->num_observables,
-                                            .seed = 0});
+    auto make_state = [&](const CompiledModule& m, uint32_t peak_rank, uint32_t total_meas_slots) {
+        return SchrodingerState(StateConfig{
+            .peak_rank = peak_rank,
+            .num_measurements = total_meas_slots,
+            .num_qubits = m.num_qubits,
+            .num_detectors = m.num_detectors,
+            .num_observables = m.num_observables,
+            .seed = 0});  // placeholder; reseed() supplies the per-shot seed before execution
     };
-    uint32_t state_rank = main_module->peak_rank;
-    uint32_t state_slots = main_module->total_meas_slots;
-    SchrodingerState state = make_state(state_rank, state_slots);
+    uint32_t state_rank = 0;
+    uint32_t state_slots = 0;
+    std::optional<SchrodingerState> state_storage;
 
     for (uint32_t shot = 0; shot < shots; ++shot) {
         Xoshiro256PlusPlus driver_rng(derive_seed(global_seed, shot, kExactDriverDomain));
@@ -755,8 +743,8 @@ NonComputationalSample sample_noncomputational_exact(const Circuit& circuit,
         // consults over the whole circuit are pre-drawn for it. The
         // rewrite fetch consumes no randomness, so drawing the herald
         // flags after it keeps every driver draw ahead of module lookup.
-        ContinuationEntry* entry = &main_entry;
-        CompiledModule* module = main_module;
+        ContinuationEntry* entry = nullptr;
+        CompiledModule* module = nullptr;
         // An all-computational, no-jump walk consumes no randomness and
         // moves no status: statuses leave Computational only via jumps or
         // noncomputational initials, and classical consults happen only for
@@ -768,17 +756,24 @@ NonComputationalSample sample_noncomputational_exact(const Circuit& circuit,
             module = get_module(*entry, flags_for(entry->rw), nullptr, 0);
             final_status = entry->rw.final_status;
         } else {
+            entry = &get_entry(no_events, false);
+            module = get_module(*entry, flags_for(entry->rw), nullptr, 0);
             final_status.assign(circuit.num_qubits, QubitStatus::Computational);
         }
 
-        if (shot > 0) {
-            state.reset();
+        if (!state_storage.has_value()) {
+            state_rank = module->peak_rank;
+            state_slots = module->total_meas_slots;
+            state_storage.emplace(make_state(*module, state_rank, state_slots));
+        } else {
+            state_storage->reset();
+            if (module->peak_rank > state_rank || module->total_meas_slots > state_slots) {
+                state_rank = std::max(state_rank, module->peak_rank);
+                state_slots = std::max(state_slots, module->total_meas_slots);
+                state_storage.emplace(make_state(*module, state_rank, state_slots));
+            }
         }
-        if (module->peak_rank > state_rank || module->total_meas_slots > state_slots) {
-            state_rank = std::max(state_rank, module->peak_rank);
-            state_slots = std::max(state_slots, module->total_meas_slots);
-            state = make_state(state_rank, state_slots);
-        }
+        SchrodingerState& state = *state_storage;
         state.reseed(derive_seed(global_seed, shot, kExactSvmDomain));
         assert(state.meas_record.size() >= module->total_meas_slots &&
                "the rebuild block above guarantees meas_record capacity; "
@@ -856,6 +851,11 @@ NonComputationalSample sample_noncomputational_exact(const Circuit& circuit,
 
             entry = &next_entry;
             module = next_module;
+            // grow_for_continuation sizes the state to this module inside resume();
+            // track it so a later starting-module rebuild never shrinks capacity
+            // the chain already reached.
+            state_rank = std::max(state_rank, module->peak_rank);
+            state_slots = std::max(state_slots, module->total_meas_slots);
             resume(*module, state, module->instrument_offsets[trap.site_id] + 1);
         }
 

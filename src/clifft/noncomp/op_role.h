@@ -15,6 +15,8 @@
 #include "clifft/noncomp/status_step.h"
 
 #include <cstdint>
+#include <optional>
+#include <string_view>
 #include <vector>
 
 namespace clifft {
@@ -29,5 +31,20 @@ struct QubitOperand {
 // control is classical feedback, so its qubit operands get the Feedback
 // role; otherwise operands are Physical.
 std::vector<QubitOperand> qubit_operands(const AstNode& node);
+
+// One ordinary (non-annotation) node of the shared status walk: range-check
+// operands, decide the whole-op policy verdict, and advance `status`.
+// A rejecting operand throws std::invalid_argument (`caller` names the
+// context); when any operand drops, the whole operation drops and every
+// operand holds its entry status. For a measurement whose operand enters
+// leaked or lost, reports that entry level -- the classifier consult the
+// rewriter turns into a record substitution.
+struct OrdinaryStep {
+    bool dropped = false;
+    std::optional<Level> measured_noncomp_level;
+};
+OrdinaryStep advance_ordinary_node(const AstNode& node, uint32_t op_index,
+                                   std::vector<QubitStatus>& status,
+                                   const NonComputationalPolicy& policy, std::string_view caller);
 
 }  // namespace clifft

@@ -18,7 +18,6 @@
 
 using Catch::Matchers::ContainsSubstring;
 using Catch::Matchers::WithinAbs;
-using clifft::ClassifierSpec;
 using clifft::GateType;
 using clifft::kAllLevels;
 using clifft::Level;
@@ -35,12 +34,11 @@ std::vector<std::vector<double>> zero_matrix() {
 }
 
 // Identity readout on g/e; leak_g/lost read "0", leak_e reads "1".
-ClassifierSpec identity_classifier() {
-    return ClassifierSpec{2,
-                          {
-                              {1, 0, 1, 0, 1},
-                              {0, 1, 0, 1, 0},
-                          }};
+std::vector<std::vector<double>> identity_classifier() {
+    return {
+        {1, 0, 1, 0, 1},
+        {0, 1, 0, 1, 0},
+    };
 }
 
 // A valid probability vector over the 5 levels.
@@ -64,7 +62,8 @@ double sum(const std::vector<double>& v) {
 
 TEST_CASE("NonComputationalModel: accepts a fully specified model") {
     auto model = NonComputationalModel::from_spec(default_initial_state(), {{"H", zero_matrix()}},
-                                                  identity_classifier(), NonComputationalPolicy{});
+                                                  std::make_optional(identity_classifier()),
+                                                  NonComputationalPolicy{});
     REQUIRE(model.transitions().size() == 1);
     REQUIRE(model.classifier() != nullptr);
 }

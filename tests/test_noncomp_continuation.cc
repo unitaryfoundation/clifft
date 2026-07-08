@@ -15,6 +15,7 @@
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/matchers/catch_matchers.hpp>
 #include <catch2/matchers/catch_matchers_string.hpp>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -35,11 +36,11 @@ NonComputationalModel demo_model() {
     leak[kLeak][1] = 0.4;
     leak[1][kLeak] = 0.2;  // seepage: leaked -> e
 
-    ClassifierSpec classifier;
-    classifier.num_symbols = 2;
-    classifier.matrix = {{1.0, 0.0, 1.0, 0.0, 1.0}, {0.0, 1.0, 0.0, 1.0, 0.0}};
+    const std::vector<std::vector<double>> classifier = {{1.0, 0.0, 1.0, 0.0, 1.0},
+                                                         {0.0, 1.0, 0.0, 1.0, 0.0}};
 
-    return NonComputationalModel::from_spec({1.0, 0.0, 0.0, 0.0, 0.0}, {{"leak", leak}}, classifier,
+    return NonComputationalModel::from_spec({1.0, 0.0, 0.0, 0.0, 0.0}, {{"leak", leak}},
+                                            std::make_optional(classifier),
                                             NonComputationalPolicy{});
 }
 

@@ -43,7 +43,6 @@
 
 using clifft::annotate;
 using clifft::Circuit;
-using clifft::ClassifierSpec;
 using clifft::default_hir_pass_manager;
 using clifft::GateType;
 using clifft::HirModule;
@@ -76,7 +75,7 @@ std::vector<std::vector<double>> always_lost() {
 
 // Two-symbol classifier whose lost column is `col`; computational levels
 // read out faithfully and leaked levels deterministically read symbol 0.
-ClassifierSpec lost_classifier(std::vector<double> col) {
+std::vector<std::vector<double>> lost_classifier(std::vector<double> col) {
     std::vector<std::vector<double>> m(2, std::vector<double>(5, 0.0));
     for (size_t l = 0; l < 5; ++l) {
         m[0][l] = 1.0;
@@ -87,12 +86,12 @@ ClassifierSpec lost_classifier(std::vector<double> col) {
     m[1][1] = 1.0;
     m[0][kLost] = col[0];
     m[1][kLost] = col[1];
-    return ClassifierSpec{2, std::move(m)};
+    return m;
 }
 
 NonComputationalModel make_model(
     std::map<std::string, std::vector<std::vector<double>>> transitions,
-    std::optional<ClassifierSpec> classifier = std::nullopt) {
+    std::optional<std::vector<std::vector<double>>> classifier = std::nullopt) {
     // Both halves start in g (|0>); no leading X-prep is needed.
     return NonComputationalModel::from_spec({1.0, 0.0, 0.0, 0.0, 0.0}, transitions,
                                             std::move(classifier), NonComputationalPolicy{});
