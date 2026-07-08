@@ -1017,7 +1017,6 @@ CompiledModule lower(const HirModule& hir, std::span<const uint8_t> postselectio
 
                 CompiledInstrumentSite compiled;
                 compiled.site_id = hir_site_idx;
-                compiled.source_line = site.source_line;
                 for (int s = 0; s < 2; ++s) {
                     compiled.p_total[s] = site.p_total[s];
                     compiled.p_dest[s][0] = site.p_dest[s][0];

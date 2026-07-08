@@ -1,11 +1,10 @@
 """Closed-form micro-probes for the exact sampling mode.
 
-Successors to the retired equalized-mode divergence probes: each pins, in
-closed form built on the first-principles oracle, a property the exact mode
-must have and that ahead-of-time sampling could not deliver -- zero fires
-from a gate-determined source, destination-collapse correlations with an
-entangled partner, and the sqrt(1 - p) no-fire coherence that separates
-``damping="exact"`` from ``damping="neglect"``.
+Each probe pins, in closed form built on the first-principles oracle, a
+distinct property the exact mode must satisfy: zero fires from a gate-determined
+source, destination-collapse correlations with an entangled partner, and the
+sqrt(1 - p) no-fire coherence that separates ``damping="exact"`` from
+``damping="neglect"``.
 """
 
 from __future__ import annotations

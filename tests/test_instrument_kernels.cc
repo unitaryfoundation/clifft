@@ -360,29 +360,6 @@ TEST_CASE("instrument expand_damp: unit coefficients reproduce the plain expansi
 }
 
 // =============================================================================
-// collapse_dormant: frame-level forced collapse
-// =============================================================================
-
-TEST_CASE("instrument collapse_dormant: anchors the frame and extracts the phase") {
-    for (int px = 0; px <= 1; ++px) {
-        for (uint8_t level = 0; level <= 1; ++level) {
-            SchrodingerState state(/*peak_rank=*/2, /*num_measurements=*/1);
-            const uint16_t v = 1;
-            set_frame_bit(state.p_x, v, px != 0);
-            set_frame_bit(state.p_z, v, true);  // must be cleared by the anchor
-
-            exec_instrument_collapse_dormant(state, v, level);
-
-            const double want_phase = (px != 0 && level != 0) ? -1.0 : 1.0;
-            REQUIRE_THAT(state.gamma().real(), WithinAbs(want_phase, kTol));
-            REQUIRE_THAT(state.gamma().imag(), WithinAbs(0.0, kTol));
-            REQUIRE(get_frame_bit(state.p_x, v) == (level != 0));
-            REQUIRE(get_frame_bit(state.p_z, v) == false);
-        }
-    }
-}
-
-// =============================================================================
 // Cross-checks against production machinery and mid-shot state shapes
 // =============================================================================
 

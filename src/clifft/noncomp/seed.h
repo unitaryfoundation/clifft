@@ -3,8 +3,7 @@
 // Per-shot seed derivation for noncomputational sampling. One global
 // seed fans out into independent sub-streams, one per (shot, domain)
 // pair; every domain tag lives here so their pairwise distinctness is
-// visible in one place. (Tags 0x1-0x3 belonged to the retired
-// ahead-of-time pipeline and stay unassigned.)
+// visible in one place. Tags are arbitrary distinct constants.
 
 #include <cstdint>
 

@@ -23,7 +23,7 @@ Circuit annotate(const Circuit& circuit, const NonComputationalModel& model) {
         // virtual and fire no transition.
         for (const QubitOperand& operand : qubit_operands(node)) {
             if (operand.role != OperandRole::Physical) {
-                continue;
+                continue;  // Feedback corrections are virtual; no transition fires
             }
             out.nodes.push_back(AstNode{GateType::LEVEL_TRANSITION,
                                         {Target::qubit(operand.qubit)},

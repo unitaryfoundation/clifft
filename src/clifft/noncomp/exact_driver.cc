@@ -167,14 +167,12 @@ Level draw_from_column(const TransitionInstrument& instrument, Level source,
 // append-only stream would replay old outcomes at the wrong targets.
 // Reused outcomes keep the executed prefix's compilation stable;
 // first-seen consults live only in the not-yet-executed suffix, so a
-// fresh draw is unbiased. Returns the walk's final statuses. The walk
-// is the single
-// source of truth for which consults are classical, so the events
-// stream always matches what rewrite_continuation will validate.
-std::vector<QubitStatus> extend_classical_outcomes(const Circuit& annotated,
-                                                   ExactShotEvents& events,
-                                                   const NonComputationalModel& model,
-                                                   Xoshiro256PlusPlus& rng) {
+// fresh draw is unbiased. Mutates events.classical_outcomes; the walk
+// is the single source of truth for which consults are classical, so
+// the stream always matches what rewrite_continuation will validate.
+// Final statuses are read from the fetched entry's rw.final_status.
+void extend_classical_outcomes(const Circuit& annotated, ExactShotEvents& events,
+                               const NonComputationalModel& model, Xoshiro256PlusPlus& rng) {
     std::map<std::pair<uint32_t, uint32_t>, Level> jump_dest;
     for (const ResolvedJump& jump : events.jumps) {
         jump_dest.emplace(std::make_pair(jump.op_index, jump.qubit), jump.destination_level);
@@ -258,7 +256,6 @@ std::vector<QubitStatus> extend_classical_outcomes(const Circuit& annotated,
         }
     }
     events.classical_outcomes = std::move(ordered);
-    return status;
 }
 
 // Cache key: the status-outcome delta. A computational initial status
@@ -307,6 +304,11 @@ struct ContinuationEntry {
     // named by rw.forced_traceout_node. Populated on first compile;
     // subsequent flag-variant compiles assert it is consistent.
     std::optional<size_t> forced_traceout_slot;
+    // The force_last flag this entry was created with: derivable from the
+    // events (entries with no jumps are never forced; a jumped entry's force
+    // equals the last jump's destination_pending flag), fixed per circuit +
+    // model + policy.
+    bool force_last = false;
 };
 
 void check_max_rank(const CompiledModule& module, std::optional<uint32_t> max_rank) {
@@ -573,11 +575,17 @@ NonComputationalSample sample_noncomputational_exact(const Circuit& circuit,
     // deterministic in the events and consumes no randomness, so a fetch
     // never perturbs sampling.
     auto get_entry = [&](const ExactShotEvents& events, bool force_last) -> ContinuationEntry& {
-        const std::string key = cache_key(events) + static_cast<char>(force_last ? 'F' : 'f');
+        const std::string key = cache_key(events);
         auto [it, inserted] = cache.try_emplace(key);
         ContinuationEntry& entry = it->second;
         if (inserted) {
+            entry.force_last = force_last;
             entry.rw = rewrite_continuation(annotated, events, force_last, model);
+        } else {
+            assert(entry.force_last == force_last &&
+                   "cache hit with mismatched force_last: entries with no jumps are never forced; "
+                   "a jumped entry's force equals the last jump's destination_pending flag, "
+                   "fixed per circuit+model+policy");
         }
         return entry;
     };
@@ -755,9 +763,10 @@ NonComputationalSample sample_noncomputational_exact(const Circuit& circuit,
         // noncomputational statuses.
         std::vector<QubitStatus> final_status;
         if (any_noncomp_initial) {
-            final_status = extend_classical_outcomes(annotated, events, model, driver_rng);
+            extend_classical_outcomes(annotated, events, model, driver_rng);
             entry = &get_entry(events, false);
             module = get_module(*entry, flags_for(entry->rw), nullptr, 0);
+            final_status = entry->rw.final_status;
         } else {
             final_status.assign(circuit.num_qubits, QubitStatus::Computational);
         }
@@ -817,7 +826,7 @@ NonComputationalSample sample_noncomputational_exact(const Circuit& circuit,
             }
 
             events.jumps.push_back({op_index, qubit, dest});
-            final_status = extend_classical_outcomes(annotated, events, model, driver_rng);
+            extend_classical_outcomes(annotated, events, model, driver_rng);
 
             // A neglect-form trap hands its carrier over uncollapsed; the
             // continuation's trace-out is forced to the reported source,
@@ -829,6 +838,7 @@ NonComputationalSample sample_noncomputational_exact(const Circuit& circuit,
             ContinuationEntry& next_entry = get_entry(events, force);
             CompiledModule* next_module =
                 get_module(next_entry, flags_for(next_entry.rw), module, prefix_end);
+            final_status = next_entry.rw.final_status;
 
             if (force) {
                 // get_module always populates forced_traceout_slot before

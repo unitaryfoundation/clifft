@@ -158,8 +158,10 @@ struct ContinuationRewrite {
     // annotated circuit's coordinates.
     std::vector<std::pair<uint32_t, uint32_t>> site_targets;
 
-    // Every qubit's status at the end of the walk: the shot's final
-    // statuses once execution reaches the end of this continuation.
+    // Every qubit's per-shot status at the end of this continuation's
+    // walk: the authoritative final statuses the driver reports for the
+    // shot. The driver reads this field directly from the fetched entry
+    // after every extend_classical_outcomes call.
     std::vector<QubitStatus> final_status;
 };
 

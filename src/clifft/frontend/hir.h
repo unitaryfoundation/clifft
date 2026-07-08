@@ -113,8 +113,7 @@ inline constexpr PauliMaskHandle kNoMask = static_cast<PauliMaskHandle>(~uint32_
 // a measurement mask. Source index 0 is the |0> (g) level, 1 is |1> (e).
 
 struct InstrumentSite {
-    uint32_t qubit = 0;        // Physical qubit, for suffix rewrites + diagnostics
-    uint32_t source_line = 0;  // Circuit line, for k-cap and trap diagnostics
+    uint32_t qubit = 0;  // Physical qubit, for suffix rewrites + diagnostics
 
     // The rewound X observable of the qubit at the site (same tableau
     // conjugation as the op's Z-projector mask): the destination fixup a
@@ -139,10 +138,6 @@ struct InstrumentSite {
     // noncomp/policy.h). Baked in at materialization from the model
     // policy.
     bool neglect_damping = false;
-
-    [[nodiscard]] double trap_remainder(int s) const {
-        return p_total[s] - p_dest[s][0] - p_dest[s][1];
-    }
 };
 
 // Operation types in the HIR

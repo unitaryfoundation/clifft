@@ -101,7 +101,7 @@ TEST_CASE("lowering: a fresh-qubit site is dormant-static with its spec in the p
     REQUIRE_THAT(site.p_total[1], WithinAbs(0.4, kTol));
     REQUIRE_THAT(site.p_dest[0][0], WithinAbs(0.02, kTol));
     REQUIRE_THAT(site.p_dest[0][1], WithinAbs(0.03, kTol));
-    REQUIRE_THAT(site.trap_remainder(1), WithinAbs(0.4, kTol));
+    REQUIRE_THAT(site.p_total[1] - site.p_dest[1][0] - site.p_dest[1][1], WithinAbs(0.4, kTol));
     REQUIRE(!site.neglect_damping);
 
     // Identity frame: the destination fixup is exactly X on qubit 0.

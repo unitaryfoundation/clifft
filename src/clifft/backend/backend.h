@@ -287,7 +287,6 @@ struct FusedU4Node {
 // instrument_offsets table and the trap protocol.
 struct CompiledInstrumentSite {
     uint32_t site_id = 0;
-    uint32_t source_line = 0;
     double p_total[2] = {0.0, 0.0};
     double p_dest[2][2] = {{0.0, 0.0}, {0.0, 0.0}};
 
@@ -298,10 +297,6 @@ struct CompiledInstrumentSite {
     PauliMaskHandle fixup_mask{};
 
     bool neglect_damping = false;
-
-    [[nodiscard]] double trap_remainder(int s) const {
-        return p_total[s] - p_dest[s][0] - p_dest[s][1];
-    }
 };
 
 struct ConstantPool {

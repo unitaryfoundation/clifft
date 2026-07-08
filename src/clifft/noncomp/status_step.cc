@@ -91,7 +91,7 @@ OperandAction operand_action(GateType gate, QubitStatus status,
 
 QubitStatus normal_post_op_status(QubitStatus entry, GateType gate, OperandRole role,
                                   const NonComputationalPolicy& policy) {
-    if (role == OperandRole::FeedbackX || role == OperandRole::FeedbackZ) {
+    if (role == OperandRole::Feedback) {
         // A classically-controlled correction is virtual (no physical
         // pulse): it may act within H_C but cannot move a qubit between
         // categories.
@@ -104,8 +104,7 @@ QubitStatus normal_post_op_status(QubitStatus entry, GateType gate, OperandRole 
         // that operation is dropped or rejected is decided later by the
         // rewriter). Lost is only restorable when the policy opts in;
         // Leaked always restores.
-        const bool reset = gate == GateType::R || gate == GateType::MR || gate == GateType::RX ||
-                           gate == GateType::RY || gate == GateType::MRX || gate == GateType::MRY;
+        const bool reset = is_reset(gate) || is_measure_reset(gate);
         const bool restorable = is_leaked(entry) || policy.reset_restores_lost;
         if (reset && restorable) {
             return QubitStatus::Computational;

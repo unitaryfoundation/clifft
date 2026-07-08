@@ -104,16 +104,6 @@ void exec_instrument_collapse_active(SchrodingerState& state, uint16_t v, uint8_
 // (0, 1] precondition and p = 1 lowering recipe as damp_eval apply.
 void exec_instrument_expand_damp(SchrodingerState& state, uint16_t v, double r_g, double r_e);
 
-// Frame-level forced collapse of a dormant-random qubit onto level
-// `level`, mirroring the state math of the dormant-random measurement
-// kernel with the outcome forced and no record written: extracts the
-// phase (-1)^(p_x[v] * level) into gamma and re-anchors the frame
-// (p_x[v] = level, p_z[v] = 0). Both levels of a dormant-random qubit
-// carry probability exactly one half, so no renormalization is needed.
-// Unlike the active-axis kernels, `level` is the localized (abstract)
-// outcome the frame anchors to, exactly as in the measurement kernel.
-void exec_instrument_collapse_dormant(SchrodingerState& state, uint16_t v, uint8_t level);
-
 // Turn one uniform variate u in [0, 1) into the branch decision for an
 // instrument site: fire-with-source-g occupies [0, p_g pop_g / N),
 // fire-with-source-e the next p_e pop_e / N, and no-fire the remainder,
