@@ -186,8 +186,10 @@ TEST_CASE("sample_noncomputational: a measurement on a leaked qubit without a cl
     transitions.emplace("S", always_leaked());
     NonComputationalModel model = make_model(all_g(), std::move(transitions));  // no classifier
 
+    // The up-front gate B check fires before any shot: capable model +
+    // measurement without a classifier.
     REQUIRE_THROWS_WITH(sample_noncomputational(c, model, 16, 1),
-                        ContainsSubstring("requires a classifier"));
+                        ContainsSubstring("classifier is required"));
 }
 
 TEST_CASE("sample_noncomputational: a four-symbol classifier rejects at construction") {

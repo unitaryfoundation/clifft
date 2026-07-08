@@ -273,14 +273,20 @@ TEST_CASE("rewrite: a non-restoring lost reset drops; reset_restores_lost keeps 
     REQUIRE(rw_keep.final_status[0] == clifft::QubitStatus::Computational);
 }
 
-TEST_CASE("rewrite: an X/Y-basis measurement of a noncomputational qubit rejects") {
-    // No faithful single-bit form on a leaked/lost operand: a
-    // representability limit, not a policy choice, so it rejects even though
-    // drop is the only op policy.
+TEST_CASE("rewrite: an X-basis measurement of a noncomputational qubit classifies") {
+    // On a vacated carrier the readout basis is incidental: MX classifies
+    // exactly like M, substituting a MPAD+READOUT_NOISE for the original MX.
     Circuit c = parse("MX 0\n");
-    NonComputationalModel model = make_model({});
-    REQUIRE_THROWS_WITH(rewritten(c, model, {kLeakG}),
-                        ContainsSubstring("MX") && ContainsSubstring("representable"));
+    NonComputationalModel model =
+        make_model_with_classifier({}, classifier_with(kLost, {0.5, 0.5}));
+    ContinuationRewrite rw = rewritten(c, model, {kLost});
+    REQUIRE(count_gate(rw.circuit, GateType::MX) == 0);
+    REQUIRE(count_gate(rw.circuit, GateType::MPAD) == 1);
+    REQUIRE(count_gate(rw.circuit, GateType::READOUT_NOISE) == 1);
+    REQUIRE(rw.circuit.num_measurements == 1);
+    REQUIRE(rw.classified_measurements.size() == 1);
+    REQUIRE(rw.classified_measurements[0].slot == 0);
+    REQUIRE(rw.classified_measurements[0].level == Level::Lost);
 }
 
 // =========================================================================
@@ -418,10 +424,10 @@ TEST_CASE("rewrite: a noncomputational measurement without a classifier rejects"
     REQUIRE_THROWS_WITH(rewritten(c, model, {kLost}), ContainsSubstring("requires a classifier"));
 }
 
-TEST_CASE("rewrite: an X/Y-basis or multi-qubit measurement on a lost qubit rejects") {
+TEST_CASE("rewrite: a parity measurement on a lost qubit rejects") {
+    // MPP has no faithful single-bit substitution on a noncomputational
+    // operand, so it rejects. MX and MY classify (tested separately).
     NonComputationalModel model = make_model({});
-    REQUIRE_THROWS_WITH(rewritten(parse("MX 0\n"), model, {kLost}),
-                        ContainsSubstring("MX") && ContainsSubstring("Lost"));
     REQUIRE_THROWS_WITH(rewritten(parse("MPP X0\n"), model, {kLost}),
                         ContainsSubstring("MPP") && ContainsSubstring("Lost"));
 }

@@ -132,12 +132,15 @@ class Model:
 
     An operation with no representable effect on a leaked or lost operand --
     e.g. a two-qubit gate onto a vacated site -- is dropped, acting as the
-    identity on the surviving operands. Measurements keep their record slot
-    (the classifier supplies the bit); a non-reset X/Y-basis measurement
-    (``MX``/``MY``) or a multi-qubit-parity measurement (``MPP``) of a leaked
-    or lost qubit has no faithful single-bit form and raises. A
-    measure-and-reset (``MR``/``MRX``/``MRY``) is kept instead -- its reset
-    re-prepares the site and the classifier supplies its record bit.
+    identity on the surviving operands. Single-qubit measurements (``M``,
+    ``MX``, ``MY``) keep their record slot; on a vacated carrier the readout
+    basis is incidental and the classifier supplies the bit. A
+    measure-and-reset (``MR``/``MRX``/``MRY``) is kept the same way, with
+    the reset additionally re-preparing the site. Parity measurements
+    (``MPP``) are not supported when the model can leak or lose qubits — they
+    have no faithful single-bit classifier substitution — and raise before
+    sampling begins. A model that can leak or lose qubits also requires a
+    classifier when the circuit measures.
 
     Construction validates shapes, probabilities, gate keys, policy values,
     and level table consistency in C++, raising ``ValueError`` on any
@@ -256,14 +259,19 @@ def sample(
     """Sample ``circuit`` under ``model`` for ``shots`` shots.
 
     ``circuit`` is a parsed ``clifft.Circuit`` or a Stim-format string. Returns a
-    :class:`NonComputationalSample`. Raises ``ValueError`` when the trajectory
-    policy rejects an operation, when a leaked/lost measurement needs a
-    classifier the model lacks, or when a classifier column is unsupported.
+    :class:`NonComputationalSample`. Single-qubit measurements (``M``, ``MX``,
+    ``MY``) of a leaked or lost qubit read the classifier; the readout basis is
+    incidental on a vacated carrier. A model that can leak or lose qubits
+    requires a classifier when the circuit measures, and parity measurements
+    (``MPP``) are not supported with such models — both are rejected before
+    sampling begins. Raises ``ValueError`` when one of these contracts is
+    violated, when a classifier column is unsupported, or when an operation
+    has no representable effect on a noncomputational operand.
 
-    ``max_rank`` caps the compiled peak rank under
-    exact-mode compilation: it fails with the offending
-    circuit line named, before any state allocation, instead of attempting
-    a ``2**k`` allocation. Unlimited when ``None``.
+    ``max_rank`` caps the compiled peak rank under exact-mode compilation;
+    the cap is enforced at each continuation compile, failing with the
+    offending circuit line named instead of attempting a ``2**k``
+    allocation. Unlimited when ``None``.
     """
     if isinstance(circuit, str):
         circuit = _clifft_core.parse(circuit)

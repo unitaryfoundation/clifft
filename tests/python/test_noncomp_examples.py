@@ -92,15 +92,15 @@ def test_example_relaxation_to_ground_on_known_qubit():
 # --- Intentionally unsupported -----------------------------------------------
 
 
-def test_reject_xy_measurement_on_noncomputational_qubit():
-    # Once qubit 0 is leaked, its downstream gates drop, but an X/Y-basis (or
-    # parity) measurement of it has no faithful single-bit form and is refused
-    # -- a representability limit, not a policy the caller can turn off.
+def test_reject_parity_measurement_under_capable_model():
+    # A parity measurement (MPP) is not supported when the model can leak
+    # or lose qubits, rejected before sampling begins.
     model = noncomp.Model(
         initial_state=[1.0, 0.0, 0.0, 0.0, 0.0],
         transitions={
             "S": _transition({(Level.LEAK_G, Level.G): 1.0, (Level.LEAK_G, Level.E): 1.0})
         },
+        classifier=noncomp.Classifier(["0", "1"], [[1.0] * 5, [0.0] * 5]),
     )
-    with pytest.raises(ValueError, match="not representable"):
-        noncomp.sample("H 0\nS 0\nMX 0\n", model, shots=8, seed=5)
+    with pytest.raises(ValueError, match="not supported"):
+        noncomp.sample("H 0\nS 0\nMPP Z0*Z1\n", model, shots=8, seed=5)

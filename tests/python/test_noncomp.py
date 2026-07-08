@@ -422,16 +422,19 @@ def test_a_multi_round_circuit_runs_through_loss():
     assert np.all(r.final_status[:, 0] == LOST_KIND)
 
 
-def test_xy_basis_measurement_of_a_lost_qubit_raises():
-    """An X/Y-basis or parity measurement of a leaked or lost qubit has no
-    faithful single-bit form, so it raises -- a representability limit, not a
-    policy the caller can turn off."""
+def test_mx_measurement_of_a_lost_qubit_classifies():
+    """An X-basis measurement of a lost qubit reads the classifier bit.
+
+    On a vacated carrier the readout basis is incidental; MX classifies
+    identically to M.  The lost column [0.0, 1.0] is deterministic 1."""
     circuit = "S 0\nMX 0\n"
     transitions = {"S": transition_to(LOST)}
     classifier = classifier_for(LOST, [0.0, 1.0])
     model = noncomp.Model(initial_state=ALL_G, transitions=transitions, classifier=classifier)
-    with pytest.raises(ValueError, match="representable"):
-        noncomp.sample(circuit, model, shots=4, seed=2)
+    r = noncomp.sample(circuit, model, shots=8, seed=2)
+    assert r.num_measurements == 1
+    assert (r.measurements[:, 0] == 1).all()
+    assert (r.final_status[:, 0] == LOST_KIND).all()
 
 
 def test_zero_fire_loss_before_firing_loss_samples_cleanly():
@@ -543,9 +546,12 @@ def test_chain_flip_on_parked_carrier_is_destroyed_by_restoring_reset():
     overwritten by the restoring reset, so the restored qubit reads a clean
     |0>. Had the qubit never been lost, the same X would flip a live qubit
     and the record would read 1, so a passing 0 proves the loss happened."""
+    # A classifier is required when the model is capable and the circuit
+    # measures; the identity columns carry no readout confusion here.
     model = noncomp.Model(
         initial_state=ALL_G,
         transitions={"S": transition_to(LOST)},
+        classifier=classifier_for(LOST, [1.0, 0.0]),
         reset_restores_lost=True,
     )
     result = noncomp.sample("S 0\nE(1) X0\nR 0\nM 0", model, shots=16, seed=11)
@@ -570,3 +576,80 @@ def test_chain_flip_on_parked_carrier_is_destroyed_by_recapture():
     assert np.all(result.measurements[:, 0] == 0)  # classified while leaked
     assert np.all(result.measurements[:, 1] == 1)  # recaptured to e
     assert (result.final_status[:, 0] == COMPUTATIONAL).all()
+
+
+# --- MX / MY classify on vacated carriers ------------------------------------
+
+
+def test_mx_classified_deterministic():
+    """MX on a certainly-lost qubit reads the classifier's lost column.
+
+    The lost column [0.0, 1.0] is deterministic 1."""
+    circuit = "S 0\nMX 0\n"
+    transitions = {"S": transition_to(LOST)}
+    classifier = classifier_for(LOST, [0.0, 1.0])
+    model = noncomp.Model(initial_state=ALL_G, transitions=transitions, classifier=classifier)
+    r = noncomp.sample(circuit, model, shots=8, seed=201)
+    assert r.num_measurements == 1
+    assert (r.measurements[:, 0] == 1).all()
+    assert (r.final_status[:, 0] == LOST_KIND).all()
+
+
+def test_mx_inverted_complements_classifier_bit():
+    """MX !0 on a certainly-lost qubit produces the complement of the classifier bit."""
+    circuit = "S 0\nMX !0\n"
+    transitions = {"S": transition_to(LOST)}
+    classifier = classifier_for(LOST, [0.0, 1.0])  # lost column: always 1 without inversion
+    model = noncomp.Model(initial_state=ALL_G, transitions=transitions, classifier=classifier)
+    r = noncomp.sample(circuit, model, shots=8, seed=203)
+    assert (r.measurements[:, 0] == 0).all()  # inverted: 1 -> 0
+
+
+# --- Gate B error (classifier required) --------------------------------------
+
+
+def test_gate_b_capable_model_with_measurement_no_classifier_raises():
+    """A model that can lose qubits requires a classifier when the circuit measures."""
+    transitions = {"S": transition_to(LOST)}
+    model = noncomp.Model(initial_state=ALL_G, transitions=transitions)
+    # The circuit uses the "S" hook so the annotated circuit has a
+    # LEVEL_TRANSITION node that fires into the noncomp category.
+    with pytest.raises(ValueError, match="classifier is required"):
+        noncomp.sample("H 0\nS 0\nM 0\n", model, shots=4, seed=4)
+
+
+# --- Gate A error (MPP unsupported under capable model) ----------------------
+
+
+def test_gate_a_mpp_under_capable_model_raises():
+    """MPP is not supported when the model can leak or lose qubits."""
+    transitions = {"S": transition_to(LOST)}
+    classifier = classifier_for(LOST, [0.5, 0.5])
+    model = noncomp.Model(initial_state=ALL_G, transitions=transitions, classifier=classifier)
+    with pytest.raises(ValueError, match="not supported"):
+        noncomp.sample("S 0\nMPP Z0*Z1\n", model, shots=4, seed=5)
+
+
+# --- Memory-X smoke -----------------------------------------------------------
+
+
+def test_memory_x_smoke():
+    """A stim-style memory-X circuit ending in MX on two data qubits samples cleanly."""
+    # Low-rate loss; data qubits measured in X basis at the end.
+    loss_col = [0.0, 1.0]  # lost reads 1
+    classifier = classifier_for(LOST, loss_col)
+    model = noncomp.Model(initial_state=ALL_G, transitions={}, classifier=classifier)
+    # Trivial memory-X: two X-basis initialisations, final MX measurement.
+    r = noncomp.sample("RX 0 1\nMX 0 1\n", model, shots=16, seed=207)
+    assert r.num_measurements == 2
+    assert r.measurements.shape == (16, 2)
+    # All computational (no loss here); X-basis reset then MX reads 0.
+    assert (r.measurements == 0).all()
+
+
+def test_contract_validated_for_zero_shots():
+    """Validation is shot-count independent: shots=0 still rejects a
+    leak-capable model that measures without a classifier."""
+    model = noncomp.Model(initial_state=ALL_G, transitions={"S": transition_to(LOST)})
+    with pytest.raises(ValueError, match="classifier is required"):
+        noncomp.sample("S 0\nM 0", model, shots=0, seed=1)

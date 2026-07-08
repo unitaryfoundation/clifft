@@ -143,10 +143,9 @@ void process_ordinary_node(const AstNode& node, uint32_t op_index,
 
     if (!drop_op) {
         if (classified_level.has_value()) {
-            // The policy pre-scan admits only single-qubit Z-basis
-            // measurement forms here (M and the measure-and-resets);
-            // X/Y-basis and multi-target measurements on a
-            // noncomputational operand reject above.
+            // The policy pre-scan admits single-qubit measurement forms
+            // M, MX, MY, and the measure-and-resets; multi-qubit parity
+            // measurements (MPP) on a noncomputational operand reject above.
             const uint32_t qubit = qubit_operands(node).front().qubit;
             const MeasurementClassifier& classifier = classifier_for(model, gate, op_index, qubit);
             const bool ternary = classifier.has_herald();
