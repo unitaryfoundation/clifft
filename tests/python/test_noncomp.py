@@ -676,3 +676,12 @@ def test_compile_annotated_circuit_raises_invalid_argument_with_noncomp_sample_h
 
     with pytest.raises(ValueError, match="noncomp.sample"):
         clifft.compile("LOSS(0.1) 0\nM 0")
+
+
+def test_sample_type_hints_resolve_at_runtime():
+    """The Circuit | str annotation must be introspectable: Circuit is a
+    real module-level name, not a TYPE_CHECKING-only import."""
+    from typing import get_type_hints
+
+    hints = get_type_hints(noncomp.sample)
+    assert "circuit" in hints
