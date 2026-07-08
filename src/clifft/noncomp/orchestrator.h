@@ -4,11 +4,11 @@
 //
 // sample_noncomputational(circuit, model, shots, seed) validates the
 // circuit, resolves the global seed, and hands the run to the exact-mode
-// driver (exact_driver.h) -- the one sampling path: the annotated circuit
-// compiles once as a shared main line, transition fires resolve at
-// runtime against the live state, and the driver returns the user-facing
-// records plus the noncomputational sidecar (final statuses and herald
-// flags).
+// driver (exact_driver.h) -- the one sampling path: the annotated
+// circuit's rewrites compile lazily, one memoized module per event delta
+// (the no-event main line included), transition fires resolve at runtime
+// against the live state, and the driver returns the user-facing records
+// plus the noncomputational sidecar (final statuses and herald flags).
 //
 // Randomness is deterministic in `seed`: per-shot driver and SVM streams
 // derive from domain-separated sub-seeds (seed.h). Stochastic classifier

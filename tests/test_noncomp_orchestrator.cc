@@ -17,7 +17,6 @@
 
 using Catch::Matchers::ContainsSubstring;
 using clifft::Circuit;
-using clifft::ClassifierSpec;
 using clifft::NonComputationalModel;
 using clifft::NonComputationalPolicy;
 using clifft::NonComputationalSample;
@@ -70,7 +69,7 @@ std::vector<std::vector<double>> always_to_e() {
 // Two-symbol classifier whose column for `level` is `col`; computational
 // levels read out faithfully (no readout confusion) and other
 // noncomputational levels read a deterministic symbol 0.
-ClassifierSpec classifier_with(uint8_t level, std::vector<double> col) {
+std::vector<std::vector<double>> classifier_with(uint8_t level, std::vector<double> col) {
     std::vector<std::vector<double>> m(2, std::vector<double>(5, 0.0));
     for (size_t l = 0; l < 5; ++l) {
         m[0][l] = 1.0;  // symbol "0"
@@ -81,18 +80,19 @@ ClassifierSpec classifier_with(uint8_t level, std::vector<double> col) {
     m[1][1] = 1.0;
     m[0][level] = col[0];
     m[1][level] = col[1];
-    return ClassifierSpec{2, std::move(m)};
+    return m;
 }
 
 // The common case: classify the leak_g column.
-ClassifierSpec make_classifier(std::vector<double> leakg) {
+std::vector<std::vector<double>> make_classifier(std::vector<double> leakg) {
     return classifier_with(kLeakG, std::move(leakg));
 }
 
 NonComputationalModel make_model(
     std::vector<double> initial_state,
     std::map<std::string, std::vector<std::vector<double>>> transitions,
-    std::optional<ClassifierSpec> classifier = std::nullopt, NonComputationalPolicy policy = {}) {
+    std::optional<std::vector<std::vector<double>>> classifier = std::nullopt,
+    NonComputationalPolicy policy = {}) {
     return NonComputationalModel::from_spec(std::move(initial_state), transitions,
                                             std::move(classifier), policy);
 }
@@ -205,16 +205,15 @@ TEST_CASE("sample_noncomputational: a four-symbol classifier rejects at construc
     m[3][kLeakG] = 0.1;
     std::map<std::string, std::vector<std::vector<double>>> transitions;
     transitions.emplace("S", always_leaked());
-    REQUIRE_THROWS_WITH(
-        make_model(all_g(), std::move(transitions), ClassifierSpec{4, std::move(m)}),
-        ContainsSubstring("two record symbols") && ContainsSubstring("got 4"));
+    REQUIRE_THROWS_WITH(make_model(all_g(), std::move(transitions), std::move(m)),
+                        ContainsSubstring("two record symbols") && ContainsSubstring("got 4"));
 }
 
 namespace {
 
 // Three-symbol classifier whose column for `level` is `col`; computational
 // levels read out faithfully and other levels default to symbol 0.
-ClassifierSpec ternary_classifier_with(uint8_t level, std::vector<double> col) {
+std::vector<std::vector<double>> ternary_classifier_with(uint8_t level, std::vector<double> col) {
     std::vector<std::vector<double>> m(3, std::vector<double>(5, 0.0));
     for (size_t l = 0; l < 5; ++l) {
         m[0][l] = 1.0;
@@ -226,7 +225,7 @@ ClassifierSpec ternary_classifier_with(uint8_t level, std::vector<double> col) {
     m[0][level] = col[0];
     m[1][level] = col[1];
     m[2][level] = col[2];
-    return ClassifierSpec{3, std::move(m)};
+    return m;
 }
 
 }  // namespace
@@ -238,7 +237,7 @@ TEST_CASE("sample_noncomputational: the herald symbol fills the sidecar, not the
     Circuit c = parse("H 1\nS 1\nM 1\nM 0\n");
     std::map<std::string, std::vector<std::vector<double>>> transitions;
     transitions.emplace("S", always_leaked());
-    ClassifierSpec cl = ternary_classifier_with(kLeakG, {0.0, 0.0, 1.0});
+    auto cl = ternary_classifier_with(kLeakG, {0.0, 0.0, 1.0});
     NonComputationalModel model = make_model(all_g(), std::move(transitions), std::move(cl));
 
     constexpr uint32_t kShots = 256;
@@ -258,7 +257,7 @@ TEST_CASE("sample_noncomputational: a partial herald column matches its frequenc
     Circuit c = parse("H 0\nS 0\nM 0\n");
     std::map<std::string, std::vector<std::vector<double>>> transitions;
     transitions.emplace("S", always_leaked());
-    ClassifierSpec cl = ternary_classifier_with(kLeakG, {0.3, 0.0, 0.7});
+    auto cl = ternary_classifier_with(kLeakG, {0.3, 0.0, 0.7});
     NonComputationalModel model = make_model(all_g(), std::move(transitions), std::move(cl));
 
     constexpr uint32_t kShots = 1000;
@@ -279,7 +278,7 @@ TEST_CASE("sample_noncomputational: the record bit is uniform given a herald, pi
     Circuit c = parse("H 0\nS 0\nM 0\n");
     std::map<std::string, std::vector<std::vector<double>>> transitions;
     transitions.emplace("S", always_leaked());
-    ClassifierSpec cl = ternary_classifier_with(kLeakG, {0.5, 0.0, 0.5});
+    auto cl = ternary_classifier_with(kLeakG, {0.5, 0.0, 0.5});
     NonComputationalModel model = make_model(all_g(), std::move(transitions), std::move(cl));
 
     constexpr uint32_t kShots = 2000;
@@ -305,7 +304,7 @@ TEST_CASE("sample_noncomputational: a two-symbol classifier leaves the herald si
     Circuit c = parse("H 0\nS 0\nM 0\n");
     std::map<std::string, std::vector<std::vector<double>>> transitions;
     transitions.emplace("S", always_leaked());
-    ClassifierSpec cl = make_classifier({0.5, 0.5});
+    auto cl = make_classifier({0.5, 0.5});
     NonComputationalModel model = make_model(all_g(), std::move(transitions), std::move(cl));
 
     constexpr uint32_t kShots = 64;
@@ -523,7 +522,7 @@ namespace {
 
 // Classifier with confused computational columns; noncomputational levels
 // deterministically read symbol 0.
-ClassifierSpec comp_confusion(double p01, double p10) {
+std::vector<std::vector<double>> comp_confusion(double p01, double p10) {
     std::vector<std::vector<double>> m(2, std::vector<double>(5, 0.0));
     for (size_t l = 0; l < 5; ++l) {
         m[0][l] = 1.0;
@@ -532,7 +531,7 @@ ClassifierSpec comp_confusion(double p01, double p10) {
     m[1][0] = p01;
     m[0][1] = p10;
     m[1][1] = 1.0 - p10;
-    return ClassifierSpec{2, std::move(m)};
+    return m;
 }
 
 }  // namespace
@@ -582,8 +581,7 @@ TEST_CASE("sample_noncomputational: hand-written LOSS and LEVEL_TRANSITION run e
     m[1][kLeakG] = 1.0;  // leaked reads 1
     m[0][kLost] = 1.0;   // lost reads 0
     m[0][3] = 1.0;
-    NonComputationalModel model =
-        make_model(all_g(), std::move(transitions), ClassifierSpec{2, std::move(m)});
+    NonComputationalModel model = make_model(all_g(), std::move(transitions), std::move(m));
 
     NonComputationalSample s = sample_noncomputational(c, model, 64, 5);
     for (uint32_t shot = 0; shot < s.shots; ++shot) {

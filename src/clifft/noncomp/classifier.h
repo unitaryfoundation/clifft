@@ -29,13 +29,12 @@ namespace clifft {
 class MeasurementClassifier {
   public:
     // Validates that:
-    //   - num_symbols is two or three;
-    //   - matrix has shape (num_symbols, kNumLevels);
+    //   - matrix.size() (the row count) is two or three;
+    //   - every row has kNumLevels columns;
     //   - every entry is finite and lies in [0, 1] (strict);
     //   - every column sums to 1 within tolerance;
     //   - the computational columns place no mass on the herald symbol.
-    static MeasurementClassifier from_matrix(size_t num_symbols,
-                                             const std::vector<std::vector<double>>& matrix);
+    static MeasurementClassifier from_matrix(const std::vector<std::vector<double>>& matrix);
 
     // The positional index of the herald symbol, when one is present.
     static constexpr uint8_t kHeraldSymbol = 2;

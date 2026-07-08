@@ -118,6 +118,49 @@ def test_damping_boundary_probe_separates_exact_from_neglect():
     assert abs(p1_neglect - expected_neglect) < tol_neglect
 
 
+def test_damping_null_source_independent_rates_make_neglect_exact():
+    """Null counterpart of the boundary probe, which pins the direction the
+    modes separate at source-DEPENDENT rates: when a transition's
+    computational columns are EQUAL (fire 0.3 from g and from e, both to
+    leak_g), the no-fire back-action is proportional to identity, so
+    damping="exact" and damping="neglect" must agree in distribution.  For
+    a surviving (never-fired) qubit the interference is fully preserved,
+    so the H .. H sandwich returns |0> deterministically in both modes."""
+    shots = 4000
+    p = 0.3
+    transitions = {"leak": _transition({(Level.LEAK_G, Level.G): p, (Level.LEAK_G, Level.E): p})}
+    # g reads 0, e reads 1, every noncomputational level reads 1: a leak
+    # reads 1, and the survivor pin expects 0 (H .. H returns g).
+    classifier = noncomp.Classifier([[1, 0, 0, 0, 0], [0, 1, 1, 1, 1]])
+    text = "H 0\nLEVEL_TRANSITION[leak] 0\nH 0\nM 0\n"
+
+    sigma = np.sqrt(p * (1.0 - p) / shots)
+    means = {}
+    for damping in ("exact", "neglect"):
+        model = noncomp.Model(
+            initial_state=[1.0, 0.0, 0.0, 0.0, 0.0],
+            transitions=transitions,
+            classifier=classifier,
+            damping=damping,
+        )
+        r = noncomp.sample(text, model, shots=shots, seed=11)
+        meas = np.asarray(r.measurements)[:, 0]
+        status = np.asarray(r.final_status)[:, 0]
+
+        # Sharp per-shot null: a fired shot leaked and reads 1; a survivor is
+        # computational with interference fully restored, reading 0.
+        assert ((meas == 1) == (status == noncomp.QubitStatus.LEAK_G)).all()
+        assert ((meas == 0) == (status == noncomp.QubitStatus.COMPUTATIONAL)).all()
+        # Both outcomes occur (vacuity guard).
+        assert (status == noncomp.QubitStatus.LEAK_G).any()
+        assert (status == noncomp.QubitStatus.COMPUTATIONAL).any()
+        # The leak rate is the source-independent p in both modes.
+        means[damping] = float(meas.mean())
+        assert abs(means[damping] - p) < 4 * sigma
+
+    assert abs(means["exact"] - means["neglect"]) < 8 * sigma
+
+
 def test_neglect_bell_correlation_probe():
     """Neglect-mode forced trace-out keeps the source-determined partner correlation.
 

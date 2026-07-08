@@ -9,10 +9,12 @@
 //      shared status stepper and keep, drop, or reject the operation. An
 //      operation with no representable effect on a leaked or lost operand is
 //      excised whole (identity on the surviving operands), whose statuses
-//      then keep their entry values. A non-reset X/Y-basis measurement
-//      (MX/MY) or a multi-qubit-parity measurement (MPP) of such an operand
-//      has no faithful single-bit form and is rejected -- a representability
-//      limit, not a policy choice. A measure-and-reset (MR/MRX/MRY) is kept.
+//      then keep their entry values. A single-qubit measurement (M, MX, MY)
+//      on a leaked or lost operand classifies exactly as a Z-basis measurement
+//      -- the readout basis is incidental on a vacated carrier. A multi-qubit
+//      parity measurement (MPP) rejects as it has no faithful single-bit form
+//      -- a representability limit, not a policy choice. A measure-and-reset
+//      (MR/MRX/MRY) is kept.
 //   2. Classifier record write: a measurement on a leaked or lost qubit is
 //      not a physical Born measurement -- the model's classifier defines its
 //      record bit. The measurement node is replaced by an MPAD writing the
@@ -71,9 +73,9 @@ struct ClassifiedMeasurement {
     Level level = Level::G;
 
     // Index into the rewritten circuit's nodes of the READOUT_NOISE node
-    // drawing this slot's bit, or SIZE_MAX when the column is deterministic
+    // drawing this slot's bit, or absent when the column is deterministic
     // and the bit is the MPAD literal itself.
-    size_t noise_node = SIZE_MAX;
+    std::optional<size_t> noise_node;
 };
 
 // =============================================================================

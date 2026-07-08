@@ -173,18 +173,16 @@ class Model:
         transition_matrices = {
             str(gate): _as_matrix(matrix) for gate, matrix in (transitions or {}).items()
         }
-        num_symbols = None if classifier is None else len(classifier.matrix)
         matrix = None if classifier is None else classifier.matrix
         self._handle = _clifft_core._build_noncomp_model(
             [float(p) for p in initial_state],
             transition_matrices,
-            num_symbols,
             matrix,
             bool(reset_restores_lost),
             str(damping),
         )
         self._transition_keys: list[str] = sorted(transition_matrices.keys())
-        self._classifier_rows: int | None = num_symbols
+        self._classifier_rows: int | None = None if classifier is None else len(classifier.matrix)
         self._reset_restores_lost: bool = bool(reset_restores_lost)
         self._damping: str = str(damping)
 
@@ -295,7 +293,10 @@ def sample(
     ``max_rank`` caps the compiled peak rank under exact-mode compilation;
     the cap is enforced at each continuation compile, failing with the
     offending circuit line named instead of attempting a ``2**k``
-    allocation. Unlimited when ``None``.
+    allocation. The cap applies to each compiled module, including branches
+    a given shot never takes (such as the no-fire suffix past a
+    certain-fire annotation), so it is conservative: a rejected circuit may
+    keep every reachable trajectory within the cap. Unlimited when ``None``.
     """
     if isinstance(circuit, str):
         circuit = _clifft_core.parse(circuit)

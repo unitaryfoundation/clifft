@@ -404,6 +404,29 @@ def test_max_rank_rejects_over_budget_exact_but_neglect_fits():
     assert r.num_measurements == 3
 
 
+def test_max_rank_ignores_the_unreachable_all_computational_module():
+    """A model whose initial state has zero computational mass never runs the
+    no-event module; its rank must not be able to reject the run."""
+    circuit = (
+        "H 0\n"
+        + "".join(f"CX 0 {i}\n" for i in range(1, 6))
+        + "".join(f"T {i}\nH {i}\n" for i in range(6))
+        + "".join(f"M {i}\n" for i in range(6))
+    )
+    cls = noncomp.Classifier([[1, 0, 1, 0, 0], [0, 1, 0, 1, 1]])
+    # Control: with computational initials the no-event module is real and
+    # its rank exceeds the cap -- this is what makes the test discriminating.
+    with pytest.raises(ValueError, match="max_rank"):
+        noncomp.sample(circuit, noncomp.Model(classifier=cls), shots=4, seed=3, max_rank=0)
+    lost = noncomp.Model(initial_state=[0, 0, 0, 0, 1], classifier=cls)
+    r = noncomp.sample(circuit, lost, shots=16, seed=3, max_rank=0)
+    assert (r.final_status == noncomp.QubitStatus.LOST).all()
+    # The lost column reads symbol 1 with certainty: a raw readout of the
+    # dropped-everything |0> carriers would give 0, so all-1 records pin
+    # that the classifier wrote them.
+    assert (r.measurements == 1).all()
+
+
 def test_a_multi_round_circuit_runs_through_loss():
     """A lost data qubit drops its syndrome CXs (identity on the ancilla).
 

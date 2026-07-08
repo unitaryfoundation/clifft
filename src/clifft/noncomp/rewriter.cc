@@ -102,44 +102,9 @@ void process_ordinary_node(const AstNode& node, uint32_t op_index,
     const NonComputationalPolicy& policy = model.policy();
     const GateType gate = node.gate;
 
-    // Policy pre-scan over entry statuses: any rejecting operand rejects
-    // the whole operation; otherwise any dropping operand drops it whole
-    // (identity on the surviving operands).
-    bool drop_op = false;
-    for (const QubitOperand& operand : qubit_operands(node)) {
-        const uint32_t qubit = operand.qubit;
-        if (qubit >= status.size()) {
-            throw std::invalid_argument("rewrite: operand qubit " + std::to_string(qubit) +
-                                        " is out of range at op " + std::to_string(op_index));
-        }
-        switch (operand_action(gate, status[qubit], policy)) {
-            case OperandAction::Reject:
-                throw std::invalid_argument(
-                    "rewrite: operation '" + std::string(gate_name(gate)) + "' on a " +
-                    status_name(status[qubit]) + " qubit " + std::to_string(qubit) + " at op " +
-                    std::to_string(op_index) + " is not representable; rejecting");
-            case OperandAction::Drop:
-                drop_op = true;
-                break;
-            case OperandAction::Apply:
-                break;
-        }
-    }
-
-    // Set when this (single-qubit Z-basis) measurement reads a leaked or
-    // lost qubit: the classifier, not the SVM, defines its record bit.
-    std::optional<Level> classified_level;
-
-    for (const QubitOperand& operand : qubit_operands(node)) {
-        const uint32_t qubit = operand.qubit;
-        const QubitStatus pre = status[qubit];
-
-        if (is_measurement(gate) && !is_computational(pre)) {
-            classified_level = noncomp_level(pre);
-        }
-
-        status[qubit] = drop_op ? pre : normal_post_op_status(pre, gate, operand.role, policy);
-    }
+    const OrdinaryStep step = advance_ordinary_node(node, op_index, status, policy, "rewrite");
+    bool drop_op = step.dropped;
+    std::optional<Level> classified_level = step.measured_noncomp_level;
 
     if (!drop_op) {
         if (classified_level.has_value()) {
@@ -172,7 +137,7 @@ void process_ordinary_node(const AstNode& node, uint32_t op_index,
                 flip = 1.0 - flip;
             }
 
-            size_t noise_node = SIZE_MAX;
+            std::optional<size_t> noise_node;
             if (!ternary && (flip == 0.0 || flip == 1.0)) {
                 // Deterministic column: the bit is the padding literal
                 // itself, no sample-time draw.
@@ -245,7 +210,7 @@ ContinuationRewrite rewrite_continuation(const Circuit& annotated, const ExactSh
 
     // Node index (into `out`) of the last jump's trace-out R, when one is
     // emitted; converted to a hidden record slot after the walk.
-    size_t traceout_node = SIZE_MAX;
+    std::optional<size_t> traceout_node;
 
     uint32_t slot = 0;  // visible measurement record index
 
@@ -318,8 +283,12 @@ ContinuationRewrite rewrite_continuation(const Circuit& annotated, const ExactSh
                     }
                 } else {
                     const TransitionInstrument* instr = model.transition_named(node.tag);
-                    if (instr != nullptr && instr->column_sum(Level::G) == 0.0 &&
-                        instr->column_sum(Level::E) == 0.0) {
+                    if (instr == nullptr) {
+                        throw std::invalid_argument(
+                            "rewrite_continuation: unknown transition tag '" + node.tag +
+                            "' at op " + std::to_string(op_index));
+                    }
+                    if (instr->column_sum(Level::G) == 0.0 && instr->column_sum(Level::E) == 0.0) {
                         continue;
                     }
                 }
@@ -375,9 +344,7 @@ ContinuationRewrite rewrite_continuation(const Circuit& annotated, const ExactSh
             "consults");
     }
 
-    if (traceout_node != SIZE_MAX) {
-        result.forced_traceout_node = traceout_node;
-    }
+    result.forced_traceout_node = traceout_node;
 
     result.final_status = std::move(status);
     return result;

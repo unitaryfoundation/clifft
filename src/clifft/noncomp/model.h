@@ -33,22 +33,12 @@
 
 namespace clifft {
 
-// Raw classifier spec: symbol count and the stochastic matrix
-// P[symbol][level]. Symbol labels belong to the Python-facing API; C++
-// only needs the positional record/herald convention. Bundled so the
-// model builder takes an optional classifier without a separate presence
-// flag.
-struct ClassifierSpec {
-    size_t num_symbols;
-    std::vector<std::vector<double>> matrix;
-};
-
 class NonComputationalModel {
   public:
     // The one construction path: build every TransitionInstrument and
     // the classifier from raw matrices, then assemble and validate.
     // `transition_matrices` maps a transition key to its T[to][from]
-    // matrix; `classifier_spec` is optional. Throws
+    // matrix; `classifier_matrix` is optional. Throws
     // std::invalid_argument, naming the offending component, when a
     // matrix is malformed, the initial state is not a probability
     // vector over the five levels, a transition key cannot be
@@ -58,7 +48,8 @@ class NonComputationalModel {
     static NonComputationalModel from_spec(
         std::vector<double> initial_state,
         const std::map<std::string, std::vector<std::vector<double>>>& transition_matrices,
-        std::optional<ClassifierSpec> classifier_spec, NonComputationalPolicy policy);
+        std::optional<std::vector<std::vector<double>>> classifier_matrix,
+        NonComputationalPolicy policy);
 
     // P(initial level). The stored distribution sums to exactly 1.
     double initial_probability(Level level) const {

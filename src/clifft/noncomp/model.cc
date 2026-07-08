@@ -130,7 +130,8 @@ NonComputationalModel::NonComputationalModel(
 NonComputationalModel NonComputationalModel::from_spec(
     std::vector<double> initial_state,
     const std::map<std::string, std::vector<std::vector<double>>>& transition_matrices,
-    std::optional<ClassifierSpec> classifier_spec, NonComputationalPolicy policy) {
+    std::optional<std::vector<std::vector<double>>> classifier_matrix,
+    NonComputationalPolicy policy) {
     std::map<std::string, TransitionInstrument> transitions;
     for (const auto& [gate, matrix] : transition_matrices) {
         try {
@@ -142,9 +143,8 @@ NonComputationalModel NonComputationalModel::from_spec(
     }
 
     std::optional<MeasurementClassifier> classifier;
-    if (classifier_spec.has_value()) {
-        classifier = MeasurementClassifier::from_matrix(classifier_spec->num_symbols,
-                                                        classifier_spec->matrix);
+    if (classifier_matrix.has_value()) {
+        classifier = MeasurementClassifier::from_matrix(*classifier_matrix);
     }
 
     return NonComputationalModel(std::move(initial_state), std::move(transitions),

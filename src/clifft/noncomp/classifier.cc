@@ -10,19 +10,13 @@
 namespace clifft {
 
 MeasurementClassifier MeasurementClassifier::from_matrix(
-    size_t num_symbols, const std::vector<std::vector<double>>& matrix) {
-    if (num_symbols != 2 && num_symbols != 3) {
+    const std::vector<std::vector<double>>& matrix) {
+    const size_t s_n = matrix.size();
+    if (s_n != 2 && s_n != 3) {
         throw std::invalid_argument(
             "MeasurementClassifier::from_matrix: a classifier has two record symbols and an "
             "optional third herald symbol; got " +
-            std::to_string(num_symbols) + " symbols");
-    }
-
-    const size_t s_n = num_symbols;
-    if (matrix.size() != s_n) {
-        throw std::invalid_argument("MeasurementClassifier::from_matrix: matrix has " +
-                                    std::to_string(matrix.size()) + " rows; expected " +
-                                    std::to_string(s_n) + " (one per symbol)");
+            std::to_string(s_n) + " rows");
     }
 
     // Single pass: validate row width and entry bounds while copying
@@ -76,7 +70,7 @@ MeasurementClassifier MeasurementClassifier::from_matrix(
         }
     }
 
-    return MeasurementClassifier(num_symbols, std::move(flat));
+    return MeasurementClassifier(s_n, std::move(flat));
 }
 
 double MeasurementClassifier::prob(uint8_t symbol_idx, Level level) const {

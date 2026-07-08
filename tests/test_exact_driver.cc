@@ -19,6 +19,7 @@
 #include <cmath>
 #include <cstdint>
 #include <map>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -54,13 +55,13 @@ NonComputationalModel make_model(const ModelSpec& spec) {
         transitions.emplace("flip", std::move(flip));
     }
 
-    ClassifierSpec classifier;
-    classifier.num_symbols = 2;
-    classifier.matrix = {{1.0, 0.0, 1.0, 0.0, 1.0}, {0.0, 1.0, 0.0, 1.0, 0.0}};
+    const std::vector<std::vector<double>> classifier = {{1.0, 0.0, 1.0, 0.0, 1.0},
+                                                         {0.0, 1.0, 0.0, 1.0, 0.0}};
 
     NonComputationalPolicy policy;
     policy.damping = spec.damping;
-    return NonComputationalModel::from_spec(spec.initial, transitions, classifier, policy);
+    return NonComputationalModel::from_spec(spec.initial, transitions,
+                                            std::make_optional(classifier), policy);
 }
 
 double mean_of(const std::vector<uint8_t>& bits, uint32_t stride, uint32_t index) {
@@ -82,13 +83,12 @@ NonComputationalModel make_lose_model() {
     lose[kLost][0] = 1.0;  // g -> lost, certainly
     lose[kLost][1] = 1.0;  // e -> lost, certainly
 
-    ClassifierSpec classifier;
-    classifier.num_symbols = 2;
-    classifier.matrix = {{1.0, 0.0, 1.0, 0.0, 1.0}, {0.0, 1.0, 0.0, 1.0, 0.0}};
+    const std::vector<std::vector<double>> classifier = {{1.0, 0.0, 1.0, 0.0, 1.0},
+                                                         {0.0, 1.0, 0.0, 1.0, 0.0}};
 
     NonComputationalPolicy policy;
-    return NonComputationalModel::from_spec({1.0, 0.0, 0.0, 0.0, 0.0}, {{"lose", lose}}, classifier,
-                                            policy);
+    return NonComputationalModel::from_spec({1.0, 0.0, 0.0, 0.0, 0.0}, {{"lose", lose}},
+                                            std::make_optional(classifier), policy);
 }
 
 }  // namespace
@@ -309,15 +309,14 @@ TEST_CASE("exact: a neglect-form trap keeps the fire-side correlation") {
     leak[kLeakG][0] = 1.0;  // from g: leak_g, certainly
     leak[kLeak][1] = 1.0;   // from e: leak_e, certainly
 
-    ClassifierSpec classifier;
-    classifier.num_symbols = 2;
-    classifier.matrix = {{1.0, 0.0, 1.0, 0.0, 1.0},   // leak_g reads 0
-                         {0.0, 1.0, 0.0, 1.0, 0.0}};  // leak_e reads 1
+    const std::vector<std::vector<double>> classifier = {
+        {1.0, 0.0, 1.0, 0.0, 1.0},   // leak_g reads 0
+        {0.0, 1.0, 0.0, 1.0, 0.0}};  // leak_e reads 1
 
     NonComputationalPolicy policy;
     policy.damping = DampingPolicy::Neglect;
     auto model = NonComputationalModel::from_spec({1.0, 0.0, 0.0, 0.0, 0.0}, {{"leak", leak}},
-                                                  classifier, policy);
+                                                  std::make_optional(classifier), policy);
 
     auto circuit = parse("H 0\nCX 0 1\nLEVEL_TRANSITION[leak] 0\nM 0\nM 1");
     auto result = sample_noncomputational(circuit, model, 100, 29);
@@ -371,14 +370,13 @@ TEST_CASE("exact: a chain of two forced traps keeps both correlations") {
     leak[kLeakG][0] = 1.0;
     leak[kLeak][1] = 1.0;
 
-    ClassifierSpec classifier;
-    classifier.num_symbols = 2;
-    classifier.matrix = {{1.0, 0.0, 1.0, 0.0, 1.0}, {0.0, 1.0, 0.0, 1.0, 0.0}};
+    const std::vector<std::vector<double>> classifier = {{1.0, 0.0, 1.0, 0.0, 1.0},
+                                                         {0.0, 1.0, 0.0, 1.0, 0.0}};
 
     NonComputationalPolicy policy;
     policy.damping = DampingPolicy::Neglect;
     auto model = NonComputationalModel::from_spec({1.0, 0.0, 0.0, 0.0, 0.0}, {{"leak", leak}},
-                                                  classifier, policy);
+                                                  std::make_optional(classifier), policy);
 
     auto circuit = parse(
         "H 0\nCX 0 1\nH 2\nCX 2 3\n"
@@ -404,14 +402,13 @@ TEST_CASE("exact: a neglect fire onto a computational destination stays correlat
     swap_ge[1][0] = 1.0;  // g -> e, certainly
     swap_ge[0][1] = 1.0;  // e -> g, certainly
 
-    ClassifierSpec classifier;
-    classifier.num_symbols = 2;
-    classifier.matrix = {{1.0, 0.0, 1.0, 0.0, 1.0}, {0.0, 1.0, 0.0, 1.0, 0.0}};
+    const std::vector<std::vector<double>> classifier = {{1.0, 0.0, 1.0, 0.0, 1.0},
+                                                         {0.0, 1.0, 0.0, 1.0, 0.0}};
 
     NonComputationalPolicy policy;
     policy.damping = DampingPolicy::Neglect;
     auto model = NonComputationalModel::from_spec({1.0, 0.0, 0.0, 0.0, 0.0}, {{"swap", swap_ge}},
-                                                  classifier, policy);
+                                                  std::make_optional(classifier), policy);
 
     auto circuit = parse("H 0\nCX 0 1\nLEVEL_TRANSITION[swap] 0\nM 0\nM 1");
     auto result = sample_noncomputational(circuit, model, 60, 47);
@@ -441,14 +438,12 @@ TEST_CASE("exact: herald flags drawn in one continuation are reused by the next"
     std::vector<std::vector<double>> leak(5, std::vector<double>(5, 0.0));
     leak[kLeak][1] = 1.0;  // certain leak from e
 
-    ClassifierSpec classifier;
-    classifier.num_symbols = 3;
-    classifier.matrix = {
+    const std::vector<std::vector<double>> classifier = {
         {1.0, 0.0, 1.0, 0.0, 1.0}, {0.0, 1.0, 0.0, 0.5, 0.0}, {0.0, 0.0, 0.0, 0.5, 0.0}};
 
     NonComputationalPolicy policy;
     auto model = NonComputationalModel::from_spec({1.0, 0.0, 0.0, 0.0, 0.0}, {{"leak", leak}},
-                                                  classifier, policy);
+                                                  std::make_optional(classifier), policy);
 
     auto circuit = parse("X 0\nX 1\nLEVEL_TRANSITION[leak] 0\nLEVEL_TRANSITION[leak] 1\nM 0\nM 1");
     auto result = sample_noncomputational(circuit, model, 200, 53);
@@ -558,14 +553,12 @@ TEST_CASE("exact: ternary heralds ride the cache key") {
     std::vector<std::vector<double>> leak(5, std::vector<double>(5, 0.0));
     leak[kLeak][1] = 1.0;
 
-    ClassifierSpec classifier;
-    classifier.num_symbols = 3;
-    classifier.matrix = {
+    const std::vector<std::vector<double>> classifier = {
         {1.0, 0.0, 1.0, 0.0, 1.0}, {0.0, 1.0, 0.0, 0.0, 0.0}, {0.0, 0.0, 0.0, 1.0, 0.0}};
 
     NonComputationalPolicy policy;
     auto model = NonComputationalModel::from_spec({0.0, 1.0, 0.0, 0.0, 0.0}, {{"leak", leak}},
-                                                  classifier, policy);
+                                                  std::make_optional(classifier), policy);
 
     auto circuit = parse("LEVEL_TRANSITION[leak] 0\nM 0");
     auto result = sample_noncomputational(circuit, model, 200, 31);
@@ -626,13 +619,12 @@ TEST_CASE("exact: a zero-fire LOSS(0) before a firing LOSS does not shift site i
     // LOSS(0) can never fire from a computational qubit; trace() skips it.
     // The rewriter must skip it too, so LOSS(1) gets site id 0 and the
     // driver maps the trap correctly.
-    ClassifierSpec classifier;
-    classifier.num_symbols = 2;
-    classifier.matrix = {{1.0, 0.0, 1.0, 0.0, 0.0}, {0.0, 1.0, 0.0, 1.0, 1.0}};
+    const std::vector<std::vector<double>> classifier = {{1.0, 0.0, 1.0, 0.0, 0.0},
+                                                         {0.0, 1.0, 0.0, 1.0, 1.0}};
 
     NonComputationalPolicy policy;
-    auto model =
-        NonComputationalModel::from_spec({1.0, 0.0, 0.0, 0.0, 0.0}, {}, classifier, policy);
+    auto model = NonComputationalModel::from_spec({1.0, 0.0, 0.0, 0.0, 0.0}, {},
+                                                  std::make_optional(classifier), policy);
     auto circuit = parse("LOSS(0) 0\nLOSS(1) 0\nM 0");
 
     auto result = sample_noncomputational(circuit, model, 20, 71);
@@ -650,13 +642,12 @@ TEST_CASE("exact: a seepage-only transition before a firing site does not shift 
     std::vector<std::vector<double>> seep(5, std::vector<double>(5, 0.0));
     seep[1][kLeak] = 1.0;  // leak_e -> e, prob 1; computational columns zero
 
-    ClassifierSpec classifier;
-    classifier.num_symbols = 2;
-    classifier.matrix = {{1.0, 0.0, 1.0, 0.0, 0.0}, {0.0, 1.0, 0.0, 1.0, 1.0}};
+    const std::vector<std::vector<double>> classifier = {{1.0, 0.0, 1.0, 0.0, 0.0},
+                                                         {0.0, 1.0, 0.0, 1.0, 1.0}};
 
     NonComputationalPolicy policy;
     auto model = NonComputationalModel::from_spec({1.0, 0.0, 0.0, 0.0, 0.0}, {{"seep", seep}},
-                                                  classifier, policy);
+                                                  std::make_optional(classifier), policy);
     auto circuit = parse("LEVEL_TRANSITION[seep] 0\nLOSS(1) 0\nM 0");
 
     auto result = sample_noncomputational(circuit, model, 20, 73);
@@ -675,14 +666,13 @@ TEST_CASE("exact: a seepage-only transition on q0 does not corrupt q1's site id"
     std::vector<std::vector<double>> seep(5, std::vector<double>(5, 0.0));
     seep[1][kLeak] = 1.0;  // leak_e -> e, prob 1; computational columns zero
 
-    ClassifierSpec classifier;
-    classifier.num_symbols = 2;
     // q0: stays computational (no loss); q1: lost reads 1.
-    classifier.matrix = {{1.0, 0.0, 1.0, 0.0, 0.0}, {0.0, 1.0, 0.0, 1.0, 1.0}};
+    const std::vector<std::vector<double>> classifier = {{1.0, 0.0, 1.0, 0.0, 0.0},
+                                                         {0.0, 1.0, 0.0, 1.0, 1.0}};
 
     NonComputationalPolicy policy;
     auto model = NonComputationalModel::from_spec({1.0, 0.0, 0.0, 0.0, 0.0}, {{"seep", seep}},
-                                                  classifier, policy);
+                                                  std::make_optional(classifier), policy);
     auto circuit = parse("LEVEL_TRANSITION[seep] 0\nLOSS(1) 1\nM 0\nM 1");
 
     auto result = sample_noncomputational(circuit, model, 20, 79);
@@ -702,14 +692,13 @@ TEST_CASE("exact: a seepage-only transition still seeps a noncomputational qubit
     std::vector<std::vector<double>> seep(5, std::vector<double>(5, 0.0));
     seep[1][kLeak] = 1.0;  // leak_e -> e, prob 1; computational columns zero
 
-    ClassifierSpec classifier;
-    classifier.num_symbols = 2;
-    classifier.matrix = {{1.0, 0.0, 1.0, 0.0, 1.0}, {0.0, 1.0, 0.0, 1.0, 0.0}};
+    const std::vector<std::vector<double>> classifier = {{1.0, 0.0, 1.0, 0.0, 1.0},
+                                                         {0.0, 1.0, 0.0, 1.0, 0.0}};
 
     NonComputationalPolicy policy;
     // All initial mass on leak_e (index 3).
     auto model = NonComputationalModel::from_spec({0.0, 0.0, 0.0, 1.0, 0.0}, {{"seep", seep}},
-                                                  classifier, policy);
+                                                  std::make_optional(classifier), policy);
     auto circuit = parse("LEVEL_TRANSITION[seep] 0\nM 0");
 
     auto result = sample_noncomputational(circuit, model, 20, 83);
@@ -809,14 +798,13 @@ NonComputationalModel make_classify_lost_model(std::vector<double> lost_col,
     std::map<std::string, std::vector<std::vector<double>>> transitions;
     transitions.emplace("lose", lose);
 
-    ClassifierSpec classifier;
-    classifier.num_symbols = 2;
     // g=0, e=1, leak_g=0, leak_e=0, lost=lost_col
-    classifier.matrix = {{1.0, 0.0, 1.0, 1.0, lost_col[0]}, {0.0, 1.0, 0.0, 0.0, lost_col[1]}};
+    const std::vector<std::vector<double>> classifier = {{1.0, 0.0, 1.0, 1.0, lost_col[0]},
+                                                         {0.0, 1.0, 0.0, 0.0, lost_col[1]}};
     (void)with_hook;
     NonComputationalPolicy policy;
-    return NonComputationalModel::from_spec({1.0, 0.0, 0.0, 0.0, 0.0}, transitions, classifier,
-                                            policy);
+    return NonComputationalModel::from_spec({1.0, 0.0, 0.0, 0.0, 0.0}, transitions,
+                                            std::make_optional(classifier), policy);
 }
 
 }  // namespace
@@ -862,15 +850,13 @@ TEST_CASE("exact: ternary herald column on MX sets sidecar flag and patches reco
     lose[kLost][0] = 1.0;
     lose[kLost][1] = 1.0;
 
-    ClassifierSpec classifier;
-    classifier.num_symbols = 3;
     // lost column = {0, 0, 1}: always heralds. g/e/leak columns symbol 0.
-    classifier.matrix = {
+    const std::vector<std::vector<double>> classifier = {
         {1.0, 0.0, 1.0, 1.0, 0.0}, {0.0, 1.0, 0.0, 0.0, 0.0}, {0.0, 0.0, 0.0, 0.0, 1.0}};
 
     NonComputationalPolicy policy;
     auto model = NonComputationalModel::from_spec({1.0, 0.0, 0.0, 0.0, 0.0}, {{"lose", lose}},
-                                                  classifier, policy);
+                                                  std::make_optional(classifier), policy);
     auto circuit = parse("LEVEL_TRANSITION[lose] 0\nMX 0");
     auto result = sample_noncomputational(circuit, model, 40, 107);
     for (uint32_t shot = 0; shot < 40; ++shot) {
@@ -899,13 +885,12 @@ TEST_CASE("exact: memory-X smoke: two qubits, low-rate leak hook, MX measures bo
     leak[kLost][0] = 0.01;  // low-rate loss from g
     leak[kLost][1] = 0.01;
 
-    ClassifierSpec classifier;
-    classifier.num_symbols = 2;
-    classifier.matrix = {{1.0, 0.0, 1.0, 1.0, 1.0}, {0.0, 1.0, 0.0, 0.0, 0.0}};
+    const std::vector<std::vector<double>> classifier = {{1.0, 0.0, 1.0, 1.0, 1.0},
+                                                         {0.0, 1.0, 0.0, 0.0, 0.0}};
 
     NonComputationalPolicy policy;
     auto model = NonComputationalModel::from_spec({1.0, 0.0, 0.0, 0.0, 0.0}, {{"leak", leak}},
-                                                  classifier, policy);
+                                                  std::make_optional(classifier), policy);
     auto circuit = parse("RX 0 1\nLEVEL_TRANSITION[leak] 0 1\nMX 0 1");
     auto result = sample_noncomputational(circuit, model, 50, 111);
     REQUIRE(result.shots == 50);
@@ -1038,13 +1023,13 @@ NonComputationalModel make_leak_seep_model() {
     std::vector<std::vector<double>> seep(5, std::vector<double>(5, 0.0));
     seep[1][kLeak] = 1.0;  // leak_e -> e, certainly
 
-    ClassifierSpec classifier;
-    classifier.num_symbols = 2;
-    classifier.matrix = {{1.0, 0.0, 1.0, 0.0, 1.0}, {0.0, 1.0, 0.0, 1.0, 0.0}};
+    const std::vector<std::vector<double>> classifier = {{1.0, 0.0, 1.0, 0.0, 1.0},
+                                                         {0.0, 1.0, 0.0, 1.0, 0.0}};
 
     NonComputationalPolicy policy;
     return NonComputationalModel::from_spec({1.0, 0.0, 0.0, 0.0, 0.0},
-                                            {{"leak", leak}, {"seep", seep}}, classifier, policy);
+                                            {{"leak", leak}, {"seep", seep}},
+                                            std::make_optional(classifier), policy);
 }
 
 }  // namespace
@@ -1076,13 +1061,12 @@ TEST_CASE("exact: multi-target annotation jumps both targets in one shot") {
     lose[kLost][0] = 1.0;  // g -> lost, certainly
     lose[kLost][1] = 1.0;  // e -> lost, certainly
 
-    ClassifierSpec classifier;
-    classifier.num_symbols = 2;
-    classifier.matrix = {{1.0, 0.0, 1.0, 0.0, 1.0}, {0.0, 1.0, 0.0, 1.0, 0.0}};
+    const std::vector<std::vector<double>> classifier = {{1.0, 0.0, 1.0, 0.0, 1.0},
+                                                         {0.0, 1.0, 0.0, 1.0, 0.0}};
 
     NonComputationalPolicy policy;
     auto model = NonComputationalModel::from_spec({1.0, 0.0, 0.0, 0.0, 0.0}, {{"lose", lose}},
-                                                  classifier, policy);
+                                                  std::make_optional(classifier), policy);
     auto circuit = parse("LEVEL_TRANSITION[lose] 0 1\nM 0\nM 1");
 
     auto result = sample_noncomputational(circuit, model, 20, 133);
@@ -1141,11 +1125,11 @@ TEST_CASE("exact: LOSS on a lost qubit spends no draw -- a later consult sees th
     const uint64_t seed = 147;
     std::vector<std::vector<double>> recover(5, std::vector<double>(5, 0.0));
     recover[1][kLost] = 0.5;  // lost -> e, probability one half
-    ClassifierSpec classifier;
-    classifier.num_symbols = 2;
-    classifier.matrix = {{1.0, 0.0, 1.0, 0.0, 1.0}, {0.0, 1.0, 0.0, 1.0, 0.0}};
-    auto model = NonComputationalModel::from_spec({0.0, 0.0, 0.0, 0.0, 1.0}, {{"recover", recover}},
-                                                  classifier, NonComputationalPolicy{});
+    const std::vector<std::vector<double>> classifier = {{1.0, 0.0, 1.0, 0.0, 1.0},
+                                                         {0.0, 1.0, 0.0, 1.0, 0.0}};
+    auto model =
+        NonComputationalModel::from_spec({0.0, 0.0, 0.0, 0.0, 1.0}, {{"recover", recover}},
+                                         std::make_optional(classifier), NonComputationalPolicy{});
 
     auto r_plain =
         sample_noncomputational(parse("LEVEL_TRANSITION[recover] 0\nM 0"), model, 128, seed);
@@ -1184,14 +1168,13 @@ TEST_CASE("exact: classified record drives a CX feedback gate") {
     lose[kLost][0] = 1.0;
     lose[kLost][1] = 1.0;
 
-    ClassifierSpec classifier;
-    classifier.num_symbols = 2;
     // g=0, e=1, leak_g=0, leak_e=1, lost=1
-    classifier.matrix = {{1.0, 0.0, 1.0, 0.0, 0.0}, {0.0, 1.0, 0.0, 1.0, 1.0}};
+    const std::vector<std::vector<double>> classifier = {{1.0, 0.0, 1.0, 0.0, 0.0},
+                                                         {0.0, 1.0, 0.0, 1.0, 1.0}};
 
     NonComputationalPolicy policy;
     auto model = NonComputationalModel::from_spec({1.0, 0.0, 0.0, 0.0, 0.0}, {{"S", lose}},
-                                                  classifier, policy);
+                                                  std::make_optional(classifier), policy);
     auto circuit = parse("S 0\nM 0\nCX rec[-1] 1\nM 1");
 
     auto result = sample_noncomputational(circuit, model, 25, 151);
@@ -1217,14 +1200,13 @@ TEST_CASE("exact: a reset truly re-prepares a restored-lost qubit") {
     lose[kLost][0] = 1.0;
     lose[kLost][1] = 1.0;
 
-    ClassifierSpec classifier;
-    classifier.num_symbols = 2;
-    classifier.matrix = {{1.0, 0.0, 1.0, 0.0, 1.0}, {0.0, 1.0, 0.0, 1.0, 0.0}};
+    const std::vector<std::vector<double>> classifier = {{1.0, 0.0, 1.0, 0.0, 1.0},
+                                                         {0.0, 1.0, 0.0, 1.0, 0.0}};
 
     NonComputationalPolicy policy;
     policy.reset_restores_lost = true;
     auto model = NonComputationalModel::from_spec({1.0, 0.0, 0.0, 0.0, 0.0}, {{"S", lose}},
-                                                  classifier, policy);
+                                                  std::make_optional(classifier), policy);
     auto circuit = parse("H 0\nS 0\nR 0\nM 0");
 
     auto result = sample_noncomputational(circuit, model, 30, 161);
@@ -1276,4 +1258,43 @@ TEST_CASE("exact: different seeds produce different records") {
     // 64 coin-flip measurements collide with probability 2^-64; this is
     // astronomically unlikely for any two distinct seeds.
     REQUIRE(a.measurements != b.measurements);
+}
+
+TEST_CASE("exact: max_rank is not checked against the unreachable all-computational module") {
+    // When every qubit starts lost, the no-event module is never used;
+    // its rank must not trigger a max_rank rejection.
+    // The lost column reads symbol 1 with certainty: a raw readout of the
+    // dropped-everything |0> carriers would give 0, so all-1 records pin
+    // that the classifier wrote them.
+    const std::vector<std::vector<double>> classifier_matrix = {{1.0, 0.0, 1.0, 0.0, 0.0},
+                                                                {0.0, 1.0, 0.0, 1.0, 1.0}};
+    // Lost model: all qubits start lost.
+    const NonComputationalModel lost_model = NonComputationalModel::from_spec(
+        {0.0, 0.0, 0.0, 0.0, 1.0}, {}, std::make_optional(classifier_matrix),
+        NonComputationalPolicy{});
+    // Ground model: all qubits start in g -- the no-event module IS compiled.
+    const NonComputationalModel ground_model = NonComputationalModel::from_spec(
+        {1.0, 0.0, 0.0, 0.0, 0.0}, {}, std::make_optional(classifier_matrix),
+        NonComputationalPolicy{});
+
+    // Circuit with T gates -- non-trivial rank.
+    const std::string circuit_str =
+        "H 0\n"
+        "CX 0 1\nCX 0 2\nCX 0 3\nCX 0 4\nCX 0 5\n"
+        "T 0\nH 0\nT 1\nH 1\nT 2\nH 2\nT 3\nH 3\nT 4\nH 4\nT 5\nH 5\n"
+        "M 0\nM 1\nM 2\nM 3\nM 4\nM 5\n";
+    const Circuit circuit = parse(circuit_str);
+
+    // Ground model at max_rank=0 must throw (the no-event module exceeds it).
+    REQUIRE_THROWS_WITH(sample_noncomputational(circuit, ground_model, 4, 1, 0),
+                        ContainsSubstring("max_rank"));
+
+    // Lost model at max_rank=0 must run (the no-event module is lazy).
+    const NonComputationalSample r = sample_noncomputational(circuit, lost_model, 16, 1, 0);
+    for (const uint8_t bit : r.measurements) {
+        REQUIRE(bit == 1);
+    }
+    for (size_t i = 0; i < r.final_status.size(); ++i) {
+        REQUIRE(r.final_status[i] == QubitStatus::Lost);
+    }
 }
