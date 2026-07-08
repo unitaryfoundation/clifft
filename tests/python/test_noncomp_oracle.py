@@ -193,3 +193,49 @@ def test_set_collapsed_qubit_reprepares_destination():
     _, at_e = oracle.collapse(oracle.apply_1q(oracle.zero_state(1), "X", 0, 1), 0, 1, 1)
     moved = oracle.set_collapsed_qubit(at_e, 0, 1, 0, 1)
     assert abs(abs(moved[0]) - 1.0) < 1e-12
+
+
+# --- Gap 4: two-site exact-damping composition vs enumerator ------------------
+
+
+def test_two_site_exact_damping_composition_matches_enumerator():
+    """Two LEVEL_TRANSITION[leak] sites in a row with p=0.5 from e, exact damping.
+
+    Circuit: H 0 / LEVEL_TRANSITION[leak] 0 / LEVEL_TRANSITION[leak] 0 / H 0 / M 0.
+    The channel contains two consecutive source-dependent (e-only) sites; the
+    composition of two non-scalar damp filters is the first multi-site exact-
+    damping check at a rate where any TVD between exact and neglect would be
+    observable.  Compare sampled record/status frequencies against the
+    enumerator's exact distribution within the file's existing BAND tolerance.
+
+    This exercises the composed-continuation path from the exact side: each
+    site adds one branch at run time, and the no-fire filter at each site
+    accumulates multiplicatively.
+    """
+    import utils_noncomp_enumerator as en
+
+    p = 0.5
+    transitions = {"leak": _transition({(Level.LEAK_E, Level.E): p})}
+    circuit_text = "H 0\nLEVEL_TRANSITION[leak] 0\nLEVEL_TRANSITION[leak] 0\nH 0\nM 0\n"
+    classifier_matrix = [[1.0, 0.0, 1.0, 0.0, 1.0], [0.0, 1.0, 0.0, 1.0, 0.0]]
+
+    reference = en.enumerate_exact(
+        circuit_text,
+        initial=[1.0, 0.0, 0.0, 0.0, 0.0],
+        transitions=transitions,
+        classifier=classifier_matrix,
+        damping="exact",
+    )
+    assert reference.dropped_mass < 1e-12
+
+    model = noncomp.Model(
+        initial_state=[1.0, 0.0, 0.0, 0.0, 0.0],
+        transitions=transitions,
+        classifier=_classifier(Level.LEAK_E, [0.0, 1.0]),
+        damping="exact",
+    )
+    r = noncomp.sample(circuit_text, model, shots=SHOTS, seed=31)
+
+    empirical = en.empirical_record_probs(np.asarray(r.measurements))
+    tvd = en.tvd(reference.record_probs, empirical)
+    assert tvd < BAND, f"TVD {tvd:.4f} exceeds tolerance {BAND}"

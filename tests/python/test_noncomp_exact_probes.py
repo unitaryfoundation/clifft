@@ -116,3 +116,38 @@ def test_damping_boundary_probe_separates_exact_from_neglect():
 
     assert abs(p1_exact - expected_exact) < tol_exact
     assert abs(p1_neglect - expected_neglect) < tol_neglect
+
+
+def test_neglect_bell_correlation_probe():
+    """Neglect-mode forced trace-out keeps the source-determined partner correlation.
+
+    Model: source-dependent "leak" (e->leak_e p=1, g stays), identity
+    classifier (leak_e reads 1, leak_g reads 0), damping="neglect".
+    Circuit: H 0 / CX 0 1 / LEVEL_TRANSITION[leak] 0 / M 0 / M 1.
+
+    Under neglect every fire traps with the carrier uncollapsed; the
+    continuation forces a trace-out onto the reported source, so m0 and m1
+    must agree on every shot.  Fired shots (q0 was on e): leak_e reads 1;
+    the partner collapses to 1.  Unfired shots (q0 was on g): q0 reads 0;
+    q1 measures from the post-trace |0>, also 0.  Both outcomes must occur
+    to guard vacuity.
+
+    This is the sharp neglect-mode pin at the Bell-correlation level; the
+    TVD test exercises neglect end-to-end against the enumerator reference
+    but cannot resolve the O(p^2) difference between exact and neglect at
+    the cold-atom rates used there.
+    """
+    PROBE_SHOTS = 512
+    transitions = {"leak": _transition({(Level.LEAK_E, Level.E): 1.0})}
+    model = _model(transitions, damping="neglect")
+    text = "H 0\nCX 0 1\nLEVEL_TRANSITION[leak] 0\nM 0\nM 1\n"
+
+    r = noncomp.sample(text, model, shots=PROBE_SHOTS, seed=15)
+    m = np.asarray(r.measurements)
+
+    # Per-shot correlation: m0 and m1 must agree on every shot.
+    assert (m[:, 0] == m[:, 1]).all(), "neglect Bell correlation violated"
+
+    # Both outcomes occur (guard vacuity).
+    assert m[:, 0].any(), "no shot had m0 == 1; transition never fired"
+    assert not m[:, 0].all(), "every shot had m0 == 1; g->g stay branch missing"

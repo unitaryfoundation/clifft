@@ -1022,3 +1022,258 @@ TEST_CASE("exact: the model contract is validated even for zero shots") {
     REQUIRE(result.shots == 0);
     REQUIRE(result.measurements.empty());
 }
+
+// =========================================================================
+// Gap 1: Same-qubit re-trap (composed-continuation path)
+// =========================================================================
+
+namespace {
+
+// Certain e->leak_e leak and certain leak_e->e seep; g initial.
+// Circuit must prep |e> (e.g. X 0) before the first annotation fires.
+NonComputationalModel make_leak_seep_model() {
+    std::vector<std::vector<double>> leak(5, std::vector<double>(5, 0.0));
+    leak[kLeak][1] = 1.0;  // e -> leak_e, certainly
+
+    std::vector<std::vector<double>> seep(5, std::vector<double>(5, 0.0));
+    seep[1][kLeak] = 1.0;  // leak_e -> e, certainly
+
+    ClassifierSpec classifier;
+    classifier.num_symbols = 2;
+    classifier.matrix = {{1.0, 0.0, 1.0, 0.0, 1.0}, {0.0, 1.0, 0.0, 1.0, 0.0}};
+
+    NonComputationalPolicy policy;
+    return NonComputationalModel::from_spec({1.0, 0.0, 0.0, 0.0, 0.0},
+                                            {{"leak", leak}, {"seep", seep}}, classifier, policy);
+}
+
+}  // namespace
+
+TEST_CASE("exact: same-qubit re-trap: leak then recapture then leak again") {
+    // X 0 preps |e>. LEVEL_TRANSITION[leak] traps (e->leak_e, certainly).
+    // LEVEL_TRANSITION[seep] recaptures back to e (classical consult).
+    // The second LEVEL_TRANSITION[leak] traps again (e->leak_e).
+    // The composed-continuation path exercises trap->recapture-consult->trap on one qubit.
+    // Expect: every shot reads 1 (leak_e column) and final status LeakE.
+    auto model = make_leak_seep_model();
+    auto circuit = parse(
+        "X 0\nLEVEL_TRANSITION[leak] 0\nLEVEL_TRANSITION[seep] 0\n"
+        "LEVEL_TRANSITION[leak] 0\nM 0");
+
+    auto result = sample_noncomputational(circuit, model, 30, 131);
+    for (uint32_t shot = 0; shot < 30; ++shot) {
+        REQUIRE(result.measurements[shot] == 1);  // leak_e column reads 1
+        REQUIRE(result.final_status[shot] == QubitStatus::LeakE);
+    }
+}
+
+TEST_CASE("exact: multi-target annotation jumps both targets in one shot") {
+    // LEVEL_TRANSITION[lose] on both q0 and q1 in a single annotation; the
+    // lose channel is source-independent (g->lost p=1, e->lost p=1), so both
+    // qubits lose in every shot. Both records read 0 (identity classifier's
+    // lost column), both statuses are Lost.
+    std::vector<std::vector<double>> lose(5, std::vector<double>(5, 0.0));
+    lose[kLost][0] = 1.0;  // g -> lost, certainly
+    lose[kLost][1] = 1.0;  // e -> lost, certainly
+
+    ClassifierSpec classifier;
+    classifier.num_symbols = 2;
+    classifier.matrix = {{1.0, 0.0, 1.0, 0.0, 1.0}, {0.0, 1.0, 0.0, 1.0, 0.0}};
+
+    NonComputationalPolicy policy;
+    auto model = NonComputationalModel::from_spec({1.0, 0.0, 0.0, 0.0, 0.0}, {{"lose", lose}},
+                                                  classifier, policy);
+    auto circuit = parse("LEVEL_TRANSITION[lose] 0 1\nM 0\nM 1");
+
+    auto result = sample_noncomputational(circuit, model, 20, 133);
+    for (uint32_t shot = 0; shot < 20; ++shot) {
+        REQUIRE(result.measurements[shot * 2] == 0);      // lost column reads 0
+        REQUIRE(result.measurements[shot * 2 + 1] == 0);  // lost column reads 0
+        REQUIRE(result.final_status[shot * 2] == QubitStatus::Lost);
+        REQUIRE(result.final_status[shot * 2 + 1] == QubitStatus::Lost);
+    }
+}
+
+// =========================================================================
+// Gap 2: LOSS on already-leaked and already-lost
+// =========================================================================
+
+TEST_CASE("exact: LOSS(1) on a pure leak_g initial vacates the carrier") {
+    // Initial mass entirely on leak_g (index 2): the qubit is already
+    // noncomputational. LOSS(1) on a leaked qubit still vacates it (the
+    // channel fires from any non-lost level). Every shot: status Lost,
+    // record 0 (identity classifier's lost column reads 0).
+    ModelSpec spec;
+    spec.initial = {0.0, 0.0, 1.0, 0.0, 0.0};  // pure leak_g
+    auto model = make_model(spec);
+    auto circuit = parse("LOSS(1) 0\nM 0");
+
+    auto result = sample_noncomputational(circuit, model, 20, 141);
+    for (uint32_t shot = 0; shot < 20; ++shot) {
+        REQUIRE(result.measurements[shot] == 0);  // identity classifier, lost column reads 0
+        REQUIRE(result.final_status[shot] == QubitStatus::Lost);
+    }
+}
+
+TEST_CASE("exact: LOSS(1) on a pure lost initial is a no-op") {
+    // Initial mass entirely on lost (index 4): LOSS is a no-op on an
+    // already-lost qubit. Status Lost, record 0 on every shot.
+    ModelSpec spec;
+    spec.initial = {0.0, 0.0, 0.0, 0.0, 1.0};  // pure lost
+    auto model = make_model(spec);
+    auto circuit = parse("LOSS(1) 0\nM 0");
+
+    auto result = sample_noncomputational(circuit, model, 20, 143);
+    for (uint32_t shot = 0; shot < 20; ++shot) {
+        REQUIRE(result.measurements[shot] == 0);  // identity classifier, lost column reads 0
+        REQUIRE(result.final_status[shot] == QubitStatus::Lost);
+    }
+}
+
+TEST_CASE("exact: LOSS on a lost qubit spends no draw -- a later consult sees the same stream") {
+    // A LOSS(1) on an already-lost qubit records its no-op without
+    // consuming any driver randomness. The discriminator is a stochastic
+    // consult AFTER it: the recover channel returns the lost qubit to e
+    // with probability one half, drawing from the driver stream. If the
+    // preceding LOSS spent a draw, every later recover outcome would
+    // shift; instead the two runs must agree shot by shot on records and
+    // statuses alike.
+    const uint64_t seed = 147;
+    std::vector<std::vector<double>> recover(5, std::vector<double>(5, 0.0));
+    recover[1][kLost] = 0.5;  // lost -> e, probability one half
+    ClassifierSpec classifier;
+    classifier.num_symbols = 2;
+    classifier.matrix = {{1.0, 0.0, 1.0, 0.0, 1.0}, {0.0, 1.0, 0.0, 1.0, 0.0}};
+    auto model = NonComputationalModel::from_spec({0.0, 0.0, 0.0, 0.0, 1.0}, {{"recover", recover}},
+                                                  classifier, NonComputationalPolicy{});
+
+    auto r_plain =
+        sample_noncomputational(parse("LEVEL_TRANSITION[recover] 0\nM 0"), model, 128, seed);
+    auto r_loss = sample_noncomputational(parse("LOSS(1) 0\nLEVEL_TRANSITION[recover] 0\nM 0"),
+                                          model, 128, seed);
+    REQUIRE(r_plain.measurements == r_loss.measurements);
+    REQUIRE(r_plain.final_status == r_loss.final_status);
+
+    // Vacuity guard: the recover consult really is stochastic -- both
+    // outcomes occur across the shots.
+    bool saw_zero = false;
+    bool saw_one = false;
+    for (uint32_t shot = 0; shot < 128; ++shot) {
+        (r_plain.measurements[shot] == 0 ? saw_zero : saw_one) = true;
+    }
+    REQUIRE(saw_zero);
+    REQUIRE(saw_one);
+}
+
+// =========================================================================
+// Gap 5: Classified record drives feedback
+// =========================================================================
+
+TEST_CASE("exact: classified record drives a CX feedback gate") {
+    // "lose" is hooked on S: g and e both jump to lost with certainty.
+    // Classifier: classified symbol 0 always reads 0, classified symbol 1
+    // always reads 1; the lost column has weight on symbol 1, so rec[-1]
+    // after the S-annotated M 0 is 1 on every shot.
+    // CX rec[-1] 1 flips q1 conditioned on that classified record.
+    // Final M 1 must read 1 on every shot; q1 stays Computational.
+    //
+    // Note: a feedback-onto-leaked observability test would be a vacuous
+    // pass -- a dropped virtual correction on a vacated carrier is
+    // unobservable by design (the carrier is gone).
+    std::vector<std::vector<double>> lose(5, std::vector<double>(5, 0.0));
+    lose[kLost][0] = 1.0;
+    lose[kLost][1] = 1.0;
+
+    ClassifierSpec classifier;
+    classifier.num_symbols = 2;
+    // g=0, e=1, leak_g=0, leak_e=1, lost=1
+    classifier.matrix = {{1.0, 0.0, 1.0, 0.0, 0.0}, {0.0, 1.0, 0.0, 1.0, 1.0}};
+
+    NonComputationalPolicy policy;
+    auto model = NonComputationalModel::from_spec({1.0, 0.0, 0.0, 0.0, 0.0}, {{"S", lose}},
+                                                  classifier, policy);
+    auto circuit = parse("S 0\nM 0\nCX rec[-1] 1\nM 1");
+
+    auto result = sample_noncomputational(circuit, model, 25, 151);
+    for (uint32_t shot = 0; shot < 25; ++shot) {
+        REQUIRE(result.measurements[shot * 2 + 1] == 1);  // classified record drove the CX
+        REQUIRE(result.final_status[shot * 2 + 1] == QubitStatus::Computational);
+    }
+}
+
+// =========================================================================
+// Gap 6: Restored-lost qubit is actually re-prepared
+// =========================================================================
+
+TEST_CASE("exact: a reset truly re-prepares a restored-lost qubit") {
+    // "lose" is hooked on S (g and e both -> lost with certainty).
+    // reset_restores_lost=true means R 0 reloads the lost carrier.
+    // H 0 before S scrambles the pre-loss state: if R did NOT re-prepare
+    // the carrier the record would be random (the lost carrier's parked
+    // |+> state would read 0 or 1 at random). A true re-prepare resets
+    // to |0>, so M 0 must read 0 and the final status must be Computational
+    // on every shot.
+    std::vector<std::vector<double>> lose(5, std::vector<double>(5, 0.0));
+    lose[kLost][0] = 1.0;
+    lose[kLost][1] = 1.0;
+
+    ClassifierSpec classifier;
+    classifier.num_symbols = 2;
+    classifier.matrix = {{1.0, 0.0, 1.0, 0.0, 1.0}, {0.0, 1.0, 0.0, 1.0, 0.0}};
+
+    NonComputationalPolicy policy;
+    policy.reset_restores_lost = true;
+    auto model = NonComputationalModel::from_spec({1.0, 0.0, 0.0, 0.0, 0.0}, {{"S", lose}},
+                                                  classifier, policy);
+    auto circuit = parse("H 0\nS 0\nR 0\nM 0");
+
+    auto result = sample_noncomputational(circuit, model, 30, 161);
+    for (uint32_t shot = 0; shot < 30; ++shot) {
+        REQUIRE(result.measurements[shot] == 0);  // re-prepared to |0>
+        REQUIRE(result.final_status[shot] == QubitStatus::Computational);
+    }
+}
+
+// =========================================================================
+// Gap 8: max_rank succeeds exactly at the cap
+// =========================================================================
+
+TEST_CASE("exact: max_rank succeeds exactly at the required rank") {
+    // Reuses the over-cap circuit from the rejection test: three H-prefixed
+    // source-dependent sites push peak rank to 3 (over a cap of 2). The
+    // same circuit must succeed with max_rank = 3 (the actual required rank).
+    ModelSpec spec;
+    spec.leak_from_e = 0.2;
+    auto model = make_model(spec);
+    auto circuit = parse(
+        "H 0\nH 1\nH 2\n"
+        "LEVEL_TRANSITION[leak] 0\nLEVEL_TRANSITION[leak] 1\nLEVEL_TRANSITION[leak] 2\n"
+        "M 0\nM 1\nM 2");
+
+    // max_rank = 3 is exactly the peak; must succeed.
+    auto result = sample_noncomputational(circuit, model, 5, 1, /*max_rank=*/3);
+    REQUIRE(result.shots == 5);
+    REQUIRE(result.num_measurements == 3);
+}
+
+// =========================================================================
+// Gap 9: C++ different-seed-differs
+// =========================================================================
+
+TEST_CASE("exact: different seeds produce different records") {
+    // A stochastic config (leak p=0.35 from e after H) sampled at two
+    // different seeds must differ: a constant-output implementation that
+    // ignores the seed would collide here with probability 2^(-measurements).
+    // This is the C++ companion to the Python same-seed/different-seed pins.
+    ModelSpec spec;
+    spec.leak_from_e = 0.35;
+    spec.initial = {0.5, 0.5, 0.0, 0.0, 0.0};
+    auto model = make_model(spec);
+    auto circuit = parse("H 0\nLEVEL_TRANSITION[leak] 0\nM 0");
+
+    auto a = sample_noncomputational(circuit, model, 64, 97);
+    auto b = sample_noncomputational(circuit, model, 64, 98);
+    // 64 coin-flip measurements collide with probability 2^-64; this is
+    // astronomically unlikely for any two distinct seeds.
+    REQUIRE(a.measurements != b.measurements);
+}

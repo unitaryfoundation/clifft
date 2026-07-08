@@ -740,3 +740,75 @@ def test_model_repr_contains_keys_and_damping():
     assert "S" in r
     assert "seep" in r
     assert "neglect" in r
+
+
+# --- Gap 7: ternary herald on a measure-reset ---------------------------------
+
+
+def test_ternary_herald_on_measure_reset():
+    """MR on a leaked qubit heralds the sidecar, resets the qubit, and the
+    next M reads 0.
+
+    Three-row classifier: always-herald column for leak_g ([[1,0,0,0,1],
+    [0,1,0,1,0],[0,0,1,0,0]]). "leak" = {g->leak_g p=1} hooked on S.
+    Circuit: S 0 / MR 0 / M 0.
+
+    Expect:
+    - heralds[:, 0] == 1 on every shot (MR slot heralded).
+    - r.measurements[:, 0] carries an unbiased bit (both 0 and 1 occur over
+      >= 256 shots): the heralded slot gets a uniformly drawn replacement.
+    - r.measurements[:, 1] == 0 on every shot: MR restored the leaked qubit
+      to |0>, so the second M reads 0.
+    - final_status[:, 0] == COMPUTATIONAL: the MR reset the qubit level.
+    """
+    HERALD_SHOTS = 256
+
+    # Three-row classifier: g/e faithful; leak_g always heralds (row 2);
+    # e/leak_e/lost columns are standard symbol-0 or symbol-1 per level.
+    clf_matrix = [
+        [1.0, 0.0, 0.0, 0.0, 1.0],  # symbol 0
+        [0.0, 1.0, 0.0, 1.0, 0.0],  # symbol 1
+        [0.0, 0.0, 1.0, 0.0, 0.0],  # symbol 2 (herald)
+    ]
+    transitions_leak = _zeros(5, 5)
+    transitions_leak[LEAK_G][noncomp.Level.G] = 1.0  # g -> leak_g, certainly
+    transitions_leak[LEAK_G][noncomp.Level.E] = 1.0  # e -> leak_g, certainly
+
+    model = noncomp.Model(
+        initial_state=ALL_G,
+        transitions={"S": transitions_leak},
+        classifier=noncomp.Classifier(clf_matrix),
+    )
+    r = noncomp.sample("S 0\nMR 0\nM 0\n", model, shots=HERALD_SHOTS, seed=271)
+
+    assert r.num_measurements == 2
+
+    # MR slot heralds on every shot.
+    assert np.all(r.heralds[:, 0] == 1), "MR slot did not herald on every shot"
+
+    # The heralded MR record bit is a uniformly drawn replacement: both values occur.
+    mr_bits = r.measurements[:, 0]
+    assert mr_bits.any(), "MR slot never recorded 1 over 256 shots"
+    assert not mr_bits.all(), "MR slot always recorded 1 over 256 shots"
+
+    # The second M reads 0 on every shot: MR restored the leaked qubit.
+    assert np.all(r.measurements[:, 1] == 0), "post-MR measurement was not 0"
+
+    # Final status is COMPUTATIONAL: the MR reset cleared the leak level.
+    assert np.all(r.final_status[:, 0] == COMPUTATIONAL), "final status was not COMPUTATIONAL"
+
+
+# --- Gap 10: seed=None smoke --------------------------------------------------
+
+
+def test_seed_none_smoke():
+    """sample() with no seed runs and returns the correct shapes.
+
+    The entropy-default path (seed=None) is never exercised by the
+    determinism or different-seed pins.  A shape-only smoke test is
+    sufficient: correctness is covered by the seeded suite."""
+    r = noncomp.sample("H 0\nM 0", noncomp.Model(), shots=8)
+    assert r.shots == 8
+    assert r.num_measurements == 1
+    assert r.measurements.shape == (8, 1)
+    assert r.final_status.shape == (8, 1)
