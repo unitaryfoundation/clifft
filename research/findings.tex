@@ -403,10 +403,13 @@ this family --- $0.4/4.7/84.5$\,s for the same queries, i.e.\ it \emph{ties
 the approximate backend through $n\!\approx\!56$} --- so on pure T$+$CZ IQP
 the approximate backend's real niche over \emph{all} known exact methods only
 opens past the $2^{n/2}$ memory wall ($n\gtrsim60$), or on circuit families
-without MitM structure. Quokka\#~\cite{mei2024} (pip package installed) needs
-the external GPMC model-counter binary, which we did not build in this pass;
-the committed script runs it automatically when \texttt{gpmc} is on
-\texttt{PATH}.
+without MitM structure. Quokka\#~\cite{mei2024} (with its GPMC
+model counter, built locally) was run on the same instances: exact
+per-amplitude, $3.1$\,s at $n{=}24$ (correct to $5\times10^{-15}$) but
+\emph{timeout} ($>300$\,s/amplitude) already at $n{=}32$ --- the dense CZ
+graph defeats the CNF encoding far below the tool's published sparse-circuit
+range. On this family the external exact ranking is QuiZX $\gg$ Quokka\#,
+with our MitM evaluator fastest of all three.
 
 \subsection{The adaptive workload: where the composition pays off ---
 and where it does not}\label{sec:adaptive}
@@ -591,9 +594,8 @@ non-materialising); the C\texttt{++} engine has no measurement path
 need for mid-circuit measurement in strong simulation). The adaptive
 wall-clock numbers are Python-vs-Python (fair internally, absolute constants
 not comparable to C\texttt{++} tools).
-\item \textbf{Quokka\# not yet run} (external GPMC solver not built);
-\texttt{quEStab} (ACM ICS 2026, multi-GPU extended stabilizer) still needs a
-manual literature check.
+\item \texttt{quEStab} (ACM ICS 2026, multi-GPU extended stabilizer) still
+needs a manual literature check (paywalled, no preprint).
 \end{itemize}
 
 \section{Conclusion}

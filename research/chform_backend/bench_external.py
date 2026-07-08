@@ -95,7 +95,8 @@ def run_tool(binary, n, k, samples, dag, czs, targets, seed=None):
 
 
 def iqp_qasm(n, dag, czs):
-    lines = [f'OPENQASM 2.0; include "qelib1.inc"; qreg q[{n}];']
+    # header split over lines: quokka#'s parser requires it (quizx accepts both)
+    lines = ["OPENQASM 2.0;", 'include "qelib1.inc";', f"qreg q[{n}];"]
     lines += [f"h q[{q}];" for q in range(n)]
     lines += [f"{'tdg' if dag[q] else 't'} q[{q}];" for q in range(n)]
     lines += [f"cz q[{a}],q[{b}];" for a, b in czs]

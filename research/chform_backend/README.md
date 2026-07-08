@@ -81,7 +81,11 @@
 >   exact; gadgetized == dense == clifft to 1e-14 on interleaved circuits;
 >   streaming `sparsify` now also exercised (unbiased). At scale: hidden
 >   shift (built-in ground truth P(s)=1) at n=16..40, t=28..56, up to 96
->   total qubits: P(s) = 0.90-0.99 at delta=0.3 in 0.1-8 s. Honest finding:
+>   total qubits: P(s) = 0.90-0.99 at delta=0.3 in 0.1-8 s. Quokka# (GPMC
+>   built locally) ran on the shared dense-IQP instances: exact, 3.1 s/amp at
+>   n=24 (5e-15 correct) but >300 s/amp TIMEOUT at n=32 -- dense CZ graphs
+>   defeat the CNF encoding; external exact ranking QuiZX >> Quokka#, our
+>   MitM fastest of all. Honest finding:
 >   clifft's reduction compiles the tested general families to peak_rank <=
 >   10 and wins there; the comparison collapses to a COMPILE-TIME decision
 >   rule (backend iff 0.228 t < peak_rank) -- a per-program hybrid dispatch.
