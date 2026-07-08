@@ -23,7 +23,9 @@
 //      detector/observable evaluation. A stochastic classifier column adds a
 //      READOUT_NOISE on that slot so the bit is drawn at sample time inside
 //      the VM; a deterministic column pads the literal bit with no draw. A
-//      measure-and-reset additionally keeps its reset as a separate node.
+//      measure-and-reset keeps its reset as a separate node only when the
+//      stepper restores the site (a leaked qubit always; a lost qubit only
+//      by policy) -- a non-restoring lost qubit keeps its vacated carrier.
 //      Each such replacement is reported in classified_measurements (in
 //      slot order) so callers can post-process per-slot classifier behavior
 //      -- e.g. the driver's herald patching for three-symbol classifiers,

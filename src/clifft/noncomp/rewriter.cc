@@ -147,11 +147,8 @@ void process_ordinary_node(const AstNode& node, uint32_t op_index,
                 out.nodes.push_back(readout_noise_op(slot, flip));
                 noise_node = out.nodes.size() - 1;
             }
-            // The reset half is emitted only when the status stepper restored
-            // the qubit (leaked always; lost only when the policy opts in).
-            // A non-restoring lost qubit keeps its vacated carrier: emitting
-            // the reset would be dead work on a carrier nothing reads, and
-            // the X/Y-basis forms would spend a hidden SVM draw on it.
+            // The reset half runs only when the stepper restored the site;
+            // a non-restoring lost qubit keeps its vacated carrier.
             if (is_measure_reset(gate) && is_computational(status[qubit])) {
                 out.nodes.push_back(single_qubit_op(reset_for(gate), qubit));
             }

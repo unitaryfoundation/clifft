@@ -468,8 +468,9 @@ Notes:
   measurements (`M`, `MX`, `MY`) classify: on a vacated carrier the
   readout basis is incidental, so the classifier's single record bit is
   equally valid for Z-, X-, or Y-basis forms. A measure-and-reset
-  (`MR`/`MRX`/`MRY`) is kept the same way, with the reset additionally
-  re-preparing the site. The exception is a multi-qubit parity
+  (`MR`/`MRX`/`MRY`) keeps its record the same way; its reset half
+  re-prepares the site only when the reset restores it (a leaked qubit
+  always; a lost qubit only by policy). The exception is a multi-qubit parity
   measurement (`MPP`): it spans more than one qubit and has no faithful
   single-bit substitution, so it is rejected before sampling begins
   when the model is capable (gate A). The supported workaround is an
