@@ -9,15 +9,14 @@ sampler:
     model = noncomp.Model(
         initial_state=[1, 0, 0, 0, 0],                  # P(level) over the 5-level set
         transitions={"S": T},                           # gate -> T[to][from]
-        classifier=noncomp.Classifier(["0", "1"], P),   # optional; P[symbol][level]
-        reset_restores_lost=False,
+        classifier=noncomp.Classifier(P),               # optional; P[symbol][level]
     )
     r = noncomp.sample("H 0\\nCX 0 1\\nS 0\\nM 0\\nM 1\\n", model, shots=1000, seed=7)
     r.measurements   # np.uint8 [shots, num_measurements]
-    r.final_status   # np.uint8 [shots, num_qubits], values in QubitStatusKind
+    r.final_status   # np.uint8 [shots, num_qubits], values in QubitStatus
 
-This API supports exactly the built-in five-level set, named by ``Level`` and
-``LEVELS`` (g, e, leak_g, leak_e, lost); matrix rows and columns are indexed by
+This API supports exactly the built-in five-level set, named by ``Level``
+(g, e, leak_g, leak_e, lost); matrix rows and columns are indexed by
 ``Level``. A classifier has two or three symbols with stochastic columns: the
 first two symbols are the record bit, an optional third symbol heralds the
 measurement (reported per slot in ``heralds``; the visible record stays binary
@@ -38,24 +37,34 @@ from clifft import _clifft_core
 from clifft._clifft_core import Circuit
 
 __all__ = [
-    "LEVELS",
     "Classifier",
     "Level",
     "Model",
     "NonComputationalSample",
-    "QubitStatusKind",
+    "QubitStatus",
     "sample",
 ]
 
 Matrix = Sequence[Sequence[float]]
 
 
-class QubitStatusKind(IntEnum):
-    """A qubit's final status in the per-shot sidecar."""
+class QubitStatus(IntEnum):
+    """Per-qubit outcome in ``final_status``, one value per shot.
+
+    These are per-qubit *status* codes, not matrix indices. ``Level`` names
+    matrix rows and columns (indices 0--4); ``QubitStatus`` names per-qubit
+    outcomes (indices 0--3). The two enums share member names (``LEAK_G``,
+    ``LEAK_E``, ``LOST``) with *different* integer values -- never substitute
+    one for the other.
+
+    ``LEAK_G`` and ``LEAK_E`` are individually distinguishable in
+    ``final_status``, unlike the coarse leaked/lost grouping some tools use.
+    """
 
     COMPUTATIONAL = 0
-    LEAKED = 1
-    LOST = 2
+    LEAK_G = 1
+    LEAK_E = 2
+    LOST = 3
 
 
 class Level(IntEnum):
@@ -68,23 +77,20 @@ class Level(IntEnum):
     LOST = 4
 
 
-LEVELS = ("g", "e", "leak_g", "leak_e", "lost")
-
-
 def _as_matrix(matrix: Matrix) -> list[list[float]]:
     """Normalize a nested sequence or 2-D array to list-of-lists of float."""
     return [[float(x) for x in row] for row in matrix]
 
 
 class Classifier:
-    """A measurement classifier: symbol labels and ``P[symbol][level]``.
+    """A measurement classifier: ``P[symbol][level]`` stochastic matrix.
 
-    Two or three symbols; each level's column must sum to one (substochastic
-    reject columns are not supported). The first two symbols map directly to
-    the measurement record bit. An optional third symbol heralds the
-    measurement -- typically the loss outcome -- reported per record slot in
-    :attr:`NonComputationalSample.heralds` while the visible record keeps a
-    uniformly drawn bit, so the record layout is unchanged.
+    The row count (two or three) determines the symbol alphabet; C++ validates
+    it. The first two rows map to the measurement record bit (0 or 1). An
+    optional third row heralds the measurement -- typically the loss outcome --
+    reported per record slot in :attr:`NonComputationalSample.heralds` while
+    the visible record keeps a uniformly drawn bit, so the record layout is
+    unchanged.
 
     The computational columns define readout confusion for Z-basis
     measurements of computational qubits: the true outcome is misreported
@@ -94,13 +100,9 @@ class Classifier:
     place probability beyond the two record symbols.
     """
 
-    __slots__ = ("symbols", "matrix")
+    __slots__ = ("matrix",)
 
-    def __init__(self, symbols: Sequence[str], matrix: Matrix) -> None:
-        self.symbols = [str(s) for s in symbols]
-        if len(self.symbols) != len(set(self.symbols)):
-            duplicates = sorted({s for s in self.symbols if self.symbols.count(s) > 1})
-            raise ValueError(f"noncomp classifier: duplicate symbol label(s): {duplicates}")
+    def __init__(self, matrix: Matrix) -> None:
         self.matrix = _as_matrix(matrix)
 
 
@@ -109,6 +111,8 @@ class Model:
 
     Args:
         initial_state: probability per level, ``P(level)``, summing to one.
+            Defaults to ``[1.0, 0.0, 0.0, 0.0, 0.0]`` (all qubits start in
+            the ground state).
         transitions: maps a name to its ``T[to][from]`` matrix. A key that
             names a gate (e.g. ``"CZ"``) is a *hook*: it expands to a
             ``LEVEL_TRANSITION[key]`` annotation after every occurrence of that
@@ -148,20 +152,28 @@ class Model:
     problem.
     """
 
-    __slots__ = ("_handle",)
+    __slots__ = (
+        "_handle",
+        "_transition_keys",
+        "_classifier_rows",
+        "_reset_restores_lost",
+        "_damping",
+    )
 
     def __init__(
         self,
-        initial_state: Sequence[float],
+        initial_state: Sequence[float] | None = None,
         transitions: Mapping[str, Matrix] | None = None,
         classifier: Classifier | None = None,
         reset_restores_lost: bool = False,
         damping: str = "exact",
     ) -> None:
+        if initial_state is None:
+            initial_state = [1.0, 0.0, 0.0, 0.0, 0.0]
         transition_matrices = {
             str(gate): _as_matrix(matrix) for gate, matrix in (transitions or {}).items()
         }
-        num_symbols = None if classifier is None else len(classifier.symbols)
+        num_symbols = None if classifier is None else len(classifier.matrix)
         matrix = None if classifier is None else classifier.matrix
         self._handle = _clifft_core._build_noncomp_model(
             [float(p) for p in initial_state],
@@ -171,6 +183,18 @@ class Model:
             bool(reset_restores_lost),
             str(damping),
         )
+        self._transition_keys: list[str] = sorted(transition_matrices.keys())
+        self._classifier_rows: int | None = num_symbols
+        self._reset_restores_lost: bool = bool(reset_restores_lost)
+        self._damping: str = str(damping)
+
+    def __repr__(self) -> str:
+        parts = [f"transitions={self._transition_keys!r}"]
+        if self._classifier_rows is not None:
+            parts.append(f"classifier={self._classifier_rows}-symbol")
+        parts.append(f"reset_restores_lost={self._reset_restores_lost!r}")
+        parts.append(f"damping={self._damping!r}")
+        return f"Model({', '.join(parts)})"
 
 
 class NonComputationalSample:
@@ -178,13 +202,12 @@ class NonComputationalSample:
 
     Attributes:
         measurements, detectors, observables: uint8 arrays, shape (shots, width).
-        final_status: uint8 array (shots, num_qubits) of :class:`QubitStatusKind`.
-            Leaked/lost statuses are per-shot truth. Computational qubits
-            report as a single category: transitions with computational
-            destinations resolve entirely inside the simulator, so no
-            final level is claimed.
-            Coarse: it reports computational/leaked/lost, not the specific leaked
-            or lost level.
+        final_status: uint8 array (shots, num_qubits) of :class:`QubitStatus`.
+            Reports the definite noncomputational level per shot: ``LEAK_G``
+            and ``LEAK_E`` are individually distinguishable. Computational
+            qubits report as :attr:`QubitStatus.COMPUTATIONAL`: transitions
+            with computational destinations resolve entirely inside the
+            simulator, so no final level is claimed.
         heralds: uint8 array (shots, num_measurements); 1 where the classifier
             sampled the herald (third) symbol for that slot, else 0.
         shots, num_qubits, num_measurements, num_detectors, num_observables: ints.

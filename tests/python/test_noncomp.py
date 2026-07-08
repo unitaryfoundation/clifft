@@ -16,9 +16,8 @@ from clifft import noncomp
 LEAK_G, LEAK_E, LOST = noncomp.Level.LEAK_G, noncomp.Level.LEAK_E, noncomp.Level.LOST
 ALL_G = [1.0, 0.0, 0.0, 0.0, 0.0]
 ALL_E = [0.0, 1.0, 0.0, 0.0, 0.0]
-COMPUTATIONAL = noncomp.QubitStatusKind.COMPUTATIONAL
-LEAKED = noncomp.QubitStatusKind.LEAKED
-LOST_KIND = noncomp.QubitStatusKind.LOST
+COMPUTATIONAL = noncomp.QubitStatus.COMPUTATIONAL
+LOST_KIND = noncomp.QubitStatus.LOST
 
 
 def _zeros(rows: int, cols: int) -> list[list[float]]:
@@ -43,7 +42,7 @@ def classifier_for(level: int, col: list[float]) -> noncomp.Classifier:
     m[1][noncomp.Level.E] = 1.0
     m[0][level] = col[0]
     m[1][level] = col[1]
-    return noncomp.Classifier(["0", "1"], m)
+    return noncomp.Classifier(m)
 
 
 def leak_model(classifier: noncomp.Classifier | None = None) -> noncomp.Model:
@@ -56,7 +55,6 @@ def leak_model(classifier: noncomp.Classifier | None = None) -> noncomp.Model:
 
 
 def test_level_names_and_indices():
-    assert noncomp.LEVELS == ("g", "e", "leak_g", "leak_e", "lost")
     assert (int(noncomp.Level.G), int(noncomp.Level.LEAK_G), int(noncomp.Level.LOST)) == (0, 2, 4)
 
 
@@ -150,7 +148,7 @@ def test_known_source_dependent_transition_accepted():
     t[LEAK_E][1] = 1.0
     model = noncomp.Model(initial_state=ALL_G, transitions={"S": t})
     r = noncomp.sample("S 0\n", model, shots=8, seed=5)
-    assert (r.final_status == LEAKED).all()
+    assert (r.final_status == noncomp.QubitStatus.LEAK_G).all()
 
 
 def test_reset_reload_policy_changes_lost_site():
@@ -249,17 +247,18 @@ def test_four_symbol_classifier_rejects_at_construction():
         mat[0][lvl] = 1.0
     mat[0][LEAK_G], mat[1][LEAK_G], mat[2][LEAK_G], mat[3][LEAK_G] = 0.4, 0.3, 0.2, 0.1
     with pytest.raises(ValueError, match="two record symbols"):
-        leak_model(noncomp.Classifier(["0", "1", "2", "3"], mat))
+        leak_model(noncomp.Classifier(mat))
 
 
-def test_duplicate_classifier_symbols_reject_in_python():
+def test_classifier_stores_matrix():
     mat = _zeros(2, 5)
     for lvl in range(5):
         mat[0][lvl] = 1.0
     mat[0][noncomp.Level.E] = 0.0
     mat[1][noncomp.Level.E] = 1.0
-    with pytest.raises(ValueError, match="duplicate symbol"):
-        noncomp.Classifier(["0", "0"], mat)
+    c = noncomp.Classifier(mat)
+    assert len(c.matrix) == 2
+    assert len(c.matrix[0]) == 5
 
 
 def _ternary_classifier(level: int, col: list[float]) -> noncomp.Classifier:
@@ -268,7 +267,7 @@ def _ternary_classifier(level: int, col: list[float]) -> noncomp.Classifier:
     for lvl in range(5):
         m[0][lvl] = 1.0
     m[0][level], m[1][level], m[2][level] = col
-    return noncomp.Classifier(["0", "1", "2"], m)
+    return noncomp.Classifier(m)
 
 
 def test_ternary_herald_rides_the_sidecar():
@@ -444,9 +443,7 @@ def test_zero_fire_loss_before_firing_loss_samples_cleanly():
     trace() elided it, causing a site-id mismatch that aborted in Debug or
     segfaulted in Release.
     """
-    classifier = noncomp.Classifier(
-        ["0", "1"], [[1.0, 0.0, 1.0, 0.0, 0.0], [0.0, 1.0, 0.0, 1.0, 1.0]]
-    )
+    classifier = noncomp.Classifier([[1.0, 0.0, 1.0, 0.0, 0.0], [0.0, 1.0, 0.0, 1.0, 1.0]])
     model = noncomp.Model(initial_state=ALL_G, classifier=classifier)
     r = noncomp.sample("LOSS(0) 0\nLOSS(0.5) 0\nM 0\n", model, shots=64, seed=90)
     assert r.shots == 64
@@ -469,9 +466,7 @@ def test_seepage_only_before_firing_site_samples_cleanly():
     seep = _zeros(5, 5)
     seep[LEAK_E][LEAK_E] = 1.0  # leak_e -> leak_e, only noncomp columns
 
-    classifier = noncomp.Classifier(
-        ["0", "1"], [[1.0, 0.0, 1.0, 0.0, 0.0], [0.0, 1.0, 0.0, 1.0, 1.0]]
-    )
+    classifier = noncomp.Classifier([[1.0, 0.0, 1.0, 0.0, 0.0], [0.0, 1.0, 0.0, 1.0, 1.0]])
     model = noncomp.Model(initial_state=ALL_G, transitions={"seep": seep}, classifier=classifier)
     r = noncomp.sample("LEVEL_TRANSITION[seep] 0\nLOSS(1) 0\nM 0\n", model, shots=32, seed=91)
     assert r.shots == 32
@@ -490,9 +485,7 @@ def test_computational_readout_confusion_misreports_the_record():
     m[1][noncomp.Level.E] = 0.8
     for lvl in (LEAK_G, LEAK_E, LOST):
         m[0][lvl] = 1.0
-    model = noncomp.Model(
-        initial_state=ALL_G, transitions={}, classifier=noncomp.Classifier(["0", "1"], m)
-    )
+    model = noncomp.Model(initial_state=ALL_G, transitions={}, classifier=noncomp.Classifier(m))
 
     zero = noncomp.sample("M 0", model, shots=4000, seed=11)
     ones = int(zero.measurements[:, 0].sum())
@@ -685,3 +678,65 @@ def test_sample_type_hints_resolve_at_runtime():
 
     hints = get_type_hints(noncomp.sample)
     assert "circuit" in hints
+
+
+# --- Item 1: QubitStatus enum (fine-grained status) --------------------------
+
+
+def test_qubit_status_values():
+    """QubitStatus integer values differ from Level values for the shared names."""
+    assert int(noncomp.QubitStatus.COMPUTATIONAL) == 0
+    assert int(noncomp.QubitStatus.LEAK_G) == 1
+    assert int(noncomp.QubitStatus.LEAK_E) == 2
+    assert int(noncomp.QubitStatus.LOST) == 3
+
+
+def test_qubit_status_not_level_collision_guard():
+    """QubitStatus.LOST != Level.LOST and QubitStatus.LEAK_G != Level.LEAK_G.
+
+    The two enums share member names with different integer values; mixing
+    them in a comparison would silently produce wrong results.
+    """
+    assert int(noncomp.QubitStatus.LOST) != int(noncomp.Level.LOST)
+    assert int(noncomp.QubitStatus.LEAK_G) != int(noncomp.Level.LEAK_G)
+
+
+def test_fine_grained_leak_e_status():
+    """A certain leak into leak_e yields final_status == QubitStatus.LEAK_E."""
+    t = _zeros(5, 5)
+    t[noncomp.Level.LEAK_E][noncomp.Level.G] = 1.0
+    t[noncomp.Level.LEAK_E][noncomp.Level.E] = 1.0
+    model = noncomp.Model(
+        initial_state=ALL_G,
+        transitions={"S": t},
+        classifier=classifier_for(noncomp.Level.LEAK_E, [0.0, 1.0]),
+    )
+    r = noncomp.sample("S 0\n", model, shots=8, seed=77)
+    assert (r.final_status == noncomp.QubitStatus.LEAK_E).all()
+
+
+# --- Item 3: Model() with no initial_state defaults to ground state ----------
+
+
+def test_model_default_initial_state_constructs():
+    model = noncomp.Model()
+    assert isinstance(model, noncomp.Model)
+
+
+def test_model_default_initial_state_reads_zero():
+    r = noncomp.sample("M 0", noncomp.Model(), shots=4, seed=1)
+    assert np.all(r.measurements == 0)
+
+
+# --- Item 5: Model.__repr__ --------------------------------------------------
+
+
+def test_model_repr_contains_keys_and_damping():
+    model = noncomp.Model(
+        transitions={"S": transition_to(LEAK_G), "seep": transition_to(LEAK_E)},
+        damping="neglect",
+    )
+    r = repr(model)
+    assert "S" in r
+    assert "seep" in r
+    assert "neglect" in r

@@ -170,6 +170,7 @@ model = clifft.NonComputationalModel(
 
     # Independent per-qubit initial level distribution.
     # Indices into levels[]; sums to 1 per qubit (validated in C++).
+    # Optional; defaults to [1.0, 0.0, 0.0, 0.0, 0.0] (all qubits in g).
     initial_state=[0.0065, 0.96, 0.0065, 0.027, 0.0],
 
     # Per-gate transition instruments. Matrix shorthand uses T[to, from]
@@ -189,22 +190,19 @@ model = clifft.NonComputationalModel(
     },
 
     # Level -> visible-symbol classifier applied at measurement.
-    # Shape: (len(symbols), len(levels)). Entry matrix[s, l] is
-    # P(symbol=s | level=l).
+    # Two rows (record symbols 0 and 1), or three when the third row
+    # is the herald symbol; columns run over the levels. Entry
+    # matrix[s, l] is P(symbol=s | level=l).
     #
-    # The matrix is COLUMN-SUBSTOCHASTIC: each column sum lies in
-    # [0, 1] and the deficit `1 - sum(column)` is implicit
-    # P(reject | level). A classifier call that samples "reject"
-    # raises with the offending qubit and level. Default identity +
-    # reject is just:
-    #     [[1, 0, 0, 0, 0],   # P("0" | level) over [g, e, leak_g, leak_e, lost]
-    #      [0, 1, 0, 0, 0]]   # P("1" | level)
-    # which has column sums [1, 1, 0, 0, 0] — leaked/lost reject
-    # with probability 1.
+    # The matrix is COLUMN-STOCHASTIC: every column sums to 1 within
+    # tolerance. Substochastic "reject" columns are not supported and
+    # fail at construction, and a computational column places no mass
+    # on the herald row. The faithful identity readout is:
+    #     [[1, 0, 1, 0, 1],   # P("0" | level) over [g, e, leak_g, leak_e, lost]
+    #      [0, 1, 0, 1, 0]]   # P("1" | level)
     classifier=clifft.MeasurementClassifier(
-        symbols=["0", "1"],
-        matrix=[[1, 0, 0, 0, 0],
-                [0, 1, 0, 0, 0]],
+        matrix=[[1, 0, 1, 0, 1],
+                [0, 1, 0, 1, 0]],
     ),
 
     # Policy for downstream operations on noncomputational qubits.
@@ -265,20 +263,18 @@ public:
     // ... accessors for per-source branches, no-jump weight per source, etc.
 };
 
-// Distinct from TransitionInstrument: rectangular column-substochastic
-// map from levels to reported user-facing symbols. Column sums lie in
-// [0, 1]; the deficit per level is implicit P(reject | level). No
-// no-jump branch, no concept of source-independence on Computational
-// levels.
+// Distinct from TransitionInstrument: a rectangular column-stochastic
+// map from levels to record symbols -- two rows, or three when the
+// third row is the herald symbol. Every column sums to 1 within
+// tolerance; substochastic (reject) columns fail at construction, and
+// a computational column places no mass on the herald row. No no-jump
+// branch, no concept of source-independence on Computational levels.
 class MeasurementClassifier {
 public:
     static MeasurementClassifier from_matrix(
-        std::vector<std::string> symbols,
-        std::vector<std::vector<double>> matrix);  // shape (symbols, levels)
+        size_t num_symbols,
+        std::vector<std::vector<double>> matrix);  // shape (num_symbols, levels)
 
-    // P(reject | level) = 1 - sum_s matrix[s, level], computed at
-    // construction and used by the sampler.
-    double reject_probability(uint8_t level_id) const;
     // ... accessors
 };
 
@@ -337,11 +333,12 @@ representable in the MVP.
    of scope.)
 4. **Transition matrix column sums in [0, 1].** Implied no-jump weight
    per source is `1 - sum(col)`.
-5. **Classifier matrix is column-substochastic.** If a
-   `MeasurementClassifier` is provided, its matrix has shape
-   `(len(symbols), len(levels))`, every entry is in `[0, 1]`, and
-   every column sum lies in `[0, 1]`. The deficit per column is
-   `P(reject | level)`.
+5. **Classifier matrix is column-stochastic.** If a
+   `MeasurementClassifier` is provided, its matrix has two or three
+   rows (the third is the herald symbol), every entry is in `[0, 1]`,
+   and every column sums to 1 within tolerance; a computational column
+   places no mass on the herald row. Substochastic (reject) columns
+   fail at construction.
 6. **Policy values are well-formed** (enum values, not free strings on
    the C++ side; Python sugar translates).
 7. **Transition keys are tag-safe names**: nonempty, with no `]` or

@@ -33,7 +33,7 @@ def _faithful_classifier() -> noncomp.Classifier:
     m[0][Level.G] = m[1][Level.E] = 1.0
     m[0][Level.LEAK_G] = m[1][Level.LEAK_E] = 1.0
     m[0][Level.LOST] = m[1][Level.LOST] = 0.5
-    return noncomp.Classifier(["0", "1"], m)
+    return noncomp.Classifier(m)
 
 
 def _model(transitions: dict, damping: str = "exact") -> noncomp.Model:
@@ -54,7 +54,7 @@ def test_gate_determined_source_fires_exactly_zero():
     model = _model({"leak": _transition({(Level.LEAK_E, Level.E): 1.0})})
     r = noncomp.sample("H 0\nH 0\nLEVEL_TRANSITION[leak] 0\nM 0\n", model, shots=SHOTS, seed=11)
     status = np.asarray(r.final_status)
-    assert (status == noncomp.QubitStatusKind.COMPUTATIONAL).all()
+    assert (status == noncomp.QubitStatus.COMPUTATIONAL).all()
     assert (np.asarray(r.measurements) == 0).all()  # H H |0> measures 0
 
 
@@ -74,7 +74,7 @@ def test_bell_joint_correlation_has_tvd_zero():
     status = np.asarray(r.final_status)
     # The certain fire really happened: an accidentally skipped transition
     # would also show perfect agreement (a plain Bell pair does).
-    assert (status[:, 0] == noncomp.QubitStatusKind.LEAKED).all()
+    assert np.isin(status[:, 0], (noncomp.QubitStatus.LEAK_G, noncomp.QubitStatus.LEAK_E)).all()
     assert (m[:, 0] == m[:, 1]).all()  # off-diagonal mass is exactly 0
     assert abs(m[:, 0].mean() - 0.5) < binomial_tolerance(0.5, SHOTS)
 
