@@ -184,10 +184,10 @@ TEST_CASE("NonComputationalModel: rejects two keys resolving to the same gate") 
 TEST_CASE("NonComputationalModel: a malformed transition matrix rejects, naming the component") {
     auto bad = zero_matrix();
     bad[0][0] = 1.5;
-    REQUIRE_THROWS_WITH(
-        NonComputationalModel::from_spec(default_initial_state(), {{"H", bad}}, std::nullopt,
-                                         NonComputationalPolicy{}),
-        ContainsSubstring("TransitionInstrument") && ContainsSubstring("out of [0, 1]"));
+    REQUIRE_THROWS_WITH(NonComputationalModel::from_spec(default_initial_state(), {{"H", bad}},
+                                                         std::nullopt, NonComputationalPolicy{}),
+                        ContainsSubstring("TransitionInstrument") &&
+                            ContainsSubstring("out of [0, 1]") && ContainsSubstring("'H'"));
 }
 
 // =========================================================================

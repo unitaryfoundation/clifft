@@ -653,3 +653,26 @@ def test_contract_validated_for_zero_shots():
     model = noncomp.Model(initial_state=ALL_G, transitions={"S": transition_to(LOST)})
     with pytest.raises(ValueError, match="classifier is required"):
         noncomp.sample("S 0\nM 0", model, shots=0, seed=1)
+
+
+# --- 10. Error message quality -----------------------------------------------
+
+
+def test_malformed_transition_error_names_key():
+    """A bad transition matrix error must include the offending key in the message."""
+    bad = [[0.0] * 5 for _ in range(5)]
+    bad[0][0] = 1.5  # column sum exceeds 1
+
+    with pytest.raises(ValueError, match="'CZ'"):
+        noncomp.Model(initial_state=ALL_G, transitions={"S": transition_to(LEAK_G), "CZ": bad})
+
+
+# --- 11. Plain-pipeline redirect points to clifft.noncomp.sample -------------
+
+
+def test_compile_annotated_circuit_raises_invalid_argument_with_noncomp_sample_hint():
+    """clifft.compile() on a LOSS-annotated circuit raises ValueError naming noncomp.sample."""
+    import clifft
+
+    with pytest.raises(ValueError, match="noncomp.sample"):
+        clifft.compile("LOSS(0.1) 0\nM 0")

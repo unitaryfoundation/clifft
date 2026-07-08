@@ -300,3 +300,39 @@ class TestEnumBindingCompleteness:
         for inst in prog:
             d: dict[str, Any] = inst.as_dict()
             assert d["opcode"] != "UNKNOWN", f"opcode_to_str returned UNKNOWN for {inst}"
+
+    def test_all_gate_types_bound(self) -> None:
+        from clifft._clifft_core import _num_gate_types
+
+        py_count = len(clifft.GateType.__members__)
+        cpp_count: int = _num_gate_types()
+        assert py_count == cpp_count, (
+            f"GateType mismatch: Python has {py_count} members but C++ has {cpp_count}. "
+            "A new GateType was added in gate_data.h but not bound in bindings.cc."
+        )
+
+
+class TestAstNodeAnnotations:
+    """AstNode.tag and annotation GateType binding tests."""
+
+    def test_loss_gate_type_is_bound(self) -> None:
+        node = clifft.parse("LOSS(0.1) 0\nM 0").nodes[0]
+        assert node.gate == clifft.GateType.LOSS
+
+    def test_level_transition_gate_type_is_bound(self) -> None:
+        node = clifft.parse("LEVEL_TRANSITION[cz_leak] 0\nM 0").nodes[0]
+        assert node.gate == clifft.GateType.LEVEL_TRANSITION
+
+    def test_level_transition_tag_property(self) -> None:
+        node = clifft.parse("LEVEL_TRANSITION[cz_leak] 0\nM 0").nodes[0]
+        assert node.tag == "cz_leak"
+
+    def test_loss_tag_is_empty(self) -> None:
+        node = clifft.parse("LOSS(0.1) 0\nM 0").nodes[0]
+        assert node.tag == ""
+
+    def test_repr_works_for_annotation_nodes(self) -> None:
+        circuit = clifft.parse("LOSS(0.1) 0\nM 0")
+        assert repr(circuit.nodes[0]) == "LOSS 0"
+        circuit2 = clifft.parse("LEVEL_TRANSITION[cz_leak] 0\nM 0")
+        assert repr(circuit2.nodes[0]) == "LEVEL_TRANSITION 0"

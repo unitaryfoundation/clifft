@@ -198,6 +198,10 @@ NB_MODULE(_clifft_core, m) {
     // the test_introspection.py tripwire will catch it.
     m.def("_num_optypes", []() { return static_cast<int>(clifft::OpType::NUM_OP_TYPES); });
     m.def("_num_opcodes", []() { return static_cast<int>(clifft::Opcode::NUM_OPCODES); });
+    m.def("_num_gate_types", []() {
+        return static_cast<int>(sizeof(clifft::detail::kGateTraitsData) /
+                                sizeof(clifft::detail::kGateTraitsData[0]));
+    });
 
     nb::enum_<clifft::GateType>(m, "GateType", "Quantum gate types")
         // Single-qubit Cliffords
@@ -297,6 +301,12 @@ NB_MODULE(_clifft_core, m) {
         .value("DETECTOR", clifft::GateType::DETECTOR)
         .value("OBSERVABLE_INCLUDE", clifft::GateType::OBSERVABLE_INCLUDE)
         .value("TICK", clifft::GateType::TICK)
+        // Noncomputational trajectory annotations
+        .value("LEVEL_TRANSITION", clifft::GateType::LEVEL_TRANSITION)
+        .value("LOSS", clifft::GateType::LOSS)
+        // Simulation-only probes
+        .value("EXP_VAL", clifft::GateType::EXP_VAL)
+        // Sentinel for unknown/unsupported gates
         .value("UNKNOWN", clifft::GateType::UNKNOWN);
 
     nb::class_<clifft::Target>(m, "Target", "Encoded quantum target")
@@ -325,6 +335,7 @@ NB_MODULE(_clifft_core, m) {
     nb::class_<clifft::AstNode>(m, "AstNode", "A single circuit operation")
         .def_ro("gate", &clifft::AstNode::gate)
         .def_ro("targets", &clifft::AstNode::targets)
+        .def_ro("tag", &clifft::AstNode::tag)
         .def_prop_ro("arg",
                      [](const clifft::AstNode& n) { return n.args.empty() ? 0.0 : n.args[0]; })
         .def_ro("args", &clifft::AstNode::args)

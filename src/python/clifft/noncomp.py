@@ -29,12 +29,15 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from enum import IntEnum
-from typing import Iterator
+from typing import TYPE_CHECKING, Iterator
 
 import numpy as np
 import numpy.typing as npt
 
 from clifft import _clifft_core
+
+if TYPE_CHECKING:
+    from clifft._clifft_core import Circuit
 
 __all__ = [
     "LEVELS",
@@ -250,7 +253,7 @@ class NonComputationalSample:
 
 
 def sample(
-    circuit: object,
+    circuit: Circuit | str,
     model: Model,
     shots: int,
     seed: int | None = None,

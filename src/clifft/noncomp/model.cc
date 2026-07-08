@@ -133,7 +133,12 @@ NonComputationalModel NonComputationalModel::from_spec(
     std::optional<ClassifierSpec> classifier_spec, NonComputationalPolicy policy) {
     std::map<std::string, TransitionInstrument> transitions;
     for (const auto& [gate, matrix] : transition_matrices) {
-        transitions.emplace(gate, TransitionInstrument::from_matrix(matrix));
+        try {
+            transitions.emplace(gate, TransitionInstrument::from_matrix(matrix));
+        } catch (const std::invalid_argument& e) {
+            throw std::invalid_argument("NonComputationalModel: transition '" + gate +
+                                        "': " + e.what());
+        }
     }
 
     std::optional<MeasurementClassifier> classifier;

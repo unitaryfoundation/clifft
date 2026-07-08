@@ -764,10 +764,10 @@ HirModule trace(const Circuit& circuit, const InstrumentTraceOptions* instrument
             case GateType::LEVEL_TRANSITION:
             case GateType::LOSS: {
                 if (instruments == nullptr) {
-                    throw std::runtime_error(
+                    throw std::invalid_argument(
                         std::string(gate_name(node.gate)) +
                         " is a noncomputational annotation; run the circuit through "
-                        "sample_noncomputational instead of compiling it directly");
+                        "clifft.noncomp.sample instead of compiling it directly");
                 }
                 for (const auto& target : node.targets) {
                     const uint32_t qubit = target.value();
