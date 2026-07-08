@@ -824,6 +824,15 @@ qubits + classical statuses. Bounded to ~4 qubits and ~10 events;
 fast enough for parameter sweeps. No sqale-sim dependency in the
 MVP.
 
+Note on oracle independence: the enumerator (`utils_noncomp_enumerator`)
+imports the oracle's channel primitives (`utils_noncomp_oracle`) for its
+quantum-core steps, so the Python validation campaign constitutes one
+independent reference, not two.  A shared misconception of the physical
+channel would pass both; the oracle and enumerator self-checks, together
+with several hand-derived closed-form checks (Bell joint, |+> marginal,
+initial-leak recapture), anchor the campaign at concrete analytic points
+that do not rely on the oracle's own machinery.
+
 ## 8. Open question to settle before §6 step 7 (`rewriter`)
 
 One remaining sidecar-shape question, not load-bearing for the
