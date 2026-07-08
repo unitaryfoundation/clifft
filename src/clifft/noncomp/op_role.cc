@@ -90,8 +90,9 @@ OrdinaryStep advance_ordinary_node(const AstNode& node, uint32_t op_index,
         }
     }
 
-    // Set when this (single-qubit Z-basis) measurement reads a leaked or
-    // lost qubit: the classifier, not the SVM, defines its record bit.
+    // Set when this single-qubit measurement (any basis -- the readout
+    // basis is incidental on a vacated carrier) reads a leaked or lost
+    // qubit: the classifier, not the SVM, defines its record bit.
     std::optional<Level> classified_level;
 
     for (const QubitOperand& operand : qubit_operands(node)) {
