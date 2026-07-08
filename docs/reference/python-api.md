@@ -24,6 +24,23 @@
 
 ::: clifft.sample_k_survivors
 
+## Leakage and Loss (experimental)
+
+Sampling under a five-level leakage/loss model. See the
+[Leakage and Loss guide](../guide/leakage-and-loss.md).
+
+::: clifft.noncomp.sample
+
+::: clifft.noncomp.Model
+
+::: clifft.noncomp.Classifier
+
+::: clifft.noncomp.NonComputationalSample
+
+::: clifft.noncomp.Level
+
+::: clifft.noncomp.QubitStatus
+
 ## Strong Simulation
 
 ::: clifft.basis_probabilities

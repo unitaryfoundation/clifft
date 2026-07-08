@@ -1,5 +1,7 @@
 """Noncomputational (leakage/loss) sampling.
 
+This module is experimental: the API may change between minor releases.
+
 Drives a structural leakage/loss trajectory model on top of the ordinary Clifft
 sampler:
 
