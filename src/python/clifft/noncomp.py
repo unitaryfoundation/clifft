@@ -35,6 +35,7 @@ import numpy as np
 import numpy.typing as npt
 
 from clifft import _clifft_core
+from clifft._clifft_core import Circuit
 
 __all__ = [
     "LEVELS",
@@ -250,7 +251,7 @@ class NonComputationalSample:
 
 
 def sample(
-    circuit: object,
+    circuit: Circuit | str,
     model: Model,
     shots: int,
     seed: int | None = None,
