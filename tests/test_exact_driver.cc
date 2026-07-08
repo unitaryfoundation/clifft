@@ -1130,20 +1130,39 @@ TEST_CASE("exact: LOSS(1) on a pure lost initial is a no-op") {
     }
 }
 
-TEST_CASE("exact: LOSS on a lost qubit spends no draw -- records are identical") {
-    // A LOSS(1) on a pure-lost initial must produce the same records as a
-    // plain M 0 on the same initial at the same seed: the lost-qubit LOSS
-    // consult emits no node in the compiled module, so the draw streams are
-    // unchanged. This guards that the implementation really no-ops at lost
-    // rather than consuming any RNG draw.
+TEST_CASE("exact: LOSS on a lost qubit spends no draw -- a later consult sees the same stream") {
+    // A LOSS(1) on an already-lost qubit records its no-op without
+    // consuming any driver randomness. The discriminator is a stochastic
+    // consult AFTER it: the recover channel returns the lost qubit to e
+    // with probability one half, drawing from the driver stream. If the
+    // preceding LOSS spent a draw, every later recover outcome would
+    // shift; instead the two runs must agree shot by shot on records and
+    // statuses alike.
     const uint64_t seed = 147;
-    ModelSpec spec;
-    spec.initial = {0.0, 0.0, 0.0, 0.0, 1.0};  // pure lost
-    auto model = make_model(spec);
+    std::vector<std::vector<double>> recover(5, std::vector<double>(5, 0.0));
+    recover[1][kLost] = 0.5;  // lost -> e, probability one half
+    ClassifierSpec classifier;
+    classifier.num_symbols = 2;
+    classifier.matrix = {{1.0, 0.0, 1.0, 0.0, 1.0}, {0.0, 1.0, 0.0, 1.0, 0.0}};
+    auto model = NonComputationalModel::from_spec({0.0, 0.0, 0.0, 0.0, 1.0}, {{"recover", recover}},
+                                                  classifier, NonComputationalPolicy{});
 
-    auto r_plain = sample_noncomputational(parse("M 0"), model, 30, seed);
-    auto r_loss = sample_noncomputational(parse("LOSS(1) 0\nM 0"), model, 30, seed);
+    auto r_plain =
+        sample_noncomputational(parse("LEVEL_TRANSITION[recover] 0\nM 0"), model, 128, seed);
+    auto r_loss = sample_noncomputational(parse("LOSS(1) 0\nLEVEL_TRANSITION[recover] 0\nM 0"),
+                                          model, 128, seed);
     REQUIRE(r_plain.measurements == r_loss.measurements);
+    REQUIRE(r_plain.final_status == r_loss.final_status);
+
+    // Vacuity guard: the recover consult really is stochastic -- both
+    // outcomes occur across the shots.
+    bool saw_zero = false;
+    bool saw_one = false;
+    for (uint32_t shot = 0; shot < 128; ++shot) {
+        (r_plain.measurements[shot] == 0 ? saw_zero : saw_one) = true;
+    }
+    REQUIRE(saw_zero);
+    REQUIRE(saw_one);
 }
 
 // =========================================================================
