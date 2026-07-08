@@ -1149,6 +1149,36 @@ TEST_CASE("exact: LOSS on a lost qubit spends no draw -- a later consult sees th
     REQUIRE(saw_one);
 }
 
+TEST_CASE("exact: a non-restoring lost MRX spends no hidden draw -- M and MRX read identically") {
+    // Both circuits lose qubit 0 with certainty and classify its record
+    // slot from the same lost column, so they compile to the same module
+    // -- unless MRX's X-basis reset half were emitted on the vacated
+    // carrier, whose hidden MX would spend an SVM draw and shift every
+    // later outcome on qubit 1's stream.
+    const uint64_t seed = 61;
+    const std::vector<std::vector<double>> classifier = {{1.0, 0.0, 1.0, 0.0, 0.0},
+                                                         {0.0, 1.0, 0.0, 1.0, 1.0}};
+    auto model = NonComputationalModel::from_spec(
+        {1.0, 0.0, 0.0, 0.0, 0.0}, {}, std::make_optional(classifier), NonComputationalPolicy{});
+
+    auto r_m = sample_noncomputational(parse("LOSS(1) 0\nM 0\nH 1\nM 1"), model, 128, seed);
+    auto r_mrx = sample_noncomputational(parse("LOSS(1) 0\nMRX 0\nH 1\nM 1"), model, 128, seed);
+    REQUIRE(r_m.measurements == r_mrx.measurements);
+    REQUIRE(r_m.final_status == r_mrx.final_status);
+
+    bool saw_zero = false;
+    bool saw_one = false;
+    for (uint32_t shot = 0; shot < 128; ++shot) {
+        // Slot 0 is the classifier's lost column: 1 with certainty.
+        REQUIRE(r_m.measurements[shot * 2] == 1);
+        // Vacuity guard: qubit 1's H-then-measure really draws -- both
+        // outcomes occur across the shots.
+        (r_m.measurements[shot * 2 + 1] == 0 ? saw_zero : saw_one) = true;
+    }
+    REQUIRE(saw_zero);
+    REQUIRE(saw_one);
+}
+
 // =========================================================================
 // Gap 5: Classified record drives feedback
 // =========================================================================

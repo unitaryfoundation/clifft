@@ -140,8 +140,10 @@ class Model:
     identity on the surviving operands. Single-qubit measurements (``M``,
     ``MX``, ``MY``) keep their record slot; on a vacated carrier the readout
     basis is incidental and the classifier supplies the bit. A
-    measure-and-reset (``MR``/``MRX``/``MRY``) is kept the same way, with
-    the reset additionally re-preparing the site. Parity measurements
+    measure-and-reset (``MR``/``MRX``/``MRY``) keeps its record the same
+    way; its reset half re-prepares the site only when the reset restores
+    it (a leaked qubit always; a lost qubit only with
+    ``reset_restores_lost``). Parity measurements
     (``MPP``) are not supported when the model can leak or lose qubits — they
     have no faithful single-bit classifier substitution — and raise before
     sampling begins. A model that can leak or lose qubits also requires a

@@ -147,7 +147,9 @@ void process_ordinary_node(const AstNode& node, uint32_t op_index,
                 out.nodes.push_back(readout_noise_op(slot, flip));
                 noise_node = out.nodes.size() - 1;
             }
-            if (is_measure_reset(gate)) {
+            // The reset half runs only when the stepper restored the site;
+            // a non-restoring lost qubit keeps its vacated carrier.
+            if (is_measure_reset(gate) && is_computational(status[qubit])) {
                 out.nodes.push_back(single_qubit_op(reset_for(gate), qubit));
             }
             classified.push_back({slot, *classified_level, noise_node});

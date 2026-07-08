@@ -463,7 +463,7 @@ TEST_CASE("rewrite: a measure-and-reset on a leaked qubit records and resets") {
     REQUIRE(rw.final_status[0] == clifft::QubitStatus::Computational);
 }
 
-TEST_CASE("rewrite: a measure-and-reset on a non-restoring lost qubit is kept") {
+TEST_CASE("rewrite: a measure-and-reset on a non-restoring lost qubit records without its reset") {
     Circuit c = parse("MR 0\n");
     NonComputationalModel model =
         make_model_with_classifier({}, classifier_with(kLost, {1.0, 0.0}));
@@ -471,8 +471,26 @@ TEST_CASE("rewrite: a measure-and-reset on a non-restoring lost qubit is kept") 
     ContinuationRewrite rw = rewritten(c, model, {kLost});
     REQUIRE(count_gate(rw.circuit, GateType::MR) == 0);
     REQUIRE(count_gate(rw.circuit, GateType::MPAD) == 1);  // record slot preserved
+    // The stepper leaves the qubit Lost, so the reset half is dropped: the
+    // carrier stays vacated and nothing re-prepares it.
+    REQUIRE(count_gate(rw.circuit, GateType::R) == 0);
     REQUIRE(rw.circuit.num_measurements == 1);
     REQUIRE(rw.final_status[0] == clifft::QubitStatus::Lost);  // not restored
+}
+
+TEST_CASE("rewrite: a non-restoring lost MRX drops its X-basis reset half") {
+    // An emitted RX would spend a hidden SVM draw on the vacated carrier;
+    // with the status still Lost it must not be emitted.
+    Circuit c = parse("MRX 0\n");
+    NonComputationalModel model =
+        make_model_with_classifier({}, classifier_with(kLost, {1.0, 0.0}));
+
+    ContinuationRewrite rw = rewritten(c, model, {kLost});
+    REQUIRE(count_gate(rw.circuit, GateType::MRX) == 0);
+    REQUIRE(count_gate(rw.circuit, GateType::MPAD) == 1);
+    REQUIRE(count_gate(rw.circuit, GateType::RX) == 0);
+    REQUIRE(count_gate(rw.circuit, GateType::R) == 0);
+    REQUIRE(rw.final_status[0] == clifft::QubitStatus::Lost);
 }
 
 // =========================================================================
