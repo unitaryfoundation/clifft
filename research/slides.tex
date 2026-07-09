@@ -274,6 +274,17 @@
   \takeaway{clifft compiles; the cheaper engine runs --- on the same optimized circuit.}
 \end{frame}
 
+% ================================================================ A: episodic
+\begin{frame}{A \,\textperiodcentered\, Recycled magic: pay per episode, not per program}
+  \begin{itemize}
+    \item Long computations \punch{recycle} their magic: the active block grows, is measured out, grows again (``episodes''). Total magic grows with runtime; \punch{per-episode magic stays bounded}.
+    \item Run one episode at a time, collapse \emph{exactly} at each boundary: cost $2^{\,\text{per-episode magic}}$ instead of $2^{\,\text{total magic}}$, \punch{zero extra error}. Measured: 72 qubits, 72 T's, $\le\!400$ terms --- whole-circuit would need $2^{72}$.
+    \item Compressing \emph{below} that also works, gently: at $10\times$ fewer terms the same run returns a $10^{-22}$ record probability \punch{within 41\%} in a minute (unbiased; averaging sharpens it).
+    \item Honest, measured boundary: for full records, harder compression degrades sharply with episode count --- the dispatcher (now \punch{four strategies}) prices exact-per-episode accordingly.
+  \end{itemize}
+  \takeaway{The circuit's rhythm --- magic in, magic measured out --- is itself a computational resource.}
+\end{frame}
+
 % ================================================================ B: idea
 \accentB
 \begin{frame}{B \,\textperiodcentered\, The idea: don't run one shot faster --- run 4{,}096 abreast}
