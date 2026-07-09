@@ -556,19 +556,44 @@ class LowRankState:
             self.terms = live or self.terms[:1]
             return
         t0 = live[0]
-        a0 = 0.0 + 0.0j
-        xstar = -1
-        for x in range(2 ** self.n):
-            a0 = t0.amplitude(x)
-            if abs(a0) > 1e-12:
-                xstar = x
-                break
-        if xstar < 0:  # t0 numerically null after all; fall back untouched
+        xstar = t0.support_point()   # O(n^2) from the tableau, no 2^n scan
+        a0 = t0.amplitude(xstar)
+        if abs(a0) < 1e-12:  # numerically null (should not happen); bail out
             return
         ratio = sum(t.amplitude(xstar) for t in live) / a0
         t0.scale(complex(ratio))
         self.terms = [t0]
         self._record("collapse_rank1")
+
+    def collapse_if_parallel(self, tol: float = 1e-9) -> bool:
+        """Exact rank-1 collapse IF all terms appear mutually parallel --
+        the well-conditioned episode-boundary operation for episodic
+        execution. Detection is a two-probe heuristic (amplitude-magnitude
+        consistency at two tableau-derived support points), O(chi n^2):
+        exactly-parallel terms always pass; non-parallel states passing both
+        probes is possible in principle but not observed in validation.
+        Returns True if collapsed. Rationale: resampling (sparsify) right
+        after forced projections is ill-conditioned (projections inflate
+        ||c||_1/||psi||), whereas this collapse is deterministic and exact
+        precisely when the episode has fully collapsed."""
+        live = [t for t in self.terms if t.norm2() > _ZERO_TOL]
+        if len(live) <= 1:
+            self.terms = live or self.terms[:1]
+            return len(live) == 1
+        probes = {live[0].support_point(), live[-1].support_point()}
+        ratios = []
+        for x in probes:
+            a0 = live[0].amplitude(x)
+            if abs(a0) ** 2 < tol * live[0].norm2():
+                return False  # probe not in t0's support: inconsistent
+            r0 = abs(a0) ** 2 / live[0].norm2()
+            for t in live[1:]:
+                r = abs(t.amplitude(x)) ** 2 / t.norm2()
+                if abs(r - r0) > tol * max(r0, 1e-300):
+                    return False
+            ratios.append(r0)
+        self.collapse_to_rank1()
+        return True
 
     def measure_pauli_forced_fast(self, pp: int, ax, az, outcome: int) -> float:
         """Forced projective measurement of an EXPLICIT Pauli P = i^pp X(ax) Z(az):

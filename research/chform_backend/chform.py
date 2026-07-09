@@ -263,6 +263,14 @@ class CHForm:
             out[x] = self.amplitude(x)
         return out
 
+    def support_point(self) -> int:
+        """A basis state x with <x|phi> != 0, in O(n^2) from the tableau (no
+        scan): the amplitude formula constrains u = xF to equal s on the
+        non-v positions; choosing u = s everywhere and inverting with
+        F^{-1} = G^T (the G F^T = I invariant) gives x = G s (mod 2)."""
+        x_bits = (self.G @ self.s) % 2
+        return int(sum(int(b) << j for j, b in enumerate(x_bits)))
+
     def canonical_key(self) -> bytes:
         """Hashable key up to global phase, for the dedup recompression
         (materialises; native CH-form inner-product dedup is a later increment)."""

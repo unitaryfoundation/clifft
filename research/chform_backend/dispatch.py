@@ -20,12 +20,23 @@ circuits TOWARD the backend -- dramatically so for long computations that
 recycle a bounded amount of live magic (the conveyor / fault-tolerance
 shape), where 0.228*t_live is absurd but 0.228*mblk is small.
 
-Status honesty: the RULE and its inputs are implemented and demonstrated
-here; the exact-mode engine demonstrably achieves the per-episode collapse
-premise (chi_peak ~ 2^mblk, validated below); the APPROXIMATE episodic
-execution (per-episode sparsification with delta/sqrt(R) budgets and
-mid-circuit norm tracking) is future work, and the R^2 prefactor above is its
-projected cost, not a measured one.
+Episodic execution is IMPLEMENTED and measured (bench_episodic.py). The
+measurements split the strategy in two:
+
+  backend-episodic-exact   2^{mblk} terms, ZERO error: budget at the
+                           per-episode exact rank; T-time growth never
+                           exceeds it and the boundary collapse is exact.
+                           Measured: chi_peak = 2^{mblk}, P == clifft.
+  backend-episodic (appr.) budgets below 2^{mblk}: the sound schedule
+                           (T-time sparsify only -- never resample after a
+                           projection, which is ill-conditioned -- exact
+                           boundary collapse, two-run debiased estimator)
+                           works at mild compression (72 qubits, 10x
+                           compression: rel err 0.4) but for FULL-RECORD
+                           probabilities the error turns on sharply below
+                           the exact budget and compounds steeply with R --
+                           the R^2 model is optimistic there. Use for mild
+                           compression or non-record targets.
 
 Run the demo + validation:
   .venv-research/bin/python -m research.chform_backend.dispatch
@@ -63,6 +74,7 @@ def analyze(stim_text: str, name: str = "") -> dict:
     _, t_raw, t_live = optimize(stim_text)
     return {
         "name": name,
+        "num_qubits": prof.num_qubits,
         "peak_rank": prof.program_peak_rank,
         "t_raw": t_raw,
         "t_live": t_live,
@@ -84,9 +96,17 @@ def dispatch(stim_text: str, delta: float = 0.15, name: str = "",
     a = analyze(stim_text, name)
     k, tl, mblk, R = a["peak_rank"], a["t_live"], a["mblk"], a["episodes"]
     log2_inv_d2 = 2.0 * math.log2(1.0 / delta)
+    n_q = 1 + max(1, a.get("num_qubits", 64))  # term size ~ O(n^2) bits
     costs = {
         "dense": (float(k), 16.0 * 2.0 ** k <= mem_bytes),
         "backend-global": (ALPHA * tl + log2_inv_d2, True),
+        # exact episodic: 2^mblk terms, zero error (measured); feasible while
+        # the term store fits
+        "backend-episodic-exact": (float(mblk),
+                                   R > 1 and (2.0 ** mblk) * (n_q ** 2 / 4.0)
+                                   <= mem_bytes),
+        # approximate episodic: mild compression only for record targets
+        # (measured caveat -- see module docstring)
         "backend-episodic": (ALPHA * mblk + 2.0 * math.log2(R / delta),
                              R > 1),
     }
@@ -135,19 +155,22 @@ def _families():
 
 
 def demo():
-    print("COMPILE-TIME DISPATCH (delta=0.15): one compilation, three "
+    print("COMPILE-TIME DISPATCH (delta=0.15): one compilation, four "
           "strategies, cheapest feasible wins")
     print(f"{'family':>20} {'k':>4} {'tlive':>5} {'mblk':>4} {'R':>3} "
-          f"{'dense':>6} {'global':>7} {'episodic':>8}  choice")
+          f"{'dense':>6} {'global':>7} {'epi-ex':>7} {'epi-ap':>7}  choice")
     for name, text in _families():
         d = dispatch(text, delta=0.15, name=name)
         c = d["log2_cost"]
         dense = f"{c['dense']:.0f}" + ("" if d["feasible"]["dense"] else "!")
-        epi = (f"{c['backend-episodic']:.1f}"
-               if d["feasible"]["backend-episodic"] else "--")
+        epi_ex = (f"{c['backend-episodic-exact']:.0f}"
+                  if d["feasible"]["backend-episodic-exact"] else "--")
+        epi_ap = (f"{c['backend-episodic']:.1f}"
+                  if d["feasible"]["backend-episodic"] else "--")
         print(f"{name:>20} {d['peak_rank']:>4} {d['t_live']:>5} "
               f"{d['mblk']:>4} {d['episodes']:>3} {dense:>6} "
-              f"{c['backend-global']:>7.1f} {epi:>8}  {d['choice']}")
+              f"{c['backend-global']:>7.1f} {epi_ex:>7} {epi_ap:>7}  "
+              f"{d['choice']}")
     print("  (! = dense infeasible at the 16 GB wall; log2 of dominant "
           "term count / block size)")
 

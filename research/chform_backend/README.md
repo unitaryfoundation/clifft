@@ -116,6 +116,23 @@
 >   adaptive circuits work in forced-record replay. Approximate episodic
 >   EXECUTION (per-episode budgets, norm tracking) = future work; its R^2
 >   prefactor is projected, not measured.
+> - **Approximate episodic execution (2026-07-09, `bench_episodic.py`):
+>   implemented and measured.** Sound schedule: sparsify at T-time only
+>   (extent-conditioned; NEVER after projections -- resampling a
+>   post-projection decomposition is ill-conditioned and alone caused 24x
+>   errors), collapse exactly at episode boundaries (`collapse_if_parallel`,
+>   analytic tableau support point), debias with the cross product of two
+>   independent runs (naive ||P omega||^2 is variance-biased upward: +1.7 vs
+>   -0.004 measured at k=32). Episode-preserving pass set available
+>   (PeepholeFusionPass only -- squeeze hoisting interleaves episodes).
+>   Measured: episodic-EXACT (budget = 2^mblk) gives zero error at cost
+>   exponent mblk instead of t_live; 72-qubit conveyor (exact chi = 2^72)
+>   runs at chi<=400, rel err 0.4 at 10x compression, no 2^n object ever;
+>   for full-record probabilities the error turns on sharply below the exact
+>   budget and compounds steeply with R (measured breakdown at R=8-16) --
+>   use episodic-exact or mild compression for record targets. Dispatcher
+>   now weighs FOUR strategies (dense / global / episodic-exact /
+>   episodic-approx).
 
 
 A working, validated prototype of the "stab-rank back-end" that would replace

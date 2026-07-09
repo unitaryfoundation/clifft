@@ -62,30 +62,59 @@ def parse_pauli(s: str, n: int):
     return pp, ax, az
 
 
-def optimize(stim_text: str):
-    """parse -> trace -> default HIR passes; returns (hir_dict, t_raw, t_live)."""
+def optimize(stim_text: str, episodic: bool = False):
+    """parse -> trace -> HIR passes; returns (hir_dict, t_raw, t_live).
+
+    episodic=True runs PeepholeFusionPass ONLY: it performs the full T-count
+    reduction but -- unlike the default manager's StatevectorSqueezePass --
+    does not hoist measurements, so episode boundaries stay contiguous in the
+    op stream. Episodic execution needs that: hoisting interleaves episodes,
+    the boundary rank-1 collapse stops firing, and the ill-conditioned
+    post-projection resamples return (measured in bench_episodic.py)."""
     import clifft
 
     circ = clifft.parse(stim_text)
     hir = clifft.trace(circ)
     t_raw = hir.num_t_gates
-    pm = clifft.default_hir_pass_manager()
+    if episodic:
+        pm = clifft._clifft_core.HirPassManager()
+        pm.add(clifft._clifft_core.PeepholeFusionPass())
+    else:
+        pm = clifft.default_hir_pass_manager()
     pm.run(hir)
     return hir.as_dict(), t_raw, hir.num_t_gates
 
 
 def run_hir_record(hir_dict: dict, record, backend: str = "chform",
-                   recompress: bool = False):
+                   recompress: bool = False, sparsify_budget: int | None = None,
+                   rng: np.random.Generator | None = None,
+                   norm_samples: int | None = None,
+                   final_norm_rank1: bool = False,
+                   return_state: bool = False):
     """Execute the optimized HIR with all measurements forced to `record`
     (indexed by meas_record_idx). Returns (P(record), chi_peak, n_t_applied).
 
     The state is |0^n> evolved by the T rotations; each forced Pauli
     measurement projects (I + (-1)^bit P)/2. P(record) is the squared norm of
     the final (unnormalized) state, with the engine's stability rescales
-    divided back out. Norm evaluation materializes the term sum -- validation
-    scale (the C++ scale path is future work; see findings)."""
+    divided back out.
+
+    EXACT mode (default): chi doubles per T (validation scale), norm by
+    materializing the term sum.
+
+    EPISODIC APPROXIMATE mode (sparsify_budget=k): the T path auto-sparsifies
+    whenever chi exceeds 2k (the engine's streaming trigger), and after every
+    measurement the decomposition is resampled down to k terms if it exceeds
+    the budget -- at episode boundaries (full magic collapse) the surviving
+    terms are near-parallel, so this boundary resample is nearly free and
+    resets the budget for the next episode. Both steps are the unbiased BGH
+    resample, so P(record) remains an unbiased estimate; errors compound over
+    boundaries (measured in bench_episodic.py). With norm_samples=L the final
+    norm uses the non-materializing BGH estimator (norm_est.estimate_norm2)
+    -- the full pipeline then never builds a 2^n object."""
     n = hir_dict["num_qubits"]
-    s = LowRankState(n, backend=backend)
+    s = LowRankState(n, backend=backend, sparsify_budget=sparsify_budget,
+                     rng=rng)
     scale = 1.0  # product of stability rescale factors
     chi_peak = 1
     n_t = 0
@@ -98,7 +127,6 @@ def run_hir_record(hir_dict: dict, record, backend: str = "chform",
             phase = np.conj(TPHASE) if op["is_dagger"] else TPHASE
             s.rz_about_pauli(pp, ax, az, phase)
             n_t += 1
-            chi_peak = max(chi_peak, s.chi)
         elif op["op_type"] == "CONDITIONAL_PAULI":
             # classically-controlled Pauli (feedforward): with the record
             # forced, the condition is deterministic -- apply i^pp X(ax) Z(az)
@@ -118,11 +146,64 @@ def run_hir_record(hir_dict: dict, record, backend: str = "chform",
                 # only; collapses parallel terms at episode boundaries so chi
                 # tracks per-episode magic (the episodic-dispatch premise)
                 s.recompress_dedup()
+            elif sparsify_budget is not None and s.chi > 1:
+                # episodic mode: NEVER resample after a projection (forced
+                # measurements inflate ||c||_1/||psi|| and make the BGH
+                # resample ill-conditioned). Instead, collapse EXACTLY when
+                # the episode has fully collapsed (terms mutually parallel);
+                # within-episode chi is capped by the T-time auto-trigger,
+                # whose decomposition is extent-controlled from the collapsed
+                # base and hence well-conditioned.
+                s.collapse_if_parallel()
         else:
             raise ValueError(f"unsupported HIR op {op['op_type']}")
-    vec = s.statevector()
-    norm2 = float(np.vdot(vec, vec).real)
+        chi_peak = max(chi_peak, s.chi)
+    if final_norm_rank1:
+        # VALID ONLY when the circuit ends fully collapsed (all magic measured
+        # out; e.g. a conveyor's last round): the exact final state is rank 1,
+        # so the amplitude-ratio collapse computes |sum_i c_i|^2 exactly in
+        # O(chi n^2) -- no 2^n object, no estimator noise.
+        s.collapse_to_rank1()
+        norm2 = float(s.terms[0].norm2())
+    elif norm_samples is not None:
+        from .norm_est import estimate_norm2
+
+        norm2 = estimate_norm2(s.terms, n, norm_samples,
+                               s._rng if rng is None else rng)
+    else:
+        vec = s.statevector()
+        norm2 = float(np.vdot(vec, vec).real)
+    if return_state:
+        return norm2 / (scale * scale), chi_peak, n_t, s, scale
     return norm2 / (scale * scale), chi_peak, n_t
+
+
+def cross_record_probability(hir_dict, record, sparsify_budget, rng_a, rng_b):
+    """Debiased P(record) for circuits that END FULLY COLLAPSED (rank-1 final
+    state), via two INDEPENDENT episodic runs.
+
+    The naive estimator ||Pi omega||^2 is biased upward by the sparsification
+    variance (E||Pi omega||^2 = ||Pi psi||^2 + E||Pi(omega-psi)||^2). With two
+    independent unbiased runs omega, omega', the cross product
+    <Pi omega|Pi omega'> is unbiased. At a rank-1 ending both runs' states are
+    proportional to the SAME exact direction sigma (the projector image), so
+    the cross product reduces to amplitudes at one fixed support point x*:
+        P = Re[ A(x*) conj(A'(x*)) ] / |sigma(x*)|^2 ,
+    with A = <x*|omega_final>/scale and |sigma(x*)|^2 exact from either run's
+    collapsed term. Returns (P_cross, chi_peak)."""
+    _, chi_a, _, sa, scale_a = run_hir_record(
+        hir_dict, record, sparsify_budget=sparsify_budget, rng=rng_a,
+        final_norm_rank1=True, return_state=True)
+    _, chi_b, _, sb, scale_b = run_hir_record(
+        hir_dict, record, sparsify_budget=sparsify_budget, rng=rng_b,
+        final_norm_rank1=True, return_state=True)
+    ta, tb = sa.terms[0], sb.terms[0]
+    xstar = ta.support_point()
+    amp_a = ta.amplitude(xstar) / scale_a
+    amp_b = tb.amplitude(xstar) / scale_b
+    sigma_x2 = abs(ta.amplitude(xstar)) ** 2 / ta.norm2()  # exact: rank-1 dir
+    p = float(np.real(amp_a * np.conj(amp_b))) / sigma_x2
+    return p, max(chi_a, chi_b)
 
 
 # ---------------------------------------------------------------------------

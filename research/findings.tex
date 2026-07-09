@@ -597,10 +597,27 @@ $\approx42$) is the only one that runs --- the dispatcher selects it
 automatically. The premise is validated in exact mode
 ($\chi_{\rm peak}\approx2^{m_{\rm blk}}\ll2^{t_{\rm live}}$ on a conveyor
 via the HIR bridge, which now also replays the feedforward's conditional
-Paulis; $P$ matches \texttt{clifft} to $4\times10^{-17}$); the
-\emph{approximate} episodic execution (per-episode budgets
-$\delta/\sqrt R$, mid-circuit norm tracking) remains future work, so its
-$R^2$ prefactor is a projected cost, not a measured one.
+Paulis; $P$ matches \texttt{clifft} to $4\times10^{-17}$). The approximate episodic execution is now \emph{implemented and
+measured} (\texttt{bench\_episodic.py}), and the measurements refine the
+strategy into two: \textbf{episodic-exact} --- budget at the per-episode
+rank $2^{m_{\rm blk}}$, giving \emph{zero} error at cost exponent
+$m_{\rm blk}$ instead of $t_{\rm live}$ (measured:
+$\chi_{\rm peak}=2^{m_{\rm blk}}$, $P$ exactly matching \texttt{clifft})
+--- and \textbf{episodic-approximate} below that budget. The sound
+approximate schedule took two measured corrections: never resample after a
+projection (forced measurements inflate $\lVert c\rVert_1/\lVert\psi\rVert$
+and make the BGH resample ill-conditioned --- this alone was a $24\times$
+error), and debias with the cross product of two independent runs
+($\mathbb{E}\langle\Pi\omega|\Pi\omega'\rangle=\lVert\Pi\psi\rVert^2$;
+measured bias $-0.004$ vs the naive estimator's $+1.7$ at aggressive
+budgets). So configured, a $72$-qubit conveyor ($t_{\rm live}=72$,
+exact-mode $\chi=2^{72}$) runs end-to-end with no $2^n$ object at
+$\chi\le400$ and relative error $0.4$ at $10\times$ per-episode
+compression. The honest limit, also measured: for \emph{full-record}
+probabilities (exponentially small targets) the error turns on sharply below
+the exact budget and compounds steeply with $R$ --- the $R^2$ cost model is
+optimistic there; use episodic-exact or mild compression for record targets.
+The dispatcher weighs all four strategies.
 
 In one sentence: \texttt{clifft}'s architecture is the blueprint, BGH's
 mathematics is the material, and \texttt{clifft} itself is the compiler
