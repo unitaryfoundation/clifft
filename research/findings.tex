@@ -376,6 +376,77 @@ interleaved family, $t_{\rm raw}=32/40/48$ compiles down to
 $t_{\rm live}=18/28/28$ --- using $t_{\rm raw}$ biases the dispatch against
 the backend.
 
+\subsection{Episodic execution, measured}\label{sec:episodic}
+The per-episode strategy of \S\ref{sec:arch} is implemented end to end
+(\texttt{bench\_episodic.py}: T-time-only sparsification, exact boundary
+collapse, an episode-preserving pass set, and non-materializing norms) and
+measured on feedforward conveyors against \texttt{clifft}'s exact record
+probabilities. Getting a \emph{sound} scheme took three corrections, each a
+finding in its own right:
+\begin{enumerate}
+\item \textbf{Never resample after a projection.} Forced measurements
+inflate $\lVert c\rVert_1/\lVert\psi\rVert$ (cancellation), making the BGH
+resample ill-conditioned --- the naive schedule was $24\times$ off. The sound
+schedule sparsifies only at $T$-time (extent-controlled from a collapsed
+base) and collapses \emph{exactly} at episode boundaries
+(\texttt{collapse\_if\_parallel}, using an analytic tableau support point
+$x^*=Gs$ over $\mathbb{F}_2$ --- the previous $2^n$ support scan hung beyond
+$n\!\approx\!18$).
+\item \textbf{Debias with two independent runs.} The naive estimator
+$\lVert\Pi\omega\rVert^2$ is biased upward by the sparsification variance;
+the cross estimator
+$\langle\Pi\omega|\Pi\omega'\rangle$ is unbiased and, at rank-1 endings,
+reduces to two amplitudes at one support point.
+\item \textbf{Episode boundaries must stay contiguous.} The default HIR
+squeeze hoists measurements and interleaves episodes; episodic mode runs
+\texttt{PeepholeFusionPass} only (full $T$-merging, program-order
+measurements).
+\end{enumerate}
+
+\begin{table}[h]\centering
+\caption{Episodic accuracy vs budget (conveyor, 6 episodes of 8 $T$'s; exact
+per-episode rank $2^8{=}256$; 24 repetitions; exact
+$P(\mathrm{record})=1.15\times10^{-14}$).}\label{tab:episodic}
+\begin{tabular}{rrrrr}
+\toprule
+budget $k$ & naive rel-rms & naive bias & cross rel-rms & cross bias \\
+\midrule
+32  & 2.86 & $+1.70$ & 1.14 & $-0.004$ \\
+64  & 1.38 & $+0.71$ & 0.51 & $-0.199$ \\
+128 & 0.57 & $+0.10$ & 0.41 & $+0.047$ \\
+256 & 0.40 & $+0.07$ & 0.25 & $-0.024$ \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Headline results. \emph{Episodic-exact}: at budget $2^{m_{\rm blk}}$ the run
+is exact ($\chi_{\rm peak}=2^{m_{\rm blk}}$, $P$ matching \texttt{clifft} to
+machine precision) --- cost exponent $m_{\rm blk}$ instead of $t_{\rm live}$,
+deterministically. \emph{Scale}: a $72$-qubit conveyor ($t_{\rm live}=72$;
+whole-circuit $\chi$ would be $2^{72}$) runs end to end with no $2^n$ object
+at $\chi\le400$, returning the record probability within $41\%$ relative at
+$10\times$ per-episode compression (mean of four cross estimates, $66$\,s).
+\emph{The measured limit}: for full-record probabilities the error turns on
+sharply below the exact budget and compounds steeply with the episode count
+(rel-rms $16$ at $R{=}8$, $110$ at $R{=}16$ even at $2\times$ compression) ---
+the $R^2$ cost model is optimistic there; episodic-exact or mild compression
+is the prescription for record targets.
+
+\paragraph{Is a $10^{-22}$ probability meaningful?} Yes --- it is
+\emph{typical}, not pathological: a $72$-bit record has probability
+$\sim2^{-72}\approx2\times10^{-22}$ if outcomes were uniform, so this is the
+natural size of \emph{any} full-record probability at this width. Relative
+accuracy is therefore the right metric, and constant-factor accuracy of such
+quantities is exactly what likelihood workflows consume (cross-entropy
+benchmarking scores, per-record likelihood ratios, decoder likelihoods; a
+$41\%$ relative error is $0.34$ nats of log-likelihood, averaging out over
+records since the estimator is unbiased). No sampling method can access these
+quantities at all ($\sim10^{22}$ shots for one expected hit --- the measured
+$0/96$ aer result of \S\ref{sec:aer} is the same phenomenon at $n{=}24$).
+Conversely, applications needing only marginals or expectation values face
+polynomially-sized targets, where the record-probability breakdown regime is
+not the binding constraint.
+
 \subsection{qiskit-aer \texttt{extended\_stabilizer}}\label{sec:aer}
 Now reproduced by a committed script (\texttt{bench\_aer.py}; aer $0.17.2$,
 settings inline --- the old draft's numbers were unauditable). Sampling
@@ -597,27 +668,11 @@ $\approx42$) is the only one that runs --- the dispatcher selects it
 automatically. The premise is validated in exact mode
 ($\chi_{\rm peak}\approx2^{m_{\rm blk}}\ll2^{t_{\rm live}}$ on a conveyor
 via the HIR bridge, which now also replays the feedforward's conditional
-Paulis; $P$ matches \texttt{clifft} to $4\times10^{-17}$). The approximate episodic execution is now \emph{implemented and
-measured} (\texttt{bench\_episodic.py}), and the measurements refine the
-strategy into two: \textbf{episodic-exact} --- budget at the per-episode
-rank $2^{m_{\rm blk}}$, giving \emph{zero} error at cost exponent
-$m_{\rm blk}$ instead of $t_{\rm live}$ (measured:
-$\chi_{\rm peak}=2^{m_{\rm blk}}$, $P$ exactly matching \texttt{clifft})
---- and \textbf{episodic-approximate} below that budget. The sound
-approximate schedule took two measured corrections: never resample after a
-projection (forced measurements inflate $\lVert c\rVert_1/\lVert\psi\rVert$
-and make the BGH resample ill-conditioned --- this alone was a $24\times$
-error), and debias with the cross product of two independent runs
-($\mathbb{E}\langle\Pi\omega|\Pi\omega'\rangle=\lVert\Pi\psi\rVert^2$;
-measured bias $-0.004$ vs the naive estimator's $+1.7$ at aggressive
-budgets). So configured, a $72$-qubit conveyor ($t_{\rm live}=72$,
-exact-mode $\chi=2^{72}$) runs end-to-end with no $2^n$ object at
-$\chi\le400$ and relative error $0.4$ at $10\times$ per-episode
-compression. The honest limit, also measured: for \emph{full-record}
-probabilities (exponentially small targets) the error turns on sharply below
-the exact budget and compounds steeply with $R$ --- the $R^2$ cost model is
-optimistic there; use episodic-exact or mild compression for record targets.
-The dispatcher weighs all four strategies.
+Paulis; $P$ matches \texttt{clifft} to $4\times10^{-17}$). The approximate episodic execution is implemented and measured
+(\S\ref{sec:episodic}); the measurements split the strategy into
+\emph{episodic-exact} (budget $2^{m_{\rm blk}}$, zero error, cost exponent
+$m_{\rm blk}$ instead of $t_{\rm live}$) and \emph{episodic-approximate}
+below that budget. The dispatcher weighs all four strategies.
 
 In one sentence: \texttt{clifft}'s architecture is the blueprint, BGH's
 mathematics is the material, and \texttt{clifft} itself is the compiler
