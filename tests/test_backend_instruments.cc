@@ -243,7 +243,7 @@ TEST_CASE("exact record and basis probabilities reject instrument programs") {
 }
 
 TEST_CASE("fences: prefix compilation is bit-identical across different suffixes") {
-    // The re-entry contract (design/state-dependent-jumps.md section 4.3):
+    // The re-entry contract:
     // everything up to and including the instrument must compile
     // identically no matter what follows the fence, through the full
     // default pipeline. The suffixes differ in ways the peephole would

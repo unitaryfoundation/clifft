@@ -37,26 +37,17 @@ OperandAction operand_action(GateType gate, QubitStatus status,
     if (is_identity_noop(gate)) {
         return OperandAction::Apply;
     }
-    // A measure-and-reset both records an outcome and restores the site. The
-    // recorded outcome is supplied by the model's classifier downstream, so
-    // the operation is kept: the record slot survives, and the site either
-    // restores (leaked always; lost when the policy opts in) or simply stays
-    // lost. This admits the X/Y-basis forms (MRX/MRY): on a vacated carrier
-    // the classifier readout is basis-agnostic — the reset, not the readout,
-    // is the operation's effect.
+    // A measure-and-reset is kept: the record slot survives (the classifier
+    // supplies the bit downstream) and the site restores per policy or stays
+    // lost. The X/Y-basis forms behave identically -- the readout basis is
+    // incidental on a vacated carrier.
     if (is_measure_reset(gate)) {
         return OperandAction::Apply;
     }
-    // A plain measurement keeps its visible record slot so the record and its
-    // rec[-k] references do not shift; on a leaked/lost qubit the outcome is
-    // supplied by the model's classifier downstream. The classifier substitutes
-    // a single record bit — the readout basis is incidental on a vacated
-    // carrier, so Z-basis M, X-basis MX, and Y-basis MY are all equivalent
-    // from the model's perspective and all classify. A multi-qubit parity
-    // measurement (MPP, MXX, MYY, MZZ) spans more than one qubit and has no
-    // faithful single-bit substitution on a noncomputational operand; it
-    // rejects. MXX/MYY/MZZ desugar to MPP at parse time, so only MPP can
-    // appear here.
+    // A plain measurement keeps its record slot, so rec[-k] references do
+    // not shift; M, MX, and MY classify alike. A multi-qubit parity
+    // measurement has no faithful single-bit substitution and rejects;
+    // MXX/MYY/MZZ desugar to MPP at parse time, so only MPP appears here.
     if (is_measurement(gate)) {
         return (gate == GateType::M || gate == GateType::MX || gate == GateType::MY)
                    ? OperandAction::Apply
@@ -71,21 +62,15 @@ OperandAction operand_action(GateType gate, QubitStatus status,
         return OperandAction::Drop;
     }
     // A correlated-error chain member must keep its slot in the
-    // else-conditioning regardless of its operands' levels: dropping the
-    // head would orphan the ELSE members and silently change each member's
-    // firing probability. The effect of the chain on a vacated carrier is a
-    // Pauli frame flip that nothing ever reads -- a noncomputational qubit's
-    // records come from the classifier, and any restoration begins with a
-    // reset -- so the operation is physically harmless and the chain's
-    // else-conditioning structure is preserved.
+    // else-conditioning: dropping one would change every later member's
+    // firing probability. Its effect on a vacated carrier is a frame flip
+    // nothing reads (records come from the classifier; any restoration
+    // begins with a reset), so keeping it is harmless.
     if (gate == GateType::CORRELATED_ERROR || gate == GateType::ELSE_CORRELATED_ERROR) {
         return OperandAction::Apply;
     }
-    // Any other operation on a leaked or lost operand -- a single-qubit gate
-    // or noise channel, a two-qubit gate or noise channel, or classical
-    // feedback onto a vacated site -- addresses a carrier outside the
-    // computational subspace, so the interaction physically cannot happen and
-    // it drops whole (identity on the surviving operands).
+    // Anything else addressing a leaked or lost operand drops whole, acting
+    // as the identity on the surviving operands.
     return OperandAction::Drop;
 }
 
@@ -100,10 +85,9 @@ QubitStatus normal_post_op_status(QubitStatus entry, GateType gate, OperandRole 
 
     if (is_leaked(entry) || is_lost(entry)) {
         // A noncomputational qubit's status changes only when a reset
-        // restores it; every other operation leaves it untouched (whether
-        // that operation is dropped or rejected is decided later by the
-        // rewriter). Lost is only restorable when the policy opts in;
-        // Leaked always restores.
+        // restores it; every other operation leaves it untouched (drop
+        // versus reject is operand_action's decision). Lost is restorable
+        // only when the policy opts in; Leaked always restores.
         const bool reset = is_reset(gate) || is_measure_reset(gate);
         const bool restorable = is_leaked(entry) || policy.reset_restores_lost;
         if (reset && restorable) {

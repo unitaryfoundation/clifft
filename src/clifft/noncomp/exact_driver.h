@@ -6,13 +6,13 @@
 // A transition whose outcome depends on a qubit's quantum state -- a
 // jump out of superposition, where which level the qubit leaves from is
 // not yet decided -- cannot be drawn before that state exists. The
-// annotated circuit therefore compiles
-// once with every annotation kept as a runtime instrument site; each
-// shot preloads its sampled initial levels and executes; a fire the VM
-// cannot resolve in-line traps back to this driver, which draws the
+// annotated circuit is therefore rewritten and compiled lazily, one
+// memoized module per event delta plus herald flags, with every
+// computational-source annotation kept as a runtime instrument site;
+// each shot preloads its sampled initial levels and executes; a fire the
+// VM cannot resolve in-line traps back to this driver, which draws the
 // destination, extends the shot's event record, fetches or compiles the
-// matching continuation (cached by the status-outcome delta plus herald
-// flags), and resumes past the site. DampingPolicy::Neglect also runs
+// matching continuation, and resumes past the site. DampingPolicy::Neglect also runs
 // through this driver: it changes how a trapped fire resolves (the
 // carrier hands over uncollapsed and the continuation's trace-out is
 // forced to the reported source), not whether the mode applies.

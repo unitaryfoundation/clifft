@@ -1,7 +1,7 @@
 // Directed and dense-oracle tests for the instrument kernels.
 //
 // The kernels are the array-level pieces of an exact state-dependent jump
-// site (design/state-dependent-jumps.md): fused damp+evaluate on an active
+// site: fused damp+evaluate on an active
 // axis, in-place forced collapse of an active axis, fused expand+damp for
 // a dormant-random qubit, frame-level forced collapse of a dormant-random
 // qubit, and the pure fire-branch draw helper. None of them rolls the

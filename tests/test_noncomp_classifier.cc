@@ -123,18 +123,24 @@ TEST_CASE("MeasurementClassifier: rejects a column sum above 1") {
     REQUIRE_THROWS_WITH(MeasurementClassifier::from_matrix(m), ContainsSubstring("must sum to 1"));
 }
 
-TEST_CASE("MeasurementClassifier: accepts a column sum within tolerance of 1") {
-    std::vector<std::vector<double>> m = default_matrix();
-    // Two entries whose sum is the next representable double above 1.0
-    // (1.0 + 2^-52), well within kProbTolerance. Each entry passes the
-    // strict [0, 1] check.
-    const double a = std::nextafter(std::nextafter(0.5, 1.0), 1.0);  // 0.5 + 2^-52
-    const double b = 0.5;
-    REQUIRE(a + b > 1.0);
-    REQUIRE(a + b < 1.0 + 1e-12);
-    m[0][0] = a;
-    m[1][0] = b;
-    REQUIRE_NOTHROW(MeasurementClassifier::from_matrix(m));
+TEST_CASE("MeasurementClassifier: column sum tolerance: accepts inside, rejects outside") {
+    // kProbTolerance = 1e-12. A sum of 1 + 1e-13 is clearly inside the band
+    // and must be accepted; a sum of 1 + 1e-11 is clearly outside and must
+    // be rejected. Both individual entries are in [0, 1] so the per-entry
+    // check cannot fire.
+    SECTION("clearly accepted: sum = 1 + 1e-13") {
+        std::vector<std::vector<double>> m = default_matrix();
+        m[0][0] = 0.5 + 1e-13;  // entry in [0,1]; the sum exceeds 1 by 1e-13, inside the tolerance
+        m[1][0] = 0.5;
+        REQUIRE_NOTHROW(MeasurementClassifier::from_matrix(m));
+    }
+    SECTION("clearly rejected: sum = 1 + 1e-11") {
+        std::vector<std::vector<double>> m = default_matrix();
+        m[0][0] = 0.5 + 1e-11;  // entry in [0,1]; the sum exceeds 1 by 1e-11, outside the tolerance
+        m[1][0] = 0.5;
+        REQUIRE_THROWS_WITH(MeasurementClassifier::from_matrix(m),
+                            ContainsSubstring("must sum to 1"));
+    }
 }
 
 TEST_CASE("MeasurementClassifier: rejects herald mass on a computational column") {

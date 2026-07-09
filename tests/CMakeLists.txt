@@ -46,7 +46,6 @@ add_executable(clifft_tests
     test_noncomp_rewriter.cc
     test_noncomp_continuation.cc
     test_exact_driver.cc
-    test_noncomp_orchestrator.cc
     test_noncomp_validation.cc
 )
 

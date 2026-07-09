@@ -1,6 +1,5 @@
 """Worked examples for the categories our model supports exactly, plus the
-ones it intentionally rejects. Mirrors sqale-sim style scenarios and documents
-the supported boundary.
+ones it intentionally rejects. Documents the supported boundary.
 
 These complement the unit coverage in test_noncomp.py and the oracle
 cross-checks in test_noncomp_oracle.py; here the emphasis is on small,

@@ -10,11 +10,11 @@ so the result is the dense reference the exact sampling mode must match to
 shot noise; ``damping="neglect"`` reproduces that mode's one documented
 omission by skipping the no-fire filter while keeping fire weights exact.
 
-Deliberately independent of clifft: its own line parser (a small subset),
-its own semantics written from the design notes -- operations touching a
-leaked or lost operand drop whole (measurements never drop; a classifier
-column supplies their record bit), R restores a leaked qubit and never a
-lost one, LOSS is a source-independent trace-out. Exponential in circuit
+Deliberately independent of clifft: its own line parser (a small subset)
+and its own statement of the semantics -- operations touching a leaked or
+lost operand drop whole (measurements never drop; a classifier column
+supplies their record bit), R restores a leaked qubit and never a lost
+one, LOSS is a source-independent trace-out. Exponential in circuit
 size by construction; the branch cap guards against feeding it a scenario
 it was never meant to hold.
 

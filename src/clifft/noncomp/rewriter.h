@@ -1,59 +1,31 @@
 #pragma once
 
-// Circuit rewriter for the noncomputational layer: turns an annotated
-// circuit plus a shot's resolved events into an ordinary clifft::Circuit
-// for the existing compile pipeline -- it introduces no new instruction
-// kinds. The per-node semantics:
+// Rewrites an annotated circuit plus one shot's resolved events into an
+// ordinary clifft::Circuit for the existing compile pipeline; no new
+// instruction kinds. The user-level semantics (what drops, what
+// classifies, what restores) are documented in
+// docs/theory/noncomputational.md. The mechanisms owned here:
 //
-//   1. Per-op policy: replay each operation's per-qubit status through the
-//      shared status stepper and keep, drop, or reject the operation. An
-//      operation with no representable effect on a leaked or lost operand is
-//      excised whole (identity on the surviving operands), whose statuses
-//      then keep their entry values. A single-qubit measurement (M, MX, MY)
-//      on a leaked or lost operand classifies exactly as a Z-basis measurement
-//      -- the readout basis is incidental on a vacated carrier. A multi-qubit
-//      parity measurement (MPP) rejects as it has no faithful single-bit form
-//      -- a representability limit, not a policy choice. A measure-and-reset
-//      (MR/MRX/MRY) is kept.
-//   2. Classifier record write: a measurement on a leaked or lost qubit is
-//      not a physical Born measurement -- the model's classifier defines its
-//      record bit. The measurement node is replaced by an MPAD writing the
-//      same visible record slot, so the record layout and every rec[-k]
-//      reference are preserved and the bit reaches the SVM's
-//      detector/observable evaluation. A stochastic classifier column adds a
-//      READOUT_NOISE on that slot so the bit is drawn at sample time inside
-//      the VM; a deterministic column pads the literal bit with no draw. A
-//      measure-and-reset keeps its reset as a separate node only when the
-//      stepper restores the site (a leaked qubit always; a lost qubit only
-//      by policy) -- a non-restoring lost qubit keeps its vacated carrier.
-//      Each such replacement is reported in classified_measurements (in
-//      slot order) so callers can post-process per-slot classifier behavior
-//      -- e.g. the driver's herald patching for three-symbol classifiers,
-//      which re-points a heralded slot's flip probability at one half. For
-//      a three-symbol column the emitted probability is the bit's
-//      not-heralded conditional, and a READOUT_NOISE node is always emitted
-//      so a heralded slot has a node to patch. A kept computational Z-basis
-//      measurement (M, MR) additionally receives the classifier's
-//      computational readout confusion as an asymmetric READOUT_NOISE on
-//      its slot -- the misreport probabilities P(1 | zero level) and
-//      P(0 | one level) -- when those columns are not the identity.
-//   3. Carrier trace-out / re-prep: every recorded jump inserts an R on
-//      its qubit at the annotation's position, plus an X when the
-//      destination is the |1> level. For a Leaked or Lost destination the
-//      reset is the trace-out unraveling: the existing reset lowering
-//      turns it into a hidden measurement plus a corrective Pauli, adding
-//      no visible measurement and shifting no record index, and the
-//      site's collapse-before-trap makes that hidden measurement
-//      deterministic. For a computational destination the same reset
-//      prepares the SVM carrier at the definite destination level -- the
-//      collapse unraveling for a coherent carrier, and a rezero of stale
-//      residual when a leaked or lost qubit is recaptured.
-//
-// Transition consults happen only at LEVEL_TRANSITION and LOSS annotations
-// (gate hooks are expanded by annotate() before rewriting). A consult on a
-// leaked or lost qubit is consumed against its pre-drawn outcome; one on a
-// computational qubit stays a runtime instrument site. The rewriter does
-// not sample, compile, or run the SVM.
+// - A classified measurement becomes an MPAD writing its original record
+//   slot, so the record layout and every rec[-k] reference are preserved.
+//   A stochastic classifier column adds a READOUT_NOISE drawing the bit at
+//   sample time; a deterministic column pads the literal bit. With a
+//   three-symbol classifier the emitted flip probability is the bit's
+//   not-heralded conditional, and a READOUT_NOISE is always emitted so a
+//   heralded slot has a node to patch. A kept computational M/MR receives
+//   the classifier's readout confusion as an asymmetric READOUT_NOISE when
+//   those columns are not the identity. A measure-and-reset keeps its
+//   reset as a separate node only when the stepper restores the site.
+// - Every recorded jump inserts an R at the annotation's position (plus an
+//   X for an |1> destination): the trace-out unraveling for a
+//   noncomputational destination, the carrier re-preparation for a
+//   computational one. Reset lowering adds no visible measurement and
+//   shifts no record index.
+// - Consults happen only at LEVEL_TRANSITION and LOSS nodes (annotate()
+//   expands gate hooks first). A computational-source consult stays a
+//   runtime instrument site; a classical-source (leaked/lost) consult is
+//   consumed against its pre-drawn outcome. The rewriter does not sample,
+//   compile, or run the SVM.
 
 #include "clifft/circuit/circuit.h"
 #include "clifft/noncomp/model.h"
@@ -80,24 +52,9 @@ struct ClassifiedMeasurement {
     std::optional<size_t> noise_node;
 };
 
-// =============================================================================
-// Exact-mode continuation rewrite
-// =============================================================================
-//
-// Transition firing happens at runtime, and a fire that cannot resolve
-// in-line halts execution at its instrument site. The continuation is
-// the full circuit recompiled under the now-known status outcomes: its
-// prefix (everything up to and including the trapped annotation) is
-// emitted verbatim so it compiles bit-identically to the code that
-// already ran, and only the suffix is rewritten. Annotation nodes are
-// kept wherever their qubit is still computational -- they stay runtime
-// instruments, including on a recaptured qubit -- and are consumed only
-// where the source is a classical (leaked/lost) status, using outcomes
-// the driver pre-drew.
-
 // One resolved jump in a shot's trap chain, in circuit order. `op_index`
 // and `qubit` name the annotation target that trapped; the destination
-// level is the host's draw from the transition column.
+// level is the driver's draw from the transition column.
 struct ResolvedJump {
     uint32_t op_index = 0;
     uint32_t qubit = 0;
@@ -105,46 +62,33 @@ struct ResolvedJump {
 };
 
 // One pre-drawn outcome for an annotation target whose source status is
-// classical at that point (seepage, restore, lost-stays-lost). Records
-// no-jump outcomes too: the stream must cover every classical-source
-// consult after the last trap, in circuit order, so the rewrite can
-// validate it describes this circuit.
+// classical at that point. Records no-jump outcomes too: the stream must
+// cover every classical-source consult after the last trap, in circuit
+// order, so the rewrite can validate it describes this circuit.
 struct ClassicalOutcome {
     uint32_t op_index = 0;
     uint32_t qubit = 0;
     // The jump destination; nullopt records a no-jump outcome.
     std::optional<Level> destination;
-    // The level the qubit held when the outcome was drawn. The emitted
-    // nodes do not depend on it; it exists so every reuse and
-    // consumption can check the outcome is not being replayed against a
-    // different source. Today a qubit's noncomputational level moves
-    // only through its own consults, so a mismatch is unreachable --
-    // this check is what keeps that invariant explicit, and loud if a
-    // future cross-qubit transition breaks it.
+    // The level the qubit held when the outcome was drawn. Validation
+    // only: consumption checks the outcome is not replayed against a
+    // different source. Derived from the other event fields, so the
+    // continuation cache key omits it.
     Level source_level = Level::G;
 };
 
 // The status-outcome delta a continuation is compiled under: the shot's
 // initial statuses, the trap chain so far, and the pre-drawn
-// classical-source outcomes for the remaining annotations. This struct is
-// also the continuation cache key's content: two shots with equal events
-// share one compiled module. The one field the key omits is
-// ClassicalOutcome::source_level -- it is derived from everything else
-// in the events and exists only to validate replays, so it cannot vary
-// within a key.
+// classical-source outcomes for the remaining annotations. Also the
+// continuation cache key's content (source_level excepted): two shots
+// with equal events share one compiled module.
 struct ExactShotEvents {
     std::vector<QubitStatus> initial_status;
     std::vector<ResolvedJump> jumps;
     std::vector<ClassicalOutcome> classical_outcomes;
 };
 
-// A compiled-continuation rewrite: the circuit, the classifier record
-// writes in its suffix, and -- when the *last* jump in the chain traps at
-// a site whose collapse could not happen in-line (a neglect-form site on
-// a coherent carrier) -- the node index (in the rewritten stream) of the
-// last recorded jump's trace-out reset, which the driver hands to trace()
-// to obtain the hidden slot. Every jump emits a reset, so the forced form
-// always has one to point at.
+// A continuation rewrite and its bookkeeping for the driver.
 struct ContinuationRewrite {
     Circuit circuit;
     std::vector<ClassifiedMeasurement> classified_measurements;
@@ -154,6 +98,7 @@ struct ContinuationRewrite {
     // The driver hands this to trace() via
     // InstrumentTraceOptions::forced_traceout_node; trace() reports the
     // hidden slot it assigns through HirModule::forced_traceout_slot.
+    // Every jump emits a reset, so the forced form always has one.
     std::optional<size_t> forced_traceout_node;
 
     // Annotation target of each kept (runtime-instrument) site, in
@@ -162,17 +107,17 @@ struct ContinuationRewrite {
     // annotated circuit's coordinates.
     std::vector<std::pair<uint32_t, uint32_t>> site_targets;
 
-    // Every qubit's per-shot status at the end of this continuation's
-    // walk: the authoritative final statuses the driver reports for the
-    // shot. The driver reads this field directly from the fetched entry
-    // after every extend_classical_outcomes call.
+    // Every qubit's status at the end of this continuation's walk: the
+    // final statuses the driver reports for the shot.
     std::vector<QubitStatus> final_status;
 };
 
-// Rewrite `annotated` (the hook-expanded circuit the main line was
-// compiled from) into the continuation for `events`. Every annotation
-// target before or at the last jump must be covered by the walk (no-fire
-// for targets not in `jumps`); classical_outcomes must list, in circuit
+// Rewrite `annotated` (the hook-expanded circuit) into the continuation
+// for `events`. The prefix up to and including the last jump's annotation
+// is emitted verbatim, so it compiles bit-identically to the code the
+// shot already ran; only the suffix is rewritten. Every annotation target
+// before or at the last jump must be covered by the walk (no-fire for
+// targets not in `jumps`); classical_outcomes must list, in circuit
 // order, exactly the classical-source consults after the last jump.
 // `force_last_traceout` marks the last jump as a neglect-form trap whose
 // carrier arrives uncollapsed. Throws std::invalid_argument on policy

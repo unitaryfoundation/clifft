@@ -135,7 +135,7 @@ class Model:
             circuit's rank at that site; ``"neglect"`` keeps the rank and
             omits the no-fire back-action, a survivorship tilt of order
             ``|p_g - p_e|`` with no effect on source-independent rates.
-            Only meaningful at coherent dormant sites (see the design note).
+            Only meaningful at coherent dormant sites.
 
     An operation with no representable effect on a leaked or lost operand --
     e.g. a two-qubit gate onto a vacated site -- is dropped, acting as the

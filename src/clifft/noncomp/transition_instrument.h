@@ -16,10 +16,8 @@
 // the source level (e.g., a depolarizing error that ends in the
 // same level). The "nothing happened" branch ("no-jump") lives in
 // the column deficit, not the diagonal. This mirrors the Kraus
-// structure in which each jump is its own Kraus operator and
-// no-jump is the complement; it also makes the no-jump back-action
-// under unknown-coherent sources (the aI + bZ filter) a single
-// special case rather than something carved out of the diagonal.
+// structure: each jump is its own Kraus operator, and no-jump is
+// the complement.
 //
 // Source-dependent matrices (where the g and e columns differ) are
 // fully supported: the source level is resolved at sample time.
