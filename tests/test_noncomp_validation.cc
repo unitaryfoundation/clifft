@@ -171,7 +171,7 @@ TEST_CASE("validation: a lost Bell-pair qubit's classifier record is independent
 }
 
 TEST_CASE(
-    "validation: a deterministic classifier pins the lost record while the survivor stays free") {
+    "validation: a deterministic classifier fixes the lost record while the survivor stays free") {
     // Lost column [1, 0]: the lost qubit's record is deterministically 0, yet
     // the survivor is still an independent 50/50 -- the classifier governs the
     // vacated site's bit, not the surviving qubit.
@@ -185,7 +185,7 @@ TEST_CASE(
 
     size_t ones1 = 0;
     for (uint32_t shot = 0; shot < shots; ++shot) {
-        REQUIRE(s.measurements[shot * 2 + 0] == 0);  // classifier pins the lost record
+        REQUIRE(s.measurements[shot * 2 + 0] == 0);  // classifier fixes the lost record
         ones1 += s.measurements[shot * 2 + 1];
     }
     // Survivor unaffected: still ~50/50. Expected 1024; ~6 sigma band.

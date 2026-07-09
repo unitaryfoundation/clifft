@@ -106,7 +106,7 @@ def test_local_annotations_run_end_to_end():
         initial_state=ALL_G, transitions={}, classifier=classifier_for(LOST, [1.0, 0.0])
     )
     s = noncomp.sample("H 0\nLOSS(1) 0\nM 0", lossy, shots=32, seed=3)
-    assert np.all(s.measurements[:, 0] == 0)  # lost slot pinned by the classifier
+    assert np.all(s.measurements[:, 0] == 0)  # lost slot fixed by the classifier
 
 
 def test_transition_wrong_shape_raises():
@@ -142,7 +142,7 @@ def test_state_independent_loss_changes_final_status():
 def test_known_source_dependent_transition_accepted():
     # Source-dependent (g->leak_g, e->leak_e). At S entry the qubit sits
     # in |g> -- no scrambling yet -- so the fire collapses onto g and the
-    # destination is pinned to leak_g.
+    # destination is fixed to leak_g.
     t = _zeros(5, 5)
     t[LEAK_G][0] = 1.0
     t[LEAK_E][1] = 1.0
@@ -281,7 +281,7 @@ def test_ternary_herald_rides_the_sidecar():
     assert r.heralds.shape == (4000, 2)
     assert np.all(r.heralds[:, 0] == 1)  # the lost qubit's slot heralds
     assert np.all(r.heralds[:, 1] == 0)  # the survivor's does not
-    # The heralded slot's record bit is a uniform draw, not a pinned value.
+    # The heralded slot's record bit is a uniform draw, not a fixed value.
     assert abs(r.measurements[:, 0].mean() - 0.5) < 0.04
     # symbols() folds the herald back in as a third value.
     sym = r.symbols()
@@ -355,7 +355,7 @@ def test_deterministic_in_seed():
 
 
 def test_different_seeds_differ():
-    # The companion to the determinism pin: a different seed must actually
+    # The companion to the determinism check: a different seed must actually
     # change the draws, so a fixed-sequence regression cannot masquerade as
     # "deterministic". 128 coin-flip measurements collide with probability
     # 2**-128.
@@ -480,7 +480,7 @@ def test_max_rank_ignores_the_unreachable_all_computational_module():
     r = noncomp.sample(circuit, lost, shots=16, seed=3, max_rank=0)
     assert (r.final_status == noncomp.QubitStatus.LOST).all()
     # The lost column reads symbol 1 with certainty: a raw readout of the
-    # dropped-everything |0> carriers would give 0, so all-1 records pin
+    # dropped-everything |0> carriers would give 0, so all-1 records verify
     # that the classifier wrote them.
     assert (r.measurements == 1).all()
 
@@ -603,7 +603,7 @@ def test_correlated_chain_on_lost_qubit_does_not_crash():
 
 
 def test_fired_chain_head_on_lost_operand_blocks_else():
-    """Conditioning pin: E(1) fires (the head always fires, operating on the
+    """Conditioning check: E(1) fires (the head always fires, operating on the
     vacated q0 carrier), so the ELSE must not fire. q1 records must all be 0
     because the ELSE's X1 was never applied; a dropped head would promote the
     ELSE to fire unconditionally and flip q1."""
@@ -616,7 +616,7 @@ def test_fired_chain_head_on_lost_operand_blocks_else():
 
 def test_chain_flip_on_parked_carrier_is_destroyed_by_restoring_reset():
     """The passthrough is sound because a vacated carrier is unobservable;
-    this pins the restoration leg: a chain flip parked on a lost carrier is
+    this verifies the restoration leg: a chain flip parked on a lost carrier is
     overwritten by the restoring reset, so the restored qubit reads a clean
     |0>. Had the qubit never been lost, the same X would flip a live qubit
     and the record would read 1, so a passing 0 proves the loss happened."""
@@ -886,7 +886,7 @@ def test_seed_none_smoke():
     """sample() with no seed runs and returns the correct shapes.
 
     The entropy-default path (seed=None) is never exercised by the
-    determinism or different-seed pins.  A shape-only smoke test is
+    determinism or different-seed checks.  A shape-only smoke test is
     sufficient: correctness is covered by the seeded suite."""
     r = noncomp.sample("H 0\nM 0", noncomp.Model(), shots=8)
     assert r.shots == 8

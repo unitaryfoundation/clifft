@@ -199,10 +199,10 @@ def test_rep_code_round_tvd_under_neglect_matches_its_own_reference():
     """The neglect fallback must match the reference that omits the no-fire filter.
 
     This exercises neglect end-to-end against the enumerator at
-    repetition-code rates; the sharp neglect-mode pins are
+    repetition-code rates; the sharp neglect-mode checks are
     ``test_damping_boundary_probe_separates_exact_from_neglect`` (which
     separates exact from neglect by a closed-form O(p) gap on a single
-    site) and ``test_neglect_bell_correlation_probe`` (which pins the
+    site) and ``test_neglect_bell_correlation_probe`` (which checks the
     forced trace-out at the Bell-correlation level).  At the cold-atom
     magnitudes used here, exact and neglect differ by O(p^2), well below
     the shot-noise band, so this test cannot distinguish the two modes."""

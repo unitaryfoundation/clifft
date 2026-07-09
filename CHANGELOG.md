@@ -48,7 +48,7 @@ This patch makes Linux wheel CPU targeting consistent and portable across Clifft
 
 ### Bug Fixes
 
-- pin stim's SIMD_WIDTH so libstim respects the wheel baseline (#95) by @bachase in [#95](https://github.com/unitaryfoundation/clifft/pull/95)
+- set stim's SIMD_WIDTH so libstim respects the wheel baseline (#95) by @bachase in [#95](https://github.com/unitaryfoundation/clifft/pull/95)
 - tighten AVX-2 dispatch and trap CLIFFT_FORCE_ISA misconfig (#94) by @bachase in [#94](https://github.com/unitaryfoundation/clifft/pull/94)
 
 ### CI

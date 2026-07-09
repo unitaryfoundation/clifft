@@ -18,7 +18,7 @@ using clifft::test::Z;
 // HirModule builder + accessor tests
 // =============================================================================
 
-// HeisenbergOp size is pinned to 16 bytes by static_assert in hir.h. We do
+// HeisenbergOp size is kept at 16 bytes by static_assert in hir.h. We do
 // not duplicate that assertion here.
 
 TEST_CASE("HirModule::append_tgate stores Pauli in arena", "[hir]") {

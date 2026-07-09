@@ -1,6 +1,6 @@
 // Backend lowering tests for INSTRUMENT ops: opcode selection by the
 // localized-basis classification, the site -> bytecode offset table, the
-// destination fixup mask, peak_rank accounting, and the pinned
+// destination fixup mask, peak_rank accounting, and the fixed
 // prefix-identity contract that trap re-entry depends on.
 
 #include "clifft/backend/backend.h"
@@ -38,14 +38,14 @@ InstrumentTraceOptions demo_options(bool neglect = false) {
 }
 
 // trace + lower, no optimization passes: fully deterministic opcode
-// sequences for the classification pins.
+// sequences for the classification checks.
 CompiledModule compile_raw(const char* text, const InstrumentTraceOptions& options) {
     auto hir = trace(parse(text), &options);
     return lower(hir);
 }
 
 // The full default pipeline (HIR passes, lower, bytecode passes): what a
-// real compilation runs, for the prefix-identity and offset-validity pins.
+// real compilation runs, for the prefix-identity and offset-validity checks.
 CompiledModule compile_full(const char* text, const InstrumentTraceOptions& options) {
     auto hir = trace(parse(text), &options);
     auto hir_passes = default_hir_pass_manager();
@@ -227,7 +227,7 @@ TEST_CASE("lowering: offsets stay valid through the default bytecode passes") {
 
 TEST_CASE("fences: noise blocks never coalesce across an instrument") {
     // The adjacency-driven bytecode passes stop at unrecognized opcodes
-    // by construction; pin it for the pass that matters most (noise-block
+    // by construction; exercise the pass that matters most (noise-block
     // coalescing drove the atomized-fence cost in the spike): noise on
     // both sides of a site stays on both sides, in separate runs.
     auto module = compile_full(
@@ -258,7 +258,7 @@ TEST_CASE("exact record and basis probabilities reject instrument programs") {
                         ContainsSubstring("record_probabilities()"));
 
     // basis_probabilities takes measurement-free unitary programs, so its
-    // rejection path needs its own instrument program to pin.
+    // rejection path needs its own instrument program to exercise.
     auto unitary = compile_raw("LEVEL_TRANSITION[jump] 0", demo_options());
     const std::vector<uint64_t> masks{0};
     REQUIRE_THROWS_WITH(basis_probabilities(unitary, masks, 1, 1),
