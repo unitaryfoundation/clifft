@@ -274,19 +274,28 @@ class LowRankState:
             self.sparsify(self.sparsify_budget, self._rng)
 
     def _rz_diag_frame(self, q: int, phase1: complex) -> None:
-        """Frame-conjugated magic at the OPTIMAL {I,S} extent (1.17/T, not 1.707).
+        """Frame-conjugated magic: delegate to the explicit-Pauli rotation with
+        P' = F^-1 Z_q F (see rz_about_pauli for the mechanism)."""
+        pp, ax, az = self.frame.conj_Z(q)            # P' = i^pp X(ax) Z(az)
+        self.rz_about_pauli(pp, ax, az, phase1, label=f"Tframe({q})")
 
-        Uses the same minimal-extent Clifford pair as non-frame, diag(1,phase1) =
-        c1 D1 + c2 D2, but each diagonal Clifford D (in {I,S,Z,S_DAG}) is applied
-        *about the Pauli* P' = F^-1 Z_q F: since D = D(Z_q) is diagonal,
-            F^-1 D_q F = D(P') = W^dagger D_j W,
-        where W is a Clifford mapping P' -> +Z_j (functional calculus commutes with
-        conjugation -- exact, no phase). The reduction's sign is normalised to +1
-        by appending X_j to W. So the frame magic has the SAME coefficients (hence
-        the same 2^{0.228 t} extent) as non-frame; only the gate is rotated by W."""
+    def rz_about_pauli(self, pp: int, ax, az, phase1: complex,
+                       label: str | None = None) -> None:
+        """Diagonal rotation diag(1, phase1) about an EXPLICIT Pauli
+        P = i^pp X(ax) Z(az), at the OPTIMAL {I,S} extent (1.17/T, not 1.707).
+
+        diag(1,phase1) = c1 D1 + c2 D2 with D in {I,S,Z,S_DAG}; each diagonal
+        Clifford D is applied about P as D(P) = W^dagger D_j W, where W is a
+        Clifford mapping P -> +Z_j (functional calculus commutes with
+        conjugation -- exact, no phase). The reduction's sign is normalised to
+        +1 by appending X_j to W, so the coefficients (hence the 2^{0.228 t}
+        extent) match the plain path exactly.
+
+        This is also the entry point for consuming clifft's OPTIMIZED HIR,
+        whose T_GATE ops are rotations about arbitrary conjugated Paulis
+        (see hir_bridge.py)."""
         old_chi = self.chi
         decomp = _clifford_pair_decompose(phase1)
-        pp, ax, az = self.frame.conj_Z(q)            # P' = i^pp X(ax) Z(az)
         gates, j, sign = _reduce_pauli_to_Z(self.n, pp, np.asarray(ax), np.asarray(az))
         if sign < 0:
             gates = gates + [("X", (j,))]            # X_j Z_j X_j = -Z_j -> normalise to +Z_j
@@ -306,7 +315,7 @@ class LowRankState:
         self.terms = new_terms
         self.ctr.t_gates += 1
         self.ctr.t_branches += max(0, self.chi - old_chi)
-        self._record(f"Tframe({q})")
+        self._record(label or "Tpauli")
         if self.sparsify_budget is not None and self.chi > 2 * self.sparsify_budget:
             self.sparsify(self.sparsify_budget, self._rng)
 
@@ -560,6 +569,54 @@ class LowRankState:
         t0.scale(complex(ratio))
         self.terms = [t0]
         self._record("collapse_rank1")
+
+    def measure_pauli_forced_fast(self, pp: int, ax, az, outcome: int) -> float:
+        """Forced projective measurement of an EXPLICIT Pauli P = i^pp X(ax) Z(az):
+        project every term onto the `outcome` eigenspace via the W-reduction
+        (P -> Z_j), dedup by tableau key, and apply a common rescale so the
+        largest term stays O(1). Returns the applied rescale factor f: callers
+        computing record probabilities recover the true projected norm as
+        stored_norm / prod(f). Non-materialising; the HIR-consumption entry
+        point (clifft's optimized MEASURE ops are arbitrary Pauli
+        measurements -- see hir_bridge.py)."""
+        outcome = int(outcome)
+        gates, j, sign = _reduce_pauli_to_Z(self.n, pp, np.asarray(ax), np.asarray(az))
+        bit_j = outcome ^ (1 if sign < 0 else 0)
+        wdag = [(_GATE_DAG[nm], qs) for nm, qs in reversed(gates)]
+        new_terms: list[Term] = []
+        for term in self.terms:
+            ft = term.copy()
+            for nm, qs in gates:
+                _apply_gate_to_term(ft, nm, qs)
+            pj = ft.project(j, bit_j)
+            if pj is not None and pj.norm2() > _ZERO_TOL:
+                for nm, qs in wdag:
+                    _apply_gate_to_term(pj, nm, qs)
+                new_terms.append(pj)
+        if not new_terms:
+            zero = _new_term(self.n, self.backend)
+            zero.scale(0.0)
+            new_terms = [zero]
+        merged: dict[bytes, Term] = {}
+        order: list[bytes] = []
+        for t in new_terms:
+            key = t.merge_key()
+            if key in merged:
+                merged[key].merge_add(t)
+            else:
+                merged[key] = t
+                order.append(key)
+        self.terms = [merged[k] for k in order
+                      if merged[k].norm2() > _ZERO_TOL] or new_terms[:1]
+        m = max((t.norm2() for t in self.terms), default=0.0)
+        f = 1.0
+        if m > 0.0:
+            f = 1.0 / np.sqrt(m)
+            for t in self.terms:
+                t.scale(f)
+        self.ctr.measurements += 1
+        self._record(f"Mpauli->{outcome}")
+        return f
 
     def measure_z_forced_fast(self, q: int, outcome: int,
                               flip_if_dead: bool = False) -> int:

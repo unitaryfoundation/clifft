@@ -31,6 +31,7 @@ import numpy as np
 
 from .gadgetize import (count_t, dense_reference, hidden_shift,
                         random_cliffordT)
+from .hir_bridge import optimize as hir_optimize
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 BIN = "/tmp/chf_gadget"
@@ -134,8 +135,8 @@ def bench_hidden_shift():
 def bench_random():
     print("\nRANDOM Clifford+T (interleaved magic) vs clifft exact "
           "(record_probabilities, measured circuit)")
-    print(f"{'n':>3} {'t':>3} {'kmeas':>5} {'clifft(s)':>10} {'ours(s)':>8} "
-          f"{'TV':>7} {'k':>7}")
+    print(f"{'n':>3} {'traw':>4} {'tlive':>5} {'kmeas':>5} {'clifft(s)':>10} "
+          f"{'ours(s)':>8} {'TV':>7} {'k':>7}")
     import clifft
     rows = []
     for n, depth, tt in ((20, 6, 32), (26, 6, 40), (30, 6, 48)):
@@ -167,14 +168,17 @@ def bench_random():
         dt = time.time() - t0
         denom = float(np.sum(pc))
         tv = 0.5 * sum(abs(P[x] - p) for x, p in zip(targets, pc)) / denom
-        rows.append({"n": n, "t": tt, "clifft_peak_rank": prog.peak_rank,
+        # The compile-time decision rule uses the LIVE T-count after clifft's
+        # HIR optimization (t_live <= t_raw; using t_raw is biased against the
+        # backend). Both exponents come from the same compilation.
+        _, t_raw, t_live = hir_optimize("\n".join(lines))
+        rows.append({"n": n, "t_raw": tt, "t_live": t_live,
+                     "clifft_peak_rank": prog.peak_rank,
                      "clifft_s": tclifft, "ours_s": dt, "tv": tv, "k": k})
-        # The compile-time decision rule: the backend pays ~2^{0.228 t}/delta^2,
-        # clifft pays 2^{peak_rank} -- both known before running anything.
-        rule = "backend" if 0.228 * tt < prog.peak_rank else "clifft"
-        print(f"{n:>3} {tt:>3} {prog.peak_rank:>5} {tclifft:>10.3f} {dt:>8.1f} "
-              f"{tv:>7.3f} {k:>7}   0.228t={0.228 * tt:5.1f} vs k={prog.peak_rank}"
-              f" -> {rule}", flush=True)
+        rule = "backend" if 0.228 * t_live < prog.peak_rank else "clifft"
+        print(f"{n:>3} {tt:>4} {t_live:>5} {prog.peak_rank:>5} {tclifft:>10.3f} "
+              f"{dt:>8.1f} {tv:>7.3f} {k:>7}   0.228*tlive={0.228 * t_live:5.1f} "
+              f"vs k={prog.peak_rank} -> {rule}", flush=True)
     return rows
 
 

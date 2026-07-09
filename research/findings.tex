@@ -370,7 +370,11 @@ $\mathrm{peak\_rank}$, and both are known \emph{before executing anything}
 ($0.228\,t < \mathrm{peak\_rank}$: backend; otherwise \texttt{clifft}).
 Dense IQP ($t=n$, $\mathrm{peak\_rank}=n/2$) sits on the backend's side, as
 \S\ref{sec:overlap} measured; magic-dense or reduction-friendly circuits sit
-on \texttt{clifft}'s.
+on \texttt{clifft}'s. The rule must use the \emph{live} $T$-count after
+\texttt{clifft}'s HIR optimization, not the raw one: measured on the random
+interleaved family, $t_{\rm raw}=32/40/48$ compiles down to
+$t_{\rm live}=18/28/28$ --- using $t_{\rm raw}$ biases the dispatch against
+the backend.
 
 \subsection{qiskit-aer \texttt{extended\_stabilizer}}\label{sec:aer}
 Now reproduced by a committed script (\texttt{bench\_aer.py}; aer $0.17.2$,
@@ -532,7 +536,7 @@ compilation). Dispatch is a one-line comparison:
   \node[box] (circ) at (0,0) {circuit};
   \node[box] (comp) at (3.0,0) {\texttt{clifft} compiler};
   \node[box] (meta) at (6.6,0) {compiled program};
-  \node[sub] at (6.6,-0.55) {$\mathrm{peak\_rank}$, $t$};
+  \node[sub] at (6.6,-0.55) {$\mathrm{peak\_rank}$, $t_{\rm live}$};
   \node[box] (dense) at (12.0,1.35) {dense engine};
   \node[sub] at (12.0,0.80) {exact, $2^{\mathrm{peak\_rank}}$};
   \node[box] (chf) at (12.0,-1.35) {CH-form backend};
@@ -546,10 +550,33 @@ compilation). Dispatch is a one-line comparison:
 \end{tikzpicture}
 \end{center}
 
+This is no longer only a proposal: the backend now \textbf{consumes
+\texttt{clifft}'s optimized HIR directly} (\texttt{hir\_bridge.py}, using the
+exposed \texttt{parse}$\to$\texttt{trace}$\to$\texttt{HirPassManager}
+pipeline). The optimized HIR turns out to be the ideal input, for a reason
+worth stating: \emph{it contains no Clifford gates at all} --- the compiler
+absorbs every Clifford into the Pauli strings of the surviving ops, i.e.\ it
+performs the frame absorption \emph{statically and exactly}. The remaining
+ops are precisely the backend's two explicit-Pauli primitives ($T$-rotations
+about arbitrary Paulis; projective Pauli measurements), so the bridge is
+thin. Validated against \texttt{clifft} to $2\times10^{-13}$ over 400 fuzzed
+circuits plus the benchmark families; in every HIR-driven run the backend
+performs \emph{zero} Clifford gate applications, $\chi$ tracks
+$2^{t_{\rm live}}$ (often less: the hoisted measurements collapse terms
+mid-run --- $\chi_{\rm peak}=8$ where $2^{t_{\rm live}}=64$ on one family),
+and $t_{\rm live}$ is roughly half of $t_{\rm raw}$ on random circuits.
+Consequently, for compile-known circuits the compiler \emph{supersedes} the
+online frame of \S\ref{sec:adaptive}; the online frame remains the mechanism
+for dynamic/adaptive circuits the compiler cannot see through. The
+C\texttt{++} scale arm still consumes raw circuits (consuming HIR there
+needs a simultaneous reduction of the terminal Pauli measurements --- a
+symplectic elimination --- noted as future work).
+
 Three design consequences. \emph{(i) Both executors want the same compiled
 stream.} Every compiler improvement ($T$-count reduction, fusion, measurement
-reordering) lowers both engines' costs; the benchmarks in this note fed the
-backend \emph{raw} circuits, so its numbers are conservative. \emph{(ii) The
+reordering) lowers both engines' costs --- now demonstrated, not assumed:
+the Python reference consumes the optimized stream; only the C\texttt{++}
+arm's numbers remain conservative. \emph{(ii) The
 dispatcher must respect the exactness contract.} The backend is a different
 guarantee ($\delta$-approximate, additive/typical --- \S\ref{sec:guarantee}),
 so it is an opt-in path (an explicit $\delta$), never a silent substitute:

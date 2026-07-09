@@ -89,6 +89,20 @@
 >   clifft's reduction compiles the tested general families to peak_rank <=
 >   10 and wins there; the comparison collapses to a COMPILE-TIME decision
 >   rule (backend iff 0.228 t < peak_rank) -- a per-program hybrid dispatch.
+> - **HIR wiring (2026-07-09, `hir_bridge.py`): the backend consumes clifft's
+>   OPTIMIZED circuits directly.** clifft's Python API exposes parse -> trace
+>   -> HirPassManager; the optimized HIR contains NO Clifford gates (the
+>   compiler absorbs them all into Pauli strings -- the frame, done statically)
+>   and its ops map 1:1 onto new engine entry points `rz_about_pauli` and
+>   `measure_pauli_forced_fast`. Validated vs clifft to 2e-13 over 400 fuzzed
+>   circuits + benchmark families; zero Clifford applications in any HIR run;
+>   chi tracks 2^{t_live} or less (hoisted measurements collapse mid-run);
+>   t_live ~ t_raw/2 on random circuits (48 -> 28). Decision rule now uses
+>   t_live (bench_general updated). Gotcha: the pauli_string's +/- prefix and
+>   the `sign` field are the SAME datum -- fold once. C++ scale arm still
+>   consumes raw circuits (terminal-Pauli simultaneous reduction = future
+>   work). For compile-known circuits the compiler supersedes the online
+>   frame; the frame remains the mechanism for adaptive circuits.
 
 
 A working, validated prototype of the "stab-rank back-end" that would replace
