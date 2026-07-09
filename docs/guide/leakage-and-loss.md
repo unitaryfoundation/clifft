@@ -3,8 +3,8 @@
 !!! warning "Experimental"
     `clifft.noncomp` is experimental and may change between minor releases.
 
-Real devices leak (a carrier is excited out of the qubit subspace) and lose
-atoms (the carrier leaves the trap). Ordinary Pauli noise cannot represent
+Real devices leak (an atom is excited out of the qubit encoding) and lose
+atoms (the atom leaves the trap). Ordinary Pauli noise cannot represent
 either. `clifft.noncomp` samples circuits under a five-level leakage/loss
 model: transition matrices describe when qubits jump between levels, and a
 classifier describes what a measurement of a leaked or lost qubit records.
@@ -110,14 +110,14 @@ assert r.measurements.shape == (1000, 2)
 
 ## What happens on a leaked or lost qubit
 
-Gates addressing a leaked or lost qubit drop — the interaction physically
+Gates addressing a leaked or lost qubit drop: the interaction physically
 cannot happen, and the operation acts as the identity on the surviving
 operands. Measurements keep their record slot and read the classifier
 (`M`, `MX`, and `MY` alike: the readout basis is incidental once the
-carrier has left the qubit subspace).
+qubit has left the computational subspace).
 
 Losing one half of an entangled pair leaves the partner in the reduced
-state — for a Bell pair, maximally mixed:
+state; for a Bell pair, maximally mixed:
 
 ```python
 import numpy as np
@@ -143,9 +143,8 @@ assert (r.final_status[:, 0] == noncomp.QubitStatus.LOST).all()
 assert (r.final_status[:, 1] == noncomp.QubitStatus.COMPUTATIONAL).all()
 ```
 
-Because classification happens before detectors are evaluated, leakage
-surfaces as detector events — the property error-correction workflows
-need:
+Classification happens before detectors are evaluated, so leakage
+surfaces as detector events:
 
 ```python
 import numpy as np
@@ -195,11 +194,11 @@ r = noncomp.sample("H 0\nS 0\nM 0", model, shots=20_000, seed=5)
 assert abs(r.measurements[:, 0].mean() - (0.5 + p / 2)) < 0.01
 ```
 
-Runtime resolution also preserves correlations that ahead-of-time
-sampling cannot: when the jump's destination depends on the source level,
-the leaked qubit's classified readout stays correlated with its entangled
-partner. See [Noncomputational States](../theory/noncomputational.md) for
-why this matters and what it costs.
+Resolving draws against the live state also preserves correlations that
+ahead-of-time sampling cannot produce: when the jump's destination depends
+on the source level, the leaked qubit's classified readout stays
+correlated with its entangled partner. The semantics and the rank cost
+are in [Noncomputational States](../theory/noncomputational.md).
 
 ## Policy knobs
 
@@ -210,7 +209,7 @@ why this matters and what it costs.
 - **`damping`** (default `"exact"`): a site whose rates differ between
   `g` and `e` needs its qubit in the active array for the exact no-fire
   back-action; a coherent qubit still outside it is expanded at the site.
-  `"neglect"` skips the expansion and the back-action — an error of order
+  `"neglect"` skips the expansion and the back-action: an error of order
   $\lvert p_g - p_e \rvert$ per site, and exactly zero for
   source-independent rates (`LOSS` always qualifies).
 - **`seed`**: same contract as ordinary sampling — a fixed seed is fully
@@ -228,20 +227,17 @@ why this matters and what it costs.
 - **A classifier is required** whenever a capable model meets a measuring
   circuit; the error names the missing piece before sampling begins.
 - Under `damping="exact"`, a state-dependent site on a coherent qubit
-  outside the active array expands that qubit into it — one unit of peak
-  rank at that site. An already-active qubit adds nothing, and later
+  outside the active array expands that qubit into it, adding one unit of
+  peak rank at that site. An already-active qubit adds nothing, and later
   sites on a qubit that stays active do not stack, so the worst case is
   one unit per *qubit* held coherent across its sites, not one per site.
   The [performance model](performance.md) otherwise applies unchanged.
 
 ## Why there is no compile step
 
-Ordinary Clifft separates `compile()` from `sample()` because the compiled
-program is a model-independent artifact. Under a leakage/loss model there
-is no such artifact: the executable depends on the model (which rewrites
-measurements and gates) and on each shot's jump outcomes (which rewrite
-the remainder of the shot). `noncomp.sample` therefore takes the circuit
-and model together and compiles internally, caching within the call — one
-module per distinct event history, reused across the shots that share it.
-A parsed `clifft.Circuit` can be passed instead of text to share parsing
-across calls.
+Ordinary Clifft separates `compile()` from `sample()` because a compiled
+program is model-independent. Here it is not: the executable depends on
+the model and on each shot's jump outcomes. `noncomp.sample` takes the
+circuit and model together and compiles internally, caching one module
+per distinct event history within the call. Pass a parsed
+`clifft.Circuit` instead of text to share parsing across calls.

@@ -7,7 +7,7 @@
 Pauli noise moves a qubit around inside its two-dimensional subspace. Real
 devices also leave that subspace: an atom is excited to a level outside the
 qubit encoding (*leakage*), or leaves the trap entirely (*loss*). No Pauli
-channel can represent either — the state is no longer a qubit state at all.
+channel can represent either: the state is no longer a qubit state at all.
 
 Clifft models both with a five-level structure per qubit, a per-gate jump
 process between levels, and a classifier that defines what a measurement of
@@ -31,10 +31,10 @@ Two ingredients drive the dynamics:
 
 - **Transition matrices.** A $5 \times 5$ matrix $T[\text{to}][\text{from}]$
   attached to a circuit position gives the probability of jumping between
-  levels when that position executes. Every entry is a discrete jump event —
-  including diagonal entries, which project onto the source level — and a
-  column's deficit below 1 is the no-jump probability. `LOSS(p)` is the
-  special case of a uniform jump to `lost` from every occupied level.
+  levels when that position executes. Every entry is a discrete jump event
+  (diagonal entries project onto the source level), and a column's deficit
+  below 1 is the no-jump probability. `LOSS(p)` is the special case of a
+  uniform jump to `lost` from every occupied level.
 - **A classifier.** A stochastic matrix $P[\text{symbol}][\text{level}]$
   mapping the level at readout to a recorded symbol: two record symbols,
   plus an optional third that heralds the measurement (typically loss).
@@ -43,30 +43,30 @@ Two ingredients drive the dynamics:
 
 Each sampled shot is one trajectory. Along a trajectory the sampler keeps a
 classical *status* per qubit: computational, `leak_g`, `leak_e`, or `lost`.
-A noncomputational status is definite — the trajectory knows exactly which
-level the qubit occupies — while a computational qubit carries no level
-claim at all: whether it is $\lvert 0 \rangle$, $\lvert 1 \rangle$, or a
-superposition is the simulator's business, not the ledger's.
+A noncomputational status is definite: the trajectory knows which level the
+qubit occupies. A computational qubit carries no level claim; whether it is
+$\lvert 0 \rangle$, $\lvert 1 \rangle$, or a superposition is tracked by
+the simulator, not the ledger.
 
-This split is what keeps the model exact. Populations of noncomputational
-levels carry no coherences with the computational subspace (a trapped atom
-in a leaked level does not interfere with qubit amplitudes), so tracking
-their occupation classically per trajectory discards nothing.
+Classical tracking is exact here because noncomputational populations carry
+no coherences with the computational subspace (a leaked atom does not
+interfere with qubit amplitudes); recording their occupation per trajectory
+discards nothing.
 
 ## The vacated carrier
 
-When a qubit jumps out of the computational subspace, the amplitudes it
-held cannot simply be deleted — for an entangled qubit they define the
-partner's reduced state. The jump therefore traces the qubit out: a hidden
-collapse resolves its computational amplitude, the partner keeps the
-correct partial-trace statistics, and the simulated cell — the *carrier* —
-is left parked while the status ledger records the occupied level.
+When a qubit jumps out of the computational subspace, its amplitudes still
+matter: for an entangled qubit they define the partner's reduced state.
+The jump therefore traces the qubit out: a hidden collapse resolves its
+computational amplitude, the partner keeps the correct partial-trace
+statistics, and the simulated cell (the *carrier*) is left parked while
+the status ledger records the occupied level.
 
-Everything downstream follows from the carrier being vacated:
+With the carrier vacated:
 
 - **Gates drop.** An operation with no representable effect on a leaked or
-  lost operand — a single- or two-qubit gate, a noise channel, classical
-  feedback onto the site — physically cannot happen, and is excised whole,
+  lost operand (a single- or two-qubit gate, a noise channel, classical
+  feedback onto the site) physically cannot happen, and is excised whole,
   acting as the identity on the surviving operands.
 - **Measurements classify.** A measurement of a noncomputational level is
   not a Born measurement of a qubit; the classifier defines its record
@@ -84,7 +84,7 @@ Leakage becomes visible to error correction through the classifier:
 leaked and lost levels are classified into the measurement record before
 detectors are evaluated, so they surface as detector events.
 
-## Runtime resolution and exactness
+## State-dependent rates
 
 Whether a jump fires can depend on the state. If a transition leaks out of
 `g` and `e` at different rates, the fire probability on a superposition is
@@ -99,13 +99,13 @@ live state*: the fire decision is drawn from the simulator's own
 amplitudes, and when a jump lands, the remainder of the shot is rewritten
 under the recorded event and execution resumes. Sampling is exact for
 state-dependent rates, including the correlations ahead-of-time sampling
-cannot produce — when the jump's destination depends on the source level,
+cannot produce: when the jump's destination depends on the source level,
 the leaked qubit's readout stays correlated with its entangled partner.
 
 The one approximation on this path is opt-in. The exact no-fire
 back-action acts on the qubit's amplitudes, so a source-dependent site on
-a coherent qubit that is still *dormant* — held in the Clifford frame,
-outside the active array — expands that qubit into the array, one unit of
+a coherent qubit that is still *dormant* (held in the Clifford frame,
+outside the active array) expands that qubit into the array, one unit of
 active dimension at that site. A qubit already active costs nothing more,
 and later sites on a qubit that stays active do not stack.
 `damping="neglect"` skips the expansion and the back-action, a
@@ -114,20 +114,21 @@ zero at source-independent rates. The default is exact.
 
 ## Validation
 
-The implementation is checked at four levels, each anchoring the next:
+The implementation is checked at four levels:
 
 1. **Closed forms.** Micro-circuits with hand-derived outcomes: partial
    trace of a Bell pair under loss, marginals under state-dependent leak
    rates, classifier confusion arithmetic.
-2. **Sharp probes.** Fixed-seed tests that pin behavior distributions
-   cannot: the Bell-pair correlation that distinguishes runtime resolution
-   from ahead-of-time draws, and the damping boundary/null pair that
-   separates `exact` from `neglect` exactly where the $\lvert p_g - p_e
-   \rvert$ bound says they must differ and agree.
+2. **Sharp probes.** Fixed-seed tests for behavior that sampled
+   distributions alone cannot check: the Bell-pair correlation that
+   distinguishes live-state draws from ahead-of-time draws, and the
+   damping boundary/null pair that separates `exact` from `neglect`
+   exactly where the $\lvert p_g - p_e \rvert$ bound says they must
+   differ and agree.
 3. **A brute-force enumerator.** A dense density-matrix reference computes
    full record distributions for small circuits; sampled frequencies are
    checked against it. The enumerator shares the channel definitions with
    the sampler, so it is one independent implementation of the *dynamics*,
-   not of the model — the closed forms above anchor the model itself.
+   not of the model; the closed forms above anchor the model itself.
 4. **Statistical distance at scale.** Total-variation-distance checks on
    repetition-code rounds at realistic rates, bounded by shot noise.
