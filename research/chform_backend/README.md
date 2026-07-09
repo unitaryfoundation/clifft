@@ -103,6 +103,19 @@
 >   consumes raw circuits (terminal-Pauli simultaneous reduction = future
 >   work). For compile-known circuits the compiler supersedes the online
 >   frame; the frame remains the mechanism for adaptive circuits.
+> - **Per-episode dispatch rule (2026-07-09, `dispatch.py`): the third
+>   strategy is in the dispatcher.** One compilation yields peak_rank, t_live
+>   (HIR), and mblk + episode count R (static profiler). Costs: dense = 2^k;
+>   global backend = 2^{0.228 t_live}/d^2; episodic backend =
+>   R^2 2^{0.228 mblk}/d^2 (re-sparsify at k->0 boundaries; d/sqrt(R) per
+>   episode). Flip case demonstrated: conveyor r=12 w=128 -> dense infeasible
+>   (k=49), global absurd (exponent ~350), episodic ~42 -> auto-routed
+>   backend-episodic. Premise validated exactly (chi_peak ~ 2^mblk <<
+>   2^t_live on a conveyor via the HIR bridge; P matches clifft to 4e-17).
+>   hir_bridge now also replays CONDITIONAL_PAULI (feedforward), i.e.
+>   adaptive circuits work in forced-record replay. Approximate episodic
+>   EXECUTION (per-episode budgets, norm tracking) = future work; its R^2
+>   prefactor is projected, not measured.
 
 
 A working, validated prototype of the "stab-rank back-end" that would replace

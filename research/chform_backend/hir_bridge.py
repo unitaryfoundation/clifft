@@ -74,7 +74,8 @@ def optimize(stim_text: str):
     return hir.as_dict(), t_raw, hir.num_t_gates
 
 
-def run_hir_record(hir_dict: dict, record, backend: str = "chform"):
+def run_hir_record(hir_dict: dict, record, backend: str = "chform",
+                   recompress: bool = False):
     """Execute the optimized HIR with all measurements forced to `record`
     (indexed by meas_record_idx). Returns (P(record), chi_peak, n_t_applied).
 
@@ -98,9 +99,25 @@ def run_hir_record(hir_dict: dict, record, backend: str = "chform"):
             s.rz_about_pauli(pp, ax, az, phase)
             n_t += 1
             chi_peak = max(chi_peak, s.chi)
+        elif op["op_type"] == "CONDITIONAL_PAULI":
+            # classically-controlled Pauli (feedforward): with the record
+            # forced, the condition is deterministic -- apply i^pp X(ax) Z(az)
+            # to every term when the controlling bit is set
+            if int(record[op["controlling_meas"]]):
+                for t in s.terms:
+                    for j in np.nonzero(az)[0]:
+                        t.clifford_1q("Z", int(j))
+                    for j in np.nonzero(ax)[0]:
+                        t.clifford_1q("X", int(j))
+                    t.scale(1j ** (pp % 4))
         elif op["op_type"] == "MEASURE":
             bit = int(record[op["meas_record_idx"]])
             scale *= s.measure_pauli_forced_fast(pp, ax, az, bit)
+            if recompress:
+                # canonical (materializing) recompression -- validation-scale
+                # only; collapses parallel terms at episode boundaries so chi
+                # tracks per-episode magic (the episodic-dispatch premise)
+                s.recompress_dedup()
         else:
             raise ValueError(f"unsupported HIR op {op['op_type']}")
     vec = s.statevector()

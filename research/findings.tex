@@ -581,11 +581,26 @@ dispatcher must respect the exactness contract.} The backend is a different
 guarantee ($\delta$-approximate, additive/typical --- \S\ref{sec:guarantee}),
 so it is an opt-in path (an explicit $\delta$), never a silent substitute:
 when the user demands exactness past the memory wall, the honest answer is
-``infeasible''. \emph{(iii) A finer-grained dispatch exists in principle.}
-Compiled programs have episode structure ($k$ rising and collapsing); a
-future dispatcher could choose per-episode --- dense for magic-saturated
-stretches, low-rank for magic-sparse ones. The per-program rule is the one
-measured and ready today.
+``infeasible''. \emph{(iii) The finer-grained, per-episode rule is
+implemented} (\texttt{dispatch.py}). Compiled programs have episode
+structure ($k$ rising and collapsing to $0$); the static profiler supplies
+$m_{\rm blk}$ (peak $T$-count inside any single episode) and the episode
+count $R$, and the dispatcher weighs a third strategy: re-sparsify at every
+episode boundary, cost $\sim R^2\,2^{0.228\,m_{\rm blk}}/\delta^2$ (errors
+compound over $R$ boundaries, so $\delta_{\rm episode}=\delta/\sqrt R$).
+Since $m_{\rm blk}\le t_{\rm live}$, this only moves circuits toward the
+backend --- decisively for computations that \emph{recycle} bounded live
+magic: on a feedforward conveyor with $12$ rounds of $128$ $T$'s, the dense
+engine is infeasible ($k{=}49$), the global backend absurd
+($0.228\cdot1536\approx350$), and the episodic strategy ($\log_2$ cost
+$\approx42$) is the only one that runs --- the dispatcher selects it
+automatically. The premise is validated in exact mode
+($\chi_{\rm peak}\approx2^{m_{\rm blk}}\ll2^{t_{\rm live}}$ on a conveyor
+via the HIR bridge, which now also replays the feedforward's conditional
+Paulis; $P$ matches \texttt{clifft} to $4\times10^{-17}$); the
+\emph{approximate} episodic execution (per-episode budgets
+$\delta/\sqrt R$, mid-circuit norm tracking) remains future work, so its
+$R^2$ prefactor is a projected cost, not a measured one.
 
 In one sentence: \texttt{clifft}'s architecture is the blueprint, BGH's
 mathematics is the material, and \texttt{clifft} itself is the compiler
