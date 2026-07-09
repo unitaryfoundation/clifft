@@ -53,10 +53,12 @@ assert (r.heralds[:, 0] == (status == noncomp.QubitStatus.LOST)).all()
 ```
 
 `measurements`, `detectors`, and `observables` are laid out exactly as in
-ordinary sampling — a measurement of a leaked or lost qubit still occupies
-its record slot, with the classifier supplying the bit. `symbols()` folds
-the herald back in as a third value per slot (0, 1, or 2), for comparing
-against tools that report loss in-band.
+ordinary sampling: a measurement of a leaked or lost qubit still occupies
+its record slot, with the classifier supplying the bit. When the
+classifier samples its herald symbol, `heralds` marks the slot and the
+binary `measurements` entry holds a uniformly drawn placeholder;
+`symbols()` folds the herald back in as a third value per slot (0, 1,
+or 2), for comparing against tools that report loss in-band.
 
 Omitting `initial_state` starts every qubit in `g`. A model that can leak
 or lose qubits requires a classifier if the circuit measures.
@@ -110,9 +112,9 @@ assert r.measurements.shape == (1000, 2)
 
 ## What happens on a leaked or lost qubit
 
-Gates addressing a leaked or lost qubit drop: the interaction physically
-cannot happen, and the operation acts as the identity on the surviving
-operands. Measurements keep their record slot and read the classifier
+Gates addressing a leaked or lost qubit are dropped, acting as the
+identity on the surviving operands. Measurements keep their record slot
+and read the classifier
 (`M`, `MX`, and `MY` alike: the readout basis is incidental once the
 qubit has left the computational subspace).
 

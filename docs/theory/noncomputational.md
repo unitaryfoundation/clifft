@@ -48,10 +48,11 @@ qubit occupies. A computational qubit carries no level claim; whether it is
 $\lvert 0 \rangle$, $\lvert 1 \rangle$, or a superposition is tracked by
 the simulator, not the ledger.
 
-Classical tracking is exact here because noncomputational populations carry
-no coherences with the computational subspace (a leaked atom does not
-interfere with qubit amplitudes); recording their occupation per trajectory
-discards nothing.
+Classical tracking is exact for this trajectory model because jumps are
+treated as incoherent: a noncomputational population carries no coherence
+with the computational subspace. Under that assumption, recording
+occupation per trajectory discards nothing; coherent leakage is outside
+the model's scope.
 
 ## The vacated carrier
 
@@ -66,8 +67,8 @@ With the carrier vacated:
 
 - **Gates drop.** An operation with no representable effect on a leaked or
   lost operand (a single- or two-qubit gate, a noise channel, classical
-  feedback onto the site) physically cannot happen, and is excised whole,
-  acting as the identity on the surviving operands.
+  feedback onto the site) is excised whole, acting as the identity on the
+  surviving operands.
 - **Measurements classify.** A measurement of a noncomputational level is
   not a Born measurement of a qubit; the classifier defines its record
   symbol. The record slot is preserved, so `rec[-k]` references, detectors,

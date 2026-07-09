@@ -140,8 +140,9 @@ class Model:
     An operation with no representable effect on a leaked or lost operand --
     e.g. a two-qubit gate onto a vacated site -- is dropped, acting as the
     identity on the surviving operands. Single-qubit measurements (``M``,
-    ``MX``, ``MY``) keep their record slot; on a vacated carrier the readout
-    basis is incidental and the classifier supplies the bit. A
+    ``MX``, ``MY``) keep their record slot; once the qubit has left the
+    computational subspace the readout basis is incidental and the
+    classifier supplies the bit. A
     measure-and-reset (``MR``/``MRX``/``MRY``) keeps its record the same
     way; its reset half re-prepares the site only when the reset restores
     it (a leaked qubit always; a lost qubit only with
@@ -287,12 +288,12 @@ def sample(
     ``circuit`` is a parsed ``clifft.Circuit`` or a Stim-format string. Returns a
     :class:`NonComputationalSample`. Single-qubit measurements (``M``, ``MX``,
     ``MY``) of a leaked or lost qubit read the classifier; the readout basis is
-    incidental on a vacated carrier. A model that can leak or lose qubits
-    requires a classifier when the circuit measures, and parity measurements
-    (``MPP``) are not supported with such models — both are rejected before
-    sampling begins. Raises ``ValueError`` when one of these contracts is
-    violated, when a classifier column is unsupported, or when an operation
-    has no representable effect on a noncomputational operand.
+    incidental once the qubit has left the computational subspace. A model that
+    can leak or lose qubits requires a classifier when the circuit measures,
+    and parity measurements (``MPP``) are not supported with such models — both
+    are rejected before sampling begins. Raises ``ValueError`` when one of
+    these contracts is violated, when an annotation is malformed, or when
+    ``max_rank`` is exceeded.
 
     ``max_rank`` caps the compiled peak rank under exact-mode compilation;
     the cap is enforced at each continuation compile, failing with the
