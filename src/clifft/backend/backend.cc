@@ -977,16 +977,21 @@ CompiledModule lower(const HirModule& hir, std::span<const uint8_t> postselectio
                     opcode = Opcode::OP_INSTRUMENT_ACTIVE;
                 } else if (result.basis == LocalizedBasis::Z_BASIS) {
                     opcode = Opcode::OP_INSTRUMENT_DORMANT_STATIC;
-                } else if (site.neglect_damping) {
-                    // Dormant-random under neglect: no expansion and no
-                    // no-fire back-action. Every fire traps: an in-line
-                    // collapse would re-anchor the frame conditionally,
-                    // which compiled downstream code cannot account for
-                    // (a measurement's anchor is unconditional, so its
+                } else if (site.neglect_damping || site.p_total[0] == site.p_total[1]) {
+                    // Dormant-random without expansion: no no-fire
+                    // back-action, and every fire traps (an in-line collapse
+                    // would re-anchor the frame conditionally, which
+                    // compiled downstream code cannot account for -- a
+                    // measurement's anchor is unconditional, so its
                     // compile-time virtual H is sound; a fire's is not).
+                    // Equal per-source rates take this path even under
+                    // exact damping because it is exact there: the skipped
+                    // no-fire back-action is proportional to identity, and
+                    // the deferred trace-out collapse is the Born posterior.
                     opcode = Opcode::OP_INSTRUMENT_DORMANT_NEGLECT;
                 } else {
-                    // Dormant-random under exact damping: activate the
+                    // Dormant-random with source-dependent rates under
+                    // exact damping: activate the
                     // qubit as route_to_active_z does, with the expansion
                     // fused into the instrument (+1 to k at this site).
                     auto next_axis = static_cast<uint16_t>(ctx.reg_manager.active_k());

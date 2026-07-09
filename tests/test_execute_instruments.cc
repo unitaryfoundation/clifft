@@ -124,11 +124,14 @@ TEST_CASE("execute: an active-axis certain reset collapses the carrier to g") {
     }
 }
 
-TEST_CASE("execute: a dormant-random certain reset expands, collapses, and measures g") {
-    // H leaves the qubit dormant-random; under exact damping the site
-    // expands (k -> k+1), fires with certainty, and collapses to g.
+TEST_CASE("execute: a dormant-random source-dependent site expands and measures g") {
+    // H leaves the qubit dormant-random; the source-dependent rates make
+    // the site expand (k -> k+1). Both branches land in g -- a fire (only
+    // from e) by its destination, a no-fire by the r_e = 0 filter -- so
+    // the measurement is deterministically 0 while the fused expand+damp
+    // path executes with a nontrivial damp.
     InstrumentTraceOptions options;
-    options.transitions.emplace("reset_g", to_level(1.0, 1.0, /*dest=*/0));
+    options.transitions.emplace("reset_g", to_level(/*p_g=*/0.0, /*p_e=*/1.0, /*dest=*/0));
 
     auto module = compile_raw("H 0\nLEVEL_TRANSITION[reset_g] 0\nM 0", options);
     REQUIRE(module.peak_rank == 1);  // the site's own expansion

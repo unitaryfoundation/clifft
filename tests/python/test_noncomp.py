@@ -375,6 +375,37 @@ def test_policy_knob_strings_validate():
         noncomp.Model(initial_state=ALL_G, damping="bogus")
 
 
+def test_loss_only_exact_mode_stays_at_stabilizer_cost():
+    """Equal per-source rates (LOSS always qualifies) take the trap-form
+    lowering under damping="exact", so a loss-only model compiles at the
+    neglect rank -- max_rank=0 passes -- while the physics stays exact:
+    survivors keep full interference and the loss rate is right."""
+    circuit = "H 0\nLOSS(0.3) 0\nH 0\nM 0"
+    cls = noncomp.Classifier([[1, 0, 1, 0, 0], [0, 1, 0, 1, 1]])
+    model = noncomp.Model(classifier=cls)  # damping="exact" default
+    r = noncomp.sample(circuit, model, shots=4000, seed=17, max_rank=0)
+    meas = r.measurements[:, 0]
+    lost = r.final_status[:, 0] == noncomp.QubitStatus.LOST
+    # Survivors: the H .. H sandwich returns |0> deterministically; a lost
+    # qubit reads the classifier's lost column (1).
+    assert (meas[~lost] == 0).all()
+    assert (meas[lost] == 1).all()
+    assert lost.any() and (~lost).any()
+    assert abs(lost.mean() - 0.3) < 4 * (0.3 * 0.7 / 4000) ** 0.5
+
+
+def test_loss_on_many_coherent_qubits_compiles_flat():
+    """Per-qubit LOSS sites do not accumulate rank under damping="exact"."""
+    circuit = (
+        "".join(f"H {i}\n" for i in range(5))
+        + "".join(f"LOSS(0.01) {i}\n" for i in range(5))
+        + "".join(f"H {i}\nM {i}\n" for i in range(5))
+    )
+    cls = noncomp.Classifier([[1, 0, 1, 0, 0], [0, 1, 0, 1, 1]])
+    r = noncomp.sample(circuit, noncomp.Model(classifier=cls), shots=8, seed=3, max_rank=0)
+    assert r.num_measurements == 5
+
+
 def test_max_rank_rejects_over_budget_exact_but_neglect_fits():
     # A source-dependent leak (only out of e) on a coherent dormant qubit is
     # genuinely non-Clifford: damping="exact" expands it into the amplitude
