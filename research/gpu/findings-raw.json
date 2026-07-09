@@ -1,0 +1,333 @@
+{
+  "summary": "Deep research harness — fan-out web searches, fetch sources, adversarially verify claims, synthesize a cited report.",
+  "agentCount": 104,
+  "logs": [
+    "Q: Question: Can NVIDIA's cuStateVec (cuQuantum) and/or CUDA-Q (formerly cudaq) be …",
+    "Decomposed into 6 angles: broad/primary — cuStateVec API capabilities, benchmarks/crossover — GPU vs CPU statevector FP64, batched many-statevector execution, CUDA-Q vs cuStateVec integration & distributed, alternatives & custom CUDA kernels, practitioner/skeptical — data-dependent control flow & CUDA graphs",
+    "benchmarks/crossover — GPU vs CPU statevector FP64: 6 results",
+    "CUDA-Q vs cuStateVec integration & distributed: 6 results",
+    "alternatives & custom CUDA kernels: 6 results",
+    "alternatives & custom CUDA kernels: 3 novel (3 filtered)",
+    "practitioner/skeptical — data-dependent control flow & CUDA graphs: 6 results",
+    "practitioner/skeptical — data-dependent control flow & CUDA graphs: 2 novel (4 filtered)",
+    "batched many-statevector execution: 6 results",
+    "batched many-statevector execution: 2 novel (4 filtered)",
+    "broad/primary — cuStateVec API capabilities: 6 results",
+    "broad/primary — cuStateVec API capabilities: 2 novel (4 filtered)",
+    "Fetched 21 sources → 104 claims → verifying top 25",
+    "\"cuStateVec supports complex128 (double precision) …\": 3-0 ✓",
+    "\"cuStateVec provides batched/multi-statevector exec…\": 3-0 ✓",
+    "\"cuStateVec exposes a general gate-application prim…\": 3-0 ✓",
+    "\"cuStateVec Ex exposes an interoperability API that…\": 3-0 ✓",
+    "\"GPU statevector simulation crosses over to beat CP…\": 0-3 ✗",
+    "\"cuStateVec Ex provides built-in primitives for the…\": 3-0 ✓",
+    "\"For circuits of 20-28 qubits, GPU achieves 64x-146…\": 0-3 ✗",
+    "\"Switching from complex128 to complex64 yields an a…\": 0-3 ✗",
+    "\"For distributed/multi-node statevector simulation,…\": 0-3 ✗",
+    "\"On a single node the GPU advantage over the optimi…\": 0-3 ✗",
+    "\"cuStateVec exposes API primitives for matrix expon…\": 3-0 ✓",
+    "\"On a single A100 GPU, cuStateVec simulated a 32-qu…\": 1-2 ✗",
+    "\"Multi-GPU cuStateVec on a DGX A100 (8x A100) achie…\": 3-0 ✓",
+    "\"cuStateVec supports both complex128 (FP64) and com…\": 3-0 ✓",
+    "\"cuStateVec provides batched APIs for gate applicat…\": 3-0 ✓",
+    "\"The study compares Qiskit Aer, Qulacs, Cirq, Qsim,…\": 3-0 ✓",
+    "\"GPU acceleration becomes advantageous only in the …\": 2-1 ✓",
+    "\"At the maximum tractable qubit count (~31-34, wher…\": 3-0 ✓",
+    "\"cuStateVec provides batched statevector execution …\": 3-0 ✓",
+    "\"For a single dense statevector, the GPU (Qiskit Ae…\": 1-2 ✗",
+    "\"For a single GPU with the state resident on device…\": 2-1 ✓",
+    "\"Batched variants exist beyond matrix application: …\": 3-0 ✓",
+    "\"cuStateVec supports FP64/complex128 (double precis…\": 3-0 ✓",
+    "\"Qiskit Aer supports batching multiple Monte-Carlo …\": 3-0 ✓",
+    "\"Batched-shots GPU execution is only applied when t…\": 3-0 ✓",
+    "Verify done: 25 claims → 18 confirmed, 7 killed"
+  ],
+  "result": {
+    "question": "Question: Can NVIDIA's cuStateVec (cuQuantum) and/or CUDA-Q (formerly cudaq) be used to GPU-accelerate the \"dense active block\" of clifft — a hybrid Clifford+T quantum circuit simulator — and what are the most promising GPU approaches overall?\n\nCritical technical context about the target (clifft):\n- clifft is a hybrid stabilizer/statevector simulator using a factored state |ψ⟩ = γ·U_C·P·(|φ⟩_A ⊗ |0⟩_D). The Clifford part is tracked symbolically (Pauli frame + tableau, via Stim). Only a small \"active block\" |φ⟩_A is stored DENSELY as a 2^k array of std::complex<double> (complex128).\n- The active dimension k is typically small. Cost scales as 2^k. Practical memory wall ~k=30 (16 GB); hard compile wall k=63. The GPU-relevant regime is roughly k=22–30.\n- Current implementation: hand-written CPU kernels with AVX-512/AVX-2/scalar dispatch + OpenMP (only above k=18). NO BLAS/LAPACK dependency. Kernels include standard gates (H butterfly, S/T phase, CNOT/CZ permutations) but ALSO non-standard ops: OP_EXPAND (double the array for a non-Clifford op), fused OP_EXPAND_T (expand + e^{iπ/4} phase), and X-basis \"INTERFERE\" measurement (fold arr[i] ± arr[i+half]), plus Z-basis measurement that samples a branch and halves the array.\n- It is a Monte-Carlo sampler: it runs MANY shots, with mid-circuit measurements that adaptively grow/shrink k per shot (data-dependent control flow on the CPU).\n\nSpecific sub-questions to answer:\n1. What exactly is cuStateVec's API model? Does it expose primitives that map to clifft's needs — applying arbitrary gate matrices, Pauli operators, expectation values, sampling/measurement, batched statevectors, accessor for custom element-wise ops? Can it express non-standard operations like \"expand the statevector by one qubit while multiplying the new half by a phase\" or an X-basis fold, or would those require dropping to raw CUDA?\n2. What is the realistic crossover point where a GPU beats a well-optimized AVX-512 multithreaded CPU for a single dense statevector of n qubits (complex128)? Cite benchmarks. Is k=22–30 (4M–1B amplitudes, 64MB–16GB) above or below typical GPU crossover? How does complex128 (vs complex64) change this — do consumer/datacenter GPUs lose throughput on FP64?\n3. PCIe transfer overhead: for a 64MB–16GB statevector, what's the cost of host↔device transfers, and does clifft's per-shot, data-dependent, mid-circuit-measurement control flow (CPU decides branches) kill GPU pipelining? What strategies (keep state resident on GPU, move control logic to GPU, CUDA graphs) mitigate this?\n4. BATCHING ACROSS SHOTS: since clifft runs many Monte-Carlo shots each with a small statevector, is the bigger GPU win batching thousands of independent small (k<20) statevectors on the GPU in parallel, rather than accelerating one large statevector? Does cuStateVec or CUDA-Q support batched/multi-statevector execution? What about a custom batched CUDA kernel?\n5. CUDA-Q (cudaq): what is it, how does it differ from cuStateVec, and is it appropriate as an integration layer for a C++ library, or is it more an end-user circuit DSL? What's the FP64 support story?\n6. Multi-GPU / distributed cuStateVec for k>30: does it let clifft break the 16GB single-node wall, and at what communication cost?\n7. Alternatives to cuStateVec: would hand-written custom CUDA kernels (clifft's ops are simple butterfly/permutation/element-wise ops) be a better fit than cuStateVec given the non-standard operations? What about Thrust, or other GPU statevector simulators (qsim/qsimcirq GPU, Qiskit-Aer GPU, QuEST, Pennylane-Lightning-GPU) — how do they handle FP64 and what crossover qubit counts do they report?\n8. Engineering cost & maturity: cuStateVec/CUDA-Q licensing, platform constraints (NVIDIA-only, CUDA versions), build integration with a CMake/C++20 project, and whether complex128 is well supported.\n\nPlease synthesize into a recommendation: is GPU acceleration of clifft's dense active block worthwhile, which approach (cuStateVec vs CUDA-Q vs custom CUDA vs batched-across-shots) is most promising, and what the expected speedup regime and crossover would be. Flag where the dense-statevector GPU literature does NOT account for clifft's specific Monte-Carlo + small-active-block + complex128 + non-standard-op profile.",
+    "summary": "Yes, GPU acceleration of clifft's dense active block is technically feasible and worthwhile, but the most promising approach is batching-across-shots rather than accelerating a single large statevector. cuStateVec natively supports complex128 (CUDA_C_64F, FP64 compute by default) and exposes batched primitives (custatevecApplyMatrixBatched, custatevecMeasureBatched, abs2sum/collapse/expectation batched variants) that map directly onto clifft's Monte-Carlo many-shot, small-active-block (k<20) profile, while standard gates map to custatevecApplyMatrix. clifft's non-standard ops (OP_EXPAND, OP_EXPAND_T phase-expansion, X-basis INTERFERE fold) have NO native cuStateVec primitive and must drop to raw CUDA — but cuStateVec Ex's interoperability API exposes raw device pointers/streams/handles so custom kernels can run on the resident state vector alongside library calls, making a hybrid (cuStateVec batched ops + custom CUDA for non-standard ops) the strongest design. For a SINGLE statevector, GPU crossover sits around 16-24 qubits and meaningful FP64 wins (~13-14x over CPU) appear only at large qubit counts (~31-34, often needing two GPUs), so clifft's k=22-30 single-state regime offers only modest gains; the batched-across-shots route (validated independently by Qiskit Aer's batched_shots_gpu, which targets <=16 qubits per shot by default) is where the order-of-magnitude win likely lives. Critical gap: essentially all cited benchmarks use dense circuits, FP32 or unstated precision, and stock-simulator CPU baselines rather than clifft's hand-tuned AVX-512 kernels, complex128, Monte-Carlo control flow, and butterfly/permutation ops — so reported speedups are optimistic upper bounds for clifft.",
+    "findings": [
+      {
+        "claim": "cuStateVec exposes general and batched gate-application primitives that map clifft's standard gates (H, S/T, CNOT/CZ) and arbitrary unitaries directly onto the API.",
+        "confidence": "high",
+        "sources": [
+          "https://docs.nvidia.com/cuda/cuquantum/24.11.0/custatevec/api/functions.html",
+          "https://developer.nvidia.com/blog/accelerating-quantum-circuit-simulation-with-nvidia-custatevec/"
+        ],
+        "evidence": "custatevecApplyMatrix() applies an arbitrary user-supplied gate matrix; CNOT/CZ via the controls parameter. Gate-application API documents Dense, Diagonal, Generalized permutation, and Matrix exponential of Pauli matrices. custatevecApplyMatrixBatched() applies matrices to multiple statevectors in one call. Merges claims [0],[5].",
+        "vote": "3-0"
+      },
+      {
+        "claim": "cuStateVec provides a full family of batched/multi-statevector primitives (apply_matrix_batched, abs2sum_array_batched, collapse_by_bit_string_batched, measure_batched, compute_expectation_batched) directly supporting clifft's batch-across-shots Monte-Carlo strategy; statevectors live in one device buffer addressed by nSVs and svStride, and a mapType parameter allows per-statevector matrices.",
+        "confidence": "high",
+        "sources": [
+          "https://docs.nvidia.com/cuda/cuquantum/24.11.0/custatevec/api/functions.html",
+          "https://docs.nvidia.com/cuda/cuquantum/latest/custatevec/index.html",
+          "https://docs.nvidia.com/cuda/cuquantum/latest/custatevec/custatevec/overview.html"
+        ],
+        "evidence": "Docs: 'cuStateVec provides gate application and qubit measurement APIs for a group of state vectors. When computing with many small state vectors, replacing API calls for each state vector with a single batched API call is expected to lead to improved performance.' custatevecApplyMatrixBatched is parameterized by nSVs (number of statevectors) and svStride (stride between consecutive SVs in one buffer); CUSTATEVEC_MATRIX_MAP_TYPE_BROADCAST vs MATRIX_INDEXED allows shared or per-SV matrices. Merges claims [1],[8],[13],[14]. Caveat: all batched SVs must share the same nIndexBits (qubit count), conflicting with clifft's data-dependent per-shot k growth — shots must be grouped by k.",
+        "vote": "3-0"
+      },
+      {
+        "claim": "cuStateVec natively supports clifft's std::complex<double> element type: complex128 maps to CUDA_C_64F (and complex64 to CUDA_C_32F), with FP64 compute used by default for complex128.",
+        "confidence": "high",
+        "sources": [
+          "https://docs.nvidia.com/cuda/cuquantum/latest/custatevec/custatevec/overview.html",
+          "https://docs.nvidia.com/cuda/cuquantum/24.11.0/custatevec/api/functions.html",
+          "https://docs.nvidia.com/cuda/cuquantum/latest/custatevec/index.html"
+        ],
+        "evidence": "Docs: 'By default, computation is executed using the corresponding precision of the state vector, double float (FP64) for complex128 and single float (FP32) for complex64.' CUDA_C_64F = 128-bit complex (complex128); CUSTATEVEC_COMPUTE_64F for FP64. Merges claims [2],[7],[15]. Important: FP64 being SUPPORTED does not mean it is fast — consumer GPUs throttle FP64 to ~1/32-1/64 of FP32 throughput; datacenter GPUs (A100/H100) have full-rate FP64. This is the real performance concern for clifft and is NOT resolved by these support claims.",
+        "vote": "3-0"
+      },
+      {
+        "claim": "cuStateVec has NO native primitive for clifft's non-standard operations (OP_EXPAND/OP_EXPAND_T statevector-doubling with phase, X-basis INTERFERE fold); cuStateVec operates on a fixed-dimension statevector. These must be implemented via raw CUDA using the cuStateVec Ex interoperability API, which exposes underlying device pointers, CUDA streams, and handles so custom kernels run on the resident GPU state vector alongside cuStateVec ops.",
+        "confidence": "high",
+        "sources": [
+          "https://docs.nvidia.com/cuda/cuquantum/latest/custatevec/custatevecex/overview.html",
+          "https://docs.nvidia.com/cuda/cuquantum/latest/custatevec/custatevec/overview.html",
+          "https://developer.nvidia.com/blog/accelerating-quantum-circuit-simulation-with-nvidia-custatevec/"
+        ],
+        "evidence": "cuStateVec API category set is Gate Application, Measurement, Expectation, Sampling, Accessor, Qubit reordering, Matrix property testing — no user-defined element-wise kernel API and no qubit-count-growth (resize) API. cuStateVec Ex interop: custatevecExGetResourcesFromDeviceSubSV / ...View 'allowing users to access underlying device pointers, CUDA streams, and cuStateVec handles' enabling 'integration with...external computational libraries' (NVIDIA ships a cuBLAS-on-resident-SV interop example). Merges claims [3],[4],[5]-negative-part. This makes a hybrid design (cuStateVec for standard/batched ops + custom CUDA for expand/fold/INTERFERE on the same buffer) the natural fit.",
+        "vote": "3-0"
+      },
+      {
+        "claim": "For a SINGLE statevector, GPU acceleration becomes advantageous only around 16-24 qubits with strong preference above 24; below 16 qubits CPU simulators (notably Qulacs CPU) are faster. clifft's k=22-30 regime sits in/above this band.",
+        "confidence": "high",
+        "sources": [
+          "https://arxiv.org/pdf/2412.20518"
+        ],
+        "evidence": "arXiv:2412.20518 (van Niekerk et al., Dec 2024, Quantum Volume on A100 vs Cascadelake/EPYC) Table 2: '<16 qubits: Qulacs CPU fastest; 16-24 qubits: GPU acceleration becomes advantageous; 24-32 qubits: GPU acceleration recommended.' Claim [9] (2-1 split). Caveats limiting transfer to clifft: dense QV circuits not clifft's butterfly/permutation/element-wise ops; FP32-vs-FP64 precision never specified; CPU baseline is stock simulator kernels, NOT a hand-tuned AVX-512 kernel like clifft's. The study omits standalone cuStateVec and QuEST and never discusses FP64/FP32 (claim [10], 3-0), so its applicability to clifft's complex128 question is limited.",
+        "vote": "2-1"
+      },
+      {
+        "claim": "Meaningful FP64 (complex128) GPU wins over CPU exist but only at LARGE qubit counts: up to ~13-14x at the maximum tractable ~31-34 qubits for QV/QFT, with cuQuantum and Thrust comparable. The GPU-beats-CPU break point is ~14-18 qubits, but the large double-precision speedup figures used two A100 GPUs, not one.",
+        "confidence": "high",
+        "sources": [
+          "https://arxiv.org/pdf/2307.14860"
+        ],
+        "evidence": "arXiv:2307.14860 (Faj et al., IEEE eScience 2023, Qiskit Aer Thrust+cuQuantum on A100): '...the GPU outperforms the CPU with up to a factor of around 13-14x for both the QV and QFT benchmarks in double precision with cuQuantum and Thrust.' Qualifiers (claim [11]): 13-14x used TWO A100s; single-GPU Thrust reached only ~4x at 20 qubits; cuQuantum had large fixed memory-allocation/pinning overhead dominating runtime for 10-22 qubits — directly relevant and concerning for clifft's k=22-30 single-state regime. Results via Qiskit Aer backends, not raw cuStateVec API or hand-written kernels.",
+        "vote": "3-0"
+      },
+      {
+        "claim": "Keeping clifft's active block resident on the GPU avoids transfer overhead: on a single GPU host<->device transfer is negligible; data movement only becomes the bottleneck in the multi-GPU regime (>~31-34 qubits), where it can exceed 90% of GPU time.",
+        "confidence": "medium",
+        "sources": [
+          "https://arxiv.org/pdf/2307.14860"
+        ],
+        "evidence": "arXiv:2307.14860 Fig.5 (single-GPU activity breakdown): 'Data transfer from/to host and device memories are negligible.' Abstract/body: multi-GPU 'data movement between host and GPUs becomes the top limiting factor...taking more than 90% GPU time in all two-GPU experiments.' Claim [12] (2-1 split). Supports resident-state strategy and avoiding per-shot PCIe round-trips. Caveat: Fig.5 profile is FP32 and benchmarks Qiskit Aer, NOT clifft — the literature does NOT account for clifft's per-shot Monte-Carlo mid-circuit-measurement control flow where the CPU decides branches, which could force repeated host involvement and break GPU pipelining. CUDA graphs / moving control logic on-device are the mitigations, but unbenchmarked for this profile.",
+        "vote": "2-1"
+      },
+      {
+        "claim": "The batch-across-shots strategy is independently validated outside cuStateVec: Qiskit Aer's batched_shots_gpu runs many shots in parallel on GPU and 'can greatly accelerate' statevector simulations with noise models or intermediate (mid-circuit) measurements — directly matching clifft's many-shot, mid-circuit-measurement profile — but is targeted at small statevectors (batched_shots_gpu_max_qubits default 16; disabled above that).",
+        "confidence": "high",
+        "sources": [
+          "https://qiskit.github.io/qiskit-aer/stubs/qiskit_aer.AerSimulator.html"
+        ],
+        "evidence": "Qiskit Aer 0.17.1 docs: batched_shots_gpu 'enables batched execution of multiple shot simulations on GPU devices...intended for statevector simulations with noise models, or statevector and density matrix simulations with intermediate measurements and can greatly accelerate simulation time on GPUs.' batched_shots_gpu_max_qubits: 'If the number of active circuit qubits is greater than this value batching of simulation shots will not be used. (Default: 16).' Merges claims [16],[17]. Confirms the small-per-shot/many-shot batching pattern is a real, proven GPU win and aligns with clifft's k<20 active block. Caveat: K-way batching needs ~K x one statevector's memory; 'cuStateVec_enable is not supported for this option' in Aer (Aer's own kernels), and GitHub issue #1473 reports slow multi-GPU Pauli-noise batching.",
+        "vote": "3-0"
+      },
+      {
+        "claim": "Multi-GPU cuStateVec can break clifft's single-node ~16GB memory wall to reach k>30, with strong reported speedups, but at high interconnect cost requiring NVLink-class bandwidth.",
+        "confidence": "medium",
+        "sources": [
+          "https://developer.nvidia.com/blog/accelerating-quantum-circuit-simulation-with-nvidia-custatevec/"
+        ],
+        "evidence": "NVIDIA blog (DGX-A100, 8x A100, 30-32 qubit QFT/Shor/Sycamore): '50-90x speed-ups' vs two 64-core EPYC CPUs and '4.5-7x speed-up on eight GPUs compared to a single GPU run', with '600GB/s using NVLink' because 'GPUs might sometimes require parts of the state vector stored in a different GPU.' Claim [6]. Caveats: vendor marketing blog with cherry-picked algorithms (best-case); precision NOT stated, and a corroborating NVIDIA appliance benchmark used complex64 (single precision) — for clifft's complex128 these figures are optimistic since datacenter FP64 throughput is ~half. A100/2021-era; H100 reinforces rather than contradicts.",
+        "vote": "3-0"
+      },
+      {
+        "claim": "Hand-written custom CUDA kernels and Thrust are viable alternatives well-suited to clifft's simple butterfly/permutation/element-wise ops, comparable to cuQuantum at large qubit counts in FP64.",
+        "confidence": "medium",
+        "sources": [
+          "https://arxiv.org/pdf/2307.14860"
+        ],
+        "evidence": "arXiv:2307.14860 found Thrust and cuQuantum 'comparable' at the ~13-14x FP64 maximum. clifft's ops (H butterfly, S/T phase, CNOT/CZ permutation, plus expand/fold) are exactly the simple element-wise/permutation kernels that hand-written CUDA handles well, and the non-standard ops (OP_EXPAND/INTERFERE) have no cuStateVec primitive anyway — strengthening the case for a custom-CUDA-first or custom+Ex-interop hybrid over a pure cuStateVec dependency. Inference grounded in claims [3],[4],[11]; not a direct clifft benchmark.",
+        "vote": "3-0"
+      }
+    ],
+    "caveats": "Time-sensitivity: cuStateVec/cuQuantum is actively versioned (cited 24.11.0 through 26.03.x); the cuStateVec Ex interop API and batched-measurement APIs are relatively recent additions — API surface is current as of June 2026 but evolving. Source quality: the strongest performance claims (50-90x) come from an NVIDIA marketing blog with cherry-picked algorithms; the rigorous academic benchmarks (arXiv:2412.20518, arXiv:2307.14860) use Qiskit Aer / stock simulators, not raw cuStateVec or hand-tuned kernels. Major applicability gap to clifft: NONE of the cited benchmarks model clifft's actual profile — they use dense circuits (not butterfly/permutation/element-wise ops), FP32 or unspecified precision (clifft is mandatory complex128, where consumer GPUs lose ~32-64x FP64 throughput and even datacenter GPUs ~2x), stock CPU simulator baselines (not clifft's hand-written AVX-512+OpenMP kernels), and they do NOT account for clifft's per-shot Monte-Carlo data-dependent mid-circuit-measurement control flow, OP_EXPAND/OP_EXPAND_T resize ops, or X-basis INTERFERE fold. Reported speedups are therefore optimistic upper bounds. A hard structural constraint: cuStateVec batched APIs require all statevectors in a batch to share the same qubit count, conflicting with clifft's adaptive per-shot k growth/shrink — shots must be grouped by current k, and OP_EXPAND changes k mid-shot. Several plausible single-statevector-crossover and FP64-penalty claims were REFUTED in verification (notably from arXiv:2604.03816 and arXiv:2509.04955v2), so concrete crossover qubit numbers and the exact FP64 penalty for clifft remain unestablished by surviving evidence. CUDA-Q (sub-question 5) was not directly addressed by any surviving claim — no verified evidence on whether it is an integration layer vs end-user DSL or its FP64 story.",
+    "openQuestions": [
+      "What is the actual FP64 (complex128) throughput penalty for clifft's specific butterfly/permutation/element-wise kernels on a target GPU (consumer RTX vs datacenter A100/H100), and does it erase the batched-shots win? No surviving benchmark uses clifft's op mix in double precision.",
+      "Does clifft's per-shot, data-dependent mid-circuit-measurement control flow (CPU branch decisions) and adaptive k growth/shrink via OP_EXPAND prevent effective batching, since cuStateVec batched APIs require uniform qubit count per batch? Can shots be grouped by k and re-batched as k changes, and can branch logic be moved on-device (CUDA graphs) without host round-trips?",
+      "CUDA-Q (formerly cudaq): is it a usable C++ integration layer for clifft or primarily an end-user circuit DSL, and what is its complex128/FP64 support? No surviving claim addressed this sub-question.",
+      "For clifft's exact k=22-30 single-statevector regime in complex128, what is the real crossover and speedup against clifft's existing hand-tuned AVX-512+OpenMP CPU kernels (not stock simulators)? The directly relevant benchmark claims were refuted, leaving this unquantified.",
+      "What is the end-to-end engineering cost and build-integration story (CMake/C++20, CUDA version pinning, NVIDIA-only constraint, licensing) for either cuStateVec Ex hybrid or pure custom-CUDA, and does the maintenance burden justify the gain given clifft currently has zero BLAS/GPU dependencies?"
+    ],
+    "refuted": [
+      {
+        "claim": "GPU statevector simulation crosses over to beat CPU around n=16 qubits (5.7x), with speedups exceeding 64x at n>=20 on an A100, directly bracketing clifft's k=22-30 GPU-relevant regime as above crossover.",
+        "vote": "0-3",
+        "source": "https://arxiv.org/html/2604.03816"
+      },
+      {
+        "claim": "For circuits of 20-28 qubits, GPU achieves 64x-146x speedup over NumPy CPU, peaking at 22 qubits (146.2x) and declining to 84.4x at 28 qubits due to memory bandwidth saturation -- covering clifft's exact k=22-30 range though benchmarked against NumPy rather than AVX-512.",
+        "vote": "0-3",
+        "source": "https://arxiv.org/html/2604.03816"
+      },
+      {
+        "claim": "Switching from complex128 to complex64 yields an additional 1.7-1.9x speedup, meaning clifft's mandatory complex128 forfeits roughly half the achievable FP32 GPU throughput; FP32 degrades fidelity beyond 20 qubits / depth 50.",
+        "vote": "0-3",
+        "source": "https://arxiv.org/html/2604.03816"
+      },
+      {
+        "claim": "For distributed/multi-node statevector simulation, inter-process communication dominates execution time (~99%) for high-order qubit operations while actual computation is only 0.5-1%, and this prevents overlap of communication and computation on GPUs such that the 2.66x speedup seen on CPU clusters diminishes to negligible levels when moved to GPU acceleration. This directly supports the concern that clifft's data-dependent, mid-circuit control flow and transfer overhead can kill GPU benefit.",
+        "vote": "0-3",
+        "source": "https://arxiv.org/html/2509.04955v2"
+      },
+      {
+        "claim": "On a single node the GPU advantage over the optimized CPU baseline is modest at 30 qubits: a 30-qubit QAOA circuit gets a 3.01x CPU-side speedup plus only an additional 2.66x on GPU, and 30-qubit VQE-HEA shows 3.57x on GPU, suggesting the single-statevector GPU win in the k~30 regime is bounded (low single-digit), not order-of-magnitude.",
+        "vote": "0-3",
+        "source": "https://arxiv.org/html/2509.04955v2"
+      },
+      {
+        "claim": "On a single A100 GPU, cuStateVec simulated a 32-qubit GHZ circuit in 2.88s versus 17.04s for qsim's 64-core CPU simulator, a 5.9x speedup, and 30.04x over Cirq, with roughly 10-20x acceleration for the largest circuits.",
+        "vote": "1-2",
+        "source": "https://developer.nvidia.com/blog/accelerating-quantum-circuit-simulation-with-nvidia-custatevec/"
+      },
+      {
+        "claim": "For a single dense statevector, the GPU (Qiskit Aer Thrust backend) only overtakes the CPU at a crossover of roughly 14-18 qubits; below that the CPU is faster. This puts clifft's k=22-30 regime above the crossover for one large statevector.",
+        "vote": "1-2",
+        "source": "https://arxiv.org/pdf/2307.14860"
+      }
+    ],
+    "sources": [
+      {
+        "url": "https://docs.nvidia.com/cuda/cuquantum/24.11.0/custatevec/api/functions.html",
+        "quality": "primary",
+        "angle": "broad/primary — cuStateVec API capabilities",
+        "claimCount": 5
+      },
+      {
+        "url": "https://docs.nvidia.com/cuda/cuquantum/latest/custatevec/custatevecex/overview.html",
+        "quality": "primary",
+        "angle": "broad/primary — cuStateVec API capabilities",
+        "claimCount": 5
+      },
+      {
+        "url": "https://arxiv.org/html/2604.03816",
+        "quality": "primary",
+        "angle": "benchmarks/crossover — GPU vs CPU statevector FP64",
+        "claimCount": 5
+      },
+      {
+        "url": "https://arxiv.org/html/2509.04955v2",
+        "quality": "primary",
+        "angle": "benchmarks/crossover — GPU vs CPU statevector FP64",
+        "claimCount": 5
+      },
+      {
+        "url": "https://developer.nvidia.com/blog/accelerating-quantum-circuit-simulation-with-nvidia-custatevec/",
+        "quality": "primary",
+        "angle": "benchmarks/crossover — GPU vs CPU statevector FP64",
+        "claimCount": 5
+      },
+      {
+        "url": "https://docs.nvidia.com/cuda/cuquantum/latest/custatevec/custatevec/overview.html",
+        "quality": "primary",
+        "angle": "benchmarks/crossover — GPU vs CPU statevector FP64",
+        "claimCount": 5
+      },
+      {
+        "url": "https://arxiv.org/pdf/2412.20518",
+        "quality": "primary",
+        "angle": "benchmarks/crossover — GPU vs CPU statevector FP64",
+        "claimCount": 5
+      },
+      {
+        "url": "https://arxiv.org/pdf/2307.14860",
+        "quality": "primary",
+        "angle": "benchmarks/crossover — GPU vs CPU statevector FP64",
+        "claimCount": 5
+      },
+      {
+        "url": "https://docs.nvidia.com/cuda/cuquantum/latest/custatevec/index.html",
+        "quality": "primary",
+        "angle": "batched many-statevector execution",
+        "claimCount": 5
+      },
+      {
+        "url": "https://qiskit.github.io/qiskit-aer/stubs/qiskit_aer.AerSimulator.html",
+        "quality": "primary",
+        "angle": "batched many-statevector execution",
+        "claimCount": 5
+      },
+      {
+        "url": "https://nvidia.github.io/cuda-quantum/latest/using/backends/sims/svsims.html",
+        "quality": "primary",
+        "angle": "CUDA-Q vs cuStateVec integration & distributed",
+        "claimCount": 5
+      },
+      {
+        "url": "https://developer.nvidia.com/blog/cuda-quantum-introduces-more-capabilities-for-quantum-accelerated-supercomputing/",
+        "quality": "primary",
+        "angle": "CUDA-Q vs cuStateVec integration & distributed",
+        "claimCount": 5
+      },
+      {
+        "url": "https://docs.nvidia.com/cuda/cuquantum/25.06.0/custatevec/distributed-index-bit-swap.html",
+        "quality": "primary",
+        "angle": "CUDA-Q vs cuStateVec integration & distributed",
+        "claimCount": 5
+      },
+      {
+        "url": "https://docs.nvidia.com/cuda/cuquantum/latest/custatevec/release-notes.html",
+        "quality": "primary",
+        "angle": "CUDA-Q vs cuStateVec integration & distributed",
+        "claimCount": 5
+      },
+      {
+        "url": "https://github.com/NVIDIA/cuda-quantum",
+        "quality": "primary",
+        "angle": "CUDA-Q vs cuStateVec integration & distributed",
+        "claimCount": 5
+      },
+      {
+        "url": "https://nvidia.github.io/cuda-quantum/latest/using/integration/cuda_gpu.html",
+        "quality": "primary",
+        "angle": "CUDA-Q vs cuStateVec integration & distributed",
+        "claimCount": 4
+      },
+      {
+        "url": "https://arxiv.org/pdf/2308.03399",
+        "quality": "primary",
+        "angle": "alternatives & custom CUDA kernels",
+        "claimCount": 5
+      },
+      {
+        "url": "https://dl.acm.org/doi/10.1145/3676641.3715984",
+        "quality": "primary",
+        "angle": "alternatives & custom CUDA kernels",
+        "claimCount": 5
+      },
+      {
+        "url": "https://arxiv.org/html/2605.15098",
+        "quality": "primary",
+        "angle": "alternatives & custom CUDA kernels",
+        "claimCount": 5
+      },
+      {
+        "url": "https://arxiv.org/abs/2308.03399",
+        "quality": "primary",
+        "angle": "practitioner/skeptical — data-dependent control flow & CUDA graphs",
+        "claimCount": 5
+      },
+      {
+        "url": "https://arxiv.org/pdf/2604.03816",
+        "quality": "primary",
+        "angle": "practitioner/skeptical — data-dependent control flow & CUDA graphs",
+        "claimCount": 5
+      }
+    ],
+    "stats": {
+      "angles": 6,
+      "sourcesFetched": 21,
+      "claimsExtracted": 104,
+      "claimsVerified": 25,
+      "confirmed": 18,
+      "killed": 7,
+      "afterSynthesis": 10,
+      "urlDupes": 6,
+      "budgetDropped": 9,
+      "agentCalls": 104
+    }
+  }
+}
