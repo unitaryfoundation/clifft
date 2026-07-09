@@ -114,6 +114,24 @@ def test_transition_wrong_shape_raises():
         noncomp.Model(initial_state=ALL_G, transitions={"S": _zeros(4, 4)})
 
 
+def test_desugared_gate_transition_key_raises():
+    t = transition_to(LEAK_G)
+    with pytest.raises(ValueError, match="desugars to MPP"):
+        noncomp.Model(initial_state=ALL_G, transitions={"MXX": t})
+
+
+def test_identity_noop_transition_key_raises():
+    t = transition_to(LEAK_G)
+    with pytest.raises(ValueError, match="identity no-ops"):
+        noncomp.Model(initial_state=ALL_G, transitions={"I": t})
+
+
+def test_whitespace_transition_key_raises():
+    t = transition_to(LEAK_G)
+    with pytest.raises(ValueError, match="LEVEL_TRANSITION tag"):
+        noncomp.Model(initial_state=ALL_G, transitions={" padded": t})
+
+
 # --- 2. End-to-end sampling ------------------------------------------------
 
 

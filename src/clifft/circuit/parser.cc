@@ -71,6 +71,31 @@ std::string_view trim(std::string_view s) {
     return s;
 }
 
+}  // namespace
+
+// Tags are trimmed as they are parsed, and a '#' starts a comment that
+// is stripped before tag parsing. A key with leading/trailing whitespace
+// or a '#' could never be written as a LEVEL_TRANSITION[key] tag and
+// reach the model unchanged.
+bool is_representable_tag(std::string_view tag) {
+    if (tag.empty()) {
+        return false;
+    }
+    if (std::isspace(static_cast<unsigned char>(tag.front())) ||
+        std::isspace(static_cast<unsigned char>(tag.back()))) {
+        return false;
+    }
+    return tag.find_first_of("]#\n") == std::string_view::npos;
+}
+
+// CH, CCX, and CCZ are handled by parser rewrites before gate lookup; they
+// are lowered to sequences of other gates and never appear as AST nodes.
+bool is_parse_only_instruction(std::string_view name) {
+    return name == "CH" || name == "CCX" || name == "CCZ";
+}
+
+namespace {
+
 bool parse_int(std::string_view s, int& out) {
     auto result = std::from_chars(s.data(), s.data() + s.size(), out);
     return result.ec == std::errc{} && result.ptr == s.data() + s.size();

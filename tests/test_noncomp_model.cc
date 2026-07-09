@@ -1,4 +1,6 @@
 #include "clifft/circuit/gate_data.h"
+#include "clifft/circuit/parser.h"
+#include "clifft/noncomp/annotate.h"
 #include "clifft/noncomp/level.h"
 #include "clifft/noncomp/model.h"
 #include "clifft/noncomp/policy.h"
@@ -14,6 +16,8 @@
 #include <optional>
 #include <stdexcept>
 #include <string>
+#include <string_view>
+#include <unordered_map>
 #include <vector>
 
 using Catch::Matchers::ContainsSubstring;
@@ -155,7 +159,8 @@ TEST_CASE(
     REQUIRE_THROWS_WITH(
         NonComputationalModel::from_spec(default_initial_state(), {{"bad]key", zero_matrix()}},
                                          std::nullopt, NonComputationalPolicy{}),
-        ContainsSubstring("bad]key") && ContainsSubstring("cannot be referenced"));
+        ContainsSubstring("bad]key") &&
+            ContainsSubstring("cannot be written as a LEVEL_TRANSITION tag"));
 }
 
 TEST_CASE("NonComputationalModel: a non-hookable gate-named key is a named-only transition") {
@@ -216,4 +221,292 @@ TEST_CASE("NonComputationalModel: policy accessor reflects the constructed polic
     auto model =
         NonComputationalModel::from_spec(default_initial_state(), {}, std::nullopt, policy);
     REQUIRE(model.policy().reset_restores_lost == true);
+}
+
+// =========================================================================
+// Construction: dead-hook key rejection
+// =========================================================================
+
+TEST_CASE("NonComputationalModel: rejects MXX as a hook key (desugars to MPP)") {
+    REQUIRE_THROWS_WITH(
+        NonComputationalModel::from_spec(default_initial_state(), {{"MXX", zero_matrix()}},
+                                         std::nullopt, NonComputationalPolicy{}),
+        ContainsSubstring("desugars to MPP"));
+}
+
+TEST_CASE("NonComputationalModel: rejects MYY as a hook key (desugars to MPP)") {
+    REQUIRE_THROWS_WITH(
+        NonComputationalModel::from_spec(default_initial_state(), {{"MYY", zero_matrix()}},
+                                         std::nullopt, NonComputationalPolicy{}),
+        ContainsSubstring("desugars to MPP"));
+}
+
+TEST_CASE("NonComputationalModel: rejects MZZ as a hook key (desugars to MPP)") {
+    REQUIRE_THROWS_WITH(
+        NonComputationalModel::from_spec(default_initial_state(), {{"MZZ", zero_matrix()}},
+                                         std::nullopt, NonComputationalPolicy{}),
+        ContainsSubstring("desugars to MPP"));
+}
+
+TEST_CASE("NonComputationalModel: rejects CH as a hook key (parser-only rewrite)") {
+    REQUIRE_THROWS_WITH(
+        NonComputationalModel::from_spec(default_initial_state(), {{"CH", zero_matrix()}},
+                                         std::nullopt, NonComputationalPolicy{}),
+        ContainsSubstring("parser decomposes"));
+}
+
+TEST_CASE("NonComputationalModel: rejects CCX as a hook key (parser-only rewrite)") {
+    REQUIRE_THROWS_WITH(
+        NonComputationalModel::from_spec(default_initial_state(), {{"CCX", zero_matrix()}},
+                                         std::nullopt, NonComputationalPolicy{}),
+        ContainsSubstring("parser decomposes"));
+}
+
+TEST_CASE("NonComputationalModel: rejects CCZ as a hook key (parser-only rewrite)") {
+    REQUIRE_THROWS_WITH(
+        NonComputationalModel::from_spec(default_initial_state(), {{"CCZ", zero_matrix()}},
+                                         std::nullopt, NonComputationalPolicy{}),
+        ContainsSubstring("parser decomposes"));
+}
+
+TEST_CASE("NonComputationalModel: rejects I as a hook key (identity no-op)") {
+    REQUIRE_THROWS_WITH(
+        NonComputationalModel::from_spec(default_initial_state(), {{"I", zero_matrix()}},
+                                         std::nullopt, NonComputationalPolicy{}),
+        ContainsSubstring("identity no-ops emit no circuit nodes"));
+}
+
+TEST_CASE("NonComputationalModel: rejects II as a hook key (identity no-op)") {
+    REQUIRE_THROWS_WITH(
+        NonComputationalModel::from_spec(default_initial_state(), {{"II", zero_matrix()}},
+                                         std::nullopt, NonComputationalPolicy{}),
+        ContainsSubstring("identity no-ops emit no circuit nodes"));
+}
+
+TEST_CASE("NonComputationalModel: rejects I_ERROR as a hook key (identity no-op)") {
+    REQUIRE_THROWS_WITH(
+        NonComputationalModel::from_spec(default_initial_state(), {{"I_ERROR", zero_matrix()}},
+                                         std::nullopt, NonComputationalPolicy{}),
+        ContainsSubstring("identity no-ops emit no circuit nodes"));
+}
+
+TEST_CASE("NonComputationalModel: rejects II_ERROR as a hook key (identity no-op)") {
+    REQUIRE_THROWS_WITH(
+        NonComputationalModel::from_spec(default_initial_state(), {{"II_ERROR", zero_matrix()}},
+                                         std::nullopt, NonComputationalPolicy{}),
+        ContainsSubstring("identity no-ops emit no circuit nodes"));
+}
+
+// =========================================================================
+// Construction: tag grammar validation
+// =========================================================================
+
+TEST_CASE("NonComputationalModel: rejects empty transition key") {
+    REQUIRE_THROWS_WITH(
+        NonComputationalModel::from_spec(default_initial_state(), {{"", zero_matrix()}},
+                                         std::nullopt, NonComputationalPolicy{}),
+        ContainsSubstring("cannot be written as a LEVEL_TRANSITION tag"));
+}
+
+TEST_CASE("NonComputationalModel: rejects keys with leading whitespace") {
+    REQUIRE_THROWS_WITH(
+        NonComputationalModel::from_spec(default_initial_state(), {{" padded", zero_matrix()}},
+                                         std::nullopt, NonComputationalPolicy{}),
+        ContainsSubstring("cannot be written as a LEVEL_TRANSITION tag"));
+}
+
+TEST_CASE("NonComputationalModel: rejects keys with trailing whitespace") {
+    REQUIRE_THROWS_WITH(
+        NonComputationalModel::from_spec(default_initial_state(), {{"padded ", zero_matrix()}},
+                                         std::nullopt, NonComputationalPolicy{}),
+        ContainsSubstring("cannot be written as a LEVEL_TRANSITION tag"));
+}
+
+TEST_CASE("NonComputationalModel: rejects keys that are only whitespace") {
+    REQUIRE_THROWS_WITH(
+        NonComputationalModel::from_spec(default_initial_state(), {{" ", zero_matrix()}},
+                                         std::nullopt, NonComputationalPolicy{}),
+        ContainsSubstring("cannot be written as a LEVEL_TRANSITION tag"));
+}
+
+TEST_CASE("NonComputationalModel: rejects keys containing ']'") {
+    REQUIRE_THROWS_WITH(
+        NonComputationalModel::from_spec(default_initial_state(), {{"a]b", zero_matrix()}},
+                                         std::nullopt, NonComputationalPolicy{}),
+        ContainsSubstring("cannot be written as a LEVEL_TRANSITION tag"));
+}
+
+TEST_CASE("NonComputationalModel: rejects keys containing '#'") {
+    REQUIRE_THROWS_WITH(
+        NonComputationalModel::from_spec(default_initial_state(), {{"a#b", zero_matrix()}},
+                                         std::nullopt, NonComputationalPolicy{}),
+        ContainsSubstring("cannot be written as a LEVEL_TRANSITION tag"));
+}
+
+TEST_CASE("NonComputationalModel: rejects keys containing a newline") {
+    REQUIRE_THROWS_WITH(
+        NonComputationalModel::from_spec(default_initial_state(), {{"a\nb", zero_matrix()}},
+                                         std::nullopt, NonComputationalPolicy{}),
+        ContainsSubstring("cannot be written as a LEVEL_TRANSITION tag"));
+}
+
+TEST_CASE("NonComputationalModel: accepts keys with internal spaces") {
+    REQUIRE_NOTHROW(NonComputationalModel::from_spec(
+        default_initial_state(), {{"a b", zero_matrix()}}, std::nullopt, NonComputationalPolicy{}));
+}
+
+TEST_CASE("NonComputationalModel: accepts keys with '[' (only ']' is banned)") {
+    REQUIRE_NOTHROW(NonComputationalModel::from_spec(
+        default_initial_state(), {{"a[b", zero_matrix()}}, std::nullopt, NonComputationalPolicy{}));
+}
+
+TEST_CASE("NonComputationalModel: accepts keys with hyphens and digits") {
+    REQUIRE_NOTHROW(NonComputationalModel::from_spec(default_initial_state(),
+                                                     {{"T1-decay", zero_matrix()}}, std::nullopt,
+                                                     NonComputationalPolicy{}));
+}
+
+TEST_CASE("NonComputationalModel: accepted weird keys survive LEVEL_TRANSITION tag round-trip") {
+    // Each key must parse back unchanged from a LEVEL_TRANSITION[key] circuit line.
+    const std::vector<std::string> weird_keys = {"a b", "a[b", "T1-decay"};
+    for (const auto& key : weird_keys) {
+        INFO("key: '" + key + "'");
+        auto model =
+            NonComputationalModel::from_spec(default_initial_state(), {{key, zero_matrix()}},
+                                             std::nullopt, NonComputationalPolicy{});
+        std::string circuit_text = "LEVEL_TRANSITION[" + key + "] 0\n";
+        auto circuit = clifft::parse(circuit_text);
+        REQUIRE(circuit.nodes.size() == 1);
+        REQUIRE(circuit.nodes[0].tag == key);
+        REQUIRE(model.transition_named(key) != nullptr);
+    }
+}
+
+// =========================================================================
+// Hook-fires invariant: every registered hook names a gate the parser emits
+// =========================================================================
+
+TEST_CASE("model: every registered gate hook names a gate the parser can produce") {
+    // A gate hook can fire only if its gate type appears in a parsed
+    // circuit. For every key the model registers as a hook, parse a sample
+    // line for that gate and require both a node of that type and the
+    // expanded annotation after it. The table must cover exactly the
+    // hookable gates: a missing or stale entry fails below.
+    const std::unordered_map<std::string_view, std::string_view> kSampleLines = {
+        {"H", "H 0"},
+        {"S", "S 0"},
+        {"S_DAG", "S_DAG 0"},
+        {"X", "X 0"},
+        {"Y", "Y 0"},
+        {"Z", "Z 0"},
+        {"SQRT_X", "SQRT_X 0"},
+        {"SQRT_X_DAG", "SQRT_X_DAG 0"},
+        {"SQRT_Y", "SQRT_Y 0"},
+        {"SQRT_Y_DAG", "SQRT_Y_DAG 0"},
+        {"H_XY", "H_XY 0"},
+        {"H_YZ", "H_YZ 0"},
+        {"H_NXY", "H_NXY 0"},
+        {"H_NXZ", "H_NXZ 0"},
+        {"H_NYZ", "H_NYZ 0"},
+        {"C_XYZ", "C_XYZ 0"},
+        {"C_ZYX", "C_ZYX 0"},
+        {"C_NXYZ", "C_NXYZ 0"},
+        {"C_NZYX", "C_NZYX 0"},
+        {"C_XNYZ", "C_XNYZ 0"},
+        {"C_XYNZ", "C_XYNZ 0"},
+        {"C_ZNYX", "C_ZNYX 0"},
+        {"C_ZYNX", "C_ZYNX 0"},
+        {"T", "T 0"},
+        {"T_DAG", "T_DAG 0"},
+        {"R_X", "R_X(0.25) 0"},
+        {"R_Y", "R_Y(0.25) 0"},
+        {"R_Z", "R_Z(0.25) 0"},
+        {"U3", "U3(0.1,0.2,0.3) 0"},
+        {"R_XX", "R_XX(0.25) 0 1"},
+        {"R_YY", "R_YY(0.25) 0 1"},
+        {"R_ZZ", "R_ZZ(0.25) 0 1"},
+        {"R_PAULI", "R_PAULI(0.1) X0*Y1"},
+        {"CX", "CX 0 1"},
+        {"CY", "CY 0 1"},
+        {"CZ", "CZ 0 1"},
+        {"SWAP", "SWAP 0 1"},
+        {"ISWAP", "ISWAP 0 1"},
+        {"ISWAP_DAG", "ISWAP_DAG 0 1"},
+        {"SQRT_XX", "SQRT_XX 0 1"},
+        {"SQRT_XX_DAG", "SQRT_XX_DAG 0 1"},
+        {"SQRT_YY", "SQRT_YY 0 1"},
+        {"SQRT_YY_DAG", "SQRT_YY_DAG 0 1"},
+        {"SQRT_ZZ", "SQRT_ZZ 0 1"},
+        {"SQRT_ZZ_DAG", "SQRT_ZZ_DAG 0 1"},
+        {"CXSWAP", "CXSWAP 0 1"},
+        {"CZSWAP", "CZSWAP 0 1"},
+        {"SWAPCX", "SWAPCX 0 1"},
+        {"XCX", "XCX 0 1"},
+        {"XCY", "XCY 0 1"},
+        {"XCZ", "XCZ 0 1"},
+        {"YCX", "YCX 0 1"},
+        {"YCY", "YCY 0 1"},
+        {"YCZ", "YCZ 0 1"},
+        {"M", "M 0"},
+        {"MX", "MX 0"},
+        {"MY", "MY 0"},
+        {"MR", "MR 0"},
+        {"MRX", "MRX 0"},
+        {"MRY", "MRY 0"},
+        {"MPP", "MPP X0*X1"},
+        {"R", "R 0"},
+        {"RX", "RX 0"},
+        {"RY", "RY 0"},
+    };
+
+    size_t hooked_gates = 0;
+    for (size_t i = 0; i < static_cast<size_t>(clifft::GateType::UNKNOWN); ++i) {
+        const auto g = static_cast<clifft::GateType>(i);
+        const std::string name{clifft::gate_name(g)};
+        // Build a model with a single hook for this gate; skip if the model
+        // constructor rejects the key (rejection tests cover those cases).
+        std::optional<NonComputationalModel> maybe_model;
+        try {
+            maybe_model =
+                NonComputationalModel::from_spec(default_initial_state(), {{name, zero_matrix()}},
+                                                 std::nullopt, NonComputationalPolicy{});
+        } catch (const std::invalid_argument&) {
+            continue;
+        }
+        const auto& model = *maybe_model;
+        // Only check gates that registered as hooks.
+        if (model.transition_hooks().find(g) == model.transition_hooks().end()) {
+            continue;
+        }
+        hooked_gates++;
+        // The hook must have a sample parse line; missing entries mean a future
+        // author added a hookable gate without adding parse coverage here.
+        auto it = kSampleLines.find(clifft::gate_name(g));
+        INFO("No sample parse line for hookable gate " + name +
+             ": add an entry to kSampleLines so the hook-fires invariant is covered");
+        REQUIRE(it != kSampleLines.end());
+        // Parse the sample line; at least one node must have gate == g.
+        auto circuit = clifft::parse(std::string(it->second) + "\n");
+        bool found = false;
+        for (const auto& node : circuit.nodes) {
+            if (node.gate == g) {
+                found = true;
+                break;
+            }
+        }
+        REQUIRE(found);
+        // annotate() must insert a LEVEL_TRANSITION node after the gate.
+        auto annotated = clifft::annotate(circuit, model);
+        bool found_lt = false;
+        for (const auto& node : annotated.nodes) {
+            if (node.gate == clifft::GateType::LEVEL_TRANSITION && node.tag == name) {
+                found_lt = true;
+                break;
+            }
+        }
+        REQUIRE(found_lt);
+    }
+    // Both directions: zero hooked gates would make the loop vacuous, and
+    // an unvisited table entry names a gate that is no longer hookable.
+    REQUIRE(hooked_gates == kSampleLines.size());
 }

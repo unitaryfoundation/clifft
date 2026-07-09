@@ -1,6 +1,7 @@
 #include "clifft/noncomp/model.h"
 
 #include "clifft/circuit/gate_data.h"
+#include "clifft/circuit/parser.h"
 #include "clifft/noncomp/numeric.h"
 
 #include <cstddef>
@@ -20,7 +21,10 @@ namespace {
 // silently accepted. Excludes annotations, identity no-ops, the
 // classical measurement pad (MPAD), the expectation-value probe, and
 // noise channels (whose composition with a level transition is
-// deliberately left unmodeled).
+// deliberately left unmodeled). MXX, MYY, and MZZ are measurement gates
+// by trait but are rejected as hook keys before this predicate is
+// consulted, because they desugar to MPP at parse time and never appear
+// as AST nodes.
 bool supports_transition(GateType g) {
     if (is_clifford(g)) {
         return true;  // single- and two-qubit Clifford gates
@@ -29,7 +33,7 @@ bool supports_transition(GateType g) {
         return true;  // R, RX, RY
     }
     if (is_measurement(g) && g != GateType::MPAD) {
-        return true;  // M, MX, MY, MR, MRX, MRY, MPP, MXX, MYY, MZZ
+        return true;  // M, MX, MY, MR, MRX, MRY, MPP
     }
     switch (g) {
         // Non-Clifford unitaries: no trait flag distinguishes these, so
@@ -87,18 +91,24 @@ NonComputationalModel::NonComputationalModel(
     }
 
     // A transition key is referenced from circuits by LEVEL_TRANSITION[key]
-    // annotations, so it must survive the tag syntax; a key that names a
+    // annotations, so it must survive the tag grammar. A key that names a
     // hookable physical gate additionally registers a gate hook,
     // canonicalized to GateType so no two spellings of one gate shadow
     // each other.
     for (auto& [name, instrument] : transitions) {
-        if (name.empty()) {
-            throw std::invalid_argument("NonComputationalModel: transition keys must be nonempty");
-        }
-        if (name.find(']') != std::string::npos || name.find('\n') != std::string::npos) {
+        if (!is_representable_tag(name)) {
             throw std::invalid_argument(
                 "NonComputationalModel: transition key '" + name +
-                "' contains ']' or a newline and cannot be referenced by a LEVEL_TRANSITION tag");
+                "' cannot be written as a LEVEL_TRANSITION tag: a key must be nonempty, have no "
+                "leading or trailing whitespace, and contain no ']', '#', or newline");
+        }
+        if (is_parse_only_instruction(name)) {
+            throw std::invalid_argument(
+                "NonComputationalModel: transition key '" + name +
+                "' cannot key a gate hook: the parser decomposes " + name +
+                " into other gates, so no " + name +
+                " node exists for the hook to expand onto; place LEVEL_TRANSITION[...] annotations "
+                "explicitly");
         }
         // Only a key naming a hookable physical gate registers a hook. Any
         // other key -- an arbitrary name, or one naming a non-hookable
@@ -106,6 +116,20 @@ NonComputationalModel::NonComputationalModel(
         // transition: referenceable from LEVEL_TRANSITION[key], expanded onto
         // nothing.
         const GateType gate = parse_gate_name(name);
+        if (gate != GateType::UNKNOWN && is_parser_desugared(gate)) {
+            throw std::invalid_argument(
+                "NonComputationalModel: transition key '" + name + "' cannot key a gate hook: " +
+                name + " desugars to MPP at parse time, so no " + name +
+                " node exists for the hook to expand onto; place LEVEL_TRANSITION[...] annotations "
+                "explicitly");
+        }
+        if (gate != GateType::UNKNOWN && is_identity_noop(gate)) {
+            throw std::invalid_argument(
+                "NonComputationalModel: transition key '" + name +
+                "' cannot key a gate hook: identity no-ops emit no circuit nodes, so the hook "
+                "could never fire; place LEVEL_TRANSITION[...] annotations at the intended "
+                "positions");
+        }
         if (gate != GateType::UNKNOWN && supports_transition(gate)) {
             auto [it, inserted] = hooks_.emplace(gate, name);
             if (!inserted) {

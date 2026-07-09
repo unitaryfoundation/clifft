@@ -311,6 +311,11 @@ inline constexpr bool is_measure_reset(GateType g) {
 inline constexpr bool is_identity_noop(GateType g) {
     return gate_traits(g).identity_noop;
 }
+// MXX/MYY/MZZ parse into MPP nodes with Pauli-tagged targets, so these
+// GateTypes never appear in a parsed circuit.
+inline constexpr bool is_parser_desugared(GateType g) {
+    return g == GateType::MXX || g == GateType::MYY || g == GateType::MZZ;
+}
 inline constexpr bool is_noise_gate(GateType g) {
     return gate_traits(g).noise;
 }

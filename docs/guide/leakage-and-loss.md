@@ -70,7 +70,9 @@ levels when it fires; a column's deficit below 1 is "no jump". There are
 three ways to attach one to a circuit:
 
 - **Gate hooks.** A `transitions` key that names a gate (`"CZ"`, `"S"`, …)
-  fires after every occurrence of that gate.
+  fires after every occurrence of that gate. Keys naming instructions that
+  never produce a circuit node (`MXX`/`MYY`/`MZZ`, `CH`/`CCX`/`CCZ`,
+  identity no-ops) are rejected at model construction.
 - **Inline references.** `LEVEL_TRANSITION[name] 0` fires the named matrix
   on qubit 0 at that circuit position. Any key can be referenced this way,
   gate-named or not.

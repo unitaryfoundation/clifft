@@ -45,6 +45,17 @@ class ParseError : public std::runtime_error {
     uint32_t line_;
 };
 
+// True iff `tag` can appear as a LEVEL_TRANSITION bracket tag and parse
+// back to exactly this string: nonempty, no leading or trailing
+// whitespace (tags are trimmed), and no ']' (closes the tag), '#'
+// (starts a comment), or newline (ends the line).
+bool is_representable_tag(std::string_view tag);
+
+// True iff `name` is an instruction the parser lowers into other gates
+// without emitting a node of its own (CH, CCX, CCZ), so it can never be
+// matched by a gate hook.
+bool is_parse_only_instruction(std::string_view name);
+
 // Parse a circuit from text.
 // Uses kMaxUnrolledOps as the safety limit on total AST nodes.
 [[nodiscard]] Circuit parse(std::string_view text);
