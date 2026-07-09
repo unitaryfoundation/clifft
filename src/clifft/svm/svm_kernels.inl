@@ -2045,8 +2045,9 @@ static inline bool exec_instrument(SchrodingerState& state, const ConstantPool& 
 
     if (instr.opcode == Opcode::OP_INSTRUMENT_DORMANT_NEGLECT) {
         // A dormant-random qubit's fire probability is exactly
-        // (p_g + p_e) / 2. No fire means no action at all -- neglect's
-        // defining approximation is omitting the no-fire back-action.
+        // (p_g + p_e) / 2. No fire means no action at all: neglect omits
+        // the no-fire back-action, while equal rates make it a scalar that
+        // normalization removes.
         // Every fire traps: an in-line collapse would re-anchor the frame
         // conditionally, which compiled downstream code cannot account
         // for. The carrier hands over uncollapsed with the drawn source

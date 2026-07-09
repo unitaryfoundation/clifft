@@ -216,7 +216,7 @@ class SchrodingerState {
     // --- Resumable trap state ---
     //
     // Set when an instrument fire cannot be resolved in-line: any form
-    // firing to a leaked/lost destination, or any fire at a neglect-mode
+    // firing to a leaked/lost destination, or any trap-form fire on a
     // dormant-random site (whose collapse belongs to the continuation).
     // execute() halts at the site with the state intact (the carrier
     // already collapsed onto the drawn source where the form allows it)

@@ -318,7 +318,7 @@ ContinuationRewrite rewrite_continuation(const Circuit& annotated, const ExactSh
                 // site collapsed the carrier before trapping); for a
                 // computational destination it re-prepares the carrier at
                 // the destination level, with an X appended for |1>. A
-                // forced neglect trace-out points at the same reset.
+                // forced trap-form trace-out points at the same reset.
                 const size_t r_node = out.nodes.size();
                 out.nodes.push_back(single_qubit_op(GateType::R, qubit));
                 if (jump->second == Level::E) {
