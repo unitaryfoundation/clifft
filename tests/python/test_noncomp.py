@@ -366,6 +366,33 @@ def test_different_seeds_differ():
     assert not np.array_equal(a.measurements, b.measurements)
 
 
+def test_deterministic_in_seed_with_noncomputational_initials():
+    """Shots that start leaked or lost select their own starting modules
+    rather than the shared main line; the streams must still be fully
+    seed-determined under both dampings, and a different seed must differ."""
+    leak_from_e = _zeros(5, 5)
+    leak_from_e[LEAK_E][noncomp.Level.E] = 0.3
+    circuit = "H 0\nS 0\nM 0\nH 1\nM 1\n"
+    for damping in ("exact", "neglect"):
+        model = noncomp.Model(
+            initial_state=[0.5, 0.0, 0.2, 0.0, 0.3],
+            transitions={"S": leak_from_e},
+            classifier=classifier_for(LEAK_E, [0.0, 1.0]),
+            damping=damping,
+        )
+        a = noncomp.sample(circuit, model, shots=64, seed=29)
+        b = noncomp.sample(circuit, model, shots=64, seed=29)
+        assert np.array_equal(a.measurements, b.measurements)
+        assert np.array_equal(a.final_status, b.final_status)
+        assert np.array_equal(a.heralds, b.heralds)
+        # Vacuity guard: the noncomputational-initial path really ran.
+        assert (a.final_status != noncomp.QubitStatus.COMPUTATIONAL).any()
+        c = noncomp.sample(circuit, model, shots=64, seed=30)
+        assert not np.array_equal(a.measurements, c.measurements) or not np.array_equal(
+            a.final_status, c.final_status
+        )
+
+
 # --- 8. Policy knobs --------------------------------------------------------
 
 

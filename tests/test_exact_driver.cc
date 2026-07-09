@@ -752,6 +752,55 @@ TEST_CASE("exact: a fired head with a lost operand prevents the ELSE from firing
     }
 }
 
+TEST_CASE("exact: a correlated-chain head with a leaked operand does not orphan the ELSE") {
+    // The leaked twin of the lost-operand pin: unlike a lost qubit, a
+    // leaked qubit's carrier is still parked in the state, so the head's
+    // X0 lands there as a frame flip nothing reads. The conditioning must
+    // be identical: E(1) fires, the ELSE never does. The leak column reads
+    // 1, so q0's record is the classifier bit, not the carrier.
+    std::vector<std::vector<double>> leak(5, std::vector<double>(5, 0.0));
+    leak[kLeakG][0] = 1.0;
+    leak[kLeakG][1] = 1.0;
+    const std::vector<std::vector<double>> cl = {{1.0, 0.0, 0.0, 0.0, 1.0},
+                                                 {0.0, 1.0, 1.0, 1.0, 0.0}};
+    auto model = NonComputationalModel::from_spec({1.0, 0.0, 0.0, 0.0, 0.0}, {{"leak", leak}},
+                                                  std::make_optional(cl), NonComputationalPolicy{});
+    auto circuit = parse(
+        "LEVEL_TRANSITION[leak] 0\n"
+        "E(1) X0 X1\n"
+        "ELSE_CORRELATED_ERROR(1) X1\n"
+        "M 0 1\n");
+
+    auto result = sample_noncomputational(circuit, model, 25, 83);
+    for (uint32_t shot = 0; shot < 25; ++shot) {
+        REQUIRE(result.measurements[shot * 2] == 1);      // leak column reads 1
+        REQUIRE(result.measurements[shot * 2 + 1] == 1);  // X1 from fired head
+        REQUIRE(result.final_status[shot * 2] == QubitStatus::LeakG);
+        REQUIRE(result.final_status[shot * 2 + 1] == QubitStatus::Computational);
+    }
+}
+
+TEST_CASE("exact: a fired head with a leaked operand prevents the ELSE from firing") {
+    std::vector<std::vector<double>> leak(5, std::vector<double>(5, 0.0));
+    leak[kLeakG][0] = 1.0;
+    leak[kLeakG][1] = 1.0;
+    const std::vector<std::vector<double>> cl = {{1.0, 0.0, 0.0, 0.0, 1.0},
+                                                 {0.0, 1.0, 1.0, 1.0, 0.0}};
+    auto model = NonComputationalModel::from_spec({1.0, 0.0, 0.0, 0.0, 0.0}, {{"leak", leak}},
+                                                  std::make_optional(cl), NonComputationalPolicy{});
+    auto circuit = parse(
+        "LEVEL_TRANSITION[leak] 0\n"
+        "E(1) X0\n"
+        "ELSE_CORRELATED_ERROR(1) X1\n"
+        "M 0 1\n");
+
+    auto result = sample_noncomputational(circuit, model, 25, 89);
+    for (uint32_t shot = 0; shot < 25; ++shot) {
+        REQUIRE(result.measurements[shot * 2 + 1] == 0);  // ELSE did not fire
+        REQUIRE(result.final_status[shot * 2] == QubitStatus::LeakG);
+    }
+}
+
 TEST_CASE("exact: a mixed-operand chain member keeps the healthy qubit's Pauli") {
     // E(1) X0 X1 with only q1 lost: q0 is computational and its X must
     // land; dropping the mixed-operand node whole would suppress the X on q0.
@@ -892,12 +941,23 @@ TEST_CASE("exact: memory-X smoke: two qubits, low-rate leak hook, MX measures bo
     auto model = NonComputationalModel::from_spec({1.0, 0.0, 0.0, 0.0, 0.0}, {{"leak", leak}},
                                                   std::make_optional(classifier), policy);
     auto circuit = parse("RX 0 1\nLEVEL_TRANSITION[leak] 0 1\nMX 0 1");
-    auto result = sample_noncomputational(circuit, model, 50, 111);
-    REQUIRE(result.shots == 50);
+    // Equal-rate loss keeps stabilizer cost under exact damping: max_rank 0.
+    constexpr uint32_t kShots = 2000;
+    auto result = sample_noncomputational(circuit, model, kShots, 111, 0);
+    REQUIRE(result.shots == kShots);
     REQUIRE(result.num_measurements == 2);
-    // Shape check: result exists with the right dimensions.
-    REQUIRE(result.measurements.size() == 100u);
-    REQUIRE(result.final_status.size() == 100u);
+    // A surviving |+> reads MX = 0 deterministically and the lost column
+    // reads symbol 0, so every record is 0; the loss shows up only in the
+    // status sidecar, at the 1% rate.
+    size_t lost = 0;
+    for (uint32_t i = 0; i < kShots * 2; ++i) {
+        REQUIRE(result.measurements[i] == 0);
+        lost += result.final_status[i] == QubitStatus::Lost ? 1 : 0;
+    }
+    REQUIRE(lost > 0);
+    // Pooled over 2 qubits x kShots: expected 40; ~4 sigma band.
+    REQUIRE(lost > 15);
+    REQUIRE(lost < 70);
 }
 
 // =========================================================================
