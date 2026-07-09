@@ -329,14 +329,14 @@ TEST_CASE("NonComputationalModel: rejects keys that are only whitespace") {
         ContainsSubstring("cannot be written as a LEVEL_TRANSITION tag"));
 }
 
-TEST_CASE("NonComputationalModel: rejects keys containing ']'") {
+TEST_CASE("NonComputationalModel: rejects keys containing a closing bracket") {
     REQUIRE_THROWS_WITH(
         NonComputationalModel::from_spec(default_initial_state(), {{"a]b", zero_matrix()}},
                                          std::nullopt, NonComputationalPolicy{}),
         ContainsSubstring("cannot be written as a LEVEL_TRANSITION tag"));
 }
 
-TEST_CASE("NonComputationalModel: rejects keys containing '#'") {
+TEST_CASE("NonComputationalModel: rejects keys containing a hash") {
     REQUIRE_THROWS_WITH(
         NonComputationalModel::from_spec(default_initial_state(), {{"a#b", zero_matrix()}},
                                          std::nullopt, NonComputationalPolicy{}),
@@ -355,7 +355,7 @@ TEST_CASE("NonComputationalModel: accepts keys with internal spaces") {
         default_initial_state(), {{"a b", zero_matrix()}}, std::nullopt, NonComputationalPolicy{}));
 }
 
-TEST_CASE("NonComputationalModel: accepts keys with '[' (only ']' is banned)") {
+TEST_CASE("NonComputationalModel: accepts keys with an opening bracket") {
     REQUIRE_NOTHROW(NonComputationalModel::from_spec(
         default_initial_state(), {{"a[b", zero_matrix()}}, std::nullopt, NonComputationalPolicy{}));
 }
