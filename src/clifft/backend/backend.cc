@@ -978,22 +978,22 @@ CompiledModule lower(const HirModule& hir, std::span<const uint8_t> postselectio
                 } else if (result.basis == LocalizedBasis::Z_BASIS) {
                     opcode = Opcode::OP_INSTRUMENT_DORMANT_STATIC;
                 } else if (site.neglect_damping || site.p_total[0] == site.p_total[1]) {
-                    // Dormant-random without expansion: no no-fire
-                    // back-action, and every fire traps (an in-line collapse
-                    // would re-anchor the frame conditionally, which
-                    // compiled downstream code cannot account for -- a
-                    // measurement's anchor is unconditional, so its
-                    // compile-time virtual H is sound; a fire's is not).
-                    // Equal per-source rates take this path even under
-                    // exact damping because it is exact there: the skipped
-                    // no-fire back-action is proportional to identity, and
-                    // the deferred trace-out collapse is the Born posterior.
+                    // No expansion: the qubit stays out of the amplitude
+                    // array, a no-fire leaves the state untouched, and every
+                    // fire traps to the driver (an in-line collapse would
+                    // change the frame on some shots but not others, and the
+                    // downstream code was compiled for one fixed frame).
+                    // Neglect chooses this form directly. Equal per-source
+                    // rates also get it, under either damping, because it is
+                    // exact for them: damping both levels by the same factor
+                    // only rescales the state, which normalization undoes,
+                    // and the trapped fire is resolved exactly by the driver.
                     opcode = Opcode::OP_INSTRUMENT_DORMANT_NEGLECT;
                 } else {
-                    // Dormant-random with source-dependent rates under
-                    // exact damping: activate the
-                    // qubit as route_to_active_z does, with the expansion
-                    // fused into the instrument (+1 to k at this site).
+                    // Source-dependent rates under exact damping: expand the
+                    // qubit into the array (as route_to_active_z would), with
+                    // the expansion fused into the instrument -- +1 to k at
+                    // this site.
                     auto next_axis = static_cast<uint16_t>(ctx.reg_manager.active_k());
                     if (result.pivot != next_axis) {
                         emit_swap(ctx, result.pivot, next_axis);
