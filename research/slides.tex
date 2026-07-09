@@ -161,6 +161,38 @@
   \takeaway{The cost driver becomes the amount of magic $t$, not the dimension $2^k$.}
 \end{frame}
 
+% ================================================================ A: architecture
+\begin{frame}{A \,\textperiodcentered\, How it fits: one compiler, two executors}
+  \centering
+  \vspace{-0.2em}
+  \begin{tikzpicture}[scale=0.8, every node/.append style={transform shape},
+    box/.style={draw, rounded corners=1pt, inner sep=5pt, font=\small},
+    sub/.style={font=\scriptsize, color=mutedink},
+    lbl/.style={font=\scriptsize\itshape, color=ink}]
+    \node[box] (circ) at (0,0) {circuit};
+    \node[box] (comp) at (2.7,0) {clifft compiler};
+    \node[box] (meta) at (6.0,0) {compiled program};
+    \node[sub] at (6.0,-0.55) {peak rank $k$, live $T$-count $t$};
+    \node[box, draw=violet] (dense) at (11.4,0.95) {dense engine};
+    \node[sub] at (11.4,0.42) {exact, $2^{k}$};
+    \node[box, draw=copper] (chf) at (11.4,-0.95) {rank backend};
+    \node[sub] at (11.4,-1.5) {opt-in $\delta$-approx., $2^{0.228 t}/\delta^2$};
+    \draw[->] (circ) -- (comp);
+    \draw[->] (comp) -- (meta);
+    \draw[->] (meta.east) to[out=20,in=180] (dense.west);
+    \draw[->] (meta.east) to[out=-20,in=180] (chf.west);
+    \node[lbl] at (8.85,0.95) {$0.228\,t \ge k$};
+    \node[lbl] at (8.85,-1.0) {$0.228\,t < k$};
+  \end{tikzpicture}
+  \vspace{-0.2em}
+  \begin{itemize}
+    \item Both cost exponents --- $2^k$ dense, $2^{0.228\,t}$ backend (why $0.228$: next slide) --- are known \punch{before anything runs}: dispatch is a one-line comparison, per program.
+    \item \punch{Wired, not just proposed}: the backend runs clifft's \emph{optimized} circuits --- compilation absorbs \emph{every} Clifford and halves the live $T$-count (validated to $10^{-13}$).
+    \item The backend is an explicit opt-in ($\delta$), never a silent substitute: clifft's exactness contract stays intact.
+  \end{itemize}
+  \takeaway{clifft compiles; the cheaper engine runs --- on the same optimized circuit.}
+\end{frame}
+
 % ================================================================ A: why it works
 \begin{frame}{A \,\textperiodcentered\, Why it should work}
   \begin{columns}[T]
@@ -184,6 +216,28 @@
     \end{column}
   \end{columns}
   \takeaway{Trade exactness you can measure for reach you cannot otherwise have.}
+\end{frame}
+
+% ================================================================ A: generality
+\begin{frame}{A \,\textperiodcentered\, It generalizes: any Clifford$+T$ circuit}
+  \begin{itemize}
+    \item The trick for circuits with magic \emph{everywhere}: teleport each in-line $T$ onto its own helper qubit (the same adaptive gadget real hardware uses) --- then all magic sits in \punch{one up-front layer} again.
+    \item So the sampler keeps its best properties on \emph{any} circuit: \punch{no penalty for interleaving}, and the normalization stays exactly known --- the expensive estimation step never enters.
+    \item Tested at scale on circuits whose answer is known \emph{by construction} (hidden shift: the output is the hidden string, always): at up to \punch{96 total qubits}, the backend returns $0.90$--$0.99$ of the true probability $1$, in seconds.
+    \item Honest finding: clifft's compiler crushes many such circuits to tiny cores and answers in microseconds --- ``who wins'' is a \emph{rule}, not a race: exactly what the compile-time dispatch encodes.
+  \end{itemize}
+  \takeaway{Generality at the product-magic price --- validated end to end against exact references.}
+\end{frame}
+
+% ================================================================ A: episodic
+\begin{frame}{A \,\textperiodcentered\, Recycled magic: pay per episode, not per program}
+  \begin{itemize}
+    \item Long computations \punch{recycle} their magic: the active block grows, is measured out, grows again (``episodes''). Total magic grows with runtime; \punch{per-episode magic stays bounded}.
+    \item Run one episode at a time, collapse \emph{exactly} at each boundary: cost $2^{\,\text{per-episode magic}}$ instead of $2^{\,\text{total magic}}$, \punch{zero extra error}. Measured: 72 qubits, 72 T's, $\le\!400$ terms --- whole-circuit would need $2^{72}$.
+    \item Compressing \emph{below} that also works, gently: at $10\times$ fewer terms the same run returns a $10^{-22}$ record probability \punch{within 41\%} in a minute (unbiased; averaging sharpens it).
+    \item Honest, measured boundary: for full records, harder compression degrades sharply with episode count --- the dispatcher's \punch{four strategies} price exact-per-episode accordingly.
+  \end{itemize}
+  \takeaway{The circuit's rhythm --- magic in, magic measured out --- is itself a computational resource.}
 \end{frame}
 
 % ================================================================ A: evidence
@@ -231,58 +285,6 @@
     \item Also measured where it \emph{loses}: with no logical Clifford traffic the frame's bookkeeping costs up to $\sim\!2\times$ --- the advantage is a measured phase boundary, not a slogan.
   \end{itemize}
   \takeaway{Status: prototype validated; honest benchmarks, natural workloads, external baselines done.}
-\end{frame}
-
-% ================================================================ A: generality
-\begin{frame}{A \,\textperiodcentered\, It generalizes: any Clifford$+T$ circuit}
-  \begin{itemize}
-    \item The trick for circuits with magic \emph{everywhere}: teleport each in-line $T$ onto its own helper qubit (the same adaptive gadget real hardware uses) --- then all magic sits in \punch{one up-front layer} again.
-    \item So the sampler keeps its best properties on \emph{any} circuit: \punch{no penalty for interleaving}, and the normalization stays exactly known --- the expensive estimation step never enters.
-    \item Tested at scale on circuits whose answer is known \emph{by construction} (hidden shift: the output is the hidden string, always): at up to \punch{96 total qubits}, the backend returns $0.90$--$0.99$ of the true probability $1$, in seconds.
-    \item Honest finding: clifft's compiler crushes many such circuits to tiny cores and answers in microseconds --- which turns ``who wins'' into a \emph{rule}, not a race \,$\rightarrow$\, next slide.
-  \end{itemize}
-  \takeaway{Generality at the product-magic price --- validated end to end against exact references.}
-\end{frame}
-
-% ================================================================ A: architecture
-\begin{frame}{A \,\textperiodcentered\, One compiler, two executors}
-  \centering
-  \begin{tikzpicture}[scale=0.92, every node/.append style={transform shape},
-    box/.style={draw, rounded corners=1pt, inner sep=5pt, font=\small},
-    sub/.style={font=\scriptsize, color=mutedink},
-    lbl/.style={font=\scriptsize\itshape, color=ink}]
-    \node[box] (circ) at (0,0) {circuit};
-    \node[box] (comp) at (2.7,0) {clifft compiler};
-    \node[box] (meta) at (6.0,0) {compiled program};
-    \node[sub] at (6.0,-0.55) {peak rank $k$, live $T$-count $t$};
-    \node[box, draw=violet] (dense) at (11.4,0.95) {dense engine};
-    \node[sub] at (11.4,0.42) {exact, $2^{k}$};
-    \node[box, draw=copper] (chf) at (11.4,-0.95) {rank backend};
-    \node[sub] at (11.4,-1.5) {opt-in $\delta$-approx., $2^{0.228 t}/\delta^2$};
-    \draw[->] (circ) -- (comp);
-    \draw[->] (comp) -- (meta);
-    \draw[->] (meta.east) to[out=20,in=180] (dense.west);
-    \draw[->] (meta.east) to[out=-20,in=180] (chf.west);
-    \node[lbl] at (8.85,0.95) {$0.228\,t \ge k$};
-    \node[lbl] at (8.85,-1.0) {$0.228\,t < k$};
-  \end{tikzpicture}
-  \begin{itemize}
-    \item Both cost exponents are known from the compiled program \punch{before anything runs} --- dispatch is a one-line comparison, per program.
-    \item \punch{Wired, not just proposed}: the backend runs clifft's \emph{optimized} circuits --- compilation absorbs \emph{every} Clifford and halves the live $T$-count (validated to $10^{-13}$).
-    \item The backend is an explicit opt-in ($\delta$), never a silent substitute: clifft's exactness contract stays intact.
-  \end{itemize}
-  \takeaway{clifft compiles; the cheaper engine runs --- on the same optimized circuit.}
-\end{frame}
-
-% ================================================================ A: episodic
-\begin{frame}{A \,\textperiodcentered\, Recycled magic: pay per episode, not per program}
-  \begin{itemize}
-    \item Long computations \punch{recycle} their magic: the active block grows, is measured out, grows again (``episodes''). Total magic grows with runtime; \punch{per-episode magic stays bounded}.
-    \item Run one episode at a time, collapse \emph{exactly} at each boundary: cost $2^{\,\text{per-episode magic}}$ instead of $2^{\,\text{total magic}}$, \punch{zero extra error}. Measured: 72 qubits, 72 T's, $\le\!400$ terms --- whole-circuit would need $2^{72}$.
-    \item Compressing \emph{below} that also works, gently: at $10\times$ fewer terms the same run returns a $10^{-22}$ record probability \punch{within 41\%} in a minute (unbiased; averaging sharpens it).
-    \item Honest, measured boundary: for full records, harder compression degrades sharply with episode count --- the dispatcher (now \punch{four strategies}) prices exact-per-episode accordingly.
-  \end{itemize}
-  \takeaway{The circuit's rhythm --- magic in, magic measured out --- is itself a computational resource.}
 \end{frame}
 
 % ================================================================ B: idea
