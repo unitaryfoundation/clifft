@@ -195,7 +195,7 @@ def test_set_collapsed_qubit_reprepares_destination():
     assert abs(abs(moved[0]) - 1.0) < 1e-12
 
 
-# --- Gap 4: two-site exact-damping composition vs enumerator ------------------
+# --- Two-site exact-damping composition vs enumerator --------------------------
 
 
 def test_two_site_exact_damping_composition_matches_enumerator():

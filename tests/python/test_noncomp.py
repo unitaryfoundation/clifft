@@ -765,7 +765,7 @@ def test_model_repr_contains_keys_and_damping():
     assert "neglect" in r
 
 
-# --- Gap 7: ternary herald on a measure-reset ---------------------------------
+# --- Ternary herald on a measure-reset ----------------------------------------
 
 
 def test_ternary_herald_on_measure_reset():
@@ -821,7 +821,7 @@ def test_ternary_herald_on_measure_reset():
     assert np.all(r.final_status[:, 0] == COMPUTATIONAL), "final status was not COMPUTATIONAL"
 
 
-# --- Gap 10: seed=None smoke --------------------------------------------------
+# --- Entropy-seeded runs -------------------------------------------------------
 
 
 def test_seed_none_smoke():

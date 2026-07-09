@@ -1009,7 +1009,7 @@ TEST_CASE("exact: the model contract is validated even for zero shots") {
 }
 
 // =========================================================================
-// Gap 1: Same-qubit re-trap (composed-continuation path)
+// Same-qubit re-trap (composed-continuation path)
 // =========================================================================
 
 namespace {
@@ -1079,7 +1079,7 @@ TEST_CASE("exact: multi-target annotation jumps both targets in one shot") {
 }
 
 // =========================================================================
-// Gap 2: LOSS on already-leaked and already-lost
+// LOSS on already-leaked and already-lost qubits
 // =========================================================================
 
 TEST_CASE("exact: LOSS(1) on a pure leak_g initial vacates the carrier") {
@@ -1180,7 +1180,7 @@ TEST_CASE("exact: a non-restoring lost MRX spends no hidden draw -- M and MRX re
 }
 
 // =========================================================================
-// Gap 5: Classified record drives feedback
+// Classified records driving feedback
 // =========================================================================
 
 TEST_CASE("exact: classified record drives a CX feedback gate") {
@@ -1215,7 +1215,7 @@ TEST_CASE("exact: classified record drives a CX feedback gate") {
 }
 
 // =========================================================================
-// Gap 6: Restored-lost qubit is actually re-prepared
+// Carrier re-preparation on restore
 // =========================================================================
 
 TEST_CASE("exact: a reset truly re-prepares a restored-lost qubit") {
@@ -1247,7 +1247,7 @@ TEST_CASE("exact: a reset truly re-prepares a restored-lost qubit") {
 }
 
 // =========================================================================
-// Gap 8: max_rank succeeds exactly at the cap
+// max_rank boundary behavior
 // =========================================================================
 
 TEST_CASE("exact: max_rank succeeds exactly at the required rank") {
@@ -1269,7 +1269,7 @@ TEST_CASE("exact: max_rank succeeds exactly at the required rank") {
 }
 
 // =========================================================================
-// Gap 9: C++ different-seed-differs
+// Seed sensitivity
 // =========================================================================
 
 TEST_CASE("exact: different seeds produce different records") {
