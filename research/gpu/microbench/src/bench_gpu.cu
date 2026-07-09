@@ -18,6 +18,7 @@
 
 #include "bench_common.hpp"
 #include "cpu_kernels.hpp"  // for validation only (host code)
+#include "gpu_runtime.hpp"  // CUDA <-> HIP runtime-API shim (no-op under nvcc)
 
 using namespace mb;
 
@@ -25,7 +26,7 @@ using namespace mb;
     do {                                                                                  \
         cudaError_t e = (x);                                                              \
         if (e != cudaSuccess) {                                                           \
-            fprintf(stderr, "CUDA error %s at %s:%d\n", cudaGetErrorString(e), __FILE__,  \
+            fprintf(stderr, "GPU error %s at %s:%d\n", cudaGetErrorString(e), __FILE__,   \
                     __LINE__);                                                            \
             std::exit(1);                                                                 \
         }                                                                                 \

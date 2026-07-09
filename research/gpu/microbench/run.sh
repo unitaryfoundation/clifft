@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # Build and run the clifft active-block GPU microbenchmark.
-# On the GH200 this builds both bench_cpu and bench_gpu; locally just bench_cpu.
+# Builds whichever GPU targets the host toolchain provides (bench_gpu with
+# nvcc on the GH200, bench_gpu_hip with hipcc on the MI300X); locally just
+# bench_cpu.
 set -euo pipefail
 cd "$(dirname "$0")"
 
@@ -12,8 +14,10 @@ BKS="${3:-12,16,18,20}"
 LAYERS="${4:-4}"
 
 CUDA_ARCH="${CUDA_ARCH:-90}"
+HIP_ARCH="${HIP_ARCH:-gfx942}"
 
-cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DCUDA_ARCH="${CUDA_ARCH}"
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release \
+  -DCUDA_ARCH="${CUDA_ARCH}" -DHIP_ARCH="${HIP_ARCH}"
 cmake --build build -j
 
 echo "== CPU =="
@@ -21,9 +25,17 @@ echo "== CPU =="
 echo "wrote cpu.csv"
 
 if [[ -x ./build/bench_gpu ]]; then
-  echo "== GPU =="
+  echo "== GPU (CUDA) =="
   ./build/bench_gpu "$KMIN" "$KMAX" "$BKS" "$LAYERS" | tee gpu.csv >/dev/null
   echo "wrote gpu.csv"
-else
-  echo "bench_gpu not built (no CUDA compiler found) -- run this on the GH200."
+fi
+
+if [[ -x ./build/bench_gpu_hip ]]; then
+  echo "== GPU (HIP) =="
+  ./build/bench_gpu_hip "$KMIN" "$KMAX" "$BKS" "$LAYERS" | tee gpu_hip.csv >/dev/null
+  echo "wrote gpu_hip.csv"
+fi
+
+if [[ ! -x ./build/bench_gpu && ! -x ./build/bench_gpu_hip ]]; then
+  echo "no GPU benchmark built (no CUDA or HIP compiler found) -- run on the GH200/MI300X."
 fi

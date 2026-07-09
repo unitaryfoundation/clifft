@@ -54,3 +54,29 @@ if(CMAKE_CUDA_COMPILER)
 else()
   message(STATUS "CUDA NOT found: skipping bench_gpu (build this on the GH200)")
 endif()
+
+# ---- HIP benchmark (built only if a HIP compiler is present) ----------------
+# Same source as bench_gpu, compiled as HIP through include/gpu_runtime.hpp
+# (a CUDA<->HIP runtime-API name shim). CMake's HIP language support needs
+# >= 3.21; ROCm installs ship a newer CMake.
+if(CMAKE_VERSION VERSION_GREATER_EQUAL 3.21)
+  check_language(HIP)
+endif()
+if(CMAKE_HIP_COMPILER)
+  enable_language(HIP)
+  set(CMAKE_HIP_STANDARD 17)
+  # MI300X = gfx942. Override with -DHIP_ARCH=gfx90a etc. if needed.
+  if(NOT DEFINED HIP_ARCH)
+    set(HIP_ARCH gfx942)
+  endif()
+  add_executable(bench_gpu_hip src/bench_gpu_hip.hip src/bench_common.cpp)
+  target_include_directories(bench_gpu_hip PRIVATE include)
+  set_target_properties(bench_gpu_hip PROPERTIES HIP_ARCHITECTURES "${HIP_ARCH}")
+  # Mirror the CUDA target's fast-math setting so the two GPU builds are
+  # comparable; validation is tolerance-based (1e-9), not bit-exact.
+  target_compile_options(bench_gpu_hip PRIVATE
+    $<$<COMPILE_LANGUAGE:HIP>:-O3 -ffast-math>)
+  message(STATUS "HIP found: building bench_gpu_hip for ${HIP_ARCH}")
+else()
+  message(STATUS "HIP NOT found: skipping bench_gpu_hip (build this on the MI300X)")
+endif()

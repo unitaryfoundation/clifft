@@ -87,6 +87,22 @@ batched measurement round with alternating forced outcomes, so both arms of
 the outcome-predicated collapse are exercised). Both expect `< 1e-9`. Then
 transfer-bandwidth, single-op, batched, and batched-with-measurement sweeps.
 
+### On an MI300X (CPU + GPU via HIP)
+```sh
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DHIP_ARCH=gfx942
+cmake --build build -j
+./build/bench_cpu 10 30 12,16,18,20 4 > cpu.csv
+./build/bench_gpu_hip 10 30 12,16,18,20 4 > gpu_hip.csv
+```
+`bench_gpu_hip` is the **same source** as `bench_gpu`: `src/bench_gpu_hip.hip`
+includes `bench_gpu.cu`, with the CUDA runtime-API names mapped to HIP by
+`include/gpu_runtime.hpp`. The kernels use no warp-level intrinsics, so AMD's
+64-wide wavefront needs no code changes; the same `[validate]` /
+`[validate-batched]` gates run first. Requires ROCm (`hipcc`) and CMake ≥ 3.21.
+`run.sh` builds and runs whichever GPU targets the host toolchain provides.
+Note: the batched sweep's 16 GB footprint cap in `bench_gpu.cu` is
+conservative for MI300X's 192 GB HBM — raise it for fuller saturation curves.
+
 ## Output
 
 CSV on stdout, human-readable table on stderr.
