@@ -119,7 +119,7 @@ struct ContinuationRewrite {
 // before or at the last jump must be covered by the walk (no-fire for
 // targets not in `jumps`); classical_outcomes must list, in circuit
 // order, exactly the classical-source consults after the last jump.
-// `force_last_traceout` marks the last jump as a neglect-form trap whose
+// `force_last_traceout` marks the last jump as a trap-form fire whose
 // carrier arrives uncollapsed. Throws std::invalid_argument on policy
 // rejects and on events that do not describe this circuit.
 ContinuationRewrite rewrite_continuation(const Circuit& annotated, const ExactShotEvents& events,

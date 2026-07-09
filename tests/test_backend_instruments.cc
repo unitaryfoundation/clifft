@@ -146,7 +146,7 @@ TEST_CASE("lowering: an active X-basis site gets an absorbed array Hadamard") {
     REQUIRE(module.bytecode[at - 1].opcode == Opcode::OP_ARRAY_H);
 }
 
-TEST_CASE("lowering: dormant-random under exact damping expands at the site") {
+TEST_CASE("lowering: source-dependent rates under exact damping expand at the site") {
     auto module = compile_raw("H 0\nLEVEL_TRANSITION[jump] 0", demo_options());
 
     const size_t at = sole_instrument_index(module);
@@ -154,6 +154,29 @@ TEST_CASE("lowering: dormant-random under exact damping expands at the site") {
     REQUIRE(at > 0);
     REQUIRE(module.bytecode[at - 1].opcode == Opcode::OP_FRAME_H);
     REQUIRE(module.peak_rank == 1);  // +1 to k at the site
+}
+
+TEST_CASE("lowering: equal per-source rates skip the expansion even under exact damping") {
+    // The trap-form lowering is exact when the two computational columns
+    // agree (the skipped no-fire back-action is proportional to identity),
+    // so exact damping takes it and k stays flat.
+    InstrumentTraceOptions options;
+    InstrumentSpec spec;
+    spec.p_total[0] = 0.1;
+    spec.p_dest[0][0] = 0.02;
+    spec.p_dest[0][1] = 0.03;
+    spec.p_total[1] = 0.1;
+    spec.p_dest[1][0] = 0.02;
+    spec.p_dest[1][1] = 0.03;
+    options.transitions.emplace("jump", spec);
+
+    auto module = compile_raw("H 0\nLEVEL_TRANSITION[jump] 0", options);
+    const size_t at = sole_instrument_index(module);
+    REQUIRE(module.bytecode[at].opcode == Opcode::OP_INSTRUMENT_DORMANT_NEGLECT);
+    REQUIRE(module.peak_rank == 0);
+    // The equal-rate path, not the policy: this is an exact-damping site.
+    REQUIRE_FALSE(module.constant_pool.instrument_sites[module.bytecode[at].instrument.cp_site_idx]
+                      .neglect_damping);
 }
 
 TEST_CASE("lowering: dormant-random under neglect keeps k and skips the expansion") {

@@ -216,7 +216,7 @@ class SchrodingerState {
     // --- Resumable trap state ---
     //
     // Set when an instrument fire cannot be resolved in-line: any form
-    // firing to a leaked/lost destination, or any fire at a neglect-mode
+    // firing to a leaked/lost destination, or any trap-form fire on a
     // dormant-random site (whose collapse belongs to the continuation).
     // execute() halts at the site with the state intact (the carrier
     // already collapsed onto the drawn source where the form allows it)
@@ -226,7 +226,7 @@ class SchrodingerState {
         uint32_t site_id = 0;  // CompiledInstrumentSite::site_id
         uint8_t source = 0;    // Drawn physical source level (0 = |0>)
 
-        // True at a neglect-form site: no destination has been drawn at
+        // True at a trap-form site: no destination has been drawn at
         // all, so the host draws from the site's full column --
         // computational destinations included -- and the continuation
         // performs the collapse. False elsewhere: the destination class
@@ -262,7 +262,7 @@ class SchrodingerState {
 
 /// Execute a compiled program for one shot, populating state with results.
 /// If an instrument fire cannot be resolved in-line (a leaked/lost
-/// destination on any form, or any fire at a neglect-form site),
+/// destination on any form, or any fire at a trap-form site),
 /// execution halts at the site with state.pending_trap set; continue via
 /// resume().
 void execute(const CompiledModule& program, SchrodingerState& state);

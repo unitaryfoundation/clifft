@@ -194,8 +194,8 @@
     },
     "OP_INSTRUMENT_DORMANT_NEGLECT": {
       "category": "Instrument",
-      "summary": "State-dependent jump site on a dormant-random qubit under damping=\"neglect\": Bernoulli fire, no back-action.",
-      "detail": "Fires with the state-independent probability (p_g + p_e) / 2 and applies no no-fire back-action (neglect's defining approximation). Every fire traps: an in-line collapse would re-anchor the Pauli frame conditionally, which compiled downstream code cannot account for.",
+      "summary": "State-dependent trap-form jump site on a dormant-random qubit: Bernoulli fire, no expansion.",
+      "detail": "Fires with the state-independent probability (p_g + p_e) / 2 and applies no no-fire back-action in the VM: neglect omits it, while equal rates make it a scalar that normalization removes. Every fire traps because an in-line collapse would re-anchor the Pauli frame conditionally, which compiled downstream code cannot account for.",
       "operands": "axis_1, instrument.cp_site_idx"
     },
     "OP_APPLY_PAULI": {

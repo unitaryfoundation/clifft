@@ -296,7 +296,7 @@ TEST_CASE("exact: max_rank rejects an over-budget compile naming the line") {
         ContainsSubstring("exceeds max_rank 2") && ContainsSubstring("circuit line"));
 }
 
-TEST_CASE("exact: a neglect-form trap keeps the fire-side correlation") {
+TEST_CASE("exact: a trap-form fire keeps the fire-side correlation") {
     // The decisive pin for the forced trace-out. Qubit 0 is Bell-entangled
     // with qubit 1 and dormant-random at the site; under neglect the fire
     // traps with the carrier uncollapsed. The channel is certain but
