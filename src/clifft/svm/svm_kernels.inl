@@ -1974,7 +1974,7 @@ static inline void exec_readout_noise(SchrodingerState& state, const ConstantPoo
 // Physical source/destination indices (0 = |0> level) map to localized
 // levels through FLAG_SIGN here; the kernels handle p_x[v] themselves. A
 // fire that cannot resolve in-line -- a leaked/lost destination on any
-// form, or any fire at a neglect-form site -- is a resumable trap: the
+// form, or any fire at a trap-form site -- is a resumable trap: the
 // dispatch halts with state.pending_trap set.
 
 // Destination of a fire from physical source s: a computational level d
@@ -2014,7 +2014,7 @@ static inline void apply_instrument_fixup(SchrodingerState& state, const Constan
 }
 
 // Returns false when the shot halts at a resumable trap: a fire to a
-// leaked/lost destination on any form, or any fire at a neglect-form
+// leaked/lost destination on any form, or any fire at a trap-form
 // site. The carrier is collapsed onto the drawn source *before* trapping
 // wherever the form allows it, so the continuation's trace-out measures
 // an already-definite carrier and the unraveling stays correlated with

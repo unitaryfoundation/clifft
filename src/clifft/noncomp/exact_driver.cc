@@ -702,7 +702,7 @@ NonComputationalSample sample_noncomputational_exact(const Circuit& circuit,
             any_noncomp_initial |= !is_computational(events.initial_status.back());
         }
 
-        // Forced-outcome buffer for neglect-form trace-outs, one entry
+        // Forced-outcome buffer for trap-form trace-outs, one entry
         // per hidden slot the chain forces; reset() clears the state's
         // span each shot.
         std::vector<uint8_t> forced_buffer;
@@ -788,7 +788,7 @@ NonComputationalSample sample_noncomputational_exact(const Circuit& circuit,
             const AstNode& node = annotated.nodes[op_index];
             const AnnotationChannel channel = resolve_annotation(node, model, op_index);
 
-            // Destination: at a neglect-form site nothing was drawn, so
+            // Destination: at a trap-form site nothing was drawn, so
             // the driver draws over the full column (computational
             // destinations included); elsewhere the class is already
             // leaked/lost and only the level within the trap remainder
@@ -811,7 +811,7 @@ NonComputationalSample sample_noncomputational_exact(const Circuit& circuit,
             events.jumps.push_back({op_index, qubit, dest});
             extend_classical_outcomes(annotated, events, model, driver_rng);
 
-            // A neglect-form trap hands its carrier over uncollapsed; the
+            // A trap-form fire hands its carrier over uncollapsed; the
             // continuation's trace-out is forced to the reported source,
             // read from forced_record at the slot trace() assigned to the
             // rewrite's named reset node. The forced value is per-shot

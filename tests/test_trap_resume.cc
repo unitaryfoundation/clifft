@@ -85,7 +85,7 @@ TEST_CASE("trap+resume: a spectator loss resumes in the same module and complete
     }
 }
 
-TEST_CASE("trap+resume: a neglect-form trap reports its destination as pending") {
+TEST_CASE("trap+resume: a trap-form fire reports its destination as pending") {
     InstrumentTraceOptions options;
     options.transitions.emplace("jump", [] {
         InstrumentSpec spec;

@@ -85,7 +85,8 @@ enum class Opcode : uint8_t {
     OP_INSTRUMENT_ACTIVE,           // Fused damp+eval on an active axis (any axis)
     OP_INSTRUMENT_DORMANT_STATIC,   // Frame-deterministic source: Bernoulli fire
     OP_INSTRUMENT_EXPAND,           // Fused expand+damp (k -> k+1), damping="exact"
-    OP_INSTRUMENT_DORMANT_NEGLECT,  // Dormant-random, damping="neglect": every fire traps
+    OP_INSTRUMENT_DORMANT_NEGLECT,  // Dormant-random trap form (neglect, or equal rates): every
+                                    // fire traps
 
     // Classical / Errors
     OP_APPLY_PAULI,    // XORs a full N-bit mask from ConstantPool into P
