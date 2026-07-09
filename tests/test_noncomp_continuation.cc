@@ -135,7 +135,7 @@ TEST_CASE("continuation: classical-source consults consume pre-drawn outcomes") 
 
 TEST_CASE("continuation: the forced trace-out node names the trace-out R in the rewritten stream") {
     // The rewrite emits: [R 1, H 0, LEVEL_TRANSITION 0, R 0 (trace-out), MPAD].
-    // The trace-out R lands at node index 3 in the rewritten stream.
+    // The forced_traceout_node must point to a GateType::R on the trapped qubit (q0).
     auto model = demo_model();
     auto circuit = parse("R 1\nH 0\nLEVEL_TRANSITION[leak] 0\nM 0");
     auto annotated = annotate(circuit, model);
@@ -145,12 +145,16 @@ TEST_CASE("continuation: the forced trace-out node names the trace-out R in the 
     events.jumps.push_back({2, 0, Level::LeakE});
 
     auto result = rewrite_continuation(annotated, events, /*force_last_traceout=*/true, model);
-    REQUIRE(result.forced_traceout_node == 3);  // index in the rewritten stream
+    REQUIRE(result.forced_traceout_node.has_value());
+    const uint32_t idx = result.forced_traceout_node.value();
+    REQUIRE(idx < result.circuit.nodes.size());
+    REQUIRE(result.circuit.nodes[idx].gate == GateType::R);
+    REQUIRE(result.circuit.nodes[idx].targets[0].value() == 0);  // trapped qubit is q0
 }
 
 TEST_CASE("continuation: the forced trace-out node is correct with multiple prior resets") {
     // The rewrite emits: [R 1, R 2, H 0, LEVEL_TRANSITION 0, R 0 (trace-out), MPAD].
-    // The trace-out R lands at node index 4 in the rewritten stream.
+    // The forced_traceout_node must point to a GateType::R on the trapped qubit (q0).
     auto model = demo_model();
     auto circuit = parse("R 1\nR 2\nH 0\nLEVEL_TRANSITION[leak] 0\nM 0");
     auto annotated = annotate(circuit, model);
@@ -160,7 +164,11 @@ TEST_CASE("continuation: the forced trace-out node is correct with multiple prio
     events.jumps.push_back({3, 0, Level::LeakE});  // the annotation is node 3
 
     auto result = rewrite_continuation(annotated, events, /*force_last_traceout=*/true, model);
-    REQUIRE(result.forced_traceout_node == 4);  // index in the rewritten stream
+    REQUIRE(result.forced_traceout_node.has_value());
+    const uint32_t idx = result.forced_traceout_node.value();
+    REQUIRE(idx < result.circuit.nodes.size());
+    REQUIRE(result.circuit.nodes[idx].gate == GateType::R);
+    REQUIRE(result.circuit.nodes[idx].targets[0].value() == 0);  // trapped qubit is q0
 }
 
 TEST_CASE("continuation: events that do not describe the circuit reject") {

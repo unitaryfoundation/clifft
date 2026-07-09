@@ -1,6 +1,5 @@
-// Exact-mode driver implementation. exact_driver.h is the entry point;
-// design/state-dependent-jumps.md holds the full design. The vocabulary
-// used throughout this file:
+// Exact-mode driver implementation; exact_driver.h is the entry point.
+// The vocabulary used throughout this file:
 //
 //   annotation         A LEVEL_TRANSITION[name] or LOSS(p) node in the
 //                      user's circuit: the level-transition channel a
@@ -115,12 +114,10 @@ Level draw_initial_level(const NonComputationalModel& model, Xoshiro256PlusPlus&
 }
 
 // Draw a destination level from `source`'s column of the instrument,
-// restricted to the levels `admit` accepts. `admit` is a pure
-// Level -> bool predicate naming which destinations participate; the
-// draw normalizes over the admitted entries' own mass, summed here so a
-// caller cannot supply a mismatched normalizer (which would silently
-// bias the draw). Uses the measurement kernels' last-positive fallback
-// for the floating-point tail, and consumes exactly one RNG draw.
+// restricted to the levels the pure `admit` predicate accepts; the draw
+// normalizes over the admitted entries' own mass. Uses the measurement
+// kernels' last-positive fallback for the floating-point tail, and
+// consumes exactly one RNG draw.
 template <typename Admit>
 Level draw_from_column(const TransitionInstrument& instrument, Level source,
                        Xoshiro256PlusPlus& rng, Admit&& admit) {
@@ -161,16 +158,12 @@ Level draw_from_column(const TransitionInstrument& instrument, Level source,
 // Walk the annotated circuit's statuses under `events` and rebuild the
 // classical-outcome stream in the walk's own (circuit) order: outcomes
 // already drawn for a consult are reused by annotation target, and
-// consults seen for the first time are drawn. Rebuilding rather than
-// appending matters after a trap, which turns the trapped qubit's later
-// consults classical *between* previously recorded ones -- an
-// append-only stream would replay old outcomes at the wrong targets.
-// Reused outcomes keep the executed prefix's compilation stable;
-// first-seen consults live only in the not-yet-executed suffix, so a
-// fresh draw is unbiased. Mutates events.classical_outcomes; the walk
-// is the single source of truth for which consults are classical, so
-// the stream always matches what rewrite_continuation will validate.
-// Final statuses are read from the fetched entry's rw.final_status.
+// consults seen for the first time are drawn. The stream must be rebuilt,
+// not appended: a trap turns the trapped qubit's later consults classical
+// *between* previously recorded ones, and an append-only stream would
+// replay old outcomes at the wrong targets. Mutates
+// events.classical_outcomes; the walk decides which consults are
+// classical, matching what rewrite_continuation validates.
 void extend_classical_outcomes(const Circuit& annotated, ExactShotEvents& events,
                                const NonComputationalModel& model, Xoshiro256PlusPlus& rng) {
     std::map<std::pair<uint32_t, uint32_t>, Level> jump_dest;
@@ -327,10 +320,7 @@ void check_max_rank(const CompiledModule& module, std::optional<uint32_t> max_ra
 // is why the property matters: reordering commuting measurements is
 // exchangeable under sampling semantics but wrong once a continuation's
 // trace-out is forced -- an entangled partner must not measure before
-// the forced collapse it is correlated with. Today the filter excludes
-// exactly the statevector squeeze, whose rank compaction is a
-// performance loss to quantify; a future pass joins these pipelines
-// only by declaring itself order-preserving. One pipeline serves every
+// the forced collapse it is correlated with. One pipeline serves every
 // module in the mode, so prefix identity is preserved.
 HirPassManager exact_hir_pass_manager() {
     HirPassManager pm;
@@ -342,10 +332,8 @@ HirPassManager exact_hir_pass_manager() {
     return pm;
 }
 
-// Bytecode counterpart. Every current default bytecode pass preserves
-// the record sequence (they fuse contiguous instructions, and record
-// slots ride inside instruction payloads), so today this matches the
-// default pipeline; the filter is the standing contract.
+// Bytecode counterpart: the same record-order filter applied to the
+// bytecode passes.
 BytecodePassManager exact_bytecode_pass_manager() {
     BytecodePassManager pm;
     for (const auto& info : kRegisteredPasses) {

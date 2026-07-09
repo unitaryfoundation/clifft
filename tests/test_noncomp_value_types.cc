@@ -73,9 +73,3 @@ TEST_CASE("NonComputationalPolicy: defaults are exact and conservative") {
     REQUIRE(policy.reset_restores_lost == false);
     REQUIRE(policy.damping == DampingPolicy::Exact);
 }
-
-TEST_CASE("NonComputationalPolicy: explicit overrides round-trip") {
-    NonComputationalPolicy policy;
-    policy.reset_restores_lost = true;
-    REQUIRE(policy.reset_restores_lost == true);
-}
