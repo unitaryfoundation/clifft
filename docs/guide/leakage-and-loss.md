@@ -207,10 +207,11 @@ why this matters and what it costs.
   qubit re-prepares the site or is dropped. A reset always restores a
   *leaked* qubit; a measure-and-reset keeps its record either way, with
   its reset half following the same rule.
-- **`damping`** (default `"exact"`): at a coherent site whose rates differ
-  between `g` and `e`, the exact no-fire back-action costs one unit of
-  active rank. `"neglect"` keeps the rank and omits the back-action — an
-  error of order $\lvert p_g - p_e \rvert$ per site, and exactly zero for
+- **`damping`** (default `"exact"`): a site whose rates differ between
+  `g` and `e` needs its qubit in the active array for the exact no-fire
+  back-action; a coherent qubit still outside it is expanded at the site.
+  `"neglect"` skips the expansion and the back-action — an error of order
+  $\lvert p_g - p_e \rvert$ per site, and exactly zero for
   source-independent rates (`LOSS` always qualifies).
 - **`seed`**: same contract as ordinary sampling — a fixed seed is fully
   reproducible, `None` uses hardware entropy.
@@ -226,9 +227,12 @@ why this matters and what it costs.
   ancilla's ladder gates then drop per the rules above.
 - **A classifier is required** whenever a capable model meets a measuring
   circuit; the error names the missing piece before sampling begins.
-- Each coherent state-dependent site adds one unit of peak rank under
-  `damping="exact"`; the [performance model](performance.md) applies
-  unchanged with that addition.
+- Under `damping="exact"`, a state-dependent site on a coherent qubit
+  outside the active array expands that qubit into it — one unit of peak
+  rank at that site. An already-active qubit adds nothing, and later
+  sites on a qubit that stays active do not stack, so the worst case is
+  one unit per *qubit* held coherent across its sites, not one per site.
+  The [performance model](performance.md) otherwise applies unchanged.
 
 ## Why there is no compile step
 

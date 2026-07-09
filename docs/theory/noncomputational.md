@@ -102,10 +102,14 @@ state-dependent rates, including the correlations ahead-of-time sampling
 cannot produce — when the jump's destination depends on the source level,
 the leaked qubit's readout stays correlated with its entangled partner.
 
-The one approximation on this path is opt-in. At a coherent site with
-source-dependent rates, the exact no-fire back-action costs one unit of
-active rank; `damping="neglect"` keeps the rank and omits the back-action,
-a survivorship tilt of order $\lvert p_g - p_e \rvert$ per site and exactly
+The one approximation on this path is opt-in. The exact no-fire
+back-action acts on the qubit's amplitudes, so a source-dependent site on
+a coherent qubit that is still *dormant* — held in the Clifford frame,
+outside the active array — expands that qubit into the array, one unit of
+active dimension at that site. A qubit already active costs nothing more,
+and later sites on a qubit that stays active do not stack.
+`damping="neglect"` skips the expansion and the back-action, a
+survivorship tilt of order $\lvert p_g - p_e \rvert$ per site and exactly
 zero at source-independent rates. The default is exact.
 
 ## Validation
