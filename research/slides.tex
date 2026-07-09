@@ -174,7 +174,7 @@
     \begin{column}{0.44\textwidth}
       \centering
       \begin{tikzpicture}[scale=0.82]
-        \draw[->,mutedink] (0,0) -- (5.4,0) node[below left,font=\tiny,color=mutedink]{circuit size};
+        \draw[->,mutedink] (0,0) -- (5.4,0) node[below left,font=\tiny,color=mutedink]{compiled peak rank $k$ \ (magic-sparse: $t \propto k$)};
         \draw[->,mutedink] (0,0) -- (0,3.4) node[rotate=90,anchor=south east,font=\tiny,color=mutedink,yshift=2pt]{cost (log)};
         \draw[violet,very thick] (0.2,0.15) -- (4.6,3.30) node[anchor=south east,font=\scriptsize,color=violet,pos=0.88,yshift=6pt]{exact $2^{k}$};
         \draw[copper,very thick] (0.2,0.75) -- (5.0,1.90) node[anchor=north west,font=\scriptsize,color=copper,pos=0.72,yshift=-2pt]{recipes $2^{0.228 t}$};
@@ -192,7 +192,7 @@
     \begin{column}{0.55\textwidth}
       \begin{itemize}
         \item Every component validated to \punch{machine precision} against exact references (incl.\ an independent checker we built).
-        \item Head-to-head on hard dense circuits: the backend overtakes exact clifft at \punch{$n\!\approx\!34$} (coarse accuracy) and $n\!\approx\!48$ (8\% error).
+        \item Head-to-head on circuits that compile to \emph{genuinely large} blocks (peak rank $\approx n/2$): the backend overtakes exact clifft at \punch{$n\!\approx\!34$} (coarse) and $n\!\approx\!48$ (8\% error).
         \item Past $n\!\approx\!62$ it is the \punch{only method that runs at all}.
         \item External exact tools on the same circuits: QuiZX needs $25\times$ longer by $n{=}56$; Quokka\# (model counting) \punch{times out beyond $n{=}24$}.
       \end{itemize}
@@ -219,10 +219,10 @@
   \small
   \begin{tabular}{@{}p{0.30\textwidth}p{0.30\textwidth}p{0.30\textwidth}@{}}
     \toprule
-    \textbf{Small circuits} & \textbf{Large, magic-sparse} & \textbf{Adaptive, Clifford-heavy} \\
+    \textbf{Small peak rank} & \textbf{Large peak rank, sparse magic} & \textbf{Adaptive, Clifford-heavy} \\
     \midrule
-    clifft exact is faster \emph{and} exact --- keep it. &
-    \textcolor{copper}{\textbf{The niche.}} Only feasible method past the memory wall (approximate, dial-controlled). &
+    Not qubit count: clifft compiles most circuits, however wide, to a \emph{small} block --- then it is faster \emph{and} exact. Keep it. &
+    \textcolor{copper}{\textbf{The niche.}} Even the \emph{compiled} block breaks the memory wall, $T$-count low: the only feasible method (approximate, dial-controlled). &
     \textcolor{copper}{\textbf{Real protocols win}}: cultivation-style patches $4$--$16\times$, teleported-$T$ gadgets $\sim\!2\times$; bare syndrome extraction sits at the boundary. The standard open-source tool cannot run these circuits at all. \\
     \bottomrule
   \end{tabular}
@@ -230,7 +230,7 @@
   \begin{itemize}
     \item Also measured where it \emph{loses}: with no logical Clifford traffic the frame's bookkeeping costs up to $\sim\!2\times$ --- the advantage is a measured phase boundary, not a slogan.
   \end{itemize}
-  \takeaway{Status: validated prototype (Python + C++), honest benchmarks, natural-workload wins, external baselines complete.}
+  \takeaway{Status: prototype validated; honest benchmarks, natural workloads, external baselines done.}
 \end{frame}
 
 % ================================================================ A: generality
