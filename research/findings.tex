@@ -18,7 +18,7 @@
 \usepackage{booktabs}
 \usepackage{xcolor}
 \usepackage{tikz}
-\usetikzlibrary{positioning}
+\usetikzlibrary{positioning,decorations.pathreplacing}
 \usepackage[colorlinks=true,linkcolor=blue,urlcolor=blue,citecolor=blue]{hyperref}
 
 \newcommand{\ket}[1]{\lvert #1 \rangle}
@@ -365,7 +365,111 @@ Contestants run single-threaded on an Apple M-series workstation ($36$\,GB;
 cores but competes with no one. Scripts and raw JSON are committed. Measured
 component facts: the $L_1$ growth per $T$ is exactly $2^{0.114}$;
 sparsification error tracks the BGH bound to $\sim\!1\%$; the single-shot
-estimator is unbiased.
+estimator is unbiased. Figure~\ref{fig:families} sketches the four circuit
+families that carry the measurements.
+
+\begin{figure}[t]\centering
+% ---- (a) dense random IQP ----
+\begin{minipage}[t]{0.48\linewidth}\centering
+\begin{tikzpicture}[xscale=0.72, yscale=0.42,
+    g/.style={draw, fill=white, inner sep=1.2pt, minimum size=9pt, font=\scriptsize},
+    t/.style={g, fill=orange!25}]
+  \foreach \y in {0,...,3} \draw (0.3,\y) -- (8.0,\y);
+  \foreach \y in {0,...,3} \node[g] at (1.0,\y) {$H$};
+  \foreach \y in {0,...,3} \node[t] at (1.9,\y) {$T$};
+  \foreach \x/\a/\b in {2.7/0/1, 3.3/0/2, 3.9/1/3, 4.5/2/3, 5.1/0/3}{
+    \filldraw (\x,\a) circle (1.5pt);
+    \filldraw (\x,\b) circle (1.5pt);
+    \draw (\x,\a) -- (\x,\b);}
+  \foreach \y in {0,...,3} \node[g] at (6.0,\y) {$H$};
+  \foreach \y in {0,...,3} \node[g] at (7.1,\y) {$M$};
+\end{tikzpicture}\\[3pt]
+{\scriptsize (a) \textbf{Dense random IQP} ($n{=}4$ sketch): $T$ on every
+qubit, CZ on each pair w.p.\ $\tfrac12$. $t=n$; the measured program
+compiles to peak rank $n/2$. Carries the crossover, dial, frontier, and
+external baselines (\S\ref{sec:overlap}--\ref{sec:frontier},
+\S\ref{sec:external}).}
+\end{minipage}\hfill
+% ---- (b) T-gadget ----
+\begin{minipage}[t]{0.48\linewidth}\centering
+\begin{tikzpicture}[xscale=0.85, yscale=0.75,
+    g/.style={draw, fill=white, inner sep=1.2pt, minimum size=9pt, font=\scriptsize},
+    t/.style={g, fill=orange!25}]
+  \node[font=\scriptsize, anchor=east] at (0.25,1.6) {$\ket{\psi}$};
+  \node[font=\scriptsize, anchor=east] at (0.25,0) {$\ket{T}$};
+  \draw (0.25,1.6) -- (4.6,1.6);
+  \draw (0.25,0) -- (2.1,0);
+  \filldraw (1.1,1.6) circle (1.5pt);
+  \draw (1.1,1.6) -- (1.1,0);
+  \node[font=\small] at (1.1,0) {$\oplus$};
+  \node[g] at (2.0,0) {$M$};
+  \draw[double, double distance=0.8pt] (2.0,0.25) -- (2.0,0.85) -- (3.1,0.85) -- (3.1,1.37);
+  \node[g] at (3.1,1.6) {$S$};
+  \node[font=\scriptsize, anchor=west] at (4.6,1.6) {$=\ T\ket{\psi}$};
+  \node[font=\tiny, color=black!55, anchor=west] at (1.3,-0.62) {outcome forced to $0$};
+\end{tikzpicture}\\[3pt]
+{\scriptsize (b) \textbf{The $T$-gadget} behind gadgetization: an in-line
+$T$ becomes a CX onto a $\ket T$ ancilla, a measurement, and a conditional
+$S$. Turns any interleaved circuit into one product magic layer; exercised
+at scale by hidden shift (up to 96 qubits) and random Clifford$+T$
+(\S\ref{sec:gadget}).}
+\end{minipage}\\[14pt]
+% ---- (c) magic conveyor ----
+\begin{minipage}[t]{0.48\linewidth}\centering
+\begin{tikzpicture}[xscale=0.78, yscale=0.42,
+    g/.style={draw, fill=white, inner sep=1.2pt, minimum size=9pt, font=\scriptsize}]
+  \foreach \y in {0,1,2} \draw (0.3,\y) -- (7.6,\y);
+  \draw[fill=orange!25] (0.7,-0.4) rectangle (1.4,2.4);
+  \node[rotate=90, font=\scriptsize] at (1.05,1) {$T^{\otimes w}$};
+  \draw[fill=white] (1.7,-0.4) rectangle (2.5,2.4);
+  \node[rotate=90, font=\scriptsize] at (2.1,1) {CX/CZ};
+  \draw[fill=white] (2.8,-0.4) rectangle (3.4,2.4);
+  \node[font=\scriptsize] at (3.1,1) {$M$};
+  \draw[double, double distance=0.8pt] (3.1,2.4) -- (3.1,3.0) -- (4.25,3.0) -- (4.25,2.4);
+  \draw[fill=white] (3.95,-0.4) rectangle (4.55,2.4);
+  \node[rotate=90, font=\scriptsize] at (4.25,1) {$P^{(m)}$};
+  \draw[fill=orange!25] (4.85,-0.4) rectangle (5.55,2.4);
+  \node[rotate=90, font=\scriptsize] at (5.2,1) {$T^{\otimes w}$};
+  \node[font=\scriptsize] at (6.6,1) {$\cdots\times R$};
+  \draw[decorate, decoration={brace, mirror, raise=2pt}] (0.7,-0.7) -- (3.4,-0.7)
+    node[midway, below=4pt, font=\scriptsize] {one episode: $m_{\rm blk}=w$};
+\end{tikzpicture}\\[3pt]
+{\scriptsize (c) \textbf{Feedforward magic conveyor}: each round injects $w$
+$T$'s, mixes, and measures the block away with conditional-Pauli
+feedforward. Per-episode magic $m_{\rm blk}=w$ stays bounded while
+$t_{\rm live}=wR$ grows. Carries the episodic measurements
+(\S\ref{sec:episodic}) and the dispatch demo (\S\ref{sec:arch}).}
+\end{minipage}\hfill
+% ---- (d) cultivation-style patch ----
+\begin{minipage}[t]{0.48\linewidth}\centering
+\begin{tikzpicture}[xscale=0.78, yscale=0.42,
+    g/.style={draw, fill=white, inner sep=1.2pt, minimum size=9pt, font=\scriptsize},
+    t/.style={g, fill=orange!25}]
+  \foreach \y in {1,2,3} \draw (0.55,\y) -- (7.4,\y);
+  \draw (0.55,0) -- (5.5,0);
+  \node[font=\scriptsize, anchor=east] at (0.5,0) {$\ket{0}$};
+  \foreach \y in {1,2,3} \node[t] at (1.1,\y) {$T$};
+  \draw[fill=white] (1.6,0.6) rectangle (2.5,3.4);
+  \node[rotate=90, font=\scriptsize] at (2.05,2) {Cliff.\ $\times L$};
+  \foreach \x/\y in {2.95/3, 3.5/2, 4.05/1}{
+    \filldraw (\x,\y) circle (1.5pt);
+    \draw (\x,\y) -- (\x,0);
+    \node[font=\small] at (\x,0) {$\oplus$};}
+  \node[g] at (4.95,0) {$M$};
+  \draw[double, double distance=0.8pt] (4.95,0.3) -- (4.95,0.55) -- (5.75,0.55) -- (5.75,0.78);
+  \node[g] at (5.75,1) {$X$};
+  \node[font=\scriptsize] at (6.7,2.2) {$\cdots$ repeat};
+\end{tikzpicture}\\[3pt]
+{\scriptsize (d) \textbf{Cultivation-style patch}: data accumulates injected
+$T$'s; each round runs syndrome extraction (CX fan, ancilla measurement,
+conditional correction) plus $L$ layers of code-preserving logical Clifford
+traffic. Carries the adaptive frame benchmark (\S\ref{sec:adaptive});
+teleported-$T$ injection is panel (b) run as a live adaptive gadget.}
+\end{minipage}
+\caption{The circuit families behind the benchmarks (schematics; benchmark
+instances scale the same structure to $n=16$--$96$).}
+\label{fig:families}
+\end{figure}
 
 \subsection{The crossover}\label{sec:overlap}
 Head-to-head on circuits that compile to \emph{genuinely large} blocks:

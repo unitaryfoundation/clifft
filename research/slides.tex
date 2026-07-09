@@ -7,7 +7,7 @@
 \usepackage[T1]{fontenc}
 \usepackage{lmodern}
 \usepackage{tikz}
-\usetikzlibrary{positioning}
+\usetikzlibrary{positioning,decorations.pathreplacing}
 \usepackage{booktabs}
 
 % ---------- palette (validated for accessibility, light surface) ----------
@@ -41,6 +41,7 @@
 \newcommand{\accentB}{\colorlet{framerule}{teal}}
 \newcommand{\accentO}{\colorlet{framerule}{ink}}
 
+\newcommand{\ket}[1]{\lvert #1 \rangle}
 \newcommand{\punch}[1]{{\color{framerule}\bfseries #1}}
 \newcommand{\takeaway}[1]{%
   \vfill{\color{framerule}\rule{\textwidth}{0.6pt}}\\[0.35em]
@@ -238,6 +239,90 @@
     \item Honest, measured boundary: for full records, harder compression degrades sharply with episode count --- the dispatcher's \punch{four strategies} price exact-per-episode accordingly.
   \end{itemize}
   \takeaway{The circuit's rhythm --- magic in, magic measured out --- is itself a computational resource.}
+\end{frame}
+
+% ================================================================ A: circuits
+\begin{frame}{A \,\textperiodcentered\, The circuits behind the numbers}
+  \begin{columns}[T]
+    \begin{column}{0.48\textwidth}
+      \centering
+      \begin{tikzpicture}[xscale=0.52, yscale=0.34,
+          g/.style={draw, fill=paper, inner sep=1pt, minimum size=8pt, font=\tiny},
+          t/.style={g, fill=copper!28}]
+        \foreach \y in {0,...,3} \draw[ink] (0.3,\y) -- (8.0,\y);
+        \foreach \y in {0,...,3} \node[g] at (1.0,\y) {$H$};
+        \foreach \y in {0,...,3} \node[t] at (1.9,\y) {$T$};
+        \foreach \x/\a/\b in {2.7/0/1, 3.3/0/2, 3.9/1/3, 4.5/2/3, 5.1/0/3}{
+          \filldraw[ink] (\x,\a) circle (1.3pt);
+          \filldraw[ink] (\x,\b) circle (1.3pt);
+          \draw[ink] (\x,\a) -- (\x,\b);}
+        \foreach \y in {0,...,3} \node[g] at (6.0,\y) {$H$};
+        \foreach \y in {0,...,3} \node[g] at (7.1,\y) {$M$};
+      \end{tikzpicture}\\[1pt]
+      {\scriptsize\punch{Dense IQP} --- the stress test}\\
+      {\tiny\color{mutedink} magic on every qubit; \emph{compiles} to peak rank $n/2$ (crossover, frontier)}\\[0.9em]
+      \begin{tikzpicture}[xscale=0.56, yscale=0.34,
+          g/.style={draw, fill=paper, inner sep=1pt, minimum size=8pt, font=\tiny}]
+        \foreach \y in {0,1,2} \draw[ink] (0.3,\y) -- (7.6,\y);
+        \draw[fill=copper!28] (0.7,-0.45) rectangle (1.4,2.45);
+        \node[rotate=90, font=\tiny] at (1.05,1) {$T^{\otimes w}$};
+        \draw[fill=paper] (1.7,-0.45) rectangle (2.5,2.45);
+        \node[rotate=90, font=\tiny] at (2.1,1) {CX/CZ};
+        \draw[fill=paper] (2.8,-0.45) rectangle (3.4,2.45);
+        \node[font=\tiny] at (3.1,1) {$M$};
+        \draw[double, double distance=0.7pt, ink] (3.1,2.45) -- (3.1,3.1) -- (4.25,3.1) -- (4.25,2.45);
+        \draw[fill=paper] (3.95,-0.45) rectangle (4.55,2.45);
+        \node[rotate=90, font=\tiny] at (4.25,1) {$P^{(m)}$};
+        \draw[fill=copper!28] (4.85,-0.45) rectangle (5.55,2.45);
+        \node[rotate=90, font=\tiny] at (5.2,1) {$T^{\otimes w}$};
+        \node[font=\tiny] at (6.6,1) {$\cdots\times R$};
+        \draw[decorate, decoration={brace, mirror, raise=2pt}, ink] (0.7,-0.8) -- (3.4,-0.8)
+          node[midway, below=3pt, font=\tiny] {one episode};
+      \end{tikzpicture}\\[1pt]
+      {\scriptsize\punch{Magic conveyor} --- recycled magic}\\
+      {\tiny\color{mutedink} $w$ $T$'s in, measured out with feedforward, $R$ rounds (episodic)}
+    \end{column}
+    \begin{column}{0.48\textwidth}
+      \centering
+      \begin{tikzpicture}[xscale=0.62, yscale=0.5,
+          g/.style={draw, fill=paper, inner sep=1pt, minimum size=8pt, font=\tiny}]
+        \node[font=\tiny, anchor=east] at (0.25,1.6) {$\ket{\psi}$};
+        \node[font=\tiny, anchor=east] at (0.25,0) {$\ket{T}$};
+        \draw[ink] (0.25,1.6) -- (4.6,1.6);
+        \draw[ink] (0.25,0) -- (2.1,0);
+        \filldraw[ink] (1.1,1.6) circle (1.3pt);
+        \draw[ink] (1.1,1.6) -- (1.1,0);
+        \node[font=\scriptsize] at (1.1,0) {$\oplus$};
+        \node[g] at (2.0,0) {$M$};
+        \draw[double, double distance=0.7pt, ink] (2.0,0.3) -- (2.0,0.9) -- (3.1,0.9) -- (3.1,1.35);
+        \node[g] at (3.1,1.6) {$S$};
+        \node[font=\tiny, anchor=west] at (4.6,1.6) {$=\,T\ket{\psi}$};
+      \end{tikzpicture}\\[1pt]
+      {\scriptsize\punch{$T$-gadget} --- the generality trick}\\
+      {\tiny\color{mutedink} in-line $T$ $\to$ ancilla $+$ measurement $+$ conditional $S$: any circuit becomes one magic layer (hidden shift, 96 qubits)}\\[0.9em]
+      \begin{tikzpicture}[xscale=0.56, yscale=0.34,
+          g/.style={draw, fill=paper, inner sep=1pt, minimum size=8pt, font=\tiny},
+          t/.style={g, fill=copper!28}]
+        \foreach \y in {1,2,3} \draw[ink] (0.55,\y) -- (7.4,\y);
+        \draw[ink] (0.55,0) -- (5.5,0);
+        \node[font=\tiny, anchor=east] at (0.5,0) {$\ket{0}$};
+        \foreach \y in {1,2,3} \node[t] at (1.1,\y) {$T$};
+        \draw[fill=paper] (1.6,0.55) rectangle (2.5,3.45);
+        \node[rotate=90, font=\tiny] at (2.05,2) {Cliff.\ $\times L$};
+        \foreach \x/\y in {2.95/3, 3.5/2, 4.05/1}{
+          \filldraw[ink] (\x,\y) circle (1.3pt);
+          \draw[ink] (\x,\y) -- (\x,0);
+          \node[font=\scriptsize] at (\x,0) {$\oplus$};}
+        \node[g] at (4.95,0) {$M$};
+        \draw[double, double distance=0.7pt, ink] (4.95,0.3) -- (4.95,0.55) -- (5.75,0.55) -- (5.75,0.78);
+        \node[g] at (5.75,1) {$X$};
+        \node[font=\tiny] at (6.7,2.2) {$\cdots$ repeat};
+      \end{tikzpicture}\\[1pt]
+      {\scriptsize\punch{Cultivation patch} --- adaptive}\\
+      {\tiny\color{mutedink} syndrome rounds $+$ logical Clifford traffic while magic accumulates (the frame's home turf)}
+    \end{column}
+  \end{columns}
+  \takeaway{A stress test, a trick, a rhythm, a protocol --- each drives one benchmark.}
 \end{frame}
 
 % ================================================================ A: evidence
