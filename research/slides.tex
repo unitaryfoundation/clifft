@@ -254,7 +254,7 @@
     \node[box] (circ) at (0,0) {circuit};
     \node[box] (comp) at (2.7,0) {clifft compiler};
     \node[box] (meta) at (6.0,0) {compiled program};
-    \node[sub] at (6.0,-0.55) {peak rank $k$, $T$-count $t$};
+    \node[sub] at (6.0,-0.55) {peak rank $k$, live $T$-count $t$};
     \node[box, draw=violet] (dense) at (11.4,0.95) {dense engine};
     \node[sub] at (11.4,0.42) {exact, $2^{k}$};
     \node[box, draw=copper] (chf) at (11.4,-0.95) {rank backend};
@@ -268,10 +268,10 @@
   \end{tikzpicture}
   \begin{itemize}
     \item Both cost exponents are known from the compiled program \punch{before anything runs} --- dispatch is a one-line comparison, per program.
+    \item \punch{Wired, not just proposed}: the backend runs clifft's \emph{optimized} circuits --- compilation absorbs \emph{every} Clifford and halves the live $T$-count (validated to $10^{-13}$).
     \item The backend is an explicit opt-in ($\delta$), never a silent substitute: clifft's exactness contract stays intact.
-    \item Every compiler improvement makes \emph{both} engines cheaper.
   \end{itemize}
-  \takeaway{clifft compiles; the cheaper engine runs.}
+  \takeaway{clifft compiles; the cheaper engine runs --- on the same optimized circuit.}
 \end{frame}
 
 % ================================================================ B: idea
