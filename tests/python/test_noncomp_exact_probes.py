@@ -1,6 +1,6 @@
 """Closed-form micro-probes for the exact sampling mode.
 
-Each probe pins, in closed form built on the first-principles oracle, a
+Each probe checks, in closed form built on the first-principles oracle, a
 distinct property the exact mode must satisfy: zero fires from a gate-determined
 source, destination-collapse correlations with an entangled partner, and the
 sqrt(1 - p) no-fire coherence that separates ``damping="exact"`` from
@@ -119,7 +119,7 @@ def test_damping_boundary_probe_separates_exact_from_neglect():
 
 
 def test_damping_null_source_independent_rates_make_neglect_exact():
-    """Null counterpart of the boundary probe, which pins the direction the
+    """Null counterpart of the boundary probe, which checks the direction the
     modes separate at source-DEPENDENT rates: when a transition's
     computational columns are EQUAL (fire 0.3 from g and from e, both to
     leak_g), the no-fire back-action is proportional to identity, so
@@ -130,7 +130,7 @@ def test_damping_null_source_independent_rates_make_neglect_exact():
     p = 0.3
     transitions = {"leak": _transition({(Level.LEAK_G, Level.G): p, (Level.LEAK_G, Level.E): p})}
     # g reads 0, e reads 1, every noncomputational level reads 1: a leak
-    # reads 1, and the survivor pin expects 0 (H .. H returns g).
+    # reads 1, and the survivor check expects 0 (H .. H returns g).
     classifier = noncomp.Classifier([[1, 0, 0, 0, 0], [0, 1, 1, 1, 1]])
     text = "H 0\nLEVEL_TRANSITION[leak] 0\nH 0\nM 0\n"
 
@@ -175,7 +175,7 @@ def test_neglect_bell_correlation_probe():
     q1 measures from the post-trace |0>, also 0.  Both outcomes must occur
     to guard vacuity.
 
-    This is the sharp neglect-mode pin at the Bell-correlation level; the
+    This is the sharp neglect-mode check at the Bell-correlation level; the
     TVD test exercises neglect end-to-end against the enumerator reference
     but cannot resolve the O(p^2) difference between exact and neglect at
     the cold-atom rates used there.

@@ -480,7 +480,7 @@ TEST_CASE("instrument kernels: unnormalized array and nonunit gamma") {
 }
 
 // =============================================================================
-// Physics pins
+// Physics checks
 // =============================================================================
 
 TEST_CASE("instrument damp_eval: frame conjugation swaps the coefficients and populations") {

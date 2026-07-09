@@ -2,7 +2,7 @@
 // cache, frame-preloaded initials, and trap resolution behind
 // sample_noncomputational.
 //
-// Deterministic pins use certain (p = 1) channels; statistical checks
+// Deterministic checks use certain (p = 1) channels; statistical checks
 // use source-independent rates with closed forms and generous margins
 // (the full distributional campaign lives in the Python enumerator
 // suite).
@@ -184,7 +184,7 @@ TEST_CASE("exact: an in-line computational fire is never reported as a known lev
     // From g, the flip site fires g -> e inside the VM on ~half the
     // shots; the driver never learns which shots fired, so the sidecar
     // must not claim a known level for either population. The
-    // measurement mixture pins that the fire really happens.
+    // measurement mixture verifies that the fire really happens.
     ModelSpec spec;
     spec.flip_g_to_e = 0.5;
     auto model = make_model(spec);
@@ -297,7 +297,7 @@ TEST_CASE("exact: max_rank rejects an over-budget compile naming the line") {
 }
 
 TEST_CASE("exact: a trap-form fire keeps the fire-side correlation") {
-    // The decisive pin for the forced trace-out. Qubit 0 is Bell-entangled
+    // The decisive regression check for the forced trace-out. Qubit 0 is Bell-entangled
     // with qubit 1 and dormant-random at the site; under neglect the fire
     // traps with the carrier uncollapsed. The channel is certain but
     // source-dependent in its destination (g -> leak_g, e -> leak_e), and
@@ -735,7 +735,7 @@ TEST_CASE("exact: a correlated-chain head with a lost operand does not orphan th
 }
 
 TEST_CASE("exact: a fired head with a lost operand prevents the ELSE from firing") {
-    // Conditioning pin: E(1) fires (head always fires, operating on the
+    // Conditioning check: E(1) fires (head always fires, operating on the
     // vacated q0 carrier), so the ELSE must NOT fire -- if the head were
     // dropped the ELSE would become the new head and fire, flipping q1.
     // q1 record must read 0 every shot.
@@ -749,6 +749,55 @@ TEST_CASE("exact: a fired head with a lost operand prevents the ELSE from firing
     auto result = sample_noncomputational(circuit, model, 25, 73);
     for (uint32_t shot = 0; shot < 25; ++shot) {
         REQUIRE(result.measurements[shot * 2 + 1] == 0);  // ELSE did not fire
+    }
+}
+
+TEST_CASE("exact: a correlated-chain head with a leaked operand does not orphan the ELSE") {
+    // The leaked counterpart to the lost-operand regression test: unlike a lost qubit, a
+    // leaked qubit's carrier is still parked in the state, so the head's
+    // X0 lands there as a frame flip nothing reads. The conditioning must
+    // be identical: E(1) fires, the ELSE never does. The leak column reads
+    // 1, so q0's record is the classifier bit, not the carrier.
+    std::vector<std::vector<double>> leak(5, std::vector<double>(5, 0.0));
+    leak[kLeakG][0] = 1.0;
+    leak[kLeakG][1] = 1.0;
+    const std::vector<std::vector<double>> cl = {{1.0, 0.0, 0.0, 0.0, 1.0},
+                                                 {0.0, 1.0, 1.0, 1.0, 0.0}};
+    auto model = NonComputationalModel::from_spec({1.0, 0.0, 0.0, 0.0, 0.0}, {{"leak", leak}},
+                                                  std::make_optional(cl), NonComputationalPolicy{});
+    auto circuit = parse(
+        "LEVEL_TRANSITION[leak] 0\n"
+        "E(1) X0 X1\n"
+        "ELSE_CORRELATED_ERROR(1) X1\n"
+        "M 0 1\n");
+
+    auto result = sample_noncomputational(circuit, model, 25, 83);
+    for (uint32_t shot = 0; shot < 25; ++shot) {
+        REQUIRE(result.measurements[shot * 2] == 1);      // leak column reads 1
+        REQUIRE(result.measurements[shot * 2 + 1] == 1);  // X1 from fired head
+        REQUIRE(result.final_status[shot * 2] == QubitStatus::LeakG);
+        REQUIRE(result.final_status[shot * 2 + 1] == QubitStatus::Computational);
+    }
+}
+
+TEST_CASE("exact: a fired head with a leaked operand prevents the ELSE from firing") {
+    std::vector<std::vector<double>> leak(5, std::vector<double>(5, 0.0));
+    leak[kLeakG][0] = 1.0;
+    leak[kLeakG][1] = 1.0;
+    const std::vector<std::vector<double>> cl = {{1.0, 0.0, 0.0, 0.0, 1.0},
+                                                 {0.0, 1.0, 1.0, 1.0, 0.0}};
+    auto model = NonComputationalModel::from_spec({1.0, 0.0, 0.0, 0.0, 0.0}, {{"leak", leak}},
+                                                  std::make_optional(cl), NonComputationalPolicy{});
+    auto circuit = parse(
+        "LEVEL_TRANSITION[leak] 0\n"
+        "E(1) X0\n"
+        "ELSE_CORRELATED_ERROR(1) X1\n"
+        "M 0 1\n");
+
+    auto result = sample_noncomputational(circuit, model, 25, 89);
+    for (uint32_t shot = 0; shot < 25; ++shot) {
+        REQUIRE(result.measurements[shot * 2 + 1] == 0);  // ELSE did not fire
+        REQUIRE(result.final_status[shot * 2] == QubitStatus::LeakG);
     }
 }
 
@@ -892,12 +941,23 @@ TEST_CASE("exact: memory-X smoke: two qubits, low-rate leak hook, MX measures bo
     auto model = NonComputationalModel::from_spec({1.0, 0.0, 0.0, 0.0, 0.0}, {{"leak", leak}},
                                                   std::make_optional(classifier), policy);
     auto circuit = parse("RX 0 1\nLEVEL_TRANSITION[leak] 0 1\nMX 0 1");
-    auto result = sample_noncomputational(circuit, model, 50, 111);
-    REQUIRE(result.shots == 50);
+    // Equal-rate loss keeps stabilizer cost under exact damping: max_rank 0.
+    constexpr uint32_t kShots = 2000;
+    auto result = sample_noncomputational(circuit, model, kShots, 111, 0);
+    REQUIRE(result.shots == kShots);
     REQUIRE(result.num_measurements == 2);
-    // Shape check: result exists with the right dimensions.
-    REQUIRE(result.measurements.size() == 100u);
-    REQUIRE(result.final_status.size() == 100u);
+    // A surviving |+> reads MX = 0 deterministically and the lost column
+    // reads symbol 0, so every record is 0; the loss shows up only in the
+    // status sidecar, at the 1% rate.
+    size_t lost = 0;
+    for (uint32_t i = 0; i < kShots * 2; ++i) {
+        REQUIRE(result.measurements[i] == 0);
+        lost += result.final_status[i] == QubitStatus::Lost ? 1 : 0;
+    }
+    REQUIRE(lost > 0);
+    // Pooled over 2 qubits x kShots: expected 40; ~4 sigma band.
+    REQUIRE(lost > 15);
+    REQUIRE(lost < 70);
 }
 
 // =========================================================================
@@ -972,9 +1032,7 @@ TEST_CASE("exact: gate B: non-capable model + MX + no classifier samples") {
     }
 }
 
-TEST_CASE(
-    "exact: bluntness pin -- model leaks only q0 via annotation, circuit measures only q1, "
-    "no classifier throws") {
+TEST_CASE("exact: coarse capability boundary requires a classifier for any measurement") {
     // The contract is a capability boundary, not per-qubit reachability.
     // The annotation on q0 makes the model capable; q1 is measured but
     // never touches a vacated carrier in any reachable shot. Gate B still
@@ -1276,7 +1334,7 @@ TEST_CASE("exact: different seeds produce different records") {
     // A stochastic config (leak p=0.35 from e after H) sampled at two
     // different seeds must differ: a constant-output implementation that
     // ignores the seed would collide here with probability 2^(-measurements).
-    // This is the C++ companion to the Python same-seed/different-seed pins.
+    // This is the C++ companion to the Python same-seed/different-seed checks.
     ModelSpec spec;
     spec.leak_from_e = 0.35;
     spec.initial = {0.5, 0.5, 0.0, 0.0, 0.0};
@@ -1294,7 +1352,7 @@ TEST_CASE("exact: max_rank is not checked against the unreachable all-computatio
     // When every qubit starts lost, the no-event module is never used;
     // its rank must not trigger a max_rank rejection.
     // The lost column reads symbol 1 with certainty: a raw readout of the
-    // dropped-everything |0> carriers would give 0, so all-1 records pin
+    // dropped-everything |0> carriers would give 0, so all-1 records verify
     // that the classifier wrote them.
     const std::vector<std::vector<double>> classifier_matrix = {{1.0, 0.0, 1.0, 0.0, 0.0},
                                                                 {0.0, 1.0, 0.0, 1.0, 1.0}};
@@ -1499,9 +1557,9 @@ TEST_CASE("exact: a partial herald column matches its frequency") {
     REQUIRE(heralded < 770);
 }
 
-TEST_CASE("exact: the record bit is uniform given a herald, pinned without") {
+TEST_CASE("exact: the record bit is uniform given a herald and fixed otherwise") {
     // Column {0.5, 0, 0.5}: a non-heralded draw is always symbol 0, while a
-    // heralded slot's bit is uniform. This pins the (herald, bit) joint: if
+    // heralded slot's bit is uniform. This checks the (herald, bit) joint: if
     // heralded slots kept the not-heralded flip probability (0), their bits
     // would all read 0.
     Circuit c = parse("H 0\nS 0\nM 0\n");

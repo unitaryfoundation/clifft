@@ -179,7 +179,7 @@ TEST_CASE("execute: the no-fire back-action matches its closed form through the 
     // <Z> = 2r / (1 + r^2) exactly on every no-fire shot -- the
     // survivorship tilt the whole exact-damping design exists to get
     // right. The T pair around the active-form site commutes with the
-    // diagonal damp and pins the phase bookkeeping.
+    // diagonal damp and checks the phase bookkeeping.
     const double p = 0.36;
     const double r = std::sqrt(1.0 - p);
     const double want = 2.0 * r / (1.0 + r * r);
