@@ -139,6 +139,12 @@ enum class GateType : uint16_t {
     // Simulation-only probes
     EXP_VAL,  // Non-destructive expectation value
 
+    // Parse-time rewrites: the parser lowers these immediately; no AST node
+    // ever carries these types.
+    CH,   // Controlled-Hadamard (rewritten at parse time)
+    CCX,  // Toffoli / controlled-controlled-X (rewritten at parse time)
+    CCZ,  // Controlled-controlled-Z (rewritten at parse time)
+
     // Sentinel for unknown/unsupported gates
     UNKNOWN,
 };
@@ -147,7 +153,7 @@ enum class GateType : uint16_t {
 enum class GateArity : uint8_t {
     SINGLE,      // Single qubit (H, S, X, T, M, etc.)
     PAIR,        // Two qubits consumed in pairs (CX, CY, CZ)
-    TRIPLE,      // Three qubits consumed in triples (3-qubit noise channels)
+    TRIPLE,      // Three qubits consumed in triples (3-qubit noise channels and gates)
     MULTI,       // Variable targets (MPP)
     ANNOTATION,  // No qubit targets (TICK)
 };
@@ -162,6 +168,9 @@ struct GateTraits {
     bool measure_reset = false;
     bool identity_noop = false;
     bool noise = false;
+    // Lowered by the parser into other node kinds, so the gate never
+    // appears as an AST node.
+    bool parser_desugared = false;
     std::string_view name;
 };
 
@@ -240,9 +249,9 @@ inline constexpr GateTraits kGateTraitsData[] = {
     {.arity = S, .measurement = true, .measure_reset = true, .name = "MR"},
     {.arity = S, .measurement = true, .measure_reset = true, .name = "MRX"},
     {.arity = ML, .measurement = true, .name = "MPP"},
-    {.arity = P, .measurement = true, .name = "MXX"},
-    {.arity = P, .measurement = true, .name = "MYY"},
-    {.arity = P, .measurement = true, .name = "MZZ"},
+    {.arity = P, .measurement = true, .parser_desugared = true, .name = "MXX"},
+    {.arity = P, .measurement = true, .parser_desugared = true, .name = "MYY"},
+    {.arity = P, .measurement = true, .parser_desugared = true, .name = "MZZ"},
     // Resets
     {.arity = S, .reset = true, .name = "R"},
     {.arity = S, .reset = true, .name = "RX"},
@@ -277,6 +286,10 @@ inline constexpr GateTraits kGateTraitsData[] = {
     {.arity = S, .name = "LOSS"},
     // Simulation-only probes
     {.arity = ML, .name = "EXP_VAL"},
+    // Parse-time rewrites: no AST nodes carry these types
+    {.arity = P, .parser_desugared = true, .name = "CH"},
+    {.arity = T, .parser_desugared = true, .name = "CCX"},
+    {.arity = T, .parser_desugared = true, .name = "CCZ"},
     // Sentinel
     {.arity = S, .name = "UNKNOWN"},
 };
@@ -310,6 +323,9 @@ inline constexpr bool is_measure_reset(GateType g) {
 }
 inline constexpr bool is_identity_noop(GateType g) {
     return gate_traits(g).identity_noop;
+}
+inline constexpr bool is_parser_desugared(GateType g) {
+    return gate_traits(g).parser_desugared;
 }
 inline constexpr bool is_noise_gate(GateType g) {
     return gate_traits(g).noise;

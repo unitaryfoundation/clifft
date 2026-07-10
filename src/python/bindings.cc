@@ -282,6 +282,10 @@ NB_MODULE(_clifft_core, m) {
         .value("LOSS", clifft::GateType::LOSS)
         // Simulation-only probes
         .value("EXP_VAL", clifft::GateType::EXP_VAL)
+        // Parse-time rewrites: no AST nodes carry these types
+        .value("CH", clifft::GateType::CH)
+        .value("CCX", clifft::GateType::CCX)
+        .value("CCZ", clifft::GateType::CCZ)
         // Sentinel for unknown/unsupported gates
         .value("UNKNOWN", clifft::GateType::UNKNOWN);
 

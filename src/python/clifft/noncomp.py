@@ -118,11 +118,15 @@ class Model:
         transitions: maps a name to its ``T[to][from]`` matrix. A key that
             names a gate (e.g. ``"CZ"``) is a *hook*: it expands to a
             ``LEVEL_TRANSITION[key]`` annotation after every occurrence of that
-            gate. Any key -- gate-named or not -- can be referenced
-            directly from the circuit with ``LEVEL_TRANSITION[key] q``, and
-            ``LOSS(p) q`` applies a uniform loss inline. A transition
-            fires at its circuit position, with the source taken from the
-            qubit's state there.
+            gate. A key naming an instruction that never parses into a node
+            of its own is rejected, since its hook could never fire:
+            ``MXX``/``MYY``/``MZZ`` (desugared to ``MPP``),
+            ``CH``/``CCX``/``CCZ`` (decomposed by the parser), and identity
+            no-ops. Annotate those positions explicitly instead. Any key --
+            gate-named or not -- can be referenced directly from the circuit
+            with ``LEVEL_TRANSITION[key] q``, and ``LOSS(p) q`` applies a
+            uniform loss inline. A transition fires at its circuit position,
+            with the source taken from the qubit's state there.
         classifier: optional :class:`Classifier` supplying leaked/lost
             measurement outcomes and computational readout confusion.
         reset_restores_lost: if true, a reset on a lost qubit restores it to

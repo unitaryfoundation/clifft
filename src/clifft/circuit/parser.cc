@@ -71,6 +71,25 @@ std::string_view trim(std::string_view s) {
     return s;
 }
 
+}  // namespace
+
+// Tags are trimmed as they are parsed, and a '#' starts a comment that
+// is stripped before tag parsing. A key with leading/trailing whitespace
+// or a '#' could never be written as a LEVEL_TRANSITION[key] tag and
+// reach the model unchanged.
+bool is_representable_tag(std::string_view tag) {
+    if (tag.empty()) {
+        return false;
+    }
+    if (std::isspace(static_cast<unsigned char>(tag.front())) ||
+        std::isspace(static_cast<unsigned char>(tag.back()))) {
+        return false;
+    }
+    return tag.find_first_of("]#\n") == std::string_view::npos;
+}
+
+namespace {
+
 bool parse_int(std::string_view s, int& out) {
     auto result = std::from_chars(s.data(), s.data() + s.size(), out);
     return result.ec == std::errc{} && result.ptr == s.data() + s.size();
@@ -254,25 +273,6 @@ class Parser {
             return;
         }
 
-        // Parser-only rewrite gates. They are lowered immediately so the
-        // AST never contains frontend/backend-visible CH, CCZ, or CCX nodes.
-        if (gate_name == "CH") {
-            if (!args.empty()) {
-                throw ParseError("CH takes no arguments", line_num);
-            }
-            previous_correlated_error_link_ = false;
-            parse_ch_rewrite(rest, line_num, circuit);
-            return;
-        }
-        if (gate_name == "CCZ" || gate_name == "CCX") {
-            if (!args.empty()) {
-                throw ParseError(std::string(gate_name) + " takes no arguments", line_num);
-            }
-            previous_correlated_error_link_ = false;
-            parse_three_qubit_rewrite(gate_name, rest, line_num, circuit);
-            return;
-        }
-
         // Look up gate type.
         GateType gate = find_gate(gate_name);
         if (gate == GateType::UNKNOWN) {
@@ -287,6 +287,23 @@ class Parser {
         }
         previous_correlated_error_link_ =
             gate == GateType::CORRELATED_ERROR || gate == GateType::ELSE_CORRELATED_ERROR;
+
+        // CH/CCX/CCZ are lowered immediately, so the AST never contains their
+        // nodes; MXX/MYY/MZZ lower inside the pair-arity path below.
+        if (gate == GateType::CH) {
+            if (!args.empty()) {
+                throw ParseError("CH takes no arguments", line_num);
+            }
+            parse_ch_rewrite(rest, line_num, circuit);
+            return;
+        }
+        if (gate == GateType::CCX || gate == GateType::CCZ) {
+            if (!args.empty()) {
+                throw ParseError(std::string(gate_name) + " takes no arguments", line_num);
+            }
+            parse_three_qubit_rewrite(gate_name, rest, line_num, circuit);
+            return;
+        }
 
         // Validate argument counts for multi-probability channels.
         if (gate == GateType::PAULI_CHANNEL_1 && args.size() != 3) {
