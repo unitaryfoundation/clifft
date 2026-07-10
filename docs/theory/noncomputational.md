@@ -5,9 +5,11 @@
     releases.
 
 Pauli noise moves a qubit around inside its two-dimensional subspace. Real
-devices also leave that subspace: an atom is excited to a level outside the
-qubit encoding (*leakage*), or leaves the trap entirely (*loss*). No Pauli
-channel can represent either: the state is no longer a qubit state at all.
+devices can instead leave that subspace (*leakage*) or lose the physical
+carrier from its site (*loss*). No Pauli channel can represent either: the
+state is no longer a qubit state at all. Because the condition can persist
+across later circuit positions, one event can correlate deviations across
+time rather than acting like an independent local fault.
 
 Clifft models both with a five-level structure per qubit, a per-gate jump
 process between levels, and a classifier that defines what a measurement of
@@ -76,14 +78,21 @@ With the carrier vacated:
   readout basis is incidental on a vacated carrier: `M`, `MX`, and `MY`
   all classify identically. A multi-qubit parity measurement (`MPP`) has no
   faithful single-bit substitution and is rejected up front.
-- **Restoration begins with a reset.** A qubit returns to the computational
-  subspace only through an operation that re-prepares the carrier: a reset
-  (a leaked qubit always; a lost qubit only when the model opts in) or a
-  transition whose destination is a computational level.
+- **Restoration is explicit.** A qubit returns to the computational subspace
+  only through an operation that restores the carrier: a reset (a leaked
+  qubit always; a lost qubit only when the model opts in) or a transition to
+  `g` or `e`, modeling relaxation or recapture.
 
-Leakage becomes visible to error correction through the classifier:
-leaked and lost levels are classified into the measurement record before
-detectors are evaluated, so they surface as detector events.
+The gate-drop rule is structural: it does not add partner depolarization
+conditioned on another operand's status or transport leakage between
+qubits.
+
+Classifier-substituted record bits are consumed by detectors and observables
+like ordinary measurements, so a noncomputational readout can produce
+detector events. An optional herald remains separate, per-measurement side
+information: it identifies the readout where the classifier emitted its
+third symbol, not the time or location of the underlying transition, and is
+not an exact spacetime erasure flag.
 
 ## State-dependent rates
 
