@@ -161,6 +161,76 @@ def test_damping_null_source_independent_rates_make_neglect_exact():
     assert abs(means["exact"] - means["neglect"]) < 8 * sigma
 
 
+def test_entangled_two_site_chain_matches_hand_derived_distribution():
+    """GHZ across three qubits with two sequential leak sites; exact joint distribution.
+
+    State after H 0 / CX 0 1 / CX 0 2: (|000> + |111>) / sqrt(2).
+    LEVEL_TRANSITION[leak] on q1 fires only from e with p=0.9, so
+    P(fire1) = 0.5 * 0.9 = 0.45.  A fire at q1 collapses the GHZ to |111>,
+    sending q1 to LEAK_G (reads 0 via the faithful classifier) and leaving
+    q2 at definite e.  The q2 site then fires with probability 0.9.
+
+    On no-fire at q1 (total weight 0.55), the exact no-fire filter multiplies
+    the |111> e-amplitude of q1 by sqrt(1 - 0.9) = sqrt(0.1), giving the
+    unnormalized residual (|000> + sqrt(0.1)|111>) / sqrt(2).  After this,
+    q2's e-population is (0.1/2) / 0.55 = 1/11, and the q2 site fires with
+    probability 0.9/11.
+
+    The full outcome table for (M0, M1, M2):
+      100 -> 0.405  (fire1, fire2: both transitions trapped and chained)
+      101 -> 0.045  (fire1, no-fire2)
+      110 -> 0.045  (no-fire1, fire2: q2's e-branch collapses q0 to 1)
+      000 -> 0.5    (no-fire1, no-fire2, q0 collapses to |0>)
+      111 -> 0.005  (no-fire1, no-fire2, q0 collapses to |1>; two dampings)
+    Every other pattern has probability exactly 0.
+    """
+    model = _model({"leak": _transition({(Level.LEAK_G, Level.E): 0.9})})
+    circuit = (
+        "H 0\nCX 0 1\nCX 0 2\n"
+        "LEVEL_TRANSITION[leak] 1\nLEVEL_TRANSITION[leak] 2\n"
+        "M 0\nM 1\nM 2\n"
+    )
+    r = noncomp.sample(circuit, model, shots=SHOTS, seed=16)
+    m = np.asarray(r.measurements)
+
+    expected = {
+        (1, 0, 0): 0.405,
+        (1, 0, 1): 0.045,
+        (1, 1, 0): 0.045,
+        (0, 0, 0): 0.500,
+        (1, 1, 1): 0.005,
+    }
+
+    for pattern, p in expected.items():
+        mask = (m[:, 0] == pattern[0]) & (m[:, 1] == pattern[1]) & (m[:, 2] == pattern[2])
+        freq = float(mask.mean())
+        assert abs(freq - p) < binomial_tolerance(
+            p, SHOTS
+        ), f"pattern {pattern}: got {freq:.4f}, expected {p:.3f}"
+
+    # Patterns that never occur must have zero count.
+    for pat in [(0, 0, 1), (0, 1, 0), (0, 1, 1)]:
+        mask = (m[:, 0] == pat[0]) & (m[:, 1] == pat[1]) & (m[:, 2] == pat[2])
+        assert int(mask.sum()) == 0, f"pattern {pat} must be impossible but appeared"
+
+    # Final-status checks.
+    status = np.asarray(r.final_status)
+    # q0 is never given a LEVEL_TRANSITION; it stays computational on every shot.
+    assert (status[:, 0] == noncomp.QubitStatus.COMPUTATIONAL).all()
+    # q1 transitions to LEAK_G on exactly the shots where the q1 site fired.
+    leak_q1 = (status[:, 1] == noncomp.QubitStatus.LEAK_G).mean()
+    assert abs(leak_q1 - 0.45) < binomial_tolerance(0.45, SHOTS)
+    # q2 transitions to LEAK_G on fire1-fire2 shots (0.405) and
+    # no-fire1-fire2 shots (0.045), totalling 0.45 as well.
+    leak_q2 = (status[:, 2] == noncomp.QubitStatus.LEAK_G).mean()
+    assert abs(leak_q2 - 0.45) < binomial_tolerance(0.45, SHOTS)
+    # The two-trap chain branch: both q1 and q2 leaked on 40.5 % of shots.
+    both_leaked = (
+        (status[:, 1] == noncomp.QubitStatus.LEAK_G) & (status[:, 2] == noncomp.QubitStatus.LEAK_G)
+    ).mean()
+    assert abs(float(both_leaked) - 0.405) < binomial_tolerance(0.405, SHOTS)
+
+
 def test_neglect_bell_correlation_probe():
     """Neglect-mode forced trace-out keeps the source-determined partner correlation.
 

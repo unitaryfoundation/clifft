@@ -328,6 +328,45 @@ def test_herald_deterministic_in_seed():
     assert abs(a.heralds[:, 0].mean() - 0.7) < 0.15
 
 
+def test_ternary_herald_feeds_detector_and_observable():
+    """Heralded slots keep a binary record drawn uniformly; anything consuming
+    the record (detectors, observables) must see that same patched bit, and
+    the herald rides only in the sidecar."""
+    # The S hook loses with certainty; every shot is classified.
+    # Classifier for LOST: P(0)=0.2, P(1)=0.1, P(herald)=0.7.
+    # Heralded shots draw a uniform binary bit for the record.
+    # Non-heralded shots draw binary from the conditional: P(1|not herald)=0.1/0.3=1/3.
+    model = noncomp.Model(
+        initial_state=ALL_G,
+        transitions={"S": transition_to(LOST)},
+        classifier=_ternary_classifier(LOST, [0.2, 0.1, 0.7]),
+    )
+    circuit = "H 0\nS 0\nM 0\nDETECTOR rec[-1]\nOBSERVABLE_INCLUDE(0) rec[-1]\n"
+    r = noncomp.sample(circuit, model, shots=4000, seed=24)
+
+    # Detector and observable both read the classifier-substituted measurement bit.
+    assert np.array_equal(r.detectors[:, 0], r.measurements[:, 0])
+    assert np.array_equal(r.observables[:, 0], r.measurements[:, 0])
+
+    heralded = r.heralds[:, 0].astype(bool)
+
+    # Herald fraction.
+    assert abs(heralded.mean() - 0.7) < 0.04
+
+    # Among heralded shots, the binary record is uniform.
+    meas = r.measurements[:, 0]
+    assert abs(float(meas[heralded].mean()) - 0.5) < 0.05
+
+    # Among non-heralded shots, the record is drawn from the binary conditional.
+    assert abs(float(meas[~heralded].mean()) - 1 / 3) < 0.07
+
+    # symbols() reports 2 exactly where the herald is set; elsewhere it matches
+    # the binary measurement bit.
+    sym = r.symbols()
+    assert np.array_equal(sym[:, 0] == 2, heralded)
+    assert np.array_equal(sym[~heralded, 0], meas[~heralded])
+
+
 # --- 4. Record layout invariants -------------------------------------------
 
 
