@@ -489,10 +489,11 @@ void validate_model_contract(const Circuit& annotated, const NonComputationalMod
         }
     }
 
-    // Gate B: a classifier is required when the circuit has any measurements.
+    // Gate B: a classifier is required when the circuit measures a physical qubit.
+    // MPAD only appends a classical literal to the record, so it never consults one.
     if (model.classifier() == nullptr) {
         for (const AstNode& node : annotated.nodes) {
-            if (is_measurement(node.gate)) {
+            if (is_measurement(node.gate) && node.gate != GateType::MPAD) {
                 throw std::invalid_argument(
                     "sample_noncomputational: this model can leak or lose qubits and the circuit"
                     " measures; a classifier is required to define what a measurement of a leaked"

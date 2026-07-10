@@ -710,6 +710,15 @@ def test_gate_b_capable_model_with_measurement_no_classifier_raises():
         noncomp.sample("H 0\nS 0\nM 0\n", model, shots=4, seed=4)
 
 
+def test_gate_b_mpad_does_not_require_classifier():
+    """MPAD writes classical literals and never reads a noncomputational carrier."""
+    model = noncomp.Model(initial_state=ALL_G, transitions={"S": transition_to(LOST)})
+    result = noncomp.sample("S 0\nMPAD 0 1\n", model, shots=4, seed=4)
+
+    assert (result.measurements == [0, 1]).all()
+    assert (result.final_status[:, 0] == LOST_KIND).all()
+
+
 # --- Gate A error (MPP unsupported under capable model) ----------------------
 
 
