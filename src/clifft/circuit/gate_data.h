@@ -162,6 +162,9 @@ struct GateTraits {
     bool measure_reset = false;
     bool identity_noop = false;
     bool noise = false;
+    // Lowered by the parser into other node kinds, so the gate never
+    // appears as an AST node.
+    bool parser_desugared = false;
     std::string_view name;
 };
 
@@ -240,9 +243,9 @@ inline constexpr GateTraits kGateTraitsData[] = {
     {.arity = S, .measurement = true, .measure_reset = true, .name = "MR"},
     {.arity = S, .measurement = true, .measure_reset = true, .name = "MRX"},
     {.arity = ML, .measurement = true, .name = "MPP"},
-    {.arity = P, .measurement = true, .name = "MXX"},
-    {.arity = P, .measurement = true, .name = "MYY"},
-    {.arity = P, .measurement = true, .name = "MZZ"},
+    {.arity = P, .measurement = true, .parser_desugared = true, .name = "MXX"},
+    {.arity = P, .measurement = true, .parser_desugared = true, .name = "MYY"},
+    {.arity = P, .measurement = true, .parser_desugared = true, .name = "MZZ"},
     // Resets
     {.arity = S, .reset = true, .name = "R"},
     {.arity = S, .reset = true, .name = "RX"},
@@ -311,10 +314,8 @@ inline constexpr bool is_measure_reset(GateType g) {
 inline constexpr bool is_identity_noop(GateType g) {
     return gate_traits(g).identity_noop;
 }
-// MXX/MYY/MZZ parse into MPP nodes with Pauli-tagged targets, so these
-// GateTypes never appear in a parsed circuit.
 inline constexpr bool is_parser_desugared(GateType g) {
-    return g == GateType::MXX || g == GateType::MYY || g == GateType::MZZ;
+    return gate_traits(g).parser_desugared;
 }
 inline constexpr bool is_noise_gate(GateType g) {
     return gate_traits(g).noise;
