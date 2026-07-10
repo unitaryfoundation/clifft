@@ -4,141 +4,215 @@
     The leakage/loss API is experimental and may change between minor
     releases.
 
-Pauli noise moves a qubit around inside its two-dimensional subspace. Real
-devices can instead leave that subspace (*leakage*) or lose the physical
-carrier from its site (*loss*). No Pauli channel can represent either: the
-state is no longer a qubit state at all. Because the condition can persist
-across later circuit positions, one event can correlate deviations across
-time rather than acting like an independent local fault.
+Pauli noise acts within a qubit's two-dimensional computational subspace. Real
+hardware can instead drive the state out of that subspace through *leakage*, or
+lose the physical carrier from its site entirely through *loss*. Neither
+process is a Pauli channel. Afterward, the site no longer holds an ordinary
+qubit state.
 
-Clifft models both with a five-level structure per qubit, a per-gate jump
-process between levels, and a classifier that defines what a measurement of
-a non-qubit level records. This page describes the model and its
-simulation semantics; the [Leakage and Loss guide](../guide/leakage-and-loss.md)
-shows the API.
+Clifft models these processes with a hybrid quantum-classical trajectory
+model. Within the computational subspace, the state keeps its full coherent
+dynamics and entanglement. A leaked or lost site instead has a definite,
+classically tracked occupation on each trajectory. Transitions between the two
+are stochastic quantum jumps, including their back-action on the computational
+state.
 
-## The five-level model
+This page explains the model and how it composes with Clifft's
+[factored-state simulation](overview.md). The
+[Leakage and Loss guide](../guide/leakage-and-loss.md) shows the Python API.
 
-Every qubit carries the same fixed level set:
+## The effective five-level site
+
+Each circuit wire denotes a fixed physical *site*. When that site is occupied
+within the computational subspace, it holds a qubit. For modeling leakage and
+loss, Clifft uses the effective per-site space
+
+$$
+\mathcal H_{\mathrm{site}}
+=
+\mathcal H_C \oplus \mathcal H_N,
+\qquad
+\mathcal H_C = \operatorname{span}\{\lvert g\rangle,\lvert e\rangle\}
+\cong \operatorname{span}\{\lvert 0\rangle,\lvert 1\rangle\},
+$$
+
+with
+
+$$
+\mathcal H_N = \operatorname{span}\{
+\lvert \mathrm{leak\_g}\rangle,
+\lvert \mathrm{leak\_e}\rangle,
+\lvert \mathrm{lost}\rangle
+\}.
+$$
+
+The five level labels are the row and column indices of the model matrices:
 
 | index | name | category | meaning |
 |---|---|---|---|
-| 0 | `g` | computational | the qubit $\lvert 0 \rangle$ |
-| 1 | `e` | computational | the qubit $\lvert 1 \rangle$ |
+| 0 | `g` | computational | $\lvert g\rangle$, identified with logical $\lvert 0\rangle$ |
+| 1 | `e` | computational | $\lvert e\rangle$, identified with logical $\lvert 1\rangle$ |
 | 2 | `leak_g` | leaked | carrier present, outside the qubit subspace |
 | 3 | `leak_e` | leaked | a second leaked level |
-| 4 | `lost` | lost | carrier gone |
+| 4 | `lost` | lost | carrier absent from the site |
 
-Two ingredients drive the dynamics:
+The labels `g` and `e` name basis levels against which transition rates are
+defined. A computational site need not occupy either one definitely: it may be
+in any superposition or entangled state within $\mathcal H_C$.
 
-- **Transition matrices.** A $5 \times 5$ matrix $T[\text{to}][\text{from}]$
-  attached to a circuit position gives the probability of jumping between
-  levels when that position executes. Every entry is a discrete jump event
-  (diagonal entries project onto the source level), and a column's deficit
-  below 1 is the no-jump probability. `LOSS(p)` is the special case of a
-  uniform jump to `lost` from every occupied level.
-- **A classifier.** A stochastic matrix $P[\text{symbol}][\text{level}]$
-  mapping the level at readout to a recorded symbol: two record symbols,
-  plus an optional third that heralds the measurement (typically loss).
+Each sampled shot is one trajectory. Its state has two parts. Sites with
+computational status remain in Clifft's ordinary factored quantum state. The
+sampler also keeps a classical status ledger per site. Its entries are
+computational, `leak_g`, `leak_e`, or `lost`. The computational status
+deliberately does not choose between `g` and `e`; that information remains
+quantum. Each noncomputational status names one definite level.
 
-## Statuses: classical occupation, per trajectory
+This representation is exact under the model's incoherent-jump assumption.
+There is no coherence between $\mathcal H_C$ and $\mathcal H_N$, or between
+different noncomputational levels. Coherent leakage is outside the model's
+scope.
 
-Each sampled shot is one trajectory. Along a trajectory the sampler keeps a
-classical *status* per qubit: computational, `leak_g`, `leak_e`, or `lost`.
-A noncomputational status is definite: the trajectory knows which level the
-qubit occupies. A computational qubit carries no level claim; whether it is
-$\lvert 0 \rangle$, $\lvert 1 \rangle$, or a superposition is tracked by
-the simulator, not the ledger.
+## Model inputs
 
-Classical tracking is exact for this trajectory model because jumps are
-treated as incoherent: a noncomputational population carries no coherence
-with the computational subspace. Under that assumption, recording
-occupation per trajectory discards nothing; coherent leakage is outside
-the model's scope.
+A transition matrix $T[\mathrm{to}][\mathrm{from}]$ attaches stochastic jumps
+to circuit positions. An entry gives the probability of a jump from one source
+level to one destination level. Diagonal entries are still jump events because
+they project onto their source level. The unused probability in a column is the
+no-jump probability. `LOSS(p)` is the special case of a uniform jump to `lost`
+from every occupied level.
 
-## The vacated carrier
+A measurement classifier $P[\mathrm{symbol}][\mathrm{level}]$ defines the
+recorded result for each level. It has two binary record symbols and may have
+a third herald symbol, typically for loss. For example, the `leak_g` column
+can assign independent probabilities to records 0 and 1.
 
-When a qubit jumps out of the computational subspace, its amplitudes still
-matter: for an entangled qubit they define the partner's reduced state.
-The jump therefore traces the qubit out: a hidden collapse resolves its
-computational amplitude, the partner keeps the correct partial-trace
-statistics, and the simulated cell (the *carrier*) is left parked while
-the status ledger records the occupied level.
+## Jump back-action
 
-With the carrier vacated:
+When a jump leaves $\mathcal H_C$, its Kraus branch selects a computational
+source level and a destination. The source is resolved against the live
+quantum state, not drawn ahead of execution. Clifft realizes this back-action
+as a hidden collapse and removes the site from the coherent state. The hidden
+collapse writes no visible measurement record.
 
-- **Gates drop.** An operation with no representable effect on a leaked or
-  lost operand (a single- or two-qubit gate, a noise channel, classical
-  feedback onto the site) is excised whole, acting as the identity on the
-  surviving operands.
-- **Measurements classify.** A measurement of a noncomputational level is
-  not a Born measurement of a qubit; the classifier defines its record
-  symbol. The record slot is preserved, so `rec[-k]` references, detectors,
-  and observables are laid out exactly as in the noiseless circuit. The
-  readout basis is incidental on a vacated carrier: `M`, `MX`, and `MY`
-  all classify identically. A multi-qubit parity measurement (`MPP`) has no
-  faithful single-bit substitution and is rejected up front.
-- **Restoration is explicit.** A qubit returns to the computational subspace
-  only through an operation that restores the carrier: a reset (a leaked
-  qubit always; a lost qubit only when the model opts in) or a transition to
-  `g` or `e`, modeling relaxation or recapture.
+For an entangled site, the same collapse updates its partners. Each trajectory
+keeps the partner state conditioned on the selected jump branch; averaging
+over trajectories recovers the correct reduced-state statistics. A Bell-pair
+partner, for example, is maximally mixed in the ensemble after
+source-independent loss of the other half.
 
-The gate-drop rule is structural: it does not add partner depolarization
-conditioned on another operand's status or transport leakage between
-qubits.
+When no jump occurs, the state is also updated. If the total jump rates from
+`g` and `e` are $p_g$ and $p_e$, the no-jump branch applies
 
-Classifier-substituted record bits are consumed by detectors and observables
-like ordinary measurements, so a noncomputational readout can produce
-detector events. An optional herald remains separate, per-measurement side
-information: it identifies the readout where the classifier emitted its
-third symbol, not the time or location of the underlying transition, and is
-not an exact spacetime erasure flag.
+$$
+K_{\mathrm{stay}}
+=
+\sqrt{1-p_g}\,\lvert g\rangle\langle g\rvert
++
+\sqrt{1-p_e}\,\lvert e\rangle\langle e\rvert.
+$$
 
-## State-dependent rates
+Unequal rates therefore change the surviving coherent state. A transition
+from one definite noncomputational level to another is purely classical, as
+is the status update. A transition back to `g` or `e` restores the site to the
+computational state at that basis level.
 
-Whether a jump fires can depend on the state. If a transition leaks out of
-`g` and `e` at different rates, the fire probability on a superposition is
-not a number known ahead of time — it depends on the amplitudes at that
-point in that trajectory, and the no-fire branch back-acts on the state
-(the general-measurement update from Kraus operators
-$\smash{\sqrt{1-p_g}}\,\lvert g\rangle\langle g\rvert +
-\smash{\sqrt{1-p_e}}\,\lvert e\rangle\langle e\rvert$).
+## Operations after a jump
 
-Clifft resolves each potential jump *at its circuit position against the
-live state*: the fire decision is drawn from the simulator's own
-amplitudes, and when a jump lands, the remainder of the shot is rewritten
-under the recorded event and execution resumes. Sampling is exact for
-state-dependent rates, including the correlations ahead-of-time sampling
-cannot produce: when the jump's destination depends on the source level,
-the leaked qubit's readout stays correlated with its entangled partner.
+Once a site has noncomputational status, later circuit operations follow the
+current structural policy.
 
-The one approximation on this path is opt-in. The exact no-fire
-back-action acts on the qubit's amplitudes, so a source-dependent site on
-a coherent qubit that is still *dormant* (held in the Clifford frame,
-outside the active array) expands that qubit into the array, one unit of
-active dimension at that site. A qubit already active costs nothing more,
-and later sites on a qubit that stays active do not stack.
-`damping="neglect"` skips the expansion and the back-action, a
-survivorship tilt of order $\lvert p_g - p_e \rvert$ per site and exactly
-zero at source-independent rates. The default is exact.
+- A gate, noise channel, or classical correction touching the site is skipped
+  whole and acts as the identity on every operand.
+- `M`, `MX`, `MY`, `MR`, `MRX`, and `MRY` keep their measurement slot and use
+  the classifier. The basis is incidental once the site is outside
+  $\mathcal H_C$. For a measure-reset form, the reset half follows the
+  restoration policy below. A multi-qubit parity measurement has no faithful
+  single-bit substitution and is rejected.
+- A reset restores a leaked site. It restores a lost site only when the model
+  enables `reset_restores_lost`. A transition to `g` or `e` can also model
+  relaxation or recapture.
 
-## Validation
+Gate dropping is the current interaction design, not a general law of
+leakage. The model does not yet add partner depolarization conditioned on a
+noncomputational operand or transport leakage between sites. Future policies
+may define those interactions differently.
 
-The implementation is checked at four levels:
+The visible binary result occupies the same record slot as the original
+measurement. Later `rec` references, detectors, observables, and classical
+feedback all consume that substituted bit. When the classifier emits its third
+symbol, a separate herald marks the slot and the binary record receives a
+uniformly drawn placeholder. The herald identifies the readout, not the time or
+location of the underlying jump, so it is not an exact spacetime erasure flag.
 
-1. **Closed forms.** Micro-circuits with hand-derived outcomes: partial
-   trace of a Bell pair under loss, marginals under state-dependent leak
-   rates, classifier confusion arithmetic.
-2. **Sharp probes.** Fixed-seed tests for behavior that sampled
-   distributions alone cannot check: the Bell-pair correlation that
-   distinguishes live-state draws from ahead-of-time draws, and the
-   damping boundary/null pair that separates `exact` from `neglect`
-   exactly where the $\lvert p_g - p_e \rvert$ bound says they must
-   differ and agree.
-3. **A brute-force enumerator.** A dense density-matrix reference computes
-   full record distributions for small circuits; sampled frequencies are
-   checked against it. The enumerator shares the channel definitions with
-   the sampler, so it is one independent implementation of the *dynamics*,
-   not of the model; the closed forms above anchor the model itself.
-4. **Statistical distance at scale.** Total-variation-distance checks on
-   repetition-code rounds at realistic rates, bounded by shot noise.
+## How this composes with Clifft
+
+Ordinary Clifft compiles a circuit once and reuses the program for many shots.
+The compiler absorbs deterministic Clifford evolution into an offline frame,
+localizes the remaining Pauli operations, and emits bytecode for the factored
+Schrodinger virtual machine.
+
+A noncomputational jump can change which later gates are skipped, which
+measurements use the classifier, and whether a site returns to the
+computational state. Those choices depend on the live state and differ between
+shots, so one model-independent program cannot describe every trajectory.
+`noncomp.sample` therefore interleaves execution with cached continuation
+compilation. The workflow is shown below.
+
+```text
+Circuit + model
+      |
+      v
+Annotate transition positions
+      |
+      v
+Rewrite for the current event history
+      |
+      v
+Trace -> optimize -> lower -> cache continuation
+      |
+      v
+Execute against the live factored state
+      |
+      +-- event handled inline ------------------------> continue
+      |
+      `-- fire requiring a new continuation -> resumable trap
+                                                   |
+                                                   v
+                                      Record jump and update status
+                                                   |
+                                                   v
+                                      Rewrite, compile, cache, resume
+```
+
+Each continuation still uses Clifft's normal compiler and SVM architecture.
+Clifford operations are absorbed ahead of time, Pauli products are localized
+before execution, and the VM acts only on local array axes and frame data. The
+event history determines which continuation is compiled; it does not move
+global circuit topology into the runtime.
+
+## Active-dimension cost
+
+Most transition positions do not increase the
+[active dimension](overview.md#the-factored-state-representation). A source
+already in the active state uses its existing array axis. A definite dormant
+source is resolved from the Clifford and Pauli frames. When $p_g=p_e$, the
+no-jump operator is a scalar, so a coherent dormant source can also remain
+outside the active array without approximation.
+
+Only an exact, source-dependent transition on a coherent dormant site must
+expand that site into the active state. This adds one active dimension at the
+transition position. While the site remains active, later transitions on it
+add no further dimension.
+
+`damping="neglect"` avoids that expansion by omitting the no-jump back-action.
+It is exact when $p_g=p_e$ and otherwise introduces a survivorship tilt of
+order $\lvert p_g-p_e\rvert$ per position. The default policy keeps the exact
+back-action.
+
+## Current scope
+
+This model deliberately covers incoherent leakage and loss trajectories. It
+does not currently represent coherent superpositions involving
+$\mathcal H_N$ or construct adaptive detector error models. The sampler
+returns measurement records, detectors, observables, per-site final statuses,
+and heralds for downstream analysis or decoding.
