@@ -519,16 +519,30 @@ NonComputationalSample sample_noncomputational_exact(const Circuit& circuit,
 
     const Circuit annotated = annotate(circuit, model);
 
-    // Validate every annotation up front -- tag resolution, LOSS shape --
-    // so a malformed node fails here, deterministically, rather than on
-    // whichever shot first traps or consults it classically: a live site
-    // rides through the rewrite verbatim, and trace() must never be the
-    // first to look at its arguments.
+    // Validate annotations and measurement node shapes up front so a malformed
+    // node fails here, deterministically, rather than on whichever shot first
+    // traps or consults it classically: a live site rides through the rewrite
+    // verbatim, and trace() must never be the first to look at its arguments.
     for (uint32_t op_index = 0; op_index < static_cast<uint32_t>(annotated.nodes.size());
          ++op_index) {
         const AstNode& node = annotated.nodes[op_index];
         if (node.gate == GateType::LEVEL_TRANSITION || node.gate == GateType::LOSS) {
             resolve_annotation(node, model, op_index);
+        }
+        // The parser normalizes single-arity measurements to one node per target.
+        // The rewrite counts one record slot per measurement node and classifies
+        // at most one operand per node, so a hand-built multi-target node would
+        // silently corrupt the record layout. MPP is exempt because it is
+        // multi-target by design and produces one record bit. MPAD is covered
+        // because each node pads one literal.
+        if (is_measurement(node.gate) && node.gate != GateType::MPP && node.targets.size() != 1) {
+            throw std::invalid_argument(
+                "sample_noncomputational: measurement '" + std::string(gate_name(node.gate)) +
+                "' at op " + std::to_string(op_index) + " carries " +
+                std::to_string(node.targets.size()) + " targets; the parser" +
+                " emits one measurement node per target and the rewrite's" +
+                " record accounting relies on that shape; split the node" +
+                " into single-target measurements");
         }
     }
 
