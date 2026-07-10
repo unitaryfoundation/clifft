@@ -243,5 +243,9 @@ Ordinary Clifft separates `compile()` from `sample()` because a compiled
 program is model-independent. Here it is not: the executable depends on
 the model and on each shot's jump outcomes. `noncomp.sample` takes the
 circuit and model together and compiles internally, caching one module
-per distinct event history within the call. Pass a parsed
+per distinct event history within the call. For typical low-rate models
+nearly every shot realizes the no-event history, so the cache stays
+small. A model whose leaked or lost qubits keep making stochastic
+transitions can realize a distinct history per shot, and compile time and
+memory then grow linearly with the shot count. Pass a parsed
 `clifft.Circuit` instead of text to share parsing across calls.
