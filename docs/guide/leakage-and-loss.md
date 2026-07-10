@@ -61,7 +61,7 @@ binary `measurements` entry holds a uniformly drawn placeholder;
 or 2), for comparing against tools that report loss in-band.
 
 Omitting `initial_state` starts every qubit in `g`. A model that can leak
-or lose qubits requires a classifier if the circuit measures.
+or lose qubits requires a classifier if the circuit measures a qubit.
 
 ## Transitions: hooks and inline annotations
 
@@ -228,8 +228,8 @@ are in [Noncomputational States](../theory/noncomputational.md).
   a parity of levels outside the qubit subspace has no faithful single-bit
   record. Expand the parity readout into an explicit ancilla circuit; the
   ancilla's ladder gates then drop per the rules above.
-- **A classifier is required** whenever a capable model meets a measuring
-  circuit; the error names the missing piece before sampling begins.
+- **A classifier is required** whenever a capable model meets a circuit that
+  measures a qubit; the error names the missing piece before sampling begins.
 - Under `damping="exact"`, a state-dependent site on a coherent qubit
   outside the active array expands that qubit into it, adding one unit of
   peak rank at that site. An already-active qubit adds nothing, and later

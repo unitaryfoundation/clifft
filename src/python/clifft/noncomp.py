@@ -154,7 +154,7 @@ class Model:
     (``MPP``) are not supported when the model can leak or lose qubits — they
     have no faithful single-bit classifier substitution — and raise before
     sampling begins. A model that can leak or lose qubits also requires a
-    classifier when the circuit measures.
+    classifier when the circuit measures a qubit.
 
     Construction validates shapes, probabilities, gate keys, policy values,
     and level table consistency in C++, raising ``ValueError`` on any
@@ -293,9 +293,9 @@ def sample(
     :class:`NonComputationalSample`. Single-qubit measurements (``M``, ``MX``,
     ``MY``) of a leaked or lost qubit read the classifier; the readout basis is
     incidental once the qubit has left the computational subspace. A model that
-    can leak or lose qubits requires a classifier when the circuit measures,
-    and parity measurements (``MPP``) are not supported with such models — both
-    are rejected before sampling begins. Raises ``ValueError`` when one of
+    can leak or lose qubits requires a classifier when the circuit measures a
+    qubit, and parity measurements (``MPP``) are not supported with such models —
+    both are rejected before sampling begins. Raises ``ValueError`` when one of
     these contracts is violated, when an annotation is malformed, or when
     ``max_rank`` is exceeded.
 
