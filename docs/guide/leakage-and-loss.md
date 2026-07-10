@@ -10,9 +10,20 @@ can affect a sequence of later operations and detector outcomes. The
 resulting correlations are not faithfully represented by independent Pauli
 faults.
 
-`clifft.noncomp` samples circuits under a five-level leakage/loss model:
-transition matrices describe when qubits jump between levels, and a
-classifier describes what a measurement of a leaked or lost qubit records.
+`clifft.noncomp` layers a classical status ledger over Clifft's ordinary
+coherent simulation. A site with computational status remains in the quantum
+state and can be in a superposition or entangled with other sites. A leaked or
+lost site instead occupies one definite noncomputational level on each
+trajectory.
+
+Through `noncomp.Model`, the user defines the initial level distribution,
+stochastic transitions between levels, how measurements are classified, and
+policies such as whether reset restores a lost site. Because a jump can change
+which later operations are skipped, which measurements use the classifier,
+and whether a site is restored, one program compiled before sampling cannot
+describe every trajectory. `noncomp.sample` therefore rewrites and compiles
+trajectory-specific continuations when needed, caching and reusing them across
+shots.
 
 This page is the API walkthrough. The model and its simulation semantics
 are described in [Noncomputational States](../theory/noncomputational.md).
@@ -21,8 +32,20 @@ are described in [Noncomputational States](../theory/noncomputational.md).
 
 A `noncomp.Model` bundles an initial level distribution, per-gate
 transition matrices, a classifier, and policy knobs. `noncomp.sample`
-returns the usual records plus two sidecars: each qubit's final status and
-a per-measurement herald.
+returns the usual records plus two sidecars: each circuit site's final status
+and a per-measurement herald.
+
+`Level` names the five rows and columns used by the model inputs.
+`QubitStatus` describes the runtime status ledger: `g` and `e` both correspond
+to `COMPUTATIONAL`, because a computational site remains in the coherent
+quantum state, while `leak_g`, `leak_e`, and `lost` are tracked as distinct
+classical statuses. An initial weight on `g` or `e` initializes the site in
+the corresponding computational basis state; later evolution may put it in a
+superposition or entangle it with other sites.
+
+This minimal model has no transitions. It samples an initial mixture of
+computational, leaked, and lost levels and shows how the classifier, final
+status ledger, and herald output fit together.
 
 ```python
 import numpy as np
@@ -55,15 +78,23 @@ assert abs(lost - 0.02) < 0.005
 
 # heralds: (shots, num_measurements); 1 where the classifier heralded.
 assert (r.heralds[:, 0] == (status == noncomp.QubitStatus.LOST)).all()
+
+# symbols() reports the herald as value 2 instead of the placeholder bit.
+symbols = r.symbols()
+assert np.array_equal(symbols[:, 0] == 2, r.heralds[:, 0])
 ```
 
 `measurements`, `detectors`, and `observables` are laid out exactly as in
-ordinary sampling: a measurement of a leaked or lost qubit still occupies
-its record slot, with the classifier supplying the bit. When the
-classifier samples its herald symbol, `heralds` marks the slot and the
-binary `measurements` entry holds a uniformly drawn placeholder;
-`symbols()` folds the herald back in as a third value per slot (0, 1,
-or 2), for comparing against tools that report loss in-band.
+ordinary sampling: a measurement of a leaked or lost site still occupies its
+record slot, with the classifier supplying the bit. On a computational site,
+Clifft performs the requested quantum measurement; the `g` and `e` classifier
+columns can model computational-basis readout confusion for `M` and `MR`. On
+a noncomputational site, the classifier replaces the quantum measurement and
+applies to `M`, `MX`, and `MY` alike. When the classifier samples its herald
+symbol, `heralds` marks the slot and the binary `measurements` entry holds a
+uniformly drawn placeholder; `symbols()` folds the herald back in as a third
+value per slot (0, 1, or 2), for comparing against tools that report loss
+in-band.
 
 `heralds[shot, slot]` means that the classifier emitted its third symbol at
 that measurement slot. It does not identify when or where the underlying
@@ -71,24 +102,33 @@ transition occurred, so it is not an exact spacetime erasure flag. The
 herald is side information for downstream analysis or adaptive decoding;
 it is not folded into the binary detector record.
 
-Omitting `initial_state` starts every qubit in `g`. A model that can leak
-or lose qubits requires a classifier if the circuit measures a qubit.
+Omitting `initial_state` starts every site in `g`, which matches standard Clifft convention that all qubits start in $\lvert 0 \rangle$. A model that can leak or
+lose a site requires a classifier if the circuit measures it.
 
 ## Transitions: hooks and inline annotations
 
-A transition matrix `T[to][from]` gives the probability of jumping between
-levels when it fires; a column's deficit below 1 is "no jump". There are
+A transition matrix `T[to][from]` is evaluated at an attached circuit
+position. Each entry gives the probability of a jump from one level to
+another; a column's deficit below 1 is the no-jump probability. There are
 three ways to attach one to a circuit:
 
 - **Gate hooks.** A `transitions` key that names a gate (`"CZ"`, `"S"`, …)
-  fires after every occurrence of that gate. Keys naming instructions that
-  never produce a circuit node (`MXX`/`MYY`/`MZZ`, `CH`/`CCX`/`CCZ`,
-  identity no-ops) are rejected at model construction.
-- **Inline references.** `LEVEL_TRANSITION[name] 0` fires the named matrix
-  on qubit 0 at that circuit position. Any key can be referenced this way,
-  gate-named or not.
-- **Inline loss.** `LOSS(p) 0` loses qubit 0 with probability `p` from any
-  occupied level.
+  evaluates its matrix after every occurrence of that gate. Keys naming
+  instructions that never produce a circuit node (`MXX`/`MYY`/`MZZ`,
+  `CH`/`CCX`/`CCZ`, identity no-ops) are rejected at model construction.
+- **Inline references.** `LEVEL_TRANSITION[name] 0` evaluates the named matrix
+  from the `transitions` mapping on site 0 at that circuit position. Any
+  transition name can be referenced explicitly, whether or not it also names
+  a gate hook.
+- **Inline loss.** `LOSS(p) 0` loses the carrier at site 0 with probability
+  `p` from any occupied level.
+
+Before sampling, Clifft expands each gate hook into a
+`LEVEL_TRANSITION[name]` annotation for every site operand of the hooked gate.
+Use a hook when the same transition should follow every occurrence of a gate;
+use an inline reference for selected circuit positions or transitions with
+arbitrary names. `LOSS(p)` provides a self-contained inline loss probability
+without requiring a transition matrix in the model.
 
 A transition back to `g` or `e` can represent relaxation or recapture into
 the computational subspace; a reset represents active re-preparation.
@@ -111,7 +151,10 @@ classifier = noncomp.Classifier([[1, 0, 1, 0, 0], [0, 1, 0, 1, 1]])
 leak = T({(Level.LEAK_E, Level.G): 0.01, (Level.LEAK_E, Level.E): 0.01})
 
 model = noncomp.Model(
-    transitions={"CZ": leak},  # hook: fires after every CZ
+    transitions={
+        "CZ": leak,  # hook: evaluated on each site after every CZ
+        "manual_leak": leak,  # evaluated only where explicitly referenced
+    },
     classifier=classifier,
 )
 
@@ -119,20 +162,19 @@ circuit = """
     H 0
     CZ 0 1
     LOSS(0.005) 1
-    LEVEL_TRANSITION[CZ] 0
+    LEVEL_TRANSITION[manual_leak] 0
     M 0 1
 """
 r = noncomp.sample(circuit, model, shots=1000, seed=7)
 assert r.measurements.shape == (1000, 2)
 ```
 
-## What happens on a leaked or lost qubit
+## What happens on a leaked or lost site
 
-Gates addressing a leaked or lost qubit are dropped, acting as the
-identity on the surviving operands. Measurements keep their record slot
-and read the classifier
-(`M`, `MX`, and `MY` alike: the readout basis is incidental once the
-qubit has left the computational subspace).
+A gate, noise channel, or classical correction touching a leaked or lost site
+is skipped as a whole and acts as the identity on every operand. A
+single-qubit measurement keeps its record slot, but the classifier rather
+than the measurement basis determines its result (`M`, `MX`, and `MY` alike).
 
 Losing one half of an entangled pair leaves the partner in the reduced
 state; for a Bell pair, maximally mixed:
@@ -189,11 +231,12 @@ assert (r.detectors[:, 0] == 1).all()  # the leaked qubit always reads 1
 
 ## State-dependent rates resolve at runtime
 
-If a transition's rate differs between `g` and `e`, the jump probability on
-a superposition depends on the amplitudes at that point in the shot. The
-draw happens at sample time against the live state, so the statistics are
-exact — on $\lvert + \rangle$ with leak probability $p$ out of `g` only
-(and the leaked level reading 1), the marginal is $\tfrac12 + \tfrac{p}{2}$:
+If a transition's rate differs between `g` and `e`, the jump probability for
+a computational site in a superposition depends on the amplitudes at that
+point in the shot. The draw happens at sample time against the live state, so
+the statistics are exact — on $\lvert + \rangle$ with leak probability $p$
+out of `g` only (and the leaked level reading 1), the marginal is
+$\tfrac12 + \tfrac{p}{2}$:
 
 ```python
 from clifft import noncomp
@@ -215,22 +258,21 @@ assert abs(r.measurements[:, 0].mean() - (0.5 + p / 2)) < 0.01
 
 Resolving draws against the live state also preserves correlations that
 ahead-of-time sampling cannot produce: when the jump's destination depends
-on the source level, the leaked qubit's classified readout stays
-correlated with its entangled partner. The semantics and the rank cost
-are in [Noncomputational States](../theory/noncomputational.md).
+on the source level, the leaked site's classified readout stays correlated
+with its entangled partner. The semantics and the rank cost are in
+[Noncomputational States](../theory/noncomputational.md).
 
 ## Policy knobs
 
-- **`reset_restores_lost`** (default `False`): whether a reset on a lost
-  qubit re-prepares the site or is dropped. A reset always restores a
-  *leaked* qubit; a measure-and-reset keeps its record either way, with
+- **`reset_restores_lost`** (default `False`): whether a reset on a lost site
+  re-prepares it or is dropped. A reset always restores a *leaked* site; a
+  measure-and-reset keeps its record either way, with
   its reset half following the same rule.
-- **`damping`** (default `"exact"`): a site whose rates differ between
-  `g` and `e` needs its qubit in the active array for the exact no-fire
-  back-action; a coherent qubit still outside it is expanded at the site.
-  `"neglect"` skips the expansion and the back-action: an error of order
-  $\lvert p_g - p_e \rvert$ per site, and exactly zero for
-  source-independent rates (`LOSS` always qualifies).
+- **`damping`** (default `"exact"`): source-dependent total jump rates on a
+  coherent dormant site require no-jump back-action. Exact simulation promotes
+  such a site into the active state array. `"neglect"` omits that promotion
+  and the no-jump back-action: an error of order
+  $\lvert p_g - p_e \rvert$ per site. There is no error when $p_g = p_e$, so `LOSS(p)` is always exact.
 - **`seed`**: same contract as ordinary sampling — a fixed seed is fully
   reproducible, `None` uses hardware entropy.
 - **`max_rank`**: caps the compiled peak rank before any state allocation.
@@ -238,42 +280,44 @@ are in [Noncomputational States](../theory/noncomputational.md).
   never takes, so it is conservative.
 
 ## Limits
-
-- **Partner-error channels and leakage transport are not modeled.** A two-qubit
-  operation touching a leaked or lost operand is dropped whole. The model
+- **Partner-error channels and leakage transport are not modeled.** An
+  operation touching a leaked or lost site is dropped whole. The model
   does not add partner depolarization conditioned on that status or move
-  leakage between qubits.
+  leakage between sites.
 - **Coherent leakage is outside the trajectory model.** Jumps into a
   noncomputational level are treated as incoherent, definite occupations.
-- **The API produces trajectory samples.** It does not construct
-  conditional or adaptive detector error models or run an adaptive decoder;
-  records and heralds are available for downstream tooling.
 - **`MPP` is not supported** under a model that can leak or lose qubits —
   a parity of levels outside the qubit subspace has no faithful single-bit
   record. Expand the parity readout into an explicit ancilla circuit; the
   ancilla's ladder gates then drop per the rules above.
 - **A classifier is required** whenever a capable model meets a circuit that
-  measures a qubit; the error names the missing piece before sampling begins.
-- Under `damping="exact"`, a state-dependent site on a coherent qubit
-  outside the active array expands that qubit into it, adding one unit of
-  peak rank at that site. An already-active qubit adds nothing, and later
-  sites on a qubit that stays active do not stack, so the worst case is
-  one unit per *qubit* held coherent across its sites, not one per site.
+  measures a site; the error names the missing piece before sampling begins.
+- Under `damping="exact"`, a transition with source-dependent rates on a
+  coherent dormant site promotes that site into the active state array,
+  adding one unit of peak rank. An already-active site adds nothing, and later
+  transition positions on a site that stays active do not stack, so the worst
+  case is one unit per coherent *site*, not one per transition position.
   The [performance model](performance.md) otherwise applies unchanged.
+
+Note that many of these can be revisited in future versions.
 
 ## Why there is no compile step
 
 Ordinary Clifft separates `compile()` from `sample()` because a compiled
 program is model-independent. Here it is not: the executable depends on
-the model and on each shot's jump outcomes. `noncomp.sample` takes the
-circuit and model together and compiles internally, caching one
-continuation per distinct event history and, for ternary classifiers, one
-module per herald-flag assignment observed for that history. Typical
-low-rate models reuse the no-event continuation on most shots, so the
-cache usually stays small. In the worst case, stochastic transitions can
-produce a distinct event history per shot; many ternary-classified
-measurements can similarly produce a distinct herald assignment per
-shot. Only observed combinations are cached, so for a fixed circuit
-compile time and memory can grow linearly, but not exponentially, with
-the shot count. Pass a parsed `clifft.Circuit` instead of text to share
-parsing across calls.
+the model and on each shot's jump outcomes. When a jump changes downstream
+semantics, `noncomp.sample` switches to a trajectory-specific continuation: a
+version of the circuit rewritten and compiled for the event history observed
+so far. The shot then resumes after the event. `noncomp.sample` therefore takes
+the circuit and model together and compiles internally.
+
+Continuations are cached by event history and shared across shots. For ternary
+classifiers, the cache also holds one module per herald-flag assignment
+observed for that history. Typical low-rate models reuse the no-jump
+continuation on most shots, so the cache usually stays small. In the worst
+case, stochastic transitions can produce a distinct event history per shot;
+many ternary-classified measurements can similarly produce a distinct herald
+assignment per shot. Only observed combinations are cached, so for a fixed
+circuit compile time and memory can grow linearly, but not exponentially, with
+the shot count. The theory page explains
+[how continuations compose with Clifft](../theory/noncomputational.md#how-this-composes-with-clifft). Future versions may reconsider this caching strategy if it becomes a memory issue in practice.
