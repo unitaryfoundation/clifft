@@ -242,6 +242,14 @@ are in [Noncomputational States](../theory/noncomputational.md).
 Ordinary Clifft separates `compile()` from `sample()` because a compiled
 program is model-independent. Here it is not: the executable depends on
 the model and on each shot's jump outcomes. `noncomp.sample` takes the
-circuit and model together and compiles internally, caching one module
-per distinct event history within the call. Pass a parsed
-`clifft.Circuit` instead of text to share parsing across calls.
+circuit and model together and compiles internally, caching one
+continuation per distinct event history and, for ternary classifiers, one
+module per herald-flag assignment observed for that history. Typical
+low-rate models reuse the no-event continuation on most shots, so the
+cache usually stays small. In the worst case, stochastic transitions can
+produce a distinct event history per shot; many ternary-classified
+measurements can similarly produce a distinct herald assignment per
+shot. Only observed combinations are cached, so for a fixed circuit
+compile time and memory can grow linearly, but not exponentially, with
+the shot count. Pass a parsed `clifft.Circuit` instead of text to share
+parsing across calls.

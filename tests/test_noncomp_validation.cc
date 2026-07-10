@@ -35,13 +35,17 @@
 
 #include <array>
 #include <catch2/catch_test_macros.hpp>
+#include <catch2/matchers/catch_matchers_string.hpp>
 #include <cstdint>
 #include <map>
 #include <optional>
+#include <stdexcept>
 #include <string>
 #include <vector>
 
+using Catch::Matchers::ContainsSubstring;
 using clifft::annotate;
+using clifft::AstNode;
 using clifft::Circuit;
 using clifft::default_hir_pass_manager;
 using clifft::GateType;
@@ -53,6 +57,7 @@ using clifft::NonComputationalSample;
 using clifft::parse;
 using clifft::rewrite_continuation;
 using clifft::sample_noncomputational;
+using clifft::Target;
 using clifft::trace;
 using clifft::TransitionInstrument;
 
@@ -231,4 +236,55 @@ TEST_CASE("validation: losing a Bell-pair qubit inserts the hidden trace-out R a
     default_hir_pass_manager().run(hir);
     REQUIRE(hir.num_hidden_measurements == base.num_hidden_measurements + 1);
     REQUIRE(hir.num_measurements == base.num_measurements);
+}
+
+TEST_CASE("validation: a hand-built multi-target measurement node is rejected up front") {
+    // All tests use shots=0: validation runs before the zero-shot return, so
+    // the driver checks node shapes without needing any state or randomness.
+    NonComputationalModel model = make_model({});  // lossless; no classifier needed
+
+    SECTION("multi-target M node is rejected") {
+        // A hand-built node with two qubit targets bypasses the parser's
+        // one-node-per-target normalization. The driver must catch this up
+        // front, before any rewrite or compilation.
+        Circuit c;
+        c.num_qubits = 2;
+        c.num_measurements = 2;
+        AstNode node;
+        node.gate = GateType::M;
+        node.targets = {Target::qubit(0), Target::qubit(1)};
+        node.source_line = 0;
+        c.nodes.push_back(node);
+
+        REQUIRE_THROWS_AS(sample_noncomputational(c, model, 0, 1), std::invalid_argument);
+        REQUIRE_THROWS_WITH(sample_noncomputational(c, model, 0, 1),
+                            ContainsSubstring("one measurement node per target"));
+    }
+
+    SECTION("multi-target MPAD node is rejected") {
+        // MPAD pads one literal per node; a node with two literal targets would
+        // corrupt the record layout in the same way as a multi-target M node.
+        Circuit c;
+        c.num_qubits = 0;
+        c.num_measurements = 2;
+        AstNode node;
+        node.gate = GateType::MPAD;
+        node.targets = {Target::qubit(0), Target::qubit(1)};  // values 0 and 1
+        node.source_line = 0;
+        c.nodes.push_back(node);
+
+        REQUIRE_THROWS_AS(sample_noncomputational(c, model, 0, 1), std::invalid_argument);
+        REQUIRE_THROWS_WITH(sample_noncomputational(c, model, 0, 1),
+                            ContainsSubstring("one measurement node per target"));
+    }
+
+    SECTION("parsed M instruction produces single-target nodes and does not throw") {
+        // The parser normalizes "M 0 1" into two separate single-target nodes.
+        // A model with all mass on g and no transitions cannot leak or lose, so
+        // no classifier is required, and the shape validation succeeds.
+        Circuit c = parse("M 0 1\n");
+        REQUIRE(c.nodes.size() == 2);
+
+        REQUIRE_NOTHROW(sample_noncomputational(c, model, 0, 1));
+    }
 }
