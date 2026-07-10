@@ -153,7 +153,7 @@ enum class GateType : uint16_t {
 enum class GateArity : uint8_t {
     SINGLE,      // Single qubit (H, S, X, T, M, etc.)
     PAIR,        // Two qubits consumed in pairs (CX, CY, CZ)
-    TRIPLE,      // Three qubits consumed in triples (3-qubit noise channels and parse rewrites)
+    TRIPLE,      // Three qubits consumed in triples (3-qubit noise channels and gates)
     MULTI,       // Variable targets (MPP)
     ANNOTATION,  // No qubit targets (TICK)
 };
