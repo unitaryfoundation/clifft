@@ -102,8 +102,12 @@ transition occurred, so it is not an exact spacetime erasure flag. The
 herald is side information for downstream analysis or adaptive decoding;
 it is not folded into the binary detector record.
 
-Omitting `initial_state` starts every site in `g`, which matches standard Clifft convention that all qubits start in $\lvert 0 \rangle$. A model that can leak or
-lose a site requires a classifier if the circuit measures it.
+Omitting `initial_state` starts every site in `g`, which matches the standard
+Clifft convention that all qubits start in $\lvert 0 \rangle$. A model capable
+of leakage or loss requires a classifier whenever the circuit contains any
+physical-qubit measurement, even if the measured site cannot itself become
+noncomputational. `MPAD` is exempt because it appends a classical literal
+rather than measuring a site.
 
 ## Transitions: hooks and inline annotations
 
@@ -124,11 +128,13 @@ three ways to attach one to a circuit:
   `p` from any occupied level.
 
 Before sampling, Clifft expands each gate hook into a
-`LEVEL_TRANSITION[name]` annotation for every site operand of the hooked gate.
-Use a hook when the same transition should follow every occurrence of a gate;
-use an inline reference for selected circuit positions or transitions with
-arbitrary names. `LOSS(p)` provides a self-contained inline loss probability
-without requiring a transition matrix in the model.
+`LEVEL_TRANSITION[name]` annotation for every physical site operand of the
+hooked gate. Record-controlled feedback operations are virtual and receive no
+transition annotations. Use a hook when the same transition should follow
+every occurrence of a gate; use an inline reference for selected circuit
+positions or transitions with arbitrary names. `LOSS(p)` provides a
+self-contained inline loss probability without requiring a transition matrix
+in the model.
 
 A transition back to `g` or `e` can represent relaxation or recapture into
 the computational subspace; a reset represents active re-preparation.
@@ -171,10 +177,14 @@ assert r.measurements.shape == (1000, 2)
 
 ## What happens on a leaked or lost site
 
-A gate, noise channel, or classical correction touching a leaked or lost site
-is skipped as a whole and acts as the identity on every operand. A
-single-qubit measurement keeps its record slot, but the classifier rather
-than the measurement basis determines its result (`M`, `MX`, and `MY` alike).
+A unitary gate, ordinary noise channel, or classical correction touching a
+leaked or lost site is skipped as a whole and has no effect on any operand.
+Correlated-error instructions (`E`/`CORRELATED_ERROR` and
+`ELSE_CORRELATED_ERROR`) are retained to preserve chain conditioning; their
+Paulis still act on computational operands but are inert on the
+noncomputational site. A single-qubit measurement keeps its record slot, but
+the classifier rather than the measurement basis determines its result (`M`,
+`MX`, and `MY` alike).
 
 Losing one half of an entangled pair leaves the partner in the reduced
 state; for a Bell pair, maximally mixed:
@@ -290,8 +300,9 @@ with its entangled partner. The semantics and the rank cost are in
   a parity of levels outside the qubit subspace has no faithful single-bit
   record. Expand the parity readout into an explicit ancilla circuit; the
   ancilla's ladder gates then drop per the rules above.
-- **A classifier is required** whenever a capable model meets a circuit that
-  measures a site; the error names the missing piece before sampling begins.
+- **A classifier is required** whenever a model capable of leakage or loss
+  meets a circuit containing any physical-qubit measurement. This is a
+  model-level capability check, not a per-site reachability analysis.
 - Under `damping="exact"`, a transition with source-dependent rates on a
   coherent dormant site promotes that site into the active state array,
   adding one unit of peak rank. An already-active site adds nothing, and later

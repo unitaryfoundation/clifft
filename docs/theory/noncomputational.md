@@ -61,7 +61,10 @@ levels. The labels `g` and `e` name the computational basis levels used as
 matrix indices. They do not imply that a computational site occupies a
 definite level: its state may be any superposition or entangled state in
 $\mathcal H_C$. The status ledger therefore records one computational status
-rather than separate `g` and `e` occupations. We intentionally do not use $\lvert 0 \rangle, \lvert 1 \rangle$ for these level labels to underscore this distinction between the status ledger and the quantum state for site with computational status.
+rather than separate `g` and `e` occupations. We intentionally do not use
+$\lvert 0 \rangle, \lvert 1 \rangle$ for these level labels to underscore the
+distinction between the status ledger and the quantum state for a site with
+computational status.
 
 This gives a hybrid state representation. Each trajectory has two components:
 Clifft's ordinary factored quantum state over the computational sites, and a
@@ -124,8 +127,11 @@ computational state at that basis level.
 Once a site has noncomputational status, later circuit operations follow the
 policy below.
 
-- A gate, noise channel, or classical correction touching the site is skipped
-  whole and acts as the identity on every operand.
+- A unitary gate, ordinary noise channel, or classical correction touching the
+  site is skipped as a whole and has no effect on any operand. Correlated-error
+  instructions (`E`/`CORRELATED_ERROR` and `ELSE_CORRELATED_ERROR`) are
+  retained to preserve chain conditioning; their Paulis still act on
+  computational operands but are inert on the noncomputational site.
 - Measurements use the classifier to determine the measured result and store it in the same record slot reserved for that measurement. Once the site is outside $\mathcal H_C$, the classifier rather than the measurement basis determines the recorded result. For a measure-reset form, the reset half
   follows the restoration policy below. The current policy rejects multi-qubit
   parity measurements (`MPP`) because they have no faithful single-bit
