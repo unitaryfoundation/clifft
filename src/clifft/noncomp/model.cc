@@ -21,10 +21,8 @@ namespace {
 // silently accepted. Excludes annotations, identity no-ops, the
 // classical measurement pad (MPAD), the expectation-value probe, and
 // noise channels (whose composition with a level transition is
-// deliberately left unmodeled). MXX, MYY, and MZZ are measurement gates
-// by trait but are rejected as hook keys before this predicate is
-// consulted, because they desugar to MPP at parse time and never appear
-// as AST nodes.
+// deliberately left unmodeled). Parser-desugared gates are rejected as
+// hook keys before this predicate is consulted.
 bool supports_transition(GateType g) {
     if (is_clifford(g)) {
         return true;  // single- and two-qubit Clifford gates
@@ -102,14 +100,6 @@ NonComputationalModel::NonComputationalModel(
                 "' cannot be written as a LEVEL_TRANSITION tag: a key must be nonempty, have no "
                 "leading or trailing whitespace, and contain no ']', '#', or newline");
         }
-        if (is_parse_only_instruction(name)) {
-            throw std::invalid_argument(
-                "NonComputationalModel: transition key '" + name +
-                "' cannot key a gate hook: the parser decomposes " + name +
-                " into other gates, so no " + name +
-                " node exists for the hook to expand onto; place LEVEL_TRANSITION[...] annotations "
-                "explicitly");
-        }
         // Only a key naming a hookable physical gate registers a hook. Any
         // other key -- an arbitrary name, or one naming a non-hookable
         // instruction such as LOSS or a noise channel -- is a named-only
@@ -118,10 +108,11 @@ NonComputationalModel::NonComputationalModel(
         const GateType gate = parse_gate_name(name);
         if (gate != GateType::UNKNOWN && is_parser_desugared(gate)) {
             throw std::invalid_argument(
-                "NonComputationalModel: transition key '" + name + "' cannot key a gate hook: " +
-                name + " desugars to MPP at parse time, so no " + name +
-                " node exists for the hook to expand onto; place LEVEL_TRANSITION[...] annotations "
-                "explicitly");
+                "NonComputationalModel: transition key '" + name +
+                "' cannot key a gate hook: " + name +
+                " is rewritten at parse time and never appears as a circuit node, so the hook "
+                "could "
+                "never fire; place LEVEL_TRANSITION[...] annotations explicitly");
         }
         if (gate != GateType::UNKNOWN && is_identity_noop(gate)) {
             throw std::invalid_argument(

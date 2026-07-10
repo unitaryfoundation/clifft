@@ -227,46 +227,46 @@ TEST_CASE("NonComputationalModel: policy accessor reflects the constructed polic
 // Construction: dead-hook key rejection
 // =========================================================================
 
-TEST_CASE("NonComputationalModel: rejects MXX as a hook key (desugars to MPP)") {
+TEST_CASE("NonComputationalModel: rejects MXX as a hook key (rewritten at parse time)") {
     REQUIRE_THROWS_WITH(
         NonComputationalModel::from_spec(default_initial_state(), {{"MXX", zero_matrix()}},
                                          std::nullopt, NonComputationalPolicy{}),
-        ContainsSubstring("desugars to MPP"));
+        ContainsSubstring("rewritten at parse time and never appears as a circuit node"));
 }
 
-TEST_CASE("NonComputationalModel: rejects MYY as a hook key (desugars to MPP)") {
+TEST_CASE("NonComputationalModel: rejects MYY as a hook key (rewritten at parse time)") {
     REQUIRE_THROWS_WITH(
         NonComputationalModel::from_spec(default_initial_state(), {{"MYY", zero_matrix()}},
                                          std::nullopt, NonComputationalPolicy{}),
-        ContainsSubstring("desugars to MPP"));
+        ContainsSubstring("rewritten at parse time and never appears as a circuit node"));
 }
 
-TEST_CASE("NonComputationalModel: rejects MZZ as a hook key (desugars to MPP)") {
+TEST_CASE("NonComputationalModel: rejects MZZ as a hook key (rewritten at parse time)") {
     REQUIRE_THROWS_WITH(
         NonComputationalModel::from_spec(default_initial_state(), {{"MZZ", zero_matrix()}},
                                          std::nullopt, NonComputationalPolicy{}),
-        ContainsSubstring("desugars to MPP"));
+        ContainsSubstring("rewritten at parse time and never appears as a circuit node"));
 }
 
-TEST_CASE("NonComputationalModel: rejects CH as a hook key (parser-only rewrite)") {
+TEST_CASE("NonComputationalModel: rejects CH as a hook key (rewritten at parse time)") {
     REQUIRE_THROWS_WITH(
         NonComputationalModel::from_spec(default_initial_state(), {{"CH", zero_matrix()}},
                                          std::nullopt, NonComputationalPolicy{}),
-        ContainsSubstring("parser decomposes"));
+        ContainsSubstring("rewritten at parse time and never appears as a circuit node"));
 }
 
-TEST_CASE("NonComputationalModel: rejects CCX as a hook key (parser-only rewrite)") {
+TEST_CASE("NonComputationalModel: rejects CCX as a hook key (rewritten at parse time)") {
     REQUIRE_THROWS_WITH(
         NonComputationalModel::from_spec(default_initial_state(), {{"CCX", zero_matrix()}},
                                          std::nullopt, NonComputationalPolicy{}),
-        ContainsSubstring("parser decomposes"));
+        ContainsSubstring("rewritten at parse time and never appears as a circuit node"));
 }
 
-TEST_CASE("NonComputationalModel: rejects CCZ as a hook key (parser-only rewrite)") {
+TEST_CASE("NonComputationalModel: rejects CCZ as a hook key (rewritten at parse time)") {
     REQUIRE_THROWS_WITH(
         NonComputationalModel::from_spec(default_initial_state(), {{"CCZ", zero_matrix()}},
                                          std::nullopt, NonComputationalPolicy{}),
-        ContainsSubstring("parser decomposes"));
+        ContainsSubstring("rewritten at parse time and never appears as a circuit node"));
 }
 
 TEST_CASE("NonComputationalModel: rejects I as a hook key (identity no-op)") {

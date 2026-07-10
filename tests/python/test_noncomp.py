@@ -116,7 +116,7 @@ def test_transition_wrong_shape_raises():
 
 def test_desugared_gate_transition_key_raises():
     t = transition_to(LEAK_G)
-    with pytest.raises(ValueError, match="desugars to MPP"):
+    with pytest.raises(ValueError, match="rewritten at parse time"):
         noncomp.Model(initial_state=ALL_G, transitions={"MXX": t})
 
 

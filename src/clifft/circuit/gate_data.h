@@ -139,6 +139,12 @@ enum class GateType : uint16_t {
     // Simulation-only probes
     EXP_VAL,  // Non-destructive expectation value
 
+    // Parse-time rewrites: the parser lowers these immediately; no AST node
+    // ever carries these types.
+    CH,   // Controlled-Hadamard (rewritten at parse time)
+    CCX,  // Toffoli / controlled-controlled-X (rewritten at parse time)
+    CCZ,  // Controlled-controlled-Z (rewritten at parse time)
+
     // Sentinel for unknown/unsupported gates
     UNKNOWN,
 };
@@ -147,7 +153,7 @@ enum class GateType : uint16_t {
 enum class GateArity : uint8_t {
     SINGLE,      // Single qubit (H, S, X, T, M, etc.)
     PAIR,        // Two qubits consumed in pairs (CX, CY, CZ)
-    TRIPLE,      // Three qubits consumed in triples (3-qubit noise channels)
+    TRIPLE,      // Three qubits consumed in triples (3-qubit noise channels and parse rewrites)
     MULTI,       // Variable targets (MPP)
     ANNOTATION,  // No qubit targets (TICK)
 };
@@ -280,6 +286,10 @@ inline constexpr GateTraits kGateTraitsData[] = {
     {.arity = S, .name = "LOSS"},
     // Simulation-only probes
     {.arity = ML, .name = "EXP_VAL"},
+    // Parse-time rewrites: no AST nodes carry these types
+    {.arity = P, .parser_desugared = true, .name = "CH"},
+    {.arity = T, .parser_desugared = true, .name = "CCX"},
+    {.arity = T, .parser_desugared = true, .name = "CCZ"},
     // Sentinel
     {.arity = S, .name = "UNKNOWN"},
 };
