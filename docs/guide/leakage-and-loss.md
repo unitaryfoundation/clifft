@@ -3,10 +3,15 @@
 !!! warning "Experimental"
     `clifft.noncomp` is experimental and may change between minor releases.
 
-Real devices leak (an atom is excited out of the qubit encoding) and lose
-atoms (the atom leaves the trap). Ordinary Pauli noise cannot represent
-either. `clifft.noncomp` samples circuits under a five-level leakage/loss
-model: transition matrices describe when qubits jump between levels, and a
+Real devices can leave the computational subspace (*leakage*) or lose the
+physical carrier from its site (*loss*). These faults can persist until the
+qubit relaxes, the carrier is recaptured, or the site is reset, so one event
+can affect a sequence of later operations and detector outcomes. The
+resulting correlations are not faithfully represented by independent Pauli
+faults.
+
+`clifft.noncomp` samples circuits under a five-level leakage/loss model:
+transition matrices describe when qubits jump between levels, and a
 classifier describes what a measurement of a leaked or lost qubit records.
 
 This page is the API walkthrough. The model and its simulation semantics
@@ -60,6 +65,12 @@ binary `measurements` entry holds a uniformly drawn placeholder;
 `symbols()` folds the herald back in as a third value per slot (0, 1,
 or 2), for comparing against tools that report loss in-band.
 
+`heralds[shot, slot]` means that the classifier emitted its third symbol at
+that measurement slot. It does not identify when or where the underlying
+transition occurred, so it is not an exact spacetime erasure flag. The
+herald is side information for downstream analysis or adaptive decoding;
+it is not folded into the binary detector record.
+
 Omitting `initial_state` starts every qubit in `g`. A model that can leak
 or lose qubits requires a classifier if the circuit measures a qubit.
 
@@ -78,6 +89,9 @@ three ways to attach one to a circuit:
   gate-named or not.
 - **Inline loss.** `LOSS(p) 0` loses qubit 0 with probability `p` from any
   occupied level.
+
+A transition back to `g` or `e` can represent relaxation or recapture into
+the computational subspace; a reset represents active re-preparation.
 
 ```python
 from clifft import noncomp
@@ -147,8 +161,9 @@ assert (r.final_status[:, 0] == noncomp.QubitStatus.LOST).all()
 assert (r.final_status[:, 1] == noncomp.QubitStatus.COMPUTATIONAL).all()
 ```
 
-Classification happens before detectors are evaluated, so leakage
-surfaces as detector events:
+The classifier supplies the binary record bit before detectors and
+observables are evaluated, so a noncomputational readout can produce
+detector events:
 
 ```python
 import numpy as np
@@ -224,6 +239,15 @@ are in [Noncomputational States](../theory/noncomputational.md).
 
 ## Limits
 
+- **Partner-error channels and leakage transport are not modeled.** A two-qubit
+  operation touching a leaked or lost operand is dropped whole. The model
+  does not add partner depolarization conditioned on that status or move
+  leakage between qubits.
+- **Coherent leakage is outside the trajectory model.** Jumps into a
+  noncomputational level are treated as incoherent, definite occupations.
+- **The API produces trajectory samples.** It does not construct
+  conditional or adaptive detector error models or run an adaptive decoder;
+  records and heralds are available for downstream tooling.
 - **`MPP` is not supported** under a model that can leak or lose qubits —
   a parity of levels outside the qubit subspace has no faithful single-bit
   record. Expand the parity readout into an explicit ancilla circuit; the
