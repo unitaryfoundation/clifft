@@ -91,4 +91,5 @@ result = clifft.sample(program, shots=10000, seed=42)
 
 - [Compiling Circuits](../guide/compilation.md) — the compilation pipeline in detail
 - [Simulation](../guide/simulation.md) — sampling, state vectors, and detectors
+- [Front-End Integrations](integrations.md): using Clifft from Qiskit or Cirq
 - [Supported Gates](../reference/gates.md) — full gate reference

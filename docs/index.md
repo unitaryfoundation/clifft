@@ -70,6 +70,10 @@ print(result.measurements[:5])  # First 5 shots.
 
     Multi-level optimization passes reduce active state-vector work before execution.
 
+- **Qiskit and Cirq Integrations**
+
+    Run supported circuits from Qiskit or Cirq through companion packages without hand-writing Clifft circuit text.
+
 - **Active-Dimension Scaling**
 
     For circuits with bounded active dimension, memory and runtime scale with the localized active state rather than the full qubit count.
@@ -84,11 +88,13 @@ For QEC workflows, Clifft also supports detector-based post-selection, survivor 
 
 [Try the Playground]({{ playground_url }}){ .md-button }
 
+[Use Qiskit or Cirq](getting-started/integrations.md){ .md-button }
+
 ## What's New in 0.5.0
 
 Clifft 0.5.0 broadens the circuits users can write directly and makes the project easier to try from both the playground and Python docs. The parser now accepts common controlled gates (`CCZ`, `CCX`, `CH`) through exact Clifford+T rewrites, the simulator supports three-qubit Pauli noise channels (`DEPOLARIZE3`), and phase-sensitive statevector behavior is better tested and documented.
 
-This release also includes several [unitaryHACK 2026](https://unitaryhack.dev/) contributions: @Samfresh-ai added starter circuits to the playground, @manasa-manoj-nbr added an auto-generated Python API reference, and @ashmitjsg completed the Qiskit backend bounty as the companion [unitaryfoundation/clifft-qiskit](https://github.com/unitaryfoundation/clifft-qiskit) package, so Qiskit users can run supported circuits on Clifft without hand-writing Stim.
+This release also includes several [unitaryHACK 2026](https://unitaryhack.dev/) contributions: @Samfresh-ai added starter circuits to the playground, @manasa-manoj-nbr added an auto-generated Python API reference, and @ashmitjsg completed the Qiskit backend bounty as the companion [unitaryfoundation/clifft-qiskit](https://github.com/unitaryfoundation/clifft-qiskit) package. Users starting from Qiskit or Cirq can now find both [clifft-qiskit](https://github.com/unitaryfoundation/clifft-qiskit) and [clifft-cirq](https://github.com/unitaryfoundation/clifft-cirq) from the [front-end integrations guide](getting-started/integrations.md).
 
 ## What's New in 0.4.0
 

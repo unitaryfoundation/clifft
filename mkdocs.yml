@@ -93,6 +93,7 @@ nav:
   - Getting Started:
     - Installation: getting-started/installation.md
     - Quick Start: getting-started/quickstart.md
+    - Front-End Integrations: getting-started/integrations.md
   - User Guide:
     - Compiling Circuits: guide/compilation.md
     - Simulation: guide/simulation.md
