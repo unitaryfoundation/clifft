@@ -129,8 +129,9 @@ three ways to attach one to a circuit:
 
 Before sampling, Clifft expands each gate hook into a
 `LEVEL_TRANSITION[name]` annotation for every physical site operand of the
-hooked gate. Record-controlled feedback operations are virtual and receive no
-transition annotations. Use a hook when the same transition should follow
+hooked gate. Classical feedback (`CX rec[-1] 0`) receives no annotation: a
+record-conditioned Pauli is a frame update, not a physical execution of the
+hooked gate. Use a hook when the same transition should follow
 every occurrence of a gate; use an inline reference for selected circuit
 positions or transitions with arbitrary names. `LOSS(p)` provides a
 self-contained inline loss probability without requiring a transition matrix
