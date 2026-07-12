@@ -162,37 +162,6 @@
   \takeaway{The cost driver becomes the amount of magic $t$, not the dimension $2^k$.}
 \end{frame}
 
-% ================================================================ A: architecture
-\begin{frame}{A \,\textperiodcentered\, How it fits: one compiler, two executors}
-  \centering
-  \vspace{-0.2em}
-  \begin{tikzpicture}[scale=0.8, every node/.append style={transform shape},
-    box/.style={draw, rounded corners=1pt, inner sep=5pt, font=\small},
-    sub/.style={font=\scriptsize, color=mutedink},
-    lbl/.style={font=\scriptsize\itshape, color=ink}]
-    \node[box] (circ) at (0,0) {circuit};
-    \node[box] (comp) at (2.7,0) {clifft compiler};
-    \node[box] (meta) at (6.0,0) {compiled program};
-    \node[sub] at (6.0,-0.55) {peak rank $k$, live $T$-count $t$};
-    \node[box, draw=violet] (dense) at (11.4,0.95) {dense engine};
-    \node[sub] at (11.4,0.42) {exact, $2^{k}$};
-    \node[box, draw=copper] (chf) at (11.4,-0.95) {rank backend};
-    \node[sub] at (11.4,-1.5) {opt-in $\delta$-approx., $2^{0.228 t}/\delta^2$};
-    \draw[->] (circ) -- (comp);
-    \draw[->] (comp) -- (meta);
-    \draw[->] (meta.east) to[out=20,in=180] (dense.west);
-    \draw[->] (meta.east) to[out=-20,in=180] (chf.west);
-    \node[lbl] at (8.85,0.95) {$0.228\,t \ge k$};
-    \node[lbl] at (8.85,-1.0) {$0.228\,t < k$};
-  \end{tikzpicture}
-  \vspace{-0.2em}
-  \begin{itemize}
-    \item Both cost exponents are known \punch{before anything runs} --- dispatch is a one-line comparison, per program.
-    \item \punch{Wired, not just proposed}: the rank backend runs clifft's optimized circuits; exact clifft stays the default, the rank backend is an explicit opt-in with an error dial $\delta$.
-  \end{itemize}
-  \takeaway{clifft compiles; the cheaper engine runs --- on the same optimized circuit.}
-\end{frame}
-
 % ================================================================ A: why it works
 \begin{frame}{A \,\textperiodcentered\, Why it should work}
   \begin{columns}[T]
@@ -258,10 +227,42 @@
   \takeaway{$2^t$ branches, but only $2^{0.228\,t}$ of weight --- and weight is all you pay.}
 \end{frame}
 
-% ================================================================ A: generality
-\begin{frame}{A \,\textperiodcentered\, It generalizes: any Clifford$+T$ circuit}
+% ================================================================ A: architecture
+\begin{frame}{A \,\textperiodcentered\, How it fits: one compiler, two executors}
+  \centering
+  \vspace{-0.2em}
+  \begin{tikzpicture}[scale=0.8, every node/.append style={transform shape},
+    box/.style={draw, rounded corners=1pt, inner sep=5pt, font=\small},
+    sub/.style={font=\scriptsize, color=mutedink},
+    lbl/.style={font=\scriptsize\itshape, color=ink}]
+    \node[box] (circ) at (0,0) {circuit};
+    \node[box] (comp) at (2.7,0) {clifft compiler};
+    \node[box] (meta) at (6.0,0) {compiled program};
+    \node[sub] at (6.0,-0.55) {peak rank $k$, live $T$-count $t$};
+    \node[box, draw=violet] (dense) at (11.4,0.95) {dense engine};
+    \node[sub] at (11.4,0.42) {exact, $2^{k}$};
+    \node[box, draw=copper] (chf) at (11.4,-0.95) {rank backend};
+    \node[sub] at (11.4,-1.5) {opt-in $\delta$-approx., $2^{0.228 t}/\delta^2$};
+    \draw[->] (circ) -- (comp);
+    \draw[->] (comp) -- (meta);
+    \draw[->] (meta.east) to[out=20,in=180] (dense.west);
+    \draw[->] (meta.east) to[out=-20,in=180] (chf.west);
+    \node[lbl] at (8.85,0.95) {$0.228\,t \ge k$};
+    \node[lbl] at (8.85,-1.0) {$0.228\,t < k$};
+  \end{tikzpicture}
+  \vspace{-0.2em}
   \begin{itemize}
-    \item Circuits with magic \emph{everywhere}? Teleport each in-line $T$ onto a helper qubit --- all magic becomes \punch{one up-front layer} again, with \punch{no penalty for interleaving}.
+    \item Both cost exponents are known \punch{before anything runs} --- dispatch is a one-line comparison, per program.
+    \item \punch{Wired, not just proposed}: the rank backend runs clifft's optimized circuits; exact clifft stays the default, the rank backend is an explicit opt-in with an error dial $\delta$.
+  \end{itemize}
+  \takeaway{clifft compiles; the cheaper engine runs --- on the same optimized circuit.}
+\end{frame}
+
+% ================================================================ A: generality
+\begin{frame}{A \,\textperiodcentered\, Not an IQP trick: any Clifford$+T$ circuit}
+  \begin{itemize}
+    \item The fast sampler needs all magic in \punch{one up-front layer} --- IQP (our commuting benchmark family) has that shape by construction; most circuits scatter their $T$'s throughout.
+    \item The fix: teleport each in-line $T$ onto a helper qubit --- \emph{any} circuit becomes product-magic, with \punch{no penalty for interleaving}.
     \item Tested on circuits whose answer is known \emph{by construction} (hidden shift): up to \punch{96 qubits}, right answer in seconds.
     \item Often clifft still wins such circuits outright --- and the dispatch rule \emph{knows in advance}.
   \end{itemize}
