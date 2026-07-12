@@ -218,6 +218,46 @@
   \takeaway{Trade exactness you can measure for reach you cannot otherwise have.}
 \end{frame}
 
+% ================================================================ A: extent
+\begin{frame}{A \,\textperiodcentered\, Under the hood: stabilizer extent}
+  \begin{columns}[T]
+    \begin{column}{0.52\textwidth}
+      \begin{itemize}
+        \item Each $T$ gate is a sum of two \emph{Clifford} moves: $T = \alpha\,I + \beta\,S$, with $|\alpha|+|\beta| = 2^{0.114}$ --- provably the cheapest split.
+        \item $t$ $T$'s $\Rightarrow$ $2^t$ branches, but their total weight is only $2^{0.114\,t}$. Its square --- the \punch{stabilizer extent $2^{0.228\,t}$} --- is the real price.
+        \item Keep a \punch{weight-sampled $k \approx 2^{0.228\,t}/\delta^2$} of the branches: within $\delta$ of the true state, unbiased --- that is the measured $0.50\,\delta$ dial.
+      \end{itemize}
+    \end{column}
+    \begin{column}{0.44\textwidth}
+      \centering
+      \begin{tikzpicture}[yscale=0.95,
+          b/.style={draw, rounded corners=1pt, fill=copper!22, inner sep=2.5pt,
+                    minimum width=16pt, font=\scriptsize},
+          w/.style={font=\tiny, color=mutedink}]
+        \node[b, fill=faint] (r) at (2.6,3.4) {Clifford recipe};
+        \node[b] (l) at (1.3,2.3) {$I$};
+        \node[b] (s) at (3.9,2.3) {$S$};
+        \draw[->,mutedink] (r) -- (l) node[w,midway,left=2pt] {$\alpha$};
+        \draw[->,mutedink] (r) -- (s) node[w,midway,right=2pt] {$\beta$};
+        \node[b] (n1) at (0.6,1.2) {\phantom{$I$}};
+        \node[b] (n2) at (2.0,1.2) {\phantom{$I$}};
+        \node[b] (n3) at (3.2,1.2) {\phantom{$I$}};
+        \node[b] (n4) at (4.6,1.2) {\phantom{$I$}};
+        \draw[->,mutedink] (l) -- (n1);
+        \draw[->,mutedink] (l) -- (n2);
+        \draw[->,mutedink] (s) -- (n3);
+        \draw[->,mutedink] (s) -- (n4);
+        \node[w] at (2.6,0.72) {$\vdots$ \ one split per $T$ gate};
+        \node[font=\scriptsize, color=ink] at (2.6,0.12)
+          {$2^t$ branches, weight $(|\alpha|{+}|\beta|)^t = 2^{0.114\,t}$};
+        \node[font=\scriptsize\bfseries, color=copper] at (2.6,-0.5)
+          {sample $k \approx 2^{0.228\,t}/\delta^2$ of them};
+      \end{tikzpicture}
+    \end{column}
+  \end{columns}
+  \takeaway{$2^t$ branches, but only $2^{0.228\,t}$ of weight --- and weight is all you pay.}
+\end{frame}
+
 % ================================================================ A: generality
 \begin{frame}{A \,\textperiodcentered\, It generalizes: any Clifford$+T$ circuit}
   \begin{itemize}
