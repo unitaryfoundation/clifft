@@ -348,6 +348,36 @@
   \takeaway{The niche is real --- and honestly bounded: below the crossover, exact clifft stays the right tool.}
 \end{frame}
 
+% ================================================================ A: runtimes
+\begin{frame}{A \,\textperiodcentered\, Run times at a glance}
+  \centering
+  \small
+  \begin{tabular}{@{}p{0.24\textwidth}p{0.44\textwidth}p{0.24\textwidth}@{}}
+    \toprule
+    \textbf{circuit family} & \textbf{measured head-to-head} & \textbf{cannot enter} \\
+    \midrule
+    dense IQP, $n{=}56$\newline\scriptsize(96 probabilities) &
+    \textcolor{copper}{\textbf{backend 86\,s}} (8\% err) vs clifft exact 398\,s\newline
+    {\scriptsize MitM 85\,s, QuiZX 2188\,s (both exact)} &
+    Quokka\# (timeout),\newline aer ($0/96$ in 455\,s) \\[2pt]
+    dense IQP, $n{=}72$ &
+    \textcolor{copper}{\textbf{backend 267\,s, 1.9\,GB}} &
+    every exact method\newline($\sim$1\,TB) \\[2pt]
+    hidden shift, 96 qubits &
+    \textcolor{violet}{\textbf{clifft $\mu$s}} vs backend 8\,s --- dispatch picks clifft &
+    --- \\[2pt]
+    magic conveyor, 72 qubits &
+    \textcolor{violet}{\textbf{clifft 1\,ms}} (block $=$ $2^{12}$) vs episodic 66\,s;\newline
+    at width 128 (block $=$ $2^{49}$) \textcolor{copper}{\textbf{only episodic runs}} &
+    whole-circuit backend\newline($2^{72}$ recipes) \\[2pt]
+    cultivation patch (adaptive) &
+    \textcolor{copper}{\textbf{frame $4$--$16\times$}} vs per-term engine &
+    aer (rejects dynamic circuits) \\
+    \bottomrule
+  \end{tabular}
+  \takeaway{No single winner --- that is the point: the dispatcher picks per program, before running.}
+\end{frame}
+
 % ================================================================ A: map
 \begin{frame}{A \,\textperiodcentered\, Where it wins, where it doesn't}
   \centering

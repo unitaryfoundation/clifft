@@ -666,6 +666,12 @@ deterministically. \emph{Scale}: a $72$-qubit conveyor ($t_{\rm live}=72$;
 whole-circuit $\chi$ would be $2^{72}$) runs end to end with no $2^n$ object
 at $\chi\le400$, returning the record probability within $41\%$ relative at
 $10\times$ per-episode compression (mean of four cross estimates, $66$\,s).
+To be clear about who wins \emph{this} instance: \texttt{clifft} compiles it
+to an $m_{\rm blk}$-sized block ($k{=}12$) and answers exactly in
+$\sim\!1$\,ms --- the run demonstrates the mechanism at scale; the episodic
+strategy's own regime is conveyors whose \emph{per-episode} block already
+breaks memory (the width-128, $k{=}49$ case of \S\ref{sec:arch}, where it is
+the only feasible strategy).
 \emph{The measured limit}: for full-record probabilities the error turns on
 sharply below the exact budget and compounds steeply with the episode count
 (rel-rms $16$ at $R{=}8$, $110$ at $R{=}16$ even at $2\times$ compression) ---
@@ -690,7 +696,30 @@ not the binding constraint.
 
 \subsection{External tools}\label{sec:external}
 On the same dense-IQP instances and targets as \S\ref{sec:overlap}
-(\texttt{bench\_external.py}, everything validated against MitM):
+(\texttt{bench\_external.py}, everything validated against MitM).
+Table~\ref{tab:xmethod} consolidates the cross-method run times; the tools
+in detail:
+
+\begin{table}[h]\centering
+\caption{Cross-method run times: seconds for 96 record probabilities on
+shared dense-IQP instances (fastest per size in bold; note the guarantees
+differ).}\label{tab:xmethod}
+\begin{tabular}{llrrrl}
+\toprule
+method & guarantee & $n{=}24$ & $n{=}48$ & $n{=}56$ & $n{=}72$ \\
+\midrule
+\texttt{clifft} \texttt{record\_probabilities} & exact & \textbf{0.003} & 17.3 & 398 & $\sim$1\,TB, infeasible \\
+MitM evaluator (ours) & exact & 0.4 & \textbf{4.7} & \textbf{84.5} & $\sim$1\,TB, infeasible \\
+QuiZX & exact & 0.5 & 251 & 2188 & --- \\
+Quokka\# $+$ GPMC & exact & $\approx$300 & timeout & timeout & --- \\
+aer \texttt{extended\_stabilizer} & sampling & 455 ($0/96$ hit) & --- & --- & --- \\
+CH-form backend, $\delta{=}0.15$ & TV $\approx$ 0.08 & 0.08 & 16.9 & 86.2 & --- \\
+CH-form backend, $\delta{=}0.4$ & TV $\approx$ 0.18 & 0.09 & 2.4 & 12.1 & \textbf{267}$^{\,*}$ \\
+\bottomrule
+\end{tabular}\\[2pt]
+{\small $^*$single-shot build $+$ one amplitude in $1.9$\,GB
+(Table~\ref{tab:frontier}) --- the only method that runs at this size.}
+\end{table}
 \begin{itemize}
 \item \textbf{QuiZX}~\cite{kissinger2022} (v0.3.0) computes each probability
 exactly, one ZX-simplify$+$decompose run per target; its per-amplitude cost
