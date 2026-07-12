@@ -188,7 +188,7 @@
   \vspace{-0.2em}
   \begin{itemize}
     \item Both cost exponents are known \punch{before anything runs} --- dispatch is a one-line comparison, per program.
-    \item \punch{Wired, not just proposed}: the backend runs clifft's optimized circuits; exact clifft stays the default, the backend is an explicit opt-in with an error dial $\delta$.
+    \item \punch{Wired, not just proposed}: the rank backend runs clifft's optimized circuits; exact clifft stays the default, the rank backend is an explicit opt-in with an error dial $\delta$.
   \end{itemize}
   \takeaway{clifft compiles; the cheaper engine runs --- on the same optimized circuit.}
 \end{frame}
@@ -257,7 +257,7 @@
         \foreach \y in {0,...,3} \node[g] at (7.1,\y) {$M$};
       \end{tikzpicture}\\[1pt]
       {\scriptsize\punch{Dense IQP} --- the stress test}\\
-      {\tiny\color{mutedink} magic on every qubit; \emph{compiles} to peak rank $n/2$ (crossover, frontier)}\\[0.9em]
+      {\tiny\color{mutedink} IQP = ``instantaneous quantum polynomial'': a standard hard commuting family; compiles to peak rank $n/2$}\\[0.9em]
       \begin{tikzpicture}[xscale=0.56, yscale=0.34,
           g/.style={draw, fill=paper, inner sep=1pt, minimum size=8pt, font=\tiny}]
         \foreach \y in {0,1,2} \draw[ink] (0.3,\y) -- (7.6,\y);
@@ -357,19 +357,19 @@
     \textbf{circuit family} & \textbf{measured head-to-head} & \textbf{cannot enter} \\
     \midrule
     dense IQP, $n{=}56$\newline\scriptsize(96 probabilities) &
-    \textcolor{copper}{\textbf{backend 86\,s}} (8\% err) vs clifft exact 398\,s\newline
-    {\scriptsize MitM 85\,s, QuiZX 2188\,s (both exact)} &
+    \textcolor{copper}{\textbf{rank backend 86\,s}} (8\% err) vs clifft exact 398\,s\newline
+    {\scriptsize both exact: meet-in-the-middle 85\,s, QuiZX 2188\,s} &
     Quokka\# (timeout),\newline aer ($0/96$ in 455\,s) \\[2pt]
     dense IQP, $n{=}72$ &
-    \textcolor{copper}{\textbf{backend 267\,s, 1.9\,GB}} &
+    \textcolor{copper}{\textbf{rank backend 267\,s, 1.9\,GB}} &
     every exact method\newline($\sim$1\,TB) \\[2pt]
     hidden shift, 96 qubits &
-    \textcolor{violet}{\textbf{clifft $\mu$s}} vs backend 8\,s --- dispatch picks clifft &
+    \textcolor{violet}{\textbf{clifft $\mu$s}} vs rank backend 8\,s --- dispatch picks clifft &
     --- \\[2pt]
     magic conveyor, 72 qubits &
     \textcolor{violet}{\textbf{clifft 1\,ms}} (block $=$ $2^{12}$) vs episodic 66\,s;\newline
     at width 128 (block $=$ $2^{49}$) \textcolor{copper}{\textbf{only episodic runs}} &
-    whole-circuit backend\newline($2^{72}$ recipes) \\[2pt]
+    whole-circuit rank backend\newline($2^{72}$ recipes) \\[2pt]
     cultivation patch (adaptive) &
     \textcolor{copper}{\textbf{frame $4$--$16\times$}} vs per-term engine &
     aer (rejects dynamic circuits) \\

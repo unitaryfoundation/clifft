@@ -41,13 +41,13 @@ magic --- $2^{0.228\,t}$ terms for $t$ live $T$-gates, at a tunable accuracy
 $\delta$. Both cost exponents are known from a single \texttt{clifft}
 compilation before anything runs, so execution becomes a per-program
 dispatch: the dense engine where the compiled block is small (most circuits),
-the backend where the block is large but magic is sparse. Measured against
+the CH backend where the block is large but magic is sparse. Measured against
 \texttt{clifft}'s exact fast path on circuits that compile to genuinely large
-blocks, the backend crosses over at $n\!\approx\!34$ (coarse accuracy) and
+blocks, the CH backend crosses over at $n\!\approx\!34$ (coarse accuracy) and
 $n\!\approx\!48$ ($8\%$ error), and past $n\!\approx\!62$ --- where every
 known exact method needs $16$\,GB--$1$\,TB --- it is the only method that
 runs ($n{=}72$ in $267$\,s and $1.9$\,GB). Accuracy follows a clean measured
-law, $\mathrm{TV}=(0.50\pm0.01)\,\delta$. The backend consumes
+law, $\mathrm{TV}=(0.50\pm0.01)\,\delta$. The CH backend consumes
 \texttt{clifft}'s optimized Heisenberg IR directly (which contains no
 Clifford gates at all --- the compiler absorbs them), handles arbitrary
 interleaved magic by $T$-gadgetization, adaptive feedforward circuits online,
@@ -65,7 +65,7 @@ the design (\texttt{research/stabrank\_profiling}): $k$ is built from magic
 --- plain Clifford superposition never inflates it --- and \texttt{clifft}'s
 measurement-reordering passes shrink $k$ aggressively. When the block is
 nevertheless large but \emph{magic-sparse}, its stabilizer rank is
-$\ll 2^k$; the backend executes exactly that regime, at the cost of
+$\ll 2^k$; the CH backend executes exactly that regime, at the cost of
 exactness.
 
 \paragraph{One compiler.} Every circuit goes through \texttt{clifft}'s
@@ -93,7 +93,7 @@ carries every quantity the routing decision needs:
   \node[sub] at (6.6,-0.55) {$k$, $t_{\rm live}$, $m_{\rm blk}$, $R$};
   \node[box] (dense) at (12.0,1.35) {dense engine};
   \node[sub] at (12.0,0.80) {exact, $2^{k}$};
-  \node[box] (chf) at (12.0,-1.35) {CH-form backend};
+  \node[box] (chf) at (12.0,-1.35) {CH backend};
   \node[sub] at (12.0,-1.90) {$\delta$-approx., $2^{0.228 t_{\rm live}}/\delta^2$};
   \draw[->] (circ) -- (comp);
   \draw[->] (comp) -- (meta);
@@ -113,9 +113,9 @@ compilation and routes each program to the cheapest feasible one:
 strategy & cost ($\log_2$ dominant term) & guarantee & inputs \\
 \midrule
 dense engine & $k$ & exact & $k=\mathrm{peak\_rank}$ \\
-backend, global & $0.228\,t_{\rm live} + 2\log_2\!\frac1\delta$ & $\delta$-approx.\ & $t_{\rm live}$ (HIR) \\
-backend, episodic-exact & $m_{\rm blk}$ & exact & $m_{\rm blk}$, $R$ (profiler) \\
-backend, episodic-approx.\ & $0.228\,m_{\rm blk} + 2\log_2\!\frac{R}{\delta}$ & $\delta$-approx.$^\dagger$ & $m_{\rm blk}$, $R$ \\
+CH backend, global & $0.228\,t_{\rm live} + 2\log_2\!\frac1\delta$ & $\delta$-approx.\ & $t_{\rm live}$ (HIR) \\
+CH backend, episodic-exact & $m_{\rm blk}$ & exact & $m_{\rm blk}$, $R$ (profiler) \\
+CH backend, episodic-approx.\ & $0.228\,m_{\rm blk} + 2\log_2\!\frac{R}{\delta}$ & $\delta$-approx.$^\dagger$ & $m_{\rm blk}$, $R$ \\
 \bottomrule
 \end{tabular}
 \end{center}
@@ -124,25 +124,26 @@ grow-and-fully-collapse cycle of the active block); $R$ = episode count.
 $^\dagger$measured caveat for full-record targets, \S\ref{sec:episodic}.}
 
 Representative routings (\texttt{dispatch.py} demo, $\delta{=}0.15$): dense
-IQP at $n{=}40$ ($k{=}20$, $t{=}40$) $\to$ backend-global; random
-Clifford$+T$ and hidden shift (which compile to $k\le10$) $\to$ dense; a
-feedforward conveyor with $12$ rounds of $128$ $T$'s ($k{=}49$: dense
-infeasible; $0.228\cdot1536\approx350$: global absurd) $\to$
-backend-episodic, the only strategy that runs.
+IQP (\emph{instantaneous quantum polynomial-time}: commuting $T{+}CZ$
+circuits between Hadamard layers) at $n{=}40$ ($k{=}20$, $t{=}40$) $\to$ CH
+backend, global; random Clifford$+T$ and hidden shift (which compile to
+$k\le10$) $\to$ dense; a feedforward conveyor with $12$ rounds of $128$
+$T$'s ($k{=}49$: dense infeasible; $0.228\cdot1536\approx350$: global
+absurd) $\to$ CH backend, episodic --- the only strategy that runs.
 
-\paragraph{What comes from where.} The backend borrows \texttt{clifft}'s two
+\paragraph{What comes from where.} The CH backend borrows \texttt{clifft}'s two
 architectural ideas --- the global symbolic Clifford frame and
 measurement-driven collapse of the non-Clifford core --- and re-instantiates
 them over a different core: BGH's low-rank CH-form sum~\cite{bravyi2019}
 instead of a dense $2^k$ array. The simulation mathematics (CH-form,
 minimal-extent decomposition, sparsification, norm estimation, gadgetization)
 is BGH/Bravyi--Gosset throughout; none of \texttt{clifft}'s runtime is used.
-\texttt{clifft} serves as compiler front-end (the backend consumes its
+\texttt{clifft} serves as compiler front-end (the CH backend consumes its
 optimized HIR directly, \S\ref{sec:hir}), as validation oracle (every
 component is checked against it to machine precision), and as the exact
 opponent in every benchmark.
 
-\paragraph{Design commitments.} (i) The backend is an explicit opt-in
+\paragraph{Design commitments.} (i) The CH backend is an explicit opt-in
 ($\delta$), never a silent substitute: when exactness is demanded past the
 memory wall, the honest answer is ``infeasible'' --- \texttt{clifft}'s
 exactness contract is untouched. (ii) Both executors consume the same
@@ -151,7 +152,7 @@ reordering, fusion) lowers both engines' costs. (iii) Baseline discipline:
 all comparisons below run against \texttt{clifft}'s true fast path ---
 \texttt{record\_probabilities} on the \emph{measured} program --- and are
 cross-checked by an independent exact evaluator; comparing against the
-unitary path ($\mathrm{peak\_rank}=n$) would overstate the backend by orders
+unitary path ($\mathrm{peak\_rank}=n$) would overstate the CH backend by orders
 of magnitude and is never done here.
 
 In one sentence: \texttt{clifft}'s architecture is the blueprint, BGH's
@@ -226,7 +227,7 @@ normalization stays analytic (\S\ref{sec:norm-theory}).
 \subsection{Episodic execution}\label{sec:episodic-theory}
 Long computations \emph{recycle} magic: the active core grows and fully
 collapses again (an \emph{episode}), so the per-episode magic $m_{\rm blk}$
-stays bounded while $t_{\rm live}$ grows with runtime. The backend exploits
+stays bounded while $t_{\rm live}$ grows with runtime. The CH backend exploits
 this by running one episode at a time. The sound schedule, each element
 load-bearing (measured in \S\ref{sec:episodic}):
 \begin{itemize}
@@ -289,7 +290,7 @@ escape.
 For circuits the compiler can see through, the Heisenberg IR already
 delivers ``free Cliffords'' statically. For \emph{dynamic} circuits ---
 mid-circuit measurement with data-dependent control the compiler cannot
-resolve --- the backend maintains the frame online:
+resolve --- the CH backend maintains the frame online:
 $\ket{\mathrm{state}}=F(\sum_a\ket{\phi_a})$ with $F$ a global Clifford
 updated in $O(n)$ per gate; magic and measurement act on the terms conjugated
 through $F$ at the optimal $\{I,S\}$ extent. The frame does not eliminate
@@ -308,7 +309,7 @@ performance implementation for the build-and-query pipeline (single-shot
 magic $+$ Clifford stream $+$ amplitude/norm queries; amplitudes are
 word-based, and the multi-word $n>64$ paths are covered by tests). Ground
 truth everywhere is \texttt{clifft}'s exact \texttt{record\_probabilities},
-independently cross-validated by a meet-in-the-middle evaluator
+independently cross-validated by a meet-in-the-middle (MitM) evaluator
 (\texttt{mitm\_iqp.cpp}): exact $P(x)$ for any $T{+}CZ$ IQP circuit in
 $O(n2^{n/2})$ time and $2^{n/2}$ memory --- ground truth to $n\!\approx\!62$
 on a $36$\,GB machine, and incidentally the fastest exact method on that
@@ -340,14 +341,14 @@ MitM IQP evaluator & dense / \texttt{record\_probabilities} & $6\times10^{-16}$ 
 \end{table}
 
 \subsection{Consuming the compiler's output}\label{sec:hir}
-The backend reads \texttt{clifft}'s optimized HIR directly
+The CH backend reads \texttt{clifft}'s optimized HIR directly
 (\texttt{hir\_bridge.py}, via the exposed
 \texttt{parse}$\to$\texttt{trace}$\to$\texttt{HirPassManager} pipeline). The
 IR's op types map one-to-one onto the engine's explicit-Pauli primitives:
 $T$-rotations about arbitrary Paulis (\texttt{rz\_about\_pauli}), projective
 Pauli measurements (\texttt{measure\_pauli\_forced\_fast}), and conditional
 Paulis (feedforward, deterministic under a forced record). Consequences,
-measured: the backend performs \emph{zero} Clifford gate applications on any
+measured: the CH backend performs \emph{zero} Clifford gate applications on any
 compiled circuit; $\chi$ tracks $2^{t_{\rm live}}$ and often less (the
 compiler's hoisted measurements collapse terms mid-run --- $\chi_{\rm peak}=8$
 where $2^{t_{\rm live}}=64$ on one family); and $t_{\rm live}$ is roughly
@@ -357,7 +358,7 @@ thus supersedes the online frame of \S\ref{sec:frame-theory}, which remains
 the mechanism for dynamic circuits. The C\texttt{++} scale arm currently
 consumes plain gate streams; feeding it HIR needs a simultaneous reduction of
 the terminal Pauli measurements (a symplectic elimination) --- future work,
-so its benchmark numbers below are conservative for the backend.
+so its benchmark numbers below are conservative for the CH backend.
 
 \section{Benchmarks}\label{sec:bench}
 Contestants run single-threaded on an Apple M-series workstation ($36$\,GB;
@@ -506,17 +507,17 @@ $n$ & $k_{\mathrm{meas}}$ & \texttt{clifft} exact & ours $\delta{=}0.4$ & TV & o
 The crossover sits at $n\!\approx\!34$ for $\mathrm{TV}\!\approx\!0.17$ and
 $n\!\approx\!48$ for $\mathrm{TV}\!\approx\!0.08$; \texttt{clifft}'s exact
 path grows as $2^{n/2}$ on the nose ($\times4.6$ per $+4$ qubits) and exits
-at $n\!\approx\!58$--$62$ on memory, while the backend grows as $2^{0.228n}$
+at $n\!\approx\!58$--$62$ on memory, while the CH backend grows as $2^{0.228n}$
 ($\times1.9$ per $+4$). The axis is the \emph{compiled peak rank}, not the
 qubit count: on families whose measured programs compile small
 (nearest-neighbour-CZ chains: $\mathrm{peak\_rank}=1$; generic random
-circuits: $\le6$), \texttt{clifft} answers in microseconds and the backend
+circuits: $\le6$), \texttt{clifft} answers in microseconds and the CH backend
 has no role --- the dispatch rule of \S\ref{sec:arch} encodes exactly this.
 
 \begin{figure}[h]\centering
 \includegraphics[width=\linewidth]{chform_cpp/honest_bench.png}
 \caption{\emph{Left:} seconds for 96 Born probabilities on measured dense
-IQP: \texttt{clifft}'s exact forced-replay path vs the CH-form backend at two
+IQP: \texttt{clifft}'s exact forced-replay path vs the CH backend at two
 accuracy settings; the dotted guide is $2^{n/2}$. \emph{Right:} the accuracy
 dial at $n{=}44$: full-pipeline TV against exact $P(x)$ vs the target
 $\delta$, with the $\mathrm{TV}=0.50\,\delta$ line.}
@@ -713,8 +714,8 @@ MitM evaluator (ours) & exact & 0.4 & \textbf{4.7} & \textbf{84.5} & $\sim$1\,TB
 QuiZX & exact & 0.5 & 251 & 2188 & --- \\
 Quokka\# $+$ GPMC & exact & $\approx$300 & timeout & timeout & --- \\
 aer \texttt{extended\_stabilizer} & sampling & 455 ($0/96$ hit) & --- & --- & --- \\
-CH-form backend, $\delta{=}0.15$ & TV $\approx$ 0.08 & 0.08 & 16.9 & 86.2 & --- \\
-CH-form backend, $\delta{=}0.4$ & TV $\approx$ 0.18 & 0.09 & 2.4 & 12.1 & \textbf{267}$^{\,*}$ \\
+CH backend, $\delta{=}0.15$ & TV $\approx$ 0.08 & 0.08 & 16.9 & 86.2 & --- \\
+CH backend, $\delta{=}0.4$ & TV $\approx$ 0.18 & 0.09 & 2.4 & 12.1 & \textbf{267}$^{\,*}$ \\
 \bottomrule
 \end{tabular}\\[2pt]
 {\small $^*$single-shot build $+$ one amplitude in $1.9$\,GB
@@ -726,10 +727,10 @@ exactly, one ZX-simplify$+$decompose run per target; its per-amplitude cost
 grows at the exact-rank rate $2^{0.396n}$ (measured term counts
 $301\to1.9\times10^6$ over $n{=}24\to56$: ZX simplification does not compress
 dense $T{+}CZ$ IQP). For 96 targets: $0.5/251/2188$\,s at $n{=}24/48/56$ ---
-vs this backend's $0.3/17/89$\,s at $\mathrm{TV}\approx0.08$, and vs MitM's
+vs this CH backend's $0.3/17/89$\,s at $\mathrm{TV}\approx0.08$, and vs MitM's
 $0.4/4.7/84.5$\,s \emph{exactly}. Two qualifiers: QuiZX answers a harder
 (exact) question, and on pure $T{+}CZ$ IQP the structure-specific MitM ties
-the approximate backend through $n\!\approx\!56$ --- the backend's edge over
+the approximate backend through $n\!\approx\!56$ --- the CH backend's edge over
 \emph{all} exact methods opens past the $2^{n/2}$ wall or off the IQP
 structure.
 \item \textbf{Quokka\#}~\cite{mei2024} (with its GPMC model counter, built
@@ -754,7 +755,7 @@ backend owns approximate $P(x)$ beyond; \texttt{extended\_stabilizer}
 \begin{figure}[h]\centering
 \includegraphics[width=\linewidth]{chform_cpp/external_adaptive.png}
 \caption{\emph{Left:} external head-to-head on shared dense-IQP instances:
-QuiZX (exact, per-target) vs the MitM evaluator (exact) vs this backend
+QuiZX (exact, per-target) vs the MitM evaluator (exact) vs this CH backend
 (approximate, $\mathrm{TV}\approx0.08$), seconds for 96 probabilities.
 \emph{Right:} the adaptive-workload phase boundary at $w{=}8$: plain
 (per-term Cliffords) grows linearly in Clifford depth $D$; the frame
@@ -768,7 +769,7 @@ composition is flat; crossover at $D^*\!\approx\!1.2w$.}
 (additive/typical, not per-$x$ relative); the dense engine remains the tool
 wherever exactness is required and feasible.
 \item \textbf{The exact competition is $2^{n/2}$, not $2^n$}, on the
-benchmark family; the backend's genuinely-unique regime starts near
+benchmark family; the CH backend's genuinely-unique regime starts near
 $n\!\approx\!62$, and its speed advantage at moderate accuracy near
 $n\!\approx\!34$--$48$ --- always in terms of the \emph{compiled peak rank},
 which for most circuits is far below the qubit count.
@@ -802,7 +803,7 @@ computes the very quantities ($k$, $t_{\rm live}$, $m_{\rm blk}$, $R$) that
 price four execution strategies before anything runs. The dense engine keeps
 its exactness contract and its dominance wherever the compiled block is
 small --- which, by the compiler's own strength, is most circuits. The
-CH-form backend extends reach where the block is large but magic is sparse:
+CH backend extends reach where the block is large but magic is sparse:
 measured crossovers at $n\!\approx\!34$--$48$ against the true exact fast
 path, sole feasibility past $n\!\approx\!62$, a predictable accuracy dial
 ($\mathrm{TV}=0.50\,\delta$), generality over arbitrary Clifford$+T$
