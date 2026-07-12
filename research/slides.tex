@@ -79,9 +79,9 @@
   \begin{columns}[T]
     \begin{column}{0.52\textwidth}
       \begin{itemize}
-        \item Clifford gates are ``easy'': clifft tracks them \punch{symbolically}, almost for free, however many qubits.
-        \item Only genuine \emph{magic} ($T$ gates) forces it to hold real amplitudes: a dense array of $2^k$ complex numbers, the \punch{active block}.
-        \item $k$ counts how much magic is live at once --- usually far smaller than the qubit count. That is why clifft is fast.
+        \item Clifford gates are ``easy'': tracked \punch{symbolically}, essentially free, at any width.
+        \item Only \emph{magic} ($T$ gates) forces real amplitudes: the dense $2^k$ \punch{active block}.
+        \item $k$ = how much magic is live at once --- usually far below the qubit count.
       \end{itemize}
     \end{column}
     \begin{column}{0.44\textwidth}
@@ -110,8 +110,8 @@
       \vspace{0.4em}
       \begin{itemize}
         \item Memory doubles per unit of $k$: \punch{$k=30 \Rightarrow 16$ GB}, $k=40 \Rightarrow 16$ TB.
-        \item clifft's compiler already fights hard for small $k$ (measurement-driven reduction) --- circuits that still land at large $k$ are \emph{genuinely} dense.
-        \item So the remaining question is not ``compile better'' but: \punch{what do we do when $2^k$ itself is the cost?}
+        \item The compiler already fights hard for small $k$ --- what still lands large is \emph{genuinely} dense.
+        \item So: \punch{what do we do when $2^k$ itself is the cost?}
       \end{itemize}
     \end{column}
     \begin{column}{0.46\textwidth}
@@ -139,9 +139,9 @@
   \begin{columns}[T]
     \begin{column}{0.52\textwidth}
       \begin{itemize}
-        \item States with \emph{little} magic are secretly simple: they are a \punch{short sum of ``free'' stabilizer states} --- the states Clifford simulators handle natively.
-        \item Store $\chi$ small recipes (a few KB each) instead of $2^k$ raw numbers. Like describing an image as a few overlapping patterns instead of listing every pixel.
-        \item Clifford gates update all recipes cheaply; only $T$ gates grow their number; \punch{measurements shrink it back}.
+        \item Low-magic states are secretly simple: a \punch{short sum of stabilizer ``recipes''}, a few KB each.
+        \item Like storing an image as a few overlapping patterns instead of every pixel.
+        \item Cliffords are cheap on recipes; only $T$'s multiply them; \punch{measurements shrink them back}.
       \end{itemize}
     \end{column}
     \begin{column}{0.44\textwidth}
@@ -187,9 +187,8 @@
   \end{tikzpicture}
   \vspace{-0.2em}
   \begin{itemize}
-    \item Both cost exponents --- $2^k$ dense, $2^{0.228\,t}$ backend (why $0.228$: next slide) --- are known \punch{before anything runs}: dispatch is a one-line comparison, per program.
-    \item \punch{Wired, not just proposed}: the backend runs clifft's \emph{optimized} circuits --- compilation absorbs \emph{every} Clifford and halves the live $T$-count (validated to $10^{-13}$).
-    \item The backend is an explicit opt-in ($\delta$), never a silent substitute: clifft's exactness contract stays intact.
+    \item Both cost exponents are known \punch{before anything runs} --- dispatch is a one-line comparison, per program.
+    \item \punch{Wired, not just proposed}: the backend runs clifft's optimized circuits; exact clifft stays the default, the backend is an explicit opt-in with an error dial $\delta$.
   \end{itemize}
   \takeaway{clifft compiles; the cheaper engine runs --- on the same optimized circuit.}
 \end{frame}
@@ -199,9 +198,9 @@
   \begin{columns}[T]
     \begin{column}{0.52\textwidth}
       \begin{itemize}
-        \item There is an optimal way to split a $T$ gate so the number of recipes grows only as \punch{$2^{0.228\,t}$} --- far slower than $2^k$ when magic is sparse.
-        \item Accepting a small, \punch{tunable} error $\delta$ lets you keep only a random sample of recipes ($\sim 1/\delta^2$ of them). Measured accuracy is \emph{predictable}: error $= 0.50\,\delta$, on the nose.
-        \item Everything stays in the language clifft already speaks: same frame idea, same measurement collapse.
+        \item An optimal $T$-split keeps the recipe count at \punch{$2^{0.228\,t}$} --- far slower growth than $2^k$.
+        \item A \punch{tunable} error $\delta$ lets you keep only a random sample. Measured: error $=0.50\,\delta$, on the nose.
+        \item Same language clifft already speaks: frame $+$ measurement collapse.
       \end{itemize}
     \end{column}
     \begin{column}{0.44\textwidth}
@@ -222,10 +221,9 @@
 % ================================================================ A: generality
 \begin{frame}{A \,\textperiodcentered\, It generalizes: any Clifford$+T$ circuit}
   \begin{itemize}
-    \item The trick for circuits with magic \emph{everywhere}: teleport each in-line $T$ onto its own helper qubit (the same adaptive gadget real hardware uses) --- then all magic sits in \punch{one up-front layer} again.
-    \item So the sampler keeps its best properties on \emph{any} circuit: \punch{no penalty for interleaving}, and the normalization stays exactly known --- the expensive estimation step never enters.
-    \item Tested at scale on circuits whose answer is known \emph{by construction} (hidden shift: the output is the hidden string, always): at up to \punch{96 total qubits}, the backend returns $0.90$--$0.99$ of the true probability $1$, in seconds.
-    \item Honest finding: clifft's compiler crushes many such circuits to tiny cores and answers in microseconds --- ``who wins'' is a \emph{rule}, not a race: exactly what the compile-time dispatch encodes.
+    \item Circuits with magic \emph{everywhere}? Teleport each in-line $T$ onto a helper qubit --- all magic becomes \punch{one up-front layer} again, with \punch{no penalty for interleaving}.
+    \item Tested on circuits whose answer is known \emph{by construction} (hidden shift): up to \punch{96 qubits}, right answer in seconds.
+    \item Often clifft still wins such circuits outright --- and the dispatch rule \emph{knows in advance}.
   \end{itemize}
   \takeaway{Generality at the product-magic price --- validated end to end against exact references.}
 \end{frame}
@@ -233,10 +231,9 @@
 % ================================================================ A: episodic
 \begin{frame}{A \,\textperiodcentered\, Recycled magic: pay per episode, not per program}
   \begin{itemize}
-    \item Long computations \punch{recycle} their magic: the active block grows, is measured out, grows again (``episodes''). Total magic grows with runtime; \punch{per-episode magic stays bounded}.
-    \item Run one episode at a time, collapse \emph{exactly} at each boundary: cost $2^{\,\text{per-episode magic}}$ instead of $2^{\,\text{total magic}}$, \punch{zero extra error}. Measured: 72 qubits, 72 T's, $\le\!400$ terms --- whole-circuit would need $2^{72}$.
-    \item Compressing \emph{below} that also works, gently: at $10\times$ fewer terms the same run returns a $10^{-22}$ record probability \punch{within 41\%} in a minute (unbiased; averaging sharpens it).
-    \item Honest, measured boundary: for full records, harder compression degrades sharply with episode count --- the dispatcher's \punch{four strategies} price exact-per-episode accordingly.
+    \item Long computations \punch{recycle} magic: the block grows, is measured out, grows again --- ``episodes''. Total magic grows with runtime; \punch{per-episode magic stays bounded}.
+    \item Run one episode at a time: pay $2^{\,\text{per-episode}}$, not $2^{\,\text{total}}$, with \punch{zero extra error}. Measured: \punch{72 qubits at $\le\!400$ recipes} where whole-circuit needs $2^{72}$.
+    \item Compressing further also works (measured, honest limits) --- the dispatcher prices it.
   \end{itemize}
   \takeaway{The circuit's rhythm --- magic in, magic measured out --- is itself a computational resource.}
 \end{frame}
@@ -299,7 +296,7 @@
         \node[font=\tiny, anchor=west] at (4.6,1.6) {$=\,T\ket{\psi}$};
       \end{tikzpicture}\\[1pt]
       {\scriptsize\punch{$T$-gadget} --- the generality trick}\\
-      {\tiny\color{mutedink} in-line $T$ $\to$ ancilla $+$ measurement $+$ conditional $S$: any circuit becomes one magic layer (hidden shift, 96 qubits)}\\[0.9em]
+      {\tiny\color{mutedink} in-line $T$ $\to$ ancilla $+$ measurement $+$ conditional $S$ (hidden shift, 96 qubits)}\\[0.9em]
       \begin{tikzpicture}[xscale=0.56, yscale=0.34,
           g/.style={draw, fill=paper, inner sep=1pt, minimum size=8pt, font=\tiny},
           t/.style={g, fill=copper!28}]
@@ -330,10 +327,9 @@
   \begin{columns}[T]
     \begin{column}{0.55\textwidth}
       \begin{itemize}
-        \item Every component validated to \punch{machine precision} against exact references (incl.\ an independent checker we built).
-        \item Head-to-head on circuits that compile to \emph{genuinely large} blocks (peak rank $\approx n/2$): the backend overtakes exact clifft at \punch{$n\!\approx\!34$} (coarse) and $n\!\approx\!48$ (8\% error).
-        \item Past $n\!\approx\!62$ it is the \punch{only method that runs at all}.
-        \item External exact tools on the same circuits: QuiZX needs $25\times$ longer by $n{=}56$; Quokka\# (model counting) \punch{times out beyond $n{=}24$}.
+        \item Everything validated to \punch{machine precision}; benchmarked against clifft's \emph{real} fast path.
+        \item Crossover at \punch{$n\!\approx\!34$--$48$} (coarse--8\% error); past $n\!\approx\!62$ the \punch{only method that runs at all}.
+        \item External tools: QuiZX $25\times$ slower by $n{=}56$; Quokka\# \punch{times out beyond $n{=}24$}.
       \end{itemize}
     \end{column}
     \begin{column}{0.42\textwidth}
@@ -360,14 +356,14 @@
     \toprule
     \textbf{Small peak rank} & \textbf{Large peak rank, sparse magic} & \textbf{Adaptive, Clifford-heavy} \\
     \midrule
-    Not qubit count: clifft compiles most circuits, however wide, to a \emph{small} block --- then it is faster \emph{and} exact. Keep it. &
-    \textcolor{copper}{\textbf{The niche.}} Even the \emph{compiled} block breaks the memory wall, $T$-count low: the only feasible method (approximate, dial-controlled). &
-    \textcolor{copper}{\textbf{Real protocols win}}: cultivation-style patches $4$--$16\times$, teleported-$T$ gadgets $\sim\!2\times$; bare syndrome extraction sits at the boundary. The standard open-source tool cannot run these circuits at all. \\
+    clifft is faster \emph{and} exact --- keep it. (Most circuits, however wide, compile here.) &
+    \textcolor{copper}{\textbf{The niche}}: the only feasible method, accuracy dial-controlled. &
+    \textcolor{copper}{\textbf{Real protocols win $2$--$16\times$}} --- and the standard open-source tool cannot run them at all. \\
     \bottomrule
   \end{tabular}
   \vspace{0.8em}
   \begin{itemize}
-    \item Also measured where it \emph{loses}: with no logical Clifford traffic the frame's bookkeeping costs up to $\sim\!2\times$ --- the advantage is a measured phase boundary, not a slogan.
+    \item Also measured where it \emph{loses} (up to $\sim\!2\times$ overhead) --- the advantage is a measured boundary, not a slogan.
   \end{itemize}
   \takeaway{Status: prototype validated; honest benchmarks, natural workloads, external baselines done.}
 \end{frame}
@@ -378,9 +374,9 @@
   \begin{columns}[T]
     \begin{column}{0.52\textwidth}
       \begin{itemize}
-        \item A clifft gate just \emph{streams} a small array (16 KB--16 MB). One such array cannot keep a GPU busy: \punch{a stadium choir asked to sing one sentence}.
-        \item But clifft's workloads are Monte-Carlo: \punch{thousands of shots of the same program}, today run one after another.
-        \item Put $B{=}4{,}096$ shots' arrays on the GPU side by side and apply every gate to \emph{all of them} in one launch.
+        \item One shot's small array \punch{cannot keep a GPU busy}: a stadium choir asked to sing one sentence.
+        \item But workloads are \punch{thousands of shots} of the same program --- today run one after another.
+        \item Put $B{=}4{,}096$ shots side by side; every gate hits \emph{all of them} in one launch.
       \end{itemize}
     \end{column}
     \begin{column}{0.44\textwidth}
@@ -404,10 +400,9 @@
 % ================================================================ B: why 1
 \begin{frame}{B \,\textperiodcentered\, Why it should work (1): shots march in lockstep}
   \begin{itemize}
-    \item The shape of a shot --- which operation runs when, and how big the array is at every step --- is \punch{fixed at compile time and identical for every shot}. clifft's compiler already writes this schedule down.
-    \item What differs per shot (measurement outcomes, noise) is just \punch{a few numbers}, which enter the shared computation as per-shot parameters --- like SIMD lanes, one lane per shot.
-    \item So the classic objection to batching --- ``shots diverge'' --- \emph{does not apply to clifft}. Its structure is unusually batchable.
-    \item And nobody serves this niche: the two existing batched-GPU simulators both \punch{fall back to one-shot-at-a-time} exactly when circuits measure mid-flight --- clifft's home turf.
+    \item A shot's shape --- what runs when, how big the array is --- is \punch{identical for every shot}, fixed at compile time by clifft's compiler.
+    \item Per-shot randomness is just a few numbers: \punch{SIMD lanes, one per shot}. The classic ``shots diverge'' objection \emph{does not apply here}.
+    \item And nobody serves this niche: existing batched simulators \punch{fall back to one-at-a-time} on mid-circuit measurement --- clifft's home turf.
   \end{itemize}
   \takeaway{The hardest architectural question resolves in the design's favor before any GPU code is written.}
 \end{frame}
@@ -417,9 +412,9 @@
   \begin{columns}[T]
     \begin{column}{0.52\textwidth}
       \begin{itemize}
-        \item These operations do almost no arithmetic per byte: on \emph{any} machine they run at the speed of memory.
-        \item Measured: clifft on 11 CPU cores is only $2.6\times$ one core --- \punch{the bus is the limit, not the cores}.
-        \item A GH200's memory is $\sim\!7\times$ wider than a server CPU's. Once the batch saturates it: \punch{5--10$\times$ more shots per second}, honestly bounded.
+        \item These kernels do almost no math per byte: \punch{memory speed is the speed limit}, on any machine.
+        \item Measured: 11 CPU cores $=$ only $2.6\times$ one core --- the bus, not the cores.
+        \item A GH200 has $\sim\!7\times$ the bandwidth $\Rightarrow$ \punch{5--10$\times$ more shots/s}, honestly bounded.
       \end{itemize}
     \end{column}
     \begin{column}{0.44\textwidth}
@@ -441,9 +436,9 @@
 % ================================================================ B: risk + test
 \begin{frame}{B \,\textperiodcentered\, The one risk, and the \$20 experiment that settles it}
   \begin{itemize}
-    \item Mid-circuit measurements need a decision from the CPU: results cross to the host, outcomes cross back. Each crossing costs microseconds --- \punch{the same scale as the small kernels themselves}.
-    \item Two reasons it should survive: the crossing is paid \punch{once per batch} (nanoseconds per shot at $B{=}4{,}096$), and the GH200's CPU--GPU link is built precisely to make it cheap.
-    \item A microbenchmark faithful to clifft's kernels --- \emph{including complete measurements with the round-trip} --- is built, validated, and waiting. GH200 time: \$2/hour, self-serve.
+    \item Mid-circuit measurement needs the CPU: each crossing costs microseconds --- \punch{the same scale as the kernels themselves}.
+    \item But it is paid \punch{once per batch} (nanoseconds per shot), on a link built to make it cheap.
+    \item A faithful microbenchmark --- \emph{measurements and round-trips included} --- is built, validated, and waiting. \punch{GH200 time: \$2/hour.}
   \end{itemize}
   \centering
   {\small
@@ -473,8 +468,8 @@
   \end{columns}
   \vspace{1.2em}
   \begin{itemize}
-    \item Both work \emph{because of} clifft's structure, not despite it: the symbolic frame, the small active block, and the compile-time shot schedule are exactly what decompositions and batching need.
-    \item Both were reviewed adversarially; every headline number above survived a fair baseline.
+    \item Both work \emph{because of} clifft's structure: the frame, the small block, the compile-time schedule.
+    \item Both were reviewed adversarially; every headline number survived a fair baseline.
   \end{itemize}
   \vspace{0.4em}
   {\small\color{mutedink}\textbf{Next:} A --- benchmarks complete; write it up. \quad B --- the GH200 run, then batched replay queries.}
