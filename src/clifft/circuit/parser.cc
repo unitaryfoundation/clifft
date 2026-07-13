@@ -692,8 +692,10 @@ class Parser {
             if (!is_rec_token && gate == GateType::READOUT_NOISE) {
                 throw ParseError("READOUT_NOISE targets must be rec references", line_num);
             }
-            if ((gate == GateType::LEVEL_TRANSITION || gate == GateType::LOSS) &&
-                (is_rec_token || token[0] == '!')) {
+            // '!' marks measurement-record inversion, which has no meaning
+            // on a transition or loss site. (Record targets on these gates
+            // are rejected by the rec-token check above.)
+            if ((gate == GateType::LEVEL_TRANSITION || gate == GateType::LOSS) && token[0] == '!') {
                 throw ParseError(
                     std::string(clifft::gate_name(gate)) + " targets must be plain qubit indices",
                     line_num);
