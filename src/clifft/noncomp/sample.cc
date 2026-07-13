@@ -1,4 +1,4 @@
-#include "clifft/noncomp/orchestrator.h"
+#include "clifft/noncomp/sample.h"
 
 #include "clifft/noncomp/exact_driver.h"
 #include "clifft/util/xoshiro.h"

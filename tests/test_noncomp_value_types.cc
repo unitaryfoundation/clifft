@@ -5,7 +5,6 @@
 #include <stdexcept>
 #include <string>
 
-using clifft::category;
 using clifft::DampingPolicy;
 using clifft::is_computational;
 using clifft::is_leaked;
@@ -13,7 +12,6 @@ using clifft::is_lost;
 using clifft::kNumLevels;
 using clifft::Level;
 using clifft::level_name;
-using clifft::LevelCategory;
 using clifft::noncomp_level;
 using clifft::NonComputationalPolicy;
 using clifft::QubitStatus;
@@ -23,13 +21,16 @@ using clifft::status_for;
 // Level structure
 // =========================================================================
 
-TEST_CASE("Level: the five levels carry the expected categories and names") {
+TEST_CASE("Level: predicates partition the five levels") {
     REQUIRE(kNumLevels == 5);
-    REQUIRE(category(Level::G) == LevelCategory::Computational);
-    REQUIRE(category(Level::E) == LevelCategory::Computational);
-    REQUIRE(category(Level::LeakG) == LevelCategory::Leaked);
-    REQUIRE(category(Level::LeakE) == LevelCategory::Leaked);
-    REQUIRE(category(Level::Lost) == LevelCategory::Lost);
+    REQUIRE(is_computational(Level::G));
+    REQUIRE(is_computational(Level::E));
+    REQUIRE(is_leaked(Level::LeakG));
+    REQUIRE(is_leaked(Level::LeakE));
+    REQUIRE(is_lost(Level::Lost));
+    REQUIRE_FALSE(is_leaked(Level::G));
+    REQUIRE_FALSE(is_lost(Level::LeakG));
+    REQUIRE_FALSE(is_computational(Level::Lost));
     REQUIRE(std::string(level_name(Level::G)) == "g");
     REQUIRE(std::string(level_name(Level::LeakE)) == "leak_e");
     REQUIRE(std::string(level_name(Level::Lost)) == "lost");

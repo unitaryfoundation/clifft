@@ -57,21 +57,17 @@ bool supports_transition(GateType g) {
 NonComputationalModel::NonComputationalModel(
     std::vector<double> initial_state, std::map<std::string, TransitionInstrument> transitions,
     std::optional<MeasurementClassifier> classifier, NonComputationalPolicy policy)
-    : initial_state_(std::move(initial_state)),
-      classifier_(std::move(classifier)),
-      policy_(policy) {
+    : classifier_(std::move(classifier)), policy_(policy) {
     // Initial state must be a probability vector over the levels.
-    if (initial_state_.size() != kNumLevels) {
+    if (initial_state.size() != kNumLevels) {
         throw std::invalid_argument("NonComputationalModel: initial_state has " +
-                                    std::to_string(initial_state_.size()) + " entries; expected " +
+                                    std::to_string(initial_state.size()) + " entries; expected " +
                                     std::to_string(kNumLevels) + " (one per level)");
     }
     double sum = 0.0;
     for (size_t i = 0; i < kNumLevels; ++i) {
-        const double p = initial_state_[i];
-        // is_finite_robust runs first because -ffast-math folds
-        // std::isfinite() / NaN-aware comparisons away.
-        if (!is_finite_robust(p) || p < 0.0 || p > 1.0) {
+        const double p = initial_state[i];
+        if (!is_probability(p)) {
             throw std::invalid_argument("NonComputationalModel: initial_state entry " +
                                         std::to_string(i) + " = " + std::to_string(p) +
                                         " is not finite or is out of [0, 1]");
@@ -84,8 +80,8 @@ NonComputationalModel::NonComputationalModel(
     }
     // Normalize away the within-tolerance drift so the sampler never has
     // to compensate for an unsampled tail.
-    for (double& p : initial_state_) {
-        p /= sum;
+    for (size_t i = 0; i < kNumLevels; ++i) {
+        initial_state_[i] = initial_state[i] / sum;
     }
 
     // A transition key is referenced from circuits by LEVEL_TRANSITION[key]

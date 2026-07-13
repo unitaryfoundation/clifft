@@ -26,9 +26,9 @@
 #include "clifft/noncomp/instrument_options.h"
 #include "clifft/noncomp/level.h"
 #include "clifft/noncomp/model.h"
-#include "clifft/noncomp/orchestrator.h"
 #include "clifft/noncomp/policy.h"
 #include "clifft/noncomp/rewriter.h"
+#include "clifft/noncomp/sample.h"
 #include "clifft/noncomp/transition_instrument.h"
 #include "clifft/optimizer/hir_pass_manager.h"
 #include "clifft/optimizer/pass_factory.h"
@@ -214,7 +214,7 @@ TEST_CASE("validation: losing a Bell-pair qubit inserts the hidden trace-out R a
     clifft::ExactShotEvents events;
     events.initial_status.assign(2, clifft::QubitStatus::Computational);
     events.jumps.push_back(
-        {/*op_index=*/3, /*qubit=*/0, /*destination_level=*/clifft::Level::Lost});
+        {{/*op_index=*/3, /*qubit=*/0}, /*destination_level=*/clifft::Level::Lost});
     Circuit rw = rewrite_continuation(annotated, events, false, model).circuit;
 
     // The original circuit has no reset; the loss rewrite adds exactly one

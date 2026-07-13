@@ -22,4 +22,10 @@ inline bool is_finite_robust(double value) {
     return (bits & kExpMask) != kExpMask;
 }
 
+// The finite check must precede the comparisons: under -ffast-math the
+// compiler may otherwise assume a NaN input is impossible.
+inline bool is_probability(double value) {
+    return is_finite_robust(value) && value >= 0.0 && value <= 1.0;
+}
+
 }  // namespace clifft

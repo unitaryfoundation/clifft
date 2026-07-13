@@ -4,9 +4,7 @@
 #include "clifft/circuit/target.h"
 #include "clifft/noncomp/classifier.h"
 #include "clifft/noncomp/level.h"
-#include "clifft/noncomp/numeric.h"
-#include "clifft/noncomp/op_role.h"
-#include "clifft/noncomp/status_step.h"
+#include "clifft/noncomp/status_walk.h"
 #include "clifft/noncomp/transition_instrument.h"
 
 #include <algorithm>
@@ -98,20 +96,21 @@ void append_computational_confusion(Circuit& out, const NonComputationalModel& m
 void process_ordinary_node(const AstNode& node, uint32_t op_index,
                            const NonComputationalModel& model, std::vector<QubitStatus>& status,
                            Circuit& out, uint32_t& slot,
-                           std::vector<ClassifiedMeasurement>& classified) {
+                           std::vector<ClassifiedMeasurement>& classified_measurements) {
     const NonComputationalPolicy& policy = model.policy();
     const GateType gate = node.gate;
 
     const OrdinaryStep step = advance_ordinary_node(node, op_index, status, policy, "rewrite");
     bool drop_op = step.dropped;
-    std::optional<Level> classified_level = step.measured_noncomp_level;
+    const std::optional<ClassifiedOperand>& classified = step.classified_measurement;
 
     if (!drop_op) {
-        if (classified_level.has_value()) {
+        if (classified.has_value()) {
             // The policy pre-scan admits single-qubit measurement forms
             // M, MX, MY, and the measure-and-resets; multi-qubit parity
             // measurements (MPP) on a noncomputational operand reject above.
-            const uint32_t qubit = qubit_operands(node).front().qubit;
+            const uint32_t qubit = classified->qubit;
+            const Level classified_level = classified->level;
             const MeasurementClassifier& classifier = classifier_for(model, gate, op_index, qubit);
             const bool ternary = classifier.has_herald();
             const bool inverted = node.targets.front().is_inverted();
@@ -126,12 +125,12 @@ void process_ordinary_node(const AstNode& node, uint32_t op_index,
             double flip;
             if (ternary) {
                 const double p_herald =
-                    classifier.prob(MeasurementClassifier::kHeraldSymbol, *classified_level);
+                    classifier.prob(MeasurementClassifier::kHeraldSymbol, classified_level);
                 const double denom = 1.0 - p_herald;
-                flip = denom > 0.0 ? classifier.prob(1, *classified_level) / denom : 0.5;
+                flip = denom > 0.0 ? classifier.prob(1, classified_level) / denom : 0.5;
                 flip = std::min(1.0, std::max(0.0, flip));
             } else {
-                flip = classifier.prob(1, *classified_level);
+                flip = classifier.prob(1, classified_level);
             }
             if (inverted) {
                 flip = 1.0 - flip;
@@ -152,7 +151,7 @@ void process_ordinary_node(const AstNode& node, uint32_t op_index,
             if (is_measure_reset(gate) && is_computational(status[qubit])) {
                 out.nodes.push_back(single_qubit_op(reset_for(gate), qubit));
             }
-            classified.push_back({slot, *classified_level, noise_node});
+            classified_measurements.push_back({slot, classified_level, noise_node});
         } else {
             out.nodes.push_back(node);
             // The classifier's computational columns apply to Z-basis
@@ -187,13 +186,12 @@ ContinuationRewrite rewrite_continuation(const Circuit& annotated, const ExactSh
 
     // Jumps index by their annotation target. The chain arrives in trap
     // order, which is circuit order; visitation below validates coverage.
-    std::map<std::pair<uint32_t, uint32_t>, Level> jump_dest;
+    std::map<AnnotationTarget, Level> jump_dest;
     for (const ResolvedJump& jump : events.jumps) {
-        if (!jump_dest.emplace(std::make_pair(jump.op_index, jump.qubit), jump.destination_level)
-                 .second) {
+        if (!jump_dest.emplace(jump.target, jump.destination_level).second) {
             throw std::invalid_argument("rewrite_continuation: duplicate jump for op " +
-                                        std::to_string(jump.op_index) + ", qubit " +
-                                        std::to_string(jump.qubit));
+                                        std::to_string(jump.target.op_index) + ", qubit " +
+                                        std::to_string(jump.target.qubit));
         }
     }
     size_t jumps_seen = 0;
@@ -201,8 +199,7 @@ ContinuationRewrite rewrite_continuation(const Circuit& annotated, const ExactSh
 
     ContinuationRewrite result;
     Circuit& out = result.circuit;
-    out = annotated;
-    out.nodes.clear();
+    out = annotated.metadata_only_copy();
     out.nodes.reserve(annotated.nodes.size() + events.jumps.size() * 2);
 
     // No initial X-prep here: in exact mode a known |1> initial level is a
@@ -241,11 +238,12 @@ ContinuationRewrite rewrite_continuation(const Circuit& annotated, const ExactSh
                             std::to_string(op_index) + ", qubit " + std::to_string(qubit) + ")");
                     }
                     const ClassicalOutcome& outcome = events.classical_outcomes[classical_cursor++];
-                    if (outcome.op_index != op_index || outcome.qubit != qubit) {
+                    const AnnotationTarget target{op_index, qubit};
+                    if (outcome.target != target) {
                         throw std::invalid_argument(
                             "rewrite_continuation: classical outcome (op " +
-                            std::to_string(outcome.op_index) + ", qubit " +
-                            std::to_string(outcome.qubit) + ") does not match consult (op " +
+                            std::to_string(outcome.target.op_index) + ", qubit " +
+                            std::to_string(outcome.target.qubit) + ") does not match consult (op " +
                             std::to_string(op_index) + ", qubit " + std::to_string(qubit) + ")");
                     }
                     if (outcome.source_level != noncomp_level(pre)) {
@@ -259,7 +257,7 @@ ContinuationRewrite rewrite_continuation(const Circuit& annotated, const ExactSh
                         continue;
                     }
                     const Level dest = *outcome.destination;
-                    if (category(dest) == LevelCategory::Computational) {
+                    if (is_computational(dest)) {
                         // Recapture: materialize the carrier at the definite
                         // destination level.
                         out.nodes.push_back(single_qubit_op(GateType::R, qubit));
@@ -298,18 +296,18 @@ ContinuationRewrite rewrite_continuation(const Circuit& annotated, const ExactSh
                 // The annotation stays a runtime instrument.
                 // Split multi-target nodes so a sibling target with a
                 // classical status is not re-materialized.
-                result.site_targets.emplace_back(op_index, qubit);
+                const AnnotationTarget site_target{op_index, qubit};
+                result.site_targets.push_back(site_target);
                 out.nodes.push_back(
                     AstNode{gate, {Target::qubit(qubit)}, node.args, node.source_line, node.tag});
 
-                const auto jump = jump_dest.find({op_index, qubit});
+                const auto jump = jump_dest.find(site_target);
                 if (jump == jump_dest.end()) {
                     continue;  // no fire recorded here; the site runs live
                 }
                 ++jumps_seen;
-                const bool is_last = jumps_seen == events.jumps.size() &&
-                                     op_index == events.jumps.back().op_index &&
-                                     qubit == events.jumps.back().qubit;
+                const bool is_last =
+                    jumps_seen == events.jumps.size() && site_target == events.jumps.back().target;
 
                 // Every jump resets its carrier at the site. For a
                 // noncomputational destination the R is the trace-out

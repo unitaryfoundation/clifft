@@ -112,8 +112,9 @@ rather than measuring a site.
 ## Transitions: hooks and inline annotations
 
 A transition matrix `T[to][from]` is evaluated at an attached circuit
-position. Each entry gives the probability of a jump from one level to
-another; a column's deficit below 1 is the no-jump probability. There are
+position. Each entry gives the probability of a transition event to a
+destination level, which may be the source level; a column's deficit below 1
+is the no-jump probability. There are
 three ways to attach one to a circuit:
 
 - **Gate hooks.** A `transitions` key that names a gate (`"CZ"`, `"S"`, …)
@@ -286,7 +287,8 @@ with its entangled partner. The semantics and the rank cost are in
   $\lvert p_g - p_e \rvert$ per site. There is no error when $p_g = p_e$, so `LOSS(p)` is always exact.
 - **`seed`**: same contract as ordinary sampling — a fixed seed is fully
   reproducible, `None` uses hardware entropy.
-- **`max_rank`**: caps the compiled peak rank before any state allocation.
+- **`max_rank`**: caps the compiled peak rank before allocating or growing the
+  state for that module.
   The cap applies to each compiled module, including branches a given shot
   never takes, so it is conservative.
 

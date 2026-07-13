@@ -31,9 +31,7 @@ MeasurementClassifier MeasurementClassifier::from_matrix(
         }
         for (size_t l = 0; l < kNumLevels; ++l) {
             const double v = matrix[s][l];
-            // is_finite_robust runs first because -ffast-math folds
-            // std::isfinite() / NaN-aware comparisons away.
-            if (!is_finite_robust(v) || v < 0.0 || v > 1.0) {
+            if (!is_probability(v)) {
                 throw std::invalid_argument("MeasurementClassifier::from_matrix: entry (" +
                                             std::to_string(s) + ", " + std::to_string(l) +
                                             ") = " + std::to_string(v) +
@@ -58,7 +56,7 @@ MeasurementClassifier MeasurementClassifier::from_matrix(
                 std::string(level_name(level)) + "' sums to " + std::to_string(sum) +
                 " (must sum to 1)");
         }
-        if (category(level) == LevelCategory::Computational && s_n == 3) {
+        if (is_computational(level) && s_n == 3) {
             const double herald_mass = flat[kHeraldSymbol * kNumLevels + l];
             if (herald_mass > kProbTolerance) {
                 throw std::invalid_argument(

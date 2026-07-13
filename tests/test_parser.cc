@@ -38,6 +38,24 @@ TEST_CASE("Parse empty circuit", "[parser]") {
     REQUIRE(circuit.num_measurements == 0);
 }
 
+TEST_CASE("Circuit metadata-only copy preserves dimensions") {
+    Circuit circuit;
+    circuit.nodes.push_back(AstNode{GateType::H, {Target::qubit(0)}, {}, 0, {}});
+    circuit.num_qubits = 1;
+    circuit.num_measurements = 2;
+    circuit.num_detectors = 3;
+    circuit.num_observables = 4;
+    circuit.num_exp_vals = 5;
+
+    const Circuit metadata = circuit.metadata_only_copy();
+    REQUIRE(metadata.nodes.empty());
+    REQUIRE(metadata.num_qubits == 1);
+    REQUIRE(metadata.num_measurements == 2);
+    REQUIRE(metadata.num_detectors == 3);
+    REQUIRE(metadata.num_observables == 4);
+    REQUIRE(metadata.num_exp_vals == 5);
+}
+
 TEST_CASE("Parse comments and whitespace", "[parser]") {
     auto circuit = parse(R"(
         # This is a comment

@@ -10,11 +10,11 @@
 //   consult            One annotation target's per-shot draw against its
 //                      channel: did it fire, and to which destination
 //                      level. A *classical* consult is one whose qubit's
-//                      level is definite at that point (known
-//                      computational, leaked, or lost), so the driver
-//                      draws it without touching quantum state.
-//   fire               A consult that moves the qubit to another level:
-//                      the stochastic event itself.
+//                      noncomputational level is definite at that point,
+//                      so the driver draws it without touching quantum
+//                      state.
+//   fire               A consult that takes the transition-event branch;
+//                      its destination may equal its source.
 //   jump               A recorded fire -- the ResolvedJump entry in a
 //                      shot's events.
 //   site               An annotation target kept as a runtime INSTRUMENT
@@ -46,10 +46,9 @@
 #include "clifft/frontend/frontend.h"
 #include "clifft/noncomp/annotate.h"
 #include "clifft/noncomp/instrument_options.h"
-#include "clifft/noncomp/op_role.h"
 #include "clifft/noncomp/rewriter.h"
 #include "clifft/noncomp/seed.h"
-#include "clifft/noncomp/status_step.h"
+#include "clifft/noncomp/status_walk.h"
 #include "clifft/noncomp/transition_instrument.h"
 #include "clifft/optimizer/hir_pass_manager.h"
 #include "clifft/optimizer/pass_registry.h"
@@ -166,14 +165,14 @@ Level draw_from_column(const TransitionInstrument& instrument, Level source,
 // classical, matching what rewrite_continuation validates.
 void extend_classical_outcomes(const Circuit& annotated, ExactShotEvents& events,
                                const NonComputationalModel& model, Xoshiro256PlusPlus& rng) {
-    std::map<std::pair<uint32_t, uint32_t>, Level> jump_dest;
+    std::map<AnnotationTarget, Level> jump_dest;
     for (const ResolvedJump& jump : events.jumps) {
-        jump_dest.emplace(std::make_pair(jump.op_index, jump.qubit), jump.destination_level);
+        jump_dest.emplace(jump.target, jump.destination_level);
     }
 
-    std::map<std::pair<uint32_t, uint32_t>, ClassicalOutcome> drawn;
+    std::map<AnnotationTarget, ClassicalOutcome> drawn;
     for (const ClassicalOutcome& outcome : events.classical_outcomes) {
-        drawn.emplace(std::make_pair(outcome.op_index, outcome.qubit), outcome);
+        drawn.emplace(outcome.target, outcome);
     }
     std::vector<ClassicalOutcome> ordered;
     ordered.reserve(events.classical_outcomes.size());
@@ -195,7 +194,8 @@ void extend_classical_outcomes(const Circuit& annotated, ExactShotEvents& events
                     continue;
                 }
                 const Level source = noncomp_level(pre);
-                const auto seen = drawn.find({op_index, qubit});
+                const AnnotationTarget annotation_target{op_index, qubit};
+                const auto seen = drawn.find(annotation_target);
                 if (seen != drawn.end()) {
                     if (seen->second.source_level != source) {
                         throw std::logic_error(
@@ -212,7 +212,7 @@ void extend_classical_outcomes(const Circuit& annotated, ExactShotEvents& events
                     continue;
                 }
                 const AnnotationChannel channel = resolve_annotation(node, model, op_index);
-                ClassicalOutcome outcome{op_index, qubit, std::nullopt, source};
+                ClassicalOutcome outcome{annotation_target, std::nullopt, source};
                 if (channel.instrument != nullptr) {
                     const double total = channel.instrument->column_sum(source);
                     if (rng.next_double() < total) {
@@ -263,15 +263,15 @@ std::string cache_key(const ExactShotEvents& events) {
     key.push_back('J');
     push32(static_cast<uint32_t>(events.jumps.size()));
     for (const ResolvedJump& jump : events.jumps) {
-        push32(jump.op_index);
-        push32(jump.qubit);
+        push32(jump.target.op_index);
+        push32(jump.target.qubit);
         key.push_back(static_cast<char>(jump.destination_level));
     }
     key.push_back('C');
     push32(static_cast<uint32_t>(events.classical_outcomes.size()));
     for (const ClassicalOutcome& outcome : events.classical_outcomes) {
-        push32(outcome.op_index);
-        push32(outcome.qubit);
+        push32(outcome.target.op_index);
+        push32(outcome.target.qubit);
         key.push_back(outcome.destination.has_value() ? 1 : 0);
         key.push_back(static_cast<char>(outcome.destination.value_or(Level::G)));
     }
@@ -431,7 +431,7 @@ void validate_model_contract(const Circuit& annotated, const NonComputationalMod
     // Determine whether the model can ever produce a noncomputational qubit.
     bool noncomp_capable = false;
     for (const Level l : kAllLevels) {
-        if (category(l) != LevelCategory::Computational && model.initial_probability(l) > 0.0) {
+        if (!is_computational(l) && model.initial_probability(l) > 0.0) {
             noncomp_capable = true;
             break;
         }
@@ -452,12 +452,11 @@ void validate_model_contract(const Circuit& annotated, const NonComputationalMod
                     continue;
                 }
                 for (const Level src : kAllLevels) {
-                    if (category(src) != LevelCategory::Computational) {
+                    if (!is_computational(src)) {
                         continue;
                     }
                     for (const Level dst : kAllLevels) {
-                        if (category(dst) != LevelCategory::Computational &&
-                            instr->prob(dst, src) > 0.0) {
+                        if (!is_computational(dst) && instr->prob(dst, src) > 0.0) {
                             noncomp_capable = true;
                             break;
                         }
@@ -477,7 +476,8 @@ void validate_model_contract(const Circuit& annotated, const NonComputationalMod
         return;
     }
 
-    // Gate A: parity measurements are not supported under a capable model.
+    // A parity measurement has no defined result once an operand leaves the
+    // computational subspace.
     for (uint32_t i = 0; i < static_cast<uint32_t>(annotated.nodes.size()); ++i) {
         const AstNode& node = annotated.nodes[i];
         // MPP has MULTI arity; MXX/MYY/MZZ desugar to MPP at parse time.
@@ -489,8 +489,8 @@ void validate_model_contract(const Circuit& annotated, const NonComputationalMod
         }
     }
 
-    // Gate B: a classifier is required when the circuit measures a physical qubit.
-    // MPAD only appends a classical literal to the record, so it never consults one.
+    // A physical-qubit measurement needs a classifier for any leaked or lost
+    // operand. MPAD only appends a classical literal to the record.
     if (model.classifier() == nullptr) {
         for (const AstNode& node : annotated.nodes) {
             if (is_measurement(node.gate) && node.gate != GateType::MPAD) {
@@ -529,6 +529,26 @@ NonComputationalSample sample_noncomputational_exact(const Circuit& circuit,
         const AstNode& node = annotated.nodes[op_index];
         if (node.gate == GateType::LEVEL_TRANSITION || node.gate == GateType::LOSS) {
             resolve_annotation(node, model, op_index);
+            if (node.targets.empty()) {
+                throw std::invalid_argument(
+                    "sample_noncomputational: annotation '" + std::string(gate_name(node.gate)) +
+                    "' at op " + std::to_string(op_index) + " requires at least one qubit target");
+            }
+            for (const Target& target : node.targets) {
+                if (target.is_rec() || target.has_pauli() || target.is_inverted()) {
+                    throw std::invalid_argument("sample_noncomputational: annotation '" +
+                                                std::string(gate_name(node.gate)) + "' at op " +
+                                                std::to_string(op_index) +
+                                                " requires plain qubit targets");
+                }
+                if (target.value() >= annotated.num_qubits) {
+                    throw std::invalid_argument("sample_noncomputational: annotation '" +
+                                                std::string(gate_name(node.gate)) +
+                                                "' target qubit " + std::to_string(target.value()) +
+                                                " is out of range at op " +
+                                                std::to_string(op_index));
+                }
+            }
         }
         // The parser normalizes single-arity measurements to one node per target.
         // The rewrite counts one record slot per measurement node and classifies
@@ -547,10 +567,7 @@ NonComputationalSample sample_noncomputational_exact(const Circuit& circuit,
         }
     }
 
-    // Capability contract: check gate A (parity measurements unsupported
-    // with a capable model) and gate B (classifier required when the model
-    // is capable and the circuit measures). Runs after annotation resolution
-    // so LEVEL_TRANSITION tags are already validated.
+    // Check model-wide measurement restrictions after annotations resolve.
     validate_model_contract(annotated, model);
 
     // Validation is shot-count independent: a zero-shot call checks the
@@ -558,6 +575,13 @@ NonComputationalSample sample_noncomputational_exact(const Circuit& circuit,
     if (shots == 0) {
         return result;
     }
+
+    const size_t shot_count = shots;
+    result.measurements.reserve(shot_count * circuit.num_measurements);
+    result.detectors.reserve(shot_count * circuit.num_detectors);
+    result.observables.reserve(shot_count * circuit.num_observables);
+    result.final_status.reserve(shot_count * circuit.num_qubits);
+    result.heralds.reserve(shot_count * circuit.num_measurements);
 
     const InstrumentTraceOptions instrument_options = instrument_trace_options(model);
 
@@ -818,12 +842,11 @@ NonComputationalSample sample_noncomputational_exact(const Circuit& circuit,
                 dest = draw_from_column(*channel.instrument, source, driver_rng,
                                         [](Level) { return true; });
             } else if (channel.instrument != nullptr) {
-                dest = draw_from_column(*channel.instrument, source, driver_rng, [](Level to) {
-                    return category(to) != LevelCategory::Computational;
-                });
+                dest = draw_from_column(*channel.instrument, source, driver_rng,
+                                        [](Level to) { return !is_computational(to); });
             }
 
-            events.jumps.push_back({op_index, qubit, dest});
+            events.jumps.push_back({{op_index, qubit}, dest});
             extend_classical_outcomes(annotated, events, model, driver_rng);
 
             // A trap-form fire hands its carrier over uncollapsed; the

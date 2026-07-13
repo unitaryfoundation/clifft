@@ -2,15 +2,14 @@
 
 #include "clifft/circuit/gate_data.h"
 #include "clifft/circuit/target.h"
-#include "clifft/noncomp/op_role.h"
+#include "clifft/noncomp/status_walk.h"
 
 namespace clifft {
 
 Circuit annotate(const Circuit& circuit, const NonComputationalModel& model) {
     const auto& hooks = model.transition_hooks();
 
-    Circuit out = circuit;
-    out.nodes.clear();
+    Circuit out = circuit.metadata_only_copy();
     out.nodes.reserve(circuit.nodes.size() * 2);
 
     for (const AstNode& node : circuit.nodes) {
@@ -23,7 +22,7 @@ Circuit annotate(const Circuit& circuit, const NonComputationalModel& model) {
         // virtual and fire no transition.
         for (const QubitOperand& operand : qubit_operands(node)) {
             if (operand.role != OperandRole::Physical) {
-                continue;  // Feedback corrections are virtual; no transition fires
+                continue;
             }
             out.nodes.push_back(AstNode{GateType::LEVEL_TRANSITION,
                                         {Target::qubit(operand.qubit)},

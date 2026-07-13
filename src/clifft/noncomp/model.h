@@ -24,6 +24,7 @@
 #include "clifft/noncomp/policy.h"
 #include "clifft/noncomp/transition_instrument.h"
 
+#include <array>
 #include <cstddef>
 #include <map>
 #include <optional>
@@ -85,7 +86,7 @@ class NonComputationalModel {
                           std::optional<MeasurementClassifier> classifier,
                           NonComputationalPolicy policy);
 
-    std::vector<double> initial_state_;
+    std::array<double, kNumLevels> initial_state_{};
     std::map<std::string, TransitionInstrument, std::less<>> transitions_;
     std::map<GateType, std::string> hooks_;
     std::optional<MeasurementClassifier> classifier_;

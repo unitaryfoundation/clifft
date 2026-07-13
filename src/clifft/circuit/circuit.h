@@ -65,6 +65,19 @@ struct Circuit {
 
     // Number of EXP_VAL expectation value probes (one per Pauli product).
     uint32_t num_exp_vals = 0;
+
+    // Return a node-free circuit with the parsed dimensions preserved.
+    Circuit metadata_only_copy() const;
 };
+
+inline Circuit Circuit::metadata_only_copy() const {
+    Circuit result;
+    result.num_qubits = num_qubits;
+    result.num_measurements = num_measurements;
+    result.num_detectors = num_detectors;
+    result.num_observables = num_observables;
+    result.num_exp_vals = num_exp_vals;
+    return result;
+}
 
 }  // namespace clifft

@@ -405,8 +405,7 @@ size_t count_pauli_masks(const Circuit& circuit) {
 // though the noncomputational model normally constructs it from already
 // validated matrices. Validate raw specs here so a malformed compressed
 // payload cannot produce a negative square root or an invalid destination
-// draw downstream. Release builds use -ffast-math, so inspect IEEE 754 bits
-// instead of relying on std::isfinite().
+// draw downstream.
 void validate_instrument_probabilities(const InstrumentProbabilities& probabilities,
                                        const std::string& site) {
     // Keep this at least as loose as the model layer's kProbTolerance.
@@ -415,7 +414,7 @@ void validate_instrument_probabilities(const InstrumentProbabilities& probabilit
 
     for (uint8_t source = 0; source < 2; ++source) {
         const double p_fire = probabilities.p_fire[source];
-        if (!is_finite_robust(p_fire) || p_fire < 0.0 || p_fire > 1.0) {
+        if (!is_probability(p_fire)) {
             throw std::invalid_argument("trace: " + site + " has invalid p_fire[" +
                                         std::to_string(source) + "] = " + std::to_string(p_fire));
         }
@@ -423,7 +422,7 @@ void validate_instrument_probabilities(const InstrumentProbabilities& probabilit
         double p_computational = 0.0;
         for (uint8_t destination = 0; destination < 2; ++destination) {
             const double p = probabilities.p_computational_dest[source][destination];
-            if (!is_finite_robust(p) || p < 0.0 || p > 1.0) {
+            if (!is_probability(p)) {
                 throw std::invalid_argument(
                     "trace: " + site + " has invalid p_computational_dest[" +
                     std::to_string(source) + "][" + std::to_string(destination) +

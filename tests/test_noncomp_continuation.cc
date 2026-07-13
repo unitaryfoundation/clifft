@@ -87,7 +87,7 @@ TEST_CASE("continuation: a trapped jump keeps its annotation and inserts the tra
     ExactShotEvents events;
     events.initial_status = computational_initials(2);
     // The annotation is node 1 in the source; annotate() keeps positions.
-    events.jumps.push_back({/*op_index=*/1, /*qubit=*/0, /*destination_level=*/Level::LeakE});
+    events.jumps.push_back({{/*op_index=*/1, /*qubit=*/0}, /*destination_level=*/Level::LeakE});
 
     auto result = rewrite_continuation(annotated, events, false, model);
     const auto gates = gate_sequence(result.circuit);
@@ -116,9 +116,10 @@ TEST_CASE("continuation: classical-source consults consume pre-drawn outcomes") 
 
     ExactShotEvents events;
     events.initial_status = computational_initials(1);
-    events.jumps.push_back({0, 0, Level::LeakE});
-    events.classical_outcomes.push_back(
-        {/*op_index=*/1, /*qubit=*/0, /*destination=*/Level::E, /*source_level=*/Level::LeakE});
+    events.jumps.push_back({{0, 0}, Level::LeakE});
+    events.classical_outcomes.push_back({{/*op_index=*/1, /*qubit=*/0},
+                                         /*destination=*/Level::E,
+                                         /*source_level=*/Level::LeakE});
 
     auto result = rewrite_continuation(annotated, events, false, model);
     const std::vector<GateType> want = {
@@ -142,7 +143,7 @@ TEST_CASE("continuation: the forced trace-out node names the trace-out R in the 
 
     ExactShotEvents events;
     events.initial_status = computational_initials(2);
-    events.jumps.push_back({2, 0, Level::LeakE});
+    events.jumps.push_back({{2, 0}, Level::LeakE});
 
     auto result = rewrite_continuation(annotated, events, /*force_last_traceout=*/true, model);
     REQUIRE(result.forced_traceout_node.has_value());
@@ -161,7 +162,7 @@ TEST_CASE("continuation: the forced trace-out node is correct with multiple prio
 
     ExactShotEvents events;
     events.initial_status = computational_initials(3);
-    events.jumps.push_back({3, 0, Level::LeakE});  // the annotation is node 3
+    events.jumps.push_back({{3, 0}, Level::LeakE});  // the annotation is node 3
 
     auto result = rewrite_continuation(annotated, events, /*force_last_traceout=*/true, model);
     REQUIRE(result.forced_traceout_node.has_value());
@@ -180,13 +181,13 @@ TEST_CASE("continuation: events that do not describe the circuit reject") {
 
     SECTION("a jump at an op the circuit never consults") {
         ExactShotEvents events = base;
-        events.jumps.push_back({5, 0, Level::LeakE});
+        events.jumps.push_back({{5, 0}, Level::LeakE});
         REQUIRE_THROWS_WITH(rewrite_continuation(annotated, events, false, model),
                             ContainsSubstring("never consults"));
     }
     SECTION("a classical outcome with no classical-source consult") {
         ExactShotEvents events = base;
-        events.classical_outcomes.push_back({0, 0, std::nullopt, Level::G});
+        events.classical_outcomes.push_back({{0, 0}, std::nullopt, Level::G});
         REQUIRE_THROWS_WITH(rewrite_continuation(annotated, events, false, model),
                             ContainsSubstring("more classical outcomes"));
     }
@@ -195,7 +196,7 @@ TEST_CASE("continuation: events that do not describe the circuit reject") {
         // outcome claims it was drawn at a computational level.
         ExactShotEvents events = base;
         events.initial_status[0] = QubitStatus::LeakE;
-        events.classical_outcomes.push_back({/*op_index=*/0, /*qubit=*/0,
+        events.classical_outcomes.push_back({{/*op_index=*/0, /*qubit=*/0},
                                              /*destination=*/std::nullopt,
                                              /*source_level=*/Level::G});
         REQUIRE_THROWS_WITH(rewrite_continuation(annotated, events, false, model),
@@ -206,7 +207,7 @@ TEST_CASE("continuation: events that do not describe the circuit reject") {
         // always has one to point at. Rewritten stream: [LEVEL_TRANSITION,
         // R (trace-out), MPAD], so the trace-out R is at node index 1.
         ExactShotEvents events = base;
-        events.jumps.push_back({0, 0, Level::LeakE});
+        events.jumps.push_back({{0, 0}, Level::LeakE});
         auto result = rewrite_continuation(annotated, events, true, model);
         REQUIRE(result.forced_traceout_node == 1);  // index in the rewritten stream
     }
