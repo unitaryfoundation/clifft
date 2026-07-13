@@ -1,17 +1,12 @@
 """pytest-benchmark cases for the noncomputational (leakage/loss) path.
 
-A ladder per repetition-code memory circuit (d data qubits, r rounds,
+A ladder on one repetition-code memory circuit (d data qubits, r rounds,
 n = 2d-1 qubits; a hooked S layer on the data each round): plain sampling,
-the noncomputational pipeline with a lossless model (isolating the shared
-main line's overhead over plain sampling), and a representative
-low-probability leakage-plus-loss model (drop on leaked/lost operands,
-ternary herald classifier).
-
-A final cross-simulator rung runs the same circuit and noise model on the
-cirq-superstaq leakage simulator. That package is not a committed dependency
-(its simulator lives on an unmerged upstream branch), so the rung skips
-unless it is importable in the local environment; everything else runs
-everywhere.
+the noncomputational pipeline with a lossless model (isolating the
+pipeline's per-shot overhead over plain sampling -- the per-call
+rewrite-and-compile cost amortizes out at this batch size), and a
+representative low-probability leakage-plus-loss model (drop on
+leaked/lost operands, ternary herald classifier).
 """
 
 from __future__ import annotations
@@ -24,11 +19,17 @@ import clifft
 from clifft import noncomp
 
 CONFIGS = [
-    pytest.param(3, 3, 200, id="d3-r3"),
-    pytest.param(17, 5, 100, id="d17-r5"),
+    pytest.param(17, 5, id="d17-r5"),
 ]
 
 LEAK_P = 0.01
+
+# The plain and lossless rungs cost microseconds per shot, so a larger
+# batch keeps their tracked means well above timer and runner noise. The
+# leak rung traps and compiles continuations, which puts 100 shots in the
+# tens of milliseconds already.
+FAST_SHOTS = 2000
+LEAK_SHOTS = 100
 
 
 def rep_code_text(d: int, r: int) -> str:
@@ -73,60 +74,27 @@ def noncomp_model(p: float) -> noncomp.Model:
     )
 
 
-@pytest.mark.parametrize("d,r,shots", CONFIGS)
-def test_bench_noncomp_plain(benchmark: Any, d: int, r: int, shots: int) -> None:
+@pytest.mark.parametrize("d,r", CONFIGS)
+def test_bench_noncomp_plain(benchmark: Any, d: int, r: int) -> None:
     program = clifft.compile(rep_code_text(d, r))
     clifft.sample(program, 2, 1)  # warm
-    benchmark.extra_info["shots"] = shots
-    benchmark(clifft.sample, program, shots, 1)
+    benchmark.extra_info["shots"] = FAST_SHOTS
+    benchmark(clifft.sample, program, FAST_SHOTS, 1)
 
 
-@pytest.mark.parametrize("d,r,shots", CONFIGS)
-def test_bench_noncomp_lossless(benchmark: Any, d: int, r: int, shots: int) -> None:
+@pytest.mark.parametrize("d,r", CONFIGS)
+def test_bench_noncomp_lossless(benchmark: Any, d: int, r: int) -> None:
     circuit = clifft.parse(rep_code_text(d, r))
     model = noncomp_model(0.0)
     noncomp.sample(circuit, model, shots=2, seed=1)  # warm
-    benchmark.extra_info["shots"] = shots
-    benchmark(noncomp.sample, circuit, model, shots=shots, seed=1)
+    benchmark.extra_info["shots"] = FAST_SHOTS
+    benchmark(noncomp.sample, circuit, model, shots=FAST_SHOTS, seed=1)
 
 
-@pytest.mark.parametrize("d,r,shots", CONFIGS)
-def test_bench_noncomp_leak(benchmark: Any, d: int, r: int, shots: int) -> None:
+@pytest.mark.parametrize("d,r", CONFIGS)
+def test_bench_noncomp_leak(benchmark: Any, d: int, r: int) -> None:
     circuit = clifft.parse(rep_code_text(d, r))
     model = noncomp_model(LEAK_P)
     noncomp.sample(circuit, model, shots=2, seed=1)  # warm
-    benchmark.extra_info["shots"] = shots
-    benchmark(noncomp.sample, circuit, model, shots=shots, seed=1)
-
-
-@pytest.mark.parametrize("d,r,shots", CONFIGS)
-def test_bench_noncomp_sqale_comparison(benchmark: Any, d: int, r: int, shots: int) -> None:
-    cirq = pytest.importorskip("cirq")
-    leakage_sim = pytest.importorskip("cirq_superstaq.sim.leakage_sim")
-    sqale_model = pytest.importorskip("cirq_superstaq.sim.sqale_leakage_model")
-
-    qs = cirq.LineQubit.range(2 * d - 1)
-    data, anc = qs[:d], qs[d:]
-    ops: list = [cirq.H.on_each(*data)]
-    for k in range(r):
-        for i in range(d - 1):
-            ops.append(cirq.CX(data[i], anc[i]))
-            ops.append(cirq.CX(data[i + 1], anc[i]))
-        ops.append(cirq.S.on_each(*data))
-        ops.append(cirq.measure(*anc, key=f"m{k}"))
-        ops.extend(cirq.reset(a) for a in anc)
-    ops.append(cirq.measure(*data, key="final"))
-    model = sqale_model.SqaleLeakageModel(
-        rz_transition_matrix=leak_loss_matrix(LEAK_P), classifier_errors=(0, 0)
-    )
-    noisy = cirq.Circuit(ops).with_noise(model)
-
-    sq_shots = min(shots, 20)  # their per-shot stabilizer runs are slow at scale
-    benchmark.extra_info["shots"] = sq_shots
-    benchmark.pedantic(
-        leakage_sim.sample_circuit,
-        args=(noisy,),
-        kwargs={"repetitions": sq_shots, "max_workers": 0, "progressbar": False},
-        rounds=2,
-        iterations=1,
-    )
+    benchmark.extra_info["shots"] = LEAK_SHOTS
+    benchmark(noncomp.sample, circuit, model, shots=LEAK_SHOTS, seed=1)
