@@ -18,6 +18,7 @@
 
 #include "stim.h"
 
+#include <algorithm>
 #include <cassert>
 #include <complex>
 #include <cstddef>
@@ -103,41 +104,69 @@ inline constexpr PauliMaskHandle kNoMask = static_cast<PauliMaskHandle>(~uint32_
 // Instrument Sites
 // =============================================================================
 //
-// An InstrumentSite is one state-dependent jump site on one qubit: a
-// transition from the noncomputational trajectory model (leakage, loss,
-// relaxation) whose firing probability depends on the qubit's
-// computational level. It carries the per-source fire probabilities,
-// split into computational-destination jumps (resolved in-line by the VM)
-// and the leaked/lost remainder (a resumable trap). The op's Pauli mask is
-// the source projector Z_q rewound through the trace tableau, exactly like
-// a measurement mask. Source index 0 is the |0> (g) level, 1 is |1> (e).
+// A five-level transition matrix T[to][from] is compressed before it reaches
+// the HIR because only the computational source levels remain quantum. For
+// each source s in {G, E}, InstrumentProbabilities stores
+//
+//   p_fire[s]                  = sum_to T[to][s]
+//   p_computational_dest[s][d] = T[d][s], d in {G, E}
+//
+// and therefore
+//
+//   p_noncomputational_dest[s]
+//       = p_fire[s]
+//         - p_computational_dest[s][G]
+//         - p_computational_dest[s][E].
+//
+// The last quantity aggregates destinations LeakG, LeakE, and Lost. A fire
+// into that remainder traps to the exact-mode driver, which consults the
+// original matrix to choose the specific noncomputational destination.
+// Columns whose source is already noncomputational are handled classically
+// by the driver and never enter this HIR representation. The no-fire
+// probability is 1 - p_fire[s]; a diagonal matrix entry is still a fire
+// that lands back on its source, not the no-fire branch.
+//
+// The probabilities are scalar weights, not quantum operators. An
+// INSTRUMENT op's own Pauli mask is the source observable Z_q rewound through
+// the trace tableau; its +/- eigenspaces supply the G/E source projectors.
+// InstrumentSite::destination_flip_mask is the separately rewound X_q,
+// applied when an in-line computational destination differs from the
+// collapsed source. Source/destination index 0 is G = |0>, 1 is E = |1>.
+
+struct InstrumentProbabilities {
+    // Total fire probability for each computational source.
+    double p_fire[2] = {0.0, 0.0};
+
+    // Unconditional fire probability from source s to computational
+    // destination d. Dividing by p_fire[s] gives the destination
+    // probability conditioned on a fire from s.
+    double p_computational_dest[2][2] = {{0.0, 0.0}, {0.0, 0.0}};
+
+    [[nodiscard]] double p_noncomputational_dest(uint8_t source) const {
+        assert(source < 2 && "instrument source must be G or E");
+        const double remainder =
+            p_fire[source] - p_computational_dest[source][0] - p_computational_dest[source][1];
+        // Model validation permits derived column sums to drift within its
+        // probability tolerance. Do not expose a tiny negative trap weight.
+        return std::max(0.0, remainder);
+    }
+};
+
+// One state-dependent jump site on one qubit. The probability payload is
+// the quantum-source compression above; qubit and destination_flip_mask
+// supply the site-specific carrier operation.
 
 struct InstrumentSite {
     uint32_t qubit = 0;  // Physical qubit, for suffix rewrites + diagnostics
 
     // The rewound X observable of the qubit at the site (same tableau
-    // conjugation as the op's Z-projector mask): the destination fixup a
+    // conjugation as the op's Z-projector mask): the destination flip a
     // computational fire applies when its destination differs from its
     // source. Handle into HirModule::pauli_masks. Passes that conjugate
     // the op's mask must conjugate this slot identically.
-    PauliMaskHandle fixup_mask = kNoMask;
+    PauliMaskHandle destination_flip_mask = kNoMask;
 
-    // Total fire probability per computational source s.
-    double p_total[2] = {0.0, 0.0};
-
-    // p_dest[s][d]: probability that a fire from source s lands on
-    // computational level d. The trap (Leaked/Lost) remainder per source
-    // is p_total[s] - p_dest[s][0] - p_dest[s][1].
-    double p_dest[2][2] = {{0.0, 0.0}, {0.0, 0.0}};
-
-    // No-fire damp coefficients sqrt(1 - p_total[s]).
-    double damp[2] = {1.0, 1.0};
-
-    // Under damping="neglect", a dormant-random site skips the expansion
-    // and applies no no-fire back-action (see DampingPolicy in
-    // noncomp/policy.h). Baked in at materialization from the model
-    // policy.
-    bool neglect_damping = false;
+    InstrumentProbabilities probabilities;
 };
 
 // Operation types in the HIR
@@ -415,6 +444,12 @@ struct HirModule {
     uint32_t num_observables = 0;
     uint32_t num_exp_vals = 0;
 
+    // Under damping="neglect", dormant-random instrument sites skip the
+    // expansion and apply no no-fire back-action. The noncomputational
+    // policy is module-wide, so trace() records it once rather than on every
+    // InstrumentSite.
+    bool neglect_instrument_damping = false;
+
     std::complex<double> global_weight = {1.0, 0.0};
 
     /// Parallel to ops: source_map[i] lists the source line(s) that
@@ -527,7 +562,7 @@ struct HirModule {
     }
 
     /// Claim a pauli_masks slot referenced from a side-table entry rather
-    /// than an op (e.g. an instrument's destination fixup), filled via the
+    /// than an op (e.g. an instrument's destination flip), filled via the
     /// callable like the append_* builders.
     template <typename Fill>
     PauliMaskHandle claim_side_mask(Fill&& fill) {

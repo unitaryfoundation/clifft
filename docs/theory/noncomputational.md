@@ -85,6 +85,38 @@ they project onto their source level. The unused probability in a column is the
 no-jump probability. For computational sources, these probabilities define the
 jump and no-jump Kraus branches described below.
 
+For a computational source $s \in \{g,e\}$, define its total fire
+probability and its computational-destination probabilities by
+
+$$
+p_{\mathrm{fire}}(s) = \sum_{\ell} T[\ell][s],
+\qquad
+p_{\mathrm{comp}}(s \mathbin{\to} d) = T[d][s],
+\quad d \in \{g,e\}.
+$$
+
+The unconditional probability of firing into the noncomputational subspace is
+the remainder
+
+$$
+p_N(s)
+= p_{\mathrm{fire}}(s) - T[g][s] - T[e][s]
+= T[\mathrm{leak\_g}][s]
+  + T[\mathrm{leak\_e}][s]
+  + T[\mathrm{lost}][s].
+$$
+
+Clifft keeps this split at a live computational site: the simulator resolves
+the source and any `g`/`e` destination inline, while a noncomputational
+destination transfers control to the trajectory driver, which selects the
+specific level from the original matrix. Once a source is already
+noncomputational, its matrix column is consulted entirely by the classical
+driver. The transition matrix supplies these scalar weights; the source
+projectors and a possible `g`/`e` destination flip are quantum operations on
+the live state. The no-fire probability is $1-p_{\mathrm{fire}}(s)$. In
+particular, a diagonal entry $T[s][s]$ is still a fire event that lands back on
+its source; it is not part of the no-fire branch.
+
 A measurement classifier $P[\mathrm{symbol}][\mathrm{level}]$ defines the
 recorded result for each level. It has two binary record symbols and may have
 a third herald symbol, typically for loss. For example, the `leak_g` column

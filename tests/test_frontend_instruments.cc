@@ -20,7 +20,6 @@
 #include <catch2/matchers/catch_matchers.hpp>
 #include <catch2/matchers/catch_matchers_floating_point.hpp>
 #include <catch2/matchers/catch_matchers_string.hpp>
-#include <cmath>
 #include <string>
 
 using namespace clifft;
@@ -36,10 +35,10 @@ constexpr double kTol = 1e-15;
 InstrumentTraceOptions demo_options() {
     InstrumentTraceOptions options;
     InstrumentSpec spec;
-    spec.p_total[0] = 0.1;
-    spec.p_dest[0][0] = 0.02;
-    spec.p_dest[0][1] = 0.03;
-    spec.p_total[1] = 0.4;
+    spec.p_fire[0] = 0.1;
+    spec.p_computational_dest[0][0] = 0.02;
+    spec.p_computational_dest[0][1] = 0.03;
+    spec.p_fire[1] = 0.4;
     options.transitions.emplace("jump", spec);
     return options;
 }
@@ -87,18 +86,17 @@ TEST_CASE("trace: LEVEL_TRANSITION materializes an INSTRUMENT with its spec") {
 
     REQUIRE(hir.instrument_sites.size() == 1);
     const InstrumentSite& site = hir.instrument_sites[0];
+    const InstrumentProbabilities& probabilities = site.probabilities;
     REQUIRE(site.qubit == 0);
-    REQUIRE(site.neglect_damping == false);
-    REQUIRE_THAT(site.p_total[0], WithinAbs(0.1, kTol));
-    REQUIRE_THAT(site.p_total[1], WithinAbs(0.4, kTol));
-    REQUIRE_THAT(site.p_dest[0][0], WithinAbs(0.02, kTol));
-    REQUIRE_THAT(site.p_dest[0][1], WithinAbs(0.03, kTol));
-    REQUIRE_THAT(site.p_dest[1][0], WithinAbs(0.0, kTol));
-    REQUIRE_THAT(site.p_dest[1][1], WithinAbs(0.0, kTol));
-    REQUIRE_THAT(site.p_total[0] - site.p_dest[0][0] - site.p_dest[0][1], WithinAbs(0.05, kTol));
-    REQUIRE_THAT(site.p_total[1] - site.p_dest[1][0] - site.p_dest[1][1], WithinAbs(0.4, kTol));
-    REQUIRE_THAT(site.damp[0], WithinAbs(std::sqrt(0.9), kTol));
-    REQUIRE_THAT(site.damp[1], WithinAbs(std::sqrt(0.6), kTol));
+    REQUIRE_FALSE(hir.neglect_instrument_damping);
+    REQUIRE_THAT(probabilities.p_fire[0], WithinAbs(0.1, kTol));
+    REQUIRE_THAT(probabilities.p_fire[1], WithinAbs(0.4, kTol));
+    REQUIRE_THAT(probabilities.p_computational_dest[0][0], WithinAbs(0.02, kTol));
+    REQUIRE_THAT(probabilities.p_computational_dest[0][1], WithinAbs(0.03, kTol));
+    REQUIRE_THAT(probabilities.p_computational_dest[1][0], WithinAbs(0.0, kTol));
+    REQUIRE_THAT(probabilities.p_computational_dest[1][1], WithinAbs(0.0, kTol));
+    REQUIRE_THAT(probabilities.p_noncomputational_dest(0), WithinAbs(0.05, kTol));
+    REQUIRE_THAT(probabilities.p_noncomputational_dest(1), WithinAbs(0.4, kTol));
 
     // Identity tableau at the site: the mask is plain Z on qubit 0.
     REQUIRE(hir.ops[0].instrument_site_idx() == InstrumentSiteIdx{0});
@@ -127,14 +125,12 @@ TEST_CASE("trace: LOSS materializes a source-independent all-trap site per targe
     REQUIRE(hir.instrument_sites.size() == 2);
     for (int i = 0; i < 2; ++i) {
         const InstrumentSite& site = hir.instrument_sites[static_cast<size_t>(i)];
+        const InstrumentProbabilities& probabilities = site.probabilities;
         REQUIRE(site.qubit == static_cast<uint32_t>(i));
-        REQUIRE_THAT(site.p_total[0], WithinAbs(0.25, kTol));
-        REQUIRE_THAT(site.p_total[1], WithinAbs(0.25, kTol));
-        REQUIRE_THAT(site.p_total[0] - site.p_dest[0][0] - site.p_dest[0][1],
-                     WithinAbs(0.25, kTol));
-        REQUIRE_THAT(site.p_total[1] - site.p_dest[1][0] - site.p_dest[1][1],
-                     WithinAbs(0.25, kTol));
-        REQUIRE_THAT(site.damp[0], WithinAbs(std::sqrt(0.75), kTol));
+        REQUIRE_THAT(probabilities.p_fire[0], WithinAbs(0.25, kTol));
+        REQUIRE_THAT(probabilities.p_fire[1], WithinAbs(0.25, kTol));
+        REQUIRE_THAT(probabilities.p_noncomputational_dest(0), WithinAbs(0.25, kTol));
+        REQUIRE_THAT(probabilities.p_noncomputational_dest(1), WithinAbs(0.25, kTol));
         REQUIRE(mask_is(hir, hir.ops[static_cast<size_t>(i)], static_cast<uint32_t>(i), false, true,
                         false));
     }
@@ -157,13 +153,24 @@ TEST_CASE("trace: an unresolved tag names itself in the error") {
         ContainsSubstring("LEVEL_TRANSITION[ghost]") && ContainsSubstring("instrument options"));
 }
 
-TEST_CASE("trace: the damping policy is copied onto every site") {
+TEST_CASE("trace: malformed compressed instrument probabilities reject") {
+    InstrumentTraceOptions options;
+    InstrumentSpec invalid;
+    invalid.p_fire[0] = 0.1;
+    invalid.p_computational_dest[0][0] = 0.2;
+    options.transitions.emplace("invalid", invalid);
+
+    REQUIRE_THROWS_WITH(
+        hir_with_instruments("LEVEL_TRANSITION[invalid] 0", options),
+        ContainsSubstring("LEVEL_TRANSITION[invalid]") && ContainsSubstring("above p_fire"));
+}
+
+TEST_CASE("trace: the damping policy is recorded once on the HIR module") {
     auto options = demo_options();
-    options.neglect_damping = true;
+    options.neglect_instrument_damping = true;
     auto hir = hir_with_instruments("LEVEL_TRANSITION[jump] 0\nLOSS(0.1) 1", options);
     REQUIRE(hir.instrument_sites.size() == 2);
-    REQUIRE(hir.instrument_sites[0].neglect_damping);
-    REQUIRE(hir.instrument_sites[1].neglect_damping);
+    REQUIRE(hir.neglect_instrument_damping);
 }
 
 // =============================================================================
@@ -182,13 +189,14 @@ TEST_CASE("instrument_trace_options: resolves model transitions and policy") {
                                                         {{"relax", matrix}}, std::nullopt, policy);
 
     const InstrumentTraceOptions options = instrument_trace_options(model);
-    REQUIRE(options.neglect_damping);
+    REQUIRE(options.neglect_instrument_damping);
     REQUIRE(options.transitions.size() == 1);
     const InstrumentSpec& spec = options.transitions.at("relax");
-    REQUIRE_THAT(spec.p_total[0], WithinAbs(0.0, kTol));
-    REQUIRE_THAT(spec.p_total[1], WithinAbs(0.4, kTol));
-    REQUIRE_THAT(spec.p_dest[1][0], WithinAbs(0.1, kTol));
-    REQUIRE_THAT(spec.p_dest[1][1], WithinAbs(0.0, kTol));
+    REQUIRE_THAT(spec.p_fire[0], WithinAbs(0.0, kTol));
+    REQUIRE_THAT(spec.p_fire[1], WithinAbs(0.4, kTol));
+    REQUIRE_THAT(spec.p_computational_dest[1][0], WithinAbs(0.1, kTol));
+    REQUIRE_THAT(spec.p_computational_dest[1][1], WithinAbs(0.0, kTol));
+    REQUIRE_THAT(spec.p_noncomputational_dest(1), WithinAbs(0.3, kTol));
 }
 
 // =============================================================================
@@ -239,7 +247,7 @@ TEST_CASE("fences: an absorbed virtual S conjugates the instrument mask like a m
     // T 0; T 0 fuses to a virtual S along Z(0). The H makes the site's
     // rewound projector X(0), which anti-commutes with the S axis, so the
     // absorption must rotate it to Y(0) -- the same conjugation measures
-    // and probes receive. The site's fixup (rewound X = Z(0) here)
+    // and probes receive. The site's destination flip (rewound X = Z(0) here)
     // commutes with the S axis and must stay put.
     auto hir = hir_with_instruments("T 0\nT 0\nH 0\nLEVEL_TRANSITION[jump] 0", options);
     REQUIRE(hir.ops.size() == 3);
@@ -257,18 +265,18 @@ TEST_CASE("fences: an absorbed virtual S conjugates the instrument mask like a m
     REQUIRE(destab.bit_get(0));
     REQUIRE(stab.bit_get(0));
 
-    auto fixup = hir.pauli_masks.at(hir.instrument_sites[0].fixup_mask);
-    REQUIRE(!fixup.x().bit_get(0));
-    REQUIRE(fixup.z().bit_get(0));
+    auto flip = hir.pauli_masks.at(hir.instrument_sites[0].destination_flip_mask);
+    REQUIRE(!flip.x().bit_get(0));
+    REQUIRE(flip.z().bit_get(0));
 }
 
-TEST_CASE("fences: an absorbed virtual S conjugates the side-table fixup mask too") {
+TEST_CASE("fences: an absorbed virtual S conjugates the side-table destination flip too") {
     const auto options = demo_options();
     // With the T pair after the H, the virtual S runs along X(0): now the
-    // site's own mask (X-like) commutes and stays put, while the fixup
+    // site's own mask (X-like) commutes and stays put, while the destination flip
     // (rewound X = Z(0)) anti-commutes and must rotate to Y(0). A sweep
     // that only conjugates op-attached masks misses it -- the side-table
-    // twin of the C2 fixup bug.
+    // twin of the C2 destination-flip bug.
     auto hir = hir_with_instruments("H 0\nT 0\nT 0\nLEVEL_TRANSITION[jump] 0", options);
     REQUIRE(hir.ops.size() == 3);
 
@@ -281,10 +289,10 @@ TEST_CASE("fences: an absorbed virtual S conjugates the side-table fixup mask to
     // Op mask: still X-like.
     REQUIRE(hir.destab_mask(hir.ops[0]).bit_get(0));
     REQUIRE(!hir.stab_mask(hir.ops[0]).bit_get(0));
-    // Fixup: rotated to Y-like.
-    auto fixup = hir.pauli_masks.at(hir.instrument_sites[0].fixup_mask);
-    REQUIRE(fixup.x().bit_get(0));
-    REQUIRE(fixup.z().bit_get(0));
+    // Destination flip: rotated to Y-like.
+    auto flip = hir.pauli_masks.at(hir.instrument_sites[0].destination_flip_mask);
+    REQUIRE(flip.x().bit_get(0));
+    REQUIRE(flip.z().bit_get(0));
 }
 
 TEST_CASE("trace: a hand-built LOSS without its argument rejects") {

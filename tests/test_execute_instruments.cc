@@ -31,10 +31,10 @@ namespace {
 // fire landing on computational level `dest`.
 InstrumentSpec to_level(double p_g, double p_e, int dest) {
     InstrumentSpec spec;
-    spec.p_total[0] = p_g;
-    spec.p_total[1] = p_e;
-    spec.p_dest[0][dest] = p_g;
-    spec.p_dest[1][dest] = p_e;
+    spec.p_fire[0] = p_g;
+    spec.p_fire[1] = p_e;
+    spec.p_computational_dest[0][dest] = p_g;
+    spec.p_computational_dest[1][dest] = p_e;
     return spec;
 }
 
@@ -84,7 +84,7 @@ std::optional<double> run_shot_exp_val(const CompiledModule& module, uint64_t se
 }  // namespace
 
 TEST_CASE("execute: a certain relaxation fires in-line and flips the record") {
-    // From |1>, a p = 1 transition to g fires every shot; the fixup turns
+    // From |1>, a p = 1 transition to g fires every shot; the destination flip turns
     // the subsequent measurement into 0. The same site on |0> has rate 0
     // from g and never fires.
     InstrumentTraceOptions options;
@@ -186,7 +186,7 @@ TEST_CASE("execute: the no-fire back-action matches its closed form through the 
 
     InstrumentTraceOptions options;
     InstrumentSpec damp;  // fires only from g, entirely to leaked/lost
-    damp.p_total[0] = p;
+    damp.p_fire[0] = p;
     options.transitions.emplace("damp", damp);
 
     const char* active_form = "H 0\nT 0\nLEVEL_TRANSITION[damp] 0\nT_DAG 0\nH 0\nEXP_VAL Z0\nM 0";
@@ -211,11 +211,11 @@ TEST_CASE("execute: the no-fire back-action matches its closed form through the 
     }
 }
 
-TEST_CASE("execute: an absorbed virtual S conjugates the fixup the fire path applies") {
+TEST_CASE("execute: an absorbed virtual S conjugates the destination flip") {
     // Through the full default pipeline, the T pair fuses into a virtual
     // S along X(0) -- which leaves the site's own X-like mask alone but
-    // must rotate its Z-like fixup mask. A fixup left stale (the C2 bug
-    // class) sends the source-e shots' destination flip to the wrong
+    // must rotate its Z-like destination-flip mask. A stale mask sends the
+    // source-e shots' destination flip to the wrong
     // Pauli, and the certain reset stops reading 0.
     InstrumentTraceOptions options;
     options.transitions.emplace("reset_g", to_level(1.0, 1.0, /*dest=*/0));
@@ -265,8 +265,8 @@ TEST_CASE("execute: a localization sign threads through the active fire path") {
     }
 }
 
-TEST_CASE("execute: an entangled site's multi-axis fixup lands on the right qubit") {
-    // After H;H;CZ the fixup (the site qubit's rewound X) has support on
+TEST_CASE("execute: an entangled site's multi-axis destination flip lands correctly") {
+    // After H;H;CZ the destination flip (the site qubit's rewound X) has support on
     // both qubits. A certain reset on qubit 1 must read 0 on its record
     // for every seed, whichever source the populations select.
     InstrumentTraceOptions options;
@@ -274,8 +274,9 @@ TEST_CASE("execute: an entangled site's multi-axis fixup lands on the right qubi
 
     auto module = compile_raw("H 0\nH 1\nCZ 0 1\nLEVEL_TRANSITION[reset_g] 1\nM 1", options);
     const auto& site = module.constant_pool.instrument_sites.at(0);
-    auto fixup = module.constant_pool.instrument_fixup_masks.at(site.fixup_mask);
-    REQUIRE(fixup.x().popcount() + fixup.z().popcount() >= 2);  // genuinely multi-axis
+    auto flip =
+        module.constant_pool.instrument_destination_flip_masks.at(site.destination_flip_mask);
+    REQUIRE(flip.x().popcount() + flip.z().popcount() >= 2);  // genuinely multi-axis
 
     for (uint64_t seed = 1; seed <= 20; ++seed) {
         REQUIRE(run_shot(module, seed) == std::vector<uint8_t>{0});
@@ -285,7 +286,7 @@ TEST_CASE("execute: an entangled site's multi-axis fixup lands on the right qubi
 TEST_CASE("execute: a neglect-mode dormant-random site is silent until it fires") {
     InstrumentTraceOptions options;
     options.transitions.emplace("leak", InstrumentSpec{{0.3, 0.3}, {{0.0, 0.0}, {0.0, 0.0}}});
-    options.neglect_damping = true;
+    options.neglect_instrument_damping = true;
 
     // Fire probability is 0.3 per shot; k stays 0 either way. Fired
     // shots trap (all destinations are leaked/lost here); silent shots

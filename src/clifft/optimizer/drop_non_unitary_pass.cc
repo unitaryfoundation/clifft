@@ -40,6 +40,7 @@ void DropNonUnitaryPass::run(HirModule& hir) {
     hir.num_detectors = 0;
     hir.num_observables = 0;
     hir.num_exp_vals = 0;
+    hir.neglect_instrument_damping = false;
     hir.source_map.clear();
 }
 

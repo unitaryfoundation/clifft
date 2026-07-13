@@ -1,6 +1,6 @@
 // Backend lowering tests for INSTRUMENT ops: opcode selection by the
 // localized-basis classification, the site -> bytecode offset table, the
-// destination fixup mask, peak_rank accounting, and the fixed
+// destination flip mask, peak_rank accounting, and the fixed
 // prefix-identity contract that trap re-entry depends on.
 
 #include "clifft/backend/backend.h"
@@ -28,12 +28,12 @@ constexpr double kTol = 1e-15;
 InstrumentTraceOptions demo_options(bool neglect = false) {
     InstrumentTraceOptions options;
     InstrumentSpec spec;
-    spec.p_total[0] = 0.1;
-    spec.p_dest[0][0] = 0.02;
-    spec.p_dest[0][1] = 0.03;
-    spec.p_total[1] = 0.4;
+    spec.p_fire[0] = 0.1;
+    spec.p_computational_dest[0][0] = 0.02;
+    spec.p_computational_dest[0][1] = 0.03;
+    spec.p_fire[1] = 0.4;
     options.transitions.emplace("jump", spec);
-    options.neglect_damping = neglect;
+    options.neglect_instrument_damping = neglect;
     return options;
 }
 
@@ -96,19 +96,20 @@ TEST_CASE("lowering: a fresh-qubit site is dormant-static with its spec in the p
     REQUIRE(module.constant_pool.instrument_sites.size() == 1);
     const CompiledInstrumentSite& site =
         module.constant_pool.instrument_sites[instr.instrument.cp_site_idx];
+    const InstrumentProbabilities& probabilities = site.probabilities;
     REQUIRE(site.site_id == 0);
-    REQUIRE_THAT(site.p_total[0], WithinAbs(0.1, kTol));
-    REQUIRE_THAT(site.p_total[1], WithinAbs(0.4, kTol));
-    REQUIRE_THAT(site.p_dest[0][0], WithinAbs(0.02, kTol));
-    REQUIRE_THAT(site.p_dest[0][1], WithinAbs(0.03, kTol));
-    REQUIRE_THAT(site.p_total[1] - site.p_dest[1][0] - site.p_dest[1][1], WithinAbs(0.4, kTol));
-    REQUIRE(!site.neglect_damping);
+    REQUIRE_THAT(probabilities.p_fire[0], WithinAbs(0.1, kTol));
+    REQUIRE_THAT(probabilities.p_fire[1], WithinAbs(0.4, kTol));
+    REQUIRE_THAT(probabilities.p_computational_dest[0][0], WithinAbs(0.02, kTol));
+    REQUIRE_THAT(probabilities.p_computational_dest[0][1], WithinAbs(0.03, kTol));
+    REQUIRE_THAT(probabilities.p_noncomputational_dest(1), WithinAbs(0.4, kTol));
 
-    // Identity frame: the destination fixup is exactly X on qubit 0.
-    auto fixup = module.constant_pool.instrument_fixup_masks.at(site.fixup_mask);
-    REQUIRE(fixup.x().bit_get(0));
-    REQUIRE(fixup.x().popcount() == 1);
-    REQUIRE(fixup.z().popcount() == 0);
+    // Identity frame: the destination flip is exactly X on qubit 0.
+    auto flip =
+        module.constant_pool.instrument_destination_flip_masks.at(site.destination_flip_mask);
+    REQUIRE(flip.x().bit_get(0));
+    REQUIRE(flip.x().popcount() == 1);
+    REQUIRE(flip.z().popcount() == 0);
 
     REQUIRE(module.instrument_offsets.size() == 1);
     REQUIRE(module.instrument_offsets[0] == at);
@@ -162,21 +163,18 @@ TEST_CASE("lowering: equal per-source rates skip the expansion even under exact 
     // so exact damping takes it and k stays flat.
     InstrumentTraceOptions options;
     InstrumentSpec spec;
-    spec.p_total[0] = 0.1;
-    spec.p_dest[0][0] = 0.02;
-    spec.p_dest[0][1] = 0.03;
-    spec.p_total[1] = 0.1;
-    spec.p_dest[1][0] = 0.02;
-    spec.p_dest[1][1] = 0.03;
+    spec.p_fire[0] = 0.1;
+    spec.p_computational_dest[0][0] = 0.02;
+    spec.p_computational_dest[0][1] = 0.03;
+    spec.p_fire[1] = 0.1;
+    spec.p_computational_dest[1][0] = 0.02;
+    spec.p_computational_dest[1][1] = 0.03;
     options.transitions.emplace("jump", spec);
 
     auto module = compile_raw("H 0\nLEVEL_TRANSITION[jump] 0", options);
     const size_t at = sole_instrument_index(module);
     REQUIRE(module.bytecode[at].opcode == Opcode::OP_INSTRUMENT_DORMANT_NEGLECT);
     REQUIRE(module.peak_rank == 0);
-    // The equal-rate path, not the policy: this is an exact-damping site.
-    REQUIRE_FALSE(module.constant_pool.instrument_sites[module.bytecode[at].instrument.cp_site_idx]
-                      .neglect_damping);
 }
 
 TEST_CASE("lowering: dormant-random under neglect keeps k and skips the expansion") {
@@ -189,8 +187,6 @@ TEST_CASE("lowering: dormant-random under neglect keeps k and skips the expansio
         REQUIRE(instr.opcode != Opcode::OP_EXPAND);
         REQUIRE(instr.opcode != Opcode::OP_FRAME_H);
     }
-    REQUIRE(module.constant_pool.instrument_sites[module.bytecode[at].instrument.cp_site_idx]
-                .neglect_damping);
 }
 
 TEST_CASE("lowering: an entangled site still localizes to one instrument") {
@@ -200,10 +196,11 @@ TEST_CASE("lowering: an entangled site still localizes to one instrument") {
     const size_t at = sole_instrument_index(module);
     const auto& site =
         module.constant_pool.instrument_sites[module.bytecode[at].instrument.cp_site_idx];
-    // The fixup is the virtualized X of the annotated qubit; entanglement
+    // The destination flip is the virtualized X of the annotated qubit; entanglement
     // makes it a genuine mask, not necessarily single-qubit.
-    auto fixup = module.constant_pool.instrument_fixup_masks.at(site.fixup_mask);
-    REQUIRE(fixup.x().popcount() + fixup.z().popcount() > 0);
+    auto flip =
+        module.constant_pool.instrument_destination_flip_masks.at(site.destination_flip_mask);
+    REQUIRE(flip.x().popcount() + flip.z().popcount() > 0);
 }
 
 // =============================================================================
