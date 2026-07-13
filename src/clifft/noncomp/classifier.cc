@@ -31,9 +31,7 @@ MeasurementClassifier MeasurementClassifier::from_matrix(
         }
         for (size_t l = 0; l < kNumLevels; ++l) {
             const double v = matrix[s][l];
-            // is_finite_robust runs first because -ffast-math folds
-            // std::isfinite() / NaN-aware comparisons away.
-            if (!is_finite_robust(v) || v < 0.0 || v > 1.0) {
+            if (!is_probability(v)) {
                 throw std::invalid_argument("MeasurementClassifier::from_matrix: entry (" +
                                             std::to_string(s) + ", " + std::to_string(l) +
                                             ") = " + std::to_string(v) +

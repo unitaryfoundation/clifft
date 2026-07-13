@@ -4,7 +4,6 @@
 #include "clifft/circuit/target.h"
 #include "clifft/noncomp/classifier.h"
 #include "clifft/noncomp/level.h"
-#include "clifft/noncomp/numeric.h"
 #include "clifft/noncomp/status_walk.h"
 #include "clifft/noncomp/transition_instrument.h"
 

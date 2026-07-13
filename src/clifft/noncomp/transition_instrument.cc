@@ -29,9 +29,7 @@ TransitionInstrument TransitionInstrument::from_matrix(
             const double v = matrix[to][from];
             // Raw user entries must be finite and lie strictly in [0, 1]:
             // tolerance applies only to derived column sums below.
-            // is_finite_robust runs first because -ffast-math folds
-            // std::isfinite() / NaN-aware comparisons away.
-            if (!is_finite_robust(v) || v < 0.0 || v > 1.0) {
+            if (!is_probability(v)) {
                 throw std::invalid_argument("TransitionInstrument::from_matrix: entry (" +
                                             std::to_string(to) + ", " + std::to_string(from) +
                                             ") = " + std::to_string(v) +

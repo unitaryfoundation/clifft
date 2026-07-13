@@ -2,7 +2,7 @@
 
 #include "clifft/circuit/gate_data.h"
 #include "clifft/circuit/target.h"
-#include "clifft/noncomp/numeric.h"
+#include "clifft/util/numeric.h"
 
 #include <stdexcept>
 #include <string>
@@ -17,9 +17,7 @@ double loss_probability(const std::vector<double>& args, uint32_t op_index,
                                     " requires exactly one argument (the loss probability)");
     }
     const double p = args[0];
-    // is_finite_robust runs first because -ffast-math folds
-    // std::isfinite() / NaN-aware comparisons away.
-    if (!is_finite_robust(p) || p < 0.0 || p > 1.0) {
+    if (!is_probability(p)) {
         throw std::invalid_argument(std::string(caller) + ": LOSS probability at op " +
                                     std::to_string(op_index) + " = " + std::to_string(p) +
                                     " is not finite or is out of [0, 1]");

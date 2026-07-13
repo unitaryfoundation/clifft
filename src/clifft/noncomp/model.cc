@@ -67,9 +67,7 @@ NonComputationalModel::NonComputationalModel(
     double sum = 0.0;
     for (size_t i = 0; i < kNumLevels; ++i) {
         const double p = initial_state[i];
-        // is_finite_robust runs first because -ffast-math folds
-        // std::isfinite() / NaN-aware comparisons away.
-        if (!is_finite_robust(p) || p < 0.0 || p > 1.0) {
+        if (!is_probability(p)) {
             throw std::invalid_argument("NonComputationalModel: initial_state entry " +
                                         std::to_string(i) + " = " + std::to_string(p) +
                                         " is not finite or is out of [0, 1]");
