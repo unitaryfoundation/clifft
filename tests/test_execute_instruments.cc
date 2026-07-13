@@ -8,10 +8,10 @@
 // validation belongs to the exact-mode validation campaign.
 
 #include "clifft/backend/backend.h"
-#include "clifft/circuit/parser.h"
 #include "clifft/frontend/frontend.h"
-#include "clifft/optimizer/pass_factory.h"
 #include "clifft/svm/svm.h"
+
+#include "instrument_test_helpers.h"
 
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/matchers/catch_matchers.hpp>
@@ -24,6 +24,9 @@
 
 using namespace clifft;
 using Catch::Matchers::ContainsSubstring;
+using clifft::test::compile_instruments_full;
+using clifft::test::compile_instruments_raw;
+using clifft::test::make_shot_state;
 
 namespace {
 
@@ -36,31 +39,6 @@ InstrumentProbabilities to_level(double p_g, double p_e, int dest) {
     spec.p_computational_dest[0][dest] = p_g;
     spec.p_computational_dest[1][dest] = p_e;
     return spec;
-}
-
-CompiledModule compile_raw(const char* text, const InstrumentTraceOptions& options) {
-    auto hir = trace(parse(text), &options);
-    return lower(hir);
-}
-
-// The full default pipeline, for tests that must survive real HIR and
-// bytecode optimization (virtual-S absorption in particular).
-CompiledModule compile_full(const char* text, const InstrumentTraceOptions& options) {
-    auto hir = trace(parse(text), &options);
-    auto hir_passes = default_hir_pass_manager();
-    hir_passes.run(hir);
-    auto module = lower(hir);
-    auto bytecode_passes = default_bytecode_pass_manager();
-    bytecode_passes.run(module);
-    return module;
-}
-
-SchrodingerState make_shot_state(const CompiledModule& module, uint64_t seed) {
-    return SchrodingerState(StateConfig{.peak_rank = module.peak_rank,
-                                        .num_measurements = module.total_meas_slots,
-                                        .num_qubits = module.num_qubits,
-                                        .num_exp_vals = module.num_exp_vals,
-                                        .seed = seed});
 }
 
 // Execute one shot with a fixed seed and return the measurement record.
@@ -90,8 +68,8 @@ TEST_CASE("execute: a certain relaxation fires in-line and flips the record") {
     InstrumentTraceOptions options;
     options.transitions.emplace("relax", to_level(/*p_g=*/0.0, /*p_e=*/1.0, /*dest=*/0));
 
-    auto relaxed = compile_raw("X 0\nLEVEL_TRANSITION[relax] 0\nM 0", options);
-    auto untouched = compile_raw("LEVEL_TRANSITION[relax] 0\nM 0", options);
+    auto relaxed = compile_instruments_raw("X 0\nLEVEL_TRANSITION[relax] 0\nM 0", options);
+    auto untouched = compile_instruments_raw("LEVEL_TRANSITION[relax] 0\nM 0", options);
 
     for (uint64_t seed = 1; seed <= 20; ++seed) {
         REQUIRE(run_shot(relaxed, seed) == std::vector<uint8_t>{0});
@@ -103,7 +81,7 @@ TEST_CASE("execute: a certain excitation from a definite g fires to e") {
     InstrumentTraceOptions options;
     options.transitions.emplace("excite", to_level(/*p_g=*/1.0, /*p_e=*/0.0, /*dest=*/1));
 
-    auto module = compile_raw("LEVEL_TRANSITION[excite] 0\nM 0", options);
+    auto module = compile_instruments_raw("LEVEL_TRANSITION[excite] 0\nM 0", options);
     for (uint64_t seed = 1; seed <= 20; ++seed) {
         REQUIRE(run_shot(module, seed) == std::vector<uint8_t>{1});
     }
@@ -117,7 +95,7 @@ TEST_CASE("execute: an active-axis certain reset collapses the carrier to g") {
     InstrumentTraceOptions options;
     options.transitions.emplace("reset_g", to_level(/*p_g=*/1.0, /*p_e=*/1.0, /*dest=*/0));
 
-    auto module = compile_raw("H 0\nT 0\nLEVEL_TRANSITION[reset_g] 0\nM 0", options);
+    auto module = compile_instruments_raw("H 0\nT 0\nLEVEL_TRANSITION[reset_g] 0\nM 0", options);
     REQUIRE(module.peak_rank == 1);
     for (uint64_t seed = 1; seed <= 20; ++seed) {
         REQUIRE(run_shot(module, seed) == std::vector<uint8_t>{0});
@@ -133,7 +111,7 @@ TEST_CASE("execute: a dormant-random source-dependent site expands and measures 
     InstrumentTraceOptions options;
     options.transitions.emplace("reset_g", to_level(/*p_g=*/0.0, /*p_e=*/1.0, /*dest=*/0));
 
-    auto module = compile_raw("H 0\nLEVEL_TRANSITION[reset_g] 0\nM 0", options);
+    auto module = compile_instruments_raw("H 0\nLEVEL_TRANSITION[reset_g] 0\nM 0", options);
     REQUIRE(module.peak_rank == 1);  // the site's own expansion
     for (uint64_t seed = 1; seed <= 20; ++seed) {
         REQUIRE(run_shot(module, seed) == std::vector<uint8_t>{0});
@@ -148,7 +126,7 @@ TEST_CASE("execute: the no-fire path of a weak site leaves a definite carrier al
     InstrumentTraceOptions options;
     options.transitions.emplace("relax", to_level(0.0, 0.05, /*dest=*/0));
 
-    auto module = compile_raw("X 0\nLEVEL_TRANSITION[relax] 0\nM 0", options);
+    auto module = compile_instruments_raw("X 0\nLEVEL_TRANSITION[relax] 0\nM 0", options);
     int ones = 0;
     for (uint64_t seed = 1; seed <= 50; ++seed) {
         auto first = run_shot(module, seed);
@@ -160,7 +138,7 @@ TEST_CASE("execute: the no-fire path of a weak site leaves a definite carrier al
 
 TEST_CASE("execute: a leaked/lost fire halts with the trap recorded") {
     InstrumentTraceOptions options;  // LOSS needs no spec
-    auto module = compile_raw("H 1\nLOSS(1.0) 0\nM 0", options);
+    auto module = compile_instruments_raw("H 1\nLOSS(1.0) 0\nM 0", options);
 
     auto state = make_shot_state(module, /*seed=*/7);
     execute(module, state);
@@ -193,7 +171,7 @@ TEST_CASE("execute: the no-fire back-action matches its closed form through the 
     const char* expand_form = "H 0\nLEVEL_TRANSITION[damp] 0\nH 0\nEXP_VAL Z0\nM 0";
 
     for (const char* text : {active_form, expand_form}) {
-        auto module = compile_raw(text, options);
+        auto module = compile_instruments_raw(text, options);
         int completed = 0;
         int trapped = 0;
         for (uint64_t seed = 1; seed <= 40; ++seed) {
@@ -220,7 +198,8 @@ TEST_CASE("execute: an absorbed virtual S conjugates the destination flip") {
     InstrumentTraceOptions options;
     options.transitions.emplace("reset_g", to_level(1.0, 1.0, /*dest=*/0));
 
-    auto module = compile_full("X 0\nH 0\nT 0\nT 0\nLEVEL_TRANSITION[reset_g] 0\nM 0", options);
+    auto module =
+        compile_instruments_full("X 0\nH 0\nT 0\nT 0\nLEVEL_TRANSITION[reset_g] 0\nM 0", options);
     for (uint64_t seed = 1; seed <= 20; ++seed) {
         REQUIRE(run_shot(module, seed) == std::vector<uint8_t>{0});
     }
@@ -236,7 +215,7 @@ TEST_CASE("execute: sequential sites compose and a drained source never fires") 
     options.transitions.emplace("reset_e", to_level(1.0, 1.0, /*dest=*/1));
     options.transitions.emplace("g_pump", to_level(1.0, 0.0, /*dest=*/1));
 
-    auto module = compile_raw(
+    auto module = compile_instruments_raw(
         "H 0\nT 0\nLEVEL_TRANSITION[reset_e] 0\nLEVEL_TRANSITION[g_pump] 0\nM 0", options);
     for (uint64_t seed = 1; seed <= 20; ++seed) {
         REQUIRE(run_shot(module, seed) == std::vector<uint8_t>{1});
@@ -251,7 +230,8 @@ TEST_CASE("execute: a localization sign threads through the active fire path") {
     InstrumentTraceOptions options;
     options.transitions.emplace("reset_g", to_level(1.0, 1.0, /*dest=*/0));
 
-    auto module = compile_raw("X 0\nH 0\nT 0\nH 0\nLEVEL_TRANSITION[reset_g] 0\nM 0", options);
+    auto module =
+        compile_instruments_raw("X 0\nH 0\nT 0\nH 0\nLEVEL_TRANSITION[reset_g] 0\nM 0", options);
     bool saw_signed_instrument = false;
     for (const auto& instr : module.bytecode) {
         if (instr.opcode == Opcode::OP_INSTRUMENT_ACTIVE &&
@@ -272,7 +252,8 @@ TEST_CASE("execute: an entangled site's multi-axis destination flip lands correc
     InstrumentTraceOptions options;
     options.transitions.emplace("reset_g", to_level(1.0, 1.0, /*dest=*/0));
 
-    auto module = compile_raw("H 0\nH 1\nCZ 0 1\nLEVEL_TRANSITION[reset_g] 1\nM 1", options);
+    auto module =
+        compile_instruments_raw("H 0\nH 1\nCZ 0 1\nLEVEL_TRANSITION[reset_g] 1\nM 1", options);
     const auto& site = module.constant_pool.instrument_sites.at(0);
     auto flip =
         module.constant_pool.instrument_destination_flip_masks.at(site.destination_flip_mask);
@@ -292,7 +273,7 @@ TEST_CASE("execute: a neglect-mode dormant-random site is silent until it fires"
     // Fire probability is 0.3 per shot; k stays 0 either way. Fired
     // shots trap (all destinations are leaked/lost here); silent shots
     // measure the untouched |+> fairly.
-    auto module = compile_raw("H 0\nLEVEL_TRANSITION[leak] 0\nM 0", options);
+    auto module = compile_instruments_raw("H 0\nLEVEL_TRANSITION[leak] 0\nM 0", options);
     REQUIRE(module.peak_rank == 0);
 
     int traps = 0;

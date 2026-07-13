@@ -33,6 +33,8 @@
 #include "clifft/optimizer/hir_pass_manager.h"
 #include "clifft/optimizer/pass_factory.h"
 
+#include "noncomp_test_helpers.h"
+
 #include <array>
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/matchers/catch_matchers_string.hpp>
@@ -50,6 +52,7 @@ using clifft::Circuit;
 using clifft::default_hir_pass_manager;
 using clifft::GateType;
 using clifft::HirModule;
+using clifft::Level;
 using clifft::MeasurementClassifier;
 using clifft::NonComputationalModel;
 using clifft::NonComputationalPolicy;
@@ -60,45 +63,18 @@ using clifft::sample_noncomputational;
 using clifft::Target;
 using clifft::trace;
 using clifft::TransitionInstrument;
+using clifft::test::certain_transition_from_computational;
+using clifft::test::classifier_matrix_with_column;
+using clifft::test::pure_initial_state;
+using clifft::test::RawProbabilityMatrix;
 
 namespace {
 
-// Default-set ids: g=0, e=1, leak_g=2, leak_e=3, lost=4.
-constexpr uint8_t kLost = 4;
-
-std::vector<std::vector<double>> zeros5() {
-    return std::vector<std::vector<double>>(5, std::vector<double>(5, 0.0));
-}
-
-// Source-independent: g and e both jump to lost with certainty.
-std::vector<std::vector<double>> always_lost() {
-    auto m = zeros5();
-    m[kLost][0] = 1.0;
-    m[kLost][1] = 1.0;
-    return m;
-}
-
-// Two-symbol classifier whose lost column is `col`; computational levels
-// read out faithfully and leaked levels deterministically read symbol 0.
-std::vector<std::vector<double>> lost_classifier(std::vector<double> col) {
-    std::vector<std::vector<double>> m(2, std::vector<double>(5, 0.0));
-    for (size_t l = 0; l < 5; ++l) {
-        m[0][l] = 1.0;
-    }
-    // Computational levels read out faithfully (identity columns) so the
-    // classifier adds no readout confusion here.
-    m[0][1] = 0.0;
-    m[1][1] = 1.0;
-    m[0][kLost] = col[0];
-    m[1][kLost] = col[1];
-    return m;
-}
-
-NonComputationalModel make_model(
-    std::map<std::string, std::vector<std::vector<double>>> transitions,
-    std::optional<std::vector<std::vector<double>>> classifier = std::nullopt) {
+NonComputationalModel make_validation_model(
+    std::map<std::string, RawProbabilityMatrix> transitions,
+    std::optional<RawProbabilityMatrix> classifier = std::nullopt) {
     // Both halves start in g (|0>); no leading X-prep is needed.
-    return NonComputationalModel::from_spec({1.0, 0.0, 0.0, 0.0, 0.0}, transitions,
+    return NonComputationalModel::from_spec(pure_initial_state(Level::G), transitions,
                                             std::move(classifier), NonComputationalPolicy{});
 }
 
@@ -116,7 +92,7 @@ size_t count_gate(const Circuit& c, GateType gate) {
 
 TEST_CASE("validation: a lossless Bell pair measures as perfectly Z-correlated halves") {
     Circuit c = parse("H 0\nCX 0 1\nM 0\nM 1\n");
-    NonComputationalModel model = make_model({});  // no loss
+    NonComputationalModel model = make_validation_model({});  // no loss
 
     const uint32_t shots = 1024;
     NonComputationalSample s = sample_noncomputational(c, model, shots, 1);
@@ -141,9 +117,10 @@ TEST_CASE("validation: a lost Bell-pair qubit's classifier record is independent
     // consequence of the M0 -> MPAD(classifier_bit) substitution, not of the
     // hidden R (see the file header and the structural test below).
     Circuit c = parse("H 0\nCX 0 1\nS 0\nM 0\nM 1\n");
-    std::map<std::string, std::vector<std::vector<double>>> transitions;
-    transitions.emplace("S", always_lost());
-    NonComputationalModel model = make_model(std::move(transitions), lost_classifier({0.5, 0.5}));
+    std::map<std::string, RawProbabilityMatrix> transitions;
+    transitions.emplace("S", certain_transition_from_computational(Level::Lost));
+    NonComputationalModel model = make_validation_model(
+        std::move(transitions), classifier_matrix_with_column(Level::Lost, {0.5, 0.5}));
 
     const uint32_t shots = 4096;
     NonComputationalSample s = sample_noncomputational(c, model, shots, 7);
@@ -181,9 +158,10 @@ TEST_CASE(
     // the survivor is still an independent 50/50 -- the classifier governs the
     // vacated site's bit, not the surviving qubit.
     Circuit c = parse("H 0\nCX 0 1\nS 0\nM 0\nM 1\n");
-    std::map<std::string, std::vector<std::vector<double>>> transitions;
-    transitions.emplace("S", always_lost());
-    NonComputationalModel model = make_model(std::move(transitions), lost_classifier({1.0, 0.0}));
+    std::map<std::string, RawProbabilityMatrix> transitions;
+    transitions.emplace("S", certain_transition_from_computational(Level::Lost));
+    NonComputationalModel model = make_validation_model(
+        std::move(transitions), classifier_matrix_with_column(Level::Lost, {1.0, 0.0}));
 
     const uint32_t shots = 2048;
     NonComputationalSample s = sample_noncomputational(c, model, shots, 5);
@@ -203,14 +181,15 @@ TEST_CASE("validation: losing a Bell-pair qubit inserts the hidden trace-out R a
     // hidden Z-basis unraveling for the coherent (entangled) carrier that jumps
     // to lost. Statistics cannot see this; gate counts and the lowered HIR can.
     Circuit c = parse("H 0\nCX 0 1\nS 0\nM 0\nM 1\n");
-    std::map<std::string, std::vector<std::vector<double>>> transitions;
-    transitions.emplace("S", always_lost());
+    std::map<std::string, RawProbabilityMatrix> transitions;
+    transitions.emplace("S", certain_transition_from_computational(Level::Lost));
     // The lost qubit's later M needs a classifier column for its record bit.
-    NonComputationalModel model = make_model(std::move(transitions), lost_classifier({1.0, 0.0}));
+    NonComputationalModel model = make_validation_model(
+        std::move(transitions), classifier_matrix_with_column(Level::Lost, {1.0, 0.0}));
 
     Circuit annotated = annotate(c, model);
     // The recorded jump is what the driver stores when the site traps: the
-    // deterministic always_lost fire on qubit 0 at the expanded annotation.
+    // deterministic loss on qubit 0 at the expanded annotation.
     clifft::ExactShotEvents events;
     events.initial_status.assign(2, clifft::QubitStatus::Computational);
     events.jumps.push_back(
@@ -241,7 +220,7 @@ TEST_CASE("validation: losing a Bell-pair qubit inserts the hidden trace-out R a
 TEST_CASE("validation: a hand-built multi-target measurement node is rejected up front") {
     // All tests use shots=0: validation runs before the zero-shot return, so
     // the driver checks node shapes without needing any state or randomness.
-    NonComputationalModel model = make_model({});  // lossless; no classifier needed
+    NonComputationalModel model = make_validation_model({});  // lossless; no classifier needed
 
     SECTION("multi-target M node is rejected") {
         // A hand-built node with two qubit targets bypasses the parser's

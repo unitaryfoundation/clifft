@@ -1,7 +1,32 @@
 """Shared test fixtures and utilities for Clifft Python tests."""
 
+from collections.abc import Mapping, Sequence
+
 import numpy as np
 import numpy.typing as npt
+
+
+def noncomp_transition_matrix(
+    entries: Mapping[tuple[int, int], float],
+) -> list[list[float]]:
+    """Build a five-level T[to][from] matrix from its nonzero entries."""
+    matrix = [[0.0] * 5 for _ in range(5)]
+    for (destination, source), probability in entries.items():
+        matrix[destination][source] = probability
+    return matrix
+
+
+def noncomp_classifier_matrix_with_column(
+    level: int, probabilities: Sequence[float]
+) -> list[list[float]]:
+    """Build a faithful computational classifier with one replaced column."""
+    matrix = [[0.0] * 5 for _ in probabilities]
+    for current_level in range(5):
+        matrix[0][current_level] = 1.0
+    matrix[0][1], matrix[1][1] = 0.0, 1.0
+    for symbol, probability in enumerate(probabilities):
+        matrix[symbol][level] = probability
+    return matrix
 
 
 def assert_statevectors_equiv(

@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import numpy as np
 import pytest
+from conftest import noncomp_classifier_matrix_with_column, noncomp_transition_matrix
 
 from clifft import noncomp
 
@@ -22,18 +23,7 @@ BAND = 0.04
 
 
 def _classifier(level: int, col: list[float]) -> noncomp.Classifier:
-    m = [[0.0] * 5 for _ in range(2)]  # P[symbol][level]
-    for lvl in range(5):
-        m[0][lvl] = 1.0
-    m[0][level], m[1][level] = col[0], col[1]
-    return noncomp.Classifier(m)
-
-
-def _transition(entries: dict[tuple[int, int], float]) -> list[list[float]]:
-    m = [[0.0] * 5 for _ in range(5)]  # T[to][from]
-    for (to, frm), p in entries.items():
-        m[to][frm] = p
-    return m
+    return noncomp.Classifier(noncomp_classifier_matrix_with_column(level, col))
 
 
 # --- Supported categories ----------------------------------------------------
@@ -66,7 +56,9 @@ def test_example_after_gate_leakage_with_classifier():
     model = noncomp.Model(
         initial_state=[1.0, 0.0, 0.0, 0.0, 0.0],
         transitions={
-            "S": _transition({(Level.LEAK_G, Level.G): 1.0, (Level.LEAK_G, Level.E): 1.0})
+            "S": noncomp_transition_matrix(
+                {(Level.LEAK_G, Level.G): 1.0, (Level.LEAK_G, Level.E): 1.0}
+            )
         },
         classifier=_classifier(Level.LEAK_G, [0.0, 1.0]),
     )
@@ -80,7 +72,7 @@ def test_example_relaxation_to_ground_on_known_qubit():
     # relaxed 0, not the stale |1>, and the qubit stays computational.
     model = noncomp.Model(
         initial_state=[0.0, 1.0, 0.0, 0.0, 0.0],
-        transitions={"S": _transition({(Level.G, Level.E): 1.0})},
+        transitions={"S": noncomp_transition_matrix({(Level.G, Level.E): 1.0})},
     )
     r = noncomp.sample("S 0\nM 0\n", model, shots=64, seed=6)
     assert (np.asarray(r.measurements)[:, 0] == 0).all()
@@ -96,7 +88,9 @@ def test_reject_parity_measurement_under_capable_model():
     model = noncomp.Model(
         initial_state=[1.0, 0.0, 0.0, 0.0, 0.0],
         transitions={
-            "S": _transition({(Level.LEAK_G, Level.G): 1.0, (Level.LEAK_G, Level.E): 1.0})
+            "S": noncomp_transition_matrix(
+                {(Level.LEAK_G, Level.G): 1.0, (Level.LEAK_G, Level.E): 1.0}
+            )
         },
         classifier=noncomp.Classifier([[1.0] * 5, [0.0] * 5]),
     )

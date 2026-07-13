@@ -16,6 +16,7 @@
 #include "clifft/optimizer/peephole.h"
 #include "clifft/optimizer/statevector_squeeze_pass.h"
 
+#include "instrument_test_helpers.h"
 #include "test_helpers.h"
 
 #include <catch2/catch_test_macros.hpp>
@@ -27,23 +28,11 @@
 using namespace clifft;
 using Catch::Matchers::ContainsSubstring;
 using Catch::Matchers::WithinAbs;
+using clifft::test::source_dependent_jump_options;
 
 namespace {
 
 constexpr double kTol = 1e-15;
-
-// A source-dependent transition: from g, 0.02 -> g, 0.03 -> e, 0.05 to a
-// noncomputational level (the trap remainder); from e, 0.4 entirely trap.
-InstrumentTraceOptions demo_options() {
-    InstrumentTraceOptions options;
-    InstrumentProbabilities probabilities;
-    probabilities.p_fire[0] = 0.1;
-    probabilities.p_computational_dest[0][0] = 0.02;
-    probabilities.p_computational_dest[0][1] = 0.03;
-    probabilities.p_fire[1] = 0.4;
-    options.transitions.emplace("jump", probabilities);
-    return options;
-}
 
 HirModule hir_with_instruments(const char* text, const InstrumentTraceOptions& options) {
     return trace(parse(text), &options);
@@ -79,7 +68,7 @@ TEST_CASE("trace: annotations still reject without instrument options") {
 }
 
 TEST_CASE("trace: LEVEL_TRANSITION materializes an INSTRUMENT with its spec") {
-    const auto options = demo_options();
+    const auto options = source_dependent_jump_options();
     auto hir = hir_with_instruments("H 1\nLEVEL_TRANSITION[jump] 0", options);
 
     REQUIRE(hir.ops.size() == 1);
@@ -106,7 +95,7 @@ TEST_CASE("trace: LEVEL_TRANSITION materializes an INSTRUMENT with its spec") {
 }
 
 TEST_CASE("trace: the instrument mask is the rewound source projector") {
-    const auto options = demo_options();
+    const auto options = source_dependent_jump_options();
 
     // X before the site: Z -> -Z, so the mask picks up a sign.
     auto flipped = hir_with_instruments("X 0\nLEVEL_TRANSITION[jump] 0", options);
@@ -179,7 +168,7 @@ TEST_CASE("trace: non-finite compressed instrument probabilities reject") {
 }
 
 TEST_CASE("trace: the damping policy is recorded once on the HIR module") {
-    auto options = demo_options();
+    auto options = source_dependent_jump_options();
     options.neglect_instrument_damping = true;
     auto hir = hir_with_instruments("LEVEL_TRANSITION[jump] 0\nLOSS(0.1) 1", options);
     REQUIRE(hir.instrument_sites.size() == 2);
@@ -217,7 +206,7 @@ TEST_CASE("instrument_trace_options: resolves model transitions and policy") {
 // =============================================================================
 
 TEST_CASE("fences: can_swap refuses to move anything across an instrument") {
-    const auto options = demo_options();
+    const auto options = source_dependent_jump_options();
     // The T and the instrument act on different qubits: their masks
     // commute, so only the positional clause can block the swap.
     auto hir = hir_with_instruments("T 0\nLEVEL_TRANSITION[jump] 1", options);
@@ -227,7 +216,7 @@ TEST_CASE("fences: can_swap refuses to move anything across an instrument") {
 }
 
 TEST_CASE("fences: the peephole does not fuse a T pair across an instrument") {
-    const auto options = demo_options();
+    const auto options = source_dependent_jump_options();
     auto fenced = hir_with_instruments("T 0\nLEVEL_TRANSITION[jump] 1\nT 0", options);
     REQUIRE(fenced.ops.size() == 3);
 
@@ -242,7 +231,7 @@ TEST_CASE("fences: the peephole does not fuse a T pair across an instrument") {
 }
 
 TEST_CASE("fences: the squeeze pass does not bubble a measurement across an instrument") {
-    const auto options = demo_options();
+    const auto options = source_dependent_jump_options();
     // Without the barrier, M 0 commutes with a site on qubit 1 and would
     // compact leftward past it.
     auto hir = hir_with_instruments("LEVEL_TRANSITION[jump] 1\nM 0", options);
@@ -256,7 +245,7 @@ TEST_CASE("fences: the squeeze pass does not bubble a measurement across an inst
 }
 
 TEST_CASE("fences: an absorbed virtual S conjugates the instrument mask like a measurement") {
-    const auto options = demo_options();
+    const auto options = source_dependent_jump_options();
     // T 0; T 0 fuses to a virtual S along Z(0). The H makes the site's
     // rewound projector X(0), which anti-commutes with the S axis, so the
     // absorption must rotate it to Y(0) -- the same conjugation measures
@@ -284,12 +273,12 @@ TEST_CASE("fences: an absorbed virtual S conjugates the instrument mask like a m
 }
 
 TEST_CASE("fences: an absorbed virtual S conjugates the side-table destination flip too") {
-    const auto options = demo_options();
+    const auto options = source_dependent_jump_options();
     // With the T pair after the H, the virtual S runs along X(0): now the
     // site's own mask (X-like) commutes and stays put, while the destination flip
     // (rewound X = Z(0)) anti-commutes and must rotate to Y(0). A sweep
-    // that only conjugates op-attached masks misses it -- the side-table
-    // twin of the C2 destination-flip bug.
+    // that only conjugates op-attached masks misses the side-table
+    // destination flip.
     auto hir = hir_with_instruments("H 0\nT 0\nT 0\nLEVEL_TRANSITION[jump] 0", options);
     REQUIRE(hir.ops.size() == 3);
 

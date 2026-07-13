@@ -10,9 +10,10 @@
 // the prefix-identity contract that makes cross-module re-entry sound.
 
 #include "clifft/backend/backend.h"
-#include "clifft/circuit/parser.h"
 #include "clifft/frontend/frontend.h"
 #include "clifft/svm/svm.h"
+
+#include "instrument_test_helpers.h"
 
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/matchers/catch_matchers.hpp>
@@ -26,6 +27,8 @@
 
 using namespace clifft;
 using Catch::Matchers::ContainsSubstring;
+using clifft::test::compile_instruments_raw;
+using clifft::test::make_shot_state;
 
 namespace {
 
@@ -36,21 +39,6 @@ InstrumentProbabilities leak(double p_g, double p_e) {
     spec.p_fire[0] = p_g;
     spec.p_fire[1] = p_e;
     return spec;
-}
-
-CompiledModule compile_raw(const char* text, const InstrumentTraceOptions& options) {
-    auto hir = trace(parse(text), &options);
-    return lower(hir);
-}
-
-SchrodingerState make_shot_state(const CompiledModule& module, uint64_t seed) {
-    return SchrodingerState(StateConfig{.peak_rank = module.peak_rank,
-                                        .num_measurements = module.total_meas_slots,
-                                        .num_qubits = module.num_qubits,
-                                        .num_detectors = module.num_detectors,
-                                        .num_observables = module.num_observables,
-                                        .num_exp_vals = module.num_exp_vals,
-                                        .seed = seed});
 }
 
 // Resume a trapped state past its trap site in `continuation`.
@@ -67,7 +55,7 @@ TEST_CASE("trap+resume: a spectator loss resumes in the same module and complete
     // is its own valid continuation. H;T ... T_DAG;H on qubit 0 composes
     // to the identity: the record is deterministically 0, trap or no trap.
     InstrumentTraceOptions options;
-    auto module = compile_raw("H 0\nT 0\nLOSS(1.0) 1\nT_DAG 0\nH 0\nM 0", options);
+    auto module = compile_instruments_raw("H 0\nT 0\nLOSS(1.0) 1\nT_DAG 0\nH 0\nM 0", options);
 
     for (uint64_t seed = 1; seed <= 20; ++seed) {
         auto state = make_shot_state(module, seed);
@@ -97,7 +85,7 @@ TEST_CASE("trap+resume: a trap-form fire reports its destination as pending") {
     }());
     options.neglect_instrument_damping = true;
 
-    auto module = compile_raw("H 0\nLEVEL_TRANSITION[jump] 0\nM 0", options);
+    auto module = compile_instruments_raw("H 0\nLEVEL_TRANSITION[jump] 0\nM 0", options);
     auto state = make_shot_state(module, /*seed=*/6);
     execute(module, state);
 
@@ -108,7 +96,7 @@ TEST_CASE("trap+resume: a trap-form fire reports its destination as pending") {
 
 TEST_CASE("trap+resume: resume refuses a state with no pending trap") {
     InstrumentTraceOptions options;
-    auto module = compile_raw("LOSS(1.0) 0\nM 0", options);
+    auto module = compile_instruments_raw("LOSS(1.0) 0\nM 0", options);
     auto state = make_shot_state(module, /*seed=*/8);
     REQUIRE_THROWS_WITH(resume(module, state, 1), ContainsSubstring("no pending trap"));
 }
@@ -119,7 +107,7 @@ TEST_CASE("trap+resume: resume rejects an offset that does not follow the trappe
     // valid entry. Rejected attempts leave the trap pending, so the
     // correct offset still works afterward.
     InstrumentTraceOptions options;
-    auto module = compile_raw("LOSS(1.0) 0\nX 0\nM 0", options);
+    auto module = compile_instruments_raw("LOSS(1.0) 0\nX 0\nM 0", options);
     auto state = make_shot_state(module, /*seed=*/12);
     execute(module, state);
     REQUIRE(state.pending_trap.has_value());
@@ -140,8 +128,9 @@ TEST_CASE("trap+resume: the continuation's suffix governs the outcome") {
     // into each must produce that module's suffix behavior: the original
     // undoes the H (measures 0), the continuation adds an X (measures 1).
     InstrumentTraceOptions options;
-    auto original = compile_raw("H 0\nT 0\nLOSS(1.0) 1\nT_DAG 0\nH 0\nM 0", options);
-    auto continuation = compile_raw("H 0\nT 0\nLOSS(1.0) 1\nT_DAG 0\nH 0\nX 0\nM 0", options);
+    auto original = compile_instruments_raw("H 0\nT 0\nLOSS(1.0) 1\nT_DAG 0\nH 0\nM 0", options);
+    auto continuation =
+        compile_instruments_raw("H 0\nT 0\nLOSS(1.0) 1\nT_DAG 0\nH 0\nX 0\nM 0", options);
 
     const uint32_t offset = original.instrument_offsets.at(0);
     REQUIRE(continuation.instrument_offsets.at(0) == offset);
@@ -166,7 +155,7 @@ TEST_CASE("trap+resume: an active-site trap hands over a collapsed carrier") {
     // zero and the surviving half matches the reported source.
     InstrumentTraceOptions options;
     options.transitions.emplace("leak", leak(1.0, 1.0));
-    auto module = compile_raw("H 0\nT 0\nLEVEL_TRANSITION[leak] 0\nM 0", options);
+    auto module = compile_instruments_raw("H 0\nT 0\nLEVEL_TRANSITION[leak] 0\nM 0", options);
 
     bool saw_g = false;
     bool saw_e = false;
@@ -194,8 +183,9 @@ TEST_CASE("trap+resume: the record buffer grows for a continuation with more hid
     // whose lowering adds a hidden measurement slot beyond what the
     // original module allocated. Visible slots stay layout-stable.
     InstrumentTraceOptions options;
-    auto original = compile_raw("H 0\nT 0\nLOSS(1.0) 1\nM 0", options);
-    auto continuation = compile_raw("H 0\nT 0\nLOSS(1.0) 1\nT_DAG 0\nH 0\nR 1\nM 0", options);
+    auto original = compile_instruments_raw("H 0\nT 0\nLOSS(1.0) 1\nM 0", options);
+    auto continuation =
+        compile_instruments_raw("H 0\nT 0\nLOSS(1.0) 1\nT_DAG 0\nH 0\nR 1\nM 0", options);
     REQUIRE(continuation.total_meas_slots > original.total_meas_slots);
 
     auto state = make_shot_state(original, /*seed=*/5);
@@ -212,8 +202,9 @@ TEST_CASE("trap+resume: the amplitude array grows for a higher-rank continuation
     // The original needs k = 0; the continuation's suffix activates two
     // qubits (k = 2), exceeding the state's original allocation.
     InstrumentTraceOptions options;
-    auto original = compile_raw("LOSS(1.0) 2\nM 0", options);
-    auto continuation = compile_raw("LOSS(1.0) 2\nH 0\nT 0\nH 1\nT 1\nCX 0 1\nM 0\nM 1", options);
+    auto original = compile_instruments_raw("LOSS(1.0) 2\nM 0", options);
+    auto continuation =
+        compile_instruments_raw("LOSS(1.0) 2\nH 0\nT 0\nH 1\nT 1\nCX 0 1\nM 0\nM 1", options);
     REQUIRE(original.peak_rank == 0);
     REQUIRE(continuation.peak_rank == 2);
     REQUIRE(continuation.num_measurements == original.num_measurements + 1);
@@ -231,7 +222,7 @@ TEST_CASE("trap+resume: the amplitude array grows for a higher-rank continuation
     REQUIRE(state.meas_record.size() == continuation.total_meas_slots);
 }
 
-TEST_CASE("trap+resume: suffix noise fires after re-anchoring, prefix noise does not refire") {
+TEST_CASE("trap+resume: suffix noise fires after re-anchoring while prefix noise stays spent") {
     // Both errors are certain (p = 1). The prefix error flips qubit 0
     // before the trap; the suffix error flips it again after resume. A
     // broken cursor either refires the prefix site (record 0) or skips
@@ -240,7 +231,7 @@ TEST_CASE("trap+resume: suffix noise fires after re-anchoring, prefix noise does
     // deterministic record is 0, and a single miss or double-fire yields
     // 1 instead.
     InstrumentTraceOptions options;
-    auto module = compile_raw("X_ERROR(1) 0\nLOSS(1.0) 1\nX_ERROR(1) 0\nM 0", options);
+    auto module = compile_instruments_raw("X_ERROR(1) 0\nLOSS(1.0) 1\nX_ERROR(1) 0\nM 0", options);
 
     for (uint64_t seed = 1; seed <= 10; ++seed) {
         auto state = make_shot_state(module, seed);
@@ -258,7 +249,7 @@ TEST_CASE("trap+resume: suffix noise fires after re-anchoring, prefix noise does
 
 TEST_CASE("trap+resume: a chain of traps resumes one site at a time") {
     InstrumentTraceOptions options;
-    auto module = compile_raw("LOSS(1.0) 1\nX 0\nLOSS(1.0) 2\nX 0\nM 0", options);
+    auto module = compile_instruments_raw("LOSS(1.0) 1\nX 0\nLOSS(1.0) 2\nX 0\nM 0", options);
 
     auto state = make_shot_state(module, /*seed=*/11);
     execute(module, state);
@@ -276,7 +267,7 @@ TEST_CASE("trap+resume: a chain of traps resumes one site at a time") {
 
 TEST_CASE("trap+resume: reset clears a pending trap and its partial records") {
     InstrumentTraceOptions options;
-    auto module = compile_raw("X 0\nM 0\nLOSS(1.0) 1\nM 0", options);
+    auto module = compile_instruments_raw("X 0\nM 0\nLOSS(1.0) 1\nM 0", options);
 
     auto state = make_shot_state(module, /*seed=*/2);
     execute(module, state);
@@ -290,15 +281,15 @@ TEST_CASE("trap+resume: reset clears a pending trap and its partial records") {
 
 TEST_CASE("trap+resume: plain sampling rejects a shot that traps") {
     InstrumentTraceOptions options;
-    auto module = compile_raw("LOSS(1.0) 0\nM 0", options);
+    auto module = compile_instruments_raw("LOSS(1.0) 0\nM 0", options);
     REQUIRE_THROWS_WITH(sample(module, /*shots=*/4, /*seed=*/9),
                         ContainsSubstring("exact-mode driver"));
 }
 
 TEST_CASE("trap+resume: resume validates the handoff") {
     InstrumentTraceOptions options;
-    auto module = compile_raw("LOSS(1.0) 0\nM 0", options);
-    auto other_qubits = compile_raw("LOSS(1.0) 0\nM 0\nM 1", options);
+    auto module = compile_instruments_raw("LOSS(1.0) 0\nM 0", options);
+    auto other_qubits = compile_instruments_raw("LOSS(1.0) 0\nM 0\nM 1", options);
 
     auto state = make_shot_state(module, /*seed=*/4);
     execute(module, state);

@@ -22,6 +22,8 @@
 #include "clifft/optimizer/hir_pass_manager.h"
 #include "clifft/optimizer/pass_factory.h"
 
+#include "noncomp_test_helpers.h"
+
 #include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/matchers/catch_matchers.hpp>
@@ -41,6 +43,7 @@ using clifft::default_hir_pass_manager;
 using clifft::ExactShotEvents;
 using clifft::GateType;
 using clifft::HirModule;
+using clifft::kNumLevels;
 using clifft::Level;
 using clifft::MeasurementClassifier;
 using clifft::NonComputationalModel;
@@ -50,62 +53,33 @@ using clifft::QubitStatus;
 using clifft::rewrite_continuation;
 using clifft::trace;
 using clifft::TransitionInstrument;
+using clifft::test::certain_transition_from_computational;
+using clifft::test::classifier_matrix_with_column;
+using clifft::test::level_index;
+using clifft::test::pure_initial_state;
+using clifft::test::RawProbabilityMatrix;
+using clifft::test::zero_transition_matrix;
 
 namespace {
 
-// Default-set ids: g=0, e=1, leak_g=2, leak_e=3, lost=4.
-constexpr uint8_t kG = 0;
-constexpr uint8_t kLeakG = 2;
-constexpr uint8_t kLost = 4;
-
-std::vector<std::vector<double>> zeros5() {
-    return std::vector<std::vector<double>>(5, std::vector<double>(5, 0.0));
-}
-
-// Source-independent: always jumps to lost.
-std::vector<std::vector<double>> always_lost() {
-    auto m = zeros5();
-    m[kLost][0] = 1.0;
-    m[kLost][1] = 1.0;
-    return m;
-}
-
-NonComputationalModel make_model(
-    std::map<std::string, std::vector<std::vector<double>>> transitions,
-    NonComputationalPolicy policy = {}) {
-    return NonComputationalModel::from_spec({1.0, 0.0, 0.0, 0.0, 0.0}, transitions, std::nullopt,
+NonComputationalModel make_rewriter_model(std::map<std::string, RawProbabilityMatrix> transitions,
+                                          NonComputationalPolicy policy = {}) {
+    return NonComputationalModel::from_spec(pure_initial_state(Level::G), transitions, std::nullopt,
                                             policy);
 }
 
-// Classifier whose column for `level` is `col` (two or three symbols by
-// col's length); computational levels read out faithfully and other levels
-// default to a deterministic symbol 0.
-std::vector<std::vector<double>> classifier_with(uint8_t level, std::vector<double> col) {
-    std::vector<std::vector<double>> m(col.size(), std::vector<double>(5, 0.0));
-    for (size_t l = 0; l < 5; ++l) {
-        m[0][l] = 1.0;
-    }
-    m[0][1] = 0.0;
-    m[1][1] = 1.0;
-    for (size_t s = 0; s < col.size(); ++s) {
-        m[s][level] = col[s];
-    }
-    return m;
-}
-
-NonComputationalModel make_model_with_classifier(
-    std::map<std::string, std::vector<std::vector<double>>> transitions,
-    std::vector<std::vector<double>> classifier, NonComputationalPolicy policy = {}) {
-    return NonComputationalModel::from_spec({1.0, 0.0, 0.0, 0.0, 0.0}, transitions,
+NonComputationalModel make_rewriter_model_with_classifier(
+    std::map<std::string, RawProbabilityMatrix> transitions, RawProbabilityMatrix classifier,
+    NonComputationalPolicy policy = {}) {
+    return NonComputationalModel::from_spec(pure_initial_state(Level::G), transitions,
                                             std::make_optional(std::move(classifier)), policy);
 }
 
-// Per-qubit initial statuses from level indices.
-std::vector<QubitStatus> initials(const std::vector<uint8_t>& levels) {
+std::vector<QubitStatus> initials(const std::vector<Level>& levels) {
     std::vector<QubitStatus> out;
     out.reserve(levels.size());
-    for (uint8_t l : levels) {
-        out.push_back(clifft::status_for(clifft::kAllLevels[l]));
+    for (Level level : levels) {
+        out.push_back(clifft::status_for(level));
     }
     return out;
 }
@@ -122,7 +96,7 @@ size_t count_gate(const Circuit& c, GateType gate) {
 
 // Expand hooks and rewrite under the given initial statuses and events.
 ContinuationRewrite rewritten(const Circuit& c, const NonComputationalModel& model,
-                              const std::vector<uint8_t>& initial_levels,
+                              const std::vector<Level>& initial_levels,
                               ExactShotEvents events = {}) {
     Circuit annotated = annotate(c, model);
     events.initial_status = initials(initial_levels);
@@ -137,13 +111,13 @@ ContinuationRewrite rewritten(const Circuit& c, const NonComputationalModel& mod
 
 TEST_CASE("rewrite: a coherent qubit's recorded jump to lost gets a trace-out R") {
     Circuit c = parse("H 0\nLEVEL_TRANSITION[lk] 0\n");
-    std::map<std::string, std::vector<std::vector<double>>> transitions;
-    transitions.emplace("lk", always_lost());
-    NonComputationalModel model = make_model(std::move(transitions));
+    std::map<std::string, RawProbabilityMatrix> transitions;
+    transitions.emplace("lk", certain_transition_from_computational(Level::Lost));
+    NonComputationalModel model = make_rewriter_model(std::move(transitions));
 
     ExactShotEvents events;
     events.jumps.push_back({{/*op_index=*/1, /*qubit=*/0}, /*destination_level=*/Level::Lost});
-    ContinuationRewrite rw = rewritten(c, model, {kG}, events);
+    ContinuationRewrite rw = rewritten(c, model, {Level::G}, events);
     // H and the site kept; one trace-out R follows the site.
     REQUIRE(rw.circuit.nodes.size() == 3);
     REQUIRE(rw.circuit.nodes[1].gate == GateType::LEVEL_TRANSITION);
@@ -151,31 +125,31 @@ TEST_CASE("rewrite: a coherent qubit's recorded jump to lost gets a trace-out R"
     REQUIRE(rw.circuit.nodes[2].targets[0].value() == 0);
 }
 
-TEST_CASE("rewrite: a recorded jump to the |0> level inserts an R, no X") {
+TEST_CASE("rewrite: a recorded jump to the zero level inserts R without X") {
     Circuit c = parse("H 0\nLEVEL_TRANSITION[lk] 0\n");
-    std::map<std::string, std::vector<std::vector<double>>> transitions;
-    transitions.emplace("lk", always_lost());
-    NonComputationalModel model = make_model(std::move(transitions));
+    std::map<std::string, RawProbabilityMatrix> transitions;
+    transitions.emplace("lk", certain_transition_from_computational(Level::Lost));
+    NonComputationalModel model = make_rewriter_model(std::move(transitions));
 
     ExactShotEvents events;
     events.jumps.push_back({{1, 0}, /*destination_level=*/Level::G});
-    ContinuationRewrite rw = rewritten(c, model, {kG}, events);
+    ContinuationRewrite rw = rewritten(c, model, {Level::G}, events);
     REQUIRE(count_gate(rw.circuit, GateType::R) == 1);  // materialize at |0>
     REQUIRE(count_gate(rw.circuit, GateType::X) == 0);
 }
 
 TEST_CASE("rewrite: an inserted trace-out R survives compilation as one hidden measurement") {
     Circuit c = parse("H 0\nLEVEL_TRANSITION[lk] 0\n");
-    std::map<std::string, std::vector<std::vector<double>>> transitions;
-    transitions.emplace("lk", always_lost());
-    NonComputationalModel model = make_model(std::move(transitions));
+    std::map<std::string, RawProbabilityMatrix> transitions;
+    transitions.emplace("lk", certain_transition_from_computational(Level::Lost));
+    NonComputationalModel model = make_rewriter_model(std::move(transitions));
 
     ExactShotEvents events;
     events.jumps.push_back({{1, 0}, Level::Lost});
-    ContinuationRewrite rw = rewritten(c, model, {kG}, events);
+    ContinuationRewrite rw = rewritten(c, model, {Level::G}, events);
 
     // Baseline: the same rewrite with no jump recorded (the site runs live).
-    ContinuationRewrite base = rewritten(c, model, {kG});
+    ContinuationRewrite base = rewritten(c, model, {Level::G});
     clifft::InstrumentTraceOptions options = clifft::instrument_trace_options(model);
     HirModule base_hir = trace(base.circuit, &options);
     HirModule hir = trace(rw.circuit, &options);
@@ -188,14 +162,14 @@ TEST_CASE("rewrite: an inserted trace-out R survives compilation as one hidden m
 TEST_CASE("rewrite: an inserted R does not shift visible measurements or detectors") {
     Circuit c =
         parse("M 0\nDETECTOR rec[-1]\nH 1\nLEVEL_TRANSITION[lk] 1\nM 0\nDETECTOR rec[-1]\n");
-    std::map<std::string, std::vector<std::vector<double>>> transitions;
-    transitions.emplace("lk", always_lost());
-    NonComputationalModel model = make_model(std::move(transitions));
+    std::map<std::string, RawProbabilityMatrix> transitions;
+    transitions.emplace("lk", certain_transition_from_computational(Level::Lost));
+    NonComputationalModel model = make_rewriter_model(std::move(transitions));
 
     ExactShotEvents events;
     events.jumps.push_back({{3, 1}, Level::Lost});
-    ContinuationRewrite rw = rewritten(c, model, {kG, kG}, events);
-    ContinuationRewrite base = rewritten(c, model, {kG, kG});
+    ContinuationRewrite rw = rewritten(c, model, {Level::G, Level::G}, events);
+    ContinuationRewrite base = rewritten(c, model, {Level::G, Level::G});
 
     clifft::InstrumentTraceOptions options = clifft::instrument_trace_options(model);
     HirModule base_hir = trace(base.circuit, &options);
@@ -214,8 +188,8 @@ TEST_CASE("rewrite: an inserted R does not shift visible measurements or detecto
 
 TEST_CASE("rewrite: a two-qubit gate on a lost operand drops whole") {
     Circuit c = parse("CZ 0 1\nM 1\n");
-    NonComputationalModel model = make_model({});
-    ContinuationRewrite rw = rewritten(c, model, {kLost, kG});
+    NonComputationalModel model = make_rewriter_model({});
+    ContinuationRewrite rw = rewritten(c, model, {Level::Lost, Level::G});
     REQUIRE(count_gate(rw.circuit, GateType::CZ) == 0);  // identity on the survivor
     REQUIRE(count_gate(rw.circuit, GateType::M) == 1);   // record slot preserved
 }
@@ -224,51 +198,51 @@ TEST_CASE("rewrite: a dropped gate leaves the surviving operand's status untouch
     // The CZ drops whole (lost operand); qubit 1 stays computational
     // through to the end of the walk.
     Circuit c = parse("CZ 0 1\n");
-    NonComputationalModel model = make_model({});
-    ContinuationRewrite rw = rewritten(c, model, {kLost, kG});
+    NonComputationalModel model = make_rewriter_model({});
+    ContinuationRewrite rw = rewritten(c, model, {Level::Lost, Level::G});
     REQUIRE(rw.final_status[1] == clifft::QubitStatus::Computational);
 }
 
 TEST_CASE("rewrite: a single-qubit gate on a leaked qubit drops") {
     Circuit c = parse("X 0\n");
-    NonComputationalModel model = make_model({});
-    ContinuationRewrite rw = rewritten(c, model, {kLeakG});
+    NonComputationalModel model = make_rewriter_model({});
+    ContinuationRewrite rw = rewritten(c, model, {Level::LeakG});
     REQUIRE(count_gate(rw.circuit, GateType::X) == 0);
 }
 
 TEST_CASE("rewrite: a single-qubit gate on a lost qubit drops") {
     Circuit c = parse("X 0\n");
-    NonComputationalModel model = make_model({});
-    ContinuationRewrite rw = rewritten(c, model, {kLost});
+    NonComputationalModel model = make_rewriter_model({});
+    ContinuationRewrite rw = rewritten(c, model, {Level::Lost});
     REQUIRE(count_gate(rw.circuit, GateType::X) == 0);
 }
 
 TEST_CASE("rewrite: classical feedback onto a lost qubit drops") {
     Circuit c = parse("H 1\nM 1\nCX rec[-1] 0\n");
-    NonComputationalModel model = make_model({});
-    ContinuationRewrite rw = rewritten(c, model, {kLost, kG});
+    NonComputationalModel model = make_rewriter_model({});
+    ContinuationRewrite rw = rewritten(c, model, {Level::Lost, Level::G});
     REQUIRE(count_gate(rw.circuit, GateType::CX) == 0);
 }
 
 TEST_CASE("rewrite: a two-qubit noise channel on a lost operand drops") {
     Circuit c = parse("DEPOLARIZE2(0.1) 0 1\n");
-    NonComputationalModel model = make_model({});
-    ContinuationRewrite rw = rewritten(c, model, {kLost, kG});
+    NonComputationalModel model = make_rewriter_model({});
+    ContinuationRewrite rw = rewritten(c, model, {Level::Lost, Level::G});
     REQUIRE(count_gate(rw.circuit, GateType::DEPOLARIZE2) == 0);
 }
 
 TEST_CASE("rewrite: a non-restoring lost reset drops; reset_restores_lost keeps it") {
     Circuit c = parse("R 0\n");
 
-    NonComputationalModel dropped = make_model({});
-    ContinuationRewrite rw_drop = rewritten(c, dropped, {kLost});
+    NonComputationalModel dropped = make_rewriter_model({});
+    ContinuationRewrite rw_drop = rewritten(c, dropped, {Level::Lost});
     REQUIRE(count_gate(rw_drop.circuit, GateType::R) == 0);
     REQUIRE(rw_drop.final_status[0] == clifft::QubitStatus::Lost);  // not restored
 
     NonComputationalPolicy restore;
     restore.reset_restores_lost = true;
-    NonComputationalModel reload = make_model({}, restore);
-    ContinuationRewrite rw_keep = rewritten(c, reload, {kLost});
+    NonComputationalModel reload = make_rewriter_model({}, restore);
+    ContinuationRewrite rw_keep = rewritten(c, reload, {Level::Lost});
     REQUIRE(count_gate(rw_keep.circuit, GateType::R) == 1);
     REQUIRE(rw_keep.final_status[0] == clifft::QubitStatus::Computational);
 }
@@ -277,9 +251,9 @@ TEST_CASE("rewrite: an X-basis measurement of a noncomputational qubit classifie
     // On a vacated carrier the readout basis is incidental: MX classifies
     // exactly like M, substituting a MPAD+READOUT_NOISE for the original MX.
     Circuit c = parse("MX 0\n");
-    NonComputationalModel model =
-        make_model_with_classifier({}, classifier_with(kLost, {0.5, 0.5}));
-    ContinuationRewrite rw = rewritten(c, model, {kLost});
+    NonComputationalModel model = make_rewriter_model_with_classifier(
+        {}, classifier_matrix_with_column(Level::Lost, {0.5, 0.5}));
+    ContinuationRewrite rw = rewritten(c, model, {Level::Lost});
     REQUIRE(count_gate(rw.circuit, GateType::MX) == 0);
     REQUIRE(count_gate(rw.circuit, GateType::MPAD) == 1);
     REQUIRE(count_gate(rw.circuit, GateType::READOUT_NOISE) == 1);
@@ -295,10 +269,10 @@ TEST_CASE("rewrite: an X-basis measurement of a noncomputational qubit classifie
 
 TEST_CASE("rewrite: a lost-qubit measurement becomes a classifier record write") {
     Circuit c = parse("M 0\n");
-    NonComputationalModel model =
-        make_model_with_classifier({}, classifier_with(kLost, {0.5, 0.5}));
+    NonComputationalModel model = make_rewriter_model_with_classifier(
+        {}, classifier_matrix_with_column(Level::Lost, {0.5, 0.5}));
 
-    ContinuationRewrite rw = rewritten(c, model, {kLost});
+    ContinuationRewrite rw = rewritten(c, model, {Level::Lost});
     REQUIRE(count_gate(rw.circuit, GateType::M) == 0);
     REQUIRE(count_gate(rw.circuit, GateType::MPAD) == 1);
     REQUIRE(count_gate(rw.circuit, GateType::READOUT_NOISE) == 1);
@@ -314,12 +288,12 @@ TEST_CASE("rewrite: a lost-qubit measurement becomes a classifier record write")
     REQUIRE(noise.args[0] == 0.5);
 }
 
-TEST_CASE("rewrite: a deterministic classifier column pads the literal bit, no draw") {
+TEST_CASE("rewrite: a deterministic classifier column pads the literal bit without a draw") {
     Circuit c = parse("M 0\n");
-    NonComputationalModel model =
-        make_model_with_classifier({}, classifier_with(kLost, {0.0, 1.0}));
+    NonComputationalModel model = make_rewriter_model_with_classifier(
+        {}, classifier_matrix_with_column(Level::Lost, {0.0, 1.0}));
 
-    ContinuationRewrite rw = rewritten(c, model, {kLost});
+    ContinuationRewrite rw = rewritten(c, model, {Level::Lost});
     REQUIRE(count_gate(rw.circuit, GateType::READOUT_NOISE) == 0);
     REQUIRE(count_gate(rw.circuit, GateType::MPAD) == 1);
     for (const AstNode& node : rw.circuit.nodes) {
@@ -333,10 +307,10 @@ TEST_CASE("rewrite: a deterministic classifier column pads the literal bit, no d
 
 TEST_CASE("rewrite: an inverted noncomputational classifier flips a deterministic bit") {
     Circuit c = parse("M !0\n");
-    NonComputationalModel model =
-        make_model_with_classifier({}, classifier_with(kLost, {1.0, 0.0}));
+    NonComputationalModel model = make_rewriter_model_with_classifier(
+        {}, classifier_matrix_with_column(Level::Lost, {1.0, 0.0}));
 
-    ContinuationRewrite rw = rewritten(c, model, {kLost});
+    ContinuationRewrite rw = rewritten(c, model, {Level::Lost});
     REQUIRE(count_gate(rw.circuit, GateType::READOUT_NOISE) == 0);
     REQUIRE(count_gate(rw.circuit, GateType::MPAD) == 1);
     for (const AstNode& node : rw.circuit.nodes) {
@@ -350,10 +324,10 @@ TEST_CASE("rewrite: an inverted noncomputational classifier flips a deterministi
 
 TEST_CASE("rewrite: an inverted noncomputational classifier complements stochastic flips") {
     Circuit c = parse("M !0\n");
-    NonComputationalModel model =
-        make_model_with_classifier({}, classifier_with(kLost, {0.7, 0.3}));
+    NonComputationalModel model = make_rewriter_model_with_classifier(
+        {}, classifier_matrix_with_column(Level::Lost, {0.7, 0.3}));
 
-    ContinuationRewrite rw = rewritten(c, model, {kLost});
+    ContinuationRewrite rw = rewritten(c, model, {Level::Lost});
     REQUIRE(rw.classified_measurements.size() == 1);
     const AstNode& noise = rw.circuit.nodes[*rw.classified_measurements[0].noise_node];
     REQUIRE(noise.gate == GateType::READOUT_NOISE);
@@ -361,14 +335,14 @@ TEST_CASE("rewrite: an inverted noncomputational classifier complements stochast
     REQUIRE(noise.args[0] == Catch::Approx(0.7));
 }
 
-TEST_CASE("rewrite: the record write flips its own slot, not an earlier one") {
+TEST_CASE("rewrite: the record write flips its own slot rather than an earlier one") {
     // Slot 0 is a computational measurement on qubit 1; the lost qubit's
     // measurement is slot 1 and its READOUT_NOISE must target slot 1.
     Circuit c = parse("M 1\nM 0\n");
-    NonComputationalModel model =
-        make_model_with_classifier({}, classifier_with(kLost, {0.5, 0.5}));
+    NonComputationalModel model = make_rewriter_model_with_classifier(
+        {}, classifier_matrix_with_column(Level::Lost, {0.5, 0.5}));
 
-    ContinuationRewrite rw = rewritten(c, model, {kLost, kG});
+    ContinuationRewrite rw = rewritten(c, model, {Level::Lost, Level::G});
     REQUIRE(count_gate(rw.circuit, GateType::M) == 1);  // the computational one
     REQUIRE(rw.classified_measurements.size() == 1);
     REQUIRE(rw.classified_measurements[0].slot == 1);
@@ -381,10 +355,10 @@ TEST_CASE("rewrite: a ternary column emits the not-heralded conditional flip") {
     // 0.1 / (1 - 0.6) = 0.25. A ternary slot always gets a READOUT_NOISE so
     // the driver's herald patching has a node to re-point at one half.
     Circuit c = parse("M 0\n");
-    NonComputationalModel model =
-        make_model_with_classifier({}, classifier_with(kLeakG, {0.3, 0.1, 0.6}));
+    NonComputationalModel model = make_rewriter_model_with_classifier(
+        {}, classifier_matrix_with_column(Level::LeakG, {0.3, 0.1, 0.6}));
 
-    ContinuationRewrite rw = rewritten(c, model, {kLeakG});
+    ContinuationRewrite rw = rewritten(c, model, {Level::LeakG});
     REQUIRE(rw.classified_measurements.size() == 1);
     const AstNode& noise = rw.circuit.nodes[*rw.classified_measurements[0].noise_node];
     REQUIRE(noise.gate == GateType::READOUT_NOISE);
@@ -394,10 +368,10 @@ TEST_CASE("rewrite: a ternary column emits the not-heralded conditional flip") {
 TEST_CASE("rewrite: an inverted ternary column complements the not-heralded flip") {
     // Non-heralded P(bit=1) is 0.1 / (1 - 0.6) = 0.25 before inversion.
     Circuit c = parse("M !0\n");
-    NonComputationalModel model =
-        make_model_with_classifier({}, classifier_with(kLeakG, {0.3, 0.1, 0.6}));
+    NonComputationalModel model = make_rewriter_model_with_classifier(
+        {}, classifier_matrix_with_column(Level::LeakG, {0.3, 0.1, 0.6}));
 
-    ContinuationRewrite rw = rewritten(c, model, {kLeakG});
+    ContinuationRewrite rw = rewritten(c, model, {Level::LeakG});
     REQUIRE(rw.classified_measurements.size() == 1);
     const AstNode& noise = rw.circuit.nodes[*rw.classified_measurements[0].noise_node];
     REQUIRE(noise.gate == GateType::READOUT_NOISE);
@@ -408,10 +382,10 @@ TEST_CASE("rewrite: an always-herald ternary column still emits a patchable node
     // {0, 0, 1} has no not-heralded conditional; one half stands in, and the
     // herald patching overwrites it on every (always-heralding) draw.
     Circuit c = parse("M 0\n");
-    NonComputationalModel model =
-        make_model_with_classifier({}, classifier_with(kLeakG, {0.0, 0.0, 1.0}));
+    NonComputationalModel model = make_rewriter_model_with_classifier(
+        {}, classifier_matrix_with_column(Level::LeakG, {0.0, 0.0, 1.0}));
 
-    ContinuationRewrite rw = rewritten(c, model, {kLeakG});
+    ContinuationRewrite rw = rewritten(c, model, {Level::LeakG});
     REQUIRE(rw.classified_measurements.size() == 1);
     REQUIRE(rw.classified_measurements[0].noise_node.has_value());
     const AstNode& noise = rw.circuit.nodes[*rw.classified_measurements[0].noise_node];
@@ -420,15 +394,16 @@ TEST_CASE("rewrite: an always-herald ternary column still emits a patchable node
 
 TEST_CASE("rewrite: a noncomputational measurement without a classifier rejects") {
     Circuit c = parse("M 0\n");
-    NonComputationalModel model = make_model({});
-    REQUIRE_THROWS_WITH(rewritten(c, model, {kLost}), ContainsSubstring("requires a classifier"));
+    NonComputationalModel model = make_rewriter_model({});
+    REQUIRE_THROWS_WITH(rewritten(c, model, {Level::Lost}),
+                        ContainsSubstring("requires a classifier"));
 }
 
 TEST_CASE("rewrite: a parity measurement on a lost qubit rejects") {
     // MPP has no faithful single-bit substitution on a noncomputational
     // operand, so it rejects. MX and MY classify (tested separately).
-    NonComputationalModel model = make_model({});
-    REQUIRE_THROWS_WITH(rewritten(parse("MPP X0\n"), model, {kLost}),
+    NonComputationalModel model = make_rewriter_model({});
+    REQUIRE_THROWS_WITH(rewritten(parse("MPP X0\n"), model, {Level::Lost}),
                         ContainsSubstring("MPP") && ContainsSubstring("Lost"));
 }
 
@@ -439,9 +414,9 @@ TEST_CASE("rewrite: reset_restores_lost restores a measure-and-reset's lost qubi
     Circuit c = parse("MR 0\n");
     NonComputationalPolicy restore;
     restore.reset_restores_lost = true;
-    NonComputationalModel reload =
-        make_model_with_classifier({}, classifier_with(kLost, {1.0, 0.0}), restore);
-    ContinuationRewrite rw = rewritten(c, reload, {kLost});
+    NonComputationalModel reload = make_rewriter_model_with_classifier(
+        {}, classifier_matrix_with_column(Level::Lost, {1.0, 0.0}), restore);
+    ContinuationRewrite rw = rewritten(c, reload, {Level::Lost});
     // The MR splits into the classifier record write plus its kept reset.
     REQUIRE(count_gate(rw.circuit, GateType::MR) == 0);
     REQUIRE(count_gate(rw.circuit, GateType::MPAD) == 1);
@@ -452,10 +427,10 @@ TEST_CASE("rewrite: reset_restores_lost restores a measure-and-reset's lost qubi
 
 TEST_CASE("rewrite: a measure-and-reset on a leaked qubit records and resets") {
     Circuit c = parse("MR 0\n");
-    NonComputationalModel model =
-        make_model_with_classifier({}, classifier_with(kLeakG, {0.5, 0.5}));
+    NonComputationalModel model = make_rewriter_model_with_classifier(
+        {}, classifier_matrix_with_column(Level::LeakG, {0.5, 0.5}));
 
-    ContinuationRewrite rw = rewritten(c, model, {kLeakG});
+    ContinuationRewrite rw = rewritten(c, model, {Level::LeakG});
     REQUIRE(count_gate(rw.circuit, GateType::MR) == 0);
     REQUIRE(count_gate(rw.circuit, GateType::MPAD) == 1);
     REQUIRE(count_gate(rw.circuit, GateType::READOUT_NOISE) == 1);
@@ -465,10 +440,10 @@ TEST_CASE("rewrite: a measure-and-reset on a leaked qubit records and resets") {
 
 TEST_CASE("rewrite: a measure-and-reset on a non-restoring lost qubit records without its reset") {
     Circuit c = parse("MR 0\n");
-    NonComputationalModel model =
-        make_model_with_classifier({}, classifier_with(kLost, {1.0, 0.0}));
+    NonComputationalModel model = make_rewriter_model_with_classifier(
+        {}, classifier_matrix_with_column(Level::Lost, {1.0, 0.0}));
 
-    ContinuationRewrite rw = rewritten(c, model, {kLost});
+    ContinuationRewrite rw = rewritten(c, model, {Level::Lost});
     REQUIRE(count_gate(rw.circuit, GateType::MR) == 0);
     REQUIRE(count_gate(rw.circuit, GateType::MPAD) == 1);  // record slot preserved
     // The stepper leaves the qubit Lost, so the reset half is dropped: the
@@ -482,10 +457,10 @@ TEST_CASE("rewrite: a non-restoring lost MRX drops its X-basis reset half") {
     // An emitted RX would spend a hidden SVM draw on the vacated carrier;
     // with the status still Lost it must not be emitted.
     Circuit c = parse("MRX 0\n");
-    NonComputationalModel model =
-        make_model_with_classifier({}, classifier_with(kLost, {1.0, 0.0}));
+    NonComputationalModel model = make_rewriter_model_with_classifier(
+        {}, classifier_matrix_with_column(Level::Lost, {1.0, 0.0}));
 
-    ContinuationRewrite rw = rewritten(c, model, {kLost});
+    ContinuationRewrite rw = rewritten(c, model, {Level::Lost});
     REQUIRE(count_gate(rw.circuit, GateType::MRX) == 0);
     REQUIRE(count_gate(rw.circuit, GateType::MPAD) == 1);
     REQUIRE(count_gate(rw.circuit, GateType::RX) == 0);
@@ -502,15 +477,15 @@ namespace {
 // Classifier with confused computational columns: a true 0 is misread as 1
 // with probability p01, a true 1 as 0 with probability p10; noncomputational
 // levels deterministically read symbol 0.
-std::vector<std::vector<double>> confused_classifier(double p01, double p10) {
-    std::vector<std::vector<double>> m(2, std::vector<double>(5, 0.0));
-    for (size_t l = 0; l < 5; ++l) {
+RawProbabilityMatrix confused_classifier(double p01, double p10) {
+    RawProbabilityMatrix m(2, std::vector<double>(kNumLevels, 0.0));
+    for (size_t l = 0; l < kNumLevels; ++l) {
         m[0][l] = 1.0;
     }
-    m[0][0] = 1.0 - p01;
-    m[1][0] = p01;
-    m[0][1] = p10;
-    m[1][1] = 1.0 - p10;
+    m[0][level_index(Level::G)] = 1.0 - p01;
+    m[1][level_index(Level::G)] = p01;
+    m[0][level_index(Level::E)] = p10;
+    m[1][level_index(Level::E)] = 1.0 - p10;
     return m;
 }
 
@@ -518,9 +493,10 @@ std::vector<std::vector<double>> confused_classifier(double p01, double p10) {
 
 TEST_CASE("rewrite: computational readout confusion appends an asymmetric flip") {
     Circuit c = parse("H 0\nM 0\n");
-    NonComputationalModel model = make_model_with_classifier({}, confused_classifier(0.1, 0.2));
+    NonComputationalModel model =
+        make_rewriter_model_with_classifier({}, confused_classifier(0.1, 0.2));
 
-    ContinuationRewrite rw = rewritten(c, model, {kG});
+    ContinuationRewrite rw = rewritten(c, model, {Level::G});
     REQUIRE(count_gate(rw.circuit, GateType::M) == 1);  // measurement kept
     REQUIRE(count_gate(rw.circuit, GateType::READOUT_NOISE) == 1);
     const AstNode& noise = rw.circuit.nodes.back();
@@ -535,10 +511,10 @@ TEST_CASE("rewrite: computational readout confusion appends an asymmetric flip")
 
 TEST_CASE("rewrite: identity computational columns add no readout confusion") {
     Circuit c = parse("H 0\nM 0\n");
-    NonComputationalModel model =
-        make_model_with_classifier({}, classifier_with(kLost, {0.5, 0.5}));
+    NonComputationalModel model = make_rewriter_model_with_classifier(
+        {}, classifier_matrix_with_column(Level::Lost, {0.5, 0.5}));
 
-    ContinuationRewrite rw = rewritten(c, model, {kG});
+    ContinuationRewrite rw = rewritten(c, model, {Level::G});
     REQUIRE(count_gate(rw.circuit, GateType::READOUT_NOISE) == 0);
 }
 
@@ -546,9 +522,10 @@ TEST_CASE("rewrite: an inverted measurement swaps the confusion probabilities") 
     // Confusion physically precedes the reporting convention, and
     // invert-after-flip(p01, p10) equals flip(p10, p01)-after-invert.
     Circuit c = parse("H 0\nM !0\n");
-    NonComputationalModel model = make_model_with_classifier({}, confused_classifier(0.1, 0.2));
+    NonComputationalModel model =
+        make_rewriter_model_with_classifier({}, confused_classifier(0.1, 0.2));
 
-    ContinuationRewrite rw = rewritten(c, model, {kG});
+    ContinuationRewrite rw = rewritten(c, model, {Level::G});
     const AstNode& noise = rw.circuit.nodes.back();
     REQUIRE(noise.gate == GateType::READOUT_NOISE);
     REQUIRE(noise.args[0] == 0.2);
@@ -557,9 +534,10 @@ TEST_CASE("rewrite: an inverted measurement swaps the confusion probabilities") 
 
 TEST_CASE("rewrite: confusion applies to MR but not X-basis measurements") {
     Circuit c = parse("MR 0\nMX 0\n");
-    NonComputationalModel model = make_model_with_classifier({}, confused_classifier(0.1, 0.2));
+    NonComputationalModel model =
+        make_rewriter_model_with_classifier({}, confused_classifier(0.1, 0.2));
 
-    ContinuationRewrite rw = rewritten(c, model, {kG});
+    ContinuationRewrite rw = rewritten(c, model, {Level::G});
     REQUIRE(count_gate(rw.circuit, GateType::READOUT_NOISE) == 1);
     for (const AstNode& node : rw.circuit.nodes) {
         if (node.gate == GateType::READOUT_NOISE) {
@@ -569,29 +547,29 @@ TEST_CASE("rewrite: confusion applies to MR but not X-basis measurements") {
 }
 
 TEST_CASE("rewrite: a substochastic computational column rejects") {
-    std::vector<std::vector<double>> m(2, std::vector<double>(5, 0.0));
-    for (size_t l = 0; l < 5; ++l) {
+    RawProbabilityMatrix m(2, std::vector<double>(kNumLevels, 0.0));
+    for (size_t l = 0; l < kNumLevels; ++l) {
         m[0][l] = 1.0;
     }
-    m[0][0] = 0.6;  // g column sums to 0.8: reject mass on a computational level
-    m[1][0] = 0.2;
-    m[0][1] = 0.0;
-    m[1][1] = 1.0;
+    m[0][level_index(Level::G)] = 0.6;  // g column sums to 0.8: reject mass
+    m[1][level_index(Level::G)] = 0.2;
+    m[0][level_index(Level::E)] = 0.0;
+    m[1][level_index(Level::E)] = 1.0;
     REQUIRE_THROWS_WITH(
-        make_model_with_classifier({}, std::move(m)),
+        make_rewriter_model_with_classifier({}, std::move(m)),
         ContainsSubstring("reject columns are not supported") && ContainsSubstring("'g'"));
 }
 
 TEST_CASE("rewrite: a computational column with herald mass rejects") {
-    std::vector<std::vector<double>> m(3, std::vector<double>(5, 0.0));
-    for (size_t l = 0; l < 5; ++l) {
+    RawProbabilityMatrix m(3, std::vector<double>(kNumLevels, 0.0));
+    for (size_t l = 0; l < kNumLevels; ++l) {
         m[0][l] = 1.0;
     }
-    m[0][0] = 0.9;  // g column puts 0.1 on the herald symbol
-    m[2][0] = 0.1;
-    m[0][1] = 0.0;
-    m[1][1] = 1.0;
-    REQUIRE_THROWS_WITH(make_model_with_classifier({}, std::move(m)),
+    m[0][level_index(Level::G)] = 0.9;  // g column puts 0.1 on the herald symbol
+    m[2][level_index(Level::G)] = 0.1;
+    m[0][level_index(Level::E)] = 0.0;
+    m[1][level_index(Level::E)] = 1.0;
+    REQUIRE_THROWS_WITH(make_rewriter_model_with_classifier({}, std::move(m)),
                         ContainsSubstring("record symbols 0 and 1") && ContainsSubstring("'g'"));
 }
 
@@ -601,9 +579,9 @@ TEST_CASE("rewrite: a computational column with herald mass rejects") {
 
 TEST_CASE("annotate: gate hooks expand to per-operand LEVEL_TRANSITION annotations") {
     Circuit c = parse("H 0\nCZ 0 1\nM 0\n");
-    std::map<std::string, std::vector<std::vector<double>>> transitions;
-    transitions.emplace("CZ", always_lost());
-    NonComputationalModel model = make_model(std::move(transitions));
+    std::map<std::string, RawProbabilityMatrix> transitions;
+    transitions.emplace("CZ", certain_transition_from_computational(Level::Lost));
+    NonComputationalModel model = make_rewriter_model(std::move(transitions));
 
     Circuit ann = annotate(c, model);
     // H, CZ, LEVEL_TRANSITION(0), LEVEL_TRANSITION(1), M.
@@ -618,9 +596,9 @@ TEST_CASE("annotate: gate hooks expand to per-operand LEVEL_TRANSITION annotatio
 
 TEST_CASE("annotate: feedback operands get no annotation") {
     Circuit c = parse("M 0\nCX rec[-1] 1\n");
-    std::map<std::string, std::vector<std::vector<double>>> transitions;
-    transitions.emplace("CX", always_lost());
-    NonComputationalModel model = make_model(std::move(transitions));
+    std::map<std::string, RawProbabilityMatrix> transitions;
+    transitions.emplace("CX", certain_transition_from_computational(Level::Lost));
+    NonComputationalModel model = make_rewriter_model(std::move(transitions));
 
     Circuit ann = annotate(c, model);
     REQUIRE(ann.nodes.size() == c.nodes.size());  // virtual correction: no consult point
@@ -628,9 +606,10 @@ TEST_CASE("annotate: feedback operands get no annotation") {
 
 TEST_CASE("annotate: an unhooked model leaves the circuit unchanged") {
     Circuit c = parse("H 0\nM 0\n");
-    std::map<std::string, std::vector<std::vector<double>>> transitions;
-    transitions.emplace("my_leak", always_lost());  // named, no hook
-    NonComputationalModel model = make_model(std::move(transitions));
+    std::map<std::string, RawProbabilityMatrix> transitions;
+    transitions.emplace("my_leak",
+                        certain_transition_from_computational(Level::Lost));  // named, no hook
+    NonComputationalModel model = make_rewriter_model(std::move(transitions));
 
     Circuit ann = annotate(c, model);
     REQUIRE(ann.nodes.size() == c.nodes.size());
@@ -646,13 +625,13 @@ TEST_CASE("rewrite: a zero-fire annotation is omitted from the node stream and s
     // rewriter must skip the zero-fire node and its site_targets entry; the
     // site table must hold exactly one entry pointing at the firing
     // annotation's (op_index, qubit), matching trace()'s elision.
-    std::map<std::string, std::vector<std::vector<double>>> transitions;
-    transitions.emplace("zero", zeros5());
-    transitions.emplace("fire", always_lost());
-    NonComputationalModel model = make_model(std::move(transitions));
+    std::map<std::string, RawProbabilityMatrix> transitions;
+    transitions.emplace("zero", zero_transition_matrix());
+    transitions.emplace("fire", certain_transition_from_computational(Level::Lost));
+    NonComputationalModel model = make_rewriter_model(std::move(transitions));
 
     Circuit c = parse("LEVEL_TRANSITION[zero] 0\nLEVEL_TRANSITION[fire] 0\n");
-    ContinuationRewrite rw = rewritten(c, model, {kG});
+    ContinuationRewrite rw = rewritten(c, model, {Level::G});
 
     // The zero-fire node must not appear in the rewritten stream.
     for (const AstNode& node : rw.circuit.nodes) {
@@ -670,10 +649,10 @@ TEST_CASE("rewrite: a malformed LOSS annotation rejects instead of reading past 
     // rewrite_continuation is callable without the driver's up-front
     // validation, so its own LOSS reads must validate the argument shape
     // rather than index into it.
-    NonComputationalModel model = make_model({});
+    NonComputationalModel model = make_rewriter_model({});
     Circuit c = parse("LOSS(0.5) 0\nM 0\n");
     ExactShotEvents events;
-    events.initial_status = initials({kG});
+    events.initial_status = initials({Level::G});
 
     SECTION("no arguments") {
         c.nodes[0].args.clear();
@@ -701,15 +680,15 @@ TEST_CASE("rewrite: a correlated chain whose head operand is lost survives the r
     // Both the CORRELATED_ERROR head and its ELSE_CORRELATED_ERROR member
     // must appear in the rewritten stream when q0 enters lost.
     Circuit c = parse("E(1) X0 X1\nELSE_CORRELATED_ERROR(1) X1\n");
-    NonComputationalModel model = make_model({});
-    ContinuationRewrite rw = rewritten(c, model, {kLost, kG});
+    NonComputationalModel model = make_rewriter_model({});
+    ContinuationRewrite rw = rewritten(c, model, {Level::Lost, Level::G});
     REQUIRE(count_gate(rw.circuit, GateType::CORRELATED_ERROR) == 1);
     REQUIRE(count_gate(rw.circuit, GateType::ELSE_CORRELATED_ERROR) == 1);
 }
 
 TEST_CASE("rewrite_continuation: unknown transition tag throws") {
     Circuit c = parse("LEVEL_TRANSITION[nosuch] 0\n");
-    NonComputationalModel model = make_model({});
+    NonComputationalModel model = make_rewriter_model({});
     ExactShotEvents events;
     events.initial_status = {QubitStatus::Computational};
     Circuit annotated = annotate(c, model);

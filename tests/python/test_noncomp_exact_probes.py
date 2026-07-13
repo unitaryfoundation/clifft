@@ -11,19 +11,12 @@ from __future__ import annotations
 
 import numpy as np
 import utils_noncomp_oracle as oracle
-from conftest import binomial_tolerance
+from conftest import binomial_tolerance, noncomp_transition_matrix
 
 from clifft import noncomp
 
 Level = noncomp.Level
 SHOTS = 20_000
-
-
-def _transition(entries: dict[tuple[int, int], float]) -> list[list[float]]:
-    m = [[0.0] * 5 for _ in range(5)]
-    for (to, frm), p in entries.items():
-        m[to][frm] = p
-    return m
 
 
 def _faithful_classifier() -> noncomp.Classifier:
@@ -50,7 +43,7 @@ def test_gate_determined_source_fires_exactly_zero():
     state, where <P_e> is exactly 0. The certain rate (p = 1) makes any
     ahead-of-time source guess loud: a uniform draw would leak half the
     shots."""
-    model = _model({"leak": _transition({(Level.LEAK_E, Level.E): 1.0})})
+    model = _model({"leak": noncomp_transition_matrix({(Level.LEAK_E, Level.E): 1.0})})
     r = noncomp.sample("H 0\nH 0\nLEVEL_TRANSITION[leak] 0\nM 0\n", model, shots=SHOTS, seed=11)
     status = np.asarray(r.final_status)
     assert (status == noncomp.QubitStatus.COMPUTATIONAL).all()
@@ -64,7 +57,11 @@ def test_bell_joint_correlation_has_tvd_zero():
     The exact joint is {00: 1/2, 11: 1/2}; any independent source draw
     puts mass on 01/10."""
     model = _model(
-        {"leak": _transition({(Level.LEAK_G, Level.G): 1.0, (Level.LEAK_E, Level.E): 1.0})}
+        {
+            "leak": noncomp_transition_matrix(
+                {(Level.LEAK_G, Level.G): 1.0, (Level.LEAK_E, Level.E): 1.0}
+            )
+        }
     )
     r = noncomp.sample(
         "H 0\nCX 0 1\nLEVEL_TRANSITION[leak] 0\nM 0\nM 1\n", model, shots=SHOTS, seed=12
@@ -89,7 +86,7 @@ def test_damping_boundary_probe_separates_exact_from_neglect():
     and the closed forms are far enough apart that each sample can only
     match its own mode."""
     p = 0.84
-    transitions = {"leak": _transition({(Level.LEAK_E, Level.E): p})}
+    transitions = {"leak": noncomp_transition_matrix({(Level.LEAK_E, Level.E): p})}
     text = "H 0\nLEVEL_TRANSITION[leak] 0\nH 0\nM 0\n"
 
     plus = oracle.apply_1q(oracle.zero_state(1), "H", 0, 1)
@@ -128,7 +125,9 @@ def test_damping_null_source_independent_rates_make_neglect_exact():
     so the H .. H sandwich returns |0> deterministically in both modes."""
     shots = 4000
     p = 0.3
-    transitions = {"leak": _transition({(Level.LEAK_G, Level.G): p, (Level.LEAK_G, Level.E): p})}
+    transitions = {
+        "leak": noncomp_transition_matrix({(Level.LEAK_G, Level.G): p, (Level.LEAK_G, Level.E): p})
+    }
     # g reads 0, e reads 1, every noncomputational level reads 1: a leak
     # reads 1, and the survivor check expects 0 (H .. H returns g).
     classifier = noncomp.Classifier([[1, 0, 0, 0, 0], [0, 1, 1, 1, 1]])
@@ -184,7 +183,7 @@ def test_entangled_two_site_chain_matches_hand_derived_distribution():
       111 -> 0.005  (no-fire1, no-fire2, q0 collapses to |1>; two dampings)
     Every other pattern has probability exactly 0.
     """
-    model = _model({"leak": _transition({(Level.LEAK_G, Level.E): 0.9})})
+    model = _model({"leak": noncomp_transition_matrix({(Level.LEAK_G, Level.E): 0.9})})
     circuit = (
         "H 0\nCX 0 1\nCX 0 2\n"
         "LEVEL_TRANSITION[leak] 1\nLEVEL_TRANSITION[leak] 2\n"
@@ -251,7 +250,7 @@ def test_neglect_bell_correlation_probe():
     the cold-atom rates used there.
     """
     PROBE_SHOTS = 512
-    transitions = {"leak": _transition({(Level.LEAK_E, Level.E): 1.0})}
+    transitions = {"leak": noncomp_transition_matrix({(Level.LEAK_E, Level.E): 1.0})}
     model = _model(transitions, damping="neglect")
     text = "H 0\nCX 0 1\nLEVEL_TRANSITION[leak] 0\nM 0\nM 1\n"
 

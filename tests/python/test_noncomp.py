@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import numpy as np
 import pytest
+from conftest import noncomp_classifier_matrix_with_column, noncomp_transition_matrix
 
 from clifft import noncomp
 
@@ -26,23 +27,12 @@ def _zeros(rows: int, cols: int) -> list[list[float]]:
 
 def transition_to(level: int) -> list[list[float]]:
     """T[to][from]: g and e both jump to `level` (source-independent)."""
-    m = _zeros(5, 5)
-    m[level][noncomp.Level.G] = 1.0
-    m[level][noncomp.Level.E] = 1.0
-    return m
+    return noncomp_transition_matrix({(level, noncomp.Level.G): 1.0, (level, noncomp.Level.E): 1.0})
 
 
 def classifier_for(level: int, col: list[float]) -> noncomp.Classifier:
-    """Binary classifier; `level`'s column is `col`, computational levels read
-    out faithfully (no readout confusion), other columns are symbol 0."""
-    m = _zeros(2, 5)
-    for lvl in range(5):
-        m[0][lvl] = 1.0
-    m[0][noncomp.Level.E] = 0.0
-    m[1][noncomp.Level.E] = 1.0
-    m[0][level] = col[0]
-    m[1][level] = col[1]
-    return noncomp.Classifier(m)
+    """Classifier whose selected column is `col`; computational readout is faithful."""
+    return noncomp.Classifier(noncomp_classifier_matrix_with_column(level, col))
 
 
 def leak_model(classifier: noncomp.Classifier | None = None) -> noncomp.Model:
@@ -279,21 +269,12 @@ def test_classifier_stores_matrix():
     assert len(c.matrix[0]) == 5
 
 
-def _ternary_classifier(level: int, col: list[float]) -> noncomp.Classifier:
-    """Three-symbol classifier; `level`'s column is `col`, others read symbol 0."""
-    m = _zeros(3, 5)
-    for lvl in range(5):
-        m[0][lvl] = 1.0
-    m[0][level], m[1][level], m[2][level] = col
-    return noncomp.Classifier(m)
-
-
 def test_ternary_herald_rides_the_sidecar():
     """A lost qubit's measurement heralds; the visible record stays binary."""
     model = noncomp.Model(
         initial_state=ALL_G,
         transitions={"S": transition_to(LOST)},
-        classifier=_ternary_classifier(LOST, [0.0, 0.0, 1.0]),
+        classifier=classifier_for(LOST, [0.0, 0.0, 1.0]),
     )
     r = noncomp.sample("H 0\nCX 0 1\nS 0\nM 0\nM 1\n", model, shots=4000, seed=21)
     assert r.heralds.shape == (4000, 2)
@@ -319,7 +300,7 @@ def test_herald_deterministic_in_seed():
     model = noncomp.Model(
         initial_state=ALL_G,
         transitions={"S": transition_to(LOST)},
-        classifier=_ternary_classifier(LOST, [0.2, 0.1, 0.7]),
+        classifier=classifier_for(LOST, [0.2, 0.1, 0.7]),
     )
     a = noncomp.sample("H 0\nS 0\nM 0\n", model, shots=128, seed=23)
     b = noncomp.sample("H 0\nS 0\nM 0\n", model, shots=128, seed=23)
@@ -339,7 +320,7 @@ def test_ternary_herald_feeds_detector_and_observable():
     model = noncomp.Model(
         initial_state=ALL_G,
         transitions={"S": transition_to(LOST)},
-        classifier=_ternary_classifier(LOST, [0.2, 0.1, 0.7]),
+        classifier=classifier_for(LOST, [0.2, 0.1, 0.7]),
     )
     circuit = "H 0\nS 0\nM 0\nDETECTOR rec[-1]\nOBSERVABLE_INCLUDE(0) rec[-1]\n"
     r = noncomp.sample(circuit, model, shots=4000, seed=24)
