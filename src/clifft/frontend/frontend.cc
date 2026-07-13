@@ -1,11 +1,11 @@
 #include "clifft/frontend/frontend.h"
 
+#include "clifft/util/numeric.h"
+
 #include "stim.h"
 
 #include <cmath>
-#include <cstring>
 #include <initializer_list>
-#include <limits>
 #include <numbers>
 #include <random>
 #include <stdexcept>
@@ -409,21 +409,13 @@ size_t count_pauli_masks(const Circuit& circuit) {
 // instead of relying on std::isfinite().
 void validate_instrument_probabilities(const InstrumentProbabilities& probabilities,
                                        const std::string& site) {
-    static_assert(std::numeric_limits<double>::is_iec559,
-                  "instrument probabilities require IEEE 754 doubles");
-    constexpr uint64_t kExpMask = 0x7FF0000000000000ULL;
     // Keep this at least as loose as the model layer's kProbTolerance.
     // TransitionInstrument clamps column sums within that tolerance to 1.
     constexpr double kTolerance = 1e-12;
-    auto finite = [](double value) {
-        uint64_t bits;
-        std::memcpy(&bits, &value, sizeof(bits));
-        return (bits & kExpMask) != kExpMask;
-    };
 
     for (uint8_t source = 0; source < 2; ++source) {
         const double p_fire = probabilities.p_fire[source];
-        if (!finite(p_fire) || p_fire < 0.0 || p_fire > 1.0) {
+        if (!is_finite_robust(p_fire) || p_fire < 0.0 || p_fire > 1.0) {
             throw std::invalid_argument("trace: " + site + " has invalid p_fire[" +
                                         std::to_string(source) + "] = " + std::to_string(p_fire));
         }
@@ -431,7 +423,7 @@ void validate_instrument_probabilities(const InstrumentProbabilities& probabilit
         double p_computational = 0.0;
         for (uint8_t destination = 0; destination < 2; ++destination) {
             const double p = probabilities.p_computational_dest[source][destination];
-            if (!finite(p) || p < 0.0 || p > 1.0) {
+            if (!is_finite_robust(p) || p < 0.0 || p > 1.0) {
                 throw std::invalid_argument(
                     "trace: " + site + " has invalid p_computational_dest[" +
                     std::to_string(source) + "][" + std::to_string(destination) +
@@ -846,8 +838,7 @@ HirModule trace(const Circuit& circuit, const InstrumentTraceOptions* instrument
                                 std::to_string(node.source_line) +
                                 " does not name a transition in the instrument options");
                         }
-                        const InstrumentSpec& spec = it->second;
-                        site.probabilities = spec;
+                        site.probabilities = it->second;
                         site_description = "LEVEL_TRANSITION[" + node.tag + "] at line " +
                                            std::to_string(node.source_line);
                     }

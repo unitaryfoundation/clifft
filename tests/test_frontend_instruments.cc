@@ -36,12 +36,12 @@ constexpr double kTol = 1e-15;
 // noncomputational level (the trap remainder); from e, 0.4 entirely trap.
 InstrumentTraceOptions demo_options() {
     InstrumentTraceOptions options;
-    InstrumentSpec spec;
-    spec.p_fire[0] = 0.1;
-    spec.p_computational_dest[0][0] = 0.02;
-    spec.p_computational_dest[0][1] = 0.03;
-    spec.p_fire[1] = 0.4;
-    options.transitions.emplace("jump", spec);
+    InstrumentProbabilities probabilities;
+    probabilities.p_fire[0] = 0.1;
+    probabilities.p_computational_dest[0][0] = 0.02;
+    probabilities.p_computational_dest[0][1] = 0.03;
+    probabilities.p_fire[1] = 0.4;
+    options.transitions.emplace("jump", probabilities);
     return options;
 }
 
@@ -140,7 +140,7 @@ TEST_CASE("trace: LOSS materializes a source-independent all-trap site per targe
 
 TEST_CASE("trace: a zero-rate site is elided") {
     InstrumentTraceOptions options;
-    options.transitions.emplace("nothing", InstrumentSpec{});
+    options.transitions.emplace("nothing", InstrumentProbabilities{});
 
     auto hir = hir_with_instruments("LOSS(0) 0\nLEVEL_TRANSITION[nothing] 0", options);
     REQUIRE(hir.ops.empty());
@@ -157,7 +157,7 @@ TEST_CASE("trace: an unresolved tag names itself in the error") {
 
 TEST_CASE("trace: malformed compressed instrument probabilities reject") {
     InstrumentTraceOptions options;
-    InstrumentSpec invalid;
+    InstrumentProbabilities invalid;
     invalid.p_fire[0] = 0.1;
     invalid.p_computational_dest[0][0] = 0.2;
     options.transitions.emplace("invalid", invalid);
@@ -169,7 +169,7 @@ TEST_CASE("trace: malformed compressed instrument probabilities reject") {
 
 TEST_CASE("trace: non-finite compressed instrument probabilities reject") {
     InstrumentTraceOptions options;
-    InstrumentSpec invalid;
+    InstrumentProbabilities invalid;
     invalid.p_fire[0] = clifft::test::opaque_nan();
     options.transitions.emplace("invalid", invalid);
 
@@ -204,12 +204,12 @@ TEST_CASE("instrument_trace_options: resolves model transitions and policy") {
     const InstrumentTraceOptions options = instrument_trace_options(model);
     REQUIRE(options.neglect_instrument_damping);
     REQUIRE(options.transitions.size() == 1);
-    const InstrumentSpec& spec = options.transitions.at("relax");
-    REQUIRE_THAT(spec.p_fire[0], WithinAbs(0.0, kTol));
-    REQUIRE_THAT(spec.p_fire[1], WithinAbs(0.4, kTol));
-    REQUIRE_THAT(spec.p_computational_dest[1][0], WithinAbs(0.1, kTol));
-    REQUIRE_THAT(spec.p_computational_dest[1][1], WithinAbs(0.0, kTol));
-    REQUIRE_THAT(spec.p_noncomputational_dest(1), WithinAbs(0.3, kTol));
+    const InstrumentProbabilities& probabilities = options.transitions.at("relax");
+    REQUIRE_THAT(probabilities.p_fire[0], WithinAbs(0.0, kTol));
+    REQUIRE_THAT(probabilities.p_fire[1], WithinAbs(0.4, kTol));
+    REQUIRE_THAT(probabilities.p_computational_dest[1][0], WithinAbs(0.1, kTol));
+    REQUIRE_THAT(probabilities.p_computational_dest[1][1], WithinAbs(0.0, kTol));
+    REQUIRE_THAT(probabilities.p_noncomputational_dest(1), WithinAbs(0.3, kTol));
 }
 
 // =============================================================================

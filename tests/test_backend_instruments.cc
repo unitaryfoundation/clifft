@@ -27,7 +27,7 @@ constexpr double kTol = 1e-15;
 
 InstrumentTraceOptions demo_options(bool neglect = false) {
     InstrumentTraceOptions options;
-    InstrumentSpec spec;
+    InstrumentProbabilities spec;
     spec.p_fire[0] = 0.1;
     spec.p_computational_dest[0][0] = 0.02;
     spec.p_computational_dest[0][1] = 0.03;
@@ -162,7 +162,7 @@ TEST_CASE("lowering: equal per-source rates skip the expansion even under exact 
     // agree (the skipped no-fire back-action is proportional to identity),
     // so exact damping takes it and k stays flat.
     InstrumentTraceOptions options;
-    InstrumentSpec spec;
+    InstrumentProbabilities spec;
     spec.p_fire[0] = 0.1;
     spec.p_computational_dest[0][0] = 0.02;
     spec.p_computational_dest[0][1] = 0.03;

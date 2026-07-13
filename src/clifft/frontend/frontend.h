@@ -25,20 +25,13 @@
 
 namespace clifft {
 
-// Per-transition probabilities for materializing LEVEL_TRANSITION
-// annotations into INSTRUMENT ops. InstrumentProbabilities documents the
-// exact five-level-matrix compression. The alias names this payload's role at
-// the trace boundary while keeping InstrumentSpec and InstrumentSite on one
-// shared representation. The front-end remains model-free: the
-// noncomputational layer resolves matrices into these plain numbers through
-// instrument_trace_options().
-using InstrumentSpec = InstrumentProbabilities;
-
 // Opt-in instrument materialization for trace(). `transitions` maps a
 // LEVEL_TRANSITION tag to its spec; LOSS needs no entry (its probability
 // is inline and its destination is entirely the trap remainder).
 struct InstrumentTraceOptions {
-    std::map<std::string, InstrumentSpec, std::less<>> transitions;
+    // The front-end remains model-free: the noncomputational layer compresses
+    // each five-level matrix into InstrumentProbabilities before tracing.
+    std::map<std::string, InstrumentProbabilities, std::less<>> transitions;
 
     // damping="neglect": dormant-random sites skip the expansion and the
     // no-fire back-action. trace() copies this module-wide setting once to

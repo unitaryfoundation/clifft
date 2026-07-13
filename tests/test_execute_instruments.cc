@@ -29,8 +29,8 @@ namespace {
 
 // A transition spec with total rate p_g/p_e from each source and every
 // fire landing on computational level `dest`.
-InstrumentSpec to_level(double p_g, double p_e, int dest) {
-    InstrumentSpec spec;
+InstrumentProbabilities to_level(double p_g, double p_e, int dest) {
+    InstrumentProbabilities spec;
     spec.p_fire[0] = p_g;
     spec.p_fire[1] = p_e;
     spec.p_computational_dest[0][dest] = p_g;
@@ -185,7 +185,7 @@ TEST_CASE("execute: the no-fire back-action matches its closed form through the 
     const double want = 2.0 * r / (1.0 + r * r);
 
     InstrumentTraceOptions options;
-    InstrumentSpec damp;  // fires only from g, entirely to leaked/lost
+    InstrumentProbabilities damp;  // fires only from g, entirely to leaked/lost
     damp.p_fire[0] = p;
     options.transitions.emplace("damp", damp);
 
@@ -285,7 +285,8 @@ TEST_CASE("execute: an entangled site's multi-axis destination flip lands correc
 
 TEST_CASE("execute: a neglect-mode dormant-random site is silent until it fires") {
     InstrumentTraceOptions options;
-    options.transitions.emplace("leak", InstrumentSpec{{0.3, 0.3}, {{0.0, 0.0}, {0.0, 0.0}}});
+    options.transitions.emplace("leak",
+                                InstrumentProbabilities{{0.3, 0.3}, {{0.0, 0.0}, {0.0, 0.0}}});
     options.neglect_instrument_damping = true;
 
     // Fire probability is 0.3 per shot; k stays 0 either way. Fired
