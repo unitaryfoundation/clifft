@@ -222,7 +222,13 @@ exactly $T/\sqrt2$, so
 $P(x) = 2^{t}\,|\bra{x,0^t} C_{\rm gadget} (\ket{0^n}\!\otimes\!\ket{T}^{\otimes t})|^2$
 with $C_{\rm gadget}$ entirely Clifford. All magic is again one product
 layer: the single-shot sampler applies with no streaming penalty, and the
-normalization stays analytic (\S\ref{sec:norm-theory}).
+normalization stays analytic (\S\ref{sec:norm-theory}). The gadget
+generalizes to rotations about \emph{arbitrary} Pauli operators $P$: prepare
+the same ancilla, entangle with
+$\Lambda_P(X_a)=H_a\,(\text{$a$-controlled-}P)\,H_a$ --- still entirely
+Clifford (controlled-$P$ decomposes into $S_a$-powers and CZ/CX factors) ---
+and force $0$. This lets gadgetization consume the compiler's output
+directly (\S\ref{sec:hir}), where every $T$ is such a rotation.
 
 \subsection{Episodic execution}\label{sec:episodic-theory}
 Long computations \emph{recycle} magic: the active core grows and fully
@@ -333,6 +339,7 @@ $W{=}2$ ($n{=}68$) norm est., unit-norm state & exact ($=\!1$), $L{=}600$ & $4.8
 Frame engine vs.\ plain (incl.\ measurement) & forced outcomes & $6\times10^{-15}$ \\
 Gadgetized $=$ dense $=$ \texttt{clifft} ($7T$ CCZ; random) & interleaved circuits & $10^{-14}$ \\
 HIR bridge (400 fuzzed circuits $+$ families) & \texttt{record\_probabilities} & $2\times10^{-13}$ \\
+Gadgetized HIR (arbitrary-Pauli gadgets) & \texttt{clifft} $+$ streaming path & $1\times10^{-13}$ \\
 Episodic-exact conveyor (feedforward replayed) & \texttt{record\_probabilities} & $4\times10^{-17}$ \\
 Analytic support point & 500 random tableaux & nonzero amplitude \\
 MitM IQP evaluator & dense / \texttt{record\_probabilities} & $6\times10^{-16}$ / $6\times10^{-14}$ \\
@@ -355,7 +362,12 @@ where $2^{t_{\rm live}}=64$ on one family); and $t_{\rm live}$ is roughly
 half of the raw $T$-count on random circuits ($32/40/48 \to 18/28/28$), which
 is why the dispatch rule uses it. For compile-known circuits the compiler
 thus supersedes the online frame of \S\ref{sec:frame-theory}, which remains
-the mechanism for dynamic circuits. The C\texttt{++} scale arm currently
+the mechanism for dynamic circuits. Gadgetization composes with the HIR the
+same way (\texttt{run\_hir\_record\_gadgetized}): each compiled Pauli
+rotation teleports through the generalized gadget of
+\S\ref{sec:gadget-theory}, so the single-shot sampler and the analytic
+normalization run at $t_{\rm live}$ rather than the raw $T$-count ---
+measured in \S\ref{sec:gadget}. The C\texttt{++} scale arm currently
 consumes plain gate streams; feeding it HIR needs a simultaneous reduction of
 the terminal Pauli measurements (a symplectic elimination) --- future work,
 so its benchmark numbers below are conservative for the CH backend.
@@ -580,6 +592,24 @@ use-case): TV $0.04$--$0.09$ at $\delta=0.15$. These families validate
 generality rather than exhibit a win regime: \texttt{clifft} compiles both to
 $\mathrm{peak\_rank}\le10$ and answers exactly in microseconds --- which is
 precisely the dispatch rule at work.
+
+\paragraph{Gadgetizing the compiled circuit.} The gadgets above consume raw
+circuits and pay one ancilla per raw $T$; consuming the optimized HIR
+instead (\S\ref{sec:hir}, \texttt{bench\_hir\_gadget.py}) pays only
+$t_{\rm live}$, via the arbitrary-Pauli gadget of \S\ref{sec:gadget-theory}.
+On random interleaved Clifford$+T$ ($n{=}9$,
+$t_{\rm raw}{=}32 \to t_{\rm live}{=}10$) the extent shrinks by
+$2^{0.228\cdot22}\approx32\times$, so at equal sampling budget $k$ the error
+should drop by $\sqrt{32}\approx5.7\times$ --- measured: TV $0.271\to0.047$
+at $k{=}500$ (a $5.8\times$ gain) and $0.174\to0.020$ at $k{=}2000$.
+Equivalently, the raw route needs ${\sim}32\times$ the budget for the same
+accuracy. (Per-record wall-clock is higher in the Python implementation ---
+the HIR route replays the circuit once per record where the raw route builds
+one state and queries amplitudes --- the budget, not the constant, is the
+like-for-like axis.) Exactness of the composed route: $10^{-13}$ against
+both \texttt{clifft} and the streaming HIR path, including a
+$t_{\rm live}{=}14$ hidden-shift case run at the full $\chi=2^{14}$
+decomposition (Table~\ref{tab:valid}).
 
 \subsection{Adaptive workloads and the phase boundary}\label{sec:adaptive}
 For dynamic circuits the online frame (\S\ref{sec:frame-theory}) is measured

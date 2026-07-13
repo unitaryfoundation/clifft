@@ -178,6 +178,99 @@ def run_hir_record(hir_dict: dict, record, backend: str = "chform",
     return norm2 / (scale * scale), chi_peak, n_t
 
 
+def run_hir_record_gadgetized(hir_dict: dict, record, k: int,
+                              rng: np.random.Generator | None = None,
+                              exact: bool = False,
+                              final_norm_rank1: bool = False,
+                              backend: str = "chform"):
+    """P(record) from the OPTIMIZED HIR with every T_GATE gadgetized -- the
+    composition of the two previously separate routes: gadgetization ran on
+    raw circuits (t_raw ancillas), the HIR bridge streamed T rotations
+    (t_live but with mid-run resampling). This function teleports the
+    COMPILED magic, so the single-shot product sampler and the analytic
+    normalization run at the live T-count.
+
+    A compiled T_GATE is a rotation about an arbitrary Pauli,
+    R(P) = (I+P)/2 + e^{i theta}(I-P)/2. Its gadget generalizes the in-line
+    one: prepare an ancilla in (|0> + e^{i theta}|1>)/sqrt2, entangle with
+    Lambda_P(X_a) = H_a . (a-controlled-P) . H_a, force the ancilla to 0 --
+    the surviving branch contributes exactly R(P)/sqrt2, and the entangler is
+    entirely Clifford (controlled-P = S_a^pp then CZ/CX per Pauli factor).
+    All magic is then ONE up-front product layer on t_live ancillas, sampled
+    single-shot at budget k ~ 2^{0.228 t_live}/delta^2; the data evolution is
+    Clifford + forced projections, so chi never exceeds k.
+
+    Returns (P(record), chi_peak, t_live)."""
+    n = hir_dict["num_qubits"]
+    ops = hir_dict["ops"]
+    tops = [op for op in ops if op["op_type"] == "T_GATE"]
+    t = len(tops)
+    N = n + t
+    s = LowRankState(N, backend=backend)
+    for i in range(t):
+        s.clifford_1q("H", n + i)
+    gates = [(n + i, np.conj(TPHASE) if op["is_dagger"] else TPHASE)
+             for i, op in enumerate(tops)]
+    if exact or k == 0:
+        for q, ph in gates:
+            s.rz_diag(q, ph)          # exact branching: chi -> 2^{t_live}
+        norm_corr = 1.0
+    else:
+        s.inject_magic_layer(gates, k, rng or np.random.default_rng())
+        l1sq = (2.0 * abs(0.5 + 1j * (np.sqrt(2) - 1) / 2)) ** (2 * t)
+        norm_corr = 1.0 + (l1sq - 1.0) / k   # analytic E||omega||^2
+    scale = 1.0
+    chi_peak = s.chi
+    ti = 0
+    for op in ops:
+        assert not op.get("is_hidden", False), "hidden measurement unsupported"
+        pp, ax, az = parse_pauli(op["pauli_string"], N)
+        if op["op_type"] == "T_GATE":
+            a = n + ti
+            ti += 1
+            # Lambda_P(X_a) = H_a . (a-controlled-P) . H_a with
+            # P = i^pp X(ax) Z(az); controlled-(i^pp) = S_a^pp. Applying the
+            # CZ factors before the CX factors realizes controlled-[X(ax)Z(az)].
+            s.clifford_1q("H", a)
+            for _ in range(pp % 4):
+                s.clifford_1q("S", a)
+            for j in np.nonzero(az)[0]:
+                s.cz(a, int(j))
+            for j in np.nonzero(ax)[0]:
+                s.cx(a, int(j))
+            s.clifford_1q("H", a)
+        elif op["op_type"] == "CONDITIONAL_PAULI":
+            if int(record[op["controlling_meas"]]):
+                for term in s.terms:
+                    for j in np.nonzero(az)[0]:
+                        term.clifford_1q("Z", int(j))
+                    for j in np.nonzero(ax)[0]:
+                        term.clifford_1q("X", int(j))
+                    term.scale(1j ** (pp % 4))
+        elif op["op_type"] == "MEASURE":
+            bit = int(record[op["meas_record_idx"]])
+            scale *= s.measure_pauli_forced_fast(pp, ax, az, bit)
+        else:
+            raise ValueError(f"unsupported HIR op {op['op_type']}")
+        chi_peak = max(chi_peak, s.chi)
+    # close the gadgets: force every ancilla to 0 (each contributes R(P)/sqrt2,
+    # recovered by the 2^t factor below)
+    ax0 = np.zeros(N, dtype=np.int64)
+    for i in range(t):
+        az_a = np.zeros(N, dtype=np.int64)
+        az_a[n + i] = 1
+        scale *= s.measure_pauli_forced_fast(0, ax0, az_a, 0)
+    if final_norm_rank1:
+        # valid when the record + gadget forcings fully determine the state
+        # (all qubits measured): every surviving term is parallel
+        s.collapse_to_rank1()
+        norm2 = float(s.terms[0].norm2())
+    else:
+        vec = s.statevector()
+        norm2 = float(np.vdot(vec, vec).real)
+    return (2.0 ** t) * norm2 / (scale * scale) / norm_corr, chi_peak, t
+
+
 def cross_record_probability(hir_dict, record, sparsify_budget, rng_a, rng_b):
     """Debiased P(record) for circuits that END FULLY COLLAPSED (rank-1 final
     state), via two INDEPENDENT episodic runs.
