@@ -96,20 +96,21 @@ void append_computational_confusion(Circuit& out, const NonComputationalModel& m
 void process_ordinary_node(const AstNode& node, uint32_t op_index,
                            const NonComputationalModel& model, std::vector<QubitStatus>& status,
                            Circuit& out, uint32_t& slot,
-                           std::vector<ClassifiedMeasurement>& classified) {
+                           std::vector<ClassifiedMeasurement>& classified_measurements) {
     const NonComputationalPolicy& policy = model.policy();
     const GateType gate = node.gate;
 
     const OrdinaryStep step = advance_ordinary_node(node, op_index, status, policy, "rewrite");
     bool drop_op = step.dropped;
-    std::optional<Level> classified_level = step.measured_noncomp_level;
+    const std::optional<ClassifiedOperand>& classified = step.classified_measurement;
 
     if (!drop_op) {
-        if (classified_level.has_value()) {
+        if (classified.has_value()) {
             // The policy pre-scan admits single-qubit measurement forms
             // M, MX, MY, and the measure-and-resets; multi-qubit parity
             // measurements (MPP) on a noncomputational operand reject above.
-            const uint32_t qubit = qubit_operands(node).front().qubit;
+            const uint32_t qubit = classified->qubit;
+            const Level classified_level = classified->level;
             const MeasurementClassifier& classifier = classifier_for(model, gate, op_index, qubit);
             const bool ternary = classifier.has_herald();
             const bool inverted = node.targets.front().is_inverted();
@@ -124,12 +125,12 @@ void process_ordinary_node(const AstNode& node, uint32_t op_index,
             double flip;
             if (ternary) {
                 const double p_herald =
-                    classifier.prob(MeasurementClassifier::kHeraldSymbol, *classified_level);
+                    classifier.prob(MeasurementClassifier::kHeraldSymbol, classified_level);
                 const double denom = 1.0 - p_herald;
-                flip = denom > 0.0 ? classifier.prob(1, *classified_level) / denom : 0.5;
+                flip = denom > 0.0 ? classifier.prob(1, classified_level) / denom : 0.5;
                 flip = std::min(1.0, std::max(0.0, flip));
             } else {
-                flip = classifier.prob(1, *classified_level);
+                flip = classifier.prob(1, classified_level);
             }
             if (inverted) {
                 flip = 1.0 - flip;
@@ -150,7 +151,7 @@ void process_ordinary_node(const AstNode& node, uint32_t op_index,
             if (is_measure_reset(gate) && is_computational(status[qubit])) {
                 out.nodes.push_back(single_qubit_op(reset_for(gate), qubit));
             }
-            classified.push_back({slot, *classified_level, noise_node});
+            classified_measurements.push_back({slot, classified_level, noise_node});
         } else {
             out.nodes.push_back(node);
             // The classifier's computational columns apply to Z-basis
@@ -198,8 +199,7 @@ ContinuationRewrite rewrite_continuation(const Circuit& annotated, const ExactSh
 
     ContinuationRewrite result;
     Circuit& out = result.circuit;
-    out = annotated;
-    out.nodes.clear();
+    out = annotated.metadata_only_copy();
     out.nodes.reserve(annotated.nodes.size() + events.jumps.size() * 2);
 
     // No initial X-prep here: in exact mode a known |1> initial level is a

@@ -114,8 +114,9 @@ TEST_CASE("advance_ordinary_node: M on a leaked qubit reports the level and keep
     NonComputationalPolicy policy;
     OrdinaryStep step = advance_ordinary_node(node, 0, status, policy, "test");
     REQUIRE_FALSE(step.dropped);
-    REQUIRE(step.measured_noncomp_level.has_value());
-    REQUIRE(*step.measured_noncomp_level == Level::LeakG);
+    REQUIRE(step.classified_measurement.has_value());
+    REQUIRE(step.classified_measurement->qubit == 0);
+    REQUIRE(step.classified_measurement->level == Level::LeakG);
     REQUIRE(status[0] == QubitStatus::LeakG);  // measurement does not reset
 }
 

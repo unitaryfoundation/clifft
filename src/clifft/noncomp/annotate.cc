@@ -9,8 +9,7 @@ namespace clifft {
 Circuit annotate(const Circuit& circuit, const NonComputationalModel& model) {
     const auto& hooks = model.transition_hooks();
 
-    Circuit out = circuit;
-    out.nodes.clear();
+    Circuit out = circuit.metadata_only_copy();
     out.nodes.reserve(circuit.nodes.size() * 2);
 
     for (const AstNode& node : circuit.nodes) {

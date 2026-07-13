@@ -113,9 +113,10 @@ OrdinaryStep advance_ordinary_node(const AstNode& node, uint32_t op_index,
                                    std::vector<QubitStatus>& status,
                                    const NonComputationalPolicy& policy, std::string_view caller) {
     const GateType gate = node.gate;
+    const std::vector<QubitOperand> operands = qubit_operands(node);
 
     bool drop_op = false;
-    for (const QubitOperand& operand : qubit_operands(node)) {
+    for (const QubitOperand& operand : operands) {
         const uint32_t qubit = operand.qubit;
         if (qubit >= status.size()) {
             throw std::invalid_argument(std::string(caller) + ": operand qubit " +
@@ -136,17 +137,17 @@ OrdinaryStep advance_ordinary_node(const AstNode& node, uint32_t op_index,
         }
     }
 
-    std::optional<Level> classified_level;
-    for (const QubitOperand& operand : qubit_operands(node)) {
+    std::optional<ClassifiedOperand> classified;
+    for (const QubitOperand& operand : operands) {
         const uint32_t qubit = operand.qubit;
         const QubitStatus pre = status[qubit];
         if (is_measurement(gate) && !is_computational(pre)) {
-            classified_level = noncomp_level(pre);
+            classified = ClassifiedOperand{qubit, noncomp_level(pre)};
         }
         status[qubit] = drop_op ? pre : normal_post_op_status(pre, gate, operand.role, policy);
     }
 
-    return OrdinaryStep{drop_op, classified_level};
+    return OrdinaryStep{drop_op, classified};
 }
 
 }  // namespace clifft

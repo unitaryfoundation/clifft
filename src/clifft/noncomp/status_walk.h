@@ -52,15 +52,20 @@ OperandAction operand_action(GateType gate, QubitStatus status,
 QubitStatus normal_post_op_status(QubitStatus entry, GateType gate, OperandRole role,
                                   const NonComputationalPolicy& policy);
 
+struct ClassifiedOperand {
+    uint32_t qubit;
+    Level level;
+};
+
 // Result of advancing one ordinary, non-annotation circuit node.
 struct OrdinaryStep {
     bool dropped = false;
-    std::optional<Level> measured_noncomp_level;
+    std::optional<ClassifiedOperand> classified_measurement;
 };
 
 // Range-check the node's operands, apply the whole-operation policy, advance
-// `status`, and report a leaked/lost level when a measurement must be
-// classified outside the SVM.
+// `status`, and report the qubit and leaked/lost level when a measurement
+// must be classified outside the SVM.
 OrdinaryStep advance_ordinary_node(const AstNode& node, uint32_t op_index,
                                    std::vector<QubitStatus>& status,
                                    const NonComputationalPolicy& policy, std::string_view caller);

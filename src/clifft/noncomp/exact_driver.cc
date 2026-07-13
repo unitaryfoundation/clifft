@@ -578,6 +578,13 @@ NonComputationalSample sample_noncomputational_exact(const Circuit& circuit,
         return result;
     }
 
+    const size_t shot_count = shots;
+    result.measurements.reserve(shot_count * circuit.num_measurements);
+    result.detectors.reserve(shot_count * circuit.num_detectors);
+    result.observables.reserve(shot_count * circuit.num_observables);
+    result.final_status.reserve(shot_count * circuit.num_qubits);
+    result.heralds.reserve(shot_count * circuit.num_measurements);
+
     const InstrumentTraceOptions instrument_options = instrument_trace_options(model);
 
     std::map<std::string, ContinuationEntry> cache;
