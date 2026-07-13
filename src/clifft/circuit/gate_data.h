@@ -121,8 +121,9 @@ enum class GateType : uint16_t {
     CORRELATED_ERROR,       // E(p): correlated Pauli product error
     ELSE_CORRELATED_ERROR,  // Else-branch in a correlated error chain
 
-    // Synthetic gates (emitted by parser, not in input syntax)
-    READOUT_NOISE,  // Classical bit-flip on measurement result
+    // Record-bit noise: emitted by the parser for noisy measurements like
+    // M(p), and also writable directly in circuit text
+    READOUT_NOISE,  // Classical bit-flip on a recorded result
 
     // QEC annotations
     DETECTOR,            // Detector declaration

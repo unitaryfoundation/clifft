@@ -1963,4 +1963,5 @@ TEST_CASE("LOSS parses its probability and rejects bad forms") {
     CHECK_THROWS_AS(parse("LOSS 0\n"), ParseError);       // missing probability
     CHECK_THROWS_AS(parse("LOSS(1.5) 0\n"), ParseError);  // out of range
     CHECK_THROWS_AS(parse("LOSS(0.1, 0.2) 0\n"), ParseError);
+    CHECK_THROWS_AS(parse("LOSS(0.1) !0\n"), ParseError);  // inverted target
 }
