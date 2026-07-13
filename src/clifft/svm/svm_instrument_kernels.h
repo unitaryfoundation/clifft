@@ -25,7 +25,7 @@
 // None of these kernels rolls the PRNG: instrument_fire_branch() turns one
 // caller-supplied uniform variate into the branch decision, so every
 // function here is deterministic and directly oracle-testable. The
-// destination fixup for a jump whose destination differs from its source
+// destination flip for a jump whose destination differs from its source
 // is a Pauli and is likewise the caller's, through the existing frame
 // machinery.
 //

@@ -1,11 +1,10 @@
 #pragma once
 
 // Bridge from a NonComputationalModel to the front-end's instrument
-// materialization: resolve every named transition into the plain
-// per-computational-source probabilities trace() consumes, and bake in
-// the model's damping policy. The front-end stays model-free -- level
-// tables, transition matrices, and policy enums never cross this
-// boundary, only InstrumentSpec numbers.
+// materialization: compress each named five-level transition matrix into
+// the two quantum-source columns in InstrumentProbabilities, and carry the
+// model-wide damping setting. The front-end stays model-free -- level tables,
+// transition matrices, and policy enums never cross this boundary.
 
 #include "clifft/frontend/frontend.h"
 #include "clifft/noncomp/model.h"

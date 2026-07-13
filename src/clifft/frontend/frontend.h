@@ -25,27 +25,18 @@
 
 namespace clifft {
 
-// Per-transition probabilities for materializing LEVEL_TRANSITION
-// annotations into INSTRUMENT ops, in the InstrumentSite convention
-// (source/destination index 0 is the |0> level, 1 the |1> level; the
-// per-source trap remainder is p_total[s] - p_dest[s][0] - p_dest[s][1]).
-// The front-end knows nothing of level tables or transition matrices:
-// the noncomputational layer resolves a model into these plain numbers
-// (instrument_trace_options() in noncomp/instrument_options.h).
-struct InstrumentSpec {
-    double p_total[2] = {0.0, 0.0};
-    double p_dest[2][2] = {{0.0, 0.0}, {0.0, 0.0}};
-};
-
 // Opt-in instrument materialization for trace(). `transitions` maps a
 // LEVEL_TRANSITION tag to its spec; LOSS needs no entry (its probability
 // is inline and its destination is entirely the trap remainder).
 struct InstrumentTraceOptions {
-    std::map<std::string, InstrumentSpec, std::less<>> transitions;
+    // The front-end remains model-free: the noncomputational layer compresses
+    // each five-level matrix into InstrumentProbabilities before tracing.
+    std::map<std::string, InstrumentProbabilities, std::less<>> transitions;
 
     // damping="neglect": dormant-random sites skip the expansion and the
-    // no-fire back-action. Copied onto every materialized site.
-    bool neglect_damping = false;
+    // no-fire back-action. trace() copies this module-wide setting once to
+    // HirModule::neglect_instrument_damping.
+    bool neglect_instrument_damping = false;
 
     // When set, trace() reports the hidden measurement slot it assigns to
     // the reset at this node index (in the circuit being traced) through

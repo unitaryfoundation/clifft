@@ -85,6 +85,33 @@ they project onto their source level. The unused probability in a column is the
 no-jump probability. For computational sources, these probabilities define the
 jump and no-jump Kraus branches described below.
 
+For a computational source $s \in \{g,e\}$, define its total fire
+probability and its computational-destination probabilities by
+
+$$
+p_{\mathrm{fire}}(s) = \sum_{\ell} T[\ell][s],
+\qquad
+p_{\mathrm{comp}}(s \mathbin{\to} d) = T[d][s],
+\quad d \in \{g,e\}.
+$$
+
+The unconditional probability of firing into the noncomputational subspace is
+the remainder
+
+$$
+p_N(s)
+= p_{\mathrm{fire}}(s) - T[g][s] - T[e][s]
+= T[\mathrm{leak\_g}][s]
+  + T[\mathrm{leak\_e}][s]
+  + T[\mathrm{lost}][s].
+$$
+
+The no-jump probability from $s$ is $1-p_{\mathrm{fire}}(s)$. A diagonal
+entry $T[s][s]$ is still a jump event that lands back on its source; it is not
+part of the no-jump branch. The matrix entries are branch weights. A jump from
+a computational source acts on the live quantum state, while a jump from a
+noncomputational source can be sampled from its already definite level.
+
 A measurement classifier $P[\mathrm{symbol}][\mathrm{level}]$ defines the
 recorded result for each level. It has two binary record symbols and may have
 a third herald symbol, typically for loss. For example, the `leak_g` column
@@ -158,6 +185,15 @@ Ordinary Clifft compiles a circuit once and reuses the program for many shots.
 The compiler absorbs deterministic Clifford evolution into an offline frame,
 localizes the remaining Pauli operations, and emits bytecode for the factored
 Schrodinger virtual machine.
+
+For a transition on a computational site, the compiled program carries the
+total jump probability for each computational source and the separate weights
+for `g` and `e` destinations. Their remainder is the combined weight for
+`leak_g`, `leak_e`, and `lost`. The virtual machine handles a computational
+destination directly. For a noncomputational destination, it returns control
+to the trajectory driver, which chooses the specific level from the original
+five-level matrix. Transitions whose source is already noncomputational are
+handled while constructing the trajectory-specific continuation.
 
 A noncomputational jump can change which later gates are skipped, which measurements use the classifier, and whether a site returns to the computational state. Those choices depend on the live state and differ between shots, so one model-independent program cannot describe every trajectory. `noncomp.sample` therefore interleaves execution with compilation of trajectory-specific continuations. A continuation is the circuit rewritten and compiled for the noncomputational events observed so far and the resulting status ledger. Its prefix matches the program already executed, while its remaining operations reflect the updated trajectory.
 

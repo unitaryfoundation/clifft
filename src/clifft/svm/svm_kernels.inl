@@ -1978,16 +1978,18 @@ static inline void exec_readout_noise(SchrodingerState& state, const ConstantPoo
 // dispatch halts with state.pending_trap set.
 
 // Destination of a fire from physical source s: a computational level d
-// in {0, 1} with probability p_dest[s][d] / p_total[s] -- d != s is a
+// in {0, 1} with probability p_computational_dest[s][d] / p_fire[s] -- d != s is a
 // |0> <-> |1> jump, d == s a jump onto the source's own level (pure
-// collapse, no fixup) -- else -1 for the leaked/lost trap remainder.
+// collapse, no destination flip) -- else -1 for the leaked/lost trap remainder.
 static inline int draw_instrument_destination(SchrodingerState& state,
                                               const CompiledInstrumentSite& site, uint8_t source) {
-    const double u = state.random_double() * site.p_total[source];
-    if (u < site.p_dest[source][0]) {
+    const auto& probabilities = site.probabilities;
+    const double u = state.random_double() * probabilities.p_fire[source];
+    if (u < probabilities.p_computational_dest[source][0]) {
         return 0;
     }
-    if (u < site.p_dest[source][0] + site.p_dest[source][1]) {
+    if (u < probabilities.p_computational_dest[source][0] +
+                probabilities.p_computational_dest[source][1]) {
         return 1;
     }
     return -1;
@@ -2004,12 +2006,13 @@ static inline bool instrument_trap(SchrodingerState& state, const CompiledInstru
     return false;
 }
 
-// Destination fixup for an in-line computational fire whose destination
+// Destination flip for an in-line computational fire whose destination
 // differs from its source (a |0> <-> |1> jump): XOR the site's
 // virtualized X_q into the frame.
-static inline void apply_instrument_fixup(SchrodingerState& state, const ConstantPool& pool,
-                                          const CompiledInstrumentSite& site) {
-    auto mask = pool.instrument_fixup_masks.at(site.fixup_mask);
+static inline void apply_instrument_destination_flip(SchrodingerState& state,
+                                                     const ConstantPool& pool,
+                                                     const CompiledInstrumentSite& site) {
+    auto mask = pool.instrument_destination_flip_masks.at(site.destination_flip_mask);
     apply_pauli_to_frame(state, mask.x(), mask.z(), mask.sign());
 }
 
@@ -2028,7 +2031,7 @@ static inline bool exec_instrument(SchrodingerState& state, const ConstantPool& 
     if (instr.opcode == Opcode::OP_INSTRUMENT_DORMANT_STATIC) {
         const auto source = static_cast<uint8_t>(static_cast<uint8_t>(bit_get(state.p_x, v)) ^
                                                  static_cast<uint8_t>(sign));
-        if (state.random_double() >= site.p_total[source]) {
+        if (state.random_double() >= site.probabilities.p_fire[source]) {
             return true;  // no fire; the definite-source damp is a scalar
         }
         const int dest = draw_instrument_destination(state, site, source);
@@ -2038,7 +2041,7 @@ static inline bool exec_instrument(SchrodingerState& state, const ConstantPool& 
             return instrument_trap(state, site, source, /*destination_pending=*/false);
         }
         if (dest != source) {
-            apply_instrument_fixup(state, pool, site);
+            apply_instrument_destination_flip(state, pool, site);
         }
         return true;
     }
@@ -2055,12 +2058,12 @@ static inline bool exec_instrument(SchrodingerState& state, const ConstantPool& 
         // collapse as a trace-out forced to that source, keeping the
         // fire-side correlations exact (see DampingPolicy in
         // noncomp/policy.h).
-        const double mass = site.p_total[0] + site.p_total[1];
+        const double mass = site.probabilities.p_fire[0] + site.probabilities.p_fire[1];
         if (state.random_double() * 2.0 >= mass) {
             return true;
         }
         const double w = state.random_double() * mass;
-        return instrument_trap(state, site, w < site.p_total[0] ? 0 : 1,
+        return instrument_trap(state, site, w < site.probabilities.p_fire[0] ? 0 : 1,
                                /*destination_pending=*/true);
     }
 
@@ -2080,8 +2083,8 @@ static inline bool exec_instrument(SchrodingerState& state, const ConstantPool& 
         // Populations of a dormant-random qubit are exactly half-half, so
         // the branch is drawn before anything is materialized.
         const InstrumentBranch branch =
-            instrument_fire_branch(InstrumentPopulations{1.0, 1.0}, site.p_total[0],
-                                   site.p_total[1], state.random_double());
+            instrument_fire_branch(InstrumentPopulations{1.0, 1.0}, site.probabilities.p_fire[0],
+                                   site.probabilities.p_fire[1], state.random_double());
         if (!branch.fired) {
             if (fused) {
                 exec_instrument_expand_damp(state, v, c_g, c_e);
@@ -2090,7 +2093,7 @@ static inline bool exec_instrument(SchrodingerState& state, const ConstantPool& 
                 // No-fire with a certain-fire source: the posterior
                 // excludes it. Materialize, then collapse onto the
                 // surviving level.
-                const uint8_t survivor = site.p_total[0] >= 1.0 ? 1 : 0;
+                const uint8_t survivor = site.probabilities.p_fire[0] >= 1.0 ? 1 : 0;
                 exec_instrument_expand_damp(state, v, 1.0, 1.0);
                 const InstrumentPopulations pops = exec_instrument_damp_eval(state, v, 1.0, 1.0);
                 exec_instrument_collapse_active(state, v, static_cast<uint8_t>(survivor ^ sign),
@@ -2112,7 +2115,7 @@ static inline bool exec_instrument(SchrodingerState& state, const ConstantPool& 
                                    /*destination_pending=*/false);
         }
         if (dest != branch.source) {
-            apply_instrument_fixup(state, pool, site);
+            apply_instrument_destination_flip(state, pool, site);
         }
         return true;
     }
@@ -2124,14 +2127,14 @@ static inline bool exec_instrument(SchrodingerState& state, const ConstantPool& 
         std::swap(pops.pop_g, pops.pop_e);
     }
     const double total = pops.pop_g + pops.pop_e;
-    const InstrumentBranch branch =
-        instrument_fire_branch(pops, site.p_total[0], site.p_total[1], state.random_double());
+    const InstrumentBranch branch = instrument_fire_branch(
+        pops, site.probabilities.p_fire[0], site.probabilities.p_fire[1], state.random_double());
     if (!branch.fired) {
         if (fused) {
             state.scale_magnitude(
                 std::sqrt(total / (r_g * r_g * pops.pop_g + r_e * r_e * pops.pop_e)));
         } else {
-            const uint8_t survivor = site.p_total[0] >= 1.0 ? 1 : 0;
+            const uint8_t survivor = site.probabilities.p_fire[0] >= 1.0 ? 1 : 0;
             exec_instrument_collapse_active(state, v, static_cast<uint8_t>(survivor ^ sign), total);
         }
         return true;
@@ -2142,7 +2145,7 @@ static inline bool exec_instrument(SchrodingerState& state, const ConstantPool& 
         return instrument_trap(state, site, branch.source, /*destination_pending=*/false);
     }
     if (dest != branch.source) {
-        apply_instrument_fixup(state, pool, site);
+        apply_instrument_destination_flip(state, pool, site);
     }
     return true;
 }

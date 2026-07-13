@@ -688,7 +688,8 @@ CompiledModule lower(const HirModule& hir, std::span<const uint8_t> postselectio
     ctx.constant_pool.pauli_masks = PauliMaskArena(n, num_apply_paulis);
     ctx.constant_pool.exp_val_masks = PauliMaskArena(n, num_exp_val_masks);
     ctx.constant_pool.noise_channel_masks = PauliMaskArena(n, num_noise_channels);
-    ctx.constant_pool.instrument_fixup_masks = PauliMaskArena(n, hir.instrument_sites.size());
+    ctx.constant_pool.instrument_destination_flip_masks =
+        PauliMaskArena(n, hir.instrument_sites.size());
     size_t next_cp_pauli = 0;
     size_t next_cp_exp_val = 0;
     size_t next_cp_noise = 0;
@@ -977,7 +978,8 @@ CompiledModule lower(const HirModule& hir, std::span<const uint8_t> postselectio
                     opcode = Opcode::OP_INSTRUMENT_ACTIVE;
                 } else if (result.basis == LocalizedBasis::Z_BASIS) {
                     opcode = Opcode::OP_INSTRUMENT_DORMANT_STATIC;
-                } else if (site.neglect_damping || site.p_total[0] == site.p_total[1]) {
+                } else if (hir.neglect_instrument_damping ||
+                           site.probabilities.p_fire[0] == site.probabilities.p_fire[1]) {
                     // No expansion: the qubit stays out of the amplitude
                     // array, a no-fire leaves the state untouched, and every
                     // fire traps to the driver (an in-line collapse would
@@ -1004,37 +1006,33 @@ CompiledModule lower(const HirModule& hir, std::span<const uint8_t> postselectio
                     opcode = Opcode::OP_INSTRUMENT_EXPAND;
                 }
 
-                // Destination fixup: the site's rewound X observable,
+                // Destination flip: the site's rewound X observable,
                 // virtualized through the frame as it stands after the
                 // localization and basis emissions, so XORing it into the
                 // runtime Pauli frame is correct at the instrument
                 // instruction's position.
                 {
-                    auto hir_fixup = hir.pauli_masks.at(site.fixup_mask);
-                    auto fixup_v =
-                        map_to_virtual(ctx, hir_fixup.x(), hir_fixup.z(), hir_fixup.sign(), n);
-                    auto slot = ctx.constant_pool.instrument_fixup_masks.mut_at(
+                    auto hir_flip = hir.pauli_masks.at(site.destination_flip_mask);
+                    auto flip_v =
+                        map_to_virtual(ctx, hir_flip.x(), hir_flip.z(), hir_flip.sign(), n);
+                    auto slot = ctx.constant_pool.instrument_destination_flip_masks.mut_at(
                         static_cast<PauliMaskHandle>(hir_site_idx));
-                    stim_to_mask_view(fixup_v.xs, n, slot.x());
-                    stim_to_mask_view(fixup_v.zs, n, slot.z());
-                    slot.set_sign(fixup_v.sign);
+                    stim_to_mask_view(flip_v.xs, n, slot.x());
+                    stim_to_mask_view(flip_v.zs, n, slot.z());
+                    slot.set_sign(flip_v.sign);
                 }
 
                 CompiledInstrumentSite compiled;
                 compiled.site_id = hir_site_idx;
-                for (int s = 0; s < 2; ++s) {
-                    compiled.p_total[s] = site.p_total[s];
-                    compiled.p_dest[s][0] = site.p_dest[s][0];
-                    compiled.p_dest[s][1] = site.p_dest[s][1];
-                }
-                compiled.fixup_mask = static_cast<PauliMaskHandle>(hir_site_idx);
-                compiled.neglect_damping = site.neglect_damping;
+                compiled.probabilities = site.probabilities;
+                compiled.destination_flip_mask = static_cast<PauliMaskHandle>(hir_site_idx);
                 const auto cp_idx =
                     static_cast<uint32_t>(ctx.constant_pool.instrument_sites.size());
                 ctx.constant_pool.instrument_sites.push_back(compiled);
 
-                ctx.emit(make_instrument(opcode, result.pivot, cp_idx, result.sign, site.damp[0],
-                                         site.damp[1]));
+                const double r_g = std::sqrt(1.0 - site.probabilities.p_fire[0]);
+                const double r_e = std::sqrt(1.0 - site.probabilities.p_fire[1]);
+                ctx.emit(make_instrument(opcode, result.pivot, cp_idx, result.sign, r_g, r_e));
 
                 if (opcode == Opcode::OP_INSTRUMENT_EXPAND) {
                     ctx.reg_manager.activate();

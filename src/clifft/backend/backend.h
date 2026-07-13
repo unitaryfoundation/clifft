@@ -172,7 +172,7 @@ struct alignas(32) Instruction {
         } exp_val;
 
         // Variant H: Instrument site (OP_INSTRUMENT_*). r_g/r_e are the
-        // no-fire damp coefficients sqrt(1 - p_total[s]), physical order
+        // no-fire damp coefficients sqrt(1 - p_fire[s]), physical order
         // (the localization sign rides in FLAG_SIGN); unused by the
         // dormant variants.
         struct {
@@ -280,24 +280,20 @@ struct FusedU4Node {
     Entry entries[16];  // Indexed by 4-bit incoming frame state
 };
 
-// Compiled instrument site: the fire-branch data the dispatcher reads only
-// when a fire is drawn (the hot no-fire path reads just the instruction
-// payload). Probabilities are physical (source/destination index 0 is the
-// |0> level); the localization sign lives on the instruction. site_id is
-// the HirModule::instrument_sites index and keys the compiled module's
-// instrument_offsets table and the trap protocol.
+// Compiled instrument site: probabilities are physical
+// (source/destination index 0 is the |0> level); the localization sign lives
+// on the instruction. site_id is the HirModule::instrument_sites index and
+// keys the compiled module's instrument_offsets table and trap protocol.
 struct CompiledInstrumentSite {
     uint32_t site_id = 0;
-    double p_total[2] = {0.0, 0.0};
-    double p_dest[2][2] = {{0.0, 0.0}, {0.0, 0.0}};
 
     // Virtualized X_q at the site (handle into
-    // ConstantPool::instrument_fixup_masks): the destination fixup for an
-    // in-line computational fire whose destination differs from its
-    // source, XORed into the Pauli frame.
-    PauliMaskHandle fixup_mask{};
+    // ConstantPool::instrument_destination_flip_masks): the destination
+    // flip for an in-line computational fire whose destination differs
+    // from its source, XORed into the Pauli frame.
+    PauliMaskHandle destination_flip_mask{};
 
-    bool neglect_damping = false;
+    InstrumentProbabilities probabilities;
 };
 
 struct ConstantPool {
@@ -330,9 +326,9 @@ struct ConstantPool {
     std::vector<ReadoutNoiseEntry> readout_noise;
 
     // Instrument sites for OP_INSTRUMENT_*, and the arena holding their
-    // virtualized destination-fixup masks.
+    // virtualized destination-flip masks.
     std::vector<CompiledInstrumentSite> instrument_sites;
-    PauliMaskArena instrument_fixup_masks;
+    PauliMaskArena instrument_destination_flip_masks;
 
     // Target lists for detector parity checks
     std::vector<std::vector<uint32_t>> detector_targets;
@@ -366,8 +362,8 @@ inline void assert_arena_widths_match(uint32_t num_qubits, const ConstantPool& p
            "exp_val_masks arena width does not match num_qubits");
     assert(pool.noise_channel_masks.num_words() == expected &&
            "noise_channel_masks arena width does not match num_qubits");
-    assert(pool.instrument_fixup_masks.num_words() == expected &&
-           "instrument_fixup_masks arena width does not match num_qubits");
+    assert(pool.instrument_destination_flip_masks.num_words() == expected &&
+           "instrument_destination_flip_masks arena width does not match num_qubits");
 }
 
 // =============================================================================

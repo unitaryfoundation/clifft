@@ -1,5 +1,7 @@
 #include "clifft/frontend/frontend.h"
 
+#include "clifft/util/numeric.h"
+
 #include "stim.h"
 
 #include <cmath>
@@ -371,7 +373,7 @@ size_t count_pauli_masks(const Circuit& circuit) {
             case GateType::LEVEL_TRANSITION:
             case GateType::LOSS:
                 // Two masks per materialized instrument site: the rewound
-                // source projector on the op, and the rewound X fixup in
+                // source projector on the op, and the rewound X destination flip in
                 // the side-table. Counted unconditionally: without
                 // instrument options these gates reject before claiming,
                 // and an over-sized arena is harmless.
@@ -399,6 +401,45 @@ size_t count_pauli_masks(const Circuit& circuit) {
     return count;
 }
 
+// InstrumentTraceOptions is a C++ trace boundary in its own right, even
+// though the noncomputational model normally constructs it from already
+// validated matrices. Validate raw specs here so a malformed compressed
+// payload cannot produce a negative square root or an invalid destination
+// draw downstream. Release builds use -ffast-math, so inspect IEEE 754 bits
+// instead of relying on std::isfinite().
+void validate_instrument_probabilities(const InstrumentProbabilities& probabilities,
+                                       const std::string& site) {
+    // Keep this at least as loose as the model layer's kProbTolerance.
+    // TransitionInstrument clamps column sums within that tolerance to 1.
+    constexpr double kTolerance = 1e-12;
+
+    for (uint8_t source = 0; source < 2; ++source) {
+        const double p_fire = probabilities.p_fire[source];
+        if (!is_finite_robust(p_fire) || p_fire < 0.0 || p_fire > 1.0) {
+            throw std::invalid_argument("trace: " + site + " has invalid p_fire[" +
+                                        std::to_string(source) + "] = " + std::to_string(p_fire));
+        }
+
+        double p_computational = 0.0;
+        for (uint8_t destination = 0; destination < 2; ++destination) {
+            const double p = probabilities.p_computational_dest[source][destination];
+            if (!is_finite_robust(p) || p < 0.0 || p > 1.0) {
+                throw std::invalid_argument(
+                    "trace: " + site + " has invalid p_computational_dest[" +
+                    std::to_string(source) + "][" + std::to_string(destination) +
+                    "] = " + std::to_string(p));
+            }
+            p_computational += p;
+        }
+        if (p_computational > p_fire + kTolerance) {
+            throw std::invalid_argument("trace: " + site +
+                                        " has computational destination probability " +
+                                        std::to_string(p_computational) + " above p_fire[" +
+                                        std::to_string(source) + "] = " + std::to_string(p_fire));
+        }
+    }
+}
+
 }  // namespace
 
 HirModule trace(const Circuit& circuit, const InstrumentTraceOptions* instruments) {
@@ -415,6 +456,8 @@ HirModule trace(const Circuit& circuit, const InstrumentTraceOptions* instrument
     hir.num_detectors = circuit.num_detectors;
     hir.num_observables = circuit.num_observables;
     hir.num_exp_vals = circuit.num_exp_vals;
+    hir.neglect_instrument_damping =
+        instruments != nullptr && instruments->neglect_instrument_damping;
 
     std::mt19937_64 rng(0);
     stim::TableauSimulator<kStimWidth> sim(std::move(rng), circuit.num_qubits);
@@ -773,7 +816,7 @@ HirModule trace(const Circuit& circuit, const InstrumentTraceOptions* instrument
                     const uint32_t qubit = target.value();
                     InstrumentSite site;
                     site.qubit = qubit;
-                    site.neglect_damping = instruments->neglect_damping;
+                    std::string site_description;
                     if (node.gate == GateType::LOSS) {
                         // Uniform loss: source-independent rate, destination
                         // entirely the trap remainder. A missing argument is
@@ -784,8 +827,9 @@ HirModule trace(const Circuit& circuit, const InstrumentTraceOptions* instrument
                                 " requires exactly one argument (the loss probability)");
                         }
                         const double p = node.args[0];
-                        site.p_total[0] = p;
-                        site.p_total[1] = p;
+                        site.probabilities.p_fire[0] = p;
+                        site.probabilities.p_fire[1] = p;
+                        site_description = "LOSS at line " + std::to_string(node.source_line);
                     } else {
                         const auto it = instruments->transitions.find(node.tag);
                         if (it == instruments->transitions.end()) {
@@ -794,28 +838,26 @@ HirModule trace(const Circuit& circuit, const InstrumentTraceOptions* instrument
                                 std::to_string(node.source_line) +
                                 " does not name a transition in the instrument options");
                         }
-                        const InstrumentSpec& spec = it->second;
-                        for (int s = 0; s < 2; ++s) {
-                            site.p_total[s] = spec.p_total[s];
-                            site.p_dest[s][0] = spec.p_dest[s][0];
-                            site.p_dest[s][1] = spec.p_dest[s][1];
-                        }
+                        site.probabilities = it->second;
+                        site_description = "LEVEL_TRANSITION[" + node.tag + "] at line " +
+                                           std::to_string(node.source_line);
                     }
+                    validate_instrument_probabilities(site.probabilities, site_description);
                     // A site that can never fire is the identity channel.
-                    if (site.p_total[0] == 0.0 && site.p_total[1] == 0.0) {
+                    if (site.probabilities.p_fire[0] == 0.0 &&
+                        site.probabilities.p_fire[1] == 0.0) {
                         continue;
                     }
-                    site.damp[0] = std::sqrt(1.0 - site.p_total[0]);
-                    site.damp[1] = std::sqrt(1.0 - site.p_total[1]);
 
-                    // Destination fixup: the rewound X observable, stored
+                    // Destination flip: the rewound X observable, stored
                     // in the arena so downstream mask conjugation can
                     // reach it through the side-table handle.
-                    site.fixup_mask = hir.claim_side_mask([&](MutablePauliMaskView slot) {
-                        bool sign;
-                        extract_rewound_x_into(sim, qubit, slot.x(), slot.z(), sign);
-                        slot.set_sign(sign);
-                    });
+                    site.destination_flip_mask =
+                        hir.claim_side_mask([&](MutablePauliMaskView slot) {
+                            bool sign;
+                            extract_rewound_x_into(sim, qubit, slot.x(), slot.z(), sign);
+                            slot.set_sign(sign);
+                        });
 
                     const InstrumentSiteIdx site_idx{
                         static_cast<uint32_t>(hir.instrument_sites.size())};

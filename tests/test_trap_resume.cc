@@ -31,10 +31,10 @@ namespace {
 
 // A transition whose entire fire mass is leaked/lost, with per-source
 // rates (p_g, p_e).
-InstrumentSpec leak(double p_g, double p_e) {
-    InstrumentSpec spec;
-    spec.p_total[0] = p_g;
-    spec.p_total[1] = p_e;
+InstrumentProbabilities leak(double p_g, double p_e) {
+    InstrumentProbabilities spec;
+    spec.p_fire[0] = p_g;
+    spec.p_fire[1] = p_e;
     return spec;
 }
 
@@ -88,14 +88,14 @@ TEST_CASE("trap+resume: a spectator loss resumes in the same module and complete
 TEST_CASE("trap+resume: a trap-form fire reports its destination as pending") {
     InstrumentTraceOptions options;
     options.transitions.emplace("jump", [] {
-        InstrumentSpec spec;
-        spec.p_total[0] = 1.0;
-        spec.p_total[1] = 1.0;
-        spec.p_dest[0][1] = 0.5;  // half the column is computational:
-        spec.p_dest[1][0] = 0.5;  // the host must draw over all of it
+        InstrumentProbabilities spec;
+        spec.p_fire[0] = 1.0;
+        spec.p_fire[1] = 1.0;
+        spec.p_computational_dest[0][1] = 0.5;  // half the column is computational:
+        spec.p_computational_dest[1][0] = 0.5;  // the host must draw over all of it
         return spec;
     }());
-    options.neglect_damping = true;
+    options.neglect_instrument_damping = true;
 
     auto module = compile_raw("H 0\nLEVEL_TRANSITION[jump] 0\nM 0", options);
     auto state = make_shot_state(module, /*seed=*/6);
