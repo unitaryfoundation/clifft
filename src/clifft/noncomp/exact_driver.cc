@@ -529,6 +529,26 @@ NonComputationalSample sample_noncomputational_exact(const Circuit& circuit,
         const AstNode& node = annotated.nodes[op_index];
         if (node.gate == GateType::LEVEL_TRANSITION || node.gate == GateType::LOSS) {
             resolve_annotation(node, model, op_index);
+            if (node.targets.empty()) {
+                throw std::invalid_argument(
+                    "sample_noncomputational: annotation '" + std::string(gate_name(node.gate)) +
+                    "' at op " + std::to_string(op_index) + " requires at least one qubit target");
+            }
+            for (const Target& target : node.targets) {
+                if (target.is_rec() || target.has_pauli() || target.is_inverted()) {
+                    throw std::invalid_argument("sample_noncomputational: annotation '" +
+                                                std::string(gate_name(node.gate)) + "' at op " +
+                                                std::to_string(op_index) +
+                                                " requires plain qubit targets");
+                }
+                if (target.value() >= annotated.num_qubits) {
+                    throw std::invalid_argument("sample_noncomputational: annotation '" +
+                                                std::string(gate_name(node.gate)) +
+                                                "' target qubit " + std::to_string(target.value()) +
+                                                " is out of range at op " +
+                                                std::to_string(op_index));
+                }
+            }
         }
         // The parser normalizes single-arity measurements to one node per target.
         // The rewrite counts one record slot per measurement node and classifies

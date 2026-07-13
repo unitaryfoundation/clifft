@@ -596,6 +596,35 @@ TEST_CASE("exact: a hand-built malformed LOSS rejects up front") {
     }
 }
 
+TEST_CASE("exact: hand-built annotation targets reject up front") {
+    Circuit circuit = parse("M 0");
+
+    SECTION("out-of-range target with computational initials") {
+        ModelSpec spec;
+        circuit.nodes.insert(circuit.nodes.begin(),
+                             AstNode{GateType::LOSS, {Target::qubit(1000000)}, {0.1}, 0});
+        REQUIRE_THROWS_WITH(sample_noncomputational(circuit, make_model(spec), 1, 1),
+                            ContainsSubstring("target qubit 1000000 is out of range"));
+    }
+
+    SECTION("out-of-range target with noncomputational initials") {
+        ModelSpec spec;
+        spec.initial = {0.0, 0.0, 0.0, 0.0, 1.0};
+        circuit.nodes.insert(circuit.nodes.begin(),
+                             AstNode{GateType::LOSS, {Target::qubit(1000000)}, {0.1}, 0});
+        REQUIRE_THROWS_WITH(sample_noncomputational(circuit, make_model(spec), 1, 1),
+                            ContainsSubstring("target qubit 1000000 is out of range"));
+    }
+
+    SECTION("record target") {
+        ModelSpec spec;
+        circuit.nodes.insert(circuit.nodes.begin(),
+                             AstNode{GateType::LOSS, {Target::rec(0)}, {0.1}, 0});
+        REQUIRE_THROWS_WITH(sample_noncomputational(circuit, make_model(spec), 1, 1),
+                            ContainsSubstring("requires plain qubit targets"));
+    }
+}
+
 TEST_CASE("exact: a smaller starting module must not shrink the reused state") {
     // A leaked initial compiles a from-the-top continuation with more
     // hidden record slots (the MR restore) but a smaller peak rank than
