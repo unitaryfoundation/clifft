@@ -990,10 +990,10 @@ TEST_CASE("exact: memory-X smoke: two qubits, low-rate leak hook, MX measures bo
 }
 
 // =========================================================================
-// Up-front capability contract (gate A and gate B)
+// Up-front model capability contract
 // =========================================================================
 
-TEST_CASE("exact: gate A: capable model + MPP rejects before sampling") {
+TEST_CASE("exact: capable model rejects MPP before sampling") {
     // A capable model (non-zero loss) plus an MPP measurement must throw
     // before any shots are drawn, with a message naming 'MPP', 'not supported',
     // and 'ancilla'.
@@ -1004,9 +1004,9 @@ TEST_CASE("exact: gate A: capable model + MPP rejects before sampling") {
                             ContainsSubstring("ancilla"));
 }
 
-TEST_CASE("exact: gate A: non-capable model + MPP samples fine") {
+TEST_CASE("exact: computational-only model permits MPP") {
     // A model with no capability (initial all-g, no leak/loss transitions)
-    // does not trigger gate A, so MPP is accepted.
+    // leaves MPP supported.
     ModelSpec spec;  // all computational
     auto model = make_model(spec);
     auto circuit = parse("H 0\nCX 0 1\nMPP Z0*Z1");
@@ -1018,7 +1018,7 @@ TEST_CASE("exact: gate A: non-capable model + MPP samples fine") {
     }
 }
 
-TEST_CASE("exact: gate B: capable model + measurement + no classifier throws") {
+TEST_CASE("exact: capable model with measurement requires classifier") {
     // A model with a LEVEL_TRANSITION annotation that can fire into a
     // noncomputational level, paired with a measurement, must throw when
     // no classifier is present.
@@ -1034,7 +1034,7 @@ TEST_CASE("exact: gate B: capable model + measurement + no classifier throws") {
                         ContainsSubstring("classifier is required"));
 }
 
-TEST_CASE("exact: gate B: capable model + measurement-free circuit + no classifier samples") {
+TEST_CASE("exact: capable model without measurement does not require classifier") {
     // A capable model without a classifier is fine if the circuit has no measurements.
     std::vector<std::vector<double>> lose(5, std::vector<double>(5, 0.0));
     lose[kLost][0] = 1.0;
@@ -1048,9 +1048,9 @@ TEST_CASE("exact: gate B: capable model + measurement-free circuit + no classifi
     REQUIRE(result.shots == 10);
 }
 
-TEST_CASE("exact: gate B: non-capable model + MX + no classifier samples") {
+TEST_CASE("exact: computational-only model with MX does not require classifier") {
     // A non-capable model (no loss/leak transitions, all-g initial) plus
-    // MX requires no classifier: gate B does not fire.
+    // MX requires no classifier.
     ModelSpec spec;  // all computational, no loss
     auto model = make_model(spec);
     auto circuit = parse("RX 0\nMX 0");
@@ -1064,9 +1064,9 @@ TEST_CASE("exact: gate B: non-capable model + MX + no classifier samples") {
 TEST_CASE("exact: coarse capability boundary requires a classifier for any measurement") {
     // The contract is a capability boundary, not per-qubit reachability.
     // The annotation on q0 makes the model capable; q1 is measured but
-    // never touches a vacated carrier in any reachable shot. Gate B still
-    // fires because the capability boundary is coarse: capable model +
-    // any measurement = classifier required.
+    // never touches a vacated carrier in any reachable shot. The capability
+    // boundary is coarse: capable model plus any measurement requires a
+    // classifier.
     std::vector<std::vector<double>> lose(5, std::vector<double>(5, 0.0));
     lose[kLost][0] = 1.0;  // q0 loses certainly from g
     lose[kLost][1] = 1.0;

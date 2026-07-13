@@ -7,15 +7,13 @@
 // jump out of superposition, where which level the qubit leaves from is
 // not yet decided -- cannot be drawn before that state exists. The
 // annotated circuit is therefore rewritten and compiled lazily, one
-// memoized module per event delta plus herald flags, with every
+// memoized module per event record and herald assignment, with every
 // computational-source annotation kept as a runtime instrument site;
 // each shot preloads its sampled initial levels and executes; a fire the
 // VM cannot resolve in-line traps back to this driver, which draws the
 // destination, extends the shot's event record, fetches or compiles the
-// matching continuation, and resumes past the site. DampingPolicy::Neglect also runs
-// through this driver: it changes how a trapped fire resolves (the
-// carrier hands over uncollapsed and the continuation's trace-out is
-// forced to the reported source), not whether the mode applies.
+// matching continuation, and resumes past the site. DampingPolicy::Neglect
+// uses the same driver but omits source-dependent no-jump back-action.
 // sample_noncomputational() routes here; this header is internal. The
 // driver's working vocabulary is defined at the top of exact_driver.cc.
 

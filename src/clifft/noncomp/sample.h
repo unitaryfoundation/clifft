@@ -2,13 +2,9 @@
 
 // Top-level noncomputational sampling entry point.
 //
-// sample_noncomputational(circuit, model, shots, seed) validates the
-// circuit, resolves the global seed, and hands the run to the exact-mode
-// driver (exact_driver.h) -- the one sampling path: the annotated
-// circuit's rewrites compile lazily, one memoized module per event delta
-// (the no-event main line included), transition fires resolve at runtime
-// against the live state, and the driver returns the user-facing records
-// plus the noncomputational sidecar (final statuses and herald flags).
+// sample_noncomputational(circuit, model, shots, seed) validates the circuit,
+// resolves transitions against the live quantum state, and returns the
+// ordinary sample records plus final-status and herald sidecars.
 //
 // Randomness is deterministic in `seed`: per-shot driver and SVM streams
 // derive from domain-separated sub-seeds (seed.h). Stochastic classifier
@@ -40,17 +36,16 @@ struct NonComputationalSample {
     std::vector<uint8_t> observables;
 
     // Sidecar: each qubit's final status per shot, row-major [shot, qubit].
-    // Leaked/lost statuses carry their driver-drawn per-shot level.
-    // Computational statuses carry no level: fires with computational
-    // destinations resolve inside the VM without reaching the driver, so
-    // no final level is knowable here.
+    // LeakG, LeakE, and Lost are definite levels. Computational deliberately
+    // does not distinguish G from E; that state remains in the SVM.
     std::vector<QubitStatus> final_status;
 
     // Sidecar: 1 where the classifier sampled the herald (third) symbol for
     // that visible measurement, row-major [shot, slot]. The visible record
     // stays binary -- a heralded slot carries a uniformly drawn bit -- so the
     // record layout and every rec[-k] reference are unchanged; the herald
-    // rides here. All zeros for a two-symbol classifier or none at all.
+    // rides here. All zeros when the classifier has two symbols or the model
+    // has no classifier.
     std::vector<uint8_t> heralds;
 };
 
@@ -59,9 +54,9 @@ struct NonComputationalSample {
 // classifier the model does not provide. (Classifier shape -- two or
 // three symbols, stochastic columns -- is the model's own construction
 // contract, enforced before a circuit ever meets it.)
-// `max_rank` caps the compiled peak rank: compilation fails with the
-// first offending circuit line named, before any state is allocated,
-// instead of attempting a 2^k allocation. Unlimited when unset.
+// `max_rank` caps the compiled peak rank. Compilation names the first
+// offending circuit line before allocating or growing the SVM state for that
+// module. Unlimited when unset.
 NonComputationalSample sample_noncomputational(const Circuit& circuit,
                                                const NonComputationalModel& model, uint32_t shots,
                                                std::optional<uint64_t> seed = std::nullopt,

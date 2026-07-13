@@ -736,10 +736,10 @@ def test_mx_inverted_complements_classifier_bit():
     assert (r.measurements[:, 0] == 0).all()  # inverted: 1 -> 0
 
 
-# --- Gate B error (classifier required) --------------------------------------
+# --- Classifier capability contract -----------------------------------------
 
 
-def test_gate_b_capable_model_with_measurement_no_classifier_raises():
+def test_capable_model_with_measurement_requires_classifier():
     """A model that can lose qubits requires a classifier when the circuit measures."""
     transitions = {"S": transition_to(LOST)}
     model = noncomp.Model(initial_state=ALL_G, transitions=transitions)
@@ -749,7 +749,7 @@ def test_gate_b_capable_model_with_measurement_no_classifier_raises():
         noncomp.sample("H 0\nS 0\nM 0\n", model, shots=4, seed=4)
 
 
-def test_gate_b_mpad_does_not_require_classifier():
+def test_mpad_does_not_require_classifier():
     """MPAD writes classical literals and never reads a noncomputational carrier."""
     model = noncomp.Model(initial_state=ALL_G, transitions={"S": transition_to(LOST)})
     result = noncomp.sample("S 0\nMPAD 0 1\n", model, shots=4, seed=4)
@@ -758,10 +758,10 @@ def test_gate_b_mpad_does_not_require_classifier():
     assert (result.final_status[:, 0] == LOST_KIND).all()
 
 
-# --- Gate A error (MPP unsupported under capable model) ----------------------
+# --- Parity-measurement capability contract ---------------------------------
 
 
-def test_gate_a_mpp_under_capable_model_raises():
+def test_capable_model_rejects_mpp():
     """MPP is not supported when the model can leak or lose qubits."""
     transitions = {"S": transition_to(LOST)}
     classifier = classifier_for(LOST, [0.5, 0.5])

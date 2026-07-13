@@ -10,11 +10,11 @@
 //   consult            One annotation target's per-shot draw against its
 //                      channel: did it fire, and to which destination
 //                      level. A *classical* consult is one whose qubit's
-//                      level is definite at that point (known
-//                      computational, leaked, or lost), so the driver
-//                      draws it without touching quantum state.
-//   fire               A consult that moves the qubit to another level:
-//                      the stochastic event itself.
+//                      noncomputational level is definite at that point,
+//                      so the driver draws it without touching quantum
+//                      state.
+//   fire               A consult that takes the transition-event branch;
+//                      its destination may equal its source.
 //   jump               A recorded fire -- the ResolvedJump entry in a
 //                      shot's events.
 //   site               An annotation target kept as a runtime INSTRUMENT
@@ -476,7 +476,8 @@ void validate_model_contract(const Circuit& annotated, const NonComputationalMod
         return;
     }
 
-    // Gate A: parity measurements are not supported under a capable model.
+    // A parity measurement has no defined result once an operand leaves the
+    // computational subspace.
     for (uint32_t i = 0; i < static_cast<uint32_t>(annotated.nodes.size()); ++i) {
         const AstNode& node = annotated.nodes[i];
         // MPP has MULTI arity; MXX/MYY/MZZ desugar to MPP at parse time.
@@ -488,8 +489,8 @@ void validate_model_contract(const Circuit& annotated, const NonComputationalMod
         }
     }
 
-    // Gate B: a classifier is required when the circuit measures a physical qubit.
-    // MPAD only appends a classical literal to the record, so it never consults one.
+    // A physical-qubit measurement needs a classifier for any leaked or lost
+    // operand. MPAD only appends a classical literal to the record.
     if (model.classifier() == nullptr) {
         for (const AstNode& node : annotated.nodes) {
             if (is_measurement(node.gate) && node.gate != GateType::MPAD) {
@@ -566,10 +567,7 @@ NonComputationalSample sample_noncomputational_exact(const Circuit& circuit,
         }
     }
 
-    // Capability contract: check gate A (parity measurements unsupported
-    // with a capable model) and gate B (classifier required when the model
-    // is capable and the circuit measures). Runs after annotation resolution
-    // so LEVEL_TRANSITION tags are already validated.
+    // Check model-wide measurement restrictions after annotations resolve.
     validate_model_contract(annotated, model);
 
     // Validation is shot-count independent: a zero-shot call checks the

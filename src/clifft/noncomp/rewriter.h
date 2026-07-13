@@ -61,8 +61,8 @@ struct ClassifiedMeasurement {
     std::optional<size_t> noise_node;
 };
 
-// One resolved jump in a shot's trap chain, in circuit order. `op_index`
-// `target` names the annotation target that trapped; the destination
+// One resolved jump in a shot's trap chain, in circuit order. `target`
+// names the annotation target that trapped; the destination
 // level is the driver's draw from the transition column.
 struct ResolvedJump {
     AnnotationTarget target;
