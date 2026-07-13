@@ -43,9 +43,6 @@
 
 \newcommand{\ket}[1]{\lvert #1 \rangle}
 \newcommand{\punch}[1]{{\color{framerule}\bfseries #1}}
-\newcommand{\takeaway}[1]{%
-  \vfill{\color{framerule}\rule{\textwidth}{0.6pt}}\\[0.35em]
-  {\small\itshape #1}}
 
 \title{Two ways past the wall}
 \author{}
@@ -100,7 +97,6 @@
       \end{tikzpicture}
     \end{column}
   \end{columns}
-  \takeaway{One engine, two tiers: symbolic where physics allows it, dense only where it must be.}
 \end{frame}
 
 % ================================================================ the wall
@@ -130,7 +126,6 @@
       \end{tikzpicture}
     \end{column}
   \end{columns}
-  \takeaway{Two independent bets on what to do about it --- one mathematical, one architectural.}
 \end{frame}
 
 % ================================================================ A: idea
@@ -159,7 +154,6 @@
       \end{tikzpicture}
     \end{column}
   \end{columns}
-  \takeaway{The cost driver becomes the amount of magic $t$, not the dimension $2^k$.}
 \end{frame}
 
 % ================================================================ A: why it works
@@ -184,7 +178,6 @@
       \end{tikzpicture}
     \end{column}
   \end{columns}
-  \takeaway{Trade exactness you can measure for reach you cannot otherwise have.}
 \end{frame}
 
 % ================================================================ A: extent
@@ -224,7 +217,6 @@
       \end{tikzpicture}
     \end{column}
   \end{columns}
-  \takeaway{$2^t$ branches, but only $2^{0.228\,t}$ of weight --- and weight is all you pay.}
 \end{frame}
 
 % ================================================================ A: architecture
@@ -255,7 +247,6 @@
     \item Both cost exponents are known \punch{before anything runs} --- dispatch is a one-line comparison, per program.
     \item \punch{Wired, not just proposed}: the rank backend runs clifft's optimized circuits; exact clifft stays the default, the rank backend is an explicit opt-in with an error dial $\delta$.
   \end{itemize}
-  \takeaway{clifft compiles; the cheaper engine runs --- on the same optimized circuit.}
 \end{frame}
 
 % ================================================================ A: generality
@@ -267,7 +258,6 @@
     \item Tested on circuits whose answer is known \emph{by construction} (hidden shift): up to \punch{96 qubits}, right answer in seconds --- at the live count, $\hat P(s)=0.98$--$1.00$.
     \item Often clifft still wins such circuits outright --- and the dispatch rule \emph{knows in advance}.
   \end{itemize}
-  \takeaway{Generality at the product-magic price --- validated end to end against exact references.}
 \end{frame}
 
 % ================================================================ A: episodic
@@ -277,7 +267,6 @@
     \item Run one episode at a time: pay $2^{\,\text{per-episode}}$, not $2^{\,\text{total}}$, with \punch{zero extra error}. Measured: \punch{72 qubits at $\le\!400$ recipes} where whole-circuit needs $2^{72}$.
     \item Compressing further also works (measured, honest limits) --- the dispatcher prices it.
   \end{itemize}
-  \takeaway{The circuit's rhythm --- magic in, magic measured out --- is itself a computational resource.}
 \end{frame}
 
 % ================================================================ A: circuits
@@ -361,7 +350,6 @@
       {\tiny\color{mutedink} syndrome rounds $+$ logical Clifford traffic while magic accumulates (the frame's home turf)}
     \end{column}
   \end{columns}
-  \takeaway{A stress test, a trick, a rhythm, a protocol --- each drives one benchmark.}
 \end{frame}
 
 % ================================================================ A: evidence
@@ -387,7 +375,6 @@
       {\scriptsize\color{mutedink} Accuracy dial, measured:\\ error $=0.50\,\delta$ across the whole sweep\\ (halve the error $\Rightarrow$ $4\times$ the work).}
     \end{column}
   \end{columns}
-  \takeaway{The niche is real --- and honestly bounded: below the crossover, exact clifft stays the right tool.}
 \end{frame}
 
 % ================================================================ A: runtimes
@@ -417,7 +404,6 @@
     aer (rejects dynamic circuits) \\
     \bottomrule
   \end{tabular}
-  \takeaway{No single winner --- that is the point: the dispatcher picks per program, before running.}
 \end{frame}
 
 % ================================================================ A: map
@@ -437,7 +423,6 @@
   \begin{itemize}
     \item Also measured where it \emph{loses} (up to $\sim\!2\times$ overhead) --- the advantage is a measured boundary, not a slogan.
   \end{itemize}
-  \takeaway{Status: prototype validated; honest benchmarks, natural workloads, external baselines done.}
 \end{frame}
 
 % ================================================================ B: idea
@@ -466,7 +451,6 @@
       \end{tikzpicture}
     \end{column}
   \end{columns}
-  \takeaway{Batching doesn't make the GPU faster --- it makes the problem big enough for the GPU to be fast.}
 \end{frame}
 
 % ================================================================ B: why 1
@@ -476,7 +460,6 @@
     \item Per-shot randomness is just a few numbers: \punch{SIMD lanes, one per shot}. The classic ``shots diverge'' objection \emph{does not apply here}.
     \item And nobody serves this niche: existing batched simulators \punch{fall back to one-at-a-time} on mid-circuit measurement --- clifft's home turf.
   \end{itemize}
-  \takeaway{The hardest architectural question resolves in the design's favor before any GPU code is written.}
 \end{frame}
 
 % ================================================================ B: why 2
@@ -502,7 +485,6 @@
       \end{tikzpicture}
     \end{column}
   \end{columns}
-  \takeaway{The claim is deliberately modest --- which is why we can trust it.}
 \end{frame}
 
 % ================================================================ B: risk + test
@@ -520,7 +502,6 @@
     round-trip eats the win & \textbf{no-go}, cleanly --- or on-device sampling is the follow-up \\
     \bottomrule
   \end{tabular}}
-  \takeaway{Either answer is cheap, quantitative, and final --- that is what the microbenchmark is for.}
 \end{frame}
 
 % ================================================================ closing
