@@ -1,6 +1,6 @@
 #pragma once
 
-// Orchestrator: the top-level noncomputational sampling entry point.
+// Top-level noncomputational sampling entry point.
 //
 // sample_noncomputational(circuit, model, shots, seed) validates the
 // circuit, resolves the global seed, and hands the run to the exact-mode

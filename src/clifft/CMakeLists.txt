@@ -35,11 +35,10 @@ add_library(clifft_core STATIC
     noncomp/instrument_options.cc
     noncomp/classifier.cc
     noncomp/model.cc
-    noncomp/status_step.cc
-    noncomp/op_role.cc
+    noncomp/status_walk.cc
     noncomp/rewriter.cc
     noncomp/exact_driver.cc
-    noncomp/orchestrator.cc
+    noncomp/sample.cc
 )
 
 # x86-64 runtime dispatch: compile AVX2 and AVX-512 TUs with SIMD flags.

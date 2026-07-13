@@ -2,7 +2,7 @@
 
 #include "clifft/circuit/gate_data.h"
 #include "clifft/circuit/target.h"
-#include "clifft/noncomp/op_role.h"
+#include "clifft/noncomp/status_walk.h"
 
 namespace clifft {
 

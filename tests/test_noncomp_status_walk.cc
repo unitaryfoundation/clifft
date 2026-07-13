@@ -4,9 +4,8 @@
 #include "clifft/circuit/target.h"
 #include "clifft/noncomp/level.h"
 #include "clifft/noncomp/model.h"
-#include "clifft/noncomp/op_role.h"
 #include "clifft/noncomp/policy.h"
-#include "clifft/noncomp/status_step.h"
+#include "clifft/noncomp/status_walk.h"
 
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/matchers/catch_matchers.hpp>
@@ -21,6 +20,7 @@ using clifft::Circuit;
 using clifft::GateType;
 using clifft::Level;
 using clifft::NonComputationalPolicy;
+using clifft::normal_post_op_status;
 using clifft::OperandRole;
 using clifft::OrdinaryStep;
 using clifft::parse;
@@ -126,4 +126,53 @@ TEST_CASE("advance_ordinary_node: MPP on a lost operand throws with caller prefi
     NonComputationalPolicy policy;
     REQUIRE_THROWS_WITH(advance_ordinary_node(node, 0, status, policy, "myfunc"),
                         StartsWith("myfunc:"));
+}
+
+TEST_CASE("normal_post_op_status: normal operations keep a computational qubit computational") {
+    NonComputationalPolicy policy;
+    for (GateType gate : {GateType::H, GateType::X, GateType::Z, GateType::CZ, GateType::M,
+                          GateType::R, GateType::RX, GateType::MR, GateType::EXP_VAL}) {
+        QubitStatus out = normal_post_op_status(QubitStatus::Computational, gate,
+                                                OperandRole::Physical, policy);
+        REQUIRE(out == QubitStatus::Computational);
+    }
+}
+
+TEST_CASE("normal_post_op_status: a gate leaves a noncomputational qubit untouched") {
+    NonComputationalPolicy policy;
+    QubitStatus out = normal_post_op_status(QubitStatus::LeakG, GateType::H,
+                                            OperandRole::Physical, policy);
+    REQUIRE(out == QubitStatus::LeakG);
+}
+
+TEST_CASE("normal_post_op_status: leaked reset restores; lost reset is policy-gated") {
+    NonComputationalPolicy policy;
+    for (GateType reset : {GateType::R, GateType::MR, GateType::RX}) {
+        QubitStatus leaked_r = normal_post_op_status(QubitStatus::LeakG, reset,
+                                                     OperandRole::Physical, policy);
+        REQUIRE(leaked_r == QubitStatus::Computational);
+    }
+
+    QubitStatus lost_default = normal_post_op_status(QubitStatus::Lost, GateType::R,
+                                                     OperandRole::Physical, policy);
+    REQUIRE(lost_default == QubitStatus::Lost);
+
+    NonComputationalPolicy restore;
+    restore.reset_restores_lost = true;
+    QubitStatus lost_restored = normal_post_op_status(QubitStatus::Lost, GateType::R,
+                                                      OperandRole::Physical, restore);
+    REQUIRE(lost_restored == QubitStatus::Computational);
+}
+
+TEST_CASE("normal_post_op_status: feedback corrections change no status") {
+    NonComputationalPolicy policy;
+    QubitStatus comp = normal_post_op_status(QubitStatus::Computational, GateType::CX,
+                                             OperandRole::Feedback, policy);
+    REQUIRE(comp == QubitStatus::Computational);
+    QubitStatus leaked = normal_post_op_status(QubitStatus::LeakG, GateType::CX,
+                                               OperandRole::Feedback, policy);
+    REQUIRE(leaked == QubitStatus::LeakG);
+    QubitStatus z = normal_post_op_status(QubitStatus::LeakG, GateType::CZ,
+                                          OperandRole::Feedback, policy);
+    REQUIRE(z == QubitStatus::LeakG);
 }

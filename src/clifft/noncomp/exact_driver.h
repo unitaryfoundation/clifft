@@ -21,7 +21,7 @@
 
 #include "clifft/circuit/circuit.h"
 #include "clifft/noncomp/model.h"
-#include "clifft/noncomp/orchestrator.h"
+#include "clifft/noncomp/sample.h"
 
 #include <cstdint>
 #include <optional>

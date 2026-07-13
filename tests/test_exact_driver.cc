@@ -9,7 +9,7 @@
 
 #include "clifft/circuit/parser.h"
 #include "clifft/noncomp/model.h"
-#include "clifft/noncomp/orchestrator.h"
+#include "clifft/noncomp/sample.h"
 #include "clifft/noncomp/seed.h"
 #include "clifft/util/xoshiro.h"
 
