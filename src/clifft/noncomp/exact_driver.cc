@@ -165,14 +165,14 @@ Level draw_from_column(const TransitionInstrument& instrument, Level source,
 // classical, matching what rewrite_continuation validates.
 void extend_classical_outcomes(const Circuit& annotated, ExactShotEvents& events,
                                const NonComputationalModel& model, Xoshiro256PlusPlus& rng) {
-    std::map<std::pair<uint32_t, uint32_t>, Level> jump_dest;
+    std::map<AnnotationTarget, Level> jump_dest;
     for (const ResolvedJump& jump : events.jumps) {
-        jump_dest.emplace(std::make_pair(jump.op_index, jump.qubit), jump.destination_level);
+        jump_dest.emplace(jump.target, jump.destination_level);
     }
 
-    std::map<std::pair<uint32_t, uint32_t>, ClassicalOutcome> drawn;
+    std::map<AnnotationTarget, ClassicalOutcome> drawn;
     for (const ClassicalOutcome& outcome : events.classical_outcomes) {
-        drawn.emplace(std::make_pair(outcome.op_index, outcome.qubit), outcome);
+        drawn.emplace(outcome.target, outcome);
     }
     std::vector<ClassicalOutcome> ordered;
     ordered.reserve(events.classical_outcomes.size());
@@ -194,7 +194,8 @@ void extend_classical_outcomes(const Circuit& annotated, ExactShotEvents& events
                     continue;
                 }
                 const Level source = noncomp_level(pre);
-                const auto seen = drawn.find({op_index, qubit});
+                const AnnotationTarget annotation_target{op_index, qubit};
+                const auto seen = drawn.find(annotation_target);
                 if (seen != drawn.end()) {
                     if (seen->second.source_level != source) {
                         throw std::logic_error(
@@ -211,7 +212,7 @@ void extend_classical_outcomes(const Circuit& annotated, ExactShotEvents& events
                     continue;
                 }
                 const AnnotationChannel channel = resolve_annotation(node, model, op_index);
-                ClassicalOutcome outcome{op_index, qubit, std::nullopt, source};
+                ClassicalOutcome outcome{annotation_target, std::nullopt, source};
                 if (channel.instrument != nullptr) {
                     const double total = channel.instrument->column_sum(source);
                     if (rng.next_double() < total) {
@@ -262,15 +263,15 @@ std::string cache_key(const ExactShotEvents& events) {
     key.push_back('J');
     push32(static_cast<uint32_t>(events.jumps.size()));
     for (const ResolvedJump& jump : events.jumps) {
-        push32(jump.op_index);
-        push32(jump.qubit);
+        push32(jump.target.op_index);
+        push32(jump.target.qubit);
         key.push_back(static_cast<char>(jump.destination_level));
     }
     key.push_back('C');
     push32(static_cast<uint32_t>(events.classical_outcomes.size()));
     for (const ClassicalOutcome& outcome : events.classical_outcomes) {
-        push32(outcome.op_index);
-        push32(outcome.qubit);
+        push32(outcome.target.op_index);
+        push32(outcome.target.qubit);
         key.push_back(outcome.destination.has_value() ? 1 : 0);
         key.push_back(static_cast<char>(outcome.destination.value_or(Level::G)));
     }
@@ -430,7 +431,7 @@ void validate_model_contract(const Circuit& annotated, const NonComputationalMod
     // Determine whether the model can ever produce a noncomputational qubit.
     bool noncomp_capable = false;
     for (const Level l : kAllLevels) {
-        if (category(l) != LevelCategory::Computational && model.initial_probability(l) > 0.0) {
+        if (!is_computational(l) && model.initial_probability(l) > 0.0) {
             noncomp_capable = true;
             break;
         }
@@ -451,12 +452,11 @@ void validate_model_contract(const Circuit& annotated, const NonComputationalMod
                     continue;
                 }
                 for (const Level src : kAllLevels) {
-                    if (category(src) != LevelCategory::Computational) {
+                    if (!is_computational(src)) {
                         continue;
                     }
                     for (const Level dst : kAllLevels) {
-                        if (category(dst) != LevelCategory::Computational &&
-                            instr->prob(dst, src) > 0.0) {
+                        if (!is_computational(dst) && instr->prob(dst, src) > 0.0) {
                             noncomp_capable = true;
                             break;
                         }
@@ -837,12 +837,11 @@ NonComputationalSample sample_noncomputational_exact(const Circuit& circuit,
                 dest = draw_from_column(*channel.instrument, source, driver_rng,
                                         [](Level) { return true; });
             } else if (channel.instrument != nullptr) {
-                dest = draw_from_column(*channel.instrument, source, driver_rng, [](Level to) {
-                    return category(to) != LevelCategory::Computational;
-                });
+                dest = draw_from_column(*channel.instrument, source, driver_rng,
+                                        [](Level to) { return !is_computational(to); });
             }
 
-            events.jumps.push_back({op_index, qubit, dest});
+            events.jumps.push_back({{op_index, qubit}, dest});
             extend_classical_outcomes(annotated, events, model, driver_rng);
 
             // A trap-form fire hands its carrier over uncollapsed; the

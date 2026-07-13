@@ -214,7 +214,7 @@ TEST_CASE("validation: losing a Bell-pair qubit inserts the hidden trace-out R a
     clifft::ExactShotEvents events;
     events.initial_status.assign(2, clifft::QubitStatus::Computational);
     events.jumps.push_back(
-        {/*op_index=*/3, /*qubit=*/0, /*destination_level=*/clifft::Level::Lost});
+        {{/*op_index=*/3, /*qubit=*/0}, /*destination_level=*/clifft::Level::Lost});
     Circuit rw = rewrite_continuation(annotated, events, false, model).circuit;
 
     // The original circuit has no reset; the loss rewrite adds exactly one

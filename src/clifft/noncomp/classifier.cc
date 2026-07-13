@@ -58,7 +58,7 @@ MeasurementClassifier MeasurementClassifier::from_matrix(
                 std::string(level_name(level)) + "' sums to " + std::to_string(sum) +
                 " (must sum to 1)");
         }
-        if (category(level) == LevelCategory::Computational && s_n == 3) {
+        if (is_computational(level) && s_n == 3) {
             const double herald_mass = flat[kHeraldSymbol * kNumLevels + l];
             if (herald_mass > kProbTolerance) {
                 throw std::invalid_argument(

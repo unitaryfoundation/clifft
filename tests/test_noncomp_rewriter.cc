@@ -142,7 +142,7 @@ TEST_CASE("rewrite: a coherent qubit's recorded jump to lost gets a trace-out R"
     NonComputationalModel model = make_model(std::move(transitions));
 
     ExactShotEvents events;
-    events.jumps.push_back({/*op_index=*/1, /*qubit=*/0, /*destination_level=*/Level::Lost});
+    events.jumps.push_back({{/*op_index=*/1, /*qubit=*/0}, /*destination_level=*/Level::Lost});
     ContinuationRewrite rw = rewritten(c, model, {kG}, events);
     // H and the site kept; one trace-out R follows the site.
     REQUIRE(rw.circuit.nodes.size() == 3);
@@ -158,7 +158,7 @@ TEST_CASE("rewrite: a recorded jump to the |0> level inserts an R, no X") {
     NonComputationalModel model = make_model(std::move(transitions));
 
     ExactShotEvents events;
-    events.jumps.push_back({1, 0, /*destination_level=*/Level::G});
+    events.jumps.push_back({{1, 0}, /*destination_level=*/Level::G});
     ContinuationRewrite rw = rewritten(c, model, {kG}, events);
     REQUIRE(count_gate(rw.circuit, GateType::R) == 1);  // materialize at |0>
     REQUIRE(count_gate(rw.circuit, GateType::X) == 0);
@@ -171,7 +171,7 @@ TEST_CASE("rewrite: an inserted trace-out R survives compilation as one hidden m
     NonComputationalModel model = make_model(std::move(transitions));
 
     ExactShotEvents events;
-    events.jumps.push_back({1, 0, Level::Lost});
+    events.jumps.push_back({{1, 0}, Level::Lost});
     ContinuationRewrite rw = rewritten(c, model, {kG}, events);
 
     // Baseline: the same rewrite with no jump recorded (the site runs live).
@@ -193,7 +193,7 @@ TEST_CASE("rewrite: an inserted R does not shift visible measurements or detecto
     NonComputationalModel model = make_model(std::move(transitions));
 
     ExactShotEvents events;
-    events.jumps.push_back({3, 1, Level::Lost});
+    events.jumps.push_back({{3, 1}, Level::Lost});
     ContinuationRewrite rw = rewritten(c, model, {kG, kG}, events);
     ContinuationRewrite base = rewritten(c, model, {kG, kG});
 
@@ -663,7 +663,7 @@ TEST_CASE("rewrite: a zero-fire annotation is omitted from the node stream and s
 
     // Exactly one site entry; it names qubit 0.
     REQUIRE(rw.site_targets.size() == 1);
-    REQUIRE(rw.site_targets[0].second == 0);
+    REQUIRE(rw.site_targets[0].qubit == 0);
 }
 
 TEST_CASE("rewrite: a malformed LOSS annotation rejects instead of reading past its args") {

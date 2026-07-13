@@ -41,24 +41,16 @@ inline constexpr std::array<Level, kNumLevels> kAllLevels = {
     Level::G, Level::E, Level::LeakG, Level::LeakE, Level::Lost,
 };
 
-enum class LevelCategory : uint8_t {
-    Computational = 0,
-    Leaked = 1,
-    Lost = 2,
-};
+constexpr bool is_computational(Level level) {
+    return level == Level::G || level == Level::E;
+}
 
-constexpr LevelCategory category(Level level) {
-    switch (level) {
-        case Level::G:
-        case Level::E:
-            return LevelCategory::Computational;
-        case Level::LeakG:
-        case Level::LeakE:
-            return LevelCategory::Leaked;
-        case Level::Lost:
-            return LevelCategory::Lost;
-    }
-    return LevelCategory::Lost;  // unreachable for a valid Level
+constexpr bool is_leaked(Level level) {
+    return level == Level::LeakG || level == Level::LeakE;
+}
+
+constexpr bool is_lost(Level level) {
+    return level == Level::Lost;
 }
 
 // Human-readable level name, for diagnostics.

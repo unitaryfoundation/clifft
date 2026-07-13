@@ -30,6 +30,7 @@
 #include "clifft/circuit/circuit.h"
 #include "clifft/noncomp/model.h"
 
+#include <compare>
 #include <cstddef>
 #include <cstdint>
 #include <optional>
@@ -37,6 +38,14 @@
 #include <vector>
 
 namespace clifft {
+
+// One qubit target of a transition annotation in the annotated circuit.
+struct AnnotationTarget {
+    uint32_t op_index = 0;
+    uint32_t qubit = 0;
+
+    constexpr auto operator<=>(const AnnotationTarget&) const = default;
+};
 
 // One measurement the rewrite replaced with a classifier record write.
 struct ClassifiedMeasurement {
@@ -53,11 +62,10 @@ struct ClassifiedMeasurement {
 };
 
 // One resolved jump in a shot's trap chain, in circuit order. `op_index`
-// and `qubit` name the annotation target that trapped; the destination
+// `target` names the annotation target that trapped; the destination
 // level is the driver's draw from the transition column.
 struct ResolvedJump {
-    uint32_t op_index = 0;
-    uint32_t qubit = 0;
+    AnnotationTarget target;
     Level destination_level = Level::G;
 };
 
@@ -66,8 +74,7 @@ struct ResolvedJump {
 // cover every classical-source consult after the last trap, in circuit
 // order, so the rewrite can validate it describes this circuit.
 struct ClassicalOutcome {
-    uint32_t op_index = 0;
-    uint32_t qubit = 0;
+    AnnotationTarget target;
     // The jump destination; nullopt records a no-jump outcome.
     std::optional<Level> destination;
     // The level the qubit held when the outcome was drawn. Validation
@@ -105,7 +112,7 @@ struct ContinuationRewrite {
     // emission order -- which is trace()'s materialization order, so the
     // vector maps a trap's site_id to its (op_index, qubit) in the
     // annotated circuit's coordinates.
-    std::vector<std::pair<uint32_t, uint32_t>> site_targets;
+    std::vector<AnnotationTarget> site_targets;
 
     // Every qubit's status at the end of this continuation's walk: the
     // final statuses the driver reports for the shot.

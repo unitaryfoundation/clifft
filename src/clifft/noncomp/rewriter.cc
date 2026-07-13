@@ -186,13 +186,12 @@ ContinuationRewrite rewrite_continuation(const Circuit& annotated, const ExactSh
 
     // Jumps index by their annotation target. The chain arrives in trap
     // order, which is circuit order; visitation below validates coverage.
-    std::map<std::pair<uint32_t, uint32_t>, Level> jump_dest;
+    std::map<AnnotationTarget, Level> jump_dest;
     for (const ResolvedJump& jump : events.jumps) {
-        if (!jump_dest.emplace(std::make_pair(jump.op_index, jump.qubit), jump.destination_level)
-                 .second) {
+        if (!jump_dest.emplace(jump.target, jump.destination_level).second) {
             throw std::invalid_argument("rewrite_continuation: duplicate jump for op " +
-                                        std::to_string(jump.op_index) + ", qubit " +
-                                        std::to_string(jump.qubit));
+                                        std::to_string(jump.target.op_index) + ", qubit " +
+                                        std::to_string(jump.target.qubit));
         }
     }
     size_t jumps_seen = 0;
@@ -240,11 +239,12 @@ ContinuationRewrite rewrite_continuation(const Circuit& annotated, const ExactSh
                             std::to_string(op_index) + ", qubit " + std::to_string(qubit) + ")");
                     }
                     const ClassicalOutcome& outcome = events.classical_outcomes[classical_cursor++];
-                    if (outcome.op_index != op_index || outcome.qubit != qubit) {
+                    const AnnotationTarget target{op_index, qubit};
+                    if (outcome.target != target) {
                         throw std::invalid_argument(
                             "rewrite_continuation: classical outcome (op " +
-                            std::to_string(outcome.op_index) + ", qubit " +
-                            std::to_string(outcome.qubit) + ") does not match consult (op " +
+                            std::to_string(outcome.target.op_index) + ", qubit " +
+                            std::to_string(outcome.target.qubit) + ") does not match consult (op " +
                             std::to_string(op_index) + ", qubit " + std::to_string(qubit) + ")");
                     }
                     if (outcome.source_level != noncomp_level(pre)) {
@@ -258,7 +258,7 @@ ContinuationRewrite rewrite_continuation(const Circuit& annotated, const ExactSh
                         continue;
                     }
                     const Level dest = *outcome.destination;
-                    if (category(dest) == LevelCategory::Computational) {
+                    if (is_computational(dest)) {
                         // Recapture: materialize the carrier at the definite
                         // destination level.
                         out.nodes.push_back(single_qubit_op(GateType::R, qubit));
@@ -297,18 +297,18 @@ ContinuationRewrite rewrite_continuation(const Circuit& annotated, const ExactSh
                 // The annotation stays a runtime instrument.
                 // Split multi-target nodes so a sibling target with a
                 // classical status is not re-materialized.
-                result.site_targets.emplace_back(op_index, qubit);
+                const AnnotationTarget site_target{op_index, qubit};
+                result.site_targets.push_back(site_target);
                 out.nodes.push_back(
                     AstNode{gate, {Target::qubit(qubit)}, node.args, node.source_line, node.tag});
 
-                const auto jump = jump_dest.find({op_index, qubit});
+                const auto jump = jump_dest.find(site_target);
                 if (jump == jump_dest.end()) {
                     continue;  // no fire recorded here; the site runs live
                 }
                 ++jumps_seen;
-                const bool is_last = jumps_seen == events.jumps.size() &&
-                                     op_index == events.jumps.back().op_index &&
-                                     qubit == events.jumps.back().qubit;
+                const bool is_last =
+                    jumps_seen == events.jumps.size() && site_target == events.jumps.back().target;
 
                 // Every jump resets its carrier at the site. For a
                 // noncomputational destination the R is the trace-out

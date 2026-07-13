@@ -128,9 +128,8 @@ OrdinaryStep advance_ordinary_node(const AstNode& node, uint32_t op_index,
             case OperandAction::Reject:
                 throw std::invalid_argument(
                     std::string(caller) + ": operation '" + std::string(gate_name(gate)) +
-                    "' on a " + status_name(status[qubit]) + " qubit " +
-                    std::to_string(qubit) + " at op " + std::to_string(op_index) +
-                    " is not representable; rejecting");
+                    "' on a " + status_name(status[qubit]) + " qubit " + std::to_string(qubit) +
+                    " at op " + std::to_string(op_index) + " is not representable; rejecting");
             case OperandAction::Drop:
                 drop_op = true;
                 break;
