@@ -264,7 +264,7 @@
     \item The fast sampler needs all magic in \punch{one up-front layer} --- IQP (our commuting benchmark family) has that shape by construction; most circuits scatter their $T$'s throughout.
     \item The fix: teleport each in-line $T$ onto a helper qubit --- \emph{any} circuit becomes product-magic, with \punch{no penalty for interleaving}.
     \item \punch{Composes with the compiler}: gadgetize the optimized IR --- pay the \emph{live} $T$-count. Measured: 32 raw $T$'s $\to$ 10, error $5.8\times$ smaller at the same budget.
-    \item Tested on circuits whose answer is known \emph{by construction} (hidden shift): up to \punch{96 qubits}, right answer in seconds.
+    \item Tested on circuits whose answer is known \emph{by construction} (hidden shift): up to \punch{96 qubits}, right answer in seconds --- at the live count, $\hat P(s)=0.98$--$1.00$.
     \item Often clifft still wins such circuits outright --- and the dispatch rule \emph{knows in advance}.
   \end{itemize}
   \takeaway{Generality at the product-magic price --- validated end to end against exact references.}

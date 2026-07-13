@@ -606,7 +606,12 @@ Equivalently, the raw route needs ${\sim}32\times$ the budget for the same
 accuracy. (Per-record wall-clock is higher in the Python implementation ---
 the HIR route replays the circuit once per record where the raw route builds
 one state and queries amplitudes --- the budget, not the constant, is the
-like-for-like axis.) Exactness of the composed route: $10^{-13}$ against
+like-for-like axis.) At scale the composed route re-runs the hidden-shift
+ground truth at the live count: $n{=}16$ compiles
+$t_{\rm raw}{=}28 \to t_{\rm live}{=}16$ and returns $\hat P(s)=0.995$ in
+$0.6$\,s at $k{=}200$; $n{=}24$ compiles $42\to34$ and returns
+$\hat P(s)=0.984$ in $18$\,s at $k{=}2395$. Exactness of the composed
+route: $10^{-13}$ against
 both \texttt{clifft} and the streaming HIR path, including a
 $t_{\rm live}{=}14$ hidden-shift case run at the full $\chi=2^{14}$
 decomposition (Table~\ref{tab:valid}).
