@@ -1,6 +1,7 @@
 #include "clifft/noncomp/classifier.h"
 #include "clifft/noncomp/level.h"
 
+#include "noncomp_test_helpers.h"
 #include "test_helpers.h"
 
 #include <catch2/catch_test_macros.hpp>
@@ -16,35 +17,25 @@ using Catch::Matchers::ContainsSubstring;
 using Catch::Matchers::WithinAbs;
 using clifft::Level;
 using clifft::MeasurementClassifier;
+using clifft::test::classifier_matrix_with_column;
 using clifft::test::opaque_infinity;
 using clifft::test::opaque_nan;
-
-namespace {
-
-// Identity readout on g/e; leak_g/lost read "0", leak_e reads "1".
-// Every column sums to 1, as construction requires.
-std::vector<std::vector<double>> default_matrix() {
-    return {
-        {1, 0, 1, 0, 1},  // P("0" | level) over [g, e, leak_g, leak_e, lost]
-        {0, 1, 0, 1, 0},  // P("1" | level)
-    };
-}
-
-}  // namespace
+using clifft::test::RawProbabilityMatrix;
 
 // =========================================================================
 // Construction validation
 // =========================================================================
 
 TEST_CASE("MeasurementClassifier: accepts a stochastic two-symbol matrix") {
-    auto classifier = MeasurementClassifier::from_matrix(default_matrix());
+    auto classifier =
+        MeasurementClassifier::from_matrix(classifier_matrix_with_column(Level::LeakE, {0.0, 1.0}));
     REQUIRE(classifier.num_symbols() == 2);
     REQUIRE_FALSE(classifier.has_herald());
 }
 
 TEST_CASE("MeasurementClassifier: accepts a three-symbol matrix with a noncomp herald") {
     // The herald symbol may carry mass only on noncomputational columns.
-    std::vector<std::vector<double>> m = {
+    RawProbabilityMatrix m = {
         {1, 0, 0.5, 0, 0},
         {0, 1, 0.2, 1, 0},
         {0, 0, 0.3, 0, 1},  // herald: leak_g sometimes, lost always
@@ -57,23 +48,23 @@ TEST_CASE("MeasurementClassifier: accepts a three-symbol matrix with a noncomp h
 }
 
 TEST_CASE("MeasurementClassifier: rejects symbol counts other than two or three") {
-    std::vector<std::vector<double>> one = {{1, 1, 1, 1, 1}};
+    RawProbabilityMatrix one = {{1, 1, 1, 1, 1}};
     REQUIRE_THROWS_WITH(MeasurementClassifier::from_matrix(one),
                         ContainsSubstring("two record symbols") && ContainsSubstring("got 1"));
-    std::vector<std::vector<double>> four = {
+    RawProbabilityMatrix four = {
         {1, 1, 1, 1, 1}, {0, 0, 0, 0, 0}, {0, 0, 0, 0, 0}, {0, 0, 0, 0, 0}};
     REQUIRE_THROWS_WITH(MeasurementClassifier::from_matrix(four), ContainsSubstring("got 4"));
 }
 
 TEST_CASE("MeasurementClassifier: rejects wrong row count") {
-    std::vector<std::vector<double>> m = {
+    RawProbabilityMatrix m = {
         {1, 1, 1, 1, 1},
     };
     REQUIRE_THROWS_WITH(MeasurementClassifier::from_matrix(m), ContainsSubstring("got 1"));
 }
 
 TEST_CASE("MeasurementClassifier: rejects wrong column count") {
-    std::vector<std::vector<double>> m = {
+    RawProbabilityMatrix m = {
         {1, 0, 1, 0},  // only 4 columns
         {0, 1, 0, 1},
     };
@@ -82,33 +73,33 @@ TEST_CASE("MeasurementClassifier: rejects wrong column count") {
 }
 
 TEST_CASE("MeasurementClassifier: rejects negative entry") {
-    std::vector<std::vector<double>> m = default_matrix();
+    RawProbabilityMatrix m = classifier_matrix_with_column(Level::LeakE, {0.0, 1.0});
     m[0][0] = -0.1;
     REQUIRE_THROWS_WITH(MeasurementClassifier::from_matrix(m),
                         ContainsSubstring("entry") && ContainsSubstring("out of [0, 1]"));
 }
 
 TEST_CASE("MeasurementClassifier: rejects entry above 1") {
-    std::vector<std::vector<double>> m = default_matrix();
+    RawProbabilityMatrix m = classifier_matrix_with_column(Level::LeakE, {0.0, 1.0});
     m[0][0] = 1.5;
     REQUIRE_THROWS_AS(MeasurementClassifier::from_matrix(m), std::invalid_argument);
 }
 
 TEST_CASE("MeasurementClassifier: rejects NaN entry") {
-    std::vector<std::vector<double>> m = default_matrix();
+    RawProbabilityMatrix m = classifier_matrix_with_column(Level::LeakE, {0.0, 1.0});
     m[0][0] = opaque_nan();
     REQUIRE_THROWS_WITH(MeasurementClassifier::from_matrix(m),
                         ContainsSubstring("not finite") || ContainsSubstring("out of [0, 1]"));
 }
 
 TEST_CASE("MeasurementClassifier: rejects infinity entry") {
-    std::vector<std::vector<double>> m = default_matrix();
+    RawProbabilityMatrix m = classifier_matrix_with_column(Level::LeakE, {0.0, 1.0});
     m[0][0] = opaque_infinity();
     REQUIRE_THROWS_AS(MeasurementClassifier::from_matrix(m), std::invalid_argument);
 }
 
-TEST_CASE("MeasurementClassifier: rejects a substochastic (reject) column") {
-    std::vector<std::vector<double>> m = default_matrix();
+TEST_CASE("MeasurementClassifier: rejects a substochastic reject column") {
+    RawProbabilityMatrix m = classifier_matrix_with_column(Level::LeakE, {0.0, 1.0});
     m[0][2] = 0.5;  // leak_g column now sums to 0.5
     m[1][2] = 0.0;
     REQUIRE_THROWS_WITH(
@@ -117,25 +108,25 @@ TEST_CASE("MeasurementClassifier: rejects a substochastic (reject) column") {
 }
 
 TEST_CASE("MeasurementClassifier: rejects a column sum above 1") {
-    std::vector<std::vector<double>> m = default_matrix();
+    RawProbabilityMatrix m = classifier_matrix_with_column(Level::LeakE, {0.0, 1.0});
     m[0][0] = 0.6;
     m[1][0] = 0.6;  // g column sums to 1.2
     REQUIRE_THROWS_WITH(MeasurementClassifier::from_matrix(m), ContainsSubstring("must sum to 1"));
 }
 
-TEST_CASE("MeasurementClassifier: column sum tolerance: accepts inside, rejects outside") {
+TEST_CASE("MeasurementClassifier: column sum tolerance accepts inside and rejects outside") {
     // kProbTolerance = 1e-12. A sum of 1 + 1e-13 is clearly inside the band
     // and must be accepted; a sum of 1 + 1e-11 is clearly outside and must
     // be rejected. Both individual entries are in [0, 1] so the per-entry
     // check cannot fire.
     SECTION("clearly accepted: sum = 1 + 1e-13") {
-        std::vector<std::vector<double>> m = default_matrix();
+        RawProbabilityMatrix m = classifier_matrix_with_column(Level::LeakE, {0.0, 1.0});
         m[0][0] = 0.5 + 1e-13;  // entry in [0,1]; the sum exceeds 1 by 1e-13, inside the tolerance
         m[1][0] = 0.5;
         REQUIRE_NOTHROW(MeasurementClassifier::from_matrix(m));
     }
     SECTION("clearly rejected: sum = 1 + 1e-11") {
-        std::vector<std::vector<double>> m = default_matrix();
+        RawProbabilityMatrix m = classifier_matrix_with_column(Level::LeakE, {0.0, 1.0});
         m[0][0] = 0.5 + 1e-11;  // entry in [0,1]; the sum exceeds 1 by 1e-11, outside the tolerance
         m[1][0] = 0.5;
         REQUIRE_THROWS_WITH(MeasurementClassifier::from_matrix(m),
@@ -144,7 +135,7 @@ TEST_CASE("MeasurementClassifier: column sum tolerance: accepts inside, rejects 
 }
 
 TEST_CASE("MeasurementClassifier: rejects herald mass on a computational column") {
-    std::vector<std::vector<double>> m = {
+    RawProbabilityMatrix m = {
         {1, 0, 1, 0, 1}, {0, 0.8, 0, 1, 0}, {0, 0.2, 0, 0, 0},  // e column puts 0.2 on the herald
     };
     REQUIRE_THROWS_WITH(MeasurementClassifier::from_matrix(m),
@@ -155,8 +146,8 @@ TEST_CASE("MeasurementClassifier: rejects herald mass on a computational column"
 // Accessors
 // =========================================================================
 
-TEST_CASE("MeasurementClassifier: prob returns the entry under (symbol, level) convention") {
-    std::vector<std::vector<double>> m = default_matrix();
+TEST_CASE("MeasurementClassifier: prob follows the symbol-level convention") {
+    RawProbabilityMatrix m = classifier_matrix_with_column(Level::LeakE, {0.0, 1.0});
     m[0][2] = 0.25;  // P("0" | leak_g) = 0.25
     m[1][2] = 0.75;  // P("1" | leak_g) = 0.75
     auto classifier = MeasurementClassifier::from_matrix(m);
@@ -169,6 +160,7 @@ TEST_CASE("MeasurementClassifier: prob returns the entry under (symbol, level) c
 }
 
 TEST_CASE("MeasurementClassifier: out-of-range symbol probability throws") {
-    auto classifier = MeasurementClassifier::from_matrix(default_matrix());
+    auto classifier =
+        MeasurementClassifier::from_matrix(classifier_matrix_with_column(Level::LeakE, {0.0, 1.0}));
     REQUIRE_THROWS_AS(classifier.prob(99, Level::G), std::invalid_argument);
 }

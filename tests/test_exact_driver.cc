@@ -13,6 +13,8 @@
 #include "clifft/noncomp/seed.h"
 #include "clifft/util/xoshiro.h"
 
+#include "noncomp_test_helpers.h"
+
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/matchers/catch_matchers.hpp>
 #include <catch2/matchers/catch_matchers_string.hpp>
@@ -25,12 +27,14 @@
 
 using namespace clifft;
 using Catch::Matchers::ContainsSubstring;
+using clifft::test::certain_transition_from_computational;
+using clifft::test::classifier_matrix_with_column;
+using clifft::test::level_index;
+using clifft::test::pure_initial_state;
+using clifft::test::RawProbabilityMatrix;
+using clifft::test::zero_transition_matrix;
 
 namespace {
-
-constexpr uint8_t kLeakG = 2;
-constexpr uint8_t kLeak = 3;
-constexpr uint8_t kLost = 4;
 
 struct ModelSpec {
     double leak_from_g = 0.0;
@@ -41,22 +45,21 @@ struct ModelSpec {
     DampingPolicy damping = DampingPolicy::Exact;
 };
 
-NonComputationalModel make_model(const ModelSpec& spec) {
-    std::vector<std::vector<double>> leak(5, std::vector<double>(5, 0.0));
-    leak[kLeak][0] = spec.leak_from_g;
-    leak[kLeak][1] = spec.leak_from_e;
-    leak[1][kLeak] = spec.seep_to_e;
-    std::map<std::string, std::vector<std::vector<double>>> transitions{{"leak", leak}};
+NonComputationalModel make_driver_model(const ModelSpec& spec) {
+    auto leak = zero_transition_matrix();
+    leak[level_index(Level::LeakE)][level_index(Level::G)] = spec.leak_from_g;
+    leak[level_index(Level::LeakE)][level_index(Level::E)] = spec.leak_from_e;
+    leak[level_index(Level::E)][level_index(Level::LeakE)] = spec.seep_to_e;
+    std::map<std::string, RawProbabilityMatrix> transitions{{"leak", leak}};
     if (spec.flip_g_to_e > 0.0) {
         // A purely computational g -> e transition: its fires resolve
         // in-line inside the VM and never trap.
-        std::vector<std::vector<double>> flip(5, std::vector<double>(5, 0.0));
-        flip[1][0] = spec.flip_g_to_e;
+        auto flip = zero_transition_matrix();
+        flip[level_index(Level::E)][level_index(Level::G)] = spec.flip_g_to_e;
         transitions.emplace("flip", std::move(flip));
     }
 
-    const std::vector<std::vector<double>> classifier = {{1.0, 0.0, 1.0, 0.0, 1.0},
-                                                         {0.0, 1.0, 0.0, 1.0, 0.0}};
+    const auto classifier = classifier_matrix_with_column(Level::LeakE, {0.0, 1.0});
 
     NonComputationalPolicy policy;
     policy.damping = spec.damping;
@@ -79,15 +82,12 @@ double mean_of(const std::vector<uint8_t>& bits, uint32_t stride, uint32_t index
 // e reads 1); the noncomputational columns read the parked-carrier
 // convention (leak_g/lost read 0, leak_e reads 1).
 NonComputationalModel make_lose_model() {
-    std::vector<std::vector<double>> lose(5, std::vector<double>(5, 0.0));
-    lose[kLost][0] = 1.0;  // g -> lost, certainly
-    lose[kLost][1] = 1.0;  // e -> lost, certainly
+    auto lose = certain_transition_from_computational(Level::Lost);
 
-    const std::vector<std::vector<double>> classifier = {{1.0, 0.0, 1.0, 0.0, 1.0},
-                                                         {0.0, 1.0, 0.0, 1.0, 0.0}};
+    const auto classifier = classifier_matrix_with_column(Level::LeakE, {0.0, 1.0});
 
     NonComputationalPolicy policy;
-    return NonComputationalModel::from_spec({1.0, 0.0, 0.0, 0.0, 0.0}, {{"lose", lose}},
+    return NonComputationalModel::from_spec(pure_initial_state(Level::G), {{"lose", lose}},
                                             std::make_optional(classifier), policy);
 }
 
@@ -97,7 +97,7 @@ TEST_CASE("exact: an untrapped run reproduces plain sampling behavior") {
     // No annotations at all: the exact path is one shared module executed
     // per shot. A Bell pair's measurements must be perfectly correlated.
     ModelSpec spec;
-    auto model = make_model(spec);
+    auto model = make_driver_model(spec);
     auto circuit = parse("H 0\nCX 0 1\nM 0\nM 1");
 
     auto result = sample_noncomputational(circuit, model, 200, 7);
@@ -114,13 +114,13 @@ TEST_CASE("exact: an untrapped run reproduces plain sampling behavior") {
     }
 }
 
-TEST_CASE("exact: a certain leak traps, classifies, and reports the status") {
+TEST_CASE("exact: a certain leak reports the trapped classified status") {
     // From |1> (X prep), the site fires every shot; the leaked qubit's
     // measurement classifies (leaked column reads 1) and the sidecar
     // carries the leaked status. Qubit 1 is untouched.
     ModelSpec spec;
     spec.leak_from_e = 1.0;
-    auto model = make_model(spec);
+    auto model = make_driver_model(spec);
     auto circuit = parse("X 0\nLEVEL_TRANSITION[leak] 0\nM 0\nM 1");
 
     auto result = sample_noncomputational(circuit, model, 25, 3);
@@ -137,7 +137,7 @@ TEST_CASE("exact: a known |1> initial preloads the frame without a distinct modu
     // frame preload alone.
     ModelSpec spec;
     spec.initial = {0.0, 1.0, 0.0, 0.0, 0.0};
-    auto model = make_model(spec);
+    auto model = make_driver_model(spec);
     auto circuit = parse("LEVEL_TRANSITION[leak] 0\nM 0");
 
     auto result = sample_noncomputational(circuit, model, 25, 11);
@@ -152,7 +152,7 @@ TEST_CASE("exact: a noncomputational initial compiles its own continuation") {
     // the lost column, and the final status stays Lost.
     ModelSpec spec;
     spec.initial = {0.0, 0.0, 0.0, 0.0, 1.0};
-    auto model = make_model(spec);
+    auto model = make_driver_model(spec);
     auto circuit = parse("LEVEL_TRANSITION[leak] 0\nM 0");
 
     auto result = sample_noncomputational(circuit, model, 10, 5);
@@ -170,7 +170,7 @@ TEST_CASE("exact: seepage after a trap recaptures through a classical consult") 
     ModelSpec spec;
     spec.leak_from_e = 1.0;
     spec.seep_to_e = 1.0;
-    auto model = make_model(spec);
+    auto model = make_driver_model(spec);
     auto circuit = parse("X 0\nLEVEL_TRANSITION[leak] 0\nLEVEL_TRANSITION[leak] 0\nM 0");
 
     auto result = sample_noncomputational(circuit, model, 20, 13);
@@ -187,7 +187,7 @@ TEST_CASE("exact: an in-line computational fire is never reported as a known lev
     // measurement mixture verifies that the fire really happens.
     ModelSpec spec;
     spec.flip_g_to_e = 0.5;
-    auto model = make_model(spec);
+    auto model = make_driver_model(spec);
     auto circuit = parse("LEVEL_TRANSITION[flip] 0\nM 0");
 
     auto result = sample_noncomputational(circuit, model, 200, 17);
@@ -209,7 +209,7 @@ TEST_CASE("exact: a later trap composes with an earlier in-line fire") {
     ModelSpec spec;
     spec.flip_g_to_e = 0.5;
     spec.leak_from_e = 1.0;
-    auto model = make_model(spec);
+    auto model = make_driver_model(spec);
     auto circuit = parse("LEVEL_TRANSITION[flip] 0\nLEVEL_TRANSITION[leak] 0\nM 0");
 
     auto result = sample_noncomputational(circuit, model, 200, 19);
@@ -238,7 +238,7 @@ TEST_CASE("exact: a source-independent rate matches its closed form") {
     ModelSpec spec;
     spec.leak_from_g = 0.3;
     spec.leak_from_e = 0.3;
-    auto result = sample_noncomputational(circuit, make_model(spec), shots, 17);
+    auto result = sample_noncomputational(circuit, make_driver_model(spec), shots, 17);
 
     const double mean = mean_of(result.measurements, 1, 0);
     // Binomial std at p = 0.3 over 4000 shots is ~0.007; allow 5 sigma.
@@ -249,7 +249,7 @@ TEST_CASE("exact: same seed reproduces identical runs") {
     ModelSpec spec;
     spec.leak_from_e = 0.5;
     spec.initial = {0.5, 0.5, 0.0, 0.0, 0.0};
-    auto model = make_model(spec);
+    auto model = make_driver_model(spec);
     auto circuit = parse("H 1\nCX 1 0\nLEVEL_TRANSITION[leak] 0\nM 0\nM 1");
 
     auto a = sample_noncomputational(circuit, model, 100, 23);
@@ -285,7 +285,7 @@ TEST_CASE("exact: max_rank rejects an over-budget compile naming the line") {
     // sites push the peak to 3, over a cap of 2.
     ModelSpec spec;
     spec.leak_from_e = 0.2;
-    auto model = make_model(spec);
+    auto model = make_driver_model(spec);
     auto circuit = parse(
         "H 0\nH 1\nH 2\n"
         "LEVEL_TRANSITION[leak] 0\nLEVEL_TRANSITION[leak] 1\nLEVEL_TRANSITION[leak] 2\n"
@@ -305,17 +305,16 @@ TEST_CASE("exact: a trap-form fire keeps the fire-side correlation") {
     // M 0 *is* the reported source, and the partner's M 1 must equal it
     // on every shot, because the continuation's trace-out is forced to
     // that same source. Independent redraw would mismatch half the time.
-    std::vector<std::vector<double>> leak(5, std::vector<double>(5, 0.0));
-    leak[kLeakG][0] = 1.0;  // from g: leak_g, certainly
-    leak[kLeak][1] = 1.0;   // from e: leak_e, certainly
+    auto leak = zero_transition_matrix();
+    leak[level_index(Level::LeakG)][level_index(Level::G)] = 1.0;  // from g: leak_g, certainly
+    leak[level_index(Level::LeakE)][level_index(Level::E)] = 1.0;  // from e: leak_e, certainly
 
-    const std::vector<std::vector<double>> classifier = {
-        {1.0, 0.0, 1.0, 0.0, 1.0},   // leak_g reads 0
-        {0.0, 1.0, 0.0, 1.0, 0.0}};  // leak_e reads 1
+    const RawProbabilityMatrix classifier = {{1.0, 0.0, 1.0, 0.0, 1.0},   // leak_g reads 0
+                                             {0.0, 1.0, 0.0, 1.0, 0.0}};  // leak_e reads 1
 
     NonComputationalPolicy policy;
     policy.damping = DampingPolicy::Neglect;
-    auto model = NonComputationalModel::from_spec({1.0, 0.0, 0.0, 0.0, 0.0}, {{"leak", leak}},
+    auto model = NonComputationalModel::from_spec(pure_initial_state(Level::G), {{"leak", leak}},
                                                   std::make_optional(classifier), policy);
 
     auto circuit = parse("H 0\nCX 0 1\nLEVEL_TRANSITION[leak] 0\nM 0\nM 1");
@@ -344,7 +343,7 @@ TEST_CASE("exact: a trap may insert a classical consult between pre-drawn ones")
     ModelSpec spec;
     spec.leak_from_e = 1.0;
     spec.initial = {0.0, 0.0, 0.0, 1.0, 0.0};  // all mass on the leaked level
-    auto model = make_model(spec);
+    auto model = make_driver_model(spec);
     auto circuit = parse(
         "R 0\nX 0\n"
         "LEVEL_TRANSITION[leak] 0\nLEVEL_TRANSITION[leak] 0\nLEVEL_TRANSITION[leak] 1\n"
@@ -366,16 +365,15 @@ TEST_CASE("exact: a chain of two forced traps keeps both correlations") {
     // contains the first's forced instruction (exercising the
     // sampling/forced mask in the debug prefix comparison). Both
     // partner correlations must survive.
-    std::vector<std::vector<double>> leak(5, std::vector<double>(5, 0.0));
-    leak[kLeakG][0] = 1.0;
-    leak[kLeak][1] = 1.0;
+    auto leak = zero_transition_matrix();
+    leak[level_index(Level::LeakG)][level_index(Level::G)] = 1.0;
+    leak[level_index(Level::LeakE)][level_index(Level::E)] = 1.0;
 
-    const std::vector<std::vector<double>> classifier = {{1.0, 0.0, 1.0, 0.0, 1.0},
-                                                         {0.0, 1.0, 0.0, 1.0, 0.0}};
+    const RawProbabilityMatrix classifier = {{1.0, 0.0, 1.0, 0.0, 1.0}, {0.0, 1.0, 0.0, 1.0, 0.0}};
 
     NonComputationalPolicy policy;
     policy.damping = DampingPolicy::Neglect;
-    auto model = NonComputationalModel::from_spec({1.0, 0.0, 0.0, 0.0, 0.0}, {{"leak", leak}},
+    auto model = NonComputationalModel::from_spec(pure_initial_state(Level::G), {{"leak", leak}},
                                                   std::make_optional(classifier), policy);
 
     auto circuit = parse(
@@ -398,16 +396,15 @@ TEST_CASE("exact: a neglect fire onto a computational destination stays correlat
     // materialization collapses the partner to the source while the
     // trapped qubit re-preps at the destination, so the two measurements
     // must anti-correlate on every shot.
-    std::vector<std::vector<double>> swap_ge(5, std::vector<double>(5, 0.0));
-    swap_ge[1][0] = 1.0;  // g -> e, certainly
-    swap_ge[0][1] = 1.0;  // e -> g, certainly
+    auto swap_ge = zero_transition_matrix();
+    swap_ge[level_index(Level::E)][level_index(Level::G)] = 1.0;  // g -> e, certainly
+    swap_ge[level_index(Level::G)][level_index(Level::E)] = 1.0;  // e -> g, certainly
 
-    const std::vector<std::vector<double>> classifier = {{1.0, 0.0, 1.0, 0.0, 1.0},
-                                                         {0.0, 1.0, 0.0, 1.0, 0.0}};
+    const RawProbabilityMatrix classifier = {{1.0, 0.0, 1.0, 0.0, 1.0}, {0.0, 1.0, 0.0, 1.0, 0.0}};
 
     NonComputationalPolicy policy;
     policy.damping = DampingPolicy::Neglect;
-    auto model = NonComputationalModel::from_spec({1.0, 0.0, 0.0, 0.0, 0.0}, {{"swap", swap_ge}},
+    auto model = NonComputationalModel::from_spec(pure_initial_state(Level::G), {{"swap", swap_ge}},
                                                   std::make_optional(classifier), policy);
 
     auto circuit = parse("H 0\nCX 0 1\nLEVEL_TRANSITION[swap] 0\nM 0\nM 1");
@@ -435,14 +432,14 @@ TEST_CASE("exact: herald flags drawn in one continuation are reused by the next"
     // time. The two-trap chain makes slot 0's flag be drawn while
     // compiling continuation one and reused by continuation two, where
     // the measurement actually executes.
-    std::vector<std::vector<double>> leak(5, std::vector<double>(5, 0.0));
-    leak[kLeak][1] = 1.0;  // certain leak from e
+    auto leak = zero_transition_matrix();
+    leak[level_index(Level::LeakE)][level_index(Level::E)] = 1.0;  // certain leak from e
 
-    const std::vector<std::vector<double>> classifier = {
+    const RawProbabilityMatrix classifier = {
         {1.0, 0.0, 1.0, 0.0, 1.0}, {0.0, 1.0, 0.0, 0.5, 0.0}, {0.0, 0.0, 0.0, 0.5, 0.0}};
 
     NonComputationalPolicy policy;
-    auto model = NonComputationalModel::from_spec({1.0, 0.0, 0.0, 0.0, 0.0}, {{"leak", leak}},
+    auto model = NonComputationalModel::from_spec(pure_initial_state(Level::G), {{"leak", leak}},
                                                   std::make_optional(classifier), policy);
 
     auto circuit = parse("X 0\nX 1\nLEVEL_TRANSITION[leak] 0\nLEVEL_TRANSITION[leak] 1\nM 0\nM 1");
@@ -471,7 +468,7 @@ TEST_CASE("exact: spectator noise between two traps fires exactly once") {
     // deterministic record.
     ModelSpec spec;
     spec.leak_from_e = 1.0;
-    auto model = make_model(spec);
+    auto model = make_driver_model(spec);
     auto circuit = parse(
         "X 0\nX 1\n"
         "LEVEL_TRANSITION[leak] 0\nX_ERROR(1) 2\nLEVEL_TRANSITION[leak] 1\nX_ERROR(1) 2\n"
@@ -492,7 +489,7 @@ TEST_CASE("exact: a detector and observable span the trap boundary") {
     // the observable carries the classified bit.
     ModelSpec spec;
     spec.leak_from_e = 1.0;
-    auto model = make_model(spec);
+    auto model = make_driver_model(spec);
     auto circuit = parse(
         "X 0\nM 0\nLEVEL_TRANSITION[leak] 0\nM 0\n"
         "DETECTOR rec[-1] rec[-2]\nOBSERVABLE_INCLUDE(0) rec[-1]");
@@ -515,7 +512,7 @@ TEST_CASE("exact: a hand-written multi-target annotation traps on one target") {
     // target's instrument live.
     ModelSpec spec;
     spec.leak_from_e = 1.0;  // fires from e only
-    auto model = make_model(spec);
+    auto model = make_driver_model(spec);
     auto circuit = parse("X 0\nLEVEL_TRANSITION[leak] 0 1\nM 0\nM 1");
 
     auto result = sample_noncomputational(circuit, model, 20, 67);
@@ -531,7 +528,7 @@ TEST_CASE("exact: neglect keeps rank flat while the exact default expands") {
     ModelSpec spec;
     spec.leak_from_e = 0.3;  // source-dependent: the damp is non-scalar
     spec.damping = DampingPolicy::Neglect;
-    auto model = make_model(spec);
+    auto model = make_driver_model(spec);
     auto circuit = parse("H 0\nLEVEL_TRANSITION[leak] 0\nH 0\nM 0");
 
     // max_rank 0 admits the neglect compile (no expansion) and would
@@ -542,7 +539,7 @@ TEST_CASE("exact: neglect keeps rank flat while the exact default expands") {
     ModelSpec exact_spec = spec;
     exact_spec.damping = DampingPolicy::Exact;
     REQUIRE_THROWS_WITH(
-        sample_noncomputational(circuit, make_model(exact_spec), 50, 37, /*max_rank=*/0),
+        sample_noncomputational(circuit, make_driver_model(exact_spec), 50, 37, /*max_rank=*/0),
         ContainsSubstring("exceeds max_rank 0"));
 }
 
@@ -550,14 +547,14 @@ TEST_CASE("exact: ternary heralds ride the cache key") {
     // A three-symbol classifier whose leaked column always heralds: every
     // trapped shot's classified slot reports a herald, and the record bit
     // stays roughly fair across shots.
-    std::vector<std::vector<double>> leak(5, std::vector<double>(5, 0.0));
-    leak[kLeak][1] = 1.0;
+    auto leak = zero_transition_matrix();
+    leak[level_index(Level::LeakE)][level_index(Level::E)] = 1.0;
 
-    const std::vector<std::vector<double>> classifier = {
+    const RawProbabilityMatrix classifier = {
         {1.0, 0.0, 1.0, 0.0, 1.0}, {0.0, 1.0, 0.0, 0.0, 0.0}, {0.0, 0.0, 0.0, 1.0, 0.0}};
 
     NonComputationalPolicy policy;
-    auto model = NonComputationalModel::from_spec({0.0, 1.0, 0.0, 0.0, 0.0}, {{"leak", leak}},
+    auto model = NonComputationalModel::from_spec(pure_initial_state(Level::E), {{"leak", leak}},
                                                   std::make_optional(classifier), policy);
 
     auto circuit = parse("LEVEL_TRANSITION[leak] 0\nM 0");
@@ -580,7 +577,7 @@ TEST_CASE("exact: a hand-built malformed LOSS rejects up front") {
     // validates before the first compile instead. The parser guarantees
     // LOSS(p) for parsed circuits; these are programmatically built.
     ModelSpec spec;
-    auto model = make_model(spec);
+    auto model = make_driver_model(spec);
     Circuit circuit = parse("H 0\nM 0");
     SECTION("missing the probability argument") {
         circuit.nodes.insert(circuit.nodes.begin() + 1,
@@ -603,7 +600,7 @@ TEST_CASE("exact: hand-built annotation targets reject up front") {
         ModelSpec spec;
         circuit.nodes.insert(circuit.nodes.begin(),
                              AstNode{GateType::LOSS, {Target::qubit(1000000)}, {0.1}, 0});
-        REQUIRE_THROWS_WITH(sample_noncomputational(circuit, make_model(spec), 1, 1),
+        REQUIRE_THROWS_WITH(sample_noncomputational(circuit, make_driver_model(spec), 1, 1),
                             ContainsSubstring("target qubit 1000000 is out of range"));
     }
 
@@ -612,7 +609,7 @@ TEST_CASE("exact: hand-built annotation targets reject up front") {
         spec.initial = {0.0, 0.0, 0.0, 0.0, 1.0};
         circuit.nodes.insert(circuit.nodes.begin(),
                              AstNode{GateType::LOSS, {Target::qubit(1000000)}, {0.1}, 0});
-        REQUIRE_THROWS_WITH(sample_noncomputational(circuit, make_model(spec), 1, 1),
+        REQUIRE_THROWS_WITH(sample_noncomputational(circuit, make_driver_model(spec), 1, 1),
                             ContainsSubstring("target qubit 1000000 is out of range"));
     }
 
@@ -620,7 +617,7 @@ TEST_CASE("exact: hand-built annotation targets reject up front") {
         ModelSpec spec;
         circuit.nodes.insert(circuit.nodes.begin(),
                              AstNode{GateType::LOSS, {Target::rec(0)}, {0.1}, 0});
-        REQUIRE_THROWS_WITH(sample_noncomputational(circuit, make_model(spec), 1, 1),
+        REQUIRE_THROWS_WITH(sample_noncomputational(circuit, make_driver_model(spec), 1, 1),
                             ContainsSubstring("requires plain qubit targets"));
     }
 }
@@ -638,21 +635,20 @@ TEST_CASE("exact: a smaller starting module must not shrink the reused state") {
     spec.leak_from_e = 3e-3;  // source-dependent: the dormant site damp-expands
     spec.leak_from_g = 3e-4;
     spec.initial = {0.5, 0.0, 0.5, 0.0, 0.0};  // both starting modules occur
-    auto model = make_model(spec);
+    auto model = make_driver_model(spec);
     Circuit circuit = parse("H 0\nLEVEL_TRANSITION[leak] 0\nMR 0\nM 0");
     auto result = sample_noncomputational(circuit, model, 64, 5);
     REQUIRE(result.shots == 64);
 }
 
-TEST_CASE("exact: a zero-fire LOSS(0) before a firing LOSS does not shift site ids") {
+TEST_CASE("exact: a zero-fire LOSS before a firing LOSS does not shift site ids") {
     // LOSS(0) can never fire from a computational qubit; trace() skips it.
     // The rewriter must skip it too, so LOSS(1) gets site id 0 and the
     // driver maps the trap correctly.
-    const std::vector<std::vector<double>> classifier = {{1.0, 0.0, 1.0, 0.0, 0.0},
-                                                         {0.0, 1.0, 0.0, 1.0, 1.0}};
+    const RawProbabilityMatrix classifier = {{1.0, 0.0, 1.0, 0.0, 0.0}, {0.0, 1.0, 0.0, 1.0, 1.0}};
 
     NonComputationalPolicy policy;
-    auto model = NonComputationalModel::from_spec({1.0, 0.0, 0.0, 0.0, 0.0}, {},
+    auto model = NonComputationalModel::from_spec(pure_initial_state(Level::G), {},
                                                   std::make_optional(classifier), policy);
     auto circuit = parse("LOSS(0) 0\nLOSS(1) 0\nM 0");
 
@@ -668,14 +664,14 @@ TEST_CASE("exact: a seepage-only transition before a firing site does not shift 
     // from leak_e to e only) cannot fire on a computational qubit; trace()
     // skips it. The rewriter must skip it too so the firing LOSS(1) that
     // follows gets site id 0 and the driver maps the trap correctly.
-    std::vector<std::vector<double>> seep(5, std::vector<double>(5, 0.0));
-    seep[1][kLeak] = 1.0;  // leak_e -> e, prob 1; computational columns zero
+    auto seep = zero_transition_matrix();
+    seep[level_index(Level::E)][level_index(Level::LeakE)] =
+        1.0;  // leak_e -> e, prob 1; computational columns zero
 
-    const std::vector<std::vector<double>> classifier = {{1.0, 0.0, 1.0, 0.0, 0.0},
-                                                         {0.0, 1.0, 0.0, 1.0, 1.0}};
+    const RawProbabilityMatrix classifier = {{1.0, 0.0, 1.0, 0.0, 0.0}, {0.0, 1.0, 0.0, 1.0, 1.0}};
 
     NonComputationalPolicy policy;
-    auto model = NonComputationalModel::from_spec({1.0, 0.0, 0.0, 0.0, 0.0}, {{"seep", seep}},
+    auto model = NonComputationalModel::from_spec(pure_initial_state(Level::G), {{"seep", seep}},
                                                   std::make_optional(classifier), policy);
     auto circuit = parse("LEVEL_TRANSITION[seep] 0\nLOSS(1) 0\nM 0");
 
@@ -692,15 +688,15 @@ TEST_CASE("exact: a seepage-only transition on q0 does not corrupt q1's site id"
     // In Release, a stale site id would read the wrong trap record and
     // silently produce wrong results; in Debug, the site-table lookup
     // overruns or mismatches.
-    std::vector<std::vector<double>> seep(5, std::vector<double>(5, 0.0));
-    seep[1][kLeak] = 1.0;  // leak_e -> e, prob 1; computational columns zero
+    auto seep = zero_transition_matrix();
+    seep[level_index(Level::E)][level_index(Level::LeakE)] =
+        1.0;  // leak_e -> e, prob 1; computational columns zero
 
     // q0: stays computational (no loss); q1: lost reads 1.
-    const std::vector<std::vector<double>> classifier = {{1.0, 0.0, 1.0, 0.0, 0.0},
-                                                         {0.0, 1.0, 0.0, 1.0, 1.0}};
+    const RawProbabilityMatrix classifier = {{1.0, 0.0, 1.0, 0.0, 0.0}, {0.0, 1.0, 0.0, 1.0, 1.0}};
 
     NonComputationalPolicy policy;
-    auto model = NonComputationalModel::from_spec({1.0, 0.0, 0.0, 0.0, 0.0}, {{"seep", seep}},
+    auto model = NonComputationalModel::from_spec(pure_initial_state(Level::G), {{"seep", seep}},
                                                   std::make_optional(classifier), policy);
     auto circuit = parse("LEVEL_TRANSITION[seep] 0\nLOSS(1) 1\nM 0\nM 1");
 
@@ -718,11 +714,11 @@ TEST_CASE("exact: a seepage-only transition still seeps a noncomputational qubit
     // must still execute its classical consult for a noncomputational qubit.
     // Here leak_e is the starting level; the seep fires (classical consult
     // with destination e) and the qubit recaptures to |1>, so M reads 1.
-    std::vector<std::vector<double>> seep(5, std::vector<double>(5, 0.0));
-    seep[1][kLeak] = 1.0;  // leak_e -> e, prob 1; computational columns zero
+    auto seep = zero_transition_matrix();
+    seep[level_index(Level::E)][level_index(Level::LeakE)] =
+        1.0;  // leak_e -> e, prob 1; computational columns zero
 
-    const std::vector<std::vector<double>> classifier = {{1.0, 0.0, 1.0, 0.0, 1.0},
-                                                         {0.0, 1.0, 0.0, 1.0, 0.0}};
+    const RawProbabilityMatrix classifier = {{1.0, 0.0, 1.0, 0.0, 1.0}, {0.0, 1.0, 0.0, 1.0, 0.0}};
 
     NonComputationalPolicy policy;
     // All initial mass on leak_e (index 3).
@@ -787,12 +783,9 @@ TEST_CASE("exact: a correlated-chain head with a leaked operand does not orphan 
     // X0 lands there as a frame flip nothing reads. The conditioning must
     // be identical: E(1) fires, the ELSE never does. The leak column reads
     // 1, so q0's record is the classifier bit, not the carrier.
-    std::vector<std::vector<double>> leak(5, std::vector<double>(5, 0.0));
-    leak[kLeakG][0] = 1.0;
-    leak[kLeakG][1] = 1.0;
-    const std::vector<std::vector<double>> cl = {{1.0, 0.0, 0.0, 0.0, 1.0},
-                                                 {0.0, 1.0, 1.0, 1.0, 0.0}};
-    auto model = NonComputationalModel::from_spec({1.0, 0.0, 0.0, 0.0, 0.0}, {{"leak", leak}},
+    auto leak = certain_transition_from_computational(Level::LeakG);
+    const RawProbabilityMatrix cl = {{1.0, 0.0, 0.0, 0.0, 1.0}, {0.0, 1.0, 1.0, 1.0, 0.0}};
+    auto model = NonComputationalModel::from_spec(pure_initial_state(Level::G), {{"leak", leak}},
                                                   std::make_optional(cl), NonComputationalPolicy{});
     auto circuit = parse(
         "LEVEL_TRANSITION[leak] 0\n"
@@ -810,12 +803,9 @@ TEST_CASE("exact: a correlated-chain head with a leaked operand does not orphan 
 }
 
 TEST_CASE("exact: a fired head with a leaked operand prevents the ELSE from firing") {
-    std::vector<std::vector<double>> leak(5, std::vector<double>(5, 0.0));
-    leak[kLeakG][0] = 1.0;
-    leak[kLeakG][1] = 1.0;
-    const std::vector<std::vector<double>> cl = {{1.0, 0.0, 0.0, 0.0, 1.0},
-                                                 {0.0, 1.0, 1.0, 1.0, 0.0}};
-    auto model = NonComputationalModel::from_spec({1.0, 0.0, 0.0, 0.0, 0.0}, {{"leak", leak}},
+    auto leak = certain_transition_from_computational(Level::LeakG);
+    const RawProbabilityMatrix cl = {{1.0, 0.0, 0.0, 0.0, 1.0}, {0.0, 1.0, 1.0, 1.0, 0.0}};
+    auto model = NonComputationalModel::from_spec(pure_initial_state(Level::G), {{"leak", leak}},
                                                   std::make_optional(cl), NonComputationalPolicy{});
     auto circuit = parse(
         "LEVEL_TRANSITION[leak] 0\n"
@@ -847,11 +837,11 @@ TEST_CASE("exact: a mixed-operand chain member keeps the healthy qubit's Pauli")
     }
 }
 
-TEST_CASE("exact: E(1) X0 X1 with no loss applies X to both qubits") {
+TEST_CASE("exact: a certain correlated X0 X1 error applies X to both qubits") {
     // Baseline: all computational, E(1) fires with certainty applying X0 X1.
     // Both qubits start at |0> so both measure 1 after X.
     ModelSpec spec;  // all computational, no loss
-    auto model = make_model(spec);
+    auto model = make_driver_model(spec);
     auto circuit = parse("E(1) X0 X1\nM 0\nM 1\n");
     auto result = sample_noncomputational(circuit, model, 5, 99);
     for (uint32_t shot = 0; shot < 5; ++shot) {
@@ -870,18 +860,16 @@ namespace {
 // leak columns deterministic symbol 0.
 NonComputationalModel make_classify_lost_model(std::vector<double> lost_col,
                                                bool with_hook = false) {
-    std::vector<std::vector<double>> lose(5, std::vector<double>(5, 0.0));
-    lose[kLost][0] = 1.0;
-    lose[kLost][1] = 1.0;
-    std::map<std::string, std::vector<std::vector<double>>> transitions;
+    auto lose = certain_transition_from_computational(Level::Lost);
+    std::map<std::string, RawProbabilityMatrix> transitions;
     transitions.emplace("lose", lose);
 
     // g=0, e=1, leak_g=0, leak_e=0, lost=lost_col
-    const std::vector<std::vector<double>> classifier = {{1.0, 0.0, 1.0, 1.0, lost_col[0]},
-                                                         {0.0, 1.0, 0.0, 0.0, lost_col[1]}};
+    const RawProbabilityMatrix classifier = {{1.0, 0.0, 1.0, 1.0, lost_col[0]},
+                                             {0.0, 1.0, 0.0, 0.0, lost_col[1]}};
     (void)with_hook;
     NonComputationalPolicy policy;
-    return NonComputationalModel::from_spec({1.0, 0.0, 0.0, 0.0, 0.0}, transitions,
+    return NonComputationalModel::from_spec(pure_initial_state(Level::G), transitions,
                                             std::make_optional(classifier), policy);
 }
 
@@ -924,16 +912,14 @@ TEST_CASE("exact: ternary herald column on MX sets sidecar flag and patches reco
     // Three-symbol classifier for the lost level: {0, 0, 1} always heralds.
     // The herald flag must be 1 on every shot; the record carries an
     // unbiased bit (matches the existing M-herald test in make_lose_model).
-    std::vector<std::vector<double>> lose(5, std::vector<double>(5, 0.0));
-    lose[kLost][0] = 1.0;
-    lose[kLost][1] = 1.0;
+    auto lose = certain_transition_from_computational(Level::Lost);
 
     // lost column = {0, 0, 1}: always heralds. g/e/leak columns symbol 0.
-    const std::vector<std::vector<double>> classifier = {
+    const RawProbabilityMatrix classifier = {
         {1.0, 0.0, 1.0, 1.0, 0.0}, {0.0, 1.0, 0.0, 0.0, 0.0}, {0.0, 0.0, 0.0, 0.0, 1.0}};
 
     NonComputationalPolicy policy;
-    auto model = NonComputationalModel::from_spec({1.0, 0.0, 0.0, 0.0, 0.0}, {{"lose", lose}},
+    auto model = NonComputationalModel::from_spec(pure_initial_state(Level::G), {{"lose", lose}},
                                                   std::make_optional(classifier), policy);
     auto circuit = parse("LEVEL_TRANSITION[lose] 0\nMX 0");
     auto result = sample_noncomputational(circuit, model, 40, 107);
@@ -947,7 +933,7 @@ TEST_CASE("exact: computational X-basis behavior is untouched by MX classify cha
     // RX prepares |+>; MX measures in the X basis and records 0 deterministically.
     // No noncomputational model capability: the classifier path must never fire.
     ModelSpec spec;  // all computational
-    auto model = make_model(spec);
+    auto model = make_driver_model(spec);
     auto circuit = parse("RX 0\nMX 0");
     auto result = sample_noncomputational(circuit, model, 20, 109);
     for (uint32_t shot = 0; shot < 20; ++shot) {
@@ -956,18 +942,17 @@ TEST_CASE("exact: computational X-basis behavior is untouched by MX classify cha
     }
 }
 
-TEST_CASE("exact: memory-X smoke: two qubits, low-rate leak hook, MX measures both") {
+TEST_CASE("exact: memory-X smoke measures two qubits after a low-rate leak hook") {
     // The motivating use case: a stim-style memory-X circuit that ends in MX
     // on data qubits runs cleanly under a leakage model.
-    std::vector<std::vector<double>> leak(5, std::vector<double>(5, 0.0));
-    leak[kLost][0] = 0.01;  // low-rate loss from g
-    leak[kLost][1] = 0.01;
+    auto leak = zero_transition_matrix();
+    leak[level_index(Level::Lost)][level_index(Level::G)] = 0.01;  // low-rate loss from g
+    leak[level_index(Level::Lost)][level_index(Level::E)] = 0.01;
 
-    const std::vector<std::vector<double>> classifier = {{1.0, 0.0, 1.0, 1.0, 1.0},
-                                                         {0.0, 1.0, 0.0, 0.0, 0.0}};
+    const RawProbabilityMatrix classifier = {{1.0, 0.0, 1.0, 1.0, 1.0}, {0.0, 1.0, 0.0, 0.0, 0.0}};
 
     NonComputationalPolicy policy;
-    auto model = NonComputationalModel::from_spec({1.0, 0.0, 0.0, 0.0, 0.0}, {{"leak", leak}},
+    auto model = NonComputationalModel::from_spec(pure_initial_state(Level::G), {{"leak", leak}},
                                                   std::make_optional(classifier), policy);
     auto circuit = parse("RX 0 1\nLEVEL_TRANSITION[leak] 0 1\nMX 0 1");
     // Equal-rate loss keeps stabilizer cost under exact damping: max_rank 0.
@@ -1008,7 +993,7 @@ TEST_CASE("exact: computational-only model permits MPP") {
     // A model with no capability (initial all-g, no leak/loss transitions)
     // leaves MPP supported.
     ModelSpec spec;  // all computational
-    auto model = make_model(spec);
+    auto model = make_driver_model(spec);
     auto circuit = parse("H 0\nCX 0 1\nMPP Z0*Z1");
     auto result = sample_noncomputational(circuit, model, 10, 1);
     REQUIRE(result.shots == 10);
@@ -1022,11 +1007,9 @@ TEST_CASE("exact: capable model with measurement requires classifier") {
     // A model with a LEVEL_TRANSITION annotation that can fire into a
     // noncomputational level, paired with a measurement, must throw when
     // no classifier is present.
-    std::vector<std::vector<double>> lose(5, std::vector<double>(5, 0.0));
-    lose[kLost][0] = 1.0;
-    lose[kLost][1] = 1.0;
+    auto lose = certain_transition_from_computational(Level::Lost);
     NonComputationalPolicy policy;
-    auto model = NonComputationalModel::from_spec({1.0, 0.0, 0.0, 0.0, 0.0}, {{"lose", lose}},
+    auto model = NonComputationalModel::from_spec(pure_initial_state(Level::G), {{"lose", lose}},
                                                   std::nullopt, policy);
     // The annotation makes the circuit capable.
     auto circuit = parse("LEVEL_TRANSITION[lose] 0\nM 0");
@@ -1036,11 +1019,9 @@ TEST_CASE("exact: capable model with measurement requires classifier") {
 
 TEST_CASE("exact: capable model without measurement does not require classifier") {
     // A capable model without a classifier is fine if the circuit has no measurements.
-    std::vector<std::vector<double>> lose(5, std::vector<double>(5, 0.0));
-    lose[kLost][0] = 1.0;
-    lose[kLost][1] = 1.0;
+    auto lose = certain_transition_from_computational(Level::Lost);
     NonComputationalPolicy policy;
-    auto model = NonComputationalModel::from_spec({1.0, 0.0, 0.0, 0.0, 0.0}, {{"lose", lose}},
+    auto model = NonComputationalModel::from_spec(pure_initial_state(Level::G), {{"lose", lose}},
                                                   std::nullopt, policy);
     // Circuit has no measurement nodes.
     auto circuit = parse("H 0\nLEVEL_TRANSITION[lose] 0");
@@ -1052,7 +1033,7 @@ TEST_CASE("exact: computational-only model with MX does not require classifier")
     // A non-capable model (no loss/leak transitions, all-g initial) plus
     // MX requires no classifier.
     ModelSpec spec;  // all computational, no loss
-    auto model = make_model(spec);
+    auto model = make_driver_model(spec);
     auto circuit = parse("RX 0\nMX 0");
     auto result = sample_noncomputational(circuit, model, 10, 1);
     REQUIRE(result.shots == 10);
@@ -1067,11 +1048,9 @@ TEST_CASE("exact: coarse capability boundary requires a classifier for any measu
     // never touches a vacated carrier in any reachable shot. The capability
     // boundary is coarse: capable model plus any measurement requires a
     // classifier.
-    std::vector<std::vector<double>> lose(5, std::vector<double>(5, 0.0));
-    lose[kLost][0] = 1.0;  // q0 loses certainly from g
-    lose[kLost][1] = 1.0;
+    auto lose = certain_transition_from_computational(Level::Lost);
     NonComputationalPolicy policy;
-    auto model = NonComputationalModel::from_spec({1.0, 0.0, 0.0, 0.0, 0.0}, {{"lose", lose}},
+    auto model = NonComputationalModel::from_spec(pure_initial_state(Level::G), {{"lose", lose}},
                                                   std::nullopt, policy);
     auto circuit = parse("LEVEL_TRANSITION[lose] 0\nM 1");
     REQUIRE_THROWS_WITH(sample_noncomputational(circuit, model, 4, 1),
@@ -1081,11 +1060,9 @@ TEST_CASE("exact: coarse capability boundary requires a classifier for any measu
 TEST_CASE("exact: the model contract is validated even for zero shots") {
     // Validation is shot-count independent: a zero-shot call still checks
     // the circuit/model contract, and a valid pair returns empty results.
-    std::vector<std::vector<double>> lose(5, std::vector<double>(5, 0.0));
-    lose[kLost][0] = 1.0;
-    lose[kLost][1] = 1.0;
-    auto no_classifier = NonComputationalModel::from_spec({1.0, 0.0, 0.0, 0.0, 0.0}, {{"S", lose}},
-                                                          std::nullopt, NonComputationalPolicy{});
+    auto lose = certain_transition_from_computational(Level::Lost);
+    auto no_classifier = NonComputationalModel::from_spec(
+        pure_initial_state(Level::G), {{"S", lose}}, std::nullopt, NonComputationalPolicy{});
     REQUIRE_THROWS_WITH(sample_noncomputational(parse("S 0\nM 0"), no_classifier, 0, 1),
                         ContainsSubstring("classifier is required"));
 
@@ -1104,17 +1081,16 @@ namespace {
 // Certain e->leak_e leak and certain leak_e->e seep; g initial.
 // Circuit must prep |e> (e.g. X 0) before the first annotation fires.
 NonComputationalModel make_leak_seep_model() {
-    std::vector<std::vector<double>> leak(5, std::vector<double>(5, 0.0));
-    leak[kLeak][1] = 1.0;  // e -> leak_e, certainly
+    auto leak = zero_transition_matrix();
+    leak[level_index(Level::LeakE)][level_index(Level::E)] = 1.0;  // e -> leak_e, certainly
 
-    std::vector<std::vector<double>> seep(5, std::vector<double>(5, 0.0));
-    seep[1][kLeak] = 1.0;  // leak_e -> e, certainly
+    auto seep = zero_transition_matrix();
+    seep[level_index(Level::E)][level_index(Level::LeakE)] = 1.0;  // leak_e -> e, certainly
 
-    const std::vector<std::vector<double>> classifier = {{1.0, 0.0, 1.0, 0.0, 1.0},
-                                                         {0.0, 1.0, 0.0, 1.0, 0.0}};
+    const RawProbabilityMatrix classifier = {{1.0, 0.0, 1.0, 0.0, 1.0}, {0.0, 1.0, 0.0, 1.0, 0.0}};
 
     NonComputationalPolicy policy;
-    return NonComputationalModel::from_spec({1.0, 0.0, 0.0, 0.0, 0.0},
+    return NonComputationalModel::from_spec(pure_initial_state(Level::G),
                                             {{"leak", leak}, {"seep", seep}},
                                             std::make_optional(classifier), policy);
 }
@@ -1144,15 +1120,12 @@ TEST_CASE("exact: multi-target annotation jumps both targets in one shot") {
     // lose channel is source-independent (g->lost p=1, e->lost p=1), so both
     // qubits lose in every shot. Both records read 0 (identity classifier's
     // lost column), both statuses are Lost.
-    std::vector<std::vector<double>> lose(5, std::vector<double>(5, 0.0));
-    lose[kLost][0] = 1.0;  // g -> lost, certainly
-    lose[kLost][1] = 1.0;  // e -> lost, certainly
+    auto lose = certain_transition_from_computational(Level::Lost);
 
-    const std::vector<std::vector<double>> classifier = {{1.0, 0.0, 1.0, 0.0, 1.0},
-                                                         {0.0, 1.0, 0.0, 1.0, 0.0}};
+    const RawProbabilityMatrix classifier = {{1.0, 0.0, 1.0, 0.0, 1.0}, {0.0, 1.0, 0.0, 1.0, 0.0}};
 
     NonComputationalPolicy policy;
-    auto model = NonComputationalModel::from_spec({1.0, 0.0, 0.0, 0.0, 0.0}, {{"lose", lose}},
+    auto model = NonComputationalModel::from_spec(pure_initial_state(Level::G), {{"lose", lose}},
                                                   std::make_optional(classifier), policy);
     auto circuit = parse("LEVEL_TRANSITION[lose] 0 1\nM 0\nM 1");
 
@@ -1169,14 +1142,14 @@ TEST_CASE("exact: multi-target annotation jumps both targets in one shot") {
 // LOSS on already-leaked and already-lost qubits
 // =========================================================================
 
-TEST_CASE("exact: LOSS(1) on a pure leak_g initial vacates the carrier") {
+TEST_CASE("exact: certain LOSS on a pure leak_g initial vacates the carrier") {
     // Initial mass entirely on leak_g (index 2): the qubit is already
     // noncomputational. LOSS(1) on a leaked qubit still vacates it (the
     // channel fires from any non-lost level). Every shot: status Lost,
     // record 0 (identity classifier's lost column reads 0).
     ModelSpec spec;
     spec.initial = {0.0, 0.0, 1.0, 0.0, 0.0};  // pure leak_g
-    auto model = make_model(spec);
+    auto model = make_driver_model(spec);
     auto circuit = parse("LOSS(1) 0\nM 0");
 
     auto result = sample_noncomputational(circuit, model, 20, 141);
@@ -1186,12 +1159,12 @@ TEST_CASE("exact: LOSS(1) on a pure leak_g initial vacates the carrier") {
     }
 }
 
-TEST_CASE("exact: LOSS(1) on a pure lost initial is a no-op") {
+TEST_CASE("exact: certain LOSS on a pure lost initial is a no-op") {
     // Initial mass entirely on lost (index 4): LOSS is a no-op on an
     // already-lost qubit. Status Lost, record 0 on every shot.
     ModelSpec spec;
     spec.initial = {0.0, 0.0, 0.0, 0.0, 1.0};  // pure lost
-    auto model = make_model(spec);
+    auto model = make_driver_model(spec);
     auto circuit = parse("LOSS(1) 0\nM 0");
 
     auto result = sample_noncomputational(circuit, model, 20, 143);
@@ -1210,10 +1183,10 @@ TEST_CASE("exact: LOSS on a lost qubit spends no draw -- a later consult sees th
     // shift; instead the two runs must agree shot by shot on records and
     // statuses alike.
     const uint64_t seed = 147;
-    std::vector<std::vector<double>> recover(5, std::vector<double>(5, 0.0));
-    recover[1][kLost] = 0.5;  // lost -> e, probability one half
-    const std::vector<std::vector<double>> classifier = {{1.0, 0.0, 1.0, 0.0, 1.0},
-                                                         {0.0, 1.0, 0.0, 1.0, 0.0}};
+    auto recover = zero_transition_matrix();
+    recover[level_index(Level::E)][level_index(Level::Lost)] =
+        0.5;  // lost -> e, probability one half
+    const RawProbabilityMatrix classifier = {{1.0, 0.0, 1.0, 0.0, 1.0}, {0.0, 1.0, 0.0, 1.0, 0.0}};
     auto model =
         NonComputationalModel::from_spec({0.0, 0.0, 0.0, 0.0, 1.0}, {{"recover", recover}},
                                          std::make_optional(classifier), NonComputationalPolicy{});
@@ -1243,8 +1216,7 @@ TEST_CASE("exact: a non-restoring lost MRX spends no hidden draw -- M and MRX re
     // carrier, whose hidden MX would spend an SVM draw and shift every
     // later outcome on qubit 1's stream.
     const uint64_t seed = 61;
-    const std::vector<std::vector<double>> classifier = {{1.0, 0.0, 1.0, 0.0, 0.0},
-                                                         {0.0, 1.0, 0.0, 1.0, 1.0}};
+    const RawProbabilityMatrix classifier = {{1.0, 0.0, 1.0, 0.0, 0.0}, {0.0, 1.0, 0.0, 1.0, 1.0}};
     auto model = NonComputationalModel::from_spec(
         {1.0, 0.0, 0.0, 0.0, 0.0}, {}, std::make_optional(classifier), NonComputationalPolicy{});
 
@@ -1281,16 +1253,13 @@ TEST_CASE("exact: classified record drives a CX feedback gate") {
     // Note: a feedback-onto-leaked observability test would be a vacuous
     // pass -- a dropped virtual correction on a vacated carrier is
     // unobservable by design (the carrier is gone).
-    std::vector<std::vector<double>> lose(5, std::vector<double>(5, 0.0));
-    lose[kLost][0] = 1.0;
-    lose[kLost][1] = 1.0;
+    auto lose = certain_transition_from_computational(Level::Lost);
 
     // g=0, e=1, leak_g=0, leak_e=1, lost=1
-    const std::vector<std::vector<double>> classifier = {{1.0, 0.0, 1.0, 0.0, 0.0},
-                                                         {0.0, 1.0, 0.0, 1.0, 1.0}};
+    const RawProbabilityMatrix classifier = {{1.0, 0.0, 1.0, 0.0, 0.0}, {0.0, 1.0, 0.0, 1.0, 1.0}};
 
     NonComputationalPolicy policy;
-    auto model = NonComputationalModel::from_spec({1.0, 0.0, 0.0, 0.0, 0.0}, {{"S", lose}},
+    auto model = NonComputationalModel::from_spec(pure_initial_state(Level::G), {{"S", lose}},
                                                   std::make_optional(classifier), policy);
     auto circuit = parse("S 0\nM 0\nCX rec[-1] 1\nM 1");
 
@@ -1313,16 +1282,13 @@ TEST_CASE("exact: a reset truly re-prepares a restored-lost qubit") {
     // |+> state would read 0 or 1 at random). A true re-prepare resets
     // to |0>, so M 0 must read 0 and the final status must be Computational
     // on every shot.
-    std::vector<std::vector<double>> lose(5, std::vector<double>(5, 0.0));
-    lose[kLost][0] = 1.0;
-    lose[kLost][1] = 1.0;
+    auto lose = certain_transition_from_computational(Level::Lost);
 
-    const std::vector<std::vector<double>> classifier = {{1.0, 0.0, 1.0, 0.0, 1.0},
-                                                         {0.0, 1.0, 0.0, 1.0, 0.0}};
+    const RawProbabilityMatrix classifier = {{1.0, 0.0, 1.0, 0.0, 1.0}, {0.0, 1.0, 0.0, 1.0, 0.0}};
 
     NonComputationalPolicy policy;
     policy.reset_restores_lost = true;
-    auto model = NonComputationalModel::from_spec({1.0, 0.0, 0.0, 0.0, 0.0}, {{"S", lose}},
+    auto model = NonComputationalModel::from_spec(pure_initial_state(Level::G), {{"S", lose}},
                                                   std::make_optional(classifier), policy);
     auto circuit = parse("H 0\nS 0\nR 0\nM 0");
 
@@ -1343,7 +1309,7 @@ TEST_CASE("exact: max_rank succeeds exactly at the required rank") {
     // same circuit must succeed with max_rank = 3 (the actual required rank).
     ModelSpec spec;
     spec.leak_from_e = 0.2;
-    auto model = make_model(spec);
+    auto model = make_driver_model(spec);
     auto circuit = parse(
         "H 0\nH 1\nH 2\n"
         "LEVEL_TRANSITION[leak] 0\nLEVEL_TRANSITION[leak] 1\nLEVEL_TRANSITION[leak] 2\n"
@@ -1367,7 +1333,7 @@ TEST_CASE("exact: different seeds produce different records") {
     ModelSpec spec;
     spec.leak_from_e = 0.35;
     spec.initial = {0.5, 0.5, 0.0, 0.0, 0.0};
-    auto model = make_model(spec);
+    auto model = make_driver_model(spec);
     auto circuit = parse("H 0\nLEVEL_TRANSITION[leak] 0\nM 0");
 
     auto a = sample_noncomputational(circuit, model, 64, 97);
@@ -1383,8 +1349,8 @@ TEST_CASE("exact: max_rank is not checked against the unreachable all-computatio
     // The lost column reads symbol 1 with certainty: a raw readout of the
     // dropped-everything |0> carriers would give 0, so all-1 records verify
     // that the classifier wrote them.
-    const std::vector<std::vector<double>> classifier_matrix = {{1.0, 0.0, 1.0, 0.0, 0.0},
-                                                                {0.0, 1.0, 0.0, 1.0, 1.0}};
+    const RawProbabilityMatrix classifier_matrix = {{1.0, 0.0, 1.0, 0.0, 0.0},
+                                                    {0.0, 1.0, 0.0, 1.0, 1.0}};
     // Lost model: all qubits start lost.
     const NonComputationalModel lost_model = NonComputationalModel::from_spec(
         {0.0, 0.0, 0.0, 0.0, 1.0}, {}, std::make_optional(classifier_matrix),
@@ -1422,109 +1388,26 @@ TEST_CASE("exact: max_rank is not checked against the unreachable all-computatio
 
 namespace {
 
-// Helpers for the classifier/herald/confusion test group below.
-// Make an all-zero 5x5 matrix.
-std::vector<std::vector<double>> zeros5() {
-    return std::vector<std::vector<double>>(5, std::vector<double>(5, 0.0));
-}
-
-// Source-independent: g and e both jump to leak_g with certainty.
-std::vector<std::vector<double>> certain_leak() {
-    auto m = zeros5();
-    m[kLeakG][0] = 1.0;
-    m[kLeakG][1] = 1.0;
-    return m;
-}
-
-// Source-independent: g and e both jump to lost with certainty.
-std::vector<std::vector<double>> certain_loss() {
-    auto m = zeros5();
-    m[kLost][0] = 1.0;
-    m[kLost][1] = 1.0;
-    return m;
-}
-
-// Source-independent: g and e both jump to the computational g level.
-std::vector<std::vector<double>> certain_jump_to_g() {
-    auto m = zeros5();
-    m[0][0] = 1.0;
-    m[0][1] = 1.0;
-    return m;
-}
-
-// Source-independent: g and e both jump to the computational e level.
-std::vector<std::vector<double>> certain_jump_to_e() {
-    auto m = zeros5();
-    m[1][0] = 1.0;
-    m[1][1] = 1.0;
-    return m;
-}
-
-// Two-symbol classifier whose column for `level` is `col`; computational
-// levels read out faithfully (no readout confusion) and other
-// noncomputational levels read a deterministic symbol 0.
-std::vector<std::vector<double>> classifier_with(uint8_t level, std::vector<double> col) {
-    std::vector<std::vector<double>> m(2, std::vector<double>(5, 0.0));
-    for (size_t l = 0; l < 5; ++l) {
-        m[0][l] = 1.0;  // symbol "0"
-    }
-    // Computational levels read out faithfully (identity columns) so the
-    // classifier adds no readout confusion here.
-    m[0][1] = 0.0;
-    m[1][1] = 1.0;
-    m[0][level] = col[0];
-    m[1][level] = col[1];
-    return m;
-}
-
-// The common case: classify the leak_g column.
-std::vector<std::vector<double>> leakg_classifier(std::vector<double> leakg) {
-    return classifier_with(kLeakG, std::move(leakg));
-}
-
 // Build a NonComputationalModel directly from raw vectors.
 NonComputationalModel make_direct_model(
-    std::vector<double> initial_state,
-    std::map<std::string, std::vector<std::vector<double>>> transitions,
-    std::optional<std::vector<std::vector<double>>> classifier = std::nullopt,
+    std::vector<double> initial_state, std::map<std::string, RawProbabilityMatrix> transitions,
+    std::optional<RawProbabilityMatrix> classifier = std::nullopt,
     NonComputationalPolicy policy = {}) {
     return NonComputationalModel::from_spec(std::move(initial_state), transitions,
                                             std::move(classifier), policy);
 }
 
-std::vector<double> all_g() {
-    return {1.0, 0.0, 0.0, 0.0, 0.0};
-}
-std::vector<double> all_e() {
-    return {0.0, 1.0, 0.0, 0.0, 0.0};
-}
-
-// Three-symbol classifier whose column for `level` is `col`; computational
-// levels read out faithfully and other levels default to symbol 0.
-std::vector<std::vector<double>> ternary_classifier_with(uint8_t level, std::vector<double> col) {
-    std::vector<std::vector<double>> m(3, std::vector<double>(5, 0.0));
-    for (size_t l = 0; l < 5; ++l) {
-        m[0][l] = 1.0;
-    }
-    m[0][1] = 0.0;
-    m[1][1] = 1.0;
-    m[0][level] = col[0];
-    m[1][level] = col[1];
-    m[2][level] = col[2];
-    return m;
-}
-
 // Classifier with confused computational columns; noncomputational levels
 // deterministically read symbol 0.
-std::vector<std::vector<double>> comp_confusion(double p01, double p10) {
-    std::vector<std::vector<double>> m(2, std::vector<double>(5, 0.0));
-    for (size_t l = 0; l < 5; ++l) {
+RawProbabilityMatrix comp_confusion(double p01, double p10) {
+    RawProbabilityMatrix m(2, std::vector<double>(kNumLevels, 0.0));
+    for (size_t l = 0; l < kNumLevels; ++l) {
         m[0][l] = 1.0;
     }
-    m[0][0] = 1.0 - p01;
-    m[1][0] = p01;
-    m[0][1] = p10;
-    m[1][1] = 1.0 - p10;
+    m[0][level_index(Level::G)] = 1.0 - p01;
+    m[1][level_index(Level::G)] = p01;
+    m[0][level_index(Level::E)] = p10;
+    m[1][level_index(Level::E)] = 1.0 - p10;
     return m;
 }
 
@@ -1532,10 +1415,11 @@ std::vector<std::vector<double>> comp_confusion(double p01, double p10) {
 
 TEST_CASE("exact: a partial classifier bit matches its frequency") {
     Circuit c = parse("H 0\nS 0\nM 0\nDETECTOR rec[-1]\n");
-    std::map<std::string, std::vector<std::vector<double>>> transitions;
-    transitions.emplace("S", certain_leak());
+    std::map<std::string, RawProbabilityMatrix> transitions;
+    transitions.emplace("S", certain_transition_from_computational(Level::LeakG));
     NonComputationalModel model =
-        make_direct_model(all_g(), std::move(transitions), leakg_classifier({0.5, 0.5}));
+        make_direct_model(pure_initial_state(Level::G), std::move(transitions),
+                          classifier_matrix_with_column(Level::LeakG, {0.5, 0.5}));
 
     NonComputationalSample s = sample_noncomputational(c, model, 2000, 3);
     size_t ones = 0;
@@ -1546,15 +1430,16 @@ TEST_CASE("exact: a partial classifier bit matches its frequency") {
     REQUIRE(ones < 1150);
 }
 
-TEST_CASE("exact: the herald symbol fills the sidecar, not the record") {
+TEST_CASE("exact: the herald symbol fills the sidecar rather than the record") {
     // Qubit 1 leaks and its column always heralds; qubit 0 stays
     // computational. The heralded slot's visible record bit is a uniform
     // draw, so the record layout is unchanged and both values occur.
     Circuit c = parse("H 1\nS 1\nM 1\nM 0\n");
-    std::map<std::string, std::vector<std::vector<double>>> transitions;
-    transitions.emplace("S", certain_leak());
-    auto cl = ternary_classifier_with(kLeakG, {0.0, 0.0, 1.0});
-    NonComputationalModel model = make_direct_model(all_g(), std::move(transitions), std::move(cl));
+    std::map<std::string, RawProbabilityMatrix> transitions;
+    transitions.emplace("S", certain_transition_from_computational(Level::LeakG));
+    auto cl = classifier_matrix_with_column(Level::LeakG, {0.0, 0.0, 1.0});
+    NonComputationalModel model =
+        make_direct_model(pure_initial_state(Level::G), std::move(transitions), std::move(cl));
 
     constexpr uint32_t kShots = 256;
     NonComputationalSample r = sample_noncomputational(c, model, kShots, 5);
@@ -1571,10 +1456,11 @@ TEST_CASE("exact: the herald symbol fills the sidecar, not the record") {
 
 TEST_CASE("exact: a partial herald column matches its frequency") {
     Circuit c = parse("H 0\nS 0\nM 0\n");
-    std::map<std::string, std::vector<std::vector<double>>> transitions;
-    transitions.emplace("S", certain_leak());
-    auto cl = ternary_classifier_with(kLeakG, {0.3, 0.0, 0.7});
-    NonComputationalModel model = make_direct_model(all_g(), std::move(transitions), std::move(cl));
+    std::map<std::string, RawProbabilityMatrix> transitions;
+    transitions.emplace("S", certain_transition_from_computational(Level::LeakG));
+    auto cl = classifier_matrix_with_column(Level::LeakG, {0.3, 0.0, 0.7});
+    NonComputationalModel model =
+        make_direct_model(pure_initial_state(Level::G), std::move(transitions), std::move(cl));
 
     constexpr uint32_t kShots = 1000;
     NonComputationalSample r = sample_noncomputational(c, model, kShots, 6);
@@ -1592,10 +1478,11 @@ TEST_CASE("exact: the record bit is uniform given a herald and fixed otherwise")
     // heralded slots kept the not-heralded flip probability (0), their bits
     // would all read 0.
     Circuit c = parse("H 0\nS 0\nM 0\n");
-    std::map<std::string, std::vector<std::vector<double>>> transitions;
-    transitions.emplace("S", certain_leak());
-    auto cl = ternary_classifier_with(kLeakG, {0.5, 0.0, 0.5});
-    NonComputationalModel model = make_direct_model(all_g(), std::move(transitions), std::move(cl));
+    std::map<std::string, RawProbabilityMatrix> transitions;
+    transitions.emplace("S", certain_transition_from_computational(Level::LeakG));
+    auto cl = classifier_matrix_with_column(Level::LeakG, {0.5, 0.0, 0.5});
+    NonComputationalModel model =
+        make_direct_model(pure_initial_state(Level::G), std::move(transitions), std::move(cl));
 
     constexpr uint32_t kShots = 2000;
     NonComputationalSample r = sample_noncomputational(c, model, kShots, 13);
@@ -1618,10 +1505,11 @@ TEST_CASE("exact: the record bit is uniform given a herald and fixed otherwise")
 
 TEST_CASE("exact: a two-symbol classifier leaves the herald sidecar zero") {
     Circuit c = parse("H 0\nS 0\nM 0\n");
-    std::map<std::string, std::vector<std::vector<double>>> transitions;
-    transitions.emplace("S", certain_leak());
-    auto cl = leakg_classifier({0.5, 0.5});
-    NonComputationalModel model = make_direct_model(all_g(), std::move(transitions), std::move(cl));
+    std::map<std::string, RawProbabilityMatrix> transitions;
+    transitions.emplace("S", certain_transition_from_computational(Level::LeakG));
+    auto cl = classifier_matrix_with_column(Level::LeakG, {0.5, 0.5});
+    NonComputationalModel model =
+        make_direct_model(pure_initial_state(Level::G), std::move(transitions), std::move(cl));
 
     constexpr uint32_t kShots = 64;
     NonComputationalSample r = sample_noncomputational(c, model, kShots, 7);
@@ -1635,7 +1523,7 @@ TEST_CASE("exact: a circuit with EXP_VAL probes rejects") {
     Circuit c;
     c.num_qubits = 1;
     c.num_exp_vals = 1;  // EXP_VAL output is not carried by the noncomp sidecar
-    NonComputationalModel model = make_direct_model(all_g(), {});
+    NonComputationalModel model = make_direct_model(pure_initial_state(Level::G), {});
     REQUIRE_THROWS_WITH(sample_noncomputational(c, model, 4, 1), ContainsSubstring("EXP_VAL"));
 }
 
@@ -1644,10 +1532,11 @@ TEST_CASE("exact: a measure-and-reset on a leaked qubit injects and restores") {
     // |0>; the following M then deterministically reads 0 -- proving the reset
     // actually ran in the SVM, not just in the trajectory bookkeeping.
     Circuit c = parse("H 0\nS 0\nMR 0\nM 0\n");
-    std::map<std::string, std::vector<std::vector<double>>> transitions;
-    transitions.emplace("S", certain_leak());
+    std::map<std::string, RawProbabilityMatrix> transitions;
+    transitions.emplace("S", certain_transition_from_computational(Level::LeakG));
     NonComputationalModel model =
-        make_direct_model(all_g(), std::move(transitions), leakg_classifier({0.0, 1.0}));
+        make_direct_model(pure_initial_state(Level::G), std::move(transitions),
+                          classifier_matrix_with_column(Level::LeakG, {0.0, 1.0}));
 
     NonComputationalSample s = sample_noncomputational(c, model, 64, 5);
     REQUIRE(s.num_measurements == 2);
@@ -1661,12 +1550,13 @@ TEST_CASE("exact: a lost-qubit measurement feeds the detector the classifier bit
     // A lost qubit (vacated site) is still measured; the classifier supplies
     // the record bit just as for a leaked qubit, so the detector reads it.
     Circuit c = parse("H 0\nS 0\nM 0\nDETECTOR rec[-1]\n");
-    std::map<std::string, std::vector<std::vector<double>>> transitions;
-    transitions.emplace("S", certain_loss());
+    std::map<std::string, RawProbabilityMatrix> transitions;
+    transitions.emplace("S", certain_transition_from_computational(Level::Lost));
 
     // Force the lost column -> symbol 1 -> record bit 1.
     NonComputationalModel model =
-        make_direct_model(all_g(), std::move(transitions), classifier_with(kLost, {0.0, 1.0}));
+        make_direct_model(pure_initial_state(Level::G), std::move(transitions),
+                          classifier_matrix_with_column(Level::Lost, {0.0, 1.0}));
     NonComputationalSample s = sample_noncomputational(c, model, 200, 9);
     REQUIRE(s.num_detectors == 1);
     REQUIRE(s.detectors.size() == 200);
@@ -1677,13 +1567,14 @@ TEST_CASE("exact: a lost-qubit measurement feeds the detector the classifier bit
 
 TEST_CASE("exact: a leaked measurement feeds the observable the classifier bit") {
     Circuit c = parse("H 0\nS 0\nM 0\nOBSERVABLE_INCLUDE(0) rec[-1]\n");
-    std::map<std::string, std::vector<std::vector<double>>> transitions;
-    transitions.emplace("S", certain_leak());
+    std::map<std::string, RawProbabilityMatrix> transitions;
+    transitions.emplace("S", certain_transition_from_computational(Level::LeakG));
 
     // Force leak_g -> symbol 1 -> record bit 1; the observable must see it,
     // not the residual |0>.
     NonComputationalModel model =
-        make_direct_model(all_g(), std::move(transitions), leakg_classifier({0.0, 1.0}));
+        make_direct_model(pure_initial_state(Level::G), std::move(transitions),
+                          classifier_matrix_with_column(Level::LeakG, {0.0, 1.0}));
     NonComputationalSample s = sample_noncomputational(c, model, 200, 11);
     REQUIRE(s.num_observables == 1);
     REQUIRE(s.observables.size() == 200);
@@ -1698,9 +1589,10 @@ TEST_CASE("exact: a jump to the ground level forces the measurement to 0") {
     // fire resolves entirely inside the VM; the sidecar reports the bare
     // computational kind, never a level claim.
     Circuit c = parse("H 0\nS 0\nM 0\n");
-    std::map<std::string, std::vector<std::vector<double>>> transitions;
-    transitions.emplace("S", certain_jump_to_g());
-    NonComputationalModel model = make_direct_model(all_g(), std::move(transitions));
+    std::map<std::string, RawProbabilityMatrix> transitions;
+    transitions.emplace("S", certain_transition_from_computational(Level::G));
+    NonComputationalModel model =
+        make_direct_model(pure_initial_state(Level::G), std::move(transitions));
     NonComputationalSample s = sample_noncomputational(c, model, 200, 1);
     for (uint8_t bit : s.measurements) {
         REQUIRE(bit == 0);
@@ -1712,9 +1604,10 @@ TEST_CASE("exact: a jump to the ground level forces the measurement to 0") {
 
 TEST_CASE("exact: a jump to the excited level forces the measurement to 1") {
     Circuit c = parse("H 0\nS 0\nM 0\n");
-    std::map<std::string, std::vector<std::vector<double>>> transitions;
-    transitions.emplace("S", certain_jump_to_e());
-    NonComputationalModel model = make_direct_model(all_g(), std::move(transitions));
+    std::map<std::string, RawProbabilityMatrix> transitions;
+    transitions.emplace("S", certain_transition_from_computational(Level::E));
+    NonComputationalModel model =
+        make_direct_model(pure_initial_state(Level::G), std::move(transitions));
 
     NonComputationalSample s = sample_noncomputational(c, model, 200, 1);
     for (uint8_t bit : s.measurements) {
@@ -1729,12 +1622,13 @@ TEST_CASE("exact: a partial jump to ground matches the analytic mixture") {
     // With probability p the S transition collapses the H-prepared |+> to g;
     // otherwise the carrier stays coherent. P(M = 1) = (1 - p) / 2 = 0.35.
     Circuit c = parse("H 0\nS 0\nM 0\n");
-    auto m = zeros5();
-    m[0][0] = 0.3;
-    m[0][1] = 0.3;
-    std::map<std::string, std::vector<std::vector<double>>> transitions;
+    auto m = zero_transition_matrix();
+    m[level_index(Level::G)][level_index(Level::G)] = 0.3;
+    m[level_index(Level::G)][level_index(Level::E)] = 0.3;
+    std::map<std::string, RawProbabilityMatrix> transitions;
     transitions.emplace("S", std::move(m));
-    NonComputationalModel model = make_direct_model(all_g(), std::move(transitions));
+    NonComputationalModel model =
+        make_direct_model(pure_initial_state(Level::G), std::move(transitions));
 
     NonComputationalSample s = sample_noncomputational(c, model, 4000, 3);
     size_t ones = 0;
@@ -1750,11 +1644,12 @@ TEST_CASE("exact: a measurement records the pre-relaxation bit") {
     // after the base op: the first M reads the original |1>, the relaxation
     // then materializes g, and the second M reads the relaxed 0.
     Circuit c = parse("M 0\nM 0\n");
-    auto m = zeros5();
-    m[0][1] = 1.0;  // e relaxes to g with certainty; g stays
-    std::map<std::string, std::vector<std::vector<double>>> transitions;
+    auto m = zero_transition_matrix();
+    m[level_index(Level::G)][level_index(Level::E)] = 1.0;
+    std::map<std::string, RawProbabilityMatrix> transitions;
     transitions.emplace("M", std::move(m));
-    NonComputationalModel model = make_direct_model(all_e(), std::move(transitions));
+    NonComputationalModel model =
+        make_direct_model(pure_initial_state(Level::E), std::move(transitions));
 
     NonComputationalSample s = sample_noncomputational(c, model, 64, 5);
     REQUIRE(s.num_measurements == 2);
@@ -1770,13 +1665,14 @@ TEST_CASE("exact: recapturing a lost qubit clears the stale residual") {
     // attached recapture jump materializes g; the third M must read the
     // recaptured 0.
     Circuit c = parse("M 0\nM 0\nM 0\n");
-    auto m = zeros5();
-    m[kLost][1] = 1.0;  // e is lost with certainty
-    m[0][kLost] = 1.0;  // a lost qubit is recaptured at g with certainty
-    std::map<std::string, std::vector<std::vector<double>>> transitions;
+    auto m = zero_transition_matrix();
+    m[level_index(Level::Lost)][level_index(Level::E)] = 1.0;
+    m[level_index(Level::G)][level_index(Level::Lost)] = 1.0;
+    std::map<std::string, RawProbabilityMatrix> transitions;
     transitions.emplace("M", std::move(m));
     NonComputationalModel model =
-        make_direct_model(all_e(), std::move(transitions), classifier_with(kLost, {1.0, 0.0}));
+        make_direct_model(pure_initial_state(Level::E), std::move(transitions),
+                          classifier_matrix_with_column(Level::Lost, {1.0, 0.0}));
 
     NonComputationalSample s = sample_noncomputational(c, model, 64, 7);
     REQUIRE(s.num_measurements == 3);
@@ -1793,11 +1689,12 @@ TEST_CASE("exact: a multi-round circuit runs through loss") {
     // reads the classifier's lost bit -- dropping ops on a vacated site is
     // the (only) op policy.
     Circuit c = parse("H 0\nS 0\nCX 0 1\nMR 1\nCX 0 1\nMR 1\nM 0\n");
-    std::map<std::string, std::vector<std::vector<double>>> transitions;
-    transitions.emplace("S", certain_loss());
+    std::map<std::string, RawProbabilityMatrix> transitions;
+    transitions.emplace("S", certain_transition_from_computational(Level::Lost));
 
     NonComputationalModel model =
-        make_direct_model(all_g(), std::move(transitions), classifier_with(kLost, {0.0, 1.0}));
+        make_direct_model(pure_initial_state(Level::G), std::move(transitions),
+                          classifier_matrix_with_column(Level::Lost, {0.0, 1.0}));
     NonComputationalSample r = sample_noncomputational(c, model, 16, 3);
     REQUIRE(r.num_measurements == 3);
     for (uint32_t shot = 0; shot < 16; ++shot) {
@@ -1813,7 +1710,8 @@ TEST_CASE("exact: computational confusion misreports into the detector") {
     // shot even though the qubit is |0> -- the flip is in-circuit, not
     // postprocessing.
     Circuit c = parse("M 0\nDETECTOR rec[-1]\n");
-    NonComputationalModel model = make_direct_model(all_g(), {}, comp_confusion(1.0, 0.0));
+    NonComputationalModel model =
+        make_direct_model(pure_initial_state(Level::G), {}, comp_confusion(1.0, 0.0));
 
     NonComputationalSample s = sample_noncomputational(c, model, 64, 3);
     for (uint32_t shot = 0; shot < s.shots; ++shot) {
@@ -1825,7 +1723,8 @@ TEST_CASE("exact: computational confusion misreports into the detector") {
 TEST_CASE("exact: asymmetric confusion matches its rates") {
     // True bit is 1 (X-prepared); it is misread as 0 with probability 0.2.
     Circuit c = parse("X 0\nM 0\n");
-    NonComputationalModel model = make_direct_model(all_g(), {}, comp_confusion(0.0, 0.2));
+    NonComputationalModel model =
+        make_direct_model(pure_initial_state(Level::G), {}, comp_confusion(0.0, 0.2));
 
     constexpr uint32_t kShots = 4000;
     NonComputationalSample s = sample_noncomputational(c, model, kShots, 9);
@@ -1842,18 +1741,12 @@ TEST_CASE("exact: hand-written LOSS and LEVEL_TRANSITION run end to end") {
     // lost bit. Qubit 1 leaks via a local named LEVEL_TRANSITION; its measurement
     // takes the leak_g bit.
     Circuit c = parse("H 0\nH 1\nLOSS(1) 0\nLEVEL_TRANSITION[leak] 1\nM 0\nM 1\n");
-    auto leak = zeros5();
-    leak[kLeakG][0] = 1.0;
-    leak[kLeakG][1] = 1.0;
-    std::map<std::string, std::vector<std::vector<double>>> transitions;
+    auto leak = certain_transition_from_computational(Level::LeakG);
+    std::map<std::string, RawProbabilityMatrix> transitions;
     transitions.emplace("leak", std::move(leak));
-    std::vector<std::vector<double>> m(2, std::vector<double>(5, 0.0));
-    m[0][0] = 1.0;
-    m[1][1] = 1.0;
-    m[1][kLeakG] = 1.0;  // leaked reads 1
-    m[0][kLost] = 1.0;   // lost reads 0
-    m[0][3] = 1.0;
-    NonComputationalModel model = make_direct_model(all_g(), std::move(transitions), std::move(m));
+    auto m = classifier_matrix_with_column(Level::LeakG, {0.0, 1.0});
+    NonComputationalModel model =
+        make_direct_model(pure_initial_state(Level::G), std::move(transitions), std::move(m));
 
     NonComputationalSample s = sample_noncomputational(c, model, 64, 5);
     for (uint32_t shot = 0; shot < s.shots; ++shot) {

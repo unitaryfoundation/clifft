@@ -12,18 +12,11 @@ from __future__ import annotations
 
 import numpy as np
 import utils_noncomp_enumerator as en
-from conftest import binomial_tolerance
+from conftest import binomial_tolerance, noncomp_transition_matrix
 
 from clifft import noncomp
 
 Level = noncomp.Level
-
-
-def _transition(entries: dict[tuple[int, int], float]) -> list[list[float]]:
-    m = [[0.0] * 5 for _ in range(5)]
-    for (to, frm), p in entries.items():
-        m[to][frm] = p
-    return m
 
 
 def _classifier_matrix() -> list[list[float]]:
@@ -70,7 +63,7 @@ def test_enumerator_plus_state_marginal_closed_form():
     """
     p = 0.4
     circuit = "H 0\nLEVEL_TRANSITION[leak] 0\nM 0\n"
-    transitions = {"leak": _transition({(Level.LEAK_E, Level.G): p})}
+    transitions = {"leak": noncomp_transition_matrix({(Level.LEAK_E, Level.G): p})}
 
     exact = en.enumerate_exact(
         circuit,
@@ -100,7 +93,7 @@ def test_enumerator_initial_leak_and_recapture():
     dist = en.enumerate_exact(
         "LEVEL_TRANSITION[seep] 0\nM 0\n",
         initial=[0, 0, 1, 0, 0],  # starts at leak_g
-        transitions={"seep": _transition({(Level.E, Level.LEAK_G): seep})},
+        transitions={"seep": noncomp_transition_matrix({(Level.E, Level.LEAK_G): seep})},
         classifier=_classifier_matrix(),
     )
     # Recaptured (p = 0.3): reads 1. Still leaked at leak_g: reads 0.
@@ -136,8 +129,10 @@ M 0 1 2
 """
 
 TRANSITIONS = {
-    "leak2q": _transition({(Level.LEAK_E, Level.E): LEAK_2Q_E, (Level.LEAK_G, Level.G): LEAK_2Q_G}),
-    "leak1q": _transition({(Level.LEAK_E, Level.E): LEAK_1Q_E}),
+    "leak2q": noncomp_transition_matrix(
+        {(Level.LEAK_E, Level.E): LEAK_2Q_E, (Level.LEAK_G, Level.G): LEAK_2Q_G}
+    ),
+    "leak1q": noncomp_transition_matrix({(Level.LEAK_E, Level.E): LEAK_1Q_E}),
 }
 
 SHOTS = 60_000

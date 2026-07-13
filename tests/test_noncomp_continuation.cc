@@ -12,6 +12,8 @@
 #include "clifft/noncomp/model.h"
 #include "clifft/noncomp/rewriter.h"
 
+#include "noncomp_test_helpers.h"
+
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/matchers/catch_matchers.hpp>
 #include <catch2/matchers/catch_matchers_string.hpp>
@@ -21,27 +23,26 @@
 
 using namespace clifft;
 using Catch::Matchers::ContainsSubstring;
+using clifft::test::classifier_matrix_with_column;
+using clifft::test::level_index;
+using clifft::test::pure_initial_state;
+using clifft::test::zero_transition_matrix;
 
 namespace {
-
-// Matrix index of the leak_e level the demo model leaks to.
-constexpr uint8_t kLeak = 3;
 
 // A model with one named leak transition (e leaks at 0.4, g at 0.1),
 // seepage back from the leaked level (0.2 to e), and a faithful
 // two-symbol classifier whose leaked column reads 1.
 NonComputationalModel demo_model() {
-    std::vector<std::vector<double>> leak(5, std::vector<double>(5, 0.0));
-    leak[kLeak][0] = 0.1;
-    leak[kLeak][1] = 0.4;
-    leak[1][kLeak] = 0.2;  // seepage: leaked -> e
+    auto leak = zero_transition_matrix();
+    leak[level_index(Level::LeakE)][level_index(Level::G)] = 0.1;
+    leak[level_index(Level::LeakE)][level_index(Level::E)] = 0.4;
+    leak[level_index(Level::E)][level_index(Level::LeakE)] = 0.2;
 
-    const std::vector<std::vector<double>> classifier = {{1.0, 0.0, 1.0, 0.0, 1.0},
-                                                         {0.0, 1.0, 0.0, 1.0, 0.0}};
-
-    return NonComputationalModel::from_spec({1.0, 0.0, 0.0, 0.0, 0.0}, {{"leak", leak}},
-                                            std::make_optional(classifier),
-                                            NonComputationalPolicy{});
+    return NonComputationalModel::from_spec(
+        pure_initial_state(Level::G), {{"leak", leak}},
+        std::make_optional(classifier_matrix_with_column(Level::LeakE, {0.0, 1.0})),
+        NonComputationalPolicy{});
 }
 
 std::vector<QubitStatus> computational_initials(uint32_t n) {

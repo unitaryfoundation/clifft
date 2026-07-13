@@ -58,7 +58,7 @@ TEST_CASE("QubitStatus: category predicates partition the statuses") {
     REQUIRE_FALSE(is_leaked(QubitStatus::Lost));
 }
 
-TEST_CASE("QubitStatus: noncomp_level names the definite level, throws on computational") {
+TEST_CASE("QubitStatus: noncomp_level names definite levels and throws on computational") {
     REQUIRE(noncomp_level(QubitStatus::LeakG) == Level::LeakG);
     REQUIRE(noncomp_level(QubitStatus::LeakE) == Level::LeakE);
     REQUIRE(noncomp_level(QubitStatus::Lost) == Level::Lost);

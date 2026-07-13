@@ -1,6 +1,7 @@
 #include "clifft/noncomp/level.h"
 #include "clifft/noncomp/transition_instrument.h"
 
+#include "noncomp_test_helpers.h"
 #include "test_helpers.h"
 
 #include <catch2/catch_test_macros.hpp>
@@ -17,32 +18,25 @@ using clifft::Level;
 using clifft::TransitionInstrument;
 using clifft::test::opaque_infinity;
 using clifft::test::opaque_nan;
-
-namespace {
-
-// 5x5 zero matrix over the five levels.
-std::vector<std::vector<double>> zero5() {
-    return std::vector<std::vector<double>>(5, std::vector<double>(5, 0.0));
-}
-
-}  // namespace
+using clifft::test::RawProbabilityMatrix;
+using clifft::test::zero_transition_matrix;
 
 // =========================================================================
 // Shape validation
 // =========================================================================
 
 TEST_CASE("TransitionInstrument: accepts a zero matrix") {
-    REQUIRE_NOTHROW(TransitionInstrument::from_matrix(zero5()));
+    REQUIRE_NOTHROW(TransitionInstrument::from_matrix(zero_transition_matrix()));
 }
 
 TEST_CASE("TransitionInstrument: rejects wrong row count") {
-    std::vector<std::vector<double>> bad(4, std::vector<double>(5, 0.0));
+    RawProbabilityMatrix bad(4, std::vector<double>(5, 0.0));
     REQUIRE_THROWS_WITH(TransitionInstrument::from_matrix(bad),
                         ContainsSubstring("4 rows") && ContainsSubstring("expected 5"));
 }
 
 TEST_CASE("TransitionInstrument: rejects jagged row width") {
-    std::vector<std::vector<double>> bad = zero5();
+    RawProbabilityMatrix bad = zero_transition_matrix();
     bad[2].pop_back();  // row 2 now has 4 columns
     REQUIRE_THROWS_WITH(TransitionInstrument::from_matrix(bad),
                         ContainsSubstring("row 2") && ContainsSubstring("4 columns"));
@@ -53,20 +47,20 @@ TEST_CASE("TransitionInstrument: rejects jagged row width") {
 // =========================================================================
 
 TEST_CASE("TransitionInstrument: rejects negative entry") {
-    std::vector<std::vector<double>> m = zero5();
+    RawProbabilityMatrix m = zero_transition_matrix();
     m[1][0] = -0.1;
     REQUIRE_THROWS_WITH(TransitionInstrument::from_matrix(m),
                         ContainsSubstring("entry") && ContainsSubstring("out of [0, 1]"));
 }
 
 TEST_CASE("TransitionInstrument: rejects entry above 1") {
-    std::vector<std::vector<double>> m = zero5();
+    RawProbabilityMatrix m = zero_transition_matrix();
     m[1][0] = 1.5;
     REQUIRE_THROWS_WITH(TransitionInstrument::from_matrix(m), ContainsSubstring("out of [0, 1]"));
 }
 
 TEST_CASE("TransitionInstrument: rejects column sum above 1") {
-    std::vector<std::vector<double>> m = zero5();
+    RawProbabilityMatrix m = zero_transition_matrix();
     m[2][0] = 0.6;
     m[3][0] = 0.6;  // column 0 sums to 1.2
     REQUIRE_THROWS_WITH(TransitionInstrument::from_matrix(m),
@@ -74,27 +68,27 @@ TEST_CASE("TransitionInstrument: rejects column sum above 1") {
 }
 
 TEST_CASE("TransitionInstrument: rejects NaN entry") {
-    std::vector<std::vector<double>> m = zero5();
+    RawProbabilityMatrix m = zero_transition_matrix();
     m[1][0] = opaque_nan();
     REQUIRE_THROWS_WITH(TransitionInstrument::from_matrix(m),
                         ContainsSubstring("not finite") || ContainsSubstring("out of [0, 1]"));
 }
 
 TEST_CASE("TransitionInstrument: rejects positive infinity entry") {
-    std::vector<std::vector<double>> m = zero5();
+    RawProbabilityMatrix m = zero_transition_matrix();
     m[1][0] = opaque_infinity();
     REQUIRE_THROWS_AS(TransitionInstrument::from_matrix(m), std::invalid_argument);
 }
 
 TEST_CASE("TransitionInstrument: entry validation has no tolerance slack") {
-    std::vector<std::vector<double>> m = zero5();
+    RawProbabilityMatrix m = zero_transition_matrix();
     // Just barely above 1: with no tolerance on entries, this must reject.
     m[1][0] = std::nextafter(1.0, 2.0);
     REQUIRE_THROWS_AS(TransitionInstrument::from_matrix(m), std::invalid_argument);
 }
 
 TEST_CASE("TransitionInstrument: column sum within tolerance above 1 is clamped") {
-    std::vector<std::vector<double>> m = zero5();
+    RawProbabilityMatrix m = zero_transition_matrix();
     // Two entries whose sum is the next representable double above 1.0
     // (1.0 + 2^-52, ~2.22e-16). Each entry passes the strict [0, 1]
     // entry check, the sum is strictly > 1.0 yet well within
@@ -118,7 +112,7 @@ TEST_CASE("TransitionInstrument: column sum within tolerance above 1 is clamped"
 // =========================================================================
 
 TEST_CASE("TransitionInstrument: column_sum matches the matrix") {
-    std::vector<std::vector<double>> m = zero5();
+    RawProbabilityMatrix m = zero_transition_matrix();
     // From g: 30% jump to leak_g, 10% jump to lost -> column sum 0.4.
     m[2][0] = 0.3;
     m[4][0] = 0.1;
@@ -132,8 +126,8 @@ TEST_CASE("TransitionInstrument: column_sum matches the matrix") {
     REQUIRE_THAT(instr.column_sum(Level::LeakG), WithinAbs(0.0, 1e-12));
 }
 
-TEST_CASE("TransitionInstrument: prob returns the entry under T[to, from] convention") {
-    std::vector<std::vector<double>> m = zero5();
+TEST_CASE("TransitionInstrument: prob follows the destination-source convention") {
+    RawProbabilityMatrix m = zero_transition_matrix();
     m[3][1] = 0.25;  // P(leak_e | from e) = 0.25
     auto instr = TransitionInstrument::from_matrix(m);
 

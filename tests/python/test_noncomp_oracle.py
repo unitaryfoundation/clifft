@@ -21,6 +21,7 @@ import numpy as np
 import numpy.typing as npt
 import pytest
 import utils_noncomp_oracle as oracle
+from conftest import noncomp_classifier_matrix_with_column, noncomp_transition_matrix
 
 import clifft
 from clifft import noncomp
@@ -30,22 +31,8 @@ BAND = 0.04  # ~7 sigma at 8000 shots for p near 0.5
 SHOTS = 8000
 
 
-def _transition(entries: dict[tuple[int, int], float]) -> list[list[float]]:
-    """5x5 T[to][from]; a column's deficit below 1 is the no-jump (stay) weight."""
-    m = [[0.0] * 5 for _ in range(5)]
-    for (to, frm), p in entries.items():
-        m[to][frm] = p
-    return m
-
-
 def _classifier(level: int, col: list[float]) -> noncomp.Classifier:
-    m = [[0.0] * 5 for _ in range(2)]  # P[symbol][level], two symbols
-    for lvl in range(5):
-        m[0][lvl] = 1.0
-    # Computational levels read out faithfully (no readout confusion).
-    m[0][noncomp.Level.E], m[1][noncomp.Level.E] = 0.0, 1.0
-    m[0][level], m[1][level] = col[0], col[1]
-    return noncomp.Classifier(m)
+    return noncomp.Classifier(noncomp_classifier_matrix_with_column(level, col))
 
 
 def _p1(result: noncomp.NonComputationalSample, slot: int) -> float:
@@ -101,7 +88,7 @@ def test_transition_probability_on_known_source():
     # On known g, S jumps to leak_g with prob 0.4 (deficit 0.6 stays g).
     model = noncomp.Model(
         initial_state=[1.0, 0.0, 0.0, 0.0, 0.0],
-        transitions={"S": _transition({(Level.LEAK_G, Level.G): 0.4})},
+        transitions={"S": noncomp_transition_matrix({(Level.LEAK_G, Level.G): 0.4})},
     )
     r = noncomp.sample("S 0\n", model, shots=SHOTS, seed=3)
     leaked = np.isin(
@@ -116,7 +103,9 @@ def test_classifier_replacement_distribution(col, expected):
     model = noncomp.Model(
         initial_state=[1.0, 0.0, 0.0, 0.0, 0.0],
         transitions={
-            "S": _transition({(Level.LEAK_G, Level.G): 1.0, (Level.LEAK_G, Level.E): 1.0})
+            "S": noncomp_transition_matrix(
+                {(Level.LEAK_G, Level.G): 1.0, (Level.LEAK_G, Level.E): 1.0}
+            )
         },
         classifier=_classifier(Level.LEAK_G, col),
     )
@@ -130,7 +119,9 @@ def test_partial_relaxation_matches_analytic_mixture():
     p = 0.3
     model = noncomp.Model(
         initial_state=[1.0, 0.0, 0.0, 0.0, 0.0],
-        transitions={"S": _transition({(Level.G, Level.G): p, (Level.G, Level.E): p})},
+        transitions={
+            "S": noncomp_transition_matrix({(Level.G, Level.G): p, (Level.G, Level.E): p})
+        },
     )
     r = noncomp.sample("H 0\nS 0\nM 0\n", model, shots=SHOTS, seed=6)
     h = oracle.apply_1q(oracle.zero_state(1), "H", 0, 1)
@@ -143,7 +134,9 @@ def test_survivor_marginal_equals_partial_trace():
     # reference partial trace (0.5), and the lost record follows the classifier.
     model = noncomp.Model(
         initial_state=[1.0, 0.0, 0.0, 0.0, 0.0],
-        transitions={"S": _transition({(Level.LOST, Level.G): 1.0, (Level.LOST, Level.E): 1.0})},
+        transitions={
+            "S": noncomp_transition_matrix({(Level.LOST, Level.G): 1.0, (Level.LOST, Level.E): 1.0})
+        },
         classifier=_classifier(Level.LOST, [0.5, 0.5]),
     )
     r = noncomp.sample("H 0\nCX 0 1\nS 0\nM 0\nM 1\n", model, shots=SHOTS, seed=5)
@@ -215,7 +208,7 @@ def test_two_site_exact_damping_composition_matches_enumerator():
     import utils_noncomp_enumerator as en
 
     p = 0.5
-    transitions = {"leak": _transition({(Level.LEAK_E, Level.E): p})}
+    transitions = {"leak": noncomp_transition_matrix({(Level.LEAK_E, Level.E): p})}
     circuit_text = "H 0\nLEVEL_TRANSITION[leak] 0\nLEVEL_TRANSITION[leak] 0\nH 0\nM 0\n"
     classifier_matrix = [[1.0, 0.0, 1.0, 0.0, 1.0], [0.0, 1.0, 0.0, 1.0, 0.0]]
 

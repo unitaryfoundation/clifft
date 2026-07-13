@@ -4,10 +4,9 @@
 // prefix-identity contract that trap re-entry depends on.
 
 #include "clifft/backend/backend.h"
-#include "clifft/circuit/parser.h"
 #include "clifft/frontend/frontend.h"
-#include "clifft/optimizer/pass_factory.h"
-#include "clifft/svm/svm.h"
+
+#include "instrument_test_helpers.h"
 
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/matchers/catch_matchers.hpp>
@@ -20,41 +19,13 @@
 using namespace clifft;
 using Catch::Matchers::ContainsSubstring;
 using Catch::Matchers::WithinAbs;
+using clifft::test::compile_instruments_full;
+using clifft::test::compile_instruments_raw;
+using clifft::test::source_dependent_jump_options;
 
 namespace {
 
 constexpr double kTol = 1e-15;
-
-InstrumentTraceOptions demo_options(bool neglect = false) {
-    InstrumentTraceOptions options;
-    InstrumentProbabilities spec;
-    spec.p_fire[0] = 0.1;
-    spec.p_computational_dest[0][0] = 0.02;
-    spec.p_computational_dest[0][1] = 0.03;
-    spec.p_fire[1] = 0.4;
-    options.transitions.emplace("jump", spec);
-    options.neglect_instrument_damping = neglect;
-    return options;
-}
-
-// trace + lower, no optimization passes: fully deterministic opcode
-// sequences for the classification checks.
-CompiledModule compile_raw(const char* text, const InstrumentTraceOptions& options) {
-    auto hir = trace(parse(text), &options);
-    return lower(hir);
-}
-
-// The full default pipeline (HIR passes, lower, bytecode passes): what a
-// real compilation runs, for the prefix-identity and offset-validity checks.
-CompiledModule compile_full(const char* text, const InstrumentTraceOptions& options) {
-    auto hir = trace(parse(text), &options);
-    auto hir_passes = default_hir_pass_manager();
-    hir_passes.run(hir);
-    auto module = lower(hir);
-    auto bytecode_passes = default_bytecode_pass_manager();
-    bytecode_passes.run(module);
-    return module;
-}
 
 bool is_instrument_opcode(Opcode op) {
     return op == Opcode::OP_INSTRUMENT_ACTIVE || op == Opcode::OP_INSTRUMENT_DORMANT_STATIC ||
@@ -82,7 +53,8 @@ size_t sole_instrument_index(const CompiledModule& module) {
 // =============================================================================
 
 TEST_CASE("lowering: a fresh-qubit site is dormant-static with its spec in the pool") {
-    auto module = compile_raw("LEVEL_TRANSITION[jump] 0", demo_options());
+    auto module =
+        compile_instruments_raw("LEVEL_TRANSITION[jump] 0", source_dependent_jump_options());
 
     const size_t at = sole_instrument_index(module);
     const Instruction& instr = module.bytecode[at];
@@ -116,7 +88,8 @@ TEST_CASE("lowering: a fresh-qubit site is dormant-static with its spec in the p
 }
 
 TEST_CASE("lowering: a Pauli before the site lands in FLAG_SIGN") {
-    auto module = compile_raw("X 0\nLEVEL_TRANSITION[jump] 0", demo_options());
+    auto module =
+        compile_instruments_raw("X 0\nLEVEL_TRANSITION[jump] 0", source_dependent_jump_options());
     const Instruction& instr = module.bytecode[sole_instrument_index(module)];
     REQUIRE(instr.opcode == Opcode::OP_INSTRUMENT_DORMANT_STATIC);
     REQUIRE((instr.flags & Instruction::FLAG_SIGN) != 0);
@@ -125,7 +98,8 @@ TEST_CASE("lowering: a Pauli before the site lands in FLAG_SIGN") {
 TEST_CASE("lowering: an active qubit gets the fused active form on its axis") {
     // H 0; T 0 activates qubit 0 (the T's route expands it); the site's
     // rewound X-projector maps through the route's virtual H back to Z.
-    auto module = compile_raw("H 0\nT 0\nLEVEL_TRANSITION[jump] 0", demo_options());
+    auto module = compile_instruments_raw("H 0\nT 0\nLEVEL_TRANSITION[jump] 0",
+                                          source_dependent_jump_options());
 
     const size_t at = sole_instrument_index(module);
     const Instruction& instr = module.bytecode[at];
@@ -139,7 +113,8 @@ TEST_CASE("lowering: an active qubit gets the fused active form on its axis") {
 TEST_CASE("lowering: an active X-basis site gets an absorbed array Hadamard") {
     // The trailing H makes the rewound projector plain Z, which the
     // route's accumulated virtual H maps to X on the active axis.
-    auto module = compile_raw("H 0\nT 0\nH 0\nLEVEL_TRANSITION[jump] 0", demo_options());
+    auto module = compile_instruments_raw("H 0\nT 0\nH 0\nLEVEL_TRANSITION[jump] 0",
+                                          source_dependent_jump_options());
 
     const size_t at = sole_instrument_index(module);
     REQUIRE(module.bytecode[at].opcode == Opcode::OP_INSTRUMENT_ACTIVE);
@@ -148,7 +123,8 @@ TEST_CASE("lowering: an active X-basis site gets an absorbed array Hadamard") {
 }
 
 TEST_CASE("lowering: source-dependent rates under exact damping expand at the site") {
-    auto module = compile_raw("H 0\nLEVEL_TRANSITION[jump] 0", demo_options());
+    auto module =
+        compile_instruments_raw("H 0\nLEVEL_TRANSITION[jump] 0", source_dependent_jump_options());
 
     const size_t at = sole_instrument_index(module);
     REQUIRE(module.bytecode[at].opcode == Opcode::OP_INSTRUMENT_EXPAND);
@@ -171,14 +147,15 @@ TEST_CASE("lowering: equal per-source rates skip the expansion even under exact 
     spec.p_computational_dest[1][1] = 0.03;
     options.transitions.emplace("jump", spec);
 
-    auto module = compile_raw("H 0\nLEVEL_TRANSITION[jump] 0", options);
+    auto module = compile_instruments_raw("H 0\nLEVEL_TRANSITION[jump] 0", options);
     const size_t at = sole_instrument_index(module);
     REQUIRE(module.bytecode[at].opcode == Opcode::OP_INSTRUMENT_DORMANT_NEGLECT);
     REQUIRE(module.peak_rank == 0);
 }
 
 TEST_CASE("lowering: dormant-random under neglect keeps k and skips the expansion") {
-    auto module = compile_raw("H 0\nLEVEL_TRANSITION[jump] 0", demo_options(/*neglect=*/true));
+    auto module = compile_instruments_raw("H 0\nLEVEL_TRANSITION[jump] 0",
+                                          source_dependent_jump_options(/*neglect_damping=*/true));
 
     const size_t at = sole_instrument_index(module);
     REQUIRE(module.bytecode[at].opcode == Opcode::OP_INSTRUMENT_DORMANT_NEGLECT);
@@ -192,7 +169,8 @@ TEST_CASE("lowering: dormant-random under neglect keeps k and skips the expansio
 TEST_CASE("lowering: an entangled site still localizes to one instrument") {
     // The rewound projector of the CNOT target is a two-qubit Pauli; the
     // localization emits reduction ops and one instrument on the pivot.
-    auto module = compile_raw("H 0\nCX 0 1\nT 0\nLEVEL_TRANSITION[jump] 1", demo_options());
+    auto module = compile_instruments_raw("H 0\nCX 0 1\nT 0\nLEVEL_TRANSITION[jump] 1",
+                                          source_dependent_jump_options());
     const size_t at = sole_instrument_index(module);
     const auto& site =
         module.constant_pool.instrument_sites[module.bytecode[at].instrument.cp_site_idx];
@@ -211,10 +189,10 @@ TEST_CASE("lowering: offsets stay valid through the default bytecode passes") {
     // Noise before the site coalesces into a block under the default
     // passes, shifting instruction indices; the rebuilt table must still
     // point at the instrument.
-    auto module = compile_full(
+    auto module = compile_instruments_full(
         "X_ERROR(0.01) 0\nX_ERROR(0.01) 1\nX_ERROR(0.01) 2\n"
         "LEVEL_TRANSITION[jump] 0\nM 0",
-        demo_options());
+        source_dependent_jump_options());
 
     REQUIRE(module.instrument_offsets.size() == 1);
     const uint32_t offset = module.instrument_offsets[0];
@@ -227,10 +205,10 @@ TEST_CASE("fences: noise blocks never coalesce across an instrument") {
     // by construction; exercise the pass that matters most (noise-block
     // coalescing drove the atomized-fence cost in the spike): noise on
     // both sides of a site stays on both sides, in separate runs.
-    auto module = compile_full(
+    auto module = compile_instruments_full(
         "X_ERROR(0.01) 0\nX_ERROR(0.01) 1\nLEVEL_TRANSITION[jump] 2\n"
         "X_ERROR(0.01) 0\nX_ERROR(0.01) 1\nM 0",
-        demo_options());
+        source_dependent_jump_options());
 
     const size_t at = sole_instrument_index(module);
     bool noise_before = false;
@@ -249,14 +227,16 @@ TEST_CASE("fences: noise blocks never coalesce across an instrument") {
 }
 
 TEST_CASE("exact record and basis probabilities reject instrument programs") {
-    auto module = compile_raw("LEVEL_TRANSITION[jump] 0\nM 0", demo_options());
+    auto module =
+        compile_instruments_raw("LEVEL_TRANSITION[jump] 0\nM 0", source_dependent_jump_options());
     const std::vector<uint8_t> record{0};
     REQUIRE_THROWS_WITH(record_probabilities(module, record, 1),
                         ContainsSubstring("record_probabilities()"));
 
     // basis_probabilities takes measurement-free unitary programs, so its
     // rejection path needs its own instrument program to exercise.
-    auto unitary = compile_raw("LEVEL_TRANSITION[jump] 0", demo_options());
+    auto unitary =
+        compile_instruments_raw("LEVEL_TRANSITION[jump] 0", source_dependent_jump_options());
     const std::vector<uint64_t> masks{0};
     REQUIRE_THROWS_WITH(basis_probabilities(unitary, masks, 1, 1),
                         ContainsSubstring("basis_probabilities()"));
@@ -268,12 +248,12 @@ TEST_CASE("fences: prefix compilation is bit-identical across different suffixes
     // identically no matter what follows the fence, through the full
     // default pipeline. The suffixes differ in ways the peephole would
     // exploit across the fence if it could (a fusable T pair).
-    const auto options = demo_options();
+    const auto options = source_dependent_jump_options();
     const char* with_fusion_bait = "H 0\nT 0\nLEVEL_TRANSITION[jump] 0\nT 0\nM 0";
     const char* with_other_suffix = "H 0\nT 0\nLEVEL_TRANSITION[jump] 0\nT_DAG 0\nH 0\nM 0\nM 1";
 
-    auto a = compile_full(with_fusion_bait, options);
-    auto b = compile_full(with_other_suffix, options);
+    auto a = compile_instruments_full(with_fusion_bait, options);
+    auto b = compile_instruments_full(with_other_suffix, options);
 
     REQUIRE(a.instrument_offsets.size() == 1);
     REQUIRE(b.instrument_offsets.size() == 1);
