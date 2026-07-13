@@ -2,8 +2,8 @@
 
 #include "stim.h"
 
-#include <bit>
 #include <cmath>
+#include <cstring>
 #include <initializer_list>
 #include <limits>
 #include <numbers>
@@ -412,9 +412,13 @@ void validate_instrument_probabilities(const InstrumentProbabilities& probabilit
     static_assert(std::numeric_limits<double>::is_iec559,
                   "instrument probabilities require IEEE 754 doubles");
     constexpr uint64_t kExpMask = 0x7FF0000000000000ULL;
+    // Keep this at least as loose as the model layer's kProbTolerance.
+    // TransitionInstrument clamps column sums within that tolerance to 1.
     constexpr double kTolerance = 1e-12;
     auto finite = [](double value) {
-        return (std::bit_cast<uint64_t>(value) & kExpMask) != kExpMask;
+        uint64_t bits;
+        std::memcpy(&bits, &value, sizeof(bits));
+        return (bits & kExpMask) != kExpMask;
     };
 
     for (uint8_t source = 0; source < 2; ++source) {

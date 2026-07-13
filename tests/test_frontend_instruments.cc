@@ -16,6 +16,8 @@
 #include "clifft/optimizer/peephole.h"
 #include "clifft/optimizer/statevector_squeeze_pass.h"
 
+#include "test_helpers.h"
+
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/matchers/catch_matchers.hpp>
 #include <catch2/matchers/catch_matchers_floating_point.hpp>
@@ -163,6 +165,17 @@ TEST_CASE("trace: malformed compressed instrument probabilities reject") {
     REQUIRE_THROWS_WITH(
         hir_with_instruments("LEVEL_TRANSITION[invalid] 0", options),
         ContainsSubstring("LEVEL_TRANSITION[invalid]") && ContainsSubstring("above p_fire"));
+}
+
+TEST_CASE("trace: non-finite compressed instrument probabilities reject") {
+    InstrumentTraceOptions options;
+    InstrumentSpec invalid;
+    invalid.p_fire[0] = clifft::test::opaque_nan();
+    options.transitions.emplace("invalid", invalid);
+
+    REQUIRE_THROWS_WITH(
+        hir_with_instruments("LEVEL_TRANSITION[invalid] 0", options),
+        ContainsSubstring("LEVEL_TRANSITION[invalid]") && ContainsSubstring("invalid p_fire"));
 }
 
 TEST_CASE("trace: the damping policy is recorded once on the HIR module") {
