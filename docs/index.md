@@ -94,18 +94,4 @@ For QEC workflows, Clifft also supports detector-based post-selection, survivor 
 
 Clifft 0.6.0 adds Stim-compatible correlated Pauli noise chains through `CORRELATED_ERROR` / `E` and `ELSE_CORRELATED_ERROR`. A new [front-end integrations guide](getting-started/integrations.md) also shows how to run supported Qiskit and Cirq circuits with the separately maintained `clifft-qiskit` and `clifft-cirq` companion packages.
 
-## What's New in 0.5.0
-
-Clifft 0.5.0 broadens the circuits users can write directly and makes the project easier to try from both the playground and Python docs. The parser now accepts common controlled gates (`CCZ`, `CCX`, `CH`) through exact Clifford+T rewrites, the simulator supports three-qubit Pauli noise channels (`DEPOLARIZE3`), and phase-sensitive statevector behavior is better tested and documented.
-
-This release also includes several [unitaryHACK 2026](https://unitaryhack.dev/) contributions: @Samfresh-ai added starter circuits to the playground, @manasa-manoj-nbr added an auto-generated Python API reference, and @ashmitjsg completed the Qiskit backend bounty as the companion [unitaryfoundation/clifft-qiskit](https://github.com/unitaryfoundation/clifft-qiskit) package. Users starting from Qiskit or Cirq can now find both [clifft-qiskit](https://github.com/unitaryfoundation/clifft-qiskit) and [clifft-cirq](https://github.com/unitaryfoundation/clifft-cirq) from the [front-end integrations guide](getting-started/integrations.md).
-
-## What's New in 0.4.0
-
-Clifft 0.4.0 expands strong simulation with `clifft.record_probabilities()`, the deterministic-record counterpart to `sample()` — it returns the joint probability of a given measurement record for circuits with measurements and classical feedback. The complementary unitary-circuit query, formerly `clifft.probabilities()`, is now `clifft.basis_probabilities()`. There are no compatibility aliases; existing callers must rename.
-
-`basis_probabilities()` is also roughly 17× faster on representative inputs.
-
-Looking for GPU acceleration? An early proof-of-concept CUDA backend lives at [haoliri0/clifft-cuda](https://github.com/haoliri0/clifft-cuda). It is a separate, community-maintained experiment; integration into upstream Clifft is being tracked in [issue #64](https://github.com/unitaryfoundation/clifft/issues/64).
-
 [Full Changelog](https://github.com/unitaryfoundation/clifft/blob/main/CHANGELOG.md){ .md-button }
