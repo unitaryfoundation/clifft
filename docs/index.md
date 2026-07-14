@@ -90,6 +90,10 @@ For QEC workflows, Clifft also supports detector-based post-selection, survivor 
 
 [Use Qiskit or Cirq](getting-started/integrations.md){ .md-button }
 
+## What's New in 0.6.0
+
+Clifft 0.6.0 adds Stim-compatible correlated Pauli noise chains through `CORRELATED_ERROR` / `E` and `ELSE_CORRELATED_ERROR`. A new [front-end integrations guide](getting-started/integrations.md) also shows how to run supported Qiskit and Cirq circuits with the separately maintained `clifft-qiskit` and `clifft-cirq` companion packages.
+
 ## What's New in 0.5.0
 
 Clifft 0.5.0 broadens the circuits users can write directly and makes the project easier to try from both the playground and Python docs. The parser now accepts common controlled gates (`CCZ`, `CCX`, `CH`) through exact Clifford+T rewrites, the simulator supports three-qubit Pauli noise channels (`DEPOLARIZE3`), and phase-sensitive statevector behavior is better tested and documented.
