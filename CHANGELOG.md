@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.6.0] - 2026-07-14
+
+Clifft 0.6.0 adds Stim-compatible correlated Pauli noise chains through
+`CORRELATED_ERROR` / `E` and `ELSE_CORRELATED_ERROR`. It also adds a dedicated
+[front-end integrations guide](https://unitaryfoundation.github.io/clifft/getting-started/integrations/)
+for using Clifft from Qiskit and Cirq through their separately maintained
+companion packages.
+
+### Documentation
+
+- add front-end integration guide (#182) by @bachase in [#182](https://github.com/unitaryfoundation/clifft/pull/182)
+
+### Features
+
+- add correlated Pauli noise channels (#158) by @bachase in [#158](https://github.com/unitaryfoundation/clifft/pull/158)
+
 ## [0.5.0] - 2026-06-15
 
 Clifft 0.5.0 broadens the circuits users can write directly and makes the project easier to try from both the playground and Python docs. The parser now accepts common controlled gates (`CCZ`, `CCX`, `CH`) through exact Clifford+T rewrites, the simulator supports three-qubit Pauli noise channels (`DEPOLARIZE3`), and phase-sensitive statevector behavior is better tested and documented.
