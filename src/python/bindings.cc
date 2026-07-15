@@ -1140,8 +1140,7 @@ NB_MODULE(_clifft_core, m) {
              nb::arg("num_detectors") = 0, nb::arg("num_observables") = 0,
              nb::arg("num_exp_vals") = 0, nb::arg("seed") = nb::none())
         .def("reset", &clifft::SchrodingerState::reset)
-        .def("reseed", nb::overload_cast<uint64_t>(&clifft::SchrodingerState::reseed),
-             nb::arg("seed"))
+        .def("reseed", &clifft::SchrodingerState::reseed, nb::arg("seed"))
         .def_prop_ro("dust_clamps", [](const clifft::SchrodingerState& s) { return s.dust_clamps; })
         .def_prop_ro(
             "meas_record",

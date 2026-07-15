@@ -1,12 +1,12 @@
 #pragma once
 
-// Per-shot RNG derivation: a 256-bit root (expanded from the user seed,
-// or drawn from OS entropy when unseeded) fans out into one 256-bit
-// generator state per (shot, domain). Distinct shots in a domain provably
-// get distinct states (word 0 is a bijection of the shot index); any other
-// coincidence needs four unrelated 64-bit collisions at once (~2^-256).
-// The word index is folded into the domain tag so those four conditions
-// cannot collapse into one.
+// Per-shot RNG derivation: a 256-bit root (OS entropy when unseeded; a
+// deterministic expansion of the 64-bit user seed otherwise) fans out into
+// one 256-bit generator state per (shot, domain). For a fixed root and
+// domain, distinct shots produce distinct states (word 0 is a bijection of
+// the shot index). Word-indexed domain tags keep a single cross-domain
+// word alias from expanding into a full-state collision, and independent
+// entropy roots collide on a fixed pair of states with probability ~2^-256.
 
 #include "clifft/util/xoshiro.h"
 

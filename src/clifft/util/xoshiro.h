@@ -19,6 +19,7 @@
 // reseeding ~100x cheaper. Uses pure bitwise math to guarantee identical
 // sequences across GCC/Clang/MSVC.
 
+#include <array>
 #include <bit>
 #include <cstdint>
 
@@ -86,5 +87,9 @@ class Xoshiro256PlusPlus {
   private:
     uint64_t s_[4];
 };
+
+// Reads 256 bits from OS entropy (std::random_device), shared by generator
+// seeding and root derivation.
+std::array<uint64_t, 4> entropy_seed_words();
 
 }  // namespace clifft

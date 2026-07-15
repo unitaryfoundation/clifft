@@ -803,7 +803,7 @@ NonComputationalSample run_exact_driver(const Circuit& circuit, const NonComputa
         }
         SchrodingerState& state = *state_storage;
         const auto sw = derive_state(root, shot, kExactSvmDomain);
-        state.reseed(sw[0], sw[1], sw[2], sw[3]);
+        state.reseed_full(sw[0], sw[1], sw[2], sw[3]);
         assert(state.meas_record.size() >= module->total_meas_slots &&
                "the rebuild block above guarantees meas_record capacity; "
                "meas_record never shrinks");

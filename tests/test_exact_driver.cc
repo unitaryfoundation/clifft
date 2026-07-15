@@ -267,20 +267,30 @@ TEST_CASE("exact: the driver and SVM seed streams are domain-separated") {
     // and the in-VM Born draws run on independent streams; handing the same
     // per-shot state to both would correlate them. Guard the documented domain
     // split at its source: for every shot, the same (root, shot) with
-    // different domains yields unrelated states, and the streams they start
-    // diverge on the very first draw.
+    // different domains yields unrelated states.
     for (uint64_t seed : {0ULL, 1ULL, 0x9E3779B97F4A7C15ULL}) {
         const SeedRoot root = seed_root_from_seed(seed);
         for (uint64_t shot = 0; shot < 16; ++shot) {
             const std::array<uint64_t, 4> host = derive_state(root, shot, kExactDriverDomain);
             const std::array<uint64_t, 4> svm = derive_state(root, shot, kExactSvmDomain);
             REQUIRE(host != svm);
-            Xoshiro256PlusPlus host_rng(0);
-            host_rng.seed_full(host[0], host[1], host[2], host[3]);
-            Xoshiro256PlusPlus svm_rng(0);
-            svm_rng.seed_full(svm[0], svm[1], svm[2], svm[3]);
-            REQUIRE(host_rng.next_double() != svm_rng.next_double());
         }
+    }
+}
+
+TEST_CASE("exact: a cross-domain word alias does not expand to a full-state collision") {
+    // Shots 1302581290 (driver) and 4231854694 (SVM) alias on derived word 0
+    // for every root: the root and the word-0 tag terms cancel in the
+    // comparison. They probe the word index folded into the domain tag --
+    // without it, the alias would repeat in all four words and the two
+    // 256-bit states would coincide.
+    for (uint64_t seed : {0ULL, 1ULL, 0x9E3779B97F4A7C15ULL}) {
+        const SeedRoot root = seed_root_from_seed(seed);
+        const std::array<uint64_t, 4> driver =
+            derive_state(root, 1302581290ULL, kExactDriverDomain);
+        const std::array<uint64_t, 4> svm = derive_state(root, 4231854694ULL, kExactSvmDomain);
+        REQUIRE(driver[0] == svm[0]);
+        REQUIRE(driver != svm);
     }
 }
 

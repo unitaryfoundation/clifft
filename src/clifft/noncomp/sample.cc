@@ -4,6 +4,7 @@
 #include "clifft/noncomp/seed.h"
 #include "clifft/util/xoshiro.h"
 
+#include <array>
 #include <stdexcept>
 
 namespace clifft {
@@ -22,12 +23,11 @@ NonComputationalSample sample_noncomputational(const Circuit& circuit,
     if (seed.has_value()) {
         root = seed_root_from_seed(*seed);
     } else if (shots > 0) {
-        Xoshiro256PlusPlus e;
-        e.seed_from_entropy();
-        root.w[0] = e();
-        root.w[1] = e();
-        root.w[2] = e();
-        root.w[3] = e();
+        const std::array<uint64_t, 4> w = entropy_seed_words();
+        root.w[0] = w[0];
+        root.w[1] = w[1];
+        root.w[2] = w[2];
+        root.w[3] = w[3];
     }
 
     return run_exact_driver(circuit, model, shots, root, max_rank);
