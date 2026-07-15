@@ -54,6 +54,26 @@ Per-shot measurement outcomes differ across the batch; the collapse kernels
 take the outcome/sign as a **per-shot scalar** (predicated lanes, no divergent
 code paths) — the same shape a production batched backend would use.
 
+Two further GPU arms (added after studying
+[clifft-cuda](https://github.com/haoliri0/clifft-cuda), a third-party FP32
+MIMD sampler for clifft-compiled circuits):
+
+- **on-device sampling** (`batcheddevgpu`): the same real-shot-shape workload,
+  but the measurement outcome is drawn **on the device** by a stateless
+  counter-based RNG (`kb_sample_dev`) — zero host legs, one sync per batch.
+  The (`batchedmeasgpu` vs `batcheddevgpu`) delta prices the host round-trip
+  itself; clifft-cuda's design shows production code never needs to pay it.
+  `measrounddev` times one gate-free device round (with a per-round sync, so
+  read it as latency; the whole-batch figure is the honest throughput).
+- **MIMD per-shot interpreter** (`mimdgpu`): clifft-cuda's architecture in
+  FP64 — one block per shot walks the entire layered run (gates, in-block
+  reduce, in-block sampling, collapse, re-expand) in a **single kernel
+  launch**, with the slice in shared memory when it fits (metric2 = 1) and in
+  global memory otherwise. Same math, initial state, RNG, and schedule as
+  `batcheddevgpu`, so the pair isolates the execution-architecture choice:
+  lockstep SoA (coalesced across shots, one launch per op) vs MIMD
+  (launch-free, shot-local, no cross-shot coalescing).
+
 `Gamp/s` counts **amplitudes actually touched** per op (H: `2^k`, T: `2^k/2`,
 CZ: `2^k/4`, EXPAND/MEAS: `2·2^k`, …; see `amps_touched()` in
 `bench_common.hpp`), so per-op comparisons are meaningful. CPU and GPU use the
@@ -84,8 +104,13 @@ cmake --build build -j
 MEAS_INTERFERE, with the GPU reduce sums cross-checked against CPU
 probabilities) and `[validate-batched]` (all `kb_*` kernels plus a completed
 batched measurement round with alternating forced outcomes, so both arms of
-the outcome-predicated collapse are exercised). Both expect `< 1e-9`. Then
-transfer-bandwidth, single-op, batched, and batched-with-measurement sweeps.
+the outcome-predicated collapse are exercised), plus `[validate-devmeas]`
+(on-device sampling: device outcomes must match the host recomputation of the
+same stateless hash bit-for-bit, and the collapsed state must match a CPU
+reference forced to those outcomes) and `[validate-mimd]` (the per-shot
+interpreter, global and shared variants, against the identical forced CPU
+trajectory). All expect `< 1e-9`. Then transfer-bandwidth, single-op, batched,
+batched-with-measurement, on-device-sampling, and MIMD sweeps.
 
 ## Output
 
@@ -100,6 +125,9 @@ CSV on stdout, human-readable table on stderr.
 | `batchedmeas`    | `k, B, shots, shots/s, Mshot-layer/s` (CPU, + completed meas)  |
 | `batchedmeasgpu` | `k, B, shots, shots/s, us/meas-round` (GPU, + completed meas)  |
 | `measround`      | `k, B, shots, us/round, us/round/shot` (GPU meas round alone)  |
+| `batcheddevgpu`  | `k, B, shots, shots/s, us/meas-round` (GPU, meas sampled on device) |
+| `measrounddev`   | `k, B, shots, us/round, us/round/shot` (GPU device round alone)|
+| `mimdgpu`        | `k, B, shots, shots/s, shared?`       (GPU, one block/shot)    |
 | `transfer`       | `k, bytes, H2D GB/s, D2H GB/s`        (GPU only)               |
 
 ## How to read the results
@@ -111,25 +139,45 @@ CSV on stdout, human-readable table on stderr.
   (e.g. 16). If the GPU's shots/s keeps climbing with B while CPU saturates, the
   batch-across-shots hypothesis holds. Watch for the B where GPU shots/s plateaus
   (full occupancy).
-- **The decisive number**: `batchedmeasgpu` vs `batchedgpu` shots/s at the same
-  (k, B). If completed measurements erase most of the batched win, the whole
-  GPU route needs on-device sampling or CUDA-graphs work before it is viable;
-  if the gap is modest (NVLink-C2C should make the D2H/H2D legs cheap on
-  GH200), the go case is strong. Compare `batchedmeas` (CPU) the same way —
-  on CPU the measurement adds only a few percent (no round-trip), so the GPU
-  delta isolates the round-trip cost.
+- **The decisive number**: `batcheddevgpu` vs `batchedmeas` (CPU) shots/s at
+  the same (k, B) — both sides run the identical real-shot-shape schedule, and
+  the GPU side pays no host legs (the production design, per clifft-cuda). The
+  older `batchedmeasgpu` (host round-trip) stays as a comparison arm; its gap
+  to `batcheddevgpu` prices the round-trip that on-device sampling removes.
+- **Architecture fork**: `mimdgpu` vs `batcheddevgpu` at the same (k, B).
+  clifft-cuda achieved only ~1.6× over a 40-thread CPU with the MIMD design
+  (FP32, workstation card); if lockstep SoA wins this head-to-head clearly,
+  the gap was architectural headroom, and our design is the one to build. If
+  MIMD ties or wins (shot-local shared memory beating cross-shot coalescing),
+  the cheapest production path is upgrading clifft-cuda to FP64 rather than a
+  new backend. Note MIMD also wins by construction on early-discard
+  (postselection-heavy) workloads, which this schedule does not model.
 - **Transfer**: H2D/D2H GB/s ≈ PCIe (~25 GB/s) vs NVLink-C2C (hundreds of GB/s)
   tells you how cheap it is to keep clifft's CPU-side branch control in the loop.
 
 ## Quoting rules
 
 Do **not** quote `batchedgpu ÷ batched` as "the GPU speedup for clifft" — it is
-a gates-only, sync-free ceiling. Quote `batchedmeasgpu ÷ batchedmeas` (same
-schedule, both sides pay a completed measurement per layer) as the honest
-batched comparison, and report the gates-only figure as the ceiling. Known
-remaining gaps even after a GH200 run: no `SWAP_MEAS_INTERFERE`, CZ/CNOT/U4
-axes fixed at (0,1)-adjacent (most coalescing-friendly), no per-shot noise-op
-modeling, no x86/AVX-512 CPU baseline (Grace/NEON only).
+a gates-only, sync-free ceiling. Quote `batcheddevgpu ÷ batchedmeas` (same
+schedule, both sides pay a completed measurement per layer; GPU samples on
+device, the production design) as the honest batched comparison, and report
+the gates-only figure as the ceiling. Known remaining gaps even after a GH200
+run: no `SWAP_MEAS_INTERFERE`, CZ/CNOT/U4 axes fixed at (0,1)-adjacent (most
+coalescing-friendly), no per-shot noise-op modeling, no early-discard
+(postselection) modeling, no x86/AVX-512 CPU baseline (Grace/NEON only).
+
+## External baseline: clifft-cuda
+
+For an end-to-end reference point on the same machine, build and run
+[clifft-cuda](https://github.com/haoliri0/clifft-cuda) (Apache-2.0; see its
+`instruction.md`) on its bundled `circuit_d5_p=0.001.stim`, plus its
+`tools/run_msc.py` for the clifft CPU number on the identical circuit. Caveats
+when comparing: it is FP32 (`GpuComplex` is `float` pairs), MIMD per-shot, and
+its workload includes noise + postselection early-discard, which this
+microbenchmark's synthetic schedule does not model — treat it as context, not
+as a same-ruler comparison. Its published calibration: ~1.18M shots/s (RTX PRO
+5000, 300 W) vs ~727K shots/s (40-thread Xeon 5218R, 125 W) on d=5 cultivation
+at p=0.1%.
 
 Save `cpu.csv` / `gpu.csv` next to this README and summarize findings back into
 `../README.md`.

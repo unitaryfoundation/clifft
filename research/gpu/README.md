@@ -45,6 +45,7 @@ Real clifft executes rotation sweeps at k=20 at **3.64 Gamp/s single-thread** (u
 - **QuEra Tsim** (arXiv:2604.01059, `bloqade-tsim`): GPU stabilizer-rank QEC *sampler* — batches decomposition terms and shots on GH200/RTX, but FP32-only (complex64 hard-coded) and T-count-exponential (~30–40 T practical ceiling). Different regime: clifft's GPU pitch is exact/FP64/k-exponential strong+weak simulation, not QEC sampling throughput.
 - **quEStab** (ICS '26): multi-GPU extended-stabilizer simulation parallelizing over decomposition *terms*, not shots — an orthogonal axis. Details paywalled (no preprint); pull the PDF before any publication comparison.
 - **GH200 cloud access is self-serve and cheap**: Lambda $2.29/GPU/hr, Vultr $1.99/hr, CoreWeave $6.50/hr (mid-2026). H200 SXM is a valid FP64 stand-in (identical 34/67/67 TFLOPS) for everything except NVLink-C2C transfer behavior.
+- **clifft-cuda** (github.com/haoliri0/clifft-cuda, July 2026): third-party CUDA sampler that interprets clifft's *own compiled bytecode* on-device — an existence proof for the batch-across-shots axis and for the small integration surface (~2000-line `.cu`). Design: MIMD one-block-per-shot (peak_rank ≤ 19), **FP32** amplitudes, on-device per-shot RNG (no measurement round-trip at all), hazard skip-ahead noise, early-exit postselection discards. Honest calibration from its own README: ~1.18M shots/s (RTX PRO 5000, 300 W) vs ~727K shots/s (40-thread Xeon, 125 W) = **1.6× per node, a loss per watt** on d=5 cultivation — consistent with this report's skeptical prior, and well under the bandwidth ratio, leaving the MIMD-vs-lockstep-SoA question open. It does not occupy the exact-FP64 niche.
 
 ## Refuted claims (killed in verification — do NOT cite these)
 
@@ -64,7 +65,9 @@ Real clifft executes rotation sweeps at k=20 at **3.64 Gamp/s single-thread** (u
 3. **batched throughput with one completed measurement per layer** (per-shot reduce → D2H → host sample → H2D → outcome-selected collapse → rank-restoring expand) — the number that decides the go/no-go, since it prices the host round-trip real mid-circuit-measurement shots pay. On CPU the same schedule costs only ~3% extra, so the GPU-side gap isolates the round-trip. On GH200, NVLink-C2C (900 GB/s, 450/direction) should make the D2H/H2D legs cheap — that is the bet being tested;
 4. host↔device bandwidth.
 
-Quoting rule: the honest batched comparison is `batchedmeasgpu / batchedmeas` (both sides pay completed measurements); the gates-only ratio is a ceiling, not "the speedup".
+Two arms added after the clifft-cuda find (2026-07-15): **on-device outcome sampling** (`batcheddevgpu` — the production design; the host round-trip variant stays as a priced comparison) and a **FP64 MIMD one-block-per-shot interpreter** (`mimdgpu` — clifft-cuda's architecture on the identical schedule/state/RNG, so `mimdgpu` vs `batcheddevgpu` settles the architecture fork: if SoA wins clearly, clifft-cuda's 1.6× was architectural headroom and our design is the one to build; if MIMD ties, the cheap path is upgrading clifft-cuda to FP64).
+
+Quoting rule: the honest batched comparison is `batcheddevgpu / batchedmeas` (both sides pay completed measurements; GPU samples on device); the gates-only ratio is a ceiling, not "the speedup".
 
 Run on the GH200: `./microbench/run.sh 10 30 12,16,18,20 4` → `cpu.csv` + `gpu.csv`, then fill in the Run-2 checklist in `microbench/RESULTS.md` and summarize here.
 
