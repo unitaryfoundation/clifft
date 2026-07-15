@@ -299,6 +299,11 @@ def sample(
     these contracts is violated, when an annotation is malformed, or when
     ``max_rank`` is exceeded.
 
+    ``seed`` makes runs reproducible: the same seed with the same arguments
+    returns identical results, so vary it across seeded batches. When
+    ``None``, each call draws a fresh 256-bit root from OS entropy, so
+    repeated or parallel unseeded calls sample fresh randomness.
+
     ``max_rank`` caps the compiled peak rank under exact-mode compilation;
     the cap is enforced at each continuation compile, failing with the
     offending circuit line named instead of attempting a ``2**k``

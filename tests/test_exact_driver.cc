@@ -15,6 +15,7 @@
 
 #include "noncomp_test_helpers.h"
 
+#include <array>
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/matchers/catch_matchers.hpp>
 #include <catch2/matchers/catch_matchers_string.hpp>
@@ -264,19 +265,32 @@ TEST_CASE("exact: same seed reproduces identical runs") {
 TEST_CASE("exact: the driver and SVM seed streams are domain-separated") {
     // The host draws (initial levels, trap destinations, classifier consults)
     // and the in-VM Born draws run on independent streams; handing the same
-    // per-shot seed to both would correlate them. Guard the documented domain
-    // split at its source: for every shot, the same (global, shot) with
-    // different domains yields unrelated seeds, and the streams they start
-    // diverge on the very first draw.
-    for (uint64_t global : {0ULL, 1ULL, 0x9E3779B97F4A7C15ULL}) {
+    // per-shot state to both would correlate them. Guard the documented domain
+    // split at its source: for every shot, the same (root, shot) with
+    // different domains yields unrelated states.
+    for (uint64_t seed : {0ULL, 1ULL, 0x9E3779B97F4A7C15ULL}) {
+        const SeedRoot root = seed_root_from_seed(seed);
         for (uint64_t shot = 0; shot < 16; ++shot) {
-            const uint64_t host = derive_seed(global, shot, kExactDriverDomain);
-            const uint64_t svm = derive_seed(global, shot, kExactSvmDomain);
+            const std::array<uint64_t, 4> host = derive_state(root, shot, kExactDriverDomain);
+            const std::array<uint64_t, 4> svm = derive_state(root, shot, kExactSvmDomain);
             REQUIRE(host != svm);
-            Xoshiro256PlusPlus host_rng(host);
-            Xoshiro256PlusPlus svm_rng(svm);
-            REQUIRE(host_rng.next_double() != svm_rng.next_double());
         }
+    }
+}
+
+TEST_CASE("exact: a cross-domain word alias does not expand to a full-state collision") {
+    // Shots 1302581290 (driver) and 4231854694 (SVM) alias on derived word 0
+    // for every root: the root and the word-0 tag terms cancel in the
+    // comparison. They probe the word index folded into the domain tag --
+    // without it, the alias would repeat in all four words and the two
+    // 256-bit states would coincide.
+    for (uint64_t seed : {0ULL, 1ULL, 0x9E3779B97F4A7C15ULL}) {
+        const SeedRoot root = seed_root_from_seed(seed);
+        const std::array<uint64_t, 4> driver =
+            derive_state(root, 1302581290ULL, kExactDriverDomain);
+        const std::array<uint64_t, 4> svm = derive_state(root, 4231854694ULL, kExactSvmDomain);
+        REQUIRE(driver[0] == svm[0]);
+        REQUIRE(driver != svm);
     }
 }
 

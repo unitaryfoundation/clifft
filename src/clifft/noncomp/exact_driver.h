@@ -20,15 +20,15 @@
 #include "clifft/circuit/circuit.h"
 #include "clifft/noncomp/model.h"
 #include "clifft/noncomp/sample.h"
+#include "clifft/noncomp/seed.h"
 
 #include <cstdint>
 #include <optional>
 
 namespace clifft {
 
-NonComputationalSample sample_noncomputational_exact(const Circuit& circuit,
-                                                     const NonComputationalModel& model,
-                                                     uint32_t shots, uint64_t global_seed,
-                                                     std::optional<uint32_t> max_rank);
+NonComputationalSample run_exact_driver(const Circuit& circuit, const NonComputationalModel& model,
+                                        uint32_t shots, const SeedRoot& root,
+                                        std::optional<uint32_t> max_rank);
 
 }  // namespace clifft

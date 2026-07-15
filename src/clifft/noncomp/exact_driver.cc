@@ -505,10 +505,9 @@ void validate_model_contract(const Circuit& annotated, const NonComputationalMod
 
 }  // namespace
 
-NonComputationalSample sample_noncomputational_exact(const Circuit& circuit,
-                                                     const NonComputationalModel& model,
-                                                     uint32_t shots, uint64_t global_seed,
-                                                     std::optional<uint32_t> max_rank) {
+NonComputationalSample run_exact_driver(const Circuit& circuit, const NonComputationalModel& model,
+                                        uint32_t shots, const SeedRoot& root,
+                                        std::optional<uint32_t> max_rank) {
     NonComputationalSample result;
     result.shots = shots;
     result.num_qubits = circuit.num_qubits;
@@ -724,7 +723,9 @@ NonComputationalSample sample_noncomputational_exact(const Circuit& circuit,
     std::optional<SchrodingerState> state_storage;
 
     for (uint32_t shot = 0; shot < shots; ++shot) {
-        Xoshiro256PlusPlus driver_rng(derive_seed(global_seed, shot, kExactDriverDomain));
+        const auto dw = derive_state(root, shot, kExactDriverDomain);
+        Xoshiro256PlusPlus driver_rng(0);
+        driver_rng.seed_full(dw[0], dw[1], dw[2], dw[3]);
 
         ExactShotEvents events;
         events.initial_status.reserve(circuit.num_qubits);
@@ -801,7 +802,8 @@ NonComputationalSample sample_noncomputational_exact(const Circuit& circuit,
             }
         }
         SchrodingerState& state = *state_storage;
-        state.reseed(derive_seed(global_seed, shot, kExactSvmDomain));
+        const auto sw = derive_state(root, shot, kExactSvmDomain);
+        state.reseed_full(sw[0], sw[1], sw[2], sw[3]);
         assert(state.meas_record.size() >= module->total_meas_slots &&
                "the rebuild block above guarantees meas_record capacity; "
                "meas_record never shrinks");
