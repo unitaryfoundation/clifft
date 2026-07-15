@@ -24,6 +24,15 @@
 
 namespace clifft {
 
+// SplitMix64, per the reference seeding recipe above: expands one 64-bit
+// state (advanced in place) into a stream of well-mixed 64-bit words.
+inline uint64_t splitmix64(uint64_t& state) {
+    uint64_t z = (state += 0x9e3779b97f4a7c15ULL);
+    z = (z ^ (z >> 30)) * 0xbf58476d1ce4e5b9ULL;
+    z = (z ^ (z >> 27)) * 0x94d049bb133111ebULL;
+    return z ^ (z >> 31);
+}
+
 class Xoshiro256PlusPlus {
   public:
     explicit Xoshiro256PlusPlus(uint64_t seed_val = 0) { seed(seed_val); }
@@ -76,13 +85,6 @@ class Xoshiro256PlusPlus {
 
   private:
     uint64_t s_[4];
-
-    static inline uint64_t splitmix64(uint64_t& state) {
-        uint64_t z = (state += 0x9e3779b97f4a7c15ULL);
-        z = (z ^ (z >> 30)) * 0xbf58476d1ce4e5b9ULL;
-        z = (z ^ (z >> 27)) * 0x94d049bb133111ebULL;
-        return z ^ (z >> 31);
-    }
 };
 
 }  // namespace clifft

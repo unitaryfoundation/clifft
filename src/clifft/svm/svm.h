@@ -64,8 +64,12 @@ class SchrodingerState {
     // Does NOT reseed the PRNG -- the RNG streams forward naturally.
     void reset();
 
-    // Explicitly reseed the PRNG (for deterministic test replay).
+    // Explicitly reseed the PRNG, either from a single 64-bit seed or as
+    // the full 256-bit generator state.
     void reseed(uint64_t seed) { rng_.seed(seed); }
+    void reseed(uint64_t s0, uint64_t s1, uint64_t s2, uint64_t s3) {
+        rng_.seed_full(s0, s1, s2, s3);
+    }
     void reseed_from_entropy() { rng_.seed_from_entropy(); }
 
     // Access coefficient array

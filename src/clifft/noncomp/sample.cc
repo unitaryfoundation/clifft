@@ -1,6 +1,7 @@
 #include "clifft/noncomp/sample.h"
 
 #include "clifft/noncomp/exact_driver.h"
+#include "clifft/noncomp/seed.h"
 #include "clifft/util/xoshiro.h"
 
 #include <stdexcept>
@@ -17,16 +18,19 @@ NonComputationalSample sample_noncomputational(const Circuit& circuit,
             "sampling");
     }
 
-    uint64_t global_seed = 0;
+    SeedRoot root{};
     if (seed.has_value()) {
-        global_seed = *seed;
+        root = seed_root_from_seed(*seed);
     } else if (shots > 0) {
-        Xoshiro256PlusPlus entropy;
-        entropy.seed_from_entropy();
-        global_seed = entropy();
+        Xoshiro256PlusPlus e;
+        e.seed_from_entropy();
+        root.w[0] = e();
+        root.w[1] = e();
+        root.w[2] = e();
+        root.w[3] = e();
     }
 
-    return sample_noncomputational_exact(circuit, model, shots, global_seed, max_rank);
+    return run_exact_driver(circuit, model, shots, root, max_rank);
 }
 
 }  // namespace clifft
