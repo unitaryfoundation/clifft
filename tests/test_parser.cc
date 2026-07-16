@@ -1825,6 +1825,34 @@ TEST_CASE("GateTraits: UNKNOWN sentinel", "[gate_data]") {
     CHECK(gate_name(GateType::UNKNOWN) == "UNKNOWN");
 }
 
+TEST_CASE("GateTraits: unitary classification", "[gate_data]") {
+    // Identity no-ops and parser-desugared gates are rejected upstream of
+    // the gate-hook path, so the hook tests never consult their unitary
+    // flag; check the classification directly.
+    CHECK(is_unitary(GateType::I));
+    CHECK(is_unitary(GateType::II));
+    CHECK(is_unitary(GateType::CH));
+    CHECK(is_unitary(GateType::CCX));
+    CHECK(is_unitary(GateType::CCZ));
+    // I_ERROR / II_ERROR model error events, not gates.
+    CHECK(!is_unitary(GateType::I_ERROR));
+    CHECK(!is_unitary(GateType::II_ERROR));
+    // Representative unitaries and non-unitaries.
+    CHECK(is_unitary(GateType::H));
+    CHECK(is_unitary(GateType::CX));
+    CHECK(is_unitary(GateType::T));
+    CHECK(is_unitary(GateType::R_PAULI));
+    CHECK(!is_unitary(GateType::M));
+    CHECK(!is_unitary(GateType::MPAD));
+    CHECK(!is_unitary(GateType::R));
+    CHECK(!is_unitary(GateType::DEPOLARIZE1));
+    CHECK(!is_unitary(GateType::TICK));
+    CHECK(!is_unitary(GateType::EXP_VAL));
+    CHECK(!is_unitary(GateType::LEVEL_TRANSITION));
+    CHECK(!is_unitary(GateType::LOSS));
+    CHECK(!is_unitary(GateType::UNKNOWN));
+}
+
 // =============================================================================
 // Parameterized rotation gate parsing
 // =============================================================================
