@@ -184,10 +184,8 @@ void resume(const CompiledModule& program, SchrodingerState& state, uint32_t off
             "the state; the visible structure of a continuation must equal the original's");
     }
 
-    // The only valid re-entry point is the instruction after the trapped
-    // site. A stale or miscomputed driver offset would silently skip or
-    // re-run bytecode, so it is rejected against the continuation's own
-    // offset table.
+    // Resume at the instruction immediately after the trapped site. Validate
+    // the caller's offset so bytecode is neither skipped nor executed twice.
     const uint32_t site_id = state.pending_trap->site_id;
     if (site_id >= program.instrument_offsets.size() ||
         program.instrument_offsets[site_id] == std::numeric_limits<uint32_t>::max()) {
@@ -202,18 +200,17 @@ void resume(const CompiledModule& program, SchrodingerState& state, uint32_t off
                                     " for site " + std::to_string(site_id) + ")");
     }
 
-    // A suffix rewrite can raise the continuation's peak rank and its
-    // hidden-measurement count beyond what the original module needed;
-    // visible slots are layout-stable, so growth never disturbs written
-    // records.
+    // A rewritten continuation may need more amplitudes or hidden measurement
+    // slots than the original module. Visible slots keep their indices while
+    // these buffers grow.
     state.grow_for_continuation(program.peak_rank);
     if (state.meas_record.size() < program.total_meas_slots) {
         state.meas_record.resize(program.total_meas_slots, 0);
     }
 
-    // Re-anchor the noise-gap cursor at the entry offset: position it on
-    // the first noise site at or after the offset and redraw the gap from
-    // that hazard base. Exact, because exponential gaps are memoryless.
+    // Restart noise sampling at the first noise site at or after `offset`.
+    // Drawing a new exponential gap is exact because that distribution is
+    // memoryless.
     state.next_noise_idx = static_cast<uint32_t>(program.constant_pool.noise_sites.size());
     for (size_t i = offset; i < program.bytecode.size(); ++i) {
         const Instruction& instr = program.bytecode[i];
@@ -254,8 +251,8 @@ const char* svm_backend() {
     return "scalar";
 }
 
-// A shot that halts at an instrument trap has no complete record; the
-// plain sampling entry points do not implement the trap protocol.
+// Plain sampling cannot return a partial shot. Instrument programs that stop
+// at a trap must be run by the exact driver, which handles resume().
 static void throw_on_pending_trap(const SchrodingerState& state) {
     if (state.pending_trap.has_value()) {
         throw std::runtime_error(
@@ -446,9 +443,9 @@ std::vector<double> noise_site_probabilities(const CompiledModule& program) {
         probs.push_back(p);
     }
     for (const auto& entry : pool.readout_noise) {
-        // A bit-conditioned (asymmetric) flip has no single site probability:
-        // whether it can fire depends on the record value at runtime, which
-        // the static Poisson-Binomial conditioning cannot represent.
+        // k-fault conditioning requires one fixed probability per site. An
+        // asymmetric flip instead depends on whether the current record bit is
+        // 0 or 1, so it cannot be included.
         if (!entry.is_symmetric()) {
             throw std::invalid_argument(
                 "k-fault conditioning does not support asymmetric readout noise; "

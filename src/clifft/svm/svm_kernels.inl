@@ -1934,11 +1934,10 @@ static inline void exec_noise_block(SchrodingerState& state, const ConstantPool&
     }
 }
 
-// READOUT_NOISE: classical bit-flip on a measurement result, with the flip
-// probability conditioned on the recorded bit (asymmetric confusion).
-// In forced-fault mode, a two-pointer comparison replaces the PRNG roll:
-// the bit flips iff entry_idx matches the next forced readout index
-// (asymmetric entries are rejected up front by the k-fault entry points).
+// READOUT_NOISE: flip a recorded measurement bit. The 0-to-1 and 1-to-0
+// probabilities may differ. In forced-fault mode, flip only when entry_idx is
+// the next requested readout fault; k-fault entry points reject asymmetric
+// entries before execution.
 static inline void exec_readout_noise(SchrodingerState& state, const ConstantPool& pool,
                                       uint32_t entry_idx) {
     assert(entry_idx < pool.readout_noise.size());
@@ -1969,18 +1968,15 @@ static inline void exec_readout_noise(SchrodingerState& state, const ConstantPoo
 // Instrument Dispatch (state-dependent jumps)
 // =============================================================================
 //
-// One shared handler serves the four OP_INSTRUMENT_* opcodes, composing
-// the draw-free kernels from svm_instrument_kernels.h with the fire draws.
-// Physical source/destination indices (0 = |0> level) map to localized
-// levels through FLAG_SIGN here; the kernels handle p_x[v] themselves. A
-// fire that cannot resolve in-line -- a leaked/lost destination on any
-// form, or any fire at a trap-form site -- is a resumable trap: the
-// dispatch halts with state.pending_trap set.
+// One handler serves all OP_INSTRUMENT_* opcodes. It combines the deterministic
+// array kernels with the required random draws. FLAG_SIGN swaps g and e for
+// the compiled axis; the kernels account for p_x[v]. If the current module
+// cannot complete a transition, the handler sets state.pending_trap and stops
+// dispatch.
 
-// Destination of a fire from physical source s: a computational level d
-// in {0, 1} with probability p_computational_dest[s][d] / p_fire[s] -- d != s is a
-// |0> <-> |1> jump, d == s a jump onto the source's own level (pure
-// collapse, no destination flip) -- else -1 for the leaked/lost trap remainder.
+// Draw a destination after a jump from `source`. Return 0 or 1 for a
+// computational destination, or -1 when the draw falls in the combined leaked
+// and lost probability.
 static inline int draw_instrument_destination(SchrodingerState& state,
                                               const CompiledInstrumentSite& site, uint8_t source) {
     const auto& probabilities = site.probabilities;
@@ -1995,10 +1991,8 @@ static inline int draw_instrument_destination(SchrodingerState& state,
     return -1;
 }
 
-// Halt at a resumable trap: record the site and drawn source on the
-// state and stop the dispatch loop. The host rewrites the remaining
-// circuit at source level under the now-known status, recompiles, and
-// resume()s past the site.
+// Record the stopped transition and return false so the dispatch loop exits.
+// The driver compiles the matching continuation and resumes after this site.
 static inline bool instrument_trap(SchrodingerState& state, const CompiledInstrumentSite& site,
                                    uint8_t source, bool destination_pending) {
     state.pending_trap =
@@ -2006,9 +2000,8 @@ static inline bool instrument_trap(SchrodingerState& state, const CompiledInstru
     return false;
 }
 
-// Destination flip for an in-line computational fire whose destination
-// differs from its source (a |0> <-> |1> jump): XOR the site's
-// virtualized X_q into the frame.
+// Apply the compiled Pauli-frame update when a computational jump changes g
+// to e or e to g.
 static inline void apply_instrument_destination_flip(SchrodingerState& state,
                                                      const ConstantPool& pool,
                                                      const CompiledInstrumentSite& site) {
@@ -2016,12 +2009,11 @@ static inline void apply_instrument_destination_flip(SchrodingerState& state,
     apply_pauli_to_frame(state, mask.x(), mask.z(), mask.sign());
 }
 
-// Returns false when the shot halts at a resumable trap: a fire to a
-// leaked/lost destination on any form, or any fire at a trap-form
-// site. The carrier is collapsed onto the drawn source *before* trapping
-// wherever the form allows it, so the continuation's trace-out measures
-// an already-definite carrier and the unraveling stays correlated with
-// the reported source.
+// Execute one transition instrument. Return false when the module must stop and
+// let the driver continue the shot. For active or definite-source qubits, the
+// VM collapses to the selected source before stopping. A dormant random qubit
+// may instead leave the collapse for the continuation, indicated by
+// destination_pending.
 static inline bool exec_instrument(SchrodingerState& state, const ConstantPool& pool,
                                    const Instruction& instr) {
     const CompiledInstrumentSite& site = pool.instrument_sites[instr.instrument.cp_site_idx];
@@ -2032,12 +2024,12 @@ static inline bool exec_instrument(SchrodingerState& state, const ConstantPool& 
         const auto source = static_cast<uint8_t>(static_cast<uint8_t>(bit_get(state.p_x, v)) ^
                                                  static_cast<uint8_t>(sign));
         if (state.random_double() >= site.probabilities.p_fire[source]) {
-            return true;  // no fire; the definite-source damp is a scalar
+            return true;  // no jump; damping does not change the normalized state
         }
         const int dest = draw_instrument_destination(state, site, source);
         if (dest < 0) {
-            // The carrier is already definite at the source; no collapse
-            // is needed before handing over.
+            // The source is already definite, so no collapse is needed before
+            // stopping.
             return instrument_trap(state, site, source, /*destination_pending=*/false);
         }
         if (dest != source) {
@@ -2047,17 +2039,11 @@ static inline bool exec_instrument(SchrodingerState& state, const ConstantPool& 
     }
 
     if (instr.opcode == Opcode::OP_INSTRUMENT_DORMANT_NEGLECT) {
-        // A dormant-random qubit's fire probability is exactly
-        // (p_g + p_e) / 2. No fire means no action at all: neglect omits
-        // the no-fire back-action, while equal rates make it a scalar that
-        // normalization removes.
-        // Every fire traps: an in-line collapse would re-anchor the frame
-        // conditionally, which compiled downstream code cannot account
-        // for. The carrier hands over uncollapsed with the drawn source
-        // recorded; the exact-mode driver's continuation performs the
-        // collapse as a trace-out forced to that source, keeping the
-        // fire-side correlations exact (see DampingPolicy in
-        // noncomp/policy.h).
+        // A dormant random qubit has jump probability (p_g + p_e) / 2.
+        // DampingPolicy::Neglect applies no change when the transition does not
+        // fire. Every jump stops here because collapsing a dormant random qubit
+        // to a sampled source would invalidate the compiled Pauli frame for
+        // later instructions. The continuation performs that collapse instead.
         const double mass = site.probabilities.p_fire[0] + site.probabilities.p_fire[1];
         if (state.random_double() * 2.0 >= mass) {
             return true;
@@ -2067,12 +2053,11 @@ static inline bool exec_instrument(SchrodingerState& state, const ConstantPool& 
                                /*destination_pending=*/true);
     }
 
-    // Active-array forms. The instruction's damp coefficients are
-    // physical; the kernels map physical levels through p_x[v], so the
-    // localization sign is one extra swap applied here. A p = 1 source
-    // has r = 0, which the fused form cannot represent (the damp would
-    // destroy the ray a fire must renormalize): those sites take the
-    // eval-only route with a collapse on every branch.
+    // Active-axis coefficients use physical g and e labels. FLAG_SIGN swaps
+    // them before the kernel call, and the kernel handles p_x[v]. If a source
+    // jumps with probability 1, its damping factor is zero; evaluate the
+    // unchanged array and collapse explicitly so the selected half is not
+    // erased before normalization.
     const double r_g = instr.instrument.r_g;
     const double r_e = instr.instrument.r_e;
     const double c_g = sign ? r_e : r_g;
@@ -2080,8 +2065,8 @@ static inline bool exec_instrument(SchrodingerState& state, const ConstantPool& 
     const bool fused = r_g > 0.0 && r_e > 0.0;
 
     if (instr.opcode == Opcode::OP_INSTRUMENT_EXPAND) {
-        // Populations of a dormant-random qubit are exactly half-half, so
-        // the branch is drawn before anything is materialized.
+        // A dormant random qubit has equal g and e populations, so choose the
+        // branch before adding its axis to the active array.
         const InstrumentBranch branch =
             instrument_fire_branch(InstrumentPopulations{1.0, 1.0}, site.probabilities.p_fire[0],
                                    site.probabilities.p_fire[1], state.random_double());
@@ -2090,9 +2075,8 @@ static inline bool exec_instrument(SchrodingerState& state, const ConstantPool& 
                 exec_instrument_expand_damp(state, v, c_g, c_e);
                 state.scale_magnitude(std::sqrt(2.0 / (r_g * r_g + r_e * r_e)));
             } else {
-                // No-fire with a certain-fire source: the posterior
-                // excludes it. Materialize, then collapse onto the
-                // surviving level.
+                // If one source always jumps, a no-jump outcome guarantees the
+                // other source. Expand the array, then collapse to that level.
                 const uint8_t survivor = site.probabilities.p_fire[0] >= 1.0 ? 1 : 0;
                 exec_instrument_expand_damp(state, v, 1.0, 1.0);
                 const InstrumentPopulations pops = exec_instrument_damp_eval(state, v, 1.0, 1.0);
@@ -2102,10 +2086,9 @@ static inline bool exec_instrument(SchrodingerState& state, const ConstantPool& 
             return true;
         }
         const int dest = draw_instrument_destination(state, site, branch.source);
-        // Materialize the expansion the compiled layout expects, then
-        // collapse onto the source: the eval-only-plus-collapse recipe,
-        // exact for every rate, on the trap path as much as the in-line
-        // one.
+        // Add the axis expected by later instructions, then collapse it to the
+        // selected source. Using unit coefficients keeps this exact for all
+        // jump probabilities.
         exec_instrument_expand_damp(state, v, 1.0, 1.0);
         const InstrumentPopulations pops = exec_instrument_damp_eval(state, v, 1.0, 1.0);
         exec_instrument_collapse_active(state, v, static_cast<uint8_t>(branch.source ^ sign),

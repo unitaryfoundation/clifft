@@ -1,21 +1,16 @@
 #pragma once
 
-// Exact-mode driver: resolves level transitions (leak, loss, decay) at
-// sample time, with no sampling approximation.
+// Exact-mode driver for level transitions such as leak, loss, and decay.
 //
-// A transition whose outcome depends on a qubit's quantum state -- a
-// jump out of superposition, where which level the qubit leaves from is
-// not yet decided -- cannot be drawn before that state exists. The
-// annotated circuit is therefore rewritten and compiled lazily, one
-// memoized module per event record and herald assignment, with every
-// computational-source annotation kept as a runtime instrument site;
-// each shot preloads its sampled initial levels and executes; a fire the
-// VM cannot resolve in-line traps back to this driver, which draws the
-// destination, extends the shot's event record, fetches or compiles the
-// matching continuation, and resumes past the site. DampingPolicy::Neglect
-// uses the same driver but omits source-dependent no-jump back-action.
-// sample_noncomputational() routes here; this header is internal. The
-// driver's working vocabulary is defined at the top of exact_driver.cc.
+// Each shot samples its initial levels, then runs transitions on computational
+// qubits as VM instruments. If the VM cannot finish a transition, it stops and
+// reports a trap. The driver records the outcome, fetches or compiles a circuit
+// rewritten for those events, and resumes after the trapped transition.
+// Transitions reached while a qubit is leaked or lost are drawn by the driver
+// before compilation. DampingPolicy::Neglect uses the same process but omits
+// source-dependent no-jump back-action.
+//
+// sample_noncomputational() calls this internal entry point.
 
 #include "clifft/circuit/circuit.h"
 #include "clifft/noncomp/model.h"

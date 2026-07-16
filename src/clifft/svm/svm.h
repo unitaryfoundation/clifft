@@ -193,12 +193,10 @@ class SchrodingerState {
     void allocate_array(uint32_t peak_rank);
     void free_array() noexcept;
 
-    /// Grow the amplitude array to hold 2^peak_rank entries, preserving
-    /// the live 2^active_k amplitudes (the region above stays zero); no-op
-    /// when the allocation already suffices. This is the single sanctioned
-    /// exception to the allocate-once invariant, so it is reachable only
-    /// from resume(), only between dispatch entries, and only while a trap
-    /// is pending (asserted). Never shrinks.
+    /// Grow the amplitude array to hold 2^peak_rank entries while preserving
+    /// the active amplitudes. Memory above 2^active_k remains zero. This is
+    /// allowed only from resume(), between dispatch calls, while a trap is
+    /// pending. Never shrinks.
     void grow_for_continuation(uint32_t peak_rank);
     friend void resume(const CompiledModule& program, SchrodingerState& state, uint32_t offset);
 
@@ -219,23 +217,20 @@ class SchrodingerState {
 
     // --- Resumable trap state ---
     //
-    // Set when an instrument fire cannot be resolved in-line: any form
-    // firing to a leaked/lost destination, or any trap-form fire on a
-    // dormant-random site (whose collapse belongs to the continuation).
-    // execute() halts at the site with the state intact (the carrier
-    // already collapsed onto the drawn source where the form allows it)
-    // and the host continues via resume() in a recompiled module. Dormant
-    // in ordinary sampling; reset() clears it.
+    // Set when a transition cannot finish in the current module. This happens
+    // for a leaked or lost destination, or when a dormant random qubit must be
+    // collapsed by the continuation. The VM stops at the transition and, when
+    // possible, has already collapsed the qubit to `source`. The driver
+    // continues with resume() in a rewritten module. reset() clears the trap.
     struct InstrumentTrap {
         uint32_t site_id = 0;  // CompiledInstrumentSite::site_id
         uint8_t source = 0;    // Drawn physical source level (0 = |0>)
 
-        // True at a trap-form site: no destination has been drawn at
-        // all, so the host draws from the site's full column --
-        // computational destinations included -- and the continuation
-        // performs the collapse. False elsewhere: the destination class
-        // is already drawn as leaked/lost, and the host draws only which
-        // noncomputational level from the trap remainder.
+        // True when the VM selected a source but did not draw a destination or
+        // collapse the qubit. The driver then draws from the full transition
+        // column and the continuation performs the collapse. When false, the
+        // VM already determined that the destination is leaked or lost; the
+        // driver selects the specific noncomputational level when needed.
         bool destination_pending = false;
     };
     std::optional<InstrumentTrap> pending_trap;
@@ -265,30 +260,22 @@ class SchrodingerState {
 // =============================================================================
 
 /// Execute a compiled program for one shot, populating state with results.
-/// If an instrument fire cannot be resolved in-line (a leaked/lost
-/// destination on any form, or any fire at a trap-form site),
-/// execution halts at the site with state.pending_trap set; continue via
-/// resume().
+/// If a transition cannot finish in the current module, execution stops with
+/// state.pending_trap set. Continue the shot with resume().
 void execute(const CompiledModule& program, SchrodingerState& state);
 
-/// Continue a trapped shot in `program` starting at bytecode index
-/// `offset` (for a trap at site s, program.instrument_offsets[s] + 1).
-/// Requires state.pending_trap to be set and clears it. The program's
-/// bytecode before `offset` must be bit-identical to the code the state
-/// already executed -- the compiler's determinism plus the instrument
-/// barrier contract guarantee this for a recompiled continuation of the
-/// same circuit prefix. Prefix identity is also what keeps written
-/// visible records meaningful: the checks below cover only the counts
-/// that anchor records (qubits, detectors, observables, exp-vals) and
-/// cannot establish visible measurement layout from counts alone, so
-/// preserving the executed prefix's visible slots is the caller's
-/// obligation. Grows the amplitude array and measurement-record
-/// buffer if the continuation needs more than the state was built with
-/// (the sanctioned trap-boundary exception to the allocate-once
-/// invariant; a driver reusing one state across shots amortizes growth to
-/// the chain maximum), and re-anchors the noise-gap cursor at the entry
-/// offset (exact, because exponential gaps are memoryless). May itself
-/// halt on a later trap.
+/// Continue a trapped shot at bytecode index `offset`, which must be the
+/// instruction after the trapped site. Requires state.pending_trap and clears
+/// it before execution resumes.
+///
+/// The bytecode before `offset` must match what the state already executed, and
+/// visible measurement slots must keep the same indices. resume() validates the
+/// trapped-site offset and qubit/output counts, but the caller is responsible
+/// for providing a compatible continuation.
+///
+/// Before re-entering dispatch, resume() may grow the amplitude and measurement
+/// buffers. It also restarts noise sampling at the first remaining noise site.
+/// The resumed module may stop at another trap.
 void resume(const CompiledModule& program, SchrodingerState& state, uint32_t offset);
 
 /// Return the name of the active SVM dispatch backend. Reflects the

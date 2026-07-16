@@ -15,9 +15,9 @@ namespace clifft {
 
 namespace {
 
-// Index of the ii-th amplitude pair's bit_v = 0 element: the k-1 loop bits
-// of ii spread around an inserted zero at position v (the portable twin of
-// the per-ISA kernels' scatter_bits_1).
+// Map pair number ii to the array index whose bit v is zero by inserting a
+// zero bit at v. This is the portable equivalent of scatter_bits_1 used by
+// ISA-specific kernels.
 inline uint64_t pair_index(uint64_t ii, uint16_t v) {
     const uint64_t low_mask = (1ULL << v) - 1;
     return (ii & low_mask) | ((ii & ~low_mask) << 1);
@@ -33,8 +33,8 @@ InstrumentPopulations exec_instrument_damp_eval(SchrodingerState& state, uint16_
            "eval-only plus per-branch collapse");
 
     const bool px_v = bit_get(state.p_x, v);
-    // Frame conjugation: X^px diag(r_g, r_e) X^px swaps the coefficients;
-    // Z^pz commutes with a real diagonal.
+    // p_x[v] swaps the physical g and e array halves. p_z[v] has no effect on
+    // this real diagonal operation.
     const double c0 = px_v ? r_e : r_g;
     const double c1 = px_v ? r_g : r_e;
 
@@ -63,9 +63,8 @@ void exec_instrument_collapse_active(SchrodingerState& state, uint16_t v, uint8_
     assert(target_norm2 > 0.0 && "instrument collapse: target norm must be positive");
 
     const bool px_v = bit_get(state.p_x, v);
-    // Frame conjugation maps the physical projector |s><s| onto array half
-    // s XOR p_x[v]; a projector is invariant under Z^pz, so unlike the
-    // frame-re-anchoring measurement kernels there is no phase to extract.
+    // Physical level `source` is stored in array half source XOR p_x[v]. The
+    // projection commutes with p_z[v], so no phase update is needed.
     const uint8_t b = source ^ static_cast<uint8_t>(px_v);
 
     const uint64_t v_bit = 1ULL << v;

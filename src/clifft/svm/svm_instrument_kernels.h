@@ -1,43 +1,26 @@
 #pragma once
 
-// Instrument kernels: the array-level pieces of an exact state-dependent
-// jump site.
+// Helpers for evaluating and applying one-qubit transition instruments.
 //
-// A transition instrument attached to one qubit carries per-source jump
-// probabilities (p_g, p_e). The exact channel is the Kraus set
+// For source level s, let p_s be the total transition probability and
+// r_s = sqrt(1 - p_s). The channel is
 //
-//   K_jump,s = sqrt(p_s) |dest[s]><s|             (one per source s)
-//   K_stay   = r_g P_g + r_e P_e,  r_s = sqrt(1 - p_s)
+//   K_jump[d,s] = sqrt(p[d,s]) |d><s|
+//   K_stay     = r_g P_g + r_e P_e
 //
-// where dest[s] is the destination level that source s's transition
-// column assigns -- any level, possibly several: a column spread over
-// multiple destinations changes nothing at this layer, because the
-// carrier physics depends only on the column sums p_s and picking the
-// destination is the caller's classical draw.
+// where p_s is the sum of p[d,s] over destination levels d. These kernels need
+// only p_g, p_e, r_g, and r_e. The caller separately draws the destination.
+// A no-jump branch scales the g and e amplitudes by r_g and r_e. On an active
+// axis, a jump collapses the qubit to its source before the caller applies any
+// computational destination change or reports a trap. A dormant random qubit
+// may defer that collapse to the continuation.
 //
-// So the fire probability p_g<P_g> + p_e<P_e> is runtime state and the
-// no-fire branch applies the weak damping filter diag(r_g, r_e). These
-// kernels realize that channel per site classification -- the same
-// active/dormant, diagonal-basis classification that selects measurement
-// opcodes. A site whose localized basis is not Z-like on its axis is the
-// lowering's problem (basis-change sandwich), not a kernel variant.
+// These functions do not draw random numbers. instrument_fire_branch() uses a
+// uniform value supplied by the caller. Active-axis kernels account for p_x[v]
+// when mapping physical g and e to array halves; the caller handles the
+// instruction's sign flag and any destination Pauli update.
 //
-// None of these kernels rolls the PRNG: instrument_fire_branch() turns one
-// caller-supplied uniform variate into the branch decision, so every
-// function here is deterministic and directly oracle-testable. The
-// destination flip for a jump whose destination differs from its source
-// is a Pauli and is likewise the caller's, through the existing frame
-// machinery.
-//
-// Conventions shared with the measurement kernels: coefficients and levels
-// are physical -- the active-axis kernels read p_x[v] to map them onto
-// array halves, and p_z[v] commutes with every real diagonal here. A
-// compile-time localization sign is folded in by the caller before the
-// call. Renormalization goes through SchrodingerState::scale_magnitude.
-//
-// The kernels are declared in this internal header so both the dispatcher
-// and the test suite can call them. Implementations live in
-// svm_instrument_kernels.cc.
+// This internal header is shared by the dispatcher and kernel tests.
 
 #include "clifft/svm/svm.h"
 
@@ -45,9 +28,8 @@
 
 namespace clifft {
 
-// Populations of the two physical levels on one active-axis qubit,
-// accumulated before any damping. pop_g + pop_e is the array norm-squared
-// at site entry: the renormalization target for whichever branch follows.
+// Physical g and e populations on an active axis before damping.
+// pop_g + pop_e is the array norm squared at function entry.
 struct InstrumentPopulations {
     double pop_g = 0.0;
     double pop_e = 0.0;
@@ -59,58 +41,37 @@ struct InstrumentBranch {
     uint8_t source = 0;  // Physical source level; meaningful only when fired.
 };
 
-// Fused damp + evaluate on active axis v: one pass that accumulates the
-// pre-damp physical populations and multiplies the array halves by the
-// damp coefficients (r_g, r_e). No renormalization and no draw happen
-// here -- the caller draws the branch from the returned populations, then
-// either renormalizes the no-fire state by
-// scale_magnitude(sqrt((pop_g + pop_e) / (r_g^2 pop_g + r_e^2 pop_e)))
-// or collapses the fire state. Applying the damp before the draw is
-// exact: on fire, the pre-applied r_source is a scalar on the surviving
-// half and cancels in the collapse renormalization, while the fire
-// probability uses the pre-damp populations accumulated here.
+// In one pass, return the physical g and e populations before damping and
+// multiply the corresponding array halves by r_g and r_e. This function does
+// not draw a branch or renormalize the result.
 //
-// Precondition: r_g, r_e in (0, 1]. A p = 1 source (r = 0) would zero the
-// half a subsequent fire must renormalize, so an exact p = 1 site lowers
-// as the eval-only call (r_g = r_e = 1, array untouched) followed by a
-// collapse on every branch -- including no-fire, whose posterior excludes
-// the certain-fire source -- instead of the fused form.
+// If the transition does not fire, the caller renormalizes the damped array.
+// If it fires, collapsing to the selected source removes that source's
+// previously applied factor. r_g and r_e must be in (0, 1]. When either value
+// would be zero, the caller evaluates with r_g = r_e = 1 and performs an
+// explicit collapse for both fire and no-fire outcomes.
 [[nodiscard]] InstrumentPopulations exec_instrument_damp_eval(SchrodingerState& state, uint16_t v,
                                                               double r_g, double r_e);
 
-// Forced projection of active axis v onto physical level `source`, in
-// place: the discarded half is zeroed while the array layout, active_k,
-// and the Pauli frame all stay put, because downstream bytecode was
-// compiled for this layout. gamma absorbs sqrt(target_norm2 / kept),
-// preserving the physical norm across the site the same way the
-// measurement kernels do. `target_norm2` is the raw array norm-squared
-// at site entry: the populations total of the paired damp_eval call. A
-// standalone collapse obtains it from an eval-only call (it needs the
-// populations for its draw anyway); a stale total double-counts the
-// rescale. No measurement record is written: this is instrument
-// back-action, not a Born measurement.
+// Project active axis v onto physical level `source`. Zero the other array
+// half, keep the existing layout and Pauli frame, and rescale the result to
+// `target_norm2`. target_norm2 must be the array norm squared before the paired
+// damping/evaluation call. No measurement record is written because this is
+// transition back-action, not a circuit measurement.
 void exec_instrument_collapse_active(SchrodingerState& state, uint16_t v, uint8_t source,
                                      double target_norm2);
 
-// Fused subspace expansion + damp for a dormant-random qubit: promotes
-// axis v (which must be the next dormant axis, v == active_k) exactly
-// like OP_EXPAND -- array doubles, gamma /= sqrt(2) -- while multiplying
-// the two halves by the damp coefficients (r_g, r_e) in the same pass.
-// With r_g = r_e = 1 this is exactly the plain expansion. No evaluation
-// is needed at such a site: a dormant-random qubit's level populations
-// are exactly half-half, so the caller draws from
-// pop_g = pop_e = (array norm-squared) / 2 and renormalizes the no-fire
-// branch by scale_magnitude(sqrt(2 / (r_g^2 + r_e^2))). The same
-// (0, 1] precondition and p = 1 lowering recipe as damp_eval apply.
+// Expand the array for the next dormant axis and apply r_g and r_e to the new
+// halves in the same pass. This increments active_k and divides gamma by
+// sqrt(2), matching OP_EXPAND. With r_g = r_e = 1 it is a plain expansion.
+// Before expansion, a dormant random qubit has equal g and e populations, so
+// the caller can draw the branch without evaluating the array first.
 void exec_instrument_expand_damp(SchrodingerState& state, uint16_t v, double r_g, double r_e);
 
-// Turn one uniform variate u in [0, 1) into the branch decision for an
-// instrument site: fire-with-source-g occupies [0, p_g pop_g / N),
-// fire-with-source-e the next p_e pop_e / N, and no-fire the remainder,
-// where N = pop_g + pop_e. A population at or below the measurement
-// kernels' dust threshold (kDustEpsilon * N) is clamped to zero first, so
-// a source whose population is floating-point dust is never selected --
-// the collapse it would trigger has no ray left to renormalize.
+// Use u in [0, 1) to choose among a jump from g, a jump from e, and no jump.
+// Their weights are p_g * pop_g, p_e * pop_e, and the remaining norm. A
+// population at or below kDustEpsilon times the total is treated as zero so a
+// numerically empty source is never selected for collapse.
 [[nodiscard]] InstrumentBranch instrument_fire_branch(InstrumentPopulations pops, double p_g,
                                                       double p_e, double u);
 

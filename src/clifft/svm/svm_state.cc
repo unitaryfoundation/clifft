@@ -48,12 +48,9 @@ SchrodingerState::SchrodingerState(StateConfig cfg) : peak_rank_(cfg.peak_rank),
     v_[0] = {1.0, 0.0};
 }
 
-// Allocate a new amplitude array for `peak_rank` without touching any member.
-// Returns the raw pointer, the actual allocated byte count, and whether the
-// allocation used mmap (true) or aligned_alloc (false). The mmap path arrives
-// zero-filled from the kernel; the aligned_alloc path must be zeroed by the
-// caller. Throws std::bad_alloc on OOM; throws nothing else. Members are
-// committed only by the two callers (allocate_array and grow_for_continuation).
+// Allocate an amplitude array without changing SchrodingerState. mmap returns
+// zero-filled memory; aligned_alloc does not. Callers copy these values into
+// the state only after allocation and initialization succeed.
 struct AllocResult {
     std::complex<double>* ptr;
     size_t alloc_bytes;
@@ -162,17 +159,14 @@ void SchrodingerState::grow_for_continuation(uint32_t peak_rank) {
         return;
     }
 
-    // Snapshot the live prefix size before any mutation so the memcpy below
-    // copies exactly the active amplitudes from the old buffer.
+    // Save the number of active amplitudes before replacing the buffer.
     const uint64_t live = v_size();
 
-    // Allocate the new buffer into locals; on OOM alloc_amplitude_array throws
-    // before any member is touched, leaving the state completely valid.
+    // Allocate first so a failure leaves the existing state unchanged.
     const AllocResult alloc = alloc_amplitude_array(peak_rank);
 
-    // Zero the non-mmap allocation (mmap pages arrive zero-filled from the
-    // kernel). The full array_size entries must be zeroed, not only the live
-    // prefix, because the continuation will write into the upper half.
+    // mmap memory is already zero. Clear the full aligned_alloc array because
+    // the continuation may use entries above the currently active region.
     if (!alloc.is_mmap) {
         const uint64_t new_array_size = 1ULL << peak_rank;
         int64_t n = static_cast<int64_t>(new_array_size);
@@ -191,12 +185,12 @@ void SchrodingerState::grow_for_continuation(uint32_t peak_rank) {
     // Copy the live prefix from the old buffer into the new one.
     std::memcpy(alloc.ptr, v_, live * sizeof(std::complex<double>));
 
-    // Free the old buffer.
+    // Keep the old allocation details until the new buffer is installed.
     std::complex<double>* old_v = v_;
     const size_t old_bytes = v_alloc_bytes_;
     const bool old_mmap = v_is_mmap_;
 
-    // Commit all members only after the new allocation and copy have succeeded.
+    // Install the new allocation after all operations that can fail.
     v_ = alloc.ptr;
     v_alloc_bytes_ = alloc.alloc_bytes;
     v_is_mmap_ = alloc.is_mmap;
@@ -325,10 +319,8 @@ void SchrodingerState::reset() {
     gamma_ = {1.0, 0.0};
     active_k = 0;
 
-    // If the previous shot was discarded by OP_POSTSELECT or halted at a
-    // resumable trap, the bytecode loop exited early, leaving meas_record
-    // and det_record with stale data from the aborted shot. Zero them out
-    // to avoid garbage.
+    // Discarded and trapped shots exit before writing complete records. Clear
+    // their partial measurement and detector data before reusing the state.
     if (discarded || pending_trap.has_value()) {
         std::fill(meas_record.begin(), meas_record.end(), 0);
         std::fill(det_record.begin(), det_record.end(), 0);
