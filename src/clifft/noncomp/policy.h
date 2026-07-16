@@ -7,9 +7,15 @@
 namespace clifft {
 
 // Exact includes the no-jump back-action from source-dependent transition
-// rates. Neglect omits that back-action, avoiding the associated rank growth;
-// it is exact when the total transition rate is source-independent. Fired
-// transitions retain their source and destination correlations under both
+// rates. Neglect omits that back-action, which avoids the need to grow the
+// active state vector (increase the active dimension) in cliffts factored
+// state representation, but this ignores a shift of |p_g - p_e| between the
+// computational ground and excited states that would result from exact back-action.
+//
+// Both policies are actually exact when the total transition rate is
+// source-independent.
+//
+// Fired transitions retain their source and destination correlations under both
 // settings.
 enum class DampingPolicy : uint8_t {
     Exact = 0,

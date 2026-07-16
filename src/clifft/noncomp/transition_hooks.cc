@@ -18,8 +18,8 @@ Circuit annotate(const Circuit& circuit, const NonComputationalModel& model) {
         if (hook == hooks.end()) {
             continue;
         }
-        // One annotation per Physical operand: feedback corrections are
-        // virtual and fire no transition.
+        // Add a transition for each qubit the gate acts on directly.
+        // Record-controlled feedback does not physically execute the gate.
         for (const QubitOperand& operand : qubit_operands(node)) {
             if (operand.role != OperandRole::Physical) {
                 continue;

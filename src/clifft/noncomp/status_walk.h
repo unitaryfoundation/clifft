@@ -1,10 +1,12 @@
 #pragma once
 
-// Shared circuit operand and qubit-status walk for the noncomputational layer.
+// Shared rules for interpreting circuit operations during noncomputational
+// sampling.
 //
-// The continuation rewriter and exact driver must classify operands and advance
-// the classical status ledger identically. This interface owns that shared
-// interpretation of ordinary circuit nodes.
+// The rewriter and runtime driver must agree on which qubits an operation
+// affects, whether to apply, drop, or reject it, how it changes each qubit's
+// computational, leaked, or lost status, and which measurements must be
+// handled outside the VM. This file keeps those decisions in one place.
 
 #include "clifft/circuit/circuit.h"
 #include "clifft/noncomp/level.h"
@@ -39,9 +41,9 @@ struct QubitOperand {
 // than CX/CZ feedback.
 std::vector<QubitOperand> qubit_operands(const AstNode& node);
 
-// How the policy handles the base operation for one operand. Callers aggregate
-// the verdict across the operation: Reject wins over Drop, and any Drop makes
-// the whole operation the identity on every operand.
+// How the policy handles an operation for one operand. Callers combine the
+// results across all operands: Reject takes precedence, and any Drop makes
+// the whole operation the identity.
 enum class OperandAction { Apply, Drop, Reject };
 OperandAction operand_action(GateType gate, QubitStatus status,
                              const NonComputationalPolicy& policy);

@@ -1,12 +1,14 @@
 #pragma once
 
-// Per-shot RNG derivation: a 256-bit root (OS entropy when unseeded; a
-// deterministic expansion of the 64-bit user seed otherwise) fans out into
-// one 256-bit generator state per (shot, domain). For a fixed root and
-// domain, distinct shots produce distinct states (word 0 is a bijection of
-// the shot index). Word-indexed domain tags keep a single cross-domain
-// word alias from expanding into a full-state collision, and independent
-// entropy roots collide on a fixed pair of states with probability ~2^-256.
+// Derives separate per-shot RNG states for the driver and VM. Keeping
+// these streams separate means that adding a driver-side random draw cannot
+// consume from or shift the VM's measurement sequence (useful for testing/
+// reproducible explicit seeds). Unseeded runs start with 256 bits of OS
+// entropy; seeded runs expand the user's 64-bit seed deterministically. Within
+// either stream, different shots always receive different 256-bit states. Each
+// state word is mixed differently, so a match in one word does not automatically
+// repeat in the other three. For independently generated roots, a given pair of
+// states matches with probability about 2^-256.
 
 #include "clifft/util/xoshiro.h"
 
@@ -34,6 +36,12 @@ inline SeedRoot seed_root_from_seed(uint64_t seed) {
     return root;
 }
 
+// Uses the SplitMix64 golden-gamma constant and mixing finalizer:
+// https://prng.di.unimi.it/splitmix64.c
+//
+// The odd shot multiplier preserves distinct shot indices modulo 2^64.
+// Including the word number in the stream label prevents a match in one
+// state word from automatically repeating in all four.
 inline std::array<uint64_t, 4> derive_state(const SeedRoot& root, uint64_t shot, uint64_t domain) {
     std::array<uint64_t, 4> s;
     for (uint64_t k = 0; k < 4; ++k) {

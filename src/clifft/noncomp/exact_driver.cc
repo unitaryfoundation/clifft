@@ -44,7 +44,7 @@
 
 #include "clifft/backend/backend.h"
 #include "clifft/frontend/frontend.h"
-#include "clifft/noncomp/annotate.h"
+#include "clifft/noncomp/transition_hooks.h"
 #include "clifft/noncomp/instrument_options.h"
 #include "clifft/noncomp/rewriter.h"
 #include "clifft/noncomp/seed.h"
