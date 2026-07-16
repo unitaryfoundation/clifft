@@ -116,7 +116,7 @@ OrdinaryStep advance_ordinary_node(const AstNode& node, uint32_t op_index,
     const std::vector<QubitOperand> operands = qubit_operands(node);
 
     // Decide whether the whole operation applies before updating any status:
-    // one dropped operand makes a multi-qubit operation a no-op for all
+    // one dropped operand makes a multi-qubit operation a no-op for all.
     bool drop_op = false;
     for (const QubitOperand& operand : operands) {
         const uint32_t qubit = operand.qubit;

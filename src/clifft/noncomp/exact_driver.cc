@@ -44,11 +44,11 @@
 
 #include "clifft/backend/backend.h"
 #include "clifft/frontend/frontend.h"
-#include "clifft/noncomp/transition_hooks.h"
 #include "clifft/noncomp/instrument_options.h"
 #include "clifft/noncomp/rewriter.h"
 #include "clifft/noncomp/seed.h"
 #include "clifft/noncomp/status_walk.h"
+#include "clifft/noncomp/transition_hooks.h"
 #include "clifft/noncomp/transition_instrument.h"
 #include "clifft/optimizer/hir_pass_manager.h"
 #include "clifft/optimizer/pass_registry.h"
@@ -517,7 +517,7 @@ NonComputationalSample run_exact_driver(const Circuit& circuit, const NonComputa
     const MeasurementClassifier* classifier = model.classifier();
     const bool ternary = classifier != nullptr && classifier->has_herald();
 
-    const Circuit annotated = annotate(circuit, model);
+    const Circuit annotated = expand_transition_hooks(circuit, model);
 
     // Validate annotations and measurement node shapes up front so a malformed
     // node fails here, deterministically, rather than on whichever shot first

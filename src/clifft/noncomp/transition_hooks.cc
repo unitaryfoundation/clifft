@@ -1,4 +1,4 @@
-#include "clifft/noncomp/annotate.h"
+#include "clifft/noncomp/transition_hooks.h"
 
 #include "clifft/circuit/gate_data.h"
 #include "clifft/circuit/target.h"
@@ -6,7 +6,7 @@
 
 namespace clifft {
 
-Circuit annotate(const Circuit& circuit, const NonComputationalModel& model) {
+Circuit expand_transition_hooks(const Circuit& circuit, const NonComputationalModel& model) {
     const auto& hooks = model.transition_hooks();
 
     Circuit out = circuit.metadata_only_copy();

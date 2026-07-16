@@ -6,17 +6,13 @@
 
 namespace clifft {
 
-// Exact includes the no-jump back-action from source-dependent transition
-// rates. Neglect omits that back-action, which avoids the need to grow the
-// active state vector (increase the active dimension) in cliffts factored
-// state representation, but this ignores a shift of |p_g - p_e| between the
-// computational ground and excited states that would result from exact back-action.
-//
-// Both policies are actually exact when the total transition rate is
-// source-independent.
-//
-// Fired transitions retain their source and destination correlations under both
-// settings.
+// Exact applies the no-jump back-action for source-dependent transition
+// rates. On a coherent dormant qubit, this may promote the qubit into the
+// active state and increase the active dimension. Neglect avoids that cost by
+// omitting the back-action, introducing a survivorship tilt of order
+// |p_g - p_e|. It remains exact when the total transition rate is
+// source-independent. Fired transitions retain their source and destination
+// correlations under both settings.
 enum class DampingPolicy : uint8_t {
     Exact = 0,
     Neglect = 1,

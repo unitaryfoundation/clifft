@@ -21,7 +21,6 @@
 #include "clifft/circuit/parser.h"
 #include "clifft/frontend/frontend.h"
 #include "clifft/frontend/hir.h"
-#include "clifft/noncomp/annotate.h"
 #include "clifft/noncomp/classifier.h"
 #include "clifft/noncomp/instrument_options.h"
 #include "clifft/noncomp/level.h"
@@ -29,6 +28,7 @@
 #include "clifft/noncomp/policy.h"
 #include "clifft/noncomp/rewriter.h"
 #include "clifft/noncomp/sample.h"
+#include "clifft/noncomp/transition_hooks.h"
 #include "clifft/noncomp/transition_instrument.h"
 #include "clifft/optimizer/hir_pass_manager.h"
 #include "clifft/optimizer/pass_factory.h"
@@ -46,10 +46,10 @@
 #include <vector>
 
 using Catch::Matchers::ContainsSubstring;
-using clifft::annotate;
 using clifft::AstNode;
 using clifft::Circuit;
 using clifft::default_hir_pass_manager;
+using clifft::expand_transition_hooks;
 using clifft::GateType;
 using clifft::HirModule;
 using clifft::Level;
@@ -187,7 +187,7 @@ TEST_CASE("validation: losing a Bell-pair qubit inserts the hidden trace-out R a
     NonComputationalModel model = make_validation_model(
         std::move(transitions), classifier_matrix_with_column(Level::Lost, {1.0, 0.0}));
 
-    Circuit annotated = annotate(c, model);
+    Circuit annotated = expand_transition_hooks(c, model);
     // The recorded jump is what the driver stores when the site traps: the
     // deterministic loss on qubit 0 at the expanded annotation.
     clifft::ExactShotEvents events;

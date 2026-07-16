@@ -1,23 +1,23 @@
 // Per-node rewriter semantics, exercised through rewrite_continuation --
 // the one rewrite entry: the policy scan (keep / drop / reject), classifier
 // record writes and their slot targeting, computational readout confusion,
-// carrier edits for recorded jumps, and the annotate() hook expansion the
-// rewriter consumes. Noncomputational statuses come from initial statuses
-// or recorded events; a coherent qubit's annotation stays a runtime
-// instrument site (the driver's territory, tested in test_exact_driver).
+// carrier edits for recorded jumps, and the transition-hook expansion consumed
+// by the rewriter. Noncomputational statuses come from initial statuses or
+// recorded events; a coherent qubit's annotation stays a runtime instrument
+// site (the driver's territory, tested in test_exact_driver).
 
 #include "clifft/circuit/circuit.h"
 #include "clifft/circuit/gate_data.h"
 #include "clifft/circuit/parser.h"
 #include "clifft/frontend/frontend.h"
 #include "clifft/frontend/hir.h"
-#include "clifft/noncomp/annotate.h"
 #include "clifft/noncomp/classifier.h"
 #include "clifft/noncomp/instrument_options.h"
 #include "clifft/noncomp/level.h"
 #include "clifft/noncomp/model.h"
 #include "clifft/noncomp/policy.h"
 #include "clifft/noncomp/rewriter.h"
+#include "clifft/noncomp/transition_hooks.h"
 #include "clifft/noncomp/transition_instrument.h"
 #include "clifft/optimizer/hir_pass_manager.h"
 #include "clifft/optimizer/pass_factory.h"
@@ -35,12 +35,12 @@
 #include <vector>
 
 using Catch::Matchers::ContainsSubstring;
-using clifft::annotate;
 using clifft::AstNode;
 using clifft::Circuit;
 using clifft::ContinuationRewrite;
 using clifft::default_hir_pass_manager;
 using clifft::ExactShotEvents;
+using clifft::expand_transition_hooks;
 using clifft::GateType;
 using clifft::HirModule;
 using clifft::kNumLevels;
@@ -98,7 +98,7 @@ size_t count_gate(const Circuit& c, GateType gate) {
 ContinuationRewrite rewritten(const Circuit& c, const NonComputationalModel& model,
                               const std::vector<Level>& initial_levels,
                               ExactShotEvents events = {}) {
-    Circuit annotated = annotate(c, model);
+    Circuit annotated = expand_transition_hooks(c, model);
     events.initial_status = initials(initial_levels);
     return rewrite_continuation(annotated, events, false, model);
 }
@@ -574,16 +574,16 @@ TEST_CASE("rewrite: a computational column with herald mass rejects") {
 }
 
 // =========================================================================
-// annotate(): hook expansion
+// Transition-hook expansion
 // =========================================================================
 
-TEST_CASE("annotate: gate hooks expand to per-operand LEVEL_TRANSITION annotations") {
+TEST_CASE("transition hooks: expand to per-operand LEVEL_TRANSITION annotations") {
     Circuit c = parse("H 0\nCZ 0 1\nM 0\n");
     std::map<std::string, RawProbabilityMatrix> transitions;
     transitions.emplace("CZ", certain_transition_from_computational(Level::Lost));
     NonComputationalModel model = make_rewriter_model(std::move(transitions));
 
-    Circuit ann = annotate(c, model);
+    Circuit ann = expand_transition_hooks(c, model);
     // H, CZ, LEVEL_TRANSITION(0), LEVEL_TRANSITION(1), M.
     REQUIRE(ann.nodes.size() == 5);
     REQUIRE(ann.nodes[2].gate == GateType::LEVEL_TRANSITION);
@@ -594,24 +594,24 @@ TEST_CASE("annotate: gate hooks expand to per-operand LEVEL_TRANSITION annotatio
     REQUIRE(ann.num_measurements == c.num_measurements);  // layout untouched
 }
 
-TEST_CASE("annotate: feedback operands get no annotation") {
+TEST_CASE("transition hooks: feedback operands receive no annotation") {
     Circuit c = parse("M 0\nCX rec[-1] 1\n");
     std::map<std::string, RawProbabilityMatrix> transitions;
     transitions.emplace("CX", certain_transition_from_computational(Level::Lost));
     NonComputationalModel model = make_rewriter_model(std::move(transitions));
 
-    Circuit ann = annotate(c, model);
+    Circuit ann = expand_transition_hooks(c, model);
     REQUIRE(ann.nodes.size() == c.nodes.size());  // virtual correction: no consult point
 }
 
-TEST_CASE("annotate: an unhooked model leaves the circuit unchanged") {
+TEST_CASE("transition hooks: an unhooked model leaves the circuit unchanged") {
     Circuit c = parse("H 0\nM 0\n");
     std::map<std::string, RawProbabilityMatrix> transitions;
     transitions.emplace("my_leak",
                         certain_transition_from_computational(Level::Lost));  // named, no hook
     NonComputationalModel model = make_rewriter_model(std::move(transitions));
 
-    Circuit ann = annotate(c, model);
+    Circuit ann = expand_transition_hooks(c, model);
     REQUIRE(ann.nodes.size() == c.nodes.size());
 }
 
@@ -656,7 +656,7 @@ TEST_CASE("rewrite: a malformed LOSS annotation rejects instead of reading past 
 
     SECTION("no arguments") {
         c.nodes[0].args.clear();
-        Circuit annotated = annotate(c, model);
+        Circuit annotated = expand_transition_hooks(c, model);
         REQUIRE_THROWS_WITH(rewrite_continuation(annotated, events, false, model),
                             ContainsSubstring("rewrite_continuation") &&
                                 ContainsSubstring("LOSS") &&
@@ -665,7 +665,7 @@ TEST_CASE("rewrite: a malformed LOSS annotation rejects instead of reading past 
 
     SECTION("two arguments with a zero first must not silently elide") {
         c.nodes[0].args = {0.0, 0.3};
-        Circuit annotated = annotate(c, model);
+        Circuit annotated = expand_transition_hooks(c, model);
         REQUIRE_THROWS_WITH(
             rewrite_continuation(annotated, events, false, model),
             ContainsSubstring("rewrite_continuation") && ContainsSubstring("exactly one argument"));
@@ -691,7 +691,7 @@ TEST_CASE("rewrite_continuation: unknown transition tag throws") {
     NonComputationalModel model = make_rewriter_model({});
     ExactShotEvents events;
     events.initial_status = {QubitStatus::Computational};
-    Circuit annotated = annotate(c, model);
+    Circuit annotated = expand_transition_hooks(c, model);
     REQUIRE_THROWS_WITH(rewrite_continuation(annotated, events, false, model),
                         ContainsSubstring("unknown transition tag 'nosuch'"));
 }

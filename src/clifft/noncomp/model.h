@@ -64,9 +64,9 @@ class NonComputationalModel {
         return transitions_;
     }
 
-    // Gate hooks: the gate-named subset of the transition keys, mapping
-    // each hooked gate to its key. The annotation layer expands these
-    // into explicit LEVEL_TRANSITION annotations after each hooked operation.
+    // Gate hooks map each hooked gate to its transition key.
+    // expand_transition_hooks() inserts the corresponding LEVEL_TRANSITION
+    // annotations after each hooked operation.
     const std::map<GateType, std::string>& transition_hooks() const { return hooks_; }
 
     // Transition instrument by exact key, or nullptr if none. This is the

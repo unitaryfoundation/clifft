@@ -21,11 +21,11 @@
 //   noncomputational destination, the carrier re-preparation for a
 //   computational one. Reset lowering adds no visible measurement and
 //   shifts no record index.
-// - Consults happen only at LEVEL_TRANSITION and LOSS nodes (annotate()
-//   expands gate hooks first). A computational-source consult stays a
-//   runtime instrument site; a classical-source (leaked/lost) consult is
-//   consumed against its pre-drawn outcome. The rewriter does not sample,
-//   compile, or run the SVM.
+// - Consults happen only at explicit LEVEL_TRANSITION and LOSS nodes;
+//   expand_transition_hooks() inserts the gate-hook transitions first. A
+//   computational-source consult stays a runtime instrument site; a
+//   classical-source (leaked/lost) consult is consumed against its pre-drawn
+//   outcome. The rewriter does not sample, compile, or run the SVM.
 
 #include "clifft/circuit/circuit.h"
 #include "clifft/noncomp/model.h"

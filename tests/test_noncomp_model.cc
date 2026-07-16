@@ -1,9 +1,9 @@
 #include "clifft/circuit/gate_data.h"
 #include "clifft/circuit/parser.h"
-#include "clifft/noncomp/annotate.h"
 #include "clifft/noncomp/level.h"
 #include "clifft/noncomp/model.h"
 #include "clifft/noncomp/policy.h"
+#include "clifft/noncomp/transition_hooks.h"
 
 #include "noncomp_test_helpers.h"
 #include "test_helpers.h"
@@ -497,8 +497,8 @@ TEST_CASE("model: every registered gate hook names a gate the parser can produce
             }
         }
         REQUIRE(found);
-        // annotate() must insert a LEVEL_TRANSITION node after the gate.
-        auto annotated = clifft::annotate(circuit, model);
+        // The hook must insert a LEVEL_TRANSITION node after the gate.
+        auto annotated = clifft::expand_transition_hooks(circuit, model);
         bool found_lt = false;
         for (const auto& node : annotated.nodes) {
             if (node.gate == clifft::GateType::LEVEL_TRANSITION && node.tag == name) {

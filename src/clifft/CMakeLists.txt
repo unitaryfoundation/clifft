@@ -31,7 +31,7 @@ add_library(clifft_core STATIC
     util/introspection.cc
     util/xoshiro.cc
     noncomp/transition_instrument.cc
-    noncomp/annotate.cc
+    noncomp/transition_hooks.cc
     noncomp/instrument_options.cc
     noncomp/classifier.cc
     noncomp/model.cc

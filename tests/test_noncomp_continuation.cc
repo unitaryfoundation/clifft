@@ -8,9 +8,9 @@
 // force it.
 
 #include "clifft/circuit/parser.h"
-#include "clifft/noncomp/annotate.h"
 #include "clifft/noncomp/model.h"
 #include "clifft/noncomp/rewriter.h"
+#include "clifft/noncomp/transition_hooks.h"
 
 #include "noncomp_test_helpers.h"
 
@@ -65,7 +65,8 @@ TEST_CASE("continuation: empty events reproduce the annotated circuit verbatim")
     // a runtime instrument and (with identity computational classifier
     // columns) no node is added or removed.
     auto model = demo_model();
-    auto annotated = annotate(parse("H 0\nLEVEL_TRANSITION[leak] 0\nCX 0 1\nM 0\nM 1"), model);
+    auto annotated =
+        expand_transition_hooks(parse("H 0\nLEVEL_TRANSITION[leak] 0\nCX 0 1\nM 0\nM 1"), model);
 
     ExactShotEvents events;
     events.initial_status = computational_initials(2);
@@ -83,11 +84,11 @@ TEST_CASE("continuation: a trapped jump keeps its annotation and inserts the tra
     // the leaked qubit drops; the measurement classifies.
     auto model = demo_model();
     auto circuit = parse("H 0\nLEVEL_TRANSITION[leak] 0\nCX 0 1\nM 0\nM 1");
-    auto annotated = annotate(circuit, model);
+    auto annotated = expand_transition_hooks(circuit, model);
 
     ExactShotEvents events;
     events.initial_status = computational_initials(2);
-    // The annotation is node 1 in the source; annotate() keeps positions.
+    // This explicit annotation remains node 1 because the model has no gate hooks.
     events.jumps.push_back({{/*op_index=*/1, /*qubit=*/0}, /*destination_level=*/Level::LeakE});
 
     auto result = rewrite_continuation(annotated, events, false, model);
@@ -113,7 +114,7 @@ TEST_CASE("continuation: classical-source consults consume pre-drawn outcomes") 
     auto model = demo_model();
     auto circuit =
         parse("LEVEL_TRANSITION[leak] 0\nLEVEL_TRANSITION[leak] 0\nLEVEL_TRANSITION[leak] 0\nM 0");
-    auto annotated = annotate(circuit, model);
+    auto annotated = expand_transition_hooks(circuit, model);
 
     ExactShotEvents events;
     events.initial_status = computational_initials(1);
@@ -140,7 +141,7 @@ TEST_CASE("continuation: the forced trace-out node names the trace-out R in the 
     // The forced_traceout_node must point to a GateType::R on the trapped qubit (q0).
     auto model = demo_model();
     auto circuit = parse("R 1\nH 0\nLEVEL_TRANSITION[leak] 0\nM 0");
-    auto annotated = annotate(circuit, model);
+    auto annotated = expand_transition_hooks(circuit, model);
 
     ExactShotEvents events;
     events.initial_status = computational_initials(2);
@@ -159,7 +160,7 @@ TEST_CASE("continuation: the forced trace-out node is correct with multiple prio
     // The forced_traceout_node must point to a GateType::R on the trapped qubit (q0).
     auto model = demo_model();
     auto circuit = parse("R 1\nR 2\nH 0\nLEVEL_TRANSITION[leak] 0\nM 0");
-    auto annotated = annotate(circuit, model);
+    auto annotated = expand_transition_hooks(circuit, model);
 
     ExactShotEvents events;
     events.initial_status = computational_initials(3);
@@ -175,7 +176,7 @@ TEST_CASE("continuation: the forced trace-out node is correct with multiple prio
 
 TEST_CASE("continuation: events that do not describe the circuit reject") {
     auto model = demo_model();
-    auto annotated = annotate(parse("LEVEL_TRANSITION[leak] 0\nM 0"), model);
+    auto annotated = expand_transition_hooks(parse("LEVEL_TRANSITION[leak] 0\nM 0"), model);
 
     ExactShotEvents base;
     base.initial_status = computational_initials(1);

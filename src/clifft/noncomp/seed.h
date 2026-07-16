@@ -1,14 +1,14 @@
 #pragma once
 
-// Derives separate per-shot RNG states for the driver and VM. Keeping
-// these streams separate means that adding a driver-side random draw cannot
-// consume from or shift the VM's measurement sequence (useful for testing/
-// reproducible explicit seeds). Unseeded runs start with 256 bits of OS
-// entropy; seeded runs expand the user's 64-bit seed deterministically. Within
-// either stream, different shots always receive different 256-bit states. Each
-// state word is mixed differently, so a match in one word does not automatically
-// repeat in the other three. For independently generated roots, a given pair of
-// states matches with probability about 2^-256.
+// Derives separate per-shot RNG states for the driver and VM. Keeping these
+// streams separate means that adding a driver-side random draw cannot consume
+// from or shift the VM's measurement sequence. Unseeded runs start with 256
+// bits of OS entropy; seeded runs expand the user's 64-bit seed
+// deterministically. Within either stream, different shots always receive
+// different 256-bit states. Each state word is mixed differently, so a match
+// in one word does not automatically repeat in the other three. For
+// independently generated roots, a given pair of states matches with
+// probability about 2^-256.
 
 #include "clifft/util/xoshiro.h"
 
