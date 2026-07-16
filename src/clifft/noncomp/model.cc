@@ -16,16 +16,16 @@ namespace {
 
 // A transition instrument models the noncomputational side effects of a
 // physical qubit operation, so it may key only a gate that represents
-// one. This allowlist defaults to false: a newly added GateType is
-// rejected until it is deliberately classified here, rather than being
-// silently accepted. Excludes annotations, identity no-ops, the
-// classical measurement pad (MPAD), the expectation-value probe, and
-// noise channels (whose composition with a level transition is
-// deliberately left unmodeled). Parser-desugared gates are rejected as
-// hook keys before this predicate is consulted.
+// one. Classification lives in the gate table's trait flags, whose
+// defaults reject a new GateType until it is deliberately classified
+// there. Excludes annotations, identity no-ops, the classical
+// measurement pad (MPAD), the expectation-value probe, and noise
+// channels (whose composition with a level transition is deliberately
+// left unmodeled). Parser-desugared gates are rejected as hook keys
+// before this predicate is consulted.
 bool supports_transition(GateType g) {
-    if (is_clifford(g)) {
-        return true;  // single- and two-qubit Clifford gates
+    if (is_unitary(g) && !is_identity_noop(g)) {
+        return true;  // unitary gates, Clifford or not
     }
     if (is_reset(g)) {
         return true;  // R, RX, RY
@@ -33,23 +33,7 @@ bool supports_transition(GateType g) {
     if (is_measurement(g) && g != GateType::MPAD) {
         return true;  // M, MX, MY, MR, MRX, MRY, MPP
     }
-    switch (g) {
-        // Non-Clifford unitaries: no trait flag distinguishes these, so
-        // they are named explicitly.
-        case GateType::T:
-        case GateType::T_DAG:
-        case GateType::R_X:
-        case GateType::R_Y:
-        case GateType::R_Z:
-        case GateType::U3:
-        case GateType::R_XX:
-        case GateType::R_YY:
-        case GateType::R_ZZ:
-        case GateType::R_PAULI:
-            return true;
-        default:
-            return false;
-    }
+    return false;
 }
 
 }  // namespace
