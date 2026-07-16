@@ -46,11 +46,9 @@ GateType reset_for(GateType measure_reset) {
     }
 }
 
-// The model's classifier, which supplies the record bit for a measurement
-// on a noncomputational qubit. Everything about the classifier's shape
-// (symbol count, stochastic columns) is validated at its construction;
-// only its presence is checked here, where the op context makes a good
-// error message.
+// Returns the classifier used for a measurement on a leaked or lost qubit.
+// The classifier itself was validated at construction. This function only
+// checks that it exists and includes the operation location in the error.
 const MeasurementClassifier& classifier_for(const NonComputationalModel& model, GateType gate,
                                             uint32_t op_index, uint32_t qubit) {
     const MeasurementClassifier* classifier = model.classifier();
@@ -63,15 +61,12 @@ const MeasurementClassifier& classifier_for(const NonComputationalModel& model, 
     return *classifier;
 }
 
-// Classifier readout confusion for a kept computational Z-basis measurement.
-// The classifier's computational columns give the probability of misreporting
-// each true outcome, so the record bit gets an asymmetric flip conditioned on
-// its value: p01 = P(symbol 1 | zero level), p10 = P(symbol 0 | one level).
-// Real readout error is a misreport -- the qubit still collapses to its true
-// state -- so only the record slot is touched and the layout is unchanged.
-// Identity columns emit nothing. An inverted measurement target reports the
-// complement bit, and confusion physically precedes the reporting convention,
-// so the emitted probabilities are swapped for it.
+// Applies classifier readout error to a kept computational Z-basis
+// measurement. The computational columns give p01, the probability of
+// reporting 1 for a true 0, and p10, the probability of reporting 0 for a
+// true 1. Only the record bit changes; the qubit still collapses to its true
+// state. Identity columns add no node. An inverted target reports the
+// complement bit, so its two error probabilities are swapped.
 void append_computational_confusion(Circuit& out, const NonComputationalModel& model, bool inverted,
                                     uint32_t slot) {
     const MeasurementClassifier* classifier = model.classifier();
@@ -89,10 +84,9 @@ void append_computational_confusion(Circuit& out, const NonComputationalModel& m
     out.nodes.push_back(AstNode{GateType::READOUT_NOISE, {Target::rec(slot)}, {p01, p10}, 0});
 }
 
-// Per-node processing for every non-annotation operation: the policy
-// scan (drop/reject), classifier record writes for measurements on
-// leaked/lost qubits, computational readout confusion for kept Z-basis
-// measurements, status stepping, and the visible-slot cursor.
+// Process one ordinary circuit operation: apply the policy, replace
+// measurements on leaked or lost qubits, add computational readout error,
+// update qubit statuses, and advance the measurement record index.
 void process_ordinary_node(const AstNode& node, uint32_t op_index,
                            const NonComputationalModel& model, std::vector<QubitStatus>& status,
                            Circuit& out, uint32_t& slot,
@@ -106,22 +100,22 @@ void process_ordinary_node(const AstNode& node, uint32_t op_index,
 
     if (!drop_op) {
         if (classified.has_value()) {
-            // The policy pre-scan admits single-qubit measurement forms
-            // M, MX, MY, and the measure-and-resets; multi-qubit parity
-            // measurements (MPP) on a noncomputational operand reject above.
+            // Only single-qubit measurements reach this branch. MPP on a
+            // leaked or lost operand is rejected by the policy above.
             const uint32_t qubit = classified->qubit;
             const Level classified_level = classified->level;
             const MeasurementClassifier& classifier = classifier_for(model, gate, op_index, qubit);
             const bool ternary = classifier.has_herald();
             const bool inverted = node.targets.front().is_inverted();
 
-            // MPAD starts the visible record at 0, then READOUT_NOISE flips it
-            // with probability `flip`. Binary classifiers use P(symbol 1 |
-            // level). Ternary classifiers use P(symbol 1 | level, no herald),
-            // because heralded slots are later patched to an unbiased bit.
-            // Target inversion complements only this visible bit; the herald
-            // flag still means the classifier's third symbol. If every draw
-            // heralds, the placeholder flip is irrelevant and 0.5 is used.
+            // MPAD writes 0 into the original record slot, then
+            // READOUT_NOISE changes it with probability `flip`. A binary
+            // classifier uses P(symbol 1 | level). A three-symbol classifier
+            // uses P(symbol 1 | level, not heralded), because the driver later
+            // replaces a heralded slot with a uniformly random bit. Target
+            // inversion complements the record bit but not the herald flag. If
+            // the classifier always heralds, the temporary bit is irrelevant,
+            // so use 0.5.
             double flip;
             if (ternary) {
                 const double p_herald =
@@ -146,8 +140,8 @@ void process_ordinary_node(const AstNode& node, uint32_t op_index,
                 out.nodes.push_back(readout_noise_op(slot, flip));
                 noise_node = out.nodes.size() - 1;
             }
-            // The reset half runs only when the stepper restored the site;
-            // a non-restoring lost qubit keeps its vacated carrier.
+            // Keep the reset half only when the policy restored the qubit.
+            // Otherwise a lost site remains empty.
             if (is_measure_reset(gate) && is_computational(status[qubit])) {
                 out.nodes.push_back(single_qubit_op(reset_for(gate), qubit));
             }
@@ -184,8 +178,9 @@ ContinuationRewrite rewrite_continuation(const Circuit& annotated, const ExactSh
             "rewrite_continuation: force_last_traceout requires at least one jump");
     }
 
-    // Jumps index by their annotation target. The chain arrives in trap
-    // order, which is circuit order; visitation below validates coverage.
+    // Index recorded jumps by their annotation targets. The caller supplies
+    // them in circuit order; the traversal below verifies that each one
+    // matches a transition site.
     std::map<AnnotationTarget, Level> jump_dest;
     for (const ResolvedJump& jump : events.jumps) {
         if (!jump_dest.emplace(jump.target, jump.destination_level).second) {
@@ -202,13 +197,14 @@ ContinuationRewrite rewrite_continuation(const Circuit& annotated, const ExactSh
     out = annotated.metadata_only_copy();
     out.nodes.reserve(annotated.nodes.size() + events.jumps.size() * 2);
 
-    // No initial X-prep here: in exact mode a known |1> initial level is a
-    // per-shot Pauli-frame preload, so every module in a chain compiles
-    // from the same node stream regardless of the shot's initials.
+    // Do not emit an X for an initial |1>. Exact mode supplies it through the
+    // per-shot Pauli frame, keeping the circuit nodes identical across shots
+    // and continuations.
     std::vector<QubitStatus> status = events.initial_status;
 
-    // Node index (into `out`) of the last jump's trace-out R, when one is
-    // emitted; converted to a hidden record slot after the walk.
+    // Index in `out` of the reset inserted for the last jump. If forcing is
+    // requested, trace() later reports the hidden measurement slot created
+    // when this reset is lowered.
     std::optional<size_t> traceout_node;
 
     uint32_t slot = 0;  // visible measurement record index
@@ -228,13 +224,13 @@ ContinuationRewrite rewrite_continuation(const Circuit& annotated, const ExactSh
                 const QubitStatus pre = status[qubit];
 
                 if (!is_computational(pre)) {
-                    // Classical-source consult: no runtime instrument; the
-                    // driver pre-drew the outcome and the annotation node
-                    // is consumed.
+                    // The qubit is leaked or lost, so the VM has no
+                    // transition to execute. Remove the annotation and apply
+                    // the outcome already drawn by the driver.
                     if (classical_cursor >= events.classical_outcomes.size()) {
                         throw std::invalid_argument(
-                            "rewrite_continuation: circuit consults more classical-source "
-                            "transitions than the events record (op " +
+                            "rewrite_continuation: circuit has more transitions on leaked or "
+                            "lost qubits than the events record (op " +
                             std::to_string(op_index) + ", qubit " + std::to_string(qubit) + ")");
                     }
                     const ClassicalOutcome& outcome = events.classical_outcomes[classical_cursor++];
@@ -243,23 +239,24 @@ ContinuationRewrite rewrite_continuation(const Circuit& annotated, const ExactSh
                         throw std::invalid_argument(
                             "rewrite_continuation: classical outcome (op " +
                             std::to_string(outcome.target.op_index) + ", qubit " +
-                            std::to_string(outcome.target.qubit) + ") does not match consult (op " +
-                            std::to_string(op_index) + ", qubit " + std::to_string(qubit) + ")");
+                            std::to_string(outcome.target.qubit) +
+                            ") does not match transition (op " + std::to_string(op_index) +
+                            ", qubit " + std::to_string(qubit) + ")");
                     }
                     if (outcome.source_level != noncomp_level(pre)) {
                         throw std::invalid_argument(
                             "rewrite_continuation: classical outcome at op " +
                             std::to_string(op_index) + ", qubit " + std::to_string(qubit) +
                             " was drawn at level '" + level_name(outcome.source_level) +
-                            "' but the walk holds level '" + level_name(noncomp_level(pre)) + "'");
+                            "' but the qubit has level '" + level_name(noncomp_level(pre)) + "'");
                     }
                     if (!outcome.destination.has_value()) {
                         continue;
                     }
                     const Level dest = *outcome.destination;
                     if (is_computational(dest)) {
-                        // Recapture: materialize the carrier at the definite
-                        // destination level.
+                        // A transition back to g or e recreates the qubit in
+                        // that definite computational state.
                         out.nodes.push_back(single_qubit_op(GateType::R, qubit));
                         if (dest == Level::E) {
                             out.nodes.push_back(single_qubit_op(GateType::X, qubit));
@@ -269,14 +266,14 @@ ContinuationRewrite rewrite_continuation(const Circuit& annotated, const ExactSh
                     continue;
                 }
 
-                // Quantum source: if the channel can never fire from any
-                // computational level, the site is the identity on this qubit
-                // and trace() will elide it. The site table and trace()'s
-                // materialization must elide identically, so skip both the
-                // node emission and the site_targets entry.
-                // LOSS(p): fires iff p != 0. LEVEL_TRANSITION[tag]: fires iff
-                // column_sum(G) != 0 or column_sum(E) != 0. These predicates
-                // are exact 0.0 comparisons, matching frontend.cc.
+                // The qubit is computational. Omit a transition whose firing
+                // probability is exactly zero for both g and e. trace() omits
+                // the same sites, so skipping both the node and site_targets
+                // entry keeps their site IDs aligned.
+                //
+                // LOSS(p) can fire when p != 0. LEVEL_TRANSITION[tag] can fire
+                // when either column_sum(G) or column_sum(E) is nonzero. These
+                // exact 0.0 comparisons match frontend.cc.
                 if (gate == GateType::LOSS) {
                     if (loss_probability(node.args, op_index, "rewrite_continuation") == 0.0) {
                         continue;
@@ -293,9 +290,9 @@ ContinuationRewrite rewrite_continuation(const Circuit& annotated, const ExactSh
                     }
                 }
 
-                // The annotation stays a runtime instrument.
-                // Split multi-target nodes so a sibling target with a
-                // classical status is not re-materialized.
+                // Keep one runtime instrument for this computational target.
+                // Splitting a multi-target annotation prevents a leaked or
+                // lost sibling target from being emitted again.
                 const AnnotationTarget site_target{op_index, qubit};
                 result.site_targets.push_back(site_target);
                 out.nodes.push_back(
@@ -303,20 +300,18 @@ ContinuationRewrite rewrite_continuation(const Circuit& annotated, const ExactSh
 
                 const auto jump = jump_dest.find(site_target);
                 if (jump == jump_dest.end()) {
-                    continue;  // no fire recorded here; the site runs live
+                    continue;  // no recorded jump; the VM executes this transition
                 }
                 ++jumps_seen;
                 const bool is_last =
                     jumps_seen == events.jumps.size() && site_target == events.jumps.back().target;
 
-                // Every jump resets its carrier at the site. For a
-                // noncomputational destination the R is the trace-out
-                // unraveling (a hidden measurement plus corrective Pauli
-                // under reset lowering -- deterministic here, because the
-                // site collapsed the carrier before trapping); for a
-                // computational destination it re-prepares the carrier at
-                // the destination level, with an X appended for |1>. A
-                // forced trap-form trace-out points at the same reset.
+                // Insert a reset after every recorded jump. For a leaked or
+                // lost destination, reset lowering traces the qubit out of the
+                // quantum state. For destination g or e, the reset prepares
+                // |0>, followed by X for |1>. When the last jump came from a
+                // trap, remember this reset so the driver can force its hidden
+                // measurement to the source level reported by the VM.
                 const size_t r_node = out.nodes.size();
                 out.nodes.push_back(single_qubit_op(GateType::R, qubit));
                 if (jump->second == Level::E) {
@@ -336,12 +331,13 @@ ContinuationRewrite rewrite_continuation(const Circuit& annotated, const ExactSh
 
     if (jumps_seen != events.jumps.size()) {
         throw std::invalid_argument(
-            "rewrite_continuation: events record jumps the circuit never consults");
+            "rewrite_continuation: events record jumps that do not match transition "
+            "annotations on computational qubits");
     }
     if (classical_cursor != events.classical_outcomes.size()) {
         throw std::invalid_argument(
-            "rewrite_continuation: events record more classical outcomes than the circuit "
-            "consults");
+            "rewrite_continuation: events record more leaked or lost transition outcomes than "
+            "the circuit uses");
     }
 
     result.forced_traceout_node = traceout_node;

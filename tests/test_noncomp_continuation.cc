@@ -181,21 +181,22 @@ TEST_CASE("continuation: events that do not describe the circuit reject") {
     ExactShotEvents base;
     base.initial_status = computational_initials(1);
 
-    SECTION("a jump at an op the circuit never consults") {
+    SECTION("a jump with no matching computational transition") {
         ExactShotEvents events = base;
         events.jumps.push_back({{5, 0}, Level::LeakE});
-        REQUIRE_THROWS_WITH(rewrite_continuation(annotated, events, false, model),
-                            ContainsSubstring("never consults"));
+        REQUIRE_THROWS_WITH(
+            rewrite_continuation(annotated, events, false, model),
+            ContainsSubstring("do not match transition annotations on computational qubits"));
     }
-    SECTION("a classical outcome with no classical-source consult") {
+    SECTION("an outcome with no matching leaked or lost transition") {
         ExactShotEvents events = base;
         events.classical_outcomes.push_back({{0, 0}, std::nullopt, Level::G});
         REQUIRE_THROWS_WITH(rewrite_continuation(annotated, events, false, model),
-                            ContainsSubstring("more classical outcomes"));
+                            ContainsSubstring("more leaked or lost transition outcomes"));
     }
-    SECTION("a classical outcome drawn at a different source level") {
-        // A leaked initial makes op 0 a classical consult; the recorded
-        // outcome claims it was drawn at a computational level.
+    SECTION("an outcome drawn at a different source level") {
+        // A leaked initial means op 0 uses a pre-drawn outcome; this outcome
+        // incorrectly claims it was drawn at a computational level.
         ExactShotEvents events = base;
         events.initial_status[0] = QubitStatus::LeakE;
         events.classical_outcomes.push_back({{/*op_index=*/0, /*qubit=*/0},
