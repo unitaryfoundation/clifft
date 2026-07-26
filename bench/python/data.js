@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1784963372240,
+  "lastUpdate": 1785050282461,
   "repoUrl": "https://github.com/unitaryfoundation/clifft",
   "entries": {
     "Python pytest-benchmark suite": [
@@ -7128,6 +7128,105 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.01250780615756117",
             "extra": "mean: 1.078529405799992 sec\nrounds: 5"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Brad Chase",
+            "username": "bachase",
+            "email": "14430+bachase@users.noreply.github.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "a65a7e7d1078280e453c81feaad4babe3e2d32c2",
+          "message": "docs: prepare v0.6.0 release (#217)",
+          "timestamp": "2026-07-14T22:10:01Z",
+          "url": "https://github.com/unitaryfoundation/clifft/commit/a65a7e7d1078280e453c81feaad4babe3e2d32c2"
+        },
+        "date": 1785050279851,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "tools/bench/test_bench_deep_clifford.py::test_compile_stim_deep",
+            "value": 1455.7101875918058,
+            "unit": "iter/sec",
+            "range": "stddev: 0.00001213563925984567",
+            "extra": "mean: 686.9499221231039 usec\nrounds: 1130"
+          },
+          {
+            "name": "tools/bench/test_bench_deep_clifford.py::test_compile_clifft_deep",
+            "value": 592.2660811543941,
+            "unit": "iter/sec",
+            "range": "stddev: 0.000020611026845068167",
+            "extra": "mean: 1.6884303049245806 msec\nrounds: 528"
+          },
+          {
+            "name": "tools/bench/test_bench_deep_clifford.py::test_sample_stim_deep",
+            "value": 56.981572881099886,
+            "unit": "iter/sec",
+            "range": "stddev: 0.000428829211862256",
+            "extra": "mean: 17.549533111110172 msec\nrounds: 45"
+          },
+          {
+            "name": "tools/bench/test_bench_deep_clifford.py::test_sample_clifft_deep",
+            "value": 1.017731339795899,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0012493424735579776",
+            "extra": "mean: 982.5775829999941 msec\nrounds: 5"
+          },
+          {
+            "name": "tools/bench/test_bench_qec.py::test_compile_stim",
+            "value": 17600.250353037805,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0000037855503521867387",
+            "extra": "mean: 56.81737361351794 usec\nrounds: 7663"
+          },
+          {
+            "name": "tools/bench/test_bench_qec.py::test_compile_clifft",
+            "value": 1475.3853524920685,
+            "unit": "iter/sec",
+            "range": "stddev: 0.00001182922376619737",
+            "extra": "mean: 677.7890252949193 usec\nrounds: 1186"
+          },
+          {
+            "name": "tools/bench/test_bench_qec.py::test_sample_stim",
+            "value": 110.74546649589874,
+            "unit": "iter/sec",
+            "range": "stddev: 0.00012005812729860694",
+            "extra": "mean: 9.02971499999987 msec\nrounds: 97"
+          },
+          {
+            "name": "tools/bench/test_bench_qec.py::test_sample_clifft",
+            "value": 8.364502501787488,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0028021071037047643",
+            "extra": "mean: 119.55283649999515 msec\nrounds: 8"
+          },
+          {
+            "name": "tools/bench/test_bench_qv.py::test_compile_qv20",
+            "value": 54.35148781058619,
+            "unit": "iter/sec",
+            "range": "stddev: 0.00005992468882619362",
+            "extra": "mean: 18.398760370368873 msec\nrounds: 54"
+          },
+          {
+            "name": "tools/bench/test_bench_qv.py::test_sample_qv20_1shot",
+            "value": 6.356860978488706,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0017646445152692313",
+            "extra": "mean: 157.31034600000677 msec\nrounds: 7"
+          },
+          {
+            "name": "tools/bench/test_bench_qv.py::test_sample_qv20_10shots",
+            "value": 0.6383346126533517,
+            "unit": "iter/sec",
+            "range": "stddev: 0.007809850878807787",
+            "extra": "mean: 1.5665764947999947 sec\nrounds: 5"
           }
         ]
       }
