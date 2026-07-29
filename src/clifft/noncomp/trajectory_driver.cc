@@ -246,9 +246,9 @@ void extend_classical_outcomes(const Circuit& annotated, TrajectoryEvents& event
 
 // The compiled program and trajectory metadata needed while executing it.
 // The rewritten Circuit and classifier patch table are discarded after
-// compilation. The module is owned by the shot currently executing it and is
-// destroyed when the next continuation replaces it (or the shot ends);
-// nothing may retain a pointer into it across that replacement.
+// compilation. Replacing an existing shot-specific continuation invalidates
+// pointers and references into its module; the shared all-computational
+// continuation persists across shots.
 struct CompiledContinuation {
     CompiledModule module;
     std::vector<AnnotationTarget> site_targets;
@@ -781,11 +781,11 @@ NonComputationalSample run_trajectory_driver(const Circuit& circuit,
                 state.forced_record = forced_buffer;
             }
 
-            // Replacing the previous shot-specific continuation bounds retained
-            // compiled programs independently of the number of traps and shots.
-            // The move-assignment below destroys the module the shot just
-            // executed, so no pointer into the old continuation may be used
-            // past this line.
+            // Reusing one shot-specific slot bounds retained compiled programs
+            // independently of the number of traps and shots. The assignment
+            // destroys an existing shot-specific module, never the shared
+            // all-computational start; compile_continuation has finished
+            // reading the executed prefix before this point.
             shot_continuation = std::move(next);
             continuation = &*shot_continuation;
             // resume() grows the state for this continuation when needed. Track
