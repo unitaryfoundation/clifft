@@ -246,7 +246,9 @@ void extend_classical_outcomes(const Circuit& annotated, TrajectoryEvents& event
 
 // The compiled program and trajectory metadata needed while executing it.
 // The rewritten Circuit and classifier patch table are discarded after
-// compilation.
+// compilation. Replacing an existing shot-specific continuation invalidates
+// pointers and references into its module; the shared all-computational
+// continuation persists across shots.
 struct CompiledContinuation {
     CompiledModule module;
     std::vector<AnnotationTarget> site_targets;
@@ -369,7 +371,13 @@ CompiledContinuation compile_continuation(ContinuationRewrite rewrite,
                                           std::optional<uint32_t> max_rank,
                                           const CompiledModule* executed_prefix_module,
                                           uint32_t prefix_end) {
-    assert(herald_flags.size() == rewrite.classified_measurements.size());
+    if (herald_flags.size() != rewrite.classified_measurements.size()) {
+        throw std::logic_error(
+            "sample_noncomputational: continuation compile received " +
+            std::to_string(herald_flags.size()) + " herald flag(s) for " +
+            std::to_string(rewrite.classified_measurements.size()) +
+            " classified measurement(s); every classified measurement needs exactly one flag");
+    }
     Circuit patched = std::move(rewrite.circuit);
     for (size_t i = 0; i < herald_flags.size(); ++i) {
         if (herald_flags[i] != 0) {
@@ -681,25 +689,24 @@ NonComputationalSample run_trajectory_driver(const Circuit& circuit,
             }
             continuation = &*computational_start;
         }
-        const CompiledModule* module = &continuation->module;
-        std::vector<QubitStatus> final_status = continuation->final_status;
 
         if (!state_storage.has_value()) {
-            state_rank = module->peak_rank;
-            state_slots = module->total_meas_slots;
-            state_storage.emplace(make_state(*module, state_rank, state_slots));
+            state_rank = continuation->module.peak_rank;
+            state_slots = continuation->module.total_meas_slots;
+            state_storage.emplace(make_state(continuation->module, state_rank, state_slots));
         } else {
             state_storage->reset();
-            if (module->peak_rank > state_rank || module->total_meas_slots > state_slots) {
-                state_rank = std::max(state_rank, module->peak_rank);
-                state_slots = std::max(state_slots, module->total_meas_slots);
-                state_storage.emplace(make_state(*module, state_rank, state_slots));
+            if (continuation->module.peak_rank > state_rank ||
+                continuation->module.total_meas_slots > state_slots) {
+                state_rank = std::max(state_rank, continuation->module.peak_rank);
+                state_slots = std::max(state_slots, continuation->module.total_meas_slots);
+                state_storage.emplace(make_state(continuation->module, state_rank, state_slots));
             }
         }
         SchrodingerState& state = *state_storage;
         const auto sw = derive_state(root, shot, kTrajectorySvmDomain);
         state.reseed_full(sw[0], sw[1], sw[2], sw[3]);
-        assert(state.meas_record.size() >= module->total_meas_slots &&
+        assert(state.meas_record.size() >= continuation->module.total_meas_slots &&
                "the rebuild block above guarantees meas_record capacity; "
                "meas_record never shrinks");
         // Represent an initial e as an X in the per-shot Pauli frame instead of
@@ -710,8 +717,8 @@ NonComputationalSample run_trajectory_driver(const Circuit& circuit,
             }
         }
         state.next_noise_idx = 0;
-        state.draw_next_noise(module->constant_pool.noise_hazards);
-        execute(*module, state);
+        state.draw_next_noise(continuation->module.constant_pool.noise_hazards);
+        execute(continuation->module, state);
 
         while (state.pending_trap.has_value()) {
             const SchrodingerState::InstrumentTrap trap = *state.pending_trap;
@@ -749,7 +756,7 @@ NonComputationalSample run_trajectory_driver(const Circuit& circuit,
             // the reported source. Supplying it through per-shot state keeps
             // the continuation bytecode independent of the g/e source.
             const bool force = trap.destination_pending;
-            const uint32_t prefix_end = module->instrument_offsets[trap.site_id] + 1;
+            const uint32_t prefix_end = continuation->module.instrument_offsets[trap.site_id] + 1;
 
             // Rebuild from the original circuit using all events seen so far.
             // The new module reproduces the executed prefix and specializes
@@ -760,8 +767,7 @@ NonComputationalSample run_trajectory_driver(const Circuit& circuit,
             const std::vector<uint8_t> next_flags = flags_for(next_rewrite);
             CompiledContinuation next =
                 compile_continuation(std::move(next_rewrite), next_flags, instrument_options,
-                                     max_rank, module, prefix_end);
-            final_status = next.final_status;
+                                     max_rank, &continuation->module, prefix_end);
 
             if (force) {
                 assert(next.forced_traceout_slot.has_value() &&
@@ -775,17 +781,20 @@ NonComputationalSample run_trajectory_driver(const Circuit& circuit,
                 state.forced_record = forced_buffer;
             }
 
-            // Replacing the previous shot-specific continuation bounds retained
-            // compiled programs independently of the number of traps and shots.
+            // Reusing one shot-specific slot bounds retained compiled programs
+            // independently of the number of traps and shots. The assignment
+            // destroys an existing shot-specific module, never the shared
+            // all-computational start; compile_continuation has finished
+            // reading the executed prefix before this point.
             shot_continuation = std::move(next);
             continuation = &*shot_continuation;
-            module = &continuation->module;
             // resume() grows the state for this continuation when needed. Track
             // the new capacities so rebuilding for a later shot never shrinks
             // them.
-            state_rank = std::max(state_rank, module->peak_rank);
-            state_slots = std::max(state_slots, module->total_meas_slots);
-            resume(*module, state, module->instrument_offsets[trap.site_id] + 1);
+            state_rank = std::max(state_rank, continuation->module.peak_rank);
+            state_slots = std::max(state_slots, continuation->module.total_meas_slots);
+            resume(continuation->module, state,
+                   continuation->module.instrument_offsets[trap.site_id] + 1);
         }
 
         // Emit the visible records. The noncomputational path never sets
@@ -796,8 +805,8 @@ NonComputationalSample run_trajectory_driver(const Circuit& circuit,
                                 state.det_record.end());
         result.observables.insert(result.observables.end(), state.obs_record.begin(),
                                   state.obs_record.end());
-        result.final_status.insert(result.final_status.end(), final_status.begin(),
-                                   final_status.end());
+        result.final_status.insert(result.final_status.end(), continuation->final_status.begin(),
+                                   continuation->final_status.end());
         std::vector<uint8_t> shot_heralds(circuit.num_measurements, 0);
         for (const auto& [slot, flag] : herald_flags) {
             shot_heralds[slot] = flag;
