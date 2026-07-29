@@ -2,8 +2,7 @@
 
 Covers model construction, end-to-end sampling, classifier/record semantics,
 and record-layout invariants through the clifft.noncomp surface. The model uses
-the default five-level set (g=0, e=1, leak_g=2, leak_e=3, lost=4); matrices are
-positional over those levels, so no level ids appear in the API.
+the built-in five-level set; matrices use the fixed clifft.noncomp.Level order.
 """
 
 from __future__ import annotations
@@ -41,7 +40,7 @@ def leak_model(classifier: noncomp.Classifier | None = None) -> noncomp.Model:
     )
 
 
-# --- 1. Model construction -------------------------------------------------
+# --- Model construction ----------------------------------------------------
 
 
 def test_level_names_and_indices():
@@ -122,7 +121,7 @@ def test_whitespace_transition_key_raises():
         noncomp.Model(initial_state=ALL_G, transitions={" padded": t})
 
 
-# --- 2. End-to-end sampling ------------------------------------------------
+# --- End-to-end sampling ---------------------------------------------------
 
 
 def test_lossless_matches_plain_record_shape():
@@ -174,7 +173,7 @@ def test_reset_reload_policy_changes_lost_site():
     assert (r.final_status == COMPUTATIONAL).all()
 
 
-# --- 3. Classifier / record semantics --------------------------------------
+# --- Classifier and record semantics ---------------------------------------
 
 
 def test_leaked_classifier_bit_in_measurements():
@@ -348,7 +347,7 @@ def test_ternary_herald_feeds_detector_and_observable():
     assert np.array_equal(sym[~heralded, 0], meas[~heralded])
 
 
-# --- 4. Record layout invariants -------------------------------------------
+# --- Record layout invariants ----------------------------------------------
 
 
 def test_hidden_trace_out_does_not_shift_visible_count():
@@ -431,7 +430,7 @@ def test_deterministic_in_seed_with_noncomputational_initials():
         )
 
 
-# --- 8. Policy knobs --------------------------------------------------------
+# --- Policy knobs -----------------------------------------------------------
 
 
 def test_policy_knob_strings_validate():
@@ -615,7 +614,7 @@ def test_computational_readout_confusion_misreports_the_record():
     assert 650 <= zeros <= 950  # expected 800; ~6 sigma band
 
 
-# --- 9. Correlated-chain passthrough on noncomputational operands ----------
+# --- Correlated-chain passthrough on noncomputational operands -------------
 
 
 def _lose_model() -> noncomp.Model:
@@ -751,6 +750,11 @@ def test_capable_model_rejects_mpp():
         noncomp.sample("S 0\nMPP Z0*Z1\n", model, shots=4, seed=5)
 
 
+def test_exp_val_probe_is_rejected():
+    with pytest.raises(ValueError, match="EXP_VAL probes are not supported"):
+        noncomp.sample("EXP_VAL Z0\n", noncomp.Model(), shots=1, seed=5)
+
+
 # --- Memory-X smoke -----------------------------------------------------------
 
 
@@ -776,7 +780,7 @@ def test_contract_validated_for_zero_shots():
         noncomp.sample("S 0\nM 0", model, shots=0, seed=1)
 
 
-# --- 10. Error message quality -----------------------------------------------
+# --- Error message quality ----------------------------------------------------
 
 
 def test_malformed_transition_error_names_key():
@@ -788,7 +792,7 @@ def test_malformed_transition_error_names_key():
         noncomp.Model(initial_state=ALL_G, transitions={"S": transition_to(LEAK_G), "CZ": bad})
 
 
-# --- 11. Plain-pipeline redirect points to clifft.noncomp.sample -------------
+# --- Plain-pipeline redirect points to clifft.noncomp.sample -----------------
 
 
 def test_compile_annotated_circuit_raises_invalid_argument_with_noncomp_sample_hint():
@@ -808,7 +812,7 @@ def test_sample_type_hints_resolve_at_runtime():
     assert "circuit" in hints
 
 
-# --- Item 1: QubitStatus enum (fine-grained status) --------------------------
+# --- QubitStatus enum ----------------------------------------------------------
 
 
 def test_qubit_status_values():
@@ -843,7 +847,7 @@ def test_fine_grained_leak_e_status():
     assert (r.final_status == noncomp.QubitStatus.LEAK_E).all()
 
 
-# --- Item 3: Model() with no initial_state defaults to ground state ----------
+# --- Default initial state ----------------------------------------------------
 
 
 def test_model_default_initial_state_constructs():
@@ -856,7 +860,7 @@ def test_model_default_initial_state_reads_zero():
     assert np.all(r.measurements == 0)
 
 
-# --- Item 5: Model.__repr__ --------------------------------------------------
+# --- Model repr ---------------------------------------------------------------
 
 
 def test_model_repr_contains_keys_and_damping():
