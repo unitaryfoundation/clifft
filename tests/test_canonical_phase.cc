@@ -78,7 +78,7 @@ TEST_CASE("Canonical phase: S absorption is invariant under qubit embedding") {
     // over disjoint qubit sets, so embedding the frame and the Pauli at a
     // qubit offset must leave s_absorption_phase unchanged. Offsets
     // straddling bit 64 of a 72-qubit frame drive the 144-bit Choi indices
-    // across word boundaries, pinning the multi-word arithmetic to the
+    // across word boundaries, checking the multi-word arithmetic against the
     // dense-validated small-frame value.
     std::mt19937_64 rng(0xC0FFEE);
     constexpr size_t k = 3;

@@ -12,10 +12,15 @@ add_executable(clifft_tests
     test_stim_contract.cc
     test_hir.cc
     test_frontend.cc
+    test_frontend_instruments.cc
+    test_backend_instruments.cc
+    test_execute_instruments.cc
+    test_trap_resume.cc
     test_backend.cc
     test_svm.cc
     test_state_reset.cc
     test_forced_kernels.cc
+    test_instrument_kernels.cc
     test_execute_forced.cc
     test_svm_avx512_axis01.cc
     test_statevector.cc
@@ -32,6 +37,15 @@ add_executable(clifft_tests
     test_exp_value.cc
     test_openmp.cc
     test_fuzz.cc
+    test_noncomp_value_types.cc
+    test_noncomp_transition_instrument.cc
+    test_noncomp_classifier.cc
+    test_noncomp_model.cc
+    test_noncomp_status_walk.cc
+    test_noncomp_rewriter.cc
+    test_noncomp_continuation.cc
+    test_trajectory_driver.cc
+    test_noncomp_validation.cc
 )
 
 target_link_libraries(clifft_tests PRIVATE

@@ -14,6 +14,8 @@
 #include <algorithm>
 #include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
+#include <catch2/matchers/catch_matchers.hpp>
+#include <catch2/matchers/catch_matchers_string.hpp>
 #include <random>
 #include <stdexcept>
 #include <string>
@@ -1276,7 +1278,8 @@ TEST_CASE("Frontend: READOUT_NOISE emission", "[frontend][noise]") {
     REQUIRE(static_cast<uint32_t>(hir.ops[1].readout_noise_idx()) == 0);
     REQUIRE(hir.readout_noise.size() == 1);
     REQUIRE(hir.readout_noise[0].meas_idx == 0);
-    REQUIRE(hir.readout_noise[0].prob == Catch::Approx(0.005));
+    REQUIRE(hir.readout_noise[0].prob_zero_to_one == Catch::Approx(0.005));
+    REQUIRE(hir.readout_noise[0].prob_one_to_zero == Catch::Approx(0.005));
 }
 
 TEST_CASE("Frontend: DETECTOR emission", "[frontend][qec]") {
@@ -1812,4 +1815,33 @@ TEST_CASE("Frontend: R_Z global phase accumulation", "[frontend][rotation]") {
     double expected_im = std::sin(-0.5 * std::numbers::pi / 2.0);
     CHECK(hir.global_weight.real() == Catch::Approx(expected_re).epsilon(1e-12));
     CHECK(hir.global_weight.imag() == Catch::Approx(expected_im).epsilon(1e-12));
+}
+
+TEST_CASE("Trace rejects a programmatic inverted READOUT_NOISE target") {
+    // The parser refuses inverted rec targets; a hand-built AST node must
+    // not slip past lowering with the inversion silently ignored.
+    Circuit c = parse("M 0\n");
+    c.nodes.push_back({GateType::READOUT_NOISE, {Target::rec(0).inverted()}, {0.1, 0.2}, 0});
+    REQUIRE_THROWS_WITH(trace(c), Catch::Matchers::ContainsSubstring("inverted record targets"));
+}
+
+TEST_CASE("Standalone READOUT_NOISE lowers one- and two-argument forms") {
+    auto hir1 = trace(parse("M 0\nREADOUT_NOISE(0.25) rec[-1]\n"));
+    REQUIRE(hir1.readout_noise.size() == 1);
+    REQUIRE(hir1.readout_noise[0].prob_zero_to_one == Catch::Approx(0.25));
+    REQUIRE(hir1.readout_noise[0].prob_one_to_zero == Catch::Approx(0.25));
+    REQUIRE(hir1.readout_noise[0].is_symmetric());
+
+    auto hir2 = trace(parse("M 0\nREADOUT_NOISE(0.25, 0.5) rec[-1]\n"));
+    REQUIRE(hir2.readout_noise.size() == 1);
+    REQUIRE(hir2.readout_noise[0].prob_zero_to_one == Catch::Approx(0.25));
+    REQUIRE(hir2.readout_noise[0].prob_one_to_zero == Catch::Approx(0.5));
+    REQUIRE_FALSE(hir2.readout_noise[0].is_symmetric());
+}
+
+TEST_CASE("Trace rejects noncomputational annotations with a pointer to the entry point") {
+    REQUIRE_THROWS_WITH(trace(parse("LEVEL_TRANSITION[t] 0\n")),
+                        Catch::Matchers::ContainsSubstring("noncomp.sample"));
+    REQUIRE_THROWS_WITH(trace(parse("LOSS(0.1) 0\n")),
+                        Catch::Matchers::ContainsSubstring("noncomp.sample"));
 }

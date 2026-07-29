@@ -24,10 +24,21 @@ add_library(clifft_core STATIC
     api/reference_syndrome.cc
     svm/svm.cc
     svm/svm_forced_kernels.cc
+    svm/svm_instrument_kernels.cc
     svm/svm_scalar.cc
     svm/svm_state.cc
     util/canonical_phase.cc
     util/introspection.cc
+    util/xoshiro.cc
+    noncomp/transition_instrument.cc
+    noncomp/transition_hooks.cc
+    noncomp/instrument_options.cc
+    noncomp/classifier.cc
+    noncomp/model.cc
+    noncomp/status_walk.cc
+    noncomp/rewriter.cc
+    noncomp/trajectory_driver.cc
+    noncomp/sample.cc
 )
 
 # x86-64 runtime dispatch: compile AVX2 and AVX-512 TUs with SIMD flags.

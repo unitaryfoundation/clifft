@@ -1,5 +1,7 @@
 #include "clifft/frontend/frontend.h"
 
+#include "clifft/util/numeric.h"
+
 #include "stim.h"
 
 #include <cmath>
@@ -368,6 +370,15 @@ size_t count_pauli_masks(const Circuit& circuit) {
             case GateType::MPP:
                 count += 1;
                 break;
+            case GateType::LEVEL_TRANSITION:
+            case GateType::LOSS:
+                // Two masks per materialized instrument site: the rewound
+                // source projector on the op, and the rewound X destination flip in
+                // the side-table. Counted unconditionally: without
+                // instrument options these gates reject before claiming,
+                // and an over-sized arena is harmless.
+                count += 2 * n_targets;
+                break;
             case GateType::R:
             case GateType::RX:
             case GateType::RY:
@@ -390,9 +401,47 @@ size_t count_pauli_masks(const Circuit& circuit) {
     return count;
 }
 
+// InstrumentTraceOptions is a C++ trace boundary in its own right, even
+// though the noncomputational model normally constructs it from already
+// validated matrices. Validate raw specs here so a malformed compressed
+// payload cannot produce a negative square root or an invalid destination
+// draw downstream.
+void validate_instrument_probabilities(const InstrumentProbabilities& probabilities,
+                                       const std::string& site) {
+    // Keep this at least as loose as the model layer's kProbTolerance.
+    // TransitionInstrument clamps column sums within that tolerance to 1.
+    constexpr double kTolerance = 1e-12;
+
+    for (uint8_t source = 0; source < 2; ++source) {
+        const double p_fire = probabilities.p_fire[source];
+        if (!is_probability(p_fire)) {
+            throw std::invalid_argument("trace: " + site + " has invalid p_fire[" +
+                                        std::to_string(source) + "] = " + std::to_string(p_fire));
+        }
+
+        double p_computational = 0.0;
+        for (uint8_t destination = 0; destination < 2; ++destination) {
+            const double p = probabilities.p_computational_dest[source][destination];
+            if (!is_probability(p)) {
+                throw std::invalid_argument(
+                    "trace: " + site + " has invalid p_computational_dest[" +
+                    std::to_string(source) + "][" + std::to_string(destination) +
+                    "] = " + std::to_string(p));
+            }
+            p_computational += p;
+        }
+        if (p_computational > p_fire + kTolerance) {
+            throw std::invalid_argument("trace: " + site +
+                                        " has computational destination probability " +
+                                        std::to_string(p_computational) + " above p_fire[" +
+                                        std::to_string(source) + "] = " + std::to_string(p_fire));
+        }
+    }
+}
+
 }  // namespace
 
-HirModule trace(const Circuit& circuit) {
+HirModule trace(const Circuit& circuit, const InstrumentTraceOptions* instruments) {
     // The downstream VM uses uint16_t axis operands, so anything above
     // 65536 cannot be lowered. Reject early to avoid the cost of
     // allocating a Stim TableauSimulator (~O(n^2) bits) we'll discard.
@@ -406,6 +455,8 @@ HirModule trace(const Circuit& circuit) {
     hir.num_detectors = circuit.num_detectors;
     hir.num_observables = circuit.num_observables;
     hir.num_exp_vals = circuit.num_exp_vals;
+    hir.neglect_instrument_damping =
+        instruments != nullptr && instruments->neglect_instrument_damping;
 
     std::mt19937_64 rng(0);
     stim::TableauSimulator<kStimWidth> sim(std::move(rng), circuit.num_qubits);
@@ -714,6 +765,18 @@ HirModule trace(const Circuit& circuit) {
                                 slot.set_sign(sign);
                             });
                         meas_op.set_hidden(true);
+                        // Report the hidden slot to the caller when this node
+                        // is the one it requested. The slot is reported through
+                        // hir.forced_traceout_slot; the assert guards against a
+                        // multi-target reset being supplied as the request (the
+                        // rewriter only ever names single-target Rs).
+                        if (instruments != nullptr &&
+                            instruments->forced_traceout_node.has_value() &&
+                            node_index == *instruments->forced_traceout_node) {
+                            assert(!hir.forced_traceout_slot.has_value() &&
+                                   "forced_traceout_node named a multi-target reset");
+                            hir.forced_traceout_slot = this_meas;
+                        }
                     } else {
                         this_meas = static_cast<uint32_t>(meas_idx);
                         hir.append_measure(meas_idx, [&](MutablePauliMaskView slot) {
@@ -733,9 +796,76 @@ HirModule trace(const Circuit& circuit) {
 
                     if (!hidden && target.is_inverted()) {
                         ReadoutNoiseIdx idx{static_cast<uint32_t>(hir.readout_noise.size())};
-                        hir.readout_noise.push_back({this_meas, 1.0});
+                        hir.readout_noise.push_back({this_meas, 1.0, 1.0});
                         hir.append_readout_noise(idx);
                     }
+                }
+                break;
+            }
+
+            case GateType::LEVEL_TRANSITION:
+            case GateType::LOSS: {
+                if (instruments == nullptr) {
+                    throw std::invalid_argument(
+                        std::string(gate_name(node.gate)) +
+                        " is a noncomputational annotation; run the circuit through "
+                        "clifft.noncomp.sample instead of compiling it directly");
+                }
+                for (const auto& target : node.targets) {
+                    const uint32_t qubit = target.value();
+                    InstrumentSite site;
+                    site.qubit = qubit;
+                    std::string site_description;
+                    if (node.gate == GateType::LOSS) {
+                        // Uniform loss: source-independent rate, destination
+                        // entirely the trap remainder. A missing argument is
+                        // a malformed node, not a zero-probability loss.
+                        if (node.args.size() != 1) {
+                            throw std::runtime_error(
+                                "trace: LOSS at line " + std::to_string(node.source_line) +
+                                " requires exactly one argument (the loss probability)");
+                        }
+                        const double p = node.args[0];
+                        site.probabilities.p_fire[0] = p;
+                        site.probabilities.p_fire[1] = p;
+                        site_description = "LOSS at line " + std::to_string(node.source_line);
+                    } else {
+                        const auto it = instruments->transitions.find(node.tag);
+                        if (it == instruments->transitions.end()) {
+                            throw std::runtime_error(
+                                "trace: LEVEL_TRANSITION[" + node.tag + "] at line " +
+                                std::to_string(node.source_line) +
+                                " does not name a transition in the instrument options");
+                        }
+                        site.probabilities = it->second;
+                        site_description = "LEVEL_TRANSITION[" + node.tag + "] at line " +
+                                           std::to_string(node.source_line);
+                    }
+                    validate_instrument_probabilities(site.probabilities, site_description);
+                    // A site that can never fire is the identity channel.
+                    if (site.probabilities.p_fire[0] == 0.0 &&
+                        site.probabilities.p_fire[1] == 0.0) {
+                        continue;
+                    }
+
+                    // Destination flip: the rewound X observable, stored
+                    // in the arena so downstream mask conjugation can
+                    // reach it through the side-table handle.
+                    site.destination_flip_mask =
+                        hir.claim_side_mask([&](MutablePauliMaskView slot) {
+                            bool sign;
+                            extract_rewound_x_into(sim, qubit, slot.x(), slot.z(), sign);
+                            slot.set_sign(sign);
+                        });
+
+                    const InstrumentSiteIdx site_idx{
+                        static_cast<uint32_t>(hir.instrument_sites.size())};
+                    hir.instrument_sites.push_back(site);
+                    hir.append_instrument(site_idx, [&](MutablePauliMaskView slot) {
+                        bool sign;
+                        extract_rewound_z_into(sim, qubit, slot.x(), slot.z(), sign);
+                        slot.set_sign(sign);
+                    });
                 }
                 break;
             }
@@ -902,10 +1032,18 @@ HirModule trace(const Circuit& circuit) {
 
             case GateType::READOUT_NOISE: {
                 for (const auto& target : node.targets) {
+                    if (target.is_inverted()) {
+                        throw std::runtime_error(
+                            "READOUT_NOISE does not support inverted record targets; swap the "
+                            "two flip probabilities instead");
+                    }
                     uint32_t abs_meas_idx = target.value();
-                    double prob = node.args.empty() ? 0.0 : node.args[0];
+                    // One argument is a symmetric flip; a second argument
+                    // splits it into (0->1, 1->0) conditioned on the bit.
+                    double p01 = node.args.empty() ? 0.0 : node.args[0];
+                    double p10 = node.args.size() > 1 ? node.args[1] : p01;
                     ReadoutNoiseIdx idx{static_cast<uint32_t>(hir.readout_noise.size())};
-                    hir.readout_noise.push_back({abs_meas_idx, prob});
+                    hir.readout_noise.push_back({abs_meas_idx, p01, p10});
                     hir.append_readout_noise(idx);
                 }
                 break;

@@ -445,6 +445,10 @@ std::complex<double> BoundStabilizerAmplitudeQuery::amplitude(MaskView basis,
         case Opcode::OP_MEAS_ACTIVE_DIAGONAL_FORCED:
         case Opcode::OP_MEAS_ACTIVE_INTERFERE_FORCED:
         case Opcode::OP_SWAP_MEAS_INTERFERE_FORCED:
+        case Opcode::OP_INSTRUMENT_ACTIVE:
+        case Opcode::OP_INSTRUMENT_DORMANT_STATIC:
+        case Opcode::OP_INSTRUMENT_EXPAND:
+        case Opcode::OP_INSTRUMENT_DORMANT_NEGLECT:
         case Opcode::OP_APPLY_PAULI:
         case Opcode::OP_NOISE:
         case Opcode::OP_NOISE_BLOCK:
@@ -517,7 +521,7 @@ std::vector<double> basis_probabilities(const CompiledModule& program,
     const auto structure =
         make_stabilizer_amplitude_structure(program, inv_tableau, state.active_k);
     const auto state_px = MaskView{std::span<const uint64_t>(state.p_x)};
-    // validate_peak_rank() caps active_k below 63, so active bits fit in word 0
+    // validate_peak_rank() caps active_k below 60, so active bits fit in word 0
     // and this shift never reaches 64.
     const uint64_t active_z_mask =
         state.active_k == 0 ? 0 : (state.p_z[0] & ((uint64_t{1} << state.active_k) - uint64_t{1}));
@@ -529,7 +533,7 @@ std::vector<double> basis_probabilities(const CompiledModule& program,
     auto current = mutable_basis_mask_view(current_storage);
 
     // Active bits live in [0, active_k). validate_peak_rank() caps active_k
-    // below 63, so the mask fits in one word and the shift never reaches 64.
+    // below 60, so the mask fits in one word and the shift never reaches 64.
     const uint64_t active_mask =
         state.active_k == 0 ? uint64_t{0} : (uint64_t{1} << state.active_k) - uint64_t{1};
 

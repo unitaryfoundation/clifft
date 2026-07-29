@@ -10,6 +10,7 @@
 #include <cstdint>
 #include <optional>
 #include <span>
+#include <type_traits>
 #include <vector>
 
 namespace clifft {
@@ -59,19 +60,34 @@ enum class Opcode : uint8_t {
     OP_MEAS_ACTIVE_INTERFERE,  // X-basis fold, halves array (k -> k-1)
     OP_SWAP_MEAS_INTERFERE,    // Fused ARRAY_SWAP + MEAS_ACTIVE_INTERFERE
 
-    // Forced-outcome measurement variants. Synthesized at runtime by
-    // record_probabilities() via a bytecode rewrite; never emitted by the
-    // compiler. Each forced variant reads the desired outcome from a
-    // side buffer (one byte per record slot) instead of sampling from
-    // the PRNG, and accumulates the log-probability of that outcome
-    // into a running scalar. Renormalization is kept (same as the
-    // sampling variants) to prevent the state norm from underflowing
-    // float64 on deep trajectories.
+    // Forced-outcome measurement variants. Synthesized by internal bytecode
+    // rewrites, including record_probabilities() and trapped trajectory
+    // continuations; never emitted by the compiler. Each forced variant reads
+    // the desired outcome from a side buffer (one byte per record slot)
+    // instead of sampling from the PRNG, and accumulates the log-probability of
+    // that outcome into a running scalar. Renormalization is kept (same as the
+    // sampling variants) to prevent the state norm from underflowing float64 on
+    // deep trajectories.
     OP_MEAS_DORMANT_STATIC_FORCED,
     OP_MEAS_DORMANT_RANDOM_FORCED,
     OP_MEAS_ACTIVE_DIAGONAL_FORCED,
     OP_MEAS_ACTIVE_INTERFERE_FORCED,
     OP_SWAP_MEAS_INTERFERE_FORCED,
+
+    // Instrument sites: state-dependent jump channels from the
+    // noncomputational trajectory model -- transitions such as leakage,
+    // loss, or relaxation whose firing probability depends on which
+    // computational level (|0> or |1>) the qubit occupies, so the fire
+    // branch must be evaluated at runtime against the live state. The
+    // payload carries the axis, the ConstantPool::instrument_sites index,
+    // and (for the damping variants) the damp coefficients. Selected by
+    // the same localized-basis classification that picks measurement
+    // opcodes.
+    OP_INSTRUMENT_ACTIVE,           // Fused damp+eval on an active axis (any axis)
+    OP_INSTRUMENT_DORMANT_STATIC,   // Frame-deterministic source: Bernoulli fire
+    OP_INSTRUMENT_EXPAND,           // Fused expand+damp (k -> k+1), damping="exact"
+    OP_INSTRUMENT_DORMANT_NEGLECT,  // Dormant-random trap form (neglect, or equal rates): every
+                                    // fire traps
 
     // Classical / Errors
     OP_APPLY_PAULI,    // XORs a full N-bit mask from ConstantPool into P
@@ -84,6 +100,25 @@ enum class Opcode : uint8_t {
     OP_EXP_VAL,        // Read-only expectation value probe (full virtual Pauli mask)
     NUM_OPCODES        // Sentinel: must remain last for binding completeness checks
 };
+
+// Return the forced-outcome counterpart of a sampling measurement opcode.
+// Other opcodes have no forced form.
+[[nodiscard]] constexpr std::optional<Opcode> forced_measurement_opcode(Opcode opcode) {
+    switch (opcode) {
+        case Opcode::OP_MEAS_DORMANT_STATIC:
+            return Opcode::OP_MEAS_DORMANT_STATIC_FORCED;
+        case Opcode::OP_MEAS_DORMANT_RANDOM:
+            return Opcode::OP_MEAS_DORMANT_RANDOM_FORCED;
+        case Opcode::OP_MEAS_ACTIVE_DIAGONAL:
+            return Opcode::OP_MEAS_ACTIVE_DIAGONAL_FORCED;
+        case Opcode::OP_MEAS_ACTIVE_INTERFERE:
+            return Opcode::OP_MEAS_ACTIVE_INTERFERE_FORCED;
+        case Opcode::OP_SWAP_MEAS_INTERFERE:
+            return Opcode::OP_SWAP_MEAS_INTERFERE_FORCED;
+        default:
+            return std::nullopt;
+    }
+}
 
 // =============================================================================
 // 32-Byte VM Instruction Bytecode
@@ -156,11 +191,24 @@ struct alignas(32) Instruction {
             uint8_t _pad_g[16];       // Offset 16
         } exp_val;
 
+        // Variant H: Instrument site (OP_INSTRUMENT_*). r_g/r_e are the
+        // no-fire damp coefficients sqrt(1 - p_fire[s]), physical order
+        // (the localization sign rides in FLAG_SIGN); unused by the
+        // dormant variants.
+        struct {
+            uint32_t cp_site_idx;  // Offset 8 (Index into ConstantPool::instrument_sites)
+            uint32_t _pad_h;       // Offset 12
+            double r_g;            // Offset 16
+            double r_e;            // Offset 24
+        } instrument;
+
         uint8_t raw[24];  // Full payload access
     };
 };
 
 static_assert(sizeof(Instruction) == 32, "Instruction must be exactly 32 bytes");
+static_assert(std::is_trivially_copyable_v<Instruction>,
+              "Instruction must remain trivially copyable bytecode");
 
 // =============================================================================
 // Instruction Factories
@@ -203,6 +251,8 @@ static_assert(sizeof(Instruction) == 32, "Instruction must be exactly 32 bytes")
 /// Strongly-typed flag for detector/postselect expected noiseless parity.
 enum class ExpectedParity : uint8_t { Zero = 0, One = 1 };
 
+[[nodiscard]] Instruction make_instrument(Opcode instrument_opcode, uint16_t axis,
+                                          uint32_t cp_site_idx, bool sign, double r_g, double r_e);
 [[nodiscard]] Instruction make_detector(uint32_t det_list_idx, uint32_t classical_idx,
                                         ExpectedParity expected);
 [[nodiscard]] Instruction make_postselect(uint32_t det_list_idx, uint32_t classical_idx,
@@ -252,6 +302,22 @@ struct FusedU4Node {
     Entry entries[16];  // Indexed by 4-bit incoming frame state
 };
 
+// Compiled instrument site: probabilities are physical
+// (source/destination index 0 is the |0> level); the localization sign lives
+// on the instruction. site_id is the HirModule::instrument_sites index and
+// keys the compiled module's instrument_offsets table and trap protocol.
+struct CompiledInstrumentSite {
+    uint32_t site_id = 0;
+
+    // Virtualized X_q at the site (handle into
+    // ConstantPool::instrument_destination_flip_masks): the destination
+    // flip for an in-line computational fire whose destination differs
+    // from its source, XORed into the Pauli frame.
+    PauliMaskHandle destination_flip_mask{};
+
+    InstrumentProbabilities probabilities;
+};
+
 struct ConstantPool {
     // Forward Clifford tableau at circuit end (for statevector expansion).
     // Computed as U_C = U_phys * V_cum^dag at end of compilation.
@@ -280,6 +346,11 @@ struct ConstantPool {
 
     // Readout noise entries for OP_READOUT_NOISE
     std::vector<ReadoutNoiseEntry> readout_noise;
+
+    // Instrument sites for OP_INSTRUMENT_*, and the arena holding their
+    // virtualized destination-flip masks.
+    std::vector<CompiledInstrumentSite> instrument_sites;
+    PauliMaskArena instrument_destination_flip_masks;
 
     // Target lists for detector parity checks
     std::vector<std::vector<uint32_t>> detector_targets;
@@ -313,6 +384,8 @@ inline void assert_arena_widths_match(uint32_t num_qubits, const ConstantPool& p
            "exp_val_masks arena width does not match num_qubits");
     assert(pool.noise_channel_masks.num_words() == expected &&
            "noise_channel_masks arena width does not match num_qubits");
+    assert(pool.instrument_destination_flip_masks.num_words() == expected &&
+           "instrument_destination_flip_masks arena width does not match num_qubits");
 }
 
 // =============================================================================
@@ -338,6 +411,12 @@ struct CompiledModule {
     // expected_observables[i] before writing output.
     std::vector<uint8_t> expected_observables;
 
+    // Instrument site id -> bytecode index of that site's OP_INSTRUMENT_*
+    // instruction. A resumed continuation re-enters at the following
+    // instruction. Sized to the HIR's instrument site count; every entry
+    // is filled at emission.
+    std::vector<uint32_t> instrument_offsets;
+
     // Source line mapping and per-instruction active_k history.
     // Empty if the HIR had no source map.
     SourceMap source_map;
@@ -346,6 +425,12 @@ struct CompiledModule {
 // =============================================================================
 // Back-End API
 // =============================================================================
+
+/// Rebuild module.instrument_offsets by scanning the bytecode for
+/// OP_INSTRUMENT_* instructions. Bytecode passes fuse and delete
+/// instructions, so the offsets recorded at lowering go stale; the
+/// bytecode pass manager re-runs this after its pipeline.
+void rebuild_instrument_offsets(CompiledModule& module);
 
 /// Lower HIR to executable VM bytecode.
 /// Tracks virtual frame V_cum, localizes multi-qubit Paulis to local ops.

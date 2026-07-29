@@ -7,6 +7,7 @@
 #include <bit>
 #include <cctype>
 #include <cstdlib>
+#include <limits>
 #include <numeric>
 #include <stdexcept>
 #include <string>
@@ -18,15 +19,15 @@ namespace clifft {
 // =============================================================================
 
 namespace scalar {
-void execute_internal(const CompiledModule& program, SchrodingerState& state);
+void execute_internal(const CompiledModule& program, SchrodingerState& state, size_t start_offset);
 }  // namespace scalar
 
 #if defined(CLIFFT_ENABLE_RUNTIME_DISPATCH)
 namespace avx2 {
-void execute_internal(const CompiledModule& program, SchrodingerState& state);
+void execute_internal(const CompiledModule& program, SchrodingerState& state, size_t start_offset);
 }  // namespace avx2
 namespace avx512 {
-void execute_internal(const CompiledModule& program, SchrodingerState& state);
+void execute_internal(const CompiledModule& program, SchrodingerState& state, size_t start_offset);
 }  // namespace avx512
 #endif
 
@@ -34,7 +35,7 @@ void execute_internal(const CompiledModule& program, SchrodingerState& state);
 // CPUID Runtime Dispatcher
 // =============================================================================
 
-using DispatchFn = void (*)(const CompiledModule&, SchrodingerState&);
+using DispatchFn = void (*)(const CompiledModule&, SchrodingerState&, size_t);
 
 #if defined(CLIFFT_ENABLE_RUNTIME_DISPATCH)
 
@@ -77,21 +78,21 @@ static bool host_supports_avx512_kernel() {
 // first execute() call -- throwing during static init would terminate
 // the entire process (no Python catch is in scope yet) and turn a clear
 // runtime error into a hard crash at import.
-[[noreturn]] static void trap_force_isa_avx2(const CompiledModule&, SchrodingerState&) {
+[[noreturn]] static void trap_force_isa_avx2(const CompiledModule&, SchrodingerState&, size_t) {
     throw std::runtime_error(
         "CLIFFT_FORCE_ISA=avx2 requested but host CPU lacks one or more required "
         "features (avx2, bmi2, fma). Unset CLIFFT_FORCE_ISA to use the auto-detected "
         "fallback, or set it to 'scalar' explicitly.");
 }
 
-[[noreturn]] static void trap_force_isa_avx512(const CompiledModule&, SchrodingerState&) {
+[[noreturn]] static void trap_force_isa_avx512(const CompiledModule&, SchrodingerState&, size_t) {
     throw std::runtime_error(
         "CLIFFT_FORCE_ISA=avx512 requested but host CPU lacks one or more required "
         "features (avx2, bmi2, fma, avx512f, avx512dq). Unset CLIFFT_FORCE_ISA to use "
         "the auto-detected fallback, or set it to 'avx2' or 'scalar' explicitly.");
 }
 
-[[noreturn]] static void trap_force_isa_unknown(const CompiledModule&, SchrodingerState&) {
+[[noreturn]] static void trap_force_isa_unknown(const CompiledModule&, SchrodingerState&, size_t) {
     throw std::runtime_error(
         "CLIFFT_FORCE_ISA is set to an unrecognized value. Accepted values are "
         "'avx512', 'avx2', 'scalar' (case-insensitive). Unset CLIFFT_FORCE_ISA to "
@@ -157,9 +158,75 @@ static DispatchFn resolved_fn = resolve_dispatcher();
 
 void execute(const CompiledModule& program, SchrodingerState& state) {
 #if defined(CLIFFT_ENABLE_RUNTIME_DISPATCH)
-    resolved_fn(program, state);
+    resolved_fn(program, state, 0);
 #else
-    scalar::execute_internal(program, state);
+    scalar::execute_internal(program, state, 0);
+#endif
+}
+
+void resume(const CompiledModule& program, SchrodingerState& state, uint32_t offset) {
+    assert_arena_widths_match(program.num_qubits, program.constant_pool);
+    if (!state.pending_trap.has_value()) {
+        throw std::invalid_argument(
+            "resume(): the state has no pending trap; resume() only continues a shot that "
+            "execute() halted at an instrument trap");
+    }
+    if (program.num_qubits != state.num_qubits) {
+        throw std::invalid_argument(
+            "resume(): continuation module declares " + std::to_string(program.num_qubits) +
+            " qubits but the state was built for " + std::to_string(state.num_qubits));
+    }
+    if (program.num_detectors != state.det_record.size() ||
+        program.num_observables != state.obs_record.size() ||
+        program.num_exp_vals != state.exp_vals.size()) {
+        throw std::invalid_argument(
+            "resume(): continuation module's detector/observable/exp-val counts do not match "
+            "the state; the visible structure of a continuation must equal the original's");
+    }
+
+    // Resume at the instruction immediately after the trapped site. Validate
+    // the caller's offset so bytecode is neither skipped nor executed twice.
+    const uint32_t site_id = state.pending_trap->site_id;
+    if (site_id >= program.instrument_offsets.size() ||
+        program.instrument_offsets[site_id] == std::numeric_limits<uint32_t>::max()) {
+        throw std::invalid_argument(
+            "resume(): the continuation module has no instrument at the trapped site id " +
+            std::to_string(site_id) + "; its prefix does not match the executed module");
+    }
+    if (offset != program.instrument_offsets[site_id] + 1) {
+        throw std::invalid_argument("resume(): offset " + std::to_string(offset) +
+                                    " does not follow the trapped site (expected " +
+                                    std::to_string(program.instrument_offsets[site_id] + 1) +
+                                    " for site " + std::to_string(site_id) + ")");
+    }
+
+    // A rewritten continuation may need more amplitudes or hidden measurement
+    // slots than the original module. Visible slots keep their indices while
+    // these buffers grow.
+    state.grow_for_continuation(program.peak_rank);
+    if (state.meas_record.size() < program.total_meas_slots) {
+        state.meas_record.resize(program.total_meas_slots, 0);
+    }
+
+    // Restart noise sampling at the first noise site at or after `offset`.
+    // Drawing a new exponential gap is exact because that distribution is
+    // memoryless.
+    state.next_noise_idx = static_cast<uint32_t>(program.constant_pool.noise_sites.size());
+    for (size_t i = offset; i < program.bytecode.size(); ++i) {
+        const Instruction& instr = program.bytecode[i];
+        if (instr.opcode == Opcode::OP_NOISE || instr.opcode == Opcode::OP_NOISE_BLOCK) {
+            state.next_noise_idx = instr.pauli.cp_mask_idx;
+            break;
+        }
+    }
+    state.draw_next_noise(program.constant_pool.noise_hazards);
+
+    state.pending_trap.reset();
+
+#if defined(CLIFFT_ENABLE_RUNTIME_DISPATCH)
+    resolved_fn(program, state, offset);
+#else
+    scalar::execute_internal(program, state, offset);
 #endif
 }
 
@@ -182,6 +249,16 @@ const char* svm_backend() {
         return "trap:unknown";
 #endif
     return "scalar";
+}
+
+// Plain sampling cannot return a partial shot. Instrument programs that stop
+// at a trap must be run by the trajectory driver, which handles resume().
+static void throw_on_pending_trap(const SchrodingerState& state) {
+    if (state.pending_trap.has_value()) {
+        throw std::runtime_error(
+            "a shot halted at a resumable instrument trap; instrument programs require the "
+            "trajectory driver (execute/resume), not the plain sampling entry points");
+    }
 }
 
 // =============================================================================
@@ -224,6 +301,7 @@ SampleResult sample(const CompiledModule& program, uint32_t shots, std::optional
         state.draw_next_noise(program.constant_pool.noise_hazards);
 
         execute(program, state);
+        throw_on_pending_trap(state);
 
         // Copy only visible measurements (first num_vis entries)
         std::copy(state.meas_record.begin(), state.meas_record.begin() + num_vis,
@@ -305,6 +383,7 @@ SurvivorResult sample_survivors(const CompiledModule& program, uint32_t shots,
         state.draw_next_noise(program.constant_pool.noise_hazards);
 
         execute(program, state);
+        throw_on_pending_trap(state);
 
         if (state.discarded) {
             continue;
@@ -364,7 +443,18 @@ std::vector<double> noise_site_probabilities(const CompiledModule& program) {
         probs.push_back(p);
     }
     for (const auto& entry : pool.readout_noise) {
-        probs.push_back(entry.prob);
+        // k-fault conditioning requires one fixed probability per site. An
+        // asymmetric flip instead depends on whether the current record bit is
+        // 0 or 1, so it cannot be included.
+        if (!entry.is_symmetric()) {
+            throw std::invalid_argument(
+                "k-fault conditioning does not support asymmetric readout noise; "
+                "measurement record index " +
+                std::to_string(entry.meas_idx) + " has probabilities (" +
+                std::to_string(entry.prob_zero_to_one) + ", " +
+                std::to_string(entry.prob_one_to_zero) + ")");
+        }
+        probs.push_back(entry.prob_zero_to_one);
     }
     return probs;
 }
@@ -594,6 +684,7 @@ SampleResult sample_k(const CompiledModule& program, uint32_t shots, uint32_t k,
 
         prepare_forced_shot(state, w, dp, k, n_q, uniform_mode, uniform_pool);
         execute(program, state);
+        throw_on_pending_trap(state);
 
         std::copy(state.meas_record.begin(), state.meas_record.begin() + num_vis,
                   result.measurements.begin() +
@@ -673,6 +764,7 @@ SurvivorResult sample_k_survivors(const CompiledModule& program, uint32_t shots,
 
         prepare_forced_shot(state, w, dp, k, n_q, uniform_mode, uniform_pool);
         execute(program, state);
+        throw_on_pending_trap(state);
 
         if (state.discarded)
             continue;

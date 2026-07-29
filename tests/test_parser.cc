@@ -38,6 +38,24 @@ TEST_CASE("Parse empty circuit", "[parser]") {
     REQUIRE(circuit.num_measurements == 0);
 }
 
+TEST_CASE("Circuit metadata-only copy preserves dimensions") {
+    Circuit circuit;
+    circuit.nodes.push_back(AstNode{GateType::H, {Target::qubit(0)}, {}, 0, {}});
+    circuit.num_qubits = 1;
+    circuit.num_measurements = 2;
+    circuit.num_detectors = 3;
+    circuit.num_observables = 4;
+    circuit.num_exp_vals = 5;
+
+    const Circuit metadata = circuit.metadata_only_copy();
+    REQUIRE(metadata.nodes.empty());
+    REQUIRE(metadata.num_qubits == 1);
+    REQUIRE(metadata.num_measurements == 2);
+    REQUIRE(metadata.num_detectors == 3);
+    REQUIRE(metadata.num_observables == 4);
+    REQUIRE(metadata.num_exp_vals == 5);
+}
+
 TEST_CASE("Parse comments and whitespace", "[parser]") {
     auto circuit = parse(R"(
         # This is a comment
@@ -1805,6 +1823,34 @@ TEST_CASE("GateTraits: UNKNOWN sentinel", "[gate_data]") {
     CHECK(gate_name(GateType::UNKNOWN) == "UNKNOWN");
 }
 
+TEST_CASE("GateTraits: unitary classification", "[gate_data]") {
+    // Identity no-ops and parser-desugared gates are rejected upstream of
+    // the gate-hook path, so the hook tests never consult their unitary
+    // flag; check the classification directly.
+    CHECK(is_unitary(GateType::I));
+    CHECK(is_unitary(GateType::II));
+    CHECK(is_unitary(GateType::CH));
+    CHECK(is_unitary(GateType::CCX));
+    CHECK(is_unitary(GateType::CCZ));
+    // I_ERROR / II_ERROR model error events, not gates.
+    CHECK(!is_unitary(GateType::I_ERROR));
+    CHECK(!is_unitary(GateType::II_ERROR));
+    // Representative unitaries and non-unitaries.
+    CHECK(is_unitary(GateType::H));
+    CHECK(is_unitary(GateType::CX));
+    CHECK(is_unitary(GateType::T));
+    CHECK(is_unitary(GateType::R_PAULI));
+    CHECK(!is_unitary(GateType::M));
+    CHECK(!is_unitary(GateType::MPAD));
+    CHECK(!is_unitary(GateType::R));
+    CHECK(!is_unitary(GateType::DEPOLARIZE1));
+    CHECK(!is_unitary(GateType::TICK));
+    CHECK(!is_unitary(GateType::EXP_VAL));
+    CHECK(!is_unitary(GateType::LEVEL_TRANSITION));
+    CHECK(!is_unitary(GateType::LOSS));
+    CHECK(!is_unitary(GateType::UNKNOWN));
+}
+
 // =============================================================================
 // Parameterized rotation gate parsing
 // =============================================================================
@@ -1895,4 +1941,71 @@ TEST_CASE("GateTraits: rotation gate arities", "[gate_data][rotation]") {
     CHECK(gate_arity(GateType::R_PAULI) == GateArity::MULTI);
     CHECK(!is_clifford(GateType::R_Z));
     CHECK(!is_measurement(GateType::R_Z));
+}
+
+TEST_CASE("READOUT_NOISE parses one- and two-argument forms on rec targets") {
+    auto one = parse("M 0\nREADOUT_NOISE(0.1) rec[-1]\n");
+    REQUIRE(one.nodes.size() == 2);
+    REQUIRE(one.nodes[1].gate == GateType::READOUT_NOISE);
+    REQUIRE(one.nodes[1].args == std::vector<double>{0.1});
+    REQUIRE(one.nodes[1].targets[0].is_rec());
+    REQUIRE(one.nodes[1].targets[0].value() == 0);
+
+    auto two = parse("M 0\nREADOUT_NOISE(0.1, 0.2) rec[-1]\n");
+    REQUIRE(two.nodes[1].args == (std::vector<double>{0.1, 0.2}));
+}
+
+TEST_CASE("READOUT_NOISE rejects bad argument counts and non-rec targets") {
+    CHECK_THROWS_AS(parse("M 0\nREADOUT_NOISE rec[-1]\n"), ParseError);
+    CHECK_THROWS_AS(parse("M 0\nREADOUT_NOISE(0.1, 0.2, 0.3) rec[-1]\n"), ParseError);
+    CHECK_THROWS_AS(parse("M 0\nREADOUT_NOISE(0.1) 0\n"), ParseError);
+}
+
+TEST_CASE("READOUT_NOISE rejects inverted rec targets") {
+    // An inverted record target has no distinct meaning for a conditional
+    // flip (it would only swap the two probabilities), so it is refused
+    // rather than silently ignored.
+    CHECK_THROWS_AS(parse("M 0\nREADOUT_NOISE(1, 0) !rec[-1]\n"), ParseError);
+}
+
+TEST_CASE("LEVEL_TRANSITION parses a tag and plain qubit targets") {
+    auto c = parse("LEVEL_TRANSITION[cz_leak] 0 1\n");
+    REQUIRE(c.nodes.size() == 2);  // single-arity: one node per target
+    for (size_t i = 0; i < 2; ++i) {
+        REQUIRE(c.nodes[i].gate == GateType::LEVEL_TRANSITION);
+        REQUIRE(c.nodes[i].tag == "cz_leak");
+        REQUIRE(c.nodes[i].targets[0].value() == i);
+    }
+    REQUIRE(c.num_qubits == 2);
+    REQUIRE(c.num_measurements == 0);
+}
+
+TEST_CASE("LEVEL_TRANSITION rejects malformed tags and operands") {
+    CHECK_THROWS_AS(parse("LEVEL_TRANSITION 0\n"), ParseError);                // missing tag
+    CHECK_THROWS_AS(parse("LEVEL_TRANSITION[] 0\n"), ParseError);              // empty tag
+    CHECK_THROWS_AS(parse("LEVEL_TRANSITION[open 0\n"), ParseError);           // unclosed bracket
+    CHECK_THROWS_AS(parse("LEVEL_TRANSITION[t](0.1) 0\n"), ParseError);        // args not allowed
+    CHECK_THROWS_AS(parse("M 0\nLEVEL_TRANSITION[t] rec[-1]\n"), ParseError);  // rec target
+    CHECK_THROWS_AS(parse("LEVEL_TRANSITION[t] !0\n"), ParseError);            // inverted target
+}
+
+TEST_CASE("Tags are rejected on instructions other than LEVEL_TRANSITION") {
+    CHECK_THROWS_AS(parse("H[t] 0\n"), ParseError);
+    CHECK_THROWS_AS(parse("X_ERROR[t](0.1) 0\n"), ParseError);
+    // Including instructions handled before the main gate dispatch: the
+    // discarded coordinate annotations and the parser-rewrite gates.
+    CHECK_THROWS_AS(parse("QUBIT_COORDS[t](0, 0) 0\n"), ParseError);
+    CHECK_THROWS_AS(parse("CH[t] 0 1\n"), ParseError);
+    CHECK_THROWS_AS(parse("CCZ[t] 0 1 2\n"), ParseError);
+}
+
+TEST_CASE("LOSS parses its probability and rejects bad forms") {
+    auto c = parse("LOSS(0.25) 0 1\n");
+    REQUIRE(c.nodes.size() == 2);
+    REQUIRE(c.nodes[0].gate == GateType::LOSS);
+    REQUIRE(c.nodes[0].args == std::vector<double>{0.25});
+    CHECK_THROWS_AS(parse("LOSS 0\n"), ParseError);       // missing probability
+    CHECK_THROWS_AS(parse("LOSS(1.5) 0\n"), ParseError);  // out of range
+    CHECK_THROWS_AS(parse("LOSS(0.1, 0.2) 0\n"), ParseError);
+    CHECK_THROWS_AS(parse("LOSS(0.1) !0\n"), ParseError);  // inverted target
 }

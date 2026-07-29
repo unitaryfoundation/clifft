@@ -54,6 +54,7 @@ def _check_multiprocessing_omp() -> None:
 _check_multiprocessing_omp()
 del _check_multiprocessing_omp
 
+from clifft import noncomp
 from clifft._clifft_core import (
     AstNode,
     BytecodePass,
@@ -415,6 +416,7 @@ __all__ = [
     "get_num_threads",
     "get_statevector",
     "lower",
+    "noncomp",
     "parse",
     "parse_file",
     "record_probabilities",

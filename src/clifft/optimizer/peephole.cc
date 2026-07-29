@@ -210,6 +210,23 @@ void apply_virtual_s_downstream(HirModule& hir, size_t start_idx, MaskView x_v, 
                 break;
             }
 
+            case OpType::INSTRUMENT: {
+                auto m = hir.mask_at(op);
+                bool sign_i = m.sign();
+                conjugate_pauli_by_S(x_v, z_v, sign_v, m.x(), m.z(), sign_i, is_dagger);
+                m.set_sign(sign_i);
+                // The site's destination flip rides in the arena behind a
+                // side-table handle; it must track the same frame change
+                // as the op's own mask.
+                const auto& site =
+                    hir.instrument_sites[static_cast<uint32_t>(op.instrument_site_idx())];
+                auto f = hir.pauli_masks.mut_at(site.destination_flip_mask);
+                bool sign_f = f.sign();
+                conjugate_pauli_by_S(x_v, z_v, sign_v, f.x(), f.z(), sign_f, is_dagger);
+                f.set_sign(sign_f);
+                break;
+            }
+
             case OpType::PHASE_ROTATION: {
                 auto m = hir.mask_at(op);
                 bool sign_before = m.sign();
@@ -304,6 +321,11 @@ inline bool is_blocked(const HeisenbergOp& op_i, const HeisenbergOp& op_j, const
         }
 
         case OpType::EXP_VAL:
+            return true;
+
+        // Positional barrier: nothing commutes past an instrument site
+        // regardless of mask commutation (see can_swap).
+        case OpType::INSTRUMENT:
             return true;
 
         case OpType::DETECTOR:
