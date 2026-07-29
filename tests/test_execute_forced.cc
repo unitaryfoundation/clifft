@@ -236,9 +236,8 @@ TEST_CASE("execute: forced log-probabilities accumulate across multiple measurem
     REQUIRE(state.meas_record[1] == 1);
 }
 
-TEST_CASE("execute: sampling-mode measurement opcodes are not disturbed by step 5") {
-    // Regression check that wiring forced opcodes in did not touch the
-    // sampling dispatch. Sampling a dormant_static still works.
+TEST_CASE("execute: forced measurement support leaves sampling mode unchanged") {
+    // Forced measurement dispatch must not change the sampling opcodes.
     auto mod = make_module({make_meas(Opcode::OP_MEAS_DORMANT_STATIC, 0, 0, /*sign=*/false)},
                            /*peak_rank=*/2, /*num_meas=*/1);
     SchrodingerState state(2, 1);

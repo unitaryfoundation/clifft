@@ -12,7 +12,7 @@ import numpy as np
 _T_QUBIT_LIMIT = 4
 
 
-def generate_commutation_gauntlet(num_qubits: int, depth: int, seed: int) -> str:
+def generate_random_commutation_circuit(num_qubits: int, depth: int, seed: int) -> str:
     """Generate a circuit with deep commutation/anti-commutation chains.
 
     Interleaves T/T_DAG gates (restricted to qubits 0..3) with deep chains
@@ -77,7 +77,7 @@ def generate_commutation_gauntlet(num_qubits: int, depth: int, seed: int) -> str
     return "\n".join(lines)
 
 
-def generate_star_graph_honeypot(num_qubits: int, depth: int, seed: int) -> str:
+def generate_star_graph_stress_circuit(num_qubits: int, depth: int, seed: int) -> str:
     """Generate circuits with star-graph CX/CZ patterns to trigger MultiGatePass.
 
     Forces contiguous CX gates sharing a target and contiguous CZ gates

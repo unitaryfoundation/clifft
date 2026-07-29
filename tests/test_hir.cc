@@ -217,7 +217,7 @@ TEST_CASE("HirModule with noise sites", "[hir]") {
     REQUIRE(hir.ops[0].noise_site_idx() == NoiseSiteIdx{0});
 }
 
-TEST_CASE("Tableau composition via then() and inverse()", "[hir]") {
+TEST_CASE("Tableau composition using then and inverse", "[hir]") {
     stim::Tableau<kStimWidth> before(2);
     before.prepend_H_XZ(0);
 

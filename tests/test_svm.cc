@@ -1379,7 +1379,7 @@ TEST_CASE("Compaction fuzz: interfere with pre-existing Pauli frame") {
 // =============================================================================
 
 TEST_CASE("Compaction fuzz: extreme magnitudes diagonal - k=4") {
-    // Inject extreme gamma magnitudes (1e+/-150) to stress-test the deferred
+    // Use gamma magnitudes of 1e+/-150 to exercise the deferred
     // normalization rescue math during measurement compaction.
     uint64_t seed = 0xDEAD0099;
     SchrodingerState state(4, 1);

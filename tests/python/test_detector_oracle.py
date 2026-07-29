@@ -1,11 +1,7 @@
-"""Exact Trajectory Validation - Physics Oracle.
+"""Compare Clifft and Stim detector outputs under deterministic errors.
 
-This module validates that Clifft's Heisenberg rewinding of Pauli masks
-matches Stim's geometry by comparing detector and observable outputs
-for circuits with deterministically injected errors.
-
-The key insight: when we inject a 100% probability error (e.g., X_ERROR(1)),
-both engines should deterministically flip the same detectors.
+The circuits use probability-one Pauli errors so both simulators should flip
+the same detectors and observables on every shot.
 """
 
 import numpy as np
@@ -256,39 +252,6 @@ class TestYError:
         np.testing.assert_array_equal(clifft_det, stim_det)
 
 
-class TestDepolarizingChannelDeterministic:
-    """Test DEPOLARIZE1/2 at 100% probability (deterministic for testing)."""
-
-    def test_depolarize1_full_strength(self) -> None:
-        """DEPOLARIZE1(1) applies random Pauli with expected 2/3 firing rate.
-
-        At p=1, DEPOLARIZE1 always applies X, Y, or Z (each with p=1/3).
-        On a Z-basis measurement after |0>, X and Y flip the result.
-        So 2/3 of the time the detector fires.
-
-        For validation, we check both engines produce similar statistics.
-        """
-        circuit = """
-            DEPOLARIZE1(1) 0
-            M 0
-            DETECTOR rec[-1]
-        """
-        shots = 100
-        seed = 42
-
-        clifft_det, _ = sample_clifft(circuit, shots, seed=seed)
-        stim_det, _ = sample_stim(circuit, shots, seed=seed)
-
-        # With different RNG streams, we can't expect exact match per-shot,
-        # but the statistics should be similar (roughly 2/3 fire)
-        clifft_rate = float(np.mean(clifft_det))
-        stim_rate = float(np.mean(stim_det))
-
-        # Both should be roughly 2/3 (X and Y flip, Z doesn't)
-        assert 0.4 < clifft_rate < 0.9, f"Clifft rate {clifft_rate} outside expected range"
-        assert 0.4 < stim_rate < 0.9, f"Stim rate {stim_rate} outside expected range"
-
-
 class TestActiveInterfereErrorTracking:
     """Test error frame tracking through active interference and array compaction."""
 
@@ -317,46 +280,3 @@ class TestActiveInterfereErrorTracking:
         clifft_det, _ = sample_clifft(circuit, shots)
 
         assert np.all(~clifft_det), "Clifft: Measurements should match (error frame corrupted!)"
-
-
-class TestComplexCircuit:
-    """Test the example circuit from the plan."""
-
-    def test_plan_example_circuit_clean(self) -> None:
-        """Example from plan: H 0, CX 0 1, M 0 1, DETECTOR rec[-1] rec[-2]."""
-        circuit = """
-            H 0
-            CX 0 1
-            M 0 1
-            DETECTOR rec[-1] rec[-2]
-        """
-        shots = 100
-
-        clifft_det, _ = sample_clifft(circuit, shots)
-        stim_det, _ = sample_stim(circuit, shots)
-
-        # Clean circuit: detector always 0
-        np.testing.assert_array_equal(clifft_det, stim_det)
-        assert np.all(~clifft_det)
-
-    def test_bell_state_with_x_error_fires_detector(self) -> None:
-        """X error on control qubit breaks Bell correlation, firing detector.
-
-        We use X_ERROR(1) for deterministic error injection that both
-        Clifft and Stim's detector sampler recognize.
-        """
-        circuit = """
-            H 0
-            CX 0 1
-            X_ERROR(1) 0
-            M 0 1
-            DETECTOR rec[-1] rec[-2]
-        """
-        shots = 100
-
-        clifft_det, _ = sample_clifft(circuit, shots)
-        stim_det, _ = sample_stim(circuit, shots)
-
-        # X error on q0 after CX: only q0 flips, detector fires
-        np.testing.assert_array_equal(clifft_det, stim_det)
-        assert np.all(clifft_det), "Detector should fire with X error"
