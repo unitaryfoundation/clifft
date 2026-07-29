@@ -325,10 +325,12 @@ version of the circuit rewritten and compiled for the event history observed
 so far. The shot then resumes after the event. `noncomp.sample` therefore takes
 the circuit and model together and compiles internally.
 
-Each continuation uses the default optimization passes that preserve
-measurement-record order. `noncomp.sample` does not currently accept custom
-pass managers: a continuation must preserve both the bytecode prefix already
-executed by the shot and the order of hidden trace-out measurements.
+Each continuation uses a fixed pipeline containing the default optimization
+passes that preserve measurement-record order. `noncomp.sample` does not
+currently accept custom pass managers. Supporting them would require checking
+two properties: hidden measurement records must stay in order, and recompiling
+after a trajectory rewrite must reproduce the bytecode prefix already executed
+by the shot.
 
 Continuations are cached by event history and shared across shots. For ternary
 classifiers, the cache also holds one module per herald-flag assignment

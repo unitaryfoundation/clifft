@@ -45,17 +45,30 @@ namespace {
 // LEVEL_TRANSITION or a uniform loss probability for LOSS. A null instrument
 // identifies the LOSS representation.
 struct AnnotationChannel {
+    [[nodiscard]] static AnnotationChannel for_instrument(const TransitionInstrument& instrument) {
+        return AnnotationChannel(&instrument, 0.0);
+    }
+
+    [[nodiscard]] static AnnotationChannel for_loss(double probability) {
+        return AnnotationChannel(nullptr, probability);
+    }
+
     const TransitionInstrument* instrument;
     double loss_probability;
 
     bool is_loss() const { return instrument == nullptr; }
+
+  private:
+    AnnotationChannel(const TransitionInstrument* instrument_in, double loss_probability_in)
+        : instrument(instrument_in), loss_probability(loss_probability_in) {}
 };
 
 [[nodiscard]] AnnotationChannel resolve_annotation(const AstNode& node,
                                                    const NonComputationalModel& model,
                                                    uint32_t op_index) {
     if (node.gate == GateType::LOSS) {
-        return {nullptr, loss_probability(node.args, op_index, "sample_noncomputational")};
+        return AnnotationChannel::for_loss(
+            loss_probability(node.args, op_index, "sample_noncomputational"));
     }
     const TransitionInstrument* instrument = model.transition_named(node.tag);
     if (instrument == nullptr) {
@@ -63,7 +76,7 @@ struct AnnotationChannel {
                                     "] at op " + std::to_string(op_index) +
                                     " does not name a transition in the model");
     }
-    return {instrument, 0.0};
+    return AnnotationChannel::for_instrument(*instrument);
 }
 
 // Resolving validates the LOSS arguments or transition name; the remaining
@@ -306,8 +319,9 @@ void check_max_rank(const CompiledModule& module, std::optional<uint32_t> max_ra
 
 // Build the HIR pass pipeline from default passes that preserve measurement
 // record order. A trajectory may force a hidden trace-out measurement, so moving
-// an entangled measurement before that collapse would change the result. The
-// same pipeline is used for every continuation to preserve matching prefixes.
+// an entangled measurement before that collapse would change the result. Every
+// continuation uses this fixed pipeline; debug builds separately verify that
+// recompilation reproduces the bytecode prefix already executed by the shot.
 HirPassManager trajectory_hir_pass_manager() {
     HirPassManager pm;
     for (const auto& info : kRegisteredPasses) {
