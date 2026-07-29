@@ -244,55 +244,14 @@ void extend_classical_outcomes(const Circuit& annotated, TrajectoryEvents& event
     events.classical_outcomes = std::move(ordered);
 }
 
-// Build the continuation cache key from initial statuses, recorded jumps, and
-// driver-drawn transition outcomes. QubitStatus::Computational does not
-// distinguish g from e, so those initial levels share a compiled module; an
-// initial e is supplied separately through the shot's Pauli frame.
-std::string cache_key(const TrajectoryEvents& events) {
-    std::string key;
-    key.reserve(events.initial_status.size() * 2 + 10 + events.jumps.size() * 9 +
-                events.classical_outcomes.size() * 10);
-    for (const QubitStatus s : events.initial_status) {
-        key.push_back(static_cast<char>(s));
-    }
-    auto push32 = [&key](uint32_t v) {
-        for (int b = 0; b < 4; ++b) {
-            key.push_back(static_cast<char>((v >> (8 * b)) & 0xFF));
-        }
-    };
-    // Prefix each variable-length section with its count so different event
-    // sequences cannot produce the same key. J and C only make the encoding
-    // easier to inspect.
-    key.push_back('J');
-    push32(static_cast<uint32_t>(events.jumps.size()));
-    for (const ResolvedJump& jump : events.jumps) {
-        push32(jump.target.op_index);
-        push32(jump.target.qubit);
-        key.push_back(static_cast<char>(jump.destination_level));
-    }
-    key.push_back('C');
-    push32(static_cast<uint32_t>(events.classical_outcomes.size()));
-    for (const ClassicalOutcome& outcome : events.classical_outcomes) {
-        push32(outcome.target.op_index);
-        push32(outcome.target.qubit);
-        key.push_back(outcome.destination.has_value() ? 1 : 0);
-        key.push_back(static_cast<char>(outcome.destination.value_or(Level::G)));
-    }
-    return key;
-}
-
-// One rewritten continuation and its compiled variants for different herald
-// flags.
-struct ContinuationEntry {
-    ContinuationRewrite rw;
-    std::map<std::vector<uint8_t>, CompiledModule> modules;
-    // Hidden measurement slot assigned to rw.forced_traceout_node. The first
-    // compile records it; later herald variants must assign the same slot.
+// The compiled program and trajectory metadata needed while executing it.
+// The rewritten Circuit and classifier patch table are discarded after
+// compilation.
+struct CompiledContinuation {
+    CompiledModule module;
+    std::vector<AnnotationTarget> site_targets;
+    std::vector<QubitStatus> final_status;
     std::optional<size_t> forced_traceout_slot;
-    // Whether the last jump's trace-out must use a source chosen by the VM.
-    // This is false when there are no jumps and otherwise equals the last
-    // trap's destination_pending value.
-    bool force_last = false;
 };
 
 void check_max_rank(const CompiledModule& module, std::optional<uint32_t> max_rank) {
@@ -403,6 +362,94 @@ bool equal_modulo_forced_swap(const Instruction& fresh, const Instruction& execu
     return std::memcmp(&swapped, &executed, sizeof(Instruction)) == 0;
 }
 #endif
+
+CompiledContinuation compile_continuation(ContinuationRewrite rewrite,
+                                          const std::vector<uint8_t>& herald_flags,
+                                          const InstrumentTraceOptions& instrument_options,
+                                          std::optional<uint32_t> max_rank,
+                                          const CompiledModule* executed_prefix_module,
+                                          uint32_t prefix_end) {
+    assert(herald_flags.size() == rewrite.classified_measurements.size());
+    Circuit patched = std::move(rewrite.circuit);
+    for (size_t i = 0; i < herald_flags.size(); ++i) {
+        if (herald_flags[i] != 0) {
+            const ClassifiedMeasurement& measurement = rewrite.classified_measurements[i];
+            assert(measurement.noise_node.has_value() &&
+                   "classified measurement must have a READOUT_NOISE node to patch for herald");
+            patched.nodes[*measurement.noise_node].args[0] = 0.5;
+        }
+    }
+
+    // When the rewrite names a forced trace-out node, ask trace() to report
+    // the hidden slot it assigns to that reset.
+    HirModule hir = [&]() -> HirModule {
+        if (rewrite.forced_traceout_node.has_value()) {
+            InstrumentTraceOptions opts = instrument_options;
+            opts.forced_traceout_node = rewrite.forced_traceout_node;
+            return trace(patched, &opts);
+        }
+        return trace(patched, &instrument_options);
+    }();
+
+    std::optional<size_t> forced_traceout_slot;
+    if (rewrite.forced_traceout_node.has_value()) {
+        if (!hir.forced_traceout_slot.has_value()) {
+            throw std::logic_error(
+                "sample_noncomputational: trace() did not encounter the forced "
+                "trace-out reset at node " +
+                std::to_string(*rewrite.forced_traceout_node) +
+                "; the rewrite and trace() must walk the same stream");
+        }
+        forced_traceout_slot = hir.forced_traceout_slot;
+    }
+
+#ifndef NDEBUG
+    const std::vector<uint32_t> pre_pass_records = record_sequence(hir);
+#endif
+    trajectory_hir_pass_manager().run(hir);
+#ifndef NDEBUG
+    assert(record_sequence(hir) == pre_pass_records &&
+           "a trajectory-pipeline HIR pass reordered or removed a record op");
+#endif
+
+    CompiledModule module = lower(hir);
+    trajectory_bytecode_pass_manager().run(module);
+    check_max_rank(module, max_rank);
+    if (module.instrument_offsets.size() != rewrite.site_targets.size()) {
+        throw std::logic_error("sample_noncomputational: compiled module has " +
+                               std::to_string(module.instrument_offsets.size()) +
+                               " instrument site(s) but the rewrite's site table has " +
+                               std::to_string(rewrite.site_targets.size()) +
+                               "; the rewriter and trace() must elide zero-fire sites identically");
+    }
+    if (forced_traceout_slot.has_value()) {
+        swap_traceout_to_forced(module, *forced_traceout_slot);
+    }
+
+#ifndef NDEBUG
+    // The continuation must reproduce every instruction the shot already
+    // executed, except for the forced trace-out opcode handled above.
+    if (executed_prefix_module != nullptr) {
+        assert(prefix_end <= module.bytecode.size() &&
+               prefix_end <= executed_prefix_module->bytecode.size());
+        for (uint32_t i = 0; i < prefix_end; ++i) {
+            assert(
+                equal_modulo_forced_swap(module.bytecode[i], executed_prefix_module->bytecode[i]) &&
+                "continuation prefix diverged from the executed module");
+        }
+    }
+#else
+    (void)executed_prefix_module;
+    (void)prefix_end;
+#endif
+
+    return CompiledContinuation{
+        .module = std::move(module),
+        .site_targets = std::move(rewrite.site_targets),
+        .final_status = std::move(rewrite.final_status),
+        .forced_traceout_slot = forced_traceout_slot,
+    };
+}
 
 // Validate the circuit features that require model-wide knowledge. If the
 // model can ever leak or lose a qubit, parity measurements are unsupported and
@@ -543,120 +590,12 @@ NonComputationalSample run_trajectory_driver(const Circuit& circuit,
 
     const InstrumentTraceOptions instrument_options = instrument_trace_options(model);
 
-    std::map<std::string, ContinuationEntry> cache;
-
-    // Cache one rewrite for each event record. Rewriting is deterministic and
-    // consumes no randomness, so cache hits do not change sampling.
-    auto get_entry = [&](const TrajectoryEvents& events, bool force_last) -> ContinuationEntry& {
-        const std::string key = cache_key(events);
-        auto [it, inserted] = cache.try_emplace(key);
-        ContinuationEntry& entry = it->second;
-        if (inserted) {
-            entry.force_last = force_last;
-            entry.rw = rewrite_continuation(annotated, events, force_last, model);
-        } else {
-            assert(entry.force_last == force_last &&
-                   "cache hit with mismatched force_last: entries with no jumps are never forced; "
-                   "a jumped entry's force equals the last jump's destination_pending flag, "
-                   "fixed per circuit+model+policy");
-        }
-        return entry;
-    };
-
-    // Within each rewrite, cache one compiled module for each set of herald
-    // flags. All random draws used by this function happen before the lookup,
-    // so hits and misses consume the same randomness.
-    auto get_module = [&](ContinuationEntry& entry, const std::vector<uint8_t>& flags,
-                          const CompiledModule* executed_prefix_module,
-                          uint32_t prefix_end) -> CompiledModule* {
-        auto [mit, module_inserted] = entry.modules.try_emplace(flags);
-        if (module_inserted) {
-            Circuit patched = entry.rw.circuit;
-            assert(flags.size() == entry.rw.classified_measurements.size());
-            for (size_t i = 0; i < flags.size(); ++i) {
-                if (flags[i] != 0) {
-                    const ClassifiedMeasurement& m = entry.rw.classified_measurements[i];
-                    assert(m.noise_node.has_value() &&
-                           "classified measurement must have a READOUT_NOISE node to patch for "
-                           "herald");
-                    patched.nodes[*m.noise_node].args[0] = 0.5;
-                }
-            }
-            // When the rewrite names a forced trace-out node, ask trace()
-            // to report the hidden slot it assigns to that reset.
-            HirModule hir = [&]() -> HirModule {
-                if (entry.rw.forced_traceout_node.has_value()) {
-                    InstrumentTraceOptions opts = instrument_options;
-                    opts.forced_traceout_node = entry.rw.forced_traceout_node;
-                    return trace(patched, &opts);
-                }
-                return trace(patched, &instrument_options);
-            }();
-            if (entry.rw.forced_traceout_node.has_value()) {
-                if (!hir.forced_traceout_slot.has_value()) {
-                    throw std::logic_error(
-                        "sample_noncomputational: trace() did not encounter the forced "
-                        "trace-out reset at node " +
-                        std::to_string(*entry.rw.forced_traceout_node) +
-                        "; the rewrite and trace() must walk the same stream");
-                }
-                // Record the hidden slot on the first compile. Later herald
-                // variants have the same reset and must assign the same slot.
-                if (!entry.forced_traceout_slot.has_value()) {
-                    entry.forced_traceout_slot = hir.forced_traceout_slot;
-                } else {
-                    assert(entry.forced_traceout_slot == hir.forced_traceout_slot &&
-                           "flag-variant compile yielded a different forced_traceout_slot");
-                }
-            }
-#ifndef NDEBUG
-            const std::vector<uint32_t> pre_pass_records = record_sequence(hir);
-#endif
-            trajectory_hir_pass_manager().run(hir);
-#ifndef NDEBUG
-            assert(record_sequence(hir) == pre_pass_records &&
-                   "a trajectory-pipeline HIR pass reordered or removed a record op");
-#endif
-            CompiledModule module = lower(hir);
-            trajectory_bytecode_pass_manager().run(module);
-            check_max_rank(module, max_rank);
-            if (module.instrument_offsets.size() != entry.rw.site_targets.size()) {
-                throw std::logic_error(
-                    "sample_noncomputational: compiled module has " +
-                    std::to_string(module.instrument_offsets.size()) +
-                    " instrument site(s) but the rewrite's site table has " +
-                    std::to_string(entry.rw.site_targets.size()) +
-                    "; the rewriter and trace() must elide zero-fire sites identically");
-            }
-            if (entry.rw.forced_traceout_node.has_value()) {
-                swap_traceout_to_forced(module, *entry.forced_traceout_slot);
-            }
-#ifndef NDEBUG
-            // The continuation must reproduce every instruction the shot
-            // already executed, except for the forced trace-out opcode handled
-            // above. Check this in debug builds before resuming.
-            if (executed_prefix_module != nullptr) {
-                assert(prefix_end <= module.bytecode.size() &&
-                       prefix_end <= executed_prefix_module->bytecode.size());
-                for (uint32_t i = 0; i < prefix_end; ++i) {
-                    assert(equal_modulo_forced_swap(module.bytecode[i],
-                                                    executed_prefix_module->bytecode[i]) &&
-                           "continuation prefix diverged from the executed module");
-                }
-            }
-#else
-            (void)executed_prefix_module;
-            (void)prefix_end;
-#endif
-            mit->second = std::move(module);
-        }
-        return &mit->second;
-    };
-
-    // Common starting continuation for a shot with computational initial
-    // statuses and no recorded jumps.
+    // The all-computational starting continuation is the common low-transition
+    // path, so compile it lazily once and reuse it across shots. Other
+    // continuations live only for the shot that reaches them.
     TrajectoryEvents no_events;
     no_events.initial_status.assign(circuit.num_qubits, QubitStatus::Computational);
+    std::optional<CompiledContinuation> computational_start;
 
     // Reuse one state across shots. resume() can grow it for larger
     // continuations. A starting module cannot use that trap-only growth path,
@@ -718,25 +657,32 @@ NonComputationalSample run_trajectory_driver(const Circuit& circuit,
             return flags;
         };
 
-        // Select the module used at the start of the shot. If any qubit starts
-        // leaked or lost, draw all transitions reached in that state before
-        // fetching its rewrite. Herald draws also happen before the compiled
-        // module lookup so caching cannot change the random stream.
-        ContinuationEntry* entry = nullptr;
-        CompiledModule* module = nullptr;
-        // With computational initial statuses and no jumps, every transition
-        // remains a VM instrument and all final statuses stay Computational.
-        std::vector<QubitStatus> final_status;
+        // A noncomputational initial state needs a shot-specific rewrite. The
+        // all-computational rewrite contains only VM instruments and is shared
+        // across shots. It is compiled lazily so an unreachable starting state
+        // cannot fail max_rank validation.
+        std::optional<CompiledContinuation> shot_continuation;
+        const CompiledContinuation* continuation = nullptr;
         if (any_noncomp_initial) {
             extend_classical_outcomes(annotated, events, model, driver_rng);
-            entry = &get_entry(events, false);
-            module = get_module(*entry, flags_for(entry->rw), nullptr, 0);
-            final_status = entry->rw.final_status;
+            ContinuationRewrite rewrite = rewrite_continuation(annotated, events, false, model);
+            const std::vector<uint8_t> flags = flags_for(rewrite);
+            shot_continuation.emplace(compile_continuation(
+                std::move(rewrite), flags, instrument_options, max_rank, nullptr, 0));
+            continuation = &*shot_continuation;
         } else {
-            entry = &get_entry(no_events, false);
-            module = get_module(*entry, flags_for(entry->rw), nullptr, 0);
-            final_status.assign(circuit.num_qubits, QubitStatus::Computational);
+            if (!computational_start.has_value()) {
+                ContinuationRewrite rewrite =
+                    rewrite_continuation(annotated, no_events, false, model);
+                assert(rewrite.classified_measurements.empty() &&
+                       "an all-computational continuation has no classified measurements");
+                computational_start.emplace(compile_continuation(
+                    std::move(rewrite), {}, instrument_options, max_rank, nullptr, 0));
+            }
+            continuation = &*computational_start;
         }
+        const CompiledModule* module = &continuation->module;
+        std::vector<QubitStatus> final_status = continuation->final_status;
 
         if (!state_storage.has_value()) {
             state_rank = module->peak_rank;
@@ -769,12 +715,12 @@ NonComputationalSample run_trajectory_driver(const Circuit& circuit,
 
         while (state.pending_trap.has_value()) {
             const SchrodingerState::InstrumentTrap trap = *state.pending_trap;
-            if (trap.site_id >= entry->rw.site_targets.size()) {
+            if (trap.site_id >= continuation->site_targets.size()) {
                 throw std::logic_error(
                     "sample_noncomputational: trap site id is out of range of the executing "
                     "module's site table");
             }
-            const auto [op_index, qubit] = entry->rw.site_targets[trap.site_id];
+            const auto [op_index, qubit] = continuation->site_targets[trap.site_id];
             const AstNode& node = annotated.nodes[op_index];
             const AnnotationChannel channel = resolve_annotation(node, model, op_index);
 
@@ -800,21 +746,22 @@ NonComputationalSample run_trajectory_driver(const Circuit& circuit,
 
             // When destination_pending is true, the VM has not collapsed the
             // qubit. Force the continuation's hidden trace-out measurement to
-            // the reported source. The source is supplied through per-shot
-            // state, so the compiled module can be shared by g and e outcomes.
+            // the reported source. Supplying it through per-shot state keeps
+            // the continuation bytecode independent of the g/e source.
             const bool force = trap.destination_pending;
             const uint32_t prefix_end = module->instrument_offsets[trap.site_id] + 1;
-            ContinuationEntry& next_entry = get_entry(events, force);
-            CompiledModule* next_module =
-                get_module(next_entry, flags_for(next_entry.rw), module, prefix_end);
-            final_status = next_entry.rw.final_status;
+            ContinuationRewrite next_rewrite =
+                rewrite_continuation(annotated, events, force, model);
+            const std::vector<uint8_t> next_flags = flags_for(next_rewrite);
+            CompiledContinuation next =
+                compile_continuation(std::move(next_rewrite), next_flags, instrument_options,
+                                     max_rank, module, prefix_end);
+            final_status = next.final_status;
 
             if (force) {
-                // get_module always populates forced_traceout_slot before
-                // returning when forced_traceout_node is set.
-                assert(next_entry.forced_traceout_slot.has_value() &&
-                       "forced trace-out slot not populated by get_module");
-                const size_t slot = *next_entry.forced_traceout_slot;
+                assert(next.forced_traceout_slot.has_value() &&
+                       "forced trace-out slot not populated by compile_continuation");
+                const size_t slot = *next.forced_traceout_slot;
                 if (forced_buffer.size() <= slot) {
                     forced_buffer.resize(slot + 1, 0);
                 }
@@ -823,8 +770,11 @@ NonComputationalSample run_trajectory_driver(const Circuit& circuit,
                 state.forced_record = forced_buffer;
             }
 
-            entry = &next_entry;
-            module = next_module;
+            // Replacing the previous shot-specific continuation bounds retained
+            // compiled programs independently of the number of traps and shots.
+            shot_continuation = std::move(next);
+            continuation = &*shot_continuation;
+            module = &continuation->module;
             // resume() grows the state for this continuation when needed. Track
             // the new capacities so rebuilding for a later shot never shrinks
             // them.
