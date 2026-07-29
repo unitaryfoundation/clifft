@@ -1,4 +1,4 @@
-"""Closed-form micro-probes for noncomputational trajectory sampling.
+"""Closed-form checks for noncomputational trajectory sampling.
 
 Each probe checks, in closed form built on the first-principles oracle, a
 distinct property the sampler must satisfy: zero fires from a gate-determined

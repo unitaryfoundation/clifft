@@ -56,9 +56,7 @@ bool mask_is(const HirModule& hir, const HeisenbergOp& op, uint32_t qubit, bool 
 
 }  // namespace
 
-// =============================================================================
 // Materialization
-// =============================================================================
 
 TEST_CASE("trace: annotations still reject without instrument options") {
     REQUIRE_THROWS_WITH(trace(parse("LEVEL_TRANSITION[jump] 0")),
@@ -175,9 +173,7 @@ TEST_CASE("trace: the damping policy is recorded once on the HIR module") {
     REQUIRE(hir.neglect_instrument_damping);
 }
 
-// =============================================================================
 // instrument_trace_options: model -> specs
-// =============================================================================
 
 TEST_CASE("instrument_trace_options: resolves model transitions and policy") {
     // T[to][from]: from e, 0.1 relaxes to g and 0.3 leaks; from g, nothing.
@@ -201,9 +197,7 @@ TEST_CASE("instrument_trace_options: resolves model transitions and policy") {
     REQUIRE_THAT(probabilities.p_noncomputational_dest(1), WithinAbs(0.3, kTol));
 }
 
-// =============================================================================
 // Fences
-// =============================================================================
 
 TEST_CASE("fences: can_swap refuses to move anything across an instrument") {
     const auto options = source_dependent_jump_options();
@@ -307,9 +301,7 @@ TEST_CASE("trace: a hand-built LOSS without its argument rejects") {
     REQUIRE_THROWS_WITH(trace(c, &options), ContainsSubstring("exactly one argument"));
 }
 
-// =============================================================================
 // forced_traceout_node / forced_traceout_slot
-// =============================================================================
 
 TEST_CASE("trace: forced_traceout_node reports the hidden slot of the requested reset") {
     // The SINGLE-arity parser emits one node per target, so "R 2 3" becomes

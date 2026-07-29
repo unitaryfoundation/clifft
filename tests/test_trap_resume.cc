@@ -5,9 +5,9 @@
 // allows; resume() continues the state in a (possibly different) module at
 // a bytecode offset, growing the amplitude array and record buffer when
 // the continuation needs more, and re-anchoring the noise-gap cursor at
-// the entry offset. Continuation compilation in the sampling driver is a
-// separate step; these tests hand-build their continuations, leaning on
-// the prefix-identity contract that makes cross-module re-entry sound.
+// the entry offset. The sampling driver compiles continuations; these tests
+// hand-build them to exercise the prefix-identity contract that makes
+// cross-module re-entry sound.
 
 #include "clifft/backend/backend.h"
 #include "clifft/frontend/frontend.h"

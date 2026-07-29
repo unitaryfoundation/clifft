@@ -39,7 +39,7 @@ def _p1(result: noncomp.NonComputationalSample, slot: int) -> float:
     return float(np.asarray(result.measurements)[:, slot].mean())
 
 
-# --- Self-check: the reference agrees with clifft on lossless circuits --------
+# The reference agrees with Clifft on lossless circuits.
 
 
 def _matches_clifft(text: str, state: npt.NDArray[np.complex128], n: int) -> None:
@@ -62,7 +62,7 @@ def test_oracle_partial_trace_of_bell_is_maximally_mixed():
     assert abs(oracle.marginal_one_after_trace_out(state, lost=0, survivor=1, n=2) - 0.5) < 1e-12
 
 
-# --- Supported noncomputational subset vs the reference -----------------------
+# Supported noncomputational behavior against the reference.
 
 
 def test_lossless_matches_clifft_distribution():
@@ -147,7 +147,7 @@ def test_survivor_marginal_equals_partial_trace():
     assert abs(_p1(r, 0) - 0.5) < BAND  # lost record (M 0) follows the [0.5, 0.5] classifier
 
 
-# --- Self-check: the exact-channel primitives ---------------------------------
+# Exact-channel primitive checks.
 
 
 def test_channel_kraus_set_is_complete():
@@ -188,7 +188,7 @@ def test_set_collapsed_qubit_reprepares_destination():
     assert abs(abs(moved[0]) - 1.0) < 1e-12
 
 
-# --- Two-site exact-damping composition vs enumerator --------------------------
+# Two-site exact-damping composition against the enumerator.
 
 
 def test_two_site_exact_damping_composition_matches_enumerator():

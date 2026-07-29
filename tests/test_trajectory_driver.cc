@@ -4,8 +4,7 @@
 //
 // Deterministic checks use certain (p = 1) channels; statistical checks
 // use source-independent rates with closed forms and generous margins
-// (the full distributional campaign lives in the Python enumerator
-// suite).
+// (broader distribution comparisons live in the Python enumerator suite).
 
 #include "clifft/circuit/parser.h"
 #include "clifft/noncomp/model.h"
@@ -747,9 +746,7 @@ TEST_CASE("trajectory: a seepage-only transition still seeps a noncomputational 
     }
 }
 
-// =========================================================================
 // Correlated-chain passthrough on noncomputational operands
-// =========================================================================
 
 TEST_CASE("trajectory: a correlated-chain head with a lost operand does not orphan the ELSE") {
     // q0 is lost before the E node: the head must keep its slot in the
@@ -864,9 +861,7 @@ TEST_CASE("trajectory: a certain correlated X0 X1 error applies X to both qubits
     }
 }
 
-// =========================================================================
 // MX / MY classify on vacated carriers
-// =========================================================================
 
 namespace {
 
@@ -988,9 +983,7 @@ TEST_CASE("trajectory: memory-X smoke measures two qubits after a low-rate leak 
     REQUIRE(lost < 70);
 }
 
-// =========================================================================
 // Up-front model capability contract
-// =========================================================================
 
 TEST_CASE("trajectory: capable model rejects MPP before sampling") {
     // A capable model (non-zero loss) plus an MPP measurement must throw
@@ -1086,9 +1079,7 @@ TEST_CASE("trajectory: the model contract is validated even for zero shots") {
     REQUIRE(result.measurements.empty());
 }
 
-// =========================================================================
 // Same-qubit re-trap (composed-continuation path)
-// =========================================================================
 
 namespace {
 
@@ -1152,9 +1143,7 @@ TEST_CASE("trajectory: multi-target annotation jumps both targets in one shot") 
     }
 }
 
-// =========================================================================
 // LOSS on already-leaked and already-lost qubits
-// =========================================================================
 
 TEST_CASE("trajectory: certain LOSS on a pure leak_g initial vacates the carrier") {
     // Initial mass entirely on leak_g (index 2): the qubit is already
@@ -1254,9 +1243,7 @@ TEST_CASE(
     REQUIRE(saw_one);
 }
 
-// =========================================================================
 // Classified records driving feedback
-// =========================================================================
 
 TEST_CASE("trajectory: classified record drives a CX feedback gate") {
     // "lose" is hooked on S: g and e both jump to lost with certainty.
@@ -1286,9 +1273,7 @@ TEST_CASE("trajectory: classified record drives a CX feedback gate") {
     }
 }
 
-// =========================================================================
 // Carrier re-preparation on restore
-// =========================================================================
 
 TEST_CASE("trajectory: a reset truly re-prepares a restored-lost qubit") {
     // "lose" is hooked on S (g and e both -> lost with certainty).
@@ -1315,9 +1300,7 @@ TEST_CASE("trajectory: a reset truly re-prepares a restored-lost qubit") {
     }
 }
 
-// =========================================================================
 // max_rank boundary behavior
-// =========================================================================
 
 TEST_CASE("trajectory: max_rank succeeds exactly at the required rank") {
     // Reuses the over-cap circuit from the rejection test: three H-prefixed
@@ -1337,9 +1320,7 @@ TEST_CASE("trajectory: max_rank succeeds exactly at the required rank") {
     REQUIRE(result.num_measurements == 3);
 }
 
-// =========================================================================
 // Seed sensitivity
-// =========================================================================
 
 TEST_CASE("trajectory: different seeds produce different records") {
     // A stochastic config (leak p=0.35 from e after H) sampled at two
@@ -1398,9 +1379,7 @@ TEST_CASE("trajectory: max_rank is not checked against the unreachable all-compu
     }
 }
 
-// =========================================================================
 // Classifier and herald end-to-end
-// =========================================================================
 
 namespace {
 

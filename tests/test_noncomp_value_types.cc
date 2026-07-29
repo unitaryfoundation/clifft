@@ -17,9 +17,7 @@ using clifft::NonComputationalPolicy;
 using clifft::QubitStatus;
 using clifft::status_for;
 
-// =========================================================================
 // Level structure
-// =========================================================================
 
 TEST_CASE("Level: predicates partition the five levels") {
     REQUIRE(kNumLevels == 5);
@@ -36,9 +34,7 @@ TEST_CASE("Level: predicates partition the five levels") {
     REQUIRE(std::string(level_name(Level::Lost)) == "lost");
 }
 
-// =========================================================================
 // QubitStatus
-// =========================================================================
 
 TEST_CASE("QubitStatus: status_for collapses the computational levels") {
     REQUIRE(status_for(Level::G) == QubitStatus::Computational);
@@ -65,9 +61,7 @@ TEST_CASE("QubitStatus: noncomp_level names definite levels and throws on comput
     REQUIRE_THROWS_AS(noncomp_level(QubitStatus::Computational), std::logic_error);
 }
 
-// =========================================================================
 // NonComputationalPolicy
-// =========================================================================
 
 TEST_CASE("NonComputationalPolicy: defaults are exact and conservative") {
     NonComputationalPolicy policy;

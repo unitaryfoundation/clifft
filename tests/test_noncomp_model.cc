@@ -50,9 +50,7 @@ double sum(const std::vector<double>& v) {
 
 }  // namespace
 
-// =========================================================================
 // Construction: happy paths
-// =========================================================================
 
 TEST_CASE("NonComputationalModel: accepts a fully specified model") {
     auto model = NonComputationalModel::from_spec(
@@ -104,9 +102,7 @@ TEST_CASE("NonComputationalModel: alias key is stored verbatim and hooks the can
     REQUIRE(model.transition_named("CX") == nullptr);
 }
 
-// =========================================================================
 // Construction: initial-state validation
-// =========================================================================
 
 TEST_CASE("NonComputationalModel: rejects initial state with wrong length") {
     REQUIRE_THROWS_WITH(
@@ -134,9 +130,7 @@ TEST_CASE("NonComputationalModel: rejects initial state that does not sum to 1")
                         ContainsSubstring("sums to") && ContainsSubstring("must sum to 1"));
 }
 
-// =========================================================================
 // Construction: transition validation
-// =========================================================================
 
 TEST_CASE("NonComputationalModel: a non-gate transition key is named rather than hooked") {
     auto model = NonComputationalModel::from_spec(default_initial_state(),
@@ -187,9 +181,7 @@ TEST_CASE("NonComputationalModel: a malformed transition matrix names its compon
                             ContainsSubstring("out of [0, 1]") && ContainsSubstring("'H'"));
 }
 
-// =========================================================================
 // Accessors
-// =========================================================================
 
 TEST_CASE("NonComputationalModel: initial_probability returns per-level values") {
     auto model = NonComputationalModel::from_spec(default_initial_state(), {}, std::nullopt,
@@ -217,9 +209,7 @@ TEST_CASE("NonComputationalModel: policy accessor reflects the constructed polic
     REQUIRE(model.policy().reset_restores_lost == true);
 }
 
-// =========================================================================
 // Construction: dead-hook key rejection
-// =========================================================================
 
 TEST_CASE("NonComputationalModel: rejects parser-rewritten MXX as a hook key") {
     REQUIRE_THROWS_WITH(
@@ -297,9 +287,7 @@ TEST_CASE("NonComputationalModel: rejects identity II_ERROR as a hook key") {
                         ContainsSubstring("identity no-ops emit no circuit nodes"));
 }
 
-// =========================================================================
 // Construction: tag grammar validation
-// =========================================================================
 
 TEST_CASE("NonComputationalModel: rejects empty transition key") {
     REQUIRE_THROWS_WITH(
@@ -384,9 +372,7 @@ TEST_CASE("NonComputationalModel: accepted weird keys survive LEVEL_TRANSITION t
     }
 }
 
-// =========================================================================
 // Hook-fires invariant: every registered hook names a gate the parser emits
-// =========================================================================
 
 TEST_CASE("model: every registered gate hook names a gate the parser can produce") {
     // A gate hook can fire only if its gate type appears in a parsed

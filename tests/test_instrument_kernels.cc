@@ -8,8 +8,8 @@
 // dense reference that applies the instrument's Kraus operators to a copy of
 // the gamma-scaled amplitudes.
 //
-// These tests exercise the kernels directly, without the dispatcher
-// (which is wired up in a separate step).
+// These tests exercise the kernels directly. Dispatcher coverage lives in
+// test_execute_instruments.cc.
 
 #include "clifft/svm/svm.h"
 #include "clifft/svm/svm_forced_kernels.h"
@@ -147,9 +147,7 @@ void require_amps_match(const Amps& got, const Amps& want) {
 
 }  // namespace
 
-// =============================================================================
 // damp_eval: fused damp + populations on an active axis
-// =============================================================================
 
 TEST_CASE("instrument damp_eval: populations and damped state match the dense reference") {
     const struct {
@@ -222,9 +220,7 @@ TEST_CASE("instrument damp_eval + no-fire renormalization matches the normalized
     require_amps_match(physical(state), want);
 }
 
-// =============================================================================
 // collapse_active: in-place forced projection
-// =============================================================================
 
 TEST_CASE("instrument fire path: collapse after damp recovers the pre-damp projection") {
     // The fused pass damps before the branch is drawn. On fire the
@@ -278,9 +274,7 @@ TEST_CASE("instrument collapse_active: collapsing an already-definite level is t
     require_amps_match(physical(state), once);
 }
 
-// =============================================================================
 // fire_branch: the pure draw helper
-// =============================================================================
 
 TEST_CASE("instrument fire_branch: regions partition the variate by exact branch probability") {
     const InstrumentPopulations pops{0.3, 0.7};
@@ -313,9 +307,7 @@ TEST_CASE("instrument fire_branch: a dust population is never selected as the so
     REQUIRE(!branch.fired);
 }
 
-// =============================================================================
 // expand_damp: dormant-random site under damping="exact"
-// =============================================================================
 
 TEST_CASE("instrument expand_damp: matches plain expansion followed by the damp") {
     const double r_g = std::sqrt(1.0 - 0.4), r_e = std::sqrt(1.0 - 0.1);
@@ -358,9 +350,7 @@ TEST_CASE("instrument expand_damp: unit coefficients reproduce the plain expansi
     }
 }
 
-// =============================================================================
 // Cross-checks against production machinery and mid-shot state shapes
-// =============================================================================
 
 TEST_CASE(
     "instrument damp_eval: populations match the forced measurement kernel's "
@@ -478,9 +468,7 @@ TEST_CASE("instrument kernels: unnormalized array and nonunit gamma") {
     }
 }
 
-// =============================================================================
 // Physics checks
-// =============================================================================
 
 TEST_CASE("instrument damp_eval: frame conjugation swaps the coefficients and populations") {
     const double r_g = 0.6, r_e = 0.9;

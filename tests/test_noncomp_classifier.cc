@@ -22,9 +22,7 @@ using clifft::test::opaque_infinity;
 using clifft::test::opaque_nan;
 using clifft::test::RawProbabilityMatrix;
 
-// =========================================================================
 // Construction validation
-// =========================================================================
 
 TEST_CASE("MeasurementClassifier: accepts a stochastic two-symbol matrix") {
     auto classifier =
@@ -142,9 +140,7 @@ TEST_CASE("MeasurementClassifier: rejects herald mass on a computational column"
                         ContainsSubstring("record symbols 0 and 1") && ContainsSubstring("'e'"));
 }
 
-// =========================================================================
 // Accessors
-// =========================================================================
 
 TEST_CASE("MeasurementClassifier: prob follows the symbol-level convention") {
     RawProbabilityMatrix m = classifier_matrix_with_column(Level::LeakE, {0.0, 1.0});

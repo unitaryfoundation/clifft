@@ -106,7 +106,7 @@ def marginal_one_after_trace_out(
     return float(np.real(rho[1, 1]))
 
 
-# --- Exact per-site transition channel ---------------------------------------
+# Exact per-site transition channel.
 #
 # The physical channel of one annotation target on a computational qubit,
 # as Kraus operators on that qubit's factor:
