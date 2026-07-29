@@ -1,11 +1,7 @@
 // Tests for TileAxisFusionPass and OP_ARRAY_U4 execution.
 //
-// Test categories (following the review guidance):
-// 1. Asymmetric axis trap: CNOT(ctrl=hi, tgt=lo) vs CNOT(ctrl=lo, tgt=hi)
-// 2. 16-state Pauli FSM exhaustion: all input frame combinations
-// 3. SIMD cache-line boundaries: lo=2 hi=3, lo=3 hi=5 at high rank
-// 4. Boundary halting: tiles correctly break at EXPAND, measurement, noise
-// 5. Integration: full pipeline with get_statevector oracle
+// Coverage includes operand order, every input Pauli frame, SIMD boundaries,
+// instructions that end a tile, and full-pipeline statevector comparisons.
 
 #include "clifft/backend/backend.h"
 #include "clifft/circuit/parser.h"

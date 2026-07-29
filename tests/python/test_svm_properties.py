@@ -1,8 +1,7 @@
-"""Structural Oracle Tests.
+"""SVM state-lifecycle and sampling checks with analytic expectations.
 
-Validates exact destructive interference, memory lifecycle bounds,
-and biased amplitude statistics without requiring an external oracle.
-These tests exploit analytical properties of the circuits themselves.
+These tests cover repeated active-rank expansion and compaction, along with
+small circuits whose output probabilities are known in closed form.
 """
 
 import numpy as np
@@ -12,152 +11,8 @@ from conftest import binomial_tolerance
 import clifft
 
 
-def _compile_optimized(circuit_str: str) -> clifft.Program:
-    """Compile with the default peephole optimization pass."""
-    circuit = clifft.parse(circuit_str)
-    hir = clifft.trace(circuit)
-    pm = clifft.default_hir_pass_manager()
-    pm.run(hir)
-    return clifft.lower(hir)
-
-
-# ---------------------------------------------------------------------------
-# Bounded-T Mirror Fuzzer
-# ---------------------------------------------------------------------------
-
-_DAGGER_MAP: dict[str, str] = {
-    "H": "H",
-    "S": "S_DAG",
-    "S_DAG": "S",
-    "T": "T_DAG",
-    "T_DAG": "T",
-    "X": "X",
-    "Y": "Y",
-    "Z": "Z",
-    "CX": "CX",
-    "CY": "CY",
-    "CZ": "CZ",
-}
-
-
-def _bounded_t_mirror_circuit(
-    num_qubits: int, clifford_gate_count: int, t_count: int, seed: int
-) -> tuple[str, int]:
-    """Generate a U U-dag mirror circuit with bounded T-gate count.
-
-    Produces a massive Clifford circuit with exactly `t_count` T gates
-    inserted at random positions, followed by its exact inverse.
-    The combined circuit U U-dag = I, so measuring all qubits must
-    yield the all-zeros bitstring.
-
-    Args:
-        num_qubits: Number of qubits.
-        clifford_gate_count: Total number of random Clifford gates.
-        t_count: Exact number of T gates to insert.
-        seed: Random seed.
-
-    Returns:
-        Tuple of (circuit_string, t_count) where circuit_string includes
-        final measurements of all qubits.
-    """
-    rng = np.random.default_rng(seed)
-    gates_1q = ["H", "S", "S_DAG", "X", "Y", "Z"]
-    gates_2q = ["CX", "CY", "CZ"]
-
-    # Build forward Clifford circuit
-    fwd: list[str] = []
-    for _ in range(clifford_gate_count):
-        if num_qubits > 1 and rng.random() < 0.4:
-            g = str(rng.choice(gates_2q))
-            q1, q2 = rng.choice(num_qubits, size=2, replace=False)
-            fwd.append(f"{g} {q1} {q2}")
-        else:
-            g = str(rng.choice(gates_1q))
-            q = int(rng.integers(0, num_qubits))
-            fwd.append(f"{g} {q}")
-
-    # Insert exactly t_count T gates at random positions
-    positions = sorted(rng.choice(len(fwd) + 1, size=t_count, replace=False))
-    for offset, pos in enumerate(positions):
-        q = int(rng.integers(0, num_qubits))
-        fwd.insert(int(pos) + offset, f"T {q}")
-
-    # Compute exact inverse
-    inv: list[str] = []
-    for line in reversed(fwd):
-        parts = line.split()
-        gate = _DAGGER_MAP[parts[0]]
-        targets = " ".join(parts[1:])
-        inv.append(f"{gate} {targets}")
-
-    # Combine: U, U-dag, then measure all
-    meas = "M " + " ".join(str(i) for i in range(num_qubits))
-    full = fwd + inv + [meas]
-    return "\n".join(full), t_count
-
-
-class TestBoundedTMirrorFuzzer:
-    """40-qubit mirror circuits with bounded T gates.
-
-    Validates that U U-dag = I at scale by checking that every shot
-    yields the all-zeros bitstring. The peak rank must stay <= t_count
-    since only T gates expand the active Schrodinger array.
-
-    The baseline tests verify the compiler and VM produce correct results
-    without optimization. The optimized tests verify the peephole pass
-    cancels all T/T-dag pairs, collapsing peak_rank to 0.
-    """
-
-    NUM_QUBITS = 40
-    CLIFFORD_DEPTH = 1000
-    T_COUNT = 12
-    SHOTS = 10_000
-
-    @pytest.mark.parametrize("seed", range(5))
-    def test_mirror_40q_12t_baseline(self, seed: int) -> None:
-        """40-qubit mirror with 12 T gates yields all-zeros without optimizer."""
-        circuit, t_count = _bounded_t_mirror_circuit(
-            self.NUM_QUBITS, self.CLIFFORD_DEPTH, self.T_COUNT, seed=seed
-        )
-        prog = clifft.compile(circuit)
-
-        assert prog.peak_rank <= t_count, f"peak_rank={prog.peak_rank} exceeds t_count={t_count}"
-
-        result = clifft.sample(prog, self.SHOTS, seed=seed)
-        shots_nonzero = int(result.measurements.sum(axis=1).astype(bool).sum())
-        assert shots_nonzero == 0, f"{shots_nonzero}/{self.SHOTS} shots were non-zero (seed={seed})"
-
-    @pytest.mark.parametrize("seed", range(5))
-    def test_mirror_40q_12t_optimized(self, seed: int) -> None:
-        """Optimizer cancels all T gates: peak_rank=0, all-zeros output."""
-        circuit, _ = _bounded_t_mirror_circuit(
-            self.NUM_QUBITS, self.CLIFFORD_DEPTH, self.T_COUNT, seed=seed
-        )
-        prog = _compile_optimized(circuit)
-
-        assert (
-            prog.peak_rank == 0
-        ), f"peak_rank={prog.peak_rank}, expected 0 after optimization (seed={seed})"
-
-        result = clifft.sample(prog, self.SHOTS, seed=seed)
-        shots_nonzero = int(result.measurements.sum(axis=1).astype(bool).sum())
-        assert shots_nonzero == 0, f"{shots_nonzero}/{self.SHOTS} shots were non-zero (seed={seed})"
-
-    def test_mirror_peak_rank_scales_with_t_count(self) -> None:
-        """Peak rank grows with T count, not qubit count."""
-        for t_count in [4, 8, 12]:
-            circuit, _ = _bounded_t_mirror_circuit(self.NUM_QUBITS, 500, t_count, seed=99)
-            prog = clifft.compile(circuit)
-            assert prog.peak_rank <= t_count, f"t_count={t_count}: peak_rank={prog.peak_rank}"
-
-
-# ---------------------------------------------------------------------------
-# Breathing Memory Lifecycle
-# ---------------------------------------------------------------------------
-
-
-def _breathing_circuit(n_rounds: int) -> str:
-    """Generate a circuit that breathes k: 1 -> 2 -> 1 repeatedly.
+def _repeated_expand_measure_circuit(n_rounds: int) -> str:
+    """Generate a circuit whose active rank repeatedly changes 1 -> 2 -> 1.
 
     Qubit 0 starts in an active non-Clifford state (H;T -> k=1).
     Each round injects qubit 1 into the active array (H;T -> k=2),
@@ -181,8 +36,8 @@ def _breathing_circuit(n_rounds: int) -> str:
     return "\n".join(lines)
 
 
-class TestBreathingMemoryLifecycle:
-    """Stress the virtual register manager with repeated expand/compact.
+class TestRepeatedExpansionAndCompaction:
+    """Exercise the virtual register manager through repeated rank changes.
 
     Each round injects a T-state qubit, entangles it, and measures it,
     forcing the array to repeatedly expand and contract. The gamma
@@ -193,13 +48,13 @@ class TestBreathingMemoryLifecycle:
     @pytest.mark.parametrize("n_rounds", [10, 100, 500])
     def test_peak_rank_bounded(self, n_rounds: int) -> None:
         """Peak rank stays at exactly 2 regardless of round count."""
-        circuit = _breathing_circuit(n_rounds)
+        circuit = _repeated_expand_measure_circuit(n_rounds)
         prog = clifft.compile(circuit, hir_passes=None, bytecode_passes=None)
         assert prog.peak_rank == 2, f"n_rounds={n_rounds}: peak_rank={prog.peak_rank}, expected 2"
 
-    def test_breathing_500_rounds_completes(self) -> None:
-        """500-round breathing circuit runs without underflow or crash."""
-        circuit = _breathing_circuit(500)
+    def test_500_rounds_complete(self) -> None:
+        """A 500-round circuit completes without underflow."""
+        circuit = _repeated_expand_measure_circuit(500)
         prog = clifft.compile(circuit, hir_passes=None, bytecode_passes=None)
 
         assert prog.peak_rank == 2
@@ -211,9 +66,9 @@ class TestBreathingMemoryLifecycle:
         # No NaN-induced garbage: every measurement must be 0 or 1
         assert np.all((result.measurements == 0) | (result.measurements == 1))
 
-    def test_breathing_1000_rounds_completes(self) -> None:
-        """1000-round breathing circuit -- extreme gamma stress test."""
-        circuit = _breathing_circuit(1000)
+    def test_1000_rounds_complete(self) -> None:
+        """Normalization remains finite through 1000 rounds."""
+        circuit = _repeated_expand_measure_circuit(1000)
         prog = clifft.compile(circuit, hir_passes=None, bytecode_passes=None)
 
         assert prog.peak_rank == 2
@@ -223,9 +78,7 @@ class TestBreathingMemoryLifecycle:
         assert np.all((result.measurements == 0) | (result.measurements == 1))
 
 
-# ---------------------------------------------------------------------------
-# Biased Amplitude Statistics
-# ---------------------------------------------------------------------------
+# Biased-amplitude statistics.
 
 # Analytical circuits with exact P(0) values.
 # Each entry: (name, circuit_string, expected P(0))

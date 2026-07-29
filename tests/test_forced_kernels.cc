@@ -79,7 +79,7 @@ TEST_CASE("forced dormant_static: sign-inverted outcome is matched correctly") {
 // Force either outcome: probability = 1/2, log_prob += log(1/2).
 // =============================================================================
 
-TEST_CASE("forced dormant_random: any outcome accumulates log(1/2)") {
+TEST_CASE("forced dormant_random: either outcome accumulates the half-probability logarithm") {
     for (uint8_t forced : {uint8_t{0}, uint8_t{1}}) {
         std::vector<uint8_t> record{forced};
         auto state = make_state(/*peak_rank=*/2, record);
@@ -99,7 +99,7 @@ TEST_CASE("forced dormant_random: any outcome accumulates log(1/2)") {
 // vs v[i+half] (high half). Forced outcome maps to one of these branches.
 // =============================================================================
 
-TEST_CASE("forced active_diagonal: deterministic |0> branch forced to 0 accumulates log(1)") {
+TEST_CASE("forced active_diagonal: the certain zero branch adds zero log probability") {
     std::vector<uint8_t> record{0};
     auto state = make_state(/*peak_rank=*/1, record);
     state.active_k = 1;
@@ -194,7 +194,7 @@ TEST_CASE("forced active_diagonal: dust-clamped branch is treated as unreachable
 //   prob_minus = sum |v[i] - v[i+half]|^2
 // =============================================================================
 
-TEST_CASE("forced active_interfere: |+> branch forced gives log(1) on plus eigenstate") {
+TEST_CASE("forced active_interfere: the certain plus branch adds zero log probability") {
     // |+> = (|0> + |1>)/sqrt(2)
     // prob_plus = |1+1|^2/2... actually: prob_plus = |v[0]+v[1]|^2 = (sqrt(2))^2 = 2
     // prob_minus = |v[0]-v[1]|^2 = 0

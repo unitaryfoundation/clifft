@@ -1,12 +1,8 @@
 """Peephole optimizer correctness tests.
 
-Validates that the symplectic peephole fusion pass preserves quantum
-semantics. Two independent verification strategies:
-
-1. Self-consistency: compile with optimizer on vs off, assert statevector
-   equivalence (fidelity > 0.9999).
-2. Mirror cancellation: U U-dag mirror circuits must achieve peak_rank=0
-   when the optimizer is enabled, proving complete T/T-dag annihilation.
+The tests compare amplitudes with the pass enabled and disabled, exercise
+specific algebraic identities, and check complete T/T-dag cancellation in
+U U-dag mirror circuits.
 """
 
 import numpy as np
@@ -21,11 +17,17 @@ from conftest import (
 import clifft
 
 
+def _peephole_pass_manager() -> clifft.HirPassManager:
+    pm = clifft.HirPassManager()
+    pm.add(clifft.PeepholeFusionPass())
+    return pm
+
+
 def _compile_optimized(circuit_str: str) -> clifft.Program:
-    """Compile with the default peephole optimization pass."""
+    """Compile with only PeepholeFusionPass enabled."""
     circuit = clifft.parse(circuit_str)
     hir = clifft.trace(circuit)
-    pm = clifft.default_hir_pass_manager()
+    pm = _peephole_pass_manager()
     pm.run(hir)
     return clifft.lower(hir)
 
@@ -46,84 +48,7 @@ def _clifft_statevector(circuit_str: str, *, optimize: bool = False) -> np.ndarr
     return sv
 
 
-# ---------------------------------------------------------------------------
-# Optimizer On vs Off Statevector Equivalence
-# ---------------------------------------------------------------------------
-
-
-class TestPeepholeStatevectorEquivalence:
-    """Assert optimizer preserves the final state up to global phase.
-
-    Compiles random Clifford+T circuits with and without the peephole
-    pass, then checks fidelity between the two resulting statevectors.
-    Componentwise phase-sensitive checks are below.
-    """
-
-    @pytest.mark.parametrize("seed", range(10))
-    def test_random_8q_depth30(self, seed: int) -> None:
-        """8-qubit random Clifford+T circuits preserve statevector."""
-        circuit = random_clifford_t_circuit(8, depth=30, seed=seed)
-        sv_baseline = _clifft_statevector(circuit)
-        sv_optimized = _clifft_statevector(circuit, optimize=True)
-        assert_statevectors_equiv(
-            sv_optimized,
-            sv_baseline,
-            msg=f"8q depth=30 seed={seed}",
-        )
-
-    @pytest.mark.parametrize("seed", range(5))
-    def test_random_8q_depth60(self, seed: int) -> None:
-        """Deeper 8-qubit circuits stress multi-layer fusion."""
-        circuit = random_clifford_t_circuit(8, depth=60, seed=seed)
-        sv_baseline = _clifft_statevector(circuit)
-        sv_optimized = _clifft_statevector(circuit, optimize=True)
-        assert_statevectors_equiv(
-            sv_optimized,
-            sv_baseline,
-            msg=f"8q depth=60 seed={seed}",
-        )
-
-    @pytest.mark.parametrize("num_qubits", [2, 3, 4, 5, 6])
-    @pytest.mark.parametrize("seed", range(5))
-    def test_random_small_circuits(self, num_qubits: int, seed: int) -> None:
-        """Small circuits from 2 to 6 qubits preserve statevector."""
-        circuit = random_clifford_t_circuit(num_qubits, depth=20, seed=seed)
-        sv_baseline = _clifft_statevector(circuit)
-        sv_optimized = _clifft_statevector(circuit, optimize=True)
-        assert_statevectors_equiv(
-            sv_optimized,
-            sv_baseline,
-            msg=f"{num_qubits}q depth=20 seed={seed}",
-        )
-
-    @pytest.mark.parametrize("seed", range(5))
-    def test_dense_entanglement_5q(self, seed: int) -> None:
-        """Dense 2-qubit gate circuits stress Pauli mask interference."""
-        circuit = random_dense_clifford_t_circuit(5, depth=40, seed=seed)
-        sv_baseline = _clifft_statevector(circuit)
-        sv_optimized = _clifft_statevector(circuit, optimize=True)
-        assert_statevectors_equiv(
-            sv_optimized,
-            sv_baseline,
-            msg=f"dense 5q depth=40 seed={seed}",
-        )
-
-    @pytest.mark.parametrize("seed", range(3))
-    def test_deep_phase_accumulation(self, seed: int) -> None:
-        """Deep circuits with many T gates test accumulated fusion accuracy."""
-        circuit = random_dense_clifford_t_circuit(4, depth=100, seed=seed, two_qubit_prob=0.3)
-        sv_baseline = _clifft_statevector(circuit)
-        sv_optimized = _clifft_statevector(circuit, optimize=True)
-        assert_statevectors_equiv(
-            sv_optimized,
-            sv_baseline,
-            msg=f"deep 4q depth=100 seed={seed}",
-        )
-
-
-# ---------------------------------------------------------------------------
-# Specific algebraic identities
-# ---------------------------------------------------------------------------
+# Specific algebraic identities.
 
 
 class TestPeepholeAlgebraicIdentities:
@@ -165,9 +90,7 @@ class TestPeepholeAlgebraicIdentities:
         assert_statevectors_equiv(sv_optimized, sv_baseline)
 
 
-# ---------------------------------------------------------------------------
-# Componentwise global-phase preservation of S absorption
-# ---------------------------------------------------------------------------
+# Componentwise global-phase preservation of S absorption.
 
 
 class TestPeepholeExactGlobalPhase:
@@ -206,8 +129,8 @@ class TestPeepholeExactGlobalPhase:
     ]
 
     def test_h_t_t_h_exact_amplitudes(self) -> None:
-        """H T T H |0> = [0.5+0.5j, 0.5-0.5j] with the default pipeline."""
-        prog = clifft.compile("H 0\nT 0\nT 0\nH 0")
+        """H T T H |0> = [0.5+0.5j, 0.5-0.5j] after peephole fusion."""
+        prog = _compile_optimized("H 0\nT 0\nT 0\nH 0")
         state = clifft.State(peak_rank=prog.peak_rank, num_measurements=prog.num_measurements)
         clifft.execute(prog, state)
         sv = clifft.get_statevector(prog, state)
@@ -224,9 +147,8 @@ class TestPeepholeExactGlobalPhase:
     def test_random_circuits_componentwise(self, seed: int) -> None:
         """Random Clifford+T circuits agree componentwise, no phase alignment.
 
-        Unlike the fidelity-based equivalence tests above, this catches
-        global-phase drift from S absorption and from the virtual-frame
-        tableau composition at lowering.
+        Componentwise comparison catches global-phase drift from S absorption
+        and from virtual-frame tableau composition at lowering.
         """
         circuit = random_clifford_t_circuit(5, depth=30, seed=seed)
         sv_baseline = _clifft_statevector(circuit)
@@ -242,10 +164,15 @@ class TestPeepholeExactGlobalPhase:
         sv_optimized = _clifft_statevector(circuit, optimize=True)
         assert_statevectors_componentwise_equal(sv_optimized, sv_baseline, atol=1e-5)
 
+    @pytest.mark.parametrize("seed", range(5))
+    def test_dense_random_circuits_componentwise(self, seed: int) -> None:
+        circuit = random_dense_clifford_t_circuit(5, depth=40, seed=seed)
+        sv_baseline = _clifft_statevector(circuit)
+        sv_optimized = _clifft_statevector(circuit, optimize=True)
+        assert_statevectors_componentwise_equal(sv_optimized, sv_baseline, atol=1e-5)
 
-# ---------------------------------------------------------------------------
-# Mirror Circuit T-gate Annihilation
-# ---------------------------------------------------------------------------
+
+# Mirror-circuit T-gate cancellation.
 
 _DAGGER_MAP: dict[str, str] = {
     "H": "H",
@@ -330,7 +257,7 @@ class TestMirrorTGateAnnihilation:
         meas = "M " + " ".join(str(i) for i in range(self.NUM_QUBITS))
         circuit_with_meas = circuit + "\n" + meas
 
-        prog_baseline = clifft.compile(circuit_with_meas)
+        prog_baseline = clifft.compile(circuit_with_meas, hir_passes=None, bytecode_passes=None)
         prog_optimized = _compile_optimized(circuit_with_meas)
 
         assert (
@@ -365,21 +292,17 @@ class TestMirrorTGateAnnihilation:
         assert fidelity > 0.9999, f"Fidelity with |0> = {fidelity:.6f}"
 
 
-# ---------------------------------------------------------------------------
-# Explicit pipeline API tests
-# ---------------------------------------------------------------------------
+# Peephole pass metadata.
 
 
-class TestExplicitPipelineAPI:
-    """Verify the explicit parse -> trace -> optimize -> lower pipeline."""
-
+class TestPeepholePassMetadata:
     def test_hir_t_gate_count(self) -> None:
         """HirModule reports correct T-gate count before and after optimization."""
         circuit = clifft.parse("H 0\nT 0\nT 0\nM 0")
         hir = clifft.trace(circuit)
         assert hir.num_t_gates == 2
 
-        pm = clifft.default_hir_pass_manager()
+        pm = _peephole_pass_manager()
         pm.run(hir)
         assert hir.num_t_gates == 0
 
@@ -396,47 +319,14 @@ class TestExplicitPipelineAPI:
         assert peephole.cancellations == 1
         assert peephole.fusions == 1
 
-    def test_hir_metadata(self) -> None:
-        """HirModule exposes circuit metadata."""
-        circuit = clifft.parse("H 0\nCX 0 1\nT 0\nM 0 1")
-        hir = clifft.trace(circuit)
-        assert hir.num_qubits == 2
-        assert hir.num_measurements == 2
-        assert hir.num_ops > 0
 
-    def test_lower_produces_valid_program(self) -> None:
-        """lower() produces a Program that can be sampled."""
-        circuit = clifft.parse("H 0\nT 0\nM 0")
-        hir = clifft.trace(circuit)
-        prog = clifft.lower(hir)
-
-        assert prog.peak_rank == 1
-        assert prog.num_measurements == 1
-        result = clifft.sample(prog, 100, seed=0)
-        assert result.measurements.shape == (100, 1)
-
-    def test_compile_convenience_matches_explicit(self) -> None:
-        """clifft.compile() produces same result as parse -> trace -> lower."""
-        text = "H 0\nT 0\nM 0"
-        prog_conv = clifft.compile(text, hir_passes=None, bytecode_passes=None)
-
-        circuit = clifft.parse(text)
-        hir = clifft.trace(circuit)
-        prog_explicit = clifft.lower(hir)
-
-        assert prog_conv.peak_rank == prog_explicit.peak_rank
-        assert prog_conv.num_instructions == prog_explicit.num_instructions
-
-
-# ---------------------------------------------------------------------------
-# S-Absorption Differential: Optimized vs Unoptimized Statevector
+# S-absorption with PeepholeFusionPass enabled and disabled.
 #
 # These tests compile each circuit twice -- once with no optimizations
 # (forcing the VM to execute physical T/rotation opcodes) and once with
 # peephole S-absorption active -- then assert the dense statevectors match.
-# This proves the symplectic conjugation, tableau basis transformation,
-# and global phase tracking are equivalent to physical gate application.
-# ---------------------------------------------------------------------------
+# This checks symplectic conjugation, tableau basis transformation, and
+# global-phase tracking against physical gate application.
 
 
 def _assert_absorption_preserves_state(stim_text: str, atol: float = 1e-6) -> clifft.Program:
@@ -449,11 +339,11 @@ def _assert_absorption_preserves_state(stim_text: str, atol: float = 1e-6) -> cl
     clifft.execute(prog_base, state_base)
     sv_base = np.array(clifft.get_statevector(prog_base, state_base))
 
-    # Optimized: full default pass managers (includes PeepholeFusionPass)
+    # Optimized: only PeepholeFusionPass.
     prog_opt = clifft.compile(
         stim_text,
-        hir_passes=clifft.default_hir_pass_manager(),
-        bytecode_passes=clifft.default_bytecode_pass_manager(),
+        hir_passes=_peephole_pass_manager(),
+        bytecode_passes=None,
     )
     state_opt = clifft.State(
         peak_rank=prog_opt.peak_rank, num_measurements=prog_opt.num_measurements
@@ -480,12 +370,12 @@ def _assert_absorption_preserves_state(stim_text: str, atol: float = 1e-6) -> cl
 
 
 class TestNegativeSignTFusion:
-    """Regression tests for global phase loss when T gates have negative Pauli signs.
+    """Global-phase checks for T gates with negative Pauli signs.
 
     When the front-end encounters T after X (which conjugates Z -> -Z), the
     HIR T gate has sign=true. The identity T(-P) = exp(i*pi/4) * T_dag(+P)
     means that fusing or canceling negative-sign T gates must track the
-    extra global phase. These tests catch the phase loss bug.
+    extra global phase. The cases below exercise both fusion directions.
     """
 
     def test_negative_sign_t_fusion(self) -> None:

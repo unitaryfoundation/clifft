@@ -263,7 +263,7 @@ TEST_CASE("record_probabilities: does not mutate the input CompiledModule") {
 // the load-bearing equivalence: any drift between the two paths shows
 // up here.
 
-TEST_CASE("record_probabilities: matches basis_probabilities() on a Clifford circuit") {
+TEST_CASE("record probabilities match basis probabilities on a Clifford circuit") {
     auto unitary = compile_circuit("H 0\nCX 0 1");
     auto measured = compile_circuit("H 0\nCX 0 1\nM 0 1");
     REQUIRE(measured.num_measurements == 2);
@@ -291,9 +291,7 @@ TEST_CASE("record_probabilities: matches basis_probabilities() on a Clifford cir
     }
 }
 
-TEST_CASE(
-    "record_probabilities: matches basis_probabilities() on a Clifford+T circuit (active "
-    "kernel)") {
+TEST_CASE("record probabilities match basis probabilities through the active kernel") {
     // H T H on |0> takes the qubit through a non-Clifford rotation that
     // forces the SVM to keep the qubit active at measurement time. The
     // resulting measurement opcode hits the active forced kernels via

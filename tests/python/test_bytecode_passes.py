@@ -1,7 +1,7 @@
-"""Differential A/B tests for bytecode optimization passes.
+"""Differential tests for bytecode optimization passes.
 
 Compiles circuits, then runs BytecodePassManager on a copy, and asserts
-the outputs are strictly identical. This proves the fused opcodes
+the outputs are strictly identical. The comparisons check that the fused opcodes
 (OP_NOISE_BLOCK, OP_EXPAND_T, OP_SWAP_MEAS_INTERFERE) preserve both
 statevector correctness and PRNG trajectory synchronization.
 """
@@ -76,7 +76,7 @@ def test_statevector_oracle(num_qubits: int, depth: int, seed: int) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Exact Trajectory: optimized noise sampling matches baseline bit-for-bit
+# Optimized noise sampling matches the baseline bit for bit.
 # ---------------------------------------------------------------------------
 
 
@@ -106,7 +106,7 @@ OBSERVABLE_INCLUDE(0) rec[-3]
 def test_exact_trajectory_noisy() -> None:
     """Optimized and baseline must produce bit-identical sample arrays.
 
-    This proves OP_NOISE_BLOCK keeps the gap-sampler perfectly synced
+    This checks that OP_NOISE_BLOCK keeps the gap sampler synchronized
     with the original per-site OP_NOISE dispatch.
     """
     prog_base = compile_unoptimized(NOISY_CIRCUIT)
@@ -132,7 +132,7 @@ def test_exact_trajectory_noisy() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Exact Trajectory: noiseless circuit with EXPAND_T and SWAP_MEAS fusion
+# Noiseless execution with EXPAND_T and SWAP_MEAS fusion.
 # ---------------------------------------------------------------------------
 
 
