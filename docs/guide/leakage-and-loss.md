@@ -304,6 +304,9 @@ with its entangled partner. The semantics and the rank cost are in
   a parity of levels outside the qubit subspace has no faithful single-bit
   record. Expand the parity readout into an explicit ancilla circuit; the
   ancilla's ladder gates then drop per the rules above.
+- **`EXP_VAL` is not supported.** `NonComputationalSample` has no
+  expectation-value output, so circuits containing these probes are rejected
+  before sampling.
 - **A classifier is required** whenever a model capable of leakage or loss
   meets a circuit containing any physical-qubit measurement. This is a
   model-level capability check, not a per-site reachability analysis.

@@ -2,8 +2,7 @@
 
 This module is experimental: the API may change between minor releases.
 
-Drives a structural leakage/loss trajectory model on top of the ordinary Clifft
-sampler:
+Samples five-level leakage/loss trajectories using Clifft's VM:
 
     import clifft
     from clifft import noncomp
@@ -17,13 +16,13 @@ sampler:
     r.measurements   # np.uint8 [shots, num_measurements]
     r.final_status   # np.uint8 [shots, num_qubits], values in QubitStatus
 
-This API supports exactly the built-in five-level set, named by ``Level``
-(g, e, leak_g, leak_e, lost); matrix rows and columns are indexed by
-``Level``. A classifier has two or three symbols with stochastic columns: the
-first two symbols are the record bit, an optional third symbol heralds the
-measurement (reported per slot in ``heralds``; the visible record stays binary
-with a uniformly drawn bit). Substochastic (reject) columns and richer
-alphabets raise.
+This API supports exactly the built-in five-level set: ``Level.G``, ``Level.E``,
+``Level.LEAK_G``, ``Level.LEAK_E``, and ``Level.LOST``. Matrix rows and columns
+are indexed by ``Level``. A classifier has two or three symbols, and each
+column must sum to one. The first two symbols are the record bit; an optional
+third symbol heralds the measurement (reported per slot in ``heralds`` while
+the visible record stays binary with a uniformly drawn bit). Classifiers with
+other alphabet sizes are rejected.
 """
 
 from __future__ import annotations
@@ -55,7 +54,7 @@ class QubitStatus(IntEnum):
 
     These are per-qubit *status* codes, not matrix indices. ``Level`` names
     matrix rows and columns (indices 0--4); ``QubitStatus`` names per-qubit
-    outcomes (indices 0--3). The two enums share member names (``LEAK_G``,
+    outcomes (codes 0--3). The two enums share member names (``LEAK_G``,
     ``LEAK_E``, ``LOST``) with *different* integer values -- never substitute
     one for the other.
 
@@ -132,14 +131,15 @@ class Model:
         reset_restores_lost: if true, a reset on a lost qubit restores it to
             a computational state; if false (default), the reset acts on the
             vacated site and is dropped.
-        damping: handling of sites whose no-fire back-action is genuinely
-            non-Clifford (a source-dependent transition on a coherent qubit
-            outside the amplitude array). ``"exact"`` (the default) expands
-            the qubit into the array, adding one to the circuit's rank at that
-            site; ``"neglect"`` keeps the rank and omits the no-fire
-            back-action, a survivorship tilt of order ``|p_g - p_e|`` with no
-            effect on source-independent rates. Only meaningful at coherent
-            dormant sites.
+        damping: handling of the no-transition update when the total
+            transition probability differs between ``g`` and ``e`` for a
+            coherent qubit that is not yet represented in the state vector.
+            ``"exact"`` (the default) adds the qubit to the state vector at
+            that site, increasing peak rank by one. ``"neglect"`` avoids the
+            expansion but omits the state update caused by observing that no
+            transition occurred. It is exact when ``g`` and ``e`` have the
+            same total transition probability; otherwise the bias is of order
+            ``|p_g - p_e|``.
 
     An operation with no representable effect on a leaked or lost operand --
     e.g. a two-qubit gate onto a vacated site -- is dropped, acting as the
@@ -212,9 +212,9 @@ class NonComputationalSample:
         final_status: uint8 array (shots, num_qubits) of :class:`QubitStatus`.
             Reports the definite noncomputational level per shot: ``LEAK_G``
             and ``LEAK_E`` are individually distinguishable. Computational
-            qubits report as :attr:`QubitStatus.COMPUTATIONAL`: transitions
-            with computational destinations resolve entirely inside the
-            simulator, so no final level is claimed.
+            qubits report as :attr:`QubitStatus.COMPUTATIONAL` rather than
+            ``G`` or ``E`` because their state remains quantum in the VM and
+            may not be a definite level.
         heralds: uint8 array (shots, num_measurements); 1 where the classifier
             sampled the herald (third) symbol for that slot, else 0.
         shots, num_qubits, num_measurements, num_detectors, num_observables: ints.
@@ -295,9 +295,10 @@ def sample(
     incidental once the qubit has left the computational subspace. A model that
     can leak or lose qubits requires a classifier when the circuit measures a
     qubit, and parity measurements (``MPP``) are not supported with such models —
-    both are rejected before sampling begins. Raises ``ValueError`` when one of
-    these contracts is violated, when an annotation is malformed, or when
-    ``max_rank`` is exceeded.
+    both are rejected before sampling begins. ``EXP_VAL`` probes are not
+    supported because :class:`NonComputationalSample` has no expectation-value
+    output. Raises ``ValueError`` when one of these contracts is violated, when
+    an annotation is malformed, or when ``max_rank`` is exceeded.
 
     ``seed`` makes runs reproducible: the same seed with the same arguments
     returns identical results, so vary it across seeded batches. When

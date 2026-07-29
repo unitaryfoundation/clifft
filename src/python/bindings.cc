@@ -84,7 +84,7 @@ void register_noncomp(nb::module_& m) {
         },
         nb::arg("initial_state"), nb::arg("transitions"), nb::arg("classifier_matrix") = nb::none(),
         nb::arg("reset_restores_lost") = false, nb::arg("damping") = "exact",
-        "Build a default 5-level NonComputationalModel from raw matrices. See "
+        "Build the built-in five-level NonComputationalModel from raw matrices. See "
         "clifft.noncomp.Model.");
 
     m.def(
@@ -96,9 +96,9 @@ void register_noncomp(nb::module_& m) {
                 nb::gil_scoped_release release;
                 r = clifft::sample_noncomputational(circuit, model, shots, seed, max_rank);
             }
-            // Pass the raw status bytes through: QubitStatus is uint8_t with values
-            // Computational=0, LeakG=1, LeakE=2, Lost=3, matching Python's QubitStatus
-            // enum exactly. No coarsening: leaked substates are individually preserved.
+            // Convert statuses to the uint8 codes exposed by Python. The values
+            // Computational=0, LeakG=1, LeakE=2, Lost=3 match Python's
+            // QubitStatus enum, including the distinct leaked substates.
             std::vector<uint8_t> status(r.final_status.size());
             for (size_t i = 0; i < r.final_status.size(); ++i) {
                 status[i] = static_cast<uint8_t>(r.final_status[i]);
