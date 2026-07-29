@@ -8,17 +8,21 @@
 //   K_jump[d,s] = sqrt(p[d,s]) |d><s|
 //   K_stay     = r_g P_g + r_e P_e
 //
-// where p_s is the sum of p[d,s] over destination levels d. These kernels need
-// only p_g, p_e, r_g, and r_e. The caller separately draws the destination.
-// A no-jump branch scales the g and e amplitudes by r_g and r_e. On an active
-// axis, a jump collapses the qubit to its source before the caller applies any
-// computational destination change or reports a trap. A dormant random qubit
-// may defer that collapse to the continuation.
+// where p_s is the sum of p[d,s] over destination levels d. The kernels use
+// only p_g, p_e, r_g, and r_e; the caller separately draws the destination.
+//
+// A no-jump result scales the g and e amplitudes by r_g and r_e. When a
+// transition fires, an active qubit is first projected onto its source level;
+// the caller then applies any computational destination change or reports a
+// trap. If a dormant qubit's source is not definite, it has no active array
+// axis on which to perform the projection, so a continuation performs it
+// after the VM traps.
 //
 // These functions do not draw random numbers. instrument_fire_branch() uses a
-// uniform value supplied by the caller. Active-axis kernels account for p_x[v]
-// when mapping physical g and e to array halves; the caller handles the
-// instruction's sign flag and any destination Pauli update.
+// uniform value supplied by the caller. On an active axis, p_x[v] determines
+// which array half represents physical g and e; the kernels handle that
+// mapping. The caller handles the instruction's sign flag and any destination
+// Pauli update.
 //
 // This internal header is shared by the dispatcher and kernel tests.
 

@@ -13,18 +13,6 @@
 
 namespace clifft {
 
-namespace {
-
-// Map pair number ii to the array index whose bit v is zero by inserting a
-// zero bit at v. This is the portable equivalent of scatter_bits_1 used by
-// ISA-specific kernels.
-inline uint64_t pair_index(uint64_t ii, uint16_t v) {
-    const uint64_t low_mask = (1ULL << v) - 1;
-    return (ii & low_mask) | ((ii & ~low_mask) << 1);
-}
-
-}  // namespace
-
 InstrumentPopulations exec_instrument_damp_eval(SchrodingerState& state, uint16_t v, double r_g,
                                                 double r_e) {
     assert(v < state.active_k && v < 64 && "instrument damp_eval: axis must be active");
@@ -46,7 +34,7 @@ InstrumentPopulations exec_instrument_damp_eval(SchrodingerState& state, uint16_
     double pop1 = 0.0;
     parallel_reduce(static_cast<int64_t>(pairs), state.active_k, pop0, pop1,
                     [&](int64_t ii, double& acc0, double& acc1) {
-                        const uint64_t i0 = pair_index(static_cast<uint64_t>(ii), v);
+                        const uint64_t i0 = insert_zero_bit(static_cast<uint64_t>(ii), v);
                         const uint64_t i1 = i0 | v_bit;
                         acc0 += std::norm(arr[i0]);
                         acc1 += std::norm(arr[i1]);
@@ -75,7 +63,7 @@ void exec_instrument_collapse_active(SchrodingerState& state, uint16_t v, uint8_
     double discarded = 0.0;
     parallel_reduce(static_cast<int64_t>(pairs), state.active_k, kept, discarded,
                     [&](int64_t ii, double& k_acc, double& d_acc) {
-                        const uint64_t i0 = pair_index(static_cast<uint64_t>(ii), v);
+                        const uint64_t i0 = insert_zero_bit(static_cast<uint64_t>(ii), v);
                         const uint64_t i1 = i0 | v_bit;
                         const uint64_t keep = (b == 0) ? i0 : i1;
                         const uint64_t drop = (b == 0) ? i1 : i0;
