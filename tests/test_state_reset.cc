@@ -90,7 +90,7 @@ void require_post_execute_states_match(const SchrodingerState& a, const Schrodin
 
 }  // namespace
 
-TEST_CASE("reset() on a freshly constructed state leaves it ready for execute()") {
+TEST_CASE("state reset after construction leaves the state ready to execute") {
     StateConfig cfg{
         .peak_rank = 4,
         .num_measurements = 2,
@@ -120,7 +120,7 @@ TEST_CASE("reset() on a freshly constructed state leaves it ready for execute()"
     require_post_execute_states_match(fresh, reset_after_construct);
 }
 
-TEST_CASE("execute-reset-execute matches execute on a fresh state (Clifford+T)") {
+TEST_CASE("state reuse matches a fresh Clifford+T execution") {
     // The load-bearing reuse invariant: re-running execute() after
     // reset() must produce the same end-state as running execute() on
     // a freshly constructed instance.
@@ -183,7 +183,7 @@ TEST_CASE("execute-reset-execute on a measured circuit is reproducible") {
     REQUIRE(saved_first_record[1] == fresh.meas_record[1]);
 }
 
-TEST_CASE("reset() preserves the v_ allocation pointer") {
+TEST_CASE("state reset preserves the amplitude allocation pointer") {
     // Reuse must be allocation-free: reset() must not realloc v_.
     SchrodingerState state(/*peak_rank=*/8, /*num_measurements=*/0);
     auto* arr_before = state.v();
@@ -191,7 +191,7 @@ TEST_CASE("reset() preserves the v_ allocation pointer") {
     REQUIRE(state.v() == arr_before);
 }
 
-TEST_CASE("reset() preserves p_x / p_z buffer sizing") {
+TEST_CASE("state reset preserves Pauli frame buffer sizes") {
     // p_x and p_z are sized by num_qubits at construction. reset()
     // must not resize them, and must clear their contents (the Pauli
     // frame is part of the state that reset must restore).
@@ -231,7 +231,7 @@ TEST_CASE("forced-mode fields default to empty / 0.0 / true on a fresh state") {
     REQUIRE(state.forced_reachable == true);
 }
 
-TEST_CASE("reset() clears the forced-mode fields") {
+TEST_CASE("state reset clears the forced-mode fields") {
     SchrodingerState state(/*peak_rank=*/2, /*num_measurements=*/2);
     std::vector<uint8_t> record{1, 0};
     state.forced_record = std::span<const uint8_t>{record};

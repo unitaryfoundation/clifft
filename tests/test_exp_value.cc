@@ -169,7 +169,7 @@ TEST_CASE("EXP_VAL: <X> after T on |+>") {
 // Sampling API: exp_vals in SampleResult
 // =============================================================================
 
-TEST_CASE("EXP_VAL: sample() returns exp_vals") {
+TEST_CASE("EXP_VAL: sampling returns expectation values") {
     auto mod = compile_circuit("EXP_VAL Z0");
     auto result = sample(mod, 10, 42);
     REQUIRE(result.exp_vals.size() == 10);

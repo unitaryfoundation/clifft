@@ -126,7 +126,7 @@ TEST_CASE("Frontend: H then T - rewound Z becomes X", "[frontend]") {
     REQUIRE(hir.sign(hir.ops[0]) == false);
 }
 
-TEST_CASE("Frontend: H; S; T - rewound Z is still X (S commutes with Z)", "[frontend]") {
+TEST_CASE("Frontend: H; S; T rewinds Z to X because S commutes with Z", "[frontend]") {
     auto circuit = parse(R"(
         H 0
         S 0
@@ -917,14 +917,9 @@ TEST_CASE("Frontend: multiple resets in sequence", "[frontend][classical]") {
     REQUIRE(hir.stab_mask(hir.ops[5]) == 0);
 }
 
-// =============================================================================
-// Regression Tests (Review Feedback Fixes)
-// =============================================================================
-
-TEST_CASE("Frontend: deterministic measurement with outcome 1 sets ag_ref",
+TEST_CASE("Frontend: deterministic measurement with outcome 1 preserves the sign",
           "[frontend][regression]") {
-    // Critical bug fix: ag_ref must be set even for deterministic measurements
-    // X gate flips |0> to |1>, so M should deterministically give 1
+    // X flips |0> to |1>, so the rewound measurement has negative sign.
     auto circuit = parse(R"(
         X 0
         M 0
@@ -933,10 +928,11 @@ TEST_CASE("Frontend: deterministic measurement with outcome 1 sets ag_ref",
 
     REQUIRE(hir.num_ops() == 1);
     REQUIRE(hir.ops[0].op_type() == OpType::MEASURE);
+    REQUIRE(hir.sign(hir.ops[0]));
 }
 
 TEST_CASE("Frontend: deterministic MX measurement with outcome 1", "[frontend][regression]") {
-    // H;X|0> = H|1> = |->, so MX gives deterministic 1
+    // H;X|0> = H|1> = |->, so the rewound X measurement has negative sign.
     auto circuit = parse(R"(
         X 0
         H 0
@@ -945,9 +941,11 @@ TEST_CASE("Frontend: deterministic MX measurement with outcome 1", "[frontend][r
     auto hir = trace(circuit);
 
     REQUIRE(hir.num_ops() == 1);
+    REQUIRE(hir.ops[0].op_type() == OpType::MEASURE);
+    REQUIRE(hir.sign(hir.ops[0]));
 }
 
-TEST_CASE("Frontend: broadcast classical feedback CX rec[-2] 0 rec[-1] 1",
+TEST_CASE("Frontend: broadcast classical feedback accepts two record targets",
           "[frontend][regression]") {
     // Test that classical feedback loop handles multiple pairs
     // Manually construct circuit with broadcast CX feedback

@@ -1,13 +1,9 @@
-"""Differential invariant tests for optimization passes.
+"""Differential checks for the default optimization pipelines.
 
-Validates that both bytecode passes (NoiseBlockPass, MultiGatePass,
-SwapMeasPass, ExpandTPass) and HIR passes (PeepholeFusionPass) are
-mathematically sound.
-
-Bytecode passes: must preserve PRNG trajectory exactly (bit-for-bit
+The default bytecode pipeline must preserve the PRNG trajectory exactly (bit-for-bit
 identical classical arrays given the same seed).
 
-HIR passes: validated via statevector equivalence and statistical
+The default HIR pipeline is checked through statevector equivalence and statistical
 distribution matching (marginal probabilities agree within binomial
 tolerance on noisy circuits).
 """
@@ -23,16 +19,14 @@ from conftest import (
     random_dense_clifford_t_circuit,
 )
 from utils_fuzzing import (
-    generate_commutation_gauntlet,
-    generate_star_graph_honeypot,
+    generate_random_commutation_circuit,
+    generate_star_graph_stress_circuit,
     generate_uncomputation_ladder,
 )
 
 import clifft
 
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
+# Helpers.
 
 _MAX_PEAK_RANK = 12  # OOM guard: 4096 amplitudes (~64 KB)
 
@@ -51,7 +45,7 @@ def run_differential_trajectory(circuit_str: str, shots: int, seed: int) -> None
         bytecode_passes=clifft.default_bytecode_pass_manager(),
     )
 
-    # --- Structural invariants ---
+    # Program-shape checks.
     assert (
         base_prog.peak_rank <= _MAX_PEAK_RANK
     ), f"Generator bug: peak_rank={base_prog.peak_rank} exceeds OOM guard {_MAX_PEAK_RANK}"
@@ -67,7 +61,7 @@ def run_differential_trajectory(circuit_str: str, shots: int, seed: int) -> None
         f"{opt_prog.num_measurements} != {base_prog.num_measurements}"
     )
 
-    # --- PRNG trajectory synchronization ---
+    # PRNG trajectory synchronization.
     base_result = clifft.sample(base_prog, shots, seed=seed)
     opt_result = clifft.sample(opt_prog, shots, seed=seed)
 
@@ -88,9 +82,7 @@ def run_differential_trajectory(circuit_str: str, shots: int, seed: int) -> None
     )
 
 
-# ---------------------------------------------------------------------------
-# Generator configurations: (num_qubits, depth) pairs
-# ---------------------------------------------------------------------------
+# Generator configurations as num_qubits, depth pairs.
 
 _SMALL_CONFIGS = [(10, 100), (20, 200)]
 _LARGE_CONFIGS = [(50, 500)]
@@ -98,40 +90,35 @@ _SEEDS = [0, 1, 2, 3, 4]
 _SHOTS = 100
 
 
-# ---------------------------------------------------------------------------
-# Test classes
-# ---------------------------------------------------------------------------
-
-
-class TestCommutationGauntlet:
-    """Bytecode invariants on commutation gauntlet circuits."""
+class TestRandomCommutationCircuits:
+    """Bytecode invariants on randomized commutation circuits."""
 
     @pytest.mark.parametrize("seed", _SEEDS)
     @pytest.mark.parametrize("nq,depth", _SMALL_CONFIGS)
     def test_small(self, nq: int, depth: int, seed: int) -> None:
-        circuit = generate_commutation_gauntlet(nq, depth, seed=seed)
+        circuit = generate_random_commutation_circuit(nq, depth, seed=seed)
         run_differential_trajectory(circuit, _SHOTS, seed=seed)
 
     @pytest.mark.parametrize("seed", _SEEDS)
     @pytest.mark.parametrize("nq,depth", _LARGE_CONFIGS)
     def test_large(self, nq: int, depth: int, seed: int) -> None:
-        circuit = generate_commutation_gauntlet(nq, depth, seed=seed)
+        circuit = generate_random_commutation_circuit(nq, depth, seed=seed)
         run_differential_trajectory(circuit, _SHOTS, seed=seed)
 
 
-class TestStarGraphHoneypot:
-    """Bytecode invariants on star-graph honeypot circuits."""
+class TestStarGraphCircuits:
+    """Bytecode invariants on star-graph stress circuits."""
 
     @pytest.mark.parametrize("seed", _SEEDS)
     @pytest.mark.parametrize("nq,depth", _SMALL_CONFIGS)
     def test_small(self, nq: int, depth: int, seed: int) -> None:
-        circuit = generate_star_graph_honeypot(nq, depth, seed=seed)
+        circuit = generate_star_graph_stress_circuit(nq, depth, seed=seed)
         run_differential_trajectory(circuit, _SHOTS, seed=seed)
 
     @pytest.mark.parametrize("seed", _SEEDS)
     @pytest.mark.parametrize("nq,depth", _LARGE_CONFIGS)
     def test_large(self, nq: int, depth: int, seed: int) -> None:
-        circuit = generate_star_graph_honeypot(nq, depth, seed=seed)
+        circuit = generate_star_graph_stress_circuit(nq, depth, seed=seed)
         run_differential_trajectory(circuit, _SHOTS, seed=seed)
 
 
@@ -151,8 +138,8 @@ class TestUncomputationLadder:
         run_differential_trajectory(circuit, _SHOTS, seed=seed)
 
 
-class TestHirPeepholeUncomputationLadder:
-    """Validate HIR PeepholeFusionPass via noiseless uncomputation ladders.
+class TestDefaultHirUncomputationLadder:
+    """Check the default HIR pipeline on noiseless uncomputation ladders.
 
     Because U * U_dag = I analytically, all final measurements are
     deterministic (outcome 0). The VM epsilon patch ensures both the
@@ -166,7 +153,11 @@ class TestHirPeepholeUncomputationLadder:
     def test_small(self, nq: int, depth: int, seed: int) -> None:
         circuit = generate_uncomputation_ladder(nq, depth, seed=seed, noise_prob=0.0)
         base = clifft.compile(circuit, hir_passes=None, bytecode_passes=None)
-        opt = clifft.compile(circuit, hir_passes=clifft.default_hir_pass_manager())
+        opt = clifft.compile(
+            circuit,
+            hir_passes=clifft.default_hir_pass_manager(),
+            bytecode_passes=None,
+        )
 
         assert base.peak_rank <= _MAX_PEAK_RANK
         assert opt.peak_rank <= base.peak_rank
@@ -191,7 +182,11 @@ class TestHirPeepholeUncomputationLadder:
     def test_large(self, nq: int, depth: int, seed: int) -> None:
         circuit = generate_uncomputation_ladder(nq, depth, seed=seed, noise_prob=0.0)
         base = clifft.compile(circuit, hir_passes=None, bytecode_passes=None)
-        opt = clifft.compile(circuit, hir_passes=clifft.default_hir_pass_manager())
+        opt = clifft.compile(
+            circuit,
+            hir_passes=clifft.default_hir_pass_manager(),
+            bytecode_passes=None,
+        )
 
         assert base.peak_rank <= _MAX_PEAK_RANK
         assert opt.peak_rank <= base.peak_rank
@@ -207,7 +202,7 @@ class TestHirPeepholeUncomputationLadder:
         )
 
     def test_dust_clamps_telemetry(self) -> None:
-        """Prove the unoptimized ladder generates FP dust that the VM clamps."""
+        """Check that the unoptimized ladder generates FP dust that the VM clamps."""
         # nq=4, depth=50 reliably produces base peak_rank=3 (active measurements
         # that encounter analytically-zero branches) while the optimizer reduces
         # peak_rank to 1. Both paths clamp dust, but the optimizer reduces it.
@@ -223,7 +218,11 @@ class TestHirPeepholeUncomputationLadder:
             base_state.dust_clamps > 0
         ), "Unoptimized ladder should clamp FP dust in active measurements"
 
-        opt = clifft.compile(circuit, hir_passes=clifft.default_hir_pass_manager())
+        opt = clifft.compile(
+            circuit,
+            hir_passes=clifft.default_hir_pass_manager(),
+            bytecode_passes=None,
+        )
         opt_state = clifft.State(
             peak_rank=opt.peak_rank, num_measurements=opt.num_measurements, seed=42
         )
@@ -233,9 +232,7 @@ class TestHirPeepholeUncomputationLadder:
         ), "Optimizer should not increase the number of dust clamps"
 
 
-# ---------------------------------------------------------------------------
-# HIR Pass Validation: Statevector Oracle
-# ---------------------------------------------------------------------------
+# Default HIR pipeline against statevectors.
 
 
 def _clifft_statevector(circuit_str: str, **compile_kwargs: Any) -> np.ndarray:
@@ -247,8 +244,8 @@ def _clifft_statevector(circuit_str: str, **compile_kwargs: Any) -> np.ndarray:
     return sv
 
 
-class TestHirPeepholeStatevectorOracle:
-    """Prove PeepholeFusionPass preserves the unitary via statevector comparison.
+class TestDefaultHirStatevectorEquivalence:
+    """Check that the default HIR pipeline preserves noiseless statevectors.
 
     For small noiseless Clifford+T circuits, expand both the unoptimized and
     HIR-optimized factored states to dense 2^n statevectors and assert
@@ -260,33 +257,43 @@ class TestHirPeepholeStatevectorOracle:
     def test_random_clifford_t_5q(self, seed: int) -> None:
         circuit = random_clifford_t_circuit(5, 40, seed=seed)
         base_sv = _clifft_statevector(circuit, hir_passes=None, bytecode_passes=None)
-        opt_sv = _clifft_statevector(circuit, hir_passes=clifft.default_hir_pass_manager())
+        opt_sv = _clifft_statevector(
+            circuit,
+            hir_passes=clifft.default_hir_pass_manager(),
+            bytecode_passes=None,
+        )
         assert_statevectors_equiv(opt_sv, base_sv)
 
     @pytest.mark.parametrize("seed", _SEEDS)
     def test_dense_clifford_t_4q(self, seed: int) -> None:
         circuit = random_dense_clifford_t_circuit(4, 50, seed=seed)
         base_sv = _clifft_statevector(circuit, hir_passes=None, bytecode_passes=None)
-        opt_sv = _clifft_statevector(circuit, hir_passes=clifft.default_hir_pass_manager())
+        opt_sv = _clifft_statevector(
+            circuit,
+            hir_passes=clifft.default_hir_pass_manager(),
+            bytecode_passes=None,
+        )
         assert_statevectors_equiv(opt_sv, base_sv)
 
     @pytest.mark.parametrize("seed", _SEEDS)
     def test_dense_clifford_t_8q(self, seed: int) -> None:
         circuit = random_dense_clifford_t_circuit(8, 60, seed=seed)
         base_sv = _clifft_statevector(circuit, hir_passes=None, bytecode_passes=None)
-        opt_sv = _clifft_statevector(circuit, hir_passes=clifft.default_hir_pass_manager())
+        opt_sv = _clifft_statevector(
+            circuit,
+            hir_passes=clifft.default_hir_pass_manager(),
+            bytecode_passes=None,
+        )
         assert_statevectors_equiv(opt_sv, base_sv)
 
 
-# ---------------------------------------------------------------------------
-# HIR Pass Validation: Statistical Distribution Matching
-# ---------------------------------------------------------------------------
+# Full default pipeline against sampling distributions.
 
 _STAT_SHOTS = 10_000
 
 
-class TestHirPeepholeStatisticalEquivalence:
-    """Prove PeepholeFusionPass preserves measurement distributions on noisy circuits.
+class TestDefaultOptimizerStatisticalEquivalence:
+    """Check that the default optimizers preserve noisy measurement distributions.
 
     Since HIR optimization can change active/dormant geometry (and thus PRNG
     trajectory), exact trajectory matching is impossible for stochastic
@@ -316,7 +323,7 @@ class TestHirPeepholeStatisticalEquivalence:
 
     @pytest.mark.parametrize("seed", _SEEDS)
     def test_star_graph_noisy_10q(self, seed: int) -> None:
-        circuit = generate_star_graph_honeypot(10, 100, seed=seed)
+        circuit = generate_star_graph_stress_circuit(10, 100, seed=seed)
         base = clifft.compile(circuit, hir_passes=None, bytecode_passes=None)
         opt = clifft.compile(
             circuit,
@@ -329,8 +336,8 @@ class TestHirPeepholeStatisticalEquivalence:
         self._assert_marginals_match(base_result.measurements, opt_result.measurements)
 
     @pytest.mark.parametrize("seed", _SEEDS)
-    def test_commutation_gauntlet_noisy_20q(self, seed: int) -> None:
-        circuit = generate_commutation_gauntlet(20, 200, seed=seed)
+    def test_random_commutation_noisy_20q(self, seed: int) -> None:
+        circuit = generate_random_commutation_circuit(20, 200, seed=seed)
         base = clifft.compile(circuit, hir_passes=None, bytecode_passes=None)
         opt = clifft.compile(
             circuit,

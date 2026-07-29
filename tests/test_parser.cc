@@ -459,7 +459,7 @@ TEST_CASE("Parse multiple resets", "[parser]") {
     REQUIRE(circuit.nodes[2].targets[0].value() == 2);
 }
 
-TEST_CASE("Parse classical feedback CX rec[-k] q", "[parser]") {
+TEST_CASE("Parse classical feedback CX with a lookback record target", "[parser]") {
     auto circuit = parse(R"(
         M 0
         M 1
@@ -582,7 +582,7 @@ TEST_CASE("REPEAT safety limit", "[parser]") {
 }
 
 TEST_CASE("REPEAT with empty body completes instantly", "[parser]") {
-    // A massive empty repeat must not spin for billions of iterations.
+    // A very large empty repeat must not spin for billions of iterations.
     auto c1 = parse("REPEAT 999999999 {\n}\nH 0");
     CHECK(c1.nodes.size() == 1);  // only the H
 
@@ -1528,8 +1528,6 @@ TEST_CASE("Parse correlated error rejects wrong arg count", "[parser][noise]") {
     REQUIRE_THROWS_AS(parse("E(0.1) X0\nELSE_CORRELATED_ERROR(0.1, 0.2) X0"), ParseError);
 }
 
-// --- Review Round 2 edge cases ---
-
 TEST_CASE("REPEAT opening brace in comment is ignored", "[parser]") {
     // The '{' in the comment should not be mistaken for the opening brace.
     auto c = parse("REPEAT 2\n# wait for {\n{\nH 0\n}");
@@ -1782,7 +1780,7 @@ TEST_CASE("GateTraits: MPP is MULTI arity", "[gate_data]") {
     CHECK(!is_clifford(GateType::MPP));
 }
 
-TEST_CASE("GateTraits: EXP_VAL is MULTI arity, non-measurement", "[gate_data]") {
+TEST_CASE("GateTraits: EXP_VAL has MULTI arity and is not a measurement", "[gate_data]") {
     CHECK(gate_arity(GateType::EXP_VAL) == GateArity::MULTI);
     CHECK(!is_measurement(GateType::EXP_VAL));
     CHECK(!is_clifford(GateType::EXP_VAL));
