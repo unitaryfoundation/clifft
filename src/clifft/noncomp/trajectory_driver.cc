@@ -319,9 +319,10 @@ void check_max_rank(const CompiledModule& module, std::optional<uint32_t> max_ra
 
 // Build the HIR pass pipeline from default passes that preserve measurement
 // record order. A trajectory may force a hidden trace-out measurement, so moving
-// an entangled measurement before that collapse would change the result. Every
-// continuation uses this fixed pipeline; debug builds separately verify that
-// recompilation reproduces the bytecode prefix already executed by the shot.
+// an entangled measurement before that collapse would change the result. Record
+// order alone does not make a continuation compatible with a running state:
+// every continuation uses this fixed pipeline, and debug builds also verify
+// that recompilation reproduces the bytecode prefix the state executed.
 HirPassManager trajectory_hir_pass_manager() {
     HirPassManager pm;
     for (const auto& info : kRegisteredPasses) {

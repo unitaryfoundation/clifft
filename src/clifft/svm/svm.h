@@ -268,10 +268,12 @@ void execute(const CompiledModule& program, SchrodingerState& state);
 /// instruction after the trapped site. Requires state.pending_trap and clears
 /// it before execution resumes.
 ///
-/// The bytecode before `offset` must match what the state already executed, and
-/// visible measurement slots must keep the same indices. resume() validates the
-/// trapped-site offset and qubit/output counts, but the caller is responsible
-/// for providing a compatible continuation.
+/// The bytecode before `offset` must match what the state already executed.
+/// The state retains that prefix's active-axis layout, Pauli frame, measurement
+/// records, and RNG state; resume() does not translate between different but
+/// equivalent compilations. Visible measurement slots must also keep the same
+/// indices. resume() validates the trapped-site offset and qubit/output counts,
+/// but the caller is responsible for providing a compatible continuation.
 ///
 /// Before re-entering dispatch, resume() may grow the amplitude and measurement
 /// buffers. It also restarts noise sampling at the first remaining noise site.
