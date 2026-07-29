@@ -4,7 +4,7 @@
 //
 // Each shot samples its initial levels, then runs transitions on computational
 // qubits as VM instruments. If the VM cannot finish a transition, it stops and
-// reports a trap. The driver records the outcome, fetches or compiles a circuit
+// reports a trap. The driver records the outcome and compiles a circuit
 // rewritten for those events, and resumes after the trapped transition.
 // Transitions reached while a qubit is leaked or lost are drawn by the driver
 // before compilation. DampingPolicy::Neglect uses the same process but omits

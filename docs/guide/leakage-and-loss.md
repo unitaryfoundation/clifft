@@ -22,8 +22,9 @@ policies such as whether reset restores a lost site. Because a jump can change
 which later operations are skipped, which measurements use the classifier,
 and whether a site is restored, one program compiled before sampling cannot
 describe every trajectory. `noncomp.sample` therefore rewrites and compiles
-trajectory-specific continuations when needed, caching and reusing them across
-shots.
+trajectory-specific continuations when needed. The all-computational starting
+continuation is compiled lazily and reused across shots; other continuations
+are kept only while the shot that needs them executes, then discarded.
 
 This page is the API walkthrough. The model and its simulation semantics
 are described in [Noncomputational States](../theory/noncomputational.md).
