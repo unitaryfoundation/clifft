@@ -10,6 +10,7 @@
 #include <cstdint>
 #include <optional>
 #include <span>
+#include <type_traits>
 #include <vector>
 
 namespace clifft {
@@ -59,14 +60,14 @@ enum class Opcode : uint8_t {
     OP_MEAS_ACTIVE_INTERFERE,  // X-basis fold, halves array (k -> k-1)
     OP_SWAP_MEAS_INTERFERE,    // Fused ARRAY_SWAP + MEAS_ACTIVE_INTERFERE
 
-    // Forced-outcome measurement variants. Synthesized at runtime by
-    // record_probabilities() via a bytecode rewrite; never emitted by the
-    // compiler. Each forced variant reads the desired outcome from a
-    // side buffer (one byte per record slot) instead of sampling from
-    // the PRNG, and accumulates the log-probability of that outcome
-    // into a running scalar. Renormalization is kept (same as the
-    // sampling variants) to prevent the state norm from underflowing
-    // float64 on deep trajectories.
+    // Forced-outcome measurement variants. Synthesized by internal bytecode
+    // rewrites, including record_probabilities() and trapped trajectory
+    // continuations; never emitted by the compiler. Each forced variant reads
+    // the desired outcome from a side buffer (one byte per record slot)
+    // instead of sampling from the PRNG, and accumulates the log-probability of
+    // that outcome into a running scalar. Renormalization is kept (same as the
+    // sampling variants) to prevent the state norm from underflowing float64 on
+    // deep trajectories.
     OP_MEAS_DORMANT_STATIC_FORCED,
     OP_MEAS_DORMANT_RANDOM_FORCED,
     OP_MEAS_ACTIVE_DIAGONAL_FORCED,
@@ -99,6 +100,25 @@ enum class Opcode : uint8_t {
     OP_EXP_VAL,        // Read-only expectation value probe (full virtual Pauli mask)
     NUM_OPCODES        // Sentinel: must remain last for binding completeness checks
 };
+
+// Return the forced-outcome counterpart of a sampling measurement opcode.
+// Other opcodes have no forced form.
+[[nodiscard]] constexpr std::optional<Opcode> forced_measurement_opcode(Opcode opcode) {
+    switch (opcode) {
+        case Opcode::OP_MEAS_DORMANT_STATIC:
+            return Opcode::OP_MEAS_DORMANT_STATIC_FORCED;
+        case Opcode::OP_MEAS_DORMANT_RANDOM:
+            return Opcode::OP_MEAS_DORMANT_RANDOM_FORCED;
+        case Opcode::OP_MEAS_ACTIVE_DIAGONAL:
+            return Opcode::OP_MEAS_ACTIVE_DIAGONAL_FORCED;
+        case Opcode::OP_MEAS_ACTIVE_INTERFERE:
+            return Opcode::OP_MEAS_ACTIVE_INTERFERE_FORCED;
+        case Opcode::OP_SWAP_MEAS_INTERFERE:
+            return Opcode::OP_SWAP_MEAS_INTERFERE_FORCED;
+        default:
+            return std::nullopt;
+    }
+}
 
 // =============================================================================
 // 32-Byte VM Instruction Bytecode
@@ -187,6 +207,8 @@ struct alignas(32) Instruction {
 };
 
 static_assert(sizeof(Instruction) == 32, "Instruction must be exactly 32 bytes");
+static_assert(std::is_trivially_copyable_v<Instruction>,
+              "Instruction must remain trivially copyable bytecode");
 
 // =============================================================================
 // Instruction Factories

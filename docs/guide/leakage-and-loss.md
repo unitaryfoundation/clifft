@@ -325,6 +325,21 @@ version of the circuit rewritten and compiled for the event history observed
 so far. The shot then resumes after the event. `noncomp.sample` therefore takes
 the circuit and model together and compiles internally.
 
+Each continuation uses the default optimization passes that preserve
+measurement-record order. At the HIR stage, this means
+`PeepholeFusionPass`; `StatevectorSqueezePass` is omitted because it can move
+measurements. All of the default bytecode passes currently preserve record
+order and are applied. See [Optimization Passes](../reference/passes.md) for
+the full list.
+
+This restriction matters because resolving a trapped transition may add a
+forced, hidden trace-out measurement. Moving another measurement across that
+collapse can change correlations. Record-order preservation is necessary but
+not sufficient for resuming a shot: recompiling a continuation must also
+reproduce the bytecode prefix already executed, because `resume()` reuses the
+existing VM state directly. `noncomp.sample` therefore uses a fixed internal
+pipeline and does not currently accept custom pass managers.
+
 Continuations are cached by event history and shared across shots. For ternary
 classifiers, the cache also holds one module per herald-flag assignment
 observed for that history. Typical low-rate models reuse the no-jump

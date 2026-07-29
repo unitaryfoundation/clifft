@@ -304,6 +304,12 @@ def sample(
     ``None``, each call draws a fresh 256-bit root from OS entropy, so
     repeated or parallel unseeded calls sample fresh randomness.
 
+    Continuations are compiled with the default optimization passes that
+    preserve measurement-record order; this omits
+    :class:`StatevectorSqueezePass`. A continuation may force a hidden trace-out
+    measurement, whose order relative to other measurements can affect quantum
+    correlations. This API does not currently accept custom pass managers.
+
     ``max_rank`` caps the compiled peak rank for each trajectory; the cap is
     enforced at each continuation compile, failing with the offending circuit
     line named instead of attempting a ``2**k`` allocation. The cap applies to
