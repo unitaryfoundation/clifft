@@ -124,12 +124,12 @@ Level draw_from_column(const TransitionInstrument& instrument, Level source,
     return *last_positive;
 }
 
-// Walk the circuit and rebuild the outcomes for transitions reached while
-// their qubits are leaked or lost. Reuse an existing outcome when its
-// annotation target is unchanged; otherwise draw a new one. The vector is
-// rebuilt rather than appended because a new jump can make transitions between
-// existing outcomes require driver-drawn results. The resulting order matches
-// the circuit order expected by rewrite_continuation().
+// Rewalk the annotated circuit under `events`, reusing previously sampled
+// outcomes by annotation target and sampling outcomes for annotations whose
+// source level is now known. Rebuild the outcome vector in circuit order
+// instead of appending: a trap at op 2 can make op 3 driver-resolvable even
+// if op 5 was already sampled, changing the required order from [op 5] to
+// [op 3, op 5]. The rewriter consumes this vector sequentially.
 void extend_classical_outcomes(const Circuit& annotated, ExactShotEvents& events,
                                const NonComputationalModel& model, Xoshiro256PlusPlus& rng) {
     std::map<AnnotationTarget, Level> jump_dest;
