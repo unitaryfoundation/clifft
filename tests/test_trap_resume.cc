@@ -1,4 +1,4 @@
-// Trap and resume: the runtime half of the exact-jump protocol.
+// Trap and resume: the runtime half of the trajectory protocol.
 //
 // execute() halts at a leaked/lost instrument fire with state.pending_trap
 // set and the carrier collapsed onto the drawn source wherever the form
@@ -283,7 +283,7 @@ TEST_CASE("trap+resume: plain sampling rejects a shot that traps") {
     InstrumentTraceOptions options;
     auto module = compile_instruments_raw("LOSS(1.0) 0\nM 0", options);
     REQUIRE_THROWS_WITH(sample(module, /*shots=*/4, /*seed=*/9),
-                        ContainsSubstring("exact-mode driver"));
+                        ContainsSubstring("trajectory driver"));
 }
 
 TEST_CASE("trap+resume: resume validates the handoff") {

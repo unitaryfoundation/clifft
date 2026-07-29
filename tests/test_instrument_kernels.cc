@@ -1,13 +1,12 @@
 // Directed and dense-oracle tests for the instrument kernels.
 //
-// The kernels are the array-level pieces of an exact state-dependent jump
-// site: fused damp+evaluate on an active
-// axis, in-place forced collapse of an active axis, fused expand+damp for
-// a dormant-random qubit, frame-level forced collapse of a dormant-random
-// qubit, and the pure fire-branch draw helper. None of them rolls the
-// PRNG, so every test is deterministic: the oracle is a dense reference
-// that applies the instrument's Kraus operators to a copy of the
-// gamma-scaled amplitudes.
+// The kernels are the array-level pieces of a state-dependent transition
+// site: fused damp+evaluate on an active axis, in-place forced collapse of an
+// active axis, fused expand+damp for a dormant-random qubit, frame-level forced
+// collapse of a dormant-random qubit, and the pure fire-branch draw helper.
+// None of them rolls the PRNG, so every test is deterministic: the oracle is a
+// dense reference that applies the instrument's Kraus operators to a copy of
+// the gamma-scaled amplitudes.
 //
 // These tests exercise the kernels directly, without the dispatcher
 // (which is wired up in a separate step).

@@ -252,12 +252,12 @@ const char* svm_backend() {
 }
 
 // Plain sampling cannot return a partial shot. Instrument programs that stop
-// at a trap must be run by the exact driver, which handles resume().
+// at a trap must be run by the trajectory driver, which handles resume().
 static void throw_on_pending_trap(const SchrodingerState& state) {
     if (state.pending_trap.has_value()) {
         throw std::runtime_error(
             "a shot halted at a resumable instrument trap; instrument programs require the "
-            "exact-mode driver (execute/resume), not the plain sampling entry points");
+            "trajectory driver (execute/resume), not the plain sampling entry points");
     }
 }
 

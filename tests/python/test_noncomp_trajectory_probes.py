@@ -1,7 +1,7 @@
-"""Closed-form micro-probes for the exact sampling mode.
+"""Closed-form micro-probes for noncomputational trajectory sampling.
 
 Each probe checks, in closed form built on the first-principles oracle, a
-distinct property the exact mode must satisfy: zero fires from a gate-determined
+distinct property the sampler must satisfy: zero fires from a gate-determined
 source, destination-collapse correlations with an entangled partner, and the
 sqrt(1 - p) no-fire coherence that separates ``damping="exact"`` from
 ``damping="neglect"``.

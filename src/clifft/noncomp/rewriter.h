@@ -81,7 +81,7 @@ struct ClassicalOutcome {
 // lost qubits. These fields also form the continuation cache key, except for
 // ClassicalOutcome::source_level. Shots with equal events can therefore share
 // one compiled continuation.
-struct ExactShotEvents {
+struct TrajectoryEvents {
     std::vector<QubitStatus> initial_status;
     std::vector<ResolvedJump> jumps;
     std::vector<ClassicalOutcome> classical_outcomes;
@@ -121,7 +121,7 @@ struct ContinuationRewrite {
 // measurement to the source level reported by the trap. Throws
 // std::invalid_argument when the policy rejects an operation or the events do
 // not describe this circuit.
-ContinuationRewrite rewrite_continuation(const Circuit& annotated, const ExactShotEvents& events,
+ContinuationRewrite rewrite_continuation(const Circuit& annotated, const TrajectoryEvents& events,
                                          bool force_last_traceout,
                                          const NonComputationalModel& model);
 

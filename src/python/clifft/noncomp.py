@@ -132,14 +132,14 @@ class Model:
         reset_restores_lost: if true, a reset on a lost qubit restores it to
             a computational state; if false (default), the reset acts on the
             vacated site and is dropped.
-        damping: exact-mode handling of sites whose no-fire back-action is
-            genuinely non-Clifford (a source-dependent transition on a
-            coherent qubit outside the amplitude array). ``"exact"`` (the
-            default) expands the qubit into the array, adding one to the
-            circuit's rank at that site; ``"neglect"`` keeps the rank and
-            omits the no-fire back-action, a survivorship tilt of order
-            ``|p_g - p_e|`` with no effect on source-independent rates.
-            Only meaningful at coherent dormant sites.
+        damping: handling of sites whose no-fire back-action is genuinely
+            non-Clifford (a source-dependent transition on a coherent qubit
+            outside the amplitude array). ``"exact"`` (the default) expands
+            the qubit into the array, adding one to the circuit's rank at that
+            site; ``"neglect"`` keeps the rank and omits the no-fire
+            back-action, a survivorship tilt of order ``|p_g - p_e|`` with no
+            effect on source-independent rates. Only meaningful at coherent
+            dormant sites.
 
     An operation with no representable effect on a leaked or lost operand --
     e.g. a two-qubit gate onto a vacated site -- is dropped, acting as the
@@ -304,13 +304,13 @@ def sample(
     ``None``, each call draws a fresh 256-bit root from OS entropy, so
     repeated or parallel unseeded calls sample fresh randomness.
 
-    ``max_rank`` caps the compiled peak rank under exact-mode compilation;
-    the cap is enforced at each continuation compile, failing with the
-    offending circuit line named instead of attempting a ``2**k``
-    allocation. The cap applies to each compiled module, including branches
-    a given shot never takes (such as the no-fire suffix past a
-    certain-fire annotation), so it is conservative: a rejected circuit may
-    keep every reachable trajectory within the cap. Unlimited when ``None``.
+    ``max_rank`` caps the compiled peak rank for each trajectory; the cap is
+    enforced at each continuation compile, failing with the offending circuit
+    line named instead of attempting a ``2**k`` allocation. The cap applies to
+    each compiled module, including branches a given shot never takes (such as
+    the no-fire suffix past a certain-fire annotation), so it is conservative:
+    a rejected circuit may keep every reachable trajectory within the cap.
+    Unlimited when ``None``.
     """
     if isinstance(circuit, str):
         circuit = _clifft_core.parse(circuit)

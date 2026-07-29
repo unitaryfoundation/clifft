@@ -1,4 +1,4 @@
-// Exact-mode driver implementation; exact_driver.h is the entry point.
+// Trajectory driver implementation; trajectory_driver.h is the entry point.
 //
 // Transition annotations on computational qubits remain VM instruments. When
 // one produces an outcome that the current module cannot finish, the VM stops
@@ -11,7 +11,7 @@
 // and herald flags) use one per-shot stream. VM measurements, noise, and
 // in-VM transition decisions use a separate per-shot stream; see seed.h.
 
-#include "clifft/noncomp/exact_driver.h"
+#include "clifft/noncomp/trajectory_driver.h"
 
 #include "clifft/backend/backend.h"
 #include "clifft/frontend/frontend.h"
@@ -130,7 +130,7 @@ Level draw_from_column(const TransitionInstrument& instrument, Level source,
 // instead of appending: a trap at op 2 can make op 3 driver-resolvable even
 // if op 5 was already sampled, changing the required order from [op 5] to
 // [op 3, op 5]. The rewriter consumes this vector sequentially.
-void extend_classical_outcomes(const Circuit& annotated, ExactShotEvents& events,
+void extend_classical_outcomes(const Circuit& annotated, TrajectoryEvents& events,
                                const NonComputationalModel& model, Xoshiro256PlusPlus& rng) {
     std::map<AnnotationTarget, Level> jump_dest;
     for (const ResolvedJump& jump : events.jumps) {
@@ -210,7 +210,7 @@ void extend_classical_outcomes(const Circuit& annotated, ExactShotEvents& events
 // driver-drawn transition outcomes. QubitStatus::Computational does not
 // distinguish g from e, so those initial levels share a compiled module; an
 // initial e is supplied separately through the shot's Pauli frame.
-std::string cache_key(const ExactShotEvents& events) {
+std::string cache_key(const TrajectoryEvents& events) {
     std::string key;
     key.reserve(events.initial_status.size() * 2 + 10 + events.jumps.size() * 9 +
                 events.classical_outcomes.size() * 10);
@@ -280,10 +280,10 @@ void check_max_rank(const CompiledModule& module, std::optional<uint32_t> max_ra
 }
 
 // Build the HIR pass pipeline from default passes that preserve measurement
-// record order. Exact mode may force a hidden trace-out measurement, so moving
+// record order. A trajectory may force a hidden trace-out measurement, so moving
 // an entangled measurement before that collapse would change the result. The
 // same pipeline is used for every continuation to preserve matching prefixes.
-HirPassManager exact_hir_pass_manager() {
+HirPassManager trajectory_hir_pass_manager() {
     HirPassManager pm;
     for (const auto& info : kRegisteredPasses) {
         if (info.kind == PassKind::HIR && info.default_enabled && info.record_order.preserved) {
@@ -294,7 +294,7 @@ HirPassManager exact_hir_pass_manager() {
 }
 
 // Apply the same record-order requirement to bytecode passes.
-BytecodePassManager exact_bytecode_pass_manager() {
+BytecodePassManager trajectory_bytecode_pass_manager() {
     BytecodePassManager pm;
     for (const auto& info : kRegisteredPasses) {
         if (info.kind == PassKind::Bytecode && info.default_enabled &&
@@ -459,9 +459,10 @@ void validate_model_contract(const Circuit& annotated, const NonComputationalMod
 
 }  // namespace
 
-NonComputationalSample run_exact_driver(const Circuit& circuit, const NonComputationalModel& model,
-                                        uint32_t shots, const SeedRoot& root,
-                                        std::optional<uint32_t> max_rank) {
+NonComputationalSample run_trajectory_driver(const Circuit& circuit,
+                                             const NonComputationalModel& model, uint32_t shots,
+                                             const SeedRoot& root,
+                                             std::optional<uint32_t> max_rank) {
     NonComputationalSample result;
     result.shots = shots;
     result.num_qubits = circuit.num_qubits;
@@ -540,7 +541,7 @@ NonComputationalSample run_exact_driver(const Circuit& circuit, const NonComputa
 
     // Cache one rewrite for each event record. Rewriting is deterministic and
     // consumes no randomness, so cache hits do not change sampling.
-    auto get_entry = [&](const ExactShotEvents& events, bool force_last) -> ContinuationEntry& {
+    auto get_entry = [&](const TrajectoryEvents& events, bool force_last) -> ContinuationEntry& {
         const std::string key = cache_key(events);
         auto [it, inserted] = cache.try_emplace(key);
         ContinuationEntry& entry = it->second;
@@ -605,13 +606,13 @@ NonComputationalSample run_exact_driver(const Circuit& circuit, const NonComputa
 #ifndef NDEBUG
             const std::vector<uint32_t> pre_pass_records = record_sequence(hir);
 #endif
-            exact_hir_pass_manager().run(hir);
+            trajectory_hir_pass_manager().run(hir);
 #ifndef NDEBUG
             assert(record_sequence(hir) == pre_pass_records &&
-                   "an exact-pipeline HIR pass reordered or removed a record op");
+                   "a trajectory-pipeline HIR pass reordered or removed a record op");
 #endif
             CompiledModule module = lower(hir);
-            exact_bytecode_pass_manager().run(module);
+            trajectory_bytecode_pass_manager().run(module);
             check_max_rank(module, max_rank);
             if (module.instrument_offsets.size() != entry.rw.site_targets.size()) {
                 throw std::logic_error(
@@ -648,7 +649,7 @@ NonComputationalSample run_exact_driver(const Circuit& circuit, const NonComputa
 
     // Common starting continuation for a shot with computational initial
     // statuses and no recorded jumps.
-    ExactShotEvents no_events;
+    TrajectoryEvents no_events;
     no_events.initial_status.assign(circuit.num_qubits, QubitStatus::Computational);
 
     // Reuse one state across shots. resume() can grow it for larger
@@ -670,11 +671,11 @@ NonComputationalSample run_exact_driver(const Circuit& circuit, const NonComputa
     std::optional<SchrodingerState> state_storage;
 
     for (uint32_t shot = 0; shot < shots; ++shot) {
-        const auto dw = derive_state(root, shot, kExactDriverDomain);
+        const auto dw = derive_state(root, shot, kTrajectoryDriverDomain);
         Xoshiro256PlusPlus driver_rng(0);
         driver_rng.seed_full(dw[0], dw[1], dw[2], dw[3]);
 
-        ExactShotEvents events;
+        TrajectoryEvents events;
         events.initial_status.reserve(circuit.num_qubits);
         // QubitStatus::Computational does not distinguish g from e. Keep the
         // sampled levels separately so an initial e can set the Pauli frame
@@ -744,7 +745,7 @@ NonComputationalSample run_exact_driver(const Circuit& circuit, const NonComputa
             }
         }
         SchrodingerState& state = *state_storage;
-        const auto sw = derive_state(root, shot, kExactSvmDomain);
+        const auto sw = derive_state(root, shot, kTrajectorySvmDomain);
         state.reseed_full(sw[0], sw[1], sw[2], sw[3]);
         assert(state.meas_record.size() >= module->total_meas_slots &&
                "the rebuild block above guarantees meas_record capacity; "

@@ -37,7 +37,7 @@ add_library(clifft_core STATIC
     noncomp/model.cc
     noncomp/status_walk.cc
     noncomp/rewriter.cc
-    noncomp/exact_driver.cc
+    noncomp/trajectory_driver.cc
     noncomp/sample.cc
 )
 

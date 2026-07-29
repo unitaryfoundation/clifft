@@ -440,7 +440,7 @@ def test_policy_knob_strings_validate():
         noncomp.Model(initial_state=ALL_G, damping="bogus")
 
 
-def test_loss_only_exact_mode_stays_at_stabilizer_cost():
+def test_loss_only_exact_damping_stays_at_stabilizer_cost():
     """Equal per-source rates (LOSS always qualifies) take the trap-form
     lowering under damping="exact", so a loss-only model compiles at the
     neglect rank -- max_rank=0 passes -- while the physics stays exact:

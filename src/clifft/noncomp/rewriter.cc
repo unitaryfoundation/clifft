@@ -164,7 +164,7 @@ void process_ordinary_node(const AstNode& node, uint32_t op_index,
 
 }  // namespace
 
-ContinuationRewrite rewrite_continuation(const Circuit& annotated, const ExactShotEvents& events,
+ContinuationRewrite rewrite_continuation(const Circuit& annotated, const TrajectoryEvents& events,
                                          bool force_last_traceout,
                                          const NonComputationalModel& model) {
     if (events.initial_status.size() != annotated.num_qubits) {
@@ -197,7 +197,7 @@ ContinuationRewrite rewrite_continuation(const Circuit& annotated, const ExactSh
     out = annotated.metadata_only_copy();
     out.nodes.reserve(annotated.nodes.size() + events.jumps.size() * 2);
 
-    // Do not emit an X for an initial |1>. Exact mode supplies it through the
+    // Do not emit an X for an initial |1>. The driver supplies it through the
     // per-shot Pauli frame, keeping the circuit nodes identical across shots
     // and continuations.
     std::vector<QubitStatus> status = events.initial_status;

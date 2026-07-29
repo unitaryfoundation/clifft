@@ -1,9 +1,9 @@
-"""Distributional cross-check of the exact mode against the dense reference.
+"""Distributional cross-check of trajectory sampling against the dense reference.
 
 The enumerator (``utils_noncomp_enumerator``) computes the exact joint
 distribution of the visible record from first principles; the tests here
 first self-check it against hand-derived closed forms, then compare
-clifft's exact-mode sampling to it on a distance-3 repetition-code round
+clifft's trajectory sampling to it on a distance-3 repetition-code round
 at cold-atom-magnitude rates, by total variation distance with a
 shot-noise band calibrated from the reference distribution itself.
 """
