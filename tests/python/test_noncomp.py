@@ -44,17 +44,6 @@ def test_level_names_and_indices():
     assert (int(noncomp.Level.G), int(noncomp.Level.LEAK_G), int(noncomp.Level.LOST)) == (0, 2, 4)
 
 
-def test_build_model_needs_no_level_ids():
-    # A full model is described by matrices + initial probabilities alone.
-    model = noncomp.Model(
-        initial_state=ALL_G,
-        transitions={"S": transition_to(LEAK_G)},
-        classifier=classifier_for(LEAK_G, [0.0, 1.0]),
-        reset_restores_lost=True,
-    )
-    assert isinstance(model, noncomp.Model)
-
-
 def test_initial_state_wrong_sum_raises():
     with pytest.raises(ValueError):
         noncomp.Model(initial_state=[0.5, 0.0, 0.0, 0.0, 0.0])
@@ -132,6 +121,27 @@ def test_initial_one_population_prep_is_deterministic():
     model = noncomp.Model(initial_state=ALL_E)
     r = noncomp.sample("M 0\n", model, shots=64, seed=3)
     assert (r.measurements == 1).all()
+
+
+@pytest.mark.parametrize(
+    "level,status,probability,seed",
+    [
+        (LEAK_G, noncomp.QubitStatus.LEAK_G, 0.3, 31),
+        (LOST, noncomp.QubitStatus.LOST, 0.5, 32),
+    ],
+)
+def test_initial_noncomputational_population_sampling(level, status, probability, seed):
+    initial = [0.0] * 5
+    initial[noncomp.Level.G] = 1.0 - probability
+    initial[level] = probability
+    model = noncomp.Model(
+        initial_state=initial,
+        classifier=classifier_for(level, [0.0, 1.0]),
+    )
+
+    r = noncomp.sample("M 0\n", model, shots=8000, seed=seed)
+    assert abs(float((r.final_status[:, 0] == status).mean()) - probability) < 0.04
+    assert abs(float(r.measurements[:, 0].mean()) - probability) < 0.04
 
 
 def test_state_independent_loss_changes_final_status():
@@ -540,12 +550,7 @@ def test_mx_measurement_of_a_lost_qubit_classifies():
 
 
 def test_zero_fire_loss_before_firing_loss_samples_cleanly():
-    """LOSS(0) before LOSS(0.5) must not shift site ids or abort.
-
-    Before the fix, LOSS(0) was incorrectly kept in the site table while
-    trace() elided it, causing a site-id mismatch that aborted in Debug or
-    segfaulted in Release.
-    """
+    """A zero-rate LOSS elided by trace() must not shift later site ids."""
     classifier = noncomp.Classifier([[1.0, 0.0, 1.0, 0.0, 0.0], [0.0, 1.0, 0.0, 1.0, 1.0]])
     model = noncomp.Model(initial_state=ALL_G, classifier=classifier)
     r = noncomp.sample("LOSS(0) 0\nLOSS(0.5) 0\nM 0\n", model, shots=64, seed=90)
@@ -561,11 +566,7 @@ def test_zero_fire_loss_before_firing_loss_samples_cleanly():
 
 
 def test_seepage_only_before_firing_site_samples_cleanly():
-    """A seepage-only LEVEL_TRANSITION before a firing site must not shift site ids.
-
-    A transition with column_sum(G)=column_sum(E)=0 is elided by trace() but
-    was previously kept in the site table, producing a site-id mismatch.
-    """
+    """A transition elided on computational sources must not shift later site ids."""
     seep = _zeros(5, 5)
     seep[LEAK_E][LEAK_E] = 1.0  # leak_e -> leak_e, only noncomp columns
 
@@ -728,20 +729,6 @@ def test_exp_val_probe_is_rejected():
         noncomp.sample("EXP_VAL Z0\n", noncomp.Model(), shots=1, seed=5)
 
 
-def test_memory_x_smoke():
-    """A stim-style memory-X circuit ending in MX on two data qubits samples cleanly."""
-    # Low-rate loss; data qubits measured in X basis at the end.
-    loss_col = [0.0, 1.0]  # lost reads 1
-    classifier = classifier_for(LOST, loss_col)
-    model = noncomp.Model(initial_state=ALL_G, transitions={}, classifier=classifier)
-    # Trivial memory-X: two X-basis initialisations, final MX measurement.
-    r = noncomp.sample("RX 0 1\nMX 0 1\n", model, shots=16, seed=207)
-    assert r.num_measurements == 2
-    assert r.measurements.shape == (16, 2)
-    # All computational (no loss here); X-basis reset then MX reads 0.
-    assert (r.measurements == 0).all()
-
-
 def test_contract_validated_for_zero_shots():
     """Validation is shot-count independent: shots=0 still rejects a
     leak-capable model that measures without a classifier."""
@@ -806,11 +793,6 @@ def test_fine_grained_leak_e_status():
     )
     r = noncomp.sample("S 0\n", model, shots=8, seed=77)
     assert (r.final_status == noncomp.QubitStatus.LEAK_E).all()
-
-
-def test_model_default_initial_state_constructs():
-    model = noncomp.Model()
-    assert isinstance(model, noncomp.Model)
 
 
 def test_model_default_initial_state_reads_zero():

@@ -105,9 +105,7 @@ ContinuationRewrite rewritten(const Circuit& c, const NonComputationalModel& mod
 
 }  // namespace
 
-// =========================================================================
 // Carrier edits for recorded jumps
-// =========================================================================
 
 TEST_CASE("rewrite: a coherent qubit's recorded jump to lost gets a trace-out R") {
     Circuit c = parse("H 0\nLEVEL_TRANSITION[lk] 0\n");
@@ -182,9 +180,7 @@ TEST_CASE("rewrite: an inserted R does not shift visible measurements or detecto
     REQUIRE(hir.num_hidden_measurements == base_hir.num_hidden_measurements + 1);
 }
 
-// =========================================================================
 // Policy scan: keep / drop / reject
-// =========================================================================
 
 TEST_CASE("rewrite: a two-qubit gate on a lost operand drops whole") {
     Circuit c = parse("CZ 0 1\nM 1\n");
@@ -263,9 +259,7 @@ TEST_CASE("rewrite: an X-basis measurement of a noncomputational qubit classifie
     REQUIRE(rw.classified_measurements[0].level == Level::Lost);
 }
 
-// =========================================================================
 // Classifier record writes
-// =========================================================================
 
 TEST_CASE("rewrite: a lost-qubit measurement becomes a classifier record write") {
     Circuit c = parse("M 0\n");
@@ -468,9 +462,7 @@ TEST_CASE("rewrite: a non-restoring lost MRX drops its X-basis reset half") {
     REQUIRE(rw.final_status[0] == clifft::QubitStatus::Lost);
 }
 
-// =========================================================================
 // Computational readout confusion
-// =========================================================================
 
 namespace {
 
@@ -573,9 +565,7 @@ TEST_CASE("rewrite: a computational column with herald mass rejects") {
                         ContainsSubstring("record symbols 0 and 1") && ContainsSubstring("'g'"));
 }
 
-// =========================================================================
 // Transition-hook expansion
-// =========================================================================
 
 TEST_CASE("transition hooks: expand to per-operand LEVEL_TRANSITION annotations") {
     Circuit c = parse("H 0\nCZ 0 1\nM 0\n");
@@ -615,9 +605,7 @@ TEST_CASE("transition hooks: an unhooked model leaves the circuit unchanged") {
     REQUIRE(ann.nodes.size() == c.nodes.size());
 }
 
-// =========================================================================
 // Zero-fire site elision: site_targets / trace() alignment
-// =========================================================================
 
 TEST_CASE("rewrite: a zero-fire annotation is omitted from the node stream and site table") {
     // One LEVEL_TRANSITION[zero] (column_sum(G) = column_sum(E) = 0) before
@@ -672,9 +660,7 @@ TEST_CASE("rewrite: a malformed LOSS annotation rejects instead of reading past 
     }
 }
 
-// =========================================================================
 // Correlated-chain passthrough
-// =========================================================================
 
 TEST_CASE("rewrite: a correlated chain whose head operand is lost survives the rewrite intact") {
     // Both the CORRELATED_ERROR head and its ELSE_CORRELATED_ERROR member

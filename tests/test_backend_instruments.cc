@@ -48,9 +48,7 @@ size_t sole_instrument_index(const CompiledModule& module) {
 
 }  // namespace
 
-// =============================================================================
 // Classification
-// =============================================================================
 
 TEST_CASE("lowering: a fresh-qubit site is dormant-static with its spec in the pool") {
     auto module =
@@ -181,9 +179,7 @@ TEST_CASE("lowering: an entangled site still localizes to one instrument") {
     REQUIRE(flip.x().popcount() + flip.z().popcount() > 0);
 }
 
-// =============================================================================
 // Offset table and prefix identity
-// =============================================================================
 
 TEST_CASE("lowering: offsets stay valid through the default bytecode passes") {
     // Noise before the site coalesces into a block under the default

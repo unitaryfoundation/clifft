@@ -7,10 +7,9 @@
 //     marginal) exercise classifier injection and the end-to-end pipeline.
 //     They do NOT, on their own, validate the hidden trace-out: once a lost
 //     qubit's record is replaced by MPAD(classifier_bit) and the qubit never
-//     re-enters the circuit, a ghost-entangled carrier is observationally
-//     identical to a traced-out one on the surviving qubit (a Bell-pair half is
-//     I/2 either way). Distinguishing the two would need the carrier to
-//     re-enter -- out of scope here.
+//     re-enters the circuit, leaving it in the simulated state gives the same
+//     survivor marginal as tracing it out (a Bell-pair half is I/2 either way).
+//     Distinguishing the two would require the qubit to re-enter the circuit.
 //   * Structure: rewriting the Bell loss circuit inserts exactly one hidden
 //     trace-out R at the loss site, lowering to one surviving hidden
 //     measurement. This is the check that the partial-trace unraveling is

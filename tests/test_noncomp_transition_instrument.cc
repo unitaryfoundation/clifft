@@ -21,9 +21,7 @@ using clifft::test::opaque_nan;
 using clifft::test::RawProbabilityMatrix;
 using clifft::test::zero_transition_matrix;
 
-// =========================================================================
 // Shape validation
-// =========================================================================
 
 TEST_CASE("TransitionInstrument: accepts a zero matrix") {
     REQUIRE_NOTHROW(TransitionInstrument::from_matrix(zero_transition_matrix()));
@@ -42,9 +40,7 @@ TEST_CASE("TransitionInstrument: rejects jagged row width") {
                         ContainsSubstring("row 2") && ContainsSubstring("4 columns"));
 }
 
-// =========================================================================
 // Entry / column-sum validation
-// =========================================================================
 
 TEST_CASE("TransitionInstrument: rejects negative entry") {
     RawProbabilityMatrix m = zero_transition_matrix();
@@ -107,9 +103,7 @@ TEST_CASE("TransitionInstrument: column sum within tolerance above 1 is clamped"
     REQUIRE(instr.column_sum(Level::G) == 1.0);
 }
 
-// =========================================================================
 // Accessors
-// =========================================================================
 
 TEST_CASE("TransitionInstrument: column_sum matches the matrix") {
     RawProbabilityMatrix m = zero_transition_matrix();

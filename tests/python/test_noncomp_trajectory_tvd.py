@@ -28,16 +28,15 @@ def _classifier_matrix() -> list[list[float]]:
     return m
 
 
-def _model(initial: list, transitions: dict, damping: str = "exact") -> noncomp.Model:
+def _model(initial: list, transitions: dict) -> noncomp.Model:
     return noncomp.Model(
         initial_state=initial,
         transitions=transitions,
         classifier=noncomp.Classifier(_classifier_matrix()),
-        damping=damping,
     )
 
 
-# --- Enumerator self-checks against hand-derived closed forms -----------------
+# Enumerator self-checks against hand-derived results.
 
 
 def test_enumerator_lossless_bell_joint():
@@ -101,7 +100,7 @@ def test_enumerator_initial_leak_and_recapture():
     assert abs(dist.record_probs[(0,)] - (1 - seep)) < 1e-12
 
 
-# --- Repetition-code round: TVD to the dense reference ------------------------
+# Repetition-code comparison with the dense reference.
 
 # Cold-atom-magnitude rates, scaled x3 so a correlation-class error would
 # stand above the shot-noise band while staying in the published regime.
@@ -154,19 +153,17 @@ def _status_kind_fractions(noncomp_probs: dict[int, float]) -> tuple[float, floa
     return leaked, lost
 
 
-def _run_and_compare(damping: str, seed: int) -> None:
+def _run_and_compare(seed: int) -> None:
     reference = en.enumerate_exact(
         REP_CODE_ROUND,
         initial=INITIAL,
         transitions=TRANSITIONS,
         classifier=_classifier_matrix(),
-        damping=damping,
+        damping="exact",
     )
     assert reference.dropped_mass < 1e-6
 
-    r = noncomp.sample(
-        REP_CODE_ROUND, _model(INITIAL, TRANSITIONS, damping=damping), shots=SHOTS, seed=seed
-    )
+    r = noncomp.sample(REP_CODE_ROUND, _model(INITIAL, TRANSITIONS), shots=SHOTS, seed=seed)
     empirical = en.empirical_record_probs(np.asarray(r.measurements))
 
     band = _shot_noise_band(reference.record_probs, SHOTS) + reference.dropped_mass
@@ -187,18 +184,4 @@ def _run_and_compare(damping: str, seed: int) -> None:
 
 
 def test_rep_code_round_tvd_reaches_shot_noise():
-    _run_and_compare("exact", seed=21)
-
-
-def test_rep_code_round_tvd_under_neglect_matches_its_own_reference():
-    """The neglect fallback must match the reference that omits the no-fire filter.
-
-    This exercises neglect end-to-end against the enumerator at
-    repetition-code rates; the sharp neglect-mode checks are
-    ``test_damping_boundary_probe_separates_exact_from_neglect`` (which
-    separates exact from neglect by a closed-form O(p) gap on a single
-    site) and ``test_neglect_bell_correlation_probe`` (which checks the
-    forced trace-out at the Bell-correlation level).  At the cold-atom
-    magnitudes used here, exact and neglect differ by O(p^2), well below
-    the shot-noise band, so this test cannot distinguish the two modes."""
-    _run_and_compare("neglect", seed=22)
+    _run_and_compare(seed=21)

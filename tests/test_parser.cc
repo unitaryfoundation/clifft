@@ -1982,7 +1982,7 @@ TEST_CASE("LEVEL_TRANSITION parses a tag and plain qubit targets") {
     REQUIRE(c.num_measurements == 0);
 }
 
-TEST_CASE("LEVEL_TRANSITION rejects malformed tags, args, and targets") {
+TEST_CASE("LEVEL_TRANSITION rejects malformed tags and operands") {
     CHECK_THROWS_AS(parse("LEVEL_TRANSITION 0\n"), ParseError);                // missing tag
     CHECK_THROWS_AS(parse("LEVEL_TRANSITION[] 0\n"), ParseError);              // empty tag
     CHECK_THROWS_AS(parse("LEVEL_TRANSITION[open 0\n"), ParseError);           // unclosed bracket
