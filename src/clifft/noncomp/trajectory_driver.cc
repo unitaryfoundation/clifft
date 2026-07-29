@@ -750,6 +750,11 @@ NonComputationalSample run_trajectory_driver(const Circuit& circuit,
             // the continuation bytecode independent of the g/e source.
             const bool force = trap.destination_pending;
             const uint32_t prefix_end = module->instrument_offsets[trap.site_id] + 1;
+
+            // Rebuild from the original circuit using all events seen so far.
+            // The new module reproduces the executed prefix and specializes
+            // the remaining suffix; resume() skips the prefix and continues
+            // immediately after this instrument.
             ContinuationRewrite next_rewrite =
                 rewrite_continuation(annotated, events, force, model);
             const std::vector<uint8_t> next_flags = flags_for(next_rewrite);
