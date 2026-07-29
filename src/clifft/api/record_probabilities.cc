@@ -99,24 +99,9 @@ void assert_record_probabilities_program_is_supported(const CompiledModule& prog
 // and FLAG_IDENTITY are preserved.
 void rewrite_for_forced_execution(std::vector<Instruction>& bytecode) {
     for (auto& instr : bytecode) {
-        switch (instr.opcode) {
-            case Opcode::OP_MEAS_DORMANT_STATIC:
-                instr.opcode = Opcode::OP_MEAS_DORMANT_STATIC_FORCED;
-                break;
-            case Opcode::OP_MEAS_DORMANT_RANDOM:
-                instr.opcode = Opcode::OP_MEAS_DORMANT_RANDOM_FORCED;
-                break;
-            case Opcode::OP_MEAS_ACTIVE_DIAGONAL:
-                instr.opcode = Opcode::OP_MEAS_ACTIVE_DIAGONAL_FORCED;
-                break;
-            case Opcode::OP_MEAS_ACTIVE_INTERFERE:
-                instr.opcode = Opcode::OP_MEAS_ACTIVE_INTERFERE_FORCED;
-                break;
-            case Opcode::OP_SWAP_MEAS_INTERFERE:
-                instr.opcode = Opcode::OP_SWAP_MEAS_INTERFERE_FORCED;
-                break;
-            default:
-                break;
+        if (const std::optional<Opcode> forced = forced_measurement_opcode(instr.opcode);
+            forced.has_value()) {
+            instr.opcode = *forced;
         }
     }
 }

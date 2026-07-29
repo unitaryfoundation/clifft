@@ -1,11 +1,12 @@
-// Trajectory driver implementation; trajectory_driver.h is the entry point.
+// Drives simulation of circuits with noncomputational transitions.
 //
-// Transition annotations on computational qubits remain VM instruments. When
-// one produces an outcome that the current module cannot finish, the VM stops
-// and reports a trap. The driver records the jump, rewrites and compiles the
-// matching continuation, and resumes after that transition. Transitions reached
-// while a qubit is leaked or lost are drawn here before the continuation is
-// compiled.
+// Transition annotations compile to VM instructions. The VM applies an outcome
+// directly when the current compiled circuit can continue from it. Otherwise it
+// stops at the transition and reports a trap. The driver records the event,
+// rewrites and compiles a compatible continuation, and resumes the existing VM
+// state after the trapped instruction. Transitions reached while a qubit is
+// already leaked or lost are sampled here before compiling the next
+// continuation.
 //
 // Driver draws (initial levels, transition destinations, classical outcomes,
 // and herald flags) use one per-shot stream. VM measurements, noise, and
@@ -41,26 +42,53 @@ namespace clifft {
 namespace {
 
 // The channel described by one transition annotation: a named instrument for
-// LEVEL_TRANSITION or a uniform loss probability for LOSS.
+// LEVEL_TRANSITION or a uniform loss probability for LOSS. A null instrument
+// identifies the LOSS representation.
 struct AnnotationChannel {
-    const TransitionInstrument* instrument = nullptr;  // null for LOSS
-    double loss_p = 0.0;
+    const TransitionInstrument* instrument;
+    double loss_probability;
+
+    bool is_loss() const { return instrument == nullptr; }
 };
 
-AnnotationChannel resolve_annotation(const AstNode& node, const NonComputationalModel& model,
-                                     uint32_t op_index) {
-    AnnotationChannel channel;
+[[nodiscard]] AnnotationChannel resolve_annotation(const AstNode& node,
+                                                   const NonComputationalModel& model,
+                                                   uint32_t op_index) {
     if (node.gate == GateType::LOSS) {
-        channel.loss_p = loss_probability(node.args, op_index, "sample_noncomputational");
-        return channel;
+        return {nullptr, loss_probability(node.args, op_index, "sample_noncomputational")};
     }
-    channel.instrument = model.transition_named(node.tag);
-    if (channel.instrument == nullptr) {
+    const TransitionInstrument* instrument = model.transition_named(node.tag);
+    if (instrument == nullptr) {
         throw std::invalid_argument("sample_noncomputational: LEVEL_TRANSITION[" + node.tag +
                                     "] at op " + std::to_string(op_index) +
                                     " does not name a transition in the model");
     }
-    return channel;
+    return {instrument, 0.0};
+}
+
+// Resolving validates the LOSS arguments or transition name; the remaining
+// checks enforce the target shape expected by the driver and rewriter.
+void validate_annotation(const AstNode& node, const NonComputationalModel& model, uint32_t op_index,
+                         uint32_t num_qubits) {
+    (void)resolve_annotation(node, model, op_index);
+    if (node.targets.empty()) {
+        throw std::invalid_argument(
+            "sample_noncomputational: annotation '" + std::string(gate_name(node.gate)) +
+            "' at op " + std::to_string(op_index) + " requires at least one qubit target");
+    }
+    for (const Target& target : node.targets) {
+        if (target.is_rec() || target.has_pauli() || target.is_inverted()) {
+            throw std::invalid_argument("sample_noncomputational: annotation '" +
+                                        std::string(gate_name(node.gate)) + "' at op " +
+                                        std::to_string(op_index) + " requires plain qubit targets");
+        }
+        if (target.value() >= num_qubits) {
+            throw std::invalid_argument("sample_noncomputational: annotation '" +
+                                        std::string(gate_name(node.gate)) + "' target qubit " +
+                                        std::to_string(target.value()) + " is out of range at op " +
+                                        std::to_string(op_index));
+        }
+    }
 }
 
 // Draw one qubit's initial level. If floating-point rounding leaves the draw
@@ -86,7 +114,7 @@ Level draw_initial_level(const NonComputationalModel& model, Xoshiro256PlusPlus&
 // Draw among the destination levels accepted by `admit`, renormalizing their
 // probabilities. If rounding leaves the draw just past the accumulated total,
 // return the last accepted level with nonzero probability. Consumes one RNG
-// draw.
+// draw. `admit(Level)` returns true for destinations included in the draw.
 template <typename Admit>
 Level draw_from_column(const TransitionInstrument& instrument, Level source,
                        Xoshiro256PlusPlus& rng, Admit&& admit) {
@@ -158,50 +186,47 @@ void extend_classical_outcomes(const Circuit& annotated, TrajectoryEvents& event
                     if (jump != jump_dest.end()) {
                         status[qubit] = status_for(jump->second);
                     }
-                    continue;
-                }
-                const Level source = noncomp_level(pre);
-                const AnnotationTarget annotation_target{op_index, qubit};
-                const auto seen = drawn.find(annotation_target);
-                if (seen != drawn.end()) {
-                    if (seen->second.source_level != source) {
-                        throw std::logic_error(
-                            "sample_noncomputational: classical outcome reuse at op " +
-                            std::to_string(op_index) + ", qubit " + std::to_string(qubit) +
-                            " no longer matches the qubit's source level (drawn at level '" +
-                            level_name(seen->second.source_level) + "', qubit now has level '" +
-                            level_name(source) + "')");
+                } else {
+                    const Level source = noncomp_level(pre);
+                    const AnnotationTarget annotation_target{op_index, qubit};
+                    const auto seen = drawn.find(annotation_target);
+                    ClassicalOutcome outcome{annotation_target, std::nullopt, source};
+                    if (seen != drawn.end()) {
+                        if (seen->second.source_level != source) {
+                            throw std::logic_error(
+                                "sample_noncomputational: classical outcome reuse at op " +
+                                std::to_string(op_index) + ", qubit " + std::to_string(qubit) +
+                                " no longer matches the qubit's source level (drawn at level '" +
+                                level_name(seen->second.source_level) + "', qubit now has level '" +
+                                level_name(source) + "')");
+                        }
+                        outcome = seen->second;
+                    } else {
+                        const AnnotationChannel channel = resolve_annotation(node, model, op_index);
+                        if (!channel.is_loss()) {
+                            const double total = channel.instrument->column_sum(source);
+                            if (rng.next_double() < total) {
+                                outcome.destination = draw_from_column(
+                                    *channel.instrument, source, rng, [](Level) { return true; });
+                            }
+                        } else if (!is_lost(pre) && rng.next_double() < channel.loss_probability) {
+                            // LOSS can move a leaked qubit to Lost. An already-lost
+                            // qubit records a no-op without spending a draw.
+                            outcome.destination = Level::Lost;
+                        }
                     }
-                    ordered.push_back(seen->second);
-                    if (seen->second.destination.has_value()) {
-                        status[qubit] = status_for(*seen->second.destination);
+                    ordered.push_back(outcome);
+                    if (outcome.destination.has_value()) {
+                        status[qubit] = status_for(*outcome.destination);
                     }
-                    continue;
-                }
-                const AnnotationChannel channel = resolve_annotation(node, model, op_index);
-                ClassicalOutcome outcome{annotation_target, std::nullopt, source};
-                if (channel.instrument != nullptr) {
-                    const double total = channel.instrument->column_sum(source);
-                    if (rng.next_double() < total) {
-                        outcome.destination = draw_from_column(*channel.instrument, source, rng,
-                                                               [](Level) { return true; });
-                    }
-                } else if (!is_lost(pre) && rng.next_double() < channel.loss_p) {
-                    // LOSS can move a leaked qubit to Lost. An already-lost
-                    // qubit records a no-op without spending a draw.
-                    outcome.destination = Level::Lost;
-                }
-                ordered.push_back(outcome);
-                if (outcome.destination.has_value()) {
-                    status[qubit] = status_for(*outcome.destination);
                 }
             }
-            continue;
+        } else {
+            // Apply the same status update the rewriter uses for ordinary
+            // operations.
+            advance_ordinary_node(node, op_index, status, model.policy(),
+                                  "sample_noncomputational");
         }
-        // Apply the same status update the rewriter uses for ordinary
-        // operations.
-        advance_ordinary_node(annotated.nodes[op_index], op_index, status, model.policy(),
-                              "sample_noncomputational");
     }
     events.classical_outcomes = std::move(ordered);
 }
@@ -320,40 +345,21 @@ std::vector<uint32_t> record_sequence(const HirModule& hir) {
 }
 #endif
 
-// Return the forced-outcome version of a measurement opcode. Both versions
-// write the same slot, but the forced version reads the result from
-// state.forced_record. Return NUM_OPCODES for other instructions.
-Opcode forced_opcode(Opcode op) {
-    switch (op) {
-        case Opcode::OP_MEAS_DORMANT_STATIC:
-            return Opcode::OP_MEAS_DORMANT_STATIC_FORCED;
-        case Opcode::OP_MEAS_DORMANT_RANDOM:
-            return Opcode::OP_MEAS_DORMANT_RANDOM_FORCED;
-        case Opcode::OP_MEAS_ACTIVE_DIAGONAL:
-            return Opcode::OP_MEAS_ACTIVE_DIAGONAL_FORCED;
-        case Opcode::OP_MEAS_ACTIVE_INTERFERE:
-            return Opcode::OP_MEAS_ACTIVE_INTERFERE_FORCED;
-        case Opcode::OP_SWAP_MEAS_INTERFERE:
-            return Opcode::OP_SWAP_MEAS_INTERFERE_FORCED;
-        default:
-            return Opcode::NUM_OPCODES;
-    }
-}
-
-// Replace the hidden trace-out measurement at `slot` with its forced-outcome
-// opcode. resume() then reads the VM-selected source from
-// state.forced_record[slot] instead of drawing another result. Bytecode passes
-// do not renumber measurement slots, so the slot remains valid after
-// optimization.
+// A trap-form instrument reports a source but leaves the qubit uncollapsed.
+// The rewritten continuation inserts a reset to apply that collapse and
+// prepare the selected destination. Its hidden measurement must reuse the
+// source already selected by the VM rather than draw a second outcome, so
+// replace that measurement with its forced-outcome opcode. Bytecode passes do
+// not renumber measurement slots, so `slot` remains valid after optimization.
 void swap_traceout_to_forced(CompiledModule& module, size_t slot) {
     size_t found = 0;
     for (Instruction& instr : module.bytecode) {
-        const Opcode forced = forced_opcode(instr.opcode);
-        if (forced == Opcode::NUM_OPCODES) {
+        const std::optional<Opcode> forced = forced_measurement_opcode(instr.opcode);
+        if (!forced.has_value()) {
             continue;
         }
         if (instr.classical.classical_idx == slot) {
-            instr.opcode = forced;
+            instr.opcode = *forced;
             ++found;
         }
     }
@@ -364,19 +370,24 @@ void swap_traceout_to_forced(CompiledModule& module, size_t slot) {
     }
 }
 
+#ifndef NDEBUG
 // Compare instructions while allowing the expected sampling-to-forced opcode
-// change. Every other byte must match the module that already executed.
+// change. Bytewise equality is deliberate: resume requires the continuation
+// prefix to match the module that already executed, not merely to be
+// semantically equivalent.
 bool equal_modulo_forced_swap(const Instruction& fresh, const Instruction& executed) {
     if (std::memcmp(&fresh, &executed, sizeof(Instruction)) == 0) {
         return true;
     }
-    if (forced_opcode(fresh.opcode) != executed.opcode) {
+    const std::optional<Opcode> forced = forced_measurement_opcode(fresh.opcode);
+    if (!forced.has_value() || *forced != executed.opcode) {
         return false;
     }
     Instruction swapped = fresh;
     swapped.opcode = executed.opcode;
     return std::memcmp(&swapped, &executed, sizeof(Instruction)) == 0;
 }
+#endif
 
 // Validate the circuit features that require model-wide knowledge. If the
 // model can ever leak or lose a qubit, parity measurements are unsupported and
@@ -482,27 +493,7 @@ NonComputationalSample run_trajectory_driver(const Circuit& circuit,
          ++op_index) {
         const AstNode& node = annotated.nodes[op_index];
         if (node.gate == GateType::LEVEL_TRANSITION || node.gate == GateType::LOSS) {
-            resolve_annotation(node, model, op_index);
-            if (node.targets.empty()) {
-                throw std::invalid_argument(
-                    "sample_noncomputational: annotation '" + std::string(gate_name(node.gate)) +
-                    "' at op " + std::to_string(op_index) + " requires at least one qubit target");
-            }
-            for (const Target& target : node.targets) {
-                if (target.is_rec() || target.has_pauli() || target.is_inverted()) {
-                    throw std::invalid_argument("sample_noncomputational: annotation '" +
-                                                std::string(gate_name(node.gate)) + "' at op " +
-                                                std::to_string(op_index) +
-                                                " requires plain qubit targets");
-                }
-                if (target.value() >= annotated.num_qubits) {
-                    throw std::invalid_argument("sample_noncomputational: annotation '" +
-                                                std::string(gate_name(node.gate)) +
-                                                "' target qubit " + std::to_string(target.value()) +
-                                                " is out of range at op " +
-                                                std::to_string(op_index));
-                }
-            }
+            validate_annotation(node, model, op_index, annotated.num_qubits);
         }
         // The parser emits one node per target for ordinary measurements, and
         // the rewrite relies on that shape when assigning record slots. MPP is
@@ -781,10 +772,10 @@ NonComputationalSample run_trajectory_driver(const Circuit& circuit,
                    "the VM reports the collapsed source as a computational axis index");
             const Level source = static_cast<Level>(trap.source);
             Level dest = Level::Lost;
-            if (channel.instrument != nullptr && trap.destination_pending) {
+            if (!channel.is_loss() && trap.destination_pending) {
                 dest = draw_from_column(*channel.instrument, source, driver_rng,
                                         [](Level) { return true; });
-            } else if (channel.instrument != nullptr) {
+            } else if (!channel.is_loss()) {
                 dest = draw_from_column(*channel.instrument, source, driver_rng,
                                         [](Level to) { return !is_computational(to); });
             }

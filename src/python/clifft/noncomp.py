@@ -304,6 +304,11 @@ def sample(
     ``None``, each call draws a fresh 256-bit root from OS entropy, so
     repeated or parallel unseeded calls sample fresh randomness.
 
+    Continuations are compiled with the default optimization passes that
+    preserve measurement-record order. Custom pass managers are not currently
+    accepted because every continuation must preserve the bytecode prefix
+    already executed by the shot.
+
     ``max_rank`` caps the compiled peak rank for each trajectory; the cap is
     enforced at each continuation compile, failing with the offending circuit
     line named instead of attempting a ``2**k`` allocation. The cap applies to
