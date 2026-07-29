@@ -15,7 +15,7 @@ InstrumentTraceOptions instrument_trace_options(const NonComputationalModel& mod
         // p_computational_dest retains its G/E destination entries. Their
         // difference is the aggregate LeakG/LeakE/Lost trap probability.
         // Columns sourced at a noncomputational level stay in the model and
-        // are consulted classically by the exact-mode driver.
+        // are consulted classically by the trajectory driver.
         for (int s = 0; s < 2; ++s) {
             probabilities.p_fire[s] = instrument.column_sum(computational[s]);
             for (int d = 0; d < 2; ++d) {

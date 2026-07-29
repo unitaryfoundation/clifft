@@ -1,11 +1,10 @@
-// Exact-mode continuation rewrite: the circuit-level half of the trap
-// protocol. rewrite_continuation() rebuilds the full circuit under a
-// shot's resolved events -- prefix verbatim (bit-identical compilation is
-// what re-entry relies on), annotations kept wherever their qubit is
-// still computational, classical-source consults consumed with pre-drawn
-// outcomes, and the trapped jump's carrier edit inserted at the suffix
-// start, with its hidden trace-out slot reported when the driver must
-// force it.
+// Continuation rewriting is the circuit-level half of the trap protocol.
+// rewrite_continuation() rebuilds the full circuit under a shot's resolved
+// events -- prefix verbatim (bit-identical compilation is what re-entry relies
+// on), annotations kept wherever their qubit is still computational,
+// classical-source consults consumed with pre-drawn outcomes, and the trapped
+// jump's carrier edit inserted at the suffix start, with its hidden trace-out
+// slot reported when the driver must force it.
 
 #include "clifft/circuit/parser.h"
 #include "clifft/noncomp/model.h"
@@ -68,7 +67,7 @@ TEST_CASE("continuation: empty events reproduce the annotated circuit verbatim")
     auto annotated =
         expand_transition_hooks(parse("H 0\nLEVEL_TRANSITION[leak] 0\nCX 0 1\nM 0\nM 1"), model);
 
-    ExactShotEvents events;
+    TrajectoryEvents events;
     events.initial_status = computational_initials(2);
 
     auto result = rewrite_continuation(annotated, events, /*force_last_traceout=*/false, model);
@@ -86,7 +85,7 @@ TEST_CASE("continuation: a trapped jump keeps its annotation and inserts the tra
     auto circuit = parse("H 0\nLEVEL_TRANSITION[leak] 0\nCX 0 1\nM 0\nM 1");
     auto annotated = expand_transition_hooks(circuit, model);
 
-    ExactShotEvents events;
+    TrajectoryEvents events;
     events.initial_status = computational_initials(2);
     // This explicit annotation remains node 1 because the model has no gate hooks.
     events.jumps.push_back({{/*op_index=*/1, /*qubit=*/0}, /*destination_level=*/Level::LeakE});
@@ -116,7 +115,7 @@ TEST_CASE("continuation: classical-source consults consume pre-drawn outcomes") 
         parse("LEVEL_TRANSITION[leak] 0\nLEVEL_TRANSITION[leak] 0\nLEVEL_TRANSITION[leak] 0\nM 0");
     auto annotated = expand_transition_hooks(circuit, model);
 
-    ExactShotEvents events;
+    TrajectoryEvents events;
     events.initial_status = computational_initials(1);
     events.jumps.push_back({{0, 0}, Level::LeakE});
     events.classical_outcomes.push_back({{/*op_index=*/1, /*qubit=*/0},
@@ -143,7 +142,7 @@ TEST_CASE("continuation: the forced trace-out node names the trace-out R in the 
     auto circuit = parse("R 1\nH 0\nLEVEL_TRANSITION[leak] 0\nM 0");
     auto annotated = expand_transition_hooks(circuit, model);
 
-    ExactShotEvents events;
+    TrajectoryEvents events;
     events.initial_status = computational_initials(2);
     events.jumps.push_back({{2, 0}, Level::LeakE});
 
@@ -162,7 +161,7 @@ TEST_CASE("continuation: the forced trace-out node is correct with multiple prio
     auto circuit = parse("R 1\nR 2\nH 0\nLEVEL_TRANSITION[leak] 0\nM 0");
     auto annotated = expand_transition_hooks(circuit, model);
 
-    ExactShotEvents events;
+    TrajectoryEvents events;
     events.initial_status = computational_initials(3);
     events.jumps.push_back({{3, 0}, Level::LeakE});  // the annotation is node 3
 
@@ -178,18 +177,18 @@ TEST_CASE("continuation: events that do not describe the circuit reject") {
     auto model = demo_model();
     auto annotated = expand_transition_hooks(parse("LEVEL_TRANSITION[leak] 0\nM 0"), model);
 
-    ExactShotEvents base;
+    TrajectoryEvents base;
     base.initial_status = computational_initials(1);
 
     SECTION("a jump with no matching computational transition") {
-        ExactShotEvents events = base;
+        TrajectoryEvents events = base;
         events.jumps.push_back({{5, 0}, Level::LeakE});
         REQUIRE_THROWS_WITH(
             rewrite_continuation(annotated, events, false, model),
             ContainsSubstring("do not match transition annotations on computational qubits"));
     }
     SECTION("an outcome with no matching leaked or lost transition") {
-        ExactShotEvents events = base;
+        TrajectoryEvents events = base;
         events.classical_outcomes.push_back({{0, 0}, std::nullopt, Level::G});
         REQUIRE_THROWS_WITH(rewrite_continuation(annotated, events, false, model),
                             ContainsSubstring("more leaked or lost transition outcomes"));
@@ -197,7 +196,7 @@ TEST_CASE("continuation: events that do not describe the circuit reject") {
     SECTION("an outcome drawn at a different source level") {
         // A leaked initial means op 0 uses a pre-drawn outcome; this outcome
         // incorrectly claims it was drawn at a computational level.
-        ExactShotEvents events = base;
+        TrajectoryEvents events = base;
         events.initial_status[0] = QubitStatus::LeakE;
         events.classical_outcomes.push_back({{/*op_index=*/0, /*qubit=*/0},
                                              /*destination=*/std::nullopt,
@@ -209,7 +208,7 @@ TEST_CASE("continuation: events that do not describe the circuit reject") {
         // Every recorded jump emits a carrier reset, so the forced form
         // always has one to point at. Rewritten stream: [LEVEL_TRANSITION,
         // R (trace-out), MPAD], so the trace-out R is at node index 1.
-        ExactShotEvents events = base;
+        TrajectoryEvents events = base;
         events.jumps.push_back({{0, 0}, Level::LeakE});
         auto result = rewrite_continuation(annotated, events, true, model);
         REQUIRE(result.forced_traceout_node == 1);  // index in the rewritten stream

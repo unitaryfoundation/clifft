@@ -1,6 +1,6 @@
 #pragma once
 
-// Exact-mode driver for level transitions such as leak, loss, and decay.
+// Trajectory driver for level transitions such as leak, loss, and decay.
 //
 // Each shot samples its initial levels, then runs transitions on computational
 // qubits as VM instruments. If the VM cannot finish a transition, it stops and
@@ -22,8 +22,9 @@
 
 namespace clifft {
 
-NonComputationalSample run_exact_driver(const Circuit& circuit, const NonComputationalModel& model,
-                                        uint32_t shots, const SeedRoot& root,
-                                        std::optional<uint32_t> max_rank);
+NonComputationalSample run_trajectory_driver(const Circuit& circuit,
+                                             const NonComputationalModel& model, uint32_t shots,
+                                             const SeedRoot& root,
+                                             std::optional<uint32_t> max_rank);
 
 }  // namespace clifft

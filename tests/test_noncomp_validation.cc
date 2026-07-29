@@ -190,7 +190,7 @@ TEST_CASE("validation: losing a Bell-pair qubit inserts the hidden trace-out R a
     Circuit annotated = expand_transition_hooks(c, model);
     // The recorded jump is what the driver stores when the site traps: the
     // deterministic loss on qubit 0 at the expanded annotation.
-    clifft::ExactShotEvents events;
+    clifft::TrajectoryEvents events;
     events.initial_status.assign(2, clifft::QubitStatus::Computational);
     events.jumps.push_back(
         {{/*op_index=*/3, /*qubit=*/0}, /*destination_level=*/clifft::Level::Lost});
@@ -206,7 +206,7 @@ TEST_CASE("validation: losing a Bell-pair qubit inserts the hidden trace-out R a
     // The visible measurement count is unchanged (the record layout is
     // stable). The baseline is the same rewrite with no jump recorded, so
     // both sides carry the identical live instrument site.
-    clifft::ExactShotEvents no_events;
+    clifft::TrajectoryEvents no_events;
     no_events.initial_status = events.initial_status;
     Circuit base_c = rewrite_continuation(annotated, no_events, false, model).circuit;
     clifft::InstrumentTraceOptions options = clifft::instrument_trace_options(model);

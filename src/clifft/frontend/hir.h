@@ -119,7 +119,7 @@ inline constexpr PauliMaskHandle kNoMask = static_cast<PauliMaskHandle>(~uint32_
 //         - p_computational_dest[s][E].
 //
 // The last quantity aggregates destinations LeakG, LeakE, and Lost. A fire
-// into that remainder traps to the exact-mode driver, which consults the
+// into that remainder traps to the trajectory driver, which consults the
 // original matrix to choose the specific noncomputational destination.
 // Columns whose source is already noncomputational are handled classically
 // by the driver and never enter this HIR representation. The no-fire

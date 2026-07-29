@@ -19,8 +19,8 @@ namespace clifft {
 
 // Driver-side draws (initial levels, trap destinations, classical
 // consults, herald flags) vs. the in-VM Born measurement randomness.
-inline constexpr uint64_t kExactDriverDomain = 0x11;
-inline constexpr uint64_t kExactSvmDomain = 0x12;
+inline constexpr uint64_t kTrajectoryDriverDomain = 0x11;
+inline constexpr uint64_t kTrajectorySvmDomain = 0x12;
 
 struct SeedRoot {
     uint64_t w[4];

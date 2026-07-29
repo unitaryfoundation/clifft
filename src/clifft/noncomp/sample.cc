@@ -1,7 +1,7 @@
 #include "clifft/noncomp/sample.h"
 
-#include "clifft/noncomp/exact_driver.h"
 #include "clifft/noncomp/seed.h"
+#include "clifft/noncomp/trajectory_driver.h"
 #include "clifft/util/xoshiro.h"
 
 #include <array>
@@ -30,7 +30,7 @@ NonComputationalSample sample_noncomputational(const Circuit& circuit,
         root.w[3] = w[3];
     }
 
-    return run_exact_driver(circuit, model, shots, root, max_rank);
+    return run_trajectory_driver(circuit, model, shots, root, max_rank);
 }
 
 }  // namespace clifft

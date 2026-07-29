@@ -201,9 +201,9 @@ def test_two_site_exact_damping_composition_matches_enumerator():
     observable.  Compare sampled record/status frequencies against the
     enumerator's exact distribution within the file's existing BAND tolerance.
 
-    This exercises the composed-continuation path from the exact side: each
-    site adds one branch at run time, and the no-fire filter at each site
-    accumulates multiplicatively.
+    This exercises composed continuations under exact damping: each site adds
+    one branch at run time, and the no-fire filter at each site accumulates
+    multiplicatively.
     """
     import utils_noncomp_enumerator as en
 

@@ -4,7 +4,7 @@
 // carrier edits for recorded jumps, and the transition-hook expansion consumed
 // by the rewriter. Noncomputational statuses come from initial statuses or
 // recorded events; a coherent qubit's annotation stays a runtime instrument
-// site (the driver's territory, tested in test_exact_driver).
+// site (the driver's territory, tested in test_trajectory_driver).
 
 #include "clifft/circuit/circuit.h"
 #include "clifft/circuit/gate_data.h"
@@ -39,7 +39,6 @@ using clifft::AstNode;
 using clifft::Circuit;
 using clifft::ContinuationRewrite;
 using clifft::default_hir_pass_manager;
-using clifft::ExactShotEvents;
 using clifft::expand_transition_hooks;
 using clifft::GateType;
 using clifft::HirModule;
@@ -52,6 +51,7 @@ using clifft::parse;
 using clifft::QubitStatus;
 using clifft::rewrite_continuation;
 using clifft::trace;
+using clifft::TrajectoryEvents;
 using clifft::TransitionInstrument;
 using clifft::test::certain_transition_from_computational;
 using clifft::test::classifier_matrix_with_column;
@@ -97,7 +97,7 @@ size_t count_gate(const Circuit& c, GateType gate) {
 // Expand hooks and rewrite under the given initial statuses and events.
 ContinuationRewrite rewritten(const Circuit& c, const NonComputationalModel& model,
                               const std::vector<Level>& initial_levels,
-                              ExactShotEvents events = {}) {
+                              TrajectoryEvents events = {}) {
     Circuit annotated = expand_transition_hooks(c, model);
     events.initial_status = initials(initial_levels);
     return rewrite_continuation(annotated, events, false, model);
@@ -115,7 +115,7 @@ TEST_CASE("rewrite: a coherent qubit's recorded jump to lost gets a trace-out R"
     transitions.emplace("lk", certain_transition_from_computational(Level::Lost));
     NonComputationalModel model = make_rewriter_model(std::move(transitions));
 
-    ExactShotEvents events;
+    TrajectoryEvents events;
     events.jumps.push_back({{/*op_index=*/1, /*qubit=*/0}, /*destination_level=*/Level::Lost});
     ContinuationRewrite rw = rewritten(c, model, {Level::G}, events);
     // H and the site kept; one trace-out R follows the site.
@@ -131,7 +131,7 @@ TEST_CASE("rewrite: a recorded jump to the zero level inserts R without X") {
     transitions.emplace("lk", certain_transition_from_computational(Level::Lost));
     NonComputationalModel model = make_rewriter_model(std::move(transitions));
 
-    ExactShotEvents events;
+    TrajectoryEvents events;
     events.jumps.push_back({{1, 0}, /*destination_level=*/Level::G});
     ContinuationRewrite rw = rewritten(c, model, {Level::G}, events);
     REQUIRE(count_gate(rw.circuit, GateType::R) == 1);  // materialize at |0>
@@ -144,7 +144,7 @@ TEST_CASE("rewrite: an inserted trace-out R survives compilation as one hidden m
     transitions.emplace("lk", certain_transition_from_computational(Level::Lost));
     NonComputationalModel model = make_rewriter_model(std::move(transitions));
 
-    ExactShotEvents events;
+    TrajectoryEvents events;
     events.jumps.push_back({{1, 0}, Level::Lost});
     ContinuationRewrite rw = rewritten(c, model, {Level::G}, events);
 
@@ -166,7 +166,7 @@ TEST_CASE("rewrite: an inserted R does not shift visible measurements or detecto
     transitions.emplace("lk", certain_transition_from_computational(Level::Lost));
     NonComputationalModel model = make_rewriter_model(std::move(transitions));
 
-    ExactShotEvents events;
+    TrajectoryEvents events;
     events.jumps.push_back({{3, 1}, Level::Lost});
     ContinuationRewrite rw = rewritten(c, model, {Level::G, Level::G}, events);
     ContinuationRewrite base = rewritten(c, model, {Level::G, Level::G});
@@ -651,7 +651,7 @@ TEST_CASE("rewrite: a malformed LOSS annotation rejects instead of reading past 
     // rather than index into it.
     NonComputationalModel model = make_rewriter_model({});
     Circuit c = parse("LOSS(0.5) 0\nM 0\n");
-    ExactShotEvents events;
+    TrajectoryEvents events;
     events.initial_status = initials({Level::G});
 
     SECTION("no arguments") {
@@ -689,7 +689,7 @@ TEST_CASE("rewrite: a correlated chain whose head operand is lost survives the r
 TEST_CASE("rewrite_continuation: unknown transition tag throws") {
     Circuit c = parse("LEVEL_TRANSITION[nosuch] 0\n");
     NonComputationalModel model = make_rewriter_model({});
-    ExactShotEvents events;
+    TrajectoryEvents events;
     events.initial_status = {QubitStatus::Computational};
     Circuit annotated = expand_transition_hooks(c, model);
     REQUIRE_THROWS_WITH(rewrite_continuation(annotated, events, false, model),

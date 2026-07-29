@@ -1,4 +1,4 @@
-// End-to-end tests for exact-mode sampling: the driver loop, continuation
+// End-to-end tests for trajectory sampling: the driver loop, continuation
 // cache, frame-preloaded initials, and trap resolution behind
 // sample_noncomputational.
 //
@@ -94,8 +94,8 @@ NonComputationalModel make_lose_model() {
 
 }  // namespace
 
-TEST_CASE("exact: an untrapped run reproduces plain sampling behavior") {
-    // No annotations at all: the exact path is one shared module executed
+TEST_CASE("trajectory: an untrapped run reproduces plain sampling behavior") {
+    // No annotations at all: the trajectory path is one shared module executed
     // per shot. A Bell pair's measurements must be perfectly correlated.
     ModelSpec spec;
     auto model = make_driver_model(spec);
@@ -115,7 +115,7 @@ TEST_CASE("exact: an untrapped run reproduces plain sampling behavior") {
     }
 }
 
-TEST_CASE("exact: a certain leak reports the trapped classified status") {
+TEST_CASE("trajectory: a certain leak reports the trapped classified status") {
     // From |1> (X prep), the site fires every shot; the leaked qubit's
     // measurement classifies (leaked column reads 1) and the sidecar
     // carries the leaked status. Qubit 1 is untouched.
@@ -133,7 +133,7 @@ TEST_CASE("exact: a certain leak reports the trapped classified status") {
     }
 }
 
-TEST_CASE("exact: a known |1> initial preloads the frame without a distinct module") {
+TEST_CASE("trajectory: a known |1> initial preloads the frame without a distinct module") {
     // Initial state entirely on e: every shot must measure 1 through the
     // frame preload alone.
     ModelSpec spec;
@@ -147,7 +147,7 @@ TEST_CASE("exact: a known |1> initial preloads the frame without a distinct modu
     }
 }
 
-TEST_CASE("exact: a noncomputational initial compiles its own continuation") {
+TEST_CASE("trajectory: a noncomputational initial compiles its own continuation") {
     // Initial state entirely on the lost level: no trap ever fires (the
     // annotation is a classical consult), the measurement classifies from
     // the lost column, and the final status stays Lost.
@@ -163,7 +163,7 @@ TEST_CASE("exact: a noncomputational initial compiles its own continuation") {
     }
 }
 
-TEST_CASE("exact: seepage after a trap recaptures through a classical consult") {
+TEST_CASE("trajectory: seepage after a trap recaptures through a classical consult") {
     // Certain leak, then certain seepage back to e at the next site, then
     // a measurement: every shot reads 1 with a computational final
     // status. The recapture path exercises pre-drawn classical outcomes
@@ -181,7 +181,7 @@ TEST_CASE("exact: seepage after a trap recaptures through a classical consult") 
     }
 }
 
-TEST_CASE("exact: an in-line computational fire is never reported as a known level") {
+TEST_CASE("trajectory: an in-line computational fire is never reported as a known level") {
     // From g, the flip site fires g -> e inside the VM on ~half the
     // shots; the driver never learns which shots fired, so the sidecar
     // must not claim a known level for either population. The
@@ -201,7 +201,7 @@ TEST_CASE("exact: an in-line computational fire is never reported as a known lev
     REQUIRE(ones < 140);
 }
 
-TEST_CASE("exact: a later trap composes with an earlier in-line fire") {
+TEST_CASE("trajectory: a later trap composes with an earlier in-line fire") {
     // The flip site fires g -> e inside the VM; the leak site then fires
     // only from e (p = 1), so exactly the flipped shots trap. Per shot, a
     // leaked status must coincide with a classified 1 and a computational
@@ -228,7 +228,7 @@ TEST_CASE("exact: a later trap composes with an earlier in-line fire") {
     REQUIRE(leaked < 140);
 }
 
-TEST_CASE("exact: a source-independent rate matches its closed form") {
+TEST_CASE("trajectory: a source-independent rate matches its closed form") {
     // A source-independent rate (p_g = p_e) has the closed form
     // p(leak) = 0.3 regardless of the carrier state; a leaked qubit
     // reads 1 while a computational |0> reads 0. (The distributional
@@ -246,7 +246,7 @@ TEST_CASE("exact: a source-independent rate matches its closed form") {
     REQUIRE(std::abs(mean - 0.3) < 0.04);
 }
 
-TEST_CASE("exact: same seed reproduces identical runs") {
+TEST_CASE("trajectory: same seed reproduces identical runs") {
     ModelSpec spec;
     spec.leak_from_e = 0.5;
     spec.initial = {0.5, 0.5, 0.0, 0.0, 0.0};
@@ -262,7 +262,7 @@ TEST_CASE("exact: same seed reproduces identical runs") {
     }
 }
 
-TEST_CASE("exact: the driver and SVM seed streams are domain-separated") {
+TEST_CASE("trajectory: the driver and SVM seed streams are domain-separated") {
     // The host draws (initial levels, trap destinations, classifier consults)
     // and the in-VM Born draws run on independent streams; handing the same
     // per-shot state to both would correlate them. Guard the documented domain
@@ -271,14 +271,14 @@ TEST_CASE("exact: the driver and SVM seed streams are domain-separated") {
     for (uint64_t seed : {0ULL, 1ULL, 0x9E3779B97F4A7C15ULL}) {
         const SeedRoot root = seed_root_from_seed(seed);
         for (uint64_t shot = 0; shot < 16; ++shot) {
-            const std::array<uint64_t, 4> host = derive_state(root, shot, kExactDriverDomain);
-            const std::array<uint64_t, 4> svm = derive_state(root, shot, kExactSvmDomain);
+            const std::array<uint64_t, 4> host = derive_state(root, shot, kTrajectoryDriverDomain);
+            const std::array<uint64_t, 4> svm = derive_state(root, shot, kTrajectorySvmDomain);
             REQUIRE(host != svm);
         }
     }
 }
 
-TEST_CASE("exact: a cross-domain word alias does not expand to a full-state collision") {
+TEST_CASE("trajectory: a cross-domain word alias does not expand to a full-state collision") {
     // Shots 1302581290 (driver) and 4231854694 (SVM) alias on derived word 0
     // for every root: the root and the word-0 tag terms cancel in the
     // comparison. They probe the word index folded into the domain tag --
@@ -287,15 +287,15 @@ TEST_CASE("exact: a cross-domain word alias does not expand to a full-state coll
     for (uint64_t seed : {0ULL, 1ULL, 0x9E3779B97F4A7C15ULL}) {
         const SeedRoot root = seed_root_from_seed(seed);
         const std::array<uint64_t, 4> driver =
-            derive_state(root, 1302581290ULL, kExactDriverDomain);
-        const std::array<uint64_t, 4> svm = derive_state(root, 4231854694ULL, kExactSvmDomain);
+            derive_state(root, 1302581290ULL, kTrajectoryDriverDomain);
+        const std::array<uint64_t, 4> svm = derive_state(root, 4231854694ULL, kTrajectorySvmDomain);
         REQUIRE(driver[0] == svm[0]);
         REQUIRE(driver != svm);
     }
 }
 
-TEST_CASE("exact: max_rank rejects an over-budget compile naming the line") {
-    // Each dormant-random exact site adds one to k: three H-prefixed
+TEST_CASE("trajectory: max_rank rejects an over-budget compile naming the line") {
+    // Each dormant-random site under exact damping adds one to k: three H-prefixed
     // sites push the peak to 3, over a cap of 2.
     ModelSpec spec;
     spec.leak_from_e = 0.2;
@@ -310,7 +310,7 @@ TEST_CASE("exact: max_rank rejects an over-budget compile naming the line") {
         ContainsSubstring("exceeds max_rank 2") && ContainsSubstring("circuit line"));
 }
 
-TEST_CASE("exact: a trap-form fire keeps the fire-side correlation") {
+TEST_CASE("trajectory: a trap-form fire keeps the fire-side correlation") {
     // The decisive regression check for the forced trace-out. Qubit 0 is Bell-entangled
     // with qubit 1 and dormant-random at the site; under neglect the fire
     // traps with the carrier uncollapsed. The channel is certain but
@@ -346,7 +346,7 @@ TEST_CASE("exact: a trap-form fire keeps the fire-side correlation") {
     REQUIRE(saw_one);
 }
 
-TEST_CASE("exact: a trap may insert a classical consult between pre-drawn ones") {
+TEST_CASE("trajectory: a trap may insert a classical consult between pre-drawn ones") {
     // Both qubits start leaked; R 0; X 0 recaptures q0 to a definite |1>,
     // so q0's first annotation is quantum and traps (certain leak from
     // e), while q1's later annotation was already pre-drawn as a
@@ -372,7 +372,7 @@ TEST_CASE("exact: a trap may insert a classical consult between pre-drawn ones")
     }
 }
 
-TEST_CASE("exact: a chain of two forced traps keeps both correlations") {
+TEST_CASE("trajectory: a chain of two forced traps keeps both correlations") {
     // Two independent Bell pairs, each with a certain source-dependent
     // leak under neglect: every shot traps twice, forcing two trace-outs
     // at two different hidden slots, and the second continuation's prefix
@@ -403,7 +403,7 @@ TEST_CASE("exact: a chain of two forced traps keeps both correlations") {
     }
 }
 
-TEST_CASE("exact: a neglect fire onto a computational destination stays correlated") {
+TEST_CASE("trajectory: a neglect fire onto a computational destination stays correlated") {
     // Under neglect every fire traps, including computational
     // destinations. A certain source-swap channel (g -> e, e -> g) on a
     // Bell-entangled dormant-random qubit: the continuation's forced
@@ -436,7 +436,7 @@ TEST_CASE("exact: a neglect fire onto a computational destination stays correlat
     REQUIRE(saw_one);
 }
 
-TEST_CASE("exact: herald flags drawn in one continuation are reused by the next") {
+TEST_CASE("trajectory: herald flags drawn in one continuation are reused by the next") {
     // The reuse invariant, made observable: with p_herald = 0.5 and a
     // deterministic not-heralded bit (P(1 | leak, not heralded) = 1), a
     // slot whose sidecar flag says not-heralded must always record 1 --
@@ -474,7 +474,7 @@ TEST_CASE("exact: herald flags drawn in one continuation are reused by the next"
     REQUIRE(heralded < 280);
 }
 
-TEST_CASE("exact: spectator noise between two traps fires exactly once") {
+TEST_CASE("trajectory: spectator noise between two traps fires exactly once") {
     // Certain X errors on a spectator qubit, one between the two traps
     // and one after: the noise-gap cursor must fire each exactly once
     // across the two re-anchors, flipping the spectator twice back to 0.
@@ -496,7 +496,7 @@ TEST_CASE("exact: spectator noise between two traps fires exactly once") {
     }
 }
 
-TEST_CASE("exact: a detector and observable span the trap boundary") {
+TEST_CASE("trajectory: a detector and observable span the trap boundary") {
     // The detector compares a pre-trap measurement (executed on the main
     // line) with a post-trap classified one (written by the
     // continuation): both read 1, so the parity is 0 on every shot, and
@@ -519,7 +519,7 @@ TEST_CASE("exact: a detector and observable span the trap boundary") {
     }
 }
 
-TEST_CASE("exact: a hand-written multi-target annotation traps on one target") {
+TEST_CASE("trajectory: a hand-written multi-target annotation traps on one target") {
     // A single LEVEL_TRANSITION node with two targets materializes one
     // site per target; the trap maps back through site_targets to the
     // right (op, qubit), and the continuation's split keeps the sibling
@@ -538,7 +538,7 @@ TEST_CASE("exact: a hand-written multi-target annotation traps on one target") {
     }
 }
 
-TEST_CASE("exact: neglect keeps rank flat while the exact default expands") {
+TEST_CASE("trajectory: neglect keeps rank flat while exact damping expands") {
     ModelSpec spec;
     spec.leak_from_e = 0.3;  // source-dependent: the damp is non-scalar
     spec.damping = DampingPolicy::Neglect;
@@ -557,7 +557,7 @@ TEST_CASE("exact: neglect keeps rank flat while the exact default expands") {
         ContainsSubstring("exceeds max_rank 0"));
 }
 
-TEST_CASE("exact: ternary heralds ride the cache key") {
+TEST_CASE("trajectory: ternary heralds ride the cache key") {
     // A three-symbol classifier whose leaked column always heralds: every
     // trapped shot's classified slot reports a herald, and the record bit
     // stays roughly fair across shots.
@@ -584,7 +584,7 @@ TEST_CASE("exact: ternary heralds ride the cache key") {
     REQUIRE(ones < 140);
 }
 
-TEST_CASE("exact: a hand-built malformed LOSS rejects up front") {
+TEST_CASE("trajectory: a hand-built malformed LOSS rejects up front") {
     // A live LOSS site rides through the continuation rewrite verbatim,
     // and trace() must never be the first to look at its arguments (a
     // missing one would read as probability zero). Every annotation
@@ -607,7 +607,7 @@ TEST_CASE("exact: a hand-built malformed LOSS rejects up front") {
     }
 }
 
-TEST_CASE("exact: hand-built annotation targets reject up front") {
+TEST_CASE("trajectory: hand-built annotation targets reject up front") {
     Circuit circuit = parse("M 0");
 
     SECTION("out-of-range target with computational initials") {
@@ -636,7 +636,7 @@ TEST_CASE("exact: hand-built annotation targets reject up front") {
     }
 }
 
-TEST_CASE("exact: a smaller starting module must not shrink the reused state") {
+TEST_CASE("trajectory: a smaller starting module must not shrink the reused state") {
     // A leaked initial compiles a from-the-top continuation with more
     // hidden record slots (the MR restore) but a smaller peak rank than
     // the main line, whose expand_damp site needs the array. A shot
@@ -655,7 +655,7 @@ TEST_CASE("exact: a smaller starting module must not shrink the reused state") {
     REQUIRE(result.shots == 64);
 }
 
-TEST_CASE("exact: a zero-fire LOSS before a firing LOSS does not shift site ids") {
+TEST_CASE("trajectory: a zero-fire LOSS before a firing LOSS does not shift site ids") {
     // LOSS(0) can never fire from a computational qubit; trace() skips it.
     // The rewriter must skip it too, so LOSS(1) gets site id 0 and the
     // driver maps the trap correctly.
@@ -673,7 +673,7 @@ TEST_CASE("exact: a zero-fire LOSS before a firing LOSS does not shift site ids"
     }
 }
 
-TEST_CASE("exact: a seepage-only transition before a firing site does not shift site ids") {
+TEST_CASE("trajectory: a seepage-only transition before a firing site does not shift site ids") {
     // A LEVEL_TRANSITION whose computational columns are both zero (seepage
     // from leak_e to e only) cannot fire on a computational qubit; trace()
     // skips it. The rewriter must skip it too so the firing LOSS(1) that
@@ -696,7 +696,7 @@ TEST_CASE("exact: a seepage-only transition before a firing site does not shift 
     }
 }
 
-TEST_CASE("exact: a seepage-only transition on q0 does not corrupt q1's site id") {
+TEST_CASE("trajectory: a seepage-only transition on q0 does not corrupt q1's site id") {
     // Cross-qubit arrangement: the seepage-only LEVEL_TRANSITION on q0 must
     // not occupy a site slot, so the firing LOSS(1) on q1 keeps site id 0.
     // In Release, a stale site id would read the wrong trap record and
@@ -723,7 +723,7 @@ TEST_CASE("exact: a seepage-only transition on q0 does not corrupt q1's site id"
     }
 }
 
-TEST_CASE("exact: a seepage-only transition still seeps a noncomputational qubit") {
+TEST_CASE("trajectory: a seepage-only transition still seeps a noncomputational qubit") {
     // A zero-fire annotation is skipped for a computational pre-status, but
     // must still execute its classical consult for a noncomputational qubit.
     // Here leak_e is the starting level; the seep fires (classical consult
@@ -751,7 +751,7 @@ TEST_CASE("exact: a seepage-only transition still seeps a noncomputational qubit
 // Correlated-chain passthrough on noncomputational operands
 // =========================================================================
 
-TEST_CASE("exact: a correlated-chain head with a lost operand does not orphan the ELSE") {
+TEST_CASE("trajectory: a correlated-chain head with a lost operand does not orphan the ELSE") {
     // q0 is lost before the E node: the head must keep its slot in the
     // else-conditioning rather than being dropped. E(1) fires with
     // certainty, so the ELSE never fires. q0 final status is Lost; its
@@ -773,7 +773,7 @@ TEST_CASE("exact: a correlated-chain head with a lost operand does not orphan th
     }
 }
 
-TEST_CASE("exact: a fired head with a lost operand prevents the ELSE from firing") {
+TEST_CASE("trajectory: a fired head with a lost operand prevents the ELSE from firing") {
     // Conditioning check: E(1) fires (head always fires, operating on the
     // vacated q0 carrier), so the ELSE must NOT fire -- if the head were
     // dropped the ELSE would become the new head and fire, flipping q1.
@@ -791,7 +791,7 @@ TEST_CASE("exact: a fired head with a lost operand prevents the ELSE from firing
     }
 }
 
-TEST_CASE("exact: a correlated-chain head with a leaked operand does not orphan the ELSE") {
+TEST_CASE("trajectory: a correlated-chain head with a leaked operand does not orphan the ELSE") {
     // The leaked counterpart to the lost-operand regression test: unlike a lost qubit, a
     // leaked qubit's carrier is still parked in the state, so the head's
     // X0 lands there as a frame flip nothing reads. The conditioning must
@@ -816,7 +816,7 @@ TEST_CASE("exact: a correlated-chain head with a leaked operand does not orphan 
     }
 }
 
-TEST_CASE("exact: a fired head with a leaked operand prevents the ELSE from firing") {
+TEST_CASE("trajectory: a fired head with a leaked operand prevents the ELSE from firing") {
     auto leak = certain_transition_from_computational(Level::LeakG);
     const RawProbabilityMatrix cl = {{1.0, 0.0, 0.0, 0.0, 1.0}, {0.0, 1.0, 1.0, 1.0, 0.0}};
     auto model = NonComputationalModel::from_spec(pure_initial_state(Level::G), {{"leak", leak}},
@@ -834,7 +834,7 @@ TEST_CASE("exact: a fired head with a leaked operand prevents the ELSE from firi
     }
 }
 
-TEST_CASE("exact: a mixed-operand chain member keeps the healthy qubit's Pauli") {
+TEST_CASE("trajectory: a mixed-operand chain member keeps the healthy qubit's Pauli") {
     // E(1) X0 X1 with only q1 lost: q0 is computational and its X must
     // land; dropping the mixed-operand node whole would suppress the X on q0.
     // q0 record reads 1 (X flipped it); q1 record reads 0 (identity classifier).
@@ -851,7 +851,7 @@ TEST_CASE("exact: a mixed-operand chain member keeps the healthy qubit's Pauli")
     }
 }
 
-TEST_CASE("exact: a certain correlated X0 X1 error applies X to both qubits") {
+TEST_CASE("trajectory: a certain correlated X0 X1 error applies X to both qubits") {
     // Baseline: all computational, E(1) fires with certainty applying X0 X1.
     // Both qubits start at |0> so both measure 1 after X.
     ModelSpec spec;  // all computational, no loss
@@ -889,7 +889,7 @@ NonComputationalModel make_classify_lost_model(std::vector<double> lost_col,
 
 }  // namespace
 
-TEST_CASE("exact: MX on a certainly-lost qubit reads the classifier bit") {
+TEST_CASE("trajectory: MX on a certainly-lost qubit reads the classifier bit") {
     // lose column [0, 1]: the lost qubit reads 1 every shot; final status Lost.
     auto model = make_classify_lost_model({0.0, 1.0});
     auto circuit = parse("LEVEL_TRANSITION[lose] 0\nMX 0");
@@ -900,7 +900,7 @@ TEST_CASE("exact: MX on a certainly-lost qubit reads the classifier bit") {
     }
 }
 
-TEST_CASE("exact: MY on a certainly-lost qubit reads the classifier bit") {
+TEST_CASE("trajectory: MY on a certainly-lost qubit reads the classifier bit") {
     // Identical semantics to MX: the readout basis is incidental on a vacated carrier.
     auto model = make_classify_lost_model({0.0, 1.0});
     auto circuit = parse("LEVEL_TRANSITION[lose] 0\nMY 0");
@@ -911,7 +911,7 @@ TEST_CASE("exact: MY on a certainly-lost qubit reads the classifier bit") {
     }
 }
 
-TEST_CASE("exact: inverted MX !0 on a lost qubit complements the classifier bit") {
+TEST_CASE("trajectory: inverted MX !0 on a lost qubit complements the classifier bit") {
     // lose column [0, 1]: classifier says 1; inversion flips to 0 every shot.
     auto model = make_classify_lost_model({0.0, 1.0});
     auto circuit = parse("LEVEL_TRANSITION[lose] 0\nMX !0");
@@ -922,7 +922,7 @@ TEST_CASE("exact: inverted MX !0 on a lost qubit complements the classifier bit"
     }
 }
 
-TEST_CASE("exact: ternary herald column on MX sets sidecar flag and patches record") {
+TEST_CASE("trajectory: ternary herald column on MX sets sidecar flag and patches record") {
     // Three-symbol classifier for the lost level: {0, 0, 1} always heralds.
     // The herald flag must be 1 on every shot; the record carries an
     // unbiased bit (matches the existing M-herald test in make_lose_model).
@@ -943,7 +943,7 @@ TEST_CASE("exact: ternary herald column on MX sets sidecar flag and patches reco
     }
 }
 
-TEST_CASE("exact: computational X-basis behavior is untouched by MX classify change") {
+TEST_CASE("trajectory: computational X-basis behavior is untouched by MX classify change") {
     // RX prepares |+>; MX measures in the X basis and records 0 deterministically.
     // No noncomputational model capability: the classifier path must never fire.
     ModelSpec spec;  // all computational
@@ -956,7 +956,7 @@ TEST_CASE("exact: computational X-basis behavior is untouched by MX classify cha
     }
 }
 
-TEST_CASE("exact: memory-X smoke measures two qubits after a low-rate leak hook") {
+TEST_CASE("trajectory: memory-X smoke measures two qubits after a low-rate leak hook") {
     // The motivating use case: a stim-style memory-X circuit that ends in MX
     // on data qubits runs cleanly under a leakage model.
     auto leak = zero_transition_matrix();
@@ -992,7 +992,7 @@ TEST_CASE("exact: memory-X smoke measures two qubits after a low-rate leak hook"
 // Up-front model capability contract
 // =========================================================================
 
-TEST_CASE("exact: capable model rejects MPP before sampling") {
+TEST_CASE("trajectory: capable model rejects MPP before sampling") {
     // A capable model (non-zero loss) plus an MPP measurement must throw
     // before any shots are drawn, with a message naming 'MPP', 'not supported',
     // and 'ancilla'.
@@ -1003,7 +1003,7 @@ TEST_CASE("exact: capable model rejects MPP before sampling") {
                             ContainsSubstring("ancilla"));
 }
 
-TEST_CASE("exact: computational-only model permits MPP") {
+TEST_CASE("trajectory: computational-only model permits MPP") {
     // A model with no capability (initial all-g, no leak/loss transitions)
     // leaves MPP supported.
     ModelSpec spec;  // all computational
@@ -1017,7 +1017,7 @@ TEST_CASE("exact: computational-only model permits MPP") {
     }
 }
 
-TEST_CASE("exact: capable model with measurement requires classifier") {
+TEST_CASE("trajectory: capable model with measurement requires classifier") {
     // A model with a LEVEL_TRANSITION annotation that can fire into a
     // noncomputational level, paired with a measurement, must throw when
     // no classifier is present.
@@ -1031,7 +1031,7 @@ TEST_CASE("exact: capable model with measurement requires classifier") {
                         ContainsSubstring("classifier is required"));
 }
 
-TEST_CASE("exact: capable model without measurement does not require classifier") {
+TEST_CASE("trajectory: capable model without measurement does not require classifier") {
     // A capable model without a classifier is fine if the circuit has no measurements.
     auto lose = certain_transition_from_computational(Level::Lost);
     NonComputationalPolicy policy;
@@ -1043,7 +1043,7 @@ TEST_CASE("exact: capable model without measurement does not require classifier"
     REQUIRE(result.shots == 10);
 }
 
-TEST_CASE("exact: computational-only model with MX does not require classifier") {
+TEST_CASE("trajectory: computational-only model with MX does not require classifier") {
     // A non-capable model (no loss/leak transitions, all-g initial) plus
     // MX requires no classifier.
     ModelSpec spec;  // all computational, no loss
@@ -1056,7 +1056,7 @@ TEST_CASE("exact: computational-only model with MX does not require classifier")
     }
 }
 
-TEST_CASE("exact: coarse capability boundary requires a classifier for any measurement") {
+TEST_CASE("trajectory: coarse capability boundary requires a classifier for any measurement") {
     // The contract is a capability boundary, not per-qubit reachability.
     // The annotation on q0 makes the model capable; q1 is measured but
     // never touches a vacated carrier in any reachable shot. The capability
@@ -1071,7 +1071,7 @@ TEST_CASE("exact: coarse capability boundary requires a classifier for any measu
                         ContainsSubstring("classifier is required"));
 }
 
-TEST_CASE("exact: the model contract is validated even for zero shots") {
+TEST_CASE("trajectory: the model contract is validated even for zero shots") {
     // Validation is shot-count independent: a zero-shot call still checks
     // the circuit/model contract, and a valid pair returns empty results.
     auto lose = certain_transition_from_computational(Level::Lost);
@@ -1111,7 +1111,7 @@ NonComputationalModel make_leak_seep_model() {
 
 }  // namespace
 
-TEST_CASE("exact: same-qubit re-trap: leak then recapture then leak again") {
+TEST_CASE("trajectory: same-qubit re-trap: leak then recapture then leak again") {
     // X 0 preps |e>. LEVEL_TRANSITION[leak] traps (e->leak_e, certainly).
     // LEVEL_TRANSITION[seep] recaptures back to e (classical consult).
     // The second LEVEL_TRANSITION[leak] traps again (e->leak_e).
@@ -1129,7 +1129,7 @@ TEST_CASE("exact: same-qubit re-trap: leak then recapture then leak again") {
     }
 }
 
-TEST_CASE("exact: multi-target annotation jumps both targets in one shot") {
+TEST_CASE("trajectory: multi-target annotation jumps both targets in one shot") {
     // LEVEL_TRANSITION[lose] on both q0 and q1 in a single annotation; the
     // lose channel is source-independent (g->lost p=1, e->lost p=1), so both
     // qubits lose in every shot. Both records read 0 (identity classifier's
@@ -1156,7 +1156,7 @@ TEST_CASE("exact: multi-target annotation jumps both targets in one shot") {
 // LOSS on already-leaked and already-lost qubits
 // =========================================================================
 
-TEST_CASE("exact: certain LOSS on a pure leak_g initial vacates the carrier") {
+TEST_CASE("trajectory: certain LOSS on a pure leak_g initial vacates the carrier") {
     // Initial mass entirely on leak_g (index 2): the qubit is already
     // noncomputational. LOSS(1) on a leaked qubit still vacates it (the
     // channel fires from any non-lost level). Every shot: status Lost,
@@ -1173,7 +1173,7 @@ TEST_CASE("exact: certain LOSS on a pure leak_g initial vacates the carrier") {
     }
 }
 
-TEST_CASE("exact: certain LOSS on a pure lost initial is a no-op") {
+TEST_CASE("trajectory: certain LOSS on a pure lost initial is a no-op") {
     // Initial mass entirely on lost (index 4): LOSS is a no-op on an
     // already-lost qubit. Status Lost, record 0 on every shot.
     ModelSpec spec;
@@ -1188,7 +1188,8 @@ TEST_CASE("exact: certain LOSS on a pure lost initial is a no-op") {
     }
 }
 
-TEST_CASE("exact: LOSS on a lost qubit spends no draw -- a later consult sees the same stream") {
+TEST_CASE(
+    "trajectory: LOSS on a lost qubit spends no draw -- a later consult sees the same stream") {
     // A LOSS(1) on an already-lost qubit records its no-op without
     // consuming any driver randomness. The discriminator is a stochastic
     // consult AFTER it: the recover channel returns the lost qubit to e
@@ -1223,7 +1224,8 @@ TEST_CASE("exact: LOSS on a lost qubit spends no draw -- a later consult sees th
     REQUIRE(saw_one);
 }
 
-TEST_CASE("exact: a non-restoring lost MRX spends no hidden draw -- M and MRX read identically") {
+TEST_CASE(
+    "trajectory: a non-restoring lost MRX spends no hidden draw -- M and MRX read identically") {
     // Both circuits lose qubit 0 with certainty and classify its record
     // slot from the same lost column, so they compile to the same module
     // -- unless MRX's X-basis reset half were emitted on the vacated
@@ -1256,7 +1258,7 @@ TEST_CASE("exact: a non-restoring lost MRX spends no hidden draw -- M and MRX re
 // Classified records driving feedback
 // =========================================================================
 
-TEST_CASE("exact: classified record drives a CX feedback gate") {
+TEST_CASE("trajectory: classified record drives a CX feedback gate") {
     // "lose" is hooked on S: g and e both jump to lost with certainty.
     // Classifier: classified symbol 0 always reads 0, classified symbol 1
     // always reads 1; the lost column has weight on symbol 1, so rec[-1]
@@ -1288,7 +1290,7 @@ TEST_CASE("exact: classified record drives a CX feedback gate") {
 // Carrier re-preparation on restore
 // =========================================================================
 
-TEST_CASE("exact: a reset truly re-prepares a restored-lost qubit") {
+TEST_CASE("trajectory: a reset truly re-prepares a restored-lost qubit") {
     // "lose" is hooked on S (g and e both -> lost with certainty).
     // reset_restores_lost=true means R 0 reloads the lost carrier.
     // H 0 before S scrambles the pre-loss state: if R did NOT re-prepare
@@ -1317,7 +1319,7 @@ TEST_CASE("exact: a reset truly re-prepares a restored-lost qubit") {
 // max_rank boundary behavior
 // =========================================================================
 
-TEST_CASE("exact: max_rank succeeds exactly at the required rank") {
+TEST_CASE("trajectory: max_rank succeeds exactly at the required rank") {
     // Reuses the over-cap circuit from the rejection test: three H-prefixed
     // source-dependent sites push peak rank to 3 (over a cap of 2). The
     // same circuit must succeed with max_rank = 3 (the actual required rank).
@@ -1339,7 +1341,7 @@ TEST_CASE("exact: max_rank succeeds exactly at the required rank") {
 // Seed sensitivity
 // =========================================================================
 
-TEST_CASE("exact: different seeds produce different records") {
+TEST_CASE("trajectory: different seeds produce different records") {
     // A stochastic config (leak p=0.35 from e after H) sampled at two
     // different seeds must differ: a constant-output implementation that
     // ignores the seed would collide here with probability 2^(-measurements).
@@ -1357,7 +1359,7 @@ TEST_CASE("exact: different seeds produce different records") {
     REQUIRE(a.measurements != b.measurements);
 }
 
-TEST_CASE("exact: max_rank is not checked against the unreachable all-computational module") {
+TEST_CASE("trajectory: max_rank is not checked against the unreachable all-computational module") {
     // When every qubit starts lost, the no-event module is never used;
     // its rank must not trigger a max_rank rejection.
     // The lost column reads symbol 1 with certainty: a raw readout of the
@@ -1427,7 +1429,7 @@ RawProbabilityMatrix comp_confusion(double p01, double p10) {
 
 }  // namespace
 
-TEST_CASE("exact: a partial classifier bit matches its frequency") {
+TEST_CASE("trajectory: a partial classifier bit matches its frequency") {
     Circuit c = parse("H 0\nS 0\nM 0\nDETECTOR rec[-1]\n");
     std::map<std::string, RawProbabilityMatrix> transitions;
     transitions.emplace("S", certain_transition_from_computational(Level::LeakG));
@@ -1444,7 +1446,7 @@ TEST_CASE("exact: a partial classifier bit matches its frequency") {
     REQUIRE(ones < 1150);
 }
 
-TEST_CASE("exact: the herald symbol fills the sidecar rather than the record") {
+TEST_CASE("trajectory: the herald symbol fills the sidecar rather than the record") {
     // Qubit 1 leaks and its column always heralds; qubit 0 stays
     // computational. The heralded slot's visible record bit is a uniform
     // draw, so the record layout is unchanged and both values occur.
@@ -1468,7 +1470,7 @@ TEST_CASE("exact: the herald symbol fills the sidecar rather than the record") {
     REQUIRE(ones < kShots * 70 / 100);
 }
 
-TEST_CASE("exact: a partial herald column matches its frequency") {
+TEST_CASE("trajectory: a partial herald column matches its frequency") {
     Circuit c = parse("H 0\nS 0\nM 0\n");
     std::map<std::string, RawProbabilityMatrix> transitions;
     transitions.emplace("S", certain_transition_from_computational(Level::LeakG));
@@ -1486,7 +1488,7 @@ TEST_CASE("exact: a partial herald column matches its frequency") {
     REQUIRE(heralded < 770);
 }
 
-TEST_CASE("exact: the record bit is uniform given a herald and fixed otherwise") {
+TEST_CASE("trajectory: the record bit is uniform given a herald and fixed otherwise") {
     // Column {0.5, 0, 0.5}: a non-heralded draw is always symbol 0, while a
     // heralded slot's bit is uniform. This checks the (herald, bit) joint: if
     // heralded slots kept the not-heralded flip probability (0), their bits
@@ -1517,7 +1519,7 @@ TEST_CASE("exact: the record bit is uniform given a herald and fixed otherwise")
     REQUIRE(heralded_ones < heralded * 65 / 100);
 }
 
-TEST_CASE("exact: a two-symbol classifier leaves the herald sidecar zero") {
+TEST_CASE("trajectory: a two-symbol classifier leaves the herald sidecar zero") {
     Circuit c = parse("H 0\nS 0\nM 0\n");
     std::map<std::string, RawProbabilityMatrix> transitions;
     transitions.emplace("S", certain_transition_from_computational(Level::LeakG));
@@ -1533,7 +1535,7 @@ TEST_CASE("exact: a two-symbol classifier leaves the herald sidecar zero") {
     }
 }
 
-TEST_CASE("exact: a circuit with EXP_VAL probes rejects") {
+TEST_CASE("trajectory: a circuit with EXP_VAL probes rejects") {
     Circuit c;
     c.num_qubits = 1;
     c.num_exp_vals = 1;  // EXP_VAL output is not carried by the noncomp sidecar
@@ -1541,7 +1543,7 @@ TEST_CASE("exact: a circuit with EXP_VAL probes rejects") {
     REQUIRE_THROWS_WITH(sample_noncomputational(c, model, 4, 1), ContainsSubstring("EXP_VAL"));
 }
 
-TEST_CASE("exact: a measure-and-reset on a leaked qubit injects and restores") {
+TEST_CASE("trajectory: a measure-and-reset on a leaked qubit injects and restores") {
     // MR on the leaked qubit records the classifier bit AND resets the site to
     // |0>; the following M then deterministically reads 0 -- proving the reset
     // actually ran in the SVM, not just in the trajectory bookkeeping.
@@ -1560,7 +1562,7 @@ TEST_CASE("exact: a measure-and-reset on a leaked qubit injects and restores") {
     }
 }
 
-TEST_CASE("exact: a lost-qubit measurement feeds the detector the classifier bit") {
+TEST_CASE("trajectory: a lost-qubit measurement feeds the detector the classifier bit") {
     // A lost qubit (vacated site) is still measured; the classifier supplies
     // the record bit just as for a leaked qubit, so the detector reads it.
     Circuit c = parse("H 0\nS 0\nM 0\nDETECTOR rec[-1]\n");
@@ -1579,7 +1581,7 @@ TEST_CASE("exact: a lost-qubit measurement feeds the detector the classifier bit
     }
 }
 
-TEST_CASE("exact: a leaked measurement feeds the observable the classifier bit") {
+TEST_CASE("trajectory: a leaked measurement feeds the observable the classifier bit") {
     Circuit c = parse("H 0\nS 0\nM 0\nOBSERVABLE_INCLUDE(0) rec[-1]\n");
     std::map<std::string, RawProbabilityMatrix> transitions;
     transitions.emplace("S", certain_transition_from_computational(Level::LeakG));
@@ -1597,7 +1599,7 @@ TEST_CASE("exact: a leaked measurement feeds the observable the classifier bit")
     }
 }
 
-TEST_CASE("exact: a jump to the ground level forces the measurement to 0") {
+TEST_CASE("trajectory: a jump to the ground level forces the measurement to 0") {
     // The S transition collapses the H-prepared |+> to the g level; without
     // the materializing collapse the M would read 1 on ~half the shots. The
     // fire resolves entirely inside the VM; the sidecar reports the bare
@@ -1616,7 +1618,7 @@ TEST_CASE("exact: a jump to the ground level forces the measurement to 0") {
     }
 }
 
-TEST_CASE("exact: a jump to the excited level forces the measurement to 1") {
+TEST_CASE("trajectory: a jump to the excited level forces the measurement to 1") {
     Circuit c = parse("H 0\nS 0\nM 0\n");
     std::map<std::string, RawProbabilityMatrix> transitions;
     transitions.emplace("S", certain_transition_from_computational(Level::E));
@@ -1632,7 +1634,7 @@ TEST_CASE("exact: a jump to the excited level forces the measurement to 1") {
     }
 }
 
-TEST_CASE("exact: a partial jump to ground matches the analytic mixture") {
+TEST_CASE("trajectory: a partial jump to ground matches the analytic mixture") {
     // With probability p the S transition collapses the H-prepared |+> to g;
     // otherwise the carrier stays coherent. P(M = 1) = (1 - p) / 2 = 0.35.
     Circuit c = parse("H 0\nS 0\nM 0\n");
@@ -1653,7 +1655,7 @@ TEST_CASE("exact: a partial jump to ground matches the analytic mixture") {
     REQUIRE(ones < 1580);
 }
 
-TEST_CASE("exact: a measurement records the pre-relaxation bit") {
+TEST_CASE("trajectory: a measurement records the pre-relaxation bit") {
     // The transition's source column is read at op entry and its jump applies
     // after the base op: the first M reads the original |1>, the relaxation
     // then materializes g, and the second M reads the relaxed 0.
@@ -1673,7 +1675,7 @@ TEST_CASE("exact: a measurement records the pre-relaxation bit") {
     }
 }
 
-TEST_CASE("exact: recapturing a lost qubit clears the stale residual") {
+TEST_CASE("trajectory: recapturing a lost qubit clears the stale residual") {
     // The first M loses the |1> qubit (its trace-out reset clears the
     // carrier). The second M is classified (lost at entry) and its
     // attached recapture jump materializes g; the third M must read the
@@ -1697,7 +1699,7 @@ TEST_CASE("exact: recapturing a lost qubit clears the stale residual") {
     }
 }
 
-TEST_CASE("exact: a multi-round circuit runs through loss") {
+TEST_CASE("trajectory: a multi-round circuit runs through loss") {
     // The data qubit is lost up front; both syndrome CXs drop (identity on
     // the ancilla, which keeps reading 0) and the final data measurement
     // reads the classifier's lost bit -- dropping ops on a vacated site is
@@ -1719,7 +1721,7 @@ TEST_CASE("exact: a multi-round circuit runs through loss") {
     }
 }
 
-TEST_CASE("exact: computational confusion misreports into the detector") {
+TEST_CASE("trajectory: computational confusion misreports into the detector") {
     // A certain 0->1 misreport: the record and the detector read 1 on every
     // shot even though the qubit is |0> -- the flip is in-circuit, not
     // postprocessing.
@@ -1734,7 +1736,7 @@ TEST_CASE("exact: computational confusion misreports into the detector") {
     }
 }
 
-TEST_CASE("exact: asymmetric confusion matches its rates") {
+TEST_CASE("trajectory: asymmetric confusion matches its rates") {
     // True bit is 1 (X-prepared); it is misread as 0 with probability 0.2.
     Circuit c = parse("X 0\nM 0\n");
     NonComputationalModel model =
@@ -1750,7 +1752,7 @@ TEST_CASE("exact: asymmetric confusion matches its rates") {
     REQUIRE(zeros < 950);
 }
 
-TEST_CASE("exact: hand-written LOSS and LEVEL_TRANSITION run end to end") {
+TEST_CASE("trajectory: hand-written LOSS and LEVEL_TRANSITION run end to end") {
     // Qubit 0 is lost by a local LOSS; its measurement takes the classifier's
     // lost bit. Qubit 1 leaks via a local named LEVEL_TRANSITION; its measurement
     // takes the leak_g bit.

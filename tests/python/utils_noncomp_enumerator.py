@@ -6,8 +6,8 @@ visible measurement record, by branching a pure statevector over every
 classical event -- initial levels, transition fires, Born outcomes -- with
 explicit probability weights. Transition sites apply the physical per-site
 channel (source-conditioned collapse plus the sqrt(1 - p) no-fire filter),
-so the result is the dense reference the exact sampling mode must match to
-shot noise; ``damping="neglect"`` reproduces that mode's one documented
+so the result is the dense reference the trajectory sampler must match to
+shot noise; ``damping="neglect"`` reproduces that policy's one documented
 omission by skipping the no-fire filter while keeping fire weights exact.
 
 Deliberately independent of clifft: its own line parser (a small subset)

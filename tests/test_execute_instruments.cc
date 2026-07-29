@@ -5,7 +5,7 @@
 // certain-fire channels (p = 1, which also exercises the eval-only
 // route the fused form cannot take), source-dependence contrasts on
 // definite preparations, and same-seed reproducibility. Distributional
-// validation belongs to the exact-mode validation campaign.
+// validation belongs to the trajectory-driver tests.
 
 #include "clifft/backend/backend.h"
 #include "clifft/frontend/frontend.h"
