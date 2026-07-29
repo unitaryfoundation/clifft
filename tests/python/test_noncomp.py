@@ -40,9 +40,6 @@ def leak_model(classifier: noncomp.Classifier | None = None) -> noncomp.Model:
     )
 
 
-# --- Model construction ----------------------------------------------------
-
-
 def test_level_names_and_indices():
     assert (int(noncomp.Level.G), int(noncomp.Level.LEAK_G), int(noncomp.Level.LOST)) == (0, 2, 4)
 
@@ -121,9 +118,6 @@ def test_whitespace_transition_key_raises():
         noncomp.Model(initial_state=ALL_G, transitions={" padded": t})
 
 
-# --- End-to-end sampling ---------------------------------------------------
-
-
 def test_lossless_matches_plain_record_shape():
     model = noncomp.Model(initial_state=ALL_G)
     r = noncomp.sample("H 0\nM 0\n", model, shots=512, seed=2)
@@ -171,9 +165,6 @@ def test_reset_reload_policy_changes_lost_site():
     )
     r = noncomp.sample(circuit, restore, shots=8, seed=7)
     assert (r.final_status == COMPUTATIONAL).all()
-
-
-# --- Classifier and record semantics ---------------------------------------
 
 
 def test_leaked_classifier_bit_in_measurements():
@@ -347,9 +338,6 @@ def test_ternary_herald_feeds_detector_and_observable():
     assert np.array_equal(sym[~heralded, 0], meas[~heralded])
 
 
-# --- Record layout invariants ----------------------------------------------
-
-
 def test_hidden_trace_out_does_not_shift_visible_count():
     plain = noncomp.Model(initial_state=ALL_G)
     rp = noncomp.sample("H 0\nCX 0 1\nM 0\nM 1\n", plain, shots=8, seed=16)
@@ -428,9 +416,6 @@ def test_deterministic_in_seed_with_noncomputational_initials():
         assert not np.array_equal(a.measurements, c.measurements) or not np.array_equal(
             a.final_status, c.final_status
         )
-
-
-# --- Policy knobs -----------------------------------------------------------
 
 
 def test_policy_knob_strings_validate():
@@ -614,9 +599,6 @@ def test_computational_readout_confusion_misreports_the_record():
     assert 650 <= zeros <= 950  # expected 800; ~6 sigma band
 
 
-# --- Correlated-chain passthrough on noncomputational operands -------------
-
-
 def _lose_model() -> noncomp.Model:
     """S loses its qubit with certainty; the classifier reads out
     faithfully on g/e and reads 0 on the lost column."""
@@ -689,9 +671,6 @@ def test_chain_flip_on_parked_carrier_is_destroyed_by_recapture():
     assert (result.final_status[:, 0] == COMPUTATIONAL).all()
 
 
-# --- MX / MY classify on vacated carriers ------------------------------------
-
-
 def test_mx_classified_deterministic():
     """MX on a certainly-lost qubit reads the classifier's lost column.
 
@@ -716,9 +695,6 @@ def test_mx_inverted_complements_classifier_bit():
     assert (r.measurements[:, 0] == 0).all()  # inverted: 1 -> 0
 
 
-# --- Classifier capability contract -----------------------------------------
-
-
 def test_capable_model_with_measurement_requires_classifier():
     """A model that can lose qubits requires a classifier when the circuit measures."""
     transitions = {"S": transition_to(LOST)}
@@ -738,9 +714,6 @@ def test_mpad_does_not_require_classifier():
     assert (result.final_status[:, 0] == LOST_KIND).all()
 
 
-# --- Parity-measurement capability contract ---------------------------------
-
-
 def test_capable_model_rejects_mpp():
     """MPP is not supported when the model can leak or lose qubits."""
     transitions = {"S": transition_to(LOST)}
@@ -753,9 +726,6 @@ def test_capable_model_rejects_mpp():
 def test_exp_val_probe_is_rejected():
     with pytest.raises(ValueError, match="EXP_VAL probes are not supported"):
         noncomp.sample("EXP_VAL Z0\n", noncomp.Model(), shots=1, seed=5)
-
-
-# --- Memory-X smoke -----------------------------------------------------------
 
 
 def test_memory_x_smoke():
@@ -780,9 +750,6 @@ def test_contract_validated_for_zero_shots():
         noncomp.sample("S 0\nM 0", model, shots=0, seed=1)
 
 
-# --- Error message quality ----------------------------------------------------
-
-
 def test_malformed_transition_error_names_key():
     """A bad transition matrix error must include the offending key in the message."""
     bad = [[0.0] * 5 for _ in range(5)]
@@ -790,9 +757,6 @@ def test_malformed_transition_error_names_key():
 
     with pytest.raises(ValueError, match="'CZ'"):
         noncomp.Model(initial_state=ALL_G, transitions={"S": transition_to(LEAK_G), "CZ": bad})
-
-
-# --- Plain-pipeline redirect points to clifft.noncomp.sample -----------------
 
 
 def test_compile_annotated_circuit_raises_invalid_argument_with_noncomp_sample_hint():
@@ -810,9 +774,6 @@ def test_sample_type_hints_resolve_at_runtime():
 
     hints = get_type_hints(noncomp.sample)
     assert "circuit" in hints
-
-
-# --- QubitStatus enum ----------------------------------------------------------
 
 
 def test_qubit_status_values():
@@ -847,9 +808,6 @@ def test_fine_grained_leak_e_status():
     assert (r.final_status == noncomp.QubitStatus.LEAK_E).all()
 
 
-# --- Default initial state ----------------------------------------------------
-
-
 def test_model_default_initial_state_constructs():
     model = noncomp.Model()
     assert isinstance(model, noncomp.Model)
@@ -858,9 +816,6 @@ def test_model_default_initial_state_constructs():
 def test_model_default_initial_state_reads_zero():
     r = noncomp.sample("M 0", noncomp.Model(), shots=4, seed=1)
     assert np.all(r.measurements == 0)
-
-
-# --- Model repr ---------------------------------------------------------------
 
 
 def test_model_repr_contains_keys_and_damping():
@@ -872,9 +827,6 @@ def test_model_repr_contains_keys_and_damping():
     assert "S" in r
     assert "seep" in r
     assert "neglect" in r
-
-
-# --- Ternary herald on a measure-reset ----------------------------------------
 
 
 def test_ternary_herald_on_measure_reset():
@@ -928,9 +880,6 @@ def test_ternary_herald_on_measure_reset():
 
     # Final status is COMPUTATIONAL: the MR reset cleared the leak level.
     assert np.all(r.final_status[:, 0] == COMPUTATIONAL), "final status was not COMPUTATIONAL"
-
-
-# --- Entropy-seeded runs -------------------------------------------------------
 
 
 def test_seed_none_smoke():
