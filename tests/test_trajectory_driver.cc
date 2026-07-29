@@ -1,5 +1,5 @@
 // End-to-end tests for trajectory sampling: the driver loop, continuation
-// cache, frame-preloaded initials, and trap resolution behind
+// compilation, frame-preloaded initials, and trap resolution behind
 // sample_noncomputational.
 //
 // Deterministic checks use certain (p = 1) channels; statistical checks
@@ -557,7 +557,7 @@ TEST_CASE("trajectory: neglect keeps rank flat while exact damping expands") {
         ContainsSubstring("exceeds max_rank 0"));
 }
 
-TEST_CASE("trajectory: ternary heralds ride the cache key") {
+TEST_CASE("trajectory: ternary heralds keep a uniform visible bit") {
     // A three-symbol classifier whose leaked column always heralds: every
     // trapped shot's classified slot reports a herald, and the record bit
     // stays roughly fair across shots.

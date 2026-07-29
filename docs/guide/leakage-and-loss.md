@@ -340,13 +340,11 @@ reproduce the bytecode prefix already executed, because `resume()` reuses the
 existing VM state directly. `noncomp.sample` therefore uses a fixed internal
 pipeline and does not currently accept custom pass managers.
 
-Continuations are cached by event history and shared across shots. For ternary
-classifiers, the cache also holds one module per herald-flag assignment
-observed for that history. Typical low-rate models reuse the no-jump
-continuation on most shots, so the cache usually stays small. In the worst
-case, stochastic transitions can produce a distinct event history per shot;
-many ternary-classified measurements can similarly produce a distinct herald
-assignment per shot. Only observed combinations are cached, so for a fixed
-circuit compile time and memory can grow linearly, but not exponentially, with
-the shot count. The theory page explains
-[how continuations compose with Clifft](../theory/noncomputational.md#how-this-composes-with-clifft). Future versions may reconsider this caching strategy if it becomes a memory issue in practice.
+The all-computational starting continuation is compiled lazily and reused
+across shots. A continuation for a noncomputational initial state or a trapped
+transition is kept only while that shot executes it, then discarded. This
+bounds retained compiled programs independently of the number of observed
+event histories. A repeated trapped history is therefore recompiled; a
+bounded cache can be added later if real workloads show that this cost matters.
+The theory page explains
+[how continuations compose with Clifft](../theory/noncomputational.md#how-this-composes-with-clifft).

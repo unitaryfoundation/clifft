@@ -70,17 +70,14 @@ struct ClassicalOutcome {
     // The destination level, or nullopt when no jump occurred.
     std::optional<Level> destination;
     // The qubit's level when the outcome was drawn. The rewriter checks this
-    // to prevent reusing an outcome for a different source level. The value
-    // is derived from the other event fields and omitted from the continuation
-    // cache key.
+    // to prevent reusing an outcome for a different source level when a later
+    // trap causes the circuit to be walked again.
     Level source_level = Level::G;
 };
 
 // Everything needed to rewrite one shot: its initial qubit statuses,
 // recorded jumps, and pre-drawn outcomes for transitions reached on leaked or
-// lost qubits. These fields also form the continuation cache key, except for
-// ClassicalOutcome::source_level. Shots with equal events can therefore share
-// one compiled continuation.
+// lost qubits.
 struct TrajectoryEvents {
     std::vector<QubitStatus> initial_status;
     std::vector<ResolvedJump> jumps;

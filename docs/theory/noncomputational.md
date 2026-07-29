@@ -197,7 +197,7 @@ handled while constructing the trajectory-specific continuation.
 
 A noncomputational jump can change which later gates are skipped, which measurements use the classifier, and whether a site returns to the computational state. Those choices depend on the live state and differ between shots, so one model-independent program cannot describe every trajectory. `noncomp.sample` therefore interleaves execution with compilation of trajectory-specific continuations. A continuation is the circuit rewritten and compiled for the noncomputational events observed so far and the resulting status ledger. Its prefix matches the program already executed, while its remaining operations reflect the updated trajectory.
 
-Execution continues through events that can be handled inline. When a fire requires different downstream semantics, the driver traps, records the event, fetches or compiles the matching continuation, and resumes after the trapped site. Continuations are cached, so shots that reach the same event history can reuse the same compiled program.
+Execution continues through events that can be handled inline. When a fire requires different downstream semantics, the driver traps, records the event, compiles the matching continuation, and resumes after the trapped site. The common all-computational starting program is reused across shots. Other continuations live only for the current shot, so retained programs do not grow with the number of observed event histories.
 
 Each continuation still uses Clifft's normal compiler and SVM architecture.
 Clifford operations are absorbed ahead of time, Pauli products are localized
