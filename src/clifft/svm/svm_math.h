@@ -61,9 +61,15 @@ inline void bit_swap(std::span<uint64_t> m1, uint32_t i1, std::span<uint64_t> m2
 // For 1-axis ops: pdep_mask = ~(1ULL << axis), deposits i into all bits
 // except the axis bit. For 2-axis ops: pdep_mask = ~(c_bit | t_bit).
 //
-// These functions change implementation based on __BMI2__ compiler flags,
-// so they live inside CLIFFT_SIMD_NAMESPACE to avoid ODR violations when
-// compiled into separate scalar and AVX2 translation units.
+// The portable bit-insertion helper is shared by generic kernels. The scatter
+// helpers change implementation based on __BMI2__ compiler flags, so they live
+// inside CLIFFT_SIMD_NAMESPACE to avoid ODR violations when compiled into
+// separate scalar and AVX2 translation units.
+
+inline uint64_t insert_zero_bit(uint64_t val, uint16_t pos) {
+    const uint64_t mask = (1ULL << pos) - 1;
+    return (val & mask) | ((val & ~mask) << 1);
+}
 
 #if defined(__BMI2__) && (defined(__x86_64__) || defined(_M_X64))
 #define CLIFFT_HAS_PDEP 1
@@ -73,11 +79,6 @@ inline void bit_swap(std::span<uint64_t> m1, uint32_t i1, std::span<uint64_t> m2
 
 #ifdef CLIFFT_SIMD_NAMESPACE
 namespace CLIFFT_SIMD_NAMESPACE {
-
-inline uint64_t insert_zero_bit(uint64_t val, uint16_t pos) {
-    uint64_t mask = (1ULL << pos) - 1;
-    return (val & mask) | ((val & ~mask) << 1);
-}
 
 inline uint64_t scatter_bits_1(uint64_t val, [[maybe_unused]] uint64_t pdep_mask,
                                [[maybe_unused]] uint16_t bit_pos) {
