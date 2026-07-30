@@ -201,6 +201,21 @@ html, body, #root {
   flex-shrink: 0;
 }
 
+/* --- Compile error banner --- */
+.compile-error-banner {
+  padding: 6px 12px;
+  background: var(--bg-surface);
+  border-bottom: 1px solid var(--border);
+  font-size: 12px;
+  color: var(--error-red);
+  text-align: center;
+  line-height: 1.5;
+}
+
+.compile-error-banner a {
+  color: var(--accent);
+}
+
 /* --- Workspace --- */
 .workspace {
   flex: 1;

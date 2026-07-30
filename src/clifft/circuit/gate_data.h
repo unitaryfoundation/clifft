@@ -121,8 +121,9 @@ enum class GateType : uint16_t {
     CORRELATED_ERROR,       // E(p): correlated Pauli product error
     ELSE_CORRELATED_ERROR,  // Else-branch in a correlated error chain
 
-    // Synthetic gates (emitted by parser, not in input syntax)
-    READOUT_NOISE,  // Classical bit-flip on measurement result
+    // Record-bit noise: emitted by the parser for noisy measurements like
+    // M(p), and also writable directly in circuit text
+    READOUT_NOISE,  // Classical bit-flip on a recorded result
 
     // QEC annotations
     DETECTOR,            // Detector declaration
@@ -131,8 +132,19 @@ enum class GateType : uint16_t {
     // Annotations
     TICK,  // Timing layer marker (no-op)
 
+    // Noncomputational trajectory annotations (consumed by the
+    // noncomputational sampling layer; trace() rejects them)
+    LEVEL_TRANSITION,  // Per-site level transition; the tag names a model matrix
+    LOSS,              // Per-site uniform loss with an inline probability
+
     // Simulation-only probes
     EXP_VAL,  // Non-destructive expectation value
+
+    // Parse-time rewrites: the parser lowers these immediately; no AST node
+    // ever carries these types.
+    CH,   // Controlled-Hadamard (rewritten at parse time)
+    CCX,  // Toffoli / controlled-controlled-X (rewritten at parse time)
+    CCZ,  // Controlled-controlled-Z (rewritten at parse time)
 
     // Sentinel for unknown/unsupported gates
     UNKNOWN,
@@ -142,7 +154,7 @@ enum class GateType : uint16_t {
 enum class GateArity : uint8_t {
     SINGLE,      // Single qubit (H, S, X, T, M, etc.)
     PAIR,        // Two qubits consumed in pairs (CX, CY, CZ)
-    TRIPLE,      // Three qubits consumed in triples (3-qubit noise channels)
+    TRIPLE,      // Three qubits consumed in triples (3-qubit noise channels and gates)
     MULTI,       // Variable targets (MPP)
     ANNOTATION,  // No qubit targets (TICK)
 };
@@ -151,12 +163,17 @@ enum class GateArity : uint8_t {
 // Booleans default to false so designated initializers only name true fields.
 struct GateTraits {
     GateArity arity;
+    // Unitary gate action (Clifford or not); excludes measurements, resets, noise, and annotations.
+    bool unitary = false;
     bool clifford = false;
     bool measurement = false;
     bool reset = false;
     bool measure_reset = false;
     bool identity_noop = false;
     bool noise = false;
+    // Lowered by the parser into other node kinds, so the gate never
+    // appears as an AST node.
+    bool parser_desugared = false;
     std::string_view name;
 };
 
@@ -171,63 +188,63 @@ constexpr auto A = GateArity::ANNOTATION;
 // clang-format off
 inline constexpr GateTraits kGateTraitsData[] = {
     // Single-qubit Cliffords
-    {.arity = S, .clifford = true, .name = "H"},
-    {.arity = S, .clifford = true, .name = "S"},
-    {.arity = S, .clifford = true, .name = "S_DAG"},
-    {.arity = S, .clifford = true, .name = "X"},
-    {.arity = S, .clifford = true, .name = "Y"},
-    {.arity = S, .clifford = true, .name = "Z"},
-    {.arity = S, .clifford = true, .name = "SQRT_X"},
-    {.arity = S, .clifford = true, .name = "SQRT_X_DAG"},
-    {.arity = S, .clifford = true, .name = "SQRT_Y"},
-    {.arity = S, .clifford = true, .name = "SQRT_Y_DAG"},
-    {.arity = S, .clifford = true, .name = "H_XY"},
-    {.arity = S, .clifford = true, .name = "H_YZ"},
-    {.arity = S, .clifford = true, .name = "H_NXY"},
-    {.arity = S, .clifford = true, .name = "H_NXZ"},
-    {.arity = S, .clifford = true, .name = "H_NYZ"},
-    {.arity = S, .clifford = true, .name = "C_XYZ"},
-    {.arity = S, .clifford = true, .name = "C_ZYX"},
-    {.arity = S, .clifford = true, .name = "C_NXYZ"},
-    {.arity = S, .clifford = true, .name = "C_NZYX"},
-    {.arity = S, .clifford = true, .name = "C_XNYZ"},
-    {.arity = S, .clifford = true, .name = "C_XYNZ"},
-    {.arity = S, .clifford = true, .name = "C_ZNYX"},
-    {.arity = S, .clifford = true, .name = "C_ZYNX"},
+    {.arity = S, .unitary = true, .clifford = true, .name = "H"},
+    {.arity = S, .unitary = true, .clifford = true, .name = "S"},
+    {.arity = S, .unitary = true, .clifford = true, .name = "S_DAG"},
+    {.arity = S, .unitary = true, .clifford = true, .name = "X"},
+    {.arity = S, .unitary = true, .clifford = true, .name = "Y"},
+    {.arity = S, .unitary = true, .clifford = true, .name = "Z"},
+    {.arity = S, .unitary = true, .clifford = true, .name = "SQRT_X"},
+    {.arity = S, .unitary = true, .clifford = true, .name = "SQRT_X_DAG"},
+    {.arity = S, .unitary = true, .clifford = true, .name = "SQRT_Y"},
+    {.arity = S, .unitary = true, .clifford = true, .name = "SQRT_Y_DAG"},
+    {.arity = S, .unitary = true, .clifford = true, .name = "H_XY"},
+    {.arity = S, .unitary = true, .clifford = true, .name = "H_YZ"},
+    {.arity = S, .unitary = true, .clifford = true, .name = "H_NXY"},
+    {.arity = S, .unitary = true, .clifford = true, .name = "H_NXZ"},
+    {.arity = S, .unitary = true, .clifford = true, .name = "H_NYZ"},
+    {.arity = S, .unitary = true, .clifford = true, .name = "C_XYZ"},
+    {.arity = S, .unitary = true, .clifford = true, .name = "C_ZYX"},
+    {.arity = S, .unitary = true, .clifford = true, .name = "C_NXYZ"},
+    {.arity = S, .unitary = true, .clifford = true, .name = "C_NZYX"},
+    {.arity = S, .unitary = true, .clifford = true, .name = "C_XNYZ"},
+    {.arity = S, .unitary = true, .clifford = true, .name = "C_XYNZ"},
+    {.arity = S, .unitary = true, .clifford = true, .name = "C_ZNYX"},
+    {.arity = S, .unitary = true, .clifford = true, .name = "C_ZYNX"},
     // Non-Clifford
-    {.arity = S, .name = "T"},
-    {.arity = S, .name = "T_DAG"},
+    {.arity = S, .unitary = true, .name = "T"},
+    {.arity = S, .unitary = true, .name = "T_DAG"},
     // Parameterized rotations
-    {.arity = S, .name = "R_X"},
-    {.arity = S, .name = "R_Y"},
-    {.arity = S, .name = "R_Z"},
-    {.arity = S, .name = "U3"},
-    {.arity = P, .name = "R_XX"},
-    {.arity = P, .name = "R_YY"},
-    {.arity = P, .name = "R_ZZ"},
-    {.arity = ML, .name = "R_PAULI"},
+    {.arity = S, .unitary = true, .name = "R_X"},
+    {.arity = S, .unitary = true, .name = "R_Y"},
+    {.arity = S, .unitary = true, .name = "R_Z"},
+    {.arity = S, .unitary = true, .name = "U3"},
+    {.arity = P, .unitary = true, .name = "R_XX"},
+    {.arity = P, .unitary = true, .name = "R_YY"},
+    {.arity = P, .unitary = true, .name = "R_ZZ"},
+    {.arity = ML, .unitary = true, .name = "R_PAULI"},
     // Two-qubit Cliffords
-    {.arity = P, .clifford = true, .name = "CX"},
-    {.arity = P, .clifford = true, .name = "CY"},
-    {.arity = P, .clifford = true, .name = "CZ"},
-    {.arity = P, .clifford = true, .name = "SWAP"},
-    {.arity = P, .clifford = true, .name = "ISWAP"},
-    {.arity = P, .clifford = true, .name = "ISWAP_DAG"},
-    {.arity = P, .clifford = true, .name = "SQRT_XX"},
-    {.arity = P, .clifford = true, .name = "SQRT_XX_DAG"},
-    {.arity = P, .clifford = true, .name = "SQRT_YY"},
-    {.arity = P, .clifford = true, .name = "SQRT_YY_DAG"},
-    {.arity = P, .clifford = true, .name = "SQRT_ZZ"},
-    {.arity = P, .clifford = true, .name = "SQRT_ZZ_DAG"},
-    {.arity = P, .clifford = true, .name = "CXSWAP"},
-    {.arity = P, .clifford = true, .name = "CZSWAP"},
-    {.arity = P, .clifford = true, .name = "SWAPCX"},
-    {.arity = P, .clifford = true, .name = "XCX"},
-    {.arity = P, .clifford = true, .name = "XCY"},
-    {.arity = P, .clifford = true, .name = "XCZ"},
-    {.arity = P, .clifford = true, .name = "YCX"},
-    {.arity = P, .clifford = true, .name = "YCY"},
-    {.arity = P, .clifford = true, .name = "YCZ"},
+    {.arity = P, .unitary = true, .clifford = true, .name = "CX"},
+    {.arity = P, .unitary = true, .clifford = true, .name = "CY"},
+    {.arity = P, .unitary = true, .clifford = true, .name = "CZ"},
+    {.arity = P, .unitary = true, .clifford = true, .name = "SWAP"},
+    {.arity = P, .unitary = true, .clifford = true, .name = "ISWAP"},
+    {.arity = P, .unitary = true, .clifford = true, .name = "ISWAP_DAG"},
+    {.arity = P, .unitary = true, .clifford = true, .name = "SQRT_XX"},
+    {.arity = P, .unitary = true, .clifford = true, .name = "SQRT_XX_DAG"},
+    {.arity = P, .unitary = true, .clifford = true, .name = "SQRT_YY"},
+    {.arity = P, .unitary = true, .clifford = true, .name = "SQRT_YY_DAG"},
+    {.arity = P, .unitary = true, .clifford = true, .name = "SQRT_ZZ"},
+    {.arity = P, .unitary = true, .clifford = true, .name = "SQRT_ZZ_DAG"},
+    {.arity = P, .unitary = true, .clifford = true, .name = "CXSWAP"},
+    {.arity = P, .unitary = true, .clifford = true, .name = "CZSWAP"},
+    {.arity = P, .unitary = true, .clifford = true, .name = "SWAPCX"},
+    {.arity = P, .unitary = true, .clifford = true, .name = "XCX"},
+    {.arity = P, .unitary = true, .clifford = true, .name = "XCY"},
+    {.arity = P, .unitary = true, .clifford = true, .name = "XCZ"},
+    {.arity = P, .unitary = true, .clifford = true, .name = "YCX"},
+    {.arity = P, .unitary = true, .clifford = true, .name = "YCY"},
+    {.arity = P, .unitary = true, .clifford = true, .name = "YCZ"},
     // Measurements
     {.arity = S, .measurement = true, .name = "M"},
     {.arity = S, .measurement = true, .name = "MX"},
@@ -235,9 +252,9 @@ inline constexpr GateTraits kGateTraitsData[] = {
     {.arity = S, .measurement = true, .measure_reset = true, .name = "MR"},
     {.arity = S, .measurement = true, .measure_reset = true, .name = "MRX"},
     {.arity = ML, .measurement = true, .name = "MPP"},
-    {.arity = P, .measurement = true, .name = "MXX"},
-    {.arity = P, .measurement = true, .name = "MYY"},
-    {.arity = P, .measurement = true, .name = "MZZ"},
+    {.arity = P, .measurement = true, .parser_desugared = true, .name = "MXX"},
+    {.arity = P, .measurement = true, .parser_desugared = true, .name = "MYY"},
+    {.arity = P, .measurement = true, .parser_desugared = true, .name = "MZZ"},
     // Resets
     {.arity = S, .reset = true, .name = "R"},
     {.arity = S, .reset = true, .name = "RX"},
@@ -246,8 +263,8 @@ inline constexpr GateTraits kGateTraitsData[] = {
     // Deterministic padding
     {.arity = S, .measurement = true, .name = "MPAD"},
     // Identity no-ops
-    {.arity = S, .identity_noop = true, .name = "I"},
-    {.arity = P, .identity_noop = true, .name = "II"},
+    {.arity = S, .unitary = true, .identity_noop = true, .name = "I"},
+    {.arity = P, .unitary = true, .identity_noop = true, .name = "II"},
     {.arity = S, .identity_noop = true, .name = "I_ERROR"},
     {.arity = P, .identity_noop = true, .name = "II_ERROR"},
     // Noise channels
@@ -267,8 +284,15 @@ inline constexpr GateTraits kGateTraitsData[] = {
     {.arity = A, .name = "DETECTOR"},
     {.arity = A, .name = "OBSERVABLE_INCLUDE"},
     {.arity = A, .name = "TICK"},
+    // Noncomputational trajectory annotations
+    {.arity = S, .name = "LEVEL_TRANSITION"},
+    {.arity = S, .name = "LOSS"},
     // Simulation-only probes
     {.arity = ML, .name = "EXP_VAL"},
+    // Parse-time rewrites: no AST nodes carry these types
+    {.arity = P, .unitary = true, .parser_desugared = true, .name = "CH"},
+    {.arity = T, .unitary = true, .parser_desugared = true, .name = "CCX"},
+    {.arity = T, .unitary = true, .parser_desugared = true, .name = "CCZ"},
     // Sentinel
     {.arity = S, .name = "UNKNOWN"},
 };
@@ -277,6 +301,26 @@ inline constexpr GateTraits kGateTraitsData[] = {
 static_assert(sizeof(kGateTraitsData) / sizeof(kGateTraitsData[0]) ==
                   static_cast<size_t>(GateType::UNKNOWN) + 1,
               "kGateTraitsData must have one entry per GateType");
+
+constexpr bool clifford_implies_unitary() {
+    for (const GateTraits& t : kGateTraitsData) {
+        if (t.clifford && !t.unitary) {
+            return false;
+        }
+    }
+    return true;
+}
+constexpr bool unitary_excludes_channels() {
+    for (const GateTraits& t : kGateTraitsData) {
+        if (t.unitary && (t.measurement || t.reset || t.measure_reset || t.noise)) {
+            return false;
+        }
+    }
+    return true;
+}
+static_assert(clifford_implies_unitary(), "every Clifford gate is a unitary");
+static_assert(unitary_excludes_channels(),
+              "a unitary gate is not a measurement, reset, or noise channel");
 
 }  // namespace detail
 
@@ -291,6 +335,9 @@ inline constexpr GateArity gate_arity(GateType g) {
 inline constexpr bool is_clifford(GateType g) {
     return gate_traits(g).clifford;
 }
+inline constexpr bool is_unitary(GateType g) {
+    return gate_traits(g).unitary;
+}
 inline constexpr bool is_measurement(GateType g) {
     return gate_traits(g).measurement;
 }
@@ -302,6 +349,9 @@ inline constexpr bool is_measure_reset(GateType g) {
 }
 inline constexpr bool is_identity_noop(GateType g) {
     return gate_traits(g).identity_noop;
+}
+inline constexpr bool is_parser_desugared(GateType g) {
+    return gate_traits(g).parser_desugared;
 }
 inline constexpr bool is_noise_gate(GateType g) {
     return gate_traits(g).noise;

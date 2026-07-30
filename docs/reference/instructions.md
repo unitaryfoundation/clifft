@@ -49,6 +49,7 @@ falls into one of the categories below.
 {% elif cat == 'Array' %}Array ops apply unitary gates directly to the Schrodinger state vector |phi>_A.
 {% elif cat == 'Subspace' %}Subspace ops change the size of the active subspace or apply non-Clifford rotations.
 {% elif cat == 'Measurement' %}Measurement ops collapse qubits, either algebraically (dormant) or by filtering/folding the state vector (active).
+{% elif cat == 'Instrument' %}Instrument ops evaluate state-dependent transitions. Some outcomes return control to the trajectory driver so execution can continue with an updated program.
 {% elif cat == 'Meta' %}Meta ops handle classical feedback, noise channels, and error correction bookkeeping.
 {% endif %}
 

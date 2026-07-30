@@ -89,7 +89,13 @@ bool can_swap(const HeisenbergOp& left, const HeisenbergOp& right, const HirModu
 
     // EXP_VAL is a positional probe: the user expects the expectation value
     // at an exact circuit point. Never reorder anything across it.
-    if (lt == OpType::EXP_VAL || rt == OpType::EXP_VAL) {
+    // INSTRUMENT is a positional barrier for a stronger reason: a trap at
+    // the site defines the remaining work as "the circuit's operations
+    // after it", and re-entry requires prefix compilation to be a function
+    // of the prefix alone. Both carry Pauli masks, so without these
+    // clauses the symplectic test below would let commuting ops cross.
+    if (lt == OpType::EXP_VAL || rt == OpType::EXP_VAL || lt == OpType::INSTRUMENT ||
+        rt == OpType::INSTRUMENT) {
         return false;
     }
 

@@ -52,6 +52,14 @@ export function isSimulateSuccess(r: SimulateResult): r is SimulateSuccess {
   return !('error' in r) || r.error === undefined;
 }
 
+// Matches the C++ frontend's rejection of LOSS / LEVEL_TRANSITION outside
+// clifft.noncomp.sample, e.g. "LOSS is a noncomputational annotation; run
+// the circuit through clifft.noncomp.sample instead of compiling it
+// directly". A substring check keeps this robust to which gate triggered it.
+export function isNoncompAnnotationError(error: string): boolean {
+  return error.includes("noncomputational annotation");
+}
+
 export interface ClifftModule {
   get_available_passes: () => string;
   compile_to_json: (source: string, passes_json: string) => string;

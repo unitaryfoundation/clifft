@@ -1,6 +1,7 @@
 #include "clifft/circuit/parser.h"
 
 #include "clifft/util/config.h"
+#include "clifft/util/numeric.h"
 
 #include <algorithm>
 #include <array>
@@ -70,6 +71,25 @@ std::string_view trim(std::string_view s) {
     }
     return s;
 }
+
+}  // namespace
+
+// Tags are trimmed as they are parsed, and a '#' starts a comment that
+// is stripped before tag parsing. A key with leading/trailing whitespace
+// or a '#' could never be written as a LEVEL_TRANSITION[key] tag and
+// reach the model unchanged.
+bool is_representable_tag(std::string_view tag) {
+    if (tag.empty()) {
+        return false;
+    }
+    if (std::isspace(static_cast<unsigned char>(tag.front())) ||
+        std::isspace(static_cast<unsigned char>(tag.back()))) {
+        return false;
+    }
+    return tag.find_first_of("]#\n") == std::string_view::npos;
+}
+
+namespace {
 
 bool parse_int(std::string_view s, int& out) {
     auto result = std::from_chars(s.data(), s.data() + s.size(), out);
@@ -199,6 +219,25 @@ class Parser {
         std::string_view gate_name = line.substr(0, name_end);
         std::string_view rest = trim(line.substr(name_end));
 
+        // Parse an optional bracket tag: NAME[tag](args) targets.
+        std::string tag;
+        if (!rest.empty() && rest[0] == '[') {
+            auto close_bracket = rest.find(']');
+            if (close_bracket == std::string_view::npos) {
+                throw ParseError("Unclosed tag bracket", line_num);
+            }
+            tag = std::string(trim(rest.substr(1, close_bracket - 1)));
+            if (tag.empty()) {
+                throw ParseError("Empty tag", line_num);
+            }
+            rest = trim(rest.substr(close_bracket + 1));
+        }
+        // Restricted here, before the discarded-annotation and parser-rewrite
+        // paths return, so no instruction can silently drop a tag.
+        if (!tag.empty() && gate_name != "LEVEL_TRANSITION") {
+            throw ParseError("Tags are only supported on LEVEL_TRANSITION", line_num);
+        }
+
         // Parse optional parenthesized arguments (comma-separated floats).
         std::vector<double> args;
         if (!rest.empty() && rest[0] == '(') {
@@ -235,25 +274,6 @@ class Parser {
             return;
         }
 
-        // Parser-only rewrite gates. They are lowered immediately so the
-        // AST never contains frontend/backend-visible CH, CCZ, or CCX nodes.
-        if (gate_name == "CH") {
-            if (!args.empty()) {
-                throw ParseError("CH takes no arguments", line_num);
-            }
-            previous_correlated_error_link_ = false;
-            parse_ch_rewrite(rest, line_num, circuit);
-            return;
-        }
-        if (gate_name == "CCZ" || gate_name == "CCX") {
-            if (!args.empty()) {
-                throw ParseError(std::string(gate_name) + " takes no arguments", line_num);
-            }
-            previous_correlated_error_link_ = false;
-            parse_three_qubit_rewrite(gate_name, rest, line_num, circuit);
-            return;
-        }
-
         // Look up gate type.
         GateType gate = find_gate(gate_name);
         if (gate == GateType::UNKNOWN) {
@@ -268,6 +288,23 @@ class Parser {
         }
         previous_correlated_error_link_ =
             gate == GateType::CORRELATED_ERROR || gate == GateType::ELSE_CORRELATED_ERROR;
+
+        // CH/CCX/CCZ are lowered immediately, so the AST never contains their
+        // nodes; MXX/MYY/MZZ lower inside the pair-arity path below.
+        if (gate == GateType::CH) {
+            if (!args.empty()) {
+                throw ParseError("CH takes no arguments", line_num);
+            }
+            parse_ch_rewrite(rest, line_num, circuit);
+            return;
+        }
+        if (gate == GateType::CCX || gate == GateType::CCZ) {
+            if (!args.empty()) {
+                throw ParseError(std::string(gate_name) + " takes no arguments", line_num);
+            }
+            parse_three_qubit_rewrite(gate_name, rest, line_num, circuit);
+            return;
+        }
 
         // Validate argument counts for multi-probability channels.
         if (gate == GateType::PAULI_CHANNEL_1 && args.size() != 3) {
@@ -301,6 +338,39 @@ class Parser {
         if (gate == GateType::EXP_VAL && !args.empty()) {
             throw ParseError("EXP_VAL takes no arguments", line_num);
         }
+        if (gate == GateType::LEVEL_TRANSITION) {
+            if (tag.empty()) {
+                throw ParseError(
+                    "LEVEL_TRANSITION requires a [tag] naming a transition in the model", line_num);
+            }
+            if (!args.empty()) {
+                throw ParseError("LEVEL_TRANSITION takes no arguments (the tag names the matrix)",
+                                 line_num);
+            }
+        }
+        if (gate == GateType::LOSS) {
+            if (args.size() != 1) {
+                throw ParseError("LOSS requires exactly 1 argument (the loss probability)",
+                                 line_num);
+            }
+            if (!is_probability(args[0])) {
+                throw ParseError("LOSS probability must be finite and lie in [0, 1]", line_num);
+            }
+        }
+        if (gate == GateType::READOUT_NOISE) {
+            if (args.size() != 1 && args.size() != 2) {
+                throw ParseError(
+                    "READOUT_NOISE requires 1 argument (symmetric flip probability) or 2 "
+                    "arguments (0->1, 1->0 flip probabilities)",
+                    line_num);
+            }
+            for (const double probability : args) {
+                if (!is_probability(probability)) {
+                    throw ParseError("READOUT_NOISE probabilities must be finite and lie in [0, 1]",
+                                     line_num);
+                }
+            }
+        }
 
         // Parse based on gate type.
         switch (gate) {
@@ -330,7 +400,7 @@ class Parser {
                 circuit.nodes.push_back({GateType::TICK, {}, args, line_num});
                 break;
             default:
-                parse_standard_gate(gate, rest, line_num, circuit, arg, args);
+                parse_standard_gate(gate, rest, line_num, circuit, arg, args, tag);
                 break;
         }
     }
@@ -594,7 +664,8 @@ class Parser {
 
     // Parse a standard gate with qubit targets (possibly with rec references).
     void parse_standard_gate(GateType gate, std::string_view targets_str, uint32_t line_num,
-                             Circuit& circuit, double arg, const std::vector<double>& args) {
+                             Circuit& circuit, double arg, const std::vector<double>& args,
+                             const std::string& tag = {}) {
         // Resets (R, RX) don't accept noise arguments.
         if (is_reset(gate) && arg != 0.0) {
             throw ParseError("Reset gates do not accept arguments", line_num);
@@ -616,12 +687,32 @@ class Parser {
                     line_num);
             }
 
-            // Validate rec targets are only used for CX/CZ feedback forms.
+            // Validate rec targets are only used for CX/CZ feedback forms
+            // and READOUT_NOISE record flips.
             bool is_rec_token = token.starts_with("rec[") || (token.size() > 1 && token[0] == '!' &&
                                                               token.substr(1).starts_with("rec["));
-            if (is_rec_token && gate != GateType::CX && gate != GateType::CZ) {
+            if (is_rec_token && gate != GateType::CX && gate != GateType::CZ &&
+                gate != GateType::READOUT_NOISE) {
                 throw ParseError(
-                    "rec targets are only supported as feedback controls for CX/CZ gates",
+                    "rec targets are only supported as feedback controls for CX/CZ gates "
+                    "and as READOUT_NOISE targets",
+                    line_num);
+            }
+            if (!is_rec_token && gate == GateType::READOUT_NOISE) {
+                throw ParseError("READOUT_NOISE targets must be rec references", line_num);
+            }
+            // '!' marks measurement-record inversion, which has no meaning
+            // on a transition or loss site. (Record targets on these gates
+            // are rejected by the rec-token check above.)
+            if ((gate == GateType::LEVEL_TRANSITION || gate == GateType::LOSS) && token[0] == '!') {
+                throw ParseError(
+                    std::string(clifft::gate_name(gate)) + " targets must be plain qubit indices",
+                    line_num);
+            }
+            if (is_rec_token && gate == GateType::READOUT_NOISE && token[0] == '!') {
+                throw ParseError(
+                    "READOUT_NOISE targets do not support inversion; swap the two flip "
+                    "probabilities instead",
                     line_num);
             }
 
@@ -673,6 +764,7 @@ class Parser {
                     }
 
                     AstNode node{gate, {t}, std::move(node_args), line_num};
+                    node.tag = tag;
                     update_circuit_stats(node, circuit);
                     circuit.nodes.push_back(std::move(node));
 

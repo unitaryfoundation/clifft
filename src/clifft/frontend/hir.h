@@ -18,8 +18,10 @@
 
 #include "stim.h"
 
+#include <algorithm>
 #include <cassert>
 #include <complex>
+#include <cstddef>
 #include <cstdint>
 #include <optional>
 #include <stdexcept>
@@ -74,14 +76,98 @@ struct NoiseSite {
     std::vector<NoiseChannel> channels;
 };
 
-/// Readout noise entry: classical bit-flip on a measurement result.
+/// Readout noise entry: classical bit-flip on a measurement result. The
+/// flip probability conditions on the recorded bit's value, so asymmetric
+/// readout confusion (0->1 vs 1->0 at different rates) is expressible;
+/// symmetric noise sets both probabilities equal.
 struct ReadoutNoiseEntry {
-    uint32_t meas_idx;  // Absolute measurement index to potentially flip
-    double prob;        // Flip probability
+    uint32_t meas_idx;        // Absolute measurement index to potentially flip
+    double prob_zero_to_one;  // Flip probability when the recorded bit is 0
+    double prob_one_to_zero;  // Flip probability when the recorded bit is 1
+
+    [[nodiscard]] bool is_symmetric() const { return prob_zero_to_one == prob_one_to_zero; }
 };
 
 /// Index into HirModule::readout_noise side-table
 enum class ReadoutNoiseIdx : uint32_t {};
+
+/// Index into HirModule::instrument_sites side-table. The index doubles as
+/// the site's stable id: instruments are optimization barriers, so no pass
+/// reorders or renumbers them, and the compiled module's site -> bytecode
+/// offset table is keyed by this index.
+enum class InstrumentSiteIdx : uint32_t {};
+
+/// Sentinel handle value indicating that an op carries no Pauli mask.
+inline constexpr PauliMaskHandle kNoMask = static_cast<PauliMaskHandle>(~uint32_t{0});
+
+// =============================================================================
+// Instrument Sites
+// =============================================================================
+//
+// A five-level transition matrix T[to][from] is compressed before it reaches
+// the HIR because only the computational source levels remain quantum. For
+// each source s in {G, E}, InstrumentProbabilities stores
+//
+//   p_fire[s]                  = sum_to T[to][s]
+//   p_computational_dest[s][d] = T[d][s], d in {G, E}
+//
+// and therefore
+//
+//   p_noncomputational_dest[s]
+//       = p_fire[s]
+//         - p_computational_dest[s][G]
+//         - p_computational_dest[s][E].
+//
+// The last quantity aggregates destinations LeakG, LeakE, and Lost. A fire
+// into that remainder traps to the trajectory driver, which consults the
+// original matrix to choose the specific noncomputational destination.
+// Columns whose source is already noncomputational are handled classically
+// by the driver and never enter this HIR representation. The no-fire
+// probability is 1 - p_fire[s]; a diagonal matrix entry is still a fire
+// that lands back on its source, not the no-fire branch.
+//
+// The probabilities are scalar weights, not quantum operators. An
+// INSTRUMENT op's own Pauli mask is the source observable Z_q rewound through
+// the trace tableau; its +/- eigenspaces supply the G/E source projectors.
+// InstrumentSite::destination_flip_mask is the separately rewound X_q,
+// applied when an in-line computational destination differs from the
+// collapsed source. Source/destination index 0 is G = |0>, 1 is E = |1>.
+
+struct InstrumentProbabilities {
+    // Total fire probability for each computational source.
+    double p_fire[2] = {0.0, 0.0};
+
+    // Unconditional fire probability from source s to computational
+    // destination d. Dividing by p_fire[s] gives the destination
+    // probability conditioned on a fire from s.
+    double p_computational_dest[2][2] = {{0.0, 0.0}, {0.0, 0.0}};
+
+    [[nodiscard]] double p_noncomputational_dest(uint8_t source) const {
+        assert(source < 2 && "instrument source must be G or E");
+        const double remainder =
+            p_fire[source] - p_computational_dest[source][0] - p_computational_dest[source][1];
+        // Model validation permits derived column sums to drift within its
+        // probability tolerance. Do not expose a tiny negative trap weight.
+        return std::max(0.0, remainder);
+    }
+};
+
+// One state-dependent jump site on one qubit. The probability payload is
+// the quantum-source compression above; qubit and destination_flip_mask
+// supply the site-specific carrier operation.
+
+struct InstrumentSite {
+    uint32_t qubit = 0;  // Physical qubit, for suffix rewrites + diagnostics
+
+    // The rewound X observable of the qubit at the site (same tableau
+    // conjugation as the op's Z-projector mask): the destination flip a
+    // computational fire applies when its destination differs from its
+    // source. Handle into HirModule::pauli_masks. Passes that conjugate
+    // the op's mask must conjugate this slot identically.
+    PauliMaskHandle destination_flip_mask = kNoMask;
+
+    InstrumentProbabilities probabilities;
+};
 
 // Operation types in the HIR
 enum class OpType : uint8_t {
@@ -94,11 +180,9 @@ enum class OpType : uint8_t {
     DETECTOR,           // Parity check over measurement records
     OBSERVABLE,         // Logical observable accumulator
     EXP_VAL,            // Non-destructive expectation value probe
+    INSTRUMENT,         // State-dependent jump site (references InstrumentSite side-table)
     NUM_OP_TYPES        // Sentinel: must remain last for binding completeness checks
 };
-
-/// Sentinel handle value indicating that an op carries no Pauli mask.
-inline constexpr PauliMaskHandle kNoMask = static_cast<PauliMaskHandle>(~uint32_t{0});
 
 // A single operation in the Heisenberg IR.
 //
@@ -185,6 +269,11 @@ struct HeisenbergOp {
         return static_cast<ExpValIdx>(exp_val_.exp_val_idx);
     }
 
+    [[nodiscard]] InstrumentSiteIdx instrument_site_idx() const {
+        assert(type_ == OpType::INSTRUMENT && "instrument_site_idx called on non-INSTRUMENT op");
+        return static_cast<InstrumentSiteIdx>(instrument_.site_idx);
+    }
+
     [[nodiscard]] double alpha() const {
         assert(type_ == OpType::PHASE_ROTATION && "alpha called on non-PHASE_ROTATION op");
         return phase_.alpha;
@@ -240,6 +329,11 @@ struct HeisenbergOp {
     static HeisenbergOp make_phase_rotation(PauliMaskHandle handle, double alpha) {
         HeisenbergOp op(OpType::PHASE_ROTATION, handle);
         op.phase_.alpha = alpha;
+        return op;
+    }
+    static HeisenbergOp make_instrument(PauliMaskHandle handle, InstrumentSiteIdx site_idx) {
+        HeisenbergOp op(OpType::INSTRUMENT, handle);
+        op.instrument_.site_idx = static_cast<uint32_t>(site_idx);
         return op;
     }
 
@@ -301,6 +395,9 @@ struct HeisenbergOp {
     struct ExpValPayload {
         uint32_t exp_val_idx;
     };
+    struct InstrumentPayload {
+        uint32_t site_idx;
+    };
 
     union {
         MeasurePayload measure_;
@@ -311,6 +408,7 @@ struct HeisenbergOp {
         ObservablePayload observable_;
         PhasePayload phase_;
         ExpValPayload exp_val_;
+        InstrumentPayload instrument_;
     };
 };
 
@@ -335,6 +433,7 @@ struct HirModule {
     std::vector<HeisenbergOp> ops;
     std::vector<NoiseSite> noise_sites;
     std::vector<ReadoutNoiseEntry> readout_noise;
+    std::vector<InstrumentSite> instrument_sites;
     std::vector<std::vector<uint32_t>> detector_targets;
     std::vector<std::vector<uint32_t>> observable_targets;
 
@@ -345,6 +444,12 @@ struct HirModule {
     uint32_t num_observables = 0;
     uint32_t num_exp_vals = 0;
 
+    // Under damping="neglect", dormant-random instrument sites skip the
+    // expansion and apply no no-fire back-action. The noncomputational
+    // policy is module-wide, so trace() records it once rather than on every
+    // InstrumentSite.
+    bool neglect_instrument_damping = false;
+
     std::complex<double> global_weight = {1.0, 0.0};
 
     /// Parallel to ops: source_map[i] lists the source line(s) that
@@ -354,6 +459,11 @@ struct HirModule {
 
     std::optional<stim::Tableau<kStimWidth>> final_tableau;
 
+    // Hidden measurement slot trace() assigned to the requested node's
+    // reset (set when InstrumentTraceOptions::forced_traceout_node names a
+    // valid single-target reset; nullopt when no slot was requested).
+    std::optional<size_t> forced_traceout_slot;
+
     /// True when the evolution is a fixed unitary: no measurements, noise,
     /// readout noise, or measurement-conditioned Paulis. Deterministic
     /// modules have a well-defined final statevector including its global
@@ -362,7 +472,7 @@ struct HirModule {
         for (const auto& op : ops) {
             const OpType type = op.op_type();
             if (type == OpType::MEASURE || type == OpType::NOISE || type == OpType::READOUT_NOISE ||
-                type == OpType::CONDITIONAL_PAULI) {
+                type == OpType::CONDITIONAL_PAULI || type == OpType::INSTRUMENT) {
                 return false;
             }
         }
@@ -441,6 +551,23 @@ struct HirModule {
         fill(pauli_masks.mut_at(h));
         ops.push_back(HeisenbergOp::make_exp_val(h, idx));
         return ops.back();
+    }
+    template <typename Fill>
+    HeisenbergOp& append_instrument(InstrumentSiteIdx idx, Fill&& fill) {
+        auto h = claim_empty_pauli_mask();
+        fill(pauli_masks.mut_at(h));
+        ops.push_back(HeisenbergOp::make_instrument(h, idx));
+        return ops.back();
+    }
+
+    /// Claim a pauli_masks slot referenced from a side-table entry rather
+    /// than an op (e.g. an instrument's destination flip), filled via the
+    /// callable like the append_* builders.
+    template <typename Fill>
+    PauliMaskHandle claim_side_mask(Fill&& fill) {
+        auto h = claim_empty_pauli_mask();
+        fill(pauli_masks.mut_at(h));
+        return h;
     }
 
     // --- Builders for ops that don't carry a Pauli mask ---

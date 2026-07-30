@@ -34,8 +34,12 @@ These constraints must not be violated:
   bytes (`static_assert(sizeof(Instruction) == 32)`).
 - **Stim is Immutable:** Fetch Stim via CMake `FetchContent`. Do not fork,
   vendor, or patch Stim source.
-- **Single Memory Allocation:** The VM's `ShotState` must allocate its
-  coefficient array exactly once based on `peak_rank`.
+- **Single Memory Allocation:** The VM's `SchrodingerState` allocates its
+  coefficient array once at construction, sized by `peak_rank`. The one
+  sanctioned exception is the trap boundary: `resume()` may grow (never
+  shrink) the array before re-entering the dispatch, when a trap
+  continuation was compiled with a larger peak rank. No allocation ever
+  happens inside the dispatch loop or a kernel.
 - **Deterministic RNG:** Do not use `std::uniform_real_distribution` (it is
   implementation-defined). Use `(rng() >> 11) * 0x1.0p-53` for `[0, 1)`.
 - **No Global Topology in the VM:** All multi-qubit Pauli interference must

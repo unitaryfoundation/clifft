@@ -8,11 +8,14 @@
 
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/matchers/catch_matchers_floating_point.hpp>
+#include <catch2/matchers/catch_matchers_string.hpp>
 #include <cmath>
 #include <complex>
+#include <stdexcept>
 #include <vector>
 
 using namespace clifft;
+using Catch::Matchers::ContainsSubstring;
 using Catch::Matchers::WithinAbs;
 using Catch::Matchers::WithinRel;
 using clifft::test::check_complex;
@@ -84,6 +87,15 @@ TEST_CASE("SchrodingerState config initializes optional buffers and seed") {
     CHECK(a.obs_record.size() == 3);
     CHECK(a.exp_vals.size() == 4);
     CHECK(a.random_double() == b.random_double());
+}
+
+TEST_CASE("SchrodingerState rejects peak_rank >= 60") {
+    // 2^60 * 16 bytes == 2^64 bytes, which wraps to 0 in size_t on a 64-bit
+    // platform. The guard fires before any allocation attempt.
+    REQUIRE_THROWS_AS(SchrodingerState(StateConfig{.peak_rank = 60}), std::invalid_argument);
+    REQUIRE_THROWS_WITH(SchrodingerState(StateConfig{.peak_rank = 60}),
+                        ContainsSubstring("peak_rank >= 60 would overflow the amplitude array's "
+                                          "byte size"));
 }
 
 // =============================================================================
@@ -2148,4 +2160,43 @@ TEST_CASE("Observable normalization in sample_survivors") {
     for (uint32_t i = 0; i < 10; ++i) {
         CHECK(result.observables[i] == 0);
     }
+}
+
+namespace {
+CompiledModule compile_readout_text(const std::string& text) {
+    auto circuit = parse(text);
+    auto hir = trace(circuit);
+    return lower(hir);
+}
+}  // namespace
+
+TEST_CASE("Asymmetric READOUT_NOISE flips conditioned on the recorded bit") {
+    // True bit 0, flip 0->1 certain: every record reads 1.
+    auto up = compile_readout_text("M 0\nREADOUT_NOISE(1, 0) rec[-1]\n");
+    for (uint8_t bit : sample(up, 32, 1).measurements) {
+        REQUIRE(bit == 1);
+    }
+    // True bit 1, flip 0->1 certain but 1->0 never: records stay 1.
+    auto stay = compile_readout_text("X 0\nM 0\nREADOUT_NOISE(1, 0) rec[-1]\n");
+    for (uint8_t bit : sample(stay, 32, 2).measurements) {
+        REQUIRE(bit == 1);
+    }
+    // True bit 1, flip 1->0 certain: every record reads 0.
+    auto down = compile_readout_text("X 0\nM 0\nREADOUT_NOISE(0, 1) rec[-1]\n");
+    for (uint8_t bit : sample(down, 32, 3).measurements) {
+        REQUIRE(bit == 0);
+    }
+}
+
+TEST_CASE("Asymmetric READOUT_NOISE matches its rate on a random bit") {
+    // P(record 1) = P(true 1) * (1 - p10) + P(true 0) * p01
+    //             = 0.5 * 1.0 + 0.5 * 0.3 = 0.65.
+    auto mod = compile_readout_text("H 0\nM 0\nREADOUT_NOISE(0.3, 0) rec[-1]\n");
+    auto result = sample(mod, 4000, 5);
+    size_t ones = 0;
+    for (uint8_t bit : result.measurements) {
+        ones += bit;
+    }
+    REQUIRE(ones > 2419);  // expected 2600; ~6 sigma band
+    REQUIRE(ones < 2781);
 }

@@ -20,6 +20,7 @@ def define_env(env: Any) -> None:
         "Array",
         "Subspace",
         "Measurement",
+        "Instrument",
         "Meta",
     ]
     opcodes_by_category: dict[str, list[dict[str, str]]] = {}
@@ -31,6 +32,13 @@ def define_env(env: Any) -> None:
         if cat not in opcodes_by_category:
             opcodes_by_category[cat] = []
         opcodes_by_category[cat].append(entry)
+
+    unknown_opcode_categories = sorted(set(opcodes_by_category) - set(opcode_categories_order))
+    if unknown_opcode_categories:
+        raise ValueError(
+            "docs/opcodes.json contains VM opcode categories missing from docs/macros.py: "
+            + ", ".join(unknown_opcode_categories)
+        )
 
     env.variables["opcodes"] = opcodes
     site_url = env.conf["site_url"].rstrip("/")
@@ -46,6 +54,7 @@ def define_env(env: Any) -> None:
     hir_categories_order = [
         "Non-Clifford",
         "Measurement",
+        "Instrument",
         "Feedback",
         "Noise",
         "QEC",
@@ -60,6 +69,13 @@ def define_env(env: Any) -> None:
             hir_by_category[cat] = []
         hir_by_category[cat].append(entry)
 
+    unknown_hir_categories = sorted(set(hir_by_category) - set(hir_categories_order))
+    if unknown_hir_categories:
+        raise ValueError(
+            "docs/opcodes.json contains HIR categories missing from docs/macros.py: "
+            + ", ".join(unknown_hir_categories)
+        )
+
     env.variables["hir_ops"] = hir_ops
     env.variables["hir_categories"] = [c for c in hir_categories_order if hir_by_category.get(c)]
     env.variables["hir_by_category"] = hir_by_category
@@ -72,6 +88,7 @@ def define_env(env: Any) -> None:
             "name": "PeepholeFusionPass",
             "kind": "HIR",
             "default_enabled": True,
+            "preserves_record_order": True,
             "python_name": "PeepholeFusionPass",
             "summary": "Algebraic T-gate cancellation and fusion.",
             "detail": (
@@ -84,6 +101,7 @@ def define_env(env: Any) -> None:
             "name": "StatevectorSqueezePass",
             "kind": "HIR",
             "default_enabled": True,
+            "preserves_record_order": False,
             "python_name": "StatevectorSqueezePass",
             "summary": "Minimizes peak active dimension by reordering HIR operations.",
             "detail": (
@@ -98,6 +116,7 @@ def define_env(env: Any) -> None:
             "name": "RemoveNoisePass",
             "kind": "HIR",
             "default_enabled": False,
+            "preserves_record_order": False,
             "python_name": "RemoveNoisePass",
             "summary": "Strips all noise from the HIR.",
             "detail": (
@@ -112,6 +131,7 @@ def define_env(env: Any) -> None:
             "name": "DropNonUnitaryPass",
             "kind": "HIR",
             "default_enabled": False,
+            "preserves_record_order": False,
             "python_name": "DropNonUnitaryPass",
             "summary": "Drops non-evolution operations from the HIR.",
             "detail": (
@@ -126,6 +146,7 @@ def define_env(env: Any) -> None:
             "name": "NoiseBlockPass",
             "kind": "Bytecode",
             "default_enabled": True,
+            "preserves_record_order": True,
             "python_name": "NoiseBlockPass",
             "summary": "Coalesces contiguous noise instructions into blocks.",
             "detail": (
@@ -140,6 +161,7 @@ def define_env(env: Any) -> None:
             "name": "MultiGatePass",
             "kind": "Bytecode",
             "default_enabled": True,
+            "preserves_record_order": True,
             "python_name": "MultiGatePass",
             "summary": "Fuses star-graph CNOT/CZ patterns into single array sweeps.",
             "detail": (
@@ -154,6 +176,7 @@ def define_env(env: Any) -> None:
             "name": "ExpandTPass",
             "kind": "Bytecode",
             "default_enabled": True,
+            "preserves_record_order": True,
             "python_name": "ExpandTPass",
             "summary": "Fuses EXPAND + T-phase into a single array pass.",
             "detail": (
@@ -167,6 +190,7 @@ def define_env(env: Any) -> None:
             "name": "ExpandRotPass",
             "kind": "Bytecode",
             "default_enabled": True,
+            "preserves_record_order": True,
             "python_name": "ExpandRotPass",
             "summary": "Fuses EXPAND + continuous rotation into a single array pass.",
             "detail": (
@@ -179,6 +203,7 @@ def define_env(env: Any) -> None:
             "name": "SwapMeasPass",
             "kind": "Bytecode",
             "default_enabled": True,
+            "preserves_record_order": True,
             "python_name": "SwapMeasPass",
             "summary": "Fuses SWAP + measurement into one operation.",
             "detail": (
@@ -193,6 +218,7 @@ def define_env(env: Any) -> None:
             "name": "TileAxisFusionPass",
             "kind": "Bytecode",
             "default_enabled": True,
+            "preserves_record_order": True,
             "python_name": "TileAxisFusionPass",
             "summary": "Fuses 2-qubit tile sequences into precomputed 4x4 unitaries.",
             "detail": (
@@ -208,6 +234,7 @@ def define_env(env: Any) -> None:
             "name": "SingleAxisFusionPass",
             "kind": "Bytecode",
             "default_enabled": True,
+            "preserves_record_order": True,
             "python_name": "SingleAxisFusionPass",
             "summary": "Fuses single-axis operation chains into precomputed 2x2 unitaries.",
             "detail": (

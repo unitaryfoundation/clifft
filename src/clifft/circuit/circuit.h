@@ -15,6 +15,7 @@
 #include "clifft/circuit/target.h"
 
 #include <cstdint>
+#include <string>
 #include <vector>
 
 namespace clifft {
@@ -40,6 +41,11 @@ struct AstNode {
     // Source line number in the original input text (1-based).
     // 0 means no source line information available.
     uint32_t source_line = 0;
+
+    // Bracket tag from `NAME[tag] targets` syntax. LEVEL_TRANSITION uses it to
+    // reference a model transition matrix by name; no other instruction
+    // accepts one. Empty when absent.
+    std::string tag;
 };
 
 // A parsed circuit ready for compilation.
@@ -59,6 +65,19 @@ struct Circuit {
 
     // Number of EXP_VAL expectation value probes (one per Pauli product).
     uint32_t num_exp_vals = 0;
+
+    // Return a node-free circuit with the parsed dimensions preserved.
+    Circuit metadata_only_copy() const;
 };
+
+inline Circuit Circuit::metadata_only_copy() const {
+    Circuit result;
+    result.num_qubits = num_qubits;
+    result.num_measurements = num_measurements;
+    result.num_detectors = num_detectors;
+    result.num_observables = num_observables;
+    result.num_exp_vals = num_exp_vals;
+    return result;
+}
 
 }  // namespace clifft

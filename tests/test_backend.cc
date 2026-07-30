@@ -225,14 +225,15 @@ static bool all_frame_opcodes(const std::vector<Instruction>& bytecode) {
 // validate_peak_rank guard
 // =============================================================================
 
-TEST_CASE("validate_peak_rank accepts ranks below 63") {
+TEST_CASE("validate_peak_rank accepts ranks below 60") {
     REQUIRE_NOTHROW(validate_peak_rank(0));
     REQUIRE_NOTHROW(validate_peak_rank(1));
     REQUIRE_NOTHROW(validate_peak_rank(31));
-    REQUIRE_NOTHROW(validate_peak_rank(62));
+    REQUIRE_NOTHROW(validate_peak_rank(59));
 }
 
-TEST_CASE("validate_peak_rank rejects ranks at or above 63") {
+TEST_CASE("validate_peak_rank rejects ranks at or above 60") {
+    REQUIRE_THROWS_AS(validate_peak_rank(60), std::runtime_error);
     REQUIRE_THROWS_AS(validate_peak_rank(63), std::runtime_error);
     REQUIRE_THROWS_AS(validate_peak_rank(64), std::runtime_error);
     REQUIRE_THROWS_AS(validate_peak_rank(100), std::runtime_error);
@@ -240,7 +241,7 @@ TEST_CASE("validate_peak_rank rejects ranks at or above 63") {
 
 TEST_CASE("validate_peak_rank rejects 65536 without uint16 wrap") {
     // Regression: an earlier version narrowed the input to uint16_t
-    // before checking >= 63, which silently wrapped a 65,536-axis peak
+    // before checking >= 60, which silently wrapped a 65,536-axis peak
     // (the program activates every axis at the VM ceiling) to 0 and
     // slipped past the guard. Pass the value through as uint32_t and
     // assert the helper rejects.
@@ -1409,6 +1410,7 @@ TEST_CASE("DropNonUnitaryPass strips non-unitary ops and metadata") {
     REQUIRE(hir.num_observables > 0);
     REQUIRE(hir.num_exp_vals > 0);
     REQUIRE(!hir.noise_sites.empty());
+    hir.forced_traceout_slot = 0;
 
     DropNonUnitaryPass pass;
     pass.run(hir);
@@ -1423,6 +1425,7 @@ TEST_CASE("DropNonUnitaryPass strips non-unitary ops and metadata") {
     CHECK(hir.detector_targets.empty());
     CHECK(hir.observable_targets.empty());
     CHECK(hir.noise_channel_masks.size() == 0);
+    CHECK(!hir.forced_traceout_slot.has_value());
     CHECK(hir.source_map.empty());
 
     for (const auto& op : hir.ops) {

@@ -19,6 +19,8 @@
 #include <cmath>
 #include <cstring>
 #include <numbers>
+#include <stdexcept>
+#include <string>
 #include <utility>
 
 namespace clifft {
@@ -875,7 +877,8 @@ static inline void exec_array_s_dag(SchrodingerState& state, uint16_t v) {
 // gamma /= sqrt(2) to maintain normalization.
 static inline void exec_expand(SchrodingerState& state, uint16_t v) {
     assert(v == state.active_k && "EXPAND must target the next dormant axis");
-    assert(state.v_size() <= state.array_size() / 2 && "EXPAND exceeded AOT peak_rank allocation!");
+    assert(state.v_size() <= state.array_size() / 2 &&
+           "EXPAND exceeded the compiled peak_rank allocation!");
     (void)v;
     uint64_t half = 1ULL << state.active_k;
     auto* __restrict arr = state.v();
@@ -1931,13 +1934,15 @@ static inline void exec_noise_block(SchrodingerState& state, const ConstantPool&
     }
 }
 
-// READOUT_NOISE: classical bit-flip on a measurement result.
-// In forced-fault mode, a two-pointer comparison replaces the PRNG roll:
-// the bit flips iff entry_idx matches the next forced readout index.
+// READOUT_NOISE: flip a recorded measurement bit. The 0-to-1 and 1-to-0
+// probabilities may differ. In forced-fault mode, flip only when entry_idx is
+// the next requested readout fault; k-fault entry points reject asymmetric
+// entries before execution.
 static inline void exec_readout_noise(SchrodingerState& state, const ConstantPool& pool,
                                       uint32_t entry_idx) {
     assert(entry_idx < pool.readout_noise.size());
     const auto& entry = pool.readout_noise[entry_idx];
+    assert(entry.meas_idx < state.meas_record.size());
 
     bool fire = false;
     if (state.forced_faults.active) {
@@ -1950,12 +1955,182 @@ static inline void exec_readout_noise(SchrodingerState& state, const ConstantPoo
             ff.readout_pos++;
         }
     } else {
-        fire = (state.random_double() < entry.prob);
+        const double prob =
+            state.meas_record[entry.meas_idx] ? entry.prob_one_to_zero : entry.prob_zero_to_one;
+        fire = (state.random_double() < prob);
     }
     if (fire) {
-        assert(entry.meas_idx < state.meas_record.size());
         state.meas_record[entry.meas_idx] ^= 1;
     }
+}
+
+// =============================================================================
+// Instrument Dispatch (state-dependent jumps)
+// =============================================================================
+//
+// One handler serves all OP_INSTRUMENT_* opcodes. It combines the deterministic
+// array kernels with the required random draws. FLAG_SIGN swaps g and e for
+// the compiled axis; the kernels account for p_x[v]. If the current module
+// cannot complete a transition, the handler sets state.pending_trap and stops
+// dispatch.
+
+// Draw a destination after a jump from `source`. Return 0 or 1 for a
+// computational destination, or -1 when the draw falls in the combined leaked
+// and lost probability.
+static inline int draw_instrument_destination(SchrodingerState& state,
+                                              const CompiledInstrumentSite& site, uint8_t source) {
+    const auto& probabilities = site.probabilities;
+    const double u = state.random_double() * probabilities.p_fire[source];
+    if (u < probabilities.p_computational_dest[source][0]) {
+        return 0;
+    }
+    if (u < probabilities.p_computational_dest[source][0] +
+                probabilities.p_computational_dest[source][1]) {
+        return 1;
+    }
+    return -1;
+}
+
+// Record the stopped transition and return false so the dispatch loop exits.
+// The driver compiles the matching continuation and resumes after this site.
+static inline bool instrument_trap(SchrodingerState& state, const CompiledInstrumentSite& site,
+                                   uint8_t source, bool destination_pending) {
+    state.pending_trap =
+        SchrodingerState::InstrumentTrap{site.site_id, source, destination_pending};
+    return false;
+}
+
+// Apply the compiled Pauli-frame update when a computational jump changes g
+// to e or e to g.
+static inline void apply_instrument_destination_flip(SchrodingerState& state,
+                                                     const ConstantPool& pool,
+                                                     const CompiledInstrumentSite& site) {
+    auto mask = pool.instrument_destination_flip_masks.at(site.destination_flip_mask);
+    apply_pauli_to_frame(state, mask.x(), mask.z(), mask.sign());
+}
+
+// Execute one transition instrument. Return false when the module must stop and
+// let the driver continue the shot. For active or definite-source qubits, the
+// VM collapses to the selected source before stopping. A dormant random qubit
+// may instead leave the collapse for the continuation, indicated by
+// destination_pending.
+static inline bool exec_instrument(SchrodingerState& state, const ConstantPool& pool,
+                                   const Instruction& instr) {
+    const CompiledInstrumentSite& site = pool.instrument_sites[instr.instrument.cp_site_idx];
+    const bool sign = (instr.flags & Instruction::FLAG_SIGN) != 0;
+    const uint16_t v = instr.axis_1;
+
+    if (instr.opcode == Opcode::OP_INSTRUMENT_DORMANT_STATIC) {
+        const auto source = static_cast<uint8_t>(static_cast<uint8_t>(bit_get(state.p_x, v)) ^
+                                                 static_cast<uint8_t>(sign));
+        if (state.random_double() >= site.probabilities.p_fire[source]) {
+            return true;  // no jump; damping does not change the normalized state
+        }
+        const int dest = draw_instrument_destination(state, site, source);
+        if (dest < 0) {
+            // The source is already definite, so no collapse is needed before
+            // stopping.
+            return instrument_trap(state, site, source, /*destination_pending=*/false);
+        }
+        if (dest != source) {
+            apply_instrument_destination_flip(state, pool, site);
+        }
+        return true;
+    }
+
+    if (instr.opcode == Opcode::OP_INSTRUMENT_DORMANT_NEGLECT) {
+        // A dormant random qubit has jump probability (p_g + p_e) / 2.
+        // DampingPolicy::Neglect applies no change when the transition does not
+        // fire. Every jump stops here because collapsing a dormant random qubit
+        // to a sampled source would invalidate the compiled Pauli frame for
+        // later instructions. The continuation performs that collapse instead.
+        const double mass = site.probabilities.p_fire[0] + site.probabilities.p_fire[1];
+        if (state.random_double() * 2.0 >= mass) {
+            return true;
+        }
+        const double w = state.random_double() * mass;
+        return instrument_trap(state, site, w < site.probabilities.p_fire[0] ? 0 : 1,
+                               /*destination_pending=*/true);
+    }
+
+    // Active-axis coefficients use physical g and e labels. FLAG_SIGN swaps
+    // them before the kernel call, and the kernel handles p_x[v]. If a source
+    // jumps with probability 1, its damping factor is zero; evaluate the
+    // unchanged array and collapse explicitly so the selected half is not
+    // erased before normalization.
+    const double r_g = instr.instrument.r_g;
+    const double r_e = instr.instrument.r_e;
+    const double c_g = sign ? r_e : r_g;
+    const double c_e = sign ? r_g : r_e;
+    const bool fused = r_g > 0.0 && r_e > 0.0;
+
+    if (instr.opcode == Opcode::OP_INSTRUMENT_EXPAND) {
+        // A dormant random qubit has equal g and e populations, so choose the
+        // branch before adding its axis to the active array.
+        const InstrumentBranch branch =
+            instrument_fire_branch(InstrumentPopulations{1.0, 1.0}, site.probabilities.p_fire[0],
+                                   site.probabilities.p_fire[1], state.random_double());
+        if (!branch.fired) {
+            if (fused) {
+                exec_instrument_expand_damp(state, v, c_g, c_e);
+                state.scale_magnitude(std::sqrt(2.0 / (r_g * r_g + r_e * r_e)));
+            } else {
+                // If one source always jumps, a no-jump outcome guarantees the
+                // other source. Expand the array, then collapse to that level.
+                const uint8_t survivor = site.probabilities.p_fire[0] >= 1.0 ? 1 : 0;
+                exec_instrument_expand_damp(state, v, 1.0, 1.0);
+                const InstrumentPopulations pops = exec_instrument_damp_eval(state, v, 1.0, 1.0);
+                exec_instrument_collapse_active(state, v, static_cast<uint8_t>(survivor ^ sign),
+                                                pops.pop_g + pops.pop_e);
+            }
+            return true;
+        }
+        const int dest = draw_instrument_destination(state, site, branch.source);
+        // Add the axis expected by later instructions, then collapse it to the
+        // selected source. Using unit coefficients keeps this exact for all
+        // jump probabilities.
+        exec_instrument_expand_damp(state, v, 1.0, 1.0);
+        const InstrumentPopulations pops = exec_instrument_damp_eval(state, v, 1.0, 1.0);
+        exec_instrument_collapse_active(state, v, static_cast<uint8_t>(branch.source ^ sign),
+                                        pops.pop_g + pops.pop_e);
+        if (dest < 0) {
+            return instrument_trap(state, site, branch.source,
+                                   /*destination_pending=*/false);
+        }
+        if (dest != branch.source) {
+            apply_instrument_destination_flip(state, pool, site);
+        }
+        return true;
+    }
+
+    // OP_INSTRUMENT_ACTIVE
+    InstrumentPopulations pops = fused ? exec_instrument_damp_eval(state, v, c_g, c_e)
+                                       : exec_instrument_damp_eval(state, v, 1.0, 1.0);
+    if (sign) {
+        std::swap(pops.pop_g, pops.pop_e);
+    }
+    const double total = pops.pop_g + pops.pop_e;
+    const InstrumentBranch branch = instrument_fire_branch(
+        pops, site.probabilities.p_fire[0], site.probabilities.p_fire[1], state.random_double());
+    if (!branch.fired) {
+        if (fused) {
+            state.scale_magnitude(
+                std::sqrt(total / (r_g * r_g * pops.pop_g + r_e * r_e * pops.pop_e)));
+        } else {
+            const uint8_t survivor = site.probabilities.p_fire[0] >= 1.0 ? 1 : 0;
+            exec_instrument_collapse_active(state, v, static_cast<uint8_t>(survivor ^ sign), total);
+        }
+        return true;
+    }
+    const int dest = draw_instrument_destination(state, site, branch.source);
+    exec_instrument_collapse_active(state, v, static_cast<uint8_t>(branch.source ^ sign), total);
+    if (dest < 0) {
+        return instrument_trap(state, site, branch.source, /*destination_pending=*/false);
+    }
+    if (dest != branch.source) {
+        apply_instrument_destination_flip(state, pool, site);
+    }
+    return true;
 }
 
 // DETECTOR: computes the XOR parity of a list of measurement record entries.
@@ -2098,7 +2273,7 @@ exec_exp_val(SchrodingerState& state, const ConstantPool& pool, uint32_t cp_exp_
     }
 
     // Step 3: Active-space evaluation.
-    // peak_rank < 63 invariant -> all active bits are in word[0].
+    // peak_rank < 60 invariant -> all active bits are in word[0].
     uint64_t x_active = 0;
     uint64_t z_active = 0;
     if (k > 0 && pm_x.num_words() > 0) {
@@ -2178,12 +2353,12 @@ exec_exp_val(SchrodingerState& state, const ConstantPool& pool, uint32_t cp_exp_
 // SVM Execution
 // =============================================================================
 
-void execute_internal(const CompiledModule& program, SchrodingerState& state);
+void execute_internal(const CompiledModule& program, SchrodingerState& state, size_t start_offset);
 
-void execute_internal(const CompiledModule& program, SchrodingerState& state) {
+void execute_internal(const CompiledModule& program, SchrodingerState& state, size_t start_offset) {
     assert(program.peak_rank < 64 && "peak_rank >= 64 would cause UB in bit shifts");
 
-    if (program.bytecode.empty()) {
+    if (start_offset >= program.bytecode.size()) {
         return;
     }
 
@@ -2244,6 +2419,11 @@ void execute_internal(const CompiledModule& program, SchrodingerState& state) {
         [static_cast<uint8_t>(Opcode::OP_SWAP_MEAS_INTERFERE_FORCED)] =
             &&L_OP_SWAP_MEAS_INTERFERE_FORCED,
 
+        [static_cast<uint8_t>(Opcode::OP_INSTRUMENT_ACTIVE)] = &&L_OP_INSTRUMENT,
+        [static_cast<uint8_t>(Opcode::OP_INSTRUMENT_DORMANT_STATIC)] = &&L_OP_INSTRUMENT,
+        [static_cast<uint8_t>(Opcode::OP_INSTRUMENT_EXPAND)] = &&L_OP_INSTRUMENT,
+        [static_cast<uint8_t>(Opcode::OP_INSTRUMENT_DORMANT_NEGLECT)] = &&L_OP_INSTRUMENT,
+
         [static_cast<uint8_t>(Opcode::OP_APPLY_PAULI)] = &&L_OP_APPLY_PAULI,
         [static_cast<uint8_t>(Opcode::OP_NOISE)] = &&L_OP_NOISE,
         [static_cast<uint8_t>(Opcode::OP_NOISE_BLOCK)] = &&L_OP_NOISE_BLOCK,
@@ -2254,8 +2434,8 @@ void execute_internal(const CompiledModule& program, SchrodingerState& state) {
         [static_cast<uint8_t>(Opcode::OP_EXP_VAL)] = &&L_OP_EXP_VAL,
     };
 
-    const Instruction* pc = program.bytecode.data();
-    const Instruction* end = pc + program.bytecode.size();
+    const Instruction* pc = program.bytecode.data() + start_offset;
+    const Instruction* end = program.bytecode.data() + program.bytecode.size();
 
 #define DISPATCH()                                              \
     do {                                                        \
@@ -2423,6 +2603,12 @@ L_OP_EXP_VAL:
     exec_exp_val(state, program.constant_pool, pc->exp_val.cp_exp_val_idx, pc->exp_val.exp_val_idx);
     DISPATCH();
 
+L_OP_INSTRUMENT:
+    if (!exec_instrument(state, program.constant_pool, *pc)) {
+        return;  // resumable trap: state.pending_trap is set
+    }
+    DISPATCH();
+
 L_OP_MEAS_DORMANT_STATIC_FORCED: {
     const bool sign_flag = (pc->flags & Instruction::FLAG_SIGN) != 0;
     const bool ok = (pc->flags & Instruction::FLAG_IDENTITY)
@@ -2468,7 +2654,8 @@ L_OP_SWAP_MEAS_INTERFERE_FORCED:
 #undef DISPATCH
 #else
     // Fallback standard C++ switch loop for MSVC and non-GNU compilers
-    for (const auto& instr : program.bytecode) {
+    for (size_t instr_idx = start_offset; instr_idx < program.bytecode.size(); ++instr_idx) {
+        const auto& instr = program.bytecode[instr_idx];
         switch (instr.opcode) {
             case Opcode::OP_FRAME_CNOT:
                 exec_frame_cnot(state, instr.axis_1, instr.axis_2);
@@ -2639,6 +2826,15 @@ L_OP_SWAP_MEAS_INTERFERE_FORCED:
             case Opcode::OP_EXP_VAL:
                 exec_exp_val(state, program.constant_pool, instr.exp_val.cp_exp_val_idx,
                              instr.exp_val.exp_val_idx);
+                break;
+
+            case Opcode::OP_INSTRUMENT_ACTIVE:
+            case Opcode::OP_INSTRUMENT_DORMANT_STATIC:
+            case Opcode::OP_INSTRUMENT_EXPAND:
+            case Opcode::OP_INSTRUMENT_DORMANT_NEGLECT:
+                if (!exec_instrument(state, program.constant_pool, instr)) {
+                    return;  // resumable trap: state.pending_trap is set
+                }
                 break;
         }
     }

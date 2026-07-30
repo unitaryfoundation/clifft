@@ -9,6 +9,7 @@
 #include <cassert>
 #include <climits>
 #include <cmath>
+#include <limits>
 #include <numbers>
 #include <span>
 #include <stdexcept>
@@ -252,6 +253,20 @@ Instruction make_readout_noise(uint32_t entry_idx) {
     Instruction i{};
     i.opcode = Opcode::OP_READOUT_NOISE;
     i.pauli.cp_mask_idx = entry_idx;
+    return i;
+}
+
+Instruction make_instrument(Opcode instrument_opcode, uint16_t axis, uint32_t cp_site_idx,
+                            bool sign, double r_g, double r_e) {
+    Instruction i{};
+    i.opcode = instrument_opcode;
+    i.axis_1 = axis;
+    i.instrument.cp_site_idx = cp_site_idx;
+    i.instrument.r_g = r_g;
+    i.instrument.r_e = r_e;
+    if (sign) {
+        i.flags |= Instruction::FLAG_SIGN;
+    }
     return i;
 }
 
@@ -673,6 +688,8 @@ CompiledModule lower(const HirModule& hir, std::span<const uint8_t> postselectio
     ctx.constant_pool.pauli_masks = PauliMaskArena(n, num_apply_paulis);
     ctx.constant_pool.exp_val_masks = PauliMaskArena(n, num_exp_val_masks);
     ctx.constant_pool.noise_channel_masks = PauliMaskArena(n, num_noise_channels);
+    ctx.constant_pool.instrument_destination_flip_masks =
+        PauliMaskArena(n, hir.instrument_sites.size());
     size_t next_cp_pauli = 0;
     size_t next_cp_exp_val = 0;
     size_t next_cp_noise = 0;
@@ -933,6 +950,96 @@ CompiledModule lower(const HirModule& hir, std::span<const uint8_t> postselectio
                 break;
             }
 
+            case OpType::INSTRUMENT: {
+                const auto hir_site_idx = static_cast<uint32_t>(op.instrument_site_idx());
+                const InstrumentSite& site = hir.instrument_sites[hir_site_idx];
+
+                auto p_v =
+                    map_to_virtual(ctx, hir.destab_mask(op), hir.stab_mask(op), hir.sign(op), n);
+
+                // A rewound source projector is a unitary conjugation of
+                // Z_q, so it is never the identity (unlike MPAD's synthetic
+                // sign-only measurement masks); localize_pauli asserts it.
+                auto result = localize_pauli(ctx, p_v);
+                const bool is_active = result.pivot < ctx.reg_manager.active_k();
+
+                // Opcode selection mirrors the measurement classification.
+                // Instruments do not compact the array, so any active axis
+                // works directly -- no swap to the top. An active X-basis
+                // pivot is rotated into Z with an array Hadamard absorbed
+                // into the virtual frame, exactly like the rotation path.
+                Opcode opcode;
+                if (is_active) {
+                    if (result.basis == LocalizedBasis::X_BASIS) {
+                        ctx.virtual_frame.append_gate(
+                            {internal::PendingGateType::H, result.pivot, 0});
+                        ctx.emit(make_array_h(result.pivot));
+                    }
+                    opcode = Opcode::OP_INSTRUMENT_ACTIVE;
+                } else if (result.basis == LocalizedBasis::Z_BASIS) {
+                    opcode = Opcode::OP_INSTRUMENT_DORMANT_STATIC;
+                } else if (hir.neglect_instrument_damping ||
+                           site.probabilities.p_fire[0] == site.probabilities.p_fire[1]) {
+                    // No expansion: the qubit stays out of the amplitude
+                    // array, a no-fire leaves the state untouched, and every
+                    // fire traps to the driver (an in-line collapse would
+                    // change the frame on some shots but not others, and the
+                    // downstream code was compiled for one fixed frame).
+                    // Neglect chooses this form directly. Equal per-source
+                    // rates also get it, under either damping, because it is
+                    // exact for them: damping both levels by the same factor
+                    // only rescales the state, which normalization undoes,
+                    // and the trapped fire is resolved exactly by the driver.
+                    opcode = Opcode::OP_INSTRUMENT_DORMANT_NEGLECT;
+                } else {
+                    // Source-dependent rates under exact damping: expand the
+                    // qubit into the array (as route_to_active_z would), with
+                    // the expansion fused into the instrument -- +1 to k at
+                    // this site.
+                    auto next_axis = static_cast<uint16_t>(ctx.reg_manager.active_k());
+                    if (result.pivot != next_axis) {
+                        emit_swap(ctx, result.pivot, next_axis);
+                        result.pivot = next_axis;
+                    }
+                    ctx.virtual_frame.append_gate({internal::PendingGateType::H, result.pivot, 0});
+                    ctx.emit(make_frame_h(result.pivot));
+                    opcode = Opcode::OP_INSTRUMENT_EXPAND;
+                }
+
+                // Destination flip: the site's rewound X observable,
+                // virtualized through the frame as it stands after the
+                // localization and basis emissions, so XORing it into the
+                // runtime Pauli frame is correct at the instrument
+                // instruction's position.
+                {
+                    auto hir_flip = hir.pauli_masks.at(site.destination_flip_mask);
+                    auto flip_v =
+                        map_to_virtual(ctx, hir_flip.x(), hir_flip.z(), hir_flip.sign(), n);
+                    auto slot = ctx.constant_pool.instrument_destination_flip_masks.mut_at(
+                        static_cast<PauliMaskHandle>(hir_site_idx));
+                    stim_to_mask_view(flip_v.xs, n, slot.x());
+                    stim_to_mask_view(flip_v.zs, n, slot.z());
+                    slot.set_sign(flip_v.sign);
+                }
+
+                CompiledInstrumentSite compiled;
+                compiled.site_id = hir_site_idx;
+                compiled.probabilities = site.probabilities;
+                compiled.destination_flip_mask = static_cast<PauliMaskHandle>(hir_site_idx);
+                const auto cp_idx =
+                    static_cast<uint32_t>(ctx.constant_pool.instrument_sites.size());
+                ctx.constant_pool.instrument_sites.push_back(compiled);
+
+                const double r_g = std::sqrt(1.0 - site.probabilities.p_fire[0]);
+                const double r_e = std::sqrt(1.0 - site.probabilities.p_fire[1]);
+                ctx.emit(make_instrument(opcode, result.pivot, cp_idx, result.sign, r_g, r_e));
+
+                if (opcode == Opcode::OP_INSTRUMENT_EXPAND) {
+                    ctx.reg_manager.activate();
+                }
+                break;
+            }
+
             case OpType::NUM_OP_TYPES:
 #if defined(__GNUC__) || defined(__clang__)
                 __builtin_unreachable();
@@ -1000,8 +1107,30 @@ CompiledModule lower(const HirModule& hir, std::span<const uint8_t> postselectio
     result.num_exp_vals = hir.num_exp_vals;
     result.has_postselection = has_postselection;
     result.expected_observables.assign(expected_observables.begin(), expected_observables.end());
+    rebuild_instrument_offsets(result);
 
     return result;
+}
+
+void rebuild_instrument_offsets(CompiledModule& module) {
+    module.instrument_offsets.assign(module.constant_pool.instrument_sites.size(),
+                                     std::numeric_limits<uint32_t>::max());
+    for (size_t i = 0; i < module.bytecode.size(); ++i) {
+        const Instruction& instr = module.bytecode[i];
+        switch (instr.opcode) {
+            case Opcode::OP_INSTRUMENT_ACTIVE:
+            case Opcode::OP_INSTRUMENT_DORMANT_STATIC:
+            case Opcode::OP_INSTRUMENT_EXPAND:
+            case Opcode::OP_INSTRUMENT_DORMANT_NEGLECT: {
+                const uint32_t site_id =
+                    module.constant_pool.instrument_sites[instr.instrument.cp_site_idx].site_id;
+                module.instrument_offsets[site_id] = static_cast<uint32_t>(i);
+                break;
+            }
+            default:
+                break;
+        }
+    }
 }
 
 }  // namespace clifft

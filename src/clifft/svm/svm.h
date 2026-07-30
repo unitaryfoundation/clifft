@@ -1,6 +1,7 @@
 #pragma once
 
 #include "clifft/backend/backend.h"
+#include "clifft/util/xoshiro.h"
 
 #include "stim.h"
 
@@ -17,77 +18,6 @@
 #include <vector>
 
 namespace clifft {
-
-// =============================================================================
-// Scientific PRNG: xoshiro256++ (Seeded by SplitMix64)
-// =============================================================================
-//
-// Reference implementation of xoshiro256++ 1.0 by David Blackman and
-// Sebastiano Vigna (vigna@acm.org), described in:
-//
-//   Blackman, D. & Vigna, S. (2021). "Scrambled Linear Pseudorandom
-//   Number Generators." ACM Trans. Math. Softw. 47(4), Article 36.
-//   https://doi.org/10.1145/3460772
-//
-// Source: https://prng.di.unimi.it/xoshiro256plusplus.c
-// Seeding: https://prng.di.unimi.it/splitmix64.c
-// License: Public domain (CC0)
-//
-// Period: 2^256-1. State: 32 bytes (vs MT19937's 2504 bytes), making per-shot
-// reseeding ~100x cheaper. Uses pure bitwise math to guarantee identical
-// sequences across GCC/Clang/MSVC.
-
-class Xoshiro256PlusPlus {
-  public:
-    explicit Xoshiro256PlusPlus(uint64_t seed_val = 0) { seed(seed_val); }
-
-    // Seed from a single 64-bit value via SplitMix64 expansion.
-    inline void seed(uint64_t seed_val) {
-        uint64_t z = seed_val;
-        s_[0] = splitmix64(z);
-        s_[1] = splitmix64(z);
-        s_[2] = splitmix64(z);
-        s_[3] = splitmix64(z);
-    }
-
-    // Seed all 256 bits directly (e.g. from hardware entropy).
-    inline void seed_full(uint64_t s0, uint64_t s1, uint64_t s2, uint64_t s3) {
-        s_[0] = s0;
-        s_[1] = s1;
-        s_[2] = s2;
-        s_[3] = s3;
-    }
-
-    // Seed from OS hardware entropy (std::random_device).
-    // Uses the glibc /dev/urandom workaround from Stim for
-    // https://gcc.gnu.org/bugzilla/show_bug.cgi?id=94087
-    void seed_from_entropy();
-
-    inline uint64_t operator()() {
-        const uint64_t result = std::rotl(s_[0] + s_[3], 23) + s_[0];
-        const uint64_t t = s_[1] << 17;
-
-        s_[2] ^= s_[0];
-        s_[3] ^= s_[1];
-        s_[1] ^= s_[2];
-        s_[0] ^= s_[3];
-
-        s_[2] ^= t;
-        s_[3] = std::rotl(s_[3], 45);
-
-        return result;
-    }
-
-  private:
-    uint64_t s_[4];
-
-    static inline uint64_t splitmix64(uint64_t& state) {
-        uint64_t z = (state += 0x9e3779b97f4a7c15ULL);
-        z = (z ^ (z >> 30)) * 0xbf58476d1ce4e5b9ULL;
-        z = (z ^ (z >> 27)) * 0x94d049bb133111ebULL;
-        return z ^ (z >> 31);
-    }
-};
 
 // =============================================================================
 // Schrodinger Virtual Machine State
@@ -134,8 +64,12 @@ class SchrodingerState {
     // Does NOT reseed the PRNG -- the RNG streams forward naturally.
     void reset();
 
-    // Explicitly reseed the PRNG (for deterministic test replay).
+    // Explicitly reseed the PRNG from a single 64-bit seed (reseed) or as
+    // the full 256-bit generator state (reseed_full).
     void reseed(uint64_t seed) { rng_.seed(seed); }
+    void reseed_full(uint64_t s0, uint64_t s1, uint64_t s2, uint64_t s3) {
+        rng_.seed_full(s0, s1, s2, s3);
+    }
     void reseed_from_entropy() { rng_.seed_from_entropy(); }
 
     // Access coefficient array
@@ -144,10 +78,11 @@ class SchrodingerState {
     [[nodiscard]] uint64_t v_size() const { return 1ULL << active_k; }
     [[nodiscard]] uint64_t array_size() const { return array_size_; }
 
-    // Generate random double in [0, 1) using deterministic bit manipulation.
-    // CRITICAL: Do NOT use std::uniform_real_distribution -- its output is
-    // implementation-defined and varies across compilers (GCC vs Clang vs MSVC).
-    [[nodiscard]] double random_double() { return static_cast<double>(rng_() >> 11) * 0x1.0p-53; }
+    // Generate random double in [0, 1). The extraction lives on the
+    // generator so the SVM and the noncomp sampler draw it identically;
+    // it deliberately avoids std::uniform_real_distribution, whose output
+    // varies across compilers.
+    [[nodiscard]] double random_double() { return rng_.next_double(); }
 
     // --- Factored State Components ---
 
@@ -253,6 +188,18 @@ class SchrodingerState {
     uint64_t dust_clamps = 0;
 
   private:
+    /// Allocate a zero-filled amplitude array for 2^peak_rank entries,
+    /// setting v_, array_size_, v_alloc_bytes_, v_is_mmap_, peak_rank_.
+    void allocate_array(uint32_t peak_rank);
+    void free_array() noexcept;
+
+    /// Grow the amplitude array to hold 2^peak_rank entries while preserving
+    /// the active amplitudes. Memory above 2^active_k remains zero. This is
+    /// allowed only from resume(), between dispatch calls, while a trap is
+    /// pending. Never shrinks.
+    void grow_for_continuation(uint32_t peak_rank);
+    friend void resume(const CompiledModule& program, SchrodingerState& state, uint32_t offset);
+
     std::complex<double> gamma_ = {1.0, 0.0};
     std::complex<double>* v_ = nullptr;  // page-aligned
     uint64_t array_size_ = 0;            // 2^peak_rank (allocated capacity)
@@ -267,6 +214,26 @@ class SchrodingerState {
   public:
     // Expectation value record: one double per EXP_VAL probe per shot.
     std::vector<double> exp_vals;
+
+    // --- Resumable trap state ---
+    //
+    // Set when a transition cannot finish in the current module. This happens
+    // for a leaked or lost destination, or when a dormant random qubit must be
+    // collapsed by the continuation. The VM stops at the transition and, when
+    // possible, has already collapsed the qubit to `source`. The driver
+    // continues with resume() in a rewritten module. reset() clears the trap.
+    struct InstrumentTrap {
+        uint32_t site_id = 0;  // CompiledInstrumentSite::site_id
+        uint8_t source = 0;    // Drawn physical source level (0 = |0>)
+
+        // True when the VM selected a source but did not draw a destination or
+        // collapse the qubit. The driver then draws from the full transition
+        // column and the continuation performs the collapse. When false, the
+        // VM already determined that the destination is leaked or lost; the
+        // driver selects the specific noncomputational level when needed.
+        bool destination_pending = false;
+    };
+    std::optional<InstrumentTrap> pending_trap;
 
     // --- Forced-execution state ---
     //
@@ -293,7 +260,25 @@ class SchrodingerState {
 // =============================================================================
 
 /// Execute a compiled program for one shot, populating state with results.
+/// If a transition cannot finish in the current module, execution stops with
+/// state.pending_trap set. Continue the shot with resume().
 void execute(const CompiledModule& program, SchrodingerState& state);
+
+/// Continue a trapped shot at bytecode index `offset`, which must be the
+/// instruction after the trapped site. Requires state.pending_trap and clears
+/// it before execution resumes.
+///
+/// The bytecode before `offset` must match what the state already executed.
+/// The state retains that prefix's active-axis layout, Pauli frame, measurement
+/// records, and RNG state; resume() does not translate between different but
+/// equivalent compilations. Visible measurement slots must also keep the same
+/// indices. resume() validates the trapped-site offset and qubit/output counts,
+/// but the caller is responsible for providing a compatible continuation.
+///
+/// Before re-entering dispatch, resume() may grow the amplitude and measurement
+/// buffers. It also restarts noise sampling at the first remaining noise site.
+/// The resumed module may stop at another trap.
+void resume(const CompiledModule& program, SchrodingerState& state, uint32_t offset);
 
 /// Return the name of the active SVM dispatch backend. Reflects the
 /// resolved CPUID path or the CLIFFT_FORCE_ISA environment override.

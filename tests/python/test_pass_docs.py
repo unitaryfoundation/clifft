@@ -26,14 +26,19 @@ def _extract_cpp_passes() -> dict[str, dict[str, object]]:
         name_match = re.search(r'\.name\s*=\s*"([^"]+)"', entry)
         kind_match = re.search(r"\.kind\s*=\s*PassKind::(\w+)", entry)
         default_match = re.search(r"\.default_enabled\s*=\s*(true|false)", entry)
+        record_order_match = re.search(
+            r"\.record_order\s*=\s*k(Preserves|Breaks)RecordOrder", entry
+        )
 
         assert name_match, f"Registered pass entry missing .name: {entry}"
         assert kind_match, f"Registered pass entry missing .kind: {entry}"
         assert default_match, f"Registered pass entry missing .default_enabled: {entry}"
+        assert record_order_match, f"Registered pass entry missing .record_order: {entry}"
 
         passes[name_match.group(1)] = {
             "kind": kind_match.group(1),
             "default_enabled": default_match.group(1) == "true",
+            "preserves_record_order": record_order_match.group(1) == "Preserves",
         }
 
     return passes
@@ -79,7 +84,7 @@ class TestOptimizationPassDocCompleteness:
             f"Remove these stale docs entries."
         )
 
-    def test_pass_kind_and_default_enabled_metadata_match(self) -> None:
+    def test_pass_metadata_matches(self) -> None:
         cpp_passes = _extract_cpp_passes()
         docs_passes = _extract_docs_passes()
 
@@ -94,13 +99,28 @@ class TestOptimizationPassDocCompleteness:
                 f"{name} has default_enabled={docs_metadata['default_enabled']!r} in "
                 f"docs/macros.py but {cpp_metadata['default_enabled']!r} in pass_registry.h."
             )
+            assert (
+                docs_metadata["preserves_record_order"] == cpp_metadata["preserves_record_order"]
+            ), (
+                f"{name} has preserves_record_order="
+                f"{docs_metadata['preserves_record_order']!r} in docs/macros.py but "
+                f"{cpp_metadata['preserves_record_order']!r} in pass_registry.h."
+            )
 
 
 class TestOptimizationPassDocStructure:
     """Validate optimization pass docs entries have the required fields."""
 
     def test_pass_entries_have_required_fields(self) -> None:
-        required_fields = {"name", "kind", "default_enabled", "python_name", "summary", "detail"}
+        required_fields = {
+            "name",
+            "kind",
+            "default_enabled",
+            "preserves_record_order",
+            "python_name",
+            "summary",
+            "detail",
+        }
 
         for name, metadata in _extract_docs_passes().items():
             missing = required_fields - set(metadata)

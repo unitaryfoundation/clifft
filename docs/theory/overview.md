@@ -85,6 +85,13 @@ After lowering, we apply another set of optimizations directly to the bytecode, 
 
 The Schrodinger Virtual Machine executes the localized bytecode using the factored state representation. Because Clifford-coordinate updates and Pauli localization have already been performed at compile time, repeated sampling only updates the Pauli frame and the dense active state vector, with exponential cost confined to the current active dimension.
 
+!!! note "Leakage and loss trajectories"
+    The same five stages are used for noncomputational simulation, but not
+    necessarily only once per circuit. A sampled transition can change the
+    remaining operations, so `clifft.noncomp.sample` may compile a continuation
+    during a shot and then resume VM execution. See
+    [Noncomputational States](noncomputational.md).
+
 ## Exact Basis-State Probabilities
 
 For unitary programs, `clifft.basis_probabilities()` computes exact full-register

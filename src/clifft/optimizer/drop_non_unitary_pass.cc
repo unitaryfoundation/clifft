@@ -4,7 +4,7 @@
 
 namespace clifft {
 
-static_assert(static_cast<int>(OpType::NUM_OP_TYPES) == 9,
+static_assert(static_cast<int>(OpType::NUM_OP_TYPES) == 10,
               "Update DropNonUnitaryPass when adding a new HIR OpType");
 
 void DropNonUnitaryPass::run(HirModule& hir) {
@@ -20,6 +20,7 @@ void DropNonUnitaryPass::run(HirModule& hir) {
             case OpType::DETECTOR:
             case OpType::OBSERVABLE:
             case OpType::EXP_VAL:
+            case OpType::INSTRUMENT:
                 return true;
             case OpType::NUM_OP_TYPES:
                 return true;
@@ -28,6 +29,7 @@ void DropNonUnitaryPass::run(HirModule& hir) {
     });
 
     hir.noise_sites.clear();
+    hir.instrument_sites.clear();
     hir.readout_noise.clear();
     hir.detector_targets.clear();
     hir.observable_targets.clear();
@@ -38,6 +40,8 @@ void DropNonUnitaryPass::run(HirModule& hir) {
     hir.num_detectors = 0;
     hir.num_observables = 0;
     hir.num_exp_vals = 0;
+    hir.neglect_instrument_damping = false;
+    hir.forced_traceout_slot.reset();
     hir.source_map.clear();
 }
 

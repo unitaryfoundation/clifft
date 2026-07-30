@@ -97,6 +97,7 @@ nav:
   - User Guide:
     - Compiling Circuits: guide/compilation.md
     - Simulation: guide/simulation.md
+    - Leakage and Loss: guide/leakage-and-loss.md
     - Performance: guide/performance.md
     - "Tutorial: Strong Simulation": guide/strong-simulation.md
     - "Tutorial: Surface Code": guide/surface-code.md
@@ -106,6 +107,7 @@ nav:
     - Overview: theory/overview.md
     - Architecture: theory/architecture.md
     - Basis-State Probabilities: theory/basis_probabilities.md
+    - Noncomputational States: theory/noncomputational.md
   - Reference:
     - Supported Gates: reference/gates.md
     - Instruction Reference: reference/instructions.md

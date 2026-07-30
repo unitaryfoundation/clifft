@@ -3,6 +3,10 @@
 #include "clifft/circuit/circuit.h"
 #include "clifft/circuit/parser.h"
 #include "clifft/frontend/frontend.h"
+#include "clifft/noncomp/level.h"
+#include "clifft/noncomp/model.h"
+#include "clifft/noncomp/policy.h"
+#include "clifft/noncomp/sample.h"
 #include "clifft/optimizer/bytecode_pass.h"
 #include "clifft/optimizer/drop_non_unitary_pass.h"
 #include "clifft/optimizer/expand_t_pass.h"
@@ -28,6 +32,7 @@
 #include <nanobind/make_iterator.h>
 #include <nanobind/nanobind.h>
 #include <nanobind/ndarray.h>
+#include <nanobind/stl/map.h>
 #include <nanobind/stl/optional.h>
 #include <nanobind/stl/string.h>
 #include <nanobind/stl/string_view.h>
@@ -51,12 +56,75 @@ nb::ndarray<nb::numpy, T, nb::c_contig> vec_to_numpy(std::vector<T> vec,
     return nb::ndarray<nb::numpy, T, nb::c_contig>(data, shape, owner);
 }
 
+// Noncomputational (leakage/loss) bindings. Raw spec-builder + sampler entry
+// points; the ergonomic surface (Model, Classifier, sample) lives in the
+// clifft.noncomp Python wrapper. The model is an opaque handle.
+void register_noncomp(nb::module_& m) {
+    nb::class_<clifft::NonComputationalModel>(m, "_NonComputationalModel");
+
+    m.def(
+        "_build_noncomp_model",
+        [](std::vector<double> initial_state,
+           std::map<std::string, std::vector<std::vector<double>>> transitions,
+           std::optional<std::vector<std::vector<double>>> classifier_matrix,
+           bool reset_restores_lost, const std::string& damping) {
+            clifft::NonComputationalPolicy policy;
+            policy.reset_restores_lost = reset_restores_lost;
+            if (damping == "exact") {
+                policy.damping = clifft::DampingPolicy::Exact;
+            } else if (damping == "neglect") {
+                policy.damping = clifft::DampingPolicy::Neglect;
+            } else {
+                throw std::invalid_argument(
+                    "noncomp model: damping must be 'exact' or 'neglect', got '" + damping + "'");
+            }
+
+            return clifft::NonComputationalModel::from_spec(std::move(initial_state), transitions,
+                                                            std::move(classifier_matrix), policy);
+        },
+        nb::arg("initial_state"), nb::arg("transitions"), nb::arg("classifier_matrix") = nb::none(),
+        nb::arg("reset_restores_lost") = false, nb::arg("damping") = "exact",
+        "Build the built-in five-level NonComputationalModel from raw matrices. See "
+        "clifft.noncomp.Model.");
+
+    m.def(
+        "_sample_noncomputational",
+        [](const clifft::Circuit& circuit, const clifft::NonComputationalModel& model,
+           uint32_t shots, std::optional<uint64_t> seed, std::optional<uint32_t> max_rank) {
+            clifft::NonComputationalSample r;
+            {
+                nb::gil_scoped_release release;
+                r = clifft::sample_noncomputational(circuit, model, shots, seed, max_rank);
+            }
+            // Convert statuses to the uint8 codes exposed by Python. The values
+            // Computational=0, LeakG=1, LeakE=2, Lost=3 match Python's
+            // QubitStatus enum, including the distinct leaked substates.
+            std::vector<uint8_t> status(r.final_status.size());
+            for (size_t i = 0; i < r.final_status.size(); ++i) {
+                status[i] = static_cast<uint8_t>(r.final_status[i]);
+            }
+            auto meas = vec_to_numpy(std::move(r.measurements), {shots, r.num_measurements});
+            auto det = vec_to_numpy(std::move(r.detectors), {shots, r.num_detectors});
+            auto obs = vec_to_numpy(std::move(r.observables), {shots, r.num_observables});
+            auto fs = vec_to_numpy(std::move(status), {shots, r.num_qubits});
+            auto her = vec_to_numpy(std::move(r.heralds), {shots, r.num_measurements});
+            return nb::make_tuple(meas, det, obs, fs, her, r.num_qubits, r.num_measurements,
+                                  r.num_detectors, r.num_observables);
+        },
+        nb::arg("circuit"), nb::arg("model"), nb::arg("shots"), nb::arg("seed") = nb::none(),
+        nb::arg("max_rank") = nb::none(),
+        "Sample a noncomputational model. Returns (measurements, detectors, observables, "
+        "final_status, heralds, num_qubits, num_measurements, num_detectors, num_observables).");
+}
+
 NB_MODULE(_clifft_core, m) {
     m.doc() = "Clifft core C++ extension module";
 
     nb::exception<clifft::ParseError>(m, "ParseError");
 
     m.def("version", []() { return clifft::kVersion; }, "Return the Clifft version string");
+
+    register_noncomp(m);
 
     m.def(
         "svm_backend", []() { return clifft::svm_backend(); },
@@ -106,6 +174,10 @@ NB_MODULE(_clifft_core, m) {
     // the test_introspection.py tripwire will catch it.
     m.def("_num_optypes", []() { return static_cast<int>(clifft::OpType::NUM_OP_TYPES); });
     m.def("_num_opcodes", []() { return static_cast<int>(clifft::Opcode::NUM_OPCODES); });
+    m.def("_num_gate_types", []() {
+        return static_cast<int>(sizeof(clifft::detail::kGateTraitsData) /
+                                sizeof(clifft::detail::kGateTraitsData[0]));
+    });
 
     nb::enum_<clifft::GateType>(m, "GateType", "Quantum gate types")
         // Single-qubit Cliffords
@@ -205,6 +277,16 @@ NB_MODULE(_clifft_core, m) {
         .value("DETECTOR", clifft::GateType::DETECTOR)
         .value("OBSERVABLE_INCLUDE", clifft::GateType::OBSERVABLE_INCLUDE)
         .value("TICK", clifft::GateType::TICK)
+        // Noncomputational trajectory annotations
+        .value("LEVEL_TRANSITION", clifft::GateType::LEVEL_TRANSITION)
+        .value("LOSS", clifft::GateType::LOSS)
+        // Simulation-only probes
+        .value("EXP_VAL", clifft::GateType::EXP_VAL)
+        // Parse-time rewrites: no AST nodes carry these types
+        .value("CH", clifft::GateType::CH)
+        .value("CCX", clifft::GateType::CCX)
+        .value("CCZ", clifft::GateType::CCZ)
+        // Sentinel for unknown/unsupported gates
         .value("UNKNOWN", clifft::GateType::UNKNOWN);
 
     nb::class_<clifft::Target>(m, "Target", "Encoded quantum target")
@@ -233,6 +315,7 @@ NB_MODULE(_clifft_core, m) {
     nb::class_<clifft::AstNode>(m, "AstNode", "A single circuit operation")
         .def_ro("gate", &clifft::AstNode::gate)
         .def_ro("targets", &clifft::AstNode::targets)
+        .def_ro("tag", &clifft::AstNode::tag)
         .def_prop_ro("arg",
                      [](const clifft::AstNode& n) { return n.args.empty() ? 0.0 : n.args[0]; })
         .def_ro("args", &clifft::AstNode::args)
@@ -306,7 +389,8 @@ NB_MODULE(_clifft_core, m) {
         .value("PHASE_ROTATION", clifft::OpType::PHASE_ROTATION)
         .value("DETECTOR", clifft::OpType::DETECTOR)
         .value("OBSERVABLE", clifft::OpType::OBSERVABLE)
-        .value("EXP_VAL", clifft::OpType::EXP_VAL);
+        .value("EXP_VAL", clifft::OpType::EXP_VAL)
+        .value("INSTRUMENT", clifft::OpType::INSTRUMENT);
 
     // Python view of a HeisenbergOp paired with the HirModule that owns its
     // mask data. Holds an nb::object ref to the module so the Python
@@ -644,6 +728,10 @@ NB_MODULE(_clifft_core, m) {
         .value("OP_MEAS_ACTIVE_DIAGONAL_FORCED", clifft::Opcode::OP_MEAS_ACTIVE_DIAGONAL_FORCED)
         .value("OP_MEAS_ACTIVE_INTERFERE_FORCED", clifft::Opcode::OP_MEAS_ACTIVE_INTERFERE_FORCED)
         .value("OP_SWAP_MEAS_INTERFERE_FORCED", clifft::Opcode::OP_SWAP_MEAS_INTERFERE_FORCED)
+        .value("OP_INSTRUMENT_ACTIVE", clifft::Opcode::OP_INSTRUMENT_ACTIVE)
+        .value("OP_INSTRUMENT_DORMANT_STATIC", clifft::Opcode::OP_INSTRUMENT_DORMANT_STATIC)
+        .value("OP_INSTRUMENT_EXPAND", clifft::Opcode::OP_INSTRUMENT_EXPAND)
+        .value("OP_INSTRUMENT_DORMANT_NEGLECT", clifft::Opcode::OP_INSTRUMENT_DORMANT_NEGLECT)
         .value("OP_APPLY_PAULI", clifft::Opcode::OP_APPLY_PAULI)
         .value("OP_NOISE", clifft::Opcode::OP_NOISE)
         .value("OP_NOISE_BLOCK", clifft::Opcode::OP_NOISE_BLOCK)

@@ -4,7 +4,6 @@
 #include <algorithm>
 #include <cstring>
 #include <new>
-#include <random>
 #include <stdexcept>
 
 #if defined(__linux__)
@@ -14,30 +13,16 @@
 namespace clifft {
 
 // =============================================================================
-// PRNG Entropy Seeding
-// =============================================================================
-
-void Xoshiro256PlusPlus::seed_from_entropy() {
-    // Workaround for https://gcc.gnu.org/bugzilla/show_bug.cgi?id=94087
-    // See https://github.com/quantumlib/Stim/issues/26
-#if defined(__linux__) && defined(__GLIBCXX__) && __GLIBCXX__ >= 20200128
-    std::random_device rd("/dev/urandom");
-#else
-    std::random_device rd;
-#endif
-    auto rd64 = [&rd]() -> uint64_t { return (static_cast<uint64_t>(rd()) << 32) | rd(); };
-    seed_full(rd64(), rd64(), rd64(), rd64());
-}
-
-// =============================================================================
 // SchrodingerState Implementation
 // =============================================================================
 
 SchrodingerState::SchrodingerState(StateConfig cfg) : peak_rank_(cfg.peak_rank), rng_(0) {
     uint32_t peak_rank = cfg.peak_rank;
-    if (peak_rank >= 63) {
+    if (peak_rank >= 60) {
         throw std::invalid_argument(
-            "peak_rank >= 63 would cause undefined behavior in 1ULL << peak_rank");
+            "peak_rank >= 60 would overflow the amplitude array's byte size (2^peak_rank * 16 "
+            "must fit in size_t); peak_rank " +
+            std::to_string(peak_rank) + " is too large");
     }
     if (cfg.seed.has_value()) {
         rng_.seed(*cfg.seed);
@@ -59,51 +44,78 @@ SchrodingerState::SchrodingerState(StateConfig cfg) : peak_rank_(cfg.peak_rank),
     p_x.assign(num_words, 0);
     p_z.assign(num_words, 0);
 
-    array_size_ = 1ULL << peak_rank;
-    size_t bytes = array_size_ * sizeof(std::complex<double>);
+    allocate_array(peak_rank);
+    v_[0] = {1.0, 0.0};
+}
+
+// Allocate an amplitude array without changing SchrodingerState. mmap returns
+// zero-filled memory; aligned_alloc does not. Callers copy these values into
+// the state only after allocation and initialization succeed.
+struct AllocResult {
+    std::complex<double>* ptr;
+    size_t alloc_bytes;
+    bool is_mmap;
+};
+
+static AllocResult alloc_amplitude_array(uint32_t peak_rank) {
+    const uint64_t array_size = 1ULL << peak_rank;
+    const size_t bytes = array_size * sizeof(std::complex<double>);
     // Round up to page boundary for mmap/aligned_alloc compatibility.
-    size_t aligned_bytes = (bytes + 4095) & ~4095ULL;
-    v_alloc_bytes_ = aligned_bytes;
+    const size_t aligned_bytes = (bytes + 4095) & ~4095ULL;
+
+    AllocResult result{nullptr, aligned_bytes, false};
 
 #if defined(__linux__)
     // Try MAP_HUGETLB for 2MB huge pages (works without THP kernel support).
     // Only worthwhile for allocations >= 2MB.
     static constexpr size_t kHugePageSize = 2 * 1024 * 1024;
     if (aligned_bytes >= kHugePageSize) {
-        size_t huge_aligned = (aligned_bytes + kHugePageSize - 1) & ~(kHugePageSize - 1);
+        const size_t huge_aligned = (aligned_bytes + kHugePageSize - 1) & ~(kHugePageSize - 1);
         void* p = mmap(nullptr, huge_aligned, PROT_READ | PROT_WRITE,
                        MAP_PRIVATE | MAP_ANONYMOUS | MAP_HUGETLB, -1, 0);
         if (p != MAP_FAILED) {
-            v_ = static_cast<std::complex<double>*>(p);
-            v_alloc_bytes_ = huge_aligned;
-            v_is_mmap_ = true;
+            result.ptr = static_cast<std::complex<double>*>(p);
+            result.alloc_bytes = huge_aligned;
+            result.is_mmap = true;
         }
     }
 
-    if (!v_) {
+    if (!result.ptr) {
         // Align to huge page boundary so madvise(MADV_HUGEPAGE) works on any
         // architecture (ARM64 may use 16KB or 64KB base pages).
-        size_t alloc_bytes = (aligned_bytes >= kHugePageSize)
-                                 ? ((aligned_bytes + kHugePageSize - 1) & ~(kHugePageSize - 1))
-                                 : aligned_bytes;
-        size_t alloc_align = (aligned_bytes >= kHugePageSize) ? kHugePageSize : 4096;
-        v_ = static_cast<std::complex<double>*>(aligned_alloc_portable(alloc_align, alloc_bytes));
-        if (!v_) {
+        const size_t alloc_bytes =
+            (aligned_bytes >= kHugePageSize)
+                ? ((aligned_bytes + kHugePageSize - 1) & ~(kHugePageSize - 1))
+                : aligned_bytes;
+        const size_t alloc_align = (aligned_bytes >= kHugePageSize) ? kHugePageSize : 4096;
+        result.ptr =
+            static_cast<std::complex<double>*>(aligned_alloc_portable(alloc_align, alloc_bytes));
+        if (!result.ptr) {
             throw std::bad_alloc();
         }
         if (aligned_bytes >= kHugePageSize) {
-            madvise(v_, alloc_bytes, MADV_HUGEPAGE);
+            madvise(result.ptr, alloc_bytes, MADV_HUGEPAGE);
         }
-        v_alloc_bytes_ = alloc_bytes;
+        result.alloc_bytes = alloc_bytes;
     }
 #else
-    if (!v_) {
-        v_ = static_cast<std::complex<double>*>(aligned_alloc_portable(4096, aligned_bytes));
-        if (!v_) {
-            throw std::bad_alloc();
-        }
+    result.ptr = static_cast<std::complex<double>*>(aligned_alloc_portable(4096, aligned_bytes));
+    if (!result.ptr) {
+        throw std::bad_alloc();
     }
 #endif
+
+    return result;
+}
+
+void SchrodingerState::allocate_array(uint32_t peak_rank) {
+    const AllocResult alloc = alloc_amplitude_array(peak_rank);
+
+    peak_rank_ = peak_rank;
+    v_ = alloc.ptr;
+    v_is_mmap_ = alloc.is_mmap;
+    array_size_ = 1ULL << peak_rank;
+    v_alloc_bytes_ = alloc.alloc_bytes;
 
     // mmap(MAP_ANONYMOUS) guarantees zero-filled pages from the kernel.
     // Only aligned_alloc needs explicit zeroing. Parallelizing the fill
@@ -122,10 +134,9 @@ SchrodingerState::SchrodingerState(StateConfig cfg) : peak_rank_(cfg.peak_rank),
             }
         }
     }
-    v_[0] = {1.0, 0.0};
 }
 
-SchrodingerState::~SchrodingerState() {
+void SchrodingerState::free_array() noexcept {
 #if defined(__linux__)
     if (v_is_mmap_) {
         munmap(v_, v_alloc_bytes_);
@@ -133,6 +144,74 @@ SchrodingerState::~SchrodingerState() {
     }
 #endif
     aligned_free_portable(v_);
+}
+
+void SchrodingerState::grow_for_continuation(uint32_t peak_rank) {
+    assert(pending_trap.has_value() &&
+           "the amplitude array may grow only at the trap boundary, under a pending trap");
+    if (peak_rank >= 60) {
+        throw std::invalid_argument(
+            "peak_rank >= 60 would overflow the amplitude array's byte size (2^peak_rank * 16 "
+            "must fit in size_t); peak_rank " +
+            std::to_string(peak_rank) + " is too large");
+    }
+    if ((1ULL << peak_rank) <= array_size_) {
+        return;
+    }
+
+    // Save the number of active amplitudes before replacing the buffer.
+    const uint64_t live = v_size();
+
+    // Allocate first so a failure leaves the existing state unchanged.
+    const AllocResult alloc = alloc_amplitude_array(peak_rank);
+
+    // mmap memory is already zero. Clear the full aligned_alloc array because
+    // the continuation may use entries above the currently active region.
+    if (!alloc.is_mmap) {
+        const uint64_t new_array_size = 1ULL << peak_rank;
+        int64_t n = static_cast<int64_t>(new_array_size);
+        if (peak_rank >= kMinRankForThreads) {
+#pragma omp parallel for schedule(static)
+            for (int64_t i = 0; i < n; ++i) {
+                alloc.ptr[i] = {0.0, 0.0};
+            }
+        } else {
+            for (int64_t i = 0; i < n; ++i) {
+                alloc.ptr[i] = {0.0, 0.0};
+            }
+        }
+    }
+
+    // Copy the live prefix from the old buffer into the new one.
+    std::memcpy(alloc.ptr, v_, live * sizeof(std::complex<double>));
+
+    // Keep the old allocation details until the new buffer is installed.
+    std::complex<double>* old_v = v_;
+    const size_t old_bytes = v_alloc_bytes_;
+    const bool old_mmap = v_is_mmap_;
+
+    // Install the new allocation after all operations that can fail.
+    v_ = alloc.ptr;
+    v_alloc_bytes_ = alloc.alloc_bytes;
+    v_is_mmap_ = alloc.is_mmap;
+    array_size_ = 1ULL << peak_rank;
+    peak_rank_ = peak_rank;
+
+#if defined(__linux__)
+    if (old_mmap) {
+        munmap(old_v, old_bytes);
+    } else {
+        aligned_free_portable(old_v);
+    }
+#else
+    (void)old_bytes;
+    (void)old_mmap;
+    aligned_free_portable(old_v);
+#endif
+}
+
+SchrodingerState::~SchrodingerState() {
+    free_array();
 }
 
 SchrodingerState::SchrodingerState(SchrodingerState&& other) noexcept
@@ -156,6 +235,7 @@ SchrodingerState::SchrodingerState(SchrodingerState&& other) noexcept
       v_is_mmap_(other.v_is_mmap_),
       rng_(std::move(other.rng_)),
       exp_vals(std::move(other.exp_vals)),
+      pending_trap(other.pending_trap),
       forced_record(other.forced_record),
       forced_log_probability(other.forced_log_probability),
       forced_reachable(other.forced_reachable) {
@@ -165,6 +245,7 @@ SchrodingerState::SchrodingerState(SchrodingerState&& other) noexcept
     other.v_is_mmap_ = false;
     other.active_k = 0;
     other.peak_rank_ = 0;
+    other.pending_trap.reset();
     other.forced_record = {};
     other.forced_log_probability = 0.0;
     other.forced_reachable = true;
@@ -201,6 +282,7 @@ SchrodingerState& SchrodingerState::operator=(SchrodingerState&& other) noexcept
         det_record = std::move(other.det_record);
         obs_record = std::move(other.obs_record);
         exp_vals = std::move(other.exp_vals);
+        pending_trap = other.pending_trap;
         forced_record = other.forced_record;
         forced_log_probability = other.forced_log_probability;
         forced_reachable = other.forced_reachable;
@@ -210,6 +292,7 @@ SchrodingerState& SchrodingerState::operator=(SchrodingerState&& other) noexcept
         other.v_is_mmap_ = false;
         other.active_k = 0;
         other.peak_rank_ = 0;
+        other.pending_trap.reset();
         other.forced_record = {};
         other.forced_log_probability = 0.0;
         other.forced_reachable = true;
@@ -236,14 +319,14 @@ void SchrodingerState::reset() {
     gamma_ = {1.0, 0.0};
     active_k = 0;
 
-    // If the previous shot was discarded by OP_POSTSELECT, the bytecode
-    // loop exited early, leaving meas_record and det_record with stale
-    // data from the aborted shot. Zero them out to avoid garbage.
-    if (discarded) {
+    // Discarded and trapped shots exit before writing complete records. Clear
+    // their partial measurement and detector data before reusing the state.
+    if (discarded || pending_trap.has_value()) {
         std::fill(meas_record.begin(), meas_record.end(), 0);
         std::fill(det_record.begin(), det_record.end(), 0);
     }
     discarded = false;
+    pending_trap.reset();
 
     // obs_record uses ^= accumulation and must always be cleared.
     std::fill(obs_record.begin(), obs_record.end(), 0);

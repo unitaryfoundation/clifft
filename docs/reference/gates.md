@@ -146,10 +146,15 @@ Two-qubit Cliffords are also absorbed at compile time.
 | `PAULI_CHANNEL_3(...)` | General three-qubit Pauli channel (63 params) |
 | `CORRELATED_ERROR(p)` / `E(p)` | Correlated Pauli product error |
 | `ELSE_CORRELATED_ERROR(p)` | Else-branch in a correlated-error chain |
+| `READOUT_NOISE(p01[, p10])` | Classical bit-flip on a measurement record (`rec[-k]` targets) |
 
-Noisy measurements (e.g., `M(0.01) 0`) are decomposed by the parser into a
-clean measurement followed by an internal `READOUT_NOISE` instruction that
-models classical bit-flip errors on the measurement result.
+`READOUT_NOISE` flips already-recorded bits rather than acting on a qubit,
+so its targets are measurement-record references. With one argument the
+flip is symmetric; with two, a recorded 0 flips with probability `p01` and
+a recorded 1 with probability `p10`. Record targets do not take the `!`
+inversion marker — swap the two probabilities instead. Noisy measurements
+(e.g., `M(0.01) 0`) are parser shorthand for a clean measurement followed
+by `READOUT_NOISE(0.01) rec[-1]`.
 
 `DEPOLARIZE3(p) a b c` applies one of the 63 non-identity Pauli products on
 `a,b,c` with probability `p/63` each, and identity with probability `1-p`.
@@ -167,6 +172,17 @@ multiply modulo Pauli phase, so `E(1) X0 Z0` is equivalent to a Y error and
 `ELSE_CORRELATED_ERROR`. Its `p` is conditional on no earlier link in the chain
 firing. Clifft lowers each contiguous chain to one noise site with absolute
 channel probabilities.
+
+### Leakage and Loss Annotations (experimental)
+
+| Instruction | Notes |
+|-------------|-------|
+| `LOSS(p)` | Loses each target with probability `p`, from any occupied level |
+| `LEVEL_TRANSITION[name]` | Fires the model's named transition matrix on each target |
+
+Both are recognized only by the leakage/loss sampler — `clifft.compile()`
+rejects them and points to `clifft.noncomp.sample`. See the
+[Leakage and Loss guide](../guide/leakage-and-loss.md).
 
 ## Identity Gates
 

@@ -24,10 +24,12 @@ namespace {
 
 [[nodiscard]] bool is_unsupported_record_probabilities_opcode(Opcode opcode) {
     // Allowed: all gate / expand / array opcodes, EXP_VAL probes, feedback
-    // (OP_APPLY_PAULI), and any sampling-mode measurement opcode (rewritten
-    // to its FORCED sibling before execution). Forced opcodes shouldn't
-    // appear in user-compiled programs; reject defensively so the rewrite
-    // is the only path that produces them.
+    // (OP_APPLY_PAULI), and any opcode with a forced-measurement counterpart.
+    // Forced opcodes shouldn't appear in user-compiled programs; reject
+    // defensively so the rewrite is the only path that produces them.
+    if (forced_measurement_opcode(opcode).has_value()) {
+        return false;
+    }
     switch (opcode) {
         case Opcode::OP_FRAME_CNOT:
         case Opcode::OP_FRAME_CZ:
@@ -54,18 +56,25 @@ namespace {
         case Opcode::OP_EXPAND_ROT:
         case Opcode::OP_EXP_VAL:
         case Opcode::OP_APPLY_PAULI:
+            return false;
+
+        // Sampling measurements reach this group only if their forced-opcode
+        // mapping is removed. Keep them unsupported rather than silently
+        // executing an unforced measurement.
         case Opcode::OP_MEAS_DORMANT_STATIC:
         case Opcode::OP_MEAS_DORMANT_RANDOM:
         case Opcode::OP_MEAS_ACTIVE_DIAGONAL:
         case Opcode::OP_MEAS_ACTIVE_INTERFERE:
         case Opcode::OP_SWAP_MEAS_INTERFERE:
-            return false;
-
         case Opcode::OP_MEAS_DORMANT_STATIC_FORCED:
         case Opcode::OP_MEAS_DORMANT_RANDOM_FORCED:
         case Opcode::OP_MEAS_ACTIVE_DIAGONAL_FORCED:
         case Opcode::OP_MEAS_ACTIVE_INTERFERE_FORCED:
         case Opcode::OP_SWAP_MEAS_INTERFERE_FORCED:
+        case Opcode::OP_INSTRUMENT_ACTIVE:
+        case Opcode::OP_INSTRUMENT_DORMANT_STATIC:
+        case Opcode::OP_INSTRUMENT_EXPAND:
+        case Opcode::OP_INSTRUMENT_DORMANT_NEGLECT:
         case Opcode::OP_NOISE:
         case Opcode::OP_NOISE_BLOCK:
         case Opcode::OP_READOUT_NOISE:
@@ -83,7 +92,8 @@ void assert_record_probabilities_program_is_supported(const CompiledModule& prog
         if (is_unsupported_record_probabilities_opcode(instr.opcode)) {
             throw std::invalid_argument(
                 "record_probabilities() requires pure-state evolution with measurements: noise, "
-                "feedback-free detectors, observables, and post-selection are not supported. "
+                "transition instruments, feedback-free detectors, observables, and "
+                "post-selection are not supported. "
                 "Forced-measurement opcodes are reserved for the internal rewrite and must not "
                 "appear in user-compiled programs.");
         }
@@ -95,24 +105,9 @@ void assert_record_probabilities_program_is_supported(const CompiledModule& prog
 // and FLAG_IDENTITY are preserved.
 void rewrite_for_forced_execution(std::vector<Instruction>& bytecode) {
     for (auto& instr : bytecode) {
-        switch (instr.opcode) {
-            case Opcode::OP_MEAS_DORMANT_STATIC:
-                instr.opcode = Opcode::OP_MEAS_DORMANT_STATIC_FORCED;
-                break;
-            case Opcode::OP_MEAS_DORMANT_RANDOM:
-                instr.opcode = Opcode::OP_MEAS_DORMANT_RANDOM_FORCED;
-                break;
-            case Opcode::OP_MEAS_ACTIVE_DIAGONAL:
-                instr.opcode = Opcode::OP_MEAS_ACTIVE_DIAGONAL_FORCED;
-                break;
-            case Opcode::OP_MEAS_ACTIVE_INTERFERE:
-                instr.opcode = Opcode::OP_MEAS_ACTIVE_INTERFERE_FORCED;
-                break;
-            case Opcode::OP_SWAP_MEAS_INTERFERE:
-                instr.opcode = Opcode::OP_SWAP_MEAS_INTERFERE_FORCED;
-                break;
-            default:
-                break;
+        if (const std::optional<Opcode> forced = forced_measurement_opcode(instr.opcode);
+            forced.has_value()) {
+            instr.opcode = *forced;
         }
     }
 }
