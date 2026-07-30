@@ -1,6 +1,7 @@
 """Noncomputational (leakage/loss) sampling.
 
-This module is experimental: the API may change between minor releases.
+This module is new and actively evolving. Its API and supported models may
+change as use cases develop.
 
 Samples five-level leakage/loss trajectories using Clifft's VM:
 
@@ -50,9 +51,9 @@ Matrix = Sequence[Sequence[float]]
 
 
 class QubitStatus(IntEnum):
-    """Per-qubit outcome in ``final_status``, one value per shot.
+    """Per-site status stored in ``NonComputationalSample.final_status``.
 
-    These are per-qubit *status* codes, not matrix indices. ``Level`` names
+    These are per-site *status* codes, not matrix indices. ``Level`` names
     matrix rows and columns (indices 0--4); ``QubitStatus`` names per-qubit
     outcomes (codes 0--3). The two enums share member names (``LEAK_G``,
     ``LEAK_E``, ``LOST``) with *different* integer values -- never substitute
@@ -86,19 +87,18 @@ def _as_matrix(matrix: Matrix) -> list[list[float]]:
 class Classifier:
     """A measurement classifier: ``P[symbol][level]`` stochastic matrix.
 
-    The row count (two or three) determines the symbol alphabet; C++ validates
-    it. The first two rows map to the measurement record bit (0 or 1). An
-    optional third row heralds the measurement -- typically the loss outcome --
-    reported per record slot in :attr:`NonComputationalSample.heralds` while
-    the visible record keeps a uniformly drawn bit, so the record layout is
-    unchanged.
+    The matrix must have two or three rows, and every level column must sum to
+    one. The first two rows give the probabilities of recording 0 or 1. An
+    optional third row heralds the measurement, typically for loss.
+    ``NonComputationalSample.heralds`` reports that symbol separately while
+    the binary measurement record receives a uniformly sampled placeholder.
 
-    The computational columns define readout confusion for Z-basis
-    measurements of computational qubits: the true outcome is misreported
-    with the column's off-diagonal probability, an asymmetric in-record
-    flip (the qubit still collapses to its true state). Identity
-    computational columns add nothing, and a computational column may not
-    place probability beyond the two record symbols.
+    For ``M`` and ``MR`` on a computational site, the ``g`` and ``e`` columns
+    can model Z-basis readout confusion after the quantum measurement.
+    Computational ``MX``, ``MY``, ``MRX``, and ``MRY`` measurements do not use
+    those columns. On a leaked or lost site, every supported single-site
+    measurement uses the corresponding classifier column regardless of basis.
+    A computational column may not assign probability to the herald symbol.
     """
 
     __slots__ = ("matrix",)
@@ -126,8 +126,9 @@ class Model:
             with ``LEVEL_TRANSITION[key] q``, and ``LOSS(p) q`` applies a
             uniform loss inline. A transition fires at its circuit position,
             with the source taken from the qubit's state there.
-        classifier: optional :class:`Classifier` supplying leaked/lost
-            measurement outcomes and computational readout confusion.
+        classifier: Optional [Classifier][clifft.noncomp.Classifier] supplying
+            leaked/lost measurement outcomes and computational readout
+            confusion.
         reset_restores_lost: if true, a reset on a lost qubit restores it to
             a computational state; if false (default), the reset acts on the
             vacated site and is dropped.
@@ -151,14 +152,13 @@ class Model:
     way; its reset half re-prepares the site only when the reset restores
     it (a leaked qubit always; a lost qubit only with
     ``reset_restores_lost``). Parity measurements
-    (``MPP``) are not supported when the model can leak or lose qubits — they
-    have no faithful single-bit classifier substitution — and raise before
+    (``MPP``) are not supported when the model can leak or lose qubits -- they
+    have no faithful single-bit classifier substitution -- and raise before
     sampling begins. A model that can leak or lose qubits also requires a
     classifier when the circuit measures a qubit.
 
     Construction validates shapes, probabilities, gate keys, policy values,
-    and level table consistency in C++, raising ``ValueError`` on any
-    problem.
+    and level table consistency, raising ``ValueError`` on any problem.
     """
 
     __slots__ = (
@@ -205,16 +205,17 @@ class Model:
 
 
 class NonComputationalSample:
-    """Result of :func:`sample`: the visible records plus a status sidecar.
+    """Measurement results and final site statuses returned by ``sample()``.
 
     Attributes:
         measurements, detectors, observables: uint8 arrays, shape (shots, width).
-        final_status: uint8 array (shots, num_qubits) of :class:`QubitStatus`.
-            Reports the definite noncomputational level per shot: ``LEAK_G``
-            and ``LEAK_E`` are individually distinguishable. Computational
-            qubits report as :attr:`QubitStatus.COMPUTATIONAL` rather than
-            ``G`` or ``E`` because their state remains quantum in the VM and
-            may not be a definite level.
+        final_status: uint8 array (shots, num_qubits) of
+            [QubitStatus][clifft.noncomp.QubitStatus] values.
+            Reports the definite noncomputational level per site and shot:
+            ``LEAK_G`` and ``LEAK_E`` are individually distinguishable.
+            Computational sites report as ``QubitStatus.COMPUTATIONAL`` rather
+            than ``G`` or ``E`` because their state remains quantum in the VM
+            and may not be a definite level.
         heralds: uint8 array (shots, num_measurements); 1 where the classifier
             sampled the herald (third) symbol for that slot, else 0.
         shots, num_qubits, num_measurements, num_detectors, num_observables: ints.
@@ -257,10 +258,10 @@ class NonComputationalSample:
         self.num_observables = int(num_observables)
 
     def symbols(self) -> npt.NDArray[np.uint8]:
-        """Per-slot classifier symbols: the record bit, or 2 where heralded.
+        """Return measurement symbols, using 2 for heralded slots.
 
-        A ternary view of the record for comparing against simulators whose
-        measurement outcomes carry the herald in-band as a third value.
+        This returns a copy of ``measurements`` with each heralded placeholder
+        replaced by 2.
         """
         out = self.measurements.copy()
         out[self.heralds != 0] = 2
@@ -289,35 +290,37 @@ def sample(
 ) -> NonComputationalSample:
     """Sample ``circuit`` under ``model`` for ``shots`` shots.
 
-    ``circuit`` is a parsed ``clifft.Circuit`` or a Stim-format string. Returns a
-    :class:`NonComputationalSample`. Single-qubit measurements (``M``, ``MX``,
-    ``MY``) of a leaked or lost qubit read the classifier; the readout basis is
-    incidental once the qubit has left the computational subspace. A model that
-    can leak or lose qubits requires a classifier when the circuit measures a
-    qubit, and parity measurements (``MPP``) are not supported with such models —
-    both are rejected before sampling begins. ``EXP_VAL`` probes are not
-    supported because :class:`NonComputationalSample` has no expectation-value
-    output. Raises ``ValueError`` when one of these contracts is violated, when
-    an annotation is malformed, or when ``max_rank`` is exceeded.
-
-    ``seed`` makes runs reproducible: the same seed with the same arguments
-    returns identical results, so vary it across seeded batches. When
-    ``None``, each call draws a fresh 256-bit root from OS entropy, so
-    repeated or parallel unseeded calls sample fresh randomness.
+    On a leaked or lost site, ``M``, ``MX``, ``MY``, ``MR``, ``MRX``, and
+    ``MRY`` sample the classifier without regard to measurement basis. A model
+    that can leak or lose sites requires a classifier when the circuit
+    measures a physical site. Parity measurements (``MPP``) and ``EXP_VAL``
+    probes are not supported with such models.
 
     Continuations are compiled with the default optimization passes that
-    preserve measurement-record order; this omits
-    :class:`StatevectorSqueezePass`. A continuation may force a hidden trace-out
-    measurement, whose order relative to other measurements can affect quantum
-    correlations. This API does not currently accept custom pass managers.
+    preserve measurement-record order, omitting
+    [StatevectorSqueezePass][clifft.StatevectorSqueezePass]. Reordering can
+    change the placement of internal collapse outcomes relative to later
+    records. This API does not currently accept custom pass managers.
 
-    ``max_rank`` caps the compiled peak rank for each trajectory; the cap is
-    enforced at each continuation compile, failing with the offending circuit
-    line named instead of attempting a ``2**k`` allocation. The cap applies to
-    each compiled module, including branches a given shot never takes (such as
-    the no-fire suffix past a certain-fire annotation), so it is conservative:
-    a rejected circuit may keep every reachable trajectory within the cap.
-    Unlimited when ``None``.
+    Args:
+        circuit: Parsed ``clifft.Circuit`` or Stim-format circuit string.
+        model: Leakage and loss model.
+        shots: Number of trajectories to sample.
+        seed: Seed for reproducible sampling. The same seed and arguments
+            produce identical results. When ``None``, each call uses fresh OS
+            entropy.
+        max_rank: Optional cap on the peak rank of every compiled
+            continuation. The check is conservative because a continuation
+            may contain branches that the current shot will not take.
+
+    Returns:
+        [NonComputationalSample][clifft.noncomp.NonComputationalSample]
+        containing measurement, detector, observable, herald, and final-status
+        arrays.
+
+    Raises:
+        ValueError: If a model or circuit contract is violated, an annotation
+            is malformed, or a continuation exceeds ``max_rank``.
     """
     if isinstance(circuit, str):
         circuit = _clifft_core.parse(circuit)
