@@ -101,6 +101,7 @@ nav:
     - Performance: guide/performance.md
     - "Tutorial: Strong Simulation": guide/strong-simulation.md
     - "Tutorial: Surface Code": guide/surface-code.md
+    - "Tutorial: Delayed Loss": guide/delayed-loss.md
     - "Tutorial: Importance Sampling": guide/importance-sampling.md
     - "Benchmark: Clifft vs Qiskit": guide/benchmark.md
   - Theory:
