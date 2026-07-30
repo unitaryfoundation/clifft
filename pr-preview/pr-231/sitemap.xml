@@ -2,102 +2,102 @@
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
     <url>
          <loc>https://unitaryfoundation.github.io/clifft/pr-preview/pr-231/</loc>
-         <lastmod>2026-07-29</lastmod>
+         <lastmod>2026-07-30</lastmod>
     </url>
     <url>
          <loc>https://unitaryfoundation.github.io/clifft/pr-preview/pr-231/development/benchmark-history/</loc>
-         <lastmod>2026-07-29</lastmod>
+         <lastmod>2026-07-30</lastmod>
     </url>
     <url>
          <loc>https://unitaryfoundation.github.io/clifft/pr-preview/pr-231/development/building/</loc>
-         <lastmod>2026-07-29</lastmod>
+         <lastmod>2026-07-30</lastmod>
     </url>
     <url>
          <loc>https://unitaryfoundation.github.io/clifft/pr-preview/pr-231/development/contributing/</loc>
-         <lastmod>2026-07-29</lastmod>
+         <lastmod>2026-07-30</lastmod>
     </url>
     <url>
          <loc>https://unitaryfoundation.github.io/clifft/pr-preview/pr-231/development/releasing/</loc>
-         <lastmod>2026-07-29</lastmod>
+         <lastmod>2026-07-30</lastmod>
     </url>
     <url>
          <loc>https://unitaryfoundation.github.io/clifft/pr-preview/pr-231/development/testing/</loc>
-         <lastmod>2026-07-29</lastmod>
+         <lastmod>2026-07-30</lastmod>
     </url>
     <url>
          <loc>https://unitaryfoundation.github.io/clifft/pr-preview/pr-231/getting-started/installation/</loc>
-         <lastmod>2026-07-29</lastmod>
+         <lastmod>2026-07-30</lastmod>
     </url>
     <url>
          <loc>https://unitaryfoundation.github.io/clifft/pr-preview/pr-231/getting-started/integrations/</loc>
-         <lastmod>2026-07-29</lastmod>
+         <lastmod>2026-07-30</lastmod>
     </url>
     <url>
          <loc>https://unitaryfoundation.github.io/clifft/pr-preview/pr-231/getting-started/quickstart/</loc>
-         <lastmod>2026-07-29</lastmod>
+         <lastmod>2026-07-30</lastmod>
     </url>
     <url>
          <loc>https://unitaryfoundation.github.io/clifft/pr-preview/pr-231/guide/benchmark/</loc>
-         <lastmod>2026-07-29</lastmod>
+         <lastmod>2026-07-30</lastmod>
     </url>
     <url>
          <loc>https://unitaryfoundation.github.io/clifft/pr-preview/pr-231/guide/compilation/</loc>
-         <lastmod>2026-07-29</lastmod>
+         <lastmod>2026-07-30</lastmod>
     </url>
     <url>
          <loc>https://unitaryfoundation.github.io/clifft/pr-preview/pr-231/guide/importance-sampling/</loc>
-         <lastmod>2026-07-29</lastmod>
+         <lastmod>2026-07-30</lastmod>
     </url>
     <url>
          <loc>https://unitaryfoundation.github.io/clifft/pr-preview/pr-231/guide/leakage-and-loss/</loc>
-         <lastmod>2026-07-29</lastmod>
+         <lastmod>2026-07-30</lastmod>
     </url>
     <url>
          <loc>https://unitaryfoundation.github.io/clifft/pr-preview/pr-231/guide/performance/</loc>
-         <lastmod>2026-07-29</lastmod>
+         <lastmod>2026-07-30</lastmod>
     </url>
     <url>
          <loc>https://unitaryfoundation.github.io/clifft/pr-preview/pr-231/guide/simulation/</loc>
-         <lastmod>2026-07-29</lastmod>
+         <lastmod>2026-07-30</lastmod>
     </url>
     <url>
          <loc>https://unitaryfoundation.github.io/clifft/pr-preview/pr-231/guide/strong-simulation/</loc>
-         <lastmod>2026-07-29</lastmod>
+         <lastmod>2026-07-30</lastmod>
     </url>
     <url>
          <loc>https://unitaryfoundation.github.io/clifft/pr-preview/pr-231/guide/surface-code/</loc>
-         <lastmod>2026-07-29</lastmod>
+         <lastmod>2026-07-30</lastmod>
     </url>
     <url>
          <loc>https://unitaryfoundation.github.io/clifft/pr-preview/pr-231/reference/gates/</loc>
-         <lastmod>2026-07-29</lastmod>
+         <lastmod>2026-07-30</lastmod>
     </url>
     <url>
          <loc>https://unitaryfoundation.github.io/clifft/pr-preview/pr-231/reference/instructions/</loc>
-         <lastmod>2026-07-29</lastmod>
+         <lastmod>2026-07-30</lastmod>
     </url>
     <url>
          <loc>https://unitaryfoundation.github.io/clifft/pr-preview/pr-231/reference/passes/</loc>
-         <lastmod>2026-07-29</lastmod>
+         <lastmod>2026-07-30</lastmod>
     </url>
     <url>
          <loc>https://unitaryfoundation.github.io/clifft/pr-preview/pr-231/reference/python-api/</loc>
-         <lastmod>2026-07-29</lastmod>
+         <lastmod>2026-07-30</lastmod>
     </url>
     <url>
          <loc>https://unitaryfoundation.github.io/clifft/pr-preview/pr-231/theory/architecture/</loc>
-         <lastmod>2026-07-29</lastmod>
+         <lastmod>2026-07-30</lastmod>
     </url>
     <url>
          <loc>https://unitaryfoundation.github.io/clifft/pr-preview/pr-231/theory/basis_probabilities/</loc>
-         <lastmod>2026-07-29</lastmod>
+         <lastmod>2026-07-30</lastmod>
     </url>
     <url>
          <loc>https://unitaryfoundation.github.io/clifft/pr-preview/pr-231/theory/noncomputational/</loc>
-         <lastmod>2026-07-29</lastmod>
+         <lastmod>2026-07-30</lastmod>
     </url>
     <url>
          <loc>https://unitaryfoundation.github.io/clifft/pr-preview/pr-231/theory/overview/</loc>
-         <lastmod>2026-07-29</lastmod>
+         <lastmod>2026-07-30</lastmod>
     </url>
 </urlset>
