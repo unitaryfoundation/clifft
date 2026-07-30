@@ -100,6 +100,14 @@ columns can then add computational-basis readout confusion. On a leaked or lost
 site, the classifier supplies the result in place of a quantum measurement and
 applies to `M`, `MX`, and `MY` alike.
 
+!!! note "Computational readout confusion is Z-basis only"
+    The classifier's `g` and `e` columns apply to `M` and `MR`. On a
+    computational site, `MX`, `MY`, `MRX`, and `MRY` perform their ordinary
+    quantum measurements without consulting those columns. Use measurement
+    noise such as `MX(p)` or `MY(p)` for readout errors in another basis. If
+    the site is leaked or lost, the classifier supplies the result regardless
+    of measurement basis.
+
 When the classifier emits its herald symbol, `heralds` marks the slot and the
 binary `measurements` entry holds a uniformly drawn placeholder. Detectors and
 observables use that binary bit as usual; the herald remains separate.
