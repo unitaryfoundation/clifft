@@ -20,6 +20,7 @@ def define_env(env: Any) -> None:
         "Array",
         "Subspace",
         "Measurement",
+        "Instrument",
         "Meta",
     ]
     opcodes_by_category: dict[str, list[dict[str, str]]] = {}
@@ -31,6 +32,13 @@ def define_env(env: Any) -> None:
         if cat not in opcodes_by_category:
             opcodes_by_category[cat] = []
         opcodes_by_category[cat].append(entry)
+
+    unknown_opcode_categories = sorted(set(opcodes_by_category) - set(opcode_categories_order))
+    if unknown_opcode_categories:
+        raise ValueError(
+            "docs/opcodes.json contains VM opcode categories missing from docs/macros.py: "
+            + ", ".join(unknown_opcode_categories)
+        )
 
     env.variables["opcodes"] = opcodes
     site_url = env.conf["site_url"].rstrip("/")
@@ -46,6 +54,7 @@ def define_env(env: Any) -> None:
     hir_categories_order = [
         "Non-Clifford",
         "Measurement",
+        "Instrument",
         "Feedback",
         "Noise",
         "QEC",
@@ -59,6 +68,13 @@ def define_env(env: Any) -> None:
         if cat not in hir_by_category:
             hir_by_category[cat] = []
         hir_by_category[cat].append(entry)
+
+    unknown_hir_categories = sorted(set(hir_by_category) - set(hir_categories_order))
+    if unknown_hir_categories:
+        raise ValueError(
+            "docs/opcodes.json contains HIR categories missing from docs/macros.py: "
+            + ", ".join(unknown_hir_categories)
+        )
 
     env.variables["hir_ops"] = hir_ops
     env.variables["hir_categories"] = [c for c in hir_categories_order if hir_by_category.get(c)]
