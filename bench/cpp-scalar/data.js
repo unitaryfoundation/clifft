@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785395715894,
+  "lastUpdate": 1785434819840,
   "repoUrl": "https://github.com/unitaryfoundation/clifft",
   "entries": {
     "C++ Catch2 benchmarks (scalar)": [
@@ -4606,6 +4606,70 @@ window.BENCHMARK_DATA = {
             "name": "exp-val 20q 200 probes x100k",
             "value": 139.176,
             "range": "± 1.76786",
+            "unit": "ms",
+            "extra": "100 samples\n1 iterations"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Brad Chase",
+            "username": "bachase",
+            "email": "14430+bachase@users.noreply.github.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "e8f9d1b4766626abcc8e1b1798fc4957f7e15bf4",
+          "message": "feat(noncomp): add leakage and loss simulation (#231)\n\nAdd five-level noncomputational models, transition annotations,\nmeasurement classifiers, and exact trajectory sampling through\nresumable SVM instruments.\n\nExpose the experimental Python API, documentation, playground guidance,\nand end-to-end validation while preserving ordinary simulation paths.\n\nAssisted-by: Claude (Fable) <noreply@anthropic.com>\nAssisted-by: Claude (Opus) <noreply@anthropic.com>\nAssisted-by: Claude (Sonnet 5) <noreply@anthropic.com>\nAssisted-by: ChatGPT (GPT-5.6 sol) <noreply@openai.com>",
+          "timestamp": "2026-07-30T17:58:33Z",
+          "url": "https://github.com/unitaryfoundation/clifft/commit/e8f9d1b4766626abcc8e1b1798fc4957f7e15bf4"
+        },
+        "date": 1785434817018,
+        "tool": "catch2",
+        "benches": [
+          {
+            "name": "QV-10 x100 shots",
+            "value": 68.5233,
+            "range": "± 491.897",
+            "unit": "ms",
+            "extra": "100 samples\n1 iterations"
+          },
+          {
+            "name": "cultivation-d5 x1000 shots",
+            "value": 72.7673,
+            "range": "± 422.196",
+            "unit": "ms",
+            "extra": "100 samples\n1 iterations"
+          },
+          {
+            "name": "surface-d7-r7 p=1e-3 x10000 shots",
+            "value": 107.042,
+            "range": "± 343.495",
+            "unit": "ms",
+            "extra": "100 samples\n1 iterations"
+          },
+          {
+            "name": "surface-d5-r5 p=0.05 x10000 shots",
+            "value": 107.078,
+            "range": "± 267.377",
+            "unit": "ms",
+            "extra": "100 samples\n1 iterations"
+          },
+          {
+            "name": "surface-d11-r11 p=1e-3 x1000 shots",
+            "value": 42.0051,
+            "range": "± 571.233",
+            "unit": "ms",
+            "extra": "100 samples\n1 iterations"
+          },
+          {
+            "name": "exp-val 20q 200 probes x100k",
+            "value": 161.674,
+            "range": "± 2.27036",
             "unit": "ms",
             "extra": "100 samples\n1 iterations"
           }
