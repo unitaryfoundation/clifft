@@ -13,8 +13,9 @@ import { KHistoryChart } from "./components/KHistoryChart";
 import { HistogramChart } from "./components/HistogramChart";
 import { ExpValTable } from "./components/ExpValTable";
 import { GuidedTour } from "./components/GuidedTour";
+import { NoncompNotice } from "./components/NoncompNotice";
 import { registerLanguages } from "./languages";
-import { isCompileSuccess, isSimulateSuccess } from "./types";
+import { isCompileSuccess, isSimulateSuccess, isNoncompAnnotationError } from "./types";
 import type { CompileResult, CompileSuccess, SimulateResult, SourceOrigin } from "./types";
 
 const DEFAULT_SOURCE = `H 0
@@ -463,6 +464,8 @@ export default function App() {
     compileResult && isCompileSuccess(compileResult) ? compileResult : null;
   const baselineStats: CompileSuccess | null =
     baselineResult && isCompileSuccess(baselineResult) ? baselineResult : null;
+  const compileErrorMessage: string | null =
+    compileResult && !isCompileSuccess(compileResult) ? compileResult.error : null;
 
   // Format a stat with optional before->after arrow (only in diff mode)
   const formatStat = (label: string, optimized: number, baseline: number | undefined) => {
@@ -525,6 +528,11 @@ export default function App() {
           {formatStat("Measurements", stats.num_measurements, baselineStats?.num_measurements)}
           {formatStat("HIR ops", stats.hir_ops.length, baselineStats?.hir_ops.length)}
           {formatStat("Bytecode", stats.bytecode.length, baselineStats?.bytecode.length)}
+        </div>
+      )}
+      {compileErrorMessage && isNoncompAnnotationError(compileErrorMessage) && (
+        <div className="compile-error-banner">
+          <NoncompNotice />
         </div>
       )}
 
