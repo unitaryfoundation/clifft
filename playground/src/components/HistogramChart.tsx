@@ -8,9 +8,10 @@ import {
   ResponsiveContainer,
   Cell,
 } from "recharts";
-import { isSimulateSuccess } from "../types";
+import { isSimulateSuccess, isNoncompAnnotationError } from "../types";
 import type { SimulateResult } from "../types";
 import type { ChartColors } from "../hooks/useTheme";
+import { NoncompNotice } from "./NoncompNotice";
 
 interface Props {
   result: SimulateResult | null;
@@ -55,6 +56,8 @@ export function HistogramChart({ result, elapsedMs, colors }: Props) {
             with many qubits but few T gates have low peak rank and should work
             fine. Use the native Python CLI for high-rank circuits.
           </>
+        ) : isNoncompAnnotationError(result.error) ? (
+          <NoncompNotice />
         ) : (
           result.error
         )}
