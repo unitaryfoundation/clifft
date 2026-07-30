@@ -149,19 +149,14 @@ TEST_CASE(
                             ContainsSubstring("cannot be written as a LEVEL_TRANSITION tag"));
 }
 
-TEST_CASE("NonComputationalModel: a non-hookable gate-named key is a named-only transition") {
-    // Keys naming non-hookable instructions (noise channels, annotations,
-    // LOSS itself) register no hook, but stay referenceable from a
-    // LEVEL_TRANSITION[key] annotation like any other name.
-    auto model = NonComputationalModel::from_spec(default_initial_state(),
-                                                  {{"DEPOLARIZE1", zero_transition_matrix()},
-                                                   {"TICK", zero_transition_matrix()},
-                                                   {"LOSS", zero_transition_matrix()}},
-                                                  std::nullopt, NonComputationalPolicy{});
-    REQUIRE(model.transition_named("DEPOLARIZE1") != nullptr);
-    REQUIRE(model.transition_named("TICK") != nullptr);
-    REQUIRE(model.transition_named("LOSS") != nullptr);
-    REQUIRE(model.transition_hooks().empty());
+TEST_CASE("NonComputationalModel: rejects non-hookable instruction keys") {
+    for (const std::string key : {"DEPOLARIZE1", "TICK", "LOSS"}) {
+        REQUIRE_THROWS_WITH(
+            NonComputationalModel::from_spec(default_initial_state(),
+                                             {{key, zero_transition_matrix()}}, std::nullopt,
+                                             NonComputationalPolicy{}),
+            ContainsSubstring(key) && ContainsSubstring("does not support transition hooks"));
+    }
 }
 
 TEST_CASE("NonComputationalModel: rejects two keys resolving to the same gate") {

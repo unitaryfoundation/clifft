@@ -35,6 +35,7 @@
 #include <optional>
 #include <stdexcept>
 #include <string>
+#include <unordered_set>
 #include <vector>
 
 namespace clifft {
@@ -89,6 +90,7 @@ void validate_annotation(const AstNode& node, const NonComputationalModel& model
             "sample_noncomputational: annotation '" + std::string(gate_name(node.gate)) +
             "' at op " + std::to_string(op_index) + " requires at least one qubit target");
     }
+    std::unordered_set<uint32_t> seen_qubits;
     for (const Target& target : node.targets) {
         if (target.is_rec() || target.has_pauli() || target.is_inverted()) {
             throw std::invalid_argument("sample_noncomputational: annotation '" +
@@ -100,6 +102,12 @@ void validate_annotation(const AstNode& node, const NonComputationalModel& model
                                         std::string(gate_name(node.gate)) + "' target qubit " +
                                         std::to_string(target.value()) + " is out of range at op " +
                                         std::to_string(op_index));
+        }
+        if (!seen_qubits.insert(target.value()).second) {
+            throw std::invalid_argument("sample_noncomputational: annotation '" +
+                                        std::string(gate_name(node.gate)) +
+                                        "' repeats target qubit " + std::to_string(target.value()) +
+                                        " at op " + std::to_string(op_index));
         }
     }
 }

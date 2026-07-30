@@ -116,7 +116,7 @@ def define_env(env: Any) -> None:
             "name": "RemoveNoisePass",
             "kind": "HIR",
             "default_enabled": False,
-            "preserves_record_order": True,
+            "preserves_record_order": False,
             "python_name": "RemoveNoisePass",
             "summary": "Strips all noise from the HIR.",
             "detail": (

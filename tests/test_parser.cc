@@ -1961,6 +1961,12 @@ TEST_CASE("READOUT_NOISE rejects bad argument counts and non-rec targets") {
     CHECK_THROWS_AS(parse("M 0\nREADOUT_NOISE(0.1) 0\n"), ParseError);
 }
 
+TEST_CASE("READOUT_NOISE rejects invalid probabilities") {
+    CHECK_THROWS_AS(parse("M 0\nREADOUT_NOISE(-0.1) rec[-1]\n"), ParseError);
+    CHECK_THROWS_AS(parse("M 0\nREADOUT_NOISE(1.1) rec[-1]\n"), ParseError);
+    CHECK_THROWS_AS(parse("M 0\nREADOUT_NOISE(0.1, nan) rec[-1]\n"), ParseError);
+}
+
 TEST_CASE("READOUT_NOISE rejects inverted rec targets") {
     // An inverted record target has no distinct meaning for a conditional
     // flip (it would only swap the two probabilities), so it is refused

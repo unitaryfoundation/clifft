@@ -117,15 +117,18 @@ class Model:
         transitions: maps a name to its ``T[to][from]`` matrix. A key that
             names a gate (e.g. ``"CZ"``) is a *hook*: it expands to a
             ``LEVEL_TRANSITION[key]`` annotation after every occurrence of that
-            gate. A key naming an instruction that never parses into a node
-            of its own is rejected, since its hook could never fire:
+            gate. A key naming a recognized instruction that cannot be hooked
+            is rejected, since it would otherwise look like a hook that never
+            fires. These include noise channels and annotations, as well as
+            instructions that never parse into a node of their own:
             ``MXX``/``MYY``/``MZZ`` (desugared to ``MPP``),
             ``CH``/``CCX``/``CCZ`` (decomposed by the parser), and identity
             no-ops. Annotate those positions explicitly instead. Any key --
-            gate-named or not -- can be referenced directly from the circuit
-            with ``LEVEL_TRANSITION[key] q``, and ``LOSS(p) q`` applies a
-            uniform loss inline. A transition fires at its circuit position,
-            with the source taken from the qubit's state there.
+            whether an arbitrary name or a hookable gate name -- can be
+            referenced directly from the circuit with
+            ``LEVEL_TRANSITION[key] q``, and ``LOSS(p) q`` applies a uniform
+            loss inline. A transition fires at its circuit position, with the
+            source taken from the qubit's state there.
         classifier: Optional [Classifier][clifft.noncomp.Classifier] supplying
             leaked/lost measurement outcomes and computational readout
             confusion.

@@ -41,6 +41,7 @@ void DropNonUnitaryPass::run(HirModule& hir) {
     hir.num_observables = 0;
     hir.num_exp_vals = 0;
     hir.neglect_instrument_damping = false;
+    hir.forced_traceout_slot.reset();
     hir.source_map.clear();
 }
 

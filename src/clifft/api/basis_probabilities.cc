@@ -469,8 +469,8 @@ void assert_probability_program_is_supported(const CompiledModule& program) {
         if (is_unsupported_probability_opcode(instr.opcode)) {
             throw std::invalid_argument(
                 "basis_probabilities() requires pure-state evolution: measurements, feedback, "
-                "noise, "
-                "readout noise, detectors, postselection, and observables are not supported. "
+                "noise, readout noise, transition instruments, detectors, postselection, and "
+                "observables are not supported. "
                 "EXP_VAL probes are allowed but their outputs are ignored. Use "
                 "DropNonUnitaryPass only if you intentionally want to query the unitary "
                 "skeleton of a mixed circuit.");

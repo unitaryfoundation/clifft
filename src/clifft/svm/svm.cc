@@ -157,6 +157,11 @@ static DispatchFn resolved_fn = resolve_dispatcher();
 #endif
 
 void execute(const CompiledModule& program, SchrodingerState& state) {
+    if (state.pending_trap.has_value()) {
+        throw std::invalid_argument(
+            "execute(): the state has a pending trap; continue the shot with resume() or reset "
+            "the state before starting a new shot");
+    }
 #if defined(CLIFFT_ENABLE_RUNTIME_DISPATCH)
     resolved_fn(program, state, 0);
 #else

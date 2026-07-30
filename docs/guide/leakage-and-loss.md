@@ -137,13 +137,15 @@ three ways to place them:
 
 - **Gate hooks.** A `transitions` key that names a gate, such as `"CZ"` or `"S"`,
   evaluates its matrix after every occurrence of that gate. Keys naming
-  instructions that never produce a circuit node (`MXX`/`MYY`/`MZZ`,
-  `CH`/`CCX`/`CCZ`, identity no-ops) are rejected at model construction. Use a
-  hook to apply the same transition after every occurrence of a gate.
+  recognized instructions that cannot be hooked are rejected at model
+  construction. This includes noise channels and annotations, instructions
+  that never produce a circuit node (`MXX`/`MYY`/`MZZ`,
+  `CH`/`CCX`/`CCZ`), and identity no-ops. Use a hook to apply the same
+  transition after every occurrence of a gate.
 - **Inline references.** `LEVEL_TRANSITION[name] 0` evaluates the named matrix
   from the `transitions` mapping on site 0 at that circuit position. Any
-  transition name can be referenced explicitly, whether or not it also names
-  a gate hook. Use an inline reference at selected circuit positions or with a
+  arbitrary transition name or hookable gate name can be referenced
+  explicitly. Use an inline reference at selected circuit positions or with a
   transition whose name is not a gate.
 - **Inline loss.** `LOSS(p) 0` loses the carrier at site 0 with probability
   `p` from any occupied level. Use it for a self-contained loss probability

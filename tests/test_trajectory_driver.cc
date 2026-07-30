@@ -633,6 +633,15 @@ TEST_CASE("trajectory: hand-built annotation targets reject up front") {
         REQUIRE_THROWS_WITH(sample_noncomputational(circuit, make_driver_model(spec), 1, 1),
                             ContainsSubstring("requires plain qubit targets"));
     }
+
+    SECTION("duplicate target") {
+        ModelSpec spec;
+        circuit.nodes.insert(
+            circuit.nodes.begin(),
+            AstNode{GateType::LOSS, {Target::qubit(0), Target::qubit(0)}, {0.1}, 0});
+        REQUIRE_THROWS_WITH(sample_noncomputational(circuit, make_driver_model(spec), 1, 1),
+                            ContainsSubstring("repeats target qubit 0"));
+    }
 }
 
 TEST_CASE("trajectory: a smaller starting module must not shrink the reused state") {

@@ -1410,6 +1410,7 @@ TEST_CASE("DropNonUnitaryPass strips non-unitary ops and metadata") {
     REQUIRE(hir.num_observables > 0);
     REQUIRE(hir.num_exp_vals > 0);
     REQUIRE(!hir.noise_sites.empty());
+    hir.forced_traceout_slot = 0;
 
     DropNonUnitaryPass pass;
     pass.run(hir);
@@ -1424,6 +1425,7 @@ TEST_CASE("DropNonUnitaryPass strips non-unitary ops and metadata") {
     CHECK(hir.detector_targets.empty());
     CHECK(hir.observable_targets.empty());
     CHECK(hir.noise_channel_masks.size() == 0);
+    CHECK(!hir.forced_traceout_slot.has_value());
     CHECK(hir.source_map.empty());
 
     for (const auto& op : hir.ops) {

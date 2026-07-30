@@ -92,7 +92,8 @@ void assert_record_probabilities_program_is_supported(const CompiledModule& prog
         if (is_unsupported_record_probabilities_opcode(instr.opcode)) {
             throw std::invalid_argument(
                 "record_probabilities() requires pure-state evolution with measurements: noise, "
-                "feedback-free detectors, observables, and post-selection are not supported. "
+                "transition instruments, feedback-free detectors, observables, and "
+                "post-selection are not supported. "
                 "Forced-measurement opcodes are reserved for the internal rewrite and must not "
                 "appear in user-compiled programs.");
         }

@@ -330,6 +330,15 @@ TEST_CASE("trace: forced_traceout_node on the first reset yields slot == num_vis
     REQUIRE(hir.forced_traceout_slot == 2);
 }
 
+TEST_CASE("trace: forced_traceout_node rejects a multi-target reset") {
+    Circuit circuit;
+    circuit.num_qubits = 2;
+    circuit.nodes.push_back(AstNode{GateType::R, {Target::qubit(0), Target::qubit(1)}, {}, 0});
+    InstrumentTraceOptions options;
+    options.forced_traceout_node = 0;
+    REQUIRE_THROWS_WITH(trace(circuit, &options), ContainsSubstring("single-target reset"));
+}
+
 TEST_CASE("trace: forced_traceout_node unset leaves forced_traceout_slot empty") {
     // No forced_traceout_node set: the output slot stays at its default.
     InstrumentTraceOptions options;

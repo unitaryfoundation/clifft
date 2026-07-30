@@ -1825,6 +1825,12 @@ TEST_CASE("Trace rejects a programmatic inverted READOUT_NOISE target") {
     REQUIRE_THROWS_WITH(trace(c), Catch::Matchers::ContainsSubstring("inverted record targets"));
 }
 
+TEST_CASE("Trace rejects programmatic invalid READOUT_NOISE probabilities") {
+    Circuit c = parse("M 0\n");
+    c.nodes.push_back({GateType::READOUT_NOISE, {Target::rec(0)}, {clifft::test::opaque_nan()}, 0});
+    REQUIRE_THROWS_WITH(trace(c), Catch::Matchers::ContainsSubstring("finite"));
+}
+
 TEST_CASE("Standalone READOUT_NOISE lowers one- and two-argument forms") {
     auto hir1 = trace(parse("M 0\nREADOUT_NOISE(0.25) rec[-1]\n"));
     REQUIRE(hir1.readout_noise.size() == 1);

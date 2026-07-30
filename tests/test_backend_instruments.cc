@@ -226,16 +226,18 @@ TEST_CASE("exact record and basis probabilities reject instrument programs") {
     auto module =
         compile_instruments_raw("LEVEL_TRANSITION[jump] 0\nM 0", source_dependent_jump_options());
     const std::vector<uint8_t> record{0};
-    REQUIRE_THROWS_WITH(record_probabilities(module, record, 1),
-                        ContainsSubstring("record_probabilities()"));
+    REQUIRE_THROWS_WITH(
+        record_probabilities(module, record, 1),
+        ContainsSubstring("record_probabilities()") && ContainsSubstring("transition instruments"));
 
     // basis_probabilities takes measurement-free unitary programs, so its
     // rejection path needs its own instrument program to exercise.
     auto unitary =
         compile_instruments_raw("LEVEL_TRANSITION[jump] 0", source_dependent_jump_options());
     const std::vector<uint64_t> masks{0};
-    REQUIRE_THROWS_WITH(basis_probabilities(unitary, masks, 1, 1),
-                        ContainsSubstring("basis_probabilities()"));
+    REQUIRE_THROWS_WITH(
+        basis_probabilities(unitary, masks, 1, 1),
+        ContainsSubstring("basis_probabilities()") && ContainsSubstring("transition instruments"));
 }
 
 TEST_CASE("fences: prefix compilation is bit-identical across different suffixes") {

@@ -11,6 +11,7 @@ import numpy as np
 import pytest
 from conftest import noncomp_classifier_matrix_with_column, noncomp_transition_matrix
 
+import clifft
 from clifft import noncomp
 
 LEAK_G, LEAK_E, LOST = noncomp.Level.LEAK_G, noncomp.Level.LEAK_E, noncomp.Level.LOST
@@ -67,6 +68,11 @@ def test_non_gate_key_is_a_named_transition():
     assert r.final_status.shape == (8, 1)  # no hook fired; plain sampling ran
 
 
+def test_non_hookable_instruction_key_raises():
+    with pytest.raises(ValueError, match="does not support transition hooks"):
+        noncomp.Model(transitions={"DEPOLARIZE1": transition_to(LEAK_G)})
+
+
 def test_local_annotations_run_end_to_end():
     """Hand-written LOSS and LEVEL_TRANSITION annotations drive the trajectory."""
     model = noncomp.Model(
@@ -82,6 +88,24 @@ def test_local_annotations_run_end_to_end():
     )
     s = noncomp.sample("H 0\nLOSS(1) 0\nM 0", lossy, shots=32, seed=3)
     assert np.all(s.measurements[:, 0] == 0)  # lost slot fixed by the classifier
+
+
+def test_sample_accepts_a_parsed_circuit():
+    circuit = clifft.parse("LOSS(1) 0\nM 0")
+    model = noncomp.Model(classifier=classifier_for(LOST, [1.0, 0.0]))
+    result = noncomp.sample(circuit, model, shots=8, seed=4)
+    assert (result.final_status == LOST_KIND).all()
+    assert (result.measurements == 0).all()
+
+
+def test_gate_hooks_expand_inside_repeat_blocks():
+    circuit = "REPEAT 2 {\nS 0\n}\nM 0"
+    model = noncomp.Model(
+        transitions={"S": transition_to(LOST)},
+        classifier=classifier_for(LOST, [1.0, 0.0]),
+    )
+    result = noncomp.sample(circuit, model, shots=8, seed=5)
+    assert (result.final_status == LOST_KIND).all()
 
 
 def test_transition_wrong_shape_raises():
@@ -694,6 +718,16 @@ def test_mx_inverted_complements_classifier_bit():
     model = noncomp.Model(initial_state=ALL_G, transitions=transitions, classifier=classifier)
     r = noncomp.sample(circuit, model, shots=8, seed=203)
     assert (r.measurements[:, 0] == 0).all()  # inverted: 1 -> 0
+
+
+def test_mry_classifies_and_restores_a_leaked_site():
+    model = noncomp.Model(
+        transitions={"S": transition_to(LEAK_G)},
+        classifier=classifier_for(LEAK_G, [0.0, 1.0]),
+    )
+    result = noncomp.sample("S 0\nMRY 0", model, shots=8, seed=204)
+    assert (result.measurements == 1).all()
+    assert (result.final_status == COMPUTATIONAL).all()
 
 
 def test_capable_model_with_measurement_requires_classifier():

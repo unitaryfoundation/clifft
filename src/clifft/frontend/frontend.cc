@@ -449,6 +449,14 @@ HirModule trace(const Circuit& circuit, const InstrumentTraceOptions* instrument
         throw std::runtime_error("Circuit exceeds 65536-qubit VM axis limit: " +
                                  std::to_string(circuit.num_qubits) + " qubits");
     }
+    if (instruments != nullptr && instruments->forced_traceout_node.has_value()) {
+        const size_t node_index = *instruments->forced_traceout_node;
+        if (node_index >= circuit.nodes.size() || !is_reset(circuit.nodes[node_index].gate) ||
+            circuit.nodes[node_index].targets.size() != 1) {
+            throw std::invalid_argument(
+                "trace: forced_traceout_node must name a single-target reset");
+        }
+    }
 
     HirModule hir(circuit.num_qubits, count_pauli_masks(circuit), count_noise_channels(circuit));
     hir.num_measurements = circuit.num_measurements;
@@ -766,15 +774,10 @@ HirModule trace(const Circuit& circuit, const InstrumentTraceOptions* instrument
                             });
                         meas_op.set_hidden(true);
                         // Report the hidden slot to the caller when this node
-                        // is the one it requested. The slot is reported through
-                        // hir.forced_traceout_slot; the assert guards against a
-                        // multi-target reset being supplied as the request (the
-                        // rewriter only ever names single-target Rs).
+                        // is the single-target reset validated above.
                         if (instruments != nullptr &&
                             instruments->forced_traceout_node.has_value() &&
                             node_index == *instruments->forced_traceout_node) {
-                            assert(!hir.forced_traceout_slot.has_value() &&
-                                   "forced_traceout_node named a multi-target reset");
                             hir.forced_traceout_slot = this_meas;
                         }
                     } else {
@@ -1031,6 +1034,17 @@ HirModule trace(const Circuit& circuit, const InstrumentTraceOptions* instrument
             }
 
             case GateType::READOUT_NOISE: {
+                if (node.args.size() != 1 && node.args.size() != 2) {
+                    throw std::invalid_argument(
+                        "READOUT_NOISE requires one symmetric flip probability or two "
+                        "conditional flip probabilities");
+                }
+                for (const double probability : node.args) {
+                    if (!is_probability(probability)) {
+                        throw std::invalid_argument(
+                            "READOUT_NOISE probabilities must be finite and lie in [0, 1]");
+                    }
+                }
                 for (const auto& target : node.targets) {
                     if (target.is_inverted()) {
                         throw std::runtime_error(

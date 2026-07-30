@@ -1,6 +1,7 @@
 #include "clifft/circuit/parser.h"
 
 #include "clifft/util/config.h"
+#include "clifft/util/numeric.h"
 
 #include <algorithm>
 #include <array>
@@ -352,15 +353,23 @@ class Parser {
                 throw ParseError("LOSS requires exactly 1 argument (the loss probability)",
                                  line_num);
             }
-            if (!(args[0] >= 0.0 && args[0] <= 1.0)) {
-                throw ParseError("LOSS probability must lie in [0, 1]", line_num);
+            if (!is_probability(args[0])) {
+                throw ParseError("LOSS probability must be finite and lie in [0, 1]", line_num);
             }
         }
-        if (gate == GateType::READOUT_NOISE && args.size() != 1 && args.size() != 2) {
-            throw ParseError(
-                "READOUT_NOISE requires 1 argument (symmetric flip probability) or 2 "
-                "arguments (0->1, 1->0 flip probabilities)",
-                line_num);
+        if (gate == GateType::READOUT_NOISE) {
+            if (args.size() != 1 && args.size() != 2) {
+                throw ParseError(
+                    "READOUT_NOISE requires 1 argument (symmetric flip probability) or 2 "
+                    "arguments (0->1, 1->0 flip probabilities)",
+                    line_num);
+            }
+            for (const double probability : args) {
+                if (!is_probability(probability)) {
+                    throw ParseError("READOUT_NOISE probabilities must be finite and lie in [0, 1]",
+                                     line_num);
+                }
+            }
         }
 
         // Parse based on gate type.

@@ -11,12 +11,13 @@
 // LEVEL_TRANSITION tag syntax; policy values are recognized) and throws
 // std::invalid_argument on failure.
 //
-// Transition keys are arbitrary names, stored verbatim; a circuit
-// references any of them by exact key with a LEVEL_TRANSITION[key]
-// annotation. A key that names a hookable physical gate (Stim aliases
-// such as "CNOT" are accepted) additionally registers a gate hook,
-// keyed by GateType so two spellings of one gate cannot register
-// competing hooks.
+// Transition keys may be arbitrary non-gate names or hookable physical
+// gate names. A circuit references either kind by exact key with a
+// LEVEL_TRANSITION[key] annotation. A gate name (Stim aliases such as
+// "CNOT" are accepted) additionally registers a hook, keyed by GateType
+// so two spellings of one gate cannot register competing hooks. Names of
+// recognized but non-hookable instructions are rejected rather than
+// accepted as hooks that silently never fire.
 
 #include "clifft/circuit/gate_data.h"
 #include "clifft/noncomp/classifier.h"
@@ -43,9 +44,9 @@ class NonComputationalModel {
     // std::invalid_argument, naming the offending component, when a
     // matrix is malformed, the initial state is not a probability
     // vector over the five levels, a transition key cannot be
-    // referenced by a LEVEL_TRANSITION tag, two hook-registering keys
-    // resolve to the same gate, or the policy holds an unrecognized
-    // value.
+    // referenced by a LEVEL_TRANSITION tag or names a non-hookable
+    // instruction, two hook-registering keys resolve to the same gate,
+    // or the policy holds an unrecognized value.
     static NonComputationalModel from_spec(
         std::vector<double> initial_state,
         const std::map<std::string, std::vector<std::vector<double>>>& transition_matrices,

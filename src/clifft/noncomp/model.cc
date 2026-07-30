@@ -80,11 +80,11 @@ NonComputationalModel::NonComputationalModel(
                 "' cannot be written as a LEVEL_TRANSITION tag: a key must be nonempty, have no "
                 "leading or trailing whitespace, and contain no ']', '#', or newline");
         }
-        // Only a key naming a hookable physical gate registers a hook. Any
-        // other key -- an arbitrary name, or one naming a non-hookable
-        // instruction such as LOSS or a noise channel -- is a named-only
-        // transition: referenceable from LEVEL_TRANSITION[key], expanded onto
-        // nothing.
+        // Only a key naming a hookable physical gate registers a hook.
+        // Arbitrary names remain available for explicit LEVEL_TRANSITION
+        // annotations. A recognized but non-hookable instruction name is
+        // rejected because accepting it as named-only would look like a hook
+        // that silently never fires.
         const GateType gate = parse_gate_name(name);
         if (gate != GateType::UNKNOWN && is_parser_desugared(gate)) {
             throw std::invalid_argument(
@@ -100,6 +100,13 @@ NonComputationalModel::NonComputationalModel(
                 "' cannot key a gate hook: identity no-ops emit no circuit nodes, so the hook "
                 "could never fire; place LEVEL_TRANSITION[...] annotations at the intended "
                 "positions");
+        }
+        if (gate != GateType::UNKNOWN && !supports_transition(gate)) {
+            throw std::invalid_argument(
+                "NonComputationalModel: transition key '" + name +
+                "' cannot key a gate hook: this instruction does not support transition hooks; "
+                "choose a non-gate transition name and place LEVEL_TRANSITION[...] annotations "
+                "explicitly");
         }
         if (gate != GateType::UNKNOWN && supports_transition(gate)) {
             auto [it, inserted] = hooks_.emplace(gate, name);

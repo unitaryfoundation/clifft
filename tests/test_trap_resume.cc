@@ -122,6 +122,20 @@ TEST_CASE("trap+resume: resume rejects an offset that does not follow the trappe
     REQUIRE(state.meas_record == std::vector<uint8_t>{1});
 }
 
+TEST_CASE("trap+resume: execute rejects a state with a pending trap") {
+    InstrumentTraceOptions options;
+    auto module = compile_instruments_raw("LOSS(1.0) 0\nM 0", options);
+    auto state = make_shot_state(module, /*seed=*/13);
+    execute(module, state);
+    REQUIRE(state.pending_trap.has_value());
+
+    REQUIRE_THROWS_WITH(execute(module, state), ContainsSubstring("pending trap"));
+    REQUIRE(state.pending_trap.has_value());
+
+    resume_past_trap(module, state);
+    REQUIRE(!state.pending_trap.has_value());
+}
+
 TEST_CASE("trap+resume: the continuation's suffix governs the outcome") {
     // Two modules share the trapping prefix bit-for-bit (the barrier
     // contract); their suffixes differ. Resuming the same trapped state
