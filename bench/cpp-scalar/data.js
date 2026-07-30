@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785309399294,
+  "lastUpdate": 1785395715894,
   "repoUrl": "https://github.com/unitaryfoundation/clifft",
   "entries": {
     "C++ Catch2 benchmarks (scalar)": [
@@ -4542,6 +4542,70 @@ window.BENCHMARK_DATA = {
             "name": "exp-val 20q 200 probes x100k",
             "value": 176.257,
             "range": "± 5.59138",
+            "unit": "ms",
+            "extra": "100 samples\n1 iterations"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Brad Chase",
+            "username": "bachase",
+            "email": "14430+bachase@users.noreply.github.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "953ce2a80545e612c30b4dd98e86c10695087ee8",
+          "message": "test: align and simplify unit coverage (#230)\n\nIsolate optimizer passes in tests, remove redundant oracle coverage,\nstrengthen frontend assertions, and organize tests by responsibility.\nAlso export TileAxisFusionPass from the top-level Python package.\n\nAssisted-by: ChatGPT (GPT-5.6 sol) <noreply@openai.com>",
+          "timestamp": "2026-07-29T20:49:43Z",
+          "url": "https://github.com/unitaryfoundation/clifft/commit/953ce2a80545e612c30b4dd98e86c10695087ee8"
+        },
+        "date": 1785395713809,
+        "tool": "catch2",
+        "benches": [
+          {
+            "name": "QV-10 x100 shots",
+            "value": 72.4038,
+            "range": "± 1.68246",
+            "unit": "ms",
+            "extra": "100 samples\n1 iterations"
+          },
+          {
+            "name": "cultivation-d5 x1000 shots",
+            "value": 77.5566,
+            "range": "± 1.7322",
+            "unit": "ms",
+            "extra": "100 samples\n1 iterations"
+          },
+          {
+            "name": "surface-d7-r7 p=1e-3 x10000 shots",
+            "value": 96.3456,
+            "range": "± 949.927",
+            "unit": "ms",
+            "extra": "100 samples\n1 iterations"
+          },
+          {
+            "name": "surface-d5-r5 p=0.05 x10000 shots",
+            "value": 109.901,
+            "range": "± 1.64052",
+            "unit": "ms",
+            "extra": "100 samples\n1 iterations"
+          },
+          {
+            "name": "surface-d11-r11 p=1e-3 x1000 shots",
+            "value": 41.2421,
+            "range": "± 193.286",
+            "unit": "ms",
+            "extra": "100 samples\n1 iterations"
+          },
+          {
+            "name": "exp-val 20q 200 probes x100k",
+            "value": 139.176,
+            "range": "± 1.76786",
             "unit": "ms",
             "extra": "100 samples\n1 iterations"
           }
