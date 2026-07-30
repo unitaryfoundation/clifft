@@ -1,8 +1,8 @@
 # Noncomputational States
 
 !!! warning "Experimental"
-    The leakage/loss API is experimental and may change between minor
-    releases.
+    `clifft.noncomp` is new and actively evolving. Try it and share feedback,
+    but expect its API and supported models to change as use cases develop.
 
 Pauli noise acts within a qubit's two-dimensional computational subspace. Real
 hardware can instead drive the state out of that subspace through *leakage*, or
@@ -60,79 +60,78 @@ $\mathcal H_C$ and $\mathcal H_N$, or between different noncomputational
 levels. The labels `g` and `e` name the computational basis levels used as
 matrix indices. They do not imply that a computational site occupies a
 definite level: its state may be any superposition or entangled state in
-$\mathcal H_C$. The status ledger therefore records one computational status
-rather than separate `g` and `e` occupations. We intentionally do not use
-$\lvert 0 \rangle, \lvert 1 \rangle$ for these level labels to underscore the
-distinction between the status ledger and the quantum state for a site with
-computational status.
+$\mathcal H_C$.
 
-This gives a hybrid state representation. Each trajectory has two components:
-Clifft's ordinary factored quantum state over the computational sites, and a
-classical status ledger over all sites. The ledger entries are computational,
-`leak_g`, `leak_e`, or `lost`. A computational entry leaves the corresponding
-site in the quantum state. A noncomputational entry names one definite level.
-The sections below describe the dynamics and interactions of these states.
+Each trajectory therefore combines Clifft's ordinary factored quantum state
+over the computational sites with a classical status ledger over all sites.
+The ledger records one computational status rather than separate `g` and `e`
+occupations. Its other entries are `leak_g`, `leak_e`, and `lost`, each of
+which names one definite noncomputational level. The model's initial
+distribution is sampled independently for each site. An outcome of `g` or `e`
+prepares the corresponding computational basis state; any other outcome sets
+that definite noncomputational status.
 
-## Model inputs
-
-The user defines a model that determines how sites jump between levels and how
-measurements are classified.
+## Transitions and measurement classification
 
 A transition matrix $T[\mathrm{to}][\mathrm{from}]$ attaches stochastic jumps
-to circuit positions. An entry gives the probability of a jump from one source
-level to one destination level. Diagonal entries are still jump events because
-they project onto their source level. The unused probability in a column is the
-no-jump probability. For computational sources, these probabilities define the
-jump and no-jump Kraus branches described below.
-
-For a computational source $s \in \{g,e\}$, define its total fire
-probability and its computational-destination probabilities by
+to circuit positions. An entry gives the probability of a jump from one
+source level to one destination level. Each source column must sum to at most
+one. For any source $s$, the total jump and no-jump probabilities are
 
 $$
-p_{\mathrm{fire}}(s) = \sum_{\ell} T[\ell][s],
+p_{\mathrm{jump}}(s) = \sum_{\ell} T[\ell][s],
 \qquad
-p_{\mathrm{comp}}(s \mathbin{\to} d) = T[d][s],
-\quad d \in \{g,e\}.
+p_{\mathrm{no\ jump}}(s) = 1 - p_{\mathrm{jump}}(s).
 $$
 
-The unconditional probability of firing into the noncomputational subspace is
-the remainder
-
-$$
-p_N(s)
-= p_{\mathrm{fire}}(s) - T[g][s] - T[e][s]
-= T[\mathrm{leak\_g}][s]
-  + T[\mathrm{leak\_e}][s]
-  + T[\mathrm{lost}][s].
-$$
-
-The no-jump probability from $s$ is $1-p_{\mathrm{fire}}(s)$. A diagonal
-entry $T[s][s]$ is still a jump event that lands back on its source; it is not
-part of the no-jump branch. The matrix entries are branch weights. A jump from
-a computational source acts on the live quantum state, while a jump from a
-noncomputational source can be sampled from its already definite level.
+Every nonzero matrix entry is a distinct jump. A diagonal entry $T[s][s]$
+still projects onto its source level; it is not part of the no-jump branch.
+For a computational source, the column defines a quantum instrument whose
+outcomes update the live state. For a noncomputational source, it defines an
+ordinary classical transition from an already definite level.
 
 A measurement classifier $P[\mathrm{symbol}][\mathrm{level}]$ defines the
-recorded result for each level. It has two binary record symbols and may have
-a third herald symbol, typically for loss. For example, the `leak_g` column
-can assign independent probabilities to records 0 and 1.
+recorded result for each level. It has two record symbols, 0 and 1, and may
+have a third herald symbol. If the site occupies `leak_g` when measured, for
+example, the `leak_g` column gives the probabilities of reporting 0,
+reporting 1, or emitting a herald.
+
+For `M` and `MR` on a computational site, the quantum measurement first
+resolves `g` or `e`; the corresponding classifier column can then model
+computational-basis readout confusion. Computational `MX`, `MY`, `MRX`, and
+`MRY` measurements use their ordinary quantum results without applying the
+`g` or `e` columns. Once a site is noncomputational, the classifier supplies
+the result regardless of measurement basis. The optional herald probability
+may be nonzero only for noncomputational levels.
 
 ## Jump back-action
 
-When a jump leaves $\mathcal H_C$, its Kraus branch selects a computational
-source level and a destination. The source is resolved against the live
-quantum state, not drawn ahead of execution. Clifft realizes this back-action
-as a hidden collapse and removes the site from the coherent state. The hidden
-collapse writes no visible measurement record.
+A jump from a computational source changes the quantum state, even if its
+destination is also computational. For a source $s \in \{g,e\}$ and
+destination $\ell$, the transition-matrix entry corresponds to the jump
+operator
+
+$$
+K_{\ell \leftarrow s}
+=
+\sqrt{T[\ell][s]}\,\lvert \ell\rangle\langle s\rvert.
+$$
+
+Applying this operator resolves the source against the live coherent state
+and projects it onto `g` or `e`. A computational destination prepares the
+corresponding basis state and leaves the site in the coherent simulation. A
+noncomputational destination removes the site from that simulation and records
+its definite level in the status ledger. This hidden collapse writes no
+visible measurement record.
 
 For an entangled site, the same collapse updates its partners. Each trajectory
-keeps the partner state conditioned on the selected jump branch; averaging
+keeps the partner state conditioned on the selected jump outcome; averaging
 over trajectories recovers the correct reduced-state statistics. A Bell-pair
 partner, for example, is maximally mixed in the ensemble after
 source-independent loss of the other half.
 
 When no jump occurs, the state is also updated. If the total jump rates from
-`g` and `e` are $p_g$ and $p_e$, the no-jump branch applies
+`g` and `e` are $p_g$ and $p_e$, the no-jump outcome applies
 
 $$
 K_{\mathrm{stay}}
@@ -142,42 +141,31 @@ K_{\mathrm{stay}}
 \sqrt{1-p_e}\,\lvert e\rangle\langle e\rvert.
 $$
 
-Unequal rates therefore change the surviving coherent state.
+The state is renormalized after conditioning on this outcome. Equal rates
+make $K_{\mathrm{stay}}$ proportional to the identity; unequal rates change
+the surviving coherent state.
 
-A transition
-from one noncomputational level to another is purely classical, as
-is the status update. A transition back to `g` or `e` restores the site to the
-computational state at that basis level.
+A jump from a noncomputational source is a classical status change. A
+destination of `g` or `e` returns the site to the coherent simulation,
+prepared at that computational basis level.
 
-## Operations after a jump
+## After a site becomes noncomputational
 
-Once a site has noncomputational status, later circuit operations follow the
-policy below.
-
-- A unitary gate, ordinary noise channel, or classical correction touching the
-  site is skipped as a whole and has no effect on any operand. Correlated-error
-  instructions (`E`/`CORRELATED_ERROR` and `ELSE_CORRELATED_ERROR`) are
-  retained to preserve chain conditioning; their Paulis still act on
-  computational operands but are inert on the noncomputational site.
-- Measurements use the classifier to determine the measured result and store it in the same record slot reserved for that measurement. Once the site is outside $\mathcal H_C$, the classifier rather than the measurement basis determines the recorded result. For a measure-reset form, the reset half
-  follows the restoration policy below. The current policy rejects multi-qubit
-  parity measurements (`MPP`) because they have no faithful single-bit
-  substitution; a future policy could define other semantics.
-- A reset restores a leaked site. It restores a lost site only when the model
-  enables `reset_restores_lost`. A transition to `g` or `e` can also model
-  relaxation or recapture.
-
-This policy describes the current implementation. Future work may add additional configurable
-semantics, for example by adding partner depolarization
-conditioned on a noncomputational operand or transporting leakage between
-sites.
+Once a site has a definite noncomputational level, it no longer participates
+in coherent evolution. Under the current policy, most operations that touch it
+cannot act, a single-site measurement samples its result from the classifier
+without regard to measurement basis, and a reset or later transition may
+restore it to the computational subspace. The
+[Leakage and Loss guide](../guide/leakage-and-loss.md#what-happens-on-a-leaked-or-lost-site)
+defines the exact behavior for supported circuit operations.
 
 The visible binary result occupies the same record slot as the original
 measurement. Later `rec` references, detectors, observables, and classical
 feedback all consume that substituted bit. When the classifier emits its third
 symbol, a separate herald marks the slot and the binary record receives a
-uniformly drawn placeholder. The herald identifies the readout, not the time or
-location of the underlying jump, so it is not an exact spacetime erasure flag.
+uniformly drawn placeholder. The herald identifies the readout, not the time
+or location of the underlying jump, so it is not an exact spacetime erasure
+flag.
 
 ## How this composes with Clifft
 
@@ -186,18 +174,30 @@ The compiler absorbs deterministic Clifford evolution into an offline frame,
 localizes the remaining Pauli operations, and emits bytecode for the factored
 Schrodinger virtual machine.
 
-For a transition on a computational site, the compiled program carries the
-total jump probability for each computational source and the separate weights
-for `g` and `e` destinations. Their remainder is the combined weight for
-`leak_g`, `leak_e`, and `lost`. The virtual machine handles a computational
-destination directly. For a noncomputational destination, it returns control
-to the trajectory driver, which chooses the specific level from the original
-five-level matrix. Transitions whose source is already noncomputational are
-handled while constructing the trajectory-specific continuation.
+With noncomputational transitions, the sampled history can change which later
+operations act, which measurements use the classifier, and when a site
+returns to the computational subspace. Those choices differ between shots, so
+one program compiled before sampling cannot describe every trajectory.
 
-A noncomputational jump can change which later gates are skipped, which measurements use the classifier, and whether a site returns to the computational state. Those choices depend on the live state and differ between shots, so one model-independent program cannot describe every trajectory. `noncomp.sample` therefore interleaves execution with compilation of trajectory-specific continuations. A continuation is the circuit rewritten and compiled for the noncomputational events observed so far and the resulting status ledger. Its prefix matches the program already executed, while its remaining operations reflect the updated trajectory.
+`noncomp.sample` instead alternates execution with compilation when the
+sampled history requires it. The VM directly handles outcomes whose state
+update leaves the remaining program valid. When an outcome invalidates the
+compiled remainder -- for example, when a computational site becomes
+noncomputational -- the VM stops at that transition and returns control to the
+trajectory driver. The driver samples any destination the VM did not already
+select, records the outcome, updates the status ledger, rewrites the original
+circuit, and compiles a continuation. The continuation preserves the prefix
+already executed, changes the remaining operations to match the new
+trajectory, and resumes after the transition. Jumps whose source is already
+noncomputational are sampled as classical status changes while this
+continuation is constructed.
 
-Execution continues through events that can be handled inline. When a fire requires different downstream semantics, the driver traps, records the event, compiles the matching continuation, and resumes after the trapped site. The common all-computational starting program is reused across shots. Other continuations live only for the current shot, so retained programs do not grow with the number of observed event histories.
+The compiled transition instruction holds only the source-dependent total
+jump rates, the separate weights for `g` and `e` destinations, and one
+combined weight for all noncomputational destinations. This is enough for the
+VM to evaluate the live computational state using local array axes. The
+trajectory driver retains the original five-level matrix so that it can
+resolve the combined noncomputational outcome outside the VM.
 
 Each continuation still uses Clifft's normal compiler and SVM architecture.
 Clifford operations are absorbed ahead of time, Pauli products are localized
@@ -213,11 +213,13 @@ source is determined entirely from the Clifford and Pauli frames.
 
 The exceptional case is a coherent dormant site with source-dependent total
 jump rates, $p_g \neq p_e$. The $K_{\mathrm{stay}}$ operator above is then not
-proportional to the identity, and is non-Clifford. Exact simulation must promote the site from dormant to active.
+proportional to the identity, and is non-Clifford. Exact simulation must
+promote the site from dormant to active.
 
 If this occurs frequently, it can increase the peak active dimension $k$, the
 dominant scaling quantity for Clifft's runtime. Users can instead choose
 `damping="neglect"`, which omits the no-jump back-action. This is exact when
-$p_g=p_e$ (since it is proportional to the identity in this case), and otherwise introduces a survivorship tilt of order
-$\lvert p_g-p_e\rvert$ per position. Under this policy, these transition
-positions do not increase $k$.
+$p_g = p_e$, when the operator is proportional to the identity. Otherwise it
+changes the conditioned no-jump state by order $\lvert p_g-p_e\rvert$ at each
+transition position. Under this policy, these transition positions do not
+increase $k$.
