@@ -3,6 +3,7 @@
 Clifft's Schrödinger Virtual Machine (SVM) executes compiled programs. The main simulation APIs are:
 
 - `sample()` for ordinary shot-based sampling
+- [`noncomp.sample()`](leakage-and-loss.md) for leakage and loss trajectories
 - `sample_survivors()` for post-selected sampling
 - `basis_probabilities()` for exact computational-basis probabilities of a unitary program
 - `record_probabilities()` for exact joint probabilities of measurement records

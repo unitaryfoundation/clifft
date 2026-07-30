@@ -78,6 +78,12 @@ print(result.measurements[:5])  # First 5 shots.
 
     For circuits with bounded active dimension, memory and runtime scale with the localized active state rather than the full qubit count.
 
+- **Leakage and Loss Trajectories (Experimental)**
+
+    Sample five-level leakage and loss models with state-dependent transitions,
+    measurement classification, and back-action on the computational state.
+    See the [Leakage and Loss guide](guide/leakage-and-loss.md).
+
 </div>
 
 For QEC workflows, Clifft also supports detector-based post-selection, survivor sampling, and stratified importance sampling for rare-event estimation.
