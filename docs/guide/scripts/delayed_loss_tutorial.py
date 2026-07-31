@@ -25,7 +25,7 @@ from numpy.typing import NDArray
 from clifft import noncomp
 
 DISTANCE = 3
-ROUNDS = 4
+ROUNDS = 3
 DATA_QUBIT = 10
 FORCED_SHOTS = 20_000
 STOCHASTIC_SHOTS = 10_000
@@ -101,7 +101,7 @@ def plot_detector_activity(
     figure, axes = plt.subplots(
         len(histories),
         len(times),
-        figsize=(12, 4.8),
+        figsize=(10, 4.8),
         sharex=True,
         sharey=True,
         constrained_layout=True,

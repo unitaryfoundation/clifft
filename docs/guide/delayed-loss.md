@@ -46,7 +46,7 @@ import stim
 from clifft import noncomp
 
 distance = 3
-rounds = 4
+rounds = 3
 data_qubit = 10
 
 base = stim.Circuit.generated(
@@ -66,6 +66,10 @@ Output:
 
 Qubit 10 is the central data site. It participates in four `CX` interactions
 per syndrome-extraction round and is not measured until the final data readout.
+With three extraction rounds, Stim reports four detector slices, numbered 0
+through 3: an initial syndrome, two later syndrome comparisons, and the final
+data readout. These correspond to the four stages in the paper's example, with
+Stim's time coordinate starting at zero.
 
 ## Select two possible loss times
 
@@ -148,19 +152,20 @@ print(np.flatnonzero(late.heralds.any(axis=0)))
 Output:
 
 ```text
-[36]
-[36]
+[28]
+[28]
 ```
 
-The first four rounds each measure eight syndrome qubits, occupying
-measurement slots 0 through 31. Qubit 10 is the fifth data qubit in the final
-measurement, so both histories herald slot 36. From the readout alone, the two
+The three rounds each measure eight syndrome qubits, occupying measurement
+slots 0 through 23. Qubit 10 is the fifth data qubit in the final measurement,
+so both histories herald slot 28. From the readout alone, the two
 losses are indistinguishable.
 
 Their detector records are not. The following summary counts detector
-locations with activation probability above 25%. A deterministic loss
-produces probabilities near 50% at affected detectors because the lost
-measurement contributes a random placeholder bit.
+locations with activation probability above 25%. Cancelled `CX` interactions
+change later stabilizer measurements, so detector comparisons that depend on
+them activate with probabilities near 50%. At the final time slice, two
+detectors also include the random placeholder for the heralded data readout.
 
 ```python
 coordinates = base.get_detector_coordinates()
@@ -198,13 +203,13 @@ time  round-2 loss  round-3 loss
    0   0/4            0/4
    1   3/8            0/8
    2   4/8            3/8
-   3   4/8            4/8
-   4   2/4            2/4
+   3   2/4            2/4
 ```
 
 The round-2 loss changes detectors one time slice earlier. By the final
 readout, both histories have the same loss herald and activate the same two
-boundary detectors.
+final-round detectors. This shared final signature is analogous to $D_3$ in
+Figure 8; the paper's decoder incorporates it into the lifecycle hypergraph.
 
 ## Plot the detector histories
 
@@ -222,7 +227,7 @@ times = sorted({int(coord[2]) for coord in coordinates.values()})
 figure, axes = plt.subplots(
     len(histories),
     len(times),
-    figsize=(12, 4.8),
+    figsize=(10, 4.8),
     sharex=True,
     sharey=True,
     constrained_layout=True,
@@ -320,9 +325,9 @@ Output:
 
 ```text
 per-operand loss probability: 0.0010005
-shots with detected loss: 17.1%
-shots ending with a lost data site: 8.9%
-detector activation in heralded shots: 7.6%
+shots with detected loss: 13.0%
+shots ending with a lost data site: 6.6%
+detector activation in heralded shots: 8.1%
 ```
 
 The `CX` key is a gate hook, so Clifft evaluates the transition independently
