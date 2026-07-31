@@ -936,8 +936,8 @@ NB_MODULE(_clifft_core, m) {
                 expected_observables = std::move(ref.observables);
             }
 
-            auto program =
-                clifft::lower(hir, postselection_mask, expected_detectors, expected_observables);
+            auto program = clifft::lower(std::move(hir), postselection_mask, expected_detectors,
+                                         expected_observables);
             if (bytecode_passes)
                 bytecode_passes->run(program);
             return program;
