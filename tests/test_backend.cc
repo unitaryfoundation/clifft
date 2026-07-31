@@ -1561,3 +1561,41 @@ TEST_CASE("Lower: queued virtual gates affect later noise masks") {
     CHECK(cv.z() == Z(0));
     CHECK_THAT(ch.prob, Catch::Matchers::WithinAbs(0.25, 1e-12));
 }
+
+TEST_CASE("Lower: consuming overload maps noise masks in place") {
+    HirModule hir(1, /*pauli_capacity=*/16, /*noise_channel_capacity=*/2);
+
+    NoiseSite site;
+    // Leave slot zero unused so the consuming path must preserve the HIR handle.
+    clifft::test::claim_noise_channel_mask(hir, 0, 0);
+    site.channels.push_back({clifft::test::claim_noise_channel_mask(hir, X(0), 0), 0.25});
+    hir.noise_sites.push_back(site);
+
+    // The pending H maps X to Z. This specifically checks that an aliased
+    // input slot is copied before the output slot is cleared.
+    clifft::test::append_tgate(hir, X(0), 0, false);
+    hir.append_noise(NoiseSiteIdx{0});
+
+    auto expected = lower(hir);
+    auto actual = lower(std::move(hir));
+
+    CHECK(actual.constant_pool.noise_channel_masks.size() == 2);
+
+    const auto expected_handle = expected.constant_pool.noise_sites[0].channels[0].mask;
+    const auto actual_handle = actual.constant_pool.noise_sites[0].channels[0].mask;
+    const auto expected_mask = expected.constant_pool.noise_channel_masks.at(expected_handle);
+    const auto actual_mask = actual.constant_pool.noise_channel_masks.at(actual_handle);
+    CHECK(actual_mask.x() == expected_mask.x());
+    CHECK(actual_mask.z() == expected_mask.z());
+    CHECK(actual_mask.sign() == expected_mask.sign());
+}
+
+TEST_CASE("Lower: consuming overload restores width after noise removal") {
+    auto hir = clifft::trace(parse("X_ERROR(0.1) 0"));
+    RemoveNoisePass strip;
+    strip.run(hir);
+
+    auto actual = lower(std::move(hir));
+
+    CHECK(actual.constant_pool.noise_channel_masks.num_words() == 1);
+}

@@ -652,9 +652,13 @@ std::complex<double> frame_composition_phase(stim::Tableau<kStimWidth> composed,
 // lower(): Full pipeline wiring
 // =========================================================================
 
-CompiledModule lower(const HirModule& hir, std::span<const uint8_t> postselection_mask,
-                     std::span<const uint8_t> expected_detectors,
-                     std::span<const uint8_t> expected_observables) {
+namespace {
+
+CompiledModule lower_impl(const HirModule& hir,
+                          std::optional<PauliMaskArena> reusable_noise_channel_masks,
+                          std::span<const uint8_t> postselection_mask,
+                          std::span<const uint8_t> expected_detectors,
+                          std::span<const uint8_t> expected_observables) {
     using internal::CompilerContext;
     using internal::localize_pauli;
     using internal::LocalizedBasis;
@@ -687,7 +691,14 @@ CompiledModule lower(const HirModule& hir, std::span<const uint8_t> postselectio
         num_noise_channels += site.channels.size();
     ctx.constant_pool.pauli_masks = PauliMaskArena(n, num_apply_paulis);
     ctx.constant_pool.exp_val_masks = PauliMaskArena(n, num_exp_val_masks);
-    ctx.constant_pool.noise_channel_masks = PauliMaskArena(n, num_noise_channels);
+    const bool reuse_noise_masks = reusable_noise_channel_masks.has_value();
+    if (reuse_noise_masks) {
+        ctx.constant_pool.noise_channel_masks = std::move(*reusable_noise_channel_masks);
+    } else {
+        ctx.constant_pool.noise_channel_masks = PauliMaskArena(n, num_noise_channels);
+    }
+    const PauliMaskArena& source_noise_channel_masks =
+        reuse_noise_masks ? ctx.constant_pool.noise_channel_masks : hir.noise_channel_masks;
     ctx.constant_pool.instrument_destination_flip_masks =
         PauliMaskArena(n, hir.instrument_sites.size());
     size_t next_cp_pauli = 0;
@@ -857,8 +868,9 @@ CompiledModule lower(const HirModule& hir, std::span<const uint8_t> postselectio
 
                 NoiseSite mapped_site;
                 for (const auto& ch : hir_site.channels) {
-                    auto in_view = hir.noise_channel_masks.at(ch.mask);
-                    auto out_handle = static_cast<PauliMaskHandle>(next_cp_noise++);
+                    auto in_view = source_noise_channel_masks.at(ch.mask);
+                    auto out_handle =
+                        reuse_noise_masks ? ch.mask : static_cast<PauliMaskHandle>(next_cp_noise++);
                     auto out_slot = ctx.constant_pool.noise_channel_masks.mut_at(out_handle);
                     ctx.virtual_frame.map_noise_channel(in_view.x(), in_view.z(), out_slot.x(),
                                                         out_slot.z(), n);
@@ -1110,6 +1122,29 @@ CompiledModule lower(const HirModule& hir, std::span<const uint8_t> postselectio
     rebuild_instrument_offsets(result);
 
     return result;
+}
+
+}  // namespace
+
+CompiledModule lower(const HirModule& hir, std::span<const uint8_t> postselection_mask,
+                     std::span<const uint8_t> expected_detectors,
+                     std::span<const uint8_t> expected_observables) {
+    return lower_impl(hir, std::nullopt, postselection_mask, expected_detectors,
+                      expected_observables);
+}
+
+CompiledModule lower(HirModule&& hir, std::span<const uint8_t> postselection_mask,
+                     std::span<const uint8_t> expected_detectors,
+                     std::span<const uint8_t> expected_observables) {
+    // Noise-removing passes release the arena as a zero-width empty object.
+    // Rebuild the correctly sized empty pool when there is nothing to reuse.
+    if (hir.noise_channel_masks.num_words() != (hir.num_qubits + 63) / 64) {
+        return lower_impl(hir, std::nullopt, postselection_mask, expected_detectors,
+                          expected_observables);
+    }
+    auto noise_channel_masks = std::move(hir.noise_channel_masks);
+    return lower_impl(hir, std::move(noise_channel_masks), postselection_mask, expected_detectors,
+                      expected_observables);
 }
 
 void rebuild_instrument_offsets(CompiledModule& module) {
