@@ -5,6 +5,38 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.7.0] - 2026-07-31
+
+Clifft 0.7.0 adds experimental simulation of leakage and loss through the new
+`clifft.noncomp` Python API. It samples trajectories across two computational
+levels, two leaked levels, and loss, with state-dependent transitions,
+state-selective measurement, and back-action on the computational state.
+Transitions can be attached to gates or placed explicitly in the circuit, and
+results include measurement records, detector and observable values, heralds,
+and final per-qubit status.
+
+The [Leakage and Loss guide](https://unitaryfoundation.github.io/clifft/guide/leakage-and-loss/)
+introduces the model and API. The [Delayed Loss tutorial](https://unitaryfoundation.github.io/clifft/guide/delayed-loss/)
+applies it to a surface-code memory experiment, where losses of the same data
+qubit at different times produce the same final herald but different detector
+histories.
+
+### CI
+
+- pin NumPy for mypy hook (#221) by @bachase in [#221](https://github.com/unitaryfoundation/clifft/pull/221)
+
+### Documentation
+
+- add delayed-loss surface-code tutorial (#233) by @bachase in [#233](https://github.com/unitaryfoundation/clifft/pull/233)
+
+### Features
+
+- add leakage and loss simulation (#231) by @bachase in [#231](https://github.com/unitaryfoundation/clifft/pull/231)
+
+### Testing
+
+- align and simplify unit coverage (#230) by @bachase in [#230](https://github.com/unitaryfoundation/clifft/pull/230)
+
 ## [0.6.0] - 2026-07-14
 
 Clifft 0.6.0 adds Stim-compatible correlated Pauli noise chains through
