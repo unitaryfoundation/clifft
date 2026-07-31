@@ -25,6 +25,8 @@ restored. One program compiled before sampling cannot describe every shot, so
 
 This page is the API walkthrough. The model and its simulation semantics
 are described in [Noncomputational States](../theory/noncomputational.md).
+The [Delayed Loss tutorial](delayed-loss.md) applies the API to a
+surface-code memory experiment.
 
 ## A model and its outputs
 
