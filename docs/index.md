@@ -96,8 +96,17 @@ For QEC workflows, Clifft also supports detector-based post-selection, survivor 
 
 [Use Qiskit or Cirq](getting-started/integrations.md){ .md-button }
 
-## What's New in 0.6.0
+## What's New in 0.7.0
 
-Clifft 0.6.0 adds Stim-compatible correlated Pauli noise chains through `CORRELATED_ERROR` / `E` and `ELSE_CORRELATED_ERROR`. A new [front-end integrations guide](getting-started/integrations.md) also shows how to run supported Qiskit and Cirq circuits with the separately maintained `clifft-qiskit` and `clifft-cirq` companion packages.
+Clifft 0.7.0 adds experimental simulation of leakage and loss through the new
+`clifft.noncomp` Python API. Define state-dependent transitions among two
+computational levels, two leaked levels, and loss; attach them to gates or
+explicit circuit instructions; and sample measurement, detector, observable,
+herald, and final-status data while accounting for quantum back-action.
+
+The [Leakage and Loss guide](guide/leakage-and-loss.md) introduces the model
+and API. The [Delayed Loss tutorial](guide/delayed-loss.md) follows data-qubit
+loss through a surface-code memory experiment and shows why the time of a loss
+matters even when the final herald is the same.
 
 [Full Changelog](https://github.com/unitaryfoundation/clifft/blob/main/CHANGELOG.md){ .md-button }
