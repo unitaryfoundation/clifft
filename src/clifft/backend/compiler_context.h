@@ -204,7 +204,8 @@ class VirtualFrame {
 
     /// Map a noise channel's (X, Z) masks through the current virtual frame
     /// and write the result into `out_x` and `out_z`. Sign is unused for
-    /// noise channels.
+    /// noise channels. Inputs may alias outputs; both inputs are copied before
+    /// either output is cleared.
     void map_noise_channel(MaskView in_x, MaskView in_z, MutableMaskView out_x,
                            MutableMaskView out_z, uint32_t n) {
         // Flush eagerly here. A noise op typically maps several channels
