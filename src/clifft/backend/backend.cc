@@ -654,6 +654,30 @@ std::complex<double> frame_composition_phase(stim::Tableau<kStimWidth> composed,
 
 namespace {
 
+size_t validate_reusable_noise_channel_masks(const HirModule& hir) {
+    std::vector<bool> seen(hir.noise_channel_masks.size());
+    size_t count = 0;
+    for (const auto& op : hir.ops) {
+        if (op.op_type() != OpType::NOISE)
+            continue;
+        const auto site_idx = static_cast<size_t>(op.noise_site_idx());
+        if (site_idx >= hir.noise_sites.size())
+            throw std::runtime_error("noise site index out of bounds during consuming lowering");
+        for (const auto& channel : hir.noise_sites[site_idx].channels) {
+            const auto handle = static_cast<size_t>(channel.mask);
+            if (handle >= seen.size())
+                throw std::runtime_error(
+                    "noise channel mask handle out of bounds during consuming lowering");
+            if (seen[handle])
+                throw std::runtime_error(
+                    "duplicate noise channel mask handle during consuming lowering");
+            seen[handle] = true;
+            ++count;
+        }
+    }
+    return count;
+}
+
 CompiledModule lower_impl(const HirModule& hir,
                           std::optional<PauliMaskArena> reusable_noise_channel_masks,
                           std::span<const uint8_t> postselection_mask,
@@ -1137,8 +1161,10 @@ CompiledModule lower(HirModule&& hir, std::span<const uint8_t> postselection_mas
                      std::span<const uint8_t> expected_detectors,
                      std::span<const uint8_t> expected_observables) {
     // Noise-removing passes release the arena as a zero-width empty object.
-    // Rebuild the correctly sized empty pool when there is nothing to reuse.
-    if (hir.noise_channel_masks.num_words() != (hir.num_qubits + 63) / 64) {
+    // Overallocated frontend arenas are also copied into a compact pool.
+    const size_t actual_channel_count = validate_reusable_noise_channel_masks(hir);
+    if (hir.noise_channel_masks.num_words() != (hir.num_qubits + 63) / 64 ||
+        hir.noise_channel_masks.size() != actual_channel_count) {
         return lower_impl(hir, std::nullopt, postselection_mask, expected_detectors,
                           expected_observables);
     }

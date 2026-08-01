@@ -1563,11 +1563,9 @@ TEST_CASE("Lower: queued virtual gates affect later noise masks") {
 }
 
 TEST_CASE("Lower: consuming overload maps noise masks in place") {
-    HirModule hir(1, /*pauli_capacity=*/16, /*noise_channel_capacity=*/2);
+    HirModule hir(1, /*pauli_capacity=*/16, /*noise_channel_capacity=*/1);
 
     NoiseSite site;
-    // Leave slot zero unused so the consuming path must preserve the HIR handle.
-    clifft::test::claim_noise_channel_mask(hir, 0, 0);
     site.channels.push_back({clifft::test::claim_noise_channel_mask(hir, X(0), 0), 0.25});
     hir.noise_sites.push_back(site);
 
@@ -1579,7 +1577,7 @@ TEST_CASE("Lower: consuming overload maps noise masks in place") {
     auto expected = lower(hir);
     auto actual = lower(std::move(hir));
 
-    CHECK(actual.constant_pool.noise_channel_masks.size() == 2);
+    CHECK(actual.constant_pool.noise_channel_masks.size() == 1);
 
     const auto expected_handle = expected.constant_pool.noise_sites[0].channels[0].mask;
     const auto actual_handle = actual.constant_pool.noise_sites[0].channels[0].mask;
@@ -1588,6 +1586,37 @@ TEST_CASE("Lower: consuming overload maps noise masks in place") {
     CHECK(actual_mask.x() == expected_mask.x());
     CHECK(actual_mask.z() == expected_mask.z());
     CHECK(actual_mask.sign() == expected_mask.sign());
+}
+
+TEST_CASE("Lower: consuming overload compacts overallocated noise arena") {
+    auto hir = clifft::trace(parse("PAULI_CHANNEL_1(0, 0.25, 0) 0"));
+    REQUIRE(hir.noise_channel_masks.size() == 3);
+
+    auto actual = lower(std::move(hir));
+
+    CHECK(actual.constant_pool.noise_channel_masks.size() == 1);
+}
+
+TEST_CASE("Lower: consuming overload rejects out of bounds noise handles") {
+    HirModule hir(1, /*pauli_capacity=*/0, /*noise_channel_capacity=*/1);
+    NoiseSite site;
+    site.channels.push_back({PauliMaskHandle{1}, 0.25});
+    hir.noise_sites.push_back(site);
+    hir.append_noise(NoiseSiteIdx{0});
+
+    CHECK_THROWS_AS(lower(std::move(hir)), std::runtime_error);
+}
+
+TEST_CASE("Lower: consuming overload rejects duplicate noise handles") {
+    HirModule hir(1, /*pauli_capacity=*/0, /*noise_channel_capacity=*/1);
+    const auto handle = clifft::test::claim_noise_channel_mask(hir, X(0), 0);
+    NoiseSite site;
+    site.channels.push_back({handle, 0.1});
+    site.channels.push_back({handle, 0.2});
+    hir.noise_sites.push_back(site);
+    hir.append_noise(NoiseSiteIdx{0});
+
+    CHECK_THROWS_AS(lower(std::move(hir)), std::runtime_error);
 }
 
 TEST_CASE("Lower: consuming overload restores width after noise removal") {
