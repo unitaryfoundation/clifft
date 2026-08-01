@@ -1563,29 +1563,40 @@ TEST_CASE("Lower: queued virtual gates affect later noise masks") {
 }
 
 TEST_CASE("Lower: consuming overload maps noise masks in place") {
-    HirModule hir(1, /*pauli_capacity=*/16, /*noise_channel_capacity=*/1);
+    HirModule hir(1, /*pauli_capacity=*/16, /*noise_channel_capacity=*/2);
 
     NoiseSite site;
-    site.channels.push_back({clifft::test::claim_noise_channel_mask(hir, X(0), 0), 0.25});
+    const auto x_handle = clifft::test::claim_noise_channel_mask(hir, X(0), 0);
+    const auto z_handle = clifft::test::claim_noise_channel_mask(hir, 0, Z(0));
+    // Reverse handle order so preserving the HIR handles distinguishes the
+    // consuming reuse path from the compact allocating path.
+    site.channels.push_back({z_handle, 0.25});
+    site.channels.push_back({x_handle, 0.5});
     hir.noise_sites.push_back(site);
 
-    // The pending H maps X to Z. This specifically checks that an aliased
-    // input slot is copied before the output slot is cleared.
+    // The pending H swaps X and Z. This specifically checks that each aliased
+    // input slot is copied before its output slot is cleared.
     clifft::test::append_tgate(hir, X(0), 0, false);
     hir.append_noise(NoiseSiteIdx{0});
 
     auto expected = lower(hir);
     auto actual = lower(std::move(hir));
 
-    CHECK(actual.constant_pool.noise_channel_masks.size() == 1);
+    REQUIRE(expected.constant_pool.noise_sites[0].channels.size() == 2);
+    REQUIRE(actual.constant_pool.noise_sites[0].channels.size() == 2);
+    CHECK(actual.constant_pool.noise_channel_masks.size() == 2);
+    CHECK(actual.constant_pool.noise_sites[0].channels[0].mask == z_handle);
+    CHECK(actual.constant_pool.noise_sites[0].channels[1].mask == x_handle);
 
-    const auto expected_handle = expected.constant_pool.noise_sites[0].channels[0].mask;
-    const auto actual_handle = actual.constant_pool.noise_sites[0].channels[0].mask;
-    const auto expected_mask = expected.constant_pool.noise_channel_masks.at(expected_handle);
-    const auto actual_mask = actual.constant_pool.noise_channel_masks.at(actual_handle);
-    CHECK(actual_mask.x() == expected_mask.x());
-    CHECK(actual_mask.z() == expected_mask.z());
-    CHECK(actual_mask.sign() == expected_mask.sign());
+    for (size_t i = 0; i < 2; ++i) {
+        const auto expected_handle = expected.constant_pool.noise_sites[0].channels[i].mask;
+        const auto actual_handle = actual.constant_pool.noise_sites[0].channels[i].mask;
+        const auto expected_mask = expected.constant_pool.noise_channel_masks.at(expected_handle);
+        const auto actual_mask = actual.constant_pool.noise_channel_masks.at(actual_handle);
+        CHECK(actual_mask.x() == expected_mask.x());
+        CHECK(actual_mask.z() == expected_mask.z());
+        CHECK(actual_mask.sign() == expected_mask.sign());
+    }
 }
 
 TEST_CASE("Lower: consuming overload compacts overallocated noise arena") {
