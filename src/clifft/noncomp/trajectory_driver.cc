@@ -396,39 +396,41 @@ CompiledContinuation compile_continuation(ContinuationRewrite rewrite,
         }
     }
 
-    // When the rewrite names a forced trace-out node, ask trace() to report
-    // the hidden slot it assigns to that reset.
-    HirModule hir = [&]() -> HirModule {
-        if (rewrite.forced_traceout_node.has_value()) {
-            InstrumentTraceOptions opts = instrument_options;
-            opts.forced_traceout_node = rewrite.forced_traceout_node;
-            return trace(patched, &opts);
-        }
-        return trace(patched, &instrument_options);
-    }();
-
     std::optional<size_t> forced_traceout_slot;
-    if (rewrite.forced_traceout_node.has_value()) {
-        if (!hir.forced_traceout_slot.has_value()) {
-            throw std::logic_error(
-                "sample_noncomputational: trace() did not encounter the forced "
-                "trace-out reset at node " +
-                std::to_string(*rewrite.forced_traceout_node) +
-                "; the rewrite and trace() must walk the same stream");
+    CompiledModule module = [&]() {
+        // When the rewrite names a forced trace-out node, ask trace() to report
+        // the hidden slot it assigns to that reset.
+        std::optional<InstrumentTraceOptions> forced_trace_options;
+        const InstrumentTraceOptions* trace_options = &instrument_options;
+        if (rewrite.forced_traceout_node.has_value()) {
+            forced_trace_options = instrument_options;
+            forced_trace_options->forced_traceout_node = rewrite.forced_traceout_node;
+            trace_options = &*forced_trace_options;
         }
-        forced_traceout_slot = hir.forced_traceout_slot;
-    }
+        HirModule hir = trace(patched, trace_options);
+
+        if (rewrite.forced_traceout_node.has_value()) {
+            if (!hir.forced_traceout_slot.has_value()) {
+                throw std::logic_error(
+                    "sample_noncomputational: trace() did not encounter the forced "
+                    "trace-out reset at node " +
+                    std::to_string(*rewrite.forced_traceout_node) +
+                    "; the rewrite and trace() must walk the same stream");
+            }
+            forced_traceout_slot = hir.forced_traceout_slot;
+        }
 
 #ifndef NDEBUG
-    const std::vector<uint32_t> pre_pass_records = record_sequence(hir);
+        const std::vector<uint32_t> pre_pass_records = record_sequence(hir);
 #endif
-    trajectory_hir_pass_manager().run(hir);
+        trajectory_hir_pass_manager().run(hir);
 #ifndef NDEBUG
-    assert(record_sequence(hir) == pre_pass_records &&
-           "a trajectory-pipeline HIR pass reordered or removed a record op");
+        assert(record_sequence(hir) == pre_pass_records &&
+               "a trajectory-pipeline HIR pass reordered or removed a record op");
 #endif
 
-    CompiledModule module = lower(std::move(hir));
+        return lower(std::move(hir));
+    }();
     trajectory_bytecode_pass_manager().run(module);
     check_max_rank(module, max_rank);
     if (module.instrument_offsets.size() != rewrite.site_targets.size()) {
