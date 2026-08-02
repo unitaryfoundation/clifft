@@ -921,23 +921,25 @@ NB_MODULE(_clifft_core, m) {
            bool normalize_syndromes, clifft::HirPassManager* hir_passes,
            clifft::BytecodePassManager* bytecode_passes) {
             nb::gil_scoped_release release;
-            clifft::Circuit circuit = clifft::parse(stim_text);
-            clifft::HirModule hir = clifft::trace(circuit);
-            if (hir_passes)
-                hir_passes->run(hir);
+            auto program = [&]() {
+                clifft::Circuit circuit = clifft::parse(stim_text);
+                clifft::HirModule hir = clifft::trace(circuit);
+                if (hir_passes)
+                    hir_passes->run(hir);
 
-            if (normalize_syndromes) {
-                if (!expected_detectors.empty() || !expected_observables.empty()) {
-                    throw std::invalid_argument(
-                        "Cannot provide expected parities when normalize_syndromes=True");
+                if (normalize_syndromes) {
+                    if (!expected_detectors.empty() || !expected_observables.empty()) {
+                        throw std::invalid_argument(
+                            "Cannot provide expected parities when normalize_syndromes=True");
+                    }
+                    auto ref = clifft::compute_reference_syndrome(hir);
+                    expected_detectors = std::move(ref.detectors);
+                    expected_observables = std::move(ref.observables);
                 }
-                auto ref = clifft::compute_reference_syndrome(hir);
-                expected_detectors = std::move(ref.detectors);
-                expected_observables = std::move(ref.observables);
-            }
 
-            auto program = clifft::lower(std::move(hir), postselection_mask, expected_detectors,
-                                         expected_observables);
+                return clifft::lower(std::move(hir), postselection_mask, expected_detectors,
+                                     expected_observables);
+            }();
             if (bytecode_passes)
                 bytecode_passes->run(program);
             return program;
