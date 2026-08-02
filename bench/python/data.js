@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785568564773,
+  "lastUpdate": 1785654994042,
   "repoUrl": "https://github.com/unitaryfoundation/clifft",
   "entries": {
     "Python pytest-benchmark suite": [
@@ -7983,6 +7983,126 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.037432518535613406",
             "extra": "mean: 1.576032318800003 sec\nrounds: 5"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Brad Chase",
+            "username": "bachase",
+            "email": "14430+bachase@users.noreply.github.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "27085d10a6822a00eb0bbae9ac708ec13dd4de27",
+          "message": "docs: prepare v0.7.0 release (#235)",
+          "timestamp": "2026-07-31T15:10:55Z",
+          "url": "https://github.com/unitaryfoundation/clifft/commit/27085d10a6822a00eb0bbae9ac708ec13dd4de27"
+        },
+        "date": 1785654992013,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "tools/bench/test_bench_deep_clifford.py::test_compile_stim_deep",
+            "value": 1434.2784573032684,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0000124691946944889",
+            "extra": "mean: 697.2146830401406 usec\nrounds: 1079"
+          },
+          {
+            "name": "tools/bench/test_bench_deep_clifford.py::test_compile_clifft_deep",
+            "value": 544.7822985664782,
+            "unit": "iter/sec",
+            "range": "stddev: 0.000020154922271858707",
+            "extra": "mean: 1.8355956179768809 msec\nrounds: 445"
+          },
+          {
+            "name": "tools/bench/test_bench_deep_clifford.py::test_sample_stim_deep",
+            "value": 57.63420138538275,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0004207513777177331",
+            "extra": "mean: 17.350808651156587 msec\nrounds: 43"
+          },
+          {
+            "name": "tools/bench/test_bench_deep_clifford.py::test_sample_clifft_deep",
+            "value": 0.9214000629065288,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0006168541529450504",
+            "extra": "mean: 1.085304896599996 sec\nrounds: 5"
+          },
+          {
+            "name": "tools/bench/test_bench_noncomp.py::test_bench_noncomp_plain[d17-r5]",
+            "value": 170.3809702978491,
+            "unit": "iter/sec",
+            "range": "stddev: 0.00011922788657788199",
+            "extra": "mean: 5.86920005357326 msec\nrounds: 168"
+          },
+          {
+            "name": "tools/bench/test_bench_noncomp.py::test_bench_noncomp_lossless[d17-r5]",
+            "value": 266.67902912996624,
+            "unit": "iter/sec",
+            "range": "stddev: 0.00008003208819050864",
+            "extra": "mean: 3.749826160918897 msec\nrounds: 261"
+          },
+          {
+            "name": "tools/bench/test_bench_noncomp.py::test_bench_noncomp_leak[d17-r5]",
+            "value": 17.03152357886422,
+            "unit": "iter/sec",
+            "range": "stddev: 0.00013567331220099292",
+            "extra": "mean: 58.71465317647682 msec\nrounds: 17"
+          },
+          {
+            "name": "tools/bench/test_bench_qec.py::test_compile_stim",
+            "value": 17487.992114518827,
+            "unit": "iter/sec",
+            "range": "stddev: 0.000004426085507270931",
+            "extra": "mean: 57.18209348743834 usec\nrounds: 7263"
+          },
+          {
+            "name": "tools/bench/test_bench_qec.py::test_compile_clifft",
+            "value": 1465.3398452292552,
+            "unit": "iter/sec",
+            "range": "stddev: 0.000011190498467412828",
+            "extra": "mean: 682.435547805327 usec\nrounds: 1276"
+          },
+          {
+            "name": "tools/bench/test_bench_qec.py::test_sample_stim",
+            "value": 110.17205547418031,
+            "unit": "iter/sec",
+            "range": "stddev: 0.00041121940730270214",
+            "extra": "mean: 9.07671183673575 msec\nrounds: 98"
+          },
+          {
+            "name": "tools/bench/test_bench_qec.py::test_sample_clifft",
+            "value": 8.132234638676367,
+            "unit": "iter/sec",
+            "range": "stddev: 0.00033789282988256546",
+            "extra": "mean: 122.96743077776758 msec\nrounds: 9"
+          },
+          {
+            "name": "tools/bench/test_bench_qv.py::test_compile_qv20",
+            "value": 49.2596219012964,
+            "unit": "iter/sec",
+            "range": "stddev: 0.00021770697083491763",
+            "extra": "mean: 20.300602428572077 msec\nrounds: 49"
+          },
+          {
+            "name": "tools/bench/test_bench_qv.py::test_sample_qv20_1shot",
+            "value": 6.327601638701492,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0016187499428139606",
+            "extra": "mean: 158.03776171428095 msec\nrounds: 7"
+          },
+          {
+            "name": "tools/bench/test_bench_qv.py::test_sample_qv20_10shots",
+            "value": 0.6374815875571549,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0015460468175504428",
+            "extra": "mean: 1.5686727577999933 sec\nrounds: 5"
           }
         ]
       }
