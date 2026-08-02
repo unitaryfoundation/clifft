@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785568323898,
+  "lastUpdate": 1785654811872,
   "repoUrl": "https://github.com/unitaryfoundation/clifft",
   "entries": {
     "C++ Catch2 benchmarks (AVX2)": [
@@ -4798,6 +4798,70 @@ window.BENCHMARK_DATA = {
             "name": "exp-val 20q 200 probes x100k",
             "value": 166.983,
             "range": "± 705.774",
+            "unit": "ms",
+            "extra": "100 samples\n1 iterations"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Brad Chase",
+            "username": "bachase",
+            "email": "14430+bachase@users.noreply.github.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "27085d10a6822a00eb0bbae9ac708ec13dd4de27",
+          "message": "docs: prepare v0.7.0 release (#235)",
+          "timestamp": "2026-07-31T15:10:55Z",
+          "url": "https://github.com/unitaryfoundation/clifft/commit/27085d10a6822a00eb0bbae9ac708ec13dd4de27"
+        },
+        "date": 1785654811203,
+        "tool": "catch2",
+        "benches": [
+          {
+            "name": "QV-10 x100 shots",
+            "value": 41.1403,
+            "range": "± 208.158",
+            "unit": "ms",
+            "extra": "100 samples\n1 iterations"
+          },
+          {
+            "name": "cultivation-d5 x1000 shots",
+            "value": 63.5144,
+            "range": "± 352.852",
+            "unit": "ms",
+            "extra": "100 samples\n1 iterations"
+          },
+          {
+            "name": "surface-d7-r7 p=1e-3 x10000 shots",
+            "value": 115.074,
+            "range": "± 381.825",
+            "unit": "ms",
+            "extra": "100 samples\n1 iterations"
+          },
+          {
+            "name": "surface-d5-r5 p=0.05 x10000 shots",
+            "value": 109.083,
+            "range": "± 807.973",
+            "unit": "ms",
+            "extra": "100 samples\n1 iterations"
+          },
+          {
+            "name": "surface-d11-r11 p=1e-3 x1000 shots",
+            "value": 44.9636,
+            "range": "± 639.247",
+            "unit": "ms",
+            "extra": "100 samples\n1 iterations"
+          },
+          {
+            "name": "exp-val 20q 200 probes x100k",
+            "value": 157.823,
+            "range": "± 1.05385",
             "unit": "ms",
             "extra": "100 samples\n1 iterations"
           }
