@@ -428,7 +428,7 @@ CompiledContinuation compile_continuation(ContinuationRewrite rewrite,
            "a trajectory-pipeline HIR pass reordered or removed a record op");
 #endif
 
-    CompiledModule module = lower(hir);
+    CompiledModule module = lower(std::move(hir));
     trajectory_bytecode_pass_manager().run(module);
     check_max_rank(module, max_rank);
     if (module.instrument_offsets.size() != rewrite.site_targets.size()) {
