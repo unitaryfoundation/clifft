@@ -386,18 +386,18 @@ CompiledContinuation compile_continuation(ContinuationRewrite rewrite,
             std::to_string(rewrite.classified_measurements.size()) +
             " classified measurement(s); every classified measurement needs exactly one flag");
     }
-    Circuit patched = std::move(rewrite.circuit);
-    for (size_t i = 0; i < herald_flags.size(); ++i) {
-        if (herald_flags[i] != 0) {
-            const ClassifiedMeasurement& measurement = rewrite.classified_measurements[i];
-            assert(measurement.noise_node.has_value() &&
-                   "classified measurement must have a READOUT_NOISE node to patch for herald");
-            patched.nodes[*measurement.noise_node].args[0] = 0.5;
-        }
-    }
-
     std::optional<size_t> forced_traceout_slot;
     CompiledModule module = [&]() {
+        Circuit patched = std::move(rewrite.circuit);
+        for (size_t i = 0; i < herald_flags.size(); ++i) {
+            if (herald_flags[i] != 0) {
+                const ClassifiedMeasurement& measurement = rewrite.classified_measurements[i];
+                assert(measurement.noise_node.has_value() &&
+                       "classified measurement must have a READOUT_NOISE node to patch for herald");
+                patched.nodes[*measurement.noise_node].args[0] = 0.5;
+            }
+        }
+
         // When the rewrite names a forced trace-out node, ask trace() to report
         // the hidden slot it assigns to that reset.
         std::optional<InstrumentTraceOptions> forced_trace_options;
