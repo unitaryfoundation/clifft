@@ -443,4 +443,12 @@ void rebuild_instrument_offsets(CompiledModule& module);
                                    std::span<const uint8_t> expected_detectors = {},
                                    std::span<const uint8_t> expected_observables = {});
 
+/// Consuming lowering overload. Reuses exactly sized HIR-owned noise mask
+/// storage for the compiled constant pool, avoiding a second full arena during
+/// lowering. Overallocated arenas are copied into a compact pool instead.
+[[nodiscard]] CompiledModule lower(HirModule&& hir,
+                                   std::span<const uint8_t> postselection_mask = {},
+                                   std::span<const uint8_t> expected_detectors = {},
+                                   std::span<const uint8_t> expected_observables = {});
+
 }  // namespace clifft

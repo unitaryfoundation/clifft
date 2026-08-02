@@ -204,7 +204,8 @@ class VirtualFrame {
 
     /// Map a noise channel's (X, Z) masks through the current virtual frame
     /// and write the result into `out_x` and `out_z`. Sign is unused for
-    /// noise channels.
+    /// noise channels. Inputs may alias outputs; both inputs are copied before
+    /// either output is cleared.
     void map_noise_channel(MaskView in_x, MaskView in_z, MutableMaskView out_x,
                            MutableMaskView out_z, uint32_t n) {
         // Flush eagerly here. A noise op typically maps several channels
@@ -216,8 +217,6 @@ class VirtualFrame {
         // mappings see an empty queue (cheap early-out).
         flush();
 
-        out_x.zero_out();
-        out_z.zero_out();
         const uint32_t words = (n + 63) / 64;
 
         // Take the tableau row by view, not by value: materialized_.xs[q]
@@ -232,17 +231,22 @@ class VirtualFrame {
             }
         };
 
+        // Copy both inputs before clearing the outputs so lowering can map
+        // an arena slot in place.
+        noise_x_scratch_.assign(in_x.words.begin(), in_x.words.end());
+        noise_z_scratch_.assign(in_z.words.begin(), in_z.words.end());
+        out_x.zero_out();
+        out_z.zero_out();
+
         // Iterate set X-bits via a working copy. Reuses member-owned scratch
         // storage so QEC circuits that map thousands of noise channels per
         // compile don't pay a heap round-trip per channel.
-        noise_x_scratch_.assign(in_x.words.begin(), in_x.words.end());
         MutableMaskView x_iter{std::span<uint64_t>(noise_x_scratch_)};
         while (!x_iter.is_zero()) {
             uint32_t q = x_iter.lowest_bit();
             xor_row(materialized_.xs[q]);
             x_iter.clear_lowest_bit();
         }
-        noise_z_scratch_.assign(in_z.words.begin(), in_z.words.end());
         MutableMaskView z_iter{std::span<uint64_t>(noise_z_scratch_)};
         while (!z_iter.is_zero()) {
             uint32_t q = z_iter.lowest_bit();
