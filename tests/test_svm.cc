@@ -3,6 +3,7 @@
 #include "clifft/frontend/frontend.h"
 #include "clifft/svm/svm.h"
 #include "clifft/svm/svm_math.h"
+#include "clifft/util/numeric.h"
 
 #include "test_helpers.h"
 
@@ -1408,8 +1409,8 @@ TEST_CASE("Compaction fuzz: extreme magnitudes diagonal - k=4") {
             execute(prog, state);
 
             CHECK(state.active_k == 3);
-            CHECK(std::isfinite(state.gamma().real()));
-            CHECK(std::isfinite(state.gamma().imag()));
+            CHECK(is_finite_robust(state.gamma().real()));
+            CHECK(is_finite_robust(state.gamma().imag()));
             CHECK_THAT(physical_norm(state), WithinAbs(1.0, 1e-6));
         }
     }
@@ -1443,8 +1444,8 @@ TEST_CASE("Compaction fuzz: extreme magnitudes interfere - k=4") {
             execute(prog, state);
 
             CHECK(state.active_k == 3);
-            CHECK(std::isfinite(state.gamma().real()));
-            CHECK(std::isfinite(state.gamma().imag()));
+            CHECK(is_finite_robust(state.gamma().real()));
+            CHECK(is_finite_robust(state.gamma().imag()));
             CHECK_THAT(physical_norm(state), WithinAbs(1.0, 1e-6));
         }
     }
@@ -1472,8 +1473,8 @@ TEST_CASE("Zero-prob: minus state interfere is deterministic b_x=1") {
 
         CHECK(state.meas_record[0] == 1);  // deterministic |-> -> b_x=1
         CHECK(state.active_k == 0);
-        CHECK(std::isfinite(state.gamma().real()));
-        CHECK(std::isfinite(state.gamma().imag()));
+        CHECK(is_finite_robust(state.gamma().real()));
+        CHECK(is_finite_robust(state.gamma().imag()));
         CHECK_THAT(physical_norm(state), WithinAbs(1.0, 1e-9));
     }
 }
@@ -1495,8 +1496,8 @@ TEST_CASE("Zero-prob: plus state interfere is deterministic b_x=0") {
 
         CHECK(state.meas_record[0] == 0);
         CHECK(state.active_k == 0);
-        CHECK(std::isfinite(state.gamma().real()));
-        CHECK(std::isfinite(state.gamma().imag()));
+        CHECK(is_finite_robust(state.gamma().real()));
+        CHECK(is_finite_robust(state.gamma().imag()));
         CHECK_THAT(physical_norm(state), WithinAbs(1.0, 1e-9));
     }
 }
@@ -1517,8 +1518,8 @@ TEST_CASE("Zero-prob: zero-state diagonal is deterministic b=0") {
 
         CHECK(state.meas_record[0] == 0);
         CHECK(state.active_k == 0);
-        CHECK(std::isfinite(state.gamma().real()));
-        CHECK(std::isfinite(state.gamma().imag()));
+        CHECK(is_finite_robust(state.gamma().real()));
+        CHECK(is_finite_robust(state.gamma().imag()));
         CHECK_THAT(physical_norm(state), WithinAbs(1.0, 1e-9));
     }
 }
@@ -1539,8 +1540,8 @@ TEST_CASE("Zero-prob: one-state diagonal is deterministic b=1") {
 
         CHECK(state.meas_record[0] == 1);
         CHECK(state.active_k == 0);
-        CHECK(std::isfinite(state.gamma().real()));
-        CHECK(std::isfinite(state.gamma().imag()));
+        CHECK(is_finite_robust(state.gamma().real()));
+        CHECK(is_finite_robust(state.gamma().imag()));
         CHECK_THAT(physical_norm(state), WithinAbs(1.0, 1e-9));
     }
 }
@@ -1575,8 +1576,8 @@ TEST_CASE("Zero-prob: multi-qubit deterministic interfere") {
 
         CHECK(state.meas_record[0] == 1);  // deterministic |->
         CHECK(state.active_k == 2);
-        CHECK(std::isfinite(state.gamma().real()));
-        CHECK(std::isfinite(state.gamma().imag()));
+        CHECK(is_finite_robust(state.gamma().real()));
+        CHECK(is_finite_robust(state.gamma().imag()));
         CHECK_THAT(physical_norm(state), WithinAbs(1.0, 1e-9));
     }
 }
@@ -1599,8 +1600,8 @@ TEST_CASE("VM Integration: Amortized renormalization prevents IEEE-754 drift") {
         execute(prog, state);
 
         CHECK_THAT(std::abs(state.gamma()), WithinAbs(1.0, 0.01));
-        CHECK(std::isfinite(state.v()[0].real()));
-        CHECK(std::isfinite(state.v()[1].real()));
+        CHECK(is_finite_robust(state.v()[0].real()));
+        CHECK(is_finite_robust(state.v()[1].real()));
     }
 
     SECTION("Rescues from severe overflow - gamma approaching Infinity") {
@@ -1611,10 +1612,10 @@ TEST_CASE("VM Integration: Amortized renormalization prevents IEEE-754 drift") {
 
         execute(prog, state);
 
-        CHECK(std::isfinite(state.gamma().real()));
-        CHECK(std::isfinite(state.gamma().imag()));
-        CHECK(std::isfinite(state.v()[0].real()));
-        CHECK(std::isfinite(state.v()[1].real()));
+        CHECK(is_finite_robust(state.gamma().real()));
+        CHECK(is_finite_robust(state.gamma().imag()));
+        CHECK(is_finite_robust(state.v()[0].real()));
+        CHECK(is_finite_robust(state.v()[1].real()));
     }
 }
 
