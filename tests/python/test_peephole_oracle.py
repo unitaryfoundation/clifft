@@ -10,6 +10,7 @@ import pytest
 from conftest import (
     assert_statevectors_componentwise_equal,
     assert_statevectors_equiv,
+    cross_binomial_tolerance,
     random_clifford_t_circuit,
     random_dense_clifford_t_circuit,
 )
@@ -88,6 +89,73 @@ class TestPeepholeAlgebraicIdentities:
         sv_baseline = _clifft_statevector(circuit)
         sv_optimized = _clifft_statevector(circuit, optimize=True)
         assert_statevectors_equiv(sv_optimized, sv_baseline)
+
+
+class TestTerminalMeasurementPhaseElimination:
+    """Phases diagonal in a later measurement basis are unobservable."""
+
+    @pytest.mark.parametrize("pauli_branch", ["", "X 0", "Y 0", "Z 0"])
+    def test_exact_deterministic_pauli_branches(self, pauli_branch: str) -> None:
+        """Every branch agrees exactly, including downstream feedback."""
+        branch = f"{pauli_branch}\n" if pauli_branch else ""
+        circuit = "H 0\n" "R_Z(0.37) 0\n" f"{branch}" "M 0\n" "CX rec[-1] 1\n" "M 1"
+        records = ["00", "01", "10", "11"]
+        baseline = clifft.compile(circuit, hir_passes=None, bytecode_passes=None)
+        optimized = clifft.compile(
+            circuit,
+            hir_passes=_peephole_pass_manager(),
+            bytecode_passes=None,
+        )
+
+        np.testing.assert_allclose(
+            clifft.record_probabilities(optimized, records),
+            clifft.record_probabilities(baseline, records),
+            atol=1e-12,
+        )
+        assert baseline.peak_rank == 1
+        assert optimized.peak_rank == 0
+
+    def test_noisy_broadcast_distribution_and_classical_outputs(self) -> None:
+        """The real noisy rewrite preserves the complete record distribution."""
+        circuit = (
+            "H 0 1\n"
+            "R_Z(0.17) 0 1\n"
+            "DEPOLARIZE1(0.2) 0 1\n"
+            "M 0 1\n"
+            "DETECTOR rec[-2]\n"
+            "DETECTOR rec[-1]\n"
+            "CX rec[-1] 2\n"
+            "M 2\n"
+            "OBSERVABLE_INCLUDE(0) rec[-1]"
+        )
+        baseline = clifft.compile(circuit, hir_passes=None, bytecode_passes=None)
+        optimized = clifft.compile(
+            circuit,
+            hir_passes=_peephole_pass_manager(),
+            bytecode_passes=None,
+        )
+        assert baseline.peak_rank == 2
+        assert optimized.peak_rank == 0
+
+        shots = 30_000
+        baseline_result = clifft.sample(baseline, shots, seed=238)
+        optimized_result = clifft.sample(optimized, shots, seed=239)
+
+        weights = 1 << np.arange(3, dtype=np.uint64)
+        baseline_bins = np.asarray(baseline_result.measurements, dtype=np.uint64) @ weights
+        optimized_bins = np.asarray(optimized_result.measurements, dtype=np.uint64) @ weights
+        baseline_probs = np.bincount(baseline_bins.astype(np.int64), minlength=8) / shots
+        optimized_probs = np.bincount(optimized_bins.astype(np.int64), minlength=8) / shots
+
+        for baseline_p, optimized_p in zip(baseline_probs, optimized_probs, strict=True):
+            pooled = float((baseline_p + optimized_p) / 2.0)
+            tolerance = cross_binomial_tolerance(pooled, shots, sigma=6.0)
+            assert abs(float(baseline_p - optimized_p)) <= tolerance
+
+        for result in (baseline_result, optimized_result):
+            np.testing.assert_array_equal(result.detectors[:, 0], result.measurements[:, 0])
+            np.testing.assert_array_equal(result.detectors[:, 1], result.measurements[:, 1])
+            np.testing.assert_array_equal(result.observables[:, 0], result.measurements[:, 2])
 
 
 # Componentwise global-phase preservation of S absorption.

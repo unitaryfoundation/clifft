@@ -561,8 +561,8 @@ NB_MODULE(_clifft_core, m) {
 
     nb::class_<clifft::PeepholeFusionPass, clifft::HirPass>(
         m, "PeepholeFusionPass",
-        "Symplectic peephole fusion: cancels and fuses T/T-dag gates on the "
-        "same virtual Pauli axis.")
+        "Symplectic peephole optimization: cancels and fuses T/T-dag gates, "
+        "and removes terminal phases consumed by same-axis measurements.")
         .def(nb::init<>())
         .def_prop_ro("cancellations", &clifft::PeepholeFusionPass::cancellations)
         .def_prop_ro("fusions", &clifft::PeepholeFusionPass::fusions)
