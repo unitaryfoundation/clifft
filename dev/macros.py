@@ -90,11 +90,14 @@ def define_env(env: Any) -> None:
             "default_enabled": True,
             "preserves_record_order": True,
             "python_name": "PeepholeFusionPass",
-            "summary": "Algebraic T-gate cancellation and fusion.",
+            "summary": "Algebraic T-gate fusion and terminal-phase elimination.",
             "detail": (
                 "Scans the HIR to cancel or fuse T/T_dag gates acting on the "
                 "same virtual Pauli axis using the symplectic inner product as "
-                "a commutation check. T+T fuses to S, T+T_dag cancels to identity."
+                "a commutation check. T+T fuses to S, T+T_dag cancels to identity. "
+                "It also removes a T gate or Pauli phase rotation when a later "
+                "same-axis measurement consumes the phase; intervening Pauli "
+                "noise is left in place."
             ),
         },
         {
