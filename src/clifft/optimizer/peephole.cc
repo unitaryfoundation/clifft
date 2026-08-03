@@ -365,39 +365,26 @@ size_t eliminate_terminal_measurement_phases(HirModule& hir, std::vector<uint8_t
                 continue;
             const HeisenbergOp& next = hir.ops[j];
 
-            switch (next.op_type()) {
-                case OpType::NOISE:
-                case OpType::DETECTOR:
-                case OpType::OBSERVABLE:
-                case OpType::READOUT_NOISE:
-                    continue;
+            // These are the two deliberate differences from ordinary
+            // commutation: terminal phases may cross every Pauli-noise branch,
+            // while conditional Paulis remain conservative barriers.
+            if (next.op_type() == OpType::NOISE) {
+                continue;
+            }
 
-                case OpType::MEASURE:
-                    if (hir.destab_mask(next) == candidate_x &&
-                        hir.stab_mask(next) == candidate_z) {
-                        deleted[i] = true;
-                        ++eliminated;
-                        break;
-                    }
-                    if (!anti_commute(candidate_x, candidate_z, hir.destab_mask(next),
-                                      hir.stab_mask(next))) {
-                        continue;
-                    }
-                    break;
+            if (next.op_type() == OpType::CONDITIONAL_PAULI) {
+                break;
+            }
 
-                case OpType::T_GATE:
-                case OpType::PHASE_ROTATION:
-                    if (!anti_commute(candidate_x, candidate_z, hir.destab_mask(next),
-                                      hir.stab_mask(next))) {
-                        continue;
-                    }
-                    break;
+            if (next.op_type() == OpType::MEASURE && hir.destab_mask(next) == candidate_x &&
+                hir.stab_mask(next) == candidate_z) {
+                deleted[i] = true;
+                ++eliminated;
+                break;
+            }
 
-                case OpType::CONDITIONAL_PAULI:
-                case OpType::EXP_VAL:
-                case OpType::INSTRUMENT:
-                case OpType::NUM_OP_TYPES:
-                    break;
+            if (!is_blocked(hir.ops[i], next, hir)) {
+                continue;
             }
             break;
         }
