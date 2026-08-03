@@ -29,8 +29,8 @@ void apply_s_to_tableau(stim::Tableau<kStimWidth>& tab, MaskView x_v, MaskView z
 }  // namespace internal
 
 /// Peephole fusion pass: scans the HIR to algebraically cancel or fuse
-/// T/T_dag gates acting on the same virtual Pauli axis using the
-/// symplectic inner product as a commutation check.
+/// T/T_dag gates acting on the same virtual Pauli axis, and removes Pauli
+/// phases consumed by a later same-axis measurement.
 class PeepholeFusionPass : public HirPass {
   public:
     void run(HirModule& hir) override;

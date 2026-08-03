@@ -52,6 +52,20 @@ def test_optimizer_preserves_source_map() -> None:
     assert op.as_dict()["op_type"] == "MEASURE"
 
 
+def test_terminal_phase_elimination_removes_only_its_source_entry() -> None:
+    """Deleting a terminal phase keeps remaining HIR provenance aligned."""
+    hir = clifft.trace(clifft.parse("H 0\nR_Z(0.02) 0\nX_ERROR(0.01) 0\nM 0"))
+    assert hir.source_map == [[2], [3], [4]]
+
+    pm = clifft.HirPassManager()
+    pm.add(clifft.PeepholeFusionPass())
+    pm.run(hir)
+
+    assert hir.source_map == [[3], [4]]
+    assert len(hir.source_map) == hir.num_ops
+    assert [op.as_dict()["op_type"] for op in hir] == ["NOISE", "MEASURE"]
+
+
 def test_empty_circuit_produces_empty_maps() -> None:
     """Empty circuit yields empty source_map and k_history."""
     prog = clifft.lower(clifft.trace(clifft.parse("")))

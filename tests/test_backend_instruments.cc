@@ -262,3 +262,21 @@ TEST_CASE("fences: prefix compilation is bit-identical across different suffixes
         REQUIRE(std::memcmp(&a.bytecode[i], &b.bytecode[i], sizeof(Instruction)) == 0);
     }
 }
+
+TEST_CASE("fences: terminal phase elimination does not cross an instrument") {
+    const auto options = source_dependent_jump_options();
+    const char* with_matching_measurement = "H 0\nR_Z(0.02) 0\nLEVEL_TRANSITION[jump] 0\nM 0";
+    const char* with_other_suffix = "H 0\nR_Z(0.02) 0\nLEVEL_TRANSITION[jump] 0\nH 0\nM 0";
+
+    auto a = compile_instruments_full(with_matching_measurement, options);
+    auto b = compile_instruments_full(with_other_suffix, options);
+
+    REQUIRE(a.instrument_offsets.size() == 1);
+    REQUIRE(b.instrument_offsets.size() == 1);
+    const uint32_t offset = a.instrument_offsets[0];
+    REQUIRE(b.instrument_offsets[0] == offset);
+
+    for (uint32_t i = 0; i <= offset; ++i) {
+        REQUIRE(std::memcmp(&a.bytecode[i], &b.bytecode[i], sizeof(Instruction)) == 0);
+    }
+}

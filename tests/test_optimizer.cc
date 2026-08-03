@@ -159,6 +159,98 @@ TEST_CASE("Peephole: NOISE channel does not block when commuting", "[optimizer]"
     REQUIRE(hir.ops[0].op_type() == OpType::NOISE);
 }
 
+TEST_CASE("Peephole: terminal phase is removed across Pauli noise", "[optimizer]") {
+    auto hir = hir_from("H 0\nR_Z(0.02) 0\nX_ERROR(0.01) 0\nM 0");
+    REQUIRE(hir.ops.size() == 3);
+    REQUIRE(!can_swap(hir.ops[0], hir.ops[1], hir));
+
+    PeepholeFusionPass pass;
+    pass.run(hir);
+
+    REQUIRE(hir.ops.size() == 2);
+    REQUIRE(hir.ops[0].op_type() == OpType::NOISE);
+    REQUIRE(hir.ops[1].op_type() == OpType::MEASURE);
+    REQUIRE(pass.cancellations() == 1);
+}
+
+TEST_CASE("Peephole: terminal phases are removed from broadcast layers", "[optimizer]") {
+    auto hir = hir_from(
+        "H 0 1 2\n"
+        "R_Z(0.02) 0 1 2\n"
+        "X_ERROR(0.01) 0 1 2\n"
+        "M 0 1 2");
+
+    PeepholeFusionPass pass;
+    pass.run(hir);
+
+    REQUIRE(hir.ops.size() == 6);
+    for (size_t i = 0; i < 3; ++i) {
+        REQUIRE(hir.ops[i].op_type() == OpType::NOISE);
+        REQUIRE(hir.ops[i + 3].op_type() == OpType::MEASURE);
+    }
+    REQUIRE(pass.cancellations() == 3);
+}
+
+TEST_CASE("Peephole: terminal multi-Pauli phase is removed across correlated noise",
+          "[optimizer]") {
+    auto hir = hir_from(
+        "H 0 1\n"
+        "R_PAULI(0.02) Z0*Z1\n"
+        "CORRELATED_ERROR(0.01) X0\n"
+        "MPP Z0*Z1");
+
+    PeepholeFusionPass pass;
+    pass.run(hir);
+
+    REQUIRE(hir.ops.size() == 2);
+    REQUIRE(hir.ops[0].op_type() == OpType::NOISE);
+    REQUIRE(hir.ops[1].op_type() == OpType::MEASURE);
+    REQUIRE(pass.cancellations() == 1);
+}
+
+TEST_CASE("Peephole: terminal T is removed before measurement-reset", "[optimizer]") {
+    auto hir = hir_from("H 0\nT 0\nY_ERROR(0.01) 0\nMR 0");
+
+    PeepholeFusionPass pass;
+    pass.run(hir);
+
+    REQUIRE(hir.ops.size() == 3);
+    REQUIRE(hir.ops[0].op_type() == OpType::NOISE);
+    REQUIRE(hir.ops[1].op_type() == OpType::MEASURE);
+    REQUIRE(hir.ops[2].op_type() == OpType::CONDITIONAL_PAULI);
+    REQUIRE(pass.cancellations() == 1);
+}
+
+TEST_CASE("Peephole: terminal phase elimination respects barriers", "[optimizer]") {
+    SECTION("anti-commuting measurement") {
+        auto hir = hir_from("R_Z(0.02) 0\nMX 0\nM 0");
+        PeepholeFusionPass pass;
+        pass.run(hir);
+        REQUIRE(hir.ops[0].op_type() == OpType::PHASE_ROTATION);
+    }
+
+    SECTION("anti-commuting phase") {
+        auto hir = hir_from("R_Z(0.02) 0\nR_X(0.03) 0\nM 0");
+        PeepholeFusionPass pass;
+        pass.run(hir);
+        REQUIRE(hir.ops[0].op_type() == OpType::PHASE_ROTATION);
+    }
+
+    SECTION("conditional Pauli") {
+        auto hir = hir_from("M 1\nR_Z(0.02) 0\nCX rec[-1] 0\nM 0");
+        PeepholeFusionPass pass;
+        pass.run(hir);
+        REQUIRE(hir.ops[1].op_type() == OpType::PHASE_ROTATION);
+    }
+
+    SECTION("expectation value") {
+        auto hir = hir_from("R_Z(0.02) 0\nEXP_VAL Z0\nM 0");
+        PeepholeFusionPass pass;
+        pass.run(hir);
+        REQUIRE(hir.ops[0].op_type() == OpType::PHASE_ROTATION);
+    }
+}
+
 TEST_CASE("Peephole: different axes do not fuse", "[optimizer]") {
     // H between the two Ts rotates the second to X-axis
     auto hir = hir_from("T 0\nH 0\nT 0");

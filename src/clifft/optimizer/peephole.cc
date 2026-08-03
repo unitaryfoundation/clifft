@@ -338,6 +338,61 @@ inline bool is_blocked(const HeisenbergOp& op_i, const HeisenbergOp& op_j, const
     }
 }
 
+/// Delete phase operations whose only remaining quantum effect is a phase in
+/// the eigenspaces of a later measurement on the same unsigned Pauli axis.
+///
+/// Pauli noise is transparent for this purpose even when it anti-commutes
+/// with the phase axis: branch by branch it only reverses the rotation
+/// direction, and the matching measurement discards either direction. Other
+/// phase operations and measurements may be crossed only when they commute
+/// with the candidate. Classical record consumers are inspected but never
+/// moved. All other operations are conservative barriers.
+size_t eliminate_terminal_measurement_phases(HirModule& hir, std::vector<uint8_t>& deleted) {
+    size_t eliminated = 0;
+
+    for (size_t i = 0; i < hir.ops.size(); ++i) {
+        if (deleted[i])
+            continue;
+        const OpType candidate_type = hir.ops[i].op_type();
+        if (candidate_type != OpType::T_GATE && candidate_type != OpType::PHASE_ROTATION)
+            continue;
+
+        const MaskView candidate_x = hir.destab_mask(hir.ops[i]);
+        const MaskView candidate_z = hir.stab_mask(hir.ops[i]);
+
+        for (size_t j = i + 1; j < hir.ops.size(); ++j) {
+            if (deleted[j])
+                continue;
+            const HeisenbergOp& next = hir.ops[j];
+
+            // These are the two deliberate differences from ordinary
+            // commutation: terminal phases may cross every Pauli-noise branch,
+            // while conditional Paulis remain conservative barriers.
+            if (next.op_type() == OpType::NOISE) {
+                continue;
+            }
+
+            if (next.op_type() == OpType::CONDITIONAL_PAULI) {
+                break;
+            }
+
+            if (next.op_type() == OpType::MEASURE && hir.destab_mask(next) == candidate_x &&
+                hir.stab_mask(next) == candidate_z) {
+                deleted[i] = true;
+                ++eliminated;
+                break;
+            }
+
+            if (!is_blocked(hir.ops[i], next, hir)) {
+                continue;
+            }
+            break;
+        }
+    }
+
+    return eliminated;
+}
+
 }  // namespace
 
 void PeepholeFusionPass::run(HirModule& hir) {
@@ -537,6 +592,12 @@ void PeepholeFusionPass::run(HirModule& hir) {
                 ++fusions_;
                 changed = true;
             }
+        }
+
+        const size_t terminal_eliminations = eliminate_terminal_measurement_phases(hir, deleted);
+        if (terminal_eliminations != 0) {
+            cancellations_ += terminal_eliminations;
+            changed = true;
         }
 
         // Compact: remove deleted ops via erase-remove idiom

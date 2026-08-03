@@ -132,6 +132,19 @@ TEST_CASE("trajectory: a certain leak reports the trapped classified status") {
     }
 }
 
+TEST_CASE("trajectory: a phase before a trap keeps the continuation prefix stable") {
+    ModelSpec spec;
+    spec.leak_from_g = 1.0;
+    spec.leak_from_e = 1.0;
+    auto model = make_driver_model(spec);
+    auto circuit = parse("H 0\nR_Z(0.02) 0\nLEVEL_TRANSITION[leak] 0\nM 0");
+
+    auto result = sample_noncomputational(circuit, model, 10, 238);
+    for (uint8_t measurement : result.measurements) {
+        REQUIRE(measurement == 1);
+    }
+}
+
 TEST_CASE("trajectory: a known |1> initial preloads the frame without a distinct module") {
     // Initial state entirely on e: every shot must measure 1 through the
     // frame preload alone.
