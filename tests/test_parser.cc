@@ -1995,6 +1995,8 @@ TEST_CASE("READOUT_NOISE rejects bad argument counts and non-rec targets") {
     CHECK_THROWS_AS(parse("M 0\nREADOUT_NOISE rec[-1]\n"), ParseError);
     CHECK_THROWS_AS(parse("M 0\nREADOUT_NOISE(0.1, 0.2, 0.3) rec[-1]\n"), ParseError);
     CHECK_THROWS_AS(parse("M 0\nREADOUT_NOISE(0.1) 0\n"), ParseError);
+    check_parse_error("READOUT_NOISE(0.1) !5",
+                      "Line 1: READOUT_NOISE targets must be rec references");
 }
 
 TEST_CASE("READOUT_NOISE rejects invalid probabilities") {
@@ -2007,7 +2009,9 @@ TEST_CASE("READOUT_NOISE rejects inverted rec targets") {
     // An inverted record target has no distinct meaning for a conditional
     // flip (it would only swap the two probabilities), so it is refused
     // rather than silently ignored.
-    CHECK_THROWS_AS(parse("M 0\nREADOUT_NOISE(1, 0) !rec[-1]\n"), ParseError);
+    check_parse_error("M 0\nREADOUT_NOISE(1, 0) !rec[-1]\n",
+                      "Line 2: READOUT_NOISE targets do not support inversion; swap the two flip "
+                      "probabilities instead");
 }
 
 TEST_CASE("LEVEL_TRANSITION parses a tag and plain qubit targets") {

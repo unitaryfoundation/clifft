@@ -697,29 +697,31 @@ class Parser {
                     line_num);
             }
 
-            if (gate == GateType::READOUT_NOISE && token[0] == '!') {
+            const bool inverted = token.front() == '!';
+            const bool is_rec_token =
+                token.starts_with("rec[") || (inverted && token.substr(1).starts_with("rec["));
+
+            if (gate == GateType::READOUT_NOISE && !is_rec_token) {
+                throw ParseError("READOUT_NOISE targets must be rec references", line_num);
+            }
+            if (gate == GateType::READOUT_NOISE && inverted) {
                 throw ParseError(
                     "READOUT_NOISE targets do not support inversion; swap the two flip "
                     "probabilities instead",
                     line_num);
             }
-            if (!is_measurement(gate) && token[0] == '!') {
+            if (!is_measurement(gate) && inverted) {
                 throw_invalid_target_modifiers(token, clifft::gate_name(gate), line_num);
             }
 
             // Validate rec targets are only used for CX/CZ feedback forms
             // and READOUT_NOISE record flips.
-            bool is_rec_token = token.starts_with("rec[") || (token.size() > 1 && token[0] == '!' &&
-                                                              token.substr(1).starts_with("rec["));
             if (is_rec_token && gate != GateType::CX && gate != GateType::CZ &&
                 gate != GateType::READOUT_NOISE) {
                 throw ParseError(
                     "rec targets are only supported as feedback controls for CX/CZ gates "
                     "and as READOUT_NOISE targets",
                     line_num);
-            }
-            if (!is_rec_token && gate == GateType::READOUT_NOISE) {
-                throw ParseError("READOUT_NOISE targets must be rec references", line_num);
             }
             Target target = parse_target(token, line_num, circuit);
             targets.push_back(target);
