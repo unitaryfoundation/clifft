@@ -94,6 +94,65 @@ class TestPeepholeAlgebraicIdentities:
 class TestTerminalMeasurementPhaseElimination:
     """Phases diagonal in a later measurement basis are unobservable."""
 
+    def test_measure_reset_corrections_preserve_distribution(self) -> None:
+        """Disjoint MR corrections can be crossed without changing outputs."""
+        exact_circuit = "H 0 1\nR_Z(0.3) 0 1\nMR 0 1"
+        exact_baseline = clifft.compile(exact_circuit, hir_passes=None, bytecode_passes=None)
+        exact_optimized = clifft.compile(
+            exact_circuit,
+            hir_passes=_peephole_pass_manager(),
+            bytecode_passes=None,
+        )
+        assert exact_baseline.peak_rank == 2
+        assert exact_optimized.peak_rank == 0
+
+        records = ["00", "01", "10", "11"]
+        np.testing.assert_allclose(
+            clifft.record_probabilities(exact_optimized, records),
+            clifft.record_probabilities(exact_baseline, records),
+            atol=1e-12,
+        )
+
+        noisy_circuit = (
+            "R 0 1\n"
+            "H 0 1\n"
+            "R_Z(0.3) 0 1\n"
+            "X_ERROR(0.01) 0 1\n"
+            "MR !0 !1\n"
+            "DETECTOR rec[-2] rec[-1]\n"
+            "OBSERVABLE_INCLUDE(0) rec[-1]"
+        )
+        baseline = clifft.compile(noisy_circuit, hir_passes=None, bytecode_passes=None)
+        optimized = clifft.compile(
+            noisy_circuit,
+            hir_passes=_peephole_pass_manager(),
+            bytecode_passes=None,
+        )
+        assert baseline.peak_rank == 2
+        assert optimized.peak_rank == 0
+
+        shots = 30_000
+        baseline_result = clifft.sample(baseline, shots, seed=242)
+        optimized_result = clifft.sample(optimized, shots, seed=243)
+
+        weights = 1 << np.arange(2, dtype=np.uint64)
+        baseline_bins = np.asarray(baseline_result.measurements, dtype=np.uint64) @ weights
+        optimized_bins = np.asarray(optimized_result.measurements, dtype=np.uint64) @ weights
+        baseline_probs = np.bincount(baseline_bins.astype(np.int64), minlength=4) / shots
+        optimized_probs = np.bincount(optimized_bins.astype(np.int64), minlength=4) / shots
+
+        for baseline_p, optimized_p in zip(baseline_probs, optimized_probs, strict=True):
+            pooled = float((baseline_p + optimized_p) / 2.0)
+            tolerance = cross_binomial_tolerance(pooled, shots, sigma=6.0)
+            assert abs(float(baseline_p - optimized_p)) <= tolerance
+
+        for result in (baseline_result, optimized_result):
+            np.testing.assert_array_equal(
+                result.detectors[:, 0],
+                np.logical_xor(result.measurements[:, 0], result.measurements[:, 1]),
+            )
+            np.testing.assert_array_equal(result.observables[:, 0], result.measurements[:, 1])
+
     @pytest.mark.parametrize("pauli_branch", ["", "X 0", "Y 0", "Z 0"])
     def test_exact_deterministic_pauli_branches(self, pauli_branch: str) -> None:
         """Every branch agrees exactly, including downstream feedback."""
