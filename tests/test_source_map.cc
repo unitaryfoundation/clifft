@@ -121,6 +121,33 @@ TEST_CASE("Source map: T plus T_dag cancellation removes both from map", "[sourc
     }
 }
 
+TEST_CASE("Source map: terminal reset phase elimination removes only phase entries",
+          "[source_map]") {
+    auto hir = hir_optimized(
+        "R 0 1\n"
+        "H 0 1\n"
+        "R_Z(0.3) 0 1\n"
+        "X_ERROR(0.01) 0 1\n"
+        "MR 0 1");
+
+    REQUIRE(hir.source_map.size() == hir.ops.size());
+    REQUIRE(hir.ops.size() == 10);
+
+    size_t reset_entries = 0;
+    size_t noise_entries = 0;
+    size_t measure_reset_entries = 0;
+    for (const auto& entry : hir.source_map) {
+        REQUIRE(entry.size() == 1);
+        REQUIRE(entry[0] != 3);
+        reset_entries += entry[0] == 1;
+        noise_entries += entry[0] == 4;
+        measure_reset_entries += entry[0] == 5;
+    }
+    REQUIRE(reset_entries == 4);
+    REQUIRE(noise_entries == 2);
+    REQUIRE(measure_reset_entries == 4);
+}
+
 // =============================================================================
 // Back-End source map and k-history
 // =============================================================================

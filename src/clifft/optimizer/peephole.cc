@@ -338,6 +338,18 @@ inline bool is_blocked(const HeisenbergOp& op_i, const HeisenbergOp& op_j, const
     }
 }
 
+/// Return true when two Pauli strings act nontrivially on any common qubit.
+inline bool has_overlapping_support(MaskView x1, MaskView z1, MaskView x2, MaskView z2) {
+    assert(x1.num_words() == z1.num_words() && z1.num_words() == x2.num_words() &&
+           x2.num_words() == z2.num_words());
+    for (uint32_t w = 0; w < x1.num_words(); ++w) {
+        if (((x1.words[w] | z1.words[w]) & (x2.words[w] | z2.words[w])) != 0) {
+            return true;
+        }
+    }
+    return false;
+}
+
 /// Delete phase operations whose only remaining quantum effect is a phase in
 /// the eigenspaces of a later measurement on the same unsigned Pauli axis.
 ///
@@ -345,7 +357,9 @@ inline bool is_blocked(const HeisenbergOp& op_i, const HeisenbergOp& op_j, const
 /// with the phase axis: branch by branch it only reverses the rotation
 /// direction, and the matching measurement discards either direction. Other
 /// phase operations and measurements may be crossed only when they commute
-/// with the candidate. Classical record consumers are inspected but never
+/// with the candidate. A conditional Pauli is transparent only when its
+/// quantum support is disjoint and the ordinary quantum/classical dataflow
+/// proof permits a swap. Classical record consumers are inspected but never
 /// moved. All other operations are conservative barriers.
 size_t eliminate_terminal_measurement_phases(HirModule& hir, std::vector<uint8_t>& deleted) {
     size_t eliminated = 0;
@@ -365,14 +379,21 @@ size_t eliminate_terminal_measurement_phases(HirModule& hir, std::vector<uint8_t
                 continue;
             const HeisenbergOp& next = hir.ops[j];
 
-            // These are the two deliberate differences from ordinary
-            // commutation: terminal phases may cross every Pauli-noise branch,
-            // while conditional Paulis remain conservative barriers.
+            // Terminal phases may cross every Pauli-noise branch. Conditional
+            // Paulis require a stronger proof: ordinary commutation/dataflow
+            // safety plus disjoint quantum support. The disjointness keeps
+            // overlapping feedback conservative even when its total Pauli
+            // happens to commute symplectically with the candidate.
             if (next.op_type() == OpType::NOISE) {
                 continue;
             }
 
             if (next.op_type() == OpType::CONDITIONAL_PAULI) {
+                if (!has_overlapping_support(candidate_x, candidate_z, hir.destab_mask(next),
+                                             hir.stab_mask(next)) &&
+                    can_swap(hir.ops[i], next, hir)) {
+                    continue;
+                }
                 break;
             }
 

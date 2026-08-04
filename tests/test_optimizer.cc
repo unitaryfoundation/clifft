@@ -1,5 +1,6 @@
 // Optimizer unit tests
 
+#include "clifft/backend/backend.h"
 #include "clifft/circuit/parser.h"
 #include "clifft/frontend/frontend.h"
 #include "clifft/frontend/hir.h"
@@ -10,6 +11,7 @@
 
 #include "test_helpers.h"
 
+#include <algorithm>
 #include <bit>
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/matchers/catch_matchers_floating_point.hpp>
@@ -29,6 +31,12 @@ using clifft::test::Z;
 // Helper: parse a .stim circuit string through the front-end to produce HIR.
 static HirModule hir_from(const char* text) {
     return clifft::trace(clifft::parse(text));
+}
+
+static size_t count_ops(const HirModule& hir, OpType type) {
+    return static_cast<size_t>(
+        std::count_if(hir.ops.begin(), hir.ops.end(),
+                      [type](const HeisenbergOp& op) { return op.op_type() == type; }));
 }
 
 // =============================================================================
@@ -221,6 +229,83 @@ TEST_CASE("Peephole: terminal T is removed before measurement-reset", "[optimize
     REQUIRE(pass.cancellations() == 1);
 }
 
+TEST_CASE("Peephole: terminal phases cross disjoint measure-reset corrections", "[optimizer]") {
+    const char* circuits[] = {
+        "R 0 1\nH 0 1\nR_Z(0.3) 0 1\nX_ERROR(0.01) 0 1\nMR 0 1",
+        "R 0 1\nH 0 1\nR_Z(0.3) 0 1\nMR 1 0",
+        "R 0 1\nH 0 1\nR_Z(0.3) 0 1\nMR 0\nMR 1",
+        "R 0 1\nH 0 1\nR_Z(0.3) 0 1\nMR 1\nMR 0",
+        "R 0 1\nR_X(0.3) 0 1\nMRX 0 1",
+        "R 0 1\nR_Y(0.3) 0 1\nMRY 0 1",
+    };
+
+    for (const char* circuit : circuits) {
+        DYNAMIC_SECTION(circuit) {
+            auto hir = hir_from(circuit);
+            REQUIRE(count_ops(hir, OpType::PHASE_ROTATION) == 2);
+
+            PeepholeFusionPass pass;
+            pass.run(hir);
+
+            REQUIRE(count_ops(hir, OpType::PHASE_ROTATION) == 0);
+            REQUIRE(pass.cancellations() == 2);
+            REQUIRE(clifft::lower(hir).peak_rank == 0);
+        }
+    }
+}
+
+TEST_CASE("Peephole: terminal phase belonging only to a later reset target is removed",
+          "[optimizer]") {
+    auto hir = hir_from("R 0 1\nH 1\nR_Z(0.3) 1\nMR 0 1");
+    REQUIRE(count_ops(hir, OpType::PHASE_ROTATION) == 1);
+
+    PeepholeFusionPass pass;
+    pass.run(hir);
+
+    REQUIRE(count_ops(hir, OpType::PHASE_ROTATION) == 0);
+    REQUIRE(pass.cancellations() == 1);
+    REQUIRE(clifft::lower(hir).peak_rank == 0);
+}
+
+TEST_CASE("Peephole: disjoint feedback controlled by a crossed measurement is transparent",
+          "[optimizer]") {
+    auto hir = hir_from(
+        "R 0 1 2\n"
+        "H 1\n"
+        "R_Z(0.3) 1\n"
+        "M 2\n"
+        "DETECTOR rec[-1]\n"
+        "CX rec[-1] 0\n"
+        "M 1");
+    REQUIRE(count_ops(hir, OpType::PHASE_ROTATION) == 1);
+
+    PeepholeFusionPass pass;
+    pass.run(hir);
+
+    REQUIRE(count_ops(hir, OpType::PHASE_ROTATION) == 0);
+    REQUIRE(count_ops(hir, OpType::CONDITIONAL_PAULI) == 4);
+    REQUIRE(count_ops(hir, OpType::DETECTOR) == 1);
+}
+
+TEST_CASE("Peephole: reset phase elimination preserves inverted records and annotations",
+          "[optimizer]") {
+    auto hir = hir_from(
+        "R 0 1\n"
+        "H 0 1\n"
+        "R_Z(0.3) 0 1\n"
+        "MR !0 !1\n"
+        "DETECTOR rec[-2] rec[-1]\n"
+        "OBSERVABLE_INCLUDE(0) rec[-1]");
+
+    PeepholeFusionPass pass;
+    pass.run(hir);
+
+    REQUIRE(count_ops(hir, OpType::PHASE_ROTATION) == 0);
+    REQUIRE(count_ops(hir, OpType::READOUT_NOISE) == 2);
+    REQUIRE(count_ops(hir, OpType::DETECTOR) == 1);
+    REQUIRE(count_ops(hir, OpType::OBSERVABLE) == 1);
+}
+
 TEST_CASE("Peephole: terminal phase elimination respects barriers", "[optimizer]") {
     SECTION("anti-commuting measurement") {
         auto hir = hir_from("R_Z(0.02) 0\nMX 0\nM 0");
@@ -236,11 +321,18 @@ TEST_CASE("Peephole: terminal phase elimination respects barriers", "[optimizer]
         REQUIRE(hir.ops[0].op_type() == OpType::PHASE_ROTATION);
     }
 
-    SECTION("conditional Pauli") {
+    SECTION("anti-commuting conditional Pauli") {
         auto hir = hir_from("M 1\nR_Z(0.02) 0\nCX rec[-1] 0\nM 0");
         PeepholeFusionPass pass;
         pass.run(hir);
         REQUIRE(hir.ops[1].op_type() == OpType::PHASE_ROTATION);
+    }
+
+    SECTION("same-support commuting conditional Pauli") {
+        auto hir = hir_from("M 1\nR_Z(0.02) 0\nCZ rec[-1] 0\nM 0");
+        PeepholeFusionPass pass;
+        pass.run(hir);
+        REQUIRE(count_ops(hir, OpType::PHASE_ROTATION) == 1);
     }
 
     SECTION("expectation value") {
