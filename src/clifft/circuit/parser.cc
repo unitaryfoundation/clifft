@@ -61,6 +61,18 @@ bool is_discarded_annotation(std::string_view name) {
     return name == "QUBIT_COORDS" || name == "SHIFT_COORDS";
 }
 
+[[noreturn]] void throw_invalid_target_modifiers(std::string_view target,
+                                                 std::string_view gate_name, uint32_t line_num) {
+    throw ParseError("Target " + std::string(target) + " has invalid modifiers for gate type '" +
+                         std::string(gate_name) + "'",
+                     line_num);
+}
+
+std::string_view target_token_at(std::string_view targets, size_t pos) {
+    const size_t end = targets.find_first_of("* \t\r\n", pos);
+    return targets.substr(pos, end == std::string_view::npos ? end : end - pos);
+}
+
 // Trim whitespace from both ends.
 std::string_view trim(std::string_view s) {
     while (!s.empty() && std::isspace(static_cast<unsigned char>(s.front()))) {
@@ -461,9 +473,7 @@ class Parser {
                                  line_num);
             }
             if (target.is_inverted()) {
-                throw ParseError(
-                    "Gate " + std::string(gate_name) + " does not accept inverted targets",
-                    line_num);
+                throw_invalid_target_modifiers(token, gate_name, line_num);
             }
             targets.push_back(target);
         }
@@ -687,10 +697,25 @@ class Parser {
                     line_num);
             }
 
+            const bool inverted = token.front() == '!';
+            const bool is_rec_token =
+                token.starts_with("rec[") || (inverted && token.substr(1).starts_with("rec["));
+
+            if (gate == GateType::READOUT_NOISE && !is_rec_token) {
+                throw ParseError("READOUT_NOISE targets must be rec references", line_num);
+            }
+            if (gate == GateType::READOUT_NOISE && inverted) {
+                throw ParseError(
+                    "READOUT_NOISE targets do not support inversion; swap the two flip "
+                    "probabilities instead",
+                    line_num);
+            }
+            if (!is_measurement(gate) && inverted) {
+                throw_invalid_target_modifiers(token, clifft::gate_name(gate), line_num);
+            }
+
             // Validate rec targets are only used for CX/CZ feedback forms
             // and READOUT_NOISE record flips.
-            bool is_rec_token = token.starts_with("rec[") || (token.size() > 1 && token[0] == '!' &&
-                                                              token.substr(1).starts_with("rec["));
             if (is_rec_token && gate != GateType::CX && gate != GateType::CZ &&
                 gate != GateType::READOUT_NOISE) {
                 throw ParseError(
@@ -698,24 +723,6 @@ class Parser {
                     "and as READOUT_NOISE targets",
                     line_num);
             }
-            if (!is_rec_token && gate == GateType::READOUT_NOISE) {
-                throw ParseError("READOUT_NOISE targets must be rec references", line_num);
-            }
-            // '!' marks measurement-record inversion, which has no meaning
-            // on a transition or loss site. (Record targets on these gates
-            // are rejected by the rec-token check above.)
-            if ((gate == GateType::LEVEL_TRANSITION || gate == GateType::LOSS) && token[0] == '!') {
-                throw ParseError(
-                    std::string(clifft::gate_name(gate)) + " targets must be plain qubit indices",
-                    line_num);
-            }
-            if (is_rec_token && gate == GateType::READOUT_NOISE && token[0] == '!') {
-                throw ParseError(
-                    "READOUT_NOISE targets do not support inversion; swap the two flip "
-                    "probabilities instead",
-                    line_num);
-            }
-
             Target target = parse_target(token, line_num, circuit);
             targets.push_back(target);
         }
@@ -935,11 +942,11 @@ class Parser {
         return inverted ? result.inverted() : result;
     }
 
-    std::vector<Target> parse_pauli_product(std::string_view product_str,
-                                            std::string_view gate_name, uint32_t line_num,
-                                            Circuit& circuit) {
+    std::vector<Target> parse_pauli_product(std::string_view product_str, GateType gate,
+                                            uint32_t line_num, Circuit& circuit) {
         std::vector<Target> pauli_targets;
         std::unordered_set<uint32_t> seen_qubits;
+        const std::string_view gate_name = clifft::gate_name(gate);
 
         size_t pos = 0;
         while (pos < product_str.size()) {
@@ -951,6 +958,19 @@ class Parser {
                 }
                 pos++;
                 continue;
+            }
+
+            bool inverted = false;
+            if (product_str[pos] == '!') {
+                if (!is_measurement(gate)) {
+                    throw_invalid_target_modifiers(target_token_at(product_str, pos), gate_name,
+                                                   line_num);
+                }
+                inverted = true;
+                pos++;
+                if (pos >= product_str.size() || product_str[pos] == '*') {
+                    throw ParseError("Expected Pauli target after '!'", line_num);
+                }
             }
 
             char pauli_char = product_str[pos];
@@ -980,7 +1000,7 @@ class Parser {
 
             if (num_start == pos) {
                 std::string msg = "Expected qubit index after Pauli letter";
-                if (gate_name == "R_PAULI") {
+                if (gate == GateType::R_PAULI) {
                     msg += " in R_PAULI";
                 }
                 throw ParseError(msg, line_num);
@@ -1002,7 +1022,7 @@ class Parser {
             }
 
             if (pauli_targets.size() >= kMaxTargetsPerInstruction) {
-                if (gate_name == "R_PAULI") {
+                if (gate == GateType::R_PAULI) {
                     throw ParseError("Too many Pauli terms in R_PAULI product", line_num);
                 }
                 throw ParseError("Too many Pauli terms in product (limit: " +
@@ -1010,7 +1030,11 @@ class Parser {
                                  line_num);
             }
 
-            pauli_targets.push_back(Target::pauli(qubit, pauli_flag));
+            Target target = Target::pauli(qubit, pauli_flag);
+            if (inverted) {
+                target = target.inverted();
+            }
+            pauli_targets.push_back(target);
             circuit.num_qubits = std::max(circuit.num_qubits, qubit + 1);
         }
 
@@ -1022,10 +1046,11 @@ class Parser {
     }
 
     std::vector<std::vector<Target>> parse_pauli_products(std::string_view targets_str,
-                                                          std::string_view gate_name,
-                                                          uint32_t line_num, Circuit& circuit) {
+                                                          GateType gate, uint32_t line_num,
+                                                          Circuit& circuit) {
         std::vector<std::vector<Target>> products;
         std::string_view remaining = targets_str;
+        const std::string_view gate_name = clifft::gate_name(gate);
 
         while (true) {
             std::string_view product_str = next_token(remaining);
@@ -1038,7 +1063,7 @@ class Parser {
                                  line_num);
             }
 
-            products.push_back(parse_pauli_product(product_str, gate_name, line_num, circuit));
+            products.push_back(parse_pauli_product(product_str, gate, line_num, circuit));
         }
 
         if (products.empty()) {
@@ -1055,7 +1080,6 @@ class Parser {
         struct FoldedTerm {
             uint32_t qubit;
             uint8_t xz_bits;
-            bool inverted;
         };
 
         std::vector<FoldedTerm> terms;
@@ -1078,13 +1102,9 @@ class Parser {
                 break;
             }
 
-            bool inverted = false;
             if (targets_str[pos] == '!') {
-                inverted = true;
-                ++pos;
-                if (pos >= targets_str.size()) {
-                    throw ParseError("Expected Pauli target after '!'", line_num);
-                }
+                throw_invalid_target_modifiers(target_token_at(targets_str, pos), gate_name,
+                                               line_num);
             }
 
             char pauli_char = targets_str[pos];
@@ -1138,11 +1158,10 @@ class Parser {
                     throw ParseError(
                         "Too many Pauli terms in " + std::string(gate_name) + " product", line_num);
                 }
-                terms.push_back({qubit, 0, false});
+                terms.push_back({qubit, 0});
             }
             FoldedTerm& term = terms[it->second];
             term.xz_bits ^= xz_bits;
-            term.inverted ^= inverted;
             circuit.num_qubits = std::max(circuit.num_qubits, qubit + 1);
         }
 
@@ -1165,9 +1184,6 @@ class Parser {
             }
 
             Target target = Target::pauli(term.qubit, pauli_flag);
-            if (term.inverted) {
-                target = target.inverted();
-            }
             targets.push_back(target);
         }
 
@@ -1183,7 +1199,7 @@ class Parser {
 
     // Parse MPP instruction with multiple Pauli products.
     void parse_mpp(std::string_view targets_str, uint32_t line_num, Circuit& circuit, double arg) {
-        auto products = parse_pauli_products(targets_str, "MPP", line_num, circuit);
+        auto products = parse_pauli_products(targets_str, GateType::MPP, line_num, circuit);
         for (auto& pauli_targets : products) {
             // Decompose noisy MPP: MPP(p) -> MPP + READOUT_NOISE
             bool is_noisy_meas = arg > 0.0;
@@ -1206,7 +1222,7 @@ class Parser {
     // Same Pauli product syntax as MPP but no noise argument.
     // Increments num_exp_vals (not num_measurements).
     void parse_exp_val(std::string_view targets_str, uint32_t line_num, Circuit& circuit) {
-        auto products = parse_pauli_products(targets_str, "EXP_VAL", line_num, circuit);
+        auto products = parse_pauli_products(targets_str, GateType::EXP_VAL, line_num, circuit);
         for (auto& pauli_targets : products) {
             // Emit one AstNode per product.
             AstNode node{GateType::EXP_VAL, std::move(pauli_targets), {}, line_num};
@@ -1230,7 +1246,7 @@ class Parser {
             throw ParseError("R_PAULI takes exactly one Pauli product", line_num);
         }
 
-        auto pauli_targets = parse_pauli_product(product_str, "R_PAULI", line_num, circuit);
+        auto pauli_targets = parse_pauli_product(product_str, GateType::R_PAULI, line_num, circuit);
 
         circuit.nodes.push_back({GateType::R_PAULI, std::move(pauli_targets), args, line_num});
     }

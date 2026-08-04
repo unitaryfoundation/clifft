@@ -16,6 +16,7 @@
 #include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
 #include <string>
+#include <string_view>
 #include <vector>
 
 using namespace clifft;
@@ -29,6 +30,15 @@ static std::string make_pauli_channel3_args(double default_prob = 0.0) {
         args += std::to_string(default_prob);
     }
     return args;
+}
+
+static void check_parse_error(std::string_view circuit, std::string_view expected) {
+    try {
+        (void)parse(circuit);
+        FAIL("Expected ParseError");
+    } catch (const ParseError& error) {
+        CHECK(std::string_view(error.what()) == expected);
+    }
 }
 
 TEST_CASE("Parse empty circuit", "[parser]") {
@@ -536,6 +546,32 @@ TEST_CASE("Parse inverted measurement targets", "[parser]") {
     REQUIRE(circuit.nodes[0].targets[0].is_inverted());
     REQUIRE(!circuit.nodes[1].targets[0].is_inverted());
     REQUIRE(circuit.nodes[2].targets[0].is_inverted());
+}
+
+TEST_CASE("Parse inverted MPP targets", "[parser]") {
+    auto circuit = parse("MPP !X0*Y1 Z2*!X3");
+
+    REQUIRE(circuit.nodes.size() == 2);
+    REQUIRE(circuit.nodes[0].targets.size() == 2);
+    CHECK(circuit.nodes[0].targets[0].is_inverted());
+    CHECK(!circuit.nodes[0].targets[1].is_inverted());
+    REQUIRE(circuit.nodes[1].targets.size() == 2);
+    CHECK(!circuit.nodes[1].targets[0].is_inverted());
+    CHECK(circuit.nodes[1].targets[1].is_inverted());
+}
+
+TEST_CASE("Inverted targets are rejected on non-measurement gates", "[parser]") {
+    check_parse_error("H !0", "Line 1: Target !0 has invalid modifiers for gate type 'H'");
+    CHECK_THROWS_AS(parse("CX !0 1"), ParseError);
+    CHECK_THROWS_AS(parse("R !0"), ParseError);
+    CHECK_THROWS_AS(parse("X_ERROR(0.1) !0"), ParseError);
+    CHECK_THROWS_AS(parse("M 0\nCX !rec[-1] 1"), ParseError);
+    check_parse_error("CORRELATED_ERROR(0.1) !X0",
+                      "Line 1: Target !X0 has invalid modifiers for gate type "
+                      "'CORRELATED_ERROR'");
+    check_parse_error("R_PAULI(0.25) !X0",
+                      "Line 1: Target !X0 has invalid modifiers for gate type 'R_PAULI'");
+    CHECK_THROWS_AS(parse("EXP_VAL !X0"), ParseError);
 }
 
 TEST_CASE("Error: unknown gate", "[parser]") {
@@ -1506,14 +1542,14 @@ TEST_CASE("Parse correlated error chain permits blank and comment lines", "[pars
 }
 
 TEST_CASE("Parse correlated error folds duplicate terms", "[parser][noise]") {
-    auto circuit = parse("E(1) X0 Z0 X1 X1 !Z2");
+    auto circuit = parse("E(1) X0 Z0 X1 X1 Z2");
     REQUIRE(circuit.nodes.size() == 1);
     REQUIRE(circuit.nodes[0].targets.size() == 2);
     CHECK(circuit.nodes[0].targets[0].pauli() == Target::kPauliY);
     CHECK(circuit.nodes[0].targets[0].value() == 0);
     CHECK(circuit.nodes[0].targets[1].pauli() == Target::kPauliZ);
     CHECK(circuit.nodes[0].targets[1].value() == 2);
-    CHECK(circuit.nodes[0].targets[1].is_inverted());
+    CHECK(!circuit.nodes[0].targets[1].is_inverted());
 }
 
 TEST_CASE("Parse correlated error accepts empty product", "[parser][noise]") {
@@ -1959,6 +1995,8 @@ TEST_CASE("READOUT_NOISE rejects bad argument counts and non-rec targets") {
     CHECK_THROWS_AS(parse("M 0\nREADOUT_NOISE rec[-1]\n"), ParseError);
     CHECK_THROWS_AS(parse("M 0\nREADOUT_NOISE(0.1, 0.2, 0.3) rec[-1]\n"), ParseError);
     CHECK_THROWS_AS(parse("M 0\nREADOUT_NOISE(0.1) 0\n"), ParseError);
+    check_parse_error("READOUT_NOISE(0.1) !5",
+                      "Line 1: READOUT_NOISE targets must be rec references");
 }
 
 TEST_CASE("READOUT_NOISE rejects invalid probabilities") {
@@ -1971,7 +2009,9 @@ TEST_CASE("READOUT_NOISE rejects inverted rec targets") {
     // An inverted record target has no distinct meaning for a conditional
     // flip (it would only swap the two probabilities), so it is refused
     // rather than silently ignored.
-    CHECK_THROWS_AS(parse("M 0\nREADOUT_NOISE(1, 0) !rec[-1]\n"), ParseError);
+    check_parse_error("M 0\nREADOUT_NOISE(1, 0) !rec[-1]\n",
+                      "Line 2: READOUT_NOISE targets do not support inversion; swap the two flip "
+                      "probabilities instead");
 }
 
 TEST_CASE("LEVEL_TRANSITION parses a tag and plain qubit targets") {
