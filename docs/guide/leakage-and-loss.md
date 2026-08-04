@@ -149,6 +149,10 @@ three ways to place them:
   arbitrary transition name or hookable gate name can be referenced
   explicitly. Use an inline reference at selected circuit positions or with a
   transition whose name is not a gate.
+- **Inline leakage.** `LEAKAGE(p) 0` moves `g` to `leak_g` and `e` to
+  `leak_e` with probability `p`. An already leaked or lost site is unchanged.
+  Use it for the common source-preserving leakage channel without defining a
+  five-by-five matrix.
 - **Inline loss.** `LOSS(p) 0` loses the carrier at site 0 with probability
   `p` from any occupied level. Use it for a self-contained loss probability
   that needs no matrix in the model.
@@ -195,6 +199,7 @@ model = noncomp.Model(
 circuit = """
     H 0
     CZ 0 1
+    LEAKAGE(0.01) 0
     LOSS(0.005) 1
     LEVEL_TRANSITION[manual_leak] 0
     M 0 1
@@ -322,7 +327,7 @@ semantics and rank cost are described in
   active do not add further rank. `"neglect"` omits this cost and the no-jump
   back-action, introducing an error of order
   $\lvert p_g - p_e \rvert$ per transition position. There is no error when
-  $p_g = p_e$, so `LOSS(p)` is always exact. See the
+  $p_g = p_e$, so `LEAKAGE(p)` and `LOSS(p)` are always exact. See the
   [performance model](performance.md) for how rank affects simulation cost.
 - **`seed`**: same contract as ordinary sampling: a fixed seed is fully
   reproducible, `None` uses hardware entropy.

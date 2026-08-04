@@ -1883,6 +1883,7 @@ TEST_CASE("GateTraits: unitary classification", "[gate_data]") {
     CHECK(!is_unitary(GateType::TICK));
     CHECK(!is_unitary(GateType::EXP_VAL));
     CHECK(!is_unitary(GateType::LEVEL_TRANSITION));
+    CHECK(!is_unitary(GateType::LEAKAGE));
     CHECK(!is_unitary(GateType::LOSS));
     CHECK(!is_unitary(GateType::UNKNOWN));
 }
@@ -2054,4 +2055,25 @@ TEST_CASE("LOSS parses its probability and rejects bad forms") {
     CHECK_THROWS_AS(parse("LOSS(1.5) 0\n"), ParseError);  // out of range
     CHECK_THROWS_AS(parse("LOSS(0.1, 0.2) 0\n"), ParseError);
     CHECK_THROWS_AS(parse("LOSS(0.1) !0\n"), ParseError);  // inverted target
+}
+
+TEST_CASE("LEAKAGE parses its probability and rejects bad forms") {
+    auto c = parse("LEAKAGE(0.25) 0 1\n");
+    REQUIRE(c.nodes.size() == 2);
+    for (size_t i = 0; i < 2; ++i) {
+        REQUIRE(c.nodes[i].gate == GateType::LEAKAGE);
+        REQUIRE(c.nodes[i].args == std::vector<double>{0.25});
+        REQUIRE(c.nodes[i].targets[0].value() == i);
+    }
+    REQUIRE(c.num_qubits == 2);
+    REQUIRE(c.num_measurements == 0);
+
+    CHECK_THROWS_AS(parse("LEAKAGE 0\n"), ParseError);
+    CHECK_THROWS_AS(parse("LEAKAGE(-0.1) 0\n"), ParseError);
+    CHECK_THROWS_AS(parse("LEAKAGE(1.5) 0\n"), ParseError);
+    CHECK_THROWS_AS(parse("LEAKAGE(nan) 0\n"), ParseError);
+    CHECK_THROWS_AS(parse("LEAKAGE(inf) 0\n"), ParseError);
+    CHECK_THROWS_AS(parse("LEAKAGE(0.1, 0.2) 0\n"), ParseError);
+    CHECK_THROWS_AS(parse("LEAKAGE(0.1) !0\n"), ParseError);
+    CHECK_THROWS_AS(parse("M 0\nLEAKAGE(0.1) rec[-1]\n"), ParseError);
 }

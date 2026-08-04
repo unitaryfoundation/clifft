@@ -126,9 +126,10 @@ class Model:
             no-ops. Annotate those positions explicitly instead. Any key --
             whether an arbitrary name or a hookable gate name -- can be
             referenced directly from the circuit with
-            ``LEVEL_TRANSITION[key] q``, and ``LOSS(p) q`` applies a uniform
-            loss inline. A transition fires at its circuit position, with the
-            source taken from the qubit's state there.
+            ``LEVEL_TRANSITION[key] q``. ``LEAKAGE(p) q`` applies
+            source-preserving leakage inline, while ``LOSS(p) q`` applies
+            uniform loss. A transition fires at its circuit position, with
+            the source taken from the qubit's state there.
         classifier: Optional [Classifier][clifft.noncomp.Classifier] supplying
             leaked/lost measurement outcomes and computational readout
             confusion.

@@ -177,6 +177,7 @@ channel probabilities.
 
 | Instruction | Notes |
 |-------------|-------|
+| `LEAKAGE(p)` | Moves `g` to `leak_g` and `e` to `leak_e` with probability `p`; other levels are unchanged |
 | `LOSS(p)` | Loses each target with probability `p`, from any occupied level |
 | `LEVEL_TRANSITION[name]` | Fires the model's named transition matrix on each target |
 

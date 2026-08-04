@@ -97,6 +97,41 @@ def test_transition_probability_on_known_source():
     assert abs(leaked - 0.4) < BAND
 
 
+def test_inline_leakage_matches_exact_enumerator():
+    """Source-preserving leakage agrees on entangled records and statuses."""
+    import utils_noncomp_enumerator as en
+
+    p = 0.35
+    circuit = f"H 0\nCX 0 1\nLEAKAGE({p}) 0 1\nM 0\nM 1\n"
+    classifier_matrix = [[1.0, 0.0, 1.0, 0.0, 1.0], [0.0, 1.0, 0.0, 1.0, 0.0]]
+    reference = en.enumerate_exact(
+        circuit,
+        initial=[1, 0, 0, 0, 0],
+        transitions={},
+        classifier=classifier_matrix,
+    )
+    assert reference.dropped_mass < 1e-12
+
+    result = noncomp.sample(
+        circuit,
+        noncomp.Model(classifier=noncomp.Classifier(classifier_matrix)),
+        shots=SHOTS,
+        seed=208,
+    )
+    empirical_records = en.empirical_record_probs(np.asarray(result.measurements))
+    assert en.tvd(reference.record_probs, empirical_records) < BAND
+
+    status_pairs = [
+        (en.LEAK_G, noncomp.QubitStatus.LEAK_G),
+        (en.LEAK_E, noncomp.QubitStatus.LEAK_E),
+    ]
+    for q in range(2):
+        for level, status in status_pairs:
+            expected = reference.noncomp_level_probs[q].get(level, 0.0)
+            observed = float((result.final_status[:, q] == status).mean())
+            assert abs(observed - expected) < BAND
+
+
 @pytest.mark.parametrize("col,expected", [([0.0, 1.0], 1.0), ([1.0, 0.0], 0.0), ([0.5, 0.5], 0.5)])
 def test_classifier_replacement_distribution(col, expected):
     # Always leak to leak_g, then the classifier's column sets the record bit.

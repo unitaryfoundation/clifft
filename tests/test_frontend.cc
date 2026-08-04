@@ -1848,6 +1848,8 @@ TEST_CASE("Standalone READOUT_NOISE lowers one- and two-argument forms") {
 TEST_CASE("Trace rejects noncomputational annotations with a pointer to the entry point") {
     REQUIRE_THROWS_WITH(trace(parse("LEVEL_TRANSITION[t] 0\n")),
                         Catch::Matchers::ContainsSubstring("noncomp.sample"));
+    REQUIRE_THROWS_WITH(trace(parse("LEAKAGE(0.1) 0\n")),
+                        Catch::Matchers::ContainsSubstring("noncomp.sample"));
     REQUIRE_THROWS_WITH(trace(parse("LOSS(0.1) 0\n")),
                         Catch::Matchers::ContainsSubstring("noncomp.sample"));
 }

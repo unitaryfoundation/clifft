@@ -26,8 +26,9 @@
 namespace clifft {
 
 // Opt-in instrument materialization for trace(). `transitions` maps a
-// LEVEL_TRANSITION tag to its spec; LOSS needs no entry (its probability
-// is inline and its destination is entirely the trap remainder).
+// LEVEL_TRANSITION tag to its spec; LEAKAGE and LOSS need no entry (their
+// probabilities are inline and their destinations are entirely in the trap
+// remainder).
 struct InstrumentTraceOptions {
     // The front-end remains model-free: the noncomputational layer compresses
     // each five-level matrix into InstrumentProbabilities before tracing.
@@ -53,8 +54,8 @@ struct InstrumentTraceOptions {
 // - Emits HeisenbergOps for T/T_DAG gates with rewound Pauli masks
 // - Emits HeisenbergOps for measurements
 // - Emits HeisenbergOps for classical feedback (CX/CZ with rec targets)
-// - With `instruments` supplied, materializes LEVEL_TRANSITION and LOSS
-//   annotations into INSTRUMENT ops (one per target, at their circuit
+// - With `instruments` supplied, materializes LEVEL_TRANSITION, LEAKAGE, and
+//   LOSS annotations into INSTRUMENT ops (one per target, at their circuit
 //   positions, mask = the rewound source projector Z_q); without it,
 //   annotations reject with a pointer to sample_noncomputational.
 //
