@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785742337602,
+  "lastUpdate": 1785827762586,
   "repoUrl": "https://github.com/unitaryfoundation/clifft",
   "entries": {
     "C++ Catch2 benchmarks (AVX2)": [
@@ -4926,6 +4926,70 @@ window.BENCHMARK_DATA = {
             "name": "exp-val 20q 200 probes x100k",
             "value": 163.519,
             "range": "± 2.4854",
+            "unit": "ms",
+            "extra": "100 samples\n1 iterations"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Brad Chase",
+            "username": "bachase",
+            "email": "14430+bachase@users.noreply.github.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "db22e0309d26a3272293229b98b70d05d5ddb4a5",
+          "message": "test: keep release SVM finite checks effective (#240)\n\nReplace std::isfinite assertions with the shared IEEE-754 bit-pattern\ncheck so numerical-stability coverage remains meaningful under\n-ffast-math.\n\nCloses #174\n\nAssisted-by: ChatGPT (GPT-5.6 Sol) <noreply@openai.com>",
+          "timestamp": "2026-08-03T17:29:11Z",
+          "url": "https://github.com/unitaryfoundation/clifft/commit/db22e0309d26a3272293229b98b70d05d5ddb4a5"
+        },
+        "date": 1785827761909,
+        "tool": "catch2",
+        "benches": [
+          {
+            "name": "QV-10 x100 shots",
+            "value": 42.5779,
+            "range": "± 131.895",
+            "unit": "ms",
+            "extra": "100 samples\n1 iterations"
+          },
+          {
+            "name": "cultivation-d5 x1000 shots",
+            "value": 64.5446,
+            "range": "± 608.077",
+            "unit": "ms",
+            "extra": "100 samples\n1 iterations"
+          },
+          {
+            "name": "surface-d7-r7 p=1e-3 x10000 shots",
+            "value": 110.775,
+            "range": "± 1.13681",
+            "unit": "ms",
+            "extra": "100 samples\n1 iterations"
+          },
+          {
+            "name": "surface-d5-r5 p=0.05 x10000 shots",
+            "value": 109.346,
+            "range": "± 1.29982",
+            "unit": "ms",
+            "extra": "100 samples\n1 iterations"
+          },
+          {
+            "name": "surface-d11-r11 p=1e-3 x1000 shots",
+            "value": 43.8543,
+            "range": "± 333.796",
+            "unit": "ms",
+            "extra": "100 samples\n1 iterations"
+          },
+          {
+            "name": "exp-val 20q 200 probes x100k",
+            "value": 153.365,
+            "range": "± 2.04358",
             "unit": "ms",
             "extra": "100 samples\n1 iterations"
           }
