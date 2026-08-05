@@ -132,6 +132,29 @@ def test_inline_leakage_matches_exact_enumerator():
             assert abs(observed - expected) < BAND
 
 
+def test_inline_leakage_measure_reset_reprepares_parked_factor():
+    """MR restores a leaked carrier at zero in both reference and sampler."""
+    import utils_noncomp_enumerator as en
+
+    circuit = "X 0\nLEAKAGE(1) 0\nMR 0\nM 0\n"
+    classifier_matrix = [[1.0, 0.0, 1.0, 0.0, 1.0], [0.0, 1.0, 0.0, 1.0, 0.0]]
+    reference = en.enumerate_exact(
+        circuit,
+        initial=[1.0, 0.0, 0.0, 0.0, 0.0],
+        transitions={},
+        classifier=classifier_matrix,
+    )
+    assert reference.record_probs == {(1, 0): 1.0}
+
+    result = noncomp.sample(
+        circuit,
+        noncomp.Model(classifier=noncomp.Classifier(classifier_matrix)),
+        shots=32,
+        seed=209,
+    )
+    assert np.array_equal(np.asarray(result.measurements), np.tile([1, 0], (32, 1)))
+
+
 @pytest.mark.parametrize("col,expected", [([0.0, 1.0], 1.0), ([1.0, 0.0], 0.0), ([0.5, 0.5], 0.5)])
 def test_classifier_replacement_distribution(col, expected):
     # Always leak to leak_g, then the classifier's column sets the record bit.

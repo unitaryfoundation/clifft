@@ -11,22 +11,21 @@ namespace clifft {
 
 double inline_transition_probability(GateType gate, const std::vector<double>& args,
                                      uint32_t op_index, std::string_view caller) {
-    if (gate != GateType::LEAKAGE && gate != GateType::LOSS) {
+    if (!is_inline_noncomputational_annotation(gate)) {
         throw std::invalid_argument(
             std::string(caller) + ": inline transition probability requested for '" +
             std::string(gate_name(gate)) + "' at op " + std::to_string(op_index));
     }
-    const std::string name{gate_name(gate)};
     if (args.size() != 1) {
-        throw std::invalid_argument(std::string(caller) + ": " + name + " at op " +
-                                    std::to_string(op_index) +
+        throw std::invalid_argument(std::string(caller) + ": " + std::string(gate_name(gate)) +
+                                    " at op " + std::to_string(op_index) +
                                     " requires exactly one argument (the probability)");
     }
     const double p = args[0];
     if (!is_probability(p)) {
-        throw std::invalid_argument(std::string(caller) + ": " + name + " probability at op " +
-                                    std::to_string(op_index) + " = " + std::to_string(p) +
-                                    " is not finite or is out of [0, 1]");
+        throw std::invalid_argument(std::string(caller) + ": " + std::string(gate_name(gate)) +
+                                    " probability at op " + std::to_string(op_index) + " = " +
+                                    std::to_string(p) + " is not finite or is out of [0, 1]");
     }
     return p;
 }

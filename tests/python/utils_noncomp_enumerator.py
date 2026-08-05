@@ -236,17 +236,27 @@ def enumerate_exact(
                         p_bit = classifier[bit][level]
                         if p_bit <= 0.0:
                             continue
-                        status = list(br.status)
                         if op.kind == "measure_reset" and level != LOST:
+                            status = list(br.status)
                             status[q] = G  # reset restores the leaked qubit
-                        nxt.append(
-                            _Branch(
-                                br.weight * p_bit,
-                                br.state,
-                                tuple(status),
-                                br.record + (bit,),
+                            for w, post, parked_bit in _hidden_collapse(br, q, n):
+                                nxt.append(
+                                    _Branch(
+                                        br.weight * p_bit * w,
+                                        _prep_zero(post, q, parked_bit, n),
+                                        tuple(status),
+                                        br.record + (bit,),
+                                    )
+                                )
+                        else:
+                            nxt.append(
+                                _Branch(
+                                    br.weight * p_bit,
+                                    br.state,
+                                    br.status,
+                                    br.record + (bit,),
+                                )
                             )
-                        )
                 continue
 
             if op.kind == "leakage":

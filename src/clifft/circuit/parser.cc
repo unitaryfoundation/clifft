@@ -360,7 +360,7 @@ class Parser {
                                  line_num);
             }
         }
-        if (gate == GateType::LEAKAGE || gate == GateType::LOSS) {
+        if (is_inline_noncomputational_annotation(gate)) {
             const std::string name{clifft::gate_name(gate)};
             if (args.size() != 1) {
                 throw ParseError(name + " requires exactly 1 argument (the probability)", line_num);

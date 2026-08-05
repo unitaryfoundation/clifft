@@ -821,7 +821,7 @@ HirModule trace(const Circuit& circuit, const InstrumentTraceOptions* instrument
                     InstrumentSite site;
                     site.qubit = qubit;
                     std::string site_description;
-                    if (node.gate == GateType::LEAKAGE || node.gate == GateType::LOSS) {
+                    if (is_inline_noncomputational_annotation(node.gate)) {
                         // Both inline channels have an equal rate from G and E
                         // and destinations entirely in the trap remainder. A
                         // missing argument is a malformed node, not a zero-rate

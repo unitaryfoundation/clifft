@@ -361,8 +361,11 @@ inline constexpr bool is_noise_gate(GateType g) {
 inline constexpr bool is_exp_val(GateType g) {
     return g == GateType::EXP_VAL;
 }
+inline constexpr bool is_inline_noncomputational_annotation(GateType g) {
+    return g == GateType::LEAKAGE || g == GateType::LOSS;
+}
 inline constexpr bool is_noncomputational_annotation(GateType g) {
-    return g == GateType::LEVEL_TRANSITION || g == GateType::LEAKAGE || g == GateType::LOSS;
+    return g == GateType::LEVEL_TRANSITION || is_inline_noncomputational_annotation(g);
 }
 inline constexpr std::string_view gate_name(GateType g) {
     return gate_traits(g).name;

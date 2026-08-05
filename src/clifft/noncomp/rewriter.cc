@@ -275,7 +275,7 @@ ContinuationRewrite rewrite_continuation(const Circuit& annotated, const Traject
                 // LEVEL_TRANSITION[tag] can fire when either column_sum(G) or
                 // column_sum(E) is nonzero. These exact 0.0 comparisons match
                 // frontend.cc.
-                if (gate == GateType::LEAKAGE || gate == GateType::LOSS) {
+                if (is_inline_noncomputational_annotation(gate)) {
                     if (inline_transition_probability(gate, node.args, op_index,
                                                       "rewrite_continuation") == 0.0) {
                         continue;
