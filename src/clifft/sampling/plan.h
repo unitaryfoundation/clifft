@@ -88,7 +88,8 @@ struct PromoteDormantRotation {
 
 // Samples one active Pauli branch and removes the selected active pivot. The
 // branch symbol is the effective eigenvalue label used by state updates; the
-// outcome expression is the user-visible record bit after symbolic signs.
+// outcome expression contains that branch and yields the user-visible record
+// bit after symbolic sign corrections.
 struct MeasureActivePauli {
     ActivePauli pauli;
     uint32_t active_pivot = 0;
@@ -98,8 +99,8 @@ struct MeasureActivePauli {
 };
 
 // Introduces an unbiased effective eigenvalue label while replacing a dormant
-// stabilizer. The outcome expression is the separately recorded bit, and the
-// active vector is untouched.
+// stabilizer. The outcome expression contains that branch and yields the
+// separately recorded bit; the active vector is untouched.
 struct MeasureDormantRandom {
     uint32_t dormant_pivot = 0;
     SymbolId branch{};

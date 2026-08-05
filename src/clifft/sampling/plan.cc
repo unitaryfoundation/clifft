@@ -181,6 +181,15 @@ void validate_expression(const SamplingPlan& plan, const AffineBool& expression,
     }
 }
 
+void validate_measurement_outcome(const SamplingPlan& plan, const AffineBool& outcome,
+                                  SymbolId branch, uint32_t action_index) {
+    validate_expression(plan, outcome, action_index, branch, true);
+    if (std::ranges::find(outcome.terms(), branch) == outcome.terms().end()) {
+        invalid_plan("action " + std::to_string(action_index) +
+                     " measurement outcome omits branch s" + std::to_string(index(branch)));
+    }
+}
+
 void validate_record(const SamplingPlan& plan, RecordSlot record, uint32_t action_index,
                      std::unordered_set<uint32_t>& written_records) {
     const uint64_t total = static_cast<uint64_t>(plan.num_visible_records) +
@@ -383,7 +392,7 @@ void SamplingPlan::validate() const {
                         invalid_plan("active measurement Pauli is identity");
                     }
                     validate_measurement_pivot(typed, action_index);
-                    validate_expression(*this, typed.outcome, action_index, definition, true);
+                    validate_measurement_outcome(*this, typed.outcome, typed.branch, action_index);
                     validate_record(*this, typed.record, action_index, written_records);
                 } else if constexpr (std::is_same_v<T, MeasureDormantRandom>) {
                     if (planned.active_after != planned.active_before ||
@@ -391,7 +400,7 @@ void SamplingPlan::validate() const {
                         typed.dormant_pivot >= num_qubits) {
                         invalid_plan("dormant measurement has an invalid width or pivot");
                     }
-                    validate_expression(*this, typed.outcome, action_index, definition, true);
+                    validate_measurement_outcome(*this, typed.outcome, typed.branch, action_index);
                     validate_record(*this, typed.record, action_index, written_records);
                 } else if constexpr (std::is_same_v<T, RecordClassical>) {
                     if (planned.active_after != planned.active_before) {

@@ -146,6 +146,23 @@ TEST_CASE("Sampling plan rejects measurement pivots outside Pauli support") {
     REQUIRE_NOTHROW(plan.validate());
 }
 
+TEST_CASE("Sampling plan requires sampled branches in measurement outcomes") {
+    SamplingPlan active = valid_plan();
+    auto& active_measurement = std::get<MeasureActivePauli>(active.actions[1].action);
+    active_measurement.outcome = AffineBool::symbol(SymbolId{0});
+    REQUIRE_THROWS_AS(active.validate(), std::invalid_argument);
+
+    const SymbolId branch{0};
+    SamplingPlan dormant;
+    dormant.num_qubits = 1;
+    dormant.num_visible_records = 1;
+    dormant.symbols = {SymbolInfo{SymbolKind::Branch, 0, std::nullopt}};
+    dormant.actions = {
+        PlannedAction{0, 0, MeasureDormantRandom{0, branch, AffineBool{}, RecordSlot{0}}},
+    };
+    REQUIRE_THROWS_AS(dormant.validate(), std::invalid_argument);
+}
+
 TEST_CASE("Sampling plan rejects active widths unsupported by dense storage") {
     SamplingPlan plan;
     plan.num_qubits = clifft::kDenseActiveWidthLimit;
