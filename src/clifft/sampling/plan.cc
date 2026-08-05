@@ -126,6 +126,7 @@ void validate_pauli(const ActivePauli& pauli, uint32_t expected_width, uint32_t 
 }
 
 void validate_measurement_pivot(const MeasureActivePauli& measurement, uint32_t action_index) {
+    // Pair updates need an X-support pivot; diagonal updates remove a Z-support coordinate.
     const uint64_t pivot_bit = uint64_t{1} << measurement.active_pivot;
     const bool valid = measurement.pauli.x != 0 ? (measurement.pauli.x & pivot_bit) != 0
                                                 : (measurement.pauli.z & pivot_bit) != 0;
@@ -339,6 +340,13 @@ void SamplingPlan::validate() const {
             planned.active_after > num_qubits) {
             invalid_plan("action " + std::to_string(action_index) +
                          " breaks the active-width chain");
+        }
+        const uint32_t action_max_width = std::max(planned.active_before, planned.active_after);
+        if (action_max_width >= kDenseActiveWidthLimit) {
+            invalid_plan("action " + std::to_string(action_index) + " reaches active width " +
+                         std::to_string(action_max_width) +
+                         ", but dense storage requires widths below " +
+                         std::to_string(kDenseActiveWidthLimit));
         }
 
         const std::optional<SymbolId> definition = defined_symbol(planned.action);

@@ -1,4 +1,5 @@
 #include "clifft/sampling/plan.h"
+#include "clifft/util/numeric.h"
 
 #include <catch2/catch_test_macros.hpp>
 #include <stdexcept>
@@ -147,11 +148,35 @@ TEST_CASE("Sampling plan rejects measurement pivots outside Pauli support") {
 
 TEST_CASE("Sampling plan rejects active widths unsupported by dense storage") {
     SamplingPlan plan;
-    plan.num_qubits = 60;
-    plan.initial_active_width = 60;
-    plan.max_active_width = 60;
+    plan.num_qubits = clifft::kDenseActiveWidthLimit;
+    plan.initial_active_width = clifft::kDenseActiveWidthLimit;
+    plan.max_active_width = clifft::kDenseActiveWidthLimit;
 
     REQUIRE_THROWS_AS(plan.validate(), std::invalid_argument);
+}
+
+TEST_CASE("Sampling plan safely rejects a transition stream above dense width") {
+    constexpr uint32_t kMalformedWidth = clifft::kDenseActiveWidthLimit + 10;
+    SamplingPlan plan;
+    plan.num_qubits = kMalformedWidth;
+    plan.max_active_width = clifft::kDenseActiveWidthLimit - 1;
+    for (uint32_t width = 0; width < kMalformedWidth; ++width) {
+        plan.actions.push_back(
+            PlannedAction{width, width + 1, PromoteDormantRotation{width, 0.25, AffineBool{}}});
+    }
+    plan.actions.push_back(PlannedAction{kMalformedWidth, kMalformedWidth,
+                                         RotateActivePauli{ActivePauli{1, 0}, 0.25, AffineBool{}}});
+
+    try {
+        plan.validate();
+        FAIL("malformed active-width stream should be rejected");
+    } catch (const std::invalid_argument& error) {
+        const std::string message = error.what();
+        const std::string expected =
+            "action " + std::to_string(clifft::kDenseActiveWidthLimit - 1) +
+            " reaches active width " + std::to_string(clifft::kDenseActiveWidthLimit);
+        REQUIRE(message.find(expected) != std::string::npos);
+    }
 }
 
 TEST_CASE("Sampling plan distinguishes dormant branch labels from records") {

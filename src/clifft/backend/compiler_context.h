@@ -84,7 +84,8 @@ class VirtualRegisterManager {
 inline void validate_peak_rank(uint32_t peak) {
     if (peak >= kDenseActiveWidthLimit) {
         throw std::runtime_error("peak active rank (" + std::to_string(peak) +
-                                 ") >= 60: would overflow the SVM amplitude array byte size "
+                                 ") >= " + std::to_string(kDenseActiveWidthLimit) +
+                                 ": would overflow the SVM amplitude array byte size "
                                  "(2^peak_rank * 16 must fit in size_t)");
     }
 }

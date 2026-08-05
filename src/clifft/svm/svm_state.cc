@@ -20,8 +20,9 @@ SchrodingerState::SchrodingerState(StateConfig cfg) : peak_rank_(cfg.peak_rank),
     uint32_t peak_rank = cfg.peak_rank;
     if (peak_rank >= kDenseActiveWidthLimit) {
         throw std::invalid_argument(
-            "peak_rank >= 60 would overflow the amplitude array's byte size (2^peak_rank * 16 "
-            "must fit in size_t); peak_rank " +
+            "peak_rank >= " + std::to_string(kDenseActiveWidthLimit) +
+            " would overflow the amplitude array's byte size (2^peak_rank * 16 must fit in "
+            "size_t); peak_rank " +
             std::to_string(peak_rank) + " is too large");
     }
     if (cfg.seed.has_value()) {
@@ -151,8 +152,9 @@ void SchrodingerState::grow_for_continuation(uint32_t peak_rank) {
            "the amplitude array may grow only at the trap boundary, under a pending trap");
     if (peak_rank >= kDenseActiveWidthLimit) {
         throw std::invalid_argument(
-            "peak_rank >= 60 would overflow the amplitude array's byte size (2^peak_rank * 16 "
-            "must fit in size_t); peak_rank " +
+            "peak_rank >= " + std::to_string(kDenseActiveWidthLimit) +
+            " would overflow the amplitude array's byte size (2^peak_rank * 16 must fit in "
+            "size_t); peak_rank " +
             std::to_string(peak_rank) + " is too large");
     }
     if ((1ULL << peak_rank) <= array_size_) {
