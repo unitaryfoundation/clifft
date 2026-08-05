@@ -3,9 +3,9 @@
 Clifft compiles Stim-format circuit text into an executable SVM program. For most users, `clifft.compile()` is the only compilation API needed. Lower-level APIs are available when you want to inspect intermediate representations, customize optimization passes, or build your own compilation flow.
 
 !!! note "Leakage and loss"
-    Circuits containing `LOSS` or `LEVEL_TRANSITION` annotations use
-    `clifft.noncomp.sample()` instead. It compiles the remaining circuit as
-    noncomputational transitions occur. See
+    Circuits containing `LEAKAGE`, `LOSS`, or `LEVEL_TRANSITION` annotations
+    use `clifft.noncomp.sample()` instead. It compiles the remaining circuit
+    as noncomputational transitions occur. See
     [Leakage and Loss](leakage-and-loss.md).
 
 !!! tip "Using Qiskit or Cirq?"

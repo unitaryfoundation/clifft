@@ -371,6 +371,7 @@ size_t count_pauli_masks(const Circuit& circuit) {
                 count += 1;
                 break;
             case GateType::LEVEL_TRANSITION:
+            case GateType::LEAKAGE:
             case GateType::LOSS:
                 // Two masks per materialized instrument site: the rewound
                 // source projector on the op, and the rewound X destination flip in
@@ -807,6 +808,7 @@ HirModule trace(const Circuit& circuit, const InstrumentTraceOptions* instrument
             }
 
             case GateType::LEVEL_TRANSITION:
+            case GateType::LEAKAGE:
             case GateType::LOSS: {
                 if (instruments == nullptr) {
                     throw std::invalid_argument(
@@ -819,19 +821,22 @@ HirModule trace(const Circuit& circuit, const InstrumentTraceOptions* instrument
                     InstrumentSite site;
                     site.qubit = qubit;
                     std::string site_description;
-                    if (node.gate == GateType::LOSS) {
-                        // Uniform loss: source-independent rate, destination
-                        // entirely the trap remainder. A missing argument is
-                        // a malformed node, not a zero-probability loss.
+                    if (is_inline_noncomputational_annotation(node.gate)) {
+                        // Both inline channels have an equal rate from G and E
+                        // and destinations entirely in the trap remainder. A
+                        // missing argument is a malformed node, not a zero-rate
+                        // annotation.
                         if (node.args.size() != 1) {
                             throw std::runtime_error(
-                                "trace: LOSS at line " + std::to_string(node.source_line) +
-                                " requires exactly one argument (the loss probability)");
+                                "trace: " + std::string(gate_name(node.gate)) + " at line " +
+                                std::to_string(node.source_line) +
+                                " requires exactly one argument (the probability)");
                         }
                         const double p = node.args[0];
                         site.probabilities.p_fire[0] = p;
                         site.probabilities.p_fire[1] = p;
-                        site_description = "LOSS at line " + std::to_string(node.source_line);
+                        site_description = std::string(gate_name(node.gate)) + " at line " +
+                                           std::to_string(node.source_line);
                     } else {
                         const auto it = instruments->transitions.find(node.tag);
                         if (it == instruments->transitions.end()) {

@@ -596,12 +596,12 @@ TEST_CASE("trajectory: ternary heralds keep a uniform visible bit") {
     REQUIRE(ones < 140);
 }
 
-TEST_CASE("trajectory: a hand-built malformed LOSS rejects up front") {
-    // A live LOSS site rides through the continuation rewrite verbatim,
+TEST_CASE("trajectory: hand-built malformed inline transitions reject up front") {
+    // A live inline site rides through the continuation rewrite verbatim,
     // and trace() must never be the first to look at its arguments (a
-    // missing one would read as probability zero). Every annotation
-    // validates before the first compile instead. The parser guarantees
-    // LOSS(p) for parsed circuits; these are programmatically built.
+    // missing one would read as probability zero). Every annotation validates
+    // before the first compile instead. The parser guarantees the argument for
+    // parsed circuits; these nodes are programmatically built.
     ModelSpec spec;
     auto model = make_driver_model(spec);
     Circuit circuit = parse("H 0\nM 0");
@@ -616,6 +616,19 @@ TEST_CASE("trajectory: a hand-built malformed LOSS rejects up front") {
                              AstNode{GateType::LOSS, {Target::qubit(0)}, {7.0}, 0});
         REQUIRE_THROWS_WITH(sample_noncomputational(circuit, model, 4, 1),
                             ContainsSubstring("out of [0, 1]"));
+    }
+    SECTION("LEAKAGE missing the probability argument") {
+        circuit.nodes.insert(circuit.nodes.begin() + 1,
+                             AstNode{GateType::LEAKAGE, {Target::qubit(0)}, {}, 0});
+        REQUIRE_THROWS_WITH(
+            sample_noncomputational(circuit, model, 4, 1),
+            ContainsSubstring("LEAKAGE") && ContainsSubstring("exactly one argument"));
+    }
+    SECTION("LEAKAGE probability outside [0, 1]") {
+        circuit.nodes.insert(circuit.nodes.begin() + 1,
+                             AstNode{GateType::LEAKAGE, {Target::qubit(0)}, {7.0}, 0});
+        REQUIRE_THROWS_WITH(sample_noncomputational(circuit, model, 4, 1),
+                            ContainsSubstring("LEAKAGE") && ContainsSubstring("out of [0, 1]"));
     }
 }
 
@@ -1163,6 +1176,73 @@ TEST_CASE("trajectory: multi-target annotation jumps both targets in one shot") 
         REQUIRE(result.final_status[shot * 2] == QubitStatus::Lost);
         REQUIRE(result.final_status[shot * 2 + 1] == QubitStatus::Lost);
     }
+}
+
+// Inline leakage
+
+TEST_CASE("trajectory: certain LEAKAGE preserves the computational source level") {
+    ModelSpec spec;
+    auto model = make_driver_model(spec);
+    auto circuit = parse("X 1\nLEAKAGE(1) 0 1");
+
+    auto result = sample_noncomputational(circuit, model, 20, 137);
+    for (uint32_t shot = 0; shot < 20; ++shot) {
+        REQUIRE(result.final_status[shot * 2] == QubitStatus::LeakG);
+        REQUIRE(result.final_status[shot * 2 + 1] == QubitStatus::LeakE);
+    }
+}
+
+TEST_CASE("trajectory: LEAKAGE leaves noncomputational sources unchanged") {
+    SECTION("leak_g") {
+        ModelSpec spec;
+        spec.initial = pure_initial_state(Level::LeakG);
+        auto result =
+            sample_noncomputational(parse("LEAKAGE(1) 0"), make_driver_model(spec), 20, 139);
+        for (const QubitStatus status : result.final_status) {
+            REQUIRE(status == QubitStatus::LeakG);
+        }
+    }
+    SECTION("leak_e") {
+        ModelSpec spec;
+        spec.initial = pure_initial_state(Level::LeakE);
+        auto result =
+            sample_noncomputational(parse("LEAKAGE(1) 0"), make_driver_model(spec), 20, 141);
+        for (const QubitStatus status : result.final_status) {
+            REQUIRE(status == QubitStatus::LeakE);
+        }
+    }
+    SECTION("lost") {
+        ModelSpec spec;
+        spec.initial = pure_initial_state(Level::Lost);
+        auto result =
+            sample_noncomputational(parse("LEAKAGE(1) 0"), make_driver_model(spec), 20, 143);
+        for (const QubitStatus status : result.final_status) {
+            REQUIRE(status == QubitStatus::Lost);
+        }
+    }
+}
+
+TEST_CASE("trajectory: LEAKAGE on a leaked qubit spends no driver draw") {
+    const uint64_t seed = 145;
+    auto recover = zero_transition_matrix();
+    recover[level_index(Level::E)][level_index(Level::LeakG)] = 0.5;
+    auto model =
+        NonComputationalModel::from_spec(pure_initial_state(Level::LeakG), {{"recover", recover}},
+                                         std::nullopt, NonComputationalPolicy{});
+
+    auto plain = sample_noncomputational(parse("LEVEL_TRANSITION[recover] 0"), model, 128, seed);
+    auto redundant = sample_noncomputational(parse("LEAKAGE(1) 0\nLEVEL_TRANSITION[recover] 0"),
+                                             model, 128, seed);
+    REQUIRE(plain.final_status == redundant.final_status);
+
+    bool saw_leaked = false;
+    bool saw_recovered = false;
+    for (const QubitStatus status : plain.final_status) {
+        saw_leaked |= status == QubitStatus::LeakG;
+        saw_recovered |= status == QubitStatus::Computational;
+    }
+    REQUIRE(saw_leaked);
+    REQUIRE(saw_recovered);
 }
 
 // LOSS on already-leaked and already-lost qubits

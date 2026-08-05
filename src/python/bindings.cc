@@ -279,6 +279,7 @@ NB_MODULE(_clifft_core, m) {
         .value("TICK", clifft::GateType::TICK)
         // Noncomputational trajectory annotations
         .value("LEVEL_TRANSITION", clifft::GateType::LEVEL_TRANSITION)
+        .value("LEAKAGE", clifft::GateType::LEAKAGE)
         .value("LOSS", clifft::GateType::LOSS)
         // Simulation-only probes
         .value("EXP_VAL", clifft::GateType::EXP_VAL)

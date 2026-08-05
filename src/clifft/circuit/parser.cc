@@ -360,13 +360,13 @@ class Parser {
                                  line_num);
             }
         }
-        if (gate == GateType::LOSS) {
+        if (is_inline_noncomputational_annotation(gate)) {
+            const std::string name{clifft::gate_name(gate)};
             if (args.size() != 1) {
-                throw ParseError("LOSS requires exactly 1 argument (the loss probability)",
-                                 line_num);
+                throw ParseError(name + " requires exactly 1 argument (the probability)", line_num);
             }
             if (!is_probability(args[0])) {
-                throw ParseError("LOSS probability must be finite and lie in [0, 1]", line_num);
+                throw ParseError(name + " probability must be finite and lie in [0, 1]", line_num);
             }
         }
         if (gate == GateType::READOUT_NOISE) {

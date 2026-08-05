@@ -213,7 +213,7 @@ ContinuationRewrite rewrite_continuation(const Circuit& annotated, const Traject
         const AstNode& node = annotated.nodes[op_index];
         const GateType gate = node.gate;
 
-        if (gate == GateType::LEVEL_TRANSITION || gate == GateType::LOSS) {
+        if (is_noncomputational_annotation(gate)) {
             for (const Target& target : node.targets) {
                 const uint32_t qubit = target.value();
                 if (qubit >= status.size()) {
@@ -271,11 +271,13 @@ ContinuationRewrite rewrite_continuation(const Circuit& annotated, const Traject
                 // the same sites, so skipping both the node and site_targets
                 // entry keeps their site IDs aligned.
                 //
-                // LOSS(p) can fire when p != 0. LEVEL_TRANSITION[tag] can fire
-                // when either column_sum(G) or column_sum(E) is nonzero. These
-                // exact 0.0 comparisons match frontend.cc.
-                if (gate == GateType::LOSS) {
-                    if (loss_probability(node.args, op_index, "rewrite_continuation") == 0.0) {
+                // Inline LEAKAGE/LOSS can fire when p != 0.
+                // LEVEL_TRANSITION[tag] can fire when either column_sum(G) or
+                // column_sum(E) is nonzero. These exact 0.0 comparisons match
+                // frontend.cc.
+                if (is_inline_noncomputational_annotation(gate)) {
+                    if (inline_transition_probability(gate, node.args, op_index,
+                                                      "rewrite_continuation") == 0.0) {
                         continue;
                     }
                 } else {

@@ -129,6 +129,9 @@ _SKIP_GATES = frozenset(
         "CORRELATED_ERROR",
         "E",
         "ELSE_CORRELATED_ERROR",
+        "LEVEL_TRANSITION",
+        "LEAKAGE",
+        "LOSS",
         "MPP",  # Pauli product measurements need special handling
     }
 )

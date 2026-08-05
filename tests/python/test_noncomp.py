@@ -74,7 +74,7 @@ def test_non_hookable_instruction_key_raises():
 
 
 def test_local_annotations_run_end_to_end():
-    """Hand-written LOSS and LEVEL_TRANSITION annotations drive the trajectory."""
+    """Hand-written transition annotations drive the trajectory."""
     model = noncomp.Model(
         initial_state=ALL_G,
         transitions={"leak": transition_to(LEAK_G)},
@@ -88,6 +88,37 @@ def test_local_annotations_run_end_to_end():
     )
     s = noncomp.sample("H 0\nLOSS(1) 0\nM 0", lossy, shots=32, seed=3)
     assert np.all(s.measurements[:, 0] == 0)  # lost slot fixed by the classifier
+
+
+def test_leakage_preserves_computational_source_level():
+    result = noncomp.sample("X 1\nLEAKAGE(1) 0 1", noncomp.Model(), shots=32, seed=208)
+    assert (result.final_status[:, 0] == noncomp.QubitStatus.LEAK_G).all()
+    assert (result.final_status[:, 1] == noncomp.QubitStatus.LEAK_E).all()
+
+
+@pytest.mark.parametrize(
+    ("initial", "expected"),
+    [
+        ([0, 0, 1, 0, 0], noncomp.QubitStatus.LEAK_G),
+        ([0, 0, 0, 1, 0], noncomp.QubitStatus.LEAK_E),
+        ([0, 0, 0, 0, 1], noncomp.QubitStatus.LOST),
+    ],
+)
+def test_leakage_leaves_noncomputational_sources_unchanged(initial, expected):
+    result = noncomp.sample(
+        "LEAKAGE(1) 0", noncomp.Model(initial_state=initial), shots=16, seed=209
+    )
+    assert (result.final_status[:, 0] == expected).all()
+
+
+def test_multi_target_leakage_samples_targets_independently():
+    p = 0.3
+    shots = 10_000
+    result = noncomp.sample(f"LEAKAGE({p}) 0 1", noncomp.Model(), shots=shots, seed=210)
+    leaked = result.final_status != noncomp.QubitStatus.COMPUTATIONAL
+    assert abs(float(leaked[:, 0].mean()) - p) < 0.025
+    assert abs(float(leaked[:, 1].mean()) - p) < 0.025
+    assert abs(float(np.logical_and(leaked[:, 0], leaked[:, 1]).mean()) - p * p) < 0.02
 
 
 def test_sample_accepts_a_parsed_circuit():
@@ -780,12 +811,13 @@ def test_malformed_transition_error_names_key():
         noncomp.Model(initial_state=ALL_G, transitions={"S": transition_to(LEAK_G), "CZ": bad})
 
 
-def test_compile_annotated_circuit_raises_invalid_argument_with_noncomp_sample_hint():
-    """clifft.compile() on a LOSS-annotated circuit raises ValueError naming noncomp.sample."""
+@pytest.mark.parametrize("annotation", ["LEAKAGE(0.1) 0", "LOSS(0.1) 0"])
+def test_compile_annotated_circuit_raises_invalid_argument_with_noncomp_sample_hint(annotation):
+    """Ordinary compilation directs noncomputational annotations to noncomp.sample."""
     import clifft
 
     with pytest.raises(ValueError, match="noncomp.sample"):
-        clifft.compile("LOSS(0.1) 0\nM 0")
+        clifft.compile(f"{annotation}\nM 0")
 
 
 def test_sample_type_hints_resolve_at_runtime():

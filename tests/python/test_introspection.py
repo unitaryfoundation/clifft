@@ -319,6 +319,10 @@ class TestAstNodeAnnotations:
         node = clifft.parse("LOSS(0.1) 0\nM 0").nodes[0]
         assert node.gate == clifft.GateType.LOSS
 
+    def test_leakage_gate_type_is_bound(self) -> None:
+        node = clifft.parse("LEAKAGE(0.1) 0\nM 0").nodes[0]
+        assert node.gate == clifft.GateType.LEAKAGE
+
     def test_level_transition_gate_type_is_bound(self) -> None:
         node = clifft.parse("LEVEL_TRANSITION[cz_leak] 0\nM 0").nodes[0]
         assert node.gate == clifft.GateType.LEVEL_TRANSITION
@@ -331,8 +335,14 @@ class TestAstNodeAnnotations:
         node = clifft.parse("LOSS(0.1) 0\nM 0").nodes[0]
         assert node.tag == ""
 
+    def test_leakage_tag_is_empty(self) -> None:
+        node = clifft.parse("LEAKAGE(0.1) 0\nM 0").nodes[0]
+        assert node.tag == ""
+
     def test_repr_works_for_annotation_nodes(self) -> None:
         circuit = clifft.parse("LOSS(0.1) 0\nM 0")
         assert repr(circuit.nodes[0]) == "LOSS 0"
+        leakage = clifft.parse("LEAKAGE(0.1) 0\nM 0")
+        assert repr(leakage.nodes[0]) == "LEAKAGE 0"
         circuit2 = clifft.parse("LEVEL_TRANSITION[cz_leak] 0\nM 0")
         assert repr(circuit2.nodes[0]) == "LEVEL_TRANSITION 0"

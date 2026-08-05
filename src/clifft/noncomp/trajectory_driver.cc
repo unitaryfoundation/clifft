@@ -42,34 +42,46 @@ namespace clifft {
 
 namespace {
 
+enum class AnnotationChannelKind { Instrument, Leakage, Loss };
+
 // The channel described by one transition annotation: a named instrument for
-// LEVEL_TRANSITION or a uniform loss probability for LOSS. A null instrument
-// identifies the LOSS representation.
+// LEVEL_TRANSITION or an inline probability for LEAKAGE/LOSS.
 struct AnnotationChannel {
     [[nodiscard]] static AnnotationChannel for_instrument(const TransitionInstrument& instrument) {
-        return AnnotationChannel(&instrument, 0.0);
+        return AnnotationChannel(AnnotationChannelKind::Instrument, &instrument, 0.0);
+    }
+
+    [[nodiscard]] static AnnotationChannel for_leakage(double probability) {
+        return AnnotationChannel(AnnotationChannelKind::Leakage, nullptr, probability);
     }
 
     [[nodiscard]] static AnnotationChannel for_loss(double probability) {
-        return AnnotationChannel(nullptr, probability);
+        return AnnotationChannel(AnnotationChannelKind::Loss, nullptr, probability);
     }
 
+    AnnotationChannelKind kind;
     const TransitionInstrument* instrument;
-    double loss_probability;
-
-    bool is_loss() const { return instrument == nullptr; }
+    double probability;
 
   private:
-    AnnotationChannel(const TransitionInstrument* instrument_in, double loss_probability_in)
-        : instrument(instrument_in), loss_probability(loss_probability_in) {}
+    AnnotationChannel(AnnotationChannelKind kind_in, const TransitionInstrument* instrument_in,
+                      double probability_in)
+        : kind(kind_in), instrument(instrument_in), probability(probability_in) {}
 };
 
 [[nodiscard]] AnnotationChannel resolve_annotation(const AstNode& node,
                                                    const NonComputationalModel& model,
                                                    uint32_t op_index) {
-    if (node.gate == GateType::LOSS) {
-        return AnnotationChannel::for_loss(
-            loss_probability(node.args, op_index, "sample_noncomputational"));
+    if (is_inline_noncomputational_annotation(node.gate)) {
+        const double p = inline_transition_probability(node.gate, node.args, op_index,
+                                                       "sample_noncomputational");
+        return node.gate == GateType::LEAKAGE ? AnnotationChannel::for_leakage(p)
+                                              : AnnotationChannel::for_loss(p);
+    }
+    if (node.gate != GateType::LEVEL_TRANSITION) {
+        throw std::invalid_argument("sample_noncomputational: unsupported annotation '" +
+                                    std::string(gate_name(node.gate)) + "' at op " +
+                                    std::to_string(op_index));
     }
     const TransitionInstrument* instrument = model.transition_named(node.tag);
     if (instrument == nullptr) {
@@ -80,7 +92,7 @@ struct AnnotationChannel {
     return AnnotationChannel::for_instrument(*instrument);
 }
 
-// Resolving validates the LOSS arguments or transition name; the remaining
+// Resolving validates the inline arguments or transition name; the remaining
 // checks enforce the target shape expected by the driver and rewriter.
 void validate_annotation(const AstNode& node, const NonComputationalModel& model, uint32_t op_index,
                          uint32_t num_qubits) {
@@ -198,7 +210,7 @@ void extend_classical_outcomes(const Circuit& annotated, TrajectoryEvents& event
     for (uint32_t op_index = 0; op_index < annotated.nodes.size(); ++op_index) {
         const AstNode& node = annotated.nodes[op_index];
         const GateType gate = node.gate;
-        if (gate == GateType::LEVEL_TRANSITION || gate == GateType::LOSS) {
+        if (is_noncomputational_annotation(gate)) {
             for (const Target& target : node.targets) {
                 const uint32_t qubit = target.value();
                 const QubitStatus pre = status[qubit];
@@ -224,16 +236,27 @@ void extend_classical_outcomes(const Circuit& annotated, TrajectoryEvents& event
                         outcome = seen->second;
                     } else {
                         const AnnotationChannel channel = resolve_annotation(node, model, op_index);
-                        if (!channel.is_loss()) {
-                            const double total = channel.instrument->column_sum(source);
-                            if (rng.next_double() < total) {
-                                outcome.destination = draw_from_column(
-                                    *channel.instrument, source, rng, [](Level) { return true; });
+                        switch (channel.kind) {
+                            case AnnotationChannelKind::Instrument: {
+                                const double total = channel.instrument->column_sum(source);
+                                if (rng.next_double() < total) {
+                                    outcome.destination =
+                                        draw_from_column(*channel.instrument, source, rng,
+                                                         [](Level) { return true; });
+                                }
+                                break;
                             }
-                        } else if (!is_lost(pre) && rng.next_double() < channel.loss_probability) {
-                            // LOSS can move a leaked qubit to Lost. An already-lost
-                            // qubit records a no-op without spending a draw.
-                            outcome.destination = Level::Lost;
+                            case AnnotationChannelKind::Leakage:
+                                // LEAKAGE is a no-op on every noncomputational source
+                                // and spends no draw.
+                                break;
+                            case AnnotationChannelKind::Loss:
+                                // LOSS can move a leaked qubit to Lost. An already-lost
+                                // qubit records a no-op without spending a draw.
+                                if (!is_lost(pre) && rng.next_double() < channel.probability) {
+                                    outcome.destination = Level::Lost;
+                                }
+                                break;
                         }
                     }
                     ordered.push_back(outcome);
@@ -484,7 +507,8 @@ void validate_model_contract(const Circuit& annotated, const NonComputationalMod
     if (!noncomp_capable) {
         for (uint32_t i = 0; i < static_cast<uint32_t>(annotated.nodes.size()); ++i) {
             const AstNode& node = annotated.nodes[i];
-            if (node.gate == GateType::LOSS && !node.args.empty() && node.args[0] > 0.0) {
+            if (is_inline_noncomputational_annotation(node.gate) && !node.args.empty() &&
+                node.args[0] > 0.0) {
                 noncomp_capable = true;
                 break;
             }
@@ -572,7 +596,7 @@ NonComputationalSample run_trajectory_driver(const Circuit& circuit,
     for (uint32_t op_index = 0; op_index < static_cast<uint32_t>(annotated.nodes.size());
          ++op_index) {
         const AstNode& node = annotated.nodes[op_index];
-        if (node.gate == GateType::LEVEL_TRANSITION || node.gate == GateType::LOSS) {
+        if (is_noncomputational_annotation(node.gate)) {
             validate_annotation(node, model, op_index, annotated.num_qubits);
         }
         // The parser emits one node per target for ordinary measurements, and
@@ -749,13 +773,23 @@ NonComputationalSample run_trajectory_driver(const Circuit& circuit,
             assert(trap.source <= 1 &&
                    "the VM reports the collapsed source as a computational axis index");
             const Level source = static_cast<Level>(trap.source);
-            Level dest = Level::Lost;
-            if (!channel.is_loss() && trap.destination_pending) {
-                dest = draw_from_column(*channel.instrument, source, driver_rng,
-                                        [](Level) { return true; });
-            } else if (!channel.is_loss()) {
-                dest = draw_from_column(*channel.instrument, source, driver_rng,
-                                        [](Level to) { return !is_computational(to); });
+            Level dest;
+            switch (channel.kind) {
+                case AnnotationChannelKind::Instrument:
+                    if (trap.destination_pending) {
+                        dest = draw_from_column(*channel.instrument, source, driver_rng,
+                                                [](Level) { return true; });
+                    } else {
+                        dest = draw_from_column(*channel.instrument, source, driver_rng,
+                                                [](Level to) { return !is_computational(to); });
+                    }
+                    break;
+                case AnnotationChannelKind::Leakage:
+                    dest = source == Level::G ? Level::LeakG : Level::LeakE;
+                    break;
+                case AnnotationChannelKind::Loss:
+                    dest = Level::Lost;
+                    break;
             }
 
             events.jumps.push_back({{op_index, qubit}, dest});

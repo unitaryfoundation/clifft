@@ -150,7 +150,7 @@ TEST_CASE(
 }
 
 TEST_CASE("NonComputationalModel: rejects non-hookable instruction keys") {
-    for (const std::string key : {"DEPOLARIZE1", "TICK", "LOSS"}) {
+    for (const std::string key : {"DEPOLARIZE1", "TICK", "LEAKAGE", "LOSS"}) {
         REQUIRE_THROWS_WITH(
             NonComputationalModel::from_spec(default_initial_state(),
                                              {{key, zero_transition_matrix()}}, std::nullopt,

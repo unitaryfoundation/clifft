@@ -14,9 +14,10 @@ Deliberately independent of clifft: its own line parser (a small subset)
 and its own statement of the semantics -- operations touching a leaked or
 lost operand drop whole (measurements never drop; a classifier column
 supplies their record bit), R restores a leaked qubit and never a lost
-one, LOSS is a source-independent trace-out. Exponential in circuit
-size by construction; the branch cap guards against feeding it a scenario
-it was never meant to hold.
+one, LEAKAGE preserves the computational source label, and LOSS is a
+source-independent trace-out. Exponential in circuit size by construction;
+the branch cap guards against feeding it a scenario it was never meant to
+hold.
 
 Level ids match ``clifft.noncomp.Level``: g=0, e=1, leak_g=2, leak_e=3,
 lost=4.
@@ -40,7 +41,8 @@ _MAX_BRANCHES = 200_000
 
 @dataclass
 class _Op:
-    kind: str  # "gate" | "reset" | "measure" | "measure_reset" | "transition" | "loss"
+    # gate | reset | measure | measure_reset | transition | leakage | loss
+    kind: str
     targets: list[int]
     gate: str = ""
     tag: str = ""
@@ -82,6 +84,10 @@ def parse_circuit(text: str) -> tuple[list[_Op], int]:
             m = re.fullmatch(r"LOSS\(([^)]+)\)", name)
             assert m is not None, line
             ops.extend(_Op("loss", [q], prob=float(m.group(1))) for q in qubits)
+        elif name.startswith("LEAKAGE("):
+            m = re.fullmatch(r"LEAKAGE\(([^)]+)\)", name)
+            assert m is not None, line
+            ops.extend(_Op("leakage", [q], prob=float(m.group(1))) for q in qubits)
         else:
             raise ValueError(f"enumerator does not support: {line}")
     return ops, max_q + 1
@@ -230,17 +236,44 @@ def enumerate_exact(
                         p_bit = classifier[bit][level]
                         if p_bit <= 0.0:
                             continue
-                        status = list(br.status)
                         if op.kind == "measure_reset" and level != LOST:
+                            status = list(br.status)
                             status[q] = G  # reset restores the leaked qubit
-                        nxt.append(
-                            _Branch(
-                                br.weight * p_bit,
-                                br.state,
-                                tuple(status),
-                                br.record + (bit,),
+                            for w, post, parked_bit in _hidden_collapse(br, q, n):
+                                nxt.append(
+                                    _Branch(
+                                        br.weight * p_bit * w,
+                                        _prep_zero(post, q, parked_bit, n),
+                                        tuple(status),
+                                        br.record + (bit,),
+                                    )
+                                )
+                        else:
+                            nxt.append(
+                                _Branch(
+                                    br.weight * p_bit,
+                                    br.state,
+                                    br.status,
+                                    br.record + (bit,),
+                                )
                             )
-                        )
+                continue
+
+            if op.kind == "leakage":
+                if level not in _COMPUTATIONAL:
+                    nxt.append(br)
+                    continue
+                p = op.prob
+                if p < 1.0:
+                    nxt.append(_Branch(br.weight * (1.0 - p), br.state, br.status, br.record))
+                if p > 0.0:
+                    for source in _COMPUTATIONAL:
+                        w, post = oracle.collapse(br.state, q, source, n)
+                        if w <= 0.0:
+                            continue
+                        status = list(br.status)
+                        status[q] = LEAK_G if source == G else LEAK_E
+                        nxt.append(_Branch(br.weight * p * w, post, tuple(status), br.record))
                 continue
 
             if op.kind == "loss":

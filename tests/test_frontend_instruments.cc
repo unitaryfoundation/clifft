@@ -1,7 +1,7 @@
 // Frontend materialization and fence tests for INSTRUMENT ops.
 //
-// trace() with InstrumentTraceOptions materializes LEVEL_TRANSITION and
-// LOSS annotations into OpType::INSTRUMENT ops carrying the rewound
+// trace() with InstrumentTraceOptions materializes LEVEL_TRANSITION,
+// LEAKAGE, and LOSS annotations into OpType::INSTRUMENT ops carrying the rewound
 // source projector Z_q, with per-source probabilities in the
 // InstrumentSite side-table. Without options the annotations reject as
 // before. Instruments are optimization fences: no pass moves anything
@@ -61,6 +61,8 @@ bool mask_is(const HirModule& hir, const HeisenbergOp& op, uint32_t qubit, bool 
 TEST_CASE("trace: annotations still reject without instrument options") {
     REQUIRE_THROWS_WITH(trace(parse("LEVEL_TRANSITION[jump] 0")),
                         ContainsSubstring("noncomputational annotation"));
+    REQUIRE_THROWS_WITH(trace(parse("LEAKAGE(0.1) 0")),
+                        ContainsSubstring("noncomputational annotation"));
     REQUIRE_THROWS_WITH(trace(parse("LOSS(0.1) 0")),
                         ContainsSubstring("noncomputational annotation"));
 }
@@ -107,8 +109,27 @@ TEST_CASE("trace: the instrument mask is the rewound source projector") {
 }
 
 TEST_CASE("trace: LOSS materializes a source-independent all-trap site per target") {
-    const InstrumentTraceOptions options;  // LOSS needs no named specs
+    const InstrumentTraceOptions options;  // Inline annotations need no named specs
     auto hir = hir_with_instruments("LOSS(0.25) 0 1", options);
+
+    REQUIRE(hir.ops.size() == 2);
+    REQUIRE(hir.instrument_sites.size() == 2);
+    for (int i = 0; i < 2; ++i) {
+        const InstrumentSite& site = hir.instrument_sites[static_cast<size_t>(i)];
+        const InstrumentProbabilities& probabilities = site.probabilities;
+        REQUIRE(site.qubit == static_cast<uint32_t>(i));
+        REQUIRE_THAT(probabilities.p_fire[0], WithinAbs(0.25, kTol));
+        REQUIRE_THAT(probabilities.p_fire[1], WithinAbs(0.25, kTol));
+        REQUIRE_THAT(probabilities.p_noncomputational_dest(0), WithinAbs(0.25, kTol));
+        REQUIRE_THAT(probabilities.p_noncomputational_dest(1), WithinAbs(0.25, kTol));
+        REQUIRE(mask_is(hir, hir.ops[static_cast<size_t>(i)], static_cast<uint32_t>(i), false, true,
+                        false));
+    }
+}
+
+TEST_CASE("trace: LEAKAGE materializes a source-preserving all-trap site per target") {
+    const InstrumentTraceOptions options;
+    auto hir = hir_with_instruments("LEAKAGE(0.25) 0 1", options);
 
     REQUIRE(hir.ops.size() == 2);
     REQUIRE(hir.instrument_sites.size() == 2);
@@ -129,7 +150,8 @@ TEST_CASE("trace: a zero-rate site is elided") {
     InstrumentTraceOptions options;
     options.transitions.emplace("nothing", InstrumentProbabilities{});
 
-    auto hir = hir_with_instruments("LOSS(0) 0\nLEVEL_TRANSITION[nothing] 0", options);
+    auto hir =
+        hir_with_instruments("LEAKAGE(0) 0\nLOSS(0) 0\nLEVEL_TRANSITION[nothing] 0", options);
     REQUIRE(hir.ops.empty());
     REQUIRE(hir.instrument_sites.empty());
     REQUIRE(hir.is_deterministic());
