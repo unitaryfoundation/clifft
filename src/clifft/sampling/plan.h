@@ -5,6 +5,8 @@
 // This representation deliberately does not reuse the legacy SVM Instruction.
 // It describes sampling semantics; CPU layout, SIMD selection, dispatch, and
 // device lowering belong to later execution-specific layers.
+// Executors must lower it to a packed, allocation-free runtime plan rather
+// than traversing these variants and vectors in per-shot hot loops.
 //
 // The symbolic-expression and stabilizer-coordinate action split is an
 // independent Clifft implementation informed by the published SymFT design.
@@ -24,13 +26,13 @@ enum class NoiseSiteId : uint32_t {};
 enum class InstrumentSiteId : uint32_t {};
 
 enum class SymbolKind : uint8_t {
-    Exogenous,
+    Presampled,
     Derived,
     Branch,
 };
 
-// An affine Boolean expression over plan symbols. Terms are stored in strict
-// ascending order; XOR construction removes duplicates.
+// An XOR (parity) expression over plan symbols, possibly inverted. Terms are
+// stored in strict ascending order; XOR construction removes duplicates.
 class AffineBool {
   public:
     AffineBool() = default;
@@ -57,13 +59,13 @@ class AffineBool {
 [[nodiscard]] AffineBool operator^(bool left, AffineBool right);
 
 // The Hermitian Pauli body for one action, expressed only in the active
-// coordinates visible immediately before that action. Y phases are implied by
-// paired X/Z bits. Its sign is carried by the action's AffineBool so
-// shot-dependent signs never enter this mask.
+// coordinates visible immediately before that action. The unsigned operator is
+// i^popcount(x & z) X^x Z^z; an action's AffineBool carries its possibly
+// shot-dependent sign. Dense active width is below kDenseActiveWidthLimit, so
+// each mask fits in one word even when the physical circuit has many qubits.
 struct ActivePauli {
-    uint32_t width = 0;
-    std::vector<uint64_t> x;
-    std::vector<uint64_t> z;
+    uint64_t x = 0;
+    uint64_t z = 0;
 
     [[nodiscard]] bool is_identity() const;
 };
@@ -72,14 +74,16 @@ struct ActivePauli {
 struct RotateActivePauli {
     ActivePauli pauli;
     double half_turns = 0.0;
-    AffineBool negative;
+    // True means the Pauli enters the rotation with a minus sign.
+    AffineBool sign;
 };
 
 // Promotes one dormant coordinate and applies the rotation that introduced it.
 struct PromoteDormantRotation {
     uint32_t dormant_pivot = 0;
     double half_turns = 0.0;
-    AffineBool negative;
+    // True means the promoted Pauli enters with a minus sign.
+    AffineBool sign;
 };
 
 // Samples one active Pauli branch and removes the selected active pivot. The
@@ -115,9 +119,11 @@ struct DefineSymbol {
     AffineBool value;
 };
 
-// Divides ahead-of-time execution segments. A future continuation must accept
-// the live state established here; it need not reproduce an arbitrary prior
-// plan prefix byte-for-byte.
+// Divides ahead-of-time execution segments. A continuation must preserve the
+// live coefficients, active-coordinate meaning and order, active width,
+// symbol and record values, and RNG position established here. It need not
+// reproduce an arbitrary prior plan prefix byte-for-byte. The boundary itself
+// is width-neutral; any state transition belongs to a following action.
 struct InstrumentBoundary {
     InstrumentSiteId site{};
 };
@@ -133,13 +139,13 @@ struct PlannedAction {
 };
 
 struct SymbolInfo {
-    SymbolKind kind = SymbolKind::Exogenous;
+    SymbolKind kind = SymbolKind::Presampled;
 
-    // Exogenous symbols are presampled and have no defining action. Branch and
+    // Presampled symbols have no defining action. Branch and
     // derived symbols name the action that makes them available.
     std::optional<uint32_t> defining_action;
 
-    // Exogenous symbols may identify the stable HIR noise site that supplies
+    // Presampled symbols may identify the stable HIR noise site that supplies
     // them. Other presampled event kinds can add their own source identity
     // without changing expression semantics.
     std::optional<NoiseSiteId> noise_site;
@@ -147,6 +153,10 @@ struct SymbolInfo {
 
 struct SamplingPlan {
     uint32_t num_qubits = 0;
+
+    // Active width is the new subsystem's name for legacy active_k. The
+    // planner computes its maximum (legacy peak_rank) while emitting actions,
+    // before runtime lowering uses it to preallocate coefficient storage.
     uint32_t initial_active_width = 0;
     uint32_t max_active_width = 0;
     uint32_t num_visible_records = 0;

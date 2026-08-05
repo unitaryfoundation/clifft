@@ -9,6 +9,7 @@
 #include "clifft/backend/backend.h"
 #include "clifft/backend/source_map.h"
 #include "clifft/frontend/hir.h"
+#include "clifft/util/numeric.h"
 
 #include "stim.h"
 
@@ -81,7 +82,7 @@ class VirtualRegisterManager {
 /// at the boundary, preventing a regression where a uint16_t narrowing
 /// at the call site silently wraps a 65,536-axis peak to 0.
 inline void validate_peak_rank(uint32_t peak) {
-    if (peak >= 60) {
+    if (peak >= kDenseActiveWidthLimit) {
         throw std::runtime_error("peak active rank (" + std::to_string(peak) +
                                  ") >= 60: would overflow the SVM amplitude array byte size "
                                  "(2^peak_rank * 16 must fit in size_t)");

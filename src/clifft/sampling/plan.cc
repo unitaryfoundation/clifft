@@ -9,6 +9,7 @@
 #include <stdexcept>
 #include <string_view>
 #include <type_traits>
+#include <unordered_set>
 #include <utility>
 
 namespace clifft::sampling {
@@ -89,8 +90,8 @@ std::string format_expression(const AffineBool& expression) {
 
 std::string_view symbol_kind_name(SymbolKind kind) {
     switch (kind) {
-        case SymbolKind::Exogenous:
-            return "exogenous";
+        case SymbolKind::Presampled:
+            return "presampled";
         case SymbolKind::Derived:
             return "derived";
         case SymbolKind::Branch:
@@ -99,23 +100,15 @@ std::string_view symbol_kind_name(SymbolKind kind) {
     return "unknown";
 }
 
-std::string format_words(const std::vector<uint64_t>& words) {
+std::string format_mask(uint64_t mask) {
     std::ostringstream out;
-    out << '[';
-    for (size_t i = 0; i < words.size(); ++i) {
-        if (i != 0) {
-            out << ',';
-        }
-        out << "0x" << std::hex << std::setw(16) << std::setfill('0') << words[i];
-    }
-    out << ']';
+    out << "0x" << std::hex << std::setw(16) << std::setfill('0') << mask;
     return out.str();
 }
 
 std::string format_pauli(const ActivePauli& pauli) {
     std::ostringstream out;
-    out << "width=" << pauli.width << " x=" << format_words(pauli.x)
-        << " z=" << format_words(pauli.z);
+    out << "x=" << format_mask(pauli.x) << " z=" << format_mask(pauli.z);
     return out.str();
 }
 
@@ -124,22 +117,21 @@ std::string format_pauli(const ActivePauli& pauli) {
 }
 
 void validate_pauli(const ActivePauli& pauli, uint32_t expected_width, uint32_t action_index) {
-    if (pauli.width != expected_width) {
-        invalid_plan("action " + std::to_string(action_index) + " Pauli width " +
-                     std::to_string(pauli.width) + " does not match active width " +
-                     std::to_string(expected_width));
-    }
-    const size_t words = (static_cast<size_t>(pauli.width) + 63) / 64;
-    if (pauli.x.size() != words || pauli.z.size() != words) {
+    const uint64_t width_mask =
+        expected_width == 0 ? uint64_t{0} : (uint64_t{1} << expected_width) - 1;
+    if ((pauli.x & ~width_mask) != 0 || (pauli.z & ~width_mask) != 0) {
         invalid_plan("action " + std::to_string(action_index) +
-                     " Pauli word count does not match its width");
+                     " Pauli has bits outside its active width");
     }
-    if (words != 0 && pauli.width % 64 != 0) {
-        const uint64_t tail_mask = (uint64_t{1} << (pauli.width % 64)) - 1;
-        if ((pauli.x.back() & ~tail_mask) != 0 || (pauli.z.back() & ~tail_mask) != 0) {
-            invalid_plan("action " + std::to_string(action_index) +
-                         " Pauli has bits outside its active width");
-        }
+}
+
+void validate_measurement_pivot(const MeasureActivePauli& measurement, uint32_t action_index) {
+    const uint64_t pivot_bit = uint64_t{1} << measurement.active_pivot;
+    const bool valid = measurement.pauli.x != 0 ? (measurement.pauli.x & pivot_bit) != 0
+                                                : (measurement.pauli.z & pivot_bit) != 0;
+    if (!valid) {
+        invalid_plan("action " + std::to_string(action_index) +
+                     " measurement pivot is outside the relevant Pauli support");
     }
 }
 
@@ -173,7 +165,7 @@ void validate_expression(const SamplingPlan& plan, const AffineBool& expression,
                          std::to_string(symbol_index) + " out of range");
         }
         const SymbolInfo& info = plan.symbols[symbol_index];
-        if (info.kind == SymbolKind::Exogenous) {
+        if (info.kind == SymbolKind::Presampled) {
             continue;
         }
         if (!info.defining_action.has_value()) {
@@ -188,12 +180,17 @@ void validate_expression(const SamplingPlan& plan, const AffineBool& expression,
     }
 }
 
-void validate_record(const SamplingPlan& plan, RecordSlot record, uint32_t action_index) {
+void validate_record(const SamplingPlan& plan, RecordSlot record, uint32_t action_index,
+                     std::unordered_set<uint32_t>& written_records) {
     const uint64_t total = static_cast<uint64_t>(plan.num_visible_records) +
                            static_cast<uint64_t>(plan.num_hidden_records);
     if (index(record) >= total) {
         invalid_plan("action " + std::to_string(action_index) + " record slot " +
                      std::to_string(index(record)) + " out of range");
+    }
+    if (!written_records.insert(index(record)).second) {
+        invalid_plan("action " + std::to_string(action_index) + " writes record slot " +
+                     std::to_string(index(record)) + " more than once");
     }
 }
 
@@ -244,8 +241,7 @@ AffineBool operator^(bool left, AffineBool right) {
 }
 
 bool ActivePauli::is_identity() const {
-    return std::ranges::all_of(x, [](uint64_t word) { return word == 0; }) &&
-           std::ranges::all_of(z, [](uint64_t word) { return word == 0; });
+    return x == 0 && z == 0;
 }
 
 uint32_t predicted_dense_passes(const SamplingAction& action) {
@@ -270,6 +266,10 @@ void SamplingPlan::validate() const {
     }
     if (max_active_width > num_qubits || max_active_width < initial_active_width) {
         invalid_plan("maximum active width is inconsistent with plan dimensions");
+    }
+    if (max_active_width >= kDenseActiveWidthLimit) {
+        invalid_plan("maximum active width must be below " +
+                     std::to_string(kDenseActiveWidthLimit) + " for dense coefficient storage");
     }
     if (static_cast<uint64_t>(num_visible_records) + num_hidden_records >
         std::numeric_limits<uint32_t>::max()) {
@@ -299,13 +299,13 @@ void SamplingPlan::validate() const {
     for (uint32_t symbol_index = 0; symbol_index < symbols.size(); ++symbol_index) {
         const SymbolInfo& info = symbols[symbol_index];
         if (info.noise_site.has_value() &&
-            (info.kind != SymbolKind::Exogenous || index(*info.noise_site) >= num_noise_sites)) {
+            (info.kind != SymbolKind::Presampled || index(*info.noise_site) >= num_noise_sites)) {
             invalid_plan("symbol s" + std::to_string(symbol_index) +
                          " has an invalid noise-site identity");
         }
-        if (info.kind == SymbolKind::Exogenous) {
+        if (info.kind == SymbolKind::Presampled) {
             if (info.defining_action.has_value() || actual_definitions[symbol_index].has_value()) {
-                invalid_plan("exogenous symbol s" + std::to_string(symbol_index) +
+                invalid_plan("presampled symbol s" + std::to_string(symbol_index) +
                              " must be presampled");
             }
             continue;
@@ -330,6 +330,9 @@ void SamplingPlan::validate() const {
 
     uint32_t active_width = initial_active_width;
     uint32_t observed_max = active_width;
+    std::unordered_set<uint32_t> written_records;
+    written_records.reserve(std::min<size_t>(
+        actions.size(), static_cast<uint64_t>(num_visible_records) + num_hidden_records));
     for (uint32_t action_index = 0; action_index < actions.size(); ++action_index) {
         const PlannedAction& planned = actions[action_index];
         if (planned.active_before != active_width || planned.active_before > num_qubits ||
@@ -350,7 +353,7 @@ void SamplingPlan::validate() const {
                     if (!is_finite_robust(typed.half_turns)) {
                         invalid_plan("active rotation angle is not finite");
                     }
-                    validate_expression(*this, typed.negative, action_index, definition, false);
+                    validate_expression(*this, typed.sign, action_index, definition, false);
                 } else if constexpr (std::is_same_v<T, PromoteDormantRotation>) {
                     if (planned.active_after != planned.active_before + 1 ||
                         typed.dormant_pivot < planned.active_before ||
@@ -360,7 +363,7 @@ void SamplingPlan::validate() const {
                     if (!is_finite_robust(typed.half_turns)) {
                         invalid_plan("dormant promotion angle is not finite");
                     }
-                    validate_expression(*this, typed.negative, action_index, definition, false);
+                    validate_expression(*this, typed.sign, action_index, definition, false);
                 } else if constexpr (std::is_same_v<T, MeasureActivePauli>) {
                     if (planned.active_before == 0 ||
                         planned.active_after + 1 != planned.active_before ||
@@ -371,8 +374,9 @@ void SamplingPlan::validate() const {
                     if (typed.pauli.is_identity()) {
                         invalid_plan("active measurement Pauli is identity");
                     }
+                    validate_measurement_pivot(typed, action_index);
                     validate_expression(*this, typed.outcome, action_index, definition, true);
-                    validate_record(*this, typed.record, action_index);
+                    validate_record(*this, typed.record, action_index, written_records);
                 } else if constexpr (std::is_same_v<T, MeasureDormantRandom>) {
                     if (planned.active_after != planned.active_before ||
                         typed.dormant_pivot < planned.active_before ||
@@ -380,13 +384,13 @@ void SamplingPlan::validate() const {
                         invalid_plan("dormant measurement has an invalid width or pivot");
                     }
                     validate_expression(*this, typed.outcome, action_index, definition, true);
-                    validate_record(*this, typed.record, action_index);
+                    validate_record(*this, typed.record, action_index, written_records);
                 } else if constexpr (std::is_same_v<T, RecordClassical>) {
                     if (planned.active_after != planned.active_before) {
                         invalid_plan("classical record changes active width");
                     }
                     validate_expression(*this, typed.outcome, action_index, definition, false);
-                    validate_record(*this, typed.record, action_index);
+                    validate_record(*this, typed.record, action_index, written_records);
                 } else if constexpr (std::is_same_v<T, DefineSymbol>) {
                     if (planned.active_after != planned.active_before) {
                         invalid_plan("symbol definition changes active width");
@@ -414,8 +418,8 @@ std::string SamplingPlan::inspect() const {
 
     std::ostringstream out;
     out << std::setprecision(17);
-    out << "sampling_plan qubits=" << num_qubits << " initial_k=" << initial_active_width
-        << " max_k=" << max_active_width << " visible_records=" << num_visible_records
+    out << "sampling_plan qubits=" << num_qubits << " initial_width=" << initial_active_width
+        << " max_width=" << max_active_width << " visible_records=" << num_visible_records
         << " hidden_records=" << num_hidden_records << " noise_sites=" << num_noise_sites
         << " instrument_sites=" << num_instrument_sites
         << " dust_epsilon=" << kMeasurementDustEpsilon << '\n';
@@ -425,8 +429,6 @@ std::string SamplingPlan::inspect() const {
         out << "  s" << i << " kind=" << symbol_kind_name(symbols[i].kind);
         if (symbols[i].defining_action.has_value()) {
             out << " action=" << *symbols[i].defining_action;
-        } else {
-            out << " presampled";
         }
         if (symbols[i].noise_site.has_value()) {
             out << " noise_site=" << index(*symbols[i].noise_site);
@@ -436,19 +438,20 @@ std::string SamplingPlan::inspect() const {
     out << "actions=" << actions.size() << '\n';
     for (uint32_t i = 0; i < actions.size(); ++i) {
         const PlannedAction& planned = actions[i];
-        out << "  " << i << " k=" << planned.active_before << "->" << planned.active_after
-            << " dense_passes=" << predicted_dense_passes(planned.action) << ' ';
+        out << "  " << i << " active_width=" << planned.active_before << "->"
+            << planned.active_after << " dense_passes=" << predicted_dense_passes(planned.action)
+            << ' ';
         std::visit(
             [&](const auto& typed) {
                 using T = std::decay_t<decltype(typed)>;
                 if constexpr (std::is_same_v<T, RotateActivePauli>) {
                     out << "rotate_active " << format_pauli(typed.pauli)
                         << " half_turns=" << typed.half_turns
-                        << " negative=" << format_expression(typed.negative);
+                        << " sign=" << format_expression(typed.sign);
                 } else if constexpr (std::is_same_v<T, PromoteDormantRotation>) {
                     out << "promote_dormant pivot=" << typed.dormant_pivot
                         << " half_turns=" << typed.half_turns
-                        << " negative=" << format_expression(typed.negative);
+                        << " sign=" << format_expression(typed.sign);
                 } else if constexpr (std::is_same_v<T, MeasureActivePauli>) {
                     out << "measure_active " << format_pauli(typed.pauli)
                         << " pivot=" << typed.active_pivot << " branch=s" << index(typed.branch)

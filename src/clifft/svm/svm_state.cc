@@ -18,7 +18,7 @@ namespace clifft {
 
 SchrodingerState::SchrodingerState(StateConfig cfg) : peak_rank_(cfg.peak_rank), rng_(0) {
     uint32_t peak_rank = cfg.peak_rank;
-    if (peak_rank >= 60) {
+    if (peak_rank >= kDenseActiveWidthLimit) {
         throw std::invalid_argument(
             "peak_rank >= 60 would overflow the amplitude array's byte size (2^peak_rank * 16 "
             "must fit in size_t); peak_rank " +
@@ -149,7 +149,7 @@ void SchrodingerState::free_array() noexcept {
 void SchrodingerState::grow_for_continuation(uint32_t peak_rank) {
     assert(pending_trap.has_value() &&
            "the amplitude array may grow only at the trap boundary, under a pending trap");
-    if (peak_rank >= 60) {
+    if (peak_rank >= kDenseActiveWidthLimit) {
         throw std::invalid_argument(
             "peak_rank >= 60 would overflow the amplitude array's byte size (2^peak_rank * 16 "
             "must fit in size_t); peak_rank " +
