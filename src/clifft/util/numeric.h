@@ -8,6 +8,11 @@
 
 namespace clifft {
 
+// Relative epsilon shared by sampling backends when analytically-zero branch
+// probabilities contain floating-point dust. This is part of Clifft's record
+// reachability semantics, including forced-outcome replay.
+inline constexpr double kMeasurementDustEpsilon = 1e-18;
+
 // The IEEE 754 bit trick below assumes that layout. Make it explicit.
 static_assert(std::numeric_limits<double>::is_iec559,
               "Clifft probability validation requires IEEE 754 doubles");

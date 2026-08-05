@@ -1,6 +1,7 @@
 #pragma once
 
 #include "clifft/svm/svm.h"
+#include "clifft/util/numeric.h"
 
 #include <cstdlib>
 
@@ -43,7 +44,7 @@ inline void aligned_free_portable(void* ptr) {
 // interference sit around 1e-30 to 1e-24; this threshold safely swallows
 // that dust while preserving genuine probabilities (e.g. R_ZZ angles
 // producing probabilities ~1e-16).
-inline constexpr double kDustEpsilon = 1e-18;
+inline constexpr double kDustEpsilon = kMeasurementDustEpsilon;
 
 // Minimum active_k for the AVX2 3D waterfall loops in 2-qubit gates.
 // Below this rank the array fits in L1 cache and the flat pdep loop
