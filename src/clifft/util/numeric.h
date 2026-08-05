@@ -8,6 +8,16 @@
 
 namespace clifft {
 
+// Dense active states contain 2^k complex<double> coefficients. At k=60 the
+// byte size no longer fits in a 64-bit size_t, so every dense executor and its
+// planner must reject that width before allocation or bit-index arithmetic.
+inline constexpr uint32_t kDenseActiveWidthLimit = 60;
+
+// Relative epsilon shared by sampling backends when analytically-zero branch
+// probabilities contain floating-point dust. This is part of Clifft's record
+// reachability semantics, including forced-outcome replay.
+inline constexpr double kMeasurementDustEpsilon = 1e-18;
+
 // The IEEE 754 bit trick below assumes that layout. Make it explicit.
 static_assert(std::numeric_limits<double>::is_iec559,
               "Clifft probability validation requires IEEE 754 doubles");
