@@ -746,6 +746,23 @@ TEST_CASE("Pass registry: default managers use registry") {
 }
 
 TEST_CASE("Pass registry: trajectory compatibility requires both guarantees") {
+    constexpr clifft::PassInfo record_only{
+        .name = "record-only",
+        .kind = clifft::PassKind::HIR,
+        .default_enabled = true,
+        .record_order = clifft::kPreservesRecordOrder,
+        .instrument_prefix = clifft::kMayChangeInstrumentPrefix,
+    };
+    constexpr clifft::PassInfo prefix_only{
+        .name = "prefix-only",
+        .kind = clifft::PassKind::HIR,
+        .default_enabled = true,
+        .record_order = clifft::kBreaksRecordOrder,
+        .instrument_prefix = clifft::kPreservesInstrumentPrefix,
+    };
+    static_assert(!clifft::is_trajectory_compatible(record_only));
+    static_assert(!clifft::is_trajectory_compatible(prefix_only));
+
     const std::vector<std::string_view> prefix_stable = {
         "PeepholeFusionPass", "NoiseBlockPass", "MultiGatePass",      "ExpandTPass",
         "ExpandRotPass",      "SwapMeasPass",   "TileAxisFusionPass", "SingleAxisFusionPass",

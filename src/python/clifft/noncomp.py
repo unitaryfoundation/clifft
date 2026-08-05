@@ -301,7 +301,7 @@ def sample(
     probes are not supported with such models.
 
     Continuations are compiled with the default optimization passes that
-    preserve measurement-record order, omitting
+    preserve measurement-record order and instrument-prefix stability, omitting
     [StatevectorSqueezePass][clifft.StatevectorSqueezePass]. Reordering can
     change the placement of internal collapse outcomes relative to later
     records. This API does not currently accept custom pass managers.

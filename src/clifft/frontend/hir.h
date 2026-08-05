@@ -70,10 +70,14 @@ enum class ExpValIdx : uint32_t {};
 struct NoiseChannel {
     PauliMaskHandle mask;
     double prob;
+
+    [[nodiscard]] bool operator==(const NoiseChannel&) const = default;
 };
 
 struct NoiseSite {
     std::vector<NoiseChannel> channels;
+
+    [[nodiscard]] bool operator==(const NoiseSite&) const = default;
 };
 
 /// Readout noise entry: classical bit-flip on a measurement result. The
@@ -86,6 +90,7 @@ struct ReadoutNoiseEntry {
     double prob_one_to_zero;  // Flip probability when the recorded bit is 1
 
     [[nodiscard]] bool is_symmetric() const { return prob_zero_to_one == prob_one_to_zero; }
+    [[nodiscard]] bool operator==(const ReadoutNoiseEntry&) const = default;
 };
 
 /// Index into HirModule::readout_noise side-table
@@ -141,6 +146,8 @@ struct InstrumentProbabilities {
     // destination d. Dividing by p_fire[s] gives the destination
     // probability conditioned on a fire from s.
     double p_computational_dest[2][2] = {{0.0, 0.0}, {0.0, 0.0}};
+
+    [[nodiscard]] bool operator==(const InstrumentProbabilities&) const = default;
 
     [[nodiscard]] double p_noncomputational_dest(uint8_t source) const {
         assert(source < 2 && "instrument source must be G or E");

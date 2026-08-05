@@ -281,6 +281,8 @@ struct FusedU2Node {
 
     // Resulting 2-bit (p_z << 1) | p_x frame state after the sequence.
     uint8_t out_states[4];
+
+    [[nodiscard]] bool operator==(const FusedU2Node&) const = default;
 };
 
 // Pre-computed 4x4 unitary for OP_ARRAY_U4 (2-axis tile fusion).
@@ -298,8 +300,12 @@ struct FusedU4Node {
 
         // Resulting 4-bit frame state: (pz_hi << 3) | (px_hi << 2) | (pz_lo << 1) | px_lo
         uint8_t out_state;
+
+        [[nodiscard]] bool operator==(const Entry&) const = default;
     };
     Entry entries[16];  // Indexed by 4-bit incoming frame state
+
+    [[nodiscard]] bool operator==(const FusedU4Node&) const = default;
 };
 
 // Compiled instrument site: probabilities are physical
@@ -316,6 +322,8 @@ struct CompiledInstrumentSite {
     PauliMaskHandle destination_flip_mask{};
 
     InstrumentProbabilities probabilities;
+
+    [[nodiscard]] bool operator==(const CompiledInstrumentSite&) const = default;
 };
 
 struct ConstantPool {

@@ -40,6 +40,10 @@ class PauliMaskView {
     const uint8_t* sign_;
 };
 
+[[nodiscard]] inline bool operator==(PauliMaskView a, PauliMaskView b) {
+    return a.x() == b.x() && a.z() == b.z() && a.sign() == b.sign();
+}
+
 /// Mutable view of a single (X, Z, sign) entry in an arena. Implicitly
 /// converts to PauliMaskView for read-only call sites.
 class MutablePauliMaskView {

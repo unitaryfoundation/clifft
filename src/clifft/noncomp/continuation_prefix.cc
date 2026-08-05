@@ -33,8 +33,12 @@ namespace {
     }
     const PauliMaskView a_mask = a.at(a_handle);
     const PauliMaskView b_mask = b.at(b_handle);
-    return a_mask.x() == b_mask.x() && a_mask.z() == b_mask.z() && a_mask.sign() == b_mask.sign();
+    return a_mask == b_mask;
 }
+
+// Defaulted equality on the pool value types is an evolution tripwire: a new
+// field automatically joins the comparison. The explicit checks below retain
+// bit-exact treatment for the floating-point fields that exist today.
 
 [[nodiscard]] bool same_u2(const ConstantPool& a, const ConstantPool& b, uint32_t idx) {
     if (idx >= a.fused_u2_nodes.size() || idx >= b.fused_u2_nodes.size()) {
@@ -42,6 +46,9 @@ namespace {
     }
     const FusedU2Node& x = a.fused_u2_nodes[idx];
     const FusedU2Node& y = b.fused_u2_nodes[idx];
+    if (!(x == y)) {
+        return false;
+    }
     for (size_t state = 0; state < 4; ++state) {
         for (size_t cell = 0; cell < 4; ++cell) {
             if (!same_complex(x.matrices[state][cell], y.matrices[state][cell])) {
@@ -62,6 +69,9 @@ namespace {
     }
     const FusedU4Node& x = a.fused_u4_nodes[idx];
     const FusedU4Node& y = b.fused_u4_nodes[idx];
+    if (!(x == y)) {
+        return false;
+    }
     for (size_t state = 0; state < 16; ++state) {
         for (size_t row = 0; row < 4; ++row) {
             for (size_t col = 0; col < 4; ++col) {
@@ -89,7 +99,7 @@ namespace {
     }
     const NoiseSite& x = a.noise_sites[idx];
     const NoiseSite& y = b.noise_sites[idx];
-    if (x.channels.size() != y.channels.size()) {
+    if (!(x == y)) {
         return false;
     }
     for (size_t i = 0; i < x.channels.size(); ++i) {
@@ -122,12 +132,15 @@ namespace {
     }
     const ReadoutNoiseEntry& x = a.readout_noise[idx];
     const ReadoutNoiseEntry& y = b.readout_noise[idx];
-    return x.meas_idx == y.meas_idx && same_bits(x.prob_zero_to_one, y.prob_zero_to_one) &&
+    return x == y && same_bits(x.prob_zero_to_one, y.prob_zero_to_one) &&
            same_bits(x.prob_one_to_zero, y.prob_one_to_zero);
 }
 
 [[nodiscard]] bool same_probabilities(const InstrumentProbabilities& a,
                                       const InstrumentProbabilities& b) {
+    if (!(a == b)) {
+        return false;
+    }
     for (size_t source = 0; source < 2; ++source) {
         if (!same_bits(a.p_fire[source], b.p_fire[source])) {
             return false;
@@ -148,7 +161,7 @@ namespace {
     }
     const CompiledInstrumentSite& x = a.instrument_sites[idx];
     const CompiledInstrumentSite& y = b.instrument_sites[idx];
-    return x.site_id == y.site_id && same_probabilities(x.probabilities, y.probabilities) &&
+    return x == y && same_probabilities(x.probabilities, y.probabilities) &&
            same_mask(a.instrument_destination_flip_masks, x.destination_flip_mask,
                      b.instrument_destination_flip_masks, y.destination_flip_mask);
 }
