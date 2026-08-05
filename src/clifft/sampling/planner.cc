@@ -1,5 +1,6 @@
 #include "clifft/sampling/planner.h"
 
+#include "clifft/util/hir_introspection.h"
 #include "clifft/util/numeric.h"
 #include "clifft/util/stim_mask.h"
 
@@ -42,47 +43,10 @@ struct PendingMeasurement {
 
 using PendingOperation = std::variant<PendingRotation, PendingMeasurement>;
 
-std::string op_type_name(OpType type) {
-    switch (type) {
-        case OpType::T_GATE:
-            return "T_GATE";
-        case OpType::MEASURE:
-            return "MEASURE";
-        case OpType::CONDITIONAL_PAULI:
-            return "CONDITIONAL_PAULI";
-        case OpType::NOISE:
-            return "NOISE";
-        case OpType::READOUT_NOISE:
-            return "READOUT_NOISE";
-        case OpType::PHASE_ROTATION:
-            return "PHASE_ROTATION";
-        case OpType::DETECTOR:
-            return "DETECTOR";
-        case OpType::OBSERVABLE:
-            return "OBSERVABLE";
-        case OpType::EXP_VAL:
-            return "EXP_VAL";
-        case OpType::INSTRUMENT:
-            return "INSTRUMENT";
-        case OpType::NUM_OP_TYPES:
-            return "NUM_OP_TYPES";
-    }
-    return "UNKNOWN";
-}
-
-[[noreturn]] void unsupported_operation(OpType type, size_t index) {
-    throw std::invalid_argument("sampling planner does not support HIR operation " +
-                                op_type_name(type) + " at index " + std::to_string(index));
-}
-
 Pauli pauli_from_hir(const HirModule& hir, const HeisenbergOp& op) {
     Pauli result(hir.num_qubits);
-    const MaskView x = hir.destab_mask(op);
-    const MaskView z = hir.stab_mask(op);
-    for (uint32_t q = 0; q < hir.num_qubits; ++q) {
-        result.xs[q] = x.bit_get(q);
-        result.zs[q] = z.bit_get(q);
-    }
+    mask_view_to_stim(hir.destab_mask(op), hir.num_qubits, result.xs);
+    mask_view_to_stim(hir.stab_mask(op), hir.num_qubits, result.zs);
     return result;
 }
 
@@ -360,7 +324,9 @@ std::vector<PendingOperation> queue_supported_operations(const HirModule& hir, S
             case OpType::EXP_VAL:
             case OpType::INSTRUMENT:
             case OpType::NUM_OP_TYPES:
-                unsupported_operation(op.op_type(), i);
+                throw std::invalid_argument("sampling planner does not support HIR operation " +
+                                            op_type_to_str(op.op_type()) + " at index " +
+                                            std::to_string(i));
         }
     }
     return pending;

@@ -1,27 +1,14 @@
 #pragma once
 
-// Shared string-formatting utilities for HIR and VM bytecode introspection.
-// Used by both Python (nanobind) and Wasm (Embind) bindings.
+// Shared string-formatting utilities for VM bytecode introspection. This
+// header also re-exports the HIR-only helpers used by the bindings.
 
 #include "clifft/backend/backend.h"
-#include "clifft/frontend/hir.h"
+#include "clifft/util/hir_introspection.h"
 
-#include <optional>
 #include <string>
 
 namespace clifft {
-
-// Format a Pauli mask (X bits, Z bits, sign) as a human-readable string.
-// Example: "+X0*Z3" for destab bit 0 and stab bit 3.
-std::string format_pauli_mask(PauliMaskView mask);
-
-std::string op_type_to_str(OpType type);
-
-// Format a HIR op as a human-readable string. For mask-carrying ops the
-// caller passes the op's mask via `hir.mask_view(op)`; for non-mask ops
-// (NOISE, READOUT_NOISE, DETECTOR, OBSERVABLE) the caller passes
-// std::nullopt and the mask argument is unused.
-std::string format_hir_op(const HeisenbergOp& op, std::optional<PauliMaskView> mask);
 
 std::string opcode_to_str(Opcode op);
 
