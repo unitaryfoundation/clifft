@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785827702001,
+  "lastUpdate": 1785914129087,
   "repoUrl": "https://github.com/unitaryfoundation/clifft",
   "entries": {
     "C++ Catch2 benchmarks (scalar)": [
@@ -4990,6 +4990,70 @@ window.BENCHMARK_DATA = {
             "name": "exp-val 20q 200 probes x100k",
             "value": 167.488,
             "range": "± 2.6949",
+            "unit": "ms",
+            "extra": "100 samples\n1 iterations"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Brad Chase",
+            "username": "bachase",
+            "email": "14430+bachase@users.noreply.github.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "0e05ebf2896a25124e0509bd612997970fa7e9a2",
+          "message": "fix(optimizer): eliminate terminal phases across resets (#243)\n\nAllow terminal measurement phases to cross conditional Pauli corrections when their quantum supports are disjoint and commutation/dataflow checks prove the crossing safe. Preserve barriers for overlapping feedback and instrument boundaries.\n\nAdd regression coverage for MR/MRX/MRY ordering, classical records, source maps, continuation fences, and sampled equivalence.\n\nCloses #242\n\nAssisted-by: ChatGPT (GPT-5.6 Sol) <noreply@openai.com>",
+          "timestamp": "2026-08-04T12:37:03Z",
+          "url": "https://github.com/unitaryfoundation/clifft/commit/0e05ebf2896a25124e0509bd612997970fa7e9a2"
+        },
+        "date": 1785914126463,
+        "tool": "catch2",
+        "benches": [
+          {
+            "name": "QV-10 x100 shots",
+            "value": 73.2331,
+            "range": "± 325.4",
+            "unit": "ms",
+            "extra": "100 samples\n1 iterations"
+          },
+          {
+            "name": "cultivation-d5 x1000 shots",
+            "value": 78.8351,
+            "range": "± 1.05293",
+            "unit": "ms",
+            "extra": "100 samples\n1 iterations"
+          },
+          {
+            "name": "surface-d7-r7 p=1e-3 x10000 shots",
+            "value": 109.234,
+            "range": "± 511.295",
+            "unit": "ms",
+            "extra": "100 samples\n1 iterations"
+          },
+          {
+            "name": "surface-d5-r5 p=0.05 x10000 shots",
+            "value": 114.591,
+            "range": "± 1.0192",
+            "unit": "ms",
+            "extra": "100 samples\n1 iterations"
+          },
+          {
+            "name": "surface-d11-r11 p=1e-3 x1000 shots",
+            "value": 46.3502,
+            "range": "± 189.12",
+            "unit": "ms",
+            "extra": "100 samples\n1 iterations"
+          },
+          {
+            "name": "exp-val 20q 200 probes x100k",
+            "value": 139.052,
+            "range": "± 423.821",
             "unit": "ms",
             "extra": "100 samples\n1 iterations"
           }
