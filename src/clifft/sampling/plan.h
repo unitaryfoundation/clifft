@@ -71,13 +71,13 @@ class AffineBool {
 
 // Operations requiring coefficient-state work are expressed over active
 // stabilizer coordinates. An active coordinate is represented explicitly in
-// the dense 2^k coefficient state; it is not an "active physical qubit."
-// ActivePauli stores the unsigned Hermitian operator
-// i^popcount(x & z) X^x Z^z. Each action carries a separate AffineBool that can
-// change its sign for each shot.
+// the dense 2^k coefficient state. ActivePauli stores the unsigned Hermitian
+// operator i^popcount(x & z) X^x Z^z. Each action carries a separate AffineBool
+// that can change its sign for each shot.
 //
-// The dense-width limit is exclusive, so all valid masks fit in one word even
-// when the physical circuit contains many qubits.
+// Exponential storage requirements currently restrict dense active widths to
+// below kDenseActiveWidthLimit, which fits in one uint64_t. This assertion
+// requires reconsidering the mask representation if that limit ever grows.
 static_assert(kDenseActiveWidthLimit <= std::numeric_limits<uint64_t>::digits);
 
 struct ActivePauli {
@@ -202,6 +202,8 @@ struct SamplingPlan {
     [[nodiscard]] std::string inspect() const;
 };
 
+// Estimates full coefficient-state traversals for a direct, unfused lowering.
+// This is a planning diagnostic; an executor may fuse or specialize actions.
 [[nodiscard]] uint32_t predicted_dense_passes(const SamplingAction& action);
 
 }  // namespace clifft::sampling

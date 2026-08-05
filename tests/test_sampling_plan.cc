@@ -2,6 +2,7 @@
 #include "clifft/util/numeric.h"
 
 #include <catch2/catch_test_macros.hpp>
+#include <limits>
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -56,6 +57,30 @@ SamplingPlan valid_plan() {
     return plan;
 }
 
+SamplingPlan valid_rotation_plan() {
+    SamplingPlan plan;
+    plan.num_qubits = 1;
+    plan.initial_active_width = 1;
+    plan.max_active_width = 1;
+    plan.actions = {
+        PlannedAction{1, 1, RotateActivePauli{ActivePauli{1, 0}, 0.25, AffineBool{}}},
+    };
+    return plan;
+}
+
+SamplingPlan valid_dormant_measurement_plan() {
+    const SymbolId branch{0};
+    SamplingPlan plan;
+    plan.num_qubits = 1;
+    plan.num_visible_records = 1;
+    plan.symbols = {SymbolInfo{SymbolKind::Branch, 0, std::nullopt}};
+    plan.actions = {
+        PlannedAction{0, 0,
+                      MeasureDormantRandom{0, branch, AffineBool::symbol(branch), RecordSlot{0}}},
+    };
+    return plan;
+}
+
 }  // namespace
 
 TEST_CASE("Sampling plan affine expressions are canonical") {
@@ -91,11 +116,67 @@ TEST_CASE("Sampling plan rejects symbolic use before assignment") {
     REQUIRE_THROWS_AS(plan.validate(), std::invalid_argument);
 }
 
-TEST_CASE("Sampling plan rejects inconsistent symbol definitions") {
-    SamplingPlan plan = valid_plan();
-    plan.symbols[2].defining_action = 3;
+TEST_CASE("Sampling plan rejects invalid symbol metadata and definitions") {
+    SECTION("definition metadata disagrees with the action") {
+        SamplingPlan plan = valid_plan();
+        plan.symbols[2].defining_action = 3;
+        REQUIRE_THROWS_AS(plan.validate(), std::invalid_argument);
+    }
 
-    REQUIRE_THROWS_AS(plan.validate(), std::invalid_argument);
+    SECTION("presampled symbol names a defining action") {
+        SamplingPlan plan = valid_plan();
+        plan.symbols[0].defining_action = 0;
+        REQUIRE_THROWS_AS(plan.validate(), std::invalid_argument);
+    }
+
+    SECTION("noise site is out of range") {
+        SamplingPlan plan = valid_plan();
+        plan.symbols[0].noise_site = NoiseSiteId{1};
+        REQUIRE_THROWS_AS(plan.validate(), std::invalid_argument);
+    }
+
+    SECTION("non-presampled symbol names a noise site") {
+        SamplingPlan plan = valid_plan();
+        plan.symbols[1].noise_site = NoiseSiteId{0};
+        REQUIRE_THROWS_AS(plan.validate(), std::invalid_argument);
+    }
+
+    SECTION("action defines an out-of-range symbol") {
+        SamplingPlan plan = valid_plan();
+        std::get<DefineSymbol>(plan.actions[2].action).symbol = SymbolId{3};
+        REQUIRE_THROWS_AS(plan.validate(), std::invalid_argument);
+    }
+
+    SECTION("two actions define the same symbol") {
+        SamplingPlan plan = valid_plan();
+        std::get<DefineSymbol>(plan.actions[2].action).symbol = SymbolId{1};
+        REQUIRE_THROWS_AS(plan.validate(), std::invalid_argument);
+    }
+
+    SECTION("branch kind is defined by a derived-symbol action") {
+        SamplingPlan plan = valid_plan();
+        plan.symbols[2].kind = SymbolKind::Branch;
+        REQUIRE_THROWS_AS(plan.validate(), std::invalid_argument);
+    }
+
+    SECTION("derived kind is defined by a measurement") {
+        SamplingPlan plan = valid_plan();
+        plan.symbols[1].kind = SymbolKind::Derived;
+        REQUIRE_THROWS_AS(plan.validate(), std::invalid_argument);
+    }
+
+    SECTION("expression references an out-of-range symbol") {
+        SamplingPlan plan = valid_plan();
+        std::get<PromoteDormantRotation>(plan.actions[0].action).sign =
+            AffineBool::symbol(SymbolId{3});
+        REQUIRE_THROWS_AS(plan.validate(), std::invalid_argument);
+    }
+
+    SECTION("derived symbol references itself") {
+        SamplingPlan plan = valid_plan();
+        std::get<DefineSymbol>(plan.actions[2].action).value = AffineBool::symbol(SymbolId{2});
+        REQUIRE_THROWS_AS(plan.validate(), std::invalid_argument);
+    }
 }
 
 TEST_CASE("Sampling plan rejects Pauli bits above active width") {
@@ -152,15 +233,138 @@ TEST_CASE("Sampling plan requires sampled branches in measurement outcomes") {
     active_measurement.outcome = AffineBool::symbol(SymbolId{0});
     REQUIRE_THROWS_AS(active.validate(), std::invalid_argument);
 
-    const SymbolId branch{0};
-    SamplingPlan dormant;
-    dormant.num_qubits = 1;
-    dormant.num_visible_records = 1;
-    dormant.symbols = {SymbolInfo{SymbolKind::Branch, 0, std::nullopt}};
-    dormant.actions = {
-        PlannedAction{0, 0, MeasureDormantRandom{0, branch, AffineBool{}, RecordSlot{0}}},
-    };
+    SamplingPlan dormant = valid_dormant_measurement_plan();
+    std::get<MeasureDormantRandom>(dormant.actions[0].action).outcome = AffineBool{};
     REQUIRE_THROWS_AS(dormant.validate(), std::invalid_argument);
+}
+
+TEST_CASE("Sampling plan rejects invalid dimensions and action contracts") {
+    SECTION("initial width exceeds the circuit") {
+        SamplingPlan plan;
+        plan.initial_active_width = 1;
+        plan.max_active_width = 1;
+        REQUIRE_THROWS_AS(plan.validate(), std::invalid_argument);
+    }
+
+    SECTION("maximum width is below the initial width") {
+        SamplingPlan plan;
+        plan.num_qubits = 1;
+        plan.initial_active_width = 1;
+        REQUIRE_THROWS_AS(plan.validate(), std::invalid_argument);
+    }
+
+    SECTION("declared maximum is not reached") {
+        SamplingPlan plan = valid_plan();
+        plan.max_active_width = 2;
+        REQUIRE_THROWS_AS(plan.validate(), std::invalid_argument);
+    }
+
+    SECTION("action stream breaks the width chain") {
+        SamplingPlan plan = valid_plan();
+        plan.actions[1].active_before = 0;
+        REQUIRE_THROWS_AS(plan.validate(), std::invalid_argument);
+    }
+
+    SECTION("active rotation changes width") {
+        SamplingPlan plan = valid_rotation_plan();
+        plan.actions[0].active_after = 0;
+        REQUIRE_THROWS_AS(plan.validate(), std::invalid_argument);
+    }
+
+    SECTION("dormant promotion does not increase width") {
+        SamplingPlan plan = valid_plan();
+        plan.actions[0].active_after = 0;
+        REQUIRE_THROWS_AS(plan.validate(), std::invalid_argument);
+    }
+
+    SECTION("dormant promotion pivot is out of range") {
+        SamplingPlan plan = valid_plan();
+        std::get<PromoteDormantRotation>(plan.actions[0].action).dormant_pivot = 2;
+        REQUIRE_THROWS_AS(plan.validate(), std::invalid_argument);
+    }
+
+    SECTION("active measurement does not decrease width") {
+        SamplingPlan plan = valid_plan();
+        plan.actions[1].active_after = 1;
+        REQUIRE_THROWS_AS(plan.validate(), std::invalid_argument);
+    }
+
+    SECTION("dormant measurement changes width") {
+        SamplingPlan plan = valid_dormant_measurement_plan();
+        plan.actions[0].active_after = 1;
+        REQUIRE_THROWS_AS(plan.validate(), std::invalid_argument);
+    }
+
+    SECTION("classical record changes width") {
+        SamplingPlan plan = valid_plan();
+        plan.actions[3].active_after = 1;
+        REQUIRE_THROWS_AS(plan.validate(), std::invalid_argument);
+    }
+
+    SECTION("symbol definition changes width") {
+        SamplingPlan plan = valid_plan();
+        plan.actions[2].active_after = 1;
+        REQUIRE_THROWS_AS(plan.validate(), std::invalid_argument);
+    }
+
+    SECTION("instrument boundary changes width") {
+        SamplingPlan plan = valid_plan();
+        plan.actions[4].active_after = 1;
+        REQUIRE_THROWS_AS(plan.validate(), std::invalid_argument);
+    }
+
+    SECTION("active measurement Pauli is identity") {
+        SamplingPlan plan = valid_plan();
+        std::get<MeasureActivePauli>(plan.actions[1].action).pauli = ActivePauli{};
+        REQUIRE_THROWS_AS(plan.validate(), std::invalid_argument);
+    }
+
+    SECTION("active measurement pivot is out of range") {
+        SamplingPlan plan = valid_plan();
+        std::get<MeasureActivePauli>(plan.actions[1].action).active_pivot = 1;
+        REQUIRE_THROWS_AS(plan.validate(), std::invalid_argument);
+    }
+
+    SECTION("dormant measurement pivot is out of range") {
+        SamplingPlan plan = valid_dormant_measurement_plan();
+        std::get<MeasureDormantRandom>(plan.actions[0].action).dormant_pivot = 1;
+        REQUIRE_THROWS_AS(plan.validate(), std::invalid_argument);
+    }
+
+    SECTION("instrument site is out of range") {
+        SamplingPlan plan = valid_plan();
+        std::get<InstrumentBoundary>(plan.actions[4].action).site = InstrumentSiteId{1};
+        REQUIRE_THROWS_AS(plan.validate(), std::invalid_argument);
+    }
+}
+
+TEST_CASE("Sampling plan rejects invalid numeric metadata") {
+    SECTION("record count overflows stable slots") {
+        SamplingPlan plan;
+        plan.num_visible_records = std::numeric_limits<uint32_t>::max();
+        plan.num_hidden_records = 1;
+        REQUIRE_THROWS_AS(plan.validate(), std::invalid_argument);
+    }
+
+    SECTION("global weight is not finite") {
+        SamplingPlan plan;
+        plan.global_weight = {std::numeric_limits<double>::infinity(), 0.0};
+        REQUIRE_THROWS_AS(plan.validate(), std::invalid_argument);
+    }
+
+    SECTION("active rotation angle is not finite") {
+        SamplingPlan plan = valid_rotation_plan();
+        std::get<RotateActivePauli>(plan.actions[0].action).half_turns =
+            std::numeric_limits<double>::quiet_NaN();
+        REQUIRE_THROWS_AS(plan.validate(), std::invalid_argument);
+    }
+
+    SECTION("dormant promotion angle is not finite") {
+        SamplingPlan plan = valid_plan();
+        std::get<PromoteDormantRotation>(plan.actions[0].action).half_turns =
+            std::numeric_limits<double>::infinity();
+        REQUIRE_THROWS_AS(plan.validate(), std::invalid_argument);
+    }
 }
 
 TEST_CASE("Sampling plan rejects active widths unsupported by dense storage") {
@@ -198,31 +402,25 @@ TEST_CASE("Sampling plan safely rejects a transition stream above dense width") 
 
 TEST_CASE("Sampling plan distinguishes dormant branch labels from records") {
     const SymbolId branch{0};
-    SamplingPlan plan;
-    plan.num_qubits = 1;
-    plan.num_visible_records = 1;
-    plan.symbols = {SymbolInfo{SymbolKind::Branch, 0, std::nullopt}};
-    plan.actions = {
-        PlannedAction{
-            0, 0,
-            MeasureDormantRandom{0, branch, AffineBool::symbol(branch) ^ true, RecordSlot{0}}},
-    };
+    SamplingPlan plan = valid_dormant_measurement_plan();
+    std::get<MeasureDormantRandom>(plan.actions[0].action).outcome =
+        AffineBool::symbol(branch) ^ true;
 
     REQUIRE_NOTHROW(plan.validate());
     REQUIRE(plan.inspect().find("branch=s0 outcome=1 ^ s0 record=0") != std::string::npos);
 }
 
 TEST_CASE("Sampling plan predicts only state touching dense passes") {
-    SamplingPlan plan;
-    plan.num_qubits = 1;
-    plan.initial_active_width = 1;
-    plan.max_active_width = 1;
-    plan.actions = {
-        PlannedAction{1, 1, RotateActivePauli{ActivePauli{1, 0}, 0.25, AffineBool{}}},
-        PlannedAction{1, 1, RotateActivePauli{ActivePauli{0, 0}, 0.5, AffineBool{}}},
-    };
-
+    SamplingPlan plan = valid_rotation_plan();
     REQUIRE_NOTHROW(plan.validate());
     REQUIRE(clifft::sampling::predicted_dense_passes(plan.actions[0].action) == 1);
-    REQUIRE(clifft::sampling::predicted_dense_passes(plan.actions[1].action) == 0);
+    REQUIRE(clifft::sampling::predicted_dense_passes(
+                RotateActivePauli{ActivePauli{}, 0.5, AffineBool{}}) == 0);
+    REQUIRE(clifft::sampling::predicted_dense_passes(
+                PromoteDormantRotation{0, 0.25, AffineBool{}}) == 1);
+    REQUIRE(clifft::sampling::predicted_dense_passes(MeasureActivePauli{}) == 1);
+    REQUIRE(clifft::sampling::predicted_dense_passes(MeasureDormantRandom{}) == 0);
+    REQUIRE(clifft::sampling::predicted_dense_passes(RecordClassical{}) == 0);
+    REQUIRE(clifft::sampling::predicted_dense_passes(DefineSymbol{}) == 0);
+    REQUIRE(clifft::sampling::predicted_dense_passes(InstrumentBoundary{}) == 0);
 }

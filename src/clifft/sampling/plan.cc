@@ -16,6 +16,9 @@ namespace clifft::sampling {
 
 namespace {
 
+template <typename>
+inline constexpr bool kAlwaysFalse = false;
+
 uint32_t index(SymbolId id) {
     return static_cast<uint32_t>(id);
 }
@@ -34,6 +37,8 @@ uint32_t index(InstrumentSiteId site) {
 
 std::vector<SymbolId> xor_terms(const std::vector<SymbolId>& left,
                                 const std::vector<SymbolId>& right) {
+    // Canonical inputs are sorted and unique, so XOR is their symmetric
+    // difference: a term present in both inputs cancels.
     std::vector<SymbolId> result;
     result.reserve(left.size() + right.size());
     size_t i = 0;
@@ -52,6 +57,8 @@ std::vector<SymbolId> xor_terms(const std::vector<SymbolId>& left,
 }
 
 std::vector<SymbolId> canonicalize_terms(std::vector<SymbolId> terms) {
+    // XOR retains exactly the terms with odd multiplicity. Sorting also gives
+    // expressions one deterministic representation.
     std::sort(terms.begin(), terms.end(),
               [](SymbolId left, SymbolId right) { return index(left) < index(right); });
     std::vector<SymbolId> result;
@@ -145,8 +152,13 @@ std::optional<SymbolId> defined_symbol(const SamplingAction& action) {
                 return typed.branch;
             } else if constexpr (std::is_same_v<T, DefineSymbol>) {
                 return typed.symbol;
-            } else {
+            } else if constexpr (std::is_same_v<T, RotateActivePauli> ||
+                                 std::is_same_v<T, PromoteDormantRotation> ||
+                                 std::is_same_v<T, RecordClassical> ||
+                                 std::is_same_v<T, InstrumentBoundary>) {
                 return std::nullopt;
+            } else {
+                static_assert(kAlwaysFalse<T>, "Unhandled SamplingAction alternative");
             }
         },
         action);
@@ -263,8 +275,13 @@ uint32_t predicted_dense_passes(const SamplingAction& action) {
             } else if constexpr (std::is_same_v<T, PromoteDormantRotation> ||
                                  std::is_same_v<T, MeasureActivePauli>) {
                 return 1;
-            } else {
+            } else if constexpr (std::is_same_v<T, MeasureDormantRandom> ||
+                                 std::is_same_v<T, RecordClassical> ||
+                                 std::is_same_v<T, DefineSymbol> ||
+                                 std::is_same_v<T, InstrumentBoundary>) {
                 return 0;
+            } else {
+                static_assert(kAlwaysFalse<T>, "Unhandled SamplingAction alternative");
             }
         },
         action);
@@ -418,6 +435,8 @@ void SamplingPlan::validate() const {
                         index(typed.site) >= num_instrument_sites) {
                         invalid_plan("instrument boundary has an invalid width or site id");
                     }
+                } else {
+                    static_assert(kAlwaysFalse<T>, "Unhandled SamplingAction alternative");
                 }
             },
             planned.action);
@@ -486,6 +505,8 @@ std::string SamplingPlan::inspect() const {
                         << " value=" << format_expression(typed.value);
                 } else if constexpr (std::is_same_v<T, InstrumentBoundary>) {
                     out << "instrument_boundary site=" << index(typed.site);
+                } else {
+                    static_assert(kAlwaysFalse<T>, "Unhandled SamplingAction alternative");
                 }
             },
             planned.action);
