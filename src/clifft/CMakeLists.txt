@@ -20,6 +20,7 @@ add_library(clifft_core STATIC
     optimizer/statevector_squeeze_pass.cc
     backend/backend.cc
     sampling/plan.cc
+    sampling/planner.cc
     api/basis_probabilities.cc
     api/record_probabilities.cc
     api/reference_syndrome.cc
