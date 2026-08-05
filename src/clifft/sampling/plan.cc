@@ -272,9 +272,12 @@ uint32_t predicted_dense_passes(const SamplingAction& action) {
             using T = std::decay_t<decltype(typed)>;
             if constexpr (std::is_same_v<T, RotateActivePauli>) {
                 return typed.pauli.is_identity() ? 0 : 1;
-            } else if constexpr (std::is_same_v<T, PromoteDormantRotation> ||
-                                 std::is_same_v<T, MeasureActivePauli>) {
+            } else if constexpr (std::is_same_v<T, PromoteDormantRotation>) {
                 return 1;
+            } else if constexpr (std::is_same_v<T, MeasureActivePauli>) {
+                // Sampling requires one reduction before the branch is known,
+                // then a second traversal to collapse and compact that branch.
+                return 2;
             } else if constexpr (std::is_same_v<T, MeasureDormantRandom> ||
                                  std::is_same_v<T, RecordClassical> ||
                                  std::is_same_v<T, DefineSymbol> ||
