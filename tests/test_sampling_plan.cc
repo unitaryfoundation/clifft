@@ -45,7 +45,7 @@ SamplingPlan valid_plan() {
         SymbolInfo{SymbolKind::Derived, 2, std::nullopt},
     };
     plan.actions = {
-        PlannedAction{0, 1, PromoteDormantRotation{0, 0.25, AffineBool::symbol(noise)}},
+        PlannedAction{0, 1, PromoteDormantRotation{0.25, AffineBool::symbol(noise)}},
         PlannedAction{1, 0,
                       MeasureActivePauli{ActivePauli{1, 0}, 0, branch,
                                          AffineBool::symbol(branch) ^ AffineBool::symbol(noise),
@@ -277,12 +277,6 @@ TEST_CASE("Sampling plan rejects invalid dimensions and action contracts") {
         REQUIRE_THROWS_AS(plan.validate(), std::invalid_argument);
     }
 
-    SECTION("dormant promotion pivot is out of range") {
-        SamplingPlan plan = valid_plan();
-        std::get<PromoteDormantRotation>(plan.actions[0].action).dormant_pivot = 2;
-        REQUIRE_THROWS_AS(plan.validate(), std::invalid_argument);
-    }
-
     SECTION("active measurement does not decrease width") {
         SamplingPlan plan = valid_plan();
         plan.actions[1].active_after = 1;
@@ -383,7 +377,7 @@ TEST_CASE("Sampling plan safely rejects a transition stream above dense width") 
     plan.max_active_width = clifft::kDenseActiveWidthLimit - 1;
     for (uint32_t width = 0; width < kMalformedWidth; ++width) {
         plan.actions.push_back(
-            PlannedAction{width, width + 1, PromoteDormantRotation{width, 0.25, AffineBool{}}});
+            PlannedAction{width, width + 1, PromoteDormantRotation{0.25, AffineBool{}}});
     }
     plan.actions.push_back(PlannedAction{kMalformedWidth, kMalformedWidth,
                                          RotateActivePauli{ActivePauli{1, 0}, 0.25, AffineBool{}}});
@@ -416,8 +410,8 @@ TEST_CASE("Sampling plan predicts only state touching dense passes") {
     REQUIRE(clifft::sampling::predicted_dense_passes(plan.actions[0].action) == 1);
     REQUIRE(clifft::sampling::predicted_dense_passes(
                 RotateActivePauli{ActivePauli{}, 0.5, AffineBool{}}) == 0);
-    REQUIRE(clifft::sampling::predicted_dense_passes(
-                PromoteDormantRotation{0, 0.25, AffineBool{}}) == 1);
+    REQUIRE(clifft::sampling::predicted_dense_passes(PromoteDormantRotation{0.25, AffineBool{}}) ==
+            1);
     REQUIRE(clifft::sampling::predicted_dense_passes(MeasureActivePauli{}) == 1);
     REQUIRE(clifft::sampling::predicted_dense_passes(MeasureDormantRandom{}) == 0);
     REQUIRE(clifft::sampling::predicted_dense_passes(RecordClassical{}) == 0);

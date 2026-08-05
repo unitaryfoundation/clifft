@@ -12,10 +12,14 @@
 // 5. Tableau.then() composes tableaux correctly
 // 6. Tableau.inverse() computes the inverse correctly
 
+#include "clifft/util/stim_mask.h"
+
 #include "stim.h"
 
+#include <array>
 #include <catch2/catch_test_macros.hpp>
 #include <random>
+#include <span>
 #include <utility>
 
 TEST_CASE("Stim contract: TableauSimulator Heisenberg rewinding", "[stim][contract]") {
@@ -136,6 +140,18 @@ TEST_CASE("Stim contract: mask extraction for HIR", "[stim][contract]") {
 
     REQUIRE(x_mask == 0b0001);  // X on qubit 0
     REQUIRE(z_mask == 0b0100);  // Z on qubit 2
+}
+
+TEST_CASE("Stim contract: mask insertion clears padding", "[stim][contract]") {
+    const std::array<uint64_t, 2> source{0x0123456789abcdefULL, ~uint64_t{0}};
+    stim::PauliString<clifft::kStimWidth> pauli(129);
+    pauli.xs.invert_bits();
+
+    clifft::mask_view_to_stim(clifft::MaskView{std::span<const uint64_t>(source)}, 65, pauli.xs);
+
+    REQUIRE(pauli.xs.u64[0] == source[0]);
+    REQUIRE(pauli.xs.u64[1] == 1);
+    REQUIRE(pauli.xs.u64[2] == 0);
 }
 
 TEST_CASE("Stim contract: Tableau composition", "[stim][contract]") {

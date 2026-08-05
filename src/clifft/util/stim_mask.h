@@ -33,4 +33,18 @@ inline void stim_to_mask_view(const stim::simd_bits_range_ref<kStimWidth>& bits,
         dst.words[w] = 0;
 }
 
+/// Copy the first `n` bits of a MaskView into a Stim bit range. The source
+/// must be at least `(n + 63) / 64` words wide. Destination padding is cleared
+/// so a reused Stim value cannot retain bits outside the logical mask.
+inline void mask_view_to_stim(MaskView src, uint32_t n, stim::simd_bits_range_ref<kStimWidth> dst) {
+    const uint32_t words = (n + 63) / 64;
+    assert(words <= src.num_words() && "mask_view_to_stim: source too narrow");
+    assert(words <= dst.num_u64_padded() && "mask_view_to_stim: destination too narrow");
+    dst.clear();
+    for (uint32_t w = 0; w < words; ++w)
+        dst.u64[w] = src.words[w];
+    if (words != 0 && n % 64 != 0)
+        dst.u64[words - 1] &= (uint64_t{1} << (n % 64)) - 1;
+}
+
 }  // namespace clifft
