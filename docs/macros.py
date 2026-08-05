@@ -89,6 +89,7 @@ def define_env(env: Any) -> None:
             "kind": "HIR",
             "default_enabled": True,
             "preserves_record_order": True,
+            "preserves_instrument_prefix": True,
             "python_name": "PeepholeFusionPass",
             "summary": "Algebraic T-gate fusion and terminal-phase elimination.",
             "detail": (
@@ -105,6 +106,7 @@ def define_env(env: Any) -> None:
             "kind": "HIR",
             "default_enabled": True,
             "preserves_record_order": False,
+            "preserves_instrument_prefix": False,
             "python_name": "StatevectorSqueezePass",
             "summary": "Minimizes peak active dimension by reordering HIR operations.",
             "detail": (
@@ -120,6 +122,7 @@ def define_env(env: Any) -> None:
             "kind": "HIR",
             "default_enabled": False,
             "preserves_record_order": False,
+            "preserves_instrument_prefix": False,
             "python_name": "RemoveNoisePass",
             "summary": "Strips all noise from the HIR.",
             "detail": (
@@ -135,6 +138,7 @@ def define_env(env: Any) -> None:
             "kind": "HIR",
             "default_enabled": False,
             "preserves_record_order": False,
+            "preserves_instrument_prefix": False,
             "python_name": "DropNonUnitaryPass",
             "summary": "Drops non-evolution operations from the HIR.",
             "detail": (
@@ -150,6 +154,7 @@ def define_env(env: Any) -> None:
             "kind": "Bytecode",
             "default_enabled": True,
             "preserves_record_order": True,
+            "preserves_instrument_prefix": True,
             "python_name": "NoiseBlockPass",
             "summary": "Coalesces contiguous noise instructions into blocks.",
             "detail": (
@@ -165,6 +170,7 @@ def define_env(env: Any) -> None:
             "kind": "Bytecode",
             "default_enabled": True,
             "preserves_record_order": True,
+            "preserves_instrument_prefix": True,
             "python_name": "MultiGatePass",
             "summary": "Fuses star-graph CNOT/CZ patterns into single array sweeps.",
             "detail": (
@@ -180,6 +186,7 @@ def define_env(env: Any) -> None:
             "kind": "Bytecode",
             "default_enabled": True,
             "preserves_record_order": True,
+            "preserves_instrument_prefix": True,
             "python_name": "ExpandTPass",
             "summary": "Fuses EXPAND + T-phase into a single array pass.",
             "detail": (
@@ -194,6 +201,7 @@ def define_env(env: Any) -> None:
             "kind": "Bytecode",
             "default_enabled": True,
             "preserves_record_order": True,
+            "preserves_instrument_prefix": True,
             "python_name": "ExpandRotPass",
             "summary": "Fuses EXPAND + continuous rotation into a single array pass.",
             "detail": (
@@ -207,6 +215,7 @@ def define_env(env: Any) -> None:
             "kind": "Bytecode",
             "default_enabled": True,
             "preserves_record_order": True,
+            "preserves_instrument_prefix": True,
             "python_name": "SwapMeasPass",
             "summary": "Fuses SWAP + measurement into one operation.",
             "detail": (
@@ -222,6 +231,7 @@ def define_env(env: Any) -> None:
             "kind": "Bytecode",
             "default_enabled": True,
             "preserves_record_order": True,
+            "preserves_instrument_prefix": True,
             "python_name": "TileAxisFusionPass",
             "summary": "Fuses 2-qubit tile sequences into precomputed 4x4 unitaries.",
             "detail": (
@@ -238,6 +248,7 @@ def define_env(env: Any) -> None:
             "kind": "Bytecode",
             "default_enabled": True,
             "preserves_record_order": True,
+            "preserves_instrument_prefix": True,
             "python_name": "SingleAxisFusionPass",
             "summary": "Fuses single-axis operation chains into precomputed 2x2 unitaries.",
             "detail": (

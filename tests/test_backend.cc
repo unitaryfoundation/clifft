@@ -1593,9 +1593,7 @@ TEST_CASE("Lower: consuming overload maps noise masks in place") {
         const auto actual_handle = actual.constant_pool.noise_sites[0].channels[i].mask;
         const auto expected_mask = expected.constant_pool.noise_channel_masks.at(expected_handle);
         const auto actual_mask = actual.constant_pool.noise_channel_masks.at(actual_handle);
-        CHECK(actual_mask.x() == expected_mask.x());
-        CHECK(actual_mask.z() == expected_mask.z());
-        CHECK(actual_mask.sign() == expected_mask.sign());
+        CHECK(actual_mask == expected_mask);
     }
 }
 

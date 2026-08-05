@@ -29,16 +29,21 @@ def _extract_cpp_passes() -> dict[str, dict[str, object]]:
         record_order_match = re.search(
             r"\.record_order\s*=\s*k(Preserves|Breaks)RecordOrder", entry
         )
+        prefix_match = re.search(
+            r"\.instrument_prefix\s*=\s*k(Preserves|MayChange)InstrumentPrefix", entry
+        )
 
         assert name_match, f"Registered pass entry missing .name: {entry}"
         assert kind_match, f"Registered pass entry missing .kind: {entry}"
         assert default_match, f"Registered pass entry missing .default_enabled: {entry}"
         assert record_order_match, f"Registered pass entry missing .record_order: {entry}"
+        assert prefix_match, f"Registered pass entry missing .instrument_prefix: {entry}"
 
         passes[name_match.group(1)] = {
             "kind": kind_match.group(1),
             "default_enabled": default_match.group(1) == "true",
             "preserves_record_order": record_order_match.group(1) == "Preserves",
+            "preserves_instrument_prefix": prefix_match.group(1) == "Preserves",
         }
 
     return passes
@@ -106,6 +111,14 @@ class TestOptimizationPassDocCompleteness:
                 f"{docs_metadata['preserves_record_order']!r} in docs/macros.py but "
                 f"{cpp_metadata['preserves_record_order']!r} in pass_registry.h."
             )
+            assert (
+                docs_metadata["preserves_instrument_prefix"]
+                == cpp_metadata["preserves_instrument_prefix"]
+            ), (
+                f"{name} has preserves_instrument_prefix="
+                f"{docs_metadata['preserves_instrument_prefix']!r} in docs/macros.py but "
+                f"{cpp_metadata['preserves_instrument_prefix']!r} in pass_registry.h."
+            )
 
 
 class TestOptimizationPassDocStructure:
@@ -117,6 +130,7 @@ class TestOptimizationPassDocStructure:
             "kind",
             "default_enabled",
             "preserves_record_order",
+            "preserves_instrument_prefix",
             "python_name",
             "summary",
             "detail",

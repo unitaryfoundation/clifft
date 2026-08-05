@@ -248,6 +248,20 @@ TEST_CASE("PauliMaskArena: const view stays live after sign mutation through mut
     REQUIRE_FALSE(cv.sign());
 }
 
+TEST_CASE("PauliMaskArena: const views compare by value") {
+    PauliMaskArena a(128, 1);
+    PauliMaskArena b(128, 1);
+    REQUIRE(a.at(PauliMaskHandle{0}) == b.at(PauliMaskHandle{0}));
+
+    a.mut_at(PauliMaskHandle{0}).x().bit_set(65, true);
+    REQUIRE_FALSE(a.at(PauliMaskHandle{0}) == b.at(PauliMaskHandle{0}));
+    b.mut_at(PauliMaskHandle{0}).x().bit_set(65, true);
+    REQUIRE(a.at(PauliMaskHandle{0}) == b.at(PauliMaskHandle{0}));
+
+    a.mut_at(PauliMaskHandle{0}).set_sign(true);
+    REQUIRE_FALSE(a.at(PauliMaskHandle{0}) == b.at(PauliMaskHandle{0}));
+}
+
 // =========================================================================
 // lowest_bit_at_or_above / lowest_bit_below
 // =========================================================================
