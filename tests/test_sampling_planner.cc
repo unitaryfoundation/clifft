@@ -35,6 +35,12 @@ const T& action_as(const SamplingPlan& plan, size_t index) {
     return std::get<T>(plan.actions.at(index).action);
 }
 
+void require_global_phase(const SamplingPlan& plan, double angle) {
+    const std::complex<double> expected{std::cos(angle), std::sin(angle)};
+    REQUIRE_THAT(plan.global_weight.real(), Catch::Matchers::WithinAbs(expected.real(), 1e-12));
+    REQUIRE_THAT(plan.global_weight.imag(), Catch::Matchers::WithinAbs(expected.imag(), 1e-12));
+}
+
 }  // namespace
 
 TEST_CASE("Sampling planner preserves empty module metadata") {
@@ -61,7 +67,6 @@ TEST_CASE("Sampling planner promotes rotations and keeps later active support") 
     REQUIRE(plan.max_active_width == 1);
     REQUIRE(plan.actions.size() == 2);
     const auto& promotion = action_as<PromoteDormantRotation>(plan, 0);
-    REQUIRE(promotion.dormant_pivot == 0);
     REQUIRE(promotion.half_turns == 0.25);
     REQUIRE(promotion.sign == AffineBool(false));
     const auto& rotation = action_as<RotateActivePauli>(plan, 1);
@@ -134,6 +139,25 @@ TEST_CASE("Sampling planner correlates arbitrary repeated dormant measurements")
             REQUIRE(repeated.outcome == first.outcome);
         }
     }
+}
+
+TEST_CASE("Sampling planner correlates mixed active and dormant measurements") {
+    HirModule hir(2, 3);
+    hir.num_measurements = 2;
+    clifft::test::append_tgate(hir, X(0), 0, false);
+    clifft::test::append_measure(hir, X(0) | X(1), 0, false, MeasRecordIdx{0});
+    clifft::test::append_measure(hir, X(0) | X(1), 0, false, MeasRecordIdx{1});
+
+    const SamplingPlan plan = plan_sampling(hir);
+
+    REQUIRE(plan.actions.size() == 3);
+    const auto& first = action_as<MeasureDormantRandom>(plan, 1);
+    REQUIRE(plan.actions[1].active_before == 1);
+    REQUIRE(plan.actions[1].active_after == 1);
+    REQUIRE(first.branch == SymbolId{0});
+    REQUIRE(first.outcome == AffineBool::symbol(SymbolId{0}));
+    const auto& repeated = action_as<RecordClassical>(plan, 2);
+    REQUIRE(repeated.outcome == first.outcome);
 }
 
 TEST_CASE("Sampling planner accepts traced rotation and measurement HIR") {
@@ -216,10 +240,31 @@ TEST_CASE("Sampling planner retains balanced rotation global factors") {
     REQUIRE(plan.actions.size() == 2);
     REQUIRE(action_as<RotateActivePauli>(plan, 0).pauli.is_identity());
     REQUIRE(action_as<RotateActivePauli>(plan, 1).pauli.is_identity());
-    const std::complex<double> expected{std::cos(std::numbers::pi / 8.0),
-                                        std::sin(std::numbers::pi / 8.0)};
-    REQUIRE_THAT(plan.global_weight.real(), Catch::Matchers::WithinAbs(expected.real(), 1e-12));
-    REQUIRE_THAT(plan.global_weight.imag(), Catch::Matchers::WithinAbs(expected.imag(), 1e-12));
+    require_global_phase(plan, std::numbers::pi / 8.0);
+}
+
+TEST_CASE("Sampling planner preserves sign flipped rotation global factors") {
+    SECTION("T gate factor is sign independent") {
+        HirModule hir(1, 1);
+        clifft::test::append_tgate(hir, 0, Z(0), true);
+
+        const SamplingPlan plan = plan_sampling(hir);
+
+        REQUIRE(action_as<RotateActivePauli>(plan, 0).pauli.is_identity());
+        REQUIRE(action_as<RotateActivePauli>(plan, 0).sign == AffineBool(true));
+        require_global_phase(plan, std::numbers::pi / 8.0);
+    }
+
+    SECTION("phase rotation factor follows signed axis") {
+        HirModule hir(1, 1);
+        clifft::test::append_phase_rotation(hir, 0, Z(0), true, 0.5);
+
+        const SamplingPlan plan = plan_sampling(hir);
+
+        REQUIRE(action_as<RotateActivePauli>(plan, 0).pauli.is_identity());
+        REQUIRE(action_as<RotateActivePauli>(plan, 0).sign == AffineBool(true));
+        require_global_phase(plan, -std::numbers::pi / 4.0);
+    }
 }
 
 TEST_CASE("Sampling planner rejects unsupported operations explicitly") {

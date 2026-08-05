@@ -63,6 +63,9 @@ Pauli single_z(uint32_t num_qubits, uint32_t q) {
 }
 
 Pauli positive_body_xor(const Pauli& left, const Pauli& right) {
+    // Callers only combine canonical generator rows whose nonidentity supports
+    // are disjoint. Overlapping supports could contribute a phase that this
+    // body-only helper intentionally does not compute.
     Pauli result(left);
     result.xs ^= right.xs;
     result.zs ^= right.zs;
@@ -353,7 +356,7 @@ void process_rotation(std::vector<PendingOperation>& pending, size_t index,
     transform_future_operations(pending, index + 1, frame);
     plan.actions.push_back(
         PlannedAction{active_width, active_width + 1,
-                      PromoteDormantRotation{active_width, rotation.half_turns, rotation.sign}});
+                      PromoteDormantRotation{rotation.half_turns, rotation.sign}});
     ++active_width;
     plan.max_active_width = std::max(plan.max_active_width, active_width);
 }

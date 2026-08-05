@@ -389,10 +389,8 @@ void SamplingPlan::validate() const {
                     }
                     validate_expression(*this, typed.sign, action_index, definition, false);
                 } else if constexpr (std::is_same_v<T, PromoteDormantRotation>) {
-                    if (planned.active_after != planned.active_before + 1 ||
-                        typed.dormant_pivot < planned.active_before ||
-                        typed.dormant_pivot >= num_qubits) {
-                        invalid_plan("dormant promotion has an invalid width or pivot");
+                    if (planned.active_after != planned.active_before + 1) {
+                        invalid_plan("dormant promotion has an invalid width");
                     }
                     if (!is_finite_robust(typed.half_turns)) {
                         invalid_plan("dormant promotion angle is not finite");
@@ -485,8 +483,7 @@ std::string SamplingPlan::inspect() const {
                         << " half_turns=" << typed.half_turns
                         << " sign=" << format_expression(typed.sign);
                 } else if constexpr (std::is_same_v<T, PromoteDormantRotation>) {
-                    out << "promote_dormant pivot=" << typed.dormant_pivot
-                        << " half_turns=" << typed.half_turns
+                    out << "promote_dormant half_turns=" << typed.half_turns
                         << " sign=" << format_expression(typed.sign);
                 } else if constexpr (std::is_same_v<T, MeasureActivePauli>) {
                     out << "measure_active " << format_pauli(typed.pauli)

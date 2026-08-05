@@ -95,9 +95,9 @@ struct RotateActivePauli {
     AffineBool sign;
 };
 
-// Promotes one dormant coordinate and applies the rotation that introduced it.
+// Promotes the next active coordinate and applies the rotation that introduced
+// it. The planner has already rewritten later operations into the new basis.
 struct PromoteDormantRotation {
-    uint32_t dormant_pivot = 0;
     double half_turns = 0.0;
     // When true for a shot, negate the promoted generator and half_turns.
     AffineBool sign;
