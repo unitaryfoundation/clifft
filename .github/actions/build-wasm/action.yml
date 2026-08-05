@@ -9,7 +9,7 @@ runs:
       uses: actions/cache@v4
       with:
         path: build-wasm
-        key: wasm-${{ runner.os }}-${{ hashFiles('src/wasm/**', 'src/clifft/**', 'cmake/**') }}
+        key: wasm-${{ runner.os }}-${{ hashFiles('src/wasm/**', 'src/clifft/**', 'cmake/**', '.github/actions/build-wasm/**') }}
 
     - name: Restore compiler cache
       if: steps.wasm-cache.outputs.cache-hit != 'true'
