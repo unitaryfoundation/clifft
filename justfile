@@ -117,7 +117,7 @@ cov: py-cov cpp-cov
 # -------------------------
 
 lint:
-  uv run pre-commit run --all-files
+  uv run --frozen --only-group dev pre-commit run --all-files --show-diff-on-failure
 
 # -------------------------
 # Profiling

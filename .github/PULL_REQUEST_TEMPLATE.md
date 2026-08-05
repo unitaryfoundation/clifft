@@ -9,7 +9,7 @@
 - [ ] C++ tests pass (`ctest --test-dir build -E Bench --output-on-failure`)
 - [ ] Python tests pass (`uv run pytest tests/python/ -v`)
 - [ ] Doc examples pass (`uv run pytest --codeblocks docs/ README.md -v`)
-- [ ] Pre-commit checks pass (`uv run pre-commit run --all-files`)
+- [ ] Pre-commit checks pass (`uv run --frozen --only-group dev pre-commit run --all-files --show-diff-on-failure`)
 
 ## Contributor agreement
 
