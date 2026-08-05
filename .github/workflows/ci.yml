@@ -56,12 +56,12 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/.cache/pre-commit
-          key: ${{ runner.os }}-pre-commit-${{ hashFiles('.pre-commit-config.yaml') }}
+          key: ${{ runner.os }}-pre-commit-${{ hashFiles('.pre-commit-config.yaml', 'uv.lock') }}
           restore-keys: |
             ${{ runner.os }}-pre-commit-
 
       - name: Run pre-commit
-        run: uv tool run pre-commit run --all-files
+        run: uv run --frozen pre-commit run --all-files --show-diff-on-failure
 
   playground-lint:
     runs-on: ubuntu-24.04

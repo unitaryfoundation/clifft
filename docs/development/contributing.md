@@ -55,7 +55,7 @@ We use pre-commit hooks to enforce formatting and linting:
 uv run pre-commit install
 
 # Run all checks manually
-uv run pre-commit run --all-files
+uv run --frozen pre-commit run --all-files --show-diff-on-failure
 ```
 
 ### C++
