@@ -33,8 +33,7 @@ namespace {
     }
     const PauliMaskView a_mask = a.at(a_handle);
     const PauliMaskView b_mask = b.at(b_handle);
-    return a_mask.x() == b_mask.x() && a_mask.z() == b_mask.z() &&
-           a_mask.sign() == b_mask.sign();
+    return a_mask.x() == b_mask.x() && a_mask.z() == b_mask.z() && a_mask.sign() == b_mask.sign();
 }
 
 [[nodiscard]] bool same_u2(const ConstantPool& a, const ConstantPool& b, uint32_t idx) {
@@ -72,8 +71,7 @@ namespace {
                 }
             }
         }
-        if (!same_complex(x.entries[state].gamma_multiplier,
-                          y.entries[state].gamma_multiplier) ||
+        if (!same_complex(x.entries[state].gamma_multiplier, y.entries[state].gamma_multiplier) ||
             x.entries[state].out_state != y.entries[state].out_state) {
             return false;
         }
@@ -155,8 +153,7 @@ namespace {
                      b.instrument_destination_flip_masks, y.destination_flip_mask);
 }
 
-[[nodiscard]] bool same_instruction(const Instruction& continuation,
-                                    const Instruction& executed) {
+[[nodiscard]] bool same_instruction(const Instruction& continuation, const Instruction& executed) {
     if (std::memcmp(&continuation, &executed, sizeof(Instruction)) == 0) {
         return true;
     }
@@ -178,8 +175,7 @@ namespace {
             return same_u4(a, b, instr.u4.cp_idx);
         case Opcode::OP_APPLY_PAULI:
             return same_mask(a.pauli_masks, static_cast<PauliMaskHandle>(instr.pauli.cp_mask_idx),
-                             b.pauli_masks,
-                             static_cast<PauliMaskHandle>(instr.pauli.cp_mask_idx));
+                             b.pauli_masks, static_cast<PauliMaskHandle>(instr.pauli.cp_mask_idx));
         case Opcode::OP_NOISE:
             return same_noise_site(a, b, instr.pauli.cp_mask_idx);
         case Opcode::OP_NOISE_BLOCK:

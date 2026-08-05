@@ -104,8 +104,9 @@ TEST_CASE("continuation prefix validates bytecode and referenced constants") {
                             ContainsSubstring("constant-pool prefix diverged at instruction 3"));
     }
     SECTION("noise-block mask divergence rejects") {
-        continuation.constant_pool.noise_channel_masks.mut_at(PauliMaskHandle{1}).x().bit_set(1,
-                                                                                            true);
+        continuation.constant_pool.noise_channel_masks.mut_at(PauliMaskHandle{1})
+            .x()
+            .bit_set(1, true);
         REQUIRE_THROWS_WITH(validate_continuation_prefix(continuation, executed, prefix_end),
                             ContainsSubstring("constant-pool prefix diverged at instruction 4"));
     }
@@ -140,8 +141,7 @@ TEST_CASE("continuation prefix validates bytecode and referenced constants") {
                             ContainsSubstring("constant-pool prefix diverged at instruction 9"));
     }
     SECTION("instrument destination mask divergence rejects") {
-        continuation.constant_pool.instrument_destination_flip_masks
-            .mut_at(PauliMaskHandle{0})
+        continuation.constant_pool.instrument_destination_flip_masks.mut_at(PauliMaskHandle{0})
             .z()
             .bit_set(1, true);
         REQUIRE_THROWS_WITH(validate_continuation_prefix(continuation, executed, prefix_end),
