@@ -99,7 +99,7 @@ struct RotateActivePauli {
 // it. The planner has already rewritten later operations into the new basis.
 struct PromoteDormantRotation {
     double half_turns = 0.0;
-    // When true for a shot, negate the promoted generator and half_turns.
+    // When true for a shot, negate the promoted generator, equivalently negating half_turns.
     AffineBool sign;
 };
 
