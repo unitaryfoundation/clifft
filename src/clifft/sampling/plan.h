@@ -1,18 +1,24 @@
 #pragma once
 
-// Private semantic plan for the symbolic-coordinate sampling path.
+// SamplingPlan is a private semantic IR produced after a circuit is compiled
+// to HIR and optimized. It captures the action sequence needed to sample the
+// circuit, including stochastic events as Boolean symbols, changes to the
+// active state, record writes, and instrument boundaries. This separates
+// compile-once planning from values determined for each shot.
 //
-// This representation deliberately does not reuse the legacy SVM Instruction.
-// It describes sampling semantics; CPU layout, SIMD selection, dispatch, and
-// device lowering belong to later execution-specific layers.
-// Executors must lower it to a packed, allocation-free runtime plan rather
-// than traversing these variants and vectors in per-shot hot loops.
+// The plan is executor-independent. CPU layout, SIMD selection, dispatch, and
+// device lowering belong to execution-specific layers, which should lower it
+// to packed, preallocated storage before entering per-shot hot loops.
 //
-// The symbolic-expression and stabilizer-coordinate action split is an
-// independent Clifft implementation informed by the published SymFT design.
+// The symbolic-expression and stabilizer-coordinate split is informed by:
+// SymFT: Universal Fault-Tolerant Quantum Circuit Simulation via Symbolic
+// Clifford--Pauli Frames and Stabilizer Coordinates, arXiv:2607.28600.
+
+#include "clifft/util/numeric.h"
 
 #include <complex>
 #include <cstdint>
+#include <limits>
 #include <optional>
 #include <string>
 #include <variant>
@@ -20,19 +26,24 @@
 
 namespace clifft::sampling {
 
+// A symbol is a plan-local Boolean value assigned once per shot. It represents
+// a presampled stochastic event, a sampled measurement branch, or a named
+// parity derived from earlier symbols.
 enum class SymbolId : uint32_t {};
 enum class RecordSlot : uint32_t {};
 enum class NoiseSiteId : uint32_t {};
 enum class InstrumentSiteId : uint32_t {};
 
 enum class SymbolKind : uint8_t {
-    Presampled,
-    Derived,
-    Branch,
+    Presampled,  // Available before the action stream, such as sampled noise.
+    Derived,     // Computed as a parity of previously available symbols.
+    Branch,      // Sampled while applying a measurement action.
 };
 
-// An XOR (parity) expression over plan symbols, possibly inverted. Terms are
-// stored in strict ascending order; XOR construction removes duplicates.
+// A parity expression over plan symbols, optionally XORed with true. For
+// example, s0 ^ s2 ^ true can track how sampled noise and a measurement branch
+// combine into a later sign or record bit. Terms are stored in strict ascending
+// order; XOR construction removes duplicates.
 class AffineBool {
   public:
     AffineBool() = default;
@@ -58,11 +69,17 @@ class AffineBool {
 [[nodiscard]] AffineBool operator^(AffineBool left, bool right);
 [[nodiscard]] AffineBool operator^(bool left, AffineBool right);
 
-// The Hermitian Pauli body for one action, expressed only in the active
-// coordinates visible immediately before that action. The unsigned operator is
-// i^popcount(x & z) X^x Z^z; an action's AffineBool carries its possibly
-// shot-dependent sign. Dense active width is below kDenseActiveWidthLimit, so
-// each mask fits in one word even when the physical circuit has many qubits.
+// Operations requiring coefficient-state work are expressed over active
+// stabilizer coordinates. An active coordinate is represented explicitly in
+// the dense 2^k coefficient state; it is not an "active physical qubit."
+// ActivePauli stores the unsigned Hermitian operator
+// i^popcount(x & z) X^x Z^z. Each action carries a separate AffineBool that can
+// change its sign for each shot.
+//
+// The dense-width limit is exclusive, so all valid masks fit in one word even
+// when the physical circuit contains many qubits.
+static_assert(kDenseActiveWidthLimit <= std::numeric_limits<uint64_t>::digits);
+
 struct ActivePauli {
     uint64_t x = 0;
     uint64_t z = 0;
@@ -74,7 +91,7 @@ struct ActivePauli {
 struct RotateActivePauli {
     ActivePauli pauli;
     double half_turns = 0.0;
-    // True means the Pauli enters the rotation with a minus sign.
+    // When true for a shot, use -P, equivalently negating half_turns.
     AffineBool sign;
 };
 
@@ -82,14 +99,14 @@ struct RotateActivePauli {
 struct PromoteDormantRotation {
     uint32_t dormant_pivot = 0;
     double half_turns = 0.0;
-    // True means the promoted Pauli enters with a minus sign.
+    // When true for a shot, negate the promoted generator and half_turns.
     AffineBool sign;
 };
 
-// Samples one active Pauli branch and removes the selected active pivot. The
-// branch symbol is the effective eigenvalue label used by state updates; the
-// outcome expression contains that branch and yields the user-visible record
-// bit after symbolic sign corrections.
+// Measuring a Pauli supported on the active coordinates requires sampling and
+// collapsing the coefficient state. The selected pivot is then removed, so the
+// active width decreases by one. The branch symbol holds the sampled eigenvalue
+// bit; outcome combines it with symbolic corrections to produce the record bit.
 struct MeasureActivePauli {
     ActivePauli pauli;
     uint32_t active_pivot = 0;
@@ -98,9 +115,10 @@ struct MeasureActivePauli {
     RecordSlot record{};
 };
 
-// Introduces an unbiased effective eigenvalue label while replacing a dormant
-// stabilizer. The outcome expression contains that branch and yields the
-// separately recorded bit; the active vector is untouched.
+// A random Pauli measurement supported outside the active coefficient state
+// samples an unbiased branch and replaces the selected dormant stabilizer. It
+// leaves the active state unchanged. The outcome combines the branch with
+// symbolic corrections to produce the record bit.
 struct MeasureDormantRandom {
     uint32_t dormant_pivot = 0;
     SymbolId branch{};
@@ -108,13 +126,16 @@ struct MeasureDormantRandom {
     RecordSlot record{};
 };
 
-// Records a deterministic classical expression without touching the state.
+// Writes a deterministic expression to visible or hidden circuit record
+// history without touching the state. Use DefineSymbol instead when an
+// internal parity needs a reusable name but no record slot.
 struct RecordClassical {
     AffineBool outcome;
     RecordSlot record{};
 };
 
-// Materializes an affine expression as a reusable derived symbol.
+// Names an affine expression for reuse by later actions without adding a
+// circuit record entry.
 struct DefineSymbol {
     SymbolId symbol{};
     AffineBool value;
@@ -123,8 +144,8 @@ struct DefineSymbol {
 // Divides ahead-of-time execution segments. A continuation must preserve the
 // live coefficients, active-coordinate meaning and order, active width,
 // symbol and record values, and RNG position established here. It need not
-// reproduce an arbitrary prior plan prefix byte-for-byte. The boundary itself
-// is width-neutral; any state transition belongs to a following action.
+// reproduce an arbitrary prior plan prefix byte-for-byte. The marker does not
+// itself change the active state; any transition belongs to a following action.
 struct InstrumentBoundary {
     InstrumentSiteId site{};
 };
@@ -139,25 +160,28 @@ struct PlannedAction {
     SamplingAction action;
 };
 
+// SamplingPlan::validate enforces the legal field combinations and verifies
+// that definition metadata agrees with the referenced action.
 struct SymbolInfo {
     SymbolKind kind = SymbolKind::Presampled;
 
-    // Presampled symbols have no defining action. Branch and
-    // derived symbols name the action that makes them available.
+    // This is nullopt for Presampled. For Branch and Derived it identifies the
+    // unique action that assigns the symbol.
     std::optional<uint32_t> defining_action;
 
-    // Presampled symbols may identify the stable HIR noise site that supplies
-    // them. Other presampled event kinds can add their own source identity
-    // without changing expression semantics.
+    // For a Presampled noise symbol, this identifies its stable HIR noise site.
+    // Nullopt means the presampled event has no noise-site identity. Branch and
+    // Derived symbols must always use nullopt.
     std::optional<NoiseSiteId> noise_site;
 };
 
 struct SamplingPlan {
     uint32_t num_qubits = 0;
 
-    // Active width is the new subsystem's name for legacy active_k. The
-    // planner computes its maximum (legacy peak_rank) while emitting actions,
-    // before runtime lowering uses it to preallocate coefficient storage.
+    // Active width is the number of stabilizer coordinates represented in the
+    // dense coefficient state, which contains 2^active_width entries. It is the
+    // descriptive name for legacy active_k. The planner computes its maximum
+    // while emitting actions so runtime lowering can preallocate storage.
     uint32_t initial_active_width = 0;
     uint32_t max_active_width = 0;
     uint32_t num_visible_records = 0;
