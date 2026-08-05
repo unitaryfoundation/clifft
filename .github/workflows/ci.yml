@@ -86,7 +86,6 @@ jobs:
         run: cd playground && npm run lint
 
   build-and-test:
-    needs: lint
     runs-on: ubuntu-24.04
     env:
       CMAKE_BUILD_TYPE: Debug
@@ -99,8 +98,12 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Install system dependencies
-        run: sudo apt-get update && sudo apt-get install -y ninja-build
+      - name: Install ninja
+        run: |
+          curl -fsSL -o /tmp/ninja-linux.zip \
+            https://github.com/ninja-build/ninja/releases/download/v1.12.1/ninja-linux.zip
+          echo "6f98805688d19672bd699fbbfa2c2cf0fc054ac3df1f0e6a47664d963d530255  /tmp/ninja-linux.zip" | sha256sum --check
+          sudo unzip -o -q /tmp/ninja-linux.zip -d /usr/local/bin
 
       - name: Setup ccache
         uses: hendrikmuhs/ccache-action@v1.2
@@ -191,18 +194,17 @@ jobs:
         run: uv run python tools/ci/audit_python_exports.py
 
       - name: Run Python tests (default ISA)
-        run: uv run --locked pytest tests/python/ -v
+        run: uv run --locked pytest tests/python/ -n auto -v
 
       - name: Run Python tests (scalar ISA)
         env:
           CLIFFT_FORCE_ISA: scalar
-        run: uv run --locked pytest tests/python/ -v
+        run: uv run --locked pytest tests/python/ -n auto -v
 
       - name: Test documentation code examples
         run: uv run --locked pytest --codeblocks docs/ README.md -v
 
   release-cpp-smoke:
-    needs: lint
     runs-on: ubuntu-24.04
     env:
       CMAKE_BUILD_TYPE: Release
@@ -215,7 +217,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Install system dependencies
-        run: sudo apt-get update && sudo apt-get install -y ninja-build
+        run: sudo apt-get update && sudo apt-get install -y ninja-build qemu-user
 
       - name: Setup ccache
         uses: hendrikmuhs/ccache-action@v1.2
@@ -263,9 +265,6 @@ jobs:
       - name: Audit Python extension exports
         run: .smoke-venv/bin/python tools/ci/audit_python_exports.py
 
-      - name: Install qemu-user
-        run: sudo apt-get install -y qemu-user
-
       # Run a small QEMU-emulated CPU matrix against the release-baseline
       # Python install. Catches AVX-512 leakage into the AVX-2 dispatch
       # path (would SIGILL the emulated CPU) and validates that
@@ -283,7 +282,6 @@ jobs:
 
   cross-platform:
     if: github.event_name == 'push'
-    needs: lint
     strategy:
       fail-fast: false
       matrix:
@@ -350,4 +348,4 @@ jobs:
         run: uv run python tools/ci/audit_python_exports.py
 
       - name: Run Python tests
-        run: uv run --locked pytest tests/python/ -v
+        run: uv run --locked pytest tests/python/ -n auto -v
