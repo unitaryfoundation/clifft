@@ -1,5 +1,5 @@
 # Clifft pre-commit hooks
-# Run with: uv run --frozen pre-commit run --all-files --show-diff-on-failure
+# Run with: uv run --frozen --only-group dev pre-commit run --all-files --show-diff-on-failure
 
 repos:
   # C++ formatting with clang-format

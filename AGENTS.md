@@ -59,7 +59,7 @@ architecture cannot support it:
 - Never commit directly to `main`; use a feature branch.
 - Keep commits atomic and use conventional prefixes such as `feat:`, `fix:`,
   `test:`, and `docs:`.
-- Run `uv run --frozen pre-commit run --all-files --show-diff-on-failure`
+- Run `uv run --frozen --only-group dev pre-commit run --all-files --show-diff-on-failure`
   before every commit, in addition to the tests appropriate for the change.
 - Include an `Assisted-by:` trailer identifying the agent that actually
   assisted. Each agent must use its own name, model, and provider address; do
