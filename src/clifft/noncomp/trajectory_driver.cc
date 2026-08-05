@@ -16,6 +16,7 @@
 
 #include "clifft/backend/backend.h"
 #include "clifft/frontend/frontend.h"
+#include "clifft/noncomp/continuation_prefix.h"
 #include "clifft/noncomp/instrument_options.h"
 #include "clifft/noncomp/rewriter.h"
 #include "clifft/noncomp/seed.h"
@@ -30,7 +31,6 @@
 
 #include <cassert>
 #include <cstdint>
-#include <cstring>
 #include <map>
 #include <optional>
 #include <stdexcept>
@@ -310,27 +310,25 @@ void check_max_rank(const CompiledModule& module, std::optional<uint32_t> max_ra
 }
 
 // Build the HIR pass pipeline from default passes that preserve measurement
-// record order. A trajectory may force a hidden trace-out measurement, so moving
-// an entangled measurement before that collapse would change the result. Record
-// order alone does not make a continuation compatible with a running state:
-// every continuation uses this fixed pipeline, and debug builds also verify
-// that recompilation reproduces the bytecode prefix the state executed.
+// record order and explicitly guarantee instrument-prefix stability. A
+// trajectory may force a hidden trace-out measurement, so moving an entangled
+// measurement before that collapse would change the result.
 HirPassManager trajectory_hir_pass_manager() {
     HirPassManager pm;
     for (const auto& info : kRegisteredPasses) {
-        if (info.kind == PassKind::HIR && info.default_enabled && info.record_order.preserved) {
+        if (info.kind == PassKind::HIR && info.default_enabled && is_trajectory_compatible(info)) {
             pm.add_pass(info.make_hir());
         }
     }
     return pm;
 }
 
-// Apply the same record-order requirement to bytecode passes.
+// Apply both trajectory requirements to bytecode passes.
 BytecodePassManager trajectory_bytecode_pass_manager() {
     BytecodePassManager pm;
     for (const auto& info : kRegisteredPasses) {
         if (info.kind == PassKind::Bytecode && info.default_enabled &&
-            info.record_order.preserved) {
+            is_trajectory_compatible(info)) {
             pm.add_pass(info.make_bc());
         }
     }
@@ -376,25 +374,6 @@ void swap_traceout_to_forced(CompiledModule& module, size_t slot) {
                                " measurement instructions; expected exactly one");
     }
 }
-
-#ifndef NDEBUG
-// Compare instructions while allowing the expected sampling-to-forced opcode
-// change. Bytewise equality is deliberate: resume requires the continuation
-// prefix to match the module that already executed, not merely to be
-// semantically equivalent.
-bool equal_modulo_forced_swap(const Instruction& fresh, const Instruction& executed) {
-    if (std::memcmp(&fresh, &executed, sizeof(Instruction)) == 0) {
-        return true;
-    }
-    const std::optional<Opcode> forced = forced_measurement_opcode(fresh.opcode);
-    if (!forced.has_value() || *forced != executed.opcode) {
-        return false;
-    }
-    Instruction swapped = fresh;
-    swapped.opcode = executed.opcode;
-    return std::memcmp(&swapped, &executed, sizeof(Instruction)) == 0;
-}
-#endif
 
 CompiledContinuation compile_continuation(ContinuationRewrite rewrite,
                                           const std::vector<uint8_t>& herald_flags,
@@ -467,22 +446,9 @@ CompiledContinuation compile_continuation(ContinuationRewrite rewrite,
         swap_traceout_to_forced(module, *forced_traceout_slot);
     }
 
-#ifndef NDEBUG
-    // The continuation must reproduce every instruction the shot already
-    // executed, except for the forced trace-out opcode handled above.
     if (executed_prefix_module != nullptr) {
-        assert(prefix_end <= module.bytecode.size() &&
-               prefix_end <= executed_prefix_module->bytecode.size());
-        for (uint32_t i = 0; i < prefix_end; ++i) {
-            assert(
-                equal_modulo_forced_swap(module.bytecode[i], executed_prefix_module->bytecode[i]) &&
-                "continuation prefix diverged from the executed module");
-        }
+        validate_continuation_prefix(module, *executed_prefix_module, prefix_end);
     }
-#else
-    (void)executed_prefix_module;
-    (void)prefix_end;
-#endif
 
     return CompiledContinuation{
         .module = std::move(module),

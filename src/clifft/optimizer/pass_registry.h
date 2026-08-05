@@ -43,14 +43,34 @@ struct RecordOrder {
 inline constexpr RecordOrder kPreservesRecordOrder{true};
 inline constexpr RecordOrder kBreaksRecordOrder{false};
 
+// Whether changing the input after an INSTRUMENT can change the pass output
+// through that instrument. A resumed trajectory recompiles a changed suffix
+// while reusing the state produced by the already-executed prefix, so such
+// passes must make an explicit stability guarantee. For bytecode passes, the
+// guarantee includes constant-pool data referenced by prefix instructions.
+// There is intentionally no default: adding a pass requires its author to
+// opt in or keep it out of the trajectory pipeline.
+struct InstrumentPrefixStability {
+    bool preserved;
+    constexpr explicit InstrumentPrefixStability(bool preserved_in) : preserved(preserved_in) {}
+};
+
+inline constexpr InstrumentPrefixStability kPreservesInstrumentPrefix{true};
+inline constexpr InstrumentPrefixStability kMayChangeInstrumentPrefix{false};
+
 struct PassInfo {
     std::string_view name;
     PassKind kind;
     bool default_enabled;
     RecordOrder record_order;
+    InstrumentPrefixStability instrument_prefix;
     HirPassFactory make_hir = nullptr;
     BytecodePassFactory make_bc = nullptr;
 };
+
+[[nodiscard]] constexpr bool is_trajectory_compatible(const PassInfo& info) {
+    return info.record_order.preserved && info.instrument_prefix.preserved;
+}
 
 template <typename T>
 std::unique_ptr<HirPass> make_hir() {
@@ -70,57 +90,68 @@ inline const PassInfo kRegisteredPasses[] = {
      .kind = PassKind::HIR,
      .default_enabled = true,
      .record_order = kPreservesRecordOrder,
+     .instrument_prefix = kPreservesInstrumentPrefix,
      .make_hir = make_hir<PeepholeFusionPass>},
     {.name = "StatevectorSqueezePass",
      .kind = PassKind::HIR,
      .default_enabled = true,
      .record_order = kBreaksRecordOrder,
+     .instrument_prefix = kMayChangeInstrumentPrefix,
      .make_hir = make_hir<StatevectorSqueezePass>},
     {.name = "RemoveNoisePass",
      .kind = PassKind::HIR,
      .default_enabled = false,
      .record_order = kBreaksRecordOrder,
+     .instrument_prefix = kMayChangeInstrumentPrefix,
      .make_hir = make_hir<RemoveNoisePass>},
     {.name = "DropNonUnitaryPass",
      .kind = PassKind::HIR,
      .default_enabled = false,
      .record_order = kBreaksRecordOrder,
+     .instrument_prefix = kMayChangeInstrumentPrefix,
      .make_hir = make_hir<DropNonUnitaryPass>},
     // Bytecode passes
     {.name = "NoiseBlockPass",
      .kind = PassKind::Bytecode,
      .default_enabled = true,
      .record_order = kPreservesRecordOrder,
+     .instrument_prefix = kPreservesInstrumentPrefix,
      .make_bc = make_bc<NoiseBlockPass>},
     {.name = "MultiGatePass",
      .kind = PassKind::Bytecode,
      .default_enabled = true,
      .record_order = kPreservesRecordOrder,
+     .instrument_prefix = kPreservesInstrumentPrefix,
      .make_bc = make_bc<MultiGatePass>},
     {.name = "ExpandTPass",
      .kind = PassKind::Bytecode,
      .default_enabled = true,
      .record_order = kPreservesRecordOrder,
+     .instrument_prefix = kPreservesInstrumentPrefix,
      .make_bc = make_bc<ExpandTPass>},
     {.name = "ExpandRotPass",
      .kind = PassKind::Bytecode,
      .default_enabled = true,
      .record_order = kPreservesRecordOrder,
+     .instrument_prefix = kPreservesInstrumentPrefix,
      .make_bc = make_bc<ExpandRotPass>},
     {.name = "SwapMeasPass",
      .kind = PassKind::Bytecode,
      .default_enabled = true,
      .record_order = kPreservesRecordOrder,
+     .instrument_prefix = kPreservesInstrumentPrefix,
      .make_bc = make_bc<SwapMeasPass>},
     {.name = "TileAxisFusionPass",
      .kind = PassKind::Bytecode,
      .default_enabled = true,
      .record_order = kPreservesRecordOrder,
+     .instrument_prefix = kPreservesInstrumentPrefix,
      .make_bc = make_bc<TileAxisFusionPass>},
     {.name = "SingleAxisFusionPass",
      .kind = PassKind::Bytecode,
      .default_enabled = true,
      .record_order = kPreservesRecordOrder,
+     .instrument_prefix = kPreservesInstrumentPrefix,
      .make_bc = make_bc<SingleAxisFusionPass>},
 };
 

@@ -36,7 +36,7 @@ bpm.add(clifft.NoiseBlockPass())
 bpm.add(clifft.MultiGatePass())
 ```
 
-## Measurement-Record Order
+## Trajectory Safety Metadata
 
 Some workflows require measurements to remain in their original order,
 including hidden measurements introduced by the compiler. In particular,
@@ -44,16 +44,19 @@ including hidden measurements introduced by the compiler. In particular,
 when it resumes a trapped transition. Moving another measurement across that
 collapse can change quantum correlations.
 
-`clifft.noncomp.sample` therefore applies only passes that are both enabled by
-default and marked as preserving measurement-record order. Its HIR pipeline
-uses `PeepholeFusionPass` but omits `StatevectorSqueezePass`; all default
-bytecode passes currently preserve record order and are applied.
+`clifft.noncomp.sample` therefore applies only passes that are enabled by
+default, preserve measurement-record order, and preserve instrument prefixes.
+Its HIR pipeline uses `PeepholeFusionPass` but omits
+`StatevectorSqueezePass`; all default bytecode passes currently preserve both
+properties and are applied.
 
 Record-order preservation is necessary but does not by itself make a
-continuation compatible with an already-running VM state. Recompilation must
-also reproduce the bytecode prefix that the state executed. For this reason,
-`clifft.noncomp.sample` uses a fixed internal pipeline and does not currently
-accept custom pass managers. See
+continuation compatible with an already-running VM state. Trajectory passes
+must also opt in to instrument-prefix stability: changing the circuit after an
+instrument may not change optimized output through that instrument. The
+runtime checks each recompiled prefix, including referenced constant-pool data,
+before resuming. For this reason, `clifft.noncomp.sample` uses a fixed internal
+pipeline and does not currently accept custom pass managers. See
 [Leakage and Loss](../guide/leakage-and-loss.md#why-there-is-no-compile-step)
 for how continuations are compiled and resumed.
 
@@ -69,6 +72,7 @@ for how continuations are compiled and resumed.
 | **Kind** | HIR (pre-lowering) |
 | **Default** | {{ '✅ Enabled' if p['default_enabled'] else '❌ Disabled' }} |
 | **Preserves measurement-record order** | {{ 'Yes' if p['preserves_record_order'] else 'No' }} |
+| **Preserves instrument prefix** | {{ 'Yes' if p['preserves_instrument_prefix'] else 'No' }} |
 | **Python** | `clifft.{{ p['python_name'] }}()` |
 
 {{ p['detail'] }}
@@ -87,6 +91,7 @@ for how continuations are compiled and resumed.
 | **Kind** | Bytecode (post-lowering) |
 | **Default** | {{ '✅ Enabled' if p['default_enabled'] else '❌ Disabled' }} |
 | **Preserves measurement-record order** | {{ 'Yes' if p['preserves_record_order'] else 'No' }} |
+| **Preserves instrument prefix** | {{ 'Yes' if p['preserves_instrument_prefix'] else 'No' }} |
 | **Python** | `clifft.{{ p['python_name'] }}()` |
 
 {{ p['detail'] }}

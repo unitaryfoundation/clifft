@@ -59,6 +59,8 @@ std::string pass_registry_json() {
         out += p.default_enabled ? "true" : "false";
         out += ",\"preserves_record_order\":";
         out += p.record_order.preserved ? "true" : "false";
+        out += ",\"preserves_instrument_prefix\":";
+        out += p.instrument_prefix.preserved ? "true" : "false";
         out += "}";
     }
     out += ']';

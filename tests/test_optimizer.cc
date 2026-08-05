@@ -745,6 +745,26 @@ TEST_CASE("Pass registry: default managers use registry") {
     REQUIRE(prog.num_qubits == 2);
 }
 
+TEST_CASE("Pass registry: trajectory compatibility requires both guarantees") {
+    const std::vector<std::string_view> prefix_stable = {
+        "PeepholeFusionPass", "NoiseBlockPass", "MultiGatePass",      "ExpandTPass",
+        "ExpandRotPass",      "SwapMeasPass",   "TileAxisFusionPass", "SingleAxisFusionPass",
+    };
+    const std::vector<std::string_view> may_change_prefix = {
+        "StatevectorSqueezePass", "RemoveNoisePass", "DropNonUnitaryPass"};
+
+    for (const auto& info : clifft::kRegisteredPasses) {
+        const bool expected_stable =
+            std::find(prefix_stable.begin(), prefix_stable.end(), info.name) != prefix_stable.end();
+        const bool expected_unstable = std::find(may_change_prefix.begin(), may_change_prefix.end(),
+                                                 info.name) != may_change_prefix.end();
+        REQUIRE(expected_stable != expected_unstable);
+        CHECK(info.instrument_prefix.preserved == expected_stable);
+        CHECK(clifft::is_trajectory_compatible(info) ==
+              (info.record_order.preserved && expected_stable));
+    }
+}
+
 TEST_CASE("Pass registry: JSON round-trip is valid") {
     std::string json = clifft::pass_registry_json();
     REQUIRE(json.front() == '[');
@@ -753,6 +773,7 @@ TEST_CASE("Pass registry: JSON round-trip is valid") {
     REQUIRE(json.find("SingleAxisFusionPass") != std::string::npos);
     REQUIRE(json.find("RemoveNoisePass") != std::string::npos);
     REQUIRE(json.find("DropNonUnitaryPass") != std::string::npos);
+    REQUIRE(json.find("preserves_instrument_prefix") != std::string::npos);
 }
 
 // =============================================================================
