@@ -147,7 +147,7 @@ ActivePauli active_projection(const Pauli& pauli, uint32_t active_width) {
 }
 
 Tableau dormant_promotion_frame(const Pauli& promoted, uint32_t active_width,
-                                 uint32_t dormant_pivot) {
+                                uint32_t dormant_pivot) {
     const uint32_t n = static_cast<uint32_t>(promoted.num_qubits);
     Tableau frame(n);
     const Pauli old_stabilizer = single_z(n, dormant_pivot);
@@ -325,8 +325,7 @@ void multiply_phase(std::complex<double>& weight, double angle) {
     weight *= std::complex<double>(std::cos(angle), std::sin(angle));
 }
 
-std::vector<PendingOperation> queue_supported_operations(const HirModule& hir,
-                                                         SamplingPlan& plan) {
+std::vector<PendingOperation> queue_supported_operations(const HirModule& hir, SamplingPlan& plan) {
     std::vector<PendingOperation> pending;
     pending.reserve(hir.ops.size());
 
@@ -342,16 +341,16 @@ std::vector<PendingOperation> queue_supported_operations(const HirModule& hir,
                 break;
             }
             case OpType::PHASE_ROTATION: {
-                pending.emplace_back(PendingRotation{pauli_from_hir(hir, op), op.alpha(),
-                                                     AffineBool(hir.sign(op))});
+                pending.emplace_back(
+                    PendingRotation{pauli_from_hir(hir, op), op.alpha(), AffineBool(hir.sign(op))});
                 const double signed_alpha = hir.sign(op) ? -op.alpha() : op.alpha();
                 multiply_phase(plan.global_weight, signed_alpha * std::numbers::pi / 2.0);
                 break;
             }
             case OpType::MEASURE:
-                pending.emplace_back(PendingMeasurement{
-                    pauli_from_hir(hir, op), AffineBool(hir.sign(op)),
-                    RecordSlot{static_cast<uint32_t>(op.meas_record_idx())}});
+                pending.emplace_back(
+                    PendingMeasurement{pauli_from_hir(hir, op), AffineBool(hir.sign(op)),
+                                       RecordSlot{static_cast<uint32_t>(op.meas_record_idx())}});
                 break;
             case OpType::CONDITIONAL_PAULI:
             case OpType::NOISE:
@@ -369,29 +368,26 @@ std::vector<PendingOperation> queue_supported_operations(const HirModule& hir,
 
 void process_rotation(std::vector<PendingOperation>& pending, size_t index,
                       const PendingRotation& rotation, SamplingPlan& plan, uint32_t& active_width) {
-    const std::optional<uint32_t> dormant_pivot =
-        first_x_at_or_above(rotation.body, active_width);
+    const std::optional<uint32_t> dormant_pivot = first_x_at_or_above(rotation.body, active_width);
     if (!dormant_pivot.has_value()) {
-        plan.actions.push_back(PlannedAction{
-            active_width, active_width,
-            RotateActivePauli{active_projection(rotation.body, active_width),
-                              rotation.half_turns, rotation.sign}});
+        plan.actions.push_back(
+            PlannedAction{active_width, active_width,
+                          RotateActivePauli{active_projection(rotation.body, active_width),
+                                            rotation.half_turns, rotation.sign}});
         return;
     }
 
     if (active_width + 1 >= kDenseActiveWidthLimit) {
-        throw std::overflow_error("sampling planner active width would reach " +
-                                  std::to_string(active_width + 1) +
-                                  ", but the dense-state limit is " +
-                                  std::to_string(kDenseActiveWidthLimit));
+        throw std::overflow_error(
+            "sampling planner active width would reach " + std::to_string(active_width + 1) +
+            ", but the dense-state limit is " + std::to_string(kDenseActiveWidthLimit));
     }
 
-    const Tableau frame =
-        dormant_promotion_frame(rotation.body, active_width, *dormant_pivot);
+    const Tableau frame = dormant_promotion_frame(rotation.body, active_width, *dormant_pivot);
     transform_future_operations(pending, index + 1, frame);
-    plan.actions.push_back(PlannedAction{
-        active_width, active_width + 1,
-        PromoteDormantRotation{active_width, rotation.half_turns, rotation.sign}});
+    plan.actions.push_back(
+        PlannedAction{active_width, active_width + 1,
+                      PromoteDormantRotation{active_width, rotation.half_turns, rotation.sign}});
     ++active_width;
     plan.max_active_width = std::max(plan.max_active_width, active_width);
 }
@@ -408,19 +404,18 @@ void process_measurement(std::vector<PendingOperation>& pending, size_t index,
         const uint32_t action_index = static_cast<uint32_t>(plan.actions.size());
         const SymbolId branch = append_branch(plan, action_index);
         propagate_branch(pending, index + 1, *dormant_pivot, branch);
-        plan.actions.push_back(PlannedAction{
-            active_width, active_width,
-            MeasureDormantRandom{*dormant_pivot, branch,
-                                 measurement.sign ^ AffineBool::symbol(branch),
-                                 measurement.record}});
+        plan.actions.push_back(
+            PlannedAction{active_width, active_width,
+                          MeasureDormantRandom{*dormant_pivot, branch,
+                                               measurement.sign ^ AffineBool::symbol(branch),
+                                               measurement.record}});
         return;
     }
 
     const ActivePauli active = active_projection(measurement.body, active_width);
     if (active.is_identity()) {
         plan.actions.push_back(PlannedAction{
-            active_width, active_width,
-            RecordClassical{measurement.sign, measurement.record}});
+            active_width, active_width, RecordClassical{measurement.sign, measurement.record}});
         return;
     }
 
@@ -445,8 +440,8 @@ void process_measurement(std::vector<PendingOperation>& pending, size_t index,
     propagate_branch(pending, index + 1, active_width - 1, branch);
     plan.actions.push_back(PlannedAction{
         active_width, active_width - 1,
-        MeasureActivePauli{active, *pivot, branch,
-                           measurement.sign ^ AffineBool::symbol(branch), measurement.record}});
+        MeasureActivePauli{active, *pivot, branch, measurement.sign ^ AffineBool::symbol(branch),
+                           measurement.record}});
     --active_width;
 }
 

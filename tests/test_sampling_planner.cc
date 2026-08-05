@@ -1,7 +1,7 @@
-#include "clifft/sampling/planner.h"
-
 #include "clifft/circuit/parser.h"
 #include "clifft/frontend/frontend.h"
+#include "clifft/sampling/planner.h"
+
 #include "test_helpers.h"
 
 #include <catch2/catch_test_macros.hpp>
@@ -19,12 +19,12 @@ using clifft::NoiseSite;
 using clifft::sampling::AffineBool;
 using clifft::sampling::MeasureActivePauli;
 using clifft::sampling::MeasureDormantRandom;
+using clifft::sampling::plan_sampling;
 using clifft::sampling::PromoteDormantRotation;
 using clifft::sampling::RecordClassical;
 using clifft::sampling::RotateActivePauli;
 using clifft::sampling::SamplingPlan;
 using clifft::sampling::SymbolId;
-using clifft::sampling::plan_sampling;
 using clifft::test::X;
 using clifft::test::Z;
 
@@ -88,12 +88,9 @@ TEST_CASE("Sampling planner emits direct multi-coordinate active Paulis") {
 
 TEST_CASE("Sampling planner preserves high physical Pauli coordinates") {
     HirModule hir(129, 2);
-    hir.append_tgate(false, [](clifft::MutablePauliMaskView slot) {
-        slot.x().bit_set(128, true);
-    });
-    hir.append_phase_rotation(0.5, [](clifft::MutablePauliMaskView slot) {
-        slot.x().bit_set(128, true);
-    });
+    hir.append_tgate(false, [](clifft::MutablePauliMaskView slot) { slot.x().bit_set(128, true); });
+    hir.append_phase_rotation(
+        0.5, [](clifft::MutablePauliMaskView slot) { slot.x().bit_set(128, true); });
 
     const SamplingPlan plan = plan_sampling(hir);
 
@@ -210,8 +207,7 @@ TEST_CASE("Sampling planner keeps geometric Pauli signs") {
 
 TEST_CASE("Sampling planner retains balanced rotation global factors") {
     HirModule hir(1, 2);
-    hir.global_weight = {std::cos(-std::numbers::pi / 4.0),
-                         std::sin(-std::numbers::pi / 4.0)};
+    hir.global_weight = {std::cos(-std::numbers::pi / 4.0), std::sin(-std::numbers::pi / 4.0)};
     clifft::test::append_phase_rotation(hir, 0, Z(0), false, 0.5);
     clifft::test::append_tgate(hir, 0, Z(0), false);
 
@@ -222,10 +218,8 @@ TEST_CASE("Sampling planner retains balanced rotation global factors") {
     REQUIRE(action_as<RotateActivePauli>(plan, 1).pauli.is_identity());
     const std::complex<double> expected{std::cos(std::numbers::pi / 8.0),
                                         std::sin(std::numbers::pi / 8.0)};
-    REQUIRE_THAT(plan.global_weight.real(),
-                 Catch::Matchers::WithinAbs(expected.real(), 1e-12));
-    REQUIRE_THAT(plan.global_weight.imag(),
-                 Catch::Matchers::WithinAbs(expected.imag(), 1e-12));
+    REQUIRE_THAT(plan.global_weight.real(), Catch::Matchers::WithinAbs(expected.real(), 1e-12));
+    REQUIRE_THAT(plan.global_weight.imag(), Catch::Matchers::WithinAbs(expected.imag(), 1e-12));
 }
 
 TEST_CASE("Sampling planner rejects unsupported operations explicitly") {
