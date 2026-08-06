@@ -1,0 +1,11 @@
+-- OpenMP found: CPU baseline will be multithreaded
+-- CUDA found: building bench_gpu for sm_90
+-- Configuring done (0.0s)
+-- Generating done (0.0s)
+-- Build files have been written to: /home/ubuntu/clifft/research/gpu/microbench/build
+[ 50%] Built target bench_cpu
+[100%] Built target bench_gpu
+== CPU ==
+wrote cpu.csv
+== GPU ==
+wrote gpu.csv
