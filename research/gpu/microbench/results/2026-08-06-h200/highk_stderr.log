@@ -1,0 +1,182 @@
+GPU: NVIDIA H200  sm_90  150.1 GB HBM
+[validate] k=12  gates+U2/U4+expand+meas: max|cpu-gpu| = 5.204e-17, reduce-sum err = 4.219e-15  OK
+[validate] k=18  gates+U2/U4+expand+meas: max|cpu-gpu| = 9.975e-18, reduce-sum err = 3.408e-14  OK
+[validate-batched] k=12 B=8  kb_* + completed meas round: max|cpu-gpu| = 4.857e-17, per-shot prob err = 1.943e-15  OK
+[validate-batched] k=16 B=8  kb_* + completed meas round: max|cpu-gpu| = 1.908e-17, per-shot prob err = 3.830e-15  OK
+[validate-devmeas] k=12 B=8  on-device sampling: rng mismatches = 0, max|cpu-gpu| = 3.816e-17, prob err = 1.832e-15  OK
+[validate-devmeas] k=16 B=8  on-device sampling: rng mismatches = 0, max|cpu-gpu| = 1.431e-17, prob err = 1.005e-14  OK
+[validate-mimd] k=12 B=8 layers=3 global: max|cpu-gpu| = 6.245e-17  OK
+[validate-mimd] k=12 B=8 layers=3 shared: max|cpu-gpu| = 6.245e-17  OK
+[validate-mimd] k=16 B=8 layers=3 global: max|cpu-gpu| = 2.602e-17  OK
+[validate-mimd] k=16 shared variant skipped (needs 1052672 B > opt-in 232448 B)
+[validate-real] k=12 B=8  SoA real mix: rng mismatches = 0, frame mismatches = 0, max|cpu-gpu| = 2.082e-17, prob err = 3.553e-15  OK
+[validate-real] k=12 B=8  MIMD real mix (global): frame mismatches = 0, max|cpu-gpu| = 1.735e-17  OK
+[validate-real] k=12 B=8  MIMD real mix (shared): frame mismatches = 0, max|cpu-gpu| = 1.735e-17  OK
+[validate-real] k=16 B=8  SoA real mix: rng mismatches = 0, frame mismatches = 0, max|cpu-gpu| = 5.204e-18, prob err = 1.643e-14  OK
+[validate-real] k=16 B=8  MIMD real mix (global): frame mismatches = 0, max|cpu-gpu| = 6.505e-18  OK
+[validate-real] k=16 MIMD shared variant skipped (needs 1052672 B > opt-in 232448 B)
+[transfer] k=22  67.1 MB  H2D 15.0 GB/s  D2H 16.2 GB/s
+[transfer] k=26  1073.7 MB  H2D 9.6 GB/s  D2H 17.0 GB/s
+
+=== Single-statevector per-op throughput (GPU, FP64) ===
+k    op              dim          ns/op        Gamp/s    
+22   H               4194304      35503.9      118.136   
+22   T               4194304      14389.0      145.747   
+22   CZ              4194304      33980.1      30.859    
+22   CNOT            4194304      54853.7      38.232    
+22   U2              4194304      35571.9      117.911   
+22   U4              4194304      98289.9      42.673    
+22   EXPAND          4194304      34777.1      241.211   
+22   EXPAND_T        4194304      34761.5      241.319   
+22   MEAS_DIAG       4194304      40062.8      209.387   
+22   MEAS_INTERFERE  4194304      45912.4      182.709   
+23   H               8388608      67215.4      124.802   
+23   T               8388608      37003.4      113.349   
+23   CZ              8388608      63711.2      32.917    
+23   CNOT            8388608      103314.5     40.597    
+23   U2              8388608      67204.4      124.822   
+23   U4              8388608      189692.9     44.222    
+23   EXPAND          8388608      66052.9      253.997   
+23   EXPAND_T        8388608      66042.6      254.036   
+23   MEAS_DIAG       8388608      72842.3      230.322   
+23   MEAS_INTERFERE  8388608      85849.6      195.426   
+24   H               16777216     130379.4     128.680   
+24   T               16777216     66821.1      125.538   
+24   CZ              16777216     123985.6     33.829    
+24   CNOT            16777216     200269.6     41.887    
+24   U2              16777216     130386.8     128.673   
+24   U4              16777216     374486.2     44.801    
+24   EXPAND          16777216     128783.1     260.550   
+24   EXPAND_T        16777216     128781.5     260.553   
+24   MEAS_DIAG       16777216     133612.4     251.133   
+24   MEAS_INTERFERE  16777216     160742.1     208.747   
+25   H               33554432     257188.5     130.466   
+25   T               33554432     130301.0     128.757   
+25   CZ              33554432     248562.5     33.748    
+25   CNOT            33554432     393075.3     42.682    
+25   U2              33554432     257273.5     130.423   
+25   U4              33554432     745654.0     45.000    
+25   EXPAND          33554432     253352.8     264.883   
+25   EXPAND_T        33554432     253295.5     264.943   
+25   MEAS_DIAG       33554432     253399.0     264.835   
+25   MEAS_INTERFERE  33554432     309241.7     217.011   
+26   H               67108864     511712.5     131.146   
+26   T               67108864     267052.7     125.647   
+26   CZ              67108864     501395.0     33.461    
+26   CNOT            67108864     779140.5     43.066    
+26   U2              67108864     511513.0     131.197   
+26   U4              67108864     1488407.0    45.088    
+26   EXPAND          67108864     503625.0     266.503   
+26   EXPAND_T        67108864     503198.0     266.729   
+26   MEAS_DIAG       67108864     495081.0     271.103   
+26   MEAS_INTERFERE  67108864     608046.0     220.736   
+27   H               134217728    1020175.0    131.563   
+27   T               134217728    530896.0     126.407   
+27   CZ              134217728    1006932.0    33.323    
+27   CNOT            134217728    1551555.0    43.253    
+27   U2              134217728    1020634.1    131.504   
+27   U4              134217728    2983906.0    44.981    
+27   EXPAND          134217728    1006554.0    266.688   
+27   EXPAND_T        134217728    1005857.0    266.872   
+27   MEAS_DIAG       134217728    977751.0     274.544   
+27   MEAS_INTERFERE  134217728    1205327.0    222.708   
+28   H               268435456    2039328.1    131.629   
+28   T               268435456    1051550.0    127.638   
+28   CZ              268435456    2017398.1    33.265    
+28   CNOT            268435456    3094368.0    43.375    
+28   U2              268435456    2037642.0    131.738   
+28   U4              268435456    5956428.1    45.067    
+28   EXPAND          268435456    2010914.1    266.979   
+28   EXPAND_T        268435456    2009604.0    267.153   
+28   MEAS_DIAG       268435456    1935322.0    277.406   
+28   MEAS_INTERFERE  268435456    2398706.0    223.817   
+
+=== Batched-across-shots throughput (GPU, FP64) ===
+k    B        shots/s        Mshot-lyr/s 
+22   8        149.5          0.001       
+22   32       151.3          0.001       
+22   128      151.6          0.001       
+22   256      151.8          0.001       
+22   1024     151.8          0.001       
+24   8        35.1           0.000       
+24   32       35.2           0.000       
+24   128      35.2           0.000       
+24   256      35.2           0.000       
+26   8        8.2            0.000       
+26   32       8.2            0.000       
+28   8        1.9            0.000       
+
+=== Batched shots WITH completed measurement per layer (GPU) ===
+k    B        shots/s        us/meas-round 
+22   8        114.6          4070.27       
+22   32       139.1          4662.60       
+22   128      146.5          7393.85       
+22   256      147.7          11412.14      
+22   1024     148.0          41437.11      
+24   8        27.2           16554.19      
+24   32       32.5           18873.85      
+24   128      34.1           29653.53      
+24   256      34.3           45702.92      
+26   8        6.5            66101.99      
+26   32       7.6            75247.73      
+28   8        1.5            264143.11     
+
+=== Batched shots, measurement sampled on device (GPU) ===
+k    B        shots/s        us/meas-round 
+22   8        114.7          4049.47       
+22   32       139.2          4630.00       
+22   128      146.5          7374.31       
+22   256      147.7          11349.91      
+22   1024     148.1          41339.96      
+24   8        27.2           16554.81      
+24   32       32.5           18909.76      
+24   128      34.1           29589.58      
+24   256      34.4           45721.71      
+26   8        6.5            66094.30      
+26   32       7.6            75587.98      
+28   8        1.5            264197.41     
+
+=== MIMD per-shot interpreter (GPU, one block/shot) ===
+k    B        shots/s        variant 
+22   8        8.4            global  
+22   32       30.7           global  
+22   128      92.6           global  
+22   256      128.0          global  
+22   1024     142.0          global  
+24   8        1.9            global  
+24   32       7.0            global  
+24   128      21.4           global  
+24   256      29.7           global  
+26   8        0.4            global  
+26   32       1.6            global  
+28   8        0.1            global  
+
+=== Batched shots, REAL op mix, on-device sampling (GPU) ===
+k    B        shots/s        us/meas-round 
+22   8        323.1          4323.52       
+22   32       638.3          5198.37       
+22   128      833.2          9151.52       
+22   256      873.8          14739.87      
+22   1024     887.9          54433.46      
+24   8        80.6           17483.27      
+24   32       159.4          21001.48      
+24   128      208.7          36609.98      
+24   256      219.0          58896.55      
+26   8        20.2           69921.37      
+26   32       39.9           83903.34      
+28   8        5.1            279307.03     
+
+=== MIMD per-shot interpreter, REAL op mix (GPU) ===
+k    B        shots/s        variant 
+22   8        54.2           global  
+22   32       201.1          global  
+22   128      615.4          global  
+22   256      856.4          global  
+22   1024     949.7          global  
+24   8        13.6           global  
+24   32       50.2           global  
+24   128      153.9          global  
+24   256      213.6          global  
+26   8        3.4            global  
+26   32       12.5           global  
+28   8        0.8            global  
