@@ -4,6 +4,7 @@
 
 #include "test_helpers.h"
 
+#include <array>
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/matchers/catch_matchers_floating_point.hpp>
 #include <cmath>
@@ -17,6 +18,7 @@ using clifft::HirModule;
 using clifft::MeasRecordIdx;
 using clifft::NoiseSite;
 using clifft::sampling::AffineBool;
+using clifft::sampling::ApplyReadoutNoise;
 using clifft::sampling::MeasureActivePauli;
 using clifft::sampling::MeasureDormantRandom;
 using clifft::sampling::plan_sampling;
@@ -25,6 +27,9 @@ using clifft::sampling::RecordClassical;
 using clifft::sampling::RotateActivePauli;
 using clifft::sampling::SamplingPlan;
 using clifft::sampling::SymbolId;
+using clifft::sampling::SymbolKind;
+using clifft::sampling::WriteDetector;
+using clifft::sampling::WriteObservable;
 using clifft::test::X;
 using clifft::test::Z;
 
@@ -268,12 +273,58 @@ TEST_CASE("Sampling planner preserves sign flipped rotation global factors") {
 }
 
 TEST_CASE("Sampling planner rejects unsupported operations explicitly") {
-    HirModule hir(1, 0);
-    hir.noise_sites.push_back(NoiseSite{});
-    hir.append_noise(clifft::NoiseSiteIdx{0});
+    const HirModule hir = clifft::trace(clifft::parse("EXP_VAL Z0"));
 
     REQUIRE_THROWS_WITH(plan_sampling(hir),
-                        "sampling planner does not support HIR operation NOISE at index 0");
+                        "sampling planner does not support HIR operation EXP_VAL at index 0");
+}
+
+TEST_CASE("Sampling planner eliminates Pauli noise and feedback into record expressions") {
+    const HirModule hir = clifft::trace(clifft::parse(R"(
+        X_ERROR(1) 0
+        M 0
+        CX rec[-1] 1
+        M 1
+    )"));
+
+    const SamplingPlan plan = plan_sampling(hir);
+
+    REQUIRE(plan.presampled_noise_sites.size() == 1);
+    REQUIRE(plan.presampled_noise_sites[0].outcomes.size() == 1);
+    const SymbolId noise = plan.presampled_noise_sites[0].outcomes[0].symbol;
+    REQUIRE(plan.symbols[static_cast<uint32_t>(noise)].kind == SymbolKind::Presampled);
+    REQUIRE(plan.actions.size() == 2);
+    REQUIRE(action_as<RecordClassical>(plan, 0).outcome == AffineBool::symbol(noise));
+    REQUIRE(action_as<RecordClassical>(plan, 1).outcome == AffineBool::symbol(noise));
+}
+
+TEST_CASE("Sampling planner carries corrected records into syndrome outputs") {
+    const HirModule hir = clifft::trace(clifft::parse(R"(
+        M 0
+        READOUT_NOISE(0.1, 0.2) rec[-1]
+        DETECTOR rec[-1]
+        OBSERVABLE_INCLUDE(0) rec[-1]
+    )"));
+    const std::array<uint8_t, 1> postselection{1};
+    const std::array<uint8_t, 1> expected_detectors{1};
+    const std::array<uint8_t, 1> expected_observables{1};
+
+    const SamplingPlan plan =
+        plan_sampling(hir, {postselection, expected_detectors, expected_observables});
+
+    REQUIRE(plan.num_detectors == 1);
+    REQUIRE(plan.num_observables == 1);
+    REQUIRE(plan.has_postselection);
+    REQUIRE(plan.actions.size() == 4);
+    const auto& readout = action_as<ApplyReadoutNoise>(plan, 1);
+    REQUIRE(plan.symbols[static_cast<uint32_t>(readout.flip)].kind == SymbolKind::Readout);
+    REQUIRE(readout.source == AffineBool(false));
+    REQUIRE(readout.prob_zero_to_one == 0.1);
+    REQUIRE(readout.prob_one_to_zero == 0.2);
+    REQUIRE(action_as<WriteDetector>(plan, 2).outcome == (AffineBool::symbol(readout.flip) ^ true));
+    REQUIRE(action_as<WriteDetector>(plan, 2).postselected);
+    REQUIRE(action_as<WriteObservable>(plan, 3).outcome ==
+            (AffineBool::symbol(readout.flip) ^ true));
 }
 
 TEST_CASE("Sampling planner reports the dense active width limit") {

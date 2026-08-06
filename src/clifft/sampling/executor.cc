@@ -32,6 +32,14 @@ uint32_t index(InstrumentSiteId site) {
     return static_cast<uint32_t>(site);
 }
 
+uint32_t index(DetectorSlot slot) {
+    return static_cast<uint32_t>(slot);
+}
+
+uint32_t index(ObservableSlot slot) {
+    return static_cast<uint32_t>(slot);
+}
+
 }  // namespace
 
 MeasurementBranchClassification classify_measurement_branch(
@@ -59,6 +67,9 @@ ExecutablePlan::ExecutablePlan(const SamplingPlan& plan)
       max_active_width_(plan.max_active_width),
       num_visible_records_(plan.num_visible_records),
       num_hidden_records_(plan.num_hidden_records),
+      num_detectors_(plan.num_detectors),
+      num_observables_(plan.num_observables),
+      has_postselection_(plan.has_postselection),
       global_weight_(plan.global_weight) {
     plan.validate();
     if (plan.symbols.size() > std::numeric_limits<uint32_t>::max()) {
@@ -83,6 +94,11 @@ ExecutablePlan::ExecutablePlan(const SamplingPlan& plan)
                     num_expression_terms += typed.outcome.terms().size();
                 } else if constexpr (std::is_same_v<T, DefineSymbol>) {
                     num_expression_terms += typed.value.terms().size();
+                } else if constexpr (std::is_same_v<T, ApplyReadoutNoise>) {
+                    num_expression_terms += typed.source.terms().size();
+                } else if constexpr (std::is_same_v<T, WriteDetector> ||
+                                     std::is_same_v<T, WriteObservable>) {
+                    num_expression_terms += typed.outcome.terms().size();
                 } else if constexpr (std::is_same_v<T, InstrumentBoundary>) {
                     // Rejected below after all structural validation has run.
                 } else {
@@ -97,9 +113,24 @@ ExecutablePlan::ExecutablePlan(const SamplingPlan& plan)
     expression_terms_.reserve(num_expression_terms);
     actions_.reserve(plan.actions.size());
     presampled_symbols_.reserve(plan.symbols.size());
+    std::vector<bool> bound_presampled(plan.symbols.size(), false);
+    noise_sites_.reserve(plan.presampled_noise_sites.size());
+    for (const PresampledNoiseSite& site : plan.presampled_noise_sites) {
+        const uint32_t begin = static_cast<uint32_t>(noise_outcomes_.size());
+        double cumulative = 0.0;
+        for (const PresampledNoiseOutcome& outcome : site.outcomes) {
+            cumulative += outcome.probability;
+            noise_outcomes_.push_back({index(outcome.symbol), cumulative});
+            bound_presampled[index(outcome.symbol)] = true;
+        }
+        noise_sites_.push_back({begin, static_cast<uint32_t>(noise_outcomes_.size()) - begin});
+    }
     for (uint32_t symbol = 0; symbol < plan.symbols.size(); ++symbol) {
         if (plan.symbols[symbol].kind == SymbolKind::Presampled) {
             presampled_symbols_.push_back(symbol);
+            if (!bound_presampled[symbol]) {
+                unbound_presampled_symbols_.push_back(symbol);
+            }
         }
     }
 
@@ -129,6 +160,18 @@ ExecutablePlan::ExecutablePlan(const SamplingPlan& plan)
                 } else if constexpr (std::is_same_v<T, DefineSymbol>) {
                     actions_.emplace_back(ExecuteSymbolDefinition{prepare_expression(typed.value),
                                                                   index(typed.symbol)});
+                } else if constexpr (std::is_same_v<T, ApplyReadoutNoise>) {
+                    has_readout_noise_ = true;
+                    actions_.emplace_back(ExecuteReadoutNoise{
+                        prepare_expression(typed.source), index(typed.flip), index(typed.record),
+                        typed.prob_zero_to_one, typed.prob_one_to_zero});
+                } else if constexpr (std::is_same_v<T, WriteDetector>) {
+                    actions_.emplace_back(ExecuteDetector{prepare_expression(typed.outcome),
+                                                          index(typed.detector),
+                                                          typed.postselected});
+                } else if constexpr (std::is_same_v<T, WriteObservable>) {
+                    actions_.emplace_back(ExecuteObservable{prepare_expression(typed.outcome),
+                                                            index(typed.observable)});
                 } else if constexpr (std::is_same_v<T, InstrumentBoundary>) {
                     throw std::invalid_argument(
                         "sampling executable does not yet support instrument boundary site " +
@@ -168,10 +211,17 @@ Executor::Executor(const ExecutablePlan& plan, uint64_t seed)
       state_(plan.max_active_width_, plan.initial_active_width_, plan.global_weight_),
       symbols_(plan.num_symbols_, 0),
       records_(static_cast<size_t>(plan.num_visible_records_) + plan.num_hidden_records_, 0),
+      detectors_(plan.num_detectors_, 0),
+      observables_(plan.num_observables_, 0),
       rng_(seed) {}
 
+void Executor::run_shot() noexcept {
+    initialize_shot({}, true);
+    (void)execute_actions<false>({});
+}
+
 void Executor::run_shot(std::span<const uint8_t> presampled_values) noexcept {
-    initialize_shot(presampled_values);
+    initialize_shot(presampled_values, false);
     (void)execute_actions<false>({});
 }
 
@@ -181,19 +231,49 @@ ReplayResult Executor::replay_shot(std::span<const uint8_t> forced_records,
            "one forced value is required for every plan record");
     assert(std::ranges::all_of(forced_records, [](uint8_t value) { return value <= 1; }) &&
            "forced records must be Boolean");
-    initialize_shot(presampled_values);
+    initialize_shot(presampled_values, false);
     return execute_actions<true>(forced_records);
 }
 
-void Executor::initialize_shot(std::span<const uint8_t> presampled_values) noexcept {
-    assert(presampled_values.size() == plan_.presampled_symbols_.size() &&
-           "one value is required for every presampled symbol");
+void Executor::initialize_shot(std::span<const uint8_t> presampled_values,
+                               bool sample_noise) noexcept {
+    if (sample_noise) {
+        assert(plan_.unbound_presampled_symbols_.empty() &&
+               "automatic execution requires every presampled symbol to have a distribution");
+    } else {
+        assert(presampled_values.size() == plan_.presampled_symbols_.size() &&
+               "one value is required for every presampled symbol");
+    }
     state_.reset();
     std::fill(symbols_.begin(), symbols_.end(), uint8_t{0});
     std::fill(records_.begin(), records_.end(), uint8_t{0});
-    for (size_t i = 0; i < presampled_values.size(); ++i) {
-        assert(presampled_values[i] <= 1 && "presampled symbols must be Boolean");
-        symbols_[plan_.presampled_symbols_[i]] = presampled_values[i];
+    std::fill(detectors_.begin(), detectors_.end(), uint8_t{0});
+    std::fill(observables_.begin(), observables_.end(), uint8_t{0});
+    discarded_ = false;
+    if (sample_noise) {
+        sample_presampled_noise();
+    } else {
+        for (size_t i = 0; i < presampled_values.size(); ++i) {
+            assert(presampled_values[i] <= 1 && "presampled symbols must be Boolean");
+            symbols_[plan_.presampled_symbols_[i]] = presampled_values[i];
+        }
+    }
+}
+
+void Executor::sample_presampled_noise() noexcept {
+    for (const ExecutablePlan::PreparedNoiseSite& site : plan_.noise_sites_) {
+        if (site.outcome_count == 0) {
+            continue;
+        }
+        const double draw = rng_.next_double();
+        for (uint32_t i = 0; i < site.outcome_count; ++i) {
+            const ExecutablePlan::PreparedNoiseOutcome& outcome =
+                plan_.noise_outcomes_[site.outcome_begin + i];
+            if (draw < outcome.cumulative_probability) {
+                symbols_[outcome.symbol] = 1;
+                break;
+            }
+        }
     }
 }
 
@@ -249,6 +329,27 @@ ReplayResult Executor::execute_actions(std::span<const uint8_t> forced_records) 
                     }
                 } else if constexpr (std::is_same_v<T, ExecutablePlan::ExecuteSymbolDefinition>) {
                     symbols_[typed.symbol] = static_cast<uint8_t>(evaluate(typed.value));
+                } else if constexpr (std::is_same_v<T, ExecutablePlan::ExecuteReadoutNoise>) {
+                    if constexpr (ForceRecords) {
+                        result.reachable = false;
+                        return;
+                    } else {
+                        const bool source = evaluate(typed.source);
+                        assert(records_[typed.record] == static_cast<uint8_t>(source) &&
+                               "readout source must match the current record value");
+                        const double probability =
+                            source ? typed.prob_one_to_zero : typed.prob_zero_to_one;
+                        const bool flip = probability >= 1.0 ||
+                                          (probability > 0.0 && rng_.next_double() < probability);
+                        symbols_[typed.flip] = static_cast<uint8_t>(flip);
+                        records_[typed.record] ^= static_cast<uint8_t>(flip);
+                    }
+                } else if constexpr (std::is_same_v<T, ExecutablePlan::ExecuteDetector>) {
+                    const bool outcome = evaluate(typed.outcome);
+                    detectors_[typed.detector] = static_cast<uint8_t>(outcome);
+                    discarded_ |= typed.postselected && outcome;
+                } else if constexpr (std::is_same_v<T, ExecutablePlan::ExecuteObservable>) {
+                    observables_[typed.observable] = static_cast<uint8_t>(evaluate(typed.outcome));
                 } else {
                     static_assert(kAlwaysFalse<T>, "Unhandled executable action alternative");
                 }
@@ -258,6 +359,9 @@ ReplayResult Executor::execute_actions(std::span<const uint8_t> forced_records) 
             if (!result.reachable) {
                 return result;
             }
+        }
+        if (discarded_) {
+            return result;
         }
     }
     return result;
@@ -315,25 +419,43 @@ bool Executor::sample_dormant_branch() noexcept {
     return rng_.next_double() >= 0.5;
 }
 
-std::vector<uint8_t> sample_records(const ExecutablePlan& plan, uint32_t shots,
-                                    std::optional<uint64_t> seed) {
-    if (plan.num_presampled_symbols() != 0) {
+SamplingResult sample(const ExecutablePlan& plan, uint32_t shots, std::optional<uint64_t> seed) {
+    if (plan.num_unbound_presampled_symbols() != 0) {
         throw std::invalid_argument(
-            "batch sampling does not yet support plans with presampled symbols");
+            "batch sampling requires a distribution for every presampled symbol");
     }
-    const size_t stride = plan.num_visible_records();
-    if (stride != 0 && shots > std::numeric_limits<size_t>::max() / stride) {
-        throw std::length_error("sampling output size exceeds size_t range");
+    if (plan.has_postselection()) {
+        throw std::invalid_argument(
+            "fixed-row sampling does not support postselection; use sample_survivors");
     }
-    std::vector<uint8_t> records(static_cast<size_t>(shots) * stride);
+
+    auto checked_size = [shots](size_t stride) {
+        if (stride != 0 && shots > std::numeric_limits<size_t>::max() / stride) {
+            throw std::length_error("sampling output size exceeds size_t range");
+        }
+        return static_cast<size_t>(shots) * stride;
+    };
+
+    SamplingResult result;
+    result.measurements.resize(checked_size(plan.num_visible_records()));
+    result.detectors.resize(checked_size(plan.num_detectors()));
+    result.observables.resize(checked_size(plan.num_observables()));
     if (shots == 0) {
-        return records;
+        return result;
     }
 
     auto run = [&](Executor& executor) {
         for (uint32_t shot = 0; shot < shots; ++shot) {
             executor.run_shot();
-            std::ranges::copy(executor.visible_records(), records.begin() + shot * stride);
+            std::ranges::copy(executor.visible_records(),
+                              result.measurements.begin() +
+                                  static_cast<size_t>(shot) * plan.num_visible_records());
+            std::ranges::copy(
+                executor.detectors(),
+                result.detectors.begin() + static_cast<size_t>(shot) * plan.num_detectors());
+            std::ranges::copy(
+                executor.observables(),
+                result.observables.begin() + static_cast<size_t>(shot) * plan.num_observables());
         }
     };
     if (seed.has_value()) {
@@ -344,7 +466,72 @@ std::vector<uint8_t> sample_records(const ExecutablePlan& plan, uint32_t shots,
         executor.reseed_from_entropy();
         run(executor);
     }
-    return records;
+    return result;
+}
+
+std::vector<uint8_t> sample_records(const ExecutablePlan& plan, uint32_t shots,
+                                    std::optional<uint64_t> seed) {
+    return sample(plan, shots, seed).measurements;
+}
+
+SamplingSurvivorResult sample_survivors(const ExecutablePlan& plan, uint32_t shots,
+                                        std::optional<uint64_t> seed, bool keep_records) {
+    if (plan.num_unbound_presampled_symbols() != 0) {
+        throw std::invalid_argument(
+            "survivor sampling requires a distribution for every presampled symbol");
+    }
+
+    SamplingSurvivorResult result;
+    result.total_shots = shots;
+    if (shots == 0) {
+        return result;
+    }
+    result.observable_ones.resize(plan.num_observables(), 0);
+    if (keep_records) {
+        auto checked_reserve = [shots](size_t stride) {
+            if (stride != 0 && shots > std::numeric_limits<size_t>::max() / stride) {
+                throw std::length_error("survivor output size exceeds size_t range");
+            }
+            return static_cast<size_t>(shots) * stride;
+        };
+        result.measurements.reserve(checked_reserve(plan.num_visible_records()));
+        result.detectors.reserve(checked_reserve(plan.num_detectors()));
+        result.observables.reserve(checked_reserve(plan.num_observables()));
+    }
+    auto run = [&](Executor& executor) {
+        for (uint32_t shot = 0; shot < shots; ++shot) {
+            executor.run_shot();
+            if (executor.discarded()) {
+                continue;
+            }
+            ++result.passed_shots;
+            bool logical_error = false;
+            for (uint32_t observable = 0; observable < plan.num_observables(); ++observable) {
+                const bool value = executor.observables()[observable] != 0;
+                result.observable_ones[observable] += static_cast<uint64_t>(value);
+                logical_error |= value;
+            }
+            result.logical_errors += static_cast<uint32_t>(logical_error);
+            if (keep_records) {
+                result.measurements.insert(result.measurements.end(),
+                                           executor.visible_records().begin(),
+                                           executor.visible_records().end());
+                result.detectors.insert(result.detectors.end(), executor.detectors().begin(),
+                                        executor.detectors().end());
+                result.observables.insert(result.observables.end(), executor.observables().begin(),
+                                          executor.observables().end());
+            }
+        }
+    };
+    if (seed.has_value()) {
+        Executor executor(plan, *seed);
+        run(executor);
+    } else {
+        Executor executor(plan);
+        executor.reseed_from_entropy();
+        run(executor);
+    }
+    return result;
 }
 
 std::vector<double> record_log_probabilities(const ExecutablePlan& plan,
@@ -353,6 +540,9 @@ std::vector<double> record_log_probabilities(const ExecutablePlan& plan,
     if (plan.num_presampled_symbols() != 0) {
         throw std::invalid_argument(
             "record probabilities do not yet support plans with presampled symbols");
+    }
+    if (plan.has_readout_noise()) {
+        throw std::invalid_argument("record probabilities do not yet support readout noise");
     }
     if (plan.num_hidden_records() != 0) {
         throw std::invalid_argument(

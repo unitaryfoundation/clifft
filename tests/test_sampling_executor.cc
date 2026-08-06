@@ -436,7 +436,55 @@ TEST_CASE("Sampling batch records match legacy seeded execution") {
     REQUIRE(sample_records(executable, 0, uint64_t{5678}).empty());
 }
 
-TEST_CASE("Sampling batch helpers reject presampled symbols") {
+TEST_CASE("Sampling executor presamples mutually exclusive Pauli noise") {
+    const clifft::HirModule hir = clifft::trace(clifft::parse(R"(
+        E(0.5) X0
+        ELSE_CORRELATED_ERROR(0.5) X1
+        M 0 1
+    )"));
+    const ExecutablePlan executable(clifft::sampling::plan_sampling(hir));
+
+    const clifft::sampling::SamplingResult result =
+        clifft::sampling::sample(executable, 10000, uint64_t{17});
+    uint32_t q0_ones = 0;
+    uint32_t q1_ones = 0;
+    for (uint32_t shot = 0; shot < 10000; ++shot) {
+        const uint8_t q0 = result.measurements[static_cast<size_t>(shot) * 2];
+        const uint8_t q1 = result.measurements[static_cast<size_t>(shot) * 2 + 1];
+        REQUIRE_FALSE((q0 && q1));
+        q0_ones += q0;
+        q1_ones += q1;
+    }
+    REQUIRE(q0_ones > 4500);
+    REQUIRE(q0_ones < 5500);
+    REQUIRE(q1_ones > 2000);
+    REQUIRE(q1_ones < 3000);
+}
+
+TEST_CASE("Sampling survivor execution normalizes and rejects detectors") {
+    const clifft::HirModule hir = clifft::trace(clifft::parse(R"(
+        H 0
+        M 0
+        DETECTOR rec[-1]
+        OBSERVABLE_INCLUDE(0) rec[-1]
+    )"));
+    const std::array<uint8_t, 1> postselection{1};
+    const ExecutablePlan executable(
+        clifft::sampling::plan_sampling(hir, {.postselection_mask = postselection}));
+
+    const clifft::sampling::SamplingSurvivorResult result =
+        clifft::sampling::sample_survivors(executable, 1000, uint64_t{19}, true);
+    REQUIRE(result.total_shots == 1000);
+    REQUIRE(result.passed_shots > 400);
+    REQUIRE(result.passed_shots < 600);
+    REQUIRE(result.logical_errors == 0);
+    REQUIRE(result.measurements.size() == result.passed_shots);
+    REQUIRE(std::ranges::all_of(result.measurements, [](uint8_t value) { return value == 0; }));
+    REQUIRE(std::ranges::all_of(result.detectors, [](uint8_t value) { return value == 0; }));
+    REQUIRE(std::ranges::all_of(result.observables, [](uint8_t value) { return value == 0; }));
+}
+
+TEST_CASE("Sampling batch helpers reject unbound presampled symbols") {
     SamplingPlan plan;
     plan.num_visible_records = 1;
     plan.symbols = {SymbolInfo{SymbolKind::Presampled, std::nullopt, std::nullopt}};
@@ -445,7 +493,7 @@ TEST_CASE("Sampling batch helpers reject presampled symbols") {
     const ExecutablePlan executable(plan);
 
     REQUIRE_THROWS_WITH(sample_records(executable, 0, uint64_t{1234}),
-                        "batch sampling does not yet support plans with presampled symbols");
+                        "batch sampling requires a distribution for every presampled symbol");
     REQUIRE_THROWS_WITH(record_log_probabilities(executable, std::array<uint8_t, 1>{0}, 1),
                         "record probabilities do not yet support plans with presampled symbols");
 }

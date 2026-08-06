@@ -105,14 +105,14 @@ class TestSample:
         assert result.detectors.shape == (50, 0)
         assert result.observables.shape == (50, 0)
 
-    def test_sample_reset_works(self) -> None:
+    def test_sample_reset_works(self, sampling_api: Any) -> None:
         """Reset correctly resets to |0>."""
-        prog = clifft.compile("""
+        prog = sampling_api.compile("""
             X 0
             R 0
             M 0
         """)
-        result = clifft.sample(prog, 100, seed=42)
+        result = sampling_api.sample(prog, 100, seed=42)
         # Only one visible measurement (from M 0, after reset)
         # R's internal measurement is hidden, matching Stim behavior
         assert result.measurements.shape == (
@@ -122,23 +122,23 @@ class TestSample:
         # Measurement after reset should always be 0
         assert np.all(result.measurements[:, 0] == 0), "Reset failed"
 
-    def test_sample_mr_visible(self) -> None:
+    def test_sample_mr_visible(self, sampling_api: Any) -> None:
         """MR (measure-and-reset) produces visible measurement unlike R."""
         # R produces 0 visible measurements, MR produces 1
-        prog_r = clifft.compile("R 0")
-        prog_mr = clifft.compile("MR 0")
+        prog_r = sampling_api.compile("R 0")
+        prog_mr = sampling_api.compile("MR 0")
 
         assert prog_r.num_measurements == 0, "R should have 0 visible measurements"
         assert prog_mr.num_measurements == 1, "MR should have 1 visible measurement"
 
         # MR on |0> should always measure 0
-        result = clifft.sample(prog_mr, 100, seed=42)
+        result = sampling_api.sample(prog_mr, 100, seed=42)
         assert result.measurements.shape == (100, 1)
         assert np.all(result.measurements == 0), "MR on |0> should always measure 0"
 
         # MR after X should measure 1
-        prog = clifft.compile("X 0\nMR 0")
-        result = clifft.sample(prog, 100, seed=42)
+        prog = sampling_api.compile("X 0\nMR 0")
+        result = sampling_api.sample(prog, 100, seed=42)
         assert np.all(result.measurements == 1), "MR after X should measure 1"
 
     def test_gap_sampling_sparse_errors(self) -> None:
@@ -520,9 +520,9 @@ class TestNoiseAndQEC:
         assert det.shape == (10, 0)
         assert obs.shape == (10, 0)
 
-    def test_program_detector_observable_counts(self) -> None:
+    def test_program_detector_observable_counts(self, sampling_api: Any) -> None:
         """Program reports correct detector and observable counts."""
-        prog = clifft.compile("""
+        prog = sampling_api.compile("""
             H 0
             M 0
             DETECTOR rec[-1]
@@ -532,24 +532,24 @@ class TestNoiseAndQEC:
         assert prog.num_detectors == 1
         assert prog.num_observables == 1
 
-    def test_detector_computes_parity(self) -> None:
+    def test_detector_computes_parity(self, sampling_api: Any) -> None:
         """DETECTOR computes XOR of referenced measurements."""
         # Bell state: M 0 and M 1 always match, so XOR = 0
-        prog = clifft.compile("""
+        prog = sampling_api.compile("""
             H 0
             CX 0 1
             M 0
             M 1
             DETECTOR rec[-1] rec[-2]
         """)
-        result = clifft.sample(prog, 100, seed=42)
+        result = sampling_api.sample(prog, 100, seed=42)
         # All detectors should be 0 (perfect correlation)
         assert np.all(result.detectors == 0)
 
-    def test_observable_accumulates_xor(self) -> None:
+    def test_observable_accumulates_xor(self, sampling_api: Any) -> None:
         """Multiple OBSERVABLE_INCLUDE to same index XOR together."""
         # Bell state: two identical measurements XOR to 0
-        prog = clifft.compile("""
+        prog = sampling_api.compile("""
             H 0
             CX 0 1
             M 0
@@ -557,67 +557,67 @@ class TestNoiseAndQEC:
             OBSERVABLE_INCLUDE(0) rec[-1]
             OBSERVABLE_INCLUDE(0) rec[-2]
         """)
-        result = clifft.sample(prog, 100, seed=42)
+        result = sampling_api.sample(prog, 100, seed=42)
         # Observable is XOR of two identical bits = 0
         assert np.all(result.observables == 0)
 
-    def test_observable_tracks_logical_value(self) -> None:
+    def test_observable_tracks_logical_value(self, sampling_api: Any) -> None:
         """Observable correctly tracks logical qubit value."""
-        prog = clifft.compile("""
+        prog = sampling_api.compile("""
             H 0
             M 0
             OBSERVABLE_INCLUDE(0) rec[-1]
         """)
-        result = clifft.sample(prog, 100, seed=42)
+        result = sampling_api.sample(prog, 100, seed=42)
         # Observable should equal measurement (single reference)
         assert np.array_equal(result.measurements[:, 0], result.observables[:, 0])
 
-    def test_readout_noise_flips_bits(self) -> None:
+    def test_readout_noise_flips_bits(self, sampling_api: Any) -> None:
         """M(p) readout noise flips measurement results."""
         # 100% readout noise flips |0> -> measured as 1
-        prog = clifft.compile("M(1.0) 0")
-        result = clifft.sample(prog, 100, seed=42)
+        prog = sampling_api.compile("M(1.0) 0")
+        result = sampling_api.sample(prog, 100, seed=42)
         assert np.all(result.measurements == 1)
 
-    def test_readout_noise_probabilistic(self) -> None:
+    def test_readout_noise_probabilistic(self, sampling_api: Any) -> None:
         """M(0.5) readout noise gives ~50% flip rate."""
-        prog = clifft.compile("M(0.5) 0")
-        result = clifft.sample(prog, 1000, seed=42)
+        prog = sampling_api.compile("M(0.5) 0")
+        result = sampling_api.sample(prog, 1000, seed=42)
         flip_rate = float(np.mean(result.measurements))
         # Should be ~50% (measuring |0> with 50% flip = 50% ones)
         tolerance = binomial_tolerance(0.5, 1000)
         assert abs(flip_rate - 0.5) < tolerance
 
-    def test_pauli_noise_x_error(self) -> None:
+    def test_pauli_noise_x_error(self, sampling_api: Any) -> None:
         """X_ERROR(1.0) always flips qubit."""
-        prog = clifft.compile("""
+        prog = sampling_api.compile("""
             X_ERROR(1.0) 0
             M 0
         """)
-        result = clifft.sample(prog, 100, seed=42)
+        result = sampling_api.sample(prog, 100, seed=42)
         # X flips |0> to |1>
         assert np.all(result.measurements == 1)
 
-    def test_correlated_error_else_branch(self) -> None:
+    def test_correlated_error_else_branch(self, sampling_api: Any) -> None:
         """ELSE_CORRELATED_ERROR fires when the earlier link does not."""
-        prog = clifft.compile("""
+        prog = sampling_api.compile("""
             E(0.0) X0
             ELSE_CORRELATED_ERROR(1.0) X1
             M 0 1
         """)
-        result = clifft.sample(prog, 100, seed=42)
+        result = sampling_api.sample(prog, 100, seed=42)
         assert np.all(result.measurements[:, 0] == 0)
         assert np.all(result.measurements[:, 1] == 1)
 
-    def test_correlated_error_chain_probabilistic(self) -> None:
+    def test_correlated_error_chain_probabilistic(self, sampling_api: Any) -> None:
         """Correlated-error chains convert conditional probabilities correctly."""
-        prog = clifft.compile("""
+        prog = sampling_api.compile("""
             E(0.5) X0
             ELSE_CORRELATED_ERROR(0.5) X1
             M 0 1
         """)
         shots = 5000
-        result = clifft.sample(prog, shots, seed=42)
+        result = sampling_api.sample(prog, shots, seed=42)
         q0 = result.measurements[:, 0]
         q1 = result.measurements[:, 1]
 
@@ -627,49 +627,69 @@ class TestNoiseAndQEC:
         assert abs(q1_rate - 0.25) < binomial_tolerance(0.25, shots)
         assert not np.any(q0 & q1)
 
-    def test_pauli_noise_z_error(self) -> None:
+    def test_pauli_noise_z_error(self, sampling_api: Any) -> None:
         """Z_ERROR doesn't affect computational basis measurement."""
-        prog = clifft.compile("""
+        prog = sampling_api.compile("""
             Z_ERROR(1.0) 0
             M 0
         """)
-        result = clifft.sample(prog, 100, seed=42)
+        result = sampling_api.sample(prog, 100, seed=42)
         # Z|0> = |0>, so still measure 0
         assert np.all(result.measurements == 0)
 
-    def test_depolarize1_probabilistic(self) -> None:
+    @pytest.mark.parametrize(
+        "circuit,expected",
+        [
+            ("PAULI_CHANNEL_1(1, 0, 0) 0\nM 0", [1]),
+            (
+                "PAULI_CHANNEL_2(0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0) 0 1\nM 0 1",
+                [1, 0],
+            ),
+            (
+                f"H 0 1 2\nPAULI_CHANNEL_3({', '.join(['0'] * 62 + ['1'])}) 0 1 2\nMX 0 1 2",
+                [1, 1, 1],
+            ),
+        ],
+    )
+    def test_pauli_channels(self, sampling_api: Any, circuit: str, expected: list[int]) -> None:
+        """Explicit one-, two-, and three-qubit Pauli channels execute."""
+        result = sampling_api.sample(sampling_api.compile(circuit), 10, seed=42)
+        expected_rows = np.tile(expected, (10, 1))
+        np.testing.assert_array_equal(result.measurements, expected_rows)
+
+    def test_depolarize1_probabilistic(self, sampling_api: Any) -> None:
         """DEPOLARIZE1 applies X, Y, or Z with equal probability."""
-        prog = clifft.compile("""
+        prog = sampling_api.compile("""
             DEPOLARIZE1(1.0) 0
             M 0
         """)
-        result = clifft.sample(prog, 3000, seed=42)
+        result = sampling_api.sample(prog, 3000, seed=42)
         # X and Y flip |0>->|1>, Z doesn't. Expected: 2/3 ones.
         ones_rate = float(np.mean(result.measurements))
         expected = 2.0 / 3.0
         tolerance = binomial_tolerance(expected, 3000)
         assert abs(ones_rate - expected) < tolerance
 
-    def test_noise_detector_interaction(self) -> None:
+    def test_noise_detector_interaction(self, sampling_api: Any) -> None:
         """Noise causes detector to fire."""
         # Two measurements with X_ERROR in between
         # First M gives 0, X_ERROR flips, second M gives 1
         # Detector XORs them: 0 XOR 1 = 1
-        prog = clifft.compile("""
+        prog = sampling_api.compile("""
             M 0
             X_ERROR(1.0) 0
             M 0
             DETECTOR rec[-1] rec[-2]
         """)
-        result = clifft.sample(prog, 10, seed=0)
+        result = sampling_api.sample(prog, 10, seed=0)
         # First meas = 0, second meas = 1, detector = 1
         assert np.all(result.measurements[:, 0] == 0)
         assert np.all(result.measurements[:, 1] == 1)
         assert np.all(result.detectors[:, 0] == 1)
 
-    def test_sample_shape_with_qec(self) -> None:
+    def test_sample_shape_with_qec(self, sampling_api: Any) -> None:
         """sample() returns correct shapes with detectors/observables."""
-        prog = clifft.compile("""
+        prog = sampling_api.compile("""
             H 0
             M 0
             M 1
@@ -680,7 +700,7 @@ class TestNoiseAndQEC:
             OBSERVABLE_INCLUDE(1) rec[-2]
         """)
         shots = 50
-        result = clifft.sample(prog, shots, seed=0)
+        result = sampling_api.sample(prog, shots, seed=0)
         assert result.measurements.shape == (shots, 2)
         assert result.detectors.shape == (shots, 3)
         assert result.observables.shape == (shots, 2)
@@ -689,37 +709,37 @@ class TestNoiseAndQEC:
 class TestPostselection:
     """Tests for compile() with postselection_mask."""
 
-    def test_compile_with_postselection_mask(self) -> None:
+    def test_compile_with_postselection_mask(self, sampling_api: Any) -> None:
         """Compile with postselection_mask kwarg works via nanobind."""
-        prog = clifft.compile(
+        prog = sampling_api.compile(
             "M 0\nDETECTOR rec[-1]\n",
             postselection_mask=[1],
         )
         assert prog.num_detectors == 1
         assert prog.num_measurements == 1
 
-    def test_has_postselection_flag(self) -> None:
+    def test_has_postselection_flag(self, sampling_api: Any) -> None:
         """has_postselection is True when mask is non-trivial, False otherwise."""
         circuit = "M 0\nDETECTOR rec[-1]\n"
-        prog_no_mask = clifft.compile(circuit)
+        prog_no_mask = sampling_api.compile(circuit)
         assert prog_no_mask.has_postselection is False
 
-        prog_zero_mask = clifft.compile(circuit, postselection_mask=[0])
+        prog_zero_mask = sampling_api.compile(circuit, postselection_mask=[0])
         assert prog_zero_mask.has_postselection is False
 
-        prog_with_mask = clifft.compile(circuit, postselection_mask=[1])
+        prog_with_mask = sampling_api.compile(circuit, postselection_mask=[1])
         assert prog_with_mask.has_postselection is True
 
-    def test_sample_raises_on_postselected_program(self) -> None:
+    def test_sample_raises_on_postselected_program(self, sampling_api: Any) -> None:
         """sample() raises ValueError when program has postselection."""
         circuit = """
             H 0
             M 0
             DETECTOR rec[-1]
         """
-        prog = clifft.compile(circuit, postselection_mask=[1])
+        prog = sampling_api.compile(circuit, postselection_mask=[1])
         with pytest.raises(ValueError, match="sample_survivors"):
-            clifft.sample(prog, 10)
+            sampling_api.sample(prog, 10)
 
     def test_sample_k_raises_on_postselected_program(self) -> None:
         """sample_k() raises ValueError when program has postselection."""
@@ -733,25 +753,40 @@ class TestPostselection:
         with pytest.raises(ValueError, match="sample_k_survivors"):
             clifft.sample_k(prog, 10, k=1)
 
-    def test_sample_ok_without_postselection(self) -> None:
+    def test_sample_ok_without_postselection(self, sampling_api: Any) -> None:
         """sample() works fine when program has no postselection."""
         circuit = "M 0\nDETECTOR rec[-1]\n"
-        prog = clifft.compile(circuit)
-        result = clifft.sample(prog, 10, seed=42)
+        prog = sampling_api.compile(circuit)
+        result = sampling_api.sample(prog, 10, seed=42)
         assert result.detectors.shape == (10, 1)
 
-    def test_empty_mask_is_default(self) -> None:
+    def test_empty_mask_is_default(self, sampling_api: Any) -> None:
         """Empty postselection_mask produces same result as no mask."""
         circuit = "M 0\nDETECTOR rec[-1]\n"
-        prog_default = clifft.compile(circuit)
-        prog_empty = clifft.compile(circuit, postselection_mask=[])
-        assert prog_default.num_instructions == prog_empty.num_instructions
+        prog_default = sampling_api.compile(circuit)
+        prog_empty = sampling_api.compile(circuit, postselection_mask=[])
+        if sampling_api is clifft:
+            assert prog_default.num_instructions == prog_empty.num_instructions
+        else:
+            assert prog_default.num_actions == prog_empty.num_actions
 
 
 class TestSampleSurvivors:
     """Tests for sample_survivors() API."""
 
-    def test_counting_only_fast_path(self) -> None:
+    def test_zero_shots_returns_empty_result(self, sampling_api: Any) -> None:
+        """Zero shots preserves the existing empty-result contract."""
+        program = sampling_api.compile("M 0\nOBSERVABLE_INCLUDE(0) rec[-1]")
+        result = sampling_api.sample_survivors(program, 0, seed=42)
+
+        assert result.total_shots == 0
+        assert result.passed_shots == 0
+        assert len(result.observable_ones) == 0
+        assert result.measurements.shape == (0, 1)
+        assert result.detectors.shape == (0, 0)
+        assert result.observables.shape == (0, 1)
+
+    def test_counting_only_fast_path(self, sampling_api: Any) -> None:
         """keep_records=False returns survivor metadata with empty arrays."""
         circuit = """
             H 0
@@ -759,8 +794,8 @@ class TestSampleSurvivors:
             DETECTOR rec[-1]
             OBSERVABLE_INCLUDE(0) rec[-1]
         """
-        prog = clifft.compile(circuit, postselection_mask=[1])
-        result = clifft.sample_survivors(prog, 1000, seed=42)
+        prog = sampling_api.compile(circuit, postselection_mask=[1])
+        result = sampling_api.sample_survivors(prog, 1000, seed=42)
 
         assert result.total_shots == 1000
         assert 0 < result.passed_shots < 1000
@@ -773,7 +808,7 @@ class TestSampleSurvivors:
         assert result.detectors.shape == (0, prog.num_detectors)
         assert result.observables.shape == (0, prog.num_observables)
 
-    def test_keep_records_returns_arrays(self) -> None:
+    def test_keep_records_returns_arrays(self, sampling_api: Any) -> None:
         """keep_records=True populates survivor measurement and syndrome arrays."""
         circuit = """
             H 0
@@ -781,8 +816,8 @@ class TestSampleSurvivors:
             DETECTOR rec[-1]
             OBSERVABLE_INCLUDE(0) rec[-1]
         """
-        prog = clifft.compile(circuit, postselection_mask=[1])
-        result = clifft.sample_survivors(prog, 200, seed=42, keep_records=True)
+        prog = sampling_api.compile(circuit, postselection_mask=[1])
+        result = sampling_api.sample_survivors(prog, 200, seed=42, keep_records=True)
 
         passed = result.passed_shots
         assert passed > 0
@@ -794,21 +829,21 @@ class TestSampleSurvivors:
         # All surviving observables should be 0
         assert np.all(result.observables == 0)
 
-    def test_no_postselection_all_pass(self) -> None:
+    def test_no_postselection_all_pass(self, sampling_api: Any) -> None:
         """Without postselection, all shots pass."""
         circuit = """
             H 0
             M 0
             DETECTOR rec[-1]
         """
-        prog = clifft.compile(circuit)  # no mask
-        result = clifft.sample_survivors(prog, 100, seed=42)
+        prog = sampling_api.compile(circuit)  # no mask
+        result = sampling_api.sample_survivors(prog, 100, seed=42)
 
         assert result.total_shots == 100
         assert result.passed_shots == 100
         assert result.discards == 0
 
-    def test_observable_ones_counts_errors(self) -> None:
+    def test_observable_ones_counts_errors(self, sampling_api: Any) -> None:
         """observable_ones correctly counts logical errors in survivors."""
         # No postselection, random observable. ~50% should be 1.
         circuit = """
@@ -816,8 +851,8 @@ class TestSampleSurvivors:
             M 0
             OBSERVABLE_INCLUDE(0) rec[-1]
         """
-        prog = clifft.compile(circuit)
-        result = clifft.sample_survivors(prog, 10000, seed=42)
+        prog = sampling_api.compile(circuit)
+        result = sampling_api.sample_survivors(prog, 10000, seed=42)
 
         assert result.passed_shots == 10000
         ones = int(result.observable_ones[0])
@@ -852,7 +887,7 @@ class TestSampleSurvivors:
         assert result.discards > 0
         assert len(result.observable_ones) == 1
 
-    def test_keep_records_100_percent_discard(self) -> None:
+    def test_keep_records_100_percent_discard(self, sampling_api: Any) -> None:
         """keep_records=True with all shots discarded returns empty arrays."""
         # Circuit: deterministic meas=1, postselect -> always discards
         circuit = """
@@ -861,8 +896,8 @@ class TestSampleSurvivors:
             DETECTOR rec[-1]
             OBSERVABLE_INCLUDE(0) rec[-1]
         """
-        prog = clifft.compile(circuit, postselection_mask=[1])
-        result = clifft.sample_survivors(prog, 100, seed=42, keep_records=True)
+        prog = sampling_api.compile(circuit, postselection_mask=[1])
+        result = sampling_api.sample_survivors(prog, 100, seed=42, keep_records=True)
 
         assert result.total_shots == 100
         assert result.passed_shots == 0
@@ -871,7 +906,7 @@ class TestSampleSurvivors:
         assert result.detectors.shape == (0, 1)
         assert result.observables.shape == (0, 1)
 
-    def test_logical_errors_multi_observable(self) -> None:
+    def test_logical_errors_multi_observable(self, sampling_api: Any) -> None:
         """logical_errors counts shots, not total observable flips."""
         # Two observables both keyed to same random measurement.
         circuit = """
@@ -880,8 +915,8 @@ class TestSampleSurvivors:
             OBSERVABLE_INCLUDE(0) rec[-1]
             OBSERVABLE_INCLUDE(1) rec[-1]
         """
-        prog = clifft.compile(circuit)
-        result = clifft.sample_survivors(prog, 10000, seed=42)
+        prog = sampling_api.compile(circuit)
+        result = sampling_api.sample_survivors(prog, 10000, seed=42)
 
         assert result.passed_shots == 10000
         # Both observables fire on same shots
@@ -893,7 +928,7 @@ class TestSampleSurvivors:
 
 
 class TestSyndromeNormalization:
-    def test_normalize_syndromes_multiple_observables_xord(self) -> None:
+    def test_normalize_syndromes_multiple_observables_xord(self, sampling_api: Any) -> None:
         """Test normalize_syndromes=True on a circuit where multiple includes XOR together."""
         import numpy as np
 
@@ -917,8 +952,8 @@ class TestSyndromeNormalization:
         """
 
         # 1. Baseline: Without normalization, physical parities match the math above
-        prog_raw = clifft.compile(circuit, normalize_syndromes=False)
-        result_raw = clifft.sample(prog_raw, shots=10, seed=0)
+        prog_raw = sampling_api.compile(circuit, normalize_syndromes=False)
+        result_raw = sampling_api.sample(prog_raw, shots=10, seed=0)
 
         assert np.all(result_raw.detectors[:, 0] == 1)
         assert np.all(result_raw.detectors[:, 1] == 0)
@@ -928,32 +963,32 @@ class TestSyndromeNormalization:
         # 2. Normalized: All output parities must be strictly 0.
         # We also apply a postselection mask on DET 0 (which natively evaluates to 1).
         # Since it is normalized, it becomes 0, meaning shots should SURVIVE.
-        prog_norm = clifft.compile(
+        prog_norm = sampling_api.compile(
             circuit,
             normalize_syndromes=True,
             postselection_mask=[1, 0],
         )
 
-        res = clifft.sample_survivors(prog_norm, shots=10, seed=0, keep_records=True)
+        res = sampling_api.sample_survivors(prog_norm, shots=10, seed=0, keep_records=True)
 
         assert res.passed_shots == 10  # Normalized 1^1=0, so shots survive!
         assert np.all(res.detectors == 0)
         assert np.all(res.observables == 0)
         assert res.logical_errors == 0
 
-    def test_normalize_syndromes_conflict_raises(self) -> None:
+    def test_normalize_syndromes_conflict_raises(self, sampling_api: Any) -> None:
         """Cannot provide explicit expected parities with normalize_syndromes=True."""
         import pytest
 
         circuit = "M 0\nDETECTOR rec[-1]\n"
         with pytest.raises(ValueError):
-            clifft.compile(
+            sampling_api.compile(
                 circuit,
                 normalize_syndromes=True,
                 expected_detectors=[0],
             )
 
-    def test_normalize_syndromes_no_noise_passthrough(self) -> None:
+    def test_normalize_syndromes_no_noise_passthrough(self, sampling_api: Any) -> None:
         """Normalization on a circuit without noise produces all-zero syndromes."""
         import numpy as np
 
@@ -963,13 +998,13 @@ class TestSyndromeNormalization:
             DETECTOR rec[-1]
             OBSERVABLE_INCLUDE(0) rec[-1]
         """
-        prog = clifft.compile(circuit, normalize_syndromes=True)
-        result = clifft.sample(prog, shots=5, seed=0)
+        prog = sampling_api.compile(circuit, normalize_syndromes=True)
+        result = sampling_api.sample(prog, shots=5, seed=0)
 
         assert np.all(result.detectors == 0)
         assert np.all(result.observables == 0)
 
-    def test_normalize_syndromes_with_noise_detects_errors(self) -> None:
+    def test_normalize_syndromes_with_noise_detects_errors(self, sampling_api: Any) -> None:
         """With noise and normalization, errors show up as 1s in syndromes."""
         import numpy as np
 
@@ -979,15 +1014,15 @@ class TestSyndromeNormalization:
             M 0
             DETECTOR rec[-1]
         """
-        prog = clifft.compile(circuit, normalize_syndromes=True)
-        result = clifft.sample(prog, shots=10, seed=0)
+        prog = sampling_api.compile(circuit, normalize_syndromes=True)
+        result = sampling_api.sample(prog, shots=10, seed=0)
 
         # With 100% X error, measurement flips from 0 to 1.
         # Reference (noiseless) detector parity = 0.
         # Noisy parity = 1. Normalized: 1 ^ 0 = 1 (error detected).
         assert np.all(result.detectors[:, 0] == 1)
 
-    def test_explicit_expected_detectors(self) -> None:
+    def test_explicit_expected_detectors(self, sampling_api: Any) -> None:
         """Explicit expected_detectors without normalize_syndromes works."""
         import numpy as np
 
@@ -997,12 +1032,12 @@ class TestSyndromeNormalization:
             DETECTOR rec[-1]
         """
         # Raw detector parity = 1. With expected_detectors=[1], normalized = 0.
-        prog = clifft.compile(circuit, expected_detectors=[1])
-        result = clifft.sample(prog, shots=5, seed=0)
+        prog = sampling_api.compile(circuit, expected_detectors=[1])
+        result = sampling_api.sample(prog, shots=5, seed=0)
 
         assert np.all(result.detectors[:, 0] == 0)
 
-    def test_explicit_expected_observables(self) -> None:
+    def test_explicit_expected_observables(self, sampling_api: Any) -> None:
         """Explicit expected_observables without normalize_syndromes works."""
         import numpy as np
 
@@ -1012,8 +1047,8 @@ class TestSyndromeNormalization:
             OBSERVABLE_INCLUDE(0) rec[-1]
         """
         # Raw obs = 1. With expected_observables=[1], normalized = 0.
-        prog = clifft.compile(circuit, expected_observables=[1])
-        result = clifft.sample(prog, shots=5, seed=0)
+        prog = sampling_api.compile(circuit, expected_observables=[1])
+        result = sampling_api.sample(prog, shots=5, seed=0)
 
         assert np.all(result.observables[:, 0] == 0)
 

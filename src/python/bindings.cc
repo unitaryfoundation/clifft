@@ -899,6 +899,9 @@ NB_MODULE(_clifft_core, m) {
         .def_prop_ro("num_measurements", &clifft::sampling::ExecutablePlan::num_visible_records)
         .def_prop_ro("num_hidden_measurements",
                      &clifft::sampling::ExecutablePlan::num_hidden_records)
+        .def_prop_ro("num_detectors", &clifft::sampling::ExecutablePlan::num_detectors)
+        .def_prop_ro("num_observables", &clifft::sampling::ExecutablePlan::num_observables)
+        .def_prop_ro("has_postselection", &clifft::sampling::ExecutablePlan::has_postselection)
         .def_prop_ro("num_actions", &clifft::sampling::ExecutablePlan::num_actions)
         .def("__repr__", [](const clifft::sampling::ExecutablePlan& p) {
             return "ExperimentalSamplingProgram(" + std::to_string(p.num_actions()) + " actions, " +
@@ -907,30 +910,77 @@ NB_MODULE(_clifft_core, m) {
 
     m.def(
         "_compile_experimental_sampling",
-        [](const std::string& stim_text, clifft::HirPassManager* hir_passes) {
+        [](const std::string& stim_text, std::vector<uint8_t> postselection_mask,
+           std::vector<uint8_t> expected_detectors, std::vector<uint8_t> expected_observables,
+           bool normalize_syndromes, clifft::HirPassManager* hir_passes) {
             nb::gil_scoped_release release;
             clifft::HirModule hir = clifft::trace(clifft::parse(stim_text));
             if (hir_passes != nullptr) {
                 hir_passes->run(hir);
             }
-            return clifft::sampling::ExecutablePlan(clifft::sampling::plan_sampling(hir));
+            if (normalize_syndromes) {
+                if (!expected_detectors.empty() || !expected_observables.empty()) {
+                    throw std::invalid_argument(
+                        "Cannot provide expected parities when normalize_syndromes=True");
+                }
+                clifft::ReferenceSyndrome reference = clifft::compute_reference_syndrome(hir);
+                expected_detectors = std::move(reference.detectors);
+                expected_observables = std::move(reference.observables);
+            }
+            return clifft::sampling::ExecutablePlan(clifft::sampling::plan_sampling(
+                hir, {postselection_mask, expected_detectors, expected_observables}));
         },
-        nb::arg("stim_text"), nb::arg("hir_passes") = nb::none(),
+        nb::arg("stim_text"), nb::arg("postselection_mask") = std::vector<uint8_t>{},
+        nb::arg("expected_detectors") = std::vector<uint8_t>{},
+        nb::arg("expected_observables") = std::vector<uint8_t>{},
+        nb::arg("normalize_syndromes") = false, nb::arg("hir_passes") = nb::none(),
         "Compile a circuit into the experimental scalar sampling backend.");
 
     m.def(
         "_sample_experimental_sampling",
         [](const clifft::sampling::ExecutablePlan& program, uint32_t shots,
            std::optional<uint64_t> seed) {
-            std::vector<uint8_t> records;
+            clifft::sampling::SamplingResult result;
             {
                 nb::gil_scoped_release release;
-                records = clifft::sampling::sample_records(program, shots, seed);
+                result = clifft::sampling::sample(program, shots, seed);
             }
-            return vec_to_numpy(std::move(records), {shots, program.num_visible_records()});
+            auto measurements = vec_to_numpy(std::move(result.measurements),
+                                             {shots, program.num_visible_records()});
+            auto detectors =
+                vec_to_numpy(std::move(result.detectors), {shots, program.num_detectors()});
+            auto observables =
+                vec_to_numpy(std::move(result.observables), {shots, program.num_observables()});
+            return nb::make_tuple(measurements, detectors, observables);
         },
         nb::arg("program"), nb::arg("shots"), nb::arg("seed") = nb::none(),
         "Sample an experimental scalar sampling program.");
+
+    m.def(
+        "_sample_survivors_experimental_sampling",
+        [](const clifft::sampling::ExecutablePlan& program, uint32_t shots,
+           std::optional<uint64_t> seed, bool keep_records) {
+            clifft::sampling::SamplingSurvivorResult result;
+            {
+                nb::gil_scoped_release release;
+                result = clifft::sampling::sample_survivors(program, shots, seed, keep_records);
+            }
+            const size_t rows = keep_records ? result.passed_shots : 0;
+            auto measurements =
+                vec_to_numpy(std::move(result.measurements), {rows, program.num_visible_records()});
+            auto detectors =
+                vec_to_numpy(std::move(result.detectors), {rows, program.num_detectors()});
+            auto observables =
+                vec_to_numpy(std::move(result.observables), {rows, program.num_observables()});
+            const size_t num_observable_counts = result.observable_ones.size();
+            auto observable_ones =
+                vec_to_numpy(std::move(result.observable_ones), {num_observable_counts});
+            return nb::make_tuple(measurements, detectors, observables, result.total_shots,
+                                  result.passed_shots, result.logical_errors, observable_ones);
+        },
+        nb::arg("program"), nb::arg("shots"), nb::arg("seed") = nb::none(),
+        nb::arg("keep_records") = false,
+        "Sample survivor counts and optional records from an experimental program.");
 
     m.def(
         "_record_probabilities_experimental_sampling",

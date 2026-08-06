@@ -33,11 +33,14 @@ enum class SymbolId : uint32_t {};
 enum class RecordSlot : uint32_t {};
 enum class NoiseSiteId : uint32_t {};
 enum class InstrumentSiteId : uint32_t {};
+enum class DetectorSlot : uint32_t {};
+enum class ObservableSlot : uint32_t {};
 
 enum class SymbolKind : uint8_t {
     Presampled,  // Available before the action stream, such as sampled noise.
     Derived,     // Computed as a parity of previously available symbols.
     Branch,      // Sampled while applying a measurement action.
+    Readout,     // Sampled from a record-dependent readout channel.
 };
 
 // A parity expression over plan symbols, optionally XORed with true. For
@@ -141,6 +144,31 @@ struct DefineSymbol {
     AffineBool value;
 };
 
+// Samples whether a completed measurement record flips. The probability may
+// depend on the record before the flip, so unlike Pauli noise this symbol is
+// defined at its circuit position instead of before the action stream.
+struct ApplyReadoutNoise {
+    SymbolId flip{};
+    AffineBool source;
+    RecordSlot record{};
+    double prob_zero_to_one = 0.0;
+    double prob_one_to_zero = 0.0;
+};
+
+// Writes a normalized detector parity. A nonzero postselected detector rejects
+// the shot immediately; later actions and outputs are irrelevant for it.
+struct WriteDetector {
+    AffineBool outcome;
+    DetectorSlot detector{};
+    bool postselected = false;
+};
+
+// Writes one fully accumulated and normalized logical observable parity.
+struct WriteObservable {
+    AffineBool outcome;
+    ObservableSlot observable{};
+};
+
 // Divides ahead-of-time execution segments. A continuation must preserve the
 // live coefficients, active-coordinate meaning and order, active width,
 // symbol and record values, and RNG position established here. It need not
@@ -152,7 +180,8 @@ struct InstrumentBoundary {
 
 using SamplingAction =
     std::variant<RotateActivePauli, PromoteDormantRotation, MeasureActivePauli,
-                 MeasureDormantRandom, RecordClassical, DefineSymbol, InstrumentBoundary>;
+                 MeasureDormantRandom, RecordClassical, DefineSymbol, ApplyReadoutNoise,
+                 WriteDetector, WriteObservable, InstrumentBoundary>;
 
 struct PlannedAction {
     uint32_t active_before = 0;
@@ -175,6 +204,18 @@ struct SymbolInfo {
     std::optional<NoiseSiteId> noise_site;
 };
 
+// One nonidentity outcome of a mutually exclusive Pauli-noise site. The
+// identity outcome has the remaining probability and no symbol.
+struct PresampledNoiseOutcome {
+    SymbolId symbol{};
+    double probability = 0.0;
+};
+
+struct PresampledNoiseSite {
+    NoiseSiteId site{};
+    std::vector<PresampledNoiseOutcome> outcomes;
+};
+
 struct SamplingPlan {
     uint32_t num_qubits = 0;
 
@@ -188,9 +229,13 @@ struct SamplingPlan {
     uint32_t num_hidden_records = 0;
     uint32_t num_noise_sites = 0;
     uint32_t num_instrument_sites = 0;
+    uint32_t num_detectors = 0;
+    uint32_t num_observables = 0;
+    bool has_postselection = false;
     std::complex<double> global_weight = {1.0, 0.0};
 
     std::vector<SymbolInfo> symbols;
+    std::vector<PresampledNoiseSite> presampled_noise_sites;
     std::vector<PlannedAction> actions;
 
     // Throws std::invalid_argument when the plan is structurally inconsistent.
