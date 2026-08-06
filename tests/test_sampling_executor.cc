@@ -7,6 +7,7 @@
 
 #include <algorithm>
 #include <array>
+#include <bit>
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/matchers/catch_matchers_floating_point.hpp>
 #include <cmath>
@@ -16,6 +17,7 @@
 #include <optional>
 #include <span>
 #include <string_view>
+#include <variant>
 #include <vector>
 
 using clifft::sampling::AffineBool;
@@ -33,6 +35,7 @@ using clifft::sampling::PlannedAction;
 using clifft::sampling::PromoteDormantRotation;
 using clifft::sampling::RecordClassical;
 using clifft::sampling::RecordSlot;
+using clifft::sampling::RotateActivePauli;
 using clifft::sampling::SamplingPlan;
 using clifft::sampling::SymbolId;
 using clifft::sampling::SymbolInfo;
@@ -85,6 +88,27 @@ void require_matches_legacy(std::string_view circuit_text, uint32_t shots, uint6
             executor.visible_records(),
             std::span<const uint8_t>(legacy.meas_record).first(legacy_program.num_measurements)));
     }
+}
+
+SamplingPlan plan_from(std::string_view circuit_text) {
+    return clifft::sampling::plan_sampling(clifft::trace(clifft::parse(circuit_text)));
+}
+
+bool has_multi_coordinate_active_measurement(const SamplingPlan& plan) {
+    return std::ranges::any_of(plan.actions, [](const PlannedAction& action) {
+        const auto* measurement = std::get_if<MeasureActivePauli>(&action.action);
+        return measurement != nullptr &&
+               std::popcount(measurement->pauli.x | measurement->pauli.z) > 1;
+    });
+}
+
+bool has_arbitrary_angle_active_rotation(const SamplingPlan& plan, double half_turns) {
+    return std::ranges::any_of(plan.actions, [half_turns](const PlannedAction& action) {
+        if (const auto* rotation = std::get_if<RotateActivePauli>(&action.action)) {
+            return rotation->half_turns == half_turns;
+        }
+        return false;
+    });
 }
 
 }  // namespace
@@ -245,4 +269,16 @@ TEST_CASE("Sampling executor matches legacy records for supported circuits") {
     require_matches_legacy("H 0\nT 0\nM 0\nM 0\n", 64, 3567);
     require_matches_legacy("H 0\nT_DAG 0\nS 0\nM 0\n", 64, 4567);
     require_matches_legacy("H 0\nH 1\nT 0\nT 1\nCX 0 1\nM 0 1\n", 64, 5678);
+
+    constexpr std::string_view kMultiCoordinateX = "H 0\nH 1\nT 0\nT 1\nMPP X0*X1\n";
+    REQUIRE(has_multi_coordinate_active_measurement(plan_from(kMultiCoordinateX)));
+    require_matches_legacy(kMultiCoordinateX, 64, 6789);
+
+    constexpr std::string_view kMultiCoordinateYZ = "H 0\nH 1\nT 0\nT 1\nCX 0 1\nMPP Y0*Z1\n";
+    REQUIRE(has_multi_coordinate_active_measurement(plan_from(kMultiCoordinateYZ)));
+    require_matches_legacy(kMultiCoordinateYZ, 64, 7890);
+
+    constexpr std::string_view kArbitraryRotation = "H 0\nT 0\nR_Z(0.3) 0\nM 0\nM 0\n";
+    REQUIRE(has_arbitrary_angle_active_rotation(plan_from(kArbitraryRotation), 0.3));
+    require_matches_legacy(kArbitraryRotation, 64, 8901);
 }
