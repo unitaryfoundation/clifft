@@ -39,10 +39,12 @@ MeasurementBranchClassification classify_measurement_branch(
            "measurement probabilities must be finite, nonnegative, and nonzero");
     const double epsilon = kMeasurementDustEpsilon * total;
     if (probabilities.one <= epsilon) {
-        return {.kind = MeasurementBranchKind::Zero, .clamped_dust = probabilities.one > 0.0};
+        return {.kind = MeasurementBranchKind::DeterministicZero,
+                .clamped_dust = probabilities.one > 0.0};
     }
     if (probabilities.zero <= epsilon) {
-        return {.kind = MeasurementBranchKind::One, .clamped_dust = probabilities.zero > 0.0};
+        return {.kind = MeasurementBranchKind::DeterministicOne,
+                .clamped_dust = probabilities.zero > 0.0};
     }
     return {.kind = MeasurementBranchKind::Random};
 }
@@ -210,10 +212,10 @@ bool Executor::sample_active_branch(MeasurementProbabilities probabilities) noex
     switch (classification.kind) {
         case MeasurementBranchKind::Random:
             return rng_.next_double() * probabilities.total() >= probabilities.zero;
-        case MeasurementBranchKind::Zero:
+        case MeasurementBranchKind::DeterministicZero:
             dust_clamps_ += static_cast<uint64_t>(classification.clamped_dust);
             return false;
-        case MeasurementBranchKind::One:
+        case MeasurementBranchKind::DeterministicOne:
             dust_clamps_ += static_cast<uint64_t>(classification.clamped_dust);
             return true;
     }

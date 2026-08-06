@@ -1,5 +1,11 @@
 #pragma once
 
+// Executes a backend-neutral SamplingPlan on the CPU without runtime topology
+// work. ExecutablePlan prepares direct-Pauli kernel descriptors and packed
+// affine expressions once; Executor then evaluates per-shot symbols, evolves
+// the active-coordinate coefficient state, samples measurements, and writes
+// records using only preallocated storage.
+
 #include "clifft/sampling/kernels.h"
 #include "clifft/sampling/plan.h"
 #include "clifft/sampling/state.h"
@@ -14,12 +20,12 @@
 
 namespace clifft::sampling {
 
-// Classifies an active measurement before ordinary sampling or forced replay
-// chooses a branch.
+// Zero and one identify the selected Pauli eigenvalue branch before affine
+// sign corrections turn that branch into a physical measurement record.
 enum class MeasurementBranchKind : uint8_t {
     Random,
-    Zero,
-    One,
+    DeterministicZero,
+    DeterministicOne,
 };
 
 struct MeasurementBranchClassification {
@@ -30,7 +36,7 @@ struct MeasurementBranchClassification {
 [[nodiscard]] MeasurementBranchClassification classify_measurement_branch(
     MeasurementProbabilities probabilities) noexcept;
 
-// Owns the execution-specific lowering of one validated SamplingPlan. Kernel
+// Owns the CPU lowering of one validated SamplingPlan. Direct-Pauli kernel
 // descriptors and affine-expression term ranges are prepared once here so a
 // shot only reads fixed storage.
 class ExecutablePlan {
@@ -100,17 +106,22 @@ class ExecutablePlan {
     uint32_t num_symbols_ = 0;
     std::complex<double> global_weight_ = {1.0, 0.0};
     std::vector<uint32_t> expression_terms_;
+    // Maps each dense presampled input position to its plan-local SymbolId.
+    // The constructor records those ids in ascending order.
     std::vector<uint32_t> presampled_symbols_;
     std::vector<Action> actions_;
 };
 
-// Holds every mutable value needed to execute repeated shots of one prepared
-// plan. The plan must outlive the executor. Construction allocates all state,
-// symbol, and record storage; run_shot only resets and overwrites it.
+// Holds the dense active-coordinate coefficients and global scalar, Boolean
+// symbols carrying stochastic frame dependencies, visible and hidden records,
+// measurement RNG, and numerical-dust telemetry for repeated shots. The plan
+// must outlive the executor. Construction allocates all storage; run_shot only
+// resets and overwrites it.
 class Executor {
   public:
     explicit Executor(const ExecutablePlan& plan, uint64_t seed = 0);
 
+    // Values correspond to presampled plan symbols in ascending SymbolId order.
     void run_shot(std::span<const uint8_t> presampled_values = {}) noexcept;
 
     [[nodiscard]] std::span<const uint8_t> visible_records() const {
@@ -121,6 +132,8 @@ class Executor {
     }
     [[nodiscard]] std::span<const uint8_t> symbols() const { return symbols_; }
     [[nodiscard]] const State& state() const { return state_; }
+    // Counts positive branch probability mass classified as numerical dust.
+    // This telemetry accumulates across shots.
     [[nodiscard]] uint64_t dust_clamps() const { return dust_clamps_; }
 
   private:

@@ -91,15 +91,15 @@ void require_matches_legacy(std::string_view circuit_text, uint32_t shots, uint6
 
 TEST_CASE("Sampling executor classifies measurement dust without drawing") {
     const auto zero = classify_measurement_branch(MeasurementProbabilities{1.0, 0.0});
-    REQUIRE(zero.kind == MeasurementBranchKind::Zero);
+    REQUIRE(zero.kind == MeasurementBranchKind::DeterministicZero);
     REQUIRE_FALSE(zero.clamped_dust);
 
     const auto dusty_zero = classify_measurement_branch(MeasurementProbabilities{1.0, 1e-30});
-    REQUIRE(dusty_zero.kind == MeasurementBranchKind::Zero);
+    REQUIRE(dusty_zero.kind == MeasurementBranchKind::DeterministicZero);
     REQUIRE(dusty_zero.clamped_dust);
 
     const auto dusty_one = classify_measurement_branch(MeasurementProbabilities{1e-30, 1.0});
-    REQUIRE(dusty_one.kind == MeasurementBranchKind::One);
+    REQUIRE(dusty_one.kind == MeasurementBranchKind::DeterministicOne);
     REQUIRE(dusty_one.clamped_dust);
 
     const auto random = classify_measurement_branch(MeasurementProbabilities{0.25, 0.75});
@@ -140,6 +140,44 @@ TEST_CASE("Sampling executor evaluates presampled and derived affine symbols") {
     REQUIRE(executor.hidden_records().data() == hidden);
     REQUIRE(executor.symbols().data() == symbols);
     REQUIRE(executor.state().real_data() == real);
+}
+
+TEST_CASE("Sampling executor applies sampled symbols to later state actions") {
+    SamplingPlan plan;
+    plan.num_qubits = 2;
+    plan.max_active_width = 1;
+    plan.num_visible_records = 1;
+    plan.symbols = {SymbolInfo{SymbolKind::Branch, 0, std::nullopt}};
+    plan.actions = {
+        PlannedAction{
+            0, 0,
+            MeasureDormantRandom{0, SymbolId{0}, AffineBool::symbol(SymbolId{0}), RecordSlot{0}}},
+        PlannedAction{0, 1, PromoteDormantRotation{0.5, AffineBool::symbol(SymbolId{0})}},
+        PlannedAction{
+            1, 1,
+            clifft::sampling::RotateActivePauli{{0, 1}, 0.5, AffineBool::symbol(SymbolId{0})}},
+    };
+
+    const ExecutablePlan executable(plan);
+    Executor executor(executable, 42);
+    bool saw_zero = false;
+    bool saw_one = false;
+    for (uint32_t shot = 0; shot < 64; ++shot) {
+        executor.run_shot();
+        const bool branch = executor.visible_records()[0] != 0;
+        saw_zero |= !branch;
+        saw_one |= branch;
+        const double expected_imag = branch ? 0.5 : -0.5;
+        for (uint64_t basis = 0; basis < executor.state().size(); ++basis) {
+            CAPTURE(shot, branch, basis);
+            REQUIRE_THAT(executor.state().real_data()[basis],
+                         Catch::Matchers::WithinAbs(0.5, 1e-12));
+            REQUIRE_THAT(executor.state().imag_data()[basis],
+                         Catch::Matchers::WithinAbs(expected_imag, 1e-12));
+        }
+    }
+    REQUIRE(saw_zero);
+    REQUIRE(saw_one);
 }
 
 TEST_CASE("Sampling executor skips RNG for deterministic active measurements") {
