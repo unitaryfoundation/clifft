@@ -21,6 +21,8 @@ add_library(clifft_core STATIC
     backend/backend.cc
     sampling/plan.cc
     sampling/planner.cc
+    sampling/kernels.cc
+    sampling/state.cc
     api/basis_probabilities.cc
     api/record_probabilities.cc
     api/reference_syndrome.cc
@@ -31,6 +33,7 @@ add_library(clifft_core STATIC
     svm/svm_state.cc
     util/canonical_phase.cc
     util/introspection.cc
+    util/page_allocation.cc
     util/xoshiro.cc
     noncomp/transition_instrument.cc
     noncomp/transition_hooks.cc

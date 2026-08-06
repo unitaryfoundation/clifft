@@ -3,37 +3,11 @@
 #include "clifft/svm/svm.h"
 #include "clifft/util/numeric.h"
 
-#include <cstdlib>
-
-#ifdef _WIN32
-#include <malloc.h>
-#endif
-
 #ifdef _OPENMP
 #include <omp.h>
 #endif
 
 namespace clifft {
-
-// =============================================================================
-// Platform-portable aligned memory allocation
-// =============================================================================
-
-inline void* aligned_alloc_portable(size_t alignment, size_t size) {
-#ifdef _WIN32
-    return _aligned_malloc(size, alignment);
-#else
-    return std::aligned_alloc(alignment, size);
-#endif
-}
-
-inline void aligned_free_portable(void* ptr) {
-#ifdef _WIN32
-    _aligned_free(ptr);
-#else
-    std::free(ptr);
-#endif
-}
 
 // =============================================================================
 // Measurement branch sampling with IEEE-754 dust clamping

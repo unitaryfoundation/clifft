@@ -192,6 +192,19 @@ inline DenseMatrix dense_matmul(const DenseMatrix& a, const DenseMatrix& b, uint
     return r;
 }
 
+inline std::vector<std::complex<double>> dense_matvec(const DenseMatrix& matrix,
+                                                      std::span<const std::complex<double>> input) {
+    const uint64_t dim = input.size();
+    REQUIRE(matrix.size() == dim * dim);
+    std::vector<std::complex<double>> result(dim, {0.0, 0.0});
+    for (uint64_t row = 0; row < dim; ++row) {
+        for (uint64_t col = 0; col < dim; ++col) {
+            result[row] += matrix[row * dim + col] * input[col];
+        }
+    }
+    return result;
+}
+
 // Dense matrix of the projector-form rotation Pi_+ + e^{i*alpha*pi} Pi_- on
 // the signed Pauli (x, z, sign) over n qubits, little-endian basis order.
 // The fused S/S_dag the peephole absorbs is alpha = 0.5 / 1.5.

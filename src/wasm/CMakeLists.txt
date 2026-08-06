@@ -42,8 +42,8 @@ add_library(clifft_core STATIC
     ${CMAKE_CURRENT_SOURCE_DIR}/../clifft/optimizer/single_axis_fusion_pass.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/../clifft/optimizer/statevector_squeeze_pass.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/../clifft/backend/backend.cc
-    ${CMAKE_CURRENT_SOURCE_DIR}/../clifft/sampling/plan.cc
-    ${CMAKE_CURRENT_SOURCE_DIR}/../clifft/sampling/planner.cc
+    # The playground remains on the legacy SVM; the native SamplingPlan path
+    # is intentionally outside this target.
     ${CMAKE_CURRENT_SOURCE_DIR}/../clifft/api/basis_probabilities.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/../clifft/api/record_probabilities.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/../clifft/svm/svm.cc
@@ -53,6 +53,7 @@ add_library(clifft_core STATIC
     ${CMAKE_CURRENT_SOURCE_DIR}/../clifft/svm/svm_state.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/../clifft/util/canonical_phase.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/../clifft/util/introspection.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/../clifft/util/page_allocation.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/../clifft/util/xoshiro.cc
 )
 

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "clifft/backend/backend.h"
+#include "clifft/util/page_allocation.h"
 #include "clifft/util/xoshiro.h"
 
 #include "stim.h"
@@ -27,7 +28,7 @@ namespace clifft {
 //   |psi> = gamma * U_C * P * (|phi>_A (x) |0>_D)
 //
 // Memory layout:
-//   - v_: 64-byte aligned array of 2^peak_rank complex amplitudes
+//   - v_allocation_: page-aligned array of 2^peak_rank complex amplitudes
 //   - p_x, p_z: Pauli frame P, runtime-sized to ceil(num_qubits / 64) words
 //   - gamma: global scalar (phase + deferred normalization)
 //   - active_k: current active dimension k
@@ -73,8 +74,12 @@ class SchrodingerState {
     void reseed_from_entropy() { rng_.seed_from_entropy(); }
 
     // Access coefficient array
-    [[nodiscard]] std::complex<double>* v() { return v_; }
-    [[nodiscard]] const std::complex<double>* v() const { return v_; }
+    [[nodiscard]] std::complex<double>* v() {
+        return static_cast<std::complex<double>*>(v_allocation_.data());
+    }
+    [[nodiscard]] const std::complex<double>* v() const {
+        return static_cast<const std::complex<double>*>(v_allocation_.data());
+    }
     [[nodiscard]] uint64_t v_size() const { return 1ULL << active_k; }
     [[nodiscard]] uint64_t array_size() const { return array_size_; }
 
@@ -113,14 +118,15 @@ class SchrodingerState {
         gamma_ *= scale;
         double g_mag = std::abs(gamma_);
         if (g_mag > 1e100 || (g_mag < 1e-100 && g_mag > 0.0)) {
-            uint64_t sz = v_size();
+            const uint64_t sz = v_size();
+            std::complex<double>* values = v();
             for (uint64_t ri = 0; ri < sz; ++ri)
-                v_[ri] *= g_mag;
+                values[ri] *= g_mag;
             gamma_ /= g_mag;
         }
     }
 
-    // Current active dimension k (v_ holds 2^active_k meaningful entries)
+    // Current active dimension k (v() exposes 2^active_k meaningful entries)
     uint32_t active_k = 0;
 
     // Post-selection: true if this shot was discarded by OP_POSTSELECT.
@@ -188,10 +194,8 @@ class SchrodingerState {
     uint64_t dust_clamps = 0;
 
   private:
-    /// Allocate a zero-filled amplitude array for 2^peak_rank entries,
-    /// setting v_, array_size_, v_alloc_bytes_, v_is_mmap_, peak_rank_.
+    /// Allocate a zero-filled amplitude array for 2^peak_rank entries.
     void allocate_array(uint32_t peak_rank);
-    void free_array() noexcept;
 
     /// Grow the amplitude array to hold 2^peak_rank entries while preserving
     /// the active amplitudes. Memory above 2^active_k remains zero. This is
@@ -201,16 +205,14 @@ class SchrodingerState {
     friend void resume(const CompiledModule& program, SchrodingerState& state, uint32_t offset);
 
     std::complex<double> gamma_ = {1.0, 0.0};
-    std::complex<double>* v_ = nullptr;  // page-aligned
-    uint64_t array_size_ = 0;            // 2^peak_rank (allocated capacity)
-    size_t v_alloc_bytes_ = 0;           // actual allocation size in bytes
+    PageAlignedAllocation v_allocation_;
+    uint64_t array_size_ = 0;  // 2^peak_rank (allocated capacity)
     uint32_t peak_rank_ = 0;
-    bool v_is_mmap_ = false;  // true if v_ allocated via mmap
     Xoshiro256PlusPlus rng_;
 
     // --- Cold fields (rare per-shot probes) ---
     // Placed after rng_ to preserve cache-line packing of hot fields
-    // (gamma_, v_, rng_) which are accessed on every opcode.
+    // (gamma_, v_allocation_, rng_) which are accessed on every opcode.
   public:
     // Expectation value record: one double per EXP_VAL probe per shot.
     std::vector<double> exp_vals;

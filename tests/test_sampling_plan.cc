@@ -102,7 +102,7 @@ TEST_CASE("Sampling plan validates symbolic and active state invariants") {
     const std::string text = plan.inspect();
     REQUIRE(text.find("sampling_plan qubits=2 initial_width=0 max_width=1") != std::string::npos);
     REQUIRE(text.find("s0 kind=presampled noise_site=0") != std::string::npos);
-    REQUIRE(text.find("1 active_width=1->0 dense_passes=1 measure_active") != std::string::npos);
+    REQUIRE(text.find("1 active_width=1->0 dense_passes=2 measure_active") != std::string::npos);
     REQUIRE(text.find("outcome=s0 ^ s1 record=0") != std::string::npos);
     REQUIRE(text.find("4 active_width=0->0 dense_passes=0 instrument_boundary site=0") !=
             std::string::npos);
@@ -412,7 +412,7 @@ TEST_CASE("Sampling plan predicts only state touching dense passes") {
                 RotateActivePauli{ActivePauli{}, 0.5, AffineBool{}}) == 0);
     REQUIRE(clifft::sampling::predicted_dense_passes(PromoteDormantRotation{0.25, AffineBool{}}) ==
             1);
-    REQUIRE(clifft::sampling::predicted_dense_passes(MeasureActivePauli{}) == 1);
+    REQUIRE(clifft::sampling::predicted_dense_passes(MeasureActivePauli{}) == 2);
     REQUIRE(clifft::sampling::predicted_dense_passes(MeasureDormantRandom{}) == 0);
     REQUIRE(clifft::sampling::predicted_dense_passes(RecordClassical{}) == 0);
     REQUIRE(clifft::sampling::predicted_dense_passes(DefineSymbol{}) == 0);

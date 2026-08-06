@@ -90,6 +90,11 @@ void require_post_execute_states_match(const SchrodingerState& a, const Schrodin
 
 }  // namespace
 
+TEST_CASE("state coefficient allocation is page aligned") {
+    SchrodingerState state(2, 0);
+    REQUIRE(reinterpret_cast<uintptr_t>(state.v()) % PageAlignedAllocation::kBaseAlignment == 0);
+}
+
 TEST_CASE("state reset after construction leaves the state ready to execute") {
     StateConfig cfg{
         .peak_rank = 4,
