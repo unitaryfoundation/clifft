@@ -321,6 +321,10 @@ bool Executor::sample_dormant_branch() noexcept {
 
 std::vector<uint8_t> sample_records(const ExecutablePlan& plan, uint32_t shots,
                                     std::optional<uint64_t> seed) {
+    if (plan.num_presampled_symbols() != 0) {
+        throw std::invalid_argument(
+            "batch sampling does not yet support plans with presampled symbols");
+    }
     const size_t stride = plan.num_visible_records();
     if (stride != 0 && shots > std::numeric_limits<size_t>::max() / stride) {
         throw std::length_error("sampling output size exceeds size_t range");
@@ -349,6 +353,10 @@ std::vector<uint8_t> sample_records(const ExecutablePlan& plan, uint32_t shots,
 std::vector<double> record_log_probabilities(const ExecutablePlan& plan,
                                              std::span<const uint8_t> forced_records,
                                              size_t num_records) {
+    if (plan.num_presampled_symbols() != 0) {
+        throw std::invalid_argument(
+            "record probabilities do not yet support plans with presampled symbols");
+    }
     if (plan.num_hidden_records() != 0) {
         throw std::invalid_argument(
             "record probabilities do not yet support plans with hidden records");

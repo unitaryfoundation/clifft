@@ -436,6 +436,20 @@ TEST_CASE("Sampling batch records match legacy seeded execution") {
     REQUIRE(sample_records(executable, 0, uint64_t{5678}).empty());
 }
 
+TEST_CASE("Sampling batch helpers reject presampled symbols") {
+    SamplingPlan plan;
+    plan.num_visible_records = 1;
+    plan.symbols = {SymbolInfo{SymbolKind::Presampled, std::nullopt, std::nullopt}};
+    plan.actions = {
+        PlannedAction{0, 0, RecordClassical{AffineBool::symbol(SymbolId{0}), RecordSlot{0}}}};
+    const ExecutablePlan executable(plan);
+
+    REQUIRE_THROWS_WITH(sample_records(executable, 0, uint64_t{1234}),
+                        "batch sampling does not yet support plans with presampled symbols");
+    REQUIRE_THROWS_WITH(record_log_probabilities(executable, std::array<uint8_t, 1>{0}, 1),
+                        "record probabilities do not yet support plans with presampled symbols");
+}
+
 TEST_CASE("Sampling replay matches legacy record probabilities") {
     require_replay_matches_legacy("H 0\nM 0\nM 0\n", std::array<uint8_t, 4>{0, 0, 0, 1}, 2);
     require_replay_matches_legacy("H 0\nM 0\nM 0\n", std::array<uint8_t, 4>{1, 0, 1, 1}, 2);

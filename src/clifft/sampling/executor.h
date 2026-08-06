@@ -185,14 +185,16 @@ class Executor {
 
 // Samples a fixed number of shots into row-major visible-record storage. The
 // plan and executor are prepared once, and all output is allocated before the
-// first shot enters hot execution.
+// first shot enters hot execution. Plans with presampled symbols are rejected
+// until their sampling distribution is part of the executable contract.
 [[nodiscard]] std::vector<uint8_t> sample_records(const ExecutablePlan& plan, uint32_t shots,
                                                   std::optional<uint64_t> seed = std::nullopt);
 
 // Replays each row-major visible record and returns its joint log probability.
 // Unreachable records map to the lowest finite double because release builds
-// assume finite arithmetic. Plans with hidden records are rejected because
-// this API does not yet marginalize over hidden outcomes.
+// assume finite arithmetic. Plans with presampled symbols or hidden records
+// are rejected because this API does not yet marginalize over either source
+// of hidden stochastic state.
 [[nodiscard]] std::vector<double> record_log_probabilities(const ExecutablePlan& plan,
                                                            std::span<const uint8_t> forced_records,
                                                            size_t num_records);
