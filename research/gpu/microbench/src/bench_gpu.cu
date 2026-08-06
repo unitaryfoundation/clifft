@@ -1441,13 +1441,18 @@ static void bench_single(unsigned kmin, unsigned kmax) {
 static void bench_batched(const std::vector<unsigned>& ks, unsigned layers) {
     fprintf(stderr, "\n=== Batched-across-shots throughput (GPU, FP64) ===\n");
     fprintf(stderr, "%-4s %-8s %-14s %-12s\n", "k", "B", "shots/s", "Mshot-lyr/s");
-    std::vector<unsigned> Bs = {256, 1024, 4096, 16384, 65536};
+    // Small Bs probe the high-k regime where memory caps the shot count and
+    // MIMD's block-per-shot parallelism starves (B < #SMs) while SoA still
+    // spreads each op grid-wide -- the predicted hybrid boundary.
+    std::vector<unsigned> Bs = {8, 32, 128, 256, 1024, 4096, 16384, 65536};
     for (unsigned k : ks) {
         uint64_t dim = uint64_t(1) << k, half = dim / 2, quarter = dim / 4;
         auto sched = make_layer_schedule(k, layers);
         for (unsigned B : Bs) {
             size_t bytes = (size_t)B * dim * sizeof(dc);
-            if (bytes > 16.0e9) continue;  // keep within GH200 HBM headroom
+            // Soft cap near H200's 141 GB; GH200's 96 GB (or any smaller card)
+            // is handled by the cudaMalloc-failure skip below.
+            if (bytes > 120.0e9) continue;
             dc* d = nullptr;
             if (cudaMalloc(&d, bytes) != cudaSuccess) continue;
             {
@@ -1497,13 +1502,16 @@ static void bench_batched(const std::vector<unsigned>& ks, unsigned layers) {
 static void bench_batched_meas(const std::vector<unsigned>& ks, unsigned layers) {
     fprintf(stderr, "\n=== Batched shots WITH completed measurement per layer (GPU) ===\n");
     fprintf(stderr, "%-4s %-8s %-14s %-14s\n", "k", "B", "shots/s", "us/meas-round");
-    std::vector<unsigned> Bs = {256, 1024, 4096, 16384, 65536};
+    // Small Bs probe the high-k regime where memory caps the shot count and
+    // MIMD's block-per-shot parallelism starves (B < #SMs) while SoA still
+    // spreads each op grid-wide -- the predicted hybrid boundary.
+    std::vector<unsigned> Bs = {8, 32, 128, 256, 1024, 4096, 16384, 65536};
     for (unsigned k : ks) {
         uint64_t dim = uint64_t(1) << k, half = dim / 2, quarter = dim / 4;
         auto gates = make_layer_schedule(k, 1);
         for (unsigned B : Bs) {
             size_t bytes = (size_t)B * dim * sizeof(dc);
-            if (bytes > 16.0e9) continue;
+            if (bytes > 120.0e9) continue;
             dc* d = nullptr;
             if (cudaMalloc(&d, bytes) != cudaSuccess) continue;
             {
@@ -1613,13 +1621,16 @@ static void bench_batched_meas(const std::vector<unsigned>& ks, unsigned layers)
 static void bench_batched_meas_dev(const std::vector<unsigned>& ks, unsigned layers) {
     fprintf(stderr, "\n=== Batched shots, measurement sampled on device (GPU) ===\n");
     fprintf(stderr, "%-4s %-8s %-14s %-14s\n", "k", "B", "shots/s", "us/meas-round");
-    std::vector<unsigned> Bs = {256, 1024, 4096, 16384, 65536};
+    // Small Bs probe the high-k regime where memory caps the shot count and
+    // MIMD's block-per-shot parallelism starves (B < #SMs) while SoA still
+    // spreads each op grid-wide -- the predicted hybrid boundary.
+    std::vector<unsigned> Bs = {8, 32, 128, 256, 1024, 4096, 16384, 65536};
     for (unsigned k : ks) {
         uint64_t dim = uint64_t(1) << k, half = dim / 2, quarter = dim / 4;
         auto gates = make_layer_schedule(k, 1);
         for (unsigned B : Bs) {
             size_t bytes = (size_t)B * dim * sizeof(dc);
-            if (bytes > 16.0e9) continue;
+            if (bytes > 120.0e9) continue;
             dc* d = nullptr;
             if (cudaMalloc(&d, bytes) != cudaSuccess) continue;
             {
@@ -1712,7 +1723,10 @@ static void bench_batched_meas_dev(const std::vector<unsigned>& ks, unsigned lay
 static void bench_mimd(const std::vector<unsigned>& ks, unsigned layers) {
     fprintf(stderr, "\n=== MIMD per-shot interpreter (GPU, one block/shot) ===\n");
     fprintf(stderr, "%-4s %-8s %-14s %-8s\n", "k", "B", "shots/s", "variant");
-    std::vector<unsigned> Bs = {256, 1024, 4096, 16384, 65536};
+    // Small Bs probe the high-k regime where memory caps the shot count and
+    // MIMD's block-per-shot parallelism starves (B < #SMs) while SoA still
+    // spreads each op grid-wide -- the predicted hybrid boundary.
+    std::vector<unsigned> Bs = {8, 32, 128, 256, 1024, 4096, 16384, 65536};
     int sh_optin = 0;
     CHECK(cudaDeviceGetAttribute(&sh_optin, cudaDevAttrMaxSharedMemoryPerBlockOptin, 0));
     for (unsigned k : ks) {
@@ -1732,7 +1746,7 @@ static void bench_mimd(const std::vector<unsigned>& ks, unsigned layers) {
         }
         for (unsigned B : Bs) {
             size_t bytes = (size_t)B * dim * sizeof(dc);
-            if (bytes > 16.0e9) continue;
+            if (bytes > 120.0e9) continue;
             dc* d = nullptr;
             if (cudaMalloc(&d, bytes) != cudaSuccess) continue;
             {
@@ -1785,13 +1799,16 @@ static void bench_mimd(const std::vector<unsigned>& ks, unsigned layers) {
 static void bench_batched_real(const std::vector<unsigned>& ks, unsigned layers) {
     fprintf(stderr, "\n=== Batched shots, REAL op mix, on-device sampling (GPU) ===\n");
     fprintf(stderr, "%-4s %-8s %-14s %-14s\n", "k", "B", "shots/s", "us/meas-round");
-    std::vector<unsigned> Bs = {256, 1024, 4096, 16384, 65536};
+    // Small Bs probe the high-k regime where memory caps the shot count and
+    // MIMD's block-per-shot parallelism starves (B < #SMs) while SoA still
+    // spreads each op grid-wide -- the predicted hybrid boundary.
+    std::vector<unsigned> Bs = {8, 32, 128, 256, 1024, 4096, 16384, 65536};
     for (unsigned k : ks) {
         uint64_t dim = uint64_t(1) << k, half = dim / 2;
         auto sched = make_layer_schedule_real(k, layers);
         for (unsigned B : Bs) {
             size_t bytes = (size_t)B * dim * sizeof(dc);
-            if (bytes > 16.0e9) continue;
+            if (bytes > 120.0e9) continue;
             dc* d = nullptr;
             if (cudaMalloc(&d, bytes) != cudaSuccess) continue;
             {
@@ -1863,7 +1880,10 @@ static void bench_batched_real(const std::vector<unsigned>& ks, unsigned layers)
 static void bench_mimd_real(const std::vector<unsigned>& ks, unsigned layers) {
     fprintf(stderr, "\n=== MIMD per-shot interpreter, REAL op mix (GPU) ===\n");
     fprintf(stderr, "%-4s %-8s %-14s %-8s\n", "k", "B", "shots/s", "variant");
-    std::vector<unsigned> Bs = {256, 1024, 4096, 16384, 65536};
+    // Small Bs probe the high-k regime where memory caps the shot count and
+    // MIMD's block-per-shot parallelism starves (B < #SMs) while SoA still
+    // spreads each op grid-wide -- the predicted hybrid boundary.
+    std::vector<unsigned> Bs = {8, 32, 128, 256, 1024, 4096, 16384, 65536};
     int sh_optin = 0;
     CHECK(cudaDeviceGetAttribute(&sh_optin, cudaDevAttrMaxSharedMemoryPerBlockOptin, 0));
     for (unsigned k : ks) {
@@ -1883,7 +1903,7 @@ static void bench_mimd_real(const std::vector<unsigned>& ks, unsigned layers) {
         }
         for (unsigned B : Bs) {
             size_t bytes = (size_t)B * dim * sizeof(dc);
-            if (bytes > 16.0e9) continue;
+            if (bytes > 120.0e9) continue;
             dc* d = nullptr;
             if (cudaMalloc(&d, bytes) != cudaSuccess) continue;
             {
