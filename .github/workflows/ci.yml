@@ -94,6 +94,10 @@ jobs:
       CMAKE_GENERATOR: Ninja
       CMAKE_C_COMPILER_LAUNCHER: ccache
       CMAKE_CXX_COMPILER_LAUNCHER: ccache
+      # Runner images are rebuilt with fresh file mtimes even when the
+      # compiler is unchanged, so the default mtime-based compiler check
+      # misses across image rollouts; hash the compiler binary instead.
+      CCACHE_COMPILERCHECK: content
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -221,6 +225,7 @@ jobs:
       CMAKE_GENERATOR: Ninja
       CMAKE_C_COMPILER_LAUNCHER: ccache
       CMAKE_CXX_COMPILER_LAUNCHER: ccache
+      CCACHE_COMPILERCHECK: content
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -311,6 +316,7 @@ jobs:
       CMAKE_GENERATOR: Ninja
       CMAKE_C_COMPILER_LAUNCHER: ccache
       CMAKE_CXX_COMPILER_LAUNCHER: ccache
+      CCACHE_COMPILERCHECK: content
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
