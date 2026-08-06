@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785914361078,
+  "lastUpdate": 1786001036465,
   "repoUrl": "https://github.com/unitaryfoundation/clifft",
   "entries": {
     "Python pytest-benchmark suite": [
@@ -8463,6 +8463,126 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.06229935260182258",
             "extra": "mean: 1.5910808571999724 sec\nrounds: 5"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Brad Chase",
+            "username": "bachase",
+            "email": "14430+bachase@users.noreply.github.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "1f4692ee51814c2abed14f455a66505e9e964651",
+          "message": "ci: cache wasm object files with ccache in the emsdk container (#254)\n\nci: cache wasm object files with ccache in the emsdk container (#254)\n\nThe wasm build cache was all-or-nothing: any change under src/clifft\ninvalidated the key and forced a full ~3 minute rebuild of every\ntranslation unit. Mount a pinned static ccache binary and a\npersistent cache directory into the emsdk container so unchanged\ntranslation units hit the object cache even when the build-directory\nkey misses; verified in CI at a 100% direct hit rate, the wasm job\ndrops to under a minute on core-touching changes. The key also\nhashes the action definition itself, so recipe changes (including\nthis one landing on main) force one rebuild that seeds the shared\ncompiler cache immediately.\n\nAssisted-by: Claude (Fable 5) <noreply@anthropic.com>",
+          "timestamp": "2026-08-05T22:10:13Z",
+          "url": "https://github.com/unitaryfoundation/clifft/commit/1f4692ee51814c2abed14f455a66505e9e964651"
+        },
+        "date": 1786001033205,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "tools/bench/test_bench_deep_clifford.py::test_compile_stim_deep",
+            "value": 1438.0843839948295,
+            "unit": "iter/sec",
+            "range": "stddev: 0.000011409440662968121",
+            "extra": "mean: 695.3694867488356 usec\nrounds: 1132"
+          },
+          {
+            "name": "tools/bench/test_bench_deep_clifford.py::test_compile_clifft_deep",
+            "value": 554.2895480360249,
+            "unit": "iter/sec",
+            "range": "stddev: 0.000021292386849809187",
+            "extra": "mean: 1.8041112330969065 msec\nrounds: 429"
+          },
+          {
+            "name": "tools/bench/test_bench_deep_clifford.py::test_sample_stim_deep",
+            "value": 56.698594189521536,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0006467414493205474",
+            "extra": "mean: 17.637121595244242 msec\nrounds: 42"
+          },
+          {
+            "name": "tools/bench/test_bench_deep_clifford.py::test_sample_clifft_deep",
+            "value": 0.9125278286859207,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0005721578459776449",
+            "extra": "mean: 1.0958569904000002 sec\nrounds: 5"
+          },
+          {
+            "name": "tools/bench/test_bench_noncomp.py::test_bench_noncomp_plain[d17-r5]",
+            "value": 192.59528555453542,
+            "unit": "iter/sec",
+            "range": "stddev: 0.00012454726662167637",
+            "extra": "mean: 5.19223509090953 msec\nrounds: 187"
+          },
+          {
+            "name": "tools/bench/test_bench_noncomp.py::test_bench_noncomp_lossless[d17-r5]",
+            "value": 268.8507731634956,
+            "unit": "iter/sec",
+            "range": "stddev: 0.00005822992033244548",
+            "extra": "mean: 3.719535518656933 msec\nrounds: 268"
+          },
+          {
+            "name": "tools/bench/test_bench_noncomp.py::test_bench_noncomp_leak[d17-r5]",
+            "value": 17.107036796138388,
+            "unit": "iter/sec",
+            "range": "stddev: 0.00017790119962241975",
+            "extra": "mean: 58.45547723529374 msec\nrounds: 17"
+          },
+          {
+            "name": "tools/bench/test_bench_qec.py::test_compile_stim",
+            "value": 17707.856293420424,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0000037453181287381613",
+            "extra": "mean: 56.472109521894104 usec\nrounds: 7551"
+          },
+          {
+            "name": "tools/bench/test_bench_qec.py::test_compile_clifft",
+            "value": 1463.5354796497757,
+            "unit": "iter/sec",
+            "range": "stddev: 0.000013694560499361703",
+            "extra": "mean: 683.276909856193 usec\nrounds: 1187"
+          },
+          {
+            "name": "tools/bench/test_bench_qec.py::test_sample_stim",
+            "value": 111.66763169530041,
+            "unit": "iter/sec",
+            "range": "stddev: 0.00009126998066069842",
+            "extra": "mean: 8.955146489795982 msec\nrounds: 98"
+          },
+          {
+            "name": "tools/bench/test_bench_qec.py::test_sample_clifft",
+            "value": 8.331275199794083,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0013174523264824092",
+            "extra": "mean: 120.02964444443226 msec\nrounds: 9"
+          },
+          {
+            "name": "tools/bench/test_bench_qv.py::test_compile_qv20",
+            "value": 51.552971243518556,
+            "unit": "iter/sec",
+            "range": "stddev: 0.00012867916591856096",
+            "extra": "mean: 19.39752405882375 msec\nrounds: 51"
+          },
+          {
+            "name": "tools/bench/test_bench_qv.py::test_sample_qv20_1shot",
+            "value": 6.315914365429762,
+            "unit": "iter/sec",
+            "range": "stddev: 0.005756836287304294",
+            "extra": "mean: 158.3302024285688 msec\nrounds: 7"
+          },
+          {
+            "name": "tools/bench/test_bench_qv.py::test_sample_qv20_10shots",
+            "value": 0.6357847446203736,
+            "unit": "iter/sec",
+            "range": "stddev: 0.03845954228927859",
+            "extra": "mean: 1.5728593811999985 sec\nrounds: 5"
           }
         ]
       }
