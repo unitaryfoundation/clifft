@@ -77,8 +77,8 @@ PreparedPauli prepare_pauli(ActivePauli pauli, uint32_t active_width) {
     static constexpr std::complex<double> kIPowers[4] = {
         {1.0, 0.0}, {0.0, 1.0}, {-1.0, 0.0}, {0.0, -1.0}};
     const uint32_t overlap = std::popcount(pauli.x & pauli.z);
-    return PreparedPauli{active_width, pauli.x, pauli.z,
-                         pauli.x == 0 ? 0 : pauli.x & (~pauli.x + 1), kIPowers[overlap & 3U]};
+    return PreparedPauli{active_width, pauli.x, pauli.z, std::bit_floor(pauli.x),
+                         kIPowers[overlap & 3U]};
 }
 
 PreparedRotation prepare_rotation(ActivePauli pauli, uint32_t active_width, double half_turns) {

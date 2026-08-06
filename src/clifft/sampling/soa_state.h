@@ -10,10 +10,11 @@
 
 namespace clifft::sampling {
 
-// One-shot CPU coefficient state for the direct-Pauli executor. The coefficient
-// planes stay normalized; a separate scalar preserves plan-level global factors.
-// One aligned allocation also contains the scratch planes needed to compact a
-// non-diagonal measurement without aliasing input.
+// One-shot CPU coefficient state for the direct-Pauli executor. An executor
+// initializes the scalar from SamplingPlan::global_weight; it may have non-unit
+// magnitude and accumulates signed-identity phases while the coefficient planes
+// remain normalized. One aligned allocation also contains the scratch planes
+// needed to compact a non-diagonal measurement without aliasing input.
 class SoaState {
   public:
     explicit SoaState(uint32_t max_active_width, uint32_t initial_active_width = 0,
