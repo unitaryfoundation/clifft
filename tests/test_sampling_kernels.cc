@@ -1,4 +1,4 @@
-#include "clifft/sampling/soa_kernels.h"
+#include "clifft/sampling/kernels.h"
 
 #include "test_helpers.h"
 
@@ -24,9 +24,10 @@ using clifft::sampling::prepare_measurement;
 using clifft::sampling::prepare_promotion;
 using clifft::sampling::prepare_rotation;
 using clifft::sampling::PreparedMeasurement;
-using clifft::sampling::SoaState;
+using clifft::sampling::State;
 using clifft::test::check_complex;
 using clifft::test::dense_axis_rotation;
+using clifft::test::dense_matvec;
 using clifft::test::DenseMatrix;
 
 namespace {
@@ -51,7 +52,7 @@ std::vector<std::complex<double>> deterministic_state(uint32_t active_width) {
     return result;
 }
 
-void load_state(SoaState& state, const std::vector<std::complex<double>>& values) {
+void load_state(State& state, const std::vector<std::complex<double>>& values) {
     REQUIRE(values.size() == state.size());
     for (uint64_t i = 0; i < state.size(); ++i) {
         state.real_data()[i] = values[i].real();
@@ -59,7 +60,7 @@ void load_state(SoaState& state, const std::vector<std::complex<double>>& values
     }
 }
 
-std::vector<std::complex<double>> coefficients(const SoaState& state) {
+std::vector<std::complex<double>> coefficients(const State& state) {
     std::vector<std::complex<double>> result(state.size());
     for (uint64_t i = 0; i < state.size(); ++i) {
         result[i] = {state.real_data()[i], state.imag_data()[i]};
@@ -67,23 +68,10 @@ std::vector<std::complex<double>> coefficients(const SoaState& state) {
     return result;
 }
 
-std::vector<std::complex<double>> physical_coefficients(const SoaState& state) {
+std::vector<std::complex<double>> physical_coefficients(const State& state) {
     std::vector<std::complex<double>> result = coefficients(state);
     for (std::complex<double>& value : result) {
         value *= state.global_scalar();
-    }
-    return result;
-}
-
-std::vector<std::complex<double>> apply_matrix(const DenseMatrix& matrix,
-                                               const std::vector<std::complex<double>>& input) {
-    const uint64_t size = input.size();
-    REQUIRE(matrix.size() == size * size);
-    std::vector<std::complex<double>> result(size, {0.0, 0.0});
-    for (uint64_t row = 0; row < size; ++row) {
-        for (uint64_t col = 0; col < size; ++col) {
-            result[row] += matrix[row * size + col] * input[col];
-        }
     }
     return result;
 }
@@ -97,7 +85,7 @@ std::vector<std::complex<double>> balanced_rotation(const std::vector<std::compl
     for (std::complex<double>& value : matrix) {
         value *= balance;
     }
-    return apply_matrix(matrix, input);
+    return dense_matvec(matrix, input);
 }
 
 void require_vectors_close(const std::vector<std::complex<double>>& actual,
@@ -109,9 +97,11 @@ void require_vectors_close(const std::vector<std::complex<double>>& actual,
     }
 }
 
-uint64_t insert_zero_bit(uint64_t packed, uint32_t pivot) {
+// Keep the projector and compaction oracle independent of the kernel's index
+// helpers so an indexing defect cannot make both actual and expected agree.
+uint64_t expand_index_without_pivot(uint64_t packed, uint32_t pivot) {
     const uint64_t lower_mask = (uint64_t{1} << pivot) - 1;
-    return (packed & lower_mask) | ((packed & ~lower_mask) << 1);
+    return (packed & lower_mask) | ((packed >> pivot) << (pivot + 1));
 }
 
 std::complex<double> pauli_phase(uint64_t x, uint64_t z, uint64_t basis) {
@@ -130,7 +120,7 @@ struct ProjectedBranch {
 ProjectedBranch dense_project(const std::vector<std::complex<double>>& input, uint64_t x,
                               uint64_t z, bool branch, uint32_t active_width) {
     const DenseMatrix pauli = dense_axis_rotation(x, z, false, 1.0, active_width);
-    const std::vector<std::complex<double>> applied = apply_matrix(pauli, input);
+    const std::vector<std::complex<double>> applied = dense_matvec(pauli, input);
     const double eigenvalue = branch ? -1.0 : 1.0;
     ProjectedBranch result;
     result.normalized.resize(input.size());
@@ -153,7 +143,7 @@ std::vector<std::complex<double>> expand_compacted(
     std::vector<std::complex<double>> result(compacted.size() * 2, {0.0, 0.0});
     if (measurement.pauli.is_diagonal()) {
         for (uint64_t packed = 0; packed < compacted.size(); ++packed) {
-            const uint64_t without_pivot = insert_zero_bit(packed, measurement.pivot);
+            const uint64_t without_pivot = expand_index_without_pivot(packed, measurement.pivot);
             const bool other_parity =
                 (std::popcount(without_pivot & measurement.z_without_pivot) & 1U) != 0;
             const bool pivot_value = branch != other_parity;
@@ -166,7 +156,7 @@ std::vector<std::complex<double>> expand_compacted(
 
     const double eigenvalue = branch ? -1.0 : 1.0;
     for (uint64_t packed = 0; packed < compacted.size(); ++packed) {
-        const uint64_t source0 = insert_zero_bit(packed, measurement.pivot);
+        const uint64_t source0 = expand_index_without_pivot(packed, measurement.pivot);
         const uint64_t source1 = source0 ^ measurement.pauli.x;
         const std::complex<double> phase =
             pauli_phase(measurement.pauli.x, measurement.pauli.z, source0);
@@ -182,7 +172,7 @@ std::vector<std::complex<double>> compact_projected(const ProjectedBranch& proje
     std::vector<std::complex<double>> result(measurement.output_size);
     if (measurement.pauli.is_diagonal()) {
         for (uint64_t packed = 0; packed < result.size(); ++packed) {
-            const uint64_t without_pivot = insert_zero_bit(packed, measurement.pivot);
+            const uint64_t without_pivot = expand_index_without_pivot(packed, measurement.pivot);
             const bool other_parity =
                 (std::popcount(without_pivot & measurement.z_without_pivot) & 1U) != 0;
             const bool pivot_value = branch != other_parity;
@@ -194,7 +184,7 @@ std::vector<std::complex<double>> compact_projected(const ProjectedBranch& proje
     }
 
     for (uint64_t packed = 0; packed < result.size(); ++packed) {
-        const uint64_t source0 = insert_zero_bit(packed, measurement.pivot);
+        const uint64_t source0 = expand_index_without_pivot(packed, measurement.pivot);
         result[packed] = projected.normalized[source0] / kInvSqrt2;
     }
     return result;
@@ -213,9 +203,9 @@ std::vector<uint32_t> valid_measurement_pivots(uint64_t x, uint64_t z, uint32_t 
 
 }  // namespace
 
-TEST_CASE("Sampling SoA state owns stable aligned coefficient and scratch planes") {
+TEST_CASE("Sampling kernel state owns stable aligned storage") {
     const std::complex<double> initial_scalar{0.6, 0.8};
-    SoaState state(4, 2, initial_scalar);
+    State state(4, 2, initial_scalar);
 
     REQUIRE(state.active_width() == 2);
     REQUIRE(state.max_active_width() == 4);
@@ -258,16 +248,16 @@ TEST_CASE("Sampling SoA state owns stable aligned coefficient and scratch planes
         REQUIRE(state.imag_data()[i] == 0.0);
     }
 
-    SoaState moved(std::move(state));
+    State moved(std::move(state));
     REQUIRE(moved.real_data() == real);
     REQUIRE(moved.imag_data() == imag);
-    SoaState assigned(0);
+    State assigned(0);
     assigned = std::move(moved);
     REQUIRE(assigned.real_data() == real);
     REQUIRE(assigned.imag_data() == imag);
 }
 
-TEST_CASE("Sampling SoA rotations match the existing dense matrix oracle") {
+TEST_CASE("Sampling kernels rotations match the existing dense matrix oracle") {
     static constexpr double kAngles[] = {-0.75, -0.25, 0.0, 0.3};
     for (uint32_t active_width = 0; active_width <= 4; ++active_width) {
         const uint64_t mask_limit = uint64_t{1} << active_width;
@@ -278,7 +268,7 @@ TEST_CASE("Sampling SoA rotations match the existing dense matrix oracle") {
                     for (double half_turns : kAngles) {
                         CAPTURE(active_width, x, z, sign, half_turns);
                         const std::complex<double> scalar{0.3, 0.4};
-                        SoaState state(active_width, active_width, scalar);
+                        State state(active_width, active_width, scalar);
                         load_state(state, input);
                         double* const real = state.real_data();
                         double* const imag = state.imag_data();
@@ -302,7 +292,7 @@ TEST_CASE("Sampling SoA rotations match the existing dense matrix oracle") {
     }
 }
 
-TEST_CASE("Sampling SoA promotion matches a new-axis dense rotation") {
+TEST_CASE("Sampling kernels promotion matches a new-axis dense rotation") {
     static constexpr double kAngles[] = {-0.5, 0.0, 0.25, 0.7};
     for (uint32_t active_width = 0; active_width <= 4; ++active_width) {
         const std::vector<std::complex<double>> input = deterministic_state(active_width);
@@ -310,7 +300,7 @@ TEST_CASE("Sampling SoA promotion matches a new-axis dense rotation") {
             for (double half_turns : kAngles) {
                 CAPTURE(active_width, sign, half_turns);
                 const std::complex<double> scalar{0.3, 0.4};
-                SoaState state(active_width + 1, active_width, scalar);
+                State state(active_width + 1, active_width, scalar);
                 load_state(state, input);
                 double* const real = state.real_data();
                 double* const imag = state.imag_data();
@@ -333,7 +323,7 @@ TEST_CASE("Sampling SoA promotion matches a new-axis dense rotation") {
     }
 }
 
-TEST_CASE("Sampling SoA measurements match dense projectors for every small Pauli") {
+TEST_CASE("Sampling kernels measurements match dense projectors for every small Pauli") {
     for (uint32_t active_width = 1; active_width <= 4; ++active_width) {
         const uint64_t mask_limit = uint64_t{1} << active_width;
         const std::vector<std::complex<double>> input = deterministic_state(active_width);
@@ -347,7 +337,7 @@ TEST_CASE("Sampling SoA measurements match dense projectors for every small Paul
                     const PreparedMeasurement measurement =
                         prepare_measurement({x, z}, active_width, pivot);
                     const std::complex<double> scalar{0.3, 0.4};
-                    SoaState probability_state(active_width, active_width, scalar);
+                    State probability_state(active_width, active_width, scalar);
                     load_state(probability_state, input);
                     const MeasurementProbabilities probabilities =
                         measurement_probabilities(probability_state, measurement);
@@ -365,7 +355,7 @@ TEST_CASE("Sampling SoA measurements match dense projectors for every small Paul
                     for (bool branch : {false, true}) {
                         const ProjectedBranch& expected = branch ? expected_one : expected_zero;
                         REQUIRE(expected.probability > 1e-12);
-                        SoaState state(active_width, active_width, scalar);
+                        State state(active_width, active_width, scalar);
                         load_state(state, input);
                         double* const real = state.real_data();
                         double* const imag = state.imag_data();
@@ -398,11 +388,11 @@ TEST_CASE("Sampling SoA measurements match dense projectors for every small Paul
     }
 }
 
-TEST_CASE("Sampling SoA kernels compose across collapse and promotion") {
+TEST_CASE("Sampling kernels compose across collapse and promotion") {
     constexpr uint32_t kInitialWidth = 2;
     constexpr uint32_t kExpandedWidth = kInitialWidth + 1;
     const std::complex<double> scalar{0.3, 0.4};
-    SoaState state(kExpandedWidth, kInitialWidth, scalar);
+    State state(kExpandedWidth, kInitialWidth, scalar);
     std::vector<std::complex<double>> expected = deterministic_state(kInitialWidth);
     load_state(state, expected);
     double* const real = state.real_data();
@@ -464,11 +454,11 @@ TEST_CASE("Sampling SoA kernels compose across collapse and promotion") {
     REQUIRE(state.global_scalar() == scalar);
 }
 
-TEST_CASE("Sampling SoA preparation and transitions reject malformed inputs") {
+TEST_CASE("Sampling kernel preparation rejects malformed inputs") {
     REQUIRE(prepare_rotation({0b101, 0}, 3, 0.25).pauli.pair_selector == 0b100);
-    REQUIRE_THROWS_AS(SoaState(clifft::kDenseActiveWidthLimit), std::invalid_argument);
-    REQUIRE_THROWS_AS(SoaState(1, 2), std::invalid_argument);
-    REQUIRE_THROWS_AS(SoaState(1, 0, {clifft::test::opaque_nan(), 0.0}), std::invalid_argument);
+    REQUIRE_THROWS_AS(State(clifft::kDenseActiveWidthLimit), std::invalid_argument);
+    REQUIRE_THROWS_AS(State(1, 2), std::invalid_argument);
+    REQUIRE_THROWS_AS(State(1, 0, {clifft::test::opaque_nan(), 0.0}), std::invalid_argument);
     REQUIRE_THROWS_AS(prepare_rotation({2, 0}, 1, 0.25), std::invalid_argument);
     REQUIRE_THROWS_AS(prepare_rotation({1, 0}, 1, clifft::test::opaque_nan()),
                       std::invalid_argument);
@@ -477,11 +467,7 @@ TEST_CASE("Sampling SoA preparation and transitions reject malformed inputs") {
     REQUIRE_THROWS_AS(prepare_measurement({1, 0}, 1, 1), std::invalid_argument);
     REQUIRE_THROWS_AS(prepare_measurement({1, 0}, 2, 1), std::invalid_argument);
 
-    SoaState state(1, 1);
-    const auto wrong_width = prepare_rotation({1, 0}, 2, 0.25);
-    REQUIRE_THROWS_AS(apply_rotation(state, wrong_width, false), std::invalid_argument);
-    REQUIRE_THROWS_AS(apply_promotion(state, prepare_promotion(0.25), false), std::out_of_range);
-
+    State state(1, 1);
     const PreparedMeasurement measurement = prepare_measurement({1, 0}, 1, 0);
     REQUIRE_THROWS_AS(collapse_measurement(state, measurement, false, 0.0), std::invalid_argument);
     REQUIRE_THROWS_AS(collapse_measurement(state, measurement, false, clifft::test::opaque_nan()),

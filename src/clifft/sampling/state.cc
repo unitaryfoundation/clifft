@@ -1,6 +1,7 @@
-#include "clifft/sampling/soa_state.h"
+#include "clifft/sampling/state.h"
 
 #include <algorithm>
+#include <cassert>
 #include <limits>
 #include <stdexcept>
 #include <string>
@@ -13,42 +14,42 @@ namespace {
 constexpr size_t kStateAlignment = 64;
 constexpr uint64_t kDoublesPerAlignment = kStateAlignment / sizeof(double);
 
-uint64_t round_plane_stride(uint64_t entries) {
+uint64_t round_array_stride(uint64_t entries) {
     return std::max(kDoublesPerAlignment,
                     (entries + kDoublesPerAlignment - 1) & ~(kDoublesPerAlignment - 1));
 }
 
 void validate_scalar(std::complex<double> value) {
     if (!is_finite_robust(value.real()) || !is_finite_robust(value.imag())) {
-        throw std::invalid_argument("SoA state global scalar must be finite");
+        throw std::invalid_argument("sampling state global scalar must be finite");
     }
 }
 
 }  // namespace
 
-SoaState::SoaState(uint32_t max_active_width, uint32_t initial_active_width,
-                   std::complex<double> initial_global_scalar)
+State::State(uint32_t max_active_width, uint32_t initial_active_width,
+             std::complex<double> initial_global_scalar)
     : initial_active_width_(initial_active_width),
       active_width_(initial_active_width),
       max_active_width_(max_active_width),
       initial_global_scalar_(initial_global_scalar),
       global_scalar_(initial_global_scalar) {
     if (max_active_width >= kDenseActiveWidthLimit) {
-        throw std::invalid_argument("SoA state maximum active width must be below " +
+        throw std::invalid_argument("sampling state maximum active width must be below " +
                                     std::to_string(kDenseActiveWidthLimit));
     }
     if (initial_active_width > max_active_width) {
-        throw std::invalid_argument("SoA state initial active width exceeds its maximum");
+        throw std::invalid_argument("sampling state initial active width exceeds its maximum");
     }
     validate_scalar(initial_global_scalar);
 
     capacity_ = uint64_t{1} << max_active_width;
-    coefficient_stride_ = round_plane_stride(capacity_);
+    coefficient_stride_ = round_array_stride(capacity_);
     const uint64_t scratch_capacity = std::max(uint64_t{1}, capacity_ >> 1);
-    scratch_stride_ = round_plane_stride(scratch_capacity);
+    scratch_stride_ = round_array_stride(scratch_capacity);
     const uint64_t allocated_doubles = 2 * coefficient_stride_ + 2 * scratch_stride_;
     if (allocated_doubles > std::numeric_limits<size_t>::max() / sizeof(double)) {
-        throw std::length_error("SoA state allocation exceeds addressable memory");
+        throw std::length_error("sampling state allocation exceeds addressable memory");
     }
     const size_t allocation_bytes = static_cast<size_t>(allocated_doubles) * sizeof(double);
     allocation_ = PageAlignedAllocation(allocation_bytes);
@@ -59,15 +60,15 @@ SoaState::SoaState(uint32_t max_active_width, uint32_t initial_active_width,
     reset();
 }
 
-SoaState::~SoaState() {
+State::~State() {
     release();
 }
 
-SoaState::SoaState(SoaState&& other) noexcept {
+State::State(State&& other) noexcept {
     move_from(std::move(other));
 }
 
-SoaState& SoaState::operator=(SoaState&& other) noexcept {
+State& State::operator=(State&& other) noexcept {
     if (this != &other) {
         release();
         move_from(std::move(other));
@@ -75,9 +76,9 @@ SoaState& SoaState::operator=(SoaState&& other) noexcept {
     return *this;
 }
 
-void SoaState::reset() {
+void State::reset() {
     if (allocation_.empty()) {
-        throw std::logic_error("cannot reset a moved-from SoA state");
+        throw std::logic_error("cannot reset a moved-from sampling state");
     }
     active_width_ = initial_active_width_;
     global_scalar_ = initial_global_scalar_;
@@ -88,26 +89,24 @@ void SoaState::reset() {
     real_[0] = 1.0;
 }
 
-void SoaState::set_global_scalar(std::complex<double> value) {
+void State::set_global_scalar(std::complex<double> value) {
     validate_scalar(value);
     global_scalar_ = value;
 }
 
-void SoaState::multiply_global_scalar(std::complex<double> value) {
+void State::multiply_global_scalar(std::complex<double> value) {
     validate_scalar(value);
     const std::complex<double> updated = global_scalar_ * value;
     validate_scalar(updated);
     global_scalar_ = updated;
 }
 
-void SoaState::set_active_width(uint32_t width) {
-    if (width > max_active_width_) {
-        throw std::out_of_range("SoA state active width exceeds its allocation");
-    }
+void State::set_active_width(uint32_t width) {
+    assert(width <= max_active_width_ && "active width must fit the sampling state allocation");
     active_width_ = width;
 }
 
-void SoaState::release() noexcept {
+void State::release() noexcept {
     allocation_.reset();
     real_ = nullptr;
     imag_ = nullptr;
@@ -115,7 +114,7 @@ void SoaState::release() noexcept {
     scratch_imag_ = nullptr;
 }
 
-void SoaState::move_from(SoaState&& other) noexcept {
+void State::move_from(State&& other) noexcept {
     allocation_ = std::move(other.allocation_);
     real_ = std::exchange(other.real_, nullptr);
     imag_ = std::exchange(other.imag_, nullptr);

@@ -21,8 +21,8 @@ add_library(clifft_core STATIC
     backend/backend.cc
     sampling/plan.cc
     sampling/planner.cc
-    sampling/soa_kernels.cc
-    sampling/soa_state.cc
+    sampling/kernels.cc
+    sampling/state.cc
     api/basis_probabilities.cc
     api/record_probabilities.cc
     api/reference_syndrome.cc

@@ -10,24 +10,26 @@
 
 namespace clifft::sampling {
 
-// One-shot CPU coefficient state for the direct-Pauli executor. An executor
-// initializes the scalar from SamplingPlan::global_weight; it may have non-unit
-// magnitude and accumulates signed-identity phases while the coefficient planes
-// remain normalized. One aligned allocation also contains the scratch planes
-// needed to compact a non-diagonal measurement without aliasing input.
-class SoaState {
+// Holds one shot's state-vector coefficients for direct-Pauli execution. An
+// executor initializes the scalar from SamplingPlan::global_weight; it may have
+// non-unit magnitude and accumulates signed-identity phases while the real and
+// imaginary coefficient arrays remain normalized. The same allocation contains
+// temporary arrays used while collapsing a non-diagonal measurement.
+class State {
   public:
-    explicit SoaState(uint32_t max_active_width, uint32_t initial_active_width = 0,
-                      std::complex<double> initial_global_scalar = {1.0, 0.0});
-    ~SoaState();
+    // Immediately allocates all coefficient and temporary storage required by
+    // max_active_width, even when initial_active_width is smaller.
+    explicit State(uint32_t max_active_width, uint32_t initial_active_width = 0,
+                   std::complex<double> initial_global_scalar = {1.0, 0.0});
+    ~State();
 
-    SoaState(const SoaState&) = delete;
-    SoaState& operator=(const SoaState&) = delete;
-    SoaState(SoaState&& other) noexcept;
-    SoaState& operator=(SoaState&& other) noexcept;
+    State(const State&) = delete;
+    State& operator=(const State&) = delete;
+    State(State&& other) noexcept;
+    State& operator=(State&& other) noexcept;
 
     // Restore the configured initial width, scalar, and |0...0> coefficients.
-    // The allocation and all plane addresses remain unchanged.
+    // The allocation and all array addresses remain unchanged.
     void reset();
 
     [[nodiscard]] uint32_t active_width() const { return active_width_; }
@@ -58,13 +60,13 @@ class SoaState {
     void set_global_scalar(std::complex<double> value);
     void multiply_global_scalar(std::complex<double> value);
 
-    // Kernel-only width transition. Validation is repeated here so malformed
-    // execution descriptors cannot expose storage outside the allocation.
+    // Kernel-only width transition. The caller must stay within the maximum
+    // chosen at construction.
     void set_active_width(uint32_t width);
 
   private:
     void release() noexcept;
-    void move_from(SoaState&& other) noexcept;
+    void move_from(State&& other) noexcept;
 
     PageAlignedAllocation allocation_;
     double* real_ = nullptr;

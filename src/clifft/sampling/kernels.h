@@ -1,15 +1,16 @@
 #pragma once
 
 #include "clifft/sampling/plan.h"
-#include "clifft/sampling/soa_state.h"
+#include "clifft/sampling/state.h"
 
 #include <complex>
 #include <cstdint>
 
 namespace clifft::sampling {
 
-// Fixed-size execution descriptor derived before hot dispatch. It contains the
-// mask relationships needed by direct kernels but no semantic-plan storage.
+// Describes a Pauli operation to apply to the state vector. Its masks and
+// precomputed index values identify affected coefficients without referring to
+// the State's storage.
 struct PreparedPauli {
     uint32_t active_width = 0;
     uint64_t x = 0;
@@ -56,17 +57,17 @@ struct MeasurementProbabilities {
 
 // Runtime signs have already been evaluated from the plan expression. A true
 // sign negates the Pauli, equivalently negating the prepared sine.
-void apply_rotation(SoaState& state, const PreparedRotation& rotation, bool sign);
-void apply_promotion(SoaState& state, const PreparedPromotion& promotion, bool sign);
+void apply_rotation(State& state, const PreparedRotation& rotation, bool sign);
+void apply_promotion(State& state, const PreparedPromotion& promotion, bool sign);
 
-// Probability evaluation uses the normalized coefficient planes and does not
+// Probability evaluation uses the normalized coefficient arrays and does not
 // mutate the state; the common global scalar therefore does not affect it.
 // Collapse consumes the selected probability so the caller can sample or force
 // a branch once and reuse exactly that value for normalization and
 // log-probability accounting.
 [[nodiscard]] MeasurementProbabilities measurement_probabilities(
-    const SoaState& state, const PreparedMeasurement& measurement);
-void collapse_measurement(SoaState& state, const PreparedMeasurement& measurement, bool branch,
+    const State& state, const PreparedMeasurement& measurement);
+void collapse_measurement(State& state, const PreparedMeasurement& measurement, bool branch,
                           double branch_probability);
 
 }  // namespace clifft::sampling

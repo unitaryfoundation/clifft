@@ -20,7 +20,7 @@ add_executable(clifft_tests
     test_backend.cc
     test_sampling_plan.cc
     test_sampling_planner.cc
-    test_sampling_soa_kernels.cc
+    test_sampling_kernels.cc
     test_svm.cc
     test_state_reset.cc
     test_forced_kernels.cc
