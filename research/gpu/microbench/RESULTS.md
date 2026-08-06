@@ -126,6 +126,50 @@ baseline runs on a GH200.
 - MIMD shared-memory boundary on sm_90: slice + reduction ≤ 227 KB opt-in →
   k ≤ 13 at 256 threads (k=12 measured; k=14 = 262 KB just misses).
 
+### High-k extension (same day, second sweep: k=22..28, small B)
+
+Raw: `results/2026-08-06-h200/gpu_highk.csv` (validators all green again).
+Sweep `22 28 22,24,26,28 4` with the small-B/120 GB-cap patch. The question:
+does the fork flip when per-shot memory caps B below the SM count?
+
+**It does, and the boundary variable is B, not k.** Real-mix SoA/MIMD ratio
+vs B, near-identical across k=22..28:
+
+| B | 8 | 32 | 128 | 256 | 1024 |
+|---|---|---|---|---|---|
+| SoA/MIMD (real mix) | **~6.0** | **~3.2** | 1.35 | 1.02 | 0.93 |
+| SoA/MIMD (gates-only) | ~18–20 | ~5.0 | 1.64 | 1.19 | 1.07 |
+
+MIMD needs **B ≳ 256 concurrent shots (~2× the H200's 132 SMs)** to fill the
+GPU; below that it starves linearly, while SoA's per-op grids stay full at
+any B (gates-only SoA is perfectly flat 149.5→151.8 shots/s from B=8 to
+1024). Memory is what couples this to k: B=256 shots fit only while
+2^k ≤ ~34 MB (k ≤ 21 on 141 GB; k ≤ 20 on GH200's 96 GB). So at k ≥ 26 the
+card physically cannot hold enough shots for MIMD, and SoA wins the fork at
+the memory-forced max B: **3.2× at k=26 (B=32), 6.4× at k=28 (B=8)**.
+
+Two implementation notes for a production backend:
+- SoA's own real-mix throughput degrades ~2.7× from B=1024 to B=8 (its
+  measurement reduce is one-block-per-shot — same starvation, fixable with a
+  multi-block reduction); gates are unaffected.
+- MIMD could in principle span multiple blocks per shot, but that requires
+  grid-wide sync per op — which *is* the SoA design. The two architectures
+  converge at high k; per-op kernels are the natural limit.
+
+**Revised architecture verdict (complete map):**
+
+| regime | winner | margin | mechanism |
+|---|---|---|---|
+| k ≤ 13 (slice fits SRAM) | **MIMD-shared** | ~5× | on-chip reuse beats re-streaming |
+| 14 ≤ k ≤ ~24 (B ≥ 256 affordable) | tie | 0.9–1.1× | both at HBM roofline |
+| k ≥ 26 (memory caps B < 256) | **SoA / per-op kernels** | 3–6×+ | MIMD block-starvation |
+
+clifft's target regime (k < 20) lands entirely in rows 1–2 → the production
+recommendation stands: **MIMD per-shot in FP64 (clifft-cuda's shape) with the
+shared-memory path at k ≤ 13**, falling back to per-op kernels only for
+programs that push k ≥ 25 — which is also where a single-statevector backend
+becomes the right tool anyway.
+
 ### Still needed from a GH200 session (short + cheap now)
 
 1. Grace multicore `bench_cpu` — settles precommitted decision #3.
