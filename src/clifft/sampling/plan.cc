@@ -328,8 +328,8 @@ void SamplingPlan::validate() const {
         invalid_plan("maximum active width must be below " +
                      std::to_string(kDenseActiveWidthLimit) + " for dense coefficient storage");
     }
-    if (static_cast<uint64_t>(num_visible_records) + num_hidden_records >
-        std::numeric_limits<uint32_t>::max()) {
+    const uint64_t total_records = static_cast<uint64_t>(num_visible_records) + num_hidden_records;
+    if (total_records > std::numeric_limits<uint32_t>::max()) {
         invalid_plan("record count exceeds uint32 range");
     }
     if (!is_finite_robust(global_weight.real()) || !is_finite_robust(global_weight.imag())) {
@@ -545,6 +545,9 @@ void SamplingPlan::validate() const {
     }
     if (observed_max != max_active_width) {
         invalid_plan("declared maximum active width does not match the action stream");
+    }
+    if (written_records.size() != total_records) {
+        invalid_plan("declared record count does not match the action stream");
     }
     if (written_detectors.size() != num_detectors ||
         written_observables.size() != num_observables) {

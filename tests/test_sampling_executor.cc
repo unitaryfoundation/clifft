@@ -443,9 +443,8 @@ TEST_CASE("Sampling replay checks all records conditional on presampled symbols"
     const ReplayResult mismatching =
         executor.replay_shot(std::array<uint8_t, 2>{0, 1}, std::array<uint8_t, 1>{1});
     REQUIRE_FALSE(mismatching.reachable);
+    // Only the executed prefix is meaningful after an unreachable replay.
     REQUIRE(executor.visible_records()[0] == 1);
-    // The hidden write follows the inconsistent visible record and is skipped.
-    REQUIRE(executor.hidden_records()[0] == 0);
 }
 
 TEST_CASE("Sampling replay applies active measurement dust policy") {

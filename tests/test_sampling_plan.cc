@@ -230,6 +230,13 @@ TEST_CASE("Sampling plan rejects duplicate record writes") {
     REQUIRE_THROWS_AS(plan.validate(), std::invalid_argument);
 }
 
+TEST_CASE("Sampling plan requires every declared record slot to be written") {
+    SamplingPlan plan = valid_plan();
+    ++plan.num_hidden_records;
+
+    REQUIRE_THROWS_AS(plan.validate(), std::invalid_argument);
+}
+
 TEST_CASE("Sampling plan rejects measurement pivots outside Pauli support") {
     const SymbolId branch{0};
     SamplingPlan plan;
