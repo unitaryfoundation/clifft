@@ -65,10 +65,10 @@ Two baseline observations for reading the GH200 run:
   never measures. If it erases the batched win, the design needs on-device
   sampling / CUDA graphs before it is viable.
 
-## Run 2 — GH200 (PENDING — access unblocked, ~$20 of compute)
+## Run 2 — GH200 (PENDING — access unblocked, budget now ~$200 at ~$3/hr)
 
-Lambda ($2.29/GPU/hr) or Vultr ($1.99/hr), self-serve; H200 SXM is a valid
-FP64 stand-in except for NVLink-C2C transfer behavior.
+Lambda or Vultr, self-serve; H200 SXM is a valid FP64 stand-in except for
+NVLink-C2C transfer behavior.
 
 ```sh
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DCUDA_ARCH=90
@@ -77,12 +77,48 @@ cmake --build build -j
 ./build/bench_gpu 10 30 12,16,18,20 4 > gpu.csv
 ```
 
-Checklist to fill in:
-1. `[validate]` and `[validate-batched]` both OK (< 1e-9).
-2. Single-state crossover k per op (incl. U2/U4 — expect U4 to cross earliest).
-3. Batched gates-only curve: shots/s vs B, plateau B (occupancy), plateau
+Note: `bench_gpu.cu` has passed clang CUDA host+device syntax checking but has
+never been through nvcc — budget the first session for compile fixes before
+the timed runs.
+
+### Trust gate (no number counts until these pass)
+
+1. All validators OK (< 1e-9): `[validate]`, `[validate-batched]`,
+   `[validate-devmeas]`, `[validate-mimd]`, `[validate-real]` (incl. zero rng
+   and frame-word mismatches).
+2. Grace `bench_cpu` runs multicore (OpenMP enabled) — that is the honest
+   opponent, not the single-thread numbers from Run 1.
+
+### Decision numbers (precommitted)
+
+3. **Go/no-go ratio**: `batchedrealgpu ÷ batchedreal` shots/s at the same
+   (k, B), k ∈ {16, 18, 20}, best B — the census-calibrated real op mix on
+   both sides (see `../opcode_census.md`; the older gate-heavy pair
+   `batcheddevgpu ÷ batchedmeas` is the rotation-heavy secondary, and
+   gates-only is the ceiling, per the README quoting rules).
+4. **Architecture fork**: `mimdrealgpu` vs `batchedrealgpu` at the same (k, B).
+
+Verdicts (written down before the run so the result can't be argued with):
+- **Build the backend** if SoA-real ≥ 2× MIMD-real AND SoA-real ≥ 3× the
+  Grace-multicore `batchedreal` baseline.
+- **Tie → upgrade clifft-cuda to FP64 instead** if SoA-real is within 1.3× of
+  MIMD-real (whichever side is ahead) while either clearly beats the CPU.
+- **Stop ("CPU wins per watt")** if the best GPU arm is < 2× the
+  Grace-multicore CPU on the real mix.
+- Between these bands: run the borderline protocol — replay a real compiled
+  trace before deciding (see `../opcode_census.py` for the trace tooling).
+
+### Context numbers
+
+5. Single-state crossover k per op (incl. U2/U4 — expect U4 to cross
+   earliest).
+6. Batched gates-only curve: shots/s vs B, plateau B (occupancy), plateau
    height vs Grace-multicore CPU.
-4. **`batchedmeasgpu` vs `batchedgpu`** — the go/no-go number — plus
-   `measround` µs (reduce→D2H→sample→H2D→collapse latency vs batch size).
-5. H2D/D2H bandwidth (NVLink-C2C; expect hundreds of GB/s, not PCIe ~25).
-6. CPU/GPU `[validate]` max-error and the Grace `bench_cpu` multicore numbers.
+7. `measround` vs `measrounddev` vs `measroundreal` µs (host round-trip vs
+   device sampling vs real interfere round, per batch size) — plus the
+   `batchedrealgpu` vs `batcheddevgpu` gap, which prices the frame-tick launch
+   tax on real instruction streams.
+8. H2D/D2H bandwidth (NVLink-C2C; expect hundreds of GB/s, not PCIe ~25).
+9. Optional with spare budget: build clifft-cuda on the same box (end-to-end
+   real-circuit anchor) and rent a many-core x86 node for the AVX-512 CPU
+   baseline the model lacks.

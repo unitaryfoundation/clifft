@@ -36,19 +36,32 @@ the optimizer's fusion passes actually emit, so the mix matches compiled
 programs), `EXPAND`, `EXPAND_T` (fused expand+phase), `MEAS_DIAG` (Z-basis:
 reduce+sample+compact), `MEAS_INTERFERE` (X-basis fold).
 
-Two batched workloads:
+Three batched workloads:
 - **gates-only** (`batched`/`batchedgpu`): rank-preserving ops so every shot
   stays at the same *k* — the idealized upper bound on batched throughput.
-- **real shot shape** (`batchedmeas`/`batchedmeasgpu`): each layer additionally
-  runs one **completed measurement** — on GPU that is per-shot reduce → D2H of
-  branch probabilities → host sampling → H2D of outcomes → outcome-selected
-  collapse — followed by a per-shot expand that restores the rank (mirroring
-  clifft's static, shot-invariant k trajectory, where all shots move through
-  the same k schedule in lockstep). **The gap between the two workloads is the
-  decisive go/no-go number**: it prices the host round-trip that real
+- **gate-heavy with measurement** (`batchedmeas`/`batchedmeasgpu`): each layer
+  additionally runs one **completed measurement** — on GPU that is per-shot
+  reduce → D2H of branch probabilities → host sampling → H2D of outcomes →
+  outcome-selected collapse — followed by a per-shot expand that restores the
+  rank (mirroring clifft's static, shot-invariant k trajectory, where all
+  shots move through the same k schedule in lockstep). The gap to the
+  gates-only workload prices the host round-trip that real
   mid-circuit-measurement shots pay and that the literature never measures.
   The `measround` tag times one gate-free measurement round alone (latency of
   the reduce→D2H→sample→H2D→collapse chain).
+- **census-calibrated real mix** (`batchedreal`/`batchedrealgpu`/`mimdrealgpu`):
+  the two schedules above overweight gates ~3–30× vs real compiled programs —
+  an opcode census of real clifft bytecode (`../opcode_census.md`) puts the
+  gates-per-completed-measurement band at 1.7–15.3 (the synthetic layer
+  hard-codes 3k+2 ≈ 50) with measurement+expand carrying 30–73% of the
+  amp-weighted work, almost exclusively as `MEAS_INTERFERE` + `EXPAND_T`
+  (`MEAS_DIAG`/plain `EXPAND` are ~absent in compiled code). One real-mix
+  layer = 8 gates (incl. one max-stride CNOT and CZ) + one completed X-basis
+  `MEAS_INTERFERE` (sampled on device) + one `EXPAND_T`, plus 12 `FRAME_TICK`
+  ops — O(1) frame/bookkeeping instructions (23–77% of real instruction
+  streams) that are ~free on CPU and in-kernel for MIMD but cost one
+  (near-empty) kernel launch each on the lockstep-SoA design, pricing the
+  per-instruction launch tax. **The go/no-go is quoted on this workload.**
 
 Per-shot measurement outcomes differ across the batch; the collapse kernels
 take the outcome/sign as a **per-shot scalar** (predicated lanes, no divergent
@@ -107,10 +120,13 @@ batched measurement round with alternating forced outcomes, so both arms of
 the outcome-predicated collapse are exercised), plus `[validate-devmeas]`
 (on-device sampling: device outcomes must match the host recomputation of the
 same stateless hash bit-for-bit, and the collapsed state must match a CPU
-reference forced to those outcomes) and `[validate-mimd]` (the per-shot
+reference forced to those outcomes), `[validate-mimd]` (the per-shot
 interpreter, global and shared variants, against the identical forced CPU
-trajectory). All expect `< 1e-9`. Then transfer-bandwidth, single-op, batched,
-batched-with-measurement, on-device-sampling, and MIMD sweeps.
+trajectory), and `[validate-real]` (the census-calibrated real-mix schedule on
+both architectures: SoA with bit-for-bit device-sampled interfere outcomes and
+frame-word checks, MIMD global+shared with parity-forced outcomes). All expect
+`< 1e-9`. Then transfer-bandwidth, single-op, batched, batched-with-
+measurement, on-device-sampling, MIMD, and the two real-mix sweeps.
 
 ## Output
 
@@ -128,6 +144,10 @@ CSV on stdout, human-readable table on stderr.
 | `batcheddevgpu`  | `k, B, shots, shots/s, us/meas-round` (GPU, meas sampled on device) |
 | `measrounddev`   | `k, B, shots, us/round, us/round/shot` (GPU device round alone)|
 | `mimdgpu`        | `k, B, shots, shots/s, shared?`       (GPU, one block/shot)    |
+| `batchedreal`    | `k, B, shots, shots/s, Mshot-layer/s` (CPU, real mix)          |
+| `batchedrealgpu` | `k, B, shots, shots/s, us/meas-round` (GPU SoA, real mix, device sampling) |
+| `measroundreal`  | `k, B, shots, us/round, us/round/shot` (GPU real round: interfere+fold+EXPAND_T) |
+| `mimdrealgpu`    | `k, B, shots, shots/s, shared?`       (GPU MIMD, real mix)     |
 | `transfer`       | `k, bytes, H2D GB/s, D2H GB/s`        (GPU only)               |
 
 ## How to read the results
@@ -139,32 +159,48 @@ CSV on stdout, human-readable table on stderr.
   (e.g. 16). If the GPU's shots/s keeps climbing with B while CPU saturates, the
   batch-across-shots hypothesis holds. Watch for the B where GPU shots/s plateaus
   (full occupancy).
-- **The decisive number**: `batcheddevgpu` vs `batchedmeas` (CPU) shots/s at
-  the same (k, B) — both sides run the identical real-shot-shape schedule, and
-  the GPU side pays no host legs (the production design, per clifft-cuda). The
-  older `batchedmeasgpu` (host round-trip) stays as a comparison arm; its gap
-  to `batcheddevgpu` prices the round-trip that on-device sampling removes.
-- **Architecture fork**: `mimdgpu` vs `batcheddevgpu` at the same (k, B).
-  clifft-cuda achieved only ~1.6× over a 40-thread CPU with the MIMD design
-  (FP32, workstation card); if lockstep SoA wins this head-to-head clearly,
-  the gap was architectural headroom, and our design is the one to build. If
-  MIMD ties or wins (shot-local shared memory beating cross-shot coalescing),
-  the cheapest production path is upgrading clifft-cuda to FP64 rather than a
-  new backend. Note MIMD also wins by construction on early-discard
-  (postselection-heavy) workloads, which this schedule does not model.
+- **The decisive number**: `batchedrealgpu` vs `batchedreal` (CPU) shots/s at
+  the same (k, B) — both sides run the identical census-calibrated real mix
+  (realistic gate:measurement ratio, X-basis measurement + `EXPAND_T`, frame
+  ticks), and the GPU side pays no host legs (the production design, per
+  clifft-cuda). The gate-heavy pair (`batcheddevgpu` vs `batchedmeas`) stays
+  as a comparison arm — it bounds the gate-dominated end of the workload
+  spectrum (e.g. rotation-heavy QAOA); `batchedmeasgpu` (host round-trip)
+  stays too, its gap to `batcheddevgpu` pricing the round-trip that on-device
+  sampling removes. Very measurement-dense programs (hidden-shift-like, ~2
+  gates/meas) can be extrapolated from `measroundreal` + the per-op rows.
+- **Architecture fork**: `mimdrealgpu` vs `batchedrealgpu` at the same (k, B)
+  — same math, state, RNG, and real-mix schedule; only the execution
+  architecture differs. Frame ticks are ~free in-kernel for MIMD but one
+  launch each for SoA, so this fork now prices the launch tax too (SoA can
+  claw it back with CUDA graphs / fused frame kernels — a mitigation to
+  design, not assume). clifft-cuda achieved only ~1.6× over a 40-thread CPU
+  with the MIMD design (FP32, workstation card); if lockstep SoA wins this
+  head-to-head clearly, the gap was architectural headroom, and our design is
+  the one to build. If MIMD ties or wins (shot-local shared memory beating
+  cross-shot coalescing), the cheapest production path is upgrading
+  clifft-cuda to FP64 rather than a new backend. Note MIMD also wins by
+  construction on early-discard (postselection-heavy) workloads, which this
+  schedule does not model. The gate-heavy fork (`mimdgpu` vs `batcheddevgpu`)
+  remains as the launch-tax-free comparison.
 - **Transfer**: H2D/D2H GB/s ≈ PCIe (~25 GB/s) vs NVLink-C2C (hundreds of GB/s)
   tells you how cheap it is to keep clifft's CPU-side branch control in the loop.
 
 ## Quoting rules
 
 Do **not** quote `batchedgpu ÷ batched` as "the GPU speedup for clifft" — it is
-a gates-only, sync-free ceiling. Quote `batcheddevgpu ÷ batchedmeas` (same
-schedule, both sides pay a completed measurement per layer; GPU samples on
-device, the production design) as the honest batched comparison, and report
-the gates-only figure as the ceiling. Known remaining gaps even after a GH200
-run: no `SWAP_MEAS_INTERFERE`, CZ/CNOT/U4 axes fixed at (0,1)-adjacent (most
-coalescing-friendly), no per-shot noise-op modeling, no early-discard
-(postselection) modeling, no x86/AVX-512 CPU baseline (Grace/NEON only).
+a gates-only, sync-free ceiling. Quote `batchedrealgpu ÷ batchedreal` (the
+census-calibrated real mix; both sides pay a completed X-basis measurement +
+`EXPAND_T` per ~8 gates plus frame ticks; GPU samples on device) as the honest
+batched comparison. Report `batcheddevgpu ÷ batchedmeas` as the gate-heavy
+secondary (bounds rotation-heavy workloads like QAOA) and the gates-only
+figure as the ceiling. Known remaining gaps even after a GH200 run: no
+`SWAP_MEAS_INTERFERE`, single-op-sweep 2q axes fixed at (0,1)-adjacent (the
+real-mix layer does include one max-stride CNOT and CZ), frame ticks model
+frame-op *cost*, not noise semantics, no early-discard (postselection)
+modeling, no x86/AVX-512 CPU baseline (Grace/NEON only), and U2/U4 appear only
+in the gate-heavy arms — the census shows they dominate only rotation-heavy
+compiled programs.
 
 ## External baseline: clifft-cuda
 

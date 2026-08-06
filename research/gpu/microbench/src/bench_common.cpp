@@ -23,6 +23,7 @@ const char* op_name(Op op) {
         case Op::EXPAND_T: return "EXPAND_T";
         case Op::MEAS_DIAG: return "MEAS_DIAG";
         case Op::MEAS_INTERFERE: return "MEAS_INTERFERE";
+        case Op::FRAME_TICK: return "FRAME_TICK";
     }
     return "?";
 }
@@ -54,6 +55,33 @@ std::vector<ScheduledOp> make_layer_schedule_meas(unsigned k, unsigned layers) {
         sched.insert(sched.end(), gates.begin(), gates.end());
         sched.push_back({Op::MEAS_DIAG, k - 1, 0});  // k -> k-1
         sched.push_back({Op::EXPAND, k - 1, 0});     // k-1 -> k (arg = current rank)
+    }
+    return sched;
+}
+
+// Census-calibrated real op mix (see bench_common.hpp and ../opcode_census.md).
+// The layer is identical every repetition (so the MIMD interpreter can replay a
+// single-layer schedule), with fixed representative axes: adjacent and
+// max-stride 2q operands both appear. FRAME_TICK's `a` is a per-tick tag XORed
+// into the per-shot frame word (values are irrelevant to the timed work).
+std::vector<ScheduledOp> make_layer_schedule_real(unsigned k, unsigned layers) {
+    std::vector<ScheduledOp> sched;
+    unsigned tick = 0;
+    auto t = [&] { sched.push_back({Op::FRAME_TICK, tick++ % 12, 0}); };
+    for (unsigned l = 0; l < layers; ++l) {
+        tick = 0;
+        sched.push_back({Op::H, 0, 0});                   t();
+        sched.push_back({Op::H, k / 2, 0});               t();
+        sched.push_back({Op::T, k / 3, 0});               t();
+        sched.push_back({Op::T, k - 1, 0});               t();
+        sched.push_back({Op::CNOT, 0, 1});                t();
+        sched.push_back({Op::CNOT, k / 2 - 1, k / 2});    t();
+        sched.push_back({Op::CNOT, 1, k - 1});            t();
+        sched.push_back({Op::CZ, 0, k - 1});              t();
+        sched.push_back({Op::MEAS_INTERFERE, k - 1, 0});  // k -> k-1
+        t(); t();
+        sched.push_back({Op::EXPAND_T, k - 1, 0});        // k-1 -> k (arg = current rank)
+        t(); t();
     }
     return sched;
 }

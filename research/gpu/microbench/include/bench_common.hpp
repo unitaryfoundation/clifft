@@ -75,7 +75,13 @@ double median(std::vector<double> xs);
 // H/T at the same memory traffic; without them the op mix would not match
 // what clifft's compiler actually leaves in a program.
 // ---------------------------------------------------------------------------
-enum class Op { H, T, CZ, CNOT, U2, U4, EXPAND, EXPAND_T, MEAS_DIAG, MEAS_INTERFERE };
+// FRAME_TICK models one frame/bookkeeping bytecode instruction (frame
+// Cliffords, dormant measurements, Pauli/noise ops): O(1) per shot, touches no
+// amplitudes. Real compiled programs are 23-77% frame ops (see
+// ../opcode_census.md) -- free for the CPU and the MIMD interpreter, but one
+// (near-empty) kernel launch each for the lockstep-SoA design, so the real-mix
+// schedule includes them to price that launch tax.
+enum class Op { H, T, CZ, CNOT, U2, U4, EXPAND, EXPAND_T, MEAS_DIAG, MEAS_INTERFERE, FRAME_TICK };
 
 const char* op_name(Op op);
 
@@ -95,6 +101,7 @@ inline uint64_t amps_touched(Op op, uint64_t dim) {
         case Op::EXPAND_T: return 2 * dim;      // reads dim, writes dim (phased)
         case Op::MEAS_DIAG: return 2 * dim;     // reduce reads dim + compact r/w dim
         case Op::MEAS_INTERFERE: return 2 * dim;  // reduce reads dim + fold r/w dim
+        case Op::FRAME_TICK: return 0;          // O(1) per shot, no amplitudes
     }
     return dim;
 }
@@ -134,5 +141,16 @@ std::vector<ScheduledOp> make_layer_schedule(unsigned k, unsigned layers);
 // and therefore the batch shape -- is identical every layer (this mirrors
 // clifft's static, shot-invariant k trajectory).
 std::vector<ScheduledOp> make_layer_schedule_meas(unsigned k, unsigned layers);
+
+// The census-calibrated "real op mix" schedule (see ../opcode_census.md, built
+// from real clifft-compiled programs): the gates-only and gate-heavy-meas
+// schedules above overweight gates ~3-30x vs compiled bytecode. One layer =
+// 8 gates (2 H, 2 T, 3 CNOT incl. one max-stride, 1 CZ; census gates-per-meas
+// band 1.7-15.3, median ~8), one completed X-basis MEAS_INTERFERE (k -> k-1)
+// and one EXPAND_T (k-1 -> k) -- the measurement/expand flavors real programs
+// actually use (MEAS_DIAG/plain EXPAND are ~absent in compiled code) -- plus
+// 12 FRAME_TICKs (frame:dense ~1.2, census band 0.3-3.3). This is the
+// schedule the go/no-go ratio is quoted on.
+std::vector<ScheduledOp> make_layer_schedule_real(unsigned k, unsigned layers);
 
 }  // namespace mb

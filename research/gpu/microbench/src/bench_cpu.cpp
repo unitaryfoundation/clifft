@@ -61,7 +61,8 @@ static const cd* u4_mat() {
     return m;
 }
 
-static void apply_sched(cd* arr, unsigned k, const ScheduledOp& s, Rng& rng) {
+static void apply_sched(cd* arr, unsigned k, const ScheduledOp& s, Rng& rng,
+                        uint64_t* fw = nullptr) {
     switch (s.op) {
         case Op::H: op_h(arr, k, s.a); break;
         case Op::T: op_t(arr, k, s.a); break;
@@ -69,13 +70,20 @@ static void apply_sched(cd* arr, unsigned k, const ScheduledOp& s, Rng& rng) {
         case Op::CNOT: op_cnot(arr, k, s.a, s.b); break;
         case Op::U2: op_u2(arr, k, s.a, u2_mat()); break;
         case Op::U4: op_u4(arr, k, s.a, s.b, u4_mat()); break;
-        // In make_layer_schedule_meas, MEAS_DIAG runs at rank k (-> k-1) and
-        // the following EXPAND runs at rank k-1 (s.a carries the current
-        // rank); the batch shape is restored every layer.
+        // In the meas/real schedules, measurements run at rank k (-> k-1) and
+        // the following EXPAND/EXPAND_T runs at rank k-1 (s.a carries the
+        // current rank); the batch shape is restored every layer.
         case Op::EXPAND: op_expand(arr, s.a); break;
         case Op::EXPAND_T: op_expand_t(arr, s.a); break;
         case Op::MEAS_DIAG: op_meas_diag(arr, k, rng); break;
         case Op::MEAS_INTERFERE: op_meas_interfere(arr, k, rng); break;
+        // One frame/bookkeeping bytecode op: a bit-op on the per-shot frame
+        // word -- what clifft's frame ops cost, i.e. ~nothing on CPU. The
+        // multiply-add (vs XOR) keeps the word from self-cancelling across
+        // layers so validation can prove the ticks ran.
+        case Op::FRAME_TICK:
+            if (fw) *fw = *fw * 0x100000001B3ull + (uint64_t(s.a) + 1);
+            break;
     }
 }
 
@@ -117,22 +125,28 @@ static void bench_single(unsigned kmin, unsigned kmax) {
     }
 }
 
-// with_meas: the "real shot shape" schedule (gate layer + completed
-// measurement + expand per layer) vs the gates-only idealization.
-static void bench_batched(const std::vector<unsigned>& ks, unsigned layers,
-                          bool with_meas = false) {
-    fprintf(stderr, "\n=== Batched-across-shots throughput (CPU%s) ===\n",
-            with_meas ? ", with completed measurement per layer" : "");
+// Three batched workloads: gates-only (idealized ceiling), gate-heavy with a
+// completed measurement per layer, and the census-calibrated real op mix
+// (make_layer_schedule_real -- the schedule the go/no-go is quoted on).
+enum class BatchMode { Gates, Meas, Real };
+
+static void bench_batched(const std::vector<unsigned>& ks, unsigned layers, BatchMode mode) {
+    const char* tag = mode == BatchMode::Gates ? "batched"
+                      : mode == BatchMode::Meas ? "batchedmeas"
+                                                : "batchedreal";
+    fprintf(stderr, "\n=== Batched-across-shots throughput (CPU, %s) ===\n", tag);
     fprintf(stderr, "%-4s %-8s %-14s %-14s %-12s\n", "k", "B", "shots", "shots/s", "Mshot-lyr/s");
     std::vector<unsigned> Bs = {256, 1024, 4096, 16384};
     for (unsigned k : ks) {
         uint64_t dim = uint64_t(1) << k;
-        auto sched = with_meas ? make_layer_schedule_meas(k, layers)
-                               : make_layer_schedule(k, layers);
+        auto sched = mode == BatchMode::Gates  ? make_layer_schedule(k, layers)
+                     : mode == BatchMode::Meas ? make_layer_schedule_meas(k, layers)
+                                               : make_layer_schedule_real(k, layers);
         for (unsigned B : Bs) {
             // cap memory at ~4 GB for the batch buffer
             if ((double)B * dim * sizeof(cd) > 4.0e9) continue;
             std::vector<cd> buf((size_t)B * dim);
+            std::vector<uint64_t> frames(B, 0);  // per-shot frame words (FRAME_TICK)
             Rng init_rng(777 + k);
             for (unsigned b = 0; b < B; ++b) init_state(buf.data() + (size_t)b * dim, dim, init_rng);
 
@@ -143,7 +157,7 @@ static void bench_batched(const std::vector<unsigned>& ks, unsigned layers,
                 for (int b = 0; b < (int)B; ++b) {
                     cd* slice = buf.data() + (size_t)b * dim;
                     Rng rng(0xABCDEF ^ (b * 2654435761u));
-                    for (const auto& s : sched) apply_sched(slice, k, s, rng);
+                    for (const auto& s : sched) apply_sched(slice, k, s, rng, &frames[b]);
                 }
             };
             // time a few whole-batch runs, take median
@@ -157,8 +171,7 @@ static void bench_batched(const std::vector<unsigned>& ks, unsigned layers,
             double sec = median(samples);
             double shots_per_s = B / sec;
             double mshot_layer = shots_per_s * layers / 1e6;
-            printf("%s,%u,%u,%u,%.1f,%.3f\n", with_meas ? "batchedmeas" : "batched",
-                   k, B, B, shots_per_s, mshot_layer);
+            printf("%s,%u,%u,%u,%.1f,%.3f\n", tag, k, B, B, shots_per_s, mshot_layer);
             fprintf(stderr, "%-4u %-8u %-14u %-14.1f %-12.3f\n", k, B, B, shots_per_s, mshot_layer);
         }
     }
@@ -188,7 +201,8 @@ int main(int argc, char** argv) {
 #endif
     printf("# tag,k,op_or_B,dim_or_shots,metric1,metric2\n");
     bench_single(kmin, kmax);
-    bench_batched(bks, layers);
-    bench_batched(bks, layers, /*with_meas=*/true);
+    bench_batched(bks, layers, BatchMode::Gates);
+    bench_batched(bks, layers, BatchMode::Meas);
+    bench_batched(bks, layers, BatchMode::Real);
     return 0;
 }

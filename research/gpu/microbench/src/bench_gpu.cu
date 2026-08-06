@@ -320,6 +320,64 @@ __global__ void kb_expand(dc* a, uint64_t d, uint64_t half, uint64_t total) {
     dc* s = a + b * d;
     s[half + j] = s[j];
 }
+// Per-shot expand with T phase on the new axis (the rank-raiser real compiled
+// programs actually use -- every real expand is EXPAND_T-family, see
+// ../opcode_census.md).
+__global__ void kb_expand_t(dc* a, uint64_t d, uint64_t half, uint64_t total) {
+    uint64_t g = blockIdx.x * (uint64_t)blockDim.x + threadIdx.x;
+    if (g >= total) return;
+    uint64_t b = g / half, j = g % half;
+    dc* s = a + b * d;
+    s[half + j] = cmul(s[j], {kPhaseRe, kPhaseIm});
+}
+// One BLOCK per shot: reduce that shot's interfere branch sums |a+b|^2, |a-b|^2.
+__global__ void kb_reduce_interfere(const dc* a, uint64_t d, uint64_t half, double* pp,
+                                    double* pm) {
+    extern __shared__ double sh[];
+    double* sp = sh;
+    double* sm = sh + blockDim.x;
+    const dc* s = a + (uint64_t)blockIdx.x * d;
+    double lp = 0, lm = 0;
+    for (uint64_t i = threadIdx.x; i < half; i += blockDim.x) {
+        lp += cnorm(s[i] + s[i + half]);
+        lm += cnorm(s[i] - s[i + half]);
+    }
+    sp[threadIdx.x] = lp;
+    sm[threadIdx.x] = lm;
+    __syncthreads();
+    for (unsigned st = blockDim.x / 2; st > 0; st >>= 1) {
+        if (threadIdx.x < st) {
+            sp[threadIdx.x] += sp[threadIdx.x + st];
+            sm[threadIdx.x] += sm[threadIdx.x + st];
+        }
+        __syncthreads();
+    }
+    if (threadIdx.x == 0) {
+        pp[blockIdx.x] = sp[0];
+        pm[blockIdx.x] = sm[0];
+    }
+}
+// Per-shot-outcome-selected interfere fold: outcome 0 = plus branch, 1 = minus
+// (matches op_meas_interfere's force_bit convention; predicated, no divergence).
+__global__ void kb_fold_out(dc* a, uint64_t d, uint64_t half, const unsigned char* outcome,
+                            uint64_t total) {
+    uint64_t g = blockIdx.x * (uint64_t)blockDim.x + threadIdx.x;
+    if (g >= total) return;
+    uint64_t b = g / half, j = g % half;
+    dc* s = a + b * d;
+    dc x = s[j], y = s[j + half];
+    double sg = outcome[b] ? -1.0 : 1.0;
+    s[j] = dc{x.r + sg * y.r, x.i + sg * y.i} * mb::kInvSqrt2;
+}
+// One frame/bookkeeping bytecode op across the batch: a bit-op on each shot's
+// frame word. In the SoA design this is a full (near-empty) kernel launch per
+// frame instruction -- the launch tax the real-mix schedule prices.
+__global__ void kb_frame_tick(uint64_t* fw, unsigned B, unsigned val) {
+    unsigned b = blockIdx.x * blockDim.x + threadIdx.x;
+    if (b >= B) return;
+    // multiply-add (vs XOR) so the word never self-cancels across layers
+    fw[b] = fw[b] * 0x100000001B3ull + (uint64_t(val) + 1);
+}
 
 // =============================================================================
 // Arm 3: on-device measurement sampling. Arm 4: MIMD per-shot interpreter.
@@ -362,8 +420,10 @@ __global__ void kb_sample_dev(const double* p0, const double* p1, unsigned char*
 // -----------------------------------------------------------------------------
 __device__ void mimd_shot(dc* s, unsigned k, const ScheduledOp* ops, unsigned nops,
                           unsigned layers, uint64_t seed, int force_parity, unsigned shot,
-                          double* red, const U2m& u2, const U4m& u4) {
+                          double* red, const U2m& u2, const U4m& u4, bool builtin_round,
+                          uint64_t* fw) {
     uint64_t dim = uint64_t(1) << k, half = dim / 2, quarter = dim / 4;
+    unsigned meas_round = 0;  // running RNG round for schedule-driven measurements
     for (unsigned l = 0; l < layers; ++l) {
         for (unsigned o = 0; o < nops; ++o) {
             ScheduledOp sc = ops[o];
@@ -426,10 +486,97 @@ __device__ void mimd_shot(dc* s, unsigned k, const ScheduledOp* ops, unsigned no
                                 cmul(u4.m[15], in3);
                     }
                     break;
+                // Schedule-driven ops for the real-mix workload (the schedule
+                // is uniform across threads, so in-case __syncthreads is safe).
+                case Op::EXPAND:
+                    for (uint64_t j = threadIdx.x; j < half; j += blockDim.x) s[half + j] = s[j];
+                    break;
+                case Op::EXPAND_T:
+                    for (uint64_t j = threadIdx.x; j < half; j += blockDim.x)
+                        s[half + j] = cmul(s[j], {kPhaseRe, kPhaseIm});
+                    break;
+                case Op::MEAS_INTERFERE: {
+                    // In-block X-basis round: reduce |a+-b|^2, sample (or force
+                    // outcome = shot parity for validation), fold (k -> k-1).
+                    // The paired EXPAND_T in the schedule restores the rank.
+                    double lp = 0, lm = 0;
+                    for (uint64_t j = threadIdx.x; j < half; j += blockDim.x) {
+                        lp += cnorm(s[j] + s[j + half]);
+                        lm += cnorm(s[j] - s[j + half]);
+                    }
+                    red[threadIdx.x] = lp;
+                    red[blockDim.x + threadIdx.x] = lm;
+                    __syncthreads();
+                    for (unsigned st = blockDim.x / 2; st > 0; st >>= 1) {
+                        if (threadIdx.x < st) {
+                            red[threadIdx.x] += red[threadIdx.x + st];
+                            red[blockDim.x + threadIdx.x] += red[blockDim.x + threadIdx.x + st];
+                        }
+                        __syncthreads();
+                    }
+                    if (threadIdx.x == 0) {
+                        double pp = red[0], pm = red[blockDim.x];
+                        int b = (force_parity >= 0)
+                                    ? (int)(shot & 1u)
+                                    : ((hash_unit(seed, shot, meas_round) * (pp + pm) < pp) ? 0
+                                                                                            : 1);
+                        red[0] = (double)b;
+                    }
+                    __syncthreads();
+                    int b = (int)red[0];
+                    __syncthreads();
+                    double sg = b ? -1.0 : 1.0;
+                    for (uint64_t j = threadIdx.x; j < half; j += blockDim.x) {
+                        dc x = s[j], y = s[j + half];
+                        s[j] = dc{x.r + sg * y.r, x.i + sg * y.i} * mb::kInvSqrt2;
+                    }
+                    ++meas_round;
+                    break;
+                }
+                case Op::MEAS_DIAG: {
+                    double l0 = 0, l1 = 0;
+                    for (uint64_t j = threadIdx.x; j < half; j += blockDim.x) {
+                        l0 += cnorm(s[j]);
+                        l1 += cnorm(s[j + half]);
+                    }
+                    red[threadIdx.x] = l0;
+                    red[blockDim.x + threadIdx.x] = l1;
+                    __syncthreads();
+                    for (unsigned st = blockDim.x / 2; st > 0; st >>= 1) {
+                        if (threadIdx.x < st) {
+                            red[threadIdx.x] += red[threadIdx.x + st];
+                            red[blockDim.x + threadIdx.x] += red[blockDim.x + threadIdx.x + st];
+                        }
+                        __syncthreads();
+                    }
+                    if (threadIdx.x == 0) {
+                        double p0 = red[0], p1 = red[blockDim.x];
+                        int b = (force_parity >= 0)
+                                    ? (int)(shot & 1u)
+                                    : ((hash_unit(seed, shot, meas_round) * (p0 + p1) < p0) ? 0
+                                                                                            : 1);
+                        red[0] = (double)b;
+                    }
+                    __syncthreads();
+                    int b = (int)red[0];
+                    __syncthreads();
+                    if (b) {
+                        for (uint64_t j = threadIdx.x; j < half; j += blockDim.x)
+                            s[j] = s[j + half];
+                    }
+                    ++meas_round;
+                    break;
+                }
+                case Op::FRAME_TICK:
+                    // In-kernel frame bit-op: ~free for MIMD (the architectural
+                    // contrast with SoA, where each tick is a kernel launch).
+                    if (threadIdx.x == 0 && fw) *fw = *fw * 0x100000001B3ull + (uint64_t(sc.a) + 1);
+                    break;
                 default: break;
             }
             __syncthreads();
         }
+        if (!builtin_round) continue;
         // Completed measurement round on the top axis: reduce, sample (or force
         // outcome = shot parity for validation), collapse, re-expand -- keeps
         // the rank, and the comparison with the SoA arm, fixed every layer.
@@ -467,27 +614,31 @@ __device__ void mimd_shot(dc* s, unsigned k, const ScheduledOp* ops, unsigned no
     }
 }
 
-// Global-memory variant: each block works its slice in place.
+// Global-memory variant: each block works its slice in place. builtin_round
+// appends the legacy per-layer DIAG round; the real-mix schedule instead
+// carries its measurements as explicit ops (builtin_round=false). frames is an
+// optional per-shot frame-word array for FRAME_TICK.
 __global__ void k_mimd_global(dc* a, uint64_t d, unsigned k, const ScheduledOp* ops,
                               unsigned nops, unsigned layers, uint64_t seed, int force_parity,
-                              U2m u2, U4m u4) {
+                              U2m u2, U4m u4, bool builtin_round, uint64_t* frames) {
     extern __shared__ double red[];  // 2 * blockDim
     mimd_shot(a + (uint64_t)blockIdx.x * d, k, ops, nops, layers, seed, force_parity,
-              blockIdx.x, red, u2, u4);
+              blockIdx.x, red, u2, u4, builtin_round, frames ? frames + blockIdx.x : nullptr);
 }
 
 // Shared-memory variant (the clifft-cuda coop design): the whole slice lives
 // in dynamic shared memory; global traffic is one load and one store.
 __global__ void k_mimd_shared(dc* a, uint64_t d, unsigned k, const ScheduledOp* ops,
                               unsigned nops, unsigned layers, uint64_t seed, int force_parity,
-                              U2m u2, U4m u4) {
+                              U2m u2, U4m u4, bool builtin_round, uint64_t* frames) {
     extern __shared__ unsigned char shraw[];
     dc* sv = reinterpret_cast<dc*>(shraw);
     double* red = reinterpret_cast<double*>(shraw + (size_t)d * sizeof(dc));
     dc* g = a + (uint64_t)blockIdx.x * d;
     for (uint64_t j = threadIdx.x; j < d; j += blockDim.x) sv[j] = g[j];
     __syncthreads();
-    mimd_shot(sv, k, ops, nops, layers, seed, force_parity, blockIdx.x, red, u2, u4);
+    mimd_shot(sv, k, ops, nops, layers, seed, force_parity, blockIdx.x, red, u2, u4,
+              builtin_round, frames ? frames + blockIdx.x : nullptr);
     for (uint64_t j = threadIdx.x; j < d; j += blockDim.x) g[j] = sv[j];
 }
 
@@ -604,6 +755,55 @@ static void launch_gpu_gate(dc* d, uint64_t dim, unsigned /*k*/, const Scheduled
         case Op::U2: k_u2<<<grid(half), kTPB>>>(d, half, s.a, host_u2()); break;
         case Op::U4: k_u4<<<grid(quarter), kTPB>>>(d, quarter, lo, hi, host_u4()); break;
         default: break;
+    }
+}
+
+// Batched-SoA launch context + generic per-op dispatcher: one grid-wide kernel
+// launch per scheduled op (measurements sampled on device via kb_sample_dev,
+// `round` advancing per measurement). Used by the real-mix arm and its
+// validation so both walk schedules through identical launches.
+struct SoaBatch {
+    dc* d;
+    uint64_t dim, half, quarter, totH, totQ;
+    unsigned B;
+    double* dp0;
+    double* dp1;
+    unsigned char* dout;
+    uint64_t* dfw;  // per-shot frame words (FRAME_TICK)
+    size_t shmem;
+    uint64_t seed;
+};
+
+static void launch_soa_op(const SoaBatch& c, const ScheduledOp& s, unsigned& round) {
+    unsigned lo = s.a < s.b ? s.a : s.b, hi = s.a < s.b ? s.b : s.a;
+    switch (s.op) {
+        case Op::H: kb_h<<<grid(c.totH), kTPB>>>(c.d, c.dim, c.half, s.a, c.totH); break;
+        case Op::T: kb_t<<<grid(c.totH), kTPB>>>(c.d, c.dim, c.half, s.a, c.totH); break;
+        case Op::CZ:
+            kb_cz<<<grid(c.totQ), kTPB>>>(c.d, c.dim, c.quarter, lo, hi, s.a, s.b, c.totQ);
+            break;
+        case Op::CNOT:
+            kb_cnot<<<grid(c.totQ), kTPB>>>(c.d, c.dim, c.quarter, lo, hi, s.a, s.b, c.totQ);
+            break;
+        case Op::U2: kb_u2<<<grid(c.totH), kTPB>>>(c.d, c.dim, c.half, s.a, host_u2(), c.totH); break;
+        case Op::U4:
+            kb_u4<<<grid(c.totQ), kTPB>>>(c.d, c.dim, c.quarter, lo, hi, host_u4(), c.totQ);
+            break;
+        case Op::EXPAND: kb_expand<<<grid(c.totH), kTPB>>>(c.d, c.dim, c.half, c.totH); break;
+        case Op::EXPAND_T:
+            kb_expand_t<<<grid(c.totH), kTPB>>>(c.d, c.dim, c.half, c.totH);
+            break;
+        case Op::MEAS_DIAG:
+            kb_reduce_diag<<<c.B, kTPB, c.shmem>>>(c.d, c.dim, c.half, c.dp0, c.dp1);
+            kb_sample_dev<<<grid(c.B), kTPB>>>(c.dp0, c.dp1, c.dout, c.B, c.seed, round++);
+            kb_compact_sel<<<grid(c.totH), kTPB>>>(c.d, c.dim, c.half, c.dout, c.totH);
+            break;
+        case Op::MEAS_INTERFERE:
+            kb_reduce_interfere<<<c.B, kTPB, c.shmem>>>(c.d, c.dim, c.half, c.dp0, c.dp1);
+            kb_sample_dev<<<grid(c.B), kTPB>>>(c.dp0, c.dp1, c.dout, c.B, c.seed, round++);
+            kb_fold_out<<<grid(c.totH), kTPB>>>(c.d, c.dim, c.half, c.dout, c.totH);
+            break;
+        case Op::FRAME_TICK: kb_frame_tick<<<grid(c.B), kTPB>>>(c.dfw, c.B, s.a); break;
     }
 }
 
@@ -947,14 +1147,14 @@ static void validate_mimd(unsigned k, unsigned B, unsigned layers) {
         if (variant == 0) {
             k_mimd_global<<<B, kTPB, red_bytes>>>(d, dim, k, dops, (unsigned)sched1.size(),
                                                   layers, 0, /*force_parity=*/1, host_u2(),
-                                                  host_u4());
+                                                  host_u4(), /*builtin_round=*/true, nullptr);
         } else {
             CHECK(cudaFuncSetAttribute(k_mimd_shared,
                                        cudaFuncAttributeMaxDynamicSharedMemorySize,
                                        (int)sh_bytes));
             k_mimd_shared<<<B, kTPB, sh_bytes>>>(d, dim, k, dops, (unsigned)sched1.size(),
                                                  layers, 0, /*force_parity=*/1, host_u2(),
-                                                 host_u4());
+                                                 host_u4(), /*builtin_round=*/true, nullptr);
         }
         CHECK(cudaDeviceSynchronize());
         CHECK(cudaMemcpy(h.data(), d, (size_t)B * dim * sizeof(dc), cudaMemcpyDeviceToHost));
@@ -971,6 +1171,176 @@ static void validate_mimd(unsigned k, unsigned B, unsigned layers) {
         fprintf(stderr, "[validate-mimd] k=%u shared variant skipped (needs %zu B > opt-in %d B)\n",
                 k, sh_bytes, sh_optin);
     cudaFree(dops);
+    cudaFree(d);
+}
+
+// Host mirror of one real-mix scheduled op (validation only). Measurement is
+// forced to `force_bit`; ticks accumulate into `fw`.
+static void apply_cpu_real(cd* slice, unsigned k, const ScheduledOp& s, int force_bit,
+                           uint64_t* fw) {
+    Rng dummy(0);  // outcomes forced; never consumed
+    switch (s.op) {
+        case Op::MEAS_INTERFERE: op_meas_interfere(slice, k, dummy, force_bit); break;
+        case Op::EXPAND_T: op_expand_t(slice, s.a); break;
+        case Op::EXPAND: op_expand(slice, s.a); break;
+        case Op::MEAS_DIAG: op_meas_diag(slice, k, dummy, force_bit); break;
+        case Op::FRAME_TICK:
+            if (fw) *fw = *fw * 0x100000001B3ull + (uint64_t(s.a) + 1);
+            break;
+        default: apply_cpu_gate(slice, k, s); break;
+    }
+}
+
+static void validate_real(unsigned k, unsigned B) {
+    // Arm-5 validation, both architectures on the census-calibrated real
+    // schedule. SoA: device-sampled interfere outcomes must match the host
+    // recomputation of the same stateless hash bit-for-bit, per-shot branch
+    // sums vs CPU, final state vs a CPU reference forced to the device
+    // outcomes, frame words vs the expected XOR stream. MIMD (global +
+    // shared): parity-forced outcomes vs the identical CPU trajectory.
+    uint64_t dim = uint64_t(1) << k, half = dim / 2;
+    const uint64_t kSeed = 0xFEEDFACEull;
+    const unsigned layers = 2;
+    auto sched = make_layer_schedule_real(k, layers);
+    std::vector<dc> h0((size_t)B * dim);
+    Rng rng(2718);
+    for (unsigned b = 0; b < B; ++b) init_host_slice(h0, b, dim, rng);
+
+    // Expected frame word (same tick sequence for every shot; the 1-layer
+    // schedule replayed `layers` times produces the identical sequence, so
+    // this expectation also covers the MIMD path).
+    uint64_t expect_fw = 0;
+    for (auto& s : sched)
+        if (s.op == Op::FRAME_TICK) expect_fw = expect_fw * 0x100000001B3ull + (uint64_t(s.a) + 1);
+
+    dc* d = nullptr;
+    CHECK(cudaMalloc(&d, (size_t)B * dim * sizeof(dc)));
+    double* dp0 = nullptr;
+    double* dp1 = nullptr;
+    unsigned char* dout = nullptr;
+    uint64_t* dfw = nullptr;
+    CHECK(cudaMalloc(&dp0, B * sizeof(double)));
+    CHECK(cudaMalloc(&dp1, B * sizeof(double)));
+    CHECK(cudaMalloc(&dout, B));
+    CHECK(cudaMalloc(&dfw, B * sizeof(uint64_t)));
+    std::vector<double> hp0(B), hp1(B);
+    std::vector<unsigned char> hout(B);
+    std::vector<uint64_t> hfw(B);
+    std::vector<dc> h((size_t)B * dim);
+
+    // ---- SoA on-device path -------------------------------------------------
+    std::vector<cd> hc((size_t)B * dim);
+    for (size_t i = 0; i < h0.size(); ++i) hc[i] = cd(h0[i].r, h0[i].i);
+    CHECK(cudaMemcpy(d, h0.data(), (size_t)B * dim * sizeof(dc), cudaMemcpyHostToDevice));
+    CHECK(cudaMemset(dfw, 0, B * sizeof(uint64_t)));
+    SoaBatch c{d,   dim, half, dim / 4, (uint64_t)B * half, (uint64_t)B * (dim / 4),
+               B,   dp0, dp1,  dout,    dfw,                2 * kTPB * sizeof(double),
+               kSeed};
+    unsigned round = 0, rng_mismatch = 0;
+    double worst_prob = 0;
+    for (auto& s : sched) {
+        unsigned this_round = round;  // round advances inside launch_soa_op
+        launch_soa_op(c, s, round);
+        if (s.op == Op::MEAS_INTERFERE) {
+            CHECK(cudaMemcpy(hp0.data(), dp0, B * sizeof(double), cudaMemcpyDeviceToHost));
+            CHECK(cudaMemcpy(hp1.data(), dp1, B * sizeof(double), cudaMemcpyDeviceToHost));
+            CHECK(cudaMemcpy(hout.data(), dout, B, cudaMemcpyDeviceToHost));
+            for (unsigned b = 0; b < B; ++b) {
+                double tot = hp0[b] + hp1[b];
+                unsigned char expect =
+                    (unsigned char)((hash_unit(kSeed, b, this_round) * tot < hp0[b]) ? 0 : 1);
+                if (expect != hout[b]) ++rng_mismatch;
+                cd* slice = hc.data() + (size_t)b * dim;
+                double cp = 0, cm = 0;
+                for (uint64_t i = 0; i < half; ++i) {
+                    cp += std::norm(slice[i] + slice[i + half]);
+                    cm += std::norm(slice[i] - slice[i + half]);
+                }
+                worst_prob = std::max(worst_prob, std::abs(hp0[b] - cp) + std::abs(hp1[b] - cm));
+                apply_cpu_real(slice, k, s, /*force_bit=*/(int)hout[b], nullptr);
+            }
+        } else {
+            for (unsigned b = 0; b < B; ++b)
+                apply_cpu_real(hc.data() + (size_t)b * dim, k, s, -1, nullptr);
+        }
+    }
+    CHECK(cudaDeviceSynchronize());
+    CHECK(cudaMemcpy(h.data(), d, (size_t)B * dim * sizeof(dc), cudaMemcpyDeviceToHost));
+    CHECK(cudaMemcpy(hfw.data(), dfw, B * sizeof(uint64_t), cudaMemcpyDeviceToHost));
+    double maxerr = 0;
+    for (size_t i = 0; i < h.size(); ++i) {
+        maxerr = std::max(maxerr, std::abs(h[i].r - hc[i].real()));
+        maxerr = std::max(maxerr, std::abs(h[i].i - hc[i].imag()));
+    }
+    unsigned fw_mismatch = 0;
+    for (unsigned b = 0; b < B; ++b)
+        if (hfw[b] != expect_fw) ++fw_mismatch;
+    fprintf(stderr,
+            "[validate-real] k=%u B=%u  SoA real mix: rng mismatches = %u, frame mismatches = "
+            "%u, max|cpu-gpu| = %.3e, prob err = %.3e  %s\n",
+            k, B, rng_mismatch, fw_mismatch, maxerr, worst_prob,
+            (rng_mismatch == 0 && fw_mismatch == 0 && maxerr < 1e-9 && worst_prob < 1e-9)
+                ? "OK"
+                : "FAIL");
+
+    // ---- MIMD path (global + shared), outcomes forced to shot parity --------
+    auto sched1 = make_layer_schedule_real(k, 1);
+    for (size_t i = 0; i < h0.size(); ++i) hc[i] = cd(h0[i].r, h0[i].i);
+    for (unsigned b = 0; b < B; ++b) {
+        cd* slice = hc.data() + (size_t)b * dim;
+        for (unsigned l = 0; l < layers; ++l)
+            for (auto& s : sched1) apply_cpu_real(slice, k, s, /*force_bit=*/(int)(b & 1), nullptr);
+    }
+    ScheduledOp* dops = nullptr;
+    CHECK(cudaMalloc(&dops, sched1.size() * sizeof(ScheduledOp)));
+    CHECK(cudaMemcpy(dops, sched1.data(), sched1.size() * sizeof(ScheduledOp),
+                     cudaMemcpyHostToDevice));
+    size_t red_bytes = 2 * kTPB * sizeof(double);
+    size_t sh_bytes = (size_t)dim * sizeof(dc) + red_bytes;
+    int sh_optin = 0;
+    CHECK(cudaDeviceGetAttribute(&sh_optin, cudaDevAttrMaxSharedMemoryPerBlockOptin, 0));
+    bool shared_fits = sh_bytes <= (size_t)sh_optin;
+    for (int variant = 0; variant < (shared_fits ? 2 : 1); ++variant) {
+        CHECK(cudaMemcpy(d, h0.data(), (size_t)B * dim * sizeof(dc), cudaMemcpyHostToDevice));
+        CHECK(cudaMemset(dfw, 0, B * sizeof(uint64_t)));
+        if (variant == 0) {
+            k_mimd_global<<<B, kTPB, red_bytes>>>(d, dim, k, dops, (unsigned)sched1.size(),
+                                                  layers, 0, /*force_parity=*/1, host_u2(),
+                                                  host_u4(), /*builtin_round=*/false, dfw);
+        } else {
+            CHECK(cudaFuncSetAttribute(k_mimd_shared,
+                                       cudaFuncAttributeMaxDynamicSharedMemorySize,
+                                       (int)sh_bytes));
+            k_mimd_shared<<<B, kTPB, sh_bytes>>>(d, dim, k, dops, (unsigned)sched1.size(),
+                                                 layers, 0, /*force_parity=*/1, host_u2(),
+                                                 host_u4(), /*builtin_round=*/false, dfw);
+        }
+        CHECK(cudaDeviceSynchronize());
+        CHECK(cudaMemcpy(h.data(), d, (size_t)B * dim * sizeof(dc), cudaMemcpyDeviceToHost));
+        CHECK(cudaMemcpy(hfw.data(), dfw, B * sizeof(uint64_t), cudaMemcpyDeviceToHost));
+        double merr = 0;
+        for (size_t i = 0; i < h.size(); ++i) {
+            merr = std::max(merr, std::abs(h[i].r - hc[i].real()));
+            merr = std::max(merr, std::abs(h[i].i - hc[i].imag()));
+        }
+        unsigned fmis = 0;
+        for (unsigned b = 0; b < B; ++b)
+            if (hfw[b] != expect_fw) ++fmis;
+        fprintf(stderr,
+                "[validate-real] k=%u B=%u  MIMD real mix (%s): frame mismatches = %u, "
+                "max|cpu-gpu| = %.3e  %s\n",
+                k, B, variant == 0 ? "global" : "shared", fmis, merr,
+                (fmis == 0 && merr < 1e-9) ? "OK" : "FAIL");
+    }
+    if (!shared_fits)
+        fprintf(stderr,
+                "[validate-real] k=%u MIMD shared variant skipped (needs %zu B > opt-in %d B)\n",
+                k, sh_bytes, sh_optin);
+    cudaFree(dops);
+    cudaFree(dfw);
+    cudaFree(dout);
+    cudaFree(dp1);
+    cudaFree(dp0);
     cudaFree(d);
 }
 
@@ -1377,12 +1747,14 @@ static void bench_mimd(const std::vector<unsigned>& ks, unsigned layers) {
                     k_mimd_shared<<<B, kTPB, sh_bytes>>>(d, dim, k, dops,
                                                          (unsigned)sched1.size(), layers, seed,
                                                          /*force_parity=*/-1, host_u2(),
-                                                         host_u4());
+                                                         host_u4(), /*builtin_round=*/true,
+                                                         nullptr);
                 } else {
                     k_mimd_global<<<B, kTPB, red_bytes>>>(d, dim, k, dops,
                                                           (unsigned)sched1.size(), layers, seed,
                                                           /*force_parity=*/-1, host_u2(),
-                                                          host_u4());
+                                                          host_u4(), /*builtin_round=*/true,
+                                                          nullptr);
                 }
                 CHECK(cudaDeviceSynchronize());
             };
@@ -1398,6 +1770,161 @@ static void bench_mimd(const std::vector<unsigned>& ks, unsigned layers) {
             printf("mimdgpu,%u,%u,%u,%.1f,%d\n", k, B, B, shots_per_s, use_shared ? 1 : 0);
             fprintf(stderr, "%-4u %-8u %-14.1f %-8s\n", k, B, shots_per_s,
                     use_shared ? "shared" : "global");
+            cudaFree(d);
+        }
+        cudaFree(dops);
+    }
+}
+
+// Arm 5a: the census-calibrated REAL op mix on the lockstep-SoA design (see
+// ../opcode_census.md and make_layer_schedule_real): ~8 gates per completed
+// X-basis measurement + EXPAND_T, plus 12 frame-tick launches per layer that
+// price the per-instruction launch tax a real bytecode stream imposes on SoA.
+// All sampling on device, one sync per batch. `batchedrealgpu / batchedreal`
+// (CPU) at the same (k, B) is the go/no-go ratio.
+static void bench_batched_real(const std::vector<unsigned>& ks, unsigned layers) {
+    fprintf(stderr, "\n=== Batched shots, REAL op mix, on-device sampling (GPU) ===\n");
+    fprintf(stderr, "%-4s %-8s %-14s %-14s\n", "k", "B", "shots/s", "us/meas-round");
+    std::vector<unsigned> Bs = {256, 1024, 4096, 16384, 65536};
+    for (unsigned k : ks) {
+        uint64_t dim = uint64_t(1) << k, half = dim / 2;
+        auto sched = make_layer_schedule_real(k, layers);
+        for (unsigned B : Bs) {
+            size_t bytes = (size_t)B * dim * sizeof(dc);
+            if (bytes > 16.0e9) continue;
+            dc* d = nullptr;
+            if (cudaMalloc(&d, bytes) != cudaSuccess) continue;
+            {
+                std::vector<dc> h((size_t)B * dim);
+                Rng rng(101 + k);
+                for (unsigned b = 0; b < B; ++b) init_host_slice(h, b, dim, rng);
+                CHECK(cudaMemcpy(d, h.data(), bytes, cudaMemcpyHostToDevice));
+            }
+            double* dp0 = nullptr;
+            double* dp1 = nullptr;
+            unsigned char* dout = nullptr;
+            uint64_t* dfw = nullptr;
+            CHECK(cudaMalloc(&dp0, B * sizeof(double)));
+            CHECK(cudaMalloc(&dp1, B * sizeof(double)));
+            CHECK(cudaMalloc(&dout, B));
+            CHECK(cudaMalloc(&dfw, B * sizeof(uint64_t)));
+            CHECK(cudaMemset(dfw, 0, B * sizeof(uint64_t)));
+            SoaBatch c{d,   dim, half, dim / 4, (uint64_t)B * half, (uint64_t)B * (dim / 4),
+                       B,   dp0, dp1,  dout,    dfw,                2 * kTPB * sizeof(double),
+                       0xC0FFEEull ^ k};
+            unsigned round = 0;
+            auto run = [&] {
+                for (auto& s : sched) launch_soa_op(c, s, round);
+                CHECK(cudaDeviceSynchronize());
+            };
+            run();  // warmup
+            std::vector<double> samples;
+            for (int r = 0; r < 5; ++r) {
+                auto t0 = Clock::now();
+                run();
+                samples.push_back(seconds_since(t0));
+            }
+            double sec = median(samples);
+            double shots_per_s = B / sec;
+            // Gate-free real measurement round (interfere reduce -> device
+            // sample -> fold -> EXPAND_T), synced per round: a LATENCY number.
+            auto real_round = [&] {
+                kb_reduce_interfere<<<B, kTPB, c.shmem>>>(d, dim, half, dp0, dp1);
+                kb_sample_dev<<<grid(B), kTPB>>>(dp0, dp1, dout, B, c.seed, round++);
+                kb_fold_out<<<grid(c.totH), kTPB>>>(d, dim, half, dout, c.totH);
+                kb_expand_t<<<grid(c.totH), kTPB>>>(d, dim, half, c.totH);
+            };
+            real_round();
+            CHECK(cudaDeviceSynchronize());
+            std::vector<double> ms;
+            for (int r = 0; r < 20; ++r) {
+                auto t0 = Clock::now();
+                real_round();
+                CHECK(cudaDeviceSynchronize());
+                ms.push_back(seconds_since(t0));
+            }
+            double us_round = median(ms) * 1e6;
+            printf("batchedrealgpu,%u,%u,%u,%.1f,%.3f\n", k, B, B, shots_per_s, us_round);
+            printf("measroundreal,%u,%u,%u,%.3f,%.3f\n", k, B, B, us_round, us_round / B);
+            fprintf(stderr, "%-4u %-8u %-14.1f %-14.2f\n", k, B, shots_per_s, us_round);
+            cudaFree(dfw);
+            cudaFree(dout);
+            cudaFree(dp1);
+            cudaFree(dp0);
+            cudaFree(d);
+        }
+    }
+}
+
+// Arm 5b: the MIMD per-shot interpreter on the SAME real op mix (schedule
+// carries its measurements/ticks; builtin round disabled). `mimdrealgpu` vs
+// `batchedrealgpu` is the architecture fork on the realistic workload -- note
+// frame ticks are ~free here (in-kernel) but a launch each on SoA.
+static void bench_mimd_real(const std::vector<unsigned>& ks, unsigned layers) {
+    fprintf(stderr, "\n=== MIMD per-shot interpreter, REAL op mix (GPU) ===\n");
+    fprintf(stderr, "%-4s %-8s %-14s %-8s\n", "k", "B", "shots/s", "variant");
+    std::vector<unsigned> Bs = {256, 1024, 4096, 16384, 65536};
+    int sh_optin = 0;
+    CHECK(cudaDeviceGetAttribute(&sh_optin, cudaDevAttrMaxSharedMemoryPerBlockOptin, 0));
+    for (unsigned k : ks) {
+        uint64_t dim = uint64_t(1) << k;
+        auto sched1 = make_layer_schedule_real(k, 1);
+        ScheduledOp* dops = nullptr;
+        CHECK(cudaMalloc(&dops, sched1.size() * sizeof(ScheduledOp)));
+        CHECK(cudaMemcpy(dops, sched1.data(), sched1.size() * sizeof(ScheduledOp),
+                         cudaMemcpyHostToDevice));
+        size_t red_bytes = 2 * kTPB * sizeof(double);
+        size_t sh_bytes = (size_t)dim * sizeof(dc) + red_bytes;
+        bool use_shared = sh_bytes <= (size_t)sh_optin;
+        if (use_shared) {
+            CHECK(cudaFuncSetAttribute(k_mimd_shared,
+                                       cudaFuncAttributeMaxDynamicSharedMemorySize,
+                                       (int)sh_bytes));
+        }
+        for (unsigned B : Bs) {
+            size_t bytes = (size_t)B * dim * sizeof(dc);
+            if (bytes > 16.0e9) continue;
+            dc* d = nullptr;
+            if (cudaMalloc(&d, bytes) != cudaSuccess) continue;
+            {
+                std::vector<dc> h((size_t)B * dim);
+                Rng rng(103 + k);
+                for (unsigned b = 0; b < B; ++b) init_host_slice(h, b, dim, rng);
+                CHECK(cudaMemcpy(d, h.data(), bytes, cudaMemcpyHostToDevice));
+            }
+            uint64_t* dfw = nullptr;
+            CHECK(cudaMalloc(&dfw, B * sizeof(uint64_t)));
+            CHECK(cudaMemset(dfw, 0, B * sizeof(uint64_t)));
+            uint64_t seed = 0xC0FFEEull ^ k;
+            auto run = [&] {
+                if (use_shared) {
+                    k_mimd_shared<<<B, kTPB, sh_bytes>>>(d, dim, k, dops,
+                                                         (unsigned)sched1.size(), layers, seed,
+                                                         /*force_parity=*/-1, host_u2(),
+                                                         host_u4(), /*builtin_round=*/false,
+                                                         dfw);
+                } else {
+                    k_mimd_global<<<B, kTPB, red_bytes>>>(d, dim, k, dops,
+                                                          (unsigned)sched1.size(), layers, seed,
+                                                          /*force_parity=*/-1, host_u2(),
+                                                          host_u4(), /*builtin_round=*/false,
+                                                          dfw);
+                }
+                CHECK(cudaDeviceSynchronize());
+            };
+            run();  // warmup
+            std::vector<double> samples;
+            for (int r = 0; r < 5; ++r) {
+                auto t0 = Clock::now();
+                run();
+                samples.push_back(seconds_since(t0));
+            }
+            double sec = median(samples);
+            double shots_per_s = B / sec;
+            printf("mimdrealgpu,%u,%u,%u,%.1f,%d\n", k, B, B, shots_per_s, use_shared ? 1 : 0);
+            fprintf(stderr, "%-4u %-8u %-14.1f %-8s\n", k, B, shots_per_s,
+                    use_shared ? "shared" : "global");
+            cudaFree(dfw);
             cudaFree(d);
         }
         cudaFree(dops);
@@ -1436,11 +1963,15 @@ int main(int argc, char** argv) {
     validate_devmeas(16, 8);
     validate_mimd(12, 8, 3);
     validate_mimd(16, 8, 3);
+    validate_real(12, 8);
+    validate_real(16, 8);
     for (unsigned k = kmin; k <= kmax; k += 4) transfer_cost(k);
     bench_single(kmin, kmax);
     bench_batched(bks, layers);
     bench_batched_meas(bks, layers);
     bench_batched_meas_dev(bks, layers);
     bench_mimd(bks, layers);
+    bench_batched_real(bks, layers);
+    bench_mimd_real(bks, layers);
     return 0;
 }
