@@ -19,8 +19,12 @@ uint64_t round_array_stride(uint64_t entries) {
                     (entries + kDoublesPerAlignment - 1) & ~(kDoublesPerAlignment - 1));
 }
 
+bool is_finite_scalar(std::complex<double> value) {
+    return is_finite_robust(value.real()) && is_finite_robust(value.imag());
+}
+
 void validate_scalar(std::complex<double> value) {
-    if (!is_finite_robust(value.real()) || !is_finite_robust(value.imag())) {
+    if (!is_finite_scalar(value)) {
         throw std::invalid_argument("sampling state global scalar must be finite");
     }
 }
@@ -76,10 +80,8 @@ State& State::operator=(State&& other) noexcept {
     return *this;
 }
 
-void State::reset() {
-    if (allocation_.empty()) {
-        throw std::logic_error("cannot reset a moved-from sampling state");
-    }
+void State::reset() noexcept {
+    assert(!allocation_.empty() && "cannot reset a moved-from sampling state");
     active_width_ = initial_active_width_;
     global_scalar_ = initial_global_scalar_;
     // Only the live prefix is observable. Promotions overwrite both halves of
@@ -94,14 +96,14 @@ void State::set_global_scalar(std::complex<double> value) {
     global_scalar_ = value;
 }
 
-void State::multiply_global_scalar(std::complex<double> value) {
-    validate_scalar(value);
+void State::multiply_global_scalar(std::complex<double> value) noexcept {
+    assert(is_finite_scalar(value) && "global scalar factor must be finite");
     const std::complex<double> updated = global_scalar_ * value;
-    validate_scalar(updated);
+    assert(is_finite_scalar(updated) && "updated global scalar must be finite");
     global_scalar_ = updated;
 }
 
-void State::set_active_width(uint32_t width) {
+void State::set_active_width(uint32_t width) noexcept {
     assert(width <= max_active_width_ && "active width must fit the sampling state allocation");
     active_width_ = width;
 }

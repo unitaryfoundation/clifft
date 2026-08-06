@@ -466,10 +466,4 @@ TEST_CASE("Sampling kernel preparation rejects malformed inputs") {
     REQUIRE_THROWS_AS(prepare_measurement({}, 1, 0), std::invalid_argument);
     REQUIRE_THROWS_AS(prepare_measurement({1, 0}, 1, 1), std::invalid_argument);
     REQUIRE_THROWS_AS(prepare_measurement({1, 0}, 2, 1), std::invalid_argument);
-
-    State state(1, 1);
-    const PreparedMeasurement measurement = prepare_measurement({1, 0}, 1, 0);
-    REQUIRE_THROWS_AS(collapse_measurement(state, measurement, false, 0.0), std::invalid_argument);
-    REQUIRE_THROWS_AS(collapse_measurement(state, measurement, false, clifft::test::opaque_nan()),
-                      std::invalid_argument);
 }

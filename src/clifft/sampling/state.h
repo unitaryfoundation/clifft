@@ -30,7 +30,7 @@ class State {
 
     // Restore the configured initial width, scalar, and |0...0> coefficients.
     // The allocation and all array addresses remain unchanged.
-    void reset();
+    void reset() noexcept;
 
     [[nodiscard]] uint32_t active_width() const { return active_width_; }
     [[nodiscard]] uint32_t initial_active_width() const { return initial_active_width_; }
@@ -58,11 +58,11 @@ class State {
 
     [[nodiscard]] std::complex<double> global_scalar() const { return global_scalar_; }
     void set_global_scalar(std::complex<double> value);
-    void multiply_global_scalar(std::complex<double> value);
+    void multiply_global_scalar(std::complex<double> value) noexcept;
 
     // Kernel-only width transition. The caller must stay within the maximum
     // chosen at construction.
-    void set_active_width(uint32_t width);
+    void set_active_width(uint32_t width) noexcept;
 
   private:
     void release() noexcept;

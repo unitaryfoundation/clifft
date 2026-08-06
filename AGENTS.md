@@ -32,6 +32,11 @@ architecture cannot support it:
   explicit trap or continuation boundary, where storage may grow but never
   shrink before dispatch resumes. No allocation is allowed inside an ordinary
   dispatch loop or kernel.
+- **Exception-free hot execution:** Validate external and compiler-produced
+  inputs before entering hot execution. Use assertions rather than exceptions
+  for internal preconditions in per-shot reset, ordinary dispatch, and kernels.
+  Throwing validation remains appropriate during construction, planning,
+  lowering, and explicit trap or continuation boundaries.
 - **Deterministic RNG:** Do not use `std::uniform_real_distribution`; its output
   is implementation-defined. Use `(rng() >> 11) * 0x1.0p-53` for `[0, 1)`.
 - **No runtime topology planning:** The compiler or planner must precompute

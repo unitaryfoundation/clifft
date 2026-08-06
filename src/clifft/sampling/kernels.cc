@@ -114,7 +114,7 @@ PreparedMeasurement prepare_measurement(ActivePauli pauli, uint32_t active_width
                                prepared.z & ~pivot_bit};
 }
 
-void apply_rotation(State& state, const PreparedRotation& rotation, bool sign) {
+void apply_rotation(State& state, const PreparedRotation& rotation, bool sign) noexcept {
     assert_descriptor_width(state, rotation.pauli);
     const double sine = sign ? -rotation.sine : rotation.sine;
     if (rotation.pauli.is_identity()) {
@@ -153,7 +153,7 @@ void apply_rotation(State& state, const PreparedRotation& rotation, bool sign) {
     }
 }
 
-void apply_promotion(State& state, const PreparedPromotion& promotion, bool sign) {
+void apply_promotion(State& state, const PreparedPromotion& promotion, bool sign) noexcept {
     assert(state.active_width() < state.max_active_width() &&
            "promotion must fit the sampling state allocation");
     const double sine = sign ? -promotion.sine : promotion.sine;
@@ -171,8 +171,8 @@ void apply_promotion(State& state, const PreparedPromotion& promotion, bool sign
     state.set_active_width(state.active_width() + 1);
 }
 
-MeasurementProbabilities measurement_probabilities(const State& state,
-                                                   const PreparedMeasurement& measurement) {
+MeasurementProbabilities measurement_probabilities(
+    const State& state, const PreparedMeasurement& measurement) noexcept {
     assert_descriptor_width(state, measurement.pauli);
     MeasurementProbabilities result;
     if (measurement.pauli.is_diagonal()) {
@@ -193,11 +193,10 @@ MeasurementProbabilities measurement_probabilities(const State& state,
 }
 
 void collapse_measurement(State& state, const PreparedMeasurement& measurement, bool branch,
-                          double branch_probability) {
+                          double branch_probability) noexcept {
     assert_descriptor_width(state, measurement.pauli);
-    if (!is_finite_robust(branch_probability) || branch_probability <= 0.0) {
-        throw std::invalid_argument("measurement collapse requires a positive finite probability");
-    }
+    assert(is_finite_robust(branch_probability) && branch_probability > 0.0 &&
+           "measurement collapse requires a positive finite probability");
     const double inv_norm = 1.0 / std::sqrt(branch_probability);
     if (measurement.pauli.is_diagonal()) {
         // Each selected source is at or above its packed destination, so a

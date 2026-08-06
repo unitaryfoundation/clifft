@@ -57,8 +57,8 @@ struct MeasurementProbabilities {
 
 // Runtime signs have already been evaluated from the plan expression. A true
 // sign negates the Pauli, equivalently negating the prepared sine.
-void apply_rotation(State& state, const PreparedRotation& rotation, bool sign);
-void apply_promotion(State& state, const PreparedPromotion& promotion, bool sign);
+void apply_rotation(State& state, const PreparedRotation& rotation, bool sign) noexcept;
+void apply_promotion(State& state, const PreparedPromotion& promotion, bool sign) noexcept;
 
 // Probability evaluation uses the normalized coefficient arrays and does not
 // mutate the state; the common global scalar therefore does not affect it.
@@ -66,8 +66,8 @@ void apply_promotion(State& state, const PreparedPromotion& promotion, bool sign
 // a branch once and reuse exactly that value for normalization and
 // log-probability accounting.
 [[nodiscard]] MeasurementProbabilities measurement_probabilities(
-    const State& state, const PreparedMeasurement& measurement);
+    const State& state, const PreparedMeasurement& measurement) noexcept;
 void collapse_measurement(State& state, const PreparedMeasurement& measurement, bool branch,
-                          double branch_probability);
+                          double branch_probability) noexcept;
 
 }  // namespace clifft::sampling
