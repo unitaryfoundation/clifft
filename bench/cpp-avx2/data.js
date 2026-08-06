@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785914188825,
+  "lastUpdate": 1786000841350,
   "repoUrl": "https://github.com/unitaryfoundation/clifft",
   "entries": {
     "C++ Catch2 benchmarks (AVX2)": [
@@ -5054,6 +5054,70 @@ window.BENCHMARK_DATA = {
             "name": "exp-val 20q 200 probes x100k",
             "value": 150.598,
             "range": "± 2.39878",
+            "unit": "ms",
+            "extra": "100 samples\n1 iterations"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Brad Chase",
+            "username": "bachase",
+            "email": "14430+bachase@users.noreply.github.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "1f4692ee51814c2abed14f455a66505e9e964651",
+          "message": "ci: cache wasm object files with ccache in the emsdk container (#254)\n\nci: cache wasm object files with ccache in the emsdk container (#254)\n\nThe wasm build cache was all-or-nothing: any change under src/clifft\ninvalidated the key and forced a full ~3 minute rebuild of every\ntranslation unit. Mount a pinned static ccache binary and a\npersistent cache directory into the emsdk container so unchanged\ntranslation units hit the object cache even when the build-directory\nkey misses; verified in CI at a 100% direct hit rate, the wasm job\ndrops to under a minute on core-touching changes. The key also\nhashes the action definition itself, so recipe changes (including\nthis one landing on main) force one rebuild that seeds the shared\ncompiler cache immediately.\n\nAssisted-by: Claude (Fable 5) <noreply@anthropic.com>",
+          "timestamp": "2026-08-05T22:10:13Z",
+          "url": "https://github.com/unitaryfoundation/clifft/commit/1f4692ee51814c2abed14f455a66505e9e964651"
+        },
+        "date": 1786000840202,
+        "tool": "catch2",
+        "benches": [
+          {
+            "name": "QV-10 x100 shots",
+            "value": 41.704,
+            "range": "± 354.641",
+            "unit": "ms",
+            "extra": "100 samples\n1 iterations"
+          },
+          {
+            "name": "cultivation-d5 x1000 shots",
+            "value": 65.6005,
+            "range": "± 489.684",
+            "unit": "ms",
+            "extra": "100 samples\n1 iterations"
+          },
+          {
+            "name": "surface-d7-r7 p=1e-3 x10000 shots",
+            "value": 115.239,
+            "range": "± 526.627",
+            "unit": "ms",
+            "extra": "100 samples\n1 iterations"
+          },
+          {
+            "name": "surface-d5-r5 p=0.05 x10000 shots",
+            "value": 111.968,
+            "range": "± 1.91394",
+            "unit": "ms",
+            "extra": "100 samples\n1 iterations"
+          },
+          {
+            "name": "surface-d11-r11 p=1e-3 x1000 shots",
+            "value": 46.6923,
+            "range": "± 460.085",
+            "unit": "ms",
+            "extra": "100 samples\n1 iterations"
+          },
+          {
+            "name": "exp-val 20q 200 probes x100k",
+            "value": 166.42,
+            "range": "± 2.66486",
             "unit": "ms",
             "extra": "100 samples\n1 iterations"
           }
