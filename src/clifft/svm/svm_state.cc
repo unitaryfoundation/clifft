@@ -3,12 +3,7 @@
 
 #include <algorithm>
 #include <cstring>
-#include <new>
 #include <stdexcept>
-
-#if defined(__linux__)
-#include <sys/mman.h>
-#endif
 
 namespace clifft {
 
@@ -46,105 +41,34 @@ SchrodingerState::SchrodingerState(StateConfig cfg) : peak_rank_(cfg.peak_rank),
     p_z.assign(num_words, 0);
 
     allocate_array(peak_rank);
-    v_[0] = {1.0, 0.0};
-}
-
-// Allocate an amplitude array without changing SchrodingerState. mmap returns
-// zero-filled memory; aligned_alloc does not. Callers copy these values into
-// the state only after allocation and initialization succeed.
-struct AllocResult {
-    std::complex<double>* ptr;
-    size_t alloc_bytes;
-    bool is_mmap;
-};
-
-static AllocResult alloc_amplitude_array(uint32_t peak_rank) {
-    const uint64_t array_size = 1ULL << peak_rank;
-    const size_t bytes = array_size * sizeof(std::complex<double>);
-    // Round up to page boundary for mmap/aligned_alloc compatibility.
-    const size_t aligned_bytes = (bytes + 4095) & ~4095ULL;
-
-    AllocResult result{nullptr, aligned_bytes, false};
-
-#if defined(__linux__)
-    // Try MAP_HUGETLB for 2MB huge pages (works without THP kernel support).
-    // Only worthwhile for allocations >= 2MB.
-    static constexpr size_t kHugePageSize = 2 * 1024 * 1024;
-    if (aligned_bytes >= kHugePageSize) {
-        const size_t huge_aligned = (aligned_bytes + kHugePageSize - 1) & ~(kHugePageSize - 1);
-        void* p = mmap(nullptr, huge_aligned, PROT_READ | PROT_WRITE,
-                       MAP_PRIVATE | MAP_ANONYMOUS | MAP_HUGETLB, -1, 0);
-        if (p != MAP_FAILED) {
-            result.ptr = static_cast<std::complex<double>*>(p);
-            result.alloc_bytes = huge_aligned;
-            result.is_mmap = true;
-        }
-    }
-
-    if (!result.ptr) {
-        // Align to huge page boundary so madvise(MADV_HUGEPAGE) works on any
-        // architecture (ARM64 may use 16KB or 64KB base pages).
-        const size_t alloc_bytes =
-            (aligned_bytes >= kHugePageSize)
-                ? ((aligned_bytes + kHugePageSize - 1) & ~(kHugePageSize - 1))
-                : aligned_bytes;
-        const size_t alloc_align = (aligned_bytes >= kHugePageSize) ? kHugePageSize : 4096;
-        result.ptr =
-            static_cast<std::complex<double>*>(aligned_alloc_portable(alloc_align, alloc_bytes));
-        if (!result.ptr) {
-            throw std::bad_alloc();
-        }
-        if (aligned_bytes >= kHugePageSize) {
-            madvise(result.ptr, alloc_bytes, MADV_HUGEPAGE);
-        }
-        result.alloc_bytes = alloc_bytes;
-    }
-#else
-    result.ptr = static_cast<std::complex<double>*>(aligned_alloc_portable(4096, aligned_bytes));
-    if (!result.ptr) {
-        throw std::bad_alloc();
-    }
-#endif
-
-    return result;
+    v()[0] = {1.0, 0.0};
 }
 
 void SchrodingerState::allocate_array(uint32_t peak_rank) {
-    const AllocResult alloc = alloc_amplitude_array(peak_rank);
+    const uint64_t new_array_size = uint64_t{1} << peak_rank;
+    PageAlignedAllocation allocation(new_array_size * sizeof(std::complex<double>));
+    auto* values = static_cast<std::complex<double>*>(allocation.data());
 
-    peak_rank_ = peak_rank;
-    v_ = alloc.ptr;
-    v_is_mmap_ = alloc.is_mmap;
-    array_size_ = 1ULL << peak_rank;
-    v_alloc_bytes_ = alloc.alloc_bytes;
-
-    // mmap(MAP_ANONYMOUS) guarantees zero-filled pages from the kernel.
-    // Only aligned_alloc needs explicit zeroing. Parallelizing the fill
+    // Anonymous mappings are zero-filled by the kernel. Portable allocation
+    // fallbacks need explicit zeroing. Parallelizing the fill
     // distributes physical pages across NUMA nodes via first-touch policy,
     // so later OpenMP worker threads access local memory.
-    if (!v_is_mmap_) {
-        int64_t n = static_cast<int64_t>(array_size_);
-        if (peak_rank_ >= kMinRankForThreads) {
+    if (!allocation.zero_initialized()) {
+        const int64_t n = static_cast<int64_t>(new_array_size);
+        if (peak_rank >= kMinRankForThreads) {
 #pragma omp parallel for schedule(static)
             for (int64_t i = 0; i < n; ++i) {
-                v_[i] = {0.0, 0.0};
+                values[i] = {0.0, 0.0};
             }
         } else {
             for (int64_t i = 0; i < n; ++i) {
-                v_[i] = {0.0, 0.0};
+                values[i] = {0.0, 0.0};
             }
         }
     }
-}
-
-void SchrodingerState::free_array() noexcept {
-#if defined(__linux__)
-    if (v_is_mmap_) {
-        munmap(v_, v_alloc_bytes_);
-        return;
-    }
-#endif
-    aligned_free_portable(v_);
+    v_allocation_ = std::move(allocation);
+    array_size_ = new_array_size;
+    peak_rank_ = peak_rank;
 }
 
 void SchrodingerState::grow_for_continuation(uint32_t peak_rank) {
@@ -165,56 +89,36 @@ void SchrodingerState::grow_for_continuation(uint32_t peak_rank) {
     const uint64_t live = v_size();
 
     // Allocate first so a failure leaves the existing state unchanged.
-    const AllocResult alloc = alloc_amplitude_array(peak_rank);
+    const uint64_t new_array_size = uint64_t{1} << peak_rank;
+    PageAlignedAllocation allocation(new_array_size * sizeof(std::complex<double>));
+    auto* new_values = static_cast<std::complex<double>*>(allocation.data());
 
-    // mmap memory is already zero. Clear the full aligned_alloc array because
-    // the continuation may use entries above the currently active region.
-    if (!alloc.is_mmap) {
-        const uint64_t new_array_size = 1ULL << peak_rank;
-        int64_t n = static_cast<int64_t>(new_array_size);
+    // Anonymous mappings are already zero. Clear a portable fallback in full
+    // because the continuation may use entries above the active region.
+    if (!allocation.zero_initialized()) {
+        const int64_t n = static_cast<int64_t>(new_array_size);
         if (peak_rank >= kMinRankForThreads) {
 #pragma omp parallel for schedule(static)
             for (int64_t i = 0; i < n; ++i) {
-                alloc.ptr[i] = {0.0, 0.0};
+                new_values[i] = {0.0, 0.0};
             }
         } else {
             for (int64_t i = 0; i < n; ++i) {
-                alloc.ptr[i] = {0.0, 0.0};
+                new_values[i] = {0.0, 0.0};
             }
         }
     }
 
     // Copy the live prefix from the old buffer into the new one.
-    std::memcpy(alloc.ptr, v_, live * sizeof(std::complex<double>));
-
-    // Keep the old allocation details until the new buffer is installed.
-    std::complex<double>* old_v = v_;
-    const size_t old_bytes = v_alloc_bytes_;
-    const bool old_mmap = v_is_mmap_;
+    std::memcpy(new_values, v(), live * sizeof(std::complex<double>));
 
     // Install the new allocation after all operations that can fail.
-    v_ = alloc.ptr;
-    v_alloc_bytes_ = alloc.alloc_bytes;
-    v_is_mmap_ = alloc.is_mmap;
-    array_size_ = 1ULL << peak_rank;
+    v_allocation_ = std::move(allocation);
+    array_size_ = new_array_size;
     peak_rank_ = peak_rank;
-
-#if defined(__linux__)
-    if (old_mmap) {
-        munmap(old_v, old_bytes);
-    } else {
-        aligned_free_portable(old_v);
-    }
-#else
-    (void)old_bytes;
-    (void)old_mmap;
-    aligned_free_portable(old_v);
-#endif
 }
 
-SchrodingerState::~SchrodingerState() {
-    free_array();
-}
+SchrodingerState::~SchrodingerState() = default;
 
 SchrodingerState::SchrodingerState(SchrodingerState&& other) noexcept
     : p_x(std::move(other.p_x)),
@@ -230,21 +134,16 @@ SchrodingerState::SchrodingerState(SchrodingerState&& other) noexcept
       forced_faults(std::move(other.forced_faults)),
       dust_clamps(other.dust_clamps),
       gamma_(other.gamma_),
-      v_(other.v_),
+      v_allocation_(std::move(other.v_allocation_)),
       array_size_(other.array_size_),
-      v_alloc_bytes_(other.v_alloc_bytes_),
       peak_rank_(other.peak_rank_),
-      v_is_mmap_(other.v_is_mmap_),
       rng_(std::move(other.rng_)),
       exp_vals(std::move(other.exp_vals)),
       pending_trap(other.pending_trap),
       forced_record(other.forced_record),
       forced_log_probability(other.forced_log_probability),
       forced_reachable(other.forced_reachable) {
-    other.v_ = nullptr;
     other.array_size_ = 0;
-    other.v_alloc_bytes_ = 0;
-    other.v_is_mmap_ = false;
     other.active_k = 0;
     other.peak_rank_ = 0;
     other.pending_trap.reset();
@@ -255,19 +154,8 @@ SchrodingerState::SchrodingerState(SchrodingerState&& other) noexcept
 
 SchrodingerState& SchrodingerState::operator=(SchrodingerState&& other) noexcept {
     if (this != &other) {
-#if defined(__linux__)
-        if (v_is_mmap_) {
-            munmap(v_, v_alloc_bytes_);
-        } else {
-            aligned_free_portable(v_);
-        }
-#else
-        aligned_free_portable(v_);
-#endif
-        v_ = other.v_;
+        v_allocation_ = std::move(other.v_allocation_);
         array_size_ = other.array_size_;
-        v_alloc_bytes_ = other.v_alloc_bytes_;
-        v_is_mmap_ = other.v_is_mmap_;
         peak_rank_ = other.peak_rank_;
         rng_ = std::move(other.rng_);
         p_x = std::move(other.p_x);
@@ -288,10 +176,7 @@ SchrodingerState& SchrodingerState::operator=(SchrodingerState&& other) noexcept
         forced_record = other.forced_record;
         forced_log_probability = other.forced_log_probability;
         forced_reachable = other.forced_reachable;
-        other.v_ = nullptr;
         other.array_size_ = 0;
-        other.v_alloc_bytes_ = 0;
-        other.v_is_mmap_ = false;
         other.active_k = 0;
         other.peak_rank_ = 0;
         other.pending_trap.reset();
@@ -304,18 +189,19 @@ SchrodingerState& SchrodingerState::operator=(SchrodingerState&& other) noexcept
 
 void SchrodingerState::reset() {
     uint64_t active_size = (active_k > 0) ? (uint64_t{1} << active_k) : 1;
-    int64_t n = static_cast<int64_t>(active_size);
+    const int64_t n = static_cast<int64_t>(active_size);
+    std::complex<double>* values = v();
     if (active_k >= kMinRankForThreads) {
 #pragma omp parallel for schedule(static)
         for (int64_t i = 0; i < n; ++i) {
-            v_[i] = {0.0, 0.0};
+            values[i] = {0.0, 0.0};
         }
     } else {
         for (int64_t i = 0; i < n; ++i) {
-            v_[i] = {0.0, 0.0};
+            values[i] = {0.0, 0.0};
         }
     }
-    v_[0] = {1.0, 0.0};
+    values[0] = {1.0, 0.0};
     std::fill(p_x.begin(), p_x.end(), 0);
     std::fill(p_z.begin(), p_z.end(), 0);
     gamma_ = {1.0, 0.0};

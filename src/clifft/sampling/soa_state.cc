@@ -2,7 +2,6 @@
 
 #include <algorithm>
 #include <limits>
-#include <new>
 #include <stdexcept>
 #include <string>
 #include <utility>
@@ -51,10 +50,9 @@ SoaState::SoaState(uint32_t max_active_width, uint32_t initial_active_width,
     if (allocated_doubles > std::numeric_limits<size_t>::max() / sizeof(double)) {
         throw std::length_error("SoA state allocation exceeds addressable memory");
     }
-    allocation_bytes_ = static_cast<size_t>(allocated_doubles) * sizeof(double);
-    allocation_ = static_cast<double*>(
-        ::operator new[](allocation_bytes_, std::align_val_t{kStateAlignment}));
-    real_ = allocation_;
+    const size_t allocation_bytes = static_cast<size_t>(allocated_doubles) * sizeof(double);
+    allocation_ = PageAlignedAllocation(allocation_bytes);
+    real_ = static_cast<double*>(allocation_.data());
     imag_ = real_ + coefficient_stride_;
     scratch_real_ = imag_ + coefficient_stride_;
     scratch_imag_ = scratch_real_ + scratch_stride_;
@@ -78,7 +76,7 @@ SoaState& SoaState::operator=(SoaState&& other) noexcept {
 }
 
 void SoaState::reset() {
-    if (allocation_ == nullptr) {
+    if (allocation_.empty()) {
         throw std::logic_error("cannot reset a moved-from SoA state");
     }
     active_width_ = initial_active_width_;
@@ -110,10 +108,7 @@ void SoaState::set_active_width(uint32_t width) {
 }
 
 void SoaState::release() noexcept {
-    if (allocation_ != nullptr) {
-        ::operator delete[](allocation_, std::align_val_t{kStateAlignment});
-    }
-    allocation_ = nullptr;
+    allocation_.reset();
     real_ = nullptr;
     imag_ = nullptr;
     scratch_real_ = nullptr;
@@ -121,7 +116,7 @@ void SoaState::release() noexcept {
 }
 
 void SoaState::move_from(SoaState&& other) noexcept {
-    allocation_ = std::exchange(other.allocation_, nullptr);
+    allocation_ = std::move(other.allocation_);
     real_ = std::exchange(other.real_, nullptr);
     imag_ = std::exchange(other.imag_, nullptr);
     scratch_real_ = std::exchange(other.scratch_real_, nullptr);
@@ -129,7 +124,6 @@ void SoaState::move_from(SoaState&& other) noexcept {
     capacity_ = std::exchange(other.capacity_, 0);
     coefficient_stride_ = std::exchange(other.coefficient_stride_, 0);
     scratch_stride_ = std::exchange(other.scratch_stride_, 0);
-    allocation_bytes_ = std::exchange(other.allocation_bytes_, 0);
     initial_active_width_ = std::exchange(other.initial_active_width_, 0);
     active_width_ = std::exchange(other.active_width_, 0);
     max_active_width_ = std::exchange(other.max_active_width_, 0);

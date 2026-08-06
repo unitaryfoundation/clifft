@@ -1,6 +1,7 @@
 #pragma once
 
 #include "clifft/util/numeric.h"
+#include "clifft/util/page_allocation.h"
 
 #include <complex>
 #include <cstddef>
@@ -64,7 +65,7 @@ class SoaState {
     void release() noexcept;
     void move_from(SoaState&& other) noexcept;
 
-    double* allocation_ = nullptr;
+    PageAlignedAllocation allocation_;
     double* real_ = nullptr;
     double* imag_ = nullptr;
     double* scratch_real_ = nullptr;
@@ -72,7 +73,6 @@ class SoaState {
     uint64_t capacity_ = 0;
     uint64_t coefficient_stride_ = 0;
     uint64_t scratch_stride_ = 0;
-    size_t allocation_bytes_ = 0;
     uint32_t initial_active_width_ = 0;
     uint32_t active_width_ = 0;
     uint32_t max_active_width_ = 0;

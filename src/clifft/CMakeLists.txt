@@ -33,6 +33,7 @@ add_library(clifft_core STATIC
     svm/svm_state.cc
     util/canonical_phase.cc
     util/introspection.cc
+    util/page_allocation.cc
     util/xoshiro.cc
     noncomp/transition_instrument.cc
     noncomp/transition_hooks.cc

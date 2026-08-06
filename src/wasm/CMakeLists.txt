@@ -53,6 +53,7 @@ add_library(clifft_core STATIC
     ${CMAKE_CURRENT_SOURCE_DIR}/../clifft/svm/svm_state.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/../clifft/util/canonical_phase.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/../clifft/util/introspection.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/../clifft/util/page_allocation.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/../clifft/util/xoshiro.cc
 )
 

@@ -205,6 +205,9 @@ TEST_CASE("Sampling SoA state owns stable aligned coefficient and scratch planes
     }
 
     REQUIRE(reinterpret_cast<uintptr_t>(state.real_data()) % 64 == 0);
+    REQUIRE(reinterpret_cast<uintptr_t>(state.real_data()) %
+                clifft::PageAlignedAllocation::kBaseAlignment ==
+            0);
     REQUIRE(reinterpret_cast<uintptr_t>(state.imag_data()) % 64 == 0);
     REQUIRE(reinterpret_cast<uintptr_t>(state.scratch_real_data()) % 64 == 0);
     REQUIRE(reinterpret_cast<uintptr_t>(state.scratch_imag_data()) % 64 == 0);
