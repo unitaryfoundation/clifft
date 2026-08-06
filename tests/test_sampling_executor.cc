@@ -13,6 +13,7 @@
 #include <cmath>
 #include <complex>
 #include <cstdint>
+#include <limits>
 #include <numbers>
 #include <optional>
 #include <span>
@@ -33,10 +34,12 @@ using clifft::sampling::MeasurementBranchKind;
 using clifft::sampling::MeasurementProbabilities;
 using clifft::sampling::PlannedAction;
 using clifft::sampling::PromoteDormantRotation;
+using clifft::sampling::record_log_probabilities;
 using clifft::sampling::RecordClassical;
 using clifft::sampling::RecordSlot;
 using clifft::sampling::ReplayResult;
 using clifft::sampling::RotateActivePauli;
+using clifft::sampling::sample_records;
 using clifft::sampling::SamplingPlan;
 using clifft::sampling::SymbolId;
 using clifft::sampling::SymbolInfo;
@@ -422,6 +425,17 @@ TEST_CASE("Sampling executor matches legacy records for supported circuits") {
     require_matches_legacy(kArbitraryRotation, 64, 8901);
 }
 
+TEST_CASE("Sampling batch records match legacy seeded execution") {
+    constexpr std::string_view kCircuit = "H 0\nH 1\nT 0\nT 1\nCX 0 1\nM 0 1\n";
+    const clifft::HirModule hir = clifft::trace(clifft::parse(kCircuit));
+    const ExecutablePlan executable(clifft::sampling::plan_sampling(hir));
+
+    const std::vector<uint8_t> actual = sample_records(executable, 64, uint64_t{5678});
+    const clifft::SampleResult expected = clifft::sample(clifft::lower(hir), 64, uint64_t{5678});
+    REQUIRE(actual == expected.measurements);
+    REQUIRE(sample_records(executable, 0, uint64_t{5678}).empty());
+}
+
 TEST_CASE("Sampling replay matches legacy record probabilities") {
     require_replay_matches_legacy("H 0\nM 0\nM 0\n", std::array<uint8_t, 4>{0, 0, 0, 1}, 2);
     require_replay_matches_legacy("H 0\nM 0\nM 0\n", std::array<uint8_t, 4>{1, 0, 1, 1}, 2);
@@ -430,6 +444,26 @@ TEST_CASE("Sampling replay matches legacy record probabilities") {
                                   std::array<uint8_t, 2>{0, 1}, 2);
     require_replay_matches_legacy("H 0\nCX 0 1\nM 0 1\n",
                                   std::array<uint8_t, 8>{0, 0, 0, 1, 1, 0, 1, 1}, 4);
+}
+
+TEST_CASE("Sampling batched record probabilities match legacy replay") {
+    constexpr std::string_view kCircuit = "H 0\nCX 0 1\nM 0 1\n";
+    constexpr std::array<uint8_t, 8> kRecords{0, 0, 0, 1, 1, 0, 1, 1};
+    const clifft::HirModule hir = clifft::trace(clifft::parse(kCircuit));
+    const ExecutablePlan executable(clifft::sampling::plan_sampling(hir));
+
+    const std::vector<double> actual = record_log_probabilities(executable, kRecords, 4);
+    const std::vector<double> expected =
+        clifft::record_probabilities(clifft::lower(hir), kRecords, 4);
+    REQUIRE(actual.size() == expected.size());
+    for (size_t i = 0; i < actual.size(); ++i) {
+        CAPTURE(i);
+        if (expected[i] == clifft::kUnreachableLogProb) {
+            REQUIRE(actual[i] == std::numeric_limits<double>::lowest());
+        } else {
+            REQUIRE_THAT(actual[i], Catch::Matchers::WithinAbs(expected[i], 1e-12));
+        }
+    }
 }
 
 TEST_CASE("Sampling replay probabilities normalize for a small active circuit") {

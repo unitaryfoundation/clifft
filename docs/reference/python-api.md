@@ -24,6 +24,20 @@
 
 ::: clifft.sample_k_survivors
 
+## Symbolic Sampling Backend (experimental)
+
+This explicit opt-in surface exercises the new scalar symbolic-coordinate
+backend without changing the default `clifft.compile` and `clifft.sample`
+pipeline. It currently accepts noiseless rotations and measurements only.
+
+::: clifft.experimental.compile
+
+::: clifft.experimental.sample
+
+::: clifft.experimental.record_probabilities
+
+::: clifft.experimental.Program
+
 ## Leakage and Loss (experimental)
 
 Sampling under a five-level leakage/loss model. See the
