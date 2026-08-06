@@ -33,6 +33,12 @@ struct MeasurementBranchClassification {
     bool clamped_dust = false;
 };
 
+struct ReplayResult {
+    bool reachable = true;
+    // Meaningful only when reachable is true.
+    double log_probability = 0.0;
+};
+
 [[nodiscard]] MeasurementBranchClassification classify_measurement_branch(
     MeasurementProbabilities probabilities) noexcept;
 
@@ -72,13 +78,16 @@ class ExecutablePlan {
 
     struct ExecuteActiveMeasurement {
         PreparedMeasurement measurement;
-        PreparedExpression outcome;
+        // The physical record is branch XOR this expression. Removing the
+        // newly defined branch at preparation time lets replay invert that
+        // relation without runtime dependency discovery.
+        PreparedExpression correction;
         uint32_t branch = 0;
         uint32_t record = 0;
     };
 
     struct ExecuteDormantMeasurement {
-        PreparedExpression outcome;
+        PreparedExpression correction;
         uint32_t branch = 0;
         uint32_t record = 0;
     };
@@ -98,6 +107,7 @@ class ExecutablePlan {
                      ExecuteDormantMeasurement, ExecuteClassicalRecord, ExecuteSymbolDefinition>;
 
     PreparedExpression prepare_expression(const AffineBool& expression);
+    PreparedExpression prepare_measurement_correction(const AffineBool& outcome, uint32_t branch);
 
     uint32_t initial_active_width_ = 0;
     uint32_t max_active_width_ = 0;
@@ -124,6 +134,13 @@ class Executor {
     // Values correspond to presampled plan symbols in ascending SymbolId order.
     void run_shot(std::span<const uint8_t> presampled_values = {}) noexcept;
 
+    // Forces one Boolean value for every plan record slot, ordered as visible
+    // records followed by hidden records. The reported probability is
+    // conditional on any supplied presampled symbols. Replay consumes no RNG.
+    [[nodiscard]] ReplayResult replay_shot(
+        std::span<const uint8_t> forced_records,
+        std::span<const uint8_t> presampled_values = {}) noexcept;
+
     [[nodiscard]] std::span<const uint8_t> visible_records() const {
         return std::span<const uint8_t>(records_).first(plan_.num_visible_records_);
     }
@@ -137,8 +154,20 @@ class Executor {
     [[nodiscard]] uint64_t dust_clamps() const { return dust_clamps_; }
 
   private:
+    struct ForcedBranchResult {
+        bool reachable = true;
+        double log_increment = 0.0;
+    };
+
+    void initialize_shot(std::span<const uint8_t> presampled_values) noexcept;
+
+    template <bool ForceRecords>
+    [[nodiscard]] ReplayResult execute_actions(std::span<const uint8_t> forced_records) noexcept;
+
     [[nodiscard]] bool evaluate(ExecutablePlan::PreparedExpression expression) const noexcept;
     [[nodiscard]] bool sample_active_branch(MeasurementProbabilities probabilities) noexcept;
+    [[nodiscard]] ForcedBranchResult force_active_branch(MeasurementProbabilities probabilities,
+                                                         bool branch) noexcept;
     [[nodiscard]] bool sample_dormant_branch() noexcept;
 
     const ExecutablePlan& plan_;
