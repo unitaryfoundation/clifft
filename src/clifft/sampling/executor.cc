@@ -72,6 +72,8 @@ ExecutablePlan::ExecutablePlan(const SamplingPlan& plan)
                     num_expression_terms += typed.sign.terms().size();
                 } else if constexpr (std::is_same_v<T, MeasureActivePauli> ||
                                      std::is_same_v<T, MeasureDormantRandom>) {
+                    // The current measurement branch is stored separately so
+                    // replay can solve for it from the requested record.
                     num_expression_terms += typed.outcome.terms().size() - 1;
                 } else if constexpr (std::is_same_v<T, RecordClassical>) {
                     num_expression_terms += typed.outcome.terms().size();
@@ -209,13 +211,13 @@ ReplayResult Executor::execute_actions(std::span<const uint8_t> forced_records) 
                     bool branch = false;
                     if constexpr (ForceRecords) {
                         branch = (forced_records[typed.record] != 0) ^ correction;
-                        const ForcedBranchResult forced =
+                        const std::optional<double> log_increment =
                             force_active_branch(probabilities, branch);
-                        if (!forced.reachable) {
+                        if (!log_increment.has_value()) {
                             result.reachable = false;
                             return;
                         }
-                        result.log_probability += forced.log_increment;
+                        result.log_probability += *log_increment;
                     } else {
                         branch = sample_active_branch(probabilities);
                     }
@@ -288,21 +290,21 @@ bool Executor::sample_active_branch(MeasurementProbabilities probabilities) noex
     return false;
 }
 
-Executor::ForcedBranchResult Executor::force_active_branch(MeasurementProbabilities probabilities,
-                                                           bool branch) noexcept {
+std::optional<double> Executor::force_active_branch(MeasurementProbabilities probabilities,
+                                                    bool branch) noexcept {
     const MeasurementBranchClassification classification =
         classify_measurement_branch(probabilities);
     dust_clamps_ += static_cast<uint64_t>(classification.clamped_dust);
     switch (classification.kind) {
         case MeasurementBranchKind::Random:
-            return {true, std::log(probabilities.for_branch(branch) / probabilities.total())};
+            return std::log(probabilities.for_branch(branch) / probabilities.total());
         case MeasurementBranchKind::DeterministicZero:
-            return {!branch, 0.0};
+            return branch ? std::nullopt : std::optional<double>{0.0};
         case MeasurementBranchKind::DeterministicOne:
-            return {branch, 0.0};
+            return branch ? std::optional<double>{0.0} : std::nullopt;
     }
     assert(false && "unhandled measurement branch classification");
-    return {false, 0.0};
+    return std::nullopt;
 }
 
 bool Executor::sample_dormant_branch() noexcept {

@@ -14,6 +14,7 @@
 #include <complex>
 #include <cstddef>
 #include <cstdint>
+#include <optional>
 #include <span>
 #include <variant>
 #include <vector>
@@ -33,9 +34,10 @@ struct MeasurementBranchClassification {
     bool clamped_dust = false;
 };
 
+// Describes whether a requested record can occur and, if so, its conditional
+// joint log probability. The probability is meaningful only when reachable.
 struct ReplayResult {
     bool reachable = true;
-    // Meaningful only when reachable is true.
     double log_probability = 0.0;
 };
 
@@ -78,9 +80,10 @@ class ExecutablePlan {
 
     struct ExecuteActiveMeasurement {
         PreparedMeasurement measurement;
-        // The physical record is branch XOR this expression. Removing the
-        // newly defined branch at preparation time lets replay invert that
-        // relation without runtime dependency discovery.
+        // The physical record is the raw measurement branch XOR this
+        // correction. The correction contains the known sign flips from
+        // earlier stochastic events, so replay can recover the raw branch
+        // needed to produce a requested record.
         PreparedExpression correction;
         uint32_t branch = 0;
         uint32_t record = 0;
@@ -134,9 +137,12 @@ class Executor {
     // Values correspond to presampled plan symbols in ascending SymbolId order.
     void run_shot(std::span<const uint8_t> presampled_values = {}) noexcept;
 
-    // Forces one Boolean value for every plan record slot, ordered as visible
-    // records followed by hidden records. The reported probability is
-    // conditional on any supplied presampled symbols. Replay consumes no RNG.
+    // Replays the plan while forcing each record to a supplied Boolean value.
+    // This reconstructs the corresponding branch state and computes its joint
+    // log probability, enabling differential validation and exact record
+    // probability queries. Records are ordered as visible followed by hidden;
+    // the probability is conditional on supplied presampled symbols. Replay
+    // consumes no RNG.
     [[nodiscard]] ReplayResult replay_shot(
         std::span<const uint8_t> forced_records,
         std::span<const uint8_t> presampled_values = {}) noexcept;
@@ -154,11 +160,6 @@ class Executor {
     [[nodiscard]] uint64_t dust_clamps() const { return dust_clamps_; }
 
   private:
-    struct ForcedBranchResult {
-        bool reachable = true;
-        double log_increment = 0.0;
-    };
-
     void initialize_shot(std::span<const uint8_t> presampled_values) noexcept;
 
     template <bool ForceRecords>
@@ -166,8 +167,8 @@ class Executor {
 
     [[nodiscard]] bool evaluate(ExecutablePlan::PreparedExpression expression) const noexcept;
     [[nodiscard]] bool sample_active_branch(MeasurementProbabilities probabilities) noexcept;
-    [[nodiscard]] ForcedBranchResult force_active_branch(MeasurementProbabilities probabilities,
-                                                         bool branch) noexcept;
+    [[nodiscard]] std::optional<double> force_active_branch(MeasurementProbabilities probabilities,
+                                                            bool branch) noexcept;
     [[nodiscard]] bool sample_dormant_branch() noexcept;
 
     const ExecutablePlan& plan_;
