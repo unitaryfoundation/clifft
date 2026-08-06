@@ -65,6 +65,74 @@ Two baseline observations for reading the GH200 run:
   never measures. If it erases the batched win, the design needs on-device
   sampling / CUDA graphs before it is viable.
 
+## Run 2a — H200, 2026-08-06 (GPU-side numbers: architecture fork DECIDED)
+
+Raw data + machine details: `results/2026-08-06-h200/`. nebius H200 via
+brev.nvidia ($5.40/hr, ~$3 total), CUDA 13.0, sm_90. Build: **zero nvcc
+errors on first compile**. Validation: **all five validator families OK** at
+1e-14..1e-17 (bar 1e-9), zero rng/frame-word mismatches. The H200 SXM is the
+documented FP64 stand-in for GH200's GPU; the CPU here is a 16-vCPU x86 VM,
+NOT the Grace baseline, so every GPU-vs-CPU ratio below is provisional.
+
+### The architecture fork (precommitted decision #4): MIMD wins or ties — SoA never wins
+
+`batchedrealgpu` (lockstep SoA) vs `mimdrealgpu` (clifft-cuda's one-block-per-
+shot, FP64), identical real-mix schedule/state/RNG, best B per k:
+
+| k | SoA shots/s | MIMD shots/s | SoA/MIMD | MIMD variant |
+|---|---|---|---|---|
+| 12 | 900,944 | **4,660,343** | **0.19** | shared |
+| 16 | 56,142 | 61,581 | 0.91 | global |
+| 18 | 14,044 | 15,213 | 0.92 | global |
+| 20 | 3,490 | 3,461 | 1.01 | global |
+
+Two mechanisms, both now measured:
+1. **k ≤ 14 (slice fits in shared memory): MIMD wins ~5×.** The whole shot
+   runs out of on-chip SRAM — DRAM traffic is one load + one store per shot
+   (O(2^k)) instead of one sweep per op (O(ops × 2^k)). The bandwidth
+   roofline that caps SoA simply does not apply. Gate-heavy fork confirms
+   (SoA/MIMD = 0.15 at k=12): this is shared-memory reuse, not the
+   frame-tick launch tax.
+2. **k ≥ 16 (global fallback): dead tie (0.91–1.03).** The coalescing bet is
+   **refuted**: block-per-shot threads stride adjacent addresses within their
+   slice, which coalesces fine — both architectures sit at the same HBM
+   roofline. Cross-shot adjacency buys nothing measurable.
+
+**Verdict per the precommitted rules: do NOT build the lockstep-SoA backend.
+The winning architecture is MIMD per-shot (clifft-cuda's design) in FP64 with
+the shared-memory path for k ≤ 14** — clifft-cuda's 1.6× was not
+architectural headroom on the GPU side; on datacenter FP64 hardware the MIMD
+design is already the right shape.
+
+### GPU vs CPU (provisional — weak x86 baseline, Grace pending)
+
+Real-mix `batchedrealgpu ÷ batchedreal`: 10.3× (k=12), 8.8× (k=16), 11.8×
+(k=18). Gates-only ceiling 11–13×. But this VM's CPU is far below Grace
+(H at k=20: 1.4 Gamp/s vs the ~10+ expected of a saturating Grace); the
+CPU-side batched numbers also ride L3 cache at k ≤ 16. The go/no-go vs a
+tuned server CPU (precommitted decision #3) remains OPEN until the Grace
+baseline runs on a GH200.
+
+### Context numbers
+
+- Single-op crossover k (vs this x86 box): 11–14 across all ops. GPU peaks:
+  H 154 Gamp/s (≈4.9 TB/s — HBM roofline), EXPAND_T 321, MEAS_DIAG 275;
+  **U4 flat at 45 Gamp/s — FP64 compute-bound as predicted**, crossing
+  earliest (k=11).
+- `batchedrealgpu` scaling with B is shallow (52k → 56k shots/s from B=256
+  to 4096 at k=16): even modest batches nearly saturate.
+- Transfer: 10–16 GB/s (PCIe on this box; the NVLink-C2C number still needs
+  GH200).
+- MIMD shared-memory boundary on sm_90: slice + reduction ≤ 227 KB opt-in →
+  k ≤ 13 at 256 threads (k=12 measured; k=14 = 262 KB just misses).
+
+### Still needed from a GH200 session (short + cheap now)
+
+1. Grace multicore `bench_cpu` — settles precommitted decision #3.
+2. NVLink-C2C transfer row.
+3. Optional: re-run the GPU arms for confirmation (H200/GH200 GPUs are
+   near-identical for FP64).
+
 ## Run 2 — GH200 (PENDING — access unblocked, budget now ~$200 at ~$3/hr)
 
 Lambda or Vultr, self-serve; H200 SXM is a valid FP64 stand-in except for
