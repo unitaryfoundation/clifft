@@ -39,12 +39,10 @@ MeasurementBranchClassification classify_measurement_branch(
            "measurement probabilities must be finite, nonnegative, and nonzero");
     const double epsilon = kMeasurementDustEpsilon * total;
     if (probabilities.one <= epsilon) {
-        return {.kind = MeasurementBranchKind::Zero,
-                .clamped_dust = probabilities.one > 0.0};
+        return {.kind = MeasurementBranchKind::Zero, .clamped_dust = probabilities.one > 0.0};
     }
     if (probabilities.zero <= epsilon) {
-        return {.kind = MeasurementBranchKind::One,
-                .clamped_dust = probabilities.zero > 0.0};
+        return {.kind = MeasurementBranchKind::One, .clamped_dust = probabilities.zero > 0.0};
     }
     return {.kind = MeasurementBranchKind::Random};
 }
@@ -108,20 +106,19 @@ ExecutablePlan::ExecutablePlan(const SamplingPlan& plan)
                                                            prepare_expression(typed.sign)});
                 } else if constexpr (std::is_same_v<T, MeasureActivePauli>) {
                     actions_.emplace_back(ExecuteActiveMeasurement{
-                        prepare_measurement(typed.pauli, planned.active_before,
-                                            typed.active_pivot),
+                        prepare_measurement(typed.pauli, planned.active_before, typed.active_pivot),
                         prepare_expression(typed.outcome), index(typed.branch),
                         index(typed.record)});
                 } else if constexpr (std::is_same_v<T, MeasureDormantRandom>) {
-                    actions_.emplace_back(ExecuteDormantMeasurement{
-                        prepare_expression(typed.outcome), index(typed.branch),
-                        index(typed.record)});
+                    actions_.emplace_back(
+                        ExecuteDormantMeasurement{prepare_expression(typed.outcome),
+                                                  index(typed.branch), index(typed.record)});
                 } else if constexpr (std::is_same_v<T, RecordClassical>) {
-                    actions_.emplace_back(ExecuteClassicalRecord{
-                        prepare_expression(typed.outcome), index(typed.record)});
+                    actions_.emplace_back(ExecuteClassicalRecord{prepare_expression(typed.outcome),
+                                                                 index(typed.record)});
                 } else if constexpr (std::is_same_v<T, DefineSymbol>) {
-                    actions_.emplace_back(ExecuteSymbolDefinition{
-                        prepare_expression(typed.value), index(typed.symbol)});
+                    actions_.emplace_back(ExecuteSymbolDefinition{prepare_expression(typed.value),
+                                                                  index(typed.symbol)});
                 } else if constexpr (std::is_same_v<T, InstrumentBoundary>) {
                     throw std::invalid_argument(
                         "sampling executable does not yet support instrument boundary site " +
@@ -169,8 +166,7 @@ void Executor::run_shot(std::span<const uint8_t> presampled_values) noexcept {
                     apply_rotation(state_, typed.rotation, evaluate(typed.sign));
                 } else if constexpr (std::is_same_v<T, ExecutablePlan::ExecutePromotion>) {
                     apply_promotion(state_, typed.promotion, evaluate(typed.sign));
-                } else if constexpr (std::is_same_v<T,
-                                                    ExecutablePlan::ExecuteActiveMeasurement>) {
+                } else if constexpr (std::is_same_v<T, ExecutablePlan::ExecuteActiveMeasurement>) {
                     const MeasurementProbabilities probabilities =
                         measurement_probabilities(state_, typed.measurement);
                     const bool branch = sample_active_branch(probabilities);
@@ -178,16 +174,13 @@ void Executor::run_shot(std::span<const uint8_t> presampled_values) noexcept {
                     collapse_measurement(state_, typed.measurement, branch,
                                          probabilities.for_branch(branch));
                     records_[typed.record] = static_cast<uint8_t>(evaluate(typed.outcome));
-                } else if constexpr (std::is_same_v<
-                                         T, ExecutablePlan::ExecuteDormantMeasurement>) {
+                } else if constexpr (std::is_same_v<T, ExecutablePlan::ExecuteDormantMeasurement>) {
                     const bool branch = sample_dormant_branch();
                     symbols_[typed.branch] = static_cast<uint8_t>(branch);
                     records_[typed.record] = static_cast<uint8_t>(evaluate(typed.outcome));
-                } else if constexpr (std::is_same_v<T,
-                                                    ExecutablePlan::ExecuteClassicalRecord>) {
+                } else if constexpr (std::is_same_v<T, ExecutablePlan::ExecuteClassicalRecord>) {
                     records_[typed.record] = static_cast<uint8_t>(evaluate(typed.outcome));
-                } else if constexpr (std::is_same_v<
-                                         T, ExecutablePlan::ExecuteSymbolDefinition>) {
+                } else if constexpr (std::is_same_v<T, ExecutablePlan::ExecuteSymbolDefinition>) {
                     symbols_[typed.symbol] = static_cast<uint8_t>(evaluate(typed.value));
                 } else {
                     static_assert(kAlwaysFalse<T>, "Unhandled executable action alternative");

@@ -5,10 +5,10 @@
 #include "clifft/sampling/planner.h"
 #include "clifft/svm/svm.h"
 
-#include <catch2/catch_test_macros.hpp>
-#include <catch2/matchers/catch_matchers_floating_point.hpp>
 #include <algorithm>
 #include <array>
+#include <catch2/catch_test_macros.hpp>
+#include <catch2/matchers/catch_matchers_floating_point.hpp>
 #include <cmath>
 #include <complex>
 #include <cstdint>
@@ -52,11 +52,11 @@ SamplingPlan active_then_dormant_plan(double promotion_half_turns) {
     plan.actions = {
         PlannedAction{0, 1, PromoteDormantRotation{promotion_half_turns, AffineBool(false)}},
         PlannedAction{1, 0,
-                      MeasureActivePauli{{0, 1}, 0, SymbolId{0},
-                                         AffineBool::symbol(SymbolId{0}), RecordSlot{0}}},
-        PlannedAction{0, 0,
-                      MeasureDormantRandom{1, SymbolId{1}, AffineBool::symbol(SymbolId{1}),
-                                           RecordSlot{1}}},
+                      MeasureActivePauli{
+                          {0, 1}, 0, SymbolId{0}, AffineBool::symbol(SymbolId{0}), RecordSlot{0}}},
+        PlannedAction{
+            0, 0,
+            MeasureDormantRandom{1, SymbolId{1}, AffineBool::symbol(SymbolId{1}), RecordSlot{1}}},
     };
     return plan;
 }
@@ -81,9 +81,9 @@ void require_matches_legacy(std::string_view circuit_text, uint32_t shots, uint6
 
         CAPTURE(circuit_text, shot);
         REQUIRE(executor.visible_records().size() == legacy_program.num_measurements);
-        REQUIRE(std::ranges::equal(executor.visible_records(),
-                                   std::span<const uint8_t>(legacy.meas_record).first(
-                                       legacy_program.num_measurements)));
+        REQUIRE(std::ranges::equal(
+            executor.visible_records(),
+            std::span<const uint8_t>(legacy.meas_record).first(legacy_program.num_measurements)));
     }
 }
 
@@ -115,13 +115,10 @@ TEST_CASE("Sampling executor evaluates presampled and derived affine symbols") {
         SymbolInfo{SymbolKind::Derived, 0, std::nullopt},
     };
     plan.actions = {
-        PlannedAction{0, 0,
-                      DefineSymbol{SymbolId{1},
-                                   AffineBool(true, std::vector<SymbolId>{SymbolId{0}})}},
-        PlannedAction{0, 0,
-                      RecordClassical{AffineBool::symbol(SymbolId{1}), RecordSlot{0}}},
-        PlannedAction{0, 0,
-                      RecordClassical{AffineBool::symbol(SymbolId{0}), RecordSlot{1}}},
+        PlannedAction{
+            0, 0, DefineSymbol{SymbolId{1}, AffineBool(true, std::vector<SymbolId>{SymbolId{0}})}},
+        PlannedAction{0, 0, RecordClassical{AffineBool::symbol(SymbolId{1}), RecordSlot{0}}},
+        PlannedAction{0, 0, RecordClassical{AffineBool::symbol(SymbolId{0}), RecordSlot{1}}},
     };
 
     const ExecutablePlan executable(plan);
