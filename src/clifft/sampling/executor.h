@@ -142,7 +142,8 @@ class Executor {
     // log probability, enabling differential validation and exact record
     // probability queries. Records are ordered as visible followed by hidden;
     // the probability is conditional on supplied presampled symbols. Replay
-    // consumes no RNG.
+    // consumes no RNG. After an unreachable result, state and record accessors
+    // expose only the executed prefix, not completed-shot output.
     [[nodiscard]] ReplayResult replay_shot(
         std::span<const uint8_t> forced_records,
         std::span<const uint8_t> presampled_values = {}) noexcept;

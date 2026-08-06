@@ -6,6 +6,7 @@
 #include <cassert>
 #include <cmath>
 #include <limits>
+#include <numbers>
 #include <stdexcept>
 #include <string>
 #include <type_traits>
@@ -16,6 +17,8 @@ namespace {
 
 template <typename>
 inline constexpr bool kAlwaysFalse = false;
+
+constexpr double kLogHalf = -std::numbers::ln2;
 
 uint32_t index(SymbolId id) {
     return static_cast<uint32_t>(id);
@@ -230,7 +233,7 @@ ReplayResult Executor::execute_actions(std::span<const uint8_t> forced_records) 
                     bool branch = false;
                     if constexpr (ForceRecords) {
                         branch = (forced_records[typed.record] != 0) ^ correction;
-                        result.log_probability += std::log(0.5);
+                        result.log_probability += kLogHalf;
                     } else {
                         branch = sample_dormant_branch();
                     }
