@@ -4,16 +4,17 @@ description: Build Clifft Wasm module via Emscripten with caching
 runs:
   using: composite
   steps:
-    - name: Cache Wasm build
+    - name: Restore Wasm build cache
       id: wasm-cache
-      uses: actions/cache@v4
+      uses: actions/cache/restore@v4
       with:
         path: build-wasm
         key: wasm-${{ runner.os }}-${{ hashFiles('src/wasm/**', 'src/clifft/**', 'cmake/**', '.github/actions/build-wasm/**') }}
 
     - name: Restore compiler cache
+      id: wasm-ccache
       if: steps.wasm-cache.outputs.cache-hit != 'true'
-      uses: actions/cache@v4
+      uses: actions/cache/restore@v4
       with:
         path: ${{ runner.temp }}/wasm-ccache
         key: wasm-ccache-${{ runner.os }}-${{ github.sha }}
@@ -52,3 +53,19 @@ runs:
               -DCMAKE_CXX_COMPILER_LAUNCHER=ccache && \
             cmake --build build-wasm -j$(nproc) && \
             ccache -s'
+
+    # Caches saved from PR runs are scoped to the PR ref and cannot be
+    # reused elsewhere; saving only on main limits repo cache eviction.
+    - name: Save compiler cache
+      if: github.ref == 'refs/heads/main' && steps.wasm-cache.outputs.cache-hit != 'true'
+      uses: actions/cache/save@v4
+      with:
+        path: ${{ runner.temp }}/wasm-ccache
+        key: wasm-ccache-${{ runner.os }}-${{ github.sha }}
+
+    - name: Save Wasm build cache
+      if: github.ref == 'refs/heads/main' && steps.wasm-cache.outputs.cache-hit != 'true'
+      uses: actions/cache/save@v4
+      with:
+        path: build-wasm
+        key: wasm-${{ runner.os }}-${{ hashFiles('src/wasm/**', 'src/clifft/**', 'cmake/**', '.github/actions/build-wasm/**') }}

@@ -98,17 +98,26 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Install ninja
+      - name: Install ninja and ccache
         run: |
           curl -fsSL -o /tmp/ninja-linux.zip \
             https://github.com/ninja-build/ninja/releases/download/v1.12.1/ninja-linux.zip
           echo "6f98805688d19672bd699fbbfa2c2cf0fc054ac3df1f0e6a47664d963d530255  /tmp/ninja-linux.zip" | sha256sum --check
           sudo unzip -o -q /tmp/ninja-linux.zip -d /usr/local/bin
+          curl -fsSL -o /tmp/ccache.tar.xz \
+            https://github.com/ccache/ccache/releases/download/v4.10.2/ccache-4.10.2-linux-x86_64.tar.xz
+          echo "80cab87bd510eca796467aee8e663c398239e0df1c4800a0b5dff11dca0b4f18  /tmp/ccache.tar.xz" | sha256sum --check
+          tar -C /tmp -xf /tmp/ccache.tar.xz ccache-4.10.2-linux-x86_64/ccache
+          sudo mv /tmp/ccache-4.10.2-linux-x86_64/ccache /usr/local/bin/ccache
 
       - name: Setup ccache
         uses: hendrikmuhs/ccache-action@v1.2
         with:
           key: ${{ runner.os }}-ccache-${{ env.CMAKE_BUILD_TYPE }}-${{ env.CLIFFT_CPU_BASELINE }}
+          # Caches saved from PR runs are scoped to the PR ref and cannot be
+          # reused elsewhere; saving only on main limits repo cache eviction.
+          save: ${{ github.ref == 'refs/heads/main' }}
+          evict-old-files: job
 
       - name: Setup uv and Python
         uses: astral-sh/setup-uv@v5
@@ -194,12 +203,12 @@ jobs:
         run: uv run python tools/ci/audit_python_exports.py
 
       - name: Run Python tests (default ISA)
-        run: uv run --locked pytest tests/python/ -n auto -v
+        run: uv run --locked pytest tests/python/ -n logical --maxprocesses 4 -v
 
       - name: Run Python tests (scalar ISA)
         env:
           CLIFFT_FORCE_ISA: scalar
-        run: uv run --locked pytest tests/python/ -n auto -v
+        run: uv run --locked pytest tests/python/ -n logical --maxprocesses 4 -v
 
       - name: Test documentation code examples
         run: uv run --locked pytest --codeblocks docs/ README.md -v
@@ -217,12 +226,16 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Install system dependencies
-        run: sudo apt-get update && sudo apt-get install -y ninja-build qemu-user
+        run: sudo apt-get update && sudo apt-get install -y ninja-build qemu-user ccache
 
       - name: Setup ccache
         uses: hendrikmuhs/ccache-action@v1.2
         with:
           key: ${{ runner.os }}-ccache-${{ env.CMAKE_BUILD_TYPE }}-${{ env.CLIFFT_CPU_BASELINE }}
+          # Caches saved from PR runs are scoped to the PR ref and cannot be
+          # reused elsewhere; saving only on main limits repo cache eviction.
+          save: ${{ github.ref == 'refs/heads/main' }}
+          evict-old-files: job
 
       - name: Configure C++ build
         run: |
@@ -310,6 +323,10 @@ jobs:
         uses: hendrikmuhs/ccache-action@v1.2
         with:
           key: ${{ runner.os }}-ccache-${{ env.CMAKE_BUILD_TYPE }}-${{ env.CLIFFT_CPU_BASELINE }}
+          # Caches saved from PR runs are scoped to the PR ref and cannot be
+          # reused elsewhere; saving only on main limits repo cache eviction.
+          save: ${{ github.ref == 'refs/heads/main' }}
+          evict-old-files: job
 
       - name: Setup uv and Python
         uses: astral-sh/setup-uv@v5
@@ -348,4 +365,4 @@ jobs:
         run: uv run python tools/ci/audit_python_exports.py
 
       - name: Run Python tests
-        run: uv run --locked pytest tests/python/ -n auto -v
+        run: uv run --locked pytest tests/python/ -n logical --maxprocesses 4 -v
