@@ -135,7 +135,9 @@ class ExecutablePlan {
 class Executor {
   public:
     explicit Executor(const ExecutablePlan& plan, uint64_t seed = 0);
-    Executor(const ExecutablePlan& plan, std::nullopt_t);
+
+    // Replace the deterministic seed with OS entropy before executing shots.
+    void reseed_from_entropy() { rng_.seed_from_entropy(); }
 
     // Values correspond to presampled plan symbols in ascending SymbolId order.
     void run_shot(std::span<const uint8_t> presampled_values = {}) noexcept;

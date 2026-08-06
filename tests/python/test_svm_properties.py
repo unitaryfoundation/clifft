@@ -4,6 +4,8 @@ These tests cover repeated active-rank expansion and compaction, along with
 small circuits whose output probabilities are known in closed form.
 """
 
+from typing import Any
+
 import numpy as np
 import pytest
 from conftest import binomial_tolerance
@@ -127,10 +129,12 @@ class TestBiasedAmplitudeStatistics:
         _BIASED_CIRCUITS,
         ids=[c[0] for c in _BIASED_CIRCUITS],
     )
-    def test_biased_single_qubit(self, name: str, circuit: str, expected_p0: float) -> None:
+    def test_biased_single_qubit(
+        self, name: str, circuit: str, expected_p0: float, sampling_api: Any
+    ) -> None:
         """Single-qubit biased circuit matches analytical P(0)."""
-        prog = clifft.compile(circuit)
-        result = clifft.sample(prog, self.SHOTS, seed=42)
+        prog = sampling_api.compile(circuit)
+        result = sampling_api.sample(prog, self.SHOTS, seed=42)
 
         observed_p0 = float(1.0 - result.measurements[:, 0].astype(float).mean())
         tol = binomial_tolerance(expected_p0, self.SHOTS, sigma=5.0)
@@ -140,7 +144,7 @@ class TestBiasedAmplitudeStatistics:
             f"diff={diff:.6f} > tol={tol:.6f}"
         )
 
-    def test_biased_entangled_pair(self) -> None:
+    def test_biased_entangled_pair(self, sampling_api: Any) -> None:
         """Entangled 2-qubit circuit with T-gate bias.
 
         H 0; T 0; H 0; CX 0 1; M 0 1
@@ -148,8 +152,8 @@ class TestBiasedAmplitudeStatistics:
         Both qubits have cos^2(pi/8) marginal, and m0 XOR m1 = 0 always.
         """
         circuit = "H 0\nT 0\nH 0\nCX 0 1\nM 0 1"
-        prog = clifft.compile(circuit)
-        result = clifft.sample(prog, self.SHOTS, seed=42)
+        prog = sampling_api.compile(circuit)
+        result = sampling_api.sample(prog, self.SHOTS, seed=42)
 
         m0 = result.measurements[:, 0].astype(float)
         m1 = result.measurements[:, 1].astype(float)
@@ -168,15 +172,15 @@ class TestBiasedAmplitudeStatistics:
         assert parity_nonzero == 0, f"{parity_nonzero}/{self.SHOTS} shots had m0 != m1"
 
     @pytest.mark.parametrize("seed", range(3))
-    def test_biased_multi_t_rotation(self, seed: int) -> None:
+    def test_biased_multi_t_rotation(self, seed: int, sampling_api: Any) -> None:
         """Verify bias from N sequential T gates matches cos^2(N*pi/8)."""
         for n_t in [1, 2, 3, 5, 7]:
             lines = ["H 0"] + ["T 0"] * n_t + ["H 0", "M 0"]
             circuit = "\n".join(lines)
             expected_p0 = (1.0 + np.cos(n_t * np.pi / 4.0)) / 2.0
 
-            prog = clifft.compile(circuit)
-            result = clifft.sample(prog, self.SHOTS, seed=seed)
+            prog = sampling_api.compile(circuit)
+            result = sampling_api.sample(prog, self.SHOTS, seed=seed)
             observed_p0 = float(1.0 - result.measurements[:, 0].astype(float).mean())
 
             tol = binomial_tolerance(expected_p0, self.SHOTS, sigma=5.0)

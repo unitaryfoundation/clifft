@@ -505,10 +505,10 @@ class TestSamplingValidation:
 class TestNoiseAndQEC:
     """Tests for noise simulation and QEC features."""
 
-    def test_sample_returns_sample_result(self) -> None:
+    def test_sample_returns_sample_result(self, sampling_api: Any) -> None:
         """sample() returns a SampleResult with attribute access and unpacking."""
-        prog = clifft.compile("H 0\nM 0")
-        result = clifft.sample(prog, 10, seed=0)
+        prog = sampling_api.compile("H 0\nM 0")
+        result = sampling_api.sample(prog, 10, seed=0)
         assert isinstance(result, clifft.SampleResult)
         # Attribute access
         assert result.measurements.shape == (10, 1)

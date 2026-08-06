@@ -170,10 +170,6 @@ Executor::Executor(const ExecutablePlan& plan, uint64_t seed)
       records_(static_cast<size_t>(plan.num_visible_records_) + plan.num_hidden_records_, 0),
       rng_(seed) {}
 
-Executor::Executor(const ExecutablePlan& plan, std::nullopt_t) : Executor(plan, uint64_t{0}) {
-    rng_.seed_from_entropy();
-}
-
 void Executor::run_shot(std::span<const uint8_t> presampled_values) noexcept {
     initialize_shot(presampled_values);
     (void)execute_actions<false>({});
@@ -344,7 +340,8 @@ std::vector<uint8_t> sample_records(const ExecutablePlan& plan, uint32_t shots,
         Executor executor(plan, *seed);
         run(executor);
     } else {
-        Executor executor(plan, std::nullopt);
+        Executor executor(plan);
+        executor.reseed_from_entropy();
         run(executor);
     }
     return records;

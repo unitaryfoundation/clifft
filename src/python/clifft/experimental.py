@@ -66,7 +66,10 @@ def record_probabilities(
 ) -> npt.NDArray[np.float64]:
     """Return exact joint probabilities of experimental-program measurement records."""
     if program.num_measurements == 0:
-        raise ValueError("record_probabilities() requires at least one measurement")
+        raise ValueError(
+            "record_probabilities() requires a program with at least one "
+            "measurement; use clifft.basis_probabilities() for unitary circuits."
+        )
     record_array = _records_from_outcomes(program, records)
     log_probabilities = cast(
         npt.NDArray[np.float64],

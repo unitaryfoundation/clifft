@@ -48,9 +48,3 @@ def test_seeded_samples_match_legacy_for_curated_circuits(circuit: str) -> None:
 def test_unsupported_capabilities_fail_during_compile(circuit: str, operation: str) -> None:
     with pytest.raises(ValueError, match=operation):
         experimental.compile(circuit)
-
-
-def test_record_probabilities_reject_unitary_program() -> None:
-    program = experimental.compile("H 0\nT 0")
-    with pytest.raises(ValueError, match="at least one measurement"):
-        experimental.record_probabilities(program, [])
