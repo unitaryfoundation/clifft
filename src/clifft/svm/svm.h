@@ -1,6 +1,7 @@
 #pragma once
 
 #include "clifft/backend/backend.h"
+#include "clifft/util/noise_sampling.h"
 #include "clifft/util/page_allocation.h"
 #include "clifft/util/xoshiro.h"
 
@@ -167,25 +168,18 @@ class SchrodingerState {
         }
     }
 
-    // Advance next_noise_idx by sampling an exponential gap.
-    // Uses the cumulative hazard table to skip silent noise sites in O(1).
+    // Advance next_noise_idx by sampling an exponential gap. The cumulative
+    // hazard lookup is logarithmic regardless of how many silent sites it skips.
     void draw_next_noise(const std::vector<double>& hazards) {
         // Gap exhaustion fast-path: when the sampled exponential gap
-        // exceeds the total accumulated hazard, std::upper_bound returns
-        // end(), making next_noise_idx == size() (out-of-bounds). This is
-        // mathematically correct: a gap larger than the remaining circuit
-        // hazard means no further noise events fire in this shot, so the
-        // VM skips all subsequent OP_NOISE sites in O(1) via the
-        // site_idx != next_noise_idx guard in exec_noise().
+        // exceeds the total accumulated hazard, the helper returns the sentinel.
+        // This is mathematically correct: a gap larger than the remaining circuit
+        // hazard means no further noise events fire in this shot.
         if (hazards.empty() || next_noise_idx >= hazards.size()) {
-            next_noise_idx = static_cast<uint32_t>(-1);
+            next_noise_idx = kNoNoiseSite;
             return;
         }
-        double current_hazard = (next_noise_idx == 0) ? 0.0 : hazards[next_noise_idx - 1];
-        double gap = -std::log(1.0 - random_double());
-        double target_hazard = current_hazard + gap;
-        auto it = std::upper_bound(hazards.begin(), hazards.end(), target_hazard);
-        next_noise_idx = static_cast<uint32_t>(std::distance(hazards.begin(), it));
+        next_noise_idx = sample_next_noise_site(hazards, next_noise_idx, random_double());
     }
 
     // Telemetry: count of times the epsilon threshold caught floating-point

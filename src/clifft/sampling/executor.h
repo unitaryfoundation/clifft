@@ -140,6 +140,7 @@ class ExecutablePlan {
     struct PreparedNoiseSite {
         uint32_t outcome_begin = 0;
         uint32_t outcome_count = 0;
+        double total_probability = 0.0;
     };
 
     using Action =
@@ -168,6 +169,7 @@ class ExecutablePlan {
     std::vector<uint32_t> unbound_presampled_symbols_;
     std::vector<PreparedNoiseOutcome> noise_outcomes_;
     std::vector<PreparedNoiseSite> noise_sites_;
+    std::vector<double> noise_hazards_;
     std::vector<Action> actions_;
 };
 
@@ -183,8 +185,11 @@ class Executor {
     // Replace the deterministic seed with OS entropy before executing shots.
     void reseed_from_entropy() { rng_.seed_from_entropy(); }
 
-    // Values correspond to presampled plan symbols in ascending SymbolId order.
+    // Draw plan-bound quantum noise from this executor's RNG before dispatch.
     void run_shot() noexcept;
+
+    // Use caller-supplied Boolean values for every Presampled symbol in
+    // ascending SymbolId order. This path consumes no quantum-noise RNG draws.
     void run_shot(std::span<const uint8_t> presampled_values) noexcept;
 
     // Replays the plan while forcing each record to a supplied Boolean value.
@@ -214,11 +219,39 @@ class Executor {
     [[nodiscard]] uint64_t dust_clamps() const { return dust_clamps_; }
 
   private:
-    void initialize_shot(std::span<const uint8_t> presampled_values, bool sample_noise) noexcept;
+    void reset_shot() noexcept;
+    void assign_presampled_values(std::span<const uint8_t> presampled_values) noexcept;
     void sample_presampled_noise() noexcept;
 
     template <bool ForceRecords>
     [[nodiscard]] ReplayResult execute_actions(std::span<const uint8_t> forced_records) noexcept;
+    template <bool ForceRecords>
+    void execute_action(const ExecutablePlan::ExecuteRotation& action,
+                        std::span<const uint8_t> forced_records, ReplayResult& result) noexcept;
+    template <bool ForceRecords>
+    void execute_action(const ExecutablePlan::ExecutePromotion& action,
+                        std::span<const uint8_t> forced_records, ReplayResult& result) noexcept;
+    template <bool ForceRecords>
+    void execute_action(const ExecutablePlan::ExecuteActiveMeasurement& action,
+                        std::span<const uint8_t> forced_records, ReplayResult& result) noexcept;
+    template <bool ForceRecords>
+    void execute_action(const ExecutablePlan::ExecuteDormantMeasurement& action,
+                        std::span<const uint8_t> forced_records, ReplayResult& result) noexcept;
+    template <bool ForceRecords>
+    void execute_action(const ExecutablePlan::ExecuteClassicalRecord& action,
+                        std::span<const uint8_t> forced_records, ReplayResult& result) noexcept;
+    template <bool ForceRecords>
+    void execute_action(const ExecutablePlan::ExecuteSymbolDefinition& action,
+                        std::span<const uint8_t> forced_records, ReplayResult& result) noexcept;
+    template <bool ForceRecords>
+    void execute_action(const ExecutablePlan::ExecuteReadoutNoise& action,
+                        std::span<const uint8_t> forced_records, ReplayResult& result) noexcept;
+    template <bool ForceRecords>
+    void execute_action(const ExecutablePlan::ExecuteDetector& action,
+                        std::span<const uint8_t> forced_records, ReplayResult& result) noexcept;
+    template <bool ForceRecords>
+    void execute_action(const ExecutablePlan::ExecuteObservable& action,
+                        std::span<const uint8_t> forced_records, ReplayResult& result) noexcept;
 
     [[nodiscard]] bool evaluate(ExecutablePlan::PreparedExpression expression) const noexcept;
     [[nodiscard]] bool sample_active_branch(MeasurementProbabilities probabilities) noexcept;
@@ -232,6 +265,7 @@ class Executor {
     std::vector<uint8_t> records_;
     std::vector<uint8_t> detectors_;
     std::vector<uint8_t> observables_;
+    std::vector<uint32_t> previous_presampled_ones_;
     Xoshiro256PlusPlus rng_;
     bool discarded_ = false;
     uint64_t dust_clamps_ = 0;

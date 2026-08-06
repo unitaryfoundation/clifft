@@ -155,15 +155,17 @@ struct ApplyReadoutNoise {
     double prob_one_to_zero = 0.0;
 };
 
-// Writes a normalized detector parity. A nonzero postselected detector rejects
-// the shot immediately; later actions and outputs are irrelevant for it.
+// Writes a detector parity after the planner has XORed its expected reference
+// parity into the expression. A nonzero postselected detector rejects the shot
+// immediately; later actions and outputs are irrelevant for it.
 struct WriteDetector {
     AffineBool outcome;
     DetectorSlot detector{};
     bool postselected = false;
 };
 
-// Writes one fully accumulated and normalized logical observable parity.
+// Writes one fully accumulated logical observable after the planner has XORed
+// its expected reference parity into the expression.
 struct WriteObservable {
     AffineBool outcome;
     ObservableSlot observable{};

@@ -4,6 +4,8 @@
 #include "clifft/sampling/executor.h"
 #include "clifft/sampling/planner.h"
 #include "clifft/svm/svm.h"
+#include "clifft/util/noise_sampling.h"
+#include "clifft/util/xoshiro.h"
 
 #include <algorithm>
 #include <array>
@@ -32,7 +34,10 @@ using clifft::sampling::MeasureActivePauli;
 using clifft::sampling::MeasureDormantRandom;
 using clifft::sampling::MeasurementBranchKind;
 using clifft::sampling::MeasurementProbabilities;
+using clifft::sampling::NoiseSiteId;
 using clifft::sampling::PlannedAction;
+using clifft::sampling::PresampledNoiseOutcome;
+using clifft::sampling::PresampledNoiseSite;
 using clifft::sampling::PromoteDormantRotation;
 using clifft::sampling::record_log_probabilities;
 using clifft::sampling::RecordClassical;
@@ -144,7 +149,148 @@ bool has_arbitrary_angle_active_rotation(const SamplingPlan& plan, double half_t
     });
 }
 
+SamplingPlan categorical_noise_plan() {
+    SamplingPlan plan;
+    plan.num_noise_sites = 4;
+    plan.symbols = {
+        SymbolInfo{SymbolKind::Presampled, std::nullopt, NoiseSiteId{0}},
+        SymbolInfo{SymbolKind::Presampled, std::nullopt, NoiseSiteId{1}},
+        SymbolInfo{SymbolKind::Presampled, std::nullopt, NoiseSiteId{1}},
+        SymbolInfo{SymbolKind::Presampled, std::nullopt, NoiseSiteId{3}},
+    };
+    plan.presampled_noise_sites = {
+        PresampledNoiseSite{NoiseSiteId{0}, {PresampledNoiseOutcome{SymbolId{0}, 0.05}}},
+        PresampledNoiseSite{
+            NoiseSiteId{1},
+            {PresampledNoiseOutcome{SymbolId{1}, 0.1}, PresampledNoiseOutcome{SymbolId{2}, 0.2}}},
+        PresampledNoiseSite{NoiseSiteId{2}, {}},
+        PresampledNoiseSite{NoiseSiteId{3}, {PresampledNoiseOutcome{SymbolId{3}, 0.4}}},
+    };
+    return plan;
+}
+
+std::vector<double> noise_hazards(const SamplingPlan& plan) {
+    std::vector<double> result;
+    result.reserve(plan.presampled_noise_sites.size());
+    double cumulative = 0.0;
+    for (const PresampledNoiseSite& site : plan.presampled_noise_sites) {
+        double probability = 0.0;
+        for (const PresampledNoiseOutcome& outcome : site.outcomes) {
+            probability += outcome.probability;
+        }
+        cumulative += clifft::bernoulli_hazard(probability);
+        result.push_back(cumulative);
+    }
+    return result;
+}
+
+std::vector<uint8_t> sample_reference_noise(const SamplingPlan& plan,
+                                            std::span<const double> hazards,
+                                            clifft::Xoshiro256PlusPlus& rng) {
+    std::vector<uint8_t> result(plan.symbols.size(), 0);
+    uint32_t first_candidate = 0;
+    while (first_candidate < plan.presampled_noise_sites.size()) {
+        const double current_hazard = first_candidate == 0 ? 0.0 : hazards[first_candidate - 1];
+        if (current_hazard >= hazards.back()) {
+            break;
+        }
+        const uint32_t site_index =
+            clifft::sample_next_noise_site(hazards, first_candidate, rng.next_double());
+        if (site_index == clifft::kNoNoiseSite) {
+            break;
+        }
+        const PresampledNoiseSite& site = plan.presampled_noise_sites[site_index];
+        REQUIRE_FALSE(site.outcomes.empty());
+        size_t outcome_index = 0;
+        if (site.outcomes.size() > 1) {
+            double total_probability = 0.0;
+            for (const PresampledNoiseOutcome& outcome : site.outcomes) {
+                total_probability += outcome.probability;
+            }
+            const double channel_draw = rng.next_double() * total_probability;
+            double cumulative = 0.0;
+            for (size_t i = 0; i < site.outcomes.size(); ++i) {
+                cumulative += site.outcomes[i].probability;
+                if (channel_draw < cumulative) {
+                    outcome_index = i;
+                    break;
+                }
+            }
+        }
+        result[static_cast<uint32_t>(site.outcomes[outcome_index].symbol)] = 1;
+        first_candidate = site_index + 1;
+    }
+    return result;
+}
+
 }  // namespace
+
+TEST_CASE("Noise hazard sampler skips silent sites") {
+    const double first = clifft::bernoulli_hazard(0.25);
+    const std::array<double, 3> hazards{
+        first,
+        first,
+        first + clifft::bernoulli_hazard(0.5),
+    };
+
+    REQUIRE(clifft::sample_next_noise_site(hazards, 0, 0.0) == 0);
+    REQUIRE(clifft::sample_next_noise_site(hazards, 1, 0.0) == 2);
+    REQUIRE(clifft::sample_next_noise_site(hazards, 0, 0.3) == 2);
+    REQUIRE(clifft::sample_next_noise_site(hazards, 0, 0.9) == clifft::kNoNoiseSite);
+}
+
+TEST_CASE("Sampling executor skips silent noise sites deterministically") {
+    constexpr uint64_t seed = 0x123456789abcdef0ULL;
+    const SamplingPlan plan = categorical_noise_plan();
+    const std::vector<double> hazards = noise_hazards(plan);
+    const ExecutablePlan executable(plan);
+    Executor executor(executable, seed);
+    clifft::Xoshiro256PlusPlus reference_rng(seed);
+
+    for (uint32_t shot = 0; shot < 128; ++shot) {
+        const std::vector<uint8_t> expected = sample_reference_noise(plan, hazards, reference_rng);
+        executor.run_shot();
+        CAPTURE(shot, expected, executor.symbols());
+        REQUIRE(std::ranges::equal(executor.symbols(), expected));
+    }
+
+    // Alternating supplied and sampled inputs catches stale one bits without
+    // requiring every presampled symbol to be cleared on every shot.
+    const std::array<uint8_t, 4> all_ones{1, 1, 1, 1};
+    executor.run_shot(all_ones);
+    REQUIRE(std::ranges::equal(executor.symbols(), all_ones));
+
+    const std::vector<uint8_t> expected = sample_reference_noise(plan, hazards, reference_rng);
+    executor.run_shot();
+    REQUIRE(std::ranges::equal(executor.symbols(), expected));
+
+    const std::array<uint8_t, 4> all_zeroes{0, 0, 0, 0};
+    executor.run_shot(all_zeroes);
+    REQUIRE(std::ranges::equal(executor.symbols(), all_zeroes));
+}
+
+TEST_CASE("Sampling executor does not draw for empty noise sites") {
+    SamplingPlan plan;
+    plan.num_qubits = 1;
+    plan.num_visible_records = 1;
+    plan.num_noise_sites = 1;
+    plan.presampled_noise_sites = {PresampledNoiseSite{NoiseSiteId{0}, {}}};
+    plan.symbols = {SymbolInfo{SymbolKind::Branch, 0, std::nullopt}};
+    plan.actions = {PlannedAction{
+        0, 0,
+        MeasureDormantRandom{0, SymbolId{0}, AffineBool::symbol(SymbolId{0}), RecordSlot{0}}}};
+
+    constexpr uint64_t seed = 1234;
+    const ExecutablePlan executable(plan);
+    Executor executor(executable, seed);
+    clifft::Xoshiro256PlusPlus reference_rng(seed);
+    for (uint32_t shot = 0; shot < 32; ++shot) {
+        const uint8_t expected = static_cast<uint8_t>(reference_rng.next_double() >= 0.5);
+        executor.run_shot();
+        CAPTURE(shot);
+        REQUIRE(executor.visible_records()[0] == expected);
+    }
+}
 
 TEST_CASE("Sampling executor classifies measurement dust without drawing") {
     const auto zero = classify_measurement_branch(MeasurementProbabilities{1.0, 0.0});

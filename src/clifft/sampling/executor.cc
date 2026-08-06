@@ -1,5 +1,6 @@
 #include "clifft/sampling/executor.h"
 
+#include "clifft/util/noise_sampling.h"
 #include "clifft/util/numeric.h"
 
 #include <algorithm>
@@ -115,15 +116,20 @@ ExecutablePlan::ExecutablePlan(const SamplingPlan& plan)
     presampled_symbols_.reserve(plan.symbols.size());
     std::vector<bool> bound_presampled(plan.symbols.size(), false);
     noise_sites_.reserve(plan.presampled_noise_sites.size());
+    noise_hazards_.reserve(plan.presampled_noise_sites.size());
+    double cumulative_hazard = 0.0;
     for (const PresampledNoiseSite& site : plan.presampled_noise_sites) {
         const uint32_t begin = static_cast<uint32_t>(noise_outcomes_.size());
-        double cumulative = 0.0;
+        double cumulative_probability = 0.0;
         for (const PresampledNoiseOutcome& outcome : site.outcomes) {
-            cumulative += outcome.probability;
-            noise_outcomes_.push_back({index(outcome.symbol), cumulative});
+            cumulative_probability += outcome.probability;
+            noise_outcomes_.push_back({index(outcome.symbol), cumulative_probability});
             bound_presampled[index(outcome.symbol)] = true;
         }
-        noise_sites_.push_back({begin, static_cast<uint32_t>(noise_outcomes_.size()) - begin});
+        noise_sites_.push_back(
+            {begin, static_cast<uint32_t>(noise_outcomes_.size()) - begin, cumulative_probability});
+        cumulative_hazard += bernoulli_hazard(cumulative_probability);
+        noise_hazards_.push_back(cumulative_hazard);
     }
     for (uint32_t symbol = 0; symbol < plan.symbols.size(); ++symbol) {
         if (plan.symbols[symbol].kind == SymbolKind::Presampled) {
@@ -213,15 +219,21 @@ Executor::Executor(const ExecutablePlan& plan, uint64_t seed)
       records_(static_cast<size_t>(plan.num_visible_records_) + plan.num_hidden_records_, 0),
       detectors_(plan.num_detectors_, 0),
       observables_(plan.num_observables_, 0),
-      rng_(seed) {}
+      rng_(seed) {
+    previous_presampled_ones_.reserve(plan.presampled_symbols_.size());
+}
 
 void Executor::run_shot() noexcept {
-    initialize_shot({}, true);
+    assert(plan_.unbound_presampled_symbols_.empty() &&
+           "automatic execution requires every presampled symbol to have a distribution");
+    reset_shot();
+    sample_presampled_noise();
     (void)execute_actions<false>({});
 }
 
 void Executor::run_shot(std::span<const uint8_t> presampled_values) noexcept {
-    initialize_shot(presampled_values, false);
+    reset_shot();
+    assign_presampled_values(presampled_values);
     (void)execute_actions<false>({});
 }
 
@@ -231,50 +243,170 @@ ReplayResult Executor::replay_shot(std::span<const uint8_t> forced_records,
            "one forced value is required for every plan record");
     assert(std::ranges::all_of(forced_records, [](uint8_t value) { return value <= 1; }) &&
            "forced records must be Boolean");
-    initialize_shot(presampled_values, false);
+    reset_shot();
+    assign_presampled_values(presampled_values);
     return execute_actions<true>(forced_records);
 }
 
-void Executor::initialize_shot(std::span<const uint8_t> presampled_values,
-                               bool sample_noise) noexcept {
-    if (sample_noise) {
-        assert(plan_.unbound_presampled_symbols_.empty() &&
-               "automatic execution requires every presampled symbol to have a distribution");
-    } else {
-        assert(presampled_values.size() == plan_.presampled_symbols_.size() &&
-               "one value is required for every presampled symbol");
-    }
+void Executor::reset_shot() noexcept {
     state_.reset();
-    std::fill(symbols_.begin(), symbols_.end(), uint8_t{0});
-    std::fill(records_.begin(), records_.end(), uint8_t{0});
-    std::fill(detectors_.begin(), detectors_.end(), uint8_t{0});
-    std::fill(observables_.begin(), observables_.end(), uint8_t{0});
+    // Validation guarantees that every mutable symbol and output is overwritten
+    // before use on a completed shot. Only nonfiring noise symbols need restoring.
+    for (uint32_t symbol : previous_presampled_ones_) {
+        assert(symbol < symbols_.size() && symbols_[symbol] == 1 &&
+               "tracked presampled symbols must be set");
+        symbols_[symbol] = 0;
+    }
+    previous_presampled_ones_.clear();
     discarded_ = false;
-    if (sample_noise) {
-        sample_presampled_noise();
-    } else {
-        for (size_t i = 0; i < presampled_values.size(); ++i) {
-            assert(presampled_values[i] <= 1 && "presampled symbols must be Boolean");
-            symbols_[plan_.presampled_symbols_[i]] = presampled_values[i];
+}
+
+void Executor::assign_presampled_values(std::span<const uint8_t> presampled_values) noexcept {
+    assert(presampled_values.size() == plan_.presampled_symbols_.size() &&
+           "one value is required for every presampled symbol");
+    for (size_t i = 0; i < presampled_values.size(); ++i) {
+        assert(presampled_values[i] <= 1 && "presampled symbols must be Boolean");
+        const uint32_t symbol = plan_.presampled_symbols_[i];
+        symbols_[symbol] = presampled_values[i];
+        if (presampled_values[i] != 0) {
+            previous_presampled_ones_.push_back(symbol);
         }
     }
 }
 
 void Executor::sample_presampled_noise() noexcept {
-    for (const ExecutablePlan::PreparedNoiseSite& site : plan_.noise_sites_) {
-        if (site.outcome_count == 0) {
-            continue;
+    uint32_t first_candidate = 0;
+    while (first_candidate < plan_.noise_sites_.size()) {
+        const double current_hazard =
+            first_candidate == 0 ? 0.0 : plan_.noise_hazards_[first_candidate - 1];
+        if (current_hazard >= plan_.noise_hazards_.back()) {
+            return;
         }
-        const double draw = rng_.next_double();
-        for (uint32_t i = 0; i < site.outcome_count; ++i) {
-            const ExecutablePlan::PreparedNoiseOutcome& outcome =
-                plan_.noise_outcomes_[site.outcome_begin + i];
-            if (draw < outcome.cumulative_probability) {
-                symbols_[outcome.symbol] = 1;
-                break;
+        const uint32_t site_index =
+            sample_next_noise_site(plan_.noise_hazards_, first_candidate, rng_.next_double());
+        if (site_index == kNoNoiseSite) {
+            return;
+        }
+        const ExecutablePlan::PreparedNoiseSite& site = plan_.noise_sites_[site_index];
+        assert(site.outcome_count > 0 && site.total_probability > 0.0 &&
+               "a sampled hazard must identify a nonempty noise site");
+        uint32_t outcome_index = site.outcome_begin;
+        if (site.outcome_count > 1) {
+            const double channel_draw = rng_.next_double() * site.total_probability;
+            while (channel_draw >= plan_.noise_outcomes_[outcome_index].cumulative_probability) {
+                ++outcome_index;
+                assert(outcome_index < site.outcome_begin + site.outcome_count &&
+                       "channel draw must select one prepared outcome");
             }
         }
+        const uint32_t symbol = plan_.noise_outcomes_[outcome_index].symbol;
+        assert(symbol < symbols_.size() && symbols_[symbol] == 0 &&
+               "a noise site may define only one fresh symbol per shot");
+        symbols_[symbol] = 1;
+        previous_presampled_ones_.push_back(symbol);
+        first_candidate = site_index + 1;
     }
+}
+
+template <bool ForceRecords>
+void Executor::execute_action(const ExecutablePlan::ExecuteRotation& action,
+                              std::span<const uint8_t>, ReplayResult&) noexcept {
+    apply_rotation(state_, action.rotation, evaluate(action.sign));
+}
+
+template <bool ForceRecords>
+void Executor::execute_action(const ExecutablePlan::ExecutePromotion& action,
+                              std::span<const uint8_t>, ReplayResult&) noexcept {
+    apply_promotion(state_, action.promotion, evaluate(action.sign));
+}
+
+template <bool ForceRecords>
+void Executor::execute_action(const ExecutablePlan::ExecuteActiveMeasurement& action,
+                              std::span<const uint8_t> forced_records,
+                              ReplayResult& result) noexcept {
+    const MeasurementProbabilities probabilities =
+        measurement_probabilities(state_, action.measurement);
+    const bool correction = evaluate(action.correction);
+    bool branch = false;
+    if constexpr (ForceRecords) {
+        branch = (forced_records[action.record] != 0) ^ correction;
+        const std::optional<double> log_increment = force_active_branch(probabilities, branch);
+        if (!log_increment.has_value()) {
+            result.reachable = false;
+            return;
+        }
+        result.log_probability += *log_increment;
+    } else {
+        branch = sample_active_branch(probabilities);
+    }
+    symbols_[action.branch] = static_cast<uint8_t>(branch);
+    collapse_measurement(state_, action.measurement, branch, probabilities.for_branch(branch));
+    records_[action.record] = static_cast<uint8_t>(branch ^ correction);
+}
+
+template <bool ForceRecords>
+void Executor::execute_action(const ExecutablePlan::ExecuteDormantMeasurement& action,
+                              std::span<const uint8_t> forced_records,
+                              ReplayResult& result) noexcept {
+    const bool correction = evaluate(action.correction);
+    bool branch = false;
+    if constexpr (ForceRecords) {
+        branch = (forced_records[action.record] != 0) ^ correction;
+        result.log_probability += kLogHalf;
+    } else {
+        branch = sample_dormant_branch();
+    }
+    symbols_[action.branch] = static_cast<uint8_t>(branch);
+    records_[action.record] = static_cast<uint8_t>(branch ^ correction);
+}
+
+template <bool ForceRecords>
+void Executor::execute_action(const ExecutablePlan::ExecuteClassicalRecord& action,
+                              std::span<const uint8_t> forced_records,
+                              ReplayResult& result) noexcept {
+    records_[action.record] = static_cast<uint8_t>(evaluate(action.outcome));
+    if constexpr (ForceRecords) {
+        if (records_[action.record] != forced_records[action.record]) {
+            result.reachable = false;
+        }
+    }
+}
+
+template <bool ForceRecords>
+void Executor::execute_action(const ExecutablePlan::ExecuteSymbolDefinition& action,
+                              std::span<const uint8_t>, ReplayResult&) noexcept {
+    symbols_[action.symbol] = static_cast<uint8_t>(evaluate(action.value));
+}
+
+template <bool ForceRecords>
+void Executor::execute_action(const ExecutablePlan::ExecuteReadoutNoise& action,
+                              std::span<const uint8_t>, ReplayResult& result) noexcept {
+    if constexpr (ForceRecords) {
+        result.reachable = false;
+    } else {
+        const bool source = evaluate(action.source);
+        assert(records_[action.record] == static_cast<uint8_t>(source) &&
+               "readout source must match the current record value");
+        const double probability = source ? action.prob_one_to_zero : action.prob_zero_to_one;
+        const bool flip =
+            probability >= 1.0 || (probability > 0.0 && rng_.next_double() < probability);
+        symbols_[action.flip] = static_cast<uint8_t>(flip);
+        records_[action.record] ^= static_cast<uint8_t>(flip);
+    }
+}
+
+template <bool ForceRecords>
+void Executor::execute_action(const ExecutablePlan::ExecuteDetector& action,
+                              std::span<const uint8_t>, ReplayResult&) noexcept {
+    const bool outcome = evaluate(action.outcome);
+    detectors_[action.detector] = static_cast<uint8_t>(outcome);
+    discarded_ |= action.postselected && outcome;
+}
+
+template <bool ForceRecords>
+void Executor::execute_action(const ExecutablePlan::ExecuteObservable& action,
+                              std::span<const uint8_t>, ReplayResult&) noexcept {
+    observables_[action.observable] = static_cast<uint8_t>(evaluate(action.outcome));
 }
 
 template <bool ForceRecords>
@@ -283,76 +415,7 @@ ReplayResult Executor::execute_actions(std::span<const uint8_t> forced_records) 
     for (const ExecutablePlan::Action& action : plan_.actions_) {
         std::visit(
             [&](const auto& typed) noexcept {
-                using T = std::decay_t<decltype(typed)>;
-                if constexpr (std::is_same_v<T, ExecutablePlan::ExecuteRotation>) {
-                    apply_rotation(state_, typed.rotation, evaluate(typed.sign));
-                } else if constexpr (std::is_same_v<T, ExecutablePlan::ExecutePromotion>) {
-                    apply_promotion(state_, typed.promotion, evaluate(typed.sign));
-                } else if constexpr (std::is_same_v<T, ExecutablePlan::ExecuteActiveMeasurement>) {
-                    const MeasurementProbabilities probabilities =
-                        measurement_probabilities(state_, typed.measurement);
-                    const bool correction = evaluate(typed.correction);
-                    bool branch = false;
-                    if constexpr (ForceRecords) {
-                        branch = (forced_records[typed.record] != 0) ^ correction;
-                        const std::optional<double> log_increment =
-                            force_active_branch(probabilities, branch);
-                        if (!log_increment.has_value()) {
-                            result.reachable = false;
-                            return;
-                        }
-                        result.log_probability += *log_increment;
-                    } else {
-                        branch = sample_active_branch(probabilities);
-                    }
-                    symbols_[typed.branch] = static_cast<uint8_t>(branch);
-                    collapse_measurement(state_, typed.measurement, branch,
-                                         probabilities.for_branch(branch));
-                    records_[typed.record] = static_cast<uint8_t>(branch ^ correction);
-                } else if constexpr (std::is_same_v<T, ExecutablePlan::ExecuteDormantMeasurement>) {
-                    const bool correction = evaluate(typed.correction);
-                    bool branch = false;
-                    if constexpr (ForceRecords) {
-                        branch = (forced_records[typed.record] != 0) ^ correction;
-                        result.log_probability += kLogHalf;
-                    } else {
-                        branch = sample_dormant_branch();
-                    }
-                    symbols_[typed.branch] = static_cast<uint8_t>(branch);
-                    records_[typed.record] = static_cast<uint8_t>(branch ^ correction);
-                } else if constexpr (std::is_same_v<T, ExecutablePlan::ExecuteClassicalRecord>) {
-                    records_[typed.record] = static_cast<uint8_t>(evaluate(typed.outcome));
-                    if constexpr (ForceRecords) {
-                        if (records_[typed.record] != forced_records[typed.record]) {
-                            result.reachable = false;
-                        }
-                    }
-                } else if constexpr (std::is_same_v<T, ExecutablePlan::ExecuteSymbolDefinition>) {
-                    symbols_[typed.symbol] = static_cast<uint8_t>(evaluate(typed.value));
-                } else if constexpr (std::is_same_v<T, ExecutablePlan::ExecuteReadoutNoise>) {
-                    if constexpr (ForceRecords) {
-                        result.reachable = false;
-                        return;
-                    } else {
-                        const bool source = evaluate(typed.source);
-                        assert(records_[typed.record] == static_cast<uint8_t>(source) &&
-                               "readout source must match the current record value");
-                        const double probability =
-                            source ? typed.prob_one_to_zero : typed.prob_zero_to_one;
-                        const bool flip = probability >= 1.0 ||
-                                          (probability > 0.0 && rng_.next_double() < probability);
-                        symbols_[typed.flip] = static_cast<uint8_t>(flip);
-                        records_[typed.record] ^= static_cast<uint8_t>(flip);
-                    }
-                } else if constexpr (std::is_same_v<T, ExecutablePlan::ExecuteDetector>) {
-                    const bool outcome = evaluate(typed.outcome);
-                    detectors_[typed.detector] = static_cast<uint8_t>(outcome);
-                    discarded_ |= typed.postselected && outcome;
-                } else if constexpr (std::is_same_v<T, ExecutablePlan::ExecuteObservable>) {
-                    observables_[typed.observable] = static_cast<uint8_t>(evaluate(typed.outcome));
-                } else {
-                    static_assert(kAlwaysFalse<T>, "Unhandled executable action alternative");
-                }
+                execute_action<ForceRecords>(typed, forced_records, result);
             },
             action);
         if constexpr (ForceRecords) {

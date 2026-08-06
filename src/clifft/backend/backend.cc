@@ -3,6 +3,7 @@
 #include "clifft/backend/compiler_context.h"
 #include "clifft/util/canonical_phase.h"
 #include "clifft/util/mask_view.h"
+#include "clifft/util/noise_sampling.h"
 
 #include <algorithm>
 #include <bit>
@@ -917,7 +918,7 @@ CompiledModule lower_impl(const HirModule& hir,
                 // Clamp to 1 - 2^-53 (one ULP below 1.0 in double precision).
                 // This matches the maximum value of random_double() = (rng() >> 11) * 2^-53,
                 // preventing log1p(-1) = -inf when prob_sum rounds to exactly 1.0.
-                ctx.noise_hazards_accum += -std::log1p(-std::min(prob_sum, 1.0 - 0x1.0p-53));
+                ctx.noise_hazards_accum += bernoulli_hazard(prob_sum);
                 ctx.constant_pool.noise_hazards.push_back(ctx.noise_hazards_accum);
                 break;
             }
