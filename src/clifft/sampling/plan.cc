@@ -19,30 +19,6 @@ namespace {
 template <typename>
 inline constexpr bool kAlwaysFalse = false;
 
-uint32_t index(SymbolId id) {
-    return static_cast<uint32_t>(id);
-}
-
-uint32_t index(RecordSlot slot) {
-    return static_cast<uint32_t>(slot);
-}
-
-uint32_t index(NoiseSiteId site) {
-    return static_cast<uint32_t>(site);
-}
-
-uint32_t index(InstrumentSiteId site) {
-    return static_cast<uint32_t>(site);
-}
-
-uint32_t index(DetectorSlot slot) {
-    return static_cast<uint32_t>(slot);
-}
-
-uint32_t index(ObservableSlot slot) {
-    return static_cast<uint32_t>(slot);
-}
-
 std::vector<SymbolId> xor_terms(const std::vector<SymbolId>& left,
                                 const std::vector<SymbolId>& right) {
     // Canonical inputs are sorted and unique, so XOR is their symmetric

@@ -28,6 +28,7 @@ using clifft::sampling::classify_measurement_branch;
 using clifft::sampling::DefineSymbol;
 using clifft::sampling::ExecutablePlan;
 using clifft::sampling::Executor;
+using clifft::sampling::index;
 using clifft::sampling::InstrumentBoundary;
 using clifft::sampling::InstrumentSiteId;
 using clifft::sampling::MeasureActivePauli;
@@ -217,7 +218,7 @@ std::vector<uint8_t> sample_reference_noise(const SamplingPlan& plan,
                 }
             }
         }
-        result[static_cast<uint32_t>(site.outcomes[outcome_index].symbol)] = 1;
+        result[index(site.outcomes[outcome_index].symbol)] = 1;
         first_candidate = site_index + 1;
     }
     return result;
