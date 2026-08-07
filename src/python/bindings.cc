@@ -1025,6 +1025,20 @@ NB_MODULE(_clifft_core, m) {
         "Return experimental scalar sampling computational-basis probabilities.");
 
     m.def(
+        "_get_statevector_experimental_sampling",
+        [](const clifft::sampling::ExecutablePlan& program) {
+            std::vector<std::complex<double>> statevector;
+            {
+                nb::gil_scoped_release release;
+                statevector = clifft::sampling::get_statevector(program);
+            }
+            const size_t size = statevector.size();
+            return vec_to_numpy(std::move(statevector), {size});
+        },
+        nb::arg("program"),
+        "Expand an experimental pure-state sampling program into a dense statevector.");
+
+    m.def(
         "_record_probabilities_experimental_sampling",
         [](const clifft::sampling::ExecutablePlan& program,
            nb::ndarray<nb::numpy, const uint8_t, nb::shape<-1, -1>, nb::c_contig> records) {

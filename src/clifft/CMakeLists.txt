@@ -27,6 +27,7 @@ add_library(clifft_core STATIC
     api/basis_probabilities.cc
     api/record_probabilities.cc
     api/reference_syndrome.cc
+    api/statevector.cc
     svm/svm.cc
     svm/svm_forced_kernels.cc
     svm/svm_instrument_kernels.cc

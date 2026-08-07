@@ -5,7 +5,10 @@ validate statevector equivalence up to global phase. Componentwise
 global-phase checks live in the peephole/canonical-phase suites.
 """
 
+from collections.abc import Callable
+
 import numpy as np
+import numpy.typing as npt
 import pytest
 from conftest import (
     assert_statevectors_equiv,
@@ -14,25 +17,26 @@ from conftest import (
 )
 from utils_qiskit import qiskit_statevector, stim_to_qiskit_noiseless
 
-import clifft
+
+class _StatevectorBackendMixin:
+    """Run each independent oracle through both final-state implementations."""
+
+    statevector: Callable[[str], npt.NDArray[np.complex128]]
+
+    @pytest.fixture(autouse=True)
+    def _select_statevector_backend(
+        self, statevector_from_circuit: Callable[[str], npt.NDArray[np.complex128]]
+    ) -> None:
+        self.statevector = statevector_from_circuit
 
 
-def _clifft_statevector(circuit_str: str) -> np.ndarray:
-    """Compile and execute circuit in Clifft, return dense statevector."""
-    prog = clifft.compile(circuit_str)
-    state = clifft.State(peak_rank=prog.peak_rank, num_measurements=prog.num_measurements)
-    clifft.execute(prog, state)
-    sv: np.ndarray = clifft.get_statevector(prog, state)
-    return sv
-
-
-class TestQiskitStatevectorOracle:
+class TestQiskitStatevectorOracle(_StatevectorBackendMixin):
     """Validate Clifft statevectors against Qiskit-Aer."""
 
     def test_single_h(self) -> None:
         """H|0> = |+> matches Qiskit."""
         circuit = "H 0"
-        clifft_sv = _clifft_statevector(circuit)
+        clifft_sv = self.statevector(circuit)
         qc = stim_to_qiskit_noiseless(circuit)
         qiskit_sv = qiskit_statevector(qc)
         assert_statevectors_equiv(clifft_sv, qiskit_sv)
@@ -40,7 +44,7 @@ class TestQiskitStatevectorOracle:
     def test_single_t(self) -> None:
         """H-T circuit matches Qiskit."""
         circuit = "H 0\nT 0"
-        clifft_sv = _clifft_statevector(circuit)
+        clifft_sv = self.statevector(circuit)
         qc = stim_to_qiskit_noiseless(circuit)
         qiskit_sv = qiskit_statevector(qc)
         assert_statevectors_equiv(clifft_sv, qiskit_sv)
@@ -48,7 +52,7 @@ class TestQiskitStatevectorOracle:
     def test_t_dagger(self) -> None:
         """H-T_DAG circuit matches Qiskit."""
         circuit = "H 0\nT_DAG 0"
-        clifft_sv = _clifft_statevector(circuit)
+        clifft_sv = self.statevector(circuit)
         qc = stim_to_qiskit_noiseless(circuit)
         qiskit_sv = qiskit_statevector(qc)
         assert_statevectors_equiv(clifft_sv, qiskit_sv)
@@ -56,7 +60,7 @@ class TestQiskitStatevectorOracle:
     def test_bell_plus_t(self) -> None:
         """Bell state + T gate matches Qiskit."""
         circuit = "H 0\nCX 0 1\nT 0"
-        clifft_sv = _clifft_statevector(circuit)
+        clifft_sv = self.statevector(circuit)
         qc = stim_to_qiskit_noiseless(circuit)
         qiskit_sv = qiskit_statevector(qc)
         assert_statevectors_equiv(clifft_sv, qiskit_sv)
@@ -64,7 +68,7 @@ class TestQiskitStatevectorOracle:
     def test_two_t_equals_s(self) -> None:
         """T*T = S identity matches Qiskit."""
         circuit = "H 0\nT 0\nT 0"
-        clifft_sv = _clifft_statevector(circuit)
+        clifft_sv = self.statevector(circuit)
         qc = stim_to_qiskit_noiseless(circuit)
         qiskit_sv = qiskit_statevector(qc)
         assert_statevectors_equiv(clifft_sv, qiskit_sv)
@@ -72,7 +76,7 @@ class TestQiskitStatevectorOracle:
     def test_four_t_equals_z(self) -> None:
         """T^4 = Z identity matches Qiskit."""
         circuit = "H 0\nT 0\nT 0\nT 0\nT 0"
-        clifft_sv = _clifft_statevector(circuit)
+        clifft_sv = self.statevector(circuit)
         qc = stim_to_qiskit_noiseless(circuit)
         qiskit_sv = qiskit_statevector(qc)
         assert_statevectors_equiv(clifft_sv, qiskit_sv)
@@ -82,7 +86,7 @@ class TestQiskitStatevectorOracle:
     def test_random_clifford_t_small(self, num_qubits: int, seed: int) -> None:
         """Random Clifford+T circuits up to 5 qubits match Qiskit."""
         circuit = random_clifford_t_circuit(num_qubits, depth=15, seed=seed)
-        clifft_sv = _clifft_statevector(circuit)
+        clifft_sv = self.statevector(circuit)
         qc = stim_to_qiskit_noiseless(circuit)
         qiskit_sv = qiskit_statevector(qc)
         assert_statevectors_equiv(clifft_sv, qiskit_sv, msg=f"{num_qubits}q seed={seed}\n{circuit}")
@@ -92,7 +96,7 @@ class TestQiskitStatevectorOracle:
         """Random Clifford+T circuits at 6 qubits match Qiskit."""
         for num_qubits in [6]:
             circuit = random_clifford_t_circuit(num_qubits, depth=20, seed=seed)
-            clifft_sv = _clifft_statevector(circuit)
+            clifft_sv = self.statevector(circuit)
             qc = stim_to_qiskit_noiseless(circuit)
             qiskit_sv = qiskit_statevector(qc)
             assert_statevectors_equiv(
@@ -115,7 +119,7 @@ class TestQiskitStatevectorOracle:
                 "T 0",
             ]
         )
-        clifft_sv = _clifft_statevector(circuit)
+        clifft_sv = self.statevector(circuit)
         qc = stim_to_qiskit_noiseless(circuit)
         qiskit_sv = qiskit_statevector(qc)
         assert_statevectors_equiv(clifft_sv, qiskit_sv)
@@ -123,7 +127,7 @@ class TestQiskitStatevectorOracle:
     def test_ch_gate(self) -> None:
         """CH parser rewrite matches Qiskit."""
         circuit = "H 0\nCH 0 1"
-        clifft_sv = _clifft_statevector(circuit)
+        clifft_sv = self.statevector(circuit)
         qc = stim_to_qiskit_noiseless(circuit)
         qiskit_sv = qiskit_statevector(qc)
         assert_statevectors_equiv(clifft_sv, qiskit_sv)
@@ -131,7 +135,7 @@ class TestQiskitStatevectorOracle:
     def test_ccz_gate(self) -> None:
         """CCZ parser rewrite matches Qiskit."""
         circuit = "H 0\nH 1\nH 2\nCCZ 0 1 2"
-        clifft_sv = _clifft_statevector(circuit)
+        clifft_sv = self.statevector(circuit)
         qc = stim_to_qiskit_noiseless(circuit)
         qiskit_sv = qiskit_statevector(qc)
         assert_statevectors_equiv(clifft_sv, qiskit_sv)
@@ -139,7 +143,7 @@ class TestQiskitStatevectorOracle:
     def test_ccx_gate(self) -> None:
         """CCX parser rewrite matches Qiskit."""
         circuit = "H 0\nH 1\nCCX 0 1 2"
-        clifft_sv = _clifft_statevector(circuit)
+        clifft_sv = self.statevector(circuit)
         qc = stim_to_qiskit_noiseless(circuit)
         qiskit_sv = qiskit_statevector(qc)
         assert_statevectors_equiv(clifft_sv, qiskit_sv)
@@ -151,13 +155,13 @@ class TestQiskitStatevectorOracle:
             lines.append(f"T {i % 2}")
             lines.append("CX 0 1")
         circuit = "\n".join(lines)
-        clifft_sv = _clifft_statevector(circuit)
+        clifft_sv = self.statevector(circuit)
         qc = stim_to_qiskit_noiseless(circuit)
         qiskit_sv = qiskit_statevector(qc)
         assert_statevectors_equiv(clifft_sv, qiskit_sv)
 
 
-class TestDenseCliffordTFuzzer:
+class TestDenseCliffordTFuzzer(_StatevectorBackendMixin):
     """Validate Clifft against Qiskit-Aer with dense entanglement circuits.
 
     Uses higher 2-qubit gate probability (50%) and all three 2-qubit gates
@@ -169,7 +173,7 @@ class TestDenseCliffordTFuzzer:
     def test_dense_entanglement_small(self, num_qubits: int, seed: int) -> None:
         """Dense Clifford+T circuits at 3-5 qubits match Qiskit."""
         circuit = random_dense_clifford_t_circuit(num_qubits, depth=30, seed=seed)
-        clifft_sv = _clifft_statevector(circuit)
+        clifft_sv = self.statevector(circuit)
         qc = stim_to_qiskit_noiseless(circuit)
         qiskit_sv = qiskit_statevector(qc)
         assert_statevectors_equiv(
@@ -180,7 +184,7 @@ class TestDenseCliffordTFuzzer:
     def test_dense_entanglement_medium(self, seed: int) -> None:
         """Dense Clifford+T at 6 qubits match Qiskit."""
         circuit = random_dense_clifford_t_circuit(6, depth=40, seed=seed)
-        clifft_sv = _clifft_statevector(circuit)
+        clifft_sv = self.statevector(circuit)
         qc = stim_to_qiskit_noiseless(circuit)
         qiskit_sv = qiskit_statevector(qc)
         assert_statevectors_equiv(clifft_sv, qiskit_sv, msg=f"dense 6q seed={seed}")
@@ -189,13 +193,13 @@ class TestDenseCliffordTFuzzer:
     def test_deep_phase_accumulation(self, seed: int) -> None:
         """Deep circuits (depth=100) stress T-gate phase arithmetic."""
         circuit = random_dense_clifford_t_circuit(4, depth=100, seed=seed, two_qubit_prob=0.3)
-        clifft_sv = _clifft_statevector(circuit)
+        clifft_sv = self.statevector(circuit)
         qc = stim_to_qiskit_noiseless(circuit)
         qiskit_sv = qiskit_statevector(qc)
         assert_statevectors_equiv(clifft_sv, qiskit_sv, msg=f"deep 4q seed={seed}")
 
 
-class TestArbitraryRotations:
+class TestArbitraryRotations(_StatevectorBackendMixin):
     """Validate continuous rotation gates against Qiskit Aer."""
 
     def _check_amplitudes(self, stim_text: str, atol: float = 1e-6) -> None:
@@ -207,18 +211,7 @@ class TestArbitraryRotations:
         this single global scalar and then enforce strict equality across
         all relative amplitudes.
         """
-        import clifft
-
-        prog = clifft.compile(
-            stim_text,
-            hir_passes=clifft.default_hir_pass_manager(),
-            bytecode_passes=clifft.default_bytecode_pass_manager(),
-        )
-        state = clifft.State(
-            peak_rank=prog.peak_rank, num_measurements=prog.num_measurements, seed=42
-        )
-        clifft.execute(prog, state)
-        clifft_sv = np.array(clifft.get_statevector(prog, state))
+        clifft_sv = self.statevector(stim_text)
 
         qc = stim_to_qiskit_noiseless(stim_text)
         qiskit_sv = qiskit_statevector(qc)

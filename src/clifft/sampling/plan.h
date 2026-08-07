@@ -309,7 +309,7 @@ struct SamplingPlan {
     bool has_postselection = false;
     std::complex<double> global_weight = {1.0, 0.0};
 
-    // Present only for pure-state plans eligible for computational-basis
+    // Present only for pure-state plans eligible for exact final-state
     // queries. It maps the final stabilizer coordinates used by the action
     // stream into physical qubits and is never read by ordinary dispatch.
     std::optional<stim::Tableau<kStimWidth>> final_tableau;

@@ -59,6 +59,8 @@ class ExecutablePlan;
                                                       size_t num_basis_masks,
                                                       size_t words_per_basis_mask);
 
+[[nodiscard]] std::vector<std::complex<double>> get_statevector(const ExecutablePlan& plan);
+
 [[nodiscard]] MeasurementBranchClassification classify_measurement_branch(
     MeasurementProbabilities probabilities) noexcept;
 
@@ -78,7 +80,7 @@ class ExecutablePlan {
     [[nodiscard]] bool has_postselection() const { return has_postselection_; }
     [[nodiscard]] bool has_readout_noise() const { return has_readout_noise_; }
     [[nodiscard]] bool has_instruments() const { return has_instruments_; }
-    [[nodiscard]] bool supports_basis_probabilities() const { return final_tableau_.has_value(); }
+    [[nodiscard]] bool supports_final_state_queries() const { return final_tableau_.has_value(); }
     // Exact final-state queries need the coordinate-to-physical map, but
     // ordinary execution must not depend on or mutate it.
     [[nodiscard]] const stim::Tableau<kStimWidth>* final_state_tableau() const noexcept {
