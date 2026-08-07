@@ -39,6 +39,7 @@ struct PendingMeasurement {
     Pauli body;
     AffineBool sign;
     RecordSlot record{};
+    SymbolId branch{};
 };
 
 struct PendingConditionalPauli {
@@ -59,6 +60,25 @@ struct PendingReadoutNoise {
     RecordSlot record{};
     double prob_zero_to_one = 0.0;
     double prob_one_to_zero = 0.0;
+    SymbolId flip{};
+};
+
+struct PendingInstrument {
+    // Source observable and computational destination correction, expressed
+    // in the coordinate basis that future planner transformations update.
+    Pauli body;
+    Pauli destination_flip;
+    // Maps the source observable's eigenspaces to physical G and E; earlier
+    // stochastic outcomes can make this mapping symbolic.
+    AffineBool sign;
+    // Indexes both the plan-owned distribution and its continuation boundary.
+    InstrumentSiteId site{};
+    // Reserved in HIR order so a rewritten suffix cannot renumber the prefix.
+    SymbolId destination_flip_symbol{};
+    // Continuations retain only noise and symbols preceding this HIR site.
+    uint32_t next_noise_site = 0;
+    uint32_t symbol_prefix_size = 0;
+    bool neglect_damping = false;
 };
 
 struct PendingDetector {
@@ -75,7 +95,7 @@ struct PendingObservable {
 
 using PendingOperation =
     std::variant<PendingRotation, PendingMeasurement, PendingConditionalPauli, PendingNoise,
-                 PendingReadoutNoise, PendingDetector, PendingObservable>;
+                 PendingReadoutNoise, PendingInstrument, PendingDetector, PendingObservable>;
 
 Pauli pauli_from_hir(const HirModule& hir, const HeisenbergOp& op) {
     Pauli result(hir.num_qubits);
@@ -89,6 +109,15 @@ Pauli noise_pauli_from_hir(const HirModule& hir, PauliMaskHandle handle) {
     const PauliMaskView mask = hir.noise_channel_masks.at(handle);
     mask_view_to_stim(mask.x(), hir.num_qubits, result.xs);
     mask_view_to_stim(mask.z(), hir.num_qubits, result.zs);
+    return result;
+}
+
+Pauli pauli_from_mask(const HirModule& hir, PauliMaskHandle handle) {
+    Pauli result(hir.num_qubits);
+    const PauliMaskView mask = hir.pauli_masks.at(handle);
+    mask_view_to_stim(mask.x(), hir.num_qubits, result.xs);
+    mask_view_to_stim(mask.z(), hir.num_qubits, result.zs);
+    result.sign = false;
     return result;
 }
 
@@ -288,6 +317,9 @@ void visit_pending_pauli(PendingOperation& operation, Function&& function) {
             if constexpr (std::is_same_v<T, PendingRotation> ||
                           std::is_same_v<T, PendingMeasurement>) {
                 function(typed.body, &typed.sign);
+            } else if constexpr (std::is_same_v<T, PendingInstrument>) {
+                function(typed.body, &typed.sign);
+                function(typed.destination_flip, nullptr);
             } else if constexpr (std::is_same_v<T, PendingConditionalPauli>) {
                 function(typed.body, nullptr);
             } else if constexpr (std::is_same_v<T, PendingNoise>) {
@@ -330,7 +362,8 @@ void propagate_conditional_pauli(std::vector<PendingOperation>& pending, size_t 
             [&](auto& typed) {
                 using T = std::decay_t<decltype(typed)>;
                 if constexpr (std::is_same_v<T, PendingRotation> ||
-                              std::is_same_v<T, PendingMeasurement>) {
+                              std::is_same_v<T, PendingMeasurement> ||
+                              std::is_same_v<T, PendingInstrument>) {
                     if (anticommutes(correction, typed.body)) {
                         typed.sign ^= condition;
                     }
@@ -358,7 +391,8 @@ void propagate_branch(std::vector<PendingOperation>& pending, size_t begin,
             [&](auto& typed) {
                 using T = std::decay_t<decltype(typed)>;
                 if constexpr (std::is_same_v<T, PendingRotation> ||
-                              std::is_same_v<T, PendingMeasurement>) {
+                              std::is_same_v<T, PendingMeasurement> ||
+                              std::is_same_v<T, PendingInstrument>) {
                     if (typed.body.zs[branch_coordinate]) {
                         typed.sign ^= AffineBool::symbol(branch);
                     }
@@ -377,10 +411,19 @@ void propagate_branch(std::vector<PendingOperation>& pending, size_t begin,
     }
 }
 
-SymbolId append_branch(SamplingPlan& plan, uint32_t defining_action) {
-    const SymbolId branch{static_cast<uint32_t>(plan.symbols.size())};
-    plan.symbols.push_back(SymbolInfo{SymbolKind::Branch, defining_action, std::nullopt});
-    return branch;
+SymbolId reserve_symbol(SamplingPlan& plan) {
+    const SymbolId symbol{static_cast<uint32_t>(plan.symbols.size())};
+    plan.symbols.emplace_back();
+    return symbol;
+}
+
+void define_symbol(SamplingPlan& plan, SymbolId symbol, SymbolKind kind, uint32_t action) {
+    SymbolInfo& info = plan.symbols.at(index(symbol));
+    if (info.kind != SymbolKind::Unused || info.defining_action.has_value() ||
+        info.noise_site.has_value()) {
+        throw std::logic_error("sampling planner attempted to redefine a reserved symbol");
+    }
+    info = SymbolInfo{kind, action, std::nullopt};
 }
 
 void multiply_phase(std::complex<double>& weight, double angle) {
@@ -409,8 +452,24 @@ std::vector<PendingOperation> queue_supported_operations(const HirModule& hir, S
         plan.presampled_noise_sites[site].site = NoiseSiteId{site};
     }
     std::vector<bool> seen_noise_sites(hir.noise_sites.size(), false);
+    plan.instrument_distributions.reserve(hir.instrument_sites.size());
+    for (uint32_t site = 0; site < hir.instrument_sites.size(); ++site) {
+        const InstrumentProbabilities& probabilities = hir.instrument_sites[site].probabilities;
+        InstrumentDistribution distribution;
+        distribution.site = InstrumentSiteId{site};
+        for (uint8_t source = 0; source < 2; ++source) {
+            distribution.p_fire[source] = probabilities.p_fire[source];
+            for (uint8_t destination = 0; destination < 2; ++destination) {
+                distribution.p_computational_dest[source][destination] =
+                    probabilities.p_computational_dest[source][destination];
+            }
+        }
+        plan.instrument_distributions.push_back(distribution);
+    }
 
     uint32_t detector_index = 0;
+    uint32_t next_noise_site = 0;
+    uint32_t next_instrument_site = 0;
 
     for (size_t i = 0; i < hir.ops.size(); ++i) {
         const HeisenbergOp& op = hir.ops[i];
@@ -431,9 +490,9 @@ std::vector<PendingOperation> queue_supported_operations(const HirModule& hir, S
                 break;
             }
             case OpType::MEASURE:
-                pending.emplace_back(
-                    PendingMeasurement{pauli_from_hir(hir, op), AffineBool(hir.sign(op)),
-                                       RecordSlot{static_cast<uint32_t>(op.meas_record_idx())}});
+                pending.emplace_back(PendingMeasurement{
+                    pauli_from_hir(hir, op), AffineBool(hir.sign(op)),
+                    RecordSlot{static_cast<uint32_t>(op.meas_record_idx())}, reserve_symbol(plan)});
                 break;
             case OpType::CONDITIONAL_PAULI:
                 pending.emplace_back(PendingConditionalPauli{
@@ -449,6 +508,11 @@ std::vector<PendingOperation> queue_supported_operations(const HirModule& hir, S
                     throw std::invalid_argument(
                         "sampling planner encountered a duplicate noise site");
                 }
+                if (site_index != next_noise_site) {
+                    throw std::invalid_argument(
+                        "sampling planner noise sites are not in circuit order");
+                }
+                ++next_noise_site;
                 seen_noise_sites[site_index] = true;
                 const NoiseSite& hir_site = hir.noise_sites[site_index];
                 PresampledNoiseSite& plan_site = plan.presampled_noise_sites[site_index];
@@ -475,8 +539,29 @@ std::vector<PendingOperation> queue_supported_operations(const HirModule& hir, S
                     throw std::invalid_argument("sampling planner readout entry is out of range");
                 }
                 const ReadoutNoiseEntry& entry = hir.readout_noise[entry_index];
-                pending.emplace_back(PendingReadoutNoise{
-                    RecordSlot{entry.meas_idx}, entry.prob_zero_to_one, entry.prob_one_to_zero});
+                pending.emplace_back(
+                    PendingReadoutNoise{RecordSlot{entry.meas_idx}, entry.prob_zero_to_one,
+                                        entry.prob_one_to_zero, reserve_symbol(plan)});
+                break;
+            }
+            case OpType::INSTRUMENT: {
+                const uint32_t site_index = static_cast<uint32_t>(op.instrument_site_idx());
+                if (site_index >= hir.instrument_sites.size() ||
+                    site_index != next_instrument_site) {
+                    throw std::invalid_argument(
+                        "sampling planner instrument site is out of range or circuit order");
+                }
+                const InstrumentSite& site = hir.instrument_sites[site_index];
+                if (site.destination_flip_mask == kNoMask) {
+                    throw std::invalid_argument(
+                        "sampling planner instrument omits its destination flip");
+                }
+                const SymbolId flip = reserve_symbol(plan);
+                pending.emplace_back(PendingInstrument{
+                    pauli_from_hir(hir, op), pauli_from_mask(hir, site.destination_flip_mask),
+                    AffineBool(hir.sign(op)), InstrumentSiteId{site_index}, flip, next_noise_site,
+                    static_cast<uint32_t>(plan.symbols.size()), hir.neglect_instrument_damping});
+                ++next_instrument_site;
                 break;
             }
             case OpType::DETECTOR: {
@@ -505,7 +590,6 @@ std::vector<PendingOperation> queue_supported_operations(const HirModule& hir, S
                 break;
             }
             case OpType::EXP_VAL:
-            case OpType::INSTRUMENT:
             case OpType::NUM_OP_TYPES:
                 throw std::invalid_argument("sampling planner does not support HIR operation " +
                                             op_type_to_str(op.op_type()) + " at index " +
@@ -517,6 +601,10 @@ std::vector<PendingOperation> queue_supported_operations(const HirModule& hir, S
     }
     if (!std::ranges::all_of(seen_noise_sites, [](bool seen) { return seen; })) {
         throw std::invalid_argument("sampling planner noise-site table is inconsistent with HIR");
+    }
+    if (next_instrument_site != hir.instrument_sites.size()) {
+        throw std::invalid_argument(
+            "sampling planner instrument-site table is inconsistent with HIR");
     }
     return pending;
 }
@@ -557,7 +645,8 @@ AffineBool process_measurement(std::vector<PendingOperation>& pending, size_t in
         transform_future_operations(pending, index + 1, frame);
 
         const uint32_t action_index = static_cast<uint32_t>(plan.actions.size());
-        const SymbolId branch = append_branch(plan, action_index);
+        const SymbolId branch = measurement.branch;
+        define_symbol(plan, branch, SymbolKind::Branch, action_index);
         propagate_branch(pending, index + 1, *dormant_pivot, branch);
         const AffineBool outcome = measurement.sign ^ AffineBool::symbol(branch);
         plan.actions.push_back(PlannedAction{
@@ -590,7 +679,8 @@ AffineBool process_measurement(std::vector<PendingOperation>& pending, size_t in
     transform_future_operations(pending, index + 1, frame);
 
     const uint32_t action_index = static_cast<uint32_t>(plan.actions.size());
-    const SymbolId branch = append_branch(plan, action_index);
+    const SymbolId branch = measurement.branch;
+    define_symbol(plan, branch, SymbolKind::Branch, action_index);
     propagate_branch(pending, index + 1, active_width - 1, branch);
     const AffineBool outcome = measurement.sign ^ AffineBool::symbol(branch);
     plan.actions.push_back(
@@ -598,6 +688,82 @@ AffineBool process_measurement(std::vector<PendingOperation>& pending, size_t in
                       MeasureActivePauli{active, *pivot, branch, outcome, measurement.record}});
     --active_width;
     return outcome;
+}
+
+void process_instrument(std::vector<PendingOperation>& pending, size_t operation_index,
+                        const PendingInstrument& instrument, SamplingPlan& plan,
+                        uint32_t& active_width) {
+    const InstrumentDistribution& distribution =
+        plan.instrument_distributions.at(index(instrument.site));
+    const std::optional<uint32_t> dormant_pivot =
+        first_x_at_or_above(instrument.body, active_width);
+
+    InstrumentMode mode = InstrumentMode::Classical;
+    ActivePauli source;
+    AffineBool sign = instrument.sign;
+    Pauli destination_flip = instrument.destination_flip;
+    uint32_t active_after = active_width;
+
+    if (dormant_pivot.has_value()) {
+        // Equal no-fire factors normalize away. Otherwise exact damping needs
+        // the dormant-coherent source represented in the dense state.
+        if (instrument.neglect_damping || distribution.p_fire[0] == distribution.p_fire[1]) {
+            mode = InstrumentMode::DormantTrap;
+            sign = AffineBool{};
+        } else {
+            if (active_width + 1 >= kDenseActiveWidthLimit) {
+                throw std::overflow_error("sampling planner active width would reach " +
+                                          std::to_string(active_width + 1) +
+                                          ", but the dense-state limit is " +
+                                          std::to_string(kDenseActiveWidthLimit));
+            }
+            // Apply one coordinate change consistently to the source,
+            // destination correction, and every later operation.
+            const Tableau frame =
+                dormant_promotion_frame(instrument.body, active_width, *dormant_pivot);
+            const Tableau old_to_new = frame.inverse();
+            Pauli transformed_source = old_to_new(instrument.body);
+            sign ^= static_cast<bool>(transformed_source.sign);
+            transformed_source.sign = false;
+            destination_flip = old_to_new(destination_flip);
+            destination_flip.sign = false;
+            transform_future_operations(pending, operation_index + 1, frame);
+            ++active_after;
+            mode = InstrumentMode::Activate;
+            source = active_projection(transformed_source, active_after);
+        }
+    } else {
+        source = active_projection(instrument.body, active_width);
+        // An identity projection means the source is already determined by
+        // the symbolic sign; otherwise its active Pauli needs coefficient work.
+        mode = source.is_identity() ? InstrumentMode::Classical : InstrumentMode::Active;
+    }
+
+    const uint32_t action_index = static_cast<uint32_t>(plan.actions.size());
+    std::optional<SymbolId> destination_symbol;
+    if (mode != InstrumentMode::DormantTrap) {
+        // Only an in-line computational destination needs the reserved flip;
+        // a trapped continuation resolves its destination instead.
+        destination_symbol = instrument.destination_flip_symbol;
+        define_symbol(plan, instrument.destination_flip_symbol, SymbolKind::Instrument,
+                      action_index);
+    }
+    plan.actions.push_back(
+        PlannedAction{active_width, active_after,
+                      ApplyInstrument{instrument.site, mode, source, sign, destination_symbol}});
+
+    if (destination_symbol.has_value()) {
+        // Compile the possible runtime flip into signs of future operations.
+        propagate_conditional_pauli(pending, operation_index + 1, destination_flip,
+                                    AffineBool::symbol(*destination_symbol));
+    }
+    active_width = active_after;
+    plan.max_active_width = std::max(plan.max_active_width, active_width);
+    // A trapped shot resumes here so it cannot execute the instrument twice.
+    plan.actions.push_back(
+        PlannedAction{active_width, active_width,
+                      InstrumentBoundary{instrument.site, instrument.next_noise_site,
+                                         instrument.symbol_prefix_size}});
 }
 
 }  // namespace
@@ -672,14 +838,15 @@ SamplingPlan plan_sampling(const HirModule& hir, SamplingPlanOptions options) {
                         return;
                     }
                     const uint32_t action_index = static_cast<uint32_t>(plan.actions.size());
-                    const SymbolId flip{static_cast<uint32_t>(plan.symbols.size())};
-                    plan.symbols.push_back(
-                        SymbolInfo{SymbolKind::Readout, action_index, std::nullopt});
+                    const SymbolId flip = operation.flip;
+                    define_symbol(plan, flip, SymbolKind::Readout, action_index);
                     plan.actions.push_back(PlannedAction{
                         active_width, active_width,
                         ApplyReadoutNoise{flip, source, operation.record,
                                           operation.prob_zero_to_one, operation.prob_one_to_zero}});
                     record_values[index(operation.record)] = source ^ AffineBool::symbol(flip);
+                } else if constexpr (std::is_same_v<T, PendingInstrument>) {
+                    process_instrument(pending, i, operation, plan, active_width);
                 } else if constexpr (std::is_same_v<T, PendingDetector>) {
                     AffineBool outcome = record_parity(operation.records, i);
                     outcome ^= operation.expected;

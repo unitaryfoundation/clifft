@@ -41,6 +41,17 @@ struct ReplayResult {
     double log_probability = 0.0;
 };
 
+struct InstrumentTrap {
+    InstrumentSiteId site{};
+    uint8_t source = 0;
+    bool destination_pending = false;
+};
+
+struct ForcedTraceOut {
+    RecordSlot record{};
+    uint8_t source = 0;
+};
+
 [[nodiscard]] MeasurementBranchClassification classify_measurement_branch(
     MeasurementProbabilities probabilities) noexcept;
 
@@ -58,6 +69,10 @@ class ExecutablePlan {
     [[nodiscard]] uint32_t num_observables() const { return num_observables_; }
     [[nodiscard]] bool has_postselection() const { return has_postselection_; }
     [[nodiscard]] bool has_readout_noise() const { return has_readout_noise_; }
+    [[nodiscard]] bool has_instruments() const { return has_instruments_; }
+    [[nodiscard]] uint32_t num_instrument_sites() const {
+        return static_cast<uint32_t>(instrument_distributions_.size());
+    }
     [[nodiscard]] uint32_t num_symbols() const { return num_symbols_; }
     [[nodiscard]] uint32_t num_presampled_symbols() const {
         return static_cast<uint32_t>(presampled_symbols_.size());
@@ -132,6 +147,22 @@ class ExecutablePlan {
         uint32_t observable = 0;
     };
 
+    struct ExecuteInstrument {
+        InstrumentMode mode = InstrumentMode::Classical;
+        PreparedExpression sign;
+        std::optional<PreparedMeasurement> measurement;
+        uint32_t site = 0;
+        std::optional<uint32_t> destination_flip;
+    };
+
+    struct ExecuteBoundary {
+        uint32_t site = 0;
+        uint32_t active_width = 0;
+        uint32_t noise_begin = 0;
+        uint32_t noise_end = 0;
+        uint32_t symbol_prefix_size = 0;
+    };
+
     struct PreparedNoiseOutcome {
         uint32_t symbol = 0;
         double cumulative_probability = 0.0;
@@ -143,10 +174,10 @@ class ExecutablePlan {
         double total_probability = 0.0;
     };
 
-    using Action =
-        std::variant<ExecuteRotation, ExecutePromotion, ExecuteActiveMeasurement,
-                     ExecuteDormantMeasurement, ExecuteClassicalRecord, ExecuteSymbolDefinition,
-                     ExecuteReadoutNoise, ExecuteDetector, ExecuteObservable>;
+    using Action = std::variant<ExecuteRotation, ExecutePromotion, ExecuteActiveMeasurement,
+                                ExecuteDormantMeasurement, ExecuteClassicalRecord,
+                                ExecuteSymbolDefinition, ExecuteReadoutNoise, ExecuteDetector,
+                                ExecuteObservable, ExecuteInstrument, ExecuteBoundary>;
 
     PreparedExpression prepare_expression(const AffineBool& expression);
     PreparedExpression prepare_measurement_correction(const AffineBool& outcome, uint32_t branch);
@@ -161,6 +192,8 @@ class ExecutablePlan {
     uint32_t num_symbols_ = 0;
     bool has_postselection_ = false;
     bool has_readout_noise_ = false;
+    bool has_instruments_ = false;
+    uint32_t initial_noise_end_ = 0;
     std::complex<double> global_weight_ = {1.0, 0.0};
     std::vector<uint32_t> expression_terms_;
     // Maps each dense presampled input position to its plan-local SymbolId.
@@ -170,6 +203,8 @@ class ExecutablePlan {
     std::vector<PreparedNoiseOutcome> noise_outcomes_;
     std::vector<PreparedNoiseSite> noise_sites_;
     std::vector<double> noise_hazards_;
+    std::vector<InstrumentDistribution> instrument_distributions_;
+    std::vector<uint32_t> instrument_resume_offsets_;
     std::vector<Action> actions_;
 };
 
@@ -192,6 +227,13 @@ class Executor {
     // ascending SymbolId order. This path consumes no quantum-noise RNG draws.
     void run_shot(std::span<const uint8_t> presampled_values) noexcept;
 
+    // Continue a trapped shot in a plan compiled for the selected trajectory.
+    // Storage may grow here, before dispatch resumes. A forced record supplies
+    // the source chosen by a trap-only dormant instrument to the continuation's
+    // hidden trace-out measurement.
+    void resume(const ExecutablePlan& continuation,
+                std::optional<ForcedTraceOut> forced_trace_out = std::nullopt);
+
     // Replays the plan while forcing each record to a supplied Boolean value.
     // This reconstructs the corresponding branch state and computes its joint
     // log probability, enabling differential validation and exact record
@@ -204,15 +246,19 @@ class Executor {
         std::span<const uint8_t> presampled_values = {}) noexcept;
 
     [[nodiscard]] std::span<const uint8_t> visible_records() const {
-        return std::span<const uint8_t>(records_).first(plan_.num_visible_records_);
+        return std::span<const uint8_t>(records_).first(plan_->num_visible_records_);
     }
     [[nodiscard]] std::span<const uint8_t> hidden_records() const {
-        return std::span<const uint8_t>(records_).subspan(plan_.num_visible_records_);
+        return std::span<const uint8_t>(records_).subspan(plan_->num_visible_records_,
+                                                          plan_->num_hidden_records_);
     }
-    [[nodiscard]] std::span<const uint8_t> symbols() const { return symbols_; }
+    [[nodiscard]] std::span<const uint8_t> symbols() const {
+        return std::span<const uint8_t>(symbols_).first(plan_->num_symbols_);
+    }
     [[nodiscard]] std::span<const uint8_t> detectors() const { return detectors_; }
     [[nodiscard]] std::span<const uint8_t> observables() const { return observables_; }
     [[nodiscard]] bool discarded() const { return discarded_; }
+    [[nodiscard]] std::optional<InstrumentTrap> pending_trap() const { return pending_trap_; }
     [[nodiscard]] const State& state() const { return state_; }
     // Counts positive branch probability mass classified as numerical dust.
     // This telemetry accumulates across shots.
@@ -221,10 +267,11 @@ class Executor {
   private:
     void reset_shot() noexcept;
     void assign_presampled_values(std::span<const uint8_t> presampled_values) noexcept;
-    void sample_presampled_noise() noexcept;
+    void sample_presampled_noise(uint32_t begin, uint32_t end) noexcept;
 
-    template <bool ForceRecords>
-    [[nodiscard]] ReplayResult execute_actions(std::span<const uint8_t> forced_records) noexcept;
+    template <bool ForceRecords, bool SampleNoise>
+    [[nodiscard]] ReplayResult execute_actions(std::span<const uint8_t> forced_records,
+                                               uint32_t begin = 0) noexcept;
     template <bool ForceRecords>
     void execute_action(const ExecutablePlan::ExecuteRotation& action,
                         std::span<const uint8_t> forced_records, ReplayResult& result) noexcept;
@@ -252,6 +299,12 @@ class Executor {
     template <bool ForceRecords>
     void execute_action(const ExecutablePlan::ExecuteObservable& action,
                         std::span<const uint8_t> forced_records, ReplayResult& result) noexcept;
+    template <bool ForceRecords>
+    void execute_action(const ExecutablePlan::ExecuteInstrument& action,
+                        std::span<const uint8_t> forced_records, ReplayResult& result) noexcept;
+    template <bool SampleNoise>
+    void execute_action(const ExecutablePlan::ExecuteBoundary& action,
+                        std::span<const uint8_t> forced_records, ReplayResult& result) noexcept;
 
     [[nodiscard]] bool evaluate(ExecutablePlan::PreparedExpression expression) const noexcept;
     [[nodiscard]] bool sample_active_branch(MeasurementProbabilities probabilities) noexcept;
@@ -259,15 +312,19 @@ class Executor {
                                                             bool branch) noexcept;
     [[nodiscard]] bool sample_dormant_branch() noexcept;
 
-    const ExecutablePlan& plan_;
+    const ExecutablePlan* root_plan_;
+    const ExecutablePlan* plan_;
     State state_;
     std::vector<uint8_t> symbols_;
     std::vector<uint8_t> records_;
     std::vector<uint8_t> detectors_;
     std::vector<uint8_t> observables_;
+    std::vector<uint8_t> forced_record_mask_;
+    std::vector<uint8_t> forced_record_values_;
     std::vector<uint32_t> previous_presampled_ones_;
     Xoshiro256PlusPlus rng_;
     bool discarded_ = false;
+    std::optional<InstrumentTrap> pending_trap_;
     uint64_t dust_clamps_ = 0;
 };
 

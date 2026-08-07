@@ -17,8 +17,8 @@ struct SamplingPlanOptions {
     std::span<const uint8_t> expected_observables;
 };
 
-// State-dependent instruments and exact-state probes remain outside this
-// sampling-only plan.
+// Exact-state probes remain outside this sampling-only plan. Instruments lower
+// to explicit state actions and continuation boundaries.
 [[nodiscard]] SamplingPlan plan_sampling(const HirModule& hir, SamplingPlanOptions options = {});
 
 }  // namespace clifft::sampling

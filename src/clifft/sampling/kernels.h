@@ -70,4 +70,15 @@ void apply_promotion(State& state, const PreparedPromotion& promotion, bool sign
 void collapse_measurement(State& state, const PreparedMeasurement& measurement, bool branch,
                           double branch_probability) noexcept;
 
+// Instrument back-action preserves active coordinates. An activating site adds
+// one |0> coordinate first; its prepared source Pauli already uses that wider
+// layout. The population reduction is shared with measurement preparation,
+// while filter and collapse keep the full coefficient array instead of
+// compacting a coordinate.
+void activate_zero_coordinate(State& state) noexcept;
+void apply_instrument_no_fire(State& state, const PreparedPauli& source, double factor_zero,
+                              double factor_one, double no_fire_probability) noexcept;
+void collapse_instrument_source(State& state, const PreparedPauli& source, bool branch,
+                                double branch_probability) noexcept;
+
 }  // namespace clifft::sampling

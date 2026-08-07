@@ -9,10 +9,13 @@
 
 using clifft::sampling::ActivePauli;
 using clifft::sampling::AffineBool;
+using clifft::sampling::ApplyInstrument;
 using clifft::sampling::ApplyReadoutNoise;
 using clifft::sampling::DefineSymbol;
 using clifft::sampling::DetectorSlot;
 using clifft::sampling::InstrumentBoundary;
+using clifft::sampling::InstrumentDistribution;
+using clifft::sampling::InstrumentMode;
 using clifft::sampling::InstrumentSiteId;
 using clifft::sampling::MeasureActivePauli;
 using clifft::sampling::MeasureDormantRandom;
@@ -38,6 +41,7 @@ SamplingPlan valid_plan() {
     const SymbolId noise{0};
     const SymbolId branch{1};
     const SymbolId derived{2};
+    const SymbolId instrument_flip{3};
 
     SamplingPlan plan;
     plan.num_qubits = 2;
@@ -50,9 +54,11 @@ SamplingPlan valid_plan() {
         SymbolInfo{SymbolKind::Presampled, std::nullopt, NoiseSiteId{0}},
         SymbolInfo{SymbolKind::Branch, 1, std::nullopt},
         SymbolInfo{SymbolKind::Derived, 2, std::nullopt},
+        SymbolInfo{SymbolKind::Instrument, 4, std::nullopt},
     };
     plan.presampled_noise_sites = {
         PresampledNoiseSite{NoiseSiteId{0}, {PresampledNoiseOutcome{noise, 0.1}}}};
+    plan.instrument_distributions = {InstrumentDistribution{InstrumentSiteId{0}, {0.0, 0.0}, {}}};
     plan.actions = {
         PlannedAction{0, 1, PromoteDormantRotation{0.25, AffineBool::symbol(noise)}},
         PlannedAction{1, 0,
@@ -61,7 +67,11 @@ SamplingPlan valid_plan() {
                                          RecordSlot{0}}},
         PlannedAction{0, 0, DefineSymbol{derived, AffineBool::symbol(branch) ^ true}},
         PlannedAction{0, 0, RecordClassical{AffineBool::symbol(derived), RecordSlot{1}}},
-        PlannedAction{0, 0, InstrumentBoundary{InstrumentSiteId{0}}},
+        PlannedAction{
+            0, 0,
+            ApplyInstrument{
+                InstrumentSiteId{0}, InstrumentMode::Classical, {}, AffineBool{}, instrument_flip}},
+        PlannedAction{0, 0, InstrumentBoundary{InstrumentSiteId{0}, 1, 4}},
     };
     return plan;
 }
@@ -131,7 +141,7 @@ TEST_CASE("Sampling plan validates symbolic and active state invariants") {
     REQUIRE(text.find("s0 kind=presampled noise_site=0") != std::string::npos);
     REQUIRE(text.find("1 active_width=1->0 dense_passes=2 measure_active") != std::string::npos);
     REQUIRE(text.find("outcome=s0 ^ s1 record=0") != std::string::npos);
-    REQUIRE(text.find("4 active_width=0->0 dense_passes=0 instrument_boundary site=0") !=
+    REQUIRE(text.find("5 active_width=0->0 dense_passes=0 instrument_boundary site=0 ") !=
             std::string::npos);
 }
 
@@ -170,7 +180,7 @@ TEST_CASE("Sampling plan rejects invalid symbol metadata and definitions") {
 
     SECTION("action defines an out-of-range symbol") {
         SamplingPlan plan = valid_plan();
-        std::get<DefineSymbol>(plan.actions[2].action).symbol = SymbolId{3};
+        std::get<DefineSymbol>(plan.actions[2].action).symbol = SymbolId{4};
         REQUIRE_THROWS_AS(plan.validate(), std::invalid_argument);
     }
 
@@ -195,7 +205,7 @@ TEST_CASE("Sampling plan rejects invalid symbol metadata and definitions") {
     SECTION("expression references an out-of-range symbol") {
         SamplingPlan plan = valid_plan();
         std::get<PromoteDormantRotation>(plan.actions[0].action).sign =
-            AffineBool::symbol(SymbolId{3});
+            AffineBool::symbol(SymbolId{4});
         REQUIRE_THROWS_AS(plan.validate(), std::invalid_argument);
     }
 
@@ -337,7 +347,7 @@ TEST_CASE("Sampling plan rejects invalid dimensions and action contracts") {
 
     SECTION("instrument boundary changes width") {
         SamplingPlan plan = valid_plan();
-        plan.actions[4].active_after = 1;
+        plan.actions[5].active_after = 1;
         REQUIRE_THROWS_AS(plan.validate(), std::invalid_argument);
     }
 
@@ -361,7 +371,7 @@ TEST_CASE("Sampling plan rejects invalid dimensions and action contracts") {
 
     SECTION("instrument site is out of range") {
         SamplingPlan plan = valid_plan();
-        std::get<InstrumentBoundary>(plan.actions[4].action).site = InstrumentSiteId{1};
+        std::get<InstrumentBoundary>(plan.actions[5].action).site = InstrumentSiteId{1};
         REQUIRE_THROWS_AS(plan.validate(), std::invalid_argument);
     }
 }
