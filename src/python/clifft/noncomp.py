@@ -30,7 +30,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from enum import IntEnum
-from typing import Iterator
+from typing import Callable, Iterator
 
 import numpy as np
 import numpy.typing as npt
@@ -326,10 +326,40 @@ def sample(
         ValueError: If a model or circuit contract is violated, an annotation
             is malformed, or a continuation exceeds ``max_rank``.
     """
+    return _sample_with(
+        circuit, model, shots, seed, max_rank, _clifft_core._sample_noncomputational
+    )
+
+
+def _sample_experimental(
+    circuit: Circuit | str,
+    model: Model,
+    shots: int,
+    seed: int | None = None,
+    max_rank: int | None = None,
+) -> NonComputationalSample:
+    return _sample_with(
+        circuit,
+        model,
+        shots,
+        seed,
+        max_rank,
+        _clifft_core._sample_noncomputational_experimental,
+    )
+
+
+def _sample_with(
+    circuit: Circuit | str,
+    model: Model,
+    shots: int,
+    seed: int | None,
+    max_rank: int | None,
+    sampler: Callable,
+) -> NonComputationalSample:
     if isinstance(circuit, str):
         circuit = _clifft_core.parse(circuit)
-    meas, det, obs, status, heralds, num_qubits, num_meas, num_det, num_obs = (
-        _clifft_core._sample_noncomputational(circuit, model._handle, shots, seed, max_rank)
+    meas, det, obs, status, heralds, num_qubits, num_meas, num_det, num_obs = sampler(
+        circuit, model._handle, shots, seed, max_rank
     )
     return NonComputationalSample(
         meas, det, obs, status, heralds, num_qubits, num_meas, num_det, num_obs

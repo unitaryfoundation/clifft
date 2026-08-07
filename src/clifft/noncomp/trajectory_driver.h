@@ -27,4 +27,11 @@ NonComputationalSample run_trajectory_driver(const Circuit& circuit,
                                              const SeedRoot& root,
                                              std::optional<uint32_t> max_rank);
 
+// Experimental symbolic-coordinate executor route. The public default remains
+// run_trajectory_driver until feature parity and validation are complete.
+NonComputationalSample run_sampling_trajectory_driver(const Circuit& circuit,
+                                                      const NonComputationalModel& model,
+                                                      uint32_t shots, const SeedRoot& root,
+                                                      std::optional<uint32_t> max_rank);
+
 }  // namespace clifft

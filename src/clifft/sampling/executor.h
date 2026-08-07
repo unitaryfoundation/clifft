@@ -220,6 +220,12 @@ class Executor {
     // Replace the deterministic seed with OS entropy before executing shots.
     void reseed_from_entropy() { rng_.seed_from_entropy(); }
 
+    // Replace all RNG state words. The trajectory driver uses this to keep
+    // executor draws in a domain separate from its own per-shot decisions.
+    void reseed_full(uint64_t s0, uint64_t s1, uint64_t s2, uint64_t s3) noexcept {
+        rng_.seed_full(s0, s1, s2, s3);
+    }
+
     // Draw plan-bound quantum noise from this executor's RNG before dispatch.
     void run_shot() noexcept;
 
@@ -233,6 +239,10 @@ class Executor {
     // hidden trace-out measurement.
     void resume(const ExecutablePlan& continuation,
                 std::optional<ForcedTraceOut> forced_trace_out = std::nullopt);
+
+    // Drop the borrowed continuation reference after its completed-shot
+    // outputs have been consumed, allowing the caller to destroy that plan.
+    void return_to_root_plan() noexcept;
 
     // Replays the plan while forcing each record to a supplied Boolean value.
     // This reconstructs the corresponding branch state and computes its joint

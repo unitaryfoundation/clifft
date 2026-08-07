@@ -1,9 +1,9 @@
-"""Cross-check clifft.noncomp sampling against an independent reference.
+"""Cross-check both noncomputational executors against an independent reference.
 
 The reference (``utils_noncomp_oracle``) is a tiny numpy density-matrix
 simulator built from first principles, plus explicit closed-form probabilities
 for the classical events (initial level, transitions, classifier). It is
-independent of clifft's sampler/rewriter/SVM. We first self-check the reference
+independent of Clifft's rewriter and executors. We first self-check the reference
 against clifft's own simulator on lossless circuits, then use it to validate the
 supported noncomputational subset within shot noise.
 
@@ -65,10 +65,10 @@ def test_oracle_partial_trace_of_bell_is_maximally_mixed():
 # Supported noncomputational behavior against the reference.
 
 
-def test_lossless_matches_clifft_distribution():
+def test_lossless_matches_clifft_distribution(noncomp_sampling_api):
     text = "H 0\nCX 0 1\nM 0\nM 1\n"
     model = noncomp.Model(initial_state=[1.0, 0.0, 0.0, 0.0, 0.0])
-    nc = noncomp.sample(text, model, shots=SHOTS, seed=1)
+    nc = noncomp_sampling_api(text, model, shots=SHOTS, seed=1)
     plain = np.asarray(clifft.sample(clifft.compile(text), SHOTS, 1).measurements)
     nc_m = np.asarray(nc.measurements)
     for q in range(2):
@@ -77,27 +77,27 @@ def test_lossless_matches_clifft_distribution():
     assert (nc_m[:, 0] == nc_m[:, 1]).mean() > 0.99
 
 
-def test_initial_population_sampling():
+def test_initial_population_sampling(noncomp_sampling_api):
     # 70% g (-> 0), 30% e (-> 1 via X-prep); expected P(record=1) = 0.3.
     model = noncomp.Model(initial_state=[0.7, 0.3, 0.0, 0.0, 0.0])
-    r = noncomp.sample("M 0\n", model, shots=SHOTS, seed=2)
+    r = noncomp_sampling_api("M 0\n", model, shots=SHOTS, seed=2)
     assert abs(_p1(r, 0) - 0.3) < BAND
 
 
-def test_transition_probability_on_known_source():
+def test_transition_probability_on_known_source(noncomp_sampling_api):
     # On known g, S jumps to leak_g with prob 0.4 (deficit 0.6 stays g).
     model = noncomp.Model(
         initial_state=[1.0, 0.0, 0.0, 0.0, 0.0],
         transitions={"S": noncomp_transition_matrix({(Level.LEAK_G, Level.G): 0.4})},
     )
-    r = noncomp.sample("S 0\n", model, shots=SHOTS, seed=3)
+    r = noncomp_sampling_api("S 0\n", model, shots=SHOTS, seed=3)
     leaked = np.isin(
         np.asarray(r.final_status), (noncomp.QubitStatus.LEAK_G, noncomp.QubitStatus.LEAK_E)
     ).mean()
     assert abs(leaked - 0.4) < BAND
 
 
-def test_inline_leakage_matches_exact_enumerator():
+def test_inline_leakage_matches_exact_enumerator(noncomp_sampling_api):
     """Source-preserving leakage agrees on entangled records and statuses."""
     import utils_noncomp_enumerator as en
 
@@ -112,7 +112,7 @@ def test_inline_leakage_matches_exact_enumerator():
     )
     assert reference.dropped_mass < 1e-12
 
-    result = noncomp.sample(
+    result = noncomp_sampling_api(
         circuit,
         noncomp.Model(classifier=noncomp.Classifier(classifier_matrix)),
         shots=SHOTS,
@@ -132,7 +132,7 @@ def test_inline_leakage_matches_exact_enumerator():
             assert abs(observed - expected) < BAND
 
 
-def test_inline_leakage_measure_reset_reprepares_parked_factor():
+def test_inline_leakage_measure_reset_reprepares_parked_factor(noncomp_sampling_api):
     """MR restores a leaked carrier at zero in both reference and sampler."""
     import utils_noncomp_enumerator as en
 
@@ -146,7 +146,7 @@ def test_inline_leakage_measure_reset_reprepares_parked_factor():
     )
     assert reference.record_probs == {(1, 0): 1.0}
 
-    result = noncomp.sample(
+    result = noncomp_sampling_api(
         circuit,
         noncomp.Model(classifier=noncomp.Classifier(classifier_matrix)),
         shots=32,
@@ -156,7 +156,7 @@ def test_inline_leakage_measure_reset_reprepares_parked_factor():
 
 
 @pytest.mark.parametrize("col,expected", [([0.0, 1.0], 1.0), ([1.0, 0.0], 0.0), ([0.5, 0.5], 0.5)])
-def test_classifier_replacement_distribution(col, expected):
+def test_classifier_replacement_distribution(col, expected, noncomp_sampling_api):
     # Always leak to leak_g, then the classifier's column sets the record bit.
     model = noncomp.Model(
         initial_state=[1.0, 0.0, 0.0, 0.0, 0.0],
@@ -167,11 +167,11 @@ def test_classifier_replacement_distribution(col, expected):
         },
         classifier=_classifier(Level.LEAK_G, col),
     )
-    r = noncomp.sample("H 0\nS 0\nM 0\n", model, shots=SHOTS, seed=4)
+    r = noncomp_sampling_api("H 0\nS 0\nM 0\n", model, shots=SHOTS, seed=4)
     assert abs(_p1(r, 0) - expected) < BAND
 
 
-def test_partial_relaxation_matches_analytic_mixture():
+def test_partial_relaxation_matches_analytic_mixture(noncomp_sampling_api):
     # With probability p the S transition collapses the H-prepared |+> to g;
     # otherwise the carrier stays coherent. P(M=1) = (1 - p) * P(1 | H|0>).
     p = 0.3
@@ -181,13 +181,13 @@ def test_partial_relaxation_matches_analytic_mixture():
             "S": noncomp_transition_matrix({(Level.G, Level.G): p, (Level.G, Level.E): p})
         },
     )
-    r = noncomp.sample("H 0\nS 0\nM 0\n", model, shots=SHOTS, seed=6)
+    r = noncomp_sampling_api("H 0\nS 0\nM 0\n", model, shots=SHOTS, seed=6)
     h = oracle.apply_1q(oracle.zero_state(1), "H", 0, 1)
     expected = (1 - p) * oracle.prob_one(h, 0, 1)
     assert abs(_p1(r, 0) - expected) < BAND
 
 
-def test_survivor_marginal_equals_partial_trace():
+def test_survivor_marginal_equals_partial_trace(noncomp_sampling_api):
     # Bell pair, lose qubit 0. The survivor's record marginal must equal the
     # reference partial trace (0.5), and the lost record follows the classifier.
     model = noncomp.Model(
@@ -197,7 +197,7 @@ def test_survivor_marginal_equals_partial_trace():
         },
         classifier=_classifier(Level.LOST, [0.5, 0.5]),
     )
-    r = noncomp.sample("H 0\nCX 0 1\nS 0\nM 0\nM 1\n", model, shots=SHOTS, seed=5)
+    r = noncomp_sampling_api("H 0\nCX 0 1\nS 0\nM 0\nM 1\n", model, shots=SHOTS, seed=5)
 
     bell = oracle.apply_cx(oracle.apply_1q(oracle.zero_state(2), "H", 0, 2), 0, 1, 2)
     expected_survivor = oracle.marginal_one_after_trace_out(bell, lost=0, survivor=1, n=2)
@@ -249,7 +249,7 @@ def test_set_collapsed_qubit_reprepares_destination():
 # Two-site exact-damping composition against the enumerator.
 
 
-def test_two_site_exact_damping_composition_matches_enumerator():
+def test_two_site_exact_damping_composition_matches_enumerator(noncomp_sampling_api):
     """Two LEVEL_TRANSITION[leak] sites in a row with p=0.5 from e, exact damping.
 
     Circuit: H 0 / LEVEL_TRANSITION[leak] 0 / LEVEL_TRANSITION[leak] 0 / H 0 / M 0.
@@ -285,7 +285,7 @@ def test_two_site_exact_damping_composition_matches_enumerator():
         classifier=_classifier(Level.LEAK_E, [0.0, 1.0]),
         damping="exact",
     )
-    r = noncomp.sample(circuit_text, model, shots=SHOTS, seed=31)
+    r = noncomp_sampling_api(circuit_text, model, shots=SHOTS, seed=31)
 
     empirical = en.empirical_record_probs(np.asarray(r.measurements))
     tvd = en.tvd(reference.record_probs, empirical)

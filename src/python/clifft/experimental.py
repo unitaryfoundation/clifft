@@ -12,7 +12,7 @@ from typing import TypeAlias, cast
 import numpy as np
 import numpy.typing as npt
 
-from clifft import MeasurementRecords, _records_from_outcomes
+from clifft import Circuit, MeasurementRecords, _records_from_outcomes, noncomp
 from clifft._clifft_core import (
     HirPassManager,
     _compile_experimental_sampling,
@@ -77,6 +77,21 @@ def sample(program: Program, shots: int, seed: int | None = None) -> SampleResul
     return SampleResult(measurements, detectors, observables)
 
 
+def sample_noncomputational(
+    circuit: Circuit | str,
+    model: noncomp.Model,
+    shots: int,
+    seed: int | None = None,
+    max_rank: int | None = None,
+) -> noncomp.NonComputationalSample:
+    """Sample leakage and loss with the experimental symbolic-coordinate backend.
+
+    This has the same inputs and result type as :func:`clifft.noncomp.sample`,
+    but does not change that API's default backend.
+    """
+    return noncomp._sample_experimental(circuit, model, shots, seed, max_rank)
+
+
 def sample_survivors(
     program: Program,
     shots: int,
@@ -136,5 +151,6 @@ __all__ = [
     "compile",
     "record_probabilities",
     "sample",
+    "sample_noncomputational",
     "sample_survivors",
 ]
