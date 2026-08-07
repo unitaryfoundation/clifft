@@ -252,9 +252,9 @@ def test_classifier_bit_feeds_observable():
     assert (r.observables == 1).all()
 
 
-def test_inverted_classifier_bit_feeds_records_detectors_and_observables():
+def test_inverted_classifier_bit_feeds_records_detectors_and_observables(noncomp_sampling_api):
     model = leak_model(classifier_for(LEAK_G, [1.0, 0.0]))
-    r = noncomp.sample(
+    r = noncomp_sampling_api(
         "H 0\nS 0\nM !0\nDETECTOR rec[-1]\nOBSERVABLE_INCLUDE(0) rec[-1]\n",
         model,
         shots=64,
@@ -275,9 +275,9 @@ def test_lost_measurement_classifier_bit():
     assert (r.measurements == 1).all()
 
 
-def test_measure_reset_on_leaked_preserves_slot_and_resets():
+def test_measure_reset_on_leaked_preserves_slot_and_resets(noncomp_sampling_api):
     model = leak_model(classifier_for(LEAK_G, [0.0, 1.0]))
-    r = noncomp.sample("H 0\nS 0\nMR 0\nM 0\n", model, shots=64, seed=12)
+    r = noncomp_sampling_api("H 0\nS 0\nMR 0\nM 0\n", model, shots=64, seed=12)
     assert r.num_measurements == 2
     assert (r.measurements[:, 0] == 1).all()  # MR slot: classifier bit
     assert (r.measurements[:, 1] == 0).all()  # reset, then M reads 0
@@ -489,7 +489,7 @@ def test_policy_knob_strings_validate():
         noncomp.Model(initial_state=ALL_G, damping="bogus")
 
 
-def test_loss_only_exact_damping_stays_at_stabilizer_cost():
+def test_loss_only_exact_damping_stays_at_stabilizer_cost(noncomp_sampling_api):
     """Equal per-source rates (LOSS always qualifies) take the trap-form
     lowering under damping="exact", so a loss-only model compiles at the
     neglect rank -- max_rank=0 passes -- while the physics stays exact:
@@ -497,7 +497,7 @@ def test_loss_only_exact_damping_stays_at_stabilizer_cost():
     circuit = "H 0\nLOSS(0.3) 0\nH 0\nM 0"
     cls = noncomp.Classifier([[1, 0, 1, 0, 0], [0, 1, 0, 1, 1]])
     model = noncomp.Model(classifier=cls)  # damping="exact" default
-    r = noncomp.sample(circuit, model, shots=4000, seed=17, max_rank=0)
+    r = noncomp_sampling_api(circuit, model, shots=4000, seed=17, max_rank=0)
     meas = r.measurements[:, 0]
     lost = r.final_status[:, 0] == noncomp.QubitStatus.LOST
     # Survivors: the H .. H sandwich returns |0> deterministically; a lost
@@ -508,7 +508,7 @@ def test_loss_only_exact_damping_stays_at_stabilizer_cost():
     assert abs(lost.mean() - 0.3) < 4 * (0.3 * 0.7 / 4000) ** 0.5
 
 
-def test_loss_on_many_coherent_qubits_compiles_flat():
+def test_loss_on_many_coherent_qubits_compiles_flat(noncomp_sampling_api):
     """Per-qubit LOSS sites do not accumulate rank under damping="exact"."""
     circuit = (
         "".join(f"H {i}\n" for i in range(5))
@@ -516,11 +516,11 @@ def test_loss_on_many_coherent_qubits_compiles_flat():
         + "".join(f"H {i}\nM {i}\n" for i in range(5))
     )
     cls = noncomp.Classifier([[1, 0, 1, 0, 0], [0, 1, 0, 1, 1]])
-    r = noncomp.sample(circuit, noncomp.Model(classifier=cls), shots=8, seed=3, max_rank=0)
+    r = noncomp_sampling_api(circuit, noncomp.Model(classifier=cls), shots=8, seed=3, max_rank=0)
     assert r.num_measurements == 5
 
 
-def test_max_rank_rejects_over_budget_exact_but_neglect_fits():
+def test_max_rank_rejects_over_budget_exact_but_neglect_fits(noncomp_sampling_api):
     # A source-dependent leak (only out of e) on a coherent dormant qubit is
     # genuinely non-Clifford: damping="exact" expands it into the amplitude
     # array, adding one to the compiled rank per site. Three H-prefixed sites
@@ -543,13 +543,13 @@ def test_max_rank_rejects_over_budget_exact_but_neglect_fits():
         )
 
     with pytest.raises(ValueError, match="max_rank"):
-        noncomp.sample(circuit, model("exact"), shots=4, seed=1, max_rank=2)
+        noncomp_sampling_api(circuit, model("exact"), shots=4, seed=1, max_rank=2)
 
-    r = noncomp.sample(circuit, model("neglect"), shots=4, seed=1, max_rank=2)
+    r = noncomp_sampling_api(circuit, model("neglect"), shots=4, seed=1, max_rank=2)
     assert r.num_measurements == 3
 
 
-def test_max_rank_ignores_the_unreachable_all_computational_module():
+def test_max_rank_ignores_the_unreachable_all_computational_module(noncomp_sampling_api):
     """A model whose initial state has zero computational mass never runs the
     no-event module; its rank must not be able to reject the run."""
     circuit = (
@@ -562,9 +562,9 @@ def test_max_rank_ignores_the_unreachable_all_computational_module():
     # Control: with computational initials the no-event module is real and
     # its rank exceeds the cap -- this is what makes the test discriminating.
     with pytest.raises(ValueError, match="max_rank"):
-        noncomp.sample(circuit, noncomp.Model(classifier=cls), shots=4, seed=3, max_rank=0)
+        noncomp_sampling_api(circuit, noncomp.Model(classifier=cls), shots=4, seed=3, max_rank=0)
     lost = noncomp.Model(initial_state=[0, 0, 0, 0, 1], classifier=cls)
-    r = noncomp.sample(circuit, lost, shots=16, seed=3, max_rank=0)
+    r = noncomp_sampling_api(circuit, lost, shots=16, seed=3, max_rank=0)
     assert (r.final_status == noncomp.QubitStatus.LOST).all()
     # The lost column reads symbol 1 with certainty: a raw readout of the
     # dropped-everything |0> carriers would give 0, so all-1 records verify
@@ -689,7 +689,7 @@ def test_fired_chain_head_on_lost_operand_blocks_else():
     assert np.all(result.measurements[:, 1] == 0)
 
 
-def test_chain_flip_on_parked_carrier_is_destroyed_by_restoring_reset():
+def test_chain_flip_on_parked_carrier_is_destroyed_by_restoring_reset(noncomp_sampling_api):
     """The passthrough is sound because a vacated carrier is unobservable;
     this verifies the restoration leg: a chain flip parked on a lost carrier is
     overwritten by the restoring reset, so the restored qubit reads a clean
@@ -703,7 +703,7 @@ def test_chain_flip_on_parked_carrier_is_destroyed_by_restoring_reset():
         classifier=classifier_for(LOST, [1.0, 0.0]),
         reset_restores_lost=True,
     )
-    result = noncomp.sample("S 0\nE(1) X0\nR 0\nM 0", model, shots=16, seed=11)
+    result = noncomp_sampling_api("S 0\nE(1) X0\nR 0\nM 0", model, shots=16, seed=11)
     assert (result.final_status[:, 0] == COMPUTATIONAL).all()
     assert np.all(result.measurements[:, 0] == 0)
 
@@ -789,17 +789,17 @@ def test_capable_model_rejects_mpp():
         noncomp.sample("S 0\nMPP Z0*Z1\n", model, shots=4, seed=5)
 
 
-def test_exp_val_probe_is_rejected():
+def test_exp_val_probe_is_rejected(noncomp_sampling_api):
     with pytest.raises(ValueError, match="EXP_VAL probes are not supported"):
-        noncomp.sample("EXP_VAL Z0\n", noncomp.Model(), shots=1, seed=5)
+        noncomp_sampling_api("EXP_VAL Z0\n", noncomp.Model(), shots=1, seed=5)
 
 
-def test_contract_validated_for_zero_shots():
+def test_contract_validated_for_zero_shots(noncomp_sampling_api):
     """Validation is shot-count independent: shots=0 still rejects a
     leak-capable model that measures without a classifier."""
     model = noncomp.Model(initial_state=ALL_G, transitions={"S": transition_to(LOST)})
     with pytest.raises(ValueError, match="classifier is required"):
-        noncomp.sample("S 0\nM 0", model, shots=0, seed=1)
+        noncomp_sampling_api("S 0\nM 0", model, shots=0, seed=1)
 
 
 def test_malformed_transition_error_names_key():
@@ -825,8 +825,19 @@ def test_sample_type_hints_resolve_at_runtime():
     real module-level name, not a TYPE_CHECKING-only import."""
     from typing import get_type_hints
 
+    from clifft import experimental
+
     hints = get_type_hints(noncomp.sample)
     assert "circuit" in hints
+    experimental_hints = get_type_hints(experimental.sample_noncomputational)
+    assert "circuit" in experimental_hints
+
+
+def test_experimental_noncomp_accepts_a_parsed_circuit():
+    from clifft import experimental
+
+    r = experimental.sample_noncomputational(clifft.parse("M 0"), noncomp.Model(), shots=4, seed=1)
+    assert np.array_equal(r.measurements, np.zeros((4, 1), dtype=np.uint8))
 
 
 def test_qubit_status_values():
@@ -877,7 +888,7 @@ def test_model_repr_contains_keys_and_damping():
     assert "neglect" in r
 
 
-def test_ternary_herald_on_measure_reset():
+def test_ternary_herald_on_measure_reset(noncomp_sampling_api):
     """MR on a leaked qubit heralds the sidecar, resets the qubit, and the
     next M reads 0.
 
@@ -911,7 +922,7 @@ def test_ternary_herald_on_measure_reset():
         transitions={"S": transitions_leak},
         classifier=noncomp.Classifier(clf_matrix),
     )
-    r = noncomp.sample("S 0\nMR 0\nM 0\n", model, shots=HERALD_SHOTS, seed=271)
+    r = noncomp_sampling_api("S 0\nMR 0\nM 0\n", model, shots=HERALD_SHOTS, seed=271)
 
     assert r.num_measurements == 2
 

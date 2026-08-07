@@ -17,6 +17,15 @@ def sampling_api(request: pytest.FixtureRequest) -> Any:
     return cast(Any, request.param)
 
 
+@pytest.fixture(
+    params=[clifft.noncomp.sample, experimental.sample_noncomputational],
+    ids=["svm", "symbolic-coordinate"],
+)
+def noncomp_sampling_api(request: pytest.FixtureRequest) -> Any:
+    """Run supported noncomputational trajectories through both executors."""
+    return cast(Any, request.param)
+
+
 def noncomp_transition_matrix(
     entries: Mapping[tuple[int, int], float],
 ) -> list[list[float]]:

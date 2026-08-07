@@ -58,6 +58,22 @@ nb::ndarray<nb::numpy, T, nb::c_contig> vec_to_numpy(std::vector<T> vec,
     return nb::ndarray<nb::numpy, T, nb::c_contig>(data, shape, owner);
 }
 
+nb::tuple noncomp_sample_to_python(clifft::NonComputationalSample r, uint32_t shots) {
+    // These values match Python's QubitStatus enum, including the distinct
+    // leaked substates.
+    std::vector<uint8_t> status(r.final_status.size());
+    for (size_t i = 0; i < r.final_status.size(); ++i) {
+        status[i] = static_cast<uint8_t>(r.final_status[i]);
+    }
+    auto meas = vec_to_numpy(std::move(r.measurements), {shots, r.num_measurements});
+    auto det = vec_to_numpy(std::move(r.detectors), {shots, r.num_detectors});
+    auto obs = vec_to_numpy(std::move(r.observables), {shots, r.num_observables});
+    auto fs = vec_to_numpy(std::move(status), {shots, r.num_qubits});
+    auto her = vec_to_numpy(std::move(r.heralds), {shots, r.num_measurements});
+    return nb::make_tuple(meas, det, obs, fs, her, r.num_qubits, r.num_measurements,
+                          r.num_detectors, r.num_observables);
+}
+
 // Noncomputational (leakage/loss) bindings. Raw spec-builder + sampler entry
 // points; the ergonomic surface (Model, Classifier, sample) lives in the
 // clifft.noncomp Python wrapper. The model is an opaque handle.
@@ -98,25 +114,28 @@ void register_noncomp(nb::module_& m) {
                 nb::gil_scoped_release release;
                 r = clifft::sample_noncomputational(circuit, model, shots, seed, max_rank);
             }
-            // Convert statuses to the uint8 codes exposed by Python. The values
-            // Computational=0, LeakG=1, LeakE=2, Lost=3 match Python's
-            // QubitStatus enum, including the distinct leaked substates.
-            std::vector<uint8_t> status(r.final_status.size());
-            for (size_t i = 0; i < r.final_status.size(); ++i) {
-                status[i] = static_cast<uint8_t>(r.final_status[i]);
-            }
-            auto meas = vec_to_numpy(std::move(r.measurements), {shots, r.num_measurements});
-            auto det = vec_to_numpy(std::move(r.detectors), {shots, r.num_detectors});
-            auto obs = vec_to_numpy(std::move(r.observables), {shots, r.num_observables});
-            auto fs = vec_to_numpy(std::move(status), {shots, r.num_qubits});
-            auto her = vec_to_numpy(std::move(r.heralds), {shots, r.num_measurements});
-            return nb::make_tuple(meas, det, obs, fs, her, r.num_qubits, r.num_measurements,
-                                  r.num_detectors, r.num_observables);
+            return noncomp_sample_to_python(std::move(r), shots);
         },
         nb::arg("circuit"), nb::arg("model"), nb::arg("shots"), nb::arg("seed") = nb::none(),
         nb::arg("max_rank") = nb::none(),
         "Sample a noncomputational model. Returns (measurements, detectors, observables, "
         "final_status, heralds, num_qubits, num_measurements, num_detectors, num_observables).");
+
+    m.def(
+        "_sample_noncomputational_experimental",
+        [](const clifft::Circuit& circuit, const clifft::NonComputationalModel& model,
+           uint32_t shots, std::optional<uint64_t> seed, std::optional<uint32_t> max_rank) {
+            clifft::NonComputationalSample r;
+            {
+                nb::gil_scoped_release release;
+                r = clifft::sample_noncomputational_experimental(circuit, model, shots, seed,
+                                                                 max_rank);
+            }
+            return noncomp_sample_to_python(std::move(r), shots);
+        },
+        nb::arg("circuit"), nb::arg("model"), nb::arg("shots"), nb::arg("seed") = nb::none(),
+        nb::arg("max_rank") = nb::none(),
+        "Sample a noncomputational model with the experimental symbolic-coordinate backend.");
 }
 
 NB_MODULE(_clifft_core, m) {

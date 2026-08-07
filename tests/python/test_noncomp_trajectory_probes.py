@@ -37,20 +37,22 @@ def _model(transitions: dict, damping: str = "exact") -> noncomp.Model:
     )
 
 
-def test_gate_determined_source_fires_exactly_zero():
+def test_gate_determined_source_fires_exactly_zero(noncomp_sampling_api):
     """H then H returns the qubit to |g> by algebra; a leak that fires only
     from e must then never fire -- the fire draw conditions on the live
     state, where <P_e> is exactly 0. The certain rate (p = 1) makes any
     ahead-of-time source guess loud: a uniform draw would leak half the
     shots."""
     model = _model({"leak": noncomp_transition_matrix({(Level.LEAK_E, Level.E): 1.0})})
-    r = noncomp.sample("H 0\nH 0\nLEVEL_TRANSITION[leak] 0\nM 0\n", model, shots=SHOTS, seed=11)
+    r = noncomp_sampling_api(
+        "H 0\nH 0\nLEVEL_TRANSITION[leak] 0\nM 0\n", model, shots=SHOTS, seed=11
+    )
     status = np.asarray(r.final_status)
     assert (status == noncomp.QubitStatus.COMPUTATIONAL).all()
     assert (np.asarray(r.measurements) == 0).all()  # H H |0> measures 0
 
 
-def test_bell_joint_correlation_has_tvd_zero():
+def test_bell_joint_correlation_has_tvd_zero(noncomp_sampling_api):
     """Source-dependent certain destinations on a Bell half: the collapse
     that picks the source is the same collapse the partner's measurement
     sees, so the classified record and the partner agree on every shot.
@@ -63,7 +65,7 @@ def test_bell_joint_correlation_has_tvd_zero():
             )
         }
     )
-    r = noncomp.sample(
+    r = noncomp_sampling_api(
         "H 0\nCX 0 1\nLEVEL_TRANSITION[leak] 0\nM 0\nM 1\n", model, shots=SHOTS, seed=12
     )
     m = np.asarray(r.measurements)
@@ -75,7 +77,7 @@ def test_bell_joint_correlation_has_tvd_zero():
     assert abs(m[:, 0].mean() - 0.5) < binomial_tolerance(0.5, SHOTS)
 
 
-def test_damping_boundary_probe_separates_exact_from_neglect():
+def test_damping_boundary_probe_separates_exact_from_neglect(noncomp_sampling_api):
     """|+> through one leak-from-e site, then an X-basis readout (H, M).
 
     The no-fire branch's back-action is the whole difference between the
@@ -106,8 +108,10 @@ def test_damping_boundary_probe_separates_exact_from_neglect():
         tol_exact + tol_neglect
     ), "probe lost its discriminating power; adjust p or SHOTS"
 
-    r_exact = noncomp.sample(text, _model(transitions, damping="exact"), shots=SHOTS, seed=13)
-    r_neglect = noncomp.sample(text, _model(transitions, damping="neglect"), shots=SHOTS, seed=14)
+    r_exact = noncomp_sampling_api(text, _model(transitions, damping="exact"), shots=SHOTS, seed=13)
+    r_neglect = noncomp_sampling_api(
+        text, _model(transitions, damping="neglect"), shots=SHOTS, seed=14
+    )
     p1_exact = float(np.asarray(r_exact.measurements)[:, 0].mean())
     p1_neglect = float(np.asarray(r_neglect.measurements)[:, 0].mean())
 
@@ -115,7 +119,7 @@ def test_damping_boundary_probe_separates_exact_from_neglect():
     assert abs(p1_neglect - expected_neglect) < tol_neglect
 
 
-def test_damping_null_source_independent_rates_make_neglect_exact():
+def test_damping_null_source_independent_rates_make_neglect_exact(noncomp_sampling_api):
     """Null counterpart of the boundary probe, which checks the direction the
     modes separate at source-DEPENDENT rates: when a transition's
     computational columns are EQUAL (fire 0.3 from g and from e, both to
@@ -142,7 +146,7 @@ def test_damping_null_source_independent_rates_make_neglect_exact():
             classifier=classifier,
             damping=damping,
         )
-        r = noncomp.sample(text, model, shots=shots, seed=11)
+        r = noncomp_sampling_api(text, model, shots=shots, seed=11)
         meas = np.asarray(r.measurements)[:, 0]
         status = np.asarray(r.final_status)[:, 0]
 
@@ -160,7 +164,7 @@ def test_damping_null_source_independent_rates_make_neglect_exact():
     assert abs(means["exact"] - means["neglect"]) < 8 * sigma
 
 
-def test_entangled_two_site_chain_matches_hand_derived_distribution():
+def test_entangled_two_site_chain_matches_hand_derived_distribution(noncomp_sampling_api):
     """GHZ across three qubits with two sequential leak sites; exact joint distribution.
 
     State after H 0 / CX 0 1 / CX 0 2: (|000> + |111>) / sqrt(2).
@@ -189,7 +193,7 @@ def test_entangled_two_site_chain_matches_hand_derived_distribution():
         "LEVEL_TRANSITION[leak] 1\nLEVEL_TRANSITION[leak] 2\n"
         "M 0\nM 1\nM 2\n"
     )
-    r = noncomp.sample(circuit, model, shots=SHOTS, seed=16)
+    r = noncomp_sampling_api(circuit, model, shots=SHOTS, seed=16)
     m = np.asarray(r.measurements)
 
     expected = {
@@ -230,7 +234,7 @@ def test_entangled_two_site_chain_matches_hand_derived_distribution():
     assert abs(float(both_leaked) - 0.405) < binomial_tolerance(0.405, SHOTS)
 
 
-def test_neglect_bell_correlation_probe():
+def test_neglect_bell_correlation_probe(noncomp_sampling_api):
     """Neglect-mode forced trace-out keeps the source-determined partner correlation.
 
     Model: source-dependent "leak" (e->leak_e p=1, g stays), identity
@@ -254,7 +258,7 @@ def test_neglect_bell_correlation_probe():
     model = _model(transitions, damping="neglect")
     text = "H 0\nCX 0 1\nLEVEL_TRANSITION[leak] 0\nM 0\nM 1\n"
 
-    r = noncomp.sample(text, model, shots=PROBE_SHOTS, seed=15)
+    r = noncomp_sampling_api(text, model, shots=PROBE_SHOTS, seed=15)
     m = np.asarray(r.measurements)
 
     # Per-shot correlation: m0 and m1 must agree on every shot.

@@ -62,4 +62,10 @@ NonComputationalSample sample_noncomputational(const Circuit& circuit,
                                                std::optional<uint64_t> seed = std::nullopt,
                                                std::optional<uint32_t> max_rank = std::nullopt);
 
+// Explicitly selected migration path backed by sampling::Executor. This is
+// intentionally separate from the stable entry point above.
+NonComputationalSample sample_noncomputational_experimental(
+    const Circuit& circuit, const NonComputationalModel& model, uint32_t shots,
+    std::optional<uint64_t> seed = std::nullopt, std::optional<uint32_t> max_rank = std::nullopt);
+
 }  // namespace clifft

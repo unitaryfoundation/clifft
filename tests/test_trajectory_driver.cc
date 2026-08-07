@@ -274,9 +274,9 @@ TEST_CASE("trajectory: same seed reproduces identical runs") {
     }
 }
 
-TEST_CASE("trajectory: the driver and SVM seed streams are domain-separated") {
+TEST_CASE("trajectory: the driver and executor seed streams are domain-separated") {
     // The host draws (initial levels, trap destinations, classifier consults)
-    // and the in-VM Born draws run on independent streams; handing the same
+    // and the in-executor Born draws run on independent streams; handing the same
     // per-shot state to both would correlate them. Guard the documented domain
     // split at its source: for every shot, the same (root, shot) with
     // different domains yields unrelated states.
@@ -284,14 +284,15 @@ TEST_CASE("trajectory: the driver and SVM seed streams are domain-separated") {
         const SeedRoot root = seed_root_from_seed(seed);
         for (uint64_t shot = 0; shot < 16; ++shot) {
             const std::array<uint64_t, 4> host = derive_state(root, shot, kTrajectoryDriverDomain);
-            const std::array<uint64_t, 4> svm = derive_state(root, shot, kTrajectorySvmDomain);
-            REQUIRE(host != svm);
+            const std::array<uint64_t, 4> executor =
+                derive_state(root, shot, kTrajectoryExecutorDomain);
+            REQUIRE(host != executor);
         }
     }
 }
 
 TEST_CASE("trajectory: a cross-domain word alias does not expand to a full-state collision") {
-    // Shots 1302581290 (driver) and 4231854694 (SVM) alias on derived word 0
+    // Shots 1302581290 (driver) and 4231854694 (executor) alias on derived word 0
     // for every root: the root and the word-0 tag terms cancel in the
     // comparison. They probe the word index folded into the domain tag --
     // without it, the alias would repeat in all four words and the two
@@ -300,9 +301,10 @@ TEST_CASE("trajectory: a cross-domain word alias does not expand to a full-state
         const SeedRoot root = seed_root_from_seed(seed);
         const std::array<uint64_t, 4> driver =
             derive_state(root, 1302581290ULL, kTrajectoryDriverDomain);
-        const std::array<uint64_t, 4> svm = derive_state(root, 4231854694ULL, kTrajectorySvmDomain);
-        REQUIRE(driver[0] == svm[0]);
-        REQUIRE(driver != svm);
+        const std::array<uint64_t, 4> executor =
+            derive_state(root, 4231854694ULL, kTrajectoryExecutorDomain);
+        REQUIRE(driver[0] == executor[0]);
+        REQUIRE(driver != executor);
     }
 }
 

@@ -334,6 +334,12 @@ void Executor::resume(const ExecutablePlan& continuation,
     }
 }
 
+void Executor::return_to_root_plan() noexcept {
+    assert(!pending_trap_.has_value() &&
+           "a trapped shot must resume before releasing its continuation plan");
+    plan_ = root_plan_;
+}
+
 ReplayResult Executor::replay_shot(std::span<const uint8_t> forced_records,
                                    std::span<const uint8_t> presampled_values) noexcept {
     plan_ = root_plan_;

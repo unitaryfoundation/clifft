@@ -1,8 +1,8 @@
 #pragma once
 
-// Derives separate per-shot RNG states for the driver and VM. Keeping these
+// Derives separate per-shot RNG states for the driver and executor. Keeping these
 // streams separate means that adding a driver-side random draw cannot consume
-// from or shift the VM's measurement sequence. Unseeded runs start with 256
+// from or shift the executor's measurement sequence. Unseeded runs start with 256
 // bits of OS entropy; seeded runs expand the user's 64-bit seed
 // deterministically. Within either stream, different shots always receive
 // different 256-bit states. Each state word is mixed differently, so a match
@@ -18,9 +18,9 @@
 namespace clifft {
 
 // Driver-side draws (initial levels, trap destinations, classical
-// consults, herald flags) vs. the in-VM Born measurement randomness.
+// consults, herald flags) vs. the in-executor Born measurement randomness.
 inline constexpr uint64_t kTrajectoryDriverDomain = 0x11;
-inline constexpr uint64_t kTrajectorySvmDomain = 0x12;
+inline constexpr uint64_t kTrajectoryExecutorDomain = 0x12;
 
 struct SeedRoot {
     uint64_t w[4];
