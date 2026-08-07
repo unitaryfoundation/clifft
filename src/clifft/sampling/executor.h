@@ -19,6 +19,10 @@
 #include <variant>
 #include <vector>
 
+namespace clifft {
+class KFaultSampler;
+}
+
 namespace clifft::sampling {
 
 // Zero and one identify the selected Pauli eigenvalue branch before affine
@@ -97,6 +101,7 @@ class ExecutablePlan {
     [[nodiscard]] uint32_t num_unbound_presampled_symbols() const {
         return static_cast<uint32_t>(unbound_presampled_symbols_.size());
     }
+    [[nodiscard]] std::vector<double> noise_site_probabilities() const;
 
   private:
     friend class Executor;
@@ -148,6 +153,7 @@ class ExecutablePlan {
         PreparedExpression source;
         uint32_t flip = 0;
         uint32_t record = 0;
+        uint32_t site = 0;
         double prob_zero_to_one = 0.0;
         double prob_one_to_zero = 0.0;
     };
@@ -217,6 +223,7 @@ class ExecutablePlan {
     bool has_postselection_ = false;
     bool has_readout_noise_ = false;
     bool has_instruments_ = false;
+    uint32_t num_readout_noise_sites_ = 0;
     uint32_t initial_noise_end_ = 0;
     std::complex<double> global_weight_ = {1.0, 0.0};
     std::optional<stim::Tableau<kStimWidth>> final_tableau_;
@@ -257,6 +264,10 @@ class Executor {
     // Use caller-supplied Boolean values for every Presampled symbol in
     // ascending SymbolId order. This path consumes no quantum-noise RNG draws.
     void run_shot(std::span<const uint8_t> presampled_values) noexcept;
+
+    // Draw one exact conditioned set of fault sites, choose a Pauli channel
+    // within each selected quantum site, and force selected readout flips.
+    void run_shot(KFaultSampler& fault_sampler) noexcept;
 
     // Continue a trapped shot in a plan compiled for the selected trajectory.
     // Storage may grow here, before dispatch resumes. A forced record supplies
@@ -304,8 +315,10 @@ class Executor {
     void reset_shot() noexcept;
     void assign_presampled_values(std::span<const uint8_t> presampled_values) noexcept;
     void sample_presampled_noise(uint32_t begin, uint32_t end) noexcept;
+    void activate_noise_site(uint32_t site) noexcept;
+    void assign_forced_quantum_faults() noexcept;
 
-    template <bool ForceRecords, bool SampleNoise>
+    template <bool ForceRecords, bool SampleNoise, bool ForceFaults>
     [[nodiscard]] ReplayResult execute_actions(std::span<const uint8_t> forced_records,
                                                uint32_t begin = 0) noexcept;
     template <bool ForceRecords>
@@ -326,7 +339,7 @@ class Executor {
     template <bool ForceRecords>
     void execute_action(const ExecutablePlan::ExecuteSymbolDefinition& action,
                         std::span<const uint8_t> forced_records, ReplayResult& result) noexcept;
-    template <bool ForceRecords>
+    template <bool ForceRecords, bool ForceFaults>
     void execute_action(const ExecutablePlan::ExecuteReadoutNoise& action,
                         std::span<const uint8_t> forced_records, ReplayResult& result) noexcept;
     template <bool ForceRecords>
@@ -362,6 +375,8 @@ class Executor {
     std::vector<uint8_t> forced_record_mask_;
     std::vector<uint8_t> forced_record_values_;
     std::vector<uint32_t> previous_presampled_ones_;
+    std::span<const uint32_t> forced_fault_sites_;
+    uint32_t forced_fault_cursor_ = 0;
     Xoshiro256PlusPlus rng_;
     bool discarded_ = false;
     std::optional<InstrumentTrap> pending_trap_;
@@ -408,5 +423,13 @@ struct SamplingSurvivorResult {
 [[nodiscard]] SamplingSurvivorResult sample_survivors(const ExecutablePlan& plan, uint32_t shots,
                                                       std::optional<uint64_t> seed = std::nullopt,
                                                       bool keep_records = false);
+
+[[nodiscard]] SamplingResult sample_k(const ExecutablePlan& plan, uint32_t shots, uint32_t k,
+                                      std::optional<uint64_t> seed = std::nullopt);
+
+[[nodiscard]] SamplingSurvivorResult sample_k_survivors(const ExecutablePlan& plan, uint32_t shots,
+                                                        uint32_t k,
+                                                        std::optional<uint64_t> seed = std::nullopt,
+                                                        bool keep_records = false);
 
 }  // namespace clifft::sampling

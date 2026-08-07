@@ -1,5 +1,6 @@
 #include "clifft/sampling/executor.h"
 
+#include "clifft/util/fault_sampling.h"
 #include "clifft/util/noise_sampling.h"
 #include "clifft/util/numeric.h"
 
@@ -169,9 +170,10 @@ ExecutablePlan::ExecutablePlan(const SamplingPlan& plan)
                                                                   index(typed.symbol)});
                 } else if constexpr (std::is_same_v<T, ApplyReadoutNoise>) {
                     has_readout_noise_ = true;
-                    actions_.emplace_back(ExecuteReadoutNoise{
-                        prepare_expression(typed.source), index(typed.flip), index(typed.record),
-                        typed.prob_zero_to_one, typed.prob_one_to_zero});
+                    actions_.emplace_back(
+                        ExecuteReadoutNoise{prepare_expression(typed.source), index(typed.flip),
+                                            index(typed.record), num_readout_noise_sites_++,
+                                            typed.prob_zero_to_one, typed.prob_one_to_zero});
                 } else if constexpr (std::is_same_v<T, WriteDetector>) {
                     actions_.emplace_back(ExecuteDetector{prepare_expression(typed.outcome),
                                                           index(typed.detector),
@@ -225,6 +227,30 @@ ExecutablePlan::ExecutablePlan(const SamplingPlan& plan)
     }
 }
 
+std::vector<double> ExecutablePlan::noise_site_probabilities() const {
+    std::vector<double> probabilities;
+    probabilities.reserve(noise_sites_.size() + num_readout_noise_sites_);
+    for (const PreparedNoiseSite& site : noise_sites_) {
+        probabilities.push_back(site.total_probability);
+    }
+    for (const Action& action : actions_) {
+        const auto* readout = std::get_if<ExecuteReadoutNoise>(&action);
+        if (readout == nullptr) {
+            continue;
+        }
+        if (readout->prob_zero_to_one != readout->prob_one_to_zero) {
+            throw std::invalid_argument(
+                "k-fault conditioning does not support asymmetric readout noise; "
+                "measurement record index " +
+                std::to_string(readout->record) + " has probabilities (" +
+                std::to_string(readout->prob_zero_to_one) + ", " +
+                std::to_string(readout->prob_one_to_zero) + ")");
+        }
+        probabilities.push_back(readout->prob_zero_to_one);
+    }
+    return probabilities;
+}
+
 ExecutablePlan::PreparedExpression ExecutablePlan::prepare_expression(
     const AffineBool& expression) {
     const uint32_t begin = static_cast<uint32_t>(expression_terms_.size());
@@ -268,14 +294,28 @@ void Executor::run_shot() noexcept {
            "automatic execution requires every presampled symbol to have a distribution");
     reset_shot();
     sample_presampled_noise(0, plan_->initial_noise_end_);
-    (void)execute_actions<false, true>({});
+    (void)execute_actions<false, true, false>({});
 }
 
 void Executor::run_shot(std::span<const uint8_t> presampled_values) noexcept {
     plan_ = root_plan_;
     reset_shot();
     assign_presampled_values(presampled_values);
-    (void)execute_actions<false, false>({});
+    (void)execute_actions<false, false, false>({});
+}
+
+void Executor::run_shot(KFaultSampler& fault_sampler) noexcept {
+    plan_ = root_plan_;
+    assert(fault_sampler.num_sites() ==
+               plan_->noise_sites_.size() + plan_->num_readout_noise_sites_ &&
+           "conditioned sampler must cover every quantum and readout fault site");
+    reset_shot();
+    forced_fault_sites_ = fault_sampler.sample([&]() noexcept { return rng_.next_double(); });
+    forced_fault_cursor_ = 0;
+    assign_forced_quantum_faults();
+    (void)execute_actions<false, false, true>({});
+    forced_fault_sites_ = {};
+    forced_fault_cursor_ = 0;
 }
 
 void Executor::resume(const ExecutablePlan& continuation,
@@ -343,7 +383,7 @@ void Executor::resume(const ExecutablePlan& continuation,
 
     plan_ = &continuation;
     pending_trap_.reset();
-    (void)execute_actions<false, true>({}, offset);
+    (void)execute_actions<false, true, false>({}, offset);
     if (forced_trace_out.has_value() && forced_record_mask_[index(forced_trace_out->record)] != 0) {
         throw std::logic_error("sampling continuation did not consume its forced trace-out record");
     }
@@ -366,7 +406,7 @@ ReplayResult Executor::replay_shot(std::span<const uint8_t> forced_records,
            "forced records must be Boolean");
     reset_shot();
     assign_presampled_values(presampled_values);
-    return execute_actions<true, false>(forced_records);
+    return execute_actions<true, false, false>(forced_records);
 }
 
 void Executor::reset_shot() noexcept {
@@ -412,24 +452,38 @@ void Executor::sample_presampled_noise(uint32_t begin, uint32_t end) noexcept {
         if (site_index == kNoNoiseSite || site_index >= end) {
             return;
         }
-        const ExecutablePlan::PreparedNoiseSite& site = plan_->noise_sites_[site_index];
-        assert(site.outcome_count > 0 && site.total_probability > 0.0 &&
-               "a sampled hazard must identify a nonempty noise site");
-        uint32_t outcome_index = site.outcome_begin;
-        if (site.outcome_count > 1) {
-            const double channel_draw = rng_.next_double() * site.total_probability;
-            while (channel_draw >= plan_->noise_outcomes_[outcome_index].cumulative_probability) {
-                ++outcome_index;
-                assert(outcome_index < site.outcome_begin + site.outcome_count &&
-                       "channel draw must select one prepared outcome");
-            }
-        }
-        const uint32_t symbol = plan_->noise_outcomes_[outcome_index].symbol;
-        assert(symbol < symbols_.size() && symbols_[symbol] == 0 &&
-               "a noise site may define only one fresh symbol per shot");
-        symbols_[symbol] = 1;
-        previous_presampled_ones_.push_back(symbol);
+        activate_noise_site(site_index);
         first_candidate = site_index + 1;
+    }
+}
+
+void Executor::activate_noise_site(uint32_t site_index) noexcept {
+    assert(site_index < plan_->noise_sites_.size() && "noise site must be prepared");
+    const ExecutablePlan::PreparedNoiseSite& site = plan_->noise_sites_[site_index];
+    assert(site.outcome_count > 0 && site.total_probability > 0.0 &&
+           "a firing noise site must contain positive-probability outcomes");
+    uint32_t outcome_index = site.outcome_begin;
+    if (site.outcome_count > 1) {
+        const double channel_draw = rng_.next_double() * site.total_probability;
+        while (channel_draw >= plan_->noise_outcomes_[outcome_index].cumulative_probability) {
+            ++outcome_index;
+            assert(outcome_index < site.outcome_begin + site.outcome_count &&
+                   "channel draw must select one prepared outcome");
+        }
+    }
+    const uint32_t symbol = plan_->noise_outcomes_[outcome_index].symbol;
+    assert(symbol < symbols_.size() && symbols_[symbol] == 0 &&
+           "a noise site may define only one fresh symbol per shot");
+    symbols_[symbol] = 1;
+    previous_presampled_ones_.push_back(symbol);
+}
+
+void Executor::assign_forced_quantum_faults() noexcept {
+    const uint32_t num_quantum_sites = static_cast<uint32_t>(plan_->noise_sites_.size());
+    while (forced_fault_cursor_ < forced_fault_sites_.size() &&
+           forced_fault_sites_[forced_fault_cursor_] < num_quantum_sites) {
+        activate_noise_site(forced_fault_sites_[forced_fault_cursor_]);
+        ++forced_fault_cursor_;
     }
 }
 
@@ -520,7 +574,7 @@ void Executor::execute_action(const ExecutablePlan::ExecuteSymbolDefinition& act
     symbols_[action.symbol] = static_cast<uint8_t>(evaluate(action.value));
 }
 
-template <bool ForceRecords>
+template <bool ForceRecords, bool ForceFaults>
 void Executor::execute_action(const ExecutablePlan::ExecuteReadoutNoise& action,
                               std::span<const uint8_t>, ReplayResult& result) noexcept {
     if constexpr (ForceRecords) {
@@ -529,9 +583,22 @@ void Executor::execute_action(const ExecutablePlan::ExecuteReadoutNoise& action,
         const bool source = evaluate(action.source);
         assert(records_[action.record] == static_cast<uint8_t>(source) &&
                "readout source must match the current record value");
-        const double probability = source ? action.prob_one_to_zero : action.prob_zero_to_one;
-        const bool flip =
-            probability >= 1.0 || (probability > 0.0 && rng_.next_double() < probability);
+        bool flip = false;
+        if constexpr (ForceFaults) {
+            const uint32_t fault_site =
+                static_cast<uint32_t>(plan_->noise_sites_.size()) + action.site;
+            assert((forced_fault_cursor_ >= forced_fault_sites_.size() ||
+                    forced_fault_sites_[forced_fault_cursor_] >= fault_site) &&
+                   "conditioned readout sites must be consumed in circuit order");
+            if (forced_fault_cursor_ < forced_fault_sites_.size() &&
+                forced_fault_sites_[forced_fault_cursor_] == fault_site) {
+                flip = true;
+                ++forced_fault_cursor_;
+            }
+        } else {
+            const double probability = source ? action.prob_one_to_zero : action.prob_zero_to_one;
+            flip = probability >= 1.0 || (probability > 0.0 && rng_.next_double() < probability);
+        }
         symbols_[action.flip] = static_cast<uint8_t>(flip);
         records_[action.record] ^= static_cast<uint8_t>(flip);
     }
@@ -672,7 +739,7 @@ void Executor::execute_action(const ExecutablePlan::ExecuteBoundary& action,
     }
 }
 
-template <bool ForceRecords, bool SampleNoise>
+template <bool ForceRecords, bool SampleNoise, bool ForceFaults>
 ReplayResult Executor::execute_actions(std::span<const uint8_t> forced_records,
                                        uint32_t begin) noexcept {
     ReplayResult result;
@@ -684,6 +751,8 @@ ReplayResult Executor::execute_actions(std::span<const uint8_t> forced_records,
                 using T = std::decay_t<decltype(typed)>;
                 if constexpr (std::is_same_v<T, ExecutablePlan::ExecuteBoundary>) {
                     execute_action<SampleNoise>(typed, forced_records, result);
+                } else if constexpr (std::is_same_v<T, ExecutablePlan::ExecuteReadoutNoise>) {
+                    execute_action<ForceRecords, ForceFaults>(typed, forced_records, result);
                 } else {
                     execute_action<ForceRecords>(typed, forced_records, result);
                 }
@@ -756,20 +825,11 @@ bool Executor::sample_dormant_branch() noexcept {
     return rng_.next_double() >= 0.5;
 }
 
-SamplingResult sample(const ExecutablePlan& plan, uint32_t shots, std::optional<uint64_t> seed) {
-    if (plan.has_instruments()) {
-        throw std::invalid_argument(
-            "fixed-plan sampling does not support instrument traps; use the trajectory driver");
-    }
-    if (plan.num_unbound_presampled_symbols() != 0) {
-        throw std::invalid_argument(
-            "batch sampling requires a distribution for every presampled symbol");
-    }
-    if (plan.has_postselection()) {
-        throw std::invalid_argument(
-            "fixed-row sampling does not support postselection; use sample_survivors");
-    }
+namespace {
 
+template <typename RunShot>
+SamplingResult sample_fixed_rows(const ExecutablePlan& plan, uint32_t shots,
+                                 std::optional<uint64_t> seed, RunShot&& run_shot) {
     auto checked_size = [shots](size_t stride) {
         if (stride != 0 && shots > std::numeric_limits<size_t>::max() / stride) {
             throw std::length_error("sampling output size exceeds size_t range");
@@ -788,7 +848,7 @@ SamplingResult sample(const ExecutablePlan& plan, uint32_t shots, std::optional<
 
     auto run = [&](Executor& executor) {
         for (uint32_t shot = 0; shot < shots; ++shot) {
-            executor.run_shot();
+            run_shot(executor);
             std::ranges::copy(executor.visible_records(),
                               result.measurements.begin() +
                                   static_cast<size_t>(shot) * plan.num_visible_records());
@@ -814,22 +874,10 @@ SamplingResult sample(const ExecutablePlan& plan, uint32_t shots, std::optional<
     return result;
 }
 
-std::vector<uint8_t> sample_records(const ExecutablePlan& plan, uint32_t shots,
-                                    std::optional<uint64_t> seed) {
-    return sample(plan, shots, seed).measurements;
-}
-
-SamplingSurvivorResult sample_survivors(const ExecutablePlan& plan, uint32_t shots,
-                                        std::optional<uint64_t> seed, bool keep_records) {
-    if (plan.has_instruments()) {
-        throw std::invalid_argument(
-            "survivor sampling does not support instrument traps; use the trajectory driver");
-    }
-    if (plan.num_unbound_presampled_symbols() != 0) {
-        throw std::invalid_argument(
-            "survivor sampling requires a distribution for every presampled symbol");
-    }
-
+template <typename RunShot>
+SamplingSurvivorResult sample_surviving_rows(const ExecutablePlan& plan, uint32_t shots,
+                                             std::optional<uint64_t> seed, bool keep_records,
+                                             RunShot&& run_shot) {
     SamplingSurvivorResult result;
     result.total_shots = shots;
     if (shots == 0) {
@@ -850,7 +898,7 @@ SamplingSurvivorResult sample_survivors(const ExecutablePlan& plan, uint32_t sho
     }
     auto run = [&](Executor& executor) {
         for (uint32_t shot = 0; shot < shots; ++shot) {
-            executor.run_shot();
+            run_shot(executor);
             if (executor.discarded()) {
                 continue;
             }
@@ -884,6 +932,91 @@ SamplingSurvivorResult sample_survivors(const ExecutablePlan& plan, uint32_t sho
         run(executor);
     }
     return result;
+}
+
+}  // namespace
+
+SamplingResult sample(const ExecutablePlan& plan, uint32_t shots, std::optional<uint64_t> seed) {
+    if (plan.has_instruments()) {
+        throw std::invalid_argument(
+            "fixed-plan sampling does not support instrument traps; use the trajectory driver");
+    }
+    if (plan.num_unbound_presampled_symbols() != 0) {
+        throw std::invalid_argument(
+            "batch sampling requires a distribution for every presampled symbol");
+    }
+    if (plan.has_postselection()) {
+        throw std::invalid_argument(
+            "fixed-row sampling does not support postselection; use sample_survivors");
+    }
+
+    return sample_fixed_rows(plan, shots, seed,
+                             [](Executor& executor) noexcept { executor.run_shot(); });
+}
+
+std::vector<uint8_t> sample_records(const ExecutablePlan& plan, uint32_t shots,
+                                    std::optional<uint64_t> seed) {
+    return sample(plan, shots, seed).measurements;
+}
+
+SamplingSurvivorResult sample_survivors(const ExecutablePlan& plan, uint32_t shots,
+                                        std::optional<uint64_t> seed, bool keep_records) {
+    if (plan.has_instruments()) {
+        throw std::invalid_argument(
+            "survivor sampling does not support instrument traps; use the trajectory driver");
+    }
+    if (plan.num_unbound_presampled_symbols() != 0) {
+        throw std::invalid_argument(
+            "survivor sampling requires a distribution for every presampled symbol");
+    }
+
+    return sample_surviving_rows(plan, shots, seed, keep_records,
+                                 [](Executor& executor) noexcept { executor.run_shot(); });
+}
+
+SamplingResult sample_k(const ExecutablePlan& plan, uint32_t shots, uint32_t k,
+                        std::optional<uint64_t> seed) {
+    if (plan.has_instruments()) {
+        throw std::invalid_argument(
+            "forced-fault sampling does not support instrument traps or trajectory drivers");
+    }
+    if (plan.num_unbound_presampled_symbols() != 0) {
+        throw std::invalid_argument(
+            "forced-fault sampling requires a distribution for every presampled symbol");
+    }
+    if (plan.has_postselection()) {
+        throw std::invalid_argument(
+            "fixed-row forced-fault sampling does not support postselection; use "
+            "sample_k_survivors");
+    }
+    if (shots == 0) {
+        return sample_fixed_rows(plan, shots, seed,
+                                 [](Executor& executor) noexcept { executor.run_shot(); });
+    }
+    KFaultSampler fault_sampler(plan.noise_site_probabilities(), k);
+    return sample_fixed_rows(
+        plan, shots, seed, [&](Executor& executor) noexcept { executor.run_shot(fault_sampler); });
+}
+
+SamplingSurvivorResult sample_k_survivors(const ExecutablePlan& plan, uint32_t shots, uint32_t k,
+                                          std::optional<uint64_t> seed, bool keep_records) {
+    if (plan.has_instruments()) {
+        throw std::invalid_argument(
+            "forced-fault survivor sampling does not support instrument traps or trajectory "
+            "drivers");
+    }
+    if (plan.num_unbound_presampled_symbols() != 0) {
+        throw std::invalid_argument(
+            "forced-fault survivor sampling requires a distribution for every presampled symbol");
+    }
+    if (shots == 0) {
+        return sample_surviving_rows(plan, shots, seed, keep_records,
+                                     [](Executor& executor) noexcept { executor.run_shot(); });
+    }
+    KFaultSampler fault_sampler(plan.noise_site_probabilities(), k);
+    return sample_surviving_rows(plan, shots, seed, keep_records, [&](Executor& executor) noexcept {
+        executor.run_shot(fault_sampler);
+    });
 }
 
 std::vector<double> record_log_probabilities(const ExecutablePlan& plan,

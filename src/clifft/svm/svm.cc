@@ -2,12 +2,12 @@
 
 #include "clifft/svm/svm_internal.h"
 #include "clifft/svm/svm_math.h"
+#include "clifft/util/fault_sampling.h"
 
 #include <algorithm>
 #include <cctype>
 #include <cstdlib>
 #include <limits>
-#include <numeric>
 #include <stdexcept>
 #include <string>
 
@@ -465,142 +465,24 @@ std::vector<double> noise_site_probabilities(const CompiledModule& program) {
 
 namespace {
 
-// Build odds-ratio vector w[i] = p_i / (1 - p_i), clamping p to [0, 1-eps].
-// After computing raw odds ratios, rescale so the mean weight is 1.0.
-// This prevents overflow (p ~ 1 => huge w) and underflow (p ~ 0, large k)
-// without affecting sampling correctness -- the constant factor cancels in
-// the conditional inclusion probability w_i * DP[i+1][j-1] / DP[i][j].
-std::vector<double> build_odds_ratios(const std::vector<double>& probs) {
-    std::vector<double> w(probs.size());
-    for (size_t i = 0; i < probs.size(); ++i) {
-        double p = std::clamp(probs[i], 0.0, 1.0 - 1e-15);
-        w[i] = p / (1.0 - p);
-    }
-    // Normalize to mean 1.0 to keep DP table values in a stable range.
-    double sum_w = std::accumulate(w.begin(), w.end(), 0.0);
-    if (sum_w > 0.0) {
-        double scale = static_cast<double>(w.size()) / sum_w;
-        for (double& weight : w)
-            weight *= scale;
-    }
-    return w;
-}
-
-// Check if all probabilities are exactly equal. Exact equality is safe here
-// because circuit noise probabilities come from floating-point literals that
-// round-trip identically. A tolerance-based check would misfire at extreme
-// noise scales (e.g. p ~ 1e-10 with heterogeneous noise).
-bool all_probs_equal(const std::vector<double>& probs) {
-    if (probs.empty())
-        return true;
-    double p0 = probs[0];
-    for (size_t i = 1; i < probs.size(); ++i) {
-        if (probs[i] != p0)
-            return false;
-    }
-    return true;
-}
-
-// Build flat DP table: dp[i * stride + j] = sum of products of odds ratios
-// over all size-j subsets drawn from suffix [i, N).
-// Returns the flat vector; stride = k + 1.
-std::vector<double> build_dp_table(const std::vector<double>& w, uint32_t k) {
-    uint32_t n = static_cast<uint32_t>(w.size());
-    uint32_t stride = k + 1;
-    std::vector<double> dp(static_cast<size_t>(n + 1) * stride, 0.0);
-
-    // Base case: empty subset
-    for (uint32_t i = 0; i <= n; ++i)
-        dp[static_cast<size_t>(i) * stride + 0] = 1.0;
-
-    // Fill bottom-up
-    for (int i = static_cast<int>(n) - 1; i >= 0; --i) {
-        uint32_t remaining = n - static_cast<uint32_t>(i);
-        uint32_t max_j = std::min(remaining, k);
-        for (uint32_t j = 1; j <= max_j; ++j) {
-            dp[static_cast<size_t>(i) * stride + j] =
-                dp[static_cast<size_t>(i + 1) * stride + j] +
-                w[static_cast<size_t>(i)] * dp[static_cast<size_t>(i + 1) * stride + (j - 1)];
-        }
-    }
-    return dp;
-}
-
-// Sample exactly k indices from [0, N) using the DP table.
-// Appends to noise_indices and readout_indices (pre-cleared by caller).
-void dp_sample_indices(SchrodingerState& state, const std::vector<double>& w,
-                       const std::vector<double>& dp, uint32_t k, uint32_t n_q,
-                       std::vector<uint32_t>& noise_indices,
-                       std::vector<uint32_t>& readout_indices) {
-    uint32_t n = static_cast<uint32_t>(w.size());
-    uint32_t stride = k + 1;
-    uint32_t needed = k;
-
-    for (uint32_t i = 0; i < n && needed > 0; ++i) {
-        double prob_include;
-        uint32_t remaining = n - i;
-        if (needed == remaining) {
-            prob_include = 1.0;  // Must include all remaining
-        } else {
-            double denom = dp[static_cast<size_t>(i) * stride + needed];
-            if (denom > 0.0) {
-                prob_include =
-                    (w[i] * dp[static_cast<size_t>(i + 1) * stride + (needed - 1)]) / denom;
-            } else {
-                prob_include = 0.0;
-            }
-        }
-        if (state.random_double() < prob_include) {
-            if (i < n_q)
-                noise_indices.push_back(i);
-            else
-                readout_indices.push_back(i - n_q);
-            needed--;
-        }
-    }
-}
-
-// Uniform sampling: partial Fisher-Yates on persistent pool.
-void uniform_sample_indices(SchrodingerState& state, std::vector<uint32_t>& pool, uint32_t k,
-                            uint32_t n_q, std::vector<uint32_t>& noise_indices,
-                            std::vector<uint32_t>& readout_indices) {
-    uint32_t n = static_cast<uint32_t>(pool.size());
-    for (uint32_t j = 0; j < k; ++j) {
-        uint32_t remaining = n - j;
-        uint32_t pick = j + static_cast<uint32_t>(state.random_double() * remaining);
-        std::swap(pool[j], pool[pick]);
-    }
-
-    // Sort the first k elements in-place, then partition into noise/readout.
-    // Sorting the selected prefix is safe: the pool is a permutation, and any
-    // permutation is valid input for the next Fisher-Yates run. We sort
-    // in-place rather than copying to a temporary to avoid a heap allocation
-    // per shot (the whole point of the persistent pool is O(k) amortized).
-    std::sort(pool.begin(), pool.begin() + k);
-    for (uint32_t j = 0; j < k; ++j) {
-        uint32_t idx = pool[j];
-        if (idx < n_q)
-            noise_indices.push_back(idx);
-        else
-            readout_indices.push_back(idx - n_q);
-    }
-}
-
 // Prepare forced faults for one shot: fills state.forced_faults with
 // the sampled indices and sets next_noise_idx to the first forced site.
-void prepare_forced_shot(SchrodingerState& state, const std::vector<double>& w,
-                         const std::vector<double>& dp, uint32_t k, uint32_t n_q, bool uniform_mode,
-                         std::vector<uint32_t>& uniform_pool) {
+void prepare_forced_shot(SchrodingerState& state, KFaultSampler& sampler,
+                         uint32_t num_quantum_sites) {
     auto& ff = state.forced_faults;
     ff.noise_indices.clear();
     ff.readout_indices.clear();
     ff.noise_pos = 0;
     ff.readout_pos = 0;
 
-    if (uniform_mode) {
-        uniform_sample_indices(state, uniform_pool, k, n_q, ff.noise_indices, ff.readout_indices);
-    } else {
-        dp_sample_indices(state, w, dp, k, n_q, ff.noise_indices, ff.readout_indices);
+    const std::span<const uint32_t> selected =
+        sampler.sample([&]() noexcept { return state.random_double(); });
+    for (uint32_t site : selected) {
+        if (site < num_quantum_sites) {
+            ff.noise_indices.push_back(site);
+        } else {
+            ff.readout_indices.push_back(site - num_quantum_sites);
+        }
     }
 
     // Set next_noise_idx to the first forced noise site (or sentinel).
@@ -609,32 +491,7 @@ void prepare_forced_shot(SchrodingerState& state, const std::vector<double>& w,
         state.next_noise_idx = ff.noise_indices[0];
         ff.noise_pos = 1;
     } else {
-        state.next_noise_idx = static_cast<uint32_t>(-1);
-    }
-}
-
-// Check that the k-fault stratum has nonzero probability mass.
-// Sites with p==0 can never fire; sites with p==1 always fire.
-// Feasible range: n_certain <= k <= n_total - n_impossible.
-void validate_stratum(const std::vector<double>& probs, uint32_t k) {
-    uint32_t n_total = static_cast<uint32_t>(probs.size());
-    if (k > n_total) {
-        throw std::invalid_argument("k (" + std::to_string(k) + ") exceeds total fault sites (" +
-                                    std::to_string(n_total) + ")");
-    }
-    uint32_t n_certain = 0;     // Sites that always fire (p >= 1.0)
-    uint32_t n_impossible = 0;  // Sites that never fire (p <= 0.0)
-    for (double p : probs) {
-        if (p <= 0.0)
-            n_impossible++;
-        else if (p >= 1.0)
-            n_certain++;
-    }
-    if (k < n_certain || k > n_total - n_impossible) {
-        throw std::invalid_argument("k-fault stratum k=" + std::to_string(k) +
-                                    " has zero probability mass (" + std::to_string(n_certain) +
-                                    " sites have p=1, " + std::to_string(n_impossible) +
-                                    " sites have p=0)");
+        state.next_noise_idx = kNoNoiseSite;
     }
 }
 
@@ -661,18 +518,8 @@ SampleResult sample_k(const CompiledModule& program, uint32_t shots, uint32_t k,
 
     // Build fault site probabilities and precompute DP table.
     auto probs = noise_site_probabilities(program);
-    validate_stratum(probs, k);
-    uint32_t n_total = static_cast<uint32_t>(probs.size());
     uint32_t n_q = static_cast<uint32_t>(program.constant_pool.noise_sites.size());
-
-    bool uniform_mode = all_probs_equal(probs);
-    auto w = uniform_mode ? std::vector<double>{} : build_odds_ratios(probs);
-    auto dp = uniform_mode ? std::vector<double>{} : build_dp_table(w, k);
-    std::vector<uint32_t> uniform_pool;
-    if (uniform_mode) {
-        uniform_pool.resize(n_total);
-        std::iota(uniform_pool.begin(), uniform_pool.end(), 0);
-    }
+    KFaultSampler fault_sampler(probs, k);
 
     SchrodingerState state({.peak_rank = program.peak_rank,
                             .num_measurements = num_total,
@@ -681,12 +528,14 @@ SampleResult sample_k(const CompiledModule& program, uint32_t shots, uint32_t k,
                             .num_observables = num_obs,
                             .num_exp_vals = num_ev,
                             .seed = seed});
+    state.forced_faults.noise_indices.reserve(n_q);
+    state.forced_faults.readout_indices.reserve(probs.size() - n_q);
 
     for (uint32_t shot = 0; shot < shots; ++shot) {
         if (shot > 0)
             state.reset();
 
-        prepare_forced_shot(state, w, dp, k, n_q, uniform_mode, uniform_pool);
+        prepare_forced_shot(state, fault_sampler, n_q);
         execute(program, state);
         throw_on_pending_trap(state);
 
@@ -741,18 +590,8 @@ SurvivorResult sample_k_survivors(const CompiledModule& program, uint32_t shots,
     }
 
     auto probs = noise_site_probabilities(program);
-    validate_stratum(probs, k);
-    uint32_t n_total = static_cast<uint32_t>(probs.size());
     uint32_t n_q = static_cast<uint32_t>(program.constant_pool.noise_sites.size());
-
-    bool uniform_mode = all_probs_equal(probs);
-    auto w = uniform_mode ? std::vector<double>{} : build_odds_ratios(probs);
-    auto dp = uniform_mode ? std::vector<double>{} : build_dp_table(w, k);
-    std::vector<uint32_t> uniform_pool;
-    if (uniform_mode) {
-        uniform_pool.resize(n_total);
-        std::iota(uniform_pool.begin(), uniform_pool.end(), 0);
-    }
+    KFaultSampler fault_sampler(probs, k);
 
     SchrodingerState state({.peak_rank = program.peak_rank,
                             .num_measurements = num_total,
@@ -761,12 +600,14 @@ SurvivorResult sample_k_survivors(const CompiledModule& program, uint32_t shots,
                             .num_observables = num_obs,
                             .num_exp_vals = num_ev,
                             .seed = seed});
+    state.forced_faults.noise_indices.reserve(n_q);
+    state.forced_faults.readout_indices.reserve(probs.size() - n_q);
 
     for (uint32_t shot = 0; shot < shots; ++shot) {
         if (shot > 0)
             state.reset();
 
-        prepare_forced_shot(state, w, dp, k, n_q, uniform_mode, uniform_pool);
+        prepare_forced_shot(state, fault_sampler, n_q);
         execute(program, state);
         throw_on_pending_trap(state);
 

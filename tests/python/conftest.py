@@ -23,6 +23,12 @@ def basis_probabilities_api(request: pytest.FixtureRequest) -> Any:
     return cast(Any, request.param)
 
 
+@pytest.fixture(params=[clifft, experimental], ids=["svm", "symbolic-coordinate"])
+def importance_sampling_api(request: pytest.FixtureRequest) -> Any:
+    """Run shared forced-fault tests against both Python APIs."""
+    return cast(Any, request.param)
+
+
 @pytest.fixture(params=["legacy", "experimental"], ids=["legacy", "experimental"])
 def statevector_from_circuit(
     request: pytest.FixtureRequest,
