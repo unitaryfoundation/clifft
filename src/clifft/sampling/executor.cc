@@ -4,7 +4,9 @@
 
 #include <algorithm>
 #include <cassert>
+#include <cmath>
 #include <limits>
+#include <numbers>
 #include <stdexcept>
 #include <string>
 #include <type_traits>
@@ -15,6 +17,8 @@ namespace {
 
 template <typename>
 inline constexpr bool kAlwaysFalse = false;
+
+constexpr double kLogHalf = -std::numbers::ln2;
 
 uint32_t index(SymbolId id) {
     return static_cast<uint32_t>(id);
@@ -70,8 +74,11 @@ ExecutablePlan::ExecutablePlan(const SamplingPlan& plan)
                               std::is_same_v<T, PromoteDormantRotation>) {
                     num_expression_terms += typed.sign.terms().size();
                 } else if constexpr (std::is_same_v<T, MeasureActivePauli> ||
-                                     std::is_same_v<T, MeasureDormantRandom> ||
-                                     std::is_same_v<T, RecordClassical>) {
+                                     std::is_same_v<T, MeasureDormantRandom>) {
+                    // The current measurement branch is stored separately so
+                    // replay can solve for it from the requested record.
+                    num_expression_terms += typed.outcome.terms().size() - 1;
+                } else if constexpr (std::is_same_v<T, RecordClassical>) {
                     num_expression_terms += typed.outcome.terms().size();
                 } else if constexpr (std::is_same_v<T, DefineSymbol>) {
                     num_expression_terms += typed.value.terms().size();
@@ -109,12 +116,12 @@ ExecutablePlan::ExecutablePlan(const SamplingPlan& plan)
                 } else if constexpr (std::is_same_v<T, MeasureActivePauli>) {
                     actions_.emplace_back(ExecuteActiveMeasurement{
                         prepare_measurement(typed.pauli, planned.active_before, typed.active_pivot),
-                        prepare_expression(typed.outcome), index(typed.branch),
-                        index(typed.record)});
+                        prepare_measurement_correction(typed.outcome, index(typed.branch)),
+                        index(typed.branch), index(typed.record)});
                 } else if constexpr (std::is_same_v<T, MeasureDormantRandom>) {
-                    actions_.emplace_back(
-                        ExecuteDormantMeasurement{prepare_expression(typed.outcome),
-                                                  index(typed.branch), index(typed.record)});
+                    actions_.emplace_back(ExecuteDormantMeasurement{
+                        prepare_measurement_correction(typed.outcome, index(typed.branch)),
+                        index(typed.branch), index(typed.record)});
                 } else if constexpr (std::is_same_v<T, RecordClassical>) {
                     actions_.emplace_back(ExecuteClassicalRecord{prepare_expression(typed.outcome),
                                                                  index(typed.record)});
@@ -142,6 +149,19 @@ ExecutablePlan::PreparedExpression ExecutablePlan::prepare_expression(
     return {begin, static_cast<uint32_t>(expression.terms().size()), expression.constant()};
 }
 
+ExecutablePlan::PreparedExpression ExecutablePlan::prepare_measurement_correction(
+    const AffineBool& outcome, uint32_t branch) {
+    const uint32_t begin = static_cast<uint32_t>(expression_terms_.size());
+    for (SymbolId term : outcome.terms()) {
+        if (index(term) != branch) {
+            expression_terms_.push_back(index(term));
+        }
+    }
+    assert(expression_terms_.size() == static_cast<size_t>(begin) + outcome.terms().size() - 1 &&
+           "validated measurement outcome must contain its branch exactly once");
+    return {begin, static_cast<uint32_t>(outcome.terms().size() - 1), outcome.constant()};
+}
+
 Executor::Executor(const ExecutablePlan& plan, uint64_t seed)
     : plan_(plan),
       state_(plan.max_active_width_, plan.initial_active_width_, plan.global_weight_),
@@ -150,6 +170,21 @@ Executor::Executor(const ExecutablePlan& plan, uint64_t seed)
       rng_(seed) {}
 
 void Executor::run_shot(std::span<const uint8_t> presampled_values) noexcept {
+    initialize_shot(presampled_values);
+    (void)execute_actions<false>({});
+}
+
+ReplayResult Executor::replay_shot(std::span<const uint8_t> forced_records,
+                                   std::span<const uint8_t> presampled_values) noexcept {
+    assert(forced_records.size() == records_.size() &&
+           "one forced value is required for every plan record");
+    assert(std::ranges::all_of(forced_records, [](uint8_t value) { return value <= 1; }) &&
+           "forced records must be Boolean");
+    initialize_shot(presampled_values);
+    return execute_actions<true>(forced_records);
+}
+
+void Executor::initialize_shot(std::span<const uint8_t> presampled_values) noexcept {
     assert(presampled_values.size() == plan_.presampled_symbols_.size() &&
            "one value is required for every presampled symbol");
     state_.reset();
@@ -159,7 +194,11 @@ void Executor::run_shot(std::span<const uint8_t> presampled_values) noexcept {
         assert(presampled_values[i] <= 1 && "presampled symbols must be Boolean");
         symbols_[plan_.presampled_symbols_[i]] = presampled_values[i];
     }
+}
 
+template <bool ForceRecords>
+ReplayResult Executor::execute_actions(std::span<const uint8_t> forced_records) noexcept {
+    ReplayResult result;
     for (const ExecutablePlan::Action& action : plan_.actions_) {
         std::visit(
             [&](const auto& typed) noexcept {
@@ -171,17 +210,42 @@ void Executor::run_shot(std::span<const uint8_t> presampled_values) noexcept {
                 } else if constexpr (std::is_same_v<T, ExecutablePlan::ExecuteActiveMeasurement>) {
                     const MeasurementProbabilities probabilities =
                         measurement_probabilities(state_, typed.measurement);
-                    const bool branch = sample_active_branch(probabilities);
+                    const bool correction = evaluate(typed.correction);
+                    bool branch = false;
+                    if constexpr (ForceRecords) {
+                        branch = (forced_records[typed.record] != 0) ^ correction;
+                        const std::optional<double> log_increment =
+                            force_active_branch(probabilities, branch);
+                        if (!log_increment.has_value()) {
+                            result.reachable = false;
+                            return;
+                        }
+                        result.log_probability += *log_increment;
+                    } else {
+                        branch = sample_active_branch(probabilities);
+                    }
                     symbols_[typed.branch] = static_cast<uint8_t>(branch);
                     collapse_measurement(state_, typed.measurement, branch,
                                          probabilities.for_branch(branch));
-                    records_[typed.record] = static_cast<uint8_t>(evaluate(typed.outcome));
+                    records_[typed.record] = static_cast<uint8_t>(branch ^ correction);
                 } else if constexpr (std::is_same_v<T, ExecutablePlan::ExecuteDormantMeasurement>) {
-                    const bool branch = sample_dormant_branch();
+                    const bool correction = evaluate(typed.correction);
+                    bool branch = false;
+                    if constexpr (ForceRecords) {
+                        branch = (forced_records[typed.record] != 0) ^ correction;
+                        result.log_probability += kLogHalf;
+                    } else {
+                        branch = sample_dormant_branch();
+                    }
                     symbols_[typed.branch] = static_cast<uint8_t>(branch);
-                    records_[typed.record] = static_cast<uint8_t>(evaluate(typed.outcome));
+                    records_[typed.record] = static_cast<uint8_t>(branch ^ correction);
                 } else if constexpr (std::is_same_v<T, ExecutablePlan::ExecuteClassicalRecord>) {
                     records_[typed.record] = static_cast<uint8_t>(evaluate(typed.outcome));
+                    if constexpr (ForceRecords) {
+                        if (records_[typed.record] != forced_records[typed.record]) {
+                            result.reachable = false;
+                        }
+                    }
                 } else if constexpr (std::is_same_v<T, ExecutablePlan::ExecuteSymbolDefinition>) {
                     symbols_[typed.symbol] = static_cast<uint8_t>(evaluate(typed.value));
                 } else {
@@ -189,7 +253,13 @@ void Executor::run_shot(std::span<const uint8_t> presampled_values) noexcept {
                 }
             },
             action);
+        if constexpr (ForceRecords) {
+            if (!result.reachable) {
+                return result;
+            }
+        }
     }
+    return result;
 }
 
 bool Executor::evaluate(ExecutablePlan::PreparedExpression expression) const noexcept {
@@ -221,6 +291,23 @@ bool Executor::sample_active_branch(MeasurementProbabilities probabilities) noex
     }
     assert(false && "unhandled measurement branch classification");
     return false;
+}
+
+std::optional<double> Executor::force_active_branch(MeasurementProbabilities probabilities,
+                                                    bool branch) noexcept {
+    const MeasurementBranchClassification classification =
+        classify_measurement_branch(probabilities);
+    dust_clamps_ += static_cast<uint64_t>(classification.clamped_dust);
+    switch (classification.kind) {
+        case MeasurementBranchKind::Random:
+            return std::log(probabilities.for_branch(branch) / probabilities.total());
+        case MeasurementBranchKind::DeterministicZero:
+            return branch ? std::nullopt : std::optional<double>{0.0};
+        case MeasurementBranchKind::DeterministicOne:
+            return branch ? std::optional<double>{0.0} : std::nullopt;
+    }
+    assert(false && "unhandled measurement branch classification");
+    return std::nullopt;
 }
 
 bool Executor::sample_dormant_branch() noexcept {
