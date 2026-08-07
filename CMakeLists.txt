@@ -180,5 +180,21 @@ else()
             ${CMAKE_CURRENT_SOURCE_DIR}/src
             ${CMAKE_CURRENT_BINARY_DIR}/generated
         )
+        add_executable(profile_sampling_plan
+            tools/bench/backend_comparison/profile_sampling_plan.cpp
+        )
+        target_link_libraries(profile_sampling_plan PRIVATE clifft_core)
+        target_include_directories(profile_sampling_plan PRIVATE
+            ${CMAKE_CURRENT_SOURCE_DIR}/src
+            ${CMAKE_CURRENT_BINARY_DIR}/generated
+        )
+        add_executable(profile_backend_comparison
+            tools/bench/backend_comparison/profile_backend_comparison.cpp
+        )
+        target_link_libraries(profile_backend_comparison PRIVATE clifft_core)
+        target_include_directories(profile_backend_comparison PRIVATE
+            ${CMAKE_CURRENT_SOURCE_DIR}/src
+            ${CMAKE_CURRENT_BINARY_DIR}/generated
+        )
     endif()
 endif()
