@@ -604,6 +604,87 @@ TEST_CASE("Sampling executor propagates an entangled destination flip") {
     }
 }
 
+TEST_CASE("Sampling executor composes sequential computational instruments") {
+    clifft::InstrumentTraceOptions options;
+    clifft::InstrumentProbabilities reset_to_e;
+    reset_to_e.p_fire[0] = 1.0;
+    reset_to_e.p_fire[1] = 1.0;
+    reset_to_e.p_computational_dest[0][1] = 1.0;
+    reset_to_e.p_computational_dest[1][1] = 1.0;
+    options.transitions.emplace("reset_e", reset_to_e);
+
+    clifft::InstrumentProbabilities pump_g;
+    pump_g.p_fire[0] = 1.0;
+    pump_g.p_computational_dest[0][1] = 1.0;
+    options.transitions.emplace("pump_g", pump_g);
+
+    // The first site prepares E. The second can fire only from G, so its
+    // destination symbol proves that the first site's update reached the next
+    // instrument rather than merely producing the expected final record.
+    const clifft::HirModule hir =
+        clifft::trace(clifft::parse("H 0\nT 0\nLEVEL_TRANSITION[reset_e] 0\n"
+                                    "LEVEL_TRANSITION[pump_g] 0\nM 0"),
+                      &options);
+    const SamplingPlan plan = clifft::sampling::plan_sampling(hir);
+    std::optional<SymbolId> second_flip;
+    uint32_t instrument_count = 0;
+    for (const PlannedAction& action : plan.actions) {
+        if (const auto* instrument = std::get_if<ApplyInstrument>(&action.action)) {
+            if (instrument_count == 1) {
+                second_flip = instrument->destination_flip;
+            }
+            ++instrument_count;
+        }
+    }
+    REQUIRE(instrument_count == 2);
+    REQUIRE(second_flip.has_value());
+
+    const ExecutablePlan executable(plan);
+    Executor executor(executable, 31);
+    for (uint32_t shot = 0; shot < 20; ++shot) {
+        executor.run_shot();
+        CAPTURE(shot);
+        REQUIRE_FALSE(executor.pending_trap().has_value());
+        REQUIRE(executor.symbols()[index(*second_flip)] == 0);
+        REQUIRE(executor.visible_records()[0] == 1);
+    }
+}
+
+TEST_CASE("Sampling executor maps a signed active source to physical levels") {
+    clifft::InstrumentTraceOptions options;
+    clifft::InstrumentProbabilities reset_to_g;
+    reset_to_g.p_fire[0] = 1.0;
+    reset_to_g.p_fire[1] = 1.0;
+    reset_to_g.p_computational_dest[0][0] = 1.0;
+    reset_to_g.p_computational_dest[1][0] = 1.0;
+    options.transitions.emplace("reset_g", reset_to_g);
+
+    // This conjugation produces a constant sign while retaining active source
+    // support, exercising physical G/E relabeling in both collapse and flip.
+    const clifft::HirModule hir = clifft::trace(
+        clifft::parse("X 0\nH 0\nT 0\nH 0\nLEVEL_TRANSITION[reset_g] 0\nM 0"), &options);
+    const SamplingPlan plan = clifft::sampling::plan_sampling(hir);
+    const ApplyInstrument* planned = nullptr;
+    for (const PlannedAction& action : plan.actions) {
+        if (const auto* instrument = std::get_if<ApplyInstrument>(&action.action)) {
+            planned = instrument;
+            break;
+        }
+    }
+    REQUIRE(planned != nullptr);
+    REQUIRE(planned->mode == InstrumentMode::Active);
+    REQUIRE(planned->sign == AffineBool(true));
+
+    const ExecutablePlan executable(plan);
+    Executor executor(executable, 37);
+    for (uint32_t shot = 0; shot < 20; ++shot) {
+        executor.run_shot();
+        CAPTURE(shot);
+        REQUIRE_FALSE(executor.pending_trap().has_value());
+        REQUIRE(executor.visible_records()[0] == 0);
+    }
+}
+
 TEST_CASE("Sampling executor stops at noncomputational destinations") {
     clifft::InstrumentTraceOptions options;
     const clifft::HirModule hir = clifft::trace(clifft::parse("LOSS(1) 0\nM 0"), &options);
