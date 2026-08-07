@@ -491,6 +491,11 @@ void Executor::propagate_true_symbol(const ExecutablePlan& plan, uint32_t symbol
 }
 
 void Executor::assign_symbol(uint32_t symbol, bool value) noexcept {
+    // Expression registers begin at their constant values and receive each
+    // symbol's contribution exactly once when that symbol is assigned true.
+    // False is the unpropagated baseline, so assigning false updates symbols_
+    // without modifying registers. symbols_ remains authoritative because resume
+    // reconstructs continuation registers by replaying the live true prefix.
     assert(symbol < symbols_.size() && "assigned symbol must belong to the active plan");
     symbols_[symbol] = static_cast<uint8_t>(value);
     if (value) {
