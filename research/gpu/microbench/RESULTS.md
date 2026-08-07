@@ -176,6 +176,35 @@ shared-memory path at k ≤ 13**, falling back to per-op kernels only for
 programs that push k ≥ 25 — which is also where a single-statevector backend
 becomes the right tool anyway.
 
+### CPU thread-scaling run (2026-08-07) — the go/no-go input
+
+Raw: `results/2026-08-06-h200/cpu_scaling.csv` + `.log`. Same box, CPU only:
+`bench_cpu 16 16 12,16,18 4` at `OMP_NUM_THREADS = 1,2,4,8,16` with
+`OMP_PROC_BIND=spread OMP_PLACES=cores`. Topology matters: 16 vCPU =
+**8 physical cores** of an Intel Xeon Platinum 8468 (2 MB L2/core, 105 MB L3).
+
+`batchedreal` scaling on physical cores: **7.7× at k=16, 8.0× at k=18** (96%
+and 100% of perfect), SMT adding only 8–13% on top. The batched workload is
+**core-limited, not DRAM-limited** — each core keeps its shot in its own L2 and
+runs the whole program there, which is exactly MIMD-shared's trick.
+
+Projected to the full 48-core chip (linear per-core, working set still inside
+L3 at k ≤ 16):
+
+| k | 48-core CPU shots/s | H200 MIMD | GPU/CPU |
+|---|---|---|---|
+| 12 | 422,000 | 4,660,343 | **11.0×** |
+| 16 | 34,800 | 61,581 | **1.8×** — under the 2× stop line |
+| 18 | 6,700 | 15,213 | 2.3× (L3 spills at 48 cores; CPU number optimistic) |
+
+At k=16 forty-eight cores sustain **2.26 TB/s against L2** vs the H200's
+measured 4.9 TB/s of HBM — the GPU's whole margin is that ~2×. A dual-socket
+CPU (96 cores) beats the H200 outright (0.88×). The GPU only pulls away where
+it gets the same cache trick: k ≤ 13, shot resident in the 227 KB scratchpad.
+
+**Consequence:** the go/no-go is regime-dependent, not global — build only for
+`peak_rank ≲ 13`. See `../SUMMARY.md`.
+
 ### Still needed from a GH200 session (short + cheap now)
 
 1. Grace multicore `bench_cpu` — settles precommitted decision #3.

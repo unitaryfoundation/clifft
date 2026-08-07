@@ -1,0 +1,240 @@
+=== topology ===
+CPU(s):                               16
+Model name:                           Intel(R) Xeon(R) Platinum 8468
+Thread(s) per core:                   2
+Core(s) per socket:                   8
+Socket(s):                            1
+L1d cache:                            384 KiB (8 instances)
+L2 cache:                             16 MiB (8 instances)
+L3 cache:                             105 MiB (1 instance)
+NUMA node(s):                         1
+
+=== memory ===
+               total        used        free      shared  buff/cache   available
+Mem:             196           2         194           0           1         194
+[threads=1] 09:09:20
+OpenMP: enabled, max_threads=1
+
+=== Single-statevector per-op throughput (CPU) ===
+k    op              dim          ns/op        Gamp/s    
+16   H               65536        38361.9      1.708     
+16   T               65536        32669.7      1.003     
+16   CZ              65536        19830.0      0.826     
+16   CNOT            65536        21719.1      1.509     
+16   U2              65536        80903.8      0.810     
+16   U4              65536        152419.9     0.430     
+16   EXPAND          65536        46934.6      2.793     
+16   EXPAND_T        65536        91512.2      1.432     
+16   MEAS_DIAG       65536        33104.8      3.959     
+16   MEAS_INTERFERE  65536        37788.7      3.469     
+
+=== Batched-across-shots throughput (CPU, batched) ===
+k    B        shots          shots/s        Mshot-lyr/s 
+12   256      256            2455.9         0.010       
+12   1024     1024           2437.2         0.010       
+12   4096     4096           2396.1         0.010       
+12   16384    16384          2420.3         0.010       
+16   256      256            142.1          0.001       
+16   1024     1024           142.7          0.001       
+18   256      256            27.2           0.000       
+
+=== Batched-across-shots throughput (CPU, batchedmeas) ===
+k    B        shots          shots/s        Mshot-lyr/s 
+12   256      256            2478.7         0.010       
+12   1024     1024           2332.7         0.009       
+12   4096     4096           2311.7         0.009       
+12   16384    16384          2362.3         0.009       
+16   256      256            135.0          0.001       
+16   1024     1024           135.4          0.001       
+18   256      256            26.3           0.000       
+
+=== Batched-across-shots throughput (CPU, batchedreal) ===
+k    B        shots          shots/s        Mshot-lyr/s 
+12   256      256            11597.6        0.046       
+12   1024     1024           10188.2        0.041       
+12   4096     4096           9843.4         0.039       
+12   16384    16384          10234.4        0.041       
+16   256      256            754.6          0.003       
+16   1024     1024           732.6          0.003       
+18   256      256            139.6          0.001       
+[threads=2] 09:15:39
+OpenMP: enabled, max_threads=2
+
+=== Single-statevector per-op throughput (CPU) ===
+k    op              dim          ns/op        Gamp/s    
+16   H               65536        38157.8      1.717     
+16   T               65536        32698.1      1.002     
+16   CZ              65536        19081.8      0.859     
+16   CNOT            65536        21654.2      1.513     
+16   U2              65536        79415.2      0.825     
+16   U4              65536        155583.8     0.421     
+16   EXPAND          65536        45749.4      2.865     
+16   EXPAND_T        65536        85328.8      1.536     
+16   MEAS_DIAG       65536        32596.4      4.021     
+16   MEAS_INTERFERE  65536        39477.4      3.320     
+
+=== Batched-across-shots throughput (CPU, batched) ===
+k    B        shots          shots/s        Mshot-lyr/s 
+12   256      256            4481.9         0.018       
+12   1024     1024           4568.4         0.018       
+12   4096     4096           4593.9         0.018       
+12   16384    16384          4493.4         0.018       
+16   256      256            275.2          0.001       
+16   1024     1024           280.2          0.001       
+18   256      256            54.3           0.000       
+
+=== Batched-across-shots throughput (CPU, batchedmeas) ===
+k    B        shots          shots/s        Mshot-lyr/s 
+12   256      256            4351.9         0.017       
+12   1024     1024           4410.2         0.018       
+12   4096     4096           4445.2         0.018       
+12   16384    16384          4328.9         0.017       
+16   256      256            269.5          0.001       
+16   1024     1024           273.4          0.001       
+18   256      256            52.2           0.000       
+
+=== Batched-across-shots throughput (CPU, batchedreal) ===
+k    B        shots          shots/s        Mshot-lyr/s 
+12   256      256            19016.3        0.076       
+12   1024     1024           18495.8        0.074       
+12   4096     4096           18553.0        0.074       
+12   16384    16384          18283.7        0.073       
+16   256      256            1525.5         0.006       
+16   1024     1024           1477.8         0.006       
+18   256      256            279.9          0.001       
+[threads=4] 09:18:57
+OpenMP: enabled, max_threads=4
+
+=== Single-statevector per-op throughput (CPU) ===
+k    op              dim          ns/op        Gamp/s    
+16   H               65536        38379.4      1.708     
+16   T               65536        32543.4      1.007     
+16   CZ              65536        19758.7      0.829     
+16   CNOT            65536        21997.2      1.490     
+16   U2              65536        82254.3      0.797     
+16   U4              65536        156168.5     0.420     
+16   EXPAND          65536        44278.4      2.960     
+16   EXPAND_T        65536        78518.6      1.669     
+16   MEAS_DIAG       65536        33612.9      3.899     
+16   MEAS_INTERFERE  65536        39005.1      3.360     
+
+=== Batched-across-shots throughput (CPU, batched) ===
+k    B        shots          shots/s        Mshot-lyr/s 
+12   256      256            8765.1         0.035       
+12   1024     1024           8836.4         0.035       
+12   4096     4096           8768.0         0.035       
+12   16384    16384          8800.5         0.035       
+16   256      256            556.1          0.002       
+16   1024     1024           552.3          0.002       
+18   256      256            106.4          0.000       
+
+=== Batched-across-shots throughput (CPU, batchedmeas) ===
+k    B        shots          shots/s        Mshot-lyr/s 
+12   256      256            8554.8         0.034       
+12   1024     1024           8442.4         0.034       
+12   4096     4096           8410.2         0.034       
+12   16384    16384          8410.3         0.034       
+16   256      256            533.7          0.002       
+16   1024     1024           538.3          0.002       
+18   256      256            102.3          0.000       
+
+=== Batched-across-shots throughput (CPU, batchedreal) ===
+k    B        shots          shots/s        Mshot-lyr/s 
+12   256      256            35296.4        0.141       
+12   1024     1024           35224.9        0.141       
+12   4096     4096           34794.8        0.139       
+12   16384    16384          35442.0        0.142       
+16   256      256            2870.1         0.011       
+16   1024     1024           2913.6         0.012       
+18   256      256            552.5          0.002       
+[threads=8] 09:20:42
+OpenMP: enabled, max_threads=8
+
+=== Single-statevector per-op throughput (CPU) ===
+k    op              dim          ns/op        Gamp/s    
+16   H               65536        36473.1      1.797     
+16   T               65536        32122.0      1.020     
+16   CZ              65536        18974.7      0.863     
+16   CNOT            65536        21850.9      1.500     
+16   U2              65536        80170.0      0.817     
+16   U4              65536        149288.8     0.439     
+16   EXPAND          65536        41055.6      3.193     
+16   EXPAND_T        65536        73920.6      1.773     
+16   MEAS_DIAG       65536        33073.5      3.963     
+16   MEAS_INTERFERE  65536        39041.3      3.357     
+
+=== Batched-across-shots throughput (CPU, batched) ===
+k    B        shots          shots/s        Mshot-lyr/s 
+12   256      256            17413.4        0.070       
+12   1024     1024           17393.8        0.070       
+12   4096     4096           17257.4        0.069       
+12   16384    16384          17450.7        0.070       
+16   256      256            1095.6         0.004       
+16   1024     1024           1098.7         0.004       
+18   256      256            208.1          0.001       
+
+=== Batched-across-shots throughput (CPU, batchedmeas) ===
+k    B        shots          shots/s        Mshot-lyr/s 
+12   256      256            16424.4        0.066       
+12   1024     1024           16552.4        0.066       
+12   4096     4096           16606.6        0.066       
+12   16384    16384          16496.5        0.066       
+16   256      256            1060.9         0.004       
+16   1024     1024           1089.8         0.004       
+18   256      256            201.6          0.001       
+
+=== Batched-across-shots throughput (CPU, batchedreal) ===
+k    B        shots          shots/s        Mshot-lyr/s 
+12   256      256            68198.0        0.273       
+12   1024     1024           68310.8        0.273       
+12   4096     4096           68246.5        0.273       
+12   16384    16384          70338.4        0.281       
+16   256      256            5806.9         0.023       
+16   1024     1024           5723.5         0.023       
+18   256      256            1113.9         0.004       
+[threads=16] 09:21:39
+OpenMP: enabled, max_threads=16
+
+=== Single-statevector per-op throughput (CPU) ===
+k    op              dim          ns/op        Gamp/s    
+16   H               65536        38182.9      1.716     
+16   T               65536        32652.7      1.004     
+16   CZ              65536        18680.3      0.877     
+16   CNOT            65536        20285.6      1.615     
+16   U2              65536        81389.0      0.805     
+16   U4              65536        151333.5     0.433     
+16   EXPAND          65536        48320.0      2.713     
+16   EXPAND_T        65536        81689.4      1.605     
+16   MEAS_DIAG       65536        31974.8      4.099     
+16   MEAS_INTERFERE  65536        37345.5      3.510     
+
+=== Batched-across-shots throughput (CPU, batched) ===
+k    B        shots          shots/s        Mshot-lyr/s 
+12   256      256            21463.2        0.086       
+12   1024     1024           21103.9        0.084       
+12   4096     4096           21158.9        0.085       
+12   16384    16384          21141.5        0.085       
+16   256      256            1136.1         0.005       
+16   1024     1024           1143.3         0.005       
+18   256      256            238.2          0.001       
+
+=== Batched-across-shots throughput (CPU, batchedmeas) ===
+k    B        shots          shots/s        Mshot-lyr/s 
+12   256      256            19124.4        0.076       
+12   1024     1024           19252.8        0.077       
+12   4096     4096           19202.4        0.077       
+12   16384    16384          19727.6        0.079       
+16   256      256            1099.7         0.004       
+16   1024     1024           1124.5         0.004       
+18   256      256            224.6          0.001       
+
+=== Batched-across-shots throughput (CPU, batchedreal) ===
+k    B        shots          shots/s        Mshot-lyr/s 
+12   256      256            90952.1        0.364       
+12   1024     1024           89279.4        0.357       
+12   4096     4096           87598.1        0.350       
+12   16384    16384          87223.0        0.349       
+16   256      256            6383.6         0.026       
+16   1024     1024           6554.1         0.026       
+18   256      256            1202.4         0.005       
+DONE 09:22:31
