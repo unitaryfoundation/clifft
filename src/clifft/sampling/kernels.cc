@@ -2,6 +2,7 @@
 
 #include "clifft/util/numeric.h"
 
+#include <algorithm>
 #include <bit>
 #include <cassert>
 #include <cmath>
@@ -223,6 +224,94 @@ void collapse_measurement(State& state, const PreparedMeasurement& measurement, 
         }
     }
     state.set_active_width(state.active_width() - 1);
+}
+
+void activate_zero_coordinate(State& state) noexcept {
+    assert(state.active_width() < state.max_active_width() &&
+           "instrument activation must fit the sampling state allocation");
+    const uint64_t old_size = state.size();
+    std::fill_n(state.real_data() + old_size, static_cast<size_t>(old_size), 0.0);
+    std::fill_n(state.imag_data() + old_size, static_cast<size_t>(old_size), 0.0);
+    state.set_active_width(state.active_width() + 1);
+}
+
+void apply_instrument_no_fire(State& state, const PreparedPauli& source, double factor_zero,
+                              double factor_one, double no_fire_probability) noexcept {
+    assert_descriptor_width(state, source);
+    assert(!source.is_identity() && "state-dependent instrument source must be nonidentity");
+    assert(factor_zero >= 0.0 && factor_zero <= 1.0 && factor_one >= 0.0 && factor_one <= 1.0 &&
+           no_fire_probability > 0.0 && is_finite_robust(no_fire_probability) &&
+           "instrument no-fire filter requires valid factors and probability");
+    const double inv_norm = 1.0 / std::sqrt(no_fire_probability);
+    double* real = state.real_data();
+    double* imag = state.imag_data();
+    const uint64_t size = state.size();
+    if (source.is_diagonal()) {
+        for (uint64_t basis = 0; basis < size; ++basis) {
+            const bool branch = (std::popcount(basis & source.z) & 1U) != 0;
+            const double factor = (branch ? factor_one : factor_zero) * inv_norm;
+            real[basis] *= factor;
+            imag[basis] *= factor;
+        }
+        return;
+    }
+
+    const double identity_factor = 0.5 * (factor_zero + factor_one);
+    const double pauli_factor = 0.5 * (factor_zero - factor_one);
+    for (uint64_t left = 0; left < size; ++left) {
+        if ((left & source.pair_selector) != 0) {
+            continue;
+        }
+        const uint64_t right = left ^ source.x;
+        const std::complex<double> left_value{real[left], imag[left]};
+        const std::complex<double> right_value{real[right], imag[right]};
+        const std::complex<double> left_result =
+            identity_factor * left_value + pauli_factor * phase_at(source, right) * right_value;
+        const std::complex<double> right_result =
+            identity_factor * right_value + pauli_factor * phase_at(source, left) * left_value;
+        store(state, left, inv_norm * left_result);
+        store(state, right, inv_norm * right_result);
+    }
+}
+
+void collapse_instrument_source(State& state, const PreparedPauli& source, bool branch,
+                                double branch_probability) noexcept {
+    assert_descriptor_width(state, source);
+    assert(!source.is_identity() && "state-dependent instrument source must be nonidentity");
+    assert(branch_probability > 0.0 && is_finite_robust(branch_probability) &&
+           "instrument collapse requires a positive finite probability");
+    const double inv_norm = 1.0 / std::sqrt(branch_probability);
+    double* real = state.real_data();
+    double* imag = state.imag_data();
+    const uint64_t size = state.size();
+    if (source.is_diagonal()) {
+        for (uint64_t basis = 0; basis < size; ++basis) {
+            const bool basis_branch = (std::popcount(basis & source.z) & 1U) != 0;
+            if (basis_branch == branch) {
+                real[basis] *= inv_norm;
+                imag[basis] *= inv_norm;
+            } else {
+                real[basis] = 0.0;
+                imag[basis] = 0.0;
+            }
+        }
+        return;
+    }
+
+    const double eigenvalue = branch ? -1.0 : 1.0;
+    const double scale = 0.5 * inv_norm;
+    for (uint64_t left = 0; left < size; ++left) {
+        if ((left & source.pair_selector) != 0) {
+            continue;
+        }
+        const uint64_t right = left ^ source.x;
+        const std::complex<double> left_value{real[left], imag[left]};
+        const std::complex<double> right_value{real[right], imag[right]};
+        store(state, left,
+              scale * (left_value + eigenvalue * phase_at(source, right) * right_value));
+        store(state, right,
+              scale * (right_value + eigenvalue * phase_at(source, left) * left_value));
+    }
 }
 
 }  // namespace clifft::sampling

@@ -14,9 +14,12 @@
 #include <utility>
 #include <vector>
 
+using clifft::sampling::activate_zero_coordinate;
 using clifft::sampling::ActivePauli;
+using clifft::sampling::apply_instrument_no_fire;
 using clifft::sampling::apply_promotion;
 using clifft::sampling::apply_rotation;
+using clifft::sampling::collapse_instrument_source;
 using clifft::sampling::collapse_measurement;
 using clifft::sampling::measurement_probabilities;
 using clifft::sampling::MeasurementProbabilities;
@@ -257,6 +260,31 @@ TEST_CASE("Sampling kernel state owns stable aligned storage") {
     REQUIRE(assigned.imag_data() == imag);
 }
 
+TEST_CASE("Sampling state grows only at a continuation boundary and preserves live data") {
+    const std::complex<double> scalar{0.6, 0.8};
+    State state(1, 1, scalar);
+    const std::vector<std::complex<double>> input = deterministic_state(1);
+    load_state(state, input);
+
+    state.ensure_capacity(3);
+
+    REQUIRE(state.active_width() == 1);
+    REQUIRE(state.initial_active_width() == 1);
+    REQUIRE(state.max_active_width() == 3);
+    REQUIRE(state.capacity() == 8);
+    REQUIRE(state.global_scalar() == scalar);
+    require_vectors_close(coefficients(state), input);
+    REQUIRE(reinterpret_cast<uintptr_t>(state.real_data()) %
+                clifft::PageAlignedAllocation::kBaseAlignment ==
+            0);
+
+    state.reset();
+    REQUIRE(state.active_width() == 1);
+    REQUIRE(state.global_scalar() == scalar);
+    REQUIRE(state.real_data()[0] == 1.0);
+    REQUIRE(state.real_data()[1] == 0.0);
+}
+
 TEST_CASE("Sampling kernels rotations match the existing dense matrix oracle") {
     static constexpr double kAngles[] = {-0.75, -0.25, 0.0, 0.3};
     for (uint32_t active_width = 0; active_width <= 4; ++active_width) {
@@ -385,6 +413,79 @@ TEST_CASE("Sampling kernels measurements match dense projectors for every small 
                 }
             }
         }
+    }
+}
+
+TEST_CASE("Sampling instrument kernels match dense projectors without compacting") {
+    constexpr double kFactorZero = 0.8;
+    constexpr double kFactorOne = 0.3;
+    for (uint32_t active_width = 1; active_width <= 3; ++active_width) {
+        const uint64_t limit = uint64_t{1} << active_width;
+        const std::vector<std::complex<double>> input = deterministic_state(active_width);
+        for (uint64_t x = 0; x < limit; ++x) {
+            for (uint64_t z = 0; z < limit; ++z) {
+                if (x == 0 && z == 0) {
+                    continue;
+                }
+                CAPTURE(active_width, x, z);
+                const uint64_t support = x != 0 ? x : z;
+                const PreparedMeasurement measurement = prepare_measurement(
+                    {x, z}, active_width, static_cast<uint32_t>(std::countr_zero(support)));
+                const ProjectedBranch projected_zero =
+                    dense_project(input, x, z, false, active_width);
+                const ProjectedBranch projected_one =
+                    dense_project(input, x, z, true, active_width);
+
+                const double no_fire_probability =
+                    kFactorZero * kFactorZero * projected_zero.probability +
+                    kFactorOne * kFactorOne * projected_one.probability;
+                std::vector<std::complex<double>> filtered(input.size());
+                for (size_t i = 0; i < filtered.size(); ++i) {
+                    filtered[i] = (kFactorZero * std::sqrt(projected_zero.probability) *
+                                       projected_zero.normalized[i] +
+                                   kFactorOne * std::sqrt(projected_one.probability) *
+                                       projected_one.normalized[i]) /
+                                  std::sqrt(no_fire_probability);
+                }
+
+                State no_fire(active_width, active_width);
+                load_state(no_fire, input);
+                apply_instrument_no_fire(no_fire, measurement.pauli, kFactorZero, kFactorOne,
+                                         no_fire_probability);
+                require_vectors_close(coefficients(no_fire), filtered);
+                REQUIRE(no_fire.active_width() == active_width);
+
+                for (bool branch : {false, true}) {
+                    const ProjectedBranch& projected = branch ? projected_one : projected_zero;
+                    State collapsed(active_width, active_width);
+                    load_state(collapsed, input);
+                    collapse_instrument_source(collapsed, measurement.pauli, branch,
+                                               projected.probability);
+                    require_vectors_close(coefficients(collapsed), projected.normalized);
+                    REQUIRE(collapsed.active_width() == active_width);
+                }
+            }
+        }
+    }
+}
+
+TEST_CASE("Sampling instrument activation adds a clean coordinate in existing storage") {
+    State state(3, 2);
+    const std::vector<std::complex<double>> input = deterministic_state(2);
+    load_state(state, input);
+    double* const real = state.real_data();
+    double* const imag = state.imag_data();
+
+    activate_zero_coordinate(state);
+
+    REQUIRE(state.active_width() == 3);
+    REQUIRE(state.real_data() == real);
+    REQUIRE(state.imag_data() == imag);
+    for (uint64_t i = 0; i < input.size(); ++i) {
+        REQUIRE(state.real_data()[i] == input[i].real());
+        REQUIRE(state.imag_data()[i] == input[i].imag());
+        REQUIRE(state.real_data()[input.size() + i] == 0.0);
+        REQUIRE(state.imag_data()[input.size() + i] == 0.0);
     }
 }
 

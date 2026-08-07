@@ -7,6 +7,8 @@
 #include "clifft/util/noise_sampling.h"
 #include "clifft/util/xoshiro.h"
 
+#include "instrument_test_helpers.h"
+
 #include <algorithm>
 #include <array>
 #include <bit>
@@ -24,12 +26,15 @@
 #include <vector>
 
 using clifft::sampling::AffineBool;
+using clifft::sampling::ApplyInstrument;
 using clifft::sampling::classify_measurement_branch;
 using clifft::sampling::DefineSymbol;
 using clifft::sampling::ExecutablePlan;
 using clifft::sampling::Executor;
 using clifft::sampling::index;
 using clifft::sampling::InstrumentBoundary;
+using clifft::sampling::InstrumentDistribution;
+using clifft::sampling::InstrumentMode;
 using clifft::sampling::InstrumentSiteId;
 using clifft::sampling::MeasureActivePauli;
 using clifft::sampling::MeasureDormantRandom;
@@ -541,13 +546,132 @@ TEST_CASE("Sampling executor retains exact identity rotation scalars") {
                  Catch::Matchers::WithinAbs(expected.imag(), 1e-12));
 }
 
-TEST_CASE("Sampling executor rejects instrument boundaries before dispatch") {
-    SamplingPlan plan;
-    plan.num_instrument_sites = 1;
-    plan.actions = {PlannedAction{0, 0, InstrumentBoundary{InstrumentSiteId{0}}}};
+TEST_CASE("Sampling executor prepares instrument boundaries before dispatch") {
+    const clifft::InstrumentTraceOptions options = clifft::test::source_dependent_jump_options();
+    const clifft::HirModule hir =
+        clifft::trace(clifft::parse("LEVEL_TRANSITION[jump] 0"), &options);
 
-    REQUIRE_THROWS_WITH(ExecutablePlan(plan),
-                        "sampling executable does not yet support instrument boundary site 0");
+    const ExecutablePlan executable(clifft::sampling::plan_sampling(hir));
+
+    REQUIRE(executable.has_instruments());
+    REQUIRE(executable.num_instrument_sites() == 1);
+}
+
+TEST_CASE("Sampling executor applies computational instrument destinations in line") {
+    clifft::InstrumentTraceOptions options;
+    clifft::InstrumentProbabilities reset;
+    reset.p_fire[1] = 1.0;
+    reset.p_computational_dest[1][0] = 1.0;
+    options.transitions.emplace("reset", reset);
+
+    for (std::string_view circuit : {
+             "X 0\nLEVEL_TRANSITION[reset] 0\nM 0",
+             "H 0\nLEVEL_TRANSITION[reset] 0\nM 0",
+             "H 0\nT 0\nLEVEL_TRANSITION[reset] 0\nM 0",
+         }) {
+        const clifft::HirModule hir = clifft::trace(clifft::parse(circuit), &options);
+        const ExecutablePlan executable(clifft::sampling::plan_sampling(hir));
+        Executor executor(executable, 17);
+
+        for (uint32_t shot = 0; shot < 20; ++shot) {
+            executor.run_shot();
+            CAPTURE(circuit, shot);
+            REQUIRE_FALSE(executor.pending_trap().has_value());
+            REQUIRE(executor.visible_records().size() == 1);
+            REQUIRE(executor.visible_records()[0] == 0);
+        }
+    }
+}
+
+TEST_CASE("Sampling executor propagates an entangled destination flip") {
+    clifft::InstrumentTraceOptions options;
+    clifft::InstrumentProbabilities reset;
+    reset.p_fire[0] = 1.0;
+    reset.p_fire[1] = 1.0;
+    reset.p_computational_dest[0][0] = 1.0;
+    reset.p_computational_dest[1][0] = 1.0;
+    options.transitions.emplace("reset", reset);
+    const clifft::HirModule hir = clifft::trace(
+        clifft::parse("H 0\nH 1\nCZ 0 1\nT 1\nLEVEL_TRANSITION[reset] 1\nM 1"), &options);
+    const ExecutablePlan executable(clifft::sampling::plan_sampling(hir));
+    Executor executor(executable, 29);
+
+    for (uint32_t shot = 0; shot < 20; ++shot) {
+        executor.run_shot();
+        REQUIRE_FALSE(executor.pending_trap().has_value());
+        REQUIRE(executor.visible_records()[0] == 0);
+    }
+}
+
+TEST_CASE("Sampling executor stops at noncomputational destinations") {
+    clifft::InstrumentTraceOptions options;
+    const clifft::HirModule hir = clifft::trace(clifft::parse("LOSS(1) 0\nM 0"), &options);
+    const ExecutablePlan executable(clifft::sampling::plan_sampling(hir));
+    Executor executor(executable, 3);
+
+    executor.run_shot();
+
+    REQUIRE(executor.pending_trap().has_value());
+    REQUIRE(executor.pending_trap()->site == InstrumentSiteId{0});
+    REQUIRE(executor.pending_trap()->source == 0);
+    REQUIRE_FALSE(executor.pending_trap()->destination_pending);
+}
+
+TEST_CASE("Sampling executor defers suffix noise until an instrument continuation") {
+    clifft::InstrumentTraceOptions options;
+    const clifft::HirModule hir =
+        clifft::trace(clifft::parse("X_ERROR(1) 0\nLEAKAGE(1) 0\nX_ERROR(1) 0\nM 0"), &options);
+    const SamplingPlan plan = clifft::sampling::plan_sampling(hir);
+    const SymbolId suffix_noise = plan.presampled_noise_sites[1].outcomes[0].symbol;
+    const ExecutablePlan executable(plan);
+    Executor executor(executable, 9);
+
+    executor.run_shot();
+    REQUIRE(executor.pending_trap().has_value());
+    REQUIRE(executor.symbols()[index(suffix_noise)] == 0);
+
+    executor.resume(executable);
+    REQUIRE_FALSE(executor.pending_trap().has_value());
+    REQUIRE(executor.symbols()[index(suffix_noise)] == 1);
+}
+
+TEST_CASE("Sampling continuation consumes a forced hidden source record") {
+    SamplingPlan root_plan;
+    root_plan.num_qubits = 1;
+    root_plan.num_instrument_sites = 1;
+    root_plan.symbols = {SymbolInfo{SymbolKind::Unused, std::nullopt, std::nullopt}};
+    root_plan.instrument_distributions = {
+        InstrumentDistribution{InstrumentSiteId{0}, {1.0, 1.0}, {}}};
+    root_plan.actions = {
+        PlannedAction{
+            0, 0,
+            ApplyInstrument{
+                InstrumentSiteId{0}, InstrumentMode::DormantTrap, {}, AffineBool{}, std::nullopt}},
+        PlannedAction{0, 0, InstrumentBoundary{InstrumentSiteId{0}, 0, 1}},
+    };
+    SamplingPlan continuation_plan = root_plan;
+    continuation_plan.num_hidden_records = 1;
+    continuation_plan.symbols.push_back(SymbolInfo{SymbolKind::Branch, 2, std::nullopt});
+    continuation_plan.actions.push_back(PlannedAction{
+        0, 0,
+        MeasureDormantRandom{0, SymbolId{1}, AffineBool::symbol(SymbolId{1}), RecordSlot{0}}});
+    const ExecutablePlan root(root_plan);
+    const ExecutablePlan continuation(continuation_plan);
+    Executor executor(root, 11);
+
+    executor.run_shot();
+    const auto trap = executor.pending_trap();
+    REQUIRE(trap.has_value());
+    REQUIRE(trap->destination_pending);
+
+    executor.resume(continuation, std::pair{RecordSlot{0}, trap->source});
+    REQUIRE_FALSE(executor.pending_trap().has_value());
+    REQUIRE(executor.hidden_records()[0] == trap->source);
+
+    executor.run_shot();
+    REQUIRE(executor.pending_trap().has_value());
+    REQUIRE(executor.hidden_records().empty());
+    REQUIRE(executor.symbols().size() == root_plan.symbols.size());
 }
 
 TEST_CASE("Sampling executor matches legacy records for supported circuits") {

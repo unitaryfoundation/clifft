@@ -16,6 +16,7 @@
 
 #include "clifft/util/numeric.h"
 
+#include <array>
 #include <complex>
 #include <cstdint>
 #include <limits>
@@ -58,10 +59,12 @@ enum class ObservableSlot : uint32_t {};
 }
 
 enum class SymbolKind : uint8_t {
+    Unused,      // Stable operation-order slot that this compiled plan does not need.
     Presampled,  // Available before the action stream, such as sampled noise.
     Derived,     // Computed as a parity of previously available symbols.
     Branch,      // Sampled while applying a measurement action.
     Readout,     // Sampled from a record-dependent readout channel.
+    Instrument,  // Records an in-line computational instrument destination flip.
 };
 
 // A parity expression over plan symbols, optionally XORed with true. For
@@ -192,19 +195,44 @@ struct WriteObservable {
     ObservableSlot observable{};
 };
 
+// Instruments share one semantic action because their execution forms differ
+// only in how the source observable enters the dense state. The planner fixes
+// that choice; runtime never performs localization or topology discovery.
+enum class InstrumentMode : uint8_t {
+    Classical,    // The source is the Boolean sign; no coefficient work is needed.
+    Active,       // The source Pauli is already supported on active coordinates.
+    Activate,     // Add one |0> coordinate before applying the source Pauli.
+    DormantTrap,  // Sample a dormant-random source and let a continuation collapse it.
+};
+
+struct ApplyInstrument {
+    InstrumentSiteId site{};
+    InstrumentMode mode = InstrumentMode::Classical;
+    // Identity for Classical and DormantTrap. Activate uses the post-activation
+    // width, while Active uses the unchanged width.
+    ActivePauli source;
+    AffineBool sign;
+    // Present when a computational destination can continue in-line. The
+    // symbol is true exactly when that destination differs from its source.
+    std::optional<SymbolId> destination_flip;
+};
+
 // Divides ahead-of-time execution segments. A continuation must preserve the
 // live coefficients, active-coordinate meaning and order, active width,
 // symbol and record values, and RNG position established here. It need not
-// reproduce an arbitrary prior plan prefix byte-for-byte. The marker does not
-// itself change the active state; any transition belongs to a following action.
+// reproduce an arbitrary prior plan prefix byte-for-byte. The instrument
+// action precedes this marker, so a trap resumes at the marker and samples only
+// the replacement suffix's presampled-noise segment.
 struct InstrumentBoundary {
     InstrumentSiteId site{};
+    uint32_t next_noise_site = 0;
+    uint32_t symbol_prefix_size = 0;
 };
 
 using SamplingAction =
     std::variant<RotateActivePauli, PromoteDormantRotation, MeasureActivePauli,
                  MeasureDormantRandom, RecordClassical, DefineSymbol, ApplyReadoutNoise,
-                 WriteDetector, WriteObservable, InstrumentBoundary>;
+                 WriteDetector, WriteObservable, ApplyInstrument, InstrumentBoundary>;
 
 struct PlannedAction {
     uint32_t active_before = 0;
@@ -215,15 +243,15 @@ struct PlannedAction {
 // SamplingPlan::validate enforces the legal field combinations and verifies
 // that definition metadata agrees with the referenced action.
 struct SymbolInfo {
-    SymbolKind kind = SymbolKind::Presampled;
+    SymbolKind kind = SymbolKind::Unused;
 
-    // This is nullopt for Presampled. For Branch and Derived it identifies the
-    // unique action that assigns the symbol.
+    // For action-defined kinds, this identifies the unique assigning action.
+    // Presampled and Unused symbols use nullopt.
     std::optional<uint32_t> defining_action;
 
     // For a Presampled noise symbol, this identifies its stable HIR noise site.
-    // Nullopt means the presampled event has no noise-site identity. Branch and
-    // Derived symbols must always use nullopt.
+    // Nullopt means the presampled event has no noise-site identity. All other
+    // symbol kinds must use nullopt.
     std::optional<NoiseSiteId> noise_site;
 };
 
@@ -237,6 +265,15 @@ struct PresampledNoiseOutcome {
 struct PresampledNoiseSite {
     NoiseSiteId site{};
     std::vector<PresampledNoiseOutcome> outcomes;
+};
+
+// Plan-owned copy of one HIR instrument distribution. Source and destination
+// indices use 0 for g and 1 for e. Computational entries are unconditional;
+// their row sum is at most p_fire[source].
+struct InstrumentDistribution {
+    InstrumentSiteId site{};
+    std::array<double, 2> p_fire{};
+    std::array<std::array<double, 2>, 2> p_computational_dest{};
 };
 
 struct SamplingPlan {
@@ -259,6 +296,7 @@ struct SamplingPlan {
 
     std::vector<SymbolInfo> symbols;
     std::vector<PresampledNoiseSite> presampled_noise_sites;
+    std::vector<InstrumentDistribution> instrument_distributions;
     std::vector<PlannedAction> actions;
 
     // Throws std::invalid_argument when the plan is structurally inconsistent.

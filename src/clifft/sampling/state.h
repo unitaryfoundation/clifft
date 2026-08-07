@@ -32,6 +32,12 @@ class State {
     // The allocation and all array addresses remain unchanged.
     void reset() noexcept;
 
+    // A continuation boundary may require a wider dense state than the plan
+    // that began the shot. Grow without changing live coefficients or the
+    // initial configuration used by the next reset; ordinary dispatch never
+    // calls this function.
+    void ensure_capacity(uint32_t max_active_width);
+
     [[nodiscard]] uint32_t active_width() const { return active_width_; }
     [[nodiscard]] uint32_t initial_active_width() const { return initial_active_width_; }
     [[nodiscard]] uint32_t max_active_width() const { return max_active_width_; }

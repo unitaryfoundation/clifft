@@ -2,6 +2,7 @@
 #include "clifft/frontend/frontend.h"
 #include "clifft/sampling/planner.h"
 
+#include "instrument_test_helpers.h"
 #include "test_helpers.h"
 
 #include <array>
@@ -12,13 +13,17 @@
 #include <numbers>
 #include <stdexcept>
 #include <string>
+#include <string_view>
 #include <variant>
 
 using clifft::HirModule;
 using clifft::MeasRecordIdx;
 using clifft::NoiseSite;
 using clifft::sampling::AffineBool;
+using clifft::sampling::ApplyInstrument;
 using clifft::sampling::ApplyReadoutNoise;
+using clifft::sampling::InstrumentBoundary;
+using clifft::sampling::InstrumentMode;
 using clifft::sampling::MeasureActivePauli;
 using clifft::sampling::MeasureDormantRandom;
 using clifft::sampling::plan_sampling;
@@ -120,7 +125,8 @@ TEST_CASE("Sampling planner records repeat dormant measurements consistently") {
     const SamplingPlan plan = plan_sampling(hir);
 
     REQUIRE(plan.actions.size() == 2);
-    REQUIRE(plan.symbols.size() == 1);
+    REQUIRE(plan.symbols.size() == 2);
+    REQUIRE(plan.symbols[1].kind == SymbolKind::Unused);
     const auto& first = action_as<MeasureDormantRandom>(plan, 0);
     REQUIRE(first.branch == SymbolId{0});
     REQUIRE(first.outcome == AffineBool::symbol(SymbolId{0}));
@@ -174,6 +180,63 @@ TEST_CASE("Sampling planner accepts traced rotation and measurement HIR") {
     REQUIRE(std::holds_alternative<PromoteDormantRotation>(plan.actions[0].action));
     REQUIRE(std::holds_alternative<MeasureActivePauli>(plan.actions[1].action));
     REQUIRE(plan.symbols.size() == 1);
+}
+
+TEST_CASE("Sampling planner fixes instrument source handling before execution") {
+    auto plan_for = [](std::string_view circuit, bool neglect) {
+        const clifft::InstrumentTraceOptions options =
+            clifft::test::source_dependent_jump_options(neglect);
+        return plan_sampling(clifft::trace(clifft::parse(circuit), &options));
+    };
+    auto instrument = [](const SamplingPlan& plan) -> const ApplyInstrument& {
+        for (const auto& action : plan.actions) {
+            if (const auto* result = std::get_if<ApplyInstrument>(&action.action)) {
+                return *result;
+            }
+        }
+        throw std::logic_error("test plan omitted its instrument action");
+    };
+
+    const SamplingPlan classical = plan_for("LEVEL_TRANSITION[jump] 0", false);
+    REQUIRE(instrument(classical).mode == InstrumentMode::Classical);
+    REQUIRE(std::holds_alternative<InstrumentBoundary>(classical.actions.back().action));
+
+    const SamplingPlan activated = plan_for("H 0\nLEVEL_TRANSITION[jump] 0", false);
+    REQUIRE(instrument(activated).mode == InstrumentMode::Activate);
+    REQUIRE(activated.max_active_width == 1);
+
+    const SamplingPlan active = plan_for("H 0\nT 0\nLEVEL_TRANSITION[jump] 0", false);
+    REQUIRE(instrument(active).mode == InstrumentMode::Active);
+
+    const SamplingPlan neglected = plan_for("H 0\nLEVEL_TRANSITION[jump] 0", true);
+    REQUIRE(instrument(neglected).mode == InstrumentMode::DormantTrap);
+    REQUIRE(neglected.max_active_width == 0);
+}
+
+TEST_CASE("Sampling planner keeps prefix symbols stable across continuation suffixes") {
+    const clifft::InstrumentTraceOptions options = clifft::test::source_dependent_jump_options();
+    const auto make = [&](std::string_view suffix) {
+        const std::string circuit = "H 0\nM 0\nLEVEL_TRANSITION[jump] 0\n" + std::string(suffix);
+        return plan_sampling(clifft::trace(clifft::parse(circuit), &options));
+    };
+    const SamplingPlan short_plan = make("");
+    const SamplingPlan longer_plan = make("X_ERROR(0.1) 0");
+
+    const auto& short_measurement = action_as<MeasureDormantRandom>(short_plan, 0);
+    const auto& longer_measurement = action_as<MeasureDormantRandom>(longer_plan, 0);
+    REQUIRE(short_measurement.branch == longer_measurement.branch);
+
+    const auto find_instrument = [](const SamplingPlan& plan) -> const ApplyInstrument& {
+        for (const auto& action : plan.actions) {
+            if (const auto* instrument = std::get_if<ApplyInstrument>(&action.action)) {
+                return *instrument;
+            }
+        }
+        throw std::logic_error("test plan omitted its instrument action");
+    };
+    REQUIRE(find_instrument(short_plan).destination_flip ==
+            find_instrument(longer_plan).destination_flip);
+    REQUIRE(longer_plan.symbols.size() == short_plan.symbols.size() + 1);
 }
 
 TEST_CASE("Sampling planner collapses active measurements and propagates branches") {

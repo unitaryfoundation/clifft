@@ -81,6 +81,8 @@ std::string format_expression(const AffineBool& expression) {
 
 std::string_view symbol_kind_name(SymbolKind kind) {
     switch (kind) {
+        case SymbolKind::Unused:
+            return "unused";
         case SymbolKind::Presampled:
             return "presampled";
         case SymbolKind::Derived:
@@ -89,6 +91,22 @@ std::string_view symbol_kind_name(SymbolKind kind) {
             return "branch";
         case SymbolKind::Readout:
             return "readout";
+        case SymbolKind::Instrument:
+            return "instrument";
+    }
+    return "unknown";
+}
+
+std::string_view instrument_mode_name(InstrumentMode mode) {
+    switch (mode) {
+        case InstrumentMode::Classical:
+            return "classical";
+        case InstrumentMode::Active:
+            return "active";
+        case InstrumentMode::Activate:
+            return "activate";
+        case InstrumentMode::DormantTrap:
+            return "dormant_trap";
     }
     return "unknown";
 }
@@ -140,6 +158,8 @@ std::optional<SymbolId> defined_symbol(const SamplingAction& action) {
                 return typed.symbol;
             } else if constexpr (std::is_same_v<T, ApplyReadoutNoise>) {
                 return typed.flip;
+            } else if constexpr (std::is_same_v<T, ApplyInstrument>) {
+                return typed.destination_flip;
             } else if constexpr (std::is_same_v<T, RotateActivePauli> ||
                                  std::is_same_v<T, PromoteDormantRotation> ||
                                  std::is_same_v<T, RecordClassical> ||
@@ -278,6 +298,17 @@ uint32_t predicted_dense_passes(const SamplingAction& action) {
                 // Sampling requires one reduction before the branch is known,
                 // then a second traversal to collapse and compact that branch.
                 return 2;
+            } else if constexpr (std::is_same_v<T, ApplyInstrument>) {
+                switch (typed.mode) {
+                    case InstrumentMode::Classical:
+                    case InstrumentMode::DormantTrap:
+                        return 0;
+                    case InstrumentMode::Active:
+                    case InstrumentMode::Activate:
+                        // One population reduction followed by a filter or collapse pass.
+                        return 2;
+                }
+                return 0;
             } else if constexpr (std::is_same_v<T, MeasureDormantRandom> ||
                                  std::is_same_v<T, RecordClassical> ||
                                  std::is_same_v<T, DefineSymbol> ||
@@ -314,6 +345,35 @@ void SamplingPlan::validate() const {
 
     if (presampled_noise_sites.size() != num_noise_sites) {
         invalid_plan("presampled noise-site table does not match declared count");
+    }
+    if (instrument_distributions.size() != num_instrument_sites) {
+        invalid_plan("instrument distribution table does not match declared count");
+    }
+
+    for (uint32_t site_index = 0; site_index < instrument_distributions.size(); ++site_index) {
+        const InstrumentDistribution& distribution = instrument_distributions[site_index];
+        if (index(distribution.site) != site_index) {
+            invalid_plan("instrument distributions are not in stable id order");
+        }
+        for (uint8_t source = 0; source < 2; ++source) {
+            if (!is_probability(distribution.p_fire[source])) {
+                invalid_plan("instrument site " + std::to_string(site_index) +
+                             " has an invalid fire probability");
+            }
+            double computational = 0.0;
+            for (uint8_t destination = 0; destination < 2; ++destination) {
+                const double probability = distribution.p_computational_dest[source][destination];
+                if (!is_probability(probability)) {
+                    invalid_plan("instrument site " + std::to_string(site_index) +
+                                 " has an invalid destination probability");
+                }
+                computational += probability;
+            }
+            if (computational > distribution.p_fire[source] + 1e-12) {
+                invalid_plan("instrument site " + std::to_string(site_index) +
+                             " computational destinations exceed its fire probability");
+            }
+        }
     }
 
     std::vector<bool> bound_noise_symbols(symbols.size(), false);
@@ -372,6 +432,14 @@ void SamplingPlan::validate() const {
             invalid_plan("symbol s" + std::to_string(symbol_index) +
                          " has an invalid noise-site identity");
         }
+        if (info.kind == SymbolKind::Unused) {
+            if (info.defining_action.has_value() || info.noise_site.has_value() ||
+                actual_definitions[symbol_index].has_value()) {
+                invalid_plan("unused symbol s" + std::to_string(symbol_index) +
+                             " must not have a definition or noise identity");
+            }
+            continue;
+        }
         if (info.kind == SymbolKind::Presampled) {
             if (info.defining_action.has_value() || actual_definitions[symbol_index].has_value()) {
                 invalid_plan("presampled symbol s" + std::to_string(symbol_index) +
@@ -404,6 +472,11 @@ void SamplingPlan::validate() const {
             invalid_plan("readout symbol s" + std::to_string(symbol_index) +
                          " must be defined by ApplyReadoutNoise");
         }
+        if (info.kind == SymbolKind::Instrument &&
+            !std::holds_alternative<ApplyInstrument>(action)) {
+            invalid_plan("instrument symbol s" + std::to_string(symbol_index) +
+                         " must be defined by ApplyInstrument");
+        }
     }
 
     uint32_t active_width = initial_active_width;
@@ -412,6 +485,10 @@ void SamplingPlan::validate() const {
     std::unordered_set<uint32_t> written_detectors;
     std::unordered_set<uint32_t> written_observables;
     bool observed_postselection = false;
+    uint32_t observed_instruments = 0;
+    uint32_t observed_instrument_boundaries = 0;
+    uint32_t previous_noise_boundary = 0;
+    uint32_t previous_symbol_boundary = 0;
     written_records.reserve(std::min<size_t>(
         actions.size(), static_cast<uint64_t>(num_visible_records) + num_hidden_records));
     for (uint32_t action_index = 0; action_index < actions.size(); ++action_index) {
@@ -505,11 +582,62 @@ void SamplingPlan::validate() const {
                         invalid_plan("observable write has invalid width or slot");
                     }
                     validate_expression(*this, typed.outcome, action_index, definition, false);
+                } else if constexpr (std::is_same_v<T, ApplyInstrument>) {
+                    if (index(typed.site) != observed_instruments ||
+                        index(typed.site) >= num_instrument_sites) {
+                        invalid_plan("instrument action has an invalid or out-of-order site id");
+                    }
+                    const bool width_unchanged = planned.active_after == planned.active_before;
+                    switch (typed.mode) {
+                        case InstrumentMode::Classical:
+                            if (!width_unchanged || !typed.source.is_identity()) {
+                                invalid_plan("classical instrument has invalid width or source");
+                            }
+                            break;
+                        case InstrumentMode::Active:
+                            if (!width_unchanged || typed.source.is_identity()) {
+                                invalid_plan("active instrument has invalid width or source");
+                            }
+                            validate_pauli(typed.source, planned.active_before, action_index);
+                            break;
+                        case InstrumentMode::Activate:
+                            if (planned.active_after != planned.active_before + 1 ||
+                                typed.source.is_identity()) {
+                                invalid_plan("activating instrument has invalid width or source");
+                            }
+                            validate_pauli(typed.source, planned.active_after, action_index);
+                            break;
+                        case InstrumentMode::DormantTrap:
+                            if (!width_unchanged || !typed.source.is_identity() ||
+                                typed.destination_flip.has_value() || typed.sign != AffineBool{}) {
+                                invalid_plan("dormant trap instrument has incompatible fields");
+                            }
+                            break;
+                    }
+                    if (typed.mode != InstrumentMode::DormantTrap &&
+                        !typed.destination_flip.has_value()) {
+                        invalid_plan("in-line instrument omits its destination-flip symbol");
+                    }
+                    validate_expression(*this, typed.sign, action_index, definition, false);
+                    ++observed_instruments;
                 } else if constexpr (std::is_same_v<T, InstrumentBoundary>) {
                     if (planned.active_after != planned.active_before ||
-                        index(typed.site) >= num_instrument_sites) {
+                        index(typed.site) >= num_instrument_sites ||
+                        typed.next_noise_site > num_noise_sites ||
+                        typed.next_noise_site < previous_noise_boundary || action_index == 0 ||
+                        index(typed.site) != observed_instrument_boundaries ||
+                        typed.symbol_prefix_size > symbols.size() ||
+                        typed.symbol_prefix_size < previous_symbol_boundary) {
                         invalid_plan("instrument boundary has an invalid width or site id");
                     }
+                    const auto* instrument =
+                        std::get_if<ApplyInstrument>(&actions[action_index - 1].action);
+                    if (instrument == nullptr || instrument->site != typed.site) {
+                        invalid_plan("instrument boundary must immediately follow its action");
+                    }
+                    previous_noise_boundary = typed.next_noise_site;
+                    previous_symbol_boundary = typed.symbol_prefix_size;
+                    ++observed_instrument_boundaries;
                 } else {
                     static_assert(kAlwaysFalse<T>, "Unhandled SamplingAction alternative");
                 }
@@ -531,6 +659,10 @@ void SamplingPlan::validate() const {
     }
     if (observed_postselection != has_postselection) {
         invalid_plan("declared postselection flag does not match detector actions");
+    }
+    if (observed_instruments != num_instrument_sites ||
+        observed_instrument_boundaries != num_instrument_sites) {
+        invalid_plan("declared instrument count does not match the action stream");
     }
 }
 
@@ -607,8 +739,17 @@ std::string SamplingPlan::inspect() const {
                 } else if constexpr (std::is_same_v<T, WriteObservable>) {
                     out << "write_observable outcome=" << format_expression(typed.outcome)
                         << " observable=" << index(typed.observable);
+                } else if constexpr (std::is_same_v<T, ApplyInstrument>) {
+                    out << "apply_instrument site=" << index(typed.site)
+                        << " mode=" << instrument_mode_name(typed.mode) << ' '
+                        << format_pauli(typed.source) << " sign=" << format_expression(typed.sign);
+                    if (typed.destination_flip.has_value()) {
+                        out << " flip=s" << index(*typed.destination_flip);
+                    }
                 } else if constexpr (std::is_same_v<T, InstrumentBoundary>) {
-                    out << "instrument_boundary site=" << index(typed.site);
+                    out << "instrument_boundary site=" << index(typed.site)
+                        << " next_noise_site=" << typed.next_noise_site
+                        << " symbol_prefix_size=" << typed.symbol_prefix_size;
                 } else {
                     static_assert(kAlwaysFalse<T>, "Unhandled SamplingAction alternative");
                 }

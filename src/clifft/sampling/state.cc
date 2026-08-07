@@ -91,6 +91,41 @@ void State::reset() noexcept {
     real_[0] = 1.0;
 }
 
+void State::ensure_capacity(uint32_t max_active_width) {
+    if (max_active_width <= max_active_width_) {
+        return;
+    }
+    if (max_active_width >= kDenseActiveWidthLimit) {
+        throw std::invalid_argument("sampling state maximum active width must be below " +
+                                    std::to_string(kDenseActiveWidthLimit));
+    }
+
+    const uint64_t new_capacity = uint64_t{1} << max_active_width;
+    const uint64_t new_coefficient_stride = round_array_stride(new_capacity);
+    const uint64_t new_scratch_capacity = std::max(uint64_t{1}, new_capacity >> 1);
+    const uint64_t new_scratch_stride = round_array_stride(new_scratch_capacity);
+    const uint64_t allocated_doubles = 2 * new_coefficient_stride + 2 * new_scratch_stride;
+    if (allocated_doubles > std::numeric_limits<size_t>::max() / sizeof(double)) {
+        throw std::length_error("sampling state allocation exceeds addressable memory");
+    }
+
+    PageAlignedAllocation allocation(static_cast<size_t>(allocated_doubles) * sizeof(double));
+    double* const new_real = static_cast<double*>(allocation.data());
+    double* const new_imag = new_real + new_coefficient_stride;
+    std::copy_n(real_, static_cast<size_t>(size()), new_real);
+    std::copy_n(imag_, static_cast<size_t>(size()), new_imag);
+
+    allocation_ = std::move(allocation);
+    real_ = new_real;
+    imag_ = new_imag;
+    scratch_real_ = imag_ + new_coefficient_stride;
+    scratch_imag_ = scratch_real_ + new_scratch_stride;
+    capacity_ = new_capacity;
+    coefficient_stride_ = new_coefficient_stride;
+    scratch_stride_ = new_scratch_stride;
+    max_active_width_ = max_active_width;
+}
+
 void State::set_global_scalar(std::complex<double> value) {
     validate_scalar(value);
     global_scalar_ = value;
