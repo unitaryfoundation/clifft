@@ -115,6 +115,28 @@ PreparedMeasurement prepare_measurement(ActivePauli pauli, uint32_t active_width
                                prepared.z & ~pivot_bit};
 }
 
+double expectation_value(const State& state, const PreparedPauli& pauli) noexcept {
+    assert_descriptor_width(state, pauli);
+    if (pauli.is_identity()) {
+        return 1.0;
+    }
+    const uint64_t size = state.size();
+    double result = 0.0;
+    if (pauli.is_diagonal()) {
+        for (uint64_t basis = 0; basis < size; ++basis) {
+            const double eigenvalue = (std::popcount(basis & pauli.z) & 1U) != 0 ? -1.0 : 1.0;
+            result += eigenvalue * std::norm(load(state, basis));
+        }
+        return result;
+    }
+
+    for (uint64_t basis = 0; basis < size; ++basis) {
+        result += std::real(std::conj(load(state, basis ^ pauli.x)) * phase_at(pauli, basis) *
+                            load(state, basis));
+    }
+    return result;
+}
+
 void apply_rotation(State& state, const PreparedRotation& rotation, bool sign) noexcept {
     assert_descriptor_width(state, rotation.pauli);
     const double sine = sign ? -rotation.sine : rotation.sine;

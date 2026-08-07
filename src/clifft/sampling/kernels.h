@@ -55,6 +55,10 @@ struct MeasurementProbabilities {
 [[nodiscard]] PreparedMeasurement prepare_measurement(ActivePauli pauli, uint32_t active_width,
                                                       uint32_t pivot);
 
+// Computes <P> on normalized active-coordinate coefficients. The common
+// global scalar cancels and the state is not mutated.
+[[nodiscard]] double expectation_value(const State& state, const PreparedPauli& pauli) noexcept;
+
 // Runtime signs have already been evaluated from the plan expression. A true
 // sign negates the Pauli, equivalently negating the prepared sine.
 void apply_rotation(State& state, const PreparedRotation& rotation, bool sign) noexcept;

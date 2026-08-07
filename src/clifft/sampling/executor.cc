@@ -51,6 +51,7 @@ ExecutablePlan::ExecutablePlan(const SamplingPlan& plan)
       num_hidden_records_(plan.num_hidden_records),
       num_detectors_(plan.num_detectors),
       num_observables_(plan.num_observables),
+      num_exp_vals_(plan.num_exp_vals),
       has_postselection_(plan.has_postselection),
       global_weight_(plan.global_weight),
       instrument_distributions_(plan.instrument_distributions) {
@@ -82,6 +83,8 @@ ExecutablePlan::ExecutablePlan(const SamplingPlan& plan)
                 } else if constexpr (std::is_same_v<T, WriteDetector> ||
                                      std::is_same_v<T, WriteObservable>) {
                     num_expression_terms += typed.outcome.terms().size();
+                } else if constexpr (std::is_same_v<T, WriteExpectationValue>) {
+                    num_expression_terms += typed.sign.terms().size();
                 } else if constexpr (std::is_same_v<T, ApplyInstrument>) {
                     num_expression_terms += typed.sign.terms().size();
                 } else if constexpr (std::is_same_v<T, InstrumentBoundary>) {
@@ -175,6 +178,15 @@ ExecutablePlan::ExecutablePlan(const SamplingPlan& plan)
                 } else if constexpr (std::is_same_v<T, WriteObservable>) {
                     actions_.emplace_back(ExecuteObservable{prepare_expression(typed.outcome),
                                                             index(typed.observable)});
+                } else if constexpr (std::is_same_v<T, WriteExpectationValue>) {
+                    std::optional<PreparedPauli> active_projection;
+                    if (typed.active_projection.has_value()) {
+                        active_projection =
+                            prepare_pauli(*typed.active_projection, planned.active_before);
+                    }
+                    actions_.emplace_back(ExecuteExpectation{std::move(active_projection),
+                                                             prepare_expression(typed.sign),
+                                                             index(typed.exp_val)});
                 } else if constexpr (std::is_same_v<T, ApplyInstrument>) {
                     has_instruments_ = true;
                     std::optional<PreparedMeasurement> measurement;
@@ -242,6 +254,7 @@ Executor::Executor(const ExecutablePlan& plan, uint64_t seed)
       records_(static_cast<size_t>(plan.num_visible_records_) + plan.num_hidden_records_, 0),
       detectors_(plan.num_detectors_, 0),
       observables_(plan.num_observables_, 0),
+      exp_vals_(plan.num_exp_vals_, 0.0),
       forced_record_mask_(records_.size(), 0),
       forced_record_values_(records_.size(), 0),
       rng_(seed) {
@@ -298,7 +311,8 @@ void Executor::resume(const ExecutablePlan& continuation,
     if (continuation.num_qubits_ != plan_->num_qubits_ ||
         continuation.num_visible_records_ != plan_->num_visible_records_ ||
         continuation.num_detectors_ != plan_->num_detectors_ ||
-        continuation.num_observables_ != plan_->num_observables_) {
+        continuation.num_observables_ != plan_->num_observables_ ||
+        continuation.num_exp_vals_ != plan_->num_exp_vals_) {
         throw std::invalid_argument(
             "sampling continuation changes externally visible plan dimensions");
     }
@@ -537,6 +551,21 @@ void Executor::execute_action(const ExecutablePlan::ExecuteObservable& action,
 }
 
 template <bool ForceRecords>
+void Executor::execute_action(const ExecutablePlan::ExecuteExpectation& action,
+                              std::span<const uint8_t>, ReplayResult&) noexcept {
+    assert(action.exp_val < exp_vals_.size() && "expectation slot must be preallocated");
+    if (!action.active_projection.has_value()) {
+        // Outputs are overwritten instead of cleared at each shot. This store
+        // also prevents stale values when a continuation changes the planner's
+        // classification of the same probe from active to exact zero.
+        exp_vals_[action.exp_val] = 0.0;
+        return;
+    }
+    const double value = expectation_value(state_, *action.active_projection);
+    exp_vals_[action.exp_val] = evaluate(action.sign) ? -value : value;
+}
+
+template <bool ForceRecords>
 void Executor::execute_action(const ExecutablePlan::ExecuteInstrument& action,
                               std::span<const uint8_t>, ReplayResult& result) noexcept {
     if constexpr (ForceRecords) {
@@ -751,6 +780,7 @@ SamplingResult sample(const ExecutablePlan& plan, uint32_t shots, std::optional<
     result.measurements.resize(checked_size(plan.num_visible_records()));
     result.detectors.resize(checked_size(plan.num_detectors()));
     result.observables.resize(checked_size(plan.num_observables()));
+    result.exp_vals.resize(checked_size(plan.num_exp_vals()));
     if (shots == 0) {
         return result;
     }
@@ -767,6 +797,9 @@ SamplingResult sample(const ExecutablePlan& plan, uint32_t shots, std::optional<
             std::ranges::copy(
                 executor.observables(),
                 result.observables.begin() + static_cast<size_t>(shot) * plan.num_observables());
+            std::ranges::copy(
+                executor.exp_vals(),
+                result.exp_vals.begin() + static_cast<size_t>(shot) * plan.num_exp_vals());
         }
     };
     if (seed.has_value()) {
@@ -812,6 +845,7 @@ SamplingSurvivorResult sample_survivors(const ExecutablePlan& plan, uint32_t sho
         result.measurements.reserve(checked_reserve(plan.num_visible_records()));
         result.detectors.reserve(checked_reserve(plan.num_detectors()));
         result.observables.reserve(checked_reserve(plan.num_observables()));
+        result.exp_vals.reserve(checked_reserve(plan.num_exp_vals()));
     }
     auto run = [&](Executor& executor) {
         for (uint32_t shot = 0; shot < shots; ++shot) {
@@ -835,6 +869,8 @@ SamplingSurvivorResult sample_survivors(const ExecutablePlan& plan, uint32_t sho
                                         executor.detectors().end());
                 result.observables.insert(result.observables.end(), executor.observables().begin(),
                                           executor.observables().end());
+                result.exp_vals.insert(result.exp_vals.end(), executor.exp_vals().begin(),
+                                       executor.exp_vals().end());
             }
         }
     };

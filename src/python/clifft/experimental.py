@@ -46,8 +46,7 @@ def compile(
     """Compile Stim text for the experimental scalar sampling backend.
 
     The default HIR optimization pipeline matches :func:`clifft.compile`;
-    pass ``None`` to skip it. State-dependent instruments and exact-state
-    probes remain unsupported.
+    pass ``None`` to skip it. Exact final-state queries remain unsupported.
     """
     if isinstance(hir_passes, _DefaultPasses):
         hir_passes = default_hir_pass_manager()
@@ -66,15 +65,21 @@ def compile(
 
 def sample(program: Program, shots: int, seed: int | None = None) -> SampleResult:
     """Sample a prepared experimental program without changing Clifft's default backend."""
-    measurements, detectors, observables = cast(
+    measurements, detectors, observables, exp_vals = cast(
         tuple[
             npt.NDArray[np.uint8],
             npt.NDArray[np.uint8],
             npt.NDArray[np.uint8],
+            npt.NDArray[np.float64],
         ],
         _sample_experimental_sampling(program, shots, seed),
     )
-    return SampleResult(measurements, detectors, observables)
+    return SampleResult(
+        measurements,
+        detectors,
+        observables,
+        exp_vals=exp_vals,
+    )
 
 
 def sample_noncomputational(
@@ -100,7 +105,16 @@ def sample_survivors(
     keep_records: bool = False,
 ) -> SampleResult:
     """Sample survivor counts and optional records from an experimental program."""
-    measurements, detectors, observables, total, passed, logical_errors, observable_ones = cast(
+    (
+        measurements,
+        detectors,
+        observables,
+        total,
+        passed,
+        logical_errors,
+        observable_ones,
+        exp_vals,
+    ) = cast(
         tuple[
             npt.NDArray[np.uint8],
             npt.NDArray[np.uint8],
@@ -109,6 +123,7 @@ def sample_survivors(
             int,
             int,
             npt.NDArray[np.uint64],
+            npt.NDArray[np.float64],
         ],
         _sample_survivors_experimental_sampling(program, shots, seed, keep_records),
     )
@@ -120,6 +135,7 @@ def sample_survivors(
         passed,
         logical_errors,
         observable_ones,
+        exp_vals,
     )
 
 

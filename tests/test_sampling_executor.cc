@@ -25,12 +25,14 @@
 #include <variant>
 #include <vector>
 
+using clifft::sampling::ActivePauli;
 using clifft::sampling::AffineBool;
 using clifft::sampling::ApplyInstrument;
 using clifft::sampling::classify_measurement_branch;
 using clifft::sampling::DefineSymbol;
 using clifft::sampling::ExecutablePlan;
 using clifft::sampling::Executor;
+using clifft::sampling::ExpValSlot;
 using clifft::sampling::ForcedTraceOut;
 using clifft::sampling::index;
 using clifft::sampling::InstrumentBoundary;
@@ -56,6 +58,7 @@ using clifft::sampling::SamplingPlan;
 using clifft::sampling::SymbolId;
 using clifft::sampling::SymbolInfo;
 using clifft::sampling::SymbolKind;
+using clifft::sampling::WriteExpectationValue;
 
 namespace {
 
@@ -89,6 +92,7 @@ void require_matches_legacy(std::string_view circuit_text, uint32_t shots, uint6
     clifft::SchrodingerState legacy({.peak_rank = legacy_program.peak_rank,
                                      .num_measurements = legacy_program.total_meas_slots,
                                      .num_qubits = legacy_program.num_qubits,
+                                     .num_exp_vals = legacy_program.num_exp_vals,
                                      .seed = seed});
 
     for (uint32_t shot = 0; shot < shots; ++shot) {
@@ -103,6 +107,11 @@ void require_matches_legacy(std::string_view circuit_text, uint32_t shots, uint6
         REQUIRE(std::ranges::equal(
             executor.visible_records(),
             std::span<const uint8_t>(legacy.meas_record).first(legacy_program.num_measurements)));
+        REQUIRE(executor.exp_vals().size() == legacy.exp_vals.size());
+        for (size_t i = 0; i < legacy.exp_vals.size(); ++i) {
+            REQUIRE_THAT(executor.exp_vals()[i],
+                         Catch::Matchers::WithinAbs(legacy.exp_vals[i], 1e-12));
+        }
     }
 }
 
@@ -425,6 +434,19 @@ TEST_CASE("Sampling replay inverts affine records and preserves branch dependenc
     for (uint32_t shot = 0; shot < 16; ++shot) {
         executor.run_shot();
         REQUIRE(executor.visible_records()[0] == (executor.symbols()[0] ^ 1U));
+    }
+}
+
+TEST_CASE("Sampling replay evaluates record-dependent expectations") {
+    const ExecutablePlan executable(plan_from("H 0\nM 0\nCX rec[-1] 1\nEXP_VAL Z1\n"));
+    Executor executor(executable);
+
+    for (uint8_t forced_record : {uint8_t{0}, uint8_t{1}}) {
+        const ReplayResult replay = executor.replay_shot(std::array{forced_record});
+        CAPTURE(forced_record);
+        REQUIRE(replay.reachable);
+        REQUIRE_THAT(replay.log_probability, Catch::Matchers::WithinAbs(std::log(0.5), 1e-15));
+        REQUIRE(executor.exp_vals()[0] == (forced_record == 0 ? 1.0 : -1.0));
     }
 }
 
@@ -756,6 +778,46 @@ TEST_CASE("Sampling continuation consumes a forced hidden source record") {
     REQUIRE(executor.symbols().size() == root_plan.symbols.size());
 }
 
+TEST_CASE("Sampling continuation overwrites an expectation with exact zero") {
+    SamplingPlan root_plan;
+    root_plan.num_qubits = 1;
+    root_plan.num_exp_vals = 2;
+    root_plan.num_instrument_sites = 1;
+    root_plan.symbols = {SymbolInfo{SymbolKind::Unused, std::nullopt, std::nullopt}};
+    root_plan.instrument_distributions = {
+        InstrumentDistribution{InstrumentSiteId{0}, {1.0, 1.0}, {}}};
+    root_plan.actions = {
+        PlannedAction{0, 0, WriteExpectationValue{ActivePauli{}, AffineBool{}, ExpValSlot{0}}},
+        PlannedAction{
+            0, 0,
+            ApplyInstrument{
+                InstrumentSiteId{0}, InstrumentMode::DormantTrap, {}, AffineBool{}, std::nullopt}},
+        PlannedAction{0, 0, InstrumentBoundary{InstrumentSiteId{0}, 0, 1}},
+        PlannedAction{0, 0, WriteExpectationValue{ActivePauli{}, AffineBool{}, ExpValSlot{1}}},
+    };
+    SamplingPlan continuation_plan = root_plan;
+    continuation_plan.actions.back() =
+        PlannedAction{0, 0, WriteExpectationValue{std::nullopt, AffineBool{}, ExpValSlot{1}}};
+    const ExecutablePlan root(root_plan);
+    const ExecutablePlan continuation(continuation_plan);
+    Executor executor(root, 13);
+
+    executor.run_shot();
+    REQUIRE(executor.pending_trap().has_value());
+    REQUIRE(executor.exp_vals()[0] == 1.0);
+    executor.resume(root);
+    REQUIRE(executor.exp_vals()[0] == 1.0);
+    REQUIRE(executor.exp_vals()[1] == 1.0);
+
+    executor.run_shot();
+    REQUIRE(executor.pending_trap().has_value());
+    REQUIRE(executor.exp_vals()[0] == 1.0);
+    REQUIRE(executor.exp_vals()[1] == 1.0);
+    executor.resume(continuation);
+    REQUIRE(executor.exp_vals()[0] == 1.0);
+    REQUIRE(executor.exp_vals()[1] == 0.0);
+}
+
 TEST_CASE("Sampling executor matches legacy records for supported circuits") {
     require_matches_legacy("M 0\n", 32, 1234);
     require_matches_legacy("H 0\nM 0\nM 0\n", 64, 2345);
@@ -786,6 +848,48 @@ TEST_CASE("Sampling batch records match legacy seeded execution") {
     const clifft::SampleResult expected = clifft::sample(clifft::lower(hir), 64, uint64_t{5678});
     REQUIRE(actual == expected.measurements);
     REQUIRE(sample_records(executable, 0, uint64_t{5678}).empty());
+}
+
+TEST_CASE("Sampling executor expectation probes match legacy execution") {
+    require_matches_legacy("EXP_VAL X0\nEXP_VAL Z0", 1, 1234);
+    require_matches_legacy("H 0\nT 0\nEXP_VAL X0\nEXP_VAL Y0\nEXP_VAL Z0", 1, 2345);
+    require_matches_legacy("H 0\nH 1\nT 0\nT 1\nCX 0 1\nEXP_VAL Y0*Z1", 1, 3456);
+    require_matches_legacy("H 0\nM 0\nCX rec[-1] 1\nEXP_VAL Z1", 64, 4567);
+    require_matches_legacy("X_ERROR(1) 0\nEXP_VAL Z0", 1, 5678);
+}
+
+TEST_CASE("Sampling batch and survivor results carry expectation columns") {
+    const clifft::HirModule hir = clifft::trace(clifft::parse(R"(
+        H 0
+        T 0
+        EXP_VAL X0
+        H 1
+        M 1
+        DETECTOR rec[-1]
+    )"));
+    const std::array<uint8_t, 1> postselection{1};
+    const ExecutablePlan executable(
+        clifft::sampling::plan_sampling(hir, {.postselection_mask = postselection}));
+
+    const clifft::sampling::SamplingSurvivorResult survivors =
+        clifft::sampling::sample_survivors(executable, 1000, uint64_t{17}, true);
+    REQUIRE(survivors.passed_shots > 400);
+    REQUIRE(survivors.passed_shots < 600);
+    REQUIRE(survivors.exp_vals.size() == survivors.passed_shots);
+    for (double value : survivors.exp_vals) {
+        REQUIRE_THAT(value, Catch::Matchers::WithinAbs(1.0 / std::sqrt(2.0), 1e-12));
+    }
+
+    const ExecutablePlan fixed(clifft::sampling::plan_sampling(
+        clifft::trace(clifft::parse("H 0\nT 0\nEXP_VAL X0\nEXP_VAL Z0"))));
+    const clifft::sampling::SamplingResult result =
+        clifft::sampling::sample(fixed, 3, uint64_t{17});
+    REQUIRE(result.exp_vals.size() == 6);
+    for (uint32_t shot = 0; shot < 3; ++shot) {
+        REQUIRE_THAT(result.exp_vals[2 * shot],
+                     Catch::Matchers::WithinAbs(1.0 / std::sqrt(2.0), 1e-12));
+        REQUIRE_THAT(result.exp_vals[2 * shot + 1], Catch::Matchers::WithinAbs(0.0, 1e-12));
+    }
 }
 
 TEST_CASE("Sampling executor presamples mutually exclusive Pauli noise") {

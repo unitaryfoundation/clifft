@@ -21,9 +21,11 @@ using clifft::sampling::apply_promotion;
 using clifft::sampling::apply_rotation;
 using clifft::sampling::collapse_instrument_source;
 using clifft::sampling::collapse_measurement;
+using clifft::sampling::expectation_value;
 using clifft::sampling::measurement_probabilities;
 using clifft::sampling::MeasurementProbabilities;
 using clifft::sampling::prepare_measurement;
+using clifft::sampling::prepare_pauli;
 using clifft::sampling::prepare_promotion;
 using clifft::sampling::prepare_rotation;
 using clifft::sampling::PreparedMeasurement;
@@ -315,6 +317,31 @@ TEST_CASE("Sampling kernels rotations match the existing dense matrix oracle") {
                         REQUIRE(state.active_width() == active_width);
                     }
                 }
+            }
+        }
+    }
+}
+
+TEST_CASE("Sampling kernel expectation values match the existing dense matrix oracle") {
+    for (uint32_t active_width = 0; active_width <= 4; ++active_width) {
+        const uint64_t mask_limit = uint64_t{1} << active_width;
+        const std::vector<std::complex<double>> input = deterministic_state(active_width);
+        for (uint64_t x = 0; x < mask_limit; ++x) {
+            for (uint64_t z = 0; z < mask_limit; ++z) {
+                CAPTURE(active_width, x, z);
+                State state(active_width, active_width, {0.3, 0.4});
+                load_state(state, input);
+
+                const std::vector<std::complex<double>> applied =
+                    dense_matvec(dense_axis_rotation(x, z, false, 1.0, active_width), input);
+                std::complex<double> expected{0.0, 0.0};
+                for (size_t i = 0; i < input.size(); ++i) {
+                    expected += std::conj(input[i]) * applied[i];
+                }
+
+                REQUIRE_THAT(expectation_value(state, prepare_pauli({x, z}, active_width)),
+                             Catch::Matchers::WithinAbs(expected.real(), kTolerance));
+                REQUIRE_THAT(expected.imag(), Catch::Matchers::WithinAbs(0.0, kTolerance));
             }
         }
     }
