@@ -348,31 +348,31 @@ TEST_CASE("Sampling planner classifies active and dormant expectation probes") {
     REQUIRE(plan.num_exp_vals == 3);
     REQUIRE(plan.actions.size() == 4);
     const auto& active = action_as<WriteExpectationValue>(plan, 1);
-    REQUIRE(active.pauli.has_value());
-    REQUIRE_FALSE(active.pauli->is_identity());
+    REQUIRE(active.active_projection.has_value());
+    REQUIRE_FALSE(active.active_projection->is_identity());
     REQUIRE(active.exp_val == clifft::sampling::ExpValSlot{0});
     const auto& dormant_x = action_as<WriteExpectationValue>(plan, 2);
-    REQUIRE_FALSE(dormant_x.pauli.has_value());
+    REQUIRE_FALSE(dormant_x.active_projection.has_value());
     REQUIRE(dormant_x.sign == AffineBool{});
     const auto& dormant_z = action_as<WriteExpectationValue>(plan, 3);
-    REQUIRE(dormant_z.pauli.has_value());
-    REQUIRE(dormant_z.pauli->is_identity());
+    REQUIRE(dormant_z.active_projection.has_value());
+    REQUIRE(dormant_z.active_projection->is_identity());
 }
 
 TEST_CASE("Sampling planner propagates stochastic signs into expectation probes") {
     const SamplingPlan noise =
         plan_sampling(clifft::trace(clifft::parse("X_ERROR(1) 0\nEXP_VAL Z0")));
     const auto& noise_probe = action_as<WriteExpectationValue>(noise, 0);
-    REQUIRE(noise_probe.pauli.has_value());
-    REQUIRE(noise_probe.pauli->is_identity());
+    REQUIRE(noise_probe.active_projection.has_value());
+    REQUIRE(noise_probe.active_projection->is_identity());
     REQUIRE(noise_probe.sign == AffineBool::symbol(SymbolId{0}));
 
     const SamplingPlan feedback =
         plan_sampling(clifft::trace(clifft::parse("H 0\nM 0\nCX rec[-1] 1\nEXP_VAL Z1")));
     const auto& measurement = action_as<MeasureDormantRandom>(feedback, 0);
     const auto& feedback_probe = action_as<WriteExpectationValue>(feedback, 1);
-    REQUIRE(feedback_probe.pauli.has_value());
-    REQUIRE(feedback_probe.pauli->is_identity());
+    REQUIRE(feedback_probe.active_projection.has_value());
+    REQUIRE(feedback_probe.active_projection->is_identity());
     REQUIRE(feedback_probe.sign == AffineBool::symbol(measurement.branch));
 }
 

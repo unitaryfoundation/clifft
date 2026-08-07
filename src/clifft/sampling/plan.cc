@@ -311,7 +311,10 @@ uint32_t predicted_dense_passes(const SamplingAction& action) {
                 }
                 return 0;
             } else if constexpr (std::is_same_v<T, WriteExpectationValue>) {
-                return typed.pauli.has_value() && !typed.pauli->is_identity() ? 1 : 0;
+                return typed.active_projection.has_value() &&
+                               !typed.active_projection->is_identity()
+                           ? 1
+                           : 0;
             } else if constexpr (std::is_same_v<T, MeasureDormantRandom> ||
                                  std::is_same_v<T, RecordClassical> ||
                                  std::is_same_v<T, DefineSymbol> ||
@@ -592,8 +595,9 @@ void SamplingPlan::validate() const {
                         !written_exp_vals.insert(index(typed.exp_val)).second) {
                         invalid_plan("expectation write has invalid width or slot");
                     }
-                    if (typed.pauli.has_value()) {
-                        validate_pauli(*typed.pauli, planned.active_before, action_index);
+                    if (typed.active_projection.has_value()) {
+                        validate_pauli(*typed.active_projection, planned.active_before,
+                                       action_index);
                     } else if (typed.sign != AffineBool{}) {
                         invalid_plan("zero expectation write has an irrelevant symbolic sign");
                     }
@@ -759,8 +763,8 @@ std::string SamplingPlan::inspect() const {
                         << " observable=" << index(typed.observable);
                 } else if constexpr (std::is_same_v<T, WriteExpectationValue>) {
                     out << "write_expectation ";
-                    if (typed.pauli.has_value()) {
-                        out << format_pauli(*typed.pauli)
+                    if (typed.active_projection.has_value()) {
+                        out << format_pauli(*typed.active_projection)
                             << " sign=" << format_expression(typed.sign);
                     } else {
                         out << "zero";

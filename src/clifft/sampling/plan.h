@@ -199,11 +199,11 @@ struct WriteObservable {
     ObservableSlot observable{};
 };
 
-// Writes a non-destructive Pauli expectation probe. An absent active Pauli
-// means the transformed operator has X or Y support on a dormant |0>
-// coordinate, so its expectation is exactly zero without coefficient work.
+// Writes a non-destructive Pauli expectation probe. The planner retains only
+// the coefficient-kernel input, not the full transformed observable: an absent
+// active projection means dormant X or Y support proved the result is zero.
 struct WriteExpectationValue {
-    std::optional<ActivePauli> pauli;
+    std::optional<ActivePauli> active_projection;
     AffineBool sign;
     ExpValSlot exp_val{};
 };

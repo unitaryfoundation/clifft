@@ -25,12 +25,14 @@
 #include <variant>
 #include <vector>
 
+using clifft::sampling::ActivePauli;
 using clifft::sampling::AffineBool;
 using clifft::sampling::ApplyInstrument;
 using clifft::sampling::classify_measurement_branch;
 using clifft::sampling::DefineSymbol;
 using clifft::sampling::ExecutablePlan;
 using clifft::sampling::Executor;
+using clifft::sampling::ExpValSlot;
 using clifft::sampling::ForcedTraceOut;
 using clifft::sampling::index;
 using clifft::sampling::InstrumentBoundary;
@@ -56,6 +58,7 @@ using clifft::sampling::SamplingPlan;
 using clifft::sampling::SymbolId;
 using clifft::sampling::SymbolInfo;
 using clifft::sampling::SymbolKind;
+using clifft::sampling::WriteExpectationValue;
 
 namespace {
 
@@ -760,6 +763,40 @@ TEST_CASE("Sampling continuation consumes a forced hidden source record") {
     REQUIRE(executor.pending_trap().has_value());
     REQUIRE(executor.hidden_records().empty());
     REQUIRE(executor.symbols().size() == root_plan.symbols.size());
+}
+
+TEST_CASE("Sampling continuation overwrites an expectation with exact zero") {
+    SamplingPlan root_plan;
+    root_plan.num_qubits = 1;
+    root_plan.num_exp_vals = 1;
+    root_plan.num_instrument_sites = 1;
+    root_plan.symbols = {SymbolInfo{SymbolKind::Unused, std::nullopt, std::nullopt}};
+    root_plan.instrument_distributions = {
+        InstrumentDistribution{InstrumentSiteId{0}, {1.0, 1.0}, {}}};
+    root_plan.actions = {
+        PlannedAction{
+            0, 0,
+            ApplyInstrument{
+                InstrumentSiteId{0}, InstrumentMode::DormantTrap, {}, AffineBool{}, std::nullopt}},
+        PlannedAction{0, 0, InstrumentBoundary{InstrumentSiteId{0}, 0, 1}},
+        PlannedAction{0, 0, WriteExpectationValue{ActivePauli{}, AffineBool{}, ExpValSlot{0}}},
+    };
+    SamplingPlan continuation_plan = root_plan;
+    continuation_plan.actions.back() =
+        PlannedAction{0, 0, WriteExpectationValue{std::nullopt, AffineBool{}, ExpValSlot{0}}};
+    const ExecutablePlan root(root_plan);
+    const ExecutablePlan continuation(continuation_plan);
+    Executor executor(root, 13);
+
+    executor.run_shot();
+    REQUIRE(executor.pending_trap().has_value());
+    executor.resume(root);
+    REQUIRE(executor.exp_vals()[0] == 1.0);
+
+    executor.run_shot();
+    REQUIRE(executor.pending_trap().has_value());
+    executor.resume(continuation);
+    REQUIRE(executor.exp_vals()[0] == 0.0);
 }
 
 TEST_CASE("Sampling executor matches legacy records for supported circuits") {

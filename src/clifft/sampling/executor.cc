@@ -179,12 +179,14 @@ ExecutablePlan::ExecutablePlan(const SamplingPlan& plan)
                     actions_.emplace_back(ExecuteObservable{prepare_expression(typed.outcome),
                                                             index(typed.observable)});
                 } else if constexpr (std::is_same_v<T, WriteExpectationValue>) {
-                    std::optional<PreparedPauli> pauli;
-                    if (typed.pauli.has_value()) {
-                        pauli = prepare_pauli(*typed.pauli, planned.active_before);
+                    std::optional<PreparedPauli> active_projection;
+                    if (typed.active_projection.has_value()) {
+                        active_projection =
+                            prepare_pauli(*typed.active_projection, planned.active_before);
                     }
-                    actions_.emplace_back(ExecuteExpectation{
-                        std::move(pauli), prepare_expression(typed.sign), index(typed.exp_val)});
+                    actions_.emplace_back(ExecuteExpectation{std::move(active_projection),
+                                                             prepare_expression(typed.sign),
+                                                             index(typed.exp_val)});
                 } else if constexpr (std::is_same_v<T, ApplyInstrument>) {
                     has_instruments_ = true;
                     std::optional<PreparedMeasurement> measurement;
@@ -552,11 +554,14 @@ template <bool ForceRecords>
 void Executor::execute_action(const ExecutablePlan::ExecuteExpectation& action,
                               std::span<const uint8_t>, ReplayResult&) noexcept {
     assert(action.exp_val < exp_vals_.size() && "expectation slot must be preallocated");
-    if (!action.pauli.has_value()) {
+    if (!action.active_projection.has_value()) {
+        // Outputs are overwritten instead of cleared at each shot. This store
+        // also prevents stale values when a continuation changes the planner's
+        // classification of the same probe from active to exact zero.
         exp_vals_[action.exp_val] = 0.0;
         return;
     }
-    const double value = expectation_value(state_, *action.pauli);
+    const double value = expectation_value(state_, *action.active_projection);
     exp_vals_[action.exp_val] = evaluate(action.sign) ? -value : value;
 }
 

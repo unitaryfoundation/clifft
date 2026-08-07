@@ -149,7 +149,7 @@ class ExecutablePlan {
     };
 
     struct ExecuteExpectation {
-        std::optional<PreparedPauli> pauli;
+        std::optional<PreparedPauli> active_projection;
         PreparedExpression sign;
         uint32_t exp_val = 0;
     };
