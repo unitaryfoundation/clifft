@@ -153,7 +153,10 @@ def run_worker(
             f"worker emitted {len(lines)} nonempty lines for {case.case_id}/{backend}:\n"
             + result.stdout
         )
-    return json.loads(lines[0])
+    parsed = json.loads(lines[0])
+    if not isinstance(parsed, dict):
+        raise RuntimeError(f"worker emitted a non-object for {case.case_id}/{backend}")
+    return parsed
 
 
 def materialize_and_extract_metadata(

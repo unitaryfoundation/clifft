@@ -140,7 +140,7 @@ def compile_program(case: Case, text: str, backend: str, num_detectors: int) -> 
 
 
 def program_metadata(program: Any, backend: str) -> dict[str, Any]:
-    common = {
+    common: dict[str, Any] = {
         "num_qubits": int(program.num_qubits),
         "num_measurements": int(program.num_measurements),
         "num_detectors": int(program.num_detectors),

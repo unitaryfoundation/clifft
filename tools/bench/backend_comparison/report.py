@@ -114,7 +114,7 @@ def main() -> None:
     for sample in backend_samples:
         by_case[sample["case"]["case_id"]].append(sample)
 
-    rows = []
+    rows: list[dict[str, Any]] = []
     for case_id, case_samples in by_case.items():
         legacy = [sample for sample in case_samples if sample["arm"] == "legacy"]
         symbolic = [sample for sample in case_samples if sample["arm"] == "symbolic"]
@@ -136,7 +136,7 @@ def main() -> None:
             compile_ratio = statistics.median(symbolic_compile_values) / statistics.median(
                 legacy_compile_values
             )
-        row = {
+        row: dict[str, Any] = {
             "case_id": case_id,
             "regime": case_samples[0]["case"]["regime"],
             "output_mode": case_samples[0]["case"]["output_mode"],
@@ -199,22 +199,26 @@ def main() -> None:
     )
     markdown.append("|---|---:|---:|---:|---:|---:|---:|---:|")
     for row in rows:
-        legacy = row["legacy_seconds"]
-        symbolic = row["symbolic_seconds"]
+        legacy_seconds = row["legacy_seconds"]
+        symbolic_seconds = row["symbolic_seconds"]
         ratio = row["paired_symbolic_over_legacy"]
-        legacy_iqr = (float(legacy["q3"]) - float(legacy["q1"])) / float(legacy["median"])
-        symbolic_iqr = (float(symbolic["q3"]) - float(symbolic["q1"])) / float(symbolic["median"])
+        legacy_iqr = (float(legacy_seconds["q3"]) - float(legacy_seconds["q1"])) / float(
+            legacy_seconds["median"]
+        )
+        symbolic_iqr = (float(symbolic_seconds["q3"]) - float(symbolic_seconds["q1"])) / float(
+            symbolic_seconds["median"]
+        )
         compile_ratio = row["compile_symbolic_over_legacy"]
         markdown.append(
-            f"| `{row['case_id']}` | {format_ms(float(legacy['median']))} | "
-            f"{format_ms(float(symbolic['median']))} | {float(ratio['median']):.3f}x | "
+            f"| `{row['case_id']}` | {format_ms(float(legacy_seconds['median']))} | "
+            f"{format_ms(float(symbolic_seconds['median']))} | {float(ratio['median']):.3f}x | "
             f"{format_percent(legacy_iqr)} | {format_percent(symbolic_iqr)} | "
             f"{format_percent(row['legacy_outcomes']['discard_fraction'])} / "
             f"{format_percent(row['symbolic_outcomes']['discard_fraction'])} | "
             f"{compile_ratio:.2f}x |"
             if compile_ratio is not None
-            else f"| `{row['case_id']}` | {format_ms(float(legacy['median']))} | "
-            f"{format_ms(float(symbolic['median']))} | {float(ratio['median']):.3f}x | "
+            else f"| `{row['case_id']}` | {format_ms(float(legacy_seconds['median']))} | "
+            f"{format_ms(float(symbolic_seconds['median']))} | {float(ratio['median']):.3f}x | "
             f"{format_percent(legacy_iqr)} | {format_percent(symbolic_iqr)} | "
             f"{format_percent(row['legacy_outcomes']['discard_fraction'])} / "
             f"{format_percent(row['symbolic_outcomes']['discard_fraction'])} | n/a |"
