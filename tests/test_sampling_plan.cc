@@ -522,6 +522,24 @@ TEST_CASE("Sampling plan validates expectation output slots and zero probes") {
     }
 }
 
+TEST_CASE("Sampling plan validates exact-query metadata") {
+    SamplingPlan unitary = valid_rotation_plan();
+    unitary.final_tableau = stim::Tableau<clifft::kStimWidth>(1);
+    REQUIRE_NOTHROW(unitary.validate());
+    REQUIRE(unitary.inspect().find("basis_queries=1") != std::string::npos);
+
+    SECTION("tableau width") {
+        unitary.final_tableau = stim::Tableau<clifft::kStimWidth>(2);
+        REQUIRE_THROWS_AS(unitary.validate(), std::invalid_argument);
+    }
+
+    SECTION("nonunitary action stream") {
+        SamplingPlan measured = valid_dormant_measurement_plan();
+        measured.final_tableau = stim::Tableau<clifft::kStimWidth>(1);
+        REQUIRE_THROWS_AS(measured.validate(), std::invalid_argument);
+    }
+}
+
 TEST_CASE("Sampling plan predicts only state touching dense passes") {
     SamplingPlan plan = valid_rotation_plan();
     REQUIRE_NOTHROW(plan.validate());

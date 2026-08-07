@@ -2,6 +2,7 @@
 // inverse Clifford tableau and the per-bitstring amplitude lookup are the
 // implementation of the algorithm derived in docs/theory/basis_probabilities.md.
 
+#include "clifft/sampling/executor.h"
 #include "clifft/svm/svm.h"
 #include "clifft/svm/svm_math.h"
 #include "clifft/util/mask_view.h"
@@ -259,9 +260,7 @@ std::complex<double> BoundStabilizerAmplitudeQuery::amplitude(MaskView basis,
 }
 
 [[nodiscard]] StabilizerAmplitudeStructure make_stabilizer_amplitude_structure(
-    const CompiledModule& program, const stim::Tableau<kStimWidth>& inv_tableau,
-    uint32_t active_k) {
-    const uint32_t n = program.num_qubits;
+    uint32_t n, const stim::Tableau<kStimWidth>& inv_tableau, uint32_t active_k) {
     std::vector<StabilizerRow> rows;
     std::vector<BasisMask> sign_masks;
     rows.reserve(n);
@@ -478,35 +477,17 @@ void assert_probability_program_is_supported(const CompiledModule& program) {
     }
 }
 
-}  // namespace
+template <typename CoefficientAt>
+std::vector<double> basis_probabilities_from_factored_state(
+    uint32_t n, uint32_t active_width, uint64_t active_size,
+    const stim::Tableau<kStimWidth>& final_tableau, std::complex<double> scale, MaskView state_px,
+    uint64_t active_z_mask, CoefficientAt coefficient_at, std::span<const uint64_t> basis_masks,
+    size_t num_basis_masks, size_t words_per_basis_mask) {
+    // The factored state is scale * U_C * P * (|phi>_A x |0>_D). The inverse
+    // tableau lets the batch query evaluator reuse stabilizers of
+    // U_C^dagger |x> for every requested physical bitstring x.
+    stim::Tableau<kStimWidth> inv_tableau = final_tableau.inverse(false);
 
-std::vector<double> basis_probabilities(const CompiledModule& program,
-                                        std::span<const uint64_t> basis_masks,
-                                        size_t num_basis_masks, size_t words_per_basis_mask) {
-    assert_probability_program_is_supported(program);
-    if (!program.constant_pool.final_tableau.has_value()) {
-        throw std::invalid_argument(
-            "basis_probabilities() requires final Clifford tableau metadata; compile programs "
-            "through "
-            "clifft.compile() or preserve ConstantPool::final_tableau.");
-    }
-    assert_arena_widths_match(program.num_qubits, program.constant_pool);
-
-    SchrodingerState state({.peak_rank = program.peak_rank,
-                            .num_measurements = program.total_meas_slots,
-                            .num_qubits = program.num_qubits,
-                            .num_detectors = program.num_detectors,
-                            .num_observables = program.num_observables,
-                            .num_exp_vals = program.num_exp_vals,
-                            .seed = uint64_t{0}});
-    execute(program, state);
-
-    // The VM gives the factored final state gamma * U_C * P *
-    // (|phi>_A x |0>_D). The inverse tableau lets the batch query evaluator use
-    // stabilizers of U_C^\dagger |x> for each requested physical bitstring x.
-    stim::Tableau<kStimWidth> inv_tableau = program.constant_pool.final_tableau->inverse(false);
-
-    const uint32_t n = program.num_qubits;
     const size_t expected_words = basis_word_count(n);
     if (words_per_basis_mask != expected_words) {
         throw std::invalid_argument(
@@ -516,15 +497,7 @@ std::vector<double> basis_probabilities(const CompiledModule& program,
         throw std::invalid_argument("probability basis mask buffer has inconsistent shape");
     }
 
-    const uint64_t active_size = state.v_size();
-    const std::complex<double> scale = state.gamma() * program.constant_pool.global_weight;
-    const auto structure =
-        make_stabilizer_amplitude_structure(program, inv_tableau, state.active_k);
-    const auto state_px = MaskView{std::span<const uint64_t>(state.p_x)};
-    // validate_peak_rank() caps active_k below 60, so active bits fit in word 0
-    // and this shift never reaches 64.
-    const uint64_t active_z_mask =
-        state.active_k == 0 ? 0 : (state.p_z[0] & ((uint64_t{1} << state.active_k) - uint64_t{1}));
+    const auto structure = make_stabilizer_amplitude_structure(n, inv_tableau, active_width);
     BasisMask virtual_basis_storage(expected_words);
     BasisMask residual_storage(expected_words);
     BasisMask current_storage(expected_words);
@@ -535,7 +508,7 @@ std::vector<double> basis_probabilities(const CompiledModule& program,
     // Active bits live in [0, active_k). validate_peak_rank() caps active_k
     // below 60, so the mask fits in one word and the shift never reaches 64.
     const uint64_t active_mask =
-        state.active_k == 0 ? uint64_t{0} : (uint64_t{1} << state.active_k) - uint64_t{1};
+        active_width == 0 ? uint64_t{0} : (uint64_t{1} << active_width) - uint64_t{1};
 
     std::vector<double> out;
     out.reserve(num_basis_masks);
@@ -576,7 +549,7 @@ std::vector<double> basis_probabilities(const CompiledModule& program,
                 // Dormant |0> axes do not contribute a Z-frame sign.
                 const bool sign_bit = (std::popcount(active_index & active_z_mask) & 1U) != 0;
                 double sign = sign_bit ? -1.0 : 1.0;
-                amp += state.v()[active_index] * sign * coeff;
+                amp += coefficient_at(active_index) * sign * coeff;
             }
         } else {
             // Fast path: every dormant column is a pivot, so dormant
@@ -610,7 +583,7 @@ std::vector<double> basis_probabilities(const CompiledModule& program,
             // Debug invariant: every dormant bit of `current` now matches
             // state_px. Checked only in debug builds.
             assert([&]() {
-                for (uint32_t q = state.active_k; q < n; ++q) {
+                for (uint32_t q = active_width; q < n; ++q) {
                     const bool c = (current.words[q / 64] >> (q % 64)) & 1U;
                     const bool t = (state_px.words[q / 64] >> (q % 64)) & 1U;
                     if (c != t) {
@@ -640,11 +613,11 @@ std::vector<double> basis_probabilities(const CompiledModule& program,
                 // active_index = active bits of (current XOR state_px). All
                 // active bits fit in word 0 (active_k < 63).
                 const uint64_t active_index =
-                    state.active_k == 0 ? uint64_t{0}
-                                        : ((current.words[0] ^ state_px.words[0]) & active_mask);
+                    active_width == 0 ? uint64_t{0}
+                                      : ((current.words[0] ^ state_px.words[0]) & active_mask);
                 const bool sign_bit = (std::popcount(active_index & active_z_mask) & 1U) != 0;
                 const double sign = sign_bit ? -1.0 : 1.0;
-                total += state.v()[active_index] * sign * amp;
+                total += coefficient_at(active_index) * sign * amp;
             }
             amp = total;
         }
@@ -652,5 +625,69 @@ std::vector<double> basis_probabilities(const CompiledModule& program,
     }
     return out;
 }
+
+}  // namespace
+
+std::vector<double> basis_probabilities(const CompiledModule& program,
+                                        std::span<const uint64_t> basis_masks,
+                                        size_t num_basis_masks, size_t words_per_basis_mask) {
+    assert_probability_program_is_supported(program);
+    if (!program.constant_pool.final_tableau.has_value()) {
+        throw std::invalid_argument(
+            "basis_probabilities() requires final Clifford tableau metadata; compile programs "
+            "through clifft.compile() or preserve ConstantPool::final_tableau.");
+    }
+    assert_arena_widths_match(program.num_qubits, program.constant_pool);
+
+    SchrodingerState state({.peak_rank = program.peak_rank,
+                            .num_measurements = program.total_meas_slots,
+                            .num_qubits = program.num_qubits,
+                            .num_detectors = program.num_detectors,
+                            .num_observables = program.num_observables,
+                            .num_exp_vals = program.num_exp_vals,
+                            .seed = uint64_t{0}});
+    execute(program, state);
+
+    const auto state_px = MaskView{std::span<const uint64_t>(state.p_x)};
+    // validate_peak_rank() caps active_k below 60, so active bits fit in word
+    // zero and this shift never reaches 64.
+    const uint64_t active_z_mask =
+        state.active_k == 0 ? 0 : (state.p_z[0] & ((uint64_t{1} << state.active_k) - uint64_t{1}));
+    return basis_probabilities_from_factored_state(
+        program.num_qubits, state.active_k, state.v_size(), *program.constant_pool.final_tableau,
+        state.gamma() * program.constant_pool.global_weight, state_px, active_z_mask,
+        [&](uint64_t active_index) { return state.v()[active_index]; }, basis_masks,
+        num_basis_masks, words_per_basis_mask);
+}
+
+namespace sampling {
+
+std::vector<double> basis_probabilities(const ExecutablePlan& plan,
+                                        std::span<const uint64_t> basis_masks,
+                                        size_t num_basis_masks, size_t words_per_basis_mask) {
+    if (!plan.final_tableau_.has_value()) {
+        throw std::invalid_argument(
+            "basis_probabilities() requires pure-state evolution: measurements, feedback, "
+            "noise, readout noise, transition instruments, detectors, postselection, and "
+            "observables are not supported. EXP_VAL probes are allowed but their outputs are "
+            "ignored. Use DropNonUnitaryPass only if you intentionally want to query the "
+            "unitary skeleton of a mixed circuit.");
+    }
+
+    Executor executor(plan);
+    executor.run_shot();
+    const State& state = executor.state();
+    BasisMask zero_frame = zero_basis_mask(plan.num_qubits_);
+    return basis_probabilities_from_factored_state(
+        plan.num_qubits_, state.active_width(), state.size(), *plan.final_tableau_,
+        state.global_scalar(), basis_mask_view(zero_frame), 0,
+        [&](uint64_t active_index) {
+            return std::complex<double>{state.real_data()[active_index],
+                                        state.imag_data()[active_index]};
+        },
+        basis_masks, num_basis_masks, words_per_basis_mask);
+}
+
+}  // namespace sampling
 
 }  // namespace clifft

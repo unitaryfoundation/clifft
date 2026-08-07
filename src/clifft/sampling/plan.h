@@ -15,6 +15,7 @@
 // Clifford--Pauli Frames and Stabilizer Coordinates, arXiv:2607.28600.
 
 #include "clifft/util/numeric.h"
+#include "clifft/util/stim_mask.h"
 
 #include <array>
 #include <complex>
@@ -307,6 +308,11 @@ struct SamplingPlan {
     uint32_t num_exp_vals = 0;
     bool has_postselection = false;
     std::complex<double> global_weight = {1.0, 0.0};
+
+    // Present only for pure-state plans eligible for computational-basis
+    // queries. It maps the final stabilizer coordinates used by the action
+    // stream into physical qubits and is never read by ordinary dispatch.
+    std::optional<stim::Tableau<kStimWidth>> final_tableau;
 
     std::vector<SymbolInfo> symbols;
     std::vector<PresampledNoiseSite> presampled_noise_sites;

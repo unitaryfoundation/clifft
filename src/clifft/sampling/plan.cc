@@ -348,6 +348,9 @@ void SamplingPlan::validate() const {
     if (!is_finite_robust(global_weight.real()) || !is_finite_robust(global_weight.imag())) {
         invalid_plan("global weight is not finite");
     }
+    if (final_tableau.has_value() && final_tableau->num_qubits != num_qubits) {
+        invalid_plan("final tableau width does not match the qubit count");
+    }
 
     if (presampled_noise_sites.size() != num_noise_sites) {
         invalid_plan("presampled noise-site table does not match declared count");
@@ -514,6 +517,12 @@ void SamplingPlan::validate() const {
         }
 
         const std::optional<SymbolId> definition = defined_symbol(planned.action);
+        if (final_tableau.has_value() &&
+            !std::holds_alternative<RotateActivePauli>(planned.action) &&
+            !std::holds_alternative<PromoteDormantRotation>(planned.action) &&
+            !std::holds_alternative<WriteExpectationValue>(planned.action)) {
+            invalid_plan("final tableau is retained for a nonunitary action stream");
+        }
         std::visit(
             [&](const auto& typed) {
                 using T = std::decay_t<decltype(typed)>;
@@ -697,8 +706,8 @@ std::string SamplingPlan::inspect() const {
         << " hidden_records=" << num_hidden_records << " noise_sites=" << num_noise_sites
         << " instrument_sites=" << num_instrument_sites << " detectors=" << num_detectors
         << " observables=" << num_observables << " exp_vals=" << num_exp_vals
-        << " postselection=" << has_postselection << " dust_epsilon=" << kMeasurementDustEpsilon
-        << '\n';
+        << " postselection=" << has_postselection << " basis_queries=" << final_tableau.has_value()
+        << " dust_epsilon=" << kMeasurementDustEpsilon << '\n';
     out << "global_weight=" << global_weight.real() << ',' << global_weight.imag() << '\n';
     out << "symbols=" << symbols.size() << '\n';
     for (uint32_t i = 0; i < symbols.size(); ++i) {

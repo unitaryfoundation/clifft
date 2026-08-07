@@ -52,6 +52,13 @@ struct ForcedTraceOut {
     uint8_t source = 0;
 };
 
+class ExecutablePlan;
+
+[[nodiscard]] std::vector<double> basis_probabilities(const ExecutablePlan& plan,
+                                                      std::span<const uint64_t> basis_masks,
+                                                      size_t num_basis_masks,
+                                                      size_t words_per_basis_mask);
+
 [[nodiscard]] MeasurementBranchClassification classify_measurement_branch(
     MeasurementProbabilities probabilities) noexcept;
 
@@ -71,6 +78,7 @@ class ExecutablePlan {
     [[nodiscard]] bool has_postselection() const { return has_postselection_; }
     [[nodiscard]] bool has_readout_noise() const { return has_readout_noise_; }
     [[nodiscard]] bool has_instruments() const { return has_instruments_; }
+    [[nodiscard]] bool supports_basis_probabilities() const { return final_tableau_.has_value(); }
     [[nodiscard]] uint32_t num_instrument_sites() const {
         return static_cast<uint32_t>(instrument_distributions_.size());
     }
@@ -85,6 +93,10 @@ class ExecutablePlan {
 
   private:
     friend class Executor;
+    friend std::vector<double> basis_probabilities(const ExecutablePlan& plan,
+                                                   std::span<const uint64_t> basis_masks,
+                                                   size_t num_basis_masks,
+                                                   size_t words_per_basis_mask);
 
     struct PreparedExpression {
         uint32_t term_begin = 0;
@@ -204,6 +216,7 @@ class ExecutablePlan {
     bool has_instruments_ = false;
     uint32_t initial_noise_end_ = 0;
     std::complex<double> global_weight_ = {1.0, 0.0};
+    std::optional<stim::Tableau<kStimWidth>> final_tableau_;
     std::vector<uint32_t> expression_terms_;
     // Maps each dense presampled input position to its plan-local SymbolId.
     // The constructor records those ids in ascending order.

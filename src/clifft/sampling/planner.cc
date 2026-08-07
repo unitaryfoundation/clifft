@@ -29,6 +29,14 @@ using Tableau = stim::Tableau<kStimWidth>;
 template <typename>
 inline constexpr bool kAlwaysFalse = false;
 
+void compose_final_tableau(SamplingPlan& plan, const Tableau& new_basis_in_old_coordinates) {
+    if (plan.final_tableau.has_value()) {
+        // A.then(B) represents B * A. The frame maps new coordinates into
+        // the old basis, so prepend it on the right of the physical map.
+        plan.final_tableau = new_basis_in_old_coordinates.then(*plan.final_tableau);
+    }
+}
+
 struct PendingRotation {
     Pauli body;
     double half_turns = 0.0;
@@ -479,6 +487,7 @@ std::vector<PendingOperation> queue_supported_operations(const HirModule& hir, S
     uint32_t detector_index = 0;
     uint32_t next_noise_site = 0;
     uint32_t next_instrument_site = 0;
+    bool basis_queries_supported = true;
 
     for (size_t i = 0; i < hir.ops.size(); ++i) {
         const HeisenbergOp& op = hir.ops[i];
@@ -499,16 +508,19 @@ std::vector<PendingOperation> queue_supported_operations(const HirModule& hir, S
                 break;
             }
             case OpType::MEASURE:
+                basis_queries_supported = false;
                 pending.emplace_back(PendingMeasurement{
                     pauli_from_hir(hir, op), AffineBool(hir.sign(op)),
                     RecordSlot{static_cast<uint32_t>(op.meas_record_idx())}, reserve_symbol(plan)});
                 break;
             case OpType::CONDITIONAL_PAULI:
+                basis_queries_supported = false;
                 pending.emplace_back(PendingConditionalPauli{
                     pauli_from_hir(hir, op),
                     RecordSlot{static_cast<uint32_t>(op.controlling_meas())}});
                 break;
             case OpType::NOISE: {
+                basis_queries_supported = false;
                 const uint32_t site_index = static_cast<uint32_t>(op.noise_site_idx());
                 if (site_index >= hir.noise_sites.size()) {
                     throw std::invalid_argument("sampling planner noise site is out of range");
@@ -543,6 +555,7 @@ std::vector<PendingOperation> queue_supported_operations(const HirModule& hir, S
                 break;
             }
             case OpType::READOUT_NOISE: {
+                basis_queries_supported = false;
                 const uint32_t entry_index = static_cast<uint32_t>(op.readout_noise_idx());
                 if (entry_index >= hir.readout_noise.size()) {
                     throw std::invalid_argument("sampling planner readout entry is out of range");
@@ -554,6 +567,7 @@ std::vector<PendingOperation> queue_supported_operations(const HirModule& hir, S
                 break;
             }
             case OpType::INSTRUMENT: {
+                basis_queries_supported = false;
                 const uint32_t site_index = static_cast<uint32_t>(op.instrument_site_idx());
                 if (site_index >= hir.instrument_sites.size() ||
                     site_index != next_instrument_site) {
@@ -574,6 +588,7 @@ std::vector<PendingOperation> queue_supported_operations(const HirModule& hir, S
                 break;
             }
             case OpType::DETECTOR: {
+                basis_queries_supported = false;
                 const uint32_t targets_index = static_cast<uint32_t>(op.detector_idx());
                 if (targets_index >= hir.detector_targets.size() ||
                     detector_index >= hir.num_detectors) {
@@ -587,6 +602,7 @@ std::vector<PendingOperation> queue_supported_operations(const HirModule& hir, S
                 break;
             }
             case OpType::OBSERVABLE: {
+                basis_queries_supported = false;
                 const uint32_t targets_index = op.observable_target_list_idx();
                 const uint32_t observable_index = static_cast<uint32_t>(op.observable_idx());
                 if (targets_index >= hir.observable_targets.size() ||
@@ -624,6 +640,9 @@ std::vector<PendingOperation> queue_supported_operations(const HirModule& hir, S
         throw std::invalid_argument(
             "sampling planner instrument-site table is inconsistent with HIR");
     }
+    if (basis_queries_supported) {
+        plan.final_tableau = hir.final_tableau;
+    }
     return pending;
 }
 
@@ -646,6 +665,7 @@ void process_rotation(std::vector<PendingOperation>& pending, size_t index,
 
     const Tableau frame = dormant_promotion_frame(rotation.body, active_width, *dormant_pivot);
     transform_future_operations(pending, index + 1, frame);
+    compose_final_tableau(plan, frame);
     plan.actions.push_back(
         PlannedAction{active_width, active_width + 1,
                       PromoteDormantRotation{rotation.half_turns, rotation.sign}});
