@@ -225,12 +225,7 @@
 <span class=normal><a href=#__codelineno-0-328>328</a></span>
 <span class=normal><a href=#__codelineno-0-329>329</a></span>
 <span class=normal><a href=#__codelineno-0-330>330</a></span>
-<span class=normal><a href=#__codelineno-0-331>331</a></span>
-<span class=normal><a href=#__codelineno-0-332>332</a></span>
-<span class=normal><a href=#__codelineno-0-333>333</a></span>
-<span class=normal><a href=#__codelineno-0-334>334</a></span>
-<span class=normal><a href=#__codelineno-0-335>335</a></span>
-<span class=normal><a href=#__codelineno-0-336>336</a></span></pre></div></td><td class=code><div><pre><span></span><code><a id=__codelineno-0-288 name=__codelineno-0-288></a><span class=k>def</span><span class=w> </span><span class=nf>sample</span><span class=p>(</span>
+<span class=normal><a href=#__codelineno-0-331>331</a></span></pre></div></td><td class=code><div><pre><span></span><code><a id=__codelineno-0-288 name=__codelineno-0-288></a><span class=k>def</span><span class=w> </span><span class=nf>sample</span><span class=p>(</span>
 <a id=__codelineno-0-289 name=__codelineno-0-289></a>    <span class=n>circuit</span><span class=p>:</span> <span class=n>Circuit</span> <span class=o>|</span> <span class=nb>str</span><span class=p>,</span>
 <a id=__codelineno-0-290 name=__codelineno-0-290></a>    <span class=n>model</span><span class=p>:</span> <span class=n>Model</span><span class=p>,</span>
 <a id=__codelineno-0-291 name=__codelineno-0-291></a>    <span class=n>shots</span><span class=p>:</span> <span class=nb>int</span><span class=p>,</span>
@@ -271,14 +266,9 @@
 <a id=__codelineno-0-326 name=__codelineno-0-326></a><span class=sd>        ValueError: If a model or circuit contract is violated, an annotation</span>
 <a id=__codelineno-0-327 name=__codelineno-0-327></a><span class=sd>            is malformed, or a continuation exceeds ``max_rank``.</span>
 <a id=__codelineno-0-328 name=__codelineno-0-328></a><span class=sd>    &quot;&quot;&quot;</span>
-<a id=__codelineno-0-329 name=__codelineno-0-329></a>    <span class=k>if</span> <span class=nb>isinstance</span><span class=p>(</span><span class=n>circuit</span><span class=p>,</span> <span class=nb>str</span><span class=p>):</span>
-<a id=__codelineno-0-330 name=__codelineno-0-330></a>        <span class=n>circuit</span> <span class=o>=</span> <span class=n>_clifft_core</span><span class=o>.</span><span class=n>parse</span><span class=p>(</span><span class=n>circuit</span><span class=p>)</span>
-<a id=__codelineno-0-331 name=__codelineno-0-331></a>    <span class=n>meas</span><span class=p>,</span> <span class=n>det</span><span class=p>,</span> <span class=n>obs</span><span class=p>,</span> <span class=n>status</span><span class=p>,</span> <span class=n>heralds</span><span class=p>,</span> <span class=n>num_qubits</span><span class=p>,</span> <span class=n>num_meas</span><span class=p>,</span> <span class=n>num_det</span><span class=p>,</span> <span class=n>num_obs</span> <span class=o>=</span> <span class=p>(</span>
-<a id=__codelineno-0-332 name=__codelineno-0-332></a>        <span class=n>_clifft_core</span><span class=o>.</span><span class=n>_sample_noncomputational</span><span class=p>(</span><span class=n>circuit</span><span class=p>,</span> <span class=n>model</span><span class=o>.</span><span class=n>_handle</span><span class=p>,</span> <span class=n>shots</span><span class=p>,</span> <span class=n>seed</span><span class=p>,</span> <span class=n>max_rank</span><span class=p>)</span>
-<a id=__codelineno-0-333 name=__codelineno-0-333></a>    <span class=p>)</span>
-<a id=__codelineno-0-334 name=__codelineno-0-334></a>    <span class=k>return</span> <span class=n>NonComputationalSample</span><span class=p>(</span>
-<a id=__codelineno-0-335 name=__codelineno-0-335></a>        <span class=n>meas</span><span class=p>,</span> <span class=n>det</span><span class=p>,</span> <span class=n>obs</span><span class=p>,</span> <span class=n>status</span><span class=p>,</span> <span class=n>heralds</span><span class=p>,</span> <span class=n>num_qubits</span><span class=p>,</span> <span class=n>num_meas</span><span class=p>,</span> <span class=n>num_det</span><span class=p>,</span> <span class=n>num_obs</span>
-<a id=__codelineno-0-336 name=__codelineno-0-336></a>    <span class=p>)</span>
+<a id=__codelineno-0-329 name=__codelineno-0-329></a>    <span class=k>return</span> <span class=n>_sample_with</span><span class=p>(</span>
+<a id=__codelineno-0-330 name=__codelineno-0-330></a>        <span class=n>circuit</span><span class=p>,</span> <span class=n>model</span><span class=p>,</span> <span class=n>shots</span><span class=p>,</span> <span class=n>seed</span><span class=p>,</span> <span class=n>max_rank</span><span class=p>,</span> <span class=n>_clifft_core</span><span class=o>.</span><span class=n>_sample_noncomputational</span>
+<a id=__codelineno-0-331 name=__codelineno-0-331></a>    <span class=p>)</span>
 </code></pre></div></td></tr></table></div> </details> </div> </div> <div class="doc doc-object doc-class"> <h2 id=clifft.noncomp.Model class="doc doc-heading"> <code class="doc-symbol doc-symbol-heading doc-symbol-class"></code> <span class="doc doc-object-name doc-class-name">clifft.noncomp.Model</span> <a href=#clifft.noncomp.Model class=headerlink title="Permanent link">&para;</a></h2> <div class="doc-signature highlight"><pre><span></span><code><a id=__codelineno-0-1 name=__codelineno-0-1 href=#__codelineno-0-1></a><span class=nf>Model</span><span class=p>(</span>
 <a id=__codelineno-0-2 name=__codelineno-0-2 href=#__codelineno-0-2></a>    <span class=n>initial_state</span><span class=p>:</span> <span class=n>Sequence</span><span class=p>[</span><span class=nb>float</span><span class=p>]</span> <span class=o>|</span> <span class=kc>None</span> <span class=o>=</span> <span class=kc>None</span><span class=p>,</span>
 <a id=__codelineno-0-3 name=__codelineno-0-3 href=#__codelineno-0-3></a>    <span class=n>transitions</span><span class=p>:</span> <span class=n>Mapping</span><span class=p>[</span><span class=nb>str</span><span class=p>,</span> <span class=n>Matrix</span><span class=p>]</span> <span class=o>|</span> <span class=kc>None</span> <span class=o>=</span> <span class=kc>None</span><span class=p>,</span>
