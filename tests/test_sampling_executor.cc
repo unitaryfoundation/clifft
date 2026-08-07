@@ -4,6 +4,7 @@
 #include "clifft/sampling/executor.h"
 #include "clifft/sampling/planner.h"
 #include "clifft/svm/svm.h"
+#include "clifft/util/fault_sampling.h"
 #include "clifft/util/noise_sampling.h"
 #include "clifft/util/xoshiro.h"
 
@@ -32,6 +33,7 @@ using clifft::sampling::classify_measurement_branch;
 using clifft::sampling::DefineSymbol;
 using clifft::sampling::ExecutablePlan;
 using clifft::sampling::Executor;
+using clifft::sampling::ExpressionEvaluationMode;
 using clifft::sampling::ExpValSlot;
 using clifft::sampling::ForcedTraceOut;
 using clifft::sampling::index;
@@ -113,6 +115,44 @@ void require_matches_legacy(std::string_view circuit_text, uint32_t shots, uint6
                          Catch::Matchers::WithinAbs(legacy.exp_vals[i], 1e-12));
         }
     }
+}
+
+void require_expression_evaluators_match(const ExecutablePlan& executable, uint32_t shots,
+                                         uint64_t seed) {
+    Executor direct(executable, seed, ExpressionEvaluationMode::Direct, true);
+    Executor incremental(executable, seed, ExpressionEvaluationMode::Incremental, true);
+
+    for (uint32_t shot = 0; shot < shots; ++shot) {
+        direct.run_shot();
+        incremental.run_shot();
+        CAPTURE(shot);
+        REQUIRE(std::ranges::equal(direct.visible_records(), incremental.visible_records()));
+        REQUIRE(std::ranges::equal(direct.hidden_records(), incremental.hidden_records()));
+        REQUIRE(std::ranges::equal(direct.symbols(), incremental.symbols()));
+        REQUIRE(std::ranges::equal(direct.detectors(), incremental.detectors()));
+        REQUIRE(std::ranges::equal(direct.observables(), incremental.observables()));
+        REQUIRE(std::ranges::equal(direct.exp_vals(), incremental.exp_vals()));
+        REQUIRE(direct.discarded() == incremental.discarded());
+        REQUIRE(direct.pending_trap().has_value() == incremental.pending_trap().has_value());
+        REQUIRE(direct.dust_clamps() == incremental.dust_clamps());
+        REQUIRE(direct.state().active_width() == incremental.state().active_width());
+        REQUIRE(std::ranges::equal(direct.state().real(), incremental.state().real()));
+        REQUIRE(std::ranges::equal(direct.state().imag(), incremental.state().imag()));
+    }
+
+    const auto& direct_stats = direct.expression_stats();
+    const auto& incremental_stats = incremental.expression_stats();
+    REQUIRE(direct_stats.shots == shots);
+    REQUIRE(direct_stats.discarded_shots == incremental_stats.discarded_shots);
+    REQUIRE(direct_stats.expression_evaluations == incremental_stats.expression_evaluations);
+    REQUIRE(direct_stats.direct_term_visits == incremental_stats.direct_term_visits);
+    REQUIRE(direct_stats.true_symbol_assignments == incremental_stats.true_symbol_assignments);
+    REQUIRE(direct_stats.weighted_true_fanout == incremental_stats.weighted_true_fanout);
+    REQUIRE(direct_stats.accumulator_resets == 0);
+    REQUIRE(direct_stats.propagated_edges == 0);
+    REQUIRE(incremental_stats.accumulator_resets ==
+            static_cast<uint64_t>(shots) * executable.num_expressions());
+    REQUIRE(incremental_stats.propagated_edges == incremental_stats.weighted_true_fanout);
 }
 
 void require_basis_probabilities_match_legacy(std::string_view circuit_text,
@@ -928,6 +968,63 @@ TEST_CASE("Sampling executor matches legacy records for supported circuits") {
     constexpr std::string_view kArbitraryRotation = "H 0\nT 0\nR_Z(0.3) 0\nM 0\nM 0\n";
     REQUIRE(has_arbitrary_angle_active_rotation(plan_from(kArbitraryRotation), 0.3));
     require_matches_legacy(kArbitraryRotation, 64, 8901);
+}
+
+TEST_CASE("Incremental expression prototype matches direct execution") {
+    const clifft::HirModule hir = clifft::trace(clifft::parse(R"(
+        R 0 1 2
+        X_ERROR(0.2) 0
+        H 1
+        T 1
+        M 0 1
+        CX rec[-1] 2
+        M 2
+        DETECTOR rec[-3] rec[-2]
+        DETECTOR rec[-2] rec[-1]
+        OBSERVABLE_INCLUDE(0) rec[-3] rec[-1]
+    )"));
+    const std::array<uint8_t, 2> postselection{1, 1};
+    const ExecutablePlan executable(
+        clifft::sampling::plan_sampling(hir, {.postselection_mask = postselection,
+                                              .expected_detectors = {},
+                                              .expected_observables = {}}));
+
+    REQUIRE(executable.num_expressions() > 0);
+    require_expression_evaluators_match(executable, 1000, 280);
+}
+
+TEST_CASE("Incremental expression prototype matches forced zero-fault execution") {
+    const clifft::HirModule hir = clifft::trace(clifft::parse(R"(
+        R 0 1
+        X_ERROR(0.2) 0
+        H 1
+        T 1
+        M 0 1
+        DETECTOR rec[-2] rec[-1]
+        OBSERVABLE_INCLUDE(0) rec[-2]
+    )"));
+    const ExecutablePlan executable(clifft::sampling::plan_sampling(hir));
+    clifft::KFaultSampler direct_faults(executable.noise_site_probabilities(), 0);
+    clifft::KFaultSampler incremental_faults(executable.noise_site_probabilities(), 0);
+    Executor direct(executable, 280, ExpressionEvaluationMode::Direct, true);
+    Executor incremental(executable, 280, ExpressionEvaluationMode::Incremental, true);
+
+    for (uint32_t shot = 0; shot < 1000; ++shot) {
+        direct.run_shot(direct_faults);
+        incremental.run_shot(incremental_faults);
+        CAPTURE(shot);
+        REQUIRE(std::ranges::equal(direct.visible_records(), incremental.visible_records()));
+        REQUIRE(std::ranges::equal(direct.symbols(), incremental.symbols()));
+        REQUIRE(std::ranges::equal(direct.detectors(), incremental.detectors()));
+        REQUIRE(std::ranges::equal(direct.observables(), incremental.observables()));
+        REQUIRE(std::ranges::equal(direct.state().real(), incremental.state().real()));
+        REQUIRE(std::ranges::equal(direct.state().imag(), incremental.state().imag()));
+    }
+
+    REQUIRE(direct.expression_stats().direct_term_visits ==
+            incremental.expression_stats().direct_term_visits);
+    REQUIRE(incremental.expression_stats().propagated_edges ==
+            incremental.expression_stats().weighted_true_fanout);
 }
 
 TEST_CASE("Sampling batch records match legacy seeded execution") {

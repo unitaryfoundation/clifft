@@ -196,5 +196,21 @@ else()
             ${CMAKE_CURRENT_SOURCE_DIR}/src
             ${CMAKE_CURRENT_BINARY_DIR}/generated
         )
+        add_executable(profile_expression_ab
+            tools/bench/backend_comparison/profile_expression_ab.cpp
+        )
+        target_link_libraries(profile_expression_ab PRIVATE clifft_core)
+        target_include_directories(profile_expression_ab PRIVATE
+            ${CMAKE_CURRENT_SOURCE_DIR}/src
+            ${CMAKE_CURRENT_BINARY_DIR}/generated
+        )
+        add_executable(profile_expression_census
+            tools/bench/backend_comparison/profile_expression_census.cpp
+        )
+        target_link_libraries(profile_expression_census PRIVATE clifft_core)
+        target_include_directories(profile_expression_census PRIVATE
+            ${CMAKE_CURRENT_SOURCE_DIR}/src
+            ${CMAKE_CURRENT_BINARY_DIR}/generated
+        )
     endif()
 endif()

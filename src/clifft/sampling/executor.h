@@ -45,6 +45,25 @@ struct ReplayResult {
     double log_probability = 0.0;
 };
 
+// Prototype-only execution choice used to compare the existing pull-based
+// affine evaluator with an eager within-shot propagation strategy. Both modes
+// retain scalar shot and output semantics.
+enum class ExpressionEvaluationMode : uint8_t {
+    Direct,
+    Incremental,
+};
+
+struct ExpressionExecutionStats {
+    uint64_t shots = 0;
+    uint64_t discarded_shots = 0;
+    uint64_t expression_evaluations = 0;
+    uint64_t direct_term_visits = 0;
+    uint64_t true_symbol_assignments = 0;
+    uint64_t weighted_true_fanout = 0;
+    uint64_t accumulator_resets = 0;
+    uint64_t propagated_edges = 0;
+};
+
 struct InstrumentTrap {
     InstrumentSiteId site{};
     uint8_t source = 0;
@@ -94,6 +113,9 @@ class ExecutablePlan {
         return static_cast<uint32_t>(instrument_distributions_.size());
     }
     [[nodiscard]] uint32_t num_symbols() const { return num_symbols_; }
+    [[nodiscard]] uint32_t num_expressions() const {
+        return static_cast<uint32_t>(expression_term_begins_.size());
+    }
     [[nodiscard]] uint32_t num_presampled_symbols() const {
         return static_cast<uint32_t>(presampled_symbols_.size());
     }
@@ -107,7 +129,7 @@ class ExecutablePlan {
     friend class Executor;
 
     struct PreparedExpression {
-        uint32_t term_begin = 0;
+        uint32_t expression = 0;
         uint32_t term_count = 0;
         bool constant = false;
     };
@@ -228,6 +250,10 @@ class ExecutablePlan {
     std::complex<double> global_weight_ = {1.0, 0.0};
     std::optional<stim::Tableau<kStimWidth>> final_tableau_;
     std::vector<uint32_t> expression_terms_;
+    std::vector<uint32_t> expression_term_begins_;
+    std::vector<uint8_t> expression_constants_;
+    std::vector<uint32_t> expression_dependency_offsets_;
+    std::vector<uint32_t> expression_dependents_;
     // Maps each dense presampled input position to its plan-local SymbolId.
     // The constructor records those ids in ascending order.
     std::vector<uint32_t> presampled_symbols_;
@@ -247,7 +273,9 @@ class ExecutablePlan {
 // resets and overwrites it.
 class Executor {
   public:
-    explicit Executor(const ExecutablePlan& plan, uint64_t seed = 0);
+    explicit Executor(const ExecutablePlan& plan, uint64_t seed = 0,
+                      ExpressionEvaluationMode expression_mode = ExpressionEvaluationMode::Direct,
+                      bool collect_expression_stats = false);
 
     // Replace the deterministic seed with OS entropy before executing shots.
     void reseed_from_entropy() { rng_.seed_from_entropy(); }
@@ -310,6 +338,9 @@ class Executor {
     // Counts positive branch probability mass classified as numerical dust.
     // This telemetry accumulates across shots.
     [[nodiscard]] uint64_t dust_clamps() const { return dust_clamps_; }
+    [[nodiscard]] const ExpressionExecutionStats& expression_stats() const {
+        return expression_stats_;
+    }
 
   private:
     void reset_shot() noexcept;
@@ -317,6 +348,9 @@ class Executor {
     void sample_presampled_noise(uint32_t begin, uint32_t end) noexcept;
     void activate_noise_site(uint32_t site) noexcept;
     void assign_forced_quantum_faults() noexcept;
+    void assign_symbol(uint32_t symbol, bool value) noexcept;
+    void reset_expression_accumulators() noexcept;
+    void finish_expression_stats() noexcept;
 
     template <bool ForceRecords, bool SampleNoise, bool ForceFaults>
     [[nodiscard]] ReplayResult execute_actions(std::span<const uint8_t> forced_records,
@@ -358,7 +392,7 @@ class Executor {
     void execute_action(const ExecutablePlan::ExecuteBoundary& action,
                         std::span<const uint8_t> forced_records, ReplayResult& result) noexcept;
 
-    [[nodiscard]] bool evaluate(ExecutablePlan::PreparedExpression expression) const noexcept;
+    [[nodiscard]] bool evaluate(ExecutablePlan::PreparedExpression expression) noexcept;
     [[nodiscard]] bool sample_active_branch(MeasurementProbabilities probabilities) noexcept;
     [[nodiscard]] std::optional<double> force_active_branch(MeasurementProbabilities probabilities,
                                                             bool branch) noexcept;
@@ -368,6 +402,7 @@ class Executor {
     const ExecutablePlan* plan_;
     State state_;
     std::vector<uint8_t> symbols_;
+    std::vector<uint8_t> expression_values_;
     std::vector<uint8_t> records_;
     std::vector<uint8_t> detectors_;
     std::vector<uint8_t> observables_;
@@ -378,6 +413,9 @@ class Executor {
     std::span<const uint32_t> forced_fault_sites_;
     uint32_t forced_fault_cursor_ = 0;
     Xoshiro256PlusPlus rng_;
+    ExpressionEvaluationMode expression_mode_ = ExpressionEvaluationMode::Direct;
+    bool collect_expression_stats_ = false;
+    ExpressionExecutionStats expression_stats_;
     bool discarded_ = false;
     std::optional<InstrumentTrap> pending_trap_;
     uint64_t dust_clamps_ = 0;

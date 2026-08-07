@@ -225,6 +225,26 @@ ExecutablePlan::ExecutablePlan(const SamplingPlan& plan)
             },
             planned.action);
     }
+
+    expression_dependency_offsets_.assign(static_cast<size_t>(num_symbols_) + 1, 0);
+    for (uint32_t symbol : expression_terms_) {
+        ++expression_dependency_offsets_[static_cast<size_t>(symbol) + 1];
+    }
+    for (size_t i = 1; i < expression_dependency_offsets_.size(); ++i) {
+        expression_dependency_offsets_[i] += expression_dependency_offsets_[i - 1];
+    }
+    expression_dependents_.resize(expression_terms_.size());
+    std::vector<uint32_t> next_dependency = expression_dependency_offsets_;
+    for (uint32_t expression = 0; expression < expression_term_begins_.size(); ++expression) {
+        const uint32_t begin = expression_term_begins_[expression];
+        const uint32_t end = expression + 1 < expression_term_begins_.size()
+                                 ? expression_term_begins_[expression + 1]
+                                 : static_cast<uint32_t>(expression_terms_.size());
+        for (uint32_t i = begin; i < end; ++i) {
+            const uint32_t symbol = expression_terms_[i];
+            expression_dependents_[next_dependency[symbol]++] = expression;
+        }
+    }
 }
 
 std::vector<double> ExecutablePlan::noise_site_probabilities() const {
@@ -253,16 +273,29 @@ std::vector<double> ExecutablePlan::noise_site_probabilities() const {
 
 ExecutablePlan::PreparedExpression ExecutablePlan::prepare_expression(
     const AffineBool& expression) {
+    if (expression_term_begins_.size() >= std::numeric_limits<uint32_t>::max()) {
+        throw std::length_error("sampling executable expression count exceeds uint32 range");
+    }
+    const uint32_t expression_index = static_cast<uint32_t>(expression_term_begins_.size());
     const uint32_t begin = static_cast<uint32_t>(expression_terms_.size());
+    expression_term_begins_.push_back(begin);
+    expression_constants_.push_back(static_cast<uint8_t>(expression.constant()));
     for (SymbolId term : expression.terms()) {
         expression_terms_.push_back(index(term));
     }
-    return {begin, static_cast<uint32_t>(expression.terms().size()), expression.constant()};
+    return {expression_index, static_cast<uint32_t>(expression.terms().size()),
+            expression.constant()};
 }
 
 ExecutablePlan::PreparedExpression ExecutablePlan::prepare_measurement_correction(
     const AffineBool& outcome, uint32_t branch) {
+    if (expression_term_begins_.size() >= std::numeric_limits<uint32_t>::max()) {
+        throw std::length_error("sampling executable expression count exceeds uint32 range");
+    }
+    const uint32_t expression_index = static_cast<uint32_t>(expression_term_begins_.size());
     const uint32_t begin = static_cast<uint32_t>(expression_terms_.size());
+    expression_term_begins_.push_back(begin);
+    expression_constants_.push_back(static_cast<uint8_t>(outcome.constant()));
     for (SymbolId term : outcome.terms()) {
         if (index(term) != branch) {
             expression_terms_.push_back(index(term));
@@ -270,21 +303,26 @@ ExecutablePlan::PreparedExpression ExecutablePlan::prepare_measurement_correctio
     }
     assert(expression_terms_.size() == static_cast<size_t>(begin) + outcome.terms().size() - 1 &&
            "validated measurement outcome must contain its branch exactly once");
-    return {begin, static_cast<uint32_t>(outcome.terms().size() - 1), outcome.constant()};
+    return {expression_index, static_cast<uint32_t>(outcome.terms().size() - 1),
+            outcome.constant()};
 }
 
-Executor::Executor(const ExecutablePlan& plan, uint64_t seed)
+Executor::Executor(const ExecutablePlan& plan, uint64_t seed,
+                   ExpressionEvaluationMode expression_mode, bool collect_expression_stats)
     : root_plan_(&plan),
       plan_(&plan),
       state_(plan.max_active_width_, plan.initial_active_width_, plan.global_weight_),
       symbols_(plan.num_symbols_, 0),
+      expression_values_(plan.expression_constants_),
       records_(static_cast<size_t>(plan.num_visible_records_) + plan.num_hidden_records_, 0),
       detectors_(plan.num_detectors_, 0),
       observables_(plan.num_observables_, 0),
       exp_vals_(plan.num_exp_vals_, 0.0),
       forced_record_mask_(records_.size(), 0),
       forced_record_values_(records_.size(), 0),
-      rng_(seed) {
+      rng_(seed),
+      expression_mode_(expression_mode),
+      collect_expression_stats_(collect_expression_stats) {
     previous_presampled_ones_.reserve(plan.presampled_symbols_.size());
 }
 
@@ -295,6 +333,9 @@ void Executor::run_shot() noexcept {
     reset_shot();
     sample_presampled_noise(0, plan_->initial_noise_end_);
     (void)execute_actions<false, true, false>({});
+    if (!pending_trap_.has_value()) {
+        finish_expression_stats();
+    }
 }
 
 void Executor::run_shot(std::span<const uint8_t> presampled_values) noexcept {
@@ -302,6 +343,9 @@ void Executor::run_shot(std::span<const uint8_t> presampled_values) noexcept {
     reset_shot();
     assign_presampled_values(presampled_values);
     (void)execute_actions<false, false, false>({});
+    if (!pending_trap_.has_value()) {
+        finish_expression_stats();
+    }
 }
 
 void Executor::run_shot(KFaultSampler& fault_sampler) noexcept {
@@ -314,12 +358,19 @@ void Executor::run_shot(KFaultSampler& fault_sampler) noexcept {
     forced_fault_cursor_ = 0;
     assign_forced_quantum_faults();
     (void)execute_actions<false, false, true>({});
+    if (!pending_trap_.has_value()) {
+        finish_expression_stats();
+    }
     forced_fault_sites_ = {};
     forced_fault_cursor_ = 0;
 }
 
 void Executor::resume(const ExecutablePlan& continuation,
                       std::optional<ForcedTraceOut> forced_trace_out) {
+    if (expression_mode_ == ExpressionEvaluationMode::Incremental) {
+        throw std::invalid_argument(
+            "incremental expression prototype does not support continuation plans");
+    }
     if (!pending_trap_.has_value()) {
         throw std::invalid_argument("sampling executor resume requires a pending instrument trap");
     }
@@ -384,6 +435,9 @@ void Executor::resume(const ExecutablePlan& continuation,
     plan_ = &continuation;
     pending_trap_.reset();
     (void)execute_actions<false, true, false>({}, offset);
+    if (!pending_trap_.has_value()) {
+        finish_expression_stats();
+    }
     if (forced_trace_out.has_value() && forced_record_mask_[index(forced_trace_out->record)] != 0) {
         throw std::logic_error("sampling continuation did not consume its forced trace-out record");
     }
@@ -406,7 +460,9 @@ ReplayResult Executor::replay_shot(std::span<const uint8_t> forced_records,
            "forced records must be Boolean");
     reset_shot();
     assign_presampled_values(presampled_values);
-    return execute_actions<true, false, false>(forced_records);
+    ReplayResult result = execute_actions<true, false, false>(forced_records);
+    finish_expression_stats();
+    return result;
 }
 
 void Executor::reset_shot() noexcept {
@@ -420,8 +476,59 @@ void Executor::reset_shot() noexcept {
     }
     previous_presampled_ones_.clear();
     std::ranges::fill(forced_record_mask_, uint8_t{0});
+    reset_expression_accumulators();
     discarded_ = false;
     pending_trap_.reset();
+}
+
+void Executor::reset_expression_accumulators() noexcept {
+    if (collect_expression_stats_) {
+        ++expression_stats_.shots;
+    }
+    if (expression_mode_ != ExpressionEvaluationMode::Incremental) {
+        return;
+    }
+    assert(expression_values_.size() == plan_->expression_constants_.size() &&
+           "incremental expression storage must match the active plan");
+    std::ranges::copy(plan_->expression_constants_, expression_values_.begin());
+    if (collect_expression_stats_) {
+        expression_stats_.accumulator_resets += expression_values_.size();
+    }
+}
+
+void Executor::finish_expression_stats() noexcept {
+    if (collect_expression_stats_) {
+        expression_stats_.discarded_shots += static_cast<uint64_t>(discarded_);
+    }
+}
+
+void Executor::assign_symbol(uint32_t symbol, bool value) noexcept {
+    assert(symbol < symbols_.size() && "assigned symbol must belong to the active plan");
+    symbols_[symbol] = static_cast<uint8_t>(value);
+    if (!value) {
+        return;
+    }
+
+    assert(static_cast<size_t>(symbol) + 1 < plan_->expression_dependency_offsets_.size() &&
+           "assigned symbol must have an expression dependency range");
+    const uint32_t begin = plan_->expression_dependency_offsets_[symbol];
+    const uint32_t end = plan_->expression_dependency_offsets_[symbol + 1];
+    if (collect_expression_stats_) {
+        ++expression_stats_.true_symbol_assignments;
+        expression_stats_.weighted_true_fanout += end - begin;
+    }
+    if (expression_mode_ != ExpressionEvaluationMode::Incremental) {
+        return;
+    }
+    for (uint32_t i = begin; i < end; ++i) {
+        const uint32_t expression = plan_->expression_dependents_[i];
+        assert(expression < expression_values_.size() &&
+               "expression dependency must refer to an accumulator");
+        expression_values_[expression] ^= uint8_t{1};
+    }
+    if (collect_expression_stats_) {
+        expression_stats_.propagated_edges += end - begin;
+    }
 }
 
 void Executor::assign_presampled_values(std::span<const uint8_t> presampled_values) noexcept {
@@ -430,7 +537,7 @@ void Executor::assign_presampled_values(std::span<const uint8_t> presampled_valu
     for (size_t i = 0; i < presampled_values.size(); ++i) {
         assert(presampled_values[i] <= 1 && "presampled symbols must be Boolean");
         const uint32_t symbol = plan_->presampled_symbols_[i];
-        symbols_[symbol] = presampled_values[i];
+        assign_symbol(symbol, presampled_values[i] != 0);
         if (presampled_values[i] != 0) {
             previous_presampled_ones_.push_back(symbol);
         }
@@ -474,7 +581,7 @@ void Executor::activate_noise_site(uint32_t site_index) noexcept {
     const uint32_t symbol = plan_->noise_outcomes_[outcome_index].symbol;
     assert(symbol < symbols_.size() && symbols_[symbol] == 0 &&
            "a noise site may define only one fresh symbol per shot");
-    symbols_[symbol] = 1;
+    assign_symbol(symbol, true);
     previous_presampled_ones_.push_back(symbol);
 }
 
@@ -526,7 +633,7 @@ void Executor::execute_action(const ExecutablePlan::ExecuteActiveMeasurement& ac
             branch = sample_active_branch(probabilities);
         }
     }
-    symbols_[action.branch] = static_cast<uint8_t>(branch);
+    assign_symbol(action.branch, branch);
     collapse_measurement(state_, action.measurement, branch, probabilities.for_branch(branch));
     records_[action.record] = static_cast<uint8_t>(branch ^ correction);
 }
@@ -548,7 +655,7 @@ void Executor::execute_action(const ExecutablePlan::ExecuteDormantMeasurement& a
             branch = sample_dormant_branch();
         }
     }
-    symbols_[action.branch] = static_cast<uint8_t>(branch);
+    assign_symbol(action.branch, branch);
     records_[action.record] = static_cast<uint8_t>(branch ^ correction);
 }
 
@@ -571,7 +678,7 @@ void Executor::execute_action(const ExecutablePlan::ExecuteClassicalRecord& acti
 template <bool ForceRecords>
 void Executor::execute_action(const ExecutablePlan::ExecuteSymbolDefinition& action,
                               std::span<const uint8_t>, ReplayResult&) noexcept {
-    symbols_[action.symbol] = static_cast<uint8_t>(evaluate(action.value));
+    assign_symbol(action.symbol, evaluate(action.value));
 }
 
 template <bool ForceRecords, bool ForceFaults>
@@ -599,7 +706,7 @@ void Executor::execute_action(const ExecutablePlan::ExecuteReadoutNoise& action,
             const double probability = source ? action.prob_one_to_zero : action.prob_zero_to_one;
             flip = probability >= 1.0 || (probability > 0.0 && rng_.next_double() < probability);
         }
-        symbols_[action.flip] = static_cast<uint8_t>(flip);
+        assign_symbol(action.flip, flip);
         records_[action.record] ^= static_cast<uint8_t>(flip);
     }
 }
@@ -645,7 +752,7 @@ void Executor::execute_action(const ExecutablePlan::ExecuteInstrument& action,
            "instrument action must reference a prepared distribution");
     const InstrumentDistribution& distribution = plan_->instrument_distributions_[action.site];
     if (action.destination_flip.has_value()) {
-        symbols_[*action.destination_flip] = 0;
+        assign_symbol(*action.destination_flip, false);
     }
 
     auto trap = [&](uint8_t source, bool destination_pending) {
@@ -667,7 +774,7 @@ void Executor::execute_action(const ExecutablePlan::ExecuteInstrument& action,
         } else if (destination != source) {
             assert(action.destination_flip.has_value() &&
                    "in-line instrument requires a destination-flip symbol");
-            symbols_[*action.destination_flip] = 1;
+            assign_symbol(*action.destination_flip, true);
         }
     };
 
@@ -773,13 +880,25 @@ ReplayResult Executor::execute_actions(std::span<const uint8_t> forced_records,
     return result;
 }
 
-bool Executor::evaluate(ExecutablePlan::PreparedExpression expression) const noexcept {
-    assert(static_cast<uint64_t>(expression.term_begin) + expression.term_count <=
+bool Executor::evaluate(ExecutablePlan::PreparedExpression expression) noexcept {
+    assert(expression.expression < plan_->expression_term_begins_.size() &&
+           "prepared affine expression must refer to the active plan");
+    const uint32_t term_begin = plan_->expression_term_begins_[expression.expression];
+    assert(static_cast<uint64_t>(term_begin) + expression.term_count <=
                plan_->expression_terms_.size() &&
            "prepared affine expression must stay inside term storage");
+    if (collect_expression_stats_) {
+        ++expression_stats_.expression_evaluations;
+        expression_stats_.direct_term_visits += expression.term_count;
+    }
+    if (expression_mode_ == ExpressionEvaluationMode::Incremental) {
+        assert(expression.expression < expression_values_.size() &&
+               "prepared affine expression must have an accumulator");
+        return expression_values_[expression.expression] != 0;
+    }
     bool value = expression.constant;
     for (uint32_t i = 0; i < expression.term_count; ++i) {
-        const uint32_t symbol = plan_->expression_terms_[expression.term_begin + i];
+        const uint32_t symbol = plan_->expression_terms_[term_begin + i];
         assert(symbol < symbols_.size() && symbols_[symbol] <= 1 &&
                "prepared affine term must refer to a Boolean symbol");
         value ^= symbols_[symbol] != 0;
