@@ -41,12 +41,54 @@ struct PendingMeasurement {
     RecordSlot record{};
 };
 
-using PendingOperation = std::variant<PendingRotation, PendingMeasurement>;
+struct PendingConditionalPauli {
+    Pauli body;
+    RecordSlot controller{};
+};
+
+struct PendingNoiseChannel {
+    Pauli body;
+    SymbolId symbol{};
+};
+
+struct PendingNoise {
+    std::vector<PendingNoiseChannel> channels;
+};
+
+struct PendingReadoutNoise {
+    RecordSlot record{};
+    double prob_zero_to_one = 0.0;
+    double prob_one_to_zero = 0.0;
+};
+
+struct PendingDetector {
+    std::vector<RecordSlot> records;
+    DetectorSlot detector{};
+    bool expected = false;
+    bool postselected = false;
+};
+
+struct PendingObservable {
+    std::vector<RecordSlot> records;
+    ObservableSlot observable{};
+};
+
+using PendingOperation =
+    std::variant<PendingRotation, PendingMeasurement, PendingConditionalPauli, PendingNoise,
+                 PendingReadoutNoise, PendingDetector, PendingObservable>;
 
 Pauli pauli_from_hir(const HirModule& hir, const HeisenbergOp& op) {
     Pauli result(hir.num_qubits);
     mask_view_to_stim(hir.destab_mask(op), hir.num_qubits, result.xs);
     mask_view_to_stim(hir.stab_mask(op), hir.num_qubits, result.zs);
+    return result;
+}
+
+Pauli noise_pauli_from_hir(const HirModule& hir, PauliMaskHandle handle) {
+    Pauli result(hir.num_qubits);
+    const PauliMaskView mask = hir.noise_channel_masks.at(handle);
+    mask_view_to_stim(mask.x(), hir.num_qubits, result.xs);
+    mask_view_to_stim(mask.z(), hir.num_qubits, result.zs);
     return result;
 }
 
@@ -245,7 +287,17 @@ void visit_pending_pauli(PendingOperation& operation, Function&& function) {
             using T = std::decay_t<decltype(typed)>;
             if constexpr (std::is_same_v<T, PendingRotation> ||
                           std::is_same_v<T, PendingMeasurement>) {
-                function(typed.body, typed.sign);
+                function(typed.body, &typed.sign);
+            } else if constexpr (std::is_same_v<T, PendingConditionalPauli>) {
+                function(typed.body, nullptr);
+            } else if constexpr (std::is_same_v<T, PendingNoise>) {
+                for (PendingNoiseChannel& channel : typed.channels) {
+                    function(channel.body, nullptr);
+                }
+            } else if constexpr (std::is_same_v<T, PendingReadoutNoise> ||
+                                 std::is_same_v<T, PendingDetector> ||
+                                 std::is_same_v<T, PendingObservable>) {
+                // Purely classical operations have no coordinate body.
             } else {
                 static_assert(kAlwaysFalse<T>, "Unhandled pending operation alternative");
             }
@@ -260,12 +312,40 @@ void transform_future_operations(std::vector<PendingOperation>& pending, size_t 
     // perform tableau evolution in the dispatch loop.
     const Tableau old_to_new = new_basis_in_old_coordinates.inverse();
     for (size_t i = begin; i < pending.size(); ++i) {
-        visit_pending_pauli(pending[i], [&](Pauli& body, AffineBool& sign) {
+        visit_pending_pauli(pending[i], [&](Pauli& body, AffineBool* sign) {
             Pauli transformed = old_to_new(body);
-            sign ^= static_cast<bool>(transformed.sign);
+            if (sign != nullptr) {
+                *sign ^= static_cast<bool>(transformed.sign);
+            }
             transformed.sign = false;
             body = std::move(transformed);
         });
+    }
+}
+
+void propagate_conditional_pauli(std::vector<PendingOperation>& pending, size_t begin,
+                                 const Pauli& correction, const AffineBool& condition) {
+    for (size_t i = begin; i < pending.size(); ++i) {
+        std::visit(
+            [&](auto& typed) {
+                using T = std::decay_t<decltype(typed)>;
+                if constexpr (std::is_same_v<T, PendingRotation> ||
+                              std::is_same_v<T, PendingMeasurement>) {
+                    if (anticommutes(correction, typed.body)) {
+                        typed.sign ^= condition;
+                    }
+                } else if constexpr (std::is_same_v<T, PendingConditionalPauli> ||
+                                     std::is_same_v<T, PendingNoise> ||
+                                     std::is_same_v<T, PendingReadoutNoise> ||
+                                     std::is_same_v<T, PendingDetector> ||
+                                     std::is_same_v<T, PendingObservable>) {
+                    // Pauli-frame phases do not affect later Pauli corrections or
+                    // classical record consumers.
+                } else {
+                    static_assert(kAlwaysFalse<T>, "Unhandled pending operation alternative");
+                }
+            },
+            pending[i]);
     }
 }
 
@@ -274,11 +354,26 @@ void propagate_branch(std::vector<PendingOperation>& pending, size_t begin,
     // The sampled minus eigenspace differs by X on the replaced Z coordinate.
     // Anticommuting future Paulis therefore acquire this branch in their sign.
     for (size_t i = begin; i < pending.size(); ++i) {
-        visit_pending_pauli(pending[i], [&](const Pauli& body, AffineBool& sign) {
-            if (body.zs[branch_coordinate]) {
-                sign ^= AffineBool::symbol(branch);
-            }
-        });
+        std::visit(
+            [&](auto& typed) {
+                using T = std::decay_t<decltype(typed)>;
+                if constexpr (std::is_same_v<T, PendingRotation> ||
+                              std::is_same_v<T, PendingMeasurement>) {
+                    if (typed.body.zs[branch_coordinate]) {
+                        typed.sign ^= AffineBool::symbol(branch);
+                    }
+                } else if constexpr (std::is_same_v<T, PendingConditionalPauli> ||
+                                     std::is_same_v<T, PendingNoise> ||
+                                     std::is_same_v<T, PendingReadoutNoise> ||
+                                     std::is_same_v<T, PendingDetector> ||
+                                     std::is_same_v<T, PendingObservable>) {
+                    // A branch Pauli can only add an irrelevant sign to another
+                    // Pauli-frame correction.
+                } else {
+                    static_assert(kAlwaysFalse<T>, "Unhandled pending operation alternative");
+                }
+            },
+            pending[i]);
     }
 }
 
@@ -292,9 +387,30 @@ void multiply_phase(std::complex<double>& weight, double angle) {
     weight *= std::complex<double>(std::cos(angle), std::sin(angle));
 }
 
-std::vector<PendingOperation> queue_supported_operations(const HirModule& hir, SamplingPlan& plan) {
+std::vector<RecordSlot> record_slots(const std::vector<uint32_t>& records) {
+    std::vector<RecordSlot> result;
+    result.reserve(records.size());
+    for (uint32_t record : records) {
+        result.push_back(RecordSlot{record});
+    }
+    return result;
+}
+
+bool option_bit(std::span<const uint8_t> values, uint32_t index) {
+    return index < values.size() && values[index] != 0;
+}
+
+std::vector<PendingOperation> queue_supported_operations(const HirModule& hir, SamplingPlan& plan,
+                                                         SamplingPlanOptions options) {
     std::vector<PendingOperation> pending;
     pending.reserve(hir.ops.size());
+    plan.presampled_noise_sites.resize(hir.noise_sites.size());
+    for (uint32_t site = 0; site < hir.noise_sites.size(); ++site) {
+        plan.presampled_noise_sites[site].site = NoiseSiteId{site};
+    }
+    std::vector<bool> seen_noise_sites(hir.noise_sites.size(), false);
+
+    uint32_t detector_index = 0;
 
     for (size_t i = 0; i < hir.ops.size(); ++i) {
         const HeisenbergOp& op = hir.ops[i];
@@ -320,10 +436,74 @@ std::vector<PendingOperation> queue_supported_operations(const HirModule& hir, S
                                        RecordSlot{static_cast<uint32_t>(op.meas_record_idx())}});
                 break;
             case OpType::CONDITIONAL_PAULI:
-            case OpType::NOISE:
-            case OpType::READOUT_NOISE:
-            case OpType::DETECTOR:
-            case OpType::OBSERVABLE:
+                pending.emplace_back(PendingConditionalPauli{
+                    pauli_from_hir(hir, op),
+                    RecordSlot{static_cast<uint32_t>(op.controlling_meas())}});
+                break;
+            case OpType::NOISE: {
+                const uint32_t site_index = static_cast<uint32_t>(op.noise_site_idx());
+                if (site_index >= hir.noise_sites.size()) {
+                    throw std::invalid_argument("sampling planner noise site is out of range");
+                }
+                if (seen_noise_sites[site_index]) {
+                    throw std::invalid_argument(
+                        "sampling planner encountered a duplicate noise site");
+                }
+                seen_noise_sites[site_index] = true;
+                const NoiseSite& hir_site = hir.noise_sites[site_index];
+                PresampledNoiseSite& plan_site = plan.presampled_noise_sites[site_index];
+                PendingNoise noise;
+                noise.channels.reserve(hir_site.channels.size());
+                plan_site.outcomes.reserve(hir_site.channels.size());
+                for (const NoiseChannel& channel : hir_site.channels) {
+                    if (channel.prob == 0.0) {
+                        continue;
+                    }
+                    const SymbolId symbol{static_cast<uint32_t>(plan.symbols.size())};
+                    plan.symbols.push_back(
+                        SymbolInfo{SymbolKind::Presampled, std::nullopt, NoiseSiteId{site_index}});
+                    plan_site.outcomes.push_back(PresampledNoiseOutcome{symbol, channel.prob});
+                    noise.channels.push_back(
+                        PendingNoiseChannel{noise_pauli_from_hir(hir, channel.mask), symbol});
+                }
+                pending.emplace_back(std::move(noise));
+                break;
+            }
+            case OpType::READOUT_NOISE: {
+                const uint32_t entry_index = static_cast<uint32_t>(op.readout_noise_idx());
+                if (entry_index >= hir.readout_noise.size()) {
+                    throw std::invalid_argument("sampling planner readout entry is out of range");
+                }
+                const ReadoutNoiseEntry& entry = hir.readout_noise[entry_index];
+                pending.emplace_back(PendingReadoutNoise{
+                    RecordSlot{entry.meas_idx}, entry.prob_zero_to_one, entry.prob_one_to_zero});
+                break;
+            }
+            case OpType::DETECTOR: {
+                const uint32_t targets_index = static_cast<uint32_t>(op.detector_idx());
+                if (targets_index >= hir.detector_targets.size() ||
+                    detector_index >= hir.num_detectors) {
+                    throw std::invalid_argument("sampling planner detector is out of range");
+                }
+                pending.emplace_back(PendingDetector{
+                    record_slots(hir.detector_targets[targets_index]), DetectorSlot{detector_index},
+                    option_bit(options.expected_detectors, detector_index),
+                    option_bit(options.postselection_mask, detector_index)});
+                ++detector_index;
+                break;
+            }
+            case OpType::OBSERVABLE: {
+                const uint32_t targets_index = op.observable_target_list_idx();
+                const uint32_t observable_index = static_cast<uint32_t>(op.observable_idx());
+                if (targets_index >= hir.observable_targets.size() ||
+                    observable_index >= hir.num_observables) {
+                    throw std::invalid_argument("sampling planner observable is out of range");
+                }
+                pending.emplace_back(
+                    PendingObservable{record_slots(hir.observable_targets[targets_index]),
+                                      ObservableSlot{observable_index}});
+                break;
+            }
             case OpType::EXP_VAL:
             case OpType::INSTRUMENT:
             case OpType::NUM_OP_TYPES:
@@ -331,6 +511,12 @@ std::vector<PendingOperation> queue_supported_operations(const HirModule& hir, S
                                             op_type_to_str(op.op_type()) + " at index " +
                                             std::to_string(i));
         }
+    }
+    if (detector_index != hir.num_detectors) {
+        throw std::invalid_argument("sampling planner detector count is inconsistent with HIR");
+    }
+    if (!std::ranges::all_of(seen_noise_sites, [](bool seen) { return seen; })) {
+        throw std::invalid_argument("sampling planner noise-site table is inconsistent with HIR");
     }
     return pending;
 }
@@ -361,9 +547,9 @@ void process_rotation(std::vector<PendingOperation>& pending, size_t index,
     plan.max_active_width = std::max(plan.max_active_width, active_width);
 }
 
-void process_measurement(std::vector<PendingOperation>& pending, size_t index,
-                         const PendingMeasurement& measurement, SamplingPlan& plan,
-                         uint32_t& active_width) {
+AffineBool process_measurement(std::vector<PendingOperation>& pending, size_t index,
+                               const PendingMeasurement& measurement, SamplingPlan& plan,
+                               uint32_t& active_width) {
     const std::optional<uint32_t> dormant_pivot =
         first_x_at_or_above(measurement.body, active_width);
     if (dormant_pivot.has_value()) {
@@ -373,19 +559,18 @@ void process_measurement(std::vector<PendingOperation>& pending, size_t index,
         const uint32_t action_index = static_cast<uint32_t>(plan.actions.size());
         const SymbolId branch = append_branch(plan, action_index);
         propagate_branch(pending, index + 1, *dormant_pivot, branch);
-        plan.actions.push_back(
-            PlannedAction{active_width, active_width,
-                          MeasureDormantRandom{*dormant_pivot, branch,
-                                               measurement.sign ^ AffineBool::symbol(branch),
-                                               measurement.record}});
-        return;
+        const AffineBool outcome = measurement.sign ^ AffineBool::symbol(branch);
+        plan.actions.push_back(PlannedAction{
+            active_width, active_width,
+            MeasureDormantRandom{*dormant_pivot, branch, outcome, measurement.record}});
+        return outcome;
     }
 
     const ActivePauli active = active_projection(measurement.body, active_width);
     if (active.is_identity()) {
         plan.actions.push_back(PlannedAction{
             active_width, active_width, RecordClassical{measurement.sign, measurement.record}});
-        return;
+        return measurement.sign;
     }
 
     std::optional<uint32_t> pivot = first_x_below(measurement.body, active_width);
@@ -407,25 +592,61 @@ void process_measurement(std::vector<PendingOperation>& pending, size_t index,
     const uint32_t action_index = static_cast<uint32_t>(plan.actions.size());
     const SymbolId branch = append_branch(plan, action_index);
     propagate_branch(pending, index + 1, active_width - 1, branch);
-    plan.actions.push_back(PlannedAction{
-        active_width, active_width - 1,
-        MeasureActivePauli{active, *pivot, branch, measurement.sign ^ AffineBool::symbol(branch),
-                           measurement.record}});
+    const AffineBool outcome = measurement.sign ^ AffineBool::symbol(branch);
+    plan.actions.push_back(
+        PlannedAction{active_width, active_width - 1,
+                      MeasureActivePauli{active, *pivot, branch, outcome, measurement.record}});
     --active_width;
+    return outcome;
 }
 
 }  // namespace
 
-SamplingPlan plan_sampling(const HirModule& hir) {
+SamplingPlan plan_sampling(const HirModule& hir, SamplingPlanOptions options) {
     SamplingPlan plan;
     plan.num_qubits = hir.num_qubits;
     plan.num_visible_records = hir.num_measurements;
     plan.num_hidden_records = hir.num_hidden_measurements;
     plan.num_noise_sites = static_cast<uint32_t>(hir.noise_sites.size());
     plan.num_instrument_sites = static_cast<uint32_t>(hir.instrument_sites.size());
+    plan.num_detectors = hir.num_detectors;
+    plan.num_observables = hir.num_observables;
     plan.global_weight = hir.global_weight;
 
-    std::vector<PendingOperation> pending = queue_supported_operations(hir, plan);
+    std::vector<PendingOperation> pending = queue_supported_operations(hir, plan, options);
+    std::vector<std::optional<AffineBool>> record_values(static_cast<size_t>(hir.num_measurements) +
+                                                         hir.num_hidden_measurements);
+    std::vector<AffineBool> observable_values(hir.num_observables);
+
+    auto require_record = [&](RecordSlot record, size_t operation_index) -> const AffineBool& {
+        const uint32_t record_index = static_cast<uint32_t>(record);
+        if (record_index >= record_values.size() || !record_values[record_index].has_value()) {
+            throw std::invalid_argument("sampling planner operation " +
+                                        std::to_string(operation_index) + " reads record " +
+                                        std::to_string(record_index) + " before assignment");
+        }
+        return *record_values[record_index];
+    };
+
+    auto assign_record = [&](RecordSlot record, AffineBool value, size_t operation_index) {
+        const uint32_t record_index = static_cast<uint32_t>(record);
+        if (record_index >= record_values.size()) {
+            throw std::invalid_argument("sampling planner operation " +
+                                        std::to_string(operation_index) + " writes record " +
+                                        std::to_string(record_index) + " out of range");
+        }
+        record_values[record_index] = std::move(value);
+    };
+
+    auto record_parity = [&](const std::vector<RecordSlot>& records,
+                             size_t operation_index) -> AffineBool {
+        AffineBool result;
+        for (RecordSlot record : records) {
+            result ^= require_record(record, operation_index);
+        }
+        return result;
+    };
+
     uint32_t active_width = plan.initial_active_width;
     for (size_t i = 0; i < pending.size(); ++i) {
         std::visit(
@@ -434,12 +655,54 @@ SamplingPlan plan_sampling(const HirModule& hir) {
                 if constexpr (std::is_same_v<T, PendingRotation>) {
                     process_rotation(pending, i, operation, plan, active_width);
                 } else if constexpr (std::is_same_v<T, PendingMeasurement>) {
-                    process_measurement(pending, i, operation, plan, active_width);
+                    const AffineBool outcome =
+                        process_measurement(pending, i, operation, plan, active_width);
+                    assign_record(operation.record, outcome, i);
+                } else if constexpr (std::is_same_v<T, PendingConditionalPauli>) {
+                    propagate_conditional_pauli(pending, i + 1, operation.body,
+                                                require_record(operation.controller, i));
+                } else if constexpr (std::is_same_v<T, PendingNoise>) {
+                    for (const PendingNoiseChannel& channel : operation.channels) {
+                        propagate_conditional_pauli(pending, i + 1, channel.body,
+                                                    AffineBool::symbol(channel.symbol));
+                    }
+                } else if constexpr (std::is_same_v<T, PendingReadoutNoise>) {
+                    const AffineBool source = require_record(operation.record, i);
+                    if (operation.prob_zero_to_one == 0.0 && operation.prob_one_to_zero == 0.0) {
+                        return;
+                    }
+                    const uint32_t action_index = static_cast<uint32_t>(plan.actions.size());
+                    const SymbolId flip{static_cast<uint32_t>(plan.symbols.size())};
+                    plan.symbols.push_back(
+                        SymbolInfo{SymbolKind::Readout, action_index, std::nullopt});
+                    plan.actions.push_back(PlannedAction{
+                        active_width, active_width,
+                        ApplyReadoutNoise{flip, source, operation.record,
+                                          operation.prob_zero_to_one, operation.prob_one_to_zero}});
+                    record_values[static_cast<uint32_t>(operation.record)] =
+                        source ^ AffineBool::symbol(flip);
+                } else if constexpr (std::is_same_v<T, PendingDetector>) {
+                    AffineBool outcome = record_parity(operation.records, i);
+                    outcome ^= operation.expected;
+                    plan.actions.push_back(PlannedAction{
+                        active_width, active_width,
+                        WriteDetector{outcome, operation.detector, operation.postselected}});
+                    plan.has_postselection |= operation.postselected;
+                } else if constexpr (std::is_same_v<T, PendingObservable>) {
+                    observable_values[static_cast<uint32_t>(operation.observable)] ^=
+                        record_parity(operation.records, i);
                 } else {
                     static_assert(kAlwaysFalse<T>, "Unhandled pending operation alternative");
                 }
             },
             pending[i]);
+    }
+
+    for (uint32_t observable = 0; observable < observable_values.size(); ++observable) {
+        observable_values[observable] ^= option_bit(options.expected_observables, observable);
+        plan.actions.push_back(PlannedAction{
+            active_width, active_width,
+            WriteObservable{observable_values[observable], ObservableSlot{observable}}});
     }
 
     plan.validate();

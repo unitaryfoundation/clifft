@@ -9,13 +9,18 @@
 
 using clifft::sampling::ActivePauli;
 using clifft::sampling::AffineBool;
+using clifft::sampling::ApplyReadoutNoise;
 using clifft::sampling::DefineSymbol;
+using clifft::sampling::DetectorSlot;
 using clifft::sampling::InstrumentBoundary;
 using clifft::sampling::InstrumentSiteId;
 using clifft::sampling::MeasureActivePauli;
 using clifft::sampling::MeasureDormantRandom;
 using clifft::sampling::NoiseSiteId;
+using clifft::sampling::ObservableSlot;
 using clifft::sampling::PlannedAction;
+using clifft::sampling::PresampledNoiseOutcome;
+using clifft::sampling::PresampledNoiseSite;
 using clifft::sampling::PromoteDormantRotation;
 using clifft::sampling::RecordClassical;
 using clifft::sampling::RecordSlot;
@@ -24,6 +29,8 @@ using clifft::sampling::SamplingPlan;
 using clifft::sampling::SymbolId;
 using clifft::sampling::SymbolInfo;
 using clifft::sampling::SymbolKind;
+using clifft::sampling::WriteDetector;
+using clifft::sampling::WriteObservable;
 
 namespace {
 
@@ -44,6 +51,8 @@ SamplingPlan valid_plan() {
         SymbolInfo{SymbolKind::Branch, 1, std::nullopt},
         SymbolInfo{SymbolKind::Derived, 2, std::nullopt},
     };
+    plan.presampled_noise_sites = {
+        PresampledNoiseSite{NoiseSiteId{0}, {PresampledNoiseOutcome{noise, 0.1}}}};
     plan.actions = {
         PlannedAction{0, 1, PromoteDormantRotation{0.25, AffineBool::symbol(noise)}},
         PlannedAction{1, 0,
@@ -77,6 +86,24 @@ SamplingPlan valid_dormant_measurement_plan() {
     plan.actions = {
         PlannedAction{0, 0,
                       MeasureDormantRandom{0, branch, AffineBool::symbol(branch), RecordSlot{0}}},
+    };
+    return plan;
+}
+
+SamplingPlan valid_syndrome_plan() {
+    const SymbolId readout{0};
+    SamplingPlan plan;
+    plan.num_qubits = 1;
+    plan.num_visible_records = 1;
+    plan.num_detectors = 1;
+    plan.num_observables = 1;
+    plan.has_postselection = true;
+    plan.symbols = {SymbolInfo{SymbolKind::Readout, 1, std::nullopt}};
+    plan.actions = {
+        PlannedAction{0, 0, RecordClassical{AffineBool{}, RecordSlot{0}}},
+        PlannedAction{0, 0, ApplyReadoutNoise{readout, AffineBool{}, RecordSlot{0}, 0.1, 0.2}},
+        PlannedAction{0, 0, WriteDetector{AffineBool::symbol(readout), DetectorSlot{0}, true}},
+        PlannedAction{0, 0, WriteObservable{AffineBool::symbol(readout), ObservableSlot{0}}},
     };
     return plan;
 }
@@ -199,6 +226,13 @@ TEST_CASE("Sampling plan rejects duplicate record writes") {
     SamplingPlan plan = valid_plan();
     auto& record = std::get<RecordClassical>(plan.actions[3].action);
     record.record = RecordSlot{0};
+
+    REQUIRE_THROWS_AS(plan.validate(), std::invalid_argument);
+}
+
+TEST_CASE("Sampling plan requires every declared record slot to be written") {
+    SamplingPlan plan = valid_plan();
+    ++plan.num_hidden_records;
 
     REQUIRE_THROWS_AS(plan.validate(), std::invalid_argument);
 }
@@ -361,6 +395,51 @@ TEST_CASE("Sampling plan rejects invalid numeric metadata") {
     }
 }
 
+TEST_CASE("Sampling plan validates noise distributions and syndrome actions") {
+    REQUIRE_NOTHROW(valid_syndrome_plan().validate());
+
+    SECTION("a noise symbol cannot name two outcomes") {
+        SamplingPlan plan = valid_plan();
+        plan.presampled_noise_sites[0].outcomes.push_back(PresampledNoiseOutcome{SymbolId{0}, 0.2});
+        REQUIRE_THROWS_AS(plan.validate(), std::invalid_argument);
+    }
+
+    SECTION("noise outcome probabilities cannot exceed one in total") {
+        SamplingPlan plan = valid_plan();
+        const SymbolId second_noise{3};
+        plan.symbols.push_back(SymbolInfo{SymbolKind::Presampled, std::nullopt, NoiseSiteId{0}});
+        plan.presampled_noise_sites[0].outcomes[0].probability = 0.6;
+        plan.presampled_noise_sites[0].outcomes.push_back(
+            PresampledNoiseOutcome{second_noise, 0.6});
+        REQUIRE_THROWS_AS(plan.validate(), std::invalid_argument);
+    }
+
+    SECTION("readout requires an assigned record") {
+        SamplingPlan plan = valid_syndrome_plan();
+        plan.actions.erase(plan.actions.begin());
+        plan.symbols[0].defining_action = 0;
+        REQUIRE_THROWS_AS(plan.validate(), std::invalid_argument);
+    }
+
+    SECTION("readout probabilities are bounded") {
+        SamplingPlan plan = valid_syndrome_plan();
+        std::get<ApplyReadoutNoise>(plan.actions[1].action).prob_zero_to_one = 1.1;
+        REQUIRE_THROWS_AS(plan.validate(), std::invalid_argument);
+    }
+
+    SECTION("every declared output is written exactly once") {
+        SamplingPlan plan = valid_syndrome_plan();
+        plan.actions.pop_back();
+        REQUIRE_THROWS_AS(plan.validate(), std::invalid_argument);
+    }
+
+    SECTION("postselection metadata matches detector actions") {
+        SamplingPlan plan = valid_syndrome_plan();
+        plan.has_postselection = false;
+        REQUIRE_THROWS_AS(plan.validate(), std::invalid_argument);
+    }
+}
+
 TEST_CASE("Sampling plan rejects active widths unsupported by dense storage") {
     SamplingPlan plan;
     plan.num_qubits = clifft::kDenseActiveWidthLimit;
@@ -416,5 +495,8 @@ TEST_CASE("Sampling plan predicts only state touching dense passes") {
     REQUIRE(clifft::sampling::predicted_dense_passes(MeasureDormantRandom{}) == 0);
     REQUIRE(clifft::sampling::predicted_dense_passes(RecordClassical{}) == 0);
     REQUIRE(clifft::sampling::predicted_dense_passes(DefineSymbol{}) == 0);
+    REQUIRE(clifft::sampling::predicted_dense_passes(ApplyReadoutNoise{}) == 0);
+    REQUIRE(clifft::sampling::predicted_dense_passes(WriteDetector{}) == 0);
+    REQUIRE(clifft::sampling::predicted_dense_passes(WriteObservable{}) == 0);
     REQUIRE(clifft::sampling::predicted_dense_passes(InstrumentBoundary{}) == 0);
 }

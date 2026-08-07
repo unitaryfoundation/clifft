@@ -4,6 +4,8 @@
 #include "clifft/sampling/executor.h"
 #include "clifft/sampling/planner.h"
 #include "clifft/svm/svm.h"
+#include "clifft/util/noise_sampling.h"
+#include "clifft/util/xoshiro.h"
 
 #include <algorithm>
 #include <array>
@@ -32,7 +34,10 @@ using clifft::sampling::MeasureActivePauli;
 using clifft::sampling::MeasureDormantRandom;
 using clifft::sampling::MeasurementBranchKind;
 using clifft::sampling::MeasurementProbabilities;
+using clifft::sampling::NoiseSiteId;
 using clifft::sampling::PlannedAction;
+using clifft::sampling::PresampledNoiseOutcome;
+using clifft::sampling::PresampledNoiseSite;
 using clifft::sampling::PromoteDormantRotation;
 using clifft::sampling::record_log_probabilities;
 using clifft::sampling::RecordClassical;
@@ -144,7 +149,148 @@ bool has_arbitrary_angle_active_rotation(const SamplingPlan& plan, double half_t
     });
 }
 
+SamplingPlan categorical_noise_plan() {
+    SamplingPlan plan;
+    plan.num_noise_sites = 4;
+    plan.symbols = {
+        SymbolInfo{SymbolKind::Presampled, std::nullopt, NoiseSiteId{0}},
+        SymbolInfo{SymbolKind::Presampled, std::nullopt, NoiseSiteId{1}},
+        SymbolInfo{SymbolKind::Presampled, std::nullopt, NoiseSiteId{1}},
+        SymbolInfo{SymbolKind::Presampled, std::nullopt, NoiseSiteId{3}},
+    };
+    plan.presampled_noise_sites = {
+        PresampledNoiseSite{NoiseSiteId{0}, {PresampledNoiseOutcome{SymbolId{0}, 0.05}}},
+        PresampledNoiseSite{
+            NoiseSiteId{1},
+            {PresampledNoiseOutcome{SymbolId{1}, 0.1}, PresampledNoiseOutcome{SymbolId{2}, 0.2}}},
+        PresampledNoiseSite{NoiseSiteId{2}, {}},
+        PresampledNoiseSite{NoiseSiteId{3}, {PresampledNoiseOutcome{SymbolId{3}, 0.4}}},
+    };
+    return plan;
+}
+
+std::vector<double> noise_hazards(const SamplingPlan& plan) {
+    std::vector<double> result;
+    result.reserve(plan.presampled_noise_sites.size());
+    double cumulative = 0.0;
+    for (const PresampledNoiseSite& site : plan.presampled_noise_sites) {
+        double probability = 0.0;
+        for (const PresampledNoiseOutcome& outcome : site.outcomes) {
+            probability += outcome.probability;
+        }
+        cumulative += clifft::bernoulli_hazard(probability);
+        result.push_back(cumulative);
+    }
+    return result;
+}
+
+std::vector<uint8_t> sample_reference_noise(const SamplingPlan& plan,
+                                            std::span<const double> hazards,
+                                            clifft::Xoshiro256PlusPlus& rng) {
+    std::vector<uint8_t> result(plan.symbols.size(), 0);
+    uint32_t first_candidate = 0;
+    while (first_candidate < plan.presampled_noise_sites.size()) {
+        const double current_hazard = first_candidate == 0 ? 0.0 : hazards[first_candidate - 1];
+        if (current_hazard >= hazards.back()) {
+            break;
+        }
+        const uint32_t site_index =
+            clifft::sample_next_noise_site(hazards, first_candidate, rng.next_double());
+        if (site_index == clifft::kNoNoiseSite) {
+            break;
+        }
+        const PresampledNoiseSite& site = plan.presampled_noise_sites[site_index];
+        REQUIRE_FALSE(site.outcomes.empty());
+        size_t outcome_index = 0;
+        if (site.outcomes.size() > 1) {
+            double total_probability = 0.0;
+            for (const PresampledNoiseOutcome& outcome : site.outcomes) {
+                total_probability += outcome.probability;
+            }
+            const double channel_draw = rng.next_double() * total_probability;
+            double cumulative = 0.0;
+            for (size_t i = 0; i < site.outcomes.size(); ++i) {
+                cumulative += site.outcomes[i].probability;
+                if (channel_draw < cumulative) {
+                    outcome_index = i;
+                    break;
+                }
+            }
+        }
+        result[static_cast<uint32_t>(site.outcomes[outcome_index].symbol)] = 1;
+        first_candidate = site_index + 1;
+    }
+    return result;
+}
+
 }  // namespace
+
+TEST_CASE("Noise hazard sampler skips silent sites") {
+    const double first = clifft::bernoulli_hazard(0.25);
+    const std::array<double, 3> hazards{
+        first,
+        first,
+        first + clifft::bernoulli_hazard(0.5),
+    };
+
+    REQUIRE(clifft::sample_next_noise_site(hazards, 0, 0.0) == 0);
+    REQUIRE(clifft::sample_next_noise_site(hazards, 1, 0.0) == 2);
+    REQUIRE(clifft::sample_next_noise_site(hazards, 0, 0.3) == 2);
+    REQUIRE(clifft::sample_next_noise_site(hazards, 0, 0.9) == clifft::kNoNoiseSite);
+}
+
+TEST_CASE("Sampling executor skips silent noise sites deterministically") {
+    constexpr uint64_t seed = 0x123456789abcdef0ULL;
+    const SamplingPlan plan = categorical_noise_plan();
+    const std::vector<double> hazards = noise_hazards(plan);
+    const ExecutablePlan executable(plan);
+    Executor executor(executable, seed);
+    clifft::Xoshiro256PlusPlus reference_rng(seed);
+
+    for (uint32_t shot = 0; shot < 128; ++shot) {
+        const std::vector<uint8_t> expected = sample_reference_noise(plan, hazards, reference_rng);
+        executor.run_shot();
+        CAPTURE(shot, expected, executor.symbols());
+        REQUIRE(std::ranges::equal(executor.symbols(), expected));
+    }
+
+    // Alternating supplied and sampled inputs catches stale one bits without
+    // requiring every presampled symbol to be cleared on every shot.
+    const std::array<uint8_t, 4> all_ones{1, 1, 1, 1};
+    executor.run_shot(all_ones);
+    REQUIRE(std::ranges::equal(executor.symbols(), all_ones));
+
+    const std::vector<uint8_t> expected = sample_reference_noise(plan, hazards, reference_rng);
+    executor.run_shot();
+    REQUIRE(std::ranges::equal(executor.symbols(), expected));
+
+    const std::array<uint8_t, 4> all_zeroes{0, 0, 0, 0};
+    executor.run_shot(all_zeroes);
+    REQUIRE(std::ranges::equal(executor.symbols(), all_zeroes));
+}
+
+TEST_CASE("Sampling executor does not draw for empty noise sites") {
+    SamplingPlan plan;
+    plan.num_qubits = 1;
+    plan.num_visible_records = 1;
+    plan.num_noise_sites = 1;
+    plan.presampled_noise_sites = {PresampledNoiseSite{NoiseSiteId{0}, {}}};
+    plan.symbols = {SymbolInfo{SymbolKind::Branch, 0, std::nullopt}};
+    plan.actions = {PlannedAction{
+        0, 0,
+        MeasureDormantRandom{0, SymbolId{0}, AffineBool::symbol(SymbolId{0}), RecordSlot{0}}}};
+
+    constexpr uint64_t seed = 1234;
+    const ExecutablePlan executable(plan);
+    Executor executor(executable, seed);
+    clifft::Xoshiro256PlusPlus reference_rng(seed);
+    for (uint32_t shot = 0; shot < 32; ++shot) {
+        const uint8_t expected = static_cast<uint8_t>(reference_rng.next_double() >= 0.5);
+        executor.run_shot();
+        CAPTURE(shot);
+        REQUIRE(executor.visible_records()[0] == expected);
+    }
+}
 
 TEST_CASE("Sampling executor classifies measurement dust without drawing") {
     const auto zero = classify_measurement_branch(MeasurementProbabilities{1.0, 0.0});
@@ -297,9 +443,8 @@ TEST_CASE("Sampling replay checks all records conditional on presampled symbols"
     const ReplayResult mismatching =
         executor.replay_shot(std::array<uint8_t, 2>{0, 1}, std::array<uint8_t, 1>{1});
     REQUIRE_FALSE(mismatching.reachable);
+    // Only the executed prefix is meaningful after an unreachable replay.
     REQUIRE(executor.visible_records()[0] == 1);
-    // The hidden write follows the inconsistent visible record and is skipped.
-    REQUIRE(executor.hidden_records()[0] == 0);
 }
 
 TEST_CASE("Sampling replay applies active measurement dust policy") {
@@ -436,7 +581,55 @@ TEST_CASE("Sampling batch records match legacy seeded execution") {
     REQUIRE(sample_records(executable, 0, uint64_t{5678}).empty());
 }
 
-TEST_CASE("Sampling batch helpers reject presampled symbols") {
+TEST_CASE("Sampling executor presamples mutually exclusive Pauli noise") {
+    const clifft::HirModule hir = clifft::trace(clifft::parse(R"(
+        E(0.5) X0
+        ELSE_CORRELATED_ERROR(0.5) X1
+        M 0 1
+    )"));
+    const ExecutablePlan executable(clifft::sampling::plan_sampling(hir));
+
+    const clifft::sampling::SamplingResult result =
+        clifft::sampling::sample(executable, 10000, uint64_t{17});
+    uint32_t q0_ones = 0;
+    uint32_t q1_ones = 0;
+    for (uint32_t shot = 0; shot < 10000; ++shot) {
+        const uint8_t q0 = result.measurements[static_cast<size_t>(shot) * 2];
+        const uint8_t q1 = result.measurements[static_cast<size_t>(shot) * 2 + 1];
+        REQUIRE_FALSE((q0 && q1));
+        q0_ones += q0;
+        q1_ones += q1;
+    }
+    REQUIRE(q0_ones > 4500);
+    REQUIRE(q0_ones < 5500);
+    REQUIRE(q1_ones > 2000);
+    REQUIRE(q1_ones < 3000);
+}
+
+TEST_CASE("Sampling survivor execution normalizes and rejects detectors") {
+    const clifft::HirModule hir = clifft::trace(clifft::parse(R"(
+        H 0
+        M 0
+        DETECTOR rec[-1]
+        OBSERVABLE_INCLUDE(0) rec[-1]
+    )"));
+    const std::array<uint8_t, 1> postselection{1};
+    const ExecutablePlan executable(
+        clifft::sampling::plan_sampling(hir, {.postselection_mask = postselection}));
+
+    const clifft::sampling::SamplingSurvivorResult result =
+        clifft::sampling::sample_survivors(executable, 1000, uint64_t{19}, true);
+    REQUIRE(result.total_shots == 1000);
+    REQUIRE(result.passed_shots > 400);
+    REQUIRE(result.passed_shots < 600);
+    REQUIRE(result.logical_errors == 0);
+    REQUIRE(result.measurements.size() == result.passed_shots);
+    REQUIRE(std::ranges::all_of(result.measurements, [](uint8_t value) { return value == 0; }));
+    REQUIRE(std::ranges::all_of(result.detectors, [](uint8_t value) { return value == 0; }));
+    REQUIRE(std::ranges::all_of(result.observables, [](uint8_t value) { return value == 0; }));
+}
+
+TEST_CASE("Sampling batch helpers reject unbound presampled symbols") {
     SamplingPlan plan;
     plan.num_visible_records = 1;
     plan.symbols = {SymbolInfo{SymbolKind::Presampled, std::nullopt, std::nullopt}};
@@ -445,7 +638,7 @@ TEST_CASE("Sampling batch helpers reject presampled symbols") {
     const ExecutablePlan executable(plan);
 
     REQUIRE_THROWS_WITH(sample_records(executable, 0, uint64_t{1234}),
-                        "batch sampling does not yet support plans with presampled symbols");
+                        "batch sampling requires a distribution for every presampled symbol");
     REQUIRE_THROWS_WITH(record_log_probabilities(executable, std::array<uint8_t, 1>{0}, 1),
                         "record probabilities do not yet support plans with presampled symbols");
 }

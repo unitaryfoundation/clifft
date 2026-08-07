@@ -19,6 +19,7 @@ from clifft._clifft_core import (
     _ExperimentalSamplingProgram,
     _record_probabilities_experimental_sampling,
     _sample_experimental_sampling,
+    _sample_survivors_experimental_sampling,
     default_hir_pass_manager,
 )
 from clifft._sample_result import SampleResult
@@ -36,26 +37,75 @@ _DEFAULT_PASSES = _DefaultPasses()
 def compile(
     stim_text: str,
     *,
+    postselection_mask: list[int] | None = None,
+    expected_detectors: list[int] | None = None,
+    expected_observables: list[int] | None = None,
+    normalize_syndromes: bool = False,
     hir_passes: HirPassManager | None | _DefaultPasses = _DEFAULT_PASSES,
 ) -> Program:
     """Compile Stim text for the experimental scalar sampling backend.
 
-    Only the currently implemented noiseless rotation-and-measurement subset
-    is accepted. Unsupported operations fail during compilation. The default
-    HIR optimization pipeline matches :func:`clifft.compile`; pass ``None`` to
-    skip it.
+    The default HIR optimization pipeline matches :func:`clifft.compile`;
+    pass ``None`` to skip it. State-dependent instruments and exact-state
+    probes remain unsupported.
     """
     if isinstance(hir_passes, _DefaultPasses):
         hir_passes = default_hir_pass_manager()
-    return cast(Program, _compile_experimental_sampling(stim_text, hir_passes))
+    return cast(
+        Program,
+        _compile_experimental_sampling(
+            stim_text,
+            postselection_mask if postselection_mask is not None else [],
+            expected_detectors if expected_detectors is not None else [],
+            expected_observables if expected_observables is not None else [],
+            normalize_syndromes,
+            hir_passes,
+        ),
+    )
 
 
 def sample(program: Program, shots: int, seed: int | None = None) -> SampleResult:
     """Sample a prepared experimental program without changing Clifft's default backend."""
-    measurements = cast(npt.NDArray[np.uint8], _sample_experimental_sampling(program, shots, seed))
-    detectors = np.empty((shots, 0), dtype=np.uint8)
-    observables = np.empty((shots, 0), dtype=np.uint8)
+    measurements, detectors, observables = cast(
+        tuple[
+            npt.NDArray[np.uint8],
+            npt.NDArray[np.uint8],
+            npt.NDArray[np.uint8],
+        ],
+        _sample_experimental_sampling(program, shots, seed),
+    )
     return SampleResult(measurements, detectors, observables)
+
+
+def sample_survivors(
+    program: Program,
+    shots: int,
+    seed: int | None = None,
+    *,
+    keep_records: bool = False,
+) -> SampleResult:
+    """Sample survivor counts and optional records from an experimental program."""
+    measurements, detectors, observables, total, passed, logical_errors, observable_ones = cast(
+        tuple[
+            npt.NDArray[np.uint8],
+            npt.NDArray[np.uint8],
+            npt.NDArray[np.uint8],
+            int,
+            int,
+            int,
+            npt.NDArray[np.uint64],
+        ],
+        _sample_survivors_experimental_sampling(program, shots, seed, keep_records),
+    )
+    return SampleResult(
+        measurements,
+        detectors,
+        observables,
+        total,
+        passed,
+        logical_errors,
+        observable_ones,
+    )
 
 
 def record_probabilities(
@@ -80,4 +130,11 @@ def record_probabilities(
     return np.exp(log_probabilities)
 
 
-__all__ = ["MeasurementRecords", "Program", "compile", "record_probabilities", "sample"]
+__all__ = [
+    "MeasurementRecords",
+    "Program",
+    "compile",
+    "record_probabilities",
+    "sample",
+    "sample_survivors",
+]

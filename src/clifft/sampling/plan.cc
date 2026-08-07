@@ -35,6 +35,14 @@ uint32_t index(InstrumentSiteId site) {
     return static_cast<uint32_t>(site);
 }
 
+uint32_t index(DetectorSlot slot) {
+    return static_cast<uint32_t>(slot);
+}
+
+uint32_t index(ObservableSlot slot) {
+    return static_cast<uint32_t>(slot);
+}
+
 std::vector<SymbolId> xor_terms(const std::vector<SymbolId>& left,
                                 const std::vector<SymbolId>& right) {
     // Canonical inputs are sorted and unique, so XOR is their symmetric
@@ -103,6 +111,8 @@ std::string_view symbol_kind_name(SymbolKind kind) {
             return "derived";
         case SymbolKind::Branch:
             return "branch";
+        case SymbolKind::Readout:
+            return "readout";
     }
     return "unknown";
 }
@@ -152,9 +162,13 @@ std::optional<SymbolId> defined_symbol(const SamplingAction& action) {
                 return typed.branch;
             } else if constexpr (std::is_same_v<T, DefineSymbol>) {
                 return typed.symbol;
+            } else if constexpr (std::is_same_v<T, ApplyReadoutNoise>) {
+                return typed.flip;
             } else if constexpr (std::is_same_v<T, RotateActivePauli> ||
                                  std::is_same_v<T, PromoteDormantRotation> ||
                                  std::is_same_v<T, RecordClassical> ||
+                                 std::is_same_v<T, WriteDetector> ||
+                                 std::is_same_v<T, WriteObservable> ||
                                  std::is_same_v<T, InstrumentBoundary>) {
                 return std::nullopt;
             } else {
@@ -213,6 +227,16 @@ void validate_record(const SamplingPlan& plan, RecordSlot record, uint32_t actio
     if (!written_records.insert(index(record)).second) {
         invalid_plan("action " + std::to_string(action_index) + " writes record slot " +
                      std::to_string(index(record)) + " more than once");
+    }
+}
+
+void validate_written_record(const SamplingPlan& plan, RecordSlot record, uint32_t action_index,
+                             const std::unordered_set<uint32_t>& written_records) {
+    const uint64_t total = static_cast<uint64_t>(plan.num_visible_records) +
+                           static_cast<uint64_t>(plan.num_hidden_records);
+    if (index(record) >= total || !written_records.contains(index(record))) {
+        invalid_plan("action " + std::to_string(action_index) + " reads record slot " +
+                     std::to_string(index(record)) + " before assignment");
     }
 }
 
@@ -281,6 +305,9 @@ uint32_t predicted_dense_passes(const SamplingAction& action) {
             } else if constexpr (std::is_same_v<T, MeasureDormantRandom> ||
                                  std::is_same_v<T, RecordClassical> ||
                                  std::is_same_v<T, DefineSymbol> ||
+                                 std::is_same_v<T, ApplyReadoutNoise> ||
+                                 std::is_same_v<T, WriteDetector> ||
+                                 std::is_same_v<T, WriteObservable> ||
                                  std::is_same_v<T, InstrumentBoundary>) {
                 return 0;
             } else {
@@ -301,12 +328,48 @@ void SamplingPlan::validate() const {
         invalid_plan("maximum active width must be below " +
                      std::to_string(kDenseActiveWidthLimit) + " for dense coefficient storage");
     }
-    if (static_cast<uint64_t>(num_visible_records) + num_hidden_records >
-        std::numeric_limits<uint32_t>::max()) {
+    const uint64_t total_records = static_cast<uint64_t>(num_visible_records) + num_hidden_records;
+    if (total_records > std::numeric_limits<uint32_t>::max()) {
         invalid_plan("record count exceeds uint32 range");
     }
     if (!is_finite_robust(global_weight.real()) || !is_finite_robust(global_weight.imag())) {
         invalid_plan("global weight is not finite");
+    }
+
+    if (presampled_noise_sites.size() != num_noise_sites) {
+        invalid_plan("presampled noise-site table does not match declared count");
+    }
+
+    std::vector<bool> bound_noise_symbols(symbols.size(), false);
+    for (uint32_t site_index = 0; site_index < presampled_noise_sites.size(); ++site_index) {
+        const PresampledNoiseSite& site = presampled_noise_sites[site_index];
+        if (index(site.site) != site_index) {
+            invalid_plan("presampled noise sites are not in stable id order");
+        }
+        double total_probability = 0.0;
+        for (const PresampledNoiseOutcome& outcome : site.outcomes) {
+            const uint32_t symbol_index = index(outcome.symbol);
+            if (symbol_index >= symbols.size() ||
+                symbols[symbol_index].kind != SymbolKind::Presampled ||
+                symbols[symbol_index].noise_site != site.site) {
+                invalid_plan("noise site " + std::to_string(site_index) +
+                             " references an incompatible symbol");
+            }
+            if (bound_noise_symbols[symbol_index]) {
+                invalid_plan("presampled noise symbol s" + std::to_string(symbol_index) +
+                             " is bound more than once");
+            }
+            if (!is_probability(outcome.probability) || outcome.probability == 0.0) {
+                invalid_plan("noise site " + std::to_string(site_index) +
+                             " has a nonpositive outcome probability");
+            }
+            bound_noise_symbols[symbol_index] = true;
+            total_probability += outcome.probability;
+        }
+        if (!is_finite_robust(total_probability) || total_probability > 1.0 + 1e-12) {
+            invalid_plan("noise site " + std::to_string(site_index) +
+                         " outcome probabilities exceed one");
+        }
     }
 
     std::vector<std::optional<uint32_t>> actual_definitions(symbols.size());
@@ -338,6 +401,10 @@ void SamplingPlan::validate() const {
                 invalid_plan("presampled symbol s" + std::to_string(symbol_index) +
                              " must be presampled");
             }
+            if (info.noise_site.has_value() && !bound_noise_symbols[symbol_index]) {
+                invalid_plan("noise symbol s" + std::to_string(symbol_index) +
+                             " is absent from its site distribution");
+            }
             continue;
         }
         if (!info.defining_action.has_value() ||
@@ -356,11 +423,19 @@ void SamplingPlan::validate() const {
             invalid_plan("derived symbol s" + std::to_string(symbol_index) +
                          " must be defined by DefineSymbol");
         }
+        if (info.kind == SymbolKind::Readout &&
+            !std::holds_alternative<ApplyReadoutNoise>(action)) {
+            invalid_plan("readout symbol s" + std::to_string(symbol_index) +
+                         " must be defined by ApplyReadoutNoise");
+        }
     }
 
     uint32_t active_width = initial_active_width;
     uint32_t observed_max = active_width;
     std::unordered_set<uint32_t> written_records;
+    std::unordered_set<uint32_t> written_detectors;
+    std::unordered_set<uint32_t> written_observables;
+    bool observed_postselection = false;
     written_records.reserve(std::min<size_t>(
         actions.size(), static_cast<uint64_t>(num_visible_records) + num_hidden_records));
     for (uint32_t action_index = 0; action_index < actions.size(); ++action_index) {
@@ -431,6 +506,29 @@ void SamplingPlan::validate() const {
                         invalid_plan("symbol definition changes active width");
                     }
                     validate_expression(*this, typed.value, action_index, definition, false);
+                } else if constexpr (std::is_same_v<T, ApplyReadoutNoise>) {
+                    if (planned.active_after != planned.active_before ||
+                        !is_probability(typed.prob_zero_to_one) ||
+                        !is_probability(typed.prob_one_to_zero)) {
+                        invalid_plan("readout noise has invalid width or probabilities");
+                    }
+                    validate_expression(*this, typed.source, action_index, definition, false);
+                    validate_written_record(*this, typed.record, action_index, written_records);
+                } else if constexpr (std::is_same_v<T, WriteDetector>) {
+                    if (planned.active_after != planned.active_before ||
+                        index(typed.detector) >= num_detectors ||
+                        !written_detectors.insert(index(typed.detector)).second) {
+                        invalid_plan("detector write has invalid width or slot");
+                    }
+                    validate_expression(*this, typed.outcome, action_index, definition, false);
+                    observed_postselection |= typed.postselected;
+                } else if constexpr (std::is_same_v<T, WriteObservable>) {
+                    if (planned.active_after != planned.active_before ||
+                        index(typed.observable) >= num_observables ||
+                        !written_observables.insert(index(typed.observable)).second) {
+                        invalid_plan("observable write has invalid width or slot");
+                    }
+                    validate_expression(*this, typed.outcome, action_index, definition, false);
                 } else if constexpr (std::is_same_v<T, InstrumentBoundary>) {
                     if (planned.active_after != planned.active_before ||
                         index(typed.site) >= num_instrument_sites) {
@@ -448,6 +546,16 @@ void SamplingPlan::validate() const {
     if (observed_max != max_active_width) {
         invalid_plan("declared maximum active width does not match the action stream");
     }
+    if (written_records.size() != total_records) {
+        invalid_plan("declared record count does not match the action stream");
+    }
+    if (written_detectors.size() != num_detectors ||
+        written_observables.size() != num_observables) {
+        invalid_plan("declared detector or observable count does not match the action stream");
+    }
+    if (observed_postselection != has_postselection) {
+        invalid_plan("declared postselection flag does not match detector actions");
+    }
 }
 
 std::string SamplingPlan::inspect() const {
@@ -458,7 +566,8 @@ std::string SamplingPlan::inspect() const {
     out << "sampling_plan qubits=" << num_qubits << " initial_width=" << initial_active_width
         << " max_width=" << max_active_width << " visible_records=" << num_visible_records
         << " hidden_records=" << num_hidden_records << " noise_sites=" << num_noise_sites
-        << " instrument_sites=" << num_instrument_sites
+        << " instrument_sites=" << num_instrument_sites << " detectors=" << num_detectors
+        << " observables=" << num_observables << " postselection=" << has_postselection
         << " dust_epsilon=" << kMeasurementDustEpsilon << '\n';
     out << "global_weight=" << global_weight.real() << ',' << global_weight.imag() << '\n';
     out << "symbols=" << symbols.size() << '\n';
@@ -469,6 +578,13 @@ std::string SamplingPlan::inspect() const {
         }
         if (symbols[i].noise_site.has_value()) {
             out << " noise_site=" << index(*symbols[i].noise_site);
+        }
+        out << '\n';
+    }
+    for (const PresampledNoiseSite& site : presampled_noise_sites) {
+        out << "  noise_site " << index(site.site) << " outcomes=" << site.outcomes.size();
+        for (const PresampledNoiseOutcome& outcome : site.outcomes) {
+            out << " s" << index(outcome.symbol) << ':' << outcome.probability;
         }
         out << '\n';
     }
@@ -503,6 +619,18 @@ std::string SamplingPlan::inspect() const {
                 } else if constexpr (std::is_same_v<T, DefineSymbol>) {
                     out << "define_symbol s" << index(typed.symbol)
                         << " value=" << format_expression(typed.value);
+                } else if constexpr (std::is_same_v<T, ApplyReadoutNoise>) {
+                    out << "readout_noise s" << index(typed.flip)
+                        << " source=" << format_expression(typed.source)
+                        << " record=" << index(typed.record) << " p01=" << typed.prob_zero_to_one
+                        << " p10=" << typed.prob_one_to_zero;
+                } else if constexpr (std::is_same_v<T, WriteDetector>) {
+                    out << "write_detector outcome=" << format_expression(typed.outcome)
+                        << " detector=" << index(typed.detector)
+                        << " postselected=" << typed.postselected;
+                } else if constexpr (std::is_same_v<T, WriteObservable>) {
+                    out << "write_observable outcome=" << format_expression(typed.outcome)
+                        << " observable=" << index(typed.observable);
                 } else if constexpr (std::is_same_v<T, InstrumentBoundary>) {
                     out << "instrument_boundary site=" << index(typed.site);
                 } else {

@@ -54,11 +54,18 @@ class ExecutablePlan {
     [[nodiscard]] uint32_t num_qubits() const { return num_qubits_; }
     [[nodiscard]] uint32_t num_visible_records() const { return num_visible_records_; }
     [[nodiscard]] uint32_t num_hidden_records() const { return num_hidden_records_; }
+    [[nodiscard]] uint32_t num_detectors() const { return num_detectors_; }
+    [[nodiscard]] uint32_t num_observables() const { return num_observables_; }
+    [[nodiscard]] bool has_postselection() const { return has_postselection_; }
+    [[nodiscard]] bool has_readout_noise() const { return has_readout_noise_; }
     [[nodiscard]] uint32_t num_symbols() const { return num_symbols_; }
     [[nodiscard]] uint32_t num_presampled_symbols() const {
         return static_cast<uint32_t>(presampled_symbols_.size());
     }
     [[nodiscard]] size_t num_actions() const { return actions_.size(); }
+    [[nodiscard]] uint32_t num_unbound_presampled_symbols() const {
+        return static_cast<uint32_t>(unbound_presampled_symbols_.size());
+    }
 
   private:
     friend class Executor;
@@ -106,9 +113,40 @@ class ExecutablePlan {
         uint32_t symbol = 0;
     };
 
+    struct ExecuteReadoutNoise {
+        PreparedExpression source;
+        uint32_t flip = 0;
+        uint32_t record = 0;
+        double prob_zero_to_one = 0.0;
+        double prob_one_to_zero = 0.0;
+    };
+
+    struct ExecuteDetector {
+        PreparedExpression outcome;
+        uint32_t detector = 0;
+        bool postselected = false;
+    };
+
+    struct ExecuteObservable {
+        PreparedExpression outcome;
+        uint32_t observable = 0;
+    };
+
+    struct PreparedNoiseOutcome {
+        uint32_t symbol = 0;
+        double cumulative_probability = 0.0;
+    };
+
+    struct PreparedNoiseSite {
+        uint32_t outcome_begin = 0;
+        uint32_t outcome_count = 0;
+        double total_probability = 0.0;
+    };
+
     using Action =
         std::variant<ExecuteRotation, ExecutePromotion, ExecuteActiveMeasurement,
-                     ExecuteDormantMeasurement, ExecuteClassicalRecord, ExecuteSymbolDefinition>;
+                     ExecuteDormantMeasurement, ExecuteClassicalRecord, ExecuteSymbolDefinition,
+                     ExecuteReadoutNoise, ExecuteDetector, ExecuteObservable>;
 
     PreparedExpression prepare_expression(const AffineBool& expression);
     PreparedExpression prepare_measurement_correction(const AffineBool& outcome, uint32_t branch);
@@ -118,12 +156,20 @@ class ExecutablePlan {
     uint32_t max_active_width_ = 0;
     uint32_t num_visible_records_ = 0;
     uint32_t num_hidden_records_ = 0;
+    uint32_t num_detectors_ = 0;
+    uint32_t num_observables_ = 0;
     uint32_t num_symbols_ = 0;
+    bool has_postselection_ = false;
+    bool has_readout_noise_ = false;
     std::complex<double> global_weight_ = {1.0, 0.0};
     std::vector<uint32_t> expression_terms_;
     // Maps each dense presampled input position to its plan-local SymbolId.
     // The constructor records those ids in ascending order.
     std::vector<uint32_t> presampled_symbols_;
+    std::vector<uint32_t> unbound_presampled_symbols_;
+    std::vector<PreparedNoiseOutcome> noise_outcomes_;
+    std::vector<PreparedNoiseSite> noise_sites_;
+    std::vector<double> noise_hazards_;
     std::vector<Action> actions_;
 };
 
@@ -139,8 +185,12 @@ class Executor {
     // Replace the deterministic seed with OS entropy before executing shots.
     void reseed_from_entropy() { rng_.seed_from_entropy(); }
 
-    // Values correspond to presampled plan symbols in ascending SymbolId order.
-    void run_shot(std::span<const uint8_t> presampled_values = {}) noexcept;
+    // Draw plan-bound quantum noise from this executor's RNG before dispatch.
+    void run_shot() noexcept;
+
+    // Use caller-supplied Boolean values for every Presampled symbol in
+    // ascending SymbolId order. This path consumes no quantum-noise RNG draws.
+    void run_shot(std::span<const uint8_t> presampled_values) noexcept;
 
     // Replays the plan while forcing each record to a supplied Boolean value.
     // This reconstructs the corresponding branch state and computes its joint
@@ -160,16 +210,48 @@ class Executor {
         return std::span<const uint8_t>(records_).subspan(plan_.num_visible_records_);
     }
     [[nodiscard]] std::span<const uint8_t> symbols() const { return symbols_; }
+    [[nodiscard]] std::span<const uint8_t> detectors() const { return detectors_; }
+    [[nodiscard]] std::span<const uint8_t> observables() const { return observables_; }
+    [[nodiscard]] bool discarded() const { return discarded_; }
     [[nodiscard]] const State& state() const { return state_; }
     // Counts positive branch probability mass classified as numerical dust.
     // This telemetry accumulates across shots.
     [[nodiscard]] uint64_t dust_clamps() const { return dust_clamps_; }
 
   private:
-    void initialize_shot(std::span<const uint8_t> presampled_values) noexcept;
+    void reset_shot() noexcept;
+    void assign_presampled_values(std::span<const uint8_t> presampled_values) noexcept;
+    void sample_presampled_noise() noexcept;
 
     template <bool ForceRecords>
     [[nodiscard]] ReplayResult execute_actions(std::span<const uint8_t> forced_records) noexcept;
+    template <bool ForceRecords>
+    void execute_action(const ExecutablePlan::ExecuteRotation& action,
+                        std::span<const uint8_t> forced_records, ReplayResult& result) noexcept;
+    template <bool ForceRecords>
+    void execute_action(const ExecutablePlan::ExecutePromotion& action,
+                        std::span<const uint8_t> forced_records, ReplayResult& result) noexcept;
+    template <bool ForceRecords>
+    void execute_action(const ExecutablePlan::ExecuteActiveMeasurement& action,
+                        std::span<const uint8_t> forced_records, ReplayResult& result) noexcept;
+    template <bool ForceRecords>
+    void execute_action(const ExecutablePlan::ExecuteDormantMeasurement& action,
+                        std::span<const uint8_t> forced_records, ReplayResult& result) noexcept;
+    template <bool ForceRecords>
+    void execute_action(const ExecutablePlan::ExecuteClassicalRecord& action,
+                        std::span<const uint8_t> forced_records, ReplayResult& result) noexcept;
+    template <bool ForceRecords>
+    void execute_action(const ExecutablePlan::ExecuteSymbolDefinition& action,
+                        std::span<const uint8_t> forced_records, ReplayResult& result) noexcept;
+    template <bool ForceRecords>
+    void execute_action(const ExecutablePlan::ExecuteReadoutNoise& action,
+                        std::span<const uint8_t> forced_records, ReplayResult& result) noexcept;
+    template <bool ForceRecords>
+    void execute_action(const ExecutablePlan::ExecuteDetector& action,
+                        std::span<const uint8_t> forced_records, ReplayResult& result) noexcept;
+    template <bool ForceRecords>
+    void execute_action(const ExecutablePlan::ExecuteObservable& action,
+                        std::span<const uint8_t> forced_records, ReplayResult& result) noexcept;
 
     [[nodiscard]] bool evaluate(ExecutablePlan::PreparedExpression expression) const noexcept;
     [[nodiscard]] bool sample_active_branch(MeasurementProbabilities probabilities) noexcept;
@@ -181,7 +263,11 @@ class Executor {
     State state_;
     std::vector<uint8_t> symbols_;
     std::vector<uint8_t> records_;
+    std::vector<uint8_t> detectors_;
+    std::vector<uint8_t> observables_;
+    std::vector<uint32_t> previous_presampled_ones_;
     Xoshiro256PlusPlus rng_;
+    bool discarded_ = false;
     uint64_t dust_clamps_ = 0;
 };
 
@@ -200,5 +286,28 @@ class Executor {
 [[nodiscard]] std::vector<double> record_log_probabilities(const ExecutablePlan& plan,
                                                            std::span<const uint8_t> forced_records,
                                                            size_t num_records);
+
+struct SamplingResult {
+    std::vector<uint8_t> measurements;
+    std::vector<uint8_t> detectors;
+    std::vector<uint8_t> observables;
+};
+
+struct SamplingSurvivorResult {
+    uint32_t total_shots = 0;
+    uint32_t passed_shots = 0;
+    uint32_t logical_errors = 0;
+    std::vector<uint64_t> observable_ones;
+    std::vector<uint8_t> measurements;
+    std::vector<uint8_t> detectors;
+    std::vector<uint8_t> observables;
+};
+
+[[nodiscard]] SamplingResult sample(const ExecutablePlan& plan, uint32_t shots,
+                                    std::optional<uint64_t> seed = std::nullopt);
+
+[[nodiscard]] SamplingSurvivorResult sample_survivors(const ExecutablePlan& plan, uint32_t shots,
+                                                      std::optional<uint64_t> seed = std::nullopt,
+                                                      bool keep_records = false);
 
 }  // namespace clifft::sampling
