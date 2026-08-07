@@ -1,0 +1,9 @@
+clifft 0.0.1.dev1+g9e5497b9c
+threads: 96  CPU_BASELINE: native
+
+circuit                peak_k    amps/shot        shots/s       Gamp/s
+----------------------------------------------------------------------
+hidden_shift_np8_tl2       16       535245         2182.2         1.17
+hidden_ccz_t4              12        80712        21656.4         1.75
+conveyor_r08_w24           10        80780        19758.6         1.60
+rand_cliffT_n20_t15        20     78329759           54.1         4.24
