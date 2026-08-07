@@ -4,7 +4,9 @@
 **Branch:** `research/gpu-cudaq-custatevec`
 **Question:** Can NVIDIA cuStateVec / custom CUDA accelerate clifft's dense active block `|φ⟩_A`, and what is the most promising GPU approach overall?
 
-Status: scoping complete, microbenchmark built and CPU-validated; the decisive GH200 run (~$20 of self-serve cloud compute) is the remaining step.
+Status: scoping complete, microbenchmark built and validated; the decisive GPU run is DONE (H200, 2026-08-06 — see `microbench/RESULTS.md` Run 2a: the architecture fork is settled), and only the Grace CPU baseline remains for the final go/no-go.
+
+**Visualisation:** [`architectures.html`](architectures.html) — an interactive, self-contained animation of the two execution architectures across all three regimes, paced by the measured throughput ratios. Open it in a browser.
 
 ---
 

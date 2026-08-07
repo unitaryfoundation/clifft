@@ -1,0 +1,903 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="description" content="Animated comparison of the two GPU execution architectures benchmarked for clifft's dense active block: lockstep SoA vs MIMD per-shot." />
+<!--
+  clifft GPU backend study -- interactive visualisation.
+  Self-contained: no external assets, no build step. Open directly in a browser.
+  Data: research/gpu/microbench/results/2026-08-06-h200/  (see ../microbench/RESULTS.md)
+-->
+<title>Two ways to run a million shots</title>
+<style>
+  :root {
+    --bg: #0A0E14;
+    --panel: #121924;
+    --panel-2: #0E141D;
+    --line: #1E2836;
+    --line-soft: #172130;
+    --text: #DCE3ED;
+    --dim: #7C8AA5;
+    --dimmer: #55637A;
+    --hbm: #E8963F;
+    --hbm-soft: rgba(232, 150, 63, 0.16);
+    --sram: #35C3AE;
+    --sram-soft: rgba(53, 195, 174, 0.16);
+    --idle: #E8604C;
+    --idle-soft: rgba(232, 96, 76, 0.14);
+    --tile-off: #1B2432;
+    --focus: #6FA8FF;
+    --mono: ui-monospace, "SF Mono", "JetBrains Mono", "Cascadia Mono", Menlo, Consolas, monospace;
+    --sans: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+
+  @media (prefers-color-scheme: light) {
+    :root {
+      --bg: #EDF0F4;
+      --panel: #FFFFFF;
+      --panel-2: #F5F7FA;
+      --line: #D3DAE3;
+      --line-soft: #E2E7EE;
+      --text: #16202E;
+      --dim: #5C6B80;
+      --dimmer: #8492A6;
+      --hbm: #B96A16;
+      --hbm-soft: rgba(185, 106, 22, 0.12);
+      --sram: #10836F;
+      --sram-soft: rgba(16, 131, 111, 0.12);
+      --idle: #C43D2A;
+      --idle-soft: rgba(196, 61, 42, 0.10);
+      --tile-off: #DFE5EC;
+      --focus: #2563C7;
+    }
+  }
+
+  :root[data-theme="light"] {
+    --bg: #EDF0F4;
+    --panel: #FFFFFF;
+    --panel-2: #F5F7FA;
+    --line: #D3DAE3;
+    --line-soft: #E2E7EE;
+    --text: #16202E;
+    --dim: #5C6B80;
+    --dimmer: #8492A6;
+    --hbm: #B96A16;
+    --hbm-soft: rgba(185, 106, 22, 0.12);
+    --sram: #10836F;
+    --sram-soft: rgba(16, 131, 111, 0.12);
+    --idle: #C43D2A;
+    --idle-soft: rgba(196, 61, 42, 0.10);
+    --tile-off: #DFE5EC;
+    --focus: #2563C7;
+  }
+
+  :root[data-theme="dark"] {
+    --bg: #0A0E14;
+    --panel: #121924;
+    --panel-2: #0E141D;
+    --line: #1E2836;
+    --line-soft: #172130;
+    --text: #DCE3ED;
+    --dim: #7C8AA5;
+    --dimmer: #55637A;
+    --hbm: #E8963F;
+    --hbm-soft: rgba(232, 150, 63, 0.16);
+    --sram: #35C3AE;
+    --sram-soft: rgba(53, 195, 174, 0.16);
+    --idle: #E8604C;
+    --idle-soft: rgba(232, 96, 76, 0.14);
+    --tile-off: #1B2432;
+    --focus: #6FA8FF;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--sans);
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .wrap {
+    max-width: 1180px;
+    margin: 0 auto;
+    padding: clamp(28px, 5vw, 64px) clamp(18px, 4vw, 40px) 72px;
+    display: flex;
+    flex-direction: column;
+    gap: 34px;
+  }
+
+  /* ---------- header ---------- */
+  header { display: flex; flex-direction: column; gap: 14px; }
+
+  .eyebrow {
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--dim);
+    display: flex;
+    gap: 10px;
+    align-items: center;
+    flex-wrap: wrap;
+  }
+  .eyebrow .tick { color: var(--dimmer); }
+
+  h1 {
+    font-family: var(--mono);
+    font-weight: 700;
+    font-size: clamp(28px, 4.6vw, 48px);
+    letter-spacing: -0.035em;
+    line-height: 1.05;
+    margin: 0;
+    text-wrap: balance;
+  }
+
+  .thesis {
+    max-width: 66ch;
+    color: var(--dim);
+    font-size: 16px;
+    margin: 0;
+  }
+  .thesis strong { color: var(--text); font-weight: 600; }
+
+  /* ---------- control rail ---------- */
+  .rail {
+    border: 1px solid var(--line);
+    background: var(--panel);
+    border-radius: 3px;
+    padding: 20px clamp(16px, 3vw, 26px) 22px;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+  }
+
+  .rail-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 16px;
+    flex-wrap: wrap;
+  }
+
+  .rail-label {
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--dim);
+  }
+
+  .rail-state {
+    font-family: var(--mono);
+    font-size: 13px;
+    color: var(--text);
+    font-variant-numeric: tabular-nums;
+  }
+  .rail-state b { color: var(--hbm); font-weight: 700; }
+
+  input[type="range"] {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 100%;
+    background: transparent;
+    margin: 0;
+    cursor: pointer;
+  }
+  input[type="range"]::-webkit-slider-runnable-track {
+    height: 3px;
+    background: var(--line);
+    border-radius: 2px;
+  }
+  input[type="range"]::-moz-range-track {
+    height: 3px;
+    background: var(--line);
+    border-radius: 2px;
+  }
+  input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 15px; height: 15px;
+    margin-top: -6px;
+    border-radius: 50%;
+    background: var(--text);
+    border: 3px solid var(--bg);
+    box-shadow: 0 0 0 1px var(--text);
+  }
+  input[type="range"]::-moz-range-thumb {
+    width: 15px; height: 15px;
+    border-radius: 50%;
+    background: var(--text);
+    border: 3px solid var(--bg);
+    box-shadow: 0 0 0 1px var(--text);
+  }
+  input[type="range"]:focus-visible { outline: 2px solid var(--focus); outline-offset: 6px; }
+
+  .ticks {
+    display: grid;
+    grid-template-columns: repeat(8, 1fr);
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--dimmer);
+    font-variant-numeric: tabular-nums;
+  }
+  .ticks span { text-align: center; transition: color .2s; }
+  .ticks span.on { color: var(--text); }
+
+  .zones {
+    display: grid;
+    grid-template-columns: 1fr 3fr 2fr;
+    gap: 3px;
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+  }
+  .zone {
+    padding: 5px 8px;
+    text-align: center;
+    border: 1px solid var(--line);
+    color: var(--dimmer);
+    border-radius: 2px;
+    transition: all .25s;
+  }
+  .zone.on[data-z="resident"] { color: var(--sram); border-color: var(--sram); background: var(--sram-soft); }
+  .zone.on[data-z="stream"]   { color: var(--hbm);  border-color: var(--hbm);  background: var(--hbm-soft); }
+  .zone.on[data-z="starved"]  { color: var(--idle); border-color: var(--idle); background: var(--idle-soft); }
+
+  /* ---------- scopes ---------- */
+  .scopes {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 18px;
+  }
+  @media (max-width: 880px) { .scopes { grid-template-columns: 1fr; } }
+
+  .scope {
+    border: 1px solid var(--line);
+    background: var(--panel);
+    border-radius: 3px;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+  .scope.winner { border-color: var(--text); }
+
+  .scope-head {
+    padding: 14px 16px 12px;
+    border-bottom: 1px solid var(--line-soft);
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+  }
+  .scope-name {
+    font-family: var(--mono);
+    font-size: 15px;
+    font-weight: 700;
+    letter-spacing: -0.01em;
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    flex-wrap: wrap;
+  }
+  .badge {
+    font-size: 10px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    padding: 2px 7px;
+    border-radius: 2px;
+    font-weight: 700;
+    background: var(--text);
+    color: var(--bg);
+  }
+  .scope-sub { font-family: var(--mono); font-size: 11.5px; color: var(--dim); }
+
+  canvas { display: block; width: 100%; height: auto; }
+
+  .readout {
+    border-top: 1px solid var(--line-soft);
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+  }
+  .cell {
+    padding: 11px 14px 13px;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    border-right: 1px solid var(--line-soft);
+  }
+  .cell:last-child { border-right: none; }
+  .cell-k {
+    font-family: var(--mono);
+    font-size: 9.5px;
+    letter-spacing: 0.13em;
+    text-transform: uppercase;
+    color: var(--dimmer);
+  }
+  .cell-v {
+    font-family: var(--mono);
+    font-size: 17px;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: -0.02em;
+  }
+  .cell-v.amber { color: var(--hbm); }
+  .cell-v.teal { color: var(--sram); }
+  .cell-v.red { color: var(--idle); }
+  .cell-note { font-family: var(--mono); font-size: 10.5px; color: var(--dim); }
+
+  /* ---------- explanation ---------- */
+  .explain {
+    border: 1px solid var(--line);
+    border-left: 2px solid var(--hbm);
+    background: var(--panel-2);
+    border-radius: 3px;
+    padding: 20px clamp(16px, 3vw, 26px);
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+  .explain[data-mode="resident"] { border-left-color: var(--sram); }
+  .explain[data-mode="starved"] { border-left-color: var(--idle); }
+  .explain h2 {
+    font-family: var(--mono);
+    font-size: 14px;
+    margin: 0;
+    letter-spacing: -0.01em;
+  }
+  .explain p { margin: 0; max-width: 74ch; font-size: 15px; color: var(--dim); }
+  .explain p strong { color: var(--text); font-weight: 600; }
+
+  /* ---------- legend + table ---------- */
+  .legend {
+    display: flex;
+    gap: 20px;
+    flex-wrap: wrap;
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--dim);
+  }
+  .legend span { display: flex; align-items: center; gap: 7px; }
+  .swatch { width: 11px; height: 11px; border-radius: 2px; flex: none; }
+
+  .table-wrap { overflow-x: auto; }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-family: var(--mono);
+    font-size: 12.5px;
+    font-variant-numeric: tabular-nums;
+    min-width: 620px;
+  }
+  caption {
+    text-align: left;
+    font-size: 11px;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--dim);
+    padding-bottom: 10px;
+  }
+  th, td { padding: 9px 12px; text-align: right; border-bottom: 1px solid var(--line-soft); }
+  th:first-child, td:first-child { text-align: left; }
+  thead th { color: var(--dim); font-weight: 500; font-size: 10.5px; letter-spacing: 0.1em; text-transform: uppercase; }
+  tbody tr.on { background: var(--panel); }
+  tbody tr.on td { color: var(--text); }
+  td.win-mimd { color: var(--sram); font-weight: 700; }
+  td.win-soa { color: var(--hbm); font-weight: 700; }
+  td.tie { color: var(--dim); }
+
+  footer {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--dimmer);
+    line-height: 1.7;
+    border-top: 1px solid var(--line-soft);
+    padding-top: 16px;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    * { transition: none !important; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="eyebrow">
+      <span>clifft · GPU backend study</span>
+      <span class="tick">/</span>
+      <span>measured on H200 SXM, FP64</span>
+      <span class="tick">/</span>
+      <span>2026-08-06</span>
+    </div>
+    <h1>Two ways to run a million shots</h1>
+    <p class="thesis">
+      Both architectures simulate the same batch of quantum-circuit shots on the same GPU. They differ
+      in one choice: <strong>who owns a shot</strong>. Drag the slider to change how big one shot is —
+      and watch which machine starves.
+    </p>
+  </header>
+
+  <div class="rail">
+    <div class="rail-head">
+      <div class="rail-label">Active rank k — amplitudes per shot</div>
+      <div class="rail-state" id="railState"></div>
+    </div>
+    <input type="range" id="kSlider" min="0" max="7" step="1" value="0" aria-label="Active rank k" />
+    <div class="ticks" id="ticks"></div>
+    <div class="zones">
+      <div class="zone" data-z="resident">shot fits on-chip</div>
+      <div class="zone" data-z="stream">both stream from HBM</div>
+      <div class="zone" data-z="starved">too few shots to fill the GPU</div>
+    </div>
+  </div>
+
+  <div class="scopes">
+    <section class="scope" id="scope-soa">
+      <div class="scope-head">
+        <div class="scope-name">Lockstep SoA <span class="badge" id="badge-soa" hidden>faster</span></div>
+        <div class="scope-sub">one kernel per instruction, sweeping every shot</div>
+      </div>
+      <canvas id="cv-soa" width="560" height="380"></canvas>
+      <div class="readout">
+        <div class="cell">
+          <div class="cell-k">Layers done</div>
+          <div class="cell-v" id="lay-soa">0.0</div>
+          <div class="cell-note">22 ops each</div>
+        </div>
+        <div class="cell">
+          <div class="cell-k">HBM round trips</div>
+          <div class="cell-v amber" id="dram-soa">0</div>
+          <div class="cell-note" id="dramnote-soa">one per instruction</div>
+        </div>
+        <div class="cell">
+          <div class="cell-k">SMs busy</div>
+          <div class="cell-v" id="occ-soa">132/132</div>
+          <div class="cell-note">grid-wide launch</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="scope" id="scope-mimd">
+      <div class="scope-head">
+        <div class="scope-name">MIMD per-shot <span class="badge" id="badge-mimd" hidden>faster</span></div>
+        <div class="scope-sub">one block per shot, walking the whole program</div>
+      </div>
+      <canvas id="cv-mimd" width="560" height="380"></canvas>
+      <div class="readout">
+        <div class="cell">
+          <div class="cell-k">Layers done</div>
+          <div class="cell-v" id="lay-mimd">0.0</div>
+          <div class="cell-note">22 ops each</div>
+        </div>
+        <div class="cell">
+          <div class="cell-k">HBM round trips</div>
+          <div class="cell-v" id="dram-mimd">0</div>
+          <div class="cell-note" id="dramnote-mimd">one per layer</div>
+        </div>
+        <div class="cell">
+          <div class="cell-k">SMs busy</div>
+          <div class="cell-v" id="occ-mimd">132/132</div>
+          <div class="cell-note" id="occnote-mimd">one block = one shot</div>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <div class="legend">
+    <span><i class="swatch" style="background:var(--hbm)"></i> HBM traffic — off-chip, the expensive road</span>
+    <span><i class="swatch" style="background:var(--sram)"></i> resident on-chip — free</span>
+    <span><i class="swatch" style="background:var(--idle)"></i> idle silicon</span>
+  </div>
+
+  <div class="explain" id="explain">
+    <h2 id="explain-title"></h2>
+    <p id="explain-body"></p>
+  </div>
+
+  <div class="table-wrap">
+    <table>
+      <caption>What we measured — real-mix schedule, best batch size at each k</caption>
+      <thead>
+        <tr>
+          <th>k</th><th>shot size</th><th>shots in flight</th>
+          <th>SoA shots/s</th><th>MIMD shots/s</th><th>winner</th>
+        </tr>
+      </thead>
+      <tbody id="tbody"></tbody>
+    </table>
+  </div>
+
+  <footer>
+    Numbers are the measured <code>batchedrealgpu</code> and <code>mimdrealgpu</code> arms of the clifft GPU
+    microbenchmark on an NVIDIA H200 SXM (132 SMs, 141 GB HBM3e), complex128, identical schedule, state and RNG
+    on both sides; all correctness validators agree to 1e-14 or better.<br />
+    The animation is paced by those ratios: at every k the two scopes advance at their true relative speed.
+  </footer>
+</div>
+
+<script>
+(function () {
+  "use strict";
+
+  var SMS = 132;
+  var OPS = 22;              // one layer of the real-mix schedule
+  var BASE_LAYER_SEC = 2.6;  // wall time for the faster architecture
+
+  // Measured: H200, real-mix schedule, best B that fits at each k.
+  var DATA = [
+    { k: 12, B: 65536, soa: 900944,  mimd: 4660343, mode: "resident" },
+    { k: 16, B: 4096,  soa: 56142,   mimd: 61581,   mode: "stream"   },
+    { k: 18, B: 1024,  soa: 14044,   mimd: 15213,   mode: "stream"   },
+    { k: 20, B: 256,   soa: 3490,    mimd: 3461,    mode: "stream"   },
+    { k: 22, B: 1024,  soa: 887.9,   mimd: 949.7,   mode: "stream"   },
+    { k: 24, B: 256,   soa: 219.0,   mimd: 213.6,   mode: "stream"   },
+    { k: 26, B: 32,    soa: 39.9,    mimd: 12.5,    mode: "starved"  },
+    { k: 28, B: 8,     soa: 5.1,     mimd: 0.8,     mode: "starved"  }
+  ];
+
+  var COPY = {
+    resident: {
+      title: "k ≤ 13 — the whole shot fits in on-chip memory",
+      body: "A shot is only " + "128 KB" + " here, so MIMD loads it into the SM's own scratchpad <strong>once</strong>, " +
+            "runs all 22 instructions there, and writes back <strong>once</strong>. The HBM road goes quiet. " +
+            "SoA cannot do this: between two instructions on one shot it must sweep every other shot in the batch, " +
+            "so that shot is long evicted and has to be re-read. Same arithmetic, " +
+            "<strong>22× the memory traffic</strong> — and memory is the speed limit."
+    },
+    stream: {
+      title: "k = 14–24 — nobody fits on-chip, both run at the memory roofline",
+      body: "The shot is now megabytes, too big for the scratchpad, so MIMD streams from HBM per instruction " +
+            "exactly like SoA. Our bet was that SoA would still win here on <strong>coalescing</strong> — neighbouring " +
+            "threads reading neighbouring addresses. It didn't: a single shot is already thousands of contiguous " +
+            "cache lines, so MIMD's threads coalesce perfectly well inside their own shot. Both saturate the same " +
+            "bus and the race ends in a <strong>dead heat</strong>."
+    },
+    starved: {
+      title: "k ≥ 26 — the GPU runs out of shots before it runs out of cores",
+      body: "One shot is now a gigabyte, so the card can only hold a handful at a time. MIMD's unit of work is " +
+            "<strong>one block per shot</strong> — with only a few shots, most of the 132 SMs sit dark. SoA doesn't care: " +
+            "it splits every single instruction across the whole chip, so its grid stays full no matter how few shots " +
+            "exist. This is the one regime where <strong>SoA is the right architecture</strong>."
+    }
+  };
+
+  var reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+  var $ = function (id) { return document.getElementById(id); };
+  var slider = $("kSlider");
+  var idx = 0;
+
+  /* ---------------- static chrome ---------------- */
+  var ticksEl = $("ticks");
+  DATA.forEach(function (d) {
+    var s = document.createElement("span");
+    s.textContent = d.k;
+    ticksEl.appendChild(s);
+  });
+
+  var tbody = $("tbody");
+  DATA.forEach(function (d) {
+    var ratio = d.mimd / d.soa;
+    var cls, txt;
+    if (ratio >= 1.25) { cls = "win-mimd"; txt = "MIMD " + ratio.toFixed(1) + "×"; }
+    else if (ratio <= 0.8) { cls = "win-soa"; txt = "SoA " + (1 / ratio).toFixed(1) + "×"; }
+    else { cls = "tie"; txt = "tie"; }
+    var tr = document.createElement("tr");
+    tr.innerHTML =
+      "<td>" + d.k + "</td>" +
+      "<td>" + fmtBytes(16 * Math.pow(2, d.k)) + "</td>" +
+      "<td>" + d.B.toLocaleString() + "</td>" +
+      "<td>" + fmtNum(d.soa) + "</td>" +
+      "<td>" + fmtNum(d.mimd) + "</td>" +
+      "<td class='" + cls + "'>" + txt + "</td>";
+    tbody.appendChild(tr);
+  });
+
+  function fmtBytes(b) {
+    if (b >= 1e9) return (b / 1073741824).toFixed(1).replace(/\.0$/, "") + " GB";
+    if (b >= 1e6) return (b / 1048576).toFixed(0) + " MB";
+    return (b / 1024).toFixed(0) + " KB";
+  }
+  function fmtNum(n) {
+    if (n >= 1e6) return (n / 1e6).toFixed(2) + "M";
+    if (n >= 1e3) return Math.round(n).toLocaleString();
+    return n.toFixed(1);
+  }
+
+  /* ---------------- panels ---------------- */
+  function Panel(canvasId, kind) {
+    this.cv = $(canvasId);
+    this.ctx = this.cv.getContext("2d");
+    this.kind = kind;              // "soa" | "mimd"
+    this.t = 0;                    // layer progress, fractional layers
+    this.layers = 0;
+    this.dram = 0;                 // full-batch HBM round trips
+    this.lastOp = -1;
+    this.W = 560; this.H = 380;
+    this.seeds = [];
+    for (var i = 0; i < SMS; i++) this.seeds.push(Math.random() * 6.283);
+    this.resize();
+  }
+
+  Panel.prototype.resize = function () {
+    var dpr = Math.min(window.devicePixelRatio || 1, 2);
+    var cssW = this.cv.clientWidth || 560;
+    var cssH = Math.round(cssW * (this.H / this.W));
+    this.cv.width = Math.round(cssW * dpr);
+    this.cv.height = Math.round(cssH * dpr);
+    this.cv.style.height = cssH + "px";
+    this.ctx.setTransform(dpr * (cssW / this.W), 0, 0, dpr * (cssW / this.W), 0, 0);
+    this.scale = cssW / this.W;
+  };
+
+  Panel.prototype.reset = function () {
+    this.t = 0; this.layers = 0; this.dram = 0; this.lastOp = -1;
+  };
+
+  // How much of the HBM link is lit right now, and which way traffic flows.
+  Panel.prototype.link = function (cfg) {
+    var frac = this.t - Math.floor(this.t);           // position within the layer
+    if (this.kind === "mimd" && cfg.mode === "resident") {
+      if (frac < 0.07) return { a: 1, dir: -1, resident: false };   // one load
+      if (frac > 0.93) return { a: 1, dir: 1, resident: false };    // one store
+      return { a: 0, dir: 0, resident: true };                      // living on-chip
+    }
+    var opFrac = (frac * OPS) % 1;                    // position within one instruction
+    if (opFrac < 0.34) return { a: 1, dir: -1, resident: false };
+    if (opFrac > 0.66) return { a: 1, dir: 1, resident: false };
+    return { a: 0.15, dir: 0, resident: false };      // compute beat
+  };
+
+  Panel.prototype.occupancy = function (cfg) {
+    if (this.kind === "soa") return SMS;              // every op spans the whole grid
+    return Math.min(SMS, cfg.B);                      // one block per shot
+  };
+
+  Panel.prototype.step = function (dt, cfg, rate) {
+    var before = this.t;
+    this.t += dt * rate;
+    this.layers = this.t;
+    // count HBM round trips
+    if (this.kind === "mimd" && cfg.mode === "resident") {
+      this.dram = Math.floor(this.t) + (this.t - Math.floor(this.t) > 0.07 ? 1 : 0);
+    } else {
+      this.dram = Math.floor(this.t * OPS);
+    }
+    if (before === 0 && this.t === 0) this.dram = 0;
+  };
+
+  Panel.prototype.draw = function (cfg, time) {
+    var g = this.ctx, W = this.W, H = this.H;
+    var css = getComputedStyle(document.documentElement);
+    var C = {
+      panel: css.getPropertyValue("--panel").trim(),
+      line: css.getPropertyValue("--line").trim(),
+      lineSoft: css.getPropertyValue("--line-soft").trim(),
+      text: css.getPropertyValue("--text").trim(),
+      dim: css.getPropertyValue("--dim").trim(),
+      dimmer: css.getPropertyValue("--dimmer").trim(),
+      hbm: css.getPropertyValue("--hbm").trim(),
+      sram: css.getPropertyValue("--sram").trim(),
+      idle: css.getPropertyValue("--idle").trim(),
+      tileOff: css.getPropertyValue("--tile-off").trim()
+    };
+
+    g.clearRect(0, 0, W, H);
+
+    var frac = this.t - Math.floor(this.t);
+    var curOp = Math.min(OPS - 1, Math.floor(frac * OPS));
+    var lk = this.link(cfg);
+    var occ = this.occupancy(cfg);
+
+    /* --- instruction ribbon --- */
+    var ribY = 16, ribH = 15, pad = 22;
+    var slotW = (W - pad * 2) / OPS;
+    g.font = "600 9px " + "ui-monospace, monospace";
+    g.fillStyle = C.dimmer;
+    g.textAlign = "left";
+    g.fillText("PROGRAM", pad, ribY - 5);
+    g.textAlign = "right";
+    g.fillText(this.kind === "mimd" ? "1 KERNEL LAUNCH" : (OPS + " KERNEL LAUNCHES"), W - pad, ribY - 5);
+    g.textAlign = "left";
+
+    for (var o = 0; o < OPS; o++) {
+      var x = pad + o * slotW;
+      var done = o < curOp;
+      var here = o === curOp;
+      g.fillStyle = here ? C.text : (done ? C.dim : C.tileOff);
+      g.fillRect(x + 1, ribY, slotW - 3, ribH);
+      if (here && this.kind === "soa" && !reduced) {
+        // launch flash: SoA pays a launch for every single instruction
+        g.globalAlpha = 0.35 + 0.35 * Math.sin(time * 14);
+        g.fillStyle = C.hbm;
+        g.fillRect(x + 1, ribY - 4, slotW - 3, ribH + 8);
+        g.globalAlpha = 1;
+      }
+    }
+    if (this.kind === "mimd") {
+      g.strokeStyle = C.sram;
+      g.lineWidth = 1;
+      g.strokeRect(pad + 0.5, ribY - 3.5, W - pad * 2 - 1, ribH + 7);
+    }
+
+    /* --- SM grid --- */
+    var cols = 12, rows = 11;
+    var gx = pad, gy = 62;
+    var gw = W - pad * 2;
+    var tw = (gw - (cols - 1) * 4) / cols, th = 11, tvg = 4;
+    var gridH = rows * th + (rows - 1) * tvg;
+
+    g.font = "600 9px ui-monospace, monospace";
+    g.fillStyle = C.dimmer;
+    g.fillText("132 STREAMING MULTIPROCESSORS", gx, gy - 8);
+
+    var computing = lk.dir === 0 || lk.a < 0.5;
+    for (var i = 0; i < SMS; i++) {
+      var r = Math.floor(i / cols), c = i % cols;
+      var tx = gx + c * (tw + 4), ty = gy + r * (th + tvg);
+      var active = i < occ;
+      if (!active) {
+        g.fillStyle = C.tileOff;
+        g.fillRect(tx, ty, tw, th);
+        // hatch idle silicon
+        g.strokeStyle = C.idle;
+        g.globalAlpha = 0.30;
+        g.lineWidth = 1;
+        g.beginPath();
+        g.moveTo(tx, ty + th); g.lineTo(tx + tw, ty);
+        g.stroke();
+        g.globalAlpha = 1;
+        continue;
+      }
+      var pulse = reduced ? 0.75 : 0.62 + 0.38 * Math.sin(time * 7 + this.seeds[i]);
+      var col = lk.resident ? C.sram : C.hbm;
+      g.globalAlpha = computing ? pulse : 0.30 + 0.2 * pulse;
+      g.fillStyle = col;
+      g.fillRect(tx, ty, tw, th);
+      g.globalAlpha = 1;
+    }
+
+    if (lk.resident) {
+      g.font = "700 10px ui-monospace, monospace";
+      g.fillStyle = C.sram;
+      g.textAlign = "center";
+      g.fillText("SHOT RESIDENT IN ON-CHIP SRAM", W / 2, gy + gridH + 16);
+      g.textAlign = "left";
+    }
+
+    /* --- traffic lanes --- */
+    var laneTop = gy + gridH + 24, laneBot = 322;
+    var nLanes = 24;
+    g.strokeStyle = C.lineSoft;
+    g.lineWidth = 1;
+    for (var l = 0; l < nLanes; l++) {
+      var lx = gx + (l + 0.5) * (gw / nLanes);
+      g.beginPath(); g.moveTo(lx, laneTop); g.lineTo(lx, laneBot); g.stroke();
+    }
+
+    if (lk.a > 0.4 && lk.dir !== 0) {
+      var speed = 0.55, nDots = 5;
+      for (var l2 = 0; l2 < nLanes; l2++) {
+        var lx2 = gx + (l2 + 0.5) * (gw / nLanes);
+        for (var d = 0; d < nDots; d++) {
+          var ph = ((reduced ? 0.3 : time * speed) + d / nDots + l2 * 0.041) % 1;
+          var p = lk.dir === -1 ? 1 - ph : ph;   // -1 = HBM -> SM
+          var py = laneTop + p * (laneBot - laneTop);
+          var fade = Math.sin(ph * Math.PI);
+          g.globalAlpha = 0.25 + 0.75 * fade;
+          g.fillStyle = C.hbm;
+          g.fillRect(lx2 - 1.5, py, 3, 5);
+        }
+      }
+      g.globalAlpha = 1;
+    }
+
+    /* --- HBM bar --- */
+    var barY = 330, barH = 22;
+    g.fillStyle = lk.a > 0.4 && lk.dir !== 0 ? C.hbm : C.tileOff;
+    g.globalAlpha = lk.a > 0.4 && lk.dir !== 0 ? 0.85 : 1;
+    g.fillRect(gx, barY, gw, barH);
+    g.globalAlpha = 1;
+    g.font = "700 10px ui-monospace, monospace";
+    g.fillStyle = lk.a > 0.4 && lk.dir !== 0
+      ? (document.documentElement.getAttribute("data-theme") === "light" ? "#fff" : "#0A0E14")
+      : C.dimmer;
+    g.textAlign = "center";
+    g.fillText(lk.resident ? "HBM  —  IDLE" : "HBM  —  141 GB  ·  4.9 TB/s", W / 2, barY + 15);
+    g.textAlign = "left";
+  };
+
+  var soa = new Panel("cv-soa", "soa");
+  var mimd = new Panel("cv-mimd", "mimd");
+
+  /* ---------------- wiring ---------------- */
+  function cfg() { return DATA[idx]; }
+
+  function applyK() {
+    var d = cfg();
+    soa.reset(); mimd.reset();
+
+    $("railState").innerHTML =
+      "k = <b>" + d.k + "</b> &nbsp;·&nbsp; " + fmtBytes(16 * Math.pow(2, d.k)) + " per shot &nbsp;·&nbsp; " +
+      d.B.toLocaleString() + " shots in flight";
+
+    Array.prototype.forEach.call(ticksEl.children, function (el, i) {
+      el.classList.toggle("on", i === idx);
+    });
+    Array.prototype.forEach.call(document.querySelectorAll(".zone"), function (el) {
+      el.classList.toggle("on", el.getAttribute("data-z") === d.mode);
+    });
+    Array.prototype.forEach.call(tbody.children, function (tr, i) {
+      tr.classList.toggle("on", i === idx);
+    });
+
+    var c = COPY[d.mode];
+    $("explain").setAttribute("data-mode", d.mode);
+    $("explain-title").textContent = c.title;
+    $("explain-body").innerHTML = c.body;
+
+    var ratio = d.mimd / d.soa;
+    var mimdWins = ratio > 1.15, soaWins = ratio < 0.87;
+    $("badge-mimd").hidden = !mimdWins;
+    $("badge-soa").hidden = !soaWins;
+    $("badge-mimd").textContent = ratio.toFixed(1) + "× faster";
+    $("badge-soa").textContent = (1 / ratio).toFixed(1) + "× faster";
+    $("scope-mimd").classList.toggle("winner", mimdWins);
+    $("scope-soa").classList.toggle("winner", soaWins);
+
+    $("occ-soa").textContent = SMS + "/" + SMS;
+    var mocc = Math.min(SMS, d.B);
+    var occEl = $("occ-mimd");
+    occEl.textContent = mocc + "/" + SMS;
+    occEl.className = "cell-v" + (mocc < SMS ? " red" : "");
+    $("occnote-mimd").textContent = mocc < SMS
+      ? "only " + d.B.toLocaleString() + " shots exist"
+      : "one block = one shot";
+
+    var resident = d.mode === "resident";
+    $("dram-mimd").className = "cell-v " + (resident ? "teal" : "amber");
+    $("dramnote-mimd").textContent = resident ? "one per layer" : "one per instruction";
+  }
+
+  slider.addEventListener("input", function () {
+    idx = parseInt(slider.value, 10);
+    applyK();
+  });
+
+  window.addEventListener("resize", function () { soa.resize(); mimd.resize(); });
+
+  var last = performance.now();
+  function frame(now) {
+    var dt = Math.min((now - last) / 1000, 0.05);
+    last = now;
+    var time = now / 1000;
+    var d = cfg();
+
+    var fastest = Math.max(d.soa, d.mimd);
+    var baseRate = 1 / BASE_LAYER_SEC;
+    soa.step(dt, d, baseRate * (d.soa / fastest));
+    mimd.step(dt, d, baseRate * (d.mimd / fastest));
+
+    soa.draw(d, time);
+    mimd.draw(d, time);
+
+    $("lay-soa").textContent = soa.layers.toFixed(1);
+    $("lay-mimd").textContent = mimd.layers.toFixed(1);
+    $("dram-soa").textContent = soa.dram.toLocaleString();
+    $("dram-mimd").textContent = mimd.dram.toLocaleString();
+
+    requestAnimationFrame(frame);
+  }
+
+  applyK();
+  soa.resize(); mimd.resize();
+  requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>

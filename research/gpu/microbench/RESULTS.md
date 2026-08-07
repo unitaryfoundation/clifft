@@ -67,6 +67,12 @@ Two baseline observations for reading the GH200 run:
 
 ## Run 2a — H200, 2026-08-06 (GPU-side numbers: architecture fork DECIDED)
 
+> Interactive visualisation of the two architectures and the three regimes
+> below: **`../architectures.html`** — open it directly in a browser (no build
+> step, no external assets). The two panels are paced by the measured ratios
+> in this section.
+
+
 Raw data + machine details: `results/2026-08-06-h200/`. nebius H200 via
 brev.nvidia ($5.40/hr, ~$3 total), CUDA 13.0, sm_90. Build: **zero nvcc
 errors on first compile**. Validation: **all five validator families OK** at
