@@ -115,6 +115,22 @@ void require_matches_legacy(std::string_view circuit_text, uint32_t shots, uint6
     }
 }
 
+void require_basis_probabilities_match_legacy(std::string_view circuit_text,
+                                              std::span<const uint64_t> basis_masks,
+                                              size_t num_basis_masks, size_t words_per_basis_mask) {
+    const clifft::HirModule hir = clifft::trace(clifft::parse(circuit_text));
+    const ExecutablePlan executable(clifft::sampling::plan_sampling(hir));
+    const std::vector<double> actual = clifft::sampling::basis_probabilities(
+        executable, basis_masks, num_basis_masks, words_per_basis_mask);
+    const std::vector<double> expected = clifft::basis_probabilities(
+        clifft::lower(hir), basis_masks, num_basis_masks, words_per_basis_mask);
+    REQUIRE(actual.size() == expected.size());
+    for (size_t i = 0; i < actual.size(); ++i) {
+        CAPTURE(circuit_text, i);
+        REQUIRE_THAT(actual[i], Catch::Matchers::WithinAbs(expected[i], 1e-12));
+    }
+}
+
 void require_replay_matches_legacy(std::string_view circuit_text,
                                    std::span<const uint8_t> forced_records, size_t num_records) {
     const clifft::HirModule hir = clifft::trace(clifft::parse(circuit_text));
@@ -448,6 +464,32 @@ TEST_CASE("Sampling replay evaluates record-dependent expectations") {
         REQUIRE_THAT(replay.log_probability, Catch::Matchers::WithinAbs(std::log(0.5), 1e-15));
         REQUIRE(executor.exp_vals()[0] == (forced_record == 0 ? 1.0 : -1.0));
     }
+}
+
+TEST_CASE("Sampling basis probabilities match legacy exact queries") {
+    constexpr std::array<uint64_t, 4> kTwoQubitBasis{0, 1, 2, 3};
+    require_basis_probabilities_match_legacy("H 0\nCX 0 1\n", kTwoQubitBasis, 4, 1);
+    require_basis_probabilities_match_legacy("H 0\nT 0\nH 1\nT 1\nCX 0 1\n", kTwoQubitBasis, 4, 1);
+    require_basis_probabilities_match_legacy("H 0\nT 0\nCX 0 1\nR_Z(0.123) 1\nH 0\n",
+                                             kTwoQubitBasis, 4, 1);
+
+    constexpr std::array<uint64_t, 4> kHighQubitBasis{0, 0, 0, uint64_t{1} << 6};
+    require_basis_probabilities_match_legacy("H 70\n", kHighQubitBasis, 2, 2);
+}
+
+TEST_CASE("Sampling basis probabilities reject nonunitary plans") {
+    const ExecutablePlan measured(plan_from("M 0\n"));
+    REQUIRE_FALSE(measured.supports_basis_probabilities());
+    REQUIRE_THROWS_AS(
+        clifft::sampling::basis_probabilities(measured, std::array<uint64_t, 1>{0}, 1, 1),
+        std::invalid_argument);
+
+    const ExecutablePlan with_probe(plan_from("H 0\nEXP_VAL X0\n"));
+    REQUIRE(with_probe.supports_basis_probabilities());
+    const std::vector<double> probabilities =
+        clifft::sampling::basis_probabilities(with_probe, std::array<uint64_t, 2>{0, 1}, 2, 1);
+    REQUIRE_THAT(probabilities[0], Catch::Matchers::WithinAbs(0.5, 1e-12));
+    REQUIRE_THAT(probabilities[1], Catch::Matchers::WithinAbs(0.5, 1e-12));
 }
 
 TEST_CASE("Sampling replay checks all records conditional on presampled symbols") {

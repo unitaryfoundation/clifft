@@ -347,6 +347,7 @@ TEST_CASE("Sampling planner classifies active and dormant expectation probes") {
 
     REQUIRE(plan.num_exp_vals == 3);
     REQUIRE(plan.actions.size() == 4);
+    REQUIRE(plan.final_tableau.has_value());
     const auto& active = action_as<WriteExpectationValue>(plan, 1);
     REQUIRE(active.active_projection.has_value());
     REQUIRE_FALSE(active.active_projection->is_identity());
@@ -362,6 +363,7 @@ TEST_CASE("Sampling planner classifies active and dormant expectation probes") {
 TEST_CASE("Sampling planner propagates stochastic signs into expectation probes") {
     const SamplingPlan noise =
         plan_sampling(clifft::trace(clifft::parse("X_ERROR(1) 0\nEXP_VAL Z0")));
+    REQUIRE_FALSE(noise.final_tableau.has_value());
     const auto& noise_probe = action_as<WriteExpectationValue>(noise, 0);
     REQUIRE(noise_probe.active_projection.has_value());
     REQUIRE(noise_probe.active_projection->is_identity());

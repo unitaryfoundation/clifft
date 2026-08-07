@@ -1008,6 +1008,23 @@ NB_MODULE(_clifft_core, m) {
         "Sample survivor counts and optional records from an experimental program.");
 
     m.def(
+        "_basis_probabilities_experimental_sampling",
+        [](const clifft::sampling::ExecutablePlan& program,
+           nb::ndarray<nb::numpy, const uint64_t, nb::shape<-1, -1>, nb::c_contig> basis_masks) {
+            std::vector<double> probabilities;
+            {
+                nb::gil_scoped_release release;
+                probabilities = clifft::sampling::basis_probabilities(
+                    program, std::span<const uint64_t>(basis_masks.data(), basis_masks.size()),
+                    basis_masks.shape(0), basis_masks.shape(1));
+            }
+            const size_t size = probabilities.size();
+            return vec_to_numpy(std::move(probabilities), {size});
+        },
+        nb::arg("program"), nb::arg("basis_masks"),
+        "Return experimental scalar sampling computational-basis probabilities.");
+
+    m.def(
         "_record_probabilities_experimental_sampling",
         [](const clifft::sampling::ExecutablePlan& program,
            nb::ndarray<nb::numpy, const uint8_t, nb::shape<-1, -1>, nb::c_contig> records) {

@@ -12,91 +12,108 @@ from utils_qiskit import qiskit_statevector, stim_to_qiskit_noiseless
 import clifft
 
 
-def test_program_num_qubits_property() -> None:
-    prog = clifft.compile("H 0\nCX 0 2")
+def test_program_num_qubits_property(basis_probabilities_api: Any) -> None:
+    prog = basis_probabilities_api.compile("H 0\nCX 0 2")
 
     assert prog.num_qubits == 3
 
 
-def test_bell_state_basis_probabilities() -> None:
-    prog = clifft.compile("H 0\nCX 0 1")
+def test_bell_state_basis_probabilities(basis_probabilities_api: Any) -> None:
+    prog = basis_probabilities_api.compile("H 0\nCX 0 1")
 
-    probs = clifft.basis_probabilities(prog, ["00", "01", "10", "11"])
+    probs = basis_probabilities_api.basis_probabilities(prog, ["00", "01", "10", "11"])
 
     np.testing.assert_allclose(probs, [0.5, 0.0, 0.0, 0.5], atol=1e-12)
     assert probs.dtype == np.float64
     assert probs.shape == (4,)
 
 
-def test_bit_order_big_maps_first_position_to_qubit_zero() -> None:
-    prog_x0 = clifft.compile("X 0\nH 1\nH 1")
-    prog_x1 = clifft.compile("X 1")
-
-    np.testing.assert_allclose(clifft.basis_probabilities(prog_x0, ["10", "01"]), [1.0, 0.0])
-    np.testing.assert_allclose(clifft.basis_probabilities(prog_x1, ["10", "01"]), [0.0, 1.0])
-
-
-def test_bit_order_little_maps_last_position_to_qubit_zero() -> None:
-    prog_x0 = clifft.compile("X 0\nH 1\nH 1")
-    prog_x1 = clifft.compile("X 1")
+def test_bit_order_big_maps_first_position_to_qubit_zero(basis_probabilities_api: Any) -> None:
+    prog_x0 = basis_probabilities_api.compile("X 0\nH 1\nH 1")
+    prog_x1 = basis_probabilities_api.compile("X 1")
 
     np.testing.assert_allclose(
-        clifft.basis_probabilities(prog_x0, ["01", "10"], bit_order="little"), [1.0, 0.0]
+        basis_probabilities_api.basis_probabilities(prog_x0, ["10", "01"]), [1.0, 0.0]
     )
     np.testing.assert_allclose(
-        clifft.basis_probabilities(prog_x1, ["01", "10"], bit_order="little"), [0.0, 1.0]
+        basis_probabilities_api.basis_probabilities(prog_x1, ["10", "01"]), [0.0, 1.0]
+    )
+
+
+def test_bit_order_little_maps_last_position_to_qubit_zero(
+    basis_probabilities_api: Any,
+) -> None:
+    prog_x0 = basis_probabilities_api.compile("X 0\nH 1\nH 1")
+    prog_x1 = basis_probabilities_api.compile("X 1")
+
+    np.testing.assert_allclose(
+        basis_probabilities_api.basis_probabilities(prog_x0, ["01", "10"], bit_order="little"),
+        [1.0, 0.0],
+    )
+    np.testing.assert_allclose(
+        basis_probabilities_api.basis_probabilities(prog_x1, ["01", "10"], bit_order="little"),
+        [0.0, 1.0],
     )
 
 
 @pytest.mark.parametrize("dtype", [np.bool_, np.uint8])
-def test_array_input_matches_string_input(dtype: np.dtype) -> None:
-    prog = clifft.compile("X 0\nH 1\nH 1")
+def test_array_input_matches_string_input(dtype: np.dtype, basis_probabilities_api: Any) -> None:
+    prog = basis_probabilities_api.compile("X 0\nH 1\nH 1")
     bits = np.array([[1, 0], [0, 1]], dtype=dtype)
 
     np.testing.assert_allclose(
-        clifft.basis_probabilities(prog, bits),
-        clifft.basis_probabilities(prog, ["10", "01"]),
+        basis_probabilities_api.basis_probabilities(prog, bits),
+        basis_probabilities_api.basis_probabilities(prog, ["10", "01"]),
     )
     np.testing.assert_allclose(
-        clifft.basis_probabilities(prog, bits, bit_order="little"),
-        clifft.basis_probabilities(prog, ["10", "01"], bit_order="little"),
+        basis_probabilities_api.basis_probabilities(prog, bits, bit_order="little"),
+        basis_probabilities_api.basis_probabilities(prog, ["10", "01"], bit_order="little"),
     )
 
 
-def test_probabilities_supports_high_qubit_string_bitstrings() -> None:
-    prog = clifft.compile("H 70")
+def test_probabilities_supports_high_qubit_string_bitstrings(
+    basis_probabilities_api: Any,
+) -> None:
+    prog = basis_probabilities_api.compile("H 70")
     zero = "0" * 71
     one_q70_big = ("0" * 70) + "1"
     one_q70_little = "1" + ("0" * 70)
 
     np.testing.assert_allclose(
-        clifft.basis_probabilities(prog, [zero, one_q70_big]),
+        basis_probabilities_api.basis_probabilities(prog, [zero, one_q70_big]),
         [0.5, 0.5],
         atol=1e-12,
     )
     np.testing.assert_allclose(
-        clifft.basis_probabilities(prog, [zero, one_q70_little], bit_order="little"),
+        basis_probabilities_api.basis_probabilities(
+            prog, [zero, one_q70_little], bit_order="little"
+        ),
         [0.5, 0.5],
         atol=1e-12,
     )
 
 
 @pytest.mark.parametrize("dtype", [np.bool_, np.uint8])
-def test_probabilities_supports_high_qubit_array_bitstrings(dtype: np.dtype) -> None:
-    prog = clifft.compile("X 70")
+def test_probabilities_supports_high_qubit_array_bitstrings(
+    dtype: np.dtype, basis_probabilities_api: Any
+) -> None:
+    prog = basis_probabilities_api.compile("X 70")
     bits = np.zeros((2, 71), dtype=dtype)
     bits[1, 70] = 1
     little_bits = np.zeros((2, 71), dtype=dtype)
     little_bits[1, 0] = 1
 
-    np.testing.assert_allclose(clifft.basis_probabilities(prog, bits), [0.0, 1.0])
+    np.testing.assert_allclose(basis_probabilities_api.basis_probabilities(prog, bits), [0.0, 1.0])
     np.testing.assert_allclose(
-        clifft.basis_probabilities(prog, little_bits, bit_order="little"), [0.0, 1.0]
+        basis_probabilities_api.basis_probabilities(prog, little_bits, bit_order="little"),
+        [0.0, 1.0],
     )
 
 
-def test_probabilities_supports_multiword_array_bitstrings() -> None:
-    prog = clifft.compile("H 199\nH 199")
+def test_probabilities_supports_multiword_array_bitstrings(
+    basis_probabilities_api: Any,
+) -> None:
+    prog = basis_probabilities_api.compile("H 199\nH 199")
     bits = np.zeros((3, 200), dtype=np.uint8)
     bits[1, 0] = 1
     bits[2, 199] = 1
@@ -104,34 +121,36 @@ def test_probabilities_supports_multiword_array_bitstrings() -> None:
     little_bits[1, 199] = 1
     little_bits[2, 0] = 1
 
-    np.testing.assert_allclose(clifft.basis_probabilities(prog, bits), [1.0, 0.0, 0.0])
     np.testing.assert_allclose(
-        clifft.basis_probabilities(prog, little_bits, bit_order="little"),
+        basis_probabilities_api.basis_probabilities(prog, bits), [1.0, 0.0, 0.0]
+    )
+    np.testing.assert_allclose(
+        basis_probabilities_api.basis_probabilities(prog, little_bits, bit_order="little"),
         [1.0, 0.0, 0.0],
     )
 
 
-def test_probability_input_validation() -> None:
-    prog = clifft.compile("H 0\nCX 0 1")
+def test_probability_input_validation(basis_probabilities_api: Any) -> None:
+    prog = basis_probabilities_api.compile("H 0\nCX 0 1")
 
     with pytest.raises(ValueError, match="length 1, expected 2"):
-        clifft.basis_probabilities(prog, ["0"])
+        basis_probabilities_api.basis_probabilities(prog, ["0"])
     with pytest.raises(ValueError, match="expected only '0' and '1'"):
-        clifft.basis_probabilities(prog, ["0x"])
+        basis_probabilities_api.basis_probabilities(prog, ["0x"])
     with pytest.raises(ValueError, match="bit_order"):
-        clifft.basis_probabilities(prog, ["00"], bit_order="middle")
+        basis_probabilities_api.basis_probabilities(prog, ["00"], bit_order="middle")
     with pytest.raises(TypeError, match="strings or a 2D"):
         invalid_sequence: Any = [[0, 0]]
-        clifft.basis_probabilities(prog, invalid_sequence)
+        basis_probabilities_api.basis_probabilities(prog, invalid_sequence)
     with pytest.raises(ValueError, match="array must be 2D"):
-        clifft.basis_probabilities(prog, np.array([0, 1], dtype=np.uint8))
+        basis_probabilities_api.basis_probabilities(prog, np.array([0, 1], dtype=np.uint8))
     with pytest.raises(ValueError, match="3 columns, expected 2"):
-        clifft.basis_probabilities(prog, np.array([[0, 1, 0]], dtype=np.uint8))
+        basis_probabilities_api.basis_probabilities(prog, np.array([[0, 1, 0]], dtype=np.uint8))
     with pytest.raises(TypeError, match="dtype must be bool or uint8"):
         invalid_dtype: Any = np.array([[0, 1]], dtype=np.int64)
-        clifft.basis_probabilities(prog, invalid_dtype)
+        basis_probabilities_api.basis_probabilities(prog, invalid_dtype)
     with pytest.raises(ValueError, match="contain only 0 and 1"):
-        clifft.basis_probabilities(prog, np.array([[0, 2]], dtype=np.uint8))
+        basis_probabilities_api.basis_probabilities(prog, np.array([[0, 2]], dtype=np.uint8))
 
 
 @pytest.mark.parametrize(
@@ -146,28 +165,32 @@ def test_probability_input_validation() -> None:
         ("M 0\nCX rec[-1] 1", {}),
     ],
 )
-def test_probabilities_rejects_non_unitary_programs(circuit: str, kwargs: dict[str, Any]) -> None:
-    prog = clifft.compile(circuit, **kwargs)
+def test_probabilities_rejects_non_unitary_programs(
+    circuit: str, kwargs: dict[str, Any], basis_probabilities_api: Any
+) -> None:
+    prog = basis_probabilities_api.compile(circuit, **kwargs)
 
     with pytest.raises(ValueError, match="requires pure-state evolution"):
-        clifft.basis_probabilities(prog, ["0" * prog.num_qubits])
+        basis_probabilities_api.basis_probabilities(prog, ["0" * prog.num_qubits])
 
 
-def test_probabilities_allows_exp_val_probes() -> None:
-    with_probe = clifft.compile("H 0\nEXP_VAL X0")
-    without_probe = clifft.compile("H 0")
+def test_probabilities_allows_exp_val_probes(basis_probabilities_api: Any) -> None:
+    with_probe = basis_probabilities_api.compile("H 0\nEXP_VAL X0")
+    without_probe = basis_probabilities_api.compile("H 0")
 
     np.testing.assert_allclose(
-        clifft.basis_probabilities(with_probe, ["0", "1"]),
-        clifft.basis_probabilities(without_probe, ["0", "1"]),
+        basis_probabilities_api.basis_probabilities(with_probe, ["0", "1"]),
+        basis_probabilities_api.basis_probabilities(without_probe, ["0", "1"]),
         atol=1e-12,
     )
 
 
-def test_drop_non_unitary_pass_enables_querying_unitary_skeleton() -> None:
+def test_drop_non_unitary_pass_enables_querying_unitary_skeleton(
+    basis_probabilities_api: Any,
+) -> None:
     passes = clifft.HirPassManager()
     passes.add(clifft.DropNonUnitaryPass())
-    prog = clifft.compile(
+    prog = basis_probabilities_api.compile(
         """
         H 0
         M 0
@@ -183,10 +206,16 @@ def test_drop_non_unitary_pass_enables_querying_unitary_skeleton() -> None:
     assert prog.num_detectors == 0
     assert prog.num_observables == 0
     assert prog.num_exp_vals == 0
-    np.testing.assert_allclose(clifft.basis_probabilities(prog, ["0", "1"]), [0.5, 0.5], atol=1e-12)
+    np.testing.assert_allclose(
+        basis_probabilities_api.basis_probabilities(prog, ["0", "1"]),
+        [0.5, 0.5],
+        atol=1e-12,
+    )
 
 
-def test_probabilities_match_dense_statevector_for_small_circuit() -> None:
+def test_probabilities_match_dense_statevector_for_small_circuit(
+    basis_probabilities_api: Any,
+) -> None:
     circuit = """
     H 0
     CX 0 1
@@ -194,20 +223,27 @@ def test_probabilities_match_dense_statevector_for_small_circuit() -> None:
     H 2
     CX 2 0
     """
-    prog = clifft.compile(circuit)
+    prog = basis_probabilities_api.compile(circuit)
+    legacy_prog = clifft.compile(circuit)
 
-    state = clifft.State(peak_rank=prog.peak_rank, num_measurements=prog.num_measurements)
-    clifft.execute(prog, state)
-    expected = np.abs(clifft.get_statevector(prog, state)) ** 2
+    state = clifft.State(
+        peak_rank=legacy_prog.peak_rank, num_measurements=legacy_prog.num_measurements
+    )
+    clifft.execute(legacy_prog, state)
+    expected = np.abs(clifft.get_statevector(legacy_prog, state)) ** 2
     bitstrings = [format(i, f"0{prog.num_qubits}b")[::-1] for i in range(1 << prog.num_qubits)]
 
-    np.testing.assert_allclose(clifft.basis_probabilities(prog, bitstrings), expected, atol=1e-12)
+    np.testing.assert_allclose(
+        basis_probabilities_api.basis_probabilities(prog, bitstrings), expected, atol=1e-12
+    )
 
 
 @pytest.mark.parametrize("num_qubits,seed", [(2, 101), (3, 202), (4, 303)])
-def test_probabilities_match_qiskit_for_random_small_circuits(num_qubits: int, seed: int) -> None:
+def test_probabilities_match_qiskit_for_random_small_circuits(
+    num_qubits: int, seed: int, basis_probabilities_api: Any
+) -> None:
     circuit = random_dense_clifford_t_circuit(num_qubits, depth=18, seed=seed)
-    prog = clifft.compile(circuit)
+    prog = basis_probabilities_api.compile(circuit)
     qiskit_sv = qiskit_statevector(stim_to_qiskit_noiseless(circuit))
     bitstrings = (
         (
@@ -218,71 +254,85 @@ def test_probabilities_match_qiskit_for_random_small_circuits(num_qubits: int, s
     ).astype(np.uint8)
 
     np.testing.assert_allclose(
-        clifft.basis_probabilities(prog, bitstrings),
+        basis_probabilities_api.basis_probabilities(prog, bitstrings),
         np.abs(qiskit_sv) ** 2,
         atol=1e-12,
     )
 
 
-def test_probabilities_supports_active_rank_beyond_dense_statevector_limit() -> None:
+def test_probabilities_supports_active_rank_beyond_dense_statevector_limit(
+    basis_probabilities_api: Any,
+) -> None:
     circuit = "\n".join(f"H {q}\nT {q}" for q in range(12))
-    prog = clifft.compile(circuit)
+    prog = basis_probabilities_api.compile(circuit)
+    legacy_prog = clifft.compile(circuit)
 
     assert prog.num_qubits == 12
-    assert prog.peak_rank > 10
+    assert legacy_prog.peak_rank > 10
     with pytest.raises(RuntimeError, match="Statevector expansion limited"):
-        state = clifft.State(peak_rank=prog.peak_rank, num_measurements=prog.num_measurements)
-        clifft.execute(prog, state)
-        clifft.get_statevector(prog, state)
+        state = clifft.State(
+            peak_rank=legacy_prog.peak_rank, num_measurements=legacy_prog.num_measurements
+        )
+        clifft.execute(legacy_prog, state)
+        clifft.get_statevector(legacy_prog, state)
 
     np.testing.assert_allclose(
-        clifft.basis_probabilities(prog, ["0" * 12, "1" * 12]),
+        basis_probabilities_api.basis_probabilities(prog, ["0" * 12, "1" * 12]),
         [2**-12, 2**-12],
         atol=1e-15,
     )
 
 
-def test_probabilities_match_formula_for_continuous_z_rotation() -> None:
+def test_probabilities_match_formula_for_continuous_z_rotation(
+    basis_probabilities_api: Any,
+) -> None:
     # H R_Z(alpha) H |0> -> cos(pi*alpha/2) |0> - i sin(pi*alpha/2) |1>.
     # Exercises the OP_ARRAY_ROT / PHASE_ROTATION path the random Clifford+T
     # circuits never touch.
     alpha = 0.123
-    prog = clifft.compile(f"H 0\nR_Z({alpha}) 0\nH 0")
+    prog = basis_probabilities_api.compile(f"H 0\nR_Z({alpha}) 0\nH 0")
     half_angle = math.pi * alpha / 2.0
     np.testing.assert_allclose(
-        clifft.basis_probabilities(prog, ["0", "1"]),
+        basis_probabilities_api.basis_probabilities(prog, ["0", "1"]),
         [math.cos(half_angle) ** 2, math.sin(half_angle) ** 2],
         atol=1e-12,
     )
 
 
-def test_probabilities_sum_to_one_at_high_active_rank() -> None:
+def test_probabilities_sum_to_one_at_high_active_rank(basis_probabilities_api: Any) -> None:
     # Unitarity invariant on a circuit whose peak_rank exceeds the
     # statevector-expansion limit, so this catches normalization regressions
     # that the small-circuit statevector cross-check cannot.
-    prog = clifft.compile("\n".join(f"H {q}\nT {q}" for q in range(12)))
-    assert prog.peak_rank > 10
+    circuit = "\n".join(f"H {q}\nT {q}" for q in range(12))
+    prog = basis_probabilities_api.compile(circuit)
+    assert clifft.compile(circuit).peak_rank > 10
     n = prog.num_qubits
     bitstrings = [format(i, f"0{n}b") for i in range(1 << n)]
-    np.testing.assert_allclose(clifft.basis_probabilities(prog, bitstrings).sum(), 1.0, atol=1e-10)
+    np.testing.assert_allclose(
+        basis_probabilities_api.basis_probabilities(prog, bitstrings).sum(), 1.0, atol=1e-10
+    )
 
 
-def test_probabilities_handles_empty_and_singleton_inputs() -> None:
-    prog = clifft.compile("H 0")
+def test_probabilities_handles_empty_and_singleton_inputs(
+    basis_probabilities_api: Any,
+) -> None:
+    prog = basis_probabilities_api.compile("H 0")
 
-    empty_list = clifft.basis_probabilities(prog, [])
+    empty_list = basis_probabilities_api.basis_probabilities(prog, [])
     assert empty_list.shape == (0,)
     assert empty_list.dtype == np.float64
 
-    empty_arr = clifft.basis_probabilities(prog, np.zeros((0, 1), dtype=np.uint8))
+    empty_arr = basis_probabilities_api.basis_probabilities(prog, np.zeros((0, 1), dtype=np.uint8))
     assert empty_arr.shape == (0,)
 
-    single = clifft.basis_probabilities(prog, "0")
+    single = basis_probabilities_api.basis_probabilities(prog, "0")
     assert single.shape == (1,)
     np.testing.assert_allclose(single, [0.5], atol=1e-12)
 
 
-def test_probabilities_match_statevector_for_fused_unitaries() -> None:
+def test_probabilities_match_statevector_for_fused_unitaries(
+    basis_probabilities_api: Any,
+) -> None:
     # Construct a circuit that triggers both single-axis (OP_ARRAY_U2) and
     # tile (OP_ARRAY_U4) fusion so the supported-opcode listing for those
     # paths is actually exercised end-to-end.
@@ -291,17 +341,22 @@ def test_probabilities_match_statevector_for_fused_unitaries() -> None:
         "H 1\nT 1\nS 1\nH 1\nT 1\nS 1\nH 1\nT 1\nS 1\n"
         "CX 0 1\nH 0\nT 0\nS 0"
     )
-    prog = clifft.compile(src)
-    opcodes = {instr.opcode for instr in prog}
+    prog = basis_probabilities_api.compile(src)
+    legacy_prog = clifft.compile(src)
+    opcodes = {instr.opcode for instr in legacy_prog}
     assert clifft.Opcode.OP_ARRAY_U2 in opcodes, "test circuit no longer triggers U2 fusion"
     assert clifft.Opcode.OP_ARRAY_U4 in opcodes, "test circuit no longer triggers U4 fusion"
 
-    state = clifft.State(peak_rank=prog.peak_rank, num_measurements=prog.num_measurements)
-    clifft.execute(prog, state)
-    expected = np.abs(clifft.get_statevector(prog, state)) ** 2
+    state = clifft.State(
+        peak_rank=legacy_prog.peak_rank, num_measurements=legacy_prog.num_measurements
+    )
+    clifft.execute(legacy_prog, state)
+    expected = np.abs(clifft.get_statevector(legacy_prog, state)) ** 2
     n = prog.num_qubits
     bitstrings = [format(i, f"0{n}b")[::-1] for i in range(1 << n)]
-    np.testing.assert_allclose(clifft.basis_probabilities(prog, bitstrings), expected, atol=1e-12)
+    np.testing.assert_allclose(
+        basis_probabilities_api.basis_probabilities(prog, bitstrings), expected, atol=1e-12
+    )
 
 
 def _all_bitstrings(num_qubits: int) -> list[str]:
@@ -318,21 +373,27 @@ def _statevector_probs(prog: clifft.Program) -> npt.NDArray[np.float64]:
     return cast(npt.NDArray[np.float64], np.abs(clifft.get_statevector(prog, state)) ** 2)
 
 
-def test_probabilities_pure_clifford_zero_active_rank() -> None:
+def test_probabilities_pure_clifford_zero_active_rank(basis_probabilities_api: Any) -> None:
     # Pure Clifford circuit: peak_rank == 0, so the Gray code walk degenerates
     # to a single iteration (r_A = 0). The H-on-every-qubit prefix makes the
     # inverse tableau's Z-block fully X-rotated, so every dormant column is a
     # pivot and the fast path engages.
-    prog = clifft.compile("H 0\nH 1\nH 2\nCX 0 1\nCX 1 2\nS 0")
-    assert prog.peak_rank == 0
+    circuit = "H 0\nH 1\nH 2\nCX 0 1\nCX 1 2\nS 0"
+    prog = basis_probabilities_api.compile(circuit)
+    legacy_prog = clifft.compile(circuit)
+    assert legacy_prog.peak_rank == 0
 
     bitstrings = _all_bitstrings(prog.num_qubits)
     np.testing.assert_allclose(
-        clifft.basis_probabilities(prog, bitstrings), _statevector_probs(prog), atol=1e-12
+        basis_probabilities_api.basis_probabilities(prog, bitstrings),
+        _statevector_probs(legacy_prog),
+        atol=1e-12,
     )
 
 
-def test_probabilities_full_rank_clifford_t_matches_statevector() -> None:
+def test_probabilities_full_rank_clifford_t_matches_statevector(
+    basis_probabilities_api: Any,
+) -> None:
     # Every qubit is touched by Clifford+T, so the inverse tableau has full
     # X-rank and every dormant column is a pivot. Exercises the Gray code
     # fast path.
@@ -348,50 +409,67 @@ def test_probabilities_full_rank_clifford_t_matches_statevector() -> None:
         lines.append(f"T {q}")
     for q in range(n):
         lines.append(f"H {q}")
-    prog = clifft.compile("\n".join(lines))
+    circuit = "\n".join(lines)
+    prog = basis_probabilities_api.compile(circuit)
+    legacy_prog = clifft.compile(circuit)
 
     bitstrings = _all_bitstrings(n)
     np.testing.assert_allclose(
-        clifft.basis_probabilities(prog, bitstrings), _statevector_probs(prog), atol=1e-12
+        basis_probabilities_api.basis_probabilities(prog, bitstrings),
+        _statevector_probs(legacy_prog),
+        atol=1e-12,
     )
 
 
-def test_probabilities_rank_deficient_fallback_matches_statevector() -> None:
+def test_probabilities_rank_deficient_fallback_matches_statevector(
+    basis_probabilities_api: Any,
+) -> None:
     # Untouched qubits leave the inverse tableau's Z-row at Z_q, which has no
     # X support. With an active subspace formed by T-gates on other qubits,
     # the X-rank restricted to dormant columns drops below (n - active_k),
     # which forces the can_use_gray_code = false fallback in basis_probabilities().
     # If the fallback regresses we will see a mismatch here.
-    prog = clifft.compile("H 0\nT 0\nH 0\nH 2")
+    circuit = "H 0\nT 0\nH 0\nH 2"
+    prog = basis_probabilities_api.compile(circuit)
+    legacy_prog = clifft.compile(circuit)
     assert prog.num_qubits == 3
     bitstrings = _all_bitstrings(3)
     np.testing.assert_allclose(
-        clifft.basis_probabilities(prog, bitstrings), _statevector_probs(prog), atol=1e-12
+        basis_probabilities_api.basis_probabilities(prog, bitstrings),
+        _statevector_probs(legacy_prog),
+        atol=1e-12,
     )
 
 
 @pytest.mark.parametrize("seed", [0, 1, 7, 42, 1234])
-def test_probabilities_random_clifford_t_matches_statevector(seed: int) -> None:
+def test_probabilities_random_clifford_t_matches_statevector(
+    seed: int, basis_probabilities_api: Any
+) -> None:
     # Spot-check both paths against ground truth across several seeds. The
     # random circuit generator typically yields full-rank tableaus, so this
     # primarily exercises the Gray code path, but the assertion catches any
     # bug in either branch.
     circuit = random_dense_clifford_t_circuit(num_qubits=5, depth=20, seed=seed)
-    prog = clifft.compile(circuit)
+    prog = basis_probabilities_api.compile(circuit)
+    legacy_prog = clifft.compile(circuit)
     bitstrings = _all_bitstrings(prog.num_qubits)
     np.testing.assert_allclose(
-        clifft.basis_probabilities(prog, bitstrings), _statevector_probs(prog), atol=1e-12
+        basis_probabilities_api.basis_probabilities(prog, bitstrings),
+        _statevector_probs(legacy_prog),
+        atol=1e-12,
     )
 
 
-def test_probabilities_fast_path_multiword_dormant_block() -> None:
+def test_probabilities_fast_path_multiword_dormant_block(
+    basis_probabilities_api: Any,
+) -> None:
     # H on every qubit gives a uniform superposition (probability 2^-n for
     # each basis state) and an inverse tableau with full X-rank, so the
     # fast path engages. Pushing past 64 qubits forces the dormant-bit
     # match and the running basis to cross word boundaries, which the
     # other regression tests (all n <= 64) do not exercise.
     n = 70
-    prog = clifft.compile("\n".join(f"H {q}" for q in range(n)))
+    prog = basis_probabilities_api.compile("\n".join(f"H {q}" for q in range(n)))
     assert prog.num_qubits == n
 
     zero = "0" * n
@@ -401,22 +479,24 @@ def test_probabilities_fast_path_multiword_dormant_block() -> None:
     bitstrings = [zero, one_q0, one_q63, one_q69]
 
     np.testing.assert_allclose(
-        clifft.basis_probabilities(prog, bitstrings),
+        basis_probabilities_api.basis_probabilities(prog, bitstrings),
         [2.0**-n] * len(bitstrings),
         atol=1e-15,
     )
 
 
-def test_basis_probabilities_return_log() -> None:
-    prog = clifft.compile("H 0\nCX 0 1")
-    log_probs = clifft.basis_probabilities(prog, ["00", "01", "10", "11"], return_log=True)
+def test_basis_probabilities_return_log(basis_probabilities_api: Any) -> None:
+    prog = basis_probabilities_api.compile("H 0\nCX 0 1")
+    log_probs = basis_probabilities_api.basis_probabilities(
+        prog, ["00", "01", "10", "11"], return_log=True
+    )
     assert np.isclose(log_probs[0], np.log(0.5))
     assert log_probs[1] == -np.inf
     assert log_probs[2] == -np.inf
     assert np.isclose(log_probs[3], np.log(0.5))
 
 
-def test_basis_probabilities_return_log_default_false() -> None:
-    prog = clifft.compile("H 0")
-    probs = clifft.basis_probabilities(prog, ["0"])
+def test_basis_probabilities_return_log_default_false(basis_probabilities_api: Any) -> None:
+    prog = basis_probabilities_api.compile("H 0")
+    probs = basis_probabilities_api.basis_probabilities(prog, ["0"])
     np.testing.assert_allclose(probs, [0.5], atol=1e-12)

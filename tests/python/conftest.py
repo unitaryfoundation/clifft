@@ -17,6 +17,12 @@ def sampling_api(request: pytest.FixtureRequest) -> Any:
     return cast(Any, request.param)
 
 
+@pytest.fixture(params=[clifft, experimental], ids=["legacy", "experimental"])
+def basis_probabilities_api(request: pytest.FixtureRequest) -> Any:
+    """Run shared exact basis-query tests against both Python APIs."""
+    return cast(Any, request.param)
+
+
 @pytest.fixture(
     params=[clifft.noncomp.sample, experimental.sample_noncomputational],
     ids=["svm", "symbolic-coordinate"],

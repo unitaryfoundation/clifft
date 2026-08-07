@@ -54,6 +54,7 @@ ExecutablePlan::ExecutablePlan(const SamplingPlan& plan)
       num_exp_vals_(plan.num_exp_vals),
       has_postselection_(plan.has_postselection),
       global_weight_(plan.global_weight),
+      final_tableau_(plan.final_tableau),
       instrument_distributions_(plan.instrument_distributions) {
     plan.validate();
     if (plan.symbols.size() > std::numeric_limits<uint32_t>::max()) {

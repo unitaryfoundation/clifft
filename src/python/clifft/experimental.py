@@ -12,9 +12,17 @@ from typing import TypeAlias, cast
 import numpy as np
 import numpy.typing as npt
 
-from clifft import Circuit, MeasurementRecords, _records_from_outcomes, noncomp
+from clifft import (
+    BasisBitstrings,
+    Circuit,
+    MeasurementRecords,
+    _basis_masks_from_bitstrings,
+    _records_from_outcomes,
+    noncomp,
+)
 from clifft._clifft_core import (
     HirPassManager,
+    _basis_probabilities_experimental_sampling,
     _compile_experimental_sampling,
     _ExperimentalSamplingProgram,
     _record_probabilities_experimental_sampling,
@@ -46,7 +54,7 @@ def compile(
     """Compile Stim text for the experimental scalar sampling backend.
 
     The default HIR optimization pipeline matches :func:`clifft.compile`;
-    pass ``None`` to skip it. Exact final-state queries remain unsupported.
+    pass ``None`` to skip it. Dense statevector expansion remains unsupported.
     """
     if isinstance(hir_passes, _DefaultPasses):
         hir_passes = default_hir_pass_manager()
@@ -161,9 +169,30 @@ def record_probabilities(
     return np.exp(log_probabilities)
 
 
+def basis_probabilities(
+    program: Program,
+    bitstrings: BasisBitstrings,
+    *,
+    bit_order: str = "big",
+    return_log: bool = False,
+) -> npt.NDArray[np.float64]:
+    """Return exact Born probabilities from an experimental pure-state program."""
+    probabilities = cast(
+        npt.NDArray[np.float64],
+        _basis_probabilities_experimental_sampling(
+            program, _basis_masks_from_bitstrings(program, bitstrings, bit_order)
+        ),
+    )
+    if return_log:
+        with np.errstate(divide="ignore"):
+            return np.log(probabilities)
+    return probabilities
+
+
 __all__ = [
     "MeasurementRecords",
     "Program",
+    "basis_probabilities",
     "compile",
     "record_probabilities",
     "sample",
