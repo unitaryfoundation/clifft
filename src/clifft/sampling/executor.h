@@ -1,10 +1,10 @@
 #pragma once
 
 // Executes a backend-neutral SamplingPlan on the CPU without runtime topology
-// work. ExecutablePlan prepares direct-Pauli kernel descriptors and packed
-// affine expressions once; Executor then evaluates per-shot symbols, evolves
-// the active-coordinate coefficient state, samples measurements, and writes
-// records using only preallocated storage.
+// work. ExecutablePlan prepares direct-Pauli kernel descriptors and affine
+// expression registers once; Executor then evaluates per-shot symbols,
+// evolves the active-coordinate coefficient state, samples measurements, and
+// writes records using only preallocated storage.
 
 #include "clifft/sampling/kernels.h"
 #include "clifft/sampling/plan.h"
@@ -69,8 +69,8 @@ class ExecutablePlan;
     MeasurementProbabilities probabilities) noexcept;
 
 // Owns the CPU lowering of one validated SamplingPlan. Direct-Pauli kernel
-// descriptors and affine-expression term ranges are prepared once here so a
-// shot only reads fixed storage.
+// descriptors and affine-expression register dependencies are prepared once
+// here so a shot only reads fixed storage.
 class ExecutablePlan {
   public:
     explicit ExecutablePlan(const SamplingPlan& plan);
@@ -107,9 +107,7 @@ class ExecutablePlan {
     friend class Executor;
 
     struct PreparedExpression {
-        uint32_t term_begin = 0;
-        uint32_t term_count = 0;
-        bool constant = false;
+        uint32_t register_id = 0;
     };
 
     struct ExecuteRotation {
@@ -208,9 +206,6 @@ class ExecutablePlan {
                      ExecuteReadoutNoise, ExecuteDetector, ExecuteObservable, ExecuteExpectation,
                      ExecuteInstrument, ExecuteBoundary>;
 
-    PreparedExpression prepare_expression(const AffineBool& expression);
-    PreparedExpression prepare_measurement_correction(const AffineBool& outcome, uint32_t branch);
-
     uint32_t num_qubits_ = 0;
     uint32_t initial_active_width_ = 0;
     uint32_t max_active_width_ = 0;
@@ -227,7 +222,9 @@ class ExecutablePlan {
     uint32_t initial_noise_end_ = 0;
     std::complex<double> global_weight_ = {1.0, 0.0};
     std::optional<stim::Tableau<kStimWidth>> final_tableau_;
-    std::vector<uint32_t> expression_terms_;
+    std::vector<uint8_t> expression_register_constants_;
+    std::vector<uint32_t> expression_dependency_offsets_;
+    std::vector<uint32_t> expression_dependency_targets_;
     // Maps each dense presampled input position to its plan-local SymbolId.
     // The constructor records those ids in ascending order.
     std::vector<uint32_t> presampled_symbols_;
@@ -317,6 +314,10 @@ class Executor {
     void sample_presampled_noise(uint32_t begin, uint32_t end) noexcept;
     void activate_noise_site(uint32_t site) noexcept;
     void assign_forced_quantum_faults() noexcept;
+    void assign_symbol(uint32_t symbol, bool value) noexcept;
+    void propagate_true_symbol(const ExecutablePlan& plan, uint32_t symbol) noexcept;
+    void initialize_expression_registers(const ExecutablePlan& plan,
+                                         uint32_t symbol_prefix_size) noexcept;
 
     template <bool ForceRecords, bool SampleNoise, bool ForceFaults>
     [[nodiscard]] ReplayResult execute_actions(std::span<const uint8_t> forced_records,
@@ -368,6 +369,7 @@ class Executor {
     const ExecutablePlan* plan_;
     State state_;
     std::vector<uint8_t> symbols_;
+    std::vector<uint8_t> expression_registers_;
     std::vector<uint8_t> records_;
     std::vector<uint8_t> detectors_;
     std::vector<uint8_t> observables_;
