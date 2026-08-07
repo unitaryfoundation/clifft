@@ -665,7 +665,8 @@ namespace sampling {
 std::vector<double> basis_probabilities(const ExecutablePlan& plan,
                                         std::span<const uint64_t> basis_masks,
                                         size_t num_basis_masks, size_t words_per_basis_mask) {
-    if (!plan.final_tableau_.has_value()) {
+    const stim::Tableau<kStimWidth>* final_tableau = plan.final_state_tableau();
+    if (final_tableau == nullptr) {
         throw std::invalid_argument(
             "basis_probabilities() requires pure-state evolution: measurements, feedback, "
             "noise, readout noise, transition instruments, detectors, postselection, and "
@@ -677,9 +678,9 @@ std::vector<double> basis_probabilities(const ExecutablePlan& plan,
     Executor executor(plan);
     executor.run_shot();
     const State& state = executor.state();
-    BasisMask zero_frame = zero_basis_mask(plan.num_qubits_);
+    BasisMask zero_frame = zero_basis_mask(plan.num_qubits());
     return basis_probabilities_from_factored_state(
-        plan.num_qubits_, state.active_width(), state.size(), *plan.final_tableau_,
+        plan.num_qubits(), state.active_width(), state.size(), *final_tableau,
         state.global_scalar(), basis_mask_view(zero_frame), 0,
         [&](uint64_t active_index) {
             return std::complex<double>{state.real_data()[active_index],
