@@ -4,9 +4,14 @@
 #include "clifft/backend/backend.h"
 #include "clifft/circuit/parser.h"
 #include "clifft/frontend/frontend.h"
+#include "clifft/sampling/executor.h"
+#include "clifft/sampling/planner.h"
 #include "clifft/svm/svm.h"
+#include "clifft/util/fault_sampling.h"
+#include "clifft/util/xoshiro.h"
 
 #include <algorithm>
+#include <array>
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/matchers/catch_matchers_floating_point.hpp>
 #include <catch2/matchers/catch_matchers_string.hpp>
@@ -27,7 +32,40 @@ clifft::CompiledModule compile_circuit(const std::string& stim_text) {
     return clifft::lower(hir, {}, ref.detectors, ref.observables);
 }
 
+clifft::sampling::ExecutablePlan compile_sampling_circuit(
+    const std::string& stim_text, std::span<const uint8_t> postselection = {}) {
+    auto hir = clifft::trace(clifft::parse(stim_text));
+    auto reference = clifft::compute_reference_syndrome(hir);
+    return clifft::sampling::ExecutablePlan(
+        clifft::sampling::plan_sampling(hir, {.postselection_mask = postselection,
+                                              .expected_detectors = reference.detectors,
+                                              .expected_observables = reference.observables}));
+}
+
 }  // namespace
+
+TEST_CASE("Conditioned fault sampler honors certain and impossible sites") {
+    const std::array<double, 4> probabilities{0.0, 1.0, 0.2, 0.8};
+    clifft::KFaultSampler sampler(probabilities, 2);
+    clifft::Xoshiro256PlusPlus rng(1234);
+    uint32_t low_probability_selections = 0;
+    uint32_t high_probability_selections = 0;
+    for (uint32_t shot = 0; shot < 10000; ++shot) {
+        const std::span<const uint32_t> selected =
+            sampler.sample([&]() noexcept { return rng.next_double(); });
+        REQUIRE(selected.size() == 2);
+        REQUIRE(std::ranges::find(selected, 0) == selected.end());
+        REQUIRE(std::ranges::find(selected, 1) != selected.end());
+        low_probability_selections +=
+            static_cast<uint32_t>(std::ranges::find(selected, 2) != selected.end());
+        high_probability_selections +=
+            static_cast<uint32_t>(std::ranges::find(selected, 3) != selected.end());
+    }
+    CHECK(high_probability_selections > 9000);
+    CHECK(low_probability_selections < 1000);
+    CHECK_THROWS_AS(clifft::KFaultSampler(probabilities, 0), std::invalid_argument);
+    CHECK_THROWS_AS(clifft::KFaultSampler(probabilities, 4), std::invalid_argument);
+}
 
 // =============================================================================
 // noise_site_probabilities
@@ -348,8 +386,8 @@ TEST_CASE("sample_k_survivors - postselection discards some shots") {
         R 0 1
         X_ERROR(0.1) 0 1
         M 0 1
-        DETECTOR rec[-1]
         DETECTOR rec[-2]
+        DETECTOR rec[-1]
         OBSERVABLE_INCLUDE(0) rec[-1]
     )";
     auto circuit = clifft::parse(circuit_text);
@@ -397,5 +435,84 @@ TEST_CASE("k-fault conditioning rejects asymmetric readout noise") {
     CHECK_THROWS_WITH(clifft::noise_site_probabilities(prog),
                       Catch::Matchers::ContainsSubstring("asymmetric"));
     CHECK_THROWS_WITH(clifft::sample_k(prog, 8, 1, 0),
+                      Catch::Matchers::ContainsSubstring("asymmetric"));
+}
+
+TEST_CASE("Symbolic conditioned sampling exposes ordered fault probabilities") {
+    auto program = compile_sampling_circuit(R"(
+        DEPOLARIZE1(0.03) 0
+        X_ERROR(0.01) 1
+        M(0.005) 0
+        M 1
+    )");
+    const std::vector<double> probabilities = program.noise_site_probabilities();
+    REQUIRE(probabilities.size() == 3);
+    CHECK_THAT(probabilities[0], WithinAbs(0.03, 1e-12));
+    CHECK_THAT(probabilities[1], WithinAbs(0.01, 1e-12));
+    CHECK_THAT(probabilities[2], WithinAbs(0.005, 1e-12));
+}
+
+TEST_CASE("Symbolic conditioned sampling forces quantum channels and readout") {
+    auto quantum = compile_sampling_circuit(R"(
+        X_ERROR(0.01) 0
+        X_ERROR(0.05) 1
+        X_ERROR(0.1) 2
+        M 0 1 2
+    )");
+    const clifft::sampling::SamplingResult quantum_result =
+        clifft::sampling::sample_k(quantum, 500, 2, 42);
+    for (uint32_t shot = 0; shot < 500; ++shot) {
+        const auto row = std::span<const uint8_t>(quantum_result.measurements).subspan(shot * 3, 3);
+        CHECK(std::ranges::count(row, uint8_t{1}) == 2);
+    }
+
+    auto readout = compile_sampling_circuit("M(0.1) 0\nOBSERVABLE_INCLUDE(0) rec[-1]\n");
+    const clifft::sampling::SamplingResult readout_result =
+        clifft::sampling::sample_k(readout, 100, 1, 43);
+    CHECK(
+        std::ranges::all_of(readout_result.observables, [](uint8_t value) { return value == 1; }));
+}
+
+TEST_CASE("Symbolic conditioned Pauli channels use conditional probabilities") {
+    auto program = compile_sampling_circuit("DEPOLARIZE1(0.3) 0\nM 0\n");
+    const clifft::sampling::SamplingResult result =
+        clifft::sampling::sample_k(program, 10000, 1, 44);
+    const auto flips = std::ranges::count(result.measurements, uint8_t{1});
+    CHECK(flips > 6200);
+    CHECK(flips < 7100);
+}
+
+TEST_CASE("Symbolic conditioned survivors preserve normalized outputs") {
+    const std::array<uint8_t, 2> postselection{1, 0};
+    auto survivors = compile_sampling_circuit(R"(
+        X_ERROR(0.1) 0 1
+        M 0 1
+        DETECTOR rec[-2]
+        DETECTOR rec[-1]
+        OBSERVABLE_INCLUDE(0) rec[-1]
+        EXP_VAL Z0
+    )",
+                                              postselection);
+    const clifft::sampling::SamplingSurvivorResult result =
+        clifft::sampling::sample_k_survivors(survivors, 1000, 1, 45, true);
+    CHECK(result.total_shots == 1000);
+    CHECK(result.passed_shots > 300);
+    CHECK(result.passed_shots < 700);
+    CHECK(result.logical_errors == result.passed_shots);
+    REQUIRE(result.exp_vals.size() == result.passed_shots);
+    CHECK(std::ranges::all_of(result.exp_vals, [](double value) { return value == 1.0; }));
+
+    auto normalized = compile_sampling_circuit("X 0\nM 0\nOBSERVABLE_INCLUDE(0) rec[-1]\n");
+    const clifft::sampling::SamplingResult normalized_result =
+        clifft::sampling::sample_k(normalized, 10, 0, 46);
+    CHECK(std::ranges::all_of(normalized_result.observables,
+                              [](uint8_t value) { return value == 0; }));
+}
+
+TEST_CASE("Symbolic conditioned sampling rejects asymmetric readout noise") {
+    auto program = compile_sampling_circuit("M 0\nREADOUT_NOISE(0.1, 0.2) rec[-1]\n");
+    CHECK_THROWS_WITH(program.noise_site_probabilities(),
+                      Catch::Matchers::ContainsSubstring("asymmetric"));
+    CHECK_THROWS_WITH(clifft::sampling::sample_k(program, 8, 1, 0),
                       Catch::Matchers::ContainsSubstring("asymmetric"));
 }

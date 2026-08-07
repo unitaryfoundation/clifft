@@ -28,6 +28,8 @@ from clifft._clifft_core import (
     _get_statevector_experimental_sampling,
     _record_probabilities_experimental_sampling,
     _sample_experimental_sampling,
+    _sample_k_experimental_sampling,
+    _sample_k_survivors_experimental_sampling,
     _sample_survivors_experimental_sampling,
     default_hir_pass_manager,
 )
@@ -148,6 +150,72 @@ def sample_survivors(
     )
 
 
+def sample_k(
+    program: Program,
+    shots: int,
+    k: int,
+    seed: int | None = None,
+) -> SampleResult:
+    """Sample with exactly ``k`` forced fault sites per shot."""
+    if program.has_postselection:
+        raise ValueError(
+            "sample_k() cannot represent discarded shots; use sample_k_survivors() instead."
+        )
+    measurements, detectors, observables, exp_vals = cast(
+        tuple[
+            npt.NDArray[np.uint8],
+            npt.NDArray[np.uint8],
+            npt.NDArray[np.uint8],
+            npt.NDArray[np.float64],
+        ],
+        _sample_k_experimental_sampling(program, shots, k, seed),
+    )
+    return SampleResult(measurements, detectors, observables, exp_vals=exp_vals)
+
+
+def sample_k_survivors(
+    program: Program,
+    shots: int,
+    k: int,
+    seed: int | None = None,
+    *,
+    keep_records: bool = False,
+) -> SampleResult:
+    """Sample survivors with exactly ``k`` forced fault sites per shot."""
+    (
+        measurements,
+        detectors,
+        observables,
+        total,
+        passed,
+        logical_errors,
+        observable_ones,
+        exp_vals,
+    ) = cast(
+        tuple[
+            npt.NDArray[np.uint8],
+            npt.NDArray[np.uint8],
+            npt.NDArray[np.uint8],
+            int,
+            int,
+            int,
+            npt.NDArray[np.uint64],
+            npt.NDArray[np.float64],
+        ],
+        _sample_k_survivors_experimental_sampling(program, shots, k, seed, keep_records),
+    )
+    return SampleResult(
+        measurements,
+        detectors,
+        observables,
+        total,
+        passed,
+        logical_errors,
+        observable_ones,
+        exp_vals,
+    )
+
+
 def record_probabilities(
     program: Program,
     records: MeasurementRecords,
@@ -203,6 +271,8 @@ __all__ = [
     "get_statevector",
     "record_probabilities",
     "sample",
+    "sample_k",
+    "sample_k_survivors",
     "sample_noncomputational",
     "sample_survivors",
 ]

@@ -923,6 +923,15 @@ NB_MODULE(_clifft_core, m) {
         .def_prop_ro("num_exp_vals", &clifft::sampling::ExecutablePlan::num_exp_vals)
         .def_prop_ro("has_postselection", &clifft::sampling::ExecutablePlan::has_postselection)
         .def_prop_ro("num_actions", &clifft::sampling::ExecutablePlan::num_actions)
+        .def_prop_ro(
+            "noise_site_probabilities",
+            [](const clifft::sampling::ExecutablePlan& p) {
+                auto probabilities = p.noise_site_probabilities();
+                const size_t size = probabilities.size();
+                return vec_to_numpy(std::move(probabilities), {size});
+            },
+            nb::rv_policy::move,
+            "Per-site total fault probabilities: quantum noise sites followed by readout noise.")
         .def("__repr__", [](const clifft::sampling::ExecutablePlan& p) {
             return "ExperimentalSamplingProgram(" + std::to_string(p.num_actions()) + " actions, " +
                    std::to_string(p.num_visible_records()) + " measurements)";
@@ -1006,6 +1015,58 @@ NB_MODULE(_clifft_core, m) {
         nb::arg("program"), nb::arg("shots"), nb::arg("seed") = nb::none(),
         nb::arg("keep_records") = false,
         "Sample survivor counts and optional records from an experimental program.");
+
+    m.def(
+        "_sample_k_experimental_sampling",
+        [](const clifft::sampling::ExecutablePlan& program, uint32_t shots, uint32_t k,
+           std::optional<uint64_t> seed) {
+            clifft::sampling::SamplingResult result;
+            {
+                nb::gil_scoped_release release;
+                result = clifft::sampling::sample_k(program, shots, k, seed);
+            }
+            auto measurements = vec_to_numpy(std::move(result.measurements),
+                                             {shots, program.num_visible_records()});
+            auto detectors =
+                vec_to_numpy(std::move(result.detectors), {shots, program.num_detectors()});
+            auto observables =
+                vec_to_numpy(std::move(result.observables), {shots, program.num_observables()});
+            auto exp_vals =
+                vec_to_numpy(std::move(result.exp_vals), {shots, program.num_exp_vals()});
+            return nb::make_tuple(measurements, detectors, observables, exp_vals);
+        },
+        nb::arg("program"), nb::arg("shots"), nb::arg("k"), nb::arg("seed") = nb::none(),
+        "Sample an experimental program with exactly k forced fault sites.");
+
+    m.def(
+        "_sample_k_survivors_experimental_sampling",
+        [](const clifft::sampling::ExecutablePlan& program, uint32_t shots, uint32_t k,
+           std::optional<uint64_t> seed, bool keep_records) {
+            clifft::sampling::SamplingSurvivorResult result;
+            {
+                nb::gil_scoped_release release;
+                result =
+                    clifft::sampling::sample_k_survivors(program, shots, k, seed, keep_records);
+            }
+            const size_t rows = keep_records ? result.passed_shots : 0;
+            auto measurements =
+                vec_to_numpy(std::move(result.measurements), {rows, program.num_visible_records()});
+            auto detectors =
+                vec_to_numpy(std::move(result.detectors), {rows, program.num_detectors()});
+            auto observables =
+                vec_to_numpy(std::move(result.observables), {rows, program.num_observables()});
+            const size_t num_observable_counts = result.observable_ones.size();
+            auto observable_ones =
+                vec_to_numpy(std::move(result.observable_ones), {num_observable_counts});
+            auto exp_vals =
+                vec_to_numpy(std::move(result.exp_vals), {rows, program.num_exp_vals()});
+            return nb::make_tuple(measurements, detectors, observables, result.total_shots,
+                                  result.passed_shots, result.logical_errors, observable_ones,
+                                  exp_vals);
+        },
+        nb::arg("program"), nb::arg("shots"), nb::arg("k"), nb::arg("seed") = nb::none(),
+        nb::arg("keep_records") = false,
+        "Sample experimental survivors with exactly k forced fault sites.");
 
     m.def(
         "_basis_probabilities_experimental_sampling",
