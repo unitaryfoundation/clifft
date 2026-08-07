@@ -437,6 +437,19 @@ TEST_CASE("Sampling replay inverts affine records and preserves branch dependenc
     }
 }
 
+TEST_CASE("Sampling replay evaluates record-dependent expectations") {
+    const ExecutablePlan executable(plan_from("H 0\nM 0\nCX rec[-1] 1\nEXP_VAL Z1\n"));
+    Executor executor(executable);
+
+    for (uint8_t forced_record : {uint8_t{0}, uint8_t{1}}) {
+        const ReplayResult replay = executor.replay_shot(std::array{forced_record});
+        CAPTURE(forced_record);
+        REQUIRE(replay.reachable);
+        REQUIRE_THAT(replay.log_probability, Catch::Matchers::WithinAbs(std::log(0.5), 1e-15));
+        REQUIRE(executor.exp_vals()[0] == (forced_record == 0 ? 1.0 : -1.0));
+    }
+}
+
 TEST_CASE("Sampling replay checks all records conditional on presampled symbols") {
     SamplingPlan plan;
     plan.num_visible_records = 1;
@@ -768,35 +781,41 @@ TEST_CASE("Sampling continuation consumes a forced hidden source record") {
 TEST_CASE("Sampling continuation overwrites an expectation with exact zero") {
     SamplingPlan root_plan;
     root_plan.num_qubits = 1;
-    root_plan.num_exp_vals = 1;
+    root_plan.num_exp_vals = 2;
     root_plan.num_instrument_sites = 1;
     root_plan.symbols = {SymbolInfo{SymbolKind::Unused, std::nullopt, std::nullopt}};
     root_plan.instrument_distributions = {
         InstrumentDistribution{InstrumentSiteId{0}, {1.0, 1.0}, {}}};
     root_plan.actions = {
+        PlannedAction{0, 0, WriteExpectationValue{ActivePauli{}, AffineBool{}, ExpValSlot{0}}},
         PlannedAction{
             0, 0,
             ApplyInstrument{
                 InstrumentSiteId{0}, InstrumentMode::DormantTrap, {}, AffineBool{}, std::nullopt}},
         PlannedAction{0, 0, InstrumentBoundary{InstrumentSiteId{0}, 0, 1}},
-        PlannedAction{0, 0, WriteExpectationValue{ActivePauli{}, AffineBool{}, ExpValSlot{0}}},
+        PlannedAction{0, 0, WriteExpectationValue{ActivePauli{}, AffineBool{}, ExpValSlot{1}}},
     };
     SamplingPlan continuation_plan = root_plan;
     continuation_plan.actions.back() =
-        PlannedAction{0, 0, WriteExpectationValue{std::nullopt, AffineBool{}, ExpValSlot{0}}};
+        PlannedAction{0, 0, WriteExpectationValue{std::nullopt, AffineBool{}, ExpValSlot{1}}};
     const ExecutablePlan root(root_plan);
     const ExecutablePlan continuation(continuation_plan);
     Executor executor(root, 13);
 
     executor.run_shot();
     REQUIRE(executor.pending_trap().has_value());
+    REQUIRE(executor.exp_vals()[0] == 1.0);
     executor.resume(root);
     REQUIRE(executor.exp_vals()[0] == 1.0);
+    REQUIRE(executor.exp_vals()[1] == 1.0);
 
     executor.run_shot();
     REQUIRE(executor.pending_trap().has_value());
+    REQUIRE(executor.exp_vals()[0] == 1.0);
+    REQUIRE(executor.exp_vals()[1] == 1.0);
     executor.resume(continuation);
-    REQUIRE(executor.exp_vals()[0] == 0.0);
+    REQUIRE(executor.exp_vals()[0] == 1.0);
+    REQUIRE(executor.exp_vals()[1] == 0.0);
 }
 
 TEST_CASE("Sampling executor matches legacy records for supported circuits") {
