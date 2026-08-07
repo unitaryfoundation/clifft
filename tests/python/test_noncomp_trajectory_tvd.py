@@ -3,12 +3,14 @@
 The enumerator (``utils_noncomp_enumerator``) computes the exact joint
 distribution of the visible record from first principles; the tests here
 first self-check it against hand-derived closed forms, then compare
-clifft's trajectory sampling to it on a distance-3 repetition-code round
+both trajectory executors to it on a distance-3 repetition-code round
 at cold-atom-magnitude rates, by total variation distance with a
 shot-noise band calibrated from the reference distribution itself.
 """
 
 from __future__ import annotations
+
+from collections.abc import Callable
 
 import numpy as np
 import utils_noncomp_enumerator as en
@@ -153,7 +155,9 @@ def _status_kind_fractions(noncomp_probs: dict[int, float]) -> tuple[float, floa
     return leaked, lost
 
 
-def _run_and_compare(seed: int) -> None:
+def _run_and_compare(
+    seed: int, sample_noncomp: Callable[..., noncomp.NonComputationalSample]
+) -> None:
     reference = en.enumerate_exact(
         REP_CODE_ROUND,
         initial=INITIAL,
@@ -163,7 +167,7 @@ def _run_and_compare(seed: int) -> None:
     )
     assert reference.dropped_mass < 1e-6
 
-    r = noncomp.sample(REP_CODE_ROUND, _model(INITIAL, TRANSITIONS), shots=SHOTS, seed=seed)
+    r = sample_noncomp(REP_CODE_ROUND, _model(INITIAL, TRANSITIONS), shots=SHOTS, seed=seed)
     empirical = en.empirical_record_probs(np.asarray(r.measurements))
 
     band = _shot_noise_band(reference.record_probs, SHOTS) + reference.dropped_mass
@@ -183,5 +187,5 @@ def _run_and_compare(seed: int) -> None:
         assert abs(got_lost - want_lost) < binomial_tolerance(max(want_lost, 1e-4), SHOTS)
 
 
-def test_rep_code_round_tvd_reaches_shot_noise():
-    _run_and_compare(seed=21)
+def test_rep_code_round_tvd_reaches_shot_noise(noncomp_sampling_api):
+    _run_and_compare(seed=21, sample_noncomp=noncomp_sampling_api)
