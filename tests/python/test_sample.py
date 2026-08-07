@@ -334,18 +334,14 @@ class TestStatevector:
 class TestCliffordValidation:
     """Validate pure-Clifford statevectors against Stim."""
 
-    def test_random_clifford_single_qubit(self) -> None:
+    def test_random_clifford_single_qubit(self, statevector_from_circuit: Any) -> None:
         """Random 1-qubit Clifford circuits match Stim."""
         import stim
 
         for seed in range(10):
             circuit_str = random_clifford_circuit(1, 5, seed)
 
-            # Clifft statevector
-            prog = clifft.compile(circuit_str)
-            state = clifft.State(peak_rank=prog.peak_rank, num_measurements=prog.num_measurements)
-            clifft.execute(prog, state)
-            clifft_sv = clifft.get_statevector(prog, state)
+            clifft_sv = statevector_from_circuit(circuit_str)
 
             # Stim statevector
             stim_circuit = stim.Circuit(circuit_str)
@@ -355,7 +351,7 @@ class TestCliffordValidation:
 
             assert_statevectors_equiv(clifft_sv, stim_sv, msg=f"circuit:\n{circuit_str}")
 
-    def test_random_clifford_multi_qubit(self) -> None:
+    def test_random_clifford_multi_qubit(self, statevector_from_circuit: Any) -> None:
         """Random 2-4 qubit Clifford circuits match Stim."""
         import stim
 
@@ -363,13 +359,7 @@ class TestCliffordValidation:
             for seed in range(5):
                 circuit_str = random_clifford_circuit(num_qubits, 10, seed)
 
-                # Clifft statevector
-                prog = clifft.compile(circuit_str)
-                state = clifft.State(
-                    peak_rank=prog.peak_rank, num_measurements=prog.num_measurements
-                )
-                clifft.execute(prog, state)
-                clifft_sv = clifft.get_statevector(prog, state)
+                clifft_sv = statevector_from_circuit(circuit_str)
 
                 # Stim statevector
                 stim_circuit = stim.Circuit(circuit_str)

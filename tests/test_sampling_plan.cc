@@ -526,7 +526,7 @@ TEST_CASE("Sampling plan validates exact-query metadata") {
     SamplingPlan unitary = valid_rotation_plan();
     unitary.final_tableau = stim::Tableau<clifft::kStimWidth>(1);
     REQUIRE_NOTHROW(unitary.validate());
-    REQUIRE(unitary.inspect().find("basis_queries=1") != std::string::npos);
+    REQUIRE(unitary.inspect().find("final_state_queries=1") != std::string::npos);
 
     SECTION("tableau width") {
         unitary.final_tableau = stim::Tableau<clifft::kStimWidth>(2);

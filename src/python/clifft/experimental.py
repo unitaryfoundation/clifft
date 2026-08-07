@@ -25,6 +25,7 @@ from clifft._clifft_core import (
     _basis_probabilities_experimental_sampling,
     _compile_experimental_sampling,
     _ExperimentalSamplingProgram,
+    _get_statevector_experimental_sampling,
     _record_probabilities_experimental_sampling,
     _sample_experimental_sampling,
     _sample_survivors_experimental_sampling,
@@ -54,7 +55,7 @@ def compile(
     """Compile Stim text for the experimental scalar sampling backend.
 
     The default HIR optimization pipeline matches :func:`clifft.compile`;
-    pass ``None`` to skip it. Dense statevector expansion remains unsupported.
+    pass ``None`` to skip it.
     """
     if isinstance(hir_passes, _DefaultPasses):
         hir_passes = default_hir_pass_manager()
@@ -189,11 +190,17 @@ def basis_probabilities(
     return probabilities
 
 
+def get_statevector(program: Program) -> npt.NDArray[np.complex128]:
+    """Return the dense final statevector of an experimental pure-state program."""
+    return cast(npt.NDArray[np.complex128], _get_statevector_experimental_sampling(program))
+
+
 __all__ = [
     "MeasurementRecords",
     "Program",
     "basis_probabilities",
     "compile",
+    "get_statevector",
     "record_probabilities",
     "sample",
     "sample_noncomputational",

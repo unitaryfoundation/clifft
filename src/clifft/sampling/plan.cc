@@ -706,7 +706,8 @@ std::string SamplingPlan::inspect() const {
         << " hidden_records=" << num_hidden_records << " noise_sites=" << num_noise_sites
         << " instrument_sites=" << num_instrument_sites << " detectors=" << num_detectors
         << " observables=" << num_observables << " exp_vals=" << num_exp_vals
-        << " postselection=" << has_postselection << " basis_queries=" << final_tableau.has_value()
+        << " postselection=" << has_postselection
+        << " final_state_queries=" << final_tableau.has_value()
         << " dust_epsilon=" << kMeasurementDustEpsilon << '\n';
     out << "global_weight=" << global_weight.real() << ',' << global_weight.imag() << '\n';
     out << "symbols=" << symbols.size() << '\n';

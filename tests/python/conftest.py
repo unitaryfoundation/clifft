@@ -1,6 +1,6 @@
 """Shared test fixtures and utilities for Clifft Python tests."""
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from typing import Any, cast
 
 import numpy as np
@@ -21,6 +21,33 @@ def sampling_api(request: pytest.FixtureRequest) -> Any:
 def basis_probabilities_api(request: pytest.FixtureRequest) -> Any:
     """Run shared exact basis-query tests against both Python APIs."""
     return cast(Any, request.param)
+
+
+@pytest.fixture(params=["legacy", "experimental"], ids=["legacy", "experimental"])
+def statevector_from_circuit(
+    request: pytest.FixtureRequest,
+) -> Callable[[str], npt.NDArray[np.complex128]]:
+    """Compile and expand a pure-state circuit through either backend."""
+    if request.param == "experimental":
+
+        def experimental_statevector(stim_text: str) -> npt.NDArray[np.complex128]:
+            return cast(
+                npt.NDArray[np.complex128],
+                experimental.get_statevector(experimental.compile(stim_text)),
+            )
+
+        return experimental_statevector
+
+    def legacy_statevector(stim_text: str) -> npt.NDArray[np.complex128]:
+        program = clifft.compile(stim_text)
+        state = clifft.State(
+            peak_rank=program.peak_rank,
+            num_measurements=program.num_measurements,
+        )
+        clifft.execute(program, state)
+        return cast(npt.NDArray[np.complex128], clifft.get_statevector(program, state))
+
+    return legacy_statevector
 
 
 @pytest.fixture(

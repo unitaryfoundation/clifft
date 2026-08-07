@@ -131,6 +131,29 @@ void require_basis_probabilities_match_legacy(std::string_view circuit_text,
     }
 }
 
+void require_statevector_matches_legacy(std::string_view circuit_text) {
+    const clifft::HirModule hir = clifft::trace(clifft::parse(circuit_text));
+    const ExecutablePlan executable(clifft::sampling::plan_sampling(hir));
+    const std::vector<std::complex<double>> actual = clifft::sampling::get_statevector(executable);
+
+    const clifft::CompiledModule legacy_program = clifft::lower(hir);
+    clifft::SchrodingerState legacy({.peak_rank = legacy_program.peak_rank,
+                                     .num_measurements = legacy_program.total_meas_slots,
+                                     .num_qubits = legacy_program.num_qubits,
+                                     .num_exp_vals = legacy_program.num_exp_vals,
+                                     .seed = 0});
+    clifft::execute(legacy_program, legacy);
+    const std::vector<std::complex<double>> expected =
+        clifft::get_statevector(legacy_program, legacy);
+
+    REQUIRE(actual.size() == expected.size());
+    for (size_t i = 0; i < actual.size(); ++i) {
+        CAPTURE(circuit_text, i);
+        REQUIRE_THAT(actual[i].real(), Catch::Matchers::WithinAbs(expected[i].real(), 1e-6));
+        REQUIRE_THAT(actual[i].imag(), Catch::Matchers::WithinAbs(expected[i].imag(), 1e-6));
+    }
+}
+
 void require_replay_matches_legacy(std::string_view circuit_text,
                                    std::span<const uint8_t> forced_records, size_t num_records) {
     const clifft::HirModule hir = clifft::trace(clifft::parse(circuit_text));
@@ -479,17 +502,43 @@ TEST_CASE("Sampling basis probabilities match legacy exact queries") {
 
 TEST_CASE("Sampling basis probabilities reject nonunitary plans") {
     const ExecutablePlan measured(plan_from("M 0\n"));
-    REQUIRE_FALSE(measured.supports_basis_probabilities());
+    REQUIRE_FALSE(measured.supports_final_state_queries());
     REQUIRE_THROWS_AS(
         clifft::sampling::basis_probabilities(measured, std::array<uint64_t, 1>{0}, 1, 1),
         std::invalid_argument);
 
     const ExecutablePlan with_probe(plan_from("H 0\nEXP_VAL X0\n"));
-    REQUIRE(with_probe.supports_basis_probabilities());
+    REQUIRE(with_probe.supports_final_state_queries());
     const std::vector<double> probabilities =
         clifft::sampling::basis_probabilities(with_probe, std::array<uint64_t, 2>{0, 1}, 2, 1);
     REQUIRE_THAT(probabilities[0], Catch::Matchers::WithinAbs(0.5, 1e-12));
     REQUIRE_THAT(probabilities[1], Catch::Matchers::WithinAbs(0.5, 1e-12));
+}
+
+TEST_CASE("Sampling statevectors match legacy exact queries componentwise") {
+    require_statevector_matches_legacy("H 0\n");
+    require_statevector_matches_legacy("H 0\nT 0\n");
+    require_statevector_matches_legacy("Y 0\nH 0\nT 0\nT 0\nT 0\n");
+    require_statevector_matches_legacy("H 0\nT_DAG 0\nH 1\nCX 0 1\nR_Z(0.123) 1\nH 0\n");
+    require_statevector_matches_legacy(
+        "H 0\nH 1\nR_XX(0.25) 0 1\nR_YY(-0.375) 0 1\nR_PAULI(0.2) X0*Y1\n");
+    require_statevector_matches_legacy("H 0\nT 0\nT 0\nH 0\nT 0\n");
+}
+
+TEST_CASE("Sampling statevectors reject nonunitary and oversized plans") {
+    const ExecutablePlan measured(plan_from("H 0\nM 0\n"));
+    REQUIRE_THROWS_AS(clifft::sampling::get_statevector(measured), std::invalid_argument);
+
+    const ExecutablePlan oversized(plan_from("H 10\n"));
+    REQUIRE_THROWS_AS(clifft::sampling::get_statevector(oversized), std::runtime_error);
+
+    const ExecutablePlan with_probe(plan_from("H 0\nEXP_VAL X0\n"));
+    const std::vector<std::complex<double>> statevector =
+        clifft::sampling::get_statevector(with_probe);
+    REQUIRE(statevector.size() == 2);
+    const double expected = 1.0 / std::numbers::sqrt2;
+    REQUIRE_THAT(statevector[0].real(), Catch::Matchers::WithinAbs(expected, 1e-6));
+    REQUIRE_THAT(statevector[1].real(), Catch::Matchers::WithinAbs(expected, 1e-6));
 }
 
 TEST_CASE("Sampling replay checks all records conditional on presampled symbols") {
