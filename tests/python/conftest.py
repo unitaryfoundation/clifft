@@ -1,9 +1,20 @@
 """Shared test fixtures and utilities for Clifft Python tests."""
 
 from collections.abc import Mapping, Sequence
+from typing import Any, cast
 
 import numpy as np
 import numpy.typing as npt
+import pytest
+
+import clifft
+import clifft.experimental as experimental
+
+
+@pytest.fixture(params=[clifft, experimental], ids=["legacy", "experimental"])
+def sampling_api(request: pytest.FixtureRequest) -> Any:
+    """Run supported sampling conformance tests against both Python APIs."""
+    return cast(Any, request.param)
 
 
 def noncomp_transition_matrix(

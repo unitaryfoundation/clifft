@@ -54,7 +54,8 @@ MeasurementBranchClassification classify_measurement_branch(
 }
 
 ExecutablePlan::ExecutablePlan(const SamplingPlan& plan)
-    : initial_active_width_(plan.initial_active_width),
+    : num_qubits_(plan.num_qubits),
+      initial_active_width_(plan.initial_active_width),
       max_active_width_(plan.max_active_width),
       num_visible_records_(plan.num_visible_records),
       num_hidden_records_(plan.num_hidden_records),
@@ -312,6 +313,74 @@ std::optional<double> Executor::force_active_branch(MeasurementProbabilities pro
 
 bool Executor::sample_dormant_branch() noexcept {
     return rng_.next_double() >= 0.5;
+}
+
+std::vector<uint8_t> sample_records(const ExecutablePlan& plan, uint32_t shots,
+                                    std::optional<uint64_t> seed) {
+    if (plan.num_presampled_symbols() != 0) {
+        throw std::invalid_argument(
+            "batch sampling does not yet support plans with presampled symbols");
+    }
+    const size_t stride = plan.num_visible_records();
+    if (stride != 0 && shots > std::numeric_limits<size_t>::max() / stride) {
+        throw std::length_error("sampling output size exceeds size_t range");
+    }
+    std::vector<uint8_t> records(static_cast<size_t>(shots) * stride);
+    if (shots == 0) {
+        return records;
+    }
+
+    auto run = [&](Executor& executor) {
+        for (uint32_t shot = 0; shot < shots; ++shot) {
+            executor.run_shot();
+            std::ranges::copy(executor.visible_records(), records.begin() + shot * stride);
+        }
+    };
+    if (seed.has_value()) {
+        Executor executor(plan, *seed);
+        run(executor);
+    } else {
+        Executor executor(plan);
+        executor.reseed_from_entropy();
+        run(executor);
+    }
+    return records;
+}
+
+std::vector<double> record_log_probabilities(const ExecutablePlan& plan,
+                                             std::span<const uint8_t> forced_records,
+                                             size_t num_records) {
+    if (plan.num_presampled_symbols() != 0) {
+        throw std::invalid_argument(
+            "record probabilities do not yet support plans with presampled symbols");
+    }
+    if (plan.num_hidden_records() != 0) {
+        throw std::invalid_argument(
+            "record probabilities do not yet support plans with hidden records");
+    }
+    const size_t stride = plan.num_visible_records();
+    if (stride == 0) {
+        throw std::invalid_argument(
+            "record probabilities require a plan with at least one visible record");
+    }
+    if (num_records > std::numeric_limits<size_t>::max() / stride ||
+        forced_records.size() != num_records * stride) {
+        throw std::invalid_argument(
+            "record buffer length must equal num_records times visible records");
+    }
+    if (!std::ranges::all_of(forced_records, [](uint8_t value) { return value <= 1; })) {
+        throw std::invalid_argument("record bytes must be Boolean");
+    }
+
+    std::vector<double> log_probabilities(num_records);
+    Executor executor(plan);
+    for (size_t record = 0; record < num_records; ++record) {
+        const ReplayResult replay =
+            executor.replay_shot(forced_records.subspan(record * stride, stride));
+        log_probabilities[record] =
+            replay.reachable ? replay.log_probability : std::numeric_limits<double>::lowest();
+    }
+    return log_probabilities;
 }
 
 }  // namespace clifft::sampling

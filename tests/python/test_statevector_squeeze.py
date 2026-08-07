@@ -61,16 +61,19 @@ class TestSqueezeBasicPeakRankReduction:
         assert base.peak_rank == 3
         assert squeezed.peak_rank < base.peak_rank
 
-    def test_squeeze_sampling_correctness(self) -> None:
+    def test_squeeze_sampling_correctness(self, sampling_api: Any) -> None:
         """Sampling results must be statistically identical with and without squeeze."""
         circuit = "H 0\nT 0\nH 1\nT 1\nM 0\nM 1"
         shots = 10_000
 
-        base = clifft.compile(circuit, hir_passes=None, bytecode_passes=None)
-        squeezed = clifft.compile(circuit, hir_passes=_squeeze_only_pass_manager())
+        if sampling_api is clifft:
+            base = sampling_api.compile(circuit, hir_passes=None, bytecode_passes=None)
+        else:
+            base = sampling_api.compile(circuit, hir_passes=None)
+        squeezed = sampling_api.compile(circuit, hir_passes=_squeeze_only_pass_manager())
 
-        base_result = clifft.sample(base, shots, seed=42)
-        squeezed_result = clifft.sample(squeezed, shots, seed=42)
+        base_result = sampling_api.sample(base, shots, seed=42)
+        squeezed_result = sampling_api.sample(squeezed, shots, seed=42)
 
         # Both should produce roughly 50/50 coin flips
         for col in range(base_result.measurements.shape[1]):
@@ -81,20 +84,23 @@ class TestSqueezeBasicPeakRankReduction:
                 abs(p1 - p2) < tol
             ), f"qubit {col}: base={p1:.4f}, squeezed={p2:.4f}, tol={tol:.4f}"
 
-    def test_entangled_qubits_correct_behavior(self) -> None:
+    def test_entangled_qubits_correct_behavior(self, sampling_api: Any) -> None:
         """Entangled qubits: squeeze must still produce correct results.
 
         CX 0 1 creates entangled Pauli strings in the Heisenberg picture.
         The squeezer respects anti-commutation barriers and preserves semantics.
         """
         circuit = "H 0\nCX 0 1\nT 0\nT 1\nM 0\nM 1"
-        base = clifft.compile(circuit, hir_passes=None, bytecode_passes=None)
-        squeezed = clifft.compile(circuit, hir_passes=_squeeze_only_pass_manager())
+        if sampling_api is clifft:
+            base = sampling_api.compile(circuit, hir_passes=None, bytecode_passes=None)
+        else:
+            base = sampling_api.compile(circuit, hir_passes=None)
+        squeezed = sampling_api.compile(circuit, hir_passes=_squeeze_only_pass_manager())
 
         # Verify sampling correctness regardless of peak_rank change
         shots = 10_000
-        base_result = clifft.sample(base, shots, seed=42)
-        squeezed_result = clifft.sample(squeezed, shots, seed=42)
+        base_result = sampling_api.sample(base, shots, seed=42)
+        squeezed_result = sampling_api.sample(squeezed, shots, seed=42)
         for col in range(base_result.measurements.shape[1]):
             p1 = float(base_result.measurements[:, col].mean())
             p2 = float(squeezed_result.measurements[:, col].mean())

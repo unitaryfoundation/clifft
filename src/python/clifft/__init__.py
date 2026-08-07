@@ -11,7 +11,7 @@ rather than the full Hilbert space.
 from __future__ import annotations
 
 from collections.abc import Sequence
-from typing import TypeAlias, cast
+from typing import Protocol, TypeAlias, cast
 
 import numpy as np
 import numpy.typing as npt
@@ -110,6 +110,11 @@ from clifft._sample_result import SampleResult
 
 BasisBitstrings: TypeAlias = str | Sequence[str] | npt.NDArray[np.bool_] | npt.NDArray[np.uint8]
 MeasurementRecords: TypeAlias = str | Sequence[str] | npt.NDArray[np.bool_] | npt.NDArray[np.uint8]
+
+
+class _MeasurementProgram(Protocol):
+    @property
+    def num_measurements(self) -> int: ...
 
 
 def _basis_masks_from_bitstrings(
@@ -220,7 +225,7 @@ def basis_probabilities(
 
 
 def _records_from_outcomes(
-    program: Program,
+    program: _MeasurementProgram,
     records: MeasurementRecords,
 ) -> npt.NDArray[np.uint8]:
     """Convert string or array measurement records into a 2D uint8 array.

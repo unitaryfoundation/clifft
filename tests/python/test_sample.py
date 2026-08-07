@@ -1,5 +1,7 @@
 """Python integration tests for clifft.compile and clifft.sample."""
 
+from typing import Any
+
 import numpy as np
 import pytest
 from conftest import (
@@ -41,61 +43,61 @@ class TestCompile:
 class TestSample:
     """Tests for clifft.sample()."""
 
-    def test_sample_deterministic_zero(self) -> None:
+    def test_sample_deterministic_zero(self, sampling_api: Any) -> None:
         """Measurement of |0> always gives 0."""
-        prog = clifft.compile("M 0")
-        result = clifft.sample(prog, 100, seed=42)
+        prog = sampling_api.compile("M 0")
+        result = sampling_api.sample(prog, 100, seed=42)
         assert np.all(result.measurements[:, 0] == 0)
 
-    def test_sample_deterministic_one(self) -> None:
+    def test_sample_deterministic_one(self, sampling_api: Any) -> None:
         """Measurement of |1> always gives 1."""
-        prog = clifft.compile("X 0\nM 0")
-        result = clifft.sample(prog, 100, seed=42)
+        prog = sampling_api.compile("X 0\nM 0")
+        result = sampling_api.sample(prog, 100, seed=42)
         assert np.all(result.measurements[:, 0] == 1)
 
-    def test_sample_superposition(self) -> None:
+    def test_sample_superposition(self, sampling_api: Any) -> None:
         """|+> state gives roughly 50/50 distribution."""
-        prog = clifft.compile("H 0\nM 0")
+        prog = sampling_api.compile("H 0\nM 0")
         shots = 1000
-        result = clifft.sample(prog, shots, seed=42)
+        result = sampling_api.sample(prog, shots, seed=42)
         p0 = float(np.mean(result.measurements[:, 0] == 0))
         p1 = float(np.mean(result.measurements[:, 0] == 1))
         tolerance = binomial_tolerance(0.5, shots)
         assert abs(p0 - 0.5) < tolerance, f"p(0)={p0} outside {tolerance:.3f} tolerance"
         assert abs(p1 - 0.5) < tolerance, f"p(1)={p1} outside {tolerance:.3f} tolerance"
 
-    def test_sample_bell_state_correlated(self) -> None:
+    def test_sample_bell_state_correlated(self, sampling_api: Any) -> None:
         """Bell state measurements are always correlated."""
-        prog = clifft.compile("""
+        prog = sampling_api.compile("""
             H 0
             CX 0 1
             M 0
             M 1
         """)
-        result = clifft.sample(prog, 500, seed=99)
+        result = sampling_api.sample(prog, 500, seed=99)
         assert np.all(
             result.measurements[:, 0] == result.measurements[:, 1]
         ), "Bell state not correlated"
 
-    def test_sample_reproducible(self) -> None:
+    def test_sample_reproducible(self, sampling_api: Any) -> None:
         """Same seed produces same results."""
-        prog = clifft.compile("H 0\nM 0")
-        result1 = clifft.sample(prog, 100, seed=12345)
-        result2 = clifft.sample(prog, 100, seed=12345)
+        prog = sampling_api.compile("H 0\nM 0")
+        result1 = sampling_api.sample(prog, 100, seed=12345)
+        result2 = sampling_api.sample(prog, 100, seed=12345)
         assert np.array_equal(result1.measurements, result2.measurements)
 
-    def test_sample_different_seeds(self) -> None:
+    def test_sample_different_seeds(self, sampling_api: Any) -> None:
         """Different seeds produce different results."""
-        prog = clifft.compile("H 0\nM 0")
-        result1 = clifft.sample(prog, 100, seed=1)
-        result2 = clifft.sample(prog, 100, seed=2)
+        prog = sampling_api.compile("H 0\nM 0")
+        result1 = sampling_api.sample(prog, 100, seed=1)
+        result2 = sampling_api.sample(prog, 100, seed=2)
         # With 100 random bits, probability of match is 2^-100
         assert not np.array_equal(result1.measurements, result2.measurements)
 
-    def test_sample_shape(self) -> None:
+    def test_sample_shape(self, sampling_api: Any) -> None:
         """Results have correct shape and type."""
-        prog = clifft.compile("H 0\nM 0\nH 1\nM 1")
-        result = clifft.sample(prog, 50, seed=0)
+        prog = sampling_api.compile("H 0\nM 0\nH 1\nM 1")
+        result = sampling_api.sample(prog, 50, seed=0)
         assert isinstance(result.measurements, np.ndarray)
         assert result.measurements.dtype == np.uint8
         assert result.measurements.shape == (50, 2)
@@ -383,7 +385,7 @@ class TestCliffordValidation:
 class TestSamplingValidation:
     """Validate sampling distributions against Stim."""
 
-    def test_deterministic_clifford_sampling(self) -> None:
+    def test_deterministic_clifford_sampling(self, sampling_api: Any) -> None:
         """Deterministic measurements match Stim exactly."""
         import stim
 
@@ -396,8 +398,8 @@ class TestSamplingValidation:
 
         for circuit_str in circuits:
             # Clifft sampling
-            prog = clifft.compile(circuit_str)
-            result = clifft.sample(prog, 100, seed=42)
+            prog = sampling_api.compile(circuit_str)
+            result = sampling_api.sample(prog, 100, seed=42)
 
             # Stim sampling (seed is in compile_sampler, not sample)
             stim_circuit = stim.Circuit(circuit_str)
@@ -417,7 +419,7 @@ class TestSamplingValidation:
                     if "CX" in circuit_str:  # Bell state
                         assert clifft_shot[0] == clifft_shot[1], "Bell correlation broken"
 
-    def test_statistical_distribution_h(self) -> None:
+    def test_statistical_distribution_h(self, sampling_api: Any) -> None:
         """H gate sampling matches Stim statistically."""
         import stim
 
@@ -425,8 +427,8 @@ class TestSamplingValidation:
         shots = 10000
 
         # Clifft sampling
-        prog = clifft.compile(circuit_str)
-        result = clifft.sample(prog, shots, seed=12345)
+        prog = sampling_api.compile(circuit_str)
+        result = sampling_api.sample(prog, shots, seed=12345)
         clifft_p0 = np.mean(result.measurements[:, 0] == 0)
 
         # Stim sampling (seed is in compile_sampler, not sample)
@@ -447,7 +449,7 @@ class TestSamplingValidation:
             abs(clifft_p0 - stim_p0) < cross_tolerance
         ), f"Clifft vs Stim: {clifft_p0} vs {stim_p0}"
 
-    def test_statistical_distribution_bell(self) -> None:
+    def test_statistical_distribution_bell(self, sampling_api: Any) -> None:
         """Bell state sampling matches Stim statistically."""
         import stim
 
@@ -455,8 +457,8 @@ class TestSamplingValidation:
         shots = 10000
 
         # Clifft sampling
-        prog = clifft.compile(circuit_str)
-        result = clifft.sample(prog, shots, seed=999)
+        prog = sampling_api.compile(circuit_str)
+        result = sampling_api.sample(prog, shots, seed=999)
         clifft_00 = np.mean((result.measurements[:, 0] == 0) & (result.measurements[:, 1] == 0))
         clifft_11 = np.mean((result.measurements[:, 0] == 1) & (result.measurements[:, 1] == 1))
 
@@ -478,19 +480,19 @@ class TestSamplingValidation:
         assert abs(stim_00 - 0.5) < tolerance, f"Stim |00>={stim_00} outside {tolerance:.4f} tol"
         assert abs(stim_11 - 0.5) < tolerance, f"Stim |11>={stim_11} outside {tolerance:.4f} tol"
 
-    def test_meas_active_interfere_y_observable(self) -> None:
+    def test_meas_active_interfere_y_observable(self, sampling_api: Any) -> None:
         """OP_MEAS_ACTIVE_INTERFERE correctly computes interference with Y-phases."""
         # H 0; T 0 rotates the state to (|0> + e^{ipi/4}|1>)/sqrt(2)
         # S 0 adds phase: (|0> + e^{i*3pi/4}|1>)/sqrt(2)
         # MX 0 forces an OP_MEAS_ACTIVE_INTERFERE where the rewound observable is Y.
         circuit = "H 0\nT 0\nS 0\nMX 0"
-        prog = clifft.compile(circuit)
+        prog = sampling_api.compile(circuit)
 
         # P(+) = |<+|psi>|^2 = |1 + e^{i3pi/4}|^2 / 4
         #      = (2 - sqrt(2)) / 4 ~ 0.1464
         shots = 10000
         expected_p0 = (2 - np.sqrt(2)) / 4  # ~ 0.1464
-        result = clifft.sample(prog, shots, seed=42)
+        result = sampling_api.sample(prog, shots, seed=42)
         p0 = float(np.mean(result.measurements[:, 0] == 0))
         tolerance = binomial_tolerance(expected_p0, shots)
 
@@ -503,10 +505,10 @@ class TestSamplingValidation:
 class TestNoiseAndQEC:
     """Tests for noise simulation and QEC features."""
 
-    def test_sample_returns_sample_result(self) -> None:
+    def test_sample_returns_sample_result(self, sampling_api: Any) -> None:
         """sample() returns a SampleResult with attribute access and unpacking."""
-        prog = clifft.compile("H 0\nM 0")
-        result = clifft.sample(prog, 10, seed=0)
+        prog = sampling_api.compile("H 0\nM 0")
+        result = sampling_api.sample(prog, 10, seed=0)
         assert isinstance(result, clifft.SampleResult)
         # Attribute access
         assert result.measurements.shape == (10, 1)

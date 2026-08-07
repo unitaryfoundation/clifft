@@ -20,6 +20,8 @@
 #include "clifft/optimizer/statevector_squeeze_pass.h"
 #include "clifft/optimizer/swap_meas_pass.h"
 #include "clifft/optimizer/tile_axis_fusion_pass.h"
+#include "clifft/sampling/executor.h"
+#include "clifft/sampling/planner.h"
 #include "clifft/svm/svm.h"
 #include "clifft/util/config.h"
 #include "clifft/util/introspection.h"
@@ -891,6 +893,61 @@ NB_MODULE(_clifft_core, m) {
                    " instructions, peak_rank=" + std::to_string(p.peak_rank) + ", " +
                    std::to_string(p.num_measurements) + " measurements)";
         });
+
+    nb::class_<clifft::sampling::ExecutablePlan>(m, "_ExperimentalSamplingProgram")
+        .def_prop_ro("num_qubits", &clifft::sampling::ExecutablePlan::num_qubits)
+        .def_prop_ro("num_measurements", &clifft::sampling::ExecutablePlan::num_visible_records)
+        .def_prop_ro("num_hidden_measurements",
+                     &clifft::sampling::ExecutablePlan::num_hidden_records)
+        .def_prop_ro("num_actions", &clifft::sampling::ExecutablePlan::num_actions)
+        .def("__repr__", [](const clifft::sampling::ExecutablePlan& p) {
+            return "ExperimentalSamplingProgram(" + std::to_string(p.num_actions()) + " actions, " +
+                   std::to_string(p.num_visible_records()) + " measurements)";
+        });
+
+    m.def(
+        "_compile_experimental_sampling",
+        [](const std::string& stim_text, clifft::HirPassManager* hir_passes) {
+            nb::gil_scoped_release release;
+            clifft::HirModule hir = clifft::trace(clifft::parse(stim_text));
+            if (hir_passes != nullptr) {
+                hir_passes->run(hir);
+            }
+            return clifft::sampling::ExecutablePlan(clifft::sampling::plan_sampling(hir));
+        },
+        nb::arg("stim_text"), nb::arg("hir_passes") = nb::none(),
+        "Compile a circuit into the experimental scalar sampling backend.");
+
+    m.def(
+        "_sample_experimental_sampling",
+        [](const clifft::sampling::ExecutablePlan& program, uint32_t shots,
+           std::optional<uint64_t> seed) {
+            std::vector<uint8_t> records;
+            {
+                nb::gil_scoped_release release;
+                records = clifft::sampling::sample_records(program, shots, seed);
+            }
+            return vec_to_numpy(std::move(records), {shots, program.num_visible_records()});
+        },
+        nb::arg("program"), nb::arg("shots"), nb::arg("seed") = nb::none(),
+        "Sample an experimental scalar sampling program.");
+
+    m.def(
+        "_record_probabilities_experimental_sampling",
+        [](const clifft::sampling::ExecutablePlan& program,
+           nb::ndarray<nb::numpy, const uint8_t, nb::shape<-1, -1>, nb::c_contig> records) {
+            std::vector<double> log_probabilities;
+            {
+                nb::gil_scoped_release release;
+                log_probabilities = clifft::sampling::record_log_probabilities(
+                    program, std::span<const uint8_t>(records.data(), records.size()),
+                    records.shape(0));
+            }
+            const size_t size = log_probabilities.size();
+            return vec_to_numpy(std::move(log_probabilities), {size});
+        },
+        nb::arg("program"), nb::arg("records"),
+        "Return experimental scalar sampling record log probabilities.");
 
     m.def(
         "lower",

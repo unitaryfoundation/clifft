@@ -51,6 +51,7 @@ class ExecutablePlan {
   public:
     explicit ExecutablePlan(const SamplingPlan& plan);
 
+    [[nodiscard]] uint32_t num_qubits() const { return num_qubits_; }
     [[nodiscard]] uint32_t num_visible_records() const { return num_visible_records_; }
     [[nodiscard]] uint32_t num_hidden_records() const { return num_hidden_records_; }
     [[nodiscard]] uint32_t num_symbols() const { return num_symbols_; }
@@ -112,6 +113,7 @@ class ExecutablePlan {
     PreparedExpression prepare_expression(const AffineBool& expression);
     PreparedExpression prepare_measurement_correction(const AffineBool& outcome, uint32_t branch);
 
+    uint32_t num_qubits_ = 0;
     uint32_t initial_active_width_ = 0;
     uint32_t max_active_width_ = 0;
     uint32_t num_visible_records_ = 0;
@@ -133,6 +135,9 @@ class ExecutablePlan {
 class Executor {
   public:
     explicit Executor(const ExecutablePlan& plan, uint64_t seed = 0);
+
+    // Replace the deterministic seed with OS entropy before executing shots.
+    void reseed_from_entropy() { rng_.seed_from_entropy(); }
 
     // Values correspond to presampled plan symbols in ascending SymbolId order.
     void run_shot(std::span<const uint8_t> presampled_values = {}) noexcept;
@@ -179,5 +184,21 @@ class Executor {
     Xoshiro256PlusPlus rng_;
     uint64_t dust_clamps_ = 0;
 };
+
+// Samples a fixed number of shots into row-major visible-record storage. The
+// plan and executor are prepared once, and all output is allocated before the
+// first shot enters hot execution. Plans with presampled symbols are rejected
+// until their sampling distribution is part of the executable contract.
+[[nodiscard]] std::vector<uint8_t> sample_records(const ExecutablePlan& plan, uint32_t shots,
+                                                  std::optional<uint64_t> seed = std::nullopt);
+
+// Replays each row-major visible record and returns its joint log probability.
+// Unreachable records map to the lowest finite double because release builds
+// assume finite arithmetic. Plans with presampled symbols or hidden records
+// are rejected because this API does not yet marginalize over either source
+// of hidden stochastic state.
+[[nodiscard]] std::vector<double> record_log_probabilities(const ExecutablePlan& plan,
+                                                           std::span<const uint8_t> forced_records,
+                                                           size_t num_records);
 
 }  // namespace clifft::sampling
