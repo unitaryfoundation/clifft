@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1786000841350,
+  "lastUpdate": 1786085265026,
   "repoUrl": "https://github.com/unitaryfoundation/clifft",
   "entries": {
     "C++ Catch2 benchmarks (AVX2)": [
@@ -5118,6 +5118,70 @@ window.BENCHMARK_DATA = {
             "name": "exp-val 20q 200 probes x100k",
             "value": 166.42,
             "range": "± 2.66486",
+            "unit": "ms",
+            "extra": "100 samples\n1 iterations"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Brad Chase",
+            "username": "bachase",
+            "email": "14430+bachase@users.noreply.github.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "6780afc49a10606c1c878481a9568c4c752e1ce6",
+          "message": "feat(sampling): add scalar plan executor (#258)\n\nExecute prepared sampling plans with preallocated state, affine symbol evaluation, direct-Pauli kernels, deterministic sampling, and numerical-dust telemetry. Add differential coverage against the legacy SVM, including multi-coordinate measurements and arbitrary-angle rotations.\n\nAssisted-by: Codex (GPT-5.6) <noreply@openai.com>",
+          "timestamp": "2026-08-06T15:13:53Z",
+          "url": "https://github.com/unitaryfoundation/clifft/commit/6780afc49a10606c1c878481a9568c4c752e1ce6"
+        },
+        "date": 1786085264179,
+        "tool": "catch2",
+        "benches": [
+          {
+            "name": "QV-10 x100 shots",
+            "value": 24.1809,
+            "range": "± 57.6837",
+            "unit": "ms",
+            "extra": "100 samples\n1 iterations"
+          },
+          {
+            "name": "cultivation-d5 x1000 shots",
+            "value": 58.9483,
+            "range": "± 188.142",
+            "unit": "ms",
+            "extra": "100 samples\n1 iterations"
+          },
+          {
+            "name": "surface-d7-r7 p=1e-3 x10000 shots",
+            "value": 88.0889,
+            "range": "± 212.102",
+            "unit": "ms",
+            "extra": "100 samples\n1 iterations"
+          },
+          {
+            "name": "surface-d5-r5 p=0.05 x10000 shots",
+            "value": 98.1043,
+            "range": "± 2.80857",
+            "unit": "ms",
+            "extra": "100 samples\n1 iterations"
+          },
+          {
+            "name": "surface-d11-r11 p=1e-3 x1000 shots",
+            "value": 35.2768,
+            "range": "± 1.51913",
+            "unit": "ms",
+            "extra": "100 samples\n1 iterations"
+          },
+          {
+            "name": "exp-val 20q 200 probes x100k",
+            "value": 120.155,
+            "range": "± 2.58394",
             "unit": "ms",
             "extra": "100 samples\n1 iterations"
           }
