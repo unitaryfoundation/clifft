@@ -36,6 +36,7 @@ enum class NoiseSiteId : uint32_t {};
 enum class InstrumentSiteId : uint32_t {};
 enum class DetectorSlot : uint32_t {};
 enum class ObservableSlot : uint32_t {};
+enum class ExpValSlot : uint32_t {};
 
 // Keep the IDs non-interchangeable while giving every sampling layer one
 // explicit operation for indexing their plan-owned storage.
@@ -55,6 +56,9 @@ enum class ObservableSlot : uint32_t {};
     return static_cast<uint32_t>(slot);
 }
 [[nodiscard]] constexpr uint32_t index(ObservableSlot slot) noexcept {
+    return static_cast<uint32_t>(slot);
+}
+[[nodiscard]] constexpr uint32_t index(ExpValSlot slot) noexcept {
     return static_cast<uint32_t>(slot);
 }
 
@@ -195,6 +199,15 @@ struct WriteObservable {
     ObservableSlot observable{};
 };
 
+// Writes a non-destructive Pauli expectation probe. An absent active Pauli
+// means the transformed operator has X or Y support on a dormant |0>
+// coordinate, so its expectation is exactly zero without coefficient work.
+struct WriteExpectationValue {
+    std::optional<ActivePauli> pauli;
+    AffineBool sign;
+    ExpValSlot exp_val{};
+};
+
 // Instruments share one semantic action because their execution forms differ
 // only in how the source observable enters the dense state. The planner fixes
 // that choice; runtime never performs localization or topology discovery.
@@ -229,10 +242,10 @@ struct InstrumentBoundary {
     uint32_t symbol_prefix_size = 0;
 };
 
-using SamplingAction =
-    std::variant<RotateActivePauli, PromoteDormantRotation, MeasureActivePauli,
-                 MeasureDormantRandom, RecordClassical, DefineSymbol, ApplyReadoutNoise,
-                 WriteDetector, WriteObservable, ApplyInstrument, InstrumentBoundary>;
+using SamplingAction = std::variant<RotateActivePauli, PromoteDormantRotation, MeasureActivePauli,
+                                    MeasureDormantRandom, RecordClassical, DefineSymbol,
+                                    ApplyReadoutNoise, WriteDetector, WriteObservable,
+                                    WriteExpectationValue, ApplyInstrument, InstrumentBoundary>;
 
 struct PlannedAction {
     uint32_t active_before = 0;
@@ -291,6 +304,7 @@ struct SamplingPlan {
     uint32_t num_instrument_sites = 0;
     uint32_t num_detectors = 0;
     uint32_t num_observables = 0;
+    uint32_t num_exp_vals = 0;
     bool has_postselection = false;
     std::complex<double> global_weight = {1.0, 0.0};
 

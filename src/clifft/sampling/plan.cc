@@ -165,6 +165,7 @@ std::optional<SymbolId> defined_symbol(const SamplingAction& action) {
                                  std::is_same_v<T, RecordClassical> ||
                                  std::is_same_v<T, WriteDetector> ||
                                  std::is_same_v<T, WriteObservable> ||
+                                 std::is_same_v<T, WriteExpectationValue> ||
                                  std::is_same_v<T, InstrumentBoundary>) {
                 return std::nullopt;
             } else {
@@ -309,6 +310,8 @@ uint32_t predicted_dense_passes(const SamplingAction& action) {
                         return 2;
                 }
                 return 0;
+            } else if constexpr (std::is_same_v<T, WriteExpectationValue>) {
+                return typed.pauli.has_value() && !typed.pauli->is_identity() ? 1 : 0;
             } else if constexpr (std::is_same_v<T, MeasureDormantRandom> ||
                                  std::is_same_v<T, RecordClassical> ||
                                  std::is_same_v<T, DefineSymbol> ||
@@ -484,6 +487,7 @@ void SamplingPlan::validate() const {
     std::unordered_set<uint32_t> written_records;
     std::unordered_set<uint32_t> written_detectors;
     std::unordered_set<uint32_t> written_observables;
+    std::unordered_set<uint32_t> written_exp_vals;
     bool observed_postselection = false;
     uint32_t observed_instruments = 0;
     uint32_t observed_instrument_boundaries = 0;
@@ -582,6 +586,18 @@ void SamplingPlan::validate() const {
                         invalid_plan("observable write has invalid width or slot");
                     }
                     validate_expression(*this, typed.outcome, action_index, definition, false);
+                } else if constexpr (std::is_same_v<T, WriteExpectationValue>) {
+                    if (planned.active_after != planned.active_before ||
+                        index(typed.exp_val) >= num_exp_vals ||
+                        !written_exp_vals.insert(index(typed.exp_val)).second) {
+                        invalid_plan("expectation write has invalid width or slot");
+                    }
+                    if (typed.pauli.has_value()) {
+                        validate_pauli(*typed.pauli, planned.active_before, action_index);
+                    } else if (typed.sign != AffineBool{}) {
+                        invalid_plan("zero expectation write has an irrelevant symbolic sign");
+                    }
+                    validate_expression(*this, typed.sign, action_index, definition, false);
                 } else if constexpr (std::is_same_v<T, ApplyInstrument>) {
                     if (index(typed.site) != observed_instruments ||
                         index(typed.site) >= num_instrument_sites) {
@@ -654,8 +670,9 @@ void SamplingPlan::validate() const {
         invalid_plan("declared record count does not match the action stream");
     }
     if (written_detectors.size() != num_detectors ||
-        written_observables.size() != num_observables) {
-        invalid_plan("declared detector or observable count does not match the action stream");
+        written_observables.size() != num_observables || written_exp_vals.size() != num_exp_vals) {
+        invalid_plan(
+            "declared detector, observable, or expectation count does not match the action stream");
     }
     if (observed_postselection != has_postselection) {
         invalid_plan("declared postselection flag does not match detector actions");
@@ -675,8 +692,9 @@ std::string SamplingPlan::inspect() const {
         << " max_width=" << max_active_width << " visible_records=" << num_visible_records
         << " hidden_records=" << num_hidden_records << " noise_sites=" << num_noise_sites
         << " instrument_sites=" << num_instrument_sites << " detectors=" << num_detectors
-        << " observables=" << num_observables << " postselection=" << has_postselection
-        << " dust_epsilon=" << kMeasurementDustEpsilon << '\n';
+        << " observables=" << num_observables << " exp_vals=" << num_exp_vals
+        << " postselection=" << has_postselection << " dust_epsilon=" << kMeasurementDustEpsilon
+        << '\n';
     out << "global_weight=" << global_weight.real() << ',' << global_weight.imag() << '\n';
     out << "symbols=" << symbols.size() << '\n';
     for (uint32_t i = 0; i < symbols.size(); ++i) {
@@ -739,6 +757,15 @@ std::string SamplingPlan::inspect() const {
                 } else if constexpr (std::is_same_v<T, WriteObservable>) {
                     out << "write_observable outcome=" << format_expression(typed.outcome)
                         << " observable=" << index(typed.observable);
+                } else if constexpr (std::is_same_v<T, WriteExpectationValue>) {
+                    out << "write_expectation ";
+                    if (typed.pauli.has_value()) {
+                        out << format_pauli(*typed.pauli)
+                            << " sign=" << format_expression(typed.sign);
+                    } else {
+                        out << "zero";
+                    }
+                    out << " exp_val=" << index(typed.exp_val);
                 } else if constexpr (std::is_same_v<T, ApplyInstrument>) {
                     out << "apply_instrument site=" << index(typed.site)
                         << " mode=" << instrument_mode_name(typed.mode) << ' '

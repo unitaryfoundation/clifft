@@ -39,15 +39,12 @@ def test_seeded_samples_match_legacy_for_curated_circuits(circuit: str) -> None:
     np.testing.assert_array_equal(actual, legacy)
 
 
-@pytest.mark.parametrize(
-    "circuit,operation",
-    [
-        ("EXP_VAL Z0", "EXP_VAL"),
-    ],
-)
-def test_unsupported_capabilities_fail_during_compile(circuit: str, operation: str) -> None:
-    with pytest.raises(ValueError, match=operation):
-        experimental.compile(circuit)
+def test_expectation_probes_are_available_without_changing_the_default_backend() -> None:
+    program = experimental.compile("EXP_VAL X0 Z0")
+    result = experimental.sample(program, 3, seed=1)
+
+    assert program.num_exp_vals == 2
+    np.testing.assert_allclose(result.exp_vals, [[0.0, 1.0]] * 3, atol=1e-12)
 
 
 def test_noise_readout_feedback_and_syndrome_share_one_symbolic_record() -> None:
@@ -79,7 +76,7 @@ def test_asymmetric_readout_noise_uses_the_pre_flip_record() -> None:
 
 def test_postselection_survivor_metadata_and_records() -> None:
     program = experimental.compile(
-        "H 0\nM 0\nDETECTOR rec[-1]\nOBSERVABLE_INCLUDE(0) rec[-1]",
+        "H 0\nEXP_VAL X0\nM 0\nDETECTOR rec[-1]\nOBSERVABLE_INCLUDE(0) rec[-1]",
         postselection_mask=[1],
     )
     with pytest.raises(ValueError, match="sample_survivors"):
@@ -95,6 +92,7 @@ def test_postselection_survivor_metadata_and_records() -> None:
     assert np.all(result.measurements == 0)
     assert np.all(result.detectors == 0)
     assert np.all(result.observables == 0)
+    np.testing.assert_allclose(result.exp_vals, 1.0, atol=1e-12)
 
 
 def test_noisy_record_probabilities_remain_explicitly_unsupported() -> None:

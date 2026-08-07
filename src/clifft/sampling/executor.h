@@ -67,6 +67,7 @@ class ExecutablePlan {
     [[nodiscard]] uint32_t num_hidden_records() const { return num_hidden_records_; }
     [[nodiscard]] uint32_t num_detectors() const { return num_detectors_; }
     [[nodiscard]] uint32_t num_observables() const { return num_observables_; }
+    [[nodiscard]] uint32_t num_exp_vals() const { return num_exp_vals_; }
     [[nodiscard]] bool has_postselection() const { return has_postselection_; }
     [[nodiscard]] bool has_readout_noise() const { return has_readout_noise_; }
     [[nodiscard]] bool has_instruments() const { return has_instruments_; }
@@ -147,6 +148,12 @@ class ExecutablePlan {
         uint32_t observable = 0;
     };
 
+    struct ExecuteExpectation {
+        std::optional<PreparedPauli> pauli;
+        PreparedExpression sign;
+        uint32_t exp_val = 0;
+    };
+
     struct ExecuteInstrument {
         InstrumentMode mode = InstrumentMode::Classical;
         PreparedExpression sign;
@@ -174,10 +181,11 @@ class ExecutablePlan {
         double total_probability = 0.0;
     };
 
-    using Action = std::variant<ExecuteRotation, ExecutePromotion, ExecuteActiveMeasurement,
-                                ExecuteDormantMeasurement, ExecuteClassicalRecord,
-                                ExecuteSymbolDefinition, ExecuteReadoutNoise, ExecuteDetector,
-                                ExecuteObservable, ExecuteInstrument, ExecuteBoundary>;
+    using Action =
+        std::variant<ExecuteRotation, ExecutePromotion, ExecuteActiveMeasurement,
+                     ExecuteDormantMeasurement, ExecuteClassicalRecord, ExecuteSymbolDefinition,
+                     ExecuteReadoutNoise, ExecuteDetector, ExecuteObservable, ExecuteExpectation,
+                     ExecuteInstrument, ExecuteBoundary>;
 
     PreparedExpression prepare_expression(const AffineBool& expression);
     PreparedExpression prepare_measurement_correction(const AffineBool& outcome, uint32_t branch);
@@ -189,6 +197,7 @@ class ExecutablePlan {
     uint32_t num_hidden_records_ = 0;
     uint32_t num_detectors_ = 0;
     uint32_t num_observables_ = 0;
+    uint32_t num_exp_vals_ = 0;
     uint32_t num_symbols_ = 0;
     bool has_postselection_ = false;
     bool has_readout_noise_ = false;
@@ -267,6 +276,7 @@ class Executor {
     }
     [[nodiscard]] std::span<const uint8_t> detectors() const { return detectors_; }
     [[nodiscard]] std::span<const uint8_t> observables() const { return observables_; }
+    [[nodiscard]] std::span<const double> exp_vals() const { return exp_vals_; }
     [[nodiscard]] bool discarded() const { return discarded_; }
     [[nodiscard]] std::optional<InstrumentTrap> pending_trap() const { return pending_trap_; }
     [[nodiscard]] const State& state() const { return state_; }
@@ -310,6 +320,9 @@ class Executor {
     void execute_action(const ExecutablePlan::ExecuteObservable& action,
                         std::span<const uint8_t> forced_records, ReplayResult& result) noexcept;
     template <bool ForceRecords>
+    void execute_action(const ExecutablePlan::ExecuteExpectation& action,
+                        std::span<const uint8_t> forced_records, ReplayResult& result) noexcept;
+    template <bool ForceRecords>
     void execute_action(const ExecutablePlan::ExecuteInstrument& action,
                         std::span<const uint8_t> forced_records, ReplayResult& result) noexcept;
     template <bool SampleNoise>
@@ -329,6 +342,7 @@ class Executor {
     std::vector<uint8_t> records_;
     std::vector<uint8_t> detectors_;
     std::vector<uint8_t> observables_;
+    std::vector<double> exp_vals_;
     std::vector<uint8_t> forced_record_mask_;
     std::vector<uint8_t> forced_record_values_;
     std::vector<uint32_t> previous_presampled_ones_;
@@ -358,6 +372,7 @@ struct SamplingResult {
     std::vector<uint8_t> measurements;
     std::vector<uint8_t> detectors;
     std::vector<uint8_t> observables;
+    std::vector<double> exp_vals;
 };
 
 struct SamplingSurvivorResult {
@@ -368,6 +383,7 @@ struct SamplingSurvivorResult {
     std::vector<uint8_t> measurements;
     std::vector<uint8_t> detectors;
     std::vector<uint8_t> observables;
+    std::vector<double> exp_vals;
 };
 
 [[nodiscard]] SamplingResult sample(const ExecutablePlan& plan, uint32_t shots,

@@ -920,6 +920,7 @@ NB_MODULE(_clifft_core, m) {
                      &clifft::sampling::ExecutablePlan::num_hidden_records)
         .def_prop_ro("num_detectors", &clifft::sampling::ExecutablePlan::num_detectors)
         .def_prop_ro("num_observables", &clifft::sampling::ExecutablePlan::num_observables)
+        .def_prop_ro("num_exp_vals", &clifft::sampling::ExecutablePlan::num_exp_vals)
         .def_prop_ro("has_postselection", &clifft::sampling::ExecutablePlan::has_postselection)
         .def_prop_ro("num_actions", &clifft::sampling::ExecutablePlan::num_actions)
         .def("__repr__", [](const clifft::sampling::ExecutablePlan& p) {
@@ -970,7 +971,9 @@ NB_MODULE(_clifft_core, m) {
                 vec_to_numpy(std::move(result.detectors), {shots, program.num_detectors()});
             auto observables =
                 vec_to_numpy(std::move(result.observables), {shots, program.num_observables()});
-            return nb::make_tuple(measurements, detectors, observables);
+            auto exp_vals =
+                vec_to_numpy(std::move(result.exp_vals), {shots, program.num_exp_vals()});
+            return nb::make_tuple(measurements, detectors, observables, exp_vals);
         },
         nb::arg("program"), nb::arg("shots"), nb::arg("seed") = nb::none(),
         "Sample an experimental scalar sampling program.");
@@ -994,8 +997,11 @@ NB_MODULE(_clifft_core, m) {
             const size_t num_observable_counts = result.observable_ones.size();
             auto observable_ones =
                 vec_to_numpy(std::move(result.observable_ones), {num_observable_counts});
+            auto exp_vals =
+                vec_to_numpy(std::move(result.exp_vals), {rows, program.num_exp_vals()});
             return nb::make_tuple(measurements, detectors, observables, result.total_shots,
-                                  result.passed_shots, result.logical_errors, observable_ones);
+                                  result.passed_shots, result.logical_errors, observable_ones,
+                                  exp_vals);
         },
         nb::arg("program"), nb::arg("shots"), nb::arg("seed") = nb::none(),
         nb::arg("keep_records") = false,

@@ -13,6 +13,7 @@ using clifft::sampling::ApplyInstrument;
 using clifft::sampling::ApplyReadoutNoise;
 using clifft::sampling::DefineSymbol;
 using clifft::sampling::DetectorSlot;
+using clifft::sampling::ExpValSlot;
 using clifft::sampling::InstrumentBoundary;
 using clifft::sampling::InstrumentDistribution;
 using clifft::sampling::InstrumentMode;
@@ -33,6 +34,7 @@ using clifft::sampling::SymbolId;
 using clifft::sampling::SymbolInfo;
 using clifft::sampling::SymbolKind;
 using clifft::sampling::WriteDetector;
+using clifft::sampling::WriteExpectationValue;
 using clifft::sampling::WriteObservable;
 
 namespace {
@@ -493,6 +495,33 @@ TEST_CASE("Sampling plan distinguishes dormant branch labels from records") {
     REQUIRE(plan.inspect().find("branch=s0 outcome=1 ^ s0 record=0") != std::string::npos);
 }
 
+TEST_CASE("Sampling plan validates expectation output slots and zero probes") {
+    SamplingPlan plan;
+    plan.num_qubits = 1;
+    plan.initial_active_width = 1;
+    plan.max_active_width = 1;
+    plan.num_exp_vals = 2;
+    plan.actions = {
+        PlannedAction{1, 1,
+                      WriteExpectationValue{ActivePauli{1, 1}, AffineBool(true), ExpValSlot{0}}},
+        PlannedAction{1, 1, WriteExpectationValue{std::nullopt, AffineBool{}, ExpValSlot{1}}},
+    };
+
+    REQUIRE_NOTHROW(plan.validate());
+    const std::string text = plan.inspect();
+    REQUIRE(text.find("dense_passes=1 write_expectation") != std::string::npos);
+    REQUIRE(text.find("dense_passes=0 write_expectation zero exp_val=1") != std::string::npos);
+
+    SECTION("duplicate slot") {
+        std::get<WriteExpectationValue>(plan.actions[1].action).exp_val = ExpValSlot{0};
+        REQUIRE_THROWS_AS(plan.validate(), std::invalid_argument);
+    }
+    SECTION("zero probe carries irrelevant sign") {
+        std::get<WriteExpectationValue>(plan.actions[1].action).sign = AffineBool(true);
+        REQUIRE_THROWS_AS(plan.validate(), std::invalid_argument);
+    }
+}
+
 TEST_CASE("Sampling plan predicts only state touching dense passes") {
     SamplingPlan plan = valid_rotation_plan();
     REQUIRE_NOTHROW(plan.validate());
@@ -508,5 +537,11 @@ TEST_CASE("Sampling plan predicts only state touching dense passes") {
     REQUIRE(clifft::sampling::predicted_dense_passes(ApplyReadoutNoise{}) == 0);
     REQUIRE(clifft::sampling::predicted_dense_passes(WriteDetector{}) == 0);
     REQUIRE(clifft::sampling::predicted_dense_passes(WriteObservable{}) == 0);
+    REQUIRE(clifft::sampling::predicted_dense_passes(
+                WriteExpectationValue{ActivePauli{1, 0}, AffineBool{}, ExpValSlot{0}}) == 1);
+    REQUIRE(clifft::sampling::predicted_dense_passes(
+                WriteExpectationValue{ActivePauli{}, AffineBool{}, ExpValSlot{0}}) == 0);
+    REQUIRE(clifft::sampling::predicted_dense_passes(
+                WriteExpectationValue{std::nullopt, AffineBool{}, ExpValSlot{0}}) == 0);
     REQUIRE(clifft::sampling::predicted_dense_passes(InstrumentBoundary{}) == 0);
 }

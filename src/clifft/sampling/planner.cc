@@ -42,6 +42,12 @@ struct PendingMeasurement {
     SymbolId branch{};
 };
 
+struct PendingExpectation {
+    Pauli body;
+    AffineBool sign;
+    ExpValSlot exp_val{};
+};
+
 struct PendingConditionalPauli {
     Pauli body;
     RecordSlot controller{};
@@ -93,9 +99,9 @@ struct PendingObservable {
     ObservableSlot observable{};
 };
 
-using PendingOperation =
-    std::variant<PendingRotation, PendingMeasurement, PendingConditionalPauli, PendingNoise,
-                 PendingReadoutNoise, PendingInstrument, PendingDetector, PendingObservable>;
+using PendingOperation = std::variant<PendingRotation, PendingMeasurement, PendingExpectation,
+                                      PendingConditionalPauli, PendingNoise, PendingReadoutNoise,
+                                      PendingInstrument, PendingDetector, PendingObservable>;
 
 Pauli pauli_from_hir(const HirModule& hir, const HeisenbergOp& op) {
     Pauli result(hir.num_qubits);
@@ -315,7 +321,8 @@ void visit_pending_pauli(PendingOperation& operation, Function&& function) {
         [&](auto& typed) {
             using T = std::decay_t<decltype(typed)>;
             if constexpr (std::is_same_v<T, PendingRotation> ||
-                          std::is_same_v<T, PendingMeasurement>) {
+                          std::is_same_v<T, PendingMeasurement> ||
+                          std::is_same_v<T, PendingExpectation>) {
                 function(typed.body, &typed.sign);
             } else if constexpr (std::is_same_v<T, PendingInstrument>) {
                 function(typed.body, &typed.sign);
@@ -363,6 +370,7 @@ void propagate_conditional_pauli(std::vector<PendingOperation>& pending, size_t 
                 using T = std::decay_t<decltype(typed)>;
                 if constexpr (std::is_same_v<T, PendingRotation> ||
                               std::is_same_v<T, PendingMeasurement> ||
+                              std::is_same_v<T, PendingExpectation> ||
                               std::is_same_v<T, PendingInstrument>) {
                     if (anticommutes(correction, typed.body)) {
                         typed.sign ^= condition;
@@ -392,6 +400,7 @@ void propagate_branch(std::vector<PendingOperation>& pending, size_t begin,
                 using T = std::decay_t<decltype(typed)>;
                 if constexpr (std::is_same_v<T, PendingRotation> ||
                               std::is_same_v<T, PendingMeasurement> ||
+                              std::is_same_v<T, PendingExpectation> ||
                               std::is_same_v<T, PendingInstrument>) {
                     if (typed.body.zs[branch_coordinate]) {
                         typed.sign ^= AffineBool::symbol(branch);
@@ -589,7 +598,16 @@ std::vector<PendingOperation> queue_supported_operations(const HirModule& hir, S
                                       ObservableSlot{observable_index}});
                 break;
             }
-            case OpType::EXP_VAL:
+            case OpType::EXP_VAL: {
+                const uint32_t exp_val_index = static_cast<uint32_t>(op.exp_val_idx());
+                if (exp_val_index >= hir.num_exp_vals) {
+                    throw std::invalid_argument(
+                        "sampling planner expectation slot is out of range");
+                }
+                pending.emplace_back(PendingExpectation{
+                    pauli_from_hir(hir, op), AffineBool(hir.sign(op)), ExpValSlot{exp_val_index}});
+                break;
+            }
             case OpType::NUM_OP_TYPES:
                 throw std::invalid_argument("sampling planner does not support HIR operation " +
                                             op_type_to_str(op.op_type()) + " at index " +
@@ -777,6 +795,7 @@ SamplingPlan plan_sampling(const HirModule& hir, SamplingPlanOptions options) {
     plan.num_instrument_sites = static_cast<uint32_t>(hir.instrument_sites.size());
     plan.num_detectors = hir.num_detectors;
     plan.num_observables = hir.num_observables;
+    plan.num_exp_vals = hir.num_exp_vals;
     plan.global_weight = hir.global_weight;
 
     std::vector<PendingOperation> pending = queue_supported_operations(hir, plan, options);
@@ -845,6 +864,16 @@ SamplingPlan plan_sampling(const HirModule& hir, SamplingPlanOptions options) {
                         ApplyReadoutNoise{flip, source, operation.record,
                                           operation.prob_zero_to_one, operation.prob_one_to_zero}});
                     record_values[index(operation.record)] = source ^ AffineBool::symbol(flip);
+                } else if constexpr (std::is_same_v<T, PendingExpectation>) {
+                    const bool is_zero =
+                        first_x_at_or_above(operation.body, active_width).has_value();
+                    plan.actions.push_back(PlannedAction{
+                        active_width, active_width,
+                        WriteExpectationValue{
+                            is_zero ? std::nullopt
+                                    : std::optional<ActivePauli>{active_projection(operation.body,
+                                                                                   active_width)},
+                            is_zero ? AffineBool{} : operation.sign, operation.exp_val}});
                 } else if constexpr (std::is_same_v<T, PendingInstrument>) {
                     process_instrument(pending, i, operation, plan, active_width);
                 } else if constexpr (std::is_same_v<T, PendingDetector>) {

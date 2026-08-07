@@ -34,6 +34,7 @@ using clifft::sampling::SamplingPlan;
 using clifft::sampling::SymbolId;
 using clifft::sampling::SymbolKind;
 using clifft::sampling::WriteDetector;
+using clifft::sampling::WriteExpectationValue;
 using clifft::sampling::WriteObservable;
 using clifft::test::X;
 using clifft::test::Z;
@@ -335,11 +336,44 @@ TEST_CASE("Sampling planner preserves sign flipped rotation global factors") {
     }
 }
 
-TEST_CASE("Sampling planner rejects unsupported operations explicitly") {
-    const HirModule hir = clifft::trace(clifft::parse("EXP_VAL Z0"));
+TEST_CASE("Sampling planner classifies active and dormant expectation probes") {
+    const SamplingPlan plan = plan_sampling(clifft::trace(clifft::parse(R"(
+        H 0
+        T 0
+        EXP_VAL X0
+        EXP_VAL X1
+        EXP_VAL Z1
+    )")));
 
-    REQUIRE_THROWS_WITH(plan_sampling(hir),
-                        "sampling planner does not support HIR operation EXP_VAL at index 0");
+    REQUIRE(plan.num_exp_vals == 3);
+    REQUIRE(plan.actions.size() == 4);
+    const auto& active = action_as<WriteExpectationValue>(plan, 1);
+    REQUIRE(active.pauli.has_value());
+    REQUIRE_FALSE(active.pauli->is_identity());
+    REQUIRE(active.exp_val == clifft::sampling::ExpValSlot{0});
+    const auto& dormant_x = action_as<WriteExpectationValue>(plan, 2);
+    REQUIRE_FALSE(dormant_x.pauli.has_value());
+    REQUIRE(dormant_x.sign == AffineBool{});
+    const auto& dormant_z = action_as<WriteExpectationValue>(plan, 3);
+    REQUIRE(dormant_z.pauli.has_value());
+    REQUIRE(dormant_z.pauli->is_identity());
+}
+
+TEST_CASE("Sampling planner propagates stochastic signs into expectation probes") {
+    const SamplingPlan noise =
+        plan_sampling(clifft::trace(clifft::parse("X_ERROR(1) 0\nEXP_VAL Z0")));
+    const auto& noise_probe = action_as<WriteExpectationValue>(noise, 0);
+    REQUIRE(noise_probe.pauli.has_value());
+    REQUIRE(noise_probe.pauli->is_identity());
+    REQUIRE(noise_probe.sign == AffineBool::symbol(SymbolId{0}));
+
+    const SamplingPlan feedback =
+        plan_sampling(clifft::trace(clifft::parse("H 0\nM 0\nCX rec[-1] 1\nEXP_VAL Z1")));
+    const auto& measurement = action_as<MeasureDormantRandom>(feedback, 0);
+    const auto& feedback_probe = action_as<WriteExpectationValue>(feedback, 1);
+    REQUIRE(feedback_probe.pauli.has_value());
+    REQUIRE(feedback_probe.pauli->is_identity());
+    REQUIRE(feedback_probe.sign == AffineBool::symbol(measurement.branch));
 }
 
 TEST_CASE("Sampling planner eliminates Pauli noise and feedback into record expressions") {
