@@ -16,7 +16,6 @@
 #include <cstdint>
 #include <optional>
 #include <span>
-#include <utility>
 #include <variant>
 #include <vector>
 
@@ -46,6 +45,11 @@ struct InstrumentTrap {
     InstrumentSiteId site{};
     uint8_t source = 0;
     bool destination_pending = false;
+};
+
+struct ForcedTraceOut {
+    RecordSlot record{};
+    uint8_t source = 0;
 };
 
 [[nodiscard]] MeasurementBranchClassification classify_measurement_branch(
@@ -228,7 +232,7 @@ class Executor {
     // the source chosen by a trap-only dormant instrument to the continuation's
     // hidden trace-out measurement.
     void resume(const ExecutablePlan& continuation,
-                std::optional<std::pair<RecordSlot, uint8_t>> forced_record = std::nullopt);
+                std::optional<ForcedTraceOut> forced_trace_out = std::nullopt);
 
     // Replays the plan while forcing each record to a supplied Boolean value.
     // This reconstructs the corresponding branch state and computes its joint

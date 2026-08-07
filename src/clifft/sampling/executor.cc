@@ -265,7 +265,7 @@ void Executor::run_shot(std::span<const uint8_t> presampled_values) noexcept {
 }
 
 void Executor::resume(const ExecutablePlan& continuation,
-                      std::optional<std::pair<RecordSlot, uint8_t>> forced_record) {
+                      std::optional<ForcedTraceOut> forced_trace_out) {
     if (!pending_trap_.has_value()) {
         throw std::invalid_argument("sampling executor resume requires a pending instrument trap");
     }
@@ -317,19 +317,19 @@ void Executor::resume(const ExecutablePlan& continuation,
     forced_record_values_.resize(records_.size(), 0);
     previous_presampled_ones_.reserve(continuation.presampled_symbols_.size());
 
-    if (forced_record.has_value()) {
-        if (forced_record->second > 1 || index(forced_record->first) >= record_count) {
+    if (forced_trace_out.has_value()) {
+        if (forced_trace_out->source > 1 || index(forced_trace_out->record) >= record_count) {
             throw std::invalid_argument("sampling continuation forced record is out of range");
         }
-        const uint32_t record = index(forced_record->first);
+        const uint32_t record = index(forced_trace_out->record);
         forced_record_mask_[record] = 1;
-        forced_record_values_[record] = forced_record->second;
+        forced_record_values_[record] = forced_trace_out->source;
     }
 
     plan_ = &continuation;
     pending_trap_.reset();
     (void)execute_actions<false, true>({}, offset);
-    if (forced_record.has_value() && forced_record_mask_[index(forced_record->first)] != 0) {
+    if (forced_trace_out.has_value() && forced_record_mask_[index(forced_trace_out->record)] != 0) {
         throw std::logic_error("sampling continuation did not consume its forced trace-out record");
     }
 }

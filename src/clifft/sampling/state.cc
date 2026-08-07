@@ -109,6 +109,9 @@ void State::ensure_capacity(uint32_t max_active_width) {
         throw std::length_error("sampling state allocation exceeds addressable memory");
     }
 
+    // The old block must remain live until both coefficient arrays are copied.
+    // This transient old-plus-new peak preserves the shot if allocation fails;
+    // portable aligned allocation has no in-place growth operation.
     PageAlignedAllocation allocation(static_cast<size_t>(allocated_doubles) * sizeof(double));
     double* const new_real = static_cast<double*>(allocation.data());
     double* const new_imag = new_real + new_coefficient_stride;

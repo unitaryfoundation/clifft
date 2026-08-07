@@ -31,6 +31,7 @@ using clifft::sampling::classify_measurement_branch;
 using clifft::sampling::DefineSymbol;
 using clifft::sampling::ExecutablePlan;
 using clifft::sampling::Executor;
+using clifft::sampling::ForcedTraceOut;
 using clifft::sampling::index;
 using clifft::sampling::InstrumentBoundary;
 using clifft::sampling::InstrumentDistribution;
@@ -664,7 +665,7 @@ TEST_CASE("Sampling continuation consumes a forced hidden source record") {
     REQUIRE(trap.has_value());
     REQUIRE(trap->destination_pending);
 
-    executor.resume(continuation, std::pair{RecordSlot{0}, trap->source});
+    executor.resume(continuation, ForcedTraceOut{RecordSlot{0}, trap->source});
     REQUIRE_FALSE(executor.pending_trap().has_value());
     REQUIRE(executor.hidden_records()[0] == trap->source);
 

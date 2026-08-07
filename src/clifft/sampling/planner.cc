@@ -64,11 +64,18 @@ struct PendingReadoutNoise {
 };
 
 struct PendingInstrument {
+    // Source observable and computational destination correction, expressed
+    // in the coordinate basis that future planner transformations update.
     Pauli body;
     Pauli destination_flip;
+    // Maps the source observable's eigenspaces to physical G and E; earlier
+    // stochastic outcomes can make this mapping symbolic.
     AffineBool sign;
+    // Indexes both the plan-owned distribution and its continuation boundary.
     InstrumentSiteId site{};
-    SymbolId flip{};
+    // Reserved in HIR order so a rewritten suffix cannot renumber the prefix.
+    SymbolId destination_flip_symbol{};
+    // Continuations retain only noise and symbols preceding this HIR site.
     uint32_t next_noise_site = 0;
     uint32_t symbol_prefix_size = 0;
     bool neglect_damping = false;
@@ -698,6 +705,8 @@ void process_instrument(std::vector<PendingOperation>& pending, size_t operation
     uint32_t active_after = active_width;
 
     if (dormant_pivot.has_value()) {
+        // Equal no-fire factors normalize away. Otherwise exact damping needs
+        // the dormant-coherent source represented in the dense state.
         if (instrument.neglect_damping || distribution.p_fire[0] == distribution.p_fire[1]) {
             mode = InstrumentMode::DormantTrap;
             sign = AffineBool{};
@@ -708,6 +717,8 @@ void process_instrument(std::vector<PendingOperation>& pending, size_t operation
                                           ", but the dense-state limit is " +
                                           std::to_string(kDenseActiveWidthLimit));
             }
+            // Apply one coordinate change consistently to the source,
+            // destination correction, and every later operation.
             const Tableau frame =
                 dormant_promotion_frame(instrument.body, active_width, *dormant_pivot);
             const Tableau old_to_new = frame.inverse();
@@ -723,25 +734,32 @@ void process_instrument(std::vector<PendingOperation>& pending, size_t operation
         }
     } else {
         source = active_projection(instrument.body, active_width);
+        // An identity projection means the source is already determined by
+        // the symbolic sign; otherwise its active Pauli needs coefficient work.
         mode = source.is_identity() ? InstrumentMode::Classical : InstrumentMode::Active;
     }
 
     const uint32_t action_index = static_cast<uint32_t>(plan.actions.size());
     std::optional<SymbolId> destination_symbol;
     if (mode != InstrumentMode::DormantTrap) {
-        destination_symbol = instrument.flip;
-        define_symbol(plan, instrument.flip, SymbolKind::Instrument, action_index);
+        // Only an in-line computational destination needs the reserved flip;
+        // a trapped continuation resolves its destination instead.
+        destination_symbol = instrument.destination_flip_symbol;
+        define_symbol(plan, instrument.destination_flip_symbol, SymbolKind::Instrument,
+                      action_index);
     }
     plan.actions.push_back(
         PlannedAction{active_width, active_after,
                       ApplyInstrument{instrument.site, mode, source, sign, destination_symbol}});
 
     if (destination_symbol.has_value()) {
+        // Compile the possible runtime flip into signs of future operations.
         propagate_conditional_pauli(pending, operation_index + 1, destination_flip,
                                     AffineBool::symbol(*destination_symbol));
     }
     active_width = active_after;
     plan.max_active_width = std::max(plan.max_active_width, active_width);
+    // A trapped shot resumes here so it cannot execute the instrument twice.
     plan.actions.push_back(
         PlannedAction{active_width, active_width,
                       InstrumentBoundary{instrument.site, instrument.next_noise_site,

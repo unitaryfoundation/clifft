@@ -208,8 +208,8 @@ enum class InstrumentMode : uint8_t {
 struct ApplyInstrument {
     InstrumentSiteId site{};
     InstrumentMode mode = InstrumentMode::Classical;
-    // Identity for Classical and DormantTrap. Activate uses the post-activation
-    // width, while Active uses the unchanged width.
+    // The source is identity for Classical and DormantTrap. Activate uses the
+    // post-activation width, while Active uses the unchanged width.
     ActivePauli source;
     AffineBool sign;
     // Present when a computational destination can continue in-line. The
@@ -245,8 +245,8 @@ struct PlannedAction {
 struct SymbolInfo {
     SymbolKind kind = SymbolKind::Unused;
 
-    // For action-defined kinds, this identifies the unique assigning action.
-    // Presampled and Unused symbols use nullopt.
+    // Index of the action that assigns this symbol. Required for Derived,
+    // Branch, Readout, and Instrument; absent for Presampled and Unused.
     std::optional<uint32_t> defining_action;
 
     // For a Presampled noise symbol, this identifies its stable HIR noise site.
