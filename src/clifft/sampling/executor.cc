@@ -21,26 +21,6 @@ inline constexpr bool kAlwaysFalse = false;
 
 constexpr double kLogHalf = -std::numbers::ln2;
 
-uint32_t index(SymbolId id) {
-    return static_cast<uint32_t>(id);
-}
-
-uint32_t index(RecordSlot slot) {
-    return static_cast<uint32_t>(slot);
-}
-
-uint32_t index(InstrumentSiteId site) {
-    return static_cast<uint32_t>(site);
-}
-
-uint32_t index(DetectorSlot slot) {
-    return static_cast<uint32_t>(slot);
-}
-
-uint32_t index(ObservableSlot slot) {
-    return static_cast<uint32_t>(slot);
-}
-
 }  // namespace
 
 MeasurementBranchClassification classify_measurement_branch(

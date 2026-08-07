@@ -36,6 +36,27 @@ enum class InstrumentSiteId : uint32_t {};
 enum class DetectorSlot : uint32_t {};
 enum class ObservableSlot : uint32_t {};
 
+// Keep the IDs non-interchangeable while giving every sampling layer one
+// explicit operation for indexing their plan-owned storage.
+[[nodiscard]] constexpr uint32_t index(SymbolId id) noexcept {
+    return static_cast<uint32_t>(id);
+}
+[[nodiscard]] constexpr uint32_t index(RecordSlot slot) noexcept {
+    return static_cast<uint32_t>(slot);
+}
+[[nodiscard]] constexpr uint32_t index(NoiseSiteId site) noexcept {
+    return static_cast<uint32_t>(site);
+}
+[[nodiscard]] constexpr uint32_t index(InstrumentSiteId site) noexcept {
+    return static_cast<uint32_t>(site);
+}
+[[nodiscard]] constexpr uint32_t index(DetectorSlot slot) noexcept {
+    return static_cast<uint32_t>(slot);
+}
+[[nodiscard]] constexpr uint32_t index(ObservableSlot slot) noexcept {
+    return static_cast<uint32_t>(slot);
+}
+
 enum class SymbolKind : uint8_t {
     Presampled,  // Available before the action stream, such as sampled noise.
     Derived,     // Computed as a parity of previously available symbols.

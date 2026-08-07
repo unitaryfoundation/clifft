@@ -619,7 +619,7 @@ SamplingPlan plan_sampling(const HirModule& hir, SamplingPlanOptions options) {
     std::vector<AffineBool> observable_values(hir.num_observables);
 
     auto require_record = [&](RecordSlot record, size_t operation_index) -> const AffineBool& {
-        const uint32_t record_index = static_cast<uint32_t>(record);
+        const uint32_t record_index = index(record);
         if (record_index >= record_values.size() || !record_values[record_index].has_value()) {
             throw std::invalid_argument("sampling planner operation " +
                                         std::to_string(operation_index) + " reads record " +
@@ -629,7 +629,7 @@ SamplingPlan plan_sampling(const HirModule& hir, SamplingPlanOptions options) {
     };
 
     auto assign_record = [&](RecordSlot record, AffineBool value, size_t operation_index) {
-        const uint32_t record_index = static_cast<uint32_t>(record);
+        const uint32_t record_index = index(record);
         if (record_index >= record_values.size()) {
             throw std::invalid_argument("sampling planner operation " +
                                         std::to_string(operation_index) + " writes record " +
@@ -679,8 +679,7 @@ SamplingPlan plan_sampling(const HirModule& hir, SamplingPlanOptions options) {
                         active_width, active_width,
                         ApplyReadoutNoise{flip, source, operation.record,
                                           operation.prob_zero_to_one, operation.prob_one_to_zero}});
-                    record_values[static_cast<uint32_t>(operation.record)] =
-                        source ^ AffineBool::symbol(flip);
+                    record_values[index(operation.record)] = source ^ AffineBool::symbol(flip);
                 } else if constexpr (std::is_same_v<T, PendingDetector>) {
                     AffineBool outcome = record_parity(operation.records, i);
                     outcome ^= operation.expected;
@@ -689,7 +688,7 @@ SamplingPlan plan_sampling(const HirModule& hir, SamplingPlanOptions options) {
                         WriteDetector{outcome, operation.detector, operation.postselected}});
                     plan.has_postselection |= operation.postselected;
                 } else if constexpr (std::is_same_v<T, PendingObservable>) {
-                    observable_values[static_cast<uint32_t>(operation.observable)] ^=
+                    observable_values[index(operation.observable)] ^=
                         record_parity(operation.records, i);
                 } else {
                     static_assert(kAlwaysFalse<T>, "Unhandled pending operation alternative");
