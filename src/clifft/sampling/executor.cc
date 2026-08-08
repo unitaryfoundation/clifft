@@ -100,6 +100,7 @@ ExecutablePlan::ExecutablePlan(const SamplingPlan& plan)
     if (num_expression_terms > std::numeric_limits<uint32_t>::max()) {
         throw std::length_error("sampling executable expression storage exceeds uint32 range");
     }
+    // Retain action-order terms only long enough to build the reverse dependency map.
     std::vector<uint32_t> expression_terms;
     expression_terms.reserve(num_expression_terms);
     std::vector<uint32_t> expression_term_begins;
@@ -261,6 +262,7 @@ ExecutablePlan::ExecutablePlan(const SamplingPlan& plan)
             planned.action);
     }
 
+    // Transpose expression-major terms into the symbol-major dependency tape.
     expression_dependency_offsets_.assign(static_cast<size_t>(num_symbols_) + 1, 0);
     for (uint32_t symbol : expression_terms) {
         ++expression_dependency_offsets_[static_cast<size_t>(symbol) + 1];

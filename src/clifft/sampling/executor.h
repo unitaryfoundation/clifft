@@ -222,6 +222,9 @@ class ExecutablePlan {
     uint32_t initial_noise_end_ = 0;
     std::complex<double> global_weight_ = {1.0, 0.0};
     std::optional<stim::Tableau<kStimWidth>> final_tableau_;
+    // Constants are indexed by PreparedExpression::register_id. The dependency
+    // vectors form CSR: targets[offsets[symbol]..offsets[symbol + 1]) lists the
+    // expression registers toggled when that symbol is true.
     std::vector<uint8_t> expression_register_constants_;
     std::vector<uint32_t> expression_dependency_offsets_;
     std::vector<uint32_t> expression_dependency_targets_;
