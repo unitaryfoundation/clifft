@@ -13,8 +13,6 @@ namespace clifft::sampling {
 // the State's storage.
 struct PreparedPauli {
     uint32_t active_width = 0;
-    // Pairs differ by x, so their phases differ by (-1)^popcount(x & z).
-    bool partner_phase_negated = false;
     uint64_t x = 0;
     uint64_t z = 0;
     uint64_t pair_selector = 0;

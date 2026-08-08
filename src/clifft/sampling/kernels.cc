@@ -56,7 +56,7 @@ void apply_nondiagonal_rotation(State& state, const PreparedRotation& rotation,
             const double right_imag = imag[right];
             const bool odd_phase = (std::popcount(left & rotation.pauli.z) & 1U) != 0;
             const double left_sine = odd_phase ? -even_left_sine : even_left_sine;
-            const double right_sine = rotation.pauli.partner_phase_negated ? -left_sine : left_sine;
+            const double right_sine = RealPhase ? left_sine : -left_sine;
 
             if constexpr (RealPhase) {
                 real[left] = rotation.cosine * left_real + right_sine * right_imag;
@@ -117,7 +117,6 @@ PreparedPauli prepare_pauli(ActivePauli pauli, uint32_t active_width) {
         {1.0, 0.0}, {0.0, 1.0}, {-1.0, 0.0}, {0.0, -1.0}};
     const uint32_t overlap = std::popcount(pauli.x & pauli.z);
     return PreparedPauli{.active_width = active_width,
-                         .partner_phase_negated = (overlap & 1U) != 0,
                          .x = pauli.x,
                          .z = pauli.z,
                          .pair_selector = std::bit_floor(pauli.x),
