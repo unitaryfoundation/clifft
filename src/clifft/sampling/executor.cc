@@ -5,6 +5,7 @@
 #include "clifft/util/numeric.h"
 
 #include <algorithm>
+#include <array>
 #include <bit>
 #include <cassert>
 #include <cmath>
@@ -22,6 +23,175 @@ template <typename>
 inline constexpr bool kAlwaysFalse = false;
 
 constexpr double kLogHalf = -std::numbers::ln2;
+
+// A general matrix sweep costs more than one Pauli butterfly, so match the
+// legacy fusion threshold and require it to replace at least three sweeps.
+constexpr size_t kMinFusedRotationActions = 3;
+
+// Each independent representative parity doubles the matrix table. Five
+// covers the measured QV workloads while bounding a descriptor at 32 matrices.
+constexpr uint32_t kMaxFusedRotationSelectors = 5;
+
+class BinaryBasis {
+  public:
+    [[nodiscard]] bool insert(uint64_t value, uint32_t max_rank = 64) {
+        uint64_t reduced = value;
+        for (int pivot = 63; pivot >= 0; --pivot) {
+            const uint64_t bit = uint64_t{1} << pivot;
+            if ((reduced & bit) != 0 && rows_[pivot] != 0) {
+                reduced ^= rows_[pivot];
+            }
+        }
+        if (reduced == 0) {
+            return true;
+        }
+        if (rank_ == max_rank) {
+            return false;
+        }
+        const uint32_t pivot = 63U - static_cast<uint32_t>(std::countl_zero(reduced));
+        const uint64_t bit = uint64_t{1} << pivot;
+        for (uint64_t& row : rows_) {
+            if ((row & bit) != 0) {
+                row ^= reduced;
+            }
+        }
+        rows_[pivot] = reduced;
+        ++rank_;
+        return true;
+    }
+
+    [[nodiscard]] uint32_t rank() const { return rank_; }
+
+    [[nodiscard]] std::vector<uint64_t> rows() const {
+        std::vector<uint64_t> result;
+        result.reserve(rank_);
+        for (uint64_t row : rows_) {
+            if (row != 0) {
+                result.push_back(row);
+            }
+        }
+        return result;
+    }
+
+  private:
+    std::array<uint64_t, 64> rows_{};
+    uint32_t rank_ = 0;
+};
+
+uint32_t basis_coordinates(uint64_t value, std::span<const uint64_t> rows) {
+    uint32_t coordinates = 0;
+    for (size_t i = 0; i < rows.size(); ++i) {
+        const uint64_t pivot = std::bit_floor(rows[i]);
+        if ((value & pivot) != 0) {
+            value ^= rows[i];
+            coordinates |= uint32_t{1} << i;
+        }
+    }
+    assert(value == 0 && "value must belong to the prepared binary span");
+    return coordinates;
+}
+
+void multiply_matrix_left(std::span<std::complex<double>> matrix,
+                          std::span<const std::complex<double>> left, size_t dimension) {
+    std::array<std::complex<double>, 16> result{};
+    for (size_t row = 0; row < dimension; ++row) {
+        for (size_t column = 0; column < dimension; ++column) {
+            for (size_t inner = 0; inner < dimension; ++inner) {
+                result[row * dimension + column] +=
+                    left[row * dimension + inner] * matrix[inner * dimension + column];
+            }
+        }
+    }
+    std::copy_n(result.begin(), dimension * dimension, matrix.begin());
+}
+
+std::optional<PreparedFusedRotation> prepare_fused_rotation(
+    std::span<const PlannedAction> actions) {
+    assert(actions.size() >= kMinFusedRotationActions &&
+           "fused rotation requires at least three actions");
+    const uint32_t active_width = actions.front().active_before;
+
+    BinaryBasis orbit_basis;
+    for (const PlannedAction& planned : actions) {
+        const auto& rotation = std::get<RotateActivePauli>(planned.action);
+        assert(planned.active_before == active_width && planned.active_after == active_width &&
+               rotation.sign.terms().empty() && !rotation.pauli.is_identity() &&
+               "fused rotation input must be a constant-sign nonidentity run");
+        const bool accepted = orbit_basis.insert(rotation.pauli.x, 2);
+        assert(accepted && "fused rotation X masks must have rank at most two");
+        static_cast<void>(accepted);
+    }
+    const std::vector<uint64_t> orbit_rows = orbit_basis.rows();
+    uint64_t orbit_pivots = 0;
+    for (uint64_t row : orbit_rows) {
+        orbit_pivots |= std::bit_floor(row);
+    }
+
+    BinaryBasis selector_basis;
+    for (const PlannedAction& planned : actions) {
+        const auto& rotation = std::get<RotateActivePauli>(planned.action);
+        if (!selector_basis.insert(rotation.pauli.z & ~orbit_pivots, kMaxFusedRotationSelectors)) {
+            return std::nullopt;
+        }
+    }
+    const std::vector<uint64_t> selector_rows = selector_basis.rows();
+
+    PreparedFusedRotation result;
+    result.active_width = active_width;
+    result.orbit_rank = orbit_basis.rank();
+    for (size_t i = 0; i < orbit_rows.size(); ++i) {
+        result.orbit_masks[i] = orbit_rows[i];
+        result.orbit_pivots[i] =
+            static_cast<uint32_t>(std::countr_zero(std::bit_floor(orbit_rows[i])));
+    }
+    result.selector_masks = selector_rows;
+
+    const size_t dimension = size_t{1} << result.orbit_rank;
+    const size_t matrix_size = dimension * dimension;
+    const size_t num_variants = size_t{1} << selector_rows.size();
+    result.matrices.resize(num_variants * matrix_size);
+    for (size_t variant = 0; variant < num_variants; ++variant) {
+        std::span<std::complex<double>> matrix(result.matrices.data() + variant * matrix_size,
+                                               matrix_size);
+        for (size_t diagonal = 0; diagonal < dimension; ++diagonal) {
+            matrix[diagonal * dimension + diagonal] = 1.0;
+        }
+
+        for (const PlannedAction& planned : actions) {
+            const auto& rotation = std::get<RotateActivePauli>(planned.action);
+            const PreparedRotation prepared =
+                prepare_rotation(rotation.pauli, active_width, rotation.half_turns);
+            const uint32_t x_coordinates = basis_coordinates(rotation.pauli.x, orbit_rows);
+            const uint32_t selector_coordinates =
+                basis_coordinates(rotation.pauli.z & ~orbit_pivots, selector_rows);
+            uint32_t local_z = 0;
+            for (size_t i = 0; i < orbit_rows.size(); ++i) {
+                local_z |=
+                    static_cast<uint32_t>(std::popcount(orbit_rows[i] & rotation.pauli.z) & 1U)
+                    << i;
+            }
+            const bool representative_phase =
+                (std::popcount(static_cast<uint32_t>(variant) & selector_coordinates) & 1U) != 0;
+            const double sine = rotation.sign.constant() ? -prepared.sine : prepared.sine;
+
+            std::array<std::complex<double>, 16> unitary{};
+            for (size_t column = 0; column < dimension; ++column) {
+                unitary[column * dimension + column] += prepared.cosine;
+                const bool odd_phase =
+                    representative_phase !=
+                    ((std::popcount(static_cast<uint32_t>(column) & local_z) & 1U) != 0);
+                const std::complex<double> phase =
+                    odd_phase ? -prepared.pauli.even_phase : prepared.pauli.even_phase;
+                unitary[(column ^ x_coordinates) * dimension + column] +=
+                    std::complex<double>{0.0, -sine} * phase;
+            }
+            multiply_matrix_left(matrix,
+                                 std::span<const std::complex<double>>(unitary).first(matrix_size),
+                                 dimension);
+        }
+    }
+    return result;
+}
 
 }  // namespace
 
@@ -178,7 +348,7 @@ ExecutablePlan::ExecutablePlan(const SamplingPlan& plan)
         boundary_noise_starts.empty() ? plan.num_noise_sites : boundary_noise_starts.front();
 
     size_t boundary_index = 0;
-    for (const PlannedAction& planned : plan.actions) {
+    auto lower_action = [&](const PlannedAction& planned) {
         std::visit(
             [&](const auto& typed) {
                 using T = std::decay_t<decltype(typed)>;
@@ -260,6 +430,50 @@ ExecutablePlan::ExecutablePlan(const SamplingPlan& plan)
                 }
             },
             planned.action);
+    };
+
+    size_t planned_index = 0;
+    while (planned_index < plan.actions.size()) {
+        const PlannedAction& first = plan.actions[planned_index];
+        const auto* first_rotation = std::get_if<RotateActivePauli>(&first.action);
+        if (first_rotation == nullptr || !first_rotation->sign.terms().empty() ||
+            first_rotation->pauli.is_identity()) {
+            lower_action(first);
+            ++planned_index;
+            continue;
+        }
+
+        BinaryBasis orbit_basis;
+        size_t run_end = planned_index;
+        while (run_end < plan.actions.size()) {
+            const PlannedAction& candidate = plan.actions[run_end];
+            const auto* rotation = std::get_if<RotateActivePauli>(&candidate.action);
+            if (rotation == nullptr || !rotation->sign.terms().empty() ||
+                rotation->pauli.is_identity() || candidate.active_before != first.active_before) {
+                break;
+            }
+            BinaryBasis next_basis = orbit_basis;
+            if (!next_basis.insert(rotation->pauli.x, 2)) {
+                break;
+            }
+            orbit_basis = next_basis;
+            ++run_end;
+        }
+
+        const std::span<const PlannedAction> run(plan.actions.data() + planned_index,
+                                                 run_end - planned_index);
+        if (run.size() >= kMinFusedRotationActions) {
+            if (std::optional<PreparedFusedRotation> fused = prepare_fused_rotation(run)) {
+                const uint32_t fused_index = static_cast<uint32_t>(fused_rotations_.size());
+                fused_rotations_.push_back(std::move(*fused));
+                actions_.emplace_back(ExecuteFusedRotation{fused_index});
+                planned_index = run_end;
+                continue;
+            }
+        }
+        for (; planned_index < run_end; ++planned_index) {
+            lower_action(plan.actions[planned_index]);
+        }
     }
 
     // Transpose expression-major terms into the symbol-major dependency tape.
@@ -572,6 +786,14 @@ template <bool ForceRecords>
 void Executor::execute_action(const ExecutablePlan::ExecuteRotation& action,
                               std::span<const uint8_t>, ReplayResult&) noexcept {
     apply_rotation(state_, action.rotation, evaluate(action.sign));
+}
+
+template <bool ForceRecords>
+void Executor::execute_action(const ExecutablePlan::ExecuteFusedRotation& action,
+                              std::span<const uint8_t>, ReplayResult&) noexcept {
+    assert(action.rotation < plan_->fused_rotations_.size() &&
+           "fused rotation action must reference a prepared descriptor");
+    apply_fused_rotation(state_, plan_->fused_rotations_[action.rotation]);
 }
 
 template <bool ForceRecords>

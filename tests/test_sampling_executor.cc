@@ -27,6 +27,7 @@
 
 using clifft::sampling::ActivePauli;
 using clifft::sampling::AffineBool;
+using clifft::sampling::apply_rotation;
 using clifft::sampling::ApplyInstrument;
 using clifft::sampling::classify_measurement_branch;
 using clifft::sampling::DefineSymbol;
@@ -45,6 +46,7 @@ using clifft::sampling::MeasurementBranchKind;
 using clifft::sampling::MeasurementProbabilities;
 using clifft::sampling::NoiseSiteId;
 using clifft::sampling::PlannedAction;
+using clifft::sampling::prepare_rotation;
 using clifft::sampling::PresampledNoiseOutcome;
 using clifft::sampling::PresampledNoiseSite;
 using clifft::sampling::PromoteDormantRotation;
@@ -55,6 +57,7 @@ using clifft::sampling::ReplayResult;
 using clifft::sampling::RotateActivePauli;
 using clifft::sampling::sample_records;
 using clifft::sampling::SamplingPlan;
+using clifft::sampling::State;
 using clifft::sampling::SymbolId;
 using clifft::sampling::SymbolInfo;
 using clifft::sampling::SymbolKind;
@@ -436,6 +439,88 @@ TEST_CASE("Sampling executor applies sampled symbols to later state actions") {
     }
     REQUIRE(saw_zero);
     REQUIRE(saw_one);
+}
+
+TEST_CASE("Sampling executor fuses constant rotation orbits") {
+    auto require_matches_scalar = [](uint32_t active_width,
+                                     std::span<const RotateActivePauli> rotations) {
+        SamplingPlan plan;
+        plan.num_qubits = active_width;
+        plan.initial_active_width = active_width;
+        plan.max_active_width = active_width;
+        plan.symbols = {
+            SymbolInfo{SymbolKind::Presampled, std::nullopt, std::nullopt},
+        };
+        for (uint32_t axis = 0; axis < active_width; ++axis) {
+            plan.actions.push_back(
+                PlannedAction{active_width, active_width,
+                              RotateActivePauli{ActivePauli{uint64_t{1} << axis, 0}, 0.5,
+                                                AffineBool::symbol(SymbolId{0})}});
+        }
+        for (const RotateActivePauli& rotation : rotations) {
+            plan.actions.push_back(PlannedAction{active_width, active_width, rotation});
+        }
+
+        const ExecutablePlan executable(plan);
+        REQUIRE(executable.num_actions() == active_width + 1);
+        Executor executor(executable);
+        executor.run_shot(std::array<uint8_t, 1>{0});
+
+        State expected(active_width, active_width);
+        for (uint32_t axis = 0; axis < active_width; ++axis) {
+            apply_rotation(expected,
+                           prepare_rotation(ActivePauli{uint64_t{1} << axis, 0}, active_width, 0.5),
+                           false);
+        }
+        for (const RotateActivePauli& rotation : rotations) {
+            apply_rotation(expected,
+                           prepare_rotation(rotation.pauli, active_width, rotation.half_turns),
+                           rotation.sign.constant());
+        }
+
+        REQUIRE(executor.state().size() == expected.size());
+        for (uint64_t basis = 0; basis < expected.size(); ++basis) {
+            CAPTURE(active_width, basis);
+            REQUIRE_THAT(executor.state().real_data()[basis],
+                         Catch::Matchers::WithinAbs(expected.real_data()[basis], 1e-12));
+            REQUIRE_THAT(executor.state().imag_data()[basis],
+                         Catch::Matchers::WithinAbs(expected.imag_data()[basis], 1e-12));
+        }
+    };
+
+    const std::array<RotateActivePauli, 4> rank_one = {
+        RotateActivePauli{{0b101, 0b100}, 0.25, AffineBool(false)},
+        RotateActivePauli{{0b101, 0b101}, -0.3, AffineBool(true)},
+        RotateActivePauli{{0b000, 0b110}, 0.4, AffineBool(false)},
+        RotateActivePauli{{0b101, 0b111}, 0.1, AffineBool(false)},
+    };
+    require_matches_scalar(3, rank_one);
+
+    const std::array<RotateActivePauli, 3> rank_zero = {
+        RotateActivePauli{{0b000, 0b001}, 0.25, AffineBool(false)},
+        RotateActivePauli{{0b000, 0b010}, -0.3, AffineBool(true)},
+        RotateActivePauli{{0b000, 0b111}, 0.4, AffineBool(false)},
+    };
+    require_matches_scalar(3, rank_zero);
+
+    const std::array<RotateActivePauli, 5> rank_two = {
+        RotateActivePauli{{0b00101, 0b00100}, 0.25, AffineBool(false)},
+        RotateActivePauli{{0b11010, 0b01000}, -0.3, AffineBool(true)},
+        RotateActivePauli{{0b11111, 0b11101}, 0.4, AffineBool(false)},
+        RotateActivePauli{{0b00101, 0b11110}, 0.1, AffineBool(false)},
+        RotateActivePauli{{0b11010, 0b10111}, -0.2, AffineBool(true)},
+    };
+    require_matches_scalar(5, rank_two);
+
+    SamplingPlan wide_selector_plan;
+    wide_selector_plan.num_qubits = 6;
+    wide_selector_plan.initial_active_width = 6;
+    wide_selector_plan.max_active_width = 6;
+    for (uint32_t axis = 0; axis < 6; ++axis) {
+        wide_selector_plan.actions.push_back(PlannedAction{
+            6, 6, RotateActivePauli{{0, uint64_t{1} << axis}, 0.25, AffineBool(false)}});
+    }
+    REQUIRE(ExecutablePlan(wide_selector_plan).num_actions() == 6);
 }
 
 TEST_CASE("Sampling replay inverts affine records and preserves branch dependencies") {
