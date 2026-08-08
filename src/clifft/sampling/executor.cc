@@ -1,5 +1,6 @@
 #include "clifft/sampling/executor.h"
 
+#include "clifft/svm/svm.h"
 #include "clifft/util/fault_sampling.h"
 #include "clifft/util/noise_sampling.h"
 #include "clifft/util/numeric.h"
@@ -12,6 +13,7 @@
 #include <numbers>
 #include <stdexcept>
 #include <string>
+#include <string_view>
 #include <type_traits>
 
 namespace clifft::sampling {
@@ -58,6 +60,9 @@ ExecutablePlan::ExecutablePlan(const SamplingPlan& plan)
       final_tableau_(plan.final_tableau),
       instrument_distributions_(plan.instrument_distributions) {
     plan.validate();
+#if defined(CLIFFT_ENABLE_RUNTIME_DISPATCH)
+    const bool prepare_avx512_sidecars = std::string_view(clifft::svm_backend()) == "avx512";
+#endif
     if (plan.symbols.size() > std::numeric_limits<uint32_t>::max()) {
         throw std::length_error("sampling executable symbol count exceeds uint32 range");
     }
@@ -269,6 +274,13 @@ ExecutablePlan::ExecutablePlan(const SamplingPlan& plan)
         if (run.rotation.has_value()) {
             const uint32_t fused_index = static_cast<uint32_t>(fused_rotations_.size());
             fused_rotations_.push_back(std::move(*run.rotation));
+            FusedRotationSidecar sidecar;
+#if defined(CLIFFT_ENABLE_RUNTIME_DISPATCH)
+            if (prepare_avx512_sidecars) {
+                sidecar = prepare_fused_rotation_avx512_sidecar(fused_rotations_.back());
+            }
+#endif
+            fused_rotation_sidecars_.push_back(std::move(sidecar));
             actions_.emplace_back(ExecuteFusedRotation{fused_index});
             planned_index += run.action_count;
             continue;
@@ -597,7 +609,16 @@ void Executor::execute_action(const ExecutablePlan::ExecuteFusedRotation& action
                               std::span<const uint8_t>, ReplayResult&) noexcept {
     assert(action.rotation_index < plan_->fused_rotations_.size() &&
            "fused rotation action must reference a prepared descriptor");
-    apply_fused_rotation(state_, plan_->fused_rotations_[action.rotation_index]);
+    assert(action.rotation_index < plan_->fused_rotation_sidecars_.size() &&
+           "fused rotation action must reference a prepared sidecar slot");
+    const PreparedFusedRotation& rotation = plan_->fused_rotations_[action.rotation_index];
+    const FusedRotationSidecar& sidecar =
+        plan_->fused_rotation_sidecars_[action.rotation_index];
+    if (sidecar) {
+        sidecar.kernel(state_, rotation, sidecar.storage.get());
+    } else {
+        apply_fused_rotation(state_, rotation);
+    }
 }
 
 template <bool ForceRecords>

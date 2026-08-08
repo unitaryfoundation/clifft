@@ -7,6 +7,7 @@
 // writes records using only preallocated storage.
 
 #include "clifft/sampling/fused_rotation.h"
+#include "clifft/sampling/fused_rotation_simd.h"
 #include "clifft/sampling/kernels.h"
 #include "clifft/sampling/plan.h"
 #include "clifft/sampling/state.h"
@@ -243,6 +244,7 @@ class ExecutablePlan {
     std::vector<InstrumentDistribution> instrument_distributions_;
     std::vector<uint32_t> instrument_resume_offsets_;
     std::vector<PreparedFusedRotation> fused_rotations_;
+    std::vector<FusedRotationSidecar> fused_rotation_sidecars_;
     std::vector<Action> actions_;
 };
 
