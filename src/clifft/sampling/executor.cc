@@ -273,15 +273,14 @@ ExecutablePlan::ExecutablePlan(const SamplingPlan& plan)
         FusedRotationRun run = prepare_fused_rotation_run(
             std::span<const PlannedAction>(plan.actions).subspan(planned_index));
         if (run.rotation.has_value()) {
-            const uint32_t fused_index = static_cast<uint32_t>(fused_rotations_.size());
-            fused_rotations_.push_back(std::move(*run.rotation));
-            FusedRotationSidecar sidecar;
+            FusedRotationEntry entry{.rotation = std::move(*run.rotation), .sidecar = {}};
 #if defined(CLIFFT_ENABLE_RUNTIME_DISPATCH)
             if (prepare_avx512_sidecars) {
-                sidecar = prepare_fused_rotation_avx512_sidecar(fused_rotations_.back());
+                entry.sidecar = prepare_fused_rotation_avx512_sidecar(entry.rotation);
             }
 #endif
-            fused_rotation_sidecars_.push_back(std::move(sidecar));
+            const uint32_t fused_index = static_cast<uint32_t>(fused_rotation_entries_.size());
+            fused_rotation_entries_.push_back(std::move(entry));
             actions_.emplace_back(ExecuteFusedRotation{fused_index});
             planned_index += run.action_count;
             continue;
@@ -608,17 +607,14 @@ void Executor::execute_action(const ExecutablePlan::ExecuteRotation& action,
 template <bool ForceRecords>
 void Executor::execute_action(const ExecutablePlan::ExecuteFusedRotation& action,
                               std::span<const uint8_t>, ReplayResult&) noexcept {
-    assert(action.rotation_index < plan_->fused_rotations_.size() &&
-           "fused rotation action must reference a prepared descriptor");
-    assert(action.rotation_index < plan_->fused_rotation_sidecars_.size() &&
-           "fused rotation action must reference a prepared sidecar slot");
-    const PreparedFusedRotation& rotation = plan_->fused_rotations_[action.rotation_index];
-    const FusedRotationSidecar& sidecar =
-        plan_->fused_rotation_sidecars_[action.rotation_index];
-    if (sidecar) {
-        sidecar.kernel(state_, rotation, sidecar.storage.get());
+    assert(action.rotation_index < plan_->fused_rotation_entries_.size() &&
+           "fused rotation action must reference a prepared entry");
+    const ExecutablePlan::FusedRotationEntry& entry =
+        plan_->fused_rotation_entries_[action.rotation_index];
+    if (entry.sidecar) {
+        entry.sidecar.kernel(state_, entry.rotation, entry.sidecar.storage.get());
     } else {
-        apply_fused_rotation(state_, rotation);
+        apply_fused_rotation(state_, entry.rotation);
     }
 }
 

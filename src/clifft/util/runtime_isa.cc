@@ -70,9 +70,16 @@ RuntimeIsa resolve_runtime_isa() {
     if (host_supports_avx2_kernel()) {
         return RuntimeIsa::Avx2;
     }
-#endif
     return RuntimeIsa::Scalar;
 }
+
+#else
+
+RuntimeIsa resolve_runtime_isa() {
+    return RuntimeIsa::Scalar;
+}
+
+#endif
 
 }  // namespace
 

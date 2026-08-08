@@ -121,6 +121,11 @@ class ExecutablePlan {
         uint32_t rotation_index = 0;
     };
 
+    struct FusedRotationEntry {
+        PreparedFusedRotation rotation;
+        FusedRotationSidecar sidecar;
+    };
+
     struct ExecutePromotion {
         PreparedPromotion promotion;
         PreparedExpression sign;
@@ -243,8 +248,7 @@ class ExecutablePlan {
     std::vector<double> noise_hazards_;
     std::vector<InstrumentDistribution> instrument_distributions_;
     std::vector<uint32_t> instrument_resume_offsets_;
-    std::vector<PreparedFusedRotation> fused_rotations_;
-    std::vector<FusedRotationSidecar> fused_rotation_sidecars_;
+    std::vector<FusedRotationEntry> fused_rotation_entries_;
     std::vector<Action> actions_;
 };
 
