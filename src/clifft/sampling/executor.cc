@@ -595,9 +595,9 @@ void Executor::execute_action(const ExecutablePlan::ExecuteRotation& action,
 template <bool ForceRecords>
 void Executor::execute_action(const ExecutablePlan::ExecuteFusedRotation& action,
                               std::span<const uint8_t>, ReplayResult&) noexcept {
-    assert(action.rotation < plan_->fused_rotations_.size() &&
+    assert(action.rotation_index < plan_->fused_rotations_.size() &&
            "fused rotation action must reference a prepared descriptor");
-    apply_fused_rotation(state_, plan_->fused_rotations_[action.rotation]);
+    apply_fused_rotation(state_, plan_->fused_rotations_[action.rotation_index]);
 }
 
 template <bool ForceRecords>

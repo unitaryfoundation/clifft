@@ -117,7 +117,7 @@ class ExecutablePlan {
     };
 
     struct ExecuteFusedRotation {
-        uint32_t rotation = 0;
+        uint32_t rotation_index = 0;
     };
 
     struct ExecutePromotion {

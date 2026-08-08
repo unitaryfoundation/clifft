@@ -512,6 +512,15 @@ TEST_CASE("Sampling executor fuses constant rotation orbits") {
     };
     require_matches_scalar(5, rank_two);
 
+    const std::array<RotateActivePauli, 5> max_selectors = {
+        RotateActivePauli{{0, 0b00001}, 0.25, AffineBool(false)},
+        RotateActivePauli{{0, 0b00010}, -0.3, AffineBool(true)},
+        RotateActivePauli{{0, 0b00100}, 0.4, AffineBool(false)},
+        RotateActivePauli{{0, 0b01000}, 0.1, AffineBool(false)},
+        RotateActivePauli{{0, 0b10000}, -0.2, AffineBool(true)},
+    };
+    require_matches_scalar(5, max_selectors);
+
     SamplingPlan wide_selector_plan;
     wide_selector_plan.num_qubits = 6;
     wide_selector_plan.initial_active_width = 6;

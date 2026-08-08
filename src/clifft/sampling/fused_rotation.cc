@@ -1,5 +1,6 @@
 #include "clifft/sampling/fused_rotation.h"
 
+#include "clifft/sampling/indexing.h"
 #include "clifft/sampling/kernels.h"
 
 #include <algorithm>
@@ -12,16 +13,23 @@ namespace clifft::sampling {
 
 namespace {
 
-// A general matrix sweep costs more than one Pauli butterfly, so match the
-// legacy fusion threshold and require it to replace at least three sweeps.
+// A dense matrix requires more arithmetic per coefficient than one Pauli
+// rotation. Three rotations remove enough full-state sweeps to amortize that
+// extra work.
 constexpr size_t kMinFusedRotationActions = 3;
 
-// Each independent representative parity doubles the matrix table. Five
-// covers the measured QV workloads while bounding a descriptor at 32 matrices.
+// Z parities evaluated on an orbit representative select its precomposed
+// matrix. Each independent parity condition doubles the table, so this cap
+// bounds a descriptor at 32 matrices while covering the measured QV workloads.
 constexpr uint32_t kMaxFusedRotationSelectors = 5;
 
+// A row-reduced basis for a vector subspace of GF(2)^64, where each bit is one
+// binary coordinate.
 class BinaryBasis {
   public:
+    // Extends the span with value when it is independent. A dependent value
+    // succeeds without changing the basis; false means the rank cap prevented
+    // adding an independent value.
     [[nodiscard]] bool insert(uint64_t value, uint32_t max_rank = 64) {
         uint64_t reduced = value;
         for (int pivot = 63; pivot >= 0; --pivot) {
@@ -48,8 +56,10 @@ class BinaryBasis {
         return true;
     }
 
+    // Returns the dimension of the represented subspace.
     [[nodiscard]] uint32_t rank() const { return rank_; }
 
+    // Returns the reduced basis vectors in ascending pivot-bit order.
     [[nodiscard]] std::vector<uint64_t> rows() const {
         std::vector<uint64_t> result;
         result.reserve(rank_);
@@ -66,6 +76,8 @@ class BinaryBasis {
     uint32_t rank_ = 0;
 };
 
+// Expresses value in the supplied reduced basis, with bit i of the result
+// giving the coefficient of rows[i].
 uint32_t basis_coordinates(uint64_t value, std::span<const uint64_t> rows) {
     uint32_t coordinates = 0;
     for (size_t i = 0; i < rows.size(); ++i) {
@@ -79,6 +91,8 @@ uint32_t basis_coordinates(uint64_t value, std::span<const uint64_t> rows) {
     return coordinates;
 }
 
+// Replaces matrix with left * matrix. Left multiplication preserves the plan's
+// execution order as successive rotation matrices are composed.
 void multiply_matrix_left(std::span<std::complex<double>> matrix,
                           std::span<const std::complex<double>> left, size_t dimension) {
     std::array<std::complex<double>, 16> result{};
@@ -99,11 +113,16 @@ std::optional<PreparedFusedRotation> prepare_fused_rotation(std::span<const Plan
            "fused rotation requires at least three actions");
     const uint32_t active_width = actions.front().active_before;
     const std::vector<uint64_t> orbit_rows = orbit_basis.rows();
+
+    // A representative is the unique state in an orbit whose basis pivot bits
+    // are zero. Only the remaining Z bits affect its Pauli phase.
     uint64_t orbit_pivots = 0;
     for (uint64_t row : orbit_rows) {
         orbit_pivots |= std::bit_floor(row);
     }
 
+    // Reduce those remaining Z masks to the independent parity conditions that
+    // can select different matrices for different representatives.
     BinaryBasis selector_basis;
     for (const PlannedAction& planned : actions) {
         const auto& rotation = std::get<RotateActivePauli>(planned.action);
@@ -126,6 +145,8 @@ std::optional<PreparedFusedRotation> prepare_fused_rotation(std::span<const Plan
     }
     result.selector_masks = selector_rows;
 
+    // Precompose one dense unitary for every possible assignment of the
+    // independent representative parities.
     const size_t dimension = size_t{1} << result.orbit_rank;
     const size_t matrix_size = dimension * dimension;
     const size_t num_variants = size_t{1} << selector_rows.size();
@@ -144,6 +165,9 @@ std::optional<PreparedFusedRotation> prepare_fused_rotation(std::span<const Plan
             const uint32_t x_coordinates = basis_coordinates(rotation.pauli.x, orbit_rows);
             const uint32_t selector_coordinates =
                 basis_coordinates(rotation.pauli.z & ~orbit_pivots, selector_rows);
+
+            // local_z records how the Pauli phase changes between members of
+            // one orbit; representative_phase supplies the shared offset.
             uint32_t local_z = 0;
             for (size_t i = 0; i < orbit_rows.size(); ++i) {
                 local_z |=
@@ -173,11 +197,8 @@ std::optional<PreparedFusedRotation> prepare_fused_rotation(std::span<const Plan
     return result;
 }
 
-uint64_t insert_zero_bit(uint64_t packed, uint32_t pivot) {
-    const uint64_t lower_mask = (uint64_t{1} << pivot) - 1;
-    return (packed & lower_mask) | ((packed & ~lower_mask) << 1);
-}
-
+// Each orbit is a one-, two-, or four-dimensional coefficient subspace. Gather
+// its coefficients, apply the selected dense unitary, and scatter them back.
 template <size_t Dimension>
 void apply_fused_rotation_orbits(State& state, const PreparedFusedRotation& rotation) noexcept {
     static_assert(Dimension == 1 || Dimension == 2 || Dimension == 4);
@@ -190,6 +211,8 @@ void apply_fused_rotation_orbits(State& state, const PreparedFusedRotation& rota
     double* const real = state.real_data();
     double* const imag = state.imag_data();
     for (uint64_t packed = 0; packed < orbit_count; ++packed) {
+        // Reinserting zero pivot bits enumerates exactly one representative
+        // from every orbit.
         uint64_t representative = packed;
         if constexpr (Dimension >= 2) {
             representative = insert_zero_bit(representative, rotation.orbit_pivots[0]);
@@ -207,6 +230,8 @@ void apply_fused_rotation_orbits(State& state, const PreparedFusedRotation& rota
         const std::complex<double>* const matrix =
             rotation.matrices.data() + selector * matrix_size;
 
+        // XOR combinations of the orbit basis enumerate every coefficient in
+        // this representative's subspace.
         std::array<uint64_t, Dimension> indices{};
         std::array<double, Dimension> input_real{};
         std::array<double, Dimension> input_imag{};
@@ -252,11 +277,16 @@ FusedRotationRun prepare_fused_rotation_run(std::span<const PlannedAction> actio
     }
     const PlannedAction& first = actions.front();
     const auto* first_rotation = std::get_if<RotateActivePauli>(&first.action);
+
+    // Dynamic signs require a per-shot choice, while identity rotations update
+    // the global scalar. Neither can be folded into a fixed coefficient matrix.
     if (first_rotation == nullptr || !first_rotation->sign.terms().empty() ||
         first_rotation->pauli.is_identity()) {
         return result;
     }
 
+    // Extend the maximal same-width prefix while its X masks span at most two
+    // dimensions. Every additional dimension doubles the matrix side length.
     BinaryBasis orbit_basis;
     while (result.action_count < actions.size()) {
         const PlannedAction& candidate = actions[result.action_count];
@@ -273,6 +303,8 @@ FusedRotationRun prepare_fused_rotation_run(std::span<const PlannedAction> actio
         ++result.action_count;
     }
 
+    // If selector growth rejects the descriptor, action_count still lets the
+    // caller lower this entire eligible prefix as individual rotations.
     if (result.action_count >= kMinFusedRotationActions) {
         result.rotation = prepare_fused_rotation(actions.first(result.action_count), orbit_basis);
     }
