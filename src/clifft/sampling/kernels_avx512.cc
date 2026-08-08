@@ -2,9 +2,9 @@
 // with the same explicit AVX2/BMI2/FMA/AVX-512 flags as the SVM AVX-512 path.
 
 #include "clifft/sampling/fused_rotation_simd.h"
+#include "clifft/sampling/indexing.h"
 
 #include <array>
-#include <bit>
 #include <cassert>
 #include <complex>
 #include <cstddef>
@@ -35,21 +35,6 @@ struct FusedRotationAvx512Sidecar {
     std::vector<LaneWeights> weights;
 };
 
-uint64_t insert_zero_bit(uint64_t packed, uint32_t pivot) noexcept {
-    const uint64_t lower_mask = (uint64_t{1} << pivot) - 1;
-    return (packed & lower_mask) | ((packed & ~lower_mask) << 1);
-}
-
-size_t selector_at(uint64_t representative, const PreparedFusedRotation& rotation) noexcept {
-    size_t selector = 0;
-    for (size_t bit = 0; bit < rotation.selector_masks.size(); ++bit) {
-        selector |=
-            static_cast<size_t>(std::popcount(representative & rotation.selector_masks[bit]) & 1U)
-            << bit;
-    }
-    return selector;
-}
-
 void apply_fused_rotation_avx512(State& state, const PreparedFusedRotation& rotation,
                                  const void* opaque_sidecar) noexcept {
     const auto& sidecar = *static_cast<const FusedRotationAvx512Sidecar*>(opaque_sidecar);
@@ -66,7 +51,8 @@ void apply_fused_rotation_avx512(State& state, const PreparedFusedRotation& rota
         uint64_t representative = insert_zero_bit(packed, rotation.orbit_pivots[0]);
         representative = insert_zero_bit(representative, rotation.orbit_pivots[1]);
         const LaneWeights* const matrix =
-            sidecar.weights.data() + selector_at(representative, rotation) * kMatrixSize;
+            sidecar.weights.data() +
+            selector_index(representative, rotation.selector_masks) * kMatrixSize;
 
         std::array<__m512d, kDimension> input_real;
         std::array<__m512d, kDimension> input_imag;
@@ -143,7 +129,7 @@ FusedRotationSidecar prepare_fused_rotation_avx512_sidecar(const PreparedFusedRo
     sidecar->weights.resize(num_variants * kMatrixSize);
     for (size_t base_selector = 0; base_selector < num_variants; ++base_selector) {
         for (size_t lane = 0; lane < kLanes; ++lane) {
-            const size_t selector = base_selector ^ selector_at(lane, rotation);
+            const size_t selector = base_selector ^ selector_index(lane, rotation.selector_masks);
             for (size_t element = 0; element < kMatrixSize; ++element) {
                 const std::complex<double> weight =
                     rotation.matrices[selector * kMatrixSize + element];

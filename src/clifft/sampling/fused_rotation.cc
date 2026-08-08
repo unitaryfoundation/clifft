@@ -221,12 +221,7 @@ void apply_fused_rotation_orbits(State& state, const PreparedFusedRotation& rota
             representative = insert_zero_bit(representative, rotation.orbit_pivots[1]);
         }
 
-        size_t selector = 0;
-        for (size_t bit = 0; bit < rotation.selector_masks.size(); ++bit) {
-            selector |= static_cast<size_t>(
-                            std::popcount(representative & rotation.selector_masks[bit]) & 1U)
-                        << bit;
-        }
+        const size_t selector = selector_index(representative, rotation.selector_masks);
         const std::complex<double>* const matrix =
             rotation.matrices.data() + selector * matrix_size;
 
