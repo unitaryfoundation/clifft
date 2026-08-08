@@ -34,6 +34,45 @@ std::complex<double> phase_at(const PreparedPauli& pauli, uint64_t basis) {
     return (std::popcount(basis & pauli.z) & 1U) != 0 ? -pauli.even_phase : pauli.even_phase;
 }
 
+template <bool RealPhase>
+void apply_nondiagonal_rotation(State& state, const PreparedRotation& rotation,
+                                double sine) noexcept {
+    double* const real = state.real_data();
+    double* const imag = state.imag_data();
+    const uint64_t size = state.size();
+    const uint64_t pair_stride = rotation.pauli.pair_selector;
+    const uint64_t pair_period = pair_stride << 1;
+    const double base_phase =
+        RealPhase ? rotation.pauli.even_phase.real() : rotation.pauli.even_phase.imag();
+    const double even_left_sine = sine * base_phase;
+
+    for (uint64_t block = 0; block < size; block += pair_period) {
+        for (uint64_t offset = 0; offset < pair_stride; ++offset) {
+            const uint64_t left = block + offset;
+            const uint64_t right = left ^ rotation.pauli.x;
+            const double left_real = real[left];
+            const double left_imag = imag[left];
+            const double right_real = real[right];
+            const double right_imag = imag[right];
+            const bool odd_phase = (std::popcount(left & rotation.pauli.z) & 1U) != 0;
+            const double left_sine = odd_phase ? -even_left_sine : even_left_sine;
+            const double right_sine = RealPhase ? left_sine : -left_sine;
+
+            if constexpr (RealPhase) {
+                real[left] = rotation.cosine * left_real + right_sine * right_imag;
+                imag[left] = rotation.cosine * left_imag - right_sine * right_real;
+                real[right] = rotation.cosine * right_real + left_sine * left_imag;
+                imag[right] = rotation.cosine * right_imag - left_sine * left_real;
+            } else {
+                real[left] = rotation.cosine * left_real + right_sine * right_real;
+                imag[left] = rotation.cosine * left_imag + right_sine * right_imag;
+                real[right] = rotation.cosine * right_real + left_sine * left_real;
+                imag[right] = rotation.cosine * right_imag + left_sine * left_imag;
+            }
+        }
+    }
+}
+
 uint64_t insert_zero_bit(uint64_t packed, uint32_t pivot) {
     const uint64_t lower_mask = (uint64_t{1} << pivot) - 1;
     return (packed & lower_mask) | ((packed & ~lower_mask) << 1);
@@ -77,8 +116,11 @@ PreparedPauli prepare_pauli(ActivePauli pauli, uint32_t active_width) {
     static constexpr std::complex<double> kIPowers[4] = {
         {1.0, 0.0}, {0.0, 1.0}, {-1.0, 0.0}, {0.0, -1.0}};
     const uint32_t overlap = std::popcount(pauli.x & pauli.z);
-    return PreparedPauli{active_width, pauli.x, pauli.z, std::bit_floor(pauli.x),
-                         kIPowers[overlap & 3U]};
+    return PreparedPauli{.active_width = active_width,
+                         .x = pauli.x,
+                         .z = pauli.z,
+                         .pair_selector = std::bit_floor(pauli.x),
+                         .even_phase = kIPowers[overlap & 3U]};
 }
 
 PreparedRotation prepare_rotation(ActivePauli pauli, uint32_t active_width, double half_turns) {
@@ -161,18 +203,10 @@ void apply_rotation(State& state, const PreparedRotation& rotation, bool sign) n
         return;
     }
 
-    const std::complex<double> minus_i_sine{0.0, -sine};
-    for (uint64_t left = 0; left < size; ++left) {
-        if ((left & rotation.pauli.pair_selector) != 0) {
-            continue;
-        }
-        const uint64_t right = left ^ rotation.pauli.x;
-        const std::complex<double> left_value{real[left], imag[left]};
-        const std::complex<double> right_value{real[right], imag[right]};
-        const std::complex<double> left_phase = phase_at(rotation.pauli, left);
-        const std::complex<double> right_phase = phase_at(rotation.pauli, right);
-        store(state, left, rotation.cosine * left_value + minus_i_sine * right_phase * right_value);
-        store(state, right, rotation.cosine * right_value + minus_i_sine * left_phase * left_value);
+    if (rotation.pauli.even_phase.real() != 0.0) {
+        apply_nondiagonal_rotation<true>(state, rotation, sine);
+    } else {
+        apply_nondiagonal_rotation<false>(state, rotation, sine);
     }
 }
 
