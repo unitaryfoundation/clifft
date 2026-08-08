@@ -567,6 +567,46 @@ TEST_CASE("Sampling replay checks all records conditional on presampled symbols"
     REQUIRE(executor.visible_records()[0] == 1);
 }
 
+TEST_CASE("Sampling expression registers reset true symbols between shots") {
+    SamplingPlan plan;
+    plan.num_visible_records = 1;
+    plan.symbols = {SymbolInfo{SymbolKind::Presampled, std::nullopt, std::nullopt}};
+    plan.actions = {
+        PlannedAction{0, 0, RecordClassical{AffineBool::symbol(SymbolId{0}), RecordSlot{0}}},
+    };
+
+    const ExecutablePlan executable(plan);
+    Executor executor(executable);
+    executor.run_shot(std::array<uint8_t, 1>{1});
+    REQUIRE(executor.visible_records()[0] == 1);
+    executor.run_shot(std::array<uint8_t, 1>{0});
+    REQUIRE(executor.visible_records()[0] == 0);
+    executor.run_shot(std::array<uint8_t, 1>{1});
+    REQUIRE(executor.visible_records()[0] == 1);
+}
+
+TEST_CASE("Sampling expression registers preserve noisy postselection") {
+    const clifft::HirModule hir = clifft::trace(clifft::parse(R"(
+        X_ERROR(0.5) 0
+        M 0
+        DETECTOR rec[-1]
+        OBSERVABLE_INCLUDE(0) rec[-1]
+    )"));
+    const std::array<uint8_t, 1> postselection{1};
+    const ExecutablePlan executable(
+        clifft::sampling::plan_sampling(hir, {.postselection_mask = postselection,
+                                              .expected_detectors = {},
+                                              .expected_observables = {}}));
+
+    const clifft::sampling::SamplingSurvivorResult result =
+        clifft::sampling::sample_survivors(executable, 2000, uint64_t{280}, true);
+    REQUIRE(result.passed_shots > 900);
+    REQUIRE(result.passed_shots < 1100);
+    REQUIRE(std::ranges::all_of(result.measurements, [](uint8_t value) { return value == 0; }));
+    REQUIRE(std::ranges::all_of(result.detectors, [](uint8_t value) { return value == 0; }));
+    REQUIRE(std::ranges::all_of(result.observables, [](uint8_t value) { return value == 0; }));
+}
+
 TEST_CASE("Sampling replay applies active measurement dust policy") {
     const ExecutablePlan dusty(active_then_dormant_plan(1e-10));
     Executor survivor(dusty);
@@ -828,6 +868,24 @@ TEST_CASE("Sampling executor defers suffix noise until an instrument continuatio
     executor.resume(executable);
     REQUIRE_FALSE(executor.pending_trap().has_value());
     REQUIRE(executor.symbols()[index(suffix_noise)] == 1);
+}
+
+TEST_CASE("Sampling continuation reconstructs expressions from true prefix symbols") {
+    clifft::InstrumentTraceOptions options;
+    const clifft::HirModule hir =
+        clifft::trace(clifft::parse("X_ERROR(1) 0\nLEAKAGE(1) 1\nM 0"), &options);
+    const SamplingPlan plan = clifft::sampling::plan_sampling(hir);
+    const SymbolId prefix_noise = plan.presampled_noise_sites[0].outcomes[0].symbol;
+    const ExecutablePlan executable(plan);
+    Executor executor(executable, 9);
+
+    executor.run_shot();
+    REQUIRE(executor.pending_trap().has_value());
+    REQUIRE(executor.symbols()[index(prefix_noise)] == 1);
+
+    executor.resume(executable);
+    REQUIRE_FALSE(executor.pending_trap().has_value());
+    REQUIRE(executor.visible_records()[0] == 1);
 }
 
 TEST_CASE("Sampling continuation consumes a forced hidden source record") {

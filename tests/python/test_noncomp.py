@@ -846,6 +846,16 @@ def test_experimental_noncomp_accepts_a_parsed_circuit():
     assert np.array_equal(r.measurements, np.zeros((4, 1), dtype=np.uint8))
 
 
+def test_experimental_noncomp_preserves_true_prefix_expressions_across_continuations():
+    from clifft import experimental
+
+    model = noncomp.Model(classifier=classifier_for(LEAK_G, [1.0, 0.0]))
+    result = experimental.sample_noncomputational(
+        "X_ERROR(1) 0\nLEAKAGE(1) 1\nM 0", model, shots=8, seed=280
+    )
+    assert np.array_equal(result.measurements, np.ones((8, 1), dtype=np.uint8))
+
+
 def test_qubit_status_values():
     """QubitStatus integer values differ from Level values for the shared names."""
     assert int(noncomp.QubitStatus.COMPUTATIONAL) == 0

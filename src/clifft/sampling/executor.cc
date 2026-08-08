@@ -100,7 +100,43 @@ ExecutablePlan::ExecutablePlan(const SamplingPlan& plan)
     if (num_expression_terms > std::numeric_limits<uint32_t>::max()) {
         throw std::length_error("sampling executable expression storage exceeds uint32 range");
     }
-    expression_terms_.reserve(num_expression_terms);
+    // Retain action-order terms only long enough to build the reverse dependency map.
+    std::vector<uint32_t> expression_terms;
+    expression_terms.reserve(num_expression_terms);
+    std::vector<uint32_t> expression_term_begins;
+    expression_term_begins.reserve(plan.actions.size());
+    expression_register_constants_.reserve(plan.actions.size());
+
+    auto prepare_expression = [&](const AffineBool& expression) {
+        if (expression_register_constants_.size() >= std::numeric_limits<uint32_t>::max()) {
+            throw std::length_error("sampling executable expression count exceeds uint32 range");
+        }
+        const uint32_t register_id = static_cast<uint32_t>(expression_register_constants_.size());
+        expression_term_begins.push_back(static_cast<uint32_t>(expression_terms.size()));
+        expression_register_constants_.push_back(static_cast<uint8_t>(expression.constant()));
+        for (SymbolId term : expression.terms()) {
+            expression_terms.push_back(index(term));
+        }
+        return PreparedExpression{register_id};
+    };
+    auto prepare_measurement_correction = [&](const AffineBool& outcome, uint32_t branch) {
+        if (expression_register_constants_.size() >= std::numeric_limits<uint32_t>::max()) {
+            throw std::length_error("sampling executable expression count exceeds uint32 range");
+        }
+        const uint32_t register_id = static_cast<uint32_t>(expression_register_constants_.size());
+        const uint32_t begin = static_cast<uint32_t>(expression_terms.size());
+        expression_term_begins.push_back(begin);
+        expression_register_constants_.push_back(static_cast<uint8_t>(outcome.constant()));
+        for (SymbolId term : outcome.terms()) {
+            if (index(term) != branch) {
+                expression_terms.push_back(index(term));
+            }
+        }
+        assert(expression_terms.size() == static_cast<size_t>(begin) + outcome.terms().size() - 1 &&
+               "validated measurement outcome must contain its branch exactly once");
+        return PreparedExpression{register_id};
+    };
+
     actions_.reserve(plan.actions.size());
     instrument_resume_offsets_.assign(plan.num_instrument_sites,
                                       std::numeric_limits<uint32_t>::max());
@@ -225,6 +261,28 @@ ExecutablePlan::ExecutablePlan(const SamplingPlan& plan)
             },
             planned.action);
     }
+
+    // Transpose expression-major terms into the symbol-major dependency tape.
+    expression_dependency_offsets_.assign(static_cast<size_t>(num_symbols_) + 1, 0);
+    for (uint32_t symbol : expression_terms) {
+        ++expression_dependency_offsets_[static_cast<size_t>(symbol) + 1];
+    }
+    for (size_t i = 1; i < expression_dependency_offsets_.size(); ++i) {
+        expression_dependency_offsets_[i] += expression_dependency_offsets_[i - 1];
+    }
+    expression_dependency_targets_.resize(expression_terms.size());
+    std::vector<uint32_t> next_dependency = expression_dependency_offsets_;
+    for (size_t expression = 0; expression < expression_term_begins.size(); ++expression) {
+        const uint32_t register_id = static_cast<uint32_t>(expression);
+        const uint32_t begin = expression_term_begins[expression];
+        const uint32_t end = expression + 1 < expression_term_begins.size()
+                                 ? expression_term_begins[expression + 1]
+                                 : static_cast<uint32_t>(expression_terms.size());
+        for (uint32_t i = begin; i < end; ++i) {
+            const uint32_t symbol = expression_terms[i];
+            expression_dependency_targets_[next_dependency[symbol]++] = register_id;
+        }
+    }
 }
 
 std::vector<double> ExecutablePlan::noise_site_probabilities() const {
@@ -251,33 +309,12 @@ std::vector<double> ExecutablePlan::noise_site_probabilities() const {
     return probabilities;
 }
 
-ExecutablePlan::PreparedExpression ExecutablePlan::prepare_expression(
-    const AffineBool& expression) {
-    const uint32_t begin = static_cast<uint32_t>(expression_terms_.size());
-    for (SymbolId term : expression.terms()) {
-        expression_terms_.push_back(index(term));
-    }
-    return {begin, static_cast<uint32_t>(expression.terms().size()), expression.constant()};
-}
-
-ExecutablePlan::PreparedExpression ExecutablePlan::prepare_measurement_correction(
-    const AffineBool& outcome, uint32_t branch) {
-    const uint32_t begin = static_cast<uint32_t>(expression_terms_.size());
-    for (SymbolId term : outcome.terms()) {
-        if (index(term) != branch) {
-            expression_terms_.push_back(index(term));
-        }
-    }
-    assert(expression_terms_.size() == static_cast<size_t>(begin) + outcome.terms().size() - 1 &&
-           "validated measurement outcome must contain its branch exactly once");
-    return {begin, static_cast<uint32_t>(outcome.terms().size() - 1), outcome.constant()};
-}
-
 Executor::Executor(const ExecutablePlan& plan, uint64_t seed)
     : root_plan_(&plan),
       plan_(&plan),
       state_(plan.max_active_width_, plan.initial_active_width_, plan.global_weight_),
       symbols_(plan.num_symbols_, 0),
+      expression_registers_(plan.expression_register_constants_),
       records_(static_cast<size_t>(plan.num_visible_records_) + plan.num_hidden_records_, 0),
       detectors_(plan.num_detectors_, 0),
       observables_(plan.num_observables_, 0),
@@ -365,6 +402,10 @@ void Executor::resume(const ExecutablePlan& continuation,
     state_.ensure_capacity(continuation.max_active_width_);
     symbols_.resize(std::max(symbols_.size(), static_cast<size_t>(continuation.num_symbols_)), 0);
     std::fill(symbols_.begin() + boundary->symbol_prefix_size, symbols_.end(), uint8_t{0});
+    expression_registers_.resize(
+        std::max(expression_registers_.size(), continuation.expression_register_constants_.size()),
+        0);
+    initialize_expression_registers(continuation, boundary->symbol_prefix_size);
     const size_t record_count =
         static_cast<size_t>(continuation.num_visible_records_) + continuation.num_hidden_records_;
     records_.resize(std::max(records_.size(), record_count), 0);
@@ -398,9 +439,8 @@ void Executor::return_to_root_plan() noexcept {
 ReplayResult Executor::replay_shot(std::span<const uint8_t> forced_records,
                                    std::span<const uint8_t> presampled_values) noexcept {
     plan_ = root_plan_;
-    const size_t root_record_count =
-        static_cast<size_t>(plan_->num_visible_records_) + plan_->num_hidden_records_;
-    assert(forced_records.size() == root_record_count &&
+    assert(forced_records.size() ==
+               static_cast<size_t>(plan_->num_visible_records_) + plan_->num_hidden_records_ &&
            "one forced value is required for every plan record");
     assert(std::ranges::all_of(forced_records, [](uint8_t value) { return value <= 1; }) &&
            "forced records must be Boolean");
@@ -419,9 +459,50 @@ void Executor::reset_shot() noexcept {
         symbols_[symbol] = 0;
     }
     previous_presampled_ones_.clear();
+    initialize_expression_registers(*plan_, 0);
     std::ranges::fill(forced_record_mask_, uint8_t{0});
     discarded_ = false;
     pending_trap_.reset();
+}
+
+void Executor::initialize_expression_registers(const ExecutablePlan& plan,
+                                               uint32_t symbol_prefix_size) noexcept {
+    assert(expression_registers_.size() >= plan.expression_register_constants_.size() &&
+           "expression register storage must cover the active plan");
+    assert(symbol_prefix_size <= plan.num_symbols_ &&
+           "expression reconstruction prefix must belong to the active plan");
+    std::ranges::copy(plan.expression_register_constants_, expression_registers_.begin());
+    for (uint32_t symbol = 0; symbol < symbol_prefix_size; ++symbol) {
+        if (symbols_[symbol] != 0) {
+            propagate_true_symbol(plan, symbol);
+        }
+    }
+}
+
+void Executor::propagate_true_symbol(const ExecutablePlan& plan, uint32_t symbol) noexcept {
+    assert(static_cast<size_t>(symbol) + 1 < plan.expression_dependency_offsets_.size() &&
+           "assigned symbol must have an expression dependency range");
+    const uint32_t begin = plan.expression_dependency_offsets_[symbol];
+    const uint32_t end = plan.expression_dependency_offsets_[symbol + 1];
+    for (uint32_t i = begin; i < end; ++i) {
+        const uint32_t register_id = plan.expression_dependency_targets_[i];
+        assert(register_id < expression_registers_.size() &&
+               "expression dependency must refer to a preallocated register");
+        expression_registers_[register_id] ^= uint8_t{1};
+    }
+}
+
+void Executor::assign_symbol(uint32_t symbol, bool value) noexcept {
+    // Expression registers begin at their constant values and receive each
+    // symbol's contribution exactly once when that symbol is assigned true.
+    // False is the unpropagated baseline, so assigning false updates symbols_
+    // without modifying registers. symbols_ remains authoritative because resume
+    // reconstructs continuation registers by replaying the live true prefix.
+    assert(symbol < symbols_.size() && "assigned symbol must belong to the active plan");
+    symbols_[symbol] = static_cast<uint8_t>(value);
+    if (value) {
+        propagate_true_symbol(*plan_, symbol);
+    }
 }
 
 void Executor::assign_presampled_values(std::span<const uint8_t> presampled_values) noexcept {
@@ -430,7 +511,7 @@ void Executor::assign_presampled_values(std::span<const uint8_t> presampled_valu
     for (size_t i = 0; i < presampled_values.size(); ++i) {
         assert(presampled_values[i] <= 1 && "presampled symbols must be Boolean");
         const uint32_t symbol = plan_->presampled_symbols_[i];
-        symbols_[symbol] = presampled_values[i];
+        assign_symbol(symbol, presampled_values[i] != 0);
         if (presampled_values[i] != 0) {
             previous_presampled_ones_.push_back(symbol);
         }
@@ -474,7 +555,7 @@ void Executor::activate_noise_site(uint32_t site_index) noexcept {
     const uint32_t symbol = plan_->noise_outcomes_[outcome_index].symbol;
     assert(symbol < symbols_.size() && symbols_[symbol] == 0 &&
            "a noise site may define only one fresh symbol per shot");
-    symbols_[symbol] = 1;
+    assign_symbol(symbol, true);
     previous_presampled_ones_.push_back(symbol);
 }
 
@@ -526,7 +607,7 @@ void Executor::execute_action(const ExecutablePlan::ExecuteActiveMeasurement& ac
             branch = sample_active_branch(probabilities);
         }
     }
-    symbols_[action.branch] = static_cast<uint8_t>(branch);
+    assign_symbol(action.branch, branch);
     collapse_measurement(state_, action.measurement, branch, probabilities.for_branch(branch));
     records_[action.record] = static_cast<uint8_t>(branch ^ correction);
 }
@@ -548,7 +629,7 @@ void Executor::execute_action(const ExecutablePlan::ExecuteDormantMeasurement& a
             branch = sample_dormant_branch();
         }
     }
-    symbols_[action.branch] = static_cast<uint8_t>(branch);
+    assign_symbol(action.branch, branch);
     records_[action.record] = static_cast<uint8_t>(branch ^ correction);
 }
 
@@ -571,7 +652,7 @@ void Executor::execute_action(const ExecutablePlan::ExecuteClassicalRecord& acti
 template <bool ForceRecords>
 void Executor::execute_action(const ExecutablePlan::ExecuteSymbolDefinition& action,
                               std::span<const uint8_t>, ReplayResult&) noexcept {
-    symbols_[action.symbol] = static_cast<uint8_t>(evaluate(action.value));
+    assign_symbol(action.symbol, evaluate(action.value));
 }
 
 template <bool ForceRecords, bool ForceFaults>
@@ -599,7 +680,7 @@ void Executor::execute_action(const ExecutablePlan::ExecuteReadoutNoise& action,
             const double probability = source ? action.prob_one_to_zero : action.prob_zero_to_one;
             flip = probability >= 1.0 || (probability > 0.0 && rng_.next_double() < probability);
         }
-        symbols_[action.flip] = static_cast<uint8_t>(flip);
+        assign_symbol(action.flip, flip);
         records_[action.record] ^= static_cast<uint8_t>(flip);
     }
 }
@@ -645,7 +726,7 @@ void Executor::execute_action(const ExecutablePlan::ExecuteInstrument& action,
            "instrument action must reference a prepared distribution");
     const InstrumentDistribution& distribution = plan_->instrument_distributions_[action.site];
     if (action.destination_flip.has_value()) {
-        symbols_[*action.destination_flip] = 0;
+        assign_symbol(*action.destination_flip, false);
     }
 
     auto trap = [&](uint8_t source, bool destination_pending) {
@@ -667,7 +748,7 @@ void Executor::execute_action(const ExecutablePlan::ExecuteInstrument& action,
         } else if (destination != source) {
             assert(action.destination_flip.has_value() &&
                    "in-line instrument requires a destination-flip symbol");
-            symbols_[*action.destination_flip] = 1;
+            assign_symbol(*action.destination_flip, true);
         }
     };
 
@@ -774,17 +855,10 @@ ReplayResult Executor::execute_actions(std::span<const uint8_t> forced_records,
 }
 
 bool Executor::evaluate(ExecutablePlan::PreparedExpression expression) const noexcept {
-    assert(static_cast<uint64_t>(expression.term_begin) + expression.term_count <=
-               plan_->expression_terms_.size() &&
-           "prepared affine expression must stay inside term storage");
-    bool value = expression.constant;
-    for (uint32_t i = 0; i < expression.term_count; ++i) {
-        const uint32_t symbol = plan_->expression_terms_[expression.term_begin + i];
-        assert(symbol < symbols_.size() && symbols_[symbol] <= 1 &&
-               "prepared affine term must refer to a Boolean symbol");
-        value ^= symbols_[symbol] != 0;
-    }
-    return value;
+    assert(expression.register_id < plan_->expression_register_constants_.size() &&
+           expression.register_id < expression_registers_.size() &&
+           "prepared affine expression must refer to the active register file");
+    return expression_registers_[expression.register_id] != 0;
 }
 
 bool Executor::sample_active_branch(MeasurementProbabilities probabilities) noexcept {
