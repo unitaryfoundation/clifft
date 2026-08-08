@@ -6,6 +6,7 @@
 // evolves the active-coordinate coefficient state, samples measurements, and
 // writes records using only preallocated storage.
 
+#include "clifft/sampling/fused_rotation.h"
 #include "clifft/sampling/kernels.h"
 #include "clifft/sampling/plan.h"
 #include "clifft/sampling/state.h"
