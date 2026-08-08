@@ -1,9 +1,9 @@
 #include "clifft/sampling/executor.h"
 
-#include "clifft/svm/svm.h"
 #include "clifft/util/fault_sampling.h"
 #include "clifft/util/noise_sampling.h"
 #include "clifft/util/numeric.h"
+#include "clifft/util/runtime_isa.h"
 
 #include <algorithm>
 #include <bit>
@@ -13,7 +13,6 @@
 #include <numbers>
 #include <stdexcept>
 #include <string>
-#include <string_view>
 #include <type_traits>
 
 namespace clifft::sampling {
@@ -60,8 +59,10 @@ ExecutablePlan::ExecutablePlan(const SamplingPlan& plan)
       final_tableau_(plan.final_tableau),
       instrument_distributions_(plan.instrument_distributions) {
     plan.validate();
+    const internal::RuntimeIsa runtime_isa = internal::runtime_isa();
+    internal::validate_runtime_isa(runtime_isa);
 #if defined(CLIFFT_ENABLE_RUNTIME_DISPATCH)
-    const bool prepare_avx512_sidecars = std::string_view(clifft::svm_backend()) == "avx512";
+    const bool prepare_avx512_sidecars = runtime_isa == internal::RuntimeIsa::Avx512;
 #endif
     if (plan.symbols.size() > std::numeric_limits<uint32_t>::max()) {
         throw std::length_error("sampling executable symbol count exceeds uint32 range");

@@ -1,5 +1,8 @@
 """Conformance and boundary tests for the explicitly selected sampling backend."""
 
+import os
+import subprocess
+import sys
 from pathlib import Path
 
 import numpy as np
@@ -8,6 +11,26 @@ import stim
 
 import clifft
 import clifft.experimental as experimental
+
+
+def test_unknown_forced_isa_is_rejected_by_symbolic_compile() -> None:
+    environment = os.environ.copy()
+    environment["CLIFFT_FORCE_ISA"] = "not-an-isa"
+    completed = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            "from clifft import experimental; experimental.compile('M 0')",
+        ],
+        capture_output=True,
+        check=False,
+        env=environment,
+        text=True,
+    )
+
+    assert completed.returncode != 0
+    assert "CLIFFT_FORCE_ISA" in completed.stderr
+    assert "unrecognized value" in completed.stderr
 
 
 def test_program_is_separate_from_legacy_bytecode() -> None:

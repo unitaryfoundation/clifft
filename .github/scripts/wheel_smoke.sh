@@ -57,12 +57,12 @@ script='from pathlib import Path
 import clifft
 from clifft import experimental
 print(f"version={clifft.__version__}  baseline={clifft.CPU_BASELINE}  backend={clifft.svm_backend()}", flush=True)
-prog = clifft.compile("H 0\nCX 0 1\nM 0 1")
-ps = clifft.record_probabilities(prog, ["00", "11"])
-assert abs(float(ps[0]) - 0.5) < 1e-12 and abs(float(ps[1]) - 0.5) < 1e-12, ps
 symbolic = experimental.compile(Path("tests/fixtures/qv10.stim").read_text())
 result = experimental.sample(symbolic, shots=1, seed=280)
 assert result.measurements.shape[0] == 1, result.measurements.shape
+prog = clifft.compile("H 0\nCX 0 1\nM 0 1")
+ps = clifft.record_probabilities(prog, ["00", "11"])
+assert abs(float(ps[0]) - 0.5) < 1e-12 and abs(float(ps[1]) - 0.5) < 1e-12, ps
 print("smoke ok", flush=True)
 '
 

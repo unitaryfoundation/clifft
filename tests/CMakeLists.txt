@@ -41,6 +41,7 @@ add_executable(clifft_tests
     test_basis_probabilities.cc
     test_record_probabilities.cc
     test_exp_value.cc
+    test_runtime_isa.cc
     test_openmp.cc
     test_fuzz.cc
     test_noncomp_value_types.cc

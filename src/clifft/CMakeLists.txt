@@ -38,6 +38,7 @@ add_library(clifft_core STATIC
     util/fault_sampling.cc
     util/introspection.cc
     util/page_allocation.cc
+    util/runtime_isa.cc
     util/xoshiro.cc
     noncomp/transition_instrument.cc
     noncomp/transition_hooks.cc
