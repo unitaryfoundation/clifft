@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1786085212623,
+  "lastUpdate": 1786170829923,
   "repoUrl": "https://github.com/unitaryfoundation/clifft",
   "entries": {
     "C++ Catch2 benchmarks (scalar)": [
@@ -5182,6 +5182,70 @@ window.BENCHMARK_DATA = {
             "name": "exp-val 20q 200 probes x100k",
             "value": 139.102,
             "range": "± 3.13449",
+            "unit": "ms",
+            "extra": "100 samples\n1 iterations"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Brad Chase",
+            "username": "bachase",
+            "email": "14430+bachase@users.noreply.github.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "f295361f9f42eb38d9f95eb44014518f32f54d4a",
+          "message": "perf: evaluate symbolic expressions incrementally (#281)\n\nReplace repeated affine term scans in the symbolic sampling executor with\nprecomputed expression registers and a symbol-to-register dependency tape.\nPropagate true symbol contributions once so expression reads become constant\ntime, while preserving authoritative symbol values for replay and continuation\nreconstruction.\n\nAt trap boundaries, grow register storage as needed and rebuild continuation\nregisters from their constants and the live true-symbol prefix. Remove the\nretained per-expression term lists and document the register dependency\ninvariants.\n\nAdd coverage for shot reset, noisy postselection, true-prefix continuation,\nand experimental noncomputational continuations.\n\nRefs #280\n\nAssisted-by: Claude (Opus 4.6) <noreply@anthropic.com>",
+          "timestamp": "2026-08-08T00:34:04Z",
+          "url": "https://github.com/unitaryfoundation/clifft/commit/f295361f9f42eb38d9f95eb44014518f32f54d4a"
+        },
+        "date": 1786170827084,
+        "tool": "catch2",
+        "benches": [
+          {
+            "name": "QV-10 x100 shots",
+            "value": 56.7235,
+            "range": "± 305.059",
+            "unit": "ms",
+            "extra": "100 samples\n1 iterations"
+          },
+          {
+            "name": "cultivation-d5 x1000 shots",
+            "value": 75.9317,
+            "range": "± 272.793",
+            "unit": "ms",
+            "extra": "100 samples\n1 iterations"
+          },
+          {
+            "name": "surface-d7-r7 p=1e-3 x10000 shots",
+            "value": 103.166,
+            "range": "± 194.27",
+            "unit": "ms",
+            "extra": "100 samples\n1 iterations"
+          },
+          {
+            "name": "surface-d5-r5 p=0.05 x10000 shots",
+            "value": 95.2004,
+            "range": "± 439.957",
+            "unit": "ms",
+            "extra": "100 samples\n1 iterations"
+          },
+          {
+            "name": "surface-d11-r11 p=1e-3 x1000 shots",
+            "value": 41.1892,
+            "range": "± 732.853",
+            "unit": "ms",
+            "extra": "100 samples\n1 iterations"
+          },
+          {
+            "name": "exp-val 20q 200 probes x100k",
+            "value": 150.052,
+            "range": "± 4.03655",
             "unit": "ms",
             "extra": "100 samples\n1 iterations"
           }
