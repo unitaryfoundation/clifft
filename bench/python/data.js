@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1786085510806,
+  "lastUpdate": 1786171075354,
   "repoUrl": "https://github.com/unitaryfoundation/clifft",
   "entries": {
     "Python pytest-benchmark suite": [
@@ -8703,6 +8703,126 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.005325867385897865",
             "extra": "mean: 1.5562952580000116 sec\nrounds: 5"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Brad Chase",
+            "username": "bachase",
+            "email": "14430+bachase@users.noreply.github.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "f295361f9f42eb38d9f95eb44014518f32f54d4a",
+          "message": "perf: evaluate symbolic expressions incrementally (#281)\n\nReplace repeated affine term scans in the symbolic sampling executor with\nprecomputed expression registers and a symbol-to-register dependency tape.\nPropagate true symbol contributions once so expression reads become constant\ntime, while preserving authoritative symbol values for replay and continuation\nreconstruction.\n\nAt trap boundaries, grow register storage as needed and rebuild continuation\nregisters from their constants and the live true-symbol prefix. Remove the\nretained per-expression term lists and document the register dependency\ninvariants.\n\nAdd coverage for shot reset, noisy postselection, true-prefix continuation,\nand experimental noncomputational continuations.\n\nRefs #280\n\nAssisted-by: Claude (Opus 4.6) <noreply@anthropic.com>",
+          "timestamp": "2026-08-08T00:34:04Z",
+          "url": "https://github.com/unitaryfoundation/clifft/commit/f295361f9f42eb38d9f95eb44014518f32f54d4a"
+        },
+        "date": 1786171072101,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "tools/bench/test_bench_deep_clifford.py::test_compile_stim_deep",
+            "value": 1445.6103650621608,
+            "unit": "iter/sec",
+            "range": "stddev: 0.000013117476077169122",
+            "extra": "mean: 691.7493289811881 usec\nrounds: 1149"
+          },
+          {
+            "name": "tools/bench/test_bench_deep_clifford.py::test_compile_clifft_deep",
+            "value": 542.8740404979035,
+            "unit": "iter/sec",
+            "range": "stddev: 0.00003534419335381197",
+            "extra": "mean: 1.8420479253029634 msec\nrounds: 415"
+          },
+          {
+            "name": "tools/bench/test_bench_deep_clifford.py::test_sample_stim_deep",
+            "value": 56.78887581677877,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0004206025186950029",
+            "extra": "mean: 17.60908251162354 msec\nrounds: 43"
+          },
+          {
+            "name": "tools/bench/test_bench_deep_clifford.py::test_sample_clifft_deep",
+            "value": 0.9839312810885389,
+            "unit": "iter/sec",
+            "range": "stddev: 0.008003435863348354",
+            "extra": "mean: 1.0163311393999834 sec\nrounds: 5"
+          },
+          {
+            "name": "tools/bench/test_bench_noncomp.py::test_bench_noncomp_plain[d17-r5]",
+            "value": 219.81804216414122,
+            "unit": "iter/sec",
+            "range": "stddev: 0.00003853389078350061",
+            "extra": "mean: 4.5492171168246776 msec\nrounds: 214"
+          },
+          {
+            "name": "tools/bench/test_bench_noncomp.py::test_bench_noncomp_lossless[d17-r5]",
+            "value": 285.7957519048176,
+            "unit": "iter/sec",
+            "range": "stddev: 0.00004066869283722354",
+            "extra": "mean: 3.4990023236351093 msec\nrounds: 275"
+          },
+          {
+            "name": "tools/bench/test_bench_noncomp.py::test_bench_noncomp_leak[d17-r5]",
+            "value": 16.95879145953946,
+            "unit": "iter/sec",
+            "range": "stddev: 0.00017320474474674506",
+            "extra": "mean: 58.9664659999986 msec\nrounds: 17"
+          },
+          {
+            "name": "tools/bench/test_bench_qec.py::test_compile_stim",
+            "value": 17634.461359153036,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0000056781896861377955",
+            "extra": "mean: 56.70714742194025 usec\nrounds: 7448"
+          },
+          {
+            "name": "tools/bench/test_bench_qec.py::test_compile_clifft",
+            "value": 1442.7427076105357,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0000186085759380855",
+            "extra": "mean: 693.1242796965481 usec\nrounds: 1187"
+          },
+          {
+            "name": "tools/bench/test_bench_qec.py::test_sample_stim",
+            "value": 109.09350564034409,
+            "unit": "iter/sec",
+            "range": "stddev: 0.00010113421306798296",
+            "extra": "mean: 9.16644848958074 msec\nrounds: 96"
+          },
+          {
+            "name": "tools/bench/test_bench_qec.py::test_sample_clifft",
+            "value": 7.1499536834687385,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0023246684325999166",
+            "extra": "mean: 139.86104585713323 msec\nrounds: 7"
+          },
+          {
+            "name": "tools/bench/test_bench_qv.py::test_compile_qv20",
+            "value": 52.09206725920775,
+            "unit": "iter/sec",
+            "range": "stddev: 0.00009672342941876452",
+            "extra": "mean: 19.19678086538677 msec\nrounds: 52"
+          },
+          {
+            "name": "tools/bench/test_bench_qv.py::test_sample_qv20_1shot",
+            "value": 6.380286917200227,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0009305846217237599",
+            "extra": "mean: 156.7327634285789 msec\nrounds: 7"
+          },
+          {
+            "name": "tools/bench/test_bench_qv.py::test_sample_qv20_10shots",
+            "value": 0.6031575944482902,
+            "unit": "iter/sec",
+            "range": "stddev: 0.049746116584183896",
+            "extra": "mean: 1.6579414886000108 sec\nrounds: 5"
           }
         ]
       }
