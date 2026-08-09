@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1786170829923,
+  "lastUpdate": 1786257194023,
   "repoUrl": "https://github.com/unitaryfoundation/clifft",
   "entries": {
     "C++ Catch2 benchmarks (scalar)": [
@@ -5246,6 +5246,70 @@ window.BENCHMARK_DATA = {
             "name": "exp-val 20q 200 probes x100k",
             "value": 150.052,
             "range": "± 4.03655",
+            "unit": "ms",
+            "extra": "100 samples\n1 iterations"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Brad Chase",
+            "username": "bachase",
+            "email": "14430+bachase@users.noreply.github.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "b80225c911f736fef56bd2fddbac389c6621cdbf",
+          "message": "perf: specialize symbolic Pauli rotations (#282)\n\nEnumerate coefficient pairs directly, derive paired phases from the Pauli phase class, and use explicit real/imaginary butterflies to reduce scalar active-state work.\n\nAssisted-by: Codex (GPT-5) <noreply@openai.com>",
+          "timestamp": "2026-08-08T09:42:27Z",
+          "url": "https://github.com/unitaryfoundation/clifft/commit/b80225c911f736fef56bd2fddbac389c6621cdbf"
+        },
+        "date": 1786257190622,
+        "tool": "catch2",
+        "benches": [
+          {
+            "name": "QV-10 x100 shots",
+            "value": 57.097,
+            "range": "± 939.502",
+            "unit": "ms",
+            "extra": "100 samples\n1 iterations"
+          },
+          {
+            "name": "cultivation-d5 x1000 shots",
+            "value": 77.2566,
+            "range": "± 478.926",
+            "unit": "ms",
+            "extra": "100 samples\n1 iterations"
+          },
+          {
+            "name": "surface-d7-r7 p=1e-3 x10000 shots",
+            "value": 93.9072,
+            "range": "± 863.355",
+            "unit": "ms",
+            "extra": "100 samples\n1 iterations"
+          },
+          {
+            "name": "surface-d5-r5 p=0.05 x10000 shots",
+            "value": 93.3957,
+            "range": "± 624.305",
+            "unit": "ms",
+            "extra": "100 samples\n1 iterations"
+          },
+          {
+            "name": "surface-d11-r11 p=1e-3 x1000 shots",
+            "value": 38.722,
+            "range": "± 315.364",
+            "unit": "ms",
+            "extra": "100 samples\n1 iterations"
+          },
+          {
+            "name": "exp-val 20q 200 probes x100k",
+            "value": 161.843,
+            "range": "± 1.99544",
             "unit": "ms",
             "extra": "100 samples\n1 iterations"
           }
