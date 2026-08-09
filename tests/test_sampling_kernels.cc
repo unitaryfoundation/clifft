@@ -1,5 +1,5 @@
+#include "clifft/sampling/direct_rotation_dispatch.h"
 #include "clifft/sampling/kernels.h"
-#include "clifft/sampling/rotation_simd.h"
 
 #include "test_helpers.h"
 

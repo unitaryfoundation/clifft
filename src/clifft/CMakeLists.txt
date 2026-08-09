@@ -21,6 +21,7 @@ add_library(clifft_core STATIC
     backend/backend.cc
     sampling/plan.cc
     sampling/planner.cc
+    sampling/direct_rotation_dispatch.cc
     sampling/executable_plan.cc
     sampling/executor.cc
     sampling/fused_rotation.cc
