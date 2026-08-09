@@ -122,7 +122,9 @@ class ExecutablePlan {
     };
 
     struct FusedRotationEntry {
+        // The architecture-neutral descriptor always supports scalar execution.
         PreparedFusedRotation rotation;
+        // The resolved ISA may attach prepared storage and a specialized kernel.
         FusedRotationSidecar sidecar;
     };
 
