@@ -52,6 +52,14 @@ jobs:
       - name: Check uv lockfile
         run: uv lock --check
 
+      - name: Check runtime ISA without dispatch
+        run: |
+          c++ -std=c++20 -Isrc \
+            src/clifft/util/runtime_isa.cc \
+            tools/ci/check_runtime_isa_no_dispatch.cc \
+            -o /tmp/clifft-runtime-isa-no-dispatch
+          /tmp/clifft-runtime-isa-no-dispatch
+
       - name: Cache pre-commit
         uses: actions/cache@v4
         with:

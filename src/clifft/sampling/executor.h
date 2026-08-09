@@ -7,6 +7,7 @@
 // writes records using only preallocated storage.
 
 #include "clifft/sampling/fused_rotation.h"
+#include "clifft/sampling/fused_rotation_simd.h"
 #include "clifft/sampling/kernels.h"
 #include "clifft/sampling/plan.h"
 #include "clifft/sampling/state.h"
@@ -118,6 +119,13 @@ class ExecutablePlan {
 
     struct ExecuteFusedRotation {
         uint32_t rotation_index = 0;
+    };
+
+    struct FusedRotationEntry {
+        // The architecture-neutral descriptor always supports scalar execution.
+        PreparedFusedRotation rotation;
+        // The resolved ISA may attach prepared storage and a specialized kernel.
+        FusedRotationSidecar sidecar;
     };
 
     struct ExecutePromotion {
@@ -242,7 +250,7 @@ class ExecutablePlan {
     std::vector<double> noise_hazards_;
     std::vector<InstrumentDistribution> instrument_distributions_;
     std::vector<uint32_t> instrument_resume_offsets_;
-    std::vector<PreparedFusedRotation> fused_rotations_;
+    std::vector<FusedRotationEntry> fused_rotation_entries_;
     std::vector<Action> actions_;
 };
 

@@ -38,6 +38,7 @@ add_library(clifft_core STATIC
     util/fault_sampling.cc
     util/introspection.cc
     util/page_allocation.cc
+    util/runtime_isa.cc
     util/xoshiro.cc
     noncomp/transition_instrument.cc
     noncomp/transition_hooks.cc
@@ -53,11 +54,18 @@ add_library(clifft_core STATIC
 
 # x86-64 runtime dispatch: compile AVX2 and AVX-512 TUs with SIMD flags.
 if((CMAKE_SYSTEM_PROCESSOR MATCHES "(x86_64|AMD64|amd64)") AND NOT MSVC)
-    target_sources(clifft_core PRIVATE svm/svm_avx2.cc svm/svm_avx512.cc)
+    target_sources(clifft_core PRIVATE
+        sampling/kernels_avx512.cc
+        svm/svm_avx2.cc
+        svm/svm_avx512.cc
+    )
     set_source_files_properties(svm/svm_avx2.cc
         PROPERTIES COMPILE_OPTIONS "-mavx2;-mbmi2;-mfma"
     )
     set_source_files_properties(svm/svm_avx512.cc
+        PROPERTIES COMPILE_OPTIONS "-mavx2;-mbmi2;-mfma;-mavx512f;-mavx512dq"
+    )
+    set_source_files_properties(sampling/kernels_avx512.cc
         PROPERTIES COMPILE_OPTIONS "-mavx2;-mbmi2;-mfma;-mavx512f;-mavx512dq"
     )
     target_compile_definitions(clifft_core PRIVATE CLIFFT_ENABLE_RUNTIME_DISPATCH)

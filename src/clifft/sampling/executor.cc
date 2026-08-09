@@ -3,6 +3,7 @@
 #include "clifft/util/fault_sampling.h"
 #include "clifft/util/noise_sampling.h"
 #include "clifft/util/numeric.h"
+#include "clifft/util/runtime_isa.h"
 
 #include <algorithm>
 #include <bit>
@@ -58,6 +59,11 @@ ExecutablePlan::ExecutablePlan(const SamplingPlan& plan)
       final_tableau_(plan.final_tableau),
       instrument_distributions_(plan.instrument_distributions) {
     plan.validate();
+    const internal::RuntimeIsa runtime_isa = internal::runtime_isa();
+    internal::validate_runtime_isa(runtime_isa);
+#if defined(CLIFFT_ENABLE_RUNTIME_DISPATCH)
+    const bool prepare_avx512_sidecars = runtime_isa == internal::RuntimeIsa::Avx512;
+#endif
     if (plan.symbols.size() > std::numeric_limits<uint32_t>::max()) {
         throw std::length_error("sampling executable symbol count exceeds uint32 range");
     }
@@ -267,8 +273,14 @@ ExecutablePlan::ExecutablePlan(const SamplingPlan& plan)
         FusedRotationRun run = prepare_fused_rotation_run(
             std::span<const PlannedAction>(plan.actions).subspan(planned_index));
         if (run.rotation.has_value()) {
-            const uint32_t fused_index = static_cast<uint32_t>(fused_rotations_.size());
-            fused_rotations_.push_back(std::move(*run.rotation));
+            FusedRotationEntry entry{.rotation = std::move(*run.rotation), .sidecar = {}};
+#if defined(CLIFFT_ENABLE_RUNTIME_DISPATCH)
+            if (prepare_avx512_sidecars) {
+                entry.sidecar = prepare_fused_rotation_avx512_sidecar(entry.rotation);
+            }
+#endif
+            const uint32_t fused_index = static_cast<uint32_t>(fused_rotation_entries_.size());
+            fused_rotation_entries_.push_back(std::move(entry));
             actions_.emplace_back(ExecuteFusedRotation{fused_index});
             planned_index += run.action_count;
             continue;
@@ -595,9 +607,15 @@ void Executor::execute_action(const ExecutablePlan::ExecuteRotation& action,
 template <bool ForceRecords>
 void Executor::execute_action(const ExecutablePlan::ExecuteFusedRotation& action,
                               std::span<const uint8_t>, ReplayResult&) noexcept {
-    assert(action.rotation_index < plan_->fused_rotations_.size() &&
-           "fused rotation action must reference a prepared descriptor");
-    apply_fused_rotation(state_, plan_->fused_rotations_[action.rotation_index]);
+    assert(action.rotation_index < plan_->fused_rotation_entries_.size() &&
+           "fused rotation action must reference a prepared entry");
+    const ExecutablePlan::FusedRotationEntry& entry =
+        plan_->fused_rotation_entries_[action.rotation_index];
+    if (entry.sidecar) {
+        entry.sidecar.kernel(state_, entry.rotation, entry.sidecar.storage.get());
+    } else {
+        apply_fused_rotation(state_, entry.rotation);
+    }
 }
 
 template <bool ForceRecords>
