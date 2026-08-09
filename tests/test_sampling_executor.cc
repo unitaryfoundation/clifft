@@ -1070,6 +1070,81 @@ TEST_CASE("Sampling continuation overwrites an expectation with exact zero") {
     REQUIRE(executor.exp_vals()[1] == 0.0);
 }
 
+TEST_CASE("Sampling continuation preserves fused rotation prefixes") {
+    constexpr uint32_t kActiveWidth = 6;
+    const std::array<RotateActivePauli, 3> prefix_rotations = {
+        RotateActivePauli{{0b001011, 0b100101}, 0.25, AffineBool(false)},
+        RotateActivePauli{{0b101101, 0b011010}, -0.3, AffineBool(true)},
+        RotateActivePauli{{0b100110, 0b110001}, 0.4, AffineBool(false)},
+    };
+    const std::array<RotateActivePauli, 3> continuation_rotations = {
+        RotateActivePauli{{0b001011, 0b001111}, 0.1, AffineBool(false)},
+        RotateActivePauli{{0b101101, 0b101100}, -0.2, AffineBool(true)},
+        RotateActivePauli{{0b100110, 0b010011}, 0.35, AffineBool(false)},
+    };
+
+    SamplingPlan root_plan;
+    root_plan.num_qubits = kActiveWidth + 1;
+    root_plan.initial_active_width = kActiveWidth;
+    root_plan.max_active_width = kActiveWidth;
+    root_plan.num_instrument_sites = 1;
+    root_plan.instrument_distributions = {
+        InstrumentDistribution{InstrumentSiteId{0}, {1.0, 1.0}, {}}};
+    for (const RotateActivePauli& rotation : prefix_rotations) {
+        root_plan.actions.push_back(PlannedAction{kActiveWidth, kActiveWidth, rotation});
+    }
+    root_plan.actions.push_back(PlannedAction{
+        kActiveWidth, kActiveWidth,
+        ApplyInstrument{
+            InstrumentSiteId{0}, InstrumentMode::DormantTrap, {}, AffineBool{}, std::nullopt}});
+    root_plan.actions.push_back(
+        PlannedAction{kActiveWidth, kActiveWidth, InstrumentBoundary{InstrumentSiteId{0}, 0, 0}});
+
+    SamplingPlan continuation_plan = root_plan;
+    for (const RotateActivePauli& rotation : continuation_rotations) {
+        continuation_plan.actions.push_back(PlannedAction{kActiveWidth, kActiveWidth, rotation});
+    }
+
+    const ExecutablePlan root(root_plan);
+    const ExecutablePlan continuation(continuation_plan);
+    REQUIRE(root.num_actions() == 3);
+    REQUIRE(continuation.num_actions() == 4);
+
+    State expected(kActiveWidth, kActiveWidth);
+    for (const RotateActivePauli& rotation : prefix_rotations) {
+        apply_rotation(expected,
+                       prepare_rotation(rotation.pauli, kActiveWidth, rotation.half_turns),
+                       rotation.sign.constant());
+    }
+
+    Executor executor(root, 17);
+    executor.run_shot();
+    REQUIRE(executor.pending_trap().has_value());
+    REQUIRE(executor.pending_trap()->destination_pending);
+    for (uint64_t basis = 0; basis < expected.size(); ++basis) {
+        CAPTURE(basis);
+        REQUIRE_THAT(executor.state().real_data()[basis],
+                     Catch::Matchers::WithinAbs(expected.real_data()[basis], 1e-12));
+        REQUIRE_THAT(executor.state().imag_data()[basis],
+                     Catch::Matchers::WithinAbs(expected.imag_data()[basis], 1e-12));
+    }
+
+    for (const RotateActivePauli& rotation : continuation_rotations) {
+        apply_rotation(expected,
+                       prepare_rotation(rotation.pauli, kActiveWidth, rotation.half_turns),
+                       rotation.sign.constant());
+    }
+    executor.resume(continuation);
+    REQUIRE_FALSE(executor.pending_trap().has_value());
+    for (uint64_t basis = 0; basis < expected.size(); ++basis) {
+        CAPTURE(basis);
+        REQUIRE_THAT(executor.state().real_data()[basis],
+                     Catch::Matchers::WithinAbs(expected.real_data()[basis], 1e-12));
+        REQUIRE_THAT(executor.state().imag_data()[basis],
+                     Catch::Matchers::WithinAbs(expected.imag_data()[basis], 1e-12));
+    }
+}
+
 TEST_CASE("Sampling executor matches legacy records for supported circuits") {
     require_matches_legacy("M 0\n", 32, 1234);
     require_matches_legacy("H 0\nM 0\nM 0\n", 64, 2345);
