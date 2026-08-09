@@ -3,6 +3,8 @@
 #include "clifft/frontend/frontend.h"
 #include "clifft/sampling/executor.h"
 #include "clifft/sampling/planner.h"
+#include "clifft/sampling/sampler.h"
+#include "clifft/sampling/state_queries.h"
 #include "clifft/svm/svm.h"
 #include "clifft/util/noise_sampling.h"
 #include "clifft/util/xoshiro.h"

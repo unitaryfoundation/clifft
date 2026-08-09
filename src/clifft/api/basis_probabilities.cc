@@ -3,6 +3,7 @@
 // implementation of the algorithm derived in docs/theory/basis_probabilities.md.
 
 #include "clifft/sampling/executor.h"
+#include "clifft/sampling/state_queries.h"
 #include "clifft/svm/svm.h"
 #include "clifft/svm/svm_math.h"
 #include "clifft/util/mask_view.h"
