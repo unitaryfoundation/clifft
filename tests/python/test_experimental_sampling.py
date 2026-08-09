@@ -1,6 +1,7 @@
 """Conformance and boundary tests for the explicitly selected sampling backend."""
 
 import os
+import platform
 import subprocess
 import sys
 from pathlib import Path
@@ -12,7 +13,15 @@ import stim
 import clifft
 import clifft.experimental as experimental
 
+_RUNTIME_DISPATCH_BUILD = platform.machine().lower() in {"amd64", "x86_64"} and not (
+    platform.python_compiler().startswith("MSC")
+)
 
+
+@pytest.mark.skipif(
+    not _RUNTIME_DISPATCH_BUILD,
+    reason="CLIFFT_FORCE_ISA is ignored when runtime dispatch is not compiled",
+)
 def test_unknown_forced_isa_is_rejected_by_symbolic_compile() -> None:
     environment = os.environ.copy()
     environment["CLIFFT_FORCE_ISA"] = "not-an-isa"
