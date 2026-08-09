@@ -1,5 +1,6 @@
 #include "clifft/sampling/kernels.h"
 
+#include "clifft/sampling/indexing.h"
 #include "clifft/util/numeric.h"
 
 #include <algorithm>
@@ -71,11 +72,6 @@ void apply_nondiagonal_rotation(State& state, const PreparedRotation& rotation,
             }
         }
     }
-}
-
-uint64_t insert_zero_bit(uint64_t packed, uint32_t pivot) {
-    const uint64_t lower_mask = (uint64_t{1} << pivot) - 1;
-    return (packed & lower_mask) | ((packed & ~lower_mask) << 1);
 }
 
 uint64_t diagonal_source(const PreparedMeasurement& measurement, uint64_t packed, bool branch) {

@@ -22,6 +22,7 @@ add_library(clifft_core STATIC
     sampling/plan.cc
     sampling/planner.cc
     sampling/executor.cc
+    sampling/fused_rotation.cc
     sampling/kernels.cc
     sampling/state.cc
     api/basis_probabilities.cc

@@ -178,7 +178,7 @@ ExecutablePlan::ExecutablePlan(const SamplingPlan& plan)
         boundary_noise_starts.empty() ? plan.num_noise_sites : boundary_noise_starts.front();
 
     size_t boundary_index = 0;
-    for (const PlannedAction& planned : plan.actions) {
+    auto lower_action = [&](const PlannedAction& planned) {
         std::visit(
             [&](const auto& typed) {
                 using T = std::decay_t<decltype(typed)>;
@@ -260,6 +260,24 @@ ExecutablePlan::ExecutablePlan(const SamplingPlan& plan)
                 }
             },
             planned.action);
+    };
+
+    size_t planned_index = 0;
+    while (planned_index < plan.actions.size()) {
+        FusedRotationRun run = prepare_fused_rotation_run(
+            std::span<const PlannedAction>(plan.actions).subspan(planned_index));
+        if (run.rotation.has_value()) {
+            const uint32_t fused_index = static_cast<uint32_t>(fused_rotations_.size());
+            fused_rotations_.push_back(std::move(*run.rotation));
+            actions_.emplace_back(ExecuteFusedRotation{fused_index});
+            planned_index += run.action_count;
+            continue;
+        }
+        const size_t unfused_count = std::max<size_t>(run.action_count, 1);
+        const size_t run_end = planned_index + unfused_count;
+        for (; planned_index < run_end; ++planned_index) {
+            lower_action(plan.actions[planned_index]);
+        }
     }
 
     // Transpose expression-major terms into the symbol-major dependency tape.
@@ -572,6 +590,14 @@ template <bool ForceRecords>
 void Executor::execute_action(const ExecutablePlan::ExecuteRotation& action,
                               std::span<const uint8_t>, ReplayResult&) noexcept {
     apply_rotation(state_, action.rotation, evaluate(action.sign));
+}
+
+template <bool ForceRecords>
+void Executor::execute_action(const ExecutablePlan::ExecuteFusedRotation& action,
+                              std::span<const uint8_t>, ReplayResult&) noexcept {
+    assert(action.rotation_index < plan_->fused_rotations_.size() &&
+           "fused rotation action must reference a prepared descriptor");
+    apply_fused_rotation(state_, plan_->fused_rotations_[action.rotation_index]);
 }
 
 template <bool ForceRecords>

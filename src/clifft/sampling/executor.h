@@ -6,6 +6,7 @@
 // evolves the active-coordinate coefficient state, samples measurements, and
 // writes records using only preallocated storage.
 
+#include "clifft/sampling/fused_rotation.h"
 #include "clifft/sampling/kernels.h"
 #include "clifft/sampling/plan.h"
 #include "clifft/sampling/state.h"
@@ -115,6 +116,10 @@ class ExecutablePlan {
         PreparedExpression sign;
     };
 
+    struct ExecuteFusedRotation {
+        uint32_t rotation_index = 0;
+    };
+
     struct ExecutePromotion {
         PreparedPromotion promotion;
         PreparedExpression sign;
@@ -201,10 +206,10 @@ class ExecutablePlan {
     };
 
     using Action =
-        std::variant<ExecuteRotation, ExecutePromotion, ExecuteActiveMeasurement,
-                     ExecuteDormantMeasurement, ExecuteClassicalRecord, ExecuteSymbolDefinition,
-                     ExecuteReadoutNoise, ExecuteDetector, ExecuteObservable, ExecuteExpectation,
-                     ExecuteInstrument, ExecuteBoundary>;
+        std::variant<ExecuteRotation, ExecuteFusedRotation, ExecutePromotion,
+                     ExecuteActiveMeasurement, ExecuteDormantMeasurement, ExecuteClassicalRecord,
+                     ExecuteSymbolDefinition, ExecuteReadoutNoise, ExecuteDetector,
+                     ExecuteObservable, ExecuteExpectation, ExecuteInstrument, ExecuteBoundary>;
 
     uint32_t num_qubits_ = 0;
     uint32_t initial_active_width_ = 0;
@@ -237,6 +242,7 @@ class ExecutablePlan {
     std::vector<double> noise_hazards_;
     std::vector<InstrumentDistribution> instrument_distributions_;
     std::vector<uint32_t> instrument_resume_offsets_;
+    std::vector<PreparedFusedRotation> fused_rotations_;
     std::vector<Action> actions_;
 };
 
@@ -327,6 +333,9 @@ class Executor {
                                                uint32_t begin = 0) noexcept;
     template <bool ForceRecords>
     void execute_action(const ExecutablePlan::ExecuteRotation& action,
+                        std::span<const uint8_t> forced_records, ReplayResult& result) noexcept;
+    template <bool ForceRecords>
+    void execute_action(const ExecutablePlan::ExecuteFusedRotation& action,
                         std::span<const uint8_t> forced_records, ReplayResult& result) noexcept;
     template <bool ForceRecords>
     void execute_action(const ExecutablePlan::ExecutePromotion& action,
