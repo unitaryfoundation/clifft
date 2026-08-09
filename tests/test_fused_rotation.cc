@@ -119,3 +119,46 @@ TEST_CASE("Fused rotation falls back for a rank three run") {
     };
     require_matches_scalar(rotation_plan(3, rotations), 0, 3);
 }
+
+TEST_CASE("Direct rotation SIMD matches scalar across eligible shapes") {
+    const std::array rotations = {
+        RotateActivePauli{{0, 0}, 0.125, AffineBool::symbol(SymbolId{0})},
+        RotateActivePauli{{0, 0b101011}, -0.3, AffineBool::symbol(SymbolId{0})},
+        RotateActivePauli{{0b001011, 0b000011}, 0.2, AffineBool::symbol(SymbolId{0})},
+        RotateActivePauli{{0b011001, 0b010101}, -0.4, AffineBool::symbol(SymbolId{0})},
+        RotateActivePauli{{0b000101, 0b000110}, 0.35, AffineBool::symbol(SymbolId{0})},
+        RotateActivePauli{{0b001111, 0b001001}, -0.15, AffineBool::symbol(SymbolId{0})},
+    };
+    const SamplingPlan plan = rotation_plan(6, rotations);
+    require_matches_scalar(plan, 0, rotations.size());
+    require_matches_scalar(plan, 1, rotations.size());
+}
+
+TEST_CASE("Direct rotation SIMD matches scalar for every lane permutation") {
+    std::array<RotateActivePauli, 16> rotations;
+    for (uint64_t lane_xor = 0; lane_xor < 8; ++lane_xor) {
+        const uint64_t x = 0b100000 | lane_xor;
+        rotations[2 * lane_xor] =
+            RotateActivePauli{{x, (~x) & 0b111111}, 0.2, AffineBool::symbol(SymbolId{0})};
+        rotations[2 * lane_xor + 1] =
+            RotateActivePauli{{x, x & (~x + 1)}, -0.3, AffineBool::symbol(SymbolId{0})};
+    }
+    const SamplingPlan plan = rotation_plan(6, rotations);
+    require_matches_scalar(plan, 0, rotations.size());
+    require_matches_scalar(plan, 1, rotations.size());
+}
+
+TEST_CASE("Direct rotation SIMD matches scalar at vector boundaries") {
+    const std::array diagonal = {
+        RotateActivePauli{{0, 0b111}, 0.3, AffineBool::symbol(SymbolId{0})},
+    };
+    require_matches_scalar(rotation_plan(3, diagonal), 0, diagonal.size());
+    require_matches_scalar(rotation_plan(3, diagonal), 1, diagonal.size());
+
+    const std::array paired = {
+        RotateActivePauli{{0b1101, 0b0011}, -0.25, AffineBool::symbol(SymbolId{0})},
+        RotateActivePauli{{0b1011, 0b0101}, 0.4, AffineBool::symbol(SymbolId{0})},
+    };
+    require_matches_scalar(rotation_plan(4, paired), 0, paired.size());
+    require_matches_scalar(rotation_plan(4, paired), 1, paired.size());
+}

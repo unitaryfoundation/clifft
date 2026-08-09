@@ -37,6 +37,11 @@ ExecutablePlan::ExecutablePlan(const SamplingPlan& plan)
     plan.validate();
     const internal::RuntimeIsa runtime_isa = internal::runtime_isa();
     internal::validate_runtime_isa(runtime_isa);
+#if defined(CLIFFT_ENABLE_RUNTIME_DISPATCH)
+    const bool use_avx512_kernels = runtime_isa == internal::RuntimeIsa::Avx512;
+#else
+    const bool use_avx512_kernels = false;
+#endif
     if (plan.symbols.size() > std::numeric_limits<uint32_t>::max()) {
         throw std::length_error("sampling executable symbol count exceeds uint32 range");
     }
@@ -162,9 +167,12 @@ ExecutablePlan::ExecutablePlan(const SamplingPlan& plan)
             [&](const auto& typed) {
                 using T = std::decay_t<decltype(typed)>;
                 if constexpr (std::is_same_v<T, RotateActivePauli>) {
-                    actions_.emplace_back(ExecuteRotation{
-                        prepare_rotation(typed.pauli, planned.active_before, typed.half_turns),
-                        prepare_expression(typed.sign)});
+                    PreparedRotation rotation =
+                        prepare_rotation(typed.pauli, planned.active_before, typed.half_turns);
+                    const DirectRotationKernel kernel =
+                        select_direct_rotation_kernel(rotation, use_avx512_kernels);
+                    actions_.emplace_back(ExecuteRotation{std::move(rotation),
+                                                          prepare_expression(typed.sign), kernel});
                 } else if constexpr (std::is_same_v<T, PromoteDormantRotation>) {
                     actions_.emplace_back(ExecutePromotion{prepare_promotion(typed.half_turns),
                                                            prepare_expression(typed.sign)});

@@ -3,6 +3,7 @@
 #include "clifft/sampling/fused_rotation_dispatch.h"
 #include "clifft/sampling/kernels.h"
 #include "clifft/sampling/plan.h"
+#include "clifft/sampling/rotation_simd.h"
 
 #include <complex>
 #include <cstddef>
@@ -60,6 +61,7 @@ class ExecutablePlan {
     struct ExecuteRotation {
         PreparedRotation rotation;
         PreparedExpression sign;
+        DirectRotationKernel kernel = DirectRotationKernel::Scalar;
     };
 
     struct ExecuteFusedRotation {

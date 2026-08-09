@@ -298,7 +298,14 @@ void Executor::assign_forced_quantum_faults() noexcept {
 template <bool ForceRecords>
 void Executor::execute_action(const ExecutablePlan::ExecuteRotation& action,
                               std::span<const uint8_t>, ReplayResult&) noexcept {
-    apply_rotation(state_, action.rotation, evaluate(action.sign));
+    const bool sign = evaluate(action.sign);
+#if defined(CLIFFT_ENABLE_RUNTIME_DISPATCH)
+    if (action.kernel != DirectRotationKernel::Scalar) {
+        apply_direct_rotation_avx512(state_, action.rotation, action.kernel, sign);
+        return;
+    }
+#endif
+    apply_rotation(state_, action.rotation, sign);
 }
 
 template <bool ForceRecords>

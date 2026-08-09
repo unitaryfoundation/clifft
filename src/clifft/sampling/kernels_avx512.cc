@@ -1,10 +1,12 @@
-// AVX-512F+AVX-512DQ fused-rotation kernel. This translation unit is compiled
+// AVX-512F+AVX-512DQ sampling kernels. This translation unit is compiled
 // with the same explicit AVX2/BMI2/FMA/AVX-512 flags as the SVM AVX-512 path.
 
 #include "clifft/sampling/fused_rotation_simd.h"
 #include "clifft/sampling/indexing.h"
+#include "clifft/sampling/rotation_simd.h"
 
 #include <array>
+#include <bit>
 #include <cassert>
 #include <complex>
 #include <cstddef>
@@ -21,6 +23,32 @@ constexpr size_t kLanes = 8;
 constexpr size_t kDimension = 4;
 constexpr size_t kMatrixSize = kDimension * kDimension;
 
+using LaneIndices = std::array<uint64_t, kLanes>;
+using LaneSigns = std::array<double, kLanes>;
+
+constexpr std::array<LaneIndices, kLanes> make_lane_permutations() {
+    std::array<LaneIndices, kLanes> result{};
+    for (size_t lane_xor = 0; lane_xor < kLanes; ++lane_xor) {
+        for (size_t lane = 0; lane < kLanes; ++lane) {
+            result[lane_xor][lane] = lane ^ lane_xor;
+        }
+    }
+    return result;
+}
+
+constexpr std::array<LaneSigns, kLanes> make_lane_parity_signs() {
+    std::array<LaneSigns, kLanes> result{};
+    for (size_t z = 0; z < kLanes; ++z) {
+        for (size_t lane = 0; lane < kLanes; ++lane) {
+            result[z][lane] = (std::popcount(z & lane) & 1U) != 0 ? -1.0 : 1.0;
+        }
+    }
+    return result;
+}
+
+alignas(64) constexpr auto kLanePermutations = make_lane_permutations();
+alignas(64) constexpr auto kLaneParitySigns = make_lane_parity_signs();
+
 struct alignas(64) LanePermutation {
     std::array<uint64_t, kLanes> indices{};
 };
@@ -34,6 +62,96 @@ struct FusedRotationAvx512Sidecar {
     std::array<LanePermutation, kDimension> permutations;
     std::vector<LaneWeights> weights;
 };
+
+__m512d signed_sine_lanes(uint64_t basis, uint64_t z, double sine) noexcept {
+    const bool high_parity = (std::popcount(basis & z) & 1U) != 0;
+    const double block_sine = high_parity ? -sine : sine;
+    const __m512d lane_signs = _mm512_load_pd(kLaneParitySigns[z & (kLanes - 1)].data());
+    return _mm512_mul_pd(_mm512_set1_pd(block_sine), lane_signs);
+}
+
+void apply_diagonal_rotation_avx512(State& state, const PreparedRotation& rotation,
+                                    double sine) noexcept {
+    assert(rotation.pauli.is_diagonal() && !rotation.pauli.is_identity() &&
+           rotation.pauli.active_width >= 3 &&
+           "AVX-512 diagonal rotation requires at least one vector block");
+    double* const real = state.real_data();
+    double* const imag = state.imag_data();
+    const __m512d cosine = _mm512_set1_pd(rotation.cosine);
+    for (uint64_t basis = 0; basis < state.size(); basis += kLanes) {
+        const __m512d input_real = _mm512_load_pd(real + basis);
+        const __m512d input_imag = _mm512_load_pd(imag + basis);
+        const __m512d signed_sine = signed_sine_lanes(basis, rotation.pauli.z, sine);
+        const __m512d output_real =
+            _mm512_fmadd_pd(signed_sine, input_imag, _mm512_mul_pd(cosine, input_real));
+        const __m512d output_imag =
+            _mm512_fnmadd_pd(signed_sine, input_real, _mm512_mul_pd(cosine, input_imag));
+        _mm512_store_pd(real + basis, output_real);
+        _mm512_store_pd(imag + basis, output_imag);
+    }
+}
+
+template <bool RealPhase>
+void apply_nondiagonal_rotation_avx512(State& state, const PreparedRotation& rotation,
+                                       double sine) noexcept {
+    assert(!rotation.pauli.is_diagonal() && rotation.pauli.pair_selector >= kLanes &&
+           "AVX-512 non-diagonal rotation requires a high pairing pivot");
+    double* const real = state.real_data();
+    double* const imag = state.imag_data();
+    const uint64_t pair_stride = rotation.pauli.pair_selector;
+    const uint64_t pair_period = pair_stride << 1;
+    const uint64_t lane_xor = rotation.pauli.x & (kLanes - 1);
+    const __m512i permutation = _mm512_load_si512(kLanePermutations[lane_xor].data());
+    const __m512d cosine = _mm512_set1_pd(rotation.cosine);
+    const double base_phase =
+        RealPhase ? rotation.pauli.even_phase.real() : rotation.pauli.even_phase.imag();
+    const double even_left_sine = sine * base_phase;
+
+    for (uint64_t block = 0; block < state.size(); block += pair_period) {
+        for (uint64_t offset = 0; offset < pair_stride; offset += kLanes) {
+            const uint64_t left = block + offset;
+            const uint64_t right_base = (left ^ rotation.pauli.x) & ~(uint64_t{kLanes - 1});
+            const __m512d left_real = _mm512_load_pd(real + left);
+            const __m512d left_imag = _mm512_load_pd(imag + left);
+            const __m512d right_real =
+                _mm512_permutexvar_pd(permutation, _mm512_load_pd(real + right_base));
+            const __m512d right_imag =
+                _mm512_permutexvar_pd(permutation, _mm512_load_pd(imag + right_base));
+            const __m512d left_sine = signed_sine_lanes(left, rotation.pauli.z, even_left_sine);
+
+            __m512d output_left_real;
+            __m512d output_left_imag;
+            __m512d output_right_real;
+            __m512d output_right_imag;
+            if constexpr (RealPhase) {
+                output_left_real =
+                    _mm512_fmadd_pd(left_sine, right_imag, _mm512_mul_pd(cosine, left_real));
+                output_left_imag =
+                    _mm512_fnmadd_pd(left_sine, right_real, _mm512_mul_pd(cosine, left_imag));
+                output_right_real =
+                    _mm512_fmadd_pd(left_sine, left_imag, _mm512_mul_pd(cosine, right_real));
+                output_right_imag =
+                    _mm512_fnmadd_pd(left_sine, left_real, _mm512_mul_pd(cosine, right_imag));
+            } else {
+                output_left_real =
+                    _mm512_fnmadd_pd(left_sine, right_real, _mm512_mul_pd(cosine, left_real));
+                output_left_imag =
+                    _mm512_fnmadd_pd(left_sine, right_imag, _mm512_mul_pd(cosine, left_imag));
+                output_right_real =
+                    _mm512_fmadd_pd(left_sine, left_real, _mm512_mul_pd(cosine, right_real));
+                output_right_imag =
+                    _mm512_fmadd_pd(left_sine, left_imag, _mm512_mul_pd(cosine, right_imag));
+            }
+
+            _mm512_store_pd(real + left, output_left_real);
+            _mm512_store_pd(imag + left, output_left_imag);
+            _mm512_store_pd(real + right_base,
+                            _mm512_permutexvar_pd(permutation, output_right_real));
+            _mm512_store_pd(imag + right_base,
+                            _mm512_permutexvar_pd(permutation, output_right_imag));
+        }
+    }
+}
 
 void apply_fused_rotation_avx512(State& state, const PreparedFusedRotation& rotation,
                                  const void* opaque_sidecar) noexcept {
@@ -102,6 +220,29 @@ void apply_fused_rotation_avx512(State& state, const PreparedFusedRotation& rota
 }
 
 }  // namespace
+
+void apply_direct_rotation_avx512(State& state, const PreparedRotation& rotation,
+                                  DirectRotationKernel kernel, bool sign) noexcept {
+    assert(state.active_width() == rotation.pauli.active_width &&
+           "AVX-512 rotation width must match the active state");
+    const double sine = sign ? -rotation.sine : rotation.sine;
+    switch (kernel) {
+        case DirectRotationKernel::Avx512Diagonal:
+            apply_diagonal_rotation_avx512(state, rotation, sine);
+            return;
+        case DirectRotationKernel::Avx512HighPivot:
+            if (rotation.pauli.even_phase.real() != 0.0) {
+                apply_nondiagonal_rotation_avx512<true>(state, rotation, sine);
+            } else {
+                apply_nondiagonal_rotation_avx512<false>(state, rotation, sine);
+            }
+            return;
+        case DirectRotationKernel::Scalar:
+            assert(false && "scalar rotations must not enter the AVX-512 kernel");
+            return;
+    }
+    assert(false && "unknown direct rotation kernel");
+}
 
 FusedRotationSidecar prepare_fused_rotation_avx512_sidecar(const PreparedFusedRotation& rotation) {
     if (rotation.orbit_rank != 2 || rotation.orbit_pivots[0] < 3) {
