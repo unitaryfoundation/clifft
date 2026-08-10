@@ -1,0 +1,513 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Clifft symbolic backend update</title>
+  <meta name="description" content="Benchmark and architecture update for Clifft's symbolic CPU backend through PR #288.">
+  <style>
+    :root {
+      --ink: #17212b;
+      --muted: #64717d;
+      --paper: #f4f2ed;
+      --panel: #fffefa;
+      --line: #d8d5cd;
+      --navy: #17324d;
+      --teal: #0c776c;
+      --teal-soft: #e0f0ec;
+      --amber: #a95e20;
+      --amber-soft: #f6e8d9;
+      --violet: #66529a;
+      --violet-soft: #ece8f5;
+      --red: #994b47;
+      --red-soft: #f5e5e3;
+    }
+
+    * { box-sizing: border-box; }
+
+    html { color-scheme: light; }
+
+    body {
+      margin: 0;
+      background: var(--paper);
+      color: var(--ink);
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      line-height: 1.45;
+    }
+
+    a { color: var(--teal); }
+
+    main {
+      width: min(1160px, calc(100% - 40px));
+      margin: 0 auto;
+      padding: 36px 0 48px;
+    }
+
+    header {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 28px;
+      align-items: end;
+      margin-bottom: 24px;
+    }
+
+    .eyebrow,
+    .section-label {
+      margin: 0 0 7px;
+      color: var(--teal);
+      font-size: 0.72rem;
+      font-weight: 800;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+    }
+
+    h1 {
+      margin: 0;
+      font-size: clamp(2rem, 4vw, 3.5rem);
+      line-height: 1;
+      letter-spacing: -0.045em;
+    }
+
+    .subtitle {
+      max-width: 760px;
+      margin: 12px 0 0;
+      color: var(--muted);
+      font-size: 0.96rem;
+    }
+
+    .stamp {
+      padding: 10px 13px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--panel);
+      color: var(--muted);
+      font-size: 0.73rem;
+      white-space: nowrap;
+    }
+
+    .metrics {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 10px;
+      margin-bottom: 16px;
+    }
+
+    .metric {
+      min-height: 92px;
+      padding: 15px 17px;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      background: var(--panel);
+    }
+
+    .metric strong {
+      display: block;
+      color: var(--teal);
+      font-size: 1.6rem;
+      letter-spacing: -0.04em;
+    }
+
+    .metric span {
+      display: block;
+      margin-top: 3px;
+      color: var(--muted);
+      font-size: 0.72rem;
+      line-height: 1.3;
+    }
+
+    .metric.gap strong { color: var(--red); }
+
+    section {
+      margin-top: 16px;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      background: var(--panel);
+    }
+
+    .results {
+      overflow: hidden;
+    }
+
+    .section-head {
+      padding: 17px 20px 13px;
+      display: flex;
+      justify-content: space-between;
+      gap: 20px;
+      align-items: baseline;
+      border-bottom: 1px solid var(--line);
+    }
+
+    h2 {
+      margin: 0;
+      font-size: 1.15rem;
+      letter-spacing: -0.02em;
+    }
+
+    .section-head p {
+      margin: 0;
+      color: var(--muted);
+      font-size: 0.72rem;
+    }
+
+    .table-wrap { overflow-x: auto; }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.78rem;
+      font-variant-numeric: tabular-nums;
+    }
+
+    th,
+    td {
+      padding: 10px 13px;
+      border-bottom: 1px solid #e6e3dc;
+      text-align: right;
+      white-space: nowrap;
+    }
+
+    th:first-child,
+    td:first-child { text-align: left; }
+
+    thead th {
+      background: #f0eee8;
+      color: var(--muted);
+      font-size: 0.68rem;
+      font-weight: 750;
+    }
+
+    tbody tr:last-child th,
+    tbody tr:last-child td { border-bottom: 0; }
+
+    tbody tr:hover { background: #faf8f3; }
+
+    .current {
+      background: var(--teal-soft);
+      color: #075d55;
+    }
+
+    thead .current { background: #cfe7e1; }
+
+    .best {
+      color: var(--violet);
+      font-weight: 800;
+    }
+
+    .behind {
+      color: var(--red);
+      font-weight: 800;
+    }
+
+    .circuit-note {
+      display: block;
+      color: var(--muted);
+      font-size: 0.63rem;
+      font-weight: 400;
+    }
+
+    .notes {
+      padding: 11px 20px 13px;
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px 24px;
+      border-top: 1px solid var(--line);
+      color: var(--muted);
+      font-size: 0.67rem;
+    }
+
+    .notes p { margin: 0; }
+
+    .compile-note {
+      grid-column: 1 / -1;
+      padding-top: 8px;
+      border-top: 1px solid #e6e3dc;
+      color: #795331;
+    }
+
+    .summary-grid {
+      display: grid;
+      grid-template-columns: 1.15fr 1fr 1fr;
+      gap: 12px;
+      margin-top: 16px;
+    }
+
+    .summary-grid section {
+      margin: 0;
+      padding: 18px 19px;
+    }
+
+    .summary-grid h2 { margin-bottom: 11px; }
+
+    .compact-list {
+      margin: 0;
+      padding-left: 18px;
+      color: var(--muted);
+      font-size: 0.75rem;
+    }
+
+    .compact-list li + li { margin-top: 7px; }
+
+    .compact-list strong { color: var(--ink); }
+
+    .architecture {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 9px;
+    }
+
+    .path {
+      padding: 12px;
+      border-radius: 8px;
+      background: #eceff1;
+    }
+
+    .path.symbolic { background: var(--teal-soft); }
+
+    .path strong {
+      display: block;
+      margin-bottom: 7px;
+      font-size: 0.75rem;
+    }
+
+    .path p {
+      margin: 0;
+      color: var(--muted);
+      font-size: 0.68rem;
+    }
+
+    .path .flow {
+      margin: 7px 0;
+      color: var(--ink);
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      font-size: 0.64rem;
+      line-height: 1.55;
+    }
+
+    .bottom-grid {
+      display: grid;
+      grid-template-columns: 1.25fr 0.75fr;
+      gap: 12px;
+      margin-top: 12px;
+    }
+
+    .bottom-grid section {
+      margin: 0;
+      padding: 18px 19px;
+    }
+
+    .status-columns {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 22px;
+    }
+
+    .status-columns h3,
+    .answers h3 {
+      margin: 0 0 8px;
+      font-size: 0.78rem;
+    }
+
+    .answers article + article {
+      margin-top: 12px;
+      padding-top: 12px;
+      border-top: 1px solid var(--line);
+    }
+
+    .answers p {
+      margin: 0;
+      color: var(--muted);
+      font-size: 0.72rem;
+    }
+
+    footer {
+      margin-top: 17px;
+      display: flex;
+      justify-content: space-between;
+      gap: 20px;
+      color: var(--muted);
+      font-size: 0.67rem;
+    }
+
+    footer p { margin: 0; }
+
+    footer nav {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+      gap: 8px 15px;
+    }
+
+    @media (max-width: 900px) {
+      .metrics { grid-template-columns: repeat(2, 1fr); }
+      .summary-grid { grid-template-columns: 1fr 1fr; }
+      .summary-grid section:first-child { grid-column: 1 / -1; }
+    }
+
+    @media (max-width: 650px) {
+      main { width: min(100% - 24px, 1160px); padding-top: 24px; }
+      header { grid-template-columns: 1fr; gap: 12px; }
+      .stamp { justify-self: start; }
+      .metrics,
+      .summary-grid,
+      .bottom-grid,
+      .status-columns,
+      .notes { grid-template-columns: 1fr; }
+      .summary-grid section:first-child,
+      .compile-note { grid-column: auto; }
+      .architecture { grid-template-columns: 1fr; }
+      .section-head { display: block; }
+      .section-head p { margin-top: 5px; }
+      footer { display: block; }
+      footer nav { justify-content: flex-start; margin-top: 8px; }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <header>
+      <div>
+        <p class="eyebrow">Clifft CPU backend update</p>
+        <h1>Symbolic backend: measured status</h1>
+        <p class="subtitle">One week into the refactor, the symbolic path is at or above legacy throughput on seven of eight measured workloads. The table below uses PR #288 as the current backend.</p>
+      </div>
+      <div class="stamp">EPYC 9554P / 1 thread / AVX-512</div>
+    </header>
+
+    <div class="metrics" aria-label="Headline results">
+      <div class="metric"><strong>7 / 8</strong><span>workloads at or above legacy throughput</span></div>
+      <div class="metric"><strong>5.09x</strong><span>legacy throughput on distillation</span></div>
+      <div class="metric"><strong>1.66x</strong><span>legacy throughput on the controlled k=12 case</span></div>
+      <div class="metric gap"><strong>0.59x</strong><span>legacy on coherent d5 r1, the main CPU gap</span></div>
+    </div>
+
+    <section class="results" aria-labelledby="results-title">
+      <div class="section-head">
+        <h2 id="results-title">Attempted-shot throughput</h2>
+        <p>Normalized to Clifft legacy; 1.00x = parity; higher is better.</p>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th scope="col">Circuit</th>
+              <th scope="col">max k</th>
+              <th scope="col">Legacy</th>
+              <th scope="col" class="current">Symbolic</th>
+              <th scope="col">SymFT single</th>
+              <th scope="col">SymFT batched</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr><th scope="row">Surface d7 r7</th><td>0</td><td>1.00x</td><td class="current"><strong>1.31x</strong></td><td>0.59x</td><td class="best">9.20x</td></tr>
+            <tr><th scope="row">Cultivation d3</th><td>4</td><td>1.00x</td><td class="current"><strong>1.35x</strong></td><td>0.93x</td><td class="best">3.22x</td></tr>
+            <tr><th scope="row">Cultivation d5</th><td>10</td><td>1.00x</td><td class="current"><strong>1.90x</strong></td><td>1.67x</td><td class="best">2.27x</td></tr>
+            <tr><th scope="row">Distillation</th><td>5</td><td>1.00x</td><td class="current"><strong>5.09x</strong></td><td>2.74x</td><td class="best">16.80x</td></tr>
+            <tr><th scope="row">Coherent d3 r3 <span class="circuit-note">detector-reference caveat</span></th><td>7</td><td>1.00x</td><td class="current"><strong>1.07x</strong></td><td>1.04x</td><td class="best">1.43x</td></tr>
+            <tr><th scope="row">Coherent d5 r1</th><td>12</td><td>1.00x</td><td class="current behind">0.59x</td><td class="best">2.21x</td><td>1.98x</td></tr>
+            <tr><th scope="row">Coherent d5 r5 <span class="circuit-note">early-rejection caveat</span></th><td>22</td><td>1.00x</td><td class="current"><strong>2.21x</strong></td><td class="best">34.36x</td><td>34.34x</td></tr>
+            <tr><th scope="row">Controlled k12 / L512</th><td>12</td><td>1.00x</td><td class="current best">1.66x</td><td>0.56x</td><td>0.62x</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="notes">
+        <p><strong>Coherent d3 r3:</strong> Clifft and SymFT detector-reference semantics differ, so the cross-project comparison is directional. Legacy vs symbolic remains matched.</p>
+        <p><strong>Coherent d5 r5:</strong> almost every shot rejects early and the Clifft samples contain very few shots. Treat the ratios as order-of-magnitude evidence.</p>
+        <p class="compile-note"><strong>Compilation is excluded above and remains a separate gap.</strong> Symbolic vs legacy compile time is 460 ms vs 8 ms on surface d7 r7 and 596 ms vs 5 ms on cultivation d5.</p>
+      </div>
+    </section>
+
+    <div class="summary-grid">
+      <section aria-labelledby="architecture-title">
+        <p class="section-label">Architecture</p>
+        <h2 id="architecture-title">What changed?</h2>
+        <div class="architecture">
+          <div class="path">
+            <strong>Legacy Clifft</strong>
+            <p class="flow">Pauli localization &rarr; SVM bytecode &rarr; localized operations</p>
+            <p>Predictable flat execution, but localization can add dense transformations.</p>
+          </div>
+          <div class="path symbolic">
+            <strong>Symbolic Clifft</strong>
+            <p class="flow">symbolic frame &rarr; shared coordinate plan &rarr; direct kernels</p>
+            <p>The planner fixes topology once; each shot resolves signs and applies direct active-state operations.</p>
+          </div>
+        </div>
+      </section>
+
+      <section aria-labelledby="symft-title">
+        <p class="section-label">SymFT</p>
+        <h2 id="symft-title">Techniques introduced</h2>
+        <ul class="compact-list">
+          <li><strong>Symbolic signs</strong> for noise, feedback, and branches.</li>
+          <li><strong>Adaptive coordinates</strong> for the active state.</li>
+          <li><strong>Direct Pauli kernels</strong> without localization.</li>
+          <li><strong>Packed shots</strong> and <strong>product components</strong> for additional throughput.</li>
+        </ul>
+      </section>
+
+      <section aria-labelledby="drivers-title">
+        <p class="section-label">Ablation findings</p>
+        <h2 id="drivers-title">What drives performance?</h2>
+        <ul class="compact-list">
+          <li>Removing per-shot Clifford work is the base win.</li>
+          <li>Batching is strongest at low k and fades as dense work grows.</li>
+          <li>Layout and SIMD kernels dominate larger active states.</li>
+          <li>Product components are narrow but powerful for weakly coupled high-k states.</li>
+        </ul>
+      </section>
+    </div>
+
+    <div class="bottom-grid">
+      <section aria-labelledby="status-title">
+        <p class="section-label">Status</p>
+        <h2 id="status-title">Done and next</h2>
+        <div class="status-columns">
+          <div>
+            <h3>Implemented</h3>
+            <ul class="compact-list">
+              <li>Broad CPU feature parity behind the experimental API.</li>
+              <li>Incremental affine-expression registers.</li>
+              <li>Direct and fused scalar kernels plus AVX-512 paths.</li>
+              <li>Existing Python quantum-mechanics tests reused across backends.</li>
+            </ul>
+          </div>
+          <div>
+            <h3>Next measurements</h3>
+            <ul class="compact-list">
+              <li>Same-Pauli and dynamic-sign fusion.</li>
+              <li>Remaining rotation and measurement kernels.</li>
+              <li>Planner and continuation compilation.</li>
+              <li>AVX2, then OpenMP, batching, and product components.</li>
+            </ul>
+          </div>
+        </div>
+      </section>
+
+      <section class="answers" aria-label="Architecture decisions">
+        <article>
+          <h3>Will legacy go away?</h3>
+          <p>That is the goal: preserve the Python API and replace its implementation after correctness, portability, compilation, and remaining surfaces are ready.</p>
+        </article>
+        <article>
+          <h3>Why no new SVM?</h3>
+          <p>The SVM itself was not a measured performance driver. A compact tape may still become an architectural or inspection boundary later.</p>
+        </article>
+        <article>
+          <h3>What about GPU?</h3>
+          <p>Revisit the design around the symbolic plan, with a GPU-specific lowered program, state layout, and batching strategy.</p>
+        </article>
+      </section>
+    </div>
+
+    <footer>
+      <p>Sampling-only medians, four samples per cell, one pinned core. All workloads matched max k.</p>
+      <nav aria-label="Sources">
+        <a href="SYMBOLIC_BACKEND_RESULTS.md">Detailed results</a>
+        <a href="https://github.com/unitaryfoundation/clifft/issues/280">Performance investigation</a>
+        <a href="https://github.com/unitaryfoundation/arxiv-stim-clifft-monitor/issues/9">Ablation study</a>
+        <a href="https://github.com/unitaryfoundation/clifft/discussions/236">Backend discussion</a>
+      </nav>
+    </footer>
+  </main>
+</body>
+</html>
