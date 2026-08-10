@@ -133,7 +133,7 @@ ExecutablePlan::ExecutablePlan(const SamplingPlan& plan)
             bound_presampled[index(outcome.symbol)] = true;
         }
         noise_sites_.push_back(
-            {begin, static_cast<uint32_t>(noise_outcomes_.size()) - begin, cumulative_probability});
+            {begin, static_cast<uint32_t>(noise_outcomes_.size()) - begin, site.total_probability});
         cumulative_hazard += bernoulli_hazard(cumulative_probability);
         noise_hazards_.push_back(cumulative_hazard);
     }
@@ -289,7 +289,7 @@ std::vector<double> ExecutablePlan::noise_site_probabilities() const {
     std::vector<double> probabilities;
     probabilities.reserve(noise_sites_.size() + num_readout_noise_sites_);
     for (const PreparedNoiseSite& site : noise_sites_) {
-        probabilities.push_back(site.total_probability);
+        probabilities.push_back(site.conditioned_probability);
     }
     for (const Action& action : actions_) {
         const auto* readout = std::get_if<ExecuteReadoutNoise>(&action);

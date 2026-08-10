@@ -219,12 +219,13 @@ SamplingPlan categorical_noise_plan() {
         SymbolInfo{SymbolKind::Presampled, std::nullopt, NoiseSiteId{3}},
     };
     plan.presampled_noise_sites = {
-        PresampledNoiseSite{NoiseSiteId{0}, {PresampledNoiseOutcome{SymbolId{0}, 0.05}}},
+        PresampledNoiseSite{NoiseSiteId{0}, 0.05, {PresampledNoiseOutcome{SymbolId{0}, 0.05}}},
         PresampledNoiseSite{
             NoiseSiteId{1},
+            0.3,
             {PresampledNoiseOutcome{SymbolId{1}, 0.1}, PresampledNoiseOutcome{SymbolId{2}, 0.2}}},
-        PresampledNoiseSite{NoiseSiteId{2}, {}},
-        PresampledNoiseSite{NoiseSiteId{3}, {PresampledNoiseOutcome{SymbolId{3}, 0.4}}},
+        PresampledNoiseSite{NoiseSiteId{2}, 0.0, {}},
+        PresampledNoiseSite{NoiseSiteId{3}, 0.4, {PresampledNoiseOutcome{SymbolId{3}, 0.4}}},
     };
     return plan;
 }
@@ -334,7 +335,7 @@ TEST_CASE("Sampling executor does not draw for empty noise sites") {
     plan.num_qubits = 1;
     plan.num_visible_records = 1;
     plan.num_noise_sites = 1;
-    plan.presampled_noise_sites = {PresampledNoiseSite{NoiseSiteId{0}, {}}};
+    plan.presampled_noise_sites = {PresampledNoiseSite{NoiseSiteId{0}, 0.0, {}}};
     plan.symbols = {SymbolInfo{SymbolKind::Branch, 0, std::nullopt}};
     plan.actions = {PlannedAction{
         0, 0,

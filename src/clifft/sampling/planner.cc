@@ -240,6 +240,8 @@ std::vector<PendingOperation> queue_supported_operations(const HirModule& hir, S
     plan.presampled_noise_sites.resize(hir.noise_sites.size());
     for (uint32_t site = 0; site < hir.noise_sites.size(); ++site) {
         plan.presampled_noise_sites[site].site = NoiseSiteId{site};
+        plan.presampled_noise_sites[site].total_probability =
+            hir.noise_sites[site].total_probability;
     }
     std::vector<bool> seen_noise_sites(hir.noise_sites.size(), false);
     plan.instrument_distributions.reserve(hir.instrument_sites.size());

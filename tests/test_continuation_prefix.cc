@@ -33,8 +33,8 @@ CompiledModule module_with_prefix_constants() {
     pool.noise_channel_masks.mut_at(PauliMaskHandle{0}).x().bit_set(0, true);
     pool.noise_channel_masks.mut_at(PauliMaskHandle{1}).z().bit_set(1, true);
     pool.noise_sites = {
-        NoiseSite{{NoiseChannel{PauliMaskHandle{0}, 0.125}}},
-        NoiseSite{{NoiseChannel{PauliMaskHandle{1}, 0.25}}},
+        NoiseSite{0.125, {NoiseChannel{PauliMaskHandle{0}, 0.125}}},
+        NoiseSite{0.25, {NoiseChannel{PauliMaskHandle{1}, 0.25}}},
     };
     pool.noise_hazards = {0.13353139262452263, 0.42121346507630353};
 

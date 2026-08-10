@@ -160,7 +160,9 @@ class ExecutablePlan {
     struct PreparedNoiseSite {
         uint32_t outcome_begin = 0;
         uint32_t outcome_count = 0;
-        double total_probability = 0.0;
+        // Exact HIR total exposed to fixed-k conditioning. Ordinary execution
+        // retains the final cumulative outcome as its channel-draw bound.
+        double conditioned_probability = 0.0;
     };
 
     using Action =

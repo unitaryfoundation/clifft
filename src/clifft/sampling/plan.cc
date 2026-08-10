@@ -3,6 +3,7 @@
 #include "clifft/util/numeric.h"
 
 #include <algorithm>
+#include <cmath>
 #include <iomanip>
 #include <limits>
 #include <sstream>
@@ -412,6 +413,10 @@ void SamplingPlan::validate() const {
         if (index(site.site) != site_index) {
             invalid_plan("presampled noise sites are not in stable id order");
         }
+        if (!is_probability(site.total_probability)) {
+            invalid_plan("noise site " + std::to_string(site_index) +
+                         " has an invalid total probability");
+        }
         double total_probability = 0.0;
         for (const PresampledNoiseOutcome& outcome : site.outcomes) {
             const uint32_t symbol_index = index(outcome.symbol);
@@ -435,6 +440,11 @@ void SamplingPlan::validate() const {
         if (!is_finite_robust(total_probability) || total_probability > 1.0 + 1e-12) {
             invalid_plan("noise site " + std::to_string(site_index) +
                          " outcome probabilities exceed one");
+        }
+        if (((site.total_probability == 0.0) != (total_probability == 0.0)) ||
+            std::abs(total_probability - site.total_probability) > 1e-12) {
+            invalid_plan("noise site " + std::to_string(site_index) +
+                         " total probability disagrees with its outcomes");
         }
     }
 
@@ -743,7 +753,8 @@ std::string SamplingPlan::inspect() const {
         out << '\n';
     }
     for (const PresampledNoiseSite& site : presampled_noise_sites) {
-        out << "  noise_site " << index(site.site) << " outcomes=" << site.outcomes.size();
+        out << "  noise_site " << index(site.site) << " probability=" << site.total_probability
+            << " outcomes=" << site.outcomes.size();
         for (const PresampledNoiseOutcome& outcome : site.outcomes) {
             out << " s" << index(outcome.symbol) << ':' << outcome.probability;
         }

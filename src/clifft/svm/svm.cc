@@ -351,10 +351,7 @@ std::vector<double> noise_site_probabilities(const CompiledModule& program) {
     std::vector<double> probs;
     probs.reserve(pool.noise_sites.size() + pool.readout_noise.size());
     for (const auto& site : pool.noise_sites) {
-        double p = 0.0;
-        for (const auto& ch : site.channels)
-            p += ch.prob;
-        probs.push_back(p);
+        probs.push_back(site.total_probability);
     }
     for (const auto& entry : pool.readout_noise) {
         // k-fault conditioning requires one fixed probability per site. An
