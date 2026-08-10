@@ -161,6 +161,17 @@ TEST_CASE("Direct rotation SIMD matches scalar for every lane-paired mask") {
     require_matches_scalar(plan, 1, rotations.size());
 }
 
+TEST_CASE("Direct rotation SIMD matches scalar for imaginary lane pairs with high Z") {
+    const std::array rotations = {
+        RotateActivePauli{{0b001, 0b111001}, 0.2, AffineBool::symbol(SymbolId{0})},
+        RotateActivePauli{{0b110, 0b101010}, -0.3, AffineBool::symbol(SymbolId{0})},
+        RotateActivePauli{{0b101, 0b011100}, 0.45, AffineBool::symbol(SymbolId{0})},
+    };
+    const SamplingPlan plan = rotation_plan(6, rotations);
+    require_matches_scalar(plan, 0, rotations.size());
+    require_matches_scalar(plan, 1, rotations.size());
+}
+
 TEST_CASE("Direct rotation SIMD matches scalar with intermediate high bits") {
     const std::array rotations = {
         RotateActivePauli{{0b101010, 0b001110}, 0.2, AffineBool::symbol(SymbolId{0})},
