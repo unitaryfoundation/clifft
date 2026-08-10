@@ -63,6 +63,8 @@ struct FusedRotationAvx512Sidecar {
     std::vector<LaneWeights> weights;
 };
 
+// Each vector block shares the parity from basis bits above the lanes. The
+// lookup supplies the remaining per-lane signs without scalar branching.
 __m512d signed_sine_lanes(uint64_t basis, uint64_t z, double sine) noexcept {
     const bool high_parity = (std::popcount(basis & z) & 1U) != 0;
     const double block_sine = high_parity ? -sine : sine;
@@ -70,6 +72,8 @@ __m512d signed_sine_lanes(uint64_t basis, uint64_t z, double sine) noexcept {
     return _mm512_mul_pd(_mm512_set1_pd(block_sine), lane_signs);
 }
 
+// A diagonal Pauli never moves coefficients, so eight amplitudes can be
+// updated in place with only lane-dependent parity signs.
 void apply_diagonal_rotation_avx512(State& state, const PreparedRotation& rotation,
                                     double sine) noexcept {
     assert(rotation.pauli.is_diagonal() && !rotation.pauli.is_identity() &&
@@ -91,6 +95,9 @@ void apply_diagonal_rotation_avx512(State& state, const PreparedRotation& rotati
     }
 }
 
+// A pivot at or above the lane bits pairs two aligned vector blocks. XORing the
+// full X mask finds the partner block, while one fixed permutation accounts
+// for X bits within each block.
 template <bool RealPhase>
 void apply_nondiagonal_rotation_avx512(State& state, const PreparedRotation& rotation,
                                        double sine) noexcept {
@@ -153,6 +160,9 @@ void apply_nondiagonal_rotation_avx512(State& state, const PreparedRotation& rot
     }
 }
 
+// Fused matrices vary with representative parity. The sidecar expands those
+// choices by lane so the hot loop can traverse eight independent orbits without
+// gathers or selector branches.
 void apply_fused_rotation_avx512(State& state, const PreparedFusedRotation& rotation,
                                  const void* opaque_sidecar) noexcept {
     const auto& sidecar = *static_cast<const FusedRotationAvx512Sidecar*>(opaque_sidecar);
@@ -227,10 +237,12 @@ void apply_direct_rotation_avx512(State& state, const PreparedRotation& rotation
            "AVX-512 rotation width must match the active state");
     const double sine = sign ? -rotation.sine : rotation.sine;
     switch (kernel) {
-        case DirectRotationKernel::Avx512Diagonal:
+        case DirectRotationKernel::Diagonal:
             apply_diagonal_rotation_avx512(state, rotation, sine);
             return;
-        case DirectRotationKernel::Avx512HighPivot:
+        case DirectRotationKernel::HighPivot:
+            // Prepared Paulis have phases in {+1, -1, +i, -i}; specializing
+            // the real and imaginary cases avoids generic complex arithmetic.
             if (rotation.pauli.even_phase.real() != 0.0) {
                 apply_nondiagonal_rotation_avx512<true>(state, rotation, sine);
             } else {
@@ -244,6 +256,8 @@ void apply_direct_rotation_avx512(State& state, const PreparedRotation& rotation
     assert(false && "unknown direct rotation kernel");
 }
 
+// Host-specific preparation transposes selector matrices into lane-major
+// weights once, keeping both allocation and selector expansion out of shots.
 FusedRotationSidecar prepare_fused_rotation_avx512_sidecar(const PreparedFusedRotation& rotation) {
     if (rotation.orbit_rank != 2 || rotation.orbit_pivots[0] < 3) {
         return {};

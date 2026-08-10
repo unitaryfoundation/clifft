@@ -59,8 +59,11 @@ class ExecutablePlan {
     };
 
     struct ExecuteRotation {
+        // Geometry and trigonometric weights shared by every implementation.
         PreparedRotation rotation;
+        // Register containing the branch-dependent Pauli sign for this shot.
         PreparedExpression sign;
+        // Host-selected shape tag stored in the descriptor's tail padding.
         DirectRotationKernel kernel;
 
         void apply(State& state, bool sign_value) const noexcept {

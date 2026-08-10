@@ -1,5 +1,6 @@
 #include "clifft/sampling/direct_rotation_dispatch.h"
 #include "clifft/sampling/kernels.h"
+#include "clifft/util/runtime_isa.h"
 
 #include "test_helpers.h"
 
@@ -15,6 +16,7 @@
 #include <utility>
 #include <vector>
 
+using clifft::internal::RuntimeIsa;
 using clifft::sampling::activate_zero_coordinate;
 using clifft::sampling::ActivePauli;
 using clifft::sampling::apply_instrument_no_fire;
@@ -31,7 +33,7 @@ using clifft::sampling::prepare_pauli;
 using clifft::sampling::prepare_promotion;
 using clifft::sampling::prepare_rotation;
 using clifft::sampling::PreparedMeasurement;
-using clifft::sampling::select_direct_rotation_kernel;
+using clifft::sampling::resolve_direct_rotation_kernel;
 using clifft::sampling::State;
 using clifft::test::check_complex;
 using clifft::test::dense_axis_rotation;
@@ -326,19 +328,20 @@ TEST_CASE("Sampling kernels rotations match the existing dense matrix oracle") {
 }
 
 TEST_CASE("Direct rotation SIMD selection preserves scalar boundaries") {
-    const auto select = [](ActivePauli pauli, uint32_t active_width, bool use_avx512 = true) {
-        return select_direct_rotation_kernel(prepare_rotation(pauli, active_width, 0.3),
-                                             use_avx512);
+    const auto select = [](ActivePauli pauli, uint32_t active_width,
+                           RuntimeIsa runtime_isa = RuntimeIsa::Avx512) {
+        return resolve_direct_rotation_kernel(prepare_rotation(pauli, active_width, 0.3),
+                                              runtime_isa);
     };
 
     REQUIRE(select({0, 0}, 4) == DirectRotationKernel::Scalar);
     REQUIRE(select({0, 0b11}, 2) == DirectRotationKernel::Scalar);
-    REQUIRE(select({0, 0b101}, 3) == DirectRotationKernel::Avx512Diagonal);
+    REQUIRE(select({0, 0b101}, 3) == DirectRotationKernel::Diagonal);
     REQUIRE(select({0b100, 0b011}, 3) == DirectRotationKernel::Scalar);
-    REQUIRE(select({0b1000, 0b0111}, 4) == DirectRotationKernel::Avx512HighPivot);
+    REQUIRE(select({0b1000, 0b0111}, 4) == DirectRotationKernel::HighPivot);
     REQUIRE(select({0b10000, 0b01111}, 5) == DirectRotationKernel::Scalar);
-    REQUIRE(select({0b100000, 0b011111}, 6) == DirectRotationKernel::Avx512HighPivot);
-    REQUIRE(select({0b1000, 0b0111}, 4, false) == DirectRotationKernel::Scalar);
+    REQUIRE(select({0b100000, 0b011111}, 6) == DirectRotationKernel::HighPivot);
+    REQUIRE(select({0b1000, 0b0111}, 4, RuntimeIsa::Avx2) == DirectRotationKernel::Scalar);
 }
 
 TEST_CASE("Sampling kernel expectation values match the existing dense matrix oracle") {
