@@ -22,7 +22,7 @@ namespace {
 // State stores amplitudes in separate real and imaginary arrays. A SIMD lane
 // is one basis index in either array, so matching lanes from a real vector and
 // an imaginary vector represent eight consecutive complex amplitudes.
-constexpr size_t kLanes = 8;
+constexpr size_t kLanes = kAvx512DoubleLanes;
 constexpr size_t kDimension = 4;
 constexpr size_t kMatrixSize = kDimension * kDimension;
 
