@@ -127,25 +127,13 @@ ExecutablePlan::ExecutablePlan(const SamplingPlan& plan)
     for (const PresampledNoiseSite& site : plan.presampled_noise_sites) {
         const uint32_t begin = static_cast<uint32_t>(noise_outcomes_.size());
         double cumulative_probability = 0.0;
-        const double first_probability =
-            site.outcomes.empty() ? 0.0 : site.outcomes.front().probability;
-        bool homogeneous = true;
         for (const PresampledNoiseOutcome& outcome : site.outcomes) {
-            homogeneous &= outcome.probability == first_probability;
             cumulative_probability += outcome.probability;
             noise_outcomes_.push_back({index(outcome.symbol), cumulative_probability});
             bound_presampled[index(outcome.symbol)] = true;
         }
-        double conditioned_probability = cumulative_probability;
-        if (homogeneous) {
-            // Reconstruct the source gate's total with one multiplication.
-            // Repeated accumulation can differ by one bit between a
-            // single-channel site and an equivalent depolarizing site,
-            // needlessly disabling uniform fixed-k sampling.
-            conditioned_probability = first_probability * static_cast<double>(site.outcomes.size());
-        }
-        noise_sites_.push_back({begin, static_cast<uint32_t>(noise_outcomes_.size()) - begin,
-                                conditioned_probability});
+        noise_sites_.push_back(
+            {begin, static_cast<uint32_t>(noise_outcomes_.size()) - begin, site.total_probability});
         cumulative_hazard += bernoulli_hazard(cumulative_probability);
         noise_hazards_.push_back(cumulative_hazard);
     }

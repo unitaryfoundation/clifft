@@ -176,10 +176,25 @@ NoiseChannel rewind_pauli_targets(HirModule& hir, const stim::TableauSimulator<k
     return NoiseChannel{h, prob};
 }
 
-void append_noise_site(HirModule& hir, NoiseSite site) {
+void append_noise_site(HirModule& hir, NoiseSite site, double total_probability) {
+    site.total_probability = total_probability;
     NoiseSiteIdx idx{static_cast<uint32_t>(hir.noise_sites.size())};
     hir.noise_sites.push_back(std::move(site));
     hir.append_noise(idx);
+}
+
+double sum_noise_probabilities(const NoiseSite& site) {
+    double total_probability = 0.0;
+    for (const NoiseChannel& channel : site.channels) {
+        total_probability += channel.prob;
+    }
+    return total_probability;
+}
+
+double represented_depolarizing_probability(double probability, double outcome_count) {
+    // A channel probability rounded to zero cannot be selected by either
+    // executor, so fixed-k conditioning must also treat the site as impossible.
+    return probability / outcome_count == 0.0 ? 0.0 : probability;
 }
 
 NoiseSite make_single_qubit_noise_site(HirModule& hir,
@@ -901,7 +916,11 @@ HirModule trace(const Circuit& circuit, const InstrumentTraceOptions* instrument
                 for (const auto& target : node.targets) {
                     NoiseSite site =
                         make_single_qubit_noise_site(hir, sim, node.gate, target.value(), prob);
-                    append_noise_site(hir, std::move(site));
+                    const double total_probability =
+                        node.gate == GateType::DEPOLARIZE1
+                            ? represented_depolarizing_probability(prob, 3.0)
+                            : prob;
+                    append_noise_site(hir, std::move(site), total_probability);
                 }
                 break;
             }
@@ -921,7 +940,8 @@ HirModule trace(const Circuit& circuit, const InstrumentTraceOptions* instrument
                                 rewind_pauli_terms(hir, sim, {{qubit, p + 1}}, prob));
                         }
                     }
-                    append_noise_site(hir, std::move(site));
+                    const double total_probability = sum_noise_probabilities(site);
+                    append_noise_site(hir, std::move(site), total_probability);
                 }
                 break;
             }
@@ -947,7 +967,8 @@ HirModule trace(const Circuit& circuit, const InstrumentTraceOptions* instrument
                             ++arg_idx;
                         }
                     }
-                    append_noise_site(hir, std::move(site));
+                    const double total_probability = sum_noise_probabilities(site);
+                    append_noise_site(hir, std::move(site), total_probability);
                 }
                 break;
             }
@@ -976,7 +997,8 @@ HirModule trace(const Circuit& circuit, const InstrumentTraceOptions* instrument
                             }
                         }
                     }
-                    append_noise_site(hir, std::move(site));
+                    const double total_probability = sum_noise_probabilities(site);
+                    append_noise_site(hir, std::move(site), total_probability);
                 }
                 break;
             }
@@ -1006,7 +1028,8 @@ HirModule trace(const Circuit& circuit, const InstrumentTraceOptions* instrument
                     }
                     chain_end = next;
                 }
-                append_noise_site(hir, std::move(site));
+                const double total_probability = sum_noise_probabilities(site);
+                append_noise_site(hir, std::move(site), total_probability);
                 node_index = chain_end;
                 break;
             }
@@ -1021,7 +1044,8 @@ HirModule trace(const Circuit& circuit, const InstrumentTraceOptions* instrument
                     uint32_t q1 = node.targets[i].value();
                     uint32_t q2 = node.targets[i + 1].value();
                     NoiseSite site = make_depolarize2_noise_site(hir, sim, q1, q2, prob);
-                    append_noise_site(hir, std::move(site));
+                    append_noise_site(hir, std::move(site),
+                                      represented_depolarizing_probability(prob, 15.0));
                 }
                 break;
             }
@@ -1033,7 +1057,8 @@ HirModule trace(const Circuit& circuit, const InstrumentTraceOptions* instrument
                     uint32_t q2 = node.targets[i + 1].value();
                     uint32_t q3 = node.targets[i + 2].value();
                     NoiseSite site = make_depolarize3_noise_site(hir, sim, q1, q2, q3, prob);
-                    append_noise_site(hir, std::move(site));
+                    append_noise_site(hir, std::move(site),
+                                      represented_depolarizing_probability(prob, 63.0));
                 }
                 break;
             }

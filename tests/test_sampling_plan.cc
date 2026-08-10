@@ -59,7 +59,7 @@ SamplingPlan valid_plan() {
         SymbolInfo{SymbolKind::Instrument, 4, std::nullopt},
     };
     plan.presampled_noise_sites = {
-        PresampledNoiseSite{NoiseSiteId{0}, {PresampledNoiseOutcome{noise, 0.1}}}};
+        PresampledNoiseSite{NoiseSiteId{0}, 0.1, {PresampledNoiseOutcome{noise, 0.1}}}};
     plan.instrument_distributions = {InstrumentDistribution{InstrumentSiteId{0}, {0.0, 0.0}, {}}};
     plan.actions = {
         PlannedAction{0, 1, PromoteDormantRotation{0.25, AffineBool::symbol(noise)}},
@@ -151,6 +151,13 @@ TEST_CASE("Sampling plan validates symbolic and active state invariants") {
     REQUIRE(text.find("outcome=s0 ^ s1 record=0") != std::string::npos);
     REQUIRE(text.find("5 active_width=0->0 dense_passes=0 instrument_boundary site=0 ") !=
             std::string::npos);
+}
+
+TEST_CASE("Sampling plan rejects inconsistent noise site totals") {
+    SamplingPlan plan = valid_plan();
+    plan.presampled_noise_sites[0].total_probability = 0.2;
+
+    REQUIRE_THROWS_AS(plan.validate(), std::invalid_argument);
 }
 
 TEST_CASE("Sampling plan rejects symbolic use before assignment") {

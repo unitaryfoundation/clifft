@@ -4,6 +4,7 @@
 #include "clifft/util/canonical_phase.h"
 #include "clifft/util/mask_view.h"
 #include "clifft/util/noise_sampling.h"
+#include "clifft/util/numeric.h"
 
 #include <algorithm>
 #include <bit>
@@ -892,6 +893,7 @@ CompiledModule lower_impl(const HirModule& hir,
                 const auto& hir_site = hir.noise_sites[site_idx];
 
                 NoiseSite mapped_site;
+                mapped_site.total_probability = hir_site.total_probability;
                 for (const auto& ch : hir_site.channels) {
                     auto in_view = source_noise_channel_masks.at(ch.mask);
                     auto out_handle =
@@ -906,6 +908,12 @@ CompiledModule lower_impl(const HirModule& hir,
                 double prob_sum = 0.0;
                 for (const auto& ch : mapped_site.channels) {
                     prob_sum += ch.prob;
+                }
+                if (!is_probability(mapped_site.total_probability) ||
+                    ((mapped_site.total_probability == 0.0) != (prob_sum == 0.0)) ||
+                    std::abs(mapped_site.total_probability - prob_sum) > 1e-12) {
+                    throw std::invalid_argument(
+                        "noise site total probability disagrees with its channels");
                 }
 
                 uint32_t cp_idx = static_cast<uint32_t>(ctx.constant_pool.noise_sites.size());

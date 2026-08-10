@@ -61,10 +61,10 @@ enum class ExpValIdx : uint32_t {};
 // Noise Channel Structures
 // =============================================================================
 //
-// A NoiseSite is a list of NoiseChannels; each channel has a Pauli mask
-// (handle into the surrounding arena -- HirModule::noise_channel_masks for
-// HIR-side sites, ConstantPool::noise_channel_masks for compiled sites)
-// and a firing probability. Channel signs are unused (E and -E act
+// A NoiseSite is a mutually exclusive Pauli-noise distribution. Its total
+// probability is retained separately from the channel probabilities so
+// fixed-k conditioning does not have to reconstruct a source gate parameter
+// through rounded channel sums. Channel signs are unused (E and -E act
 // identically as stochastic Pauli errors).
 
 struct NoiseChannel {
@@ -75,6 +75,7 @@ struct NoiseChannel {
 };
 
 struct NoiseSite {
+    double total_probability = 0.0;
     std::vector<NoiseChannel> channels;
 
     [[nodiscard]] bool operator==(const NoiseSite&) const = default;

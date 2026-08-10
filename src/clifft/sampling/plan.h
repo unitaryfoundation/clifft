@@ -278,6 +278,9 @@ struct PresampledNoiseOutcome {
 
 struct PresampledNoiseSite {
     NoiseSiteId site{};
+    // Exact semantic probability copied from the HIR noise site. Execution
+    // still uses the ordered outcome probabilities for channel selection.
+    double total_probability = 0.0;
     std::vector<PresampledNoiseOutcome> outcomes;
 };
 

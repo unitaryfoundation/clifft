@@ -354,7 +354,7 @@ SurvivorResult sample_k_survivors(const CompiledModule& program, uint32_t shots,
 
 /// Return per-site total fault probabilities for importance sampling.
 /// The returned vector has length N_q + N_r: first the quantum noise sites
-/// (sum of channel probs), then the readout noise entries.
+/// (using their preserved semantic totals), then the readout noise entries.
 std::vector<double> noise_site_probabilities(const CompiledModule& program);
 
 /// Return exact |<x|psi>|^2 computational-basis probabilities for unitary

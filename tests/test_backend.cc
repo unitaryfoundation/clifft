@@ -769,10 +769,13 @@ TEST_CASE("Backend: Gap sampling hazard array accumulation") {
 
     HirModule hir(3, /*pauli_capacity=*/16, /*noise_channel_capacity=*/3);
     NoiseSite site1;
+    site1.total_probability = 0.5;
     site1.channels.push_back({clifft::test::claim_noise_channel_mask(hir, 1, 0), 0.5});
     NoiseSite site2;
+    site2.total_probability = 0.75;
     site2.channels.push_back({clifft::test::claim_noise_channel_mask(hir, 2, 0), 0.75});
     NoiseSite site3;
+    site3.total_probability = 1.0;
     site3.channels.push_back({clifft::test::claim_noise_channel_mask(hir, 4, 0), 1.0});
 
     hir.noise_sites.push_back(std::move(site1));
@@ -1544,6 +1547,7 @@ TEST_CASE("Lower: queued virtual gates affect later noise masks") {
     HirModule hir(1, /*pauli_capacity=*/16, /*noise_channel_capacity=*/1);
 
     NoiseSite site;
+    site.total_probability = 0.25;
     site.channels.push_back({clifft::test::claim_noise_channel_mask(hir, X(0), 0), 0.25});
     hir.noise_sites.push_back(site);
 
@@ -1566,6 +1570,7 @@ TEST_CASE("Lower: consuming overload maps noise masks in place") {
     HirModule hir(1, /*pauli_capacity=*/16, /*noise_channel_capacity=*/2);
 
     NoiseSite site;
+    site.total_probability = 0.75;
     const auto x_handle = clifft::test::claim_noise_channel_mask(hir, X(0), 0);
     const auto z_handle = clifft::test::claim_noise_channel_mask(hir, 0, Z(0));
     // Reverse handle order so preserving the HIR handles distinguishes the
@@ -1609,6 +1614,7 @@ TEST_CASE("Lower: consuming overload compacts overallocated noise arena") {
 TEST_CASE("Lower: consuming overload rejects out of bounds noise handles") {
     HirModule hir(1, /*pauli_capacity=*/0, /*noise_channel_capacity=*/1);
     NoiseSite site;
+    site.total_probability = 0.25;
     site.channels.push_back({PauliMaskHandle{1}, 0.25});
     hir.noise_sites.push_back(site);
     hir.append_noise(NoiseSiteIdx{0});
@@ -1620,6 +1626,7 @@ TEST_CASE("Lower: consuming overload rejects duplicate noise handles") {
     HirModule hir(1, /*pauli_capacity=*/0, /*noise_channel_capacity=*/1);
     const auto handle = clifft::test::claim_noise_channel_mask(hir, X(0), 0);
     NoiseSite site;
+    site.total_probability = 0.3;
     site.channels.push_back({handle, 0.1});
     site.channels.push_back({handle, 0.2});
     hir.noise_sites.push_back(site);

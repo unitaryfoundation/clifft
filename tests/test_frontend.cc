@@ -1135,6 +1135,7 @@ TEST_CASE("Frontend: DEPOLARIZE2 produces 15 channels", "[frontend][noise]") {
 
     const auto& site = hir.noise_sites[0];
     REQUIRE(site.channels.size() == 15);
+    CHECK(site.total_probability == 0.15);
 
     // Each channel should have probability p/15 = 0.01
     for (const auto& ch : site.channels) {
@@ -1151,6 +1152,7 @@ TEST_CASE("Frontend: DEPOLARIZE3 produces 63 channels", "[frontend][noise]") {
     REQUIRE(hir.noise_sites.size() == 1);
     const auto& site = hir.noise_sites[0];
     REQUIRE(site.channels.size() == 63);
+    CHECK(site.total_probability == 0.63);
 
     for (const auto& ch : site.channels) {
         CHECK(ch.prob == Catch::Approx(0.01));
@@ -1607,6 +1609,7 @@ TEST_CASE("Frontend: PAULI_CHANNEL_1 emits noise with correct channel count", "[
     CHECK(hir.ops[0].op_type() == OpType::NOISE);
     REQUIRE(hir.noise_sites.size() == 1);
     CHECK(hir.noise_sites[0].channels.size() == 3);
+    CHECK(hir.noise_sites[0].total_probability == Catch::Approx(0.6));
     CHECK(hir.noise_sites[0].channels[0].prob == Catch::Approx(0.1));
     CHECK(hir.noise_sites[0].channels[1].prob == Catch::Approx(0.2));
     CHECK(hir.noise_sites[0].channels[2].prob == Catch::Approx(0.3));

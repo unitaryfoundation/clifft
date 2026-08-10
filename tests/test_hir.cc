@@ -208,6 +208,7 @@ TEST_CASE("HirModule with noise sites", "[hir]") {
     HirModule hir(2, /*num_pauli_masks=*/0, /*num_noise_channels=*/1);
 
     NoiseSite site;
+    site.total_probability = 0.1;
     auto h = clifft::test::claim_noise_channel_mask(hir, X(0), 0);
     site.channels.push_back({h, 0.1});
     hir.noise_sites.push_back(std::move(site));
