@@ -268,11 +268,17 @@ void Executor::sample_presampled_noise(uint32_t begin, uint32_t end) noexcept {
 void Executor::activate_noise_site(uint32_t site_index) noexcept {
     assert(site_index < plan_->noise_sites_.size() && "noise site must be prepared");
     const ExecutablePlan::PreparedNoiseSite& site = plan_->noise_sites_[site_index];
-    assert(site.outcome_count > 0 && site.total_probability > 0.0 &&
+    assert(site.outcome_count > 0 &&
+           "a firing noise site must contain positive-probability outcomes");
+    const uint32_t outcome_end = site.outcome_begin + site.outcome_count;
+    assert(outcome_end <= plan_->noise_outcomes_.size() &&
+           plan_->noise_outcomes_[outcome_end - 1].cumulative_probability > 0.0 &&
            "a firing noise site must contain positive-probability outcomes");
     uint32_t outcome_index = site.outcome_begin;
     if (site.outcome_count > 1) {
-        const double channel_draw = rng_.next_double() * site.total_probability;
+        const double execution_probability =
+            plan_->noise_outcomes_[outcome_end - 1].cumulative_probability;
+        const double channel_draw = rng_.next_double() * execution_probability;
         while (channel_draw >= plan_->noise_outcomes_[outcome_index].cumulative_probability) {
             ++outcome_index;
             assert(outcome_index < site.outcome_begin + site.outcome_count &&
