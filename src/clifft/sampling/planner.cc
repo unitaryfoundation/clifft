@@ -202,6 +202,8 @@ class CoordinateFrame {
     std::vector<size_t> indices_;
 };
 
+// This planner-only frame uses O(num_qubits * num_symbols / 64) words and is
+// discarded before executable lowering or hot execution.
 class SymbolicPauliFrame {
   public:
     SymbolicPauliFrame(uint32_t num_qubits, uint32_t num_symbols)
@@ -829,15 +831,12 @@ void process_instrument(const PendingInstrument& instrument, SamplingPlan& plan,
             }
             const Tableau frame =
                 dormant_promotion_frame(resolved.body, active_width, *dormant_pivot);
-            const Tableau old_to_new = frame.inverse();
-            const std::vector<size_t> indices = identity_indices(old_to_new.num_qubits);
-            Pauli transformed_source = old_to_new.scatter_eval(resolved.body.ref(), indices);
-            sign ^= static_cast<bool>(transformed_source.sign);
-            transformed_source.sign = false;
             coordinates.change_basis(frame);
             ++active_after;
             mode = InstrumentMode::Activate;
-            source = active_projection(transformed_source, active_after);
+            // The promotion frame installs this observable as the next X
+            // generator, so rediscovering it through a local inverse is wasteful.
+            source.x = uint64_t{1} << active_width;
         }
     } else {
         source = active_projection(resolved.body, active_width);
@@ -885,7 +884,7 @@ SamplingPlan plan_sampling(const HirModule& hir, SamplingPlanOptions options) {
     plan.num_exp_vals = hir.num_exp_vals;
     plan.global_weight = hir.global_weight;
 
-    std::vector<PendingOperation> pending = queue_supported_operations(hir, plan, options);
+    const std::vector<PendingOperation> pending = queue_supported_operations(hir, plan, options);
     if (plan.symbols.size() > std::numeric_limits<uint32_t>::max()) {
         throw std::length_error("sampling planner symbol count exceeds uint32 range");
     }

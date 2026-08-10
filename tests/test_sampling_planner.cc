@@ -202,9 +202,18 @@ TEST_CASE("Sampling planner fixes instrument source handling before execution") 
     REQUIRE(instrument(classical).mode == InstrumentMode::Classical);
     REQUIRE(std::holds_alternative<InstrumentBoundary>(classical.actions.back().action));
 
-    const SamplingPlan activated = plan_for("H 0\nLEVEL_TRANSITION[jump] 0", false);
-    REQUIRE(instrument(activated).mode == InstrumentMode::Activate);
-    REQUIRE(activated.max_active_width == 1);
+    const SamplingPlan activated = plan_for("H 0\nT 0\nH 1\nLEVEL_TRANSITION[jump] 1\nM 1", false);
+    const ApplyInstrument& activated_instrument = instrument(activated);
+    REQUIRE(activated_instrument.mode == InstrumentMode::Activate);
+    REQUIRE(activated_instrument.source.x == 2);
+    REQUIRE(activated_instrument.source.z == 0);
+    REQUIRE(activated_instrument.sign == AffineBool(false));
+    REQUIRE(activated_instrument.destination_flip.has_value());
+    REQUIRE(activated.max_active_width == 2);
+    const auto& after_activation = action_as<MeasureActivePauli>(activated, 3);
+    REQUIRE(after_activation.outcome ==
+            (AffineBool::symbol(*activated_instrument.destination_flip) ^
+             AffineBool::symbol(after_activation.branch)));
 
     const SamplingPlan active = plan_for("H 0\nT 0\nLEVEL_TRANSITION[jump] 0", false);
     REQUIRE(instrument(active).mode == InstrumentMode::Active);

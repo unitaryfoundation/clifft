@@ -184,7 +184,7 @@ int main() {
     size_t planned_actions = 0;
     size_t executable_actions = 0;
     size_t planned_symbols = 0;
-    size_t symbolic_frame_bytes = 0;
+    size_t estimated_symbolic_frame_bytes = 0;
 
     auto outer_start = std::chrono::high_resolution_clock::now();
 
@@ -250,7 +250,9 @@ int main() {
                 planned_symbols = plan.symbols.size();
                 max_active_width = plan.max_active_width;
                 const size_t symbol_words = (planned_symbols + 63) / 64;
-                symbolic_frame_bytes =
+                // Mirrors the current planner-only SymbolicPauliFrame layout:
+                // packed X/Z rows, one scratch row, and X/Z constant bytes.
+                estimated_symbolic_frame_bytes =
                     (2 * static_cast<size_t>(total_qubits) + 1) * symbol_words * sizeof(uint64_t) +
                     2 * static_cast<size_t>(total_qubits) * sizeof(uint8_t);
             }
@@ -287,8 +289,9 @@ int main() {
             } else {
                 std::cout << "max_active_width " << max_active_width << ", " << parsed_ops
                           << " parsed ops, " << planned_actions << " -> " << executable_actions
-                          << " actions, " << planned_symbols << " symbols, " << symbolic_frame_bytes
-                          << " symbolic-frame workspace bytes\n\n";
+                          << " actions, " << planned_symbols << " symbols, "
+                          << estimated_symbolic_frame_bytes
+                          << " estimated symbolic-frame workspace bytes\n\n";
             }
         }
     }
