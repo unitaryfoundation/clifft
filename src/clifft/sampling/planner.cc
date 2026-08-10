@@ -1,5 +1,6 @@
 #include "clifft/sampling/planner.h"
 
+#include "clifft/sampling/planner_frame.h"
 #include "clifft/util/hir_introspection.h"
 #include "clifft/util/numeric.h"
 #include "clifft/util/stim_mask.h"
@@ -7,14 +8,11 @@
 #include "stim.h"
 
 #include <algorithm>
-#include <bit>
-#include <cassert>
 #include <cmath>
 #include <complex>
 #include <cstdint>
 #include <limits>
 #include <numbers>
-#include <numeric>
 #include <optional>
 #include <span>
 #include <stdexcept>
@@ -28,8 +26,13 @@ namespace clifft::sampling {
 
 namespace {
 
-using Pauli = stim::PauliString<kStimWidth>;
-using Tableau = stim::Tableau<kStimWidth>;
+using Pauli = internal::PlannerPauli;
+using Tableau = internal::PlannerTableau;
+using internal::active_measurement_frame;
+using internal::CoordinateFrame;
+using internal::dormant_measurement_frame;
+using internal::dormant_promotion_frame;
+using internal::SymbolicPauliFrame;
 
 template <typename>
 inline constexpr bool kAlwaysFalse = false;
@@ -146,178 +149,6 @@ Pauli single_x(uint32_t num_qubits, uint32_t q) {
     return result;
 }
 
-Pauli single_z(uint32_t num_qubits, uint32_t q) {
-    Pauli result(num_qubits);
-    result.zs[q] = true;
-    return result;
-}
-
-Pauli positive_body_xor(const Pauli& left, const Pauli& right) {
-    // Callers only combine canonical generator rows whose nonidentity supports
-    // are disjoint. Overlapping supports could contribute a phase that this
-    // body-only helper intentionally does not compute.
-    Pauli result(left);
-    result.xs ^= right.xs;
-    result.zs ^= right.zs;
-    result.sign = false;
-    return result;
-}
-
-bool anticommutes(const Pauli& left, const Pauli& right) {
-    return !left.ref().commutes(right.ref());
-}
-
-std::vector<size_t> identity_indices(size_t size) {
-    std::vector<size_t> result(size);
-    std::iota(result.begin(), result.end(), size_t{0});
-    return result;
-}
-
-class CoordinateFrame {
-  public:
-    explicit CoordinateFrame(uint32_t num_qubits)
-        : current_to_initial_(num_qubits),
-          initial_to_current_(num_qubits),
-          indices_(identity_indices(num_qubits)) {}
-
-    [[nodiscard]] Pauli to_current(const Pauli& initial) const {
-        return initial_to_current_.scatter_eval(initial.ref(), indices_);
-    }
-
-    [[nodiscard]] Pauli to_initial(const Pauli& current) const {
-        return current_to_initial_.scatter_eval(current.ref(), indices_);
-    }
-
-    void change_basis(const Tableau& new_basis_in_old_coordinates) {
-        current_to_initial_ = new_basis_in_old_coordinates.then(current_to_initial_);
-        initial_to_current_ = current_to_initial_.inverse();
-    }
-
-  private:
-    // These two tableaus are maintained together so ordinary operations never
-    // pay for an inverse. The forward map is also needed when a sampled branch
-    // adds a Pauli correction expressed in the newly selected coordinates.
-    Tableau current_to_initial_;
-    Tableau initial_to_current_;
-    std::vector<size_t> indices_;
-};
-
-// This planner-only frame uses O(num_qubits * num_symbols / 64) words and is
-// discarded before executable lowering or hot execution.
-class SymbolicPauliFrame {
-  public:
-    SymbolicPauliFrame(uint32_t num_qubits, uint32_t num_symbols)
-        : num_qubits_(num_qubits),
-          num_symbols_(num_symbols),
-          words_per_row_((static_cast<size_t>(num_symbols) + 63) / 64),
-          x_constants_(num_qubits, 0),
-          z_constants_(num_qubits, 0),
-          scratch_(words_per_row_, 0) {
-        if (num_qubits != 0 && words_per_row_ > std::numeric_limits<size_t>::max() / num_qubits) {
-            throw std::length_error("sampling symbolic Pauli frame is too large");
-        }
-        const size_t storage_words = static_cast<size_t>(num_qubits) * words_per_row_;
-        x_terms_.assign(storage_words, 0);
-        z_terms_.assign(storage_words, 0);
-    }
-
-    void apply(const Pauli& correction, const AffineBool& condition) {
-        assert(correction.num_qubits == num_qubits_ &&
-               "symbolic Pauli correction width must match the planner frame");
-        for (uint32_t q = 0; q < num_qubits_; ++q) {
-            if (correction.xs[q]) {
-                xor_condition(x_row(q), x_constants_[q], condition);
-            }
-            if (correction.zs[q]) {
-                xor_condition(z_row(q), z_constants_[q], condition);
-            }
-        }
-    }
-
-    [[nodiscard]] AffineBool sign_for(const Pauli& observable) {
-        assert(observable.num_qubits == num_qubits_ &&
-               "symbolic Pauli observable width must match the planner frame");
-        std::ranges::fill(scratch_, uint64_t{0});
-        bool constant = false;
-        for (uint32_t q = 0; q < num_qubits_; ++q) {
-            if (observable.xs[q]) {
-                xor_row(scratch_, z_row(q));
-                constant ^= z_constants_[q] != 0;
-            }
-            if (observable.zs[q]) {
-                xor_row(scratch_, x_row(q));
-                constant ^= x_constants_[q] != 0;
-            }
-        }
-
-        size_t term_count = 0;
-        for (uint64_t word : scratch_) {
-            term_count += std::popcount(word);
-        }
-        std::vector<SymbolId> terms;
-        terms.reserve(term_count);
-        for (size_t w = 0; w < scratch_.size(); ++w) {
-            uint64_t word = scratch_[w];
-            while (word != 0) {
-                const uint32_t bit = std::countr_zero(word);
-                const size_t symbol = 64 * w + bit;
-                assert(symbol < num_symbols_ &&
-                       "symbolic Pauli frame contains an out-of-range term");
-                terms.push_back(SymbolId{static_cast<uint32_t>(symbol)});
-                word &= word - 1;
-            }
-        }
-        return AffineBool(constant, std::move(terms));
-    }
-
-  private:
-    [[nodiscard]] std::span<uint64_t> x_row(uint32_t q) {
-        return std::span<uint64_t>{x_terms_}.subspan(static_cast<size_t>(q) * words_per_row_,
-                                                     words_per_row_);
-    }
-    [[nodiscard]] std::span<const uint64_t> x_row(uint32_t q) const {
-        return std::span<const uint64_t>{x_terms_}.subspan(static_cast<size_t>(q) * words_per_row_,
-                                                           words_per_row_);
-    }
-    [[nodiscard]] std::span<uint64_t> z_row(uint32_t q) {
-        return std::span<uint64_t>{z_terms_}.subspan(static_cast<size_t>(q) * words_per_row_,
-                                                     words_per_row_);
-    }
-    [[nodiscard]] std::span<const uint64_t> z_row(uint32_t q) const {
-        return std::span<const uint64_t>{z_terms_}.subspan(static_cast<size_t>(q) * words_per_row_,
-                                                           words_per_row_);
-    }
-
-    static void xor_row(std::span<uint64_t> destination, std::span<const uint64_t> source) {
-        assert(destination.size() == source.size());
-        for (size_t w = 0; w < destination.size(); ++w) {
-            destination[w] ^= source[w];
-        }
-    }
-
-    void xor_condition(std::span<uint64_t> row, uint8_t& constant,
-                       const AffineBool& condition) const {
-        constant ^= static_cast<uint8_t>(condition.constant());
-        for (SymbolId term : condition.terms()) {
-            const uint32_t symbol = index(term);
-            if (symbol >= num_symbols_) {
-                throw std::logic_error(
-                    "sampling symbolic Pauli condition contains an out-of-range symbol");
-            }
-            row[symbol / 64] ^= uint64_t{1} << (symbol % 64);
-        }
-    }
-
-    uint32_t num_qubits_;
-    uint32_t num_symbols_;
-    size_t words_per_row_;
-    std::vector<uint64_t> x_terms_;
-    std::vector<uint64_t> z_terms_;
-    std::vector<uint8_t> x_constants_;
-    std::vector<uint8_t> z_constants_;
-    std::vector<uint64_t> scratch_;
-};
-
 struct ResolvedPauli {
     Pauli body;
     AffineBool sign;
@@ -368,131 +199,6 @@ ActivePauli active_projection(const Pauli& pauli, uint32_t active_width) {
         result.z |= static_cast<uint64_t>(pauli.zs[q]) << q;
     }
     return result;
-}
-
-Tableau dormant_promotion_frame(const Pauli& promoted, uint32_t active_width,
-                                uint32_t dormant_pivot) {
-    const uint32_t n = static_cast<uint32_t>(promoted.num_qubits);
-    Tableau frame(n);
-    const Pauli old_stabilizer = single_z(n, dormant_pivot);
-
-    // The rows express the new coordinate generators in the old basis. Making
-    // the promoted Pauli the next X generator turns its rotation into a
-    // single-coordinate expansion; the stabilizer products keep every other
-    // generator in a canonical symplectic pair.
-    for (uint32_t q = 0; q < active_width; ++q) {
-        Pauli x = single_x(n, q);
-        Pauli z = single_z(n, q);
-        if (anticommutes(x, promoted)) {
-            x = positive_body_xor(x, old_stabilizer);
-        }
-        if (anticommutes(z, promoted)) {
-            z = positive_body_xor(z, old_stabilizer);
-        }
-        frame.xs[q] = x;
-        frame.zs[q] = z;
-    }
-
-    frame.xs[active_width] = promoted;
-    frame.zs[active_width] = old_stabilizer;
-
-    uint32_t new_q = active_width + 1;
-    for (uint32_t old_q = active_width; old_q < n; ++old_q) {
-        if (old_q == dormant_pivot) {
-            continue;
-        }
-        Pauli x = single_x(n, old_q);
-        Pauli z = single_z(n, old_q);
-        if (anticommutes(x, promoted)) {
-            x = positive_body_xor(x, old_stabilizer);
-        }
-        if (anticommutes(z, promoted)) {
-            z = positive_body_xor(z, old_stabilizer);
-        }
-        frame.xs[new_q] = x;
-        frame.zs[new_q] = z;
-        ++new_q;
-    }
-
-    if (!frame.satisfies_invariants()) {
-        throw std::logic_error("sampling planner produced an invalid promotion frame");
-    }
-    return frame;
-}
-
-Tableau dormant_measurement_frame(const Pauli& measured, uint32_t dormant_pivot) {
-    const uint32_t n = static_cast<uint32_t>(measured.num_qubits);
-    Tableau frame(n);
-    const Pauli old_stabilizer = single_z(n, dormant_pivot);
-
-    // Replacing one dormant Z generator with the measured Pauli represents the
-    // collapsed eigenspace without changing the dense coefficient state.
-    for (uint32_t q = 0; q < n; ++q) {
-        if (q == dormant_pivot) {
-            continue;
-        }
-        Pauli x = single_x(n, q);
-        Pauli z = single_z(n, q);
-        if (anticommutes(x, measured)) {
-            x = positive_body_xor(x, old_stabilizer);
-        }
-        if (anticommutes(z, measured)) {
-            z = positive_body_xor(z, old_stabilizer);
-        }
-        frame.xs[q] = x;
-        frame.zs[q] = z;
-    }
-
-    frame.xs[dormant_pivot] = old_stabilizer;
-    frame.zs[dormant_pivot] = measured;
-
-    if (!frame.satisfies_invariants()) {
-        throw std::logic_error("sampling planner produced an invalid dormant measurement frame");
-    }
-    return frame;
-}
-
-Tableau active_measurement_frame(const Pauli& measured, uint32_t active_width, uint32_t pivot) {
-    const uint32_t n = static_cast<uint32_t>(measured.num_qubits);
-    Tableau frame(n);
-    const bool diagonal = !first_x_below(measured, active_width).has_value();
-    const Pauli pivot_x = single_x(n, pivot);
-    const Pauli pivot_z = single_z(n, pivot);
-
-    // Moving the measured Pauli to the last active Z generator gives the
-    // direct measurement kernel one coordinate to remove. The cumulative
-    // frame maps later operations into the remaining packed coordinates.
-    frame.zs[active_width - 1] = measured;
-    frame.xs[active_width - 1] = diagonal ? pivot_x : pivot_z;
-
-    uint32_t new_q = 0;
-    for (uint32_t old_q = 0; old_q < active_width; ++old_q) {
-        if (old_q == pivot) {
-            continue;
-        }
-        Pauli x = single_x(n, old_q);
-        Pauli z = single_z(n, old_q);
-        if (diagonal) {
-            if (measured.zs[old_q]) {
-                x = positive_body_xor(x, pivot_x);
-            }
-        } else {
-            if (measured.xs[old_q]) {
-                z = positive_body_xor(z, pivot_z);
-            }
-            if (measured.zs[old_q]) {
-                x = positive_body_xor(x, pivot_z);
-            }
-        }
-        frame.xs[new_q] = x;
-        frame.zs[new_q] = z;
-        ++new_q;
-    }
-
-    if (!frame.satisfies_invariants()) {
-        throw std::logic_error("sampling planner produced an invalid active measurement frame");
-    }
-    return frame;
 }
 
 SymbolId reserve_symbol(SamplingPlan& plan) {

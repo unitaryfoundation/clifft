@@ -14,6 +14,7 @@
 #include "clifft/optimizer/pass_factory.h"
 #include "clifft/sampling/executable_plan.h"
 #include "clifft/sampling/planner.h"
+#include "clifft/sampling/planner_frame.h"
 #include "clifft/svm/svm.h"
 
 #include <algorithm>
@@ -249,12 +250,9 @@ int main() {
                 planned_actions = plan.actions.size();
                 planned_symbols = plan.symbols.size();
                 max_active_width = plan.max_active_width;
-                const size_t symbol_words = (planned_symbols + 63) / 64;
-                // Mirrors the current planner-only SymbolicPauliFrame layout:
-                // packed X/Z rows, one scratch row, and X/Z constant bytes.
                 estimated_symbolic_frame_bytes =
-                    (2 * static_cast<size_t>(total_qubits) + 1) * symbol_words * sizeof(uint64_t) +
-                    2 * static_cast<size_t>(total_qubits) * sizeof(uint8_t);
+                    clifft::sampling::internal::SymbolicPauliFrame::estimated_workspace_bytes(
+                        total_qubits, static_cast<uint32_t>(planned_symbols));
             }
 
             t0 = std::chrono::high_resolution_clock::now();
