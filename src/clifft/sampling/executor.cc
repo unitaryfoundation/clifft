@@ -298,7 +298,7 @@ void Executor::assign_forced_quantum_faults() noexcept {
 template <bool ForceRecords>
 void Executor::execute_action(const ExecutablePlan::ExecuteRotation& action,
                               std::span<const uint8_t>, ReplayResult&) noexcept {
-    apply_rotation(state_, action.rotation, evaluate(action.sign));
+    action.apply(state_, evaluate(action.sign));
 }
 
 template <bool ForceRecords>

@@ -1,5 +1,6 @@
 #pragma once
 
+#include "clifft/sampling/direct_rotation_dispatch.h"
 #include "clifft/sampling/fused_rotation_dispatch.h"
 #include "clifft/sampling/kernels.h"
 #include "clifft/sampling/plan.h"
@@ -58,9 +59,20 @@ class ExecutablePlan {
     };
 
     struct ExecuteRotation {
+        // Geometry and trigonometric weights shared by every implementation.
         PreparedRotation rotation;
+        // Register containing the branch-dependent Pauli sign for this shot.
         PreparedExpression sign;
+        // Host-selected shape tag stored in the descriptor's tail padding.
+        DirectRotationKernel kernel;
+
+        void apply(State& state, bool sign_value) const noexcept {
+            apply_direct_rotation(state, rotation, kernel, sign_value);
+        }
     };
+
+    static_assert(sizeof(ExecuteRotation) == 72,
+                  "direct rotation dispatch must not expand its action descriptor");
 
     struct ExecuteFusedRotation {
         uint32_t rotation_index = 0;

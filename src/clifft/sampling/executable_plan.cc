@@ -162,9 +162,12 @@ ExecutablePlan::ExecutablePlan(const SamplingPlan& plan)
             [&](const auto& typed) {
                 using T = std::decay_t<decltype(typed)>;
                 if constexpr (std::is_same_v<T, RotateActivePauli>) {
-                    actions_.emplace_back(ExecuteRotation{
-                        prepare_rotation(typed.pauli, planned.active_before, typed.half_turns),
-                        prepare_expression(typed.sign)});
+                    PreparedRotation rotation =
+                        prepare_rotation(typed.pauli, planned.active_before, typed.half_turns);
+                    const DirectRotationKernel kernel =
+                        resolve_direct_rotation_kernel(rotation, runtime_isa);
+                    actions_.emplace_back(ExecuteRotation{std::move(rotation),
+                                                          prepare_expression(typed.sign), kernel});
                 } else if constexpr (std::is_same_v<T, PromoteDormantRotation>) {
                     actions_.emplace_back(ExecutePromotion{prepare_promotion(typed.half_turns),
                                                            prepare_expression(typed.sign)});
