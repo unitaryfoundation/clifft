@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1786257254467,
+  "lastUpdate": 1786344584256,
   "repoUrl": "https://github.com/unitaryfoundation/clifft",
   "entries": {
     "C++ Catch2 benchmarks (AVX2)": [
@@ -5310,6 +5310,70 @@ window.BENCHMARK_DATA = {
             "name": "exp-val 20q 200 probes x100k",
             "value": 154.075,
             "range": "± 2.06878",
+            "unit": "ms",
+            "extra": "100 samples\n1 iterations"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Brad Chase",
+            "username": "bachase",
+            "email": "14430+bachase@users.noreply.github.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "cbb6a1e96337d8d098cda77adaf6d9183b1dcafc",
+          "message": "refactor(sampling): separate executor responsibilities\n\nMove CPU plan lowering and multi-shot orchestration out of the mutable one-shot executor. Encapsulate optional ISA-specific fused-rotation preparation behind a portable dispatch boundary while preserving the action tape and scalar fallback.\n\nAssisted-by: Codex (GPT-5) <noreply@openai.com>",
+          "timestamp": "2026-08-09T14:11:08Z",
+          "url": "https://github.com/unitaryfoundation/clifft/commit/cbb6a1e96337d8d098cda77adaf6d9183b1dcafc"
+        },
+        "date": 1786344583461,
+        "tool": "catch2",
+        "benches": [
+          {
+            "name": "QV-10 x100 shots",
+            "value": 43.8358,
+            "range": "± 227.37",
+            "unit": "ms",
+            "extra": "100 samples\n1 iterations"
+          },
+          {
+            "name": "cultivation-d5 x1000 shots",
+            "value": 64.0586,
+            "range": "± 252.315",
+            "unit": "ms",
+            "extra": "100 samples\n1 iterations"
+          },
+          {
+            "name": "surface-d7-r7 p=1e-3 x10000 shots",
+            "value": 112.945,
+            "range": "± 1.32323",
+            "unit": "ms",
+            "extra": "100 samples\n1 iterations"
+          },
+          {
+            "name": "surface-d5-r5 p=0.05 x10000 shots",
+            "value": 102.655,
+            "range": "± 462.329",
+            "unit": "ms",
+            "extra": "100 samples\n1 iterations"
+          },
+          {
+            "name": "surface-d11-r11 p=1e-3 x1000 shots",
+            "value": 44.1355,
+            "range": "± 1.64406",
+            "unit": "ms",
+            "extra": "100 samples\n1 iterations"
+          },
+          {
+            "name": "exp-val 20q 200 probes x100k",
+            "value": 165.866,
+            "range": "± 4.08972",
             "unit": "ms",
             "extra": "100 samples\n1 iterations"
           }
