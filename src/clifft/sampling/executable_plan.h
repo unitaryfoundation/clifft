@@ -1,5 +1,6 @@
 #pragma once
 
+#include "clifft/sampling/active_measurement_dispatch.h"
 #include "clifft/sampling/direct_rotation_dispatch.h"
 #include "clifft/sampling/fused_rotation_dispatch.h"
 #include "clifft/sampling/kernels.h"
@@ -92,7 +93,28 @@ class ExecutablePlan {
         PreparedExpression correction;
         uint32_t branch = 0;
         uint32_t record = 0;
+        ActiveMeasurementKernel kernel = ActiveMeasurementKernel::Scalar;
+
+        [[nodiscard]] MeasurementProbabilities probabilities(const State& state) const noexcept {
+            if (kernel == ActiveMeasurementKernel::Scalar) {
+                return measurement_probabilities(state, measurement);
+            }
+            return active_measurement_probabilities(state, measurement, kernel);
+        }
+
+        void collapse(State& state, bool selected_branch,
+                      double branch_probability) const noexcept {
+            if (kernel == ActiveMeasurementKernel::Scalar) {
+                collapse_measurement(state, measurement, selected_branch, branch_probability);
+                return;
+            }
+            collapse_active_measurement(state, measurement, kernel, selected_branch,
+                                        branch_probability);
+        }
     };
+
+    static_assert(sizeof(ExecuteActiveMeasurement) == 88,
+                  "active measurement dispatch must not expand its action descriptor");
 
     struct ExecuteDormantMeasurement {
         PreparedExpression correction;
