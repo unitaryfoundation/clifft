@@ -224,19 +224,67 @@
       color: #795331;
     }
 
-    .summary-grid {
-      display: grid;
-      grid-template-columns: 1.15fr 1fr 1fr;
-      gap: 12px;
-      margin-top: 16px;
-    }
-
-    .summary-grid section {
-      margin: 0;
+    .architecture-section {
       padding: 18px 19px;
     }
 
-    .summary-grid h2 { margin-bottom: 11px; }
+    .architecture-section h2,
+    .work-grid h2,
+    .faq-section h2 { margin-bottom: 11px; }
+
+    .architecture {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+    }
+
+    .path {
+      padding: 15px;
+      border-radius: 9px;
+      background: #eceff1;
+    }
+
+    .path.symbolic { background: var(--teal-soft); }
+
+    .path > strong {
+      display: block;
+      font-size: 0.84rem;
+    }
+
+    .path .flow {
+      margin: 7px 0 10px;
+      color: var(--ink);
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      font-size: 0.65rem;
+      line-height: 1.55;
+    }
+
+    .definitions {
+      margin: 0;
+      display: grid;
+      gap: 8px;
+    }
+
+    .definitions div {
+      padding-top: 8px;
+      border-top: 1px solid rgba(23, 33, 43, 0.1);
+    }
+
+    .definitions dt {
+      font-size: 0.68rem;
+      font-weight: 800;
+    }
+
+    .definitions dd {
+      margin: 2px 0 0;
+      color: var(--muted);
+      font-size: 0.67rem;
+    }
+
+    code {
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      font-size: 0.93em;
+    }
 
     .compact-list {
       margin: 0;
@@ -249,74 +297,63 @@
 
     .compact-list strong { color: var(--ink); }
 
-    .architecture {
+    .work-grid {
       display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 9px;
-    }
-
-    .path {
-      padding: 12px;
-      border-radius: 8px;
-      background: #eceff1;
-    }
-
-    .path.symbolic { background: var(--teal-soft); }
-
-    .path strong {
-      display: block;
-      margin-bottom: 7px;
-      font-size: 0.75rem;
-    }
-
-    .path p {
-      margin: 0;
-      color: var(--muted);
-      font-size: 0.68rem;
-    }
-
-    .path .flow {
-      margin: 7px 0;
-      color: var(--ink);
-      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-      font-size: 0.64rem;
-      line-height: 1.55;
-    }
-
-    .bottom-grid {
-      display: grid;
-      grid-template-columns: 1.25fr 0.75fr;
+      grid-template-columns: 1.12fr 0.88fr;
       gap: 12px;
       margin-top: 12px;
     }
 
-    .bottom-grid section {
+    .work-grid section {
       margin: 0;
       padding: 18px 19px;
     }
 
+    .section-intro {
+      margin: -4px 0 13px;
+      color: var(--muted);
+      font-size: 0.7rem;
+    }
+
+    .symft-columns,
     .status-columns {
       display: grid;
       grid-template-columns: 1fr 1fr;
       gap: 22px;
     }
 
-    .status-columns h3,
-    .answers h3 {
+    .symft-columns h3,
+    .status-columns h3 {
       margin: 0 0 8px;
       font-size: 0.78rem;
     }
 
-    .answers article + article {
-      margin-top: 12px;
-      padding-top: 12px;
-      border-top: 1px solid var(--line);
+    .faq-section {
+      padding: 18px 19px;
     }
 
-    .answers p {
+    .faq-grid {
+      display: grid;
+      grid-template-columns: repeat(5, minmax(0, 1fr));
+      gap: 8px;
+    }
+
+    .faq-grid article {
+      padding: 12px;
+      border-radius: 8px;
+      background: #f1efe9;
+    }
+
+    .faq-grid h3 {
+      margin: 0 0 8px;
+      font-size: 0.73rem;
+      line-height: 1.25;
+    }
+
+    .faq-grid p {
       margin: 0;
       color: var(--muted);
-      font-size: 0.72rem;
+      font-size: 0.66rem;
     }
 
     footer {
@@ -339,8 +376,8 @@
 
     @media (max-width: 900px) {
       .metrics { grid-template-columns: repeat(2, 1fr); }
-      .summary-grid { grid-template-columns: 1fr 1fr; }
-      .summary-grid section:first-child { grid-column: 1 / -1; }
+      .work-grid { grid-template-columns: 1fr; }
+      .faq-grid { grid-template-columns: repeat(2, 1fr); }
     }
 
     @media (max-width: 650px) {
@@ -348,13 +385,13 @@
       header { grid-template-columns: 1fr; gap: 12px; }
       .stamp { justify-self: start; }
       .metrics,
-      .summary-grid,
-      .bottom-grid,
+      .work-grid,
+      .symft-columns,
       .status-columns,
       .notes { grid-template-columns: 1fr; }
-      .summary-grid section:first-child,
       .compile-note { grid-column: auto; }
-      .architecture { grid-template-columns: 1fr; }
+      .architecture,
+      .faq-grid { grid-template-columns: 1fr; }
       .section-head { display: block; }
       .section-head p { margin-top: 5px; }
       footer { display: block; }
@@ -416,48 +453,77 @@
       </div>
     </section>
 
-    <div class="summary-grid">
-      <section aria-labelledby="architecture-title">
-        <p class="section-label">Architecture</p>
-        <h2 id="architecture-title">What changed?</h2>
-        <div class="architecture">
-          <div class="path">
-            <strong>Legacy Clifft</strong>
-            <p class="flow">Pauli localization &rarr; SVM bytecode &rarr; localized operations</p>
-            <p>Predictable flat execution, but localization can add dense transformations.</p>
+    <section class="architecture-section" aria-labelledby="architecture-title">
+      <p class="section-label">Architecture</p>
+      <h2 id="architecture-title">What changed?</h2>
+      <p class="section-intro">Both paths retain Clifft's factored state and keep exponential storage at <code>2^k</code>. The change is how a general Pauli action is lowered and executed.</p>
+      <div class="architecture">
+        <div class="path">
+          <strong>Legacy Clifft: localize, then execute</strong>
+          <p class="flow">Pauli localization &rarr; SVM bytecode &rarr; localized operations</p>
+          <dl class="definitions">
+            <div>
+              <dt>Pauli localization</dt>
+              <dd>The compiler synthesizes virtual Clifford gates that turn a multi-coordinate Pauli, such as <code>X0 Z2 Z5</code>, into <code>+/-X</code> or <code>+/-Z</code> on one pivot coordinate.</dd>
+            </div>
+            <div>
+              <dt>SVM bytecode</dt>
+              <dd>A flat, optimized stream of fixed 32-byte instructions prepared once for all shots: frame-bit updates, one- or two-coordinate array gates, rotations, and measurements.</dd>
+            </div>
+            <div>
+              <dt>Localized operations</dt>
+              <dd>Runtime executes the synthesized coordinate changes and then a simple pivot rotation or measurement. The resulting coordinate basis is carried forward.</dd>
+            </div>
+          </dl>
+        </div>
+        <div class="path symbolic">
+          <strong>Symbolic Clifft: plan once, execute direct actions</strong>
+          <p class="flow">symbolic frame &rarr; shared coordinate plan &rarr; direct kernels</p>
+          <dl class="definitions">
+            <div>
+              <dt>Symbolic frame</dt>
+              <dd>The planner tracks the stabilizer-coordinate basis while noise, feedback, and measurement effects become XOR expressions over sampled Boolean symbols.</dd>
+            </div>
+            <div>
+              <dt>Shared coordinate plan</dt>
+              <dd>Active and dormant coordinates, promotions, measurement pivots, and symbol dependencies are selected at compile time and reused by every shot.</dd>
+            </div>
+            <div>
+              <dt>Direct operations</dt>
+              <dd>The same <code>X0 Z2 Z5</code> action becomes one Pauli-mask descriptor plus a sign register. A kernel updates the paired amplitudes directly, without a localization sequence.</dd>
+            </div>
+          </dl>
+        </div>
+      </div>
+    </section>
+
+    <div class="work-grid">
+      <section aria-labelledby="symft-title">
+        <p class="section-label">SymFT lineage</p>
+        <h2 id="symft-title">Techniques and what the ablations showed</h2>
+        <p class="section-intro">These findings describe the SymFT/SOFT design study and guided which ideas Clifft adopted first.</p>
+        <div class="symft-columns">
+          <div>
+            <h3>Techniques</h3>
+            <ul class="compact-list">
+              <li><strong>Symbolic signs</strong> for noise, feedback, and branches.</li>
+              <li><strong>Adaptive coordinates</strong> and direct active-Pauli kernels.</li>
+              <li><strong>Packed shots</strong> for Boolean and small-state work.</li>
+              <li><strong>Product components</strong> for separable active states.</li>
+            </ul>
           </div>
-          <div class="path symbolic">
-            <strong>Symbolic Clifft</strong>
-            <p class="flow">symbolic frame &rarr; shared coordinate plan &rarr; direct kernels</p>
-            <p>The planner fixes topology once; each shot resolves signs and applies direct active-state operations.</p>
+          <div>
+            <h3>Ablation findings</h3>
+            <ul class="compact-list">
+              <li>Removing per-shot Clifford work is the base win.</li>
+              <li>Batching dominates at low k and fades as dense work grows.</li>
+              <li>State layout and SIMD kernels dominate larger active states.</li>
+              <li>Product components are narrow but powerful for weakly coupled high-k states.</li>
+            </ul>
           </div>
         </div>
       </section>
 
-      <section aria-labelledby="symft-title">
-        <p class="section-label">SymFT</p>
-        <h2 id="symft-title">Techniques introduced</h2>
-        <ul class="compact-list">
-          <li><strong>Symbolic signs</strong> for noise, feedback, and branches.</li>
-          <li><strong>Adaptive coordinates</strong> for the active state.</li>
-          <li><strong>Direct Pauli kernels</strong> without localization.</li>
-          <li><strong>Packed shots</strong> and <strong>product components</strong> for additional throughput.</li>
-        </ul>
-      </section>
-
-      <section aria-labelledby="drivers-title">
-        <p class="section-label">Ablation findings</p>
-        <h2 id="drivers-title">What drives performance?</h2>
-        <ul class="compact-list">
-          <li>Removing per-shot Clifford work is the base win.</li>
-          <li>Batching is strongest at low k and fades as dense work grows.</li>
-          <li>Layout and SIMD kernels dominate larger active states.</li>
-          <li>Product components are narrow but powerful for weakly coupled high-k states.</li>
-        </ul>
-      </section>
-    </div>
-
-    <div class="bottom-grid">
       <section aria-labelledby="status-title">
         <p class="section-label">Status</p>
         <h2 id="status-title">Done and next</h2>
@@ -482,22 +548,34 @@
           </div>
         </div>
       </section>
+    </div>
 
-      <section class="answers" aria-label="Architecture decisions">
+    <section class="faq-section" aria-labelledby="faq-title">
+      <p class="section-label">Short answers</p>
+      <h2 id="faq-title">Architecture FAQs</h2>
+      <div class="faq-grid">
         <article>
           <h3>Will legacy go away?</h3>
           <p>That is the goal: preserve the Python API and replace its implementation after correctness, portability, compilation, and remaining surfaces are ready.</p>
         </article>
         <article>
-          <h3>Why no new SVM?</h3>
+          <h3>Why is Pauli localization no longer required?</h3>
+          <p>Direct kernels can act on a general active Pauli without first converting it to one axis: rotations use a direct dense pass, while measurements use direct probability and collapse kernels. Localization was valuable for simpler kernels, but its basis changes can add dense passes. Targeted localization remains possible if profiling finds a cheaper case.</p>
+        </article>
+        <article>
+          <h3>How does symbolic Clifft differ from SymFT?</h3>
+          <p>They share the symbolic-coordinate starting point. Current Clifft executes scalar shots, propagates signs through a sparse incremental register file, and keeps one dense active state while integrating Clifft's sampling and query APIs. SymFT additionally packs shots and can split the state into product components; those remain later options for Clifft.</p>
+        </article>
+        <article>
+          <h3>Why is there no new SVM?</h3>
           <p>The SVM itself was not a measured performance driver. A compact tape may still become an architectural or inspection boundary later.</p>
         </article>
         <article>
           <h3>What about GPU?</h3>
           <p>Revisit the design around the symbolic plan, with a GPU-specific lowered program, state layout, and batching strategy.</p>
         </article>
-      </section>
-    </div>
+      </div>
+    </section>
 
     <footer>
       <p>Sampling-only medians, four samples per cell, one pinned core. All workloads matched max k.</p>
