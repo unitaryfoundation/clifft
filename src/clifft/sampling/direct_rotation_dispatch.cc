@@ -9,21 +9,31 @@ namespace clifft::sampling {
 
 namespace {
 
+// One full vector block: the dense state must span the vector lanes before a
+// whole-block kernel is profitable or even addressable.
+constexpr uint32_t kMinVectorActiveWidth = 3;
+static_assert(uint64_t{1} << kMinVectorActiveWidth == kAvx512DoubleLanes);
+
+// Stride-16 pairing regressed against scalar at every measured active width,
+// so this pivot stays on the fallback until a kernel designed for it exists.
+constexpr uint64_t kPivotFourSelector = uint64_t{1} << 4;
+
 DirectRotationKernel select_direct_rotation_avx512(const PreparedRotation& rotation) noexcept {
     if (rotation.pauli.is_identity()) {
         return DirectRotationKernel::Scalar;
     }
     if (rotation.pauli.is_diagonal()) {
-        return rotation.pauli.active_width >= 3 ? DirectRotationKernel::Diagonal
-                                                : DirectRotationKernel::Scalar;
+        return rotation.pauli.active_width >= kMinVectorActiveWidth ? DirectRotationKernel::Diagonal
+                                                                    : DirectRotationKernel::Scalar;
     }
     const uint64_t pairing_bit = rotation.pauli.pair_selector;
-    // Pivot four has a distinct stride-16 access pattern that regressed against
-    // scalar at every measured width, so it remains on the fallback until a
-    // kernel designed for that shape is available.
-    return pairing_bit >= (uint64_t{1} << 3) && pairing_bit != (uint64_t{1} << 4)
-               ? DirectRotationKernel::HighPivot
-               : DirectRotationKernel::Scalar;
+    if (pairing_bit < kAvx512DoubleLanes) {
+        return rotation.pauli.active_width >= kMinVectorActiveWidth
+                   ? DirectRotationKernel::LanePaired
+                   : DirectRotationKernel::Scalar;
+    }
+    return pairing_bit != kPivotFourSelector ? DirectRotationKernel::HighPivot
+                                             : DirectRotationKernel::Scalar;
 }
 
 #if defined(CLIFFT_ENABLE_RUNTIME_DISPATCH)
