@@ -455,13 +455,15 @@ TEST_CASE("Symbolic conditioned sampling exposes ordered fault probabilities") {
 TEST_CASE("Symbolic conditioned sampling preserves homogeneous site totals") {
     auto program = compile_sampling_circuit(R"(
         DEPOLARIZE2(0.001) 0 1
-        X_ERROR(0.001) 2
-        M 0 1 2
+        DEPOLARIZE1(0.001) 2
+        X_ERROR(0.001) 3
+        M 0 1 2 3
     )");
     const std::vector<double> probabilities = program.noise_site_probabilities();
-    REQUIRE(probabilities.size() == 2);
+    REQUIRE(probabilities.size() == 3);
     CHECK(probabilities[0] == 0.001);
     CHECK(probabilities[0] == probabilities[1]);
+    CHECK(probabilities[0] == probabilities[2]);
 }
 
 TEST_CASE("Symbolic conditioned sampling forces quantum channels and readout") {
