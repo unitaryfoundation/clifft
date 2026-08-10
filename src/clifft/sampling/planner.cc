@@ -7,11 +7,16 @@
 #include "stim.h"
 
 #include <algorithm>
+#include <bit>
+#include <cassert>
 #include <cmath>
 #include <complex>
 #include <cstdint>
+#include <limits>
 #include <numbers>
+#include <numeric>
 #include <optional>
+#include <span>
 #include <stdexcept>
 #include <string>
 #include <type_traits>
@@ -78,8 +83,8 @@ struct PendingReadoutNoise {
 };
 
 struct PendingInstrument {
-    // Source observable and computational destination correction, expressed
-    // in the coordinate basis that future planner transformations update.
+    // Source observable and computational destination correction stay in the
+    // initial HIR coordinates used by the cumulative symbolic Pauli frame.
     Pauli body;
     Pauli destination_flip;
     // Maps the source observable's eigenspaces to physical G and E; earlier
@@ -87,7 +92,7 @@ struct PendingInstrument {
     AffineBool sign;
     // Indexes both the plan-owned distribution and its continuation boundary.
     InstrumentSiteId site{};
-    // Reserved in HIR order so a rewritten suffix cannot renumber the prefix.
+    // Reserved in HIR order so coordinate evolution cannot renumber the prefix.
     SymbolId destination_flip_symbol{};
     // Continuations retain only noise and symbols preceding this HIR site.
     uint32_t next_noise_site = 0;
@@ -160,6 +165,171 @@ Pauli positive_body_xor(const Pauli& left, const Pauli& right) {
 
 bool anticommutes(const Pauli& left, const Pauli& right) {
     return !left.ref().commutes(right.ref());
+}
+
+std::vector<size_t> identity_indices(size_t size) {
+    std::vector<size_t> result(size);
+    std::iota(result.begin(), result.end(), size_t{0});
+    return result;
+}
+
+class CoordinateFrame {
+  public:
+    explicit CoordinateFrame(uint32_t num_qubits)
+        : current_to_initial_(num_qubits),
+          initial_to_current_(num_qubits),
+          indices_(identity_indices(num_qubits)) {}
+
+    [[nodiscard]] Pauli to_current(const Pauli& initial) const {
+        return initial_to_current_.scatter_eval(initial.ref(), indices_);
+    }
+
+    [[nodiscard]] Pauli to_initial(const Pauli& current) const {
+        return current_to_initial_.scatter_eval(current.ref(), indices_);
+    }
+
+    void change_basis(const Tableau& new_basis_in_old_coordinates) {
+        current_to_initial_ = new_basis_in_old_coordinates.then(current_to_initial_);
+        initial_to_current_ = current_to_initial_.inverse();
+    }
+
+  private:
+    // These two tableaus are maintained together so ordinary operations never
+    // pay for an inverse. The forward map is also needed when a sampled branch
+    // adds a Pauli correction expressed in the newly selected coordinates.
+    Tableau current_to_initial_;
+    Tableau initial_to_current_;
+    std::vector<size_t> indices_;
+};
+
+class SymbolicPauliFrame {
+  public:
+    SymbolicPauliFrame(uint32_t num_qubits, uint32_t num_symbols)
+        : num_qubits_(num_qubits),
+          num_symbols_(num_symbols),
+          words_per_row_((static_cast<size_t>(num_symbols) + 63) / 64),
+          x_constants_(num_qubits, 0),
+          z_constants_(num_qubits, 0),
+          scratch_(words_per_row_, 0) {
+        if (num_qubits != 0 && words_per_row_ > std::numeric_limits<size_t>::max() / num_qubits) {
+            throw std::length_error("sampling symbolic Pauli frame is too large");
+        }
+        const size_t storage_words = static_cast<size_t>(num_qubits) * words_per_row_;
+        x_terms_.assign(storage_words, 0);
+        z_terms_.assign(storage_words, 0);
+    }
+
+    void apply(const Pauli& correction, const AffineBool& condition) {
+        assert(correction.num_qubits == num_qubits_ &&
+               "symbolic Pauli correction width must match the planner frame");
+        for (uint32_t q = 0; q < num_qubits_; ++q) {
+            if (correction.xs[q]) {
+                xor_condition(x_row(q), x_constants_[q], condition);
+            }
+            if (correction.zs[q]) {
+                xor_condition(z_row(q), z_constants_[q], condition);
+            }
+        }
+    }
+
+    [[nodiscard]] AffineBool sign_for(const Pauli& observable) {
+        assert(observable.num_qubits == num_qubits_ &&
+               "symbolic Pauli observable width must match the planner frame");
+        std::ranges::fill(scratch_, uint64_t{0});
+        bool constant = false;
+        for (uint32_t q = 0; q < num_qubits_; ++q) {
+            if (observable.xs[q]) {
+                xor_row(scratch_, z_row(q));
+                constant ^= z_constants_[q] != 0;
+            }
+            if (observable.zs[q]) {
+                xor_row(scratch_, x_row(q));
+                constant ^= x_constants_[q] != 0;
+            }
+        }
+
+        size_t term_count = 0;
+        for (uint64_t word : scratch_) {
+            term_count += std::popcount(word);
+        }
+        std::vector<SymbolId> terms;
+        terms.reserve(term_count);
+        for (size_t w = 0; w < scratch_.size(); ++w) {
+            uint64_t word = scratch_[w];
+            while (word != 0) {
+                const uint32_t bit = std::countr_zero(word);
+                const size_t symbol = 64 * w + bit;
+                assert(symbol < num_symbols_ &&
+                       "symbolic Pauli frame contains an out-of-range term");
+                terms.push_back(SymbolId{static_cast<uint32_t>(symbol)});
+                word &= word - 1;
+            }
+        }
+        return AffineBool(constant, std::move(terms));
+    }
+
+  private:
+    [[nodiscard]] std::span<uint64_t> x_row(uint32_t q) {
+        return std::span<uint64_t>{x_terms_}.subspan(static_cast<size_t>(q) * words_per_row_,
+                                                     words_per_row_);
+    }
+    [[nodiscard]] std::span<const uint64_t> x_row(uint32_t q) const {
+        return std::span<const uint64_t>{x_terms_}.subspan(static_cast<size_t>(q) * words_per_row_,
+                                                           words_per_row_);
+    }
+    [[nodiscard]] std::span<uint64_t> z_row(uint32_t q) {
+        return std::span<uint64_t>{z_terms_}.subspan(static_cast<size_t>(q) * words_per_row_,
+                                                     words_per_row_);
+    }
+    [[nodiscard]] std::span<const uint64_t> z_row(uint32_t q) const {
+        return std::span<const uint64_t>{z_terms_}.subspan(static_cast<size_t>(q) * words_per_row_,
+                                                           words_per_row_);
+    }
+
+    static void xor_row(std::span<uint64_t> destination, std::span<const uint64_t> source) {
+        assert(destination.size() == source.size());
+        for (size_t w = 0; w < destination.size(); ++w) {
+            destination[w] ^= source[w];
+        }
+    }
+
+    void xor_condition(std::span<uint64_t> row, uint8_t& constant,
+                       const AffineBool& condition) const {
+        constant ^= static_cast<uint8_t>(condition.constant());
+        for (SymbolId term : condition.terms()) {
+            const uint32_t symbol = index(term);
+            if (symbol >= num_symbols_) {
+                throw std::logic_error(
+                    "sampling symbolic Pauli condition contains an out-of-range symbol");
+            }
+            row[symbol / 64] ^= uint64_t{1} << (symbol % 64);
+        }
+    }
+
+    uint32_t num_qubits_;
+    uint32_t num_symbols_;
+    size_t words_per_row_;
+    std::vector<uint64_t> x_terms_;
+    std::vector<uint64_t> z_terms_;
+    std::vector<uint8_t> x_constants_;
+    std::vector<uint8_t> z_constants_;
+    std::vector<uint64_t> scratch_;
+};
+
+struct ResolvedPauli {
+    Pauli body;
+    AffineBool sign;
+};
+
+ResolvedPauli resolve_pauli(const Pauli& initial_body, const AffineBool& initial_sign,
+                            const CoordinateFrame& coordinates,
+                            SymbolicPauliFrame& symbolic_frame) {
+    AffineBool sign = initial_sign;
+    sign ^= symbolic_frame.sign_for(initial_body);
+    Pauli body = coordinates.to_current(initial_body);
+    sign ^= static_cast<bool>(body.sign);
+    body.sign = false;
+    return ResolvedPauli{std::move(body), std::move(sign)};
 }
 
 std::optional<uint32_t> first_x_at_or_above(const Pauli& pauli, uint32_t begin) {
@@ -288,8 +458,8 @@ Tableau active_measurement_frame(const Pauli& measured, uint32_t active_width, u
     const Pauli pivot_z = single_z(n, pivot);
 
     // Moving the measured Pauli to the last active Z generator gives the
-    // direct measurement kernel one coordinate to remove. Future operations
-    // are rewritten into the remaining packed coordinates below.
+    // direct measurement kernel one coordinate to remove. The cumulative
+    // frame maps later operations into the remaining packed coordinates.
     frame.zs[active_width - 1] = measured;
     frame.xs[active_width - 1] = diagonal ? pivot_x : pivot_z;
 
@@ -321,111 +491,6 @@ Tableau active_measurement_frame(const Pauli& measured, uint32_t active_width, u
         throw std::logic_error("sampling planner produced an invalid active measurement frame");
     }
     return frame;
-}
-
-template <typename Function>
-void visit_pending_pauli(PendingOperation& operation, Function&& function) {
-    std::visit(
-        [&](auto& typed) {
-            using T = std::decay_t<decltype(typed)>;
-            if constexpr (std::is_same_v<T, PendingRotation> ||
-                          std::is_same_v<T, PendingMeasurement> ||
-                          std::is_same_v<T, PendingExpectation>) {
-                function(typed.body, &typed.sign);
-            } else if constexpr (std::is_same_v<T, PendingInstrument>) {
-                function(typed.body, &typed.sign);
-                function(typed.destination_flip, nullptr);
-            } else if constexpr (std::is_same_v<T, PendingConditionalPauli>) {
-                function(typed.body, nullptr);
-            } else if constexpr (std::is_same_v<T, PendingNoise>) {
-                for (PendingNoiseChannel& channel : typed.channels) {
-                    function(channel.body, nullptr);
-                }
-            } else if constexpr (std::is_same_v<T, PendingReadoutNoise> ||
-                                 std::is_same_v<T, PendingDetector> ||
-                                 std::is_same_v<T, PendingObservable>) {
-                // Purely classical operations have no coordinate body.
-            } else {
-                static_assert(kAlwaysFalse<T>, "Unhandled pending operation alternative");
-            }
-        },
-        operation);
-}
-
-void transform_future_operations(std::vector<PendingOperation>& pending, size_t begin,
-                                 const Tableau& new_basis_in_old_coordinates) {
-    // Planning owns coordinate evolution. Runtime actions therefore receive
-    // already-transformed Paulis and never need to discover dependencies or
-    // perform tableau evolution in the dispatch loop.
-    const Tableau old_to_new = new_basis_in_old_coordinates.inverse();
-    for (size_t i = begin; i < pending.size(); ++i) {
-        visit_pending_pauli(pending[i], [&](Pauli& body, AffineBool* sign) {
-            Pauli transformed = old_to_new(body);
-            if (sign != nullptr) {
-                *sign ^= static_cast<bool>(transformed.sign);
-            }
-            transformed.sign = false;
-            body = std::move(transformed);
-        });
-    }
-}
-
-void propagate_conditional_pauli(std::vector<PendingOperation>& pending, size_t begin,
-                                 const Pauli& correction, const AffineBool& condition) {
-    for (size_t i = begin; i < pending.size(); ++i) {
-        std::visit(
-            [&](auto& typed) {
-                using T = std::decay_t<decltype(typed)>;
-                if constexpr (std::is_same_v<T, PendingRotation> ||
-                              std::is_same_v<T, PendingMeasurement> ||
-                              std::is_same_v<T, PendingExpectation> ||
-                              std::is_same_v<T, PendingInstrument>) {
-                    if (anticommutes(correction, typed.body)) {
-                        typed.sign ^= condition;
-                    }
-                } else if constexpr (std::is_same_v<T, PendingConditionalPauli> ||
-                                     std::is_same_v<T, PendingNoise> ||
-                                     std::is_same_v<T, PendingReadoutNoise> ||
-                                     std::is_same_v<T, PendingDetector> ||
-                                     std::is_same_v<T, PendingObservable>) {
-                    // Pauli-frame phases do not affect later Pauli corrections or
-                    // classical record consumers.
-                } else {
-                    static_assert(kAlwaysFalse<T>, "Unhandled pending operation alternative");
-                }
-            },
-            pending[i]);
-    }
-}
-
-void propagate_branch(std::vector<PendingOperation>& pending, size_t begin,
-                      uint32_t branch_coordinate, SymbolId branch) {
-    // The sampled minus eigenspace differs by X on the replaced Z coordinate.
-    // Anticommuting future Paulis therefore acquire this branch in their sign.
-    for (size_t i = begin; i < pending.size(); ++i) {
-        std::visit(
-            [&](auto& typed) {
-                using T = std::decay_t<decltype(typed)>;
-                if constexpr (std::is_same_v<T, PendingRotation> ||
-                              std::is_same_v<T, PendingMeasurement> ||
-                              std::is_same_v<T, PendingExpectation> ||
-                              std::is_same_v<T, PendingInstrument>) {
-                    if (typed.body.zs[branch_coordinate]) {
-                        typed.sign ^= AffineBool::symbol(branch);
-                    }
-                } else if constexpr (std::is_same_v<T, PendingConditionalPauli> ||
-                                     std::is_same_v<T, PendingNoise> ||
-                                     std::is_same_v<T, PendingReadoutNoise> ||
-                                     std::is_same_v<T, PendingDetector> ||
-                                     std::is_same_v<T, PendingObservable>) {
-                    // A branch Pauli can only add an irrelevant sign to another
-                    // Pauli-frame correction.
-                } else {
-                    static_assert(kAlwaysFalse<T>, "Unhandled pending operation alternative");
-                }
-            },
-            pending[i]);
-    }
 }
 
 SymbolId reserve_symbol(SamplingPlan& plan) {
@@ -646,14 +711,16 @@ std::vector<PendingOperation> queue_supported_operations(const HirModule& hir, S
     return pending;
 }
 
-void process_rotation(std::vector<PendingOperation>& pending, size_t index,
-                      const PendingRotation& rotation, SamplingPlan& plan, uint32_t& active_width) {
-    const std::optional<uint32_t> dormant_pivot = first_x_at_or_above(rotation.body, active_width);
+void process_rotation(const PendingRotation& rotation, SamplingPlan& plan, uint32_t& active_width,
+                      CoordinateFrame& coordinates, SymbolicPauliFrame& symbolic_frame) {
+    ResolvedPauli resolved =
+        resolve_pauli(rotation.body, rotation.sign, coordinates, symbolic_frame);
+    const std::optional<uint32_t> dormant_pivot = first_x_at_or_above(resolved.body, active_width);
     if (!dormant_pivot.has_value()) {
         plan.actions.push_back(
             PlannedAction{active_width, active_width,
-                          RotateActivePauli{active_projection(rotation.body, active_width),
-                                            rotation.half_turns, rotation.sign}});
+                          RotateActivePauli{active_projection(resolved.body, active_width),
+                                            rotation.half_turns, std::move(resolved.sign)}});
         return;
     }
 
@@ -663,64 +730,69 @@ void process_rotation(std::vector<PendingOperation>& pending, size_t index,
             ", but the dense-state limit is " + std::to_string(kDenseActiveWidthLimit));
     }
 
-    const Tableau frame = dormant_promotion_frame(rotation.body, active_width, *dormant_pivot);
-    transform_future_operations(pending, index + 1, frame);
+    const Tableau frame = dormant_promotion_frame(resolved.body, active_width, *dormant_pivot);
+    coordinates.change_basis(frame);
     compose_final_tableau(plan, frame);
     plan.actions.push_back(
         PlannedAction{active_width, active_width + 1,
-                      PromoteDormantRotation{rotation.half_turns, rotation.sign}});
+                      PromoteDormantRotation{rotation.half_turns, std::move(resolved.sign)}});
     ++active_width;
     plan.max_active_width = std::max(plan.max_active_width, active_width);
 }
 
-AffineBool process_measurement(std::vector<PendingOperation>& pending, size_t index,
-                               const PendingMeasurement& measurement, SamplingPlan& plan,
-                               uint32_t& active_width) {
-    const std::optional<uint32_t> dormant_pivot =
-        first_x_at_or_above(measurement.body, active_width);
+AffineBool process_measurement(const PendingMeasurement& measurement, SamplingPlan& plan,
+                               uint32_t& active_width, CoordinateFrame& coordinates,
+                               SymbolicPauliFrame& symbolic_frame) {
+    ResolvedPauli resolved =
+        resolve_pauli(measurement.body, measurement.sign, coordinates, symbolic_frame);
+    const std::optional<uint32_t> dormant_pivot = first_x_at_or_above(resolved.body, active_width);
     if (dormant_pivot.has_value()) {
-        const Tableau frame = dormant_measurement_frame(measurement.body, *dormant_pivot);
-        transform_future_operations(pending, index + 1, frame);
+        const Tableau frame = dormant_measurement_frame(resolved.body, *dormant_pivot);
+        coordinates.change_basis(frame);
 
         const uint32_t action_index = static_cast<uint32_t>(plan.actions.size());
         const SymbolId branch = measurement.branch;
         define_symbol(plan, branch, SymbolKind::Branch, action_index);
-        propagate_branch(pending, index + 1, *dormant_pivot, branch);
-        const AffineBool outcome = measurement.sign ^ AffineBool::symbol(branch);
+        Pauli correction = coordinates.to_initial(single_x(plan.num_qubits, *dormant_pivot));
+        correction.sign = false;
+        symbolic_frame.apply(correction, AffineBool::symbol(branch));
+        const AffineBool outcome = resolved.sign ^ AffineBool::symbol(branch);
         plan.actions.push_back(PlannedAction{
             active_width, active_width,
             MeasureDormantRandom{*dormant_pivot, branch, outcome, measurement.record}});
         return outcome;
     }
 
-    const ActivePauli active = active_projection(measurement.body, active_width);
+    const ActivePauli active = active_projection(resolved.body, active_width);
     if (active.is_identity()) {
-        plan.actions.push_back(PlannedAction{
-            active_width, active_width, RecordClassical{measurement.sign, measurement.record}});
-        return measurement.sign;
+        plan.actions.push_back(PlannedAction{active_width, active_width,
+                                             RecordClassical{resolved.sign, measurement.record}});
+        return resolved.sign;
     }
 
-    std::optional<uint32_t> pivot = first_x_below(measurement.body, active_width);
+    std::optional<uint32_t> pivot = first_x_below(resolved.body, active_width);
     if (!pivot.has_value()) {
-        pivot = first_z_below(measurement.body, active_width);
+        pivot = first_z_below(resolved.body, active_width);
     }
     if (!pivot.has_value()) {
         throw std::logic_error("sampling planner could not select an active measurement pivot");
     }
 
-    Pauli active_body(measurement.body.num_qubits);
+    Pauli active_body(resolved.body.num_qubits);
     for (uint32_t q = 0; q < active_width; ++q) {
-        active_body.xs[q] = measurement.body.xs[q];
-        active_body.zs[q] = measurement.body.zs[q];
+        active_body.xs[q] = resolved.body.xs[q];
+        active_body.zs[q] = resolved.body.zs[q];
     }
     const Tableau frame = active_measurement_frame(active_body, active_width, *pivot);
-    transform_future_operations(pending, index + 1, frame);
+    coordinates.change_basis(frame);
 
     const uint32_t action_index = static_cast<uint32_t>(plan.actions.size());
     const SymbolId branch = measurement.branch;
     define_symbol(plan, branch, SymbolKind::Branch, action_index);
-    propagate_branch(pending, index + 1, active_width - 1, branch);
-    const AffineBool outcome = measurement.sign ^ AffineBool::symbol(branch);
+    Pauli correction = coordinates.to_initial(single_x(plan.num_qubits, active_width - 1));
+    correction.sign = false;
+    symbolic_frame.apply(correction, AffineBool::symbol(branch));
+    const AffineBool outcome = resolved.sign ^ AffineBool::symbol(branch);
     plan.actions.push_back(
         PlannedAction{active_width, active_width - 1,
                       MeasureActivePauli{active, *pivot, branch, outcome, measurement.record}});
@@ -728,18 +800,18 @@ AffineBool process_measurement(std::vector<PendingOperation>& pending, size_t in
     return outcome;
 }
 
-void process_instrument(std::vector<PendingOperation>& pending, size_t operation_index,
-                        const PendingInstrument& instrument, SamplingPlan& plan,
-                        uint32_t& active_width) {
+void process_instrument(const PendingInstrument& instrument, SamplingPlan& plan,
+                        uint32_t& active_width, CoordinateFrame& coordinates,
+                        SymbolicPauliFrame& symbolic_frame) {
     const InstrumentDistribution& distribution =
         plan.instrument_distributions.at(index(instrument.site));
-    const std::optional<uint32_t> dormant_pivot =
-        first_x_at_or_above(instrument.body, active_width);
+    ResolvedPauli resolved =
+        resolve_pauli(instrument.body, instrument.sign, coordinates, symbolic_frame);
+    const std::optional<uint32_t> dormant_pivot = first_x_at_or_above(resolved.body, active_width);
 
     InstrumentMode mode = InstrumentMode::Classical;
     ActivePauli source;
-    AffineBool sign = instrument.sign;
-    Pauli destination_flip = instrument.destination_flip;
+    AffineBool sign = std::move(resolved.sign);
     uint32_t active_after = active_width;
 
     if (dormant_pivot.has_value()) {
@@ -755,23 +827,20 @@ void process_instrument(std::vector<PendingOperation>& pending, size_t operation
                                           ", but the dense-state limit is " +
                                           std::to_string(kDenseActiveWidthLimit));
             }
-            // Apply one coordinate change consistently to the source,
-            // destination correction, and every later operation.
             const Tableau frame =
-                dormant_promotion_frame(instrument.body, active_width, *dormant_pivot);
+                dormant_promotion_frame(resolved.body, active_width, *dormant_pivot);
             const Tableau old_to_new = frame.inverse();
-            Pauli transformed_source = old_to_new(instrument.body);
+            const std::vector<size_t> indices = identity_indices(old_to_new.num_qubits);
+            Pauli transformed_source = old_to_new.scatter_eval(resolved.body.ref(), indices);
             sign ^= static_cast<bool>(transformed_source.sign);
             transformed_source.sign = false;
-            destination_flip = old_to_new(destination_flip);
-            destination_flip.sign = false;
-            transform_future_operations(pending, operation_index + 1, frame);
+            coordinates.change_basis(frame);
             ++active_after;
             mode = InstrumentMode::Activate;
             source = active_projection(transformed_source, active_after);
         }
     } else {
-        source = active_projection(instrument.body, active_width);
+        source = active_projection(resolved.body, active_width);
         // An identity projection means the source is already determined by
         // the symbolic sign; otherwise its active Pauli needs coefficient work.
         mode = source.is_identity() ? InstrumentMode::Classical : InstrumentMode::Active;
@@ -791,9 +860,7 @@ void process_instrument(std::vector<PendingOperation>& pending, size_t operation
                       ApplyInstrument{instrument.site, mode, source, sign, destination_symbol}});
 
     if (destination_symbol.has_value()) {
-        // Compile the possible runtime flip into signs of future operations.
-        propagate_conditional_pauli(pending, operation_index + 1, destination_flip,
-                                    AffineBool::symbol(*destination_symbol));
+        symbolic_frame.apply(instrument.destination_flip, AffineBool::symbol(*destination_symbol));
     }
     active_width = active_after;
     plan.max_active_width = std::max(plan.max_active_width, active_width);
@@ -819,6 +886,11 @@ SamplingPlan plan_sampling(const HirModule& hir, SamplingPlanOptions options) {
     plan.global_weight = hir.global_weight;
 
     std::vector<PendingOperation> pending = queue_supported_operations(hir, plan, options);
+    if (plan.symbols.size() > std::numeric_limits<uint32_t>::max()) {
+        throw std::length_error("sampling planner symbol count exceeds uint32 range");
+    }
+    CoordinateFrame coordinates(hir.num_qubits);
+    SymbolicPauliFrame symbolic_frame(hir.num_qubits, static_cast<uint32_t>(plan.symbols.size()));
     std::vector<std::optional<AffineBool>> record_values(static_cast<size_t>(hir.num_measurements) +
                                                          hir.num_hidden_measurements);
     std::vector<AffineBool> observable_values(hir.num_observables);
@@ -858,18 +930,16 @@ SamplingPlan plan_sampling(const HirModule& hir, SamplingPlanOptions options) {
             [&](const auto& operation) {
                 using T = std::decay_t<decltype(operation)>;
                 if constexpr (std::is_same_v<T, PendingRotation>) {
-                    process_rotation(pending, i, operation, plan, active_width);
+                    process_rotation(operation, plan, active_width, coordinates, symbolic_frame);
                 } else if constexpr (std::is_same_v<T, PendingMeasurement>) {
-                    const AffineBool outcome =
-                        process_measurement(pending, i, operation, plan, active_width);
+                    const AffineBool outcome = process_measurement(operation, plan, active_width,
+                                                                   coordinates, symbolic_frame);
                     assign_record(operation.record, outcome, i);
                 } else if constexpr (std::is_same_v<T, PendingConditionalPauli>) {
-                    propagate_conditional_pauli(pending, i + 1, operation.body,
-                                                require_record(operation.controller, i));
+                    symbolic_frame.apply(operation.body, require_record(operation.controller, i));
                 } else if constexpr (std::is_same_v<T, PendingNoise>) {
                     for (const PendingNoiseChannel& channel : operation.channels) {
-                        propagate_conditional_pauli(pending, i + 1, channel.body,
-                                                    AffineBool::symbol(channel.symbol));
+                        symbolic_frame.apply(channel.body, AffineBool::symbol(channel.symbol));
                     }
                 } else if constexpr (std::is_same_v<T, PendingReadoutNoise>) {
                     const AffineBool source = require_record(operation.record, i);
@@ -885,17 +955,19 @@ SamplingPlan plan_sampling(const HirModule& hir, SamplingPlanOptions options) {
                                           operation.prob_zero_to_one, operation.prob_one_to_zero}});
                     record_values[index(operation.record)] = source ^ AffineBool::symbol(flip);
                 } else if constexpr (std::is_same_v<T, PendingExpectation>) {
+                    ResolvedPauli resolved =
+                        resolve_pauli(operation.body, operation.sign, coordinates, symbolic_frame);
                     const bool is_zero =
-                        first_x_at_or_above(operation.body, active_width).has_value();
+                        first_x_at_or_above(resolved.body, active_width).has_value();
                     plan.actions.push_back(PlannedAction{
                         active_width, active_width,
                         WriteExpectationValue{
                             is_zero ? std::nullopt
-                                    : std::optional<ActivePauli>{active_projection(operation.body,
+                                    : std::optional<ActivePauli>{active_projection(resolved.body,
                                                                                    active_width)},
-                            is_zero ? AffineBool{} : operation.sign, operation.exp_val}});
+                            is_zero ? AffineBool{} : std::move(resolved.sign), operation.exp_val}});
                 } else if constexpr (std::is_same_v<T, PendingInstrument>) {
-                    process_instrument(pending, i, operation, plan, active_width);
+                    process_instrument(operation, plan, active_width, coordinates, symbolic_frame);
                 } else if constexpr (std::is_same_v<T, PendingDetector>) {
                     AffineBool outcome = record_parity(operation.records, i);
                     outcome ^= operation.expected;

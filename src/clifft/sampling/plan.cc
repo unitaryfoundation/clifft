@@ -259,6 +259,27 @@ bool AffineBool::is_canonical() const {
 
 AffineBool& AffineBool::operator^=(const AffineBool& other) {
     constant_ ^= other.constant_;
+    if (other.terms_.empty()) {
+        return *this;
+    }
+    if (other.terms_.size() == 1) {
+        const SymbolId term = other.terms_.front();
+        if (terms_.empty() || index(terms_.back()) < index(term)) {
+            // Forward planning usually introduces symbols in ascending order.
+            // Preserve vector capacity instead of rebuilding the full parity.
+            terms_.push_back(term);
+            return *this;
+        }
+        auto position = std::lower_bound(
+            terms_.begin(), terms_.end(), term,
+            [](SymbolId left, SymbolId right) { return index(left) < index(right); });
+        if (position != terms_.end() && *position == term) {
+            terms_.erase(position);
+        } else {
+            terms_.insert(position, term);
+        }
+        return *this;
+    }
     terms_ = xor_terms(terms_, other.terms_);
     return *this;
 }

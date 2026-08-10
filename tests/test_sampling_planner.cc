@@ -397,6 +397,41 @@ TEST_CASE("Sampling planner eliminates Pauli noise and feedback into record expr
     REQUIRE(action_as<RecordClassical>(plan, 1).outcome == AffineBool::symbol(noise));
 }
 
+TEST_CASE("Sampling planner carries symbolic frame across coordinate changes") {
+    const SamplingPlan plan = plan_sampling(clifft::trace(clifft::parse(R"(
+        H 0
+        T 0
+        X_ERROR(1) 1
+        MPP X0*Z1
+        CX rec[-1] 2
+        H 2
+        T 2
+        MPP Y0*X2
+        M 0 1 2
+    )")));
+
+    REQUIRE(plan.actions.size() == 7);
+    REQUIRE(plan.symbols.size() == 6);
+    const SymbolId noise = plan.presampled_noise_sites.at(0).outcomes.at(0).symbol;
+    const auto& first_measurement = action_as<MeasureActivePauli>(plan, 1);
+    REQUIRE(first_measurement.outcome ==
+            (AffineBool::symbol(noise) ^ AffineBool::symbol(first_measurement.branch)));
+
+    const auto& mixed_measurement = action_as<MeasureDormantRandom>(plan, 3);
+    REQUIRE(mixed_measurement.outcome ==
+            (AffineBool::symbol(noise) ^ AffineBool::symbol(mixed_measurement.branch) ^ true));
+
+    const auto& first_final_measurement = action_as<MeasureDormantRandom>(plan, 4);
+    REQUIRE(first_final_measurement.outcome ==
+            (AffineBool::symbol(mixed_measurement.branch) ^
+             AffineBool::symbol(first_final_measurement.branch)));
+    REQUIRE(action_as<RecordClassical>(plan, 5).outcome == AffineBool::symbol(noise));
+
+    const auto& last_measurement = action_as<MeasureActivePauli>(plan, 6);
+    REQUIRE(last_measurement.outcome == (AffineBool::symbol(first_final_measurement.branch) ^
+                                         AffineBool::symbol(last_measurement.branch)));
+}
+
 TEST_CASE("Sampling planner carries corrected records into syndrome outputs") {
     const HirModule hir = clifft::trace(clifft::parse(R"(
         M 0
