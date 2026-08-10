@@ -5,9 +5,10 @@ sampling profilers:
 
 - `profile_svm` compiles a circuit once and runs many shots, so the SVM hot
   loops accumulate enough samples for meaningful analysis.
-- `profile_compile` loops parse → trace → lower → bytecode passes many
-  times with no shots, so a `perf record` run captures the compile path
-  rather than the sampling loop. Useful for workflows that recompile
+- `profile_compile` loops the selected production compile path many times with
+  no shots, so a sampling profiler captures compilation rather than execution.
+  It can measure either the legacy lower/bytecode path or the symbolic
+  planner/executable-plan path. This is useful for workflows that recompile
   often (e.g. stratified loss-topology sampling).
 - `profile_probability` compiles a unitary circuit and calls
   `clifft::basis_probabilities()` over a batch of bitstrings, so a `perf record`
@@ -58,6 +59,7 @@ CLIFFT_CIRCUIT_FILE=tools/bench/fixtures/qv20_seed42.stim CLIFFT_SHOTS=10 ./buil
 | `CLIFFT_T_GATES` | 0 | Number of T-gates to append |
 | `CLIFFT_SHOTS` | 100000 | Number of shots to sample (`profile_svm`) |
 | `CLIFFT_COMPILE_ITERATIONS` | 20 | Number of compile iterations (`profile_compile`) |
+| `CLIFFT_COMPILE_BACKEND` | `legacy` | Compile path for `profile_compile`: `legacy` or `symbolic` |
 | `CLIFFT_QUERIES` | 100 | Number of bitstring queries (`profile_probability`) |
 | `CLIFFT_POSTSELECT_ALL` | *(unset)* | If set, all detectors become postselects |
 
@@ -76,6 +78,12 @@ timings match what `clifft.compile()` would actually pay.
 ```bash
 # Per-stage timings only
 CLIFFT_COMPILE_ITERATIONS=20 \
+  CLIFFT_CIRCUIT_FILE=tests/fixtures/target_qec.stim \
+  ./build/profile_compile
+
+# Split symbolic compilation into planner and executable preparation timings
+CLIFFT_COMPILE_BACKEND=symbolic \
+  CLIFFT_COMPILE_ITERATIONS=20 \
   CLIFFT_CIRCUIT_FILE=tests/fixtures/target_qec.stim \
   ./build/profile_compile
 
