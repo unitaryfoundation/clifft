@@ -72,11 +72,10 @@ class SymbolicPauliFrame {
 // Each tableau maps newly selected planner coordinates into the previous
 // coordinate basis.
 [[nodiscard]] PlannerTableau dormant_promotion_frame(const PlannerPauli& promoted,
-                                                      uint32_t active_width,
-                                                      uint32_t dormant_pivot);
+                                                     uint32_t active_width, uint32_t dormant_pivot);
 [[nodiscard]] PlannerTableau dormant_measurement_frame(const PlannerPauli& measured,
-                                                        uint32_t dormant_pivot);
+                                                       uint32_t dormant_pivot);
 [[nodiscard]] PlannerTableau active_measurement_frame(const PlannerPauli& measured,
-                                                       uint32_t active_width, uint32_t pivot);
+                                                      uint32_t active_width, uint32_t pivot);
 
 }  // namespace clifft::sampling::internal

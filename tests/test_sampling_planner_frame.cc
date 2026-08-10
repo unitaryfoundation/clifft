@@ -1,7 +1,6 @@
 #include "clifft/sampling/planner_frame.h"
 
 #include <catch2/catch_test_macros.hpp>
-
 #include <cstdint>
 #include <stdexcept>
 #include <vector>
@@ -42,8 +41,7 @@ TEST_CASE("Planner coordinate frame round trips composed basis changes") {
 
 TEST_CASE("Planner symbolic frame composes affine Pauli corrections") {
     SymbolicPauliFrame frame(2, 130);
-    const AffineBool wide_condition(
-        true, {SymbolId{0}, SymbolId{64}, SymbolId{129}});
+    const AffineBool wide_condition(true, {SymbolId{0}, SymbolId{64}, SymbolId{129}});
 
     PlannerPauli x_correction(2);
     x_correction.xs[0] = true;
@@ -60,8 +58,7 @@ TEST_CASE("Planner symbolic frame composes affine Pauli corrections") {
     PlannerPauli y_observable(2);
     y_observable.xs[0] = true;
     y_observable.zs[0] = true;
-    REQUIRE(frame.sign_for(y_observable) ==
-            (wide_condition ^ AffineBool::symbol(SymbolId{1})));
+    REQUIRE(frame.sign_for(y_observable) == (wide_condition ^ AffineBool::symbol(SymbolId{1})));
 
     frame.apply(x_correction, wide_condition);
     REQUIRE(frame.sign_for(z_observable) == AffineBool(false));

@@ -54,8 +54,7 @@ bool has_x_below(const PlannerPauli& pauli, uint32_t end) {
 }
 
 size_t validated_words_per_row(uint32_t num_qubits, uint32_t num_symbols) {
-    static_cast<void>(
-        SymbolicPauliFrame::estimated_workspace_bytes(num_qubits, num_symbols));
+    static_cast<void>(SymbolicPauliFrame::estimated_workspace_bytes(num_qubits, num_symbols));
     return (static_cast<size_t>(num_symbols) + 63) / 64;
 }
 
@@ -79,8 +78,7 @@ void CoordinateFrame::change_basis(const PlannerTableau& new_basis_in_old_coordi
     initial_to_current_ = current_to_initial_.inverse();
 }
 
-size_t SymbolicPauliFrame::estimated_workspace_bytes(uint32_t num_qubits,
-                                                     uint32_t num_symbols) {
+size_t SymbolicPauliFrame::estimated_workspace_bytes(uint32_t num_qubits, uint32_t num_symbols) {
     const size_t words_per_row = (static_cast<size_t>(num_symbols) + 63) / 64;
     constexpr size_t kMax = std::numeric_limits<size_t>::max();
     const size_t qubits = num_qubits;
@@ -151,8 +149,7 @@ AffineBool SymbolicPauliFrame::sign_for(const PlannerPauli& observable) {
         while (word != 0) {
             const uint32_t bit = std::countr_zero(word);
             const size_t symbol = 64 * w + bit;
-            assert(symbol < num_symbols_ &&
-                   "symbolic Pauli frame contains an out-of-range term");
+            assert(symbol < num_symbols_ && "symbolic Pauli frame contains an out-of-range term");
             terms.push_back(SymbolId{static_cast<uint32_t>(symbol)});
             word &= word - 1;
         }
