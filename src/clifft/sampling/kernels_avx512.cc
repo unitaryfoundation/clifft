@@ -98,6 +98,51 @@ void apply_diagonal_rotation_avx512(State& state, const PreparedRotation& rotati
     }
 }
 
+// A low pairing pivot keeps both members of every coefficient pair in one
+// vector. Computing all lanes from the original block avoids scalar pair
+// enumeration. Hermiticity determines the partner phase from the current lane,
+// avoiding another permutation or a gather.
+template <bool RealPhase>
+void apply_lane_paired_rotation_avx512(State& state, const PreparedRotation& rotation,
+                                       double sine) noexcept {
+    assert(!rotation.pauli.is_diagonal() && rotation.pauli.pair_selector < kLanes &&
+           rotation.pauli.active_width >= 3 &&
+           "AVX-512 lane-paired rotation requires one vector block");
+    double* const real = state.real_data();
+    double* const imag = state.imag_data();
+    const uint64_t lane_xor = rotation.pauli.x & (kLanes - 1);
+    const __m512i permutation = _mm512_load_si512(kLanePermutations[lane_xor].data());
+    const __m512d cosine = _mm512_set1_pd(rotation.cosine);
+    const double base_phase =
+        RealPhase ? rotation.pauli.even_phase.real() : rotation.pauli.even_phase.imag();
+
+    for (uint64_t basis = 0; basis < state.size(); basis += kLanes) {
+        const __m512d input_real = _mm512_load_pd(real + basis);
+        const __m512d input_imag = _mm512_load_pd(imag + basis);
+        const __m512d partner_real = _mm512_permutexvar_pd(permutation, input_real);
+        const __m512d partner_imag = _mm512_permutexvar_pd(permutation, input_imag);
+        const __m512d basis_sine = signed_sine_lanes(basis, rotation.pauli.z, sine * base_phase);
+        const __m512d partner_sine =
+            RealPhase ? basis_sine : _mm512_sub_pd(_mm512_setzero_pd(), basis_sine);
+
+        __m512d output_real;
+        __m512d output_imag;
+        if constexpr (RealPhase) {
+            output_real =
+                _mm512_fmadd_pd(partner_sine, partner_imag, _mm512_mul_pd(cosine, input_real));
+            output_imag =
+                _mm512_fnmadd_pd(partner_sine, partner_real, _mm512_mul_pd(cosine, input_imag));
+        } else {
+            output_real =
+                _mm512_fmadd_pd(partner_sine, partner_real, _mm512_mul_pd(cosine, input_real));
+            output_imag =
+                _mm512_fmadd_pd(partner_sine, partner_imag, _mm512_mul_pd(cosine, input_imag));
+        }
+        _mm512_store_pd(real + basis, output_real);
+        _mm512_store_pd(imag + basis, output_imag);
+    }
+}
+
 // A pivot at or above the lane bits pairs two aligned vector blocks. XORing the
 // full X mask finds the partner block, while one fixed permutation accounts
 // for X bits within each block.
@@ -250,6 +295,13 @@ void apply_direct_rotation_avx512(State& state, const PreparedRotation& rotation
                 apply_nondiagonal_rotation_avx512<true>(state, rotation, sine);
             } else {
                 apply_nondiagonal_rotation_avx512<false>(state, rotation, sine);
+            }
+            return;
+        case DirectRotationKernel::LanePaired:
+            if (rotation.pauli.even_phase.real() != 0.0) {
+                apply_lane_paired_rotation_avx512<true>(state, rotation, sine);
+            } else {
+                apply_lane_paired_rotation_avx512<false>(state, rotation, sine);
             }
             return;
         case DirectRotationKernel::Scalar:

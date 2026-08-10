@@ -337,7 +337,10 @@ TEST_CASE("Direct rotation SIMD selection preserves scalar boundaries") {
     REQUIRE(select({0, 0}, 4) == DirectRotationKernel::Scalar);
     REQUIRE(select({0, 0b11}, 2) == DirectRotationKernel::Scalar);
     REQUIRE(select({0, 0b101}, 3) == DirectRotationKernel::Diagonal);
-    REQUIRE(select({0b100, 0b011}, 3) == DirectRotationKernel::Scalar);
+    REQUIRE(select({0b10, 0b01}, 2) == DirectRotationKernel::Scalar);
+    REQUIRE(select({0b001, 0b110}, 3) == DirectRotationKernel::LanePaired);
+    REQUIRE(select({0b010, 0b101}, 3) == DirectRotationKernel::LanePaired);
+    REQUIRE(select({0b100, 0b011}, 3) == DirectRotationKernel::LanePaired);
     REQUIRE(select({0b1000, 0b0111}, 4) == DirectRotationKernel::HighPivot);
     REQUIRE(select({0b10000, 0b01111}, 5) == DirectRotationKernel::Scalar);
     REQUIRE(select({0b100000, 0b011111}, 6) == DirectRotationKernel::HighPivot);

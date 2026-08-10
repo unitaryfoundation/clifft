@@ -18,6 +18,10 @@ DirectRotationKernel select_direct_rotation_avx512(const PreparedRotation& rotat
                                                 : DirectRotationKernel::Scalar;
     }
     const uint64_t pairing_bit = rotation.pauli.pair_selector;
+    if (pairing_bit < (uint64_t{1} << 3)) {
+        return rotation.pauli.active_width >= 3 ? DirectRotationKernel::LanePaired
+                                                : DirectRotationKernel::Scalar;
+    }
     // Pivot four has a distinct stride-16 access pattern that regressed against
     // scalar at every measured width, so it remains on the fallback until a
     // kernel designed for that shape is available.

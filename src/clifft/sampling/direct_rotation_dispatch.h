@@ -16,6 +16,7 @@ enum class DirectRotationKernel : uint8_t {
     Scalar,
     Diagonal,
     HighPivot,
+    LanePaired,
 };
 
 static_assert(sizeof(DirectRotationKernel) == 1);
