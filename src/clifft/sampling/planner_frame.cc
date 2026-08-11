@@ -6,6 +6,7 @@
 #include <limits>
 #include <numeric>
 #include <stdexcept>
+#include <utility>
 
 namespace clifft::sampling::internal {
 
@@ -53,6 +54,32 @@ bool has_x_below(const PlannerPauli& pauli, uint32_t end) {
     return false;
 }
 
+void evaluate_generator_into(stim::PauliStringRef<kStimWidth> destination,
+                             const stim::PauliStringRef<kStimWidth>& generator,
+                             const PlannerTableau& map) {
+    // Planner basis changes are sparse. Writing directly into tableau-owned
+    // rows avoids the owning Pauli allocation that Stim's generic composition
+    // performs for every X and Z generator.
+    destination.xs.clear();
+    destination.zs.clear();
+    destination.sign = generator.sign;
+    generator.for_each_active_pauli([&](size_t q) {
+        const bool x = generator.xs[q];
+        const bool z = generator.zs[q];
+        if (x && z) {
+            uint8_t log_i = 1;
+            log_i += destination.inplace_right_mul_returning_log_i_scalar(map.xs[q]);
+            log_i += destination.inplace_right_mul_returning_log_i_scalar(map.zs[q]);
+            assert((log_i & 1) == 0);
+            destination.sign ^= (log_i & 2) != 0;
+        } else if (x) {
+            destination *= map.xs[q];
+        } else {
+            destination *= map.zs[q];
+        }
+    });
+}
+
 size_t validated_words_per_row(uint32_t num_qubits, uint32_t num_symbols) {
     static_cast<void>(SymbolicPauliFrame::estimated_workspace_bytes(num_qubits, num_symbols));
     return (static_cast<size_t>(num_symbols) + 63) / 64;
@@ -61,12 +88,39 @@ size_t validated_words_per_row(uint32_t num_qubits, uint32_t num_symbols) {
 }  // namespace
 
 CoordinateFrame::CoordinateFrame(uint32_t num_qubits)
-    : current_to_initial_(num_qubits),
-      initial_to_current_(num_qubits),
-      indices_(identity_indices(num_qubits)) {}
+    : current_to_initial_(num_qubits), indices_(identity_indices(num_qubits)) {}
 
-PlannerPauli CoordinateFrame::to_current(const PlannerPauli& initial) const {
-    return initial_to_current_.scatter_eval(initial.ref(), indices_);
+PlannerPauli CoordinateFrame::to_current(const PlannerPauli& initial) {
+    if (initial_to_current_.has_value()) {
+        return initial_to_current_->scatter_eval(initial.ref(), indices_);
+    }
+
+    // Inverting an n-qubit tableau evaluates 2n generator rows. Use the same
+    // number of direct lookups as a conservative structural break-even before
+    // materializing the inverse for a lookup-heavy basis interval.
+    const uint64_t direct_lookup_limit =
+        std::max<uint64_t>(1, 2 * static_cast<uint64_t>(initial.num_qubits));
+    if (direct_reverse_lookups_ >= direct_lookup_limit) {
+        initial_to_current_.emplace(current_to_initial_.inverse());
+        return initial_to_current_->scatter_eval(initial.ref(), indices_);
+    }
+    ++direct_reverse_lookups_;
+
+    PlannerPauli current(initial.num_qubits);
+    for (uint32_t q = 0; q < initial.num_qubits; ++q) {
+        // Coordinates in a symplectic basis are selected by commuting with its
+        // opposite generator: Z generators select X and vice versa.
+        current.xs[q] = !initial.ref().commutes(current_to_initial_.zs[q]);
+        current.zs[q] = !initial.ref().commutes(current_to_initial_.xs[q]);
+    }
+
+    // Generator signs affect the sign, but not the symplectic coordinates. A
+    // forward evaluation recovers that phase without materializing an inverse.
+    const PlannerPauli round_trip = current_to_initial_.scatter_eval(current.ref(), indices_);
+    assert(round_trip.xs == initial.xs);
+    assert(round_trip.zs == initial.zs);
+    current.sign = static_cast<bool>(round_trip.sign) ^ static_cast<bool>(initial.sign);
+    return current;
 }
 
 PlannerPauli CoordinateFrame::to_initial(const PlannerPauli& current) const {
@@ -74,8 +128,18 @@ PlannerPauli CoordinateFrame::to_initial(const PlannerPauli& current) const {
 }
 
 void CoordinateFrame::change_basis(const PlannerTableau& new_basis_in_old_coordinates) {
-    current_to_initial_ = new_basis_in_old_coordinates.then(current_to_initial_);
-    initial_to_current_ = current_to_initial_.inverse();
+    initial_to_current_.reset();
+    direct_reverse_lookups_ = 0;
+    PlannerTableau previous(std::move(current_to_initial_));
+    assert(new_basis_in_old_coordinates.num_qubits == previous.num_qubits);
+    current_to_initial_ = PlannerTableau(new_basis_in_old_coordinates.num_qubits);
+    for (size_t q = 0; q < new_basis_in_old_coordinates.num_qubits; ++q) {
+        evaluate_generator_into(current_to_initial_.xs[q], new_basis_in_old_coordinates.xs[q],
+                                previous);
+        evaluate_generator_into(current_to_initial_.zs[q], new_basis_in_old_coordinates.zs[q],
+                                previous);
+    }
+    assert(current_to_initial_.satisfies_invariants());
 }
 
 size_t SymbolicPauliFrame::estimated_workspace_bytes(uint32_t num_qubits, uint32_t num_symbols) {

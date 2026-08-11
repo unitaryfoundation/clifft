@@ -6,6 +6,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <optional>
 #include <span>
 #include <vector>
 
@@ -20,17 +21,21 @@ class CoordinateFrame {
   public:
     explicit CoordinateFrame(uint32_t num_qubits);
 
-    [[nodiscard]] PlannerPauli to_current(const PlannerPauli& initial) const;
+    [[nodiscard]] PlannerPauli to_current(const PlannerPauli& initial);
     [[nodiscard]] PlannerPauli to_initial(const PlannerPauli& current) const;
 
     void change_basis(const PlannerTableau& new_basis_in_old_coordinates);
 
+    [[nodiscard]] bool has_cached_inverse_for_testing() const {
+        return initial_to_current_.has_value();
+    }
+
   private:
-    // These two tableaus are maintained together so ordinary operations never
-    // pay for an inverse. The forward map is also needed when a sampled branch
-    // adds a Pauli correction expressed in the newly selected coordinates.
+    // The selected generators are enough to recover either direction. The
+    // inverse is cached only when repeated reverse lookups can amortize it.
     PlannerTableau current_to_initial_;
-    PlannerTableau initial_to_current_;
+    std::optional<PlannerTableau> initial_to_current_;
+    uint64_t direct_reverse_lookups_ = 0;
     std::vector<size_t> indices_;
 };
 
