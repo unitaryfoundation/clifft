@@ -80,7 +80,6 @@ void collapse_measurement(State& state, const PreparedMeasurement& measurement, 
 // while filter and collapse keep the full coefficient array instead of
 // compacting a coordinate.
 void activate_zero_coordinate(State& state) noexcept;
-[[nodiscard]] MeasurementProbabilities new_x_instrument_populations(const State& state) noexcept;
 void apply_new_x_instrument_no_fire(State& state, double factor_zero, double factor_one,
                                     double no_fire_probability) noexcept;
 void collapse_new_x_instrument_source(State& state, bool branch,

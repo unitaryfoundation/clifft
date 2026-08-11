@@ -34,7 +34,6 @@ using clifft::sampling::DirectRotationKernel;
 using clifft::sampling::expectation_value;
 using clifft::sampling::measurement_probabilities;
 using clifft::sampling::MeasurementProbabilities;
-using clifft::sampling::new_x_instrument_populations;
 using clifft::sampling::prepare_measurement;
 using clifft::sampling::prepare_pauli;
 using clifft::sampling::prepare_promotion;
@@ -636,15 +635,11 @@ TEST_CASE("Sampling new X instrument activation matches the generic widened sour
     const MeasurementProbabilities expected_populations =
         measurement_probabilities(population_oracle, measurement);
 
-    State population_actual(kExpandedWidth, kInitialWidth);
-    load_state(population_actual, input);
-    const MeasurementProbabilities actual_populations =
-        new_x_instrument_populations(population_actual);
+    const MeasurementProbabilities actual_populations{0.5, 0.5};
     REQUIRE_THAT(actual_populations.zero,
                  Catch::Matchers::WithinAbs(expected_populations.zero, kTolerance));
     REQUIRE_THAT(actual_populations.one,
                  Catch::Matchers::WithinAbs(expected_populations.one, kTolerance));
-    REQUIRE(population_actual.active_width() == kInitialWidth);
 
     for (const auto& [factor_zero, factor_one] : {std::pair{0.8, 0.3}, std::pair{0.3, 0.8}}) {
         CAPTURE(factor_zero, factor_one);

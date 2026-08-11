@@ -287,23 +287,12 @@ void activate_zero_coordinate(State& state) noexcept {
     state.set_active_width(state.active_width() + 1);
 }
 
-MeasurementProbabilities new_x_instrument_populations(const State& state) noexcept {
+void apply_new_x_instrument_no_fire(State& state, double factor_zero, double factor_one,
+                                    double no_fire_probability) noexcept {
     // A new |0> coordinate has equal populations in the X eigenbasis. Applying
     // f0 Pi+ + f1 Pi- therefore expands each old coefficient with amplitudes
     // (f0 + f1) / 2 and (f0 - f1) / 2, avoiding a zero-fill and two generic
     // paired traversals of the wider state.
-    double total = 0.0;
-    for (uint64_t basis = 0; basis < state.size(); ++basis) {
-        const double real = state.real_data()[basis];
-        const double imag = state.imag_data()[basis];
-        total += real * real + imag * imag;
-    }
-    const double branch_probability = 0.5 * total;
-    return {branch_probability, branch_probability};
-}
-
-void apply_new_x_instrument_no_fire(State& state, double factor_zero, double factor_one,
-                                    double no_fire_probability) noexcept {
     assert(state.active_width() < state.max_active_width() &&
            "instrument activation must fit the sampling state allocation");
     assert(factor_zero >= 0.0 && factor_zero <= 1.0 && factor_one >= 0.0 && factor_one <= 1.0 &&

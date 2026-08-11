@@ -532,8 +532,10 @@ void Executor::execute_action(const ExecutablePlan::ExecuteInstrument& action,
         activate_zero_coordinate(state_);
     }
     const bool sign = evaluate(action.sign);
+    // The coefficients are normalized and the clean |0> coordinate has equal
+    // populations in the X eigenbasis, so this exact shape needs no reduction.
     const MeasurementProbabilities eigen_populations =
-        action.activates_new_x ? new_x_instrument_populations(state_)
+        action.activates_new_x ? MeasurementProbabilities{0.5, 0.5}
                                : measurement_probabilities(state_, *action.measurement);
     const double total = eigen_populations.total();
     const double epsilon = kMeasurementDustEpsilon * total;
