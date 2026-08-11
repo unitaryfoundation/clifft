@@ -1,5 +1,6 @@
 #include "clifft/sampling/active_measurement_dispatch.h"
 #include "clifft/sampling/direct_rotation_dispatch.h"
+#include "clifft/sampling/instrument_activation_dispatch.h"
 #include "clifft/sampling/kernels.h"
 #include "clifft/util/runtime_isa.h"
 
@@ -34,6 +35,7 @@ using clifft::sampling::DirectRotationKernel;
 using clifft::sampling::expectation_value;
 using clifft::sampling::measurement_probabilities;
 using clifft::sampling::MeasurementProbabilities;
+using clifft::sampling::NewXInstrumentKernel;
 using clifft::sampling::prepare_measurement;
 using clifft::sampling::prepare_pauli;
 using clifft::sampling::prepare_promotion;
@@ -41,6 +43,7 @@ using clifft::sampling::prepare_rotation;
 using clifft::sampling::PreparedMeasurement;
 using clifft::sampling::resolve_active_measurement_kernel;
 using clifft::sampling::resolve_direct_rotation_kernel;
+using clifft::sampling::resolve_new_x_instrument_kernel;
 using clifft::sampling::State;
 using clifft::test::check_complex;
 using clifft::test::dense_axis_rotation;
@@ -381,6 +384,21 @@ TEST_CASE("Active measurement SIMD selection preserves scalar boundaries") {
     REQUIRE(select({0b01, 0b110}, 3, 0, RuntimeIsa::Scalar) == ActiveMeasurementKernel::Scalar);
 }
 
+TEST_CASE("New X instrument SIMD selection preserves scalar boundaries") {
+    REQUIRE(resolve_new_x_instrument_kernel(false, 3, RuntimeIsa::Avx2) ==
+            NewXInstrumentKernel::NotApplicable);
+    REQUIRE(resolve_new_x_instrument_kernel(true, 1, RuntimeIsa::Avx2) ==
+            NewXInstrumentKernel::Scalar);
+    REQUIRE(resolve_new_x_instrument_kernel(true, 2, RuntimeIsa::Avx2) ==
+            NewXInstrumentKernel::Avx2);
+    REQUIRE(resolve_new_x_instrument_kernel(true, 8, RuntimeIsa::Avx2) ==
+            NewXInstrumentKernel::Avx2);
+    REQUIRE(resolve_new_x_instrument_kernel(true, 8, RuntimeIsa::Scalar) ==
+            NewXInstrumentKernel::Scalar);
+    REQUIRE(resolve_new_x_instrument_kernel(true, 8, RuntimeIsa::Avx512) ==
+            NewXInstrumentKernel::Scalar);
+}
+
 TEST_CASE("Sampling kernel expectation values match the existing dense matrix oracle") {
     for (uint32_t active_width = 0; active_width <= 4; ++active_width) {
         const uint64_t mask_limit = uint64_t{1} << active_width;
@@ -702,6 +720,36 @@ TEST_CASE("Sampling new X instrument activation matches the generic widened sour
                                              kExactPopulations.for_branch(branch));
             require_vectors_close(coefficients(collapse_actual), coefficients(collapse_oracle));
             REQUIRE(collapse_actual.active_width() == expanded_width);
+        }
+    }
+}
+
+TEST_CASE("Sampling AVX2 new X instrument activation matches scalar") {
+    if (clifft::internal::runtime_isa() != RuntimeIsa::Avx2) {
+        return;
+    }
+
+    for (uint32_t initial_width = 2; initial_width <= 8; ++initial_width) {
+        CAPTURE(initial_width);
+        const std::vector<std::complex<double>> input = deterministic_state(initial_width);
+        for (const auto& [factor_zero, factor_one] :
+             {std::pair{0.8, 0.3}, std::pair{0.3, 0.8}, std::pair{0.6, 0.6}, std::pair{1.0, 0.0},
+              std::pair{0.0, 1.0}, std::pair{1.0, 1.0}}) {
+            CAPTURE(factor_zero, factor_one);
+            const double no_fire_probability =
+                0.5 * factor_zero * factor_zero + 0.5 * factor_one * factor_one;
+
+            State expected(initial_width + 1, initial_width);
+            load_state(expected, input);
+            apply_new_x_instrument_no_fire(expected, factor_zero, factor_one, no_fire_probability);
+
+            State actual(initial_width + 1, initial_width);
+            load_state(actual, input);
+            apply_new_x_instrument_no_fire(actual, factor_zero, factor_one, no_fire_probability,
+                                           NewXInstrumentKernel::Avx2);
+
+            require_vectors_close(coefficients(actual), coefficients(expected));
+            REQUIRE(actual.active_width() == initial_width + 1);
         }
     }
 }

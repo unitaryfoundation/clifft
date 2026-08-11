@@ -3,6 +3,7 @@
 #include "clifft/sampling/active_measurement_dispatch.h"
 #include "clifft/sampling/direct_rotation_dispatch.h"
 #include "clifft/sampling/fused_rotation_dispatch.h"
+#include "clifft/sampling/instrument_activation_dispatch.h"
 #include "clifft/sampling/kernels.h"
 #include "clifft/sampling/plan.h"
 
@@ -172,11 +173,15 @@ class ExecutablePlan {
         InstrumentMode mode = InstrumentMode::Classical;
         // Lowering identifies the exact new-coordinate X shape so execution
         // need not rediscover instrument topology inside the hot loop.
-        bool activates_new_x = false;
+        NewXInstrumentKernel new_x_kernel = NewXInstrumentKernel::NotApplicable;
         PreparedExpression sign;
         std::optional<PreparedMeasurement> measurement;
         uint32_t site = 0;
         std::optional<uint32_t> destination_flip;
+
+        [[nodiscard]] bool activates_new_x() const noexcept {
+            return new_x_kernel != NewXInstrumentKernel::NotApplicable;
+        }
     };
 
     static_assert(sizeof(ExecuteInstrument) == 104,
