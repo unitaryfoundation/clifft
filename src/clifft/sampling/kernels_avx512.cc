@@ -29,10 +29,11 @@ constexpr size_t kDimension = 4;
 constexpr size_t kMatrixSize = kDimension * kDimension;
 constexpr double kInvSqrt2 = 0.707106781186547524400844362104849039;
 
-// Lanes whose measurement pivot is zero are the unique representatives of
-// the four Pauli pairs in a vector block. Fixed permutations place those lanes
-// in the low half for an ordinary four-double store; hardware compress-stores
-// were substantially slower on the performance host.
+// Measuring a Pauli P pairs |b> with |b xor x>. Lanes whose measurement pivot
+// is zero enumerate the four pairs in a vector block exactly once: pivot zero,
+// for example, selects |0>, |2>, |4>, and |6>. Fixed permutations place those
+// representatives in the low half for an ordinary four-double store; hardware
+// compress-stores were substantially slower on the performance host.
 constexpr std::array<__mmask8, 3> kMeasurementSourceMasks = {0x55, 0x33, 0x0f};
 
 using LaneIndices = std::array<uint64_t, kLanes>;
@@ -305,6 +306,10 @@ MeasurementProbabilities active_measurement_probabilities_avx512_impl(
     __m512d zero_sum = _mm512_setzero_pd();
     __m512d one_sum = _mm512_setzero_pd();
 
+    // For eigenvalue e in {+1, -1}, one compacted branch amplitude is
+    //   (psi[b] + e * conj(phase(P, b)) * psi[b xor x]) / sqrt(2).
+    // Build both eigenvalue branches together, then count only the pivot-zero
+    // representative of each pair when accumulating their squared norms.
     for (uint64_t basis = 0; basis < state.size(); basis += kLanes) {
         const __m512d input_real = _mm512_load_pd(real + basis);
         const __m512d input_imag = _mm512_load_pd(imag + basis);
@@ -316,6 +321,8 @@ MeasurementProbabilities active_measurement_probabilities_avx512_impl(
         __m512d zero_imag;
         __m512d one_real;
         __m512d one_imag;
+        // Prepared Pauli phases are in {+1, -1, +i, -i}. Splitting real and
+        // imaginary phase classes turns the complex multiply into FMAs.
         if constexpr (RealPhase) {
             zero_real = _mm512_fmadd_pd(coefficient, partner_real, input_real);
             zero_imag = _mm512_fmadd_pd(coefficient, partner_imag, input_imag);
@@ -352,8 +359,10 @@ void collapse_active_measurement_avx512_impl(State& state, const PreparedMeasure
                                                             : -measurement.pauli.even_phase.imag());
     const __m512d scale = _mm512_set1_pd(kInvSqrt2 / std::sqrt(branch_probability));
 
-    // Each input block is loaded in full before its compacted output is
-    // written. Forward traversal therefore cannot overwrite a future source.
+    // Apply the selected (I + eP) branch and normalize it. Removing the pivot
+    // maps each eight-amplitude block to four consecutive output amplitudes;
+    // each input block is in registers before that compacted output is written,
+    // so forward traversal cannot overwrite a future source.
     for (uint64_t basis = 0; basis < state.size(); basis += kLanes) {
         const __m512d input_real = _mm512_load_pd(real + basis);
         const __m512d input_imag = _mm512_load_pd(imag + basis);

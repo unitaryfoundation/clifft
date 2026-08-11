@@ -10,8 +10,8 @@ namespace clifft::sampling {
 
 namespace {
 
-constexpr uint32_t kMinVectorActiveWidth = 3;
-static_assert(uint64_t{1} << kMinVectorActiveWidth == kAvx512DoubleLanes);
+constexpr uint32_t kVectorLaneIndexBits = 3;
+static_assert(uint64_t{1} << kVectorLaneIndexBits == kAvx512DoubleLanes);
 
 // A single vector block regressed against the scalar probability-plus-collapse
 // pair on this host; two blocks amortize the vector setup.
@@ -20,7 +20,7 @@ constexpr uint32_t kMinProfitableActiveWidth = 4;
 ActiveMeasurementKernel select_active_measurement_avx512(
     const PreparedMeasurement& measurement) noexcept {
     if (measurement.pauli.is_diagonal() || measurement.pauli.x >= kAvx512DoubleLanes ||
-        measurement.pivot >= kMinVectorActiveWidth ||
+        measurement.pivot >= kVectorLaneIndexBits ||
         measurement.pauli.active_width < kMinProfitableActiveWidth) {
         return ActiveMeasurementKernel::Scalar;
     }
