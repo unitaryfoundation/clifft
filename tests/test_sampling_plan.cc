@@ -138,6 +138,12 @@ TEST_CASE("Sampling plan affine expressions are canonical") {
     REQUIRE(inserted.terms() == std::vector<SymbolId>{s0, s1, s2});
     inserted ^= AffineBool::symbol(s2);
     REQUIRE(inserted.terms() == std::vector<SymbolId>{s0, s1});
+
+    AffineBool moved;
+    moved ^= AffineBool(true, {s2, s0});
+    REQUIRE(moved == AffineBool(true, {s0, s2}));
+    moved ^= AffineBool(false, {s0, s1});
+    REQUIRE(moved == AffineBool(true, {s1, s2}));
 }
 
 TEST_CASE("Sampling plan validates symbolic and active state invariants") {

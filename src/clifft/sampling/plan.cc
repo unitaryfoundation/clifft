@@ -3,6 +3,7 @@
 #include "clifft/util/numeric.h"
 
 #include <algorithm>
+#include <cassert>
 #include <cmath>
 #include <iomanip>
 #include <limits>
@@ -245,8 +246,17 @@ AffineBool::AffineBool(bool constant) : constant_(constant) {}
 AffineBool::AffineBool(bool constant, std::vector<SymbolId> terms)
     : constant_(constant), terms_(canonicalize_terms(std::move(terms))) {}
 
+AffineBool::AffineBool(bool constant, std::vector<SymbolId> terms, CanonicalTermsTag)
+    : constant_(constant), terms_(std::move(terms)) {
+    assert(is_canonical() && "trusted affine terms must be sorted and unique");
+}
+
 AffineBool AffineBool::symbol(SymbolId id) {
-    return AffineBool(false, {id});
+    return AffineBool(false, {id}, CanonicalTermsTag{});
+}
+
+AffineBool AffineBool::from_canonical_terms(bool constant, std::vector<SymbolId> terms) {
+    return AffineBool(constant, std::move(terms), CanonicalTermsTag{});
 }
 
 bool AffineBool::is_canonical() const {
@@ -279,6 +289,19 @@ AffineBool& AffineBool::operator^=(const AffineBool& other) {
         } else {
             terms_.insert(position, term);
         }
+        return *this;
+    }
+    terms_ = xor_terms(terms_, other.terms_);
+    return *this;
+}
+
+AffineBool& AffineBool::operator^=(AffineBool&& other) {
+    constant_ ^= other.constant_;
+    if (other.terms_.empty()) {
+        return *this;
+    }
+    if (terms_.empty()) {
+        terms_ = std::move(other.terms_);
         return *this;
     }
     terms_ = xor_terms(terms_, other.terms_);

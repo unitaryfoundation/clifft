@@ -83,16 +83,25 @@ class AffineBool {
     AffineBool(bool constant, std::vector<SymbolId> terms);
 
     [[nodiscard]] static AffineBool symbol(SymbolId id);
+    // Planner internals can preserve storage when they already produced the
+    // canonical ordering. Debug builds validate this precondition.
+    [[nodiscard]] static AffineBool from_canonical_terms(bool constant,
+                                                         std::vector<SymbolId> terms);
     [[nodiscard]] bool constant() const { return constant_; }
     [[nodiscard]] const std::vector<SymbolId>& terms() const { return terms_; }
     [[nodiscard]] bool is_canonical() const;
 
     AffineBool& operator^=(const AffineBool& other);
+    AffineBool& operator^=(AffineBool&& other);
     AffineBool& operator^=(bool value);
 
     friend bool operator==(const AffineBool&, const AffineBool&) = default;
 
   private:
+    struct CanonicalTermsTag {};
+
+    AffineBool(bool constant, std::vector<SymbolId> terms, CanonicalTermsTag);
+
     bool constant_ = false;
     std::vector<SymbolId> terms_;
 };

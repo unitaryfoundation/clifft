@@ -390,6 +390,45 @@ TEST_CASE("Planner symbolic frame composes affine Pauli corrections") {
     REQUIRE(SymbolicPauliFrame::estimated_workspace_bytes(2, 130) == 124);
 }
 
+TEST_CASE("Planner symbolic frame applies sparse corrections across packed words") {
+    constexpr uint32_t kNumQubits = 70;
+    SymbolicPauliFrame frame(kNumQubits, 130);
+    const AffineBool condition(true, {SymbolId{0}, SymbolId{64}, SymbolId{129}});
+
+    PlannerPauli correction(kNumQubits);
+    correction.xs[0] = true;
+    correction.zs[1] = true;
+    correction.xs[63] = true;
+    correction.zs[63] = true;
+    correction.xs[64] = true;
+    correction.zs[65] = true;
+    correction.xs[69] = true;
+    correction.zs[69] = true;
+    frame.apply(correction, condition);
+
+    for (uint32_t q : {0U, 63U, 64U, 69U}) {
+        PlannerPauli observable(kNumQubits);
+        observable.zs[q] = true;
+        REQUIRE(frame.sign_for(observable) == condition);
+    }
+    for (uint32_t q : {1U, 63U, 65U, 69U}) {
+        PlannerPauli observable(kNumQubits);
+        observable.xs[q] = true;
+        REQUIRE(frame.sign_for(observable) == condition);
+    }
+
+    PlannerPauli unaffected(kNumQubits);
+    unaffected.xs[62] = true;
+    unaffected.zs[68] = true;
+    REQUIRE(frame.sign_for(unaffected) == AffineBool(false));
+
+    frame.apply(correction, condition);
+    PlannerPauli cancelled(kNumQubits);
+    cancelled.xs[69] = true;
+    cancelled.zs[69] = true;
+    REQUIRE(frame.sign_for(cancelled) == AffineBool(false));
+}
+
 TEST_CASE("Planner symbolic frame rejects unknown symbols") {
     SymbolicPauliFrame frame(1, 1);
     PlannerPauli correction(1);
