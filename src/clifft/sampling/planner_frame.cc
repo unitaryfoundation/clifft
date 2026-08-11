@@ -141,6 +141,9 @@ void CoordinateFrame::change_basis(const PlannerTableau& new_basis_in_old_coordi
     assert(current_to_initial_.satisfies_invariants());
 }
 
+// These transformations preserve the symplectic relations by construction.
+// A full invariant scan is cubic in Debug builds, so exhaustive equivalence
+// tests validate them instead of rescanning the tableau after every event.
 void CoordinateFrame::promote_dormant(const PlannerPauli& promoted, uint32_t active_width,
                                       uint32_t dormant_pivot) {
     const uint32_t n = static_cast<uint32_t>(current_to_initial_.num_qubits);
@@ -173,7 +176,6 @@ void CoordinateFrame::promote_dormant(const PlannerPauli& promoted, uint32_t act
     }
     current_to_initial_.xs[active_width] = mapped_promoted;
     current_to_initial_.zs[active_width] = pivot_stabilizer;
-    assert(current_to_initial_.satisfies_invariants());
 }
 
 void CoordinateFrame::measure_dormant(const PlannerPauli& measured, uint32_t dormant_pivot) {
@@ -197,7 +199,6 @@ void CoordinateFrame::measure_dormant(const PlannerPauli& measured, uint32_t dor
     }
     current_to_initial_.xs[dormant_pivot] = pivot_stabilizer;
     current_to_initial_.zs[dormant_pivot] = mapped_measured;
-    assert(current_to_initial_.satisfies_invariants());
 }
 
 void CoordinateFrame::measure_active(const PlannerPauli& measured, uint32_t active_width,
@@ -235,7 +236,6 @@ void CoordinateFrame::measure_active(const PlannerPauli& measured, uint32_t acti
     }
     current_to_initial_.xs[active_width - 1] = pivot_conjugate;
     current_to_initial_.zs[active_width - 1] = mapped_measured;
-    assert(current_to_initial_.satisfies_invariants());
 }
 
 void CoordinateFrame::invalidate_reverse_cache() {
@@ -369,6 +369,10 @@ PlannerTableau dormant_promotion_frame(const PlannerPauli& promoted, uint32_t ac
     PlannerTableau frame(n);
     const PlannerPauli old_stabilizer = single_z(n, dormant_pivot);
 
+    // CoordinateFrame::promote_dormant is the in-place production twin. This
+    // builder remains necessary for final-state maps and as its test oracle;
+    // keep their pivot ordering and fixups in sync.
+    //
     // The rows express the new coordinate generators in the old basis. Making
     // the promoted Pauli the next X generator turns its rotation into a
     // single-coordinate expansion; the stabilizer products keep every other
@@ -418,6 +422,10 @@ PlannerTableau dormant_measurement_frame(const PlannerPauli& measured, uint32_t 
     PlannerTableau frame(n);
     const PlannerPauli old_stabilizer = single_z(n, dormant_pivot);
 
+    // CoordinateFrame::measure_dormant is the in-place production twin. This
+    // builder is its independent test oracle; keep their pivot replacement and
+    // fixups in sync.
+    //
     // Replacing one dormant Z generator with the measured Pauli represents the
     // collapsed eigenspace without changing the dense coefficient state.
     for (uint32_t q = 0; q < n; ++q) {
@@ -453,6 +461,10 @@ PlannerTableau active_measurement_frame(const PlannerPauli& measured, uint32_t a
     const PlannerPauli pivot_x = single_x(n, pivot);
     const PlannerPauli pivot_z = single_z(n, pivot);
 
+    // CoordinateFrame::measure_active is the in-place production twin. This
+    // builder is its independent test oracle; keep their pivot compaction and
+    // fixups in sync.
+    //
     // Moving the measured Pauli to the last active Z generator gives the
     // direct measurement kernel one coordinate to remove. The cumulative
     // frame maps later operations into the remaining packed coordinates.

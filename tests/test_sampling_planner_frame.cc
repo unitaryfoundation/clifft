@@ -2,6 +2,7 @@
 
 #include <catch2/catch_test_macros.hpp>
 #include <cstdint>
+#include <optional>
 #include <stdexcept>
 #include <utility>
 #include <vector>
@@ -15,6 +16,60 @@ using clifft::sampling::internal::dormant_promotion_frame;
 using clifft::sampling::internal::PlannerPauli;
 using clifft::sampling::internal::PlannerTableau;
 using clifft::sampling::internal::SymbolicPauliFrame;
+
+namespace {
+
+PlannerPauli signed_pauli(uint32_t num_qubits, uint32_t body, bool sign) {
+    PlannerPauli result(num_qubits);
+    for (uint32_t q = 0; q < num_qubits; ++q) {
+        result.xs[q] = (body >> q) & 1U;
+        result.zs[q] = (body >> (q + num_qubits)) & 1U;
+    }
+    result.sign = sign;
+    return result;
+}
+
+PlannerTableau nontrivial_basis(uint32_t num_qubits) {
+    PlannerTableau result(num_qubits);
+    result.inplace_scatter_append(stim::GATE_DATA.at("H").tableau<clifft::kStimWidth>(), {0});
+    if (num_qubits > 1) {
+        result.inplace_scatter_append(stim::GATE_DATA.at("S").tableau<clifft::kStimWidth>(), {1});
+        result.inplace_scatter_append(stim::GATE_DATA.at("CX").tableau<clifft::kStimWidth>(),
+                                      {0, num_qubits - 1});
+    }
+    return result;
+}
+
+void require_same_coordinate_map(const CoordinateFrame& direct, const CoordinateFrame& generic,
+                                 uint32_t num_qubits) {
+    for (uint32_t q = 0; q < num_qubits; ++q) {
+        CAPTURE(q);
+        PlannerPauli x(num_qubits);
+        x.xs[q] = true;
+        REQUIRE(direct.to_initial(x) == generic.to_initial(x));
+
+        PlannerPauli z(num_qubits);
+        z.zs[q] = true;
+        REQUIRE(direct.to_initial(z) == generic.to_initial(z));
+    }
+}
+
+std::optional<uint32_t> active_measurement_pivot(const PlannerPauli& measured,
+                                                 uint32_t active_width) {
+    for (uint32_t q = 0; q < active_width; ++q) {
+        if (measured.xs[q]) {
+            return q;
+        }
+    }
+    for (uint32_t q = 0; q < active_width; ++q) {
+        if (measured.zs[q]) {
+            return q;
+        }
+    }
+    return std::nullopt;
+}
+
+}  // namespace
 
 TEST_CASE("Planner coordinate frame round trips composed basis changes") {
     CoordinateFrame coordinates(3);
@@ -80,7 +135,7 @@ TEST_CASE("Planner coordinate frame matches explicit inverse for signed Paulis")
     promoted.zs[0] = true;
     promoted.xs[2] = true;
     const PlannerTableau promotion = dormant_promotion_frame(promoted, 1, 2);
-    coordinates.change_basis(promotion);
+    coordinates.promote_dormant(promoted, 1, 2);
     cumulative = promotion.then(cumulative);
     require_matches_inverse();
 
@@ -88,7 +143,7 @@ TEST_CASE("Planner coordinate frame matches explicit inverse for signed Paulis")
     active.xs[0] = true;
     active.zs[1] = true;
     const PlannerTableau removal = active_measurement_frame(active, 2, 0);
-    coordinates.change_basis(removal);
+    coordinates.measure_active(active, 2, 0);
     cumulative = removal.then(cumulative);
     require_matches_inverse();
 
@@ -96,9 +151,87 @@ TEST_CASE("Planner coordinate frame matches explicit inverse for signed Paulis")
     dormant.zs[0] = true;
     dormant.xs[2] = true;
     const PlannerTableau replacement = dormant_measurement_frame(dormant, 2);
-    coordinates.change_basis(replacement);
+    coordinates.measure_dormant(dormant, 2);
     cumulative = replacement.then(cumulative);
     require_matches_inverse();
+}
+
+TEST_CASE("Planner structured coordinate updates match generic frames") {
+    constexpr uint32_t kNumQubits = 3;
+    const PlannerTableau basis = nontrivial_basis(kNumQubits);
+
+    for (uint32_t active_width = 0; active_width < kNumQubits; ++active_width) {
+        for (uint32_t dormant_pivot = active_width; dormant_pivot < kNumQubits; ++dormant_pivot) {
+            for (uint32_t body = 0; body < 1U << (2 * kNumQubits); ++body) {
+                for (bool sign : {false, true}) {
+                    const PlannerPauli promoted = signed_pauli(kNumQubits, body, sign);
+                    bool is_selected_pivot = promoted.xs[dormant_pivot];
+                    for (uint32_t q = active_width; q < dormant_pivot; ++q) {
+                        is_selected_pivot &= !promoted.xs[q];
+                    }
+                    if (!is_selected_pivot) {
+                        continue;
+                    }
+                    CAPTURE(active_width, dormant_pivot, body, sign);
+
+                    CoordinateFrame direct(kNumQubits);
+                    CoordinateFrame generic(kNumQubits);
+                    direct.change_basis(basis);
+                    generic.change_basis(basis);
+                    direct.promote_dormant(promoted, active_width, dormant_pivot);
+                    generic.change_basis(
+                        dormant_promotion_frame(promoted, active_width, dormant_pivot));
+                    require_same_coordinate_map(direct, generic, kNumQubits);
+                }
+            }
+        }
+    }
+
+    for (uint32_t dormant_pivot = 0; dormant_pivot < kNumQubits; ++dormant_pivot) {
+        for (uint32_t body = 0; body < 1U << (2 * kNumQubits); ++body) {
+            for (bool sign : {false, true}) {
+                const PlannerPauli measured = signed_pauli(kNumQubits, body, sign);
+                if (!measured.xs[dormant_pivot]) {
+                    continue;
+                }
+                CAPTURE(dormant_pivot, body, sign);
+
+                CoordinateFrame direct(kNumQubits);
+                CoordinateFrame generic(kNumQubits);
+                direct.change_basis(basis);
+                generic.change_basis(basis);
+                direct.measure_dormant(measured, dormant_pivot);
+                generic.change_basis(dormant_measurement_frame(measured, dormant_pivot));
+                require_same_coordinate_map(direct, generic, kNumQubits);
+            }
+        }
+    }
+
+    for (uint32_t active_width = 1; active_width <= kNumQubits; ++active_width) {
+        const uint32_t body_limit = 1U << (2 * active_width);
+        for (uint32_t active_body = 1; active_body < body_limit; ++active_body) {
+            for (bool sign : {false, true}) {
+                PlannerPauli measured(kNumQubits);
+                for (uint32_t q = 0; q < active_width; ++q) {
+                    measured.xs[q] = (active_body >> q) & 1U;
+                    measured.zs[q] = (active_body >> (q + active_width)) & 1U;
+                }
+                measured.sign = sign;
+                const std::optional<uint32_t> pivot =
+                    active_measurement_pivot(measured, active_width);
+                REQUIRE(pivot.has_value());
+                CAPTURE(active_width, active_body, sign, *pivot);
+
+                CoordinateFrame direct(kNumQubits);
+                CoordinateFrame generic(kNumQubits);
+                direct.change_basis(basis);
+                generic.change_basis(basis);
+                direct.measure_active(measured, active_width, *pivot);
+                generic.change_basis(active_measurement_frame(measured, active_width, *pivot));
+                require_same_coordinate_map(direct, generic, kNumQubits);
+            }
+        }
+    }
 }
 
 TEST_CASE("Planner coordinate frame matches inverse across packed words") {

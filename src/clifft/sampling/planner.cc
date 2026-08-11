@@ -438,6 +438,9 @@ void process_rotation(const PendingRotation& rotation, SamplingPlan& plan, uint3
     }
 
     if (plan.final_tableau.has_value()) {
+        // Final-state queries track a separate physical map and still need the
+        // generic frame. The coordinate map uses the structured update below
+        // to avoid a second generic tableau composition.
         compose_final_tableau(plan,
                               dormant_promotion_frame(resolved.body, active_width, *dormant_pivot));
     }
