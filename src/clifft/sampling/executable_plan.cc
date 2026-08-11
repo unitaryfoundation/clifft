@@ -86,10 +86,19 @@ ExecutablePlan::ExecutablePlan(const SamplingPlan& plan)
     expression_term_begins.reserve(plan.actions.size());
     expression_register_constants_.reserve(plan.actions.size());
 
+    auto ensure_expression_term_capacity = [&](size_t additional_terms) {
+        constexpr size_t kMaxExpressionTerms = std::numeric_limits<uint32_t>::max();
+        // Dynamic fusion can replace source signs with denser basis expressions,
+        // so the original-plan count is only a reserve estimate after lowering.
+        if (additional_terms > kMaxExpressionTerms - expression_terms.size()) {
+            throw std::length_error("sampling executable expression storage exceeds uint32 range");
+        }
+    };
     auto prepare_expression = [&](const AffineBool& expression) {
         if (expression_register_constants_.size() >= std::numeric_limits<uint32_t>::max()) {
             throw std::length_error("sampling executable expression count exceeds uint32 range");
         }
+        ensure_expression_term_capacity(expression.terms().size());
         const uint32_t register_id = static_cast<uint32_t>(expression_register_constants_.size());
         expression_term_begins.push_back(static_cast<uint32_t>(expression_terms.size()));
         expression_register_constants_.push_back(static_cast<uint8_t>(expression.constant()));
@@ -102,6 +111,7 @@ ExecutablePlan::ExecutablePlan(const SamplingPlan& plan)
         if (expression_register_constants_.size() >= std::numeric_limits<uint32_t>::max()) {
             throw std::length_error("sampling executable expression count exceeds uint32 range");
         }
+        ensure_expression_term_capacity(outcome.terms().size() - 1);
         const uint32_t register_id = static_cast<uint32_t>(expression_register_constants_.size());
         const uint32_t begin = static_cast<uint32_t>(expression_terms.size());
         expression_term_begins.push_back(begin);

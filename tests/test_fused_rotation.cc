@@ -236,6 +236,33 @@ TEST_CASE("Dynamic fused rotation enforces bounded selection") {
     REQUIRE(prepare_dynamic_fused_rotation_run(low_pivots).rotation == std::nullopt);
 }
 
+TEST_CASE("Dynamic fused rotation stops at execution barriers") {
+    const SymbolId first_sign{0};
+    const SymbolId second_sign{1};
+    constexpr std::array<uint64_t, 3> kXMasks = {0b001000, 0b100000, 0b101000};
+    const std::array signs = {AffineBool::symbol(first_sign), AffineBool::symbol(second_sign),
+                              AffineBool(false, {first_sign, second_sign})};
+    std::vector<PlannedAction> actions;
+    for (size_t i = 0; i < 8; ++i) {
+        actions.push_back(PlannedAction{
+            6, 6, RotateActivePauli{{kXMasks[i % 3], uint64_t{1} << (i % 6)}, 0.2, signs[i % 3]}});
+    }
+
+    std::vector<PlannedAction> identity_barrier = actions;
+    identity_barrier.push_back(
+        PlannedAction{6, 6, RotateActivePauli{{0, 0}, 0.25, AffineBool::symbol(first_sign)}});
+    const auto identity_run = prepare_dynamic_fused_rotation_run(identity_barrier);
+    REQUIRE(identity_run.action_count == actions.size());
+    REQUIRE(identity_run.rotation.has_value());
+
+    std::vector<PlannedAction> width_barrier = actions;
+    width_barrier.push_back(PlannedAction{
+        5, 5, RotateActivePauli{{0b001000, 0b000101}, 0.25, AffineBool::symbol(first_sign)}});
+    const auto width_run = prepare_dynamic_fused_rotation_run(width_barrier);
+    REQUIRE(width_run.action_count == actions.size());
+    REQUIRE(width_run.rotation.has_value());
+}
+
 TEST_CASE("Direct rotation SIMD matches scalar across eligible shapes") {
     const std::array rotations = {
         RotateActivePauli{{0, 0}, 0.125, AffineBool::symbol(SymbolId{0})},
