@@ -316,6 +316,21 @@ void Executor::execute_action(const ExecutablePlan::ExecuteFusedRotation& action
 }
 
 template <bool ForceRecords>
+void Executor::execute_action(const ExecutablePlan::ExecuteDynamicFusedRotation& action,
+                              std::span<const uint8_t>, ReplayResult&) noexcept {
+    assert(action.rotation_index < plan_->dynamic_fused_rotations_.size() &&
+           "dynamic fused rotation action must reference prepared execution");
+    const auto& rotation = plan_->dynamic_fused_rotations_[action.rotation_index];
+    uint32_t variant = 0;
+    for (size_t i = 0; i < rotation.sign_basis.size(); ++i) {
+        variant |= static_cast<uint32_t>(evaluate(rotation.sign_basis[i])) << i;
+    }
+    assert(variant < rotation.variants.size() &&
+           "dynamic fused sign value must select a prepared variant");
+    rotation.variants[variant].apply(state_);
+}
+
+template <bool ForceRecords>
 void Executor::execute_action(const ExecutablePlan::ExecutePromotion& action,
                               std::span<const uint8_t>, ReplayResult&) noexcept {
     apply_promotion(state_, action.promotion, evaluate(action.sign));

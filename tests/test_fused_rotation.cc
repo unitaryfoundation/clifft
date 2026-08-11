@@ -1,5 +1,7 @@
 #include "clifft/sampling/executor.h"
+#include "clifft/sampling/fused_rotation.h"
 #include "clifft/sampling/kernels.h"
+#include "clifft/util/runtime_isa.h"
 
 #include <array>
 #include <catch2/catch_test_macros.hpp>
@@ -9,16 +11,19 @@
 #include <optional>
 #include <span>
 #include <variant>
+#include <vector>
 
 namespace {
 
 using clifft::sampling::ActivePauli;
 using clifft::sampling::AffineBool;
+using clifft::sampling::apply_fused_rotation;
 using clifft::sampling::apply_rotation;
 using clifft::sampling::ExecutablePlan;
 using clifft::sampling::Executor;
 using clifft::sampling::index;
 using clifft::sampling::PlannedAction;
+using clifft::sampling::prepare_dynamic_fused_rotation_run;
 using clifft::sampling::prepare_rotation;
 using clifft::sampling::RotateActivePauli;
 using clifft::sampling::SamplingPlan;
@@ -118,6 +123,117 @@ TEST_CASE("Fused rotation falls back for a rank three run") {
         RotateActivePauli{{0b100, 0b001}, 0.4, AffineBool(false)},
     };
     require_matches_scalar(rotation_plan(3, rotations), 0, 3);
+}
+
+TEST_CASE("Dynamic fused rotation matches scalar across affine sign values") {
+    const SymbolId first_sign{0};
+    const SymbolId second_sign{1};
+    const std::array rotations = {
+        RotateActivePauli{{0b001000, 0b000101}, 0.17, AffineBool::symbol(first_sign)},
+        RotateActivePauli{{0b100000, 0b010010}, -0.23, AffineBool::symbol(second_sign)},
+        RotateActivePauli{{0b101000, 0b100001}, 0.31, AffineBool(false, {first_sign, second_sign})},
+        RotateActivePauli{{0b001000, 0b001110}, -0.11, AffineBool(true, {first_sign})},
+        RotateActivePauli{{0b100000, 0b011001}, 0.29, AffineBool(true, {second_sign})},
+        RotateActivePauli{{0b101000, 0b100100}, -0.37, AffineBool(true, {first_sign, second_sign})},
+        RotateActivePauli{{0b001000, 0b010101}, 0.13, AffineBool(false)},
+        RotateActivePauli{{0b100000, 0b101010}, -0.19, AffineBool::symbol(first_sign)},
+    };
+
+    SamplingPlan plan;
+    plan.num_qubits = 6;
+    plan.initial_active_width = 6;
+    plan.max_active_width = 6;
+    plan.symbols = {
+        SymbolInfo{SymbolKind::Presampled, std::nullopt, std::nullopt},
+        SymbolInfo{SymbolKind::Presampled, std::nullopt, std::nullopt},
+    };
+    for (const RotateActivePauli& rotation : rotations) {
+        plan.actions.push_back(PlannedAction{6, 6, rotation});
+    }
+
+    const auto prepared_run = prepare_dynamic_fused_rotation_run(plan.actions);
+    REQUIRE(prepared_run.action_count == rotations.size());
+    REQUIRE(prepared_run.rotation.has_value());
+    REQUIRE(prepared_run.rotation->sign_basis.size() == 2);
+    REQUIRE(prepared_run.rotation->variants.size() == 4);
+
+    const ExecutablePlan executable(plan);
+    const size_t expected_action_count =
+        clifft::internal::runtime_isa() == clifft::internal::RuntimeIsa::Avx512 ? 1
+                                                                                : rotations.size();
+    REQUIRE(executable.num_actions() == expected_action_count);
+    for (uint8_t first_value : {uint8_t{0}, uint8_t{1}}) {
+        for (uint8_t second_value : {uint8_t{0}, uint8_t{1}}) {
+            const std::array values = {first_value, second_value};
+            Executor executor(executable);
+            executor.run_shot(values);
+
+            State expected(6, 6);
+            for (const RotateActivePauli& rotation : rotations) {
+                bool sign = rotation.sign.constant();
+                for (SymbolId term : rotation.sign.terms()) {
+                    sign ^= values[index(term)] != 0;
+                }
+                apply_rotation(expected, prepare_rotation(rotation.pauli, 6, rotation.half_turns),
+                               sign);
+            }
+
+            uint32_t variant = 0;
+            for (size_t i = 0; i < prepared_run.rotation->sign_basis.size(); ++i) {
+                const AffineBool& expression = prepared_run.rotation->sign_basis[i];
+                bool value = expression.constant();
+                for (SymbolId term : expression.terms()) {
+                    value ^= values[index(term)] != 0;
+                }
+                variant |= static_cast<uint32_t>(value) << i;
+            }
+            State prepared_state(6, 6);
+            apply_fused_rotation(prepared_state, prepared_run.rotation->variants[variant]);
+
+            for (uint64_t basis = 0; basis < expected.size(); ++basis) {
+                CAPTURE(first_value, second_value, basis);
+                REQUIRE_THAT(executor.state().real_data()[basis],
+                             Catch::Matchers::WithinAbs(expected.real_data()[basis], 1e-12));
+                REQUIRE_THAT(executor.state().imag_data()[basis],
+                             Catch::Matchers::WithinAbs(expected.imag_data()[basis], 1e-12));
+                REQUIRE_THAT(prepared_state.real_data()[basis],
+                             Catch::Matchers::WithinAbs(expected.real_data()[basis], 1e-12));
+                REQUIRE_THAT(prepared_state.imag_data()[basis],
+                             Catch::Matchers::WithinAbs(expected.imag_data()[basis], 1e-12));
+            }
+        }
+    }
+}
+
+TEST_CASE("Dynamic fused rotation enforces bounded selection") {
+    const SymbolId first_sign{0};
+    const SymbolId second_sign{1};
+    constexpr std::array<uint64_t, 3> kXMasks = {0b001000, 0b100000, 0b101000};
+    const std::array signs = {AffineBool::symbol(first_sign), AffineBool::symbol(second_sign),
+                              AffineBool(false, {first_sign, second_sign})};
+    std::vector<PlannedAction> actions;
+    for (size_t i = 0; i < 8; ++i) {
+        actions.push_back(PlannedAction{
+            6, 6, RotateActivePauli{{kXMasks[i % 3], uint64_t{1} << (i % 6)}, 0.2, signs[i % 3]}});
+    }
+
+    REQUIRE(prepare_dynamic_fused_rotation_run(std::span(actions).first(7)).rotation ==
+            std::nullopt);
+
+    std::vector<PlannedAction> rank_three = actions;
+    std::get<RotateActivePauli>(rank_three[2].action).pauli.x = 0b010000;
+    REQUIRE(prepare_dynamic_fused_rotation_run(rank_three).rotation == std::nullopt);
+
+    std::vector<PlannedAction> sign_rank_three = actions;
+    std::get<RotateActivePauli>(sign_rank_three[2].action).sign = AffineBool::symbol(SymbolId{2});
+    REQUIRE(prepare_dynamic_fused_rotation_run(sign_rank_three).rotation == std::nullopt);
+
+    std::vector<PlannedAction> low_pivots = actions;
+    for (PlannedAction& planned : low_pivots) {
+        auto& rotation = std::get<RotateActivePauli>(planned.action);
+        rotation.pauli.x >>= 3;
+    }
+    REQUIRE(prepare_dynamic_fused_rotation_run(low_pivots).rotation == std::nullopt);
 }
 
 TEST_CASE("Direct rotation SIMD matches scalar across eligible shapes") {

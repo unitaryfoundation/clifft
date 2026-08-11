@@ -142,6 +142,9 @@ class Executor {
     void execute_action(const ExecutablePlan::ExecuteFusedRotation& action,
                         std::span<const uint8_t> forced_records, ReplayResult& result) noexcept;
     template <bool ForceRecords>
+    void execute_action(const ExecutablePlan::ExecuteDynamicFusedRotation& action,
+                        std::span<const uint8_t> forced_records, ReplayResult& result) noexcept;
+    template <bool ForceRecords>
     void execute_action(const ExecutablePlan::ExecutePromotion& action,
                         std::span<const uint8_t> forced_records, ReplayResult& result) noexcept;
     template <bool ForceRecords>

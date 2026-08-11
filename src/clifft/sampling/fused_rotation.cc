@@ -23,10 +23,25 @@ constexpr size_t kMinFusedRotationActions = 3;
 // bounds a descriptor at 32 matrices while covering the measured QV workloads.
 constexpr uint32_t kMaxFusedRotationSelectors = 5;
 
+// Sign variants grow the prepared matrix table exponentially, so keep both
+// the sign rank and the minimum amount of eliminated work bounded.
+constexpr uint32_t kMaxFusedRotationSigns = 2;
+constexpr size_t kMinDynamicFusedRotationActions = 8;
+
 // A row-reduced basis for a vector subspace of GF(2)^64, where each bit is one
 // binary coordinate.
 class BinaryBasis {
   public:
+    [[nodiscard]] bool contains(uint64_t value) const {
+        for (int pivot = 63; pivot >= 0; --pivot) {
+            const uint64_t bit = uint64_t{1} << pivot;
+            if ((value & bit) != 0 && rows_[pivot] != 0) {
+                value ^= rows_[pivot];
+            }
+        }
+        return value == 0;
+    }
+
     // Extends the span with value when it is independent. A dependent value
     // succeeds without changing the basis; false means the rank cap prevented
     // adding an independent value.
@@ -74,6 +89,70 @@ class BinaryBasis {
   private:
     std::array<uint64_t, 64> rows_{};
     uint32_t rank_ = 0;
+};
+
+// Triangular basis for affine expressions with their constant terms removed.
+// Coordinates let lowering precompute one matrix for each independent sign
+// assignment while execution evaluates only the basis expressions.
+class AffineBasis {
+  public:
+    [[nodiscard]] bool contains(const AffineBool& value) const {
+        AffineBool reduced(false, value.terms());
+        while (!reduced.terms().empty()) {
+            const uint32_t pivot = index(reduced.terms().back());
+            if (pivot >= rows_.size() || !rows_[pivot].has_value()) {
+                return false;
+            }
+            reduced ^= rows_[pivot]->expression;
+        }
+        return true;
+    }
+
+    [[nodiscard]] bool insert(const AffineBool& value, uint32_t max_rank) {
+        AffineBool reduced(false, value.terms());
+        while (!reduced.terms().empty()) {
+            const uint32_t pivot = index(reduced.terms().back());
+            if (pivot < rows_.size() && rows_[pivot].has_value()) {
+                reduced ^= rows_[pivot]->expression;
+                continue;
+            }
+            if (expressions_.size() == max_rank) {
+                return false;
+            }
+            if (pivot >= rows_.size()) {
+                rows_.resize(static_cast<size_t>(pivot) + 1);
+            }
+            const uint32_t coordinate = static_cast<uint32_t>(expressions_.size());
+            expressions_.push_back(reduced);
+            rows_[pivot] = Row{std::move(reduced), coordinate};
+            return true;
+        }
+        return true;
+    }
+
+    [[nodiscard]] uint32_t coordinates(const AffineBool& value) const {
+        AffineBool reduced(false, value.terms());
+        uint32_t result = 0;
+        while (!reduced.terms().empty()) {
+            const uint32_t pivot = index(reduced.terms().back());
+            assert(pivot < rows_.size() && rows_[pivot].has_value() &&
+                   "expression must belong to the prepared affine basis");
+            result ^= uint32_t{1} << rows_[pivot]->coordinate;
+            reduced ^= rows_[pivot]->expression;
+        }
+        return result;
+    }
+
+    [[nodiscard]] const std::vector<AffineBool>& expressions() const { return expressions_; }
+
+  private:
+    struct Row {
+        AffineBool expression;
+        uint32_t coordinate = 0;
+    };
+
+    std::vector<std::optional<Row>> rows_;
+    std::vector<AffineBool> expressions_;
 };
 
 // Expresses value in the supplied reduced basis, with bit i of the result
@@ -303,6 +382,102 @@ FusedRotationRun prepare_fused_rotation_run(std::span<const PlannedAction> actio
     if (result.action_count >= kMinFusedRotationActions) {
         result.rotation = prepare_fused_rotation(actions.first(result.action_count), orbit_basis);
     }
+    return result;
+}
+
+DynamicFusedRotationRun prepare_dynamic_fused_rotation_run(std::span<const PlannedAction> actions) {
+    DynamicFusedRotationRun result;
+    if (actions.size() < kMinDynamicFusedRotationActions) {
+        return result;
+    }
+    const PlannedAction& first = actions.front();
+    const auto* first_rotation = std::get_if<RotateActivePauli>(&first.action);
+    if (first_rotation == nullptr || first_rotation->pauli.is_identity()) {
+        return result;
+    }
+
+    // Reject ordinary high-rank runs without constructing affine expressions
+    // or clearing the full binary bases. Any eligible run must keep the first
+    // minimum-length prefix within the same two-dimensional X-mask span.
+    std::array<uint64_t, 2> prefix_basis{};
+    size_t prefix_rank = 0;
+    for (const PlannedAction& candidate : actions.first(kMinDynamicFusedRotationActions)) {
+        const auto* rotation = std::get_if<RotateActivePauli>(&candidate.action);
+        if (rotation == nullptr || rotation->pauli.is_identity() ||
+            candidate.active_before != first.active_before) {
+            return result;
+        }
+        uint64_t reduced = rotation->pauli.x;
+        for (size_t i = 0; i < prefix_rank; ++i) {
+            reduced = std::min(reduced, reduced ^ prefix_basis[i]);
+        }
+        if (reduced != 0) {
+            if (prefix_rank == prefix_basis.size()) {
+                return result;
+            }
+            prefix_basis[prefix_rank++] = reduced;
+        }
+    }
+
+    BinaryBasis orbit_basis;
+    AffineBasis sign_basis;
+    bool has_dynamic_sign = false;
+    while (result.action_count < actions.size()) {
+        const PlannedAction& candidate = actions[result.action_count];
+        const auto* rotation = std::get_if<RotateActivePauli>(&candidate.action);
+        if (rotation == nullptr || rotation->pauli.is_identity() ||
+            candidate.active_before != first.active_before) {
+            break;
+        }
+        if ((orbit_basis.rank() == 2 && !orbit_basis.contains(rotation->pauli.x)) ||
+            (sign_basis.expressions().size() == kMaxFusedRotationSigns &&
+             !sign_basis.contains(rotation->sign))) {
+            break;
+        }
+        [[maybe_unused]] const bool orbit_inserted = orbit_basis.insert(rotation->pauli.x, 2);
+        [[maybe_unused]] const bool sign_inserted =
+            sign_basis.insert(rotation->sign, kMaxFusedRotationSigns);
+        assert(orbit_inserted && sign_inserted && "prechecked bases must accept the rotation");
+        has_dynamic_sign |= !rotation->sign.terms().empty();
+        ++result.action_count;
+    }
+
+    const std::vector<uint64_t> orbit_rows = orbit_basis.rows();
+    if (result.action_count < kMinDynamicFusedRotationActions || !has_dynamic_sign ||
+        orbit_rows.size() != 2 || std::countr_zero(std::bit_floor(orbit_rows[0])) < 3) {
+        return result;
+    }
+
+    std::vector<uint32_t> sign_coordinates;
+    sign_coordinates.reserve(result.action_count);
+    for (size_t i = 0; i < result.action_count; ++i) {
+        const auto& rotation = std::get<RotateActivePauli>(actions[i].action);
+        sign_coordinates.push_back(sign_basis.coordinates(rotation.sign));
+    }
+
+    PreparedDynamicFusedRotation prepared;
+    prepared.sign_basis = sign_basis.expressions();
+    const size_t num_sign_variants = size_t{1} << prepared.sign_basis.size();
+    prepared.variants.reserve(num_sign_variants);
+    std::vector<PlannedAction> variant_actions(actions.begin(),
+                                               actions.begin() + result.action_count);
+    for (size_t variant = 0; variant < num_sign_variants; ++variant) {
+        for (size_t i = 0; i < result.action_count; ++i) {
+            const auto& source = std::get<RotateActivePauli>(actions[i].action);
+            auto& destination = std::get<RotateActivePauli>(variant_actions[i].action);
+            const bool sign =
+                source.sign.constant() !=
+                ((std::popcount(static_cast<uint32_t>(variant) & sign_coordinates[i]) & 1U) != 0);
+            destination.sign = AffineBool(sign);
+        }
+        std::optional<PreparedFusedRotation> rotation =
+            prepare_fused_rotation(variant_actions, orbit_basis);
+        if (!rotation.has_value()) {
+            return result;
+        }
+        prepared.variants.push_back(std::move(*rotation));
+    }
+    result.rotation = std::move(prepared);
     return result;
 }
 

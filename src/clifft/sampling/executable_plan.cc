@@ -250,6 +250,29 @@ ExecutablePlan::ExecutablePlan(const SamplingPlan& plan)
 
     size_t planned_index = 0;
     while (planned_index < plan.actions.size()) {
+        DynamicFusedRotationRun dynamic_run;
+        if (runtime_isa == internal::RuntimeIsa::Avx512) {
+            dynamic_run = prepare_dynamic_fused_rotation_run(
+                std::span<const PlannedAction>(plan.actions).subspan(planned_index));
+        }
+        if (dynamic_run.rotation.has_value()) {
+            PreparedDynamicFusedRotation prepared = std::move(*dynamic_run.rotation);
+            PreparedDynamicFusedRotationExecution execution;
+            execution.sign_basis.reserve(prepared.sign_basis.size());
+            for (const AffineBool& sign : prepared.sign_basis) {
+                execution.sign_basis.push_back(prepare_expression(sign));
+            }
+            execution.variants.reserve(prepared.variants.size());
+            for (PreparedFusedRotation& variant : prepared.variants) {
+                execution.variants.emplace_back(std::move(variant), runtime_isa);
+            }
+            const uint32_t fused_index = static_cast<uint32_t>(dynamic_fused_rotations_.size());
+            dynamic_fused_rotations_.push_back(std::move(execution));
+            actions_.emplace_back(ExecuteDynamicFusedRotation{fused_index});
+            planned_index += dynamic_run.action_count;
+            continue;
+        }
+
         FusedRotationRun run = prepare_fused_rotation_run(
             std::span<const PlannedAction>(plan.actions).subspan(planned_index));
         if (run.rotation.has_value()) {
