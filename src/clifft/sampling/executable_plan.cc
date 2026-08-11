@@ -235,9 +235,12 @@ ExecutablePlan::ExecutablePlan(const SamplingPlan& plan)
                         const uint32_t pivot = static_cast<uint32_t>(std::countr_zero(support));
                         measurement = prepare_measurement(typed.source, width, pivot);
                     }
+                    const bool activates_new_x =
+                        typed.mode == InstrumentMode::Activate && typed.source.z == 0 &&
+                        typed.source.x == (uint64_t{1} << (planned.active_after - 1));
                     actions_.emplace_back(ExecuteInstrument{
-                        typed.mode, prepare_expression(typed.sign), std::move(measurement),
-                        index(typed.site),
+                        typed.mode, activates_new_x, prepare_expression(typed.sign),
+                        std::move(measurement), index(typed.site),
                         typed.destination_flip.has_value()
                             ? std::optional<uint32_t>{index(*typed.destination_flip)}
                             : std::nullopt});

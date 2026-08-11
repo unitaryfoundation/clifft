@@ -528,12 +528,13 @@ void Executor::execute_action(const ExecutablePlan::ExecuteInstrument& action,
 
     assert(action.measurement.has_value() &&
            "active instrument requires a prepared source measurement");
-    if (action.mode == InstrumentMode::Activate) {
+    if (action.mode == InstrumentMode::Activate && !action.activates_new_x) {
         activate_zero_coordinate(state_);
     }
     const bool sign = evaluate(action.sign);
     const MeasurementProbabilities eigen_populations =
-        measurement_probabilities(state_, *action.measurement);
+        action.activates_new_x ? new_x_instrument_populations(state_)
+                               : measurement_probabilities(state_, *action.measurement);
     const double total = eigen_populations.total();
     const double epsilon = kMeasurementDustEpsilon * total;
     const double physical_zero = eigen_populations.for_branch(sign);
@@ -556,14 +557,23 @@ void Executor::execute_action(const ExecutablePlan::ExecuteInstrument& action,
                                            factor_one * factor_one * eigen_populations.one;
         assert(no_fire_probability > 0.0 &&
                "a selected no-fire branch must have positive probability");
-        apply_instrument_no_fire(state_, action.measurement->pauli, factor_zero, factor_one,
-                                 no_fire_probability);
+        if (action.activates_new_x) {
+            apply_new_x_instrument_no_fire(state_, factor_zero, factor_one, no_fire_probability);
+        } else {
+            apply_instrument_no_fire(state_, action.measurement->pauli, factor_zero, factor_one,
+                                     no_fire_probability);
+        }
         return;
     }
 
     const bool eigen_branch = (*fired_source != 0) ^ sign;
-    collapse_instrument_source(state_, action.measurement->pauli, eigen_branch,
-                               eigen_populations.for_branch(eigen_branch));
+    if (action.activates_new_x) {
+        collapse_new_x_instrument_source(state_, eigen_branch,
+                                         eigen_populations.for_branch(eigen_branch));
+    } else {
+        collapse_instrument_source(state_, action.measurement->pauli, eigen_branch,
+                                   eigen_populations.for_branch(eigen_branch));
+    }
     finish_fire(*fired_source);
 }
 

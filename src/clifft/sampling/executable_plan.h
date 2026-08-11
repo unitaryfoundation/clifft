@@ -169,6 +169,9 @@ class ExecutablePlan {
 
     struct ExecuteInstrument {
         InstrumentMode mode = InstrumentMode::Classical;
+        // Lowering identifies the exact new-coordinate X shape so execution
+        // need not rediscover instrument topology inside the hot loop.
+        bool activates_new_x = false;
         PreparedExpression sign;
         std::optional<PreparedMeasurement> measurement;
         uint32_t site = 0;

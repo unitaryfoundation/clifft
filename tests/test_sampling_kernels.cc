@@ -23,15 +23,18 @@ using clifft::sampling::active_measurement_probabilities;
 using clifft::sampling::ActiveMeasurementKernel;
 using clifft::sampling::ActivePauli;
 using clifft::sampling::apply_instrument_no_fire;
+using clifft::sampling::apply_new_x_instrument_no_fire;
 using clifft::sampling::apply_promotion;
 using clifft::sampling::apply_rotation;
 using clifft::sampling::collapse_active_measurement;
 using clifft::sampling::collapse_instrument_source;
 using clifft::sampling::collapse_measurement;
+using clifft::sampling::collapse_new_x_instrument_source;
 using clifft::sampling::DirectRotationKernel;
 using clifft::sampling::expectation_value;
 using clifft::sampling::measurement_probabilities;
 using clifft::sampling::MeasurementProbabilities;
+using clifft::sampling::new_x_instrument_populations;
 using clifft::sampling::prepare_measurement;
 using clifft::sampling::prepare_pauli;
 using clifft::sampling::prepare_promotion;
@@ -616,6 +619,66 @@ TEST_CASE("Sampling instrument activation adds a clean coordinate in existing st
         REQUIRE(state.imag_data()[i] == input[i].imag());
         REQUIRE(state.real_data()[input.size() + i] == 0.0);
         REQUIRE(state.imag_data()[input.size() + i] == 0.0);
+    }
+}
+
+TEST_CASE("Sampling new X instrument activation matches the generic widened source") {
+    constexpr uint32_t kInitialWidth = 3;
+    constexpr uint32_t kExpandedWidth = kInitialWidth + 1;
+    constexpr ActivePauli kNewX{uint64_t{1} << kInitialWidth, 0};
+    const PreparedMeasurement measurement =
+        prepare_measurement(kNewX, kExpandedWidth, kInitialWidth);
+    const std::vector<std::complex<double>> input = deterministic_state(kInitialWidth);
+
+    State population_oracle(kExpandedWidth, kInitialWidth);
+    load_state(population_oracle, input);
+    activate_zero_coordinate(population_oracle);
+    const MeasurementProbabilities expected_populations =
+        measurement_probabilities(population_oracle, measurement);
+
+    State population_actual(kExpandedWidth, kInitialWidth);
+    load_state(population_actual, input);
+    const MeasurementProbabilities actual_populations =
+        new_x_instrument_populations(population_actual);
+    REQUIRE_THAT(actual_populations.zero,
+                 Catch::Matchers::WithinAbs(expected_populations.zero, kTolerance));
+    REQUIRE_THAT(actual_populations.one,
+                 Catch::Matchers::WithinAbs(expected_populations.one, kTolerance));
+    REQUIRE(population_actual.active_width() == kInitialWidth);
+
+    for (const auto& [factor_zero, factor_one] : {std::pair{0.8, 0.3}, std::pair{0.3, 0.8}}) {
+        CAPTURE(factor_zero, factor_one);
+        const double no_fire_probability = factor_zero * factor_zero * expected_populations.zero +
+                                           factor_one * factor_one * expected_populations.one;
+
+        State no_fire_oracle(kExpandedWidth, kInitialWidth);
+        load_state(no_fire_oracle, input);
+        activate_zero_coordinate(no_fire_oracle);
+        apply_instrument_no_fire(no_fire_oracle, measurement.pauli, factor_zero, factor_one,
+                                 no_fire_probability);
+
+        State no_fire_actual(kExpandedWidth, kInitialWidth);
+        load_state(no_fire_actual, input);
+        apply_new_x_instrument_no_fire(no_fire_actual, factor_zero, factor_one,
+                                       no_fire_probability);
+        require_vectors_close(coefficients(no_fire_actual), coefficients(no_fire_oracle));
+        REQUIRE(no_fire_actual.active_width() == kExpandedWidth);
+    }
+
+    for (bool branch : {false, true}) {
+        CAPTURE(branch);
+        State collapse_oracle(kExpandedWidth, kInitialWidth);
+        load_state(collapse_oracle, input);
+        activate_zero_coordinate(collapse_oracle);
+        collapse_instrument_source(collapse_oracle, measurement.pauli, branch,
+                                   expected_populations.for_branch(branch));
+
+        State collapse_actual(kExpandedWidth, kInitialWidth);
+        load_state(collapse_actual, input);
+        collapse_new_x_instrument_source(collapse_actual, branch,
+                                         actual_populations.for_branch(branch));
+        require_vectors_close(coefficients(collapse_actual), coefficients(collapse_oracle));
+        REQUIRE(collapse_actual.active_width() == kExpandedWidth);
     }
 }
 

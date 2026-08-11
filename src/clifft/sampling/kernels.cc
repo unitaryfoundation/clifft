@@ -287,6 +287,67 @@ void activate_zero_coordinate(State& state) noexcept {
     state.set_active_width(state.active_width() + 1);
 }
 
+MeasurementProbabilities new_x_instrument_populations(const State& state) noexcept {
+    // A new |0> coordinate has equal populations in the X eigenbasis. Applying
+    // f0 Pi+ + f1 Pi- therefore expands each old coefficient with amplitudes
+    // (f0 + f1) / 2 and (f0 - f1) / 2, avoiding a zero-fill and two generic
+    // paired traversals of the wider state.
+    double total = 0.0;
+    for (uint64_t basis = 0; basis < state.size(); ++basis) {
+        const double real = state.real_data()[basis];
+        const double imag = state.imag_data()[basis];
+        total += real * real + imag * imag;
+    }
+    const double branch_probability = 0.5 * total;
+    return {branch_probability, branch_probability};
+}
+
+void apply_new_x_instrument_no_fire(State& state, double factor_zero, double factor_one,
+                                    double no_fire_probability) noexcept {
+    assert(state.active_width() < state.max_active_width() &&
+           "instrument activation must fit the sampling state allocation");
+    assert(factor_zero >= 0.0 && factor_zero <= 1.0 && factor_one >= 0.0 && factor_one <= 1.0 &&
+           no_fire_probability > 0.0 && is_finite_robust(no_fire_probability) &&
+           "instrument no-fire expansion requires valid factors and probability");
+    const double inv_norm = 1.0 / std::sqrt(no_fire_probability);
+    const double identity_factor = 0.5 * (factor_zero + factor_one) * inv_norm;
+    const double pauli_factor = 0.5 * (factor_zero - factor_one) * inv_norm;
+    const uint64_t old_size = state.size();
+    double* real = state.real_data();
+    double* imag = state.imag_data();
+    for (uint64_t basis = 0; basis < old_size; ++basis) {
+        const double input_real = real[basis];
+        const double input_imag = imag[basis];
+        real[basis] = identity_factor * input_real;
+        imag[basis] = identity_factor * input_imag;
+        real[old_size + basis] = pauli_factor * input_real;
+        imag[old_size + basis] = pauli_factor * input_imag;
+    }
+    state.set_active_width(state.active_width() + 1);
+}
+
+void collapse_new_x_instrument_source(State& state, bool branch,
+                                      double branch_probability) noexcept {
+    assert(state.active_width() < state.max_active_width() &&
+           "instrument activation must fit the sampling state allocation");
+    assert(branch_probability > 0.0 && is_finite_robust(branch_probability) &&
+           "instrument collapse expansion requires a positive finite probability");
+    const double scale = 0.5 / std::sqrt(branch_probability);
+    const double upper_scale = branch ? -scale : scale;
+    const uint64_t old_size = state.size();
+    double* real = state.real_data();
+    double* imag = state.imag_data();
+    for (uint64_t basis = 0; basis < old_size; ++basis) {
+        const double input_real = real[basis];
+        const double input_imag = imag[basis];
+        real[basis] = scale * input_real;
+        imag[basis] = scale * input_imag;
+        real[old_size + basis] = upper_scale * input_real;
+        imag[old_size + basis] = upper_scale * input_imag;
+    }
+    state.set_active_width(state.active_width() + 1);
+}
+
 void apply_instrument_no_fire(State& state, const PreparedPauli& source, double factor_zero,
                               double factor_one, double no_fire_probability) noexcept {
     assert_descriptor_width(state, source);
