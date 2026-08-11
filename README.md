@@ -32,6 +32,14 @@ The main simulation cost scales with the active dimension `k` of the dense state
 vector, rather than directly with the total number of physical qubits `n`.
 Non-Clifford operations can increase `k`, while measurements can reduce it.
 
+Clifft's symbolic sampling design draws on the
+[SymFT](https://arxiv.org/abs/2607.28600) method introduced by Wang Fang,
+Huazhe Lou, and Riling Li. In particular, it adapts symbolic
+Clifford-Pauli-frame factorization and adaptive stabilizer-coordinate planning.
+See the [theoretical overview](https://unitaryfoundation.github.io/clifft/theory/overview/#method-provenance)
+for the attribution and the boundary between the published method and Clifft's
+implementation choices.
+
 ## Why Clifft?
 
 - **Stim-compatible format and API**: parse Stim-format circuits with noise,
