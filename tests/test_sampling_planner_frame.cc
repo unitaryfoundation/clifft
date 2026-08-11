@@ -126,6 +126,28 @@ TEST_CASE("Planner coordinate frame handles multiple packed words") {
     REQUIRE(coordinates.to_initial(coordinates.to_current(initial)) == initial);
 }
 
+TEST_CASE("Planner coordinate frame caches repeated reverse lookups") {
+    constexpr uint32_t kNumQubits = 3;
+    CoordinateFrame coordinates(kNumQubits);
+    PlannerPauli initial(kNumQubits);
+    initial.xs[0] = true;
+    initial.zs[2] = true;
+
+    for (uint32_t lookup = 0; lookup < 2 * kNumQubits; ++lookup) {
+        REQUIRE(coordinates.to_current(initial) == initial);
+        REQUIRE_FALSE(coordinates.has_cached_inverse());
+    }
+    REQUIRE(coordinates.to_current(initial) == initial);
+    REQUIRE(coordinates.has_cached_inverse());
+
+    PlannerTableau change(kNumQubits);
+    change.inplace_scatter_append(stim::GATE_DATA.at("H").tableau<clifft::kStimWidth>(), {0});
+    coordinates.change_basis(change);
+    REQUIRE_FALSE(coordinates.has_cached_inverse());
+    REQUIRE(coordinates.to_current(initial) ==
+            change.inverse().scatter_eval(initial.ref(), {0, 1, 2}));
+}
+
 TEST_CASE("Planner symbolic frame composes affine Pauli corrections") {
     SymbolicPauliFrame frame(2, 130);
     const AffineBool wide_condition(true, {SymbolId{0}, SymbolId{64}, SymbolId{129}});

@@ -91,6 +91,21 @@ CoordinateFrame::CoordinateFrame(uint32_t num_qubits)
     : current_to_initial_(num_qubits), indices_(identity_indices(num_qubits)) {}
 
 PlannerPauli CoordinateFrame::to_current(const PlannerPauli& initial) const {
+    if (initial_to_current_.has_value()) {
+        return initial_to_current_->scatter_eval(initial.ref(), indices_);
+    }
+
+    // Inverting an n-qubit tableau evaluates 2n generator rows. Use the same
+    // number of direct lookups as a conservative structural break-even before
+    // materializing the inverse for a lookup-heavy basis interval.
+    const uint64_t direct_lookup_limit =
+        std::max<uint64_t>(1, 2 * static_cast<uint64_t>(initial.num_qubits));
+    if (direct_reverse_lookups_ >= direct_lookup_limit) {
+        initial_to_current_.emplace(current_to_initial_.inverse());
+        return initial_to_current_->scatter_eval(initial.ref(), indices_);
+    }
+    ++direct_reverse_lookups_;
+
     PlannerPauli current(initial.num_qubits);
     for (uint32_t q = 0; q < initial.num_qubits; ++q) {
         // Coordinates in a symplectic basis are selected by commuting with its
@@ -113,6 +128,8 @@ PlannerPauli CoordinateFrame::to_initial(const PlannerPauli& current) const {
 }
 
 void CoordinateFrame::change_basis(const PlannerTableau& new_basis_in_old_coordinates) {
+    initial_to_current_.reset();
+    direct_reverse_lookups_ = 0;
     PlannerTableau previous(std::move(current_to_initial_));
     assert(new_basis_in_old_coordinates.num_qubits == previous.num_qubits);
     current_to_initial_ = PlannerTableau(new_basis_in_old_coordinates.num_qubits);
