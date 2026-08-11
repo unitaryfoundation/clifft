@@ -79,6 +79,15 @@ class ExecutablePlan {
         uint32_t rotation_index = 0;
     };
 
+    struct ExecuteDynamicFusedRotation {
+        uint32_t rotation_index = 0;
+    };
+
+    struct PreparedDynamicFusedRotationExecution {
+        std::vector<PreparedExpression> sign_basis;
+        std::vector<PreparedFusedRotationExecution> variants;
+    };
+
     struct ExecutePromotion {
         PreparedPromotion promotion;
         PreparedExpression sign;
@@ -188,10 +197,11 @@ class ExecutablePlan {
     };
 
     using Action =
-        std::variant<ExecuteRotation, ExecuteFusedRotation, ExecutePromotion,
-                     ExecuteActiveMeasurement, ExecuteDormantMeasurement, ExecuteClassicalRecord,
-                     ExecuteSymbolDefinition, ExecuteReadoutNoise, ExecuteDetector,
-                     ExecuteObservable, ExecuteExpectation, ExecuteInstrument, ExecuteBoundary>;
+        std::variant<ExecuteRotation, ExecuteFusedRotation, ExecuteDynamicFusedRotation,
+                     ExecutePromotion, ExecuteActiveMeasurement, ExecuteDormantMeasurement,
+                     ExecuteClassicalRecord, ExecuteSymbolDefinition, ExecuteReadoutNoise,
+                     ExecuteDetector, ExecuteObservable, ExecuteExpectation, ExecuteInstrument,
+                     ExecuteBoundary>;
 
     uint32_t num_qubits_ = 0;
     uint32_t initial_active_width_ = 0;
@@ -225,6 +235,7 @@ class ExecutablePlan {
     std::vector<InstrumentDistribution> instrument_distributions_;
     std::vector<uint32_t> instrument_resume_offsets_;
     std::vector<PreparedFusedRotationExecution> fused_rotations_;
+    std::vector<PreparedDynamicFusedRotationExecution> dynamic_fused_rotations_;
     std::vector<Action> actions_;
 };
 
