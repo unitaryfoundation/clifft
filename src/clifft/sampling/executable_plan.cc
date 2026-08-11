@@ -267,6 +267,8 @@ ExecutablePlan::ExecutablePlan(const SamplingPlan& plan)
     size_t planned_index = 0;
     while (planned_index < plan.actions.size()) {
         DynamicFusedRotationRun dynamic_run;
+        // AVX2 dynamic fusion regressed large active states despite helping
+        // narrower ones, so only the consistently profitable AVX-512 path lowers it.
         if (runtime_isa == internal::RuntimeIsa::Avx512) {
             dynamic_run = prepare_dynamic_fused_rotation_run(
                 std::span<const PlannedAction>(plan.actions).subspan(planned_index));

@@ -158,6 +158,8 @@ TEST_CASE("Dynamic fused rotation matches scalar across affine sign values") {
     REQUIRE(prepared_run.rotation->variants.size() == 4);
 
     const ExecutablePlan executable(plan);
+    // Dynamic-sign fusion is deliberately AVX-512-only; other ISAs retain the
+    // sequential rotations even though constant-sign fusion supports AVX2.
     const size_t expected_action_count =
         clifft::internal::runtime_isa() == clifft::internal::RuntimeIsa::Avx512 ? 1
                                                                                 : rotations.size();
@@ -328,6 +330,19 @@ TEST_CASE("Direct rotation SIMD matches scalar with intermediate high bits") {
 }
 
 TEST_CASE("Direct rotation SIMD matches scalar at vector boundaries") {
+    const std::array avx2_diagonal = {
+        RotateActivePauli{{0, 0b11}, 0.3, AffineBool::symbol(SymbolId{0})},
+    };
+    require_matches_scalar(rotation_plan(2, avx2_diagonal), 0, avx2_diagonal.size());
+    require_matches_scalar(rotation_plan(2, avx2_diagonal), 1, avx2_diagonal.size());
+
+    const std::array avx2_lane_paired = {
+        RotateActivePauli{{0b01, 0b10}, 0.2, AffineBool::symbol(SymbolId{0})},
+        RotateActivePauli{{0b10, 0b01}, -0.3, AffineBool::symbol(SymbolId{0})},
+    };
+    require_matches_scalar(rotation_plan(2, avx2_lane_paired), 0, avx2_lane_paired.size());
+    require_matches_scalar(rotation_plan(2, avx2_lane_paired), 1, avx2_lane_paired.size());
+
     const std::array diagonal = {
         RotateActivePauli{{0, 0b111}, 0.3, AffineBool::symbol(SymbolId{0})},
     };
@@ -348,4 +363,11 @@ TEST_CASE("Direct rotation SIMD matches scalar at vector boundaries") {
     };
     require_matches_scalar(rotation_plan(4, paired), 0, paired.size());
     require_matches_scalar(rotation_plan(4, paired), 1, paired.size());
+
+    const std::array pivot_four = {
+        RotateActivePauli{{0b110000, 0b101011}, 0.35, AffineBool::symbol(SymbolId{0})},
+        RotateActivePauli{{0b010000, 0b011101}, -0.2, AffineBool::symbol(SymbolId{0})},
+    };
+    require_matches_scalar(rotation_plan(6, pivot_four), 0, pivot_four.size());
+    require_matches_scalar(rotation_plan(6, pivot_four), 1, pivot_four.size());
 }

@@ -4,8 +4,10 @@
 
 namespace clifft::sampling {
 
-// This function is linked only on x86-64 runtime-dispatch builds and must be
-// called only after the dispatcher has selected the AVX-512 implementation.
+// These functions are linked only on x86-64 runtime-dispatch builds and must
+// be called only after the dispatcher has selected their corresponding ISA.
+[[nodiscard]] FusedRotationSidecar prepare_fused_rotation_avx2_sidecar(
+    const PreparedFusedRotation& rotation);
 [[nodiscard]] FusedRotationSidecar prepare_fused_rotation_avx512_sidecar(
     const PreparedFusedRotation& rotation);
 
