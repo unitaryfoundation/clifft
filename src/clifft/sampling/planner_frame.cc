@@ -277,12 +277,30 @@ SymbolicPauliFrame::SymbolicPauliFrame(uint32_t num_qubits, uint32_t num_symbols
 void SymbolicPauliFrame::apply(const PlannerPauli& correction, const AffineBool& condition) {
     assert(correction.num_qubits == num_qubits_ &&
            "symbolic Pauli correction width must match the planner frame");
-    for (uint32_t q = 0; q < num_qubits_; ++q) {
-        if (correction.xs[q]) {
-            xor_condition(x_row(q), x_constants_[q], condition);
+
+    // Noise corrections are usually one- or two-qubit Paulis. Iterating their
+    // packed support avoids testing every physical qubit for each noise term.
+    const size_t num_words = (static_cast<size_t>(num_qubits_) + 63) / 64;
+    const uint32_t tail_bits = num_qubits_ % 64;
+    const uint64_t last_word_mask = tail_bits == 0 ? ~uint64_t{0} : (uint64_t{1} << tail_bits) - 1;
+    for (size_t word = 0; word < num_words; ++word) {
+        const uint64_t x_bits = correction.xs.u64[word];
+        const uint64_t z_bits = correction.zs.u64[word];
+        uint64_t support = x_bits | z_bits;
+        if (word + 1 == num_words) {
+            support &= last_word_mask;
         }
-        if (correction.zs[q]) {
-            xor_condition(z_row(q), z_constants_[q], condition);
+        while (support != 0) {
+            const uint32_t bit = std::countr_zero(support);
+            const uint32_t qubit = static_cast<uint32_t>(64 * word + bit);
+            const uint64_t mask = uint64_t{1} << bit;
+            if ((x_bits & mask) != 0) {
+                xor_condition(x_row(qubit), x_constants_[qubit], condition);
+            }
+            if ((z_bits & mask) != 0) {
+                xor_condition(z_row(qubit), z_constants_[qubit], condition);
+            }
+            support &= support - 1;
         }
     }
 }
@@ -319,7 +337,9 @@ AffineBool SymbolicPauliFrame::sign_for(const PlannerPauli& observable) {
             word &= word - 1;
         }
     }
-    return AffineBool(constant, std::move(terms));
+    // Packed words are scanned from low to high and each set bit is visited
+    // once, so this list already satisfies AffineBool's canonical invariant.
+    return AffineBool::from_canonical_terms(constant, std::move(terms));
 }
 
 std::span<uint64_t> SymbolicPauliFrame::x_row(uint32_t q) {
