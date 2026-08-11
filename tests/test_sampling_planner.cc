@@ -1,5 +1,6 @@
 #include "clifft/circuit/parser.h"
 #include "clifft/frontend/frontend.h"
+#include "clifft/optimizer/hir_pass_manager.h"
 #include "clifft/sampling/planner.h"
 
 #include "instrument_test_helpers.h"
@@ -41,6 +42,10 @@ using clifft::test::Z;
 
 namespace {
 
+#ifndef CLIFFT_FIXTURES_DIR
+#define CLIFFT_FIXTURES_DIR "tests/fixtures"
+#endif
+
 template <typename T>
 const T& action_as(const SamplingPlan& plan, size_t index) {
     return std::get<T>(plan.actions.at(index).action);
@@ -50,6 +55,15 @@ void require_global_phase(const SamplingPlan& plan, double angle) {
     const std::complex<double> expected{std::cos(angle), std::sin(angle)};
     REQUIRE_THAT(plan.global_weight.real(), Catch::Matchers::WithinAbs(expected.real(), 1e-12));
     REQUIRE_THAT(plan.global_weight.imag(), Catch::Matchers::WithinAbs(expected.imag(), 1e-12));
+}
+
+uint64_t fnv1a64(std::string_view text) {
+    uint64_t digest = 14695981039346656037ULL;
+    for (unsigned char byte : text) {
+        digest ^= byte;
+        digest *= 1099511628211ULL;
+    }
+    return digest;
 }
 
 }  // namespace
@@ -493,4 +507,19 @@ TEST_CASE("Sampling planner output is deterministic") {
     const SamplingPlan second = plan_sampling(hir);
 
     REQUIRE(first.inspect() == second.inspect());
+}
+
+TEST_CASE("Sampling planner target QEC plan characterization") {
+    clifft::Circuit circuit =
+        clifft::parse_file(std::string(CLIFFT_FIXTURES_DIR) + "/target_qec.stim");
+    HirModule hir = clifft::trace(circuit);
+    auto passes = clifft::default_hir_pass_manager();
+    passes.run(hir);
+
+    const SamplingPlan plan = plan_sampling(hir);
+    REQUIRE(plan.actions.size() == 91);
+    REQUIRE(plan.symbols.size() == 2061);
+    // The inspection includes every action field and affine expression, making
+    // the production fixture a compact end-to-end planner characterization.
+    REQUIRE(fnv1a64(plan.inspect()) == 0xd795b8a081bb3a7dULL);
 }

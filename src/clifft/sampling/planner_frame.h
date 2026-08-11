@@ -26,11 +26,9 @@ class CoordinateFrame {
     void change_basis(const PlannerTableau& new_basis_in_old_coordinates);
 
   private:
-    // These two tableaus are maintained together so ordinary operations never
-    // pay for an inverse. The forward map is also needed when a sampled branch
-    // adds a Pauli correction expressed in the newly selected coordinates.
+    // The selected generators are enough to recover either direction. Keeping
+    // one tableau avoids rebuilding its cumulative inverse after each change.
     PlannerTableau current_to_initial_;
-    PlannerTableau initial_to_current_;
     std::vector<size_t> indices_;
 };
 
