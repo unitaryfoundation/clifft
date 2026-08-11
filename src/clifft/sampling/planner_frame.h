@@ -21,19 +21,21 @@ class CoordinateFrame {
   public:
     explicit CoordinateFrame(uint32_t num_qubits);
 
-    [[nodiscard]] PlannerPauli to_current(const PlannerPauli& initial) const;
+    [[nodiscard]] PlannerPauli to_current(const PlannerPauli& initial);
     [[nodiscard]] PlannerPauli to_initial(const PlannerPauli& current) const;
 
     void change_basis(const PlannerTableau& new_basis_in_old_coordinates);
 
-    [[nodiscard]] bool has_cached_inverse() const { return initial_to_current_.has_value(); }
+    [[nodiscard]] bool has_cached_inverse_for_testing() const {
+        return initial_to_current_.has_value();
+    }
 
   private:
     // The selected generators are enough to recover either direction. The
     // inverse is cached only when repeated reverse lookups can amortize it.
     PlannerTableau current_to_initial_;
-    mutable std::optional<PlannerTableau> initial_to_current_;
-    mutable uint64_t direct_reverse_lookups_ = 0;
+    std::optional<PlannerTableau> initial_to_current_;
+    uint64_t direct_reverse_lookups_ = 0;
     std::vector<size_t> indices_;
 };
 

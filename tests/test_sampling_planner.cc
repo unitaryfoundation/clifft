@@ -521,5 +521,9 @@ TEST_CASE("Sampling planner target QEC plan characterization") {
     REQUIRE(plan.symbols.size() == 2061);
     // The inspection includes every action field and affine expression, making
     // the production fixture a compact end-to-end planner characterization.
-    REQUIRE(fnv1a64(plan.inspect()) == 0xd795b8a081bb3a7dULL);
+    const std::string inspection = plan.inspect();
+    INFO(inspection);
+    // After verifying that a reported inspection change is intentional, update
+    // this digest to the new value shown by the failed assertion.
+    REQUIRE(fnv1a64(inspection) == 0xd795b8a081bb3a7dULL);
 }

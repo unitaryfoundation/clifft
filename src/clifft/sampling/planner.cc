@@ -155,8 +155,7 @@ struct ResolvedPauli {
 };
 
 ResolvedPauli resolve_pauli(const Pauli& initial_body, const AffineBool& initial_sign,
-                            const CoordinateFrame& coordinates,
-                            SymbolicPauliFrame& symbolic_frame) {
+                            CoordinateFrame& coordinates, SymbolicPauliFrame& symbolic_frame) {
     AffineBool sign = initial_sign;
     sign ^= symbolic_frame.sign_for(initial_body);
     Pauli body = coordinates.to_current(initial_body);

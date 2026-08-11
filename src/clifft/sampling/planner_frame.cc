@@ -90,7 +90,7 @@ size_t validated_words_per_row(uint32_t num_qubits, uint32_t num_symbols) {
 CoordinateFrame::CoordinateFrame(uint32_t num_qubits)
     : current_to_initial_(num_qubits), indices_(identity_indices(num_qubits)) {}
 
-PlannerPauli CoordinateFrame::to_current(const PlannerPauli& initial) const {
+PlannerPauli CoordinateFrame::to_current(const PlannerPauli& initial) {
     if (initial_to_current_.has_value()) {
         return initial_to_current_->scatter_eval(initial.ref(), indices_);
     }

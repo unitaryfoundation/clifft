@@ -101,29 +101,76 @@ TEST_CASE("Planner coordinate frame matches explicit inverse for signed Paulis")
     require_matches_inverse();
 }
 
-TEST_CASE("Planner coordinate frame handles multiple packed words") {
+TEST_CASE("Planner coordinate frame matches inverse across packed words") {
     constexpr uint32_t kNumQubits = 70;
     CoordinateFrame coordinates(kNumQubits);
-    PlannerTableau change(kNumQubits);
-    change.inplace_scatter_append(stim::GATE_DATA.at("H").tableau<clifft::kStimWidth>(), {64});
-    change.inplace_scatter_append(stim::GATE_DATA.at("CX").tableau<clifft::kStimWidth>(), {0, 64});
-    change.inplace_scatter_append(stim::GATE_DATA.at("S").tableau<clifft::kStimWidth>(), {69});
-    change.inplace_scatter_append(stim::GATE_DATA.at("CZ").tableau<clifft::kStimWidth>(), {64, 69});
-    coordinates.change_basis(change);
-
-    PlannerPauli initial(kNumQubits);
-    initial.xs[0] = true;
-    initial.zs[64] = true;
-    initial.xs[69] = true;
-    initial.sign = true;
-
+    PlannerTableau cumulative(kNumQubits);
     std::vector<size_t> indices(kNumQubits);
     for (uint32_t q = 0; q < kNumQubits; ++q) {
         indices[q] = q;
     }
-    const PlannerTableau inverse = change.inverse();
-    REQUIRE(coordinates.to_current(initial) == inverse.scatter_eval(initial.ref(), indices));
-    REQUIRE(coordinates.to_initial(coordinates.to_current(initial)) == initial);
+
+    uint64_t random_state = 0x9e3779b97f4a7c15ULL;
+    const auto next_bits = [&] {
+        random_state ^= random_state << 13;
+        random_state ^= random_state >> 7;
+        random_state ^= random_state << 17;
+        return random_state;
+    };
+    const auto require_matches_inverse = [&] {
+        const PlannerTableau inverse = cumulative.inverse();
+        for (uint32_t sample = 0; sample < 32; ++sample) {
+            PlannerPauli initial(kNumQubits);
+            uint64_t x_bits = 0;
+            uint64_t z_bits = 0;
+            for (uint32_t q = 0; q < kNumQubits; ++q) {
+                if ((q & 63U) == 0) {
+                    x_bits = next_bits();
+                    z_bits = next_bits();
+                }
+                initial.xs[q] = (x_bits >> (q & 63U)) & 1U;
+                initial.zs[q] = (z_bits >> (q & 63U)) & 1U;
+            }
+            initial.xs[63] = (sample & 1U) != 0;
+            initial.zs[63] = (sample & 2U) != 0;
+            initial.xs[64] = (sample & 4U) != 0;
+            initial.zs[64] = (sample & 8U) != 0;
+            initial.sign = (sample & 16U) != 0;
+
+            const PlannerPauli expected = inverse.scatter_eval(initial.ref(), indices);
+            const PlannerPauli actual = coordinates.to_current(initial);
+            REQUIRE(actual == expected);
+            REQUIRE(coordinates.to_initial(actual) == initial);
+        }
+    };
+
+    const auto apply_change = [&](const PlannerTableau& change) {
+        coordinates.change_basis(change);
+        cumulative = change.then(cumulative);
+        require_matches_inverse();
+    };
+
+    PlannerTableau gates(kNumQubits);
+    gates.inplace_scatter_append(stim::GATE_DATA.at("H").tableau<clifft::kStimWidth>(), {64});
+    gates.inplace_scatter_append(stim::GATE_DATA.at("CX").tableau<clifft::kStimWidth>(), {0, 64});
+    gates.inplace_scatter_append(stim::GATE_DATA.at("S").tableau<clifft::kStimWidth>(), {69});
+    gates.inplace_scatter_append(stim::GATE_DATA.at("CZ").tableau<clifft::kStimWidth>(), {64, 69});
+    apply_change(gates);
+
+    PlannerPauli promoted(kNumQubits);
+    promoted.zs[0] = true;
+    promoted.xs[69] = true;
+    apply_change(dormant_promotion_frame(promoted, 1, 69));
+
+    PlannerPauli active(kNumQubits);
+    active.xs[0] = true;
+    active.zs[64] = true;
+    apply_change(active_measurement_frame(active, 65, 0));
+
+    PlannerPauli dormant(kNumQubits);
+    dormant.zs[0] = true;
+    dormant.xs[69] = true;
+    apply_change(dormant_measurement_frame(dormant, 69));
 }
 
 TEST_CASE("Planner coordinate frame caches repeated reverse lookups") {
@@ -135,15 +182,15 @@ TEST_CASE("Planner coordinate frame caches repeated reverse lookups") {
 
     for (uint32_t lookup = 0; lookup < 2 * kNumQubits; ++lookup) {
         REQUIRE(coordinates.to_current(initial) == initial);
-        REQUIRE_FALSE(coordinates.has_cached_inverse());
+        REQUIRE_FALSE(coordinates.has_cached_inverse_for_testing());
     }
     REQUIRE(coordinates.to_current(initial) == initial);
-    REQUIRE(coordinates.has_cached_inverse());
+    REQUIRE(coordinates.has_cached_inverse_for_testing());
 
     PlannerTableau change(kNumQubits);
     change.inplace_scatter_append(stim::GATE_DATA.at("H").tableau<clifft::kStimWidth>(), {0});
     coordinates.change_basis(change);
-    REQUIRE_FALSE(coordinates.has_cached_inverse());
+    REQUIRE_FALSE(coordinates.has_cached_inverse_for_testing());
     REQUIRE(coordinates.to_current(initial) ==
             change.inverse().scatter_eval(initial.ref(), {0, 1, 2}));
 }
