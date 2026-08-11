@@ -172,10 +172,14 @@ ExecutablePlan::ExecutablePlan(const SamplingPlan& plan)
                     actions_.emplace_back(ExecutePromotion{prepare_promotion(typed.half_turns),
                                                            prepare_expression(typed.sign)});
                 } else if constexpr (std::is_same_v<T, MeasureActivePauli>) {
+                    PreparedMeasurement measurement =
+                        prepare_measurement(typed.pauli, planned.active_before, typed.active_pivot);
+                    const ActiveMeasurementKernel kernel =
+                        resolve_active_measurement_kernel(measurement, runtime_isa);
                     actions_.emplace_back(ExecuteActiveMeasurement{
-                        prepare_measurement(typed.pauli, planned.active_before, typed.active_pivot),
+                        std::move(measurement),
                         prepare_measurement_correction(typed.outcome, index(typed.branch)),
-                        index(typed.branch), index(typed.record)});
+                        index(typed.branch), index(typed.record), kernel});
                 } else if constexpr (std::is_same_v<T, MeasureDormantRandom>) {
                     actions_.emplace_back(ExecuteDormantMeasurement{
                         prepare_measurement_correction(typed.outcome, index(typed.branch)),

@@ -325,8 +325,7 @@ template <bool ForceRecords>
 void Executor::execute_action(const ExecutablePlan::ExecuteActiveMeasurement& action,
                               std::span<const uint8_t> forced_records,
                               ReplayResult& result) noexcept {
-    const MeasurementProbabilities probabilities =
-        measurement_probabilities(state_, action.measurement);
+    const MeasurementProbabilities probabilities = action.probabilities(state_);
     const bool correction = evaluate(action.correction);
     bool branch = false;
     if constexpr (ForceRecords) {
@@ -349,7 +348,7 @@ void Executor::execute_action(const ExecutablePlan::ExecuteActiveMeasurement& ac
         }
     }
     assign_symbol(action.branch, branch);
-    collapse_measurement(state_, action.measurement, branch, probabilities.for_branch(branch));
+    action.collapse(state_, branch, probabilities.for_branch(branch));
     records_[action.record] = static_cast<uint8_t>(branch ^ correction);
 }
 

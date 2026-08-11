@@ -1,6 +1,7 @@
 // AVX-512F+AVX-512DQ sampling kernels. This translation unit is compiled
 // with the same explicit AVX2/BMI2/FMA/AVX-512 flags as the SVM AVX-512 path.
 
+#include "clifft/sampling/active_measurement_simd.h"
 #include "clifft/sampling/direct_rotation_simd.h"
 #include "clifft/sampling/fused_rotation_simd.h"
 #include "clifft/sampling/indexing.h"
@@ -8,6 +9,7 @@
 #include <array>
 #include <bit>
 #include <cassert>
+#include <cmath>
 #include <complex>
 #include <cstddef>
 #include <cstdint>
@@ -25,9 +27,23 @@ namespace {
 constexpr size_t kLanes = kAvx512DoubleLanes;
 constexpr size_t kDimension = 4;
 constexpr size_t kMatrixSize = kDimension * kDimension;
+constexpr double kInvSqrt2 = 0.707106781186547524400844362104849039;
+
+// Measuring a Pauli P pairs |b> with |b xor x>. Lanes whose measurement pivot
+// is zero enumerate the four pairs in a vector block exactly once: pivot zero,
+// for example, selects |0>, |2>, |4>, and |6>. Fixed permutations place those
+// representatives in the low half for an ordinary four-double store; hardware
+// compress-stores were substantially slower on the performance host.
+constexpr std::array<__mmask8, 3> kMeasurementSourceMasks = {0x55, 0x33, 0x0f};
 
 using LaneIndices = std::array<uint64_t, kLanes>;
 using LaneSigns = std::array<double, kLanes>;
+
+alignas(64) constexpr std::array<LaneIndices, 3> kMeasurementCompactionPermutations = {{
+    {0, 2, 4, 6, 0, 0, 0, 0},
+    {0, 1, 4, 5, 0, 0, 0, 0},
+    {0, 1, 2, 3, 0, 0, 0, 0},
+}};
 
 constexpr std::array<LaneIndices, kLanes> make_lane_permutations() {
     std::array<LaneIndices, kLanes> result{};
@@ -277,7 +293,133 @@ void apply_fused_rotation_avx512(State& state, const PreparedFusedRotation& rota
     }
 }
 
+template <bool RealPhase>
+MeasurementProbabilities active_measurement_probabilities_avx512_impl(
+    const State& state, const PreparedMeasurement& measurement) noexcept {
+    const double* const real = state.real_data();
+    const double* const imag = state.imag_data();
+    const uint64_t lane_xor = measurement.pauli.x;
+    const __m512i permutation = _mm512_load_si512(kLanePermutations[lane_xor].data());
+    const __mmask8 source_mask = kMeasurementSourceMasks[measurement.pivot];
+    const double base_coefficient =
+        RealPhase ? measurement.pauli.even_phase.real() : -measurement.pauli.even_phase.imag();
+    __m512d zero_sum = _mm512_setzero_pd();
+    __m512d one_sum = _mm512_setzero_pd();
+
+    // For eigenvalue e in {+1, -1}, one compacted branch amplitude is
+    //   (psi[b] + e * conj(phase(P, b)) * psi[b xor x]) / sqrt(2).
+    // Build both eigenvalue branches together, then count only the pivot-zero
+    // representative of each pair when accumulating their squared norms.
+    for (uint64_t basis = 0; basis < state.size(); basis += kLanes) {
+        const __m512d input_real = _mm512_load_pd(real + basis);
+        const __m512d input_imag = _mm512_load_pd(imag + basis);
+        const __m512d partner_real = _mm512_permutexvar_pd(permutation, input_real);
+        const __m512d partner_imag = _mm512_permutexvar_pd(permutation, input_imag);
+        const __m512d coefficient = signed_sine_lanes(basis, measurement.pauli.z, base_coefficient);
+
+        __m512d zero_real;
+        __m512d zero_imag;
+        __m512d one_real;
+        __m512d one_imag;
+        // Prepared Pauli phases are in {+1, -1, +i, -i}. Splitting real and
+        // imaginary phase classes turns the complex multiply into FMAs.
+        if constexpr (RealPhase) {
+            zero_real = _mm512_fmadd_pd(coefficient, partner_real, input_real);
+            zero_imag = _mm512_fmadd_pd(coefficient, partner_imag, input_imag);
+            one_real = _mm512_fnmadd_pd(coefficient, partner_real, input_real);
+            one_imag = _mm512_fnmadd_pd(coefficient, partner_imag, input_imag);
+        } else {
+            zero_real = _mm512_fnmadd_pd(coefficient, partner_imag, input_real);
+            zero_imag = _mm512_fmadd_pd(coefficient, partner_real, input_imag);
+            one_real = _mm512_fmadd_pd(coefficient, partner_imag, input_real);
+            one_imag = _mm512_fnmadd_pd(coefficient, partner_real, input_imag);
+        }
+        const __m512d zero_norm =
+            _mm512_fmadd_pd(zero_real, zero_real, _mm512_mul_pd(zero_imag, zero_imag));
+        const __m512d one_norm =
+            _mm512_fmadd_pd(one_real, one_real, _mm512_mul_pd(one_imag, one_imag));
+        zero_sum = _mm512_mask_add_pd(zero_sum, source_mask, zero_sum, zero_norm);
+        one_sum = _mm512_mask_add_pd(one_sum, source_mask, one_sum, one_norm);
+    }
+    return MeasurementProbabilities{0.5 * _mm512_reduce_add_pd(zero_sum),
+                                    0.5 * _mm512_reduce_add_pd(one_sum)};
+}
+
+template <bool RealPhase>
+void collapse_active_measurement_avx512_impl(State& state, const PreparedMeasurement& measurement,
+                                             bool branch, double branch_probability) noexcept {
+    double* const real = state.real_data();
+    double* const imag = state.imag_data();
+    const uint64_t lane_xor = measurement.pauli.x;
+    const __m512i permutation = _mm512_load_si512(kLanePermutations[lane_xor].data());
+    const __m512i compaction =
+        _mm512_load_si512(kMeasurementCompactionPermutations[measurement.pivot].data());
+    const double eigenvalue = branch ? -1.0 : 1.0;
+    const double base_coefficient = eigenvalue * (RealPhase ? measurement.pauli.even_phase.real()
+                                                            : -measurement.pauli.even_phase.imag());
+    const __m512d scale = _mm512_set1_pd(kInvSqrt2 / std::sqrt(branch_probability));
+
+    // Apply the selected (I + eP) branch and normalize it. Removing the pivot
+    // maps each eight-amplitude block to four consecutive output amplitudes;
+    // each input block is in registers before that compacted output is written,
+    // so forward traversal cannot overwrite a future source.
+    for (uint64_t basis = 0; basis < state.size(); basis += kLanes) {
+        const __m512d input_real = _mm512_load_pd(real + basis);
+        const __m512d input_imag = _mm512_load_pd(imag + basis);
+        const __m512d partner_real = _mm512_permutexvar_pd(permutation, input_real);
+        const __m512d partner_imag = _mm512_permutexvar_pd(permutation, input_imag);
+        const __m512d coefficient = signed_sine_lanes(basis, measurement.pauli.z, base_coefficient);
+
+        __m512d output_real;
+        __m512d output_imag;
+        if constexpr (RealPhase) {
+            output_real = _mm512_fmadd_pd(coefficient, partner_real, input_real);
+            output_imag = _mm512_fmadd_pd(coefficient, partner_imag, input_imag);
+        } else {
+            output_real = _mm512_fnmadd_pd(coefficient, partner_imag, input_real);
+            output_imag = _mm512_fmadd_pd(coefficient, partner_real, input_imag);
+        }
+        output_real = _mm512_mul_pd(scale, output_real);
+        output_imag = _mm512_mul_pd(scale, output_imag);
+        const __m256d compact_real =
+            _mm512_castpd512_pd256(_mm512_permutexvar_pd(compaction, output_real));
+        const __m256d compact_imag =
+            _mm512_castpd512_pd256(_mm512_permutexvar_pd(compaction, output_imag));
+        _mm256_storeu_pd(real + basis / 2, compact_real);
+        _mm256_storeu_pd(imag + basis / 2, compact_imag);
+    }
+    state.set_active_width(state.active_width() - 1);
+}
+
 }  // namespace
+
+MeasurementProbabilities active_measurement_probabilities_avx512(
+    const State& state, const PreparedMeasurement& measurement) noexcept {
+    assert(state.active_width() == measurement.pauli.active_width &&
+           !measurement.pauli.is_diagonal() && measurement.pauli.x < kLanes &&
+           measurement.pivot < 3 && measurement.pauli.active_width >= 3 &&
+           "AVX-512 active measurement requires a low-lane Pauli pairing");
+    if (measurement.pauli.even_phase.real() != 0.0) {
+        return active_measurement_probabilities_avx512_impl<true>(state, measurement);
+    }
+    return active_measurement_probabilities_avx512_impl<false>(state, measurement);
+}
+
+void collapse_active_measurement_avx512(State& state, const PreparedMeasurement& measurement,
+                                        bool branch, double branch_probability) noexcept {
+    assert(state.active_width() == measurement.pauli.active_width &&
+           !measurement.pauli.is_diagonal() && measurement.pauli.x < kLanes &&
+           measurement.pivot < 3 && measurement.pauli.active_width >= 3 &&
+           std::isfinite(branch_probability) && branch_probability > 0.0 &&
+           "AVX-512 active measurement requires a positive-probability low-lane pairing");
+    if (measurement.pauli.even_phase.real() != 0.0) {
+        collapse_active_measurement_avx512_impl<true>(state, measurement, branch,
+                                                      branch_probability);
+    } else {
+        collapse_active_measurement_avx512_impl<false>(state, measurement, branch,
+                                                       branch_probability);
+    }
+}
 
 void apply_direct_rotation_avx512(State& state, const PreparedRotation& rotation,
                                   DirectRotationKernel kernel, bool sign) noexcept {

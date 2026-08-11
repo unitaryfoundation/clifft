@@ -1,3 +1,4 @@
+#include "clifft/sampling/active_measurement_dispatch.h"
 #include "clifft/sampling/direct_rotation_dispatch.h"
 #include "clifft/sampling/kernels.h"
 #include "clifft/util/runtime_isa.h"
@@ -18,10 +19,13 @@
 
 using clifft::internal::RuntimeIsa;
 using clifft::sampling::activate_zero_coordinate;
+using clifft::sampling::active_measurement_probabilities;
+using clifft::sampling::ActiveMeasurementKernel;
 using clifft::sampling::ActivePauli;
 using clifft::sampling::apply_instrument_no_fire;
 using clifft::sampling::apply_promotion;
 using clifft::sampling::apply_rotation;
+using clifft::sampling::collapse_active_measurement;
 using clifft::sampling::collapse_instrument_source;
 using clifft::sampling::collapse_measurement;
 using clifft::sampling::DirectRotationKernel;
@@ -33,6 +37,7 @@ using clifft::sampling::prepare_pauli;
 using clifft::sampling::prepare_promotion;
 using clifft::sampling::prepare_rotation;
 using clifft::sampling::PreparedMeasurement;
+using clifft::sampling::resolve_active_measurement_kernel;
 using clifft::sampling::resolve_direct_rotation_kernel;
 using clifft::sampling::State;
 using clifft::test::check_complex;
@@ -347,6 +352,22 @@ TEST_CASE("Direct rotation SIMD selection preserves scalar boundaries") {
     REQUIRE(select({0b1000, 0b0111}, 4, RuntimeIsa::Avx2) == DirectRotationKernel::Scalar);
 }
 
+TEST_CASE("Active measurement SIMD selection preserves scalar boundaries") {
+    const auto select = [](ActivePauli pauli, uint32_t active_width, uint32_t pivot,
+                           RuntimeIsa runtime_isa = RuntimeIsa::Avx512) {
+        return resolve_active_measurement_kernel(prepare_measurement(pauli, active_width, pivot),
+                                                 runtime_isa);
+    };
+
+    REQUIRE(select({0, 0b101}, 3, 0) == ActiveMeasurementKernel::Scalar);
+    REQUIRE(select({0b01, 0b10}, 2, 0) == ActiveMeasurementKernel::Scalar);
+    REQUIRE(select({0b001, 0b110}, 3, 0) == ActiveMeasurementKernel::Scalar);
+    REQUIRE(select({0b001, 0b1110}, 4, 0) == ActiveMeasurementKernel::LanePaired);
+    REQUIRE(select({0b111, 0b101000}, 6, 2) == ActiveMeasurementKernel::LanePaired);
+    REQUIRE(select({0b1000, 0b0111}, 4, 3) == ActiveMeasurementKernel::Scalar);
+    REQUIRE(select({0b111, 0b101000}, 6, 2, RuntimeIsa::Avx2) == ActiveMeasurementKernel::Scalar);
+}
+
 TEST_CASE("Sampling kernel expectation values match the existing dense matrix oracle") {
     for (uint32_t active_width = 0; active_width <= 4; ++active_width) {
         const uint64_t mask_limit = uint64_t{1} << active_width;
@@ -461,6 +482,63 @@ TEST_CASE("Sampling kernels measurements match dense projectors for every small 
                         REQUIRE(state.scratch_imag_data() == scratch_imag);
                         REQUIRE(state.active_width() == active_width - 1);
                         REQUIRE(state.global_scalar() == scalar);
+                    }
+                }
+            }
+        }
+    }
+}
+
+TEST_CASE("Active measurement SIMD matches scalar low-lane Pauli compaction") {
+    if (clifft::internal::runtime_isa() != RuntimeIsa::Avx512) {
+        return;
+    }
+
+    for (uint32_t active_width = 3; active_width <= 6; ++active_width) {
+        const uint64_t z_limit = uint64_t{1} << active_width;
+        const std::vector<std::complex<double>> input = deterministic_state(active_width);
+        for (uint64_t x = 1; x < 8; ++x) {
+            for (uint64_t z = 0; z < z_limit; ++z) {
+                for (uint32_t pivot : valid_measurement_pivots(x, z, active_width)) {
+                    if (pivot >= 3 || (x & (uint64_t{1} << pivot)) == 0) {
+                        continue;
+                    }
+                    CAPTURE(active_width, x, z, pivot);
+                    const PreparedMeasurement measurement =
+                        prepare_measurement({x, z}, active_width, pivot);
+                    const ActiveMeasurementKernel selected =
+                        resolve_active_measurement_kernel(measurement, RuntimeIsa::Avx512);
+                    REQUIRE(selected == (active_width >= 4 ? ActiveMeasurementKernel::LanePaired
+                                                           : ActiveMeasurementKernel::Scalar));
+
+                    State scalar_probability_state(active_width, active_width);
+                    load_state(scalar_probability_state, input);
+                    const MeasurementProbabilities expected =
+                        measurement_probabilities(scalar_probability_state, measurement);
+
+                    State vector_probability_state(active_width, active_width);
+                    load_state(vector_probability_state, input);
+                    const MeasurementProbabilities actual = active_measurement_probabilities(
+                        vector_probability_state, measurement, ActiveMeasurementKernel::LanePaired);
+                    REQUIRE_THAT(actual.zero,
+                                 Catch::Matchers::WithinAbs(expected.zero, kTolerance));
+                    REQUIRE_THAT(actual.one, Catch::Matchers::WithinAbs(expected.one, kTolerance));
+
+                    for (bool branch : {false, true}) {
+                        State scalar_state(active_width, active_width);
+                        load_state(scalar_state, input);
+                        collapse_measurement(scalar_state, measurement, branch,
+                                             expected.for_branch(branch));
+
+                        State vector_state(active_width, active_width);
+                        load_state(vector_state, input);
+                        collapse_active_measurement(vector_state, measurement,
+                                                    ActiveMeasurementKernel::LanePaired, branch,
+                                                    actual.for_branch(branch));
+
+                        require_vectors_close(coefficients(vector_state),
+                                              coefficients(scalar_state));
+                        REQUIRE(vector_state.active_width() == active_width - 1);
                     }
                 }
             }

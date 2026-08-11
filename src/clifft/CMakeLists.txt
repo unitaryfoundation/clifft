@@ -22,6 +22,7 @@ add_library(clifft_core STATIC
     sampling/plan.cc
     sampling/planner.cc
     sampling/planner_frame.cc
+    sampling/active_measurement_dispatch.cc
     sampling/direct_rotation_dispatch.cc
     sampling/executable_plan.cc
     sampling/executor.cc
