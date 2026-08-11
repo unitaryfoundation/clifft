@@ -437,6 +437,20 @@ TEST_CASE("Planner symbolic frame rejects unknown symbols") {
     REQUIRE_THROWS_AS(frame.apply(correction, AffineBool::symbol(SymbolId{1})), std::logic_error);
 }
 
+TEST_CASE("Planner symbolic frame masks active Pauli padding") {
+    constexpr uint32_t kNumQubits = 65;
+    SymbolicPauliFrame frame(kNumQubits, 1);
+    PlannerPauli correction(kNumQubits);
+    correction.xs[64] = true;
+    correction.xs.u64[1] |= uint64_t{1} << 5;
+
+    REQUIRE_NOTHROW(frame.apply(correction, AffineBool::symbol(SymbolId{0})));
+
+    PlannerPauli observable(kNumQubits);
+    observable.zs[64] = true;
+    REQUIRE(frame.sign_for(observable) == AffineBool::symbol(SymbolId{0}));
+}
+
 TEST_CASE("Planner promotion frame localizes the promoted observable") {
     PlannerPauli promoted(3);
     promoted.zs[0] = true;

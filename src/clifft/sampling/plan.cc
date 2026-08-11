@@ -296,16 +296,16 @@ AffineBool& AffineBool::operator^=(const AffineBool& other) {
 }
 
 AffineBool& AffineBool::operator^=(AffineBool&& other) {
-    constant_ ^= other.constant_;
     if (other.terms_.empty()) {
+        constant_ ^= other.constant_;
         return *this;
     }
     if (terms_.empty()) {
+        constant_ ^= other.constant_;
         terms_ = std::move(other.terms_);
         return *this;
     }
-    terms_ = xor_terms(terms_, other.terms_);
-    return *this;
+    return *this ^= static_cast<const AffineBool&>(other);
 }
 
 AffineBool& AffineBool::operator^=(bool value) {
