@@ -128,8 +128,7 @@ PlannerPauli CoordinateFrame::to_initial(const PlannerPauli& current) const {
 }
 
 void CoordinateFrame::change_basis(const PlannerTableau& new_basis_in_old_coordinates) {
-    initial_to_current_.reset();
-    direct_reverse_lookups_ = 0;
+    invalidate_reverse_cache();
     PlannerTableau previous(std::move(current_to_initial_));
     assert(new_basis_in_old_coordinates.num_qubits == previous.num_qubits);
     current_to_initial_ = PlannerTableau(new_basis_in_old_coordinates.num_qubits);
@@ -140,6 +139,108 @@ void CoordinateFrame::change_basis(const PlannerTableau& new_basis_in_old_coordi
                                 previous);
     }
     assert(current_to_initial_.satisfies_invariants());
+}
+
+// These transformations preserve the symplectic relations by construction.
+// A full invariant scan is cubic in Debug builds, so exhaustive equivalence
+// tests validate them instead of rescanning the tableau after every event.
+void CoordinateFrame::promote_dormant(const PlannerPauli& promoted, uint32_t active_width,
+                                      uint32_t dormant_pivot) {
+    const uint32_t n = static_cast<uint32_t>(current_to_initial_.num_qubits);
+    assert(promoted.num_qubits == n && active_width < n && dormant_pivot >= active_width &&
+           dormant_pivot < n);
+
+    PlannerPauli mapped_promoted = to_initial(promoted);
+    PlannerPauli pivot_stabilizer(current_to_initial_.zs[dormant_pivot]);
+    invalidate_reverse_cache();
+
+    // The new promoted pair replaces the selected dormant pair. Every other
+    // generator that anticommutes with the promoted Pauli acquires the old
+    // pivot stabilizer, preserving the same symplectic basis as the generic
+    // frame composition without materializing its identity rows.
+    for (uint32_t q = 0; q < n; ++q) {
+        if (q == dormant_pivot) {
+            continue;
+        }
+        if (promoted.zs[q]) {
+            current_to_initial_.xs[q] *= pivot_stabilizer;
+        }
+        if (promoted.xs[q]) {
+            current_to_initial_.zs[q] *= pivot_stabilizer;
+        }
+    }
+
+    for (uint32_t q = dormant_pivot; q > active_width; --q) {
+        current_to_initial_.xs[q] = current_to_initial_.xs[q - 1];
+        current_to_initial_.zs[q] = current_to_initial_.zs[q - 1];
+    }
+    current_to_initial_.xs[active_width] = mapped_promoted;
+    current_to_initial_.zs[active_width] = pivot_stabilizer;
+}
+
+void CoordinateFrame::measure_dormant(const PlannerPauli& measured, uint32_t dormant_pivot) {
+    const uint32_t n = static_cast<uint32_t>(current_to_initial_.num_qubits);
+    assert(measured.num_qubits == n && dormant_pivot < n);
+
+    PlannerPauli mapped_measured = to_initial(measured);
+    PlannerPauli pivot_stabilizer(current_to_initial_.zs[dormant_pivot]);
+    invalidate_reverse_cache();
+
+    for (uint32_t q = 0; q < n; ++q) {
+        if (q == dormant_pivot) {
+            continue;
+        }
+        if (measured.zs[q]) {
+            current_to_initial_.xs[q] *= pivot_stabilizer;
+        }
+        if (measured.xs[q]) {
+            current_to_initial_.zs[q] *= pivot_stabilizer;
+        }
+    }
+    current_to_initial_.xs[dormant_pivot] = pivot_stabilizer;
+    current_to_initial_.zs[dormant_pivot] = mapped_measured;
+}
+
+void CoordinateFrame::measure_active(const PlannerPauli& measured, uint32_t active_width,
+                                     uint32_t pivot) {
+    assert(measured.num_qubits == current_to_initial_.num_qubits && active_width > 0 &&
+           active_width <= current_to_initial_.num_qubits && pivot < active_width);
+
+    const bool diagonal = !has_x_below(measured, active_width);
+    PlannerPauli mapped_measured = to_initial(measured);
+    PlannerPauli pivot_conjugate(diagonal ? current_to_initial_.xs[pivot]
+                                          : current_to_initial_.zs[pivot]);
+    invalidate_reverse_cache();
+
+    for (uint32_t q = 0; q < active_width; ++q) {
+        if (q == pivot) {
+            continue;
+        }
+        if (diagonal) {
+            if (measured.zs[q]) {
+                current_to_initial_.xs[q] *= pivot_conjugate;
+            }
+        } else {
+            if (measured.xs[q]) {
+                current_to_initial_.zs[q] *= pivot_conjugate;
+            }
+            if (measured.zs[q]) {
+                current_to_initial_.xs[q] *= pivot_conjugate;
+            }
+        }
+    }
+
+    for (uint32_t q = pivot; q + 1 < active_width; ++q) {
+        current_to_initial_.xs[q] = current_to_initial_.xs[q + 1];
+        current_to_initial_.zs[q] = current_to_initial_.zs[q + 1];
+    }
+    current_to_initial_.xs[active_width - 1] = pivot_conjugate;
+    current_to_initial_.zs[active_width - 1] = mapped_measured;
+}
+
+void CoordinateFrame::invalidate_reverse_cache() {
+    initial_to_current_.reset();
+    direct_reverse_lookups_ = 0;
 }
 
 size_t SymbolicPauliFrame::estimated_workspace_bytes(uint32_t num_qubits, uint32_t num_symbols) {
@@ -268,6 +369,10 @@ PlannerTableau dormant_promotion_frame(const PlannerPauli& promoted, uint32_t ac
     PlannerTableau frame(n);
     const PlannerPauli old_stabilizer = single_z(n, dormant_pivot);
 
+    // CoordinateFrame::promote_dormant is the in-place production twin. This
+    // builder remains necessary for final-state maps and as its test oracle;
+    // keep their pivot ordering and fixups in sync.
+    //
     // The rows express the new coordinate generators in the old basis. Making
     // the promoted Pauli the next X generator turns its rotation into a
     // single-coordinate expansion; the stabilizer products keep every other
@@ -317,6 +422,10 @@ PlannerTableau dormant_measurement_frame(const PlannerPauli& measured, uint32_t 
     PlannerTableau frame(n);
     const PlannerPauli old_stabilizer = single_z(n, dormant_pivot);
 
+    // CoordinateFrame::measure_dormant is the in-place production twin. This
+    // builder is its independent test oracle; keep their pivot replacement and
+    // fixups in sync.
+    //
     // Replacing one dormant Z generator with the measured Pauli represents the
     // collapsed eigenspace without changing the dense coefficient state.
     for (uint32_t q = 0; q < n; ++q) {
@@ -352,6 +461,10 @@ PlannerTableau active_measurement_frame(const PlannerPauli& measured, uint32_t a
     const PlannerPauli pivot_x = single_x(n, pivot);
     const PlannerPauli pivot_z = single_z(n, pivot);
 
+    // CoordinateFrame::measure_active is the in-place production twin. This
+    // builder is its independent test oracle; keep their pivot compaction and
+    // fixups in sync.
+    //
     // Moving the measured Pauli to the last active Z generator gives the
     // direct measurement kernel one coordinate to remove. The cumulative
     // frame maps later operations into the remaining packed coordinates.

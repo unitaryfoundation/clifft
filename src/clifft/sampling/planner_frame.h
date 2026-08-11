@@ -26,6 +26,15 @@ class CoordinateFrame {
 
     void change_basis(const PlannerTableau& new_basis_in_old_coordinates);
 
+    // Apply the planner's structured basis changes without constructing and
+    // composing an identity-heavy intermediate tableau. Inputs use the current
+    // coordinates, and the resulting coordinate order matches the generic
+    // frame constructors below.
+    void promote_dormant(const PlannerPauli& promoted, uint32_t active_width,
+                         uint32_t dormant_pivot);
+    void measure_dormant(const PlannerPauli& measured, uint32_t dormant_pivot);
+    void measure_active(const PlannerPauli& measured, uint32_t active_width, uint32_t pivot);
+
     [[nodiscard]] bool has_cached_inverse_for_testing() const {
         return initial_to_current_.has_value();
     }
@@ -37,6 +46,8 @@ class CoordinateFrame {
     std::optional<PlannerTableau> initial_to_current_;
     uint64_t direct_reverse_lookups_ = 0;
     std::vector<size_t> indices_;
+
+    void invalidate_reverse_cache();
 };
 
 // Tracks how sampled Boolean symbols contribute Pauli corrections in the
