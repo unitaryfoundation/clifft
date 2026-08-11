@@ -373,7 +373,10 @@ TEST_CASE("Active measurement SIMD selection preserves scalar boundaries") {
     REQUIRE(select({0b001, 0b1110}, 4, 0) == ActiveMeasurementKernel::LanePaired);
     REQUIRE(select({0b111, 0b101000}, 6, 2) == ActiveMeasurementKernel::LanePaired);
     REQUIRE(select({0b1000, 0b0111}, 4, 3) == ActiveMeasurementKernel::Scalar);
-    REQUIRE(select({0b111, 0b101000}, 6, 2, RuntimeIsa::Avx2) == ActiveMeasurementKernel::Scalar);
+    REQUIRE(select({0b01, 0b10}, 2, 0, RuntimeIsa::Avx2) == ActiveMeasurementKernel::LanePaired);
+    REQUIRE(select({0b01, 0b110}, 3, 0, RuntimeIsa::Avx2) == ActiveMeasurementKernel::LanePaired);
+    REQUIRE(select({0b10, 0b101}, 3, 1, RuntimeIsa::Avx2) == ActiveMeasurementKernel::LanePaired);
+    REQUIRE(select({0b100, 0b011}, 3, 2, RuntimeIsa::Avx2) == ActiveMeasurementKernel::Scalar);
 }
 
 TEST_CASE("Sampling kernel expectation values match the existing dense matrix oracle") {
@@ -498,26 +501,31 @@ TEST_CASE("Sampling kernels measurements match dense projectors for every small 
 }
 
 TEST_CASE("Active measurement SIMD matches scalar low-lane Pauli compaction") {
-    if (clifft::internal::runtime_isa() != RuntimeIsa::Avx512) {
+    const RuntimeIsa runtime_isa = clifft::internal::runtime_isa();
+    if (runtime_isa != RuntimeIsa::Avx2 && runtime_isa != RuntimeIsa::Avx512) {
         return;
     }
 
-    for (uint32_t active_width = 3; active_width <= 6; ++active_width) {
+    const uint64_t vector_lanes = runtime_isa == RuntimeIsa::Avx512 ? 8 : 4;
+    const uint32_t lane_index_bits = runtime_isa == RuntimeIsa::Avx512 ? 3 : 2;
+    const uint32_t min_profitable_width = runtime_isa == RuntimeIsa::Avx512 ? 4 : 2;
+    for (uint32_t active_width = lane_index_bits; active_width <= 6; ++active_width) {
         const uint64_t z_limit = uint64_t{1} << active_width;
         const std::vector<std::complex<double>> input = deterministic_state(active_width);
-        for (uint64_t x = 1; x < 8; ++x) {
+        for (uint64_t x = 1; x < vector_lanes; ++x) {
             for (uint64_t z = 0; z < z_limit; ++z) {
                 for (uint32_t pivot : valid_measurement_pivots(x, z, active_width)) {
-                    if (pivot >= 3 || (x & (uint64_t{1} << pivot)) == 0) {
+                    if (pivot >= lane_index_bits || (x & (uint64_t{1} << pivot)) == 0) {
                         continue;
                     }
                     CAPTURE(active_width, x, z, pivot);
                     const PreparedMeasurement measurement =
                         prepare_measurement({x, z}, active_width, pivot);
                     const ActiveMeasurementKernel selected =
-                        resolve_active_measurement_kernel(measurement, RuntimeIsa::Avx512);
-                    REQUIRE(selected == (active_width >= 4 ? ActiveMeasurementKernel::LanePaired
-                                                           : ActiveMeasurementKernel::Scalar));
+                        resolve_active_measurement_kernel(measurement, runtime_isa);
+                    REQUIRE(selected == (active_width >= min_profitable_width
+                                             ? ActiveMeasurementKernel::LanePaired
+                                             : ActiveMeasurementKernel::Scalar));
 
                     State scalar_probability_state(active_width, active_width);
                     load_state(scalar_probability_state, input);

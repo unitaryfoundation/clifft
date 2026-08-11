@@ -1,6 +1,7 @@
 // AVX2+BMI2+FMA sampling kernels. This translation unit is compiled with
 // explicit ISA flags so portable builds can select it at runtime.
 
+#include "clifft/sampling/active_measurement_simd.h"
 #include "clifft/sampling/direct_rotation_simd.h"
 #include "clifft/sampling/fused_rotation_simd.h"
 #include "clifft/sampling/indexing.h"
@@ -8,6 +9,7 @@
 #include <array>
 #include <bit>
 #include <cassert>
+#include <cmath>
 #include <complex>
 #include <cstddef>
 #include <cstdint>
@@ -25,6 +27,7 @@ namespace {
 constexpr size_t kLanes = kAvx2DoubleLanes;
 constexpr size_t kDimension = 4;
 constexpr size_t kMatrixSize = kDimension * kDimension;
+constexpr double kInvSqrt2 = 0.707106781186547524400844362104849039;
 
 using LanePermutationIndices = std::array<int32_t, 2 * kLanes>;
 using LaneSigns = std::array<double, kLanes>;
@@ -54,6 +57,15 @@ constexpr std::array<LaneSigns, kLanes> make_lane_parity_signs() {
 alignas(32) constexpr auto kLanePermutations = make_lane_permutations();
 alignas(32) constexpr auto kLaneParitySigns = make_lane_parity_signs();
 
+alignas(32) constexpr std::array<LanePermutationIndices, 2> kMeasurementCompactionPermutations = {{
+    {0, 1, 4, 5, 0, 0, 0, 0},
+    {0, 1, 2, 3, 0, 0, 0, 0},
+}};
+alignas(32) constexpr std::array<LaneSigns, 2> kMeasurementSourceWeights = {{
+    {1.0, 0.0, 1.0, 0.0},
+    {1.0, 1.0, 0.0, 0.0},
+}};
+
 struct alignas(32) LanePermutation {
     LanePermutationIndices indices{};
 };
@@ -71,6 +83,12 @@ struct FusedRotationAvx2Sidecar {
 __m256d permute_lanes(__m256d input, __m256i permutation) noexcept {
     return _mm256_castsi256_pd(
         _mm256_permutevar8x32_epi32(_mm256_castpd_si256(input), permutation));
+}
+
+double reduce_add(__m256d value) noexcept {
+    const __m128d halves =
+        _mm_add_pd(_mm256_castpd256_pd128(value), _mm256_extractf128_pd(value, 1));
+    return _mm_cvtsd_f64(_mm_add_sd(halves, _mm_unpackhi_pd(halves, halves)));
 }
 
 __m256d signed_sine_lanes(uint64_t basis, uint64_t z, double sine) noexcept {
@@ -269,7 +287,122 @@ void apply_fused_rotation_avx2(State& state, const PreparedFusedRotation& rotati
     }
 }
 
+template <bool RealPhase>
+MeasurementProbabilities active_measurement_probabilities_avx2_impl(
+    const State& state, const PreparedMeasurement& measurement) noexcept {
+    const double* const real = state.real_data();
+    const double* const imag = state.imag_data();
+    const uint64_t lane_xor = measurement.pauli.x;
+    const __m256i permutation =
+        _mm256_load_si256(reinterpret_cast<const __m256i*>(kLanePermutations[lane_xor].data()));
+    const __m256d source_weights =
+        _mm256_load_pd(kMeasurementSourceWeights[measurement.pivot].data());
+    const double base_coefficient =
+        RealPhase ? measurement.pauli.even_phase.real() : -measurement.pauli.even_phase.imag();
+    __m256d zero_sum = _mm256_setzero_pd();
+    __m256d one_sum = _mm256_setzero_pd();
+
+    for (uint64_t basis = 0; basis < state.size(); basis += kLanes) {
+        const __m256d input_real = _mm256_load_pd(real + basis);
+        const __m256d input_imag = _mm256_load_pd(imag + basis);
+        const __m256d partner_real = permute_lanes(input_real, permutation);
+        const __m256d partner_imag = permute_lanes(input_imag, permutation);
+        const __m256d coefficient = signed_sine_lanes(basis, measurement.pauli.z, base_coefficient);
+
+        __m256d zero_real;
+        __m256d zero_imag;
+        __m256d one_real;
+        __m256d one_imag;
+        if constexpr (RealPhase) {
+            zero_real = _mm256_fmadd_pd(coefficient, partner_real, input_real);
+            zero_imag = _mm256_fmadd_pd(coefficient, partner_imag, input_imag);
+            one_real = _mm256_fnmadd_pd(coefficient, partner_real, input_real);
+            one_imag = _mm256_fnmadd_pd(coefficient, partner_imag, input_imag);
+        } else {
+            zero_real = _mm256_fnmadd_pd(coefficient, partner_imag, input_real);
+            zero_imag = _mm256_fmadd_pd(coefficient, partner_real, input_imag);
+            one_real = _mm256_fmadd_pd(coefficient, partner_imag, input_real);
+            one_imag = _mm256_fnmadd_pd(coefficient, partner_real, input_imag);
+        }
+        const __m256d zero_norm =
+            _mm256_fmadd_pd(zero_real, zero_real, _mm256_mul_pd(zero_imag, zero_imag));
+        const __m256d one_norm =
+            _mm256_fmadd_pd(one_real, one_real, _mm256_mul_pd(one_imag, one_imag));
+        zero_sum = _mm256_fmadd_pd(source_weights, zero_norm, zero_sum);
+        one_sum = _mm256_fmadd_pd(source_weights, one_norm, one_sum);
+    }
+    return MeasurementProbabilities{0.5 * reduce_add(zero_sum), 0.5 * reduce_add(one_sum)};
+}
+
+template <bool RealPhase>
+void collapse_active_measurement_avx2_impl(State& state, const PreparedMeasurement& measurement,
+                                           bool branch, double branch_probability) noexcept {
+    double* const real = state.real_data();
+    double* const imag = state.imag_data();
+    const uint64_t lane_xor = measurement.pauli.x;
+    const __m256i permutation =
+        _mm256_load_si256(reinterpret_cast<const __m256i*>(kLanePermutations[lane_xor].data()));
+    const __m256i compaction = _mm256_load_si256(reinterpret_cast<const __m256i*>(
+        kMeasurementCompactionPermutations[measurement.pivot].data()));
+    const double eigenvalue = branch ? -1.0 : 1.0;
+    const double base_coefficient = eigenvalue * (RealPhase ? measurement.pauli.even_phase.real()
+                                                            : -measurement.pauli.even_phase.imag());
+    const __m256d scale = _mm256_set1_pd(kInvSqrt2 / std::sqrt(branch_probability));
+
+    for (uint64_t basis = 0; basis < state.size(); basis += kLanes) {
+        const __m256d input_real = _mm256_load_pd(real + basis);
+        const __m256d input_imag = _mm256_load_pd(imag + basis);
+        const __m256d partner_real = permute_lanes(input_real, permutation);
+        const __m256d partner_imag = permute_lanes(input_imag, permutation);
+        const __m256d coefficient = signed_sine_lanes(basis, measurement.pauli.z, base_coefficient);
+
+        __m256d output_real;
+        __m256d output_imag;
+        if constexpr (RealPhase) {
+            output_real = _mm256_fmadd_pd(coefficient, partner_real, input_real);
+            output_imag = _mm256_fmadd_pd(coefficient, partner_imag, input_imag);
+        } else {
+            output_real = _mm256_fnmadd_pd(coefficient, partner_imag, input_real);
+            output_imag = _mm256_fmadd_pd(coefficient, partner_real, input_imag);
+        }
+        output_real = _mm256_mul_pd(scale, output_real);
+        output_imag = _mm256_mul_pd(scale, output_imag);
+        const __m128d compact_real = _mm256_castpd256_pd128(permute_lanes(output_real, compaction));
+        const __m128d compact_imag = _mm256_castpd256_pd128(permute_lanes(output_imag, compaction));
+        _mm_storeu_pd(real + basis / 2, compact_real);
+        _mm_storeu_pd(imag + basis / 2, compact_imag);
+    }
+    state.set_active_width(state.active_width() - 1);
+}
+
 }  // namespace
+
+MeasurementProbabilities active_measurement_probabilities_avx2(
+    const State& state, const PreparedMeasurement& measurement) noexcept {
+    assert(state.active_width() == measurement.pauli.active_width &&
+           !measurement.pauli.is_diagonal() && measurement.pauli.x < kLanes &&
+           measurement.pivot < 2 && measurement.pauli.active_width >= 2 &&
+           "AVX2 active measurement requires a low-lane Pauli pairing");
+    if (measurement.pauli.even_phase.real() != 0.0) {
+        return active_measurement_probabilities_avx2_impl<true>(state, measurement);
+    }
+    return active_measurement_probabilities_avx2_impl<false>(state, measurement);
+}
+
+void collapse_active_measurement_avx2(State& state, const PreparedMeasurement& measurement,
+                                      bool branch, double branch_probability) noexcept {
+    assert(state.active_width() == measurement.pauli.active_width &&
+           !measurement.pauli.is_diagonal() && measurement.pauli.x < kLanes &&
+           measurement.pivot < 2 && measurement.pauli.active_width >= 2 &&
+           std::isfinite(branch_probability) && branch_probability > 0.0 &&
+           "AVX2 active measurement requires a positive-probability low-lane pairing");
+    if (measurement.pauli.even_phase.real() != 0.0) {
+        collapse_active_measurement_avx2_impl<true>(state, measurement, branch, branch_probability);
+    } else {
+        collapse_active_measurement_avx2_impl<false>(state, measurement, branch,
+                                                     branch_probability);
+    }
+}
 
 void apply_direct_rotation_avx2(State& state, const PreparedRotation& rotation,
                                 DirectRotationKernel kernel, bool sign) noexcept {
