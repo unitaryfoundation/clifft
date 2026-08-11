@@ -817,6 +817,20 @@ TEST_CASE("Sampling executor prepares instrument boundaries before dispatch") {
     REQUIRE(executable.num_instrument_sites() == 1);
 }
 
+TEST_CASE("Sampling executable selects new X instrument activation") {
+    const clifft::InstrumentTraceOptions options = clifft::test::source_dependent_jump_options();
+    const auto compile = [&](std::string_view circuit) {
+        const clifft::HirModule hir = clifft::trace(clifft::parse(circuit), &options);
+        return ExecutablePlan(clifft::sampling::plan_sampling(hir));
+    };
+
+    const ExecutablePlan activating = compile("H 0\nT 0\nH 1\nLEVEL_TRANSITION[jump] 1\nM 1");
+    REQUIRE(activating.num_new_x_instrument_activations() == 1);
+
+    const ExecutablePlan already_active = compile("H 0\nT 0\nLEVEL_TRANSITION[jump] 0\nM 0");
+    REQUIRE(already_active.num_new_x_instrument_activations() == 0);
+}
+
 TEST_CASE("Sampling executor applies computational instrument destinations in line") {
     clifft::InstrumentTraceOptions options;
     clifft::InstrumentProbabilities reset;

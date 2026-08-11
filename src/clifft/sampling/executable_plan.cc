@@ -19,6 +19,11 @@ namespace {
 template <typename>
 inline constexpr bool kAlwaysFalse = false;
 
+bool activates_new_x(const ApplyInstrument& instrument, uint32_t active_after) {
+    return instrument.mode == InstrumentMode::Activate && active_after > 0 &&
+           instrument.source.z == 0 && instrument.source.x == (uint64_t{1} << (active_after - 1));
+}
+
 }  // namespace
 
 ExecutablePlan::ExecutablePlan(const SamplingPlan& plan)
@@ -224,9 +229,10 @@ ExecutablePlan::ExecutablePlan(const SamplingPlan& plan)
                                                              index(typed.exp_val)});
                 } else if constexpr (std::is_same_v<T, ApplyInstrument>) {
                     has_instruments_ = true;
+                    const bool new_x_activation = activates_new_x(typed, planned.active_after);
                     std::optional<PreparedMeasurement> measurement;
                     if (typed.mode == InstrumentMode::Active ||
-                        typed.mode == InstrumentMode::Activate) {
+                        (typed.mode == InstrumentMode::Activate && !new_x_activation)) {
                         const uint32_t width = typed.mode == InstrumentMode::Activate
                                                    ? planned.active_after
                                                    : planned.active_before;
@@ -235,11 +241,8 @@ ExecutablePlan::ExecutablePlan(const SamplingPlan& plan)
                         const uint32_t pivot = static_cast<uint32_t>(std::countr_zero(support));
                         measurement = prepare_measurement(typed.source, width, pivot);
                     }
-                    const bool activates_new_x =
-                        typed.mode == InstrumentMode::Activate && typed.source.z == 0 &&
-                        typed.source.x == (uint64_t{1} << (planned.active_after - 1));
                     actions_.emplace_back(ExecuteInstrument{
-                        typed.mode, activates_new_x, prepare_expression(typed.sign),
+                        typed.mode, new_x_activation, prepare_expression(typed.sign),
                         std::move(measurement), index(typed.site),
                         typed.destination_flip.has_value()
                             ? std::optional<uint32_t>{index(*typed.destination_flip)}
@@ -323,6 +326,14 @@ ExecutablePlan::ExecutablePlan(const SamplingPlan& plan)
             expression_dependency_targets_[next_dependency[symbol]++] = register_id;
         }
     }
+}
+
+size_t ExecutablePlan::num_new_x_instrument_activations() const {
+    return static_cast<size_t>(
+        std::count_if(actions_.begin(), actions_.end(), [](const Action& action) {
+            const auto* instrument = std::get_if<ExecuteInstrument>(&action);
+            return instrument != nullptr && instrument->activates_new_x;
+        }));
 }
 
 std::vector<double> ExecutablePlan::noise_site_probabilities() const {

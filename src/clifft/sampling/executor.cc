@@ -526,14 +526,16 @@ void Executor::execute_action(const ExecutablePlan::ExecuteInstrument& action,
         return;
     }
 
-    assert(action.measurement.has_value() &&
-           "active instrument requires a prepared source measurement");
+    assert((action.activates_new_x || action.measurement.has_value()) &&
+           "active instrument requires a kernel or prepared source measurement");
     if (action.mode == InstrumentMode::Activate && !action.activates_new_x) {
         activate_zero_coordinate(state_);
     }
     const bool sign = evaluate(action.sign);
-    // The coefficients are normalized and the clean |0> coordinate has equal
-    // populations in the X eigenbasis, so this exact shape needs no reduction.
+    // Under the State normalization invariant, the clean |0> coordinate has
+    // exact half populations in the X eigenbasis. Using those semantic values
+    // retains any residual floating-point norm drift instead of reducing and
+    // renormalizing it inside this activation.
     const MeasurementProbabilities eigen_populations =
         action.activates_new_x ? MeasurementProbabilities{0.5, 0.5}
                                : measurement_probabilities(state_, *action.measurement);
