@@ -47,6 +47,7 @@ class ExecutablePlan {
         return static_cast<uint32_t>(presampled_symbols_.size());
     }
     [[nodiscard]] size_t num_actions() const { return actions_.size(); }
+    [[nodiscard]] size_t num_new_x_instrument_activations() const;
     [[nodiscard]] uint32_t num_unbound_presampled_symbols() const {
         return static_cast<uint32_t>(unbound_presampled_symbols_.size());
     }
@@ -169,11 +170,17 @@ class ExecutablePlan {
 
     struct ExecuteInstrument {
         InstrumentMode mode = InstrumentMode::Classical;
+        // Lowering identifies the exact new-coordinate X shape so execution
+        // need not rediscover instrument topology inside the hot loop.
+        bool activates_new_x = false;
         PreparedExpression sign;
         std::optional<PreparedMeasurement> measurement;
         uint32_t site = 0;
         std::optional<uint32_t> destination_flip;
     };
+
+    static_assert(sizeof(ExecuteInstrument) == 104,
+                  "instrument specialization must not expand its action descriptor");
 
     struct ExecuteBoundary {
         uint32_t site = 0;
