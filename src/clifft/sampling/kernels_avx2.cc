@@ -226,7 +226,8 @@ void apply_fused_rotation_avx2(State& state, const PreparedFusedRotation& rotati
                                const void* opaque_sidecar) noexcept {
     const auto& sidecar = *static_cast<const FusedRotationAvx2Sidecar*>(opaque_sidecar);
     assert(rotation.orbit_rank == 2 && rotation.orbit_pivots[0] >= 2 &&
-           "AVX2 fused rotation requires a high-pivot rank-two orbit");
+           rotation.orbit_pivots[0] < rotation.orbit_pivots[1] &&
+           "AVX2 fused rotation requires ordered high-pivot rank-two orbits");
     assert(state.active_width() == rotation.active_width &&
            "fused rotation width must match the active state");
 
@@ -292,16 +293,19 @@ MeasurementProbabilities active_measurement_probabilities_avx2_impl(
     const State& state, const PreparedMeasurement& measurement) noexcept {
     const double* const real = state.real_data();
     const double* const imag = state.imag_data();
-    const uint64_t lane_xor = measurement.pauli.x;
+    const uint64_t lane_xor = measurement.pauli.x & (kLanes - 1);
     const __m256i permutation =
         _mm256_load_si256(reinterpret_cast<const __m256i*>(kLanePermutations[lane_xor].data()));
     const __m256d source_weights =
-        _mm256_load_pd(kMeasurementSourceWeights[measurement.pivot].data());
+        _mm256_load_pd(kMeasurementSourceWeights[measurement.pivot & 1U].data());
     const double base_coefficient =
         RealPhase ? measurement.pauli.even_phase.real() : -measurement.pauli.even_phase.imag();
     __m256d zero_sum = _mm256_setzero_pd();
     __m256d one_sum = _mm256_setzero_pd();
 
+    // For eigenvalue e in {+1, -1}, form both projected branches together.
+    // Only pivot-zero representatives contribute to their squared norms; the
+    // source weights select those two lanes without an AVX-512-style mask.
     for (uint64_t basis = 0; basis < state.size(); basis += kLanes) {
         const __m256d input_real = _mm256_load_pd(real + basis);
         const __m256d input_imag = _mm256_load_pd(imag + basis);
@@ -313,6 +317,8 @@ MeasurementProbabilities active_measurement_probabilities_avx2_impl(
         __m256d zero_imag;
         __m256d one_real;
         __m256d one_imag;
+        // Prepared Pauli phases are in {+1, -1, +i, -i}. Splitting their real
+        // and imaginary cases turns the complex multiply into fixed FMAs.
         if constexpr (RealPhase) {
             zero_real = _mm256_fmadd_pd(coefficient, partner_real, input_real);
             zero_imag = _mm256_fmadd_pd(coefficient, partner_imag, input_imag);
@@ -339,16 +345,19 @@ void collapse_active_measurement_avx2_impl(State& state, const PreparedMeasureme
                                            bool branch, double branch_probability) noexcept {
     double* const real = state.real_data();
     double* const imag = state.imag_data();
-    const uint64_t lane_xor = measurement.pauli.x;
+    const uint64_t lane_xor = measurement.pauli.x & (kLanes - 1);
     const __m256i permutation =
         _mm256_load_si256(reinterpret_cast<const __m256i*>(kLanePermutations[lane_xor].data()));
     const __m256i compaction = _mm256_load_si256(reinterpret_cast<const __m256i*>(
-        kMeasurementCompactionPermutations[measurement.pivot].data()));
+        kMeasurementCompactionPermutations[measurement.pivot & 1U].data()));
     const double eigenvalue = branch ? -1.0 : 1.0;
     const double base_coefficient = eigenvalue * (RealPhase ? measurement.pauli.even_phase.real()
                                                             : -measurement.pauli.even_phase.imag());
     const __m256d scale = _mm256_set1_pd(kInvSqrt2 / std::sqrt(branch_probability));
 
+    // Removing either low-lane pivot maps each four-amplitude block to two
+    // consecutive outputs. Every source block is loaded before its compacted
+    // destination is written, so forward traversal cannot overwrite a future source.
     for (uint64_t basis = 0; basis < state.size(); basis += kLanes) {
         const __m256d input_real = _mm256_load_pd(real + basis);
         const __m256d input_imag = _mm256_load_pd(imag + basis);
@@ -435,7 +444,8 @@ void apply_direct_rotation_avx2(State& state, const PreparedRotation& rotation,
 }
 
 FusedRotationSidecar prepare_fused_rotation_avx2_sidecar(const PreparedFusedRotation& rotation) {
-    if (rotation.orbit_rank != 2 || rotation.orbit_pivots[0] < 2) {
+    if (rotation.orbit_rank != 2 || rotation.orbit_pivots[0] < 2 ||
+        rotation.orbit_pivots[0] >= rotation.orbit_pivots[1]) {
         return {};
     }
 

@@ -1,5 +1,6 @@
 #include "clifft/sampling/fused_rotation.h"
 
+#include "clifft/sampling/direct_rotation_simd.h"
 #include "clifft/sampling/indexing.h"
 #include "clifft/sampling/kernels.h"
 
@@ -27,6 +28,8 @@ constexpr uint32_t kMaxFusedRotationSelectors = 5;
 // the sign rank and the minimum amount of eliminated work bounded.
 constexpr uint32_t kMaxFusedRotationSigns = 2;
 constexpr size_t kMinDynamicFusedRotationActions = 8;
+constexpr uint32_t kMinDynamicFusedRotationPivot =
+    static_cast<uint32_t>(std::countr_zero(kAvx512DoubleLanes));
 
 // A row-reduced basis for a vector subspace of GF(2)^64, where each bit is one
 // binary coordinate.
@@ -444,7 +447,8 @@ DynamicFusedRotationRun prepare_dynamic_fused_rotation_run(std::span<const Plann
 
     const std::vector<uint64_t> orbit_rows = orbit_basis.rows();
     if (result.action_count < kMinDynamicFusedRotationActions || !has_dynamic_sign ||
-        orbit_rows.size() != 2 || std::countr_zero(std::bit_floor(orbit_rows[0])) < 3) {
+        orbit_rows.size() != 2 ||
+        std::countr_zero(std::bit_floor(orbit_rows[0])) < kMinDynamicFusedRotationPivot) {
         return result;
     }
 

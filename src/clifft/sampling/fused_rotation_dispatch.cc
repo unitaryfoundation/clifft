@@ -18,7 +18,10 @@ PreparedFusedRotationExecution::PreparedFusedRotationExecution(PreparedFusedRota
         case internal::RuntimeIsa::Avx512:
             sidecar_ = prepare_fused_rotation_avx512_sidecar(rotation_);
             break;
-        default:
+        case internal::RuntimeIsa::Scalar:
+        case internal::RuntimeIsa::TrapAvx2:
+        case internal::RuntimeIsa::TrapAvx512:
+        case internal::RuntimeIsa::TrapUnknown:
             break;
     }
 #else

@@ -65,13 +65,17 @@ MeasurementProbabilities active_measurement_probabilities(const State& state,
                                                           const PreparedMeasurement& measurement,
                                                           ActiveMeasurementKernel kernel) noexcept {
 #if defined(CLIFFT_ENABLE_RUNTIME_DISPATCH)
+    assert(kernel ==
+               resolve_active_measurement_kernel(measurement, kResolvedActiveMeasurementIsa) &&
+           "active measurement kernel must match the process ISA");
     if (kernel == ActiveMeasurementKernel::LanePaired) {
         if (kResolvedActiveMeasurementIsa == internal::RuntimeIsa::Avx2) {
             return active_measurement_probabilities_avx2(state, measurement);
         }
-        assert(kResolvedActiveMeasurementIsa == internal::RuntimeIsa::Avx512 &&
-               "vector active measurement requires a selected SIMD implementation");
-        return active_measurement_probabilities_avx512(state, measurement);
+        if (kResolvedActiveMeasurementIsa == internal::RuntimeIsa::Avx512) {
+            return active_measurement_probabilities_avx512(state, measurement);
+        }
+        assert(false && "vector active measurement requires a selected SIMD implementation");
     }
 #else
     assert(kernel == ActiveMeasurementKernel::Scalar &&
@@ -85,13 +89,17 @@ void collapse_active_measurement(State& state, const PreparedMeasurement& measur
                                  ActiveMeasurementKernel kernel, bool branch,
                                  double branch_probability) noexcept {
 #if defined(CLIFFT_ENABLE_RUNTIME_DISPATCH)
+    assert(kernel ==
+               resolve_active_measurement_kernel(measurement, kResolvedActiveMeasurementIsa) &&
+           "active measurement kernel must match the process ISA");
     if (kernel == ActiveMeasurementKernel::LanePaired) {
         if (kResolvedActiveMeasurementIsa == internal::RuntimeIsa::Avx2) {
             collapse_active_measurement_avx2(state, measurement, branch, branch_probability);
-        } else {
-            assert(kResolvedActiveMeasurementIsa == internal::RuntimeIsa::Avx512 &&
-                   "vector active measurement requires a selected SIMD implementation");
+        } else if (kResolvedActiveMeasurementIsa == internal::RuntimeIsa::Avx512) {
             collapse_active_measurement_avx512(state, measurement, branch, branch_probability);
+        } else {
+            assert(false && "vector active measurement requires a selected SIMD implementation");
+            collapse_measurement(state, measurement, branch, branch_probability);
         }
         return;
     }

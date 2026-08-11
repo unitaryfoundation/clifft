@@ -358,6 +358,7 @@ TEST_CASE("Direct rotation SIMD selection preserves scalar boundaries") {
     REQUIRE(select({0b01, 0b10}, 2, RuntimeIsa::Avx2) == DirectRotationKernel::LanePaired);
     REQUIRE(select({0b100, 0b011}, 3, RuntimeIsa::Avx2) == DirectRotationKernel::HighPivot);
     REQUIRE(select({0b10000, 0b01111}, 5, RuntimeIsa::Avx2) == DirectRotationKernel::HighPivot);
+    REQUIRE(select({0b01, 0b10}, 2, RuntimeIsa::Scalar) == DirectRotationKernel::Scalar);
 }
 
 TEST_CASE("Active measurement SIMD selection preserves scalar boundaries") {
@@ -377,6 +378,7 @@ TEST_CASE("Active measurement SIMD selection preserves scalar boundaries") {
     REQUIRE(select({0b01, 0b110}, 3, 0, RuntimeIsa::Avx2) == ActiveMeasurementKernel::LanePaired);
     REQUIRE(select({0b10, 0b101}, 3, 1, RuntimeIsa::Avx2) == ActiveMeasurementKernel::LanePaired);
     REQUIRE(select({0b100, 0b011}, 3, 2, RuntimeIsa::Avx2) == ActiveMeasurementKernel::Scalar);
+    REQUIRE(select({0b01, 0b110}, 3, 0, RuntimeIsa::Scalar) == ActiveMeasurementKernel::Scalar);
 }
 
 TEST_CASE("Sampling kernel expectation values match the existing dense matrix oracle") {
@@ -509,7 +511,7 @@ TEST_CASE("Active measurement SIMD matches scalar low-lane Pauli compaction") {
     const uint64_t vector_lanes = runtime_isa == RuntimeIsa::Avx512 ? 8 : 4;
     const uint32_t lane_index_bits = runtime_isa == RuntimeIsa::Avx512 ? 3 : 2;
     const uint32_t min_profitable_width = runtime_isa == RuntimeIsa::Avx512 ? 4 : 2;
-    for (uint32_t active_width = lane_index_bits; active_width <= 6; ++active_width) {
+    for (uint32_t active_width = min_profitable_width; active_width <= 6; ++active_width) {
         const uint64_t z_limit = uint64_t{1} << active_width;
         const std::vector<std::complex<double>> input = deterministic_state(active_width);
         for (uint64_t x = 1; x < vector_lanes; ++x) {

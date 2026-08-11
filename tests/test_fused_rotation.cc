@@ -158,6 +158,8 @@ TEST_CASE("Dynamic fused rotation matches scalar across affine sign values") {
     REQUIRE(prepared_run.rotation->variants.size() == 4);
 
     const ExecutablePlan executable(plan);
+    // Dynamic-sign fusion is deliberately AVX-512-only; other ISAs retain the
+    // sequential rotations even though constant-sign fusion supports AVX2.
     const size_t expected_action_count =
         clifft::internal::runtime_isa() == clifft::internal::RuntimeIsa::Avx512 ? 1
                                                                                 : rotations.size();

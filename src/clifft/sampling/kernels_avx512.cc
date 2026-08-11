@@ -231,7 +231,8 @@ void apply_fused_rotation_avx512(State& state, const PreparedFusedRotation& rota
                                  const void* opaque_sidecar) noexcept {
     const auto& sidecar = *static_cast<const FusedRotationAvx512Sidecar*>(opaque_sidecar);
     assert(rotation.orbit_rank == 2 && rotation.orbit_pivots[0] >= 3 &&
-           "AVX-512 fused rotation requires a high-pivot rank-two orbit");
+           rotation.orbit_pivots[0] < rotation.orbit_pivots[1] &&
+           "AVX-512 fused rotation requires ordered high-pivot rank-two orbits");
     assert(state.active_width() == rotation.active_width &&
            "fused rotation width must match the active state");
 
@@ -298,7 +299,7 @@ MeasurementProbabilities active_measurement_probabilities_avx512_impl(
     const State& state, const PreparedMeasurement& measurement) noexcept {
     const double* const real = state.real_data();
     const double* const imag = state.imag_data();
-    const uint64_t lane_xor = measurement.pauli.x;
+    const uint64_t lane_xor = measurement.pauli.x & (kLanes - 1);
     const __m512i permutation = _mm512_load_si512(kLanePermutations[lane_xor].data());
     const __mmask8 source_mask = kMeasurementSourceMasks[measurement.pivot];
     const double base_coefficient =
@@ -350,7 +351,7 @@ void collapse_active_measurement_avx512_impl(State& state, const PreparedMeasure
                                              bool branch, double branch_probability) noexcept {
     double* const real = state.real_data();
     double* const imag = state.imag_data();
-    const uint64_t lane_xor = measurement.pauli.x;
+    const uint64_t lane_xor = measurement.pauli.x & (kLanes - 1);
     const __m512i permutation = _mm512_load_si512(kLanePermutations[lane_xor].data());
     const __m512i compaction =
         _mm512_load_si512(kMeasurementCompactionPermutations[measurement.pivot].data());
@@ -456,7 +457,8 @@ void apply_direct_rotation_avx512(State& state, const PreparedRotation& rotation
 // Host-specific preparation transposes selector matrices into lane-major
 // weights once, keeping both allocation and selector expansion out of shots.
 FusedRotationSidecar prepare_fused_rotation_avx512_sidecar(const PreparedFusedRotation& rotation) {
-    if (rotation.orbit_rank != 2 || rotation.orbit_pivots[0] < 3) {
+    if (rotation.orbit_rank != 2 || rotation.orbit_pivots[0] < 3 ||
+        rotation.orbit_pivots[0] >= rotation.orbit_pivots[1]) {
         return {};
     }
 
