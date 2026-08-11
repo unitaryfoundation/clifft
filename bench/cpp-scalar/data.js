@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1786344522386,
+  "lastUpdate": 1786430363614,
   "repoUrl": "https://github.com/unitaryfoundation/clifft",
   "entries": {
     "C++ Catch2 benchmarks (scalar)": [
@@ -5374,6 +5374,70 @@ window.BENCHMARK_DATA = {
             "name": "exp-val 20q 200 probes x100k",
             "value": 167.625,
             "range": "± 3.9717",
+            "unit": "ms",
+            "extra": "100 samples\n1 iterations"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Brad Chase",
+            "username": "bachase",
+            "email": "14430+bachase@users.noreply.github.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "550cfbb65d97e4100b9ba05e5ea023046f9eb218",
+          "message": "perf(sampling): vectorize lane-paired active measurements (#292)\n\nAdd AVX-512 probability and in-place collapse kernels for active\nmeasurements whose Pauli pairs fit within a vector block. Select the\nkernel during executable-plan lowering while preserving scalar\nfallbacks for unsupported ISAs, diagonal and high-pivot shapes, and\nunprofitable width-three cases.\n\nStore the dispatch tag in existing action padding and compact\npivot-zero lane representatives directly into the state prefix. Add\nexhaustive scalar-oracle coverage for masks, pivots, phase classes,\nbranches, and ISA fallback boundaries.\n\nAssisted-by: Codex (GPT-5.6) <noreply@openai.com>",
+          "timestamp": "2026-08-11T01:27:45Z",
+          "url": "https://github.com/unitaryfoundation/clifft/commit/550cfbb65d97e4100b9ba05e5ea023046f9eb218"
+        },
+        "date": 1786430359882,
+        "tool": "catch2",
+        "benches": [
+          {
+            "name": "QV-10 x100 shots",
+            "value": 56.4924,
+            "range": "± 2.00755",
+            "unit": "ms",
+            "extra": "100 samples\n1 iterations"
+          },
+          {
+            "name": "cultivation-d5 x1000 shots",
+            "value": 76.7166,
+            "range": "± 556.924",
+            "unit": "ms",
+            "extra": "100 samples\n1 iterations"
+          },
+          {
+            "name": "surface-d7-r7 p=1e-3 x10000 shots",
+            "value": 101.182,
+            "range": "± 1.68034",
+            "unit": "ms",
+            "extra": "100 samples\n1 iterations"
+          },
+          {
+            "name": "surface-d5-r5 p=0.05 x10000 shots",
+            "value": 94.9797,
+            "range": "± 1.06104",
+            "unit": "ms",
+            "extra": "100 samples\n1 iterations"
+          },
+          {
+            "name": "surface-d11-r11 p=1e-3 x1000 shots",
+            "value": 38.7001,
+            "range": "± 677.758",
+            "unit": "ms",
+            "extra": "100 samples\n1 iterations"
+          },
+          {
+            "name": "exp-val 20q 200 probes x100k",
+            "value": 160.952,
+            "range": "± 7.80457",
             "unit": "ms",
             "extra": "100 samples\n1 iterations"
           }
