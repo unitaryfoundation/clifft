@@ -28,9 +28,7 @@ namespace {
 
 using Pauli = internal::PlannerPauli;
 using Tableau = internal::PlannerTableau;
-using internal::active_measurement_frame;
 using internal::CoordinateFrame;
-using internal::dormant_measurement_frame;
 using internal::dormant_promotion_frame;
 using internal::SymbolicPauliFrame;
 
@@ -439,9 +437,11 @@ void process_rotation(const PendingRotation& rotation, SamplingPlan& plan, uint3
             ", but the dense-state limit is " + std::to_string(kDenseActiveWidthLimit));
     }
 
-    const Tableau frame = dormant_promotion_frame(resolved.body, active_width, *dormant_pivot);
-    coordinates.change_basis(frame);
-    compose_final_tableau(plan, frame);
+    if (plan.final_tableau.has_value()) {
+        compose_final_tableau(plan,
+                              dormant_promotion_frame(resolved.body, active_width, *dormant_pivot));
+    }
+    coordinates.promote_dormant(resolved.body, active_width, *dormant_pivot);
     plan.actions.push_back(
         PlannedAction{active_width, active_width + 1,
                       PromoteDormantRotation{rotation.half_turns, std::move(resolved.sign)}});
@@ -456,8 +456,7 @@ AffineBool process_measurement(const PendingMeasurement& measurement, SamplingPl
         resolve_pauli(measurement.body, measurement.sign, coordinates, symbolic_frame);
     const std::optional<uint32_t> dormant_pivot = first_x_at_or_above(resolved.body, active_width);
     if (dormant_pivot.has_value()) {
-        const Tableau frame = dormant_measurement_frame(resolved.body, *dormant_pivot);
-        coordinates.change_basis(frame);
+        coordinates.measure_dormant(resolved.body, *dormant_pivot);
 
         const uint32_t action_index = static_cast<uint32_t>(plan.actions.size());
         const SymbolId branch = measurement.branch;
@@ -492,8 +491,7 @@ AffineBool process_measurement(const PendingMeasurement& measurement, SamplingPl
         active_body.xs[q] = resolved.body.xs[q];
         active_body.zs[q] = resolved.body.zs[q];
     }
-    const Tableau frame = active_measurement_frame(active_body, active_width, *pivot);
-    coordinates.change_basis(frame);
+    coordinates.measure_active(active_body, active_width, *pivot);
 
     const uint32_t action_index = static_cast<uint32_t>(plan.actions.size());
     const SymbolId branch = measurement.branch;
@@ -536,9 +534,7 @@ void process_instrument(const PendingInstrument& instrument, SamplingPlan& plan,
                                           ", but the dense-state limit is " +
                                           std::to_string(kDenseActiveWidthLimit));
             }
-            const Tableau frame =
-                dormant_promotion_frame(resolved.body, active_width, *dormant_pivot);
-            coordinates.change_basis(frame);
+            coordinates.promote_dormant(resolved.body, active_width, *dormant_pivot);
             ++active_after;
             mode = InstrumentMode::Activate;
             // The promotion frame installs this observable as the next X

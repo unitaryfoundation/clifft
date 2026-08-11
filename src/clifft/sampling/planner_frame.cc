@@ -128,8 +128,7 @@ PlannerPauli CoordinateFrame::to_initial(const PlannerPauli& current) const {
 }
 
 void CoordinateFrame::change_basis(const PlannerTableau& new_basis_in_old_coordinates) {
-    initial_to_current_.reset();
-    direct_reverse_lookups_ = 0;
+    invalidate_reverse_cache();
     PlannerTableau previous(std::move(current_to_initial_));
     assert(new_basis_in_old_coordinates.num_qubits == previous.num_qubits);
     current_to_initial_ = PlannerTableau(new_basis_in_old_coordinates.num_qubits);
@@ -140,6 +139,108 @@ void CoordinateFrame::change_basis(const PlannerTableau& new_basis_in_old_coordi
                                 previous);
     }
     assert(current_to_initial_.satisfies_invariants());
+}
+
+void CoordinateFrame::promote_dormant(const PlannerPauli& promoted, uint32_t active_width,
+                                      uint32_t dormant_pivot) {
+    const uint32_t n = static_cast<uint32_t>(current_to_initial_.num_qubits);
+    assert(promoted.num_qubits == n && active_width < n && dormant_pivot >= active_width &&
+           dormant_pivot < n);
+
+    PlannerPauli mapped_promoted = to_initial(promoted);
+    PlannerPauli pivot_stabilizer(current_to_initial_.zs[dormant_pivot]);
+    invalidate_reverse_cache();
+
+    // The new promoted pair replaces the selected dormant pair. Every other
+    // generator that anticommutes with the promoted Pauli acquires the old
+    // pivot stabilizer, preserving the same symplectic basis as the generic
+    // frame composition without materializing its identity rows.
+    for (uint32_t q = 0; q < n; ++q) {
+        if (q == dormant_pivot) {
+            continue;
+        }
+        if (promoted.zs[q]) {
+            current_to_initial_.xs[q] *= pivot_stabilizer;
+        }
+        if (promoted.xs[q]) {
+            current_to_initial_.zs[q] *= pivot_stabilizer;
+        }
+    }
+
+    for (uint32_t q = dormant_pivot; q > active_width; --q) {
+        current_to_initial_.xs[q] = current_to_initial_.xs[q - 1];
+        current_to_initial_.zs[q] = current_to_initial_.zs[q - 1];
+    }
+    current_to_initial_.xs[active_width] = mapped_promoted;
+    current_to_initial_.zs[active_width] = pivot_stabilizer;
+    assert(current_to_initial_.satisfies_invariants());
+}
+
+void CoordinateFrame::measure_dormant(const PlannerPauli& measured, uint32_t dormant_pivot) {
+    const uint32_t n = static_cast<uint32_t>(current_to_initial_.num_qubits);
+    assert(measured.num_qubits == n && dormant_pivot < n);
+
+    PlannerPauli mapped_measured = to_initial(measured);
+    PlannerPauli pivot_stabilizer(current_to_initial_.zs[dormant_pivot]);
+    invalidate_reverse_cache();
+
+    for (uint32_t q = 0; q < n; ++q) {
+        if (q == dormant_pivot) {
+            continue;
+        }
+        if (measured.zs[q]) {
+            current_to_initial_.xs[q] *= pivot_stabilizer;
+        }
+        if (measured.xs[q]) {
+            current_to_initial_.zs[q] *= pivot_stabilizer;
+        }
+    }
+    current_to_initial_.xs[dormant_pivot] = pivot_stabilizer;
+    current_to_initial_.zs[dormant_pivot] = mapped_measured;
+    assert(current_to_initial_.satisfies_invariants());
+}
+
+void CoordinateFrame::measure_active(const PlannerPauli& measured, uint32_t active_width,
+                                     uint32_t pivot) {
+    assert(measured.num_qubits == current_to_initial_.num_qubits && active_width > 0 &&
+           active_width <= current_to_initial_.num_qubits && pivot < active_width);
+
+    const bool diagonal = !has_x_below(measured, active_width);
+    PlannerPauli mapped_measured = to_initial(measured);
+    PlannerPauli pivot_conjugate(diagonal ? current_to_initial_.xs[pivot]
+                                          : current_to_initial_.zs[pivot]);
+    invalidate_reverse_cache();
+
+    for (uint32_t q = 0; q < active_width; ++q) {
+        if (q == pivot) {
+            continue;
+        }
+        if (diagonal) {
+            if (measured.zs[q]) {
+                current_to_initial_.xs[q] *= pivot_conjugate;
+            }
+        } else {
+            if (measured.xs[q]) {
+                current_to_initial_.zs[q] *= pivot_conjugate;
+            }
+            if (measured.zs[q]) {
+                current_to_initial_.xs[q] *= pivot_conjugate;
+            }
+        }
+    }
+
+    for (uint32_t q = pivot; q + 1 < active_width; ++q) {
+        current_to_initial_.xs[q] = current_to_initial_.xs[q + 1];
+        current_to_initial_.zs[q] = current_to_initial_.zs[q + 1];
+    }
+    current_to_initial_.xs[active_width - 1] = pivot_conjugate;
+    current_to_initial_.zs[active_width - 1] = mapped_measured;
+    assert(current_to_initial_.satisfies_invariants());
+}
+
+void CoordinateFrame::invalidate_reverse_cache() {
+    initial_to_current_.reset();
+    direct_reverse_lookups_ = 0;
 }
 
 size_t SymbolicPauliFrame::estimated_workspace_bytes(uint32_t num_qubits, uint32_t num_symbols) {

@@ -160,17 +160,38 @@ TEST_CASE("Planner coordinate frame matches inverse across packed words") {
     PlannerPauli promoted(kNumQubits);
     promoted.zs[0] = true;
     promoted.xs[69] = true;
-    apply_change(dormant_promotion_frame(promoted, 1, 69));
+    promoted.sign = true;
+    PlannerTableau promotion = dormant_promotion_frame(promoted, 1, 69);
+    coordinates.promote_dormant(promoted, 1, 69);
+    cumulative = promotion.then(cumulative);
+    require_matches_inverse();
 
     PlannerPauli active(kNumQubits);
     active.xs[0] = true;
     active.zs[64] = true;
-    apply_change(active_measurement_frame(active, 65, 0));
+    active.sign = true;
+    PlannerTableau active_removal = active_measurement_frame(active, 65, 0);
+    coordinates.measure_active(active, 65, 0);
+    cumulative = active_removal.then(cumulative);
+    require_matches_inverse();
+
+    PlannerPauli diagonal(kNumQubits);
+    diagonal.zs[3] = true;
+    diagonal.zs[63] = true;
+    diagonal.sign = true;
+    PlannerTableau diagonal_removal = active_measurement_frame(diagonal, 64, 3);
+    coordinates.measure_active(diagonal, 64, 3);
+    cumulative = diagonal_removal.then(cumulative);
+    require_matches_inverse();
 
     PlannerPauli dormant(kNumQubits);
     dormant.zs[0] = true;
     dormant.xs[69] = true;
-    apply_change(dormant_measurement_frame(dormant, 69));
+    dormant.sign = true;
+    PlannerTableau dormant_replacement = dormant_measurement_frame(dormant, 69);
+    coordinates.measure_dormant(dormant, 69);
+    cumulative = dormant_replacement.then(cumulative);
+    require_matches_inverse();
 }
 
 TEST_CASE("Planner coordinate frame caches repeated reverse lookups") {
@@ -193,6 +214,21 @@ TEST_CASE("Planner coordinate frame caches repeated reverse lookups") {
     REQUIRE_FALSE(coordinates.has_cached_inverse_for_testing());
     REQUIRE(coordinates.to_current(initial) ==
             change.inverse().scatter_eval(initial.ref(), {0, 1, 2}));
+
+    for (uint32_t lookup = 0; lookup < 2 * kNumQubits; ++lookup) {
+        static_cast<void>(coordinates.to_current(initial));
+    }
+    REQUIRE(coordinates.has_cached_inverse_for_testing());
+
+    PlannerPauli promoted(kNumQubits);
+    promoted.zs[0] = true;
+    promoted.xs[2] = true;
+    promoted.sign = true;
+    const PlannerTableau promotion = dormant_promotion_frame(promoted, 1, 2);
+    coordinates.promote_dormant(promoted, 1, 2);
+    REQUIRE_FALSE(coordinates.has_cached_inverse_for_testing());
+    REQUIRE(coordinates.to_current(initial) ==
+            promotion.then(change).inverse().scatter_eval(initial.ref(), {0, 1, 2}));
 }
 
 TEST_CASE("Planner symbolic frame composes affine Pauli corrections") {
