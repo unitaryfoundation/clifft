@@ -61,9 +61,13 @@ add_library(clifft_core STATIC
 # x86-64 runtime dispatch: compile AVX2 and AVX-512 TUs with SIMD flags.
 if((CMAKE_SYSTEM_PROCESSOR MATCHES "(x86_64|AMD64|amd64)") AND NOT MSVC)
     target_sources(clifft_core PRIVATE
+        sampling/kernels_avx2.cc
         sampling/kernels_avx512.cc
         svm/svm_avx2.cc
         svm/svm_avx512.cc
+    )
+    set_source_files_properties(sampling/kernels_avx2.cc
+        PROPERTIES COMPILE_OPTIONS "-mavx2;-mbmi2;-mfma"
     )
     set_source_files_properties(svm/svm_avx2.cc
         PROPERTIES COMPILE_OPTIONS "-mavx2;-mbmi2;-mfma"

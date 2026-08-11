@@ -9,31 +9,40 @@ namespace clifft::sampling {
 
 namespace {
 
-// One full vector block: the dense state must span the vector lanes before a
-// whole-block kernel is profitable or even addressable.
-constexpr uint32_t kMinVectorActiveWidth = 3;
-static_assert(uint64_t{1} << kMinVectorActiveWidth == kAvx512DoubleLanes);
+constexpr uint32_t kMinAvx2ActiveWidth = 2;
+constexpr uint32_t kMinAvx512ActiveWidth = 3;
+static_assert(uint64_t{1} << kMinAvx2ActiveWidth == kAvx2DoubleLanes);
+static_assert(uint64_t{1} << kMinAvx512ActiveWidth == kAvx512DoubleLanes);
 
-// Stride-16 pairing regressed against scalar at every measured active width,
-// so this pivot stays on the fallback until a kernel designed for it exists.
-constexpr uint64_t kPivotFourSelector = uint64_t{1} << 4;
-
-DirectRotationKernel select_direct_rotation_avx512(const PreparedRotation& rotation) noexcept {
+DirectRotationKernel select_direct_rotation(const PreparedRotation& rotation, uint64_t vector_lanes,
+                                            uint32_t min_active_width,
+                                            bool exclude_pivot_four) noexcept {
     if (rotation.pauli.is_identity()) {
         return DirectRotationKernel::Scalar;
     }
     if (rotation.pauli.is_diagonal()) {
-        return rotation.pauli.active_width >= kMinVectorActiveWidth ? DirectRotationKernel::Diagonal
-                                                                    : DirectRotationKernel::Scalar;
+        return rotation.pauli.active_width >= min_active_width ? DirectRotationKernel::Diagonal
+                                                               : DirectRotationKernel::Scalar;
     }
     const uint64_t pairing_bit = rotation.pauli.pair_selector;
-    if (pairing_bit < kAvx512DoubleLanes) {
-        return rotation.pauli.active_width >= kMinVectorActiveWidth
-                   ? DirectRotationKernel::LanePaired
-                   : DirectRotationKernel::Scalar;
+    if (pairing_bit < vector_lanes) {
+        return rotation.pauli.active_width >= min_active_width ? DirectRotationKernel::LanePaired
+                                                               : DirectRotationKernel::Scalar;
     }
-    return pairing_bit != kPivotFourSelector ? DirectRotationKernel::HighPivot
-                                             : DirectRotationKernel::Scalar;
+    if (exclude_pivot_four && pairing_bit == (uint64_t{1} << 4)) {
+        return DirectRotationKernel::Scalar;
+    }
+    return DirectRotationKernel::HighPivot;
+}
+
+DirectRotationKernel select_direct_rotation_avx2(const PreparedRotation& rotation) noexcept {
+    return select_direct_rotation(rotation, kAvx2DoubleLanes, kMinAvx2ActiveWidth, false);
+}
+
+DirectRotationKernel select_direct_rotation_avx512(const PreparedRotation& rotation) noexcept {
+    // Stride-16 pairing regressed against scalar at every measured active
+    // width on the AVX-512 performance host.
+    return select_direct_rotation(rotation, kAvx512DoubleLanes, kMinAvx512ActiveWidth, true);
 }
 
 #if defined(CLIFFT_ENABLE_RUNTIME_DISPATCH)
@@ -49,6 +58,9 @@ const internal::RuntimeIsa kResolvedDirectRotationIsa = internal::runtime_isa();
 
 DirectRotationKernel resolve_direct_rotation_kernel(const PreparedRotation& rotation,
                                                     internal::RuntimeIsa runtime_isa) noexcept {
+    if (runtime_isa == internal::RuntimeIsa::Avx2) {
+        return select_direct_rotation_avx2(rotation);
+    }
     if (runtime_isa == internal::RuntimeIsa::Avx512) {
         return select_direct_rotation_avx512(rotation);
     }
@@ -59,9 +71,13 @@ void apply_direct_rotation(State& state, const PreparedRotation& rotation,
                            DirectRotationKernel kernel, bool sign) noexcept {
 #if defined(CLIFFT_ENABLE_RUNTIME_DISPATCH)
     if (kernel != DirectRotationKernel::Scalar) {
-        assert(kResolvedDirectRotationIsa == internal::RuntimeIsa::Avx512 &&
-               "vector direct rotation shape requires the selected AVX-512 implementation");
-        apply_direct_rotation_avx512(state, rotation, kernel, sign);
+        if (kResolvedDirectRotationIsa == internal::RuntimeIsa::Avx2) {
+            apply_direct_rotation_avx2(state, rotation, kernel, sign);
+        } else {
+            assert(kResolvedDirectRotationIsa == internal::RuntimeIsa::Avx512 &&
+                   "vector direct rotation requires a selected SIMD implementation");
+            apply_direct_rotation_avx512(state, rotation, kernel, sign);
+        }
         return;
     }
     apply_rotation(state, rotation, sign);
