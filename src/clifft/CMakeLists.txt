@@ -28,6 +28,7 @@ add_library(clifft_core STATIC
     sampling/executor.cc
     sampling/fused_rotation.cc
     sampling/fused_rotation_dispatch.cc
+    sampling/instrument_activation_dispatch.cc
     sampling/kernels.cc
     sampling/sampler.cc
     sampling/state.cc

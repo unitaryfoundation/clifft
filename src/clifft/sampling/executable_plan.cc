@@ -230,6 +230,11 @@ ExecutablePlan::ExecutablePlan(const SamplingPlan& plan)
                 } else if constexpr (std::is_same_v<T, ApplyInstrument>) {
                     has_instruments_ = true;
                     const bool new_x_activation = activates_new_x(typed, planned.active_after);
+                    std::optional<NewXInstrumentKernel> new_x_kernel;
+                    if (new_x_activation) {
+                        new_x_kernel =
+                            resolve_new_x_instrument_kernel(planned.active_before, runtime_isa);
+                    }
                     std::optional<PreparedMeasurement> measurement;
                     if (typed.mode == InstrumentMode::Active ||
                         (typed.mode == InstrumentMode::Activate && !new_x_activation)) {
@@ -242,7 +247,7 @@ ExecutablePlan::ExecutablePlan(const SamplingPlan& plan)
                         measurement = prepare_measurement(typed.source, width, pivot);
                     }
                     actions_.emplace_back(ExecuteInstrument{
-                        typed.mode, new_x_activation, prepare_expression(typed.sign),
+                        typed.mode, new_x_kernel, prepare_expression(typed.sign),
                         std::move(measurement), index(typed.site),
                         typed.destination_flip.has_value()
                             ? std::optional<uint32_t>{index(*typed.destination_flip)}
@@ -334,7 +339,7 @@ size_t ExecutablePlan::num_new_x_instrument_activations() const {
     return static_cast<size_t>(
         std::count_if(actions_.begin(), actions_.end(), [](const Action& action) {
             const auto* instrument = std::get_if<ExecuteInstrument>(&action);
-            return instrument != nullptr && instrument->activates_new_x;
+            return instrument != nullptr && instrument->activates_new_x();
         }));
 }
 

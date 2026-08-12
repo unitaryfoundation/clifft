@@ -5,6 +5,8 @@
 #include "clifft/sampling/direct_rotation_simd.h"
 #include "clifft/sampling/fused_rotation_simd.h"
 #include "clifft/sampling/indexing.h"
+#include "clifft/sampling/instrument_activation_simd.h"
+#include "clifft/util/numeric.h"
 
 #include <array>
 #include <bit>
@@ -403,7 +405,7 @@ void collapse_active_measurement_avx2(State& state, const PreparedMeasurement& m
     assert(state.active_width() == measurement.pauli.active_width &&
            !measurement.pauli.is_diagonal() && measurement.pauli.x < kLanes &&
            measurement.pivot < 2 && measurement.pauli.active_width >= 2 &&
-           std::isfinite(branch_probability) && branch_probability > 0.0 &&
+           is_finite_robust(branch_probability) && branch_probability > 0.0 &&
            "AVX2 active measurement requires a positive-probability low-lane pairing");
     if (measurement.pauli.even_phase.real() != 0.0) {
         collapse_active_measurement_avx2_impl<true>(state, measurement, branch, branch_probability);
@@ -480,6 +482,30 @@ FusedRotationSidecar prepare_fused_rotation_avx2_sidecar(const PreparedFusedRota
     }
 
     return FusedRotationSidecar{std::move(sidecar), apply_fused_rotation_avx2};
+}
+
+void apply_new_x_instrument_no_fire_avx2(State& state, double factor_zero, double factor_one,
+                                         double no_fire_probability) noexcept {
+    assert(state.active_width() >= 2 && state.active_width() < state.max_active_width() &&
+           "AVX2 new-X activation requires at least one vector block and spare capacity");
+    assert(factor_zero >= 0.0 && factor_zero <= 1.0 && factor_one >= 0.0 && factor_one <= 1.0 &&
+           is_finite_robust(no_fire_probability) && no_fire_probability > 0.0 &&
+           "AVX2 new-X no-fire expansion requires valid factors and probability");
+    const double inv_norm = 1.0 / std::sqrt(no_fire_probability);
+    const __m256d identity_factor = _mm256_set1_pd(0.5 * (factor_zero + factor_one) * inv_norm);
+    const __m256d pauli_factor = _mm256_set1_pd(0.5 * (factor_zero - factor_one) * inv_norm);
+    const uint64_t old_size = state.size();
+    double* const real = state.real_data();
+    double* const imag = state.imag_data();
+    for (uint64_t basis = 0; basis < old_size; basis += kLanes) {
+        const __m256d input_real = _mm256_load_pd(real + basis);
+        const __m256d input_imag = _mm256_load_pd(imag + basis);
+        _mm256_store_pd(real + basis, _mm256_mul_pd(identity_factor, input_real));
+        _mm256_store_pd(imag + basis, _mm256_mul_pd(identity_factor, input_imag));
+        _mm256_store_pd(real + old_size + basis, _mm256_mul_pd(pauli_factor, input_real));
+        _mm256_store_pd(imag + old_size + basis, _mm256_mul_pd(pauli_factor, input_imag));
+    }
+    state.set_active_width(state.active_width() + 1);
 }
 
 }  // namespace clifft::sampling

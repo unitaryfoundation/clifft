@@ -5,6 +5,7 @@
 #include "clifft/sampling/direct_rotation_simd.h"
 #include "clifft/sampling/fused_rotation_simd.h"
 #include "clifft/sampling/indexing.h"
+#include "clifft/util/numeric.h"
 
 #include <array>
 #include <bit>
@@ -411,7 +412,7 @@ void collapse_active_measurement_avx512(State& state, const PreparedMeasurement&
     assert(state.active_width() == measurement.pauli.active_width &&
            !measurement.pauli.is_diagonal() && measurement.pauli.x < kLanes &&
            measurement.pivot < 3 && measurement.pauli.active_width >= 3 &&
-           std::isfinite(branch_probability) && branch_probability > 0.0 &&
+           is_finite_robust(branch_probability) && branch_probability > 0.0 &&
            "AVX-512 active measurement requires a positive-probability low-lane pairing");
     if (measurement.pauli.even_phase.real() != 0.0) {
         collapse_active_measurement_avx512_impl<true>(state, measurement, branch,
