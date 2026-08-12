@@ -188,6 +188,10 @@ class ExecutablePlan {
         uint32_t destination_flip = 0;
     };
 
+    // These forms intentionally store the same prepared operands but remain
+    // distinct so dispatch encodes whether a clean coordinate must be added.
+    // The current planner selects new-X activation, while validated plans and
+    // future planners may still require the generic measured-source fallback.
     struct ExecuteMeasuredInstrumentActivation {
         PreparedMeasurement measurement;
         PreparedExpression sign;
@@ -219,8 +223,11 @@ class ExecutablePlan {
                      ExecuteNewXInstrumentActivation>;
 
     struct ExecuteInstrument {
-        InstrumentAction action;
+        InstrumentAction form;
     };
+
+    static_assert(sizeof(ExecuteInstrument) <= 96,
+                  "instrument specialization must preserve the compact descriptor");
 
     struct ExecuteBoundary {
         uint32_t site = 0;

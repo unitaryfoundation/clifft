@@ -30,7 +30,7 @@ size_t ExecutablePlan::num_new_x_instrument_activations() const {
         std::count_if(actions_.begin(), actions_.end(), [](const Action& action) {
             const auto* instrument = std::get_if<ExecuteInstrument>(&action);
             return instrument != nullptr &&
-                   std::holds_alternative<ExecuteNewXInstrumentActivation>(instrument->action);
+                   std::holds_alternative<ExecuteNewXInstrumentActivation>(instrument->form);
         }));
 }
 

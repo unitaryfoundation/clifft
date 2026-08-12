@@ -610,7 +610,7 @@ void Executor::execute_action(const ExecutablePlan::ExecuteInstrument& action,
         result.reachable = false;
     } else {
         std::visit([&](const auto& instrument) noexcept { execute_instrument(instrument); },
-                   action.action);
+                   action.form);
     }
 }
 
