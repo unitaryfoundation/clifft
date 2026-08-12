@@ -25,6 +25,7 @@ using clifft::sampling::ActiveMeasurementKernel;
 using clifft::sampling::ActivePauli;
 using clifft::sampling::apply_instrument_no_fire;
 using clifft::sampling::apply_new_x_instrument_no_fire;
+using clifft::sampling::apply_new_x_instrument_no_fire_dispatched;
 using clifft::sampling::apply_promotion;
 using clifft::sampling::apply_rotation;
 using clifft::sampling::collapse_active_measurement;
@@ -385,18 +386,11 @@ TEST_CASE("Active measurement SIMD selection preserves scalar boundaries") {
 }
 
 TEST_CASE("New X instrument SIMD selection preserves scalar boundaries") {
-    REQUIRE(resolve_new_x_instrument_kernel(false, 3, RuntimeIsa::Avx2) ==
-            NewXInstrumentKernel::NotApplicable);
-    REQUIRE(resolve_new_x_instrument_kernel(true, 1, RuntimeIsa::Avx2) ==
-            NewXInstrumentKernel::Scalar);
-    REQUIRE(resolve_new_x_instrument_kernel(true, 2, RuntimeIsa::Avx2) ==
-            NewXInstrumentKernel::Avx2);
-    REQUIRE(resolve_new_x_instrument_kernel(true, 8, RuntimeIsa::Avx2) ==
-            NewXInstrumentKernel::Avx2);
-    REQUIRE(resolve_new_x_instrument_kernel(true, 8, RuntimeIsa::Scalar) ==
-            NewXInstrumentKernel::Scalar);
-    REQUIRE(resolve_new_x_instrument_kernel(true, 8, RuntimeIsa::Avx512) ==
-            NewXInstrumentKernel::Scalar);
+    REQUIRE(resolve_new_x_instrument_kernel(1, RuntimeIsa::Avx2) == NewXInstrumentKernel::Scalar);
+    REQUIRE(resolve_new_x_instrument_kernel(2, RuntimeIsa::Avx2) == NewXInstrumentKernel::Avx2);
+    REQUIRE(resolve_new_x_instrument_kernel(8, RuntimeIsa::Avx2) == NewXInstrumentKernel::Avx2);
+    REQUIRE(resolve_new_x_instrument_kernel(8, RuntimeIsa::Scalar) == NewXInstrumentKernel::Scalar);
+    REQUIRE(resolve_new_x_instrument_kernel(8, RuntimeIsa::Avx512) == NewXInstrumentKernel::Avx2);
 }
 
 TEST_CASE("Sampling kernel expectation values match the existing dense matrix oracle") {
@@ -725,7 +719,8 @@ TEST_CASE("Sampling new X instrument activation matches the generic widened sour
 }
 
 TEST_CASE("Sampling AVX2 new X instrument activation matches scalar") {
-    if (clifft::internal::runtime_isa() != RuntimeIsa::Avx2) {
+    const RuntimeIsa runtime_isa = clifft::internal::runtime_isa();
+    if (runtime_isa != RuntimeIsa::Avx2 && runtime_isa != RuntimeIsa::Avx512) {
         return;
     }
 
@@ -745,8 +740,8 @@ TEST_CASE("Sampling AVX2 new X instrument activation matches scalar") {
 
             State actual(initial_width + 1, initial_width);
             load_state(actual, input);
-            apply_new_x_instrument_no_fire(actual, factor_zero, factor_one, no_fire_probability,
-                                           NewXInstrumentKernel::Avx2);
+            apply_new_x_instrument_no_fire_dispatched(
+                actual, factor_zero, factor_one, no_fire_probability, NewXInstrumentKernel::Avx2);
 
             require_vectors_close(coefficients(actual), coefficients(expected));
             REQUIRE(actual.active_width() == initial_width + 1);

@@ -23,33 +23,35 @@ const internal::RuntimeIsa kResolvedInstrumentActivationIsa = internal::runtime_
 
 }  // namespace
 
-NewXInstrumentKernel resolve_new_x_instrument_kernel(bool activates_new_x, uint32_t active_width,
+NewXInstrumentKernel resolve_new_x_instrument_kernel(uint32_t active_width,
                                                      internal::RuntimeIsa runtime_isa) noexcept {
-    if (!activates_new_x) {
-        return NewXInstrumentKernel::NotApplicable;
-    }
-    if (runtime_isa == internal::RuntimeIsa::Avx2 && active_width >= kMinAvx2ActiveWidth) {
+    // The AVX-512 tier includes every feature required by the AVX2 kernel, and
+    // reusing it avoids falling back to baseline scalar code in portable wheels.
+    if ((runtime_isa == internal::RuntimeIsa::Avx2 ||
+         runtime_isa == internal::RuntimeIsa::Avx512) &&
+        active_width >= kMinAvx2ActiveWidth) {
         return NewXInstrumentKernel::Avx2;
     }
     return NewXInstrumentKernel::Scalar;
 }
 
-void apply_new_x_instrument_no_fire(State& state, double factor_zero, double factor_one,
-                                    double no_fire_probability,
-                                    NewXInstrumentKernel kernel) noexcept {
+void apply_new_x_instrument_no_fire_dispatched(State& state, double factor_zero, double factor_one,
+                                               double no_fire_probability,
+                                               NewXInstrumentKernel kernel) noexcept {
     assert(kernel != NewXInstrumentKernel::NotApplicable &&
            "new-X instrument dispatch requires an applicable kernel");
 #if defined(CLIFFT_ENABLE_RUNTIME_DISPATCH)
-    assert(kernel == resolve_new_x_instrument_kernel(true, state.active_width(),
+    assert(kernel == resolve_new_x_instrument_kernel(state.active_width(),
                                                      kResolvedInstrumentActivationIsa) &&
            "new-X instrument kernel must match the process ISA");
     if (kernel == NewXInstrumentKernel::Avx2) {
-        if (kResolvedInstrumentActivationIsa == internal::RuntimeIsa::Avx2) {
+        if (kResolvedInstrumentActivationIsa == internal::RuntimeIsa::Avx2 ||
+            kResolvedInstrumentActivationIsa == internal::RuntimeIsa::Avx512) {
             apply_new_x_instrument_no_fire_avx2(state, factor_zero, factor_one,
                                                 no_fire_probability);
             return;
         }
-        assert(false && "AVX2 new-X instrument kernel requires the AVX2 process ISA");
+        assert(false && "AVX2 new-X instrument kernel requires an AVX2-capable process ISA");
     }
 #else
     assert(kernel == NewXInstrumentKernel::Scalar &&

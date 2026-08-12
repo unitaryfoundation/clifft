@@ -562,8 +562,8 @@ void Executor::execute_action(const ExecutablePlan::ExecuteInstrument& action,
         assert(no_fire_probability > 0.0 &&
                "a selected no-fire branch must have positive probability");
         if (action.activates_new_x()) {
-            apply_new_x_instrument_no_fire(state_, factor_zero, factor_one, no_fire_probability,
-                                           action.new_x_kernel);
+            apply_new_x_instrument_no_fire_dispatched(state_, factor_zero, factor_one,
+                                                      no_fire_probability, action.new_x_kernel);
         } else {
             apply_instrument_no_fire(state_, action.measurement->pauli, factor_zero, factor_one,
                                      no_fire_probability);

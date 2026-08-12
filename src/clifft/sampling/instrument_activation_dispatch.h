@@ -20,10 +20,10 @@ enum class NewXInstrumentKernel : uint8_t {
 static_assert(sizeof(NewXInstrumentKernel) == 1);
 
 [[nodiscard]] NewXInstrumentKernel resolve_new_x_instrument_kernel(
-    bool activates_new_x, uint32_t active_width, internal::RuntimeIsa runtime_isa) noexcept;
+    uint32_t active_width, internal::RuntimeIsa runtime_isa) noexcept;
 
-void apply_new_x_instrument_no_fire(State& state, double factor_zero, double factor_one,
-                                    double no_fire_probability,
-                                    NewXInstrumentKernel kernel) noexcept;
+void apply_new_x_instrument_no_fire_dispatched(State& state, double factor_zero, double factor_one,
+                                               double no_fire_probability,
+                                               NewXInstrumentKernel kernel) noexcept;
 
 }  // namespace clifft::sampling

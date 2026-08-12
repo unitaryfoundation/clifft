@@ -6,6 +6,7 @@
 #include "clifft/sampling/fused_rotation_simd.h"
 #include "clifft/sampling/indexing.h"
 #include "clifft/sampling/instrument_activation_simd.h"
+#include "clifft/util/numeric.h"
 
 #include <array>
 #include <bit>
@@ -404,7 +405,7 @@ void collapse_active_measurement_avx2(State& state, const PreparedMeasurement& m
     assert(state.active_width() == measurement.pauli.active_width &&
            !measurement.pauli.is_diagonal() && measurement.pauli.x < kLanes &&
            measurement.pivot < 2 && measurement.pauli.active_width >= 2 &&
-           std::isfinite(branch_probability) && branch_probability > 0.0 &&
+           is_finite_robust(branch_probability) && branch_probability > 0.0 &&
            "AVX2 active measurement requires a positive-probability low-lane pairing");
     if (measurement.pauli.even_phase.real() != 0.0) {
         collapse_active_measurement_avx2_impl<true>(state, measurement, branch, branch_probability);
@@ -488,7 +489,7 @@ void apply_new_x_instrument_no_fire_avx2(State& state, double factor_zero, doubl
     assert(state.active_width() >= 2 && state.active_width() < state.max_active_width() &&
            "AVX2 new-X activation requires at least one vector block and spare capacity");
     assert(factor_zero >= 0.0 && factor_zero <= 1.0 && factor_one >= 0.0 && factor_one <= 1.0 &&
-           std::isfinite(no_fire_probability) && no_fire_probability > 0.0 &&
+           is_finite_robust(no_fire_probability) && no_fire_probability > 0.0 &&
            "AVX2 new-X no-fire expansion requires valid factors and probability");
     const double inv_norm = 1.0 / std::sqrt(no_fire_probability);
     const __m256d identity_factor = _mm256_set1_pd(0.5 * (factor_zero + factor_one) * inv_norm);
