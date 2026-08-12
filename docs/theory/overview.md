@@ -46,7 +46,7 @@ The factors have distinct roles:
 
 - **$P_j(s_{\le j})$ (Pauli frame):** Represents branch-dependent Pauli
   corrections from noise, measurement outcomes, and classical feedback. It is
-  a mathematical component of the trajectory state, but the symbolic executor
+  a mathematical component of the trajectory state, but the sampling executor
   does not materialize it as a mutable $n$-qubit runtime frame.
 
 - **$A_j$ and $D_j$ (active and dormant coordinates):** Partition the current
