@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1786430424849,
+  "lastUpdate": 1786517451070,
   "repoUrl": "https://github.com/unitaryfoundation/clifft",
   "entries": {
     "C++ Catch2 benchmarks (AVX2)": [
@@ -5438,6 +5438,70 @@ window.BENCHMARK_DATA = {
             "name": "exp-val 20q 200 probes x100k",
             "value": 154.38,
             "range": "± 3.57779",
+            "unit": "ms",
+            "extra": "100 samples\n1 iterations"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Brad Chase",
+            "username": "bachase",
+            "email": "14430+bachase@users.noreply.github.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "7e8e301636cc2b896b7fd8641b66513361cba1a7",
+          "message": "perf(sampling): add AVX2 symbolic kernels (#309)\n\nAdd runtime-dispatched AVX2 kernels for direct and fused rotations and\nactive-measurement probability and collapse. Preserve scalar and AVX-512\nfallbacks, keep ISA-specific data outside portable descriptors, and add\ndifferential, boundary, and portability coverage.\n\nCloses #285.\n\nAssisted-by: Codex (GPT-5.6) <noreply@openai.com>",
+          "timestamp": "2026-08-11T21:09:17Z",
+          "url": "https://github.com/unitaryfoundation/clifft/commit/7e8e301636cc2b896b7fd8641b66513361cba1a7"
+        },
+        "date": 1786517449952,
+        "tool": "catch2",
+        "benches": [
+          {
+            "name": "QV-10 x100 shots",
+            "value": 41.4238,
+            "range": "± 172.39",
+            "unit": "ms",
+            "extra": "100 samples\n1 iterations"
+          },
+          {
+            "name": "cultivation-d5 x1000 shots",
+            "value": 62.9338,
+            "range": "± 271.239",
+            "unit": "ms",
+            "extra": "100 samples\n1 iterations"
+          },
+          {
+            "name": "surface-d7-r7 p=1e-3 x10000 shots",
+            "value": 111.425,
+            "range": "± 2.61707",
+            "unit": "ms",
+            "extra": "100 samples\n1 iterations"
+          },
+          {
+            "name": "surface-d5-r5 p=0.05 x10000 shots",
+            "value": 99.5484,
+            "range": "± 631.353",
+            "unit": "ms",
+            "extra": "100 samples\n1 iterations"
+          },
+          {
+            "name": "surface-d11-r11 p=1e-3 x1000 shots",
+            "value": 42.0457,
+            "range": "± 228.279",
+            "unit": "ms",
+            "extra": "100 samples\n1 iterations"
+          },
+          {
+            "name": "exp-val 20q 200 probes x100k",
+            "value": 153.894,
+            "range": "± 1.10677",
             "unit": "ms",
             "extra": "100 samples\n1 iterations"
           }
