@@ -59,9 +59,6 @@ class ExecutablePlan {
     friend class Executor;
     friend class ExecutablePlanBuilder;
 
-    struct BuilderTag {};
-    ExecutablePlan(const SamplingPlan& plan, BuilderTag);
-
     struct PreparedExpression {
         uint32_t register_id = 0;
     };

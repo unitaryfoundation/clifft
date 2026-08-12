@@ -19,6 +19,14 @@ namespace {
 template <typename>
 inline constexpr bool kAlwaysFalse = false;
 
+#if defined(_MSC_VER)
+#define CLIFFT_BUILDER_FORCE_INLINE __forceinline
+#elif defined(__GNUC__) || defined(__clang__)
+#define CLIFFT_BUILDER_FORCE_INLINE inline __attribute__((always_inline))
+#else
+#define CLIFFT_BUILDER_FORCE_INLINE inline
+#endif
+
 bool activates_new_x(const ApplyInstrument& instrument, uint32_t active_after) {
     return instrument.mode == InstrumentMode::Activate && active_after > 0 &&
            instrument.source.z == 0 && instrument.source.x == (uint64_t{1} << (active_after - 1));
@@ -34,7 +42,7 @@ void ExecutablePlanBuilder::build(ExecutablePlan& output, const SamplingPlan& so
 ExecutablePlanBuilder::ExecutablePlanBuilder(ExecutablePlan& output, const SamplingPlan& source)
     : output_(output), source_(source) {}
 
-void ExecutablePlanBuilder::compile() {
+CLIFFT_BUILDER_FORCE_INLINE void ExecutablePlanBuilder::compile() {
     source_.validate();
     runtime_isa_ = clifft::internal::runtime_isa();
     clifft::internal::validate_runtime_isa(runtime_isa_);
@@ -45,7 +53,7 @@ void ExecutablePlanBuilder::compile() {
     validate_executable_plan();
 }
 
-void ExecutablePlanBuilder::initialize_program() {
+CLIFFT_BUILDER_FORCE_INLINE void ExecutablePlanBuilder::initialize_program() {
     if (source_.symbols.size() > std::numeric_limits<uint32_t>::max()) {
         throw std::length_error("sampling executable symbol count exceeds uint32 range");
     }
@@ -54,13 +62,15 @@ void ExecutablePlanBuilder::initialize_program() {
 
     output_.actions_.reserve(source_.actions.size());
     output_.expression_register_constants_.reserve(source_.actions.size());
+    // The reserve prepass pays for itself on expression-heavy plans by
+    // avoiding repeated growth of the temporary term tape.
     expression_terms_.reserve(estimate_expression_terms());
     expression_term_begins_.reserve(source_.actions.size());
     output_.instrument_resume_offsets_.assign(source_.num_instrument_sites,
                                               std::numeric_limits<uint32_t>::max());
 }
 
-size_t ExecutablePlanBuilder::estimate_expression_terms() const {
+CLIFFT_BUILDER_FORCE_INLINE size_t ExecutablePlanBuilder::estimate_expression_terms() const {
     size_t num_terms = 0;
     for (const PlannedAction& planned : source_.actions) {
         std::visit(
@@ -71,6 +81,8 @@ size_t ExecutablePlanBuilder::estimate_expression_terms() const {
                     num_terms += typed.sign.terms().size();
                 } else if constexpr (std::is_same_v<T, MeasureActivePauli> ||
                                      std::is_same_v<T, MeasureDormantRandom>) {
+                    // The current branch is stored separately so replay can
+                    // solve for it from the requested record.
                     num_terms += typed.outcome.terms().size() - 1;
                 } else if constexpr (std::is_same_v<T, RecordClassical>) {
                     num_terms += typed.outcome.terms().size();
@@ -98,7 +110,7 @@ size_t ExecutablePlanBuilder::estimate_expression_terms() const {
     return num_terms;
 }
 
-void ExecutablePlanBuilder::prepare_noise_and_boundaries() {
+CLIFFT_BUILDER_FORCE_INLINE void ExecutablePlanBuilder::prepare_noise_and_boundaries() {
     output_.presampled_symbols_.reserve(source_.symbols.size());
     std::vector<bool> bound_presampled(source_.symbols.size(), false);
     output_.noise_sites_.reserve(source_.presampled_noise_sites.size());
@@ -139,15 +151,18 @@ void ExecutablePlanBuilder::prepare_noise_and_boundaries() {
         boundary_noise_starts_.empty() ? source_.num_noise_sites : boundary_noise_starts_.front();
 }
 
-inline void ExecutablePlanBuilder::ensure_expression_term_capacity(size_t additional_terms) const {
+CLIFFT_BUILDER_FORCE_INLINE void ExecutablePlanBuilder::ensure_expression_term_capacity(
+    size_t additional_terms) const {
     constexpr size_t kMaxExpressionTerms = std::numeric_limits<uint32_t>::max();
+    // Dynamic fusion can replace source signs with denser basis expressions,
+    // so the source-plan count is only a reserve estimate after lowering.
     if (additional_terms > kMaxExpressionTerms - expression_terms_.size()) {
         throw std::length_error("sampling executable expression storage exceeds uint32 range");
     }
 }
 
-inline ExecutablePlan::PreparedExpression ExecutablePlanBuilder::prepare_expression(
-    const AffineBool& expression) {
+CLIFFT_BUILDER_FORCE_INLINE ExecutablePlan::PreparedExpression
+ExecutablePlanBuilder::prepare_expression(const AffineBool& expression) {
     if (output_.expression_register_constants_.size() >= std::numeric_limits<uint32_t>::max()) {
         throw std::length_error("sampling executable expression count exceeds uint32 range");
     }
@@ -162,8 +177,8 @@ inline ExecutablePlan::PreparedExpression ExecutablePlanBuilder::prepare_express
     return {register_id};
 }
 
-inline ExecutablePlan::PreparedExpression ExecutablePlanBuilder::prepare_measurement_correction(
-    const AffineBool& outcome, uint32_t branch) {
+CLIFFT_BUILDER_FORCE_INLINE ExecutablePlan::PreparedExpression
+ExecutablePlanBuilder::prepare_measurement_correction(const AffineBool& outcome, uint32_t branch) {
     if (output_.expression_register_constants_.size() >= std::numeric_limits<uint32_t>::max()) {
         throw std::length_error("sampling executable expression count exceeds uint32 range");
     }
@@ -183,7 +198,8 @@ inline ExecutablePlan::PreparedExpression ExecutablePlanBuilder::prepare_measure
     return {register_id};
 }
 
-inline void ExecutablePlanBuilder::lower_action(const PlannedAction& planned) {
+CLIFFT_BUILDER_FORCE_INLINE void ExecutablePlanBuilder::lower_action(const PlannedAction& planned,
+                                                                     size_t& boundary_index) {
     std::visit(
         [&](const auto& typed) {
             using T = std::decay_t<decltype(typed)>;
@@ -262,15 +278,15 @@ inline void ExecutablePlanBuilder::lower_action(const PlannedAction& planned) {
                         ? std::optional<uint32_t>{index(*typed.destination_flip)}
                         : std::nullopt});
             } else if constexpr (std::is_same_v<T, InstrumentBoundary>) {
-                const uint32_t noise_end = boundary_index_ + 1 < boundary_noise_starts_.size()
-                                               ? boundary_noise_starts_[boundary_index_ + 1]
+                const uint32_t noise_end = boundary_index + 1 < boundary_noise_starts_.size()
+                                               ? boundary_noise_starts_[boundary_index + 1]
                                                : source_.num_noise_sites;
                 output_.instrument_resume_offsets_[index(typed.site)] =
                     static_cast<uint32_t>(output_.actions_.size());
                 output_.actions_.emplace_back(ExecutablePlan::ExecuteBoundary{
                     index(typed.site), planned.active_before,
-                    boundary_noise_starts_[boundary_index_], noise_end, typed.symbol_prefix_size});
-                ++boundary_index_;
+                    boundary_noise_starts_[boundary_index], noise_end, typed.symbol_prefix_size});
+                ++boundary_index;
             } else {
                 static_assert(kAlwaysFalse<T>, "Unhandled SamplingAction alternative");
             }
@@ -278,8 +294,9 @@ inline void ExecutablePlanBuilder::lower_action(const PlannedAction& planned) {
         planned.action);
 }
 
-void ExecutablePlanBuilder::lower_actions() {
+CLIFFT_BUILDER_FORCE_INLINE void ExecutablePlanBuilder::lower_actions() {
     size_t planned_index = 0;
+    size_t boundary_index = 0;
     while (planned_index < source_.actions.size()) {
         DynamicFusedRotationRun dynamic_run;
         // AVX2 dynamic fusion regressed large active states despite helping
@@ -319,12 +336,12 @@ void ExecutablePlanBuilder::lower_actions() {
         const size_t unfused_count = std::max<size_t>(run.action_count, 1);
         const size_t run_end = planned_index + unfused_count;
         for (; planned_index < run_end; ++planned_index) {
-            lower_action(source_.actions[planned_index]);
+            lower_action(source_.actions[planned_index], boundary_index);
         }
     }
 }
 
-void ExecutablePlanBuilder::build_expression_dependencies() {
+CLIFFT_BUILDER_FORCE_INLINE void ExecutablePlanBuilder::build_expression_dependencies() {
     output_.expression_dependency_offsets_.assign(static_cast<size_t>(output_.num_symbols_) + 1, 0);
     for (uint32_t symbol : expression_terms_) {
         ++output_.expression_dependency_offsets_[static_cast<size_t>(symbol) + 1];
@@ -347,7 +364,7 @@ void ExecutablePlanBuilder::build_expression_dependencies() {
     }
 }
 
-void ExecutablePlanBuilder::validate_executable_plan() const {
+CLIFFT_BUILDER_FORCE_INLINE void ExecutablePlanBuilder::validate_executable_plan() const {
 #ifndef NDEBUG
     assert(expression_term_begins_.size() == output_.expression_register_constants_.size() &&
            "expression register storage is inconsistent");
@@ -426,5 +443,7 @@ void ExecutablePlanBuilder::validate_executable_plan() const {
     }
 #endif
 }
+
+#undef CLIFFT_BUILDER_FORCE_INLINE
 
 }  // namespace clifft::sampling

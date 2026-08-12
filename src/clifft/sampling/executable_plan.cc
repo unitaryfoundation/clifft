@@ -8,11 +8,7 @@
 
 namespace clifft::sampling {
 
-ExecutablePlan::ExecutablePlan(const SamplingPlan& plan) : ExecutablePlan(plan, BuilderTag{}) {
-    ExecutablePlanBuilder::build(*this, plan);
-}
-
-ExecutablePlan::ExecutablePlan(const SamplingPlan& plan, BuilderTag)
+ExecutablePlan::ExecutablePlan(const SamplingPlan& plan)
     : num_qubits_(plan.num_qubits),
       initial_active_width_(plan.initial_active_width),
       max_active_width_(plan.max_active_width),
@@ -24,7 +20,10 @@ ExecutablePlan::ExecutablePlan(const SamplingPlan& plan, BuilderTag)
       has_postselection_(plan.has_postselection),
       global_weight_(plan.global_weight),
       final_tableau_(plan.final_tableau),
-      instrument_distributions_(plan.instrument_distributions) {}
+      instrument_distributions_(plan.instrument_distributions) {
+    // Keep construction-only lowering state out of the immutable executable.
+    ExecutablePlanBuilder::build(*this, plan);
+}
 
 size_t ExecutablePlan::num_new_x_instrument_activations() const {
     return static_cast<size_t>(

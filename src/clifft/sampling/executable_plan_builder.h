@@ -12,17 +12,17 @@ namespace clifft::sampling {
 // Construction-only state for lowering a validated SamplingPlan into the
 // fixed storage consumed by Executor.
 class ExecutablePlanBuilder {
-  public:
-    static void build(ExecutablePlan& output, const SamplingPlan& source);
-
   private:
+    friend class ExecutablePlan;
+
+    static void build(ExecutablePlan& output, const SamplingPlan& source);
     ExecutablePlanBuilder(ExecutablePlan& output, const SamplingPlan& source);
 
     void compile();
     void initialize_program();
     void prepare_noise_and_boundaries();
     void lower_actions();
-    void lower_action(const PlannedAction& planned);
+    void lower_action(const PlannedAction& planned, size_t& boundary_index);
     void build_expression_dependencies();
     void validate_executable_plan() const;
     [[nodiscard]] size_t estimate_expression_terms() const;
@@ -36,10 +36,10 @@ class ExecutablePlanBuilder {
     ExecutablePlan& output_;
     const SamplingPlan& source_;
     clifft::internal::RuntimeIsa runtime_isa_ = clifft::internal::RuntimeIsa::Scalar;
+    // Retain action-order terms only until the dependency CSR is complete.
     std::vector<uint32_t> expression_terms_;
     std::vector<uint32_t> expression_term_begins_;
     std::vector<uint32_t> boundary_noise_starts_;
-    size_t boundary_index_ = 0;
 };
 
 }  // namespace clifft::sampling
