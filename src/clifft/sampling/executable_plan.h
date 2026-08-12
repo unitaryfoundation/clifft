@@ -17,6 +17,7 @@
 namespace clifft::sampling {
 
 class Executor;
+class ExecutablePlanBuilder;
 
 // Owns the CPU lowering of one validated SamplingPlan. Direct-Pauli kernel
 // descriptors and affine-expression register dependencies are prepared once
@@ -56,6 +57,7 @@ class ExecutablePlan {
 
   private:
     friend class Executor;
+    friend class ExecutablePlanBuilder;
 
     struct PreparedExpression {
         uint32_t register_id = 0;
