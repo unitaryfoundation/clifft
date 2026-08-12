@@ -230,10 +230,11 @@ ExecutablePlan::ExecutablePlan(const SamplingPlan& plan)
                 } else if constexpr (std::is_same_v<T, ApplyInstrument>) {
                     has_instruments_ = true;
                     const bool new_x_activation = activates_new_x(typed, planned.active_after);
-                    const NewXInstrumentKernel new_x_kernel =
-                        new_x_activation
-                            ? resolve_new_x_instrument_kernel(planned.active_before, runtime_isa)
-                            : NewXInstrumentKernel::NotApplicable;
+                    std::optional<NewXInstrumentKernel> new_x_kernel;
+                    if (new_x_activation) {
+                        new_x_kernel =
+                            resolve_new_x_instrument_kernel(planned.active_before, runtime_isa);
+                    }
                     std::optional<PreparedMeasurement> measurement;
                     if (typed.mode == InstrumentMode::Active ||
                         (typed.mode == InstrumentMode::Activate && !new_x_activation)) {

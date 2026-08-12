@@ -12,7 +12,6 @@ namespace clifft::sampling {
 
 // Architecture-neutral selection stored in a prepared instrument action.
 enum class NewXInstrumentKernel : uint8_t {
-    NotApplicable,
     Scalar,
     Avx2,
 };

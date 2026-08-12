@@ -173,15 +173,13 @@ class ExecutablePlan {
         InstrumentMode mode = InstrumentMode::Classical;
         // Lowering identifies the exact new-coordinate X shape so execution
         // need not rediscover instrument topology inside the hot loop.
-        NewXInstrumentKernel new_x_kernel = NewXInstrumentKernel::NotApplicable;
+        std::optional<NewXInstrumentKernel> new_x_kernel;
         PreparedExpression sign;
         std::optional<PreparedMeasurement> measurement;
         uint32_t site = 0;
         std::optional<uint32_t> destination_flip;
 
-        [[nodiscard]] bool activates_new_x() const noexcept {
-            return new_x_kernel != NewXInstrumentKernel::NotApplicable;
-        }
+        [[nodiscard]] bool activates_new_x() const noexcept { return new_x_kernel.has_value(); }
     };
 
     static_assert(sizeof(ExecuteInstrument) == 104,

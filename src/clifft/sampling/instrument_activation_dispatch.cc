@@ -38,8 +38,6 @@ NewXInstrumentKernel resolve_new_x_instrument_kernel(uint32_t active_width,
 void apply_new_x_instrument_no_fire_dispatched(State& state, double factor_zero, double factor_one,
                                                double no_fire_probability,
                                                NewXInstrumentKernel kernel) noexcept {
-    assert(kernel != NewXInstrumentKernel::NotApplicable &&
-           "new-X instrument dispatch requires an applicable kernel");
 #if defined(CLIFFT_ENABLE_RUNTIME_DISPATCH)
     assert(kernel == resolve_new_x_instrument_kernel(state.active_width(),
                                                      kResolvedInstrumentActivationIsa) &&
