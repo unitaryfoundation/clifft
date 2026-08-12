@@ -255,28 +255,50 @@ CLIFFT_BUILDER_FORCE_INLINE void ExecutablePlanBuilder::lower_action(const Plann
                     index(typed.exp_val)});
             } else if constexpr (std::is_same_v<T, ApplyInstrument>) {
                 output_.has_instruments_ = true;
-                const bool new_x_activation = activates_new_x(typed, planned.active_after);
-                std::optional<NewXInstrumentKernel> new_x_kernel;
-                if (new_x_activation) {
-                    new_x_kernel =
-                        resolve_new_x_instrument_kernel(planned.active_before, runtime_isa_);
+                if (typed.mode == InstrumentMode::DormantTrap) {
+                    output_.actions_.emplace_back(ExecutablePlan::ExecuteInstrument{
+                        ExecutablePlan::ExecuteDormantInstrumentTrap{index(typed.site)}});
+                    return;
                 }
-                std::optional<PreparedMeasurement> measurement;
-                if (typed.mode == InstrumentMode::Active ||
-                    (typed.mode == InstrumentMode::Activate && !new_x_activation)) {
-                    const uint32_t width = typed.mode == InstrumentMode::Activate
-                                               ? planned.active_after
-                                               : planned.active_before;
-                    const uint64_t support = typed.source.x != 0 ? typed.source.x : typed.source.z;
-                    const uint32_t pivot = static_cast<uint32_t>(std::countr_zero(support));
-                    measurement = prepare_measurement(typed.source, width, pivot);
+
+                assert(typed.destination_flip.has_value() &&
+                       "validated in-line instrument must define a destination flip");
+                const uint32_t site = index(typed.site);
+                const uint32_t destination_flip = index(*typed.destination_flip);
+                if (typed.mode == InstrumentMode::Classical) {
+                    output_.actions_.emplace_back(ExecutablePlan::ExecuteInstrument{
+                        ExecutablePlan::ExecuteClassicalInstrument{prepare_expression(typed.sign),
+                                                                   site, destination_flip}});
+                    return;
                 }
-                output_.actions_.emplace_back(ExecutablePlan::ExecuteInstrument{
-                    typed.mode, new_x_kernel, prepare_expression(typed.sign),
-                    std::move(measurement), index(typed.site),
-                    typed.destination_flip.has_value()
-                        ? std::optional<uint32_t>{index(*typed.destination_flip)}
-                        : std::nullopt});
+
+                if (activates_new_x(typed, planned.active_after)) {
+                    output_.actions_.emplace_back(ExecutablePlan::ExecuteInstrument{
+                        ExecutablePlan::ExecuteNewXInstrumentActivation{
+                            prepare_expression(typed.sign), site, destination_flip,
+                            resolve_new_x_instrument_kernel(planned.active_before, runtime_isa_)}});
+                    return;
+                }
+
+                const uint32_t width = typed.mode == InstrumentMode::Activate
+                                           ? planned.active_after
+                                           : planned.active_before;
+                const uint64_t support = typed.source.x != 0 ? typed.source.x : typed.source.z;
+                const uint32_t pivot = static_cast<uint32_t>(std::countr_zero(support));
+                PreparedMeasurement measurement = prepare_measurement(typed.source, width, pivot);
+                if (typed.mode == InstrumentMode::Activate) {
+                    output_.actions_.emplace_back(ExecutablePlan::ExecuteInstrument{
+                        ExecutablePlan::ExecuteMeasuredInstrumentActivation{
+                            std::move(measurement), prepare_expression(typed.sign), site,
+                            destination_flip}});
+                } else {
+                    assert(typed.mode == InstrumentMode::Active &&
+                           "validated instrument mode must have a concrete lowering");
+                    output_.actions_.emplace_back(
+                        ExecutablePlan::ExecuteInstrument{ExecutablePlan::ExecuteActiveInstrument{
+                            std::move(measurement), prepare_expression(typed.sign), site,
+                            destination_flip}});
+                }
             } else if constexpr (std::is_same_v<T, InstrumentBoundary>) {
                 const uint32_t noise_end = boundary_index + 1 < boundary_noise_starts_.size()
                                                ? boundary_noise_starts_[boundary_index + 1]
@@ -423,9 +445,20 @@ CLIFFT_BUILDER_FORCE_INLINE void ExecutablePlanBuilder::validate_executable_plan
                 } else if constexpr (std::is_same_v<T, ExecutablePlan::ExecuteExpectation>) {
                     validate_expression(typed.sign);
                 } else if constexpr (std::is_same_v<T, ExecutablePlan::ExecuteInstrument>) {
-                    validate_expression(typed.sign);
-                    assert(typed.site < output_.instrument_distributions_.size() &&
-                           "instrument site is out of range");
+                    std::visit(
+                        [&](const auto& instrument) {
+                            using Instrument = std::decay_t<decltype(instrument)>;
+                            assert(instrument.site < output_.instrument_distributions_.size() &&
+                                   "instrument site is out of range");
+                            if constexpr (!std::is_same_v<
+                                              Instrument,
+                                              ExecutablePlan::ExecuteDormantInstrumentTrap>) {
+                                validate_expression(instrument.sign);
+                                assert(instrument.destination_flip < output_.num_symbols_ &&
+                                       "instrument destination flip is out of range");
+                            }
+                        },
+                        typed.action);
                 } else if constexpr (std::is_same_v<T, ExecutablePlan::ExecuteBoundary>) {
                     assert(typed.site < output_.instrument_resume_offsets_.size() &&
                            "instrument boundary site is out of range");

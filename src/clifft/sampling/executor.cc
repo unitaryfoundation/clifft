@@ -469,76 +469,83 @@ void Executor::execute_action(const ExecutablePlan::ExecuteExpectation& action,
     exp_vals_[action.exp_val] = evaluate(action.sign) ? -value : value;
 }
 
-template <bool ForceRecords>
-void Executor::execute_action(const ExecutablePlan::ExecuteInstrument& action,
-                              std::span<const uint8_t>, ReplayResult& result) noexcept {
-    if constexpr (ForceRecords) {
-        result.reachable = false;
+void Executor::trap_instrument(uint32_t site, uint8_t source, bool destination_pending) noexcept {
+    pending_trap_ = InstrumentTrap{InstrumentSiteId{site}, source, destination_pending};
+}
+
+void Executor::finish_instrument_fire(uint32_t site, uint32_t destination_flip, uint8_t source,
+                                      const InstrumentDistribution& distribution) noexcept {
+    assert(distribution.p_fire[source] > 0.0 &&
+           "a fired instrument source must have positive mass");
+    const double draw = rng_.next_double() * distribution.p_fire[source];
+    int destination = -1;
+    if (draw < distribution.p_computational_dest[source][0]) {
+        destination = 0;
+    } else if (draw < distribution.p_computational_dest[source][0] +
+                          distribution.p_computational_dest[source][1]) {
+        destination = 1;
+    }
+    if (destination < 0) {
+        trap_instrument(site, source, false);
+    } else if (destination != source) {
+        assign_symbol(destination_flip, true);
+    }
+}
+
+void Executor::execute_instrument(
+    const ExecutablePlan::ExecuteClassicalInstrument& action) noexcept {
+    assert(action.site < plan_->instrument_distributions_.size() &&
+           "instrument action must reference a prepared distribution");
+    const InstrumentDistribution& distribution = plan_->instrument_distributions_[action.site];
+    assign_symbol(action.destination_flip, false);
+    const uint8_t source = static_cast<uint8_t>(evaluate(action.sign));
+    if (rng_.next_double() < distribution.p_fire[source]) {
+        finish_instrument_fire(action.site, action.destination_flip, source, distribution);
+    }
+}
+
+void Executor::execute_instrument(
+    const ExecutablePlan::ExecuteDormantInstrumentTrap& action) noexcept {
+    assert(action.site < plan_->instrument_distributions_.size() &&
+           "instrument action must reference a prepared distribution");
+    const InstrumentDistribution& distribution = plan_->instrument_distributions_[action.site];
+    const double mass = distribution.p_fire[0] + distribution.p_fire[1];
+    if (rng_.next_double() * 2.0 >= mass) {
         return;
     }
+    const uint8_t source =
+        rng_.next_double() * mass < distribution.p_fire[0] ? uint8_t{0} : uint8_t{1};
+    trap_instrument(action.site, source, true);
+}
+
+template <typename Action>
+void Executor::execute_quantum_instrument(const Action& action) noexcept {
+    constexpr bool kActivatesCoordinate =
+        std::is_same_v<Action, ExecutablePlan::ExecuteMeasuredInstrumentActivation>;
+    constexpr bool kActivatesNewX =
+        std::is_same_v<Action, ExecutablePlan::ExecuteNewXInstrumentActivation>;
+    static_assert(std::is_same_v<Action, ExecutablePlan::ExecuteActiveInstrument> ||
+                  kActivatesCoordinate || kActivatesNewX);
 
     assert(action.site < plan_->instrument_distributions_.size() &&
            "instrument action must reference a prepared distribution");
     const InstrumentDistribution& distribution = plan_->instrument_distributions_[action.site];
-    if (action.destination_flip.has_value()) {
-        assign_symbol(*action.destination_flip, false);
-    }
-
-    auto trap = [&](uint8_t source, bool destination_pending) {
-        pending_trap_ = InstrumentTrap{InstrumentSiteId{action.site}, source, destination_pending};
-    };
-    auto finish_fire = [&](uint8_t source) {
-        assert(distribution.p_fire[source] > 0.0 &&
-               "a fired instrument source must have positive mass");
-        const double draw = rng_.next_double() * distribution.p_fire[source];
-        int destination = -1;
-        if (draw < distribution.p_computational_dest[source][0]) {
-            destination = 0;
-        } else if (draw < distribution.p_computational_dest[source][0] +
-                              distribution.p_computational_dest[source][1]) {
-            destination = 1;
-        }
-        if (destination < 0) {
-            trap(source, false);
-        } else if (destination != source) {
-            assert(action.destination_flip.has_value() &&
-                   "in-line instrument requires a destination-flip symbol");
-            assign_symbol(*action.destination_flip, true);
-        }
-    };
-
-    if (action.mode == InstrumentMode::Classical) {
-        const uint8_t source = static_cast<uint8_t>(evaluate(action.sign));
-        if (rng_.next_double() < distribution.p_fire[source]) {
-            finish_fire(source);
-        }
-        return;
-    }
-
-    if (action.mode == InstrumentMode::DormantTrap) {
-        const double mass = distribution.p_fire[0] + distribution.p_fire[1];
-        if (rng_.next_double() * 2.0 >= mass) {
-            return;
-        }
-        const uint8_t source =
-            rng_.next_double() * mass < distribution.p_fire[0] ? uint8_t{0} : uint8_t{1};
-        trap(source, true);
-        return;
-    }
-
-    assert((action.activates_new_x() || action.measurement.has_value()) &&
-           "active instrument requires a kernel or prepared source measurement");
-    if (action.mode == InstrumentMode::Activate && !action.activates_new_x()) {
+    assign_symbol(action.destination_flip, false);
+    if constexpr (kActivatesCoordinate) {
         activate_zero_coordinate(state_);
     }
     const bool sign = evaluate(action.sign);
-    // Under the State normalization invariant, the clean |0> coordinate has
-    // exact half populations in the X eigenbasis. Using those semantic values
-    // retains any residual floating-point norm drift instead of reducing and
-    // renormalizing it inside this activation.
-    const MeasurementProbabilities eigen_populations =
-        action.activates_new_x() ? MeasurementProbabilities{0.5, 0.5}
-                                 : measurement_probabilities(state_, *action.measurement);
+    const MeasurementProbabilities eigen_populations = [&]() noexcept {
+        if constexpr (kActivatesNewX) {
+            // Under the State normalization invariant, the clean |0> coordinate has
+            // exact half populations in the X eigenbasis. Using those semantic values
+            // retains any residual floating-point norm drift instead of reducing and
+            // renormalizing it inside this activation.
+            return MeasurementProbabilities{0.5, 0.5};
+        } else {
+            return measurement_probabilities(state_, action.measurement);
+        }
+    }();
     const double total = eigen_populations.total();
     const double epsilon = kMeasurementDustEpsilon * total;
     const double physical_zero = eigen_populations.for_branch(sign);
@@ -561,25 +568,50 @@ void Executor::execute_action(const ExecutablePlan::ExecuteInstrument& action,
                                            factor_one * factor_one * eigen_populations.one;
         assert(no_fire_probability > 0.0 &&
                "a selected no-fire branch must have positive probability");
-        if (action.activates_new_x()) {
+        if constexpr (kActivatesNewX) {
             apply_new_x_instrument_no_fire_dispatched(state_, factor_zero, factor_one,
-                                                      no_fire_probability, *action.new_x_kernel);
+                                                      no_fire_probability, action.kernel);
         } else {
-            apply_instrument_no_fire(state_, action.measurement->pauli, factor_zero, factor_one,
+            apply_instrument_no_fire(state_, action.measurement.pauli, factor_zero, factor_one,
                                      no_fire_probability);
         }
         return;
     }
 
     const bool eigen_branch = (*fired_source != 0) ^ sign;
-    if (action.activates_new_x()) {
+    if constexpr (kActivatesNewX) {
         collapse_new_x_instrument_source(state_, eigen_branch,
                                          eigen_populations.for_branch(eigen_branch));
     } else {
-        collapse_instrument_source(state_, action.measurement->pauli, eigen_branch,
+        collapse_instrument_source(state_, action.measurement.pauli, eigen_branch,
                                    eigen_populations.for_branch(eigen_branch));
     }
-    finish_fire(*fired_source);
+    finish_instrument_fire(action.site, action.destination_flip, *fired_source, distribution);
+}
+
+void Executor::execute_instrument(const ExecutablePlan::ExecuteActiveInstrument& action) noexcept {
+    execute_quantum_instrument(action);
+}
+
+void Executor::execute_instrument(
+    const ExecutablePlan::ExecuteMeasuredInstrumentActivation& action) noexcept {
+    execute_quantum_instrument(action);
+}
+
+void Executor::execute_instrument(
+    const ExecutablePlan::ExecuteNewXInstrumentActivation& action) noexcept {
+    execute_quantum_instrument(action);
+}
+
+template <bool ForceRecords>
+void Executor::execute_action(const ExecutablePlan::ExecuteInstrument& action,
+                              std::span<const uint8_t>, ReplayResult& result) noexcept {
+    if constexpr (ForceRecords) {
+        result.reachable = false;
+    } else {
+        std::visit([&](const auto& instrument) noexcept { execute_instrument(instrument); },
+                   action.action);
+    }
 }
 
 template <bool SampleNoise>
