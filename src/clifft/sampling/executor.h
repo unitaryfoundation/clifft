@@ -183,6 +183,17 @@ class Executor {
     [[nodiscard]] std::optional<double> force_active_branch(MeasurementProbabilities probabilities,
                                                             bool branch) noexcept;
     [[nodiscard]] bool sample_dormant_branch() noexcept;
+    void trap_instrument(uint32_t site, uint8_t source, bool destination_pending) noexcept;
+    void finish_instrument_fire(uint32_t site, uint32_t destination_flip, uint8_t source,
+                                const InstrumentDistribution& distribution) noexcept;
+    void execute_instrument(const ExecutablePlan::ExecuteClassicalInstrument& action) noexcept;
+    void execute_instrument(const ExecutablePlan::ExecuteDormantInstrumentTrap& action) noexcept;
+    void execute_instrument(const ExecutablePlan::ExecuteActiveInstrument& action) noexcept;
+    void execute_instrument(
+        const ExecutablePlan::ExecuteMeasuredInstrumentActivation& action) noexcept;
+    void execute_instrument(const ExecutablePlan::ExecuteNewXInstrumentActivation& action) noexcept;
+    template <typename Action>
+    void execute_quantum_instrument(const Action& action) noexcept;
 
     const ExecutablePlan* root_plan_;
     const ExecutablePlan* plan_;

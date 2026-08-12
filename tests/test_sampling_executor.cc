@@ -831,6 +831,54 @@ TEST_CASE("Sampling executable selects new X instrument activation") {
     REQUIRE(already_active.num_new_x_instrument_activations() == 0);
 }
 
+TEST_CASE("Sampling executable preserves generic instrument activation") {
+    SamplingPlan plan;
+    plan.num_qubits = 2;
+    plan.initial_active_width = 1;
+    plan.max_active_width = 2;
+    plan.num_instrument_sites = 1;
+    plan.symbols = {SymbolInfo{SymbolKind::Instrument, 0, std::nullopt}};
+    plan.instrument_distributions = {InstrumentDistribution{InstrumentSiteId{0}, {}, {}}};
+    plan.actions = {
+        PlannedAction{1, 2,
+                      ApplyInstrument{InstrumentSiteId{0}, InstrumentMode::Activate,
+                                      ActivePauli{0, 0b10}, AffineBool{}, SymbolId{0}}},
+        PlannedAction{2, 2, InstrumentBoundary{InstrumentSiteId{0}, 0, 1}},
+    };
+
+    const ExecutablePlan executable(plan);
+    REQUIRE(executable.num_new_x_instrument_activations() == 0);
+
+    Executor executor(executable, 19);
+    executor.run_shot();
+
+    REQUIRE_FALSE(executor.pending_trap().has_value());
+    REQUIRE(executor.state().active_width() == 2);
+    REQUIRE(executor.symbols()[0] == 0);
+    REQUIRE(executor.state().real_data()[0] == 1.0);
+    REQUIRE(executor.state().real_data()[1] == 0.0);
+    REQUIRE(executor.state().real_data()[2] == 0.0);
+    REQUIRE(executor.state().real_data()[3] == 0.0);
+}
+
+TEST_CASE("Sampling executable rejects unrecognized instrument modes") {
+    SamplingPlan plan;
+    plan.num_qubits = 1;
+    plan.num_instrument_sites = 1;
+    plan.symbols = {SymbolInfo{SymbolKind::Instrument, 0, std::nullopt}};
+    plan.instrument_distributions = {InstrumentDistribution{InstrumentSiteId{0}, {}, {}}};
+    plan.actions = {
+        PlannedAction{
+            0, 0,
+            ApplyInstrument{InstrumentSiteId{0},
+                            static_cast<InstrumentMode>(std::numeric_limits<uint8_t>::max()),
+                            ActivePauli{}, AffineBool{}, SymbolId{0}}},
+        PlannedAction{0, 0, InstrumentBoundary{InstrumentSiteId{0}, 0, 1}},
+    };
+
+    REQUIRE_THROWS_AS(ExecutablePlan(plan), std::logic_error);
+}
+
 TEST_CASE("Sampling executor applies computational instrument destinations in line") {
     clifft::InstrumentTraceOptions options;
     clifft::InstrumentProbabilities reset;

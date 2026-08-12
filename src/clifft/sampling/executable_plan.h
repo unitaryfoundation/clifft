@@ -171,21 +171,63 @@ class ExecutablePlan {
         uint32_t exp_val = 0;
     };
 
-    struct ExecuteInstrument {
-        InstrumentMode mode = InstrumentMode::Classical;
-        // Lowering identifies the exact new-coordinate X shape so execution
-        // need not rediscover instrument topology inside the hot loop.
-        std::optional<NewXInstrumentKernel> new_x_kernel;
+    struct ExecuteClassicalInstrument {
         PreparedExpression sign;
-        std::optional<PreparedMeasurement> measurement;
         uint32_t site = 0;
-        std::optional<uint32_t> destination_flip;
-
-        [[nodiscard]] bool activates_new_x() const noexcept { return new_x_kernel.has_value(); }
+        uint32_t destination_flip = 0;
     };
 
-    static_assert(sizeof(ExecuteInstrument) == 104,
-                  "instrument specialization must not expand its action descriptor");
+    struct ExecuteDormantInstrumentTrap {
+        uint32_t site = 0;
+    };
+
+    struct ExecuteActiveInstrument {
+        PreparedMeasurement measurement;
+        PreparedExpression sign;
+        uint32_t site = 0;
+        uint32_t destination_flip = 0;
+    };
+
+    // These forms intentionally store the same prepared operands but remain
+    // distinct so dispatch encodes whether a clean coordinate must be added.
+    // The current planner selects new-X activation, while validated plans and
+    // future planners may still require the generic measured-source fallback.
+    struct ExecuteMeasuredInstrumentActivation {
+        PreparedMeasurement measurement;
+        PreparedExpression sign;
+        uint32_t site = 0;
+        uint32_t destination_flip = 0;
+    };
+
+    struct ExecuteNewXInstrumentActivation {
+        PreparedExpression sign;
+        uint32_t site = 0;
+        uint32_t destination_flip = 0;
+        // Lowering identifies the exact new-coordinate X shape so execution
+        // need not rediscover instrument topology inside the hot loop.
+        NewXInstrumentKernel kernel = NewXInstrumentKernel::Scalar;
+    };
+
+    static_assert(sizeof(ExecuteActiveInstrument) == 88,
+                  "active instrument specialization must remain compact");
+    static_assert(sizeof(ExecuteMeasuredInstrumentActivation) == 88,
+                  "instrument activation specialization must remain compact");
+
+    // Keep the concrete forms behind one outer alternative so instrument-free
+    // dispatch retains its existing visit table. The trivial dormant form must
+    // remain first because GCC queries the nested variant's default alternative
+    // before the enclosing ExecutablePlan is complete.
+    using InstrumentAction =
+        std::variant<ExecuteDormantInstrumentTrap, ExecuteClassicalInstrument,
+                     ExecuteActiveInstrument, ExecuteMeasuredInstrumentActivation,
+                     ExecuteNewXInstrumentActivation>;
+
+    struct ExecuteInstrument {
+        InstrumentAction form;
+    };
+
+    static_assert(sizeof(ExecuteInstrument) <= 96,
+                  "instrument specialization must preserve the compact descriptor");
 
     struct ExecuteBoundary {
         uint32_t site = 0;
