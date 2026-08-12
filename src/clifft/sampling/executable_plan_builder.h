@@ -9,8 +9,12 @@
 
 namespace clifft::sampling {
 
-// Construction-only state for lowering a validated SamplingPlan into the
-// fixed storage consumed by Executor.
+// One-shot construction context that lowers SamplingPlan actions, affine
+// expressions, noise sites, and continuation boundaries into fixed descriptors
+// and dependency storage consumed by Executor. Keeping its temporary term and
+// boundary vectors here avoids retaining build scratch in the immutable
+// ExecutablePlan; the friend-only entry point prevents rebuilding a finalized
+// plan before this context is discarded.
 class ExecutablePlanBuilder {
   private:
     friend class ExecutablePlan;
