@@ -1,7 +1,6 @@
 #pragma once
 
 #include "clifft/sampling/direct_rotation_dispatch.h"
-#include "clifft/sampling/simd_width.h"
 
 namespace clifft::sampling {
 

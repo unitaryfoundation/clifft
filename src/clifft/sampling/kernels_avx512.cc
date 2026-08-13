@@ -5,6 +5,7 @@
 #include "clifft/sampling/direct_rotation_simd.h"
 #include "clifft/sampling/fused_rotation_simd.h"
 #include "clifft/sampling/indexing.h"
+#include "clifft/sampling/simd_width.h"
 #include "clifft/util/numeric.h"
 
 #include <array>

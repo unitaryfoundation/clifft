@@ -1,6 +1,7 @@
 #include "clifft/sampling/direct_rotation_dispatch.h"
 
 #include "clifft/sampling/direct_rotation_simd.h"
+#include "clifft/sampling/simd_width.h"
 #include "clifft/util/runtime_isa.h"
 
 #include <cassert>

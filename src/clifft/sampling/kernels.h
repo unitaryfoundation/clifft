@@ -15,6 +15,8 @@ struct PreparedPauli {
     uint32_t active_width = 0;
     uint64_t x = 0;
     uint64_t z = 0;
+    // Highest set X bit. It selects the pair stride and half-space for a
+    // non-diagonal Pauli, and is zero only when the Pauli is diagonal.
     uint64_t pairing_bit = 0;
     std::complex<double> even_phase = {1.0, 0.0};
 

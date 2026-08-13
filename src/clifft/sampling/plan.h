@@ -10,7 +10,7 @@
 // device lowering belong to execution-specific layers, which should lower it
 // to packed, preallocated storage before entering per-shot hot loops.
 //
-// An active coordinate is represented explicitly in the dense coefficient
+// An active coordinate is represented explicitly in the dense 2^k coefficient
 // state. A dormant coordinate remains stabilizer-only until an operation makes
 // it active. Affine symbols are per-shot Boolean values that carry stochastic
 // dependencies without expanding the coefficient state.

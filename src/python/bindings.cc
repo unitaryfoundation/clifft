@@ -1015,7 +1015,8 @@ NB_MODULE(_clifft_core, m) {
         },
         nb::arg("program"), nb::arg("shots"), nb::arg("seed") = nb::none(),
         nb::arg("keep_records") = false,
-        "Sample survivor counts and optional records from an experimental program.");
+        "Sample survivor counts and optional records from an experimental "
+        "symbolic-coordinate program.");
 
     m.def(
         "_sample_k_experimental_sampling",
@@ -1037,7 +1038,7 @@ NB_MODULE(_clifft_core, m) {
             return nb::make_tuple(measurements, detectors, observables, exp_vals);
         },
         nb::arg("program"), nb::arg("shots"), nb::arg("k"), nb::arg("seed") = nb::none(),
-        "Sample an experimental program with exactly k forced fault sites.");
+        "Sample an experimental symbolic-coordinate program with exactly k forced fault sites.");
 
     m.def(
         "_sample_k_survivors_experimental_sampling",
@@ -1067,7 +1068,8 @@ NB_MODULE(_clifft_core, m) {
         },
         nb::arg("program"), nb::arg("shots"), nb::arg("k"), nb::arg("seed") = nb::none(),
         nb::arg("keep_records") = false,
-        "Sample experimental survivors with exactly k forced fault sites.");
+        "Sample survivors from an experimental symbolic-coordinate program with exactly k "
+        "forced fault sites.");
 
     m.def(
         "_basis_probabilities_experimental_sampling",
@@ -1098,7 +1100,7 @@ NB_MODULE(_clifft_core, m) {
             return vec_to_numpy(std::move(statevector), {size});
         },
         nb::arg("program"),
-        "Expand an experimental pure-state sampling program into a dense statevector.");
+        "Expand an experimental symbolic-coordinate program into a dense statevector.");
 
     m.def(
         "_record_probabilities_experimental_sampling",
