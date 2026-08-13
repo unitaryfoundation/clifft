@@ -75,10 +75,8 @@ def run_clifft(
     """
     stim_text = str(circuit)
     hir_pm = clifft.default_hir_pass_manager()
-    bpm = clifft.default_bytecode_pass_manager()
-
     t0 = time.perf_counter()
-    prog = clifft.compile(stim_text, hir_passes=hir_pm, bytecode_passes=bpm)
+    prog = clifft.compile(stim_text, hir_passes=hir_pm)
     compile_s = time.perf_counter() - t0
 
     t0 = time.perf_counter()
@@ -201,7 +199,7 @@ For distance $d$, the rotated surface code has $d^2$ data qubits and $(d^2 - 1)/
 `clifft.compile()` accepts the full Stim circuit text — including `REPEAT` blocks, noise channels, `DETECTOR` and `OBSERVABLE_INCLUDE` annotations. In this tutorial, we use the full optimization pipeline:
 
 - **HIR passes** (`clifft.default_hir_pass_manager()`): Peephole fusion on the Heisenberg IR
-- **Bytecode passes** (`clifft.default_bytecode_pass_manager()`): Noise block coalescing, multi-gate fusion, expand-T fusion, and swap-measure optimization
+- **Executable-plan lowering**: active-coordinate planning, expression preparation, and kernel selection
 
 The compiled program is then sampled with `clifft.sample()`, which returns a `SampleResult` object:
 

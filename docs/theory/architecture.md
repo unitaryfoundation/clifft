@@ -1,54 +1,60 @@
 # Software Architecture
 
-This page describes Clifft's concrete software architecture: how the codebase maps to the five-stage pipeline and the key integration contracts.
+Clifft separates circuit analysis from repeated execution. Compilation does
+the tableau and dependency work once; sampling executes a fixed
+symbolic-coordinate plan using preallocated storage.
 
 ## Repository Layout
 
-The source code mirrors the pipeline stages:
+| Directory | Role |
+|---|---|
+| `src/clifft/circuit/` | Circuit AST, parser, and target encoding |
+| `src/clifft/frontend/` | Clifford tracing and Heisenberg IR construction |
+| `src/clifft/optimizer/` | HIR optimization passes |
+| `src/clifft/sampling/` | Active-coordinate planning, executable-plan preparation, executor, and kernels |
+| `src/clifft/noncomp/` | Leakage/loss trajectory planning and continuation handling |
+| `src/python/` | Python API via nanobind |
 
-| Directory | Pipeline Stage | Role |
-|-----------|---------------|------|
-| `src/clifft/circuit/` | Input | Circuit AST, parser, target encoding |
-| `src/clifft/frontend/` | Stage 1 | Drives stabilizer tableau, absorbs Cliffords, emits HIR |
-| `src/clifft/optimizer/` | Stage 2 & 4 | Two-level optimization: HIR passes and bytecode passes |
-| `src/clifft/backend/` | Stage 3 | Virtual frame tracking, Pauli localization, bytecode emission |
-| `src/clifft/svm/` | Stage 5 | Runtime VM: executes  bytecode over dense arrays |
-| `src/python/` | Bindings | Python API via nanobind |
+The older localized SVM implementation remains internal while migration
+tests compare it with the production path. It is not part of the public
+Python compilation API.
 
-!!! important "Isolation Invariant"
-    The hot VM bytecode executor never includes stabilizer tableau code or
-    evaluates tableau mathematics. It executes purely on basic C++ types and
-    arrays. API-level analysis helpers may combine a normal VM execution with
-    compiler metadata such as the final Clifford tableau.
+## Compilation
 
-## Stim for fast Tableau operations
+The front end uses Stim's tableau implementation to absorb Clifford gates and
+express the remaining operations in the Heisenberg frame. HIR passes simplify
+that representation before the sampling planner chooses active symbolic
+coordinates.
 
-Clifft uses [Stim](https://github.com/quantumlib/Stim) exclusively as an AOT mathematical tableau library, **not** as a circuit simulation engine. The runtime VM never touches Stim.
+Executable-plan preparation then converts affine expressions, measurements,
+rotations, active-width transitions, detectors, observables, and
+post-selection checks into fixed descriptors. It also selects supported
+scalar or SIMD kernels for the current host.
 
-The compiler uses Stim to construct and manipulate the offline Clifford frame $U_C$ through the Heisenberg mapping, and exploits `TableauTransposedRaii` for efficient row operations when synthesizing the Pauli localization sequences emitted by the Back-End. The hot VM executor does not consult $U_C$ while executing bytecode; the compiled module may retain a final tableau for API-level exact queries such as dense statevector expansion and basis-state probabilities.
+!!! important "Planning boundary"
+    Runtime kernels do not evolve tableaus, localize Paulis, analyze
+    commutation, or discover symbolic dependencies. Those decisions belong to
+    compilation and plan preparation.
 
-## SVM Bytecode Format
+## Execution and Memory
 
-The VM executes a  instruction set with **32-byte cache-aligned instructions**. Each instruction encodes:
+The executor allocates its coefficient array for the plan's maximum active
+width. Record storage, symbolic registers, expression accumulators, and
+scratch buffers are likewise prepared before the hot dispatch loop. Ordinary
+actions and kernels are allocation-free and exception-free.
 
-- An opcode (gate type, frame operation, measurement, etc.)
-- Up to 2 virtual axis indices (`uint16_t`)
-- Gate parameters (rotation angles, probabilities)
-
-The fixed instruction size ensures L1 cache alignment and predictable memory access patterns during the hot simulation loop.
-
-## Memory Model
-
-The VM allocates a single contiguous complex array of size $2^{k_{\text{max}}}$ at program start. This array is never resized during execution. When measurements reduce the active set, the array is logically compacted (the compiler emits SWAP instructions to route measured qubits to the top axis before measurement).
-
-The Pauli frame ($P$) is tracked as a pair of $n$-bit masks held in 64-bit-word arrays sized to $\lceil n/64 \rceil$ words at state construction. Single-bit reads and writes at known indices compile to a single shifted load or AND/OR; bulk operations iterate the word array.
+The coefficient array contains $2^k$ complex amplitudes for the currently
+active symbolic coordinates, not one amplitude per physical-qubit basis
+state. Clifford structure outside that active space remains represented by
+the compiler's symbolic frame.
 
 ## Python Bindings
 
-Clifft uses [nanobind](https://github.com/wjakob/nanobind) to expose the C++ core to Python. The Python layer provides:
+`clifft.compile()` returns an executable symbolic-coordinate `Program`.
+`clifft.sample()`, survivor sampling, fixed-fault sampling, and exact queries
+all consume that same type. `clifft.get_statevector(program)` expands a small
+pure-unitary program into the full physical-qubit state vector for debugging
+and validation.
 
-- `clifft.compile()` and `clifft.sample()` as the primary interface
-- `clifft.execute()` and `clifft.get_statevector()` for exact state inspection (after measurements or noise, exact up to a global phase)
-- `clifft.trace()` for compilation pipeline debugging
-
-See the [User Guide](../guide/compilation.md) for API details.
+See [Compiling Circuits](../guide/compilation.md) and
+[Simulation](../guide/simulation.md) for API examples.

@@ -50,11 +50,11 @@ SKBUILD_CMAKE_ARGS="-DOpenMP_ROOT=$(brew --prefix libomp)" uv pip install -e .
 
 | Platform / CPU family | PyPI wheel | Source build | Notes |
 |---|---|---|---|
-| Linux `x86_64` with x86-64-v2 support | Supported | Supported | Wheel uses an `x86-64-v2` baseline and can dispatch SVM and symbolic sampling kernels to AVX2/BMI2/FMA or AVX-512 paths on capable CPUs. |
+| Linux `x86_64` with x86-64-v2 support | Supported | Supported | Wheel uses an `x86-64-v2` baseline and dispatches symbolic sampling kernels to AVX2/BMI2/FMA or AVX-512 paths on capable CPUs. |
 | Linux `x86_64` without x86-64-v2 support | Not supported | Supported | Use `pip install --no-binary clifft clifft` or build from a checkout. |
 | Linux `aarch64` | Supported | Supported | Wheels use a portable ARM baseline; local optimized builds default to native CPU tuning. |
 | macOS `arm64` | Supported | Supported | Wheels use a portable Apple Silicon baseline; local optimized builds are supported. |
-| Windows `amd64` | Supported | Supported | Wheels use the base SVM path on MSVC; Linux x86 wheels expose the hand-tuned AVX2/AVX-512 paths. |
+| Windows `amd64` | Supported | Supported | Wheels use portable symbolic kernels on MSVC; Linux x86 wheels additionally expose hand-tuned AVX2/AVX-512 paths. |
 | macOS `x86_64` | Not supported | Supported | Build from source. |
 | Other CPU families | Not supported | Best effort | No wheels are published. |
 
@@ -63,7 +63,7 @@ SKBUILD_CMAKE_ARGS="-DOpenMP_ROOT=$(brew --prefix libomp)" uv pip install -e .
 - Published wheels use explicit portable baselines chosen in CI.
 - Local Python source builds and standalone C++ Release builds default to `CLIFFT_CPU_BASELINE=native`.
 - Supported values are `native`, `generic`, `x86-64-v2`, and `x86-64-v3`.
-- Linux `x86_64` wheels use `x86-64-v2` as the global baseline. Higher-ISA SVM and symbolic sampling kernels are compiled separately and selected at runtime when the host supports them.
+- Linux `x86_64` wheels use `x86-64-v2` as the global baseline. Higher-ISA symbolic sampling kernels are compiled separately and selected at runtime when the host supports them.
 
 Override the default when needed:
 
@@ -112,18 +112,17 @@ cmake --build build -j
 | Release | `-DCMAKE_BUILD_TYPE=Release` | Benchmarking |
 | RelWithDebInfo | `-DCMAKE_BUILD_TYPE=RelWithDebInfo` | Profiling |
 
-For optimized source builds, `Release` and `RelWithDebInfo` default to native CPU tuning on the build machine. On x86 GNU/Clang builds, that keeps the AVX2 and AVX-512 SVM and symbolic sampling specializations available for runtime dispatch.
+For optimized source builds, `Release` and `RelWithDebInfo` default to native CPU tuning on the build machine. On x86 GNU/Clang builds, that keeps the AVX2 and AVX-512 symbolic sampling specializations available for runtime dispatch.
 
 !!! info "First build takes 10-15 minutes"
     Stim (a dependency) has many source files. Subsequent builds are incremental.
     If you hit memory pressure, reduce parallelism: `cmake --build build -j1`
 
-## Qubit limit
+## Circuit size
 
-Clifft sizes Pauli mask storage and the SVM Pauli frame at runtime. The
-only remaining hard limit is the bytecode VM axis operand width: axes
-are uint16_t, so circuits beyond 65,536 qubits cannot be lowered. Below
-that ceiling, no rebuild is required for any circuit size.
+Clifft sizes Pauli masks and symbolic-frame storage from the input circuit at
+runtime. Practical limits therefore depend on compilation memory, active
+width, and output volume rather than a public bytecode-axis limit.
 
 ## WebAssembly Build
 

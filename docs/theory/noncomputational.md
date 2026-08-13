@@ -171,8 +171,8 @@ flag.
 
 Ordinary Clifft compiles a circuit once and reuses the program for many shots.
 The compiler absorbs deterministic Clifford evolution into an offline frame,
-localizes the remaining Pauli operations, and emits bytecode for the factored
-Schrodinger virtual machine.
+plans active symbolic coordinates, and prepares fixed actions for the
+symbolic-coordinate executor.
 
 With noncomputational transitions, the sampled history can change which later
 operations act, which measurements use the classifier, and when a site
@@ -180,11 +180,11 @@ returns to the computational subspace. Those choices differ between shots, so
 one program compiled before sampling cannot describe every trajectory.
 
 `noncomp.sample` instead alternates execution with compilation when the
-sampled history requires it. The VM directly handles outcomes whose state
+sampled history requires it. The executor directly handles outcomes whose state
 update leaves the remaining program valid. When an outcome invalidates the
 compiled remainder -- for example, when a computational site becomes
-noncomputational -- the VM stops at that transition and returns control to the
-trajectory driver. The driver samples any destination the VM did not already
+noncomputational -- the executor stops at that transition and returns control to the
+trajectory driver. The driver samples any destination the executor did not already
 select, records the outcome, updates the status ledger, rewrites the original
 circuit, and compiles a continuation. The continuation preserves the prefix
 already executed, changes the remaining operations to match the new
@@ -192,22 +192,22 @@ trajectory, and resumes after the transition. Jumps whose source is already
 noncomputational are sampled as classical status changes while this
 continuation is constructed.
 
-The compiled transition instruction holds only the source-dependent total
+The prepared transition action holds only the source-dependent total
 jump rates, the separate weights for `g` and `e` destinations, and one
 combined weight for all noncomputational destinations. This is enough for the
-VM to evaluate the live computational state using local array axes. The
+executor to evaluate the live computational state using active coordinates. The
 trajectory driver retains the original five-level matrix so that it can
-resolve the combined noncomputational outcome outside the VM.
+resolve the combined noncomputational outcome outside the executor.
 
-Each continuation still uses Clifft's normal compiler and SVM architecture.
-Clifford operations are absorbed ahead of time, Pauli products are localized
-before execution, and the VM acts only on local array axes and frame data.
+Each continuation still uses Clifft's normal compiler and symbolic-coordinate
+architecture. Clifford operations, coordinate planning, and symbolic
+dependencies are resolved before execution resumes.
 
 ## Active-dimension cost
 
 With the default exact damping policy, the simulation is exact for this hybrid
 quantum-classical model. Most transition positions do not increase the
-[active dimension](overview.md#the-factored-state-representation). A source
+[active dimension](overview.md#symbolic-clifford-coordinates). A source
 already in the active state uses its existing array axis. A definite dormant
 source is determined entirely from the Clifford and Pauli frames.
 

@@ -28,7 +28,7 @@ A fast exact simulator for near-Clifford quantum circuits.
 
 ## What is Clifft?
 
-Clifft is an exact simulator for quantum circuits whose dominant structure is Clifford, but whose behavior depends on localized non-Clifford operations. It accepts Stim-compatible circuits, extends them with non-Clifford gates, and compiles them into bytecode executed by a high-performance virtual machine.
+Clifft is an exact simulator for quantum circuits whose dominant structure is Clifford, but whose behavior depends on localized non-Clifford operations. It accepts Stim-compatible circuits, extends them with non-Clifford gates, and compiles them into a high-performance symbolic-coordinate sampling plan.
 
 Clifft works by factoring the quantum state into an offline Clifford frame, an online Pauli frame, and a dense active state vector. Clifford coordinate transformations are resolved ahead of time, while each shot performs only lightweight frame updates and localized state-vector evolution.
 

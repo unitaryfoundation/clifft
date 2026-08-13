@@ -24,9 +24,9 @@
 Built and maintained by the [Unitary Foundation](https://unitary.foundation).
 
 Clifft accepts Stim-format circuits, extends them with non-Clifford gates, and
-compiles them into bytecode executed by a high-performance Schrödinger Virtual
-Machine. It is designed for circuits whose dominant structure is Clifford, but
-whose behavior depends on localized non-Clifford operations.
+compiles them into symbolic-coordinate sampling plans. It is designed for
+circuits whose dominant structure is Clifford, but whose behavior depends on
+localized non-Clifford operations.
 
 The main simulation cost scales with the active dimension `k` of the dense state
 vector, rather than directly with the total number of physical qubits `n`.
@@ -38,8 +38,8 @@ Non-Clifford operations can increase `k`, while measurements can reduce it.
   detectors, observables, and repeat blocks, plus non-Clifford extensions.
 - **Exact near-Clifford simulation**: simulate localized non-Clifford effects
   without approximating the quantum state.
-- **Optimizing compiler pipeline**: compile once, then sample many shots with
-  HIR and bytecode optimization passes.
+- **Optimizing compiler pipeline**: resolve Clifford coordinates and symbolic
+  dependencies once, then sample many shots from a prepared plan.
 - **Active-dimension scaling**: for low-magic circuits, runtime and memory scale
   with the localized active state rather than the full Hilbert space.
 

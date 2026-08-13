@@ -1,13 +1,13 @@
 # Simulation
 
-Clifft's Schrödinger Virtual Machine (SVM) executes compiled programs. The main simulation APIs are:
+Clifft's symbolic-coordinate executor runs compiled programs. The main simulation APIs are:
 
 - `sample()` for ordinary shot-based sampling
 - [`noncomp.sample()`](leakage-and-loss.md) for leakage and loss trajectories
 - `sample_survivors()` for post-selected sampling
 - `basis_probabilities()` for exact computational-basis probabilities of a unitary program
 - `record_probabilities()` for exact joint probabilities of measurement records
-- `execute()` and `get_statevector()` for inspecting small final states
+- `get_statevector()` for inspecting small pure-unitary final states
 - `sample_k()` and `sample_k_survivors()` for stratified importance sampling
 
 ## Sampling
@@ -51,7 +51,7 @@ All three are returned per shot. Detectors and observables are empty arrays when
 
 ## State Vector Extraction
 
-For debugging and small circuits, `execute()` and `get_statevector()` let you inspect the final dense state vector:
+For debugging and small pure-unitary circuits, `get_statevector()` returns the final dense state vector:
 
 ```python
 import clifft
@@ -61,15 +61,7 @@ program = clifft.compile("""
     CNOT 0 1
 """)
 
-state = clifft.State(
-    peak_rank=program.peak_rank,
-    num_measurements=program.num_measurements,
-    num_detectors=program.num_detectors,
-    num_observables=program.num_observables,
-)
-
-clifft.execute(program, state)
-sv = clifft.get_statevector(program, state)
+sv = clifft.get_statevector(program)
 
 print(sv)  # [0.707+0j, 0+0j, 0+0j, 0.707+0j]
 ```
@@ -164,7 +156,8 @@ program = clifft.compile(
     `normalize_syndromes=True` is mutually exclusive with manually passing
     `expected_detectors` or `expected_observables`.
 
-See [Compiling Circuits](compilation.md#advanced-reference-syndrome-computation) for computing reference syndromes directly.
+See [Compiling Circuits](compilation.md#reference-syndrome-computation) for
+computing reference syndromes directly.
 
 ### Post-Selection / Survivor Sampling
 
@@ -267,6 +260,6 @@ See the [Importance Sampling Tutorial](importance-sampling.md) for a complete wa
 
 ## Performance and Limits
 
-Clifft's simulation cost is controlled primarily by the peak active dimension `program.peak_rank`, not by the total number of physical qubits. The SVM stores and updates a dense active state of size $2^k$, where $k$ is the number of simultaneously active qubits in Clifft's factored representation.
+Clifft's simulation cost is controlled primarily by the peak active dimension `program.peak_rank`, not by the total number of physical qubits. The executor stores and updates a dense active state of size $2^k$, where $k$ is the number of simultaneously active symbolic coordinates.
 
 This means Clifft can handle circuits with many physical qubits when non-Clifford effects remain localized. It also means performance degrades as `program.peak_rank` grows: circuits with large sustained active dimension approach the cost of dense state-vector simulation.

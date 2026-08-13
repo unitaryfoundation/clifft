@@ -74,7 +74,6 @@ prog_probe = clifft.compile(
     circuit_text,
     normalize_syndromes=True,
     hir_passes=clifft.default_hir_pass_manager(),
-    bytecode_passes=clifft.default_bytecode_pass_manager(),
 )
 num_det = prog_probe.num_detectors
 
@@ -86,7 +85,6 @@ prog = clifft.compile(
     normalize_syndromes=True,
     postselection_mask=mask,
     hir_passes=clifft.default_hir_pass_manager(),
-    bytecode_passes=clifft.default_bytecode_pass_manager(),
 )
 
 print(f"Peak rank:      {prog.peak_rank}")       # 4 (only 2^4 = 16 amplitudes)

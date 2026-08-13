@@ -49,19 +49,15 @@ Sampling under a five-level leakage/loss model. See the
 
 ## State Inspection
 
-::: clifft.execute
-
 ::: clifft.get_statevector
 
 ## Result Types
 
 ::: clifft.SampleResult
 
-## Compiled Programs and Execution State
+## Compiled Programs
 
 ::: clifft.Program
-
-::: clifft.State
 
 ## Circuit and IR Inspection
 
@@ -75,10 +71,6 @@ Sampling under a five-level leakage/loss model. See the
 
 ::: clifft.HeisenbergOp
 
-::: clifft.Instruction
-
-::: clifft.Opcode
-
 ::: clifft.OpType
 
 ::: clifft.GateType
@@ -87,11 +79,7 @@ Sampling under a five-level leakage/loss model. See the
 
 ::: clifft.HirPassManager
 
-::: clifft.BytecodePassManager
-
 ::: clifft.default_hir_pass_manager
-
-::: clifft.default_bytecode_pass_manager
 
 ## HIR Passes
 
@@ -103,27 +91,11 @@ Sampling under a five-level leakage/loss model. See the
 
 ::: clifft.DropNonUnitaryPass
 
-## Bytecode Passes
-
-::: clifft.NoiseBlockPass
-
-::: clifft.ExpandTPass
-
-::: clifft.ExpandRotPass
-
-::: clifft.SwapMeasPass
-
-::: clifft.MultiGatePass
-
-::: clifft.SingleAxisFusionPass
-
 ## Utilities
 
 ::: clifft.get_num_threads
 
 ::: clifft.set_num_threads
-
-::: clifft.svm_backend
 
 ::: clifft.version
 
