@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1786517643484,
+  "lastUpdate": 1786604112323,
   "repoUrl": "https://github.com/unitaryfoundation/clifft",
   "entries": {
     "Python pytest-benchmark suite": [
@@ -9303,6 +9303,126 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.006226126090879205",
             "extra": "mean: 1.5653998644000011 sec\nrounds: 5"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Brad Chase",
+            "username": "bachase",
+            "email": "14430+bachase@users.noreply.github.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "73398fd5904a818f41993fc9b5011a24a8bb2ce8",
+          "message": "refactor(sampling): specialize instrument actions\n\nLower planned instrument modes into concrete prepared execution forms while retaining one outer action alternative so ordinary dispatch remains unchanged. Remove hot mode and optional-field checks, preserve classical, dormant-trap, active, generic-activation, and new-X execution semantics, and keep seeded RNG draws, symbol assignment, and continuation behavior unchanged.\n\nMake lowering exhaustive and Release-safe, document the intentionally distinct activation forms, and guard the compact descriptor layout. Retain compiler-selected outlining for rare fire and trap paths after forced inlining measured worse.\n\nCloses #318.\n\nAssisted-by: Codex (GPT-5) <noreply@openai.com>",
+          "timestamp": "2026-08-12T19:59:27Z",
+          "url": "https://github.com/unitaryfoundation/clifft/commit/73398fd5904a818f41993fc9b5011a24a8bb2ce8"
+        },
+        "date": 1786604108701,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "tools/bench/test_bench_deep_clifford.py::test_compile_stim_deep",
+            "value": 1454.180288647834,
+            "unit": "iter/sec",
+            "range": "stddev: 0.000015408622427558193",
+            "extra": "mean: 687.6726412856603 usec\nrounds: 1182"
+          },
+          {
+            "name": "tools/bench/test_bench_deep_clifford.py::test_compile_clifft_deep",
+            "value": 548.4773684679889,
+            "unit": "iter/sec",
+            "range": "stddev: 0.000021342681223870475",
+            "extra": "mean: 1.8232292843608253 msec\nrounds: 422"
+          },
+          {
+            "name": "tools/bench/test_bench_deep_clifford.py::test_sample_stim_deep",
+            "value": 57.51027881213041,
+            "unit": "iter/sec",
+            "range": "stddev: 0.000574368026488262",
+            "extra": "mean: 17.38819600000051 msec\nrounds: 43"
+          },
+          {
+            "name": "tools/bench/test_bench_deep_clifford.py::test_sample_clifft_deep",
+            "value": 0.9419251696274933,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0006830991059494277",
+            "extra": "mean: 1.0616554608000057 sec\nrounds: 5"
+          },
+          {
+            "name": "tools/bench/test_bench_noncomp.py::test_bench_noncomp_plain[d17-r5]",
+            "value": 211.20110268551647,
+            "unit": "iter/sec",
+            "range": "stddev: 0.00025522772504689504",
+            "extra": "mean: 4.734823764102331 msec\nrounds: 195"
+          },
+          {
+            "name": "tools/bench/test_bench_noncomp.py::test_bench_noncomp_lossless[d17-r5]",
+            "value": 280.2846523279928,
+            "unit": "iter/sec",
+            "range": "stddev: 0.000028874606661644482",
+            "extra": "mean: 3.567801489286637 msec\nrounds: 280"
+          },
+          {
+            "name": "tools/bench/test_bench_noncomp.py::test_bench_noncomp_leak[d17-r5]",
+            "value": 17.112053149284595,
+            "unit": "iter/sec",
+            "range": "stddev: 0.00010684220372284532",
+            "extra": "mean: 58.43834116666516 msec\nrounds: 18"
+          },
+          {
+            "name": "tools/bench/test_bench_qec.py::test_compile_stim",
+            "value": 17621.627692739785,
+            "unit": "iter/sec",
+            "range": "stddev: 0.000005461883357874328",
+            "extra": "mean: 56.748446706316805 usec\nrounds: 7909"
+          },
+          {
+            "name": "tools/bench/test_bench_qec.py::test_compile_clifft",
+            "value": 1435.531732220271,
+            "unit": "iter/sec",
+            "range": "stddev: 0.00006312620927844835",
+            "extra": "mean: 696.6059875620764 usec\nrounds: 1206"
+          },
+          {
+            "name": "tools/bench/test_bench_qec.py::test_sample_stim",
+            "value": 111.18299531141186,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0000930102321366829",
+            "extra": "mean: 8.994181144329719 msec\nrounds: 97"
+          },
+          {
+            "name": "tools/bench/test_bench_qec.py::test_sample_clifft",
+            "value": 7.576705359893415,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0018454140271378329",
+            "extra": "mean: 131.9834878750079 msec\nrounds: 8"
+          },
+          {
+            "name": "tools/bench/test_bench_qv.py::test_compile_qv20",
+            "value": 51.73084069501816,
+            "unit": "iter/sec",
+            "range": "stddev: 0.00014744666725566614",
+            "extra": "mean: 19.33082831372395 msec\nrounds: 51"
+          },
+          {
+            "name": "tools/bench/test_bench_qv.py::test_sample_qv20_1shot",
+            "value": 6.353909694702783,
+            "unit": "iter/sec",
+            "range": "stddev: 0.002284713376291247",
+            "extra": "mean: 157.38341399999658 msec\nrounds: 7"
+          },
+          {
+            "name": "tools/bench/test_bench_qv.py::test_sample_qv20_10shots",
+            "value": 0.6389835664484975,
+            "unit": "iter/sec",
+            "range": "stddev: 0.009314912833101647",
+            "extra": "mean: 1.564985474599996 sec\nrounds: 5"
           }
         ]
       }
