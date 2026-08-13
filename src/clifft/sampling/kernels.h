@@ -8,10 +8,8 @@
 
 namespace clifft::sampling {
 
-// This file defines the architecture-neutral kernel descriptors and scalar
-// operations. Shape-specific *_dispatch files select an implementation once
-// during executable lowering; explicit x86 implementations live in the
-// separately compiled kernels_avx2.cc and kernels_avx512.cc translation units.
+// Portable descriptors and scalar kernel entry points used by CPU execution.
+// ISA-specific selection and implementations stay outside this header.
 
 // Describes a Pauli operation to apply to the state vector. Its masks and
 // precomputed index values identify affected coefficients without referring to

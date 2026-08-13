@@ -33,8 +33,8 @@
 
 namespace clifft::sampling {
 
-// Symbols are plan-local Boolean slots with one value per shot. They carry
-// stochastic events, measurement branches, or named parities.
+// A symbol is a plan-local Boolean variable representing a sampled circuit
+// outcome or a parity derived from earlier symbols.
 enum class SymbolKind : uint8_t {
     Unused,      // Stable operation-order slot that this compiled plan does not need.
     Presampled,  // Available before the action stream, such as sampled noise.

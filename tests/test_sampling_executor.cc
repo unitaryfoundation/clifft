@@ -45,7 +45,6 @@ using clifft::sampling::InstrumentMode;
 using clifft::sampling::InstrumentSiteId;
 using clifft::sampling::MeasureActivePauli;
 using clifft::sampling::MeasureDormantRandom;
-using clifft::sampling::MeasurementProbabilities;
 using clifft::sampling::NoiseSiteId;
 using clifft::sampling::PlannedAction;
 using clifft::sampling::prepare_rotation;
@@ -697,23 +696,42 @@ TEST_CASE("Sampling expression registers preserve noisy postselection") {
 }
 
 TEST_CASE("Sampling replay applies active measurement dust policy") {
-    const ExecutablePlan dusty(active_then_dormant_plan(1e-10));
-    Executor survivor(dusty);
-    const ReplayResult survivor_result = survivor.replay_shot(std::array<uint8_t, 2>{0, 1});
-    REQUIRE(survivor_result.reachable);
-    REQUIRE_THAT(survivor_result.log_probability, Catch::Matchers::WithinAbs(std::log(0.5), 1e-15));
-    REQUIRE(survivor.dust_clamps() == 1);
+    SECTION("dust on the one branch") {
+        const ExecutablePlan dusty(active_then_dormant_plan(1e-10));
+        Executor survivor(dusty);
+        const ReplayResult survivor_result = survivor.replay_shot(std::array<uint8_t, 2>{0, 1});
+        REQUIRE(survivor_result.reachable);
+        REQUIRE_THAT(survivor_result.log_probability,
+                     Catch::Matchers::WithinAbs(std::log(0.5), 1e-15));
+        REQUIRE(survivor.dust_clamps() == 1);
 
-    Executor dust_branch(dusty);
-    const ReplayResult dust_result = dust_branch.replay_shot(std::array<uint8_t, 2>{1, 0});
-    REQUIRE_FALSE(dust_result.reachable);
-    REQUIRE(dust_branch.dust_clamps() == 1);
+        Executor dust_branch(dusty);
+        const ReplayResult dust_result = dust_branch.replay_shot(std::array<uint8_t, 2>{1, 0});
+        REQUIRE_FALSE(dust_result.reachable);
+        REQUIRE(dust_branch.dust_clamps() == 1);
 
-    const ExecutablePlan exact(active_then_dormant_plan(0.0));
-    Executor impossible_exact(exact);
-    const ReplayResult exact_result = impossible_exact.replay_shot(std::array<uint8_t, 2>{1, 0});
-    REQUIRE_FALSE(exact_result.reachable);
-    REQUIRE(impossible_exact.dust_clamps() == 0);
+        const ExecutablePlan exact(active_then_dormant_plan(0.0));
+        Executor impossible_exact(exact);
+        const ReplayResult exact_result =
+            impossible_exact.replay_shot(std::array<uint8_t, 2>{1, 0});
+        REQUIRE_FALSE(exact_result.reachable);
+        REQUIRE(impossible_exact.dust_clamps() == 0);
+    }
+
+    SECTION("dust on the zero branch") {
+        const ExecutablePlan dusty(active_then_dormant_plan(1.0 - 1e-10));
+        Executor survivor(dusty);
+        const ReplayResult survivor_result = survivor.replay_shot(std::array<uint8_t, 2>{1, 1});
+        REQUIRE(survivor_result.reachable);
+        REQUIRE_THAT(survivor_result.log_probability,
+                     Catch::Matchers::WithinAbs(std::log(0.5), 1e-15));
+        REQUIRE(survivor.dust_clamps() == 1);
+
+        Executor dust_branch(dusty);
+        const ReplayResult dust_result = dust_branch.replay_shot(std::array<uint8_t, 2>{0, 0});
+        REQUIRE_FALSE(dust_result.reachable);
+        REQUIRE(dust_branch.dust_clamps() == 1);
+    }
 }
 
 TEST_CASE("Sampling replay accumulates active and dormant log probabilities") {
@@ -766,6 +784,21 @@ TEST_CASE("Sampling executor clamps positive active measurement dust") {
     executor.run_shot();
 
     REQUIRE(executor.visible_records()[0] == 0);
+    REQUIRE(executor.visible_records()[1] == expected_dormant_branch);
+    REQUIRE(executor.dust_clamps() == 1);
+}
+
+TEST_CASE("Sampling executor clamps active measurement dust to branch one") {
+    const ExecutablePlan executable(active_then_dormant_plan(1.0 - 1e-10));
+    Executor executor(executable, 456);
+    clifft::Xoshiro256PlusPlus expected_rng(456);
+    const bool expected_dormant_branch = expected_rng.next_double() >= 0.5;
+    const bool branch_if_active_had_drawn = expected_rng.next_double() >= 0.5;
+    REQUIRE(expected_dormant_branch != branch_if_active_had_drawn);
+
+    executor.run_shot();
+
+    REQUIRE(executor.visible_records()[0] == 1);
     REQUIRE(executor.visible_records()[1] == expected_dormant_branch);
     REQUIRE(executor.dust_clamps() == 1);
 }

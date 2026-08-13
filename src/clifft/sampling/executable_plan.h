@@ -60,8 +60,8 @@ class ExecutablePlan {
     friend class Executor;
     friend class ExecutablePlanBuilder;
 
-    // Compact handles embedded in actions. Registers refer to the prepared
-    // affine-expression storage owned near the end of this class.
+    // To keep actions compact, register_id refers to expression details in the
+    // storage near the end of this class.
     struct PreparedExpression {
         uint32_t register_id = 0;
     };
@@ -134,7 +134,7 @@ class ExecutablePlan {
     static_assert(sizeof(ExecuteActiveMeasurement) == 88,
                   "active measurement dispatch must not expand its action descriptor");
 
-    // Classical output and symbol actions.
+    // Measurement records and derived symbols.
     struct ExecuteDormantMeasurement {
         PreparedExpression correction;
         uint32_t branch = 0;
@@ -151,6 +151,7 @@ class ExecutablePlan {
         uint32_t symbol = 0;
     };
 
+    // Stochastic readout and derived circuit outputs.
     struct ExecuteReadoutNoise {
         PreparedExpression source;
         uint32_t flip = 0;
@@ -171,14 +172,15 @@ class ExecutablePlan {
         uint32_t observable = 0;
     };
 
+    // Exact expectation-value probe of the current state.
     struct ExecuteExpectation {
         std::optional<PreparedPauli> active_projection;
         PreparedExpression sign;
         uint32_t exp_val = 0;
     };
 
-    // Instrument modes become distinct concrete forms so the hot executor does
-    // not branch over semantic optionals that planning has already resolved.
+    // Each instrument mode has a separate action type so sampling does not
+    // check the mode on every shot.
     struct ExecuteClassicalInstrument {
         PreparedExpression sign;
         uint32_t site = 0;
@@ -286,6 +288,7 @@ class ExecutablePlan {
     std::optional<stim::Tableau<kStimWidth>> final_tableau_;
 
     // Affine register initialization and reverse symbol dependencies.
+
     // Constants are indexed by PreparedExpression::register_id. The dependency
     // vectors form CSR: targets[offsets[symbol]..offsets[symbol + 1]) lists the
     // expression registers toggled when that symbol is true.
@@ -294,6 +297,7 @@ class ExecutablePlan {
     std::vector<uint32_t> expression_dependency_targets_;
 
     // Presampled inputs and their circuit-site distributions.
+
     // Maps each dense presampled input position to its plan-local SymbolId.
     // The constructor records those ids in ascending order.
     std::vector<uint32_t> presampled_symbols_;
@@ -302,9 +306,11 @@ class ExecutablePlan {
     std::vector<PreparedNoiseSite> noise_sites_;
     std::vector<double> noise_hazards_;
 
-    // Continuation metadata, prepared fused descriptors, and the hot action
-    // stream. Actions refer to side storage by stable indices.
+    // Input distributions consulted when instruments fire.
     std::vector<InstrumentDistribution> instrument_distributions_;
+
+    // Continuation offsets, prepared fused descriptors, and the hot action
+    // stream. Actions refer to side storage by stable indices.
     std::vector<uint32_t> instrument_resume_offsets_;
     std::vector<PreparedFusedRotationExecution> fused_rotations_;
     std::vector<PreparedDynamicFusedRotationExecution> dynamic_fused_rotations_;

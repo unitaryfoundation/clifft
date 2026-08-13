@@ -7,12 +7,9 @@
 
 namespace clifft::sampling {
 
-// Sampling pipeline:
-//   optimized HirModule -> SamplingPlan -> ExecutablePlan -> Executor -> results
-// The planner produces the executor-independent semantic action stream. CPU
-// lowering then prepares fixed descriptors, and an Executor owns mutable state
-// for one shot at a time. The sampler entry points drive repeated shots and
-// collect their outputs.
+// Builds the executor-independent sampling plan for the supported optimized
+// HIR subset. The planner performs all stabilizer-coordinate changes and
+// symbolic dependency discovery before execution.
 struct SamplingPlanOptions {
     std::span<const uint8_t> postselection_mask;
     std::span<const uint8_t> expected_detectors;

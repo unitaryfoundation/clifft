@@ -179,9 +179,11 @@ class Executor {
     template <typename Action>
     void execute_quantum_instrument(const Action& action) noexcept;
 
-    // The caller-owned root plan must outlive this executor. plan_ normally
-    // points to it, but temporarily borrows a caller-owned continuation while
-    // a trapped shot resumes; return_to_root_plan releases that borrow.
+    // The caller-owned root plan must outlive this executor. After resume(),
+    // plan_ keeps borrowing that continuation for accessors and any later
+    // resume validation. A successful resume replaces the borrow, while
+    // return_to_root_plan releases the final one. A throwing resume does not
+    // release whichever continuation was current when it threw.
     const ExecutablePlan* root_plan_;
     const ExecutablePlan* plan_;
 
@@ -194,18 +196,25 @@ class Executor {
     std::vector<uint8_t> observables_;
     std::vector<double> exp_vals_;
 
-    // Reset bookkeeping and alternate replay/fixed-fault controls share the
-    // same preallocated action loop.
+    // resume() can force a hidden trace-out record in the continuation.
     std::vector<uint8_t> forced_record_mask_;
     std::vector<uint8_t> forced_record_values_;
+
+    // Reset only the presampled symbols that were true on the previous shot.
     std::vector<uint32_t> previous_presampled_ones_;
+
+    // Fixed-fault-count sampling supplies its selected circuit sites here.
     std::span<const uint32_t> forced_fault_sites_;
     uint32_t forced_fault_cursor_ = 0;
 
-    // Per-shot control state and lifetime telemetry.
+    // RNG position deliberately persists across shots.
     Xoshiro256PlusPlus rng_;
+
+    // Per-shot control state.
     bool discarded_ = false;
     std::optional<InstrumentTrap> pending_trap_;
+
+    // Lifetime numerical telemetry; reset_shot does not clear it.
     uint64_t dust_clamps_ = 0;
 };
 

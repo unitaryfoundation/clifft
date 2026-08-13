@@ -28,7 +28,7 @@ struct MeasurementBranchClassification {
     bool clamped_dust = false;
 };
 
-MeasurementBranchClassification classify_measurement_branch(
+[[nodiscard]] MeasurementBranchClassification classify_measurement_branch(
     MeasurementProbabilities probabilities) noexcept {
     const double total = probabilities.total();
     assert(is_finite_robust(probabilities.zero) && probabilities.zero >= 0.0 &&
