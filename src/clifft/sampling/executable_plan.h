@@ -16,6 +16,26 @@ namespace clifft::sampling {
 class Executor;
 class ExecutablePlanBuilder;
 
+// Owns one portable fused descriptor and the optional sidecar prepared by the
+// plan's executor backend. The sidecar carries its matching entry point, so hot
+// execution needs neither an ISA check nor an architecture-specific type.
+class PreparedFusedRotationExecution {
+  public:
+    PreparedFusedRotationExecution(PreparedFusedRotation rotation, ExecutorBackend backend);
+
+    void apply(State& state) const noexcept {
+        if (sidecar_.storage != nullptr && sidecar_.kernel != nullptr) {
+            sidecar_.kernel(state, rotation_, sidecar_.storage.get());
+        } else {
+            apply_fused_rotation(state, rotation_);
+        }
+    }
+
+  private:
+    PreparedFusedRotation rotation_;
+    FusedRotationSidecar sidecar_;
+};
+
 // Owns the CPU lowering of one validated SamplingPlan. Direct-Pauli kernel
 // descriptors and affine-expression register dependencies are prepared once
 // here so a shot only reads fixed storage.
@@ -70,12 +90,8 @@ class ExecutablePlan {
         PreparedRotation rotation;
         // Register containing the branch-dependent Pauli sign for this shot.
         PreparedExpression sign;
-        // Host-selected shape tag stored in the descriptor's tail padding.
-        DirectRotationKernel kernel;
-
-        void apply(State& state, bool sign_value) const noexcept {
-            apply_direct_rotation(state, rotation, kernel, sign_value);
-        }
+        // Backend-selected traversal stored in the descriptor's tail padding.
+        DirectRotationKernel kernel = DirectRotationKernel::Scalar;
     };
 
     static_assert(sizeof(ExecuteRotation) == 72,
@@ -109,23 +125,6 @@ class ExecutablePlan {
         uint32_t branch = 0;
         uint32_t record = 0;
         ActiveMeasurementKernel kernel = ActiveMeasurementKernel::Scalar;
-
-        [[nodiscard]] MeasurementProbabilities probabilities(const State& state) const noexcept {
-            if (kernel == ActiveMeasurementKernel::Scalar) {
-                return measurement_probabilities(state, measurement);
-            }
-            return active_measurement_probabilities(state, measurement, kernel);
-        }
-
-        void collapse(State& state, bool selected_branch,
-                      double branch_probability) const noexcept {
-            if (kernel == ActiveMeasurementKernel::Scalar) {
-                collapse_measurement(state, measurement, selected_branch, branch_probability);
-                return;
-            }
-            collapse_active_measurement(state, measurement, kernel, selected_branch,
-                                        branch_probability);
-        }
     };
 
     static_assert(sizeof(ExecuteActiveMeasurement) == 88,
@@ -279,6 +278,7 @@ class ExecutablePlan {
     bool has_postselection_ = false;
     bool has_readout_noise_ = false;
     bool has_instruments_ = false;
+    ExecutorBackend backend_ = ExecutorBackend::Scalar;
     uint32_t num_readout_noise_sites_ = 0;
     uint32_t initial_noise_end_ = 0;
     std::complex<double> global_weight_ = {1.0, 0.0};

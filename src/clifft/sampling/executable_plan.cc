@@ -5,8 +5,28 @@
 #include <algorithm>
 #include <stdexcept>
 #include <string>
+#include <utility>
 
 namespace clifft::sampling {
+
+PreparedFusedRotationExecution::PreparedFusedRotationExecution(PreparedFusedRotation rotation,
+                                                               ExecutorBackend backend)
+    : rotation_(std::move(rotation)) {
+#if defined(CLIFFT_ENABLE_RUNTIME_DISPATCH)
+    switch (backend) {
+        case ExecutorBackend::Scalar:
+            break;
+        case ExecutorBackend::Avx2:
+            sidecar_ = prepare_fused_rotation_avx2_sidecar(rotation_);
+            break;
+        case ExecutorBackend::Avx512:
+            sidecar_ = prepare_fused_rotation_avx512_sidecar(rotation_);
+            break;
+    }
+#else
+    (void)backend;
+#endif
+}
 
 ExecutablePlan::ExecutablePlan(const SamplingPlan& plan)
     : num_qubits_(plan.num_qubits),

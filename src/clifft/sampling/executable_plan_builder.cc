@@ -47,8 +47,8 @@ ExecutablePlanBuilder::ExecutablePlanBuilder(ExecutablePlan& output, const Sampl
 
 CLIFFT_BUILDER_FORCE_INLINE void ExecutablePlanBuilder::compile() {
     source_.validate();
-    runtime_isa_ = clifft::internal::runtime_isa();
-    clifft::internal::validate_runtime_isa(runtime_isa_);
+    backend_ = resolve_executor_backend(clifft::internal::runtime_isa());
+    output_.backend_ = backend_;
     initialize_program();
     prepare_noise_and_boundaries();
     lower_action_stream();
@@ -210,7 +210,7 @@ CLIFFT_BUILDER_FORCE_INLINE void ExecutablePlanBuilder::lower_action(const Plann
                 PreparedRotation rotation =
                     prepare_rotation(typed.pauli, planned.active_before, typed.half_turns);
                 const DirectRotationKernel kernel =
-                    resolve_direct_rotation_kernel(rotation, runtime_isa_);
+                    resolve_direct_rotation_kernel(rotation, backend_);
                 output_.actions_.emplace_back(ExecutablePlan::ExecuteRotation{
                     std::move(rotation), prepare_expression(typed.sign), kernel});
             } else if constexpr (std::is_same_v<T, PromoteDormantRotation>) {
@@ -220,7 +220,7 @@ CLIFFT_BUILDER_FORCE_INLINE void ExecutablePlanBuilder::lower_action(const Plann
                 PreparedMeasurement measurement =
                     prepare_measurement(typed.pauli, planned.active_before, typed.active_pivot);
                 const ActiveMeasurementKernel kernel =
-                    resolve_active_measurement_kernel(measurement, runtime_isa_);
+                    resolve_active_measurement_kernel(measurement, backend_);
                 output_.actions_.emplace_back(ExecutablePlan::ExecuteActiveMeasurement{
                     std::move(measurement),
                     prepare_measurement_correction(typed.outcome, index(typed.branch)),
@@ -295,7 +295,7 @@ CLIFFT_BUILDER_FORCE_INLINE void ExecutablePlanBuilder::lower_action(const Plann
                                 ExecutablePlan::ExecuteNewXInstrumentActivation{
                                     prepare_expression(typed.sign), site, destination_flip,
                                     resolve_new_x_instrument_kernel(planned.active_before,
-                                                                    runtime_isa_)}});
+                                                                    backend_)}});
                             return;
                         }
                         const uint64_t support =
@@ -333,7 +333,7 @@ CLIFFT_BUILDER_FORCE_INLINE void ExecutablePlanBuilder::lower_action_stream() {
         DynamicFusedRotationRun dynamic_run;
         // AVX2 dynamic fusion regressed large active states despite helping
         // narrower ones, so only the consistently profitable AVX-512 path lowers it.
-        if (runtime_isa_ == clifft::internal::RuntimeIsa::Avx512) {
+        if (backend_ == ExecutorBackend::Avx512) {
             dynamic_run = prepare_dynamic_fused_rotation_run(
                 std::span<const PlannedAction>(source_.actions).subspan(planned_index));
         }
@@ -346,7 +346,7 @@ CLIFFT_BUILDER_FORCE_INLINE void ExecutablePlanBuilder::lower_action_stream() {
             }
             execution.variants.reserve(prepared.variants.size());
             for (PreparedFusedRotation& variant : prepared.variants) {
-                execution.variants.emplace_back(std::move(variant), runtime_isa_);
+                execution.variants.emplace_back(std::move(variant), backend_);
             }
             const uint32_t fused_index =
                 static_cast<uint32_t>(output_.dynamic_fused_rotations_.size());
@@ -360,7 +360,7 @@ CLIFFT_BUILDER_FORCE_INLINE void ExecutablePlanBuilder::lower_action_stream() {
             std::span<const PlannedAction>(source_.actions).subspan(planned_index));
         if (run.rotation.has_value()) {
             const uint32_t fused_index = static_cast<uint32_t>(output_.fused_rotations_.size());
-            output_.fused_rotations_.emplace_back(std::move(*run.rotation), runtime_isa_);
+            output_.fused_rotations_.emplace_back(std::move(*run.rotation), backend_);
             output_.actions_.emplace_back(ExecutablePlan::ExecuteFusedRotation{fused_index});
             planned_index += run.action_count;
             continue;

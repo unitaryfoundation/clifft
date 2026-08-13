@@ -2,7 +2,7 @@
 // explicit ISA flags so portable builds can select it at runtime.
 
 #include "clifft/sampling/indexing.h"
-#include "clifft/sampling/simd_kernels.h"
+#include "clifft/sampling/kernel_dispatch.h"
 #include "clifft/sampling/simd_width.h"
 #include "clifft/util/numeric.h"
 
