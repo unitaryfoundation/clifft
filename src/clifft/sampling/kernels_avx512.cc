@@ -1,5 +1,5 @@
-// AVX-512F+AVX-512DQ sampling kernels. This translation unit is compiled
-// with the same explicit AVX2/BMI2/FMA/AVX-512 flags as the SVM AVX-512 path.
+// AVX-512F+AVX-512DQ sampling kernels. This translation unit is compiled with
+// explicit AVX2/BMI2/FMA/AVX-512 flags so portable code retains its baseline ISA.
 
 #include "clifft/sampling/active_measurement_simd.h"
 #include "clifft/sampling/direct_rotation_simd.h"

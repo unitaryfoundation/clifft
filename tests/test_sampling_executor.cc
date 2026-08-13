@@ -33,7 +33,6 @@ using clifft::sampling::ActivePauli;
 using clifft::sampling::AffineBool;
 using clifft::sampling::apply_rotation;
 using clifft::sampling::ApplyInstrument;
-using clifft::sampling::classify_measurement_branch;
 using clifft::sampling::DefineSymbol;
 using clifft::sampling::ExecutablePlan;
 using clifft::sampling::Executor;
@@ -46,7 +45,6 @@ using clifft::sampling::InstrumentMode;
 using clifft::sampling::InstrumentSiteId;
 using clifft::sampling::MeasureActivePauli;
 using clifft::sampling::MeasureDormantRandom;
-using clifft::sampling::MeasurementBranchKind;
 using clifft::sampling::MeasurementProbabilities;
 using clifft::sampling::NoiseSiteId;
 using clifft::sampling::PlannedAction;
@@ -353,23 +351,6 @@ TEST_CASE("Sampling executor does not draw for empty noise sites") {
         CAPTURE(shot);
         REQUIRE(executor.visible_records()[0] == expected);
     }
-}
-
-TEST_CASE("Sampling executor classifies measurement dust without drawing") {
-    const auto zero = classify_measurement_branch(MeasurementProbabilities{1.0, 0.0});
-    REQUIRE(zero.kind == MeasurementBranchKind::DeterministicZero);
-    REQUIRE_FALSE(zero.clamped_dust);
-
-    const auto dusty_zero = classify_measurement_branch(MeasurementProbabilities{1.0, 1e-30});
-    REQUIRE(dusty_zero.kind == MeasurementBranchKind::DeterministicZero);
-    REQUIRE(dusty_zero.clamped_dust);
-
-    const auto dusty_one = classify_measurement_branch(MeasurementProbabilities{1e-30, 1.0});
-    REQUIRE(dusty_one.kind == MeasurementBranchKind::DeterministicOne);
-    REQUIRE(dusty_one.clamped_dust);
-
-    const auto random = classify_measurement_branch(MeasurementProbabilities{0.25, 0.75});
-    REQUIRE(random.kind == MeasurementBranchKind::Random);
 }
 
 TEST_CASE("Sampling executor evaluates presampled and derived affine symbols") {

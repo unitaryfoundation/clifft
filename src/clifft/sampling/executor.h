@@ -16,19 +16,6 @@ class KFaultSampler;
 
 namespace clifft::sampling {
 
-// Zero and one identify the selected Pauli eigenvalue branch before affine
-// sign corrections turn that branch into a physical measurement record.
-enum class MeasurementBranchKind : uint8_t {
-    Random,
-    DeterministicZero,
-    DeterministicOne,
-};
-
-struct MeasurementBranchClassification {
-    MeasurementBranchKind kind = MeasurementBranchKind::Random;
-    bool clamped_dust = false;
-};
-
 // Describes whether a requested record can occur and, if so, its conditional
 // joint log probability. The probability is meaningful only when reachable.
 struct ReplayResult {
@@ -46,9 +33,6 @@ struct ForcedTraceOut {
     RecordSlot record{};
     uint8_t source = 0;
 };
-
-[[nodiscard]] MeasurementBranchClassification classify_measurement_branch(
-    MeasurementProbabilities probabilities) noexcept;
 
 // Holds the dense active-coordinate coefficients and global scalar, Boolean
 // symbols carrying stochastic frame dependencies, visible and hidden records,
@@ -195,8 +179,13 @@ class Executor {
     template <typename Action>
     void execute_quantum_instrument(const Action& action) noexcept;
 
+    // The caller-owned root plan must outlive this executor. plan_ normally
+    // points to it, but temporarily borrows a caller-owned continuation while
+    // a trapped shot resumes; return_to_root_plan releases that borrow.
     const ExecutablePlan* root_plan_;
     const ExecutablePlan* plan_;
+
+    // Capacity is allocated before ordinary dispatch and reused across shots.
     State state_;
     std::vector<uint8_t> symbols_;
     std::vector<uint8_t> expression_registers_;
@@ -204,11 +193,16 @@ class Executor {
     std::vector<uint8_t> detectors_;
     std::vector<uint8_t> observables_;
     std::vector<double> exp_vals_;
+
+    // Reset bookkeeping and alternate replay/fixed-fault controls share the
+    // same preallocated action loop.
     std::vector<uint8_t> forced_record_mask_;
     std::vector<uint8_t> forced_record_values_;
     std::vector<uint32_t> previous_presampled_ones_;
     std::span<const uint32_t> forced_fault_sites_;
     uint32_t forced_fault_cursor_ = 0;
+
+    // Per-shot control state and lifetime telemetry.
     Xoshiro256PlusPlus rng_;
     bool discarded_ = false;
     std::optional<InstrumentTrap> pending_trap_;

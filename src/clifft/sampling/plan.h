@@ -33,9 +33,19 @@
 
 namespace clifft::sampling {
 
-// A symbol is a plan-local Boolean value assigned once per shot. It represents
-// a presampled stochastic event, a sampled measurement branch, or a named
-// parity derived from earlier symbols.
+// Symbols are plan-local Boolean slots with one value per shot. They carry
+// stochastic events, measurement branches, or named parities.
+enum class SymbolKind : uint8_t {
+    Unused,      // Stable operation-order slot that this compiled plan does not need.
+    Presampled,  // Available before the action stream, such as sampled noise.
+    Derived,     // Computed as a parity of previously available symbols.
+    Branch,      // Sampled while applying a measurement action.
+    Readout,     // Sampled from a record-dependent readout channel.
+    Instrument,  // Records an in-line computational instrument destination flip.
+};
+
+// Strongly typed plan-local indices prevent unrelated storage from being
+// indexed interchangeably.
 enum class SymbolId : uint32_t {};
 enum class RecordSlot : uint32_t {};
 enum class NoiseSiteId : uint32_t {};
@@ -44,8 +54,6 @@ enum class DetectorSlot : uint32_t {};
 enum class ObservableSlot : uint32_t {};
 enum class ExpValSlot : uint32_t {};
 
-// Keep the IDs non-interchangeable while giving every sampling layer one
-// explicit operation for indexing their plan-owned storage.
 [[nodiscard]] constexpr uint32_t index(SymbolId id) noexcept {
     return static_cast<uint32_t>(id);
 }
@@ -67,15 +75,6 @@ enum class ExpValSlot : uint32_t {};
 [[nodiscard]] constexpr uint32_t index(ExpValSlot slot) noexcept {
     return static_cast<uint32_t>(slot);
 }
-
-enum class SymbolKind : uint8_t {
-    Unused,      // Stable operation-order slot that this compiled plan does not need.
-    Presampled,  // Available before the action stream, such as sampled noise.
-    Derived,     // Computed as a parity of previously available symbols.
-    Branch,      // Sampled while applying a measurement action.
-    Readout,     // Sampled from a record-dependent readout channel.
-    Instrument,  // Records an in-line computational instrument destination flip.
-};
 
 // A parity expression over plan symbols, optionally XORed with true. For
 // example, s0 ^ s2 ^ true can track how sampled noise and a measurement branch
@@ -263,13 +262,15 @@ using SamplingAction = std::variant<RotateActivePauli, PromoteDormantRotation, M
                                     WriteExpectationValue, ApplyInstrument, InstrumentBoundary>;
 
 struct PlannedAction {
+    // Dense active-coordinate widths immediately before and after this action.
+    // Validation checks that adjacent actions form one continuous width chain.
     uint32_t active_before = 0;
     uint32_t active_after = 0;
     SamplingAction action;
 };
 
-// SamplingPlan::validate enforces the legal field combinations and verifies
-// that definition metadata agrees with the referenced action.
+// Describes how one symbol is populated. SamplingPlan::validate checks each
+// kind's legal fields and its agreement with the referenced defining action.
 struct SymbolInfo {
     SymbolKind kind = SymbolKind::Unused;
 
@@ -311,9 +312,9 @@ struct SamplingPlan {
     uint32_t num_qubits = 0;
 
     // Active width is the number of stabilizer coordinates represented in the
-    // dense coefficient state, which contains 2^active_width entries. It is the
-    // descriptive name for legacy active_k. The planner computes its maximum
-    // while emitting actions so runtime lowering can preallocate storage.
+    // dense coefficient state, which contains 2^active_width entries. The
+    // planner computes its maximum while emitting actions so runtime lowering
+    // can preallocate storage.
     uint32_t initial_active_width = 0;
     uint32_t max_active_width = 0;
     uint32_t num_visible_records = 0;

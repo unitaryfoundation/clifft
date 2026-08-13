@@ -60,10 +60,14 @@ class ExecutablePlan {
     friend class Executor;
     friend class ExecutablePlanBuilder;
 
+    // Compact handles embedded in actions. Registers refer to the prepared
+    // affine-expression storage owned near the end of this class.
     struct PreparedExpression {
         uint32_t register_id = 0;
     };
 
+    // CPU action descriptors. They contain only fixed operands and indices;
+    // lowering has already selected topology and any applicable kernel shape.
     struct ExecuteRotation {
         // Geometry and trigonometric weights shared by every implementation.
         PreparedRotation rotation;
@@ -130,6 +134,7 @@ class ExecutablePlan {
     static_assert(sizeof(ExecuteActiveMeasurement) == 88,
                   "active measurement dispatch must not expand its action descriptor");
 
+    // Classical output and symbol actions.
     struct ExecuteDormantMeasurement {
         PreparedExpression correction;
         uint32_t branch = 0;
@@ -172,6 +177,8 @@ class ExecutablePlan {
         uint32_t exp_val = 0;
     };
 
+    // Instrument modes become distinct concrete forms so the hot executor does
+    // not branch over semantic optionals that planning has already resolved.
     struct ExecuteClassicalInstrument {
         PreparedExpression sign;
         uint32_t site = 0;
@@ -238,6 +245,8 @@ class ExecutablePlan {
         uint32_t symbol_prefix_size = 0;
     };
 
+    // Prepared input distributions used before dispatch and at continuation
+    // boundaries.
     struct PreparedNoiseOutcome {
         uint32_t symbol = 0;
         double cumulative_probability = 0.0;
@@ -258,6 +267,7 @@ class ExecutablePlan {
                      ExecuteDetector, ExecuteObservable, ExecuteExpectation, ExecuteInstrument,
                      ExecuteBoundary>;
 
+    // Immutable plan metadata and externally visible dimensions.
     uint32_t num_qubits_ = 0;
     uint32_t initial_active_width_ = 0;
     uint32_t max_active_width_ = 0;
@@ -274,12 +284,16 @@ class ExecutablePlan {
     uint32_t initial_noise_end_ = 0;
     std::complex<double> global_weight_ = {1.0, 0.0};
     std::optional<stim::Tableau<kStimWidth>> final_tableau_;
+
+    // Affine register initialization and reverse symbol dependencies.
     // Constants are indexed by PreparedExpression::register_id. The dependency
     // vectors form CSR: targets[offsets[symbol]..offsets[symbol + 1]) lists the
     // expression registers toggled when that symbol is true.
     std::vector<uint8_t> expression_register_constants_;
     std::vector<uint32_t> expression_dependency_offsets_;
     std::vector<uint32_t> expression_dependency_targets_;
+
+    // Presampled inputs and their circuit-site distributions.
     // Maps each dense presampled input position to its plan-local SymbolId.
     // The constructor records those ids in ascending order.
     std::vector<uint32_t> presampled_symbols_;
@@ -287,6 +301,9 @@ class ExecutablePlan {
     std::vector<PreparedNoiseOutcome> noise_outcomes_;
     std::vector<PreparedNoiseSite> noise_sites_;
     std::vector<double> noise_hazards_;
+
+    // Continuation metadata, prepared fused descriptors, and the hot action
+    // stream. Actions refer to side storage by stable indices.
     std::vector<InstrumentDistribution> instrument_distributions_;
     std::vector<uint32_t> instrument_resume_offsets_;
     std::vector<PreparedFusedRotationExecution> fused_rotations_;

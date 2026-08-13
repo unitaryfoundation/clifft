@@ -22,12 +22,24 @@ class ExecutablePlanBuilder {
     static void build(ExecutablePlan& output, const SamplingPlan& source);
     ExecutablePlanBuilder(ExecutablePlan& output, const SamplingPlan& source);
 
+    // Coordinates the one-shot lowering stages below.
     void compile();
+
+    // Reserve fixed program storage and initialize plan-wide indices.
     void initialize_program();
+
+    // Prepare presampled distributions and continuation segment boundaries.
     void prepare_noise_and_boundaries();
-    void lower_actions();
+
+    // Scan semantic actions once, selecting CPU descriptors and bounded
+    // adjacent-rotation fusion without introducing a general pass pipeline.
+    void lower_action_stream();
     void lower_action(const PlannedAction& planned, size_t& boundary_index);
+
+    // Transpose action-order affine terms into symbol-to-register CSR storage.
     void build_expression_dependencies();
+
+    // Check construction-only invariants in Debug builds.
     void validate_executable_plan() const;
     [[nodiscard]] size_t estimate_expression_terms() const;
 
