@@ -15,7 +15,7 @@ import numpy as np
 import pytest
 from conftest import random_clifford_t_circuit
 
-import clifft
+from clifft import _legacy
 
 # =============================================================================
 # Helpers
@@ -52,11 +52,11 @@ def pauli_expectation(sv: np.ndarray, pauli_str: str, num_qubits: int) -> float:
 
 
 def clifft_statevector(circuit_str: str) -> np.ndarray:
-    """Compile and execute circuit in Clifft, return dense statevector."""
-    prog = clifft.compile(circuit_str)
-    state = clifft.State(peak_rank=prog.peak_rank, num_measurements=prog.num_measurements)
-    clifft.execute(prog, state)
-    return np.array(clifft.get_statevector(prog, state))
+    """Compile and execute through the retained legacy statevector oracle."""
+    prog = _legacy.compile(circuit_str, hir_passes=None, bytecode_passes=None)
+    state = _legacy.State(peak_rank=prog.peak_rank, num_measurements=prog.num_measurements)
+    _legacy.execute(prog, state)
+    return np.array(_legacy.get_statevector(prog, state))
 
 
 def random_pauli_product(num_qubits: int, rng: np.random.Generator) -> str:
@@ -292,7 +292,7 @@ class TestNoExpValRegression:
 
     def test_no_exp_val_opcode_in_bytecode(self) -> None:
         """No OP_EXP_VAL appears in bytecode for a plain circuit."""
-        prog = clifft.compile("H 0\nCX 0 1\nM 0\nM 1")
+        prog = _legacy.compile("H 0\nCX 0 1\nM 0\nM 1", hir_passes=None, bytecode_passes=None)
         for inst in prog:
             d = inst.as_dict()
             assert d["opcode"] != "OP_EXP_VAL"

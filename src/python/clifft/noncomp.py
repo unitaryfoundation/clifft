@@ -3,7 +3,7 @@
 This module is new and actively evolving. Its API and supported models may
 change as use cases develop.
 
-Samples five-level leakage/loss trajectories using Clifft's VM:
+Samples five-level leakage/loss trajectories using Clifft's symbolic executor:
 
     import clifft
     from clifft import noncomp
@@ -218,7 +218,7 @@ class NonComputationalSample:
             Reports the definite noncomputational level per site and shot:
             ``LEAK_G`` and ``LEAK_E`` are individually distinguishable.
             Computational sites report as ``QubitStatus.COMPUTATIONAL`` rather
-            than ``G`` or ``E`` because their state remains quantum in the VM
+            than ``G`` or ``E`` because their state remains quantum in the executor
             and may not be a definite level.
         heralds: uint8 array (shots, num_measurements); 1 where the classifier
             sampled the herald (third) symbol for that slot, else 0.
@@ -327,24 +327,12 @@ def sample(
             is malformed, or a continuation exceeds ``max_rank``.
     """
     return _sample_with(
-        circuit, model, shots, seed, max_rank, _clifft_core._sample_noncomputational
-    )
-
-
-def _sample_experimental(
-    circuit: Circuit | str,
-    model: Model,
-    shots: int,
-    seed: int | None = None,
-    max_rank: int | None = None,
-) -> NonComputationalSample:
-    return _sample_with(
         circuit,
         model,
         shots,
         seed,
         max_rank,
-        _clifft_core._sample_noncomputational_experimental,
+        _clifft_core._sample_noncomputational,
     )
 
 

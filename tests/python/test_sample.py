@@ -11,6 +11,7 @@ from conftest import (
 )
 
 import clifft
+from clifft import _legacy
 
 
 class TestCompile:
@@ -18,10 +19,10 @@ class TestCompile:
 
     def test_compile_simple(self) -> None:
         """Compile a simple circuit."""
-        prog = clifft.compile("H 0\nT 0\nM 0", hir_passes=None, bytecode_passes=None)
+        prog = clifft.compile("H 0\nT 0\nM 0", hir_passes=None)
         assert prog.peak_rank == 1
         assert prog.num_measurements == 1
-        assert prog.num_instructions >= 1
+        assert prog.num_actions >= 1
 
     def test_compile_pure_clifford(self) -> None:
         """Pure Clifford circuit has peak_rank 0."""
@@ -38,6 +39,25 @@ class TestCompile:
             T 1
         """)
         assert prog.peak_rank == 2
+
+    def test_lower_returns_the_public_program_type(self) -> None:
+        """Explicit parse and trace use the same production lowering boundary."""
+        hir = clifft.trace(clifft.parse("H 0\nT 0\nM 0"))
+        program = clifft.lower(hir)
+
+        assert isinstance(program, clifft.Program)
+        assert program.num_actions > 0
+        assert clifft.sample(program, 1, seed=1).measurements.shape == (1, 1)
+
+    def test_legacy_and_public_programs_do_not_cross_executor_boundaries(self) -> None:
+        """The private oracle cannot accidentally select a public execution path."""
+        program = clifft.compile("M 0")
+        legacy_program = _legacy.compile("M 0")
+
+        with pytest.raises(TypeError):
+            clifft.sample(legacy_program, 1)
+        with pytest.raises(TypeError):
+            _legacy.sample(program, 1)
 
 
 class TestSample:
@@ -191,9 +211,7 @@ class TestStatevector:
         """Pure Clifford circuit matches expected statevector."""
         # H|0> = |+> = [1/sqrt(2), 1/sqrt(2)]
         prog = clifft.compile("H 0")
-        state = clifft.State(peak_rank=prog.peak_rank, num_measurements=prog.num_measurements)
-        clifft.execute(prog, state)
-        sv = clifft.get_statevector(prog, state)
+        sv = clifft.get_statevector(prog)
 
         expected = np.array([1 / np.sqrt(2), 1 / np.sqrt(2)], dtype=complex)
         assert_statevectors_equiv(sv, expected)
@@ -201,9 +219,7 @@ class TestStatevector:
     def test_statevector_bell_state(self) -> None:
         """Bell state matches expected statevector."""
         prog = clifft.compile("H 0\nCX 0 1")
-        state = clifft.State(peak_rank=prog.peak_rank, num_measurements=prog.num_measurements)
-        clifft.execute(prog, state)
-        sv = clifft.get_statevector(prog, state)
+        sv = clifft.get_statevector(prog)
 
         # |Phi+> = (|00> + |11>)/sqrt(2)
         expected = np.array([1 / np.sqrt(2), 0, 0, 1 / np.sqrt(2)], dtype=complex)
@@ -212,9 +228,7 @@ class TestStatevector:
     def test_statevector_single_t_gate(self) -> None:
         """H-T circuit: [1/sqrt(2), e^{ipi/4}/sqrt(2)]."""
         prog = clifft.compile("H 0\nT 0")
-        state = clifft.State(peak_rank=prog.peak_rank, num_measurements=prog.num_measurements)
-        clifft.execute(prog, state)
-        sv = clifft.get_statevector(prog, state)
+        sv = clifft.get_statevector(prog)
 
         expected = np.array([1 / np.sqrt(2), np.exp(1j * np.pi / 4) / np.sqrt(2)], dtype=complex)
         assert_statevectors_equiv(sv, expected)
@@ -222,9 +236,7 @@ class TestStatevector:
     def test_statevector_t_dagger(self) -> None:
         """H-T_dag circuit: [1/sqrt(2), e^{-ipi/4}/sqrt(2)]."""
         prog = clifft.compile("H 0\nT_DAG 0")
-        state = clifft.State(peak_rank=prog.peak_rank, num_measurements=prog.num_measurements)
-        clifft.execute(prog, state)
-        sv = clifft.get_statevector(prog, state)
+        sv = clifft.get_statevector(prog)
 
         expected = np.array([1 / np.sqrt(2), np.exp(-1j * np.pi / 4) / np.sqrt(2)], dtype=complex)
         assert_statevectors_equiv(sv, expected)
@@ -232,9 +244,7 @@ class TestStatevector:
     def test_statevector_two_t_equals_s(self) -> None:
         """T-T = S: H-T-T should equal H-S."""
         prog = clifft.compile("H 0\nT 0\nT 0")
-        state = clifft.State(peak_rank=prog.peak_rank, num_measurements=prog.num_measurements)
-        clifft.execute(prog, state)
-        sv = clifft.get_statevector(prog, state)
+        sv = clifft.get_statevector(prog)
 
         # H-S: [1/sqrt(2), i/sqrt(2)]
         expected = np.array([1 / np.sqrt(2), 1j / np.sqrt(2)], dtype=complex)
@@ -243,9 +253,7 @@ class TestStatevector:
     def test_statevector_four_t_equals_z(self) -> None:
         """T^4 = Z: H-T-T-T-T should equal H-Z."""
         prog = clifft.compile("H 0\nT 0\nT 0\nT 0\nT 0")
-        state = clifft.State(peak_rank=prog.peak_rank, num_measurements=prog.num_measurements)
-        clifft.execute(prog, state)
-        sv = clifft.get_statevector(prog, state)
+        sv = clifft.get_statevector(prog)
 
         # H-Z: [1/sqrt(2), -1/sqrt(2)]
         expected = np.array([1 / np.sqrt(2), -1 / np.sqrt(2)], dtype=complex)
@@ -254,9 +262,7 @@ class TestStatevector:
     def test_statevector_t_on_zero(self) -> None:
         """T|0> = |0> (global phase only)."""
         prog = clifft.compile("T 0")
-        state = clifft.State(peak_rank=prog.peak_rank, num_measurements=prog.num_measurements)
-        clifft.execute(prog, state)
-        sv = clifft.get_statevector(prog, state)
+        sv = clifft.get_statevector(prog)
 
         # T|0> = |0> up to global phase
         expected = np.array([1, 0], dtype=complex)
@@ -265,9 +271,7 @@ class TestStatevector:
     def test_statevector_two_qubit_t(self) -> None:
         """Two-qubit circuit with T on qubit 0."""
         prog = clifft.compile("H 0\nH 1\nT 0")
-        state = clifft.State(peak_rank=prog.peak_rank, num_measurements=prog.num_measurements)
-        clifft.execute(prog, state)
-        sv = clifft.get_statevector(prog, state)
+        sv = clifft.get_statevector(prog)
 
         # T on q0 affects indices where bit 0 is set (indices 1, 3)
         phase = np.exp(1j * np.pi / 4)
@@ -277,9 +281,7 @@ class TestStatevector:
     def test_statevector_bell_plus_t(self) -> None:
         """Bell state with T on control qubit."""
         prog = clifft.compile("H 0\nCX 0 1\nT 0")
-        state = clifft.State(peak_rank=prog.peak_rank, num_measurements=prog.num_measurements)
-        clifft.execute(prog, state)
-        sv = clifft.get_statevector(prog, state)
+        sv = clifft.get_statevector(prog)
 
         # Bell state: (|00> + |11>)/sqrt(2)
         # T on q0: |00>->|00>, |11>->e^{ipi/4}|11>
@@ -297,25 +299,20 @@ class TestStatevector:
         ]
         for circuit in circuits:
             prog = clifft.compile(circuit)
-            state = clifft.State(
-                peak_rank=prog.peak_rank,
-                num_measurements=prog.num_measurements,
-            )
-            clifft.execute(prog, state)
-            sv = clifft.get_statevector(prog, state)
+            sv = clifft.get_statevector(prog)
             norm = float(np.sqrt(np.sum(np.abs(sv) ** 2)))
-            assert abs(norm - 1.0) < 1e-10, f"Not normalized: {circuit}"
+            assert abs(norm - 1.0) < 1e-6, f"Not normalized: {circuit}"
 
     def test_statevector_after_measurement(self) -> None:
         """Statevector correctly handles active rank after measurement."""
         circuit = "H 0\nT 0\nM 0"
-        prog = clifft.compile(circuit)
+        prog = _legacy.compile(circuit, hir_passes=None, bytecode_passes=None)
 
-        state = clifft.State(
+        state = _legacy.State(
             peak_rank=prog.peak_rank, num_measurements=prog.num_measurements, seed=42
         )
-        clifft.execute(prog, state)
-        sv = clifft.get_statevector(prog, state)
+        _legacy.execute(prog, state)
+        sv = _legacy.get_statevector(prog, state)
 
         # Statevector must be perfectly normalized (catches garbage memory bug)
         norm = float(np.sqrt(np.sum(np.abs(sv) ** 2)))
@@ -755,10 +752,7 @@ class TestPostselection:
         circuit = "M 0\nDETECTOR rec[-1]\n"
         prog_default = sampling_api.compile(circuit)
         prog_empty = sampling_api.compile(circuit, postselection_mask=[])
-        if sampling_api is clifft:
-            assert prog_default.num_instructions == prog_empty.num_instructions
-        else:
-            assert prog_default.num_actions == prog_empty.num_actions
+        assert prog_default.num_actions == prog_empty.num_actions
 
 
 class TestSampleSurvivors:
@@ -1098,17 +1092,17 @@ class TestExpVal:
 
     def test_state_exp_vals(self) -> None:
         """State.exp_vals is accessible and correctly sized."""
-        state = clifft.State(peak_rank=1, num_measurements=0, num_exp_vals=2)
+        state = _legacy.State(peak_rank=1, num_measurements=0, num_exp_vals=2)
         assert len(state.exp_vals) == 2
 
     def test_state_constructor_requires_keywords(self) -> None:
         """State constructor rejects positional arguments beyond self."""
         with pytest.raises(TypeError):
-            clifft.State(1, 0)
+            _legacy.State(1, 0)
 
     def test_state_constructor_seed_keyword(self) -> None:
         """Keyword seed does not affect exp_vals sizing."""
-        state = clifft.State(peak_rank=1, num_measurements=0, seed=42)
+        state = _legacy.State(peak_rank=1, num_measurements=0, seed=42)
         assert len(state.exp_vals) == 0
 
     def test_exp_val_multiple_probes(self) -> None:

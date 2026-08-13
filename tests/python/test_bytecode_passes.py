@@ -11,11 +11,12 @@ import pytest
 from conftest import random_dense_clifford_t_circuit
 
 import clifft
+from clifft import _legacy
 
 
 def compile_unoptimized(stim_text: str) -> clifft.Program:
     """Compile with no HIR or bytecode optimization (baseline for A/B tests)."""
-    return clifft.compile(stim_text, hir_passes=None, bytecode_passes=None)
+    return _legacy.compile(stim_text, hir_passes=None, bytecode_passes=None)
 
 
 def compile_optimized(stim_text: str) -> clifft.Program:
@@ -24,8 +25,8 @@ def compile_optimized(stim_text: str) -> clifft.Program:
     HIR passes are skipped so the bytecode A/B tests share an identical
     HIR (and therefore identical PRNG trajectories) on both sides.
     """
-    return clifft.compile(
-        stim_text, hir_passes=None, bytecode_passes=clifft.default_bytecode_pass_manager()
+    return _legacy.compile(
+        stim_text, hir_passes=None, bytecode_passes=_legacy.default_bytecode_pass_manager()
     )
 
 
@@ -56,18 +57,18 @@ def test_statevector_oracle(num_qubits: int, depth: int, seed: int) -> None:
     prog_base = compile_unoptimized(stim_text)
     prog_opt = compile_optimized(stim_text)
 
-    state_base = clifft.State(
+    state_base = _legacy.State(
         peak_rank=prog_base.peak_rank, num_measurements=prog_base.num_measurements
     )
-    state_opt = clifft.State(
+    state_opt = _legacy.State(
         peak_rank=prog_opt.peak_rank, num_measurements=prog_opt.num_measurements
     )
 
-    clifft.execute(prog_base, state_base)
-    clifft.execute(prog_opt, state_opt)
+    _legacy.execute(prog_base, state_base)
+    _legacy.execute(prog_opt, state_opt)
 
-    sv_base = clifft.get_statevector(prog_base, state_base)
-    sv_opt = clifft.get_statevector(prog_opt, state_opt)
+    sv_base = _legacy.get_statevector(prog_base, state_base)
+    sv_opt = _legacy.get_statevector(prog_opt, state_opt)
 
     fidelity = float(np.abs(np.vdot(sv_base, sv_opt)) ** 2)
     assert (
@@ -117,8 +118,8 @@ def test_exact_trajectory_noisy() -> None:
         prog_opt.num_instructions < prog_base.num_instructions
     ), "Optimized program should have fewer instructions"
 
-    base_result = clifft.sample(prog_base, shots=5000, seed=42)
-    opt_result = clifft.sample(prog_opt, shots=5000, seed=42)
+    base_result = _legacy.sample(prog_base, shots=5000, seed=42)
+    opt_result = _legacy.sample(prog_opt, shots=5000, seed=42)
 
     np.testing.assert_array_equal(
         base_result.measurements, opt_result.measurements, err_msg="Measurement records diverged"
@@ -159,8 +160,8 @@ def test_exact_trajectory_noiseless() -> None:
     prog_base = compile_unoptimized(NOISELESS_WITH_MEAS)
     prog_opt = compile_optimized(NOISELESS_WITH_MEAS)
 
-    base_result = clifft.sample(prog_base, shots=5000, seed=99)
-    opt_result = clifft.sample(prog_opt, shots=5000, seed=99)
+    base_result = _legacy.sample(prog_base, shots=5000, seed=99)
+    opt_result = _legacy.sample(prog_opt, shots=5000, seed=99)
 
     np.testing.assert_array_equal(
         base_result.measurements, opt_result.measurements, err_msg="Measurement records diverged"
@@ -183,8 +184,8 @@ def test_custom_bytecode_pass_manager() -> None:
     prog = compile_unoptimized(NOISY_CIRCUIT)
     n_before = prog.num_instructions
 
-    bpm = clifft.BytecodePassManager()
-    bpm.add(clifft.NoiseBlockPass())
+    bpm = _legacy.BytecodePassManager()
+    bpm.add(_legacy.NoiseBlockPass())
     bpm.run(prog)
 
     # NoiseBlockPass should reduce instruction count (coalesces noise sites)
@@ -198,28 +199,28 @@ def test_multi_gate_pass_opt_in() -> None:
     prog_base = compile_unoptimized(stim_text)
     prog_opt = compile_unoptimized(stim_text)
 
-    bpm = clifft.BytecodePassManager()
-    bpm.add(clifft.NoiseBlockPass())
-    bpm.add(clifft.ExpandTPass())
-    bpm.add(clifft.SwapMeasPass())
-    bpm.add(clifft.MultiGatePass())
+    bpm = _legacy.BytecodePassManager()
+    bpm.add(_legacy.NoiseBlockPass())
+    bpm.add(_legacy.ExpandTPass())
+    bpm.add(_legacy.SwapMeasPass())
+    bpm.add(_legacy.MultiGatePass())
     bpm.run(prog_opt)
 
     # MultiGatePass should reduce further vs no optimization
     assert prog_opt.num_instructions < prog_base.num_instructions
 
     # Verify correctness
-    state_base = clifft.State(
+    state_base = _legacy.State(
         peak_rank=prog_base.peak_rank, num_measurements=prog_base.num_measurements
     )
-    state_opt = clifft.State(
+    state_opt = _legacy.State(
         peak_rank=prog_opt.peak_rank, num_measurements=prog_opt.num_measurements
     )
-    clifft.execute(prog_base, state_base)
-    clifft.execute(prog_opt, state_opt)
+    _legacy.execute(prog_base, state_base)
+    _legacy.execute(prog_opt, state_opt)
 
-    sv_base = clifft.get_statevector(prog_base, state_base)
-    sv_opt = clifft.get_statevector(prog_opt, state_opt)
+    sv_base = _legacy.get_statevector(prog_base, state_base)
+    sv_opt = _legacy.get_statevector(prog_opt, state_opt)
 
     fidelity = float(np.abs(np.vdot(sv_base, sv_opt)) ** 2)
     assert fidelity > 0.999999

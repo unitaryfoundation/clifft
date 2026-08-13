@@ -16,6 +16,7 @@ from conftest import (
 )
 
 import clifft
+from clifft import _legacy
 
 
 def _peephole_pass_manager() -> clifft.HirPassManager:
@@ -30,22 +31,22 @@ def _compile_optimized(circuit_str: str) -> clifft.Program:
     hir = clifft.trace(circuit)
     pm = _peephole_pass_manager()
     pm.run(hir)
-    return clifft.lower(hir)
+    return _legacy.lower(hir)
 
 
 def _clifft_statevector(circuit_str: str, *, optimize: bool = False) -> np.ndarray:
     """Compile and execute circuit in Clifft, return dense statevector.
 
     The optimize=False baseline disables both optimization stages; the
-    default-argument clifft.compile() would run the very passes under test.
+    default-argument _legacy.compile() would run the very passes under test.
     """
     if optimize:
         prog = _compile_optimized(circuit_str)
     else:
-        prog = clifft.compile(circuit_str, hir_passes=None, bytecode_passes=None)
-    state = clifft.State(peak_rank=prog.peak_rank, num_measurements=prog.num_measurements)
-    clifft.execute(prog, state)
-    sv: np.ndarray = clifft.get_statevector(prog, state)
+        prog = _legacy.compile(circuit_str, hir_passes=None, bytecode_passes=None)
+    state = _legacy.State(peak_rank=prog.peak_rank, num_measurements=prog.num_measurements)
+    _legacy.execute(prog, state)
+    sv: np.ndarray = _legacy.get_statevector(prog, state)
     return sv
 
 
@@ -97,11 +98,10 @@ class TestTerminalMeasurementPhaseElimination:
     def test_measure_reset_corrections_preserve_distribution(self) -> None:
         """Disjoint MR corrections can be crossed without changing outputs."""
         exact_circuit = "H 0 1\nR_Z(0.3) 0 1\nMR 0 1"
-        exact_baseline = clifft.compile(exact_circuit, hir_passes=None, bytecode_passes=None)
+        exact_baseline = clifft.compile(exact_circuit, hir_passes=None)
         exact_optimized = clifft.compile(
             exact_circuit,
             hir_passes=_peephole_pass_manager(),
-            bytecode_passes=None,
         )
         assert exact_baseline.peak_rank == 2
         assert exact_optimized.peak_rank == 0
@@ -122,8 +122,8 @@ class TestTerminalMeasurementPhaseElimination:
             "DETECTOR rec[-2] rec[-1]\n"
             "OBSERVABLE_INCLUDE(0) rec[-1]"
         )
-        baseline = clifft.compile(noisy_circuit, hir_passes=None, bytecode_passes=None)
-        optimized = clifft.compile(
+        baseline = _legacy.compile(noisy_circuit, hir_passes=None, bytecode_passes=None)
+        optimized = _legacy.compile(
             noisy_circuit,
             hir_passes=_peephole_pass_manager(),
             bytecode_passes=None,
@@ -132,8 +132,8 @@ class TestTerminalMeasurementPhaseElimination:
         assert optimized.peak_rank == 0
 
         shots = 30_000
-        baseline_result = clifft.sample(baseline, shots, seed=242)
-        optimized_result = clifft.sample(optimized, shots, seed=243)
+        baseline_result = _legacy.sample(baseline, shots, seed=242)
+        optimized_result = _legacy.sample(optimized, shots, seed=243)
 
         weights = 1 << np.arange(2, dtype=np.uint64)
         baseline_bins = np.asarray(baseline_result.measurements, dtype=np.uint64) @ weights
@@ -159,11 +159,10 @@ class TestTerminalMeasurementPhaseElimination:
         branch = f"{pauli_branch}\n" if pauli_branch else ""
         circuit = "H 0\n" "R_Z(0.37) 0\n" f"{branch}" "M 0\n" "CX rec[-1] 1\n" "M 1"
         records = ["00", "01", "10", "11"]
-        baseline = clifft.compile(circuit, hir_passes=None, bytecode_passes=None)
+        baseline = clifft.compile(circuit, hir_passes=None)
         optimized = clifft.compile(
             circuit,
             hir_passes=_peephole_pass_manager(),
-            bytecode_passes=None,
         )
 
         np.testing.assert_allclose(
@@ -187,8 +186,8 @@ class TestTerminalMeasurementPhaseElimination:
             "M 2\n"
             "OBSERVABLE_INCLUDE(0) rec[-1]"
         )
-        baseline = clifft.compile(circuit, hir_passes=None, bytecode_passes=None)
-        optimized = clifft.compile(
+        baseline = _legacy.compile(circuit, hir_passes=None, bytecode_passes=None)
+        optimized = _legacy.compile(
             circuit,
             hir_passes=_peephole_pass_manager(),
             bytecode_passes=None,
@@ -197,8 +196,8 @@ class TestTerminalMeasurementPhaseElimination:
         assert optimized.peak_rank == 0
 
         shots = 30_000
-        baseline_result = clifft.sample(baseline, shots, seed=238)
-        optimized_result = clifft.sample(optimized, shots, seed=239)
+        baseline_result = _legacy.sample(baseline, shots, seed=238)
+        optimized_result = _legacy.sample(optimized, shots, seed=239)
 
         weights = 1 << np.arange(3, dtype=np.uint64)
         baseline_bins = np.asarray(baseline_result.measurements, dtype=np.uint64) @ weights
@@ -258,9 +257,9 @@ class TestPeepholeExactGlobalPhase:
     def test_h_t_t_h_exact_amplitudes(self) -> None:
         """H T T H |0> = [0.5+0.5j, 0.5-0.5j] after peephole fusion."""
         prog = _compile_optimized("H 0\nT 0\nT 0\nH 0")
-        state = clifft.State(peak_rank=prog.peak_rank, num_measurements=prog.num_measurements)
-        clifft.execute(prog, state)
-        sv = clifft.get_statevector(prog, state)
+        state = _legacy.State(peak_rank=prog.peak_rank, num_measurements=prog.num_measurements)
+        _legacy.execute(prog, state)
+        sv = _legacy.get_statevector(prog, state)
         assert_statevectors_componentwise_equal(sv, [0.5 + 0.5j, 0.5 - 0.5j], atol=1e-6)
 
     @pytest.mark.parametrize("circuit", S_ABSORPTION_CIRCUITS)
@@ -384,7 +383,7 @@ class TestMirrorTGateAnnihilation:
         meas = "M " + " ".join(str(i) for i in range(self.NUM_QUBITS))
         circuit_with_meas = circuit + "\n" + meas
 
-        prog_baseline = clifft.compile(circuit_with_meas, hir_passes=None, bytecode_passes=None)
+        prog_baseline = _legacy.compile(circuit_with_meas, hir_passes=None, bytecode_passes=None)
         prog_optimized = _compile_optimized(circuit_with_meas)
 
         assert (
@@ -405,7 +404,7 @@ class TestMirrorTGateAnnihilation:
         prog = _compile_optimized(circuit_with_meas)
         assert prog.peak_rank == 0
 
-        result = clifft.sample(prog, 1000, seed=seed)
+        result = _legacy.sample(prog, 1000, seed=seed)
         nonzero = int(result.measurements.sum(axis=1).astype(bool).sum())
         assert nonzero == 0, f"{nonzero}/1000 shots non-zero (seed={seed})"
 
@@ -459,24 +458,24 @@ class TestPeepholePassMetadata:
 def _assert_absorption_preserves_state(stim_text: str, atol: float = 1e-6) -> clifft.Program:
     """Compile with and without optimization; assert statevector equivalence."""
     # Baseline: no HIR or bytecode passes
-    prog_base = clifft.compile(stim_text, hir_passes=None, bytecode_passes=None)
-    state_base = clifft.State(
+    prog_base = _legacy.compile(stim_text, hir_passes=None, bytecode_passes=None)
+    state_base = _legacy.State(
         peak_rank=prog_base.peak_rank, num_measurements=prog_base.num_measurements
     )
-    clifft.execute(prog_base, state_base)
-    sv_base = np.array(clifft.get_statevector(prog_base, state_base))
+    _legacy.execute(prog_base, state_base)
+    sv_base = np.array(_legacy.get_statevector(prog_base, state_base))
 
     # Optimized: only PeepholeFusionPass.
-    prog_opt = clifft.compile(
+    prog_opt = _legacy.compile(
         stim_text,
         hir_passes=_peephole_pass_manager(),
         bytecode_passes=None,
     )
-    state_opt = clifft.State(
+    state_opt = _legacy.State(
         peak_rank=prog_opt.peak_rank, num_measurements=prog_opt.num_measurements
     )
-    clifft.execute(prog_opt, state_opt)
-    sv_opt = np.array(clifft.get_statevector(prog_opt, state_opt))
+    _legacy.execute(prog_opt, state_opt)
+    sv_opt = np.array(_legacy.get_statevector(prog_opt, state_opt))
 
     # Align global phase before comparison. Stim's
     # Tableau::to_flat_unitary_matrix canonicalizes the first non-zero

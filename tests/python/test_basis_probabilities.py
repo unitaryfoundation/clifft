@@ -10,6 +10,11 @@ from conftest import random_dense_clifford_t_circuit
 from utils_qiskit import qiskit_statevector, stim_to_qiskit_noiseless
 
 import clifft
+from clifft import _legacy
+
+
+def _compile_legacy(stim_text: str) -> Any:
+    return _legacy.compile(stim_text)
 
 
 def test_program_num_qubits_property(basis_probabilities_api: Any) -> None:
@@ -224,13 +229,13 @@ def test_probabilities_match_dense_statevector_for_small_circuit(
     CX 2 0
     """
     prog = basis_probabilities_api.compile(circuit)
-    legacy_prog = clifft.compile(circuit)
+    legacy_prog = _compile_legacy(circuit)
 
-    state = clifft.State(
+    state = _legacy.State(
         peak_rank=legacy_prog.peak_rank, num_measurements=legacy_prog.num_measurements
     )
-    clifft.execute(legacy_prog, state)
-    expected = np.abs(clifft.get_statevector(legacy_prog, state)) ** 2
+    _legacy.execute(legacy_prog, state)
+    expected = np.abs(_legacy.get_statevector(legacy_prog, state)) ** 2
     bitstrings = [format(i, f"0{prog.num_qubits}b")[::-1] for i in range(1 << prog.num_qubits)]
 
     np.testing.assert_allclose(
@@ -265,16 +270,16 @@ def test_probabilities_supports_active_rank_beyond_dense_statevector_limit(
 ) -> None:
     circuit = "\n".join(f"H {q}\nT {q}" for q in range(12))
     prog = basis_probabilities_api.compile(circuit)
-    legacy_prog = clifft.compile(circuit)
+    legacy_prog = _compile_legacy(circuit)
 
     assert prog.num_qubits == 12
     assert legacy_prog.peak_rank > 10
     with pytest.raises(RuntimeError, match="Statevector expansion limited"):
-        state = clifft.State(
+        state = _legacy.State(
             peak_rank=legacy_prog.peak_rank, num_measurements=legacy_prog.num_measurements
         )
-        clifft.execute(legacy_prog, state)
-        clifft.get_statevector(legacy_prog, state)
+        _legacy.execute(legacy_prog, state)
+        _legacy.get_statevector(legacy_prog, state)
 
     np.testing.assert_allclose(
         basis_probabilities_api.basis_probabilities(prog, ["0" * 12, "1" * 12]),
@@ -305,7 +310,7 @@ def test_probabilities_sum_to_one_at_high_active_rank(basis_probabilities_api: A
     # that the small-circuit statevector cross-check cannot.
     circuit = "\n".join(f"H {q}\nT {q}" for q in range(12))
     prog = basis_probabilities_api.compile(circuit)
-    assert clifft.compile(circuit).peak_rank > 10
+    assert _compile_legacy(circuit).peak_rank > 10
     n = prog.num_qubits
     bitstrings = [format(i, f"0{n}b") for i in range(1 << n)]
     np.testing.assert_allclose(
@@ -342,16 +347,16 @@ def test_probabilities_match_statevector_for_fused_unitaries(
         "CX 0 1\nH 0\nT 0\nS 0"
     )
     prog = basis_probabilities_api.compile(src)
-    legacy_prog = clifft.compile(src)
+    legacy_prog = _compile_legacy(src)
     opcodes = {instr.opcode for instr in legacy_prog}
-    assert clifft.Opcode.OP_ARRAY_U2 in opcodes, "test circuit no longer triggers U2 fusion"
-    assert clifft.Opcode.OP_ARRAY_U4 in opcodes, "test circuit no longer triggers U4 fusion"
+    assert _legacy.Opcode.OP_ARRAY_U2 in opcodes, "test circuit no longer triggers U2 fusion"
+    assert _legacy.Opcode.OP_ARRAY_U4 in opcodes, "test circuit no longer triggers U4 fusion"
 
-    state = clifft.State(
+    state = _legacy.State(
         peak_rank=legacy_prog.peak_rank, num_measurements=legacy_prog.num_measurements
     )
-    clifft.execute(legacy_prog, state)
-    expected = np.abs(clifft.get_statevector(legacy_prog, state)) ** 2
+    _legacy.execute(legacy_prog, state)
+    expected = np.abs(_legacy.get_statevector(legacy_prog, state)) ** 2
     n = prog.num_qubits
     bitstrings = [format(i, f"0{n}b")[::-1] for i in range(1 << n)]
     np.testing.assert_allclose(
@@ -367,10 +372,10 @@ def _all_bitstrings(num_qubits: int) -> list[str]:
     return [format(i, f"0{num_qubits}b")[::-1] for i in range(1 << num_qubits)]
 
 
-def _statevector_probs(prog: clifft.Program) -> npt.NDArray[np.float64]:
-    state = clifft.State(peak_rank=prog.peak_rank, num_measurements=prog.num_measurements)
-    clifft.execute(prog, state)
-    return cast(npt.NDArray[np.float64], np.abs(clifft.get_statevector(prog, state)) ** 2)
+def _statevector_probs(prog: Any) -> npt.NDArray[np.float64]:
+    state = _legacy.State(peak_rank=prog.peak_rank, num_measurements=prog.num_measurements)
+    _legacy.execute(prog, state)
+    return cast(npt.NDArray[np.float64], np.abs(_legacy.get_statevector(prog, state)) ** 2)
 
 
 def test_probabilities_pure_clifford_zero_active_rank(basis_probabilities_api: Any) -> None:
@@ -380,7 +385,7 @@ def test_probabilities_pure_clifford_zero_active_rank(basis_probabilities_api: A
     # pivot and the fast path engages.
     circuit = "H 0\nH 1\nH 2\nCX 0 1\nCX 1 2\nS 0"
     prog = basis_probabilities_api.compile(circuit)
-    legacy_prog = clifft.compile(circuit)
+    legacy_prog = _compile_legacy(circuit)
     assert legacy_prog.peak_rank == 0
 
     bitstrings = _all_bitstrings(prog.num_qubits)
@@ -411,7 +416,7 @@ def test_probabilities_full_rank_clifford_t_matches_statevector(
         lines.append(f"H {q}")
     circuit = "\n".join(lines)
     prog = basis_probabilities_api.compile(circuit)
-    legacy_prog = clifft.compile(circuit)
+    legacy_prog = _compile_legacy(circuit)
 
     bitstrings = _all_bitstrings(n)
     np.testing.assert_allclose(
@@ -431,7 +436,7 @@ def test_probabilities_rank_deficient_fallback_matches_statevector(
     # If the fallback regresses we will see a mismatch here.
     circuit = "H 0\nT 0\nH 0\nH 2"
     prog = basis_probabilities_api.compile(circuit)
-    legacy_prog = clifft.compile(circuit)
+    legacy_prog = _compile_legacy(circuit)
     assert prog.num_qubits == 3
     bitstrings = _all_bitstrings(3)
     np.testing.assert_allclose(
@@ -451,7 +456,7 @@ def test_probabilities_random_clifford_t_matches_statevector(
     # bug in either branch.
     circuit = random_dense_clifford_t_circuit(num_qubits=5, depth=20, seed=seed)
     prog = basis_probabilities_api.compile(circuit)
-    legacy_prog = clifft.compile(circuit)
+    legacy_prog = _compile_legacy(circuit)
     bitstrings = _all_bitstrings(prog.num_qubits)
     np.testing.assert_allclose(
         basis_probabilities_api.basis_probabilities(prog, bitstrings),
