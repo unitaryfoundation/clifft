@@ -113,7 +113,6 @@ def run_stratified_is(
         circuit_text,
         normalize_syndromes=True,
         hir_passes=clifft.default_hir_pass_manager(),
-        bytecode_passes=clifft.default_bytecode_pass_manager(),
     )
     # Today we compile once to discover the detector count, then again with an
     # all-detector postselection mask. A front-end detector count query would
@@ -126,7 +125,6 @@ def run_stratified_is(
         normalize_syndromes=True,
         postselection_mask=mask,
         hir_passes=clifft.default_hir_pass_manager(),
-        bytecode_passes=clifft.default_bytecode_pass_manager(),
     )
 
     site_probs: NDArray[np.float64] = prog.noise_site_probabilities
