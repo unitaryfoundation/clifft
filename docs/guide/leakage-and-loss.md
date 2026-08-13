@@ -366,20 +366,17 @@ circuit and model together and compiles internally.
 
 Each continuation uses the default optimization passes that preserve
 measurement-record order and explicitly opt in to instrument-prefix stability.
-At the HIR stage, this means
-`PeepholeFusionPass`; `StatevectorSqueezePass` is omitted because it can move
-measurements. All of the default bytecode passes currently preserve both
-properties and are applied. See [Optimization Passes](../reference/passes.md)
-for the full list.
+At the HIR stage, this means `PeepholeFusionPass`;
+`StatevectorSqueezePass` is omitted because it can move measurements. See
+[Optimization Passes](../reference/passes.md) for the available HIR passes.
 
 This restriction matters because resolving a trapped transition may add a
 forced, hidden trace-out measurement. Moving another measurement across that
 collapse can change correlations. Record-order preservation is necessary but
 not sufficient for resuming a shot: recompiling the remainder must also
-reproduce the bytecode prefix already executed, because `resume()` reuses the
-existing VM state directly. `noncomp.sample` therefore uses a fixed internal
-pipeline and validates the bytecode and referenced constant-pool data in each
-recompiled prefix before resuming. It does not currently accept custom pass
-managers. The theory page
+reproduce the executable-plan prefix already consumed, because `resume()`
+reuses the existing symbolic executor state directly. `noncomp.sample`
+therefore uses a fixed internal pipeline and validates each recompiled prefix
+before resuming. It does not currently accept custom pass managers. The theory page
 explains
 [how this composes with Clifft](../theory/noncomputational.md#how-this-composes-with-clifft).

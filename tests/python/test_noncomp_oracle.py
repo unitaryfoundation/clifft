@@ -17,6 +17,8 @@ trace.
 
 from __future__ import annotations
 
+from typing import Any
+
 import numpy as np
 import numpy.typing as npt
 import pytest
@@ -24,11 +26,19 @@ import utils_noncomp_oracle as oracle
 from conftest import noncomp_classifier_matrix_with_column, noncomp_transition_matrix
 
 import clifft
-from clifft import noncomp
+from clifft import _legacy, noncomp
 
 Level = noncomp.Level
 BAND = 0.04  # ~7 sigma at 8000 shots for p near 0.5
 SHOTS = 8000
+
+
+@pytest.fixture(
+    params=[clifft.noncomp.sample, _legacy.sample_noncomputational], ids=["symbolic", "legacy"]
+)
+def noncomp_sampling_api(request: pytest.FixtureRequest) -> Any:
+    """Run the independent-oracle checks against both trajectory executors."""
+    return request.param
 
 
 def _classifier(level: int, col: list[float]) -> noncomp.Classifier:

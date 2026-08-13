@@ -1,24 +1,26 @@
 # Compiling Circuits
 
-Clifft compiles Stim-format circuit text into an executable SVM program. For most users, `clifft.compile()` is the only compilation API needed. Lower-level APIs are available when you want to inspect intermediate representations, customize optimization passes, or build your own compilation flow.
+Clifft compiles Stim-format circuit text into an executable symbolic-coordinate
+sampling plan. For most users, `clifft.compile()` is the only compilation API
+needed. Lower-level APIs remain available for inspecting the circuit and
+Heisenberg IR or for supplying a custom HIR optimization pipeline.
 
 !!! note "Leakage and loss"
     Circuits containing `LEAKAGE`, `LOSS`, or `LEVEL_TRANSITION` annotations
-    use `clifft.noncomp.sample()` instead. It compiles the remaining circuit
-    as noncomputational transitions occur. See
+    use `clifft.noncomp.sample()` instead. See
     [Leakage and Loss](leakage-and-loss.md).
 
 !!! tip "Using Qiskit or Cirq?"
-    The core compiler consumes Clifft's Stim-compatible text format. If your
-    circuits start in Qiskit or Cirq, use the companion
+    Use the companion
     [`clifft-qiskit`](https://github.com/unitaryfoundation/clifft-qiskit) or
-    [`clifft-cirq`](https://github.com/unitaryfoundation/clifft-cirq) packages
-    to route supported circuits to Clifft. See
-    [Front-End Integrations](../getting-started/integrations.md).
+    [`clifft-cirq`](https://github.com/unitaryfoundation/clifft-cirq) package
+    to translate supported circuits into Clifft's Stim-compatible text format.
 
 ## One-Step Compilation
 
-For most use cases, `clifft.compile()` parses the circuit, traces Clifford operations into the Heisenberg IR, applies the default HIR and bytecode optimization passes, and returns a simulatable program:
+`clifft.compile()` parses the circuit, traces Clifford operations into the
+Heisenberg IR, applies the default HIR passes, plans active symbolic
+coordinates, and prepares an executable plan:
 
 ```python
 import clifft
@@ -31,45 +33,31 @@ program = clifft.compile("""
 """)
 ```
 
-The returned `Program` can be passed directly to `clifft.sample()`, `clifft.sample_survivors()`, or other simulation APIs.
+The returned `Program` can be passed directly to `clifft.sample()`,
+`clifft.sample_survivors()`, the fixed-fault samplers, or the exact-query APIs.
 
-To skip optimization, pass `None` for the corresponding stage:
+To skip HIR optimization, pass `hir_passes=None`:
 
 ```python
 import clifft
 
-program = clifft.compile(
-    """
-    H 0
-    CNOT 0 1
-    T 2
-    M 0 1 2
-    """,
-    hir_passes=None,
-    bytecode_passes=None,
-)
+program = clifft.compile("H 0\nT 0\nM 0", hir_passes=None)
 ```
 
-You can also supply a custom `HirPassManager` or `BytecodePassManager` to override the defaults. See [Optimization Passes](../reference/passes.md) for details.
-
-Some simulation workflows also pass options such as `postselection_mask`, `normalize_syndromes`, `expected_detectors`, or `expected_observables` to `compile()`. These options affect how detector and observable outputs are interpreted during sampling; see [Simulation](simulation.md#detectors-observables-and-post-selection).
+You can also supply a custom `HirPassManager`. Compilation options such as
+`postselection_mask`, `normalize_syndromes`, `expected_detectors`, and
+`expected_observables` define the output contract used during sampling.
 
 ## Step-by-Step Compilation
 
-The lower-level compilation APIs expose the same stages used by `clifft.compile()`. They are useful for debugging, inspecting intermediate representations, or experimenting with custom optimization passes.
+### 1. Parse
 
-### 1. Parsing
-
-`clifft.parse()` converts Stim-format circuit text into an AST:
+`clifft.parse()` converts circuit text into a `Circuit`:
 
 ```python
 import clifft
 
-circuit = clifft.parse("""
-    H 0
-    CNOT 0 1
-    M 0 1
-""")
+circuit = clifft.parse("H 0\nCNOT 0 1\nM 0 1")
 ```
 
 You can also parse from a file:
@@ -80,39 +68,40 @@ You can also parse from a file:
 circuit = clifft.parse_file("my_circuit.stim")
 ```
 
-### 2. Front-End: Clifford Tracing
+### 2. Trace Clifford Operations
 
-`clifft.trace()` absorbs Clifford operations into Clifft's frame representation and produces the Heisenberg IR (`HirModule`). Non-Clifford operations, measurements, detectors, observables, and noise are represented explicitly in this IR:
+`clifft.trace()` absorbs Clifford operations into a symbolic frame and emits
+the explicit non-Clifford operations, measurements, noise, and classical
+outputs as a `HirModule`:
 
 ```python
 import clifft
 
-circuit = clifft.parse("H 0\nCNOT 0 1\nT 0\nM 0 1")
-hir = clifft.trace(circuit)
-
+hir = clifft.trace(clifft.parse("H 0\nCNOT 0 1\nT 0\nM 0 1"))
 print(hir)
 ```
 
-### 3. HIR Optimization
-
-HIR passes transform the traced circuit before it is lowered to executable bytecode. The default pass manager applies Clifft's standard optimizations; you can also build a custom pass manager when experimenting with individual passes.
-
-<!--pytest-codeblocks:cont-->
+### 3. Optimize the HIR
 
 ```python
-# Use the default HIR pass manager
+import clifft
+
+hir = clifft.trace(clifft.parse("H 0\nCNOT 0 1\nT 0\nM 0 1"))
+
+# Use the default pipeline.
 pm = clifft.default_hir_pass_manager()
 pm.run(hir)
 
-# Or build a custom one
+# Or construct a focused pipeline.
 pm = clifft.HirPassManager()
 pm.add(clifft.PeepholeFusionPass())
 pm.run(hir)
 ```
 
-### 4. Back-End: Lowering to Bytecode
+### 4. Plan and Prepare Execution
 
-`clifft.lower()` converts optimized HIR into an executable SVM program:
+`clifft.lower()` converts an optimized `HirModule` into the same `Program`
+type returned by `clifft.compile()`:
 
 <!--pytest-codeblocks:cont-->
 
@@ -120,63 +109,33 @@ pm.run(hir)
 program = clifft.lower(hir)
 ```
 
-Most users should call `clifft.compile()` instead. Use `lower()` directly when you are building a custom compilation pipeline or inspecting the output of individual optimization stages.
-
-### 5. Bytecode Optimization
-
-After lowering, bytecode passes optimize the executable program. These passes do not change the circuit semantics; they reduce runtime overhead, for example by fusing compatible operations.
-
-<!--pytest-codeblocks:cont-->
-
-```python
-bpm = clifft.default_bytecode_pass_manager()
-bpm.run(program)
-```
-
-See [Optimization Passes](../reference/passes.md) for the full list of default and optional passes available at both IR levels.
+Lowering selects active coordinates and converts symbolic expressions,
+measurements, rotations, and classical outputs into fixed storage consumed by
+the sampler. Runtime kernels therefore do not perform tableau evolution or
+discover dependencies.
 
 ## Full Custom Pipeline
-
-Putting it all together:
 
 ```python
 import clifft
 
-# Parse
 circuit = clifft.parse("H 0\nT 0\nCNOT 0 1\nM 0 1")
-
-# Front-end: Clifford tracing
 hir = clifft.trace(circuit)
-
-# HIR optimization
-pm = clifft.default_hir_pass_manager()
-pm.run(hir)
-
-# Back-end: lower to bytecode
+clifft.default_hir_pass_manager().run(hir)
 program = clifft.lower(hir)
-
-# Bytecode optimization
-bpm = clifft.default_bytecode_pass_manager()
-bpm.run(program)
 ```
 
-This is equivalent to `clifft.compile()` with default passes, but exposes each intermediate representation for inspection or customization.
+## Reference Syndrome Computation
 
-## Advanced: Reference Syndrome Computation
-
-For QEC workflows, `compute_reference_syndrome()` computes the noiseless detector and observable parities for an `HirModule`. This is the same reference used internally when compiling with `normalize_syndromes=True`.
+For QEC workflows, `compute_reference_syndrome()` computes noiseless detector
+and observable parities for a `HirModule`. This is the same normalization used
+by `clifft.compile(..., normalize_syndromes=True)`.
 
 <!--pytest.mark.skip-->
 
 ```python
-import clifft
-
 circuit = clifft.parse(circuit_text)
-hir = clifft.trace(circuit)
-ref = clifft.compute_reference_syndrome(hir)
-
-print(ref["detectors"])
-print(ref["observables"])
+reference = clifft.compute_reference_syndrome(clifft.trace(circuit))
+print(reference["detectors"])
+print(reference["observables"])
 ```
-
-Most users do not need to call this directly; use `normalize_syndromes=True` when compiling instead. See [Simulation](simulation.md#syndrome-normalization) for details.

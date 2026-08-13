@@ -10,7 +10,7 @@ import numpy as np
 import pytest
 from conftest import binomial_tolerance
 
-import clifft
+from clifft import _legacy
 
 
 def _repeated_expand_measure_circuit(n_rounds: int) -> str:
@@ -51,18 +51,18 @@ class TestRepeatedExpansionAndCompaction:
     def test_peak_rank_bounded(self, n_rounds: int) -> None:
         """Peak rank stays at exactly 2 regardless of round count."""
         circuit = _repeated_expand_measure_circuit(n_rounds)
-        prog = clifft.compile(circuit, hir_passes=None, bytecode_passes=None)
+        prog = _legacy.compile(circuit, hir_passes=None, bytecode_passes=None)
         assert prog.peak_rank == 2, f"n_rounds={n_rounds}: peak_rank={prog.peak_rank}, expected 2"
 
     def test_500_rounds_complete(self) -> None:
         """A 500-round circuit completes without underflow."""
         circuit = _repeated_expand_measure_circuit(500)
-        prog = clifft.compile(circuit, hir_passes=None, bytecode_passes=None)
+        prog = _legacy.compile(circuit, hir_passes=None, bytecode_passes=None)
 
         assert prog.peak_rank == 2
         # Memory: 2^2 * 16 bytes = 64 bytes (trivial)
 
-        result = clifft.sample(prog, 1000, seed=42)
+        result = _legacy.sample(prog, 1000, seed=42)
         # All 1000 shots must complete (no NaN, no crash)
         assert result.measurements.shape == (1000, 501)  # 500 mid-circuit + 1 final
         # No NaN-induced garbage: every measurement must be 0 or 1
@@ -71,11 +71,11 @@ class TestRepeatedExpansionAndCompaction:
     def test_1000_rounds_complete(self) -> None:
         """Normalization remains finite through 1000 rounds."""
         circuit = _repeated_expand_measure_circuit(1000)
-        prog = clifft.compile(circuit, hir_passes=None, bytecode_passes=None)
+        prog = _legacy.compile(circuit, hir_passes=None, bytecode_passes=None)
 
         assert prog.peak_rank == 2
 
-        result = clifft.sample(prog, 100, seed=7)
+        result = _legacy.sample(prog, 100, seed=7)
         assert result.measurements.shape == (100, 1001)
         assert np.all((result.measurements == 0) | (result.measurements == 1))
 

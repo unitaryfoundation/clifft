@@ -15,7 +15,7 @@ circuit = """
     M 0 1
 """
 
-# Compile to bytecode
+# Compile an executable sampling plan
 program = clifft.compile(circuit)
 
 # Sample 1000 shots
@@ -59,13 +59,8 @@ program = clifft.compile("""
     CNOT 0 1
 """)
 
-# Create state, execute, and extract state vector
-state = clifft.State(
-    peak_rank=program.peak_rank,
-    num_measurements=program.num_measurements,
-)
-clifft.execute(program, state)
-sv = clifft.get_statevector(program, state)
+# Expand the final pure state
+sv = clifft.get_statevector(program)
 print(sv)  # [0.707+0j, 0+0j, 0+0j, 0.707+0j]
 ```
 

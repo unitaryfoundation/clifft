@@ -11,14 +11,25 @@ shot-noise band calibrated from the reference distribution itself.
 from __future__ import annotations
 
 from collections.abc import Callable
+from typing import Any
 
 import numpy as np
+import pytest
 import utils_noncomp_enumerator as en
 from conftest import binomial_tolerance, noncomp_transition_matrix
 
-from clifft import noncomp
+import clifft
+from clifft import _legacy, noncomp
 
 Level = noncomp.Level
+
+
+@pytest.fixture(
+    params=[clifft.noncomp.sample, _legacy.sample_noncomputational], ids=["symbolic", "legacy"]
+)
+def noncomp_sampling_api(request: pytest.FixtureRequest) -> Any:
+    """Compare both trajectory executors with the exact enumerator."""
+    return request.param
 
 
 def _classifier_matrix() -> list[list[float]]:

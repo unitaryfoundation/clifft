@@ -10,7 +10,9 @@ Clifft parses [Stim circuit format](https://github.com/quantumlib/Stim/blob/main
 | `Y`  | Pauli Y |
 | `Z`  | Pauli Z |
 
-All Pauli gates are single-qubit Cliffords absorbed at compile time (zero VM cost).
+All Pauli gates are single-qubit Cliffords absorbed at compile time, so they
+do not become active-state actions unless a later dynamic dependency requires
+one.
 
 ## Single-Qubit Clifford Gates
 
@@ -30,7 +32,9 @@ All single-qubit Cliffords are absorbed AOT — they update the Clifford frame $
 
 ## Non-Clifford Extensions
 
-Clifft extends Stim with discrete and arbitrary-angle non-Clifford gates. These operations can activate qubits in the virtual machine and expand the active state vector.
+Clifft extends Stim with discrete and arbitrary-angle non-Clifford gates.
+These operations can add symbolic coordinates and expand the active state
+vector.
 
 ### T Gates
 
@@ -43,7 +47,7 @@ Clifft extends Stim with discrete and arbitrary-angle non-Clifford gates. These 
 
 These gate names are accepted by the parser as fixed rewrite rules into
 Clifft-native gates. They are rewritten during parsing and do not appear as
-distinct frontend, backend, or VM gate types.
+distinct frontend, planner, or executor gate types.
 
 | Gate | Syntax | Notes |
 |------|--------|-------|

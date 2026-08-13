@@ -1,105 +1,107 @@
 # Theoretical Overview
 
-Clifft is a multi-level compiler and execution engine for universal quantum circuits. It reduces the exponential part of exact simulation from the total qubit count to the dynamic active dimension for circuits where non-Clifford effects remain localized.
+Clifft is a compiler and execution engine for universal quantum circuits. For
+circuits whose non-Clifford effects remain localized, it reduces the
+exponential part of exact simulation from the total qubit count to a dynamic
+active dimension.
 
-More details on this approach are in our [arXiv preprint](https://arxiv.org/abs/2604.27058).
+More details are in our [arXiv preprint](https://arxiv.org/abs/2604.27058).
 
-## The Factored State Representation
+## Symbolic Clifford Coordinates
 
-Clifft represents the exact physical quantum state at time $t$ via a strict factorization:
+The compiler absorbs deterministic Clifford evolution into an offline frame.
+Measurements, noise outcomes, and conditional operations become affine
+Boolean expressions, while the genuinely interfering degrees of freedom are
+represented by a dense complex state over $k$ active symbolic coordinates.
 
-$$|\psi^{(t)}\rangle = \gamma^{(t)} \, U_C^{(t)} \, P^{(t)} \, \Big( |\phi^{(t)}\rangle_A \otimes |0\rangle_D \Big)$$
+The dense array has $2^k$ entries. Physical circuits may contain many more
+than $k$ qubits because dormant Clifford structure remains in the symbolic
+frame. Non-Clifford rotations and active measurements can add coordinates;
+measurements can also remove them. The largest width reached by a compiled
+program is exposed as `program.peak_rank`.
 
-Each component serves a distinct purpose:
+For magic-state preparation, distillation, and related QEC circuits, frequent
+measurements can keep this active width small even when the physical circuit
+contains hundreds of qubits. Clifft then allocates $2^{k_max}$ amplitudes
+instead of $2^n$.
 
-- **$U_C$ (The Clifford Frame):** A coordinate system mapping virtual qubits to physical qubits (akin to the Heisenberg picture). Evaluated entirely at compile time.
-
-- **$P$ (The Pauli Frame):** Tracks discrete stochastic bit-flips and phase-flips from measurements and noise. Updated at runtime via fast bitwise XOR operations.
-
-- **$A$ and $D$ (Active/Dormant Sets):** The $n$ virtual qubits are partitioned into $k$ *Active* qubits (in superposition) and $n - k$ *Dormant* qubits (in the computational zero state). $k$ is the **active dimension** (also called the *active rank* in the codebase).
-
-- **$|\phi\rangle_A$ (The Active State Vector):** A dense, unnormalized complex array of size $2^k$ tracking non-Clifford interference. The dense active array is the only component whose size is exponential.
-
-- **$\gamma$ (The Global Scalar):** Tracks the continuous global phase and physical norm.
-
-### Why This Matters
-
-For circuits where non-Clifford entanglement is bounded, such as magic state distillation, frequent syndrome measurements can collapse inactive degrees of freedom and keep non-Clifford effects localized. The peak active dimension $k_{\text{max}}$ remains small even as the total qubit count $n$ grows to hundreds. Clifft allocates $2^{k_{\text{max}}}$ complex amplitudes instead of $2^n$, yielding exponential memory savings.
-
-## The Five-Stage Pipeline
+## Compilation and Execution
 
 ```text
-Circuit Text  -->  1. Front-End (Heisenberg Mapping)
-                        |  Absorbs physical Cliffords. Maps non-Cliffords
-                        |  and measurements to the virtual basis.
-                        v
-                   Heisenberg IR (HIR)
-                        |
-                   2. Middle-End Optimizer
-                        |  O(1) static Pauli commutation checks to fuse
-                        |  and cancel redundant operations.
-                        v
-                   Optimized HIR
-                        |
-                   3. Back-End (Pauli Localization)
-                        |  Synthesizes greedy O(n) virtual Clifford sequences
-                        |  that localize each Pauli product to a single axis.
-                        |  Emits localized VM bytecode.
-                        v
-                   Program (Raw Bytecode + Constant Pool)
-                        |
-                   4. Bytecode Optimizer
-                        |  Fuses sequences of instructions to minimize
-                        |  array passes and dispatch overhead.
-                        v
-                   Optimized Program
-                        |
-                   5. Virtual Machine (Execution)
-                        |  Executes array updates and tracks Pauli frame P.
-                        |  Allocates exactly ONE array of size 2^{k_max}.
-                        v
-                   Measurement Results
+Circuit text
+    |
+    v
+Parse and Clifford trace
+    |  Absorb Clifford gates and emit Heisenberg IR operations.
+    v
+Heisenberg IR
+    |  Fuse/cancel operations and reduce active lifetimes.
+    v
+Optimized HIR
+    |  Choose active coordinates and derive affine dependencies.
+    v
+Sampling plan
+    |  Prepare fixed action storage and select scalar/SIMD kernels.
+    v
+Executable program
+    |  Reuse the plan for every shot.
+    v
+Measurement, detector, observable, and expectation-value results
 ```
 
-### Stage 1: Front-End (Heisenberg Mapping)
+### Clifford Trace
 
-The Front-End absorbs all physical Clifford operations into the offline Clifford frame $U_C$ using a stabilizer tableau simulator (Stim's fast implementation in fact!). For every non-Clifford gate, measurement, or noise channel, it extracts the virtual Pauli string via the Heisenberg mapping:
+The front end uses Stim's tableau implementation to absorb physical Clifford
+operations. For an explicit operation $P$, it computes the corresponding
+Pauli in the current Clifford frame:
 
-$$P_{\text{virtual}} = U_C^\dagger \, P \, U_C$$
+$$P_{frame} = U_C^\dagger P U_C$$
 
-The output is the **Heisenberg IR (HIR)**: an equivalent and more compact representation of the circuit where all Clifford operations are implicitly represented in the mapped Pauli string of the non-Clifford operations.
+The resulting Heisenberg IR keeps rotations, measurements, noise, classical
+dependencies, detectors, and observables explicit without replaying every
+Clifford gate during each shot.
 
-### Stage 2: Middle-End Optimizer
+### HIR Optimization
 
-The optimizer applies fast bitwise Pauli commutation checks to fuse and cancel redundant operations in the HIR, and also push commuting measurements early & non-Cliffords later to limit $k_\text{max}$. Because the HIR is purely algebraic, the optimizer can reason about gate interactions without simulating the full quantum state.
+HIR passes use Pauli algebra and dataflow information to fuse or cancel
+operations and, when safe, shorten active-coordinate lifetimes. This work is
+performed before the runtime representation is fixed.
 
-### Stage 3: Back-End Pauli Localization
+### Coordinate Planning
 
-The back end lowers optimized HIR into SVM bytecode by localizing each relevant Pauli product to a single virtual axis. This compile-time Pauli localization converts multi-qubit rotations and measurements into localized VM operations, so sample-time execution avoids tableau updates and acts directly on the active array.
+The planner chooses coordinates for consecutive operations, records
+active-width transitions, and converts measurement and noise dependencies into
+affine expressions. It also computes the descriptors needed by rotations,
+measurements, transition instruments, and exact-output queries.
 
-### Stage 4: Bytecode Optimizer
+### Executable-Plan Preparation
 
-After lowering, we apply another set of optimizations directly to the bytecode, targetting specific improvements to improve sampling time. These passes fuse sequences of instructions to eliminate redundant passes over the array and reduce dispatch overhead.
+Preparation transposes symbolic dependencies for incremental evaluation,
+combines supported rotation runs, and selects scalar or architecture-specific
+kernels. All coefficient, record, expression, and scratch storage is sized
+before the hot dispatch loop.
 
-### Stage 5: Schrodinger Virtual Machine
+### Sampling
 
-The Schrodinger Virtual Machine executes the localized bytecode using the factored state representation. Because Clifford-coordinate updates and Pauli localization have already been performed at compile time, repeated sampling only updates the Pauli frame and the dense active state vector, with exponential cost confined to the current active dimension.
+Each shot assigns presampled fault symbols, evaluates dynamic expressions, and
+applies the prepared active-state actions. Runtime execution performs no
+tableau evolution, Pauli localization, commutation analysis, or dependency
+discovery.
 
 !!! note "Leakage and loss trajectories"
-    The same five stages are used for noncomputational simulation, but not
-    necessarily only once per circuit. A sampled transition can change the
-    remaining operations, so `clifft.noncomp.sample` may compile a continuation
-    during a shot and then resume VM execution. See
+    A sampled transition can change which later operations remain physical.
+    `clifft.noncomp.sample` therefore compiles and resumes symbolic-coordinate
+    continuations at explicit transition boundaries. See
     [Noncomputational States](noncomputational.md).
 
-## Exact Basis-State Probabilities
+## Exact Queries
 
-For unitary programs, `clifft.basis_probabilities()` computes exact full-register
-computational-basis probabilities from the same factored state representation,
-without expanding the full $2^n$ statevector. The exponential part still scales
-with the active dimension $k$, so the API is useful when you need exact
-probabilities for a sparse set of output bitstrings.
+For pure-unitary programs, `clifft.basis_probabilities()` computes selected
+full-register computational-basis probabilities without expanding all $2^n$
+amplitudes. `clifft.get_statevector()` performs that full expansion when a
+dense state is useful for small-circuit debugging. Programs with measurements
+can use `clifft.record_probabilities()` to evaluate selected measurement
+records exactly.
 
-See [Basis-State Probabilities](basis_probabilities.md) for the algorithm and
-[Strong Simulation with Exact Probabilities](../guide/strong-simulation.md) for
-a practical tutorial.
+See [Basis-State Probabilities](basis_probabilities.md) and
+[Strong Simulation with Exact Probabilities](../guide/strong-simulation.md).

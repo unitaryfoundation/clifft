@@ -1,9 +1,8 @@
 """Clifft.
 
-A fast exact simulator for near-Clifford quantum circuits. Accepts
-Stim-format circuits with non-Clifford extensions, compiles them through
-a multi-level pipeline (HIR + bytecode), and executes the bytecode on a
-Schrodinger Virtual Machine whose cost scales with the active dimension
+A fast exact simulator for near-Clifford quantum circuits. Clifft accepts
+Stim-format circuits with non-Clifford extensions and compiles them into a
+symbolic-coordinate sampling plan whose cost scales with the active dimension
 rather than the full Hilbert space.
 """
 
@@ -57,38 +56,24 @@ del _check_multiprocessing_omp
 from clifft import noncomp
 from clifft._clifft_core import (
     AstNode,
-    BytecodePass,
-    BytecodePassManager,
     Circuit,
     DropNonUnitaryPass,
-    ExpandRotPass,
-    ExpandTPass,
     GateType,
     HeisenbergOp,
     HirModule,
     HirPass,
     HirPassManager,
-    Instruction,
-    MultiGatePass,
-    NoiseBlockPass,
-    Opcode,
     OpType,
     ParseError,
     PeepholeFusionPass,
     Program,
     RemoveNoisePass,
-    SingleAxisFusionPass,
-    State,
     StatevectorSqueezePass,
-    SwapMeasPass,
     Target,
-    TileAxisFusionPass,
     _basis_probabilities_from_bitmasks,
     _record_probabilities_from_records,
     compute_reference_syndrome,
-    default_bytecode_pass_manager,
     default_hir_pass_manager,
-    execute,
     get_num_threads,
     get_statevector,
     lower,
@@ -99,7 +84,6 @@ from clifft._clifft_core import (
     sample_k_survivors,
     sample_survivors,
     set_num_threads,
-    svm_backend,
     trace,
     version,
 )
@@ -335,17 +319,11 @@ def compile(
     expected_observables: list[int] | None = None,
     normalize_syndromes: bool = False,
     hir_passes: HirPassManager | None | _DefaultPasses = _DEFAULT_PASSES,
-    bytecode_passes: BytecodePassManager | None | _DefaultPasses = _DEFAULT_PASSES,
 ) -> Program:
-    """Compile a quantum circuit string to executable bytecode.
+    """Compile a quantum circuit string to an executable sampling program.
 
-    Runs the full pipeline: parse -> trace -> [HIR optimize] ->
-    lower -> [bytecode optimize].
-
-    By default both optimization stages run with their default pass
-    managers. To skip optimization, pass ``hir_passes=None`` and/or
-    ``bytecode_passes=None``. To use a custom pipeline, pass an
-    explicit ``HirPassManager`` / ``BytecodePassManager``.
+    Ordinary compilation runs parse -> trace -> [HIR optimize] and lowers the
+    result to Clifft's symbolic-coordinate sampler.
 
     When ``normalize_syndromes=True``, a noiseless reference shot is
     executed internally to extract expected detector and observable
@@ -363,13 +341,9 @@ def compile(
             noiseless reference shot (mutually exclusive with explicit parities).
         hir_passes: HirPassManager to run on the HIR before lowering.
             Defaults to ``default_hir_pass_manager()``. Pass ``None`` to skip.
-        bytecode_passes: BytecodePassManager to run after lowering.
-            Defaults to ``default_bytecode_pass_manager()``. Pass ``None`` to skip.
     """
     if isinstance(hir_passes, _DefaultPasses):
         hir_passes = default_hir_pass_manager()
-    if isinstance(bytecode_passes, _DefaultPasses):
-        bytecode_passes = default_bytecode_pass_manager()
     return _compile_core(
         stim_text,
         postselection_mask if postselection_mask is not None else [],
@@ -377,7 +351,6 @@ def compile(
         expected_observables if expected_observables is not None else [],
         normalize_syndromes,
         hir_passes,
-        bytecode_passes,
     )
 
 
@@ -385,39 +358,25 @@ __all__ = [
     "AstNode",
     "BasisBitstrings",
     "MeasurementRecords",
-    "BytecodePass",
-    "BytecodePassManager",
     "Circuit",
-    "ExpandRotPass",
-    "ExpandTPass",
     "GateType",
     "HeisenbergOp",
     "HirModule",
     "HirPass",
     "HirPassManager",
-    "Instruction",
     "DropNonUnitaryPass",
-    "MultiGatePass",
-    "NoiseBlockPass",
-    "Opcode",
     "OpType",
     "ParseError",
     "PeepholeFusionPass",
     "Program",
     "RemoveNoisePass",
     "SampleResult",
-    "SingleAxisFusionPass",
-    "State",
     "StatevectorSqueezePass",
-    "SwapMeasPass",
     "Target",
-    "TileAxisFusionPass",
     "basis_probabilities",
     "compile",
     "compute_reference_syndrome",
-    "default_bytecode_pass_manager",
     "default_hir_pass_manager",
-    "execute",
     "get_num_threads",
     "get_statevector",
     "lower",
@@ -430,7 +389,6 @@ __all__ = [
     "sample_k_survivors",
     "sample_survivors",
     "set_num_threads",
-    "svm_backend",
     "trace",
     "version",
 ]

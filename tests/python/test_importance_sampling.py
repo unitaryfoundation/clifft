@@ -21,8 +21,6 @@ class _ImportanceBackendMixin:
             "normalize_syndromes": True,
             "hir_passes": clifft.default_hir_pass_manager(),
         }
-        if self.sampling_api is clifft:
-            kwargs["bytecode_passes"] = clifft.default_bytecode_pass_manager()
         return self.sampling_api.compile(stim_text, **kwargs)
 
 

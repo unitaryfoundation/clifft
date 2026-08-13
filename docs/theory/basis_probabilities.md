@@ -173,7 +173,7 @@ active rank $k$, and total X-rank $r_X$:
 
 | Step | Cost | Frequency |
 |------|------|-----------|
-| `execute(program, state)` | full bytecode pass | once |
+| Execute the prepared plan | full action pass | once |
 | `final_tableau.inverse()` | $O(n^2)$ | once |
 | `make_stabilizer_amplitude_structure` | $O(n^3 / W)$, $W = 64$ | once |
 | `bind(x)` | $O(n)$ | per bitstring |
@@ -187,7 +187,7 @@ Total inner-loop cost:
 - Fallback: $M \cdot 2^k \cdot O(r_X \cdot n / W)$.
 
 The exponential cost is in $r_A$ (fast path) or $k$ (fallback), not $n$. The
-same scaling principle that makes the SVM efficient on near-Clifford
+same scaling principle that makes the symbolic executor efficient on near-Clifford
 circuits applies to probability queries. For pure-Clifford circuits
 ($k = 0$) the inner sum is a single contribution in either path.
 

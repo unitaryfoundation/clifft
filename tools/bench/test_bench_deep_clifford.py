@@ -83,14 +83,14 @@ def test_00_deep_clifford_info(record_property: Any) -> None:
     record_property("cx_gates", cx_count)
     record_property("total_cliffords", total_cliffords)
     record_property("measurements", m_count)
-    record_property("clifft_instructions", program.num_instructions)
+    record_property("clifft_actions", program.num_actions)
     record_property("clifft_peak_rank", program.peak_rank)
 
-    compression = total_cliffords / program.num_instructions if program.num_instructions else 0
+    compression = total_cliffords / program.num_actions if program.num_actions else 0
 
     print(f"\n  Circuit: {_NUM_QUBITS} qubits, {_CLIFFORD_DEPTH} gates")
     print(f"  H: {h_count}, S: {s_count}, CX: {cx_count}, M: {m_count}")
-    print(f"  Clifft: {program.num_instructions} instructions, {compression:.0f}x compression")
+    print(f"  Clifft: {program.num_actions} actions, {compression:.0f}x compression")
 
 
 @pytest.fixture(scope="module")
@@ -149,14 +149,14 @@ def test_sample_clifft_deep(benchmark: Any, clifft_program: clifft.Program) -> N
 
 
 def test_clifford_absorption_scaling(record_property: Any) -> None:
-    """Verify Clifft instruction count is O(measurements), not O(gates)."""
+    """Verify Clifft action count is O(measurements), not O(gates)."""
     import time
 
     num_qubits = 20
     depths = [100, 500, 1000, 2000, 5000]
 
     print("\n  Clifford Absorption Scaling")
-    print(f"  {'Depth':>8}  {'Compile (ms)':>12}  {'Instructions':>12}")
+    print(f"  {'Depth':>8}  {'Compile (ms)':>12}  {'Actions':>12}")
 
     for depth in depths:
         circuit_text = generate_deep_clifford_circuit(num_qubits=num_qubits, depth=depth, seed=42)
@@ -165,8 +165,8 @@ def test_clifford_absorption_scaling(record_property: Any) -> None:
         program = clifft.compile(circuit_text)
         compile_time_ms = (time.perf_counter() - t0) * 1000
 
-        print(f"  {depth:>8}  {compile_time_ms:>12.2f}  {program.num_instructions:>12}")
+        print(f"  {depth:>8}  {compile_time_ms:>12.2f}  {program.num_actions:>12}")
 
-        record_property(f"depth_{depth}_instructions", program.num_instructions)
+        record_property(f"depth_{depth}_actions", program.num_actions)
 
-        assert program.num_instructions == num_qubits
+        assert program.num_actions == num_qubits

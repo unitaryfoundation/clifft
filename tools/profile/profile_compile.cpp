@@ -80,10 +80,10 @@ bool get_env_bool(const char* name) {
 
 CompileBackend get_compile_backend() {
     const char* value = std::getenv("CLIFFT_COMPILE_BACKEND");
-    if (value == nullptr || std::string_view(value) == "legacy") {
+    if (value != nullptr && std::string_view(value) == "legacy") {
         return CompileBackend::Legacy;
     }
-    if (std::string_view(value) == "symbolic") {
+    if (value == nullptr || std::string_view(value) == "symbolic") {
         return CompileBackend::Symbolic;
     }
     std::cerr << "Error: CLIFFT_COMPILE_BACKEND must be legacy or symbolic\n";

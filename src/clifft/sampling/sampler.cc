@@ -206,19 +206,18 @@ SamplingSurvivorResult sample_k_survivors(const ExecutablePlan& plan, uint32_t s
 std::vector<double> record_log_probabilities(const ExecutablePlan& plan,
                                              std::span<const uint8_t> forced_records,
                                              size_t num_records) {
-    if (plan.has_instruments()) {
-        throw std::invalid_argument("record probabilities do not yet support instruments");
-    }
-    if (plan.num_presampled_symbols() != 0) {
-        throw std::invalid_argument(
-            "record probabilities do not yet support plans with presampled symbols");
-    }
-    if (plan.has_readout_noise()) {
-        throw std::invalid_argument("record probabilities do not yet support readout noise");
-    }
     if (plan.num_hidden_records() != 0) {
         throw std::invalid_argument(
-            "record probabilities do not yet support plans with hidden records");
+            "record_probabilities() does not yet support programs with hidden measurement "
+            "slots (e.g. R / reset gates). Compile without resets, or use sample() to "
+            "marginalize.");
+    }
+    if (plan.num_presampled_symbols() != 0 || plan.has_readout_noise() || plan.has_instruments() ||
+        plan.num_detectors() != 0 || plan.num_observables() != 0 || plan.has_postselection()) {
+        throw std::invalid_argument(
+            "record_probabilities() requires pure-state evolution with measurements: noise, "
+            "transition instruments, detectors, observables, and post-selection are not "
+            "supported.");
     }
     const size_t stride = plan.num_visible_records();
     if (stride == 0) {

@@ -289,8 +289,8 @@ though, and the difference can be 100×+ in either direction:
 - `basis_probabilities()` evolves the program once, then walks
   active-state amplitudes per queried bitstring. The up-front cost is
   amortized across the batch.
-- `record_probabilities()` rewrites measurement opcodes to force the
-  requested outcome and replays the bytecode once per record. No
+- `record_probabilities()` forces the requested measurement outcomes and
+  replays the executable plan once per record. No
   amortization, but the compiler's `StatevectorSqueezePass` can reorder
   measurements next to their non-Clifford gates to free active dimensions
   early — which lowers the effective active rank.
@@ -299,7 +299,7 @@ A practical way to choose: compile both forms and read off
 `program.peak_rank`. When the *measured* form has a noticeably lower peak
 rank than the unitary form, `record_probabilities()` is typically faster
 per query. When the two peak ranks match, `basis_probabilities()` wins
-because it amortizes the bytecode execution across queries.
+because it amortizes plan execution across queries.
 
 ```python
 import clifft
@@ -327,7 +327,7 @@ A gap in `peak_rank` indicates roughly a
 $2^{(k_{\text{unitary}} - k_{\text{measured}})}$ speedup ceiling for
 `record_probabilities()` over `basis_probabilities()` on this circuit,
 independent of batch size. At equal peak rank,
-`basis_probabilities()` wins by roughly the bytecode-to-amplitude-walk
+`basis_probabilities()` wins by roughly the plan-to-amplitude-walk
 cost ratio for any moderately sized batch.
 
 If neither performance regime dominates your workload, picking by the

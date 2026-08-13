@@ -9,43 +9,44 @@ import pytest
 from conftest import assert_statevectors_equiv, random_dense_clifford_t_circuit
 
 import clifft
+from clifft import _legacy
 
 
-def _compile_no_fusion(text: str) -> clifft.Program:
+def _compile_no_fusion(text: str) -> _legacy.Program:
     """Compile with every default pass except SingleAxisFusionPass."""
     circuit = clifft.parse(text)
     hir = clifft.trace(circuit)
     pm = clifft.default_hir_pass_manager()
     pm.run(hir)
-    prog = clifft.lower(hir)
-    bpm = clifft.BytecodePassManager()
-    bpm.add(clifft.NoiseBlockPass())
-    bpm.add(clifft.MultiGatePass())
-    bpm.add(clifft.ExpandTPass())
-    bpm.add(clifft.ExpandRotPass())
-    bpm.add(clifft.SwapMeasPass())
-    bpm.add(clifft.TileAxisFusionPass())
+    prog = _legacy.lower(hir)
+    bpm = _legacy.BytecodePassManager()
+    bpm.add(_legacy.NoiseBlockPass())
+    bpm.add(_legacy.MultiGatePass())
+    bpm.add(_legacy.ExpandTPass())
+    bpm.add(_legacy.ExpandRotPass())
+    bpm.add(_legacy.SwapMeasPass())
+    bpm.add(_legacy.TileAxisFusionPass())
     bpm.run(prog)
     return prog
 
 
-def _compile_with_fusion(text: str) -> clifft.Program:
+def _compile_with_fusion(text: str) -> _legacy.Program:
     """Compile with all default passes, including SingleAxisFusionPass."""
     circuit = clifft.parse(text)
     hir = clifft.trace(circuit)
     pm = clifft.default_hir_pass_manager()
     pm.run(hir)
-    prog = clifft.lower(hir)
-    bpm = clifft.default_bytecode_pass_manager()
+    prog = _legacy.lower(hir)
+    bpm = _legacy.default_bytecode_pass_manager()
     bpm.run(prog)
     return prog
 
 
-def _get_sv(prog: clifft.Program) -> np.ndarray:
+def _get_sv(prog: _legacy.Program) -> np.ndarray:
     """Execute one shot and extract the statevector."""
-    state = clifft.State(peak_rank=prog.peak_rank, num_measurements=prog.num_measurements)
-    clifft.execute(prog, state)
-    return np.array(clifft.get_statevector(prog, state))
+    state = _legacy.State(peak_rank=prog.peak_rank, num_measurements=prog.num_measurements)
+    _legacy.execute(prog, state)
+    return np.array(_legacy.get_statevector(prog, state))
 
 
 # ---------------------------------------------------------------------------
@@ -62,7 +63,7 @@ def test_u3_single_gate_fusion() -> None:
 
     assert len(prog_fused) < len(prog_no_fuse)
 
-    u2_count = sum(1 for inst in prog_fused if inst.opcode == clifft.Opcode.OP_ARRAY_U2)
+    u2_count = sum(1 for inst in prog_fused if inst.opcode == _legacy.Opcode.OP_ARRAY_U2)
     assert u2_count >= 1, f"Expected at least 1 OP_ARRAY_U2, got {u2_count}"
 
     sv_ref = _get_sv(prog_no_fuse)
@@ -98,8 +99,8 @@ def test_frame_flow_x_error_before_fused_block() -> None:
     prog_no_fuse = _compile_no_fusion(text)
     prog_fused = _compile_with_fusion(text)
 
-    ref_result = clifft.sample(prog_no_fuse, 1000, seed=42)
-    opt_result = clifft.sample(prog_fused, 1000, seed=42)
+    ref_result = _legacy.sample(prog_no_fuse, 1000, seed=42)
+    opt_result = _legacy.sample(prog_fused, 1000, seed=42)
 
     np.testing.assert_array_equal(ref_result.measurements, opt_result.measurements)
 
@@ -111,8 +112,8 @@ def test_frame_flow_z_error_before_fused_block() -> None:
     prog_no_fuse = _compile_no_fusion(text)
     prog_fused = _compile_with_fusion(text)
 
-    ref_result = clifft.sample(prog_no_fuse, 1000, seed=42)
-    opt_result = clifft.sample(prog_fused, 1000, seed=42)
+    ref_result = _legacy.sample(prog_no_fuse, 1000, seed=42)
+    opt_result = _legacy.sample(prog_fused, 1000, seed=42)
 
     np.testing.assert_array_equal(ref_result.measurements, opt_result.measurements)
 
@@ -156,7 +157,7 @@ def test_fusion_reduces_instruction_count_for_multiqubit_circuit() -> None:
 
     assert len(prog_fused) < len(prog_no_fuse)
 
-    u2_count = sum(1 for inst in prog_fused if inst.opcode == clifft.Opcode.OP_ARRAY_U2)
+    u2_count = sum(1 for inst in prog_fused if inst.opcode == _legacy.Opcode.OP_ARRAY_U2)
     assert u2_count > 0
 
 
@@ -173,7 +174,7 @@ def test_fusion_preserves_noisy_sampling() -> None:
     prog_fused = _compile_with_fusion(text)
 
     shots = 10_000
-    ref_result = clifft.sample(prog_no_fuse, shots, seed=42)
-    opt_result = clifft.sample(prog_fused, shots, seed=42)
+    ref_result = _legacy.sample(prog_no_fuse, shots, seed=42)
+    opt_result = _legacy.sample(prog_fused, shots, seed=42)
 
     np.testing.assert_array_equal(ref_result.measurements, opt_result.measurements)

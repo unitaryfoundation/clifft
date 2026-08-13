@@ -25,6 +25,7 @@ from utils_fuzzing import (
 )
 
 import clifft
+from clifft import _legacy
 
 # Helpers.
 
@@ -38,11 +39,11 @@ def run_differential_trajectory(circuit_str: str, shots: int, seed: int) -> None
     bytecode passes (no HIR passes) so that the lowered instruction stream
     is identical up to bytecode-level rewrites.
     """
-    base_prog = clifft.compile(circuit_str, hir_passes=None, bytecode_passes=None)
-    opt_prog = clifft.compile(
+    base_prog = _legacy.compile(circuit_str, hir_passes=None, bytecode_passes=None)
+    opt_prog = _legacy.compile(
         circuit_str,
         hir_passes=None,
-        bytecode_passes=clifft.default_bytecode_pass_manager(),
+        bytecode_passes=_legacy.default_bytecode_pass_manager(),
     )
 
     # Program-shape checks.
@@ -62,8 +63,8 @@ def run_differential_trajectory(circuit_str: str, shots: int, seed: int) -> None
     )
 
     # PRNG trajectory synchronization.
-    base_result = clifft.sample(base_prog, shots, seed=seed)
-    opt_result = clifft.sample(opt_prog, shots, seed=seed)
+    base_result = _legacy.sample(base_prog, shots, seed=seed)
+    opt_result = _legacy.sample(opt_prog, shots, seed=seed)
 
     np.testing.assert_array_equal(
         base_result.measurements,
@@ -152,8 +153,8 @@ class TestDefaultHirUncomputationLadder:
     @pytest.mark.parametrize("nq,depth", _SMALL_CONFIGS)
     def test_small(self, nq: int, depth: int, seed: int) -> None:
         circuit = generate_uncomputation_ladder(nq, depth, seed=seed, noise_prob=0.0)
-        base = clifft.compile(circuit, hir_passes=None, bytecode_passes=None)
-        opt = clifft.compile(
+        base = _legacy.compile(circuit, hir_passes=None, bytecode_passes=None)
+        opt = _legacy.compile(
             circuit,
             hir_passes=clifft.default_hir_pass_manager(),
             bytecode_passes=None,
@@ -162,8 +163,8 @@ class TestDefaultHirUncomputationLadder:
         assert base.peak_rank <= _MAX_PEAK_RANK
         assert opt.peak_rank <= base.peak_rank
 
-        base_result = clifft.sample(base, _SHOTS, seed=seed)
-        opt_result = clifft.sample(opt, _SHOTS, seed=seed)
+        base_result = _legacy.sample(base, _SHOTS, seed=seed)
+        opt_result = _legacy.sample(opt, _SHOTS, seed=seed)
 
         # All measurements must be deterministic zero
         np.testing.assert_array_equal(
@@ -181,8 +182,8 @@ class TestDefaultHirUncomputationLadder:
     @pytest.mark.parametrize("nq,depth", _LARGE_CONFIGS)
     def test_large(self, nq: int, depth: int, seed: int) -> None:
         circuit = generate_uncomputation_ladder(nq, depth, seed=seed, noise_prob=0.0)
-        base = clifft.compile(circuit, hir_passes=None, bytecode_passes=None)
-        opt = clifft.compile(
+        base = _legacy.compile(circuit, hir_passes=None, bytecode_passes=None)
+        opt = _legacy.compile(
             circuit,
             hir_passes=clifft.default_hir_pass_manager(),
             bytecode_passes=None,
@@ -191,8 +192,8 @@ class TestDefaultHirUncomputationLadder:
         assert base.peak_rank <= _MAX_PEAK_RANK
         assert opt.peak_rank <= base.peak_rank
 
-        base_result = clifft.sample(base, _SHOTS, seed=seed)
-        opt_result = clifft.sample(opt, _SHOTS, seed=seed)
+        base_result = _legacy.sample(base, _SHOTS, seed=seed)
+        opt_result = _legacy.sample(opt, _SHOTS, seed=seed)
 
         np.testing.assert_array_equal(
             base_result.measurements, np.zeros_like(base_result.measurements)
@@ -208,25 +209,25 @@ class TestDefaultHirUncomputationLadder:
         # peak_rank to 1. Both paths clamp dust, but the optimizer reduces it.
         circuit = generate_uncomputation_ladder(4, 50, seed=42, noise_prob=0.0)
 
-        base = clifft.compile(circuit, hir_passes=None, bytecode_passes=None)
+        base = _legacy.compile(circuit, hir_passes=None, bytecode_passes=None)
         assert base.peak_rank > 1, "Need active measurements to generate dust"
-        base_state = clifft.State(
+        base_state = _legacy.State(
             peak_rank=base.peak_rank, num_measurements=base.num_measurements, seed=42
         )
-        clifft.execute(base, base_state)
+        _legacy.execute(base, base_state)
         assert (
             base_state.dust_clamps > 0
         ), "Unoptimized ladder should clamp FP dust in active measurements"
 
-        opt = clifft.compile(
+        opt = _legacy.compile(
             circuit,
             hir_passes=clifft.default_hir_pass_manager(),
             bytecode_passes=None,
         )
-        opt_state = clifft.State(
+        opt_state = _legacy.State(
             peak_rank=opt.peak_rank, num_measurements=opt.num_measurements, seed=42
         )
-        clifft.execute(opt, opt_state)
+        _legacy.execute(opt, opt_state)
         assert (
             opt_state.dust_clamps <= base_state.dust_clamps
         ), "Optimizer should not increase the number of dust clamps"
@@ -237,11 +238,7 @@ class TestDefaultHirUncomputationLadder:
 
 def _clifft_statevector(circuit_str: str, **compile_kwargs: Any) -> np.ndarray:
     """Compile and execute a noiseless circuit, return dense statevector."""
-    prog = clifft.compile(circuit_str, **compile_kwargs)
-    state = clifft.State(peak_rank=prog.peak_rank, num_measurements=prog.num_measurements)
-    clifft.execute(prog, state)
-    sv: np.ndarray = clifft.get_statevector(prog, state)
-    return sv
+    return np.asarray(_legacy.statevector(circuit_str, **compile_kwargs))
 
 
 class TestDefaultHirStatevectorEquivalence:
@@ -324,41 +321,64 @@ class TestDefaultOptimizerStatisticalEquivalence:
     @pytest.mark.parametrize("seed", _SEEDS)
     def test_star_graph_noisy_10q(self, seed: int) -> None:
         circuit = generate_star_graph_stress_circuit(10, 100, seed=seed)
-        base = clifft.compile(circuit, hir_passes=None, bytecode_passes=None)
-        opt = clifft.compile(
+        base = _legacy.compile(circuit, hir_passes=None, bytecode_passes=None)
+        opt = _legacy.compile(
             circuit,
             hir_passes=clifft.default_hir_pass_manager(),
-            bytecode_passes=clifft.default_bytecode_pass_manager(),
+            bytecode_passes=_legacy.default_bytecode_pass_manager(),
         )
 
-        base_result = clifft.sample(base, _STAT_SHOTS, seed=seed)
-        opt_result = clifft.sample(opt, _STAT_SHOTS, seed=seed)
+        base_result = _legacy.sample(base, _STAT_SHOTS, seed=seed)
+        opt_result = _legacy.sample(opt, _STAT_SHOTS, seed=seed)
         self._assert_marginals_match(base_result.measurements, opt_result.measurements)
 
     @pytest.mark.parametrize("seed", _SEEDS)
     def test_random_commutation_noisy_20q(self, seed: int) -> None:
         circuit = generate_random_commutation_circuit(20, 200, seed=seed)
-        base = clifft.compile(circuit, hir_passes=None, bytecode_passes=None)
-        opt = clifft.compile(
+        base = _legacy.compile(circuit, hir_passes=None, bytecode_passes=None)
+        opt = _legacy.compile(
             circuit,
             hir_passes=clifft.default_hir_pass_manager(),
-            bytecode_passes=clifft.default_bytecode_pass_manager(),
+            bytecode_passes=_legacy.default_bytecode_pass_manager(),
         )
 
-        base_result = clifft.sample(base, _STAT_SHOTS, seed=seed)
-        opt_result = clifft.sample(opt, _STAT_SHOTS, seed=seed)
+        base_result = _legacy.sample(base, _STAT_SHOTS, seed=seed)
+        opt_result = _legacy.sample(opt, _STAT_SHOTS, seed=seed)
         self._assert_marginals_match(base_result.measurements, opt_result.measurements)
 
     @pytest.mark.parametrize("seed", _SEEDS)
     def test_uncomputation_ladder_noisy_10q(self, seed: int) -> None:
         circuit = generate_uncomputation_ladder(10, 100, seed=seed, noise_prob=0.02)
-        base = clifft.compile(circuit, hir_passes=None, bytecode_passes=None)
-        opt = clifft.compile(
+        base = _legacy.compile(circuit, hir_passes=None, bytecode_passes=None)
+        opt = _legacy.compile(
             circuit,
             hir_passes=clifft.default_hir_pass_manager(),
-            bytecode_passes=clifft.default_bytecode_pass_manager(),
+            bytecode_passes=_legacy.default_bytecode_pass_manager(),
         )
 
-        base_result = clifft.sample(base, _STAT_SHOTS, seed=seed)
-        opt_result = clifft.sample(opt, _STAT_SHOTS, seed=seed)
+        base_result = _legacy.sample(base, _STAT_SHOTS, seed=seed)
+        opt_result = _legacy.sample(opt, _STAT_SHOTS, seed=seed)
         self._assert_marginals_match(base_result.measurements, opt_result.measurements)
+
+    @pytest.mark.parametrize("seed", _SEEDS)
+    @pytest.mark.parametrize("circuit_kind", ["star", "commutation", "uncomputation"])
+    def test_symbolic_hir_pipeline(self, circuit_kind: str, seed: int) -> None:
+        """Production HIR optimization preserves noisy output distributions."""
+        if circuit_kind == "star":
+            circuit = generate_star_graph_stress_circuit(10, 100, seed=seed)
+        elif circuit_kind == "commutation":
+            circuit = generate_random_commutation_circuit(20, 200, seed=seed)
+        else:
+            circuit = generate_uncomputation_ladder(10, 100, seed=seed, noise_prob=0.02)
+
+        base = clifft.compile(circuit, hir_passes=None)
+        optimized = clifft.compile(circuit)
+        assert base.peak_rank <= _MAX_PEAK_RANK
+        assert optimized.peak_rank <= _MAX_PEAK_RANK
+
+        base_result = clifft.sample(base, _STAT_SHOTS, seed=seed)
+        optimized_result = clifft.sample(optimized, _STAT_SHOTS, seed=seed)
+        self._assert_marginals_match(
+            base_result.measurements,
+            optimized_result.measurements,
+        )

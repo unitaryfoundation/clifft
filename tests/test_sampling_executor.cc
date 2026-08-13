@@ -16,6 +16,7 @@
 #include <bit>
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/matchers/catch_matchers_floating_point.hpp>
+#include <catch2/matchers/catch_matchers_string.hpp>
 #include <cmath>
 #include <complex>
 #include <cstdint>
@@ -1344,7 +1345,22 @@ TEST_CASE("Sampling batch helpers reject unbound presampled symbols") {
     REQUIRE_THROWS_WITH(sample_records(executable, 0, uint64_t{1234}),
                         "batch sampling requires a distribution for every presampled symbol");
     REQUIRE_THROWS_WITH(record_log_probabilities(executable, std::array<uint8_t, 1>{0}, 1),
-                        "record probabilities do not yet support plans with presampled symbols");
+                        Catch::Matchers::ContainsSubstring("requires pure-state evolution"));
+}
+
+TEST_CASE("Sampling record probabilities reject output annotations in the core API") {
+    const std::array<uint8_t, 1> record{0};
+    const clifft::HirModule hir =
+        clifft::trace(clifft::parse("M 0\nDETECTOR rec[-1]\nOBSERVABLE_INCLUDE(0) rec[-1]\n"));
+    const ExecutablePlan annotated(clifft::sampling::plan_sampling(hir));
+    REQUIRE_THROWS_WITH(record_log_probabilities(annotated, record, 1),
+                        Catch::Matchers::ContainsSubstring("requires pure-state evolution"));
+
+    const std::array<uint8_t, 1> postselection{1};
+    const ExecutablePlan postselected(
+        clifft::sampling::plan_sampling(hir, {.postselection_mask = postselection}));
+    REQUIRE_THROWS_WITH(record_log_probabilities(postselected, record, 1),
+                        Catch::Matchers::ContainsSubstring("requires pure-state evolution"));
 }
 
 TEST_CASE("Sampling replay matches legacy record probabilities") {

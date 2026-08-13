@@ -93,7 +93,7 @@ jobs:
           CIBW_BEFORE_ALL_MACOS: brew install libomp
           # Smoke-test: import the built package and audit exported symbols
           CIBW_TEST_COMMAND: >-
-            python -c "import clifft; print(clifft.__version__); print(clifft.CPU_BASELINE); print(clifft.svm_backend())"
+            python -c "import clifft; print(clifft.__version__); print(clifft.CPU_BASELINE); print(type(clifft.compile('M 0')).__name__)"
             &&
             python {project}/tools/ci/audit_python_exports.py
 

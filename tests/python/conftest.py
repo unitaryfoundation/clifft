@@ -9,23 +9,24 @@ import pytest
 
 import clifft
 import clifft.experimental as experimental
+from clifft import _legacy
 
 
-@pytest.fixture(params=[clifft, experimental], ids=["legacy", "experimental"])
+@pytest.fixture(params=[clifft], ids=["symbolic-coordinate"])
 def sampling_api(request: pytest.FixtureRequest) -> Any:
-    """Run supported sampling conformance tests against both Python APIs."""
+    """Run public sampling conformance tests against the production backend."""
     return cast(Any, request.param)
 
 
-@pytest.fixture(params=[clifft, experimental], ids=["legacy", "experimental"])
+@pytest.fixture(params=[clifft], ids=["symbolic-coordinate"])
 def basis_probabilities_api(request: pytest.FixtureRequest) -> Any:
-    """Run shared exact basis-query tests against both Python APIs."""
+    """Run exact basis-query tests against the production backend."""
     return cast(Any, request.param)
 
 
-@pytest.fixture(params=[clifft, experimental], ids=["svm", "symbolic-coordinate"])
+@pytest.fixture(params=[clifft], ids=["symbolic-coordinate"])
 def importance_sampling_api(request: pytest.FixtureRequest) -> Any:
-    """Run shared forced-fault tests against both Python APIs."""
+    """Run forced-fault tests against the production backend."""
     return cast(Any, request.param)
 
 
@@ -45,23 +46,17 @@ def statevector_from_circuit(
         return experimental_statevector
 
     def legacy_statevector(stim_text: str) -> npt.NDArray[np.complex128]:
-        program = clifft.compile(stim_text)
-        state = clifft.State(
-            peak_rank=program.peak_rank,
-            num_measurements=program.num_measurements,
+        return cast(
+            npt.NDArray[np.complex128],
+            _legacy.statevector(stim_text, hir_passes=None, bytecode_passes=None),
         )
-        clifft.execute(program, state)
-        return cast(npt.NDArray[np.complex128], clifft.get_statevector(program, state))
 
     return legacy_statevector
 
 
-@pytest.fixture(
-    params=[clifft.noncomp.sample, experimental.sample_noncomputational],
-    ids=["svm", "symbolic-coordinate"],
-)
+@pytest.fixture(params=[clifft.noncomp.sample], ids=["symbolic-coordinate"])
 def noncomp_sampling_api(request: pytest.FixtureRequest) -> Any:
-    """Run supported noncomputational trajectories through both executors."""
+    """Run supported noncomputational trajectories through the production executor."""
     return cast(Any, request.param)
 
 

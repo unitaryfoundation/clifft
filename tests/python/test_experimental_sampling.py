@@ -12,6 +12,7 @@ import stim
 
 import clifft
 import clifft.experimental as experimental
+from clifft import _legacy
 
 _RUNTIME_DISPATCH_BUILD = platform.machine().lower() in {"amd64", "x86_64"} and not (
     platform.python_compiler().startswith("MSC")
@@ -42,13 +43,14 @@ def test_unknown_forced_isa_is_rejected_by_symbolic_compile() -> None:
     assert "unrecognized value" in completed.stderr
 
 
-def test_program_is_separate_from_legacy_bytecode() -> None:
-    legacy = clifft.compile("H 0\nT 0\nM 0")
+def test_experimental_program_aliases_public_program() -> None:
+    public = clifft.compile("H 0\nT 0\nM 0")
     program = experimental.compile("H 0\nT 0\nM 0")
 
-    assert isinstance(legacy, clifft.Program)
+    assert isinstance(public, clifft.Program)
     assert isinstance(program, experimental.Program)
-    assert not isinstance(program, clifft.Program)
+    assert isinstance(program, clifft.Program)
+    assert experimental.Program is clifft.Program
     assert program.num_qubits == 1
     assert program.num_measurements == 1
     assert program.num_hidden_measurements == 0
@@ -66,12 +68,12 @@ def test_program_is_separate_from_legacy_bytecode() -> None:
     ],
 )
 def test_seeded_samples_match_legacy_for_curated_circuits(circuit: str) -> None:
-    legacy = clifft.sample(clifft.compile(circuit), shots=128, seed=1234).measurements
+    legacy = _legacy.sample(_legacy.compile(circuit), shots=128, seed=1234).measurements
     actual = experimental.sample(experimental.compile(circuit), shots=128, seed=1234).measurements
     np.testing.assert_array_equal(actual, legacy)
 
 
-def test_expectation_probes_are_available_without_changing_the_default_backend() -> None:
+def test_expectation_probes_are_available_through_compatibility_alias() -> None:
     program = experimental.compile("EXP_VAL X0 Z0")
     result = experimental.sample(program, 3, seed=1)
 
@@ -129,7 +131,7 @@ def test_postselection_survivor_metadata_and_records() -> None:
 
 def test_noisy_record_probabilities_remain_explicitly_unsupported() -> None:
     program = experimental.compile("X_ERROR(0.1) 0\nM 0")
-    with pytest.raises(ValueError, match="presampled symbols"):
+    with pytest.raises(ValueError, match="pure-state evolution"):
         experimental.record_probabilities(program, ["0"])
 
 
