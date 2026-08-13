@@ -964,7 +964,7 @@ NB_MODULE(_clifft_core, m) {
         nb::arg("expected_detectors") = std::vector<uint8_t>{},
         nb::arg("expected_observables") = std::vector<uint8_t>{},
         nb::arg("normalize_syndromes") = false, nb::arg("hir_passes") = nb::none(),
-        "Compile a circuit into the experimental scalar sampling backend.");
+        "Compile a circuit into the experimental symbolic-coordinate sampling backend.");
 
     m.def(
         "_sample_experimental_sampling",
@@ -986,7 +986,7 @@ NB_MODULE(_clifft_core, m) {
             return nb::make_tuple(measurements, detectors, observables, exp_vals);
         },
         nb::arg("program"), nb::arg("shots"), nb::arg("seed") = nb::none(),
-        "Sample an experimental scalar sampling program.");
+        "Sample an experimental symbolic-coordinate sampling program.");
 
     m.def(
         "_sample_survivors_experimental_sampling",
@@ -1084,7 +1084,7 @@ NB_MODULE(_clifft_core, m) {
             return vec_to_numpy(std::move(probabilities), {size});
         },
         nb::arg("program"), nb::arg("basis_masks"),
-        "Return experimental scalar sampling computational-basis probabilities.");
+        "Return experimental symbolic-coordinate computational-basis probabilities.");
 
     m.def(
         "_get_statevector_experimental_sampling",
@@ -1115,7 +1115,7 @@ NB_MODULE(_clifft_core, m) {
             return vec_to_numpy(std::move(log_probabilities), {size});
         },
         nb::arg("program"), nb::arg("records"),
-        "Return experimental scalar sampling record log probabilities.");
+        "Return experimental symbolic-coordinate record log probabilities.");
 
     m.def(
         "lower",

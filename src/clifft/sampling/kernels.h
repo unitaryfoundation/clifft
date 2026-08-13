@@ -15,7 +15,7 @@ struct PreparedPauli {
     uint32_t active_width = 0;
     uint64_t x = 0;
     uint64_t z = 0;
-    uint64_t pair_selector = 0;
+    uint64_t pairing_bit = 0;
     std::complex<double> even_phase = {1.0, 0.0};
 
     [[nodiscard]] bool is_identity() const { return x == 0 && z == 0; }

@@ -113,6 +113,30 @@ std::string_view instrument_mode_name(InstrumentMode mode) {
     return "unknown";
 }
 
+constexpr bool is_recognized_symbol_kind(SymbolKind kind) {
+    switch (kind) {
+        case SymbolKind::Unused:
+        case SymbolKind::Presampled:
+        case SymbolKind::Derived:
+        case SymbolKind::Branch:
+        case SymbolKind::Readout:
+        case SymbolKind::Instrument:
+            return true;
+    }
+    return false;
+}
+
+constexpr bool is_recognized_instrument_mode(InstrumentMode mode) {
+    switch (mode) {
+        case InstrumentMode::Classical:
+        case InstrumentMode::Active:
+        case InstrumentMode::Activate:
+        case InstrumentMode::DormantTrap:
+            return true;
+    }
+    return false;
+}
+
 std::string format_mask(uint64_t mask) {
     std::ostringstream out;
     out << "0x" << std::hex << std::setw(16) << std::setfill('0') << mask;
@@ -490,6 +514,9 @@ void SamplingPlan::validate() const {
 
     for (uint32_t symbol_index = 0; symbol_index < symbols.size(); ++symbol_index) {
         const SymbolInfo& info = symbols[symbol_index];
+        if (!is_recognized_symbol_kind(info.kind)) {
+            invalid_plan("symbol s" + std::to_string(symbol_index) + " has an unrecognized kind");
+        }
         if (info.noise_site.has_value() &&
             (info.kind != SymbolKind::Presampled || index(*info.noise_site) >= num_noise_sites)) {
             invalid_plan("symbol s" + std::to_string(symbol_index) +
@@ -671,6 +698,9 @@ void SamplingPlan::validate() const {
                         invalid_plan("instrument action has an invalid or out-of-order site id");
                     }
                     const bool width_unchanged = planned.active_after == planned.active_before;
+                    if (!is_recognized_instrument_mode(typed.mode)) {
+                        invalid_plan("instrument action has an unrecognized mode");
+                    }
                     switch (typed.mode) {
                         case InstrumentMode::Classical:
                             if (!width_unchanged || !typed.source.is_identity()) {

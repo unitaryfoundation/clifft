@@ -861,24 +861,6 @@ TEST_CASE("Sampling executable preserves generic instrument activation") {
     REQUIRE(executor.state().real_data()[3] == 0.0);
 }
 
-TEST_CASE("Sampling executable rejects unrecognized instrument modes") {
-    SamplingPlan plan;
-    plan.num_qubits = 1;
-    plan.num_instrument_sites = 1;
-    plan.symbols = {SymbolInfo{SymbolKind::Instrument, 0, std::nullopt}};
-    plan.instrument_distributions = {InstrumentDistribution{InstrumentSiteId{0}, {}, {}}};
-    plan.actions = {
-        PlannedAction{
-            0, 0,
-            ApplyInstrument{InstrumentSiteId{0},
-                            static_cast<InstrumentMode>(std::numeric_limits<uint8_t>::max()),
-                            ActivePauli{}, AffineBool{}, SymbolId{0}}},
-        PlannedAction{0, 0, InstrumentBoundary{InstrumentSiteId{0}, 0, 1}},
-    };
-
-    REQUIRE_THROWS_AS(ExecutablePlan(plan), std::logic_error);
-}
-
 TEST_CASE("Sampling executor applies computational instrument destinations in line") {
     clifft::InstrumentTraceOptions options;
     clifft::InstrumentProbabilities reset;

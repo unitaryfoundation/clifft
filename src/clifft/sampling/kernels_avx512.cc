@@ -122,7 +122,7 @@ void apply_diagonal_rotation_avx512(State& state, const PreparedRotation& rotati
 template <bool RealPhase>
 void apply_lane_paired_rotation_avx512(State& state, const PreparedRotation& rotation,
                                        double sine) noexcept {
-    assert(!rotation.pauli.is_diagonal() && rotation.pauli.pair_selector < kLanes &&
+    assert(!rotation.pauli.is_diagonal() && rotation.pauli.pairing_bit < kLanes &&
            rotation.pauli.active_width >= 3 &&
            "AVX-512 lane-paired rotation requires one vector block");
     double* const real = state.real_data();
@@ -166,11 +166,11 @@ void apply_lane_paired_rotation_avx512(State& state, const PreparedRotation& rot
 template <bool RealPhase>
 void apply_nondiagonal_rotation_avx512(State& state, const PreparedRotation& rotation,
                                        double sine) noexcept {
-    assert(!rotation.pauli.is_diagonal() && rotation.pauli.pair_selector >= kLanes &&
+    assert(!rotation.pauli.is_diagonal() && rotation.pauli.pairing_bit >= kLanes &&
            "AVX-512 non-diagonal rotation requires a high pairing pivot");
     double* const real = state.real_data();
     double* const imag = state.imag_data();
-    const uint64_t pair_stride = rotation.pauli.pair_selector;
+    const uint64_t pair_stride = rotation.pauli.pairing_bit;
     const uint64_t pair_period = pair_stride << 1;
     const uint64_t lane_xor = rotation.pauli.x & (kLanes - 1);
     const __m512i permutation = _mm512_load_si512(kLanePermutations[lane_xor].data());

@@ -54,7 +54,7 @@ def compile(
     normalize_syndromes: bool = False,
     hir_passes: HirPassManager | None | _DefaultPasses = _DEFAULT_PASSES,
 ) -> Program:
-    """Compile Stim text for the experimental scalar sampling backend.
+    """Compile Stim text for the experimental symbolic-coordinate sampling backend.
 
     The default HIR optimization pipeline matches :func:`clifft.compile`;
     pass ``None`` to skip it.
