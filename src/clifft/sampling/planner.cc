@@ -147,6 +147,25 @@ struct PlanningRequirements {
     bool supports_final_state_queries = true;
 };
 
+bool operation_supports_final_state_queries(OpType type) {
+    switch (type) {
+        case OpType::T_GATE:
+        case OpType::PHASE_ROTATION:
+        case OpType::EXP_VAL:
+            return true;
+        case OpType::MEASURE:
+        case OpType::CONDITIONAL_PAULI:
+        case OpType::NOISE:
+        case OpType::READOUT_NOISE:
+        case OpType::INSTRUMENT:
+        case OpType::DETECTOR:
+        case OpType::OBSERVABLE:
+        case OpType::NUM_OP_TYPES:
+            return false;
+    }
+    return false;
+}
+
 PlanningRequirements inspect_planning_requirements(const HirModule& hir) {
     PlanningRequirements result;
     auto add = [&](size_t amount) {
@@ -158,15 +177,14 @@ PlanningRequirements inspect_planning_requirements(const HirModule& hir) {
 
     for (size_t i = 0; i < hir.ops.size(); ++i) {
         const HeisenbergOp& op = hir.ops[i];
+        result.supports_final_state_queries &= operation_supports_final_state_queries(op.op_type());
         switch (op.op_type()) {
             case OpType::MEASURE:
             case OpType::READOUT_NOISE:
             case OpType::INSTRUMENT:
-                result.supports_final_state_queries = false;
                 add(1);
                 break;
             case OpType::NOISE: {
-                result.supports_final_state_queries = false;
                 const uint32_t site_index = static_cast<uint32_t>(op.noise_site_idx());
                 if (site_index >= hir.noise_sites.size()) {
                     throw std::invalid_argument("sampling planner noise site is out of range");
@@ -184,7 +202,6 @@ PlanningRequirements inspect_planning_requirements(const HirModule& hir) {
             case OpType::CONDITIONAL_PAULI:
             case OpType::DETECTOR:
             case OpType::OBSERVABLE:
-                result.supports_final_state_queries = false;
                 break;
             case OpType::NUM_OP_TYPES:
                 throw std::invalid_argument("sampling planner does not support HIR operation " +
@@ -307,14 +324,18 @@ AffineBool process_measurement(const Pauli& body, const AffineBool& sign, Record
     return outcome;
 }
 
-void process_instrument(const Pauli& body, const Pauli& destination_flip,
-                        const AffineBool& initial_sign, InstrumentSiteId site,
-                        SymbolId destination_flip_symbol, uint32_t next_noise_site,
-                        uint32_t symbol_prefix_size, bool neglect_damping, SamplingPlan& plan,
-                        uint32_t& active_width, CoordinateFrame& coordinates,
+void process_instrument(const HirModule& hir, const HeisenbergOp& op, uint32_t next_noise_site,
+                        SamplingPlan& plan, uint32_t& active_width, CoordinateFrame& coordinates,
                         SymbolicPauliFrame& symbolic_frame) {
+    const InstrumentSiteId site{static_cast<uint32_t>(op.instrument_site_idx())};
+    const InstrumentSite& hir_site = hir.instrument_sites.at(index(site));
+    const SymbolId destination_flip_symbol = reserve_symbol(plan);
+    const uint32_t symbol_prefix_size = static_cast<uint32_t>(plan.symbols.size());
+    const Pauli body = pauli_from_hir(hir, op);
+    const Pauli destination_flip = pauli_from_mask(hir, hir_site.destination_flip_mask);
     const InstrumentDistribution& distribution = plan.instrument_distributions.at(index(site));
-    ResolvedPauli resolved = resolve_pauli(body, initial_sign, coordinates, symbolic_frame);
+    ResolvedPauli resolved =
+        resolve_pauli(body, AffineBool(hir.sign(op)), coordinates, symbolic_frame);
     const std::optional<uint32_t> dormant_pivot = first_x_at_or_above(resolved.body, active_width);
 
     InstrumentMode mode = InstrumentMode::Classical;
@@ -325,7 +346,7 @@ void process_instrument(const Pauli& body, const Pauli& destination_flip,
     if (dormant_pivot.has_value()) {
         // Equal no-fire factors normalize away. Otherwise exact damping needs
         // the dormant-coherent source represented in the dense state.
-        if (neglect_damping || distribution.p_fire[0] == distribution.p_fire[1]) {
+        if (hir.neglect_instrument_damping || distribution.p_fire[0] == distribution.p_fire[1]) {
             mode = InstrumentMode::DormantTrap;
             sign = AffineBool{};
         } else {
@@ -431,8 +452,10 @@ SamplingPlan plan_sampling(const HirModule& hir, SamplingPlanOptions options) {
     uint32_t detector_index = 0;
     uint32_t next_noise_site = 0;
     uint32_t next_instrument_site = 0;
+    bool supports_final_state_queries = true;
     for (size_t i = 0; i < hir.ops.size(); ++i) {
         const HeisenbergOp& op = hir.ops[i];
+        supports_final_state_queries &= operation_supports_final_state_queries(op.op_type());
         switch (op.op_type()) {
             case OpType::T_GATE: {
                 const double half_turns = op.is_dagger() ? -0.25 : 0.25;
@@ -484,9 +507,9 @@ SamplingPlan plan_sampling(const HirModule& hir, SamplingPlanOptions options) {
                     if (channel.prob == 0.0) {
                         continue;
                     }
-                    const SymbolId symbol = reserve_symbol(plan);
-                    plan.symbols[index(symbol)] =
-                        SymbolInfo{SymbolKind::Presampled, std::nullopt, NoiseSiteId{site_index}};
+                    const SymbolId symbol{static_cast<uint32_t>(plan.symbols.size())};
+                    plan.symbols.push_back(
+                        SymbolInfo{SymbolKind::Presampled, std::nullopt, NoiseSiteId{site_index}});
                     plan_site.outcomes.push_back(PresampledNoiseOutcome{symbol, channel.prob});
                     const Pauli body = noise_pauli_from_hir(hir, channel.mask);
                     symbolic_frame.apply(body, AffineBool::symbol(symbol));
@@ -526,14 +549,7 @@ SamplingPlan plan_sampling(const HirModule& hir, SamplingPlanOptions options) {
                     throw std::invalid_argument(
                         "sampling planner instrument omits its destination flip");
                 }
-                const SymbolId destination_flip_symbol = reserve_symbol(plan);
-                const uint32_t symbol_prefix_size = static_cast<uint32_t>(plan.symbols.size());
-                const Pauli body = pauli_from_hir(hir, op);
-                const Pauli destination_flip = pauli_from_mask(hir, site.destination_flip_mask);
-                process_instrument(body, destination_flip, AffineBool(hir.sign(op)),
-                                   InstrumentSiteId{site_index}, destination_flip_symbol,
-                                   next_noise_site, symbol_prefix_size,
-                                   hir.neglect_instrument_damping, plan, active_width, coordinates,
+                process_instrument(hir, op, next_noise_site, plan, active_width, coordinates,
                                    symbolic_frame);
                 ++next_instrument_site;
                 break;
@@ -593,6 +609,9 @@ SamplingPlan plan_sampling(const HirModule& hir, SamplingPlanOptions options) {
 
     if (plan.symbols.size() != requirements.symbol_count) {
         throw std::logic_error("sampling planner symbol prepass disagrees with HIR lowering");
+    }
+    if (supports_final_state_queries != requirements.supports_final_state_queries) {
+        throw std::logic_error("sampling planner final-state prepass disagrees with HIR lowering");
     }
     if (detector_index != hir.num_detectors) {
         throw std::invalid_argument("sampling planner detector count is inconsistent with HIR");
