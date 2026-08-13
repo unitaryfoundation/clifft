@@ -6,6 +6,7 @@
 #include "instrument_test_helpers.h"
 #include "test_helpers.h"
 
+#include <algorithm>
 #include <array>
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/matchers/catch_matchers_floating_point.hpp>
@@ -261,6 +262,34 @@ TEST_CASE("Sampling planner keeps prefix symbols stable across continuation suff
     REQUIRE(find_instrument(short_plan).destination_flip ==
             find_instrument(longer_plan).destination_flip);
     REQUIRE(longer_plan.symbols.size() == short_plan.symbols.size() + 1);
+}
+
+TEST_CASE("Sampling planner preserves mixed symbol order at instrument boundaries") {
+    const clifft::InstrumentTraceOptions options = clifft::test::source_dependent_jump_options();
+    const SamplingPlan plan = plan_sampling(clifft::trace(clifft::parse(R"(
+        X_ERROR(0.1) 0
+        H 0
+        M 0
+        READOUT_NOISE(0.1, 0.2) rec[-1]
+        LEVEL_TRANSITION[jump] 0
+        X_ERROR(0.3) 0
+    )"),
+                                                          &options));
+
+    REQUIRE(plan.symbols.size() == 5);
+    REQUIRE(plan.symbols[0].kind == SymbolKind::Presampled);
+    REQUIRE(plan.symbols[1].kind == SymbolKind::Branch);
+    REQUIRE(plan.symbols[2].kind == SymbolKind::Readout);
+    REQUIRE(plan.symbols[3].kind == SymbolKind::Instrument);
+    REQUIRE(plan.symbols[4].kind == SymbolKind::Presampled);
+
+    const auto boundary = std::ranges::find_if(plan.actions, [](const auto& action) {
+        return std::holds_alternative<InstrumentBoundary>(action.action);
+    });
+    REQUIRE(boundary != plan.actions.end());
+    const InstrumentBoundary& instrument = std::get<InstrumentBoundary>(boundary->action);
+    REQUIRE(instrument.next_noise_site == 1);
+    REQUIRE(instrument.symbol_prefix_size == 4);
 }
 
 TEST_CASE("Sampling planner collapses active measurements and propagates branches") {
