@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1786517391336,
+  "lastUpdate": 1786603856056,
   "repoUrl": "https://github.com/unitaryfoundation/clifft",
   "entries": {
     "C++ Catch2 benchmarks (scalar)": [
@@ -5502,6 +5502,70 @@ window.BENCHMARK_DATA = {
             "name": "exp-val 20q 200 probes x100k",
             "value": 160.955,
             "range": "± 6.63943",
+            "unit": "ms",
+            "extra": "100 samples\n1 iterations"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Brad Chase",
+            "username": "bachase",
+            "email": "14430+bachase@users.noreply.github.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "73398fd5904a818f41993fc9b5011a24a8bb2ce8",
+          "message": "refactor(sampling): specialize instrument actions\n\nLower planned instrument modes into concrete prepared execution forms while retaining one outer action alternative so ordinary dispatch remains unchanged. Remove hot mode and optional-field checks, preserve classical, dormant-trap, active, generic-activation, and new-X execution semantics, and keep seeded RNG draws, symbol assignment, and continuation behavior unchanged.\n\nMake lowering exhaustive and Release-safe, document the intentionally distinct activation forms, and guard the compact descriptor layout. Retain compiler-selected outlining for rare fire and trap paths after forced inlining measured worse.\n\nCloses #318.\n\nAssisted-by: Codex (GPT-5) <noreply@openai.com>",
+          "timestamp": "2026-08-12T19:59:27Z",
+          "url": "https://github.com/unitaryfoundation/clifft/commit/73398fd5904a818f41993fc9b5011a24a8bb2ce8"
+        },
+        "date": 1786603852332,
+        "tool": "catch2",
+        "benches": [
+          {
+            "name": "QV-10 x100 shots",
+            "value": 57.0771,
+            "range": "± 1.73786",
+            "unit": "ms",
+            "extra": "100 samples\n1 iterations"
+          },
+          {
+            "name": "cultivation-d5 x1000 shots",
+            "value": 75.3151,
+            "range": "± 198.002",
+            "unit": "ms",
+            "extra": "100 samples\n1 iterations"
+          },
+          {
+            "name": "surface-d7-r7 p=1e-3 x10000 shots",
+            "value": 102.345,
+            "range": "± 2.25675",
+            "unit": "ms",
+            "extra": "100 samples\n1 iterations"
+          },
+          {
+            "name": "surface-d5-r5 p=0.05 x10000 shots",
+            "value": 94.7522,
+            "range": "± 1.33544",
+            "unit": "ms",
+            "extra": "100 samples\n1 iterations"
+          },
+          {
+            "name": "surface-d11-r11 p=1e-3 x1000 shots",
+            "value": 40.4452,
+            "range": "± 863.648",
+            "unit": "ms",
+            "extra": "100 samples\n1 iterations"
+          },
+          {
+            "name": "exp-val 20q 200 probes x100k",
+            "value": 154.766,
+            "range": "± 4.58847",
             "unit": "ms",
             "extra": "100 samples\n1 iterations"
           }
