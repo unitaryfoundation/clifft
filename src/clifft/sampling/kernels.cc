@@ -41,7 +41,7 @@ void apply_nondiagonal_rotation(State& state, const PreparedRotation& rotation,
     double* const real = state.real_data();
     double* const imag = state.imag_data();
     const uint64_t size = state.size();
-    const uint64_t pair_stride = rotation.pauli.pair_selector;
+    const uint64_t pair_stride = rotation.pauli.pairing_bit;
     const uint64_t pair_period = pair_stride << 1;
     const double base_phase =
         RealPhase ? rotation.pauli.even_phase.real() : rotation.pauli.even_phase.imag();
@@ -115,7 +115,7 @@ PreparedPauli prepare_pauli(ActivePauli pauli, uint32_t active_width) {
     return PreparedPauli{.active_width = active_width,
                          .x = pauli.x,
                          .z = pauli.z,
-                         .pair_selector = std::bit_floor(pauli.x),
+                         .pairing_bit = std::bit_floor(pauli.x),
                          .even_phase = kIPowers[overlap & 3U]};
 }
 
@@ -361,7 +361,7 @@ void apply_instrument_no_fire(State& state, const PreparedPauli& source, double 
     const double identity_factor = 0.5 * (factor_zero + factor_one);
     const double pauli_factor = 0.5 * (factor_zero - factor_one);
     for (uint64_t left = 0; left < size; ++left) {
-        if ((left & source.pair_selector) != 0) {
+        if ((left & source.pairing_bit) != 0) {
             continue;
         }
         const uint64_t right = left ^ source.x;
@@ -403,7 +403,7 @@ void collapse_instrument_source(State& state, const PreparedPauli& source, bool 
     const double eigenvalue = branch ? -1.0 : 1.0;
     const double scale = 0.5 * inv_norm;
     for (uint64_t left = 0; left < size; ++left) {
-        if ((left & source.pair_selector) != 0) {
+        if ((left & source.pairing_bit) != 0) {
             continue;
         }
         const uint64_t right = left ^ source.x;

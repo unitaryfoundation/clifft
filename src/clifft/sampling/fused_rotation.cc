@@ -1,8 +1,8 @@
 #include "clifft/sampling/fused_rotation.h"
 
-#include "clifft/sampling/direct_rotation_simd.h"
 #include "clifft/sampling/indexing.h"
 #include "clifft/sampling/kernels.h"
+#include "clifft/sampling/simd_width.h"
 
 #include <algorithm>
 #include <array>

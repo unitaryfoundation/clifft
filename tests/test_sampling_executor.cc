@@ -23,6 +23,7 @@
 #include <numbers>
 #include <optional>
 #include <span>
+#include <stdexcept>
 #include <string_view>
 #include <variant>
 #include <vector>
@@ -861,7 +862,7 @@ TEST_CASE("Sampling executable preserves generic instrument activation") {
     REQUIRE(executor.state().real_data()[3] == 0.0);
 }
 
-TEST_CASE("Sampling executable rejects unrecognized instrument modes") {
+TEST_CASE("Sampling executable validates its source plan before lowering") {
     SamplingPlan plan;
     plan.num_qubits = 1;
     plan.num_instrument_sites = 1;
@@ -876,7 +877,7 @@ TEST_CASE("Sampling executable rejects unrecognized instrument modes") {
         PlannedAction{0, 0, InstrumentBoundary{InstrumentSiteId{0}, 0, 1}},
     };
 
-    REQUIRE_THROWS_AS(ExecutablePlan(plan), std::logic_error);
+    REQUIRE_THROWS_AS(ExecutablePlan(plan), std::invalid_argument);
 }
 
 TEST_CASE("Sampling executor applies computational instrument destinations in line") {

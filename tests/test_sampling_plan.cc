@@ -235,6 +235,12 @@ TEST_CASE("Sampling plan rejects invalid symbol metadata and definitions") {
         std::get<DefineSymbol>(plan.actions[2].action).value = AffineBool::symbol(SymbolId{2});
         REQUIRE_THROWS_AS(plan.validate(), std::invalid_argument);
     }
+
+    SECTION("symbol kind is unrecognized") {
+        SamplingPlan plan = valid_plan();
+        plan.symbols[2].kind = static_cast<SymbolKind>(std::numeric_limits<uint8_t>::max());
+        REQUIRE_THROWS_AS(plan.validate(), std::invalid_argument);
+    }
 }
 
 TEST_CASE("Sampling plan rejects Pauli bits above active width") {
@@ -393,6 +399,13 @@ TEST_CASE("Sampling plan rejects invalid dimensions and action contracts") {
     SECTION("instrument site is out of range") {
         SamplingPlan plan = valid_plan();
         std::get<InstrumentBoundary>(plan.actions[5].action).site = InstrumentSiteId{1};
+        REQUIRE_THROWS_AS(plan.validate(), std::invalid_argument);
+    }
+
+    SECTION("instrument mode is unrecognized") {
+        SamplingPlan plan = valid_plan();
+        std::get<ApplyInstrument>(plan.actions[4].action).mode =
+            static_cast<InstrumentMode>(std::numeric_limits<uint8_t>::max());
         REQUIRE_THROWS_AS(plan.validate(), std::invalid_argument);
     }
 }

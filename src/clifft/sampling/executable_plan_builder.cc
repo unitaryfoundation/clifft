@@ -19,6 +19,9 @@ namespace {
 template <typename>
 inline constexpr bool kAlwaysFalse = false;
 
+// Moving these small lowering helpers out of the constructor stopped non-LTO
+// Release builds from inlining them and measurably regressed small-plan
+// preparation, so preserve that previously implicit optimization here.
 #if defined(_MSC_VER)
 #define CLIFFT_BUILDER_FORCE_INLINE __forceinline
 #elif defined(__GNUC__) || defined(__clang__)

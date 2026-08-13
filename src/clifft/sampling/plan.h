@@ -10,6 +10,11 @@
 // device lowering belong to execution-specific layers, which should lower it
 // to packed, preallocated storage before entering per-shot hot loops.
 //
+// An active coordinate is represented explicitly in the dense 2^k coefficient
+// state. A dormant coordinate remains stabilizer-only until an operation makes
+// it active. Affine symbols are per-shot Boolean values that carry stochastic
+// dependencies without expanding the coefficient state.
+//
 // The symbolic-expression and stabilizer-coordinate split is informed by:
 // SymFT: Universal Fault-Tolerant Quantum Circuit Simulation via Symbolic
 // Clifford--Pauli Frames and Stabilizer Coordinates, arXiv:2607.28600.

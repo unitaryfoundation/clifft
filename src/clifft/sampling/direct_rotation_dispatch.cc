@@ -1,6 +1,7 @@
 #include "clifft/sampling/direct_rotation_dispatch.h"
 
 #include "clifft/sampling/direct_rotation_simd.h"
+#include "clifft/sampling/simd_width.h"
 #include "clifft/util/runtime_isa.h"
 
 #include <cassert>
@@ -11,14 +12,14 @@ namespace {
 
 constexpr uint32_t kMinAvx2ActiveWidth = 2;
 constexpr uint32_t kMinAvx512ActiveWidth = 3;
-constexpr uint64_t kNoExcludedPairSelector = 0;
-constexpr uint64_t kPivotFourSelector = uint64_t{1} << 4;
+constexpr uint64_t kNoExcludedPairingBit = 0;
+constexpr uint64_t kPivotFourPairingBit = uint64_t{1} << 4;
 static_assert(uint64_t{1} << kMinAvx2ActiveWidth == kAvx2DoubleLanes);
 static_assert(uint64_t{1} << kMinAvx512ActiveWidth == kAvx512DoubleLanes);
 
 DirectRotationKernel select_direct_rotation(const PreparedRotation& rotation, uint64_t vector_lanes,
                                             uint32_t min_active_width,
-                                            uint64_t excluded_pair_selector) noexcept {
+                                            uint64_t excluded_pairing_bit) noexcept {
     if (rotation.pauli.is_identity()) {
         return DirectRotationKernel::Scalar;
     }
@@ -26,12 +27,12 @@ DirectRotationKernel select_direct_rotation(const PreparedRotation& rotation, ui
         return rotation.pauli.active_width >= min_active_width ? DirectRotationKernel::Diagonal
                                                                : DirectRotationKernel::Scalar;
     }
-    const uint64_t pairing_bit = rotation.pauli.pair_selector;
+    const uint64_t pairing_bit = rotation.pauli.pairing_bit;
     if (pairing_bit < vector_lanes) {
         return rotation.pauli.active_width >= min_active_width ? DirectRotationKernel::LanePaired
                                                                : DirectRotationKernel::Scalar;
     }
-    if (pairing_bit == excluded_pair_selector) {
+    if (pairing_bit == excluded_pairing_bit) {
         return DirectRotationKernel::Scalar;
     }
     return DirectRotationKernel::HighPivot;
@@ -41,14 +42,14 @@ DirectRotationKernel select_direct_rotation_avx2(const PreparedRotation& rotatio
     // Stride-16 pairing was neutral or faster than scalar across the measured
     // AVX2 active widths, so every high pivot uses the vector kernel.
     return select_direct_rotation(rotation, kAvx2DoubleLanes, kMinAvx2ActiveWidth,
-                                  kNoExcludedPairSelector);
+                                  kNoExcludedPairingBit);
 }
 
 DirectRotationKernel select_direct_rotation_avx512(const PreparedRotation& rotation) noexcept {
     // Stride-16 pairing regressed against scalar at every measured active
     // width on the AVX-512 performance host.
     return select_direct_rotation(rotation, kAvx512DoubleLanes, kMinAvx512ActiveWidth,
-                                  kPivotFourSelector);
+                                  kPivotFourPairingBit);
 }
 
 #if defined(CLIFFT_ENABLE_RUNTIME_DISPATCH)

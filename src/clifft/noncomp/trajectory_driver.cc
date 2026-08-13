@@ -986,6 +986,10 @@ NonComputationalSample run_sampling_trajectory_driver(const Circuit& circuit,
             continuation = &*all_ground_start;
         }
 
+        // Executor borrows its current plan. Pointer-own each replacement so
+        // its address remains stable. resume() must install next->program before
+        // moving next into this slot destroys the previously borrowed plan;
+        // return_to_root_plan() releases the final borrow.
         std::unique_ptr<SamplingCompiledContinuation> shot_continuation;
         std::optional<sampling::Executor> shot_executor;
         sampling::Executor* executor = nullptr;

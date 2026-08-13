@@ -816,7 +816,7 @@ TEST_CASE("Sampling kernels compose across collapse and promotion") {
 }
 
 TEST_CASE("Sampling kernel preparation precomputes non-diagonal pairing metadata") {
-    REQUIRE(prepare_rotation({0b101, 0}, 3, 0.25).pauli.pair_selector == 0b100);
+    REQUIRE(prepare_rotation({0b101, 0}, 3, 0.25).pauli.pairing_bit == 0b100);
 }
 
 TEST_CASE("Sampling kernel preparation rejects malformed inputs") {

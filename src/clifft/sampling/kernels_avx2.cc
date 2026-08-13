@@ -6,6 +6,7 @@
 #include "clifft/sampling/fused_rotation_simd.h"
 #include "clifft/sampling/indexing.h"
 #include "clifft/sampling/instrument_activation_simd.h"
+#include "clifft/sampling/simd_width.h"
 #include "clifft/util/numeric.h"
 
 #include <array>
@@ -124,7 +125,7 @@ void apply_diagonal_rotation_avx2(State& state, const PreparedRotation& rotation
 template <bool RealPhase>
 void apply_lane_paired_rotation_avx2(State& state, const PreparedRotation& rotation,
                                      double sine) noexcept {
-    assert(!rotation.pauli.is_diagonal() && rotation.pauli.pair_selector < kLanes &&
+    assert(!rotation.pauli.is_diagonal() && rotation.pauli.pairing_bit < kLanes &&
            rotation.pauli.active_width >= 2 &&
            "AVX2 lane-paired rotation requires at least one vector block");
     double* const real = state.real_data();
@@ -166,11 +167,11 @@ void apply_lane_paired_rotation_avx2(State& state, const PreparedRotation& rotat
 template <bool RealPhase>
 void apply_nondiagonal_rotation_avx2(State& state, const PreparedRotation& rotation,
                                      double sine) noexcept {
-    assert(!rotation.pauli.is_diagonal() && rotation.pauli.pair_selector >= kLanes &&
+    assert(!rotation.pauli.is_diagonal() && rotation.pauli.pairing_bit >= kLanes &&
            "AVX2 non-diagonal rotation requires a high pairing pivot");
     double* const real = state.real_data();
     double* const imag = state.imag_data();
-    const uint64_t pair_stride = rotation.pauli.pair_selector;
+    const uint64_t pair_stride = rotation.pauli.pairing_bit;
     const uint64_t pair_period = pair_stride << 1;
     const uint64_t lane_xor = rotation.pauli.x & (kLanes - 1);
     const __m256i permutation =
