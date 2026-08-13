@@ -9,9 +9,10 @@
 
 namespace clifft::sampling {
 
-// The executable plan and its executor share one process-selected backend.
-// Action tags then describe only how that backend should traverse the complex
-// state vector; they do not encode or rediscover the process ISA.
+// The executable plan records one process-selected backend. Its action tags
+// describe only the operation shape, such as a diagonal rotation or amplitude
+// pairs within one vector, so that backend can call its matching kernel. The
+// tags do not encode or rediscover the process ISA.
 enum class ExecutorBackend : uint8_t {
     Scalar,
     Avx2,
