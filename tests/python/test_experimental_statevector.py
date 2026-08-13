@@ -12,13 +12,7 @@ from clifft import _legacy
 
 
 def _legacy_statevector(stim_text: str) -> npt.NDArray[np.complex128]:
-    program = _legacy.compile(stim_text)
-    state = _legacy.State(
-        peak_rank=program.peak_rank,
-        num_measurements=program.num_measurements,
-    )
-    _legacy.execute(program, state)
-    return cast(npt.NDArray[np.complex128], _legacy.get_statevector(program, state))
+    return cast(npt.NDArray[np.complex128], _legacy.statevector(stim_text))
 
 
 @pytest.mark.parametrize(

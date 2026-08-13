@@ -53,10 +53,7 @@ def pauli_expectation(sv: np.ndarray, pauli_str: str, num_qubits: int) -> float:
 
 def clifft_statevector(circuit_str: str) -> np.ndarray:
     """Compile and execute through the retained legacy statevector oracle."""
-    prog = _legacy.compile(circuit_str, hir_passes=None, bytecode_passes=None)
-    state = _legacy.State(peak_rank=prog.peak_rank, num_measurements=prog.num_measurements)
-    _legacy.execute(prog, state)
-    return np.array(_legacy.get_statevector(prog, state))
+    return np.array(_legacy.statevector(circuit_str, hir_passes=None, bytecode_passes=None))
 
 
 def random_pauli_product(num_qubits: int, rng: np.random.Generator) -> str:

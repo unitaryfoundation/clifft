@@ -46,6 +46,8 @@
 
 namespace nb = nanobind;
 
+namespace {
+
 // Zero-copy transfer: move a std::vector into a numpy array via capsule ownership.
 // Uses unique_ptr for exception safety: if capsule construction throws,
 // the vector is automatically freed. Ownership transfers to the capsule
@@ -59,6 +61,29 @@ nb::ndarray<nb::numpy, T, nb::c_contig> vec_to_numpy(std::vector<T> vec,
                       [](void* p) noexcept { delete static_cast<std::vector<T>*>(p); });
     return nb::ndarray<nb::numpy, T, nb::c_contig>(data, shape, owner);
 }
+
+clifft::HirModule prepare_hir_for_lowering(const std::string& stim_text, bool normalize_syndromes,
+                                           clifft::HirPassManager* hir_passes,
+                                           std::vector<uint8_t>& expected_detectors,
+                                           std::vector<uint8_t>& expected_observables) {
+    clifft::HirModule hir = clifft::trace(clifft::parse(stim_text));
+    if (hir_passes != nullptr) {
+        hir_passes->run(hir);
+    }
+    if (!normalize_syndromes) {
+        return hir;
+    }
+    if (!expected_detectors.empty() || !expected_observables.empty()) {
+        throw std::invalid_argument(
+            "Cannot provide expected parities when normalize_syndromes=True");
+    }
+    auto reference = clifft::compute_reference_syndrome(hir);
+    expected_detectors = std::move(reference.detectors);
+    expected_observables = std::move(reference.observables);
+    return hir;
+}
+
+}  // namespace
 
 nb::tuple noncomp_sample_to_python(clifft::NonComputationalSample r, uint32_t shots) {
     // These values match Python's QubitStatus enum, including the distinct
@@ -960,19 +985,9 @@ NB_MODULE(_clifft_core, m) {
            bool normalize_syndromes, clifft::HirPassManager* hir_passes,
            clifft::BytecodePassManager* bytecode_passes) {
             nb::gil_scoped_release release;
-            clifft::HirModule hir = clifft::trace(clifft::parse(stim_text));
-            if (hir_passes != nullptr) {
-                hir_passes->run(hir);
-            }
-            if (normalize_syndromes) {
-                if (!expected_detectors.empty() || !expected_observables.empty()) {
-                    throw std::invalid_argument(
-                        "Cannot provide expected parities when normalize_syndromes=True");
-                }
-                auto reference = clifft::compute_reference_syndrome(hir);
-                expected_detectors = std::move(reference.detectors);
-                expected_observables = std::move(reference.observables);
-            }
+            clifft::HirModule hir =
+                prepare_hir_for_lowering(stim_text, normalize_syndromes, hir_passes,
+                                         expected_detectors, expected_observables);
             clifft::CompiledModule program = clifft::lower(
                 std::move(hir), postselection_mask, expected_detectors, expected_observables);
             if (bytecode_passes != nullptr) {
@@ -1031,20 +1046,9 @@ NB_MODULE(_clifft_core, m) {
            std::vector<uint8_t> expected_detectors, std::vector<uint8_t> expected_observables,
            bool normalize_syndromes, clifft::HirPassManager* hir_passes) {
             nb::gil_scoped_release release;
-            clifft::HirModule hir = clifft::trace(clifft::parse(stim_text));
-            if (hir_passes) {
-                hir_passes->run(hir);
-            }
-
-            if (normalize_syndromes) {
-                if (!expected_detectors.empty() || !expected_observables.empty()) {
-                    throw std::invalid_argument(
-                        "Cannot provide expected parities when normalize_syndromes=True");
-                }
-                auto ref = clifft::compute_reference_syndrome(hir);
-                expected_detectors = std::move(ref.detectors);
-                expected_observables = std::move(ref.observables);
-            }
+            clifft::HirModule hir =
+                prepare_hir_for_lowering(stim_text, normalize_syndromes, hir_passes,
+                                         expected_detectors, expected_observables);
 
             return clifft::sampling::ExecutablePlan(clifft::sampling::plan_sampling(
                 hir, {postselection_mask, expected_detectors, expected_observables}));
@@ -1329,20 +1333,6 @@ NB_MODULE(_clifft_core, m) {
             std::vector<double> log_probs;
             {
                 nb::gil_scoped_release release;
-                if (program.num_hidden_records() != 0) {
-                    throw std::invalid_argument(
-                        "record_probabilities() does not yet support programs with hidden "
-                        "measurement slots (e.g. R / reset gates). Compile without resets, "
-                        "or use sample() to marginalize.");
-                }
-                if (program.num_presampled_symbols() != 0 || program.has_readout_noise() ||
-                    program.has_instruments() || program.num_detectors() != 0 ||
-                    program.num_observables() != 0 || program.has_postselection()) {
-                    throw std::invalid_argument(
-                        "record_probabilities() requires pure-state evolution with "
-                        "measurements: noise, transition instruments, feedback-free "
-                        "detectors, observables, and post-selection are not supported.");
-                }
                 log_probs = clifft::sampling::record_log_probabilities(
                     program, std::span<const uint8_t>(records.data(), records.size()),
                     records.shape(0));

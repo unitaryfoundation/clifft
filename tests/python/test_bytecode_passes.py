@@ -10,16 +10,15 @@ import numpy as np
 import pytest
 from conftest import random_dense_clifford_t_circuit
 
-import clifft
 from clifft import _legacy
 
 
-def compile_unoptimized(stim_text: str) -> clifft.Program:
+def compile_unoptimized(stim_text: str) -> _legacy.Program:
     """Compile with no HIR or bytecode optimization (baseline for A/B tests)."""
     return _legacy.compile(stim_text, hir_passes=None, bytecode_passes=None)
 
 
-def compile_optimized(stim_text: str) -> clifft.Program:
+def compile_optimized(stim_text: str) -> _legacy.Program:
     """Compile with default bytecode passes only.
 
     HIR passes are skipped so the bytecode A/B tests share an identical

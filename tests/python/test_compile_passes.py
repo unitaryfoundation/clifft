@@ -33,6 +33,18 @@ def test_compile_default_runs_default_optimizers() -> None:
     assert prog_convenience.peak_rank == prog_manual.peak_rank
 
 
+def test_legacy_compile_accepts_package_default_sentinel() -> None:
+    """The private oracle shares the public wrapper's default marker."""
+    expected = _legacy.compile("H 0\nT 0\nM 0")
+    actual = _legacy.compile(
+        "H 0\nT 0\nM 0",
+        hir_passes=clifft._DEFAULT_PASSES,
+        bytecode_passes=clifft._DEFAULT_PASSES,
+    )
+    assert actual.num_instructions == expected.num_instructions
+    assert actual.peak_rank == expected.peak_rank
+
+
 def test_compile_explicit_none_skips_optimization() -> None:
     """Passing None explicitly disables the corresponding optimization stage."""
     text = "H 0\nT 0\nCNOT 0 1\nM 0 1"

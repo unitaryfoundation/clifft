@@ -238,11 +238,7 @@ class TestDefaultHirUncomputationLadder:
 
 def _clifft_statevector(circuit_str: str, **compile_kwargs: Any) -> np.ndarray:
     """Compile and execute a noiseless circuit, return dense statevector."""
-    prog = _legacy.compile(circuit_str, **compile_kwargs)
-    state = _legacy.State(peak_rank=prog.peak_rank, num_measurements=prog.num_measurements)
-    _legacy.execute(prog, state)
-    sv: np.ndarray = _legacy.get_statevector(prog, state)
-    return sv
+    return np.asarray(_legacy.statevector(circuit_str, **compile_kwargs))
 
 
 class TestDefaultHirStatevectorEquivalence:
@@ -363,3 +359,26 @@ class TestDefaultOptimizerStatisticalEquivalence:
         base_result = _legacy.sample(base, _STAT_SHOTS, seed=seed)
         opt_result = _legacy.sample(opt, _STAT_SHOTS, seed=seed)
         self._assert_marginals_match(base_result.measurements, opt_result.measurements)
+
+    @pytest.mark.parametrize("seed", _SEEDS)
+    @pytest.mark.parametrize("circuit_kind", ["star", "commutation", "uncomputation"])
+    def test_symbolic_hir_pipeline(self, circuit_kind: str, seed: int) -> None:
+        """Production HIR optimization preserves noisy output distributions."""
+        if circuit_kind == "star":
+            circuit = generate_star_graph_stress_circuit(10, 100, seed=seed)
+        elif circuit_kind == "commutation":
+            circuit = generate_random_commutation_circuit(20, 200, seed=seed)
+        else:
+            circuit = generate_uncomputation_ladder(10, 100, seed=seed, noise_prob=0.02)
+
+        base = clifft.compile(circuit, hir_passes=None)
+        optimized = clifft.compile(circuit)
+        assert base.peak_rank <= _MAX_PEAK_RANK
+        assert optimized.peak_rank <= _MAX_PEAK_RANK
+
+        base_result = clifft.sample(base, _STAT_SHOTS, seed=seed)
+        optimized_result = clifft.sample(optimized, _STAT_SHOTS, seed=seed)
+        self._assert_marginals_match(
+            base_result.measurements,
+            optimized_result.measurements,
+        )

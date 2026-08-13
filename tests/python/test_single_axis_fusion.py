@@ -12,7 +12,7 @@ import clifft
 from clifft import _legacy
 
 
-def _compile_no_fusion(text: str) -> clifft.Program:
+def _compile_no_fusion(text: str) -> _legacy.Program:
     """Compile with every default pass except SingleAxisFusionPass."""
     circuit = clifft.parse(text)
     hir = clifft.trace(circuit)
@@ -30,7 +30,7 @@ def _compile_no_fusion(text: str) -> clifft.Program:
     return prog
 
 
-def _compile_with_fusion(text: str) -> clifft.Program:
+def _compile_with_fusion(text: str) -> _legacy.Program:
     """Compile with all default passes, including SingleAxisFusionPass."""
     circuit = clifft.parse(text)
     hir = clifft.trace(circuit)
@@ -42,7 +42,7 @@ def _compile_with_fusion(text: str) -> clifft.Program:
     return prog
 
 
-def _get_sv(prog: clifft.Program) -> np.ndarray:
+def _get_sv(prog: _legacy.Program) -> np.ndarray:
     """Execute one shot and extract the statevector."""
     state = _legacy.State(peak_rank=prog.peak_rank, num_measurements=prog.num_measurements)
     _legacy.execute(prog, state)

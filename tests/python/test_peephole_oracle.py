@@ -25,7 +25,7 @@ def _peephole_pass_manager() -> clifft.HirPassManager:
     return pm
 
 
-def _compile_optimized(circuit_str: str) -> clifft.Program:
+def _compile_optimized(circuit_str: str) -> _legacy.Program:
     """Compile with only PeepholeFusionPass enabled."""
     circuit = clifft.parse(circuit_str)
     hir = clifft.trace(circuit)
@@ -41,13 +41,15 @@ def _clifft_statevector(circuit_str: str, *, optimize: bool = False) -> np.ndarr
     default-argument _legacy.compile() would run the very passes under test.
     """
     if optimize:
-        prog = _compile_optimized(circuit_str)
+        return np.asarray(
+            _legacy.statevector(
+                circuit_str,
+                hir_passes=_peephole_pass_manager(),
+                bytecode_passes=None,
+            )
+        )
     else:
-        prog = _legacy.compile(circuit_str, hir_passes=None, bytecode_passes=None)
-    state = _legacy.State(peak_rank=prog.peak_rank, num_measurements=prog.num_measurements)
-    _legacy.execute(prog, state)
-    sv: np.ndarray = _legacy.get_statevector(prog, state)
-    return sv
+        return np.asarray(_legacy.statevector(circuit_str, hir_passes=None, bytecode_passes=None))
 
 
 # Specific algebraic identities.
@@ -455,7 +457,7 @@ class TestPeepholePassMetadata:
 # global-phase tracking against physical gate application.
 
 
-def _assert_absorption_preserves_state(stim_text: str, atol: float = 1e-6) -> clifft.Program:
+def _assert_absorption_preserves_state(stim_text: str, atol: float = 1e-6) -> _legacy.Program:
     """Compile with and without optimization; assert statevector equivalence."""
     # Baseline: no HIR or bytecode passes
     prog_base = _legacy.compile(stim_text, hir_passes=None, bytecode_passes=None)

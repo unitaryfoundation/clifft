@@ -301,7 +301,13 @@ class TestStatevector:
             prog = clifft.compile(circuit)
             sv = clifft.get_statevector(prog)
             norm = float(np.sqrt(np.sum(np.abs(sv) ** 2)))
-            assert abs(norm - 1.0) < 1e-6, f"Not normalized: {circuit}"
+            assert abs(norm - 1.0) < 1e-12, f"Not normalized: {circuit}"
+
+    def test_statevector_clifford_amplitudes_keep_double_precision(self) -> None:
+        """Tableau expansion does not retain Stim's float-rounded amplitudes."""
+        sv = clifft.get_statevector(clifft.compile("H 0"))
+        expected = np.array([1 / np.sqrt(2), 1 / np.sqrt(2)], dtype=np.complex128)
+        np.testing.assert_allclose(sv, expected, atol=1e-15, rtol=0)
 
     def test_statevector_after_measurement(self) -> None:
         """Statevector correctly handles active rank after measurement."""
@@ -727,6 +733,15 @@ class TestPostselection:
         prog = sampling_api.compile(circuit, postselection_mask=[1])
         with pytest.raises(ValueError, match="sample_survivors"):
             sampling_api.sample(prog, 10)
+
+    def test_private_legacy_sample_rejects_postselection(self) -> None:
+        """The differential oracle must not expose discarded rows as samples."""
+        program = _legacy.compile(
+            "H 0\nM 0\nDETECTOR rec[-1]",
+            postselection_mask=[1],
+        )
+        with pytest.raises(ValueError, match="cannot be used with post-selected"):
+            _legacy.sample(program, 10, seed=1)
 
     def test_sample_k_raises_on_postselected_program(self) -> None:
         """sample_k() raises ValueError when program has postselection."""

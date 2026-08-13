@@ -59,7 +59,7 @@ CLIFFT_CIRCUIT_FILE=tools/bench/fixtures/qv20_seed42.stim CLIFFT_SHOTS=10 ./buil
 | `CLIFFT_T_GATES` | 0 | Number of T-gates to append |
 | `CLIFFT_SHOTS` | 100000 | Number of shots to sample (`profile_svm`) |
 | `CLIFFT_COMPILE_ITERATIONS` | 20 | Number of compile iterations (`profile_compile`) |
-| `CLIFFT_COMPILE_BACKEND` | `legacy` | Compile path for `profile_compile`: `legacy` or `symbolic` |
+| `CLIFFT_COMPILE_BACKEND` | `symbolic` | Compile path for `profile_compile`: `symbolic` or `legacy` |
 | `CLIFFT_QUERIES` | 100 | Number of bitstring queries (`profile_probability`) |
 | `CLIFFT_POSTSELECT_ALL` | *(unset)* | If set, all detectors become postselects |
 
@@ -71,9 +71,10 @@ with the T count and the per-bitstring amplitude walk dominates the workload.
 
 `profile_compile` re-runs the full compile pipeline `CLIFFT_COMPILE_ITERATIONS`
 times on the same circuit and reports per-stage min/median/mean/p95/max plus
-implied compiles-per-second. Uses the production
-`default_hir_pass_manager()` and `default_bytecode_pass_manager()`, so
-timings match what `clifft.compile()` would actually pay.
+implied compiles-per-second. The default symbolic path uses the production
+`default_hir_pass_manager()`, so its parse, trace, plan, and prepare timings
+match what `clifft.compile()` pays. Set `CLIFFT_COMPILE_BACKEND=legacy` to
+retain lower/bytecode comparison data.
 
 ```bash
 # Per-stage timings only

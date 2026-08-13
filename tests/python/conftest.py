@@ -46,13 +46,10 @@ def statevector_from_circuit(
         return experimental_statevector
 
     def legacy_statevector(stim_text: str) -> npt.NDArray[np.complex128]:
-        program = _legacy.compile(stim_text, hir_passes=None, bytecode_passes=None)
-        state = _legacy.State(
-            peak_rank=program.peak_rank,
-            num_measurements=program.num_measurements,
+        return cast(
+            npt.NDArray[np.complex128],
+            _legacy.statevector(stim_text, hir_passes=None, bytecode_passes=None),
         )
-        _legacy.execute(program, state)
-        return cast(npt.NDArray[np.complex128], _legacy.get_statevector(program, state))
 
     return legacy_statevector
 

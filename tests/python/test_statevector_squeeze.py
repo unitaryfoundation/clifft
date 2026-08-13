@@ -24,11 +24,7 @@ def _squeeze_only_pass_manager() -> clifft.HirPassManager:
 
 def _clifft_statevector(circuit_str: str, **compile_kwargs: Any) -> np.ndarray:
     """Compile and execute a noiseless circuit, return dense statevector."""
-    prog = _legacy.compile(circuit_str, **compile_kwargs)
-    state = _legacy.State(peak_rank=prog.peak_rank, num_measurements=prog.num_measurements)
-    _legacy.execute(prog, state)
-    sv: np.ndarray = _legacy.get_statevector(prog, state)
-    return sv
+    return np.asarray(_legacy.statevector(circuit_str, **compile_kwargs))
 
 
 class TestSqueezeBasicPeakRankReduction:
