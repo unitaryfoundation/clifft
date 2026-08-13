@@ -8,6 +8,9 @@
 
 namespace clifft::sampling {
 
+// Portable descriptors and scalar kernel entry points used by CPU execution.
+// ISA-specific selection and implementations stay outside this header.
+
 // Describes a Pauli operation to apply to the state vector. Its masks and
 // precomputed index values identify affected coefficients without referring to
 // the State's storage.

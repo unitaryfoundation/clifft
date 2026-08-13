@@ -16,19 +16,6 @@ class KFaultSampler;
 
 namespace clifft::sampling {
 
-// Zero and one identify the selected Pauli eigenvalue branch before affine
-// sign corrections turn that branch into a physical measurement record.
-enum class MeasurementBranchKind : uint8_t {
-    Random,
-    DeterministicZero,
-    DeterministicOne,
-};
-
-struct MeasurementBranchClassification {
-    MeasurementBranchKind kind = MeasurementBranchKind::Random;
-    bool clamped_dust = false;
-};
-
 // Describes whether a requested record can occur and, if so, its conditional
 // joint log probability. The probability is meaningful only when reachable.
 struct ReplayResult {
@@ -46,9 +33,6 @@ struct ForcedTraceOut {
     RecordSlot record{};
     uint8_t source = 0;
 };
-
-[[nodiscard]] MeasurementBranchClassification classify_measurement_branch(
-    MeasurementProbabilities probabilities) noexcept;
 
 // Holds the dense active-coordinate coefficients and global scalar, Boolean
 // symbols carrying stochastic frame dependencies, visible and hidden records,
@@ -195,8 +179,15 @@ class Executor {
     template <typename Action>
     void execute_quantum_instrument(const Action& action) noexcept;
 
+    // The caller-owned root plan must outlive this executor. After resume(),
+    // plan_ keeps borrowing that continuation for accessors and any later
+    // resume validation. A successful resume replaces the borrow, while
+    // return_to_root_plan releases the final one. A throwing resume does not
+    // release whichever continuation was current when it threw.
     const ExecutablePlan* root_plan_;
     const ExecutablePlan* plan_;
+
+    // Capacity is allocated before ordinary dispatch and reused across shots.
     State state_;
     std::vector<uint8_t> symbols_;
     std::vector<uint8_t> expression_registers_;
@@ -204,14 +195,26 @@ class Executor {
     std::vector<uint8_t> detectors_;
     std::vector<uint8_t> observables_;
     std::vector<double> exp_vals_;
+
+    // resume() can force a hidden trace-out record in the continuation.
     std::vector<uint8_t> forced_record_mask_;
     std::vector<uint8_t> forced_record_values_;
+
+    // Reset only the presampled symbols that were true on the previous shot.
     std::vector<uint32_t> previous_presampled_ones_;
+
+    // Fixed-fault-count sampling supplies its selected circuit sites here.
     std::span<const uint32_t> forced_fault_sites_;
     uint32_t forced_fault_cursor_ = 0;
+
+    // RNG position deliberately persists across shots.
     Xoshiro256PlusPlus rng_;
+
+    // Per-shot control state.
     bool discarded_ = false;
     std::optional<InstrumentTrap> pending_trap_;
+
+    // Lifetime numerical telemetry; reset_shot does not clear it.
     uint64_t dust_clamps_ = 0;
 };
 

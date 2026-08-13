@@ -15,9 +15,20 @@ namespace {
 
 constexpr double kLogHalf = -std::numbers::ln2;
 
-}  // namespace
+// Zero and one identify the selected Pauli eigenvalue branch before affine
+// corrections turn that branch into a physical measurement record.
+enum class MeasurementBranchKind : uint8_t {
+    Random,
+    DeterministicZero,
+    DeterministicOne,
+};
 
-MeasurementBranchClassification classify_measurement_branch(
+struct MeasurementBranchClassification {
+    MeasurementBranchKind kind = MeasurementBranchKind::Random;
+    bool clamped_dust = false;
+};
+
+[[nodiscard]] MeasurementBranchClassification classify_measurement_branch(
     MeasurementProbabilities probabilities) noexcept {
     const double total = probabilities.total();
     assert(is_finite_robust(probabilities.zero) && probabilities.zero >= 0.0 &&
@@ -35,6 +46,8 @@ MeasurementBranchClassification classify_measurement_branch(
     }
     return {.kind = MeasurementBranchKind::Random};
 }
+
+}  // namespace
 
 Executor::Executor(const ExecutablePlan& plan, uint64_t seed)
     : root_plan_(&plan),

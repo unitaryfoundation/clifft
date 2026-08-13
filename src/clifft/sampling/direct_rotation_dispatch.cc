@@ -55,8 +55,8 @@ DirectRotationKernel select_direct_rotation_avx512(const PreparedRotation& rotat
 #if defined(CLIFFT_ENABLE_RUNTIME_DISPATCH)
 
 // The selected ISA is process-wide, while each action stores only a shape. A
-// predicted branch and direct call are cheaper here than the SVM's function
-// pointer pattern, which amortizes one indirect call over an entire program.
+// predicted branch keeps function pointers and architecture-specific types out
+// of the compact action descriptor.
 const internal::RuntimeIsa kResolvedDirectRotationIsa = internal::runtime_isa();
 
 #endif

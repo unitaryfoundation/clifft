@@ -51,7 +51,7 @@ CLIFFT_BUILDER_FORCE_INLINE void ExecutablePlanBuilder::compile() {
     clifft::internal::validate_runtime_isa(runtime_isa_);
     initialize_program();
     prepare_noise_and_boundaries();
-    lower_actions();
+    lower_action_stream();
     build_expression_dependencies();
     validate_executable_plan();
 }
@@ -326,7 +326,7 @@ CLIFFT_BUILDER_FORCE_INLINE void ExecutablePlanBuilder::lower_action(const Plann
         planned.action);
 }
 
-CLIFFT_BUILDER_FORCE_INLINE void ExecutablePlanBuilder::lower_actions() {
+CLIFFT_BUILDER_FORCE_INLINE void ExecutablePlanBuilder::lower_action_stream() {
     size_t planned_index = 0;
     size_t boundary_index = 0;
     while (planned_index < source_.actions.size()) {

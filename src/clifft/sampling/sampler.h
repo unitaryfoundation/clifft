@@ -10,8 +10,13 @@
 
 namespace clifft::sampling {
 
-// ExecutablePlan lowers immutable work once, Executor runs one mutable shot,
-// and these entry points allocate and collect results across repeated shots.
+// Sampling pipeline:
+//   optimized HirModule -> SamplingPlan -> ExecutablePlan -> Executor -> results
+// Planning produces semantic actions, lowering prepares fixed CPU descriptors,
+// Executor owns mutable state for one shot, and the functions below drive
+// repeated shots and collect their outputs.
+
+// Collected row-major outputs from ordinary or fixed-fault-count sampling.
 struct SamplingResult {
     std::vector<uint8_t> measurements;
     std::vector<uint8_t> detectors;
