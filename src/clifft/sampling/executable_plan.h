@@ -1,9 +1,6 @@
 #pragma once
 
-#include "clifft/sampling/active_measurement_dispatch.h"
-#include "clifft/sampling/direct_rotation_dispatch.h"
-#include "clifft/sampling/fused_rotation_dispatch.h"
-#include "clifft/sampling/instrument_activation_dispatch.h"
+#include "clifft/sampling/kernel_dispatch.h"
 #include "clifft/sampling/kernels.h"
 #include "clifft/sampling/plan.h"
 

@@ -1,10 +1,8 @@
 // AVX-512F+AVX-512DQ sampling kernels. This translation unit is compiled with
 // explicit AVX2/BMI2/FMA/AVX-512 flags so portable code retains its baseline ISA.
 
-#include "clifft/sampling/active_measurement_simd.h"
-#include "clifft/sampling/direct_rotation_simd.h"
-#include "clifft/sampling/fused_rotation_simd.h"
 #include "clifft/sampling/indexing.h"
+#include "clifft/sampling/simd_kernels.h"
 #include "clifft/sampling/simd_width.h"
 #include "clifft/util/numeric.h"
 
