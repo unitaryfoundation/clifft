@@ -72,14 +72,14 @@ void Executor::run_shot() noexcept {
            "automatic execution requires every presampled symbol to have a distribution");
     reset_shot();
     sample_presampled_noise(0, plan_->initial_noise_end_);
-    (void)execute_actions_for_backend<false, true, false>({});
+    (void)execute_actions_for_backend<ShotMode::SampleNoise>({});
 }
 
 void Executor::run_shot(std::span<const uint8_t> presampled_values) noexcept {
     plan_ = root_plan_;
     reset_shot();
     assign_presampled_values(presampled_values);
-    (void)execute_actions_for_backend<false, false, false>({});
+    (void)execute_actions_for_backend<ShotMode::UsePresampledNoise>({});
 }
 
 void Executor::run_shot(KFaultSampler& fault_sampler) noexcept {
@@ -91,7 +91,7 @@ void Executor::run_shot(KFaultSampler& fault_sampler) noexcept {
     forced_fault_sites_ = fault_sampler.sample([&]() noexcept { return rng_.next_double(); });
     forced_fault_cursor_ = 0;
     assign_forced_quantum_faults();
-    (void)execute_actions_for_backend<false, false, true>({});
+    (void)execute_actions_for_backend<ShotMode::FixedFaultCount>({});
     forced_fault_sites_ = {};
     forced_fault_cursor_ = 0;
 }
@@ -169,7 +169,7 @@ void Executor::resume(const ExecutablePlan& continuation,
 
     plan_ = &continuation;
     pending_trap_.reset();
-    (void)execute_actions_for_backend<false, true, false>({}, offset);
+    (void)execute_actions_for_backend<ShotMode::SampleNoise>({}, offset);
     if (forced_trace_out.has_value() && forced_record_mask_[index(forced_trace_out->record)] != 0) {
         throw std::logic_error("sampling continuation did not consume its forced trace-out record");
     }
@@ -191,7 +191,7 @@ ReplayResult Executor::replay_shot(std::span<const uint8_t> forced_records,
            "forced records must be Boolean");
     reset_shot();
     assign_presampled_values(presampled_values);
-    return execute_actions_for_backend<true, false, false>(forced_records);
+    return execute_actions_for_backend<ShotMode::ReplayRecords>(forced_records);
 }
 
 void Executor::reset_shot() noexcept {
@@ -319,7 +319,7 @@ void Executor::assign_forced_quantum_faults() noexcept {
     }
 }
 
-template <ExecutorBackend Backend, bool ForceRecords>
+template <ExecutorBackend Backend>
 void Executor::execute_action(const ExecutablePlan::ExecuteRotation& action,
                               std::span<const uint8_t>, ReplayResult&) noexcept {
     const bool sign = evaluate(action.sign);
@@ -337,7 +337,6 @@ void Executor::execute_action(const ExecutablePlan::ExecuteRotation& action,
     }
 }
 
-template <bool ForceRecords>
 void Executor::execute_action(const ExecutablePlan::ExecuteFusedRotation& action,
                               std::span<const uint8_t>, ReplayResult&) noexcept {
     assert(action.rotation_index < plan_->fused_rotations_.size() &&
@@ -345,7 +344,6 @@ void Executor::execute_action(const ExecutablePlan::ExecuteFusedRotation& action
     plan_->fused_rotations_[action.rotation_index].apply(state_);
 }
 
-template <bool ForceRecords>
 void Executor::execute_action(const ExecutablePlan::ExecuteDynamicFusedRotation& action,
                               std::span<const uint8_t>, ReplayResult&) noexcept {
     assert(action.rotation_index < plan_->dynamic_fused_rotations_.size() &&
@@ -360,13 +358,12 @@ void Executor::execute_action(const ExecutablePlan::ExecuteDynamicFusedRotation&
     rotation.variants[variant].apply(state_);
 }
 
-template <bool ForceRecords>
 void Executor::execute_action(const ExecutablePlan::ExecutePromotion& action,
                               std::span<const uint8_t>, ReplayResult&) noexcept {
     apply_promotion(state_, action.promotion, evaluate(action.sign));
 }
 
-template <ExecutorBackend Backend, bool ForceRecords>
+template <ExecutorBackend Backend, Executor::ShotMode Mode>
 void Executor::execute_action(const ExecutablePlan::ExecuteActiveMeasurement& action,
                               std::span<const uint8_t> forced_records,
                               ReplayResult& result) noexcept {
@@ -385,7 +382,7 @@ void Executor::execute_action(const ExecutablePlan::ExecuteActiveMeasurement& ac
     }();
     const bool correction = evaluate(action.correction);
     bool branch = false;
-    if constexpr (ForceRecords) {
+    if constexpr (Mode == ShotMode::ReplayRecords) {
         branch = (forced_records[action.record] != 0) ^ correction;
         const std::optional<double> log_increment = force_active_branch(probabilities, branch);
         if (!log_increment.has_value()) {
@@ -419,13 +416,13 @@ void Executor::execute_action(const ExecutablePlan::ExecuteActiveMeasurement& ac
     records_[action.record] = static_cast<uint8_t>(branch ^ correction);
 }
 
-template <bool ForceRecords>
+template <Executor::ShotMode Mode>
 void Executor::execute_action(const ExecutablePlan::ExecuteDormantMeasurement& action,
                               std::span<const uint8_t> forced_records,
                               ReplayResult& result) noexcept {
     const bool correction = evaluate(action.correction);
     bool branch = false;
-    if constexpr (ForceRecords) {
+    if constexpr (Mode == ShotMode::ReplayRecords) {
         branch = (forced_records[action.record] != 0) ^ correction;
         result.log_probability += kLogHalf;
     } else {
@@ -440,12 +437,12 @@ void Executor::execute_action(const ExecutablePlan::ExecuteDormantMeasurement& a
     records_[action.record] = static_cast<uint8_t>(branch ^ correction);
 }
 
-template <bool ForceRecords>
+template <Executor::ShotMode Mode>
 void Executor::execute_action(const ExecutablePlan::ExecuteClassicalRecord& action,
                               std::span<const uint8_t> forced_records,
                               ReplayResult& result) noexcept {
     records_[action.record] = static_cast<uint8_t>(evaluate(action.outcome));
-    if constexpr (ForceRecords) {
+    if constexpr (Mode == ShotMode::ReplayRecords) {
         if (records_[action.record] != forced_records[action.record]) {
             result.reachable = false;
         }
@@ -456,23 +453,22 @@ void Executor::execute_action(const ExecutablePlan::ExecuteClassicalRecord& acti
     }
 }
 
-template <bool ForceRecords>
 void Executor::execute_action(const ExecutablePlan::ExecuteSymbolDefinition& action,
                               std::span<const uint8_t>, ReplayResult&) noexcept {
     assign_symbol(action.symbol, evaluate(action.value));
 }
 
-template <bool ForceRecords, bool ForceFaults>
+template <Executor::ShotMode Mode>
 void Executor::execute_action(const ExecutablePlan::ExecuteReadoutNoise& action,
                               std::span<const uint8_t>, ReplayResult& result) noexcept {
-    if constexpr (ForceRecords) {
+    if constexpr (Mode == ShotMode::ReplayRecords) {
         result.reachable = false;
     } else {
         const bool source = evaluate(action.source);
         assert(records_[action.record] == static_cast<uint8_t>(source) &&
                "readout source must match the current record value");
         bool flip = false;
-        if constexpr (ForceFaults) {
+        if constexpr (Mode == ShotMode::FixedFaultCount) {
             const uint32_t fault_site =
                 static_cast<uint32_t>(plan_->noise_sites_.size()) + action.site;
             assert((forced_fault_cursor_ >= forced_fault_sites_.size() ||
@@ -492,7 +488,6 @@ void Executor::execute_action(const ExecutablePlan::ExecuteReadoutNoise& action,
     }
 }
 
-template <bool ForceRecords>
 void Executor::execute_action(const ExecutablePlan::ExecuteDetector& action,
                               std::span<const uint8_t>, ReplayResult&) noexcept {
     const bool outcome = evaluate(action.outcome);
@@ -500,13 +495,11 @@ void Executor::execute_action(const ExecutablePlan::ExecuteDetector& action,
     discarded_ |= action.postselected && outcome;
 }
 
-template <bool ForceRecords>
 void Executor::execute_action(const ExecutablePlan::ExecuteObservable& action,
                               std::span<const uint8_t>, ReplayResult&) noexcept {
     observables_[action.observable] = static_cast<uint8_t>(evaluate(action.outcome));
 }
 
-template <bool ForceRecords>
 void Executor::execute_action(const ExecutablePlan::ExecuteExpectation& action,
                               std::span<const uint8_t>, ReplayResult&) noexcept {
     assert(action.exp_val < exp_vals_.size() && "expectation slot must be preallocated");
@@ -668,10 +661,10 @@ void Executor::execute_instrument(
     execute_quantum_instrument<Backend>(action);
 }
 
-template <ExecutorBackend Backend, bool ForceRecords>
+template <ExecutorBackend Backend, Executor::ShotMode Mode>
 void Executor::execute_action(const ExecutablePlan::ExecuteInstrument& action,
                               std::span<const uint8_t>, ReplayResult& result) noexcept {
-    if constexpr (ForceRecords) {
+    if constexpr (Mode == ShotMode::ReplayRecords) {
         result.reachable = false;
     } else {
         std::visit(
@@ -688,15 +681,15 @@ void Executor::execute_action(const ExecutablePlan::ExecuteInstrument& action,
     }
 }
 
-template <bool SampleNoise>
+template <Executor::ShotMode Mode>
 void Executor::execute_action(const ExecutablePlan::ExecuteBoundary& action,
                               std::span<const uint8_t>, ReplayResult&) noexcept {
-    if constexpr (SampleNoise) {
+    if constexpr (Mode == ShotMode::SampleNoise) {
         sample_presampled_noise(action.noise_begin, action.noise_end);
     }
 }
 
-template <ExecutorBackend Backend, bool ForceRecords, bool SampleNoise, bool ForceFaults>
+template <ExecutorBackend Backend, Executor::ShotMode Mode>
 ReplayResult Executor::execute_actions(std::span<const uint8_t> forced_records,
                                        uint32_t begin) noexcept {
     ReplayResult result;
@@ -707,19 +700,23 @@ ReplayResult Executor::execute_actions(std::span<const uint8_t> forced_records,
             [&](const auto& typed) noexcept {
                 using T = std::decay_t<decltype(typed)>;
                 if constexpr (std::is_same_v<T, ExecutablePlan::ExecuteBoundary>) {
-                    execute_action<SampleNoise>(typed, forced_records, result);
+                    execute_action<Mode>(typed, forced_records, result);
                 } else if constexpr (std::is_same_v<T, ExecutablePlan::ExecuteReadoutNoise>) {
-                    execute_action<ForceRecords, ForceFaults>(typed, forced_records, result);
-                } else if constexpr (std::is_same_v<T, ExecutablePlan::ExecuteRotation> ||
-                                     std::is_same_v<T, ExecutablePlan::ExecuteActiveMeasurement> ||
+                    execute_action<Mode>(typed, forced_records, result);
+                } else if constexpr (std::is_same_v<T, ExecutablePlan::ExecuteRotation>) {
+                    execute_action<Backend>(typed, forced_records, result);
+                } else if constexpr (std::is_same_v<T, ExecutablePlan::ExecuteActiveMeasurement> ||
                                      std::is_same_v<T, ExecutablePlan::ExecuteInstrument>) {
-                    execute_action<Backend, ForceRecords>(typed, forced_records, result);
+                    execute_action<Backend, Mode>(typed, forced_records, result);
+                } else if constexpr (std::is_same_v<T, ExecutablePlan::ExecuteDormantMeasurement> ||
+                                     std::is_same_v<T, ExecutablePlan::ExecuteClassicalRecord>) {
+                    execute_action<Mode>(typed, forced_records, result);
                 } else {
-                    execute_action<ForceRecords>(typed, forced_records, result);
+                    execute_action(typed, forced_records, result);
                 }
             },
             action);
-        if constexpr (ForceRecords) {
+        if constexpr (Mode == ShotMode::ReplayRecords) {
             if (!result.reachable) {
                 return result;
             }
@@ -734,24 +731,21 @@ ReplayResult Executor::execute_actions(std::span<const uint8_t> forced_records,
     return result;
 }
 
-template <bool ForceRecords, bool SampleNoise, bool ForceFaults>
+template <Executor::ShotMode Mode>
 ReplayResult Executor::execute_actions_for_backend(std::span<const uint8_t> forced_records,
                                                    uint32_t begin) noexcept {
     switch (backend_) {
         case ExecutorBackend::Scalar:
-            return execute_actions<ExecutorBackend::Scalar, ForceRecords, SampleNoise, ForceFaults>(
-                forced_records, begin);
+            return execute_actions<ExecutorBackend::Scalar, Mode>(forced_records, begin);
         case ExecutorBackend::Avx2:
 #if defined(CLIFFT_ENABLE_RUNTIME_DISPATCH)
-            return execute_actions<ExecutorBackend::Avx2, ForceRecords, SampleNoise, ForceFaults>(
-                forced_records, begin);
+            return execute_actions<ExecutorBackend::Avx2, Mode>(forced_records, begin);
 #else
             break;
 #endif
         case ExecutorBackend::Avx512:
 #if defined(CLIFFT_ENABLE_RUNTIME_DISPATCH)
-            return execute_actions<ExecutorBackend::Avx512, ForceRecords, SampleNoise, ForceFaults>(
-                forced_records, begin);
+            return execute_actions<ExecutorBackend::Avx512, Mode>(forced_records, begin);
 #else
             break;
 #endif
