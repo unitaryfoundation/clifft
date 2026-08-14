@@ -143,6 +143,15 @@ if(CLIFFT_COVERAGE)
     endif()
 endif()
 
+# x86-64 runtime dispatch compiles the AVX2/AVX-512 kernel translation units.
+# The core library and the tests that call those kernels directly must agree
+# on this one predicate, so it is decided once here.
+if((CMAKE_SYSTEM_PROCESSOR MATCHES "(x86_64|AMD64|amd64)") AND NOT MSVC)
+    set(CLIFFT_X86_RUNTIME_DISPATCH ON)
+else()
+    set(CLIFFT_X86_RUNTIME_DISPATCH OFF)
+endif()
+
 # Fetch external dependencies
 include(cmake/FetchStim.cmake)
 include(cmake/FetchFastFloat.cmake)

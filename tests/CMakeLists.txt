@@ -67,6 +67,12 @@ target_compile_definitions(clifft_tests PRIVATE
     CLIFFT_FIXTURES_DIR="${CMAKE_CURRENT_SOURCE_DIR}/fixtures"
 )
 
+# Tests that call the x86 kernel entry points directly can only link on
+# platforms whose core library compiles the runtime-dispatch kernels.
+if(CLIFFT_X86_RUNTIME_DISPATCH)
+    target_compile_definitions(clifft_tests PRIVATE CLIFFT_TESTS_HAVE_X86_KERNELS)
+endif()
+
 # Code coverage instrumentation for test executable
 if(CLIFFT_COVERAGE)
     target_compile_options(clifft_tests PRIVATE --coverage)

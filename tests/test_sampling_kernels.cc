@@ -18,17 +18,12 @@
 
 using clifft::internal::RuntimeIsa;
 using clifft::sampling::activate_zero_coordinate;
-using clifft::sampling::active_measurement_probabilities_avx2;
-using clifft::sampling::active_measurement_probabilities_avx512;
 using clifft::sampling::ActiveMeasurementKernel;
 using clifft::sampling::ActivePauli;
 using clifft::sampling::apply_instrument_no_fire;
 using clifft::sampling::apply_new_x_instrument_no_fire;
-using clifft::sampling::apply_new_x_instrument_no_fire_avx2;
 using clifft::sampling::apply_promotion;
 using clifft::sampling::apply_rotation;
-using clifft::sampling::collapse_active_measurement_avx2;
-using clifft::sampling::collapse_active_measurement_avx512;
 using clifft::sampling::collapse_instrument_source;
 using clifft::sampling::collapse_measurement;
 using clifft::sampling::collapse_new_x_instrument_source;
@@ -52,6 +47,14 @@ using clifft::test::check_complex;
 using clifft::test::dense_axis_rotation;
 using clifft::test::dense_matvec;
 using clifft::test::DenseMatrix;
+
+#if defined(CLIFFT_TESTS_HAVE_X86_KERNELS)
+using clifft::sampling::active_measurement_probabilities_avx2;
+using clifft::sampling::active_measurement_probabilities_avx512;
+using clifft::sampling::apply_new_x_instrument_no_fire_avx2;
+using clifft::sampling::collapse_active_measurement_avx2;
+using clifft::sampling::collapse_active_measurement_avx512;
+#endif
 
 namespace {
 
@@ -532,6 +535,7 @@ TEST_CASE("Sampling kernels measurements match dense projectors for every small 
     }
 }
 
+#if defined(CLIFFT_TESTS_HAVE_X86_KERNELS)
 TEST_CASE("Active measurement SIMD matches scalar low-lane Pauli compaction") {
     const RuntimeIsa runtime_isa = clifft::internal::runtime_isa();
     if (runtime_isa != RuntimeIsa::Avx2 && runtime_isa != RuntimeIsa::Avx512) {
@@ -603,6 +607,7 @@ TEST_CASE("Active measurement SIMD matches scalar low-lane Pauli compaction") {
         }
     }
 }
+#endif
 
 TEST_CASE("Sampling instrument kernels match dense projectors without compacting") {
     constexpr double kFactorZero = 0.8;
@@ -746,6 +751,7 @@ TEST_CASE("Sampling new X instrument activation matches the generic widened sour
     }
 }
 
+#if defined(CLIFFT_TESTS_HAVE_X86_KERNELS)
 TEST_CASE("Sampling AVX2 new X instrument activation matches scalar") {
     const RuntimeIsa runtime_isa = clifft::internal::runtime_isa();
     if (runtime_isa != RuntimeIsa::Avx2 && runtime_isa != RuntimeIsa::Avx512) {
@@ -776,6 +782,7 @@ TEST_CASE("Sampling AVX2 new X instrument activation matches scalar") {
         }
     }
 }
+#endif
 
 TEST_CASE("Sampling kernels compose across collapse and promotion") {
     constexpr uint32_t kInitialWidth = 2;
