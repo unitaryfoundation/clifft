@@ -49,6 +49,7 @@ add_library(clifft_core STATIC
     ${CMAKE_CURRENT_SOURCE_DIR}/../clifft/sampling/planner_frame.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/../clifft/sampling/kernel_dispatch.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/../clifft/sampling/executable_plan.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/../clifft/sampling/executable_plan_inspection.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/../clifft/sampling/executable_plan_builder.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/../clifft/sampling/executor.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/../clifft/sampling/fused_rotation.cc
