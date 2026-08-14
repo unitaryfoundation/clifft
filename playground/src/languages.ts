@@ -86,13 +86,13 @@ export const hirLanguage: languages.IMonarchLanguage = {
 export const planLanguage: languages.IMonarchLanguage = {
   tokenizer: {
     root: [
-      [/\b[a-z][a-z0-9_]*(?=\s|$)/, "keyword"],
-      [/\b(active_width|dense_passes|half_turns|sign|outcome|value|source|kernel|mode|descriptor|pivot|pairing_bit|branch|record|detector|observable|exp_val|site|flip|p01|p10|postselected|cosine|sine|noise|symbol_prefix_size)=/, "attribute"],
       [/\b[serdl]\d+\b/, "variable"],
+      [/\b(active_width|dense_passes|half_turns|sign|outcome|value|source|correction|kernel|mode|descriptor|pivot|pairing_bit|branch|record|detector|observable|exp_val|site|flip|p01|p10|postselected|cosine|sine|noise|symbol_prefix_size)=/, "attribute"],
+      [/\b[a-z][a-z0-9_]*(?=\s|$)/, "keyword"],
       [/0x[0-9a-f]+/, "number.hex"],
       [/->/, "operator"],
       [/\.\./, "operator"],
-      [/\b\d+(?:\.\d+)?(?:e[+-]?\d+)?\b/i, "number.float"],
+      [/\b(?:\d+\.\d+(?:e[+-]?\d+)?|\d+e[+-]?\d+)\b/i, "number.float"],
       [/\b\d+\b/, "number"],
     ],
   },

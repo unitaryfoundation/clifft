@@ -662,7 +662,7 @@ html, body, #root {
 }
 
 /* Yellow triangle glyph marking the selected lowered action. */
-.pc-glyph-marker {
+.action-glyph-marker {
   background: none !important;
 }
 

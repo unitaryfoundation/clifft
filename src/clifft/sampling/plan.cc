@@ -18,6 +18,8 @@ namespace clifft::sampling {
 
 namespace {
 
+constexpr size_t kCompactInspectionExpressionTerms = 8;
+
 template <typename>
 inline constexpr bool kAlwaysFalse = false;
 
@@ -950,7 +952,7 @@ std::string SamplingPlan::inspect_action_compact(size_t action) const {
     const PlannedAction& planned = actions.at(action);
     std::ostringstream out;
     out << std::setprecision(17);
-    write_action_inspection(out, planned, 8);
+    write_action_inspection(out, planned, kCompactInspectionExpressionTerms);
     return out.str();
 }
 

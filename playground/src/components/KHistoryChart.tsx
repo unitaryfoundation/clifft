@@ -17,28 +17,28 @@ import type { ChartColors } from "../hooks/useTheme";
 interface Props {
   history: number[];
   baselineHistory?: number[];
-  highlightPC: number | null;
+  highlightedAction: number | null;
   colors: ChartColors;
 }
 
 const MEMORY_LIMIT_K = 24;
 const CHART_MARGIN = { top: 8, right: 16, bottom: 24, left: 8 };
 
-type ChartDatum = { pc: number; k?: number; baseline?: number };
+type ChartDatum = { action: number; k?: number; baseline?: number };
 
 // Cursor highlight delivered through context rather than as a prop on the
 // memoized chart, so changes don't invalidate BaseChart's React.memo.
 // HighlightLine consumes the context and re-renders independently when
 // the cursor moves; the chart body stays untouched.
-const HighlightPCContext = createContext<number | null>(null);
+const HighlightedActionContext = createContext<number | null>(null);
 
 const HighlightLine = memo(function HighlightLine() {
-  const highlightPC = useContext(HighlightPCContext);
+  const highlightedAction = useContext(HighlightedActionContext);
   const plotArea = usePlotArea();
   const xScale = useXAxisScale();
 
-  if (highlightPC === null || !plotArea || !xScale) return null;
-  const raw = xScale(highlightPC);
+  if (highlightedAction === null || !plotArea || !xScale) return null;
+  const raw = xScale(highlightedAction);
   const x = typeof raw === "number" ? raw : Number(raw);
   if (!Number.isFinite(x)) return null;
   if (x < plotArea.x || x > plotArea.x + plotArea.width) return null;
@@ -66,7 +66,7 @@ interface BaseChartProps {
 // Heavy chart body. Memoized so the recharts axis/area measurement pass
 // only re-runs when the underlying data, baseline flag, or theme colors
 // change -- not on cursor moves. The cursor highlight is rendered by
-// HighlightLine, which subscribes to HighlightPCContext and lives inside
+// HighlightLine, which subscribes to HighlightedActionContext and lives inside
 // AreaChart so it can pull the chart's plot area + x scale from the
 // recharts hooks.
 const BaseChart = memo(function BaseChart({ data, maxK, hasBaseline, colors }: BaseChartProps) {
@@ -74,11 +74,11 @@ const BaseChart = memo(function BaseChart({ data, maxK, hasBaseline, colors }: B
     <AreaChart data={data} margin={CHART_MARGIN}>
       <CartesianGrid strokeDasharray="3 3" stroke={colors.grid} />
       <XAxis
-        dataKey="pc"
+        dataKey="action"
         stroke={colors.axis}
         fontSize={11}
         label={{
-          value: "Bytecode PC",
+          value: "Plan action",
           position: "insideBottom",
           offset: -12,
           fill: colors.axis,
@@ -105,7 +105,7 @@ const BaseChart = memo(function BaseChart({ data, maxK, hasBaseline, colors }: B
         }}
         labelStyle={{ color: colors.tooltipText }}
         itemStyle={{ color: colors.tooltipText }}
-        labelFormatter={(pc) => `PC: ${pc}`}
+        labelFormatter={(action) => `Plan action: ${action}`}
       />
       {hasBaseline && (
         <Line
@@ -147,7 +147,7 @@ const BaseChart = memo(function BaseChart({ data, maxK, hasBaseline, colors }: B
   );
 });
 
-export function KHistoryChart({ history, baselineHistory, highlightPC, colors }: Props) {
+export function KHistoryChart({ history, baselineHistory, highlightedAction, colors }: Props) {
   // Build the data array and y-axis upper bound once per
   // (history, baselineHistory) pair. Single-pass scan avoids the
   // [...history, ...baselineHistory] allocation and the Math.max(...)
@@ -163,7 +163,7 @@ export function KHistoryChart({ history, baselineHistory, highlightPC, colors }:
         baselineHistory && i < baselineHistory.length ? baselineHistory[i] : undefined;
       if (k !== undefined && k > maxVal) maxVal = k;
       if (baseline !== undefined && baseline > maxVal) maxVal = baseline;
-      data[i] = { pc: i, k, baseline };
+      data[i] = { action: i, k, baseline };
     }
     return { data, maxK: maxVal };
   }, [history, baselineHistory]);
@@ -175,7 +175,7 @@ export function KHistoryChart({ history, baselineHistory, highlightPC, colors }:
   const hasBaseline = !!baselineHistory && baselineHistory.length > 0;
 
   return (
-    <HighlightPCContext.Provider value={highlightPC}>
+    <HighlightedActionContext.Provider value={highlightedAction}>
       <ResponsiveContainer width="100%" height="100%">
         <BaseChart
           data={chartData.data}
@@ -184,6 +184,6 @@ export function KHistoryChart({ history, baselineHistory, highlightPC, colors }:
           colors={colors}
         />
       </ResponsiveContainer>
-    </HighlightPCContext.Provider>
+    </HighlightedActionContext.Provider>
   );
 }

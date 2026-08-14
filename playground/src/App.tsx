@@ -113,6 +113,8 @@ export default function App() {
 
   const [source, setSourceRaw] = useState(getInitialSource);
   const [sourceOrigin, setSourceOrigin] = useState<SourceOrigin>(null);
+  const [cursorSourceLine, setCursorSourceLine] = useState<number | null>(null);
+  const [cursorPlanAction, setCursorPlanAction] = useState<number | null>(null);
   const userHasEditedRef = useRef(false);
   // When we push text into the Monaco editor programmatically, we skip
   // the resulting onChange so it doesn't clear sourceOrigin.
@@ -125,6 +127,7 @@ export default function App() {
     userHasEditedRef.current = true;
     setSourceRaw(v);
     setSourceOrigin(null);
+    setCursorPlanAction(null);
   }, []);
   const defaultPassConfig = useMemo<PassConfig>(() => {
     if (availablePasses.length === 0) return { hir: [] };
@@ -134,7 +137,10 @@ export default function App() {
   }, [availablePasses]);
   const [userPassConfig, setUserPassConfig] = useState<PassConfig | null>(null);
   const passConfig = userPassConfig ?? defaultPassConfig;
-  const setPassConfig = useCallback((config: PassConfig) => setUserPassConfig(config), []);
+  const setPassConfig = useCallback((config: PassConfig) => {
+    setUserPassConfig(config);
+    setCursorPlanAction(null);
+  }, []);
   const passConfigReady = availablePasses.length > 0;
   const [compileResult, setCompileResult] = useState<CompileResult | null>(null);
   const [baselineResult, setBaselineResult] = useState<CompileResult | null>(null);
@@ -147,7 +153,6 @@ export default function App() {
   const simStale = simResult !== null && simSource !== null && source !== simSource;
   const [simTab, setSimTab] = useState<"measurements" | "exp_vals">("measurements");
   const [shots, setShots] = useState(DEFAULT_SHOTS);
-  const [cursorSourceLine, setCursorSourceLine] = useState<number | null>(null);
   const [tourOpen, setTourOpen] = useState(
     () => !localStorage.getItem(TOUR_SEEN_KEY),
   );
@@ -166,6 +171,8 @@ export default function App() {
   // Ref to avoid stale closures in editor cursor handlers
   const compileResultRef = useRef<CompileResult | null>(null);
   const loweredViewRef = useRef<LoweredView>(loweredView);
+  const renderedLoweredViewRef = useRef<LoweredView>(loweredView);
+  const suppressReadOnlyCursorEventsRef = useRef(false);
 
   // Reverse source-map indices, built once per compile result. Each
   // forward source map is `outIdx -> source_line[]`; the cursor highlight
@@ -220,10 +227,18 @@ export default function App() {
   }, [compileResult, loweredView]);
 
   // Derived: which semantic action maps to the cursor source line.
-  const highlightPC = useMemo(() => {
+  const highlightedPlanAction = useMemo(() => {
+    if (
+      cursorPlanAction !== null &&
+      compileResult &&
+      isCompileSuccess(compileResult) &&
+      cursorPlanAction < compileResult.sampling_plan.length
+    ) {
+      return cursorPlanAction;
+    }
     if (cursorSourceLine === null) return null;
     return reverseMaps.firstPlan.get(cursorSourceLine) ?? null;
-  }, [cursorSourceLine, reverseMaps]);
+  }, [cursorPlanAction, cursorSourceLine, compileResult, reverseMaps]);
 
   // --- Debounced compilation ---
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -275,13 +290,23 @@ export default function App() {
     registerLanguages(monaco);
   }, []);
 
-  // Update read-only editor text while preserving cursor/selection
+  // Programmatic content replacement must not masquerade as a user cursor
+  // move and alter the linked source/action selection.
   const updateReadOnlyEditor = useCallback(
-    (editor: monacoEditor.IStandaloneCodeEditor | null, value: string) => {
+    (
+      editor: monacoEditor.IStandaloneCodeEditor | null,
+      value: string,
+      preserveSelection = true,
+    ) => {
       if (!editor) return;
-      const sel = editor.getSelection();
-      editor.setValue(value);
-      if (sel) editor.setSelection(sel);
+      const selection = preserveSelection ? editor.getSelection() : null;
+      suppressReadOnlyCursorEventsRef.current = true;
+      try {
+        editor.setValue(value);
+        if (selection) editor.setSelection(selection);
+      } finally {
+        suppressReadOnlyCursorEventsRef.current = false;
+      }
     },
     [],
   );
@@ -301,7 +326,9 @@ export default function App() {
       loweredView === "sampling-plan"
         ? compileResult.sampling_plan
         : compileResult.wasm_program;
-    updateReadOnlyEditor(loweredEditorRef.current, lowered.join("\n"));
+    const preserveSelection = renderedLoweredViewRef.current === loweredView;
+    updateReadOnlyEditor(loweredEditorRef.current, lowered.join("\n"), preserveSelection);
+    renderedLoweredViewRef.current = loweredView;
   }, [compileResult, updateReadOnlyEditor, diffView, loweredView]);
 
   // --- Bidirectional highlighting (only in non-diff mode) ---
@@ -373,7 +400,7 @@ export default function App() {
             endColumn: 1,
           },
           options: {
-            glyphMarginClassName: "pc-glyph-marker",
+            glyphMarginClassName: "action-glyph-marker",
           },
         },
       ]);
@@ -387,6 +414,7 @@ export default function App() {
     sourceEditorRef.current = editor;
     sourceDecosRef.current = editor.createDecorationsCollection();
     editor.onDidChangeCursorPosition((e) => {
+      setCursorPlanAction(null);
       setCursorSourceLine(e.position.lineNumber);
     });
   };
@@ -395,12 +423,14 @@ export default function App() {
     hirEditorRef.current = editor;
     hirDecosRef.current = editor.createDecorationsCollection();
     editor.onDidChangeCursorPosition((e) => {
+      if (suppressReadOnlyCursorEventsRef.current) return;
       const cr = compileResultRef.current;
       if (!cr || !isCompileSuccess(cr)) return;
       const hirIdx = e.position.lineNumber - 1;
       const srcLines = cr.hir_source_map[hirIdx];
       const validLine = srcLines?.find((l: number) => l >= 1);
       if (validLine !== undefined) {
+        setCursorPlanAction(null);
         setCursorSourceLine(validLine);
       }
     });
@@ -411,9 +441,15 @@ export default function App() {
     loweredDecosRef.current = editor.createDecorationsCollection();
     loweredActionDecosRef.current = editor.createDecorationsCollection();
     editor.onDidChangeCursorPosition((e) => {
+      if (suppressReadOnlyCursorEventsRef.current) return;
       const cr = compileResultRef.current;
       if (!cr || !isCompileSuccess(cr)) return;
       const actionIdx = e.position.lineNumber - 1;
+      const planAction =
+        loweredViewRef.current === "sampling-plan"
+          ? actionIdx
+          : cr.wasm_program_plan_ranges[actionIdx]?.begin;
+      setCursorPlanAction(planAction ?? null);
       const srcLines =
         loweredViewRef.current === "sampling-plan"
           ? cr.sampling_plan_source_map[actionIdx]
@@ -457,6 +493,7 @@ export default function App() {
     userHasEditedRef.current = true;
     setSourceRaw(circuitSource);
     setSourceOrigin(origin);
+    setCursorPlanAction(null);
     if (sourceEditorRef.current) {
       skipNextOnChangeRef.current = true;
       sourceEditorRef.current.setValue(circuitSource);
@@ -652,7 +689,10 @@ export default function App() {
                       <button
                         type="button"
                         className={loweredView === "sampling-plan" ? "active" : ""}
-                        onClick={() => setLoweredView("sampling-plan")}
+                        onClick={() => {
+                          setCursorPlanAction(null);
+                          setLoweredView("sampling-plan");
+                        }}
                         title="Show executor-independent semantic actions"
                       >
                         Plan
@@ -660,7 +700,10 @@ export default function App() {
                       <button
                         type="button"
                         className={loweredView === "wasm-program" ? "active" : ""}
-                        onClick={() => setLoweredView("wasm-program")}
+                        onClick={() => {
+                          setCursorPlanAction(null);
+                          setLoweredView("wasm-program");
+                        }}
                         title="Show prepared scalar WASM actions"
                       >
                         WASM
@@ -723,7 +766,7 @@ export default function App() {
                           ? baselineStats.active_width_history
                           : undefined
                       }
-                      highlightPC={highlightPC}
+                      highlightedAction={highlightedPlanAction}
                       colors={chartColors}
                     />
                   </div>

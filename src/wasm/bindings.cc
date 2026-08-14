@@ -43,7 +43,8 @@ struct PipelineResult {
 
 // Parse passes_json: {"hir": [...]}
 // Empty string or "{}" means use defaults.
-PipelineResult run_pipeline(const std::string& source, const std::string& passes_json) {
+PipelineResult run_pipeline(const std::string& source, const std::string& passes_json,
+                            bool retain_source_map) {
     PipelineResult result;
     try {
         auto circuit = clifft::parse(source, MAX_OPS);
@@ -56,6 +57,10 @@ PipelineResult run_pipeline(const std::string& source, const std::string& passes
             hpm.run(result.hir);
         } else {
             auto cfg = json::parse(passes_json);
+            if (cfg.contains("bc")) {
+                throw std::invalid_argument(
+                    "Bytecode pass configuration is not supported by the symbolic backend");
+            }
             if (cfg.contains("hir") && cfg["hir"].is_array()) {
                 clifft::HirPassManager hpm;
                 for (const auto& name : cfg["hir"]) {
@@ -66,7 +71,7 @@ PipelineResult run_pipeline(const std::string& source, const std::string& passes
         }
 
         clifft::sampling::SamplingPlanOptions options;
-        options.retain_source_map = true;
+        options.retain_source_map = retain_source_map;
         result.plan.emplace(clifft::sampling::plan_sampling(result.hir, options));
         result.program = std::make_unique<clifft::sampling::ExecutablePlan>(*result.plan);
     } catch (const std::exception& e) {
@@ -104,20 +109,20 @@ json executable_source_map_json(const clifft::sampling::SamplingPlan& plan,
         if (range.has_value()) {
             for (uint32_t action = range->begin; action < range->end; ++action) {
                 for (uint32_t line : plan.source_map->lines_for(action)) {
-                    if (std::find(source_lines.begin(), source_lines.end(), line) ==
-                        source_lines.end()) {
-                        source_lines.push_back(line);
-                    }
+                    source_lines.push_back(line);
                 }
             }
         }
+        std::ranges::sort(source_lines);
+        source_lines.erase(std::unique(source_lines.begin(), source_lines.end()),
+                           source_lines.end());
         entries.push_back(std::move(source_lines));
     }
     return entries;
 }
 
 std::string compile_to_json(const std::string& source, const std::string& passes_json) {
-    auto result = run_pipeline(source, passes_json);
+    auto result = run_pipeline(source, passes_json, true);
     if (!result.error.empty()) {
         return json({{"error", result.error}}).dump();
     }
@@ -146,8 +151,8 @@ std::string compile_to_json(const std::string& source, const std::string& passes
     json program_plan_ranges = json::array();
     for (size_t i = 0; i < program.num_actions(); ++i) {
         program_strs.push_back(program.inspect_action(i));
-        const auto range = program.action_plan_range(i);
-        program_plan_ranges.push_back({{"begin", range->begin}, {"end", range->end}});
+        const auto range = program.action_plan_range(i).value();
+        program_plan_ranges.push_back({{"begin", range.begin}, {"end", range.end}});
     }
 
     json j = {
@@ -211,7 +216,7 @@ std::string simulate_wasm(const std::string& source, uint32_t shots,
         return json({{"error", "ShotsLimitExceeded: max " + std::to_string(MAX_SHOTS)}}).dump();
     }
 
-    auto result = run_pipeline(source, passes_json);
+    auto result = run_pipeline(source, passes_json, false);
     if (!result.error.empty()) {
         return json({{"error", result.error}}).dump();
     }

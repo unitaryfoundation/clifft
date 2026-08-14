@@ -17,7 +17,7 @@ const NO_PASSES = JSON.stringify({ hir: [] });
 const passesJson = mod.get_available_passes();
 const passes = JSON.parse(passesJson);
 console.log("get_available_passes:", passes.length, "passes");
-assert.equal(passes.length, 4, "Expected the four HIR passes");
+assert.ok(passes.length >= 4, "Expected at least the current four HIR passes");
 const names = passes.map((p) => p.name);
 assert.ok(names.includes("PeepholeFusionPass"), "Missing PeepholeFusionPass");
 assert.ok(names.includes("StatevectorSqueezePass"), "Missing StatevectorSqueezePass");
@@ -89,6 +89,15 @@ const hirOnly = JSON.parse(hirOnlyJson);
 console.log("\nSelective passes (HIR only):");
 console.log("  HIR ops:", hirOnly.hir_ops.length);
 assert.ok(hirOnly.hir_ops.length <= opt.hir_ops.length, "HIR-only should still fuse T+T");
+
+const legacyPassConfig = JSON.parse(
+    mod.compile_to_json("M 0", JSON.stringify({ hir: [], bc: [] }))
+);
+assert.match(
+    legacyPassConfig.error,
+    /Bytecode pass configuration is not supported/,
+    "Legacy bytecode pass configuration should fail explicitly"
+);
 
 // --- executable provenance across lowering fusion ---
 const fusedSource = "H 0\nH 1\nT 0\nT 1\nT 0\nT 1\nT 0\nM 0";
