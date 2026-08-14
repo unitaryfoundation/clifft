@@ -22,8 +22,8 @@ choices.
 ## Symbolic Clifford Coordinates
 
 Sampling a circuit with noise or mid-circuit measurements produces a
-trajectory. At action boundary $j$, condition on the Boolean outcomes
-$s_{\le j}$ sampled so far. The resulting pure state has the factorization
+trajectory. After planned step $j$, let $s_{\le j}$ denote the Boolean outcomes
+sampled so far. The resulting pure state has the factorization
 
 $$
 |\psi_j(s_{\le j})\rangle
@@ -41,8 +41,8 @@ $$
 The factors have distinct roles:
 
 - **$C_j$ (Clifford coordinate map):** Maps the current stabilizer coordinates
-  into the physical qubit basis. Its evolution is determined during
-  compilation and planning, not by per-shot tableau operations.
+  into the physical qubit basis. The front end and planner determine its
+  evolution before sampling; a shot performs no tableau operations.
 
 - **$P_j(s_{\le j})$ (Pauli frame):** Represents branch-dependent Pauli
   corrections from noise, measurement outcomes, and classical feedback. It is
@@ -61,11 +61,12 @@ The factors have distinct roles:
 - **$\gamma_j$ (global scalar):** Carries a common complex weight and phase
   outside the active coefficient array.
 
-Active and dormant coordinates are not subsets of physical qubits. A planned
-Clifford basis change can change the physical Pauli support of every coordinate
-while preserving this factorization. "Active width" therefore means the number
-of stabilizer coordinates represented in the dense coefficient array, not the
-number of physical qubits touched by the circuit.
+Active and dormant coordinates are basis elements, not subsets of physical
+qubits. After Clifford gates change the basis, one coordinate may represent a
+different, possibly multi-qubit, physical Pauli without changing the size of
+the active array. "Active width" therefore means the number of stabilizer
+coordinates represented in the dense coefficient array, not the number of
+physical qubits touched by the circuit.
 
 For a normalized physical circuit, the unconditional noisy state is the
 ensemble over trajectories,
@@ -92,12 +93,19 @@ measurements can return coordinates to the dormant set, so fault-tolerant
 circuits may retain a small $k_{\max}$ even when they contain hundreds of
 physical qubits.
 
-## Compiling the Pauli Frame into Symbolic Signs
+## Planning Pauli-Frame Effects as Symbolic Signs
+
+The main symbolic idea is to resolve the branch-dependent Pauli frame during
+planning instead of updating it after every event in every shot. Following the
+symbolic-frame strategy introduced by
+[Fang, Lou, and Li](https://arxiv.org/abs/2607.28600), the planner expresses
+each relevant dependence as an affine formula of Boolean symbols and attaches
+the resulting sign to the affected operation.
 
 Each stochastic event needed later in a shot receives a Boolean symbol. A
 symbol may represent a presampled Pauli fault, a sampled measurement branch, a
-readout flip, an instrument outcome, or a named parity of earlier symbols.
-Classical effects are represented as affine Boolean expressions,
+readout flip, or an [instrument outcome](noncomputational.md). These effects
+are represented as affine Boolean expressions,
 
 $$
 \ell(s) = c \oplus \bigoplus_{r \in R} s_r.
@@ -112,67 +120,94 @@ P_j(s)^\dagger Q P_j(s)
 (-1)^{\ell_Q(s)} Q.
 $$
 
-Following the symbolic-frame strategy introduced by
-[Fang, Lou, and Li](https://arxiv.org/abs/2607.28600), the planner computes
-$\ell_Q$ once and attaches it to the planned operation. It also maps the
-unsigned body of $Q$ into the current stabilizer coordinates. Operations that
-need coefficient work are consequently represented by an active-coordinate
-Pauli and an affine sign, rather than by a physical Pauli string plus a mutable
-runtime frame.
+The planner computes $\ell_Q$ once and maps the unsigned body of $Q$ into the
+current stabilizer coordinates. An operation that needs coefficient work is
+therefore represented by an active-coordinate Pauli and an affine sign, rather
+than by a physical Pauli string plus a mutable runtime frame.
 
-The full symbolic Pauli frame is planning workspace. Before hot execution, its
-effects have been lowered into plan expressions, expression registers, and
-record outcomes. A shot evaluates those prepared expressions as symbols become
-available; it does not update an $n$-qubit Pauli frame after each fault or
-measurement.
+As a result, a shot does not carry and update an $n$-qubit Pauli frame after
+each fault or measurement. It evaluates the prepared expressions as their
+symbols become available and uses the realized signs when applying rotations,
+measurements, and output actions.
 
 ## Adaptive Stabilizer Coordinates
 
 The planner maintains a stabilizer-destabilizer basis in which the first
-$k_j$ coordinates are active and the remainder are dormant. It resolves basis
-changes, Pauli support, measurement pivots, and active-width transitions once
-for all shots. The resulting semantic actions have the following effects:
+$k_j$ coordinates are active and the remainder are dormant. In this basis,
+each dormant coordinate is in $|0\rangle$ and has $Z$ as its stabilizer. A
+promotion moves a dormant coordinate into the dense state when it must carry
+coherent amplitudes; a planned measurement and collapse can return an active
+coordinate to the dormant set.
 
-| Situation | Planned state action | Width transition |
-|---|---|---|
-| Pauli rotation supported on active coordinates | Rotate the active Pauli directly | $k \to k$ |
-| Rotation requiring dormant coherent support | Promote one dormant coordinate, then rotate | $k \to k+1$ |
-| Measurement with active support | Sample and collapse, then remove the planned pivot | $k \to k-1$ |
-| Random measurement resolved in the dormant space | Replace a dormant stabilizer and define a branch symbol | $k \to k$ |
-| Deterministic record or derived parity | Update only symbolic or record state | $k \to k$ |
+The planner resolves these changes once for all shots. Some representative
+cases are:
+
+| Situation | Example | Planned state action | Width |
+|---|---|---|---|
+| Rotation already supported on active coordinates | A mapped $Z$ rotation that touches only active coordinates | Rotate the active Pauli directly | $k \to k$ |
+| Rotation requiring dormant coherent support | An $X$-axis pi/4 rotation on a dormant $|0\rangle$ coordinate | Promote the coordinate, then rotate | $k \to k+1$ |
+| Measurement with active support | A mapped $Z$ measurement that touches the active state | Sample and collapse, then remove the chosen coordinate | $k \to k-1$ |
+| Random measurement in dormant space | An $X$ measurement of a dormant $|0\rangle$ coordinate | Replace its stabilizer and define the sampled branch | $k \to k$ |
+| Classical result | A deterministic $Z$ record or a detector parity of earlier records | Update only symbols, records, or outputs | $k \to k$ |
 
 This is Clifft's adaptation of SymFT's adaptive stabilizer-coordinate planning.
-A promotion installs the required Pauli as the next active generator. An active
-measurement selects a compile-time basis and pivot that permit the measured
-coordinate to be removed after collapse. A dormant random measurement changes
-the stabilizer description and symbolic correction without traversing the
-dense coefficient array.
+For an active measurement, the planner chooses a basis and array dimension that
+can be removed after collapse. A random dormant measurement changes the
+stabilizer description and symbolic correction without traversing the dense
+coefficient array.
 
-Instruments use the same state model. Depending on their source, they may act
-classically, filter or collapse the existing active state, promote a coordinate,
-or stop at an explicit continuation boundary.
+[Transition instruments](noncomputational.md) use the same state model. They
+may act classically, filter or collapse the active state, promote a coordinate,
+or stop execution so that a trajectory-specific continuation can be prepared.
 
-## Semantic Sampling Pipeline
+## From a Circuit to Samples
 
-At the semantic level, the symbolic sampling path is
+The boxes below are stored representations. The text between them describes
+the work that transforms one representation into the next.
 
 ```text
-Circuit
-  -> Heisenberg IR (HIR)
-  -> optimized HIR
-  -> symbolic-coordinate planner
-  -> SamplingPlan
-  -> target executable lowering
-  -> ExecutablePlan
-  -> Executor
-  -> records, detectors, observables, and other results
+[Circuit text]
+      |
+      | Parse and absorb Clifford gates
+      v
+[Heisenberg IR]
+      |
+      | Fuse, cancel, and simplify Pauli operations
+      v
+[Optimized HIR]
+      |
+      | Choose coordinates and derive symbolic dependencies
+      v
+[SamplingPlan]
+      |
+      | Prepare fixed storage, fusion, and scalar or SIMD kernels
+      v
+[ExecutablePlan]
+      |
+      | Reuse for every shot
+      v
+[Records, detectors, observables, and other results]
 ```
 
-The front end absorbs physical Clifford operations into an offline tableau and
-maps relevant operations into the Heisenberg basis. HIR optimization reasons
-algebraically about the resulting Pauli operations. The symbolic-coordinate
-planner then performs all stabilizer-coordinate changes and symbolic dependency
-discovery before emitting `SamplingPlan`.
+### Clifford Trace
+
+The front end turns circuit text into the operations Clifft needs to simulate.
+It absorbs physical Clifford gates into an offline tableau and maps rotations,
+measurements, noise, feedback, detectors, and observables into the Heisenberg
+basis. These operations form the Heisenberg IR, or HIR.
+
+### HIR Optimization
+
+HIR passes use Pauli algebra and dataflow to fuse or cancel operations and,
+when safe, shorten how long coordinates must remain active. This reduces the
+work handed to the planner without fixing a runtime representation.
+
+### Coordinate Planning
+
+The symbolic-coordinate planner decides which coordinates are active at each
+step. It also resolves basis changes, Pauli support, measurement collapse, and
+the symbolic signs described above. The result is a `SamplingPlan` that gives
+every shot the same semantic sequence of possible actions.
 
 `SamplingPlan` is the executor-independent semantic boundary. It describes
 symbols, affine expressions, active-coordinate actions, width transitions,
@@ -180,21 +215,33 @@ records, outputs, noise sites, instruments, and continuation boundaries. It
 does not select an ISA, SIMD kernel, descriptor layout, or target-specific
 fusion.
 
-Target executable lowering prepares expressions, descriptors, fusion products,
-and kernels for a particular executor. The executor owns the mutable per-shot
-coefficient, scratch, symbol, record, output, and RNG state. Ordinary dispatch
-uses only prepared actions: it performs no tableau evolution, commutation
-analysis, Pauli localization, coordinate selection, or dependency discovery.
+### Executable-Plan Preparation
+
+Preparation turns the semantic plan into fixed storage for a particular CPU
+executor. It arranges symbolic dependencies for incremental evaluation,
+combines supported rotation runs, and selects scalar or architecture-specific
+kernels. Coefficient, scratch, symbol, record, output, and RNG storage is sized
+before the hot loop begins.
+
+### Sampling
+
+The executor reuses the prepared plan for every shot. It samples fault and
+measurement symbols, evaluates the affected expressions, and applies prepared
+active-state actions. It performs no tableau evolution, commutation analysis,
+Pauli localization, coordinate selection, or dependency discovery.
 
 ## Continuations and Noncomputational Trajectories
 
-A noncomputational transition can invalidate the remaining compiled operations
-for one trajectory. At an explicit instrument boundary, Clifft may stop,
-rewrite the remaining circuit for the sampled site status, plan a continuation,
-and resume. The continuation preserves the live coefficients, coordinate
-meaning and order, active width, symbol and record values, and RNG position.
-The same factored trajectory state therefore spans the boundary even though the
-replacement suffix is compiled later.
+A noncomputational transition, such as leakage or loss, can change whether
+later gates still act quantum mechanically on a site. Clifft therefore places
+explicit boundaries after relevant instruments. A boundary is a prepared point
+where ordinary execution may stop so that the remaining circuit can be
+rewritten for that trajectory's sampled site status.
+
+Clifft then plans a continuation and resumes. The continuation preserves the
+live coefficients, coordinate meaning and order, active width, symbol and
+record values, and RNG position. The same factored trajectory state therefore
+spans the boundary even though the replacement suffix is planned later.
 
 See [Noncomputational States](noncomputational.md) for the hybrid
 quantum-classical model.
@@ -214,6 +261,9 @@ exponential component still scales with the active width.
 For eligible programs with measurements, `clifft.record_probabilities()`
 evaluates selected measurement records exactly without sampling.
 
+See [Basis-State Probabilities](basis_probabilities.md) and
+[Strong Simulation with Exact Probabilities](../guide/strong-simulation.md).
+
 ## References
 
 - Bradley A. Chase and Farrokh Labib, "Clifft: Fast Exact Simulation of
@@ -222,5 +272,4 @@ evaluates selected measurement records exactly without sampling.
 - Wang Fang, Huazhe Lou, and Riling Li, "SymFT: Universal Fault-Tolerant
   Quantum Circuit Simulation via Symbolic Clifford-Pauli Frames and Stabilizer
   Coordinates," [arXiv:2607.28600](https://arxiv.org/abs/2607.28600)
-  (quant-ph), 2026. DOI:
-  [10.48550/arXiv.2607.28600](https://doi.org/10.48550/arXiv.2607.28600).
+  (quant-ph), 2026.
