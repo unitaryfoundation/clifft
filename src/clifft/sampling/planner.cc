@@ -126,9 +126,8 @@ SymbolId reserve_symbol(SamplingPlan& plan) {
 }
 
 std::span<const uint32_t> source_lines_for(const HirModule& hir, size_t operation_index) {
-    if (hir.source_map.size() != hir.ops.size()) {
-        return {};
-    }
+    assert(hir.source_map.size() == hir.ops.size() &&
+           "retained HIR provenance must remain parallel to operations");
     return hir.source_map[operation_index];
 }
 
@@ -432,6 +431,10 @@ SamplingPlan plan_sampling(const HirModule& hir, SamplingPlanOptions options) {
     plan.num_exp_vals = hir.num_exp_vals;
     plan.global_weight = hir.global_weight;
     if (options.retain_source_map) {
+        if (hir.source_map.size() != hir.ops.size()) {
+            throw std::invalid_argument(
+                "sampling source provenance requires a complete HIR source map");
+        }
         plan.source_map.emplace();
         plan.source_map->reserve(hir.ops.size() + hir.instrument_sites.size() +
                                  hir.num_observables);
@@ -491,7 +494,8 @@ SamplingPlan plan_sampling(const HirModule& hir, SamplingPlanOptions options) {
     bool supports_final_state_queries = true;
     for (size_t i = 0; i < hir.ops.size(); ++i) {
         const HeisenbergOp& op = hir.ops[i];
-        const std::span<const uint32_t> source_lines = source_lines_for(hir, i);
+        const std::span<const uint32_t> source_lines =
+            plan.source_map.has_value() ? source_lines_for(hir, i) : std::span<const uint32_t>{};
         supports_final_state_queries &= operation_supports_final_state_queries(op.op_type());
         switch (op.op_type()) {
             case OpType::T_GATE: {

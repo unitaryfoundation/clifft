@@ -1388,6 +1388,8 @@ TEST_CASE("RemoveNoisePass strips noise ops and clears side-tables") {
     CHECK(hir.readout_noise.empty());
     // Arena slots that backed the removed channels are released.
     CHECK(hir.noise_channel_masks.size() == 0);
+    REQUIRE(hir.source_map.size() == hir.ops.size());
+    REQUIRE(hir.source_map == std::vector<std::vector<uint32_t>>{{2}, {3}});
 
     // No NOISE ops remain
     for (const auto& op : hir.ops) {
@@ -1429,7 +1431,8 @@ TEST_CASE("DropNonUnitaryPass strips non-unitary ops and metadata") {
     CHECK(hir.observable_targets.empty());
     CHECK(hir.noise_channel_masks.size() == 0);
     CHECK(!hir.forced_traceout_slot.has_value());
-    CHECK(hir.source_map.empty());
+    REQUIRE(hir.source_map.size() == hir.ops.size());
+    REQUIRE(hir.source_map == std::vector<std::vector<uint32_t>>{{2}});
 
     for (const auto& op : hir.ops) {
         CHECK((op.op_type() == OpType::T_GATE || op.op_type() == OpType::PHASE_ROTATION));

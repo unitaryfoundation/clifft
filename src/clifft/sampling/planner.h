@@ -14,8 +14,9 @@ struct SamplingPlanOptions {
     std::span<const uint8_t> postselection_mask;
     std::span<const uint8_t> expected_detectors;
     std::span<const uint8_t> expected_observables;
-    // Tooling can request an optional action-to-source sidecar. Sampling and
-    // executable lowering do not require it.
+    // Tooling can request an action-to-source sidecar when the HIR carries a
+    // complete parallel source map. Sampling and ordinary lowering do not
+    // require or retain it.
     bool retain_source_map = false;
 };
 

@@ -315,7 +315,7 @@ struct InstrumentDistribution {
 class PlanSourceMap {
   public:
     [[nodiscard]] bool empty() const { return size() == 0; }
-    [[nodiscard]] size_t size() const { return offsets_.size() - 1; }
+    [[nodiscard]] size_t size() const { return offsets_.empty() ? 0 : offsets_.size() - 1; }
     [[nodiscard]] std::span<const uint32_t> lines_for(size_t action) const;
 
     void reserve(size_t num_actions, size_t num_source_lines = 0);

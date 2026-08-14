@@ -67,7 +67,7 @@ std::string_view new_x_instrument_kernel_name(NewXInstrumentKernel kernel) {
 
 void write_prepared_pauli(std::ostream& out, const PreparedPauli& pauli) {
     out << "active_width=" << pauli.active_width << " x=0x" << std::hex << pauli.x << " z=0x"
-        << pauli.z << std::dec << " pairing_bit=" << pauli.pairing_bit;
+        << pauli.z << " pairing_bit=0x" << pauli.pairing_bit << std::dec;
 }
 
 }  // namespace
@@ -169,7 +169,7 @@ std::string ExecutablePlan::inspect() const {
     for (size_t i = 0; i < actions_.size(); ++i) {
         out << "  " << i;
         if (const auto range = action_plan_range(i)) {
-            out << " plans=" << range->begin << ".." << (range->end - 1);
+            out << " plans=[" << range->begin << ',' << range->end << ')';
         }
         out << ' ' << inspect_action(i) << '\n';
     }
@@ -186,7 +186,8 @@ std::string ExecutablePlan::inspect_action(size_t action) const {
             if constexpr (std::is_same_v<T, ExecuteRotation>) {
                 out << "rotate ";
                 write_prepared_pauli(out, typed.rotation.pauli);
-                out << " sign=e" << typed.sign.register_id
+                out << " cosine=" << typed.rotation.cosine << " sine=" << typed.rotation.sine
+                    << " sign=e" << typed.sign.register_id
                     << " kernel=" << direct_rotation_kernel_name(typed.kernel);
             } else if constexpr (std::is_same_v<T, ExecuteFusedRotation>) {
                 out << "fused_rotation descriptor=" << typed.rotation_index;
@@ -264,8 +265,8 @@ std::string ExecutablePlan::inspect_action(size_t action) const {
                     typed.form);
             } else if constexpr (std::is_same_v<T, ExecuteBoundary>) {
                 out << "instrument_boundary site=" << typed.site
-                    << " active_width=" << typed.active_width << " noise=" << typed.noise_begin
-                    << ".." << typed.noise_end
+                    << " active_width=" << typed.active_width << " noise=[" << typed.noise_begin
+                    << ',' << typed.noise_end << ')'
                     << " symbol_prefix_size=" << typed.symbol_prefix_size;
             } else {
                 static_assert(kAlwaysFalse<T>, "Unhandled executable action alternative");

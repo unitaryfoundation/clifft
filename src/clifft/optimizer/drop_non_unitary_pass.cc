@@ -1,6 +1,8 @@
 #include "clifft/optimizer/drop_non_unitary_pass.h"
 
 #include <algorithm>
+#include <utility>
+#include <vector>
 
 namespace clifft {
 
@@ -8,7 +10,7 @@ static_assert(static_cast<int>(OpType::NUM_OP_TYPES) == 10,
               "Update DropNonUnitaryPass when adding a new HIR OpType");
 
 void DropNonUnitaryPass::run(HirModule& hir) {
-    std::erase_if(hir.ops, [](const HeisenbergOp& op) {
+    auto is_non_unitary = [](const HeisenbergOp& op) {
         switch (op.op_type()) {
             case OpType::T_GATE:
             case OpType::PHASE_ROTATION:
@@ -26,7 +28,21 @@ void DropNonUnitaryPass::run(HirModule& hir) {
                 return true;
         }
         return true;
-    });
+    };
+
+    if (hir.source_map.size() == hir.ops.size()) {
+        std::vector<std::vector<uint32_t>> retained_source_map;
+        retained_source_map.reserve(hir.source_map.size());
+        for (size_t i = 0; i < hir.ops.size(); ++i) {
+            if (!is_non_unitary(hir.ops[i])) {
+                retained_source_map.push_back(std::move(hir.source_map[i]));
+            }
+        }
+        hir.source_map = std::move(retained_source_map);
+    } else {
+        hir.source_map.clear();
+    }
+    std::erase_if(hir.ops, is_non_unitary);
 
     hir.noise_sites.clear();
     hir.instrument_sites.clear();
@@ -42,7 +58,6 @@ void DropNonUnitaryPass::run(HirModule& hir) {
     hir.num_exp_vals = 0;
     hir.neglect_instrument_damping = false;
     hir.forced_traceout_slot.reset();
-    hir.source_map.clear();
 }
 
 }  // namespace clifft

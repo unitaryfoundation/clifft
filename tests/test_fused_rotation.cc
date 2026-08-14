@@ -10,6 +10,7 @@
 #include <cstdint>
 #include <optional>
 #include <span>
+#include <string>
 #include <variant>
 #include <vector>
 
@@ -80,6 +81,24 @@ void require_matches_scalar(const SamplingPlan& plan, uint8_t presampled_value,
 
 }  // namespace
 
+TEST_CASE("Executable rotation inspection includes prepared weights") {
+    const std::array first_rotation = {
+        RotateActivePauli{{0b1010, 0b0010}, 0.25, AffineBool(false)},
+    };
+    const std::array second_rotation = {
+        RotateActivePauli{{0b1010, 0b0010}, 0.5, AffineBool(false)},
+    };
+
+    const ExecutablePlan first(rotation_plan(4, first_rotation));
+    const ExecutablePlan second(rotation_plan(4, second_rotation));
+    const std::string inspection = first.inspect_action(0);
+
+    REQUIRE(inspection.find("pairing_bit=0x8") != std::string::npos);
+    REQUIRE(inspection.find(" cosine=") != std::string::npos);
+    REQUIRE(inspection.find(" sine=") != std::string::npos);
+    REQUIRE(inspection != second.inspect_action(0));
+}
+
 TEST_CASE("Fused rotation stops at a dynamic sign") {
     const std::array rotations = {
         RotateActivePauli{{0b01, 0b00}, 0.25, AffineBool(false)},
@@ -116,7 +135,7 @@ TEST_CASE("Executable plan preserves optional provenance across fusion") {
     REQUIRE(executable.num_actions() == 1);
     REQUIRE(executable.action_plan_range(0) == ExecutablePlan::PlanActionRange{0, 3});
     REQUIRE(executable.inspect_action(0) == "fused_rotation descriptor=0");
-    REQUIRE(executable.inspect().find("plans=0..2 fused_rotation descriptor=0") !=
+    REQUIRE(executable.inspect().find("plans=[0,3) fused_rotation descriptor=0") !=
             std::string::npos);
     REQUIRE_THROWS_AS(executable.action_plan_range(1), std::out_of_range);
 }

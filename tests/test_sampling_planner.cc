@@ -221,6 +221,14 @@ TEST_CASE("Sampling planner retains source provenance only when requested") {
     REQUIRE_THROWS_AS(inspected.inspect_action(inspected.actions.size()), std::out_of_range);
 }
 
+TEST_CASE("Sampling planner requires complete requested source provenance") {
+    HirModule hir = clifft::trace(clifft::parse("T 0\nM 0\n"));
+    hir.source_map.clear();
+
+    REQUIRE_NOTHROW(plan_sampling(hir));
+    REQUIRE_THROWS_AS(plan_sampling(hir, source_map_options()), std::invalid_argument);
+}
+
 TEST_CASE("Sampling planner combines source lines for one observable action") {
     const HirModule hir = clifft::trace(
         clifft::parse("M 0\nOBSERVABLE_INCLUDE(0) rec[-1]\nM 1\nOBSERVABLE_INCLUDE(0) rec[-1]\n"));
