@@ -139,32 +139,27 @@ export function Toolbar({
     return () => document.removeEventListener("mousedown", handleClick);
   }, [shotsOpen, passesOpen, examplesOpen, recentsOpen]);
 
-  const togglePass = (name: string, kind: "hir" | "bytecode") => {
-    const key = kind === "hir" ? "hir" : "bc";
-    const current = passConfig[key];
+  const togglePass = (name: string) => {
+    const current = passConfig.hir;
     const next = current.includes(name)
       ? current.filter((n) => n !== name)
       : [...current, name];
-    onPassConfigChange({ ...passConfig, [key]: next });
+    onPassConfigChange({ hir: next });
   };
 
   const selectDefaults = () => {
     const hir = availablePasses
       .filter((p) => p.kind === "hir" && p.default)
       .map((p) => p.name);
-    const bc = availablePasses
-      .filter((p) => p.kind === "bytecode" && p.default)
-      .map((p) => p.name);
-    onPassConfigChange({ hir, bc });
+    onPassConfigChange({ hir });
   };
 
   const deselectAll = () => {
-    onPassConfigChange({ hir: [], bc: [] });
+    onPassConfigChange({ hir: [] });
   };
 
   const hirPasses = availablePasses.filter((p) => p.kind === "hir");
-  const bcPasses = availablePasses.filter((p) => p.kind === "bytecode");
-  const totalEnabled = passConfig.hir.length + passConfig.bc.length;
+  const totalEnabled = passConfig.hir.length;
 
   const shareUrl = useMemo(() => buildShareUrl(), [buildShareUrl]);
   // When sharing via ?url=, the link size doesn't depend on the source length.
@@ -276,22 +271,7 @@ export function Toolbar({
                       <input
                         type="checkbox"
                         checked={passConfig.hir.includes(p.name)}
-                        onChange={() => togglePass(p.name, "hir")}
-                      />
-                      <span>{p.name}</span>
-                    </label>
-                  ))}
-                </>
-              )}
-              {bcPasses.length > 0 && (
-                <>
-                  <div className="passes-section-label">Bytecode Passes</div>
-                  {bcPasses.map((p) => (
-                    <label key={p.name} className="passes-item">
-                      <input
-                        type="checkbox"
-                        checked={passConfig.bc.includes(p.name)}
-                        onChange={() => togglePass(p.name, "bytecode")}
+                        onChange={() => togglePass(p.name)}
                       />
                       <span>{p.name}</span>
                     </label>

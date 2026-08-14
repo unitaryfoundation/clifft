@@ -39,7 +39,6 @@ function loadModule(): Promise<ClifftModule> {
 
 export interface PassConfig {
   hir: string[];
-  bc: string[];
 }
 
 function passConfigToJson(config: PassConfig): string {
@@ -98,7 +97,7 @@ export function useClifftWasm() {
       try {
         const json = moduleRef.current.compile_to_json(
           source,
-          JSON.stringify({ hir: [], bc: [] }),
+          JSON.stringify({ hir: [] }),
         );
         return JSON.parse(json) as CompileResult;
       } catch (e) {

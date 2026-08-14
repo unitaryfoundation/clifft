@@ -169,7 +169,7 @@ export function KHistoryChart({ history, baselineHistory, highlightPC, colors }:
   }, [history, baselineHistory]);
 
   if (history.length === 0) {
-    return <div className="chart-placeholder">No bytecode yet</div>;
+    return <div className="chart-placeholder">No sampling actions yet</div>;
   }
 
   const hasBaseline = !!baselineHistory && baselineHistory.length > 0;

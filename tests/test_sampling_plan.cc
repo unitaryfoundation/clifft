@@ -159,6 +159,24 @@ TEST_CASE("Sampling plan validates symbolic and active state invariants") {
             std::string::npos);
 }
 
+TEST_CASE("Sampling plan compact inspection bounds affine expressions") {
+    SamplingPlan plan;
+    std::vector<SymbolId> terms;
+    for (uint32_t i = 0; i < 12; ++i) {
+        terms.push_back(SymbolId{i});
+    }
+    plan.actions.push_back(PlannedAction{
+        0,
+        0,
+        RecordClassical{AffineBool(false, std::move(terms)), RecordSlot{0}},
+    });
+
+    REQUIRE(plan.inspect_action(0).find("s11") != std::string::npos);
+    const std::string compact = plan.inspect_action_compact(0);
+    REQUIRE(compact.find("s7 ^ ... (12 terms)") != std::string::npos);
+    REQUIRE(compact.find("s8") == std::string::npos);
+}
+
 TEST_CASE("Sampling plan rejects inconsistent noise site totals") {
     SamplingPlan plan = valid_plan();
     plan.presampled_noise_sites[0].total_probability = 0.2;
