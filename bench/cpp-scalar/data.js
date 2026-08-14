@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1786603856056,
+  "lastUpdate": 1786690178558,
   "repoUrl": "https://github.com/unitaryfoundation/clifft",
   "entries": {
     "C++ Catch2 benchmarks (scalar)": [
@@ -5566,6 +5566,70 @@ window.BENCHMARK_DATA = {
             "name": "exp-val 20q 200 probes x100k",
             "value": 154.766,
             "range": "± 4.58847",
+            "unit": "ms",
+            "extra": "100 samples\n1 iterations"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Brad Chase",
+            "username": "bachase",
+            "email": "14430+bachase@users.noreply.github.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "bac6f0b90e9db9bc8afe34ec039a757e3759c44d",
+          "message": "refactor(sampling): specialize executor kernel backends\n\nResolve the scalar, AVX2, or AVX-512 backend once while lowering an executable plan, then instantiate the hot action loop for that backend. Keep action tags architecture-neutral and call separately compiled SIMD kernels directly without rediscovering the process ISA during action dispatch.\n\nConsolidate the operation-specific dispatch files into one boundary, preserve compact plan, executor, and action layouts, and validate continuation backend compatibility. Retain type-erased fused-rotation sidecars where prepared storage must remain coupled to its matching kernel.\n\nAssisted-by: Codex (GPT-5) <noreply@openai.com>",
+          "timestamp": "2026-08-14T00:47:35Z",
+          "url": "https://github.com/unitaryfoundation/clifft/commit/bac6f0b90e9db9bc8afe34ec039a757e3759c44d"
+        },
+        "date": 1786690175010,
+        "tool": "catch2",
+        "benches": [
+          {
+            "name": "QV-10 x100 shots",
+            "value": 63.2266,
+            "range": "± 1.58669",
+            "unit": "ms",
+            "extra": "100 samples\n1 iterations"
+          },
+          {
+            "name": "cultivation-d5 x1000 shots",
+            "value": 81.9085,
+            "range": "± 421.237",
+            "unit": "ms",
+            "extra": "100 samples\n1 iterations"
+          },
+          {
+            "name": "surface-d7-r7 p=1e-3 x10000 shots",
+            "value": 104.588,
+            "range": "± 336.507",
+            "unit": "ms",
+            "extra": "100 samples\n1 iterations"
+          },
+          {
+            "name": "surface-d5-r5 p=0.05 x10000 shots",
+            "value": 101.843,
+            "range": "± 1.82203",
+            "unit": "ms",
+            "extra": "100 samples\n1 iterations"
+          },
+          {
+            "name": "surface-d11-r11 p=1e-3 x1000 shots",
+            "value": 43.298,
+            "range": "± 838.948",
+            "unit": "ms",
+            "extra": "100 samples\n1 iterations"
+          },
+          {
+            "name": "exp-val 20q 200 probes x100k",
+            "value": 143.162,
+            "range": "± 3.62164",
             "unit": "ms",
             "extra": "100 samples\n1 iterations"
           }
