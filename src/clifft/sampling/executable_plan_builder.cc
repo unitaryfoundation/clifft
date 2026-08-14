@@ -41,6 +41,14 @@ CLIFFT_BUILDER_FORCE_INLINE ExecutablePlan::ExpressionDependencies
 ExecutablePlan::ExpressionDependencies::build(uint32_t num_symbols,
                                               std::span<const uint32_t> expression_terms,
                                               std::span<const uint32_t> expression_term_begins) {
+    assert((expression_term_begins.empty() || expression_term_begins.front() == 0) &&
+           "the first expression must begin at the start of the term tape");
+    assert(std::ranges::is_sorted(expression_term_begins) &&
+           "expression term ranges must be ordered");
+    assert((expression_term_begins.empty() ||
+            expression_term_begins.back() <= expression_terms.size()) &&
+           "expression term ranges must stay inside the term tape");
+
     ExpressionDependencies result;
     result.offsets_.assign(static_cast<size_t>(num_symbols) + 1, 0);
     for (uint32_t symbol : expression_terms) {
@@ -405,25 +413,6 @@ CLIFFT_BUILDER_FORCE_INLINE void ExecutablePlanBuilder::lower_action_stream() {
 CLIFFT_BUILDER_FORCE_INLINE void ExecutablePlanBuilder::build_expression_dependencies() {
     output_.expression_dependencies_ = ExecutablePlan::ExpressionDependencies::build(
         output_.num_symbols_, expression_terms_, expression_term_begins_);
-}
-
-void ExecutablePlan::ExpressionDependencies::validate(uint32_t num_symbols,
-                                                      size_t num_registers) const noexcept {
-#ifndef NDEBUG
-    assert(offsets_.size() == static_cast<size_t>(num_symbols) + 1 &&
-           "expression dependency offsets have the wrong size");
-    assert(!offsets_.empty() && offsets_.front() == 0 && offsets_.back() == targets_.size() &&
-           "expression dependency ranges are inconsistent");
-    for (size_t i = 1; i < offsets_.size(); ++i) {
-        assert(offsets_[i] >= offsets_[i - 1] && "expression dependency offsets are not ordered");
-    }
-    for (uint32_t target : targets_) {
-        assert(target < num_registers && "expression dependency target is out of range");
-    }
-#else
-    static_cast<void>(num_symbols);
-    static_cast<void>(num_registers);
-#endif
 }
 
 CLIFFT_BUILDER_FORCE_INLINE void ExecutablePlanBuilder::validate_executable_plan() const {

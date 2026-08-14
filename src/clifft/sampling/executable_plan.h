@@ -89,10 +89,6 @@ class ExecutablePlan {
     // Construction transposes expression terms into one contiguous range per symbol.
     class ExpressionDependencies {
       public:
-        [[nodiscard]] static ExpressionDependencies build(
-            uint32_t num_symbols, std::span<const uint32_t> expression_terms,
-            std::span<const uint32_t> expression_term_begins);
-
         [[nodiscard]] std::span<const uint32_t> dependent_registers(
             uint32_t symbol) const noexcept {
             assert(static_cast<size_t>(symbol) + 1 < offsets_.size() &&
@@ -102,9 +98,14 @@ class ExecutablePlan {
             return std::span<const uint32_t>(targets_).subspan(begin, end - begin);
         }
 
+      private:
+        friend class ExecutablePlanBuilder;
+
+        [[nodiscard]] static ExpressionDependencies build(
+            uint32_t num_symbols, std::span<const uint32_t> expression_terms,
+            std::span<const uint32_t> expression_term_begins);
         void validate(uint32_t num_symbols, size_t num_registers) const noexcept;
 
-      private:
         std::vector<uint32_t> offsets_;
         std::vector<uint32_t> targets_;
     };

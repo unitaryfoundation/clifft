@@ -3,6 +3,7 @@
 #include "clifft/sampling/executable_plan_builder.h"
 
 #include <algorithm>
+#include <cassert>
 #include <stdexcept>
 #include <string>
 #include <utility>
@@ -43,6 +44,25 @@ ExecutablePlan::ExecutablePlan(const SamplingPlan& plan)
       instrument_distributions_(plan.instrument_distributions) {
     // Keep construction-only lowering state out of the immutable executable.
     ExecutablePlanBuilder::build(*this, plan);
+}
+
+void ExecutablePlan::ExpressionDependencies::validate(uint32_t num_symbols,
+                                                      size_t num_registers) const noexcept {
+#ifndef NDEBUG
+    assert(offsets_.size() == static_cast<size_t>(num_symbols) + 1 &&
+           "expression dependency offsets have the wrong size");
+    assert(!offsets_.empty() && offsets_.front() == 0 && offsets_.back() == targets_.size() &&
+           "expression dependency ranges are inconsistent");
+    for (size_t i = 1; i < offsets_.size(); ++i) {
+        assert(offsets_[i] >= offsets_[i - 1] && "expression dependency offsets are not ordered");
+    }
+    for (uint32_t target : targets_) {
+        assert(target < num_registers && "expression dependency target is out of range");
+    }
+#else
+    static_cast<void>(num_symbols);
+    static_cast<void>(num_registers);
+#endif
 }
 
 size_t ExecutablePlan::num_new_x_instrument_activations() const {

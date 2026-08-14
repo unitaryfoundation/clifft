@@ -694,18 +694,16 @@ ReplayResult Executor::execute_actions(std::span<const uint8_t> forced_records,
         std::visit(
             [&](const auto& typed) noexcept {
                 using T = std::decay_t<decltype(typed)>;
-                if constexpr (std::is_same_v<T, ExecutablePlan::ExecuteBoundary>) {
-                    execute_action<Mode>(typed, forced_records, result);
-                } else if constexpr (std::is_same_v<T, ExecutablePlan::ExecuteReadoutNoise>) {
+                if constexpr (std::is_same_v<T, ExecutablePlan::ExecuteBoundary> ||
+                              std::is_same_v<T, ExecutablePlan::ExecuteReadoutNoise> ||
+                              std::is_same_v<T, ExecutablePlan::ExecuteDormantMeasurement> ||
+                              std::is_same_v<T, ExecutablePlan::ExecuteClassicalRecord>) {
                     execute_action<Mode>(typed, forced_records, result);
                 } else if constexpr (std::is_same_v<T, ExecutablePlan::ExecuteRotation>) {
                     execute_action<Backend>(typed, forced_records, result);
                 } else if constexpr (std::is_same_v<T, ExecutablePlan::ExecuteActiveMeasurement> ||
                                      std::is_same_v<T, ExecutablePlan::ExecuteInstrument>) {
                     execute_action<Backend, Mode>(typed, forced_records, result);
-                } else if constexpr (std::is_same_v<T, ExecutablePlan::ExecuteDormantMeasurement> ||
-                                     std::is_same_v<T, ExecutablePlan::ExecuteClassicalRecord>) {
-                    execute_action<Mode>(typed, forced_records, result);
                 } else {
                     execute_action(typed, forced_records, result);
                 }
