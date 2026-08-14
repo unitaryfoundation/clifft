@@ -38,6 +38,22 @@ endif()
 # Export compile_commands.json for IDE support
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
+# Keep assert() active in optimized configurations. Assertion coverage is this
+# project's primary internal-invariant check, so CI can pair it with optimized
+# code where a full Debug build is too slow.
+option(CLIFFT_FORCE_ASSERTS "Keep assert() active regardless of build type" OFF)
+if(CLIFFT_FORCE_ASSERTS)
+    foreach(lang C CXX)
+        foreach(config RELEASE RELWITHDEBINFO MINSIZEREL)
+            string(REPLACE "/DNDEBUG" "" CMAKE_${lang}_FLAGS_${config}
+                   "${CMAKE_${lang}_FLAGS_${config}}")
+            string(REPLACE "-DNDEBUG" "" CMAKE_${lang}_FLAGS_${config}
+                   "${CMAKE_${lang}_FLAGS_${config}}")
+        endforeach()
+    endforeach()
+    message(STATUS "CLIFFT_FORCE_ASSERTS: assert() remains active in optimized configurations")
+endif()
+
 # Compiler warnings
 if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
     add_compile_options(-Wall -Wextra -Wpedantic)
