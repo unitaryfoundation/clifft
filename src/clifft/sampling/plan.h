@@ -309,9 +309,7 @@ struct InstrumentDistribution {
     std::array<std::array<double, 2>, 2> p_computational_dest{};
 };
 
-// Optional debug provenance parallel to SamplingPlan::actions. Source lines
-// use the same one-based numbering as HirModule::source_map. CSR storage keeps
-// tooling metadata compact when one optimized operation names several lines.
+// CSR mapping from each SamplingPlan action to its one-based circuit source lines.
 class PlanSourceMap {
   public:
     [[nodiscard]] bool empty() const { return size() == 0; }

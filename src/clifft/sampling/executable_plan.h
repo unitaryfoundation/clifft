@@ -44,6 +44,7 @@ class PreparedFusedRotationExecution {
 // here so a shot only reads fixed storage.
 class ExecutablePlan {
   public:
+    // Half-open SamplingPlan action range lowered into one executable action.
     struct PlanActionRange {
         uint32_t begin = 0;
         uint32_t end = 0;
