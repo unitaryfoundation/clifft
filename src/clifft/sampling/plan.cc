@@ -149,6 +149,73 @@ std::string format_pauli(const ActivePauli& pauli) {
     return out.str();
 }
 
+void write_action_inspection(std::ostream& out, const PlannedAction& planned) {
+    out << "active_width=" << planned.active_before << "->" << planned.active_after
+        << " dense_passes=" << predicted_dense_passes(planned.action) << ' ';
+    std::visit(
+        [&](const auto& typed) {
+            using T = std::decay_t<decltype(typed)>;
+            if constexpr (std::is_same_v<T, RotateActivePauli>) {
+                out << "rotate_active " << format_pauli(typed.pauli)
+                    << " half_turns=" << typed.half_turns
+                    << " sign=" << format_expression(typed.sign);
+            } else if constexpr (std::is_same_v<T, PromoteDormantRotation>) {
+                out << "promote_dormant half_turns=" << typed.half_turns
+                    << " sign=" << format_expression(typed.sign);
+            } else if constexpr (std::is_same_v<T, MeasureActivePauli>) {
+                out << "measure_active " << format_pauli(typed.pauli)
+                    << " pivot=" << typed.active_pivot << " branch=s" << index(typed.branch)
+                    << " outcome=" << format_expression(typed.outcome)
+                    << " record=" << index(typed.record);
+            } else if constexpr (std::is_same_v<T, MeasureDormantRandom>) {
+                out << "measure_dormant pivot=" << typed.dormant_pivot << " branch=s"
+                    << index(typed.branch) << " outcome=" << format_expression(typed.outcome)
+                    << " record=" << index(typed.record);
+            } else if constexpr (std::is_same_v<T, RecordClassical>) {
+                out << "record_classical outcome=" << format_expression(typed.outcome)
+                    << " record=" << index(typed.record);
+            } else if constexpr (std::is_same_v<T, DefineSymbol>) {
+                out << "define_symbol s" << index(typed.symbol)
+                    << " value=" << format_expression(typed.value);
+            } else if constexpr (std::is_same_v<T, ApplyReadoutNoise>) {
+                out << "readout_noise s" << index(typed.flip)
+                    << " source=" << format_expression(typed.source)
+                    << " record=" << index(typed.record) << " p01=" << typed.prob_zero_to_one
+                    << " p10=" << typed.prob_one_to_zero;
+            } else if constexpr (std::is_same_v<T, WriteDetector>) {
+                out << "write_detector outcome=" << format_expression(typed.outcome)
+                    << " detector=" << index(typed.detector)
+                    << " postselected=" << typed.postselected;
+            } else if constexpr (std::is_same_v<T, WriteObservable>) {
+                out << "write_observable outcome=" << format_expression(typed.outcome)
+                    << " observable=" << index(typed.observable);
+            } else if constexpr (std::is_same_v<T, WriteExpectationValue>) {
+                out << "write_expectation ";
+                if (typed.active_projection.has_value()) {
+                    out << format_pauli(*typed.active_projection)
+                        << " sign=" << format_expression(typed.sign);
+                } else {
+                    out << "zero";
+                }
+                out << " exp_val=" << index(typed.exp_val);
+            } else if constexpr (std::is_same_v<T, ApplyInstrument>) {
+                out << "apply_instrument site=" << index(typed.site)
+                    << " mode=" << instrument_mode_name(typed.mode) << ' '
+                    << format_pauli(typed.source) << " sign=" << format_expression(typed.sign);
+                if (typed.destination_flip.has_value()) {
+                    out << " flip=s" << index(*typed.destination_flip);
+                }
+            } else if constexpr (std::is_same_v<T, InstrumentBoundary>) {
+                out << "instrument_boundary site=" << index(typed.site)
+                    << " next_noise_site=" << typed.next_noise_site
+                    << " symbol_prefix_size=" << typed.symbol_prefix_size;
+            } else {
+                static_assert(kAlwaysFalse<T>, "Unhandled SamplingAction alternative");
+            }
+        },
+        planned.action);
+}
+
 [[noreturn]] void invalid_plan(std::string message) {
     throw std::invalid_argument("invalid SamplingPlan: " + std::move(message));
 }
@@ -264,6 +331,38 @@ void validate_written_record(const SamplingPlan& plan, RecordSlot record, uint32
 }
 
 }  // namespace
+
+std::span<const uint32_t> PlanSourceMap::lines_for(size_t action) const {
+    if (action >= size()) {
+        throw std::out_of_range("sampling plan source-map action is out of range");
+    }
+    const uint32_t begin = offsets_[action];
+    const uint32_t end = offsets_[action + 1];
+    return std::span<const uint32_t>(source_lines_).subspan(begin, end - begin);
+}
+
+void PlanSourceMap::reserve(size_t num_actions, size_t num_source_lines) {
+    offsets_.reserve(num_actions + 1);
+    source_lines_.reserve(num_source_lines);
+}
+
+void PlanSourceMap::append(std::span<const uint32_t> source_lines) {
+    constexpr size_t kMaxOffset = std::numeric_limits<uint32_t>::max();
+    if (source_lines_.size() > kMaxOffset ||
+        source_lines.size() > kMaxOffset - source_lines_.size()) {
+        throw std::length_error("sampling plan source map exceeds uint32 range");
+    }
+    source_lines_.insert(source_lines_.end(), source_lines.begin(), source_lines.end());
+    offsets_.push_back(static_cast<uint32_t>(source_lines_.size()));
+}
+
+bool PlanSourceMap::is_valid_for(size_t num_actions) const {
+    if (offsets_.size() != num_actions + 1 || offsets_.empty() || offsets_.front() != 0 ||
+        offsets_.back() != source_lines_.size()) {
+        return false;
+    }
+    return std::ranges::is_sorted(offsets_);
+}
 
 AffineBool::AffineBool(bool constant) : constant_(constant) {}
 
@@ -419,6 +518,9 @@ void SamplingPlan::validate() const {
     }
     if (final_tableau.has_value() && final_tableau->num_qubits != num_qubits) {
         invalid_plan("final tableau width does not match the qubit count");
+    }
+    if (source_map.has_value() && !source_map->is_valid_for(actions.size())) {
+        invalid_plan("source map does not match the action stream");
     }
 
     if (presampled_noise_sites.size() != num_noise_sites) {
@@ -815,74 +917,16 @@ std::string SamplingPlan::inspect() const {
     }
     out << "actions=" << actions.size() << '\n';
     for (uint32_t i = 0; i < actions.size(); ++i) {
-        const PlannedAction& planned = actions[i];
-        out << "  " << i << " active_width=" << planned.active_before << "->"
-            << planned.active_after << " dense_passes=" << predicted_dense_passes(planned.action)
-            << ' ';
-        std::visit(
-            [&](const auto& typed) {
-                using T = std::decay_t<decltype(typed)>;
-                if constexpr (std::is_same_v<T, RotateActivePauli>) {
-                    out << "rotate_active " << format_pauli(typed.pauli)
-                        << " half_turns=" << typed.half_turns
-                        << " sign=" << format_expression(typed.sign);
-                } else if constexpr (std::is_same_v<T, PromoteDormantRotation>) {
-                    out << "promote_dormant half_turns=" << typed.half_turns
-                        << " sign=" << format_expression(typed.sign);
-                } else if constexpr (std::is_same_v<T, MeasureActivePauli>) {
-                    out << "measure_active " << format_pauli(typed.pauli)
-                        << " pivot=" << typed.active_pivot << " branch=s" << index(typed.branch)
-                        << " outcome=" << format_expression(typed.outcome)
-                        << " record=" << index(typed.record);
-                } else if constexpr (std::is_same_v<T, MeasureDormantRandom>) {
-                    out << "measure_dormant pivot=" << typed.dormant_pivot << " branch=s"
-                        << index(typed.branch) << " outcome=" << format_expression(typed.outcome)
-                        << " record=" << index(typed.record);
-                } else if constexpr (std::is_same_v<T, RecordClassical>) {
-                    out << "record_classical outcome=" << format_expression(typed.outcome)
-                        << " record=" << index(typed.record);
-                } else if constexpr (std::is_same_v<T, DefineSymbol>) {
-                    out << "define_symbol s" << index(typed.symbol)
-                        << " value=" << format_expression(typed.value);
-                } else if constexpr (std::is_same_v<T, ApplyReadoutNoise>) {
-                    out << "readout_noise s" << index(typed.flip)
-                        << " source=" << format_expression(typed.source)
-                        << " record=" << index(typed.record) << " p01=" << typed.prob_zero_to_one
-                        << " p10=" << typed.prob_one_to_zero;
-                } else if constexpr (std::is_same_v<T, WriteDetector>) {
-                    out << "write_detector outcome=" << format_expression(typed.outcome)
-                        << " detector=" << index(typed.detector)
-                        << " postselected=" << typed.postselected;
-                } else if constexpr (std::is_same_v<T, WriteObservable>) {
-                    out << "write_observable outcome=" << format_expression(typed.outcome)
-                        << " observable=" << index(typed.observable);
-                } else if constexpr (std::is_same_v<T, WriteExpectationValue>) {
-                    out << "write_expectation ";
-                    if (typed.active_projection.has_value()) {
-                        out << format_pauli(*typed.active_projection)
-                            << " sign=" << format_expression(typed.sign);
-                    } else {
-                        out << "zero";
-                    }
-                    out << " exp_val=" << index(typed.exp_val);
-                } else if constexpr (std::is_same_v<T, ApplyInstrument>) {
-                    out << "apply_instrument site=" << index(typed.site)
-                        << " mode=" << instrument_mode_name(typed.mode) << ' '
-                        << format_pauli(typed.source) << " sign=" << format_expression(typed.sign);
-                    if (typed.destination_flip.has_value()) {
-                        out << " flip=s" << index(*typed.destination_flip);
-                    }
-                } else if constexpr (std::is_same_v<T, InstrumentBoundary>) {
-                    out << "instrument_boundary site=" << index(typed.site)
-                        << " next_noise_site=" << typed.next_noise_site
-                        << " symbol_prefix_size=" << typed.symbol_prefix_size;
-                } else {
-                    static_assert(kAlwaysFalse<T>, "Unhandled SamplingAction alternative");
-                }
-            },
-            planned.action);
-        out << '\n';
+        out << "  " << i << ' ' << inspect_action(i) << '\n';
     }
+    return out.str();
+}
+
+std::string SamplingPlan::inspect_action(size_t action) const {
+    const PlannedAction& planned = actions.at(action);
+    std::ostringstream out;
+    out << std::setprecision(17);
+    write_action_inspection(out, planned);
     return out.str();
 }
 

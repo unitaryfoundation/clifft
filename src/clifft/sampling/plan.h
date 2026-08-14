@@ -27,6 +27,7 @@
 #include <cstdint>
 #include <limits>
 #include <optional>
+#include <span>
 #include <string>
 #include <variant>
 #include <vector>
@@ -308,6 +309,24 @@ struct InstrumentDistribution {
     std::array<std::array<double, 2>, 2> p_computational_dest{};
 };
 
+// Optional debug provenance parallel to SamplingPlan::actions. Source lines
+// use the same one-based numbering as HirModule::source_map. CSR storage keeps
+// tooling metadata compact when one optimized operation names several lines.
+class PlanSourceMap {
+  public:
+    [[nodiscard]] bool empty() const { return size() == 0; }
+    [[nodiscard]] size_t size() const { return offsets_.size() - 1; }
+    [[nodiscard]] std::span<const uint32_t> lines_for(size_t action) const;
+
+    void reserve(size_t num_actions, size_t num_source_lines = 0);
+    void append(std::span<const uint32_t> source_lines);
+    [[nodiscard]] bool is_valid_for(size_t num_actions) const;
+
+  private:
+    std::vector<uint32_t> source_lines_;
+    std::vector<uint32_t> offsets_{0};
+};
+
 struct SamplingPlan {
     uint32_t num_qubits = 0;
 
@@ -337,6 +356,10 @@ struct SamplingPlan {
     std::vector<InstrumentDistribution> instrument_distributions;
     std::vector<PlannedAction> actions;
 
+    // Present only when a tooling caller requests source provenance during
+    // planning. Ordinary compilation does not retain this debug sidecar.
+    std::optional<PlanSourceMap> source_map;
+
     // Throws std::invalid_argument when the plan is structurally inconsistent.
     // This checks active-width transitions, masks, stable ids, record slots,
     // symbol definitions, and assignment-before-use.
@@ -344,6 +367,7 @@ struct SamplingPlan {
 
     // Deterministic, executor-independent inspection for tests and diagnostics.
     [[nodiscard]] std::string inspect() const;
+    [[nodiscard]] std::string inspect_action(size_t action) const;
 };
 
 // Estimates full coefficient-state traversals for a direct, unfused lowering.

@@ -97,10 +97,16 @@ CLIFFT_BUILDER_FORCE_INLINE void ExecutablePlanBuilder::initialize_program() {
     if (source_.symbols.size() > std::numeric_limits<uint32_t>::max()) {
         throw std::length_error("sampling executable symbol count exceeds uint32 range");
     }
+    if (source_.actions.size() > std::numeric_limits<uint32_t>::max()) {
+        throw std::length_error("sampling executable action count exceeds uint32 range");
+    }
 
     output_.num_symbols_ = static_cast<uint32_t>(source_.symbols.size());
 
     output_.actions_.reserve(source_.actions.size());
+    if (source_.source_map.has_value()) {
+        output_.action_plan_ranges_.reserve(source_.actions.size());
+    }
     output_.expression_register_constants_.reserve(source_.actions.size());
     // The reserve prepass pays for itself on expression-heavy plans by
     // avoiding repeated growth of the temporary term tape.
@@ -389,6 +395,8 @@ CLIFFT_BUILDER_FORCE_INLINE void ExecutablePlanBuilder::lower_action_stream() {
                 static_cast<uint32_t>(output_.dynamic_fused_rotations_.size());
             output_.dynamic_fused_rotations_.push_back(std::move(execution));
             output_.actions_.emplace_back(ExecutablePlan::ExecuteDynamicFusedRotation{fused_index});
+            record_action_origin(static_cast<uint32_t>(planned_index),
+                                 static_cast<uint32_t>(planned_index + dynamic_run.action_count));
             planned_index += dynamic_run.action_count;
             continue;
         }
@@ -399,6 +407,8 @@ CLIFFT_BUILDER_FORCE_INLINE void ExecutablePlanBuilder::lower_action_stream() {
             const uint32_t fused_index = static_cast<uint32_t>(output_.fused_rotations_.size());
             output_.fused_rotations_.emplace_back(std::move(*run.rotation), backend_);
             output_.actions_.emplace_back(ExecutablePlan::ExecuteFusedRotation{fused_index});
+            record_action_origin(static_cast<uint32_t>(planned_index),
+                                 static_cast<uint32_t>(planned_index + run.action_count));
             planned_index += run.action_count;
             continue;
         }
@@ -406,8 +416,22 @@ CLIFFT_BUILDER_FORCE_INLINE void ExecutablePlanBuilder::lower_action_stream() {
         const size_t run_end = planned_index + unfused_count;
         for (; planned_index < run_end; ++planned_index) {
             lower_action(source_.actions[planned_index], boundary_index);
+            record_action_origin(static_cast<uint32_t>(planned_index),
+                                 static_cast<uint32_t>(planned_index + 1));
         }
     }
+}
+
+CLIFFT_BUILDER_FORCE_INLINE void ExecutablePlanBuilder::record_action_origin(uint32_t plan_begin,
+                                                                             uint32_t plan_end) {
+    if (!source_.source_map.has_value()) {
+        return;
+    }
+    assert(plan_begin < plan_end && plan_end <= source_.actions.size() &&
+           "executable action must name a nonempty plan range");
+    assert(output_.action_plan_ranges_.size() + 1 == output_.actions_.size() &&
+           "each executable action must receive exactly one plan range");
+    output_.action_plan_ranges_.push_back({plan_begin, plan_end});
 }
 
 CLIFFT_BUILDER_FORCE_INLINE void ExecutablePlanBuilder::build_expression_dependencies() {
@@ -421,6 +445,22 @@ CLIFFT_BUILDER_FORCE_INLINE void ExecutablePlanBuilder::validate_executable_plan
            "expression register storage is inconsistent");
     output_.expression_dependencies_.validate(output_.num_symbols_,
                                               output_.expression_register_constants_.size());
+    if (source_.source_map.has_value()) {
+        assert(output_.action_plan_ranges_.size() == output_.actions_.size() &&
+               "executable provenance must remain parallel to the action stream");
+        uint32_t expected_begin = 0;
+        for (const ExecutablePlan::PlanActionRange& range : output_.action_plan_ranges_) {
+            assert(range.begin == expected_begin && range.begin < range.end &&
+                   range.end <= source_.actions.size() &&
+                   "executable provenance must partition the plan action stream");
+            expected_begin = range.end;
+        }
+        assert(expected_begin == source_.actions.size() &&
+               "executable provenance must cover every plan action");
+    } else {
+        assert(output_.action_plan_ranges_.empty() &&
+               "ordinary lowering must not retain debug provenance");
+    }
 
     auto validate_expression = [&](ExecutablePlan::PreparedExpression expression) {
         assert(expression.register_id < output_.expression_register_constants_.size() &&

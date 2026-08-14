@@ -95,6 +95,32 @@ TEST_CASE("Fused rotation stops at a dynamic sign") {
     require_matches_scalar(plan, 1, 3);
 }
 
+TEST_CASE("Executable plan preserves optional provenance across fusion") {
+    const std::array rotations = {
+        RotateActivePauli{{0b01, 0b00}, 0.25, AffineBool(false)},
+        RotateActivePauli{{0b10, 0b01}, -0.3, AffineBool(true)},
+        RotateActivePauli{{0b11, 0b11}, 0.4, AffineBool(false)},
+    };
+
+    const SamplingPlan ordinary = rotation_plan(2, rotations);
+    const ExecutablePlan ordinary_executable(ordinary);
+    REQUIRE(ordinary_executable.num_actions() == 1);
+    REQUIRE_FALSE(ordinary_executable.action_plan_range(0).has_value());
+
+    SamplingPlan inspected = rotation_plan(2, rotations);
+    inspected.source_map.emplace();
+    for (uint32_t line = 1; line <= rotations.size(); ++line) {
+        inspected.source_map->append(std::span<const uint32_t>(&line, 1));
+    }
+    const ExecutablePlan executable(inspected);
+    REQUIRE(executable.num_actions() == 1);
+    REQUIRE(executable.action_plan_range(0) == ExecutablePlan::PlanActionRange{0, 3});
+    REQUIRE(executable.inspect_action(0) == "fused_rotation descriptor=0");
+    REQUIRE(executable.inspect().find("plans=0..2 fused_rotation descriptor=0") !=
+            std::string::npos);
+    REQUIRE_THROWS_AS(executable.action_plan_range(1), std::out_of_range);
+}
+
 TEST_CASE("Fused rotation preserves a signed identity barrier") {
     const std::array rotations = {
         RotateActivePauli{{0b01, 0b00}, 0.25, AffineBool(false)},

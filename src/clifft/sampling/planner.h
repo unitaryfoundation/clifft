@@ -14,6 +14,9 @@ struct SamplingPlanOptions {
     std::span<const uint8_t> postselection_mask;
     std::span<const uint8_t> expected_detectors;
     std::span<const uint8_t> expected_observables;
+    // Tooling can request an optional action-to-source sidecar. Sampling and
+    // executable lowering do not require it.
+    bool retain_source_map = false;
 };
 
 // EXP_VAL probes become plan actions. Exact final-state queries instead retain
