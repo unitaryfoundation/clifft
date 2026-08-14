@@ -225,12 +225,7 @@ void Executor::initialize_expression_registers(const ExecutablePlan& plan,
 }
 
 void Executor::propagate_true_symbol(const ExecutablePlan& plan, uint32_t symbol) noexcept {
-    assert(static_cast<size_t>(symbol) + 1 < plan.expression_dependency_offsets_.size() &&
-           "assigned symbol must have an expression dependency range");
-    const uint32_t begin = plan.expression_dependency_offsets_[symbol];
-    const uint32_t end = plan.expression_dependency_offsets_[symbol + 1];
-    for (uint32_t i = begin; i < end; ++i) {
-        const uint32_t register_id = plan.expression_dependency_targets_[i];
+    for (uint32_t register_id : plan.expression_dependencies_.dependent_registers(symbol)) {
         assert(register_id < expression_registers_.size() &&
                "expression dependency must refer to a preallocated register");
         expression_registers_[register_id] ^= uint8_t{1};

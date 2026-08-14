@@ -37,6 +37,35 @@ bool activates_new_x(const ApplyInstrument& instrument, uint32_t active_after) {
 
 }  // namespace
 
+CLIFFT_BUILDER_FORCE_INLINE ExecutablePlan::ExpressionDependencies
+ExecutablePlan::ExpressionDependencies::build(uint32_t num_symbols,
+                                              std::span<const uint32_t> expression_terms,
+                                              std::span<const uint32_t> expression_term_begins) {
+    ExpressionDependencies result;
+    result.offsets_.assign(static_cast<size_t>(num_symbols) + 1, 0);
+    for (uint32_t symbol : expression_terms) {
+        assert(symbol < num_symbols && "expression term must refer to a plan symbol");
+        ++result.offsets_[static_cast<size_t>(symbol) + 1];
+    }
+    for (size_t i = 1; i < result.offsets_.size(); ++i) {
+        result.offsets_[i] += result.offsets_[i - 1];
+    }
+    result.targets_.resize(expression_terms.size());
+    std::vector<uint32_t> next_dependency = result.offsets_;
+    for (size_t expression = 0; expression < expression_term_begins.size(); ++expression) {
+        const uint32_t register_id = static_cast<uint32_t>(expression);
+        const uint32_t begin = expression_term_begins[expression];
+        const uint32_t end = expression + 1 < expression_term_begins.size()
+                                 ? expression_term_begins[expression + 1]
+                                 : static_cast<uint32_t>(expression_terms.size());
+        for (uint32_t i = begin; i < end; ++i) {
+            const uint32_t symbol = expression_terms[i];
+            result.targets_[next_dependency[symbol]++] = register_id;
+        }
+    }
+    return result;
+}
+
 void ExecutablePlanBuilder::build(ExecutablePlan& output, const SamplingPlan& source) {
     ExecutablePlanBuilder builder(output, source);
     builder.compile();
@@ -374,49 +403,35 @@ CLIFFT_BUILDER_FORCE_INLINE void ExecutablePlanBuilder::lower_action_stream() {
 }
 
 CLIFFT_BUILDER_FORCE_INLINE void ExecutablePlanBuilder::build_expression_dependencies() {
-    output_.expression_dependency_offsets_.assign(static_cast<size_t>(output_.num_symbols_) + 1, 0);
-    for (uint32_t symbol : expression_terms_) {
-        ++output_.expression_dependency_offsets_[static_cast<size_t>(symbol) + 1];
+    output_.expression_dependencies_ = ExecutablePlan::ExpressionDependencies::build(
+        output_.num_symbols_, expression_terms_, expression_term_begins_);
+}
+
+void ExecutablePlan::ExpressionDependencies::validate(uint32_t num_symbols,
+                                                      size_t num_registers) const noexcept {
+#ifndef NDEBUG
+    assert(offsets_.size() == static_cast<size_t>(num_symbols) + 1 &&
+           "expression dependency offsets have the wrong size");
+    assert(!offsets_.empty() && offsets_.front() == 0 && offsets_.back() == targets_.size() &&
+           "expression dependency ranges are inconsistent");
+    for (size_t i = 1; i < offsets_.size(); ++i) {
+        assert(offsets_[i] >= offsets_[i - 1] && "expression dependency offsets are not ordered");
     }
-    for (size_t i = 1; i < output_.expression_dependency_offsets_.size(); ++i) {
-        output_.expression_dependency_offsets_[i] += output_.expression_dependency_offsets_[i - 1];
+    for (uint32_t target : targets_) {
+        assert(target < num_registers && "expression dependency target is out of range");
     }
-    output_.expression_dependency_targets_.resize(expression_terms_.size());
-    std::vector<uint32_t> next_dependency = output_.expression_dependency_offsets_;
-    for (size_t expression = 0; expression < expression_term_begins_.size(); ++expression) {
-        const uint32_t register_id = static_cast<uint32_t>(expression);
-        const uint32_t begin = expression_term_begins_[expression];
-        const uint32_t end = expression + 1 < expression_term_begins_.size()
-                                 ? expression_term_begins_[expression + 1]
-                                 : static_cast<uint32_t>(expression_terms_.size());
-        for (uint32_t i = begin; i < end; ++i) {
-            const uint32_t symbol = expression_terms_[i];
-            output_.expression_dependency_targets_[next_dependency[symbol]++] = register_id;
-        }
-    }
+#else
+    static_cast<void>(num_symbols);
+    static_cast<void>(num_registers);
+#endif
 }
 
 CLIFFT_BUILDER_FORCE_INLINE void ExecutablePlanBuilder::validate_executable_plan() const {
 #ifndef NDEBUG
     assert(expression_term_begins_.size() == output_.expression_register_constants_.size() &&
            "expression register storage is inconsistent");
-    assert(output_.expression_dependency_offsets_.size() ==
-               static_cast<size_t>(output_.num_symbols_) + 1 &&
-           "expression dependency offsets have the wrong size");
-    assert(!output_.expression_dependency_offsets_.empty() &&
-           output_.expression_dependency_offsets_.front() == 0 &&
-           output_.expression_dependency_offsets_.back() ==
-               output_.expression_dependency_targets_.size() &&
-           "expression dependency ranges are inconsistent");
-    for (size_t i = 1; i < output_.expression_dependency_offsets_.size(); ++i) {
-        assert(output_.expression_dependency_offsets_[i] >=
-                   output_.expression_dependency_offsets_[i - 1] &&
-               "expression dependency offsets are not ordered");
-    }
-    for (uint32_t target : output_.expression_dependency_targets_) {
-        assert(target < output_.expression_register_constants_.size() &&
-               "expression dependency target is out of range");
-    }
+    output_.expression_dependencies_.validate(output_.num_symbols_,
+                                              output_.expression_register_constants_.size());
 
     auto validate_expression = [&](ExecutablePlan::PreparedExpression expression) {
         assert(expression.register_id < output_.expression_register_constants_.size() &&
