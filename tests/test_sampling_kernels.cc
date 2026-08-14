@@ -1,6 +1,4 @@
-#include "clifft/sampling/active_measurement_dispatch.h"
-#include "clifft/sampling/direct_rotation_dispatch.h"
-#include "clifft/sampling/instrument_activation_dispatch.h"
+#include "clifft/sampling/kernel_dispatch.h"
 #include "clifft/sampling/kernels.h"
 #include "clifft/util/runtime_isa.h"
 
@@ -20,19 +18,22 @@
 
 using clifft::internal::RuntimeIsa;
 using clifft::sampling::activate_zero_coordinate;
-using clifft::sampling::active_measurement_probabilities;
+using clifft::sampling::active_measurement_probabilities_avx2;
+using clifft::sampling::active_measurement_probabilities_avx512;
 using clifft::sampling::ActiveMeasurementKernel;
 using clifft::sampling::ActivePauli;
 using clifft::sampling::apply_instrument_no_fire;
 using clifft::sampling::apply_new_x_instrument_no_fire;
-using clifft::sampling::apply_new_x_instrument_no_fire_dispatched;
+using clifft::sampling::apply_new_x_instrument_no_fire_avx2;
 using clifft::sampling::apply_promotion;
 using clifft::sampling::apply_rotation;
-using clifft::sampling::collapse_active_measurement;
+using clifft::sampling::collapse_active_measurement_avx2;
+using clifft::sampling::collapse_active_measurement_avx512;
 using clifft::sampling::collapse_instrument_source;
 using clifft::sampling::collapse_measurement;
 using clifft::sampling::collapse_new_x_instrument_source;
 using clifft::sampling::DirectRotationKernel;
+using clifft::sampling::ExecutorBackend;
 using clifft::sampling::expectation_value;
 using clifft::sampling::measurement_probabilities;
 using clifft::sampling::MeasurementProbabilities;
@@ -44,6 +45,7 @@ using clifft::sampling::prepare_rotation;
 using clifft::sampling::PreparedMeasurement;
 using clifft::sampling::resolve_active_measurement_kernel;
 using clifft::sampling::resolve_direct_rotation_kernel;
+using clifft::sampling::resolve_executor_backend;
 using clifft::sampling::resolve_new_x_instrument_kernel;
 using clifft::sampling::State;
 using clifft::test::check_complex;
@@ -340,9 +342,8 @@ TEST_CASE("Sampling kernels rotations match the existing dense matrix oracle") {
 
 TEST_CASE("Direct rotation SIMD selection preserves scalar boundaries") {
     const auto select = [](ActivePauli pauli, uint32_t active_width,
-                           RuntimeIsa runtime_isa = RuntimeIsa::Avx512) {
-        return resolve_direct_rotation_kernel(prepare_rotation(pauli, active_width, 0.3),
-                                              runtime_isa);
+                           ExecutorBackend backend = ExecutorBackend::Avx512) {
+        return resolve_direct_rotation_kernel(prepare_rotation(pauli, active_width, 0.3), backend);
     };
 
     REQUIRE(select({0, 0}, 4) == DirectRotationKernel::Scalar);
@@ -356,20 +357,28 @@ TEST_CASE("Direct rotation SIMD selection preserves scalar boundaries") {
     REQUIRE(select({0b10000, 0b01111}, 5) == DirectRotationKernel::Scalar);
     REQUIRE(select({0b100000, 0b011111}, 6) == DirectRotationKernel::HighPivot);
 
-    REQUIRE(select({0, 0b1}, 1, RuntimeIsa::Avx2) == DirectRotationKernel::Scalar);
-    REQUIRE(select({0, 0b11}, 2, RuntimeIsa::Avx2) == DirectRotationKernel::Diagonal);
-    REQUIRE(select({0b1, 0b0}, 1, RuntimeIsa::Avx2) == DirectRotationKernel::Scalar);
-    REQUIRE(select({0b01, 0b10}, 2, RuntimeIsa::Avx2) == DirectRotationKernel::LanePaired);
-    REQUIRE(select({0b100, 0b011}, 3, RuntimeIsa::Avx2) == DirectRotationKernel::HighPivot);
-    REQUIRE(select({0b10000, 0b01111}, 5, RuntimeIsa::Avx2) == DirectRotationKernel::HighPivot);
-    REQUIRE(select({0b01, 0b10}, 2, RuntimeIsa::Scalar) == DirectRotationKernel::Scalar);
+    REQUIRE(select({0, 0b1}, 1, ExecutorBackend::Avx2) == DirectRotationKernel::Scalar);
+    REQUIRE(select({0, 0b11}, 2, ExecutorBackend::Avx2) == DirectRotationKernel::Diagonal);
+    REQUIRE(select({0b1, 0b0}, 1, ExecutorBackend::Avx2) == DirectRotationKernel::Scalar);
+    REQUIRE(select({0b01, 0b10}, 2, ExecutorBackend::Avx2) == DirectRotationKernel::LanePaired);
+    REQUIRE(select({0b100, 0b011}, 3, ExecutorBackend::Avx2) == DirectRotationKernel::HighPivot);
+    REQUIRE(select({0b10000, 0b01111}, 5, ExecutorBackend::Avx2) ==
+            DirectRotationKernel::HighPivot);
+    REQUIRE(select({0b01, 0b10}, 2, ExecutorBackend::Scalar) == DirectRotationKernel::Scalar);
+}
+
+TEST_CASE("Sampling executor backend follows the resolved process ISA") {
+    REQUIRE(resolve_executor_backend(RuntimeIsa::Scalar) == ExecutorBackend::Scalar);
+    REQUIRE(resolve_executor_backend(RuntimeIsa::Avx2) == ExecutorBackend::Avx2);
+    REQUIRE(resolve_executor_backend(RuntimeIsa::Avx512) == ExecutorBackend::Avx512);
+    REQUIRE_THROWS(resolve_executor_backend(RuntimeIsa::TrapUnknown));
 }
 
 TEST_CASE("Active measurement SIMD selection preserves scalar boundaries") {
     const auto select = [](ActivePauli pauli, uint32_t active_width, uint32_t pivot,
-                           RuntimeIsa runtime_isa = RuntimeIsa::Avx512) {
+                           ExecutorBackend backend = ExecutorBackend::Avx512) {
         return resolve_active_measurement_kernel(prepare_measurement(pauli, active_width, pivot),
-                                                 runtime_isa);
+                                                 backend);
     };
 
     REQUIRE(select({0, 0b101}, 3, 0) == ActiveMeasurementKernel::Scalar);
@@ -378,19 +387,28 @@ TEST_CASE("Active measurement SIMD selection preserves scalar boundaries") {
     REQUIRE(select({0b001, 0b1110}, 4, 0) == ActiveMeasurementKernel::LanePaired);
     REQUIRE(select({0b111, 0b101000}, 6, 2) == ActiveMeasurementKernel::LanePaired);
     REQUIRE(select({0b1000, 0b0111}, 4, 3) == ActiveMeasurementKernel::Scalar);
-    REQUIRE(select({0b01, 0b10}, 2, 0, RuntimeIsa::Avx2) == ActiveMeasurementKernel::LanePaired);
-    REQUIRE(select({0b01, 0b110}, 3, 0, RuntimeIsa::Avx2) == ActiveMeasurementKernel::LanePaired);
-    REQUIRE(select({0b10, 0b101}, 3, 1, RuntimeIsa::Avx2) == ActiveMeasurementKernel::LanePaired);
-    REQUIRE(select({0b100, 0b011}, 3, 2, RuntimeIsa::Avx2) == ActiveMeasurementKernel::Scalar);
-    REQUIRE(select({0b01, 0b110}, 3, 0, RuntimeIsa::Scalar) == ActiveMeasurementKernel::Scalar);
+    REQUIRE(select({0b01, 0b10}, 2, 0, ExecutorBackend::Avx2) ==
+            ActiveMeasurementKernel::LanePaired);
+    REQUIRE(select({0b01, 0b110}, 3, 0, ExecutorBackend::Avx2) ==
+            ActiveMeasurementKernel::LanePaired);
+    REQUIRE(select({0b10, 0b101}, 3, 1, ExecutorBackend::Avx2) ==
+            ActiveMeasurementKernel::LanePaired);
+    REQUIRE(select({0b100, 0b011}, 3, 2, ExecutorBackend::Avx2) == ActiveMeasurementKernel::Scalar);
+    REQUIRE(select({0b01, 0b110}, 3, 0, ExecutorBackend::Scalar) ==
+            ActiveMeasurementKernel::Scalar);
 }
 
 TEST_CASE("New X instrument SIMD selection preserves scalar boundaries") {
-    REQUIRE(resolve_new_x_instrument_kernel(1, RuntimeIsa::Avx2) == NewXInstrumentKernel::Scalar);
-    REQUIRE(resolve_new_x_instrument_kernel(2, RuntimeIsa::Avx2) == NewXInstrumentKernel::Avx2);
-    REQUIRE(resolve_new_x_instrument_kernel(8, RuntimeIsa::Avx2) == NewXInstrumentKernel::Avx2);
-    REQUIRE(resolve_new_x_instrument_kernel(8, RuntimeIsa::Scalar) == NewXInstrumentKernel::Scalar);
-    REQUIRE(resolve_new_x_instrument_kernel(8, RuntimeIsa::Avx512) == NewXInstrumentKernel::Avx2);
+    REQUIRE(resolve_new_x_instrument_kernel(1, ExecutorBackend::Avx2) ==
+            NewXInstrumentKernel::Scalar);
+    REQUIRE(resolve_new_x_instrument_kernel(2, ExecutorBackend::Avx2) ==
+            NewXInstrumentKernel::Vectorized);
+    REQUIRE(resolve_new_x_instrument_kernel(8, ExecutorBackend::Avx2) ==
+            NewXInstrumentKernel::Vectorized);
+    REQUIRE(resolve_new_x_instrument_kernel(8, ExecutorBackend::Scalar) ==
+            NewXInstrumentKernel::Scalar);
+    REQUIRE(resolve_new_x_instrument_kernel(8, ExecutorBackend::Avx512) ==
+            NewXInstrumentKernel::Vectorized);
 }
 
 TEST_CASE("Sampling kernel expectation values match the existing dense matrix oracle") {
@@ -519,6 +537,8 @@ TEST_CASE("Active measurement SIMD matches scalar low-lane Pauli compaction") {
     if (runtime_isa != RuntimeIsa::Avx2 && runtime_isa != RuntimeIsa::Avx512) {
         return;
     }
+    const ExecutorBackend backend =
+        runtime_isa == RuntimeIsa::Avx512 ? ExecutorBackend::Avx512 : ExecutorBackend::Avx2;
 
     const uint64_t vector_lanes = runtime_isa == RuntimeIsa::Avx512 ? 8 : 4;
     const uint32_t lane_index_bits = runtime_isa == RuntimeIsa::Avx512 ? 3 : 2;
@@ -536,7 +556,7 @@ TEST_CASE("Active measurement SIMD matches scalar low-lane Pauli compaction") {
                     const PreparedMeasurement measurement =
                         prepare_measurement({x, z}, active_width, pivot);
                     const ActiveMeasurementKernel selected =
-                        resolve_active_measurement_kernel(measurement, runtime_isa);
+                        resolve_active_measurement_kernel(measurement, backend);
                     REQUIRE(selected == (active_width >= min_profitable_width
                                              ? ActiveMeasurementKernel::LanePaired
                                              : ActiveMeasurementKernel::Scalar));
@@ -548,8 +568,12 @@ TEST_CASE("Active measurement SIMD matches scalar low-lane Pauli compaction") {
 
                     State vector_probability_state(active_width, active_width);
                     load_state(vector_probability_state, input);
-                    const MeasurementProbabilities actual = active_measurement_probabilities(
-                        vector_probability_state, measurement, ActiveMeasurementKernel::LanePaired);
+                    const MeasurementProbabilities actual =
+                        runtime_isa == RuntimeIsa::Avx512
+                            ? active_measurement_probabilities_avx512(vector_probability_state,
+                                                                      measurement)
+                            : active_measurement_probabilities_avx2(vector_probability_state,
+                                                                    measurement);
                     REQUIRE_THAT(actual.zero,
                                  Catch::Matchers::WithinAbs(expected.zero, kTolerance));
                     REQUIRE_THAT(actual.one, Catch::Matchers::WithinAbs(expected.one, kTolerance));
@@ -562,9 +586,13 @@ TEST_CASE("Active measurement SIMD matches scalar low-lane Pauli compaction") {
 
                         State vector_state(active_width, active_width);
                         load_state(vector_state, input);
-                        collapse_active_measurement(vector_state, measurement,
-                                                    ActiveMeasurementKernel::LanePaired, branch,
-                                                    actual.for_branch(branch));
+                        if (runtime_isa == RuntimeIsa::Avx512) {
+                            collapse_active_measurement_avx512(vector_state, measurement, branch,
+                                                               actual.for_branch(branch));
+                        } else {
+                            collapse_active_measurement_avx2(vector_state, measurement, branch,
+                                                             actual.for_branch(branch));
+                        }
 
                         require_vectors_close(coefficients(vector_state),
                                               coefficients(scalar_state));
@@ -740,8 +768,8 @@ TEST_CASE("Sampling AVX2 new X instrument activation matches scalar") {
 
             State actual(initial_width + 1, initial_width);
             load_state(actual, input);
-            apply_new_x_instrument_no_fire_dispatched(
-                actual, factor_zero, factor_one, no_fire_probability, NewXInstrumentKernel::Avx2);
+            apply_new_x_instrument_no_fire_avx2(actual, factor_zero, factor_one,
+                                                no_fire_probability);
 
             require_vectors_close(coefficients(actual), coefficients(expected));
             REQUIRE(actual.active_width() == initial_width + 1);

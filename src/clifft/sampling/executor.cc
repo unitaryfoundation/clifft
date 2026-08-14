@@ -61,7 +61,8 @@ Executor::Executor(const ExecutablePlan& plan, uint64_t seed)
       exp_vals_(plan.num_exp_vals_, 0.0),
       forced_record_mask_(records_.size(), 0),
       forced_record_values_(records_.size(), 0),
-      rng_(seed) {
+      rng_(seed),
+      backend_(plan.backend_) {
     previous_presampled_ones_.reserve(plan.presampled_symbols_.size());
 }
 
@@ -71,14 +72,14 @@ void Executor::run_shot() noexcept {
            "automatic execution requires every presampled symbol to have a distribution");
     reset_shot();
     sample_presampled_noise(0, plan_->initial_noise_end_);
-    (void)execute_actions<false, true, false>({});
+    (void)execute_actions_for_backend<false, true, false>({});
 }
 
 void Executor::run_shot(std::span<const uint8_t> presampled_values) noexcept {
     plan_ = root_plan_;
     reset_shot();
     assign_presampled_values(presampled_values);
-    (void)execute_actions<false, false, false>({});
+    (void)execute_actions_for_backend<false, false, false>({});
 }
 
 void Executor::run_shot(KFaultSampler& fault_sampler) noexcept {
@@ -90,7 +91,7 @@ void Executor::run_shot(KFaultSampler& fault_sampler) noexcept {
     forced_fault_sites_ = fault_sampler.sample([&]() noexcept { return rng_.next_double(); });
     forced_fault_cursor_ = 0;
     assign_forced_quantum_faults();
-    (void)execute_actions<false, false, true>({});
+    (void)execute_actions_for_backend<false, false, true>({});
     forced_fault_sites_ = {};
     forced_fault_cursor_ = 0;
 }
@@ -99,6 +100,10 @@ void Executor::resume(const ExecutablePlan& continuation,
                       std::optional<ForcedTraceOut> forced_trace_out) {
     if (!pending_trap_.has_value()) {
         throw std::invalid_argument("sampling executor resume requires a pending instrument trap");
+    }
+    if (continuation.backend_ != backend_) {
+        throw std::invalid_argument(
+            "sampling continuation uses a different executor backend than the root plan");
     }
     const uint32_t site = index(pending_trap_->site);
     if (site >= continuation.instrument_resume_offsets_.size() ||
@@ -164,7 +169,7 @@ void Executor::resume(const ExecutablePlan& continuation,
 
     plan_ = &continuation;
     pending_trap_.reset();
-    (void)execute_actions<false, true, false>({}, offset);
+    (void)execute_actions_for_backend<false, true, false>({}, offset);
     if (forced_trace_out.has_value() && forced_record_mask_[index(forced_trace_out->record)] != 0) {
         throw std::logic_error("sampling continuation did not consume its forced trace-out record");
     }
@@ -186,7 +191,7 @@ ReplayResult Executor::replay_shot(std::span<const uint8_t> forced_records,
            "forced records must be Boolean");
     reset_shot();
     assign_presampled_values(presampled_values);
-    return execute_actions<true, false, false>(forced_records);
+    return execute_actions_for_backend<true, false, false>(forced_records);
 }
 
 void Executor::reset_shot() noexcept {
@@ -314,10 +319,22 @@ void Executor::assign_forced_quantum_faults() noexcept {
     }
 }
 
-template <bool ForceRecords>
+template <ExecutorBackend Backend, bool ForceRecords>
 void Executor::execute_action(const ExecutablePlan::ExecuteRotation& action,
                               std::span<const uint8_t>, ReplayResult&) noexcept {
-    action.apply(state_, evaluate(action.sign));
+    const bool sign = evaluate(action.sign);
+    if (action.kernel == DirectRotationKernel::Scalar) {
+        apply_rotation(state_, action.rotation, sign);
+        return;
+    }
+    if constexpr (Backend == ExecutorBackend::Avx2) {
+        apply_direct_rotation_avx2(state_, action.rotation, action.kernel, sign);
+    } else if constexpr (Backend == ExecutorBackend::Avx512) {
+        apply_direct_rotation_avx512(state_, action.rotation, action.kernel, sign);
+    } else {
+        assert(false && "scalar executor requires scalar direct-rotation actions");
+        apply_rotation(state_, action.rotation, sign);
+    }
 }
 
 template <bool ForceRecords>
@@ -349,11 +366,23 @@ void Executor::execute_action(const ExecutablePlan::ExecutePromotion& action,
     apply_promotion(state_, action.promotion, evaluate(action.sign));
 }
 
-template <bool ForceRecords>
+template <ExecutorBackend Backend, bool ForceRecords>
 void Executor::execute_action(const ExecutablePlan::ExecuteActiveMeasurement& action,
                               std::span<const uint8_t> forced_records,
                               ReplayResult& result) noexcept {
-    const MeasurementProbabilities probabilities = action.probabilities(state_);
+    const MeasurementProbabilities probabilities = [&]() noexcept {
+        if (action.kernel == ActiveMeasurementKernel::Scalar) {
+            return measurement_probabilities(state_, action.measurement);
+        }
+        if constexpr (Backend == ExecutorBackend::Avx2) {
+            return active_measurement_probabilities_avx2(state_, action.measurement);
+        } else if constexpr (Backend == ExecutorBackend::Avx512) {
+            return active_measurement_probabilities_avx512(state_, action.measurement);
+        } else {
+            assert(false && "scalar executor requires scalar active-measurement actions");
+            return measurement_probabilities(state_, action.measurement);
+        }
+    }();
     const bool correction = evaluate(action.correction);
     bool branch = false;
     if constexpr (ForceRecords) {
@@ -376,7 +405,17 @@ void Executor::execute_action(const ExecutablePlan::ExecuteActiveMeasurement& ac
         }
     }
     assign_symbol(action.branch, branch);
-    action.collapse(state_, branch, probabilities.for_branch(branch));
+    const double branch_probability = probabilities.for_branch(branch);
+    if (action.kernel == ActiveMeasurementKernel::Scalar) {
+        collapse_measurement(state_, action.measurement, branch, branch_probability);
+    } else if constexpr (Backend == ExecutorBackend::Avx2) {
+        collapse_active_measurement_avx2(state_, action.measurement, branch, branch_probability);
+    } else if constexpr (Backend == ExecutorBackend::Avx512) {
+        collapse_active_measurement_avx512(state_, action.measurement, branch, branch_probability);
+    } else {
+        assert(false && "scalar executor requires scalar active-measurement actions");
+        collapse_measurement(state_, action.measurement, branch, branch_probability);
+    }
     records_[action.record] = static_cast<uint8_t>(branch ^ correction);
 }
 
@@ -531,7 +570,7 @@ void Executor::execute_instrument(
     trap_instrument(action.site, source, true);
 }
 
-template <typename Action>
+template <ExecutorBackend Backend, typename Action>
 void Executor::execute_quantum_instrument(const Action& action) noexcept {
     constexpr bool kActivatesCoordinate =
         std::is_same_v<Action, ExecutablePlan::ExecuteMeasuredInstrumentActivation>;
@@ -582,8 +621,18 @@ void Executor::execute_quantum_instrument(const Action& action) noexcept {
         assert(no_fire_probability > 0.0 &&
                "a selected no-fire branch must have positive probability");
         if constexpr (kActivatesNewX) {
-            apply_new_x_instrument_no_fire_dispatched(state_, factor_zero, factor_one,
-                                                      no_fire_probability, action.kernel);
+            if (action.kernel == NewXInstrumentKernel::Scalar) {
+                apply_new_x_instrument_no_fire(state_, factor_zero, factor_one,
+                                               no_fire_probability);
+            } else if constexpr (Backend == ExecutorBackend::Avx2 ||
+                                 Backend == ExecutorBackend::Avx512) {
+                apply_new_x_instrument_no_fire_avx2(state_, factor_zero, factor_one,
+                                                    no_fire_probability);
+            } else {
+                assert(false && "scalar executor requires scalar new-X instrument actions");
+                apply_new_x_instrument_no_fire(state_, factor_zero, factor_one,
+                                               no_fire_probability);
+            }
         } else {
             apply_instrument_no_fire(state_, action.measurement.pauli, factor_zero, factor_one,
                                      no_fire_probability);
@@ -602,28 +651,40 @@ void Executor::execute_quantum_instrument(const Action& action) noexcept {
     finish_instrument_fire(action.site, action.destination_flip, *fired_source, distribution);
 }
 
+template <ExecutorBackend Backend>
 void Executor::execute_instrument(const ExecutablePlan::ExecuteActiveInstrument& action) noexcept {
-    execute_quantum_instrument(action);
+    execute_quantum_instrument<Backend>(action);
 }
 
+template <ExecutorBackend Backend>
 void Executor::execute_instrument(
     const ExecutablePlan::ExecuteMeasuredInstrumentActivation& action) noexcept {
-    execute_quantum_instrument(action);
+    execute_quantum_instrument<Backend>(action);
 }
 
+template <ExecutorBackend Backend>
 void Executor::execute_instrument(
     const ExecutablePlan::ExecuteNewXInstrumentActivation& action) noexcept {
-    execute_quantum_instrument(action);
+    execute_quantum_instrument<Backend>(action);
 }
 
-template <bool ForceRecords>
+template <ExecutorBackend Backend, bool ForceRecords>
 void Executor::execute_action(const ExecutablePlan::ExecuteInstrument& action,
                               std::span<const uint8_t>, ReplayResult& result) noexcept {
     if constexpr (ForceRecords) {
         result.reachable = false;
     } else {
-        std::visit([&](const auto& instrument) noexcept { execute_instrument(instrument); },
-                   action.form);
+        std::visit(
+            [&](const auto& instrument) noexcept {
+                using T = std::decay_t<decltype(instrument)>;
+                if constexpr (std::is_same_v<T, ExecutablePlan::ExecuteClassicalInstrument> ||
+                              std::is_same_v<T, ExecutablePlan::ExecuteDormantInstrumentTrap>) {
+                    execute_instrument(instrument);
+                } else {
+                    execute_instrument<Backend>(instrument);
+                }
+            },
+            action.form);
     }
 }
 
@@ -635,7 +696,7 @@ void Executor::execute_action(const ExecutablePlan::ExecuteBoundary& action,
     }
 }
 
-template <bool ForceRecords, bool SampleNoise, bool ForceFaults>
+template <ExecutorBackend Backend, bool ForceRecords, bool SampleNoise, bool ForceFaults>
 ReplayResult Executor::execute_actions(std::span<const uint8_t> forced_records,
                                        uint32_t begin) noexcept {
     ReplayResult result;
@@ -649,6 +710,10 @@ ReplayResult Executor::execute_actions(std::span<const uint8_t> forced_records,
                     execute_action<SampleNoise>(typed, forced_records, result);
                 } else if constexpr (std::is_same_v<T, ExecutablePlan::ExecuteReadoutNoise>) {
                     execute_action<ForceRecords, ForceFaults>(typed, forced_records, result);
+                } else if constexpr (std::is_same_v<T, ExecutablePlan::ExecuteRotation> ||
+                                     std::is_same_v<T, ExecutablePlan::ExecuteActiveMeasurement> ||
+                                     std::is_same_v<T, ExecutablePlan::ExecuteInstrument>) {
+                    execute_action<Backend, ForceRecords>(typed, forced_records, result);
                 } else {
                     execute_action<ForceRecords>(typed, forced_records, result);
                 }
@@ -667,6 +732,32 @@ ReplayResult Executor::execute_actions(std::span<const uint8_t> forced_records,
         }
     }
     return result;
+}
+
+template <bool ForceRecords, bool SampleNoise, bool ForceFaults>
+ReplayResult Executor::execute_actions_for_backend(std::span<const uint8_t> forced_records,
+                                                   uint32_t begin) noexcept {
+    switch (backend_) {
+        case ExecutorBackend::Scalar:
+            return execute_actions<ExecutorBackend::Scalar, ForceRecords, SampleNoise, ForceFaults>(
+                forced_records, begin);
+        case ExecutorBackend::Avx2:
+#if defined(CLIFFT_ENABLE_RUNTIME_DISPATCH)
+            return execute_actions<ExecutorBackend::Avx2, ForceRecords, SampleNoise, ForceFaults>(
+                forced_records, begin);
+#else
+            break;
+#endif
+        case ExecutorBackend::Avx512:
+#if defined(CLIFFT_ENABLE_RUNTIME_DISPATCH)
+            return execute_actions<ExecutorBackend::Avx512, ForceRecords, SampleNoise, ForceFaults>(
+                forced_records, begin);
+#else
+            break;
+#endif
+    }
+    assert(false && "unhandled sampling executor backend");
+    return {};
 }
 
 bool Executor::evaluate(ExecutablePlan::PreparedExpression expression) const noexcept {

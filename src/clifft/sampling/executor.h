@@ -117,9 +117,12 @@ class Executor {
                                          uint32_t symbol_prefix_size) noexcept;
 
     template <bool ForceRecords, bool SampleNoise, bool ForceFaults>
+    [[nodiscard]] ReplayResult execute_actions_for_backend(std::span<const uint8_t> forced_records,
+                                                           uint32_t begin = 0) noexcept;
+    template <ExecutorBackend Backend, bool ForceRecords, bool SampleNoise, bool ForceFaults>
     [[nodiscard]] ReplayResult execute_actions(std::span<const uint8_t> forced_records,
                                                uint32_t begin = 0) noexcept;
-    template <bool ForceRecords>
+    template <ExecutorBackend Backend, bool ForceRecords>
     void execute_action(const ExecutablePlan::ExecuteRotation& action,
                         std::span<const uint8_t> forced_records, ReplayResult& result) noexcept;
     template <bool ForceRecords>
@@ -131,7 +134,7 @@ class Executor {
     template <bool ForceRecords>
     void execute_action(const ExecutablePlan::ExecutePromotion& action,
                         std::span<const uint8_t> forced_records, ReplayResult& result) noexcept;
-    template <bool ForceRecords>
+    template <ExecutorBackend Backend, bool ForceRecords>
     void execute_action(const ExecutablePlan::ExecuteActiveMeasurement& action,
                         std::span<const uint8_t> forced_records, ReplayResult& result) noexcept;
     template <bool ForceRecords>
@@ -155,7 +158,7 @@ class Executor {
     template <bool ForceRecords>
     void execute_action(const ExecutablePlan::ExecuteExpectation& action,
                         std::span<const uint8_t> forced_records, ReplayResult& result) noexcept;
-    template <bool ForceRecords>
+    template <ExecutorBackend Backend, bool ForceRecords>
     void execute_action(const ExecutablePlan::ExecuteInstrument& action,
                         std::span<const uint8_t> forced_records, ReplayResult& result) noexcept;
     template <bool SampleNoise>
@@ -172,11 +175,14 @@ class Executor {
                                 const InstrumentDistribution& distribution) noexcept;
     void execute_instrument(const ExecutablePlan::ExecuteClassicalInstrument& action) noexcept;
     void execute_instrument(const ExecutablePlan::ExecuteDormantInstrumentTrap& action) noexcept;
+    template <ExecutorBackend Backend>
     void execute_instrument(const ExecutablePlan::ExecuteActiveInstrument& action) noexcept;
+    template <ExecutorBackend Backend>
     void execute_instrument(
         const ExecutablePlan::ExecuteMeasuredInstrumentActivation& action) noexcept;
+    template <ExecutorBackend Backend>
     void execute_instrument(const ExecutablePlan::ExecuteNewXInstrumentActivation& action) noexcept;
-    template <typename Action>
+    template <ExecutorBackend Backend, typename Action>
     void execute_quantum_instrument(const Action& action) noexcept;
 
     // The caller-owned root plan must outlive this executor. After resume(),
@@ -209,6 +215,9 @@ class Executor {
 
     // RNG position deliberately persists across shots.
     Xoshiro256PlusPlus rng_;
+
+    // Selected with the root plan and reused by every shot and continuation.
+    ExecutorBackend backend_;
 
     // Per-shot control state.
     bool discarded_ = false;

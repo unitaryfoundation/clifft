@@ -1,7 +1,6 @@
 #pragma once
 
 #include "clifft/sampling/executable_plan.h"
-#include "clifft/util/runtime_isa.h"
 
 #include <cstddef>
 #include <cstdint>
@@ -51,7 +50,7 @@ class ExecutablePlanBuilder {
 
     ExecutablePlan& output_;
     const SamplingPlan& source_;
-    clifft::internal::RuntimeIsa runtime_isa_ = clifft::internal::RuntimeIsa::Scalar;
+    ExecutorBackend backend_ = ExecutorBackend::Scalar;
     // Retain action-order terms only until the dependency CSR is complete.
     std::vector<uint32_t> expression_terms_;
     std::vector<uint32_t> expression_term_begins_;
