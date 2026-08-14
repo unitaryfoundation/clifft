@@ -4,10 +4,12 @@
 #include "clifft/sampling/kernels.h"
 #include "clifft/sampling/plan.h"
 
+#include <cassert>
 #include <complex>
 #include <cstddef>
 #include <cstdint>
 #include <optional>
+#include <span>
 #include <variant>
 #include <vector>
 
@@ -81,6 +83,31 @@ class ExecutablePlan {
     // storage near the end of this class.
     struct PreparedExpression {
         uint32_t register_id = 0;
+    };
+
+    // Reverse index used to update affine registers when a symbol becomes true.
+    // Construction transposes expression terms into one contiguous range per symbol.
+    class ExpressionDependencies {
+      public:
+        [[nodiscard]] std::span<const uint32_t> dependent_registers(
+            uint32_t symbol) const noexcept {
+            assert(static_cast<size_t>(symbol) + 1 < offsets_.size() &&
+                   "assigned symbol must have an expression dependency range");
+            const uint32_t begin = offsets_[symbol];
+            const uint32_t end = offsets_[symbol + 1];
+            return std::span<const uint32_t>(targets_).subspan(begin, end - begin);
+        }
+
+      private:
+        friend class ExecutablePlanBuilder;
+
+        [[nodiscard]] static ExpressionDependencies build(
+            uint32_t num_symbols, std::span<const uint32_t> expression_terms,
+            std::span<const uint32_t> expression_term_begins);
+        void validate(uint32_t num_symbols, size_t num_registers) const noexcept;
+
+        std::vector<uint32_t> offsets_;
+        std::vector<uint32_t> targets_;
     };
 
     // CPU action descriptors. They contain only fixed operands and indices;
@@ -286,12 +313,9 @@ class ExecutablePlan {
 
     // Affine register initialization and reverse symbol dependencies.
 
-    // Constants are indexed by PreparedExpression::register_id. The dependency
-    // vectors form CSR: targets[offsets[symbol]..offsets[symbol + 1]) lists the
-    // expression registers toggled when that symbol is true.
+    // Constants are indexed by PreparedExpression::register_id.
     std::vector<uint8_t> expression_register_constants_;
-    std::vector<uint32_t> expression_dependency_offsets_;
-    std::vector<uint32_t> expression_dependency_targets_;
+    ExpressionDependencies expression_dependencies_;
 
     // Presampled inputs and their circuit-site distributions.
 

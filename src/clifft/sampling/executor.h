@@ -106,6 +106,16 @@ class Executor {
     [[nodiscard]] uint64_t dust_clamps() const { return dust_clamps_; }
 
   private:
+    // Selects the complete per-shot policy at compile time. Keeping the four
+    // supported modes named prevents unsupported combinations of record,
+    // noise, and fixed-fault behavior from reaching the action loop.
+    enum class ShotMode : uint8_t {
+        SampleNoise,
+        UsePresampledNoise,
+        FixedFaultCount,
+        ReplayRecords,
+    };
+
     void reset_shot() noexcept;
     void assign_presampled_values(std::span<const uint8_t> presampled_values) noexcept;
     void sample_presampled_noise(uint32_t begin, uint32_t end) noexcept;
@@ -116,52 +126,45 @@ class Executor {
     void initialize_expression_registers(const ExecutablePlan& plan,
                                          uint32_t symbol_prefix_size) noexcept;
 
-    template <bool ForceRecords, bool SampleNoise, bool ForceFaults>
+    template <ShotMode Mode>
     [[nodiscard]] ReplayResult execute_actions_for_backend(std::span<const uint8_t> forced_records,
                                                            uint32_t begin = 0) noexcept;
-    template <ExecutorBackend Backend, bool ForceRecords, bool SampleNoise, bool ForceFaults>
+    template <ExecutorBackend Backend, ShotMode Mode>
     [[nodiscard]] ReplayResult execute_actions(std::span<const uint8_t> forced_records,
                                                uint32_t begin = 0) noexcept;
-    template <ExecutorBackend Backend, bool ForceRecords>
+    template <ExecutorBackend Backend>
     void execute_action(const ExecutablePlan::ExecuteRotation& action,
                         std::span<const uint8_t> forced_records, ReplayResult& result) noexcept;
-    template <bool ForceRecords>
     void execute_action(const ExecutablePlan::ExecuteFusedRotation& action,
                         std::span<const uint8_t> forced_records, ReplayResult& result) noexcept;
-    template <bool ForceRecords>
     void execute_action(const ExecutablePlan::ExecuteDynamicFusedRotation& action,
                         std::span<const uint8_t> forced_records, ReplayResult& result) noexcept;
-    template <bool ForceRecords>
     void execute_action(const ExecutablePlan::ExecutePromotion& action,
                         std::span<const uint8_t> forced_records, ReplayResult& result) noexcept;
-    template <ExecutorBackend Backend, bool ForceRecords>
+    template <ExecutorBackend Backend, ShotMode Mode>
     void execute_action(const ExecutablePlan::ExecuteActiveMeasurement& action,
                         std::span<const uint8_t> forced_records, ReplayResult& result) noexcept;
-    template <bool ForceRecords>
+    template <ShotMode Mode>
     void execute_action(const ExecutablePlan::ExecuteDormantMeasurement& action,
                         std::span<const uint8_t> forced_records, ReplayResult& result) noexcept;
-    template <bool ForceRecords>
+    template <ShotMode Mode>
     void execute_action(const ExecutablePlan::ExecuteClassicalRecord& action,
                         std::span<const uint8_t> forced_records, ReplayResult& result) noexcept;
-    template <bool ForceRecords>
     void execute_action(const ExecutablePlan::ExecuteSymbolDefinition& action,
                         std::span<const uint8_t> forced_records, ReplayResult& result) noexcept;
-    template <bool ForceRecords, bool ForceFaults>
+    template <ShotMode Mode>
     void execute_action(const ExecutablePlan::ExecuteReadoutNoise& action,
                         std::span<const uint8_t> forced_records, ReplayResult& result) noexcept;
-    template <bool ForceRecords>
     void execute_action(const ExecutablePlan::ExecuteDetector& action,
                         std::span<const uint8_t> forced_records, ReplayResult& result) noexcept;
-    template <bool ForceRecords>
     void execute_action(const ExecutablePlan::ExecuteObservable& action,
                         std::span<const uint8_t> forced_records, ReplayResult& result) noexcept;
-    template <bool ForceRecords>
     void execute_action(const ExecutablePlan::ExecuteExpectation& action,
                         std::span<const uint8_t> forced_records, ReplayResult& result) noexcept;
-    template <ExecutorBackend Backend, bool ForceRecords>
+    template <ExecutorBackend Backend, ShotMode Mode>
     void execute_action(const ExecutablePlan::ExecuteInstrument& action,
                         std::span<const uint8_t> forced_records, ReplayResult& result) noexcept;
-    template <bool SampleNoise>
+    template <ShotMode Mode>
     void execute_action(const ExecutablePlan::ExecuteBoundary& action,
                         std::span<const uint8_t> forced_records, ReplayResult& result) noexcept;
 
