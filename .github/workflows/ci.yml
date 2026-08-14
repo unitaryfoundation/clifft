@@ -307,19 +307,29 @@ jobs:
         run: PYTHON=$(pwd)/.smoke-venv/bin/python .github/scripts/wheel_smoke.sh Nehalem avx2 fail
 
   cross-platform:
-    if: github.event_name == 'push'
+    name: cross-platform (${{ matrix.label }})
     strategy:
       fail-fast: false
       matrix:
         include:
-          - os: macos-latest
+          - label: macOS
+            os: macos-latest
             install-deps: brew install ninja libomp
-          - os: windows-latest
+            skbuild-type: Debug
+            skbuild-cmake-args: ""
+          # MSVC Debug wheels make the Python suite several times slower than
+          # every other platform, so Windows tests an optimized wheel that
+          # keeps assert() active instead.
+          - label: Windows
+            os: windows-latest
             install-deps: ""
+            skbuild-type: RelWithDebInfo
+            skbuild-cmake-args: "-DCLIFFT_FORCE_ASSERTS=ON"
     runs-on: ${{ matrix.os }}
     env:
       CMAKE_BUILD_TYPE: Debug
-      SKBUILD_CMAKE_BUILD_TYPE: Debug
+      SKBUILD_CMAKE_BUILD_TYPE: ${{ matrix.skbuild-type }}
+      SKBUILD_CMAKE_ARGS: ${{ matrix.skbuild-cmake-args }}
       CLIFFT_CPU_BASELINE: generic
       CMAKE_GENERATOR: Ninja
       CMAKE_C_COMPILER_LAUNCHER: ccache
