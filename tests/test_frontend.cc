@@ -176,6 +176,37 @@ TEST_CASE("Frontend: multiple T gates on different qubits", "[frontend]") {
     REQUIRE(hir.stab_mask(hir.ops[1]) == 0);
 }
 
+TEST_CASE("Frontend: SPP is absorbed into the Clifford tableau", "[frontend]") {
+    auto hir = trace(parse("SPP X0*Y1*Z2\nSPP_DAG !X0"));
+
+    CHECK(hir.num_ops() == 0);
+    REQUIRE(hir.final_tableau.has_value());
+}
+
+TEST_CASE("Frontend: TPP emits one T gate per product", "[frontend]") {
+    auto hir = trace(parse("H 0\nTPP X0*Z1 Y2"));
+
+    REQUIRE(hir.num_ops() == 2);
+    CHECK(hir.ops[0].op_type() == OpType::T_GATE);
+    CHECK(hir.destab_mask(hir.ops[0]) == 0);
+    CHECK(hir.stab_mask(hir.ops[0]) == (Z(0) | Z(1)));
+    CHECK(!hir.ops[0].is_dagger());
+    CHECK(hir.ops[1].op_type() == OpType::T_GATE);
+    CHECK(hir.destab_mask(hir.ops[1]) == X(2));
+    CHECK(hir.stab_mask(hir.ops[1]) == Z(2));
+    CHECK(!hir.ops[1].is_dagger());
+}
+
+TEST_CASE("Frontend: TPP inversion reverses the named gate", "[frontend]") {
+    auto hir = trace(parse("TPP !Z0\nTPP_DAG !Z1"));
+
+    REQUIRE(hir.num_ops() == 2);
+    CHECK(hir.ops[0].is_dagger());
+    CHECK(!hir.ops[1].is_dagger());
+    CHECK(!hir.sign(hir.ops[0]));
+    CHECK(!hir.sign(hir.ops[1]));
+}
+
 TEST_CASE("Frontend: CX entangles qubits - T sees multi-qubit Pauli", "[frontend]") {
     auto circuit = parse(R"(
         H 0

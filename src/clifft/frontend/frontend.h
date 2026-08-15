@@ -9,8 +9,8 @@
 // Key algorithm:
 // 1. Initialize TableauSimulator with identity tableau
 // 2. For each gate in the circuit:
-//    - Clifford: apply to simulator (absorbed into tableau)
-//    - T/T_DAG: extract rewound Z from inv_state.zs[q], emit HeisenbergOp
+//    - Clifford and SPP gates: apply to simulator (absorbed into tableau)
+//    - T/T_DAG and TPP gates: emit HeisenbergOps with rewound Pauli masks
 //    - Measurement: extract rewound observable, emit MEASURE
 //    - Classical feedback: extract rewound Pauli, emit CONDITIONAL_PAULI
 // 3. Return HirModule with all emitted operations
@@ -50,8 +50,8 @@ struct InstrumentTraceOptions {
 // Trace a circuit through the Front-End, producing a HirModule.
 //
 // This is the main entry point for the Front-End. It:
-// - Absorbs all Clifford gates into the tableau
-// - Emits HeisenbergOps for T/T_DAG gates with rewound Pauli masks
+// - Absorbs all Clifford gates, including SPP/SPP_DAG, into the tableau
+// - Emits HeisenbergOps for T/T_DAG and TPP/TPP_DAG with rewound Pauli masks
 // - Emits HeisenbergOps for measurements
 // - Emits HeisenbergOps for classical feedback (CX/CZ with rec targets)
 // - With `instruments` supplied, materializes LEVEL_TRANSITION, LEAKAGE, and

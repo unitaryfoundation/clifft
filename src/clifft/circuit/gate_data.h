@@ -4,6 +4,7 @@
 //
 // This defines all gates supported by the Clifft parser, including:
 // - Clifford gates (H, S, X, CX, etc.)
+// - Named Pauli-product phase gates (SPP, TPP, and inverses)
 // - Non-Clifford gates (T, T_DAG)
 // - Measurements (M, MX, MPP, MR, MRX)
 // - Resets (R, RX) - decomposed by parser into M + feedback
@@ -43,9 +44,15 @@ enum class GateType : uint16_t {
     C_ZNYX,
     C_ZYNX,
 
+    // Pauli-product Clifford phase gates
+    SPP,
+    SPP_DAG,
+
     // Non-Clifford gates
     T,
     T_DAG,
+    TPP,
+    TPP_DAG,
 
     // Parameterized rotation gates (continuous angles in half-turn units)
     R_X,
@@ -212,9 +219,14 @@ inline constexpr GateTraits kGateTraitsData[] = {
     {.arity = S, .unitary = true, .clifford = true, .name = "C_XYNZ"},
     {.arity = S, .unitary = true, .clifford = true, .name = "C_ZNYX"},
     {.arity = S, .unitary = true, .clifford = true, .name = "C_ZYNX"},
+    // Pauli-product Clifford phase gates
+    {.arity = ML, .unitary = true, .clifford = true, .name = "SPP"},
+    {.arity = ML, .unitary = true, .clifford = true, .name = "SPP_DAG"},
     // Non-Clifford
     {.arity = S, .unitary = true, .name = "T"},
     {.arity = S, .unitary = true, .name = "T_DAG"},
+    {.arity = ML, .unitary = true, .name = "TPP"},
+    {.arity = ML, .unitary = true, .name = "TPP_DAG"},
     // Parameterized rotations
     {.arity = S, .unitary = true, .name = "R_X"},
     {.arity = S, .unitary = true, .name = "R_Y"},

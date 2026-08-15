@@ -81,6 +81,41 @@ void apply_two_qubit_clifford(stim::TableauSimulator<kStimWidth>& sim, GateType 
     sim.inv_state.inplace_scatter_prepend(inv_tab, {a, b});
 }
 
+void apply_pauli_product_clifford(stim::TableauSimulator<kStimWidth>& sim,
+                                  const std::vector<Target>& targets, bool dagger) {
+    // Match Stim's basis-change and parity-fold decomposition so SPP inherits
+    // the named S/S_DAG phase convention instead of a balanced rotation phase.
+    bool inversion_parity = false;
+    for (const auto& target : targets) {
+        inversion_parity ^= target.is_inverted();
+        if (target.pauli() == Target::kPauliX) {
+            apply_single_qubit_clifford(sim, GateType::H, target.value());
+        } else if (target.pauli() == Target::kPauliY) {
+            apply_single_qubit_clifford(sim, GateType::H_YZ, target.value());
+        }
+    }
+
+    const uint32_t focus = targets.front().value();
+    for (size_t i = 1; i < targets.size(); ++i) {
+        apply_two_qubit_clifford(sim, GateType::CX, targets[i].value(), focus);
+    }
+
+    apply_single_qubit_clifford(sim, dagger ^ inversion_parity ? GateType::S_DAG : GateType::S,
+                                focus);
+
+    for (size_t i = targets.size(); i-- > 1;) {
+        apply_two_qubit_clifford(sim, GateType::CX, targets[i].value(), focus);
+    }
+    for (size_t i = targets.size(); i-- > 0;) {
+        const auto& target = targets[i];
+        if (target.pauli() == Target::kPauliX) {
+            apply_single_qubit_clifford(sim, GateType::H, target.value());
+        } else if (target.pauli() == Target::kPauliY) {
+            apply_single_qubit_clifford(sim, GateType::H_YZ, target.value());
+        }
+    }
+}
+
 /// Write the rewound Z observable for `qubit` into pre-zeroed MutableMaskViews.
 void extract_rewound_z_into(const stim::TableauSimulator<kStimWidth>& sim, uint32_t qubit,
                             MutableMaskView destab, MutableMaskView stab, bool& sign) {
@@ -381,6 +416,8 @@ size_t count_pauli_masks(const Circuit& circuit) {
                 count += n_targets / 2;
                 break;
             case GateType::R_PAULI:
+            case GateType::TPP:
+            case GateType::TPP_DAG:
             case GateType::EXP_VAL:
             case GateType::MPP:
                 count += 1;
@@ -582,6 +619,25 @@ HirModule trace(const Circuit& circuit, const InstrumentTraceOptions* instrument
                         slot.set_sign(sign);
                     });
                 }
+                break;
+            }
+
+            case GateType::SPP:
+            case GateType::SPP_DAG:
+                apply_pauli_product_clifford(sim, node.targets, node.gate == GateType::SPP_DAG);
+                break;
+
+            case GateType::TPP:
+            case GateType::TPP_DAG: {
+                bool inversion_parity;
+                auto obs = build_pauli_string(node.targets, circuit.num_qubits, inversion_parity);
+                stim::PauliString<kStimWidth> rewound = sim.inv_state(obs);
+                uint32_t n = sim.inv_state.num_qubits;
+                bool dagger = (node.gate == GateType::TPP_DAG) ^ inversion_parity;
+                hir.append_tgate(dagger, [&](MutablePauliMaskView slot) {
+                    copy_rewound_into(rewound, n, slot.x(), slot.z());
+                    slot.set_sign(rewound.sign);
+                });
                 break;
             }
 

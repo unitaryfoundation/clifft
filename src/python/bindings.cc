@@ -176,9 +176,13 @@ NB_MODULE(_clifft_core, m) {
         .value("C_XYNZ", clifft::GateType::C_XYNZ)
         .value("C_ZNYX", clifft::GateType::C_ZNYX)
         .value("C_ZYNX", clifft::GateType::C_ZYNX)
+        .value("SPP", clifft::GateType::SPP)
+        .value("SPP_DAG", clifft::GateType::SPP_DAG)
         // Non-Clifford
         .value("T", clifft::GateType::T)
         .value("T_DAG", clifft::GateType::T_DAG)
+        .value("TPP", clifft::GateType::TPP)
+        .value("TPP_DAG", clifft::GateType::TPP_DAG)
         // Parameterized rotations
         .value("R_X", clifft::GateType::R_X)
         .value("R_Y", clifft::GateType::R_Y)

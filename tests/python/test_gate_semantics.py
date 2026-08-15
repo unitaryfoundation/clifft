@@ -13,6 +13,52 @@ def _measurements(circuit: str, *, seed: int = 1) -> np.ndarray:
     return np.asarray(clifft.sample(clifft.compile(circuit), 1, seed=seed).measurements[0])
 
 
+def _assert_statevectors_equal(actual_circuit: str, expected_circuit: str) -> None:
+    np.testing.assert_allclose(
+        _statevector(actual_circuit),
+        _statevector(expected_circuit),
+        atol=1e-12,
+        rtol=0,
+    )
+
+
+def test_pauli_product_phase_gates_match_named_single_qubit_gates() -> None:
+    _assert_statevectors_equal("H 0\nSPP Z0", "H 0\nS 0")
+    _assert_statevectors_equal("H 0\nSPP_DAG Z0", "H 0\nS_DAG 0")
+    _assert_statevectors_equal("H 0\nTPP Z0", "H 0\nT 0")
+    _assert_statevectors_equal("H 0\nTPP_DAG Z0", "H 0\nT_DAG 0")
+
+
+def test_pauli_product_phase_gate_inversion_reverses_the_gate() -> None:
+    _assert_statevectors_equal("SPP !X0", "SQRT_X_DAG 0")
+    _assert_statevectors_equal("H 0\nTPP !Z0", "H 0\nT_DAG 0")
+    _assert_statevectors_equal("H 0\nTPP_DAG !Z0", "H 0\nT 0")
+
+
+def test_spp_xx_matches_the_named_square_root_gate() -> None:
+    _assert_statevectors_equal("H 0\nSPP X0*X1", "H 0\nSQRT_XX 0 1")
+
+
+def test_nontrivial_pauli_product_phase_gates_match_their_decompositions() -> None:
+    basis_change = "H 0\nH_YZ 1\nCX 1 0\nCX 2 0\n"
+    uncompute = "CX 2 0\nCX 1 0\nH_YZ 1\nH 0"
+    _assert_statevectors_equal(
+        "H 2\nSPP X0*Y1*Z2", "H 2\n" + basis_change + "S 0\n" + uncompute
+    )
+    _assert_statevectors_equal(
+        "H 2\nTPP X0*Y1*Z2", "H 2\n" + basis_change + "T 0\n" + uncompute
+    )
+
+
+def test_multiple_tpp_products_are_applied_in_order() -> None:
+    _assert_statevectors_equal("H 0\nTPP Z0 X1", "H 0\nT 0\nH 1\nT 1\nH 1")
+
+
+def test_pauli_product_phase_gates_are_independent_of_term_order() -> None:
+    _assert_statevectors_equal("H 0\nH 1\nSPP X0*Y1*Z2", "H 0\nH 1\nSPP Z2*X0*Y1")
+    _assert_statevectors_equal("H 0\nH 1\nTPP X0*Y1*Z2", "H 0\nH 1\nTPP Z2*X0*Y1")
+
+
 def test_clifford_aliases_match() -> None:
     np.testing.assert_allclose(_statevector("H 0"), _statevector("H_XZ 0"), atol=1e-12)
     np.testing.assert_allclose(_statevector("H 0\nS 0"), _statevector("H 0\nSQRT_Z 0"), atol=1e-12)
