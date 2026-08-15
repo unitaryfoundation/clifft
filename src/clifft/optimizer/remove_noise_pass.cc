@@ -1,11 +1,29 @@
 #include "clifft/optimizer/remove_noise_pass.h"
 
+#include <algorithm>
+#include <utility>
+#include <vector>
+
 namespace clifft {
 
 void RemoveNoisePass::run(HirModule& hir) {
-    std::erase_if(hir.ops, [](const HeisenbergOp& op) {
+    auto is_noise = [](const HeisenbergOp& op) {
         return op.op_type() == OpType::NOISE || op.op_type() == OpType::READOUT_NOISE;
-    });
+    };
+
+    if (hir.source_map.size() == hir.ops.size()) {
+        std::vector<std::vector<uint32_t>> retained_source_map;
+        retained_source_map.reserve(hir.source_map.size());
+        for (size_t i = 0; i < hir.ops.size(); ++i) {
+            if (!is_noise(hir.ops[i])) {
+                retained_source_map.push_back(std::move(hir.source_map[i]));
+            }
+        }
+        hir.source_map = std::move(retained_source_map);
+    } else {
+        hir.source_map.clear();
+    }
+    std::erase_if(hir.ops, is_noise);
 
     hir.noise_sites.clear();
     hir.readout_noise.clear();
@@ -13,7 +31,6 @@ void RemoveNoisePass::run(HirModule& hir) {
     // be dropped without dropping the arena itself. Replace with an empty
     // arena so the slots don't sit around as dead weight after removal.
     hir.noise_channel_masks = PauliMaskArena{};
-    hir.source_map.clear();
 }
 
 }  // namespace clifft

@@ -125,6 +125,20 @@ SymbolId reserve_symbol(SamplingPlan& plan) {
     return symbol;
 }
 
+std::span<const uint32_t> source_lines_for(const HirModule& hir, size_t operation_index) {
+    assert(hir.source_map.size() == hir.ops.size() &&
+           "retained HIR provenance must remain parallel to operations");
+    return hir.source_map[operation_index];
+}
+
+void append_action(SamplingPlan& plan, PlannedAction action,
+                   std::span<const uint32_t> source_lines) {
+    plan.actions.push_back(std::move(action));
+    if (plan.source_map.has_value()) {
+        plan.source_map->append(source_lines);
+    }
+}
+
 void define_symbol(SamplingPlan& plan, SymbolId symbol, SymbolKind kind, uint32_t action) {
     SymbolInfo& info = plan.symbols.at(index(symbol));
     if (info.kind != SymbolKind::Unused || info.defining_action.has_value() ||
@@ -237,14 +251,16 @@ void initialize_site_metadata(const HirModule& hir, SamplingPlan& plan) {
 
 void process_rotation(const Pauli& body, double half_turns, const AffineBool& sign,
                       SamplingPlan& plan, uint32_t& active_width, CoordinateFrame& coordinates,
-                      SymbolicPauliFrame& symbolic_frame) {
+                      SymbolicPauliFrame& symbolic_frame, std::span<const uint32_t> source_lines) {
     ResolvedPauli resolved = resolve_pauli(body, sign, coordinates, symbolic_frame);
     const std::optional<uint32_t> dormant_pivot = first_x_at_or_above(resolved.body, active_width);
     if (!dormant_pivot.has_value()) {
-        plan.actions.push_back(
+        append_action(
+            plan,
             PlannedAction{active_width, active_width,
                           RotateActivePauli{active_projection(resolved.body, active_width),
-                                            half_turns, std::move(resolved.sign)}});
+                                            half_turns, std::move(resolved.sign)}},
+            source_lines);
         return;
     }
 
@@ -262,16 +278,18 @@ void process_rotation(const Pauli& body, double half_turns, const AffineBool& si
                               dormant_promotion_frame(resolved.body, active_width, *dormant_pivot));
     }
     coordinates.promote_dormant(resolved.body, active_width, *dormant_pivot);
-    plan.actions.push_back(
-        PlannedAction{active_width, active_width + 1,
-                      PromoteDormantRotation{half_turns, std::move(resolved.sign)}});
+    append_action(plan,
+                  PlannedAction{active_width, active_width + 1,
+                                PromoteDormantRotation{half_turns, std::move(resolved.sign)}},
+                  source_lines);
     ++active_width;
     plan.max_active_width = std::max(plan.max_active_width, active_width);
 }
 
 AffineBool process_measurement(const Pauli& body, const AffineBool& sign, RecordSlot record,
                                SymbolId branch, SamplingPlan& plan, uint32_t& active_width,
-                               CoordinateFrame& coordinates, SymbolicPauliFrame& symbolic_frame) {
+                               CoordinateFrame& coordinates, SymbolicPauliFrame& symbolic_frame,
+                               std::span<const uint32_t> source_lines) {
     ResolvedPauli resolved = resolve_pauli(body, sign, coordinates, symbolic_frame);
     const std::optional<uint32_t> dormant_pivot = first_x_at_or_above(resolved.body, active_width);
     if (dormant_pivot.has_value()) {
@@ -283,16 +301,18 @@ AffineBool process_measurement(const Pauli& body, const AffineBool& sign, Record
         correction.sign = false;
         symbolic_frame.apply(correction, AffineBool::symbol(branch));
         const AffineBool outcome = resolved.sign ^ AffineBool::symbol(branch);
-        plan.actions.push_back(
-            PlannedAction{active_width, active_width,
-                          MeasureDormantRandom{*dormant_pivot, branch, outcome, record}});
+        append_action(plan,
+                      PlannedAction{active_width, active_width,
+                                    MeasureDormantRandom{*dormant_pivot, branch, outcome, record}},
+                      source_lines);
         return outcome;
     }
 
     const ActivePauli active = active_projection(resolved.body, active_width);
     if (active.is_identity()) {
-        plan.actions.push_back(
-            PlannedAction{active_width, active_width, RecordClassical{resolved.sign, record}});
+        append_action(
+            plan, PlannedAction{active_width, active_width, RecordClassical{resolved.sign, record}},
+            source_lines);
         return resolved.sign;
     }
 
@@ -317,16 +337,18 @@ AffineBool process_measurement(const Pauli& body, const AffineBool& sign, Record
     correction.sign = false;
     symbolic_frame.apply(correction, AffineBool::symbol(branch));
     const AffineBool outcome = resolved.sign ^ AffineBool::symbol(branch);
-    plan.actions.push_back(
-        PlannedAction{active_width, active_width - 1,
-                      MeasureActivePauli{active, *pivot, branch, outcome, record}});
+    append_action(plan,
+                  PlannedAction{active_width, active_width - 1,
+                                MeasureActivePauli{active, *pivot, branch, outcome, record}},
+                  source_lines);
     --active_width;
     return outcome;
 }
 
 void process_instrument(const HirModule& hir, const HeisenbergOp& op, uint32_t next_noise_site,
                         SamplingPlan& plan, uint32_t& active_width, CoordinateFrame& coordinates,
-                        SymbolicPauliFrame& symbolic_frame) {
+                        SymbolicPauliFrame& symbolic_frame,
+                        std::span<const uint32_t> source_lines) {
     const InstrumentSiteId site{static_cast<uint32_t>(op.instrument_site_idx())};
     const InstrumentSite& hir_site = hir.instrument_sites.at(index(site));
     const SymbolId destination_flip_symbol = reserve_symbol(plan);
@@ -378,8 +400,10 @@ void process_instrument(const HirModule& hir, const HeisenbergOp& op, uint32_t n
         destination_symbol = destination_flip_symbol;
         define_symbol(plan, destination_flip_symbol, SymbolKind::Instrument, action_index);
     }
-    plan.actions.push_back(PlannedAction{
-        active_width, active_after, ApplyInstrument{site, mode, source, sign, destination_symbol}});
+    append_action(plan,
+                  PlannedAction{active_width, active_after,
+                                ApplyInstrument{site, mode, source, sign, destination_symbol}},
+                  source_lines);
 
     if (destination_symbol.has_value()) {
         symbolic_frame.apply(destination_flip, AffineBool::symbol(*destination_symbol));
@@ -387,8 +411,10 @@ void process_instrument(const HirModule& hir, const HeisenbergOp& op, uint32_t n
     active_width = active_after;
     plan.max_active_width = std::max(plan.max_active_width, active_width);
     // A trapped shot resumes here so it cannot execute the instrument twice.
-    plan.actions.push_back(PlannedAction{
-        active_width, active_width, InstrumentBoundary{site, next_noise_site, symbol_prefix_size}});
+    append_action(plan,
+                  PlannedAction{active_width, active_width,
+                                InstrumentBoundary{site, next_noise_site, symbol_prefix_size}},
+                  source_lines);
 }
 
 }  // namespace
@@ -404,6 +430,15 @@ SamplingPlan plan_sampling(const HirModule& hir, SamplingPlanOptions options) {
     plan.num_observables = hir.num_observables;
     plan.num_exp_vals = hir.num_exp_vals;
     plan.global_weight = hir.global_weight;
+    if (options.retain_source_map) {
+        if (hir.source_map.size() != hir.ops.size()) {
+            throw std::invalid_argument(
+                "sampling source provenance requires a complete HIR source map");
+        }
+        plan.source_map.emplace();
+        plan.source_map->reserve(hir.ops.size() + hir.instrument_sites.size() +
+                                 hir.num_observables);
+    }
 
     // The packed symbolic frame needs its row count up front. Count only;
     // operations and their Paulis are consumed directly from HIR below.
@@ -418,6 +453,10 @@ SamplingPlan plan_sampling(const HirModule& hir, SamplingPlanOptions options) {
     std::vector<std::optional<AffineBool>> record_values(static_cast<size_t>(hir.num_measurements) +
                                                          hir.num_hidden_measurements);
     std::vector<AffineBool> observable_values(hir.num_observables);
+    std::vector<std::vector<uint32_t>> observable_source_lines;
+    if (plan.source_map.has_value()) {
+        observable_source_lines.resize(hir.num_observables);
+    }
 
     auto require_record = [&](RecordSlot record, size_t operation_index) -> const AffineBool& {
         const uint32_t record_index = index(record);
@@ -455,13 +494,15 @@ SamplingPlan plan_sampling(const HirModule& hir, SamplingPlanOptions options) {
     bool supports_final_state_queries = true;
     for (size_t i = 0; i < hir.ops.size(); ++i) {
         const HeisenbergOp& op = hir.ops[i];
+        const std::span<const uint32_t> source_lines =
+            plan.source_map.has_value() ? source_lines_for(hir, i) : std::span<const uint32_t>{};
         supports_final_state_queries &= operation_supports_final_state_queries(op.op_type());
         switch (op.op_type()) {
             case OpType::T_GATE: {
                 const double half_turns = op.is_dagger() ? -0.25 : 0.25;
                 const Pauli body = pauli_from_hir(hir, op);
                 process_rotation(body, half_turns, AffineBool(hir.sign(op)), plan, active_width,
-                                 coordinates, symbolic_frame);
+                                 coordinates, symbolic_frame, source_lines);
                 multiply_phase(plan.global_weight,
                                (op.is_dagger() ? -1.0 : 1.0) * std::numbers::pi / 8.0);
                 break;
@@ -469,7 +510,7 @@ SamplingPlan plan_sampling(const HirModule& hir, SamplingPlanOptions options) {
             case OpType::PHASE_ROTATION: {
                 const Pauli body = pauli_from_hir(hir, op);
                 process_rotation(body, op.alpha(), AffineBool(hir.sign(op)), plan, active_width,
-                                 coordinates, symbolic_frame);
+                                 coordinates, symbolic_frame, source_lines);
                 const double signed_alpha = hir.sign(op) ? -op.alpha() : op.alpha();
                 multiply_phase(plan.global_weight, signed_alpha * std::numbers::pi / 2.0);
                 break;
@@ -480,7 +521,7 @@ SamplingPlan plan_sampling(const HirModule& hir, SamplingPlanOptions options) {
                 const Pauli body = pauli_from_hir(hir, op);
                 const AffineBool outcome =
                     process_measurement(body, AffineBool(hir.sign(op)), record, branch, plan,
-                                        active_width, coordinates, symbolic_frame);
+                                        active_width, coordinates, symbolic_frame, source_lines);
                 assign_record(record, outcome, i);
                 break;
             }
@@ -530,10 +571,12 @@ SamplingPlan plan_sampling(const HirModule& hir, SamplingPlanOptions options) {
                 }
                 const uint32_t action_index = static_cast<uint32_t>(plan.actions.size());
                 define_symbol(plan, flip, SymbolKind::Readout, action_index);
-                plan.actions.push_back(
+                append_action(
+                    plan,
                     PlannedAction{active_width, active_width,
                                   ApplyReadoutNoise{flip, source, record, entry.prob_zero_to_one,
-                                                    entry.prob_one_to_zero}});
+                                                    entry.prob_one_to_zero}},
+                    source_lines);
                 record_values[index(record)] = source ^ AffineBool::symbol(flip);
                 break;
             }
@@ -550,7 +593,7 @@ SamplingPlan plan_sampling(const HirModule& hir, SamplingPlanOptions options) {
                         "sampling planner instrument omits its destination flip");
                 }
                 process_instrument(hir, op, next_noise_site, plan, active_width, coordinates,
-                                   symbolic_frame);
+                                   symbolic_frame, source_lines);
                 ++next_instrument_site;
                 break;
             }
@@ -563,9 +606,11 @@ SamplingPlan plan_sampling(const HirModule& hir, SamplingPlanOptions options) {
                 AffineBool outcome = record_parity(hir.detector_targets[targets_index], i);
                 outcome ^= option_bit(options.expected_detectors, detector_index);
                 const bool postselected = option_bit(options.postselection_mask, detector_index);
-                plan.actions.push_back(PlannedAction{
-                    active_width, active_width,
-                    WriteDetector{outcome, DetectorSlot{detector_index}, postselected}});
+                append_action(plan,
+                              PlannedAction{active_width, active_width,
+                                            WriteDetector{outcome, DetectorSlot{detector_index},
+                                                          postselected}},
+                              source_lines);
                 plan.has_postselection |= postselected;
                 ++detector_index;
                 break;
@@ -579,6 +624,11 @@ SamplingPlan plan_sampling(const HirModule& hir, SamplingPlanOptions options) {
                 }
                 observable_values[observable_index] ^=
                     record_parity(hir.observable_targets[targets_index], i);
+                if (plan.source_map.has_value()) {
+                    observable_source_lines[observable_index].insert(
+                        observable_source_lines[observable_index].end(), source_lines.begin(),
+                        source_lines.end());
+                }
                 break;
             }
             case OpType::EXP_VAL: {
@@ -591,13 +641,16 @@ SamplingPlan plan_sampling(const HirModule& hir, SamplingPlanOptions options) {
                 ResolvedPauli resolved =
                     resolve_pauli(body, AffineBool(hir.sign(op)), coordinates, symbolic_frame);
                 const bool is_zero = first_x_at_or_above(resolved.body, active_width).has_value();
-                plan.actions.push_back(PlannedAction{
-                    active_width, active_width,
-                    WriteExpectationValue{is_zero ? std::nullopt
-                                                  : std::optional<ActivePauli>{active_projection(
-                                                        resolved.body, active_width)},
-                                          is_zero ? AffineBool{} : std::move(resolved.sign),
-                                          ExpValSlot{exp_val_index}}});
+                append_action(
+                    plan,
+                    PlannedAction{active_width, active_width,
+                                  WriteExpectationValue{
+                                      is_zero ? std::nullopt
+                                              : std::optional<ActivePauli>{active_projection(
+                                                    resolved.body, active_width)},
+                                      is_zero ? AffineBool{} : std::move(resolved.sign),
+                                      ExpValSlot{exp_val_index}}},
+                    source_lines);
                 break;
             }
             case OpType::NUM_OP_TYPES:
@@ -625,9 +678,15 @@ SamplingPlan plan_sampling(const HirModule& hir, SamplingPlanOptions options) {
     }
     for (uint32_t observable = 0; observable < observable_values.size(); ++observable) {
         observable_values[observable] ^= option_bit(options.expected_observables, observable);
-        plan.actions.push_back(PlannedAction{
-            active_width, active_width,
-            WriteObservable{observable_values[observable], ObservableSlot{observable}}});
+        const std::span<const uint32_t> source_lines =
+            plan.source_map.has_value()
+                ? std::span<const uint32_t>(observable_source_lines[observable])
+                : std::span<const uint32_t>{};
+        append_action(plan,
+                      PlannedAction{active_width, active_width,
+                                    WriteObservable{observable_values[observable],
+                                                    ObservableSlot{observable}}},
+                      source_lines);
     }
 
     plan.validate();

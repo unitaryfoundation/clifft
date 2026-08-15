@@ -33,6 +33,7 @@ using clifft::sampling::PromoteDormantRotation;
 using clifft::sampling::RecordClassical;
 using clifft::sampling::RotateActivePauli;
 using clifft::sampling::SamplingPlan;
+using clifft::sampling::SamplingPlanOptions;
 using clifft::sampling::SymbolId;
 using clifft::sampling::SymbolKind;
 using clifft::sampling::WriteDetector;
@@ -65,6 +66,12 @@ uint64_t fnv1a64(std::string_view text) {
         digest *= 1099511628211ULL;
     }
     return digest;
+}
+
+SamplingPlanOptions source_map_options() {
+    SamplingPlanOptions options;
+    options.retain_source_map = true;
+    return options;
 }
 
 }  // namespace
@@ -196,6 +203,57 @@ TEST_CASE("Sampling planner accepts traced rotation and measurement HIR") {
     REQUIRE(std::holds_alternative<PromoteDormantRotation>(plan.actions[0].action));
     REQUIRE(std::holds_alternative<MeasureActivePauli>(plan.actions[1].action));
     REQUIRE(plan.symbols.size() == 1);
+}
+
+TEST_CASE("Sampling planner retains source provenance only when requested") {
+    const HirModule hir = clifft::trace(clifft::parse("H 0\nT 0\nM 0\nDETECTOR rec[-1]\n"));
+
+    const SamplingPlan ordinary = plan_sampling(hir);
+    REQUIRE_FALSE(ordinary.source_map.has_value());
+
+    const SamplingPlan inspected = plan_sampling(hir, source_map_options());
+    REQUIRE(inspected.source_map.has_value());
+    REQUIRE(inspected.source_map->size() == inspected.actions.size());
+    REQUIRE(std::ranges::equal(inspected.source_map->lines_for(0), std::array<uint32_t, 1>{2}));
+    REQUIRE(std::ranges::equal(inspected.source_map->lines_for(1), std::array<uint32_t, 1>{3}));
+    REQUIRE(std::ranges::equal(inspected.source_map->lines_for(2), std::array<uint32_t, 1>{4}));
+    REQUIRE(inspected.inspect_action(0).find("promote_dormant") != std::string::npos);
+    REQUIRE_THROWS_AS(inspected.inspect_action(inspected.actions.size()), std::out_of_range);
+}
+
+TEST_CASE("Sampling planner requires complete requested source provenance") {
+    HirModule hir = clifft::trace(clifft::parse("T 0\nM 0\n"));
+    hir.source_map.clear();
+
+    REQUIRE_NOTHROW(plan_sampling(hir));
+    REQUIRE_THROWS_AS(plan_sampling(hir, source_map_options()), std::invalid_argument);
+}
+
+TEST_CASE("Sampling planner combines source lines for one observable action") {
+    const HirModule hir = clifft::trace(
+        clifft::parse("M 0\nOBSERVABLE_INCLUDE(0) rec[-1]\nM 1\nOBSERVABLE_INCLUDE(0) rec[-1]\n"));
+
+    const SamplingPlan plan = plan_sampling(hir, source_map_options());
+
+    REQUIRE(plan.actions.size() == 3);
+    REQUIRE(plan.source_map.has_value());
+    REQUIRE(std::holds_alternative<WriteObservable>(plan.actions.back().action));
+    REQUIRE(std::ranges::equal(plan.source_map->lines_for(2), std::array<uint32_t, 2>{2, 4}));
+}
+
+TEST_CASE("Sampling planner maps both instrument actions to their source line") {
+    const clifft::InstrumentTraceOptions options = clifft::test::source_dependent_jump_options();
+    const HirModule hir = clifft::trace(clifft::parse("LEVEL_TRANSITION[jump] 0\n"), &options);
+
+    const SamplingPlan plan = plan_sampling(hir, source_map_options());
+
+    REQUIRE(plan.actions.size() == 2);
+    REQUIRE(plan.source_map.has_value());
+    REQUIRE(std::holds_alternative<ApplyInstrument>(plan.actions[0].action));
+    REQUIRE(std::holds_alternative<InstrumentBoundary>(plan.actions[1].action));
+    for (size_t action = 0; action < plan.actions.size(); ++action) {
+        REQUIRE(std::ranges::equal(plan.source_map->lines_for(action), std::array<uint32_t, 1>{1}));
+    }
 }
 
 TEST_CASE("Sampling planner fixes instrument source handling before execution") {

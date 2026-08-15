@@ -34,6 +34,7 @@ class ExecutablePlanBuilder {
     // adjacent-rotation fusion without introducing a general pass pipeline.
     void lower_action_stream();
     void lower_action(const PlannedAction& planned, size_t& boundary_index);
+    void record_action_origin(uint32_t plan_begin, uint32_t plan_end);
 
     // Transpose action-order affine terms into symbol-to-register CSR storage.
     void build_expression_dependencies();

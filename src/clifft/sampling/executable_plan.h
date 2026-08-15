@@ -10,6 +10,7 @@
 #include <cstdint>
 #include <optional>
 #include <span>
+#include <string>
 #include <variant>
 #include <vector>
 
@@ -43,6 +44,14 @@ class PreparedFusedRotationExecution {
 // here so a shot only reads fixed storage.
 class ExecutablePlan {
   public:
+    // Half-open SamplingPlan action range lowered into one executable action.
+    struct PlanActionRange {
+        uint32_t begin = 0;
+        uint32_t end = 0;
+
+        friend bool operator==(const PlanActionRange&, const PlanActionRange&) = default;
+    };
+
     explicit ExecutablePlan(const SamplingPlan& plan);
 
     [[nodiscard]] uint32_t num_qubits() const { return num_qubits_; }
@@ -74,6 +83,12 @@ class ExecutablePlan {
         return static_cast<uint32_t>(unbound_presampled_symbols_.size());
     }
     [[nodiscard]] std::vector<double> noise_site_probabilities() const;
+    // Deterministic target-specific inspection for diagnostics and tooling.
+    [[nodiscard]] std::string inspect() const;
+    [[nodiscard]] std::string inspect_action(size_t action) const;
+    // Present when the source SamplingPlan retained debug provenance. The
+    // half-open range names every semantic action contributing to this action.
+    [[nodiscard]] std::optional<PlanActionRange> action_plan_range(size_t action) const;
 
   private:
     friend class Executor;
@@ -336,6 +351,9 @@ class ExecutablePlan {
     std::vector<PreparedFusedRotationExecution> fused_rotations_;
     std::vector<PreparedDynamicFusedRotationExecution> dynamic_fused_rotations_;
     std::vector<Action> actions_;
+    // Optional debug sidecar parallel to actions_. It stays empty for ordinary
+    // compilation and therefore adds no per-action production storage.
+    std::vector<PlanActionRange> action_plan_ranges_;
 };
 
 }  // namespace clifft::sampling

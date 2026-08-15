@@ -58,6 +58,7 @@ using clifft::sampling::ReplayResult;
 using clifft::sampling::RotateActivePauli;
 using clifft::sampling::sample_records;
 using clifft::sampling::SamplingPlan;
+using clifft::sampling::SamplingPlanOptions;
 using clifft::sampling::State;
 using clifft::sampling::SymbolId;
 using clifft::sampling::SymbolInfo;
@@ -893,6 +894,20 @@ TEST_CASE("Sampling executable validates its source plan before lowering") {
     };
 
     REQUIRE_THROWS_AS(ExecutablePlan(plan), std::invalid_argument);
+}
+
+TEST_CASE("Sampling executable maps nonrotation actions to plan provenance") {
+    const clifft::HirModule hir = clifft::trace(clifft::parse("H 0\nT 0\nM 0\nDETECTOR rec[-1]\n"));
+    SamplingPlanOptions options;
+    options.retain_source_map = true;
+    const SamplingPlan plan = clifft::sampling::plan_sampling(hir, options);
+    const ExecutablePlan executable(plan);
+
+    REQUIRE(executable.num_actions() == plan.actions.size());
+    for (uint32_t action = 0; action < executable.num_actions(); ++action) {
+        REQUIRE(executable.action_plan_range(action) ==
+                ExecutablePlan::PlanActionRange{action, action + 1});
+    }
 }
 
 TEST_CASE("Sampling executor applies computational instrument destinations in line") {
