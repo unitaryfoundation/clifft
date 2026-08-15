@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1786085313501,
+  "lastUpdate": 1786775561712,
   "repoUrl": "https://github.com/unitaryfoundation/clifft",
   "entries": {
     "C++ Catch2 benchmarks (AVX-512)": [
@@ -1022,6 +1022,70 @@ window.BENCHMARK_DATA = {
             "name": "exp-val 20q 200 probes x100k",
             "value": 118.673,
             "range": "± 3.50028",
+            "unit": "ms",
+            "extra": "100 samples\n1 iterations"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Brad Chase",
+            "username": "bachase",
+            "email": "14430+bachase@users.noreply.github.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "7fdaa82f74f15fe2635f2799eb260a6324e48466",
+          "message": "ci: run cross-platform checks on pull requests (#328)\n\nGate pull requests on macOS and Windows, speed the Windows Python suite with an optimized assertion-enabled extension, and stabilize matrix check names.\n\nAssisted-by: Claude (Fable 5) <noreply@anthropic.com>\nAssisted-by: Codex (GPT-5) <noreply@openai.com>",
+          "timestamp": "2026-08-14T13:32:58Z",
+          "url": "https://github.com/unitaryfoundation/clifft/commit/7fdaa82f74f15fe2635f2799eb260a6324e48466"
+        },
+        "date": 1786775560614,
+        "tool": "catch2",
+        "benches": [
+          {
+            "name": "QV-10 x100 shots",
+            "value": 24.2399,
+            "range": "± 241.921",
+            "unit": "ms",
+            "extra": "100 samples\n1 iterations"
+          },
+          {
+            "name": "cultivation-d5 x1000 shots",
+            "value": 45.1853,
+            "range": "± 1.04337",
+            "unit": "ms",
+            "extra": "100 samples\n1 iterations"
+          },
+          {
+            "name": "surface-d7-r7 p=1e-3 x10000 shots",
+            "value": 82.7846,
+            "range": "± 483.632",
+            "unit": "ms",
+            "extra": "100 samples\n1 iterations"
+          },
+          {
+            "name": "surface-d5-r5 p=0.05 x10000 shots",
+            "value": 82.0731,
+            "range": "± 639.989",
+            "unit": "ms",
+            "extra": "100 samples\n1 iterations"
+          },
+          {
+            "name": "surface-d11-r11 p=1e-3 x1000 shots",
+            "value": 34.5222,
+            "range": "± 457.354",
+            "unit": "ms",
+            "extra": "100 samples\n1 iterations"
+          },
+          {
+            "name": "exp-val 20q 200 probes x100k",
+            "value": 106.835,
+            "range": "± 220.609",
             "unit": "ms",
             "extra": "100 samples\n1 iterations"
           }
