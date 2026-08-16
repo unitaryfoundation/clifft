@@ -633,10 +633,10 @@ HirModule trace(const Circuit& circuit, const InstrumentTraceOptions* instrument
                 auto obs = build_pauli_string(node.targets, circuit.num_qubits, inversion_parity);
                 stim::PauliString<kStimWidth> rewound = sim.inv_state(obs);
                 uint32_t n = sim.inv_state.num_qubits;
-                bool dagger = (node.gate == GateType::TPP_DAG) ^ inversion_parity;
+                bool dagger = node.gate == GateType::TPP_DAG;
                 hir.append_tgate(dagger, [&](MutablePauliMaskView slot) {
                     copy_rewound_into(rewound, n, slot.x(), slot.z());
-                    slot.set_sign(rewound.sign);
+                    slot.set_sign(rewound.sign ^ inversion_parity);
                 });
                 break;
             }

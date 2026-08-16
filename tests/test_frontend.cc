@@ -197,14 +197,22 @@ TEST_CASE("Frontend: TPP emits one T gate per product", "[frontend]") {
     CHECK(!hir.ops[1].is_dagger());
 }
 
-TEST_CASE("Frontend: TPP inversion reverses the named gate", "[frontend]") {
+TEST_CASE("Frontend: TPP inversion is stored on the Pauli sign", "[frontend]") {
     auto hir = trace(parse("TPP !Z0\nTPP_DAG !Z1"));
 
     REQUIRE(hir.num_ops() == 2);
-    CHECK(hir.ops[0].is_dagger());
-    CHECK(!hir.ops[1].is_dagger());
-    CHECK(!hir.sign(hir.ops[0]));
-    CHECK(!hir.sign(hir.ops[1]));
+    CHECK(!hir.ops[0].is_dagger());
+    CHECK(hir.ops[1].is_dagger());
+    CHECK(hir.sign(hir.ops[0]));
+    CHECK(hir.sign(hir.ops[1]));
+}
+
+TEST_CASE("Frontend: TPP rewinding preserves a negative Pauli sign", "[frontend]") {
+    auto hir = trace(parse("X 0\nTPP Z0"));
+
+    REQUIRE(hir.num_ops() == 1);
+    CHECK(hir.ops[0].op_type() == OpType::T_GATE);
+    CHECK(hir.sign(hir.ops[0]));
 }
 
 TEST_CASE("Frontend: CX entangles qubits - T sees multi-qubit Pauli", "[frontend]") {
