@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1786775468478,
+  "lastUpdate": 1786861919948,
   "repoUrl": "https://github.com/unitaryfoundation/clifft",
   "entries": {
     "C++ Catch2 benchmarks (scalar)": [
@@ -5694,6 +5694,70 @@ window.BENCHMARK_DATA = {
             "name": "exp-val 20q 200 probes x100k",
             "value": 108.294,
             "range": "± 984.846",
+            "unit": "ms",
+            "extra": "100 samples\n1 iterations"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Brad Chase",
+            "username": "bachase",
+            "email": "14430+bachase@users.noreply.github.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "df0b811688d79378919a39fe229de7a68339bb84",
+          "message": "feat(sampling): expose plan inspection provenance (#330)\n\nfeat(sampling): expose plan inspection provenance\n\nAdd opt-in circuit source-line provenance to SamplingPlan and preserve it through executable lowering and fusion.\n\n- map semantic plan actions to their source lines\n- map executable actions to half-open plan-action ranges\n- preserve provenance through filtering passes\n- isolate diagnostic formatting from ordinary production binaries\n- retain no per-action provenance storage unless requested\n\nAssisted-by: Codex (GPT-5) <noreply@openai.com>",
+          "timestamp": "2026-08-15T12:59:46Z",
+          "url": "https://github.com/unitaryfoundation/clifft/commit/df0b811688d79378919a39fe229de7a68339bb84"
+        },
+        "date": 1786861915812,
+        "tool": "catch2",
+        "benches": [
+          {
+            "name": "QV-10 x100 shots",
+            "value": 56.8606,
+            "range": "± 1.0858",
+            "unit": "ms",
+            "extra": "100 samples\n1 iterations"
+          },
+          {
+            "name": "cultivation-d5 x1000 shots",
+            "value": 75.5563,
+            "range": "± 1.27822",
+            "unit": "ms",
+            "extra": "100 samples\n1 iterations"
+          },
+          {
+            "name": "surface-d7-r7 p=1e-3 x10000 shots",
+            "value": 104.793,
+            "range": "± 1.04714",
+            "unit": "ms",
+            "extra": "100 samples\n1 iterations"
+          },
+          {
+            "name": "surface-d5-r5 p=0.05 x10000 shots",
+            "value": 95.1196,
+            "range": "± 513.492",
+            "unit": "ms",
+            "extra": "100 samples\n1 iterations"
+          },
+          {
+            "name": "surface-d11-r11 p=1e-3 x1000 shots",
+            "value": 40.7548,
+            "range": "± 153.642",
+            "unit": "ms",
+            "extra": "100 samples\n1 iterations"
+          },
+          {
+            "name": "exp-val 20q 200 probes x100k",
+            "value": 153.308,
+            "range": "± 3.94553",
             "unit": "ms",
             "extra": "100 samples\n1 iterations"
           }
