@@ -230,6 +230,9 @@ html, body, #root {
 }
 
 .editor-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
   padding: 4px 8px;
   font-size: 11px;
   font-weight: 600;
@@ -239,6 +242,32 @@ html, body, #root {
   flex-shrink: 0;
   text-transform: uppercase;
   letter-spacing: 0.5px;
+}
+
+.editor-view-toggle {
+  display: inline-flex;
+  margin-left: auto;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.editor-view-toggle button {
+  padding: 1px 5px;
+  border: 0;
+  background: transparent;
+  color: var(--text-dim);
+  font: inherit;
+  cursor: pointer;
+}
+
+.editor-view-toggle button + button {
+  border-left: 1px solid var(--border);
+}
+
+.editor-view-toggle button.active {
+  background: var(--accent);
+  color: var(--bg);
 }
 
 .editor-pane > section {
@@ -632,8 +661,8 @@ html, body, #root {
   border-left: 3px solid var(--accent) !important;
 }
 
-/* Yellow triangle glyph in bytecode gutter marking the k-history PC */
-.pc-glyph-marker {
+/* Yellow triangle glyph marking the selected lowered action. */
+.action-glyph-marker {
   background: none !important;
 }
 

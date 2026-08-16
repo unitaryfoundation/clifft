@@ -41,19 +41,26 @@ add_library(clifft_core STATIC
     ${CMAKE_CURRENT_SOURCE_DIR}/../clifft/optimizer/tile_axis_fusion_pass.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/../clifft/optimizer/single_axis_fusion_pass.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/../clifft/optimizer/statevector_squeeze_pass.cc
+    # The combined pass registry still owns legacy bytecode-pass factories.
+    # The playground exposes only HIR passes and does not execute this lowerer.
     ${CMAKE_CURRENT_SOURCE_DIR}/../clifft/backend/backend.cc
-    # The playground remains on the legacy SVM; the native SamplingPlan path
-    # is intentionally outside this target.
-    ${CMAKE_CURRENT_SOURCE_DIR}/../clifft/api/basis_probabilities.cc
-    ${CMAKE_CURRENT_SOURCE_DIR}/../clifft/api/record_probabilities.cc
-    ${CMAKE_CURRENT_SOURCE_DIR}/../clifft/svm/svm.cc
-    ${CMAKE_CURRENT_SOURCE_DIR}/../clifft/svm/svm_forced_kernels.cc
-    ${CMAKE_CURRENT_SOURCE_DIR}/../clifft/svm/svm_instrument_kernels.cc
-    ${CMAKE_CURRENT_SOURCE_DIR}/../clifft/svm/svm_scalar.cc
-    ${CMAKE_CURRENT_SOURCE_DIR}/../clifft/svm/svm_state.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/../clifft/sampling/plan.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/../clifft/sampling/planner.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/../clifft/sampling/planner_frame.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/../clifft/sampling/kernel_dispatch.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/../clifft/sampling/executable_plan.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/../clifft/sampling/executable_plan_inspection.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/../clifft/sampling/executable_plan_builder.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/../clifft/sampling/executor.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/../clifft/sampling/fused_rotation.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/../clifft/sampling/kernels.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/../clifft/sampling/sampler.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/../clifft/sampling/state.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/../clifft/util/canonical_phase.cc
-    ${CMAKE_CURRENT_SOURCE_DIR}/../clifft/util/introspection.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/../clifft/util/fault_sampling.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/../clifft/util/hir_introspection.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/../clifft/util/page_allocation.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/../clifft/util/runtime_isa.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/../clifft/util/xoshiro.cc
 )
 

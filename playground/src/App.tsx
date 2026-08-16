@@ -29,6 +29,7 @@ M 1
 const DEBOUNCE_MS = 200;
 const DEFAULT_SHOTS = 10000;
 const TOUR_SEEN_KEY = "clifft-tour-seen";
+type LoweredView = "sampling-plan" | "wasm-program";
 
 function getInitialSource(): string {
   const params = new URLSearchParams(window.location.search);
@@ -112,6 +113,8 @@ export default function App() {
 
   const [source, setSourceRaw] = useState(getInitialSource);
   const [sourceOrigin, setSourceOrigin] = useState<SourceOrigin>(null);
+  const [cursorSourceLine, setCursorSourceLine] = useState<number | null>(null);
+  const [cursorPlanAction, setCursorPlanAction] = useState<number | null>(null);
   const userHasEditedRef = useRef(false);
   // When we push text into the Monaco editor programmatically, we skip
   // the resulting onChange so it doesn't clear sourceOrigin.
@@ -124,21 +127,25 @@ export default function App() {
     userHasEditedRef.current = true;
     setSourceRaw(v);
     setSourceOrigin(null);
+    setCursorPlanAction(null);
   }, []);
   const defaultPassConfig = useMemo<PassConfig>(() => {
-    if (availablePasses.length === 0) return { hir: [], bc: [] };
+    if (availablePasses.length === 0) return { hir: [] };
     return {
       hir: availablePasses.filter((p) => p.kind === "hir" && p.default).map((p) => p.name),
-      bc: availablePasses.filter((p) => p.kind === "bytecode" && p.default).map((p) => p.name),
     };
   }, [availablePasses]);
   const [userPassConfig, setUserPassConfig] = useState<PassConfig | null>(null);
   const passConfig = userPassConfig ?? defaultPassConfig;
-  const setPassConfig = useCallback((config: PassConfig) => setUserPassConfig(config), []);
+  const setPassConfig = useCallback((config: PassConfig) => {
+    setUserPassConfig(config);
+    setCursorPlanAction(null);
+  }, []);
   const passConfigReady = availablePasses.length > 0;
   const [compileResult, setCompileResult] = useState<CompileResult | null>(null);
   const [baselineResult, setBaselineResult] = useState<CompileResult | null>(null);
   const [diffView, setDiffViewRaw] = useState(false);
+  const [loweredView, setLoweredView] = useState<LoweredView>("sampling-plan");
   const [simResult, setSimResult] = useState<SimulateResult | null>(null);
   const [simElapsedMs, setSimElapsedMs] = useState<number | null>(null);
   const [simulating, setSimulating] = useState(false);
@@ -146,7 +153,6 @@ export default function App() {
   const simStale = simResult !== null && simSource !== null && source !== simSource;
   const [simTab, setSimTab] = useState<"measurements" | "exp_vals">("measurements");
   const [shots, setShots] = useState(DEFAULT_SHOTS);
-  const [cursorSourceLine, setCursorSourceLine] = useState<number | null>(null);
   const [tourOpen, setTourOpen] = useState(
     () => !localStorage.getItem(TOUR_SEEN_KEY),
   );
@@ -154,23 +160,26 @@ export default function App() {
   // Editor refs
   const sourceEditorRef = useRef<monacoEditor.IStandaloneCodeEditor | null>(null);
   const hirEditorRef = useRef<monacoEditor.IStandaloneCodeEditor | null>(null);
-  const bcEditorRef = useRef<monacoEditor.IStandaloneCodeEditor | null>(null);
+  const loweredEditorRef = useRef<monacoEditor.IStandaloneCodeEditor | null>(null);
 
   // Decoration collections
   const hirDecosRef = useRef<monacoEditor.IEditorDecorationsCollection | null>(null);
-  const bcDecosRef = useRef<monacoEditor.IEditorDecorationsCollection | null>(null);
-  const bcPcDecosRef = useRef<monacoEditor.IEditorDecorationsCollection | null>(null);
+  const loweredDecosRef = useRef<monacoEditor.IEditorDecorationsCollection | null>(null);
+  const loweredActionDecosRef = useRef<monacoEditor.IEditorDecorationsCollection | null>(null);
   const sourceDecosRef = useRef<monacoEditor.IEditorDecorationsCollection | null>(null);
 
   // Ref to avoid stale closures in editor cursor handlers
   const compileResultRef = useRef<CompileResult | null>(null);
+  const loweredViewRef = useRef<LoweredView>(loweredView);
+  const renderedLoweredViewRef = useRef<LoweredView>(loweredView);
+  const suppressReadOnlyCursorEventsRef = useRef(false);
 
   // Reverse source-map indices, built once per compile result. Each
   // forward source map is `outIdx -> source_line[]`; the cursor highlight
   // wants the inverse `source_line -> outIdx[]` so it can answer "which
-  // HIR/bytecode lines correspond to this source line" in O(1) instead
-  // of scanning every output line on every click. firstBc is the first
-  // bytecode index for a given source line, used by the k-history chart.
+  // HIR/selected-lowering lines correspond to this source line" in O(1).
+  // firstPlan is the first semantic action for a source line, used by the
+  // active-width chart even when the prepared WASM program is displayed.
   //
   // A single forward entry can contain the same source line more than
   // once when an upstream pass merged provenance from fused / unrolled
@@ -180,8 +189,8 @@ export default function App() {
   const reverseMaps = useMemo(() => {
     const empty = {
       hir: new Map<number, number[]>(),
-      bc: new Map<number, number[]>(),
-      firstBc: new Map<number, number>(),
+      lowered: new Map<number, number[]>(),
+      firstPlan: new Map<number, number>(),
     };
     if (!compileResult || !isCompileSuccess(compileResult)) return empty;
     const hir = new Map<number, number[]>();
@@ -194,26 +203,42 @@ export default function App() {
         else hir.set(ln, [monacoLine]);
       }
     });
-    const bc = new Map<number, number[]>();
-    const firstBc = new Map<number, number>();
-    compileResult.bytecode_source_map.forEach((lines: number[], i: number) => {
+    const firstPlan = new Map<number, number>();
+    compileResult.sampling_plan_source_map.forEach((lines: number[], i: number) => {
+      for (const ln of new Set(lines)) {
+        if (!firstPlan.has(ln)) firstPlan.set(ln, i);
+      }
+    });
+    const selectedSourceMap =
+      loweredView === "sampling-plan"
+        ? compileResult.sampling_plan_source_map
+        : compileResult.wasm_program_source_map;
+    const lowered = new Map<number, number[]>();
+    selectedSourceMap.forEach((lines: number[], i: number) => {
       const monacoLine = i + 1;
       const unique = lines.length > 1 ? new Set(lines) : lines;
       for (const ln of unique) {
-        const arr = bc.get(ln);
+        const arr = lowered.get(ln);
         if (arr) arr.push(monacoLine);
-        else bc.set(ln, [monacoLine]);
-        if (!firstBc.has(ln)) firstBc.set(ln, i);
+        else lowered.set(ln, [monacoLine]);
       }
     });
-    return { hir, bc, firstBc };
-  }, [compileResult]);
+    return { hir, lowered, firstPlan };
+  }, [compileResult, loweredView]);
 
-  // Derived: which bytecode PC maps to the cursor source line (for k-history highlight)
-  const highlightPC = useMemo(() => {
+  // Derived: which semantic action maps to the cursor source line.
+  const highlightedPlanAction = useMemo(() => {
+    if (
+      cursorPlanAction !== null &&
+      compileResult &&
+      isCompileSuccess(compileResult) &&
+      cursorPlanAction < compileResult.sampling_plan.length
+    ) {
+      return cursorPlanAction;
+    }
     if (cursorSourceLine === null) return null;
-    return reverseMaps.firstBc.get(cursorSourceLine) ?? null;
-  }, [cursorSourceLine, reverseMaps]);
+    return reverseMaps.firstPlan.get(cursorSourceLine) ?? null;
+  }, [cursorPlanAction, cursorSourceLine, compileResult, reverseMaps]);
 
   // --- Debounced compilation ---
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -256,18 +281,32 @@ export default function App() {
     compileResultRef.current = compileResult;
   }, [compileResult]);
 
+  useEffect(() => {
+    loweredViewRef.current = loweredView;
+  }, [loweredView]);
+
   // Register custom languages once before any editor mounts
   const handleBeforeMount: BeforeMount = useCallback((monaco) => {
     registerLanguages(monaco);
   }, []);
 
-  // Update read-only editor text while preserving cursor/selection
+  // Programmatic content replacement must not masquerade as a user cursor
+  // move and alter the linked source/action selection.
   const updateReadOnlyEditor = useCallback(
-    (editor: monacoEditor.IStandaloneCodeEditor | null, value: string) => {
+    (
+      editor: monacoEditor.IStandaloneCodeEditor | null,
+      value: string,
+      preserveSelection = true,
+    ) => {
       if (!editor) return;
-      const sel = editor.getSelection();
-      editor.setValue(value);
-      if (sel) editor.setSelection(sel);
+      const selection = preserveSelection ? editor.getSelection() : null;
+      suppressReadOnlyCursorEventsRef.current = true;
+      try {
+        editor.setValue(value);
+        if (selection) editor.setSelection(selection);
+      } finally {
+        suppressReadOnlyCursorEventsRef.current = false;
+      }
     },
     [],
   );
@@ -279,26 +318,32 @@ export default function App() {
     if (!compileResult || !isCompileSuccess(compileResult)) {
       const errorText = compileResult?.error ? `; Error: ${compileResult.error}` : "";
       updateReadOnlyEditor(hirEditorRef.current, errorText);
-      updateReadOnlyEditor(bcEditorRef.current, errorText);
+      updateReadOnlyEditor(loweredEditorRef.current, errorText);
       return;
     }
     updateReadOnlyEditor(hirEditorRef.current, compileResult.hir_ops.join("\n"));
-    updateReadOnlyEditor(bcEditorRef.current, compileResult.bytecode.join("\n"));
-  }, [compileResult, updateReadOnlyEditor, diffView]);
+    const lowered =
+      loweredView === "sampling-plan"
+        ? compileResult.sampling_plan
+        : compileResult.wasm_program;
+    const preserveSelection = renderedLoweredViewRef.current === loweredView;
+    updateReadOnlyEditor(loweredEditorRef.current, lowered.join("\n"), preserveSelection);
+    renderedLoweredViewRef.current = loweredView;
+  }, [compileResult, updateReadOnlyEditor, diffView, loweredView]);
 
   // --- Bidirectional highlighting (only in non-diff mode) ---
   useEffect(() => {
     if (diffView) {
       hirDecosRef.current?.clear();
-      bcDecosRef.current?.clear();
-      bcPcDecosRef.current?.clear();
+      loweredDecosRef.current?.clear();
+      loweredActionDecosRef.current?.clear();
       sourceDecosRef.current?.clear();
       return;
     }
     if (!compileResult || !isCompileSuccess(compileResult) || cursorSourceLine === null) {
       hirDecosRef.current?.clear();
-      bcDecosRef.current?.clear();
-      bcPcDecosRef.current?.clear();
+      loweredDecosRef.current?.clear();
+      loweredActionDecosRef.current?.clear();
       sourceDecosRef.current?.clear();
       return;
     }
@@ -307,9 +352,9 @@ export default function App() {
 
     // O(1) lookups via the precomputed reverse maps. The forward source
     // maps stay around for direct cursor->source navigation in the HIR
-    // and bytecode editors.
+    // and selected lowering editor.
     const hirLines = reverseMaps.hir.get(srcLine) ?? [];
-    const bcLines = reverseMaps.bc.get(srcLine) ?? [];
+    const loweredLines = reverseMaps.lowered.get(srcLine) ?? [];
 
     // Highlight the source line itself
     sourceDecosRef.current?.set([
@@ -334,8 +379,8 @@ export default function App() {
       })),
     );
 
-    bcDecosRef.current?.set(
-      bcLines.map((ln) => ({
+    loweredDecosRef.current?.set(
+      loweredLines.map((ln) => ({
         range: { startLineNumber: ln, startColumn: 1, endLineNumber: ln, endColumn: 1 },
         options: {
           isWholeLine: true,
@@ -345,22 +390,22 @@ export default function App() {
       })),
     );
 
-    if (bcLines.length > 0) {
-      bcPcDecosRef.current?.set([
+    if (loweredLines.length > 0) {
+      loweredActionDecosRef.current?.set([
         {
           range: {
-            startLineNumber: bcLines[0],
+            startLineNumber: loweredLines[0],
             startColumn: 1,
-            endLineNumber: bcLines[0],
+            endLineNumber: loweredLines[0],
             endColumn: 1,
           },
           options: {
-            glyphMarginClassName: "pc-glyph-marker",
+            glyphMarginClassName: "action-glyph-marker",
           },
         },
       ]);
     } else {
-      bcPcDecosRef.current?.clear();
+      loweredActionDecosRef.current?.clear();
     }
   }, [cursorSourceLine, compileResult, reverseMaps, rulerColor, diffView]);
 
@@ -369,6 +414,7 @@ export default function App() {
     sourceEditorRef.current = editor;
     sourceDecosRef.current = editor.createDecorationsCollection();
     editor.onDidChangeCursorPosition((e) => {
+      setCursorPlanAction(null);
       setCursorSourceLine(e.position.lineNumber);
     });
   };
@@ -377,26 +423,37 @@ export default function App() {
     hirEditorRef.current = editor;
     hirDecosRef.current = editor.createDecorationsCollection();
     editor.onDidChangeCursorPosition((e) => {
+      if (suppressReadOnlyCursorEventsRef.current) return;
       const cr = compileResultRef.current;
       if (!cr || !isCompileSuccess(cr)) return;
       const hirIdx = e.position.lineNumber - 1;
       const srcLines = cr.hir_source_map[hirIdx];
       const validLine = srcLines?.find((l: number) => l >= 1);
       if (validLine !== undefined) {
+        setCursorPlanAction(null);
         setCursorSourceLine(validLine);
       }
     });
   };
 
-  const onBcMount: OnMount = (editor) => {
-    bcEditorRef.current = editor;
-    bcDecosRef.current = editor.createDecorationsCollection();
-    bcPcDecosRef.current = editor.createDecorationsCollection();
+  const onLoweredMount: OnMount = (editor) => {
+    loweredEditorRef.current = editor;
+    loweredDecosRef.current = editor.createDecorationsCollection();
+    loweredActionDecosRef.current = editor.createDecorationsCollection();
     editor.onDidChangeCursorPosition((e) => {
+      if (suppressReadOnlyCursorEventsRef.current) return;
       const cr = compileResultRef.current;
       if (!cr || !isCompileSuccess(cr)) return;
-      const bcIdx = e.position.lineNumber - 1;
-      const srcLines = cr.bytecode_source_map[bcIdx];
+      const actionIdx = e.position.lineNumber - 1;
+      const planAction =
+        loweredViewRef.current === "sampling-plan"
+          ? actionIdx
+          : cr.wasm_program_plan_ranges[actionIdx]?.begin;
+      setCursorPlanAction(planAction ?? null);
+      const srcLines =
+        loweredViewRef.current === "sampling-plan"
+          ? cr.sampling_plan_source_map[actionIdx]
+          : cr.wasm_program_source_map[actionIdx];
       const validLine = srcLines?.find((l: number) => l >= 1);
       if (validLine !== undefined) {
         setCursorSourceLine(validLine);
@@ -436,6 +493,7 @@ export default function App() {
     userHasEditedRef.current = true;
     setSourceRaw(circuitSource);
     setSourceOrigin(origin);
+    setCursorPlanAction(null);
     if (sourceEditorRef.current) {
       skipNextOnChangeRef.current = true;
       sourceEditorRef.current.setValue(circuitSource);
@@ -486,8 +544,15 @@ export default function App() {
   // Diff content for DiffEditor
   const hirBaseline = baselineStats ? baselineStats.hir_ops.join("\n") : "";
   const hirOptimized = stats ? stats.hir_ops.join("\n") : "";
-  const bcBaseline = baselineStats ? baselineStats.bytecode.join("\n") : "";
-  const bcOptimized = stats ? stats.bytecode.join("\n") : "";
+  const loweredBaseline = baselineStats
+    ? (loweredView === "sampling-plan"
+        ? baselineStats.sampling_plan
+        : baselineStats.wasm_program
+      ).join("\n")
+    : "";
+  const loweredOptimized = stats
+    ? (loweredView === "sampling-plan" ? stats.sampling_plan : stats.wasm_program).join("\n")
+    : "";
 
   return (
     <div className="app">
@@ -523,11 +588,20 @@ export default function App() {
       {stats && (
         <div className="stats-bar">
           {formatStat("Qubits", stats.num_qubits, baselineStats?.num_qubits)}
-          {formatStat("Peak k", stats.peak_rank, baselineStats?.peak_rank)}
+          {formatStat("Peak k", stats.max_active_width, baselineStats?.max_active_width)}
           {formatStat("T gates", stats.num_t_gates, baselineStats?.num_t_gates)}
           {formatStat("Measurements", stats.num_measurements, baselineStats?.num_measurements)}
           {formatStat("HIR ops", stats.hir_ops.length, baselineStats?.hir_ops.length)}
-          {formatStat("Bytecode", stats.bytecode.length, baselineStats?.bytecode.length)}
+          {formatStat(
+            "Plan actions",
+            stats.sampling_plan.length,
+            baselineStats?.sampling_plan.length,
+          )}
+          {formatStat(
+            "WASM actions",
+            stats.wasm_program.length,
+            baselineStats?.wasm_program.length,
+          )}
         </div>
       )}
       {compileErrorMessage && isNoncompAnnotationError(compileErrorMessage) && (
@@ -606,16 +680,42 @@ export default function App() {
                 </div>
               </Allotment.Pane>
               <Allotment.Pane>
-                <div className="editor-pane" data-tour="bytecode">
+                <div className="editor-pane" data-tour="lowered">
                   <div className="editor-label">
-                    VM Bytecode
+                    <span>
+                      {loweredView === "sampling-plan" ? "Sampling Plan" : "WASM Program"}
+                    </span>
+                    <span className="editor-view-toggle" aria-label="Lowered representation">
+                      <button
+                        type="button"
+                        className={loweredView === "sampling-plan" ? "active" : ""}
+                        onClick={() => {
+                          setCursorPlanAction(null);
+                          setLoweredView("sampling-plan");
+                        }}
+                        title="Show executor-independent semantic actions"
+                      >
+                        Plan
+                      </button>
+                      <button
+                        type="button"
+                        className={loweredView === "wasm-program" ? "active" : ""}
+                        onClick={() => {
+                          setCursorPlanAction(null);
+                          setLoweredView("wasm-program");
+                        }}
+                        title="Show prepared scalar WASM actions"
+                      >
+                        WASM
+                      </button>
+                    </span>
                     {diffView && <span className="editor-label-badge">DIFF</span>}
                   </div>
                   {diffView ? (
                     <DiffEditor
-                      original={bcBaseline}
-                      modified={bcOptimized}
-                      language="clifft-bytecode"
+                      original={loweredBaseline}
+                      modified={loweredOptimized}
+                      language="clifft-plan"
                       theme={monacoTheme}
                       beforeMount={handleBeforeMount}
                       options={{
@@ -629,11 +729,11 @@ export default function App() {
                     />
                   ) : (
                     <Editor
-                      defaultLanguage="clifft-bytecode"
+                      defaultLanguage="clifft-plan"
                       defaultValue=""
                       theme={monacoTheme}
                       beforeMount={handleBeforeMount}
-                      onMount={onBcMount}
+                      onMount={onLoweredMount}
                       options={{
                         readOnly: true,
                         minimap: { enabled: false },
@@ -660,13 +760,13 @@ export default function App() {
                   <div className="chart-label">Active Dimensions (k) Timeline</div>
                   <div className="chart-container">
                     <KHistoryChart
-                      history={stats?.active_k_history ?? []}
+                      history={stats?.active_width_history ?? []}
                       baselineHistory={
                         diffView && baselineStats
-                          ? baselineStats.active_k_history
+                          ? baselineStats.active_width_history
                           : undefined
                       }
-                      highlightPC={highlightPC}
+                      highlightedAction={highlightedPlanAction}
                       colors={chartColors}
                     />
                   </div>

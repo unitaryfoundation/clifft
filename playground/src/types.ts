@@ -1,20 +1,28 @@
 export interface PassInfo {
   name: string;
-  kind: "hir" | "bytecode";
+  kind: "hir";
   default: boolean;
+}
+
+export interface PlanActionRange {
+  begin: number;
+  end: number;
 }
 
 export interface CompileSuccess {
   error?: undefined;
   num_qubits: number;
-  peak_rank: number;
+  max_active_width: number;
   num_measurements: number;
   num_t_gates: number;
   hir_ops: string[];
-  bytecode: string[];
+  sampling_plan: string[];
+  wasm_program: string[];
   hir_source_map: number[][];
-  bytecode_source_map: number[][];
-  active_k_history: number[];
+  sampling_plan_source_map: number[][];
+  wasm_program_source_map: number[][];
+  wasm_program_plan_ranges: PlanActionRange[];
+  active_width_history: number[];
 }
 
 export interface CompileError {

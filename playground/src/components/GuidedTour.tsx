@@ -13,8 +13,8 @@ const STEPS: TourStep[] = [
     title: "Welcome to the Clifft Playground",
     html: `
       <p>Write a quantum circuit in Stim format and see how Clifft compiles
-      it. The panels show the original circuit, the Heisenberg IR, the VM
-      bytecode, and a small in-browser simulation.</p>
+      it. The panels show the original circuit, the Heisenberg IR, the
+      symbolic sampling plan, and a small in-browser simulation.</p>
     `,
   },
   {
@@ -45,21 +45,24 @@ const STEPS: TourStep[] = [
     `,
   },
   {
-    title: "VM Bytecode (right)",
-    target: '[data-tour="bytecode"]',
+    title: "Sampling Plan (right)",
+    target: '[data-tour="lowered"]',
     html: `
-      <p>The back-end lowers the IR into the instructions executed by
-      Clifft's virtual machine.</p>
-      <p>Some instructions only update the runtime Pauli frame, which is
-      cheap. Others touch the active state vector, which is where most
-      simulation cost comes from.</p>
-      <p>Useful patterns to look for:</p>
+      <p>The planner turns the HIR into semantic actions over stabilizer
+      coordinates and Boolean symbols. This is the portable representation
+      used by Clifft's symbolic-coordinate backend.</p>
+      <p>Each line shows the active width before and after the action.
+      Operations with a nonzero <code>dense_passes</code> estimate touch the
+      active coefficient state.</p>
+      <p>Use the <code>WASM</code> toggle for the advanced view of actions
+      prepared for this browser's scalar WebAssembly executor. There you can
+      see lowering choices such as fused rotations and expression registers.</p>
+      <p>Useful plan actions to look for:</p>
       <ul>
-        <li><code>OP_FRAME_*</code> updates the runtime Pauli frame</li>
-        <li><code>OP_ARRAY_*</code> touches the active state vector</li>
-        <li><code>OP_EXPAND</code> grows the active subspace</li>
-        <li><code>OP_ARRAY_T</code> applies a T rotation</li>
-        <li><code>OP_MEAS_*</code> performs a measurement</li>
+        <li><code>rotate_active</code> rotates within the current active state</li>
+        <li><code>promote_dormant</code> adds a coordinate to that state</li>
+        <li><code>measure_active</code> can collapse and remove a coordinate</li>
+        <li><code>record_classical</code> needs no coefficient work</li>
       </ul>
     `,
   },
@@ -78,13 +81,12 @@ const STEPS: TourStep[] = [
     target: '[data-tour="active-dim"]',
     html: `
       <p>This chart tracks the active dimension <code>k</code> across the
-      bytecode. Clifft's active state vector has size <code>2^k</code>, so
+      sampling plan. Clifft's active state vector has size <code>2^k</code>, so
       keeping <code>k</code> small is the key to fast simulation.</p>
-      <p><code>k</code> starts at 0 and grows when <code>OP_EXPAND</code>
-      adds a qubit to the active state. Measurements can reduce <code>k</code>
-      again.</p>
+      <p><code>k</code> grows when a dormant coordinate is promoted into the
+      active state. Measurements can reduce <code>k</code> again.</p>
       <p>The red dashed line marks the browser memory limit. The yellow
-      dashed line follows your cursor position in the bytecode editor.</p>
+      dashed line follows your source or plan selection.</p>
     `,
   },
   {
@@ -110,8 +112,8 @@ const STEPS: TourStep[] = [
       link that points back to that file.</p>
       <p><code>Save</code> stores circuits in your browser, and
       <code>Recents</code> shows circuits you have saved.</p>
-      <p><code>Passes</code> lets you toggle HIR and bytecode optimization
-      passes. <code>Diff</code> shows the unoptimized and optimized outputs
+      <p><code>Passes</code> lets you toggle HIR optimization passes.
+      <code>Diff</code> shows the unoptimized and optimized outputs
       side by side.</p>
     `,
   },

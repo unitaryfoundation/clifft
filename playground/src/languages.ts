@@ -1,6 +1,4 @@
 // Lightweight Monarch tokenizers for Clifft's three editor panes.
-// All rules are structural (regex patterns) rather than enumerative,
-// so they automatically cover new gates, opcodes, or HIR ops without updates.
 
 import type { languages, editor, IMarkdownString, Position } from "monaco-editor";
 import type { Monaco } from "@monaco-editor/react";
@@ -14,7 +12,6 @@ interface OpDoc {
   display?: string[];
 }
 
-const opcodeMap = opcodesData.opcodes as Record<string, OpDoc>;
 const hirMap = opcodesData.hir_ops as Record<string, OpDoc>;
 
 // Build a reverse lookup from HIR display names (T, T_DAG, MEASURE, etc.) to docs
@@ -85,29 +82,18 @@ export const hirLanguage: languages.IMonarchLanguage = {
   },
 };
 
-// --- VM Bytecode language ---
-export const bytecodeLanguage: languages.IMonarchLanguage = {
+// --- SamplingPlan and prepared WASM program language ---
+export const planLanguage: languages.IMonarchLanguage = {
   tokenizer: {
     root: [
-      // Opcodes: OP_FRAME_CNOT, OP_EXPAND, OP_MEAS_ACTIVE_INTERFERE, etc.
-      [/OP_[A-Z_]+/, "keyword"],
-      // Record/detector/observable refs: rec[...], det[...], obs[...]
-      [/(rec|det|obs)\[/, "variable", "@bracket"],
-      // Named parameters: cp_mask=, cp_site=, cp_targets=, cp_entry=
-      [/\b(cp_mask|cp_site|cp_targets|cp_entry)=/, "attribute"],
-      // Keywords
-      [/\b(if)\b/, "keyword"],
-      // Arrows
+      [/\b[serdl]\d+\b/, "variable"],
+      [/\b(active_width|dense_passes|half_turns|sign|outcome|value|source|correction|kernel|mode|descriptor|pivot|pairing_bit|branch|record|detector|observable|exp_val|site|flip|p01|p10|postselected|cosine|sine|noise|symbol_prefix_size)=/, "attribute"],
+      [/\b[a-z][a-z0-9_]*(?=\s|$)/, "keyword"],
+      [/0x[0-9a-f]+/, "number.hex"],
       [/->/, "operator"],
-      // Annotations in parens
-      [/\(\w+\)/, "comment"],
-      // Numbers
-      [/\b\d+\.\d+\b/, "number.float"],
+      [/\.\./, "operator"],
+      [/\b(?:\d+\.\d+(?:e[+-]?\d+)?|\d+e[+-]?\d+)\b/i, "number.float"],
       [/\b\d+\b/, "number"],
-    ],
-    bracket: [
-      [/\d+/, "number"],
-      [/]/, "variable", "@pop"],
     ],
   },
 };
@@ -142,46 +128,10 @@ export function registerLanguages(monaco: Monaco): void {
   monaco.languages.register({ id: "clifft-hir" });
   monaco.languages.setMonarchTokensProvider("clifft-hir", hirLanguage);
 
-  monaco.languages.register({ id: "clifft-bytecode" });
-  monaco.languages.setMonarchTokensProvider("clifft-bytecode", bytecodeLanguage);
+  monaco.languages.register({ id: "clifft-plan" });
+  monaco.languages.setMonarchTokensProvider("clifft-plan", planLanguage);
 
   // --- Hover providers ---
-
-  // VM Bytecode: hover over OP_* tokens
-  monaco.languages.registerHoverProvider("clifft-bytecode", {
-    provideHover(
-      model: editor.ITextModel,
-      position: Position,
-    ) {
-      const word = model.getWordAtPosition(position);
-      if (!word) return null;
-
-      // getWordAtPosition splits on underscore by default; expand to full OP_* token
-      const line = model.getLineContent(position.lineNumber);
-      const match = line.match(/OP_[A-Z_]+/);
-      if (!match) return null;
-
-      const opName = match[0];
-      const startCol = match.index! + 1; // Monaco columns are 1-based
-      const endCol = startCol + opName.length;
-
-      // Only show hover if cursor is within the opcode token
-      if (position.column < startCol || position.column > endCol) return null;
-
-      const doc = opcodeMap[opName];
-      if (!doc) return null;
-
-      return {
-        range: {
-          startLineNumber: position.lineNumber,
-          startColumn: startCol,
-          endLineNumber: position.lineNumber,
-          endColumn: endCol,
-        },
-        contents: [formatOpcodeHover(opName, doc)],
-      };
-    },
-  });
 
   // HIR: hover over op-type keywords (T, T_DAG, S, S_DAG, MEASURE, etc.)
   monaco.languages.registerHoverProvider("clifft-hir", {

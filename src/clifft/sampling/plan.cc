@@ -18,6 +18,8 @@ namespace clifft::sampling {
 
 namespace {
 
+constexpr size_t kCompactInspectionExpressionTerms = 8;
+
 template <typename>
 inline constexpr bool kAlwaysFalse = false;
 
@@ -61,18 +63,28 @@ std::vector<SymbolId> canonicalize_terms(std::vector<SymbolId> terms) {
     return result;
 }
 
-std::string format_expression(const AffineBool& expression) {
+std::string format_expression(const AffineBool& expression,
+                              std::optional<size_t> max_terms = std::nullopt) {
     std::ostringstream out;
     bool wrote = false;
     if (expression.constant()) {
         out << '1';
         wrote = true;
     }
-    for (SymbolId term : expression.terms()) {
+    const size_t terms_to_write =
+        std::min(expression.terms().size(), max_terms.value_or(expression.terms().size()));
+    for (SymbolId term : std::span(expression.terms()).first(terms_to_write)) {
         if (wrote) {
             out << " ^ ";
         }
         out << 's' << index(term);
+        wrote = true;
+    }
+    if (terms_to_write < expression.terms().size()) {
+        if (wrote) {
+            out << " ^ ";
+        }
+        out << "... (" << expression.terms().size() << " terms)";
         wrote = true;
     }
     if (!wrote) {
@@ -149,7 +161,8 @@ std::string format_pauli(const ActivePauli& pauli) {
     return out.str();
 }
 
-void write_action_inspection(std::ostream& out, const PlannedAction& planned) {
+void write_action_inspection(std::ostream& out, const PlannedAction& planned,
+                             std::optional<size_t> max_expression_terms = std::nullopt) {
     out << "active_width=" << planned.active_before << "->" << planned.active_after
         << " dense_passes=" << predicted_dense_passes(planned.action) << ' ';
     std::visit(
@@ -158,42 +171,46 @@ void write_action_inspection(std::ostream& out, const PlannedAction& planned) {
             if constexpr (std::is_same_v<T, RotateActivePauli>) {
                 out << "rotate_active " << format_pauli(typed.pauli)
                     << " half_turns=" << typed.half_turns
-                    << " sign=" << format_expression(typed.sign);
+                    << " sign=" << format_expression(typed.sign, max_expression_terms);
             } else if constexpr (std::is_same_v<T, PromoteDormantRotation>) {
                 out << "promote_dormant half_turns=" << typed.half_turns
-                    << " sign=" << format_expression(typed.sign);
+                    << " sign=" << format_expression(typed.sign, max_expression_terms);
             } else if constexpr (std::is_same_v<T, MeasureActivePauli>) {
                 out << "measure_active " << format_pauli(typed.pauli)
                     << " pivot=" << typed.active_pivot << " branch=s" << index(typed.branch)
-                    << " outcome=" << format_expression(typed.outcome)
+                    << " outcome=" << format_expression(typed.outcome, max_expression_terms)
                     << " record=" << index(typed.record);
             } else if constexpr (std::is_same_v<T, MeasureDormantRandom>) {
                 out << "measure_dormant pivot=" << typed.dormant_pivot << " branch=s"
-                    << index(typed.branch) << " outcome=" << format_expression(typed.outcome)
+                    << index(typed.branch)
+                    << " outcome=" << format_expression(typed.outcome, max_expression_terms)
                     << " record=" << index(typed.record);
             } else if constexpr (std::is_same_v<T, RecordClassical>) {
-                out << "record_classical outcome=" << format_expression(typed.outcome)
+                out << "record_classical outcome="
+                    << format_expression(typed.outcome, max_expression_terms)
                     << " record=" << index(typed.record);
             } else if constexpr (std::is_same_v<T, DefineSymbol>) {
                 out << "define_symbol s" << index(typed.symbol)
-                    << " value=" << format_expression(typed.value);
+                    << " value=" << format_expression(typed.value, max_expression_terms);
             } else if constexpr (std::is_same_v<T, ApplyReadoutNoise>) {
                 out << "readout_noise s" << index(typed.flip)
-                    << " source=" << format_expression(typed.source)
+                    << " source=" << format_expression(typed.source, max_expression_terms)
                     << " record=" << index(typed.record) << " p01=" << typed.prob_zero_to_one
                     << " p10=" << typed.prob_one_to_zero;
             } else if constexpr (std::is_same_v<T, WriteDetector>) {
-                out << "write_detector outcome=" << format_expression(typed.outcome)
+                out << "write_detector outcome="
+                    << format_expression(typed.outcome, max_expression_terms)
                     << " detector=" << index(typed.detector)
                     << " postselected=" << typed.postselected;
             } else if constexpr (std::is_same_v<T, WriteObservable>) {
-                out << "write_observable outcome=" << format_expression(typed.outcome)
+                out << "write_observable outcome="
+                    << format_expression(typed.outcome, max_expression_terms)
                     << " observable=" << index(typed.observable);
             } else if constexpr (std::is_same_v<T, WriteExpectationValue>) {
                 out << "write_expectation ";
                 if (typed.active_projection.has_value()) {
                     out << format_pauli(*typed.active_projection)
-                        << " sign=" << format_expression(typed.sign);
+                        << " sign=" << format_expression(typed.sign, max_expression_terms);
                 } else {
                     out << "zero";
                 }
@@ -201,7 +218,8 @@ void write_action_inspection(std::ostream& out, const PlannedAction& planned) {
             } else if constexpr (std::is_same_v<T, ApplyInstrument>) {
                 out << "apply_instrument site=" << index(typed.site)
                     << " mode=" << instrument_mode_name(typed.mode) << ' '
-                    << format_pauli(typed.source) << " sign=" << format_expression(typed.sign);
+                    << format_pauli(typed.source)
+                    << " sign=" << format_expression(typed.sign, max_expression_terms);
                 if (typed.destination_flip.has_value()) {
                     out << " flip=s" << index(*typed.destination_flip);
                 }
@@ -927,6 +945,14 @@ std::string SamplingPlan::inspect_action(size_t action) const {
     std::ostringstream out;
     out << std::setprecision(17);
     write_action_inspection(out, planned);
+    return out.str();
+}
+
+std::string SamplingPlan::inspect_action_compact(size_t action) const {
+    const PlannedAction& planned = actions.at(action);
+    std::ostringstream out;
+    out << std::setprecision(17);
+    write_action_inspection(out, planned, kCompactInspectionExpressionTerms);
     return out.str();
 }
 

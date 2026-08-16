@@ -11,22 +11,21 @@ const mod = await createModule();
 // Default passes config (empty string = use defaults)
 const DEFAULTS = "";
 // No passes at all
-const NO_PASSES = JSON.stringify({ hir: [], bc: [] });
+const NO_PASSES = JSON.stringify({ hir: [] });
 
 // --- get_available_passes ---
 const passesJson = mod.get_available_passes();
 const passes = JSON.parse(passesJson);
 console.log("get_available_passes:", passes.length, "passes");
-assert.ok(passes.length >= 9, "Expected at least 9 registered passes");
+assert.ok(passes.length >= 4, "Expected at least the current four HIR passes");
 const names = passes.map((p) => p.name);
 assert.ok(names.includes("PeepholeFusionPass"), "Missing PeepholeFusionPass");
 assert.ok(names.includes("StatevectorSqueezePass"), "Missing StatevectorSqueezePass");
 assert.ok(names.includes("RemoveNoisePass"), "Missing RemoveNoisePass");
-assert.ok(names.includes("SingleAxisFusionPass"), "Missing SingleAxisFusionPass");
 // Check schema
 for (const p of passes) {
     assert.ok(typeof p.name === "string");
-    assert.ok(p.kind === "hir" || p.kind === "bytecode");
+    assert.equal(p.kind, "hir");
     assert.ok(typeof p.default === "boolean");
 }
 
@@ -36,27 +35,35 @@ const result = JSON.parse(json);
 
 console.log("compile_to_json result:");
 console.log("  num_qubits:", result.num_qubits);
-console.log("  peak_rank:", result.peak_rank);
+console.log("  max_active_width:", result.max_active_width);
 console.log("  hir_ops:", result.hir_ops.length, "ops");
-console.log("  bytecode:", result.bytecode.length, "instructions");
-console.log("  active_k_history:", result.active_k_history);
+console.log("  sampling_plan:", result.sampling_plan.length, "actions");
+console.log("  wasm_program:", result.wasm_program.length, "actions");
+console.log("  active_width_history:", result.active_width_history);
 console.log("  hir_source_map:", result.hir_source_map);
-console.log("  bytecode_source_map sample:", result.bytecode_source_map.slice(0, 3));
+console.log("  sampling_plan_source_map sample:", result.sampling_plan_source_map.slice(0, 3));
 
 assert.equal(result.error, undefined, "Expected no error");
 assert.equal(result.num_qubits, 1, "Expected 1 qubit");
-assert.ok(result.peak_rank >= 0, "Expected peak_rank >= 0");
+assert.ok(result.max_active_width >= 0, "Expected max_active_width >= 0");
 assert.ok(result.hir_ops.length > 0, "Expected HIR ops");
-assert.ok(result.bytecode.length > 0, "Expected bytecode");
+assert.ok(result.sampling_plan.length > 0, "Expected sampling plan actions");
+assert.ok(result.wasm_program.length > 0, "Expected WASM program actions");
 assert.equal(
-    result.active_k_history.length,
-    result.bytecode.length,
-    "k_history parallel to bytecode"
+    result.active_width_history.length,
+    result.sampling_plan.length,
+    "active-width history parallel to sampling plan"
 );
 assert.equal(
-    result.bytecode_source_map.length,
-    result.bytecode.length,
-    "source_map parallel to bytecode"
+    result.sampling_plan_source_map.length,
+    result.sampling_plan.length,
+    "source map parallel to sampling plan"
+);
+assert.equal(result.wasm_program_source_map.length, result.wasm_program.length);
+assert.equal(result.wasm_program_plan_ranges.length, result.wasm_program.length);
+assert.ok(
+    result.sampling_plan_source_map.some((lines) => lines.includes(3)),
+    "Expected plan provenance for the measurement source line"
 );
 
 // --- optimize toggle via pass config ---
@@ -76,12 +83,36 @@ assert.ok(
 // --- selective passes ---
 const hirOnlyJson = mod.compile_to_json(
     "T 0\nT 0\nM 0",
-    JSON.stringify({ hir: ["PeepholeFusionPass"], bc: [] })
+    JSON.stringify({ hir: ["PeepholeFusionPass"] })
 );
 const hirOnly = JSON.parse(hirOnlyJson);
 console.log("\nSelective passes (HIR only):");
 console.log("  HIR ops:", hirOnly.hir_ops.length);
 assert.ok(hirOnly.hir_ops.length <= opt.hir_ops.length, "HIR-only should still fuse T+T");
+
+const legacyPassConfig = JSON.parse(
+    mod.compile_to_json("M 0", JSON.stringify({ hir: [], bc: [] }))
+);
+assert.match(
+    legacyPassConfig.error,
+    /Bytecode pass configuration is not supported/,
+    "Legacy bytecode pass configuration should fail explicitly"
+);
+
+// --- executable provenance across lowering fusion ---
+const fusedSource = "H 0\nH 1\nT 0\nT 1\nT 0\nT 1\nT 0\nM 0";
+const fused = JSON.parse(mod.compile_to_json(fusedSource, NO_PASSES));
+const fusedAction = fused.wasm_program_plan_ranges.find((range) => range.end - range.begin > 1);
+assert.ok(fusedAction, "Expected one WASM action to cover a fused plan range");
+const fusedIndex = fused.wasm_program_plan_ranges.indexOf(fusedAction);
+assert.ok(
+    fused.wasm_program_source_map[fusedIndex].length > 1,
+    "Expected fused WASM action to retain source lines"
+);
+assert.ok(
+    fused.wasm_program.every((action) => !action.includes("OP_")),
+    "Expected symbolic actions instead of legacy VM opcodes"
+);
 
 // --- simulate_wasm ---
 const simJson = mod.simulate_wasm("H 0\nM 0", 1000, DEFAULTS);
@@ -101,6 +132,10 @@ const count0 = simResult.histogram["0"] || 0;
 const count1 = simResult.histogram["1"] || 0;
 assert.ok(count0 >= 350 && count0 <= 650, `Expected ~500 zeros, got ${count0}`);
 assert.ok(count1 >= 350 && count1 <= 650, `Expected ~500 ones, got ${count1}`);
+
+// --- symbolic presampled-noise execution ---
+const noisyResult = JSON.parse(mod.simulate_wasm("X_ERROR(1) 0\nM 0", 100, DEFAULTS));
+assert.deepEqual(noisyResult.histogram, { "1": 100 }, "Certain X error should flip every shot");
 
 // --- EXP_VAL expectation value probes ---
 const evJson = mod.simulate_wasm("H 0\nEXP_VAL X0 Z0", 1000, DEFAULTS);

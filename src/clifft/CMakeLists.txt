@@ -42,6 +42,7 @@ add_library(clifft_core STATIC
     svm/svm_state.cc
     util/canonical_phase.cc
     util/fault_sampling.cc
+    util/hir_introspection.cc
     util/introspection.cc
     util/page_allocation.cc
     util/runtime_isa.cc

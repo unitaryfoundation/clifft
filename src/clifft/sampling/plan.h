@@ -366,6 +366,9 @@ struct SamplingPlan {
     // Deterministic, executor-independent inspection for tests and diagnostics.
     [[nodiscard]] std::string inspect() const;
     [[nodiscard]] std::string inspect_action(size_t action) const;
+    // Keeps action structure visible while bounding large affine expressions
+    // for interactive tools. Full inspection remains available above.
+    [[nodiscard]] std::string inspect_action_compact(size_t action) const;
 };
 
 // Estimates full coefficient-state traversals for a direct, unfused lowering.

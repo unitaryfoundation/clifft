@@ -2,23 +2,25 @@
 //
 // Exposes three functions to JavaScript:
 //   get_available_passes() -> JSON string with pass registry
-//   compile_to_json(source, passes_json) -> JSON string with HIR, bytecode, source maps
+//   compile_to_json(source, passes_json) -> JSON string with HIR, sampling plans, source maps
 //   simulate_wasm(source, shots, passes_json) -> JSON string with measurement histogram
 
-#include "clifft/backend/backend.h"
 #include "clifft/circuit/parser.h"
 #include "clifft/frontend/frontend.h"
-#include "clifft/optimizer/bytecode_pass.h"
 #include "clifft/optimizer/hir_pass_manager.h"
 #include "clifft/optimizer/pass_factory.h"
-#include "clifft/svm/svm.h"
-#include "clifft/util/introspection.h"
+#include "clifft/sampling/executable_plan.h"
+#include "clifft/sampling/planner.h"
+#include "clifft/sampling/sampler.h"
+#include "clifft/util/hir_introspection.h"
 
+#include <algorithm>
 #include <cmath>
 #include <cstdint>
 #include <emscripten/bind.h>
 #include <memory>
 #include <nlohmann/json.hpp>
+#include <optional>
 #include <sstream>
 #include <string>
 #include <unordered_map>
@@ -30,17 +32,19 @@ using json = nlohmann::json;
 
 constexpr uint32_t MAX_SHOTS = 100000;
 constexpr uint32_t MAX_OPS = 50000;
-constexpr uint32_t MAX_PEAK_RANK = 24;
+constexpr uint32_t MAX_ACTIVE_WIDTH = 24;
 
 struct PipelineResult {
     clifft::HirModule hir;
-    clifft::CompiledModule prog;
+    std::optional<clifft::sampling::SamplingPlan> plan;
+    std::unique_ptr<clifft::sampling::ExecutablePlan> program;
     std::string error;
 };
 
-// Parse passes_json: {"hir": [...], "bc": [...]}
+// Parse passes_json: {"hir": [...]}
 // Empty string or "{}" means use defaults.
-PipelineResult run_pipeline(const std::string& source, const std::string& passes_json) {
+PipelineResult run_pipeline(const std::string& source, const std::string& passes_json,
+                            bool retain_source_map) {
     PipelineResult result;
     try {
         auto circuit = clifft::parse(source, MAX_OPS);
@@ -53,6 +57,10 @@ PipelineResult run_pipeline(const std::string& source, const std::string& passes
             hpm.run(result.hir);
         } else {
             auto cfg = json::parse(passes_json);
+            if (cfg.contains("bc")) {
+                throw std::invalid_argument(
+                    "Bytecode pass configuration is not supported by the symbolic backend");
+            }
             if (cfg.contains("hir") && cfg["hir"].is_array()) {
                 clifft::HirPassManager hpm;
                 for (const auto& name : cfg["hir"]) {
@@ -62,21 +70,10 @@ PipelineResult run_pipeline(const std::string& source, const std::string& passes
             }
         }
 
-        result.prog = clifft::lower(result.hir);
-
-        if (use_defaults) {
-            auto bpm = clifft::default_bytecode_pass_manager();
-            bpm.run(result.prog);
-        } else {
-            auto cfg = json::parse(passes_json);
-            if (cfg.contains("bc") && cfg["bc"].is_array()) {
-                clifft::BytecodePassManager bpm;
-                for (const auto& name : cfg["bc"]) {
-                    bpm.add_pass(clifft::make_bytecode_pass(name.get<std::string>()));
-                }
-                bpm.run(result.prog);
-            }
-        }
+        clifft::sampling::SamplingPlanOptions options;
+        options.retain_source_map = retain_source_map;
+        result.plan.emplace(clifft::sampling::plan_sampling(result.hir, options));
+        result.program = std::make_unique<clifft::sampling::ExecutablePlan>(*result.plan);
     } catch (const std::exception& e) {
         result.error = e.what();
     }
@@ -84,16 +81,54 @@ PipelineResult run_pipeline(const std::string& source, const std::string& passes
 }
 
 std::string get_available_passes() {
-    return clifft::pass_registry_json();
+    const json registry = json::parse(clifft::pass_registry_json());
+    json hir_passes = json::array();
+    for (const auto& pass : registry) {
+        if (pass.at("kind") == "hir") {
+            hir_passes.push_back(pass);
+        }
+    }
+    return hir_passes.dump();
+}
+
+json source_map_json(const clifft::sampling::PlanSourceMap& source_map) {
+    json entries = json::array();
+    for (size_t i = 0; i < source_map.size(); ++i) {
+        const auto lines = source_map.lines_for(i);
+        entries.push_back(std::vector<uint32_t>(lines.begin(), lines.end()));
+    }
+    return entries;
+}
+
+json executable_source_map_json(const clifft::sampling::SamplingPlan& plan,
+                                const clifft::sampling::ExecutablePlan& program) {
+    json entries = json::array();
+    for (size_t i = 0; i < program.num_actions(); ++i) {
+        std::vector<uint32_t> source_lines;
+        const auto range = program.action_plan_range(i);
+        if (range.has_value()) {
+            for (uint32_t action = range->begin; action < range->end; ++action) {
+                for (uint32_t line : plan.source_map->lines_for(action)) {
+                    source_lines.push_back(line);
+                }
+            }
+        }
+        std::ranges::sort(source_lines);
+        source_lines.erase(std::unique(source_lines.begin(), source_lines.end()),
+                           source_lines.end());
+        entries.push_back(std::move(source_lines));
+    }
+    return entries;
 }
 
 std::string compile_to_json(const std::string& source, const std::string& passes_json) {
-    auto result = run_pipeline(source, passes_json);
+    auto result = run_pipeline(source, passes_json, true);
     if (!result.error.empty()) {
         return json({{"error", result.error}}).dump();
     }
     const auto& hir = result.hir;
-    const auto& prog = result.prog;
+    const auto& plan = *result.plan;
+    const auto& program = *result.program;
 
     std::vector<std::string> hir_strs;
     hir_strs.reserve(hir.ops.size());
@@ -102,30 +137,37 @@ std::string compile_to_json(const std::string& source, const std::string& passes
         hir_strs.push_back(clifft::format_hir_op(op, mask));
     }
 
-    std::vector<std::string> bc_strs;
-    bc_strs.reserve(prog.bytecode.size());
-    for (const auto& instr : prog.bytecode) {
-        bc_strs.push_back(clifft::format_instruction(instr));
+    std::vector<std::string> plan_strs;
+    plan_strs.reserve(plan.actions.size());
+    std::vector<uint32_t> active_width_history;
+    active_width_history.reserve(plan.actions.size());
+    for (size_t i = 0; i < plan.actions.size(); ++i) {
+        plan_strs.push_back(plan.inspect_action_compact(i));
+        active_width_history.push_back(plan.actions[i].active_after);
+    }
+
+    std::vector<std::string> program_strs;
+    program_strs.reserve(program.num_actions());
+    json program_plan_ranges = json::array();
+    for (size_t i = 0; i < program.num_actions(); ++i) {
+        program_strs.push_back(program.inspect_action(i));
+        const auto range = program.action_plan_range(i).value();
+        program_plan_ranges.push_back({{"begin", range.begin}, {"end", range.end}});
     }
 
     json j = {
-        {"num_qubits", prog.num_qubits},
-        {"peak_rank", prog.peak_rank},
-        {"num_measurements", prog.num_measurements},
+        {"num_qubits", plan.num_qubits},
+        {"max_active_width", plan.max_active_width},
+        {"num_measurements", plan.num_visible_records},
         {"num_t_gates", hir.num_t_gates()},
         {"hir_ops", hir_strs},
-        {"bytecode", bc_strs},
+        {"sampling_plan", plan_strs},
+        {"wasm_program", program_strs},
         {"hir_source_map", hir.source_map},
-        {"bytecode_source_map",
-         [&]() {
-             json arr = json::array();
-             for (size_t i = 0; i < prog.source_map.size(); ++i) {
-                 auto lines = prog.source_map.lines_for(i);
-                 arr.push_back(std::vector<uint32_t>(lines.begin(), lines.end()));
-             }
-             return arr;
-         }()},
-        {"active_k_history", prog.source_map.active_k_history()},
+        {"sampling_plan_source_map", source_map_json(*plan.source_map)},
+        {"wasm_program_source_map", executable_source_map_json(plan, program)},
+        {"wasm_program_plan_ranges", program_plan_ranges},
+        {"active_width_history", active_width_history},
     };
     return j.dump();
 }
@@ -174,18 +216,18 @@ std::string simulate_wasm(const std::string& source, uint32_t shots,
         return json({{"error", "ShotsLimitExceeded: max " + std::to_string(MAX_SHOTS)}}).dump();
     }
 
-    auto result = run_pipeline(source, passes_json);
+    auto result = run_pipeline(source, passes_json, false);
     if (!result.error.empty()) {
         return json({{"error", result.error}}).dump();
     }
-    const auto& prog = result.prog;
+    const auto& program = *result.program;
 
-    if (prog.peak_rank > MAX_PEAK_RANK) {
+    if (program.max_active_width() > MAX_ACTIVE_WIDTH) {
         return json({{"error", "MemoryLimitExceeded"}}).dump();
     }
 
-    uint32_t n_meas = prog.num_measurements;
-    uint32_t n_ev = prog.num_exp_vals;
+    uint32_t n_meas = program.num_visible_records();
+    uint32_t n_ev = program.num_exp_vals();
 
     if (n_meas == 0 && n_ev == 0) {
         return json({
@@ -197,7 +239,8 @@ std::string simulate_wasm(const std::string& source, uint32_t shots,
             .dump();
     }
 
-    clifft::SampleResult samples = clifft::sample(prog, shots, std::nullopt);
+    clifft::sampling::SamplingResult samples =
+        clifft::sampling::sample(program, shots, std::nullopt);
 
     // Build measurement histogram
     std::unordered_map<std::string, uint32_t> histogram;
